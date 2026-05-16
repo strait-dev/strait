@@ -1759,6 +1759,30 @@ func TestPgStore_ListOrgAdminEmails(t *testing.T) {
 	}
 }
 
+func TestPgStore_ListOrgAdminEmails_ExcludesUnverifiedEmails(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-adminemails-verified-" + newID()
+	p := createProject(t, ctx, q, orgID, "P")
+
+	createAdminMember(t, ctx, q, p.ID, "verified-admin", "verified@example.com")
+	createAdminMember(t, ctx, q, p.ID, "unverified-admin", "unverified@example.com")
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE users SET email_verified = false WHERE id = $1`, "unverified-admin"); err != nil {
+		t.Fatalf("mark unverified admin: %v", err)
+	}
+
+	emails, err := pgStore.ListOrgAdminEmails(ctx, orgID)
+	if err != nil {
+		t.Fatalf("ListOrgAdminEmails error = %v", err)
+	}
+	if len(emails) != 1 || emails[0] != "verified@example.com" {
+		t.Fatalf("ListOrgAdminEmails = %v, want only verified@example.com", emails)
+	}
+}
+
 // --------------------------------------------------------------------------.
 // Test 41: HasSentUsageReport and RecordSentUsageReport
 // --------------------------------------------------------------------------.

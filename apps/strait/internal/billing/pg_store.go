@@ -998,6 +998,8 @@ func (s *PgStore) ListOrgAdminEmails(ctx context.Context, orgID string) ([]strin
 		  AND pr.name = 'admin'
 		  AND u.email IS NOT NULL
 		  AND u.email != ''
+		  AND COALESCE(u.email_verified, false) = true
+		ORDER BY u.email
 	`, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("listing org admin emails: %w", err)
