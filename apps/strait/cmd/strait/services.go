@@ -631,7 +631,7 @@ func waitForPubsubReady(ctx context.Context, pub pubsub.Publisher, budget time.D
 }
 
 // startWorker starts the job executor, worker pool, and scheduler goroutines.
-func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, dbPool *pgxpool.Pool, q *queue.PostgresQueue, bp *queue.Backpressure, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, billingEnforcer *billing.Enforcer, chExporter *clickhouse.Exporter, workerPlane *grpcserver.Server, encryptor api.Encryptor) {
+func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, dbPool *pgxpool.Pool, q *queue.PostgresQueue, bp *queue.Backpressure, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, billingEnforcer *billing.Enforcer, billingDispatcher *webhook.BillingDispatcher, chExporter *clickhouse.Exporter, workerPlane *grpcserver.Server, encryptor api.Encryptor) {
 	if cfg.Mode != "worker" && cfg.Mode != "all" {
 		return
 	}
@@ -924,6 +924,9 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 
 			billingStore := billing.NewPgStore(dbPool)
 			downgradeApplier := scheduler.NewDowngradeApplier(billingStore, billingEnforcer, 5*time.Minute)
+			if billingDispatcher != nil {
+				downgradeApplier.WithBillingDispatcher(billingDispatcher)
+			}
 			schedOpts = append(schedOpts, scheduler.WithDowngradeApplier(downgradeApplier))
 			slog.Info("downgrade applier enabled")
 
@@ -951,11 +954,15 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 			schedOpts = append(schedOpts, scheduler.WithAnomalyMonitor(anomalyMonitor))
 			slog.Info("anomaly monitor enabled")
 
-			dunner := billing.NewDunner(billingStore,
+			dunnerOpts := []billing.DunnerOption{
 				billing.WithDunnerEmails(billingEmailSender),
 				billing.WithDunnerAdminLookup(billingStore),
 				billing.WithDunnerLogger(slog.Default()),
-			)
+			}
+			if billingDispatcher != nil {
+				dunnerOpts = append(dunnerOpts, billing.WithDunnerDispatcher(billingDispatcher))
+			}
+			dunner := billing.NewDunner(billingStore, dunnerOpts...)
 			schedOpts = append(schedOpts, scheduler.WithDunner(dunner))
 			slog.Info("dunning state machine enabled")
 
@@ -966,6 +973,9 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 				24*time.Hour,
 				slog.Default(),
 			)
+			if billingDispatcher != nil {
+				slaCalculator.WithDispatcher(billingDispatcher)
+			}
 			schedOpts = append(schedOpts, scheduler.WithSLACalculator(slaCalculator))
 			slog.Info("sla credit calculator enabled")
 		}
