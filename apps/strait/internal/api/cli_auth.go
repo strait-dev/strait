@@ -68,6 +68,10 @@ type DeviceCodeInput struct{}
 type DeviceCodeOutput struct{ Body deviceCodeResponse }
 
 func (s *Server) handleDeviceCode(ctx context.Context, _ *DeviceCodeInput) (*DeviceCodeOutput, error) {
+	if _, err := s.store.CleanupExpiredDeviceCodes(ctx); err != nil {
+		slog.Error("failed to cleanup expired device codes before issuing new code", "error", err)
+		return nil, huma.Error500InternalServerError("failed to cleanup expired device codes")
+	}
 	dc, err := generateDeviceCode()
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to generate device code")
@@ -94,6 +98,10 @@ func (s *Server) handleDeviceToken(ctx context.Context, input *DeviceTokenInput)
 	}
 	if req.GrantType != "device_code" {
 		return nil, huma.Error400BadRequest("grant_type must be device_code")
+	}
+	if _, err := s.store.CleanupExpiredDeviceCodes(ctx); err != nil {
+		slog.Error("failed to cleanup expired device codes before token exchange", "error", err)
+		return nil, huma.Error500InternalServerError("failed to cleanup expired device codes")
 	}
 	row, err := s.store.GetDeviceCodeByDeviceCode(ctx, req.DeviceCode)
 	if err != nil {
