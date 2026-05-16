@@ -883,6 +883,14 @@ func (m *covMockBatchStoreWithJobError) DrainBatchBuffer(_ context.Context, _, _
 	return nil, nil
 }
 
+func (m *covMockBatchStoreWithJobError) ListBatchBufferItems(_ context.Context, _, _ string, _ int) ([]domain.BatchBufferItem, error) {
+	return nil, nil
+}
+
+func (m *covMockBatchStoreWithJobError) DeleteBatchBufferItems(_ context.Context, _ []string) error {
+	return nil
+}
+
 func (m *covMockBatchStoreWithJobError) GetJob(_ context.Context, _ string) (*domain.Job, error) {
 	return nil, errors.New("job not found")
 }

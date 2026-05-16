@@ -3,7 +3,9 @@ package scheduler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"hash/fnv"
 	"log/slog"
 	"time"
 
@@ -84,7 +86,8 @@ func (cs *CronScheduler) LoadJobs(ctx context.Context) error {
 
 	for _, j := range jobs {
 		job := j
-		_, err := cs.cron.AddFunc(job.Cron, func() {
+		expr := cronExpressionWithTimezone(job.Cron, job.Timezone)
+		_, err := cs.cron.AddFunc(expr, func() {
 			cs.triggerJob(cs.ctx, job)
 		})
 		if err != nil {
@@ -113,21 +116,28 @@ func (cs *CronScheduler) LoadJobs(ctx context.Context) error {
 }
 
 func (cs *CronScheduler) triggerJob(ctx context.Context, job domain.Job) {
+	cs.withCronFireLock(ctx, "job", job.ID, func(lockCtx context.Context, fireKey string) {
+		cs.triggerJobLocked(lockCtx, job, fireKey)
+	})
+}
+
+func (cs *CronScheduler) triggerJobLocked(ctx context.Context, job domain.Job, fireKey string) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "cron.TriggerJob")
 	defer span.End()
 
 	cs.recordCronDrift(ctx, job.Cron)
 
 	run := domain.JobRun{
-		JobID:         job.ID,
-		ProjectID:     job.ProjectID,
-		Tags:          job.Tags,
-		TriggeredBy:   domain.TriggerCron,
-		JobVersion:    job.Version,
-		JobVersionID:  job.VersionID,
-		CreatedBy:     "system:cron",
-		ExecutionMode: job.ExecutionMode,
-		QueueName:     job.Queue,
+		JobID:          job.ID,
+		ProjectID:      job.ProjectID,
+		Tags:           job.Tags,
+		TriggeredBy:    domain.TriggerCron,
+		JobVersion:     job.Version,
+		JobVersionID:   job.VersionID,
+		CreatedBy:      "system:cron",
+		ExecutionMode:  job.ExecutionMode,
+		QueueName:      job.Queue,
+		IdempotencyKey: fireKey,
 	}
 
 	if job.RunTTLSecs > 0 {
@@ -181,6 +191,13 @@ func (cs *CronScheduler) triggerJob(ctx context.Context, job domain.Job) {
 	}
 
 	if err := queue.EnqueueWithRetry(ctx, cs.queue, &run, queue.DefaultInternalEnqueueRetryConfig()); err != nil {
+		if errors.Is(err, domain.ErrIdempotencyConflict) {
+			if cs.metrics != nil {
+				cs.metrics.CronTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "skipped")))
+			}
+			slog.Info("skipping duplicate cron fire", "job_id", job.ID, "project_id", job.ProjectID, "fire_key", fireKey)
+			return
+		}
 		slog.Error("failed to enqueue cron run", "job_id", job.ID, "project_id", job.ProjectID, "error", err)
 		if cs.metrics != nil {
 			cs.metrics.CronTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "error")))
@@ -195,6 +212,12 @@ func (cs *CronScheduler) triggerJob(ctx context.Context, job domain.Job) {
 }
 
 func (cs *CronScheduler) triggerWorkflow(ctx context.Context, workflow domain.Workflow) {
+	cs.withCronFireLock(ctx, "workflow", workflow.ID, func(lockCtx context.Context, _ string) {
+		cs.triggerWorkflowLocked(lockCtx, workflow)
+	})
+}
+
+func (cs *CronScheduler) triggerWorkflowLocked(ctx context.Context, workflow domain.Workflow) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "cron.TriggerWorkflow")
 	defer span.End()
 
@@ -246,12 +269,58 @@ func (cs *CronScheduler) processCanceledRuns(ctx context.Context, jobID string, 
 
 	if cs.workflowCallback != nil {
 		for _, cr := range runs {
-			canceledRun := &domain.JobRun{ID: cr.ID, Status: domain.StatusCanceled}
+			canceledRun := &domain.JobRun{
+				ID:                cr.ID,
+				JobID:             cr.JobID,
+				ProjectID:         cr.ProjectID,
+				WorkflowStepRunID: cr.WorkflowStepRunID,
+				Status:            domain.StatusCanceled,
+				Error:             "canceled by cron overlap policy: cancel_running",
+				ExecutionMode:     cr.ExecutionMode,
+			}
 			if cbErr := cs.workflowCallback.OnJobRunTerminal(ctx, canceledRun); cbErr != nil {
 				slog.Error("workflow callback failed on cron cancel", "run_id", cr.ID, "error", cbErr)
 			}
 		}
 	}
+}
+
+func cronExpressionWithTimezone(expr, timezone string) string {
+	if timezone == "" {
+		return expr
+	}
+	return fmt.Sprintf("CRON_TZ=%s %s", timezone, expr)
+}
+
+func (cs *CronScheduler) withCronFireLock(ctx context.Context, kind, id string, fn func(context.Context, string)) {
+	fireKey := cronFireKey(kind, id, time.Now().UTC())
+	locker, ok := cs.store.(AdvisoryLocker)
+	if !ok {
+		fn(ctx, fireKey)
+		return
+	}
+
+	acquired, err := runWithOptionalAdvisoryLock(ctx, locker, cronFireLockID(fireKey), func(lockCtx context.Context) error {
+		fn(lockCtx, fireKey)
+		return nil
+	})
+	if err != nil {
+		slog.Warn("cron fire advisory lock failed", "kind", kind, "id", id, "error", err)
+		return
+	}
+	if !acquired {
+		slog.Info("cron fire skipped: another scheduler owns fire", "kind", kind, "id", id)
+	}
+}
+
+func cronFireKey(kind, id string, now time.Time) string {
+	return fmt.Sprintf("cron:%s:%s:%d", kind, id, now.Truncate(time.Minute).Unix())
+}
+
+func cronFireLockID(key string) int64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(key))
+	return int64(h.Sum64())
 }
 
 func (cs *CronScheduler) Start() {

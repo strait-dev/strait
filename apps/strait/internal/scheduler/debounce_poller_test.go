@@ -158,6 +158,63 @@ func TestDebouncePoller_SkipsDisabledJob(t *testing.T) {
 	}
 }
 
+func TestDebouncePoller_SkipsPausedJob(t *testing.T) {
+	t.Parallel()
+
+	ds := &mockDebounceStore{
+		duePending: []domain.DebouncePending{
+			{ID: "dp-1", JobID: "job-1", ProjectID: "proj-1", FireAt: time.Now().Add(-time.Second)},
+		},
+		jobs: map[string]*domain.Job{
+			"job-1": {ID: "job-1", Enabled: true, Paused: true},
+		},
+	}
+
+	var enqueued []*domain.JobRun
+	q := &mockQueue{
+		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			enqueued = append(enqueued, run)
+			return nil
+		},
+	}
+	poller := NewDebouncePoller(ds, q, time.Second)
+	poller.poll(context.Background())
+
+	if len(enqueued) != 0 {
+		t.Fatalf("expected no runs for paused job, got %d", len(enqueued))
+	}
+	if len(ds.deleted) != 1 {
+		t.Fatalf("expected pending deleted for paused job, got %d deleted", len(ds.deleted))
+	}
+}
+
+func TestDebouncePoller_UsesPendingIDAsIdempotencyKey(t *testing.T) {
+	t.Parallel()
+
+	ds := &mockDebounceStore{
+		duePending: []domain.DebouncePending{
+			{ID: "dp-1", JobID: "job-1", ProjectID: "proj-1", FireAt: time.Now().Add(-time.Second)},
+		},
+		jobs: map[string]*domain.Job{
+			"job-1": {ID: "job-1", Enabled: true, TimeoutSecs: 60},
+		},
+	}
+
+	var key string
+	q := &mockQueue{
+		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			key = run.IdempotencyKey
+			return nil
+		},
+	}
+	poller := NewDebouncePoller(ds, q, time.Second)
+	poller.poll(context.Background())
+
+	if key != "debounce:dp-1" {
+		t.Fatalf("idempotency key = %q, want debounce:dp-1", key)
+	}
+}
+
 func TestDebouncePoller_SkipsWhenLockNotAcquired(t *testing.T) {
 	t.Parallel()
 

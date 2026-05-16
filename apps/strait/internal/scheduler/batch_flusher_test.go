@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 type mockBatchStore struct {
 	flushable         []store.FlushableBatch
 	drainedItems      []domain.BatchBufferItem
+	deletedItems      []string
 	jobs              map[string]*domain.Job
 	tryAdvisoryLockFn func(ctx context.Context, lockID int64) (bool, error)
 }
@@ -23,6 +25,15 @@ func (m *mockBatchStore) ListFlushableBatches(_ context.Context) ([]store.Flusha
 
 func (m *mockBatchStore) DrainBatchBuffer(_ context.Context, _, _ string, _ int) ([]domain.BatchBufferItem, error) {
 	return m.drainedItems, nil
+}
+
+func (m *mockBatchStore) ListBatchBufferItems(_ context.Context, _, _ string, _ int) ([]domain.BatchBufferItem, error) {
+	return m.drainedItems, nil
+}
+
+func (m *mockBatchStore) DeleteBatchBufferItems(_ context.Context, ids []string) error {
+	m.deletedItems = append(m.deletedItems, ids...)
+	return nil
 }
 
 func (m *mockBatchStore) GetJob(_ context.Context, id string) (*domain.Job, error) {
@@ -114,6 +125,12 @@ func TestBatchFlusher_FlushesReadyBatch(t *testing.T) {
 	if run.QueueName != "priority" {
 		t.Fatalf("expected queue_name priority, got %q", run.QueueName)
 	}
+	if run.IdempotencyKey != "batch:job-1::i1:i3" {
+		t.Fatalf("expected deterministic idempotency key, got %q", run.IdempotencyKey)
+	}
+	if len(bs.deletedItems) != 3 {
+		t.Fatalf("expected flushed items to be deleted after enqueue, got %v", bs.deletedItems)
+	}
 
 	var payload map[string]any
 	if err := json.Unmarshal(run.Payload, &payload); err != nil {
@@ -125,6 +142,60 @@ func TestBatchFlusher_FlushesReadyBatch(t *testing.T) {
 	}
 	if len(items) != 3 {
 		t.Fatalf("expected 3 items in batch, got %d", len(items))
+	}
+}
+
+func TestBatchFlusher_EnqueueFailureDoesNotDeleteBufferedItems(t *testing.T) {
+	t.Parallel()
+
+	bs := &mockBatchStore{
+		flushable: []store.FlushableBatch{
+			{JobID: "job-1", ProjectID: "proj-1", BatchKey: "key", ItemCount: 1},
+		},
+		drainedItems: []domain.BatchBufferItem{
+			{ID: "item-1", JobID: "job-1", ProjectID: "proj-1", BatchKey: "key", Payload: json.RawMessage(`{"a":1}`)},
+		},
+		jobs: map[string]*domain.Job{
+			"job-1": {ID: "job-1", Enabled: true, TimeoutSecs: 60, BatchMaxSize: 10},
+		},
+	}
+	q := &mockQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			return errors.New("enqueue failed")
+		},
+	}
+	flusher := NewBatchFlusher(bs, q, time.Second)
+	flusher.poll(context.Background())
+
+	if len(bs.deletedItems) != 0 {
+		t.Fatalf("buffered items deleted after enqueue failure: %v", bs.deletedItems)
+	}
+}
+
+func TestBatchFlusher_IdempotencyConflictDeletesPreviouslyFlushedItems(t *testing.T) {
+	t.Parallel()
+
+	bs := &mockBatchStore{
+		flushable: []store.FlushableBatch{
+			{JobID: "job-1", ProjectID: "proj-1", BatchKey: "key", ItemCount: 1},
+		},
+		drainedItems: []domain.BatchBufferItem{
+			{ID: "item-1", JobID: "job-1", ProjectID: "proj-1", BatchKey: "key", Payload: json.RawMessage(`{"a":1}`)},
+		},
+		jobs: map[string]*domain.Job{
+			"job-1": {ID: "job-1", Enabled: true, TimeoutSecs: 60, BatchMaxSize: 10},
+		},
+	}
+	q := &mockQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			return domain.ErrIdempotencyConflict
+		},
+	}
+	flusher := NewBatchFlusher(bs, q, time.Second)
+	flusher.poll(context.Background())
+
+	if len(bs.deletedItems) != 1 || bs.deletedItems[0] != "item-1" {
+		t.Fatalf("expected prior flushed item to be deleted, got %v", bs.deletedItems)
 	}
 }
 

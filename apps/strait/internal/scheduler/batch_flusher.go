@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -85,7 +86,7 @@ func (f *BatchFlusher) flush(ctx context.Context, batch store.FlushableBatch) er
 		limit = batch.ItemCount
 	}
 
-	items, err := f.store.DrainBatchBuffer(ctx, batch.JobID, batch.BatchKey, limit)
+	items, err := f.store.ListBatchBufferItems(ctx, batch.JobID, batch.BatchKey, limit)
 	if err != nil {
 		return err
 	}
@@ -109,22 +110,42 @@ func (f *BatchFlusher) flush(ctx context.Context, batch store.FlushableBatch) er
 	}
 
 	run := &domain.JobRun{
-		ID:            uuid.Must(uuid.NewV7()).String(),
-		JobID:         batch.JobID,
-		ProjectID:     batch.ProjectID,
-		Tags:          job.Tags,
-		Status:        domain.StatusQueued,
-		Attempt:       1,
-		Payload:       batchPayload,
-		TriggeredBy:   "batch",
-		Priority:      items[0].Priority,
-		JobVersion:    job.Version,
-		JobVersionID:  job.VersionID,
-		ExpiresAt:     &expiresAt,
-		CreatedBy:     items[0].CreatedBy,
-		ExecutionMode: job.ExecutionMode,
-		QueueName:     job.Queue,
+		ID:             uuid.Must(uuid.NewV7()).String(),
+		JobID:          batch.JobID,
+		ProjectID:      batch.ProjectID,
+		Tags:           job.Tags,
+		Status:         domain.StatusQueued,
+		Attempt:        1,
+		Payload:        batchPayload,
+		TriggeredBy:    "batch",
+		Priority:       items[0].Priority,
+		JobVersion:     job.Version,
+		JobVersionID:   job.VersionID,
+		ExpiresAt:      &expiresAt,
+		CreatedBy:      items[0].CreatedBy,
+		ExecutionMode:  job.ExecutionMode,
+		QueueName:      job.Queue,
+		IdempotencyKey: batchIdempotencyKey(batch, items),
 	}
 
-	return queue.EnqueueWithRetry(ctx, f.queue, run, queue.DefaultInternalEnqueueRetryConfig())
+	err = queue.EnqueueWithRetry(ctx, f.queue, run, queue.DefaultInternalEnqueueRetryConfig())
+	if err != nil && !errors.Is(err, domain.ErrIdempotencyConflict) {
+		return err
+	}
+	return f.store.DeleteBatchBufferItems(ctx, batchItemIDs(items))
+}
+
+func batchItemIDs(items []domain.BatchBufferItem) []string {
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		ids = append(ids, item.ID)
+	}
+	return ids
+}
+
+func batchIdempotencyKey(batch store.FlushableBatch, items []domain.BatchBufferItem) string {
+	if len(items) == 0 {
+		return ""
+	}
+	return "batch:" + batch.JobID + ":" + batch.BatchKey + ":" + items[0].ID + ":" + items[len(items)-1].ID
 }

@@ -90,6 +90,53 @@ func (q *Queries) DrainBatchBuffer(ctx context.Context, jobID, batchKey string, 
 	return items, rows.Err()
 }
 
+func (q *Queries) ListBatchBufferItems(ctx context.Context, jobID, batchKey string, limit int) ([]domain.BatchBufferItem, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListBatchBufferItems")
+	defer span.End()
+
+	rows, err := q.db.Query(ctx, `
+		SELECT id, job_id, project_id, batch_key, payload, tags, priority, triggered_by, created_by, created_at
+		FROM batch_buffer
+		WHERE job_id = $1 AND batch_key = $2
+		ORDER BY created_at ASC
+		LIMIT $3`, jobID, batchKey, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list batch buffer items: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]domain.BatchBufferItem, 0, limit)
+	for rows.Next() {
+		var item domain.BatchBufferItem
+		var createdBy *string
+		if err := rows.Scan(
+			&item.ID, &item.JobID, &item.ProjectID, &item.BatchKey,
+			&item.Payload, &item.Tags, &item.Priority, &item.TriggeredBy,
+			&createdBy, &item.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("list batch buffer items scan: %w", err)
+		}
+		if createdBy != nil {
+			item.CreatedBy = *createdBy
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (q *Queries) DeleteBatchBufferItems(ctx context.Context, ids []string) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteBatchBufferItems")
+	defer span.End()
+
+	if len(ids) == 0 {
+		return nil
+	}
+	if _, err := q.db.Exec(ctx, `DELETE FROM batch_buffer WHERE id = ANY($1)`, ids); err != nil {
+		return fmt.Errorf("delete batch buffer items: %w", err)
+	}
+	return nil
+}
+
 func (q *Queries) ListFlushableBatches(ctx context.Context) ([]FlushableBatch, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListFlushableBatches")
 	defer span.End()

@@ -44,13 +44,15 @@ func (r *ClaimReconciler) reconcileOnce(ctx context.Context) error {
 			run_id, job_id, project_id, priority, created_at,
 			scheduled_at, next_retry_at, concurrency_key,
 			job_max_concurrency, job_max_concurrency_per_key,
-			job_enabled, job_paused
+			job_enabled, job_paused, execution_mode, queue_name
 		)
 		SELECT
 			jr.id, jr.job_id, jr.project_id, jr.priority, jr.created_at,
 			jr.scheduled_at, jr.next_retry_at, jr.concurrency_key,
 			j.max_concurrency, j.max_concurrency_per_key,
-			j.enabled, j.paused
+			j.enabled, j.paused,
+			COALESCE(NULLIF(jr.execution_mode, ''), NULLIF(j.execution_mode, ''), 'http'),
+			COALESCE(NULLIF(jr.queue_name, ''), NULLIF(j.queue, ''), 'default')
 		FROM job_runs jr
 		JOIN jobs j ON j.id = jr.job_id
 		LEFT JOIN job_run_queue q ON q.run_id = jr.id

@@ -3005,8 +3005,11 @@ func (q *Queries) CountActiveRunsForJob(ctx context.Context, jobID string) (int,
 
 // CanceledRun holds metadata about a run that was canceled.
 type CanceledRun struct {
-	ID            string
-	ExecutionMode domain.ExecutionMode
+	ID                string
+	JobID             string
+	ProjectID         string
+	WorkflowStepRunID string
+	ExecutionMode     domain.ExecutionMode
 }
 
 // CancelActiveRunsForJob cancels all non-terminal runs for a job and returns
@@ -3019,7 +3022,7 @@ func (q *Queries) CancelActiveRunsForJob(ctx context.Context, jobID string, reas
 		SET status = 'canceled', finished_at = NOW(), error = $2
 		WHERE job_id = $1
 		  AND status IN ('queued', 'dequeued', 'executing', 'waiting', 'delayed')
-		RETURNING id, COALESCE(execution_mode, 'http')`
+		RETURNING id, job_id, project_id, COALESCE(workflow_step_run_id, ''), COALESCE(execution_mode, 'http')`
 	rows, err := q.db.Query(ctx, query, jobID, reason)
 	if err != nil {
 		return nil, fmt.Errorf("cancel active runs for job: %w", err)
@@ -3030,7 +3033,7 @@ func (q *Queries) CancelActiveRunsForJob(ctx context.Context, jobID string, reas
 	for rows.Next() {
 		var cr CanceledRun
 		var execMode string
-		if err := rows.Scan(&cr.ID, &execMode); err != nil {
+		if err := rows.Scan(&cr.ID, &cr.JobID, &cr.ProjectID, &cr.WorkflowStepRunID, &execMode); err != nil {
 			return nil, fmt.Errorf("scan canceled run: %w", err)
 		}
 		cr.ExecutionMode = domain.ExecutionMode(execMode)

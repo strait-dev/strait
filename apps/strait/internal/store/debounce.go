@@ -124,6 +124,8 @@ type DebounceStore interface {
 type BatchStore interface {
 	ListFlushableBatches(ctx context.Context) ([]FlushableBatch, error)
 	DrainBatchBuffer(ctx context.Context, jobID, batchKey string, limit int) ([]domain.BatchBufferItem, error)
+	ListBatchBufferItems(ctx context.Context, jobID, batchKey string, limit int) ([]domain.BatchBufferItem, error)
+	DeleteBatchBufferItems(ctx context.Context, ids []string) error
 	GetJob(ctx context.Context, id string) (*domain.Job, error)
 	CreateRun(ctx context.Context, run *domain.JobRun) error
 	TryAdvisoryLock(ctx context.Context, lockID int64) (bool, error)

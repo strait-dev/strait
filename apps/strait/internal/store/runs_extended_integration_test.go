@@ -1328,6 +1328,8 @@ func TestRuns_CancelActiveRunsForJob_HappyPath(t *testing.T) {
 
 	r1 := baseRun(job, newID())
 	r1.Status = domain.StatusQueued
+	r1.WorkflowStepRunID = "step-run-cancel-active"
+	r1.ExecutionMode = domain.ExecutionModeWorker
 	if err := q.CreateRun(ctx, r1); err != nil {
 		t.Fatalf("CreateRun error = %v", err)
 	}
@@ -1343,6 +1345,13 @@ func TestRuns_CancelActiveRunsForJob_HappyPath(t *testing.T) {
 	}
 	if len(canceled) != 2 {
 		t.Fatalf("len = %d, want 2", len(canceled))
+	}
+	byID := make(map[string]store.CanceledRun, len(canceled))
+	for _, cr := range canceled {
+		byID[cr.ID] = cr
+	}
+	if got := byID[r1.ID]; got.WorkflowStepRunID != "step-run-cancel-active" || got.JobID != job.ID || got.ProjectID != job.ProjectID || got.ExecutionMode != domain.ExecutionModeWorker {
+		t.Fatalf("canceled run metadata = %+v", got)
 	}
 }
 

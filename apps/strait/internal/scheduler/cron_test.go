@@ -31,6 +31,29 @@ func TestNewCronScheduler(t *testing.T) {
 	}
 }
 
+func TestCronExpressionWithTimezone(t *testing.T) {
+	t.Parallel()
+
+	got := cronExpressionWithTimezone("0 9 * * *", "America/New_York")
+	if got != "CRON_TZ=America/New_York 0 9 * * *" {
+		t.Fatalf("timezone cron expression = %q", got)
+	}
+}
+
+func TestCronFireKey_TruncatesToMinute(t *testing.T) {
+	t.Parallel()
+
+	a := cronFireKey("job", "job-1", time.Date(2026, 5, 16, 7, 35, 1, 0, time.UTC))
+	b := cronFireKey("job", "job-1", time.Date(2026, 5, 16, 7, 35, 59, 0, time.UTC))
+	c := cronFireKey("job", "job-1", time.Date(2026, 5, 16, 7, 36, 0, 0, time.UTC))
+	if a != b {
+		t.Fatalf("same minute fire keys differ: %q != %q", a, b)
+	}
+	if a == c {
+		t.Fatalf("different minute fire keys should differ: %q", a)
+	}
+}
+
 func TestCronScheduler_LoadJobs_Success(t *testing.T) {
 	t.Parallel()
 	store := &mockCronStore{
@@ -447,9 +470,11 @@ func TestCronScheduler_TriggerJob_OverlapPolicyCancelRunning_CancelError(t *test
 func TestCronScheduler_TriggerJob_OverlapPolicyDefault(t *testing.T) {
 	t.Parallel()
 	enqueued := false
+	var idempotencyKey string
 	q := &mockQueue{
-		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
 			enqueued = true
+			idempotencyKey = run.IdempotencyKey
 			return nil
 		},
 	}
@@ -461,6 +486,56 @@ func TestCronScheduler_TriggerJob_OverlapPolicyDefault(t *testing.T) {
 
 	if !enqueued {
 		t.Fatal("expected run to be enqueued with empty/default policy")
+	}
+	if !strings.HasPrefix(idempotencyKey, "cron:job:job-1:") {
+		t.Fatalf("expected cron idempotency key, got %q", idempotencyKey)
+	}
+}
+
+func TestCronScheduler_TriggerJob_DuplicateFireIsSkipped(t *testing.T) {
+	t.Parallel()
+
+	q := &mockQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			return domain.ErrIdempotencyConflict
+		},
+	}
+
+	cs := NewCronScheduler(context.Background(), &mockCronStore{}, q, nil)
+	cs.triggerJob(context.Background(), domain.Job{ID: "job-1", ProjectID: "proj-1"})
+}
+
+func TestCronScheduler_ProcessCanceledRuns_PassesWorkflowStepRunID(t *testing.T) {
+	t.Parallel()
+
+	var callbackRun *domain.JobRun
+	cs := NewCronScheduler(context.Background(), &mockCronStore{}, &mockQueue{}, nil).
+		WithWorkflowCallback(&mockWorkflowCallback{
+			onJobRunTerminalFn: func(_ context.Context, run *domain.JobRun) error {
+				callbackRun = run
+				return nil
+			},
+		})
+
+	cs.processCanceledRuns(context.Background(), "job-1", []store.CanceledRun{{
+		ID:                "run-1",
+		JobID:             "job-1",
+		ProjectID:         "proj-1",
+		WorkflowStepRunID: "step-run-1",
+		ExecutionMode:     domain.ExecutionModeWorker,
+	}})
+
+	if callbackRun == nil {
+		t.Fatal("expected workflow callback")
+	}
+	if callbackRun.WorkflowStepRunID != "step-run-1" {
+		t.Fatalf("workflow_step_run_id = %q, want step-run-1", callbackRun.WorkflowStepRunID)
+	}
+	if callbackRun.JobID != "job-1" || callbackRun.ProjectID != "proj-1" {
+		t.Fatalf("callback run lost routing metadata: %+v", callbackRun)
+	}
+	if callbackRun.ExecutionMode != domain.ExecutionModeWorker {
+		t.Fatalf("execution_mode = %q, want worker", callbackRun.ExecutionMode)
 	}
 }
 

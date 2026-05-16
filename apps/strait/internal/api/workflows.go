@@ -173,6 +173,9 @@ func (s *Server) handleCreateWorkflow(ctx context.Context, input *CreateWorkflow
 	if err := validateWorkflowConfig(wf.Cron, wf.CronTimezone, wf.MaxParallelSteps); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
+	if err := s.checkScheduleLimit(ctx, req.ProjectID, wf.Cron); err != nil {
+		return nil, err
+	}
 
 	var steps []domain.WorkflowStep
 	if err := s.runInTx(ctx, func(txStore APIStore) error {
@@ -307,6 +310,7 @@ func (s *Server) handleUpdateWorkflow(ctx context.Context, input *UpdateWorkflow
 	// Capture the pre-update version for breaking change detection later.
 	previousVersionID := wf.VersionID
 	previousVersion := wf.Version
+	previousCron := wf.Cron
 
 	req := input.Body
 	if err := s.validate.Struct(&req); err != nil {
@@ -393,6 +397,11 @@ func (s *Server) handleUpdateWorkflow(ctx context.Context, input *UpdateWorkflow
 	}
 	if err := validateWorkflowConfig(wf.Cron, wf.CronTimezone, wf.MaxParallelSteps); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
+	}
+	if previousCron == "" && wf.Cron != "" {
+		if err := s.checkScheduleLimit(ctx, wf.ProjectID, wf.Cron); err != nil {
+			return nil, err
+		}
 	}
 
 	wf.UpdatedBy = actorFromContext(ctx)

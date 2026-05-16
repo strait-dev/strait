@@ -168,6 +168,12 @@ func (m *mockSchedulerStore) ListFlushableBatches(_ context.Context) ([]store.Fl
 func (m *mockSchedulerStore) DrainBatchBuffer(_ context.Context, _, _ string, _ int) ([]domain.BatchBufferItem, error) {
 	return nil, nil
 }
+func (m *mockSchedulerStore) ListBatchBufferItems(_ context.Context, _, _ string, _ int) ([]domain.BatchBufferItem, error) {
+	return nil, nil
+}
+func (m *mockSchedulerStore) DeleteBatchBufferItems(_ context.Context, _ []string) error {
+	return nil
+}
 
 // StatsAggregatorStore methods (no-op for tests).
 func (m *mockSchedulerStore) AggregateHourlyStats(_ context.Context, _ time.Time) error {

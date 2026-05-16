@@ -83,6 +83,9 @@ func (p *DebouncePoller) fireDebounce(ctx context.Context, d domain.DebouncePend
 	if !job.Enabled {
 		return nil
 	}
+	if job.Paused {
+		return nil
+	}
 
 	var tags map[string]string
 	if len(d.Tags) > 0 {
@@ -116,6 +119,7 @@ func (p *DebouncePoller) fireDebounce(ctx context.Context, d domain.DebouncePend
 		ExpiresAt:      &expiresAt,
 		ExecutionMode:  job.ExecutionMode,
 		QueueName:      job.Queue,
+		IdempotencyKey: "debounce:" + d.ID,
 	}
 
 	return queue.EnqueueWithRetry(ctx, p.queue, run, queue.DefaultInternalEnqueueRetryConfig())

@@ -53,6 +53,21 @@ func TestCountCronJobsByOrg(t *testing.T) {
 		t.Fatalf("CreateJob(no cron) error = %v", err)
 	}
 
+	// Create a cron workflow in our org. Scheduled workflow runs consume the
+	// same plan quota as scheduled jobs.
+	workflow := &domain.Workflow{
+		ID:        newID(),
+		ProjectID: projectID,
+		Name:      "scheduled workflow",
+		Slug:      "scheduled-workflow",
+		Enabled:   true,
+		Cron:      "15 * * * *",
+		Version:   1,
+	}
+	if err := q.CreateWorkflow(ctx, workflow); err != nil {
+		t.Fatalf("CreateWorkflow(cron) error = %v", err)
+	}
+
 	// Create a cron job in the other org.
 	otherJob := baseJob(newID(), otherProjectID)
 	otherJob.Cron = "0 * * * *"
@@ -64,8 +79,8 @@ func TestCountCronJobsByOrg(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CountCronJobsByOrg() error = %v", err)
 	}
-	if count != 2 {
-		t.Fatalf("count = %d, want 2", count)
+	if count != 3 {
+		t.Fatalf("count = %d, want 3", count)
 	}
 
 	// Other org has its own count.

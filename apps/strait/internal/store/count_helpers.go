@@ -8,21 +8,23 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-// CountCronJobsByOrg counts jobs with a non-empty cron expression across all
-// projects belonging to the given org.
+// CountCronJobsByOrg counts scheduled jobs and workflows with a non-empty cron
+// expression across all projects belonging to the given org.
 func (q *Queries) CountCronJobsByOrg(ctx context.Context, orgID string) (int, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountCronJobsByOrg")
 	defer span.End()
 
 	var count int
 	err := q.db.QueryRow(ctx, `
-		SELECT COUNT(*)
-		FROM jobs
-		WHERE project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
-		  AND cron IS NOT NULL AND cron != ''
+		WITH active_projects AS (
+			SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL
+		)
+		SELECT
+			(SELECT COUNT(*) FROM jobs WHERE project_id IN (SELECT id FROM active_projects) AND cron IS NOT NULL AND cron != '') +
+			(SELECT COUNT(*) FROM workflows WHERE project_id IN (SELECT id FROM active_projects) AND cron IS NOT NULL AND cron != '')
 	`, orgID).Scan(&count)
 	if err != nil {
-		return 0, fmt.Errorf("count cron jobs by org: %w", err)
+		return 0, fmt.Errorf("count cron schedules by org: %w", err)
 	}
 	return count, nil
 }
