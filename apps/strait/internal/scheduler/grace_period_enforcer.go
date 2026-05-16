@@ -12,8 +12,7 @@ import (
 type GraceEnforcerStore interface {
 	ListOrgsInGracePeriod(ctx context.Context) ([]billing.OrgSubscription, error)
 	GetOrgSubscription(ctx context.Context, orgID string) (*billing.OrgSubscription, error)
-	UpdatePaymentStatus(ctx context.Context, orgID string, status string, graceEnd *time.Time) error
-	UpdateOrgSubscriptionPlan(ctx context.Context, orgID, planTier, status string) error
+	RestrictExpiredGracePeriod(ctx context.Context, orgID string, graceEnd *time.Time) (bool, error)
 }
 
 // Advisory lock ID for the grace period enforcer (arbitrary unique constant).
@@ -98,21 +97,16 @@ func (g *GracePeriodEnforcer) enforceLocked(ctx context.Context) error {
 			continue
 		}
 
-		// Set payment status to restricted.
-		if err := g.store.UpdatePaymentStatus(ctx, sub.OrgID, "restricted", sub.GracePeriodEnd); err != nil {
-			slog.Warn("failed to restrict org past grace period",
+		restricted, err := g.store.RestrictExpiredGracePeriod(ctx, sub.OrgID, sub.GracePeriodEnd)
+		if err != nil {
+			slog.Warn("failed to atomically restrict org past grace period",
 				"org_id", sub.OrgID,
 				"error", err,
 			)
 			continue
 		}
-
-		// Downgrade to free tier.
-		if err := g.store.UpdateOrgSubscriptionPlan(ctx, sub.OrgID, "free", "restricted"); err != nil {
-			slog.Warn("failed to downgrade org to free after grace expiry",
-				"org_id", sub.OrgID,
-				"error", err,
-			)
+		if !restricted {
+			slog.Info("grace period enforcer: org no longer eligible for restriction", "org_id", sub.OrgID)
 			continue
 		}
 

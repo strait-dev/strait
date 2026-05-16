@@ -949,6 +949,11 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 			schedOpts = append(schedOpts, scheduler.WithDowngradeApplier(downgradeApplier))
 			slog.Info("downgrade applier enabled")
 
+			gracePeriodEnforcer := scheduler.NewGracePeriodEnforcer(billingStore, billingEnforcer, time.Hour).
+				WithAdvisoryLocker(queries)
+			schedOpts = append(schedOpts, scheduler.WithGracePeriodEnforcer(gracePeriodEnforcer))
+			slog.Info("grace period enforcer enabled")
+
 			webhookCleanup := scheduler.NewWebhookMessageCleanup(billingStore, slog.Default())
 			schedOpts = append(schedOpts, scheduler.WithWebhookMessageCleanup(webhookCleanup))
 

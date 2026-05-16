@@ -819,6 +819,30 @@ func (s *PgStore) UpdatePaymentStatus(ctx context.Context, orgID string, status 
 	return nil
 }
 
+// RestrictExpiredGracePeriod atomically moves an org from expired payment grace
+// to restricted/free. The conditional WHERE clause makes concurrent recovery
+// webhooks win without leaving payment_status and plan_tier half-updated.
+func (s *PgStore) RestrictExpiredGracePeriod(ctx context.Context, orgID string, graceEnd *time.Time) (bool, error) {
+	if graceEnd == nil {
+		return false, nil
+	}
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE organization_subscriptions
+		SET plan_tier = 'free',
+			status = 'restricted',
+			payment_status = 'restricted',
+			updated_at = NOW()
+		WHERE org_id = $1
+		  AND payment_status = 'grace'
+		  AND grace_period_end = $2
+		  AND grace_period_end < NOW()
+	`, orgID, graceEnd)
+	if err != nil {
+		return false, fmt.Errorf("restricting expired grace period: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
 func (s *PgStore) ListOrgsInGracePeriod(ctx context.Context) ([]OrgSubscription, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, org_id, plan_tier, stripe_subscription_id, stripe_customer_id,

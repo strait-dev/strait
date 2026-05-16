@@ -1514,6 +1514,82 @@ func TestPgStore_ListOrgsInGracePeriod(t *testing.T) {
 	}
 }
 
+func TestPgStore_RestrictExpiredGracePeriod_AtomicConditionalUpdate(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgExpired := "org-grace-restrict-" + newID()
+	orgRecovered := "org-grace-recovered-" + newID()
+	orgFuture := "org-grace-future-" + newID()
+	ensureSub(t, ctx, pgStore, orgExpired)
+	ensureSub(t, ctx, pgStore, orgRecovered)
+	ensureSub(t, ctx, pgStore, orgFuture)
+
+	past := time.Now().UTC().Add(-48 * time.Hour)
+	future := time.Now().UTC().Add(48 * time.Hour)
+	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgExpired, "pro", "active"); err != nil {
+		t.Fatalf("UpdateOrgSubscriptionPlan expired: %v", err)
+	}
+	if err := pgStore.UpdatePaymentStatus(ctx, orgExpired, "grace", &past); err != nil {
+		t.Fatalf("UpdatePaymentStatus expired: %v", err)
+	}
+	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgRecovered, "pro", "active"); err != nil {
+		t.Fatalf("UpdateOrgSubscriptionPlan recovered: %v", err)
+	}
+	if err := pgStore.UpdatePaymentStatus(ctx, orgRecovered, "ok", nil); err != nil {
+		t.Fatalf("UpdatePaymentStatus recovered: %v", err)
+	}
+	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgFuture, "pro", "active"); err != nil {
+		t.Fatalf("UpdateOrgSubscriptionPlan future: %v", err)
+	}
+	if err := pgStore.UpdatePaymentStatus(ctx, orgFuture, "grace", &future); err != nil {
+		t.Fatalf("UpdatePaymentStatus future: %v", err)
+	}
+
+	restricted, err := pgStore.RestrictExpiredGracePeriod(ctx, orgExpired, &past)
+	if err != nil {
+		t.Fatalf("RestrictExpiredGracePeriod expired: %v", err)
+	}
+	if !restricted {
+		t.Fatal("expected expired grace period to be restricted")
+	}
+
+	expiredSub, err := pgStore.GetOrgSubscription(ctx, orgExpired)
+	if err != nil {
+		t.Fatalf("GetOrgSubscription expired: %v", err)
+	}
+	if expiredSub.PlanTier != "free" || expiredSub.Status != "restricted" || expiredSub.PaymentStatus != "restricted" {
+		t.Fatalf("expected atomic free/restricted state, got plan=%q status=%q payment=%q", expiredSub.PlanTier, expiredSub.Status, expiredSub.PaymentStatus)
+	}
+
+	for _, tt := range []struct {
+		name     string
+		orgID    string
+		graceEnd *time.Time
+	}{
+		{name: "recovered payment", orgID: orgRecovered, graceEnd: &past},
+		{name: "future grace", orgID: orgFuture, graceEnd: &future},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			changed, err := pgStore.RestrictExpiredGracePeriod(ctx, tt.orgID, tt.graceEnd)
+			if err != nil {
+				t.Fatalf("RestrictExpiredGracePeriod: %v", err)
+			}
+			if changed {
+				t.Fatal("expected conditional update to skip ineligible org")
+			}
+			sub, err := pgStore.GetOrgSubscription(ctx, tt.orgID)
+			if err != nil {
+				t.Fatalf("GetOrgSubscription: %v", err)
+			}
+			if sub.PlanTier != "pro" || sub.Status != "active" {
+				t.Fatalf("expected plan/status to remain unchanged, got plan=%q status=%q", sub.PlanTier, sub.Status)
+			}
+		})
+	}
+}
+
 // --------------------------------------------------------------------------.
 // Test 37: ListStaleSubscriptions
 // --------------------------------------------------------------------------.

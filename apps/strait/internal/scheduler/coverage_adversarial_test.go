@@ -168,6 +168,14 @@ func (m *covMockGraceStoreWithGetError) UpdateOrgSubscriptionPlan(_ context.Cont
 	return nil
 }
 
+func (m *covMockGraceStoreWithGetError) RestrictExpiredGracePeriod(_ context.Context, orgID string, _ *time.Time) (bool, error) {
+	if m.updatedStatuses == nil {
+		m.updatedStatuses = make(map[string]string)
+	}
+	m.updatedStatuses[orgID] = "restricted"
+	return true, nil
+}
+
 func TestGraceEnforcer_ConcurrentlyResolved(t *testing.T) {
 	t.Parallel()
 
@@ -204,9 +212,8 @@ func TestGraceEnforcer_UpdatePlanError(t *testing.T) {
 	g := NewGracePeriodEnforcer(s, nil, time.Minute)
 	g.enforce(context.Background())
 
-	// Status update should succeed but plan update should fail and continue.
-	if s.updatedStatuses["org-plan-err"] != "restricted" {
-		t.Error("expected status to be updated even if plan update fails")
+	if len(s.updatedStatuses) != 0 {
+		t.Error("expected atomic restriction failure to leave status unchanged")
 	}
 }
 

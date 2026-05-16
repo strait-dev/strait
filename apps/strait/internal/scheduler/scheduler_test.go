@@ -331,6 +331,19 @@ func TestWithHeartbeatGC_WiresSchedulerComponent(t *testing.T) {
 	}
 }
 
+func TestWithGracePeriodEnforcer_WiresSchedulerComponent(t *testing.T) {
+	t.Parallel()
+
+	enforcer := &GracePeriodEnforcer{}
+	s := &Scheduler{}
+
+	WithGracePeriodEnforcer(enforcer)(s)
+
+	if s.gracePeriodEnforcer != enforcer {
+		t.Fatal("expected grace period enforcer to be wired into scheduler")
+	}
+}
+
 func TestScheduler_Start_Success(t *testing.T) {
 	t.Parallel()
 	store := &mockSchedulerStore{
