@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
-	"sync"
 	"time"
 
 	"strait/internal/telemetry"
@@ -13,11 +12,6 @@ import (
 	"github.com/stripe/stripe-go/v82"
 	"github.com/stripe/stripe-go/v82/billing/meterevent"
 )
-
-// stripeKeyOnce ensures the global stripe.Key is set exactly once,
-// preventing data races when multiple StripeUsageReporters are created
-// concurrently (e.g. in parallel tests).
-var stripeKeyOnce sync.Once
 
 // StripeUsageReporter sends usage events to the Stripe Billing Meter.
 // Safe for concurrent use from multiple goroutines.
@@ -44,9 +38,7 @@ func NewStripeUsageReporter(secretKey string, logger *slog.Logger, opts ...Strip
 	if logger == nil {
 		logger = slog.Default()
 	}
-	stripeKeyOnce.Do(func() {
-		stripe.Key = secretKey //nolint:reassign // stripe-go uses a global key by design
-	})
+	ensureStripeKey(secretKey)
 	r := &StripeUsageReporter{
 		secretKey:      secretKey,
 		meterEventName: "compute_overage",
