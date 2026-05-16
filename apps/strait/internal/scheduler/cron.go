@@ -28,6 +28,7 @@ type CronStore interface {
 	CountActiveRunsForJob(ctx context.Context, jobID string) (int, error)
 	CancelActiveRunsForJob(ctx context.Context, jobID string, reason string) ([]store.CanceledRun, error)
 	CancelChildRunsByParentIDs(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error)
+	TryAcquireCronFire(ctx context.Context, projectID, key string, ttl time.Duration) (bool, error)
 }
 
 type CronAdmissionStore interface {
@@ -48,6 +49,8 @@ var (
 	errCronProjectDailyCostQuotaExceeded = errors.New("cron project daily cost quota exceeded")
 	errCronJobRateLimitExceeded          = errors.New("cron job rate limit exceeded")
 )
+
+const cronFireDedupeTTL = 25 * time.Hour
 
 type WorkflowTrigger interface {
 	TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride, extraTags map[string]string) (*domain.WorkflowRun, error)
@@ -150,7 +153,7 @@ func (cs *CronScheduler) LoadJobs(ctx context.Context) error {
 }
 
 func (cs *CronScheduler) triggerJob(ctx context.Context, job domain.Job) {
-	cs.withCronFireLock(ctx, "job", job.ID, func(lockCtx context.Context, fireKey string) {
+	cs.withCronFireLock(ctx, job.ProjectID, "job", job.ID, func(lockCtx context.Context, fireKey string) {
 		cs.triggerJobLocked(lockCtx, job, fireKey)
 	})
 }
@@ -341,12 +344,12 @@ func isCronAdmissionLimitError(err error) bool {
 }
 
 func (cs *CronScheduler) triggerWorkflow(ctx context.Context, workflow domain.Workflow) {
-	cs.withCronFireLock(ctx, "workflow", workflow.ID, func(lockCtx context.Context, _ string) {
-		cs.triggerWorkflowLocked(lockCtx, workflow)
+	cs.withCronFireLock(ctx, workflow.ProjectID, "workflow", workflow.ID, func(lockCtx context.Context, fireKey string) {
+		cs.triggerWorkflowLocked(lockCtx, workflow, fireKey)
 	})
 }
 
-func (cs *CronScheduler) triggerWorkflowLocked(ctx context.Context, workflow domain.Workflow) {
+func (cs *CronScheduler) triggerWorkflowLocked(ctx context.Context, workflow domain.Workflow, fireKey string) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "cron.TriggerWorkflow")
 	defer span.End()
 
@@ -370,7 +373,7 @@ func (cs *CronScheduler) triggerWorkflowLocked(ctx context.Context, workflow dom
 		}
 	}
 
-	if _, err := cs.workflowTrigger.TriggerWorkflow(ctx, workflow.ID, workflow.ProjectID, nil, domain.TriggerCron, nil, nil); err != nil {
+	if _, err := cs.workflowTrigger.TriggerWorkflow(ctx, workflow.ID, workflow.ProjectID, nil, domain.TriggerCron, nil, map[string]string{"cron_fire_key": fireKey}); err != nil {
 		slog.Error("failed to trigger cron workflow", "workflow_id", workflow.ID, "project_id", workflow.ProjectID, "error", err)
 		if cs.metrics != nil {
 			cs.metrics.CronTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "error")))
@@ -431,8 +434,18 @@ func cronExpressionWithValidatedTimezone(expr, timezone string) (string, error) 
 	return cronExpressionWithTimezone(expr, timezone), nil
 }
 
-func (cs *CronScheduler) withCronFireLock(ctx context.Context, kind, id string, fn func(context.Context, string)) {
+func (cs *CronScheduler) withCronFireLock(ctx context.Context, projectID, kind, id string, fn func(context.Context, string)) {
 	fireKey := cronFireKey(kind, id, time.Now().UTC())
+	acquiredFire, err := cs.store.TryAcquireCronFire(ctx, projectID, fireKey, cronFireDedupeTTL)
+	if err != nil {
+		slog.Warn("cron fire idempotency claim failed", "kind", kind, "id", id, "project_id", projectID, "fire_key", fireKey, "error", err)
+		return
+	}
+	if !acquiredFire {
+		slog.Info("cron fire skipped: durable fire key already claimed", "kind", kind, "id", id, "project_id", projectID, "fire_key", fireKey)
+		return
+	}
+
 	locker, ok := cs.store.(AdvisoryLocker)
 	if !ok {
 		fn(ctx, fireKey)

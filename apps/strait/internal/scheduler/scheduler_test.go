@@ -44,6 +44,10 @@ func (m *mockSchedulerStore) CancelChildRunsByParentIDs(ctx context.Context, par
 	return m.cron.CancelChildRunsByParentIDs(ctx, parentIDs, finishedAt, reason)
 }
 
+func (m *mockSchedulerStore) TryAcquireCronFire(ctx context.Context, projectID string, key string, ttl time.Duration) (bool, error) {
+	return m.cron.TryAcquireCronFire(ctx, projectID, key, ttl)
+}
+
 func (m *mockSchedulerStore) DeleteWorkflowRunsFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error) {
 	return m.reaper.DeleteWorkflowRunsFinishedBefore(ctx, before, limit)
 }

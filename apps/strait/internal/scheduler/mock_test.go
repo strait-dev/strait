@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"time"
 
 	"strait/internal/domain"
@@ -61,6 +62,9 @@ type mockCronStore struct {
 	countProjectActiveRunsFn    func(ctx context.Context, projectID string) (int, error)
 	countRunsForJobSinceFn      func(ctx context.Context, jobID string, since time.Time) (int, error)
 	sumProjectDailyCostFn       func(ctx context.Context, projectID string, timezone string) (int64, error)
+	tryAcquireCronFireFn        func(ctx context.Context, projectID string, key string, ttl time.Duration) (bool, error)
+	cronFireMu                  sync.Mutex
+	cronFireKeys                map[string]struct{}
 }
 
 func (m *mockCronStore) ListCronJobs(ctx context.Context) ([]domain.Job, error) {
@@ -138,6 +142,23 @@ func (m *mockCronStore) SumProjectDailyCostMicrousd(ctx context.Context, project
 		return m.sumProjectDailyCostFn(ctx, projectID, timezone)
 	}
 	return 0, nil
+}
+
+func (m *mockCronStore) TryAcquireCronFire(ctx context.Context, projectID string, key string, ttl time.Duration) (bool, error) {
+	if m.tryAcquireCronFireFn != nil {
+		return m.tryAcquireCronFireFn(ctx, projectID, key, ttl)
+	}
+	m.cronFireMu.Lock()
+	defer m.cronFireMu.Unlock()
+	if m.cronFireKeys == nil {
+		m.cronFireKeys = make(map[string]struct{})
+	}
+	scopedKey := projectID + "\x00" + key
+	if _, ok := m.cronFireKeys[scopedKey]; ok {
+		return false, nil
+	}
+	m.cronFireKeys[scopedKey] = struct{}{}
+	return true, nil
 }
 
 type mockQueue struct {

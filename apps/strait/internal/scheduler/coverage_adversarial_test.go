@@ -747,8 +747,29 @@ func TestCronScheduler_ConcurrentTriggerSameJob(t *testing.T) {
 	}
 	wg.Wait()
 
-	if enqueued.Load() != 20 {
-		t.Fatalf("expected 20 enqueues with allow policy, got %d", enqueued.Load())
+	if enqueued.Load() != 1 {
+		t.Fatalf("expected one durable cron fire enqueue, got %d", enqueued.Load())
+	}
+}
+
+func TestCronScheduler_DurableFireKeySkipsWorkflowAfterLockRelease(t *testing.T) {
+	t.Parallel()
+
+	var triggered atomic.Int32
+	ms := &mockCronStore{}
+	wt := &mockWorkflowTrigger{
+		triggerWorkflowFn: func(_ context.Context, _, _ string, _ json.RawMessage, _ string, _ []domain.StepOverride) (*domain.WorkflowRun, error) {
+			triggered.Add(1)
+			return &domain.WorkflowRun{ID: "wf-run-1"}, nil
+		},
+	}
+
+	wf := domain.Workflow{ID: "wf-race", ProjectID: "p1", Cron: "* * * * *"}
+	NewCronScheduler(context.Background(), ms, &mockQueue{}, wt).triggerWorkflow(context.Background(), wf)
+	NewCronScheduler(context.Background(), ms, &mockQueue{}, wt).triggerWorkflow(context.Background(), wf)
+
+	if triggered.Load() != 1 {
+		t.Fatalf("expected one durable cron workflow fire, got %d", triggered.Load())
 	}
 }
 

@@ -171,6 +171,14 @@ func (q *Queries) TryAcquireIdempotencyKey(ctx context.Context, projectID, key s
 	return "", 0, nil, nil, fmt.Errorf("idempotency acquire: retries exhausted: %w", lastErr)
 }
 
+func (q *Queries) TryAcquireCronFire(ctx context.Context, projectID, key string, ttl time.Duration) (bool, error) {
+	status, _, _, _, err := q.TryAcquireIdempotencyKey(ctx, projectID, key, ttl)
+	if err != nil {
+		return false, err
+	}
+	return status == IdempotencyAcquired, nil
+}
+
 func (q *Queries) tryAcquireWithAdvisoryLock(ctx context.Context, beginner TxBeginner, advisoryKey int64, projectID, key string, expiresAt time.Time) (string, int, http.Header, []byte, error) {
 	tx, err := beginner.Begin(ctx)
 	if err != nil {
