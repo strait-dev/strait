@@ -300,7 +300,7 @@ func TestAdv_UsageFlusher_ConcurrentFlush(t *testing.T) {
 				{OrgID: "org-concurrent", ProjectID: "proj-1", PeriodDate: today, RunsCount: 1},
 			}, nil
 		},
-		upsertUsageRecordFn: func(_ context.Context, _ *billing.UsageRecord) error {
+		replaceUsageRecordFn: func(_ context.Context, _ *billing.UsageRecord) error {
 			mu.Lock()
 			upsertCount++
 			mu.Unlock()

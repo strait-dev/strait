@@ -503,7 +503,7 @@ func TestUsageFlusher_ListOrgsError_Ext(t *testing.T) {
 		listAllSubscribedOrgIDsFn: func(context.Context) ([]string, error) {
 			return nil, errors.New("db error")
 		},
-		upsertUsageRecordFn: func(_ context.Context, _ *billing.UsageRecord) error {
+		replaceUsageRecordFn: func(_ context.Context, _ *billing.UsageRecord) error {
 			upsertCalled.Store(true)
 			return nil
 		},
@@ -536,7 +536,7 @@ func TestUsageFlusher_UpsertError_ContinuesOtherRecords_Ext(t *testing.T) {
 				{OrgID: "org-1", ProjectID: "proj-ok", PeriodDate: today, RunsCount: 2},
 			}, nil
 		},
-		upsertUsageRecordFn: func(_ context.Context, rec *billing.UsageRecord) error {
+		replaceUsageRecordFn: func(_ context.Context, rec *billing.UsageRecord) error {
 			mu.Lock()
 			upsertCalls++
 			mu.Unlock()

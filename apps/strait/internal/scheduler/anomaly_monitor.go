@@ -74,7 +74,7 @@ func (am *AnomalyMonitor) Run(ctx context.Context) {
 			return
 		case <-ticker.C:
 			runSchedulerCycleCheckIn(ctx, am.interval, func() {
-				am.check(context.WithoutCancel(ctx))
+				am.check(ctx)
 			})
 		}
 	}

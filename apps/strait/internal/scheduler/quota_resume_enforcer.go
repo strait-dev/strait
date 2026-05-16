@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"time"
 
 	"strait/internal/billing"
@@ -33,14 +34,17 @@ type QuotaResumeEnforcer struct {
 	enforcer       *billing.Enforcer
 	advisoryLocker AdvisoryLocker
 	interval       time.Duration
+	resumedMu      sync.Mutex
+	resumedPeriods map[string]string
 }
 
 // NewQuotaResumeEnforcer creates a new quota resume enforcer.
 func NewQuotaResumeEnforcer(store QuotaResumeEnforcerStore, enforcer *billing.Enforcer, interval time.Duration) *QuotaResumeEnforcer {
 	return &QuotaResumeEnforcer{
-		store:    store,
-		enforcer: enforcer,
-		interval: interval,
+		store:          store,
+		enforcer:       enforcer,
+		interval:       interval,
+		resumedPeriods: make(map[string]string),
 	}
 }
 
@@ -96,7 +100,11 @@ func (q *QuotaResumeEnforcer) enforceLocked(ctx context.Context) error {
 		// Only attempt to resume when a billing period boundary has been
 		// crossed. For free-tier orgs the period resets on the calendar month;
 		// for paid plans the Stripe period anchors are used.
-		if !q.isNewBillingPeriod(now, sub) {
+		periodKey, ok := q.resumePeriodKey(now, sub)
+		if !ok {
+			continue
+		}
+		if q.alreadyResumed(sub.OrgID, periodKey) {
 			continue
 		}
 
@@ -106,6 +114,7 @@ func (q *QuotaResumeEnforcer) enforceLocked(ctx context.Context) error {
 				"org_id", orgID, "error", err)
 			continue
 		}
+		q.markResumed(sub.OrgID, periodKey)
 		if resumed == 0 {
 			continue
 		}
@@ -129,11 +138,37 @@ func (q *QuotaResumeEnforcer) enforceLocked(ctx context.Context) error {
 // set) it resets on the first day of each calendar month; for paid plans it
 // uses the current_period_end anchor from Stripe.
 func (q *QuotaResumeEnforcer) isNewBillingPeriod(now time.Time, sub *billing.OrgSubscription) bool {
+	_, ok := q.resumePeriodKey(now, sub)
+	return ok
+}
+
+func (q *QuotaResumeEnforcer) resumePeriodKey(now time.Time, sub *billing.OrgSubscription) (string, bool) {
+	if sub == nil {
+		return "", false
+	}
 	if sub.CurrentPeriodEnd != nil {
 		// New billing period: current time is past the stored period end.
-		return now.After(*sub.CurrentPeriodEnd)
+		if !now.After(*sub.CurrentPeriodEnd) {
+			return "", false
+		}
+		return sub.CurrentPeriodEnd.UTC().Format(time.RFC3339Nano), true
 	}
 	// Free tier: period resets at the start of each calendar month.
 	// We treat "now is the 1st of any month" as the reset boundary.
-	return now.Day() == 1
+	if now.Day() != 1 {
+		return "", false
+	}
+	return now.UTC().Format("2006-01"), true
+}
+
+func (q *QuotaResumeEnforcer) alreadyResumed(orgID, periodKey string) bool {
+	q.resumedMu.Lock()
+	defer q.resumedMu.Unlock()
+	return q.resumedPeriods[orgID] == periodKey
+}
+
+func (q *QuotaResumeEnforcer) markResumed(orgID, periodKey string) {
+	q.resumedMu.Lock()
+	defer q.resumedMu.Unlock()
+	q.resumedPeriods[orgID] = periodKey
 }

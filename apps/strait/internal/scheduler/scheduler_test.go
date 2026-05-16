@@ -274,6 +274,19 @@ func TestScheduler_New(t *testing.T) {
 	}
 }
 
+func TestWithBudgetMonitoringStores_WiresSpendingStore(t *testing.T) {
+	t.Parallel()
+
+	spending := &mockSpendingLimitStore{}
+	s := &Scheduler{budgetMonitor: NewBudgetMonitor(struct{}{}, nil, time.Minute)}
+
+	WithBudgetMonitoringStores(spending, nil, nil)(s)
+
+	if s.budgetMonitor.spendingStore != spending {
+		t.Fatal("expected spending store to be wired into budget monitor")
+	}
+}
+
 func TestScheduler_Start_Success(t *testing.T) {
 	t.Parallel()
 	store := &mockSchedulerStore{

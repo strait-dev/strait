@@ -924,6 +924,15 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 			slog.Info("concurrent run reconciler enabled")
 
 			billingStore := billing.NewPgStore(dbPool)
+			budgetStore := newBudgetMonitorStore(billingStore, queries)
+			schedOpts = append(schedOpts,
+				scheduler.WithBudgetMonitoringStores(budgetStore, budgetStore, billingEnforcer),
+				scheduler.WithUsageFlusher(
+					scheduler.NewUsageFlusher(billingStore, time.Hour).WithAdvisoryLocker(queries),
+				),
+			)
+			slog.Info("billing budget and usage monitors enabled")
+
 			downgradeApplier := scheduler.NewDowngradeApplier(billingStore, billingEnforcer, 5*time.Minute)
 			schedOpts = append(schedOpts, scheduler.WithDowngradeApplier(downgradeApplier))
 			slog.Info("downgrade applier enabled")

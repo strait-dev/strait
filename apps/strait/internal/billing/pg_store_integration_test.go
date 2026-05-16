@@ -1250,6 +1250,60 @@ func TestPgStore_UpsertUsageRecord(t *testing.T) {
 		t.Errorf("ai_cost = %d, want 600000", ai)
 	}
 }
+
+func TestPgStore_ReplaceUsageRecord_ReplacesSnapshot(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-usagesnap-" + newID()
+	p := createProject(t, ctx, q, orgID, "P")
+	day := time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC)
+	now := time.Now().UTC()
+
+	rec := &billing.UsageRecord{
+		ID:               newID(),
+		OrgID:            orgID,
+		ProjectID:        p.ID,
+		PeriodDate:       day,
+		RunsCount:        10,
+		ComputeCostMicro: 5_000_000,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}
+	if err := pgStore.ReplaceUsageRecord(ctx, rec); err != nil {
+		t.Fatalf("ReplaceUsageRecord error = %v", err)
+	}
+	rec2 := &billing.UsageRecord{
+		ID:               newID(),
+		OrgID:            orgID,
+		ProjectID:        p.ID,
+		PeriodDate:       day,
+		RunsCount:        3,
+		ComputeCostMicro: 1_000_000,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}
+	if err := pgStore.ReplaceUsageRecord(ctx, rec2); err != nil {
+		t.Fatalf("second ReplaceUsageRecord error = %v", err)
+	}
+
+	var runs, compute int64
+	err := testDB.Pool.QueryRow(ctx,
+		"SELECT runs_count, compute_cost_microusd FROM usage_records WHERE org_id = $1 AND project_id = $2 AND period_date = $3",
+		orgID, p.ID, day).Scan(&runs, &compute)
+	if err != nil {
+		t.Fatalf("query usage_records: %v", err)
+	}
+	if runs != 3 {
+		t.Errorf("runs_count = %d, want replacement 3", runs)
+	}
+	if compute != 1_000_000 {
+		t.Errorf("compute_cost = %d, want replacement 1000000", compute)
+	}
+}
+
 func TestPgStore_GetProjectBudget_NoRow(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)

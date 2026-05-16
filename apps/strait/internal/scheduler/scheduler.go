@@ -9,6 +9,7 @@ import (
 
 	"time"
 
+	"strait/internal/billing"
 	"strait/internal/clickhouse"
 	"strait/internal/config"
 	"strait/internal/queue"
@@ -148,6 +149,20 @@ func WithRotationSecretDecryptor(d SecretDecryptor) SchedulerOption {
 func WithBudgetWebhookEnqueuer(enqueuer BudgetMonitorWebhookEnqueuer) SchedulerOption {
 	return func(s *Scheduler) {
 		s.budgetMonitor.enqueuer = enqueuer
+	}
+}
+
+// WithBudgetMonitoringStores wires the concrete billing stores into the
+// always-running budget monitor. Without this option the monitor loop runs but
+// has no spending/run-limit producers to evaluate.
+func WithBudgetMonitoringStores(spending SpendingLimitStore, runLimits RunLimitStore, enforcer *billing.Enforcer) SchedulerOption {
+	return func(s *Scheduler) {
+		if spending != nil {
+			s.budgetMonitor.WithSpendingLimitStore(spending)
+		}
+		if runLimits != nil && enforcer != nil {
+			s.budgetMonitor.WithRunLimitNotifications(runLimits, enforcer)
+		}
 	}
 }
 

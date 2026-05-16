@@ -318,7 +318,7 @@ func TestUsageFlusher_AdvisoryLocker_Acquired(t *testing.T) {
 				{OrgID: "org-1", ProjectID: "proj-1", PeriodDate: today, RunsCount: 5},
 			}, nil
 		},
-		upsertUsageRecordFn: func(_ context.Context, _ *billing.UsageRecord) error {
+		replaceUsageRecordFn: func(_ context.Context, _ *billing.UsageRecord) error {
 			upsertCount.Add(1)
 			return nil
 		},
@@ -368,7 +368,7 @@ func TestUsageFlusher_UpsertError_ContinuesOtherRecords(t *testing.T) {
 				{OrgID: "org-1", ProjectID: "proj-ok", PeriodDate: today, RunsCount: 2},
 			}, nil
 		},
-		upsertUsageRecordFn: func(_ context.Context, rec *billing.UsageRecord) error {
+		replaceUsageRecordFn: func(_ context.Context, rec *billing.UsageRecord) error {
 			if rec.ProjectID == "proj-fail" {
 				return errors.New("upsert failed")
 			}

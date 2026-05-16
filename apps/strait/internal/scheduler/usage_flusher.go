@@ -6,13 +6,15 @@ import (
 	"time"
 
 	"strait/internal/billing"
+
+	"github.com/google/uuid"
 )
 
 // UsageFlusherStore defines the store operations needed by UsageFlusher.
 type UsageFlusherStore interface {
 	ListAllSubscribedOrgIDs(ctx context.Context) ([]string, error)
 	GetOrgDailyUsage(ctx context.Context, orgID string, date time.Time) ([]billing.UsageRecord, error)
-	UpsertUsageRecord(ctx context.Context, rec *billing.UsageRecord) error
+	ReplaceUsageRecord(ctx context.Context, rec *billing.UsageRecord) error
 }
 
 // UsageFlusher periodically queries current-day usage for all subscribed orgs
@@ -87,7 +89,7 @@ func (uf *UsageFlusher) flushLocked(ctx context.Context) error {
 	now := time.Now().UTC()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 
-	for _, orgID := range orgIDs {
+	for _, orgID := range uniqueNonEmptyStrings(orgIDs) {
 		records, dailyErr := uf.store.GetOrgDailyUsage(ctx, orgID, today)
 		if dailyErr != nil {
 			uf.logger.Warn("usage flusher: failed to get daily usage",
@@ -96,7 +98,8 @@ func (uf *UsageFlusher) flushLocked(ctx context.Context) error {
 		}
 
 		for i := range records {
-			if err := uf.store.UpsertUsageRecord(ctx, &records[i]); err != nil {
+			normalizeUsageSnapshot(&records[i], today)
+			if err := uf.store.ReplaceUsageRecord(ctx, &records[i]); err != nil {
 				uf.logger.Warn("usage flusher: failed to upsert usage record",
 					"org_id", orgID,
 					"project_id", records[i].ProjectID,
@@ -105,4 +108,36 @@ func (uf *UsageFlusher) flushLocked(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func normalizeUsageSnapshot(rec *billing.UsageRecord, periodDate time.Time) {
+	if rec.ID == "" {
+		rec.ID = uuid.Must(uuid.NewV7()).String()
+	}
+	if rec.PeriodDate.IsZero() {
+		rec.PeriodDate = periodDate
+	}
+	now := time.Now().UTC()
+	if rec.CreatedAt.IsZero() {
+		rec.CreatedAt = now
+	}
+	if rec.UpdatedAt.IsZero() {
+		rec.UpdatedAt = now
+	}
+}
+
+func uniqueNonEmptyStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }

@@ -14,7 +14,7 @@ import (
 type mockUsageFlusherStore struct {
 	listAllSubscribedOrgIDsFn func(ctx context.Context) ([]string, error)
 	getOrgDailyUsageFn        func(ctx context.Context, orgID string, date time.Time) ([]billing.UsageRecord, error)
-	upsertUsageRecordFn       func(ctx context.Context, rec *billing.UsageRecord) error
+	replaceUsageRecordFn      func(ctx context.Context, rec *billing.UsageRecord) error
 }
 
 func (m *mockUsageFlusherStore) ListAllSubscribedOrgIDs(ctx context.Context) ([]string, error) {
@@ -31,9 +31,9 @@ func (m *mockUsageFlusherStore) GetOrgDailyUsage(ctx context.Context, orgID stri
 	return nil, nil
 }
 
-func (m *mockUsageFlusherStore) UpsertUsageRecord(ctx context.Context, rec *billing.UsageRecord) error {
-	if m.upsertUsageRecordFn != nil {
-		return m.upsertUsageRecordFn(ctx, rec)
+func (m *mockUsageFlusherStore) ReplaceUsageRecord(ctx context.Context, rec *billing.UsageRecord) error {
+	if m.replaceUsageRecordFn != nil {
+		return m.replaceUsageRecordFn(ctx, rec)
 	}
 	return nil
 }
@@ -62,7 +62,7 @@ func TestUsageFlusher_FlushesRecordsForAllOrgs(t *testing.T) {
 				},
 			}, nil
 		},
-		upsertUsageRecordFn: func(_ context.Context, rec *billing.UsageRecord) error {
+		replaceUsageRecordFn: func(_ context.Context, rec *billing.UsageRecord) error {
 			mu.Lock()
 			upserted[rec.OrgID+":"+rec.ProjectID] = rec
 			mu.Unlock()
@@ -104,7 +104,7 @@ func TestUsageFlusher_EmptyOrgs_NoFlush(t *testing.T) {
 		listAllSubscribedOrgIDsFn: func(context.Context) ([]string, error) {
 			return nil, nil
 		},
-		upsertUsageRecordFn: func(_ context.Context, _ *billing.UsageRecord) error {
+		replaceUsageRecordFn: func(_ context.Context, _ *billing.UsageRecord) error {
 			upsertCalled = true
 			return nil
 		},
@@ -118,7 +118,7 @@ func TestUsageFlusher_EmptyOrgs_NoFlush(t *testing.T) {
 	}
 }
 
-func TestUsageFlusher_UpsertIdempotent(t *testing.T) {
+func TestUsageFlusher_ReplacesSnapshotEachFlush(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now().UTC()
@@ -142,7 +142,7 @@ func TestUsageFlusher_UpsertIdempotent(t *testing.T) {
 				},
 			}, nil
 		},
-		upsertUsageRecordFn: func(_ context.Context, _ *billing.UsageRecord) error {
+		replaceUsageRecordFn: func(_ context.Context, _ *billing.UsageRecord) error {
 			mu.Lock()
 			upsertCount++
 			mu.Unlock()
@@ -152,8 +152,8 @@ func TestUsageFlusher_UpsertIdempotent(t *testing.T) {
 
 	uf := NewUsageFlusher(s, time.Minute)
 
-	// Flush twice to verify idempotent behavior (upsert is called each time but
-	// the ON CONFLICT clause in the real store handles dedup).
+	// Flush twice. The flusher writes a replacement snapshot each time; the
+	// store must not add cumulative daily totals on top of prior snapshots.
 	uf.flush(context.Background())
 	uf.flush(context.Background())
 
@@ -191,7 +191,7 @@ func TestUsageFlusher_PartialFailure_ContinuesOtherOrgs(t *testing.T) {
 				},
 			}, nil
 		},
-		upsertUsageRecordFn: func(_ context.Context, rec *billing.UsageRecord) error {
+		replaceUsageRecordFn: func(_ context.Context, rec *billing.UsageRecord) error {
 			mu.Lock()
 			upsertedOrgs[rec.OrgID] = true
 			mu.Unlock()
@@ -216,5 +216,68 @@ func TestUsageFlusher_PartialFailure_ContinuesOtherOrgs(t *testing.T) {
 	}
 	if !upsertedOrgs["org-3"] {
 		t.Error("expected org-3 to be flushed despite org-2 failure")
+	}
+}
+
+func TestUsageFlusher_DedupesOrgIDsAndSkipsEmpty(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	getCalls := make(map[string]int)
+	s := &mockUsageFlusherStore{
+		listAllSubscribedOrgIDsFn: func(context.Context) ([]string, error) {
+			return []string{"org-1", "", "org-1", "org-2"}, nil
+		},
+		getOrgDailyUsageFn: func(_ context.Context, orgID string, _ time.Time) ([]billing.UsageRecord, error) {
+			mu.Lock()
+			getCalls[orgID]++
+			mu.Unlock()
+			return nil, nil
+		},
+	}
+
+	NewUsageFlusher(s, time.Minute).flush(context.Background())
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(getCalls) != 2 || getCalls["org-1"] != 1 || getCalls["org-2"] != 1 {
+		t.Fatalf("daily usage calls = %v, want one per non-empty org", getCalls)
+	}
+	if _, ok := getCalls[""]; ok {
+		t.Fatal("empty org ID should not be flushed")
+	}
+}
+
+func TestUsageFlusher_NormalizesEmptySnapshotFields(t *testing.T) {
+	t.Parallel()
+
+	var got *billing.UsageRecord
+	s := &mockUsageFlusherStore{
+		listAllSubscribedOrgIDsFn: func(context.Context) ([]string, error) {
+			return []string{"org-1"}, nil
+		},
+		getOrgDailyUsageFn: func(_ context.Context, orgID string, _ time.Time) ([]billing.UsageRecord, error) {
+			return []billing.UsageRecord{{OrgID: orgID, ProjectID: "proj-1", RunsCount: 1}}, nil
+		},
+		replaceUsageRecordFn: func(_ context.Context, rec *billing.UsageRecord) error {
+			copy := *rec
+			got = &copy
+			return nil
+		},
+	}
+
+	NewUsageFlusher(s, time.Minute).flush(context.Background())
+
+	if got == nil {
+		t.Fatal("expected replacement record")
+	}
+	if got.ID == "" {
+		t.Fatal("expected generated ID")
+	}
+	if got.PeriodDate.IsZero() {
+		t.Fatal("expected period date to be set")
+	}
+	if got.CreatedAt.IsZero() || got.UpdatedAt.IsZero() {
+		t.Fatalf("expected timestamps to be set: created=%v updated=%v", got.CreatedAt, got.UpdatedAt)
 	}
 }

@@ -510,6 +510,29 @@ func (s *PgStore) UpsertUsageRecord(ctx context.Context, rec *UsageRecord) error
 	return nil
 }
 
+func (s *PgStore) ReplaceUsageRecord(ctx context.Context, rec *UsageRecord) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO usage_records (
+			id, org_id, project_id, period_date,
+			runs_count, compute_cost_microusd, ai_tokens_total, ai_cost_microusd,
+			created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		ON CONFLICT (org_id, project_id, period_date) DO UPDATE SET
+			runs_count = EXCLUDED.runs_count,
+			compute_cost_microusd = EXCLUDED.compute_cost_microusd,
+			ai_tokens_total = EXCLUDED.ai_tokens_total,
+			ai_cost_microusd = EXCLUDED.ai_cost_microusd,
+			updated_at = NOW()
+	`, rec.ID, rec.OrgID, rec.ProjectID, rec.PeriodDate,
+		rec.RunsCount, rec.ComputeCostMicro, rec.AITokensTotal, rec.AICostMicro,
+		rec.CreatedAt, rec.UpdatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("replacing usage record: %w", err)
+	}
+	return nil
+}
+
 func (s *PgStore) GetOrgUsageForPeriod(ctx context.Context, orgID string, from, to time.Time) ([]UsageRecord, error) {
 	endExclusive := to.AddDate(0, 0, 1)
 
