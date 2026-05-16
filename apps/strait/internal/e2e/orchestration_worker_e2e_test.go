@@ -68,7 +68,7 @@ func TestOrchestrationWorkerE2E_TriggerCreatesClaimableWorkerRuns(t *testing.T) 
 		t.Fatalf("routing rows = %d, want %d", seen, runCount)
 	}
 
-	claimed, err := testQueue.DequeueNForWorker(ctx, runCount, []string{queueName})
+	claimed, err := testQueue.DequeueNForWorkerQueues(ctx, runCount, []domain.WorkerQueueRef{{ProjectID: projectID, QueueName: queueName}})
 	if err != nil {
 		t.Fatalf("DequeueNForWorker: %v", err)
 	}

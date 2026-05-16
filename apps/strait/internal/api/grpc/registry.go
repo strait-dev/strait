@@ -377,7 +377,8 @@ func (r *ConnectionRegistry) SnapshotQueues() []string {
 
 // SnapshotWorkerQueues returns the deduplicated set of queue/environment
 // scopes across all active workers on this replica. Empty EnvironmentID means
-// a project-wide worker can accept runs from any environment.
+// a project-wide worker can accept runs from any environment in the same
+// project.
 func (r *ConnectionRegistry) SnapshotWorkerQueues() []domain.WorkerQueueRef {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -389,6 +390,7 @@ func (r *ConnectionRegistry) SnapshotWorkerQueues() []domain.WorkerQueueRef {
 		}
 		for _, q := range w.Queues {
 			seen[domain.WorkerQueueRef{
+				ProjectID:     w.ProjectID,
 				QueueName:     q,
 				EnvironmentID: w.EnvironmentID,
 			}] = struct{}{}

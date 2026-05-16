@@ -1096,9 +1096,11 @@ const (
 	ExecutionModeWorker ExecutionMode = "worker"
 )
 
-// WorkerQueueRef identifies a connected worker queue scope. Empty
-// EnvironmentID means the worker is project-wide for that queue.
+// WorkerQueueRef identifies a connected worker queue scope. ProjectID is
+// required so worker-mode dequeue never claims another tenant's queued runs.
+// Empty EnvironmentID means the worker is project-wide for that queue.
 type WorkerQueueRef struct {
+	ProjectID     string
 	QueueName     string
 	EnvironmentID string
 }

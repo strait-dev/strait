@@ -951,7 +951,7 @@ func (q *PostgresQueue) InsertClaimRowFromEnqueue(ctx context.Context, db store.
 // additionally restricts candidate rows to execution_mode='worker' and the
 // queue/environment scopes represented by parallel pgx text-array args.
 //
-// $1 = LIMIT n  |  $2 = queue names  |  $3 = environment ids.
+// $1 = LIMIT n  |  $2 = project ids  |  $3 = queue names  |  $4 = environment ids.
 func workerClaimDeleteSQL() string {
 	return "/* action=dequeue */ " + `
 	DELETE FROM job_run_queue
@@ -977,8 +977,9 @@ func workerClaimDeleteSQL() string {
 		  AND q.execution_mode = 'worker'
 		  AND EXISTS (
 		      SELECT 1
-		      FROM unnest($2::text[], $3::text[]) AS wq(queue_name, environment_id)
-		      WHERE wq.queue_name = q.queue_name
+		      FROM unnest($2::text[], $3::text[], $4::text[]) AS wq(project_id, queue_name, environment_id)
+		      WHERE wq.project_id = q.project_id
+		        AND wq.queue_name = q.queue_name
 		        AND (wq.environment_id = '' OR j.environment_id = wq.environment_id)
 		  )
 		ORDER BY q.priority DESC, q.created_at ASC
@@ -988,18 +989,13 @@ func workerClaimDeleteSQL() string {
 	RETURNING run_id`
 }
 
-// DequeueNForWorker claims up to n worker-mode runs whose queue_name is in
-// the provided queues list. It mirrors DequeueNClaim but adds the
-// execution_mode + queue_name filter so each replica only claims runs that
-// have a connected worker on this instance.
+// DequeueNForWorker is retained for compatibility with older callers. It
+// cannot express project scope, so it fails closed; production worker dispatch
+// uses DequeueNForWorkerQueues.
 //
-// On empty queues slice it returns nil immediately — no claim is attempted.
+// On any input it returns nil immediately — no claim is attempted.
 func (q *PostgresQueue) DequeueNForWorker(ctx context.Context, n int, queues []string) ([]domain.JobRun, error) {
-	refs := make([]domain.WorkerQueueRef, 0, len(queues))
-	for _, queueName := range queues {
-		refs = append(refs, domain.WorkerQueueRef{QueueName: queueName})
-	}
-	return q.DequeueNForWorkerQueues(ctx, n, refs)
+	return nil, nil
 }
 
 // DequeueNForWorkerQueues claims up to n worker-mode runs for the supplied
@@ -1009,14 +1005,14 @@ func (q *PostgresQueue) DequeueNForWorkerQueues(ctx context.Context, n int, queu
 	ctx, span := otel.Tracer("strait").Start(ctx, "queue.DequeueNForWorker")
 	defer span.End()
 
-	queueNames, environmentIDs := workerQueueRefArgs(queues)
+	projectIDs, queueNames, environmentIDs := workerQueueRefArgs(queues)
 	if n <= 0 || len(queueNames) == 0 {
 		return nil, nil
 	}
 
 	beginner, ok := q.db.(store.TxBeginner)
 	if !ok {
-		return q.dequeueNForWorkerFallback(ctx, n, queueNames, environmentIDs)
+		return q.dequeueNForWorkerFallback(ctx, n, projectIDs, queueNames, environmentIDs)
 	}
 	tx, err := beginner.Begin(ctx)
 	if err != nil {
@@ -1031,13 +1027,13 @@ func (q *PostgresQueue) DequeueNForWorkerQueues(ctx context.Context, n int, queu
 		}
 	}
 
-	rows, err := tx.Query(ctx, workerClaimDeleteSQL(), n, queueNames, environmentIDs)
+	rows, err := tx.Query(ctx, workerClaimDeleteSQL(), n, projectIDs, queueNames, environmentIDs)
 	if err != nil {
 		// Undefined table = pre-migration; fall back to simple filter variant.
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "42P01" { // undefined_table
 			_ = tx.Rollback(ctx)
-			return q.dequeueNForWorkerFallback(ctx, n, queueNames, environmentIDs)
+			return q.dequeueNForWorkerFallback(ctx, n, projectIDs, queueNames, environmentIDs)
 		}
 		return nil, fmt.Errorf("dequeue worker claim: delete: %w", err)
 	}
@@ -1089,30 +1085,32 @@ func (q *PostgresQueue) DequeueNForWorkerQueues(ctx context.Context, n int, queu
 	return runs, nil
 }
 
-func workerQueueRefArgs(refs []domain.WorkerQueueRef) ([]string, []string) {
+func workerQueueRefArgs(refs []domain.WorkerQueueRef) ([]string, []string, []string) {
 	if len(refs) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	seen := make(map[domain.WorkerQueueRef]struct{}, len(refs))
+	projectIDs := make([]string, 0, len(refs))
 	queueNames := make([]string, 0, len(refs))
 	environmentIDs := make([]string, 0, len(refs))
 	for _, ref := range refs {
-		if ref.QueueName == "" {
+		if ref.ProjectID == "" || ref.QueueName == "" {
 			continue
 		}
 		if _, ok := seen[ref]; ok {
 			continue
 		}
 		seen[ref] = struct{}{}
+		projectIDs = append(projectIDs, ref.ProjectID)
 		queueNames = append(queueNames, ref.QueueName)
 		environmentIDs = append(environmentIDs, ref.EnvironmentID)
 	}
-	return queueNames, environmentIDs
+	return projectIDs, queueNames, environmentIDs
 }
 
 // dequeueNForWorkerFallback is used when the claim table is not yet available.
 // It falls back to the job_runs scan path with execution_mode and queue_name filters.
-func (q *PostgresQueue) dequeueNForWorkerFallback(ctx context.Context, n int, queueNames, environmentIDs []string) ([]domain.JobRun, error) {
+func (q *PostgresQueue) dequeueNForWorkerFallback(ctx context.Context, n int, projectIDs, queueNames, environmentIDs []string) ([]domain.JobRun, error) {
 	orderBy := q.dequeueOrderByClause()
 	return executeDequeue(ctx, q, n, dequeueSpec{
 		spanName:            "queue.DequeueNForWorkerFallback",
@@ -1139,14 +1137,15 @@ func (q *PostgresQueue) dequeueNForWorkerFallback(ctx context.Context, n int, qu
 			  AND jr.execution_mode = 'worker'
 			  AND EXISTS (
 			      SELECT 1
-			      FROM unnest($2::text[], $3::text[]) AS wq(queue_name, environment_id)
-			      WHERE wq.queue_name = jr.queue_name
+			      FROM unnest($2::text[], $3::text[], $4::text[]) AS wq(project_id, queue_name, environment_id)
+			      WHERE wq.project_id = jr.project_id
+			        AND wq.queue_name = jr.queue_name
 			        AND (wq.environment_id = '' OR j.environment_id = wq.environment_id)
 			  )
 			ORDER BY %s
 			FOR UPDATE OF jr SKIP LOCKED
 			LIMIT $1`, domain.StatusQueued, orderBy),
-		extraArgs: []any{queueNames, environmentIDs},
+		extraArgs: []any{projectIDs, queueNames, environmentIDs},
 	})
 }
 

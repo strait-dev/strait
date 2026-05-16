@@ -255,9 +255,9 @@ func TestRegistry_SnapshotWorkerQueues_IncludesEnvironmentScopes(t *testing.T) {
 		seen[ref] = struct{}{}
 	}
 	want := []domain.WorkerQueueRef{
-		{QueueName: "q1"},
-		{QueueName: "q2"},
-		{QueueName: "q1", EnvironmentID: "env-staging"},
+		{ProjectID: "proj-a", QueueName: "q1"},
+		{ProjectID: "proj-a", QueueName: "q2"},
+		{ProjectID: "proj-a", QueueName: "q1", EnvironmentID: "env-staging"},
 	}
 	if len(seen) != len(want) {
 		t.Fatalf("snapshot refs = %+v, want %d unique refs", got, len(want))
@@ -267,7 +267,7 @@ func TestRegistry_SnapshotWorkerQueues_IncludesEnvironmentScopes(t *testing.T) {
 			t.Fatalf("missing worker queue ref %+v from %+v", ref, got)
 		}
 	}
-	if _, ok := seen[domain.WorkerQueueRef{QueueName: "q3", EnvironmentID: "env-prod"}]; ok {
+	if _, ok := seen[domain.WorkerQueueRef{ProjectID: "proj-a", QueueName: "q3", EnvironmentID: "env-prod"}]; ok {
 		t.Fatalf("draining worker ref leaked into snapshot: %+v", got)
 	}
 }

@@ -499,7 +499,7 @@ func TestClaimTable_DequeueNForWorker_RoutesNonDefaultWorkerQueue(t *testing.T) 
 
 	assertClaimRouting(t, ctx, run.ID, domain.ExecutionModeWorker, "priority")
 
-	batch, err := q.DequeueNForWorker(ctx, 1, []string{"priority"})
+	batch, err := q.DequeueNForWorkerQueues(ctx, 1, []domain.WorkerQueueRef{{ProjectID: job.ProjectID, QueueName: "priority"}})
 	if err != nil {
 		t.Fatalf("DequeueNForWorker: %v", err)
 	}
@@ -553,7 +553,7 @@ func TestClaimTable_DequeueNForWorkerQueues_FiltersByEnvironment(t *testing.T) {
 		t.Fatalf("Enqueue staging worker run: %v", err)
 	}
 
-	batch, err := q.DequeueNForWorkerQueues(ctx, 1, []domain.WorkerQueueRef{{QueueName: "priority", EnvironmentID: stagingEnvID}})
+	batch, err := q.DequeueNForWorkerQueues(ctx, 1, []domain.WorkerQueueRef{{ProjectID: projectID, QueueName: "priority", EnvironmentID: stagingEnvID}})
 	if err != nil {
 		t.Fatalf("DequeueNForWorkerQueues(staging): %v", err)
 	}
@@ -561,7 +561,7 @@ func TestClaimTable_DequeueNForWorkerQueues_FiltersByEnvironment(t *testing.T) {
 		t.Fatalf("staging-scoped dequeue = %+v, want only staging run %s", batch, stagingRun.ID)
 	}
 
-	prodBatch, err := q.DequeueNForWorkerQueues(ctx, 1, []domain.WorkerQueueRef{{QueueName: "priority", EnvironmentID: prodEnvID}})
+	prodBatch, err := q.DequeueNForWorkerQueues(ctx, 1, []domain.WorkerQueueRef{{ProjectID: projectID, QueueName: "priority", EnvironmentID: prodEnvID}})
 	if err != nil {
 		t.Fatalf("DequeueNForWorkerQueues(prod): %v", err)
 	}
@@ -599,7 +599,7 @@ func TestClaimTable_DequeueNForWorkerQueues_ProjectWideScopeMatchesAnyEnvironmen
 		wantIDs[run.ID] = struct{}{}
 	}
 
-	batch, err := q.DequeueNForWorkerQueues(ctx, 2, []domain.WorkerQueueRef{{QueueName: "priority"}})
+	batch, err := q.DequeueNForWorkerQueues(ctx, 2, []domain.WorkerQueueRef{{ProjectID: projectID, QueueName: "priority"}})
 	if err != nil {
 		t.Fatalf("DequeueNForWorkerQueues(project-wide): %v", err)
 	}
@@ -614,6 +614,62 @@ func TestClaimTable_DequeueNForWorkerQueues_ProjectWideScopeMatchesAnyEnvironmen
 	}
 	if len(wantIDs) != 0 {
 		t.Fatalf("project-wide dequeue missed runs: %+v", wantIDs)
+	}
+}
+
+func TestClaimTable_DequeueNForWorkerQueues_FiltersByProject(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	mustClean(t, ctx)
+	st := mustStore(t)
+	q := mustQueue(t)
+
+	projectA := "project-worker-claim-scope-a"
+	projectB := "project-worker-claim-scope-b"
+
+	jobA := mustCreateJob(t, ctx, st, projectA)
+	markWorkerJobQueue(t, ctx, jobA, "priority")
+	runA := &domain.JobRun{
+		ID:            newID(),
+		JobID:         jobA.ID,
+		ProjectID:     jobA.ProjectID,
+		Priority:      1,
+		ExecutionMode: domain.ExecutionModeWorker,
+		QueueName:     "priority",
+	}
+	if err := q.Enqueue(ctx, runA); err != nil {
+		t.Fatalf("Enqueue project A worker run: %v", err)
+	}
+
+	jobB := mustCreateJob(t, ctx, st, projectB)
+	markWorkerJobQueue(t, ctx, jobB, "priority")
+	runB := &domain.JobRun{
+		ID:            newID(),
+		JobID:         jobB.ID,
+		ProjectID:     jobB.ProjectID,
+		Priority:      100,
+		ExecutionMode: domain.ExecutionModeWorker,
+		QueueName:     "priority",
+	}
+	if err := q.Enqueue(ctx, runB); err != nil {
+		t.Fatalf("Enqueue project B worker run: %v", err)
+	}
+
+	batch, err := q.DequeueNForWorkerQueues(ctx, 2, []domain.WorkerQueueRef{{ProjectID: projectA, QueueName: "priority"}})
+	if err != nil {
+		t.Fatalf("DequeueNForWorkerQueues(project A): %v", err)
+	}
+	if len(batch) != 1 || batch[0].ID != runA.ID {
+		t.Fatalf("project-scoped dequeue = %+v, want only project A run %s", batch, runA.ID)
+	}
+
+	var statusB string
+	if err := testDB.Pool.QueryRow(ctx, `SELECT status FROM job_runs WHERE id = $1`, runB.ID).Scan(&statusB); err != nil {
+		t.Fatalf("query project B run status: %v", err)
+	}
+	if statusB != string(domain.StatusQueued) {
+		t.Fatalf("project B run status = %q, want queued", statusB)
 	}
 }
 
@@ -666,7 +722,7 @@ func TestClaimTable_DequeueNForWorker_IgnoresHTTPAndOtherQueues(t *testing.T) {
 		t.Fatalf("Enqueue priority worker run: %v", err)
 	}
 
-	batch, err := q.DequeueNForWorker(ctx, 10, []string{"priority"})
+	batch, err := q.DequeueNForWorkerQueues(ctx, 10, []domain.WorkerQueueRef{{ProjectID: priorityJob.ProjectID, QueueName: "priority"}})
 	if err != nil {
 		t.Fatalf("DequeueNForWorker: %v", err)
 	}
@@ -724,7 +780,7 @@ func TestClaimTable_DequeueNClaim_IgnoresWorkerModeRuns(t *testing.T) {
 		t.Fatalf("DequeueNClaim run ID = %q, want HTTP run %q", httpBatch[0].ID, httpRun.ID)
 	}
 
-	workerBatch, err := q.DequeueNForWorker(ctx, 10, []string{"priority"})
+	workerBatch, err := q.DequeueNForWorkerQueues(ctx, 10, []domain.WorkerQueueRef{{ProjectID: workerJob.ProjectID, QueueName: "priority"}})
 	if err != nil {
 		t.Fatalf("DequeueNForWorker: %v", err)
 	}
@@ -757,7 +813,7 @@ func TestClaimTable_RequeueRestoresWorkerRouting(t *testing.T) {
 	if err := q.Enqueue(ctx, run); err != nil {
 		t.Fatalf("Enqueue worker run: %v", err)
 	}
-	firstBatch, err := q.DequeueNForWorker(ctx, 1, []string{"priority"})
+	firstBatch, err := q.DequeueNForWorkerQueues(ctx, 1, []domain.WorkerQueueRef{{ProjectID: job.ProjectID, QueueName: "priority"}})
 	if err != nil {
 		t.Fatalf("first DequeueNForWorker: %v", err)
 	}
@@ -775,7 +831,7 @@ func TestClaimTable_RequeueRestoresWorkerRouting(t *testing.T) {
 	}
 	assertClaimRouting(t, ctx, run.ID, domain.ExecutionModeWorker, "priority")
 
-	secondBatch, err := q.DequeueNForWorker(ctx, 1, []string{"priority"})
+	secondBatch, err := q.DequeueNForWorkerQueues(ctx, 1, []domain.WorkerQueueRef{{ProjectID: job.ProjectID, QueueName: "priority"}})
 	if err != nil {
 		t.Fatalf("second DequeueNForWorker: %v", err)
 	}
