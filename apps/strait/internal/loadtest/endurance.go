@@ -144,10 +144,15 @@ func (er *EnduranceRunner) Run(ctx context.Context, h *Harness) (*EnduranceResul
 				case <-ticker.C:
 					spikeActive.Store(true)
 					result.SpikesInjected++
-					time.Sleep(er.config.SpikeDuration)
+					if !sleepWithContext(ctx, er.config.SpikeDuration) {
+						spikeActive.Store(false)
+						return
+					}
 					spikeActive.Store(false)
 					// Allow 10 min recovery
-					time.Sleep(10 * time.Minute)
+					if !sleepWithContext(ctx, 10*time.Minute) {
+						return
+					}
 				}
 			}
 		})
@@ -345,6 +350,20 @@ func boundedLoadGeneratorCapacity(rate int) int {
 		return 1
 	}
 	return min(rate, loadGeneratorMaxInFlight)
+}
+
+func sleepWithContext(ctx context.Context, d time.Duration) bool {
+	if d <= 0 {
+		return true
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
 }
 
 func startTrackedLoadtestTrigger(

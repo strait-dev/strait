@@ -51,3 +51,16 @@ func TestStartTrackedLoadtestTriggerBoundsAndDrains(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestSleepWithContextReturnsOnCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	start := time.Now()
+	if sleepWithContext(ctx, time.Hour) {
+		t.Fatal("sleepWithContext returned true for cancelled context")
+	}
+	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
+		t.Fatalf("sleepWithContext took %s after cancellation", elapsed)
+	}
+}
