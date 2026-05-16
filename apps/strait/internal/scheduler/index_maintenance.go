@@ -2,8 +2,11 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
+
+	"strait/internal/store"
 )
 
 const defaultIndexMaintenanceInterval = 24 * time.Hour
@@ -80,6 +83,10 @@ func (m *IndexMaintainer) Run(ctx context.Context) {
 func (m *IndexMaintainer) runLocked(ctx context.Context) error {
 	for _, indexName := range m.indexes {
 		if err := m.store.ReindexIndexConcurrently(ctx, indexName); err != nil {
+			if errors.Is(err, store.ErrIndexNotFound) {
+				m.logger.Debug("skipping missing reindex target", "index", indexName)
+				continue
+			}
 			m.logger.Error("failed to reindex partial index", "index", indexName, "error", err)
 			continue
 		}

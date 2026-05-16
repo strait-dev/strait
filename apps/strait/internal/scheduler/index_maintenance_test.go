@@ -2,20 +2,27 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
+
+	"strait/internal/store"
 )
 
 type mockIndexMaintenanceStore struct {
 	mu    sync.Mutex
 	calls []string
+	errs  map[string]error
 }
 
 func (m *mockIndexMaintenanceStore) ReindexIndexConcurrently(_ context.Context, indexName string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.calls = append(m.calls, indexName)
+	if err, ok := m.errs[indexName]; ok {
+		return err
+	}
 	return nil
 }
 
@@ -23,6 +30,42 @@ func (m *mockIndexMaintenanceStore) callCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return len(m.calls)
+}
+
+func TestIndexMaintainer_MissingIndexDoesNotAbortCycle(t *testing.T) {
+	t.Parallel()
+
+	s := &mockIndexMaintenanceStore{
+		errs: map[string]error{
+			"idx_runs_queue_covering": store.ErrIndexNotFound,
+		},
+	}
+	maintainer := NewIndexMaintainer(s, time.Second)
+
+	if err := maintainer.runLocked(context.Background()); err != nil {
+		t.Fatalf("runLocked() error = %v", err)
+	}
+	if s.callCount() != len(defaultReindexTargets) {
+		t.Fatalf("reindex calls = %d, want %d", s.callCount(), len(defaultReindexTargets))
+	}
+}
+
+func TestIndexMaintainer_ReindexErrorStillContinues(t *testing.T) {
+	t.Parallel()
+
+	s := &mockIndexMaintenanceStore{
+		errs: map[string]error{
+			"idx_runs_queue_covering": errors.New("reindex failed"),
+		},
+	}
+	maintainer := NewIndexMaintainer(s, time.Second)
+
+	if err := maintainer.runLocked(context.Background()); err != nil {
+		t.Fatalf("runLocked() error = %v", err)
+	}
+	if s.callCount() != len(defaultReindexTargets) {
+		t.Fatalf("reindex calls = %d, want %d", s.callCount(), len(defaultReindexTargets))
+	}
 }
 
 func TestIndexMaintainer_Run_RespectsInterval(t *testing.T) {
