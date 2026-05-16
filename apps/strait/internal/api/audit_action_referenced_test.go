@@ -27,9 +27,6 @@ var auditActionReferenceAllowlist = map[string]string{
 
 	// The following actions are defined for future use in billing/scheduler
 	// hooks and are not yet wired to call sites.
-	"AuditActionCronPausedQuota":       "planned for scheduler quota-enforcement hook (not yet wired)",
-	"AuditActionCronResumedQuota":      "planned for scheduler quota-resume hook (not yet wired)",
-	"AuditActionQuotaExceeded":         "planned for billing quota-exceeded hook (not yet wired)",
 	"AuditActionSubscriptionChanged":   "planned for billing subscription-changed hook (not yet wired)",
 	"AuditActionUsageThresholdReached": "emitted from internal/billing/threshold_warning.go via billing event channel (not directly from internal/api/)",
 }

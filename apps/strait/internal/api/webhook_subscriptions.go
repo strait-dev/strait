@@ -23,9 +23,6 @@ var validWebhookEventTypes = map[string]bool{
 	domain.WebhookEventWorkflowCompleted: true,
 	domain.WebhookEventWorkflowFailed:    true,
 	domain.WebhookEventSLOBudgetWarning:  true,
-	domain.WebhookEventQuotaExceeded:     true,
-	domain.WebhookEventCronPausedQuota:   true,
-	domain.WebhookEventCronResumed:       true,
 
 	domain.WebhookEventBillingCapWarning:            true,
 	domain.WebhookEventBillingCapReached:            true,

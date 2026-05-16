@@ -634,19 +634,7 @@ var AuditActionSchemas = map[string]AuditActionSchema{
 		Description: "Worker force-disconnect request timed out waiting for worker-plane acknowledgement.",
 	},
 
-	// Quota and cron lifecycle (billing-period enforcement).
-	AuditActionQuotaExceeded: {
-		Required:    []string{"org_id", "plan_tier"},
-		Description: "Org exceeded its quota; cron jobs paused until the next billing period.",
-	},
-	AuditActionCronPausedQuota: {
-		Required:    []string{"org_id", "jobs_paused"},
-		Description: "Cron jobs paused automatically because the org's quota was exceeded.",
-	},
-	AuditActionCronResumedQuota: {
-		Required:    []string{"org_id", "jobs_resumed"},
-		Description: "Cron jobs resumed automatically at the start of a new billing period after quota reset.",
-	},
+	// Billing-period enforcement lifecycle.
 	AuditActionSubscriptionChanged: {
 		Required:    []string{"org_id", "plan_tier"},
 		Description: "Org subscription changed (plan upgrade, downgrade, or renewal).",

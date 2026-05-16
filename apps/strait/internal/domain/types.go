@@ -52,9 +52,6 @@ const (
 	WebhookEventWorkflowCompleted = "workflow.completed"
 	WebhookEventWorkflowFailed    = "workflow.failed"
 	WebhookEventSLOBudgetWarning  = "slo.budget_warning"
-	WebhookEventQuotaExceeded     = "quota.exceeded"
-	WebhookEventCronPausedQuota   = "cron.paused_quota"
-	WebhookEventCronResumed       = "cron.resumed"
 
 	// Outbound billing-state events. Dispatched via the same
 	// webhook_subscriptions pipeline as run/workflow events, with HMAC

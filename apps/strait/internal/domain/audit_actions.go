@@ -206,9 +206,6 @@ const (
 	AuditActionWorkerDeleteTimeout     = "worker.delete.timeout"
 
 	// Quota and cron lifecycle (billing-period enforcement).
-	AuditActionQuotaExceeded         = "quota.exceeded"
-	AuditActionCronPausedQuota       = "cron.paused_quota"
-	AuditActionCronResumedQuota      = "cron.resumed_quota"
 	AuditActionSubscriptionChanged   = "subscription.changed"
 	AuditActionUsageThresholdReached = "usage.threshold_reached"
 
@@ -361,9 +358,6 @@ var allAuditActions = map[string]struct{}{
 	AuditActionWorkerTaskRouted:                {},
 	AuditActionWorkerDeleteAcked:               {},
 	AuditActionWorkerDeleteTimeout:             {},
-	AuditActionQuotaExceeded:                   {},
-	AuditActionCronPausedQuota:                 {},
-	AuditActionCronResumedQuota:                {},
 	AuditActionSubscriptionChanged:             {},
 	AuditActionUsageThresholdReached:           {},
 	AuditActionInternalSecretBypass:            {},

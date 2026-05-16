@@ -79,7 +79,7 @@ func TestCheckWebhookEventTypes_AllTier_AcceptsEverything(t *testing.T) {
 	enforcer := &tunableLimitsEnforcer{limits: limits}
 	srv := newServerWithEnforcer(t, &APIStoreMock{}, &mockQueue{}, enforcer)
 
-	all := []string{"run.completed", "run.failed", "run.timed_out", "run.canceled", "workflow.completed", "workflow.failed", "slo.budget_warning", "quota.exceeded"}
+	all := []string{"run.completed", "run.failed", "run.timed_out", "run.canceled", "workflow.completed", "workflow.failed", "slo.budget_warning", "billing.cap_warning"}
 	if err := srv.checkWebhookEventTypes(context.Background(), "proj-1", all); err != nil {
 		t.Fatalf("all-tier plan must accept every event type; got %v", err)
 	}
