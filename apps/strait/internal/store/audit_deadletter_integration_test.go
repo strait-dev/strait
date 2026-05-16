@@ -359,6 +359,65 @@ func TestListAuditEventsDeadletterByProject_PaginatesSameQueuedAtRows(t *testing
 	}
 }
 
+func TestDropAuditEventDeadletterWithAudit_InsertsAuditAndDeletesRow(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	q := mustStore(t)
+	signingKey, err := store.DeriveAuditSigningKey("dlq-atomic-drop-secret")
+	if err != nil {
+		t.Fatalf("derive signing key: %v", err)
+	}
+	q.SetAuditSigningKey(signingKey)
+
+	projectID := "proj-dlq-atomic-drop"
+	dlqID := "dlq-atomic-drop-1"
+	ev := &domain.AuditEvent{
+		ID:           dlqID,
+		ProjectID:    projectID,
+		ActorID:      "actor",
+		ActorType:    "user",
+		Action:       domain.AuditActionJobTriggered,
+		ResourceType: "job",
+		ResourceID:   "job-1",
+		Details:      json.RawMessage(`{}`),
+		CreatedAt:    time.Now().UTC(),
+	}
+	if err := q.CreateAuditEventDeadletter(ctx, ev, "down", 0); err != nil {
+		t.Fatalf("CreateAuditEventDeadletter: %v", err)
+	}
+
+	auditEvent := &domain.AuditEvent{
+		ID:           "audit-dlq-drop-1",
+		ProjectID:    projectID,
+		ActorID:      "internal:admin",
+		ActorType:    "internal",
+		Action:       domain.AuditActionDeadletterDropped,
+		ResourceType: "audit_deadletter",
+		ResourceID:   dlqID,
+		Details:      json.RawMessage(`{"deadletter_id":"dlq-atomic-drop-1","reason":"corrupt_payload"}`),
+		CreatedAt:    time.Now().UTC(),
+	}
+	dropped, err := q.DropAuditEventDeadletterWithAudit(ctx, dlqID, projectID, auditEvent)
+	if err != nil {
+		t.Fatalf("DropAuditEventDeadletterWithAudit: %v", err)
+	}
+	if !dropped {
+		t.Fatal("DropAuditEventDeadletterWithAudit dropped=false, want true")
+	}
+
+	var dlqRows, auditRows int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT
+			(SELECT COUNT(*) FROM audit_events_deadletter WHERE id = $1 AND project_id = $2),
+			(SELECT COUNT(*) FROM audit_events WHERE id = $3 AND project_id = $2 AND action = $4 AND resource_id = $1)
+	`, dlqID, projectID, auditEvent.ID, domain.AuditActionDeadletterDropped).Scan(&dlqRows, &auditRows); err != nil {
+		t.Fatalf("count drop results: %v", err)
+	}
+	if dlqRows != 0 || auditRows != 1 {
+		t.Fatalf("dlq/audit rows = %d/%d, want 0/1", dlqRows, auditRows)
+	}
+}
+
 // TestAuditDeadletter_DeleteOlderThan_PerProjectCounts asserts the
 // retention reaper removes only old rows and returns counts grouped by
 // project.

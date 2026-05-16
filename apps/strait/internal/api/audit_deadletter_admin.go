@@ -278,6 +278,10 @@ type DropDeadletterResponse struct {
 	Dropped      bool   `json:"dropped"`
 }
 
+type auditDeadletterAtomicDropper interface {
+	DropAuditEventDeadletterWithAudit(ctx context.Context, id, projectID string, auditEvent *domain.AuditEvent) (bool, error)
+}
+
 func (s *Server) handleDropDeadletter(ctx context.Context, input *DropDeadletterInput) (*DropDeadletterOutput, error) {
 	if err := s.requireAdmin(ctx); err != nil {
 		return nil, err
@@ -294,26 +298,28 @@ func (s *Server) handleDropDeadletter(ctx context.Context, input *DropDeadletter
 		reason = "operator_drop"
 	}
 
-	// Project-scoped lookup first so a cross-tenant drop is impossible.
-	ev, err := s.store.GetAuditEventDeadletter(ctx, input.ID, projectID)
-	if err != nil {
-		slog.Error("failed to fetch audit deadletter for drop",
-			"id", input.ID, "project_id", projectID, "error", err)
-		return nil, huma.Error500InternalServerError("failed to fetch deadletter entry")
-	}
-	if ev == nil {
-		return nil, huma.Error404NotFound("deadletter entry not found")
-	}
-
-	if delErr := s.store.DeleteAuditEventDeadletter(ctx, input.ID, projectID); delErr != nil {
-		slog.Error("audit deadletter drop failed", "id", input.ID, "error", delErr)
+	dropper, ok := s.store.(auditDeadletterAtomicDropper)
+	if !ok {
+		slog.Error("audit deadletter drop requires atomic audit-capable store")
 		return nil, huma.Error500InternalServerError("failed to drop deadletter entry")
 	}
-
-	s.emitAuditEvent(ctx, domain.AuditActionDeadletterDropped, "audit_deadletter", input.ID, map[string]any{
+	auditEvent, auditErr := s.buildAuditEvent(ctx, domain.AuditActionDeadletterDropped, "audit_deadletter", input.ID, map[string]any{
 		"deadletter_id": input.ID,
 		"reason":        reason,
 	})
+	if auditErr != nil {
+		slog.Error("failed to build audit deadletter drop event", "id", input.ID, "project_id", projectID, "error", auditErr)
+		return nil, huma.Error500InternalServerError("failed to build audit event")
+	}
+
+	dropped, dropErr := dropper.DropAuditEventDeadletterWithAudit(ctx, input.ID, projectID, auditEvent)
+	if dropErr != nil {
+		slog.Error("audit deadletter atomic drop failed", "id", input.ID, "project_id", projectID, "error", dropErr)
+		return nil, huma.Error500InternalServerError("failed to drop deadletter entry")
+	}
+	if !dropped {
+		return nil, huma.Error404NotFound("deadletter entry not found")
+	}
 
 	return &DropDeadletterOutput{Body: DropDeadletterResponse{
 		DeadletterID: input.ID,

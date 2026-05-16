@@ -348,6 +348,78 @@ func (q *Queries) DeleteAuditEventDeadletter(ctx context.Context, id, projectID 
 	return nil
 }
 
+// DropAuditEventDeadletterWithAudit atomically records the operator drop in
+// the signed audit chain and removes the deadletter row. The audit insert is
+// deliberately inside the same transaction as the delete so an operator cannot
+// permanently discard DLQ evidence without a durable self-audit record.
+func (q *Queries) DropAuditEventDeadletterWithAudit(ctx context.Context, id, projectID string, auditEvent *domain.AuditEvent) (bool, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DropAuditEventDeadletterWithAudit")
+	defer span.End()
+
+	if id == "" || projectID == "" {
+		return false, fmt.Errorf("id and project_id are required")
+	}
+	if auditEvent == nil {
+		return false, fmt.Errorf("audit event is required")
+	}
+	if auditEvent.ProjectID != "" && auditEvent.ProjectID != projectID {
+		return false, fmt.Errorf("audit event project_id %q does not match deadletter project_id %q", auditEvent.ProjectID, projectID)
+	}
+	auditEvent.ProjectID = projectID
+
+	if tx, ok := TxFromContext(ctx); ok {
+		return q.dropAuditEventDeadletterWithAuditTx(ctx, tx, id, projectID, auditEvent)
+	}
+
+	beginner, ok := q.db.(TxBeginner)
+	if !ok {
+		return false, fmt.Errorf("drop audit deadletter with audit: db does not support transactions")
+	}
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("drop audit deadletter with audit: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	dropped, err := q.dropAuditEventDeadletterWithAuditTx(ctx, tx, id, projectID, auditEvent)
+	if err != nil || !dropped {
+		return dropped, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("drop audit deadletter with audit: commit tx: %w", err)
+	}
+	return true, nil
+}
+
+func (q *Queries) dropAuditEventDeadletterWithAuditTx(ctx context.Context, tx pgx.Tx, id, projectID string, auditEvent *domain.AuditEvent) (bool, error) {
+	var lockedID string
+	err := tx.QueryRow(ctx, `
+		SELECT id
+		FROM audit_events_deadletter
+		WHERE id = $1 AND project_id = $2 AND reclaimed_event_id IS NULL
+		FOR UPDATE
+	`, id, projectID).Scan(&lockedID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("drop audit deadletter with audit: lock row: %w", err)
+	}
+
+	if err := q.withDB(tx).CreateAuditEvent(ctx, auditEvent); err != nil {
+		return false, fmt.Errorf("drop audit deadletter with audit: create audit event: %w", err)
+	}
+	if tag, err := tx.Exec(ctx, `
+		DELETE FROM audit_events_deadletter
+		WHERE id = $1 AND project_id = $2 AND reclaimed_event_id IS NULL
+	`, id, projectID); err != nil {
+		return false, fmt.Errorf("drop audit deadletter with audit: delete dlq row: %w", err)
+	} else if tag.RowsAffected() == 0 {
+		return false, fmt.Errorf("drop audit deadletter with audit: delete matched no row")
+	}
+	return true, nil
+}
+
 // AuditDeadletterAttemptInfo carries the fields the reclaimer needs to make
 // idempotency and max-attempts decisions without re-reading the row.
 type AuditDeadletterAttemptInfo struct {
