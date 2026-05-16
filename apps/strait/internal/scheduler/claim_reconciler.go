@@ -52,7 +52,7 @@ func (r *ClaimReconciler) reconcileOnce(ctx context.Context) error {
 			j.max_concurrency, j.max_concurrency_per_key,
 			j.enabled, j.paused,
 			COALESCE(NULLIF(jr.execution_mode, ''), NULLIF(j.execution_mode, ''), 'http'),
-			COALESCE(NULLIF(jr.queue_name, ''), NULLIF(j.queue, ''), 'default')
+			COALESCE(NULLIF(jr.queue_name, ''), NULLIF(j.queue_name, ''), 'default')
 		FROM job_runs jr
 		JOIN jobs j ON j.id = jr.job_id
 		LEFT JOIN job_run_queue q ON q.run_id = jr.id
