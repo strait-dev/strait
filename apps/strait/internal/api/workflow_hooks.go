@@ -107,7 +107,6 @@ func (s *Server) publishWorkflowRunHook(ctx context.Context, run *domain.Workflo
 				MaxAttempts:    5,
 				NextRetryAt:    &now,
 				Payload:        payload,
-				LastError:      string(payload),
 			}
 			if createErr := s.store.CreateWebhookDelivery(bgCtx, d); createErr != nil {
 				slog.Warn("failed to enqueue workflow webhook delivery",

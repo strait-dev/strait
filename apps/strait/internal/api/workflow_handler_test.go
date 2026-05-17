@@ -3911,6 +3911,12 @@ func TestPublishWorkflowRunHook_FiresWebhook(t *testing.T) {
 			if d.WebhookURL != "https://example.com/hook" {
 				t.Errorf("expected webhook URL, got %s", d.WebhookURL)
 			}
+			if len(d.Payload) == 0 {
+				t.Error("expected workflow hook payload to be stored in Payload")
+			}
+			if d.LastError != "" {
+				t.Errorf("LastError = %q, want empty for pending workflow hook delivery", d.LastError)
+			}
 			return nil
 		},
 	}
