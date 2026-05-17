@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"strings"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -68,7 +69,36 @@ func Init(ctx context.Context, serviceName, endpoint, environment string) (func(
 		propagation.Baggage{},
 	))
 
-	slog.Info("otel tracing enabled", "endpoint", endpoint)
+	slog.Info("otel tracing enabled", "endpoint", redactOTLPEndpoint(u))
 
 	return tp.Shutdown, nil
+}
+
+func redactOTLPEndpoint(u *url.URL) string {
+	if u == nil {
+		return ""
+	}
+	redacted := *u
+	if redacted.User != nil {
+		redacted.User = nil
+	}
+
+	query := redacted.Query()
+	for key := range query {
+		if isCredentialQueryKey(key) {
+			query.Set(key, "[redacted]")
+		}
+	}
+	redacted.RawQuery = query.Encode()
+	return redacted.String()
+}
+
+func isCredentialQueryKey(key string) bool {
+	key = strings.ToLower(key)
+	return strings.Contains(key, "token") ||
+		strings.Contains(key, "key") ||
+		strings.Contains(key, "secret") ||
+		strings.Contains(key, "password") ||
+		strings.Contains(key, "auth") ||
+		strings.Contains(key, "credential")
 }

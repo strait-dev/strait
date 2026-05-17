@@ -65,7 +65,7 @@ func InitLogBridge(ctx context.Context, serviceName, endpoint, environment strin
 	handler := otelslog.NewHandler(serviceName, otelslog.WithLoggerProvider(provider))
 	logger := slog.New(handler)
 
-	slog.Info("otel log bridge enabled", "endpoint", endpoint)
+	slog.Info("otel log bridge enabled", "endpoint", redactOTLPEndpoint(u))
 
 	return logger, provider.Shutdown, nil
 }
