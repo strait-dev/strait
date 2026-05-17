@@ -120,6 +120,28 @@ func TestResultChannelRegistry_DeduplicateSend(t *testing.T) {
 	}
 }
 
+func TestDeepSecResultChannelRegistry_RejectsDuplicateRegister(t *testing.T) {
+	t.Parallel()
+
+	r := NewResultChannelRegistry()
+	first, ok := r.TryRegister("run-dup", "proj-1", "worker-1")
+	if !ok || first == nil {
+		t.Fatal("first TryRegister should succeed")
+	}
+	second, ok := r.TryRegister("run-dup", "proj-1", "worker-2")
+	if ok || second != nil {
+		t.Fatalf("duplicate TryRegister = (%v, %v), want nil,false", second, ok)
+	}
+
+	result := &workerv1.TaskResult{RunId: "run-dup", Status: "success"}
+	if r.Send("run-dup", "proj-1", "worker-2", result) {
+		t.Fatal("duplicate worker must not receive overwritten ownership")
+	}
+	if !r.Send("run-dup", "proj-1", "worker-1", result) {
+		t.Fatal("original worker should retain result-channel ownership")
+	}
+}
+
 // TestResultChannelRegistry_Deregister verifies cleanup after dispatch completes.
 func TestResultChannelRegistry_Deregister(t *testing.T) {
 	r := NewResultChannelRegistry()

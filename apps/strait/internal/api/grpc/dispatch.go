@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -62,6 +63,8 @@ type resultChannelEntry struct {
 	workerID  string
 }
 
+var ErrResultChannelAlreadyRegistered = errors.New("result channel already registered")
+
 // NewResultChannelRegistry creates an empty registry.
 func NewResultChannelRegistry() *ResultChannelRegistry {
 	return &ResultChannelRegistry{
@@ -78,11 +81,23 @@ func (d *WorkerDispatcher) WithSecretDecryptor(dec SecretDecryptor) *WorkerDispa
 // run's project ID, and returns it. The dispatcher must pass the authoritative
 // project ID from the run row (not user input).
 func (r *ResultChannelRegistry) Register(runID, projectID, workerID string) chan *workerv1.TaskResult {
+	ch, _ := r.TryRegister(runID, projectID, workerID)
+	return ch
+}
+
+// TryRegister creates a result channel unless the run already has an active
+// waiter. Duplicate registration is rejected so concurrent dispatch attempts
+// for the same run cannot overwrite the original channel and orphan its
+// dispatcher.
+func (r *ResultChannelRegistry) TryRegister(runID, projectID, workerID string) (chan *workerv1.TaskResult, bool) {
 	ch := make(chan *workerv1.TaskResult, 1)
 	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, exists := r.channels[runID]; exists {
+		return nil, false
+	}
 	r.channels[runID] = resultChannelEntry{ch: ch, projectID: projectID, workerID: workerID}
-	r.mu.Unlock()
-	return ch
+	return ch, true
 }
 
 // Deregister removes the channel for the given run ID. Must be called by
@@ -236,7 +251,13 @@ func (d *WorkerDispatcher) WorkerDispatch(
 	// never miss a TaskResult that arrives before we start waiting. The
 	// channel is bound to run.ProjectID so any TaskResult arriving from a
 	// worker authenticated to a different project is dropped on the floor.
-	resultCh := d.resultChannels.Register(run.ID, run.ProjectID, workerID)
+	resultCh, registered := d.resultChannels.TryRegister(run.ID, run.ProjectID, workerID)
+	if !registered {
+		d.markWorkerTaskFailedAfterAbort(ctx, task.ID, run.ID)
+		d.registry.IncrementSlots(workerID)
+		trace.Result = "result_channel_duplicate"
+		return nil, ErrResultChannelAlreadyRegistered
+	}
 	defer d.resultChannels.Deregister(run.ID)
 
 	// Build and send the TaskAssignment.

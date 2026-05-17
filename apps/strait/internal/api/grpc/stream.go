@@ -543,6 +543,11 @@ func (s *workerService) handleAck(ctx context.Context, workerID, projectID strin
 	if ack == nil || ack.Id == "" {
 		return nil
 	}
+	if len(ack.Id) > maxRunIDLen {
+		slog.Warn("grpc ack: run_id exceeds bound — rejecting",
+			"worker_id", workerID, "run_id_len", len(ack.Id))
+		return nil
+	}
 	task, err := s.queries.GetOpenWorkerTaskByRunID(ctx, workerID, projectID, ack.Id)
 	if err != nil {
 		return err
@@ -1041,7 +1046,7 @@ func validateRegistration(reg *workerv1.WorkerRegistration) error {
 	if reg == nil {
 		return status.Error(codes.InvalidArgument, "registration must not be nil")
 	}
-	if reg.WorkerId == "" {
+	if strings.TrimSpace(reg.WorkerId) == "" {
 		return status.Error(codes.InvalidArgument, "worker_id must be non-empty")
 	}
 	if len(reg.WorkerId) > maxWorkerIDLen {

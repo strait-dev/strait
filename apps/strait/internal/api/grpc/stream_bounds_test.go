@@ -1,7 +1,11 @@
 package grpc
 
 import (
+	"context"
+	"strings"
 	"testing"
+
+	workerv1 "strait/internal/api/grpc/proto/workerv1"
 )
 
 // TestBounds_Constants pins the worker-plane resource bounds. These caps are
@@ -38,5 +42,17 @@ func TestBounds_Constants(t *testing.T) {
 		if tc.got != tc.want {
 			t.Errorf("%s = %d, want %d", tc.name, tc.got, tc.want)
 		}
+	}
+}
+
+func TestDeepSecHandleAck_OversizedRunIDRejectedBeforeStore(t *testing.T) {
+	t.Parallel()
+
+	svc := &workerService{}
+	err := svc.handleAck(context.Background(), "worker-1", "proj-1", &workerv1.Acknowledged{
+		Id: strings.Repeat("r", maxRunIDLen+1),
+	})
+	if err != nil {
+		t.Fatalf("oversized ack should be dropped without store access, got %v", err)
 	}
 }
