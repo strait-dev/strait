@@ -3885,21 +3885,10 @@ func TestPublishWorkflowRunHook_FiresWebhook(t *testing.T) {
 
 	var webhookCreated atomic.Bool
 	webhookDone := make(chan struct{}, 1)
-	var getCalls atomic.Int32
 	ms := &APIStoreMock{
-		GetWorkflowRunFunc: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
-			n := getCalls.Add(1)
-			if n == 1 {
-				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusRunning}, nil
-			}
-			return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusPaused}, nil
-		},
-		UpdateWorkflowRunStatusFunc: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
-			return nil
-		},
 		ListWebhookSubscriptionsFunc: func(_ context.Context, projectID string) ([]domain.WebhookSubscription, error) {
 			return []domain.WebhookSubscription{
-				{ID: "sub-1", ProjectID: projectID, WebhookURL: "https://example.com/hook", EventTypes: []string{"workflow_run.pause"}, Active: true},
+				{ID: "sub-1", ProjectID: projectID, WebhookURL: "https://example.com/hook", EventTypes: []string{domain.WebhookEventWorkflowCompleted}, Active: true},
 			}, nil
 		},
 		CreateWebhookDeliveryFunc: func(_ context.Context, d *domain.WebhookDelivery) error {
@@ -3910,6 +3899,9 @@ func TestPublishWorkflowRunHook_FiresWebhook(t *testing.T) {
 			}
 			if d.WebhookURL != "https://example.com/hook" {
 				t.Errorf("expected webhook URL, got %s", d.WebhookURL)
+			}
+			if d.ProjectID != "proj-1" {
+				t.Errorf("ProjectID = %q, want proj-1", d.ProjectID)
 			}
 			if len(d.Payload) == 0 {
 				t.Error("expected workflow hook payload to be stored in Payload")
@@ -3923,18 +3915,43 @@ func TestPublishWorkflowRunHook_FiresWebhook(t *testing.T) {
 
 	pub := &mockPublisher{}
 	srv := newWorkflowTestServer(t, ms, &mockQueue{}, pub, nil)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/pause", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	srv.publishWorkflowRunHook(context.Background(),
+		&domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusCompleted},
+		domain.WfStatusRunning,
+		domain.WfStatusCompleted,
+		"completed",
+	)
 
 	select {
 	case <-webhookDone:
 	case <-time.After(2 * time.Second):
 		t.Error("expected webhook delivery to be created for pause event")
 	}
+}
+
+func TestPublishWorkflowRunHook_SkipsUncreatableWorkflowRunReason(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		ListWebhookSubscriptionsFunc: func(_ context.Context, projectID string) ([]domain.WebhookSubscription, error) {
+			return []domain.WebhookSubscription{
+				{ID: "legacy-sub", ProjectID: projectID, WebhookURL: "https://example.com/hook", EventTypes: []string{"workflow_run.pause"}, Active: true},
+			}, nil
+		},
+		CreateWebhookDeliveryFunc: func(context.Context, *domain.WebhookDelivery) error {
+			t.Fatal("workflow_run.pause is not creatable and must not enqueue subscription deliveries")
+			return nil
+		},
+	}
+
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, &mockPublisher{}, nil)
+	srv.publishWorkflowRunHook(context.Background(),
+		&domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusPaused},
+		domain.WfStatusRunning,
+		domain.WfStatusPaused,
+		"pause",
+	)
+	time.Sleep(20 * time.Millisecond)
 }
 
 func TestPublishWorkflowRunHook_NilDelivery(t *testing.T) {

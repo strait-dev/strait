@@ -67,7 +67,10 @@ func (s *Server) publishWorkflowRunHook(ctx context.Context, run *domain.Workflo
 
 	// Enqueue webhook deliveries for matching subscriptions (non-fatal).
 	// Use detached context so client disconnect doesn't abort webhook delivery.
-	eventType := "workflow_run." + reason
+	eventType, ok := workflowWebhookEventType(to)
+	if !ok {
+		return
+	}
 	var deliveryWG conc.WaitGroup
 	deliveryWG.Go(func() {
 		defer func() {
@@ -114,4 +117,16 @@ func (s *Server) publishWorkflowRunHook(ctx context.Context, run *domain.Workflo
 			}
 		}
 	})
+}
+
+func workflowWebhookEventType(status domain.WorkflowRunStatus) (string, bool) {
+	switch status {
+	case domain.WfStatusCompleted:
+		return domain.WebhookEventWorkflowCompleted, true
+	case domain.WfStatusFailed, domain.WfStatusTimedOut, domain.WfStatusCanceled,
+		domain.WfStatusCompensated, domain.WfStatusCompensationFailed:
+		return domain.WebhookEventWorkflowFailed, true
+	default:
+		return "", false
+	}
 }
