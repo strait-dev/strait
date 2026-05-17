@@ -106,11 +106,84 @@ func TestBulkCancelWorkflowRuns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetWorkflowRun() error = %v", err)
 	}
-	if got1.Status != domain.WfStatusFailed {
-		t.Fatalf("canceled run status = %q, want %q", got1.Status, domain.WfStatusFailed)
+	if got1.Status != domain.WfStatusCanceled {
+		t.Fatalf("canceled run status = %q, want %q", got1.Status, domain.WfStatusCanceled)
 	}
 	if got1.Error != "canceled by user (bulk)" {
 		t.Fatalf("canceled run error = %q, want 'canceled by user (bulk)'", got1.Error)
+	}
+}
+
+func TestBulkCancelWorkflowRuns_SkipsEveryTerminalStatus(t *testing.T) {
+	ctx := context.Background()
+	q := covStore(t)
+	covClean(t, ctx)
+
+	projectID := "proj-bulk-cancel-terminal-" + covID()
+	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
+		ProjectID: new(projectID),
+		Name:      new("wf-bulk-cancel-terminal"),
+		Slug:      new("wf-bulk-cancel-terminal-" + covID()),
+	})
+
+	terminalStatuses := []domain.WorkflowRunStatus{
+		domain.WfStatusCompleted,
+		domain.WfStatusFailed,
+		domain.WfStatusTimedOut,
+		domain.WfStatusCanceled,
+		domain.WfStatusCompensated,
+		domain.WfStatusCompensationFailed,
+	}
+	ids := make([]string, 0, len(terminalStatuses)+1)
+	wantStatusByID := make(map[string]domain.WorkflowRunStatus, len(terminalStatuses))
+	for _, status := range terminalStatuses {
+		status := status
+		run := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
+			ProjectID: new(projectID),
+			Status:    &status,
+		})
+		if _, err := testDB.Pool.Exec(ctx, `UPDATE workflow_runs SET finished_at = $1, error = $2 WHERE id = $3`,
+			time.Now().UTC().Add(-time.Hour), "terminal must be immutable", run.ID); err != nil {
+			t.Fatalf("seed terminal %s: %v", status, err)
+		}
+		ids = append(ids, run.ID)
+		wantStatusByID[run.ID] = status
+	}
+
+	runningStatus := domain.WfStatusRunning
+	running := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
+		ProjectID: new(projectID),
+		Status:    &runningStatus,
+	})
+	ids = append(ids, running.ID)
+
+	canceled, err := q.BulkCancelWorkflowRuns(ctx, projectID, ids, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("BulkCancelWorkflowRuns() error = %v", err)
+	}
+	if len(canceled) != 1 || canceled[0] != running.ID {
+		t.Fatalf("canceled IDs = %v, want only %s", canceled, running.ID)
+	}
+
+	for id, wantStatus := range wantStatusByID {
+		got, err := q.GetWorkflowRun(ctx, id)
+		if err != nil {
+			t.Fatalf("GetWorkflowRun(%s) error = %v", id, err)
+		}
+		if got.Status != wantStatus {
+			t.Fatalf("terminal run %s status = %q, want %q", id, got.Status, wantStatus)
+		}
+		if got.Error != "terminal must be immutable" {
+			t.Fatalf("terminal run %s error = %q, want immutable marker", id, got.Error)
+		}
+	}
+
+	gotRunning, err := q.GetWorkflowRun(ctx, running.ID)
+	if err != nil {
+		t.Fatalf("GetWorkflowRun(running) error = %v", err)
+	}
+	if gotRunning.Status != domain.WfStatusCanceled {
+		t.Fatalf("running status = %q, want %q", gotRunning.Status, domain.WfStatusCanceled)
 	}
 }
 

@@ -646,8 +646,9 @@ func (q *Queries) BulkCancelWorkflowRuns(ctx context.Context, projectID string, 
 
 	rows, err := q.db.Query(ctx, `
 		UPDATE workflow_runs
-		SET status = 'failed', finished_at = $2, error = 'canceled by user (bulk)'
-		WHERE id = ANY($1) AND project_id = $3 AND status NOT IN ('completed', 'failed')
+		SET status = 'canceled', finished_at = $2, error = 'canceled by user (bulk)'
+		WHERE id = ANY($1) AND project_id = $3
+		  AND status NOT IN ('completed', 'failed', 'timed_out', 'canceled', 'compensated', 'compensation_failed')
 		RETURNING id
 	`, ids, now, projectID)
 	if err != nil {
