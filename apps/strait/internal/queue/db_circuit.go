@@ -202,6 +202,13 @@ func (c *DBCircuit) recordSuccess() {
 // re-opens the circuit regardless of the window.
 func (c *DBCircuit) recordFailure(err error, halfOpen bool) {
 	if errors.Is(err, context.Canceled) {
+		if halfOpen {
+			c.mu.Lock()
+			if c.state == CircuitHalfOpen && c.probeInFlight {
+				c.probeInFlight = false
+			}
+			c.mu.Unlock()
+		}
 		return
 	}
 	c.mu.Lock()

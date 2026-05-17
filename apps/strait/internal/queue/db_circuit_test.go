@@ -88,6 +88,32 @@ func TestCircuit_HalfOpenSuccessCloses(t *testing.T) {
 	}
 }
 
+func TestCircuit_HalfOpenCanceledProbeAllowsRetry(t *testing.T) {
+	now := time.Now()
+	c := newTestCircuit(&now)
+	boom := errors.New("boom")
+	for range 3 {
+		_ = c.Do(context.Background(), func(_ context.Context) error { return boom })
+	}
+	now = now.Add(200 * time.Millisecond)
+
+	err := c.Do(context.Background(), func(_ context.Context) error { return context.Canceled })
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("probe err = %v, want context.Canceled", err)
+	}
+	if c.State() != CircuitHalfOpen {
+		t.Fatalf("state = %v, want half-open after canceled probe", c.State())
+	}
+
+	err = c.Do(context.Background(), func(_ context.Context) error { return nil })
+	if err != nil {
+		t.Fatalf("second probe err = %v", err)
+	}
+	if c.State() != CircuitClosed {
+		t.Fatalf("state = %v, want closed after successful retry probe", c.State())
+	}
+}
+
 func TestCircuit_HalfOpenAllowsOnlyOneProbe(t *testing.T) {
 	now := time.Now()
 	c := NewDBCircuit(DBCircuitConfig{
