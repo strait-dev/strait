@@ -186,7 +186,8 @@ func TestParsePositiveInt(t *testing.T) {
 		{name: "negative", input: "-3", wantErr: true},
 		{name: "non-numeric", input: "abc", wantErr: true},
 		{name: "empty string", input: "", wantErr: true},
-		{name: "float string", input: "1.5", want: 1},
+		{name: "float string", input: "1.5", wantErr: true},
+		{name: "trailing suffix", input: "1xyz", wantErr: true},
 		{name: "leading spaces with number", input: " 5", want: 5},
 	}
 
@@ -207,6 +208,29 @@ func TestParsePositiveInt(t *testing.T) {
 				t.Fatalf("parsePositiveInt(%q) = %d, want %d", tc.input, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestValidateMigrationDatabaseURLRejectsDisableSSLInProduction(t *testing.T) {
+	t.Parallel()
+
+	err := validateMigrationDatabaseURL("postgres://localhost/strait?sslmode=disable", "production")
+	if err == nil {
+		t.Fatal("expected production sslmode=disable to be rejected")
+	}
+	if !strings.Contains(err.Error(), "sslmode=disable") {
+		t.Fatalf("error = %v, want sslmode=disable", err)
+	}
+}
+
+func TestValidateMigrationDatabaseURLAllowsDisableSSLInDevelopment(t *testing.T) {
+	t.Parallel()
+
+	if err := validateMigrationDatabaseURL("postgres://localhost/strait?sslmode=disable", "development"); err != nil {
+		t.Fatalf("development sslmode=disable should be allowed: %v", err)
+	}
+	if err := validateMigrationDatabaseURL("postgres://localhost/strait?sslmode=disable", ""); err != nil {
+		t.Fatalf("empty environment should default to development: %v", err)
 	}
 }
 

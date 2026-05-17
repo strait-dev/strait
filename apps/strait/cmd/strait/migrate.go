@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"strait/migrations"
 
@@ -173,6 +174,9 @@ func openMigratorFromEnv() (*migrate.Migrate, error) {
 	if databaseURL == "" {
 		return nil, fmt.Errorf("DATABASE_URL is required")
 	}
+	if err := validateMigrationDatabaseURL(databaseURL, os.Getenv("SENTRY_ENVIRONMENT")); err != nil {
+		return nil, err
+	}
 
 	db, err := sql.Open("pgx", databaseURL)
 	if err != nil {
@@ -210,8 +214,7 @@ func closeMigrator(m *migrate.Migrate) {
 }
 
 func parsePositiveInt(raw string) (int, error) {
-	var n int
-	_, err := fmt.Sscanf(raw, "%d", &n)
+	n, err := strconv.Atoi(strings.TrimSpace(raw))
 	if err != nil {
 		return 0, fmt.Errorf("invalid number %q", raw)
 	}
@@ -219,6 +222,16 @@ func parsePositiveInt(raw string) (int, error) {
 		return 0, fmt.Errorf("number must be positive")
 	}
 	return n, nil
+}
+
+func validateMigrationDatabaseURL(databaseURL, environment string) error {
+	if environment == "" {
+		environment = "development"
+	}
+	if strings.Contains(databaseURL, "sslmode=disable") && environment != "development" && environment != "test" {
+		return fmt.Errorf("DATABASE_URL sslmode=disable is not allowed in non-development environments")
+	}
+	return nil
 }
 
 func nextMigrationVersion(dir string) (int, error) {
