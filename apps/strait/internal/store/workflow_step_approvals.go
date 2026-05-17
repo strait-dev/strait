@@ -89,7 +89,7 @@ func (q *Queries) UpdateWorkflowStepApproval(
 		    approved_by = $2,
 		    approved_at = $3,
 		    error = $4
-		WHERE id = $5`
+		WHERE id = $5 AND status = 'pending'`
 
 	tag, err := q.db.Exec(
 		ctx,
@@ -104,7 +104,15 @@ func (q *Queries) UpdateWorkflowStepApproval(
 		return fmt.Errorf("update workflow step approval: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return ErrWorkflowStepRunNotFound
+		var existingStatus string
+		statusErr := q.db.QueryRow(ctx, `SELECT status FROM workflow_step_approvals WHERE id = $1`, id).Scan(&existingStatus)
+		if errors.Is(statusErr, pgx.ErrNoRows) {
+			return ErrWorkflowStepRunNotFound
+		}
+		if statusErr != nil {
+			return fmt.Errorf("update workflow step approval status check: %w", statusErr)
+		}
+		return fmt.Errorf("%w: workflow step approval %s already %s", ErrRunConflict, id, existingStatus)
 	}
 
 	if OnApprovalChanged != nil {

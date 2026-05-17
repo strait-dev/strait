@@ -4,11 +4,16 @@ package store_test
 
 import (
 	"context"
+	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/store"
 	"strait/internal/testutil"
+
+	"github.com/sourcegraph/conc"
 )
 
 func TestUpdateWorkflowStepApproval(t *testing.T) {
@@ -50,6 +55,103 @@ func TestUpdateWorkflowStepApproval(t *testing.T) {
 	err = q.UpdateWorkflowStepApproval(ctx, newID(), "approved", "user-a", &now, "")
 	if err == nil {
 		t.Fatal("UpdateWorkflowStepApproval(notfound) expected error, got nil")
+	}
+}
+
+func TestUpdateWorkflowStepApproval_RejectsStaleDecision(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	_, wfRun, stepRun := mustCreateWorkflowStepFixture(t, ctx, q, "project-update-approval-stale", domain.StepPending)
+
+	approval := &domain.WorkflowStepApproval{
+		ID:                newID(),
+		WorkflowRunID:     wfRun.ID,
+		WorkflowStepRunID: stepRun.ID,
+		Approvers:         []string{"user-a", "user-b"},
+		Status:            domain.ApprovalStatusPending,
+		RequestedAt:       time.Now().UTC().Add(-10 * time.Minute),
+	}
+	if err := q.CreateWorkflowStepApproval(ctx, approval); err != nil {
+		t.Fatalf("CreateWorkflowStepApproval() error = %v", err)
+	}
+
+	now := time.Now().UTC()
+	if err := q.UpdateWorkflowStepApproval(ctx, approval.ID, domain.ApprovalStatusApproved, "user-a", &now, ""); err != nil {
+		t.Fatalf("first UpdateWorkflowStepApproval() error = %v", err)
+	}
+
+	err := q.UpdateWorkflowStepApproval(ctx, approval.ID, domain.ApprovalStatusRejected, "user-b", &now, "late rejection")
+	if !errors.Is(err, store.ErrRunConflict) {
+		t.Fatalf("second UpdateWorkflowStepApproval() error = %v, want ErrRunConflict", err)
+	}
+
+	got, err := q.GetWorkflowStepApprovalByStepRunID(ctx, stepRun.ID)
+	if err != nil {
+		t.Fatalf("GetWorkflowStepApprovalByStepRunID() error = %v", err)
+	}
+	if got.Status != domain.ApprovalStatusApproved {
+		t.Fatalf("status = %q, want %q", got.Status, domain.ApprovalStatusApproved)
+	}
+	if got.ApprovedBy != "user-a" {
+		t.Fatalf("approved_by = %q, want user-a", got.ApprovedBy)
+	}
+}
+
+func TestUpdateWorkflowStepApproval_ConcurrentApprovalHasSingleWinner(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	_, wfRun, stepRun := mustCreateWorkflowStepFixture(t, ctx, q, "project-update-approval-race", domain.StepPending)
+
+	approval := &domain.WorkflowStepApproval{
+		ID:                newID(),
+		WorkflowRunID:     wfRun.ID,
+		WorkflowStepRunID: stepRun.ID,
+		Approvers:         []string{"user-a", "user-b"},
+		Status:            domain.ApprovalStatusPending,
+		RequestedAt:       time.Now().UTC().Add(-10 * time.Minute),
+	}
+	if err := q.CreateWorkflowStepApproval(ctx, approval); err != nil {
+		t.Fatalf("CreateWorkflowStepApproval() error = %v", err)
+	}
+
+	const contenders = 24
+	var successes int64
+	var conflicts int64
+	var wg conc.WaitGroup
+	for i := range contenders {
+		i := i
+		wg.Go(func() {
+			now := time.Now().UTC()
+			err := q.UpdateWorkflowStepApproval(ctx, approval.ID, domain.ApprovalStatusApproved, "user-"+newID(), &now, "")
+			switch {
+			case err == nil:
+				atomic.AddInt64(&successes, 1)
+			case errors.Is(err, store.ErrRunConflict):
+				atomic.AddInt64(&conflicts, 1)
+			default:
+				t.Errorf("contender %d UpdateWorkflowStepApproval() error = %v", i, err)
+			}
+		})
+	}
+	wg.Wait()
+
+	if successes != 1 {
+		t.Fatalf("successes = %d, want 1", successes)
+	}
+	if conflicts != contenders-1 {
+		t.Fatalf("conflicts = %d, want %d", conflicts, contenders-1)
+	}
+
+	got, err := q.GetWorkflowStepApprovalByStepRunID(ctx, stepRun.ID)
+	if err != nil {
+		t.Fatalf("GetWorkflowStepApprovalByStepRunID() error = %v", err)
+	}
+	if got.Status != domain.ApprovalStatusApproved {
+		t.Fatalf("status = %q, want %q", got.Status, domain.ApprovalStatusApproved)
 	}
 }
 
