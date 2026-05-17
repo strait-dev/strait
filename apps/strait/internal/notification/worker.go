@@ -41,9 +41,31 @@ func NewWorker(ns store.NotificationStore, client *http.Client, webhookOptions .
 	}
 }
 
+// NewWorkerWithEmail creates a notification worker and registers the email
+// sender when Resend credentials are configured.
+func NewWorkerWithEmail(ns store.NotificationStore, client *http.Client, resendAPIKey, resendFromEmail string, webhookOptions ...WebhookSenderOption) *Worker {
+	w := NewWorker(ns, client, webhookOptions...)
+	if resendAPIKey == "" {
+		return w
+	}
+	emailSender, err := NewEmailSender(resendAPIKey, resendFromEmail)
+	if err != nil {
+		slog.Warn("failed to initialize email notification sender", "error", err)
+		return w
+	}
+	w.RegisterSender(domain.ChannelTypeEmail, emailSender)
+	return w
+}
+
 // RegisterSender adds or replaces a channel sender for the given channel type.
 func (w *Worker) RegisterSender(channelType string, sender ChannelSender) {
 	w.senders[channelType] = sender
+}
+
+// HasSender reports whether a sender is registered for a channel type.
+func (w *Worker) HasSender(channelType string) bool {
+	_, ok := w.senders[channelType]
+	return ok
 }
 
 // WithDeliveriesCounter attaches an OTel counter for tracking delivery outcomes.

@@ -367,7 +367,13 @@ func startNotificationWorker(g *pool.ContextPool, cfg *config.Config, queries *s
 			return http.ErrUseLastResponse
 		},
 	}
-	notifWorker := notification.NewWorker(queries, httpClient, notification.WithWebhookAllowPrivateEndpoints(cfg.AllowPrivateEndpoints))
+	notifWorker := notification.NewWorkerWithEmail(
+		queries,
+		httpClient,
+		cfg.ResendAPIKey,
+		cfg.ResendFromEmail,
+		notification.WithWebhookAllowPrivateEndpoints(cfg.AllowPrivateEndpoints),
+	)
 	if metrics != nil {
 		notifWorker.WithDeliveriesCounter(metrics.NotificationDeliveriesTotal)
 	}
