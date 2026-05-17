@@ -3,6 +3,7 @@ package billing
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"strait/internal/domain"
@@ -157,5 +158,17 @@ func TestListAllSubscribedOrgIDs(t *testing.T) {
 	}
 	if ids != nil {
 		t.Errorf("expected nil, got %v", ids)
+	}
+}
+
+func TestListAllSubscribedOrgIDsSQL_HasNoFixedRetentionSweepCap(t *testing.T) {
+	t.Parallel()
+
+	sql := strings.ToUpper(listAllSubscribedOrgIDsSQL())
+	if strings.Contains(sql, "LIMIT") {
+		t.Fatalf("subscribed org listing must not use a fixed LIMIT: %s", sql)
+	}
+	if !strings.Contains(sql, "ORDER BY ORG_ID") {
+		t.Fatalf("subscribed org listing should remain deterministic: %s", sql)
 	}
 }

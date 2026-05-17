@@ -971,13 +971,7 @@ func (s *PgStore) UpdateAnomalyThresholds(ctx context.Context, orgID string, war
 }
 
 func (s *PgStore) ListAllSubscribedOrgIDs(ctx context.Context) ([]string, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT org_id
-		FROM organization_subscriptions
-		WHERE status = 'active'
-		ORDER BY org_id
-		LIMIT 50000
-	`)
+	rows, err := s.pool.Query(ctx, listAllSubscribedOrgIDsSQL())
 	if err != nil {
 		return nil, fmt.Errorf("listing subscribed org IDs: %w", err)
 	}
@@ -992,6 +986,15 @@ func (s *PgStore) ListAllSubscribedOrgIDs(ctx context.Context) ([]string, error)
 		ids = append(ids, id)
 	}
 	return ids, rows.Err()
+}
+
+func listAllSubscribedOrgIDsSQL() string {
+	return `
+		SELECT org_id
+		FROM organization_subscriptions
+		WHERE status = 'active'
+		ORDER BY org_id
+	`
 }
 
 func (s *PgStore) UpdatePaymentStatus(ctx context.Context, orgID string, status string, graceEnd *time.Time) error {
