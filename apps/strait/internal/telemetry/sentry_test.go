@@ -474,6 +474,28 @@ func TestSanitizeQueryString_InvalidInput(t *testing.T) {
 	}
 }
 
+func TestSanitizeQueryString_RedactsCredentialAliases(t *testing.T) {
+	t.Parallel()
+
+	got := SanitizeQueryString("access_token=a&client_secret=b&x-api-key=c&signature=d&tenant=prod")
+	for _, secret := range []string{"=a", "=b", "=c", "=d"} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("sanitized query %q still contains secret marker %q", got, secret)
+		}
+	}
+	for _, want := range []string{
+		"access_token=%5BREDACTED%5D",
+		"client_secret=%5BREDACTED%5D",
+		"signature=%5BREDACTED%5D",
+		"tenant=prod",
+		"x-api-key=%5BREDACTED%5D",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("sanitized query %q missing %q", got, want)
+		}
+	}
+}
+
 // --- Sentry tag taxonomy tests.
 
 func TestSentryTagKeys_Contains_KnownKeys(t *testing.T) {

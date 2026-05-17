@@ -100,5 +100,6 @@ func isCredentialQueryKey(key string) bool {
 		strings.Contains(key, "secret") ||
 		strings.Contains(key, "password") ||
 		strings.Contains(key, "auth") ||
-		strings.Contains(key, "credential")
+		strings.Contains(key, "credential") ||
+		strings.Contains(key, "signature")
 }

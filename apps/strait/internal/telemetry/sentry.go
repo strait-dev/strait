@@ -299,15 +299,14 @@ func ScrubSecrets(s string) string {
 	return s
 }
 
-// SanitizeQueryString redacts token/key/secret query parameters.
+// SanitizeQueryString redacts credential-bearing query parameters.
 func SanitizeQueryString(qs string) string {
 	params, err := url.ParseQuery(qs)
 	if err != nil {
 		return ""
 	}
-	sensitive := []string{"token", "api_key", "secret", "key", "password", "auth"}
-	for _, k := range sensitive {
-		if _, ok := params[k]; ok {
+	for k := range params {
+		if isCredentialQueryKey(k) {
 			params.Set(k, "[REDACTED]")
 		}
 	}
