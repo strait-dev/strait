@@ -64,6 +64,12 @@ func (f *failingSender) Send(_ context.Context, _ *domain.NotificationChannel, _
 	return f.err
 }
 
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
 // ---------------------------------------------------------------------------.
 // 1. Malformed notification payloads
 // ---------------------------------------------------------------------------.
@@ -279,6 +285,108 @@ func TestWorker_DispatchUnsupportedChannelType(t *testing.T) {
 	}
 	if !strings.Contains(updatedDelivery.LastError, "unsupported channel type") {
 		t.Errorf("LastError = %q, want it to contain 'unsupported channel type'", updatedDelivery.LastError)
+	}
+}
+
+func TestWorker_RedactsSenderURLSecretsFromLastError(t *testing.T) {
+	t.Parallel()
+
+	var updatedDelivery *domain.NotificationDelivery
+	var claimCount atomic.Int32
+	st := &controllableNotificationStore{
+		claimFn: func(_ context.Context, _ int, _ time.Duration) ([]domain.NotificationDelivery, error) {
+			if claimCount.Add(1) > 1 {
+				return nil, nil
+			}
+			return []domain.NotificationDelivery{{
+				ID:          "del-1",
+				ChannelID:   "ch-1",
+				ProjectID:   "proj-1",
+				EventType:   "test.event",
+				Payload:     json.RawMessage(`{}`),
+				MaxAttempts: 1,
+			}}, nil
+		},
+		getChanFn: func(_ context.Context, _, _ string) (*domain.NotificationChannel, error) {
+			return &domain.NotificationChannel{
+				ID:          "ch-1",
+				ProjectID:   "proj-1",
+				ChannelType: domain.ChannelTypeSlack,
+				Config:      json.RawMessage(`{"webhook_url":"https://hooks.slack.com/services/T00/B00/secret-token"}`),
+			}, nil
+		},
+		updateFn: func(_ context.Context, d *domain.NotificationDelivery) (bool, error) {
+			clone := *d
+			updatedDelivery = &clone
+			return true, nil
+		},
+	}
+
+	w := NewWorker(st, &http.Client{})
+	w.RegisterSender(domain.ChannelTypeSlack, &failingSender{
+		err: fmt.Errorf("Post \"https://hooks.slack.com/services/T00/B00/secret-token\": dial tcp failed"),
+	})
+
+	processCtx, processCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer processCancel()
+	w.process(processCtx)
+
+	if updatedDelivery == nil {
+		t.Fatal("expected delivery to be updated")
+	}
+	if strings.Contains(updatedDelivery.LastError, "secret-token") || strings.Contains(updatedDelivery.LastError, "hooks.slack.com/services") {
+		t.Fatalf("LastError leaked webhook URL secret: %q", updatedDelivery.LastError)
+	}
+	if !strings.Contains(updatedDelivery.LastError, "[redacted-url]") {
+		t.Fatalf("LastError = %q, want redacted URL marker", updatedDelivery.LastError)
+	}
+}
+
+func TestSlackSender_RedactsWebhookURLInTransportError(t *testing.T) {
+	t.Parallel()
+
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return nil, fmt.Errorf("dial failed for %s", req.URL.String())
+	})}
+	sender := NewSlackSender(client)
+
+	err := sender.Send(context.Background(),
+		&domain.NotificationChannel{Config: json.RawMessage(`{"webhook_url":"https://hooks.slack.com/services/T00/B00/secret-token"}`)},
+		&domain.NotificationDelivery{EventType: "test.event", Payload: json.RawMessage(`{}`)},
+	)
+	if err == nil {
+		t.Fatal("expected send error")
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "secret-token") || strings.Contains(msg, "hooks.slack.com/services") {
+		t.Fatalf("slack error leaked webhook URL secret: %q", msg)
+	}
+	if !strings.Contains(msg, "[redacted-url]") {
+		t.Fatalf("slack error = %q, want redacted URL marker", msg)
+	}
+}
+
+func TestDiscordSender_RedactsWebhookURLInTransportError(t *testing.T) {
+	t.Parallel()
+
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return nil, fmt.Errorf("dial failed for %s", req.URL.String())
+	})}
+	sender := NewDiscordSender(client)
+
+	err := sender.Send(context.Background(),
+		&domain.NotificationChannel{Config: json.RawMessage(`{"webhook_url":"https://discord.com/api/webhooks/123/secret-token"}`)},
+		&domain.NotificationDelivery{EventType: "test.event", Payload: json.RawMessage(`{}`)},
+	)
+	if err == nil {
+		t.Fatal("expected send error")
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "secret-token") || strings.Contains(msg, "discord.com/api/webhooks") {
+		t.Fatalf("discord error leaked webhook URL secret: %q", msg)
+	}
+	if !strings.Contains(msg, "[redacted-url]") {
+		t.Fatalf("discord error = %q, want redacted URL marker", msg)
 	}
 }
 

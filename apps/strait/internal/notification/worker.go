@@ -134,7 +134,7 @@ func (w *Worker) dispatch(ctx context.Context, d *domain.NotificationDelivery) e
 	d.Attempts++
 
 	if sendErr != nil {
-		d.LastError = sendErr.Error()
+		d.LastError = sanitizeDeliveryError(sendErr)
 		if d.Attempts >= d.MaxAttempts {
 			d.Status = "failed"
 			d.NextRetryAt = nil

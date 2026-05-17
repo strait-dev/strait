@@ -62,7 +62,7 @@ func (d *DiscordSender) Send(ctx context.Context, channel *domain.NotificationCh
 
 	resp, err := d.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("send discord notification: %w", err)
+		return fmt.Errorf("send discord notification: %s", sanitizeDeliveryError(err))
 	}
 	defer resp.Body.Close()
 

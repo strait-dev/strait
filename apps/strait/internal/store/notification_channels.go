@@ -26,15 +26,13 @@ func (q *Queries) CreateNotificationChannel(ctx context.Context, ch *domain.Noti
 	if q.secretEncryptionKey != "" && len(configBytes) > 0 {
 		enc, encErr := q.secretEncryptor()
 		if encErr != nil {
-			slog.Warn("failed to create encryptor for notification channel config", "channel_id", ch.ID, "error", encErr)
-		} else {
-			encrypted, encryptErr := enc.Encrypt(configBytes)
-			if encryptErr != nil {
-				slog.Warn("failed to encrypt notification channel config", "channel_id", ch.ID, "error", encryptErr)
-			} else {
-				configBytes = encrypted
-			}
+			return fmt.Errorf("create notification channel config encryptor: %w", encErr)
 		}
+		encrypted, encryptErr := enc.Encrypt(configBytes)
+		if encryptErr != nil {
+			return fmt.Errorf("encrypt notification channel config: %w", encryptErr)
+		}
+		configBytes = encrypted
 	}
 
 	query := `
@@ -208,15 +206,13 @@ func (q *Queries) UpdateNotificationChannel(ctx context.Context, ch *domain.Noti
 	if q.secretEncryptionKey != "" && len(configBytes) > 0 {
 		enc, encErr := q.secretEncryptor()
 		if encErr != nil {
-			slog.Warn("failed to create encryptor for notification channel config", "channel_id", ch.ID, "error", encErr)
-		} else {
-			encrypted, encryptErr := enc.Encrypt(configBytes)
-			if encryptErr != nil {
-				slog.Warn("failed to encrypt notification channel config", "channel_id", ch.ID, "error", encryptErr)
-			} else {
-				configBytes = encrypted
-			}
+			return fmt.Errorf("update notification channel config encryptor: %w", encErr)
 		}
+		encrypted, encryptErr := enc.Encrypt(configBytes)
+		if encryptErr != nil {
+			return fmt.Errorf("encrypt notification channel config: %w", encryptErr)
+		}
+		configBytes = encrypted
 	}
 
 	query := `

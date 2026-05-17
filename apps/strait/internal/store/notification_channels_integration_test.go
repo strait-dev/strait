@@ -83,6 +83,51 @@ func TestCreateNotificationChannel_CustomID(t *testing.T) {
 	}
 }
 
+func TestCreateNotificationChannel_InvalidEncryptionKeyFailsClosed(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	q.SetSecretEncryptionKey("short")
+	mustClean(t, ctx)
+
+	ch := &domain.NotificationChannel{
+		ProjectID:   "proj-create-nc-invalid-key-" + newID(),
+		ChannelType: domain.ChannelTypeWebhook,
+		Name:        "ops-webhook",
+		Config:      []byte(`{"url":"https://example.com/hooks/ops"}`),
+		Enabled:     true,
+	}
+
+	if err := q.CreateNotificationChannel(ctx, ch); err == nil {
+		t.Fatal("CreateNotificationChannel() error = nil, want encryption failure")
+	}
+	if _, err := q.GetNotificationChannel(ctx, ch.ID, ch.ProjectID); !errors.Is(err, store.ErrNotificationChannelNotFound) {
+		t.Fatalf("GetNotificationChannel() error = %v, want ErrNotificationChannelNotFound", err)
+	}
+}
+
+func TestUpdateNotificationChannel_InvalidEncryptionKeyFailsClosed(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	ch := &domain.NotificationChannel{
+		ProjectID:   "proj-update-nc-invalid-key-" + newID(),
+		ChannelType: domain.ChannelTypeWebhook,
+		Name:        "ops-webhook",
+		Config:      []byte(`{"url":"https://example.com/hooks/ops"}`),
+		Enabled:     true,
+	}
+	if err := q.CreateNotificationChannel(ctx, ch); err != nil {
+		t.Fatalf("CreateNotificationChannel() error = %v", err)
+	}
+
+	q.SetSecretEncryptionKey("short")
+	ch.Config = []byte(`{"url":"https://example.com/hooks/updated"}`)
+	if err := q.UpdateNotificationChannel(ctx, ch); err == nil {
+		t.Fatal("UpdateNotificationChannel() error = nil, want encryption failure")
+	}
+}
+
 func TestGetNotificationChannel_NotFound(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
