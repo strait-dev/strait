@@ -23,8 +23,8 @@ func TestStaticRegistry_All(t *testing.T) {
 	reg := NewStaticRegistry()
 	all := reg.All()
 
-	if len(all) != 5 {
-		t.Fatalf("All() returned %d plans, want 5", len(all))
+	if len(all) != 6 {
+		t.Fatalf("All() returned %d plans, want 6", len(all))
 	}
 
 	expected := domain.AllPlanTiers()
@@ -155,7 +155,7 @@ func TestStaticRegistry_MaxForLimit(t *testing.T) {
 		{domain.PlanScale, LimitMaxScheduledJobs, MaxScheduledScale},
 
 		{domain.PlanFree, LimitMaxEnvironments, 1},
-		{domain.PlanStarter, LimitMaxEnvironments, 3},
+		{domain.PlanStarter, LimitMaxEnvironments, 1},
 
 		{domain.PlanFree, LimitMaxWebhookEndpoints, 0},
 		{domain.PlanStarter, LimitMaxWebhookEndpoints, 3},
@@ -287,11 +287,12 @@ func TestStaticRegistry_RequiredPlanForFeature(t *testing.T) {
 		// Scale features.
 		{FeatureAuditLogs, domain.PlanScale},
 		{FeatureCanaryDeployments, domain.PlanScale},
-		// Enterprise features.
-		{FeatureSSO, domain.PlanEnterprise},
-		{FeatureSLA, domain.PlanEnterprise},
+		// Business features (Business is the lowest tier with these now).
+		{FeatureSSO, domain.PlanBusiness},
+		{FeatureSLA, domain.PlanBusiness},
+		{FeatureSCIM, domain.PlanBusiness},
+		// Enterprise-only features.
 		{FeatureDedicatedCompute, domain.PlanEnterprise},
-		{FeatureSCIM, domain.PlanEnterprise},
 		// Unknown feature defaults to enterprise.
 		{Feature("nonexistent"), domain.PlanEnterprise},
 	}

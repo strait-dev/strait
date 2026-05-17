@@ -33,3 +33,9 @@ func recordBillingUsageRecord(context.Context, string, string) {}
 func recordBillingUsageRecordCost(context.Context, string, int64) {}
 
 func recordBillingIdempotencyDuplicate(context.Context, string) {}
+
+func recordBillingUsageThresholdEmitted(context.Context, string, string, string) {}
+
+func recordBillingUsageThresholdDedupeFailed(context.Context, string, string, string) {}
+
+func recordBillingWebhookOrphanDelivery(context.Context, string) {}

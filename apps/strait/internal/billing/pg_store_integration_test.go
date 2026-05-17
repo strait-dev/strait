@@ -1721,21 +1721,21 @@ func TestPgStore_ListActiveAddons(t *testing.T) {
 	a1 := &billing.Addon{
 		ID:        newID(),
 		OrgID:     orgID,
-		AddonType: billing.AddonConcurrentRuns,
+		AddonType: billing.AddonConcurrency100,
 		Quantity:  5,
 		Active:    true,
 	}
 	a2 := &billing.Addon{
 		ID:        newID(),
 		OrgID:     orgID,
-		AddonType: billing.AddonMembers,
+		AddonType: billing.AddonEnvironments5,
 		Quantity:  10,
 		Active:    true,
 	}
 	aInactive := &billing.Addon{
 		ID:        newID(),
 		OrgID:     orgID,
-		AddonType: billing.AddonDataRetention,
+		AddonType: billing.AddonHistory30d,
 		Quantity:  1,
 		Active:    false,
 	}
@@ -1768,7 +1768,7 @@ func TestPgStore_DeactivateAddon(t *testing.T) {
 	a := &billing.Addon{
 		ID:        newID(),
 		OrgID:     orgID,
-		AddonType: billing.AddonConcurrentRuns,
+		AddonType: billing.AddonConcurrency100,
 		Quantity:  5,
 		Active:    true,
 	}
@@ -1803,7 +1803,7 @@ func TestPgStore_CountActiveAddonsByType(t *testing.T) {
 		a := &billing.Addon{
 			ID:        newID(),
 			OrgID:     orgID,
-			AddonType: billing.AddonConcurrentRuns,
+			AddonType: billing.AddonConcurrency100,
 			Quantity:  1,
 			Active:    true,
 		}
@@ -1815,7 +1815,7 @@ func TestPgStore_CountActiveAddonsByType(t *testing.T) {
 	aInact := &billing.Addon{
 		ID:        newID(),
 		OrgID:     orgID,
-		AddonType: billing.AddonConcurrentRuns,
+		AddonType: billing.AddonConcurrency100,
 		Quantity:  1,
 		Active:    false,
 	}
@@ -1823,7 +1823,7 @@ func TestPgStore_CountActiveAddonsByType(t *testing.T) {
 		t.Fatalf("CreateAddon inactive error = %v", err)
 	}
 
-	count, err := pgStore.CountActiveAddonsByType(ctx, orgID, billing.AddonConcurrentRuns)
+	count, err := pgStore.CountActiveAddonsByType(ctx, orgID, billing.AddonConcurrency100)
 	if err != nil {
 		t.Fatalf("CountActiveAddonsByType error = %v", err)
 	}
@@ -1832,12 +1832,12 @@ func TestPgStore_CountActiveAddonsByType(t *testing.T) {
 	}
 
 	// Different type should be 0.
-	count2, err := pgStore.CountActiveAddonsByType(ctx, orgID, billing.AddonMembers)
+	count2, err := pgStore.CountActiveAddonsByType(ctx, orgID, billing.AddonEnvironments5)
 	if err != nil {
-		t.Fatalf("CountActiveAddonsByType members error = %v", err)
+		t.Fatalf("CountActiveAddonsByType environments_5 = %v", err)
 	}
 	if count2 != 0 {
-		t.Errorf("CountActiveAddonsByType members = %d, want 0", count2)
+		t.Errorf("CountActiveAddonsByType environments_5 = %d, want 0", count2)
 	}
 }
 
@@ -2113,8 +2113,8 @@ func TestPgStore_DeactivateExcessCronJobs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DeactivateExcessCronJobs error = %v", err)
 	}
-	if deactivated != 3 {
-		t.Errorf("DeactivateExcessCronJobs = %d, want 3", deactivated)
+	if len(deactivated) != 3 {
+		t.Errorf("DeactivateExcessCronJobs returned %d ids, want 3", len(deactivated))
 	}
 }
 func TestPgStore_CountMembersAndExecutingRunsByOrg(t *testing.T) {
@@ -2453,8 +2453,8 @@ func TestPgStore_PauseHTTPJobsByOrg(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PauseHTTPJobsByOrg() error = %v", err)
 	}
-	if paused != 3 {
-		t.Fatalf("expected 3 paused, got %d", paused)
+	if len(paused) != 3 {
+		t.Fatalf("expected 3 paused, got %d", len(paused))
 	}
 
 	// Count HTTP jobs (should still be 3 -- paused but not deleted).
@@ -2490,8 +2490,8 @@ func TestPgStore_PauseHTTPJobsByOrg_AlreadyPaused(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PauseHTTPJobsByOrg() error = %v", err)
 	}
-	if paused != 2 {
-		t.Fatalf("expected 2 paused (1 already paused), got %d", paused)
+	if len(paused) != 2 {
+		t.Fatalf("expected 2 paused (1 already paused), got %d", len(paused))
 	}
 }
 
@@ -2514,8 +2514,8 @@ func TestPgStore_UnpauseJobsByPauseReason(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if paused != 3 {
-		t.Fatalf("expected 3 paused, got %d", paused)
+	if len(paused) != 3 {
+		t.Fatalf("expected 3 paused, got %d", len(paused))
 	}
 
 	// Manually change one job's pause reason to simulate user-initiated pause.
@@ -2589,8 +2589,8 @@ func TestPgStore_HTTPDowngradeLifecycle_FullCycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if paused != 3 {
-		t.Fatalf("step 1: expected 3 paused, got %d", paused)
+	if len(paused) != 3 {
+		t.Fatalf("step 1: expected 3 paused, got %d", len(paused))
 	}
 
 	got, _ := q.GetJob(ctx, h1.ID)

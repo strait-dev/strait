@@ -399,8 +399,9 @@ func TestRecommendPlan(t *testing.T) {
 		{"low_usage", 1000, 0, "free"},
 		{"moderate", 200000, 10_000_000, "starter"},
 		{"high", 1000000, 30_000_000, "pro"},
-		{"scale_range", 5000000, 60_000_000, "scale"},
-		{"very_high", 10000000, 100_000_000, "enterprise"},
+		{"scale_range", 5000000, 200_000_000, "scale"},
+		{"business_range", 8000000, 400_000_000, "business"},
+		{"very_high", 10000000, 600_000_000, "enterprise"},
 	}
 
 	for _, tt := range tests {

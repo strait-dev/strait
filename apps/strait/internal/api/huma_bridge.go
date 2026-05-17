@@ -281,10 +281,20 @@ func writeTypedError(w http.ResponseWriter, r *http.Request, err error) {
 		respondError(w, r, status, se.Error())
 		return
 	}
-	// Check for billing limit errors.
+	// Check for billing limit errors. Convert to the canonical 402
+	// quota_exceeded body (or 503 for fail-open service_degraded) so
+	// handlers that surface a raw *billing.LimitError still get the
+	// structured response shape.
 	var le *billing.LimitError
 	if errors.As(err, &le) {
-		respondError(w, r, http.StatusForbidden, le)
+		if converted := newQuotaExceeded(le, ""); converted != nil {
+			var rse *rawStatusError
+			if errors.As(converted, &rse) {
+				respondJSON(w, rse.status, rse.body)
+				return
+			}
+		}
+		respondError(w, r, http.StatusPaymentRequired, le)
 		return
 	}
 	slog.Error("unhandled error in typed handler", "error", err, "path", r.URL.Path)

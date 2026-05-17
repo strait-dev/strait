@@ -52,9 +52,20 @@ const (
 	WebhookEventWorkflowCompleted = "workflow.completed"
 	WebhookEventWorkflowFailed    = "workflow.failed"
 	WebhookEventSLOBudgetWarning  = "slo.budget_warning"
-	WebhookEventQuotaExceeded     = "quota.exceeded"
-	WebhookEventCronPausedQuota   = "cron.paused_quota"
-	WebhookEventCronResumed       = "cron.resumed"
+
+	// Outbound billing-state events. Dispatched via the same
+	// webhook_subscriptions pipeline as run/workflow events, with HMAC
+	// signing, retries, and the circuit breaker.
+	WebhookEventBillingCapWarning            = "billing.cap_warning"
+	WebhookEventBillingCapReached            = "billing.cap_reached"
+	WebhookEventBillingCapDisabled           = "billing.cap_disabled"
+	WebhookEventBillingOverageDisabled       = "billing.overage_disabled"
+	WebhookEventBillingSuspended             = "billing.suspended"
+	WebhookEventBillingDelinquent            = "billing.delinquent"
+	WebhookEventBillingPaymentSucceeded      = "billing.payment_succeeded"
+	WebhookEventScheduleSuspended            = "schedule.suspended"
+	WebhookEventWorkflowRegistrationRejected = "workflow.registration_rejected"
+	WebhookEventSLACreditIssued              = "sla.credit_issued"
 )
 
 const (
@@ -751,6 +762,19 @@ type WebhookSubscription struct {
 	Active               bool       `json:"active"`
 	CreatedAt            time.Time  `json:"created_at"`
 }
+
+// APIKeyPrefixLen is the number of leading characters of a raw API key
+// that we store as the public, non-secret prefix on every APIKey row. The
+// prefix is what we surface in the UI and audit logs so an operator can
+// recognise which key fired without revealing the secret. The value is the
+// length of the literal "strait_" tag plus the first 5 hex characters of
+// the random body — short enough to be unguessable, long enough to be
+// visually distinguishable across thousands of keys per org.
+//
+// Every site that mints or stamps a key prefix must slice the raw key with
+// this constant. Drift between mint sites (api, scheduler, testutil) would
+// silently produce inconsistent prefixes that fail UI lookups.
+const APIKeyPrefixLen = 12
 
 // APIKey represents a per-project or org-scoped API key for authentication.
 type APIKey struct {

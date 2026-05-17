@@ -32,6 +32,9 @@ func (s *Server) handleSDKUsage(ctx context.Context, input *SDKUsageInput) (*SDK
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
 	}
+	if err := s.checkDailyAIModelCallLimit(ctx, runID); err != nil {
+		return nil, err
+	}
 	usage := &domain.RunUsage{ID: uuid.Must(uuid.NewV7()).String(), RunID: runID, Provider: req.Provider, Model: req.Model, PromptTokens: req.PromptTokens, CompletionTokens: req.CompletionTokens, TotalTokens: req.TotalTokens, CostMicrousd: req.CostMicrousd}
 	if req.CostMicrousd > 0 {
 		run, runErr := s.store.GetRun(ctx, runID)

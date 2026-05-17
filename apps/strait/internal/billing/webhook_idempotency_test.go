@@ -32,7 +32,7 @@ func TestMockStore_CountActiveAddonsByType(t *testing.T) {
 	t.Parallel()
 	store := &mockBillingStore{}
 
-	count, err := store.CountActiveAddonsByType(context.Background(), "org-1", AddonConcurrentRuns)
+	count, err := store.CountActiveAddonsByType(context.Background(), "org-1", AddonConcurrency100)
 	if err != nil {
 		t.Fatal(err)
 	}

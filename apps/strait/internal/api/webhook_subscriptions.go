@@ -23,9 +23,17 @@ var validWebhookEventTypes = map[string]bool{
 	domain.WebhookEventWorkflowCompleted: true,
 	domain.WebhookEventWorkflowFailed:    true,
 	domain.WebhookEventSLOBudgetWarning:  true,
-	domain.WebhookEventQuotaExceeded:     true,
-	domain.WebhookEventCronPausedQuota:   true,
-	domain.WebhookEventCronResumed:       true,
+
+	domain.WebhookEventBillingCapWarning:            true,
+	domain.WebhookEventBillingCapReached:            true,
+	domain.WebhookEventBillingCapDisabled:           true,
+	domain.WebhookEventBillingOverageDisabled:       true,
+	domain.WebhookEventBillingSuspended:             true,
+	domain.WebhookEventBillingDelinquent:            true,
+	domain.WebhookEventBillingPaymentSucceeded:      true,
+	domain.WebhookEventScheduleSuspended:            true,
+	domain.WebhookEventWorkflowRegistrationRejected: true,
+	domain.WebhookEventSLACreditIssued:              true,
 }
 
 type CreateWebhookSubscriptionRequest struct {

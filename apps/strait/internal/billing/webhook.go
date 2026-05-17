@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/mail"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +22,37 @@ import (
 	"github.com/stripe/stripe-go/v82"
 	stripeWebhook "github.com/stripe/stripe-go/v82/webhook"
 )
+
+// invoiceAuditFields normalises the per-invoice audit payload across every
+// handler that emits one. Three rules:
+//
+//   - amount is recorded as amount_due_minor (string of minor units) so
+//     downstream parsers never have to guess between cents and dollars and
+//     never lose precision through float printing.
+//   - currency is lowercased to match Stripe's documented canonical form
+//     (their schema says lowercase but webhook payloads have shipped both
+//     cases historically).
+//   - stripe_invoice_num exposes invoice.Number — the human-readable
+//     invoice ID Stripe surfaces in customer-facing PDFs — alongside the
+//     internal invoice.ID. Audit consumers can correlate to billing emails
+//     without round-tripping through the Stripe API.
+//
+// Empty fields are omitted so a malformed Stripe payload does not stamp
+// blank cells into ClickHouse.
+func invoiceAuditFields(invoice *stripe.Invoice) map[string]string {
+	if invoice == nil {
+		return map[string]string{}
+	}
+	out := map[string]string{
+		"invoice_id":       invoice.ID,
+		"amount_due_minor": strconv.FormatInt(invoice.AmountDue, 10),
+		"currency":         strings.ToLower(string(invoice.Currency)),
+	}
+	if invoice.Number != "" {
+		out["stripe_invoice_num"] = invoice.Number
+	}
+	return out
+}
 
 var (
 	ErrInvalidSignature = errors.New("invalid webhook signature")
@@ -58,6 +90,7 @@ type webhookClaimState struct {
 type WebhookHandler struct {
 	store             Store
 	stripeMapping     *StripeMapping
+	catalogResolver   *CatalogResolver
 	secret            string
 	logger            *slog.Logger
 	enforcer          *Enforcer
@@ -66,6 +99,7 @@ type WebhookHandler struct {
 	posthog           *PostHogClient
 	chExporter        billingEventEnqueuer
 	billingEmails     *BillingEmailSender
+	dunningStore      DunningStore
 	edition           string
 	devBypassSigCheck bool
 	allowTestMetadata bool
@@ -95,9 +129,28 @@ func WithBillingEmails(sender *BillingEmailSender) WebhookOption {
 	return func(h *WebhookHandler) { h.billingEmails = sender }
 }
 
+// WithDunningStore wires the dunning state machine into Stripe webhook
+// handlers. invoice.payment_failed enters dunning at step 1 and invoice.paid
+// resolves the active cycle. When nil, dunning tracking is disabled and the
+// flat grace-period path remains the only failure-mode handling.
+func WithDunningStore(s DunningStore) WebhookOption {
+	return func(h *WebhookHandler) { h.dunningStore = s }
+}
+
 // WithEdition sets the application edition for security mode decisions.
 func WithEdition(edition string) WebhookOption {
 	return func(h *WebhookHandler) { h.edition = edition }
+}
+
+// WithCatalogResolver overrides the default lookup-key resolver. The default
+// (constructed from PlanCatalogs and AddonPacks) is sufficient for production;
+// this option exists primarily for tests that need a narrower mapping.
+func WithCatalogResolver(r *CatalogResolver) WebhookOption {
+	return func(h *WebhookHandler) {
+		if r != nil {
+			h.catalogResolver = r
+		}
+	}
 }
 
 var (
@@ -105,6 +158,27 @@ var (
 	errEmptyPriceID        = errors.New("price ID is empty")
 	errEmptyCustomerID     = errors.New("customer ID is empty")
 )
+
+// recordOrphanInvoiceDelivery is the centralized observability hook fired
+// when a finalize/paid/payment_failed event arrives for a Stripe customer
+// that is not mapped to any org in our database. Silently swallowing this
+// is dangerous: it could mean (a) the customer was deleted in our DB but
+// their Stripe subscription wasn't cancelled, (b) a misconfigured webhook
+// is pointing at the wrong environment, or (c) Stripe is delivering events
+// for a sandbox account into production. All three warrant operator
+// attention. Counters keep this surfaceable on a Grafana panel.
+func (h *WebhookHandler) recordOrphanInvoiceDelivery(ctx context.Context, eventType string, invoice *stripe.Invoice) {
+	customerID := ""
+	if invoice.Customer != nil {
+		customerID = invoice.Customer.ID
+	}
+	h.logger.Warn("stripe webhook delivered for unknown customer",
+		"event_type", eventType,
+		"invoice_id", invoice.ID,
+		"customer_id", customerID,
+	)
+	recordBillingWebhookOrphanDelivery(ctx, eventType)
+}
 
 const webhookProcessingClaimStaleAfter = 10 * time.Minute
 
@@ -132,6 +206,54 @@ func extractPriceID(sub *stripe.Subscription) string {
 		return ""
 	}
 	return sub.Items.Data[0].Price.ID
+}
+
+// extractLookupKey returns the Stripe lookup_key from the first subscription
+// item's price, or empty when the price has no lookup key set. The lookup key
+// is the cross-account stable identifier used by the catalog resolver.
+func extractLookupKey(sub *stripe.Subscription) string {
+	if sub.Items == nil || len(sub.Items.Data) == 0 {
+		return ""
+	}
+	if sub.Items.Data[0].Price == nil {
+		return ""
+	}
+	return sub.Items.Data[0].Price.LookupKey
+}
+
+// resolveTier returns the plan tier for a subscription, preferring lookup-key
+// resolution (catalog-driven, account-agnostic) and falling back to per-account
+// price ID mapping. Returns the lookup key actually used (empty if fallback).
+func (h *WebhookHandler) resolveTier(sub *stripe.Subscription) (domain.PlanTier, string, bool) {
+	if lk := extractLookupKey(sub); lk != "" {
+		if t, ok := h.catalogResolver.TierForLookupKey(lk); ok {
+			return t, lk, true
+		}
+	}
+	t, ok := h.stripeMapping.TierForPrice(extractPriceID(sub))
+	return t, "", ok
+}
+
+// resolveAddon returns the addon type for a subscription, preferring lookup-key
+// resolution and falling back to per-account price ID mapping. Returns the
+// lookup key actually used (empty if fallback).
+func (h *WebhookHandler) resolveAddon(sub *stripe.Subscription) (AddonType, string, bool) {
+	if lk := extractLookupKey(sub); lk != "" {
+		if a, ok := h.catalogResolver.AddonForLookupKey(lk); ok {
+			return a, lk, true
+		}
+	}
+	a, ok := h.stripeMapping.AddonTypeForPrice(extractPriceID(sub))
+	return a, "", ok
+}
+
+// isAddonSubscription reports whether the subscription resolves to an addon
+// (via lookup key or fallback price ID mapping).
+func (h *WebhookHandler) isAddonSubscription(sub *stripe.Subscription) bool {
+	if lk := extractLookupKey(sub); lk != "" && h.catalogResolver.IsAddonLookupKey(lk) {
+		return true
+	}
+	return h.stripeMapping.IsAddonPrice(extractPriceID(sub))
 }
 
 // extractCustomerEmail returns the email from a Stripe customer object.
@@ -188,12 +310,13 @@ func (h *WebhookHandler) emitBillingEvent(orgID, eventType, planTier string) {
 // The auditStore is optional; when non-nil, audit events are recorded for plan changes.
 func NewWebhookHandler(store Store, mapping *StripeMapping, secret string, logger *slog.Logger, enforcer *Enforcer, auditStore AuditStore, opts ...WebhookOption) *WebhookHandler {
 	h := &WebhookHandler{
-		store:         store,
-		stripeMapping: mapping,
-		secret:        secret,
-		logger:        logger,
-		enforcer:      enforcer,
-		auditStore:    auditStore,
+		store:           store,
+		stripeMapping:   mapping,
+		catalogResolver: NewCatalogResolver(),
+		secret:          secret,
+		logger:          logger,
+		enforcer:        enforcer,
+		auditStore:      auditStore,
 	}
 	for _, opt := range opts {
 		opt(h)
@@ -393,6 +516,8 @@ func (h *WebhookHandler) dispatchStripeEvent(ctx context.Context, event stripe.E
 		return h.handleInvoiceUpcoming(ctx, event.Data.Raw)
 	case stripe.EventTypeInvoiceMarkedUncollectible:
 		return h.handleInvoiceUncollectible(ctx, event.Data.Raw)
+	case stripe.EventTypeInvoiceFinalized:
+		return h.handleInvoiceFinalized(ctx, event.Data.Raw)
 	case stripe.EventTypeInvoiceFinalizationFailed:
 		return h.handleInvoiceFinalizationFailed(ctx, event.Data.Raw)
 	default:
@@ -456,14 +581,14 @@ func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data jso
 
 	priceID := extractPriceID(&sub)
 
-	// Check if this is an addon price first.
-	if addonType, isAddon := h.stripeMapping.AddonTypeForPrice(priceID); isAddon {
-		return h.handleAddonSubscriptionCreated(ctx, &sub, addonType)
+	// Check if this is an addon (lookup-key first, then per-account price ID).
+	if addonType, lookupKey, isAddon := h.resolveAddon(&sub); isAddon {
+		return h.handleAddonSubscriptionCreated(ctx, &sub, addonType, lookupKey)
 	}
 
-	tier, ok := h.stripeMapping.TierForPrice(priceID)
+	tier, lookupKey, ok := h.resolveTier(&sub)
 	if !ok {
-		h.logger.Warn("unknown stripe price ID", "price_id", priceID)
+		h.logger.Warn("unknown stripe price", "price_id", priceID, "lookup_key", extractLookupKey(&sub))
 		return ErrUnknownPrice
 	}
 
@@ -479,12 +604,17 @@ func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data jso
 	now := time.Now()
 	periodStart, periodEnd := extractPeriod(&sub)
 	customerID := sub.Customer.ID
+	var lookupKeyPtr *string
+	if lookupKey != "" {
+		lookupKeyPtr = &lookupKey
+	}
 	orgSub := &OrgSubscription{
 		ID:                    sub.ID,
 		OrgID:                 orgID,
 		PlanTier:              string(tier),
 		StripeSubscriptionID:  &sub.ID,
 		StripeCustomerID:      &customerID,
+		StripeLookupKey:       lookupKeyPtr,
 		Status:                "active",
 		CurrentPeriodStart:    periodStart,
 		CurrentPeriodEnd:      periodEnd,
@@ -625,11 +755,10 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data jso
 		return fmt.Errorf("invalid subscription data: %w", err)
 	}
 
-	priceID := extractPriceID(&sub)
-
-	tier, ok := h.stripeMapping.TierForPrice(priceID)
+	tier, lookupKey, ok := h.resolveTier(&sub)
 	if !ok {
-		h.logger.Warn("unknown stripe price ID on update", "price_id", priceID)
+		h.logger.Warn("unknown stripe price on update",
+			"price_id", extractPriceID(&sub), "lookup_key", extractLookupKey(&sub))
 		return nil
 	}
 
@@ -713,12 +842,17 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data jso
 		if errors.Is(err, ErrSubscriptionNotFound) {
 			now := time.Now()
 			customerID := sub.Customer.ID
+			var lookupKeyPtr *string
+			if lookupKey != "" {
+				lookupKeyPtr = &lookupKey
+			}
 			orgSub := &OrgSubscription{
 				ID:                    sub.ID,
 				OrgID:                 orgID,
 				PlanTier:              string(tier),
 				StripeSubscriptionID:  &sub.ID,
 				StripeCustomerID:      &customerID,
+				StripeLookupKey:       lookupKeyPtr,
 				Status:                status,
 				CurrentPeriodStart:    periodStart,
 				CurrentPeriodEnd:      periodEnd,
@@ -811,10 +945,8 @@ func (h *WebhookHandler) handleSubscriptionDeleted(ctx context.Context, data jso
 		return fmt.Errorf("invalid subscription data: %w", err)
 	}
 
-	priceID := extractPriceID(&sub)
-
 	// Handle addon subscription cancellation.
-	if h.stripeMapping.IsAddonPrice(priceID) {
+	if h.isAddonSubscription(&sub) {
 		return h.handleAddonSubscriptionCanceled(ctx, &sub)
 	}
 
@@ -905,6 +1037,14 @@ func (h *WebhookHandler) applySubscriptionRevoked(ctx context.Context, orgID str
 		"stripe_subscription_id": sub.ID,
 	})
 
+	if h.enforcer != nil {
+		h.enforcer.DispatchBilling(ctx, orgID, domain.PlanFree,
+			domain.WebhookEventBillingSuspended, map[string]any{
+				"stripe_subscription_id": sub.ID,
+				"reason":                 "revoked",
+			})
+	}
+
 	h.logger.Info("subscription revoked, downgraded to free",
 		"org_id", orgID,
 	)
@@ -989,6 +1129,7 @@ func (h *WebhookHandler) handlePaymentSucceeded(ctx context.Context, data json.R
 		return err
 	}
 	if orgID == "" {
+		h.recordOrphanInvoiceDelivery(ctx, "invoice.paid", &invoice)
 		return nil
 	}
 
@@ -1001,7 +1142,8 @@ func (h *WebhookHandler) handlePaymentSucceeded(ctx context.Context, data json.R
 	}
 
 	// Only clear grace if the org is actually in grace or restricted state.
-	if existing.PaymentStatus == "grace" || existing.PaymentStatus == "restricted" {
+	recovered := existing.PaymentStatus == "grace" || existing.PaymentStatus == "restricted"
+	if recovered {
 		if err := h.store.UpdatePaymentStatus(ctx, orgID, "ok", nil); err != nil {
 			return fmt.Errorf("clearing grace on payment success: %w", err)
 		}
@@ -1011,6 +1153,26 @@ func (h *WebhookHandler) handlePaymentSucceeded(ctx context.Context, data json.R
 		h.logger.Info("payment succeeded, grace period cleared",
 			"org_id", orgID,
 		)
+	}
+
+	if h.dunningStore != nil {
+		if err := h.dunningStore.ResolveDunning(ctx, orgID, time.Now().UTC()); err != nil {
+			h.logger.Warn("resolve dunning on payment success failed", "org_id", orgID, "err", err)
+		}
+	}
+
+	// Only dispatch billing.payment_succeeded on actual recovery from
+	// grace/restricted. Routine renewal payments don't fire — they aren't
+	// state changes a subscriber needs to react to.
+	if recovered && h.enforcer != nil {
+		h.enforcer.DispatchBilling(ctx, orgID, domain.PlanTier(existing.PlanTier),
+			domain.WebhookEventBillingPaymentSucceeded, map[string]any{
+				"stripe_invoice_id":      invoice.ID,
+				"stripe_subscription_id": sub.ID,
+				"plan_tier":              existing.PlanTier,
+				"amount_paid_microusd":   invoice.AmountPaid,
+				"paid_at":                time.Now().UTC().Format(time.RFC3339Nano),
+			})
 	}
 
 	h.posthog.CaptureRevenueEvent(orgID, "payment_received", map[string]any{
@@ -1038,6 +1200,7 @@ func (h *WebhookHandler) handlePaymentFailed(ctx context.Context, data json.RawM
 		return err
 	}
 	if orgID == "" {
+		h.recordOrphanInvoiceDelivery(ctx, "invoice.payment_failed", &invoice)
 		return nil
 	}
 
@@ -1077,6 +1240,22 @@ func (h *WebhookHandler) handlePaymentFailed(ctx context.Context, data json.RawM
 			defer cancel()
 			h.billingEmails.SendPaymentFailed(emailCtx, adminEmails, planTier, localGraceEnd)
 		})
+	}
+
+	if h.enforcer != nil {
+		h.enforcer.DispatchBilling(ctx, orgID, domain.PlanTier(existing.PlanTier),
+			domain.WebhookEventBillingDelinquent, map[string]any{
+				"stripe_invoice_id":   invoice.ID,
+				"grace_period_end":    graceEnd.UTC().Format(time.RFC3339Nano),
+				"amount_due_microusd": invoice.AmountDue,
+				"attempt_count":       invoice.AttemptCount,
+			})
+	}
+
+	if h.dunningStore != nil {
+		if err := h.dunningStore.StartDunning(ctx, orgID, time.Now().UTC()); err != nil && !errors.Is(err, ErrSubscriptionNotFound) {
+			h.logger.Warn("start dunning on payment failure failed", "org_id", orgID, "err", err)
+		}
 	}
 
 	return nil
@@ -1128,6 +1307,15 @@ func (h *WebhookHandler) handleSubscriptionPaused(ctx context.Context, data json
 	}
 	h.logAuditEvent(ctx, "subscription.paused", orgID, details)
 
+	if h.enforcer != nil {
+		h.enforcer.DispatchBilling(ctx, orgID, domain.PlanTier(previousPlanTier),
+			domain.WebhookEventBillingSuspended, map[string]any{
+				"stripe_subscription_id": sub.ID,
+				"reason":                 "paused",
+				"previous_plan_tier":     previousPlanTier,
+			})
+	}
+
 	h.logger.Info("subscription paused", "org_id", orgID, "previous_plan_tier", previousPlanTier)
 	return nil
 }
@@ -1152,8 +1340,7 @@ func (h *WebhookHandler) handleSubscriptionResumed(ctx context.Context, data jso
 		return nil
 	}
 
-	priceID := extractPriceID(&sub)
-	tier, ok := h.stripeMapping.TierForPrice(priceID)
+	tier, _, ok := h.resolveTier(&sub)
 	if !ok {
 		return nil
 	}
@@ -1382,13 +1569,40 @@ func (h *WebhookHandler) handleInvoiceUncollectible(ctx context.Context, data js
 		h.enforcer.InvalidateOrgCache(orgID)
 	}
 
-	h.logAuditEvent(ctx, "invoice.uncollectible", orgID, map[string]string{
-		"invoice_id": invoice.ID,
-	})
+	h.logAuditEvent(ctx, "invoice.uncollectible", orgID, invoiceAuditFields(&invoice))
 
 	h.logger.Warn("invoice marked uncollectible, org restricted",
 		"org_id", orgID,
 		"invoice_id", invoice.ID,
+	)
+	return nil
+}
+
+// handleInvoiceFinalized fires when Stripe finalizes an invoice — the canonical
+// signal that the amount due is locked in. We record an audit breadcrumb so the
+// dashboard can correlate finalize → paid/payment_failed transitions without
+// recomputing from raw Stripe data.
+func (h *WebhookHandler) handleInvoiceFinalized(ctx context.Context, data json.RawMessage) error {
+	var invoice stripe.Invoice
+	if err := json.Unmarshal(data, &invoice); err != nil {
+		return fmt.Errorf("parsing invoice data: %w", err)
+	}
+
+	orgID, err := h.resolveOrgIDFromInvoice(ctx, &invoice)
+	if err != nil {
+		return err
+	}
+	if orgID == "" {
+		h.recordOrphanInvoiceDelivery(ctx, "invoice.finalized", &invoice)
+		return nil
+	}
+
+	h.logAuditEvent(ctx, "invoice.finalized", orgID, invoiceAuditFields(&invoice))
+
+	h.logger.Info("invoice finalized",
+		"org_id", orgID,
+		"invoice_id", invoice.ID,
+		"amount_due", invoice.AmountDue,
 	)
 	return nil
 }
@@ -1406,12 +1620,11 @@ func (h *WebhookHandler) handleInvoiceFinalizationFailed(ctx context.Context, da
 		return err
 	}
 	if orgID == "" {
+		h.recordOrphanInvoiceDelivery(ctx, "invoice.finalization_failed", &invoice)
 		return nil
 	}
 
-	h.logAuditEvent(ctx, "invoice.finalization_failed", orgID, map[string]string{
-		"invoice_id": invoice.ID,
-	})
+	h.logAuditEvent(ctx, "invoice.finalization_failed", orgID, invoiceAuditFields(&invoice))
 
 	h.logger.Error("invoice finalization failed",
 		"org_id", orgID,
@@ -1563,8 +1776,9 @@ func (h *WebhookHandler) logAuditEvent(ctx context.Context, action, orgID string
 }
 
 // handleAddonSubscriptionCreated creates an addon record when a Stripe addon
-// subscription is created.
-func (h *WebhookHandler) handleAddonSubscriptionCreated(ctx context.Context, sub *stripe.Subscription, addonType AddonType) error {
+// subscription is created. lookupKey is the Stripe lookup_key that resolved to
+// this addon (empty when resolution fell back to per-account price ID).
+func (h *WebhookHandler) handleAddonSubscriptionCreated(ctx context.Context, sub *stripe.Subscription, addonType AddonType, lookupKey string) error {
 	orgID, err := h.resolveBoundOrgID(ctx, sub)
 	if err != nil {
 		return err
@@ -1597,12 +1811,17 @@ func (h *WebhookHandler) handleAddonSubscriptionCreated(ctx context.Context, sub
 	}
 
 	_, periodEnd := extractPeriod(sub)
+	var lookupKeyPtr *string
+	if lookupKey != "" {
+		lookupKeyPtr = &lookupKey
+	}
 	addon := &Addon{
 		ID:                   sub.ID,
 		OrgID:                orgID,
 		AddonType:            addonType,
 		Quantity:             1,
 		StripeSubscriptionID: &sub.ID,
+		StripeLookupKey:      lookupKeyPtr,
 		Active:               true,
 		ExpiresAt:            periodEnd,
 	}

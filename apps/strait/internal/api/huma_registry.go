@@ -67,13 +67,6 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Tags: []string{"Secrets"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
 	}, s.handleDeleteSecret)
 
-	// -- Plans --
-	RegisterTypedOp(api, OpMeta{
-		ID: "list-plans", Method: http.MethodGet, Path: "/v1/plans",
-		Summary: "List plan tiers", Description: "Returns all available plan tiers with their limits and pricing.",
-		Tags: []string{"Plans"}, Security: bearerSecurity, Errors: []int{401, 500},
-	}, s.handleGetPlans)
-
 	// -- Regions --
 	RegisterTypedOp(api, OpMeta{
 		ID: "list-regions", Method: http.MethodGet, Path: "/v1/regions",

@@ -313,3 +313,6 @@ backups/
 backend.hcl
 .terraform.lock.hcl
 .audit/
+
+# Local Claude Code runtime files
+.claude/scheduled_tasks.lock

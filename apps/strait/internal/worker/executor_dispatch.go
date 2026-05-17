@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptrace"
 	"strconv"
+	"sync"
 	"time"
 
 	workergrpc "strait/internal/api/grpc"
@@ -183,6 +184,24 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 				"run_id", run.ID, "error", orgErr, "fail_open", true)
 		}
 		if orgID != "" {
+			// Spending limit is checked before daily/monthly so a rejection
+			// here does not require rolling back any run-counter increment.
+			if err := e.billingEnforcer.CheckSpendingLimit(ctx, orgID); err != nil {
+				e.logger.Warn("org spending limit exceeded",
+					"run_id", run.ID, "org_id", orgID, "error", err)
+				e.handleSystemFailureWithJob(ctx, run, job, err.Error())
+				return
+			}
+			// Project budget check sits next to the org-level spending check
+			// because it shares the "no counters incremented yet" property:
+			// a budget rejection rolls nothing back. Only enforced when the
+			// project quota row sets budget_action='block'.
+			if err := e.billingEnforcer.CheckProjectBudgetLimit(ctx, job.ProjectID); err != nil {
+				e.logger.Warn("project budget limit exceeded",
+					"run_id", run.ID, "project_id", job.ProjectID, "error", err)
+				e.handleSystemFailureWithJob(ctx, run, job, err.Error())
+				return
+			}
 			if err := e.billingEnforcer.CheckDailyRunLimit(ctx, orgID); err != nil {
 				e.logger.Warn("org daily run limit exceeded",
 					"run_id", run.ID, "org_id", orgID, "error", err)
@@ -439,14 +458,36 @@ func defaultExecutionPolicy(job *domain.Job) executionPolicy {
 
 func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *domain.JobRun) (json.RawMessage, *domain.ExecutionTrace, error) {
 	dispatchStart := time.Now()
-	var connectStart time.Time
-	var connectDone time.Time
-	var gotFirstByte time.Time
+
+	// httptrace callbacks fire from net/http transport goroutines that have
+	// no formal happens-before with the post-dispatch reader below, so a
+	// short-lived mutex guards the three timestamps to keep -race clean.
+	var (
+		traceMu      sync.Mutex
+		connectStart time.Time
+		connectDone  time.Time
+		gotFirstByte time.Time
+	)
 
 	trace := &httptrace.ClientTrace{
-		ConnectStart:         func(string, string) { connectStart = time.Now() },
-		ConnectDone:          func(string, string, error) { connectDone = time.Now() },
-		GotFirstResponseByte: func() { gotFirstByte = time.Now() },
+		ConnectStart: func(string, string) {
+			now := time.Now()
+			traceMu.Lock()
+			connectStart = now
+			traceMu.Unlock()
+		},
+		ConnectDone: func(string, string, error) {
+			now := time.Now()
+			traceMu.Lock()
+			connectDone = now
+			traceMu.Unlock()
+		},
+		GotFirstResponseByte: func() {
+			now := time.Now()
+			traceMu.Lock()
+			gotFirstByte = now
+			traceMu.Unlock()
+		},
 	}
 
 	tracedCtx := httptrace.WithClientTrace(ctx, trace)
@@ -538,19 +579,23 @@ func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *dom
 	result, err := e.dispatchToEndpoint(tracedCtx, job.EndpointURL, run, extraHeaders)
 	gotLastByte := time.Now()
 
+	traceMu.Lock()
+	cs, cd, gfb := connectStart, connectDone, gotFirstByte
+	traceMu.Unlock()
+
 	execTrace := &domain.ExecutionTrace{}
-	if !connectStart.IsZero() && !connectDone.IsZero() {
-		execTrace.ConnectMs = durationMillisecondsAtLeastOne(connectDone.Sub(connectStart))
+	if !cs.IsZero() && !cd.IsZero() {
+		execTrace.ConnectMs = durationMillisecondsAtLeastOne(cd.Sub(cs))
 	}
-	if !gotFirstByte.IsZero() {
+	if !gfb.IsZero() {
 		base := dispatchStart
-		if !connectDone.IsZero() {
-			base = connectDone
+		if !cd.IsZero() {
+			base = cd
 		}
-		execTrace.TtfbMs = durationMillisecondsAtLeastOne(gotFirstByte.Sub(base))
+		execTrace.TtfbMs = durationMillisecondsAtLeastOne(gfb.Sub(base))
 	}
-	if !gotFirstByte.IsZero() {
-		execTrace.TransferMs = durationMillisecondsAtLeastOne(gotLastByte.Sub(gotFirstByte))
+	if !gfb.IsZero() {
+		execTrace.TransferMs = durationMillisecondsAtLeastOne(gotLastByte.Sub(gfb))
 	}
 	execTrace.DispatchMs = execTrace.ConnectMs + execTrace.TtfbMs + execTrace.TransferMs
 
@@ -1112,6 +1157,10 @@ func queuedRunResetFields() map[string]any {
 // ingestStripeUsageEvent sends a usage event to Stripe for metered billing.
 // Runs asynchronously to avoid blocking the run completion path.
 // Silently skips if no Stripe usage reporter is configured (self-hosted / dev).
+// costMicroUSD is the per-run cost in micro-USD; HTTP and worker modes pass
+// distinct constants today, but they currently coincide at 20µ$.
+//
+//nolint:unparam // HTTP/worker pass distinct named constants that may diverge
 func (e *Executor) ingestStripeUsageEvent(ctx context.Context, projectID, runID string, costMicroUSD int64) {
 	if e.stripeUsageReporter == nil || e.billingEnforcer == nil || costMicroUSD <= 0 {
 		return

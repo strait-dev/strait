@@ -2006,7 +2006,9 @@ func TestRecommendPlan_AllTiers(t *testing.T) {
 		{"within pro credit", 5000, CreditProMicrousd, string(domain.PlanPro)},
 		{"over pro credit", 5000, CreditProMicrousd + 1, string(domain.PlanScale)},
 		{"within scale credit", 10000, CreditScaleMicrousd, string(domain.PlanScale)},
-		{"over scale credit", 10000, CreditScaleMicrousd + 1, string(domain.PlanEnterprise)},
+		{"over scale credit", 10000, CreditScaleMicrousd + 1, string(domain.PlanBusiness)},
+		{"within business credit", 10000, CreditBusinessMicrousd, string(domain.PlanBusiness)},
+		{"over business credit", 10000, CreditBusinessMicrousd + 1, string(domain.PlanEnterprise)},
 	}
 
 	for _, tt := range tests {

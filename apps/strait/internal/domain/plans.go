@@ -10,24 +10,25 @@ const (
 	PlanStarter    PlanTier = "starter"
 	PlanPro        PlanTier = "pro"
 	PlanScale      PlanTier = "scale"
+	PlanBusiness   PlanTier = "business"
 	PlanEnterprise PlanTier = "enterprise"
 )
 
 // AllPlanTiers returns all valid plan tiers in ascending order.
 func AllPlanTiers() []PlanTier {
-	return []PlanTier{PlanFree, PlanStarter, PlanPro, PlanScale, PlanEnterprise}
+	return []PlanTier{PlanFree, PlanStarter, PlanPro, PlanScale, PlanBusiness, PlanEnterprise}
 }
 
 // IsValid returns true if the plan tier is a recognized value.
 func (p PlanTier) IsValid() bool {
 	switch p {
-	case PlanFree, PlanStarter, PlanPro, PlanScale, PlanEnterprise:
+	case PlanFree, PlanStarter, PlanPro, PlanScale, PlanBusiness, PlanEnterprise:
 		return true
 	}
 	return false
 }
 
-// Rank returns the numeric rank of a plan tier (0=free, 4=enterprise).
+// Rank returns the numeric rank of a plan tier (0=free, 5=enterprise).
 // Unknown tiers return 0.
 func (p PlanTier) Rank() int {
 	switch p {
@@ -39,8 +40,10 @@ func (p PlanTier) Rank() int {
 		return 2
 	case PlanScale:
 		return 3
-	case PlanEnterprise:
+	case PlanBusiness:
 		return 4
+	case PlanEnterprise:
+		return 5
 	default:
 		return 0
 	}
@@ -77,6 +80,12 @@ func AllPlanConfigs() map[PlanTier]PlanConfig {
 		},
 		PlanScale: {
 			Tier:           PlanScale,
+			MaxRegions:     5,
+			AllowedRegions: nil, // all regions
+			MultiRegion:    true,
+		},
+		PlanBusiness: {
+			Tier:           PlanBusiness,
 			MaxRegions:     5,
 			AllowedRegions: nil, // all regions
 			MultiRegion:    true,

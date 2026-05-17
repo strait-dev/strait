@@ -47,7 +47,14 @@ func (m *mockReportStore) ListOrgAdminEmails(_ context.Context, orgID string) ([
 	return m.adminEmails[orgID], nil
 }
 
+func (m *mockReportStore) TryMarkBillingCapEvent(context.Context, string, billing.BillingCapEvent) (bool, error) {
+	return false, nil
+}
+
 // Stub all remaining billing.Store methods.
+func (m *mockReportStore) UpdateEntitlements(context.Context, string, billing.OrgPlanLimits) error {
+	return nil
+}
 func (m *mockReportStore) EnsureOrgSubscription(context.Context, string) error { return nil }
 func (m *mockReportStore) UpsertOrgSubscription(context.Context, *billing.OrgSubscription) error {
 	return nil
@@ -196,8 +203,8 @@ func (m *mockReportStore) ListExpiringContracts(context.Context, int) ([]billing
 	return nil, nil
 }
 
-func (m *mockReportStore) PauseHTTPJobsByOrg(context.Context, string, string) (int64, error) {
-	return 0, nil
+func (m *mockReportStore) PauseHTTPJobsByOrg(context.Context, string, string) ([]string, error) {
+	return nil, nil
 }
 
 func (m *mockReportStore) UnpauseJobsByPauseReason(context.Context, string, string) (int64, error) {

@@ -25,6 +25,7 @@ func TestEnterpriseLimits_AllUnlimited(t *testing.T) {
 		{"MaxAlertRulesPerProj", e.MaxAlertRulesPerProj},
 		{"MaxWebhookSubsPerProj", e.MaxWebhookSubsPerProj},
 		{"MaxLogDrainsPerOrg", e.MaxLogDrainsPerOrg},
+		{"MaxNotificationChannels", e.MaxNotificationChannels},
 		{"MaxAIModelCallsPerDay", e.MaxAIModelCallsPerDay},
 		{"MaxJobChainDepth", e.MaxJobChainDepth},
 	}
@@ -39,11 +40,11 @@ func TestEnterpriseLimits_AllUnlimited(t *testing.T) {
 	}
 }
 
-func TestEnterpriseLimits_Retention90Days(t *testing.T) {
+func TestEnterpriseLimits_RetentionUnlimited(t *testing.T) {
 	t.Parallel()
 	e := GetPlanLimits(domain.PlanEnterprise)
-	if e.RetentionDays != 90 {
-		t.Errorf("Enterprise.RetentionDays = %d, want 90", e.RetentionDays)
+	if e.RetentionDays != -1 {
+		t.Errorf("Enterprise.RetentionDays = %d, want -1 (unlimited)", e.RetentionDays)
 	}
 }
 

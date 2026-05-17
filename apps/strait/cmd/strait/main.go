@@ -386,14 +386,24 @@ func runServe(ctx context.Context, modeOverride string) error {
 	// Create a shared billing enforcer (used by both API webhook handler and worker executor).
 	// Only created when billing enforcement is enabled or Stripe webhook secret is set.
 	var billingEnforcer *billing.Enforcer
+	var billingDispatcher *webhook.BillingDispatcher
 	if rdb != nil && (cfg.BillingEnforcementEnabled || cfg.StripeWebhookSecret != "") {
 		billingStore := billing.NewPgStore(dbPool)
+
+		// The dispatcher fans org-scoped billing events out to project-level
+		// webhook subscriptions. Constructed before NewEnforcer so it can be
+		// plumbed into both the API enforcer and the worker-side schedulers
+		// (Dunner / DowngradeApplier / SLACalculator).
+		billingDispatcher = webhook.NewBillingDispatcher(eventNotifier, billingStore, queries, slog.Default())
+
 		var enforcerOpts []billing.EnforcerOption
 		billingEmailSender := billing.NewBillingEmailSender(cfg.ResendAPIKey, "billing@strait.dev", slog.Default())
 		if billingEmailSender != nil {
 			enforcerOpts = append(enforcerOpts, billing.WithEnforcerBillingEmails(billingEmailSender))
 		}
 		enforcerOpts = append(enforcerOpts, billing.WithSentryRuntime(cfg.Mode, cfg.DefaultRegion, version))
+		enforcerOpts = append(enforcerOpts, billing.WithEntitlementsAuthoritative(cfg.BillingEntitlementsAuthoritative))
+		enforcerOpts = append(enforcerOpts, billing.WithBillingDispatcher(billingDispatcher))
 		billingEnforcer = billing.NewEnforcer(billingStore, rdb, slog.Default(), enforcerOpts...)
 		billingEnforcer.StartCleanup(ctx)
 
@@ -428,12 +438,12 @@ func runServe(ctx context.Context, modeOverride string) error {
 	if chClient != nil {
 		chAnalytics = clickhouse.NewAnalyticsStore(chClient, clickhouse.NewPgHealthAdapter(dbPool))
 	}
-	workerPlane, err := startGRPCServer(g, cfg, queries, pub, rdb, version)
+	workerPlane, err := startGRPCServer(g, cfg, queries, pub, rdb, billingEnforcer, version)
 	if err != nil {
 		return fmt.Errorf("starting grpc server: %w", err)
 	}
 	startAPIServer(g, cfg, queries, dbPool, dbPool, q, pub, metricsHandler, metrics, stepCallback, workflowEngine, healthReg, rdb, apiEncryptor, billingEnforcer, chAnalytics, chExporter, cdcWebhookReceiver)
-	startWorker(g, cfg, queries, dbPool, dbPool, q, bp, pub, metrics, stepCallback, workflowEngine, healthReg, billingEnforcer, chExporter, workerPlane, apiEncryptor)
+	startWorker(g, cfg, queries, dbPool, dbPool, q, bp, pub, metrics, stepCallback, workflowEngine, healthReg, billingEnforcer, billingDispatcher, chExporter, workerPlane, apiEncryptor)
 
 	if err := g.Wait(); err != nil {
 		return fmt.Errorf("services: %w", err)

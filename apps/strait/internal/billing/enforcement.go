@@ -1,7 +1,9 @@
 package billing
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -67,6 +69,17 @@ type Enforcer struct {
 	sentryMode      string
 	sentryRegion    string
 	sentryVersion   string
+	// entitlementsAuthoritative controls the Phase 3.5 reader switch:
+	// when true (default), GetOrgPlanLimits reads the persisted snapshot
+	// directly when present. When false, it always recomputes from the
+	// catalog + addons pipeline. Operator escape hatch via
+	// BILLING_ENTITLEMENTS_AUTHORITATIVE.
+	entitlementsAuthoritative bool
+
+	// billingDispatcher fans billing-state events out to the outbound
+	// webhook_subscriptions pipeline. nil means dispatch is disabled
+	// (community edition, tests, or unwired cloud).
+	billingDispatcher BillingEventDispatcher
 }
 
 const (
@@ -173,11 +186,12 @@ func NewEnforcer(store Store, rdb redis.Cmdable, logger *slog.Logger, opts ...En
 	orgCache := cache.New[*cachedOrgLimits](cacheStore)
 
 	e := &Enforcer{
-		store:    store,
-		rdb:      rdb,
-		logger:   logger,
-		orgCache: orgCache,
-		cacheTTL: cacheTTL,
+		store:                     store,
+		rdb:                       rdb,
+		logger:                    logger,
+		orgCache:                  orgCache,
+		cacheTTL:                  cacheTTL,
+		entitlementsAuthoritative: true,
 	}
 	for _, opt := range opts {
 		opt(e)
@@ -207,6 +221,24 @@ func WithEnforcerBillingEmails(sender *BillingEmailSender) EnforcerOption {
 	return func(e *Enforcer) { e.billingEmails = sender }
 }
 
+// WithEntitlementsAuthoritative toggles whether the Enforcer reads the
+// persisted entitlements snapshot on the hot path (true) or always
+// recomputes from the catalog + addons pipeline (false).
+func WithEntitlementsAuthoritative(b bool) EnforcerOption {
+	return func(e *Enforcer) {
+		e.entitlementsAuthoritative = b
+	}
+}
+
+// WithBillingDispatcher attaches an outbound billing-event dispatcher
+// to the Enforcer. When set, spending-cap and overage-state transitions
+// dispatch the corresponding billing.* webhook events.
+func WithBillingDispatcher(d BillingEventDispatcher) EnforcerOption {
+	return func(e *Enforcer) {
+		e.billingDispatcher = d
+	}
+}
+
 // WithSentryRuntime attaches low-cardinality runtime tags to billing capture paths.
 func WithSentryRuntime(mode, region, version string) EnforcerOption {
 	return func(e *Enforcer) {
@@ -229,6 +261,13 @@ func (e *Enforcer) shouldSendBillingEmail(ctx context.Context, orgID, emailType 
 	return set
 }
 
+// EmitBillingEvent is the public wrapper around emitBillingEvent. Background
+// jobs (downgrade applier, schedulers) call this to record overage signals
+// like org_member_overage that the billing dashboard surfaces.
+func (e *Enforcer) EmitBillingEvent(orgID, eventType, planTier string) {
+	e.emitBillingEvent(orgID, eventType, planTier)
+}
+
 // emitBillingEvent sends a billing analytics event to ClickHouse.
 func (e *Enforcer) emitBillingEvent(orgID, eventType, planTier string) {
 	if e.chExporter == nil {
@@ -240,6 +279,48 @@ func (e *Enforcer) emitBillingEvent(orgID, eventType, planTier string) {
 		EventType: eventType,
 		PlanTier:  planTier,
 	})
+}
+
+// DispatchBilling sends a billing webhook event through the configured
+// BillingEventDispatcher. When no dispatcher is wired (community edition
+// or test setup) the call is a silent no-op so call sites do not have to
+// nil-guard. Errors are logged but never propagated so a webhook delivery
+// failure cannot block the enforcement path that scheduled it.
+func (e *Enforcer) DispatchBilling(ctx context.Context, orgID string, planTier domain.PlanTier, eventType string, detail map[string]any) {
+	if e == nil || e.billingDispatcher == nil || orgID == "" || eventType == "" {
+		return
+	}
+	if err := DispatchBillingWebhook(ctx, e.billingDispatcher, orgID, planTier, eventType, detail); err != nil {
+		e.logger.Warn("dispatch billing webhook failed",
+			"org_id", orgID, "event_type", eventType, "error", err)
+	}
+}
+
+// tryDispatchCapEvent serializes one cap-event dispatch per billing period
+// using the per-event dedup column on organization_subscriptions. When the
+// caller is the first to mark the column in the current period, the event
+// is dispatched; otherwise the call is a no-op.
+func (e *Enforcer) tryDispatchCapEvent(
+	ctx context.Context,
+	orgID string,
+	planTier domain.PlanTier,
+	ev BillingCapEvent,
+	eventType string,
+	detail map[string]any,
+) {
+	if e == nil || e.billingDispatcher == nil || orgID == "" {
+		return
+	}
+	first, err := e.store.TryMarkBillingCapEvent(ctx, orgID, ev)
+	if err != nil {
+		e.logger.Warn("mark billing cap event failed",
+			"org_id", orgID, "event_type", eventType, "error", err)
+		return
+	}
+	if !first {
+		return
+	}
+	e.DispatchBilling(ctx, orgID, planTier, eventType, detail)
 }
 
 // InvalidateOrgCache removes cached plan limits for an org (call on plan change).
@@ -364,20 +445,55 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 	sub := result.(*OrgSubscription)
 
 	tier := domain.PlanTier(sub.PlanTier)
-	limits = GetPlanLimits(tier)
 
-	// Apply add-on increments (fail open if add-ons can't be loaded).
-	addons, addonErr := e.store.ListActiveAddons(ctx, orgID)
-	if addonErr != nil {
-		e.logger.Warn("failed to load add-ons, using base plan limits", "org_id", orgID, "error", addonErr)
-	} else if len(addons) > 0 {
-		limits = EffectiveLimits(limits, addons)
+	// Phase 3.5: read the persisted entitlements snapshot when present.
+	// Empty (nil) and the literal `{}` default are treated as "no snapshot"
+	// so the recompute path opportunistically populates the column for
+	// orgs that haven't been touched by a mutator since migration 259.
+	usedSnapshot := false
+	if e.entitlementsAuthoritative && hasPersistedEntitlements(sub.Entitlements) {
+		var snap OrgPlanLimits
+		if err := json.Unmarshal(sub.Entitlements, &snap); err != nil {
+			// Malformed JSON in the column: log and fall back to recompute.
+			// The recompute path below opportunistically rewrites the
+			// snapshot with a valid value.
+			e.logger.Warn("entitlements snapshot is malformed, falling back to recompute",
+				"org_id", orgID, "error", err)
+		} else {
+			limits = snap
+			usedSnapshot = true
+		}
 	}
 
-	// Apply subscription-level add-on adjustments (add_ons JSONB column).
-	limits = applySubscriptionAddOns(limits, sub.AddOns)
+	if !usedSnapshot {
+		limits = GetPlanLimits(tier)
 
-	// Apply per-org overrides from support.
+		// Apply add-on increments (fail open if add-ons can't be loaded).
+		addons, addonErr := e.store.ListActiveAddons(ctx, orgID)
+		if addonErr != nil {
+			e.logger.Warn("failed to load add-ons, using base plan limits", "org_id", orgID, "error", addonErr)
+		} else if len(addons) > 0 {
+			limits = EffectiveLimits(limits, addons)
+		}
+
+		// Apply subscription-level add-on adjustments (add_ons JSONB column).
+		limits = ApplySubscriptionAddOns(limits, sub.AddOns)
+
+		// Opportunistically populate the snapshot column so subsequent
+		// reads hit the fast path. Failures here are non-fatal — the
+		// snapshot is a cache and the catalog data remains the source
+		// of truth.
+		if e.entitlementsAuthoritative {
+			if err := e.store.UpdateEntitlements(ctx, orgID, limits); err != nil {
+				e.logger.Warn("failed to opportunistically populate entitlements",
+					"org_id", orgID, "error", err)
+			}
+		}
+	}
+
+	// Apply per-org overrides from support. These run on top of the
+	// snapshot too — overrides are a runtime knob, not part of the
+	// resolved plan, and they must not be persisted into the snapshot.
 	if sub.OverrideDailyRunLimit != nil {
 		limits.MaxRunsPerDay = int64(*sub.OverrideDailyRunLimit)
 	}
@@ -391,6 +507,20 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 		enforcementMode: sub.EnforcementMode,
 	})
 	return limits, nil
+}
+
+// hasPersistedEntitlements reports whether the raw JSONB bytes contain
+// a non-default snapshot. The migration default is the empty object `{}`
+// which is two bytes; anything longer is treated as a populated snapshot.
+// nil and zero-length are also considered empty.
+func hasPersistedEntitlements(raw []byte) bool {
+	if len(raw) <= 2 {
+		return false
+	}
+	// Tolerate whitespace-only payloads like ` {} ` by trimming and
+	// comparing to the empty object literal.
+	trimmed := bytes.TrimSpace(raw)
+	return len(trimmed) > 2 && string(trimmed) != "{}"
 }
 
 // checkPaymentStatus checks the org's payment/grace status. Returns
@@ -460,7 +590,8 @@ func (e *Enforcer) CheckDailyRunLimit(ctx context.Context, orgID string) error {
 		return nil // unlimited
 	}
 
-	key := fmt.Sprintf("strait:org_runs:%s:%s", orgID, time.Now().UTC().Format("2006-01-02"))
+	period := time.Now().UTC().Format("2006-01-02")
+	key := fmt.Sprintf("strait:org_runs:%s:%s", orgID, period)
 	result, err := atomicIncrCheckScript.Run(ctx, e.rdb, []string{key},
 		limits.MaxRunsPerDay, int(48*time.Hour/time.Second)).Result()
 	if err != nil {
@@ -477,6 +608,9 @@ func (e *Enforcer) CheckDailyRunLimit(ctx context.Context, orgID string) error {
 	allowed, _ := vals[0].(int64)
 	currentCount, _ := vals[1].(int64)
 	recordBillingQuotaUsage(ctx, "daily_runs", string(limits.PlanTier), quotaUsageRatio(currentCount, limits.MaxRunsPerDay))
+
+	e.maybeEmitUsageThreshold(ctx, orgID, string(limits.PlanTier), "daily_runs", period,
+		currentCount, limits.MaxRunsPerDay)
 
 	if allowed == 0 {
 		// Paid plans (Starter/Pro/Enterprise) allow overage — log but don't reject.
@@ -517,6 +651,100 @@ func (e *Enforcer) DecrDailyRunCount(ctx context.Context, orgID string) {
 	key := fmt.Sprintf("strait:org_runs:%s:%s", orgID, time.Now().UTC().Format("2006-01-02"))
 	if err := decrFloorScript.Run(ctx, e.rdb, []string{key}).Err(); err != nil {
 		e.logger.Warn("failed to decrement org run counter", "org_id", orgID, "error", err)
+	}
+}
+
+// dailyAIModelCallKey returns the Redis key for the org's daily AI model call counter.
+// Key is scoped to the calendar day (UTC) and expires after 48 hours.
+func dailyAIModelCallKey(orgID string, t time.Time) string {
+	return fmt.Sprintf("strait:org_ai_calls:%s:%s", orgID, t.UTC().Format("2006-01-02"))
+}
+
+// CheckDailyAIModelCallLimit checks if the org has exceeded its daily AI model
+// call quota. Mirrors CheckDailyRunLimit: Free tier hard-rejects when over;
+// paid plans log overage (counted but not blocked) and let the call through.
+// Uses the same atomic INCR Lua script as the daily run check so the counter
+// is never incremented above the cap.
+func (e *Enforcer) CheckDailyAIModelCallLimit(ctx context.Context, orgID string) error {
+	if orgID == "" || e.rdb == nil {
+		return nil
+	}
+
+	if skipLimits, err := e.checkPaymentStatus(ctx, orgID); err != nil {
+		return err
+	} else if skipLimits {
+		return nil
+	}
+
+	limits, err := e.GetOrgPlanLimits(ctx, orgID)
+	if err != nil {
+		e.logger.Warn("failed to get org plan limits for ai call check", "org_id", orgID, "error", err)
+		return e.boundedFailOpen(ctx, orgID, "daily_ai_call", "db_error")
+	}
+	e.resetFailOpen(orgID, "daily_ai_call")
+
+	if e.checkEnforcementMode(orgID, "daily_ai_call") {
+		return nil
+	}
+
+	if limits.MaxAIModelCallsPerDay == -1 {
+		return nil // unlimited
+	}
+
+	key := dailyAIModelCallKey(orgID, time.Now())
+	result, err := atomicIncrCheckScript.Run(ctx, e.rdb, []string{key},
+		limits.MaxAIModelCallsPerDay, int(48*time.Hour/time.Second)).Result()
+	if err != nil {
+		e.logger.Warn("failed to run atomic ai call check", "org_id", orgID, "error", err)
+		return e.boundedFailOpen(ctx, orgID, "daily_ai_call", "redis_error")
+	}
+
+	vals, ok := result.([]any)
+	if !ok || len(vals) < 2 {
+		e.logger.Warn("unexpected result from atomic ai call check", "org_id", orgID)
+		return e.boundedFailOpen(ctx, orgID, "daily_ai_call", "redis_error")
+	}
+
+	allowed, _ := vals[0].(int64)
+	currentCount, _ := vals[1].(int64)
+
+	if allowed == 0 {
+		// Paid plans allow overage (logged for billing, not rejected).
+		if limits.PlanTier != domain.PlanFree {
+			e.logger.Info("daily ai call limit exceeded on paid plan (overage allowed)",
+				"org_id", orgID,
+				"plan", limits.DisplayName,
+				"limit", limits.MaxAIModelCallsPerDay,
+				"current", currentCount,
+			)
+			recordBillingOverageEntered(ctx, string(limits.PlanTier))
+			return nil
+		}
+
+		// Free tier: hard reject.
+		e.recordRejection(ctx, "daily_ai_call_limit", limits.PlanTier)
+		return &LimitError{
+			Code:         "org_daily_ai_call_limit_exceeded",
+			Message:      fmt.Sprintf("Your %s plan allows %d AI model calls per day. You've used %d.", limits.DisplayName, limits.MaxAIModelCallsPerDay, currentCount),
+			CurrentUsage: currentCount,
+			Limit:        int64(limits.MaxAIModelCallsPerDay),
+			Plan:         string(limits.PlanTier),
+			UpgradeURL:   "/upgrade",
+		}
+	}
+
+	return nil
+}
+
+// DecrDailyAIModelCallCount decrements the daily AI call counter (for rollback
+// on failure after a successful CheckDailyAIModelCallLimit increment).
+func (e *Enforcer) DecrDailyAIModelCallCount(ctx context.Context, orgID string) {
+	if orgID == "" || e.rdb == nil {
+		return
+	}
+	key := dailyAIModelCallKey(orgID, time.Now())
+	if err := decrFloorScript.Run(ctx, e.rdb, []string{key}).Err(); err != nil {
+		e.logger.Warn("failed to decrement org ai call counter", "org_id", orgID, "error", err)
 	}
 }
 
@@ -571,6 +799,7 @@ func (e *Enforcer) CheckMonthlyRunLimit(ctx context.Context, orgID string) error
 		return nil // unlimited
 	}
 
+	period := time.Now().UTC().Format("2006-01")
 	key := monthlyRunKey(orgID, time.Now())
 	result, err := atomicIncrCheckScript.Run(ctx, e.rdb, []string{key},
 		int64(limits.MaxRunsPerMonth), int64(monthlyRunCounterTTLSecs)).Result()
@@ -588,6 +817,9 @@ func (e *Enforcer) CheckMonthlyRunLimit(ctx context.Context, orgID string) error
 	allowed, _ := vals[0].(int64)
 	currentCount, _ := vals[1].(int64)
 	recordBillingQuotaUsage(ctx, "monthly_runs", string(limits.PlanTier), quotaUsageRatio(currentCount, int64(limits.MaxRunsPerMonth)))
+
+	e.maybeEmitUsageThreshold(ctx, orgID, string(limits.PlanTier), "monthly_runs", period,
+		currentCount, int64(limits.MaxRunsPerMonth))
 
 	if allowed == 0 {
 		// Paid plans allow overage — track but don't reject.
@@ -641,16 +873,53 @@ func (e *Enforcer) PauseJobsForQuotaExceeded(ctx context.Context, orgID string) 
 	if orgID == "" {
 		return nil
 	}
-	paused, err := e.store.PauseHTTPJobsByOrg(ctx, orgID, "quota_exceeded")
+	pausedIDs, err := e.store.PauseHTTPJobsByOrg(ctx, orgID, "quota_exceeded")
 	if err != nil {
 		return fmt.Errorf("pausing jobs for quota exceeded (org=%s): %w", orgID, err)
 	}
 	e.logger.Info("paused jobs for quota exceeded",
 		"org_id", orgID,
-		"jobs_paused", paused,
+		"jobs_paused", len(pausedIDs),
 	)
 	e.emitBillingEvent(orgID, "jobs_paused_quota_exceeded", "")
+	e.dispatchScheduleSuspended(ctx, orgID, pausedIDs, "quota_exceeded")
 	return nil
+}
+
+// dispatchScheduleSuspended emits one schedule.suspended webhook event per
+// paused job. Failures are logged but do not propagate so callers can return
+// success from the underlying state transition.
+func (e *Enforcer) dispatchScheduleSuspended(ctx context.Context, orgID string, jobIDs []string, reason string) {
+	if e.billingDispatcher == nil || len(jobIDs) == 0 || orgID == "" {
+		return
+	}
+	tier := e.tierForOrg(ctx, orgID)
+	for _, jobID := range jobIDs {
+		detail := map[string]any{
+			"schedule_id": jobID,
+			"reason":      reason,
+		}
+		if err := DispatchBillingWebhook(ctx, e.billingDispatcher, orgID, tier, domain.WebhookEventScheduleSuspended, detail); err != nil {
+			e.logger.Warn("dispatch schedule.suspended failed",
+				"org_id", orgID,
+				"job_id", jobID,
+				"reason", reason,
+				"error", err,
+			)
+		}
+	}
+}
+
+// tierForOrg returns the plan tier for an org or PlanFree if it can't be resolved.
+func (e *Enforcer) tierForOrg(ctx context.Context, orgID string) domain.PlanTier {
+	if e.store == nil {
+		return domain.PlanFree
+	}
+	sub, err := e.store.GetOrgSubscription(ctx, orgID)
+	if err != nil || sub == nil {
+		return domain.PlanFree
+	}
+	return domain.PlanTier(sub.PlanTier)
 }
 
 // ResumeJobsAfterQuotaReset unpauses jobs that were paused due to quota exceeded.
@@ -960,9 +1229,9 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 	recordBillingQuotaUsage(ctx, "spend", string(limits.PlanTier), quotaUsageRatio(overageSpend, sub.SpendingLimitMicrousd))
 
 	// Send spending alerts (async with 24h cooldown per org).
-	if e.billingEmails != nil && sub.SpendingLimitMicrousd > 0 {
+	if sub.SpendingLimitMicrousd > 0 {
 		spendPct := float64(overageSpend) / float64(sub.SpendingLimitMicrousd)
-		if spendPct >= 0.8 && spendPct < 1.0 && e.shouldSendBillingEmail(ctx, orgID, "spending_80pct") {
+		if e.billingEmails != nil && spendPct >= 0.8 && spendPct < 1.0 && e.shouldSendBillingEmail(ctx, orgID, "spending_80pct") {
 			adminEmails, _ := e.store.ListOrgAdminEmails(ctx, orgID)
 			go func() { //nolint:gosec // async email with own timeout
 				emailCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -972,6 +1241,17 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 					fmt.Sprintf("$%.2f", float64(sub.SpendingLimitMicrousd)/1e6),
 					fmt.Sprintf("%.0f%%", spendPct*100))
 			}()
+		}
+		if spendPct >= 0.8 && spendPct < 1.0 {
+			e.tryDispatchCapEvent(ctx, orgID, limits.PlanTier,
+				BillingCapEventWarning,
+				domain.WebhookEventBillingCapWarning,
+				map[string]any{
+					"spend_pct":            spendPct,
+					"period_spend":         periodSpend,
+					"spending_limit":       sub.SpendingLimitMicrousd,
+					"current_period_start": sub.CurrentPeriodStart,
+				})
 		}
 	}
 
@@ -990,6 +1270,28 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 	if isOverageLimitReached(sub.SpendingLimitMicrousd, overageSpend) {
 		e.recordRejection(ctx, "spending_limit", limits.PlanTier)
 		e.emitBillingEvent(orgID, "spending_limit_hit", sub.PlanTier)
+
+		capDetail := map[string]any{
+			"period_spend":         periodSpend,
+			"overage_spend":        overageSpend,
+			"spending_limit":       sub.SpendingLimitMicrousd,
+			"limit_action":         sub.LimitAction,
+			"current_period_start": sub.CurrentPeriodStart,
+		}
+		e.tryDispatchCapEvent(ctx, orgID, limits.PlanTier,
+			BillingCapEventReached,
+			domain.WebhookEventBillingCapReached, capDetail)
+		switch sub.LimitAction {
+		case "disable":
+			e.tryDispatchCapEvent(ctx, orgID, limits.PlanTier,
+				BillingCapEventDisabled,
+				domain.WebhookEventBillingCapDisabled, capDetail)
+		case "block":
+			e.tryDispatchCapEvent(ctx, orgID, limits.PlanTier,
+				BillingCapEventOverageDisabled,
+				domain.WebhookEventBillingOverageDisabled, capDetail)
+		}
+
 		return &LimitError{
 			Code:         "spending_limit_reached",
 			Message:      fmt.Sprintf("Your monthly spending limit of $%.2f has been reached.", float64(sub.SpendingLimitMicrousd)/1000000),
@@ -1026,6 +1328,130 @@ func (e *Enforcer) checkFreeTierIncludedCredit(ctx context.Context, orgID string
 		Plan:         string(domain.PlanFree),
 		UpgradeURL:   "/upgrade",
 	}
+}
+
+// CheckProjectBudgetLimit hard-rejects dispatch when a project has crossed its
+// monthly budget AND budget_action is "block". When budget_action is "notify"
+// (the default for unset rows), the call is a no-op — alerting is handled
+// separately. When no quota row exists, the call is a no-op.
+//
+// projectID is required; an empty value is treated as a no-op so callers do not
+// have to nil-guard at every dispatch site.
+func (e *Enforcer) CheckProjectBudgetLimit(ctx context.Context, projectID string) error {
+	if e == nil || projectID == "" {
+		return nil
+	}
+
+	budget, action, err := e.store.GetProjectBudget(ctx, projectID)
+	if err != nil {
+		e.logger.Warn("failed to read project budget", "project_id", projectID, "error", err)
+		// Fail-open here matches the spending-check posture: a transient DB
+		// error must not block the entire dispatch path. The org-level
+		// CheckSpendingLimit (which is fail-closed) still gates abuse.
+		return nil
+	}
+
+	// budget_action="notify" or unset means the budget is informational only.
+	// budget < 0 indicates "no budget configured" via the GetProjectBudget
+	// sentinel and must always pass.
+	if action != "block" || budget < 0 {
+		return nil
+	}
+
+	// Resolve org so we can use the same period window the spending check uses.
+	// A zero-value OrgSubscription gives us the canonical month-boundary
+	// fallback inside usagePeriodWindow.
+	orgID, err := e.store.GetProjectOrgID(ctx, projectID)
+	if err != nil {
+		e.logger.Warn("failed to resolve org for project budget check",
+			"project_id", projectID, "error", err)
+		return nil
+	}
+
+	var sub *OrgSubscription
+	if orgID != "" {
+		sub, _ = e.store.GetOrgSubscription(ctx, orgID)
+	}
+	tier := domain.PlanFree
+	if sub != nil {
+		tier = domain.PlanTier(sub.PlanTier)
+	}
+	periodStart, _ := usagePeriodWindow(time.Now().UTC(), tier, sub)
+
+	spend, err := e.store.GetProjectPeriodSpend(ctx, projectID, periodStart)
+	if err != nil {
+		e.logger.Warn("failed to read project period spend",
+			"project_id", projectID, "error", err)
+		return nil
+	}
+
+	if !isOverageLimitReached(budget, spend) {
+		return nil
+	}
+
+	planLabel := string(tier)
+	if sub != nil && sub.PlanTier != "" {
+		planLabel = sub.PlanTier
+	}
+	e.recordRejection(ctx, "project_budget", tier)
+	return &LimitError{
+		Code: "project_budget_reached",
+		Message: fmt.Sprintf(
+			"This project has reached its monthly budget of $%.2f.",
+			float64(budget)/1e6,
+		),
+		CurrentUsage: spend,
+		Limit:        budget,
+		Plan:         planLabel,
+		UpgradeURL:   "/settings/billing",
+	}
+}
+
+// CheckWorkerConnectionLimit hard-rejects new gRPC worker registrations once an
+// org has hit its plan-tier WorkerConnections cap. Existing connections are
+// not evicted; this is a connect-time gate only.
+//
+// orgID may be empty; in that case the call is a no-op (we cannot enforce a
+// per-org cap without knowing which org). currentActive is the registry-local
+// count of already-registered workers for the same org. Callers should obtain
+// it under the registry lock immediately before invoking this check to keep
+// the TOCTOU window minimal — but the check itself is best-effort: a stricter
+// global cap would require a distributed counter and is not warranted given
+// connections are infrequent.
+func (e *Enforcer) CheckWorkerConnectionLimit(ctx context.Context, orgID string, currentActive int) error {
+	if e == nil || orgID == "" {
+		return nil
+	}
+
+	limits, err := e.GetOrgPlanLimits(ctx, orgID)
+	if err != nil {
+		e.logger.Warn("failed to get org plan limits for worker connection check",
+			"org_id", orgID, "error", err)
+		// Fail-open on plan-limit lookup error: a transient DB hiccup must
+		// not lock customers out of their worker plane.
+		return nil
+	}
+
+	if limits.WorkerConnections == -1 {
+		return nil // unlimited
+	}
+
+	if currentActive >= limits.WorkerConnections {
+		e.recordRejection(ctx, "worker_connections", limits.PlanTier)
+		return &LimitError{
+			Code: "worker_connections_reached",
+			Message: fmt.Sprintf(
+				"Your %s plan allows %d concurrent worker connections per organization. Active: %d. Upgrade to add more.",
+				limits.DisplayName, limits.WorkerConnections, currentActive,
+			),
+			CurrentUsage: int64(currentActive),
+			Limit:        int64(limits.WorkerConnections),
+			Plan:         string(limits.PlanTier),
+			UpgradeURL:   "/upgrade",
+		}
+	}
+
+	return nil
 }
 
 // GetProjectOrgID resolves the org ID for a project via the billing store.
@@ -1491,16 +1917,20 @@ func isOverageLimitReached(limitMicrousd, overageSpendMicrousd int64) bool {
 // MaxSpendingLimit returns the maximum allowed spending limit for a plan tier.
 func MaxSpendingLimit(tier domain.PlanTier) int64 {
 	switch tier {
+	case domain.PlanFree:
+		return MaxSpendingFree
 	case domain.PlanStarter:
 		return MaxSpendingStarter
 	case domain.PlanPro:
 		return MaxSpendingPro
 	case domain.PlanScale:
 		return MaxSpendingScale
+	case domain.PlanBusiness:
+		return MaxSpendingBusiness
 	case domain.PlanEnterprise:
 		return -1 // custom
 	default:
-		return 0 // free: no spending limit
+		return 0
 	}
 }
 
@@ -1520,10 +1950,10 @@ type SpendingLimitResponse struct {
 // granted per priority_slot_pack unit.
 const prioritySlotPackIncrement = 10
 
-// applySubscriptionAddOns extends a base OrgPlanLimits using the subscription-level
+// ApplySubscriptionAddOns extends a base OrgPlanLimits using the subscription-level
 // add-ons stored in the add_ons JSONB column. Enforcement points for limits that
 // don't yet exist are annotated with TODO comments.
-func applySubscriptionAddOns(base OrgPlanLimits, addOns SubscriptionAddOns) OrgPlanLimits {
+func ApplySubscriptionAddOns(base OrgPlanLimits, addOns SubscriptionAddOns) OrgPlanLimits {
 	result := base
 
 	// Extra data retention: each pack adds retentionPackDays days.
@@ -1535,11 +1965,6 @@ func applySubscriptionAddOns(base OrgPlanLimits, addOns SubscriptionAddOns) OrgP
 	if addOns.PrioritySlotPack > 0 && result.MaxDispatchPriority != -1 {
 		result.MaxDispatchPriority += addOns.PrioritySlotPack * prioritySlotPackIncrement
 	}
-
-	// Log drain volume: extends base log drain capacity. Not yet wired into
-	// the log-drain volume meter — pending per-org volume tracking in
-	// internal/logdrain.
-	_ = addOns.LogDrainVolumeGB
 
 	// Additional worker connections: extends WorkerConnections limit.
 	if addOns.WorkerConnections > 0 && result.WorkerConnections != -1 {

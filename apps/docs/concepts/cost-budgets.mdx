@@ -85,3 +85,44 @@ Query current usage through the API to track spending trends and adjust limits.
 | `completion_tokens` | `int` | Number of output tokens. |
 | `total_tokens` | `int` | Sum of prompt and completion tokens. |
 | `cost_microusd` | `int64` | Cost in micro-USD. |
+
+## Plan-quota enforcement
+
+Project budgets are one of several gates Strait runs before accepting work. Plan-quota gates fire at the API boundary; when one trips, the response is a `402 Payment Required` with a canonical body:
+
+```json
+{
+  "code": "quota_exceeded",
+  "kind": "plan_cap_reached",
+  "message": "monthly run cap reached",
+  "limit": 10000,
+  "current": 10001,
+  "plan": "starter",
+  "upgrade_url": "https://strait.dev/upgrade"
+}
+```
+
+Top-level `code` is always `quota_exceeded` so SDKs can branch on a single string. The granular reason lives in `kind` for finer-grained UX and telemetry.
+
+The one exception is fail-open exhaustion: if the billing layer cannot reach its dependencies safely, the response is `503 Service Unavailable` with `code: "service_degraded"` so clients treat it as a transient availability event, not a plan rejection.
+
+### Gates and their codes
+
+| Gate | When it fires | HTTP | `kind` |
+| :--- | :--- | :--- | :--- |
+| `CheckMonthlyRunLimit` | Run trigger / enqueue | `402` | `plan_cap_reached` |
+| `CheckDailyRunLimit` | Run trigger / enqueue | `402` | `org_daily_run_limit_exceeded` |
+| `CheckConcurrentRunLimit` | Run dispatch | `402` | `org_concurrent_run_limit_exceeded` |
+| `CheckDailyAIModelCallLimit` | AI usage report | `402` | `org_daily_ai_call_limit_exceeded` |
+| `CheckMaxDispatchPriority` | Run trigger with custom priority | `402` | `dispatch_priority_exceeded` |
+| `CheckProjectLimit` | `POST /v1/projects/` | `402` | `project_limit_reached` |
+| `CheckMemberLimit` | Adding a member to an org | `402` | `member_limit_reached` |
+| `CheckOrgCreationLimit` | Creating an additional org | `402` | `org_limit_reached` |
+| `CheckWorkerConnectionLimit` | gRPC worker connect | `402` | `worker_connections_reached` |
+| `CheckSpendingLimit` | Run enqueue (org spend cap) | `402` | `spending_limit_reached` |
+| `CheckProjectBudgetLimit` | Run enqueue (per-project budget) | `402` | `project_budget_reached` |
+| `CheckProjectSuspended` | Any request on a project suspended by downgrade | `402` | `project_suspended` |
+| Dunning gate | Any plan-restricted operation while in arrears | `402` | `payment_restricted` / `grace_period_expired` |
+| Fail-open fallback | Billing dependency unreachable | `503` | `service_degraded` |
+
+Codes are stable: SDKs and dashboards can rely on these strings. New reasons are added as new `kind` values; the top-level `code: "quota_exceeded"` envelope never changes.

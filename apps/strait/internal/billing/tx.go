@@ -2,12 +2,15 @@ package billing
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"strait/internal/domain"
 )
 
 // WithBillingTx executes fn within a database transaction. If fn returns an
@@ -62,6 +65,21 @@ func RestrictOrgTx(ctx context.Context, pool *pgxpool.Pool, orgID string, graceE
 		}
 		if tag.RowsAffected() == 0 {
 			return ErrSubscriptionNotFound
+		}
+
+		// Collapse the entitlements snapshot to Free-tier in the same
+		// transaction so a reader landing between the plan downgrade and
+		// the next mutator never sees paid limits on a restricted org.
+		freeEntitlements, err := json.Marshal(GetPlanLimits(domain.PlanFree))
+		if err != nil {
+			return fmt.Errorf("marshalling free entitlements: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE organization_subscriptions
+			SET entitlements = $2::jsonb, updated_at = NOW()
+			WHERE org_id = $1
+		`, orgID, freeEntitlements); err != nil {
+			return fmt.Errorf("resetting entitlements to free: %w", err)
 		}
 
 		return nil

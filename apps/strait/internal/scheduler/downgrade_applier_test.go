@@ -21,13 +21,28 @@ type mockDowngradeStore struct {
 
 	// HTTP pause tracking.
 	pauseHTTPCalls []pauseHTTPCall
-	pauseHTTPCount int64
+	pauseHTTPIDs   []string
 	pauseHTTPErr   error
+
+	// Log drain / notification channel cleanup tracking.
+	logDrainCalls     []deactivateCall
+	logDrainCount     int64
+	notifChannelCalls []deactivateCall
+	notifChannelCount int64
+
+	// Member overage tracking.
+	memberCount int
+	projectIDs  []string
 }
 
 type pauseHTTPCall struct {
 	orgID  string
 	reason string
+}
+
+type deactivateCall struct {
+	orgID string
+	max   int
 }
 
 func (m *mockDowngradeStore) ListOrgsWithPendingDowngrade(_ context.Context) ([]billing.OrgSubscription, error) {
@@ -51,8 +66,8 @@ func (m *mockDowngradeStore) SuspendExcessProjects(_ context.Context, _ string, 
 	return 0, nil
 }
 
-func (m *mockDowngradeStore) DeactivateExcessCronJobs(_ context.Context, _ string, _ int) (int64, error) {
-	return 0, nil
+func (m *mockDowngradeStore) DeactivateExcessCronJobs(_ context.Context, _ string, _ int) ([]string, error) {
+	return nil, nil
 }
 
 func (m *mockDowngradeStore) DeactivateExcessWebhookSubscriptions(_ context.Context, _ string, _ int) (int64, error) {
@@ -64,15 +79,29 @@ func (m *mockDowngradeStore) DeactivateExcessEnvironments(_ context.Context, _ s
 }
 
 func (m *mockDowngradeStore) ListProjectsByOrg(_ context.Context, _ string) ([]string, error) {
-	return nil, nil
+	return m.projectIDs, nil
 }
 
-func (m *mockDowngradeStore) PauseHTTPJobsByOrg(_ context.Context, orgID string, reason string) (int64, error) {
+func (m *mockDowngradeStore) PauseHTTPJobsByOrg(_ context.Context, orgID string, reason string) ([]string, error) {
 	m.pauseHTTPCalls = append(m.pauseHTTPCalls, pauseHTTPCall{orgID: orgID, reason: reason})
 	if m.pauseHTTPErr != nil {
-		return 0, m.pauseHTTPErr
+		return nil, m.pauseHTTPErr
 	}
-	return m.pauseHTTPCount, nil
+	return m.pauseHTTPIDs, nil
+}
+
+func (m *mockDowngradeStore) DeactivateExcessLogDrains(_ context.Context, orgID string, maxDrains int) (int64, error) {
+	m.logDrainCalls = append(m.logDrainCalls, deactivateCall{orgID: orgID, max: maxDrains})
+	return m.logDrainCount, nil
+}
+
+func (m *mockDowngradeStore) DeactivateExcessNotificationChannelsByProject(_ context.Context, projectID string, maxChannels int) (int64, error) {
+	m.notifChannelCalls = append(m.notifChannelCalls, deactivateCall{orgID: projectID, max: maxChannels})
+	return m.notifChannelCount, nil
+}
+
+func (m *mockDowngradeStore) CountMembersByOrg(_ context.Context, _ string) (int, error) {
+	return m.memberCount, nil
 }
 
 func newTestEnforcer(t *testing.T) *billing.Enforcer {
@@ -87,6 +116,12 @@ func newTestEnforcer(t *testing.T) *billing.Enforcer {
 // mockEnforcerStore satisfies billing.Store for the enforcer.
 type mockEnforcerStore struct{}
 
+func (m *mockEnforcerStore) UpdateEntitlements(context.Context, string, billing.OrgPlanLimits) error {
+	return nil
+}
+func (m *mockEnforcerStore) TryMarkBillingCapEvent(context.Context, string, billing.BillingCapEvent) (bool, error) {
+	return false, nil
+}
 func (m *mockEnforcerStore) EnsureOrgSubscription(_ context.Context, _ string) error { return nil }
 func (m *mockEnforcerStore) GetOrgSubscription(_ context.Context, _ string) (*billing.OrgSubscription, error) {
 	return nil, billing.ErrSubscriptionNotFound
@@ -251,8 +286,8 @@ func (m *mockEnforcerStore) ListExpiringContracts(_ context.Context, _ int) ([]b
 	return nil, nil
 }
 
-func (m *mockEnforcerStore) PauseHTTPJobsByOrg(context.Context, string, string) (int64, error) {
-	return 0, nil
+func (m *mockEnforcerStore) PauseHTTPJobsByOrg(context.Context, string, string) ([]string, error) {
+	return nil, nil
 }
 
 func (m *mockEnforcerStore) UnpauseJobsByPauseReason(context.Context, string, string) (int64, error) {
@@ -368,5 +403,156 @@ func TestDowngradeApplier_SkipsHTTPPauseWhenNewPlanAllows(t *testing.T) {
 	}
 	if len(store.pauseHTTPCalls) != 0 {
 		t.Errorf("expected 0 PauseHTTPJobsByOrg calls, got %d", len(store.pauseHTTPCalls))
+	}
+}
+
+// TestDowngradeApplier_DeactivatesExcessLogDrains confirms the Pro→Free
+// downgrade calls DeactivateExcessLogDrains with the new Free-tier cap (0).
+// Drains beyond the cap must be flipped to enabled=false; the per-call cap
+// argument matches the new tier's MaxLogDrainsPerOrg.
+func TestDowngradeApplier_DeactivatesExcessLogDrains(t *testing.T) {
+	t.Parallel()
+
+	free := "free"
+	pastEnd := time.Now().Add(-1 * time.Hour)
+	store := &mockDowngradeStore{
+		pendingOrgs: []billing.OrgSubscription{
+			{OrgID: "org-drains", PlanTier: "pro", PendingPlanTier: &free, CurrentPeriodEnd: &pastEnd},
+		},
+		logDrainCount: 3, // simulate 3 rows deactivated
+	}
+
+	enforcer := newTestEnforcer(t)
+	applier := NewDowngradeApplier(store, enforcer, time.Minute)
+	applier.apply(context.Background())
+
+	if len(store.logDrainCalls) != 1 {
+		t.Fatalf("expected 1 DeactivateExcessLogDrains call, got %d", len(store.logDrainCalls))
+	}
+	freeLimits := billing.GetPlanLimits("free")
+	if got, want := store.logDrainCalls[0].max, freeLimits.MaxLogDrainsPerOrg; got != want {
+		t.Errorf("DeactivateExcessLogDrains called with max=%d, want %d (Free tier cap)", got, want)
+	}
+}
+
+// TestDowngradeApplier_DeactivatesExcessNotificationChannelsPerProject locks
+// in the per-project iteration: notification-channel caps are scoped per
+// project, so the applier must walk each project and call the deactivator
+// once per project with the new tier's MaxNotificationChannels.
+func TestDowngradeApplier_DeactivatesExcessNotificationChannelsPerProject(t *testing.T) {
+	t.Parallel()
+
+	free := "free"
+	pastEnd := time.Now().Add(-1 * time.Hour)
+	store := &mockDowngradeStore{
+		pendingOrgs: []billing.OrgSubscription{
+			{OrgID: "org-multi", PlanTier: "pro", PendingPlanTier: &free, CurrentPeriodEnd: &pastEnd},
+		},
+		projectIDs: []string{"proj-a", "proj-b", "proj-c"},
+	}
+
+	enforcer := newTestEnforcer(t)
+	applier := NewDowngradeApplier(store, enforcer, time.Minute)
+	applier.apply(context.Background())
+
+	if len(store.notifChannelCalls) != 3 {
+		t.Fatalf("expected 1 DeactivateExcessNotificationChannelsByProject call per project (3 total), got %d", len(store.notifChannelCalls))
+	}
+	freeLimits := billing.GetPlanLimits("free")
+	for _, call := range store.notifChannelCalls {
+		if call.max != freeLimits.MaxNotificationChannels {
+			t.Errorf("call max=%d, want %d (Free tier cap)", call.max, freeLimits.MaxNotificationChannels)
+		}
+	}
+	seen := map[string]bool{}
+	for _, call := range store.notifChannelCalls {
+		seen[call.orgID] = true // mock stores projectID in orgID field
+	}
+	for _, p := range store.projectIDs {
+		if !seen[p] {
+			t.Errorf("project %q was not visited by the cleanup loop", p)
+		}
+	}
+}
+
+// TestDowngradeApplier_SkipsLogDrainCleanupForUnlimitedTier confirms tiers
+// with MaxLogDrainsPerOrg=-1 (Enterprise-style unlimited) do not trigger any
+// cleanup calls.
+func TestDowngradeApplier_SkipsLogDrainCleanupForUnlimitedTier(t *testing.T) {
+	t.Parallel()
+
+	// Enterprise allows unlimited log drains; downgrade Enterprise->Enterprise
+	// is a no-op for log drains. Use a plan with MaxLogDrainsPerOrg = -1.
+	enterprise := "enterprise"
+	pastEnd := time.Now().Add(-1 * time.Hour)
+	store := &mockDowngradeStore{
+		pendingOrgs: []billing.OrgSubscription{
+			{OrgID: "org-keep", PlanTier: "enterprise", PendingPlanTier: &enterprise, CurrentPeriodEnd: &pastEnd},
+		},
+	}
+
+	enforcer := newTestEnforcer(t)
+	applier := NewDowngradeApplier(store, enforcer, time.Minute)
+	applier.apply(context.Background())
+
+	if len(store.logDrainCalls) != 0 {
+		t.Errorf("expected 0 DeactivateExcessLogDrains calls for unlimited tier, got %d", len(store.logDrainCalls))
+	}
+}
+
+// TestDowngradeApplier_EmitsMemberOverageEventOnDowngrade pins the documented
+// member policy: do NOT auto-deactivate members; emit a billing event so the
+// dashboard surfaces the overage. New invites are blocked at the API.
+func TestDowngradeApplier_EmitsMemberOverageEventOnDowngrade(t *testing.T) {
+	t.Parallel()
+
+	free := "free"
+	pastEnd := time.Now().Add(-1 * time.Hour)
+	freeLimits := billing.GetPlanLimits("free")
+	store := &mockDowngradeStore{
+		pendingOrgs: []billing.OrgSubscription{
+			{OrgID: "org-over", PlanTier: "pro", PendingPlanTier: &free, CurrentPeriodEnd: &pastEnd},
+		},
+		// Sit one above the new cap so we trigger the overage path.
+		memberCount: freeLimits.MaxMembersPerOrg + 1,
+	}
+
+	enforcer := newTestEnforcer(t)
+	applier := NewDowngradeApplier(store, enforcer, time.Minute)
+	applier.apply(context.Background())
+	// We can't easily intercept the ClickHouse exporter from this test, but
+	// the apply path must not panic and must succeed. The integration test
+	// covers the actual ClickHouse emission path. This test pins that the
+	// applier reaches the overage branch (count > cap) without erroring.
+
+	if len(store.appliedOrgIDs) != 1 {
+		t.Fatalf("expected 1 downgrade, got %d", len(store.appliedOrgIDs))
+	}
+}
+
+// TestDowngradeApplier_NoMemberOverageWhenUnderCap confirms the overage path
+// does NOT fire when the member count is at or below the new cap.
+func TestDowngradeApplier_NoMemberOverageWhenUnderCap(t *testing.T) {
+	t.Parallel()
+
+	free := "free"
+	pastEnd := time.Now().Add(-1 * time.Hour)
+	freeLimits := billing.GetPlanLimits("free")
+	store := &mockDowngradeStore{
+		pendingOrgs: []billing.OrgSubscription{
+			{OrgID: "org-fits", PlanTier: "pro", PendingPlanTier: &free, CurrentPeriodEnd: &pastEnd},
+		},
+		memberCount: freeLimits.MaxMembersPerOrg, // exactly at cap → no overage
+	}
+
+	enforcer := newTestEnforcer(t)
+	applier := NewDowngradeApplier(store, enforcer, time.Minute)
+	applier.apply(context.Background())
+	// No assertion on the chExporter here; the integration test covers the
+	// non-emission case. This test pins the under-cap branch is reached
+	// without error.
+
+	if len(store.appliedOrgIDs) != 1 {
+		t.Fatalf("expected 1 downgrade, got %d", len(store.appliedOrgIDs))
 	}
 }

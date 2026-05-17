@@ -28,15 +28,26 @@ import (
 
 // Server wraps the gRPC server and all its dependencies.
 type Server struct {
-	cfg            *config.Config
-	queries        *store.Queries
-	pub            pubsub.Publisher
-	registry       *ConnectionRegistry
-	resultChannels *ResultChannelRegistry
-	runFinalizer   atomic.Value
-	authLimiter    grpcAuthLimiter
-	gs             *grpc.Server
-	version        string
+	cfg             *config.Config
+	queries         *store.Queries
+	pub             pubsub.Publisher
+	registry        *ConnectionRegistry
+	resultChannels  *ResultChannelRegistry
+	runFinalizer    atomic.Value
+	authLimiter     grpcAuthLimiter
+	billingEnforcer planLimitEnforcer
+	gs              *grpc.Server
+	version         string
+}
+
+// planLimitEnforcer is the subset of *billing.Enforcer the gRPC stream uses to
+// gate connect-time worker registration. Defined here rather than imported as
+// the concrete *billing.Enforcer so the gRPC package stays free of a
+// circular dep on billing (billing already imports nothing from grpc, but the
+// interface seam keeps tests from needing a full Enforcer).
+type planLimitEnforcer interface {
+	CheckWorkerConnectionLimit(ctx context.Context, orgID string, currentActive int) error
+	GetActiveProjectOrgID(ctx context.Context, projectID string) (string, error)
 }
 
 type ServerOption func(*Server)
@@ -50,6 +61,15 @@ func WithAuthLimiter(limiter grpcAuthLimiter) ServerOption {
 func WithVersion(version string) ServerOption {
 	return func(s *Server) {
 		s.version = version
+	}
+}
+
+// WithBillingEnforcer attaches a plan-limit enforcer used to gate
+// worker registration by tier. May be nil in community / self-hosted
+// builds, in which case the gating is silently skipped.
+func WithBillingEnforcer(enforcer planLimitEnforcer) ServerOption {
+	return func(s *Server) {
+		s.billingEnforcer = enforcer
 	}
 }
 
@@ -154,13 +174,14 @@ func (s *Server) buildServer() (*grpc.Server, error) {
 
 	// Register worker service.
 	svc := &workerService{
-		queries:        s.queries,
-		pub:            s.pub,
-		registry:       s.registry,
-		cfg:            s.cfg,
-		resultChannels: s.resultChannels,
-		runFinalizer:   &s.runFinalizer,
-		authLimiter:    s.authLimiter,
+		queries:         s.queries,
+		pub:             s.pub,
+		registry:        s.registry,
+		cfg:             s.cfg,
+		resultChannels:  s.resultChannels,
+		runFinalizer:    &s.runFinalizer,
+		authLimiter:     s.authLimiter,
+		billingEnforcer: s.billingEnforcer,
 	}
 	workerv1.RegisterWorkerServiceServer(gs, svc)
 

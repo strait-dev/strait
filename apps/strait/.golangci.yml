@@ -245,4 +245,8 @@ linters:
       # generated boilerplate, not user-authored unsafe usage.
       # Source: proto/worker/v1/worker.proto; regenerate with: make proto
       - path: internal/api/grpc/proto/
-        linters: [revive, staticcheck, gosec]
+        linters: [revive, staticcheck, gosec, godot, goimports, modernize]
+      # moq-generated mocks for store/api interfaces; the file header comment
+      # and import grouping are emitted verbatim by github.com/matryer/moq.
+      - path: internal/api/mock_.*_test\.go
+        linters: [godot, goimports]

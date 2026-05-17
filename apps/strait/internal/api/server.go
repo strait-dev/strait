@@ -346,6 +346,8 @@ type AuthStore interface {
 	CountEnvironmentsByOrg(ctx context.Context, orgID string) (int, error)
 	CountWebhookSubscriptionsByProject(ctx context.Context, projectID string) (int, error)
 	CountWebhookSubscriptionsByOrg(ctx context.Context, orgID string) (int, error)
+	CountLogDrainsByOrg(ctx context.Context, orgID string) (int, error)
+	CountNotificationChannelsByProject(ctx context.Context, projectID string) (int, error)
 	CreateDeviceCode(ctx context.Context, deviceCode, userCode, projectID string, scopes []string, expiresAt time.Time) error
 	GetDeviceCodeByDeviceCode(ctx context.Context, deviceCode string) (*store.DeviceCodeRow, error)
 	GetDeviceCodeByUserCode(ctx context.Context, userCode string) (*store.DeviceCodeRow, error)
@@ -683,6 +685,8 @@ type BillingEnforcer interface {
 	GetOrgPlanLimits(ctx context.Context, orgID string) (billing.OrgPlanLimits, error)
 	GetDailyRunCount(ctx context.Context, orgID string) (int64, error)
 	EnsureOrgSubscription(ctx context.Context, orgID string) error
+	CheckDailyAIModelCallLimit(ctx context.Context, orgID string) error
+	DispatchBilling(ctx context.Context, orgID string, planTier domain.PlanTier, eventType string, detail map[string]any)
 }
 
 // UsageService provides org usage data for the billing dashboard.

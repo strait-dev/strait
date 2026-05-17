@@ -22,15 +22,15 @@ func TestEffectiveLimits_NoAddons(t *testing.T) {
 	}
 }
 
-func TestEffectiveLimits_ConcurrentRunsPack(t *testing.T) {
+func TestEffectiveLimits_Concurrency100Pack(t *testing.T) {
 	t.Parallel()
 	base := GetPlanLimits(domain.PlanPro)
 	addons := []Addon{
-		{AddonType: AddonConcurrentRuns, Quantity: 1, Active: true},
+		{AddonType: AddonConcurrency100, Quantity: 1, Active: true},
 	}
 
 	result := EffectiveLimits(base, addons)
-	want := base.MaxConcurrentRuns + 50
+	want := base.MaxConcurrentRuns + 100
 	if result.MaxConcurrentRuns != want {
 		t.Errorf("MaxConcurrentRuns = %d, want %d", result.MaxConcurrentRuns, want)
 	}
@@ -40,58 +40,81 @@ func TestEffectiveLimits_MultiplePacksStack(t *testing.T) {
 	t.Parallel()
 	base := GetPlanLimits(domain.PlanPro)
 	addons := []Addon{
-		{AddonType: AddonConcurrentRuns, Quantity: 3, Active: true},
+		{AddonType: AddonConcurrency100, Quantity: 3, Active: true},
 	}
 
 	result := EffectiveLimits(base, addons)
-	want := base.MaxConcurrentRuns + 150 // 3 packs x 50
+	want := base.MaxConcurrentRuns + 300 // 3 packs x 100
 	if result.MaxConcurrentRuns != want {
 		t.Errorf("MaxConcurrentRuns = %d, want %d", result.MaxConcurrentRuns, want)
 	}
 }
 
-func TestEffectiveLimits_MembersPack(t *testing.T) {
+func TestEffectiveLimits_Environments5Pack(t *testing.T) {
 	t.Parallel()
 	base := GetPlanLimits(domain.PlanStarter)
 	addons := []Addon{
-		{AddonType: AddonMembers, Quantity: 5, Active: true},
+		{AddonType: AddonEnvironments5, Quantity: 1, Active: true},
 	}
 
 	result := EffectiveLimits(base, addons)
-	want := base.MaxMembersPerOrg + 5 // 5 seats x 1
-	if result.MaxMembersPerOrg != want {
-		t.Errorf("MaxMembersPerOrg = %d, want %d", result.MaxMembersPerOrg, want)
+	want := base.MaxEnvironments + 5
+	if result.MaxEnvironments != want {
+		t.Errorf("MaxEnvironments = %d, want %d", result.MaxEnvironments, want)
 	}
 }
 
-func TestEffectiveLimits_DataRetention_MaxCap90(t *testing.T) {
+func TestEffectiveLimits_History30dPack(t *testing.T) {
 	t.Parallel()
 
 	// Starter has RetentionStarter days. One pack adds 30 days.
 	starter := GetPlanLimits(domain.PlanStarter)
 	result := EffectiveLimits(starter, []Addon{
-		{AddonType: AddonDataRetention, Quantity: 1, Active: true},
+		{AddonType: AddonHistory30d, Quantity: 1, Active: true},
 	})
 	want1Pack := RetentionStarter + 30
 	if result.RetentionDays != want1Pack {
-		t.Errorf("Starter + 1 retention pack = %d, want %d", result.RetentionDays, want1Pack)
+		t.Errorf("Starter + 1 history pack = %d, want %d", result.RetentionDays, want1Pack)
 	}
 
-	// Enough packs to exceed 90 should be capped at 90.
-	result = EffectiveLimits(starter, []Addon{
-		{AddonType: AddonDataRetention, Quantity: 3, Active: true},
-	})
-	if result.RetentionDays != 90 {
-		t.Errorf("Starter + 3 retention packs = %d, want 90 (capped)", result.RetentionDays)
-	}
-
-	// Pro has 30 days. Two packs = 30 + 60 = 90.
+	// Two packs stack additively.
 	pro := GetPlanLimits(domain.PlanPro)
 	result = EffectiveLimits(pro, []Addon{
-		{AddonType: AddonDataRetention, Quantity: 2, Active: true},
+		{AddonType: AddonHistory30d, Quantity: 2, Active: true},
 	})
-	if result.RetentionDays != 90 {
-		t.Errorf("Pro + 2 retention packs = %d, want 90", result.RetentionDays)
+	want2Pack := pro.RetentionDays + 60
+	if result.RetentionDays != want2Pack {
+		t.Errorf("Pro + 2 history packs = %d, want %d", result.RetentionDays, want2Pack)
+	}
+}
+
+func TestEffectiveLimits_ComplianceArchive_SetsSIEMExport(t *testing.T) {
+	t.Parallel()
+	base := GetPlanLimits(domain.PlanPro)
+	if base.HasSIEMExport {
+		t.Fatalf("precondition: Pro should not have SIEM export")
+	}
+
+	result := EffectiveLimits(base, []Addon{
+		{AddonType: AddonComplianceArchive, Quantity: 1, Active: true},
+	})
+	if !result.HasSIEMExport {
+		t.Error("expected ComplianceArchive addon to enable HasSIEMExport")
+	}
+}
+
+func TestEffectiveLimits_DedicatedWorkers_SetsHasDedicatedCompute(t *testing.T) {
+	t.Parallel()
+	base := GetPlanLimits(domain.PlanPro)
+	if base.HasDedicatedCompute {
+		t.Fatalf("precondition: Pro should not have dedicated compute")
+	}
+
+	result := EffectiveLimits(base, []Addon{
+		{AddonType: AddonDedicatedWorkers, Quantity: 1, Active: true},
+	})
+	if !result.HasDedicatedCompute {
+		t.Error("expected DedicatedWorkers addon to enable HasDedicatedCompute")
 	}
 }
 
@@ -99,21 +122,21 @@ func TestEffectiveLimits_MixedAddons(t *testing.T) {
 	t.Parallel()
 	base := GetPlanLimits(domain.PlanPro)
 	addons := []Addon{
-		{AddonType: AddonConcurrentRuns, Quantity: 2, Active: true},
-		{AddonType: AddonMembers, Quantity: 3, Active: true},
-		{AddonType: AddonCronSchedules, Quantity: 1, Active: true},
+		{AddonType: AddonConcurrency100, Quantity: 2, Active: true},
+		{AddonType: AddonEnvironments5, Quantity: 3, Active: true},
+		{AddonType: AddonHistory30d, Quantity: 1, Active: true},
 	}
 
 	result := EffectiveLimits(base, addons)
 
-	if result.MaxConcurrentRuns != base.MaxConcurrentRuns+100 {
-		t.Errorf("MaxConcurrentRuns = %d, want %d", result.MaxConcurrentRuns, base.MaxConcurrentRuns+100)
+	if result.MaxConcurrentRuns != base.MaxConcurrentRuns+200 {
+		t.Errorf("MaxConcurrentRuns = %d, want %d", result.MaxConcurrentRuns, base.MaxConcurrentRuns+200)
 	}
-	if result.MaxMembersPerOrg != base.MaxMembersPerOrg+3 {
-		t.Errorf("MaxMembersPerOrg = %d, want %d", result.MaxMembersPerOrg, base.MaxMembersPerOrg+3)
+	if result.MaxEnvironments != base.MaxEnvironments+15 {
+		t.Errorf("MaxEnvironments = %d, want %d", result.MaxEnvironments, base.MaxEnvironments+15)
 	}
-	if result.MaxScheduledJobs != base.MaxScheduledJobs+25 {
-		t.Errorf("MaxScheduledJobs = %d, want %d", result.MaxScheduledJobs, base.MaxScheduledJobs+25)
+	if result.RetentionDays != base.RetentionDays+30 {
+		t.Errorf("RetentionDays = %d, want %d", result.RetentionDays, base.RetentionDays+30)
 	}
 }
 
@@ -121,7 +144,7 @@ func TestEffectiveLimits_NegativeQuantity_Ignored(t *testing.T) {
 	t.Parallel()
 	base := GetPlanLimits(domain.PlanPro)
 	addons := []Addon{
-		{AddonType: AddonConcurrentRuns, Quantity: -5, Active: true},
+		{AddonType: AddonConcurrency100, Quantity: -5, Active: true},
 	}
 
 	result := EffectiveLimits(base, addons)
@@ -140,10 +163,8 @@ func TestEffectiveLimits_UnknownAddonType_Ignored(t *testing.T) {
 
 	result := EffectiveLimits(base, addons)
 	if result.MaxConcurrentRuns != base.MaxConcurrentRuns ||
-		result.MaxMembersPerOrg != base.MaxMembersPerOrg ||
-		result.RetentionDays != base.RetentionDays ||
-		result.MaxScheduledJobs != base.MaxScheduledJobs ||
-		result.MaxWebhookEndpoints != base.MaxWebhookEndpoints {
+		result.MaxEnvironments != base.MaxEnvironments ||
+		result.RetentionDays != base.RetentionDays {
 		t.Error("unknown addon type should have no effect on limits")
 	}
 }
@@ -152,8 +173,8 @@ func TestEffectiveLimits_InactiveAddons_NotApplied(t *testing.T) {
 	t.Parallel()
 	base := GetPlanLimits(domain.PlanPro)
 	addons := []Addon{
-		{AddonType: AddonConcurrentRuns, Quantity: 5, Active: false},
-		{AddonType: AddonMembers, Quantity: 10, Active: false},
+		{AddonType: AddonConcurrency100, Quantity: 5, Active: false},
+		{AddonType: AddonEnvironments5, Quantity: 10, Active: false},
 	}
 
 	result := EffectiveLimits(base, addons)
@@ -161,9 +182,9 @@ func TestEffectiveLimits_InactiveAddons_NotApplied(t *testing.T) {
 		t.Errorf("inactive addon applied: MaxConcurrentRuns = %d, want %d",
 			result.MaxConcurrentRuns, base.MaxConcurrentRuns)
 	}
-	if result.MaxMembersPerOrg != base.MaxMembersPerOrg {
-		t.Errorf("inactive addon applied: MaxMembersPerOrg = %d, want %d",
-			result.MaxMembersPerOrg, base.MaxMembersPerOrg)
+	if result.MaxEnvironments != base.MaxEnvironments {
+		t.Errorf("inactive addon applied: MaxEnvironments = %d, want %d",
+			result.MaxEnvironments, base.MaxEnvironments)
 	}
 }
 
@@ -171,38 +192,16 @@ func TestEffectiveLimits_UnlimitedNotModified(t *testing.T) {
 	t.Parallel()
 	base := GetPlanLimits(domain.PlanEnterprise)
 	addons := []Addon{
-		{AddonType: AddonConcurrentRuns, Quantity: 10, Active: true},
-		{AddonType: AddonMembers, Quantity: 10, Active: true},
-		{AddonType: AddonCronSchedules, Quantity: 10, Active: true},
-		{AddonType: AddonWebhookEndpoints, Quantity: 10, Active: true},
+		{AddonType: AddonConcurrency100, Quantity: 10, Active: true},
+		{AddonType: AddonEnvironments5, Quantity: 10, Active: true},
 	}
 
 	result := EffectiveLimits(base, addons)
 	if result.MaxConcurrentRuns != -1 {
 		t.Errorf("enterprise concurrent runs should stay unlimited, got %d", result.MaxConcurrentRuns)
 	}
-	if result.MaxMembersPerOrg != -1 {
-		t.Errorf("enterprise members should stay unlimited, got %d", result.MaxMembersPerOrg)
-	}
-	if result.MaxScheduledJobs != -1 {
-		t.Errorf("enterprise scheduled jobs should stay unlimited, got %d", result.MaxScheduledJobs)
-	}
-	if result.MaxWebhookEndpoints != -1 {
-		t.Errorf("enterprise webhook endpoints should stay unlimited, got %d", result.MaxWebhookEndpoints)
-	}
-}
-
-func TestEffectiveLimits_WebhookEndpoints(t *testing.T) {
-	t.Parallel()
-	base := GetPlanLimits(domain.PlanPro) // 10 endpoints
-	addons := []Addon{
-		{AddonType: AddonWebhookEndpoints, Quantity: 2, Active: true},
-	}
-
-	result := EffectiveLimits(base, addons)
-	want := base.MaxWebhookEndpoints + 10 // 2 packs x 5
-	if result.MaxWebhookEndpoints != want {
-		t.Errorf("MaxWebhookEndpoints = %d, want %d", result.MaxWebhookEndpoints, want)
+	if result.MaxEnvironments != -1 {
+		t.Errorf("enterprise environments should stay unlimited, got %d", result.MaxEnvironments)
 	}
 }
 
@@ -226,8 +225,8 @@ func TestIsValidAddonType(t *testing.T) {
 func TestAllAddonTypes_Count(t *testing.T) {
 	t.Parallel()
 	types := AllAddonTypes()
-	if len(types) != 5 {
-		t.Errorf("AllAddonTypes() count = %d, want 5", len(types))
+	if len(types) != 6 {
+		t.Errorf("AllAddonTypes() count = %d, want 6", len(types))
 	}
 }
 
@@ -255,27 +254,19 @@ func TestAddonPacks_PositiveValues(t *testing.T) {
 		if pack.DisplayName == "" {
 			t.Errorf("AddonPacks[%q].DisplayName is empty", at)
 		}
-	}
-}
-
-func TestAddonPacks_DataRetention_HasMaxTotal(t *testing.T) {
-	t.Parallel()
-	pack := AddonPacks[AddonDataRetention]
-	if pack.MaxTotal <= 0 {
-		t.Errorf("DataRetention MaxTotal = %d, want > 0 (capped)", pack.MaxTotal)
-	}
-	if pack.MaxTotal != 90 {
-		t.Errorf("DataRetention MaxTotal = %d, want 90", pack.MaxTotal)
+		if pack.LookupKey == "" {
+			t.Errorf("AddonPacks[%q].LookupKey is empty", at)
+		}
 	}
 }
 
 func FuzzEffectiveLimits(f *testing.F) {
-	f.Add("concurrent_runs", 1, true)
-	f.Add("members", 5, true)
-	f.Add("data_retention", 3, true)
+	f.Add("concurrency_100", 1, true)
+	f.Add("environments_5", 5, true)
+	f.Add("history_30d", 3, true)
 	f.Add("nonexistent", 10, true)
 	f.Add("", 0, false)
-	f.Add("concurrent_runs", -1, true)
+	f.Add("concurrency_100", -1, true)
 
 	f.Fuzz(func(t *testing.T, addonType string, quantity int, active bool) {
 		base := GetPlanLimits(domain.PlanPro)

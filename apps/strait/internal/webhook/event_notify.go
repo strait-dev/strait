@@ -343,14 +343,6 @@ func (n *DeliveryWorker) NotifyAsyncWithContext(ctx context.Context, trigger *do
 		Payload:        payload,
 	}
 
-	// Store the payload as the last_error field temporarily — the worker reads
-	// it from there. Better: we use a dedicated approach below.
-	// Actually, we POST the payload directly from the delivery record.
-	// We need to stash the payload somewhere. Since the existing schema doesn't
-	// have a payload column, we'll reconstruct it from the trigger in the worker.
-	// For now, store a marker so the worker can look up the trigger.
-	d.LastError = string(payload) // backward-compatible stash for older rows.
-
 	createCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	if err := n.store.CreateWebhookDelivery(createCtx, d); err != nil {
@@ -358,7 +350,6 @@ func (n *DeliveryWorker) NotifyAsyncWithContext(ctx context.Context, trigger *do
 		return
 	}
 
-	// Clear the last_error now that we've stored it (the worker will use it as payload).
 	n.logger.Info("webhook delivery enqueued", "delivery_id", d.ID, "trigger_id", trigger.ID, "url_host", extractDomain(trigger.NotifyURL))
 }
 
@@ -396,7 +387,6 @@ func (n *DeliveryWorker) EnqueueRunWebhook(ctx context.Context, job *domain.Job,
 		MaxAttempts:   5,
 		NextRetryAt:   &now,
 		Payload:       payload,
-		LastError:     string(payload),
 	}
 
 	if err := n.store.CreateWebhookDelivery(ctx, d); err != nil {
@@ -1360,7 +1350,11 @@ func (n *DeliveryWorker) EnqueueSubscriptionWebhooks(ctx context.Context, subs [
 			continue
 		}
 
-		now := time.Now()
+		// Back-date NextRetryAt by a second so the row is reliably "due" by
+		// the time the worker's `next_retry_at <= NOW()` filter runs, even
+		// when Go and Postgres see slightly different wall clocks (e.g. host
+		// vs. container in integration tests).
+		now := time.Now().Add(-1 * time.Second)
 		delivery := &domain.WebhookDelivery{
 			SubscriptionID: sub.ID,
 			ProjectID:      sub.ProjectID,
@@ -1371,7 +1365,6 @@ func (n *DeliveryWorker) EnqueueSubscriptionWebhooks(ctx context.Context, subs [
 			MaxAttempts:    3,
 			NextRetryAt:    &now,
 			Payload:        payload,
-			LastError:      string(payload),
 		}
 
 		if err := n.store.CreateWebhookDelivery(ctx, delivery); err != nil {

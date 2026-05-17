@@ -634,22 +634,20 @@ var AuditActionSchemas = map[string]AuditActionSchema{
 		Description: "Worker force-disconnect request timed out waiting for worker-plane acknowledgement.",
 	},
 
-	// Quota and cron lifecycle (billing-period enforcement).
-	AuditActionQuotaExceeded: {
-		Required:    []string{"org_id", "plan_tier"},
-		Description: "Org exceeded its quota; cron jobs paused until the next billing period.",
-	},
-	AuditActionCronPausedQuota: {
-		Required:    []string{"org_id", "jobs_paused"},
-		Description: "Cron jobs paused automatically because the org's quota was exceeded.",
-	},
-	AuditActionCronResumedQuota: {
-		Required:    []string{"org_id", "jobs_resumed"},
-		Description: "Cron jobs resumed automatically at the start of a new billing period after quota reset.",
-	},
+	// Billing-period enforcement lifecycle.
 	AuditActionSubscriptionChanged: {
 		Required:    []string{"org_id", "plan_tier"},
 		Description: "Org subscription changed (plan upgrade, downgrade, or renewal).",
+	},
+	AuditActionUsageThresholdReached: {
+		Required:    []string{"org_id", "plan_tier", "metric", "threshold_pct", "current", "limit"},
+		Description: "Org crossed an 80%, 90%, or 100% threshold of a metered quota in the current billing period. Emitted at most once per (org, metric, threshold) per period.",
+	},
+
+	// Internal-secret bypass.
+	AuditActionInternalSecretBypass: {
+		Required:    []string{"gate", "caller", "handler"},
+		Description: "Project-scoped handler entered via X-Internal-Secret without a project context. gate names the skipped check, caller is the sender identity (api-key:<id> or 'unknown'), handler names the entry point.",
 	},
 }
 

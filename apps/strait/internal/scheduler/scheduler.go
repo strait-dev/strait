@@ -48,6 +48,8 @@ type Scheduler struct {
 	webhookMessageCleanup    *WebhookMessageCleanup
 	contractExpiryChecker    *ContractExpiryChecker
 	priorityPromoter         *PriorityPromoter
+	dunner                   DunnerRunner
+	slaCalculator            SLACalculatorRunner
 	counterReconciler        *CounterReconciler
 	claimReconciler          *ClaimReconciler
 	partitionEnsurer         *PartitionEnsurer
@@ -141,13 +143,6 @@ func WithChExporter(e *clickhouse.Exporter) SchedulerOption {
 func WithRotationSecretDecryptor(d SecretDecryptor) SchedulerOption {
 	return func(s *Scheduler) {
 		s.reaper.WithRotationSecretDecryptor(d)
-	}
-}
-
-// WithBudgetWebhookEnqueuer sets the webhook enqueuer for the budget monitor.
-func WithBudgetWebhookEnqueuer(enqueuer BudgetMonitorWebhookEnqueuer) SchedulerOption {
-	return func(s *Scheduler) {
-		s.budgetMonitor.enqueuer = enqueuer
 	}
 }
 
@@ -253,6 +248,37 @@ func WithAnomalyMonitor(monitor *AnomalyMonitor) SchedulerOption {
 	}
 }
 
+// DunnerRunner is the narrow interface the scheduler needs from a Dunner
+// (defined in internal/billing). Kept here so the scheduler does not have to
+// import the billing package just for a concrete type.
+type DunnerRunner interface {
+	Run(ctx context.Context)
+}
+
+// WithDunner registers a dunning-state-machine driver. The dunner is woken
+// on its own internal cadence; the scheduler only owns its lifecycle.
+func WithDunner(d DunnerRunner) SchedulerOption {
+	return func(s *Scheduler) {
+		s.dunner = d
+	}
+}
+
+// SLACalculatorRunner is the narrow interface the scheduler needs from the
+// SLA credit calculator (defined in internal/billing). Kept here so the
+// scheduler does not have to import the billing package.
+type SLACalculatorRunner interface {
+	Run(ctx context.Context)
+}
+
+// WithSLACalculator registers the SLA-credit calculator. Each tick reads
+// the previous month's per-org uptime, issues credit notes for breached
+// SLAs, and dispatches sla.credit_issued. Lifecycle owned by the scheduler.
+func WithSLACalculator(c SLACalculatorRunner) SchedulerOption {
+	return func(s *Scheduler) {
+		s.slaCalculator = c
+	}
+}
+
 // WithUsageFlusher sets a usage flusher for periodic usage record materialization.
 func WithUsageFlusher(flusher *UsageFlusher) SchedulerOption {
 	return func(s *Scheduler) {
@@ -347,6 +373,12 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 	if s.anomalyMonitor != nil {
 		s.tracker.track(ctx, &s.wg, "anomaly_monitor", func(componentCtx context.Context) { s.anomalyMonitor.Run(componentCtx) })
+	}
+	if s.dunner != nil {
+		s.tracker.track(ctx, &s.wg, "dunner", func(componentCtx context.Context) { s.dunner.Run(componentCtx) })
+	}
+	if s.slaCalculator != nil {
+		s.tracker.track(ctx, &s.wg, "sla_calculator", func(componentCtx context.Context) { s.slaCalculator.Run(componentCtx) })
 	}
 	if s.gracePeriodEnforcer != nil {
 		s.tracker.track(ctx, &s.wg, "grace_period_enforcer", func(componentCtx context.Context) { s.gracePeriodEnforcer.Run(componentCtx) })

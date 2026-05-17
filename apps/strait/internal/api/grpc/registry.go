@@ -25,6 +25,7 @@ var (
 type ConnectedWorker struct {
 	WorkerID       string
 	ProjectID      string
+	OrgID          string // Resolved at connect time; empty if not resolvable.
 	EnvironmentID  string
 	APIKeyID       string // ID of the API key that authenticated this stream
 	Name           string
@@ -182,6 +183,25 @@ func (r *ConnectionRegistry) countProjectLocked(projectID string) int {
 	count := 0
 	for _, worker := range r.workers {
 		if worker.ProjectID == projectID {
+			count++
+		}
+	}
+	return count
+}
+
+// CountByOrg returns the number of registered worker streams whose
+// resolved OrgID matches the supplied value. An empty orgID is treated
+// as a no-match (returns 0) so a registration that failed org lookup
+// can't count toward another org's quota.
+func (r *ConnectionRegistry) CountByOrg(orgID string) int {
+	if orgID == "" {
+		return 0
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	count := 0
+	for _, worker := range r.workers {
+		if worker.OrgID == orgID {
 			count++
 		}
 	}

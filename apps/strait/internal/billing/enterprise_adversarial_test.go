@@ -198,11 +198,11 @@ func TestCalculateSLACredit_ExactBoundaries(t *testing.T) {
 		{99.9, 0},   // at threshold
 		{99.89, 10}, // just below
 		{99.0, 10},  // at 99.0-99.9 boundary
-		{98.99, 20}, // just below 99.0
-		{95.0, 20},  // at 95.0-99.0 boundary
-		{94.99, 30}, // just below 95.0
-		{90.0, 30},  // at 90.0-95.0 boundary
-		{89.99, 50}, // just below 90.0
+		{98.99, 25}, // just below 99.0
+		{95.0, 25},  // at 95.0-99.0 boundary
+		{94.99, 50}, // just below 95.0 (collapsed band)
+		{90.0, 50},  // within 0-95 band
+		{89.99, 50}, // still within 0-95 band
 	}
 	for _, tt := range tests {
 		got := CalculateSLACredit(tt.uptime, EnterpriseStarterSLAPct)

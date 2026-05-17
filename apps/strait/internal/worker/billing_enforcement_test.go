@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -18,10 +19,17 @@ import (
 // mockBillingEnforcerStore satisfies billing.Store for testing.
 // Returns a free-tier subscription with low limits to trigger enforcement.
 type mockBillingEnforcerStore struct {
-	projectOrgID string
-	sub          *billing.OrgSubscription
+	projectOrgID       string
+	sub                *billing.OrgSubscription
+	periodSpend        int64
+	projectBudget      int64
+	projectAction      string
+	projectPeriodSpend int64
 }
 
+func (m *mockBillingEnforcerStore) UpdateEntitlements(context.Context, string, billing.OrgPlanLimits) error {
+	return nil
+}
 func (m *mockBillingEnforcerStore) EnsureOrgSubscription(_ context.Context, _ string) error {
 	return nil
 }
@@ -105,16 +113,19 @@ func (m *mockBillingEnforcerStore) GetOrgDailyUsage(_ context.Context, _ string,
 	return nil, nil
 }
 func (m *mockBillingEnforcerStore) SumOrgPeriodSpend(_ context.Context, _ string, _ time.Time) (int64, error) {
-	return 0, nil
+	return m.periodSpend, nil
 }
 func (m *mockBillingEnforcerStore) GetProjectBudget(_ context.Context, _ string) (int64, string, error) {
-	return 0, "", nil
+	if m.projectAction == "" && m.projectBudget == 0 {
+		return -1, "notify", nil
+	}
+	return m.projectBudget, m.projectAction, nil
 }
 func (m *mockBillingEnforcerStore) SetProjectBudget(_ context.Context, _ string, _ int64, _ string) error {
 	return nil
 }
 func (m *mockBillingEnforcerStore) GetProjectPeriodSpend(_ context.Context, _ string, _ time.Time) (int64, error) {
-	return 0, nil
+	return m.projectPeriodSpend, nil
 }
 func (m *mockBillingEnforcerStore) UpdateAnomalyThresholds(_ context.Context, _ string, _, _ float64) error {
 	return nil
@@ -180,8 +191,11 @@ func (m *mockBillingEnforcerStore) UpsertEnterpriseContract(_ context.Context, _
 func (m *mockBillingEnforcerStore) ListExpiringContracts(_ context.Context, _ int) ([]billing.EnterpriseContract, error) {
 	return nil, nil
 }
-func (m *mockBillingEnforcerStore) PauseHTTPJobsByOrg(context.Context, string, string) (int64, error) {
-	return 0, nil
+func (m *mockBillingEnforcerStore) PauseHTTPJobsByOrg(context.Context, string, string) ([]string, error) {
+	return nil, nil
+}
+func (m *mockBillingEnforcerStore) TryMarkBillingCapEvent(context.Context, string, billing.BillingCapEvent) (bool, error) {
+	return false, nil
 }
 func (m *mockBillingEnforcerStore) UnpauseJobsByPauseReason(context.Context, string, string) (int64, error) {
 	return 0, nil
@@ -214,10 +228,10 @@ func TestBillingEnforcement_ConcurrentLimitFails_RollbackDailyCount(t *testing.T
 	enforcer, mr := newWorkerTestEnforcer(t, bStore)
 
 	// Pre-fill the concurrent counter to simulate max concurrent runs reached.
-	// The free tier allows 2 concurrent runs. Set the counter to 2 so the
-	// next increment (to 3) exceeds the limit.
+	// The free tier allows ConcurrentFree concurrent runs. Set the counter at
+	// the cap so the next increment exceeds the limit.
 	concurrentKey := "strait:org_concurrent:org-test"
-	mr.Set(concurrentKey, "2")
+	mr.Set(concurrentKey, strconv.Itoa(billing.ConcurrentFree))
 	mr.SetTTL(concurrentKey, 24*time.Hour)
 
 	// Set up an HTTP server that would handle the job.
@@ -310,9 +324,10 @@ func TestBillingEnforcement_ConcurrentLimitFails_RollbackMonthlyCount(t *testing
 	enforcer, mr := newWorkerTestEnforcer(t, bStore)
 
 	// Pre-fill the concurrent counter so the next CheckConcurrentRunLimit fails.
-	// Free tier allows 2 concurrent runs; set to 2 so the check rejects.
+	// Free tier allows ConcurrentFree concurrent runs; set at the cap so the
+	// next increment exceeds it and the check rejects.
 	concurrentKey := "strait:org_concurrent:org-monthly-concurrent"
-	mr.Set(concurrentKey, "2")
+	mr.Set(concurrentKey, strconv.Itoa(billing.ConcurrentFree))
 	mr.SetTTL(concurrentKey, 24*time.Hour)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -394,10 +409,10 @@ func TestBillingEnforcement_MonthlyLimitExceeded_RollbackDailyCount(t *testing.T
 
 	enforcer, mr := newWorkerTestEnforcer(t, bStore)
 
-	// Pre-fill the monthly counter above the free-tier cap (2000) so
+	// Pre-fill the monthly counter above the free-tier cap so
 	// CheckMonthlyRunLimit hard-rejects on the next call.
 	monthlyKey := "strait:org_monthly_runs:org-monthly-cap:" + time.Now().UTC().Format("2006-01")
-	mr.Set(monthlyKey, "2001")
+	mr.Set(monthlyKey, strconv.Itoa(billing.MaxRunsPerMonthFree+1))
 	mr.SetTTL(monthlyKey, 62*24*time.Hour)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
