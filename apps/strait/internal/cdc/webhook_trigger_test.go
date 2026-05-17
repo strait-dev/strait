@@ -360,6 +360,42 @@ func TestWebhookTrigger_CanceledRun_CreatesDelivery(t *testing.T) {
 	}
 }
 
+func TestWebhookTrigger_FailureTerminalStatusesCreateFailedDelivery(t *testing.T) {
+	t.Parallel()
+
+	for _, status := range []string{"crashed", "system_failed", "expired", "dead_letter"} {
+		t.Run(status, func(t *testing.T) {
+			t.Parallel()
+			store := &mockWebhookStore{
+				subs: []domain.WebhookSubscription{
+					{ID: "sub-1", ProjectID: "p1", WebhookURL: "https://example.com/hook", EventTypes: []string{domain.WebhookEventRunFailed}, Active: true},
+				},
+			}
+			h := NewWebhookTriggerHandler(store, nil)
+
+			if err := h.Handle(context.Background(), cdcUpdateMsg(status, "p1", "run-"+status, "job-1")); err != nil {
+				t.Fatalf("Handle() error = %v", err)
+			}
+			if len(store.deliveries) != 1 {
+				t.Fatalf("deliveries len = %d, want 1", len(store.deliveries))
+			}
+			if got := store.deliveries[0].DedupeKey; got == "" {
+				t.Fatal("expected dedupe key")
+			}
+			var payload map[string]any
+			if err := json.Unmarshal(store.deliveries[0].Payload, &payload); err != nil {
+				t.Fatalf("payload is not valid JSON: %v", err)
+			}
+			if payload["event_type"] != domain.WebhookEventRunFailed {
+				t.Fatalf("event_type = %v, want %s", payload["event_type"], domain.WebhookEventRunFailed)
+			}
+			if payload["status"] != status {
+				t.Fatalf("status = %v, want original status %s", payload["status"], status)
+			}
+		})
+	}
+}
+
 func TestWebhookTrigger_ConcurrentEvents(t *testing.T) {
 	t.Parallel()
 	store := &mockWebhookStore{

@@ -138,6 +138,8 @@ func mapStatusToWebhookEvent(s domain.RunStatus) string {
 		return domain.WebhookEventRunTimedOut
 	case domain.StatusCanceled:
 		return domain.WebhookEventRunCanceled
+	case domain.StatusCrashed, domain.StatusSystemFailed, domain.StatusExpired, domain.StatusDeadLetter:
+		return domain.WebhookEventRunFailed
 	default:
 		return ""
 	}

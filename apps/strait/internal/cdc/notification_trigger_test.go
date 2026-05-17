@@ -134,6 +134,42 @@ func TestNotificationTrigger_MultipleChannels(t *testing.T) {
 	}
 }
 
+func TestNotificationTrigger_FailureTerminalStatusesCreateFailedDelivery(t *testing.T) {
+	t.Parallel()
+
+	for _, status := range []string{"crashed", "system_failed", "expired", "dead_letter"} {
+		t.Run(status, func(t *testing.T) {
+			t.Parallel()
+			store := &mockNotificationStore{
+				channels: []domain.NotificationChannel{
+					{ID: "ch-1", ProjectID: "p1", ChannelType: "slack", Enabled: true},
+				},
+			}
+			h := NewNotificationTriggerHandler(store, nil)
+
+			if err := h.Handle(context.Background(), cdcUpdateMsg(status, "p1", "run-"+status, "job-1")); err != nil {
+				t.Fatalf("Handle() error = %v", err)
+			}
+			if len(store.deliveries) != 1 {
+				t.Fatalf("deliveries len = %d, want 1", len(store.deliveries))
+			}
+			if store.deliveries[0].EventType != domain.WebhookEventRunFailed {
+				t.Fatalf("EventType = %q, want %q", store.deliveries[0].EventType, domain.WebhookEventRunFailed)
+			}
+			if store.deliveries[0].DedupeKey == "" {
+				t.Fatal("expected dedupe key")
+			}
+			var payload map[string]any
+			if err := json.Unmarshal(store.deliveries[0].Payload, &payload); err != nil {
+				t.Fatalf("payload is not valid JSON: %v", err)
+			}
+			if payload["status"] != status {
+				t.Fatalf("status = %v, want original status %s", payload["status"], status)
+			}
+		})
+	}
+}
+
 func TestDeepSecNotificationTrigger_StoreErrorReturnsForRetry(t *testing.T) {
 	t.Parallel()
 	store := &mockNotificationStore{
