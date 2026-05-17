@@ -89,6 +89,8 @@ type AuditEmitHarness struct {
 	done   chan struct{}
 	startO sync.Once
 	stopO  sync.Once
+	sendMu sync.RWMutex
+	stopped atomic.Bool
 
 	// Atomic counters.
 	emitted      atomic.Int64
@@ -96,6 +98,7 @@ type AuditEmitHarness struct {
 	deadlettered atomic.Int64
 	dropped      atomic.Int64
 	dlqFailed    atomic.Int64
+	inFlight     atomic.Int64
 	peakQueue    atomic.Int64
 	pollerStopCh chan struct{}
 	pollerDone   chan struct{}
@@ -137,9 +140,12 @@ func (h *AuditEmitHarness) Start() {
 // Stop closes the channel and waits for the drainer + poller to exit.
 func (h *AuditEmitHarness) Stop() {
 	h.stopO.Do(func() {
+		h.sendMu.Lock()
+		h.stopped.Store(true)
 		if h.ch != nil {
 			close(h.ch)
 		}
+		h.sendMu.Unlock()
 		if h.pollerStopCh != nil {
 			close(h.pollerStopCh)
 		}
@@ -158,6 +164,12 @@ func (h *AuditEmitHarness) Stop() {
 func (h *AuditEmitHarness) Emit(ev *domain.AuditEvent) {
 	h.emitted.Add(1)
 	start := time.Now()
+	h.sendMu.RLock()
+	defer h.sendMu.RUnlock()
+	if h.stopped.Load() {
+		h.dropped.Add(1)
+		return
+	}
 	select {
 	case h.ch <- ev:
 		h.recordLatency(time.Since(start))
@@ -229,18 +241,20 @@ type AuditEmitCounters struct {
 func (h *AuditEmitHarness) WaitDrain(timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if len(h.ch) == 0 {
+		if len(h.ch) == 0 && h.inFlight.Load() == 0 {
 			return true
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	return len(h.ch) == 0
+	return len(h.ch) == 0 && h.inFlight.Load() == 0
 }
 
 func (h *AuditEmitHarness) drain() {
 	defer close(h.done)
 	for ev := range h.ch {
+		h.inFlight.Add(1)
 		h.processOne(ev)
+		h.inFlight.Add(-1)
 	}
 }
 
