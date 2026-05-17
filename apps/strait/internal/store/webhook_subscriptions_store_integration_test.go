@@ -335,6 +335,53 @@ func TestDeleteWebhookSubscription(t *testing.T) {
 	}
 }
 
+func TestDeleteWebhookSubscription_WithDeliveriesDetachesHistory(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	sub := &domain.WebhookSubscription{
+		ProjectID:  "proj-delete-ws-delivery-" + newID(),
+		WebhookURL: "https://example.com/del-with-history",
+		EventTypes: []string{"run.completed"},
+		Secret:     "s",
+		Active:     true,
+	}
+	if err := q.CreateWebhookSubscription(ctx, sub); err != nil {
+		t.Fatalf("CreateWebhookSubscription() error = %v", err)
+	}
+
+	delivery := &domain.WebhookDelivery{
+		SubscriptionID: sub.ID,
+		WebhookURL:     sub.WebhookURL,
+		Status:         domain.WebhookStatusDelivered,
+		Attempts:       1,
+		MaxAttempts:    3,
+		Payload:        json.RawMessage(`{"status":"completed"}`),
+	}
+	if err := q.CreateWebhookDelivery(ctx, delivery); err != nil {
+		t.Fatalf("CreateWebhookDelivery() error = %v", err)
+	}
+
+	if err := q.DeleteWebhookSubscription(ctx, sub.ID); err != nil {
+		t.Fatalf("DeleteWebhookSubscription() error = %v", err)
+	}
+
+	if _, err := q.GetWebhookSubscription(ctx, sub.ID); !errors.Is(err, store.ErrWebhookSubscriptionNotFound) {
+		t.Fatalf("GetWebhookSubscription(deleted) error = %v, want ErrWebhookSubscriptionNotFound", err)
+	}
+	gotDelivery, err := q.GetWebhookDelivery(ctx, delivery.ID)
+	if err != nil {
+		t.Fatalf("GetWebhookDelivery(history) error = %v", err)
+	}
+	if gotDelivery.SubscriptionID != "" {
+		t.Fatalf("SubscriptionID = %q, want detached empty value", gotDelivery.SubscriptionID)
+	}
+	if gotDelivery.ProjectID != sub.ProjectID {
+		t.Fatalf("ProjectID = %q, want %q", gotDelivery.ProjectID, sub.ProjectID)
+	}
+}
+
 func TestDeleteWebhookSubscription_NotFound(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

@@ -129,6 +129,28 @@ func (q *Queries) DeleteWebhookSubscription(ctx context.Context, id string) erro
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteWebhookSubscription")
 	defer span.End()
 
+	if _, ok := TxFromContext(ctx); ok {
+		return q.deleteWebhookSubscriptionLocked(ctx, id)
+	}
+	if _, ok := q.db.(pgx.Tx); ok {
+		return q.deleteWebhookSubscriptionLocked(ctx, id)
+	}
+
+	beginner, ok := q.db.(TxBeginner)
+	if !ok {
+		return q.deleteWebhookSubscriptionLocked(ctx, id)
+	}
+
+	return WithTx(ctx, beginner, func(txq *Queries) error {
+		return txq.deleteWebhookSubscriptionLocked(ctx, id)
+	})
+}
+
+func (q *Queries) deleteWebhookSubscriptionLocked(ctx context.Context, id string) error {
+	if _, err := q.db.Exec(ctx, `UPDATE webhook_deliveries SET subscription_id = NULL WHERE subscription_id = $1`, id); err != nil {
+		return fmt.Errorf("detach webhook deliveries from subscription: %w", err)
+	}
+
 	query := `DELETE FROM webhook_subscriptions WHERE id = $1`
 	tag, err := q.db.Exec(ctx, query, id)
 	if err != nil {
