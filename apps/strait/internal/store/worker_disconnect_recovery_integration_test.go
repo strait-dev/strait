@@ -5,6 +5,7 @@ package store_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -195,5 +196,121 @@ func TestIntegration_RequeueOpenWorkerTasks_SkipsResultReceivedRuns(t *testing.T
 	}
 	if gotTask.FinishedAt != nil {
 		t.Fatalf("worker task finished_at = %v, want nil until finalization", gotTask.FinishedAt)
+	}
+}
+
+func TestIntegration_DeepSecRecoverStaleWorkerTasks_RequeuesExecutingRuns(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	projectID := "proj-stale-worker-recovery"
+	workerID := "worker-stale-recovery"
+	if err := q.CreateProject(ctx, &domain.Project{ID: projectID, OrgID: "org-stale", Name: "stale recovery"}); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(projectID)})
+	if err := q.RegisterWorker(ctx, &domain.Worker{
+		ID:        workerID,
+		ProjectID: projectID,
+		QueueName: "default",
+		Hostname:  "host",
+		Version:   "1.0",
+		Status:    domain.WorkerStatusActive,
+	}); err != nil {
+		t.Fatalf("RegisterWorker: %v", err)
+	}
+	if _, err := env.DB.Pool.Exec(ctx, `UPDATE workers SET last_seen_at = NOW() - INTERVAL '1 hour' WHERE id = $1`, workerID); err != nil {
+		t.Fatalf("age worker: %v", err)
+	}
+
+	executing := domain.StatusExecuting
+	run := testutil.BuildRun(job, &testutil.RunOpts{ID: new("run-stale-recovery"), Status: &executing})
+	run.ExecutionMode = domain.ExecutionModeWorker
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	if err := q.CreateWorkerTask(ctx, &domain.WorkerTask{
+		ID:        "task-stale-recovery",
+		WorkerID:  workerID,
+		RunID:     run.ID,
+		ProjectID: projectID,
+		Status:    domain.WorkerTaskStatusAssigned,
+	}); err != nil {
+		t.Fatalf("CreateWorkerTask: %v", err)
+	}
+
+	count, err := q.RecoverStaleWorkerTasks(ctx, time.Now().Add(-5*time.Minute), "stale worker heartbeat")
+	if err != nil {
+		t.Fatalf("RecoverStaleWorkerTasks: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("RecoverStaleWorkerTasks count = %d, want 1", count)
+	}
+	gotRun, err := q.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if gotRun.Status != domain.StatusQueued {
+		t.Fatalf("run status = %q, want queued", gotRun.Status)
+	}
+	gotTask, err := q.GetWorkerTask(ctx, "task-stale-recovery")
+	if err != nil {
+		t.Fatalf("GetWorkerTask: %v", err)
+	}
+	if gotTask.Status != domain.WorkerTaskStatusFailed {
+		t.Fatalf("worker task status = %q, want failed", gotTask.Status)
+	}
+}
+
+func TestIntegration_DeepSecDeleteStaleOfflineWorkers_DoesNotReserveIDsForever(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	_, err = env.DB.Pool.Exec(ctx, `
+		INSERT INTO workers (id, project_id, queue_name, hostname, version, status, last_seen_at, registered_at)
+		VALUES
+			('offline-old', 'proj-a', 'default', 'host', '1.0', 'offline', NOW() - INTERVAL '48 hours', NOW() - INTERVAL '48 hours'),
+			('offline-open', 'proj-a', 'default', 'host', '1.0', 'offline', NOW() - INTERVAL '48 hours', NOW() - INTERVAL '48 hours'),
+			('offline-fresh', 'proj-a', 'default', 'host', '1.0', 'offline', NOW(), NOW())
+	`)
+	if err != nil {
+		t.Fatalf("insert workers: %v", err)
+	}
+	if _, err := env.DB.Pool.Exec(ctx, `
+		INSERT INTO worker_tasks (id, worker_id, run_id, project_id, status, assigned_at)
+		VALUES ('task-open-delete-guard', 'offline-open', 'missing-run', 'proj-a', 'assigned', NOW() - INTERVAL '48 hours')
+	`); err != nil {
+		t.Fatalf("insert open task: %v", err)
+	}
+
+	deleted, err := q.DeleteStaleOfflineWorkers(ctx, time.Now().Add(-24*time.Hour))
+	if err != nil {
+		t.Fatalf("DeleteStaleOfflineWorkers: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("DeleteStaleOfflineWorkers deleted = %d, want 1", deleted)
+	}
+	var remaining int
+	if err := env.DB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM workers WHERE id IN ('offline-old', 'offline-open', 'offline-fresh')`).Scan(&remaining); err != nil {
+		t.Fatalf("count remaining workers: %v", err)
+	}
+	if remaining != 2 {
+		t.Fatalf("remaining workers = %d, want 2", remaining)
 	}
 }

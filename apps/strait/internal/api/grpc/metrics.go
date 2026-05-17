@@ -43,11 +43,15 @@ func recordWorkerStreamsOpen(ctx context.Context, queues []string, delta int64) 
 		queues = []string{"default"}
 	}
 	for _, queue := range queues {
-		if queue == "" {
-			queue = "default"
-		}
-		grpcMetrics.streamsOpen.Add(ctx, delta, metric.WithAttributes(attribute.String("queue", queue)))
+		grpcMetrics.streamsOpen.Add(ctx, delta, metric.WithAttributes(attribute.String("queue_kind", workerQueueMetricKind(queue))))
 	}
+}
+
+func workerQueueMetricKind(queue string) string {
+	if queue == "" || queue == "default" {
+		return "default"
+	}
+	return "custom"
 }
 
 func recordWorkerStreamDisconnect(ctx context.Context, reason string) {

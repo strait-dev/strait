@@ -8,6 +8,8 @@ import (
 	"strait/internal/store"
 )
 
+const staleOfflineWorkerDeleteAfter = 24 * time.Hour
+
 // runSweep periodically deletes workers rows whose last heartbeat is older
 // than heartbeatTimeout, indicating the worker disconnected without a clean
 // deregister (e.g. network partition). This loop complements the in-memory
@@ -28,6 +30,14 @@ func runSweep(ctx context.Context, _ *ConnectionRegistry, q *store.Queries, hear
 			return
 		case <-t.C:
 			cutoff := time.Now().Add(-heartbeatTimeout)
+			recovered, err := q.RecoverStaleWorkerTasks(ctx, cutoff, "worker heartbeat expired before reporting result")
+			if err != nil {
+				slog.Warn("grpc sweep: recover stale worker tasks failed", "error", err)
+				continue
+			}
+			if recovered > 0 {
+				slog.Info("grpc sweep: recovered stale worker tasks", "count", recovered)
+			}
 			n, err := q.EvictStaleWorkers(ctx, cutoff)
 			if err != nil {
 				slog.Warn("grpc sweep: evict stale workers failed", "error", err)
@@ -35,6 +45,15 @@ func runSweep(ctx context.Context, _ *ConnectionRegistry, q *store.Queries, hear
 			}
 			if n > 0 {
 				slog.Info("grpc sweep: evicted stale workers", "count", n)
+			}
+			deleteCutoff := time.Now().Add(-staleOfflineWorkerDeleteAfter)
+			deleted, err := q.DeleteStaleOfflineWorkers(ctx, deleteCutoff)
+			if err != nil {
+				slog.Warn("grpc sweep: delete stale offline workers failed", "error", err)
+				continue
+			}
+			if deleted > 0 {
+				slog.Info("grpc sweep: deleted stale offline workers", "count", deleted)
 			}
 		}
 	}

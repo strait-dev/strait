@@ -154,6 +154,91 @@ func (q *Queries) EvictStaleWorkers(ctx context.Context, cutoff time.Time) (int6
 	return tag.RowsAffected(), nil
 }
 
+// RecoverStaleWorkerTasks marks stale workers' open assignments failed and
+// requeues still-executing worker-mode runs before the worker row is evicted.
+func (q *Queries) RecoverStaleWorkerTasks(ctx context.Context, cutoff time.Time, reason string) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.RecoverStaleWorkerTasks")
+	defer span.End()
+
+	txb, ok := q.db.(TxBeginner)
+	if !ok {
+		return 0, fmt.Errorf("recover stale worker tasks requires transaction support")
+	}
+
+	var affected int64
+	err := WithTx(ctx, txb, func(txQ *Queries) error {
+		const query = `
+			WITH stale_workers AS (
+				SELECT id, project_id
+				FROM workers
+				WHERE last_seen_at < $1
+			),
+			open_tasks AS (
+				SELECT wt.id, wt.run_id
+				FROM worker_tasks wt
+				JOIN stale_workers sw
+				  ON sw.id = wt.worker_id
+				 AND sw.project_id = wt.project_id
+				WHERE wt.status IN ('assigned', 'accepted')
+			),
+			requeued_runs AS (
+				UPDATE job_runs
+				SET status = 'queued',
+				    started_at = NULL,
+				    finished_at = NULL,
+				    heartbeat_at = NULL,
+				    next_retry_at = NULL,
+				    error = $2,
+				    error_class = 'transient'
+				WHERE id IN (SELECT run_id FROM open_tasks)
+				  AND status = 'executing'
+				RETURNING id
+			)
+			UPDATE worker_tasks
+			SET status = 'failed',
+			    finished_at = NOW()
+			WHERE id IN (SELECT id FROM open_tasks)`
+
+		tag, err := txQ.db.Exec(ctx, query, cutoff, reason)
+		if err != nil {
+			return fmt.Errorf("recover stale worker tasks: %w", err)
+		}
+		affected = tag.RowsAffected()
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	return affected, nil
+}
+
+// DeleteStaleOfflineWorkers removes old offline worker rows once they have no
+// open task handoff state. This prevents stale rows from reserving a globally
+// keyed worker_id forever while preserving recent disconnect history.
+func (q *Queries) DeleteStaleOfflineWorkers(ctx context.Context, cutoff time.Time) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteStaleOfflineWorkers")
+	defer span.End()
+
+	tag, err := q.db.Exec(ctx,
+		`DELETE FROM workers w
+		 WHERE w.status = 'offline'
+		   AND w.last_seen_at < $1
+		   AND NOT EXISTS (
+			SELECT 1
+			FROM worker_tasks wt
+			WHERE wt.worker_id = w.id
+			  AND wt.project_id = w.project_id
+			  AND wt.status IN ('assigned', 'accepted', 'result_received')
+		   )`,
+		cutoff,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("delete stale offline workers: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // CreateWorkerTask records a task assignment.
 func (q *Queries) CreateWorkerTask(ctx context.Context, t *domain.WorkerTask) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateWorkerTask")
