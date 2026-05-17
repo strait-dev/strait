@@ -93,12 +93,27 @@ func TestAuditHandler_ActorIsSystemCDC(t *testing.T) {
 	}
 }
 
-func TestAuditHandler_DetailsContainFullRecord(t *testing.T) {
+func TestDeepSecAuditHandler_DetailsExcludeSensitiveRecordFields(t *testing.T) {
 	t.Parallel()
 	store := &mockAuditStore{}
 	h := NewAuditHandler(store, nil)
 
-	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-42", "job-7"))
+	record, _ := json.Marshal(map[string]any{
+		"id":         "run-42",
+		"job_id":     "job-7",
+		"project_id": "p1",
+		"status":     "completed",
+		"attempt":    2,
+		"payload":    map[string]any{"api_key": "secret"},
+		"result":     map[string]any{"token": "secret"},
+		"error":      "contains user payload",
+	})
+	err := h.Handle(context.Background(), Message{
+		AckID:    "ack-1",
+		Action:   ActionUpdate,
+		Record:   record,
+		Metadata: Metadata{TableName: "job_runs"},
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -110,11 +125,16 @@ func TestAuditHandler_DetailsContainFullRecord(t *testing.T) {
 	if err := json.Unmarshal(store.events[0].Details, &details); err != nil {
 		t.Fatalf("details is not valid JSON: %v", err)
 	}
-	if details["id"] != "run-42" {
-		t.Errorf("expected id=run-42, got %v", details["id"])
+	if details["run_id"] != "run-42" {
+		t.Errorf("expected run_id=run-42, got %v", details["run_id"])
 	}
 	if details["job_id"] != "job-7" {
 		t.Errorf("expected job_id=job-7, got %v", details["job_id"])
+	}
+	for _, sensitive := range []string{"payload", "result", "error"} {
+		if _, ok := details[sensitive]; ok {
+			t.Fatalf("audit details included sensitive field %q: %#v", sensitive, details)
+		}
 	}
 }
 
@@ -256,7 +276,7 @@ func TestAuditHandler_HighHeartbeatVolume_NoWriteAmplification(t *testing.T) {
 	}
 }
 
-func TestAuditHandler_StoreError_Resilient(t *testing.T) {
+func TestDeepSecAuditHandler_StoreErrorReturnsForRetry(t *testing.T) {
 	t.Parallel()
 	store := &mockAuditStore{
 		err: errors.New("db connection failed"),
@@ -264,7 +284,7 @@ func TestAuditHandler_StoreError_Resilient(t *testing.T) {
 	h := NewAuditHandler(store, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
-	if err != nil {
-		t.Fatalf("expected nil error on store failure, got: %v", err)
+	if err == nil {
+		t.Fatal("expected error on store failure")
 	}
 }

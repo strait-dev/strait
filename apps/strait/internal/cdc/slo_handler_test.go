@@ -54,6 +54,12 @@ func TestSLOHandler_TerminalRun_InsertsEvaluation(t *testing.T) {
 	if store.evaluations[0].SLOID != "slo-1" {
 		t.Errorf("expected slo_id=slo-1, got %s", store.evaluations[0].SLOID)
 	}
+	if store.evaluations[0].ID == "" {
+		t.Fatal("expected evaluation id to be set")
+	}
+	if store.evaluations[0].EvaluatedAt.IsZero() {
+		t.Fatal("expected evaluated_at to be set")
+	}
 	if store.evaluations[0].CurrentValue != 1.0 {
 		t.Errorf("expected current_value=1.0 for completed, got %f", store.evaluations[0].CurrentValue)
 	}
@@ -118,7 +124,7 @@ func TestSLOHandler_MultipleSLOs_AllEvaluated(t *testing.T) {
 	}
 }
 
-func TestSLOHandler_StoreError_Resilient(t *testing.T) {
+func TestDeepSecSLOHandler_StoreErrorReturnsForRetry(t *testing.T) {
 	t.Parallel()
 	store := &mockSLOStore{
 		slosErr: errors.New("db connection failed"),
@@ -126,8 +132,8 @@ func TestSLOHandler_StoreError_Resilient(t *testing.T) {
 	h := NewSLOHandler(store, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
-	if err != nil {
-		t.Fatalf("expected nil error on store failure, got: %v", err)
+	if err == nil {
+		t.Fatal("expected error on store failure")
 	}
 }
 
@@ -147,7 +153,7 @@ func TestSLOHandler_InvalidJSON(t *testing.T) {
 	}
 }
 
-func TestSLOHandler_InsertEvaluationError_Resilient(t *testing.T) {
+func TestDeepSecSLOHandler_InsertEvaluationErrorReturnsForRetry(t *testing.T) {
 	t.Parallel()
 	store := &mockSLOStore{
 		slos: []domain.JobSLOStatus{
@@ -159,8 +165,8 @@ func TestSLOHandler_InsertEvaluationError_Resilient(t *testing.T) {
 	h := NewSLOHandler(store, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
-	if err != nil {
-		t.Fatalf("expected nil error on insert failure, got: %v", err)
+	if err == nil {
+		t.Fatal("expected error on insert failure")
 	}
 }
 

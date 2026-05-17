@@ -44,8 +44,8 @@ func (q *Queries) CreateWebhookDelivery(ctx context.Context, d *domain.WebhookDe
 		payloadArg = payload
 	}
 	query := `
-		INSERT INTO webhook_deliveries (id, run_id, job_id, webhook_url, webhook_retry_policy, status, attempts, max_attempts, last_status_code, last_error, next_retry_at, delivered_at, event_trigger_id, subscription_id, webhook_secret, payload, payload_size_bytes, project_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::jsonb, COALESCE(octet_length($16::jsonb::text), 0),
+		INSERT INTO webhook_deliveries (id, run_id, job_id, webhook_url, webhook_retry_policy, status, attempts, max_attempts, last_status_code, last_error, next_retry_at, delivered_at, event_trigger_id, subscription_id, webhook_secret, payload, payload_size_bytes, dedupe_key, project_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::jsonb, COALESCE(octet_length($16::jsonb::text), 0), NULLIF($17, ''),
 			COALESCE(
 				(SELECT jr.project_id FROM job_runs jr WHERE jr.id = $2),
 				(SELECT et.project_id FROM event_triggers et WHERE et.id = $13),
@@ -53,9 +53,10 @@ func (q *Queries) CreateWebhookDelivery(ctx context.Context, d *domain.WebhookDe
 				(SELECT ws.project_id FROM webhook_subscriptions ws WHERE ws.id = $14),
 				'__orphaned__'
 			))
+		ON CONFLICT (dedupe_key) WHERE dedupe_key IS NOT NULL AND dedupe_key <> '' DO NOTHING
 		RETURNING created_at, updated_at`
 
-	return q.db.QueryRow(ctx, query,
+	err := q.db.QueryRow(ctx, query,
 		d.ID,
 		dbscan.NilIfEmptyString(d.RunID),
 		dbscan.NilIfEmptyString(d.JobID),
@@ -67,7 +68,15 @@ func (q *Queries) CreateWebhookDelivery(ctx context.Context, d *domain.WebhookDe
 		dbscan.NilIfEmptyString(d.SubscriptionID),
 		dbscan.NilIfEmptyString(d.WebhookSecret),
 		payloadArg,
+		d.DedupeKey,
 	).Scan(&d.CreatedAt, &d.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) && d.DedupeKey != "" {
+			return nil
+		}
+		return fmt.Errorf("create webhook delivery: %w", err)
+	}
+	return nil
 }
 
 func webhookDeliveryPayload(d *domain.WebhookDelivery) json.RawMessage {

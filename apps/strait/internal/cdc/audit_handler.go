@@ -49,8 +49,10 @@ func (h *AuditHandler) Table() string { return "job_runs" }
 func (h *AuditHandler) Handle(ctx context.Context, msg Message) error {
 	var record struct {
 		ID        string `json:"id"`
+		JobID     string `json:"job_id"`
 		ProjectID string `json:"project_id"`
 		Status    string `json:"status"`
+		Attempt   int    `json:"attempt"`
 	}
 	if err := json.Unmarshal(msg.Record, &record); err != nil {
 		return fmt.Errorf("audit handler: unmarshal record: %w", err)
@@ -77,16 +79,38 @@ func (h *AuditHandler) Handle(ctx context.Context, msg Message) error {
 		Action:       action,
 		ResourceType: "run",
 		ResourceID:   record.ID,
-		Details:      msg.Record,
+		Details:      auditDetails(msg, record.ID, record.JobID, record.ProjectID, record.Status, record.Attempt),
 	}
 
 	if err := h.store.CreateAuditEvent(ctx, ev); err != nil {
 		h.logger.Warn("cdc audit handler: failed to create audit event",
 			"run_id", record.ID, "action", action, "error", err)
-		return nil
+		return fmt.Errorf("audit handler: create audit event: %w", err)
 	}
 
 	return nil
+}
+
+func auditDetails(msg Message, runID, jobID, projectID, status string, attempt int) json.RawMessage {
+	details := map[string]any{
+		"schema_version": "cdc.run.audit.v1",
+		"run_id":         runID,
+		"job_id":         jobID,
+		"project_id":     projectID,
+		"status":         status,
+		"cdc_action":     msg.Action,
+	}
+	if attempt > 0 {
+		details["attempt"] = attempt
+	}
+	if msg.Metadata.CommitTimestamp != "" {
+		details["commit_timestamp"] = msg.Metadata.CommitTimestamp
+	}
+	data, err := json.Marshal(details)
+	if err != nil {
+		return json.RawMessage(`{"schema_version":"cdc.run.audit.v1"}`)
+	}
+	return data
 }
 
 func auditAction(action Action, status string) string {

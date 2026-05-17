@@ -58,7 +58,7 @@ func TestWebhookTrigger_CompletedRun_CreatesDelivery(t *testing.T) {
 	t.Parallel()
 	store := &mockWebhookStore{
 		subs: []domain.WebhookSubscription{
-			{ID: "sub-1", ProjectID: "p1", WebhookURL: "https://example.com/hook", EventTypes: []string{"run.completed"}, Active: true},
+			{ID: "sub-1", ProjectID: "p1", WebhookURL: "https://example.com/hook", EventTypes: []string{"run.completed"}, Secret: "whsec", Active: true},
 		},
 	}
 	h := NewWebhookTriggerHandler(store, nil)
@@ -72,6 +72,18 @@ func TestWebhookTrigger_CompletedRun_CreatesDelivery(t *testing.T) {
 	}
 	if store.deliveries[0].WebhookURL != "https://example.com/hook" {
 		t.Errorf("unexpected URL: %s", store.deliveries[0].WebhookURL)
+	}
+	if store.deliveries[0].SubscriptionID != "sub-1" {
+		t.Errorf("expected subscription_id=sub-1, got %q", store.deliveries[0].SubscriptionID)
+	}
+	if store.deliveries[0].WebhookSecret != "whsec" {
+		t.Fatal("expected webhook signing secret to be copied to delivery")
+	}
+	if store.deliveries[0].DedupeKey == "" {
+		t.Fatal("expected dedupe key to be set")
+	}
+	if len(store.deliveries[0].Payload) == 0 {
+		t.Fatal("expected payload to be set")
 	}
 }
 
@@ -206,7 +218,7 @@ func TestWebhookTrigger_MultipleSubscriptions_AllFired(t *testing.T) {
 	}
 }
 
-func TestWebhookTrigger_StoreError_NoNack(t *testing.T) {
+func TestDeepSecWebhookTrigger_StoreErrorReturnsForRetry(t *testing.T) {
 	t.Parallel()
 	store := &mockWebhookStore{
 		subsErr: errors.New("db connection failed"),
@@ -214,9 +226,8 @@ func TestWebhookTrigger_StoreError_NoNack(t *testing.T) {
 	h := NewWebhookTriggerHandler(store, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
-	// Should not return error (no nack), just log warning.
-	if err != nil {
-		t.Fatalf("expected nil error on store failure, got: %v", err)
+	if err == nil {
+		t.Fatal("expected error on store failure")
 	}
 }
 
@@ -291,9 +302,8 @@ func TestWebhookTrigger_PayloadContainsRunData(t *testing.T) {
 		t.Fatal("expected 1 delivery")
 	}
 
-	// Payload is stored in LastError field.
 	var payload map[string]any
-	if err := json.Unmarshal([]byte(store.deliveries[0].LastError), &payload); err != nil {
+	if err := json.Unmarshal(store.deliveries[0].Payload, &payload); err != nil {
 		t.Fatalf("payload is not valid JSON: %v", err)
 	}
 	if payload["run_id"] != "run-42" {
@@ -307,7 +317,7 @@ func TestWebhookTrigger_PayloadContainsRunData(t *testing.T) {
 	}
 }
 
-func TestWebhookTrigger_CreateDeliveryError_Resilient(t *testing.T) {
+func TestDeepSecWebhookTrigger_CreateDeliveryErrorReturnsForRetry(t *testing.T) {
 	t.Parallel()
 	store := &mockWebhookStore{
 		subs: []domain.WebhookSubscription{
@@ -319,8 +329,8 @@ func TestWebhookTrigger_CreateDeliveryError_Resilient(t *testing.T) {
 	h := NewWebhookTriggerHandler(store, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
-	if err != nil {
-		t.Fatalf("expected nil error on delivery creation failure, got: %v", err)
+	if err == nil {
+		t.Fatal("expected error on delivery creation failure")
 	}
 }
 
@@ -342,7 +352,7 @@ func TestWebhookTrigger_CanceledRun_CreatesDelivery(t *testing.T) {
 	}
 
 	var payload map[string]any
-	if err := json.Unmarshal([]byte(store.deliveries[0].LastError), &payload); err != nil {
+	if err := json.Unmarshal(store.deliveries[0].Payload, &payload); err != nil {
 		t.Fatalf("payload is not valid JSON: %v", err)
 	}
 	if payload["event_type"] != "run.canceled" {

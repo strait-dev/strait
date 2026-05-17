@@ -3,11 +3,15 @@ package cdc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
+	"time"
 
 	"strait/internal/domain"
+
+	"github.com/google/uuid"
 )
 
 // SLOStore is the minimal store interface for CDC-driven SLO evaluation.
@@ -60,7 +64,7 @@ func (h *SLOHandler) Handle(ctx context.Context, msg Message) error {
 	if err != nil {
 		h.logger.Warn("cdc slo handler: failed to list SLOs",
 			"job_id", record.JobID, "error", err)
-		return nil
+		return fmt.Errorf("slo handler: list job slos: %w", err)
 	}
 
 	if len(slos) == 0 {
@@ -68,19 +72,27 @@ func (h *SLOHandler) Handle(ctx context.Context, msg Message) error {
 	}
 
 	value := sloCurrentValue(status)
+	now := time.Now().UTC()
 
+	var insertErrs []error
 	for _, slo := range slos {
 		eval := &domain.JobSLOEvaluation{
+			ID:              uuid.Must(uuid.NewV7()).String(),
 			SLOID:           slo.ID,
 			CurrentValue:    value,
 			BudgetRemaining: 0,
+			EvaluatedAt:     now,
 		}
 		if insertErr := h.store.InsertSLOEvaluation(ctx, eval); insertErr != nil {
 			h.logger.Warn("cdc slo handler: failed to insert evaluation",
 				"slo_id", slo.ID, "run_id", record.ID, "error", insertErr)
+			insertErrs = append(insertErrs, insertErr)
 		}
 	}
 
+	if err := errors.Join(insertErrs...); err != nil {
+		return fmt.Errorf("slo handler: insert evaluation: %w", err)
+	}
 	return nil
 }
 

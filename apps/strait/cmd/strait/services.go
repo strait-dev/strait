@@ -277,6 +277,13 @@ func startCDCConsumer(g *pool.ContextPool, cfg *config.Config, pub pubsub.Publis
 	cdcConsumer.RegisterHandler(cdc.NewWorkflowRunHandler(pub, slog.Default()))
 	cdcConsumer.RegisterHandler(cdc.NewWorkflowStepRunHandler(pub, slog.Default()))
 	cdcConsumer.RegisterHandler(cdc.NewEventTriggerHandler(pub, slog.Default()))
+	cdcConsumer.RegisterAdditionalHandler(cdc.NewWebhookTriggerHandler(queries, slog.Default()))
+	cdcConsumer.RegisterAdditionalHandler(cdc.NewNotificationTriggerHandler(queries, slog.Default()))
+	cdcConsumer.RegisterAdditionalHandler(cdc.NewAuditHandler(queries, slog.Default()))
+	cdcConsumer.RegisterAdditionalHandler(cdc.NewSLOHandler(queries, slog.Default()))
+	if chExporter != nil {
+		cdcConsumer.RegisterAdditionalHandler(cdc.NewAnalyticsHandler(chExporter, slog.Default()))
+	}
 
 	g.Go(func(ctx context.Context) error {
 		cdcConsumer.Run(ctx)
@@ -309,8 +316,7 @@ func startCDCConsumer(g *pool.ContextPool, cfg *config.Config, pub pubsub.Publis
 	webhookReceiver.RegisterHandler(cdc.NewEventTriggerHandler(pub, slog.Default()))
 
 	// CDC-driven side effects: each handler watches job_runs for status
-	// transitions and triggers a downstream action. Registered as additional
-	// handlers since the pull consumer only supports one handler per table.
+	// transitions and triggers a downstream action.
 	webhookReceiver.RegisterAdditionalHandler(cdc.NewWebhookTriggerHandler(queries, slog.Default()))
 	webhookReceiver.RegisterAdditionalHandler(cdc.NewNotificationTriggerHandler(queries, slog.Default()))
 	webhookReceiver.RegisterAdditionalHandler(cdc.NewAuditHandler(queries, slog.Default()))

@@ -738,6 +738,7 @@ type WebhookDelivery struct {
 	WebhookURL     string          `json:"webhook_url"`
 	WebhookSecret  string          `json:"-"`
 	Payload        json.RawMessage `json:"-"`
+	DedupeKey      string          `json:"-"`
 	RetryPolicy    string          `json:"webhook_retry_policy,omitempty"`
 	Status         string          `json:"status"`
 	Attempts       int             `json:"attempts"`
