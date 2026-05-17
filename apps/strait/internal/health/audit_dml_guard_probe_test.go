@@ -12,7 +12,7 @@ type fakeAuditDMLChecker struct {
 	called       bool
 }
 
-func (f *fakeAuditDMLChecker) AuditEventsUpdateRestricted(_ context.Context) (bool, error) {
+func (f *fakeAuditDMLChecker) AuditEventsDMLRestricted(_ context.Context) (bool, error) {
 	f.called = true
 	return !f.unrestricted, f.err
 }
@@ -37,8 +37,8 @@ func TestAuditDMLGuardProbe_DegradedWhenUnrestricted(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected non-nil error when UPDATE is unrestricted")
 	}
-	if !containsSubstring(err.Error(), "UPDATE") {
-		t.Errorf("error = %q, expected mention of UPDATE", err.Error())
+	if !containsSubstring(err.Error(), "UPDATE/DELETE/TRUNCATE") {
+		t.Errorf("error = %q, expected mention of UPDATE/DELETE/TRUNCATE", err.Error())
 	}
 }
 
