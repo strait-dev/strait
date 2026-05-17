@@ -35,6 +35,7 @@ var (
 	ErrWorkflowRunNotFound          = errors.New("workflow run not found")
 	ErrWorkflowStepRunNotFound      = errors.New("workflow step run not found")
 	ErrEventKeyConflict             = errors.New("event key conflict")
+	ErrEventTriggerConflict         = errors.New("event trigger status update conflict")
 	ErrWorkflowVersionNotFound      = errors.New("workflow version not found")
 	ErrDeploymentVersionNotFound    = errors.New("deployment version not found")
 	ErrNotificationChannelNotFound  = errors.New("notification channel not found")
@@ -311,6 +312,7 @@ type EventTriggerStore interface {
 	GetEventTriggerByStepRunID(ctx context.Context, stepRunID string) (*domain.EventTrigger, error)
 	GetEventTriggerByJobRunID(ctx context.Context, jobRunID string) (*domain.EventTrigger, error)
 	UpdateEventTriggerStatus(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
+	UpdateEventTriggerStatusFrom(ctx context.Context, id string, from string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
 	ListExpiredEventTriggers(ctx context.Context) ([]domain.EventTrigger, error)
 	ListEventTriggersByProject(ctx context.Context, projectID, environmentID, status, workflowRunID, sourceType string, limit int, cursor *time.Time) ([]domain.EventTrigger, error)
 	CancelEventTriggersByWorkflowRun(ctx context.Context, workflowRunID string) (int64, error)

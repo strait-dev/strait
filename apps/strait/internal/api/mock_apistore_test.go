@@ -806,6 +806,9 @@ var _ APIStore = &APIStoreMock{}
 //			UpdateEventTriggerStatusFunc: func(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error {
 //				panic("mock out the UpdateEventTriggerStatus method")
 //			},
+//			UpdateEventTriggerStatusFromFunc: func(ctx context.Context, id string, from string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error {
+//				panic("mock out the UpdateEventTriggerStatusFrom method")
+//			},
 //			UpdateHeartbeatFunc: func(ctx context.Context, id string) error {
 //				panic("mock out the UpdateHeartbeat method")
 //			},
@@ -1673,6 +1676,9 @@ type APIStoreMock struct {
 
 	// UpdateEventTriggerStatusFunc mocks the UpdateEventTriggerStatus method.
 	UpdateEventTriggerStatusFunc func(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
+
+	// UpdateEventTriggerStatusFromFunc mocks the UpdateEventTriggerStatusFrom method.
+	UpdateEventTriggerStatusFromFunc func(ctx context.Context, id string, from string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
 
 	// UpdateHeartbeatFunc mocks the UpdateHeartbeat method.
 	UpdateHeartbeatFunc func(ctx context.Context, id string) error
@@ -4149,6 +4155,23 @@ type APIStoreMock struct {
 			// ErrMsg is the errMsg argument value.
 			ErrMsg string
 		}
+		// UpdateEventTriggerStatusFrom holds details about calls to the UpdateEventTriggerStatusFrom method.
+		UpdateEventTriggerStatusFrom []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ID is the id argument value.
+			ID string
+			// From is the from argument value.
+			From string
+			// Status is the status argument value.
+			Status string
+			// ResponsePayload is the responsePayload argument value.
+			ResponsePayload json.RawMessage
+			// ReceivedAt is the receivedAt argument value.
+			ReceivedAt *time.Time
+			// ErrMsg is the errMsg argument value.
+			ErrMsg string
+		}
 		// UpdateHeartbeat holds details about calls to the UpdateHeartbeat method.
 		UpdateHeartbeat []struct {
 			// Ctx is the ctx argument value.
@@ -4641,6 +4664,7 @@ type APIStoreMock struct {
 	lockUpdateEnvironment                           sync.RWMutex
 	lockUpdateEventSource                           sync.RWMutex
 	lockUpdateEventTriggerStatus                    sync.RWMutex
+	lockUpdateEventTriggerStatusFrom                sync.RWMutex
 	lockUpdateHeartbeat                             sync.RWMutex
 	lockUpdateJob                                   sync.RWMutex
 	lockUpdateJobEndpoint                           sync.RWMutex
@@ -16164,6 +16188,65 @@ func (mock *APIStoreMock) UpdateEventTriggerStatusCalls() []struct {
 	mock.lockUpdateEventTriggerStatus.RLock()
 	calls = mock.calls.UpdateEventTriggerStatus
 	mock.lockUpdateEventTriggerStatus.RUnlock()
+	return calls
+}
+
+// UpdateEventTriggerStatusFrom calls UpdateEventTriggerStatusFromFunc.
+func (mock *APIStoreMock) UpdateEventTriggerStatusFrom(ctx context.Context, id string, from string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error {
+	callInfo := struct {
+		Ctx             context.Context
+		ID              string
+		From            string
+		Status          string
+		ResponsePayload json.RawMessage
+		ReceivedAt      *time.Time
+		ErrMsg          string
+	}{
+		Ctx:             ctx,
+		ID:              id,
+		From:            from,
+		Status:          status,
+		ResponsePayload: responsePayload,
+		ReceivedAt:      receivedAt,
+		ErrMsg:          errMsg,
+	}
+	mock.lockUpdateEventTriggerStatusFrom.Lock()
+	mock.calls.UpdateEventTriggerStatusFrom = append(mock.calls.UpdateEventTriggerStatusFrom, callInfo)
+	mock.lockUpdateEventTriggerStatusFrom.Unlock()
+	if mock.UpdateEventTriggerStatusFromFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.UpdateEventTriggerStatusFromFunc(ctx, id, from, status, responsePayload, receivedAt, errMsg)
+}
+
+// UpdateEventTriggerStatusFromCalls gets all the calls that were made to UpdateEventTriggerStatusFrom.
+// Check the length with:
+//
+//	len(mockedAPIStore.UpdateEventTriggerStatusFromCalls())
+func (mock *APIStoreMock) UpdateEventTriggerStatusFromCalls() []struct {
+	Ctx             context.Context
+	ID              string
+	From            string
+	Status          string
+	ResponsePayload json.RawMessage
+	ReceivedAt      *time.Time
+	ErrMsg          string
+} {
+	var calls []struct {
+		Ctx             context.Context
+		ID              string
+		From            string
+		Status          string
+		ResponsePayload json.RawMessage
+		ReceivedAt      *time.Time
+		ErrMsg          string
+	}
+	mock.lockUpdateEventTriggerStatusFrom.RLock()
+	calls = mock.calls.UpdateEventTriggerStatusFrom
+	mock.lockUpdateEventTriggerStatusFrom.RUnlock()
 	return calls
 }
 

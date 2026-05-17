@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
 
 	"strait/internal/clickhouse"
 	"strait/internal/domain"
+	"strait/internal/store"
 
 	"github.com/danielgtaylor/huma/v2"
 	"go.opentelemetry.io/otel/attribute"
@@ -81,17 +83,23 @@ func (s *Server) handleSendEvent(ctx context.Context, input *SendEventInput) (*S
 	now := time.Now()
 	if trigger.SourceType == domain.EventSourceJobRun && trigger.JobRunID != "" {
 		if err := s.store.ReceiveEventAndRequeueRun(ctx, trigger.ID, req.Payload, now, trigger.JobRunID); err != nil {
+			if errors.Is(err, store.ErrEventTriggerConflict) {
+				return nil, huma.Error409Conflict("event trigger is not in waiting state")
+			}
 			return nil, huma.Error500InternalServerError("failed to receive event")
 		}
 	} else if trigger.SourceType == domain.EventSourceWorkflowStep && trigger.WorkflowStepRunID != "" {
 		if err := s.runInTx(ctx, func(txStore APIStore) error {
-			if err := txStore.UpdateEventTriggerStatus(ctx, trigger.ID, domain.EventTriggerStatusReceived, req.Payload, &now, ""); err != nil {
+			if err := txStore.UpdateEventTriggerStatusFrom(ctx, trigger.ID, domain.EventTriggerStatusWaiting, domain.EventTriggerStatusReceived, req.Payload, &now, ""); err != nil {
 				return fmt.Errorf("update event trigger status: %w", err)
 			}
 			return txStore.UpdateStepRunStatus(ctx, trigger.WorkflowStepRunID, domain.StepCompleted, map[string]any{
 				"output": req.Payload, "finished_at": now,
 			})
 		}); err != nil {
+			if errors.Is(err, store.ErrEventTriggerConflict) {
+				return nil, huma.Error409Conflict("event trigger is not in waiting state")
+			}
 			return nil, huma.Error500InternalServerError("failed to receive event")
 		}
 		trigger.Status = domain.EventTriggerStatusReceived
@@ -103,7 +111,10 @@ func (s *Server) handleSendEvent(ctx context.Context, input *SendEventInput) (*S
 			}
 		}
 	} else {
-		if err := s.store.UpdateEventTriggerStatus(ctx, trigger.ID, domain.EventTriggerStatusReceived, req.Payload, &now, ""); err != nil {
+		if err := s.store.UpdateEventTriggerStatusFrom(ctx, trigger.ID, domain.EventTriggerStatusWaiting, domain.EventTriggerStatusReceived, req.Payload, &now, ""); err != nil {
+			if errors.Is(err, store.ErrEventTriggerConflict) {
+				return nil, huma.Error409Conflict("event trigger is not in waiting state")
+			}
 			return nil, huma.Error500InternalServerError("failed to update event trigger")
 		}
 		trigger.Status = domain.EventTriggerStatusReceived
@@ -224,7 +235,10 @@ func (s *Server) handleCancelEventTrigger(ctx context.Context, input *CancelEven
 		return nil, huma.Error409Conflict("event trigger is not in waiting state")
 	}
 	now := time.Now()
-	if err := s.store.UpdateEventTriggerStatus(ctx, trigger.ID, domain.EventTriggerStatusCanceled, nil, nil, "canceled by user"); err != nil {
+	if err := s.store.UpdateEventTriggerStatusFrom(ctx, trigger.ID, domain.EventTriggerStatusWaiting, domain.EventTriggerStatusCanceled, nil, nil, "canceled by user"); err != nil {
+		if errors.Is(err, store.ErrEventTriggerConflict) {
+			return nil, huma.Error409Conflict("event trigger is not in waiting state")
+		}
 		return nil, huma.Error500InternalServerError("failed to cancel event trigger")
 	}
 	trigger.Status = domain.EventTriggerStatusCanceled

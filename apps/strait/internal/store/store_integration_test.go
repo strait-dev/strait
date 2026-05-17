@@ -9785,6 +9785,35 @@ func TestUpdateEventTriggerStatus(t *testing.T) {
 	}
 }
 
+func TestUpdateEventTriggerStatusFrom_Conflict(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-event-trigger-cas-" + newID()
+	_, run := mustCreateJobRunWithBuildFactory(t, ctx, q, projectID, domain.StatusWaiting)
+
+	now := time.Now().UTC()
+	receivedAt := now.Add(time.Minute)
+	trigger := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusReceived, "evt-cas-conflict-"+newID(), now, &receivedAt, nil)
+
+	err := q.UpdateEventTriggerStatusFrom(ctx, trigger.ID, domain.EventTriggerStatusWaiting, domain.EventTriggerStatusCanceled, nil, nil, "canceled by stale request")
+	if !errors.Is(err, store.ErrEventTriggerConflict) {
+		t.Fatalf("UpdateEventTriggerStatusFrom() error = %v, want ErrEventTriggerConflict", err)
+	}
+
+	got, err := q.GetEventTriggerByEventKey(ctx, trigger.EventKey)
+	if err != nil {
+		t.Fatalf("GetEventTriggerByEventKey() error = %v", err)
+	}
+	if got == nil {
+		t.Fatal("trigger disappeared")
+	}
+	if got.Status != domain.EventTriggerStatusReceived {
+		t.Fatalf("Status = %q, want %q", got.Status, domain.EventTriggerStatusReceived)
+	}
+}
+
 func TestSetEventTriggerSentBy(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

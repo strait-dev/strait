@@ -179,6 +179,57 @@ func (q *Queries) UpdateEventTriggerStatus(
 	return nil
 }
 
+// UpdateEventTriggerStatusFrom updates an event trigger only when its current
+// status still matches from. This protects API send/cancel paths from stale
+// read-then-update races.
+func (q *Queries) UpdateEventTriggerStatusFrom(
+	ctx context.Context,
+	id string,
+	from string,
+	status string,
+	responsePayload json.RawMessage,
+	receivedAt *time.Time,
+	errMsg string,
+) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateEventTriggerStatusFrom")
+	defer span.End()
+
+	query := `
+		UPDATE event_triggers
+		SET status = $1,
+		    response_payload = $2,
+		    received_at = $3,
+		    error = $4
+		WHERE id = $5
+		  AND status = $6`
+
+	tag, err := q.db.Exec(
+		ctx,
+		query,
+		status,
+		dbscan.NilIfEmptyRawMessage(responsePayload),
+		receivedAt,
+		dbscan.NilIfEmptyString(errMsg),
+		id,
+		from,
+	)
+	if err != nil {
+		return fmt.Errorf("update event trigger status from %s: %w", from, err)
+	}
+	if tag.RowsAffected() > 0 {
+		return nil
+	}
+
+	var actual string
+	if err := q.db.QueryRow(ctx, `SELECT status FROM event_triggers WHERE id = $1`, id).Scan(&actual); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("event trigger not found: %s", id)
+		}
+		return fmt.Errorf("read event trigger status after conflict: %w", err)
+	}
+	return fmt.Errorf("%w: event trigger %s from %s actual %s", ErrEventTriggerConflict, id, from, actual)
+}
+
 // SetEventTriggerSentBy records who resolved an event trigger (audit trail).
 func (q *Queries) SetEventTriggerSentBy(ctx context.Context, id, sentBy string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.SetEventTriggerSentBy")
@@ -677,7 +728,7 @@ func (q *Queries) ReceiveEventAndRequeueRun(ctx context.Context, triggerID strin
 	}
 
 	return WithTx(ctx, txb, func(txQ *Queries) error {
-		if err := txQ.UpdateEventTriggerStatus(ctx, triggerID, domain.EventTriggerStatusReceived, payload, &receivedAt, ""); err != nil {
+		if err := txQ.UpdateEventTriggerStatusFrom(ctx, triggerID, domain.EventTriggerStatusWaiting, domain.EventTriggerStatusReceived, payload, &receivedAt, ""); err != nil {
 			return fmt.Errorf("update trigger status: %w", err)
 		}
 		return requeueRun(txQ)
@@ -699,7 +750,10 @@ func (q *Queries) BatchReceiveEventTriggers(ctx context.Context, triggerIDs []st
 	do := func(txQ *Queries) ([]string, error) {
 		var resolved []string
 		for _, id := range triggerIDs {
-			if err := txQ.UpdateEventTriggerStatus(ctx, id, domain.EventTriggerStatusReceived, payload, &receivedAt, ""); err != nil {
+			if err := txQ.UpdateEventTriggerStatusFrom(ctx, id, domain.EventTriggerStatusWaiting, domain.EventTriggerStatusReceived, payload, &receivedAt, ""); err != nil {
+				if errors.Is(err, ErrEventTriggerConflict) {
+					continue
+				}
 				return resolved, fmt.Errorf("update trigger %s: %w", id, err)
 			}
 			if sentBy != "" {

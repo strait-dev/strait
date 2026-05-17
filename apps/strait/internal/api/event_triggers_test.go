@@ -60,7 +60,10 @@ func TestHandleSendEvent_Success(t *testing.T) {
 			}
 			return nil, nil
 		},
-		UpdateEventTriggerStatusFunc: func(_ context.Context, _ string, status string, payload json.RawMessage, _ *time.Time, _ string) error {
+		UpdateEventTriggerStatusFromFunc: func(_ context.Context, _ string, from string, status string, payload json.RawMessage, _ *time.Time, _ string) error {
+			if from != domain.EventTriggerStatusWaiting {
+				t.Fatalf("from = %q, want %q", from, domain.EventTriggerStatusWaiting)
+			}
 			updatedStatus = status
 			updatedPayload = payload
 			return nil
@@ -322,7 +325,10 @@ func TestHandleSendEvent_EmptyBody(t *testing.T) {
 				Status:     domain.EventTriggerStatusWaiting,
 			}, nil
 		},
-		UpdateEventTriggerStatusFunc: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+		UpdateEventTriggerStatusFromFunc: func(_ context.Context, _ string, from string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+			if from != domain.EventTriggerStatusWaiting {
+				t.Fatalf("from = %q, want %q", from, domain.EventTriggerStatusWaiting)
+			}
 			return nil
 		},
 		UpdateRunStatusFunc: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
@@ -375,7 +381,10 @@ func TestHandleSendEvent_WorkflowStepCallsCallback(t *testing.T) {
 				Status:            domain.EventTriggerStatusWaiting,
 			}, nil
 		},
-		UpdateEventTriggerStatusFunc: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+		UpdateEventTriggerStatusFromFunc: func(_ context.Context, _ string, from string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+			if from != domain.EventTriggerStatusWaiting {
+				t.Fatalf("from = %q, want %q", from, domain.EventTriggerStatusWaiting)
+			}
 			return nil
 		},
 		UpdateStepRunStatusFunc: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
@@ -411,6 +420,40 @@ func TestHandleSendEvent_WorkflowStepCallsCallback(t *testing.T) {
 	// by the handler (even in pass-through mode without a real TxPool).
 	if !stepRunStatusUpdatedDirectly {
 		t.Fatal("step run status should be updated by handler inside runInTx")
+	}
+}
+
+func TestHandleSendEvent_UpdateStatusConflictReturns409(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+			return &domain.EventTrigger{
+				ID:         "evt-conflict",
+				EventKey:   "race-event",
+				ProjectID:  "proj-1",
+				SourceType: "external",
+				Status:     domain.EventTriggerStatusWaiting,
+			}, nil
+		},
+		UpdateEventTriggerStatusFromFunc: func(_ context.Context, _ string, from string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+			if from != domain.EventTriggerStatusWaiting {
+				t.Fatalf("from = %q, want %q", from, domain.EventTriggerStatusWaiting)
+			}
+			return store.ErrEventTriggerConflict
+		},
+	}
+
+	srv := newEventTriggersTestServer(t, ms, nil)
+	req := httptest.NewRequest(http.MethodPost, "/v1/events/race-event/send", strings.NewReader(`{"payload":{"ok":true}}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Project-Id", "proj-1")
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409; body: %s", rr.Code, rr.Body.String())
 	}
 }
 
@@ -649,7 +692,10 @@ func TestHandleCancelEventTrigger(t *testing.T) {
 			}
 			return nil, nil
 		},
-		UpdateEventTriggerStatusFunc: func(_ context.Context, _ string, status string, _ json.RawMessage, _ *time.Time, _ string) error {
+		UpdateEventTriggerStatusFromFunc: func(_ context.Context, _ string, from string, status string, _ json.RawMessage, _ *time.Time, _ string) error {
+			if from != domain.EventTriggerStatusWaiting {
+				t.Fatalf("from = %q, want %q", from, domain.EventTriggerStatusWaiting)
+			}
 			canceledTriggerStatus = status
 			return nil
 		},
@@ -989,7 +1035,10 @@ func TestHandleCancelEventTrigger_JobRunSource(t *testing.T) {
 				RequestedAt: time.Now(),
 			}, nil
 		},
-		UpdateEventTriggerStatusFunc: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+		UpdateEventTriggerStatusFromFunc: func(_ context.Context, _ string, from string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+			if from != domain.EventTriggerStatusWaiting {
+				t.Fatalf("from = %q, want %q", from, domain.EventTriggerStatusWaiting)
+			}
 			return nil
 		},
 		UpdateRunStatusFunc: func(_ context.Context, _ string, _ domain.RunStatus, to domain.RunStatus, _ map[string]any) error {
@@ -1033,7 +1082,10 @@ func TestHandleSendEvent_WorkflowStepResume(t *testing.T) {
 				RequestedAt:       time.Now(),
 			}, nil
 		},
-		UpdateEventTriggerStatusFunc: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+		UpdateEventTriggerStatusFromFunc: func(_ context.Context, _ string, from string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+			if from != domain.EventTriggerStatusWaiting {
+				t.Fatalf("from = %q, want %q", from, domain.EventTriggerStatusWaiting)
+			}
 			return nil
 		},
 	}
@@ -1523,7 +1575,7 @@ func TestHandleCancelEventTrigger_UpdateStatusError(t *testing.T) {
 				Status:    domain.EventTriggerStatusWaiting,
 			}, nil
 		},
-		UpdateEventTriggerStatusFunc: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+		UpdateEventTriggerStatusFromFunc: func(_ context.Context, _ string, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
 			return errors.New("update failed")
 		},
 	}
@@ -1538,6 +1590,38 @@ func TestHandleCancelEventTrigger_UpdateStatusError(t *testing.T) {
 
 	if rr.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestHandleCancelEventTrigger_UpdateStatusConflictReturns409(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+			return &domain.EventTrigger{
+				ID:        "evt-cancel-conflict",
+				EventKey:  "cancel-race",
+				ProjectID: "proj-1",
+				Status:    domain.EventTriggerStatusWaiting,
+			}, nil
+		},
+		UpdateEventTriggerStatusFromFunc: func(_ context.Context, _ string, from string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+			if from != domain.EventTriggerStatusWaiting {
+				t.Fatalf("from = %q, want %q", from, domain.EventTriggerStatusWaiting)
+			}
+			return store.ErrEventTriggerConflict
+		},
+	}
+
+	srv := newEventTriggersTestServer(t, ms, nil)
+	req := httptest.NewRequest(http.MethodDelete, "/v1/events/cancel-race", nil)
+	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Project-Id", "proj-1")
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409; body: %s", rr.Code, rr.Body.String())
 	}
 }
 

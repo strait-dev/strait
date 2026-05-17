@@ -34,6 +34,7 @@ func TestSentinelErrors(t *testing.T) {
 		{"ErrRunNotFound", ErrRunNotFound, "run not found"},
 		{"ErrRunConflict", ErrRunConflict, "run status update conflict"},
 		{"ErrOutboxRowConflict", ErrOutboxRowConflict, "outbox row conflict"},
+		{"ErrEventTriggerConflict", ErrEventTriggerConflict, "event trigger status update conflict"},
 	}
 
 	for _, tt := range tests {
