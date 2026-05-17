@@ -125,6 +125,17 @@ func TestLoad_WorkerDBSyncIntervalInvariant(t *testing.T) {
 	}
 }
 
+func TestLoad_RunsAggregateValidateInvariants(t *testing.T) {
+	setRequiredAuditEnv(t)
+	t.Setenv("DB_MIN_CONNS", "100")
+	t.Setenv("DB_MAX_CONNS", "50")
+
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "DB_MIN_CONNS") {
+		t.Fatalf("Load() error = %v, want DB_MIN_CONNS validation error", err)
+	}
+}
+
 func TestValidate_LockTimeoutExceedsStatementTimeout(t *testing.T) {
 	c := validConfig()
 	c.DBLockTimeout = 60 * time.Second

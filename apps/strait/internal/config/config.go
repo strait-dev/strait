@@ -384,6 +384,9 @@ func Load() (*Config, error) {
 	if err := validateLoaded(&cfg); err != nil {
 		return nil, err
 	}
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid config: %w", err)
+	}
 
 	slog.Info("config loaded",
 		"mode", cfg.Mode,
