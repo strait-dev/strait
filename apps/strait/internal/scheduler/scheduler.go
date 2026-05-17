@@ -67,6 +67,7 @@ type Scheduler struct {
 	wg                       conc.WaitGroup
 	tracker                  componentTracker
 	componentShutdownTimeout time.Duration
+	cronReloadInterval       time.Duration
 }
 
 // New creates a new scheduler that runs the cron, poller, and reaper.
@@ -101,6 +102,7 @@ func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queu
 			checkInMonitorPrefix: cfg.SentrySchedulerCheckInPrefix,
 		}},
 		componentShutdownTimeout: cfg.SchedulerComponentShutdownTimeout,
+		cronReloadInterval:       time.Minute,
 	}
 	for _, opt := range opts {
 		opt(sched)
@@ -132,6 +134,12 @@ func WithSentryCheckIns(enabled bool, monitorPrefix string) SchedulerOption {
 func WithSchedulerMetrics(m *telemetry.Metrics) SchedulerOption {
 	return func(s *Scheduler) {
 		s.reaper.WithMetrics(m)
+	}
+}
+
+func WithCronReloadInterval(interval time.Duration) SchedulerOption {
+	return func(s *Scheduler) {
+		s.cronReloadInterval = interval
 	}
 }
 
@@ -400,6 +408,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 
 	s.cron.Start()
+	if s.cronReloadInterval > 0 {
+		s.tracker.track(ctx, &s.wg, "cron_reloader", func(componentCtx context.Context) { s.runCronReloader(componentCtx) })
+	}
 	s.tracker.track(ctx, &s.wg, "poller", func(componentCtx context.Context) { s.poller.Run(componentCtx) })
 	s.tracker.track(ctx, &s.wg, "reaper", func(componentCtx context.Context) { s.reaper.Run(componentCtx) })
 	s.tracker.track(ctx, &s.wg, "index_maintainer", func(componentCtx context.Context) { s.indexMaintainer.Run(componentCtx) })
@@ -486,6 +497,21 @@ func (s *Scheduler) Start(ctx context.Context) error {
 
 	slog.Info("scheduler started")
 	return nil
+}
+
+func (s *Scheduler) runCronReloader(ctx context.Context) {
+	ticker := time.NewTicker(s.cronReloadInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := s.cron.LoadJobs(ctx); err != nil {
+				slog.Warn("cron reload failed", "error", err)
+			}
+		}
+	}
 }
 
 func (s *Scheduler) Stop() {

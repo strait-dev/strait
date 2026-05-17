@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"log/slog"
+	"sync"
 	"time"
 
 	"strait/internal/domain"
@@ -65,6 +66,8 @@ type CronScheduler struct {
 	workflowCallback  WorkflowCallback
 	metrics           *telemetry.Metrics
 	defaultRunTTLSecs int
+	scheduleMu        sync.Mutex
+	entryIDs          []cron.EntryID
 }
 
 // NewCronScheduler creates a new cron-based job and workflow scheduler.
@@ -106,6 +109,13 @@ func (cs *CronScheduler) LoadJobs(ctx context.Context) error {
 		return fmt.Errorf("list cron workflows: %w", err)
 	}
 
+	cs.scheduleMu.Lock()
+	defer cs.scheduleMu.Unlock()
+	for _, id := range cs.entryIDs {
+		cs.cron.Remove(id)
+	}
+	cs.entryIDs = cs.entryIDs[:0]
+
 	for _, j := range jobs {
 		job := j
 		expr, tzErr := cronExpressionWithValidatedTimezone(job.Cron, job.Timezone)
@@ -118,12 +128,13 @@ func (cs *CronScheduler) LoadJobs(ctx context.Context) error {
 			)
 			continue
 		}
-		_, err := cs.cron.AddFunc(expr, func() {
+		id, err := cs.cron.AddFunc(expr, func() {
 			cs.triggerJob(cs.ctx, job)
 		})
 		if err != nil {
 			return fmt.Errorf("register cron job %s: %w", job.ID, err)
 		}
+		cs.entryIDs = append(cs.entryIDs, id)
 	}
 
 	if cs.workflowTrigger != nil {
@@ -139,12 +150,13 @@ func (cs *CronScheduler) LoadJobs(ctx context.Context) error {
 				)
 				continue
 			}
-			_, err := cs.cron.AddFunc(expr, func() {
+			id, err := cs.cron.AddFunc(expr, func() {
 				cs.triggerWorkflow(cs.ctx, workflow)
 			})
 			if err != nil {
 				return fmt.Errorf("register cron workflow %s: %w", workflow.ID, err)
 			}
+			cs.entryIDs = append(cs.entryIDs, id)
 		}
 	}
 

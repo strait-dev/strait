@@ -87,6 +87,39 @@ func TestCronScheduler_LoadJobs_NoJobs(t *testing.T) {
 	}
 }
 
+func TestDeepSecCronScheduler_LoadJobsReplacesStaleEntries(t *testing.T) {
+	t.Parallel()
+
+	var jobs []domain.Job
+	store := &mockCronStore{
+		listCronJobsFn: func(context.Context) ([]domain.Job, error) {
+			return jobs, nil
+		},
+	}
+	cs := NewCronScheduler(context.Background(), store, &mockQueue{}, nil)
+
+	jobs = []domain.Job{
+		{ID: "job-1", ProjectID: "proj-1", Cron: "* * * * *"},
+		{ID: "job-2", ProjectID: "proj-1", Cron: "*/5 * * * *"},
+	}
+	if err := cs.LoadJobs(context.Background()); err != nil {
+		t.Fatalf("first LoadJobs: %v", err)
+	}
+	if got := len(cs.cron.Entries()); got != 2 {
+		t.Fatalf("initial entries = %d, want 2", got)
+	}
+
+	jobs = []domain.Job{
+		{ID: "job-2", ProjectID: "proj-1", Cron: "*/10 * * * *"},
+	}
+	if err := cs.LoadJobs(context.Background()); err != nil {
+		t.Fatalf("reload LoadJobs: %v", err)
+	}
+	if got := len(cs.cron.Entries()); got != 1 {
+		t.Fatalf("reloaded entries = %d, want 1", got)
+	}
+}
+
 func TestCronScheduler_LoadJobs_StoreError(t *testing.T) {
 	t.Parallel()
 	storeErr := errors.New("store error")
