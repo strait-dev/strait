@@ -438,9 +438,15 @@ func (ce *ChaosEngine) chaosDiskPressure(ctx context.Context) error {
 
 	// Clean up
 	_, _ = ce.harness.Pool.Exec(ctx, `
-		DELETE FROM run_events
-		WHERE type = 'loadtest_pressure'
-		  AND data @> '{"source":"loadtest","scenario":"disk_pressure"}'::jsonb`)
+		DELETE FROM run_events re
+		USING job_runs jr
+		WHERE re.run_id = jr.id
+		  AND jr.project_id = $1
+		  AND jr.id LIKE 'loadtest-pressure-%'
+		  AND re.type = 'loadtest_pressure'
+		  AND re.data @> '{"source":"loadtest","scenario":"disk_pressure"}'::jsonb`,
+		ce.projectID,
+	)
 	_, _ = ce.harness.Pool.Exec(ctx, `
 		DELETE FROM job_runs
 		WHERE id LIKE 'loadtest-pressure-%'

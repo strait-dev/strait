@@ -58,6 +58,27 @@ func TestChaosHarness_RunEventsPressureUsesCurrentSchema(t *testing.T) {
 	}
 }
 
+func TestChaosHarness_DiskPressureCleanupIsRunScoped(t *testing.T) {
+	t.Parallel()
+
+	data, err := os.ReadFile("chaos.go")
+	if err != nil {
+		t.Fatalf("read chaos.go: %v", err)
+	}
+	source := string(data)
+	for _, required := range []string{
+		"DELETE FROM run_events re",
+		"USING job_runs jr",
+		"re.run_id = jr.id",
+		"jr.project_id = $1",
+		"jr.id LIKE 'loadtest-pressure-%'",
+	} {
+		if !strings.Contains(source, required) {
+			t.Fatalf("disk pressure cleanup missing scoped fragment %q", required)
+		}
+	}
+}
+
 func TestFindContainer_RequiresExactLoadtestContainerName(t *testing.T) {
 	restore := stubDockerContainerNames(t, []string{
 		"customer-postgres",
