@@ -225,6 +225,9 @@ func (s *Server) sseTokenAuth(next http.Handler) http.Handler {
 				recordAuthTokenAge(r.Context(), "jwt", claims.IssuedAt.Time)
 			}
 			ctx := context.WithValue(r.Context(), ctxProjectIDKey, claims.ProjectID)
+			if claims.EnvironmentID != "" {
+				ctx = context.WithValue(ctx, ctxEnvironmentIDKey, claims.EnvironmentID)
+			}
 			ctx = context.WithValue(ctx, ctxScopesKey, claims.Scopes)
 			ctx = context.WithValue(ctx, ctxActorTypeKey, "sse_token")
 			ctx = context.WithValue(ctx, ctxActorIDKey, "sse:"+claims.ProjectID)

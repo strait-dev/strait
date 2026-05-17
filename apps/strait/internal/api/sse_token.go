@@ -15,11 +15,12 @@ const (
 	sseTokenIssuer = "strait:sse"
 )
 
-// SSETokenClaims extends standard JWT claims with the project and scopes.
+// SSETokenClaims extends standard JWT claims with the project, environment, and scopes.
 type SSETokenClaims struct {
 	jwt.RegisteredClaims
-	ProjectID string   `json:"pid"`
-	Scopes    []string `json:"scp,omitempty"`
+	ProjectID     string   `json:"pid"`
+	EnvironmentID string   `json:"eid,omitempty"`
+	Scopes        []string `json:"scp,omitempty"`
 }
 
 type CreateSSETokenInput struct{}
@@ -50,8 +51,9 @@ func (s *Server) handleCreateSSEToken(ctx context.Context, _ *CreateSSETokenInpu
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
 			IssuedAt:  jwt.NewNumericDate(now),
 		},
-		ProjectID: projectID,
-		Scopes:    scopes,
+		ProjectID:     projectID,
+		EnvironmentID: environmentIDFromContext(ctx),
+		Scopes:        scopes,
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -61,8 +63,9 @@ func (s *Server) handleCreateSSEToken(ctx context.Context, _ *CreateSSETokenInpu
 	}
 
 	s.emitAuditEvent(ctx, domain.AuditActionSSETokenCreated, "sse_token", projectID, map[string]any{
-		"expires_at":  expiresAt,
-		"scope_count": len(scopes),
+		"expires_at":     expiresAt,
+		"scope_count":    len(scopes),
+		"environment_id": claims.EnvironmentID,
 	})
 
 	out := &CreateSSETokenOutput{}
