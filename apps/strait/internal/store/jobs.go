@@ -472,6 +472,9 @@ func (q *Queries) deleteJobTx(ctx context.Context, id string) error {
 	if _, err := q.db.Exec(ctx, `DELETE FROM job_dependencies WHERE job_id = $1 OR depends_on_job_id = $1`, id); err != nil {
 		return fmt.Errorf("delete job dependencies: %w", err)
 	}
+	if _, err := q.db.Exec(ctx, `DELETE FROM job_memory WHERE job_id = $1`, id); err != nil {
+		return fmt.Errorf("delete job memory: %w", err)
+	}
 
 	tag, err := q.db.Exec(ctx, `DELETE FROM jobs WHERE id = $1`, id)
 	if err != nil {

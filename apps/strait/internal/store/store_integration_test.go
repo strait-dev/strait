@@ -572,6 +572,39 @@ func TestDeleteJob(t *testing.T) {
 	}
 }
 
+func TestDeleteJob_RemovesJobMemory(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := baseJob(newID(), "project-delete-job-memory")
+	if err := q.CreateJob(ctx, job); err != nil {
+		t.Fatalf("CreateJob() error = %v", err)
+	}
+	memory := &domain.JobMemory{
+		JobID:     job.ID,
+		ProjectID: job.ProjectID,
+		MemoryKey: "cursor",
+		Value:     json.RawMessage(`{"page":1}`),
+		SizeBytes: len(`{"page":1}`),
+	}
+	if err := q.UpsertJobMemory(ctx, memory); err != nil {
+		t.Fatalf("UpsertJobMemory() error = %v", err)
+	}
+
+	if err := q.DeleteJob(ctx, job.ID); err != nil {
+		t.Fatalf("DeleteJob() error = %v", err)
+	}
+
+	memories, err := q.ListJobMemory(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("ListJobMemory() error = %v", err)
+	}
+	if len(memories) != 0 {
+		t.Fatalf("ListJobMemory() len = %d, want 0 after job delete", len(memories))
+	}
+}
+
 func TestListCronJobs(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
