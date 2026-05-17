@@ -231,7 +231,7 @@ func (q *Queries) DeleteWorkflowRunsFinishedBefore(ctx context.Context, before t
 		WITH doomed AS (
 			SELECT id
 			FROM workflow_runs
-			WHERE status IN ('completed', 'failed', 'canceled')
+			WHERE status IN ('completed', 'failed', 'timed_out', 'canceled', 'compensated', 'compensation_failed')
 			  AND finished_at IS NOT NULL
 			  AND finished_at < $1
 			ORDER BY finished_at ASC

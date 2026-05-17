@@ -117,7 +117,7 @@ func (q *Queries) DeleteWorkflowRunsByOrgOlderThan(ctx context.Context, orgID st
 			SELECT wr.id FROM workflow_runs wr
 			JOIN workflows w ON wr.workflow_id = w.id
 			WHERE w.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
-			  AND wr.status IN ('completed', 'failed', 'canceled', 'timed_out')
+			  AND wr.status IN ('completed', 'failed', 'timed_out', 'canceled', 'compensated', 'compensation_failed')
 			  AND wr.finished_at IS NOT NULL
 			  AND wr.finished_at < $2
 			LIMIT 1000
