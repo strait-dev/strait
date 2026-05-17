@@ -4,6 +4,7 @@ package store_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strconv"
 	"testing"
@@ -372,6 +373,88 @@ func TestGetResolvedEnvironmentVariables(t *testing.T) {
 	}
 	if len(rootVars) != 2 {
 		t.Fatalf("root vars len = %d, want 2", len(rootVars))
+	}
+}
+
+func TestEnvironmentVariablesEncryptedWithoutPlaintextCopy(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	q.SetSecretEncryptionKey("0123456789abcdef0123456789abcdef")
+	mustClean(t, ctx)
+
+	env := &domain.Environment{
+		ProjectID: "proj-env-encrypted-" + newID(),
+		Name:      "Encrypted",
+		Slug:      "encrypted",
+		Variables: map[string]string{"API_TOKEN": "super-secret-token"},
+	}
+	if err := q.CreateEnvironment(ctx, env); err != nil {
+		t.Fatalf("CreateEnvironment() error = %v", err)
+	}
+
+	var variablesRaw []byte
+	var encryptedLen int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT variables, length(variables_encrypted)
+		FROM environments
+		WHERE id = $1`, env.ID).Scan(&variablesRaw, &encryptedLen); err != nil {
+		t.Fatalf("read raw environment variables: %v", err)
+	}
+	if string(variablesRaw) != "{}" {
+		t.Fatalf("plaintext variables = %s, want empty object", variablesRaw)
+	}
+	if encryptedLen == 0 {
+		t.Fatal("variables_encrypted was not populated")
+	}
+
+	got, err := q.GetEnvironment(ctx, env.ID)
+	if err != nil {
+		t.Fatalf("GetEnvironment() error = %v", err)
+	}
+	if got.Variables["API_TOKEN"] != "super-secret-token" {
+		t.Fatalf("decrypted API_TOKEN = %q", got.Variables["API_TOKEN"])
+	}
+}
+
+func TestResolvedEnvironmentVariablesUseEncryptedParentChain(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	q.SetSecretEncryptionKey("0123456789abcdef0123456789abcdef")
+	mustClean(t, ctx)
+
+	projectID := "proj-env-encrypted-chain-" + newID()
+	parent := &domain.Environment{
+		ProjectID: projectID,
+		Name:      "Parent",
+		Slug:      "parent",
+		Variables: map[string]string{"API_TOKEN": "parent-token", "SHARED": "parent"},
+	}
+	if err := q.CreateEnvironment(ctx, parent); err != nil {
+		t.Fatalf("CreateEnvironment(parent) error = %v", err)
+	}
+	child := &domain.Environment{
+		ProjectID: projectID,
+		Name:      "Child",
+		Slug:      "child",
+		ParentID:  parent.ID,
+		Variables: map[string]string{"SHARED": "child"},
+	}
+	if err := q.CreateEnvironment(ctx, child); err != nil {
+		t.Fatalf("CreateEnvironment(child) error = %v", err)
+	}
+
+	resolved, err := q.GetResolvedEnvironmentVariables(ctx, child.ID)
+	if err != nil {
+		t.Fatalf("GetResolvedEnvironmentVariables() error = %v", err)
+	}
+	want := map[string]string{"API_TOKEN": "parent-token", "SHARED": "child"}
+	if gotJSON, _ := json.Marshal(resolved); len(resolved) != len(want) {
+		t.Fatalf("resolved = %s, want %v", gotJSON, want)
+	}
+	for key, value := range want {
+		if resolved[key] != value {
+			t.Fatalf("resolved[%q] = %q, want %q", key, resolved[key], value)
+		}
 	}
 }
 

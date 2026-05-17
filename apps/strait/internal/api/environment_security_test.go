@@ -203,11 +203,175 @@ func TestEnvironment_VariableOverrideResolution(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if resp.ResolvedVariables["DB_HOST"] != "child-db.example.com" {
-		t.Fatalf("expected child DB_HOST override, got %q", resp.ResolvedVariables["DB_HOST"])
+	if strings.Contains(w.Body.String(), "child-db.example.com") || strings.Contains(w.Body.String(), "inherited-from-parent") {
+		t.Fatalf("environment metadata response leaked resolved variable values: %s", w.Body.String())
 	}
-	if resp.ResolvedVariables["API_KEY"] != "inherited-from-parent" {
-		t.Fatalf("expected inherited API_KEY, got %q", resp.ResolvedVariables["API_KEY"])
+	if !containsString(resp.ResolvedVariableKeys, "DB_HOST") || !containsString(resp.ResolvedVariableKeys, "API_KEY") {
+		t.Fatalf("expected resolved variable keys, got %v", resp.ResolvedVariableKeys)
+	}
+}
+
+func TestEnvironment_MetadataResponsesDoNotLeakVariableValues(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetEnvironmentFunc: func(_ context.Context, id string) (*domain.Environment, error) {
+			return &domain.Environment{
+				ID:        id,
+				ProjectID: "proj-1",
+				Name:      "Production",
+				Slug:      "production",
+				Variables: map[string]string{"API_TOKEN": "secret-token-value"},
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+			}, nil
+		},
+		GetResolvedEnvironmentVariablesFunc: func(_ context.Context, _ string) (map[string]string, error) {
+			return map[string]string{"API_TOKEN": "secret-token-value", "DATABASE_URL": "postgres://user:pass@example/db"}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/environments/env-prod", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "secret-token-value") || strings.Contains(w.Body.String(), "postgres://user:pass") {
+		t.Fatalf("environment metadata response leaked variable value: %s", w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "API_TOKEN") || !strings.Contains(w.Body.String(), "DATABASE_URL") {
+		t.Fatalf("environment metadata response should include variable keys: %s", w.Body.String())
+	}
+}
+
+func TestEnvironment_ListDoesNotLeakVariableValues(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		ListEnvironmentsFunc: func(_ context.Context, projectID string, _ int, _ *time.Time) ([]domain.Environment, error) {
+			return []domain.Environment{{
+				ID:        "env-prod",
+				ProjectID: projectID,
+				Name:      "Production",
+				Slug:      "production",
+				Variables: map[string]string{"API_TOKEN": "secret-token-value"},
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+			}}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/environments", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "secret-token-value") {
+		t.Fatalf("environment list leaked variable value: %s", w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "API_TOKEN") {
+		t.Fatalf("environment list should include variable key metadata: %s", w.Body.String())
+	}
+}
+
+func TestEnvironment_EnvironmentScopedCallerCannotCreateEnvironment(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		CreateEnvironmentFunc: func(context.Context, *domain.Environment) error {
+			t.Fatal("CreateEnvironment must not be called for environment-scoped credentials")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-staging")
+
+	_, err := srv.handleCreateEnvironment(ctx, &CreateEnvironmentInput{Body: CreateEnvironmentRequest{
+		ProjectID: "proj-1",
+		Name:      "Prod",
+		Slug:      "prod",
+	}})
+	if err == nil {
+		t.Fatal("expected environment-scoped create to fail")
+	}
+}
+
+func TestEnvironment_RejectsParentOutsideProject(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetEnvironmentFunc: func(_ context.Context, id string) (*domain.Environment, error) {
+			return &domain.Environment{ID: id, ProjectID: "proj-other", Name: "Other", Slug: "other"}, nil
+		},
+		CreateEnvironmentFunc: func(context.Context, *domain.Environment) error {
+			t.Fatal("CreateEnvironment must not be called with cross-project parent")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+
+	_, err := srv.handleCreateEnvironment(ctx, &CreateEnvironmentInput{Body: CreateEnvironmentRequest{
+		ProjectID: "proj-1",
+		Name:      "Child",
+		Slug:      "child",
+		ParentID:  "env-other",
+	}})
+	if err == nil {
+		t.Fatal("expected cross-project parent to fail")
+	}
+}
+
+func TestEnvironment_EnvironmentScopedCallerCannotSetOtherParent(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetEnvironmentFunc: func(_ context.Context, id string) (*domain.Environment, error) {
+			if id == "env-staging" {
+				return &domain.Environment{ID: id, ProjectID: "proj-1", Name: "Staging", Slug: "staging"}, nil
+			}
+			return &domain.Environment{ID: id, ProjectID: "proj-1", Name: "Prod", Slug: "prod"}, nil
+		},
+		UpdateEnvironmentFunc: func(context.Context, *domain.Environment) error {
+			t.Fatal("UpdateEnvironment must not be called with cross-environment parent")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-staging")
+
+	_, err := srv.handleUpdateEnvironment(ctx, &UpdateEnvironmentInput{
+		EnvID: "env-staging",
+		Body:  UpdateEnvironmentRequest{ParentID: ptrString("env-prod")},
+	})
+	if err == nil {
+		t.Fatal("expected cross-environment parent update to fail")
+	}
+}
+
+func TestEnvironment_VariablesRouteRequiresSecretsRead(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetEnvironmentFunc: func(context.Context, string) (*domain.Environment, error) {
+			t.Fatal("GetEnvironment must not be called without secrets:read")
+			return nil, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	req := apiKeyRequestWithScopes(http.MethodGet, "/v1/environments/env-prod/variables", "", "proj-1", []string{domain.ScopeJobsRead})
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -675,4 +839,17 @@ func FuzzSecretKey(f *testing.F) {
 		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/secrets", string(bodyJSON)))
 		_ = w.Code
 	})
+}
+
+func containsString(values []string, needle string) bool {
+	for _, value := range values {
+		if value == needle {
+			return true
+		}
+	}
+	return false
+}
+
+func ptrString(value string) *string {
+	return &value
 }

@@ -310,7 +310,7 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleGetEnvironment))
 				r.With(s.requirePermission(domain.ScopeJobsWrite)).Patch("/", TypedHandler(s, http.StatusOK, s.handleUpdateEnvironment))
 				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/", TypedHandler(s, http.StatusNoContent, s.handleDeleteEnvironment))
-				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/variables", TypedHandler(s, http.StatusOK, s.handleGetResolvedVariables))
+				r.With(s.requirePermission(domain.ScopeSecretsRead)).Get("/variables", TypedHandler(s, http.StatusOK, s.handleGetResolvedVariables))
 			})
 		})
 
