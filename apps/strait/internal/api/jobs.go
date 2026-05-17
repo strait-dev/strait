@@ -157,15 +157,7 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 		return nil, err
 	}
 
-	signingSecret := req.EndpointSigningSecret
-	if req.WebhookSecret != "" {
-		if signingSecret != "" && signingSecret != req.WebhookSecret {
-			slog.Warn("both webhook_secret and endpoint_signing_secret supplied on job create; using webhook_secret",
-				"project_id", req.ProjectID, "slug", req.Slug)
-		}
-		signingSecret = req.WebhookSecret
-	}
-	signingSecret, err = s.encryptEndpointSigningSecret(signingSecret)
+	signingSecret, err := s.resolveCreateJobSigningSecret(req)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to encrypt endpoint signing secret")
 	}
@@ -242,6 +234,40 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 	})
 
 	return &CreateJobOutput{Body: job}, nil
+}
+
+func (s *Server) resolveCreateJobSigningSecret(req CreateJobRequest) (string, error) {
+	signingSecret := req.EndpointSigningSecret
+	if req.WebhookSecret != "" {
+		if signingSecret != "" && signingSecret != req.WebhookSecret {
+			slog.Warn("both webhook_secret and endpoint_signing_secret supplied on job create; using webhook_secret",
+				"project_id", req.ProjectID, "slug", req.Slug)
+		}
+		signingSecret = req.WebhookSecret
+	}
+	return s.encryptEndpointSigningSecret(signingSecret)
+}
+
+func sanitizedJobUpdateAuditChanges(req UpdateJobRequest) map[string]any {
+	secretChanged := req.EndpointSigningSecret != nil || req.WebhookSecret != nil
+	req.EndpointSigningSecret = nil
+	req.WebhookSecret = nil
+
+	raw, err := json.Marshal(req)
+	if err != nil {
+		return map[string]any{"marshal_error": true, "signing_credential_changed": secretChanged}
+	}
+	var changes map[string]any
+	if err := json.Unmarshal(raw, &changes); err != nil {
+		return map[string]any{"marshal_error": true, "signing_credential_changed": secretChanged}
+	}
+	if changes == nil {
+		changes = map[string]any{}
+	}
+	if secretChanged {
+		changes["signing_credential_changed"] = true
+	}
+	return changes
 }
 
 // validateCreateJobFields validates the scalar and cron fields on a CreateJobRequest,
@@ -773,7 +799,7 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 	s.enqueueJobMetadata(job)
 
 	s.emitAuditEvent(ctx, domain.AuditActionJobUpdated, "job", job.ID, map[string]any{
-		"changes": req,
+		"changes": sanitizedJobUpdateAuditChanges(req),
 		"name":    job.Name,
 		"slug":    job.Slug,
 	})
@@ -1144,39 +1170,45 @@ func (s *Server) handleBatchCreateJobs(ctx context.Context, input *BatchCreateJo
 			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: batchJobErrorMessage(err)})
 			continue
 		}
+		signingSecret, err := s.resolveCreateJobSigningSecret(jobReq)
+		if err != nil {
+			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: "failed to encrypt endpoint signing secret"})
+			continue
+		}
 
 		job := &domain.Job{
-			ProjectID:           jobReq.ProjectID,
-			GroupID:             jobReq.GroupID,
-			Name:                jobReq.Name,
-			Slug:                jobReq.Slug,
-			Description:         jobReq.Description,
-			Cron:                jobReq.Cron,
-			PayloadSchema:       jobReq.PayloadSchema,
-			Tags:                jobReq.Tags,
-			EndpointURL:         jobReq.EndpointURL,
-			FallbackEndpointURL: jobReq.FallbackEndpointURL,
-			MaxAttempts:         jobReq.MaxAttempts,
-			TimeoutSecs:         jobReq.TimeoutSecs,
-			MaxConcurrency:      jobReq.MaxConcurrency,
-			ExecutionWindowCron: jobReq.ExecutionWindowCron,
-			Timezone:            jobReq.Timezone,
-			RateLimitMax:        jobReq.RateLimitMax,
-			RateLimitWindowSecs: jobReq.RateLimitWindowSecs,
-			DedupWindowSecs:     jobReq.DedupWindowSecs,
-			RunTTLSecs:          jobReq.RunTTLSecs,
-			RetryStrategy:       jobReq.RetryStrategy,
-			RetryDelaysSecs:     jobReq.RetryDelaysSecs,
-			RetryPriorityBoost:  jobReq.RetryPriorityBoost,
-			EnvironmentID:       jobReq.EnvironmentID,
-			PreferredRegions:    jobReq.PreferredRegions,
-			Enabled:             true,
-			ExecutionMode:       execMode,
-			Queue:               normalizeJobQueueName(jobReq.QueueName),
-			CronOverlapPolicy:   domain.CronOverlapPolicy(jobReq.CronOverlapPolicy),
-			VersionPolicy:       domain.VersionPolicyPin,
-			CreatedBy:           actorFromContext(ctx),
-			UpdatedBy:           actorFromContext(ctx),
+			ProjectID:             jobReq.ProjectID,
+			GroupID:               jobReq.GroupID,
+			Name:                  jobReq.Name,
+			Slug:                  jobReq.Slug,
+			Description:           jobReq.Description,
+			Cron:                  jobReq.Cron,
+			PayloadSchema:         jobReq.PayloadSchema,
+			Tags:                  jobReq.Tags,
+			EndpointURL:           jobReq.EndpointURL,
+			EndpointSigningSecret: signingSecret,
+			FallbackEndpointURL:   jobReq.FallbackEndpointURL,
+			MaxAttempts:           jobReq.MaxAttempts,
+			TimeoutSecs:           jobReq.TimeoutSecs,
+			MaxConcurrency:        jobReq.MaxConcurrency,
+			ExecutionWindowCron:   jobReq.ExecutionWindowCron,
+			Timezone:              jobReq.Timezone,
+			RateLimitMax:          jobReq.RateLimitMax,
+			RateLimitWindowSecs:   jobReq.RateLimitWindowSecs,
+			DedupWindowSecs:       jobReq.DedupWindowSecs,
+			RunTTLSecs:            jobReq.RunTTLSecs,
+			RetryStrategy:         jobReq.RetryStrategy,
+			RetryDelaysSecs:       jobReq.RetryDelaysSecs,
+			RetryPriorityBoost:    jobReq.RetryPriorityBoost,
+			EnvironmentID:         jobReq.EnvironmentID,
+			PreferredRegions:      jobReq.PreferredRegions,
+			Enabled:               true,
+			ExecutionMode:         execMode,
+			Queue:                 normalizeJobQueueName(jobReq.QueueName),
+			CronOverlapPolicy:     domain.CronOverlapPolicy(jobReq.CronOverlapPolicy),
+			VersionPolicy:         domain.VersionPolicyPin,
+			CreatedBy:             actorFromContext(ctx),
+			UpdatedBy:             actorFromContext(ctx),
 		}
 
 		if err := s.store.CreateJob(ctx, job); err != nil {
