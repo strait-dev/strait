@@ -97,6 +97,17 @@ export SECRET_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 | `WEBHOOK_REQUIRE_TLS` | `false` | Require HTTPS webhook URLs. |
 | `ALLOW_PRIVATE_ENDPOINTS` | `false` | Allow private endpoint URLs. Not recommended unless the network is trusted. |
 
+## CDC / Sequin
+
+| Variable | Default | Description |
+|---|---|---|
+| `SEQUIN_BASE_URL` | - | Sequin API base URL. When set, Strait starts the CDC pull consumer and exposes the optional push receiver. |
+| `SEQUIN_CONSUMER_NAME` | - | Sequin HTTP pull consumer name. |
+| `SEQUIN_API_TOKEN` | - | Bearer token used for Sequin API calls. |
+| `SEQUIN_WEBHOOK_SECRET` | - | HMAC-SHA256 secret used to verify Sequin push webhook request bodies. Set this when using `/internal/cdc/webhook`. |
+| `CDC_BATCH_SIZE` | `200` | Max CDC messages fetched per pull request. |
+| `CDC_WAIT_TIME_MS` | `5000` | Sequin long-poll wait time in milliseconds. |
+
 ## Retention
 
 | Variable | Default | Description |

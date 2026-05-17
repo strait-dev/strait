@@ -296,7 +296,13 @@ func startCDCConsumer(g *pool.ContextPool, cfg *config.Config, pub pubsub.Publis
 	})
 
 	// Create webhook receiver for push-based CDC delivery.
-	webhookReceiver := cdc.NewWebhookReceiver(pub, slog.Default())
+	receiverOpts := []cdc.WebhookReceiverOption{}
+	if cfg.SequinWebhookSecret != "" {
+		receiverOpts = append(receiverOpts, cdc.WithWebhookSecret(cfg.SequinWebhookSecret))
+	} else {
+		slog.Warn("cdc webhook signature verification disabled: SEQUIN_WEBHOOK_SECRET is not set")
+	}
+	webhookReceiver := cdc.NewWebhookReceiver(pub, slog.Default(), receiverOpts...)
 	webhookReceiver.RegisterHandler(cdc.NewJobRunHandler(pub, slog.Default()))
 	webhookReceiver.RegisterHandler(cdc.NewWorkflowRunHandler(pub, slog.Default()))
 	webhookReceiver.RegisterHandler(cdc.NewWorkflowStepRunHandler(pub, slog.Default()))

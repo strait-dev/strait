@@ -105,6 +105,7 @@ func TestLoad_Defaults(t *testing.T) {
 		{"Edition", cfg.Edition, "community"},
 		{"SequinBatchSize", cfg.SequinBatchSize, 200},
 		{"SequinWaitTimeMs", cfg.SequinWaitTimeMs, 5000},
+		{"SequinWebhookSecret", cfg.SequinWebhookSecret, ""},
 		{"GRPCBindAddr", cfg.GRPCBindAddr, "127.0.0.1"},
 		{"GRPCPort", cfg.GRPCPort, 50051},
 		{"RedisPoolSize", cfg.RedisPoolSize, 30},
@@ -800,6 +801,19 @@ func TestLoad_SequinBaseURLValidation(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
+}
+
+func TestDeepSecLoad_SequinWebhookSecret(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("SEQUIN_WEBHOOK_SECRET", "cdc-webhook-secret-32-bytes-min")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.SequinWebhookSecret != "cdc-webhook-secret-32-bytes-min" {
+		t.Fatalf("SequinWebhookSecret = %q", cfg.SequinWebhookSecret)
+	}
 }
 
 func TestLoad_StringOverrides(t *testing.T) {

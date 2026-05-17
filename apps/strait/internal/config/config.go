@@ -103,11 +103,12 @@ type Config struct {
 	MaxBulkTriggerItems int           `env:"MAX_BULK_TRIGGER_ITEMS" default:"500"`
 
 	// Sequin CDC settings
-	SequinBaseURL      string `env:"SEQUIN_BASE_URL"`
-	SequinConsumerName string `env:"SEQUIN_CONSUMER_NAME"`
-	SequinAPIToken     string `env:"SEQUIN_API_TOKEN"`
-	SequinBatchSize    int    `env:"SEQUIN_BATCH_SIZE" default:"200"`
-	SequinWaitTimeMs   int    `env:"SEQUIN_WAIT_TIME_MS" default:"5000"`
+	SequinBaseURL       string `env:"SEQUIN_BASE_URL"`
+	SequinConsumerName  string `env:"SEQUIN_CONSUMER_NAME"`
+	SequinAPIToken      string `env:"SEQUIN_API_TOKEN"`
+	SequinWebhookSecret string `env:"SEQUIN_WEBHOOK_SECRET"`
+	SequinBatchSize     int    `env:"SEQUIN_BATCH_SIZE" default:"200"`
+	SequinWaitTimeMs    int    `env:"SEQUIN_WAIT_TIME_MS" default:"5000"`
 
 	// CORS settings
 	CORSAllowedOrigins   []string `env:"CORS_ALLOWED_ORIGINS"`
