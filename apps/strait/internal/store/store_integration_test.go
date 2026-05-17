@@ -3273,6 +3273,47 @@ func TestEnvironment_InheritanceResolution(t *testing.T) {
 	}
 }
 
+func TestEnvironment_InheritanceResolutionDoesNotCrossProjects(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	parent := &domain.Environment{
+		ProjectID: "project-environment-parent-tenant",
+		Name:      "Parent",
+		Slug:      "parent",
+		Variables: map[string]string{"PARENT_ONLY": "leak", "SHARED": "parent"},
+	}
+	if err := q.CreateEnvironment(ctx, parent); err != nil {
+		t.Fatalf("CreateEnvironment(parent) error = %v", err)
+	}
+
+	child := &domain.Environment{
+		ProjectID: "project-environment-child-tenant",
+		Name:      "Child",
+		Slug:      "child",
+		ParentID:  parent.ID,
+		Variables: map[string]string{"CHILD_ONLY": "ok", "SHARED": "child"},
+	}
+	if err := q.CreateEnvironment(ctx, child); err != nil {
+		t.Fatalf("CreateEnvironment(child) error = %v", err)
+	}
+
+	resolved, err := q.GetResolvedEnvironmentVariables(ctx, child.ID)
+	if err != nil {
+		t.Fatalf("GetResolvedEnvironmentVariables() error = %v", err)
+	}
+	if got := resolved["PARENT_ONLY"]; got != "" {
+		t.Fatalf("resolved inherited cross-project parent secret = %q", got)
+	}
+	if got := resolved["CHILD_ONLY"]; got != "ok" {
+		t.Fatalf("resolved CHILD_ONLY = %q, want ok", got)
+	}
+	if got := resolved["SHARED"]; got != "child" {
+		t.Fatalf("resolved SHARED = %q, want child", got)
+	}
+}
+
 func TestGetJobHealthStats(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

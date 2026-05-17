@@ -217,16 +217,17 @@ func (q *Queries) GetResolvedEnvironmentVariables(ctx context.Context, id string
 	// The chain is returned root-first so we can overlay child variables on top.
 	query := `
 		WITH RECURSIVE chain AS (
-			SELECT id, parent_id, variables, variables_encrypted, 1 AS depth
+			SELECT id, project_id, parent_id, variables, variables_encrypted, 1 AS depth
 			FROM environments
 			WHERE id = $1
 			UNION ALL
-			SELECT e.id, e.parent_id, e.variables, e.variables_encrypted, c.depth + 1
+			SELECT e.id, e.project_id, e.parent_id, e.variables, e.variables_encrypted, c.depth + 1
 			FROM environments e
 			JOIN chain c ON e.id = c.parent_id
 			WHERE c.depth < $2
+			  AND e.project_id = c.project_id
 		)
-			SELECT id, parent_id, variables, variables_encrypted, depth FROM chain
+			SELECT id, project_id, parent_id, variables, variables_encrypted, depth FROM chain
 			ORDER BY depth DESC`
 
 	rows, err := q.db.Query(ctx, query, id, maxDepth)
@@ -240,11 +241,12 @@ func (q *Queries) GetResolvedEnvironmentVariables(ctx context.Context, id string
 	var rowCount int
 	for rows.Next() {
 		var envID string
+		var projectID string
 		var parentID *string
 		var variablesRaw []byte
 		var variablesEncrypted []byte
 		var depth int
-		if err := rows.Scan(&envID, &parentID, &variablesRaw, &variablesEncrypted, &depth); err != nil {
+		if err := rows.Scan(&envID, &projectID, &parentID, &variablesRaw, &variablesEncrypted, &depth); err != nil {
 			return nil, fmt.Errorf("resolve environment variables scan: %w", err)
 		}
 		variablesRaw, err = q.decryptEnvironmentVariables(envID, variablesRaw, variablesEncrypted)
