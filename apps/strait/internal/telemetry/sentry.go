@@ -99,7 +99,10 @@ func SentryClientOptions(cfg SentryConfig, tracesSampleRate float64) sentry.Clie
 }
 
 // SentryTracesSampler drops known high-volume transactions before they are
-// sent and otherwise applies the configured global sample rate.
+// sent and otherwise applies the configured global sample rate. It deliberately
+// ignores the upstream parent sampling decision: HTTP/gRPC trace headers are
+// client-controlled at Strait's edge, so letting ParentSampled force 0% or
+// 100% would allow callers to override our local telemetry budget.
 func SentryTracesSampler(sampleRate float64) sentry.TracesSampler {
 	sampleRate = normalizeSentrySampleRate(sampleRate)
 	return func(ctx sentry.SamplingContext) float64 {
@@ -107,14 +110,7 @@ func SentryTracesSampler(sampleRate float64) sentry.TracesSampler {
 			stableModulo(ctx.Span.Name, sentryHeavyTransactionModulo) != 0 {
 			return 0
 		}
-		switch ctx.ParentSampled {
-		case sentry.SampledTrue:
-			return 1
-		case sentry.SampledFalse:
-			return 0
-		default:
-			return sampleRate
-		}
+		return sampleRate
 	}
 }
 

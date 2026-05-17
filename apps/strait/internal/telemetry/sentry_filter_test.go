@@ -216,12 +216,19 @@ func TestSentryTracesSamplerDropsHeavyTransactionsEarly(t *testing.T) {
 	if normal != 0.5 {
 		t.Fatalf("normal transaction sample rate = %v, want 0.5", normal)
 	}
+	parentTrue := sampler(sentry.SamplingContext{
+		Span:          &sentry.Span{Name: "GET /v1/jobs"},
+		ParentSampled: sentry.SampledTrue,
+	})
+	if parentTrue != 0.5 {
+		t.Fatalf("sampled parent sample rate = %v, want 0.5", parentTrue)
+	}
 	parentFalse := sampler(sentry.SamplingContext{
 		Span:          &sentry.Span{Name: "GET /v1/jobs"},
 		ParentSampled: sentry.SampledFalse,
 	})
-	if parentFalse != 0 {
-		t.Fatalf("unsampled parent sample rate = %v, want 0", parentFalse)
+	if parentFalse != 0.5 {
+		t.Fatalf("unsampled parent sample rate = %v, want 0.5", parentFalse)
 	}
 }
 
