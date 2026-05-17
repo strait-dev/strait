@@ -2234,6 +2234,74 @@ func TestSecret_ListJobSecretsByJobUsesJobEnvironment(t *testing.T) {
 	}
 }
 
+func TestSecret_ListJobSecretsByJobDefaultsEnvlessJobToProduction(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	q.SetSecretEncryptionKey("test-encryption-key-32bytes!!!!")
+	mustClean(t, ctx)
+
+	projectID := "project-secret-envless-" + newID()
+	prod := &domain.Environment{ProjectID: projectID, Name: "Production", Slug: "production"}
+	if err := q.CreateEnvironment(ctx, prod); err != nil {
+		t.Fatalf("CreateEnvironment(prod) error = %v", err)
+	}
+	job := mustCreateJob(t, ctx, q, projectID)
+	if job.EnvironmentID != "" {
+		t.Fatalf("fixture job EnvironmentID = %q, want empty", job.EnvironmentID)
+	}
+
+	productionSecret := &domain.JobSecret{ProjectID: projectID, Environment: prod.ID, SecretKey: "TOKEN", EncryptedValue: "production"}
+	if err := q.CreateJobSecret(ctx, productionSecret); err != nil {
+		t.Fatalf("CreateJobSecret(production) error = %v", err)
+	}
+
+	got, err := q.ListJobSecretsByJob(ctx, job.ID, "")
+	if err != nil {
+		t.Fatalf("ListJobSecretsByJob() error = %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("ListJobSecretsByJob() len = %d, want 1", len(got))
+	}
+	if got[0].ID != productionSecret.ID || got[0].EncryptedValue != "production" {
+		t.Fatalf("ListJobSecretsByJob() = %+v, want production secret %q", got, productionSecret.ID)
+	}
+}
+
+func TestSecret_ListJobSecretsByJobOrdersJobOverridesAfterGlobal(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	q.SetSecretEncryptionKey("test-encryption-key-32bytes!!!!")
+	mustClean(t, ctx)
+
+	projectID := "project-secret-precedence-" + newID()
+	prod := &domain.Environment{ProjectID: projectID, Name: "Production", Slug: "production"}
+	if err := q.CreateEnvironment(ctx, prod); err != nil {
+		t.Fatalf("CreateEnvironment(prod) error = %v", err)
+	}
+	job := mustCreateJob(t, ctx, q, projectID)
+
+	jobSecret := &domain.JobSecret{ProjectID: projectID, JobID: job.ID, Environment: prod.ID, SecretKey: "TOKEN", EncryptedValue: "job-specific"}
+	if err := q.CreateJobSecret(ctx, jobSecret); err != nil {
+		t.Fatalf("CreateJobSecret(job) error = %v", err)
+	}
+	globalSecret := &domain.JobSecret{ProjectID: projectID, Environment: prod.ID, SecretKey: "TOKEN", EncryptedValue: "global"}
+	if err := q.CreateJobSecret(ctx, globalSecret); err != nil {
+		t.Fatalf("CreateJobSecret(global) error = %v", err)
+	}
+
+	got, err := q.ListJobSecretsByJob(ctx, job.ID, prod.ID)
+	if err != nil {
+		t.Fatalf("ListJobSecretsByJob() error = %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("ListJobSecretsByJob() len = %d, want 2", len(got))
+	}
+	if got[0].ID != globalSecret.ID || got[1].ID != jobSecret.ID {
+		t.Fatalf("ListJobSecretsByJob() order IDs = [%q, %q], want global then job-specific [%q, %q]",
+			got[0].ID, got[1].ID, globalSecret.ID, jobSecret.ID)
+	}
+}
+
 func TestAPIKey_CRUD(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
