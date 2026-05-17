@@ -92,8 +92,8 @@ func (p *PrometheusUptimeSource) MonthlyUptimePct(ctx context.Context, _ string,
 	return uptime, nil
 }
 
-// extractUptime unwraps the first numeric sample from a Prometheus
-// instant-query result. Scalar and Vector are both valid shapes for
+// extractUptime unwraps numeric samples from a Prometheus instant-query
+// result. Scalar and Vector are both valid shapes for
 // `avg_over_time(...) * 100`; Matrix / String are not.
 func extractUptime(v model.Value) (float64, bool) {
 	switch x := v.(type) {
@@ -103,7 +103,11 @@ func extractUptime(v model.Value) (float64, bool) {
 		if len(x) == 0 {
 			return 0, false
 		}
-		return float64(x[0].Value), true
+		var sum float64
+		for _, sample := range x {
+			sum += float64(sample.Value)
+		}
+		return sum / float64(len(x)), true
 	default:
 		return 0, false
 	}

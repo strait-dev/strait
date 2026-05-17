@@ -48,6 +48,7 @@ type Scheduler struct {
 	staleSubscriptionChecker *StaleSubscriptionChecker
 	webhookMessageCleanup    *WebhookMessageCleanup
 	contractExpiryChecker    *ContractExpiryChecker
+	usageReportEmailer       *UsageReportEmailer
 	priorityPromoter         *PriorityPromoter
 	dunner                   DunnerRunner
 	slaCalculator            SLACalculatorRunner
@@ -367,6 +368,13 @@ func WithContractExpiryChecker(checker *ContractExpiryChecker) SchedulerOption {
 	}
 }
 
+// WithUsageReportEmailer enables monthly usage report emails for opted-in paid orgs.
+func WithUsageReportEmailer(emailer *UsageReportEmailer) SchedulerOption {
+	return func(s *Scheduler) {
+		s.usageReportEmailer = emailer
+	}
+}
+
 // WithIndexMaintainerAdvisoryLocker enables single-leader execution of the
 // periodic REINDEX loop across multiple worker instances sharing a database.
 // Without this, every worker runs REINDEX independently, which is safe (the
@@ -435,6 +443,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 	if s.contractExpiryChecker != nil {
 		s.tracker.track(ctx, &s.wg, "contract_expiry_checker", func(componentCtx context.Context) { s.contractExpiryChecker.Run(componentCtx) })
+	}
+	if s.usageReportEmailer != nil {
+		s.tracker.track(ctx, &s.wg, "usage_report_emailer", func(componentCtx context.Context) { s.usageReportEmailer.Run(componentCtx) })
 	}
 	if s.priorityPromoter != nil {
 		s.tracker.track(ctx, &s.wg, "priority_promoter", func(componentCtx context.Context) { s.priorityPromoter.Run(componentCtx) })

@@ -118,6 +118,61 @@ func TestExportCSV_WithRecords(t *testing.T) {
 	}
 }
 
+func TestDeepSecExportCSV_EscapesFormulaProjectID(t *testing.T) {
+	store := &mockExportStore{
+		usageRecords: []UsageRecord{
+			{
+				ProjectID:        "=HYPERLINK(\"https://attacker.test\")",
+				PeriodDate:       time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC),
+				RunsCount:        1,
+				ComputeCostMicro: 1000,
+			},
+		},
+	}
+	period := ExportPeriod{
+		From: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		To:   time.Date(2026, 1, 31, 0, 0, 0, 0, time.UTC),
+	}
+
+	data, err := ExportCSV(context.Background(), store, "org-1", period)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	reader := csv.NewReader(strings.NewReader(string(data)))
+	records, err := reader.ReadAll()
+	if err != nil {
+		t.Fatalf("failed to parse CSV: %v", err)
+	}
+	if got := records[1][1]; !strings.HasPrefix(got, "'=") {
+		t.Fatalf("project cell = %q, want formula escaped with apostrophe", got)
+	}
+}
+
+func TestDeepSecExportCSV_RejectsOversizedPeriod(t *testing.T) {
+	store := &mockExportStore{}
+	period := ExportPeriod{
+		From: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+		To:   time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+
+	if _, err := ExportCSV(context.Background(), store, "org-1", period); err == nil {
+		t.Fatal("expected oversized export period error")
+	}
+}
+
+func TestDeepSecExportPDF_RejectsOversizedPeriod(t *testing.T) {
+	store := &mockExportStore{}
+	period := ExportPeriod{
+		From: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+		To:   time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+
+	if _, err := ExportPDF(context.Background(), store, "org-1", period); err == nil {
+		t.Fatal("expected oversized export period error")
+	}
+}
+
 func TestExportPDF_Empty(t *testing.T) {
 	store := &mockExportStore{}
 	period := ExportPeriod{

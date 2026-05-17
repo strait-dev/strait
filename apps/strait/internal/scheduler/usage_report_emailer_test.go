@@ -293,6 +293,38 @@ func TestUsageReportEmailer_SendsForEndedPeriod(t *testing.T) {
 	}
 }
 
+func TestDeepSecUsageReportEmailer_CatchesUpMissedEndedPeriod(t *testing.T) {
+	t.Parallel()
+
+	periodEnd := time.Now().UTC().Add(-72 * time.Hour).Truncate(24 * time.Hour)
+	periodStart := periodEnd.AddDate(0, -1, 0)
+
+	store := &mockReportStore{
+		orgIDs: []string{"org-missed"},
+		subscriptions: map[string]*billing.OrgSubscription{
+			"org-missed": {
+				OrgID:              "org-missed",
+				PlanTier:           "starter",
+				Status:             "active",
+				MonthlyUsageEmail:  true,
+				CurrentPeriodStart: &periodStart,
+				CurrentPeriodEnd:   &periodEnd,
+			},
+		},
+		adminEmails: map[string][]string{
+			"org-missed": {"admin@example.com"},
+		},
+	}
+
+	emailAPI := &mockResendAPI{}
+	emailer := NewUsageReportEmailer(store, emailAPI, "billing@test.dev", time.Hour)
+	emailer.checkAndSend(context.Background())
+
+	if len(emailAPI.sent) != 1 {
+		t.Fatalf("expected catch-up email for missed period, got %d", len(emailAPI.sent))
+	}
+}
+
 func TestUsageReportEmailer_SkipsFreePlan(t *testing.T) {
 	t.Parallel()
 

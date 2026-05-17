@@ -172,6 +172,39 @@ func TestStripeSLAIssuer_OpenInvoice_IssuesCreditNote(t *testing.T) {
 	}
 }
 
+func TestDeepSecStripeSLAIssuer_OpenInvoiceBelowCreditFallsBackToBalanceTxn(t *testing.T) {
+	fake := newStripeFake(t)
+	fake.invoiceIDByStatus["open"] = "in_test_low_balance"
+	fake.invoiceAmountRemainingByStatus["open"] = 1_000 // $10 still owed
+
+	issuer := newTestIssuer(stubLookup{sub: subWithCustomer("cus_low_balance")})
+	periodEnd := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+
+	id, err := issuer.IssueCredit(context.Background(), "org-1", 50_000_000, periodEnd)
+	if err != nil {
+		t.Fatalf("IssueCredit: %v", err)
+	}
+	if id != "cbtxn_test_123" {
+		t.Fatalf("id = %q, want cbtxn_test_123", id)
+	}
+
+	reqs := fake.snapshot()
+	for _, r := range reqs {
+		if r.Method == http.MethodPost && r.Path == "/v1/credit_notes" {
+			t.Fatalf("must not POST credit note larger than open balance; got body=%s", r.Body)
+		}
+	}
+	var sawCBT bool
+	for _, r := range reqs {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.Path, "/balance_transactions") {
+			sawCBT = true
+		}
+	}
+	if !sawCBT {
+		t.Fatalf("expected balance transaction fallback; requests=%+v", reqs)
+	}
+}
+
 // TestStripeSLAIssuer_PaidInvoice_FallsThroughToBalanceTxn guards the
 // post-payment branch: when the only matching invoice is fully paid
 // (amount_remaining == 0) Stripe rejects credit-note `amount` with a

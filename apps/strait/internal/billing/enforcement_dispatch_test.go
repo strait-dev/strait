@@ -84,6 +84,40 @@ func TestCheckSpendingLimit_DispatchesCapReachedAndOverageDisabled(t *testing.T)
 	}
 }
 
+func TestDeepSecCheckSpendingLimitNotifyDispatchesWithoutRejecting(t *testing.T) {
+	t.Parallel()
+
+	sub := newPaidSubscription("org_notify", string(domain.PlanPro), 1_000_000, "notify")
+	e, _, d := newFakeDispatcherEnforcer(t, sub, 1_500_000)
+
+	if err := e.CheckSpendingLimit(context.Background(), sub.OrgID); err != nil {
+		t.Fatalf("notify spending cap should not reject dispatch, got %v", err)
+	}
+	got := dispatchedEventTypes(d)
+	if !contains(got, domain.WebhookEventBillingCapReached) {
+		t.Errorf("cap_reached not dispatched for notify cap; got %v", got)
+	}
+	if contains(got, domain.WebhookEventBillingOverageDisabled) {
+		t.Errorf("notify cap must not dispatch overage_disabled; got %v", got)
+	}
+}
+
+func TestDeepSecCheckSpendingLimitRejectActionRejects(t *testing.T) {
+	t.Parallel()
+
+	sub := newPaidSubscription("org_reject", string(domain.PlanPro), 1_000_000, "reject")
+	e, _, d := newFakeDispatcherEnforcer(t, sub, 1_500_000)
+
+	var limitErr *LimitError
+	if !errors.As(e.CheckSpendingLimit(context.Background(), sub.OrgID), &limitErr) {
+		t.Fatal("reject spending cap should return LimitError")
+	}
+	got := dispatchedEventTypes(d)
+	if !contains(got, domain.WebhookEventBillingOverageDisabled) {
+		t.Errorf("reject cap should dispatch overage_disabled; got %v", got)
+	}
+}
+
 func TestCheckSpendingLimit_DispatchesCapDisabledOnDisableAction(t *testing.T) {
 	t.Parallel()
 

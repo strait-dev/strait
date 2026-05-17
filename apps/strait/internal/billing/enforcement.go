@@ -546,6 +546,12 @@ func (e *Enforcer) checkPaymentStatus(ctx context.Context, orgID string) (bool, 
 			Message: "Your account is restricted due to failed payment. Please update your payment method.",
 			Plan:    sub.PlanTier,
 		}
+	case "suspended":
+		return false, &LimitError{
+			Code:    "payment_suspended",
+			Message: "Your account is suspended due to failed payment. Please update your payment method.",
+			Plan:    sub.PlanTier,
+		}
 	case "grace":
 		if sub.GracePeriodEnd != nil && time.Now().Before(*sub.GracePeriodEnd) {
 			// Active grace period: allow the run, skip further limit checks.
@@ -1286,23 +1292,34 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 			e.tryDispatchCapEvent(ctx, orgID, limits.PlanTier,
 				BillingCapEventDisabled,
 				domain.WebhookEventBillingCapDisabled, capDetail)
-		case "block":
+		case "block", "reject":
 			e.tryDispatchCapEvent(ctx, orgID, limits.PlanTier,
 				BillingCapEventOverageDisabled,
 				domain.WebhookEventBillingOverageDisabled, capDetail)
 		}
 
-		return &LimitError{
-			Code:         "spending_limit_reached",
-			Message:      fmt.Sprintf("Your monthly spending limit of $%.2f has been reached.", float64(sub.SpendingLimitMicrousd)/1000000),
-			CurrentUsage: overageSpend,
-			Limit:        sub.SpendingLimitMicrousd,
-			Plan:         sub.PlanTier,
-			UpgradeURL:   "/settings/billing",
+		if spendingLimitActionBlocks(sub.LimitAction) {
+			return &LimitError{
+				Code:         "spending_limit_reached",
+				Message:      fmt.Sprintf("Your monthly spending limit of $%.2f has been reached.", float64(sub.SpendingLimitMicrousd)/1000000),
+				CurrentUsage: overageSpend,
+				Limit:        sub.SpendingLimitMicrousd,
+				Plan:         sub.PlanTier,
+				UpgradeURL:   "/settings/billing",
+			}
 		}
 	}
 
 	return nil
+}
+
+func spendingLimitActionBlocks(action string) bool {
+	switch action {
+	case "block", "reject", "disable":
+		return true
+	default:
+		return false
+	}
 }
 
 func (e *Enforcer) checkFreeTierIncludedCredit(ctx context.Context, orgID string, sub *OrgSubscription) error {
@@ -1354,7 +1371,7 @@ func (e *Enforcer) CheckProjectBudgetLimit(ctx context.Context, projectID string
 	// budget_action="notify" or unset means the budget is informational only.
 	// budget < 0 indicates "no budget configured" via the GetProjectBudget
 	// sentinel and must always pass.
-	if action != "block" || budget < 0 {
+	if !projectBudgetActionBlocks(action) || budget < 0 {
 		return nil
 	}
 
@@ -1404,6 +1421,15 @@ func (e *Enforcer) CheckProjectBudgetLimit(ctx context.Context, projectID string
 		Limit:        budget,
 		Plan:         planLabel,
 		UpgradeURL:   "/settings/billing",
+	}
+}
+
+func projectBudgetActionBlocks(action string) bool {
+	switch action {
+	case "block", "reject":
+		return true
+	default:
+		return false
 	}
 }
 

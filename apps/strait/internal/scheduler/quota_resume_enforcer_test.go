@@ -100,3 +100,22 @@ func TestQuotaResumeEnforcer_NewPeriodCanResumeAgain(t *testing.T) {
 		t.Fatalf("unpause calls = %d, want 2", store.unpauseCalls)
 	}
 }
+
+func TestDeepSecQuotaResumeEnforcer_FreeTierCatchesUpAfterFirstOfMonth(t *testing.T) {
+	t.Parallel()
+
+	enforcer := NewQuotaResumeEnforcer(&mockQuotaResumeStore{}, nil, time.Minute)
+	now := time.Date(2026, 5, 3, 12, 0, 0, 0, time.UTC)
+
+	periodKey, boundary, ok := enforcer.resumePeriodKey(now, &billing.OrgSubscription{OrgID: "org-free"})
+	if !ok {
+		t.Fatal("expected free-tier resume boundary after missed first-of-month tick")
+	}
+	if periodKey != "2026-05" {
+		t.Fatalf("periodKey = %q, want 2026-05", periodKey)
+	}
+	wantBoundary := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	if !boundary.Equal(wantBoundary) {
+		t.Fatalf("boundary = %v, want %v", boundary, wantBoundary)
+	}
+}

@@ -208,14 +208,6 @@ func (c *SLACalculator) processContract(ctx context.Context, contract Enterprise
 		StripeCreditNoteID: creditNoteID,
 		IssuedAt:           now,
 	}
-	if err := c.store.InsertSLACredit(ctx, row); err != nil {
-		if errors.Is(err, ErrSLACreditAlreadyIssued) {
-			return
-		}
-		c.logger.Warn("persisting sla credit failed", "org_id", contract.OrgID, "error", err)
-		return
-	}
-
 	if c.dispatcher != nil {
 		detail := map[string]any{
 			"period_start":          periodStart.UTC().Format(time.RFC3339),
@@ -228,7 +220,15 @@ func (c *SLACalculator) processContract(ctx context.Context, contract Enterprise
 		}
 		if err := DispatchBillingWebhook(ctx, c.dispatcher, contract.OrgID, domain.PlanEnterprise, domain.WebhookEventSLACreditIssued, detail); err != nil {
 			c.logger.Warn("dispatch sla.credit_issued failed", "org_id", contract.OrgID, "error", err)
+			return
 		}
+	}
+	if err := c.store.InsertSLACredit(ctx, row); err != nil {
+		if errors.Is(err, ErrSLACreditAlreadyIssued) {
+			return
+		}
+		c.logger.Warn("persisting sla credit failed", "org_id", contract.OrgID, "error", err)
+		return
 	}
 
 	c.logger.Info("sla credit issued",

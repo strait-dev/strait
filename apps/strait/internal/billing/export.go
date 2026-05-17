@@ -4,11 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/csv"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/go-pdf/fpdf"
 )
+
+const maxUsageExportPeriod = 370 * 24 * time.Hour
 
 // ExportPeriod defines the time range for a usage export.
 type ExportPeriod struct {
@@ -19,6 +23,9 @@ type ExportPeriod struct {
 // ExportCSV generates a CSV export of usage data for an org over the given period.
 // The CSV columns are: date, project, runs, compute_cost_usd, ai_tokens, ai_cost_usd, total_usd.
 func ExportCSV(ctx context.Context, store Store, orgID string, period ExportPeriod) ([]byte, error) {
+	if err := validateExportPeriod(period); err != nil {
+		return nil, err
+	}
 	records, err := store.GetOrgUsageForPeriod(ctx, orgID, period.From, period.To)
 	if err != nil {
 		return nil, fmt.Errorf("getting usage records for export: %w", err)
@@ -37,7 +44,7 @@ func ExportCSV(ctx context.Context, store Store, orgID string, period ExportPeri
 		totalMicro := r.ComputeCostMicro + r.AICostMicro
 		row := []string{
 			r.PeriodDate.Format("2006-01-02"),
-			r.ProjectID,
+			escapeCSVFormulaCell(r.ProjectID),
 			fmt.Sprintf("%d", r.RunsCount),
 			microToUSDString(r.ComputeCostMicro),
 			fmt.Sprintf("%d", r.AITokensTotal),
@@ -59,6 +66,9 @@ func ExportCSV(ctx context.Context, store Store, orgID string, period ExportPeri
 
 // ExportPDF generates a PDF export of usage data for an org over the given period.
 func ExportPDF(ctx context.Context, store Store, orgID string, period ExportPeriod) ([]byte, error) {
+	if err := validateExportPeriod(period); err != nil {
+		return nil, err
+	}
 	records, err := store.GetOrgUsageForPeriod(ctx, orgID, period.From, period.To)
 	if err != nil {
 		return nil, fmt.Errorf("getting usage records for PDF export: %w", err)
@@ -148,6 +158,35 @@ func ExportPDF(ctx context.Context, store Store, orgID string, period ExportPeri
 	}
 
 	return buf.Bytes(), nil
+}
+
+func validateExportPeriod(period ExportPeriod) error {
+	if period.From.IsZero() || period.To.IsZero() {
+		return errors.New("usage export period requires from and to")
+	}
+	if !period.To.After(period.From) {
+		return errors.New("usage export period to must be after from")
+	}
+	if period.To.Sub(period.From) > maxUsageExportPeriod {
+		return fmt.Errorf("usage export period cannot exceed %d days", int(maxUsageExportPeriod.Hours()/24))
+	}
+	return nil
+}
+
+func escapeCSVFormulaCell(value string) string {
+	if value == "" {
+		return value
+	}
+	trimmed := strings.TrimLeft(value, " \t\r\n")
+	if trimmed == "" {
+		return value
+	}
+	switch trimmed[0] {
+	case '=', '+', '-', '@':
+		return "'" + value
+	default:
+		return value
+	}
 }
 
 func microToUSDString(micro int64) string {

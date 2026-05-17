@@ -143,12 +143,10 @@ func (q *QuotaResumeEnforcer) resumePeriodKey(now time.Time, sub *billing.OrgSub
 		boundary := sub.CurrentPeriodEnd.UTC()
 		return boundary.Format(time.RFC3339Nano), boundary, true
 	}
-	// Free tier: period resets at the start of each calendar month.
-	// We treat "now is the 1st of any month" as the reset boundary.
-	if now.Day() != 1 {
+	boundary := time.Date(now.UTC().Year(), now.UTC().Month(), 1, 0, 0, 0, 0, time.UTC)
+	if !now.After(boundary) {
 		return "", time.Time{}, false
 	}
-	boundary := time.Date(now.UTC().Year(), now.UTC().Month(), 1, 0, 0, 0, 0, time.UTC)
 	return boundary.Format("2006-01"), boundary, true
 }
 

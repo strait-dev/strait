@@ -249,6 +249,27 @@ func TestSLACalculator_IssuerFailure_DoesNotPersist(t *testing.T) {
 	}
 }
 
+func TestDeepSecSLACalculator_DispatchFailureDoesNotPersist(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeSLAStore(newTestContract("org-dispatch-fail", EnterpriseTierStarter))
+	dispatcher := &fakeDispatcher{err: errors.New("webhook outbox down")}
+	calc := NewSLACalculator(store, fakeUptimeSource{pct: 95.0}, time.Hour, nil).
+		WithDispatcher(dispatcher).
+		WithClock(fixedClock(time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)))
+
+	if err := calc.Tick(context.Background()); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+
+	if store.count() != 0 {
+		t.Errorf("expected 0 credit rows after dispatch failure, got %d", store.count())
+	}
+	if len(dispatcher.calls) != 1 {
+		t.Errorf("expected 1 dispatch attempt, got %d", len(dispatcher.calls))
+	}
+}
+
 // Without an issuer wired, the calculator still records the credit row and
 // dispatches the event (the operator-escape-hatch / community-build path).
 func TestSLACalculator_NoIssuer_PersistsRow(t *testing.T) {

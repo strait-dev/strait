@@ -353,32 +353,52 @@ func (s *PgStore) ApplyPendingDowngrade(ctx context.Context, orgID string) error
 }
 
 func (s *PgStore) ApplyPendingDowngradeIfTier(ctx context.Context, orgID, pendingTier string) (bool, error) {
-	tag, err := s.pool.Exec(ctx, `
-		UPDATE organization_subscriptions
-		SET plan_tier = pending_plan_tier,
-			pending_plan_tier = NULL,
-			updated_at = NOW()
-		WHERE org_id = $1
-		  AND pending_plan_tier = $2
-	`, orgID, pendingTier)
-	if err != nil {
-		return false, fmt.Errorf("applying pending downgrade conditionally: %w", err)
+	var applied bool
+	if err := WithBillingTx(ctx, s.pool, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `
+			UPDATE organization_subscriptions
+			SET plan_tier = pending_plan_tier,
+				pending_plan_tier = NULL,
+				updated_at = NOW()
+			WHERE org_id = $1
+			  AND pending_plan_tier = $2
+		`, orgID, pendingTier)
+		if err != nil {
+			return fmt.Errorf("applying pending downgrade conditionally: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return nil
+		}
+		applied = true
+		return s.refreshEntitlements(ctx, tx, orgID)
+	}); err != nil {
+		return false, err
 	}
-	return tag.RowsAffected() > 0, nil
+	return applied, nil
 }
 
 func (s *PgStore) ApplyPendingDowngradeTierIfPending(ctx context.Context, orgID, pendingTier string) (bool, error) {
-	tag, err := s.pool.Exec(ctx, `
-		UPDATE organization_subscriptions
-		SET plan_tier = pending_plan_tier,
-			updated_at = NOW()
-		WHERE org_id = $1
-		  AND pending_plan_tier = $2
-	`, orgID, pendingTier)
-	if err != nil {
-		return false, fmt.Errorf("applying pending downgrade tier: %w", err)
+	var applied bool
+	if err := WithBillingTx(ctx, s.pool, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `
+			UPDATE organization_subscriptions
+			SET plan_tier = pending_plan_tier,
+				updated_at = NOW()
+			WHERE org_id = $1
+			  AND pending_plan_tier = $2
+		`, orgID, pendingTier)
+		if err != nil {
+			return fmt.Errorf("applying pending downgrade tier: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return nil
+		}
+		applied = true
+		return s.refreshEntitlements(ctx, tx, orgID)
+	}); err != nil {
+		return false, err
 	}
-	return tag.RowsAffected() > 0, nil
+	return applied, nil
 }
 
 func (s *PgStore) ClearPendingPlanTierIfTier(ctx context.Context, orgID, pendingTier string) (bool, error) {

@@ -54,6 +54,79 @@ func TestGetOrgRetentionDays_StoreErrorDoesNotFallbackToShorterRetention(t *test
 	}
 }
 
+func TestDeepSecGetOrgRetentionDays_AddsActiveHistoryAndSubscriptionPacks(t *testing.T) {
+	t.Parallel()
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-pro": {
+				OrgID:    "org-pro",
+				PlanTier: "pro",
+				Status:   "active",
+				AddOns:   SubscriptionAddOns{RetentionPack: 1},
+			},
+		},
+		activeAddons: []Addon{
+			{OrgID: "org-pro", AddonType: AddonHistory30d, Quantity: 2, Active: true},
+			{OrgID: "org-pro", AddonType: AddonHistory30d, Quantity: 10, Active: false},
+		},
+	}
+	resolver := NewPlanRetentionResolver(store)
+
+	days, err := resolver.GetOrgRetentionDays(context.Background(), "org-pro")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := GetPlanLimits(domain.PlanPro).RetentionDays + 90
+	if days != want {
+		t.Errorf("days = %d, want %d", days, want)
+	}
+}
+
+func TestDeepSecGetOrgRetentionDays_UnlimitedRetentionRemainsUnlimited(t *testing.T) {
+	t.Parallel()
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-enterprise": {
+				OrgID:    "org-enterprise",
+				PlanTier: "enterprise",
+				Status:   "active",
+				AddOns:   SubscriptionAddOns{RetentionPack: 10},
+			},
+		},
+		activeAddons: []Addon{
+			{OrgID: "org-enterprise", AddonType: AddonHistory30d, Quantity: 10, Active: true},
+		},
+	}
+	resolver := NewPlanRetentionResolver(store)
+
+	days, err := resolver.GetOrgRetentionDays(context.Background(), "org-enterprise")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if days != -1 {
+		t.Errorf("days = %d, want -1 unlimited", days)
+	}
+}
+
+func TestDeepSecGetOrgRetentionDays_AddonLookupErrorSkipsRetention(t *testing.T) {
+	t.Parallel()
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-pro": {OrgID: "org-pro", PlanTier: "pro", Status: "active"},
+		},
+		listActiveAddonsErr: errors.New("addon store down"),
+	}
+	resolver := NewPlanRetentionResolver(store)
+
+	days, err := resolver.GetOrgRetentionDays(context.Background(), "org-pro")
+	if err == nil {
+		t.Fatal("expected add-on lookup error")
+	}
+	if days != 0 {
+		t.Errorf("days = %d, want 0 so scheduler skips retention on uncertainty", days)
+	}
+}
+
 func TestGetOrgRetentionDays_ProPlan(t *testing.T) {
 	t.Parallel()
 	store := &mockBillingStore{

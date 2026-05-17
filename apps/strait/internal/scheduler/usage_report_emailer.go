@@ -28,8 +28,9 @@ type ResendEmailSender interface {
 	SendWithContext(ctx context.Context, params *resend.SendEmailRequest) (*resend.SendEmailResponse, error)
 }
 
-// UsageReportEmailer sends monthly PDF usage reports to org admins when their
-// billing period ends. Runs daily and checks for orgs whose period ended yesterday.
+// UsageReportEmailer sends monthly PDF usage reports to org admins after their
+// billing period ends. Runs daily and catches up any ended period that has not
+// been claimed yet.
 type UsageReportEmailer struct {
 	store     UsageReportEmailerStore
 	emailAPI  ResendEmailSender
@@ -75,19 +76,21 @@ func (re *UsageReportEmailer) Run(ctx context.Context) {
 }
 
 func (re *UsageReportEmailer) checkAndSend(ctx context.Context) {
-	today := time.Now().UTC().Format("2006-01-02")
+	now := time.Now().UTC()
+	today := now.Format("2006-01-02")
 	if re.lastRunDate == today {
 		return
 	}
 
-	// Find orgs whose billing period ended yesterday.
+	// Find orgs whose billing period has ended and whose report has not been
+	// claimed yet. This intentionally catches up missed scheduler days.
 	orgIDs, err := re.store.ListAllSubscribedOrgIDs(ctx)
 	if err != nil {
 		re.logger.Warn("usage report emailer: failed to list subscribed orgs", "error", err)
 		return
 	}
 
-	yesterday := time.Now().UTC().Add(-24 * time.Hour).Truncate(24 * time.Hour)
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 	completed := true
 
 	for _, orgID := range orgIDs {
@@ -108,12 +111,13 @@ func (re *UsageReportEmailer) checkAndSend(ctx context.Context) {
 			continue
 		}
 
-		// Check if the billing period ended yesterday.
+		// Check if the billing period ended before today. Same-day periods are
+		// left for tomorrow so usage aggregation has settled.
 		if sub.CurrentPeriodEnd == nil {
 			continue
 		}
 		periodEnd := sub.CurrentPeriodEnd.UTC().Truncate(24 * time.Hour)
-		if !periodEnd.Equal(yesterday) {
+		if !periodEnd.Before(todayStart) {
 			continue
 		}
 

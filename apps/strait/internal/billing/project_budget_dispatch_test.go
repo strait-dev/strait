@@ -32,6 +32,8 @@ func TestEnforcer_CheckProjectBudgetLimit_Matrix(t *testing.T) {
 		{name: "block at budget", budget: 100, action: "block", spend: 100, wantErrCode: "project_budget_reached"},
 		{name: "block over budget", budget: 100, action: "block", spend: 200, wantErrCode: "project_budget_reached"},
 		{name: "block budget=0 always rejects", budget: 0, action: "block", spend: 1, wantErrCode: "project_budget_reached"},
+		{name: "reject at budget", budget: 100, action: "reject", spend: 100, wantErrCode: "project_budget_reached"},
+		{name: "reject over budget", budget: 100, action: "reject", spend: 200, wantErrCode: "project_budget_reached"},
 	}
 
 	for _, tc := range cases {

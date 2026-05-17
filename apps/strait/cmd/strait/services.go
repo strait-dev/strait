@@ -45,6 +45,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/redis/go-redis/v9"
+	"github.com/resend/resend-go/v2"
 	"github.com/sourcegraph/conc/pool"
 )
 
@@ -963,6 +964,17 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 			contractExpiryChecker := scheduler.NewContractExpiryChecker(billingStore, billingEmailSender, 24*time.Hour)
 			schedOpts = append(schedOpts, scheduler.WithContractExpiryChecker(contractExpiryChecker))
 			slog.Info("contract expiry checker enabled")
+
+			if cfg.ResendAPIKey != "" {
+				usageReportEmailer := scheduler.NewUsageReportEmailer(
+					billingStore,
+					resend.NewClient(cfg.ResendAPIKey).Emails,
+					"billing@strait.dev",
+					24*time.Hour,
+				)
+				schedOpts = append(schedOpts, scheduler.WithUsageReportEmailer(usageReportEmailer))
+				slog.Info("usage report emailer enabled")
+			}
 
 			retentionResolver := billing.NewPlanRetentionResolver(billingStore)
 			schedOpts = append(schedOpts, scheduler.WithOrgRetentionResolver(retentionResolver))

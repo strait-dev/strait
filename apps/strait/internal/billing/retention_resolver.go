@@ -44,10 +44,11 @@ func (r *PlanRetentionResolver) GetOrgRetentionDays(ctx context.Context, orgID s
 	}
 
 	limits := GetPlanLimits(domain.PlanTier(sub.PlanTier))
-	days := limits.RetentionDays
-	// Extra retention: each retention_pack unit adds retentionPackDays days.
-	if sub.AddOns.RetentionPack > 0 {
-		days += sub.AddOns.RetentionPack * retentionPackDays
+	addons, err := r.store.ListActiveAddons(ctx, orgID)
+	if err != nil {
+		return 0, fmt.Errorf("list active add-ons for retention: %w", err)
 	}
-	return days, nil
+	limits = EffectiveLimits(limits, addons)
+	limits = ApplySubscriptionAddOns(limits, sub.AddOns)
+	return limits.RetentionDays, nil
 }

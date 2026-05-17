@@ -825,6 +825,32 @@ func TestGracePeriod_PaymentRestricted_RejectedImmediately(t *testing.T) {
 	}
 }
 
+func TestDeepSecPaymentSuspendedRejectedImmediately(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+
+	store.subscriptions = map[string]*OrgSubscription{
+		"org_suspended": {
+			OrgID:         "org_suspended",
+			PlanTier:      "starter",
+			Status:        "active",
+			PaymentStatus: "suspended",
+		},
+	}
+
+	err := enforcer.CheckDailyRunLimit(context.Background(), "org_suspended")
+	if err == nil {
+		t.Fatal("expected rejection for suspended payment status")
+	}
+	var le *LimitError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected LimitError, got %T", err)
+	}
+	if le.Code != "payment_suspended" {
+		t.Errorf("code = %q, want payment_suspended", le.Code)
+	}
+}
+
 func TestGracePeriod_ConcurrentLimit_StillChecked_DuringGrace(t *testing.T) {
 	t.Parallel()
 	enforcer, store, _ := setupEnforcer(t)

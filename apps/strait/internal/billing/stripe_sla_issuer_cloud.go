@@ -66,7 +66,7 @@ func (i *StripeSLAIssuer) IssueCredit(ctx context.Context, orgID string, creditM
 	}
 	idemKey := fmt.Sprintf("sla-credit-%s-%s", orgID, periodEnd.UTC().Format("2006-01"))
 
-	if inv, ok := i.findInvoiceForPeriod(ctx, customerID); ok {
+	if inv, ok := i.findInvoiceForPeriod(ctx, customerID); ok && inv.AmountRemaining >= amountCents {
 		amount := amountCents
 		params := &stripe.CreditNoteParams{
 			Invoice: stripe.String(inv.ID),

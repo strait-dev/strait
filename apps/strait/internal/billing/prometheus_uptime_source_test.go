@@ -71,6 +71,24 @@ func TestPrometheusUptimeSource_VectorValue(t *testing.T) {
 	}
 }
 
+func TestDeepSecPrometheusUptimeSource_VectorAveragesAllSeries(t *testing.T) {
+	t.Parallel()
+
+	vec := model.Vector{
+		{Value: model.SampleValue(80), Timestamp: model.Time(0), Metric: model.Metric{"region": "iad1"}},
+		{Value: model.SampleValue(100), Timestamp: model.Time(0), Metric: model.Metric{"region": "fra1"}},
+	}
+	src := newTestUptimeSource(t, stubPromAPI{value: vec})
+
+	got, err := src.MonthlyUptimePct(context.Background(), "org-1", time.Time{}, time.Now())
+	if err != nil {
+		t.Fatalf("MonthlyUptimePct: %v", err)
+	}
+	if got != 90 {
+		t.Fatalf("got %v, want average 90", got)
+	}
+}
+
 // TestPrometheusUptimeSource_NegativeReadingCoercesToFull guards the
 // conservative path: a negative value (almost certainly broken
 // telemetry) MUST NOT slip into the bottom band and silently issue a
