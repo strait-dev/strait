@@ -242,7 +242,7 @@ func TestHandleListEventTriggers_Success(t *testing.T) {
 
 	now := time.Now()
 	ms := &APIStoreMock{
-		ListEventTriggersByProjectFunc: func(_ context.Context, projectID, _, _, _ string, _ int, _ *time.Time) ([]domain.EventTrigger, error) {
+		ListEventTriggersByProjectFunc: func(_ context.Context, projectID, _, _, _, _ string, _ int, _ *time.Time) ([]domain.EventTrigger, error) {
 			if projectID == "proj-1" {
 				return []domain.EventTrigger{
 					{ID: "evt-1", EventKey: "aml:app-1", ProjectID: "proj-1", Status: domain.EventTriggerStatusWaiting, RequestedAt: now},
@@ -269,6 +269,40 @@ func TestHandleListEventTriggers_Success(t *testing.T) {
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+}
+
+func TestHandleListEventTriggers_EnvironmentScopedCallerPassesEnvironmentFilter(t *testing.T) {
+	t.Parallel()
+
+	var gotProjectID, gotEnvironmentID string
+	ms := &APIStoreMock{
+		ListEventTriggersByProjectFunc: func(_ context.Context, projectID, environmentID, _, _, _ string, _ int, _ *time.Time) ([]domain.EventTrigger, error) {
+			gotProjectID = projectID
+			gotEnvironmentID = environmentID
+			return []domain.EventTrigger{}, nil
+		},
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
+			return &domain.APIKey{ID: "key-1", ProjectID: "proj-1", EnvironmentID: "env-prod", Scopes: []string{domain.ScopeJobsRead}}, nil
+		},
+		TouchAPIKeyLastUsedFunc: func(_ context.Context, _ string) error { return nil },
+	}
+
+	srv := newEventTriggersTestServer(t, ms, nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/events", nil)
+	req.Header.Set("Authorization", "Bearer strait_testapikey123")
+
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if gotProjectID != "proj-1" {
+		t.Fatalf("projectID = %q, want proj-1", gotProjectID)
+	}
+	if gotEnvironmentID != "env-prod" {
+		t.Fatalf("environmentID = %q, want env-prod", gotEnvironmentID)
 	}
 }
 
@@ -803,7 +837,7 @@ func TestHandleGetEventTriggerStats_Success(t *testing.T) {
 		TouchAPIKeyLastUsedFunc: func(_ context.Context, _ string) error {
 			return nil
 		},
-		GetEventTriggerStatsFunc: func(_ context.Context, _ string) (*store.EventTriggerStats, error) {
+		GetEventTriggerStatsFunc: func(_ context.Context, _, _ string) (*store.EventTriggerStats, error) {
 			return &store.EventTriggerStats{TotalCount: 5}, nil
 		},
 	}
@@ -825,6 +859,39 @@ func TestHandleGetEventTriggerStats_Success(t *testing.T) {
 	}
 	if _, ok := resp["total_count"]; !ok {
 		t.Fatal("expected total_count in response")
+	}
+}
+
+func TestHandleGetEventTriggerStats_EnvironmentScopedCallerPassesEnvironmentFilter(t *testing.T) {
+	t.Parallel()
+
+	var gotProjectID, gotEnvironmentID string
+	ms := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
+			return &domain.APIKey{ID: "key-1", ProjectID: "proj-stats", EnvironmentID: "env-prod", Scopes: []string{domain.ScopeJobsRead}}, nil
+		},
+		TouchAPIKeyLastUsedFunc: func(_ context.Context, _ string) error { return nil },
+		GetEventTriggerStatsFunc: func(_ context.Context, projectID, environmentID string) (*store.EventTriggerStats, error) {
+			gotProjectID = projectID
+			gotEnvironmentID = environmentID
+			return &store.EventTriggerStats{TotalCount: 2}, nil
+		},
+	}
+
+	srv := newEventTriggersTestServer(t, ms, nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/events/stats", nil)
+	req.Header.Set("Authorization", "Bearer strait_testapikey123")
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rr.Code, rr.Body.String())
+	}
+	if gotProjectID != "proj-stats" {
+		t.Fatalf("projectID = %q, want proj-stats", gotProjectID)
+	}
+	if gotEnvironmentID != "env-prod" {
+		t.Fatalf("environmentID = %q, want env-prod", gotEnvironmentID)
 	}
 }
 
@@ -875,7 +942,7 @@ func TestHandleListEventTriggers_WithFilters(t *testing.T) {
 		TouchAPIKeyLastUsedFunc: func(_ context.Context, _ string) error {
 			return nil
 		},
-		ListEventTriggersByProjectFunc: func(_ context.Context, _, status, wfRunID, sourceType string, _ int, _ *time.Time) ([]domain.EventTrigger, error) {
+		ListEventTriggersByProjectFunc: func(_ context.Context, _, _, status, wfRunID, sourceType string, _ int, _ *time.Time) ([]domain.EventTrigger, error) {
 			calledStatus = status
 			calledWfRunID = wfRunID
 			calledSourceType = sourceType
@@ -1371,7 +1438,7 @@ func TestHandleGetEventTriggerStats_StoreError(t *testing.T) {
 			return &domain.APIKey{ID: "key-1", ProjectID: "proj-err"}, nil
 		},
 		TouchAPIKeyLastUsedFunc: func(_ context.Context, _ string) error { return nil },
-		GetEventTriggerStatsFunc: func(_ context.Context, _ string) (*store.EventTriggerStats, error) {
+		GetEventTriggerStatsFunc: func(_ context.Context, _, _ string) (*store.EventTriggerStats, error) {
 			return nil, errors.New("db down")
 		},
 	}
@@ -1732,16 +1799,37 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 		}
 	})
 
+	t.Run("older_than_days overflow rejected", func(t *testing.T) {
+		t.Parallel()
+		srv := newEventTriggersTestServer(t, &APIStoreMock{}, nil)
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/v1/events/purge", strings.NewReader(`{"older_than_days":36501}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Internal-Secret", "test-secret-value")
+		req.Header.Set("X-Project-Id", "proj-1")
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400", w.Code)
+		}
+	})
+
 	t.Run("dry run success", func(t *testing.T) {
 		t.Parallel()
 		countCalled := false
 		deleteCalled := false
 		ms := &APIStoreMock{
-			CountEventTriggersFinishedBeforeFunc: func(_ context.Context, _ time.Time) (int64, error) {
+			CountEventTriggersFinishedBeforeForProjectFunc: func(_ context.Context, projectID, environmentID string, _ time.Time) (int64, error) {
 				countCalled = true
+				if projectID != "proj-1" {
+					t.Fatalf("projectID = %q, want proj-1", projectID)
+				}
+				if environmentID != "" {
+					t.Fatalf("environmentID = %q, want empty", environmentID)
+				}
 				return 7, nil
 			},
-			DeleteEventTriggersFinishedBeforeFunc: func(_ context.Context, _ time.Time, _ int) (int64, error) {
+			DeleteEventTriggersFinishedBeforeForProjectFunc: func(_ context.Context, _, _ string, _ time.Time, _ int) (int64, error) {
 				deleteCalled = true
 				return 0, nil
 			},
@@ -1779,7 +1867,7 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 	t.Run("dry run count error", func(t *testing.T) {
 		t.Parallel()
 		ms := &APIStoreMock{
-			CountEventTriggersFinishedBeforeFunc: func(_ context.Context, _ time.Time) (int64, error) {
+			CountEventTriggersFinishedBeforeForProjectFunc: func(_ context.Context, _, _ string, _ time.Time) (int64, error) {
 				return 0, errors.New("count failed")
 			},
 		}
@@ -1800,8 +1888,14 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 		t.Parallel()
 		deleteCalled := false
 		ms := &APIStoreMock{
-			DeleteEventTriggersFinishedBeforeFunc: func(_ context.Context, _ time.Time, limit int) (int64, error) {
+			DeleteEventTriggersFinishedBeforeForProjectFunc: func(_ context.Context, projectID, environmentID string, _ time.Time, limit int) (int64, error) {
 				deleteCalled = true
+				if projectID != "proj-1" {
+					t.Fatalf("projectID = %q, want proj-1", projectID)
+				}
+				if environmentID != "" {
+					t.Fatalf("environmentID = %q, want empty", environmentID)
+				}
 				if limit != 10000 {
 					t.Fatalf("limit = %d, want 10000", limit)
 				}
@@ -1835,7 +1929,7 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 	t.Run("delete error", func(t *testing.T) {
 		t.Parallel()
 		ms := &APIStoreMock{
-			DeleteEventTriggersFinishedBeforeFunc: func(_ context.Context, _ time.Time, _ int) (int64, error) {
+			DeleteEventTriggersFinishedBeforeForProjectFunc: func(_ context.Context, _, _ string, _ time.Time, _ int) (int64, error) {
 				return 0, errors.New("delete failed")
 			},
 		}
@@ -1849,6 +1943,35 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 
 		if w.Code != http.StatusInternalServerError {
 			t.Fatalf("status = %d, want 500", w.Code)
+		}
+	})
+
+	t.Run("environment scoped dry run passes environment to store", func(t *testing.T) {
+		t.Parallel()
+		ms := &APIStoreMock{
+			GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
+				return &domain.APIKey{ID: "key-1", ProjectID: "proj-1", EnvironmentID: "env-prod", Scopes: []string{domain.ScopeJobsWrite}}, nil
+			},
+			TouchAPIKeyLastUsedFunc: func(_ context.Context, _ string) error { return nil },
+			CountEventTriggersFinishedBeforeForProjectFunc: func(_ context.Context, projectID, environmentID string, _ time.Time) (int64, error) {
+				if projectID != "proj-1" {
+					t.Fatalf("projectID = %q, want proj-1", projectID)
+				}
+				if environmentID != "env-prod" {
+					t.Fatalf("environmentID = %q, want env-prod", environmentID)
+				}
+				return 3, nil
+			},
+		}
+		srv := newEventTriggersTestServer(t, ms, nil)
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/v1/events/purge", strings.NewReader(`{"older_than_days":30,"dry_run":true}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer strait_testapikey123")
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
 		}
 	})
 }

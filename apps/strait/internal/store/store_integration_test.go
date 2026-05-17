@@ -9853,7 +9853,7 @@ func TestListEventTriggersByProject_Filters(t *testing.T) {
 	mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-list-proj-job-waiting-"+newID(), now.Add(-10*time.Second), nil, nil)
 	mustCreateJobRunEventTrigger(t, ctx, q, otherProjectID, runOther.ID, domain.EventTriggerStatusWaiting, "evt-list-proj-other-"+newID(), now.Add(-5*time.Second), nil, nil)
 
-	waiting, err := q.ListEventTriggersByProject(ctx, projectID, domain.EventTriggerStatusWaiting, "", "", 20, nil)
+	waiting, err := q.ListEventTriggersByProject(ctx, projectID, "", domain.EventTriggerStatusWaiting, "", "", 20, nil)
 	if err != nil {
 		t.Fatalf("ListEventTriggersByProject(status) error = %v", err)
 	}
@@ -9861,7 +9861,7 @@ func TestListEventTriggersByProject_Filters(t *testing.T) {
 		t.Fatalf("ListEventTriggersByProject(status) len = %d, want 2", len(waiting))
 	}
 
-	byWorkflowRun, err := q.ListEventTriggersByProject(ctx, projectID, "", wfRun.ID, "", 20, nil)
+	byWorkflowRun, err := q.ListEventTriggersByProject(ctx, projectID, "", "", wfRun.ID, "", 20, nil)
 	if err != nil {
 		t.Fatalf("ListEventTriggersByProject(workflowRunID) error = %v", err)
 	}
@@ -9869,7 +9869,7 @@ func TestListEventTriggersByProject_Filters(t *testing.T) {
 		t.Fatalf("ListEventTriggersByProject(workflowRunID) len = %d, want 2", len(byWorkflowRun))
 	}
 
-	bySourceType, err := q.ListEventTriggersByProject(ctx, projectID, "", "", "job_run", 20, nil)
+	bySourceType, err := q.ListEventTriggersByProject(ctx, projectID, "", "", "", "job_run", 20, nil)
 	if err != nil {
 		t.Fatalf("ListEventTriggersByProject(sourceType) error = %v", err)
 	}
@@ -9878,6 +9878,133 @@ func TestListEventTriggersByProject_Filters(t *testing.T) {
 	}
 	if bySourceType[0].SourceType != "job_run" {
 		t.Fatalf("SourceType = %q, want %q", bySourceType[0].SourceType, "job_run")
+	}
+}
+
+func TestListEventTriggersByProject_EnvironmentFilter(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-event-trigger-list-env-" + newID()
+	_, run := mustCreateJobRunWithBuildFactory(t, ctx, q, projectID, domain.StatusWaiting)
+	now := time.Now().UTC()
+
+	prod := &domain.EventTrigger{
+		ID:            newID(),
+		EventKey:      "evt-list-env-prod-" + newID(),
+		ProjectID:     projectID,
+		EnvironmentID: "env-prod",
+		SourceType:    "job_run",
+		JobRunID:      run.ID,
+		Status:        domain.EventTriggerStatusWaiting,
+		RequestedAt:   now.Add(-2 * time.Minute),
+		ExpiresAt:     now.Add(5 * time.Minute),
+	}
+	staging := &domain.EventTrigger{
+		ID:            newID(),
+		EventKey:      "evt-list-env-staging-" + newID(),
+		ProjectID:     projectID,
+		EnvironmentID: "env-staging",
+		SourceType:    "job_run",
+		JobRunID:      run.ID,
+		Status:        domain.EventTriggerStatusWaiting,
+		RequestedAt:   now.Add(-time.Minute),
+		ExpiresAt:     now.Add(5 * time.Minute),
+	}
+	if err := q.CreateEventTrigger(ctx, prod); err != nil {
+		t.Fatalf("CreateEventTrigger(prod) error = %v", err)
+	}
+	if err := q.CreateEventTrigger(ctx, staging); err != nil {
+		t.Fatalf("CreateEventTrigger(staging) error = %v", err)
+	}
+
+	all, err := q.ListEventTriggersByProject(ctx, projectID, "", domain.EventTriggerStatusWaiting, "", "", 10, nil)
+	if err != nil {
+		t.Fatalf("ListEventTriggersByProject(all envs) error = %v", err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("ListEventTriggersByProject(all envs) len = %d, want 2", len(all))
+	}
+
+	filtered, err := q.ListEventTriggersByProject(ctx, projectID, "env-prod", domain.EventTriggerStatusWaiting, "", "", 10, nil)
+	if err != nil {
+		t.Fatalf("ListEventTriggersByProject(env-prod) error = %v", err)
+	}
+	if len(filtered) != 1 {
+		t.Fatalf("ListEventTriggersByProject(env-prod) len = %d, want 1", len(filtered))
+	}
+	if filtered[0].ID != prod.ID {
+		t.Fatalf("ListEventTriggersByProject(env-prod) id = %q, want %q", filtered[0].ID, prod.ID)
+	}
+}
+
+func TestGetEventTriggerStats_EnvironmentFilter(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-event-trigger-stats-env-" + newID()
+	_, run := mustCreateJobRunWithBuildFactory(t, ctx, q, projectID, domain.StatusWaiting)
+	now := time.Now().UTC()
+	receivedAt := now.Add(time.Minute)
+
+	triggers := []*domain.EventTrigger{
+		{
+			ID:            newID(),
+			EventKey:      "evt-stats-env-prod-waiting-" + newID(),
+			ProjectID:     projectID,
+			EnvironmentID: "env-prod",
+			SourceType:    "job_run",
+			JobRunID:      run.ID,
+			Status:        domain.EventTriggerStatusWaiting,
+			RequestedAt:   now,
+			ExpiresAt:     now.Add(5 * time.Minute),
+		},
+		{
+			ID:            newID(),
+			EventKey:      "evt-stats-env-prod-received-" + newID(),
+			ProjectID:     projectID,
+			EnvironmentID: "env-prod",
+			SourceType:    "job_run",
+			JobRunID:      run.ID,
+			Status:        domain.EventTriggerStatusReceived,
+			RequestedAt:   now,
+			ReceivedAt:    &receivedAt,
+			ExpiresAt:     now.Add(5 * time.Minute),
+		},
+		{
+			ID:            newID(),
+			EventKey:      "evt-stats-env-staging-waiting-" + newID(),
+			ProjectID:     projectID,
+			EnvironmentID: "env-staging",
+			SourceType:    "job_run",
+			JobRunID:      run.ID,
+			Status:        domain.EventTriggerStatusWaiting,
+			RequestedAt:   now,
+			ExpiresAt:     now.Add(5 * time.Minute),
+		},
+	}
+	for _, trigger := range triggers {
+		if err := q.CreateEventTrigger(ctx, trigger); err != nil {
+			t.Fatalf("CreateEventTrigger(%s) error = %v", trigger.EventKey, err)
+		}
+	}
+
+	all, err := q.GetEventTriggerStats(ctx, projectID, "")
+	if err != nil {
+		t.Fatalf("GetEventTriggerStats(all envs) error = %v", err)
+	}
+	if all.TotalCount != 3 || all.WaitingCount != 2 || all.ReceivedCount != 1 {
+		t.Fatalf("GetEventTriggerStats(all envs) = total %d waiting %d received %d, want 3/2/1", all.TotalCount, all.WaitingCount, all.ReceivedCount)
+	}
+
+	prod, err := q.GetEventTriggerStats(ctx, projectID, "env-prod")
+	if err != nil {
+		t.Fatalf("GetEventTriggerStats(env-prod) error = %v", err)
+	}
+	if prod.TotalCount != 2 || prod.WaitingCount != 1 || prod.ReceivedCount != 1 {
+		t.Fatalf("GetEventTriggerStats(env-prod) = total %d waiting %d received %d, want 2/1/1", prod.TotalCount, prod.WaitingCount, prod.ReceivedCount)
 	}
 }
 
@@ -9937,7 +10064,7 @@ func TestListEventTriggersByProject_Cursor(t *testing.T) {
 	middle := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-list-cursor-middle-"+newID(), now.Add(-2*time.Minute), nil, nil)
 	old := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-list-cursor-old-"+newID(), now.Add(-3*time.Minute), nil, nil)
 
-	list, err := q.ListEventTriggersByProject(ctx, projectID, "", "", "", 10, new(middle.RequestedAt))
+	list, err := q.ListEventTriggersByProject(ctx, projectID, "", "", "", "", 10, new(middle.RequestedAt))
 	if err != nil {
 		t.Fatalf("ListEventTriggersByProject(cursor) error = %v", err)
 	}
@@ -10113,6 +10240,100 @@ func TestCountEventTriggersFinishedBefore(t *testing.T) {
 	}
 	if count != 3 {
 		t.Fatalf("CountEventTriggersFinishedBefore() = %d, want 3", count)
+	}
+}
+
+func TestEventTriggersFinishedBeforeForProject_EnvironmentFilter(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-event-trigger-finished-env-" + newID()
+	otherProjectID := "proj-event-trigger-finished-env-other-" + newID()
+	_, run := mustCreateJobRunWithBuildFactory(t, ctx, q, projectID, domain.StatusWaiting)
+	_, otherRun := mustCreateJobRunWithBuildFactory(t, ctx, q, otherProjectID, domain.StatusWaiting)
+
+	now := time.Now().UTC()
+	oldReceived := now.Add(-3 * time.Hour)
+	prod := &domain.EventTrigger{
+		ID:              newID(),
+		EventKey:        "evt-finished-env-prod-" + newID(),
+		ProjectID:       projectID,
+		EnvironmentID:   "env-prod",
+		SourceType:      "job_run",
+		JobRunID:        run.ID,
+		Status:          domain.EventTriggerStatusReceived,
+		RequestedAt:     now.Add(-4 * time.Hour),
+		ReceivedAt:      &oldReceived,
+		ExpiresAt:       now.Add(time.Hour),
+		ResponsePayload: json.RawMessage(`{"ok":true}`),
+	}
+	staging := &domain.EventTrigger{
+		ID:            newID(),
+		EventKey:      "evt-finished-env-staging-" + newID(),
+		ProjectID:     projectID,
+		EnvironmentID: "env-staging",
+		SourceType:    "job_run",
+		JobRunID:      run.ID,
+		Status:        domain.EventTriggerStatusTimedOut,
+		RequestedAt:   now.Add(-4 * time.Hour),
+		ExpiresAt:     now.Add(-2 * time.Hour),
+	}
+	otherProject := &domain.EventTrigger{
+		ID:            newID(),
+		EventKey:      "evt-finished-env-other-project-" + newID(),
+		ProjectID:     otherProjectID,
+		EnvironmentID: "env-prod",
+		SourceType:    "job_run",
+		JobRunID:      otherRun.ID,
+		Status:        domain.EventTriggerStatusReceived,
+		RequestedAt:   now.Add(-4 * time.Hour),
+		ReceivedAt:    &oldReceived,
+		ExpiresAt:     now.Add(time.Hour),
+	}
+	for _, trigger := range []*domain.EventTrigger{prod, staging, otherProject} {
+		if err := q.CreateEventTrigger(ctx, trigger); err != nil {
+			t.Fatalf("CreateEventTrigger(%s) error = %v", trigger.EventKey, err)
+		}
+	}
+
+	allProject, err := q.CountEventTriggersFinishedBeforeForProject(ctx, projectID, "", now.Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("CountEventTriggersFinishedBeforeForProject(all envs) error = %v", err)
+	}
+	if allProject != 2 {
+		t.Fatalf("CountEventTriggersFinishedBeforeForProject(all envs) = %d, want 2", allProject)
+	}
+
+	prodOnly, err := q.CountEventTriggersFinishedBeforeForProject(ctx, projectID, "env-prod", now.Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("CountEventTriggersFinishedBeforeForProject(env-prod) error = %v", err)
+	}
+	if prodOnly != 1 {
+		t.Fatalf("CountEventTriggersFinishedBeforeForProject(env-prod) = %d, want 1", prodOnly)
+	}
+
+	deleted, err := q.DeleteEventTriggersFinishedBeforeForProject(ctx, projectID, "env-prod", now.Add(-time.Hour), 10)
+	if err != nil {
+		t.Fatalf("DeleteEventTriggersFinishedBeforeForProject(env-prod) error = %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("DeleteEventTriggersFinishedBeforeForProject(env-prod) = %d, want 1", deleted)
+	}
+	if got, err := q.GetEventTriggerByEventKey(ctx, prod.EventKey); err != nil {
+		t.Fatalf("GetEventTriggerByEventKey(prod) error = %v", err)
+	} else if got != nil {
+		t.Fatalf("prod trigger still exists with ID %q", got.ID)
+	}
+	if got, err := q.GetEventTriggerByEventKey(ctx, staging.EventKey); err != nil {
+		t.Fatalf("GetEventTriggerByEventKey(staging) error = %v", err)
+	} else if got == nil {
+		t.Fatal("staging trigger was deleted by env-prod purge")
+	}
+	if got, err := q.GetEventTriggerByEventKey(ctx, otherProject.EventKey); err != nil {
+		t.Fatalf("GetEventTriggerByEventKey(otherProject) error = %v", err)
+	} else if got == nil {
+		t.Fatal("other project trigger was deleted by env-prod purge")
 	}
 }
 

@@ -312,11 +312,13 @@ type EventTriggerStore interface {
 	GetEventTriggerByJobRunID(ctx context.Context, jobRunID string) (*domain.EventTrigger, error)
 	UpdateEventTriggerStatus(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
 	ListExpiredEventTriggers(ctx context.Context) ([]domain.EventTrigger, error)
-	ListEventTriggersByProject(ctx context.Context, projectID, status, workflowRunID, sourceType string, limit int, cursor *time.Time) ([]domain.EventTrigger, error)
+	ListEventTriggersByProject(ctx context.Context, projectID, environmentID, status, workflowRunID, sourceType string, limit int, cursor *time.Time) ([]domain.EventTrigger, error)
 	CancelEventTriggersByWorkflowRun(ctx context.Context, workflowRunID string) (int64, error)
 	CancelEventTriggerByJobRun(ctx context.Context, jobRunID string) error
 	ListReceivedEventTriggersWithStaleSteps(ctx context.Context) ([]domain.EventTrigger, error)
 	DeleteEventTriggersFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error)
+	DeleteEventTriggersFinishedBeforeForProject(ctx context.Context, projectID, environmentID string, before time.Time, limit int) (int64, error)
+	CountEventTriggersFinishedBeforeForProject(ctx context.Context, projectID, environmentID string, before time.Time) (int64, error)
 	ReceiveEventAndRequeueRun(ctx context.Context, triggerID string, payload json.RawMessage, receivedAt time.Time, jobRunID string) error
 	SetEventTriggerSentBy(ctx context.Context, id, sentBy string) error
 	BatchReceiveEventTriggers(ctx context.Context, triggerIDs []string, payload json.RawMessage, receivedAt time.Time, sentBy string) ([]string, error)

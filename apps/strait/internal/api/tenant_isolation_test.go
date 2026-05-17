@@ -69,7 +69,7 @@ func newIsolationStore() *APIStoreMock {
 			}
 			return nil, nil
 		},
-		ListEventTriggersByProjectFunc: func(_ context.Context, projectID, _, _, _ string, _ int, _ *time.Time) ([]domain.EventTrigger, error) {
+		ListEventTriggersByProjectFunc: func(_ context.Context, projectID, _, _, _, _ string, _ int, _ *time.Time) ([]domain.EventTrigger, error) {
 			if projectID == projectA {
 				return []domain.EventTrigger{{ID: "et-a", ProjectID: projectA, EventKey: "event.a", Status: "waiting", RequestedAt: now}}, nil
 			}

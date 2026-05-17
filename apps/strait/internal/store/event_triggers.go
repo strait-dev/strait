@@ -231,7 +231,7 @@ func (q *Queries) ListExpiredEventTriggers(ctx context.Context) ([]domain.EventT
 
 // ListEventTriggersByProject returns event triggers for a project, optionally filtered by status,
 // workflow run ID, and/or source type.
-func (q *Queries) ListEventTriggersByProject(ctx context.Context, projectID, status, workflowRunID, sourceType string, limit int, cursor *time.Time) ([]domain.EventTrigger, error) {
+func (q *Queries) ListEventTriggersByProject(ctx context.Context, projectID, environmentID, status, workflowRunID, sourceType string, limit int, cursor *time.Time) ([]domain.EventTrigger, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListEventTriggersByProject")
 	defer span.End()
 
@@ -246,6 +246,12 @@ func (q *Queries) ListEventTriggersByProject(ctx context.Context, projectID, sta
 
 	args := []any{projectID}
 	argIdx := 2
+
+	if environmentID != "" {
+		query += fmt.Sprintf(" AND environment_id = $%d", argIdx)
+		args = append(args, environmentID)
+		argIdx++
+	}
 
 	if status != "" {
 		query += fmt.Sprintf(" AND status = $%d", argIdx)
@@ -514,6 +520,47 @@ func (q *Queries) DeleteEventTriggersFinishedBefore(ctx context.Context, before 
 	tag, err := q.db.Exec(ctx, query, before, limit)
 	if err != nil {
 		return 0, fmt.Errorf("delete old event triggers: %w", err)
+	}
+
+	return tag.RowsAffected(), nil
+}
+
+func (q *Queries) CountEventTriggersFinishedBeforeForProject(ctx context.Context, projectID, environmentID string, before time.Time) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountEventTriggersFinishedBeforeForProject")
+	defer span.End()
+
+	query := `
+		SELECT COUNT(*) FROM event_triggers
+		WHERE project_id = $1
+		  AND ($2 = '' OR environment_id = $2)
+		  AND status IN ('received', 'timed_out', 'canceled')
+		  AND COALESCE(received_at, expires_at) < $3`
+
+	var count int64
+	if err := q.db.QueryRow(ctx, query, projectID, environmentID, before).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count old project event triggers: %w", err)
+	}
+	return count, nil
+}
+
+func (q *Queries) DeleteEventTriggersFinishedBeforeForProject(ctx context.Context, projectID, environmentID string, before time.Time, limit int) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteEventTriggersFinishedBeforeForProject")
+	defer span.End()
+
+	query := `
+		DELETE FROM event_triggers
+		WHERE id IN (
+			SELECT id FROM event_triggers
+			WHERE project_id = $1
+			  AND ($2 = '' OR environment_id = $2)
+			  AND status IN ('received', 'timed_out', 'canceled')
+			  AND COALESCE(received_at, expires_at) < $3
+			LIMIT $4
+		)`
+
+	tag, err := q.db.Exec(ctx, query, projectID, environmentID, before, limit)
+	if err != nil {
+		return 0, fmt.Errorf("delete old project event triggers: %w", err)
 	}
 
 	return tag.RowsAffected(), nil

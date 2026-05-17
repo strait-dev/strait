@@ -458,7 +458,7 @@ func TestGetEventTriggerStats(t *testing.T) {
 	projectID := "proj-trigger-stats-" + covID()
 
 	// Empty stats should return zero counts.
-	stats, err := q.GetEventTriggerStats(ctx, projectID)
+	stats, err := q.GetEventTriggerStats(ctx, projectID, "")
 	if err != nil {
 		t.Fatalf("GetEventTriggerStats() error = %v", err)
 	}
@@ -506,7 +506,7 @@ func TestGetEventTriggerStats(t *testing.T) {
 		t.Fatalf("CreateEventTrigger(received) error = %v", err)
 	}
 
-	stats, err = q.GetEventTriggerStats(ctx, projectID)
+	stats, err = q.GetEventTriggerStats(ctx, projectID, "")
 	if err != nil {
 		t.Fatalf("GetEventTriggerStats() error = %v", err)
 	}

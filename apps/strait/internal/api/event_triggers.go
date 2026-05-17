@@ -16,6 +16,8 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
+const maxEventTriggerPurgeDays = 36500
+
 // SendEventRequest is the payload for POST /v1/events/{eventKey}/send.
 type SendEventRequest struct {
 	Payload json.RawMessage `json:"payload,omitempty"`
@@ -275,7 +277,7 @@ func (s *Server) handleListEventTriggers(ctx context.Context, input *ListEventTr
 	if err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
-	triggers, err := s.store.ListEventTriggersByProject(ctx, projectID, input.Status, input.WorkflowRunID, input.SourceType, limit+1, cursor)
+	triggers, err := s.store.ListEventTriggersByProject(ctx, projectID, environmentIDFromContext(ctx), input.Status, input.WorkflowRunID, input.SourceType, limit+1, cursor)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list event triggers")
 	}
@@ -322,7 +324,7 @@ func (s *Server) handleGetEventTriggerStats(ctx context.Context, _ *GetEventTrig
 	if projectID == "" {
 		return nil, huma.Error400BadRequest("project context is required -- authenticate with an API key")
 	}
-	stats, err := s.store.GetEventTriggerStats(ctx, projectID)
+	stats, err := s.store.GetEventTriggerStats(ctx, projectID, environmentIDFromContext(ctx))
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to get event trigger stats")
 	}
@@ -447,9 +449,17 @@ func (s *Server) handlePurgeEventTriggers(ctx context.Context, input *PurgeEvent
 	if req.OlderThanDays < 1 {
 		return nil, huma.Error400BadRequest("older_than_days must be >= 1")
 	}
+	if req.OlderThanDays > maxEventTriggerPurgeDays {
+		return nil, huma.Error400BadRequest(fmt.Sprintf("older_than_days must be <= %d", maxEventTriggerPurgeDays))
+	}
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project context is required -- authenticate with an API key")
+	}
+	environmentID := environmentIDFromContext(ctx)
 	before := time.Now().Add(-time.Duration(req.OlderThanDays) * 24 * time.Hour)
 	if req.DryRun {
-		count, err := s.store.CountEventTriggersFinishedBefore(ctx, before)
+		count, err := s.store.CountEventTriggersFinishedBeforeForProject(ctx, projectID, environmentID, before)
 		if err != nil {
 			return nil, huma.Error500InternalServerError("failed to count triggers")
 		}
@@ -460,7 +470,7 @@ func (s *Server) handlePurgeEventTriggers(ctx context.Context, input *PurgeEvent
 		})
 		return &PurgeEventTriggersOutput{Body: map[string]any{"dry_run": true, "would_delete": count}}, nil
 	}
-	deleted, err := s.store.DeleteEventTriggersFinishedBefore(ctx, before, 10000)
+	deleted, err := s.store.DeleteEventTriggersFinishedBeforeForProject(ctx, projectID, environmentID, before, 10000)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to purge triggers")
 	}

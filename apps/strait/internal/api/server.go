@@ -317,15 +317,15 @@ type EventTriggerStore interface {
 	CreateEventTrigger(ctx context.Context, trigger *domain.EventTrigger) error
 	GetEventTriggerByEventKey(ctx context.Context, eventKey string) (*domain.EventTrigger, error)
 	UpdateEventTriggerStatus(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
-	ListEventTriggersByProject(ctx context.Context, projectID, status, workflowRunID, sourceType string, limit int, cursor *time.Time) ([]domain.EventTrigger, error)
+	ListEventTriggersByProject(ctx context.Context, projectID, environmentID, status, workflowRunID, sourceType string, limit int, cursor *time.Time) ([]domain.EventTrigger, error)
 	ListEventTriggersByKeyPrefix(ctx context.Context, prefix string, projectID string) ([]domain.EventTrigger, error)
 	CancelEventTriggersByWorkflowRun(ctx context.Context, workflowRunID string) (int64, error)
 	ReceiveEventAndRequeueRun(ctx context.Context, triggerID string, payload json.RawMessage, receivedAt time.Time, jobRunID string) error
 	SetEventTriggerSentBy(ctx context.Context, id, sentBy string) error
-	GetEventTriggerStats(ctx context.Context, projectID string) (*store.EventTriggerStats, error)
+	GetEventTriggerStats(ctx context.Context, projectID, environmentID string) (*store.EventTriggerStats, error)
 	BatchReceiveEventTriggers(ctx context.Context, triggerIDs []string, payload json.RawMessage, receivedAt time.Time, sentBy string) ([]string, error)
-	DeleteEventTriggersFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error)
-	CountEventTriggersFinishedBefore(ctx context.Context, before time.Time) (int64, error)
+	DeleteEventTriggersFinishedBeforeForProject(ctx context.Context, projectID, environmentID string, before time.Time, limit int) (int64, error)
+	CountEventTriggersFinishedBeforeForProject(ctx context.Context, projectID, environmentID string, before time.Time) (int64, error)
 	CountActiveEventTriggersByProject(ctx context.Context, projectID string) (int, error)
 }
 
