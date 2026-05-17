@@ -40,6 +40,8 @@ const (
 	ModeWorker ExecutionMode = "worker"
 )
 
+const maxStatsResponseBytes = 1 << 20
+
 // Harness is the top-level test orchestrator. It sets up infrastructure,
 // runs scenarios, and collects results.
 type Harness struct {
@@ -355,8 +357,25 @@ func (h *Harness) GetQueueStats(ctx context.Context, projectID string) (*QueueSt
 	}
 	defer resp.Body.Close()
 
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxStatsResponseBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("reading stats response: %w", err)
+	}
+	if len(body) > maxStatsResponseBytes {
+		return nil, fmt.Errorf("stats response exceeded %d bytes", maxStatsResponseBytes)
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("stats returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var errorEnvelope struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(body, &errorEnvelope); err == nil && errorEnvelope.Error != "" {
+		return nil, fmt.Errorf("stats returned error payload: %s", errorEnvelope.Error)
+	}
+
 	var stats QueueStats
-	if err := json.NewDecoder(resp.Body).Decode(&stats); err != nil {
+	if err := json.Unmarshal(body, &stats); err != nil {
 		return nil, fmt.Errorf("decoding stats: %w", err)
 	}
 
