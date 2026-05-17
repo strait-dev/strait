@@ -2,8 +2,9 @@ package webhook
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
-	"hash/fnv"
 	"strconv"
 	"time"
 
@@ -146,7 +147,6 @@ func (cb *RedisWebhookCircuitBreaker) openKey(url string) string {
 }
 
 func hashURL(url string) string {
-	h := fnv.New64a()
-	_, _ = h.Write([]byte(url))
-	return strconv.FormatUint(h.Sum64(), 10)
+	sum := sha256.Sum256([]byte(url))
+	return hex.EncodeToString(sum[:])
 }

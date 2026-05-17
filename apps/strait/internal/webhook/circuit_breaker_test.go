@@ -2,6 +2,8 @@ package webhook
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strconv"
 	"strings"
@@ -12,6 +14,22 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 )
+
+func TestHashURL_UsesSHA256Hex(t *testing.T) {
+	t.Parallel()
+
+	raw := "org-1\x00https://hooks.example.com/webhook"
+	wantSum := sha256.Sum256([]byte(raw))
+	want := hex.EncodeToString(wantSum[:])
+
+	got := hashURL(raw)
+	if got != want {
+		t.Fatalf("hashURL() = %q, want sha256 hex %q", got, want)
+	}
+	if len(got) != 64 {
+		t.Fatalf("hashURL() len = %d, want 64", len(got))
+	}
+}
 
 type redisProcessFunc func(ctx context.Context, cmd redis.Cmder) error
 
