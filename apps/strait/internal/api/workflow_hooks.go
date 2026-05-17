@@ -9,6 +9,8 @@ import (
 
 	"strait/internal/clickhouse"
 	"strait/internal/domain"
+
+	"github.com/sourcegraph/conc"
 )
 
 func (s *Server) publishWorkflowRunHook(ctx context.Context, run *domain.WorkflowRun, from, to domain.WorkflowRunStatus, reason string) {
@@ -66,7 +68,8 @@ func (s *Server) publishWorkflowRunHook(ctx context.Context, run *domain.Workflo
 	// Enqueue webhook deliveries for matching subscriptions (non-fatal).
 	// Use detached context so client disconnect doesn't abort webhook delivery.
 	eventType := "workflow_run." + reason
-	go func() { //nolint:gosec // intentional detached context for webhook delivery
+	var deliveryWG conc.WaitGroup
+	deliveryWG.Go(func() {
 		defer func() {
 			if r := recover(); r != nil {
 				slog.Error("panic in workflow webhook delivery",
@@ -111,5 +114,5 @@ func (s *Server) publishWorkflowRunHook(ctx context.Context, run *domain.Workflo
 					"subscription_id", sub.ID, "event_type", eventType, "error", createErr)
 			}
 		}
-	}()
+	})
 }

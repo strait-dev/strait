@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/alitto/pond/v2"
+	"github.com/sourcegraph/conc"
 )
 
 // Pool manages a fixed number of concurrent worker goroutines backed by
@@ -128,10 +129,11 @@ func (p *Pool) DroppedTasks() uint64 {
 // shutdown from blocking indefinitely on stuck HTTP dispatches.
 func (p *Pool) Shutdown(ctx context.Context) error {
 	done := make(chan struct{})
-	go func() {
+	var wg conc.WaitGroup
+	wg.Go(func() {
 		p.inner.StopAndWait()
 		close(done)
-	}()
+	})
 
 	select {
 	case <-done:

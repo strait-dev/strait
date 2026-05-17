@@ -493,10 +493,11 @@ func recvWorkerRegistrationMessage(ctx context.Context, stream workerv1.WorkerSe
 		err error
 	}
 	recvCh := make(chan recvResult, 1)
-	go func() {
+	var recvWG conc.WaitGroup
+	recvWG.Go(func() {
 		msg, err := stream.Recv()
 		recvCh <- recvResult{msg: msg, err: err}
-	}()
+	})
 
 	select {
 	case res := <-recvCh:

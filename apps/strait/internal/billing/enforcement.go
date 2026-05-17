@@ -21,6 +21,7 @@ import (
 	"github.com/eko/gocache/lib/v4/cache"
 	"github.com/getsentry/sentry-go"
 	"github.com/redis/go-redis/v9"
+	"github.com/sourcegraph/conc"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -128,7 +129,8 @@ func (e *Enforcer) resetFailOpen(orgID, checkType string) {
 
 // startFailOpenCleanup periodically removes stale entries from the fail-open tracker.
 func (e *Enforcer) startFailOpenCleanup(ctx context.Context) {
-	go func() {
+	var wg conc.WaitGroup
+	wg.Go(func() {
 		ticker := time.NewTicker(failOpenWindow * 2)
 		defer ticker.Stop()
 		for {
@@ -147,7 +149,7 @@ func (e *Enforcer) startFailOpenCleanup(ctx context.Context) {
 				})
 			}
 		}
-	}()
+	})
 }
 
 // StartCleanup starts background cleanup goroutines for bounded caches.

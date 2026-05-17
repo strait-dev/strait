@@ -18,6 +18,7 @@ import (
 	"strait/internal/pubsub"
 	"strait/internal/store"
 
+	"github.com/sourcegraph/conc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/health"
@@ -225,19 +226,22 @@ func (s *Server) Serve(ctx context.Context) error {
 	}
 	slog.Info("grpc server listening", "addr", addr)
 
-	// Start background maintenance loops.
-	go runDBSync(ctx, s.registry, s.queries, s.cfg.WorkerDBSyncInterval)
-	go runSweep(ctx, s.registry, s.queries, s.cfg.WorkerHeartbeatTimeout, s.cfg.WorkerDisconnectSweepInterval)
+	var bgWG conc.WaitGroup
+	bgWG.Go(func() { runDBSync(ctx, s.registry, s.queries, s.cfg.WorkerDBSyncInterval) })
+	bgWG.Go(func() {
+		runSweep(ctx, s.registry, s.queries, s.cfg.WorkerHeartbeatTimeout, s.cfg.WorkerDisconnectSweepInterval)
+	})
 
-	// Shutdown goroutine.
-	go func() {
+	var shutdownWG conc.WaitGroup
+	shutdownWG.Go(func() {
 		<-ctx.Done()
 		slog.Info("grpc server shutting down")
 		stopped := make(chan struct{})
-		go func() {
+		var stopWG conc.WaitGroup
+		stopWG.Go(func() {
 			s.gs.GracefulStop()
 			close(stopped)
-		}()
+		})
 		select {
 		case <-stopped:
 			slog.Info("grpc server stopped gracefully")
@@ -245,7 +249,7 @@ func (s *Server) Serve(ctx context.Context) error {
 			slog.Warn("grpc graceful stop timed out; forcing stop")
 			s.gs.Stop()
 		}
-	}()
+	})
 
 	if err := s.gs.Serve(ln); err != nil {
 		return fmt.Errorf("grpc serve: %w", err)
