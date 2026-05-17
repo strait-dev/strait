@@ -204,22 +204,6 @@ func (cs *CronScheduler) triggerJobLocked(ctx context.Context, job domain.Job, f
 			return
 		}
 
-	case domain.OverlapPolicyCancelRunning:
-		canceledRuns, err := cs.store.CancelActiveRunsForJob(ctx, job.ID,
-			"canceled by cron overlap policy: cancel_running")
-		if err != nil {
-			slog.Error("failed to cancel active runs for job", "job_id", job.ID, "error", err)
-			if cs.metrics != nil {
-				cs.metrics.CronTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "error")))
-			}
-			return
-		}
-		if len(canceledRuns) > 0 {
-			slog.Info("canceled active runs before cron enqueue",
-				"job_id", job.ID, "canceled", len(canceledRuns), "policy", "cancel_running")
-			cs.processCanceledRuns(ctx, job.ID, canceledRuns)
-		}
-
 	case domain.OverlapPolicyAllow:
 		// Default: always enqueue.
 
@@ -254,6 +238,24 @@ func (cs *CronScheduler) triggerJobLocked(ctx context.Context, job domain.Job, f
 		}
 		return
 	}
+
+	if job.CronOverlapPolicy == domain.OverlapPolicyCancelRunning {
+		canceledRuns, cancelErr := cs.store.CancelActiveRunsForJob(ctx, job.ID,
+			"canceled by cron overlap policy: cancel_running")
+		if cancelErr != nil {
+			slog.Error("failed to cancel active runs after cron enqueue", "job_id", job.ID, "error", cancelErr)
+			if cs.metrics != nil {
+				cs.metrics.CronTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "error")))
+			}
+			return
+		}
+		if len(canceledRuns) > 0 {
+			slog.Info("canceled active runs after cron enqueue",
+				"job_id", job.ID, "canceled", len(canceledRuns), "policy", "cancel_running")
+			cs.processCanceledRuns(ctx, job.ID, canceledRuns)
+		}
+	}
+
 	if cs.metrics != nil {
 		cs.metrics.CronTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "success")))
 	}

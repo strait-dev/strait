@@ -66,7 +66,7 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 		return false
 	}
 	if e.txPool == nil && job.EndpointURL != "" {
-		if err := e.store.RecordEndpointCircuitSuccess(ctx, job.EndpointURL); err != nil {
+		if err := e.store.RecordEndpointCircuitSuccess(ctx, endpointStateKey(job.ProjectID, job.EndpointURL)); err != nil {
 			e.logger.Warn("failed to record circuit breaker success", "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", err)
 		}
 	}
@@ -78,7 +78,7 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 
 	// Record health score for successful dispatch.
 	if _, hsErr := e.healthScorer.RecordResult(ctx, DispatchResult{
-		EndpointURL:  job.EndpointURL,
+		EndpointURL:  endpointStateKey(job.ProjectID, job.EndpointURL),
 		Success:      true,
 		LatencyMs:    float64(execDur.Milliseconds()),
 		JobTimeoutMs: float64(job.TimeoutSecs * 1000),
@@ -555,15 +555,18 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 func (e *Executor) completeRunWithWebhook(ctx context.Context, run *domain.JobRun, job *domain.Job, to domain.RunStatus, fields map[string]any) error {
 	from := domain.StatusExecuting
 	webhookRun := runForTerminalWebhook(run, to, fields)
-	if e.txPool != nil && job.WebhookURL != "" {
+	if e.txPool != nil {
 		return store.WithTx(ctx, e.txPool, func(q *store.Queries) error {
 			if err := q.UpdateRunStatus(ctx, run.ID, from, to, fields); err != nil {
 				return err
 			}
 			if to == domain.StatusCompleted && job.EndpointURL != "" {
-				if err := q.RecordEndpointCircuitSuccess(ctx, job.EndpointURL); err != nil {
+				if err := q.RecordEndpointCircuitSuccess(ctx, endpointStateKey(job.ProjectID, job.EndpointURL)); err != nil {
 					return err
 				}
+			}
+			if job.WebhookURL == "" {
+				return nil
 			}
 			_, err := q.EnqueueRunWebhook(ctx, job, webhookRun, e.webhookMaxRetry)
 			return err

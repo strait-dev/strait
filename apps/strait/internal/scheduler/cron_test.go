@@ -872,9 +872,10 @@ func TestCronScheduler_TriggerJob_Skip_EnqueueError(t *testing.T) {
 
 func TestCronScheduler_TriggerJob_CancelRunning_EnqueueError(t *testing.T) {
 	t.Parallel()
-	// cancel_running succeeds, but enqueue fails. Should not panic.
+	cancelCalled := false
 	s := &mockCronStore{
 		cancelActiveRunsForJobFn: func(_ context.Context, _ string, _ string) ([]store.CanceledRun, error) {
+			cancelCalled = true
 			return []store.CanceledRun{
 				{ID: "run-1", ExecutionMode: domain.ExecutionModeHTTP},
 			}, nil
@@ -890,6 +891,35 @@ func TestCronScheduler_TriggerJob_CancelRunning_EnqueueError(t *testing.T) {
 	job := domain.Job{ID: "job-1", ProjectID: "proj-1", CronOverlapPolicy: domain.OverlapPolicyCancelRunning}
 	// Should not panic. Runs are already canceled but new run fails to enqueue.
 	cs.triggerJob(context.Background(), job)
+	if cancelCalled {
+		t.Fatal("cancel_running must not cancel active runs when replacement enqueue fails")
+	}
+}
+
+func TestDeepSecCronScheduler_CancelRunningCancelsOnlyAfterReplacementEnqueue(t *testing.T) {
+	t.Parallel()
+
+	var events []string
+	s := &mockCronStore{
+		cancelActiveRunsForJobFn: func(_ context.Context, _ string, _ string) ([]store.CanceledRun, error) {
+			events = append(events, "cancel")
+			return []store.CanceledRun{{ID: "run-1", ExecutionMode: domain.ExecutionModeHTTP}}, nil
+		},
+	}
+	q := &mockQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			events = append(events, "enqueue")
+			return nil
+		},
+	}
+
+	cs := NewCronScheduler(context.Background(), s, q, nil)
+	job := domain.Job{ID: "job-1", ProjectID: "proj-1", CronOverlapPolicy: domain.OverlapPolicyCancelRunning}
+	cs.triggerJob(context.Background(), job)
+
+	if strings.Join(events, ",") != "enqueue,cancel" {
+		t.Fatalf("events = %v, want enqueue before cancel", events)
+	}
 }
 
 func TestCronOverlapPolicy_IsValid(t *testing.T) {

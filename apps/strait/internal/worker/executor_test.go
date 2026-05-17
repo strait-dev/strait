@@ -4559,6 +4559,101 @@ func TestResolveJob_CacheHit(t *testing.T) {
 	}
 }
 
+func TestDeepSecResolveJob_ClonesCachedJobBeforeEnvironmentOverrideMutation(t *testing.T) {
+	t.Parallel()
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        &mockExecutorStore{},
+		PollInterval: time.Hour,
+		JobCacheTTL:  5 * time.Minute,
+	})
+	t.Cleanup(exec.CloseCache)
+
+	cached := &domain.Job{ID: "job-1", ProjectID: "proj-1", Version: 1, EndpointURL: "https://original.example/run"}
+	if err := exec.jobCache.Set(context.Background(), "job-1", cached); err != nil {
+		t.Fatalf("seed cache: %v", err)
+	}
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 1}
+
+	resolved, err := exec.resolveJobForRun(context.Background(), run)
+	if err != nil {
+		t.Fatalf("resolveJobForRun: %v", err)
+	}
+	resolved.EndpointURL = "https://override.example/run"
+
+	again, err := exec.jobCache.Get(context.Background(), "job-1")
+	if err != nil {
+		t.Fatalf("read cache: %v", err)
+	}
+	if again.EndpointURL != "https://original.example/run" {
+		t.Fatalf("cached endpoint mutated to %q", again.EndpointURL)
+	}
+}
+
+func TestDeepSecResolveJob_RefreshesLatestPolicyCacheHit(t *testing.T) {
+	t.Parallel()
+
+	var getJobCalls atomic.Int32
+	store := &mockExecutorStore{
+		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+			getJobCalls.Add(1)
+			return &domain.Job{
+				ID:            "job-1",
+				ProjectID:     "proj-1",
+				Version:       2,
+				VersionID:     "v2",
+				VersionPolicy: domain.VersionPolicyLatest,
+				EndpointURL:   "https://fresh.example/run",
+			}, nil
+		},
+	}
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+		JobCacheTTL:  5 * time.Minute,
+	})
+	t.Cleanup(exec.CloseCache)
+	if err := exec.jobCache.Set(context.Background(), "job-1", &domain.Job{
+		ID:            "job-1",
+		ProjectID:     "proj-1",
+		Version:       1,
+		VersionPolicy: domain.VersionPolicyLatest,
+		EndpointURL:   "https://stale.example/run",
+	}); err != nil {
+		t.Fatalf("seed cache: %v", err)
+	}
+
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 1}
+	resolved, err := exec.resolveJobForRun(context.Background(), run)
+	if err != nil {
+		t.Fatalf("resolveJobForRun: %v", err)
+	}
+	if getJobCalls.Load() != 1 {
+		t.Fatalf("GetJob calls = %d, want 1", getJobCalls.Load())
+	}
+	if resolved.Version != 2 || resolved.EndpointURL != "https://fresh.example/run" {
+		t.Fatalf("resolved stale job: version=%d endpoint=%q", resolved.Version, resolved.EndpointURL)
+	}
+}
+
+func TestDeepSecEndpointStateKeyScopesByProject(t *testing.T) {
+	t.Parallel()
+
+	endpoint := "https://shared.example/run"
+	a := endpointStateKey("proj-a", endpoint)
+	b := endpointStateKey("proj-b", endpoint)
+	if a == b {
+		t.Fatal("endpoint state keys for different projects must differ")
+	}
+	if endpointStateKey("", endpoint) != endpoint {
+		t.Fatal("empty project should preserve legacy endpoint key")
+	}
+}
+
 func TestResolveJob_CacheExpiry(t *testing.T) {
 	t.Parallel()
 

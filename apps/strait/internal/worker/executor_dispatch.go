@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptrace"
 	"strconv"
@@ -65,9 +66,14 @@ func (e *Executor) endpointSigningSecret(job *domain.Job) (string, error) {
 // the current version is marked backwards_compatible.
 func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*domain.Job, error) {
 	var current *domain.Job
+	bypassCache := false
 	if e.jobCache != nil {
 		if cached, err := e.jobCache.Get(ctx, run.JobID); err == nil {
-			current = cached
+			current = cloneJob(cached)
+			if current.VersionPolicy == domain.VersionPolicyLatest || current.VersionPolicy == domain.VersionPolicyMinor {
+				current = nil
+				bypassCache = true
+			}
 		}
 	}
 
@@ -75,7 +81,7 @@ func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*d
 		// Coalesce concurrent cache misses for the same job so a fan-out of
 		// runs does not stampede the DB. Mirrors billing.Enforcer.GetOrgLimits.
 		result, err, _ := e.jobResolveGroup.Do(run.JobID, func() (any, error) {
-			if e.jobCache != nil {
+			if e.jobCache != nil && !bypassCache {
 				if cached, gerr := e.jobCache.Get(ctx, run.JobID); gerr == nil {
 					return cached, nil
 				}
@@ -85,18 +91,18 @@ func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*d
 				return nil, gerr
 			}
 			if e.jobCache != nil {
-				_ = e.jobCache.Set(ctx, run.JobID, job)
+				_ = e.jobCache.Set(ctx, run.JobID, cloneJob(job))
 			}
-			return job, nil
+			return cloneJob(job), nil
 		})
 		if err != nil {
 			return nil, fmt.Errorf("load current job: %w", err)
 		}
-		current = result.(*domain.Job)
+		current = cloneJob(result.(*domain.Job))
 	}
 
 	if current.Version == run.JobVersion {
-		return current, nil
+		return cloneJob(current), nil
 	}
 
 	switch current.VersionPolicy {
@@ -109,7 +115,7 @@ func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*d
 		)
 		run.JobVersion = current.Version
 		run.JobVersionID = current.VersionID
-		return current, nil
+		return cloneJob(current), nil
 
 	case domain.VersionPolicyMinor:
 		if current.BackwardsCompatible {
@@ -121,7 +127,7 @@ func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*d
 			)
 			run.JobVersion = current.Version
 			run.JobVersionID = current.VersionID
-			return current, nil
+			return cloneJob(current), nil
 		}
 		e.logger.Info("version policy: minor upgrade skipped (not backwards compatible)",
 			"run_id", run.ID,
@@ -134,6 +140,44 @@ func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*d
 	}
 
 	return e.store.GetJobAtVersion(ctx, run.JobID, run.JobVersion)
+}
+
+func cloneJob(job *domain.Job) *domain.Job {
+	if job == nil {
+		return nil
+	}
+	cloned := *job
+	if job.Tags != nil {
+		cloned.Tags = maps.Clone(job.Tags)
+	}
+	if job.DefaultRunMetadata != nil {
+		cloned.DefaultRunMetadata = maps.Clone(job.DefaultRunMetadata)
+	}
+	if job.RetryDelaysSecs != nil {
+		cloned.RetryDelaysSecs = append([]int(nil), job.RetryDelaysSecs...)
+	}
+	if job.RateLimitKeys != nil {
+		cloned.RateLimitKeys = append([]domain.RateLimitKey(nil), job.RateLimitKeys...)
+	}
+	if job.PreferredRegions != nil {
+		cloned.PreferredRegions = append([]string(nil), job.PreferredRegions...)
+	}
+	if job.AllowedTools != nil {
+		cloned.AllowedTools = append([]string(nil), job.AllowedTools...)
+	}
+	if job.BlockedTools != nil {
+		cloned.BlockedTools = append([]string(nil), job.BlockedTools...)
+	}
+	if job.ResultSchema != nil {
+		cloned.ResultSchema = append(json.RawMessage(nil), job.ResultSchema...)
+	}
+	if job.OnCompletePayloadMapping != nil {
+		cloned.OnCompletePayloadMapping = append(json.RawMessage(nil), job.OnCompletePayloadMapping...)
+	}
+	if job.OnFailurePayloadMapping != nil {
+		cloned.OnFailurePayloadMapping = append(json.RawMessage(nil), job.OnFailurePayloadMapping...)
+	}
+	return &cloned
 }
 
 func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
@@ -298,10 +342,10 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 
 	var prefetchWG conc.WaitGroup
 	prefetchWG.Go(func() {
-		circuitAllowed, circuitRetryAt, circuitErr = e.store.CanDispatchEndpoint(ctx, job.EndpointURL, time.Now().UTC())
+		circuitAllowed, circuitRetryAt, circuitErr = e.store.CanDispatchEndpoint(ctx, endpointStateKey(job.ProjectID, job.EndpointURL), time.Now().UTC())
 	})
 	prefetchWG.Go(func() {
-		healthScore, healthAllowed, healthErr = e.healthScorer.CheckHealth(ctx, job.EndpointURL)
+		healthScore, healthAllowed, healthErr = e.healthScorer.CheckHealth(ctx, endpointStateKey(job.ProjectID, job.EndpointURL))
 	})
 	if policy.timeoutSecs > 0 {
 		prefetchWG.Go(func() {
@@ -815,17 +859,21 @@ func (e *Executor) snoozeRun(ctx context.Context, run *domain.JobRun, reason str
 	} else if err := e.store.ClearRetry(ctx, run.ID); err != nil {
 		e.logger.Warn("failed to clear retry on snooze", "run_id", run.ID, "job_id", run.JobID, "error", err)
 	}
-	if err := e.store.SnoozeRunWithLock(ctx, run.ID, domain.StatusDequeued, domain.StatusQueued, fields); err != nil {
+	from := domain.StatusDequeued
+	if run.Status == domain.StatusExecuting {
+		from = domain.StatusExecuting
+	}
+	if err := e.store.SnoozeRunWithLock(ctx, run.ID, from, domain.StatusQueued, fields); err != nil {
 		if errors.Is(err, store.ErrRunLocked) {
-			recordSnoozeSkipped(ctx, string(domain.StatusDequeued), "locked")
+			recordSnoozeSkipped(ctx, string(from), "locked")
 			e.logger.Warn("snooze skipped: run row locked by another transaction",
-				"run_id", run.ID, "job_id", run.JobID, "from", domain.StatusDequeued)
+				"run_id", run.ID, "job_id", run.JobID, "from", from)
 			return
 		}
 		if errors.Is(err, store.ErrRunConflict) {
-			recordSnoozeSkipped(ctx, string(domain.StatusDequeued), "conflict")
+			recordSnoozeSkipped(ctx, string(from), "conflict")
 			e.logger.Warn("snooze skipped: run no longer in expected state",
-				"run_id", run.ID, "job_id", run.JobID, "from", domain.StatusDequeued)
+				"run_id", run.ID, "job_id", run.JobID, "from", from)
 			return
 		}
 		e.logger.Error("failed to snooze run", "run_id", run.ID, "job_id", run.JobID, "error", err)
@@ -834,9 +882,16 @@ func (e *Executor) snoozeRun(ctx context.Context, run *domain.JobRun, reason str
 
 	e.emit(ctx, RunLifecycleEvent{
 		Type: EventSnoozed, Run: run,
-		FromStatus: domain.StatusDequeued, ToStatus: domain.StatusQueued,
+		FromStatus: from, ToStatus: domain.StatusQueued,
 		Attempt: run.Attempt,
 	})
+}
+
+func endpointStateKey(projectID, endpointURL string) string {
+	if projectID == "" {
+		return endpointURL
+	}
+	return projectID + "\x00" + endpointURL
 }
 
 // snoozeRunFromExecuting re-queues a run that is currently in the Executing

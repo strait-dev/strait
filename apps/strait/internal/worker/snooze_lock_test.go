@@ -84,3 +84,22 @@ func TestSnoozeRun_GenuineErrorStillLogged(t *testing.T) {
 		t.Fatalf("expected 1 SnoozeRunWithLock call, got %d", got)
 	}
 }
+
+func TestDeepSecSnoozeRun_ExecutingClaimTableRunUsesExecutingSource(t *testing.T) {
+	t.Parallel()
+
+	st := &mockExecutorStore{}
+	exec := newSnoozeTestExecutor(t, st, 0)
+
+	run := testRun(1)
+	run.Status = domain.StatusExecuting
+	exec.snoozeRun(context.Background(), run, "endpoint circuit breaker open", nil)
+
+	calls := st.statusUpdates()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 SnoozeRunWithLock call, got %d", len(calls))
+	}
+	if calls[0].from != domain.StatusExecuting {
+		t.Fatalf("snooze from = %q, want executing", calls[0].from)
+	}
+}
