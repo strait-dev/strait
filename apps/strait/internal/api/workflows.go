@@ -123,8 +123,14 @@ func (s *Server) handleCreateWorkflow(ctx context.Context, input *CreateWorkflow
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
 	}
+	if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("workflow not found")
+	}
 
 	if err := validateWorkflowSteps(req.Steps); err != nil {
+		return nil, huma.Error400BadRequest(err.Error())
+	}
+	if err := s.validateWorkflowStepProjectReferences(ctx, req.ProjectID, req.Steps); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
 	if err := s.checkWorkflowStepLimit(ctx, req.ProjectID, len(req.Steps)); err != nil {
@@ -320,6 +326,9 @@ func (s *Server) handleUpdateWorkflow(ctx context.Context, input *UpdateWorkflow
 	var candidateSteps []domain.WorkflowStep
 	if req.Steps != nil {
 		if err := validateWorkflowSteps(*req.Steps); err != nil {
+			return nil, huma.Error400BadRequest(err.Error())
+		}
+		if err := s.validateWorkflowStepProjectReferences(ctx, wf.ProjectID, *req.Steps); err != nil {
 			return nil, huma.Error400BadRequest(err.Error())
 		}
 		if err := s.checkWorkflowStepLimit(ctx, wf.ProjectID, len(*req.Steps)); err != nil {
@@ -634,6 +643,39 @@ func workflowStepsFromRequests(stepReqs []workflowStepRequest) []domain.Workflow
 		})
 	}
 	return steps
+}
+
+func (s *Server) validateWorkflowStepProjectReferences(ctx context.Context, projectID string, steps []workflowStepRequest) error {
+	seenJobs := make(map[string]struct{})
+	for _, step := range steps {
+		for _, jobID := range []string{step.JobID, step.CompensationJobID} {
+			if jobID == "" {
+				continue
+			}
+			if _, ok := seenJobs[jobID]; ok {
+				continue
+			}
+			seenJobs[jobID] = struct{}{}
+			job, err := s.store.GetJob(ctx, jobID)
+			if err != nil {
+				return fmt.Errorf("step %s references unknown job %s", step.StepRef, jobID)
+			}
+			if job != nil && job.ProjectID != projectID {
+				return fmt.Errorf("step %s references job outside workflow project", step.StepRef)
+			}
+		}
+		if step.SubWorkflowID == "" {
+			continue
+		}
+		wf, err := s.store.GetWorkflow(ctx, step.SubWorkflowID)
+		if err != nil {
+			return fmt.Errorf("step %s references unknown sub_workflow %s", step.StepRef, step.SubWorkflowID)
+		}
+		if wf != nil && wf.ProjectID != projectID {
+			return fmt.Errorf("step %s references sub_workflow outside workflow project", step.StepRef)
+		}
+	}
+	return nil
 }
 
 //nolint:gocognit

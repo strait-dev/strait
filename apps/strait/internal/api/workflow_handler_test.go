@@ -185,6 +185,54 @@ func TestHandleCreateWorkflow_InvalidStep(t *testing.T) {
 	}
 }
 
+func TestHandleCreateWorkflow_CrossProjectBlockedBeforeCreate(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		CreateWorkflowFunc: func(_ context.Context, _ *domain.Workflow) error {
+			t.Fatal("CreateWorkflow must not be called for a cross-project body")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+
+	_, err := srv.handleCreateWorkflow(ctx, &CreateWorkflowInput{Body: createWorkflowRequest{
+		ProjectID: "proj-2",
+		Name:      "wf",
+		Slug:      "wf",
+	}})
+	if !isHumaStatusError(err, http.StatusNotFound) {
+		t.Fatalf("expected 404, got %v", err)
+	}
+}
+
+func TestHandleCreateWorkflow_RejectsCrossProjectJobStep(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-2"}, nil
+		},
+		CreateWorkflowFunc: func(_ context.Context, _ *domain.Workflow) error {
+			t.Fatal("CreateWorkflow must not be called for a cross-project job step")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+
+	_, err := srv.handleCreateWorkflow(ctx, &CreateWorkflowInput{Body: createWorkflowRequest{
+		ProjectID: "proj-1",
+		Name:      "wf",
+		Slug:      "wf",
+		Steps:     []workflowStepRequest{{StepRef: "run-other", JobID: "job-other"}},
+	}})
+	if !isHumaStatusError(err, http.StatusBadRequest) {
+		t.Fatalf("expected 400, got %v", err)
+	}
+}
+
 func TestHandleCreateWorkflow_InvalidResourceClass(t *testing.T) {
 	t.Parallel()
 	srv := newWorkflowTestServer(t, &APIStoreMock{}, &mockQueue{}, nil, nil)
@@ -3587,6 +3635,29 @@ func TestHandleUpsertWorkflowPolicy_ErrorPaths(t *testing.T) {
 			t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
 		}
 	})
+}
+
+func TestHandleUpsertWorkflowPolicy_APIKeyRejected(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		UpsertWorkflowPolicyFunc: func(_ context.Context, _ *domain.WorkflowPolicy) error {
+			t.Fatal("UpsertWorkflowPolicy must not be called for API-key policy changes")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeWorkflowsWrite})
+
+	_, err := srv.handleUpsertWorkflowPolicy(ctx, &UpsertWorkflowPolicyInput{
+		ProjectID: "proj-1",
+		Body:      upsertWorkflowPolicyRequest{MaxFanOut: 0, MaxDepth: 0},
+	})
+	if !isHumaStatusError(err, http.StatusForbidden) {
+		t.Fatalf("expected 403, got %v", err)
+	}
 }
 
 func TestHandleWorkflowVersionDiff_ErrorPaths(t *testing.T) {

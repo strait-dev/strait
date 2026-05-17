@@ -29,6 +29,9 @@ func (s *Server) handleUpsertWorkflowPolicy(ctx context.Context, input *UpsertWo
 	if err := requireProjectMatch(ctx, input.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("not found")
 	}
+	if actorTypeFromContext(ctx) == "api_key" && !isInternalCaller(ctx) {
+		return nil, huma.Error403Forbidden("workflow policy changes require an operator or user context")
+	}
 	policy := &domain.WorkflowPolicy{
 		ProjectID:                input.ProjectID,
 		MaxFanOut:                input.Body.MaxFanOut,
