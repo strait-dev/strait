@@ -4153,11 +4153,21 @@ func TestWorkflowStepRun_IncrementDeps(t *testing.T) {
 		t.Fatalf("CreateWorkflowStep(parent) error = %v", err)
 	}
 
+	secondParent := &domain.WorkflowStep{
+		WorkflowID: workflow.ID,
+		JobID:      job.ID,
+		StepRef:    "transform",
+		DependsOn:  []string{},
+	}
+	if err := q.CreateWorkflowStep(ctx, secondParent); err != nil {
+		t.Fatalf("CreateWorkflowStep(second parent) error = %v", err)
+	}
+
 	child := &domain.WorkflowStep{
 		WorkflowID: workflow.ID,
 		JobID:      job.ID,
 		StepRef:    "aggregate",
-		DependsOn:  []string{"extract"},
+		DependsOn:  []string{"extract", "transform"},
 		Condition:  json.RawMessage(`{"type":"step_status","step_ref":"extract","status":"completed"}`),
 		Payload:    json.RawMessage(`{"kind":"agg"}`),
 	}
@@ -4175,6 +4185,18 @@ func TestWorkflowStepRun_IncrementDeps(t *testing.T) {
 	}
 	if err := q.CreateWorkflowRun(ctx, run); err != nil {
 		t.Fatalf("CreateWorkflowRun() error = %v", err)
+	}
+
+	completedParent := &domain.WorkflowStepRun{
+		WorkflowRunID:  run.ID,
+		WorkflowStepID: parent.ID,
+		StepRef:        parent.StepRef,
+		Status:         domain.StepCompleted,
+		DepsCompleted:  0,
+		DepsRequired:   0,
+	}
+	if err := q.CreateWorkflowStepRun(ctx, completedParent); err != nil {
+		t.Fatalf("CreateWorkflowStepRun(completed parent) error = %v", err)
 	}
 
 	waiting := &domain.WorkflowStepRun{
@@ -4206,7 +4228,27 @@ func TestWorkflowStepRun_IncrementDeps(t *testing.T) {
 		t.Fatalf("IncrementStepDeps() first payload = %s, want %s", string(first[0].Payload), string(child.Payload))
 	}
 
-	second, err := q.IncrementStepDeps(ctx, run.ID, parent.StepRef)
+	duplicate, err := q.IncrementStepDeps(ctx, run.ID, parent.StepRef)
+	if err != nil {
+		t.Fatalf("IncrementStepDeps() duplicate error = %v", err)
+	}
+	if len(duplicate) != 0 {
+		t.Fatalf("IncrementStepDeps() duplicate len = %d, want 0", len(duplicate))
+	}
+
+	completedSecondParent := &domain.WorkflowStepRun{
+		WorkflowRunID:  run.ID,
+		WorkflowStepID: secondParent.ID,
+		StepRef:        secondParent.StepRef,
+		Status:         domain.StepCompleted,
+		DepsCompleted:  0,
+		DepsRequired:   0,
+	}
+	if err := q.CreateWorkflowStepRun(ctx, completedSecondParent); err != nil {
+		t.Fatalf("CreateWorkflowStepRun(completed second parent) error = %v", err)
+	}
+
+	second, err := q.IncrementStepDeps(ctx, run.ID, secondParent.StepRef)
 	if err != nil {
 		t.Fatalf("IncrementStepDeps() second error = %v", err)
 	}
