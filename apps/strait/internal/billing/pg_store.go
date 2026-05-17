@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -17,6 +18,17 @@ func unmarshalJSON(data []byte, v any) error {
 }
 
 var ErrSubscriptionNotFound = errors.New("organization subscription not found")
+
+// querier abstracts the subset of pgxpool.Pool and pgx.Tx methods used by
+// billing reads/writes so a single helper can serve both transactional and
+// non-transactional callers. Mutators run inside WithBillingTx so the
+// primary UPDATE and the entitlements refresh land in one transaction;
+// pure readers pass the pool directly.
+type querier interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
 
 // PgStore implements Store with PostgreSQL via pgx.
 type PgStore struct {
@@ -32,40 +44,42 @@ func NewPgStore(pool *pgxpool.Pool) *PgStore {
 // does not already exist. Used for lazy initialization when a project is first
 // created under an org that has no Stripe subscription yet.
 func (s *PgStore) EnsureOrgSubscription(ctx context.Context, orgID string) error {
-	_, err := s.pool.Exec(ctx,
-		`INSERT INTO organization_subscriptions (id, org_id, plan_tier, status)
-		 VALUES (gen_random_uuid()::text, $1, 'free', 'active')
-		 ON CONFLICT (org_id) DO NOTHING`,
-		orgID)
-	if err != nil {
-		return fmt.Errorf("ensure org subscription: %w", err)
-	}
-	return nil
+	return WithBillingTx(ctx, s.pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO organization_subscriptions (id, org_id, plan_tier, status)
+			 VALUES (gen_random_uuid()::text, $1, 'free', 'active')
+			 ON CONFLICT (org_id) DO NOTHING`,
+			orgID); err != nil {
+			return fmt.Errorf("ensure org subscription: %w", err)
+		}
+		return s.refreshEntitlements(ctx, tx, orgID)
+	})
 }
 
 func (s *PgStore) GetOrgSubscription(ctx context.Context, orgID string) (*OrgSubscription, error) {
-	return s.getOrgSubscriptionWhere(ctx, "org_id = $1", orgID)
+	return s.getOrgSubscriptionWhere(ctx, s.pool, "org_id = $1", orgID)
 }
 
 func (s *PgStore) GetOrgSubscriptionByStripeSubscriptionID(ctx context.Context, stripeSubscriptionID string) (*OrgSubscription, error) {
 	if stripeSubscriptionID == "" {
 		return nil, ErrSubscriptionNotFound
 	}
-	return s.getOrgSubscriptionWhere(ctx, "stripe_subscription_id = $1", stripeSubscriptionID)
+	return s.getOrgSubscriptionWhere(ctx, s.pool, "stripe_subscription_id = $1", stripeSubscriptionID)
 }
 
 func (s *PgStore) GetOrgSubscriptionByStripeCustomerID(ctx context.Context, stripeCustomerID string) (*OrgSubscription, error) {
 	if stripeCustomerID == "" {
 		return nil, ErrSubscriptionNotFound
 	}
-	return s.getOrgSubscriptionWhere(ctx, "stripe_customer_id = $1", stripeCustomerID)
+	return s.getOrgSubscriptionWhere(ctx, s.pool, "stripe_customer_id = $1", stripeCustomerID)
 }
 
-func (s *PgStore) getOrgSubscriptionWhere(ctx context.Context, where string, arg string) (*OrgSubscription, error) {
+func (s *PgStore) getOrgSubscriptionWhere(ctx context.Context, q querier, where string, arg string) (*OrgSubscription, error) {
 	var sub OrgSubscription
 	var addOnsJSON []byte
 	query := `
 		SELECT id, org_id, plan_tier, stripe_subscription_id, stripe_customer_id,
+			stripe_lookup_key,
 			status, current_period_start, current_period_end,
 			spending_limit_microusd, limit_action, pending_plan_tier, canceled_at,
 			COALESCE(anomaly_threshold_warning, 3.0),
@@ -75,12 +89,14 @@ func (s *PgStore) getOrgSubscriptionWhere(ctx context.Context, where string, arg
 			COALESCE(enforcement_mode, 'enforce'),
 			COALESCE(monthly_usage_email, false),
 			COALESCE(add_ons, '{}'::jsonb),
+			COALESCE(entitlements, '{}'::jsonb),
 			created_at, updated_at
 		FROM organization_subscriptions
 		WHERE ` + where
-	err := s.pool.QueryRow(ctx, query, arg).Scan(
+	err := q.QueryRow(ctx, query, arg).Scan(
 		&sub.ID, &sub.OrgID, &sub.PlanTier,
 		&sub.StripeSubscriptionID, &sub.StripeCustomerID,
+		&sub.StripeLookupKey,
 		&sub.Status, &sub.CurrentPeriodStart, &sub.CurrentPeriodEnd,
 		&sub.SpendingLimitMicrousd, &sub.LimitAction, &sub.PendingPlanTier, &sub.CanceledAt,
 		&sub.AnomalyThresholdWarning, &sub.AnomalyThresholdCritical,
@@ -89,6 +105,7 @@ func (s *PgStore) getOrgSubscriptionWhere(ctx context.Context, where string, arg
 		&sub.EnforcementMode,
 		&sub.MonthlyUsageEmail,
 		&addOnsJSON,
+		&sub.Entitlements,
 		&sub.CreatedAt, &sub.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -106,48 +123,123 @@ func (s *PgStore) getOrgSubscriptionWhere(ctx context.Context, where string, arg
 }
 
 func (s *PgStore) UpsertOrgSubscription(ctx context.Context, sub *OrgSubscription) error {
-	_, err := s.pool.Exec(ctx, `
-		INSERT INTO organization_subscriptions (
-			id, org_id, plan_tier, stripe_subscription_id, stripe_customer_id,
-			status, current_period_start, current_period_end,
-			spending_limit_microusd, limit_action, canceled_at,
-			created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-		ON CONFLICT (org_id) DO UPDATE SET
-			plan_tier = EXCLUDED.plan_tier,
-			stripe_subscription_id = EXCLUDED.stripe_subscription_id,
-			stripe_customer_id = EXCLUDED.stripe_customer_id,
-			status = EXCLUDED.status,
-			current_period_start = EXCLUDED.current_period_start,
-			current_period_end = EXCLUDED.current_period_end,
-			spending_limit_microusd = organization_subscriptions.spending_limit_microusd,
-			limit_action = organization_subscriptions.limit_action,
-			pending_plan_tier = COALESCE(organization_subscriptions.pending_plan_tier, NULL),
-			canceled_at = EXCLUDED.canceled_at,
-			updated_at = NOW()
-	`, sub.ID, sub.OrgID, sub.PlanTier,
-		sub.StripeSubscriptionID, sub.StripeCustomerID,
-		sub.Status, sub.CurrentPeriodStart, sub.CurrentPeriodEnd,
-		sub.SpendingLimitMicrousd, sub.LimitAction, sub.CanceledAt,
-		sub.CreatedAt, sub.UpdatedAt,
-	)
-	if err != nil {
-		return fmt.Errorf("upserting org subscription: %w", err)
-	}
-	return nil
+	return WithBillingTx(ctx, s.pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO organization_subscriptions (
+				id, org_id, plan_tier, stripe_subscription_id, stripe_customer_id,
+				stripe_lookup_key,
+				status, current_period_start, current_period_end,
+				spending_limit_microusd, limit_action, canceled_at,
+				created_at, updated_at
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+			ON CONFLICT (org_id) DO UPDATE SET
+				plan_tier = EXCLUDED.plan_tier,
+				stripe_subscription_id = EXCLUDED.stripe_subscription_id,
+				stripe_customer_id = EXCLUDED.stripe_customer_id,
+				stripe_lookup_key = COALESCE(EXCLUDED.stripe_lookup_key, organization_subscriptions.stripe_lookup_key),
+				status = EXCLUDED.status,
+				current_period_start = EXCLUDED.current_period_start,
+				current_period_end = EXCLUDED.current_period_end,
+				spending_limit_microusd = organization_subscriptions.spending_limit_microusd,
+				limit_action = organization_subscriptions.limit_action,
+				pending_plan_tier = COALESCE(organization_subscriptions.pending_plan_tier, NULL),
+				canceled_at = EXCLUDED.canceled_at,
+				cap_warning_dispatched_at = CASE
+					WHEN organization_subscriptions.current_period_start IS DISTINCT FROM EXCLUDED.current_period_start THEN NULL
+					ELSE organization_subscriptions.cap_warning_dispatched_at
+				END,
+				cap_reached_dispatched_at = CASE
+					WHEN organization_subscriptions.current_period_start IS DISTINCT FROM EXCLUDED.current_period_start THEN NULL
+					ELSE organization_subscriptions.cap_reached_dispatched_at
+				END,
+				cap_disabled_dispatched_at = CASE
+					WHEN organization_subscriptions.current_period_start IS DISTINCT FROM EXCLUDED.current_period_start THEN NULL
+					ELSE organization_subscriptions.cap_disabled_dispatched_at
+				END,
+				overage_disabled_dispatched_at = CASE
+					WHEN organization_subscriptions.current_period_start IS DISTINCT FROM EXCLUDED.current_period_start THEN NULL
+					ELSE organization_subscriptions.overage_disabled_dispatched_at
+				END,
+				updated_at = NOW()
+		`, sub.ID, sub.OrgID, sub.PlanTier,
+			sub.StripeSubscriptionID, sub.StripeCustomerID,
+			sub.StripeLookupKey,
+			sub.Status, sub.CurrentPeriodStart, sub.CurrentPeriodEnd,
+			sub.SpendingLimitMicrousd, sub.LimitAction, sub.CanceledAt,
+			sub.CreatedAt, sub.UpdatedAt,
+		); err != nil {
+			return fmt.Errorf("upserting org subscription: %w", err)
+		}
+		return s.refreshEntitlements(ctx, tx, sub.OrgID)
+	})
 }
 
 func (s *PgStore) UpdateOrgSubscriptionPlan(ctx context.Context, orgID, planTier, status string) error {
-	tag, err := s.pool.Exec(ctx, `
-		UPDATE organization_subscriptions
-		SET plan_tier = $2, status = $3, updated_at = NOW()
-		WHERE org_id = $1
-	`, orgID, planTier, status)
-	if err != nil {
-		return fmt.Errorf("updating org subscription plan: %w", err)
+	return WithBillingTx(ctx, s.pool, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `
+			UPDATE organization_subscriptions
+			SET plan_tier = $2, status = $3, updated_at = NOW()
+			WHERE org_id = $1
+		`, orgID, planTier, status)
+		if err != nil {
+			return fmt.Errorf("updating org subscription plan: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrSubscriptionNotFound
+		}
+		return s.refreshEntitlements(ctx, tx, orgID)
+	})
+}
+
+// refreshEntitlements recomputes the entitlements snapshot from the current
+// subscription row plus active addons and writes it back. Mutators call this
+// inside their WithBillingTx so the primary UPDATE and the snapshot refresh
+// land in one transaction — concurrent mutators can't write entitlements in
+// inverse order against the same orgID.
+//
+// Unknown orgs (no subscription row yet) return nil silently. Listing addons
+// or writing entitlements failing surfaces an error so the caller's tx rolls
+// back together with its primary write.
+func (s *PgStore) refreshEntitlements(ctx context.Context, q querier, orgID string) error {
+	sub, err := s.getOrgSubscriptionWhere(ctx, q, "org_id = $1", orgID)
+	if errors.Is(err, ErrSubscriptionNotFound) {
+		return nil
 	}
-	if tag.RowsAffected() == 0 {
-		return ErrSubscriptionNotFound
+	if err != nil {
+		return fmt.Errorf("refresh entitlements load sub for org %s: %w", orgID, err)
+	}
+	addons, err := s.listActiveAddons(ctx, q, orgID)
+	if err != nil {
+		return fmt.Errorf("refresh entitlements load addons for org %s: %w", orgID, err)
+	}
+	entitlements := ComputeEntitlements(sub, addons)
+	return s.updateEntitlements(ctx, q, orgID, entitlements)
+}
+
+// UpdateEntitlements writes the resolved entitlements snapshot to the
+// organization_subscriptions row so subsequent quota reads can hit a single
+// JSONB column instead of recomputing through the catalog/addons pipeline.
+//
+// Callers are expected to have produced `entitlements` via
+// ComputeEntitlements; this method does not validate composition. A no-op
+// for unknown orgs (zero rows affected, no error) — webhook idempotency
+// retries land here for orgs that never persisted, and surfacing an error
+// would defeat the retry.
+func (s *PgStore) UpdateEntitlements(ctx context.Context, orgID string, entitlements OrgPlanLimits) error {
+	return s.updateEntitlements(ctx, s.pool, orgID, entitlements)
+}
+
+func (s *PgStore) updateEntitlements(ctx context.Context, q querier, orgID string, entitlements OrgPlanLimits) error {
+	payload, err := json.Marshal(entitlements)
+	if err != nil {
+		return fmt.Errorf("marshalling entitlements for org %s: %w", orgID, err)
+	}
+	if _, err = q.Exec(ctx, `
+		UPDATE organization_subscriptions
+		SET entitlements = $2::jsonb, updated_at = NOW()
+		WHERE org_id = $1
+	`, orgID, payload); err != nil {
+		return fmt.Errorf("updating entitlements for org %s: %w", orgID, err)
 	}
 	return nil
 }
@@ -168,21 +260,23 @@ func (s *PgStore) UpdateOrgSubscriptionStatus(ctx context.Context, orgID, status
 }
 
 func (s *PgStore) UpdateOrgSubscriptionFull(ctx context.Context, orgID, planTier, status string, periodStart, periodEnd *time.Time) error {
-	tag, err := s.pool.Exec(ctx, `
-		UPDATE organization_subscriptions
-		SET plan_tier = $2, status = $3,
-			current_period_start = COALESCE($4, current_period_start),
-			current_period_end = COALESCE($5, current_period_end),
-			updated_at = NOW()
-		WHERE org_id = $1
-	`, orgID, planTier, status, periodStart, periodEnd)
-	if err != nil {
-		return fmt.Errorf("updating org subscription full: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrSubscriptionNotFound
-	}
-	return nil
+	return WithBillingTx(ctx, s.pool, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `
+			UPDATE organization_subscriptions
+			SET plan_tier = $2, status = $3,
+				current_period_start = COALESCE($4, current_period_start),
+				current_period_end = COALESCE($5, current_period_end),
+				updated_at = NOW()
+			WHERE org_id = $1
+		`, orgID, planTier, status, periodStart, periodEnd)
+		if err != nil {
+			return fmt.Errorf("updating org subscription full: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrSubscriptionNotFound
+		}
+		return s.refreshEntitlements(ctx, tx, orgID)
+	})
 }
 
 func (s *PgStore) SetPendingPlanTier(ctx context.Context, orgID, tier string) error {
@@ -240,20 +334,22 @@ func (s *PgStore) ClearPendingPlanTier(ctx context.Context, orgID string) error 
 }
 
 func (s *PgStore) ApplyPendingDowngrade(ctx context.Context, orgID string) error {
-	tag, err := s.pool.Exec(ctx, `
-		UPDATE organization_subscriptions
-		SET plan_tier = pending_plan_tier,
-			pending_plan_tier = NULL,
-			updated_at = NOW()
-		WHERE org_id = $1 AND pending_plan_tier IS NOT NULL
-	`, orgID)
-	if err != nil {
-		return fmt.Errorf("applying pending downgrade: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrSubscriptionNotFound
-	}
-	return nil
+	return WithBillingTx(ctx, s.pool, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `
+			UPDATE organization_subscriptions
+			SET plan_tier = pending_plan_tier,
+				pending_plan_tier = NULL,
+				updated_at = NOW()
+			WHERE org_id = $1 AND pending_plan_tier IS NOT NULL
+		`, orgID)
+		if err != nil {
+			return fmt.Errorf("applying pending downgrade: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrSubscriptionNotFound
+		}
+		return s.refreshEntitlements(ctx, tx, orgID)
+	})
 }
 
 func (s *PgStore) ApplyPendingDowngradeIfTier(ctx context.Context, orgID, pendingTier string) (bool, error) {
@@ -357,6 +453,28 @@ func (s *PgStore) UpdateSpendingLimit(ctx context.Context, orgID string, limitMi
 		return ErrSubscriptionNotFound
 	}
 	return nil
+}
+
+// TryMarkBillingCapEvent stamps the per-event dedup column to NOW() iff it
+// is currently NULL, returning true when this caller was the first to mark.
+// Subsequent calls in the same billing period return false. The column is
+// reset on period rollover by UpsertOrgSubscription.
+func (s *PgStore) TryMarkBillingCapEvent(ctx context.Context, orgID string, ev BillingCapEvent) (bool, error) {
+	col := ev.Column()
+	if col == "" {
+		return false, fmt.Errorf("unknown billing cap event: %d", ev)
+	}
+	// Column name is whitelisted by BillingCapEvent.Column; safe to interpolate.
+	query := fmt.Sprintf(`
+		UPDATE organization_subscriptions
+		SET %s = NOW(), updated_at = NOW()
+		WHERE org_id = $1 AND %s IS NULL
+	`, col, col)
+	tag, err := s.pool.Exec(ctx, query, orgID)
+	if err != nil {
+		return false, fmt.Errorf("marking billing cap event %s: %w", col, err)
+	}
+	return tag.RowsAffected() == 1, nil
 }
 
 func (s *PgStore) GetProjectOrgID(ctx context.Context, projectID string) (string, error) {
@@ -760,13 +878,17 @@ func (s *PgStore) GetOrgDailyUsage(ctx context.Context, orgID string, date time.
 	return scanUsageRecords(rows)
 }
 
-func (s *PgStore) SumOrgPeriodSpend(_ context.Context, orgID string, from time.Time) (int64, error) {
-	// run_compute_usage was dropped in migration 000227. Compute spend is now
-	// tracked via usage_records (flat per-run cost). Return 0 until the new
-	// usage_records aggregation is wired in.
-	_ = orgID
-	_ = from
-	return 0, nil
+func (s *PgStore) SumOrgPeriodSpend(ctx context.Context, orgID string, from time.Time) (int64, error) {
+	var sum int64
+	err := s.pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(compute_cost_microusd), 0) + COALESCE(SUM(ai_cost_microusd), 0)
+		FROM usage_records
+		WHERE org_id = $1 AND period_date >= $2
+	`, orgID, from).Scan(&sum)
+	if err != nil {
+		return 0, fmt.Errorf("summing org period spend: %w", err)
+	}
+	return sum, nil
 }
 
 func (s *PgStore) GetProjectBudget(ctx context.Context, projectID string) (int64, string, error) {
@@ -800,12 +922,17 @@ func (s *PgStore) SetProjectBudget(ctx context.Context, projectID string, budget
 	return nil
 }
 
-func (s *PgStore) GetProjectPeriodSpend(_ context.Context, projectID string, from time.Time) (int64, error) {
-	// run_compute_usage was dropped in migration 000227. Return 0 until the new
-	// per-run cost aggregation is wired in.
-	_ = projectID
-	_ = from
-	return 0, nil
+func (s *PgStore) GetProjectPeriodSpend(ctx context.Context, projectID string, from time.Time) (int64, error) {
+	var sum int64
+	err := s.pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(compute_cost_microusd), 0) + COALESCE(SUM(ai_cost_microusd), 0)
+		FROM usage_records
+		WHERE project_id = $1 AND period_date >= $2
+	`, projectID, from).Scan(&sum)
+	if err != nil {
+		return 0, fmt.Errorf("summing project period spend: %w", err)
+	}
+	return sum, nil
 }
 
 func (s *PgStore) UpdateAnomalyThresholds(ctx context.Context, orgID string, warning, critical float64) error {
@@ -1142,8 +1269,10 @@ func (s *PgStore) UpdateMonthlyUsageEmail(ctx context.Context, orgID string, ena
 
 // DeactivateExcessCronJobs disables cron jobs beyond the given limit for an org.
 // Keeps the most recently updated jobs; clears cron on the oldest excess.
-func (s *PgStore) DeactivateExcessCronJobs(ctx context.Context, orgID string, maxSchedules int) (int64, error) {
-	result, err := s.pool.Exec(ctx, `
+// Returns the IDs of the jobs whose cron was cleared so callers can dispatch
+// per-schedule suspension events.
+func (s *PgStore) DeactivateExcessCronJobs(ctx context.Context, orgID string, maxSchedules int) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `
 		UPDATE jobs SET cron = '', updated_at = NOW()
 		WHERE id IN (
 			SELECT j.id FROM jobs j
@@ -1152,11 +1281,24 @@ func (s *PgStore) DeactivateExcessCronJobs(ctx context.Context, orgID string, ma
 			ORDER BY j.updated_at DESC
 			OFFSET $2
 		)
+		RETURNING id
 	`, orgID, maxSchedules)
 	if err != nil {
-		return 0, fmt.Errorf("deactivate excess cron jobs: %w", err)
+		return nil, fmt.Errorf("deactivate excess cron jobs: %w", err)
 	}
-	return result.RowsAffected(), nil
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if scanErr := rows.Scan(&id); scanErr != nil {
+			return nil, fmt.Errorf("scan deactivated cron job id: %w", scanErr)
+		}
+		ids = append(ids, id)
+	}
+	if rowsErr := rows.Err(); rowsErr != nil {
+		return nil, fmt.Errorf("iterating deactivated cron jobs: %w", rowsErr)
+	}
+	return ids, nil
 }
 
 // DeactivateExcessEnvironments marks excess environments as deleted for an org.
@@ -1196,10 +1338,52 @@ func (s *PgStore) DeactivateExcessWebhookSubscriptions(ctx context.Context, orgI
 	return result.RowsAffected(), nil
 }
 
+// DeactivateExcessLogDrains disables log drains beyond the org-wide limit.
+// Keeps the most recently created drains; disables the oldest excess.
+func (s *PgStore) DeactivateExcessLogDrains(ctx context.Context, orgID string, maxDrains int) (int64, error) {
+	result, err := s.pool.Exec(ctx, `
+		UPDATE log_drains SET enabled = false, updated_at = NOW()
+		WHERE id IN (
+			SELECT ld.id FROM log_drains ld
+			WHERE ld.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
+			  AND ld.enabled = true
+			ORDER BY ld.created_at ASC
+			OFFSET $2
+		)
+	`, orgID, maxDrains)
+	if err != nil {
+		return 0, fmt.Errorf("deactivate excess log drains: %w", err)
+	}
+	return result.RowsAffected(), nil
+}
+
+// DeactivateExcessNotificationChannelsByProject disables notification channels
+// beyond the per-project limit. Keeps the most recently created channels.
+func (s *PgStore) DeactivateExcessNotificationChannelsByProject(ctx context.Context, projectID string, maxChannels int) (int64, error) {
+	result, err := s.pool.Exec(ctx, `
+		UPDATE notification_channels SET enabled = false, updated_at = NOW()
+		WHERE id IN (
+			SELECT nc.id FROM notification_channels nc
+			WHERE nc.project_id = $1
+			  AND nc.enabled = true
+			ORDER BY nc.created_at ASC
+			OFFSET $2
+		)
+	`, projectID, maxChannels)
+	if err != nil {
+		return 0, fmt.Errorf("deactivate excess notification channels: %w", err)
+	}
+	return result.RowsAffected(), nil
+}
+
 // ListActiveAddons returns all active add-ons for an organization.
 func (s *PgStore) ListActiveAddons(ctx context.Context, orgID string) ([]Addon, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT id, org_id, addon_type, quantity, stripe_subscription_id, active, expires_at, created_at, updated_at
+	return s.listActiveAddons(ctx, s.pool, orgID)
+}
+
+func (s *PgStore) listActiveAddons(ctx context.Context, q querier, orgID string) ([]Addon, error) {
+	rows, err := q.Query(ctx, `
+		SELECT id, org_id, addon_type, quantity, stripe_subscription_id, stripe_lookup_key, active, expires_at, created_at, updated_at
 		FROM organization_addons
 		WHERE org_id = $1 AND active = true
 		ORDER BY created_at
@@ -1212,7 +1396,7 @@ func (s *PgStore) ListActiveAddons(ctx context.Context, orgID string) ([]Addon, 
 	var addons []Addon
 	for rows.Next() {
 		var a Addon
-		if err := rows.Scan(&a.ID, &a.OrgID, &a.AddonType, &a.Quantity, &a.StripeSubscriptionID, &a.Active, &a.ExpiresAt, &a.CreatedAt, &a.UpdatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.OrgID, &a.AddonType, &a.Quantity, &a.StripeSubscriptionID, &a.StripeLookupKey, &a.Active, &a.ExpiresAt, &a.CreatedAt, &a.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scanning addon row: %w", err)
 		}
 		addons = append(addons, a)
@@ -1222,25 +1406,34 @@ func (s *PgStore) ListActiveAddons(ctx context.Context, orgID string) ([]Addon, 
 
 // CreateAddon inserts a new add-on record.
 func (s *PgStore) CreateAddon(ctx context.Context, addon *Addon) error {
-	_, err := s.pool.Exec(ctx, `
-		INSERT INTO organization_addons (id, org_id, addon_type, quantity, stripe_subscription_id, active, expires_at, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
-	`, addon.ID, addon.OrgID, addon.AddonType, addon.Quantity, addon.StripeSubscriptionID, addon.Active, addon.ExpiresAt)
-	if err != nil {
-		return fmt.Errorf("creating addon: %w", err)
-	}
-	return nil
+	return WithBillingTx(ctx, s.pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO organization_addons (id, org_id, addon_type, quantity, stripe_subscription_id, stripe_lookup_key, active, expires_at, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+		`, addon.ID, addon.OrgID, addon.AddonType, addon.Quantity, addon.StripeSubscriptionID, addon.StripeLookupKey, addon.Active, addon.ExpiresAt); err != nil {
+			return fmt.Errorf("creating addon: %w", err)
+		}
+		return s.refreshEntitlements(ctx, tx, addon.OrgID)
+	})
 }
 
 // DeactivateAddon sets an add-on to inactive.
 func (s *PgStore) DeactivateAddon(ctx context.Context, addonID string) error {
-	_, err := s.pool.Exec(ctx, `
-		UPDATE organization_addons SET active = false, updated_at = NOW() WHERE id = $1
-	`, addonID)
-	if err != nil {
-		return fmt.Errorf("deactivating addon: %w", err)
-	}
-	return nil
+	return WithBillingTx(ctx, s.pool, func(tx pgx.Tx) error {
+		var orgID string
+		err := tx.QueryRow(ctx, `
+			UPDATE organization_addons SET active = false, updated_at = NOW()
+			WHERE id = $1
+			RETURNING org_id
+		`, addonID).Scan(&orgID)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil
+			}
+			return fmt.Errorf("deactivating addon: %w", err)
+		}
+		return s.refreshEntitlements(ctx, tx, orgID)
+	})
 }
 
 // CountActiveAddonsByType returns the number of active add-ons for an org and type.
@@ -1498,11 +1691,50 @@ func (s *PgStore) ListExpiredContracts(ctx context.Context) ([]EnterpriseContrac
 	return contracts, rows.Err()
 }
 
+// ListEnterpriseContractsActiveAt returns every enterprise contract whose
+// window covers the supplied instant. The SLA-credit calculator passes the
+// period-end so a contract that lapsed mid-month still contributes a credit
+// for the partial period it covered.
+func (s *PgStore) ListEnterpriseContractsActiveAt(ctx context.Context, at time.Time) ([]EnterpriseContract, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, org_id, enterprise_tier, annual_commitment_cents,
+			included_credit_microusd, compute_discount_pct,
+			contract_start_date, contract_end_date,
+			auto_renew, billing_cadence, stripe_subscription_id,
+			notes, created_at, updated_at
+		FROM enterprise_contracts
+		WHERE contract_start_date <= $1
+		  AND contract_end_date   >  $1
+		ORDER BY org_id ASC
+	`, at)
+	if err != nil {
+		return nil, fmt.Errorf("listing active enterprise contracts: %w", err)
+	}
+	defer rows.Close()
+
+	var contracts []EnterpriseContract
+	for rows.Next() {
+		var c EnterpriseContract
+		if err := rows.Scan(
+			&c.ID, &c.OrgID, &c.EnterpriseTier,
+			&c.AnnualCommitmentCents, &c.IncludedCreditMicrousd, &c.ComputeDiscountPct,
+			&c.ContractStartDate, &c.ContractEndDate,
+			&c.AutoRenew, &c.BillingCadence, &c.StripeSubscriptionID,
+			&c.Notes, &c.CreatedAt, &c.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scanning enterprise contract: %w", err)
+		}
+		contracts = append(contracts, c)
+	}
+	return contracts, rows.Err()
+}
+
 // PauseHTTPJobsByOrg pauses all active HTTP-mode jobs for an org.
 // Sets the pause reason so they can be selectively unpaused on upgrade.
-// Returns the number of jobs paused.
-func (s *PgStore) PauseHTTPJobsByOrg(ctx context.Context, orgID, reason string) (int64, error) {
-	tag, err := s.pool.Exec(ctx, `
+// Returns the IDs of the jobs that were paused so callers can dispatch
+// per-schedule suspension events.
+func (s *PgStore) PauseHTTPJobsByOrg(ctx context.Context, orgID, reason string) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `
 		UPDATE jobs SET
 			paused = true,
 			paused_at = NOW(),
@@ -1512,11 +1744,24 @@ func (s *PgStore) PauseHTTPJobsByOrg(ctx context.Context, orgID, reason string) 
 		  AND execution_mode = 'http'
 		  AND paused = false
 		  AND enabled = true
+		RETURNING id
 	`, orgID, reason)
 	if err != nil {
-		return 0, fmt.Errorf("pausing HTTP jobs for org: %w", err)
+		return nil, fmt.Errorf("pausing HTTP jobs for org: %w", err)
 	}
-	return tag.RowsAffected(), nil
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if scanErr := rows.Scan(&id); scanErr != nil {
+			return nil, fmt.Errorf("scan paused job id: %w", scanErr)
+		}
+		ids = append(ids, id)
+	}
+	if rowsErr := rows.Err(); rowsErr != nil {
+		return nil, fmt.Errorf("iterating paused HTTP jobs: %w", rowsErr)
+	}
+	return ids, nil
 }
 
 // UnpauseJobsByPauseReason unpauses jobs that were paused for a specific reason.

@@ -183,28 +183,3 @@ func TestHandleCreateWebhookSubscription_InvalidEventType(t *testing.T) {
 		t.Fatalf("expected 400 for invalid event type, got %d: %s", w.Code, w.Body.String())
 	}
 }
-
-func TestHandleCreateWebhookSubscription_AllowsQuotaAndCronEvents(t *testing.T) {
-	t.Parallel()
-
-	var captured []string
-	ms := &APIStoreMock{
-		CreateWebhookSubscriptionFunc: func(_ context.Context, sub *domain.WebhookSubscription) error {
-			captured = append([]string(nil), sub.EventTypes...)
-			sub.ID = "sub-quota-cron"
-			return nil
-		},
-	}
-	srv := newTestServerWithEncryptor(t, ms, &mockQueue{}, &mockEncryptor{})
-
-	body := `{"project_id":"proj-1","webhook_url":"https://example.com/hook","event_types":["quota.exceeded","cron.paused_quota","cron.resumed"],"secret":"secret"}`
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/webhooks/subscriptions", body))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if len(captured) != 3 {
-		t.Fatalf("captured event types = %v, want three quota/cron events", captured)
-	}
-}

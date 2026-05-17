@@ -768,5 +768,8 @@ func recommendPlan(_ int64, monthlyComputeMicro int64) string {
 	if monthlyComputeMicro <= CreditScaleMicrousd {
 		return string(domain.PlanScale)
 	}
+	if monthlyComputeMicro <= CreditBusinessMicrousd {
+		return string(domain.PlanBusiness)
+	}
 	return string(domain.PlanEnterprise)
 }

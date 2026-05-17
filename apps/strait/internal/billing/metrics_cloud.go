@@ -13,21 +13,24 @@ import (
 var billingMetrics = newBillingMetrics()
 
 type billingRuntimeMetrics struct {
-	limitRejections       metric.Int64Counter
-	enforcementFailOpen   metric.Int64Counter
-	stripeIngested        metric.Int64Counter
-	stripeDropped         metric.Int64Counter
-	overageEntered        metric.Int64Counter
-	quotaUsage            metric.Float64Gauge
-	quotaBlock            metric.Int64Counter
-	overageRuns           metric.Int64Counter
-	webhookProcessed      metric.Int64Counter
-	httpModeCompleted     metric.Int64Counter
-	httpModeGateRejected  metric.Int64Counter
-	featureGateRejected   metric.Int64Counter
-	usageRecords          metric.Int64Counter
-	usageRecordCostMicros metric.Int64Histogram
-	idempotencyDuplicates metric.Int64Counter
+	limitRejections            metric.Int64Counter
+	enforcementFailOpen        metric.Int64Counter
+	stripeIngested             metric.Int64Counter
+	stripeDropped              metric.Int64Counter
+	overageEntered             metric.Int64Counter
+	quotaUsage                 metric.Float64Gauge
+	quotaBlock                 metric.Int64Counter
+	overageRuns                metric.Int64Counter
+	webhookProcessed           metric.Int64Counter
+	webhookOrphanDelivery      metric.Int64Counter
+	httpModeCompleted          metric.Int64Counter
+	httpModeGateRejected       metric.Int64Counter
+	featureGateRejected        metric.Int64Counter
+	usageRecords               metric.Int64Counter
+	usageRecordCostMicros      metric.Int64Histogram
+	idempotencyDuplicates      metric.Int64Counter
+	usageThresholdEmitted      metric.Int64Counter
+	usageThresholdDedupeFailed metric.Int64Counter
 }
 
 func newBillingMetrics() billingRuntimeMetrics {
@@ -108,23 +111,63 @@ func newBillingMetrics() billingRuntimeMetrics {
 		metric.WithDescription("Total billing idempotency duplicate suppressions"),
 		metric.WithUnit("1"),
 	)
+	usageThresholdEmitted, _ := meter.Int64Counter(
+		"strait_billing_usage_threshold_total",
+		metric.WithDescription("Total usage threshold notifications emitted, labeled by tier, metric, and threshold percent"),
+		metric.WithUnit("1"),
+	)
+	usageThresholdDedupeFailed, _ := meter.Int64Counter(
+		"strait_billing_usage_threshold_dedupe_failed_total",
+		metric.WithDescription("Total times the usage-threshold Redis SETNX dedupe failed; a non-zero rate means notifications could be duplicated or lost"),
+		metric.WithUnit("1"),
+	)
+	webhookOrphanDelivery, _ := meter.Int64Counter(
+		"strait_billing_webhook_orphan_delivery_total",
+		metric.WithDescription("Total Stripe webhook events received for an unknown customer (no resolved org_id); investigate when non-zero"),
+		metric.WithUnit("1"),
+	)
 	return billingRuntimeMetrics{
-		limitRejections:       limitRejections,
-		enforcementFailOpen:   enforcementFailOpen,
-		stripeIngested:        stripeIngested,
-		stripeDropped:         stripeDropped,
-		overageEntered:        overageEntered,
-		quotaUsage:            quotaUsage,
-		quotaBlock:            quotaBlock,
-		overageRuns:           overageRuns,
-		webhookProcessed:      webhookProcessed,
-		httpModeCompleted:     httpModeCompleted,
-		httpModeGateRejected:  httpModeGateRejected,
-		featureGateRejected:   featureGateRejected,
-		usageRecords:          usageRecords,
-		usageRecordCostMicros: usageRecordCostMicros,
-		idempotencyDuplicates: idempotencyDuplicates,
+		limitRejections:            limitRejections,
+		enforcementFailOpen:        enforcementFailOpen,
+		stripeIngested:             stripeIngested,
+		stripeDropped:              stripeDropped,
+		overageEntered:             overageEntered,
+		quotaUsage:                 quotaUsage,
+		quotaBlock:                 quotaBlock,
+		overageRuns:                overageRuns,
+		webhookProcessed:           webhookProcessed,
+		webhookOrphanDelivery:      webhookOrphanDelivery,
+		httpModeCompleted:          httpModeCompleted,
+		httpModeGateRejected:       httpModeGateRejected,
+		featureGateRejected:        featureGateRejected,
+		usageRecords:               usageRecords,
+		usageRecordCostMicros:      usageRecordCostMicros,
+		idempotencyDuplicates:      idempotencyDuplicates,
+		usageThresholdEmitted:      usageThresholdEmitted,
+		usageThresholdDedupeFailed: usageThresholdDedupeFailed,
 	}
+}
+
+func recordBillingUsageThresholdEmitted(ctx context.Context, planTier, metricName, thresholdPct string) {
+	billingMetrics.usageThresholdEmitted.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("plan_tier", planTier),
+		attribute.String("metric", metricName),
+		attribute.String("threshold_pct", thresholdPct),
+	))
+}
+
+func recordBillingUsageThresholdDedupeFailed(ctx context.Context, planTier, metricName, thresholdPct string) {
+	billingMetrics.usageThresholdDedupeFailed.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("plan_tier", planTier),
+		attribute.String("metric", metricName),
+		attribute.String("threshold_pct", thresholdPct),
+	))
+}
+
+func recordBillingWebhookOrphanDelivery(ctx context.Context, eventType string) {
+	billingMetrics.webhookOrphanDelivery.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("event_type", eventType),
+	))
 }
 
 func recordBillingLimitRejection(ctx context.Context, reason, planTier string) {

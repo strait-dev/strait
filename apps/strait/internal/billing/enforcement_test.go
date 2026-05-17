@@ -1226,7 +1226,7 @@ func TestEnforcer_GetOrgPlanLimits_WithAddons(t *testing.T) {
 		"org-addon": {OrgID: "org-addon", PlanTier: "pro", Status: "active"},
 	}
 	store.activeAddons = []Addon{
-		{AddonType: AddonConcurrentRuns, Quantity: 2, Active: true},
+		{AddonType: AddonConcurrency100, Quantity: 2, Active: true},
 	}
 
 	limits, err := enforcer.GetOrgPlanLimits(context.Background(), "org-addon")
@@ -1235,9 +1235,9 @@ func TestEnforcer_GetOrgPlanLimits_WithAddons(t *testing.T) {
 	}
 
 	baseLimits := GetPlanLimits(domain.PlanPro)
-	wantConcurrent := baseLimits.MaxConcurrentRuns + 100 // 2 packs x 50
+	wantConcurrent := baseLimits.MaxConcurrentRuns + 200 // 2 packs x 100
 	if limits.MaxConcurrentRuns != wantConcurrent {
-		t.Errorf("MaxConcurrentRuns = %d, want %d (base %d + 100)", limits.MaxConcurrentRuns, wantConcurrent, baseLimits.MaxConcurrentRuns)
+		t.Errorf("MaxConcurrentRuns = %d, want %d (base %d + 200)", limits.MaxConcurrentRuns, wantConcurrent, baseLimits.MaxConcurrentRuns)
 	}
 }
 

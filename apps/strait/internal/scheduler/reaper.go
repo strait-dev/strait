@@ -1355,7 +1355,7 @@ func (r *Reaper) autoRotateAPIKeys(ctx context.Context) {
 			OrgID:                 oldKey.OrgID,
 			Name:                  oldKey.Name + " (auto-rotated)",
 			KeyHash:               hex.EncodeToString(keyHash[:]),
-			KeyPrefix:             rawKey[:12],
+			KeyPrefix:             rawKey[:domain.APIKeyPrefixLen],
 			Scopes:                oldKey.Scopes,
 			ExpiresAt:             oldKey.ExpiresAt,
 			EnvironmentID:         oldKey.EnvironmentID,

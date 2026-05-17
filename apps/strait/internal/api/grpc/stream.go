@@ -63,13 +63,14 @@ var (
 
 // workerService implements workerv1.WorkerServiceServer.
 type workerService struct {
-	queries        *store.Queries
-	pub            pubsub.Publisher
-	registry       *ConnectionRegistry
-	cfg            *config.Config
-	resultChannels *ResultChannelRegistry
-	runFinalizer   *atomic.Value
-	authLimiter    grpcAuthLimiter
+	queries         *store.Queries
+	pub             pubsub.Publisher
+	registry        *ConnectionRegistry
+	cfg             *config.Config
+	resultChannels  *ResultChannelRegistry
+	runFinalizer    *atomic.Value
+	authLimiter     grpcAuthLimiter
+	billingEnforcer planLimitEnforcer
 }
 
 // StreamTasks is the bidirectional streaming RPC between the server and a worker SDK.
@@ -156,6 +157,11 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 		return err
 	}
 
+	orgID, err := s.checkPlanConnectionLimit(ctx, projectID)
+	if err != nil {
+		return err
+	}
+
 	// Per-stream typed send channel for outbound ServerMessages.
 	// The dispatcher pushes TaskAssignment / CancelTask messages here; the send
 	// loop below drains the channel and writes each message to the gRPC stream.
@@ -163,7 +169,7 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 
 	// Register worker in the in-memory registry. SendCh is assigned BEFORE
 	// Register so any concurrent dispatch on this replica sees a usable channel.
-	cw := newConnectedWorkerFromRegistration(reg, apiKey, projectID, sendCh)
+	cw := newConnectedWorkerFromRegistration(reg, apiKey, projectID, orgID, sendCh)
 	s.registry.ReleasePendingStream(pendingProjectID, pendingAPIKeyID)
 	releasePending = nil
 	if err := s.registry.Register(cw); err != nil {
@@ -289,11 +295,13 @@ func newConnectedWorkerFromRegistration(
 	reg *workerv1.WorkerRegistration,
 	apiKey *domain.APIKey,
 	projectID string,
+	orgID string,
 	sendCh chan *workerv1.ServerMessage,
 ) *ConnectedWorker {
 	return &ConnectedWorker{
 		WorkerID:       reg.WorkerId,
 		ProjectID:      projectID,
+		OrgID:          orgID,
 		EnvironmentID:  apiKey.EnvironmentID,
 		APIKeyID:       apiKey.ID,
 		Name:           reg.Name,
@@ -434,6 +442,32 @@ func streamDisconnectReason(err error) string {
 	default:
 		return "error"
 	}
+}
+
+// checkPlanConnectionLimit resolves the org for the supplied project and
+// rejects the registration with codes.ResourceExhausted if the org is at
+// or above its plan-tier worker connection cap. Returns the resolved orgID
+// (which may be empty if no enforcer is wired or the lookup failed) so the
+// caller can attach it to the ConnectedWorker entry. Existing connections
+// are never evicted; this is a connect-time gate only.
+func (s *workerService) checkPlanConnectionLimit(ctx context.Context, projectID string) (string, error) {
+	if s.billingEnforcer == nil {
+		return "", nil
+	}
+	orgID, orgErr := s.billingEnforcer.GetActiveProjectOrgID(ctx, projectID)
+	if orgErr != nil {
+		slog.Warn("grpc registration: project org lookup failed (fail-open)",
+			"project_id", projectID, "error", orgErr)
+		return "", nil
+	}
+	if orgID == "" {
+		return "", nil
+	}
+	currentActive := s.registry.CountByOrg(orgID)
+	if err := s.billingEnforcer.CheckWorkerConnectionLimit(ctx, orgID, currentActive); err != nil {
+		return orgID, status.Errorf(codes.ResourceExhausted, "%v", err)
+	}
+	return orgID, nil
 }
 
 func (s *workerService) reservePendingWorkerStream(projectID, apiKeyID string) (func(), error) {

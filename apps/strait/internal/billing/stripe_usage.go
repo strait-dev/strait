@@ -1,3 +1,5 @@
+//go:build cloud
+
 package billing
 
 import (
@@ -5,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
-	"sync"
 	"time"
 
 	"strait/internal/telemetry"
@@ -13,11 +14,6 @@ import (
 	"github.com/stripe/stripe-go/v82"
 	"github.com/stripe/stripe-go/v82/billing/meterevent"
 )
-
-// stripeKeyOnce ensures the global stripe.Key is set exactly once,
-// preventing data races when multiple StripeUsageReporters are created
-// concurrently (e.g. in parallel tests).
-var stripeKeyOnce sync.Once
 
 // StripeUsageReporter sends usage events to the Stripe Billing Meter.
 // Safe for concurrent use from multiple goroutines.
@@ -44,12 +40,7 @@ func NewStripeUsageReporter(secretKey string, logger *slog.Logger, opts ...Strip
 	if logger == nil {
 		logger = slog.Default()
 	}
-	// Set the global Stripe API key exactly once. The stripe-go library uses
-	// a package-level global, so concurrent writes race. In production this
-	// is called once at startup; sync.Once guards against parallel test init.
-	stripeKeyOnce.Do(func() {
-		stripe.Key = secretKey //nolint:reassign // stripe-go uses a global key by design
-	})
+	ensureStripeKey(secretKey)
 	r := &StripeUsageReporter{
 		secretKey:      secretKey,
 		meterEventName: "compute_overage",
@@ -66,9 +57,8 @@ func NewStripeUsageReporter(secretKey string, logger *slog.Logger, opts ...Strip
 // The runID is used as the identifier for deduplication.
 func (r *StripeUsageReporter) IngestComputeUsage(ctx context.Context, stripeCustomerID, runID string, costMicroUSD int64) error {
 	if r.secretKey == "" || stripeCustomerID == "" {
-		return nil // not configured or no customer, skip silently
+		return nil
 	}
-
 	return r.ingest(ctx, stripeCustomerID, runID, costMicroUSD)
 }
 

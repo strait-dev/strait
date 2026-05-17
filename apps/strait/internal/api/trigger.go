@@ -517,6 +517,10 @@ func (s *Server) checkTriggerDispatchPriority(ctx context.Context, projectID str
 		return nil
 	}
 	if err := s.billingEnforcer.CheckMaxDispatchPriority(ctx, projectID, priority); err != nil {
+		var rse *rawStatusError
+		if converted := limitErrorTo402(err, ""); converted != nil && errors.As(converted, &rse) {
+			return converted
+		}
 		return huma.Error402PaymentRequired(err.Error())
 	}
 	return nil

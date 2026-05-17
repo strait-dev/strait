@@ -29,6 +29,7 @@ const (
 	FeatureSessionManagement Feature = "session_management"
 	FeatureSecretRotation    Feature = "secret_rotation"
 	FeatureSIEMExport        Feature = "siem_export"
+	FeatureLogStreaming      Feature = "log_streaming"
 )
 
 // LimitKey represents a numeric plan limit that can be queried via the registry.
@@ -49,6 +50,7 @@ const (
 	LimitMaxAlertRules       LimitKey = "max_alert_rules_per_proj"
 	LimitMaxWebhookSubs      LimitKey = "max_webhook_subs_per_proj"
 	LimitMaxLogDrains        LimitKey = "max_log_drains_per_org"
+	LimitMaxNotificationCh   LimitKey = "max_notification_channels"
 	LimitMaxAIModelCalls     LimitKey = "max_ai_model_calls_per_day"
 	LimitAPIRateLimit        LimitKey = "api_rate_limit"
 )
@@ -145,6 +147,8 @@ func (r *StaticRegistry) AllowsFeature(tier domain.PlanTier, feature Feature) bo
 		return limits.HasSecretRotation
 	case FeatureSIEMExport:
 		return limits.HasSIEMExport
+	case FeatureLogStreaming:
+		return limits.LogStreamingEnabled
 	default:
 		return false
 	}
@@ -192,6 +196,8 @@ func (r *StaticRegistry) MaxForLimit(tier domain.PlanTier, limit LimitKey) int {
 		return limits.MaxWebhookSubsPerProj
 	case LimitMaxLogDrains:
 		return limits.MaxLogDrainsPerOrg
+	case LimitMaxNotificationCh:
+		return limits.MaxNotificationChannels
 	case LimitMaxAIModelCalls:
 		return limits.MaxAIModelCallsPerDay
 	case LimitAPIRateLimit:

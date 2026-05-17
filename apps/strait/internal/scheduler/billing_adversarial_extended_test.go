@@ -380,8 +380,8 @@ func (m *billingAdvMockDowngradeStore) SuspendExcessProjects(_ context.Context, 
 	return 0, nil
 }
 
-func (m *billingAdvMockDowngradeStore) DeactivateExcessCronJobs(_ context.Context, _ string, _ int) (int64, error) {
-	return 0, nil
+func (m *billingAdvMockDowngradeStore) DeactivateExcessCronJobs(_ context.Context, _ string, _ int) ([]string, error) {
+	return nil, nil
 }
 
 func (m *billingAdvMockDowngradeStore) DeactivateExcessWebhookSubscriptions(_ context.Context, _ string, _ int) (int64, error) {
@@ -396,7 +396,19 @@ func (m *billingAdvMockDowngradeStore) ListProjectsByOrg(_ context.Context, _ st
 	return nil, nil
 }
 
-func (m *billingAdvMockDowngradeStore) PauseHTTPJobsByOrg(_ context.Context, _ string, _ string) (int64, error) {
+func (m *billingAdvMockDowngradeStore) PauseHTTPJobsByOrg(_ context.Context, _ string, _ string) ([]string, error) {
+	return nil, nil
+}
+
+func (m *billingAdvMockDowngradeStore) DeactivateExcessLogDrains(_ context.Context, _ string, _ int) (int64, error) {
+	return 0, nil
+}
+
+func (m *billingAdvMockDowngradeStore) DeactivateExcessNotificationChannelsByProject(_ context.Context, _ string, _ int) (int64, error) {
+	return 0, nil
+}
+
+func (m *billingAdvMockDowngradeStore) CountMembersByOrg(_ context.Context, _ string) (int, error) {
 	return 0, nil
 }
 

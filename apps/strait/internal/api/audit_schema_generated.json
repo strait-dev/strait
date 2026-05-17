@@ -448,6 +448,37 @@
         "bearer"
       ]
     },
+    "auth.internal_secret_bypass": {
+      "type": "object",
+      "description": "Project-scoped handler entered via X-Internal-Secret without a project context. gate names the skipped check, caller is the sender identity (api-key:\u003cid\u003e or 'unknown'), handler names the entry point.",
+      "properties": {
+        "caller": {
+          "type": "string",
+          "description": "required"
+        },
+        "gate": {
+          "type": "string",
+          "description": "required"
+        },
+        "handler": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["gate", "caller", "handler"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
     "auth.run_token.rejected": {
       "type": "object",
       "description": "SDK run-token authentication rejected before run-scoped API access.",
@@ -552,60 +583,6 @@
         }
       },
       "required": ["workflow_id", "traffic_pct"],
-      "x-forbidden-keys": [
-        "secret",
-        "value",
-        "password",
-        "private_key",
-        "auth_header",
-        "webhook_secret",
-        "api_key_plaintext",
-        "raw_key",
-        "token",
-        "bearer"
-      ]
-    },
-    "cron.paused_quota": {
-      "type": "object",
-      "description": "Cron jobs paused automatically because the org's quota was exceeded.",
-      "properties": {
-        "jobs_paused": {
-          "type": "string",
-          "description": "required"
-        },
-        "org_id": {
-          "type": "string",
-          "description": "required"
-        }
-      },
-      "required": ["org_id", "jobs_paused"],
-      "x-forbidden-keys": [
-        "secret",
-        "value",
-        "password",
-        "private_key",
-        "auth_header",
-        "webhook_secret",
-        "api_key_plaintext",
-        "raw_key",
-        "token",
-        "bearer"
-      ]
-    },
-    "cron.resumed_quota": {
-      "type": "object",
-      "description": "Cron jobs resumed automatically at the start of a new billing period after quota reset.",
-      "properties": {
-        "jobs_resumed": {
-          "type": "string",
-          "description": "required"
-        },
-        "org_id": {
-          "type": "string",
-          "description": "required"
-        }
-      },
-      "required": ["org_id", "jobs_resumed"],
       "x-forbidden-keys": [
         "secret",
         "value",
@@ -1851,33 +1828,6 @@
         "bearer"
       ]
     },
-    "quota.exceeded": {
-      "type": "object",
-      "description": "Org exceeded its quota; cron jobs paused until the next billing period.",
-      "properties": {
-        "org_id": {
-          "type": "string",
-          "description": "required"
-        },
-        "plan_tier": {
-          "type": "string",
-          "description": "required"
-        }
-      },
-      "required": ["org_id", "plan_tier"],
-      "x-forbidden-keys": [
-        "secret",
-        "value",
-        "password",
-        "private_key",
-        "auth_header",
-        "webhook_secret",
-        "api_key_plaintext",
-        "raw_key",
-        "token",
-        "bearer"
-      ]
-    },
     "resource_policy.created": {
       "type": "object",
       "description": "Resource-level policy created.",
@@ -2600,6 +2550,56 @@
         }
       },
       "required": ["format", "from", "to"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
+    "usage.threshold_reached": {
+      "type": "object",
+      "description": "Org crossed an 80%, 90%, or 100% threshold of a metered quota in the current billing period. Emitted at most once per (org, metric, threshold) per period.",
+      "properties": {
+        "current": {
+          "type": "string",
+          "description": "required"
+        },
+        "limit": {
+          "type": "string",
+          "description": "required"
+        },
+        "metric": {
+          "type": "string",
+          "description": "required"
+        },
+        "org_id": {
+          "type": "string",
+          "description": "required"
+        },
+        "plan_tier": {
+          "type": "string",
+          "description": "required"
+        },
+        "threshold_pct": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": [
+        "org_id",
+        "plan_tier",
+        "metric",
+        "threshold_pct",
+        "current",
+        "limit"
+      ],
       "x-forbidden-keys": [
         "secret",
         "value",

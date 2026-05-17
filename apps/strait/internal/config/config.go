@@ -255,16 +255,19 @@ type Config struct {
 	StripeProYearlyPriceID               string `env:"STRIPE_PRO_YEARLY_PRICE_ID"`
 	StripeScaleMonthlyPriceID            string `env:"STRIPE_SCALE_MONTHLY_PRICE_ID"`
 	StripeScaleYearlyPriceID             string `env:"STRIPE_SCALE_YEARLY_PRICE_ID"`
+	StripeBusinessMonthlyPriceID         string `env:"STRIPE_BUSINESS_MONTHLY_PRICE_ID"`
+	StripeBusinessYearlyPriceID          string `env:"STRIPE_BUSINESS_YEARLY_PRICE_ID"`
 	StripeEnterpriseStarterYearlyPriceID string `env:"STRIPE_ENTERPRISE_STARTER_YEARLY_PRICE_ID"`
 	StripeEnterpriseGrowthYearlyPriceID  string `env:"STRIPE_ENTERPRISE_GROWTH_YEARLY_PRICE_ID"`
 	StripeEnterpriseLargeYearlyPriceID   string `env:"STRIPE_ENTERPRISE_LARGE_YEARLY_PRICE_ID"`
-	StripeAddonConcurrentRunsID          string `env:"STRIPE_ADDON_CONCURRENT_RUNS_PRICE_ID"`
-	StripeAddonMembersID                 string `env:"STRIPE_ADDON_MEMBERS_PRICE_ID"`
-	StripeAddonCronSchedulesID           string `env:"STRIPE_ADDON_CRON_SCHEDULES_PRICE_ID"`
-	StripeAddonDataRetentionID           string `env:"STRIPE_ADDON_DATA_RETENTION_PRICE_ID"`
-	StripeAddonWebhookEndpointsID        string `env:"STRIPE_ADDON_WEBHOOK_ENDPOINTS_PRICE_ID"`
 	StripeMeterID                        string `env:"STRIPE_METER_ID"`
 	BillingEnforcementEnabled            bool   `env:"BILLING_ENFORCEMENT_ENABLED" default:"false"`
+	// BillingEntitlementsAuthoritative governs whether the Enforcer reads
+	// the persisted entitlements snapshot on the hot path (true, default)
+	// or always recomputes from the catalog + addons pipeline (false).
+	// Operators can flip this to false as an escape hatch if a bad
+	// migration/backfill writes corrupt snapshots.
+	BillingEntitlementsAuthoritative bool `env:"BILLING_ENTITLEMENTS_AUTHORITATIVE" default:"true"`
 
 	// Orchestration-only tier price IDs (new billing model).
 	// Set these to the Stripe Price IDs for each plan's flat monthly subscription.
@@ -281,6 +284,15 @@ type Config struct {
 	StripePrioritySlotPackPriceID string `env:"STRIPE_PRIORITY_SLOT_PACK_PRICE_ID"`
 	StripeLogDrainVolumePriceID   string `env:"STRIPE_LOG_DRAIN_VOLUME_PRICE_ID"`
 	StripeWorkerConnectionPriceID string `env:"STRIPE_WORKER_CONNECTION_PRICE_ID"`
+
+	// Prometheus uptime source for the SLA credit calculator. When
+	// PrometheusQueryURL is unset the SLACalculator falls back to a
+	// 100% StaticUptimeSource (no breaches), which keeps community /
+	// dev deployments quiet. The default query is service-level
+	// (Strait's `up` metric) — swap it in operators' env when a
+	// per-tenant aggregation is plumbed in.
+	PrometheusQueryURL    string `env:"PROMETHEUS_QUERY_URL"`
+	PrometheusUptimeQuery string `env:"PROMETHEUS_UPTIME_QUERY" default:"avg_over_time(up{job=\"strait\"}[30d]) * 100"`
 
 	// Resend email integration
 	ResendAPIKey    string `env:"RESEND_API_KEY"`

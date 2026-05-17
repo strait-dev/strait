@@ -208,7 +208,7 @@ func TestAdversarial_DoubleDeactivateAddon(t *testing.T) {
 	a := &billing.Addon{
 		ID:        newID(),
 		OrgID:     orgID,
-		AddonType: billing.AddonConcurrentRuns,
+		AddonType: billing.AddonConcurrency100,
 		Quantity:  1,
 		Active:    true,
 	}
@@ -246,7 +246,7 @@ func TestAdversarial_DuplicateAddonID(t *testing.T) {
 	a := &billing.Addon{
 		ID:        id,
 		OrgID:     orgID,
-		AddonType: billing.AddonConcurrentRuns,
+		AddonType: billing.AddonConcurrency100,
 		Quantity:  1,
 		Active:    true,
 	}
@@ -611,8 +611,8 @@ func TestAdversarial_DeactivateExcessCronJobs_KeepsNewest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DeactivateExcessCronJobs: %v", err)
 	}
-	if deactivated != 3 {
-		t.Fatalf("deactivated = %d, want 3", deactivated)
+	if len(deactivated) != 3 {
+		t.Fatalf("deactivated = %d, want 3", len(deactivated))
 	}
 
 	for i, jid := range jobIDs {

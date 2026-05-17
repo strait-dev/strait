@@ -284,9 +284,9 @@ func TestDowngradeApplier_EnforcesLimits_AfterDowngrade(t *testing.T) {
 			suspendCalled.Store(true)
 			return 2, nil
 		},
-		deactivateExcessCronJobsFn: func(_ context.Context, _ string, _ int) (int64, error) {
+		deactivateExcessCronJobsFn: func(_ context.Context, _ string, _ int) ([]string, error) {
 			deactivateCronCalled.Store(true)
-			return 1, nil
+			return []string{"job-1"}, nil
 		},
 		deactivateExcessWebhooksFn: func(_ context.Context, _ string, _ int) (int64, error) {
 			deactivateWebhookCalled.Store(true)
@@ -381,7 +381,7 @@ func TestDowngradeApplier_AllOrgsFailApply(t *testing.T) {
 type mockDowngradeStoreWithCallbacks struct {
 	mockDowngradeStore
 	suspendExcessProjectsFn    func(ctx context.Context, orgID string, maxProjects int) (int, error)
-	deactivateExcessCronJobsFn func(ctx context.Context, orgID string, maxSchedules int) (int64, error)
+	deactivateExcessCronJobsFn func(ctx context.Context, orgID string, maxSchedules int) ([]string, error)
 	deactivateExcessWebhooksFn func(ctx context.Context, orgID string, maxEndpoints int) (int64, error)
 	deactivateExcessEnvsFn     func(ctx context.Context, orgID string, maxEnvs int) (int64, error)
 }
@@ -393,11 +393,11 @@ func (m *mockDowngradeStoreWithCallbacks) SuspendExcessProjects(ctx context.Cont
 	return 0, nil
 }
 
-func (m *mockDowngradeStoreWithCallbacks) DeactivateExcessCronJobs(ctx context.Context, orgID string, maxSchedules int) (int64, error) {
+func (m *mockDowngradeStoreWithCallbacks) DeactivateExcessCronJobs(ctx context.Context, orgID string, maxSchedules int) ([]string, error) {
 	if m.deactivateExcessCronJobsFn != nil {
 		return m.deactivateExcessCronJobsFn(ctx, orgID, maxSchedules)
 	}
-	return 0, nil
+	return nil, nil
 }
 
 func (m *mockDowngradeStoreWithCallbacks) DeactivateExcessWebhookSubscriptions(ctx context.Context, orgID string, maxEndpoints int) (int64, error) {

@@ -154,11 +154,12 @@ func (q *Queries) DeactivateExcessEnvironments(ctx context.Context, orgID string
 
 // DeactivateExcessCronJobs disables cron jobs beyond the given limit for an org.
 // Keeps the most recently updated jobs and clears the cron field on the oldest excess ones.
-func (q *Queries) DeactivateExcessCronJobs(ctx context.Context, orgID string, maxSchedules int) (int64, error) {
+// Returns the IDs of the jobs whose cron was cleared.
+func (q *Queries) DeactivateExcessCronJobs(ctx context.Context, orgID string, maxSchedules int) ([]string, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeactivateExcessCronJobs")
 	defer span.End()
 
-	result, err := q.db.Exec(ctx, `
+	rows, err := q.db.Query(ctx, `
 		UPDATE jobs SET cron = '', updated_at = NOW()
 		WHERE id IN (
 			SELECT j.id FROM jobs j
@@ -167,11 +168,24 @@ func (q *Queries) DeactivateExcessCronJobs(ctx context.Context, orgID string, ma
 			ORDER BY j.updated_at DESC
 			OFFSET $2
 		)
+		RETURNING id
 	`, orgID, maxSchedules)
 	if err != nil {
-		return 0, fmt.Errorf("deactivate excess cron jobs: %w", err)
+		return nil, fmt.Errorf("deactivate excess cron jobs: %w", err)
 	}
-	return result.RowsAffected(), nil
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if scanErr := rows.Scan(&id); scanErr != nil {
+			return nil, fmt.Errorf("scan deactivated cron job id: %w", scanErr)
+		}
+		ids = append(ids, id)
+	}
+	if rowsErr := rows.Err(); rowsErr != nil {
+		return nil, fmt.Errorf("iterating deactivated cron jobs: %w", rowsErr)
+	}
+	return ids, nil
 }
 
 // DeactivateExcessWebhookSubscriptions deactivates webhook subscriptions beyond
@@ -212,6 +226,85 @@ func (q *Queries) CountWebhookSubscriptionsByOrg(ctx context.Context, orgID stri
 		return 0, fmt.Errorf("count webhook subscriptions by org: %w", err)
 	}
 	return count, nil
+}
+
+// CountLogDrainsByOrg counts log drains across all active projects in an org.
+func (q *Queries) CountLogDrainsByOrg(ctx context.Context, orgID string) (int, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountLogDrainsByOrg")
+	defer span.End()
+
+	var count int
+	err := q.db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM log_drains
+		WHERE project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
+	`, orgID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count log drains by org: %w", err)
+	}
+	return count, nil
+}
+
+// CountNotificationChannelsByProject counts notification channels for a project.
+func (q *Queries) CountNotificationChannelsByProject(ctx context.Context, projectID string) (int, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountNotificationChannelsByProject")
+	defer span.End()
+
+	var count int
+	err := q.db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM notification_channels
+		WHERE project_id = $1
+	`, projectID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count notification channels by project: %w", err)
+	}
+	return count, nil
+}
+
+// DeactivateExcessLogDrains disables log drains beyond the given org-wide limit.
+// Keeps the most recently created drains and disables the oldest excess ones.
+func (q *Queries) DeactivateExcessLogDrains(ctx context.Context, orgID string, maxDrains int) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeactivateExcessLogDrains")
+	defer span.End()
+
+	result, err := q.db.Exec(ctx, `
+		UPDATE log_drains SET enabled = false, updated_at = NOW()
+		WHERE id IN (
+			SELECT ld.id FROM log_drains ld
+			WHERE ld.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
+			  AND ld.enabled = true
+			ORDER BY ld.created_at ASC
+			OFFSET $2
+		)
+	`, orgID, maxDrains)
+	if err != nil {
+		return 0, fmt.Errorf("deactivate excess log drains: %w", err)
+	}
+	return result.RowsAffected(), nil
+}
+
+// DeactivateExcessNotificationChannelsByProject disables notification channels
+// beyond the per-project limit. Keeps the most recently created channels and
+// disables the oldest excess ones.
+func (q *Queries) DeactivateExcessNotificationChannelsByProject(ctx context.Context, projectID string, maxChannels int) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeactivateExcessNotificationChannelsByProject")
+	defer span.End()
+
+	result, err := q.db.Exec(ctx, `
+		UPDATE notification_channels SET enabled = false, updated_at = NOW()
+		WHERE id IN (
+			SELECT nc.id FROM notification_channels nc
+			WHERE nc.project_id = $1
+			  AND nc.enabled = true
+			ORDER BY nc.created_at ASC
+			OFFSET $2
+		)
+	`, projectID, maxChannels)
+	if err != nil {
+		return 0, fmt.Errorf("deactivate excess notification channels: %w", err)
+	}
+	return result.RowsAffected(), nil
 }
 
 // CountWebhookSubscriptionsByProject counts webhook subscriptions for a project.

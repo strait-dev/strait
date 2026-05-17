@@ -68,6 +68,13 @@ func (m *mockBillingEnforcer) CheckMaxDispatchPriority(_ context.Context, _ stri
 
 func (m *mockBillingEnforcer) EnsureOrgSubscription(_ context.Context, _ string) error { return nil }
 
+func (m *mockBillingEnforcer) CheckDailyAIModelCallLimit(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *mockBillingEnforcer) DispatchBilling(_ context.Context, _ string, _ domain.PlanTier, _ string, _ map[string]any) {
+}
+
 type mockUsageService struct {
 	currentUsage    *billing.CurrentUsageResponse
 	spendingLimit   *billing.SpendingLimitResponse

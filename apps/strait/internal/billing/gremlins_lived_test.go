@@ -160,7 +160,7 @@ func TestGetCurrentUsage_ActiveAddonsPopulated(t *testing.T) {
 	t.Parallel()
 	store := &mockBillingStore{
 		activeAddons: []Addon{
-			{AddonType: AddonConcurrentRuns, Quantity: 2, Active: true},
+			{AddonType: AddonConcurrency100, Quantity: 2, Active: true},
 		},
 	}
 	svc, _ := newUsageServiceTest(t, store)
@@ -294,7 +294,7 @@ func TestGetUsageForecast_AddonSpendIncluded(t *testing.T) {
 			{PeriodDate: now.AddDate(0, 0, -1), RunsCount: 10, ComputeCostMicro: 1_000_000},
 		},
 		activeAddons: []Addon{
-			{AddonType: AddonConcurrentRuns, Quantity: 2, Active: true},
+			{AddonType: AddonConcurrency100, Quantity: 2, Active: true},
 		},
 	}
 	svc, _ := newUsageServiceTest(t, store)
@@ -304,7 +304,7 @@ func TestGetUsageForecast_AddonSpendIncluded(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	pack := AddonPacks[AddonConcurrentRuns]
+	pack := AddonPacks[AddonConcurrency100]
 	expectedAddonMicro := int64(pack.PriceCents) * 2 * 10000
 	if forecast.AddonSpendMicro != expectedAddonMicro {
 		t.Errorf("AddonSpendMicro = %d, want %d", forecast.AddonSpendMicro, expectedAddonMicro)
@@ -319,7 +319,7 @@ func TestGetUsageForecast_AddonInactive_NotCounted(t *testing.T) {
 			{PeriodDate: now, RunsCount: 1, ComputeCostMicro: 100},
 		},
 		activeAddons: []Addon{
-			{AddonType: AddonConcurrentRuns, Quantity: 2, Active: false},
+			{AddonType: AddonConcurrency100, Quantity: 2, Active: false},
 		},
 	}
 	svc, _ := newUsageServiceTest(t, store)
@@ -345,7 +345,7 @@ func TestGetUsageForecast_ScaleBreakeven(t *testing.T) {
 			{PeriodDate: now, RunsCount: 500, ComputeCostMicro: 10_000_000},
 		},
 		activeAddons: []Addon{
-			{AddonType: AddonConcurrentRuns, Quantity: 5, Active: true},
+			{AddonType: AddonConcurrency100, Quantity: 5, Active: true},
 		},
 	}
 	svc, _ := newUsageServiceTest(t, store)
@@ -833,7 +833,7 @@ func TestEffectiveLimits_ZeroQuantity_Ignored(t *testing.T) {
 	t.Parallel()
 	base := GetPlanLimits(domain.PlanPro)
 	addons := []Addon{
-		{AddonType: AddonConcurrentRuns, Quantity: 0, Active: true},
+		{AddonType: AddonConcurrency100, Quantity: 0, Active: true},
 	}
 	result := EffectiveLimits(base, addons)
 	if result.MaxConcurrentRuns != base.MaxConcurrentRuns {
@@ -842,17 +842,17 @@ func TestEffectiveLimits_ZeroQuantity_Ignored(t *testing.T) {
 	}
 }
 
-func TestEffectiveLimits_RetentionExactlyAtCap(t *testing.T) {
+func TestEffectiveLimits_HistoryAddsAdditively(t *testing.T) {
 	t.Parallel()
 	base := GetPlanLimits(domain.PlanPro)
-	pack := AddonPacks[AddonDataRetention]
-	packs := (pack.MaxTotal - base.RetentionDays) / pack.PackSize
+	pack := AddonPacks[AddonHistory30d]
 	addons := []Addon{
-		{AddonType: AddonDataRetention, Quantity: packs, Active: true},
+		{AddonType: AddonHistory30d, Quantity: 3, Active: true},
 	}
 	result := EffectiveLimits(base, addons)
-	if result.RetentionDays != pack.MaxTotal {
-		t.Errorf("retention at cap = %d, want %d", result.RetentionDays, pack.MaxTotal)
+	want := base.RetentionDays + pack.PackSize*3
+	if result.RetentionDays != want {
+		t.Errorf("retention = %d, want %d", result.RetentionDays, want)
 	}
 }
 
@@ -1043,10 +1043,10 @@ func TestCalculateSLACredit_BoundaryTiers(t *testing.T) {
 		expected int
 	}{
 		{99.0, 99.9, 10},
-		{98.99, 99.9, 20},
-		{95.0, 99.9, 20},
-		{94.99, 99.9, 30},
-		{90.0, 99.9, 30},
+		{98.99, 99.9, 25},
+		{95.0, 99.9, 25},
+		{94.99, 99.9, 50},
+		{90.0, 99.9, 50},
 		{89.99, 99.9, 50},
 	}
 	for _, tt := range tests {

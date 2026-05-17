@@ -6,29 +6,31 @@ import "time"
 type AddonType string
 
 const (
-	AddonConcurrentRuns   AddonType = "concurrent_runs"
-	AddonMembers          AddonType = "members"
-	AddonCronSchedules    AddonType = "cron_schedules"
-	AddonDataRetention    AddonType = "data_retention"
-	AddonWebhookEndpoints AddonType = "webhook_endpoints"
+	AddonConcurrency100    AddonType = "concurrency_100"
+	AddonLogDrain10GB      AddonType = "log_drain_10gb"
+	AddonHistory30d        AddonType = "history_30d"
+	AddonComplianceArchive AddonType = "compliance_archive"
+	AddonDedicatedWorkers  AddonType = "dedicated_workers"
+	AddonEnvironments5     AddonType = "environments_5"
 )
 
 // AllAddonTypes returns all known add-on types.
 func AllAddonTypes() []AddonType {
 	return []AddonType{
-		AddonConcurrentRuns,
-		AddonMembers,
-		AddonCronSchedules,
-		AddonDataRetention,
-		AddonWebhookEndpoints,
+		AddonConcurrency100,
+		AddonLogDrain10GB,
+		AddonHistory30d,
+		AddonComplianceArchive,
+		AddonDedicatedWorkers,
+		AddonEnvironments5,
 	}
 }
 
 // IsValidAddonType returns true if the addon type is recognized.
 func IsValidAddonType(t AddonType) bool {
 	switch t {
-	case AddonConcurrentRuns, AddonMembers, AddonCronSchedules,
-		AddonDataRetention, AddonWebhookEndpoints:
+	case AddonConcurrency100, AddonLogDrain10GB, AddonHistory30d,
+		AddonComplianceArchive, AddonDedicatedWorkers, AddonEnvironments5:
 		return true
 	}
 	return false
@@ -38,46 +40,60 @@ func IsValidAddonType(t AddonType) bool {
 type AddonPackDefinition struct {
 	Type        AddonType
 	DisplayName string
-	PackSize    int // units per pack (e.g. +50 concurrent runs)
-	PriceCents  int // monthly price in cents
-	MaxTotal    int // maximum total after add-ons; -1 = no cap
+	LookupKey   string // Stripe lookup_key for cross-account resolution
+	PackSize    int    // units per pack (e.g. +50 concurrent runs)
+	PriceCents  int    // monthly price in cents
+	MaxTotal    int    // maximum total after add-ons; -1 = no cap
 }
 
 // AddonPacks defines the available add-on packs.
 var AddonPacks = map[AddonType]AddonPackDefinition{
-	AddonConcurrentRuns: {
-		Type:        AddonConcurrentRuns,
-		DisplayName: "Concurrent Runs",
-		PackSize:    50,
-		PriceCents:  1000, // $10/mo
+	AddonConcurrency100: {
+		Type:        AddonConcurrency100,
+		DisplayName: "+100 Concurrent Runs",
+		LookupKey:   "strait_addon_concurrency_100",
+		PackSize:    100,
+		PriceCents:  2000, // $20/mo
 		MaxTotal:    -1,
 	},
-	AddonMembers: {
-		Type:        AddonMembers,
-		DisplayName: "Team Members",
-		PackSize:    1,
-		PriceCents:  500, // $5/mo per seat
+	AddonLogDrain10GB: {
+		Type:        AddonLogDrain10GB,
+		DisplayName: "+10 GB Log Drain",
+		LookupKey:   "strait_addon_log_drain_10gb",
+		PackSize:    10,   // +10 GB
+		PriceCents:  2500, // $25/mo
 		MaxTotal:    -1,
 	},
-	AddonCronSchedules: {
-		Type:        AddonCronSchedules,
-		DisplayName: "Cron Schedules",
-		PackSize:    25,
-		PriceCents:  500, // $5/mo
-		MaxTotal:    -1,
-	},
-	AddonDataRetention: {
-		Type:        AddonDataRetention,
-		DisplayName: "Data Retention",
+	AddonHistory30d: {
+		Type:        AddonHistory30d,
+		DisplayName: "+30 Days History",
+		LookupKey:   "strait_addon_history_30d",
 		PackSize:    30,   // +30 days
-		PriceCents:  1000, // $10/mo
-		MaxTotal:    90,   // max 90 days total
+		PriceCents:  4000, // $40/mo
+		MaxTotal:    -1,
 	},
-	AddonWebhookEndpoints: {
-		Type:        AddonWebhookEndpoints,
-		DisplayName: "Webhook Endpoints",
+	AddonComplianceArchive: {
+		Type:        AddonComplianceArchive,
+		DisplayName: "Compliance Archive",
+		LookupKey:   "strait_addon_compliance_archive",
+		PackSize:    1,
+		PriceCents:  5000, // $50/mo
+		MaxTotal:    1,
+	},
+	AddonDedicatedWorkers: {
+		Type:        AddonDedicatedWorkers,
+		DisplayName: "Dedicated Worker Pool",
+		LookupKey:   "strait_addon_dedicated_workers",
+		PackSize:    1,
+		PriceCents:  20000, // $200/mo
+		MaxTotal:    -1,
+	},
+	AddonEnvironments5: {
+		Type:        AddonEnvironments5,
+		DisplayName: "+5 Environments",
+		LookupKey:   "strait_addon_environments_5",
 		PackSize:    5,
-		PriceCents:  500, // $5/mo
+		PriceCents:  3000, // $30/mo
 		MaxTotal:    -1,
 	},
 }
@@ -89,6 +105,7 @@ type Addon struct {
 	AddonType            AddonType
 	Quantity             int
 	StripeSubscriptionID *string
+	StripeLookupKey      *string
 	Active               bool
 	ExpiresAt            *time.Time
 	CreatedAt            time.Time
@@ -114,28 +131,25 @@ func EffectiveLimits(base OrgPlanLimits, addons []Addon) OrgPlanLimits {
 		increment := pack.PackSize * addon.Quantity
 
 		switch addon.AddonType {
-		case AddonConcurrentRuns:
+		case AddonConcurrency100:
 			if result.MaxConcurrentRuns != -1 {
 				result.MaxConcurrentRuns += increment
 			}
-		case AddonMembers:
-			if result.MaxMembersPerOrg != -1 {
-				result.MaxMembersPerOrg += increment
-			}
-		case AddonCronSchedules:
-			if result.MaxScheduledJobs != -1 {
-				result.MaxScheduledJobs += increment
-			}
-		case AddonDataRetention:
+		case AddonLogDrain10GB:
+			// LogDrain10GB is marketing-only; GB-level enforcement is intentionally
+			// not implemented (decision 2026-05-15). Drain-count enforcement remains
+			// via MaxLogDrainsPerOrg.
+		case AddonHistory30d:
 			if result.RetentionDays > 0 {
 				result.RetentionDays += increment
-				if pack.MaxTotal > 0 && result.RetentionDays > pack.MaxTotal {
-					result.RetentionDays = pack.MaxTotal
-				}
 			}
-		case AddonWebhookEndpoints:
-			if result.MaxWebhookEndpoints != -1 {
-				result.MaxWebhookEndpoints += increment
+		case AddonComplianceArchive:
+			result.HasSIEMExport = true
+		case AddonDedicatedWorkers:
+			result.HasDedicatedCompute = true
+		case AddonEnvironments5:
+			if result.MaxEnvironments != -1 {
+				result.MaxEnvironments += increment
 			}
 		}
 	}

@@ -90,6 +90,9 @@ func (m *mockAnomalyMonitorStore) CreateNotificationDelivery(ctx context.Context
 
 // Stub methods for the rest of billing.Store.
 
+func (m *mockAnomalyMonitorStore) UpdateEntitlements(context.Context, string, billing.OrgPlanLimits) error {
+	return nil
+}
 func (m *mockAnomalyMonitorStore) EnsureOrgSubscription(context.Context, string) error { return nil }
 func (m *mockAnomalyMonitorStore) UpsertOrgSubscription(context.Context, *billing.OrgSubscription) error {
 	return nil
@@ -168,6 +171,9 @@ func (m *mockAnomalyMonitorStore) GetProjectPeriodSpend(_ context.Context, _ str
 func (m *mockAnomalyMonitorStore) UpdateAnomalyThresholds(context.Context, string, float64, float64) error {
 	return nil
 }
+func (m *mockAnomalyMonitorStore) TryMarkBillingCapEvent(context.Context, string, billing.BillingCapEvent) (bool, error) {
+	return false, nil
+}
 func (m *mockAnomalyMonitorStore) UpdatePaymentStatus(context.Context, string, string, *time.Time) error {
 	return nil
 }
@@ -240,8 +246,8 @@ func (m *mockAnomalyMonitorStore) ListExpiringContracts(context.Context, int) ([
 	return nil, nil
 }
 
-func (m *mockAnomalyMonitorStore) PauseHTTPJobsByOrg(context.Context, string, string) (int64, error) {
-	return 0, nil
+func (m *mockAnomalyMonitorStore) PauseHTTPJobsByOrg(context.Context, string, string) ([]string, error) {
+	return nil, nil
 }
 
 func (m *mockAnomalyMonitorStore) UnpauseJobsByPauseReason(context.Context, string, string) (int64, error) {

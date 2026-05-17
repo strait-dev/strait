@@ -159,9 +159,12 @@ func TestEnqueueRunWebhook_EnqueuesTerminalRunDelivery(t *testing.T) {
 		t.Fatalf("expected status=pending, got %s", d.Status)
 	}
 
+	if d.LastError != "" {
+		t.Fatalf("expected last_error empty on enqueue, got %q", d.LastError)
+	}
 	var payload map[string]any
-	if err := json.Unmarshal([]byte(d.LastError), &payload); err != nil {
-		t.Fatalf("expected JSON payload in last_error: %v", err)
+	if err := json.Unmarshal(d.Payload, &payload); err != nil {
+		t.Fatalf("expected JSON payload on delivery: %v", err)
 	}
 	if payload["run_id"] != run.ID {
 		t.Fatalf("expected payload run_id=%s, got %v", run.ID, payload["run_id"])
@@ -3879,7 +3882,7 @@ func TestEnqueueRunWebhook_FailedStatus(t *testing.T) {
 	}
 
 	var payload map[string]any
-	if err := json.Unmarshal([]byte(deliveries[0].LastError), &payload); err != nil {
+	if err := json.Unmarshal(deliveries[0].Payload, &payload); err != nil {
 		t.Fatalf("unmarshal payload: %v", err)
 	}
 	if payload["status"] != "failed" {
@@ -3993,7 +3996,7 @@ func TestNotifyAsyncWithContext_PayloadContainsCallbackURL(t *testing.T) {
 	}
 
 	var payload map[string]any
-	if err := json.Unmarshal([]byte(deliveries[0].LastError), &payload); err != nil {
+	if err := json.Unmarshal(deliveries[0].Payload, &payload); err != nil {
 		t.Fatalf("unmarshal payload: %v", err)
 	}
 	expected := "/v1/events/my-event/send"

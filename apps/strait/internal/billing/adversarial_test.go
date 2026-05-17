@@ -16,19 +16,19 @@ func TestSpendingLimit_BoundaryValues(t *testing.T) {
 		expected int64
 	}{
 		{
-			name:     "free tier has zero limit",
+			name:     "free tier limit",
 			tier:     domain.PlanFree,
-			expected: 0,
+			expected: 50000000,
 		},
 		{
 			name:     "starter tier limit",
 			tier:     domain.PlanStarter,
-			expected: 500000000,
+			expected: 100000000,
 		},
 		{
 			name:     "pro tier limit",
 			tier:     domain.PlanPro,
-			expected: 2000000000,
+			expected: 200000000,
 		},
 		{
 			name:     "enterprise tier has custom limit",

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+
+	"strait/internal/billing"
 )
 
 // sseStreamOptions configures the shared SSE pump used by every
@@ -27,6 +29,18 @@ type sseStreamOptions struct {
 	// already in a terminal state at handler entry. Log streams skip
 	// this so historical runs can replay buffered logs.
 	rejectIfTerminal bool
+	// featureGate, when non-zero, requires the resolved run's project
+	// to have the named billing feature enabled before any SSE work
+	// begins.
+	featureGate featureGate
+}
+
+// featureGate names a plan-gated billing feature that the SSE pump
+// must verify before allocating connection budget. Zero value (empty
+// feature) means no gate.
+type featureGate struct {
+	feature billing.Feature
+	name    string
 }
 
 // streamSSE is the single SSE pump every handler routes through. It
@@ -46,6 +60,12 @@ func (s *Server) streamSSE(w http.ResponseWriter, r *http.Request, opts sseStrea
 	if opts.rejectIfTerminal && run.Status.IsTerminal() {
 		respondError(w, r, http.StatusGone, "run already in terminal state")
 		return
+	}
+	if opts.featureGate.feature != "" {
+		if err := s.checkFeatureAllowed(r.Context(), run.ProjectID, opts.featureGate.feature, opts.featureGate.name); err != nil {
+			writeTypedError(w, r, err)
+			return
+		}
 	}
 
 	if !s.acquireSSEConn(run.ProjectID) {
@@ -145,6 +165,10 @@ func (s *Server) handleRunLogStream(w http.ResponseWriter, r *http.Request) {
 	s.streamSSE(w, r, sseStreamOptions{
 		channel:   "worker:log:%s",
 		eventName: "log",
+		featureGate: featureGate{
+			feature: billing.FeatureLogStreaming,
+			name:    "Log streaming",
+		},
 	})
 }
 

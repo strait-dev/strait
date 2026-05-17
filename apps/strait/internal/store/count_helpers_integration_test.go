@@ -375,8 +375,8 @@ func TestDeactivateExcessCronJobs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DeactivateExcessCronJobs() error = %v", err)
 	}
-	if deactivated != 2 {
-		t.Fatalf("deactivated = %d, want 2", deactivated)
+	if len(deactivated) != 2 {
+		t.Fatalf("deactivated = %d, want 2", len(deactivated))
 	}
 
 	count, err := q.CountCronJobsByOrg(ctx, orgID)

@@ -2,6 +2,7 @@ package billing
 
 import (
 	"context"
+	"sync"
 	"time"
 )
 
@@ -38,6 +39,8 @@ type pendingDowngradeUpdate struct {
 }
 
 type mockBillingStore struct {
+	mu                         sync.Mutex // guards lastEntitlementsUpdates and capEventMarks against concurrent enforcer-driven writes
+	capEventMarks              map[string]map[BillingCapEvent]time.Time
 	lastUpserted               *OrgSubscription
 	upsertCount                int
 	lastPlanUpdate             *planUpdate
@@ -47,6 +50,7 @@ type mockBillingStore struct {
 	lastClearedPending         string
 	pendingDowngradeOrg        string
 	lastPendingDowngrade       *pendingDowngradeUpdate
+	lastEntitlementsUpdates    map[string]OrgPlanLimits
 	lastPaymentStatusUpdate    *paymentStatusUpdate
 	subscriptions              map[string]*OrgSubscription
 	projects                   map[string][]string
@@ -69,6 +73,7 @@ type mockBillingStore struct {
 	enterpriseContracts        map[string]*EnterpriseContract
 	upsertEnterpriseContractFn func(ctx context.Context, c *EnterpriseContract) error
 	activeAddons               []Addon
+	lastAddonCreated           *Addon
 	httpJobCount               int
 	getProjectBudgetFn         func(ctx context.Context, projectID string) (int64, string, error)
 	getProjectPeriodSpendFn    func(ctx context.Context, projectID string, periodStart time.Time) (int64, error)
@@ -224,6 +229,34 @@ func (m *mockBillingStore) ApplyPendingDowngrade(_ context.Context, orgID string
 		}
 	}
 	return ErrSubscriptionNotFound
+}
+
+func (m *mockBillingStore) TryMarkBillingCapEvent(_ context.Context, orgID string, ev BillingCapEvent) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.capEventMarks == nil {
+		m.capEventMarks = make(map[string]map[BillingCapEvent]time.Time)
+	}
+	per, ok := m.capEventMarks[orgID]
+	if !ok {
+		per = make(map[BillingCapEvent]time.Time)
+		m.capEventMarks[orgID] = per
+	}
+	if _, already := per[ev]; already {
+		return false, nil
+	}
+	per[ev] = time.Now()
+	return true, nil
+}
+
+func (m *mockBillingStore) UpdateEntitlements(_ context.Context, orgID string, entitlements OrgPlanLimits) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.lastEntitlementsUpdates == nil {
+		m.lastEntitlementsUpdates = make(map[string]OrgPlanLimits)
+	}
+	m.lastEntitlementsUpdates[orgID] = entitlements
+	return nil
 }
 
 func (m *mockBillingStore) ListOrgsWithPendingDowngrade(_ context.Context) ([]OrgSubscription, error) {
@@ -417,7 +450,11 @@ func (m *mockBillingStore) ListActiveAddons(_ context.Context, _ string) ([]Addo
 	return m.activeAddons, nil
 }
 
-func (m *mockBillingStore) CreateAddon(_ context.Context, _ *Addon) error {
+func (m *mockBillingStore) CreateAddon(_ context.Context, addon *Addon) error {
+	m.lastAddonCreated = addon
+	if addon != nil {
+		m.activeAddons = append(m.activeAddons, *addon)
+	}
 	return nil
 }
 
@@ -490,8 +527,8 @@ func (m *mockBillingStore) ListExpiringContracts(_ context.Context, _ int) ([]En
 	return nil, nil
 }
 
-func (m *mockBillingStore) PauseHTTPJobsByOrg(_ context.Context, _ string, _ string) (int64, error) {
-	return 0, nil
+func (m *mockBillingStore) PauseHTTPJobsByOrg(_ context.Context, _ string, _ string) ([]string, error) {
+	return nil, nil
 }
 
 func (m *mockBillingStore) UnpauseJobsByPauseReason(_ context.Context, _ string, _ string) (int64, error) {

@@ -13,6 +13,7 @@ import (
 	grpcserver "strait/internal/api/grpc"
 	"strait/internal/config"
 	"strait/internal/pubsub"
+	"strait/internal/scheduler"
 	"strait/internal/worker"
 
 	"github.com/sourcegraph/conc/pool"
@@ -84,7 +85,7 @@ func TestStartGRPCServer_RequiresPubsubWhenEnabled(t *testing.T) {
 		GRPCEnabled: true,
 	}
 
-	srv, err := startGRPCServer(pool.New().WithContext(context.Background()), cfg, nil, nil, nil, "test", nil)
+	srv, err := startGRPCServer(pool.New().WithContext(context.Background()), cfg, nil, nil, nil, nil, "test", nil)
 	if err == nil {
 		t.Fatal("expected error when GRPC is enabled without pubsub")
 	}
@@ -137,7 +138,7 @@ func TestStartGRPCServer_DisabledReturnsNil(t *testing.T) {
 		GRPCEnabled: false,
 	}
 
-	srv, err := startGRPCServer(pool.New().WithContext(context.Background()), cfg, nil, nil, nil, "test", nil)
+	srv, err := startGRPCServer(pool.New().WithContext(context.Background()), cfg, nil, nil, nil, nil, "test", nil)
 	if err != nil {
 		t.Fatalf("startGRPCServer() error = %v", err)
 	}
@@ -191,6 +192,16 @@ func TestApplyWorkerPlaneToExecutorConfig_NilPlaneLeavesConfigUntouched(t *testi
 
 func workerExecutorConfigForTest() worker.ExecutorConfig {
 	return worker.ExecutorConfig{}
+}
+
+// TestAnomalyMonitorStore_SatisfiesInterface fails to build if the wrapper
+// drifts from scheduler.AnomalyMonitorStore. Phase 4.7 promises the runtime
+// scheduler is built with a non-nil anomaly monitor; a compile-time check is
+// the cheapest way to guarantee the wrapper keeps that promise as the
+// interface evolves.
+func TestAnomalyMonitorStore_SatisfiesInterface(t *testing.T) {
+	t.Helper()
+	var _ scheduler.AnomalyMonitorStore = (*anomalyMonitorStore)(nil)
 }
 
 type noopServicePub struct{}

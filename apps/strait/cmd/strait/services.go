@@ -440,14 +440,10 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 			billing.WithStarterPrices(cfg.StripeStarterMonthlyPriceID, cfg.StripeStarterYearlyPriceID),
 			billing.WithProPrices(cfg.StripeProMonthlyPriceID, cfg.StripeProYearlyPriceID),
 			billing.WithScalePrices(cfg.StripeScaleMonthlyPriceID, cfg.StripeScaleYearlyPriceID),
+			billing.WithBusinessPrices(cfg.StripeBusinessMonthlyPriceID, cfg.StripeBusinessYearlyPriceID),
 			billing.WithEnterpriseStarterPrice(cfg.StripeEnterpriseStarterYearlyPriceID),
 			billing.WithEnterpriseGrowthPrice(cfg.StripeEnterpriseGrowthYearlyPriceID),
 			billing.WithEnterpriseLargePrice(cfg.StripeEnterpriseLargeYearlyPriceID),
-			billing.WithAddonPrice(cfg.StripeAddonConcurrentRunsID, billing.AddonConcurrentRuns),
-			billing.WithAddonPrice(cfg.StripeAddonMembersID, billing.AddonMembers),
-			billing.WithAddonPrice(cfg.StripeAddonCronSchedulesID, billing.AddonCronSchedules),
-			billing.WithAddonPrice(cfg.StripeAddonDataRetentionID, billing.AddonDataRetention),
-			billing.WithAddonPrice(cfg.StripeAddonWebhookEndpointsID, billing.AddonWebhookEndpoints),
 			// Orchestration-only flat tier prices (new billing model).
 			billing.WithStarterFlatPrice(cfg.StripeStarterPriceID),
 			billing.WithProFlatPrice(cfg.StripeProPriceID),
@@ -467,6 +463,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 			webhookOpts = append(webhookOpts, billing.WithBillingEmails(billingEmailSender))
 		}
 		webhookOpts = append(webhookOpts, billing.WithEdition(cfg.Edition))
+		webhookOpts = append(webhookOpts, billing.WithDunningStore(billingStore))
 		wh := billing.NewWebhookHandler(billingStore, stripeMapping, cfg.StripeWebhookSecret, slog.Default(), billingEnforcer, queries, webhookOpts...)
 		g.Go(func(ctx context.Context) error {
 			wh.StartReplayCleanup(ctx)
@@ -561,7 +558,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 // It is symmetric to startAPIServer: the server shuts down before the HTTP
 // server on SIGTERM so that connected workers can reconnect to other replicas
 // before the HTTP surface disappears.
-func startGRPCServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, pub pubsub.Publisher, rdb *redis.Client, version string, decryptor grpcserver.SecretDecryptor) (*grpcserver.Server, error) {
+func startGRPCServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, pub pubsub.Publisher, rdb *redis.Client, billingEnforcer *billing.Enforcer, version string, decryptor grpcserver.SecretDecryptor) (*grpcserver.Server, error) {
 	if cfg.Mode != "api" && cfg.Mode != "all" {
 		return nil, nil
 	}
@@ -581,11 +578,15 @@ func startGRPCServer(g *pool.ContextPool, cfg *config.Config, queries *store.Que
 	}
 	slog.Info("service.startup.gate", "component", "pubsub", "result", "ok")
 
-	srv, err := grpcserver.NewServer(cfg, queries, pub,
+	opts := []grpcserver.ServerOption{
 		grpcserver.WithAuthLimiter(ratelimit.NewAuthLimiter(rdb, rdb != nil)),
 		grpcserver.WithVersion(version),
 		grpcserver.WithSecretDecryptor(decryptor),
-	)
+	}
+	if billingEnforcer != nil {
+		opts = append(opts, grpcserver.WithBillingEnforcer(billingEnforcer))
+	}
+	srv, err := grpcserver.NewServer(cfg, queries, pub, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("grpc server: %w", err)
 	}
@@ -631,7 +632,7 @@ func waitForPubsubReady(ctx context.Context, pub pubsub.Publisher, budget time.D
 }
 
 // startWorker starts the job executor, worker pool, and scheduler goroutines.
-func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, dbPool *pgxpool.Pool, q *queue.PostgresQueue, bp *queue.Backpressure, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, billingEnforcer *billing.Enforcer, chExporter *clickhouse.Exporter, workerPlane *grpcserver.Server, encryptor api.Encryptor) {
+func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, dbPool *pgxpool.Pool, q *queue.PostgresQueue, bp *queue.Backpressure, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, billingEnforcer *billing.Enforcer, billingDispatcher *webhook.BillingDispatcher, chExporter *clickhouse.Exporter, workerPlane *grpcserver.Server, encryptor api.Encryptor) {
 	if cfg.Mode != "worker" && cfg.Mode != "all" {
 		return
 	}
@@ -838,10 +839,8 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 
 	// Start scheduler (cron, delayed poller, reaper)
 	g.Go(func(ctx context.Context) error {
-		budgetWebhookAdapter := scheduler.NewBudgetWebhookAdapter()
 		schedOpts := []scheduler.SchedulerOption{
 			scheduler.WithSchedulerMetrics(metrics),
-			scheduler.WithBudgetWebhookEnqueuer(budgetWebhookAdapter),
 			scheduler.WithChExporter(chExporter),
 			scheduler.WithReaperAdvisoryLocker(queries),
 			scheduler.WithIndexMaintainerAdvisoryLocker(queries),
@@ -946,6 +945,9 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 			slog.Info("billing budget and usage monitors enabled")
 
 			downgradeApplier := scheduler.NewDowngradeApplier(billingStore, billingEnforcer, 5*time.Minute)
+			if billingDispatcher != nil {
+				downgradeApplier.WithBillingDispatcher(billingDispatcher)
+			}
 			schedOpts = append(schedOpts, scheduler.WithDowngradeApplier(downgradeApplier))
 			slog.Info("downgrade applier enabled")
 
@@ -970,6 +972,42 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 				WithAdvisoryLocker(queries)
 			schedOpts = append(schedOpts, scheduler.WithQuotaResumeEnforcer(quotaResumeEnforcer))
 			slog.Info("quota resume enforcer enabled")
+
+			anomalyMonitor := scheduler.NewAnomalyMonitor(
+				&anomalyMonitorStore{PgStore: billingStore, queries: queries},
+				15*time.Minute,
+			).WithAdvisoryLocker(queries)
+			schedOpts = append(schedOpts, scheduler.WithAnomalyMonitor(anomalyMonitor))
+			slog.Info("anomaly monitor enabled")
+
+			dunnerOpts := []billing.DunnerOption{
+				billing.WithDunnerEmails(billingEmailSender),
+				billing.WithDunnerAdminLookup(billingStore),
+				billing.WithDunnerLogger(slog.Default()),
+			}
+			if billingDispatcher != nil {
+				dunnerOpts = append(dunnerOpts, billing.WithDunnerDispatcher(billingDispatcher))
+			}
+			dunner := billing.NewDunner(billingStore, dunnerOpts...)
+			schedOpts = append(schedOpts, scheduler.WithDunner(dunner))
+			slog.Info("dunning state machine enabled")
+
+			slaCreditStore := billing.NewPgSLACreditStore(dbPool)
+			slaCalculator := billing.NewSLACalculator(
+				&slaCalculatorStore{PgStore: billingStore, slaCreditStore: slaCreditStore},
+				newUptimeSource(cfg, slog.Default()),
+				24*time.Hour,
+				slog.Default(),
+			)
+			if billingDispatcher != nil {
+				slaCalculator.WithDispatcher(billingDispatcher)
+			}
+			if issuer := newSLAIssuer(cfg, billingStore, slog.Default()); issuer != nil {
+				slaCalculator.WithIssuer(issuer)
+				slog.Info("sla credit stripe issuer enabled")
+			}
+			schedOpts = append(schedOpts, scheduler.WithSLACalculator(slaCalculator))
+			slog.Info("sla credit calculator enabled")
 		}
 		// Backpressure sampler: produces the per-project
 		// strait.queue.backpressure_tokens_available gauge. Without this
@@ -1006,6 +1044,43 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		sched.Stop()
 		return nil
 	})
+}
+
+// anomalyMonitorStore composes the billing store with the notification-channel
+// methods on the main queries store so the scheduler's anomaly monitor can
+// resolve subscriber orgs (billing) and dispatch notifications (queries) via a
+// single dependency.
+type anomalyMonitorStore struct {
+	*billing.PgStore
+	queries *store.Queries
+}
+
+func (a *anomalyMonitorStore) ListEnabledNotificationChannels(ctx context.Context, projectID string) ([]domain.NotificationChannel, error) {
+	return a.queries.ListEnabledNotificationChannels(ctx, projectID)
+}
+
+func (a *anomalyMonitorStore) ListEnabledNotificationChannelsByProjectIDs(ctx context.Context, projectIDs []string) (map[string][]domain.NotificationChannel, error) {
+	return a.queries.ListEnabledNotificationChannelsByProjectIDs(ctx, projectIDs)
+}
+
+func (a *anomalyMonitorStore) CreateNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) error {
+	return a.queries.CreateNotificationDelivery(ctx, d)
+}
+
+// slaCalculatorStore composes the billing store (active enterprise contract
+// listing) with the dedicated SLA credit store (read/insert) so the
+// scheduler's SLA calculator can satisfy a single dependency.
+type slaCalculatorStore struct {
+	*billing.PgStore
+	slaCreditStore *billing.PgSLACreditStore
+}
+
+func (s *slaCalculatorStore) InsertSLACredit(ctx context.Context, row billing.SLACreditRow) error {
+	return s.slaCreditStore.InsertSLACredit(ctx, row)
+}
+
+func (s *slaCalculatorStore) GetSLACredit(ctx context.Context, orgID string, periodStart, periodEnd time.Time) (*billing.SLACreditRow, error) {
+	return s.slaCreditStore.GetSLACredit(ctx, orgID, periodStart, periodEnd)
 }
 
 func applyWorkerPlaneToExecutorConfig(execCfg *worker.ExecutorConfig, workerPlane *grpcserver.Server, jwtSigningKey string) {

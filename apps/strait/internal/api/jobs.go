@@ -147,6 +147,15 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 	if err := s.checkScheduleLimit(ctx, req.ProjectID, req.Cron); err != nil {
 		return nil, err
 	}
+	if err := s.checkCronMinInterval(ctx, req.ProjectID, req.Cron); err != nil {
+		return nil, err
+	}
+	if err := s.checkRunTTLLimit(ctx, req.ProjectID, req.RunTTLSecs); err != nil {
+		return nil, err
+	}
+	if err := s.checkPerJobConcurrencyLimit(ctx, req.ProjectID, req.MaxConcurrency, req.MaxConcurrencyPerKey); err != nil {
+		return nil, err
+	}
 
 	signingSecret := req.EndpointSigningSecret
 	if req.WebhookSecret != "" {
@@ -553,6 +562,11 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 				return nil, err
 			}
 		}
+		if *req.Cron != "" {
+			if err := s.checkCronMinInterval(ctx, job.ProjectID, *req.Cron); err != nil {
+				return nil, err
+			}
+		}
 		job.Cron = *req.Cron
 	}
 	if req.PayloadSchema != nil {
@@ -600,11 +614,24 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 		}
 		job.TimeoutSecs = *req.TimeoutSecs
 	}
-	if req.MaxConcurrency != nil {
-		job.MaxConcurrency = *req.MaxConcurrency
-	}
-	if req.MaxConcurrencyPerKey != nil {
-		job.MaxConcurrencyPerKey = *req.MaxConcurrencyPerKey
+	if req.MaxConcurrency != nil || req.MaxConcurrencyPerKey != nil {
+		newMax := job.MaxConcurrency
+		if req.MaxConcurrency != nil {
+			newMax = *req.MaxConcurrency
+		}
+		newPerKey := job.MaxConcurrencyPerKey
+		if req.MaxConcurrencyPerKey != nil {
+			newPerKey = *req.MaxConcurrencyPerKey
+		}
+		if err := s.checkPerJobConcurrencyLimit(ctx, job.ProjectID, newMax, newPerKey); err != nil {
+			return nil, err
+		}
+		if req.MaxConcurrency != nil {
+			job.MaxConcurrency = *req.MaxConcurrency
+		}
+		if req.MaxConcurrencyPerKey != nil {
+			job.MaxConcurrencyPerKey = *req.MaxConcurrencyPerKey
+		}
 	}
 	if req.ExecutionWindowCron != nil {
 		job.ExecutionWindowCron = *req.ExecutionWindowCron
@@ -622,6 +649,9 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 		job.DedupWindowSecs = *req.DedupWindowSecs
 	}
 	if req.RunTTLSecs != nil {
+		if err := s.checkRunTTLLimit(ctx, job.ProjectID, *req.RunTTLSecs); err != nil {
+			return nil, err
+		}
 		job.RunTTLSecs = *req.RunTTLSecs
 	}
 	if req.RetryStrategy != nil {
@@ -847,6 +877,15 @@ func (s *Server) handleCloneJob(ctx context.Context, input *CloneJobInput) (*Clo
 		return nil, err
 	}
 	if err := s.checkScheduleLimit(ctx, source.ProjectID, source.Cron); err != nil {
+		return nil, err
+	}
+	if err := s.checkCronMinInterval(ctx, source.ProjectID, source.Cron); err != nil {
+		return nil, err
+	}
+	if err := s.checkRunTTLLimit(ctx, source.ProjectID, source.RunTTLSecs); err != nil {
+		return nil, err
+	}
+	if err := s.checkPerJobConcurrencyLimit(ctx, source.ProjectID, source.MaxConcurrency, source.MaxConcurrencyPerKey); err != nil {
 		return nil, err
 	}
 
@@ -1188,6 +1227,9 @@ func (s *Server) handleBatchEnableJobs(ctx context.Context, input *BatchEnableJo
 	if projectID == "" && !isInternalCaller(ctx) {
 		return nil, huma.Error400BadRequest("project context is required -- authenticate with an API key")
 	}
+	if projectID == "" && isInternalCaller(ctx) {
+		s.emitInternalSecretBypassAudit(ctx, "batch_enable_jobs.project_match", "handleBatchEnableJobs", "job", "")
+	}
 
 	updated, err := s.store.BatchUpdateJobsEnabled(ctx, req.IDs, true, projectID)
 	if err != nil {
@@ -1220,6 +1262,9 @@ func (s *Server) handleBatchDisableJobs(ctx context.Context, input *BatchDisable
 	projectID := projectIDFromContext(ctx)
 	if projectID == "" && !isInternalCaller(ctx) {
 		return nil, huma.Error400BadRequest("project context is required -- authenticate with an API key")
+	}
+	if projectID == "" && isInternalCaller(ctx) {
+		s.emitInternalSecretBypassAudit(ctx, "batch_disable_jobs.project_match", "handleBatchDisableJobs", "job", "")
 	}
 
 	updated, err := s.store.BatchUpdateJobsEnabled(ctx, req.IDs, false, projectID)

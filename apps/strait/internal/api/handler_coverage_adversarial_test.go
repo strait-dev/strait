@@ -446,87 +446,6 @@ func TestHandlerListNotificationDeliveries_WithLimitAndCursor(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------.
-// 5. handleGetPlans
-// ---------------------------------------------------------------------------.
-
-func TestHandlerGetPlans_HappyPath(t *testing.T) {
-	t.Parallel()
-	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
-
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/plans", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	plans, ok := resp["plans"].([]any)
-	if !ok || len(plans) == 0 {
-		t.Fatal("expected non-empty plans array")
-	}
-}
-
-func TestHandlerGetPlans_ContainsAllTiers(t *testing.T) {
-	t.Parallel()
-	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
-
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/plans", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
-
-	var resp struct {
-		Plans []struct {
-			Tier string `json:"tier"`
-		} `json:"plans"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	expectedTiers := []string{"free", "starter", "pro", "scale", "enterprise"}
-	if len(resp.Plans) != len(expectedTiers) {
-		t.Fatalf("expected %d plans, got %d", len(expectedTiers), len(resp.Plans))
-	}
-	for i, want := range expectedTiers {
-		if resp.Plans[i].Tier != want {
-			t.Errorf("plan[%d]: expected tier=%s, got %s", i, want, resp.Plans[i].Tier)
-		}
-	}
-}
-
-func TestHandlerGetPlans_TierOrdering(t *testing.T) {
-	t.Parallel()
-	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
-
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/plans", ""))
-
-	var resp struct {
-		Plans []struct {
-			Tier            string `json:"tier"`
-			PriceMonthlyUsd int    `json:"price_monthly_usd"`
-		} `json:"plans"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	// The first three tiers (free, starter, pro) should have non-decreasing prices.
-	// Enterprise has custom pricing (0), so skip it.
-	for i := 1; i < len(resp.Plans)-1; i++ {
-		if resp.Plans[i].PriceMonthlyUsd < resp.Plans[i-1].PriceMonthlyUsd {
-			t.Errorf("plan[%d] (%s) price %d < plan[%d] (%s) price %d",
-				i, resp.Plans[i].Tier, resp.Plans[i].PriceMonthlyUsd,
-				i-1, resp.Plans[i-1].Tier, resp.Plans[i-1].PriceMonthlyUsd)
-		}
-	}
-}
-
-// ---------------------------------------------------------------------------.
 // 6. handleRunLLMStream (SSE streaming)
 // ---------------------------------------------------------------------------.
 
@@ -915,6 +834,9 @@ func (m *advMockBillingEnforcer) GetDailyRunCount(_ context.Context, _ string) (
 	return 0, nil
 }
 func (m *advMockBillingEnforcer) EnsureOrgSubscription(_ context.Context, _ string) error { return nil }
+func (m *advMockBillingEnforcer) CheckDailyAIModelCallLimit(_ context.Context, _ string) error {
+	return nil
+}
 func (m *advMockBillingEnforcer) CheckMaxDispatchPriority(_ context.Context, _ string, _ int) error {
 	return nil
 }
@@ -923,6 +845,8 @@ func (m *advMockBillingEnforcer) CheckOrgCreationLimit(ctx context.Context, user
 		return m.checkOrgCreationLimitFn(ctx, userID, planTier)
 	}
 	return nil
+}
+func (m *advMockBillingEnforcer) DispatchBilling(_ context.Context, _ string, _ domain.PlanTier, _ string, _ map[string]any) {
 }
 
 func advNewTestServerWithBilling(t *testing.T, s APIStore, be BillingEnforcer) *Server {
@@ -1017,8 +941,19 @@ func TestHandlerCheckOrgLimit_LimitExceeded(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/billing/check-org-limit?user_id=usr-1&plan_tier=free", ""))
 
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 for limit exceeded, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusPaymentRequired {
+		t.Fatalf("expected 402 for limit exceeded, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp QuotaExceededBody
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if resp.Code != "quota_exceeded" {
+		t.Fatalf("expected code 'quota_exceeded', got %q", resp.Code)
+	}
+	if resp.Kind != "org_limit_exceeded" {
+		t.Fatalf("expected kind 'org_limit_exceeded', got %q", resp.Kind)
 	}
 }
 
