@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -38,6 +39,24 @@ type webhookMockCollectHandler struct {
 func (m *webhookMockCollectHandler) Collect(_ context.Context, msg Message) (*pubsub.PubSubMessage, error) {
 	m.collected = append(m.collected, msg)
 	return m.pubMsg, m.err
+}
+
+type blockingWebhookHandler struct {
+	table   string
+	entered chan struct{}
+	release chan struct{}
+	count   atomic.Int64
+}
+
+func (h *blockingWebhookHandler) Table() string { return h.table }
+func (h *blockingWebhookHandler) Handle(_ context.Context, _ Message) error {
+	h.count.Add(1)
+	select {
+	case h.entered <- struct{}{}:
+	default:
+	}
+	<-h.release
+	return nil
 }
 
 func makeWebhookRequest(msg Message) *http.Request {
@@ -263,6 +282,56 @@ func TestDeepSecWebhookReceiver_SuppressesDuplicateIdempotencyKey(t *testing.T) 
 	}
 	if len(h.handled) != 1 {
 		t.Fatalf("handled duplicate count = %d, want 1", len(h.handled))
+	}
+}
+
+func TestDeepSecWebhookReceiver_SuppressesConcurrentDuplicateIdempotencyKey(t *testing.T) {
+	h := &blockingWebhookHandler{
+		table:   "job_runs",
+		entered: make(chan struct{}, 1),
+		release: make(chan struct{}),
+	}
+	wr := NewWebhookReceiver(nil, nil, WithWebhookDedupeTTL(time.Hour))
+	wr.RegisterHandler(h)
+
+	msg := Message{
+		AckID:    "ack-concurrent",
+		Record:   json.RawMessage(`{"id":"run-1"}`),
+		Action:   ActionUpdate,
+		Metadata: Metadata{TableName: "job_runs", IdempotencyKey: "idem-concurrent"},
+	}
+
+	firstDone := make(chan int, 1)
+	go func() {
+		rr := httptest.NewRecorder()
+		wr.ServeHTTP(rr, makeWebhookRequest(msg))
+		firstDone <- rr.Code
+	}()
+
+	select {
+	case <-h.entered:
+	case <-time.After(time.Second):
+		t.Fatal("first webhook did not enter handler")
+	}
+
+	rr := httptest.NewRecorder()
+	wr.ServeHTTP(rr, makeWebhookRequest(msg))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("concurrent duplicate status = %d, want 200", rr.Code)
+	}
+
+	close(h.release)
+	select {
+	case code := <-firstDone:
+		if code != http.StatusOK {
+			t.Fatalf("first webhook status = %d, want 200", code)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("first webhook did not finish")
+	}
+
+	if got := h.count.Load(); got != 1 {
+		t.Fatalf("handler count = %d, want 1", got)
 	}
 }
 

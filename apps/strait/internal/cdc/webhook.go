@@ -114,10 +114,17 @@ func (wr *WebhookReceiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if wr.isDuplicate(msg) {
+	dedupeKey, claimed := wr.claimDedupe(msg)
+	if !claimed {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
+	processed := false
+	defer func() {
+		if !processed {
+			wr.releaseDedupe(dedupeKey)
+		}
+	}()
 
 	tableName := msg.Metadata.TableName
 	handler, ok := wr.handlers[tableName]
@@ -162,7 +169,7 @@ func (wr *WebhookReceiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	wr.markSeen(msg)
+	processed = true
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -220,29 +227,30 @@ func (wr *WebhookReceiver) dedupeKey(msg Message) string {
 	return msg.AckID
 }
 
-func (wr *WebhookReceiver) isDuplicate(msg Message) bool {
+func (wr *WebhookReceiver) claimDedupe(msg Message) (string, bool) {
 	key := wr.dedupeKey(msg)
 	if key == "" || wr.dedupeTTL <= 0 {
-		return false
+		return "", true
 	}
 	now := time.Now()
 	wr.seenMu.Lock()
 	defer wr.seenMu.Unlock()
 	wr.pruneSeenLocked(now)
 	expiresAt, ok := wr.seen[key]
-	return ok && now.Before(expiresAt)
+	if ok && now.Before(expiresAt) {
+		return key, false
+	}
+	wr.seen[key] = now.Add(wr.dedupeTTL)
+	return key, true
 }
 
-func (wr *WebhookReceiver) markSeen(msg Message) {
-	key := wr.dedupeKey(msg)
+func (wr *WebhookReceiver) releaseDedupe(key string) {
 	if key == "" || wr.dedupeTTL <= 0 {
 		return
 	}
-	now := time.Now()
 	wr.seenMu.Lock()
 	defer wr.seenMu.Unlock()
-	wr.pruneSeenLocked(now)
-	wr.seen[key] = now.Add(wr.dedupeTTL)
+	delete(wr.seen, key)
 }
 
 func (wr *WebhookReceiver) pruneSeenLocked(now time.Time) {
