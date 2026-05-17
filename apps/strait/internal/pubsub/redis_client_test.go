@@ -52,6 +52,34 @@ func TestNewRedisClient_SentinelWithPassword(t *testing.T) {
 	client.Close()
 }
 
+func TestNewRedisClient_SentinelWithRedissEnablesTLS(t *testing.T) {
+	t.Parallel()
+	client, err := NewRedisClient("rediss://:mypassword@localhost:6379/2", "mymaster", []string{"localhost:26379"}, RedisPoolOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer client.Close()
+
+	opts := client.Options()
+	if opts.Password != "mypassword" {
+		t.Fatalf("Password: got %q, want %q", opts.Password, "mypassword")
+	}
+	if opts.DB != 2 {
+		t.Fatalf("DB: got %d, want 2", opts.DB)
+	}
+	if opts.TLSConfig == nil {
+		t.Fatal("expected Sentinel rediss:// configuration to enable TLS")
+	}
+}
+
+func TestNewRedisClient_SentinelInvalidURLFailsClosed(t *testing.T) {
+	t.Parallel()
+	_, err := NewRedisClient("not-a-valid-url", "mymaster", []string{"localhost:26379"}, RedisPoolOptions{})
+	if err == nil {
+		t.Fatal("expected error for invalid Sentinel Redis URL")
+	}
+}
+
 func TestNewRedisClient_InvalidURL(t *testing.T) {
 	t.Parallel()
 	_, err := NewRedisClient("not-a-valid-url", "", nil, RedisPoolOptions{})
