@@ -297,6 +297,9 @@ func runServe(ctx context.Context, modeOverride string) error {
 	if err != nil {
 		return err
 	}
+	if err := validateBillingRedisDependency(cfg, rdb); err != nil {
+		return err
+	}
 	if rdb != nil {
 		defer rdb.Close()
 	}
@@ -450,6 +453,13 @@ func runServe(ctx context.Context, modeOverride string) error {
 	}
 
 	slog.Info("strait stopped")
+	return nil
+}
+
+func validateBillingRedisDependency(cfg *config.Config, rdb *redis.Client) error {
+	if cfg != nil && cfg.BillingEnforcementEnabled && rdb == nil {
+		return fmt.Errorf("billing enforcement requires Redis; set REDIS_URL or disable BILLING_ENFORCEMENT_ENABLED")
+	}
 	return nil
 }
 

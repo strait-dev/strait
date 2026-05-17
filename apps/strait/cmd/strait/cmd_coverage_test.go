@@ -4,10 +4,12 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"strait/internal/billing"
+	"strait/internal/config"
 
 	"github.com/spf13/cobra"
 )
@@ -83,6 +85,18 @@ func TestNewServeCommand(t *testing.T) {
 	}
 	if f.DefValue != "" {
 		t.Fatalf("--mode default = %q, want empty string", f.DefValue)
+	}
+}
+
+func TestValidateBillingRedisDependency_FailsClosedWhenEnforcementEnabled(t *testing.T) {
+	t.Parallel()
+
+	err := validateBillingRedisDependency(&config.Config{BillingEnforcementEnabled: true}, nil)
+	if err == nil {
+		t.Fatal("expected billing enforcement without Redis to fail")
+	}
+	if !strings.Contains(err.Error(), "billing enforcement requires Redis") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

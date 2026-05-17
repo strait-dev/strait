@@ -254,6 +254,9 @@ func (s *Server) validateCreateJobFields(ctx context.Context, req *CreateJobRequ
 	if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
 		return huma.Error403Forbidden("project_id does not match authenticated project")
 	}
+	if err := requireEnvironmentMatch(ctx, req.EnvironmentID); err != nil {
+		return huma.Error403Forbidden("environment_id does not match authenticated environment")
+	}
 	if err := validateJobName(req.Name); err != nil {
 		return huma.Error400BadRequest(err.Error())
 	}
@@ -425,6 +428,9 @@ func (s *Server) handleListJobs(ctx context.Context, input *ListJobsInput) (*Lis
 			}
 			return nil, huma.Error500InternalServerError("failed to look up job by slug")
 		}
+		if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
+			return emptyPage(), nil
+		}
 		return &ListJobsOutput{Body: paginatedResult([]domain.Job{*job}, limit, func(j domain.Job) string {
 			return j.CreatedAt.Format(time.RFC3339Nano)
 		})}, nil
@@ -442,6 +448,7 @@ func (s *Server) handleListJobs(ctx context.Context, input *ListJobsInput) (*Lis
 	if listErr != nil {
 		return nil, huma.Error500InternalServerError("failed to list jobs")
 	}
+	jobs = filterJobsForEnvironment(ctx, jobs)
 
 	return &ListJobsOutput{Body: paginatedResult(jobs, limit, func(j domain.Job) string {
 		return j.CreatedAt.Format(time.RFC3339Nano)
@@ -664,6 +671,9 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 		job.RetryPriorityBoost = *req.RetryPriorityBoost
 	}
 	if req.EnvironmentID != nil {
+		if err := requireEnvironmentMatch(ctx, *req.EnvironmentID); err != nil {
+			return nil, huma.Error403Forbidden("environment_id does not match authenticated environment")
+		}
 		job.EnvironmentID = *req.EnvironmentID
 	}
 	if req.Enabled != nil {
@@ -982,6 +992,20 @@ func normalizeJobQueueName(name string) string {
 	return name
 }
 
+func filterJobsForEnvironment(ctx context.Context, jobs []domain.Job) []domain.Job {
+	callerEnv := environmentIDFromContext(ctx)
+	if callerEnv == "" {
+		return jobs
+	}
+	filtered := jobs[:0]
+	for _, job := range jobs {
+		if job.EnvironmentID == callerEnv {
+			filtered = append(filtered, job)
+		}
+	}
+	return filtered
+}
+
 func validateTags(tags map[string]string) error {
 	if len(tags) > 20 {
 		return fmt.Errorf("too many tags (max 20)")
@@ -1095,56 +1119,29 @@ func (s *Server) handleBatchCreateJobs(ctx context.Context, input *BatchCreateJo
 
 	var resp BatchCreateJobsResponse
 	for i, jobReq := range req.Jobs {
-		if err := s.validate.Struct(&jobReq); err != nil {
-			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: "validation failed"})
+		if err := s.validateCreateJobFields(ctx, &jobReq); err != nil {
+			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: batchJobErrorMessage(err)})
 			continue
 		}
-		if err := validateJobName(jobReq.Name); err != nil {
-			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: err.Error()})
+		execMode, err := s.resolveAndCheckExecMode(ctx, &jobReq)
+		if err != nil {
+			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: batchJobErrorMessage(err)})
 			continue
 		}
-		if err := validateJobSlug(jobReq.Slug); err != nil {
-			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: err.Error()})
+		if err := s.checkScheduleLimit(ctx, jobReq.ProjectID, jobReq.Cron); err != nil {
+			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: batchJobErrorMessage(err)})
 			continue
 		}
-		if err := validateEndpointNotEmpty(jobReq.EndpointURL); err != nil {
-			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: err.Error()})
+		if err := s.checkCronMinInterval(ctx, jobReq.ProjectID, jobReq.Cron); err != nil {
+			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: batchJobErrorMessage(err)})
 			continue
 		}
-
-		if err := validateURL(jobReq.EndpointURL); err != nil {
-			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: "invalid endpoint_url: " + err.Error()})
+		if err := s.checkRunTTLLimit(ctx, jobReq.ProjectID, jobReq.RunTTLSecs); err != nil {
+			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: batchJobErrorMessage(err)})
 			continue
 		}
-
-		if err := validateRetryConfig(jobReq.RetryStrategy, jobReq.RetryDelaysSecs); err != nil {
-			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: err.Error()})
-			continue
-		}
-
-		if jobReq.MaxAttempts == 0 {
-			jobReq.MaxAttempts = s.defaultJobMaxAttempts()
-		}
-		if jobReq.TimeoutSecs == 0 {
-			jobReq.TimeoutSecs = s.defaultJobTimeoutSecs()
-		}
-		if jobReq.TimeoutSecs > 86400 {
-			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: "timeout_secs must not exceed 86400 (24 hours)"})
-			continue
-		}
-		if jobReq.RetryPriorityBoost == 0 {
-			jobReq.RetryPriorityBoost = 1
-		}
-
-		if len(jobReq.Tags) > 0 {
-			if err := validateTags(jobReq.Tags); err != nil {
-				resp.Errors = append(resp.Errors, BatchError{Index: i, Message: err.Error()})
-				continue
-			}
-		}
-
-		if err := requireProjectMatch(ctx, jobReq.ProjectID); err != nil {
-			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: "project not found"})
+		if err := s.checkPerJobConcurrencyLimit(ctx, jobReq.ProjectID, jobReq.MaxConcurrency, jobReq.MaxConcurrencyPerKey); err != nil {
+			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: batchJobErrorMessage(err)})
 			continue
 		}
 
@@ -1174,6 +1171,12 @@ func (s *Server) handleBatchCreateJobs(ctx context.Context, input *BatchCreateJo
 			EnvironmentID:       jobReq.EnvironmentID,
 			PreferredRegions:    jobReq.PreferredRegions,
 			Enabled:             true,
+			ExecutionMode:       execMode,
+			Queue:               normalizeJobQueueName(jobReq.QueueName),
+			CronOverlapPolicy:   domain.CronOverlapPolicy(jobReq.CronOverlapPolicy),
+			VersionPolicy:       domain.VersionPolicyPin,
+			CreatedBy:           actorFromContext(ctx),
+			UpdatedBy:           actorFromContext(ctx),
 		}
 
 		if err := s.store.CreateJob(ctx, job); err != nil {
@@ -1201,6 +1204,19 @@ func (s *Server) handleBatchCreateJobs(ctx context.Context, input *BatchCreateJo
 	}
 
 	return &BatchCreateJobsOutput{Body: resp}, nil
+}
+
+func batchJobErrorMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	var rse *rawStatusError
+	if errors.As(err, &rse) {
+		if msg, ok := rse.body.(string); ok && msg != "" {
+			return msg
+		}
+	}
+	return err.Error()
 }
 
 // BatchEnableJobsInput is the typed input for batch enabling jobs.
@@ -1231,14 +1247,22 @@ func (s *Server) handleBatchEnableJobs(ctx context.Context, input *BatchEnableJo
 		s.emitInternalSecretBypassAudit(ctx, "batch_enable_jobs.project_match", "handleBatchEnableJobs", "job", "")
 	}
 
-	updated, err := s.store.BatchUpdateJobsEnabled(ctx, req.IDs, true, projectID)
+	ids, err := s.filterBatchJobIDsForCaller(ctx, req.IDs)
+	if err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return &BatchUpdateResultOutput{Body: BatchUpdateResult{Updated: 0}}, nil
+	}
+
+	updated, err := s.store.BatchUpdateJobsEnabled(ctx, ids, true, projectID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to enable jobs")
 	}
 
 	s.emitAuditEvent(ctx, domain.AuditActionJobBatchEnabled, "job", "", map[string]any{
 		"count":   updated,
-		"job_ids": req.IDs,
+		"job_ids": ids,
 	})
 
 	return &BatchUpdateResultOutput{Body: BatchUpdateResult{Updated: updated}}, nil
@@ -1267,17 +1291,49 @@ func (s *Server) handleBatchDisableJobs(ctx context.Context, input *BatchDisable
 		s.emitInternalSecretBypassAudit(ctx, "batch_disable_jobs.project_match", "handleBatchDisableJobs", "job", "")
 	}
 
-	updated, err := s.store.BatchUpdateJobsEnabled(ctx, req.IDs, false, projectID)
+	ids, err := s.filterBatchJobIDsForCaller(ctx, req.IDs)
+	if err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return &BatchUpdateResultOutput{Body: BatchUpdateResult{Updated: 0}}, nil
+	}
+
+	updated, err := s.store.BatchUpdateJobsEnabled(ctx, ids, false, projectID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to disable jobs")
 	}
 
 	s.emitAuditEvent(ctx, domain.AuditActionJobBatchDisabled, "job", "", map[string]any{
 		"count":   updated,
-		"job_ids": req.IDs,
+		"job_ids": ids,
 	})
 
 	return &BatchUpdateResultOutput{Body: BatchUpdateResult{Updated: updated}}, nil
+}
+
+func (s *Server) filterBatchJobIDsForCaller(ctx context.Context, ids []string) ([]string, error) {
+	if projectIDFromContext(ctx) == "" || environmentIDFromContext(ctx) == "" {
+		return ids, nil
+	}
+	filtered := make([]string, 0, len(ids))
+	for _, id := range ids {
+		job, err := s.store.GetJob(ctx, id)
+		if err != nil {
+			if errors.Is(err, store.ErrJobNotFound) {
+				continue
+			}
+			return nil, huma.Error500InternalServerError("failed to get job")
+		}
+		if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
+			continue
+		}
+		if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
+			continue
+		}
+		filtered = append(filtered, id)
+	}
+	return filtered, nil
 }
 
 // JobHealthResponse wraps health stats with the time window.

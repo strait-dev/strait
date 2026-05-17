@@ -313,7 +313,7 @@ func startCDCConsumer(g *pool.ContextPool, cfg *config.Config, pub pubsub.Publis
 	}
 
 	slog.Info("cdc consumer enabled",
-		"base_url", cfg.SequinBaseURL,
+		"base_url", httputil.RedactURLForLog(cfg.SequinBaseURL),
 		"consumer", cfg.SequinConsumerName,
 	)
 
@@ -487,7 +487,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 	)
 	if siemDrain != nil {
 		slog.Info("audit SIEM drain enabled",
-			"endpoint", cfg.AuditSIEMEndpoint,
+			"endpoint", httputil.RedactURLForLog(cfg.AuditSIEMEndpoint),
 			"batch_size", cfg.AuditSIEMBatchSize,
 			"flush_interval", cfg.AuditSIEMFlushInterval)
 	}

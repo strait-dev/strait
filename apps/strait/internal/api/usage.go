@@ -76,6 +76,21 @@ func (s *Server) resolveUsageOrgIDTyped(ctx context.Context, orgID string) (stri
 	return orgID, nil
 }
 
+func requireOrgScopedBillingWrite(ctx context.Context, orgID string) error {
+	if isInternalCaller(ctx) || scopesFromContext(ctx) == nil {
+		return nil
+	}
+	if actorTypeFromContext(ctx) != "api_key" {
+		return nil
+	}
+	if callerOrg := orgIDFromContext(ctx); callerOrg == "" || callerOrg != orgID {
+		return huma.Error403Forbidden("org-scoped billing mutation requires an API key bound to the target organization")
+	}
+	return nil
+}
+
+const maxUsageDateRange = 370 * 24 * time.Hour
+
 func parseDateRangeTyped(fromStr, toStr string) (time.Time, time.Time, error) {
 	if fromStr == "" || toStr == "" {
 		return time.Time{}, time.Time{}, huma.Error400BadRequest("from and to query parameters are required (format: YYYY-MM-DD)")
@@ -90,6 +105,9 @@ func parseDateRangeTyped(fromStr, toStr string) (time.Time, time.Time, error) {
 	}
 	if to.Before(from) {
 		return time.Time{}, time.Time{}, huma.Error400BadRequest("to date must be after from date")
+	}
+	if to.Sub(from) > maxUsageDateRange {
+		return time.Time{}, time.Time{}, huma.Error400BadRequest("date range must not exceed 370 days")
 	}
 	return from, to, nil
 }
@@ -233,6 +251,9 @@ func (s *Server) handleUpdateSpendingLimit(ctx context.Context, input *UpdateSpe
 	if err != nil {
 		return nil, err
 	}
+	if err := requireOrgScopedBillingWrite(ctx, orgID); err != nil {
+		return nil, err
+	}
 	if err := s.usageService.SetSpendingLimit(ctx, orgID, input.Body.LimitMicrousd, input.Body.Action); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
@@ -278,6 +299,9 @@ type UpdateEmailPreferencesOutput struct{ Body map[string]string }
 func (s *Server) handleUpdateEmailPreferences(ctx context.Context, input *UpdateEmailPreferencesInput) (*UpdateEmailPreferencesOutput, error) {
 	orgID, err := s.resolveUsageOrgIDTyped(ctx, input.OrgID)
 	if err != nil {
+		return nil, err
+	}
+	if err := requireOrgScopedBillingWrite(ctx, orgID); err != nil {
 		return nil, err
 	}
 	if s.usageService == nil {
@@ -505,6 +529,9 @@ func (s *Server) handleUpdateAnomalyConfig(ctx context.Context, input *UpdateAno
 	}
 	orgID, err := s.resolveUsageOrgIDTyped(ctx, input.OrgID)
 	if err != nil {
+		return nil, err
+	}
+	if err := requireOrgScopedBillingWrite(ctx, orgID); err != nil {
 		return nil, err
 	}
 	if err := s.usageService.SetAnomalyConfig(ctx, orgID, input.Body.Warning, input.Body.Critical); err != nil {
