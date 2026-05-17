@@ -381,6 +381,13 @@ func requireEnvironmentMatch(ctx context.Context, resourceEnvironmentID string) 
 	return nil
 }
 
+func requireProjectWideScope(ctx context.Context, resource string) error {
+	if environmentIDFromContext(ctx) == "" {
+		return nil
+	}
+	return huma.Error403Forbidden(resource + " requires a project-wide key")
+}
+
 // requireRunAccess fetches the run by ID and enforces tenant isolation.
 // Returns an appropriate huma error if the caller does not own the run.
 // Internal callers (scheduler, worker) that operate without a project
