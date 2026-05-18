@@ -60,6 +60,15 @@ func PreviewDowngrade(ctx context.Context, store Store, orgID string, targetTier
 		effectiveDate = *sub.CurrentPeriodEnd
 	}
 
+	memberCount, err := store.CountMembersByOrg(ctx, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("counting members for downgrade preview: %w", err)
+	}
+	executingRuns, err := store.CountExecutingRunsByOrg(ctx, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("counting executing runs for downgrade preview: %w", err)
+	}
+
 	impact := &DowngradeImpact{
 		TargetTier:    string(targetTier),
 		EffectiveDate: effectiveDate.Format("2006-01-02"),
@@ -75,7 +84,7 @@ func PreviewDowngrade(ctx context.Context, store Store, orgID string, targetTier
 	// Members per org
 	impact.Impacts = append(impact.Impacts, buildImpact(
 		"members_per_org",
-		int64(currentLimits.MaxMembersPerOrg),
+		int64(memberCount),
 		int64(targetLimits.MaxMembersPerOrg),
 	))
 
@@ -89,7 +98,7 @@ func PreviewDowngrade(ctx context.Context, store Store, orgID string, targetTier
 	// Concurrent runs
 	impact.Impacts = append(impact.Impacts, buildImpact(
 		"concurrent_runs",
-		int64(currentLimits.MaxConcurrentRuns),
+		int64(executingRuns),
 		int64(targetLimits.MaxConcurrentRuns),
 	))
 

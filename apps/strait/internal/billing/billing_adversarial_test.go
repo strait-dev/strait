@@ -2327,6 +2327,39 @@ func TestUsageService_PreviewDowngrade(t *testing.T) {
 	}
 }
 
+func TestPreviewDowngrade_UsesActualUsageNotCurrentPlanCaps(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-preview-actual": {
+				OrgID:    "org-preview-actual",
+				PlanTier: string(domain.PlanPro),
+				Status:   "active",
+			},
+		},
+		projects:      map[string][]string{"org-preview-actual": {"p1"}},
+		memberCounts:  map[string]int{"org-preview-actual": 2},
+		executingRuns: map[string]int{"org-preview-actual": 3},
+	}
+
+	impact, err := PreviewDowngrade(context.Background(), store, "org-preview-actual", domain.PlanFree)
+	if err != nil {
+		t.Fatalf("PreviewDowngrade: %v", err)
+	}
+
+	byResource := make(map[string]ResourceImpact, len(impact.Impacts))
+	for _, item := range impact.Impacts {
+		byResource[item.Resource] = item
+	}
+	if got := byResource["members_per_org"].Current; got != 2 {
+		t.Fatalf("members_per_org current = %d, want actual count 2", got)
+	}
+	if got := byResource["concurrent_runs"].Current; got != 3 {
+		t.Fatalf("concurrent_runs current = %d, want actual executing count 3", got)
+	}
+}
+
 func TestUsageService_DetectAnomalies(t *testing.T) {
 	t.Parallel()
 
