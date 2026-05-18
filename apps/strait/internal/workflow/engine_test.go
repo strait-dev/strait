@@ -813,6 +813,8 @@ type mockCallbackStore struct {
 	updateEventTriggerStatusFn          func(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
 	advisoryXactLockFn                  func(ctx context.Context, lockID int64) error
 	createWorkflowStepDecisionFn        func(ctx context.Context, d *domain.WorkflowStepDecision) error
+	markCompensationRunTerminalFn       func(ctx context.Context, jobRunID string, status string, output json.RawMessage, errMsg string, finishedAt time.Time) (*domain.CompensationRun, error)
+	countIncompleteCompensationRunsFn   func(ctx context.Context, workflowRunID string) (int, error)
 }
 
 func (m *mockCallbackStore) GetEventTriggerByStepRunID(ctx context.Context, stepRunID string) (*domain.EventTrigger, error) {
@@ -858,6 +860,20 @@ func (m *mockCallbackStore) CreateWorkflowStepDecision(ctx context.Context, d *d
 		return m.createWorkflowStepDecisionFn(ctx, d)
 	}
 	return nil
+}
+
+func (m *mockCallbackStore) MarkCompensationRunTerminalByJobRunID(ctx context.Context, jobRunID string, status string, output json.RawMessage, errMsg string, finishedAt time.Time) (*domain.CompensationRun, error) {
+	if m.markCompensationRunTerminalFn != nil {
+		return m.markCompensationRunTerminalFn(ctx, jobRunID, status, output, errMsg, finishedAt)
+	}
+	return nil, nil
+}
+
+func (m *mockCallbackStore) CountIncompleteCompensationRuns(ctx context.Context, workflowRunID string) (int, error) {
+	if m.countIncompleteCompensationRunsFn != nil {
+		return m.countIncompleteCompensationRunsFn(ctx, workflowRunID)
+	}
+	return 0, nil
 }
 
 func (m *mockCallbackStore) GetStepRunByJobRunID(ctx context.Context, jobRunID string) (*domain.WorkflowStepRun, error) {
