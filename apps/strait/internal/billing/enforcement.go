@@ -122,6 +122,19 @@ func (e *Enforcer) boundedFailOpen(ctx context.Context, orgID, checkType, reason
 	return nil
 }
 
+func (e *Enforcer) failClosedPlanLimitLookup(ctx context.Context, orgID, checkType string, err error) error {
+	e.recordRejection(ctx, checkType, domain.PlanFree)
+	addBillingSentryBreadcrumb(ctx, checkType, "billing plan limit lookup failed closed", map[string]any{
+		"org_id": orgID,
+		"error":  err.Error(),
+	})
+	return &LimitError{
+		Code:    "billing_plan_unavailable",
+		Message: "Billing enforcement is temporarily unavailable. Please retry shortly.",
+		Plan:    string(domain.PlanFree),
+	}
+}
+
 // resetFailOpen clears the fail-open tracker for a successful check.
 func (e *Enforcer) resetFailOpen(orgID, checkType string) {
 	e.failOpenTracker.Delete(orgID + ":" + checkType)
@@ -1015,7 +1028,7 @@ func (e *Enforcer) CheckConcurrentRunLimit(ctx context.Context, orgID string) er
 	limits, err := e.GetOrgPlanLimits(ctx, orgID)
 	if err != nil {
 		e.logger.Warn("failed to get org plan limits for concurrent check", "org_id", orgID, "error", err)
-		return nil
+		return e.failClosedPlanLimitLookup(ctx, orgID, "concurrent_limit", err)
 	}
 
 	if limits.MaxConcurrentRuns == -1 {
@@ -1162,7 +1175,7 @@ func (e *Enforcer) CheckProjectLimit(ctx context.Context, orgID string) error {
 	limits, err := e.GetOrgPlanLimits(ctx, orgID)
 	if err != nil {
 		e.logger.Warn("failed to get org plan limits for project check", "org_id", orgID, "error", err)
-		return nil
+		return e.failClosedPlanLimitLookup(ctx, orgID, "project_limit", err)
 	}
 
 	if limits.MaxProjectsPerOrg == -1 {
@@ -1857,7 +1870,7 @@ func (e *Enforcer) CheckMemberLimit(ctx context.Context, orgID string) error {
 	limits, err := e.GetOrgPlanLimits(ctx, orgID)
 	if err != nil {
 		e.logger.Warn("failed to get org plan limits for member check", "org_id", orgID, "error", err)
-		return nil
+		return e.failClosedPlanLimitLookup(ctx, orgID, "member_limit", err)
 	}
 
 	if limits.MaxMembersPerOrg == -1 {

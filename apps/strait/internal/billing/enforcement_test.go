@@ -179,6 +179,29 @@ func TestEnforcer_CheckConcurrentRunLimit_ActivePaymentGraceStillEnforcesPlanCap
 	}
 }
 
+func TestEnforcer_CheckConcurrentRunLimit_PlanLimitLookupErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	enforcer := NewEnforcer(&mockBillingStore{
+		getOrgSubscriptionFn: func(context.Context, string) (*OrgSubscription, error) {
+			return nil, errors.New("subscription store unavailable")
+		},
+	}, rdb, slog.Default())
+
+	err := enforcer.CheckConcurrentRunLimit(context.Background(), "org-plan-error")
+	if err == nil {
+		t.Fatal("expected concurrent limit check to fail closed when plan limits cannot be loaded")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "billing_plan_unavailable" {
+		t.Fatalf("Code = %q, want billing_plan_unavailable", le.Code)
+	}
+}
+
 func TestEnforcer_CheckProjectLimit(t *testing.T) {
 	t.Parallel()
 	enforcer, store, _ := setupEnforcer(t)
@@ -198,6 +221,27 @@ func TestEnforcer_CheckProjectLimit(t *testing.T) {
 	store.projects["org_empty"] = []string{}
 	if err := enforcer.CheckProjectLimit(context.Background(), "org_empty"); err != nil {
 		t.Fatalf("should pass with 0 projects: %v", err)
+	}
+}
+
+func TestEnforcer_CheckProjectLimit_PlanLimitLookupErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	enforcer := NewEnforcer(&mockBillingStore{
+		getOrgSubscriptionFn: func(context.Context, string) (*OrgSubscription, error) {
+			return nil, errors.New("subscription store unavailable")
+		},
+	}, nil, slog.Default())
+
+	err := enforcer.CheckProjectLimit(context.Background(), "org-plan-error")
+	if err == nil {
+		t.Fatal("expected project limit check to fail closed when plan limits cannot be loaded")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "billing_plan_unavailable" {
+		t.Fatalf("Code = %q, want billing_plan_unavailable", le.Code)
 	}
 }
 
@@ -640,6 +684,27 @@ func TestCheckMemberLimit_FreeAtLimit_Blocked(t *testing.T) {
 	}
 	if le.Limit != int64(freeLimits.MaxMembersPerOrg) {
 		t.Errorf("limit = %d, want %d", le.Limit, freeLimits.MaxMembersPerOrg)
+	}
+}
+
+func TestCheckMemberLimit_PlanLimitLookupErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	enforcer := NewEnforcer(&mockBillingStore{
+		getOrgSubscriptionFn: func(context.Context, string) (*OrgSubscription, error) {
+			return nil, errors.New("subscription store unavailable")
+		},
+	}, nil, slog.Default())
+
+	err := enforcer.CheckMemberLimit(context.Background(), "org-plan-error")
+	if err == nil {
+		t.Fatal("expected member limit check to fail closed when plan limits cannot be loaded")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "billing_plan_unavailable" {
+		t.Fatalf("Code = %q, want billing_plan_unavailable", le.Code)
 	}
 }
 
