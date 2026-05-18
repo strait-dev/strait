@@ -56,7 +56,7 @@ type CallbackStore interface {
 	AreJobDependenciesSatisfied(ctx context.Context, run *domain.JobRun) (bool, error)
 	GetWorkflowRunsByParent(ctx context.Context, parentWorkflowRunID string) ([]domain.WorkflowRun, error)
 	GetEventTriggerByStepRunID(ctx context.Context, stepRunID string) (*domain.EventTrigger, error)
-	GetEventTriggerByEventKey(ctx context.Context, eventKey string) (*domain.EventTrigger, error)
+	GetEventTriggerByEventKeyForProject(ctx context.Context, eventKey, projectID string) (*domain.EventTrigger, error)
 	UpdateEventTriggerStatus(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
 	AdvisoryXactLock(ctx context.Context, lockID int64) error
 	CreateWorkflowStepDecision(ctx context.Context, d *domain.WorkflowStepDecision) error
@@ -483,8 +483,12 @@ func (s *StepCallback) emitEventIfConfigured(ctx context.Context, stepRun *domai
 	if emitKey == "" {
 		return
 	}
+	if wfRun == nil || wfRun.ProjectID == "" {
+		s.logger.Error("emit event: missing workflow project scope", "event_key", emitKey)
+		return
+	}
 
-	trigger, err := s.store.GetEventTriggerByEventKey(ctx, emitKey)
+	trigger, err := s.store.GetEventTriggerByEventKeyForProject(ctx, emitKey, wfRun.ProjectID)
 	if err != nil {
 		s.logger.Error("emit event: failed to get trigger", "event_key", emitKey, "error", err)
 		return

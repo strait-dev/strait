@@ -9925,6 +9925,52 @@ func TestEventTriggerCreateAndGetByEventKey(t *testing.T) {
 	}
 }
 
+func TestEventTriggerGetByEventKeyForProjectScopesLookup(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	foreignProjectID := "proj-event-trigger-foreign-" + newID()
+	_, foreignRun := mustCreateJobRunWithBuildFactory(t, ctx, q, foreignProjectID, domain.StatusWaiting)
+
+	now := time.Now().UTC()
+	foreignTrigger := &domain.EventTrigger{
+		ID:             newID(),
+		EventKey:       "evt-scoped-" + newID(),
+		ProjectID:      foreignProjectID,
+		SourceType:     "job_run",
+		JobRunID:       foreignRun.ID,
+		Status:         domain.EventTriggerStatusWaiting,
+		RequestPayload: json.RawMessage(`{"kind":"foreign"}`),
+		TimeoutSecs:    120,
+		RequestedAt:    now,
+		ExpiresAt:      now.Add(2 * time.Minute),
+		TriggerType:    "event",
+	}
+	if err := q.CreateEventTrigger(ctx, foreignTrigger); err != nil {
+		t.Fatalf("CreateEventTrigger() error = %v", err)
+	}
+
+	got, err := q.GetEventTriggerByEventKeyForProject(ctx, foreignTrigger.EventKey, "proj-event-trigger-local-"+newID())
+	if err != nil {
+		t.Fatalf("GetEventTriggerByEventKeyForProject(local) error = %v", err)
+	}
+	if got != nil {
+		t.Fatalf("GetEventTriggerByEventKeyForProject(local) = %q, want nil", got.ID)
+	}
+
+	got, err = q.GetEventTriggerByEventKeyForProject(ctx, foreignTrigger.EventKey, foreignProjectID)
+	if err != nil {
+		t.Fatalf("GetEventTriggerByEventKeyForProject(foreign) error = %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetEventTriggerByEventKeyForProject(foreign) = nil")
+	}
+	if got.ID != foreignTrigger.ID {
+		t.Fatalf("ID = %q, want %q", got.ID, foreignTrigger.ID)
+	}
+}
+
 func TestEventTriggerGetByStepRunID(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

@@ -90,6 +90,32 @@ func (q *Queries) GetEventTriggerByEventKey(ctx context.Context, eventKey string
 	return trigger, nil
 }
 
+// GetEventTriggerByEventKeyForProject retrieves an event trigger by event key
+// only when it belongs to the supplied project.
+func (q *Queries) GetEventTriggerByEventKeyForProject(ctx context.Context, eventKey, projectID string) (*domain.EventTrigger, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetEventTriggerByEventKeyForProject")
+	defer span.End()
+
+	query := `
+		SELECT id, event_key, project_id, environment_id, source_type,
+		       workflow_run_id, workflow_step_run_id, job_run_id,
+		       status, request_payload, response_payload,
+		       timeout_secs, requested_at, received_at, expires_at, error,
+		       notify_url, notify_status, trigger_type, sent_by
+		FROM event_triggers
+		WHERE event_key = $1 AND project_id = $2`
+
+	trigger, err := scanEventTrigger(q.db.QueryRow(ctx, query, eventKey, projectID))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get event trigger by event key for project: %w", err)
+	}
+
+	return trigger, nil
+}
+
 // GetEventTriggerByStepRunID retrieves an event trigger by its workflow step run ID.
 func (q *Queries) GetEventTriggerByStepRunID(ctx context.Context, stepRunID string) (*domain.EventTrigger, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetEventTriggerByStepRunID")

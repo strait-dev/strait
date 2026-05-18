@@ -563,7 +563,7 @@ func TestRecordStepWaitDuration_NilMetrics(t *testing.T) {
 	ms := &mockCallbackStore{}
 	cb := newTestCallback(ms)
 	// metrics is nil by default -- must not panic.
-	wfRun := &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1"}
+	wfRun := &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", ProjectID: "proj-1"}
 	step := domain.WorkflowStep{StepRef: "a"}
 	stepRun := domain.WorkflowStepRun{ID: "sr-1", CreatedAt: time.Now()}
 	cb.recordStepWaitDuration(context.Background(), wfRun, step, stepRun)
@@ -574,7 +574,7 @@ func TestRecordStepWaitDuration_ZeroCreatedAt(t *testing.T) {
 	ms := &mockCallbackStore{}
 	cb := newTestCallback(ms)
 	cb.WithMetrics(newTestMetrics(t))
-	wfRun := &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1"}
+	wfRun := &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", ProjectID: "proj-1"}
 	step := domain.WorkflowStep{StepRef: "a"}
 	// Zero value CreatedAt should cause early return.
 	stepRun := domain.WorkflowStepRun{ID: "sr-1", CreatedAt: time.Time{}}
