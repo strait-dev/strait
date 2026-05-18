@@ -14,7 +14,7 @@ const staleOfflineWorkerDeleteAfter = 24 * time.Hour
 // than heartbeatTimeout, indicating the worker disconnected without a clean
 // deregister (e.g. network partition). This loop complements the in-memory
 // Deregister path — it cleans up DB rows that outlive a crashed replica.
-func runSweep(ctx context.Context, _ *ConnectionRegistry, q *store.Queries, heartbeatTimeout, interval time.Duration) {
+func runSweep(ctx context.Context, registry *ConnectionRegistry, q *store.Queries, heartbeatTimeout, interval time.Duration) {
 	if interval <= 0 {
 		interval = 30 * time.Second
 	}
@@ -30,7 +30,8 @@ func runSweep(ctx context.Context, _ *ConnectionRegistry, q *store.Queries, hear
 			return
 		case <-t.C:
 			cutoff := time.Now().Add(-heartbeatTimeout)
-			recovered, err := q.RecoverStaleWorkerTasks(ctx, cutoff, "worker heartbeat expired before reporting result")
+			connectedIDs := connectedWorkerIDs(registry)
+			recovered, err := q.RecoverStaleWorkerTasksExcept(ctx, cutoff, "worker heartbeat expired before reporting result", connectedIDs)
 			if err != nil {
 				slog.Warn("grpc sweep: recover stale worker tasks failed", "error", err)
 				continue
@@ -38,7 +39,7 @@ func runSweep(ctx context.Context, _ *ConnectionRegistry, q *store.Queries, hear
 			if recovered > 0 {
 				slog.Info("grpc sweep: recovered stale worker tasks", "count", recovered)
 			}
-			n, err := q.EvictStaleWorkers(ctx, cutoff)
+			n, err := q.EvictStaleWorkersExcept(ctx, cutoff, connectedIDs)
 			if err != nil {
 				slog.Warn("grpc sweep: evict stale workers failed", "error", err)
 				continue
@@ -57,4 +58,18 @@ func runSweep(ctx context.Context, _ *ConnectionRegistry, q *store.Queries, hear
 			}
 		}
 	}
+}
+
+func connectedWorkerIDs(registry *ConnectionRegistry) []string {
+	if registry == nil {
+		return nil
+	}
+	workers := registry.Snapshot()
+	ids := make([]string, 0, len(workers))
+	for _, worker := range workers {
+		if worker.WorkerID != "" {
+			ids = append(ids, worker.WorkerID)
+		}
+	}
+	return ids
 }

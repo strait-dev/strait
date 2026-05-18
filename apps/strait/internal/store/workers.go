@@ -142,12 +142,25 @@ func (q *Queries) ListWorkers(ctx context.Context, projectID, queueName string, 
 
 // EvictStaleWorkers marks workers offline if they have not sent a heartbeat since cutoff.
 func (q *Queries) EvictStaleWorkers(ctx context.Context, cutoff time.Time) (int64, error) {
+	return q.EvictStaleWorkersExcept(ctx, cutoff, nil)
+}
+
+// EvictStaleWorkersExcept marks stale workers offline unless they are known to
+// still be connected on this replica.
+func (q *Queries) EvictStaleWorkersExcept(ctx context.Context, cutoff time.Time, activeWorkerIDs []string) (int64, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.EvictStaleWorkers")
 	defer span.End()
+	if activeWorkerIDs == nil {
+		activeWorkerIDs = []string{}
+	}
 
 	tag, err := q.db.Exec(ctx,
-		`UPDATE workers SET status = 'offline' WHERE last_seen_at < $1 AND status != 'offline'`,
-		cutoff,
+		`UPDATE workers
+		 SET status = 'offline'
+		 WHERE last_seen_at < $1
+		   AND status != 'offline'
+		   AND NOT (id = ANY($2::text[]))`,
+		cutoff, activeWorkerIDs,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("evict stale workers: %w", err)
@@ -158,8 +171,17 @@ func (q *Queries) EvictStaleWorkers(ctx context.Context, cutoff time.Time) (int6
 // RecoverStaleWorkerTasks marks stale workers' open assignments failed and
 // requeues still-executing worker-mode runs before the worker row is evicted.
 func (q *Queries) RecoverStaleWorkerTasks(ctx context.Context, cutoff time.Time, reason string) (int64, error) {
+	return q.RecoverStaleWorkerTasksExcept(ctx, cutoff, reason, nil)
+}
+
+// RecoverStaleWorkerTasksExcept requeues open tasks owned by stale workers
+// unless the worker is still connected in the caller's local registry.
+func (q *Queries) RecoverStaleWorkerTasksExcept(ctx context.Context, cutoff time.Time, reason string, activeWorkerIDs []string) (int64, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.RecoverStaleWorkerTasks")
 	defer span.End()
+	if activeWorkerIDs == nil {
+		activeWorkerIDs = []string{}
+	}
 
 	txb, ok := q.db.(TxBeginner)
 	if !ok {
@@ -173,6 +195,7 @@ func (q *Queries) RecoverStaleWorkerTasks(ctx context.Context, cutoff time.Time,
 				SELECT id, project_id
 				FROM workers
 				WHERE last_seen_at < $1
+				  AND NOT (id = ANY($3::text[]))
 			),
 			open_tasks AS (
 				SELECT wt.id, wt.run_id
@@ -200,7 +223,7 @@ func (q *Queries) RecoverStaleWorkerTasks(ctx context.Context, cutoff time.Time,
 			    finished_at = NOW()
 			WHERE id IN (SELECT id FROM open_tasks)`
 
-		tag, err := txQ.db.Exec(ctx, query, cutoff, reason)
+		tag, err := txQ.db.Exec(ctx, query, cutoff, reason, activeWorkerIDs)
 		if err != nil {
 			return fmt.Errorf("recover stale worker tasks: %w", err)
 		}

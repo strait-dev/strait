@@ -270,6 +270,92 @@ func TestIntegration_DeepSecRecoverStaleWorkerTasks_RequeuesExecutingRuns(t *tes
 	}
 }
 
+func TestIntegration_DeepSecRecoverStaleWorkerTasksExcept_SkipsConnectedWorker(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	projectID := "proj-stale-connected-recovery"
+	workerID := "worker-stale-but-connected"
+	if err := q.CreateProject(ctx, &domain.Project{ID: projectID, OrgID: "org-stale-connected", Name: "stale connected recovery"}); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: &projectID})
+	if err := q.RegisterWorker(ctx, &domain.Worker{
+		ID:        workerID,
+		ProjectID: projectID,
+		QueueName: "default",
+		Hostname:  "host",
+		Version:   "1.0",
+		Status:    domain.WorkerStatusActive,
+	}); err != nil {
+		t.Fatalf("RegisterWorker: %v", err)
+	}
+	if _, err := env.DB.Pool.Exec(ctx, `UPDATE workers SET last_seen_at = NOW() - INTERVAL '1 hour' WHERE id = $1`, workerID); err != nil {
+		t.Fatalf("age worker: %v", err)
+	}
+
+	executing := domain.StatusExecuting
+	run := testutil.BuildRun(job, &testutil.RunOpts{ID: new("run-stale-connected-recovery"), Status: &executing})
+	run.ExecutionMode = domain.ExecutionModeWorker
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	if err := q.CreateWorkerTask(ctx, &domain.WorkerTask{
+		ID:        "task-stale-connected-recovery",
+		WorkerID:  workerID,
+		RunID:     run.ID,
+		ProjectID: projectID,
+		Status:    domain.WorkerTaskStatusAssigned,
+	}); err != nil {
+		t.Fatalf("CreateWorkerTask: %v", err)
+	}
+
+	count, err := q.RecoverStaleWorkerTasksExcept(ctx, time.Now().Add(-5*time.Minute), "stale worker heartbeat", []string{workerID})
+	if err != nil {
+		t.Fatalf("RecoverStaleWorkerTasksExcept: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("RecoverStaleWorkerTasksExcept count = %d, want 0", count)
+	}
+	gotRun, err := q.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if gotRun.Status != domain.StatusExecuting {
+		t.Fatalf("run status = %q, want executing for connected worker", gotRun.Status)
+	}
+	gotTask, err := q.GetWorkerTask(ctx, "task-stale-connected-recovery")
+	if err != nil {
+		t.Fatalf("GetWorkerTask: %v", err)
+	}
+	if gotTask.Status != domain.WorkerTaskStatusAssigned {
+		t.Fatalf("worker task status = %q, want assigned for connected worker", gotTask.Status)
+	}
+
+	evicted, err := q.EvictStaleWorkersExcept(ctx, time.Now().Add(-5*time.Minute), []string{workerID})
+	if err != nil {
+		t.Fatalf("EvictStaleWorkersExcept: %v", err)
+	}
+	if evicted != 0 {
+		t.Fatalf("EvictStaleWorkersExcept evicted = %d, want 0", evicted)
+	}
+	worker, err := q.GetWorker(ctx, workerID, projectID)
+	if err != nil {
+		t.Fatalf("GetWorker: %v", err)
+	}
+	if worker.Status != domain.WorkerStatusActive {
+		t.Fatalf("worker status = %q, want active", worker.Status)
+	}
+}
+
 func TestIntegration_DeepSecDeleteStaleOfflineWorkers_DoesNotReserveIDsForever(t *testing.T) {
 	ctx := context.Background()
 	env, err := testutil.SetupTestEnv(ctx, "../../migrations")
