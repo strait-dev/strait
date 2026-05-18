@@ -210,6 +210,56 @@ func TestUsage_ProjectScopedAPIKeyCannotMutateSiblingProjectBudget(t *testing.T)
 	}
 }
 
+func TestUsage_ProjectScopedUserCannotMutateSiblingProjectBudget(t *testing.T) {
+	t.Parallel()
+
+	enforcer := &mockBillingEnforcer{
+		activeProjectOrgMap: map[string]string{
+			"proj-A": "org-A",
+			"proj-B": "org-A",
+		},
+	}
+	srv := newUsageTestServer(t, enforcer, &mockUsageService{})
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-A")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{"*"})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "user-project-scoped")
+
+	_, err := srv.handleUpdateProjectBudget(ctx, &UpdateProjectBudgetInput{Body: updateProjectBudgetRequest{
+		ProjectID:   "proj-B",
+		BudgetMicro: 100,
+		Action:      "notify",
+	}})
+	if !isHumaStatusError(err, http.StatusForbidden) {
+		t.Fatalf("update sibling project budget error = %v, want 403", err)
+	}
+}
+
+func TestUsage_OrgScopedUserCanMutateSiblingProjectBudget(t *testing.T) {
+	t.Parallel()
+
+	enforcer := &mockBillingEnforcer{
+		activeProjectOrgMap: map[string]string{
+			"proj-A": "org-A",
+			"proj-B": "org-A",
+		},
+	}
+	srv := newUsageTestServer(t, enforcer, &mockUsageService{})
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-A")
+	ctx = context.WithValue(ctx, ctxOrgIDKey, "org-A")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{"*"})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "user-org-scoped")
+
+	if _, err := srv.handleUpdateProjectBudget(ctx, &UpdateProjectBudgetInput{Body: updateProjectBudgetRequest{
+		ProjectID:   "proj-B",
+		BudgetMicro: 100,
+		Action:      "notify",
+	}}); err != nil {
+		t.Fatalf("update sibling project budget error = %v, want nil", err)
+	}
+}
+
 // TestUsage_ExportCSVInjection verifies that CSV formula injection characters
 // in org data are not interpreted by the export handler.
 func TestUsage_ExportCSVInjection(t *testing.T) {

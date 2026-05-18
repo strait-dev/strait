@@ -100,14 +100,11 @@ func requireProjectBudgetAPIKeyScope(ctx context.Context, targetProjectID string
 	if isInternalCaller(ctx) || scopesFromContext(ctx) == nil {
 		return nil
 	}
-	if actorTypeFromContext(ctx) != "api_key" {
-		return nil
-	}
 	if orgIDFromContext(ctx) != "" {
 		return nil
 	}
 	if projectIDFromContext(ctx) != targetProjectID {
-		return huma.Error403Forbidden("project-scoped billing mutation is limited to the authenticated project")
+		return huma.Error403Forbidden("project-scoped billing access is limited to the authenticated project")
 	}
 	return nil
 }
