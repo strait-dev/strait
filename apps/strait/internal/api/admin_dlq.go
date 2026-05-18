@@ -31,18 +31,45 @@ import (
 // compatibility in domain.HasScope is not appropriate for admin
 // endpoints, so we reject such callers with 403.
 func (s *Server) requireAdminScope(ctx context.Context, scope string) error {
-	callerScopes := scopesFromContext(ctx)
-	if callerScopes == nil {
-		// Internal secret auth: trusted.
+	if isInternalCaller(ctx) {
 		return nil
 	}
-	if len(callerScopes) == 0 {
-		return huma.Error403Forbidden("missing required scope: " + scope)
+
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return huma.Error403Forbidden("admin scope requires project context")
 	}
-	if !domain.HasScope(callerScopes, scope) {
-		return huma.Error403Forbidden("missing required scope: " + scope)
+
+	actorType := actorTypeFromContext(ctx)
+	callerScopes := scopesFromContext(ctx)
+	switch actorType {
+	case "api_key":
+		if !domain.HasScopeStrict(callerScopes, scope) {
+			return huma.Error403Forbidden("missing required scope: " + scope)
+		}
+		return nil
+	case "user":
+		actorID := actorFromContext(ctx)
+		if actorID == "" {
+			return huma.Error403Forbidden("admin scope requires actor context")
+		}
+		if ctx.Value(ctxOIDCScopeClaimPresentKey) == true && len(callerScopes) == 0 {
+			return huma.Error403Forbidden("missing required scope: " + scope)
+		}
+		if len(callerScopes) > 0 && !domain.HasScopeStrict(callerScopes, scope) {
+			return huma.Error403Forbidden("missing required scope: " + scope)
+		}
+		perms, err := s.store.GetUserPermissions(ctx, projectID, actorID)
+		if err != nil {
+			return huma.Error500InternalServerError("failed to load permissions")
+		}
+		if !domain.HasScopeStrict(perms, scope) {
+			return huma.Error403Forbidden("missing required scope: " + scope)
+		}
+		return nil
+	default:
+		return huma.Error403Forbidden("unknown actor type")
 	}
-	return nil
 }
 
 // writeDLQAudit writes a best-effort audit_events row for a DLQ admin

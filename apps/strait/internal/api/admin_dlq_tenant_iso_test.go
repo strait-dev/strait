@@ -78,3 +78,78 @@ func TestTenantIso_AdminDLQ_Purge_UsesScopedFetch(t *testing.T) {
 		t.Fatalf("expected exactly 1 GetRun call (single scoped fetch), got %d", getCalls)
 	}
 }
+
+func TestRequireAdminScope_UserOIDCMustPassProjectRBAC(t *testing.T) {
+	t.Parallel()
+
+	var permissionChecks int
+	ms := &APIStoreMock{
+		GetUserPermissionsFunc: func(_ context.Context, projectID, userID string) ([]string, error) {
+			permissionChecks++
+			if projectID != "proj-1" || userID != "user-1" {
+				t.Fatalf("unexpected permission lookup: project=%q user=%q", projectID, userID)
+			}
+			return []string{domain.ScopeDLQPurge}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	ctx := context.WithValue(context.Background(), ctxActorTypeKey, "user")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "user-1")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeDLQPurge})
+	ctx = context.WithValue(ctx, ctxOIDCScopeClaimPresentKey, true)
+
+	if err := srv.requireAdminScope(ctx, domain.ScopeDLQPurge); err == nil {
+		t.Fatal("expected scoped OIDC admin request without project context to be rejected")
+	}
+	if permissionChecks != 0 {
+		t.Fatalf("permission lookup should not run without project context, got %d calls", permissionChecks)
+	}
+
+	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+	if err := srv.requireAdminScope(ctx, domain.ScopeDLQPurge); err != nil {
+		t.Fatalf("expected scoped OIDC admin request with matching RBAC to pass, got %v", err)
+	}
+	if permissionChecks != 1 {
+		t.Fatalf("expected one RBAC permission lookup, got %d", permissionChecks)
+	}
+}
+
+func TestRequireAdminScope_UserOIDCScopesDoNotBypassRBAC(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetUserPermissionsFunc: func(_ context.Context, _, _ string) ([]string, error) {
+			return []string{domain.ScopeJobsRead}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	ctx := context.WithValue(context.Background(), ctxActorTypeKey, "user")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "user-1")
+	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeDLQPurge})
+	ctx = context.WithValue(ctx, ctxOIDCScopeClaimPresentKey, true)
+
+	if err := srv.requireAdminScope(ctx, domain.ScopeDLQPurge); err == nil {
+		t.Fatal("expected OIDC admin scope to remain bounded by project RBAC")
+	}
+}
+
+func TestRequireAdminScope_APIKeyRequiresProjectContext(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+
+	ctx := context.WithValue(context.Background(), ctxActorTypeKey, "api_key")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeDLQReplay})
+
+	if err := srv.requireAdminScope(ctx, domain.ScopeDLQReplay); err == nil {
+		t.Fatal("expected API-key admin request without project context to be rejected")
+	}
+
+	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+	if err := srv.requireAdminScope(ctx, domain.ScopeDLQReplay); err != nil {
+		t.Fatalf("expected scoped API-key admin request with project context to pass, got %v", err)
+	}
+}
