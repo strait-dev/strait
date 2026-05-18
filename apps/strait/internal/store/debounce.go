@@ -85,10 +85,10 @@ func (q *Queries) ClaimDueDebouncePending(ctx context.Context, id string) (*doma
 	defer span.End()
 
 	row := q.db.QueryRow(ctx, `
-		DELETE FROM debounce_pending
+		SELECT id, job_id, project_id, debounce_key, payload, tags, priority, concurrency_key, ttl_secs, triggered_by, created_by, fire_at, created_at
+		FROM debounce_pending
 		WHERE id = $1
 		  AND fire_at <= NOW()
-		RETURNING id, job_id, project_id, debounce_key, payload, tags, priority, concurrency_key, ttl_secs, triggered_by, created_by, fire_at, created_at
 	`, id)
 	d, err := scanDebouncePending(row)
 	if err != nil {
@@ -98,6 +98,21 @@ func (q *Queries) ClaimDueDebouncePending(ctx context.Context, id string) (*doma
 		return nil, false, fmt.Errorf("claim due debounce pending: %w", err)
 	}
 	return d, true, nil
+}
+
+func (q *Queries) CompleteDebouncePending(ctx context.Context, id string, fireAt time.Time) (bool, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CompleteDebouncePending")
+	defer span.End()
+
+	tag, err := q.db.Exec(ctx, `
+		DELETE FROM debounce_pending
+		WHERE id = $1
+		  AND fire_at = $2
+	`, id, fireAt)
+	if err != nil {
+		return false, fmt.Errorf("complete debounce pending: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
 }
 
 func (q *Queries) InsertDebouncePendingIfAbsent(ctx context.Context, d *domain.DebouncePending) (bool, error) {
@@ -156,6 +171,7 @@ type DebounceStore interface {
 	ListDueDebouncePending(ctx context.Context) ([]domain.DebouncePending, error)
 	DeleteDebouncePending(ctx context.Context, id string) error
 	ClaimDueDebouncePending(ctx context.Context, id string) (*domain.DebouncePending, bool, error)
+	CompleteDebouncePending(ctx context.Context, id string, fireAt time.Time) (bool, error)
 	InsertDebouncePendingIfAbsent(ctx context.Context, d *domain.DebouncePending) (bool, error)
 	GetJob(ctx context.Context, id string) (*domain.Job, error)
 	GetRun(ctx context.Context, id string) (*domain.JobRun, error)

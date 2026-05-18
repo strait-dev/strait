@@ -77,10 +77,15 @@ func (p *DebouncePoller) pollLocked(ctx context.Context) error {
 		}
 		if err := p.fireDebounce(ctx, *claimed); err != nil {
 			slog.Error("debounce poller: fire", "id", item.ID, "job_id", item.JobID, "error", err)
-			if _, restoreErr := p.store.InsertDebouncePendingIfAbsent(ctx, claimed); restoreErr != nil {
-				slog.Error("debounce poller: restore claimed pending", "id", claimed.ID, "job_id", claimed.JobID, "error", restoreErr)
-			}
 			continue
+		}
+		completed, err := p.store.CompleteDebouncePending(ctx, claimed.ID, claimed.FireAt)
+		if err != nil {
+			slog.Error("debounce poller: complete claimed pending", "id", claimed.ID, "job_id", claimed.JobID, "error", err)
+			continue
+		}
+		if !completed {
+			slog.Info("debounce poller: claimed pending superseded before completion", "id", claimed.ID, "job_id", claimed.JobID)
 		}
 	}
 	return nil

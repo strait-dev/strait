@@ -155,6 +155,13 @@ func TestClaimDueDebouncePending_OnlyClaimsDueRows(t *testing.T) {
 	if !ok || claimed == nil || claimed.ID != due.ID || claimed.DebounceKey != "claim-due" {
 		t.Fatalf("claimed due row = %+v ok=%v", claimed, ok)
 	}
+	stillDue, err := q.ListDueDebouncePending(ctx)
+	if err != nil {
+		t.Fatalf("ListDueDebouncePending(after claim) error = %v", err)
+	}
+	if len(stillDue) != 1 || stillDue[0].ID != due.ID {
+		t.Fatalf("claim removed due row before completion: %+v", stillDue)
+	}
 
 	claimed, ok, err = q.ClaimDueDebouncePending(ctx, future.ID)
 	if err != nil {
@@ -162,6 +169,49 @@ func TestClaimDueDebouncePending_OnlyClaimsDueRows(t *testing.T) {
 	}
 	if ok || claimed != nil {
 		t.Fatalf("future row was claimed: %+v ok=%v", claimed, ok)
+	}
+}
+
+func TestCompleteDebouncePending_DeletesOnlyUnchangedClaim(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-debounce-complete")
+	originalFireAt := time.Now().UTC().Add(-1 * time.Minute).Truncate(time.Microsecond)
+	due := &domain.DebouncePending{
+		JobID:       job.ID,
+		ProjectID:   job.ProjectID,
+		DebounceKey: "complete-key",
+		Payload:     json.RawMessage(`{"v":1}`),
+		TriggeredBy: "api",
+		FireAt:      originalFireAt,
+	}
+	if err := q.UpsertDebouncePending(ctx, due); err != nil {
+		t.Fatalf("UpsertDebouncePending(due) error = %v", err)
+	}
+
+	updated := *due
+	updated.FireAt = time.Now().UTC().Add(10 * time.Minute).Truncate(time.Microsecond)
+	updated.Payload = json.RawMessage(`{"v":2}`)
+	if err := q.UpsertDebouncePending(ctx, &updated); err != nil {
+		t.Fatalf("UpsertDebouncePending(updated) error = %v", err)
+	}
+
+	completed, err := q.CompleteDebouncePending(ctx, due.ID, originalFireAt)
+	if err != nil {
+		t.Fatalf("CompleteDebouncePending(stale) error = %v", err)
+	}
+	if completed {
+		t.Fatal("stale completion deleted updated pending row")
+	}
+
+	completed, err = q.CompleteDebouncePending(ctx, due.ID, updated.FireAt)
+	if err != nil {
+		t.Fatalf("CompleteDebouncePending(current) error = %v", err)
+	}
+	if !completed {
+		t.Fatal("current completion did not delete pending row")
 	}
 }
 
