@@ -18,6 +18,9 @@ func (q *Queries) CreateWorkflow(ctx context.Context, w *domain.Workflow) error 
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateWorkflow")
 	defer span.End()
 
+	if err := q.requireCurrentProjectContext(ctx, w.ProjectID); err != nil {
+		return fmt.Errorf("create workflow: %w", err)
+	}
 	if w.ID == "" {
 		w.ID = uuid.Must(uuid.NewV7()).String()
 	}
@@ -70,6 +73,17 @@ func (q *Queries) CreateWorkflow(ctx context.Context, w *domain.Workflow) error 
 		return fmt.Errorf("create workflow: %w", err)
 	}
 
+	return nil
+}
+
+func (q *Queries) requireCurrentProjectContext(ctx context.Context, projectID string) error {
+	var currentProjectID string
+	if err := q.db.QueryRow(ctx, `SELECT current_setting('app.current_project_id', true)`).Scan(&currentProjectID); err != nil {
+		return fmt.Errorf("read project context: %w", err)
+	}
+	if currentProjectID != "" && currentProjectID != projectID {
+		return ErrProjectContextMismatch
+	}
 	return nil
 }
 

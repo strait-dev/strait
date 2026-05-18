@@ -12,6 +12,10 @@ import (
 
 var ErrProjectNotFound = errors.New("project not found")
 
+// ErrProjectContextMismatch is returned when a tenant-scoped write attempts to
+// create or mutate data outside the database project context.
+var ErrProjectContextMismatch = errors.New("project context mismatch")
+
 // ErrProjectOrgMismatch is returned by CreateProject when a project with the
 // requested ID already exists but belongs to a different org. This blocks the
 // org-takeover attack where an upsert would silently move a project from one

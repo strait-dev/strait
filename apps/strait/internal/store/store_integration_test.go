@@ -3695,6 +3695,43 @@ func TestWorkflow_CRUD(t *testing.T) {
 	}
 }
 
+func TestCreateWorkflow_RejectsMismatchedProjectContext(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	err := q.WithTx(ctx, func(txCtx context.Context, tx store.DBTX) error {
+		txq := store.New(tx)
+		if err := txq.SetProjectContext(txCtx, "project-workflow-authorized"); err != nil {
+			t.Fatalf("SetProjectContext() error = %v", err)
+		}
+
+		mismatched := &domain.Workflow{
+			ProjectID: "project-workflow-attacker",
+			Name:      "Mismatched Workflow",
+			Slug:      "mismatched-workflow-" + newID(),
+			Enabled:   true,
+		}
+		if err := txq.CreateWorkflow(txCtx, mismatched); !errors.Is(err, store.ErrProjectContextMismatch) {
+			t.Fatalf("CreateWorkflow(mismatched project context) = %v, want ErrProjectContextMismatch", err)
+		}
+
+		matching := &domain.Workflow{
+			ProjectID: "project-workflow-authorized",
+			Name:      "Authorized Workflow",
+			Slug:      "authorized-workflow-" + newID(),
+			Enabled:   true,
+		}
+		if err := txq.CreateWorkflow(txCtx, matching); err != nil {
+			t.Fatalf("CreateWorkflow(matching project context) error = %v", err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("WithTx() error = %v", err)
+	}
+}
+
 func TestWorkflowStep_CRUD(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
