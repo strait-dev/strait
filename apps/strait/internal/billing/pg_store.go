@@ -1012,6 +1012,29 @@ func (s *PgStore) UpdatePaymentStatus(ctx context.Context, orgID string, status 
 	return nil
 }
 
+// RestrictExpiredContractIfCurrent restricts an org only if the contract row
+// still matches the expired, non-renewing state observed by the scheduler.
+func (s *PgStore) RestrictExpiredContractIfCurrent(ctx context.Context, orgID string, contractEndDate time.Time) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE organization_subscriptions os
+		SET payment_status = 'restricted',
+		    updated_at = NOW()
+		WHERE os.org_id = $1
+		  AND EXISTS (
+		      SELECT 1
+		      FROM enterprise_contracts ec
+		      WHERE ec.org_id = $1
+		        AND ec.contract_end_date = $2
+		        AND ec.contract_end_date <= NOW()
+		        AND ec.auto_renew = false
+		  )
+	`, orgID, contractEndDate)
+	if err != nil {
+		return false, fmt.Errorf("restricting expired contract if current: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
 // RestrictExpiredGracePeriod atomically moves an org from expired payment grace
 // to restricted/free. The conditional WHERE clause makes concurrent recovery
 // webhooks win without leaving payment_status and plan_tier half-updated.

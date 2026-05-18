@@ -2689,6 +2689,43 @@ func TestPgStore_ListExpiredContracts(t *testing.T) {
 	}
 }
 
+func TestPgStore_RestrictExpiredContractIfCurrentSkipsRenewedContract(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgID := "org-expired-renewed-" + newID()
+	ensureSub(t, ctx, pgStore, orgID)
+	observedEnd := time.Now().UTC().Add(-time.Hour).Truncate(time.Microsecond)
+	contract := makeContract(orgID, billing.EnterpriseTierStarter, observedEnd)
+	contract.AutoRenew = false
+	if err := pgStore.UpsertEnterpriseContract(ctx, contract); err != nil {
+		t.Fatalf("UpsertEnterpriseContract expired: %v", err)
+	}
+
+	renewed := *contract
+	renewed.ContractEndDate = time.Now().UTC().Add(365 * 24 * time.Hour).Truncate(time.Microsecond)
+	renewed.AutoRenew = true
+	if err := pgStore.UpsertEnterpriseContract(ctx, &renewed); err != nil {
+		t.Fatalf("UpsertEnterpriseContract renewed: %v", err)
+	}
+
+	restricted, err := pgStore.RestrictExpiredContractIfCurrent(ctx, orgID, observedEnd)
+	if err != nil {
+		t.Fatalf("RestrictExpiredContractIfCurrent() error = %v", err)
+	}
+	if restricted {
+		t.Fatal("RestrictExpiredContractIfCurrent() restricted renewed contract")
+	}
+	sub, err := pgStore.GetOrgSubscription(ctx, orgID)
+	if err != nil {
+		t.Fatalf("GetOrgSubscription() error = %v", err)
+	}
+	if sub.PaymentStatus == "restricted" {
+		t.Fatal("payment status was restricted for stale expired contract")
+	}
+}
+
 func TestPgStore_EnterpriseContract_CrossOrgIsolation(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)

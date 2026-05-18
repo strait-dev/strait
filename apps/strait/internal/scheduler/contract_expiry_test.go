@@ -14,6 +14,7 @@ type mockContractExpiryStore struct {
 	expired     []billing.EnterpriseContract
 	adminEmails map[string][]string
 	restricted  []string
+	restrictOK  map[string]bool
 	listErr     error
 	claims      map[string]bool
 }
@@ -41,6 +42,14 @@ func (m *mockContractExpiryStore) UpdatePaymentStatus(_ context.Context, orgID s
 		m.restricted = append(m.restricted, orgID)
 	}
 	return nil
+}
+
+func (m *mockContractExpiryStore) RestrictExpiredContractIfCurrent(_ context.Context, orgID string, _ time.Time) (bool, error) {
+	if m.restrictOK != nil && !m.restrictOK[orgID] {
+		return false, nil
+	}
+	m.restricted = append(m.restricted, orgID)
+	return true, nil
 }
 
 func (m *mockContractExpiryStore) ClaimContractReminderSend(_ context.Context, orgID string, contractEndDate time.Time, reminderWindowDays int) (bool, error) {
@@ -187,6 +196,23 @@ func TestContractExpiryChecker_RestrictsExpiredNonRenewingContract(t *testing.T)
 	}
 }
 
+func TestContractExpiryChecker_SkipsStaleExpiredContractRestriction(t *testing.T) {
+	t.Parallel()
+
+	store := &mockContractExpiryStore{
+		expired: []billing.EnterpriseContract{
+			{OrgID: "org-renewed", ContractEndDate: time.Now().Add(-time.Hour), AutoRenew: false},
+		},
+		restrictOK: map[string]bool{"org-renewed": false},
+	}
+	checker := NewContractExpiryChecker(store, nil, time.Hour)
+	checker.check(context.Background())
+
+	if len(store.restricted) != 0 {
+		t.Fatalf("restricted orgs = %v, want none for stale contract", store.restricted)
+	}
+}
+
 func TestContractExpiryChecker_AutoRenewGetsRenewalNotice(t *testing.T) {
 	t.Parallel()
 
@@ -238,6 +264,9 @@ func TestContractExpiryChecker_NilEmailSender(t *testing.T) {
 	checker := NewContractExpiryChecker(store, nil, time.Hour)
 	// Should not panic.
 	checker.check(context.Background())
+	if len(store.claims) != 0 {
+		t.Fatalf("durable claims = %d, want 0 when email sender is nil", len(store.claims))
+	}
 }
 
 func TestContractExpiryChecker_NoAdminEmails(t *testing.T) {

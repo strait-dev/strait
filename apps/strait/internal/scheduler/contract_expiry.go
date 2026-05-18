@@ -32,6 +32,10 @@ type contractReminderClaimStore interface {
 	ClaimContractReminderSend(ctx context.Context, orgID string, contractEndDate time.Time, reminderWindowDays int) (bool, error)
 }
 
+type contractRestrictionStore interface {
+	RestrictExpiredContractIfCurrent(ctx context.Context, orgID string, contractEndDate time.Time) (bool, error)
+}
+
 // ContractExpiryChecker periodically checks for enterprise contracts
 // approaching expiry and sends renewal or expiry reminder emails.
 type ContractExpiryChecker struct {
@@ -91,9 +95,15 @@ func (c *ContractExpiryChecker) restrictExpiredContracts(ctx context.Context) {
 			continue
 		}
 
-		if err := c.store.UpdatePaymentStatus(ctx, contract.OrgID, "restricted", nil); err != nil {
+		restricted, err := c.restrictContractIfCurrent(ctx, contract)
+		if err != nil {
 			slog.Warn("contract expiry: failed to restrict org",
 				"org_id", contract.OrgID, "error", err)
+			continue
+		}
+		if !restricted {
+			slog.Info("contract expiry: skipped stale expired contract restriction",
+				"org_id", contract.OrgID, "contract_end", contract.ContractEndDate)
 			continue
 		}
 
@@ -120,6 +130,9 @@ func (c *ContractExpiryChecker) sendReminders(ctx context.Context, withinDays in
 		if c.reminderAlreadySent(contract, withinDays) {
 			continue
 		}
+		if c.emails == nil {
+			continue
+		}
 
 		emails, emailErr := c.store.ListOrgAdminEmails(ctx, contract.OrgID)
 		if emailErr != nil {
@@ -143,9 +156,7 @@ func (c *ContractExpiryChecker) sendReminders(ctx context.Context, withinDays in
 
 		endDateStr := contract.ContractEndDate.Format("January 2, 2006")
 
-		if c.emails != nil {
-			c.emails.SendEnterpriseContractReminder(ctx, emails, endDateStr, contract.AutoRenew, daysRemaining)
-		}
+		c.emails.SendEnterpriseContractReminder(ctx, emails, endDateStr, contract.AutoRenew, daysRemaining)
 		c.markReminderSent(contract, withinDays)
 
 		if contract.AutoRenew {
@@ -162,6 +173,16 @@ func (c *ContractExpiryChecker) sendReminders(ctx context.Context, withinDays in
 			)
 		}
 	}
+}
+
+func (c *ContractExpiryChecker) restrictContractIfCurrent(ctx context.Context, contract billing.EnterpriseContract) (bool, error) {
+	if restrictionStore, ok := c.store.(contractRestrictionStore); ok {
+		return restrictionStore.RestrictExpiredContractIfCurrent(ctx, contract.OrgID, contract.ContractEndDate)
+	}
+	if err := c.store.UpdatePaymentStatus(ctx, contract.OrgID, "restricted", nil); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (c *ContractExpiryChecker) reminderAlreadySent(contract billing.EnterpriseContract, withinDays int) bool {
