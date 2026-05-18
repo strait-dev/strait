@@ -119,17 +119,16 @@ func (s *Server) handleEventTriggerStream(w http.ResponseWriter, r *http.Request
 			if !ok {
 				return
 			}
+			envelope, ok := eventTriggerStreamEnvelopeAllowed(ctx, trigger, msg)
+			if !ok {
+				continue
+			}
 			fmt.Fprintf(w, "event: status\ndata: %s\n\n", msg)
 			flusher.Flush()
 
 			// Close stream when trigger reaches terminal state.
-			var envelope struct {
-				Status string `json:"status"`
-			}
-			if err := json.Unmarshal(msg, &envelope); err == nil {
-				if envelope.Status != "" && envelope.Status != domain.EventTriggerStatusWaiting {
-					return
-				}
+			if envelope.Status != "" && envelope.Status != domain.EventTriggerStatusWaiting {
+				return
 			}
 		case <-ticker.C:
 			if _, err := fmt.Fprintf(w, ": keepalive\n\n"); err != nil {
@@ -158,6 +157,37 @@ func (s *Server) writeTerminalTriggerSSE(w http.ResponseWriter, trigger *domain.
 	flusher.Flush()
 }
 
+type eventTriggerStreamEnvelope struct {
+	ID            string `json:"id"`
+	ProjectID     string `json:"project_id"`
+	EnvironmentID string `json:"environment_id"`
+	Status        string `json:"status"`
+}
+
+func eventTriggerStreamEnvelopeAllowed(ctx context.Context, trigger *domain.EventTrigger, msg []byte) (eventTriggerStreamEnvelope, bool) {
+	var envelope eventTriggerStreamEnvelope
+	if err := json.Unmarshal(msg, &envelope); err != nil {
+		return envelope, false
+	}
+	if envelope.ID != trigger.ID {
+		return envelope, false
+	}
+	if envelope.ProjectID == "" || envelope.ProjectID != trigger.ProjectID {
+		return envelope, false
+	}
+	if envelope.EnvironmentID != trigger.EnvironmentID {
+		return envelope, false
+	}
+	callerEnv := environmentIDFromContext(ctx)
+	if callerEnv != "" {
+		if envelope.EnvironmentID == "" || envelope.EnvironmentID != callerEnv {
+			return envelope, false
+		}
+		return envelope, true
+	}
+	return envelope, true
+}
+
 // publishTriggerStatusChange publishes a status change to the trigger-specific
 // Redis pubsub channel for real-time SSE delivery. Non-fatal on error.
 func (s *Server) publishTriggerStatusChange(ctx context.Context, trigger *domain.EventTrigger) {
@@ -166,14 +196,15 @@ func (s *Server) publishTriggerStatusChange(ctx context.Context, trigger *domain
 	}
 
 	payload, err := json.Marshal(map[string]any{
-		"id":          trigger.ID,
-		"event_key":   trigger.EventKey,
-		"status":      trigger.Status,
-		"project_id":  trigger.ProjectID,
-		"source_type": trigger.SourceType,
-		"received_at": trigger.ReceivedAt,
-		"error":       trigger.Error,
-		"timestamp":   time.Now().UTC(),
+		"id":             trigger.ID,
+		"event_key":      trigger.EventKey,
+		"status":         trigger.Status,
+		"project_id":     trigger.ProjectID,
+		"environment_id": trigger.EnvironmentID,
+		"source_type":    trigger.SourceType,
+		"received_at":    trigger.ReceivedAt,
+		"error":          trigger.Error,
+		"timestamp":      time.Now().UTC(),
 	})
 	if err != nil {
 		slog.Warn("failed to marshal trigger status payload", "trigger_id", trigger.ID, "error", err)

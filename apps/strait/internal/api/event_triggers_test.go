@@ -14,6 +14,8 @@ import (
 	"strait/internal/domain"
 	"strait/internal/pubsub"
 	"strait/internal/store"
+
+	"github.com/go-chi/chi/v5"
 )
 
 func newEventTriggersTestServer(t *testing.T, s APIStore, wfCallback WorkflowCallback) *Server {
@@ -1227,7 +1229,7 @@ func TestHandleEventTriggerStream_ReceivesMessage(t *testing.T) {
 	srv := newEventTriggersTestServerWithPubSub(t, ms, nil, pub)
 
 	// Send a terminal message on the channel so the stream reads it and exits.
-	ch <- []byte(`{"id":"evt-stream","status":"received"}`)
+	ch <- []byte(`{"id":"evt-stream","project_id":"proj-1","status":"received"}`)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/events/stream-key/stream", nil)
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
@@ -1274,7 +1276,7 @@ func TestHandleEventTriggerStream_IgnoresGenericRequestTimeout(t *testing.T) {
 		subscribeFn: func(_ context.Context, _ string) (*pubsub.Subscription, error) {
 			go func() {
 				time.Sleep(50 * time.Millisecond)
-				ch <- []byte(`{"id":"evt-no-generic-timeout","status":"received"}`)
+				ch <- []byte(`{"id":"evt-no-generic-timeout","project_id":"proj-1","status":"received"}`)
 			}()
 			return sub, nil
 		},
@@ -1307,6 +1309,108 @@ func TestHandleEventTriggerStream_IgnoresGenericRequestTimeout(t *testing.T) {
 	}
 	if !strings.Contains(rr.Body.String(), `"status":"received"`) {
 		t.Fatalf("stream was cut off before terminal event; body: %s", rr.Body.String())
+	}
+}
+
+func TestHandleEventTriggerStream_DropsForeignEnvironmentMessage(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+			return &domain.EventTrigger{
+				ID:            "evt-env-stream",
+				EventKey:      "env-stream-key",
+				ProjectID:     "proj-1",
+				EnvironmentID: "env-prod",
+				Status:        domain.EventTriggerStatusWaiting,
+			}, nil
+		},
+	}
+
+	ch := make(chan []byte, 1)
+	ch <- []byte(`{"id":"evt-env-stream","project_id":"proj-1","environment_id":"env-staging","status":"received"}`)
+	close(ch)
+	_, cancel := context.WithCancel(context.Background())
+	sub := pubsub.NewSubscription(ch, cancel)
+
+	pub := &mockPublisher{
+		subscribeFn: func(_ context.Context, _ string) (*pubsub.Subscription, error) {
+			return sub, nil
+		},
+	}
+
+	srv := newEventTriggersTestServerWithPubSub(t, ms, nil, pub)
+
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("eventKey", "env-stream-key")
+	req := httptest.NewRequest(http.MethodGet, "/v1/events/env-stream-key/stream", nil)
+	ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
+	req = req.WithContext(ctx)
+
+	rr := httptest.NewRecorder()
+	srv.handleEventTriggerStream(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rr.Code, rr.Body.String())
+	}
+	body := rr.Body.String()
+	if strings.Contains(body, `"environment_id":"env-staging"`) || strings.Contains(body, `"status":"received"`) {
+		t.Fatalf("foreign environment message was forwarded: %s", body)
+	}
+	if !strings.Contains(body, `"environment_id":"env-prod"`) || !strings.Contains(body, `"status":"waiting"`) {
+		t.Fatalf("expected only initial scoped trigger state, got: %s", body)
+	}
+}
+
+func TestHandleEventTriggerStream_ForwardsMatchingEnvironmentMessage(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+			return &domain.EventTrigger{
+				ID:            "evt-env-stream-ok",
+				EventKey:      "env-stream-ok-key",
+				ProjectID:     "proj-1",
+				EnvironmentID: "env-prod",
+				Status:        domain.EventTriggerStatusWaiting,
+			}, nil
+		},
+	}
+
+	ch := make(chan []byte, 1)
+	ch <- []byte(`{"id":"evt-env-stream-ok","project_id":"proj-1","environment_id":"env-prod","status":"received"}`)
+	_, cancel := context.WithCancel(context.Background())
+	sub := pubsub.NewSubscription(ch, cancel)
+
+	pub := &mockPublisher{
+		subscribeFn: func(_ context.Context, _ string) (*pubsub.Subscription, error) {
+			return sub, nil
+		},
+	}
+
+	srv := newEventTriggersTestServerWithPubSub(t, ms, nil, pub)
+
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("eventKey", "env-stream-ok-key")
+	req := httptest.NewRequest(http.MethodGet, "/v1/events/env-stream-ok-key/stream", nil)
+	ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
+	req = req.WithContext(ctx)
+
+	rr := httptest.NewRecorder()
+	srv.handleEventTriggerStream(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rr.Code, rr.Body.String())
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, `"id":"evt-env-stream-ok"`) ||
+		!strings.Contains(body, `"environment_id":"env-prod"`) ||
+		!strings.Contains(body, `"status":"received"`) {
+		t.Fatalf("expected matching environment message to be forwarded, got: %s", body)
 	}
 }
 
