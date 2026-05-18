@@ -3660,6 +3660,67 @@ func TestHandleUpsertWorkflowPolicy_APIKeyRejected(t *testing.T) {
 	}
 }
 
+func TestHandleUpsertWorkflowPolicy_WorkflowAuthorRejected(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		UpsertWorkflowPolicyFunc: func(_ context.Context, _ *domain.WorkflowPolicy) error {
+			t.Fatal("UpsertWorkflowPolicy must not be called for workflow authors without rbac:manage")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "user-workflow-author")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeWorkflowsWrite})
+
+	_, err := srv.handleUpsertWorkflowPolicy(ctx, &UpsertWorkflowPolicyInput{
+		ProjectID: "proj-1",
+		Body:      upsertWorkflowPolicyRequest{MaxFanOut: 0, MaxDepth: 0},
+	})
+	if !isHumaStatusError(err, http.StatusForbidden) {
+		t.Fatalf("expected 403, got %v", err)
+	}
+}
+
+func TestHandleUpsertWorkflowPolicy_RBACManagerAllowed(t *testing.T) {
+	t.Parallel()
+
+	var upserted bool
+	ms := &APIStoreMock{
+		GetUserPermissionsFunc: func(_ context.Context, projectID, actorID string) ([]string, error) {
+			if projectID != "proj-1" || actorID != "user-rbac-manager" {
+				t.Fatalf("permission lookup = %s %s", projectID, actorID)
+			}
+			return []string{domain.ScopeRBACManage}, nil
+		},
+		UpsertWorkflowPolicyFunc: func(_ context.Context, p *domain.WorkflowPolicy) error {
+			upserted = true
+			if p.ProjectID != "proj-1" || p.MaxFanOut != 2 {
+				t.Fatalf("policy = %+v", p)
+			}
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "user-rbac-manager")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeRBACManage})
+
+	_, err := srv.handleUpsertWorkflowPolicy(ctx, &UpsertWorkflowPolicyInput{
+		ProjectID: "proj-1",
+		Body:      upsertWorkflowPolicyRequest{MaxFanOut: 2, MaxDepth: 3},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !upserted {
+		t.Fatal("expected workflow policy upsert")
+	}
+}
+
 func TestHandleWorkflowVersionDiff_ErrorPaths(t *testing.T) {
 	t.Parallel()
 

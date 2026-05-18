@@ -533,7 +533,7 @@ func (s *Server) routes() chi.Router {
 
 		r.Route("/workflow-policies", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/{projectID}", TypedHandler(s, http.StatusOK, s.handleGetWorkflowPolicy))
-			r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Put("/{projectID}", TypedHandler(s, http.StatusOK, s.handleUpsertWorkflowPolicy))
+			r.With(s.requirePermission(domain.ScopeRBACManage)).Put("/{projectID}", TypedHandler(s, http.StatusOK, s.handleUpsertWorkflowPolicy))
 		})
 
 		r.Route("/workflows", func(r chi.Router) {

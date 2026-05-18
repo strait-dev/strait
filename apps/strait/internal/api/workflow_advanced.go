@@ -32,6 +32,9 @@ func (s *Server) handleUpsertWorkflowPolicy(ctx context.Context, input *UpsertWo
 	if actorTypeFromContext(ctx) == "api_key" && !isInternalCaller(ctx) {
 		return nil, huma.Error403Forbidden("workflow policy changes require an operator or user context")
 	}
+	if !isInternalCaller(ctx) && !s.hasProjectPermission(ctx, domain.ScopeRBACManage) {
+		return nil, huma.Error403Forbidden("workflow policy changes require rbac:manage")
+	}
 	policy := &domain.WorkflowPolicy{
 		ProjectID:                input.ProjectID,
 		MaxFanOut:                input.Body.MaxFanOut,
