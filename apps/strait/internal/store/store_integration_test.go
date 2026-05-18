@@ -7354,6 +7354,111 @@ func TestGetUserPermissions_NoRole(t *testing.T) {
 	}
 }
 
+func TestCreateProjectRole_RejectsCrossProjectParent(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	foreign := &domain.ProjectRole{
+		ProjectID:   "proj-rbac-parent-foreign-" + newID(),
+		Name:        "foreign-admin",
+		Permissions: []string{"rbac:manage"},
+	}
+	if err := q.CreateProjectRole(ctx, foreign); err != nil {
+		t.Fatalf("CreateProjectRole(foreign) error = %v", err)
+	}
+
+	local := &domain.ProjectRole{
+		ProjectID:    "proj-rbac-parent-local-" + newID(),
+		Name:         "local-child",
+		Permissions:  []string{"jobs:read"},
+		ParentRoleID: foreign.ID,
+	}
+	err := q.CreateProjectRole(ctx, local)
+	if !errors.Is(err, store.ErrRoleNotFound) {
+		t.Fatalf("CreateProjectRole(cross-project parent) = %v, want ErrRoleNotFound", err)
+	}
+}
+
+func TestUpdateProjectRole_RejectsCrossProjectParent(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	foreign := &domain.ProjectRole{
+		ProjectID:   "proj-rbac-update-foreign-" + newID(),
+		Name:        "foreign-admin",
+		Permissions: []string{"rbac:manage"},
+	}
+	if err := q.CreateProjectRole(ctx, foreign); err != nil {
+		t.Fatalf("CreateProjectRole(foreign) error = %v", err)
+	}
+
+	local := &domain.ProjectRole{
+		ProjectID:   "proj-rbac-update-local-" + newID(),
+		Name:        "local-child",
+		Permissions: []string{"jobs:read"},
+	}
+	if err := q.CreateProjectRole(ctx, local); err != nil {
+		t.Fatalf("CreateProjectRole(local) error = %v", err)
+	}
+
+	local.ParentRoleID = foreign.ID
+	err := q.UpdateProjectRole(ctx, local)
+	if !errors.Is(err, store.ErrRoleNotFound) {
+		t.Fatalf("UpdateProjectRole(cross-project parent) = %v, want ErrRoleNotFound", err)
+	}
+}
+
+func TestGetUserPermissions_IgnoresCrossProjectInheritedRole(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	localProjectID := "proj-rbac-perms-local-" + newID()
+	foreignProjectID := "proj-rbac-perms-foreign-" + newID()
+
+	foreign := &domain.ProjectRole{
+		ProjectID:   foreignProjectID,
+		Name:        "foreign-admin",
+		Permissions: []string{"rbac:manage"},
+	}
+	if err := q.CreateProjectRole(ctx, foreign); err != nil {
+		t.Fatalf("CreateProjectRole(foreign) error = %v", err)
+	}
+	local := &domain.ProjectRole{
+		ProjectID:   localProjectID,
+		Name:        "local-reader",
+		Permissions: []string{"jobs:read"},
+	}
+	if err := q.CreateProjectRole(ctx, local); err != nil {
+		t.Fatalf("CreateProjectRole(local) error = %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE project_roles SET parent_role_id = $1 WHERE id = $2`, foreign.ID, local.ID); err != nil {
+		t.Fatalf("force cross-project parent_role_id error = %v", err)
+	}
+
+	member := &domain.ProjectMemberRole{
+		ProjectID: localProjectID,
+		UserID:    "user-rbac-" + newID(),
+		RoleID:    local.ID,
+	}
+	if err := q.AssignMemberRole(ctx, member); err != nil {
+		t.Fatalf("AssignMemberRole() error = %v", err)
+	}
+
+	perms, err := q.GetUserPermissions(ctx, localProjectID, member.UserID)
+	if err != nil {
+		t.Fatalf("GetUserPermissions() error = %v", err)
+	}
+	if !slices.Contains(perms, "jobs:read") {
+		t.Fatalf("permissions = %v, want local jobs:read", perms)
+	}
+	if slices.Contains(perms, "rbac:manage") {
+		t.Fatalf("permissions leaked cross-project inherited permission: %v", perms)
+	}
+}
+
 func TestResourcePolicy_CRUD(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

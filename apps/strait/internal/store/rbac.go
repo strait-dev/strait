@@ -28,6 +28,14 @@ func (q *Queries) CreateProjectRole(ctx context.Context, role *domain.ProjectRol
 	if role.ID == "" {
 		role.ID = uuid.Must(uuid.NewV7()).String()
 	}
+	if role.ParentRoleID == role.ID {
+		return fmt.Errorf("parent role cannot reference itself")
+	}
+	if role.ParentRoleID != "" {
+		if err := q.ensureParentRoleInProject(ctx, role.ParentRoleID, role.ProjectID); err != nil {
+			return err
+		}
+	}
 
 	query := `
 		INSERT INTO project_roles (id, project_id, name, description, permissions, parent_role_id, is_system)
@@ -122,10 +130,21 @@ func (q *Queries) UpdateProjectRole(ctx context.Context, role *domain.ProjectRol
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateProjectRole")
 	defer span.End()
 
+	existing, err := q.GetProjectRole(ctx, role.ID)
+	if err != nil {
+		return err
+	}
+	if existing.IsSystem {
+		return ErrRoleNotFound
+	}
+	role.ProjectID = existing.ProjectID
 	if role.ParentRoleID == role.ID {
 		return fmt.Errorf("parent role cannot reference itself")
 	}
 	if role.ParentRoleID != "" {
+		if err := q.ensureParentRoleInProject(ctx, role.ParentRoleID, existing.ProjectID); err != nil {
+			return err
+		}
 		cycle, err := q.wouldCreateRoleCycle(ctx, role.ID, role.ParentRoleID)
 		if err != nil {
 			return err
@@ -141,7 +160,7 @@ func (q *Queries) UpdateProjectRole(ctx context.Context, role *domain.ProjectRol
 		WHERE id = $5 AND is_system = FALSE
 		RETURNING updated_at`
 
-	err := q.db.QueryRow(ctx, query,
+	err = q.db.QueryRow(ctx, query,
 		role.Name, role.Description, role.Permissions, dbscan.NilIfEmptyString(role.ParentRoleID), role.ID,
 	).Scan(&role.UpdatedAt)
 	if err != nil {
@@ -341,14 +360,15 @@ func (q *Queries) GetUserPermissions(ctx context.Context, projectID, userID stri
 
 	query := `
 		WITH RECURSIVE role_tree AS (
-			SELECT pr.id, pr.parent_role_id, pr.permissions
+			SELECT pr.id, pr.project_id, pr.parent_role_id, pr.permissions
 			FROM project_member_roles pmr
 			JOIN project_roles pr ON pr.id = pmr.role_id
 			WHERE pmr.project_id = $1 AND pmr.user_id = $2
 			UNION ALL
-			SELECT parent.id, parent.parent_role_id, parent.permissions
+			SELECT parent.id, parent.project_id, parent.parent_role_id, parent.permissions
 			FROM project_roles parent
 			JOIN role_tree rt ON rt.parent_role_id = parent.id
+			WHERE parent.project_id = rt.project_id
 		)
 		SELECT permissions FROM role_tree`
 
@@ -380,6 +400,22 @@ func (q *Queries) GetUserPermissions(ctx context.Context, projectID, userID stri
 		return nil, nil
 	}
 	return permissions, nil
+}
+
+func (q *Queries) ensureParentRoleInProject(ctx context.Context, parentRoleID, projectID string) error {
+	var exists bool
+	if err := q.db.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM project_roles
+			WHERE id = $1 AND project_id = $2
+		)`, parentRoleID, projectID).Scan(&exists); err != nil {
+		return fmt.Errorf("check parent role project: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("parent role must belong to the same project: %w", ErrRoleNotFound)
+	}
+	return nil
 }
 
 func (q *Queries) CreateResourcePolicy(ctx context.Context, p *domain.ResourcePolicy) error {
