@@ -146,6 +146,39 @@ func TestEnforcer_CheckConcurrentRunLimit(t *testing.T) {
 	}
 }
 
+func TestEnforcer_CheckConcurrentRunLimit_ActivePaymentGraceStillEnforcesPlanCap(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+	ctx := context.Background()
+	graceEnd := time.Now().Add(time.Hour)
+	store.subscriptions = map[string]*OrgSubscription{
+		"org_grace": {
+			OrgID:          "org_grace",
+			PlanTier:       string(domain.PlanFree),
+			Status:         "active",
+			PaymentStatus:  "grace",
+			GracePeriodEnd: &graceEnd,
+		},
+	}
+
+	for range ConcurrentFree {
+		if err := enforcer.CheckConcurrentRunLimit(ctx, "org_grace"); err != nil {
+			t.Fatalf("unexpected error before cap: %v", err)
+		}
+	}
+	err := enforcer.CheckConcurrentRunLimit(ctx, "org_grace")
+	if err == nil {
+		t.Fatal("expected active grace org to remain subject to concurrent run cap")
+	}
+	var le *LimitError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "org_concurrent_run_limit_exceeded" {
+		t.Fatalf("Code = %q, want org_concurrent_run_limit_exceeded", le.Code)
+	}
+}
+
 func TestEnforcer_CheckProjectLimit(t *testing.T) {
 	t.Parallel()
 	enforcer, store, _ := setupEnforcer(t)

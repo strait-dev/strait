@@ -524,8 +524,9 @@ func hasPersistedEntitlements(raw []byte) bool {
 }
 
 // checkPaymentStatus checks the org's payment/grace status. Returns
-// (true, nil) if the caller should skip further limit checks (active grace),
-// (false, nil) if normal enforcement should continue, or (false, err) if blocked.
+// (false, nil) when normal plan enforcement should continue, or (false, err)
+// when payment state blocks the operation. Active grace allows payment access
+// but must not skip normal quota enforcement.
 func (e *Enforcer) checkPaymentStatus(ctx context.Context, orgID string) (bool, error) {
 	sub, err := e.store.GetOrgSubscription(ctx, orgID)
 	if err != nil {
@@ -554,8 +555,7 @@ func (e *Enforcer) checkPaymentStatus(ctx context.Context, orgID string) (bool, 
 		}
 	case "grace":
 		if sub.GracePeriodEnd != nil && time.Now().Before(*sub.GracePeriodEnd) {
-			// Active grace period: allow the run, skip further limit checks.
-			return true, nil
+			return false, nil
 		}
 		// Grace period has expired.
 		return false, &LimitError{
