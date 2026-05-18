@@ -562,3 +562,101 @@ func (q *Queries) DeleteAuditDeadletterOlderThan(ctx context.Context, cutoff tim
 	}
 	return out, rows.Err()
 }
+
+// DeleteAuditDeadletterOlderThanWithAudit atomically drops aged deadletter rows
+// and writes one audit.deadletter_aged marker per affected project. If any
+// marker cannot be signed or inserted, the transaction rolls back and the DLQ
+// evidence remains for a later retry.
+func (q *Queries) DeleteAuditDeadletterOlderThanWithAudit(ctx context.Context, cutoff time.Time, maxAgeDays int) (map[string]int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteAuditDeadletterOlderThanWithAudit")
+	defer span.End()
+
+	beginner, ok := q.db.(TxBeginner)
+	if !ok {
+		return nil, fmt.Errorf("delete audit deadletter older than with audit: db does not support transactions")
+	}
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("delete audit deadletter older than with audit: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	dropped, err := q.deleteAuditDeadletterOlderThanWithAuditTx(ctx, tx, cutoff, maxAgeDays)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("delete audit deadletter older than with audit: commit tx: %w", err)
+	}
+	return dropped, nil
+}
+
+func (q *Queries) deleteAuditDeadletterOlderThanWithAuditTx(ctx context.Context, tx pgx.Tx, cutoff time.Time, maxAgeDays int) (map[string]int64, error) {
+	const batchLimit = 1000
+	rows, err := tx.Query(ctx, `
+		SELECT id, project_id
+		FROM audit_events_deadletter
+		WHERE created_at >= TIMESTAMPTZ '2000-01-01'
+		  AND created_at < $1
+		ORDER BY created_at ASC
+		LIMIT $2
+		FOR UPDATE SKIP LOCKED
+	`, cutoff, batchLimit)
+	if err != nil {
+		return nil, fmt.Errorf("delete audit deadletter older than with audit: select rows: %w", err)
+	}
+
+	idsByProject := make(map[string][]string)
+	for rows.Next() {
+		var id, projectID string
+		if err := rows.Scan(&id, &projectID); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("delete audit deadletter older than with audit: scan row: %w", err)
+		}
+		idsByProject[projectID] = append(idsByProject[projectID], id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, fmt.Errorf("delete audit deadletter older than with audit: iterate rows: %w", err)
+	}
+	rows.Close()
+
+	dropped := make(map[string]int64, len(idsByProject))
+	txQ := q.withDB(tx)
+	for projectID, ids := range idsByProject {
+		if len(ids) == 0 {
+			continue
+		}
+		details, err := json.Marshal(map[string]any{
+			"dropped_count":  len(ids),
+			"reason":         "max_age_exceeded",
+			"max_age_cutoff": cutoff.Format(time.RFC3339),
+			"max_age_days":   maxAgeDays,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("delete audit deadletter older than with audit: marshal marker: %w", err)
+		}
+		ev := &domain.AuditEvent{
+			ID:           uuid.Must(uuid.NewV7()).String(),
+			ProjectID:    projectID,
+			ActorID:      "system",
+			ActorType:    "system",
+			Action:       domain.AuditActionDeadletterAged,
+			ResourceType: "audit_events_deadletter",
+			ResourceID:   "retention",
+			Details:      json.RawMessage(details),
+		}
+		if err := txQ.CreateAuditEvent(ctx, ev); err != nil {
+			return nil, fmt.Errorf("delete audit deadletter older than with audit: create audit event: %w", err)
+		}
+		tag, err := tx.Exec(ctx, `
+			DELETE FROM audit_events_deadletter
+			WHERE project_id = $1 AND id = ANY($2)
+		`, projectID, ids)
+		if err != nil {
+			return nil, fmt.Errorf("delete audit deadletter older than with audit: delete rows: %w", err)
+		}
+		dropped[projectID] = tag.RowsAffected()
+	}
+	return dropped, nil
+}

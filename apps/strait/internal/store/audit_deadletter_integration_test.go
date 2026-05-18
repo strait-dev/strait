@@ -5,6 +5,7 @@ package store_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -464,6 +465,176 @@ func TestAuditDeadletter_DeleteOlderThan_PerProjectCounts(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("remaining = %d, want 1 (young row should survive)", count)
+	}
+}
+
+func TestAuditDeadletter_DeleteOlderThanWithAudit_WritesMarkersBeforeDeleting(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	q := mustStore(t)
+	signingKey, err := store.DeriveAuditSigningKey("dlq-retention-with-audit-secret")
+	if err != nil {
+		t.Fatalf("derive signing key: %v", err)
+	}
+	q.SetAuditSigningKey(signingKey)
+
+	old := time.Now().UTC().Add(-90 * 24 * time.Hour)
+	young := time.Now().UTC().Add(-1 * 24 * time.Hour)
+
+	mk := func(id, project string, when time.Time) {
+		ev := &domain.AuditEvent{
+			ID:           id,
+			ProjectID:    project,
+			ActorID:      "a",
+			ActorType:    "user",
+			Action:       domain.AuditActionJobTriggered,
+			ResourceType: "job",
+			ResourceID:   "j",
+			Details:      json.RawMessage(`{}`),
+			CreatedAt:    when,
+		}
+		if err := q.CreateAuditEventDeadletter(ctx, ev, "x", 0); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+	mk("old-a-with-audit-1", "proj-retention-a", old)
+	mk("old-a-with-audit-2", "proj-retention-a", old)
+	mk("young-a-with-audit-1", "proj-retention-a", young)
+	mk("old-b-with-audit-1", "proj-retention-b", old)
+
+	cutoff := time.Now().UTC().Add(-30 * 24 * time.Hour)
+	dropped, err := q.DeleteAuditDeadletterOlderThanWithAudit(ctx, cutoff, 30)
+	if err != nil {
+		t.Fatalf("DeleteAuditDeadletterOlderThanWithAudit: %v", err)
+	}
+	if got, want := dropped["proj-retention-a"], int64(2); got != want {
+		t.Errorf("proj-retention-a dropped = %d, want %d", got, want)
+	}
+	if got, want := dropped["proj-retention-b"], int64(1); got != want {
+		t.Errorf("proj-retention-b dropped = %d, want %d", got, want)
+	}
+
+	count, err := q.CountAuditEventsDeadletter(ctx)
+	if err != nil {
+		t.Fatalf("CountAuditEventsDeadletter: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("remaining DLQ rows = %d, want 1", count)
+	}
+
+	rows, err := testDB.Pool.Query(ctx, `
+		SELECT project_id, details
+		FROM audit_events
+		WHERE action = $1
+		  AND resource_type = 'audit_events_deadletter'
+		  AND resource_id = 'retention'
+		ORDER BY project_id
+	`, domain.AuditActionDeadletterAged)
+	if err != nil {
+		t.Fatalf("query retention audit markers: %v", err)
+	}
+	defer rows.Close()
+
+	markers := map[string]struct {
+		droppedCount float64
+		maxAgeDays   float64
+		reason       string
+	}{}
+	for rows.Next() {
+		var projectID string
+		var raw json.RawMessage
+		if err := rows.Scan(&projectID, &raw); err != nil {
+			t.Fatalf("scan retention marker: %v", err)
+		}
+		var details map[string]any
+		if err := json.Unmarshal(raw, &details); err != nil {
+			t.Fatalf("unmarshal retention marker: %v", err)
+		}
+		markers[projectID] = struct {
+			droppedCount float64
+			maxAgeDays   float64
+			reason       string
+		}{
+			droppedCount: details["dropped_count"].(float64),
+			maxAgeDays:   details["max_age_days"].(float64),
+			reason:       details["reason"].(string),
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate retention markers: %v", err)
+	}
+
+	if got, want := len(markers), 2; got != want {
+		t.Fatalf("marker count = %d, want %d", got, want)
+	}
+	if got, want := markers["proj-retention-a"].droppedCount, float64(2); got != want {
+		t.Errorf("proj-retention-a marker dropped_count = %v, want %v", got, want)
+	}
+	if got, want := markers["proj-retention-b"].droppedCount, float64(1); got != want {
+		t.Errorf("proj-retention-b marker dropped_count = %v, want %v", got, want)
+	}
+	for projectID, marker := range markers {
+		if marker.maxAgeDays != 30 {
+			t.Errorf("%s marker max_age_days = %v, want 30", projectID, marker.maxAgeDays)
+		}
+		if marker.reason != "max_age_exceeded" {
+			t.Errorf("%s marker reason = %q, want max_age_exceeded", projectID, marker.reason)
+		}
+	}
+}
+
+func TestAuditDeadletter_DeleteOlderThanWithAudit_RollsBackWhenMarkerFails(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	q := mustStore(t)
+	signingKey, err := store.DeriveAuditSigningKey("dlq-retention-rollback-secret")
+	if err != nil {
+		t.Fatalf("derive signing key: %v", err)
+	}
+	q.SetAuditSigningKey(signingKey)
+
+	ev := &domain.AuditEvent{
+		ID:           "old-rollback-with-audit-1",
+		ProjectID:    "proj-retention-rollback",
+		ActorID:      "a",
+		ActorType:    "user",
+		Action:       domain.AuditActionJobTriggered,
+		ResourceType: "job",
+		ResourceID:   "j",
+		Details:      json.RawMessage(`{}`),
+		CreatedAt:    time.Now().UTC().Add(-90 * 24 * time.Hour),
+	}
+	if err := q.CreateAuditEventDeadletter(ctx, ev, "x", 0); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	forced := errors.New("forced audit marker failure")
+	store.SetAuditEventPostInsertHookForTest(q, func(context.Context) error {
+		return forced
+	})
+	t.Cleanup(func() { store.SetAuditEventPostInsertHookForTest(q, nil) })
+
+	_, err = q.DeleteAuditDeadletterOlderThanWithAudit(ctx, time.Now().UTC().Add(-30*24*time.Hour), 30)
+	if err == nil {
+		t.Fatal("DeleteAuditDeadletterOlderThanWithAudit: expected forced marker error, got nil")
+	}
+	if !errors.Is(err, forced) {
+		t.Fatalf("DeleteAuditDeadletterOlderThanWithAudit err = %v, want forced marker failure", err)
+	}
+
+	var dlqRows, markerRows int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT
+			(SELECT COUNT(*) FROM audit_events_deadletter WHERE id = $1),
+			(SELECT COUNT(*) FROM audit_events WHERE project_id = $2 AND action = $3)
+	`, ev.ID, ev.ProjectID, domain.AuditActionDeadletterAged).Scan(&dlqRows, &markerRows); err != nil {
+		t.Fatalf("count rollback rows: %v", err)
+	}
+	if dlqRows != 1 {
+		t.Fatalf("DLQ rows after marker failure = %d, want 1", dlqRows)
+	}
+	if markerRows != 0 {
+		t.Fatalf("marker rows after marker failure = %d, want 0", markerRows)
 	}
 }
 

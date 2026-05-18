@@ -2,7 +2,6 @@ package scheduler
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	"strait/internal/domain"
@@ -198,11 +197,9 @@ func (r *Reaper) recordDeadletterAged(ctx context.Context, projectID string, n i
 // reapDeadletter drops audit_events_deadletter rows older than the
 // configured AUDIT_DLQ_MAX_AGE_DAYS window. Disabled when the value is 0.
 //
-// For every project that lost rows, the reaper emits an
-// audit.deadletter_aged event into the chain so the drop is itself
-// audited. The event lives outside the original DLQ row's project chain
-// only when CreateAuditEvent fails — in that case the metric still
-// records the drop count so operators can detect silent loss.
+// For every project that lost rows, the store emits an audit.deadletter_aged
+// event into the chain in the same transaction as the deletion. If the marker
+// cannot be written, the rows remain for a later retry.
 func (r *Reaper) reapDeadletter(ctx context.Context) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "reaper.reapDeadletter")
 	defer span.End()
@@ -217,7 +214,15 @@ func (r *Reaper) reapDeadletter(ctx context.Context) {
 		r.recordOperation(ctx, "audit_dlq_retention", "error")
 		return
 	}
-	dropped, err := r.store.DeleteAuditDeadletterOlderThan(ctx, cutoff)
+	retentionStore, ok := r.store.(interface {
+		DeleteAuditDeadletterOlderThanWithAudit(ctx context.Context, cutoff time.Time, maxAgeDays int) (map[string]int64, error)
+	})
+	if !ok {
+		r.logger.Error("audit deadletter retention requires atomic audit-delete store support")
+		r.recordOperation(ctx, "audit_dlq_retention", "error")
+		return
+	}
+	dropped, err := retentionStore.DeleteAuditDeadletterOlderThanWithAudit(ctx, cutoff, r.auditDLQMaxAgeDays)
 	if err != nil {
 		r.logger.Error("failed to drop aged audit deadletter rows", "error", err)
 		r.recordOperation(ctx, "audit_dlq_retention", "error")
@@ -232,7 +237,6 @@ func (r *Reaper) reapDeadletter(ctx context.Context) {
 			"project_id", projectID, "dropped", n,
 			"max_age_days", r.auditDLQMaxAgeDays, "cutoff", cutoff)
 		r.recordDeadletterAged(ctx, projectID, n)
-		r.emitDeadletterAgedAudit(ctx, projectID, n, cutoff)
 	}
 	r.recordOperation(ctx, "audit_dlq_retention", "ok")
 }
@@ -242,38 +246,6 @@ func auditRetentionCutoff(now time.Time, days int) (time.Time, bool) {
 		return time.Time{}, false
 	}
 	return now.AddDate(0, 0, -days), true
-}
-
-// emitDeadletterAgedAudit writes an audit.deadletter_aged event for a
-// project whose DLQ rows were just dropped by the retention reaper. The
-// event carries dropped_count and the trigger reason. Failure to write
-// the event is logged but not fatal — the drop already happened and the
-// metric records it.
-func (r *Reaper) emitDeadletterAgedAudit(ctx context.Context, projectID string, dropped int64, cutoff time.Time) {
-	details, err := json.Marshal(map[string]any{
-		"dropped_count":  dropped,
-		"reason":         "max_age_exceeded",
-		"max_age_cutoff": cutoff.Format(time.RFC3339),
-		"max_age_days":   r.auditDLQMaxAgeDays,
-	})
-	if err != nil {
-		r.logger.Warn("marshal deadletter_aged details failed", "error", err)
-		return
-	}
-	ev := &domain.AuditEvent{
-		ID:           uuid.Must(uuid.NewV7()).String(),
-		ProjectID:    projectID,
-		ActorID:      "system",
-		ActorType:    "system",
-		Action:       domain.AuditActionDeadletterAged,
-		ResourceType: "audit_events_deadletter",
-		ResourceID:   "retention",
-		Details:      json.RawMessage(details),
-	}
-	if writeErr := r.store.CreateAuditEvent(ctx, ev); writeErr != nil {
-		r.logger.Warn("failed to write deadletter_aged audit event",
-			"project_id", projectID, "dropped", dropped, "error", writeErr)
-	}
 }
 
 // reclaimAuditDeadletter replays deadlettered audit events back into the
