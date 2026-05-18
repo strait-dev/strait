@@ -60,6 +60,24 @@ func (e *Executor) endpointSigningSecret(job *domain.Job) (string, error) {
 	return secret, nil
 }
 
+func dispatchSecretsCacheKey(job *domain.Job) string {
+	return "secrets:" + job.ID + ":" + job.EnvironmentID
+}
+
+func (e *Executor) dispatchSecrets(ctx context.Context, job *domain.Job) ([]domain.JobSecret, error) {
+	secretsCacheKey := dispatchSecretsCacheKey(job)
+	if cached, ok := dispatchCacheGet[[]domain.JobSecret](ctx, secretsCacheKey); ok {
+		return cached, nil
+	}
+
+	secrets, err := e.store.ListJobSecretsByJob(ctx, job.ID, job.EnvironmentID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load secrets for job %s: %w", job.ID, err)
+	}
+	dispatchCacheSet(ctx, secretsCacheKey, secrets)
+	return secrets, nil
+}
+
 // resolveJobForRun loads the job configuration for a run, applying version
 // policy rules. For "pin" (default), returns the enqueue-time version. For
 // "latest", upgrades to the current version. For "minor", upgrades only if
@@ -319,6 +337,17 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 					"environment_id", job.EnvironmentID,
 					"error", err,
 				)
+			} else if secrets, err := e.dispatchSecrets(ctx, job); err != nil {
+				e.logger.Warn("environment ENDPOINT_URL ignored because dispatch secrets could not be checked",
+					"run_id", run.ID,
+					"environment_id", job.EnvironmentID,
+					"error", err,
+				)
+			} else if len(secrets) > 0 {
+				e.logger.Warn("environment ENDPOINT_URL ignored because job dispatch includes secrets",
+					"run_id", run.ID,
+					"environment_id", job.EnvironmentID,
+				)
 			} else {
 				e.logger.Info("overriding endpoint URL from environment",
 					"run_id", run.ID,
@@ -557,14 +586,12 @@ func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *dom
 		cp         *domain.RunCheckpoint
 	)
 
-	secretsEnvironment := job.EnvironmentID
-	secretsCacheKey := "secrets:" + job.ID + ":" + secretsEnvironment
-	if cached, ok := dispatchCacheGet[[]domain.JobSecret](ctx, secretsCacheKey); ok {
+	if cached, ok := dispatchCacheGet[[]domain.JobSecret](ctx, dispatchSecretsCacheKey(job)); ok {
 		secrets = cached
 	} else {
 		var dispatchWG conc.WaitGroup
 		dispatchWG.Go(func() {
-			secrets, secretsErr = e.store.ListJobSecretsByJob(tracedCtx, job.ID, secretsEnvironment)
+			secrets, secretsErr = e.dispatchSecrets(tracedCtx, job)
 		})
 		if run.Attempt > 1 {
 			checkpointCacheKey := "checkpoint:" + run.ID
@@ -577,9 +604,6 @@ func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *dom
 			}
 		}
 		dispatchWG.Wait()
-		if secretsErr == nil {
-			dispatchCacheSet(ctx, secretsCacheKey, secrets)
-		}
 		if run.Attempt > 1 && cp != nil {
 			dispatchCacheSet(ctx, "checkpoint:"+run.ID, cp)
 		}
@@ -675,18 +699,9 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 	}()
 
 	extraHeaders := make(map[string]string)
-	var secrets []domain.JobSecret
-	secretsEnvironment := job.EnvironmentID
-	secretsCacheKey := "secrets:" + job.ID + ":" + secretsEnvironment
-	if cached, ok := dispatchCacheGet[[]domain.JobSecret](ctx, secretsCacheKey); ok {
-		secrets = cached
-	} else {
-		var err error
-		secrets, err = e.store.ListJobSecretsByJob(ctx, job.ID, secretsEnvironment)
-		if err != nil {
-			return fmt.Errorf("failed to load secrets for job %s: %w", job.ID, err)
-		}
-		dispatchCacheSet(ctx, secretsCacheKey, secrets)
+	secrets, err := e.dispatchSecrets(ctx, job)
+	if err != nil {
+		return err
 	}
 	for _, secret := range secrets {
 		extraHeaders[fmt.Sprintf("X-Secret-%s", secret.SecretKey)] = secret.EncryptedValue
