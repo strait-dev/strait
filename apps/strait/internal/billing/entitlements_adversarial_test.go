@@ -23,6 +23,48 @@ func TestComputeEntitlements_StrippedSubDefaultsToFree(t *testing.T) {
 	}
 }
 
+func TestComputeEntitlements_DisallowedActiveAddonsDoNotGrantFreePlanBenefits(t *testing.T) {
+	t.Parallel()
+
+	sub := &OrgSubscription{PlanTier: string(domain.PlanFree)}
+	got := ComputeEntitlements(sub, []Addon{
+		{AddonType: AddonConcurrency100, Quantity: 100, Active: true},
+		{AddonType: AddonDedicatedWorkers, Quantity: 1, Active: true},
+		{AddonType: AddonEnvironments5, Quantity: 100, Active: true},
+	})
+	want := GetPlanLimits(domain.PlanFree)
+
+	if got.MaxConcurrentRuns != want.MaxConcurrentRuns {
+		t.Fatalf("free concurrency changed by disallowed add-ons: got %d want %d", got.MaxConcurrentRuns, want.MaxConcurrentRuns)
+	}
+	if got.HasDedicatedCompute != want.HasDedicatedCompute {
+		t.Fatalf("free dedicated compute changed by disallowed add-ons: got %v want %v", got.HasDedicatedCompute, want.HasDedicatedCompute)
+	}
+	if got.MaxEnvironments != want.MaxEnvironments {
+		t.Fatalf("free environments changed by disallowed add-ons: got %d want %d", got.MaxEnvironments, want.MaxEnvironments)
+	}
+}
+
+func TestComputeEntitlements_ActiveAddonsAreClampedToPlanPackCap(t *testing.T) {
+	t.Parallel()
+
+	base := GetPlanLimits(domain.PlanStarter)
+	cap := base.MaxAddonPacks[AddonConcurrency100]
+	if cap <= 0 {
+		t.Fatalf("starter concurrency add-on cap = %d, want positive", cap)
+	}
+	sub := &OrgSubscription{PlanTier: string(domain.PlanStarter)}
+	got := ComputeEntitlements(sub, []Addon{
+		{AddonType: AddonConcurrency100, Quantity: cap + 10, Active: true},
+		{AddonType: AddonConcurrency100, Quantity: cap + 10, Active: true},
+	})
+
+	want := base.MaxConcurrentRuns + cap*AddonPacks[AddonConcurrency100].PackSize
+	if got.MaxConcurrentRuns != want {
+		t.Fatalf("clamped concurrency = %d, want %d", got.MaxConcurrentRuns, want)
+	}
+}
+
 // TestComputeEntitlements_FuzzAddonsNeverPanicsAndStaysWithinPaidCeiling runs
 // random addon slices (with duplicate types, zero quantities, negative
 // quantities, unknown types) against every tier and asserts:

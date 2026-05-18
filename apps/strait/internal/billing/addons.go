@@ -117,6 +117,7 @@ type Addon struct {
 // quantities are silently ignored.
 func EffectiveLimits(base OrgPlanLimits, addons []Addon) OrgPlanLimits {
 	result := base
+	appliedPacks := make(map[AddonType]int, len(addons))
 
 	for _, addon := range addons {
 		if !addon.Active || addon.Quantity <= 0 {
@@ -128,7 +129,12 @@ func EffectiveLimits(base OrgPlanLimits, addons []Addon) OrgPlanLimits {
 			continue
 		}
 
-		increment := pack.PackSize * addon.Quantity
+		quantity := allowedAddonQuantity(base, addon, appliedPacks)
+		if quantity <= 0 {
+			continue
+		}
+		appliedPacks[addon.AddonType] += quantity
+		increment := pack.PackSize * quantity
 
 		switch addon.AddonType {
 		case AddonConcurrency100:
@@ -155,4 +161,34 @@ func EffectiveLimits(base OrgPlanLimits, addons []Addon) OrgPlanLimits {
 	}
 
 	return result
+}
+
+func allowedAddonQuantity(base OrgPlanLimits, addon Addon, applied map[AddonType]int) int {
+	if base.MaxAddonPacks == nil {
+		return 0
+	}
+	maxPacks, ok := base.MaxAddonPacks[addon.AddonType]
+	if !ok {
+		return 0
+	}
+	quantity := addon.Quantity
+	if maxPacks >= 0 {
+		remaining := maxPacks - applied[addon.AddonType]
+		if remaining <= 0 {
+			return 0
+		}
+		if quantity > remaining {
+			quantity = remaining
+		}
+	}
+	if pack, ok := AddonPacks[addon.AddonType]; ok && pack.MaxTotal >= 0 {
+		remainingTotal := pack.MaxTotal - applied[addon.AddonType]
+		if remainingTotal <= 0 {
+			return 0
+		}
+		if quantity > remainingTotal {
+			quantity = remainingTotal
+		}
+	}
+	return quantity
 }
