@@ -173,6 +173,41 @@ func TestBackfillEntitlements_SingleOrgScope(t *testing.T) {
 	}
 }
 
+func TestUpdateEntitlementsIfUnchanged_SkipsStaleBackfillWrite(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgID := "org-backfill-freshness-" + newID()
+	if err := pgStore.EnsureOrgSubscription(ctx, orgID); err != nil {
+		t.Fatalf("EnsureOrgSubscription: %v", err)
+	}
+	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgID, string(domain.PlanPro), "active"); err != nil {
+		t.Fatalf("UpdateOrgSubscriptionPlan(pro): %v", err)
+	}
+	observed, err := pgStore.GetOrgSubscription(ctx, orgID)
+	if err != nil {
+		t.Fatalf("GetOrgSubscription: %v", err)
+	}
+	staleProSnapshot := billing.GetPlanLimits(domain.PlanPro)
+
+	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgID, string(domain.PlanFree), "active"); err != nil {
+		t.Fatalf("UpdateOrgSubscriptionPlan(free): %v", err)
+	}
+	updated, err := billing.UpdateEntitlementsIfUnchanged(ctx, testDB.Pool, orgID, staleProSnapshot, observed.UpdatedAt)
+	if err != nil {
+		t.Fatalf("UpdateEntitlementsIfUnchanged: %v", err)
+	}
+	if updated {
+		t.Fatal("stale backfill write updated row after live plan change")
+	}
+
+	got := readEntitlements(t, ctx, orgID)
+	if got.PlanTier != domain.PlanFree {
+		t.Fatalf("persisted plan tier = %s, want %s", got.PlanTier, domain.PlanFree)
+	}
+}
+
 // TestBackfillEntitlements_AdversarialConcurrentWebhookWriter races the
 // backfill against a concurrent UpdateOrgSubscriptionPlan loop that keeps
 // flipping plan tiers on the same orgs. Final state must equal
