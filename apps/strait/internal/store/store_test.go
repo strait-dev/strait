@@ -415,7 +415,7 @@ func TestResetRunIdempotencyKey_NoTxSupport(t *testing.T) {
 
 // Unbounded query LIMIT tests.
 
-func TestListCronJobs_QueryContainsLimit(t *testing.T) {
+func TestListCronJobs_QueryDoesNotSilentlyCapCronSchedules(t *testing.T) {
 	t.Parallel()
 	var capturedSQL string
 	db := &mockDBTX{
@@ -426,8 +426,8 @@ func TestListCronJobs_QueryContainsLimit(t *testing.T) {
 	}
 	q := New(db)
 	_, _ = q.ListCronJobs(context.Background())
-	if !strings.Contains(capturedSQL, "LIMIT 10000") {
-		t.Errorf("ListCronJobs query missing LIMIT 10000, got: %s", capturedSQL)
+	if strings.Contains(capturedSQL, "LIMIT 10000") {
+		t.Errorf("ListCronJobs query must not silently cap cron schedules, got: %s", capturedSQL)
 	}
 }
 
