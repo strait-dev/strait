@@ -385,6 +385,18 @@ func (s *Server) handleRotateAPIKey(ctx context.Context, input *RotateAPIKeyInpu
 		}
 		return nil, huma.Error500InternalServerError("failed to mark old key as rotated")
 	}
+	if s.pubsub != nil && oldKey.ID != "" {
+		expireChannel := fmt.Sprintf("apikey:expires:%s", oldKey.ID)
+		if pubErr := s.pubsub.Publish(ctx, expireChannel, []byte(graceExpiresAt.UTC().Format(time.RFC3339Nano))); pubErr != nil {
+			slog.Error("api key rotation expiry broadcast failed",
+				"key_id", oldKey.ID,
+				"error", pubErr,
+			)
+			if s.config != nil && s.config.GRPCEnabled {
+				return nil, huma.Error503ServiceUnavailable("api key rotated but active worker stream expiry broadcast failed")
+			}
+		}
+	}
 	s.emitAuditEvent(ctx, domain.AuditActionAPIKeyRotated, "api_key", input.KeyID, map[string]any{"new_key_id": newKey.ID, "grace_expires_at": graceExpiresAt, "grace_period_minute": req.GracePeriodMinutes})
 	return &RotateAPIKeyOutput{Body: map[string]any{"old_key_id": oldKey.ID, "new_key_id": newKey.ID, "project_id": newKey.ProjectID, "name": newKey.Name, "key": rawKey, "key_prefix": newKey.KeyPrefix, "scopes": newKey.Scopes, "expires_at": newKey.ExpiresAt, "created_at": newKey.CreatedAt, "grace_expires_at": graceExpiresAt}}, nil
 }

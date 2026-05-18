@@ -109,15 +109,22 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	}()
 
 	var revokeKeySub *pubsub.Subscription
+	var expireKeySub *pubsub.Subscription
 	closeRevokeSubOnEarlyReturn := true
+	closeExpireSubOnEarlyReturn := true
 	defer func() {
 		if closeRevokeSubOnEarlyReturn && revokeKeySub != nil {
 			revokeKeySub.Close()
+		}
+		if closeExpireSubOnEarlyReturn && expireKeySub != nil {
+			expireKeySub.Close()
 		}
 	}()
 	if apiKey.ID != "" {
 		revokeChannel := fmt.Sprintf("apikey:revoked:%s", apiKey.ID)
 		revokeKeySub, _ = s.pub.Subscribe(ctx, revokeChannel)
+		expireChannel := fmt.Sprintf("apikey:expires:%s", apiKey.ID)
+		expireKeySub, _ = s.pub.Subscribe(ctx, expireChannel)
 	}
 
 	// Receive and validate the registration message.
@@ -138,6 +145,10 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	if revokeKeySub == nil && apiKey.ID != "" {
 		revokeChannel := fmt.Sprintf("apikey:revoked:%s", apiKey.ID)
 		revokeKeySub, _ = s.pub.Subscribe(ctx, revokeChannel)
+	}
+	if expireKeySub == nil && apiKey.ID != "" {
+		expireChannel := fmt.Sprintf("apikey:expires:%s", apiKey.ID)
+		expireKeySub, _ = s.pub.Subscribe(ctx, expireChannel)
 	}
 	regPayload, ok := firstMsg.Payload.(*workerv1.WorkerMessage_Registration)
 	if !ok || regPayload.Registration == nil {
@@ -235,7 +246,7 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 
 	// Run recv and send loops concurrently. If either exits, the stream closes.
 	var wg conc.WaitGroup
-	streamErr := make(chan error, workerStreamGoroutineCount(disconnectSub, revokeKeySub, apiKeyHasExpiry))
+	streamErr := make(chan error, workerStreamGoroutineCount(disconnectSub, revokeKeySub, apiKeyHasExpiry || expireKeySub != nil))
 
 	// Disconnect signal listener: closes the stream when a force-disconnect is published.
 	if disconnectSub != nil {
@@ -247,8 +258,9 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 		closeRevokeSubOnEarlyReturn = false
 		s.listenForAPIKeyRevocation(ctx, &wg, streamErr, revokeKeySub, cw, apiKey.ID, reg.WorkerId, projectID)
 	}
-	if apiKeyHasExpiry {
-		s.listenForAPIKeyExpiry(ctx, &wg, streamErr, apiKeyExpiresAt, cw, apiKey.ID, reg.WorkerId, projectID)
+	if apiKeyHasExpiry || expireKeySub != nil {
+		closeExpireSubOnEarlyReturn = false
+		s.listenForAPIKeyExpiry(ctx, &wg, streamErr, apiKeyExpiresAt, apiKeyHasExpiry, expireKeySub, cw, apiKey.ID, reg.WorkerId, projectID)
 	}
 
 	startWorkerSendLoop(ctx, &wg, streamErr, sendCh, stream)
@@ -446,38 +458,99 @@ func (s *workerService) listenForAPIKeyExpiry(
 	wg *conc.WaitGroup,
 	streamErr chan<- error,
 	expiresAt time.Time,
+	hasExpiry bool,
+	expireKeySub *pubsub.Subscription,
 	cw *ConnectedWorker,
 	apiKeyID string,
 	workerID string,
 	projectID string,
 ) {
 	wg.Go(func() {
-		wait := time.Until(expiresAt)
-		if wait <= 0 {
-			s.registry.CloseByAPIKey(apiKeyID)
+		var timer *time.Timer
+		var timerCh <-chan time.Time
+		resetTimer := func(deadline time.Time) bool {
+			wait := time.Until(deadline)
+			if wait <= 0 {
+				return false
+			}
+			if timer == nil {
+				timer = time.NewTimer(wait)
+			} else {
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+				timer.Reset(wait)
+			}
+			timerCh = timer.C
+			return true
+		}
+		if hasExpiry && !resetTimer(expiresAt) {
 			streamErr <- errAPIKeyExpired
+			s.registry.CloseByAPIKey(apiKeyID)
 			return
 		}
-		timer := time.NewTimer(wait)
-		defer timer.Stop()
-		select {
-		case <-ctx.Done():
-			streamErr <- nil
-		case <-timer.C:
-			slog.Info("grpc worker api key expired, closing stream",
-				"worker_id", workerID,
-				"api_key_id", apiKeyID,
-				"project_id", projectID,
-			)
-			// Also close via registry so co-located streams for the same key are notified.
-			s.registry.CloseByAPIKey(apiKeyID)
-			select {
-			case <-cw.revokeCh:
-			default:
+		defer func() {
+			if timer != nil {
+				timer.Stop()
 			}
-			streamErr <- errAPIKeyExpired
+			if expireKeySub != nil {
+				expireKeySub.Close()
+			}
+		}()
+		var expireSignalCh <-chan []byte
+		if expireKeySub != nil {
+			expireSignalCh = expireKeySub.Ch
+		}
+		for {
+			select {
+			case <-ctx.Done():
+				streamErr <- nil
+				return
+			case payload, ok := <-expireSignalCh:
+				if !ok {
+					expireSignalCh = nil
+					continue
+				}
+				nextExpiry, err := parseAPIKeyExpirySignal(payload)
+				if err != nil {
+					slog.Warn("grpc worker api key expiry signal invalid, closing stream",
+						"worker_id", workerID,
+						"api_key_id", apiKeyID,
+						"project_id", projectID,
+						"error", err,
+					)
+					s.registry.CloseByAPIKey(apiKeyID)
+					streamErr <- errAPIKeyExpired
+					return
+				}
+				if !resetTimer(nextExpiry) {
+					streamErr <- errAPIKeyExpired
+					s.registry.CloseByAPIKey(apiKeyID)
+					return
+				}
+			case <-timerCh:
+				slog.Info("grpc worker api key rotation grace expired, closing stream",
+					"worker_id", workerID,
+					"api_key_id", apiKeyID,
+					"project_id", projectID,
+				)
+				streamErr <- errAPIKeyExpired
+				s.registry.CloseByAPIKey(apiKeyID)
+				return
+			}
 		}
 	})
+}
+
+func parseAPIKeyExpirySignal(payload []byte) (time.Time, error) {
+	deadline, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(string(payload)))
+	if err != nil {
+		return time.Time{}, fmt.Errorf("parse api key expiry signal: %w", err)
+	}
+	return deadline, nil
 }
 
 func streamDisconnectReason(err error) string {

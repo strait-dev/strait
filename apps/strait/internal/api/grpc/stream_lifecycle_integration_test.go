@@ -395,6 +395,91 @@ func TestIntegration_StreamTasks_APIKeyExpiryClosesRegisteredStream(t *testing.T
 	}
 }
 
+func TestIntegration_StreamTasks_APIKeyRotationGraceSignalClosesRegisteredStream(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	const (
+		projectID = "proj-stream-rotation-expiry"
+		workerID  = "worker-stream-rotation-expiry"
+		apiKeyID  = "key-stream-rotation-expiry"
+		rawKey    = "strait_streamRotationExpiryKey"
+	)
+	seedGRPCAPIKey(t, ctx, q, projectID, apiKeyID, rawKey)
+
+	pub := newTestRevocationPublisher()
+	streamCtx, cancel := context.WithCancel(ctx)
+	stream := newBlockingWorkerStream(streamCtx, rawKey)
+	stream.recvCh <- &workerv1.WorkerMessage{
+		Payload: &workerv1.WorkerMessage_Registration{
+			Registration: &workerv1.WorkerRegistration{
+				WorkerId:       workerID,
+				Name:           "rotation expiring worker",
+				Hostname:       "host",
+				SdkVersion:     "1.0.0",
+				SdkLanguage:    "go",
+				Queues:         []string{"default"},
+				SlotsTotal:     1,
+				SlotsAvailable: 1,
+			},
+		},
+	}
+
+	svc := &workerService{
+		queries:        q,
+		pub:            pub,
+		registry:       NewConnectionRegistry(),
+		resultChannels: NewResultChannelRegistry(),
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- svc.StreamTasks(stream)
+	}()
+
+	select {
+	case msg := <-stream.sentCh:
+		if msg.GetAck() == nil {
+			t.Fatalf("first server message = %T, want ack", msg.Payload)
+		}
+	case err := <-done:
+		t.Fatalf("StreamTasks returned before registration ack: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for registration ack")
+	}
+
+	graceExpiresAt := time.Now().Add(250 * time.Millisecond)
+	if err := pub.Publish(ctx, "apikey:expires:"+apiKeyID, []byte(graceExpiresAt.UTC().Format(time.RFC3339Nano))); err != nil {
+		t.Fatalf("publish expiry signal: %v", err)
+	}
+
+	select {
+	case err := <-done:
+		if err == nil || !errors.Is(err, errAPIKeyExpired) {
+			t.Fatalf("StreamTasks error = %v, want api key expired", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("StreamTasks did not return after rotation grace expiry signal")
+	}
+	if got := svc.registry.Snapshot(); len(got) != 0 {
+		t.Fatalf("rotation-expired stream left registered worker: got %d workers", len(got))
+	}
+	cancel()
+	select {
+	case <-stream.recvDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("recv loop did not exit after test context cancellation")
+	}
+}
+
 func TestIntegration_StreamTasks_APIKeyExpiryBeforeRegistrationRejectsWorker(t *testing.T) {
 	ctx := context.Background()
 	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
