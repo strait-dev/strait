@@ -736,10 +736,10 @@ func (s *PgStore) GetOrgUsageForPeriod(ctx context.Context, orgID string, from, 
 			  AND jr.created_at >= $2
 			  AND jr.created_at < $3
 			GROUP BY p.org_id, jr.project_id, DATE(jr.created_at)
-		), ai_usage AS (
-			SELECT p.org_id,
-				jr.project_id,
-				DATE(ru.created_at) AS period_date,
+			), ai_usage AS (
+				SELECT p.org_id,
+					jr.project_id,
+					DATE(ru.created_at) AS period_date,
 				0::bigint AS runs_count,
 				0::bigint AS compute_cost_microusd,
 				COALESCE(SUM(ru.total_tokens), 0)::bigint AS ai_tokens_total,
@@ -751,11 +751,26 @@ func (s *PgStore) GetOrgUsageForPeriod(ctx context.Context, orgID string, from, 
 			JOIN projects p ON p.id = jr.project_id
 			WHERE p.org_id = $1
 			  AND ru.created_at >= $2
-			  AND ru.created_at < $3
-			GROUP BY p.org_id, jr.project_id, DATE(ru.created_at)
-		)
-		SELECT '' AS id,
-			org_id,
+				  AND ru.created_at < $3
+				GROUP BY p.org_id, jr.project_id, DATE(ru.created_at)
+			), recorded_compute AS (
+				SELECT org_id,
+					project_id,
+					period_date,
+					0::bigint AS runs_count,
+					COALESCE(SUM(compute_cost_microusd), 0)::bigint AS compute_cost_microusd,
+					0::bigint AS ai_tokens_total,
+					0::bigint AS ai_cost_microusd,
+					MIN(created_at) AS created_at,
+					MAX(updated_at) AS updated_at
+				FROM usage_records
+				WHERE org_id = $1
+				  AND period_date >= $2::date
+				  AND period_date < $3::date
+				GROUP BY org_id, project_id, period_date
+			)
+			SELECT '' AS id,
+				org_id,
 			project_id,
 			period_date,
 			SUM(runs_count) AS runs_count,
@@ -764,11 +779,13 @@ func (s *PgStore) GetOrgUsageForPeriod(ctx context.Context, orgID string, from, 
 			SUM(ai_cost_microusd) AS ai_cost_microusd,
 			MIN(created_at) AS created_at,
 			MAX(updated_at) AS updated_at
-		FROM (
-			SELECT * FROM run_counts
-			UNION ALL
-			SELECT * FROM ai_usage
-		) usage
+			FROM (
+				SELECT * FROM run_counts
+				UNION ALL
+				SELECT * FROM ai_usage
+				UNION ALL
+				SELECT * FROM recorded_compute
+			) usage
 		GROUP BY org_id, project_id, period_date
 		ORDER BY period_date ASC
 	`, orgID, from, endExclusive)
@@ -799,10 +816,10 @@ func (s *PgStore) GetProjectUsageForPeriod(ctx context.Context, projectID string
 			  AND jr.created_at >= $2
 			  AND jr.created_at < $3
 			GROUP BY p.org_id, jr.project_id, DATE(jr.created_at)
-		), ai_usage AS (
-			SELECT p.org_id,
-				jr.project_id,
-				DATE(ru.created_at) AS period_date,
+			), ai_usage AS (
+				SELECT p.org_id,
+					jr.project_id,
+					DATE(ru.created_at) AS period_date,
 				0::bigint AS runs_count,
 				0::bigint AS compute_cost_microusd,
 				COALESCE(SUM(ru.total_tokens), 0)::bigint AS ai_tokens_total,
@@ -814,11 +831,26 @@ func (s *PgStore) GetProjectUsageForPeriod(ctx context.Context, projectID string
 			JOIN projects p ON p.id = jr.project_id
 			WHERE jr.project_id = $1
 			  AND ru.created_at >= $2
-			  AND ru.created_at < $3
-			GROUP BY p.org_id, jr.project_id, DATE(ru.created_at)
-		)
-		SELECT '' AS id,
-			org_id,
+				  AND ru.created_at < $3
+				GROUP BY p.org_id, jr.project_id, DATE(ru.created_at)
+			), recorded_compute AS (
+				SELECT org_id,
+					project_id,
+					period_date,
+					0::bigint AS runs_count,
+					COALESCE(SUM(compute_cost_microusd), 0)::bigint AS compute_cost_microusd,
+					0::bigint AS ai_tokens_total,
+					0::bigint AS ai_cost_microusd,
+					MIN(created_at) AS created_at,
+					MAX(updated_at) AS updated_at
+				FROM usage_records
+				WHERE project_id = $1
+				  AND period_date >= $2::date
+				  AND period_date < $3::date
+				GROUP BY org_id, project_id, period_date
+			)
+			SELECT '' AS id,
+				org_id,
 			project_id,
 			period_date,
 			SUM(runs_count) AS runs_count,
@@ -827,11 +859,13 @@ func (s *PgStore) GetProjectUsageForPeriod(ctx context.Context, projectID string
 			SUM(ai_cost_microusd) AS ai_cost_microusd,
 			MIN(created_at) AS created_at,
 			MAX(updated_at) AS updated_at
-		FROM (
-			SELECT * FROM run_counts
-			UNION ALL
-			SELECT * FROM ai_usage
-		) usage
+			FROM (
+				SELECT * FROM run_counts
+				UNION ALL
+				SELECT * FROM ai_usage
+				UNION ALL
+				SELECT * FROM recorded_compute
+			) usage
 		GROUP BY org_id, project_id, period_date
 		ORDER BY period_date ASC
 	`, projectID, from, endExclusive)
@@ -859,10 +893,10 @@ func (s *PgStore) GetOrgDailyUsage(ctx context.Context, orgID string, date time.
 			WHERE p.org_id = $1
 			  AND DATE(jr.created_at) = $2
 			GROUP BY p.org_id, jr.project_id, DATE(jr.created_at)
-		), ai_usage AS (
-			SELECT p.org_id,
-				jr.project_id,
-				DATE(ru.created_at) AS period_date,
+			), ai_usage AS (
+				SELECT p.org_id,
+					jr.project_id,
+					DATE(ru.created_at) AS period_date,
 				0::bigint AS runs_count,
 				0::bigint AS compute_cost_microusd,
 				COALESCE(SUM(ru.total_tokens), 0)::bigint AS ai_tokens_total,
@@ -873,11 +907,25 @@ func (s *PgStore) GetOrgDailyUsage(ctx context.Context, orgID string, date time.
 			JOIN job_runs jr ON jr.id = ru.run_id
 			JOIN projects p ON p.id = jr.project_id
 			WHERE p.org_id = $1
-			  AND DATE(ru.created_at) = $2
-			GROUP BY p.org_id, jr.project_id, DATE(ru.created_at)
-		)
-		SELECT '' AS id,
-			org_id,
+				  AND DATE(ru.created_at) = $2
+				GROUP BY p.org_id, jr.project_id, DATE(ru.created_at)
+			), recorded_compute AS (
+				SELECT org_id,
+					project_id,
+					period_date,
+					0::bigint AS runs_count,
+					COALESCE(SUM(compute_cost_microusd), 0)::bigint AS compute_cost_microusd,
+					0::bigint AS ai_tokens_total,
+					0::bigint AS ai_cost_microusd,
+					MIN(created_at) AS created_at,
+					MAX(updated_at) AS updated_at
+				FROM usage_records
+				WHERE org_id = $1
+				  AND period_date = $2
+				GROUP BY org_id, project_id, period_date
+			)
+			SELECT '' AS id,
+				org_id,
 			project_id,
 			period_date,
 			SUM(runs_count) AS runs_count,
@@ -886,11 +934,13 @@ func (s *PgStore) GetOrgDailyUsage(ctx context.Context, orgID string, date time.
 			SUM(ai_cost_microusd) AS ai_cost_microusd,
 			MIN(created_at) AS created_at,
 			MAX(updated_at) AS updated_at
-		FROM (
-			SELECT * FROM run_counts
-			UNION ALL
-			SELECT * FROM ai_usage
-		) usage
+			FROM (
+				SELECT * FROM run_counts
+				UNION ALL
+				SELECT * FROM ai_usage
+				UNION ALL
+				SELECT * FROM recorded_compute
+			) usage
 		GROUP BY org_id, project_id, period_date
 	`, orgID, date)
 	if err != nil {

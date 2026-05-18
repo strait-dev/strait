@@ -1417,6 +1417,66 @@ func TestPgStore_ReplaceUsageRecord_ReplacesSnapshot(t *testing.T) {
 	}
 }
 
+func TestPgStore_GetUsageForPeriod_IncludesRecordedComputeCosts(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-usage-compute-" + newID()
+	p := createProject(t, ctx, q, orgID, "P")
+	day := time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC)
+	now := day.Add(12 * time.Hour)
+
+	rec := &billing.UsageRecord{
+		ID:               newID(),
+		OrgID:            orgID,
+		ProjectID:        p.ID,
+		PeriodDate:       day,
+		RunsCount:        1,
+		ComputeCostMicro: 2_500_000,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}
+	if err := pgStore.UpsertUsageRecord(ctx, rec); err != nil {
+		t.Fatalf("UpsertUsageRecord error = %v", err)
+	}
+
+	from := day
+	to := day
+	orgRecords, err := pgStore.GetOrgUsageForPeriod(ctx, orgID, from, to)
+	if err != nil {
+		t.Fatalf("GetOrgUsageForPeriod error = %v", err)
+	}
+	assertRecordedComputeUsage(t, orgRecords, p.ID, 2_500_000)
+
+	projectRecords, err := pgStore.GetProjectUsageForPeriod(ctx, p.ID, from, to)
+	if err != nil {
+		t.Fatalf("GetProjectUsageForPeriod error = %v", err)
+	}
+	assertRecordedComputeUsage(t, projectRecords, p.ID, 2_500_000)
+
+	dailyRecords, err := pgStore.GetOrgDailyUsage(ctx, orgID, day)
+	if err != nil {
+		t.Fatalf("GetOrgDailyUsage error = %v", err)
+	}
+	assertRecordedComputeUsage(t, dailyRecords, p.ID, 2_500_000)
+}
+
+func assertRecordedComputeUsage(t *testing.T, records []billing.UsageRecord, projectID string, want int64) {
+	t.Helper()
+	for _, rec := range records {
+		if rec.ProjectID != projectID {
+			continue
+		}
+		if rec.ComputeCostMicro != want {
+			t.Fatalf("ComputeCostMicro = %d, want %d in records %#v", rec.ComputeCostMicro, want, records)
+		}
+		return
+	}
+	t.Fatalf("usage records missing project %s: %#v", projectID, records)
+}
+
 func TestPgStore_GetProjectBudget_NoRow(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
