@@ -25,6 +25,8 @@ import (
 
 type mockEngineStore struct {
 	getWorkflowFn                     func(ctx context.Context, id string) (*domain.Workflow, error)
+	getActiveCanaryDeploymentFn       func(ctx context.Context, workflowID string) (*domain.CanaryDeployment, error)
+	getWorkflowVersionFn              func(ctx context.Context, workflowID string, version int) (*domain.WorkflowVersion, error)
 	listStepsByWorkflowVerFn          func(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
 	countRunningWorkflowRunsFn        func(ctx context.Context, workflowID string) (int, error)
 	createWorkflowRunFn               func(ctx context.Context, run *domain.WorkflowRun) error
@@ -45,6 +47,20 @@ type mockEngineStore struct {
 func (m *mockEngineStore) GetWorkflow(ctx context.Context, id string) (*domain.Workflow, error) {
 	if m.getWorkflowFn != nil {
 		return m.getWorkflowFn(ctx, id)
+	}
+	return nil, nil
+}
+
+func (m *mockEngineStore) GetActiveCanaryDeployment(ctx context.Context, workflowID string) (*domain.CanaryDeployment, error) {
+	if m.getActiveCanaryDeploymentFn != nil {
+		return m.getActiveCanaryDeploymentFn(ctx, workflowID)
+	}
+	return nil, domain.ErrCanaryNotFound
+}
+
+func (m *mockEngineStore) GetWorkflowVersion(ctx context.Context, workflowID string, version int) (*domain.WorkflowVersion, error) {
+	if m.getWorkflowVersionFn != nil {
+		return m.getWorkflowVersionFn(ctx, workflowID, version)
 	}
 	return nil, nil
 }
@@ -481,6 +497,84 @@ func TestTriggerWorkflow(t *testing.T) {
 			t.Fatalf("captured step runs = %d, want 2", len(capturedStepRuns))
 		}
 	})
+}
+
+func TestTriggerWorkflow_AppliesActiveCanaryRouting(t *testing.T) {
+	var listedVersion int
+	var createdVersion int
+	var createdVersionID string
+	ms := &mockEngineStore{
+		getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{
+				ID:        id,
+				ProjectID: "proj-1",
+				Enabled:   true,
+				Version:   1,
+				VersionID: "wf-v1",
+			}, nil
+		},
+		getActiveCanaryDeploymentFn: func(_ context.Context, workflowID string) (*domain.CanaryDeployment, error) {
+			if workflowID != "wf-1" {
+				t.Fatalf("canary workflowID = %q, want wf-1", workflowID)
+			}
+			return &domain.CanaryDeployment{
+				WorkflowID:    "wf-1",
+				ProjectID:     "proj-1",
+				SourceVersion: 1,
+				TargetVersion: 2,
+				TrafficPct:    100,
+				Status:        "active",
+			}, nil
+		},
+		getWorkflowVersionFn: func(_ context.Context, workflowID string, version int) (*domain.WorkflowVersion, error) {
+			if workflowID != "wf-1" || version != 2 {
+				t.Fatalf("GetWorkflowVersion(%q, %d), want wf-1,2", workflowID, version)
+			}
+			return &domain.WorkflowVersion{
+				WorkflowID:        "wf-1",
+				ProjectID:         "proj-1",
+				Version:           2,
+				VersionID:         "wf-v2",
+				Name:              "Workflow v2",
+				Slug:              "workflow",
+				Enabled:           true,
+				MaxConcurrentRuns: 4,
+				MaxParallelSteps:  3,
+			}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, workflowID string, version int) ([]domain.WorkflowStep, error) {
+			if workflowID != "wf-1" {
+				t.Fatalf("workflowID = %q, want wf-1", workflowID)
+			}
+			listedVersion = version
+			return []domain.WorkflowStep{{ID: "step-v2", JobID: "job-v2", StepRef: "root"}}, nil
+		},
+		createWorkflowRunFn: func(_ context.Context, run *domain.WorkflowRun) error {
+			run.ID = "wr-canary"
+			createdVersion = run.WorkflowVersion
+			createdVersionID = run.WorkflowVersionID
+			return nil
+		},
+	}
+	mq := &mockEngineQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+		run.ID = "run-v2"
+		return nil
+	}}
+
+	engine := NewWorkflowEngine(ms, mq, slog.Default())
+	wfRun, err := engine.TriggerWorkflow(context.Background(), "wf-1", "proj-1", nil, "manual", nil, nil)
+	if err != nil {
+		t.Fatalf("TriggerWorkflow() error = %v", err)
+	}
+	if listedVersion != 2 {
+		t.Fatalf("listedVersion = %d, want canary target version 2", listedVersion)
+	}
+	if createdVersion != 2 || createdVersionID != "wf-v2" {
+		t.Fatalf("created workflow run version = %d/%q, want 2/wf-v2", createdVersion, createdVersionID)
+	}
+	if wfRun.WorkflowVersion != 2 || wfRun.WorkflowVersionID != "wf-v2" {
+		t.Fatalf("returned workflow run version = %d/%q, want 2/wf-v2", wfRun.WorkflowVersion, wfRun.WorkflowVersionID)
+	}
 }
 
 func TestTriggerWorkflow_SnapshotIDPopulated(t *testing.T) {

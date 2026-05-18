@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -58,6 +59,11 @@ type EngineStore interface {
 
 type EngineQueue interface {
 	Enqueue(ctx context.Context, run *domain.JobRun) error
+}
+
+type workflowCanaryStore interface {
+	GetActiveCanaryDeployment(ctx context.Context, workflowID string) (*domain.CanaryDeployment, error)
+	GetWorkflowVersion(ctx context.Context, workflowID string, version int) (*domain.WorkflowVersion, error)
 }
 
 // NewWorkflowEngine creates a new workflow engine for triggering and managing workflow runs.
@@ -178,6 +184,10 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 	if wf.ProjectID != "" && projectID != wf.ProjectID {
 		triggerStatus = "error"
 		return nil, fmt.Errorf("workflow %s does not belong to project %s", workflowID, projectID)
+	}
+	if err := e.applyCanaryRouting(ctx, wf); err != nil {
+		triggerStatus = "error"
+		return nil, err
 	}
 
 	steps, err := e.store.ListStepsByWorkflowVersion(ctx, workflowID, wf.Version)
@@ -379,4 +389,53 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 	}
 
 	return wfRun, nil
+}
+
+func (e *WorkflowEngine) applyCanaryRouting(ctx context.Context, wf *domain.Workflow) error {
+	canaryStore, ok := e.store.(workflowCanaryStore)
+	if !ok {
+		return nil
+	}
+	canary, err := canaryStore.GetActiveCanaryDeployment(ctx, wf.ID)
+	if err != nil {
+		if errors.Is(err, domain.ErrCanaryNotFound) {
+			return nil
+		}
+		return fmt.Errorf("load active workflow canary: %w", err)
+	}
+	if canary == nil || canary.ProjectID != wf.ProjectID {
+		return nil
+	}
+	resolved := NewCanaryRouter().ResolveVersion(&CanaryDeployment{
+		WorkflowID:    canary.WorkflowID,
+		ProjectID:     canary.ProjectID,
+		SourceVersion: canary.SourceVersion,
+		TargetVersion: canary.TargetVersion,
+		TrafficPct:    canary.TrafficPct,
+		Status:        CanaryStatus(canary.Status),
+	})
+	if resolved == 0 || resolved == wf.Version {
+		return nil
+	}
+	version, err := canaryStore.GetWorkflowVersion(ctx, wf.ID, resolved)
+	if err != nil {
+		return fmt.Errorf("load canary workflow version %d: %w", resolved, err)
+	}
+	applyWorkflowVersion(wf, version)
+	return nil
+}
+
+func applyWorkflowVersion(wf *domain.Workflow, version *domain.WorkflowVersion) {
+	wf.Version = version.Version
+	wf.VersionID = version.VersionID
+	wf.Name = version.Name
+	wf.Slug = version.Slug
+	wf.Description = version.Description
+	wf.Enabled = version.Enabled
+	wf.TimeoutSecs = version.TimeoutSecs
+	wf.MaxConcurrentRuns = version.MaxConcurrentRuns
+	wf.MaxParallelSteps = version.MaxParallelSteps
+	wf.Cron = version.Cron
+	wf.CronTimezone = version.CronTimezone
+	wf.SkipIfRunning = version.SkipIfRunning
 }
