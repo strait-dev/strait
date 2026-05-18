@@ -70,6 +70,37 @@ func (s *Server) validateCallerCanGrantPermissions(ctx context.Context, requeste
 	return nil
 }
 
+func (s *Server) rolePermissionsIncludingParents(ctx context.Context, projectID string, permissions []string, parentRoleID string) ([]string, error) {
+	effective := append([]string{}, permissions...)
+	if parentRoleID == "" {
+		return effective, nil
+	}
+	seen := map[string]struct{}{}
+	currentParent := parentRoleID
+	for depth := 0; currentParent != ""; depth++ {
+		if depth >= 20 {
+			return nil, huma.Error400BadRequest("parent role chain is too deep")
+		}
+		if _, ok := seen[currentParent]; ok {
+			return nil, huma.Error400BadRequest("parent role chain contains a cycle")
+		}
+		seen[currentParent] = struct{}{}
+		parent, err := s.store.GetProjectRole(ctx, currentParent)
+		if err != nil {
+			if errors.Is(err, store.ErrRoleNotFound) {
+				return nil, huma.Error400BadRequest("parent role not found")
+			}
+			return nil, huma.Error500InternalServerError("failed to verify parent role")
+		}
+		if parent.ProjectID != "" && parent.ProjectID != projectID {
+			return nil, huma.Error400BadRequest("parent role not found")
+		}
+		effective = append(effective, parent.Permissions...)
+		currentParent = parent.ParentRoleID
+	}
+	return effective, nil
+}
+
 type createRoleRequest struct {
 	Name         string   `json:"name" validate:"required,max=255"`
 	Description  string   `json:"description" validate:"max=2000"`
@@ -193,10 +224,15 @@ func (s *Server) handleCreateRole(ctx context.Context, input *CreateRoleInput) (
 	if err := domain.ValidateScopes(req.Permissions); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
-	if err := s.validateCallerCanGrantPermissions(ctx, req.Permissions); err != nil {
+	projectID := projectIDFromContext(ctx)
+	effectivePermissions, err := s.rolePermissionsIncludingParents(ctx, projectID, req.Permissions, req.ParentRoleID)
+	if err != nil {
 		return nil, err
 	}
-	role := &domain.ProjectRole{ProjectID: projectIDFromContext(ctx), Name: req.Name, Description: req.Description, Permissions: req.Permissions, ParentRoleID: req.ParentRoleID}
+	if err := s.validateCallerCanGrantPermissions(ctx, effectivePermissions); err != nil {
+		return nil, err
+	}
+	role := &domain.ProjectRole{ProjectID: projectID, Name: req.Name, Description: req.Description, Permissions: req.Permissions, ParentRoleID: req.ParentRoleID}
 	if err := s.store.CreateProjectRole(ctx, role); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create role")
 	}
@@ -292,9 +328,6 @@ func (s *Server) handleUpdateRole(ctx context.Context, input *UpdateRoleInput) (
 	if err := domain.ValidateScopes(req.Permissions); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
-	if err := s.validateCallerCanGrantPermissions(ctx, req.Permissions); err != nil {
-		return nil, err
-	}
 	roleID := input.RoleID
 	previousRole, err := s.store.GetProjectRole(ctx, roleID)
 	if err != nil {
@@ -305,6 +338,13 @@ func (s *Server) handleUpdateRole(ctx context.Context, input *UpdateRoleInput) (
 	}
 	if err := requireProjectMatch(ctx, previousRole.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("role not found")
+	}
+	effectivePermissions, err := s.rolePermissionsIncludingParents(ctx, previousRole.ProjectID, req.Permissions, req.ParentRoleID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.validateCallerCanGrantPermissions(ctx, effectivePermissions); err != nil {
+		return nil, err
 	}
 	role := &domain.ProjectRole{ID: roleID, Name: req.Name, Description: req.Description, Permissions: req.Permissions, ParentRoleID: req.ParentRoleID}
 	if err := s.store.UpdateProjectRole(ctx, role); err != nil {
@@ -400,7 +440,11 @@ func (s *Server) handleAssignMember(ctx context.Context, input *AssignMemberInpu
 	if targetRole.ProjectID != "" && targetRole.ProjectID != projectIDFromContext(ctx) {
 		return nil, huma.Error400BadRequest("role not found")
 	}
-	if err := s.validateCallerCanGrantPermissions(ctx, targetRole.Permissions); err != nil {
+	effectivePermissions, err := s.rolePermissionsIncludingParents(ctx, projectIDFromContext(ctx), targetRole.Permissions, targetRole.ParentRoleID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.validateCallerCanGrantPermissions(ctx, effectivePermissions); err != nil {
 		return nil, err
 	}
 	m := &domain.ProjectMemberRole{ProjectID: projectIDFromContext(ctx), UserID: req.UserID, RoleID: req.RoleID, GrantedBy: caller}
@@ -448,7 +492,12 @@ func (s *Server) handleBulkAssignMembers(ctx context.Context, input *BulkAssignM
 			results = append(results, bulkAssignMemberResult{UserID: item.UserID, RoleID: item.RoleID, Status: "error", Error: "role not found"})
 			continue
 		}
-		if err := s.validateCallerCanGrantPermissions(ctx, targetRole.Permissions); err != nil {
+		effectivePermissions, err := s.rolePermissionsIncludingParents(ctx, projectID, targetRole.Permissions, targetRole.ParentRoleID)
+		if err != nil {
+			results = append(results, bulkAssignMemberResult{UserID: item.UserID, RoleID: item.RoleID, Status: "error", Error: err.Error()})
+			continue
+		}
+		if err := s.validateCallerCanGrantPermissions(ctx, effectivePermissions); err != nil {
 			results = append(results, bulkAssignMemberResult{UserID: item.UserID, RoleID: item.RoleID, Status: "error", Error: err.Error()})
 			continue
 		}
