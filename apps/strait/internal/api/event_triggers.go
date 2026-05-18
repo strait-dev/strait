@@ -40,6 +40,34 @@ func validateEventKey(key string) string {
 	return ""
 }
 
+type eventTriggerMutation string
+
+const (
+	eventTriggerMutationSend   eventTriggerMutation = "send"
+	eventTriggerMutationCancel eventTriggerMutation = "cancel"
+)
+
+func eventTriggerMutationScope(trigger *domain.EventTrigger, mutation eventTriggerMutation) string {
+	if trigger.SourceType == domain.EventSourceWorkflowStep {
+		if mutation == eventTriggerMutationCancel {
+			return domain.ScopeWorkflowsWrite
+		}
+		return domain.ScopeWorkflowsTrigger
+	}
+	if mutation == eventTriggerMutationCancel {
+		return domain.ScopeJobsWrite
+	}
+	return domain.ScopeJobsTrigger
+}
+
+func (s *Server) requireEventTriggerMutationPermission(ctx context.Context, trigger *domain.EventTrigger, mutation eventTriggerMutation) error {
+	required := eventTriggerMutationScope(trigger, mutation)
+	if s.hasProjectPermission(ctx, required) {
+		return nil
+	}
+	return huma.Error403Forbidden("insufficient permissions: requires " + required)
+}
+
 type SendEventInput struct {
 	EventKey string `path:"eventKey"`
 	Body     SendEventRequest
@@ -73,6 +101,9 @@ func (s *Server) handleSendEvent(ctx context.Context, input *SendEventInput) (*S
 	}
 	if err := requireEnvironmentMatch(ctx, trigger.EnvironmentID); err != nil {
 		return nil, huma.Error404NotFound("event trigger not found")
+	}
+	if err := s.requireEventTriggerMutationPermission(ctx, trigger, eventTriggerMutationSend); err != nil {
+		return nil, err
 	}
 	if trigger.Status != domain.EventTriggerStatusWaiting {
 		if trigger.Status == domain.EventTriggerStatusReceived && payloadsMatch(trigger.ResponsePayload, req.Payload) {
@@ -230,6 +261,9 @@ func (s *Server) handleCancelEventTrigger(ctx context.Context, input *CancelEven
 	}
 	if err := requireEnvironmentMatch(ctx, trigger.EnvironmentID); err != nil {
 		return nil, huma.Error404NotFound("event trigger not found")
+	}
+	if err := s.requireEventTriggerMutationPermission(ctx, trigger, eventTriggerMutationCancel); err != nil {
+		return nil, err
 	}
 	if trigger.Status != domain.EventTriggerStatusWaiting {
 		return nil, huma.Error409Conflict("event trigger is not in waiting state")
@@ -396,6 +430,9 @@ func (s *Server) handleSendEventByPrefix(ctx context.Context, input *SendEventBy
 	filtered := triggers[:0]
 	for i := range triggers {
 		if envErr := requireEnvironmentMatch(ctx, triggers[i].EnvironmentID); envErr != nil {
+			continue
+		}
+		if err := s.requireEventTriggerMutationPermission(ctx, &triggers[i], eventTriggerMutationSend); err != nil {
 			continue
 		}
 		filtered = append(filtered, triggers[i])

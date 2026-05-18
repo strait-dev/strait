@@ -596,12 +596,12 @@ func (s *Server) routes() chi.Router {
 			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/stats", TypedHandler(s, http.StatusOK, s.handleGetEventTriggerStats))
 			r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/purge", TypedHandler(s, http.StatusOK, s.handlePurgeEventTriggers))
 			r.Route("/prefix/{prefix}", func(r chi.Router) {
-				r.With(s.requirePermission(domain.ScopeJobsTrigger), s.idempotencyMiddleware, rateLimit(triggerRateLimitRequests, triggerRateLimitWindow)).Post("/send", TypedHandler(s, http.StatusOK, s.handleSendEventByPrefix))
+				r.With(s.requireAnyPermission(domain.ScopeJobsTrigger, domain.ScopeWorkflowsTrigger), s.idempotencyMiddleware, rateLimit(triggerRateLimitRequests, triggerRateLimitWindow)).Post("/send", TypedHandler(s, http.StatusOK, s.handleSendEventByPrefix))
 			})
 			r.Route("/{eventKey}", func(r chi.Router) {
 				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleGetEventTrigger))
-				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/", TypedHandler(s, http.StatusOK, s.handleCancelEventTrigger))
-				r.With(s.requirePermission(domain.ScopeJobsTrigger), s.idempotencyMiddleware, rateLimit(triggerRateLimitRequests, triggerRateLimitWindow)).Post("/send", TypedHandler(s, http.StatusOK, s.handleSendEvent))
+				r.With(s.requireAnyPermission(domain.ScopeJobsWrite, domain.ScopeWorkflowsWrite)).Delete("/", TypedHandler(s, http.StatusOK, s.handleCancelEventTrigger))
+				r.With(s.requireAnyPermission(domain.ScopeJobsTrigger, domain.ScopeWorkflowsTrigger), s.idempotencyMiddleware, rateLimit(triggerRateLimitRequests, triggerRateLimitWindow)).Post("/send", TypedHandler(s, http.StatusOK, s.handleSendEvent))
 			})
 		})
 
