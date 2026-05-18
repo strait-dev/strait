@@ -136,12 +136,16 @@ func (h *HeartbeatGC) runLocked(ctx context.Context) error {
 func EnsureQueueTriggersPresent(ctx context.Context, db store.DBTX) error {
 	required := []struct {
 		name     string
+		relation string
 		function string
 	}{
-		{name: "trg_job_runs_queue_wake_notify", function: "notify_queue_wake"},
-		{name: "job_runs_active_counts_trg", function: "job_active_counts_apply"},
-		{name: "job_runs_dlq_counts_trg", function: "dlq_counts_apply"},
-		{name: "job_runs_seed_job_config_trg", function: "seed_job_config_on_insert"},
+		{name: "trg_job_runs_queue_wake_notify", relation: "job_runs", function: "notify_queue_wake"},
+		{name: "job_runs_active_counts_trg", relation: "job_runs", function: "job_active_counts_apply"},
+		{name: "job_runs_dlq_counts_trg", relation: "job_runs", function: "dlq_counts_apply"},
+		{name: "job_runs_seed_job_config_trg", relation: "job_runs", function: "seed_job_config_on_insert"},
+		{name: "trg_job_runs_claim_queue_sync", relation: "job_runs", function: "trg_job_runs_sync_claim_queue"},
+		{name: "trg_job_runs_claim_queue_sync_update", relation: "job_runs", function: "trg_job_runs_sync_claim_queue"},
+		{name: "trg_jobs_fanout_queue", relation: "jobs", function: "trg_jobs_fanout_to_queue"},
 	}
 	for _, trigger := range required {
 		var present bool
@@ -151,12 +155,13 @@ func EnsureQueueTriggersPresent(ctx context.Context, db store.DBTX) error {
 				FROM pg_trigger t
 				JOIN pg_proc p ON p.oid = t.tgfoid
 				WHERE t.tgname = $1
-				  AND t.tgrelid = 'job_runs'::regclass
-				  AND p.proname = $2
+				  AND t.tgrelid = $2::regclass
+				  AND p.proname = $3
 				  AND NOT t.tgisinternal
 				  AND t.tgenabled IN ('O', 'A')
 			)`,
 			trigger.name,
+			trigger.relation,
 			trigger.function,
 		).Scan(&present)
 		if err != nil {
