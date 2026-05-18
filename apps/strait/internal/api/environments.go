@@ -69,6 +69,11 @@ func (s *Server) handleCreateEnvironment(ctx context.Context, input *CreateEnvir
 	if err := s.validateEnvironmentParent(ctx, req.ProjectID, "", req.ParentID); err != nil {
 		return nil, err
 	}
+	if len(req.Variables) > 0 {
+		if err := s.requireEnvironmentVariableWrite(ctx); err != nil {
+			return nil, err
+		}
+	}
 
 	env := &domain.Environment{
 		ProjectID: req.ProjectID,
@@ -213,6 +218,9 @@ func (s *Server) handleUpdateEnvironment(ctx context.Context, input *UpdateEnvir
 		env.ParentID = *req.ParentID
 	}
 	if req.Variables != nil {
+		if err := s.requireEnvironmentVariableWrite(ctx); err != nil {
+			return nil, err
+		}
 		env.Variables = *req.Variables
 	}
 
@@ -243,6 +251,47 @@ func (s *Server) handleUpdateEnvironment(ctx context.Context, input *UpdateEnvir
 	})
 
 	return &UpdateEnvironmentOutput{Body: environmentResponse(env, nil)}, nil
+}
+
+func (s *Server) requireEnvironmentVariableWrite(ctx context.Context) error {
+	if isInternalCaller(ctx) {
+		return nil
+	}
+
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return huma.Error403Forbidden("environment variables require project context")
+	}
+
+	scopes := scopesFromContext(ctx)
+	switch actorTypeFromContext(ctx) {
+	case "api_key":
+		if !domain.HasScopeStrict(scopes, domain.ScopeSecretsWrite) {
+			return huma.Error403Forbidden("environment variables require secrets:write")
+		}
+		return nil
+	case "user":
+		actorID := actorFromContext(ctx)
+		if actorID == "" {
+			return huma.Error403Forbidden("environment variables require actor context")
+		}
+		if ctx.Value(ctxOIDCScopeClaimPresentKey) == true && len(scopes) == 0 {
+			return huma.Error403Forbidden("environment variables require secrets:write")
+		}
+		if len(scopes) > 0 && !domain.HasScopeStrict(scopes, domain.ScopeSecretsWrite) {
+			return huma.Error403Forbidden("environment variables require secrets:write")
+		}
+		perms, err := s.store.GetUserPermissions(ctx, projectID, actorID)
+		if err != nil {
+			return huma.Error500InternalServerError("failed to load permissions")
+		}
+		if !domain.HasScopeStrict(perms, domain.ScopeSecretsWrite) {
+			return huma.Error403Forbidden("environment variables require secrets:write")
+		}
+		return nil
+	default:
+		return huma.Error403Forbidden("environment variables require authenticated actor")
+	}
 }
 
 // DeleteEnvironmentInput is the typed input for deleting an environment.

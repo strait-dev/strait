@@ -375,6 +375,98 @@ func TestEnvironment_VariablesRouteRequiresSecretsRead(t *testing.T) {
 	}
 }
 
+func TestEnvironment_CreateVariablesRequiresSecretsWrite(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		CreateEnvironmentFunc: func(context.Context, *domain.Environment) error {
+			t.Fatal("CreateEnvironment must not be called without secrets:write when variables are present")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "apikey:jobs-only")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeJobsWrite})
+
+	_, err := srv.handleCreateEnvironment(ctx, &CreateEnvironmentInput{Body: CreateEnvironmentRequest{
+		ProjectID: "proj-1",
+		Name:      "Production",
+		Slug:      "production",
+		Variables: map[string]string{"DATABASE_URL": "postgres://secret"},
+	}})
+	if !isHumaStatusError(err, http.StatusForbidden) {
+		t.Fatalf("expected 403 for variables without secrets:write, got %v", err)
+	}
+}
+
+func TestEnvironment_UpdateVariablesRequiresSecretsWrite(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetEnvironmentFunc: func(context.Context, string) (*domain.Environment, error) {
+			return &domain.Environment{ID: "env-prod", ProjectID: "proj-1", Name: "Production", Slug: "production"}, nil
+		},
+		UpdateEnvironmentFunc: func(context.Context, *domain.Environment) error {
+			t.Fatal("UpdateEnvironment must not be called without secrets:write when variables are present")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "apikey:jobs-only")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeJobsWrite})
+	vars := map[string]string{"API_TOKEN": "secret-token"}
+
+	_, err := srv.handleUpdateEnvironment(ctx, &UpdateEnvironmentInput{
+		EnvID: "env-prod",
+		Body:  UpdateEnvironmentRequest{Variables: &vars},
+	})
+	if !isHumaStatusError(err, http.StatusForbidden) {
+		t.Fatalf("expected 403 for variable update without secrets:write, got %v", err)
+	}
+}
+
+func TestEnvironment_UpdateVariablesAllowsSecretsWrite(t *testing.T) {
+	t.Parallel()
+
+	updated := false
+	ms := &APIStoreMock{
+		GetEnvironmentFunc: func(context.Context, string) (*domain.Environment, error) {
+			return &domain.Environment{ID: "env-prod", ProjectID: "proj-1", Name: "Production", Slug: "production"}, nil
+		},
+		UpdateEnvironmentFunc: func(_ context.Context, env *domain.Environment) error {
+			updated = true
+			if env.Variables["API_TOKEN"] != "secret-token" {
+				t.Fatalf("variable update was not propagated: %#v", env.Variables)
+			}
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "apikey:secrets")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeJobsWrite, domain.ScopeSecretsWrite})
+	vars := map[string]string{"API_TOKEN": "secret-token"}
+
+	_, err := srv.handleUpdateEnvironment(ctx, &UpdateEnvironmentInput{
+		EnvID: "env-prod",
+		Body:  UpdateEnvironmentRequest{Variables: &vars},
+	})
+	if err != nil {
+		t.Fatalf("expected secrets:write variable update to pass, got %v", err)
+	}
+	if !updated {
+		t.Fatal("expected UpdateEnvironment to be called")
+	}
+}
+
 // TestEnvironment_NullBytesInVariables verifies that null bytes in variable
 // keys and values do not cause panics or corruption.
 func TestEnvironment_NullBytesInVariables(t *testing.T) {
