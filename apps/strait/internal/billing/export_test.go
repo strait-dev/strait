@@ -118,6 +118,53 @@ func TestExportCSV_WithRecords(t *testing.T) {
 	}
 }
 
+func TestExportCSV_SingleDayPeriodAllowed(t *testing.T) {
+	t.Parallel()
+	day := time.Date(2026, 2, 3, 0, 0, 0, 0, time.UTC)
+	store := &mockExportStore{
+		usageRecords: []UsageRecord{{
+			ProjectID:        "proj-one-day",
+			PeriodDate:       day,
+			RunsCount:        1,
+			ComputeCostMicro: 1_000_000,
+		}},
+	}
+
+	data, err := ExportCSV(context.Background(), store, "org-1", ExportPeriod{From: day, To: day})
+	if err != nil {
+		t.Fatalf("ExportCSV single-day period: %v", err)
+	}
+	reader := csv.NewReader(strings.NewReader(string(data)))
+	records, err := reader.ReadAll()
+	if err != nil {
+		t.Fatalf("parse CSV: %v", err)
+	}
+	if len(records) != 2 {
+		t.Fatalf("rows = %d, want header + one record", len(records))
+	}
+}
+
+func TestExportPDF_SingleDayPeriodAllowed(t *testing.T) {
+	t.Parallel()
+	day := time.Date(2026, 2, 3, 0, 0, 0, 0, time.UTC)
+	store := &mockExportStore{
+		usageRecords: []UsageRecord{{
+			ProjectID:        "proj-one-day",
+			PeriodDate:       day,
+			RunsCount:        1,
+			ComputeCostMicro: 1_000_000,
+		}},
+	}
+
+	data, err := ExportPDF(context.Background(), store, "org-1", ExportPeriod{From: day, To: day})
+	if err != nil {
+		t.Fatalf("ExportPDF single-day period: %v", err)
+	}
+	if !strings.HasPrefix(string(data), "%PDF-") {
+		t.Fatalf("expected PDF output, got %q", string(data[:5]))
+	}
+}
+
 func TestDeepSecExportCSV_EscapesFormulaProjectID(t *testing.T) {
 	store := &mockExportStore{
 		usageRecords: []UsageRecord{

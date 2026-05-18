@@ -164,8 +164,8 @@ func validateExportPeriod(period ExportPeriod) error {
 	if period.From.IsZero() || period.To.IsZero() {
 		return errors.New("usage export period requires from and to")
 	}
-	if !period.To.After(period.From) {
-		return errors.New("usage export period to must be after from")
+	if period.To.Before(period.From) {
+		return errors.New("usage export period to must be on or after from")
 	}
 	if period.To.Sub(period.From) > maxUsageExportPeriod {
 		return fmt.Errorf("usage export period cannot exceed %d days", int(maxUsageExportPeriod.Hours()/24))
