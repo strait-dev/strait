@@ -926,6 +926,60 @@ func (s *Server) requirePermission(permission string) func(http.Handler) http.Ha
 	}
 }
 
+func (s *Server) requireAnyPermission(permissions ...string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			for _, permission := range permissions {
+				if s.hasProjectPermission(r.Context(), permission) {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+			respondError(w, r, http.StatusForbidden, "insufficient permissions")
+		})
+	}
+}
+
+func (s *Server) hasProjectPermission(ctx context.Context, permission string) bool {
+	if scopesFromContext(ctx) == nil && isInternalCaller(ctx) {
+		return true
+	}
+
+	scopes := scopesFromContext(ctx)
+	switch actorTypeFromContext(ctx) {
+	case "api_key":
+		return domain.HasScope(scopes, permission)
+	case "sse_token":
+		return domain.HasScopeStrict(scopes, permission)
+	case "user":
+		projectID := projectIDFromContext(ctx)
+		actorID := actorFromContext(ctx)
+		if projectID == "" || actorID == "" {
+			return false
+		}
+		if ctx.Value(ctxOIDCScopeClaimPresentKey) == true && len(scopes) == 0 {
+			return false
+		}
+		if len(scopes) > 0 && !domain.HasScope(scopes, permission) {
+			return false
+		}
+		perms, cached := s.permCache.Get(projectID, actorID)
+		if !cached {
+			var err error
+			perms, err = s.store.GetUserPermissions(ctx, projectID, actorID)
+			if err != nil {
+				return false
+			}
+			if perms != nil {
+				s.permCache.Set(projectID, actorID, perms)
+			}
+		}
+		return domain.HasScopeStrict(perms, permission)
+	default:
+		return false
+	}
+}
+
 // resourceFromRequest extracts the resource type and ID from the chi route context.
 // Returns empty strings if the request doesn't target a specific resource.
 func resourceFromRequest(r *http.Request) (string, string) {

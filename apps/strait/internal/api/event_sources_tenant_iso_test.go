@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"time"
 
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -43,5 +44,105 @@ func TestTenantIso_EventSources_DeleteSub_RejectsCrossProject(t *testing.T) {
 	_, err := srv.handleDeleteEventSubscription(ctx, &DeleteEventSubscriptionInput{SourceID: "src-foreign", SubID: "sub-1"})
 	if !isHumaStatusError(err, http.StatusNotFound) {
 		t.Fatalf("expected 404, got %v", err)
+	}
+}
+
+func TestEventDispatch_JobsWriteDoesNotTriggerJobSubscription(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetEventSourceByNameFunc: func(_ context.Context, projectID, name string) (*domain.EventSource, error) {
+			return &domain.EventSource{ID: "src-1", ProjectID: projectID, Name: name, Enabled: true}, nil
+		},
+		ListEventSubscriptionsBySourceFunc: func(context.Context, string) ([]domain.EventSubscription, error) {
+			return []domain.EventSubscription{{
+				ID:         "sub-1",
+				SourceID:   "src-1",
+				TargetType: "job",
+				TargetID:   "job-1",
+				Enabled:    true,
+			}}, nil
+		},
+		GetJobFunc: func(context.Context, string) (*domain.Job, error) {
+			t.Fatal("GetJob must not be called when caller lacks jobs:trigger")
+			return nil, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{
+		enqueueFn: func(context.Context, *domain.JobRun) error {
+			t.Fatal("event dispatch must not enqueue with only jobs:write")
+			return nil
+		},
+	}, nil)
+
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "apikey:jobs-write")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeJobsWrite})
+
+	out, err := srv.handleDispatchEvent(ctx, &DispatchEventInput{Body: DispatchEventRequest{
+		Source:    "source-1",
+		ProjectID: "proj-1",
+		Payload:   []byte(`{"kind":"deploy"}`),
+	}})
+	if err != nil {
+		t.Fatalf("dispatch should skip unauthorized subscriptions without failing the whole event: %v", err)
+	}
+	if got := out.Body["dispatched"]; got != 0 {
+		t.Fatalf("dispatched = %v, want 0", got)
+	}
+}
+
+func TestEventDispatch_EnforcesJobRateLimitGuardrail(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetEventSourceByNameFunc: func(_ context.Context, projectID, name string) (*domain.EventSource, error) {
+			return &domain.EventSource{ID: "src-1", ProjectID: projectID, Name: name, Enabled: true}, nil
+		},
+		ListEventSubscriptionsBySourceFunc: func(context.Context, string) ([]domain.EventSubscription, error) {
+			return []domain.EventSubscription{{
+				ID:         "sub-1",
+				SourceID:   "src-1",
+				TargetType: "job",
+				TargetID:   "job-1",
+				Enabled:    true,
+			}}, nil
+		},
+		GetJobFunc: func(context.Context, string) (*domain.Job, error) {
+			return &domain.Job{
+				ID:                  "job-1",
+				ProjectID:           "proj-1",
+				Enabled:             true,
+				RateLimitMax:        1,
+				RateLimitWindowSecs: 60,
+			}, nil
+		},
+		CountRunsForJobSinceFunc: func(context.Context, string, time.Time) (int, error) {
+			return 1, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{
+		enqueueFn: func(context.Context, *domain.JobRun) error {
+			t.Fatal("event dispatch must not enqueue when job rate limit is exceeded")
+			return nil
+		},
+	}, nil)
+
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "apikey:jobs-trigger")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeJobsTrigger})
+
+	out, err := srv.handleDispatchEvent(ctx, &DispatchEventInput{Body: DispatchEventRequest{
+		Source:    "source-1",
+		ProjectID: "proj-1",
+		Payload:   []byte(`{"kind":"deploy"}`),
+	}})
+	if err != nil {
+		t.Fatalf("dispatch should skip rate-limited subscriptions without failing the whole event: %v", err)
+	}
+	if got := out.Body["dispatched"]; got != 0 {
+		t.Fatalf("dispatched = %v, want 0", got)
 	}
 }

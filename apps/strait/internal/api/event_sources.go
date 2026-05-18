@@ -426,6 +426,10 @@ func (s *Server) handleDispatchEvent(ctx context.Context, input *DispatchEventIn
 		}
 		switch sub.TargetType {
 		case "job":
+			if !s.hasProjectPermission(ctx, domain.ScopeJobsTrigger) {
+				slog.Warn("event dispatch: caller lacks job trigger permission", "subscription_id", sub.ID, "project_id", source.ProjectID)
+				continue
+			}
 			job, jobErr := s.store.GetJob(ctx, sub.TargetID)
 			if jobErr != nil || job == nil || !job.Enabled {
 				slog.Error("event dispatch: target job not found or disabled", "target_id", sub.TargetID, "subscription_id", sub.ID, "project_id", source.ProjectID)
@@ -439,17 +443,36 @@ func (s *Server) handleDispatchEvent(ctx context.Context, input *DispatchEventIn
 				slog.Info("event dispatch: target job is paused, skipping", "target_id", sub.TargetID, "subscription_id", sub.ID, "project_id", source.ProjectID)
 				continue
 			}
+			projectQuota, quotaErr := s.quotaCache.Get(ctx, job.ProjectID)
+			if quotaErr != nil {
+				slog.Error("event dispatch: quota load failed", "target_id", sub.TargetID, "subscription_id", sub.ID, "project_id", source.ProjectID, "error", quotaErr)
+				continue
+			}
+			if err := s.checkTriggerDispatchPriority(ctx, job.ProjectID, 0); err != nil {
+				slog.Warn("event dispatch: dispatch priority blocked", "target_id", sub.TargetID, "subscription_id", sub.ID, "project_id", source.ProjectID, "error", err)
+				continue
+			}
+			if err := s.checkTriggerDailyCostBudget(ctx, job.ProjectID, projectQuota); err != nil {
+				slog.Warn("event dispatch: daily cost budget blocked", "target_id", sub.TargetID, "subscription_id", sub.ID, "project_id", source.ProjectID, "error", err)
+				continue
+			}
 			run := &domain.JobRun{
 				JobID: sub.TargetID, ProjectID: source.ProjectID, Attempt: 1,
 				Payload: req.Payload, TriggeredBy: "event",
 				JobVersion: job.Version, JobVersionID: job.VersionID,
 			}
-			if enqErr := s.queue.Enqueue(ctx, run); enqErr != nil {
+			if enqErr := s.withTriggerLimitGuard(ctx, job, projectQuota, func(guardCtx context.Context, tx store.DBTX) error {
+				return s.enqueueTriggerRun(guardCtx, tx, run)
+			}); enqErr != nil {
 				slog.Error("event dispatch: enqueue failed", "target_id", sub.TargetID, "subscription_id", sub.ID, "project_id", source.ProjectID, "error", enqErr)
 				continue
 			}
 			dispatched++
 		case "workflow":
+			if !s.hasProjectPermission(ctx, domain.ScopeWorkflowsTrigger) {
+				slog.Warn("event dispatch: caller lacks workflow trigger permission", "subscription_id", sub.ID, "project_id", source.ProjectID)
+				continue
+			}
 			wf, wfErr := s.store.GetWorkflow(ctx, sub.TargetID)
 			if wfErr != nil {
 				slog.Error("event dispatch: target workflow not found", "target_id", sub.TargetID, "subscription_id", sub.ID, "project_id", source.ProjectID, "error", wfErr)

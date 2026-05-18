@@ -587,7 +587,7 @@ func (s *Server) routes() chi.Router {
 			})
 		})
 		r.With(
-			s.requirePermission(domain.ScopeJobsWrite),
+			s.requireAnyPermission(domain.ScopeJobsTrigger, domain.ScopeWorkflowsTrigger),
 			rateLimit(triggerRateLimitRequests, triggerRateLimitWindow),
 		).Post("/events/dispatch", TypedHandler(s, http.StatusOK, s.handleDispatchEvent))
 
