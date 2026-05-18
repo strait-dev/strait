@@ -1429,7 +1429,11 @@ func TestHandleGetWorkflowRunLabels(t *testing.T) {
 
 func TestHandleDryRunWorkflow(t *testing.T) {
 	t.Parallel()
-	ms := &APIStoreMock{}
+	ms := &APIStoreMock{
+		GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, ProjectID: "proj-1"}, nil
+		},
+	}
 	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
 
 	t.Run("valid DAG", func(t *testing.T) {
@@ -1490,6 +1494,9 @@ func TestHandleWorkflowPlan(t *testing.T) {
 func TestHandleWorkflowGraph(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, ProjectID: "proj-1"}, nil
+		},
 		ListStepsByWorkflowFunc: func(_ context.Context, workflowID string) ([]domain.WorkflowStep, error) {
 			if workflowID != "wf-1" {
 				t.Fatalf("workflowID = %q, want wf-1", workflowID)
@@ -1512,6 +1519,36 @@ func TestHandleWorkflowGraph(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/graph?format=dot", ""))
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestWorkflowTopologyEndpoints_RejectCrossProjectBeforeLoadingSteps(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, ProjectID: "proj-other"}, nil
+		},
+		ListStepsByWorkflowFunc: func(_ context.Context, _ string) ([]domain.WorkflowStep, error) {
+			t.Fatal("ListStepsByWorkflow must not run for cross-project workflow topology access")
+			return nil, nil
+		},
+	}
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+
+	_, err := srv.handleDryRunWorkflow(ctx, &DryRunWorkflowInput{
+		WorkflowID: "wf-other",
+		Body: dryRunWorkflowRequest{Steps: []workflowStepRequest{
+			{StepRef: "a"},
+		}},
+	})
+	if !isHumaStatusError(err, http.StatusNotFound) {
+		t.Fatalf("dry run error = %v, want 404", err)
+	}
+
+	_, err = srv.handleWorkflowGraph(ctx, &WorkflowGraphInput{WorkflowID: "wf-other"})
+	if !isHumaStatusError(err, http.StatusNotFound) {
+		t.Fatalf("graph error = %v, want 404", err)
 	}
 }
 
@@ -2445,7 +2482,21 @@ func TestHandleCancelWorkflowRun_ErrorPaths(t *testing.T) {
 
 func TestHandleDryRunWorkflow_ErrorPaths(t *testing.T) {
 	t.Parallel()
-	srv := newWorkflowTestServer(t, &APIStoreMock{}, &mockQueue{}, nil, nil)
+	ms := &APIStoreMock{
+		GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, ProjectID: "proj-1"}, nil
+		},
+		ListStepsByWorkflowFunc: func(_ context.Context, workflowID string) ([]domain.WorkflowStep, error) {
+			if workflowID != "wf-1" {
+				t.Fatalf("workflowID = %q, want wf-1", workflowID)
+			}
+			return []domain.WorkflowStep{
+				{StepRef: "a", DependsOn: []string{"b"}},
+				{StepRef: "b", DependsOn: []string{"a"}},
+			}, nil
+		},
+	}
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
 
 	t.Run("invalid_json_body", func(t *testing.T) {
 		t.Parallel()

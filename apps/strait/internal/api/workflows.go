@@ -920,6 +920,19 @@ func (s *Server) handleDryRunWorkflow(ctx context.Context, input *DryRunWorkflow
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
 	}
+	wf, err := s.store.GetWorkflow(ctx, input.WorkflowID)
+	if err != nil {
+		if errors.Is(err, store.ErrWorkflowNotFound) {
+			return nil, huma.Error404NotFound("workflow not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get workflow")
+	}
+	if wf == nil {
+		return nil, huma.Error404NotFound("workflow not found")
+	}
+	if err := requireProjectMatch(ctx, wf.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("workflow not found")
+	}
 
 	if len(req.Steps) == 0 {
 		steps, err := s.store.ListStepsByWorkflow(ctx, input.WorkflowID)
@@ -1100,6 +1113,20 @@ type WorkflowGraphOutput struct {
 func (s *Server) handleWorkflowGraph(ctx context.Context, input *WorkflowGraphInput) (*WorkflowGraphOutput, error) {
 	workflowID := input.WorkflowID
 	format := strings.ToLower(input.Format)
+
+	wf, err := s.store.GetWorkflow(ctx, workflowID)
+	if err != nil {
+		if errors.Is(err, store.ErrWorkflowNotFound) {
+			return nil, huma.Error404NotFound("workflow not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get workflow")
+	}
+	if wf == nil {
+		return nil, huma.Error404NotFound("workflow not found")
+	}
+	if err := requireProjectMatch(ctx, wf.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("workflow not found")
+	}
 
 	steps, err := s.store.ListStepsByWorkflow(ctx, workflowID)
 	if err != nil {
