@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"time"
@@ -375,22 +376,14 @@ type bulkAssignMemberResult struct {
 type AssignMemberInput struct{ Body assignMemberRequest }
 type AssignMemberOutput struct{ Body *domain.ProjectMemberRole }
 
+type orgLimitedMemberAssigner interface {
+	AssignMemberRoleWithOrgLimit(ctx context.Context, m *domain.ProjectMemberRole, orgID string, maxMembers int) error
+}
+
 func (s *Server) handleAssignMember(ctx context.Context, input *AssignMemberInput) (*AssignMemberOutput, error) {
 	req := input.Body
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
-	}
-	if s.billingEnforcer != nil {
-		projectID := projectIDFromContext(ctx)
-		orgID, err := s.billingEnforcer.GetActiveProjectOrgID(ctx, projectID)
-		if err == nil && orgID != "" {
-			if err := s.billingEnforcer.CheckMemberLimit(ctx, orgID); err != nil {
-				var le *billing.LimitError
-				if errors.As(err, &le) {
-					return nil, le
-				}
-			}
-		}
 	}
 	// Prevent self-assignment: callers cannot assign roles to themselves.
 	caller := actorFromContext(ctx)
@@ -411,7 +404,11 @@ func (s *Server) handleAssignMember(ctx context.Context, input *AssignMemberInpu
 		return nil, err
 	}
 	m := &domain.ProjectMemberRole{ProjectID: projectIDFromContext(ctx), UserID: req.UserID, RoleID: req.RoleID, GrantedBy: caller}
-	if err := s.store.AssignMemberRole(ctx, m); err != nil {
+	if err := s.assignMemberRoleWithBillingLimit(ctx, m); err != nil {
+		var le *billing.LimitError
+		if errors.As(err, &le) {
+			return nil, le
+		}
 		return nil, huma.Error500InternalServerError("failed to assign role")
 	}
 	s.permCache.Invalidate(m.ProjectID, m.UserID)
@@ -456,7 +453,12 @@ func (s *Server) handleBulkAssignMembers(ctx context.Context, input *BulkAssignM
 			continue
 		}
 		m := &domain.ProjectMemberRole{ProjectID: projectID, UserID: item.UserID, RoleID: item.RoleID, GrantedBy: actor}
-		if err := s.store.AssignMemberRole(ctx, m); err != nil {
+		if err := s.assignMemberRoleWithBillingLimit(ctx, m); err != nil {
+			var le *billing.LimitError
+			if errors.As(err, &le) {
+				results = append(results, bulkAssignMemberResult{UserID: item.UserID, RoleID: item.RoleID, Status: "error", Error: le.Message})
+				continue
+			}
 			results = append(results, bulkAssignMemberResult{UserID: item.UserID, RoleID: item.RoleID, Status: "error", Error: "failed to assign role"})
 			continue
 		}
@@ -465,6 +467,49 @@ func (s *Server) handleBulkAssignMembers(ctx context.Context, input *BulkAssignM
 		results = append(results, bulkAssignMemberResult{UserID: item.UserID, RoleID: item.RoleID, Status: "assigned"})
 	}
 	return &BulkAssignMembersOutput{Body: map[string]any{"results": results, "total": len(results)}}, nil
+}
+
+func (s *Server) assignMemberRoleWithBillingLimit(ctx context.Context, m *domain.ProjectMemberRole) error {
+	if s.billingEnforcer == nil {
+		return s.store.AssignMemberRole(ctx, m)
+	}
+
+	orgID, err := s.billingEnforcer.GetActiveProjectOrgID(ctx, m.ProjectID)
+	if err != nil || orgID == "" {
+		return s.store.AssignMemberRole(ctx, m)
+	}
+
+	limits, err := s.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
+	if err != nil {
+		if checkErr := s.billingEnforcer.CheckMemberLimit(ctx, orgID); checkErr != nil {
+			return checkErr
+		}
+		return s.store.AssignMemberRole(ctx, m)
+	}
+	if limits.MaxMembersPerOrg == -1 {
+		return s.store.AssignMemberRole(ctx, m)
+	}
+
+	if assigner, ok := s.store.(orgLimitedMemberAssigner); ok {
+		if err := assigner.AssignMemberRoleWithOrgLimit(ctx, m, orgID, limits.MaxMembersPerOrg); err != nil {
+			if errors.Is(err, store.ErrMemberLimitReached) {
+				return &billing.LimitError{
+					Code:       "member_limit_reached",
+					Message:    fmt.Sprintf("Your %s plan allows %d members per organization. Upgrade to add more.", limits.DisplayName, limits.MaxMembersPerOrg),
+					Limit:      int64(limits.MaxMembersPerOrg),
+					Plan:       string(limits.PlanTier),
+					UpgradeURL: "/upgrade",
+				}
+			}
+			return err
+		}
+		return nil
+	}
+
+	if err := s.billingEnforcer.CheckMemberLimit(ctx, orgID); err != nil {
+		return err
+	}
+	return s.store.AssignMemberRole(ctx, m)
 }
 
 type ListMembersInput struct {

@@ -179,6 +179,57 @@ func (q *Queries) AssignMemberRole(ctx context.Context, m *domain.ProjectMemberR
 	return nil
 }
 
+// AssignMemberRoleWithOrgLimit assigns a role while holding an org-scoped
+// transaction lock and checking the distinct org-member cap in the same
+// transaction. Existing org members and same-user reassignments do not consume
+// another member slot.
+func (q *Queries) AssignMemberRoleWithOrgLimit(ctx context.Context, m *domain.ProjectMemberRole, orgID string, maxMembers int) error {
+	if maxMembers < 0 || orgID == "" {
+		return q.AssignMemberRole(ctx, m)
+	}
+	if m == nil {
+		return fmt.Errorf("assign member role with org limit: member is nil")
+	}
+
+	return q.WithTx(ctx, func(txCtx context.Context, tx DBTX) error {
+		if _, err := tx.Exec(txCtx, `SELECT pg_advisory_xact_lock(hashtext($1))`, orgID); err != nil {
+			return fmt.Errorf("lock org member quota: %w", err)
+		}
+
+		var alreadyOrgMember bool
+		if err := tx.QueryRow(txCtx, `
+			SELECT EXISTS (
+				SELECT 1
+				FROM project_member_roles pmr
+				JOIN projects p ON p.id = pmr.project_id
+				WHERE p.org_id = $1
+				  AND pmr.user_id = $2
+			)`, orgID, m.UserID).Scan(&alreadyOrgMember); err != nil {
+			return fmt.Errorf("checking existing org member: %w", err)
+		}
+
+		if !alreadyOrgMember {
+			var count int
+			if err := tx.QueryRow(txCtx, `
+				SELECT COUNT(DISTINCT pmr.user_id)
+				FROM project_member_roles pmr
+				JOIN projects p ON p.id = pmr.project_id
+				WHERE p.org_id = $1
+			`, orgID).Scan(&count); err != nil {
+				return fmt.Errorf("counting org members for assignment: %w", err)
+			}
+			if count >= maxMembers {
+				return ErrMemberLimitReached
+			}
+		}
+
+		if err := New(tx).AssignMemberRole(txCtx, m); err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
 func (q *Queries) GetMemberRole(ctx context.Context, projectID, userID string) (*domain.ProjectMemberRole, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetMemberRole")
 	defer span.End()

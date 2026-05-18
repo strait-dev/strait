@@ -7241,6 +7241,73 @@ func TestAssignMemberRole_Upsert(t *testing.T) {
 	}
 }
 
+func TestAssignMemberRoleWithOrgLimit_SerializesConcurrentNewMembers(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-member-limit-race"
+	orgID := "org-member-limit-race"
+	if err := q.CreateProject(ctx, &domain.Project{ID: projectID, OrgID: orgID, Name: "members"}); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+	role := &domain.ProjectRole{
+		ProjectID:   projectID,
+		Name:        "viewer",
+		Permissions: []string{"jobs:read"},
+	}
+	if err := q.CreateProjectRole(ctx, role); err != nil {
+		t.Fatalf("CreateProjectRole() error = %v", err)
+	}
+
+	start := make(chan struct{})
+	errs := make(chan error, 2)
+	var wg conc.WaitGroup
+	for _, userID := range []string{"user-limit-a", "user-limit-b"} {
+		userID := userID
+		wg.Go(func() {
+			<-start
+			errs <- q.AssignMemberRoleWithOrgLimit(ctx, &domain.ProjectMemberRole{
+				ProjectID: projectID,
+				UserID:    userID,
+				RoleID:    role.ID,
+				GrantedBy: "tester",
+			}, orgID, 1)
+		})
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+
+	successes := 0
+	limitErrors := 0
+	for err := range errs {
+		switch {
+		case err == nil:
+			successes++
+		case errors.Is(err, store.ErrMemberLimitReached):
+			limitErrors++
+		default:
+			t.Fatalf("unexpected assignment error: %v", err)
+		}
+	}
+	if successes != 1 || limitErrors != 1 {
+		t.Fatalf("successes=%d limitErrors=%d, want 1/1", successes, limitErrors)
+	}
+
+	var count int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(DISTINCT pmr.user_id)
+		FROM project_member_roles pmr
+		JOIN projects p ON p.id = pmr.project_id
+		WHERE p.org_id = $1`, orgID).Scan(&count); err != nil {
+		t.Fatalf("count members: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("member count = %d, want 1", count)
+	}
+}
+
 func TestGetUserPermissions(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
