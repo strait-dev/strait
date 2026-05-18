@@ -29,6 +29,7 @@ const (
 	grpcCtxOrgIDKey         grpcContextKey = "grpc_org_id"
 	grpcCtxAPIKeyIDKey      grpcContextKey = "grpc_api_key_id" //nolint:gosec // not a credential; context-key name
 	grpcCtxAPIKeyKey        grpcContextKey = "grpc_api_key"    //nolint:gosec // not a credential; context-key name
+	grpcCtxAPIKeyExpiresKey grpcContextKey = "grpc_api_key_expires_at"
 	grpcCtxEnvironmentIDKey grpcContextKey = "grpc_environment_id"
 )
 
@@ -153,6 +154,9 @@ func withAPIKeyContext(ctx context.Context, apiKey *domain.APIKey) context.Conte
 	ctx = context.WithValue(ctx, grpcCtxProjectIDKey, apiKey.ProjectID)
 	ctx = context.WithValue(ctx, grpcCtxAPIKeyIDKey, apiKey.ID)
 	ctx = context.WithValue(ctx, grpcCtxAPIKeyKey, apiKey)
+	if expiresAt, ok := workerAPIKeyExpiresAt(apiKey); ok {
+		ctx = context.WithValue(ctx, grpcCtxAPIKeyExpiresKey, expiresAt)
+	}
 	if apiKey.OrgID != "" {
 		ctx = context.WithValue(ctx, grpcCtxOrgIDKey, apiKey.OrgID)
 	}
@@ -161,6 +165,23 @@ func withAPIKeyContext(ctx context.Context, apiKey *domain.APIKey) context.Conte
 	}
 	configureGRPCSentryAPIKeyScope(ctx)
 	return ctx
+}
+
+func workerAPIKeyExpiresAt(apiKey *domain.APIKey) (time.Time, bool) {
+	if apiKey == nil {
+		return time.Time{}, false
+	}
+	var expiresAt time.Time
+	var ok bool
+	if apiKey.ExpiresAt != nil {
+		expiresAt = *apiKey.ExpiresAt
+		ok = true
+	}
+	if apiKey.GraceExpiresAt != nil && (!ok || apiKey.GraceExpiresAt.Before(expiresAt)) {
+		expiresAt = *apiKey.GraceExpiresAt
+		ok = true
+	}
+	return expiresAt, ok
 }
 
 // ProjectIDFromContext extracts the project ID set by withAPIKeyContext.
@@ -187,5 +208,10 @@ func EnvironmentIDFromContext(ctx context.Context) string {
 // APIKeyFromContext extracts the resolved APIKey set by withAPIKeyContext.
 func APIKeyFromContext(ctx context.Context) (*domain.APIKey, bool) {
 	v, ok := ctx.Value(grpcCtxAPIKeyKey).(*domain.APIKey)
+	return v, ok
+}
+
+func APIKeyExpiresAtFromContext(ctx context.Context) (time.Time, bool) {
+	v, ok := ctx.Value(grpcCtxAPIKeyExpiresKey).(time.Time)
 	return v, ok
 }
