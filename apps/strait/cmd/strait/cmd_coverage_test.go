@@ -100,6 +100,25 @@ func TestValidateBillingRedisDependency_FailsClosedWhenEnforcementEnabled(t *tes
 	}
 }
 
+type auditDMLStartupChecker struct {
+	called bool
+}
+
+func (c *auditDMLStartupChecker) AuditEventsDMLRestricted(context.Context) (bool, error) {
+	c.called = true
+	return true, nil
+}
+
+func TestLogAuditDMLGuardStartup_UsesDMLRestrictedInterface(t *testing.T) {
+	t.Parallel()
+
+	checker := &auditDMLStartupChecker{}
+	logAuditDMLGuardStartup(context.Background(), checker, nil)
+	if !checker.called {
+		t.Fatal("expected startup audit DML guard to call AuditEventsDMLRestricted")
+	}
+}
+
 func TestNewVersionCommand(t *testing.T) {
 	t.Parallel()
 
