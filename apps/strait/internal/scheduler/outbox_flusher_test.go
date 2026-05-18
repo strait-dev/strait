@@ -53,3 +53,11 @@ func TestClassifyOutboxEnqueueError_SerializationFailureIsRetryable(t *testing.T
 		t.Fatal("serialization failure should be retryable")
 	}
 }
+
+func TestClassifyOutboxEnqueueError_UnknownErrorIsRetryable(t *testing.T) {
+	t.Parallel()
+
+	if classifyOutboxEnqueueError(errors.New("temporary unknown enqueue failure")) != outboxEnqueueRetryable {
+		t.Fatal("unknown enqueue errors should be retried instead of quarantining outbox rows")
+	}
+}

@@ -241,7 +241,7 @@ func classifyOutboxEnqueueError(err error) outboxEnqueueDisposition {
 		}
 	}
 
-	return outboxEnqueueTerminal
+	return outboxEnqueueRetryable
 }
 
 func execSavepoint(ctx context.Context, tx pgx.Tx, sql string) error {
