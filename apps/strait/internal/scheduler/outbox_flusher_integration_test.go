@@ -315,6 +315,40 @@ func TestOutboxFlusher_PropagatesWorkerExecutionModeAndQueue(t *testing.T) {
 	}
 }
 
+func TestOutboxFlusher_InvalidMetadataQuarantinesRow(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	st := intTestStore(t)
+	intTestClean(t, ctx)
+	job := intCreateJob(t, ctx, st, "proj-outbox-invalid-metadata")
+	entry := queue.OutboxEntry{
+		ID:        intNewID(),
+		ProjectID: job.ProjectID,
+		JobID:     job.ID,
+		Payload:   json.RawMessage(`{"n":1}`),
+		Metadata:  map[string]any{"attempt": 1},
+	}
+	intWriteOutboxEntries(t, ctx, []queue.OutboxEntry{entry})
+
+	enqueueCalled := false
+	flusher := scheduler.NewOutboxFlusher(getTestDB(t).Pool, &outboxTestQueue{
+		enqueueInTxFn: func(context.Context, store.DBTX, *domain.JobRun) error {
+			enqueueCalled = true
+			return nil
+		},
+	}, scheduler.OutboxFlusherConfig{BatchSize: 1})
+
+	if err := flusher.FlushOnceForTest(ctx); err != nil {
+		t.Fatalf("FlushOnceForTest() error = %v", err)
+	}
+	if enqueueCalled {
+		t.Fatal("invalid metadata row was enqueued")
+	}
+	assertOutboxState(t, ctx, entry.ID, true, true)
+	assertRunsForJob(t, ctx, job.ID, 0)
+}
+
 func TestOutboxFlusher_MixedBatchContinuesPastRetryableAndTerminalRows(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
