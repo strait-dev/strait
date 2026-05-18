@@ -72,7 +72,7 @@ func (i *StripeSLAIssuer) IssueCredit(ctx context.Context, orgID string, creditM
 			Invoice: stripe.String(inv.ID),
 			Amount:  &amount,
 			Reason:  stripe.String(string(stripe.CreditNoteReasonOrderChange)),
-			Memo:    stripe.String(fmt.Sprintf("SLA credit for %s", periodEnd.UTC().Format("January 2006"))),
+			Memo:    stripe.String(fmt.Sprintf("SLA credit for %s", slaCreditPeriodLabel(periodEnd))),
 		}
 		params.Context = ctx
 		params.SetIdempotencyKey(idemKey)
@@ -95,7 +95,7 @@ func (i *StripeSLAIssuer) IssueCredit(ctx context.Context, orgID string, creditM
 		Customer:    stripe.String(customerID),
 		Amount:      &negAmount,
 		Currency:    stripe.String("usd"),
-		Description: stripe.String(fmt.Sprintf("SLA credit for %s", periodEnd.UTC().Format("January 2006"))),
+		Description: stripe.String(fmt.Sprintf("SLA credit for %s", slaCreditPeriodLabel(periodEnd))),
 	}
 	cbtParams.Context = ctx
 	cbtParams.SetIdempotencyKey(idemKey)
@@ -110,6 +110,14 @@ func (i *StripeSLAIssuer) IssueCredit(ctx context.Context, orgID string, creditM
 		"balance_transaction_id", cbt.ID,
 	)
 	return cbt.ID, nil
+}
+
+func slaCreditPeriodLabel(periodEnd time.Time) string {
+	end := periodEnd.UTC()
+	if end.IsZero() {
+		return end.Format("January 2006")
+	}
+	return end.Add(-time.Nanosecond).Format("January 2006")
 }
 
 // findInvoiceForPeriod returns the most relevant invoice for the SLA

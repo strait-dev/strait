@@ -399,3 +399,11 @@ func TestStripeSLAIssuer_RoundsMicrousdToCents(t *testing.T) {
 		}
 	}
 }
+
+func TestSLACreditPeriodLabel_UsesExclusivePeriodEnd(t *testing.T) {
+	t.Parallel()
+	periodEnd := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	if got := slaCreditPeriodLabel(periodEnd); got != "April 2026" {
+		t.Fatalf("slaCreditPeriodLabel(%s) = %q, want April 2026", periodEnd, got)
+	}
+}
