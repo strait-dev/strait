@@ -21,7 +21,7 @@ type flatUsageCostReconciler interface {
 	ReconcileFlatUsageCosts(ctx context.Context, orgID string, date time.Time) error
 }
 
-// UsageFlusher periodically queries current-day usage for all subscribed orgs
+// UsageFlusher periodically queries recent daily usage for all subscribed orgs
 // and upserts it into the usage_records table.
 type UsageFlusher struct {
 	store          UsageFlusherStore
@@ -92,39 +92,47 @@ func (uf *UsageFlusher) flushLocked(ctx context.Context) error {
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 
 	for _, orgID := range uniqueNonEmptyStrings(orgIDs) {
-		uf.reconcileFlatUsageCosts(ctx, orgID, today)
+		for _, periodDate := range usageFlusherPeriodDates(today) {
+			uf.reconcileFlatUsageCosts(ctx, orgID, periodDate)
 
-		records, dailyErr := uf.store.GetOrgDailyUsage(ctx, orgID, today)
-		if dailyErr != nil {
-			uf.logger.Warn("usage flusher: failed to get daily usage",
-				"org_id", orgID, "error", dailyErr)
-			continue
-		}
+			records, dailyErr := uf.store.GetOrgDailyUsage(ctx, orgID, periodDate)
+			if dailyErr != nil {
+				uf.logger.Warn("usage flusher: failed to get daily usage",
+					"org_id", orgID, "period_date", periodDate, "error", dailyErr)
+				continue
+			}
 
-		for i := range records {
-			normalizeUsageSnapshot(&records[i], today)
-			if err := uf.store.ReplaceUsageRecord(ctx, &records[i]); err != nil {
-				uf.logger.Warn("usage flusher: failed to upsert usage record",
-					"org_id", orgID,
-					"project_id", records[i].ProjectID,
-					"error", err)
+			for i := range records {
+				normalizeUsageSnapshot(&records[i], periodDate)
+				if err := uf.store.ReplaceUsageRecord(ctx, &records[i]); err != nil {
+					uf.logger.Warn("usage flusher: failed to upsert usage record",
+						"org_id", orgID,
+						"project_id", records[i].ProjectID,
+						"period_date", periodDate,
+						"error", err)
+				}
 			}
 		}
 	}
 	return nil
 }
 
-func (uf *UsageFlusher) reconcileFlatUsageCosts(ctx context.Context, orgID string, today time.Time) {
+func usageFlusherPeriodDates(today time.Time) []time.Time {
+	dates := make([]time.Time, 0, usageFlusherReconcileLookbackDays)
+	for offset := usageFlusherReconcileLookbackDays - 1; offset >= 0; offset-- {
+		dates = append(dates, today.AddDate(0, 0, -offset))
+	}
+	return dates
+}
+
+func (uf *UsageFlusher) reconcileFlatUsageCosts(ctx context.Context, orgID string, periodDate time.Time) {
 	reconciler, ok := uf.store.(flatUsageCostReconciler)
 	if !ok {
 		return
 	}
-	for offset := usageFlusherReconcileLookbackDays - 1; offset >= 0; offset-- {
-		periodDate := today.AddDate(0, 0, -offset)
-		if reconcileErr := reconciler.ReconcileFlatUsageCosts(ctx, orgID, periodDate); reconcileErr != nil {
-			uf.logger.Warn("usage flusher: failed to reconcile flat usage costs",
-				"org_id", orgID, "period_date", periodDate, "error", reconcileErr)
-		}
+	if reconcileErr := reconciler.ReconcileFlatUsageCosts(ctx, orgID, periodDate); reconcileErr != nil {
+		uf.logger.Warn("usage flusher: failed to reconcile flat usage costs",
+			"org_id", orgID, "period_date", periodDate, "error", reconcileErr)
 	}
 }
 

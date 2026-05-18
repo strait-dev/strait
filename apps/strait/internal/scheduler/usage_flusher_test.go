@@ -59,7 +59,10 @@ func TestUsageFlusher_FlushesRecordsForAllOrgs(t *testing.T) {
 		listAllSubscribedOrgIDsFn: func(context.Context) ([]string, error) {
 			return []string{"org-1", "org-2"}, nil
 		},
-		getOrgDailyUsageFn: func(_ context.Context, orgID string, _ time.Time) ([]billing.UsageRecord, error) {
+		getOrgDailyUsageFn: func(_ context.Context, orgID string, date time.Time) ([]billing.UsageRecord, error) {
+			if !date.Equal(today) {
+				return nil, nil
+			}
 			return []billing.UsageRecord{
 				{
 					OrgID:            orgID,
@@ -139,7 +142,10 @@ func TestUsageFlusher_ReplacesSnapshotEachFlush(t *testing.T) {
 		listAllSubscribedOrgIDsFn: func(context.Context) ([]string, error) {
 			return []string{"org-1"}, nil
 		},
-		getOrgDailyUsageFn: func(_ context.Context, orgID string, _ time.Time) ([]billing.UsageRecord, error) {
+		getOrgDailyUsageFn: func(_ context.Context, orgID string, date time.Time) ([]billing.UsageRecord, error) {
+			if !date.Equal(today) {
+				return nil, nil
+			}
 			return []billing.UsageRecord{
 				{
 					OrgID:            orgID,
@@ -185,9 +191,12 @@ func TestUsageFlusher_PartialFailure_ContinuesOtherOrgs(t *testing.T) {
 		listAllSubscribedOrgIDsFn: func(context.Context) ([]string, error) {
 			return []string{"org-1", "org-2", "org-3"}, nil
 		},
-		getOrgDailyUsageFn: func(_ context.Context, orgID string, _ time.Time) ([]billing.UsageRecord, error) {
+		getOrgDailyUsageFn: func(_ context.Context, orgID string, date time.Time) ([]billing.UsageRecord, error) {
 			if orgID == "org-2" {
 				return nil, errors.New("db timeout")
+			}
+			if !date.Equal(today) {
+				return nil, nil
 			}
 			return []billing.UsageRecord{
 				{
@@ -248,11 +257,57 @@ func TestUsageFlusher_DedupesOrgIDsAndSkipsEmpty(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(getCalls) != 2 || getCalls["org-1"] != 1 || getCalls["org-2"] != 1 {
-		t.Fatalf("daily usage calls = %v, want one per non-empty org", getCalls)
+	if len(getCalls) != 2 || getCalls["org-1"] != usageFlusherReconcileLookbackDays || getCalls["org-2"] != usageFlusherReconcileLookbackDays {
+		t.Fatalf("daily usage calls = %v, want lookback window per non-empty org", getCalls)
 	}
 	if _, ok := getCalls[""]; ok {
 		t.Fatal("empty org ID should not be flushed")
+	}
+}
+
+func TestUsageFlusher_FlushesSnapshotsAcrossLookback(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	var requested []time.Time
+	var upserted []time.Time
+	s := &mockUsageFlusherStore{
+		listAllSubscribedOrgIDsFn: func(context.Context) ([]string, error) {
+			return []string{"org-1"}, nil
+		},
+		getOrgDailyUsageFn: func(_ context.Context, orgID string, date time.Time) ([]billing.UsageRecord, error) {
+			mu.Lock()
+			requested = append(requested, date)
+			mu.Unlock()
+			return []billing.UsageRecord{{OrgID: orgID, ProjectID: "proj-1", RunsCount: 1}}, nil
+		},
+		replaceUsageRecordFn: func(_ context.Context, rec *billing.UsageRecord) error {
+			mu.Lock()
+			upserted = append(upserted, rec.PeriodDate)
+			mu.Unlock()
+			return nil
+		},
+	}
+
+	NewUsageFlusher(s, time.Minute).flush(context.Background())
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(requested) != usageFlusherReconcileLookbackDays {
+		t.Fatalf("requested dates = %d, want %d", len(requested), usageFlusherReconcileLookbackDays)
+	}
+	if len(upserted) != usageFlusherReconcileLookbackDays {
+		t.Fatalf("upserted dates = %d, want %d", len(upserted), usageFlusherReconcileLookbackDays)
+	}
+	for i := 1; i < len(upserted); i++ {
+		if !upserted[i].After(upserted[i-1]) {
+			t.Fatalf("upserted dates are not ascending: %v", upserted)
+		}
+	}
+	for i := range requested {
+		if !requested[i].Equal(upserted[i]) {
+			t.Fatalf("requested[%d]=%v, upserted[%d]=%v", i, requested[i], i, upserted[i])
+		}
 	}
 }
 
@@ -290,12 +345,18 @@ func TestUsageFlusher_ReconcilesFlatUsageCostsAcrossLookback(t *testing.T) {
 func TestUsageFlusher_NormalizesEmptySnapshotFields(t *testing.T) {
 	t.Parallel()
 
+	now := time.Now().UTC()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+
 	var got *billing.UsageRecord
 	s := &mockUsageFlusherStore{
 		listAllSubscribedOrgIDsFn: func(context.Context) ([]string, error) {
 			return []string{"org-1"}, nil
 		},
-		getOrgDailyUsageFn: func(_ context.Context, orgID string, _ time.Time) ([]billing.UsageRecord, error) {
+		getOrgDailyUsageFn: func(_ context.Context, orgID string, date time.Time) ([]billing.UsageRecord, error) {
+			if !date.Equal(today) {
+				return nil, nil
+			}
 			return []billing.UsageRecord{{OrgID: orgID, ProjectID: "proj-1", RunsCount: 1}}, nil
 		},
 		replaceUsageRecordFn: func(_ context.Context, rec *billing.UsageRecord) error {
