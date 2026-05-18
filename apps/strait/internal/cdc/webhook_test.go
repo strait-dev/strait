@@ -218,6 +218,33 @@ func TestDeepSecWebhookReceiver_RejectsInvalidAction(t *testing.T) {
 	}
 }
 
+func TestDeepSecWebhookReceiver_RejectsReadAndEmptyActions(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name   string
+		action Action
+	}{
+		{name: "read", action: ActionRead},
+		{name: "empty", action: ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			wr := NewWebhookReceiver(nil, nil)
+			msg := Message{
+				Action:   tt.action,
+				Metadata: Metadata{TableName: "job_runs"},
+			}
+			rr := httptest.NewRecorder()
+			wr.ServeHTTP(rr, makeWebhookRequest(msg))
+
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d", rr.Code)
+			}
+		})
+	}
+}
+
 func TestDeepSecWebhookReceiver_VerifiesHMACSignature(t *testing.T) {
 	t.Parallel()
 	secret := "cdc-webhook-secret"

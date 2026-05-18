@@ -62,15 +62,10 @@ func (h *AuditHandler) Handle(ctx context.Context, msg Message) error {
 		return nil
 	}
 
-	// Suppress UPDATE-driven audit rows for non-terminal status transitions
-	// (heartbeats, queued→dequeued→executing→waiting flips). Terminal
-	// states still emit because they are the lifecycle event downstream
-	// consumers care about. INSERT/DELETE are unaffected and fall through.
-	if msg.Action == ActionUpdate && !domain.RunStatus(record.Status).IsTerminal() {
+	action, emit := auditAction(msg.Action, record.Status)
+	if !emit {
 		return nil
 	}
-
-	action := auditAction(msg.Action, record.Status)
 
 	ev := &domain.AuditEvent{
 		ProjectID:    record.ProjectID,
@@ -113,13 +108,18 @@ func auditDetails(msg Message, runID, jobID, projectID, status string, attempt i
 	return data
 }
 
-func auditAction(action Action, status string) string {
+func auditAction(action Action, status string) (string, bool) {
 	switch action {
 	case ActionInsert:
-		return "run.created"
+		return "run.created", true
 	case ActionDelete:
-		return "run.deleted"
+		return "run.deleted", true
+	case ActionUpdate:
+		if !domain.RunStatus(status).IsTerminal() {
+			return "", false
+		}
+		return "run." + status, true
 	default:
-		return "run." + status
+		return "", false
 	}
 }

@@ -213,7 +213,7 @@ func validateWebhookMessage(msg Message) error {
 		return errors.New("metadata.table_name is required")
 	}
 	switch msg.Action {
-	case "", ActionInsert, ActionUpdate, ActionDelete, ActionRead:
+	case ActionInsert, ActionUpdate, ActionDelete:
 		return nil
 	default:
 		return errors.New("invalid action")

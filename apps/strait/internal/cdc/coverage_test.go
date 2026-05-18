@@ -54,17 +54,20 @@ func TestAuditHandler_Table(t *testing.T) {
 
 func TestAuditAction_Delete(t *testing.T) {
 	t.Parallel()
-	got := auditAction(ActionDelete, "whatever")
+	got, ok := auditAction(ActionDelete, "whatever")
+	if !ok {
+		t.Fatal("auditAction(delete) ok = false, want true")
+	}
 	if got != "run.deleted" {
 		t.Fatalf("auditAction(delete) = %q, want %q", got, "run.deleted")
 	}
 }
 
-func TestAuditAction_ReadFallsToDefault(t *testing.T) {
+func TestAuditAction_ReadIsIgnored(t *testing.T) {
 	t.Parallel()
-	got := auditAction(ActionRead, "executing")
-	if got != "run.executing" {
-		t.Fatalf("auditAction(read) = %q, want %q", got, "run.executing")
+	got, ok := auditAction(ActionRead, "executing")
+	if ok || got != "" {
+		t.Fatalf("auditAction(read) = %q, %v; want empty false", got, ok)
 	}
 }
 

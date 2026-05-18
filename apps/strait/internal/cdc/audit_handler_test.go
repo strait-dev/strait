@@ -276,6 +276,46 @@ func TestAuditHandler_HighHeartbeatVolume_NoWriteAmplification(t *testing.T) {
 	}
 }
 
+func TestDeepSecAuditHandler_IgnoresReadEmptyAndUnknownActions(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name   string
+		action Action
+		status string
+	}{
+		{name: "read non terminal", action: ActionRead, status: "executing"},
+		{name: "read terminal", action: ActionRead, status: "completed"},
+		{name: "empty action", action: "", status: "completed"},
+		{name: "unknown action", action: Action("snapshot"), status: "completed"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			store := &mockAuditStore{}
+			h := NewAuditHandler(store, nil)
+			record, _ := json.Marshal(map[string]any{
+				"id":         "run-1",
+				"job_id":     "job-1",
+				"project_id": "p1",
+				"status":     tt.status,
+			})
+
+			err := h.Handle(context.Background(), Message{
+				AckID:    "ack-unsupported",
+				Action:   tt.action,
+				Record:   record,
+				Metadata: Metadata{TableName: "job_runs"},
+			})
+			if err != nil {
+				t.Fatalf("Handle error = %v", err)
+			}
+			if len(store.events) != 0 {
+				t.Fatalf("events = %d, want 0: %#v", len(store.events), store.events)
+			}
+		})
+	}
+}
+
 func TestDeepSecAuditHandler_StoreErrorReturnsForRetry(t *testing.T) {
 	t.Parallel()
 	store := &mockAuditStore{
