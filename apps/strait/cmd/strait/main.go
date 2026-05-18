@@ -519,7 +519,7 @@ func logAuditDMLGuardStartup(ctx context.Context, checker health.AuditDMLPrivile
 		metrics.AuditDMLRestrictionStatus.Add(ctx, 1,
 			otelmetric.WithAttributes(otelattr.String("status", status)))
 	}
-	restricted, err := checker.AuditEventsUpdateRestricted(ctx)
+	restricted, err := checker.AuditEventsDMLRestricted(ctx)
 	if err != nil {
 		slog.Warn("audit DML restriction probe failed at startup",
 			"error", err,

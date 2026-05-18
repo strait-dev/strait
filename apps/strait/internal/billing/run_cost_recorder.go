@@ -17,6 +17,16 @@ import (
 // idempotency-key replay) without consuming unbounded memory.
 const costRecordedTTL = 48 * time.Hour
 
+const (
+	costRecordMaxAttempts       = 5
+	costRecordRetryInitialDelay = 50 * time.Millisecond
+	costRecordRetryMaxDelay     = 500 * time.Millisecond
+)
+
+type durableUsageCostStore interface {
+	RecordUsageCost(ctx context.Context, rec *UsageRecord, idempotencyKey, executionMode string) (bool, error)
+}
+
 // RunCostRecorder writes flat per-run billing events to the usage_records table
 // and (optionally) to ClickHouse run_analytics for cross-system reporting.
 //
@@ -32,6 +42,10 @@ type RunCostRecorder struct {
 	rdb        redis.Cmdable
 	chExporter billingEventEnqueuer
 	logger     *slog.Logger
+
+	maxRecordAttempts int
+	retryInitialDelay time.Duration
+	retryMaxDelay     time.Duration
 }
 
 // NewRunCostRecorder creates a recorder. store must not be nil.
@@ -46,6 +60,10 @@ func NewRunCostRecorder(store Store, rdb redis.Cmdable, chExporter billingEventE
 		rdb:        rdb,
 		chExporter: chExporter,
 		logger:     logger,
+
+		maxRecordAttempts: costRecordMaxAttempts,
+		retryInitialDelay: costRecordRetryInitialDelay,
+		retryMaxDelay:     costRecordRetryMaxDelay,
 	}
 }
 
@@ -86,18 +104,19 @@ func (r *RunCostRecorder) record(ctx context.Context, orgID, projectID, runID st
 		idempotencyKey = "strait:cost_recorded:" + runID
 		set, err := r.rdb.SetNX(ctx, idempotencyKey, "1", costRecordedTTL).Result()
 		if err != nil {
-			recordBillingUsageRecord(ctx, executionMode, "error")
-			return fmt.Errorf("run_cost_recorder: redis idempotency check failed (org=%s run=%s): %w",
-				orgID, runID, err)
+			r.logger.Warn("run_cost_recorder: redis idempotency unavailable; falling back to durable DB idempotency",
+				"org_id", orgID, "project_id", projectID, "run_id", runID, "execution_mode", executionMode, "error", err)
 		}
-		if !set {
+		if err == nil && !set {
 			recordBillingIdempotencyDuplicate(ctx, executionMode)
 			recordBillingUsageRecord(ctx, executionMode, "duplicate")
 			r.logger.Debug("skipping duplicate cost record", "run_id", runID,
 				"org_id", orgID, "execution_mode", executionMode)
 			return nil
 		}
-		idempotencyClaimed = true
+		idempotencyClaimed = err == nil
+	} else if runID != "" {
+		idempotencyKey = "strait:cost_recorded:" + runID
 	}
 
 	now := time.Now().UTC()
@@ -117,7 +136,8 @@ func (r *RunCostRecorder) record(ctx context.Context, orgID, projectID, runID st
 		UpdatedAt:        now,
 	}
 
-	if err := r.store.UpsertUsageRecord(ctx, rec); err != nil {
+	recorded, err := r.recordUsageWithRetry(ctx, rec, idempotencyKey, executionMode)
+	if err != nil {
 		// Release the Redis idempotency claim so a subsequent retry can
 		// bill. Without this, the SetNX claim outlives the failed DB write
 		// and any retry within costRecordedTTL silently skips billing —
@@ -134,11 +154,72 @@ func (r *RunCostRecorder) record(ctx context.Context, orgID, projectID, runID st
 		return fmt.Errorf("recording %s run cost (org=%s project=%s run=%s): %w",
 			executionMode, orgID, projectID, runID, err)
 	}
+	if !recorded {
+		recordBillingIdempotencyDuplicate(ctx, executionMode)
+		recordBillingUsageRecord(ctx, executionMode, "duplicate")
+		r.logger.Debug("skipping duplicate durable cost record", "run_id", runID,
+			"org_id", orgID, "execution_mode", executionMode)
+		return nil
+	}
 
 	recordBillingUsageRecord(ctx, executionMode, "success")
 	recordBillingUsageRecordCost(ctx, executionMode, costMicroUSD)
 	r.emitClickHouse(orgID, projectID, runID, costMicroUSD, executionMode)
 	return nil
+}
+
+func (r *RunCostRecorder) recordUsageWithRetry(ctx context.Context, rec *UsageRecord, idempotencyKey, executionMode string) (bool, error) {
+	attempts := r.maxRecordAttempts
+	if attempts <= 0 {
+		attempts = 1
+	}
+	delay := r.retryInitialDelay
+	if delay <= 0 {
+		delay = costRecordRetryInitialDelay
+	}
+	maxDelay := r.retryMaxDelay
+	if maxDelay <= 0 {
+		maxDelay = delay
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		recorded, err := r.recordUsageOnce(ctx, rec, idempotencyKey, executionMode)
+		if err == nil {
+			return recorded, nil
+		}
+		lastErr = err
+		if attempt == attempts {
+			break
+		}
+		if ctx.Err() != nil {
+			return false, ctx.Err()
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return false, ctx.Err()
+		case <-timer.C:
+		}
+		delay *= 2
+		if delay > maxDelay {
+			delay = maxDelay
+		}
+	}
+	return false, lastErr
+}
+
+func (r *RunCostRecorder) recordUsageOnce(ctx context.Context, rec *UsageRecord, idempotencyKey, executionMode string) (bool, error) {
+	if store, ok := r.store.(durableUsageCostStore); ok && idempotencyKey != "" {
+		return store.RecordUsageCost(ctx, rec, idempotencyKey, executionMode)
+	}
+	if err := r.store.UpsertUsageRecord(ctx, rec); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // emitClickHouse sends a billing event to ClickHouse run_analytics if the exporter

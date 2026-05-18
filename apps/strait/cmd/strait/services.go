@@ -948,44 +948,45 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 				"safety_months", cfg.PartitionReclaimSafety,
 			)
 		}
+		billingCostAccountingEnabled := cfg.BillingEnforcementEnabled || cfg.StripeWebhookSecret != ""
+		var schedulerBillingStore *billing.PgStore
+		if billingCostAccountingEnabled {
+			schedulerBillingStore = billing.NewPgStore(dbPool)
+		}
 		if cfg.BillingEnforcementEnabled && billingEnforcer != nil {
 			reconciler := scheduler.NewConcurrentReconciler(billingEnforcer, queries, 5*time.Minute)
 			schedOpts = append(schedOpts, scheduler.WithConcurrentReconciler(reconciler))
 			slog.Info("concurrent run reconciler enabled")
 
-			billingStore := billing.NewPgStore(dbPool)
-			budgetStore := newBudgetMonitorStore(billingStore, queries)
+			budgetStore := newBudgetMonitorStore(schedulerBillingStore, queries)
 			schedOpts = append(schedOpts,
 				scheduler.WithBudgetMonitoringStores(budgetStore, budgetStore, billingEnforcer),
-				scheduler.WithUsageFlusher(
-					scheduler.NewUsageFlusher(billingStore, time.Hour).WithAdvisoryLocker(queries),
-				),
 			)
-			slog.Info("billing budget and usage monitors enabled")
+			slog.Info("billing budget monitors enabled")
 
-			downgradeApplier := scheduler.NewDowngradeApplier(billingStore, billingEnforcer, 5*time.Minute)
+			downgradeApplier := scheduler.NewDowngradeApplier(schedulerBillingStore, billingEnforcer, 5*time.Minute)
 			if billingDispatcher != nil {
 				downgradeApplier.WithBillingDispatcher(billingDispatcher)
 			}
 			schedOpts = append(schedOpts, scheduler.WithDowngradeApplier(downgradeApplier))
 			slog.Info("downgrade applier enabled")
 
-			gracePeriodEnforcer := scheduler.NewGracePeriodEnforcer(billingStore, billingEnforcer, time.Hour).
+			gracePeriodEnforcer := scheduler.NewGracePeriodEnforcer(schedulerBillingStore, billingEnforcer, time.Hour).
 				WithAdvisoryLocker(queries)
 			schedOpts = append(schedOpts, scheduler.WithGracePeriodEnforcer(gracePeriodEnforcer))
 			slog.Info("grace period enforcer enabled")
 
-			webhookCleanup := scheduler.NewWebhookMessageCleanup(billingStore, slog.Default())
+			webhookCleanup := scheduler.NewWebhookMessageCleanup(schedulerBillingStore, slog.Default())
 			schedOpts = append(schedOpts, scheduler.WithWebhookMessageCleanup(webhookCleanup))
 
 			billingEmailSender := billing.NewBillingEmailSender(cfg.ResendAPIKey, "billing@strait.dev", slog.Default())
-			contractExpiryChecker := scheduler.NewContractExpiryChecker(billingStore, billingEmailSender, 24*time.Hour)
+			contractExpiryChecker := scheduler.NewContractExpiryChecker(schedulerBillingStore, billingEmailSender, 24*time.Hour)
 			schedOpts = append(schedOpts, scheduler.WithContractExpiryChecker(contractExpiryChecker))
 			slog.Info("contract expiry checker enabled")
 
 			if cfg.ResendAPIKey != "" {
 				usageReportEmailer := scheduler.NewUsageReportEmailer(
-					billingStore,
+					schedulerBillingStore,
 					resend.NewClient(cfg.ResendAPIKey).Emails,
 					"billing@strait.dev",
 					24*time.Hour,
@@ -994,17 +995,17 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 				slog.Info("usage report emailer enabled")
 			}
 
-			retentionResolver := billing.NewPlanRetentionResolver(billingStore)
+			retentionResolver := billing.NewPlanRetentionResolver(schedulerBillingStore)
 			schedOpts = append(schedOpts, scheduler.WithOrgRetentionResolver(retentionResolver))
 			slog.Info("per-org plan retention enabled")
 
-			quotaResumeEnforcer := scheduler.NewQuotaResumeEnforcer(billingStore, billingEnforcer, time.Hour).
+			quotaResumeEnforcer := scheduler.NewQuotaResumeEnforcer(schedulerBillingStore, billingEnforcer, time.Hour).
 				WithAdvisoryLocker(queries)
 			schedOpts = append(schedOpts, scheduler.WithQuotaResumeEnforcer(quotaResumeEnforcer))
 			slog.Info("quota resume enforcer enabled")
 
 			anomalyMonitor := scheduler.NewAnomalyMonitor(
-				&anomalyMonitorStore{PgStore: billingStore, queries: queries},
+				&anomalyMonitorStore{PgStore: schedulerBillingStore, queries: queries},
 				15*time.Minute,
 			).WithAdvisoryLocker(queries)
 			schedOpts = append(schedOpts, scheduler.WithAnomalyMonitor(anomalyMonitor))
@@ -1012,19 +1013,19 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 
 			dunnerOpts := []billing.DunnerOption{
 				billing.WithDunnerEmails(billingEmailSender),
-				billing.WithDunnerAdminLookup(billingStore),
+				billing.WithDunnerAdminLookup(schedulerBillingStore),
 				billing.WithDunnerLogger(slog.Default()),
 			}
 			if billingDispatcher != nil {
 				dunnerOpts = append(dunnerOpts, billing.WithDunnerDispatcher(billingDispatcher))
 			}
-			dunner := billing.NewDunner(billingStore, dunnerOpts...)
+			dunner := billing.NewDunner(schedulerBillingStore, dunnerOpts...)
 			schedOpts = append(schedOpts, scheduler.WithDunner(dunner))
 			slog.Info("dunning state machine enabled")
 
 			slaCreditStore := billing.NewPgSLACreditStore(dbPool)
 			slaCalculator := billing.NewSLACalculator(
-				&slaCalculatorStore{PgStore: billingStore, slaCreditStore: slaCreditStore},
+				&slaCalculatorStore{PgStore: schedulerBillingStore, slaCreditStore: slaCreditStore},
 				newUptimeSource(cfg, slog.Default()),
 				24*time.Hour,
 				slog.Default(),
@@ -1032,12 +1033,20 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 			if billingDispatcher != nil {
 				slaCalculator.WithDispatcher(billingDispatcher)
 			}
-			if issuer := newSLAIssuer(cfg, billingStore, slog.Default()); issuer != nil {
+			if issuer := newSLAIssuer(cfg, schedulerBillingStore, slog.Default()); issuer != nil {
 				slaCalculator.WithIssuer(issuer)
 				slog.Info("sla credit stripe issuer enabled")
 			}
 			schedOpts = append(schedOpts, scheduler.WithSLACalculator(slaCalculator))
 			slog.Info("sla credit calculator enabled")
+		}
+		if billingCostAccountingEnabled {
+			schedOpts = append(schedOpts,
+				scheduler.WithUsageFlusher(
+					scheduler.NewUsageFlusher(schedulerBillingStore, time.Hour).WithAdvisoryLocker(queries),
+				),
+			)
+			slog.Info("billing usage flusher enabled")
 		}
 		// Backpressure sampler: produces the per-project
 		// strait.queue.backpressure_tokens_available gauge. Without this

@@ -15,6 +15,7 @@ type mockUsageFlusherStore struct {
 	listAllSubscribedOrgIDsFn func(ctx context.Context) ([]string, error)
 	getOrgDailyUsageFn        func(ctx context.Context, orgID string, date time.Time) ([]billing.UsageRecord, error)
 	replaceUsageRecordFn      func(ctx context.Context, rec *billing.UsageRecord) error
+	reconcileFlatUsageCostsFn func(ctx context.Context, orgID string, date time.Time) error
 }
 
 func (m *mockUsageFlusherStore) ListAllSubscribedOrgIDs(ctx context.Context) ([]string, error) {
@@ -34,6 +35,13 @@ func (m *mockUsageFlusherStore) GetOrgDailyUsage(ctx context.Context, orgID stri
 func (m *mockUsageFlusherStore) ReplaceUsageRecord(ctx context.Context, rec *billing.UsageRecord) error {
 	if m.replaceUsageRecordFn != nil {
 		return m.replaceUsageRecordFn(ctx, rec)
+	}
+	return nil
+}
+
+func (m *mockUsageFlusherStore) ReconcileFlatUsageCosts(ctx context.Context, orgID string, date time.Time) error {
+	if m.reconcileFlatUsageCostsFn != nil {
+		return m.reconcileFlatUsageCostsFn(ctx, orgID, date)
 	}
 	return nil
 }
@@ -245,6 +253,37 @@ func TestUsageFlusher_DedupesOrgIDsAndSkipsEmpty(t *testing.T) {
 	}
 	if _, ok := getCalls[""]; ok {
 		t.Fatal("empty org ID should not be flushed")
+	}
+}
+
+func TestUsageFlusher_ReconcilesFlatUsageCostsAcrossLookback(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	reconciled := make(map[string][]time.Time)
+	s := &mockUsageFlusherStore{
+		listAllSubscribedOrgIDsFn: func(context.Context) ([]string, error) {
+			return []string{"org-1"}, nil
+		},
+		reconcileFlatUsageCostsFn: func(_ context.Context, orgID string, date time.Time) error {
+			mu.Lock()
+			reconciled[orgID] = append(reconciled[orgID], date)
+			mu.Unlock()
+			return nil
+		},
+	}
+
+	NewUsageFlusher(s, time.Minute).flush(context.Background())
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(reconciled["org-1"]) != usageFlusherReconcileLookbackDays {
+		t.Fatalf("reconciled dates = %d, want %d", len(reconciled["org-1"]), usageFlusherReconcileLookbackDays)
+	}
+	for i := 1; i < len(reconciled["org-1"]); i++ {
+		if !reconciled["org-1"][i].After(reconciled["org-1"][i-1]) {
+			t.Fatalf("reconciled dates are not ascending: %v", reconciled["org-1"])
+		}
 	}
 }
 

@@ -671,7 +671,172 @@ func (s *PgStore) SetProjectOrgID(ctx context.Context, projectID, orgID string) 
 }
 
 func (s *PgStore) UpsertUsageRecord(ctx context.Context, rec *UsageRecord) error {
+	return upsertUsageRecord(ctx, s.pool, rec)
+}
+
+func (s *PgStore) RecordUsageCost(ctx context.Context, rec *UsageRecord, idempotencyKey, executionMode string) (bool, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("begin record usage cost tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	tag, err := tx.Exec(ctx, `
+		INSERT INTO billing_cost_events (
+			idempotency_key, org_id, project_id, period_date, execution_mode,
+			compute_cost_microusd, created_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (idempotency_key) DO NOTHING
+	`, idempotencyKey, rec.OrgID, rec.ProjectID, rec.PeriodDate, executionMode, rec.ComputeCostMicro, rec.CreatedAt)
+	if err != nil {
+		return false, fmt.Errorf("recording billing cost event: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return false, nil
+	}
+
+	if err := upsertUsageRecord(ctx, tx, rec); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("commit record usage cost tx: %w", err)
+	}
+	return true, nil
+}
+
+func (s *PgStore) ReconcileFlatUsageCosts(ctx context.Context, orgID string, date time.Time) error {
+	if err := s.reconcileCompletedRunCosts(ctx, orgID, date); err != nil {
+		return err
+	}
+	if err := s.reconcileDeliveredWebhookCosts(ctx, orgID, date); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *PgStore) reconcileCompletedRunCosts(ctx context.Context, orgID string, date time.Time) error {
 	_, err := s.pool.Exec(ctx, `
+		WITH missing AS (
+			SELECT
+				'strait:cost_recorded:' || jr.id AS idempotency_key,
+				p.org_id,
+				jr.project_id,
+				DATE(COALESCE(jr.finished_at, jr.created_at)) AS period_date,
+				COALESCE(NULLIF(jr.execution_mode, ''), 'http') AS execution_mode,
+				CASE
+					WHEN COALESCE(NULLIF(jr.execution_mode, ''), 'http') = 'worker' THEN $3::bigint
+					ELSE $4::bigint
+				END AS compute_cost_microusd,
+				COALESCE(jr.finished_at, jr.created_at) AS created_at
+			FROM job_runs jr
+			JOIN projects p ON p.id = jr.project_id
+			LEFT JOIN billing_cost_events b ON b.idempotency_key = 'strait:cost_recorded:' || jr.id
+			WHERE p.org_id = $1
+			  AND jr.status = $5
+			  AND DATE(COALESCE(jr.finished_at, jr.created_at)) = $2
+			  AND b.idempotency_key IS NULL
+		), inserted AS (
+			INSERT INTO billing_cost_events (
+				idempotency_key, org_id, project_id, period_date, execution_mode,
+				compute_cost_microusd, created_at
+			)
+			SELECT idempotency_key, org_id, project_id, period_date, execution_mode,
+				compute_cost_microusd, created_at
+			FROM missing
+			ON CONFLICT (idempotency_key) DO NOTHING
+			RETURNING org_id, project_id, period_date, compute_cost_microusd, created_at
+		), aggregated AS (
+			SELECT
+				org_id,
+				project_id,
+				period_date,
+				COUNT(*)::bigint AS runs_count,
+				SUM(compute_cost_microusd)::bigint AS compute_cost_microusd,
+				MIN(created_at) AS created_at,
+				MAX(created_at) AS updated_at
+			FROM inserted
+			GROUP BY org_id, project_id, period_date
+		)
+		INSERT INTO usage_records (
+			id, org_id, project_id, period_date,
+			runs_count, compute_cost_microusd, ai_tokens_total, ai_cost_microusd,
+			created_at, updated_at
+		)
+		SELECT gen_random_uuid()::text, org_id, project_id, period_date,
+			runs_count, compute_cost_microusd, 0, 0, created_at, updated_at
+		FROM aggregated
+		ON CONFLICT (org_id, project_id, period_date) DO UPDATE SET
+			runs_count = usage_records.runs_count + EXCLUDED.runs_count,
+			compute_cost_microusd = usage_records.compute_cost_microusd + EXCLUDED.compute_cost_microusd,
+			updated_at = NOW()
+	`, orgID, date, WorkerCostPerRunMicrousd, HTTPCostPerRunMicrousd, domain.StatusCompleted)
+	if err != nil {
+		return fmt.Errorf("reconciling completed run usage costs: %w", err)
+	}
+	return nil
+}
+
+func (s *PgStore) reconcileDeliveredWebhookCosts(ctx context.Context, orgID string, date time.Time) error {
+	_, err := s.pool.Exec(ctx, `
+		WITH missing AS (
+			SELECT
+				'strait:cost_recorded:' || wd.id AS idempotency_key,
+				p.org_id,
+				wd.project_id,
+				DATE(COALESCE(wd.delivered_at, wd.updated_at, wd.created_at)) AS period_date,
+				'webhook_delivery' AS execution_mode,
+				$3::bigint AS compute_cost_microusd,
+				COALESCE(wd.delivered_at, wd.updated_at, wd.created_at) AS created_at
+			FROM webhook_deliveries wd
+			JOIN projects p ON p.id = wd.project_id
+			LEFT JOIN billing_cost_events b ON b.idempotency_key = 'strait:cost_recorded:' || wd.id
+			WHERE p.org_id = $1
+			  AND wd.status = $4
+			  AND DATE(COALESCE(wd.delivered_at, wd.updated_at, wd.created_at)) = $2
+			  AND b.idempotency_key IS NULL
+		), inserted AS (
+			INSERT INTO billing_cost_events (
+				idempotency_key, org_id, project_id, period_date, execution_mode,
+				compute_cost_microusd, created_at
+			)
+			SELECT idempotency_key, org_id, project_id, period_date, execution_mode,
+				compute_cost_microusd, created_at
+			FROM missing
+			ON CONFLICT (idempotency_key) DO NOTHING
+			RETURNING org_id, project_id, period_date, compute_cost_microusd, created_at
+		), aggregated AS (
+			SELECT
+				org_id,
+				project_id,
+				period_date,
+				COUNT(*)::bigint AS runs_count,
+				SUM(compute_cost_microusd)::bigint AS compute_cost_microusd,
+				MIN(created_at) AS created_at,
+				MAX(created_at) AS updated_at
+			FROM inserted
+			GROUP BY org_id, project_id, period_date
+		)
+		INSERT INTO usage_records (
+			id, org_id, project_id, period_date,
+			runs_count, compute_cost_microusd, ai_tokens_total, ai_cost_microusd,
+			created_at, updated_at
+		)
+		SELECT gen_random_uuid()::text, org_id, project_id, period_date,
+			runs_count, compute_cost_microusd, 0, 0, created_at, updated_at
+		FROM aggregated
+		ON CONFLICT (org_id, project_id, period_date) DO UPDATE SET
+			runs_count = usage_records.runs_count + EXCLUDED.runs_count,
+			compute_cost_microusd = usage_records.compute_cost_microusd + EXCLUDED.compute_cost_microusd,
+			updated_at = NOW()
+	`, orgID, date, WebhookDeliveryCostPerRunMicrousd, domain.WebhookStatusDelivered)
+	if err != nil {
+		return fmt.Errorf("reconciling delivered webhook usage costs: %w", err)
+	}
+	return nil
+}
+
+func upsertUsageRecord(ctx context.Context, q querier, rec *UsageRecord) error {
+	_, err := q.Exec(ctx, `
 		INSERT INTO usage_records (
 			id, org_id, project_id, period_date,
 			runs_count, compute_cost_microusd, ai_tokens_total, ai_cost_microusd,

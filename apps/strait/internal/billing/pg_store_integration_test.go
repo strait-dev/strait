@@ -1463,6 +1463,132 @@ func TestPgStore_GetUsageForPeriod_IncludesRecordedComputeCosts(t *testing.T) {
 	assertRecordedComputeUsage(t, dailyRecords, p.ID, 2_500_000)
 }
 
+func TestPgStore_RecordUsageCost_DedupesLedgerAndUsage(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-cost-ledger-" + newID()
+	p := createProject(t, ctx, q, orgID, "P")
+	day := time.Date(2026, 3, 16, 0, 0, 0, 0, time.UTC)
+	now := day.Add(10 * time.Hour)
+	rec := &billing.UsageRecord{
+		ID:               newID(),
+		OrgID:            orgID,
+		ProjectID:        p.ID,
+		PeriodDate:       day,
+		RunsCount:        1,
+		ComputeCostMicro: 20,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}
+
+	recorded, err := pgStore.RecordUsageCost(ctx, rec, "strait:cost_recorded:run-ledger-1", "http")
+	if err != nil {
+		t.Fatalf("RecordUsageCost first call error = %v", err)
+	}
+	if !recorded {
+		t.Fatal("RecordUsageCost first call recorded = false, want true")
+	}
+
+	recorded, err = pgStore.RecordUsageCost(ctx, rec, "strait:cost_recorded:run-ledger-1", "http")
+	if err != nil {
+		t.Fatalf("RecordUsageCost duplicate call error = %v", err)
+	}
+	if recorded {
+		t.Fatal("RecordUsageCost duplicate call recorded = true, want false")
+	}
+
+	var runs, compute int64
+	if err := testDB.Pool.QueryRow(ctx,
+		"SELECT runs_count, compute_cost_microusd FROM usage_records WHERE org_id = $1 AND project_id = $2 AND period_date = $3",
+		orgID, p.ID, day,
+	).Scan(&runs, &compute); err != nil {
+		t.Fatalf("query usage_records: %v", err)
+	}
+	if runs != 1 || compute != 20 {
+		t.Fatalf("usage aggregate = runs %d compute %d, want runs 1 compute 20", runs, compute)
+	}
+
+	var events int
+	if err := testDB.Pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM billing_cost_events WHERE idempotency_key = $1",
+		"strait:cost_recorded:run-ledger-1",
+	).Scan(&events); err != nil {
+		t.Fatalf("query billing_cost_events: %v", err)
+	}
+	if events != 1 {
+		t.Fatalf("billing_cost_events count = %d, want 1", events)
+	}
+}
+
+func TestPgStore_ReconcileFlatUsageCosts_RepairsMissingLedgerAndUsage(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-cost-reconcile-" + newID()
+	p := createProject(t, ctx, q, orgID, "P")
+	job := createJob(t, ctx, q, p.ID)
+	finishedAt := time.Now().UTC()
+	run := createRun(t, ctx, q, job, domain.StatusCompleted)
+	if _, err := testDB.Pool.Exec(ctx,
+		"UPDATE job_runs SET finished_at = $1, execution_mode = $2 WHERE id = $3",
+		finishedAt, domain.ExecutionModeHTTP, run.ID,
+	); err != nil {
+		t.Fatalf("set completed run fields: %v", err)
+	}
+
+	statusCode := 200
+	delivery := &domain.WebhookDelivery{
+		ID:             newID(),
+		RunID:          run.ID,
+		JobID:          job.ID,
+		WebhookURL:     "https://example.com/callback",
+		Status:         domain.WebhookStatusDelivered,
+		Attempts:       1,
+		MaxAttempts:    3,
+		LastStatusCode: &statusCode,
+		DeliveredAt:    &finishedAt,
+	}
+	if err := q.CreateWebhookDelivery(ctx, delivery); err != nil {
+		t.Fatalf("CreateWebhookDelivery error = %v", err)
+	}
+
+	day := time.Date(finishedAt.Year(), finishedAt.Month(), finishedAt.Day(), 0, 0, 0, 0, time.UTC)
+	if err := pgStore.ReconcileFlatUsageCosts(ctx, orgID, day); err != nil {
+		t.Fatalf("ReconcileFlatUsageCosts error = %v", err)
+	}
+	if err := pgStore.ReconcileFlatUsageCosts(ctx, orgID, day); err != nil {
+		t.Fatalf("ReconcileFlatUsageCosts duplicate error = %v", err)
+	}
+
+	var eventCount int
+	if err := testDB.Pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM billing_cost_events WHERE org_id = $1",
+		orgID,
+	).Scan(&eventCount); err != nil {
+		t.Fatalf("count billing_cost_events: %v", err)
+	}
+	if eventCount != 2 {
+		t.Fatalf("billing_cost_events count = %d, want 2", eventCount)
+	}
+
+	var runs, compute int64
+	if err := testDB.Pool.QueryRow(ctx,
+		"SELECT runs_count, compute_cost_microusd FROM usage_records WHERE org_id = $1 AND project_id = $2 AND period_date = $3",
+		orgID, p.ID, day,
+	).Scan(&runs, &compute); err != nil {
+		t.Fatalf("query reconciled usage_records: %v", err)
+	}
+	if runs != 2 || compute != billing.HTTPCostPerRunMicrousd+billing.WebhookDeliveryCostPerRunMicrousd {
+		t.Fatalf("reconciled usage = runs %d compute %d, want runs 2 compute %d",
+			runs, compute, billing.HTTPCostPerRunMicrousd+billing.WebhookDeliveryCostPerRunMicrousd)
+	}
+}
+
 func assertRecordedComputeUsage(t *testing.T, records []billing.UsageRecord, projectID string, want int64) {
 	t.Helper()
 	for _, rec := range records {
