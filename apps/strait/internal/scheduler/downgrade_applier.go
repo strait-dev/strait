@@ -117,6 +117,10 @@ func (d *DowngradeApplier) applyLocked(ctx context.Context) error {
 			continue
 		}
 
+		if d.enforcer != nil {
+			d.enforcer.InvalidateOrgCache(sub.OrgID)
+		}
+
 		if err := d.enforceDowngradeLimits(ctx, sub.OrgID, *sub.PendingPlanTier); err != nil {
 			slog.Warn("failed to enforce pending downgrade limits after tier transition",
 				"org_id", sub.OrgID,

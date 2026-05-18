@@ -2,12 +2,14 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"testing"
 	"time"
 
 	"strait/internal/billing"
+	"strait/internal/domain"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
@@ -151,7 +153,9 @@ func newTestEnforcer(t *testing.T) *billing.Enforcer {
 }
 
 // mockEnforcerStore satisfies billing.Store for the enforcer.
-type mockEnforcerStore struct{}
+type mockEnforcerStore struct {
+	subscriptions map[string]*billing.OrgSubscription
+}
 
 func (m *mockEnforcerStore) UpdateEntitlements(context.Context, string, billing.OrgPlanLimits) error {
 	return nil
@@ -160,7 +164,13 @@ func (m *mockEnforcerStore) TryMarkBillingCapEvent(context.Context, string, bill
 	return false, nil
 }
 func (m *mockEnforcerStore) EnsureOrgSubscription(_ context.Context, _ string) error { return nil }
-func (m *mockEnforcerStore) GetOrgSubscription(_ context.Context, _ string) (*billing.OrgSubscription, error) {
+func (m *mockEnforcerStore) GetOrgSubscription(_ context.Context, orgID string) (*billing.OrgSubscription, error) {
+	if m.subscriptions != nil {
+		if sub, ok := m.subscriptions[orgID]; ok {
+			cp := *sub
+			return &cp, nil
+		}
+	}
 	return nil, billing.ErrSubscriptionNotFound
 }
 func (m *mockEnforcerStore) GetOrgSubscriptionByStripeCustomerID(context.Context, string) (*billing.OrgSubscription, error) {
@@ -457,6 +467,63 @@ func TestDowngradeApplier_RetainsPendingTierWhenLimitEnforcementFails(t *testing
 	}
 	if len(store.clearedOrgIDs) != 0 {
 		t.Fatalf("pending tier should stay set for retry after enforcement failure, cleared=%v operations=%v", store.clearedOrgIDs, store.operations)
+	}
+}
+
+func TestDowngradeApplier_InvalidatesOrgCacheAfterTierTransitionBeforeCleanup(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	free := string(domain.PlanFree)
+	orgID := "org-cache-downgrade"
+	pastEnd := time.Now().Add(-1 * time.Hour)
+	enforcerStore := &mockEnforcerStore{
+		subscriptions: map[string]*billing.OrgSubscription{
+			orgID: {OrgID: orgID, PlanTier: string(domain.PlanPro), Status: "active"},
+		},
+	}
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { rdb.Close() })
+	enforcer := billing.NewEnforcer(enforcerStore, rdb, slog.Default())
+
+	primed, err := enforcer.GetOrgPlanLimits(ctx, orgID)
+	if err != nil {
+		t.Fatalf("prime plan limits: %v", err)
+	}
+	if primed.PlanTier != domain.PlanPro {
+		t.Fatalf("primed plan tier = %s, want %s", primed.PlanTier, domain.PlanPro)
+	}
+
+	store := &mockDowngradeStore{
+		pendingOrgs: []billing.OrgSubscription{
+			{OrgID: orgID, PlanTier: string(domain.PlanPro), PendingPlanTier: &free, CurrentPeriodEnd: &pastEnd},
+		},
+		cronErr: fmt.Errorf("cleanup failed after tier transition"),
+		applyIfTierFn: func(_ context.Context, gotOrgID, pendingTier string) (bool, error) {
+			if gotOrgID != orgID || pendingTier != free {
+				t.Fatalf("conditional apply got org=%q tier=%q", gotOrgID, pendingTier)
+			}
+			enforcerStore.subscriptions[orgID] = &billing.OrgSubscription{OrgID: orgID, PlanTier: free, Status: "active"}
+			sub := enforcerStore.subscriptions[orgID]
+			entitlements := billing.GetPlanLimits(domain.PlanFree)
+			sub.Entitlements, _ = json.Marshal(entitlements)
+			return true, nil
+		},
+	}
+
+	applier := NewDowngradeApplier(store, enforcer, time.Minute)
+	applier.apply(ctx)
+
+	if len(store.clearedOrgIDs) != 0 {
+		t.Fatalf("cleanup failure should retain pending tier for retry, cleared=%v", store.clearedOrgIDs)
+	}
+	after, err := enforcer.GetOrgPlanLimits(ctx, orgID)
+	if err != nil {
+		t.Fatalf("plan limits after failed cleanup: %v", err)
+	}
+	if after.PlanTier != domain.PlanFree {
+		t.Fatalf("plan tier after failed cleanup = %s, want %s", after.PlanTier, domain.PlanFree)
 	}
 }
 
