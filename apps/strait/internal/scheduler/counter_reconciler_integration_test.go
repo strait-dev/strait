@@ -185,6 +185,27 @@ func TestCounterReconciler_TransactionalReconcileRepairsActiveAndDLQDrift(t *tes
 	}
 }
 
+func TestCounterReconciler_DoesNotTakeJobRunsTableLock(t *testing.T) {
+	tdb, _, _, _ := setupReconciler(t)
+	ctx := context.Background()
+
+	writerTx, err := tdb.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin writer transaction: %v", err)
+	}
+	defer writerTx.Rollback(ctx) //nolint:errcheck
+	if _, err := writerTx.Exec(ctx, `LOCK TABLE job_runs IN ROW EXCLUSIVE MODE`); err != nil {
+		t.Fatalf("hold writer table lock: %v", err)
+	}
+
+	runCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	r := scheduler.NewCounterReconciler(tdb.Pool, scheduler.CounterReconcilerConfig{})
+	if err := r.RunOnceForTest(runCtx); err != nil {
+		t.Fatalf("reconcile while writer holds job_runs lock: %v", err)
+	}
+}
+
 func TestCounterReconciler_InducedDrift_DLQCounts(t *testing.T) {
 	tdb, _, _, job := setupReconciler(t)
 	ctx := context.Background()

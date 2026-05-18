@@ -135,15 +135,6 @@ func (r *CounterReconciler) reconcileLocked(ctx context.Context) error {
 				_ = tx.Rollback(ctx)
 			}
 		}()
-		for _, stmt := range []string{
-			`LOCK TABLE job_runs IN SHARE ROW EXCLUSIVE MODE`,
-			`LOCK TABLE job_active_counts IN SHARE ROW EXCLUSIVE MODE`,
-			`LOCK TABLE dlq_counts IN SHARE ROW EXCLUSIVE MODE`,
-		} {
-			if _, err := tx.Exec(ctx, stmt); err != nil {
-				return fmt.Errorf("counter reconciler lock tables: %w", err)
-			}
-		}
 		txReconciler := &CounterReconciler{
 			db:      tx,
 			metrics: r.metrics,
@@ -203,7 +194,8 @@ corrections AS (
     SELECT COALESCE(t.job_id, c.job_id)                     AS job_id,
            COALESCE(t.concurrency_key, c.concurrency_key)   AS concurrency_key,
            COALESCE(t.count, 0)                             AS truth_count,
-           COALESCE(c.count, 0)                             AS current_count
+           COALESCE(c.count, 0)                             AS current_count,
+           c.job_id IS NOT NULL                             AS has_current
     FROM truth t
     FULL OUTER JOIN current c
       ON c.job_id = t.job_id AND c.concurrency_key = t.concurrency_key
@@ -212,24 +204,22 @@ corrections AS (
 drift_total AS (
     SELECT COALESCE(SUM(ABS(truth_count - current_count)), 0)::bigint AS delta FROM corrections
 ),
-apply AS (
-    INSERT INTO job_active_counts (job_id, concurrency_key, count, updated_at)
-    SELECT job_id, concurrency_key, truth_count, NOW() FROM corrections
-    ON CONFLICT (job_id, concurrency_key)
-    DO UPDATE SET count = EXCLUDED.count, updated_at = NOW()
+update_existing AS (
+    UPDATE job_active_counts ac
+    SET count = c.truth_count, updated_at = NOW()
+    FROM corrections c
+    WHERE c.has_current
+      AND ac.job_id = c.job_id
+      AND ac.concurrency_key = c.concurrency_key
+      AND ac.count = c.current_count
     RETURNING 1
 ),
--- Safety net: zero counter rows that have no matching truth rows.
--- Technically redundant with the apply CTE (FULL OUTER JOIN already
--- produces truth_count=0 for these rows), but kept as defense-in-depth
--- against CTE execution-order edge cases.
-zeroed AS (
-    UPDATE job_active_counts ac
-    SET count = 0, updated_at = NOW()
-    WHERE NOT EXISTS (
-        SELECT 1 FROM truth t
-        WHERE t.job_id = ac.job_id AND t.concurrency_key = ac.concurrency_key
-    ) AND ac.count <> 0
+insert_missing AS (
+    INSERT INTO job_active_counts (job_id, concurrency_key, count, updated_at)
+    SELECT job_id, concurrency_key, truth_count, NOW()
+    FROM corrections
+    WHERE NOT has_current AND truth_count > 0
+    ON CONFLICT (job_id, concurrency_key) DO NOTHING
     RETURNING 1
 )
 SELECT delta FROM drift_total
@@ -257,7 +247,8 @@ corrections AS (
     SELECT COALESCE(t.project_id, c.project_id) AS project_id,
            COALESCE(t.job_id, c.job_id)         AS job_id,
            COALESCE(t.count, 0)                 AS truth_count,
-           COALESCE(c.count, 0)                 AS current_count
+           COALESCE(c.count, 0)                 AS current_count,
+           c.project_id IS NOT NULL             AS has_current
     FROM truth t
     FULL OUTER JOIN current c
       ON c.project_id = t.project_id AND c.job_id = t.job_id
@@ -266,24 +257,22 @@ corrections AS (
 drift_total AS (
     SELECT COALESCE(SUM(ABS(truth_count - current_count)), 0)::bigint AS delta FROM corrections
 ),
-apply AS (
-    INSERT INTO dlq_counts (project_id, job_id, count, updated_at)
-    SELECT project_id, job_id, truth_count, NOW() FROM corrections
-    ON CONFLICT (project_id, job_id)
-    DO UPDATE SET count = EXCLUDED.count, updated_at = NOW()
+update_existing AS (
+    UPDATE dlq_counts dc
+    SET count = c.truth_count, updated_at = NOW()
+    FROM corrections c
+    WHERE c.has_current
+      AND dc.project_id = c.project_id
+      AND dc.job_id = c.job_id
+      AND dc.count = c.current_count
     RETURNING 1
 ),
--- Safety net: zero counter rows that have no matching truth rows.
--- Technically redundant with the apply CTE (FULL OUTER JOIN already
--- produces truth_count=0 for these rows), but kept as defense-in-depth
--- against CTE execution-order edge cases.
-zeroed AS (
-    UPDATE dlq_counts dc
-    SET count = 0, updated_at = NOW()
-    WHERE NOT EXISTS (
-        SELECT 1 FROM truth t
-        WHERE t.project_id = dc.project_id AND t.job_id = dc.job_id
-    ) AND dc.count <> 0
+insert_missing AS (
+    INSERT INTO dlq_counts (project_id, job_id, count, updated_at)
+    SELECT project_id, job_id, truth_count, NOW()
+    FROM corrections
+    WHERE NOT has_current AND truth_count > 0
+    ON CONFLICT (project_id, job_id) DO NOTHING
     RETURNING 1
 )
 SELECT delta FROM drift_total
