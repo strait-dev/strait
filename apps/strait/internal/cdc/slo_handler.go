@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"slices"
 	"time"
 
 	"strait/internal/domain"
@@ -97,12 +96,18 @@ func (h *SLOHandler) Handle(ctx context.Context, msg Message) error {
 }
 
 func sloCurrentValue(status domain.RunStatus) float64 {
-	if slices.Contains([]domain.RunStatus{
-		domain.StatusFailed,
+	switch status {
+	case domain.StatusCompleted:
+		return 1.0
+	case domain.StatusFailed,
 		domain.StatusTimedOut,
+		domain.StatusCrashed,
+		domain.StatusSystemFailed,
 		domain.StatusCanceled,
-	}, status) {
+		domain.StatusExpired,
+		domain.StatusDeadLetter:
+		return 0.0
+	default:
 		return 0.0
 	}
-	return 1.0
 }

@@ -211,3 +211,45 @@ func TestSLOHandler_CanceledStatus(t *testing.T) {
 		t.Errorf("expected current_value=0.0 for canceled, got %f", store.evaluations[0].CurrentValue)
 	}
 }
+
+func TestDeepSecSLOHandler_TerminalFailureStatesEvaluateAsFailures(t *testing.T) {
+	t.Parallel()
+
+	for _, status := range []domain.RunStatus{
+		domain.StatusFailed,
+		domain.StatusTimedOut,
+		domain.StatusCrashed,
+		domain.StatusSystemFailed,
+		domain.StatusCanceled,
+		domain.StatusExpired,
+		domain.StatusDeadLetter,
+	} {
+		t.Run(string(status), func(t *testing.T) {
+			t.Parallel()
+			store := &mockSLOStore{
+				slos: []domain.JobSLOStatus{
+					{JobSLO: domain.JobSLO{ID: "slo-1", JobID: "job-1"}},
+				},
+			}
+			h := NewSLOHandler(store, nil)
+
+			err := h.Handle(context.Background(), cdcUpdateMsg(string(status), "p1", "run-1", "job-1"))
+			if err != nil {
+				t.Fatalf("Handle error = %v", err)
+			}
+			if len(store.evaluations) != 1 {
+				t.Fatalf("evaluations = %d, want 1", len(store.evaluations))
+			}
+			if store.evaluations[0].CurrentValue != 0.0 {
+				t.Fatalf("status %s current value = %f, want 0.0", status, store.evaluations[0].CurrentValue)
+			}
+		})
+	}
+}
+
+func TestDeepSecSLOCurrentValue_FailsClosedForUnknownStatus(t *testing.T) {
+	t.Parallel()
+	if got := sloCurrentValue(domain.RunStatus("future_terminal")); got != 0.0 {
+		t.Fatalf("unknown status current value = %f, want 0.0", got)
+	}
+}
