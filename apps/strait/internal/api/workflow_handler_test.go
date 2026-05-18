@@ -3271,8 +3271,8 @@ func TestHandleCloneWorkflow(t *testing.T) {
 				if wf.Slug != "custom-slug" {
 					t.Fatalf("expected slug 'custom-slug', got %q", wf.Slug)
 				}
-				if wf.ProjectID != "proj-2" {
-					t.Fatalf("expected project proj-2, got %s", wf.ProjectID)
+				if wf.ProjectID != "proj-1" {
+					t.Fatalf("expected project proj-1, got %s", wf.ProjectID)
 				}
 				return nil
 			},
@@ -3286,11 +3286,37 @@ func TestHandleCloneWorkflow(t *testing.T) {
 
 		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
 		w := httptest.NewRecorder()
-		body := `{"name":"Custom Name","slug":"custom-slug","project_id":"proj-2"}`
+		body := `{"name":"Custom Name","slug":"custom-slug","project_id":"proj-1"}`
 		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows/wf-1/clone", body))
 
 		if w.Code != http.StatusCreated {
 			t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("rejects cross-project target", func(t *testing.T) {
+		t.Parallel()
+		ms := &APIStoreMock{
+			GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: id, ProjectID: "proj-1", Name: "Original", Slug: "original", Enabled: true}, nil
+			},
+			ListStepsByWorkflowFunc: func(_ context.Context, _ string) ([]domain.WorkflowStep, error) {
+				t.Fatal("ListStepsByWorkflow must not run for cross-project clone target")
+				return nil, nil
+			},
+			CreateWorkflowFunc: func(_ context.Context, _ *domain.Workflow) error {
+				t.Fatal("CreateWorkflow must not run for cross-project clone target")
+				return nil
+			},
+		}
+
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		body := `{"name":"Custom Name","slug":"custom-slug","project_id":"proj-2"}`
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows/wf-1/clone", body))
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
 		}
 	})
 

@@ -1214,8 +1214,8 @@ func (s *Server) handleCloneWorkflow(ctx context.Context, input *CloneWorkflowIn
 		newSlug = req.Slug
 	}
 	projectID := sourceWf.ProjectID
-	if req.ProjectID != "" {
-		projectID = req.ProjectID
+	if req.ProjectID != "" && req.ProjectID != sourceWf.ProjectID {
+		return nil, huma.Error404NotFound("workflow not found")
 	}
 
 	newWf := &domain.Workflow{
