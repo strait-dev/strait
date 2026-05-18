@@ -158,6 +158,7 @@ func (q *Queries) EvictStaleWorkersExcept(ctx context.Context, cutoff time.Time,
 		`UPDATE workers
 		 SET status = 'offline'
 		 WHERE last_seen_at < $1
+		   AND (stream_lease_expires_at IS NULL OR stream_lease_expires_at < NOW())
 		   AND status != 'offline'
 		   AND NOT (id = ANY($2::text[]))`,
 		cutoff, activeWorkerIDs,
@@ -195,6 +196,7 @@ func (q *Queries) RecoverStaleWorkerTasksExcept(ctx context.Context, cutoff time
 				SELECT id, project_id
 				FROM workers
 				WHERE last_seen_at < $1
+				  AND (stream_lease_expires_at IS NULL OR stream_lease_expires_at < NOW())
 				  AND NOT (id = ANY($3::text[]))
 			),
 			open_tasks AS (
@@ -235,6 +237,28 @@ func (q *Queries) RecoverStaleWorkerTasksExcept(ctx context.Context, cutoff time
 	}
 
 	return affected, nil
+}
+
+// RenewWorkerStreamLease records an authoritative cross-replica lease for an
+// active worker stream. Stale recovery must not requeue tasks while this lease
+// remains valid, even if last_seen_at has fallen behind.
+func (q *Queries) RenewWorkerStreamLease(ctx context.Context, workerID, projectID string, expiresAt time.Time) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.RenewWorkerStreamLease")
+	defer span.End()
+
+	_, err := q.db.Exec(ctx,
+		`UPDATE workers
+		 SET stream_lease_expires_at = $1
+		 WHERE id = $2
+		   AND project_id = $3`,
+		expiresAt,
+		workerID,
+		projectID,
+	)
+	if err != nil {
+		return fmt.Errorf("renew worker stream lease: %w", err)
+	}
+	return nil
 }
 
 // DeleteStaleOfflineWorkers removes old offline worker rows once they have no

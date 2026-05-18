@@ -692,7 +692,7 @@ func (s *workerService) cleanupRegistration(projectID, workerID string, token ui
 func (s *workerService) handleWorkerMessage(ctx context.Context, workerID, projectID, orgID, workerConnectionReservationID string, msg *workerv1.WorkerMessage) error {
 	switch p := msg.Payload.(type) {
 	case *workerv1.WorkerMessage_Heartbeat:
-		return s.handleHeartbeat(ctx, workerID, orgID, workerConnectionReservationID, p.Heartbeat)
+		return s.handleHeartbeat(ctx, workerID, projectID, orgID, workerConnectionReservationID, p.Heartbeat)
 	case *workerv1.WorkerMessage_TaskResult:
 		return s.handleTaskResult(ctx, workerID, projectID, p.TaskResult)
 	case *workerv1.WorkerMessage_LogLine:
@@ -733,9 +733,13 @@ func (s *workerService) handleAck(ctx context.Context, workerID, projectID strin
 // without changing observability — the dbSync row already carries the same
 // timestamp. The slot hint in hb is informational; the server is
 // authoritative on slot accounting via Increment/DecrementSlots.
-func (s *workerService) handleHeartbeat(ctx context.Context, workerID, orgID, workerConnectionReservationID string, hb *workerv1.Heartbeat) error {
+func (s *workerService) handleHeartbeat(ctx context.Context, workerID, projectID, orgID, workerConnectionReservationID string, hb *workerv1.Heartbeat) error {
 	if hb == nil {
 		return nil
+	}
+	if err := s.queries.RenewWorkerStreamLease(ctx, workerID, projectID, time.Now().Add(s.workerConnectionLease())); err != nil {
+		slog.Warn("grpc heartbeat: failed to renew worker stream lease",
+			"worker_id", workerID, "project_id", projectID, "error", err)
 	}
 	if reserver, ok := s.billingEnforcer.(workerConnectionReservationEnforcer); ok && orgID != "" && workerConnectionReservationID != "" {
 		if err := reserver.RenewWorkerConnection(ctx, orgID, workerConnectionReservationID, s.workerConnectionLease()); err != nil {
@@ -1336,6 +1340,14 @@ func (s *workerService) dbUpsertWorker(ctx context.Context, cw *ConnectedWorker)
 	if err := s.queries.RegisterWorker(ctx, dw); err != nil {
 		slog.Warn("grpc: immediate db upsert on registration failed",
 			"worker_id", cw.WorkerID,
+			"error", err,
+		)
+		return
+	}
+	if err := s.queries.RenewWorkerStreamLease(ctx, cw.WorkerID, cw.ProjectID, time.Now().Add(s.workerConnectionLease())); err != nil {
+		slog.Warn("grpc: initial worker stream lease failed",
+			"worker_id", cw.WorkerID,
+			"project_id", cw.ProjectID,
 			"error", err,
 		)
 	}

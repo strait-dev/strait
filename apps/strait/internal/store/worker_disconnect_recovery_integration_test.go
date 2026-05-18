@@ -356,6 +356,80 @@ func TestIntegration_DeepSecRecoverStaleWorkerTasksExcept_SkipsConnectedWorker(t
 	}
 }
 
+func TestIntegration_DeepSecRecoverStaleWorkerTasks_SkipsFutureStreamLease(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	projectID := "proj-stale-leased-recovery"
+	workerID := "worker-stale-but-leased"
+	if err := q.CreateProject(ctx, &domain.Project{ID: projectID, OrgID: "org-stale-leased", Name: "stale leased recovery"}); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: &projectID})
+	if err := q.RegisterWorker(ctx, &domain.Worker{
+		ID:        workerID,
+		ProjectID: projectID,
+		QueueName: "default",
+		Hostname:  "host",
+		Version:   "1.0",
+		Status:    domain.WorkerStatusActive,
+	}); err != nil {
+		t.Fatalf("RegisterWorker: %v", err)
+	}
+	if _, err := env.DB.Pool.Exec(ctx, `UPDATE workers SET last_seen_at = NOW() - INTERVAL '1 hour' WHERE id = $1`, workerID); err != nil {
+		t.Fatalf("age worker: %v", err)
+	}
+	if err := q.RenewWorkerStreamLease(ctx, workerID, projectID, time.Now().Add(5*time.Minute)); err != nil {
+		t.Fatalf("RenewWorkerStreamLease: %v", err)
+	}
+
+	executing := domain.StatusExecuting
+	run := testutil.BuildRun(job, &testutil.RunOpts{ID: new("run-stale-leased-recovery"), Status: &executing})
+	run.ExecutionMode = domain.ExecutionModeWorker
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	if err := q.CreateWorkerTask(ctx, &domain.WorkerTask{
+		ID:        "task-stale-leased-recovery",
+		WorkerID:  workerID,
+		RunID:     run.ID,
+		ProjectID: projectID,
+		Status:    domain.WorkerTaskStatusAssigned,
+	}); err != nil {
+		t.Fatalf("CreateWorkerTask: %v", err)
+	}
+
+	count, err := q.RecoverStaleWorkerTasks(ctx, time.Now().Add(-5*time.Minute), "stale worker heartbeat")
+	if err != nil {
+		t.Fatalf("RecoverStaleWorkerTasks: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("RecoverStaleWorkerTasks count = %d, want 0 while stream lease is valid", count)
+	}
+	evicted, err := q.EvictStaleWorkers(ctx, time.Now().Add(-5*time.Minute))
+	if err != nil {
+		t.Fatalf("EvictStaleWorkers: %v", err)
+	}
+	if evicted != 0 {
+		t.Fatalf("EvictStaleWorkers evicted = %d, want 0 while stream lease is valid", evicted)
+	}
+	task, err := q.GetWorkerTask(ctx, "task-stale-leased-recovery")
+	if err != nil {
+		t.Fatalf("GetWorkerTask: %v", err)
+	}
+	if task.Status != domain.WorkerTaskStatusAssigned {
+		t.Fatalf("worker task status = %q, want assigned", task.Status)
+	}
+}
+
 func TestIntegration_DeepSecDeleteStaleOfflineWorkers_DoesNotReserveIDsForever(t *testing.T) {
 	ctx := context.Background()
 	env, err := testutil.SetupTestEnv(ctx, "../../migrations")
