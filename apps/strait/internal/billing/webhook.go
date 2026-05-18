@@ -864,6 +864,9 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data jso
 			if upsertErr := h.store.UpsertOrgSubscription(ctx, orgSub); upsertErr != nil {
 				return upsertErr
 			}
+			if _, reconcileErr := ReconcileActiveAddonsForPlan(ctx, h.store, orgID, GetPlanLimits(tier)); reconcileErr != nil {
+				return fmt.Errorf("reconciling add-ons after subscription fallback create: %w", reconcileErr)
+			}
 			if h.enforcer != nil {
 				h.enforcer.InvalidateOrgCache(orgID)
 			}
@@ -883,6 +886,9 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data jso
 
 	if h.enforcer != nil {
 		h.enforcer.InvalidateOrgCache(orgID)
+	}
+	if _, err := ReconcileActiveAddonsForPlan(ctx, h.store, orgID, GetPlanLimits(tier)); err != nil {
+		return fmt.Errorf("reconciling add-ons after subscription update: %w", err)
 	}
 
 	// Auto-unpause HTTP jobs that were paused due to a previous plan downgrade.
@@ -1357,6 +1363,9 @@ func (h *WebhookHandler) handleSubscriptionResumed(ctx context.Context, data jso
 	}
 	if err := h.store.UpdatePaymentStatus(ctx, orgID, "ok", nil); err != nil && !errors.Is(err, ErrSubscriptionNotFound) {
 		return fmt.Errorf("clearing payment restriction on subscription resume: %w", err)
+	}
+	if _, err := ReconcileActiveAddonsForPlan(ctx, h.store, orgID, GetPlanLimits(tier)); err != nil {
+		return fmt.Errorf("reconciling add-ons after subscription resume: %w", err)
 	}
 
 	if h.enforcer != nil {

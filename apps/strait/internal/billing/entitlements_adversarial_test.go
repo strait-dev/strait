@@ -1,6 +1,7 @@
 package billing
 
 import (
+	"context"
 	"math/rand"
 	"reflect"
 	"testing"
@@ -62,6 +63,38 @@ func TestComputeEntitlements_ActiveAddonsAreClampedToPlanPackCap(t *testing.T) {
 	want := base.MaxConcurrentRuns + cap*AddonPacks[AddonConcurrency100].PackSize
 	if got.MaxConcurrentRuns != want {
 		t.Fatalf("clamped concurrency = %d, want %d", got.MaxConcurrentRuns, want)
+	}
+}
+
+func TestReconcileActiveAddonsForPlan_DeactivatesDisallowedAndOverCapRows(t *testing.T) {
+	t.Parallel()
+
+	base := GetPlanLimits(domain.PlanStarter)
+	cap := base.MaxAddonPacks[AddonConcurrency100]
+	store := &mockBillingStore{
+		activeAddons: []Addon{
+			{ID: "keep-1", OrgID: "org-addons", AddonType: AddonConcurrency100, Quantity: cap, Active: true},
+			{ID: "over-cap", OrgID: "org-addons", AddonType: AddonConcurrency100, Quantity: 1, Active: true},
+			{ID: "disallowed", OrgID: "org-addons", AddonType: AddonDedicatedWorkers, Quantity: 1, Active: true},
+		},
+	}
+
+	deactivated, err := ReconcileActiveAddonsForPlan(context.Background(), store, "org-addons", base)
+	if err != nil {
+		t.Fatalf("ReconcileActiveAddonsForPlan: %v", err)
+	}
+	if deactivated != 2 {
+		t.Fatalf("deactivated = %d, want 2", deactivated)
+	}
+	got := map[string]bool{}
+	for _, id := range store.deactivatedAddonIDs {
+		got[id] = true
+	}
+	if got["keep-1"] {
+		t.Fatal("within-cap addon should not be deactivated")
+	}
+	if !got["over-cap"] || !got["disallowed"] {
+		t.Fatalf("deactivated ids = %v, want over-cap and disallowed", store.deactivatedAddonIDs)
 	}
 }
 

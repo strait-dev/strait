@@ -75,6 +75,7 @@ type mockBillingStore struct {
 	activeAddons               []Addon
 	listActiveAddonsErr        error
 	lastAddonCreated           *Addon
+	deactivatedAddonIDs        []string
 	httpJobCount               int
 	getProjectBudgetFn         func(ctx context.Context, projectID string) (int64, string, error)
 	getProjectPeriodSpendFn    func(ctx context.Context, projectID string, periodStart time.Time) (int64, error)
@@ -462,7 +463,13 @@ func (m *mockBillingStore) CreateAddon(_ context.Context, addon *Addon) error {
 	return nil
 }
 
-func (m *mockBillingStore) DeactivateAddon(_ context.Context, _ string) error {
+func (m *mockBillingStore) DeactivateAddon(_ context.Context, id string) error {
+	m.deactivatedAddonIDs = append(m.deactivatedAddonIDs, id)
+	for i := range m.activeAddons {
+		if m.activeAddons[i].ID == id {
+			m.activeAddons[i].Active = false
+		}
+	}
 	return nil
 }
 

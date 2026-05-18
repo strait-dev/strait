@@ -1,6 +1,10 @@
 package billing
 
-import "time"
+import (
+	"context"
+	"fmt"
+	"time"
+)
 
 // AddonType identifies an add-on product.
 type AddonType string
@@ -191,4 +195,33 @@ func allowedAddonQuantity(base OrgPlanLimits, addon Addon, applied map[AddonType
 		}
 	}
 	return quantity
+}
+
+// ReconcileActiveAddonsForPlan deactivates active add-on rows that are no
+// longer allowed by the supplied base plan limits or that exceed the plan's
+// pack cap. Call this after immediate plan changes so stale paid add-ons do
+// not remain authoritative in future entitlement refreshes.
+func ReconcileActiveAddonsForPlan(ctx context.Context, store Store, orgID string, limits OrgPlanLimits) (int, error) {
+	if store == nil || orgID == "" {
+		return 0, nil
+	}
+	addons, err := store.ListActiveAddons(ctx, orgID)
+	if err != nil {
+		return 0, fmt.Errorf("list active addons for reconcile: %w", err)
+	}
+
+	applied := make(map[AddonType]int, len(addons))
+	deactivated := 0
+	for _, addon := range addons {
+		quantity := allowedAddonQuantity(limits, addon, applied)
+		if quantity <= 0 || quantity < addon.Quantity {
+			if err := store.DeactivateAddon(ctx, addon.ID); err != nil {
+				return deactivated, fmt.Errorf("deactivate disallowed addon %s: %w", addon.ID, err)
+			}
+			deactivated++
+			continue
+		}
+		applied[addon.AddonType] += quantity
+	}
+	return deactivated, nil
 }
