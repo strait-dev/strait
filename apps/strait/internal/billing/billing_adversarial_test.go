@@ -13,6 +13,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -2280,6 +2281,51 @@ func TestUsageService_GetProjectBudget(t *testing.T) {
 	// Default mock returns -1, "notify".
 	if resp.MonthlyBudgetMicro != -1 {
 		t.Errorf("expected budget -1, got %d", resp.MonthlyBudgetMicro)
+	}
+}
+
+func TestUsageService_GetSpendingLimit_ReturnsSpendAggregationError(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-spend-error": {
+				OrgID:                 "org-spend-error",
+				PlanTier:              string(domain.PlanPro),
+				Status:                "active",
+				SpendingLimitMicrousd: 10_000_000,
+				LimitAction:           "reject",
+			},
+		},
+		sumSpendErr: errors.New("spend aggregation unavailable"),
+	}
+	svc := NewUsageService(store, NewEnforcer(store, nil, slog.Default()))
+
+	_, err := svc.GetSpendingLimit(context.Background(), "org-spend-error")
+	if err == nil {
+		t.Fatal("expected spend aggregation error")
+	}
+	if !strings.Contains(err.Error(), "summing org period spend") {
+		t.Fatalf("error = %v, want spend aggregation context", err)
+	}
+}
+
+func TestUsageService_GetUsageForecast_ReturnsPlanLimitError(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		getOrgSubscriptionFn: func(context.Context, string) (*OrgSubscription, error) {
+			return nil, errors.New("plan lookup unavailable")
+		},
+	}
+	svc := NewUsageService(store, NewEnforcer(store, nil, slog.Default()))
+
+	_, err := svc.GetUsageForecast(context.Background(), "org-forecast-error")
+	if err == nil {
+		t.Fatal("expected plan lookup error")
+	}
+	if !strings.Contains(err.Error(), "getting org plan limits for forecast") {
+		t.Fatalf("error = %v, want plan-limit context", err)
 	}
 }
 
