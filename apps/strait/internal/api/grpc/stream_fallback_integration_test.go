@@ -85,6 +85,15 @@ func seedRunWithTask(t *testing.T, ctx context.Context, q *store.Queries, env *t
 	return projectID, workerID, runID, taskID
 }
 
+func assignedTaskResult(runID, taskID, status string) *workerv1.TaskResult {
+	return &workerv1.TaskResult{
+		RunId:        runID,
+		Status:       status,
+		AssignmentId: taskID,
+		Attempt:      1,
+	}
+}
+
 // fallbackService builds a workerService wired to a real DB / no-op pub for
 // fallback-path tests. resultChannels is intentionally nil so every
 // TaskResult lands on the fallback branch.
@@ -162,7 +171,8 @@ func TestIntegration_HandleTaskResult_Fallback_SuccessUpdatesWorkerTask(t *testi
 
 	svc := fallbackService(q)
 
-	tr := &workerv1.TaskResult{RunId: runID, Status: "success", OutputJson: []byte(`{"worker":"result"}`)}
+	tr := assignedTaskResult(runID, taskID, "success")
+	tr.OutputJson = []byte(`{"worker":"result"}`)
 	if err := svc.handleTaskResult(ctx, workerID, projectID, tr); err != nil {
 		t.Fatalf("handleTaskResult: %v", err)
 	}
@@ -210,7 +220,8 @@ func TestIntegration_HandleTaskResult_Fallback_DoesNotCompleteTaskWhenRunUpdateF
 	}
 
 	svc := fallbackService(q)
-	tr := &workerv1.TaskResult{RunId: runID, Status: "success", OutputJson: []byte(`{"worker":"late"}`)}
+	tr := assignedTaskResult(runID, taskID, "success")
+	tr.OutputJson = []byte(`{"worker":"late"}`)
 	if err := svc.handleTaskResult(ctx, workerID, projectID, tr); err != nil {
 		t.Fatalf("handleTaskResult: %v", err)
 	}
@@ -240,7 +251,8 @@ func TestIntegration_HandleTaskResult_Fallback_UsesRunFinalizerForSuccess(t *tes
 	finalizer := &recordingRunFinalizer{}
 	svc := fallbackServiceWithFinalizer(q, finalizer)
 
-	tr := &workerv1.TaskResult{RunId: runID, Status: "success", OutputJson: []byte(`{"worker":"result"}`)}
+	tr := assignedTaskResult(runID, taskID, "success")
+	tr.OutputJson = []byte(`{"worker":"result"}`)
 	if err := svc.handleTaskResult(ctx, workerID, projectID, tr); err != nil {
 		t.Fatalf("handleTaskResult: %v", err)
 	}
@@ -284,7 +296,8 @@ func TestIntegration_HandleTaskResult_Fallback_InvalidSuccessOutputRoutesFailure
 	finalizer := &recordingRunFinalizer{}
 	svc := fallbackServiceWithFinalizer(q, finalizer)
 
-	tr := &workerv1.TaskResult{RunId: runID, Status: "success", OutputJson: []byte(`{"worker":`)}
+	tr := assignedTaskResult(runID, taskID, "success")
+	tr.OutputJson = []byte(`{"worker":`)
 	if err := svc.handleTaskResult(ctx, workerID, projectID, tr); err != nil {
 		t.Fatalf("handleTaskResult: %v", err)
 	}
@@ -320,7 +333,7 @@ func TestIntegration_HandleTaskResult_Fallback_FinalizerErrorLeavesTaskOpen(t *t
 	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
 	svc := fallbackServiceWithFinalizer(q, &recordingRunFinalizer{err: errors.New("finalizer failed")})
 
-	tr := &workerv1.TaskResult{RunId: runID, Status: "success"}
+	tr := assignedTaskResult(runID, taskID, "success")
 	if err := svc.handleTaskResult(ctx, workerID, projectID, tr); err != nil {
 		t.Fatalf("handleTaskResult: %v", err)
 	}
@@ -388,7 +401,8 @@ func TestIntegration_HandleTaskResult_Fallback_FailedUpdatesWorkerTask(t *testin
 	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
 	svc := fallbackService(q)
 
-	tr := &workerv1.TaskResult{RunId: runID, Status: "failed", ErrorMessage: "boom"}
+	tr := assignedTaskResult(runID, taskID, "failed")
+	tr.ErrorMessage = "boom"
 	if err := svc.handleTaskResult(ctx, workerID, projectID, tr); err != nil {
 		t.Fatalf("handleTaskResult: %v", err)
 	}
@@ -422,7 +436,7 @@ func TestIntegration_HandleTaskResult_Fallback_ProjectMismatchRejects(t *testing
 
 	// Use the WRONG project ID — simulates a stream authenticated to project B
 	// trying to mark a run that belongs to project A.
-	tr := &workerv1.TaskResult{RunId: runID, Status: "success"}
+	tr := assignedTaskResult(runID, taskID, "success")
 	if err := svc.handleTaskResult(ctx, workerID, "proj-impostor", tr); err != nil {
 		t.Fatalf("handleTaskResult unexpectedly errored: %v", err)
 	}
@@ -468,7 +482,7 @@ func TestIntegration_HandleTaskResult_Fallback_OwnershipMismatchRejects(t *testi
 		t.Fatalf("RegisterWorker other: %v", err)
 	}
 
-	tr := &workerv1.TaskResult{RunId: runID, Status: "success"}
+	tr := assignedTaskResult(runID, taskID, "success")
 	if err := svc.handleTaskResult(ctx, otherWorker, projectID, tr); err != nil {
 		t.Fatalf("handleTaskResult: %v", err)
 	}
@@ -506,7 +520,7 @@ func TestIntegration_HandleTaskResult_Fallback_ClosedAssignmentRejects(t *testin
 		t.Fatalf("UpdateWorkerTaskStatus: %v", err)
 	}
 
-	tr := &workerv1.TaskResult{RunId: runID, Status: "success"}
+	tr := assignedTaskResult(runID, taskID, "success")
 	if err := svc.handleTaskResult(ctx, workerID, projectID, tr); err != nil {
 		t.Fatalf("handleTaskResult: %v", err)
 	}
@@ -546,7 +560,7 @@ func TestIntegration_HandleTaskResult_Fallback_IdempotentOnRepeat(t *testing.T) 
 	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
 	svc := fallbackService(q)
 
-	tr := &workerv1.TaskResult{RunId: runID, Status: "success"}
+	tr := assignedTaskResult(runID, taskID, "success")
 	if err := svc.handleTaskResult(ctx, workerID, projectID, tr); err != nil {
 		t.Fatalf("handleTaskResult #1: %v", err)
 	}

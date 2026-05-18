@@ -452,6 +452,8 @@ type TaskAssignment struct {
 	HmacSignature string                 `protobuf:"bytes,7,opt,name=hmac_signature,json=hmacSignature,proto3" json:"hmac_signature,omitempty"`
 	HmacTimestamp string                 `protobuf:"bytes,8,opt,name=hmac_timestamp,json=hmacTimestamp,proto3" json:"hmac_timestamp,omitempty"`
 	Metadata      map[string]string      `protobuf:"bytes,9,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	AssignmentId  string                 `protobuf:"bytes,10,opt,name=assignment_id,json=assignmentId,proto3" json:"assignment_id,omitempty"`
+	Attempt       int32                  `protobuf:"varint,11,opt,name=attempt,proto3" json:"attempt,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -549,6 +551,20 @@ func (x *TaskAssignment) GetMetadata() map[string]string {
 	return nil
 }
 
+func (x *TaskAssignment) GetAssignmentId() string {
+	if x != nil {
+		return x.AssignmentId
+	}
+	return ""
+}
+
+func (x *TaskAssignment) GetAttempt() int32 {
+	if x != nil {
+		return x.Attempt
+	}
+	return 0
+}
+
 type TaskResult struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
@@ -556,6 +572,8 @@ type TaskResult struct {
 	OutputJson    []byte                 `protobuf:"bytes,3,opt,name=output_json,json=outputJson,proto3" json:"output_json,omitempty"`
 	ErrorMessage  string                 `protobuf:"bytes,4,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
 	DurationMs    int64                  `protobuf:"varint,5,opt,name=duration_ms,json=durationMs,proto3" json:"duration_ms,omitempty"`
+	AssignmentId  string                 `protobuf:"bytes,6,opt,name=assignment_id,json=assignmentId,proto3" json:"assignment_id,omitempty"`
+	Attempt       int32                  `protobuf:"varint,7,opt,name=attempt,proto3" json:"attempt,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -621,6 +639,20 @@ func (x *TaskResult) GetErrorMessage() string {
 func (x *TaskResult) GetDurationMs() int64 {
 	if x != nil {
 		return x.DurationMs
+	}
+	return 0
+}
+
+func (x *TaskResult) GetAssignmentId() string {
+	if x != nil {
+		return x.AssignmentId
+	}
+	return ""
+}
+
+func (x *TaskResult) GetAttempt() int32 {
+	if x != nil {
+		return x.Attempt
 	}
 	return 0
 }
@@ -883,7 +915,7 @@ const file_worker_v1_worker_proto_rawDesc = "" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12#\n" +
 	"\rerror_message\x18\x03 \x01(\tR\ferrorMessage\x12\x1f\n" +
 	"\voutput_json\x18\x04 \x01(\fR\n" +
-	"outputJson\"\x99\x03\n" +
+	"outputJson\"\xd8\x03\n" +
 	"\x0eTaskAssignment\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x19\n" +
 	"\bjob_slug\x18\x02 \x01(\tR\ajobSlug\x12\x14\n" +
@@ -893,10 +925,13 @@ const file_worker_v1_worker_proto_rawDesc = "" +
 	"\rrun_token_jwt\x18\x06 \x01(\tR\vrunTokenJwt\x12%\n" +
 	"\x0ehmac_signature\x18\a \x01(\tR\rhmacSignature\x12%\n" +
 	"\x0ehmac_timestamp\x18\b \x01(\tR\rhmacTimestamp\x12J\n" +
-	"\bmetadata\x18\t \x03(\v2..strait.worker.v1.TaskAssignment.MetadataEntryR\bmetadata\x1a;\n" +
+	"\bmetadata\x18\t \x03(\v2..strait.worker.v1.TaskAssignment.MetadataEntryR\bmetadata\x12#\n" +
+	"\rassignment_id\x18\n" +
+	" \x01(\tR\fassignmentId\x12\x18\n" +
+	"\aattempt\x18\v \x01(\x05R\aattempt\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa2\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xe1\x01\n" +
 	"\n" +
 	"TaskResult\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x16\n" +
@@ -905,7 +940,9 @@ const file_worker_v1_worker_proto_rawDesc = "" +
 	"outputJson\x12#\n" +
 	"\rerror_message\x18\x04 \x01(\tR\ferrorMessage\x12\x1f\n" +
 	"\vduration_ms\x18\x05 \x01(\x03R\n" +
-	"durationMs\"[\n" +
+	"durationMs\x12#\n" +
+	"\rassignment_id\x18\x06 \x01(\tR\fassignmentId\x12\x18\n" +
+	"\aattempt\x18\a \x01(\x05R\aattempt\"[\n" +
 	"\tHeartbeat\x12'\n" +
 	"\x0fslots_available\x18\x01 \x01(\x05R\x0eslotsAvailable\x12%\n" +
 	"\x0etimestamp_unix\x18\x02 \x01(\x03R\rtimestampUnix\"|\n" +

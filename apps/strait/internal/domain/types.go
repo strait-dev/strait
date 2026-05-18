@@ -1493,12 +1493,24 @@ const (
 
 // WorkerTask represents a job run assigned to a specific worker.
 type WorkerTask struct {
-	ID         string           `json:"id"`
-	WorkerID   string           `json:"worker_id"`
-	RunID      string           `json:"run_id"`
-	ProjectID  string           `json:"project_id"`
-	Status     WorkerTaskStatus `json:"status"`
-	AssignedAt time.Time        `json:"assigned_at"`
-	AcceptedAt *time.Time       `json:"accepted_at,omitempty"`
-	FinishedAt *time.Time       `json:"finished_at,omitempty"`
+	ID         string            `json:"id"`
+	WorkerID   string            `json:"worker_id"`
+	RunID      string            `json:"run_id"`
+	ProjectID  string            `json:"project_id"`
+	Attempt    int               `json:"attempt"`
+	Status     WorkerTaskStatus  `json:"status"`
+	AssignedAt time.Time         `json:"assigned_at"`
+	AcceptedAt *time.Time        `json:"accepted_at,omitempty"`
+	FinishedAt *time.Time        `json:"finished_at,omitempty"`
+	Result     *WorkerTaskResult `json:"result,omitempty"`
+}
+
+// WorkerTaskResult is the durable TaskResult payload accepted from the worker
+// stream before executor finalization commits terminal run state.
+type WorkerTaskResult struct {
+	Status     string          `json:"status"`
+	Output     json.RawMessage `json:"output,omitempty"`
+	Error      string          `json:"error,omitempty"`
+	DurationMS int64           `json:"duration_ms,omitempty"`
+	ReceivedAt *time.Time      `json:"received_at,omitempty"`
 }

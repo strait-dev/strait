@@ -63,7 +63,7 @@ func TestIntegration_Fallback_DoesNotOverCreditSlots(t *testing.T) {
 	}
 
 	q := store.New(env.DB.Pool)
-	projectID, workerID, runID, _ := seedRunWithTask(t, ctx, q, env)
+	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
 
 	reg := NewConnectionRegistry()
 	const slots = int32(4)
@@ -75,7 +75,7 @@ func TestIntegration_Fallback_DoesNotOverCreditSlots(t *testing.T) {
 
 	svc := fallbackServiceWithRegistry(q, reg)
 
-	tr := &workerv1.TaskResult{RunId: runID, Status: "success"}
+	tr := assignedTaskResult(runID, taskID, "success")
 	if err := svc.handleTaskResult(ctx, workerID, projectID, tr); err != nil {
 		t.Fatalf("handleTaskResult: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestIntegration_Fallback_RepeatedLateResultsStaySlot(t *testing.T) {
 	}
 
 	q := store.New(env.DB.Pool)
-	projectID, workerID, runID, _ := seedRunWithTask(t, ctx, q, env)
+	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
 
 	reg := NewConnectionRegistry()
 	const slots = int32(2)
@@ -123,7 +123,7 @@ func TestIntegration_Fallback_RepeatedLateResultsStaySlot(t *testing.T) {
 	reg.DecrementSlots(workerID)
 
 	svc := fallbackServiceWithRegistry(q, reg)
-	tr := &workerv1.TaskResult{RunId: runID, Status: "success"}
+	tr := assignedTaskResult(runID, taskID, "success")
 
 	for i := range 3 {
 		if err := svc.handleTaskResult(ctx, workerID, projectID, tr); err != nil {

@@ -27,9 +27,9 @@ func (fakeDispatchSecretDecryptor) Decrypt(ciphertext []byte) ([]byte, error) {
 // TestResultChannelRegistry_SendAndReceive verifies basic send/receive semantics.
 func TestResultChannelRegistry_SendAndReceive(t *testing.T) {
 	r := NewResultChannelRegistry()
-	ch := r.Register("run-1", "proj-1", "worker-1")
+	ch := r.Register("run-1", "proj-1", "worker-1", "task-1", 1)
 
-	result := &workerv1.TaskResult{RunId: "run-1", Status: "success"}
+	result := &workerv1.TaskResult{RunId: "run-1", Status: "success", AssignmentId: "task-1", Attempt: 1}
 	if !r.Send("run-1", "proj-1", "worker-1", result) {
 		t.Fatal("expected Send to return true")
 	}
@@ -58,9 +58,9 @@ func TestResultChannelRegistry_SendToUnknownRun(t *testing.T) {
 // be able to deliver a TaskResult for a run owned by project B.
 func TestResultChannelRegistry_RejectCrossProject(t *testing.T) {
 	r := NewResultChannelRegistry()
-	ch := r.Register("victim-run", "proj-victim", "worker-victim")
+	ch := r.Register("victim-run", "proj-victim", "worker-victim", "victim-task", 1)
 
-	forged := &workerv1.TaskResult{RunId: "victim-run", Status: "success"}
+	forged := &workerv1.TaskResult{RunId: "victim-run", Status: "success", AssignmentId: "victim-task", Attempt: 1}
 	if r.Send("victim-run", "proj-attacker", "worker-attacker", forged) {
 		t.Fatal("Send must reject TaskResult from a non-owning project")
 	}
@@ -81,9 +81,9 @@ func TestResultChannelRegistry_RejectCrossProject(t *testing.T) {
 
 func TestResultChannelRegistry_RejectSameProjectDifferentWorker(t *testing.T) {
 	r := NewResultChannelRegistry()
-	ch := r.Register("victim-run", "proj-1", "worker-owner")
+	ch := r.Register("victim-run", "proj-1", "worker-owner", "victim-task", 1)
 
-	forged := &workerv1.TaskResult{RunId: "victim-run", Status: "success"}
+	forged := &workerv1.TaskResult{RunId: "victim-run", Status: "success", AssignmentId: "victim-task", Attempt: 1}
 	if r.Send("victim-run", "proj-1", "worker-peer", forged) {
 		t.Fatal("Send must reject TaskResult from a different worker in the same project")
 	}
@@ -101,13 +101,58 @@ func TestResultChannelRegistry_RejectSameProjectDifferentWorker(t *testing.T) {
 	}
 }
 
+func TestResultChannelRegistry_RejectStaleAssignmentIdentity(t *testing.T) {
+	t.Parallel()
+
+	r := NewResultChannelRegistry()
+	ch := r.Register("run-1", "proj-1", "worker-1", "current-task", 2)
+
+	cases := []struct {
+		name   string
+		result *workerv1.TaskResult
+	}{
+		{
+			name:   "missing assignment",
+			result: &workerv1.TaskResult{RunId: "run-1", Status: "success", Attempt: 2},
+		},
+		{
+			name:   "wrong assignment",
+			result: &workerv1.TaskResult{RunId: "run-1", Status: "success", AssignmentId: "old-task", Attempt: 2},
+		},
+		{
+			name:   "wrong attempt",
+			result: &workerv1.TaskResult{RunId: "run-1", Status: "success", AssignmentId: "current-task", Attempt: 1},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if r.Send("run-1", "proj-1", "worker-1", tc.result) {
+				t.Fatal("stale or incomplete assignment identity must be rejected")
+			}
+		})
+	}
+
+	current := &workerv1.TaskResult{RunId: "run-1", Status: "success", AssignmentId: "current-task", Attempt: 2}
+	if !r.Send("run-1", "proj-1", "worker-1", current) {
+		t.Fatal("exact assignment identity should be accepted")
+	}
+	select {
+	case got := <-ch:
+		if got != current {
+			t.Fatal("expected exact assignment result")
+		}
+	default:
+		t.Fatal("expected exact assignment result in channel")
+	}
+}
+
 // TestResultChannelRegistry_DeduplicateSend verifies that a second send to a full channel is dropped.
 func TestResultChannelRegistry_DeduplicateSend(t *testing.T) {
 	r := NewResultChannelRegistry()
-	_ = r.Register("run-1", "proj-1", "worker-1") // buffered cap 1
+	_ = r.Register("run-1", "proj-1", "worker-1", "task-1", 1) // buffered cap 1
 
-	r1 := &workerv1.TaskResult{RunId: "run-1", Status: "success"}
-	r2 := &workerv1.TaskResult{RunId: "run-1", Status: "failed"}
+	r1 := &workerv1.TaskResult{RunId: "run-1", Status: "success", AssignmentId: "task-1", Attempt: 1}
+	r2 := &workerv1.TaskResult{RunId: "run-1", Status: "failed", AssignmentId: "task-1", Attempt: 1}
 
 	first := r.Send("run-1", "proj-1", "worker-1", r1)
 	second := r.Send("run-1", "proj-1", "worker-1", r2) // channel full, should be dropped
@@ -124,16 +169,16 @@ func TestDeepSecResultChannelRegistry_RejectsDuplicateRegister(t *testing.T) {
 	t.Parallel()
 
 	r := NewResultChannelRegistry()
-	first, ok := r.TryRegister("run-dup", "proj-1", "worker-1")
+	first, ok := r.TryRegister("run-dup", "proj-1", "worker-1", "task-1", 1)
 	if !ok || first == nil {
 		t.Fatal("first TryRegister should succeed")
 	}
-	second, ok := r.TryRegister("run-dup", "proj-1", "worker-2")
+	second, ok := r.TryRegister("run-dup", "proj-1", "worker-2", "task-2", 1)
 	if ok || second != nil {
 		t.Fatalf("duplicate TryRegister = (%v, %v), want nil,false", second, ok)
 	}
 
-	result := &workerv1.TaskResult{RunId: "run-dup", Status: "success"}
+	result := &workerv1.TaskResult{RunId: "run-dup", Status: "success", AssignmentId: "task-1", Attempt: 1}
 	if r.Send("run-dup", "proj-1", "worker-2", result) {
 		t.Fatal("duplicate worker must not receive overwritten ownership")
 	}
@@ -145,11 +190,11 @@ func TestDeepSecResultChannelRegistry_RejectsDuplicateRegister(t *testing.T) {
 // TestResultChannelRegistry_Deregister verifies cleanup after dispatch completes.
 func TestResultChannelRegistry_Deregister(t *testing.T) {
 	r := NewResultChannelRegistry()
-	_ = r.Register("run-1", "proj-1", "worker-1")
+	_ = r.Register("run-1", "proj-1", "worker-1", "task-1", 1)
 	r.Deregister("run-1")
 
 	// After deregister, Send must return false.
-	result := &workerv1.TaskResult{RunId: "run-1", Status: "success"}
+	result := &workerv1.TaskResult{RunId: "run-1", Status: "success", AssignmentId: "task-1", Attempt: 1}
 	if r.Send("run-1", "proj-1", "worker-1", result) {
 		t.Error("expected Send to return false after Deregister")
 	}
@@ -192,6 +237,12 @@ func TestBuildAssignment_RunTokenIncludesAttemptAndAssignment(t *testing.T) {
 	}
 	if assignment.RunTokenJwt == "" {
 		t.Fatal("expected run token")
+	}
+	if assignment.AssignmentId != "task-1" {
+		t.Fatalf("assignment_id = %q, want task-1", assignment.AssignmentId)
+	}
+	if assignment.Attempt != 3 {
+		t.Fatalf("assignment attempt = %d, want 3", assignment.Attempt)
 	}
 
 	claims := struct {
@@ -472,7 +523,7 @@ func TestWorkerDispatch_ContextCancelWhileWaiting(t *testing.T) {
 	resultChannels := NewResultChannelRegistry()
 
 	// Pre-register a result channel so WorkerDispatch waits on it.
-	resultChannels.Register("run-3", "test-project", "w1")
+	resultChannels.Register("run-3", "test-project", "w1", "task-3", 1)
 
 	d := &WorkerDispatcher{
 		registry:       registry,

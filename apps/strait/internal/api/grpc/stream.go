@@ -763,6 +763,13 @@ func (s *workerService) handleTaskResult(ctx context.Context, workerID, projectI
 			"worker_id", workerID, "run_id_len", len(tr.RunId))
 		return nil
 	}
+	if tr.AssignmentId == "" || tr.Attempt <= 0 {
+		slog.Warn("grpc task result: missing assignment identity - rejecting",
+			"worker_id", workerID,
+			"run_id", tr.RunId,
+		)
+		return nil
+	}
 	// Cap error message so a worker can't bloat DB rows or page logs.
 	if len(tr.ErrorMessage) > maxErrorMsgBytes {
 		tr.ErrorMessage = tr.ErrorMessage[:maxErrorMsgBytes]
@@ -784,7 +791,18 @@ func (s *workerService) handleTaskResult(ctx context.Context, workerID, projectI
 	// project's dispatch goroutine: Send drops the message on project mismatch.
 	if s.resultChannels != nil {
 		sent, sendErr := s.resultChannels.SendAfterHandoff(tr.RunId, projectID, workerID, tr, func() (bool, error) {
-			return s.queries.MarkOpenWorkerTaskResultReceivedByRunID(ctx, workerID, projectID, tr.RunId)
+			return s.queries.MarkWorkerTaskResultReceivedByAssignment(
+				ctx,
+				tr.AssignmentId,
+				workerID,
+				projectID,
+				tr.RunId,
+				int(tr.Attempt),
+				tr.Status,
+				tr.ErrorMessage,
+				copyJSONBytes(tr.OutputJson),
+				tr.DurationMs,
+			)
 		})
 		if sendErr != nil {
 			slog.Warn("grpc task result: result handoff failed",
@@ -822,7 +840,7 @@ func (s *workerService) handleTaskResult(ctx context.Context, workerID, projectI
 	// worker. This mirrors handleLogLine so a worker cannot mark runs it was
 	// never assigned. The row also gives us the task ID needed to drive the
 	// worker_tasks transition below.
-	taskRow, taskErr := s.queries.GetOpenWorkerTaskByRunID(ctx, workerID, projectID, tr.RunId)
+	taskRow, taskErr := s.queries.GetOpenWorkerTaskByAssignment(ctx, tr.AssignmentId, workerID, projectID, tr.RunId, int(tr.Attempt))
 	if taskErr != nil {
 		slog.Warn("grpc task result fallback: ownership lookup failed",
 			"worker_id", workerID, "run_id", tr.RunId, "error", taskErr)

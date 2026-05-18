@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -243,11 +244,14 @@ func (q *Queries) DeleteStaleOfflineWorkers(ctx context.Context, cutoff time.Tim
 func (q *Queries) CreateWorkerTask(ctx context.Context, t *domain.WorkerTask) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateWorkerTask")
 	defer span.End()
+	if t.Attempt <= 0 {
+		t.Attempt = 1
+	}
 
 	_, err := q.db.Exec(ctx,
-		`INSERT INTO worker_tasks (id, worker_id, run_id, project_id, status, assigned_at)
-		 VALUES ($1, $2, $3, $4, $5, NOW())`,
-		t.ID, t.WorkerID, t.RunID, t.ProjectID, string(t.Status),
+		`INSERT INTO worker_tasks (id, worker_id, run_id, project_id, attempt, status, assigned_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+		t.ID, t.WorkerID, t.RunID, t.ProjectID, t.Attempt, string(t.Status),
 	)
 	if err != nil {
 		return fmt.Errorf("create worker task: %w", err)
@@ -299,6 +303,64 @@ func (q *Queries) MarkWorkerTaskResultReceived(ctx context.Context, taskID strin
 	return tag.RowsAffected() == 1, nil
 }
 
+// MarkWorkerTaskResultReceivedByAssignment durably records a worker result for
+// one exact assignment before the in-memory dispatch waiter is notified.
+func (q *Queries) MarkWorkerTaskResultReceivedByAssignment(
+	ctx context.Context,
+	taskID string,
+	workerID string,
+	projectID string,
+	runID string,
+	attempt int,
+	status string,
+	errorMessage string,
+	output []byte,
+	durationMS int64,
+) (bool, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.MarkWorkerTaskResultReceivedByAssignment")
+	defer span.End()
+
+	if attempt <= 0 {
+		return false, nil
+	}
+	var outputJSON any
+	if len(output) > 0 {
+		if json.Valid(output) {
+			outputJSON = json.RawMessage(output)
+		}
+	}
+
+	tag, err := q.db.Exec(ctx,
+		`UPDATE worker_tasks
+		 SET status = $1,
+		     result_status = $2,
+		     result_error = NULLIF($3, ''),
+		     result_output = $4,
+		     result_duration_ms = $5,
+		     result_received_at = NOW()
+		 WHERE id = $6
+		   AND worker_id = $7
+		   AND project_id = $8
+		   AND run_id = $9
+		   AND attempt = $10
+		   AND status IN ('assigned', 'accepted')`,
+		string(domain.WorkerTaskStatusResultReceived),
+		status,
+		errorMessage,
+		outputJSON,
+		durationMS,
+		taskID,
+		workerID,
+		projectID,
+		runID,
+		attempt,
+	)
+	if err != nil {
+		return false, fmt.Errorf("mark worker task result received by assignment: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
 // MarkOpenWorkerTaskResultReceivedByRunID closes the latest open assignment
 // for a worker/run pair to disconnect requeue as soon as its TaskResult reaches
 // the API stream boundary.
@@ -335,13 +397,55 @@ func (q *Queries) GetWorkerTask(ctx context.Context, taskID string) (*domain.Wor
 
 	var t domain.WorkerTask
 	var status string
+	var resultStatus, resultError *string
+	var resultOutput []byte
+	var resultDurationMS *int64
+	var resultReceivedAt *time.Time
 	err := q.db.QueryRow(ctx,
-		`SELECT id, worker_id, run_id, project_id, status, assigned_at, accepted_at, finished_at
+		`SELECT id, worker_id, run_id, project_id, attempt, status, assigned_at, accepted_at, finished_at,
+		        result_status, result_output, result_error, result_duration_ms, result_received_at
 		 FROM worker_tasks WHERE id = $1`,
 		taskID,
-	).Scan(&t.ID, &t.WorkerID, &t.RunID, &t.ProjectID, &status, &t.AssignedAt, &t.AcceptedAt, &t.FinishedAt)
+	).Scan(
+		&t.ID, &t.WorkerID, &t.RunID, &t.ProjectID, &t.Attempt, &status, &t.AssignedAt, &t.AcceptedAt, &t.FinishedAt,
+		&resultStatus, &resultOutput, &resultError, &resultDurationMS, &resultReceivedAt,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("get worker task: %w", err)
+	}
+	t.Status = domain.WorkerTaskStatus(status)
+	t.Result = buildWorkerTaskResult(resultStatus, resultOutput, resultError, resultDurationMS, resultReceivedAt)
+	return &t, nil
+}
+
+// GetOpenWorkerTaskByAssignment fetches the active task row that exactly
+// matches a worker result's assignment identity.
+func (q *Queries) GetOpenWorkerTaskByAssignment(ctx context.Context, taskID, workerID, projectID, runID string, attempt int) (*domain.WorkerTask, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetOpenWorkerTaskByAssignment")
+	defer span.End()
+
+	if attempt <= 0 {
+		return nil, nil //nolint:nilnil // nil signals "not found"
+	}
+	var t domain.WorkerTask
+	var status string
+	err := q.db.QueryRow(ctx,
+		`SELECT id, worker_id, run_id, project_id, attempt, status, assigned_at, accepted_at, finished_at
+		 FROM worker_tasks
+		 WHERE id = $1
+		   AND worker_id = $2
+		   AND project_id = $3
+		   AND run_id = $4
+		   AND attempt = $5
+		   AND status IN ('assigned', 'accepted')
+		 LIMIT 1`,
+		taskID, workerID, projectID, runID, attempt,
+	).Scan(&t.ID, &t.WorkerID, &t.RunID, &t.ProjectID, &t.Attempt, &status, &t.AssignedAt, &t.AcceptedAt, &t.FinishedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil //nolint:nilnil // nil signals "not found"
+		}
+		return nil, fmt.Errorf("get open worker task by assignment: %w", err)
 	}
 	t.Status = domain.WorkerTaskStatus(status)
 	return &t, nil
@@ -358,7 +462,7 @@ func (q *Queries) GetOpenWorkerTaskByRunID(ctx context.Context, workerID, projec
 	var t domain.WorkerTask
 	var status string
 	err := q.db.QueryRow(ctx,
-		`SELECT id, worker_id, run_id, project_id, status, assigned_at, accepted_at, finished_at
+		`SELECT id, worker_id, run_id, project_id, attempt, status, assigned_at, accepted_at, finished_at
 		 FROM worker_tasks
 		 WHERE worker_id = $1
 		   AND project_id = $2
@@ -367,7 +471,7 @@ func (q *Queries) GetOpenWorkerTaskByRunID(ctx context.Context, workerID, projec
 		 ORDER BY assigned_at DESC
 		 LIMIT 1`,
 		workerID, projectID, runID,
-	).Scan(&t.ID, &t.WorkerID, &t.RunID, &t.ProjectID, &status, &t.AssignedAt, &t.AcceptedAt, &t.FinishedAt)
+	).Scan(&t.ID, &t.WorkerID, &t.RunID, &t.ProjectID, &t.Attempt, &status, &t.AssignedAt, &t.AcceptedAt, &t.FinishedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil //nolint:nilnil // nil signals "not found"
@@ -388,7 +492,7 @@ func (q *Queries) ListWorkerTasksByWorker(ctx context.Context, workerID, project
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListWorkerTasksByWorker")
 	defer span.End()
 
-	query := `SELECT id, worker_id, run_id, project_id, status, assigned_at, accepted_at, finished_at
+	query := `SELECT id, worker_id, run_id, project_id, attempt, status, assigned_at, accepted_at, finished_at
 	          FROM worker_tasks WHERE worker_id = $1 AND project_id = $2`
 	args := []any{workerID, projectID}
 	param := 3
@@ -412,7 +516,7 @@ func (q *Queries) ListWorkerTasksByWorker(ctx context.Context, workerID, project
 	for rows.Next() {
 		var t domain.WorkerTask
 		var s string
-		if err := rows.Scan(&t.ID, &t.WorkerID, &t.RunID, &t.ProjectID, &s, &t.AssignedAt, &t.AcceptedAt, &t.FinishedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.WorkerID, &t.RunID, &t.ProjectID, &t.Attempt, &s, &t.AssignedAt, &t.AcceptedAt, &t.FinishedAt); err != nil {
 			return nil, fmt.Errorf("list worker tasks scan: %w", err)
 		}
 		t.Status = domain.WorkerTaskStatus(s)
@@ -472,4 +576,24 @@ func (q *Queries) RequeueOpenWorkerTasks(ctx context.Context, workerID, projectI
 	}
 
 	return affected, nil
+}
+
+func buildWorkerTaskResult(status *string, output []byte, errText *string, durationMS *int64, receivedAt *time.Time) *domain.WorkerTaskResult {
+	if status == nil && len(output) == 0 && errText == nil && durationMS == nil && receivedAt == nil {
+		return nil
+	}
+	result := &domain.WorkerTaskResult{ReceivedAt: receivedAt}
+	if status != nil {
+		result.Status = *status
+	}
+	if len(output) > 0 {
+		result.Output = json.RawMessage(append([]byte(nil), output...))
+	}
+	if errText != nil {
+		result.Error = *errText
+	}
+	if durationMS != nil {
+		result.DurationMS = *durationMS
+	}
+	return result
 }
