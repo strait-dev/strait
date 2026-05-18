@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -110,6 +111,64 @@ func TestIntegration_MarkWorkerTaskResultReceivedByAssignment_BindsAndPersistsRe
 	}
 }
 
+func TestIntegration_ClaimRecoverableWorkerTaskResults_ClaimsOnlyOldExecutingHandoffs(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	projectID, workerID, runID, taskID := seedWorkerTaskForBinding(t, ctx, q, 1)
+	marked, err := q.MarkWorkerTaskResultReceivedByAssignment(ctx, taskID, workerID, projectID, runID, 1, "success", "", []byte(`{"ok":true}`), 7)
+	if err != nil {
+		t.Fatalf("MarkWorkerTaskResultReceivedByAssignment: %v", err)
+	}
+	if !marked {
+		t.Fatal("expected exact handoff to be marked")
+	}
+	if _, err := env.DB.Pool.Exec(ctx, `UPDATE worker_tasks SET result_received_at = NOW() - INTERVAL '10 minutes' WHERE id = $1`, taskID); err != nil {
+		t.Fatalf("age result handoff: %v", err)
+	}
+
+	claimed, err := q.ClaimRecoverableWorkerTaskResults(ctx, time.Now().Add(-5*time.Minute), 10)
+	if err != nil {
+		t.Fatalf("ClaimRecoverableWorkerTaskResults: %v", err)
+	}
+	if len(claimed) != 1 {
+		t.Fatalf("claimed = %d, want 1", len(claimed))
+	}
+	if claimed[0].ID != taskID || claimed[0].Status != domain.WorkerTaskStatusFinalizing {
+		t.Fatalf("claimed task = %+v, want finalizing %s", claimed[0], taskID)
+	}
+	if claimed[0].Result == nil || claimed[0].Result.Status != "success" || claimed[0].Result.DurationMS != 7 {
+		t.Fatalf("claimed durable result = %+v, want persisted success result", claimed[0].Result)
+	}
+
+	claimedAgain, err := q.ClaimRecoverableWorkerTaskResults(ctx, time.Now().Add(-5*time.Minute), 10)
+	if err != nil {
+		t.Fatalf("ClaimRecoverableWorkerTaskResults again: %v", err)
+	}
+	if len(claimedAgain) != 0 {
+		t.Fatalf("claimedAgain = %d, want 0 while finalizing claim is held", len(claimedAgain))
+	}
+
+	if err := q.ResetWorkerTaskFinalizingToResultReceived(ctx, taskID); err != nil {
+		t.Fatalf("ResetWorkerTaskFinalizingToResultReceived: %v", err)
+	}
+	task, err := q.GetWorkerTask(ctx, taskID)
+	if err != nil {
+		t.Fatalf("GetWorkerTask: %v", err)
+	}
+	if task.Status != domain.WorkerTaskStatusResultReceived {
+		t.Fatalf("task status after reset = %q, want result_received", task.Status)
+	}
+}
+
 func seedWorkerTaskForBinding(t *testing.T, ctx context.Context, q *store.Queries, attempt int) (projectID, workerID, runID, taskID string) {
 	t.Helper()
 
@@ -126,7 +185,8 @@ func seedWorkerTaskForBinding(t *testing.T, ctx context.Context, q *store.Querie
 		t.Fatalf("CreateProject: %v", err)
 	}
 	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: &projectID})
-	run := testutil.BuildRun(job, &testutil.RunOpts{ID: &runID})
+	executing := domain.StatusExecuting
+	run := testutil.BuildRun(job, &testutil.RunOpts{ID: &runID, Status: &executing})
 	run.Attempt = attempt
 	run.ExecutionMode = domain.ExecutionModeWorker
 	if err := q.CreateRun(ctx, run); err != nil {

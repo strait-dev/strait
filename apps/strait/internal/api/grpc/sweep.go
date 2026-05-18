@@ -14,7 +14,14 @@ const staleOfflineWorkerDeleteAfter = 24 * time.Hour
 // than heartbeatTimeout, indicating the worker disconnected without a clean
 // deregister (e.g. network partition). This loop complements the in-memory
 // Deregister path — it cleans up DB rows that outlive a crashed replica.
-func runSweep(ctx context.Context, registry *ConnectionRegistry, q *store.Queries, heartbeatTimeout, interval time.Duration) {
+func runSweep(
+	ctx context.Context,
+	registry *ConnectionRegistry,
+	q *store.Queries,
+	heartbeatTimeout time.Duration,
+	interval time.Duration,
+	finalizer func() WorkerRunResultFinalizer,
+) {
 	if interval <= 0 {
 		interval = 30 * time.Second
 	}
@@ -30,6 +37,7 @@ func runSweep(ctx context.Context, registry *ConnectionRegistry, q *store.Querie
 			return
 		case <-t.C:
 			cutoff := time.Now().Add(-heartbeatTimeout)
+			recoverDurableResultHandoffs(ctx, q, finalizer, cutoff)
 			connectedIDs := connectedWorkerIDs(registry)
 			recovered, err := q.RecoverStaleWorkerTasksExcept(ctx, cutoff, "worker heartbeat expired before reporting result", connectedIDs)
 			if err != nil {
@@ -56,6 +64,54 @@ func runSweep(ctx context.Context, registry *ConnectionRegistry, q *store.Querie
 			if deleted > 0 {
 				slog.Info("grpc sweep: deleted stale offline workers", "count", deleted)
 			}
+		}
+	}
+}
+
+func recoverDurableResultHandoffs(
+	ctx context.Context,
+	q *store.Queries,
+	finalizer func() WorkerRunResultFinalizer,
+	cutoff time.Time,
+) {
+	if finalizer == nil {
+		return
+	}
+	runFinalizer := finalizer()
+	if runFinalizer == nil {
+		return
+	}
+	tasks, err := q.ClaimRecoverableWorkerTaskResults(ctx, cutoff, 100)
+	if err != nil {
+		slog.Warn("grpc sweep: claim recoverable worker results failed", "error", err)
+		return
+	}
+	for _, task := range tasks {
+		if task.Result == nil {
+			if resetErr := q.ResetWorkerTaskFinalizingToResultReceived(ctx, task.ID); resetErr != nil {
+				slog.Warn("grpc sweep: reset malformed worker result claim failed", "task_id", task.ID, "error", resetErr)
+			}
+			continue
+		}
+		taskStatus, err := runFinalizer.FinalizeWorkerRunResult(ctx, task.RunID, task.Result.Status, task.Result.Error, task.Result.Output)
+		if err != nil {
+			slog.Warn("grpc sweep: finalize recoverable worker result failed",
+				"task_id", task.ID,
+				"run_id", task.RunID,
+				"error", err,
+			)
+			if resetErr := q.ResetWorkerTaskFinalizingToResultReceived(ctx, task.ID); resetErr != nil {
+				slog.Warn("grpc sweep: reset worker result recovery claim failed", "task_id", task.ID, "error", resetErr)
+			}
+			continue
+		}
+		if err := q.UpdateWorkerTaskStatus(ctx, task.ID, taskStatus); err != nil {
+			slog.Warn("grpc sweep: update recovered worker task status failed",
+				"task_id", task.ID,
+				"run_id", task.RunID,
+				"status", taskStatus,
+				"error", err,
+			)
 		}
 	}
 }

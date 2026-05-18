@@ -242,7 +242,7 @@ func (s *Server) Serve(ctx context.Context) error {
 	var bgWG conc.WaitGroup
 	bgWG.Go(func() { runDBSync(ctx, s.registry, s.queries, s.cfg.WorkerDBSyncInterval) })
 	bgWG.Go(func() {
-		runSweep(ctx, s.registry, s.queries, s.cfg.WorkerHeartbeatTimeout, s.cfg.WorkerDisconnectSweepInterval)
+		runSweep(ctx, s.registry, s.queries, s.cfg.WorkerHeartbeatTimeout, s.cfg.WorkerDisconnectSweepInterval, s.runResultFinalizer)
 	})
 
 	var shutdownWG conc.WaitGroup
@@ -268,6 +268,15 @@ func (s *Server) Serve(ctx context.Context) error {
 		return fmt.Errorf("grpc serve: %w", err)
 	}
 	return nil
+}
+
+func (s *Server) runResultFinalizer() WorkerRunResultFinalizer {
+	v := s.runFinalizer.Load()
+	if v == nil {
+		return nil
+	}
+	finalizer, _ := v.(WorkerRunResultFinalizer)
+	return finalizer
 }
 
 // GracefulStop stops the gRPC server gracefully.

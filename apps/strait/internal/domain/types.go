@@ -1487,6 +1487,7 @@ const (
 	WorkerTaskStatusAssigned       WorkerTaskStatus = "assigned"
 	WorkerTaskStatusAccepted       WorkerTaskStatus = "accepted"
 	WorkerTaskStatusResultReceived WorkerTaskStatus = "result_received"
+	WorkerTaskStatusFinalizing     WorkerTaskStatus = "finalizing"
 	WorkerTaskStatusCompleted      WorkerTaskStatus = "completed"
 	WorkerTaskStatusFailed         WorkerTaskStatus = "failed"
 )

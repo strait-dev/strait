@@ -253,7 +253,7 @@ func (q *Queries) DeleteStaleOfflineWorkers(ctx context.Context, cutoff time.Tim
 			FROM worker_tasks wt
 			WHERE wt.worker_id = w.id
 			  AND wt.project_id = w.project_id
-			  AND wt.status IN ('assigned', 'accepted', 'result_received')
+			  AND wt.status IN ('assigned', 'accepted', 'result_received', 'finalizing')
 		   )`,
 		cutoff,
 	)
@@ -382,6 +382,93 @@ func (q *Queries) MarkWorkerTaskResultReceivedByAssignment(
 		return false, fmt.Errorf("mark worker task result received by assignment: %w", err)
 	}
 	return tag.RowsAffected() == 1, nil
+}
+
+// ClaimRecoverableWorkerTaskResults claims durable worker results that reached
+// the stream boundary but were never finalized, usually because the API process
+// crashed after the handoff.
+func (q *Queries) ClaimRecoverableWorkerTaskResults(ctx context.Context, cutoff time.Time, limit int) ([]domain.WorkerTask, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ClaimRecoverableWorkerTaskResults")
+	defer span.End()
+
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := q.db.Query(ctx,
+		`WITH target AS (
+			SELECT wt.id
+			FROM worker_tasks wt
+			JOIN job_runs jr ON jr.id = wt.run_id
+			WHERE wt.status = $1
+			  AND wt.result_status IS NOT NULL
+			  AND wt.result_received_at IS NOT NULL
+			  AND wt.result_received_at < $2
+			  AND jr.status = 'executing'
+			ORDER BY wt.result_received_at ASC
+			LIMIT $3
+			FOR UPDATE SKIP LOCKED
+		)
+		UPDATE worker_tasks wt
+		SET status = $4
+		FROM target
+		WHERE wt.id = target.id
+		RETURNING wt.id, wt.worker_id, wt.run_id, wt.project_id, wt.attempt, wt.status,
+		          wt.assigned_at, wt.accepted_at, wt.finished_at,
+		          wt.result_status, wt.result_output, wt.result_error, wt.result_duration_ms, wt.result_received_at`,
+		string(domain.WorkerTaskStatusResultReceived),
+		cutoff,
+		limit,
+		string(domain.WorkerTaskStatusFinalizing),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("claim recoverable worker task results: %w", err)
+	}
+	defer rows.Close()
+
+	var tasks []domain.WorkerTask
+	for rows.Next() {
+		var task domain.WorkerTask
+		var status string
+		var resultStatus, resultError *string
+		var resultOutput []byte
+		var resultDurationMS *int64
+		var resultReceivedAt *time.Time
+		if err := rows.Scan(
+			&task.ID, &task.WorkerID, &task.RunID, &task.ProjectID, &task.Attempt, &status,
+			&task.AssignedAt, &task.AcceptedAt, &task.FinishedAt,
+			&resultStatus, &resultOutput, &resultError, &resultDurationMS, &resultReceivedAt,
+		); err != nil {
+			return nil, fmt.Errorf("claim recoverable worker task results scan: %w", err)
+		}
+		task.Status = domain.WorkerTaskStatus(status)
+		task.Result = buildWorkerTaskResult(resultStatus, resultOutput, resultError, resultDurationMS, resultReceivedAt)
+		tasks = append(tasks, task)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("claim recoverable worker task results rows: %w", err)
+	}
+	return tasks, nil
+}
+
+// ResetWorkerTaskFinalizingToResultReceived releases a recovery claim after a
+// transient finalizer failure so a later sweep can retry.
+func (q *Queries) ResetWorkerTaskFinalizingToResultReceived(ctx context.Context, taskID string) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ResetWorkerTaskFinalizingToResultReceived")
+	defer span.End()
+
+	_, err := q.db.Exec(ctx,
+		`UPDATE worker_tasks
+		 SET status = $1
+		 WHERE id = $2
+		   AND status = $3`,
+		string(domain.WorkerTaskStatusResultReceived),
+		taskID,
+		string(domain.WorkerTaskStatusFinalizing),
+	)
+	if err != nil {
+		return fmt.Errorf("reset worker task finalizing to result received: %w", err)
+	}
+	return nil
 }
 
 // MarkOpenWorkerTaskResultReceivedByRunID closes the latest open assignment
