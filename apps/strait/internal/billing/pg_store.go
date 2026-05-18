@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"time"
 
+	"strait/internal/domain"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -998,18 +1000,20 @@ func listAllSubscribedOrgIDsSQL() string {
 }
 
 func (s *PgStore) UpdatePaymentStatus(ctx context.Context, orgID string, status string, graceEnd *time.Time) error {
-	tag, err := s.pool.Exec(ctx, `
-		UPDATE organization_subscriptions
-		SET payment_status = $2, grace_period_end = $3, updated_at = NOW()
-		WHERE org_id = $1
-	`, orgID, status, graceEnd)
-	if err != nil {
-		return fmt.Errorf("updating payment status: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrSubscriptionNotFound
-	}
-	return nil
+	return WithBillingTx(ctx, s.pool, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `
+			UPDATE organization_subscriptions
+			SET payment_status = $2, grace_period_end = $3, updated_at = NOW()
+			WHERE org_id = $1
+		`, orgID, status, graceEnd)
+		if err != nil {
+			return fmt.Errorf("updating payment status: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrSubscriptionNotFound
+		}
+		return s.refreshEntitlements(ctx, tx, orgID)
+	})
 }
 
 // RestrictExpiredContractIfCurrent restricts an org only if the contract row
@@ -1042,17 +1046,22 @@ func (s *PgStore) RestrictExpiredGracePeriod(ctx context.Context, orgID string, 
 	if graceEnd == nil {
 		return false, nil
 	}
+	entitlements, err := json.Marshal(GetPlanLimits(domain.PlanFree))
+	if err != nil {
+		return false, fmt.Errorf("marshalling restricted entitlements: %w", err)
+	}
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE organization_subscriptions
 		SET plan_tier = 'free',
 			status = 'restricted',
 			payment_status = 'restricted',
+			entitlements = $3::jsonb,
 			updated_at = NOW()
 		WHERE org_id = $1
 		  AND payment_status = 'grace'
 		  AND grace_period_end = $2
 		  AND grace_period_end < NOW()
-	`, orgID, graceEnd)
+	`, orgID, graceEnd, entitlements)
 	if err != nil {
 		return false, fmt.Errorf("restricting expired grace period: %w", err)
 	}

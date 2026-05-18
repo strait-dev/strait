@@ -206,3 +206,31 @@ func TestAdversarialWriter_RestrictThenResume(t *testing.T) {
 	mustEqualLimits(t, readEntitlements(t, ctx, orgID),
 		billing.GetPlanLimits(domain.PlanPro), "after resume")
 }
+
+func TestAdversarialWriter_PaymentRestrictionRefreshesEntitlements(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgID := "org-payment-restrict-" + newID()
+	if err := pgStore.EnsureOrgSubscription(ctx, orgID); err != nil {
+		t.Fatalf("EnsureOrgSubscription: %v", err)
+	}
+	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgID, string(domain.PlanPro), "active"); err != nil {
+		t.Fatalf("UpdateOrgSubscriptionPlan: %v", err)
+	}
+	mustEqualLimits(t, readEntitlements(t, ctx, orgID),
+		billing.GetPlanLimits(domain.PlanPro), "before payment restriction")
+
+	if err := pgStore.UpdatePaymentStatus(ctx, orgID, "restricted", nil); err != nil {
+		t.Fatalf("UpdatePaymentStatus(restricted): %v", err)
+	}
+	mustEqualLimits(t, readEntitlements(t, ctx, orgID),
+		billing.GetPlanLimits(domain.PlanFree), "restricted payment status")
+
+	if err := pgStore.UpdatePaymentStatus(ctx, orgID, "ok", nil); err != nil {
+		t.Fatalf("UpdatePaymentStatus(ok): %v", err)
+	}
+	mustEqualLimits(t, readEntitlements(t, ctx, orgID),
+		billing.GetPlanLimits(domain.PlanPro), "payment status restored")
+}

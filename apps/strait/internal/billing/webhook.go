@@ -1294,6 +1294,9 @@ func (h *WebhookHandler) handleSubscriptionPaused(ctx context.Context, data json
 		}
 		return fmt.Errorf("pausing subscription: %w", err)
 	}
+	if err := h.store.UpdatePaymentStatus(ctx, orgID, "restricted", nil); err != nil && !errors.Is(err, ErrSubscriptionNotFound) {
+		return fmt.Errorf("restricting paused subscription: %w", err)
+	}
 
 	if h.enforcer != nil {
 		h.enforcer.InvalidateOrgCache(orgID)
@@ -1351,6 +1354,9 @@ func (h *WebhookHandler) handleSubscriptionResumed(ctx context.Context, data jso
 			return nil
 		}
 		return fmt.Errorf("resuming subscription: %w", err)
+	}
+	if err := h.store.UpdatePaymentStatus(ctx, orgID, "ok", nil); err != nil && !errors.Is(err, ErrSubscriptionNotFound) {
+		return fmt.Errorf("clearing payment restriction on subscription resume: %w", err)
 	}
 
 	if h.enforcer != nil {
