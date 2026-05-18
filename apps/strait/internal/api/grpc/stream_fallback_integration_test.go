@@ -354,7 +354,7 @@ func TestIntegration_HandleAck_MarksOpenWorkerTaskAccepted(t *testing.T) {
 			Ack: &workerv1.Acknowledged{Id: runID},
 		},
 	}
-	if err := svc.handleWorkerMessage(ctx, workerID, projectID, msg); err != nil {
+	if err := svc.handleWorkerMessage(ctx, workerID, projectID, "", "", msg); err != nil {
 		t.Fatalf("handleWorkerMessage ack: %v", err)
 	}
 

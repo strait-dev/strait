@@ -51,6 +51,11 @@ type planLimitEnforcer interface {
 	GetActiveProjectOrgID(ctx context.Context, projectID string) (string, error)
 }
 
+type workerConnectionReservationEnforcer interface {
+	ReserveWorkerConnection(ctx context.Context, orgID, reservationID string, lease time.Duration) (func(), error)
+	RenewWorkerConnection(ctx context.Context, orgID, reservationID string, lease time.Duration) error
+}
+
 type ServerOption func(*Server)
 
 func WithAuthLimiter(limiter grpcAuthLimiter) ServerOption {

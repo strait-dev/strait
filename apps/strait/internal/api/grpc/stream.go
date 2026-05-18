@@ -16,6 +16,7 @@ import (
 	"strait/internal/pubsub"
 	"strait/internal/store"
 
+	"github.com/google/uuid"
 	"github.com/sourcegraph/conc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -157,10 +158,12 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 		return err
 	}
 
-	orgID, err := s.checkPlanConnectionLimit(ctx, projectID)
+	workerConnectionReservationID := uuid.Must(uuid.NewV7()).String()
+	orgID, releaseWorkerConnection, err := s.checkPlanConnectionLimit(ctx, projectID, workerConnectionReservationID)
 	if err != nil {
 		return err
 	}
+	defer releaseWorkerConnection()
 
 	// Per-stream typed send channel for outbound ServerMessages.
 	// The dispatcher pushes TaskAssignment / CancelTask messages here; the send
@@ -243,7 +246,7 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	}
 
 	startWorkerSendLoop(ctx, &wg, streamErr, sendCh, stream)
-	s.startWorkerRecvLoop(ctx, &wg, streamErr, stream, reg.WorkerId, projectID)
+	s.startWorkerRecvLoop(ctx, &wg, streamErr, stream, reg.WorkerId, projectID, orgID, workerConnectionReservationID)
 
 	// Wait for the first stream-ending signal. We deregister synchronously so
 	// no new ReserveWorkerForQueue call can hand out our sendCh, but we do not
@@ -351,6 +354,8 @@ func (s *workerService) startWorkerRecvLoop(
 	stream workerv1.WorkerService_StreamTasksServer,
 	workerID string,
 	projectID string,
+	orgID string,
+	workerConnectionReservationID string,
 ) {
 	wg.Go(func() {
 		for {
@@ -359,7 +364,7 @@ func (s *workerService) startWorkerRecvLoop(
 				streamErr <- err
 				return
 			}
-			if err := s.handleWorkerMessage(ctx, workerID, projectID, msg); err != nil {
+			if err := s.handleWorkerMessage(ctx, workerID, projectID, orgID, workerConnectionReservationID, msg); err != nil {
 				slog.Warn("grpc handle worker message error",
 					"worker_id", workerID,
 					"error", err,
@@ -450,24 +455,39 @@ func streamDisconnectReason(err error) string {
 // (which may be empty if no enforcer is wired or the lookup failed) so the
 // caller can attach it to the ConnectedWorker entry. Existing connections
 // are never evicted; this is a connect-time gate only.
-func (s *workerService) checkPlanConnectionLimit(ctx context.Context, projectID string) (string, error) {
+func (s *workerService) checkPlanConnectionLimit(ctx context.Context, projectID, reservationID string) (string, func(), error) {
+	releaseNoop := func() {}
 	if s.billingEnforcer == nil {
-		return "", nil
+		return "", releaseNoop, nil
 	}
 	orgID, orgErr := s.billingEnforcer.GetActiveProjectOrgID(ctx, projectID)
 	if orgErr != nil {
 		slog.Warn("grpc registration: project org lookup failed (fail-open)",
 			"project_id", projectID, "error", orgErr)
-		return "", nil
+		return "", releaseNoop, nil
 	}
 	if orgID == "" {
-		return "", nil
+		return "", releaseNoop, nil
+	}
+	if reserver, ok := s.billingEnforcer.(workerConnectionReservationEnforcer); ok {
+		release, err := reserver.ReserveWorkerConnection(ctx, orgID, reservationID, s.workerConnectionLease())
+		if err != nil {
+			return orgID, releaseNoop, status.Errorf(codes.ResourceExhausted, "%v", err)
+		}
+		return orgID, release, nil
 	}
 	currentActive := s.registry.CountByOrg(orgID)
 	if err := s.billingEnforcer.CheckWorkerConnectionLimit(ctx, orgID, currentActive); err != nil {
-		return orgID, status.Errorf(codes.ResourceExhausted, "%v", err)
+		return orgID, releaseNoop, status.Errorf(codes.ResourceExhausted, "%v", err)
 	}
-	return orgID, nil
+	return orgID, releaseNoop, nil
+}
+
+func (s *workerService) workerConnectionLease() time.Duration {
+	if s.cfg != nil && s.cfg.WorkerHeartbeatTimeout > 0 {
+		return s.cfg.WorkerHeartbeatTimeout * 3
+	}
+	return 90 * time.Second
 }
 
 func (s *workerService) reservePendingWorkerStream(projectID, apiKeyID string) (func(), error) {
@@ -521,10 +541,10 @@ func (s *workerService) cleanupRegistration(projectID, workerID string, token ui
 }
 
 // handleWorkerMessage dispatches an incoming WorkerMessage to the appropriate handler.
-func (s *workerService) handleWorkerMessage(ctx context.Context, workerID, projectID string, msg *workerv1.WorkerMessage) error {
+func (s *workerService) handleWorkerMessage(ctx context.Context, workerID, projectID, orgID, workerConnectionReservationID string, msg *workerv1.WorkerMessage) error {
 	switch p := msg.Payload.(type) {
 	case *workerv1.WorkerMessage_Heartbeat:
-		return s.handleHeartbeat(ctx, workerID, p.Heartbeat)
+		return s.handleHeartbeat(ctx, workerID, orgID, workerConnectionReservationID, p.Heartbeat)
 	case *workerv1.WorkerMessage_TaskResult:
 		return s.handleTaskResult(ctx, workerID, projectID, p.TaskResult)
 	case *workerv1.WorkerMessage_LogLine:
@@ -565,9 +585,15 @@ func (s *workerService) handleAck(ctx context.Context, workerID, projectID strin
 // without changing observability — the dbSync row already carries the same
 // timestamp. The slot hint in hb is informational; the server is
 // authoritative on slot accounting via Increment/DecrementSlots.
-func (s *workerService) handleHeartbeat(_ context.Context, _ string, hb *workerv1.Heartbeat) error {
+func (s *workerService) handleHeartbeat(ctx context.Context, workerID, orgID, workerConnectionReservationID string, hb *workerv1.Heartbeat) error {
 	if hb == nil {
 		return nil
+	}
+	if reserver, ok := s.billingEnforcer.(workerConnectionReservationEnforcer); ok && orgID != "" && workerConnectionReservationID != "" {
+		if err := reserver.RenewWorkerConnection(ctx, orgID, workerConnectionReservationID, s.workerConnectionLease()); err != nil {
+			slog.Warn("grpc heartbeat: failed to renew worker connection reservation",
+				"worker_id", workerID, "org_id", orgID, "error", err)
+		}
 	}
 	return nil
 }

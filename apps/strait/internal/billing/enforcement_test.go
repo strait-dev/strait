@@ -567,6 +567,47 @@ func TestReconcileAll_NilRedis(t *testing.T) {
 	}
 }
 
+func TestReserveWorkerConnection_EnforcesCapAcrossEnforcers(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdbA := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { rdbA.Close() })
+	rdbB := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { rdbB.Close() })
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org_workers": {OrgID: "org_workers", PlanTier: string(domain.PlanFree), Status: "active"},
+		},
+	}
+	enforcerA := NewEnforcer(store, rdbA, slog.Default())
+	enforcerB := NewEnforcer(store, rdbB, slog.Default())
+	ctx := context.Background()
+
+	release, err := enforcerA.ReserveWorkerConnection(ctx, "org_workers", "replica-a-worker", time.Minute)
+	if err != nil {
+		t.Fatalf("first reservation should pass: %v", err)
+	}
+	t.Cleanup(release)
+
+	err = nil
+	_, err = enforcerB.ReserveWorkerConnection(ctx, "org_workers", "replica-b-worker", time.Minute)
+	if err == nil {
+		t.Fatal("expected second cross-replica worker reservation to hit free cap")
+	}
+	var le *LimitError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "worker_connections_reached" {
+		t.Fatalf("Code = %q, want worker_connections_reached", le.Code)
+	}
+
+	release()
+	if _, err := enforcerB.ReserveWorkerConnection(ctx, "org_workers", "replica-b-worker", time.Minute); err != nil {
+		t.Fatalf("reservation after release should pass: %v", err)
+	}
+}
+
 // Member limit tests.
 
 func TestCheckMemberLimit_FreeUnderLimit_Passes(t *testing.T) {

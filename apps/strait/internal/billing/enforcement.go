@@ -1433,6 +1433,133 @@ func projectBudgetActionBlocks(action string) bool {
 	}
 }
 
+func workerConnectionReservationsKey(orgID string) string {
+	return "strait:worker_connections:" + orgID
+}
+
+var workerConnectionReserveScript = redis.NewScript(`
+local key = KEYS[1]
+local reservation = ARGV[1]
+local now_ms = tonumber(ARGV[2])
+local expires_ms = tonumber(ARGV[3])
+local limit = tonumber(ARGV[4])
+local ttl_seconds = tonumber(ARGV[5])
+
+redis.call('ZREMRANGEBYSCORE', key, '-inf', now_ms)
+local count = redis.call('ZCARD', key)
+if limit ~= -1 and count >= limit then
+  return {0, count}
+end
+redis.call('ZADD', key, expires_ms, reservation)
+redis.call('EXPIRE', key, ttl_seconds)
+return {1, count + 1}
+`)
+
+const defaultWorkerConnectionLease = 90 * time.Second
+
+func normalizeWorkerConnectionLease(lease time.Duration) time.Duration {
+	if lease <= 0 {
+		return defaultWorkerConnectionLease
+	}
+	if lease < 10*time.Second {
+		return 10 * time.Second
+	}
+	return lease
+}
+
+// ReserveWorkerConnection creates a distributed, expiring worker-connection
+// reservation for orgID. The returned release function must be called when the
+// stream exits. Heartbeats should call RenewWorkerConnection before lease
+// expiry so long-lived streams remain counted across API replicas.
+func (e *Enforcer) ReserveWorkerConnection(ctx context.Context, orgID, reservationID string, lease time.Duration) (func(), error) {
+	releaseNoop := func() {}
+	if e == nil || orgID == "" || reservationID == "" || e.rdb == nil {
+		return releaseNoop, nil
+	}
+
+	limits, err := e.GetOrgPlanLimits(ctx, orgID)
+	if err != nil {
+		e.logger.Warn("failed to get org plan limits for worker connection reservation",
+			"org_id", orgID, "error", err)
+		return releaseNoop, nil
+	}
+	if limits.WorkerConnections == -1 {
+		return releaseNoop, nil
+	}
+
+	lease = normalizeWorkerConnectionLease(lease)
+	now := time.Now().UTC()
+	ttl := int((lease * 2).Seconds())
+	if ttl < 1 {
+		ttl = 1
+	}
+	result, err := workerConnectionReserveScript.Run(ctx, e.rdb, []string{workerConnectionReservationsKey(orgID)},
+		reservationID,
+		now.UnixMilli(),
+		now.Add(lease).UnixMilli(),
+		limits.WorkerConnections,
+		ttl,
+	).Result()
+	if err != nil {
+		e.logger.Warn("failed to reserve worker connection", "org_id", orgID, "error", err)
+		return releaseNoop, e.boundedFailOpen(ctx, orgID, "worker_connections", "redis_error")
+	}
+
+	vals, ok := result.([]any)
+	if !ok || len(vals) < 2 {
+		e.logger.Warn("unexpected worker connection reservation result", "org_id", orgID)
+		return releaseNoop, e.boundedFailOpen(ctx, orgID, "worker_connections", "redis_error")
+	}
+	allowed, _ := vals[0].(int64)
+	current, _ := vals[1].(int64)
+	if allowed == 0 {
+		e.recordRejection(ctx, "worker_connections", limits.PlanTier)
+		return releaseNoop, &LimitError{
+			Code: "worker_connections_reached",
+			Message: fmt.Sprintf(
+				"Your %s plan allows %d concurrent worker connections per organization. Active: %d. Upgrade to add more.",
+				limits.DisplayName, limits.WorkerConnections, current,
+			),
+			CurrentUsage: current,
+			Limit:        int64(limits.WorkerConnections),
+			Plan:         string(limits.PlanTier),
+			UpgradeURL:   "/upgrade",
+		}
+	}
+
+	released := sync.Once{}
+	return func() {
+		released.Do(func() {
+			if err := e.rdb.ZRem(context.Background(), workerConnectionReservationsKey(orgID), reservationID).Err(); err != nil {
+				e.logger.Warn("failed to release worker connection reservation",
+					"org_id", orgID, "error", err)
+			}
+		})
+	}, nil
+}
+
+// RenewWorkerConnection extends an existing distributed worker-connection
+// reservation. Missing reservations are left missing; the next reconnect will
+// create a fresh reservation and enforce the cap again.
+func (e *Enforcer) RenewWorkerConnection(ctx context.Context, orgID, reservationID string, lease time.Duration) error {
+	if e == nil || orgID == "" || reservationID == "" || e.rdb == nil {
+		return nil
+	}
+	lease = normalizeWorkerConnectionLease(lease)
+	expiresAt := time.Now().UTC().Add(lease).UnixMilli()
+	ttl := lease * 2
+	if err := e.rdb.ZAddXX(ctx, workerConnectionReservationsKey(orgID), redis.Z{
+		Score:  float64(expiresAt),
+		Member: reservationID,
+	}).Err(); err != nil {
+		return fmt.Errorf("renew worker connection reservation: %w", err)
+	}
+	if err := e.rdb.Expire(ctx, workerConnectionReservationsKey(orgID), ttl).Err(); err != nil {
+		return fmt.Errorf("renew worker connection reservation ttl: %w", err)
+	}
+	return nil
+}
+
 // CheckWorkerConnectionLimit hard-rejects new gRPC worker registrations once an
 // org has hit its plan-tier WorkerConnections cap. Existing connections are
 // not evicted; this is a connect-time gate only.
