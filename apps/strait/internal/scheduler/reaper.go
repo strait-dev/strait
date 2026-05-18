@@ -99,6 +99,7 @@ type AutoRotateAPIKeysStore interface {
 	CreateAPIKey(ctx context.Context, key *domain.APIKey) error
 	MarkAPIKeyRotated(ctx context.Context, oldKeyID, newKeyID string, graceExpiresAt time.Time) error
 	RevokeAPIKey(ctx context.Context, id string) error
+	DisableAPIKeyAutoRotation(ctx context.Context, id string) error
 	CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error
 }
 
@@ -1338,6 +1339,9 @@ func (r *Reaper) autoRotateAPIKeys(ctx context.Context) {
 	for _, oldKey := range keys {
 		if oldKey.RotationWebhookURL == "" {
 			r.logger.Warn("skipping api key auto-rotation without rotation webhook", "key_id", oldKey.ID, "project_id", oldKey.ProjectID)
+			if err := rotateStore.DisableAPIKeyAutoRotation(ctx, oldKey.ID); err != nil {
+				r.logger.Error("failed to disable api key auto-rotation without webhook", "key_id", oldKey.ID, "project_id", oldKey.ProjectID, "error", err)
+			}
 			continue
 		}
 
@@ -1456,7 +1460,7 @@ func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL string, e
 		} else {
 			deliveryID := uuid.Must(uuid.NewV7()).String()
 			timestamp := time.Now().UTC().Format(time.RFC3339)
-			straitcrypto.SignWebhookRequest(req, plaintext, payload, deliveryID, timestamp)
+			straitcrypto.SignWebhookRequest(req, canonicalRotationWebhookSecret(plaintext), payload, deliveryID, timestamp)
 		}
 	}
 
@@ -1485,6 +1489,16 @@ func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL string, e
 	}
 
 	return nil
+}
+
+func canonicalRotationWebhookSecret(plaintext []byte) []byte {
+	if bytes.HasPrefix(plaintext, []byte("whsec_")) {
+		return plaintext
+	}
+	out := make([]byte, len("whsec_")+hex.EncodedLen(len(plaintext)))
+	copy(out, "whsec_")
+	hex.Encode(out[len("whsec_"):], plaintext)
+	return out
 }
 
 func validateRotationWebhookURL(rawURL string, allowPrivateEndpoints bool) error {

@@ -32,6 +32,7 @@ func TestNotifyRotationWebhook_SignsWithHMACWhenSecretPresent(t *testing.T) {
 	t.Parallel()
 
 	plaintext := []byte("rotation-secret")
+	signingSecret := []byte("whsec_" + hex.EncodeToString(plaintext))
 	var (
 		mu          sync.Mutex
 		gotBody     []byte
@@ -74,7 +75,7 @@ func TestNotifyRotationWebhook_SignsWithHMACWhenSecretPresent(t *testing.T) {
 		t.Fatalf("X-Strait-Signature wrong shape: %q", gotSig)
 	}
 
-	mac := hmac.New(sha256.New, plaintext)
+	mac := hmac.New(sha256.New, signingSecret)
 	mac.Write([]byte(gotTS))
 	mac.Write([]byte("."))
 	mac.Write([]byte(gotDelivery))

@@ -112,11 +112,28 @@ func TestCreateAPIKey_RotationWebhookSecret_ReturnedOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decrypt stored secret: %v", err)
 	}
-	if got := "whsec_" + hex.EncodeToString(plaintext); got != resp.RotationWebhookSecret {
+	if got := string(plaintext); got != resp.RotationWebhookSecret {
 		t.Fatalf("decrypted secret %q does not match response %q", got, resp.RotationWebhookSecret)
 	}
 	if captured.RotationWebhookURL != "https://example.com/hook" {
 		t.Fatalf("captured RotationWebhookURL = %q, want https://example.com/hook", captured.RotationWebhookURL)
+	}
+}
+
+func TestCreateAPIKey_RotationIntervalRequiresWebhookURL(t *testing.T) {
+	t.Parallel()
+
+	srv, _ := newAPIKeyRotationWebhookTestServer(t, roundTripEncryptor{})
+
+	body := `{"project_id":"proj-1","name":"k","scopes":["jobs:read"],"expires_in_days":30,"rotation_interval_days":30}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/api-keys", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body: %s", w.Code, w.Body.String())
 	}
 }
 

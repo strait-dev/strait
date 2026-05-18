@@ -369,6 +369,28 @@ func (q *Queries) ListAPIKeysDueRotation(ctx context.Context) ([]domain.APIKey, 
 	return keys, rows.Err()
 }
 
+// DisableAPIKeyAutoRotation clears scheduler eligibility for a key whose
+// auto-rotation configuration cannot be completed safely, such as legacy rows
+// that have a rotation interval but no webhook URL to deliver the new secret.
+func (q *Queries) DisableAPIKeyAutoRotation(ctx context.Context, id string) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DisableAPIKeyAutoRotation")
+	defer span.End()
+
+	tag, err := q.db.Exec(ctx, `
+		UPDATE api_keys
+		SET next_rotation_at = NULL
+		WHERE id = $1
+		  AND revoked_at IS NULL
+		  AND replaced_by_key_id IS NULL`, id)
+	if err != nil {
+		return fmt.Errorf("disable api key auto-rotation: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrAPIKeyNotFound
+	}
+	return nil
+}
+
 func (q *Queries) ListAPIKeysExpiringSoon(ctx context.Context, projectID string, withinDays int) ([]domain.APIKey, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListAPIKeysExpiringSoon")
 	defer span.End()

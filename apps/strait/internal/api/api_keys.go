@@ -94,6 +94,9 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, input *CreateAPIKeyInpu
 			return nil, huma.Error400BadRequest("invalid rotation_webhook_url")
 		}
 	}
+	if req.RotationIntervalDays != nil && *req.RotationIntervalDays > 0 && req.RotationWebhookURL == "" {
+		return nil, huma.Error400BadRequest("rotation_webhook_url is required when rotation_interval_days is set")
+	}
 
 	var expiresAt *time.Time
 	if req.ExpiresIn != nil {
@@ -120,12 +123,12 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, input *CreateAPIKeyInpu
 		if _, err := rand.Read(secretBytes); err != nil {
 			return nil, huma.Error500InternalServerError("failed to generate rotation webhook secret")
 		}
-		ciphertext, err := s.encryptor.Encrypt(secretBytes)
+		rotationWebhookSecretPlaintext = "whsec_" + hex.EncodeToString(secretBytes)
+		ciphertext, err := s.encryptor.Encrypt([]byte(rotationWebhookSecretPlaintext))
 		if err != nil {
 			return nil, huma.Error500InternalServerError("failed to encrypt rotation webhook secret")
 		}
 		key.RotationWebhookSecret = ciphertext
-		rotationWebhookSecretPlaintext = "whsec_" + hex.EncodeToString(secretBytes)
 	}
 	if err := s.store.CreateAPIKey(ctx, key); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create api key")

@@ -18,6 +18,7 @@ type mockAutoRotateStore struct {
 	createAPIKeyFn     func(ctx context.Context, key *domain.APIKey) error
 	markRotatedFn      func(ctx context.Context, oldKeyID, newKeyID string, graceExpiresAt time.Time) error
 	revokeAPIKeyFn     func(ctx context.Context, id string) error
+	disableRotationFn  func(ctx context.Context, id string) error
 	createAuditEventFn func(ctx context.Context, ev *domain.AuditEvent) error
 }
 
@@ -45,6 +46,13 @@ func (m *mockAutoRotateStore) MarkAPIKeyRotated(ctx context.Context, oldKeyID, n
 func (m *mockAutoRotateStore) RevokeAPIKey(ctx context.Context, id string) error {
 	if m.revokeAPIKeyFn != nil {
 		return m.revokeAPIKeyFn(ctx, id)
+	}
+	return nil
+}
+
+func (m *mockAutoRotateStore) DisableAPIKeyAutoRotation(ctx context.Context, id string) error {
+	if m.disableRotationFn != nil {
+		return m.disableRotationFn(ctx, id)
 	}
 	return nil
 }
@@ -153,6 +161,7 @@ func TestAutoRotateAPIKeys_SkipsKeyWithoutWebhook(t *testing.T) {
 	t.Parallel()
 
 	var created atomic.Int32
+	var disabledID string
 	rotationDays := 30
 	ms := &mockAutoRotateStore{
 		listDueRotationFn: func(context.Context) ([]domain.APIKey, error) {
@@ -167,6 +176,10 @@ func TestAutoRotateAPIKeys_SkipsKeyWithoutWebhook(t *testing.T) {
 			created.Add(1)
 			return nil
 		},
+		disableRotationFn: func(_ context.Context, id string) error {
+			disabledID = id
+			return nil
+		},
 	}
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil).WithAllowPrivateEndpoints(true)
@@ -175,6 +188,9 @@ func TestAutoRotateAPIKeys_SkipsKeyWithoutWebhook(t *testing.T) {
 
 	if created.Load() != 0 {
 		t.Fatalf("created keys = %d, want 0 without rotation webhook", created.Load())
+	}
+	if disabledID != "old-key-1" {
+		t.Fatalf("disabled key id = %q, want old-key-1", disabledID)
 	}
 }
 
