@@ -61,7 +61,7 @@ func TestIntegration_Heartbeat_DoesNotWriteDB(t *testing.T) {
 	}
 
 	hb := &workerv1.Heartbeat{}
-	if err := svc.handleHeartbeat(ctx, workerID, hb); err != nil {
+	if err := svc.handleHeartbeat(ctx, workerID, "", "", hb); err != nil {
 		t.Fatalf("handleHeartbeat: %v", err)
 	}
 
