@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync/atomic"
 	"time"
@@ -98,11 +99,12 @@ func (g *IdempotencyGC) RunOnceForTest(ctx context.Context) error {
 	return g.runOnce(ctx)
 }
 
-func (g *IdempotencyGC) runOnce(ctx context.Context) error {
+func (g *IdempotencyGC) runOnce(ctx context.Context) (err error) {
 	defer func() {
 		g.iterations.Add(1)
 		if r := recover(); r != nil {
 			g.logger.Warn("idempotency GC panic recovered", "panic", r)
+			err = fmt.Errorf("idempotency GC panic: %v", r)
 		}
 	}()
 

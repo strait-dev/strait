@@ -111,3 +111,21 @@ func TestRunWithOptionalAdvisoryLock_FallbackSurfacesReleaseError(t *testing.T) 
 		t.Fatalf("error = %v, want release error", err)
 	}
 }
+
+func TestRunWithOptionalAdvisoryLock_FallbackReleasesAfterPanic(t *testing.T) {
+	t.Parallel()
+
+	locker := &testAdvisoryLocker{acquired: true}
+	defer func() {
+		if rec := recover(); rec == nil {
+			t.Fatal("expected panic to propagate")
+		}
+		if locker.tryCalls != 1 || locker.releaseCalls != 1 {
+			t.Fatalf("try/release calls = %d/%d, want 1/1", locker.tryCalls, locker.releaseCalls)
+		}
+	}()
+
+	_, _ = runWithOptionalAdvisoryLock(t.Context(), locker, 123, func(context.Context) error {
+		panic("locked section failed")
+	})
+}

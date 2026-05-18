@@ -623,7 +623,7 @@ func (q *Queries) ReleaseAdvisoryLock(ctx context.Context, lockID int64) error {
 // PostgreSQL connection for the full duration of fn. Use this for long-running
 // leader-election sections; TryAdvisoryLock/ReleaseAdvisoryLock can acquire and
 // release on different pooled connections when the underlying DBTX is a pool.
-func (q *Queries) RunWithAdvisoryLock(ctx context.Context, lockID int64, fn func(context.Context) error) (bool, error) {
+func (q *Queries) RunWithAdvisoryLock(ctx context.Context, lockID int64, fn func(context.Context) error) (acquired bool, err error) {
 	if q == nil {
 		return false, fmt.Errorf("run with advisory lock: queries is nil")
 	}
@@ -642,7 +642,6 @@ func (q *Queries) RunWithAdvisoryLock(ctx context.Context, lockID int64, fn func
 	}
 	defer conn.Release()
 
-	var acquired bool
 	if err := conn.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", lockID).Scan(&acquired); err != nil {
 		return false, fmt.Errorf("pg_try_advisory_lock: %w", err)
 	}
@@ -650,17 +649,21 @@ func (q *Queries) RunWithAdvisoryLock(ctx context.Context, lockID int64, fn func
 		return false, nil
 	}
 
-	runErr := fn(ctx)
+	defer func() {
+		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
 
-	var released bool
-	if err := conn.QueryRow(ctx, "SELECT pg_advisory_unlock($1)", lockID).Scan(&released); err != nil {
-		return true, errors.Join(runErr, fmt.Errorf("pg_advisory_unlock: %w", err))
-	}
-	if !released {
-		return true, errors.Join(runErr, fmt.Errorf("pg_advisory_unlock: lock %d was not held by pinned connection", lockID))
-	}
+		var released bool
+		if releaseErr := conn.QueryRow(releaseCtx, "SELECT pg_advisory_unlock($1)", lockID).Scan(&released); releaseErr != nil {
+			err = errors.Join(err, fmt.Errorf("pg_advisory_unlock: %w", releaseErr))
+			return
+		}
+		if !released {
+			err = errors.Join(err, fmt.Errorf("pg_advisory_unlock: lock %d was not held by pinned connection", lockID))
+		}
+	}()
 
-	return true, runErr
+	return true, fn(ctx)
 }
 
 func advisoryConnAcquirer(db DBTX) (connAcquirer, bool) {

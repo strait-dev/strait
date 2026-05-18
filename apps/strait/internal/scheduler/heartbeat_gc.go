@@ -100,11 +100,12 @@ func (h *HeartbeatGC) RunOnceForTest(ctx context.Context) error {
 	return h.runOnce(ctx)
 }
 
-func (h *HeartbeatGC) runOnce(ctx context.Context) error {
+func (h *HeartbeatGC) runOnce(ctx context.Context) (err error) {
 	defer func() {
 		h.iterations.Add(1)
 		if r := recover(); r != nil {
 			h.logger.Warn("heartbeat GC panic recovered", "panic", r)
+			err = fmt.Errorf("heartbeat GC panic: %v", r)
 		}
 	}()
 

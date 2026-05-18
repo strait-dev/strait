@@ -10903,6 +10903,35 @@ func TestRunWithAdvisoryLockReportsNotAcquired(t *testing.T) {
 	}
 }
 
+func TestRunWithAdvisoryLockReleasesAfterPanic(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	lockID := int64(334457)
+	func() {
+		defer func() {
+			if rec := recover(); rec == nil {
+				t.Fatal("expected panic to propagate")
+			}
+		}()
+		_, _ = q.RunWithAdvisoryLock(ctx, lockID, func(context.Context) error {
+			panic("locked section failed")
+		})
+	}()
+
+	acquiredAfterPanic, err := q.TryAdvisoryLock(ctx, lockID)
+	if err != nil {
+		t.Fatalf("TryAdvisoryLock(after panic) error = %v", err)
+	}
+	if !acquiredAfterPanic {
+		t.Fatal("TryAdvisoryLock(after panic) = false, want true")
+	}
+	if err := q.ReleaseAdvisoryLock(ctx, lockID); err != nil {
+		t.Fatalf("ReleaseAdvisoryLock(after panic) error = %v", err)
+	}
+}
+
 func TestAdvisoryLockXactLockWithinTransaction(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

@@ -103,11 +103,12 @@ func (r *CounterReconciler) RunOnceForTest(ctx context.Context) error {
 }
 
 // runOnce executes a single reconciliation cycle. Exposed for tests.
-func (r *CounterReconciler) runOnce(ctx context.Context) error {
+func (r *CounterReconciler) runOnce(ctx context.Context) (err error) {
 	defer func() {
 		r.iterations.Add(1)
 		if rec := recover(); rec != nil {
 			r.logger.Warn("counter reconciler panic recovered", "panic", rec)
+			err = fmt.Errorf("counter reconciler panic: %v", rec)
 		}
 	}()
 

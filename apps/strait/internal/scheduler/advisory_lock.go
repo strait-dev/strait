@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 )
 
-func runWithOptionalAdvisoryLock(ctx context.Context, locker AdvisoryLocker, lockID int64, fn func(context.Context) error) (bool, error) {
+func runWithOptionalAdvisoryLock(ctx context.Context, locker AdvisoryLocker, lockID int64, fn func(context.Context) error) (acquired bool, err error) {
 	if fn == nil {
 		return false, fmt.Errorf("advisory lock %d: fn is nil", lockID)
 	}
@@ -17,14 +18,18 @@ func runWithOptionalAdvisoryLock(ctx context.Context, locker AdvisoryLocker, loc
 		return runner.RunWithAdvisoryLock(ctx, lockID, fn)
 	}
 
-	acquired, err := locker.TryAdvisoryLock(ctx, lockID)
+	acquired, err = locker.TryAdvisoryLock(ctx, lockID)
 	if err != nil || !acquired {
 		return acquired, err
 	}
 
-	runErr := fn(ctx)
-	if releaseErr := locker.ReleaseAdvisoryLock(ctx, lockID); releaseErr != nil {
-		return true, errors.Join(runErr, fmt.Errorf("release advisory lock %d: %w", lockID, releaseErr))
-	}
-	return true, runErr
+	defer func() {
+		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if releaseErr := locker.ReleaseAdvisoryLock(releaseCtx, lockID); releaseErr != nil {
+			err = errors.Join(err, fmt.Errorf("release advisory lock %d: %w", lockID, releaseErr))
+		}
+	}()
+
+	return true, fn(ctx)
 }

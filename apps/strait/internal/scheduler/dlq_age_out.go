@@ -140,11 +140,12 @@ func (a *DLQAgeOut) RunOnceForTest(ctx context.Context) error {
 	return a.runOnce(ctx)
 }
 
-func (a *DLQAgeOut) runOnce(ctx context.Context) error {
+func (a *DLQAgeOut) runOnce(ctx context.Context) (err error) {
 	defer func() {
 		a.iterations.Add(1)
 		if r := recover(); r != nil {
 			a.logger.Warn("dlq age-out panic recovered", "panic", r)
+			err = fmt.Errorf("dlq age-out panic: %v", r)
 		}
 	}()
 
