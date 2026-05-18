@@ -1355,6 +1355,7 @@ func (s *PgStore) DeactivateExcessEnvironments(ctx context.Context, orgID string
 		WHERE id IN (
 			SELECT e.id FROM environments e
 			WHERE e.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
+			  AND e.is_standard = false
 			ORDER BY e.created_at DESC
 			OFFSET $2
 		)
@@ -1393,7 +1394,7 @@ func (s *PgStore) DeactivateExcessLogDrains(ctx context.Context, orgID string, m
 			SELECT ld.id FROM log_drains ld
 			WHERE ld.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
 			  AND ld.enabled = true
-			ORDER BY ld.created_at ASC
+			ORDER BY ld.created_at DESC
 			OFFSET $2
 		)
 	`, orgID, maxDrains)
@@ -1412,7 +1413,7 @@ func (s *PgStore) DeactivateExcessNotificationChannelsByProject(ctx context.Cont
 			SELECT nc.id FROM notification_channels nc
 			WHERE nc.project_id = $1
 			  AND nc.enabled = true
-			ORDER BY nc.created_at ASC
+			ORDER BY nc.created_at DESC
 			OFFSET $2
 		)
 	`, projectID, maxChannels)

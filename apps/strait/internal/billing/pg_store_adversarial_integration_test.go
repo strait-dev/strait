@@ -680,6 +680,144 @@ func TestAdversarial_DeactivateExcessEnvironments_KeepsNewest(t *testing.T) {
 	}
 }
 
+func TestAdversarial_DeactivateExcessEnvironments_PreservesStandardEnvironments(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-env-standard-" + newID()
+	p := createProject(t, ctx, q, orgID, "P")
+	standardID := createEnvironment(t, ctx, p.ID, "standard")
+	customOldID := createEnvironment(t, ctx, p.ID, "custom-old")
+	customNewID := createEnvironment(t, ctx, p.ID, "custom-new")
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE environments
+		SET is_standard = CASE WHEN id = $1 THEN true ELSE false END,
+		    created_at = CASE
+		      WHEN id = $1 THEN $4::timestamptz
+		      WHEN id = $2 THEN $5::timestamptz
+		      ELSE $6::timestamptz
+		    END
+		WHERE id IN ($1, $2, $3)
+	`, standardID, customOldID, customNewID,
+		time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 1, 1, 1, 0, 0, 0, time.UTC),
+		time.Date(2026, 1, 1, 2, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("seed environment timestamps: %v", err)
+	}
+
+	deactivated, err := pgStore.DeactivateExcessEnvironments(ctx, orgID, 1)
+	if err != nil {
+		t.Fatalf("DeactivateExcessEnvironments: %v", err)
+	}
+	if deactivated != 1 {
+		t.Fatalf("deactivated = %d, want only oldest custom environment", deactivated)
+	}
+	for _, id := range []string{standardID, customNewID} {
+		var exists bool
+		if err := testDB.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM environments WHERE id = $1)`, id).Scan(&exists); err != nil {
+			t.Fatalf("check env %s: %v", id, err)
+		}
+		if !exists {
+			t.Fatalf("environment %s should be preserved", id)
+		}
+	}
+	var oldExists bool
+	if err := testDB.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM environments WHERE id = $1)`, customOldID).Scan(&oldExists); err != nil {
+		t.Fatalf("check old custom env: %v", err)
+	}
+	if oldExists {
+		t.Fatal("oldest non-standard environment should be deleted")
+	}
+}
+
+func TestAdversarial_DeactivateExcessLogDrains_KeepsNewest(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-log-order-" + newID()
+	p := createProject(t, ctx, q, orgID, "P")
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	var ids []string
+	for i := range 4 {
+		id := "ld-" + newID()
+		ids = append(ids, id)
+		if _, err := testDB.Pool.Exec(ctx, `
+			INSERT INTO log_drains (id, project_id, name, drain_type, endpoint_url, enabled, created_at, updated_at)
+			VALUES ($1, $2, $3, 'http', 'https://example.com/drain', true, $4, $4)
+		`, id, p.ID, fmt.Sprintf("drain-%d", i), base.Add(time.Duration(i)*time.Hour)); err != nil {
+			t.Fatalf("insert log drain %d: %v", i, err)
+		}
+	}
+
+	deactivated, err := pgStore.DeactivateExcessLogDrains(ctx, orgID, 2)
+	if err != nil {
+		t.Fatalf("DeactivateExcessLogDrains: %v", err)
+	}
+	if deactivated != 2 {
+		t.Fatalf("deactivated = %d, want 2", deactivated)
+	}
+	for i, id := range ids {
+		var enabled bool
+		if err := testDB.Pool.QueryRow(ctx, `SELECT enabled FROM log_drains WHERE id = $1`, id).Scan(&enabled); err != nil {
+			t.Fatalf("check drain %d: %v", i, err)
+		}
+		isNewest := i >= 2
+		if isNewest && !enabled {
+			t.Fatalf("newest drain %d should remain enabled", i)
+		}
+		if !isNewest && enabled {
+			t.Fatalf("oldest drain %d should be disabled", i)
+		}
+	}
+}
+
+func TestAdversarial_DeactivateExcessNotificationChannels_KeepsNewest(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-notif-order-" + newID()
+	p := createProject(t, ctx, q, orgID, "P")
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	var ids []string
+	for i := range 4 {
+		id := "nc-" + newID()
+		ids = append(ids, id)
+		if _, err := testDB.Pool.Exec(ctx, `
+			INSERT INTO notification_channels (id, project_id, channel_type, name, config, enabled, created_at, updated_at)
+			VALUES ($1, $2, 'webhook', $3, $5, true, $4, $4)
+		`, id, p.ID, fmt.Sprintf("channel-%d", i), base.Add(time.Duration(i)*time.Hour), []byte("{}")); err != nil {
+			t.Fatalf("insert notification channel %d: %v", i, err)
+		}
+	}
+
+	deactivated, err := pgStore.DeactivateExcessNotificationChannelsByProject(ctx, p.ID, 2)
+	if err != nil {
+		t.Fatalf("DeactivateExcessNotificationChannelsByProject: %v", err)
+	}
+	if deactivated != 2 {
+		t.Fatalf("deactivated = %d, want 2", deactivated)
+	}
+	for i, id := range ids {
+		var enabled bool
+		if err := testDB.Pool.QueryRow(ctx, `SELECT enabled FROM notification_channels WHERE id = $1`, id).Scan(&enabled); err != nil {
+			t.Fatalf("check channel %d: %v", i, err)
+		}
+		isNewest := i >= 2
+		if isNewest && !enabled {
+			t.Fatalf("newest channel %d should remain enabled", i)
+		}
+		if !isNewest && enabled {
+			t.Fatalf("oldest channel %d should be disabled", i)
+		}
+	}
+}
+
 // --------------------------------------------------------------------------
 // H7: DeactivateExcessWebhookSubscriptions keeps the newest by created_at
 // --------------------------------------------------------------------------.
