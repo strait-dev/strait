@@ -131,6 +131,9 @@ func (s *Server) handleSetJobEndpoint(ctx context.Context, input *SetJobEndpoint
 	if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
 		return nil, huma.Error404NotFound("job not found")
 	}
+	if err := s.requireSecretsWriteForSecretBearingEndpointChange(ctx, job, input.Body.EndpointURL, input.Body.FallbackEndpointURL); err != nil {
+		return nil, err
+	}
 
 	// Default to preserving the existing signing secret. Only generate a fresh
 	// one when the caller explicitly opts in via rotate_signing_secret=true.
@@ -178,6 +181,31 @@ func (s *Server) handleSetJobEndpoint(ctx context.Context, input *SetJobEndpoint
 		Job:           updated,
 		SigningSecret: plaintextSecret,
 	}}, nil
+}
+
+func (s *Server) requireSecretsWriteForSecretBearingEndpointChange(ctx context.Context, job *domain.Job, endpointURL, fallbackURL string) error {
+	if job == nil {
+		return nil
+	}
+	if job.EndpointURL == endpointURL && job.FallbackEndpointURL == fallbackURL {
+		return nil
+	}
+	if s.hasProjectPermission(ctx, domain.ScopeSecretsWrite) {
+		return nil
+	}
+	secrets, err := s.store.ListJobSecrets(ctx, job.ProjectID, job.ID, job.EnvironmentID, 1, nil)
+	if err != nil {
+		slog.Error("failed to check job secrets before endpoint change",
+			"job_id", job.ID,
+			"project_id", job.ProjectID,
+			"error", err,
+		)
+		return huma.Error500InternalServerError("failed to check job secrets")
+	}
+	if len(secrets) > 0 {
+		return huma.Error403Forbidden("changing endpoint for a job with attached secrets requires secrets:write")
+	}
+	return nil
 }
 
 // handleVerifyJobEndpoint sends a signed HMAC test ping to the job's stored

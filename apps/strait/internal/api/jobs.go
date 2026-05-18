@@ -611,6 +611,17 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 		}
 		job.Tags = *req.Tags
 	}
+	nextEndpointURL := job.EndpointURL
+	nextFallbackEndpointURL := job.FallbackEndpointURL
+	if req.EndpointURL != nil {
+		nextEndpointURL = *req.EndpointURL
+	}
+	if req.FallbackEndpointURL != nil {
+		nextFallbackEndpointURL = *req.FallbackEndpointURL
+	}
+	if err := s.requireSecretsWriteForSecretBearingEndpointChange(ctx, job, nextEndpointURL, nextFallbackEndpointURL); err != nil {
+		return nil, err
+	}
 	if req.EndpointURL != nil {
 		if err := validateURL(*req.EndpointURL); err != nil {
 			return nil, huma.Error400BadRequest("invalid endpoint_url: " + err.Error())

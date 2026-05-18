@@ -2079,11 +2079,11 @@ func TestSecret_JobSecretCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListJobSecretsByJob() error = %v", err)
 	}
-	if len(byJob) != 2 {
-		t.Fatalf("ListJobSecretsByJob() len = %d, want 2", len(byJob))
+	if len(byJob) != 1 {
+		t.Fatalf("ListJobSecretsByJob() len = %d, want only job-scoped secret", len(byJob))
 	}
-	if byJob[0].ID != globalSecret.ID || byJob[1].ID != jobSecret.ID {
-		t.Fatalf("ListJobSecretsByJob() order mismatch: got IDs [%q, %q], want [%q, %q]", byJob[0].ID, byJob[1].ID, globalSecret.ID, jobSecret.ID)
+	if byJob[0].ID != jobSecret.ID {
+		t.Fatalf("ListJobSecretsByJob() = %+v, want only %q; global secret %q must not auto-dispatch", byJob, jobSecret.ID, globalSecret.ID)
 	}
 
 	byJobNone, err := q.ListJobSecretsByJob(ctx, job.ID, "staging")
@@ -2257,12 +2257,15 @@ func TestSecret_ListJobSecretsByJobUsesJobEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListJobSecretsByJob() error = %v", err)
 	}
-	if len(got) != 2 {
-		t.Fatalf("ListJobSecretsByJob() len = %d, want staging global + job secrets", len(got))
+	if len(got) != 1 {
+		t.Fatalf("ListJobSecretsByJob() len = %d, want only staging job secret", len(got))
 	}
 	for _, secret := range got {
 		if secret.Environment != staging.ID {
 			t.Fatalf("secret environment = %q, want staging env %q", secret.Environment, staging.ID)
+		}
+		if secret.JobID != job.ID {
+			t.Fatalf("secret job_id = %q, want %q; environment-wide secrets must not auto-dispatch", secret.JobID, job.ID)
 		}
 	}
 }
@@ -2292,15 +2295,12 @@ func TestSecret_ListJobSecretsByJobDefaultsEnvlessJobToProduction(t *testing.T) 
 	if err != nil {
 		t.Fatalf("ListJobSecretsByJob() error = %v", err)
 	}
-	if len(got) != 1 {
-		t.Fatalf("ListJobSecretsByJob() len = %d, want 1", len(got))
-	}
-	if got[0].ID != productionSecret.ID || got[0].EncryptedValue != "production" {
-		t.Fatalf("ListJobSecretsByJob() = %+v, want production secret %q", got, productionSecret.ID)
+	if len(got) != 0 {
+		t.Fatalf("ListJobSecretsByJob() = %+v, want no environment-wide secret %q", got, productionSecret.ID)
 	}
 }
 
-func TestSecret_ListJobSecretsByJobOrdersJobOverridesAfterGlobal(t *testing.T) {
+func TestSecret_ListJobSecretsByJobExcludesEnvironmentWideSecrets(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
 	q.SetSecretEncryptionKey("test-encryption-key-32bytes!!!!")
@@ -2326,12 +2326,11 @@ func TestSecret_ListJobSecretsByJobOrdersJobOverridesAfterGlobal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListJobSecretsByJob() error = %v", err)
 	}
-	if len(got) != 2 {
-		t.Fatalf("ListJobSecretsByJob() len = %d, want 2", len(got))
+	if len(got) != 1 {
+		t.Fatalf("ListJobSecretsByJob() len = %d, want only job-scoped secret", len(got))
 	}
-	if got[0].ID != globalSecret.ID || got[1].ID != jobSecret.ID {
-		t.Fatalf("ListJobSecretsByJob() order IDs = [%q, %q], want global then job-specific [%q, %q]",
-			got[0].ID, got[1].ID, globalSecret.ID, jobSecret.ID)
+	if got[0].ID != jobSecret.ID {
+		t.Fatalf("ListJobSecretsByJob() = %+v, want job-scoped %q; environment-wide %q must not dispatch", got, jobSecret.ID, globalSecret.ID)
 	}
 }
 

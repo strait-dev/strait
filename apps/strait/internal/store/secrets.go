@@ -196,7 +196,7 @@ func (q *Queries) ListJobSecretsByJob(ctx context.Context, jobID, environment st
 			FROM job_secrets s
 			JOIN jobs j ON j.id = $1
 			WHERE s.project_id = j.project_id
-			  AND (s.job_id = $1 OR s.job_id IS NULL)
+			  AND s.job_id = $1
 			  AND s.environment = COALESCE(
 			    NULLIF(j.environment_id, ''),
 			    NULLIF($2, ''),
@@ -209,7 +209,7 @@ func (q *Queries) ListJobSecretsByJob(ctx context.Context, jobID, environment st
 			    ),
 			    $3
 			  )
-			ORDER BY s.secret_key ASC, (s.job_id IS NOT NULL) ASC, s.created_at ASC`
+			ORDER BY s.secret_key ASC, s.created_at ASC`
 
 	rows, err := q.db.Query(ctx, query, jobID, environment, "production")
 	if err != nil {

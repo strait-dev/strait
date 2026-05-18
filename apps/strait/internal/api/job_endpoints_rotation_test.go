@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	straitcrypto "strait/internal/crypto"
 	"strait/internal/domain"
@@ -16,6 +17,9 @@ func newJobEndpointTestServer(t *testing.T, job *domain.Job, capture *atomic.Poi
 		GetJobFunc: func(_ context.Context, _ string) (*domain.Job, error) {
 			snapshot := *job
 			return &snapshot, nil
+		},
+		ListJobSecretsFunc: func(_ context.Context, _, _, _ string, _ int, _ *time.Time) ([]domain.JobSecret, error) {
+			return nil, nil
 		},
 		UpdateJobEndpointFunc: func(_ context.Context, jobID, endpointURL, fallbackURL, signingSecret string) error {
 			capture.Store(&capturedEndpointUpdate{
