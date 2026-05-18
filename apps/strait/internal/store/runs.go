@@ -3015,15 +3015,30 @@ type CanceledRun struct {
 // CancelActiveRunsForJob cancels all non-terminal runs for a job and returns
 // details of each canceled run. Used by the cron overlap policy cancel_running.
 func (q *Queries) CancelActiveRunsForJob(ctx context.Context, jobID string, reason string) ([]CanceledRun, error) {
+	return q.cancelActiveRunsForJob(ctx, jobID, "", reason)
+}
+
+// CancelActiveRunsForJobExcept cancels all non-terminal runs for a job except
+// excludeRunID. Cron cancel_running uses this after inserting the replacement
+// run so the replacement cannot be canceled by the broad active-run update.
+func (q *Queries) CancelActiveRunsForJobExcept(ctx context.Context, jobID string, excludeRunID string, reason string) ([]CanceledRun, error) {
+	if excludeRunID == "" {
+		return q.CancelActiveRunsForJob(ctx, jobID, reason)
+	}
+	return q.cancelActiveRunsForJob(ctx, jobID, excludeRunID, reason)
+}
+
+func (q *Queries) cancelActiveRunsForJob(ctx context.Context, jobID string, excludeRunID string, reason string) ([]CanceledRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CancelActiveRunsForJob")
 	defer span.End()
 
 	query := `UPDATE job_runs
 		SET status = 'canceled', finished_at = NOW(), error = $2
 		WHERE job_id = $1
+		  AND ($3 = '' OR id <> $3)
 		  AND status IN ('queued', 'dequeued', 'executing', 'waiting', 'delayed')
 		RETURNING id, job_id, project_id, COALESCE(workflow_step_run_id, ''), COALESCE(execution_mode, 'http')`
-	rows, err := q.db.Query(ctx, query, jobID, reason)
+	rows, err := q.db.Query(ctx, query, jobID, reason, excludeRunID)
 	if err != nil {
 		return nil, fmt.Errorf("cancel active runs for job: %w", err)
 	}

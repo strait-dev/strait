@@ -56,6 +56,7 @@ type mockCronStore struct {
 	countRunningWfRunsFn        func(ctx context.Context, workflowID string) (int, error)
 	countActiveRunsForJobFn     func(ctx context.Context, jobID string) (int, error)
 	cancelActiveRunsForJobFn    func(ctx context.Context, jobID string, reason string) ([]store.CanceledRun, error)
+	cancelActiveRunsExceptFn    func(ctx context.Context, jobID string, excludeRunID string, reason string) ([]store.CanceledRun, error)
 	cancelChildRunsByParentIDFn func(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error)
 	getProjectQuotaFn           func(ctx context.Context, projectID string) (*store.ProjectQuota, error)
 	countProjectQueuedRunsFn    func(ctx context.Context, projectID string) (int, error)
@@ -100,6 +101,13 @@ func (m *mockCronStore) CancelActiveRunsForJob(ctx context.Context, jobID string
 		return m.cancelActiveRunsForJobFn(ctx, jobID, reason)
 	}
 	return nil, nil
+}
+
+func (m *mockCronStore) CancelActiveRunsForJobExcept(ctx context.Context, jobID string, excludeRunID string, reason string) ([]store.CanceledRun, error) {
+	if m.cancelActiveRunsExceptFn != nil {
+		return m.cancelActiveRunsExceptFn(ctx, jobID, excludeRunID, reason)
+	}
+	return m.CancelActiveRunsForJob(ctx, jobID, reason)
 }
 
 func (m *mockCronStore) CancelChildRunsByParentIDs(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error) {

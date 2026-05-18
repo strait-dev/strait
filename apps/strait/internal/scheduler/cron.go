@@ -15,6 +15,7 @@ import (
 	"strait/internal/store"
 	"strait/internal/telemetry"
 
+	"github.com/google/uuid"
 	"github.com/robfig/cron/v3"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -30,6 +31,10 @@ type CronStore interface {
 	CancelActiveRunsForJob(ctx context.Context, jobID string, reason string) ([]store.CanceledRun, error)
 	CancelChildRunsByParentIDs(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error)
 	TryAcquireCronFire(ctx context.Context, projectID, key string, ttl time.Duration) (bool, error)
+}
+
+type cronCancelExceptStore interface {
+	CancelActiveRunsForJobExcept(ctx context.Context, jobID string, excludeRunID string, reason string) ([]store.CanceledRun, error)
 }
 
 type CronAdmissionStore interface {
@@ -177,6 +182,7 @@ func (cs *CronScheduler) triggerJobLocked(ctx context.Context, job domain.Job, f
 	cs.recordCronDrift(ctx, job.Cron)
 
 	run := domain.JobRun{
+		ID:             uuid.Must(uuid.NewV7()).String(),
 		JobID:          job.ID,
 		ProjectID:      job.ProjectID,
 		Tags:           job.Tags,
@@ -252,7 +258,7 @@ func (cs *CronScheduler) triggerJobLocked(ctx context.Context, job domain.Job, f
 	}
 
 	if job.CronOverlapPolicy == domain.OverlapPolicyCancelRunning {
-		canceledRuns, cancelErr := cs.store.CancelActiveRunsForJob(ctx, job.ID,
+		canceledRuns, cancelErr := cs.cancelActiveRunsForReplacement(ctx, job.ID, run.ID,
 			"canceled by cron overlap policy: cancel_running")
 		if cancelErr != nil {
 			slog.Error("failed to cancel active runs after cron enqueue", "job_id", job.ID, "error", cancelErr)
@@ -273,6 +279,13 @@ func (cs *CronScheduler) triggerJobLocked(ctx context.Context, job domain.Job, f
 	}
 
 	slog.Info("cron run enqueued", "job_id", job.ID, "project_id", job.ProjectID, "run_id", run.ID)
+}
+
+func (cs *CronScheduler) cancelActiveRunsForReplacement(ctx context.Context, jobID string, replacementRunID string, reason string) ([]store.CanceledRun, error) {
+	if s, ok := cs.store.(cronCancelExceptStore); ok {
+		return s.CancelActiveRunsForJobExcept(ctx, jobID, replacementRunID, reason)
+	}
+	return cs.store.CancelActiveRunsForJob(ctx, jobID, reason)
 }
 
 func (cs *CronScheduler) withCronAdmissionGuard(ctx context.Context, job *domain.Job, fn func(context.Context, store.DBTX) error) error {

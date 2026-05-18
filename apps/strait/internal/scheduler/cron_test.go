@@ -535,8 +535,8 @@ func TestCronScheduler_TriggerJob_OverlapPolicyCancelRunning_CancelError(t *test
 	job := domain.Job{ID: "job-1", ProjectID: "proj-1", CronOverlapPolicy: domain.OverlapPolicyCancelRunning}
 	cs.triggerJob(context.Background(), job)
 
-	if enqueued {
-		t.Fatal("expected run not to be enqueued on cancel error")
+	if !enqueued {
+		t.Fatal("expected replacement run to remain enqueued when post-enqueue cancel fails")
 	}
 }
 
@@ -933,15 +933,19 @@ func TestDeepSecCronScheduler_CancelRunningCancelsOnlyAfterReplacementEnqueue(t 
 	t.Parallel()
 
 	var events []string
+	var replacementRunID string
+	var excludedRunID string
 	s := &mockCronStore{
-		cancelActiveRunsForJobFn: func(_ context.Context, _ string, _ string) ([]store.CanceledRun, error) {
+		cancelActiveRunsExceptFn: func(_ context.Context, _ string, excludeRunID string, _ string) ([]store.CanceledRun, error) {
 			events = append(events, "cancel")
+			excludedRunID = excludeRunID
 			return []store.CanceledRun{{ID: "run-1", ExecutionMode: domain.ExecutionModeHTTP}}, nil
 		},
 	}
 	q := &mockQueue{
-		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
 			events = append(events, "enqueue")
+			replacementRunID = run.ID
 			return nil
 		},
 	}
@@ -952,6 +956,12 @@ func TestDeepSecCronScheduler_CancelRunningCancelsOnlyAfterReplacementEnqueue(t 
 
 	if strings.Join(events, ",") != "enqueue,cancel" {
 		t.Fatalf("events = %v, want enqueue before cancel", events)
+	}
+	if replacementRunID == "" {
+		t.Fatal("replacement run id was not captured")
+	}
+	if excludedRunID != replacementRunID {
+		t.Fatalf("excluded run id = %q, want replacement run id %q", excludedRunID, replacementRunID)
 	}
 }
 
