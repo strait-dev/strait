@@ -136,6 +136,56 @@ func TestUsage_OrgScopedAPIKeyCanReadOrgBillingState(t *testing.T) {
 	}
 }
 
+func TestUsage_ProjectScopedUserCannotReadOrgBillingControls(t *testing.T) {
+	t.Parallel()
+
+	enforcer := &mockBillingEnforcer{
+		activeProjectOrgMap: map[string]string{"proj-A": "org-A"},
+	}
+	srv := newUsageTestServer(t, enforcer, &mockUsageService{})
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-A")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{"*"})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "user-project-scoped")
+
+	_, err := srv.handleGetCurrentUsage(ctx, &GetCurrentUsageInput{OrgID: "org-A"})
+	if !isHumaStatusError(err, http.StatusForbidden) {
+		t.Fatalf("current usage error = %v, want 403", err)
+	}
+	_, err = srv.handleGetDowngradePreview(ctx, &GetDowngradePreviewInput{OrgID: "org-A", TargetTier: string(domain.PlanFree)})
+	if !isHumaStatusError(err, http.StatusForbidden) {
+		t.Fatalf("downgrade preview error = %v, want 403", err)
+	}
+}
+
+func TestUsage_ProjectScopedUserCannotMutateOrgBillingControls(t *testing.T) {
+	t.Parallel()
+
+	enforcer := &mockBillingEnforcer{
+		activeProjectOrgMap: map[string]string{"proj-A": "org-A"},
+	}
+	srv := newUsageTestServer(t, enforcer, &mockUsageService{})
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-A")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{"*"})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "user-project-scoped")
+
+	_, err := srv.handleUpdateSpendingLimit(ctx, &UpdateSpendingLimitInput{
+		OrgID: "org-A",
+		Body:  updateSpendingLimitRequest{LimitMicrousd: 1000, Action: "notify"},
+	})
+	if !isHumaStatusError(err, http.StatusForbidden) {
+		t.Fatalf("spending limit update error = %v, want 403", err)
+	}
+	_, err = srv.handleUpdateEmailPreferences(ctx, &UpdateEmailPreferencesInput{
+		OrgID: "org-A",
+		Body:  updateEmailPreferencesRequest{MonthlyUsageEmail: false},
+	})
+	if !isHumaStatusError(err, http.StatusForbidden) {
+		t.Fatalf("email preferences update error = %v, want 403", err)
+	}
+}
+
 func TestUsage_ProjectScopedAPIKeyCannotMutateSiblingProjectBudget(t *testing.T) {
 	t.Parallel()
 

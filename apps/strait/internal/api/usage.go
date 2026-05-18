@@ -80,11 +80,8 @@ func requireOrgScopedBillingWrite(ctx context.Context, orgID string) error {
 	if isInternalCaller(ctx) || scopesFromContext(ctx) == nil {
 		return nil
 	}
-	if actorTypeFromContext(ctx) != "api_key" {
-		return nil
-	}
 	if callerOrg := orgIDFromContext(ctx); callerOrg == "" || callerOrg != orgID {
-		return huma.Error403Forbidden("org-scoped billing mutation requires an API key bound to the target organization")
+		return huma.Error403Forbidden("org-scoped billing mutation requires authentication bound to the target organization")
 	}
 	return nil
 }
@@ -93,11 +90,8 @@ func requireOrgScopedBillingRead(ctx context.Context, orgID string) error {
 	if isInternalCaller(ctx) || scopesFromContext(ctx) == nil {
 		return nil
 	}
-	if actorTypeFromContext(ctx) != "api_key" {
-		return nil
-	}
 	if callerOrg := orgIDFromContext(ctx); callerOrg == "" || callerOrg != orgID {
-		return huma.Error403Forbidden("org-scoped billing read requires an API key bound to the target organization")
+		return huma.Error403Forbidden("org-scoped billing read requires authentication bound to the target organization")
 	}
 	return nil
 }
