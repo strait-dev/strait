@@ -1935,6 +1935,51 @@ func TestHandleRetryWebhookDelivery_Conflict(t *testing.T) {
 	}
 }
 
+func TestHandleRetryWebhookDelivery_GetNotFoundErrorReturns404(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetWebhookDeliveryFunc: func(context.Context, string) (*domain.WebhookDelivery, error) {
+			return nil, fmt.Errorf("webhook delivery not found")
+		},
+		RetryWebhookDeliveryFunc: func(context.Context, string) (*domain.WebhookDelivery, error) {
+			t.Fatal("RetryWebhookDelivery should not be called when get returns not found")
+			return nil, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	req := authedRequest(http.MethodPost, "/v1/webhooks/deliveries/missing/retry", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404; body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleRetryWebhookDelivery_NoLongerRetriableReturns409(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetWebhookDeliveryFunc: func(context.Context, string) (*domain.WebhookDelivery, error) {
+			return &domain.WebhookDelivery{ID: "del-1", Status: domain.WebhookStatusFailed}, nil
+		},
+		RetryWebhookDeliveryFunc: func(context.Context, string) (*domain.WebhookDelivery, error) {
+			return nil, fmt.Errorf("webhook delivery not retriable")
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	req := authedRequest(http.MethodPost, "/v1/webhooks/deliveries/del-1/retry", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409; body: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestHandleRetryWebhookDelivery(t *testing.T) {
 	t.Parallel()
 

@@ -137,6 +137,9 @@ func (s *Server) handleRetryWebhookDelivery(ctx context.Context, input *RetryWeb
 	}
 	d, err := s.store.GetWebhookDelivery(ctx, deliveryID)
 	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			return nil, huma.Error404NotFound("delivery not found")
+		}
 		return nil, huma.Error500InternalServerError("failed to get delivery")
 	}
 	if d == nil {
@@ -150,6 +153,13 @@ func (s *Server) handleRetryWebhookDelivery(ctx context.Context, input *RetryWeb
 	}
 	retried, err := s.store.RetryWebhookDelivery(ctx, deliveryID)
 	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "not found") {
+			return nil, huma.Error404NotFound("delivery not found")
+		}
+		if strings.Contains(errMsg, "not retriable") {
+			return nil, huma.Error409Conflict("only failed or dead deliveries can be retried")
+		}
 		return nil, huma.Error500InternalServerError("failed to retry delivery")
 	}
 	s.emitAuditEvent(ctx, domain.AuditActionWebhookDeliveryRetried, "webhook_delivery", deliveryID, map[string]any{
