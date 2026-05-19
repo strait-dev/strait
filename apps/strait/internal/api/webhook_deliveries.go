@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/httputil"
 
 	"github.com/danielgtaylor/huma/v2"
 )
@@ -44,6 +45,7 @@ func (s *Server) handleListWebhookDeliveries(ctx context.Context, input *ListWeb
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list webhook deliveries")
 	}
+	deliveries = sanitizeWebhookDeliveryResponses(deliveries)
 	return &ListWebhookDeliveriesOutput{Body: paginatedResult(deliveries, limit, func(d domain.WebhookDelivery) string {
 		return d.CreatedAt.Format(time.RFC3339Nano)
 	})}, nil
@@ -113,7 +115,7 @@ func (s *Server) handleGetWebhookDelivery(ctx context.Context, input *GetWebhook
 	if err := s.verifyDeliveryProjectAccess(ctx, delivery); err != nil {
 		return nil, huma.Error404NotFound("delivery not found")
 	}
-	return &GetWebhookDeliveryOutput{Body: delivery}, nil
+	return &GetWebhookDeliveryOutput{Body: sanitizeWebhookDeliveryResponsePtr(delivery)}, nil
 }
 
 type RetryWebhookDeliveryInput struct {
@@ -154,7 +156,27 @@ func (s *Server) handleRetryWebhookDelivery(ctx context.Context, input *RetryWeb
 		"subscription_id": d.SubscriptionID,
 		"previous_status": d.Status,
 	})
-	return &RetryWebhookDeliveryOutput{Body: retried}, nil
+	return &RetryWebhookDeliveryOutput{Body: sanitizeWebhookDeliveryResponsePtr(retried)}, nil
+}
+
+func sanitizeWebhookDeliveryResponses(deliveries []domain.WebhookDelivery) []domain.WebhookDelivery {
+	for i := range deliveries {
+		deliveries[i] = sanitizeWebhookDeliveryResponse(deliveries[i])
+	}
+	return deliveries
+}
+
+func sanitizeWebhookDeliveryResponsePtr(delivery *domain.WebhookDelivery) *domain.WebhookDelivery {
+	if delivery == nil {
+		return nil
+	}
+	sanitized := sanitizeWebhookDeliveryResponse(*delivery)
+	return &sanitized
+}
+
+func sanitizeWebhookDeliveryResponse(delivery domain.WebhookDelivery) domain.WebhookDelivery {
+	delivery.WebhookURL = httputil.RedactURLForLog(delivery.WebhookURL)
+	return delivery
 }
 
 // verifyDeliveryProjectAccess checks that the webhook delivery belongs to the

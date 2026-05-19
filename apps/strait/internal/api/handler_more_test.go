@@ -1578,6 +1578,42 @@ func TestHandleListWebhookDeliveries_Success(t *testing.T) {
 	}
 }
 
+func TestHandleListWebhookDeliveries_RedactsWebhookURLSecrets(t *testing.T) {
+	t.Parallel()
+
+	rawURL := "https://user:pass@hooks.example.com/services/T00/B00/token?secret=value#frag"
+	ms := &APIStoreMock{
+		ListWebhookDeliveriesFunc: func(context.Context, string, string, int, *time.Time) ([]domain.WebhookDelivery, error) {
+			return []domain.WebhookDelivery{{
+				ID:         "del-1",
+				WebhookURL: rawURL,
+				Status:     domain.WebhookStatusFailed,
+				CreatedAt:  time.Now().UTC(),
+			}}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	req := authedProjectRequest(http.MethodGet, "/v1/webhook-deliveries", "", "proj-1")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "user:pass") || strings.Contains(w.Body.String(), "/services/") || strings.Contains(w.Body.String(), "secret=value") {
+		t.Fatalf("response leaked sensitive webhook URL components: %s", w.Body.String())
+	}
+	var deliveries []domain.WebhookDelivery
+	decodePaginatedList(t, w.Body.Bytes(), &deliveries)
+	if len(deliveries) != 1 {
+		t.Fatalf("len(deliveries) = %d, want 1", len(deliveries))
+	}
+	if deliveries[0].WebhookURL != "https://hooks.example.com" {
+		t.Fatalf("webhook_url = %q, want redacted host URL", deliveries[0].WebhookURL)
+	}
+}
+
 func TestHandleListWebhookDeliveries_WithStatusFilter(t *testing.T) {
 	t.Parallel()
 	var gotStatus string
@@ -1805,6 +1841,36 @@ func TestHandleGetWebhookDelivery_Success(t *testing.T) {
 	}
 }
 
+func TestHandleGetWebhookDelivery_RedactsWebhookURLSecrets(t *testing.T) {
+	t.Parallel()
+
+	rawURL := "https://user:pass@hooks.example.com/services/T00/B00/token?secret=value#frag"
+	ms := &APIStoreMock{
+		GetWebhookDeliveryFunc: func(context.Context, string) (*domain.WebhookDelivery, error) {
+			return &domain.WebhookDelivery{ID: "del-1", WebhookURL: rawURL, Status: domain.WebhookStatusFailed}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	req := authedRequest(http.MethodGet, "/v1/webhooks/deliveries/del-1", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "user:pass") || strings.Contains(w.Body.String(), "/services/") || strings.Contains(w.Body.String(), "secret=value") {
+		t.Fatalf("response leaked sensitive webhook URL components: %s", w.Body.String())
+	}
+	var delivery domain.WebhookDelivery
+	if err := json.NewDecoder(w.Body).Decode(&delivery); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if delivery.WebhookURL != "https://hooks.example.com" {
+		t.Fatalf("webhook_url = %q, want redacted host URL", delivery.WebhookURL)
+	}
+}
+
 func TestHandleGetWebhookDelivery_NotFound(t *testing.T) {
 	t.Parallel()
 
@@ -2022,6 +2088,39 @@ func TestHandleTriggerJob_PriorityValidRange(t *testing.T) {
 				t.Errorf("status = %d, want 201; body: %s", w.Code, w.Body.String())
 			}
 		})
+	}
+}
+
+func TestHandleRetryWebhookDelivery_RedactsWebhookURLSecrets(t *testing.T) {
+	t.Parallel()
+
+	rawURL := "https://user:pass@hooks.example.com/services/T00/B00/token?secret=value#frag"
+	ms := &APIStoreMock{
+		GetWebhookDeliveryFunc: func(context.Context, string) (*domain.WebhookDelivery, error) {
+			return &domain.WebhookDelivery{ID: "del-1", WebhookURL: rawURL, Status: domain.WebhookStatusFailed}, nil
+		},
+		RetryWebhookDeliveryFunc: func(context.Context, string) (*domain.WebhookDelivery, error) {
+			return &domain.WebhookDelivery{ID: "del-1", WebhookURL: rawURL, Status: domain.WebhookStatusPending}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	req := authedRequest(http.MethodPost, "/v1/webhooks/deliveries/del-1/retry", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "user:pass") || strings.Contains(w.Body.String(), "/services/") || strings.Contains(w.Body.String(), "secret=value") {
+		t.Fatalf("response leaked sensitive webhook URL components: %s", w.Body.String())
+	}
+	var delivery domain.WebhookDelivery
+	if err := json.NewDecoder(w.Body).Decode(&delivery); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if delivery.WebhookURL != "https://hooks.example.com" {
+		t.Fatalf("webhook_url = %q, want redacted host URL", delivery.WebhookURL)
 	}
 }
 
