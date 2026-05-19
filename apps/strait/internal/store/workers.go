@@ -13,15 +13,9 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-// RegisterWorker upserts a worker record, updating last_seen_at and status.
-//
-// The UPDATE branch is gated on workers.project_id = EXCLUDED.project_id so
-// a worker_id colliding with a different project (e.g. across replicas
-// where the in-memory cross-project rejection only covers the local
-// process) cannot silently overwrite the original project's queue,
-// hostname, version, or status fields. On project mismatch the upsert is
-// a silent no-op; callers should detect and reject the conflict at the
-// stream layer via GetWorkerByIDAcrossProjects.
+// RegisterWorker upserts a worker record scoped by project_id and worker id,
+// updating last_seen_at and status. Worker IDs are tenant-local identifiers:
+// two projects may use the same worker ID without colliding.
 func (q *Queries) RegisterWorker(ctx context.Context, w *domain.Worker) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.RegisterWorker")
 	defer span.End()
@@ -29,13 +23,12 @@ func (q *Queries) RegisterWorker(ctx context.Context, w *domain.Worker) error {
 	query := `
 		INSERT INTO workers (id, project_id, queue_name, hostname, version, status, last_seen_at, registered_at)
 		VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-		ON CONFLICT (id) DO UPDATE
+		ON CONFLICT (project_id, id) DO UPDATE
 		SET queue_name   = EXCLUDED.queue_name,
 		    hostname     = EXCLUDED.hostname,
 		    version      = EXCLUDED.version,
 		    status       = EXCLUDED.status,
-		    last_seen_at = NOW()
-		WHERE workers.project_id = EXCLUDED.project_id`
+		    last_seen_at = NOW()`
 
 	_, err := q.db.Exec(ctx, query,
 		w.ID, w.ProjectID, w.QueueName, w.Hostname, w.Version, string(w.Status),
@@ -46,17 +39,17 @@ func (q *Queries) RegisterWorker(ctx context.Context, w *domain.Worker) error {
 	return nil
 }
 
-// GetWorkerProjectByID returns the project_id of an existing workers row by
-// its primary key, or "" with (false, nil) if no row exists. Used by the
-// gRPC stream layer to reject cross-project worker_id collisions before
-// any DB write or in-memory registration.
+// GetWorkerProjectByID returns one project_id for an existing worker id, or
+// "" with (false, nil) if no row exists. Worker IDs are scoped by project, so
+// this helper is only for legacy diagnostics and must not be used as an
+// authorization or registration uniqueness check.
 func (q *Queries) GetWorkerProjectByID(ctx context.Context, workerID string) (string, bool, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetWorkerProjectByID")
 	defer span.End()
 
 	var projectID string
 	err := q.db.QueryRow(ctx,
-		`SELECT project_id FROM workers WHERE id = $1`,
+		`SELECT project_id FROM workers WHERE id = $1 ORDER BY registered_at DESC LIMIT 1`,
 		workerID,
 	).Scan(&projectID)
 	if err != nil {
@@ -68,14 +61,14 @@ func (q *Queries) GetWorkerProjectByID(ctx context.Context, workerID string) (st
 	return projectID, true, nil
 }
 
-// SetWorkerStatus transitions a worker to a new status.
-func (q *Queries) SetWorkerStatus(ctx context.Context, workerID string, status domain.WorkerStatus) error {
+// SetWorkerStatus transitions a worker to a new status within one project.
+func (q *Queries) SetWorkerStatus(ctx context.Context, workerID, projectID string, status domain.WorkerStatus) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.SetWorkerStatus")
 	defer span.End()
 
 	_, err := q.db.Exec(ctx,
-		`UPDATE workers SET status = $1, last_seen_at = NOW() WHERE id = $2`,
-		string(status), workerID,
+		`UPDATE workers SET status = $1, last_seen_at = NOW() WHERE id = $2 AND project_id = $3`,
+		string(status), workerID, projectID,
 	)
 	if err != nil {
 		return fmt.Errorf("set worker status: %w", err)

@@ -63,6 +63,14 @@ var (
 	errAPIKeyExpired     = errors.New("api key expired")
 )
 
+func workerDisconnectChannel(projectID, workerID string) string {
+	return fmt.Sprintf("worker:disconnect:%s:%s", projectID, workerID)
+}
+
+func workerDisconnectAckChannel(projectID, workerID string) string {
+	return fmt.Sprintf("worker:disconnect_ack:%s:%s", projectID, workerID)
+}
+
 // workerService implements workerv1.WorkerServiceServer.
 type workerService struct {
 	queries         *store.Queries
@@ -161,17 +169,6 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	}
 	configureGRPCSentryWorkerScope(ctx, reg.WorkerId, reg.Name, reg.Hostname, reg.SdkLanguage, reg.SdkVersion)
 
-	// Reject cross-project worker_id collisions. The in-memory registry
-	// rejects same-id-different-api-key on this replica, but a separate
-	// replica or a stale workers row could already own this id under a
-	// different project. Without this check, the DB-side
-	// `WHERE workers.project_id = EXCLUDED.project_id` upsert guard would
-	// silently no-op the row sync, leaving the worker alive in memory but
-	// invisible in the DB to its own project.
-	if err := s.rejectCrossProjectWorkerCollision(ctx, reg.WorkerId, projectID); err != nil {
-		return err
-	}
-
 	workerConnectionReservationID := uuid.Must(uuid.NewV7()).String()
 	orgID, releaseWorkerConnection, err := s.checkPlanConnectionLimit(ctx, projectID, workerConnectionReservationID)
 	if err != nil {
@@ -235,7 +232,7 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	// Subscribe to the cross-replica force-disconnect channel for this worker.
 	// When DELETE /v1/workers/:id is called on any replica, it publishes to this
 	// channel and the owning replica (which is running this goroutine) closes the stream.
-	disconnectChannel := fmt.Sprintf("worker:disconnect:%s", reg.WorkerId)
+	disconnectChannel := workerDisconnectChannel(projectID, reg.WorkerId)
 	disconnectSub, subErr := s.pub.Subscribe(ctx, disconnectChannel)
 	if subErr != nil {
 		slog.Warn("grpc: failed to subscribe to disconnect channel",
@@ -299,20 +296,6 @@ func sendWorkerRegistrationAck(stream workerv1.WorkerService_StreamTasksServer, 
 			Ack: &workerv1.Acknowledged{Id: workerID},
 		},
 	})
-}
-
-func (s *workerService) rejectCrossProjectWorkerCollision(ctx context.Context, workerID, projectID string) error {
-	existingProject, ok, err := s.queries.GetWorkerProjectByID(ctx, workerID)
-	if err != nil {
-		slog.Warn("grpc registration: worker project lookup failed",
-			"worker_id", workerID, "error", err)
-		return status.Errorf(codes.Internal, "worker registration: lookup failed")
-	}
-	if ok && existingProject != projectID {
-		return status.Errorf(codes.AlreadyExists,
-			"worker_id %q already registered under a different project", workerID)
-	}
-	return nil
 }
 
 func newConnectedWorkerFromRegistration(
@@ -1379,11 +1362,11 @@ func (s *workerService) finalizeDisconnect(projectID, workerID string) {
 			"task_count", count,
 		)
 	}
-	if err := s.queries.SetWorkerStatus(ctx, workerID, domain.WorkerStatusOffline); err != nil {
+	if err := s.queries.SetWorkerStatus(ctx, workerID, projectID, domain.WorkerStatusOffline); err != nil {
 		slog.Warn("grpc worker disconnect: failed to mark offline",
 			"worker_id", workerID, "error", err)
 	}
-	ackChannel := fmt.Sprintf("worker:disconnect_ack:%s", workerID)
+	ackChannel := workerDisconnectAckChannel(projectID, workerID)
 	if err := s.pub.Publish(ctx, ackChannel, []byte(workerID)); err != nil {
 		slog.Warn("grpc worker disconnect: failed to publish ack",
 			"worker_id", workerID,

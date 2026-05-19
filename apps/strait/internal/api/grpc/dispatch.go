@@ -245,7 +245,7 @@ func (d *WorkerDispatcher) WorkerDispatch(
 	if sendCh == nil {
 		// Defensive: a worker entry without a send channel should never be
 		// pickable, but if one slipped through, release the reservation.
-		d.registry.IncrementSlots(workerID)
+		d.registry.IncrementProjectSlots(run.ProjectID, workerID)
 		trace.Result = "nil_send_channel"
 		return nil, ErrNoWorkerAvailable
 	}
@@ -265,7 +265,7 @@ func (d *WorkerDispatcher) WorkerDispatch(
 		Status:    domain.WorkerTaskStatusAssigned,
 	}
 	if err := d.queries.CreateWorkerTask(ctx, task); err != nil {
-		d.registry.IncrementSlots(workerID)
+		d.registry.IncrementProjectSlots(run.ProjectID, workerID)
 		trace.TaskID = task.ID
 		trace.Result = "task_record_failed"
 		return nil, fmt.Errorf("worker dispatch: record task: %w", err)
@@ -279,7 +279,7 @@ func (d *WorkerDispatcher) WorkerDispatch(
 	resultCh, registered := d.resultChannels.TryRegister(run.ID, run.ProjectID, workerID, task.ID, task.Attempt)
 	if !registered {
 		d.markWorkerTaskFailedAfterAbort(ctx, task.ID, run.ID)
-		d.registry.IncrementSlots(workerID)
+		d.registry.IncrementProjectSlots(run.ProjectID, workerID)
 		trace.Result = "result_channel_duplicate"
 		return nil, ErrResultChannelAlreadyRegistered
 	}
@@ -289,7 +289,7 @@ func (d *WorkerDispatcher) WorkerDispatch(
 	assignment, err := d.buildAssignment(run, job, task.ID)
 	if err != nil {
 		d.markWorkerTaskFailedAfterAbort(ctx, task.ID, run.ID)
-		d.registry.IncrementSlots(workerID)
+		d.registry.IncrementProjectSlots(run.ProjectID, workerID)
 		return nil, err
 	}
 	msg := &workerv1.ServerMessage{
@@ -304,7 +304,7 @@ func (d *WorkerDispatcher) WorkerDispatch(
 		d.emitTaskRoutedAudit(ctx, run, job, workerID)
 	case <-ctx.Done():
 		d.markWorkerTaskFailedAfterAbort(ctx, task.ID, run.ID)
-		d.registry.IncrementSlots(workerID)
+		d.registry.IncrementProjectSlots(run.ProjectID, workerID)
 		trace.Result = "send_cancelled"
 		return nil, ctx.Err()
 	}
@@ -312,7 +312,7 @@ func (d *WorkerDispatcher) WorkerDispatch(
 	// Wait for the TaskResult or context cancellation.
 	select {
 	case result, open := <-resultCh:
-		d.registry.IncrementSlots(workerID)
+		d.registry.IncrementProjectSlots(run.ProjectID, workerID)
 		if !open || result == nil {
 			trace.Result = "result_channel_closed"
 			return nil, fmt.Errorf("worker dispatch: result channel closed for run %s", run.ID)
@@ -334,7 +334,7 @@ func (d *WorkerDispatcher) WorkerDispatch(
 		// Best-effort cancellation: notify the worker.
 		d.sendCancel(sendCh, run.ID)
 		d.markWorkerTaskFailedAfterAbort(ctx, task.ID, run.ID)
-		d.registry.IncrementSlots(workerID)
+		d.registry.IncrementProjectSlots(run.ProjectID, workerID)
 		trace.Result = "wait_cancelled"
 		return nil, ctx.Err()
 	}

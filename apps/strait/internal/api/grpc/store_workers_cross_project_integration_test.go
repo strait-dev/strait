@@ -11,12 +11,11 @@ import (
 	"strait/internal/testutil"
 )
 
-// TestIntegration_RegisterWorker_CrossProjectIDCollisionDoesNotOverwrite
-// pins the Phase F DB guard. With ON CONFLICT (id) gated by
-// `WHERE workers.project_id = EXCLUDED.project_id`, an attempted upsert
-// from a different project must NOT overwrite the original row's
-// queue/hostname/version/status/last_seen_at fields.
-func TestIntegration_RegisterWorker_CrossProjectIDCollisionDoesNotOverwrite(t *testing.T) {
+// TestIntegration_RegisterWorker_SameIDAcrossProjectsCreatesSeparateRows
+// proves worker IDs are tenant-local in the persistent workers table. A
+// project must not be able to squat on a common worker ID and block another
+// project from registering the same name.
+func TestIntegration_RegisterWorker_SameIDAcrossProjectsCreatesSeparateRows(t *testing.T) {
 	ctx := context.Background()
 	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
 	if err != nil {
@@ -46,9 +45,6 @@ func TestIntegration_RegisterWorker_CrossProjectIDCollisionDoesNotOverwrite(t *t
 		t.Fatalf("register A: %v", err)
 	}
 
-	// Project B attempts to register the same worker_id with different
-	// queue/hostname/version. Pre-fix this would silently overwrite
-	// project A's row fields.
 	wB := &domain.Worker{
 		ID:        workerID,
 		ProjectID: projectB,
@@ -58,34 +54,47 @@ func TestIntegration_RegisterWorker_CrossProjectIDCollisionDoesNotOverwrite(t *t
 		Status:    domain.WorkerStatusDraining,
 	}
 	if err := q.RegisterWorker(ctx, wB); err != nil {
-		t.Fatalf("register B (should be silent no-op, not error): %v", err)
+		t.Fatalf("register B: %v", err)
 	}
 
-	// Read back: row must still belong to project A with project A's fields.
-	var (
-		gotProject, gotQueue, gotHostname, gotVersion, gotStatus string
-	)
-	err = env.DB.Pool.QueryRow(ctx,
-		`SELECT project_id, queue_name, hostname, version, status FROM workers WHERE id = $1`,
+	rows, err := env.DB.Pool.Query(ctx,
+		`SELECT project_id, queue_name, hostname, version, status
+		 FROM workers
+		 WHERE id = $1
+		 ORDER BY project_id`,
 		workerID,
-	).Scan(&gotProject, &gotQueue, &gotHostname, &gotVersion, &gotStatus)
+	)
 	if err != nil {
 		t.Fatalf("read back: %v", err)
 	}
-	if gotProject != projectA {
-		t.Errorf("project_id overwritten: got %q want %q", gotProject, projectA)
+	defer rows.Close()
+
+	type workerRow struct {
+		projectID string
+		queue     string
+		hostname  string
+		version   string
+		status    string
 	}
-	if gotQueue != "queue-a" {
-		t.Errorf("queue_name overwritten: got %q want %q", gotQueue, "queue-a")
+	var got []workerRow
+	for rows.Next() {
+		var row workerRow
+		if err := rows.Scan(&row.projectID, &row.queue, &row.hostname, &row.version, &row.status); err != nil {
+			t.Fatalf("scan worker row: %v", err)
+		}
+		got = append(got, row)
 	}
-	if gotHostname != "host-a" {
-		t.Errorf("hostname overwritten: got %q want %q", gotHostname, "host-a")
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows err: %v", err)
 	}
-	if gotVersion != "1.0.0" {
-		t.Errorf("version overwritten: got %q want %q", gotVersion, "1.0.0")
+	if len(got) != 2 {
+		t.Fatalf("workers with shared id = %d, want 2: %+v", len(got), got)
 	}
-	if gotStatus != string(domain.WorkerStatusActive) {
-		t.Errorf("status overwritten: got %q want %q", gotStatus, domain.WorkerStatusActive)
+	if got[0] != (workerRow{projectID: projectA, queue: "queue-a", hostname: "host-a", version: "1.0.0", status: string(domain.WorkerStatusActive)}) {
+		t.Fatalf("project A row mismatch: %+v", got[0])
+	}
+	if got[1] != (workerRow{projectID: projectB, queue: "queue-b", hostname: "host-b", version: "9.9.9", status: string(domain.WorkerStatusDraining)}) {
+		t.Fatalf("project B row mismatch: %+v", got[1])
 	}
 }
 
@@ -132,8 +141,8 @@ func TestIntegration_RegisterWorker_SameProjectStillUpserts(t *testing.T) {
 		gotQueue, gotHostname, gotVersion, gotStatus string
 	)
 	err = env.DB.Pool.QueryRow(ctx,
-		`SELECT queue_name, hostname, version, status FROM workers WHERE id = $1`,
-		workerID,
+		`SELECT queue_name, hostname, version, status FROM workers WHERE id = $1 AND project_id = $2`,
+		workerID, projectID,
 	).Scan(&gotQueue, &gotHostname, &gotVersion, &gotStatus)
 	if err != nil {
 		t.Fatalf("read back: %v", err)
@@ -144,6 +153,41 @@ func TestIntegration_RegisterWorker_SameProjectStillUpserts(t *testing.T) {
 	}
 	if gotStatus != string(domain.WorkerStatusDraining) {
 		t.Errorf("status not upserted: got %q want %q", gotStatus, domain.WorkerStatusDraining)
+	}
+}
+
+func TestIntegration_WorkerTasksReferenceProjectScopedWorker(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	const workerID = "shared-id"
+	if err := q.RegisterWorker(ctx, &domain.Worker{
+		ID:        workerID,
+		ProjectID: "proj-a",
+		QueueName: "q",
+		Status:    domain.WorkerStatusActive,
+	}); err != nil {
+		t.Fatalf("register worker: %v", err)
+	}
+
+	err = q.CreateWorkerTask(ctx, &domain.WorkerTask{
+		ID:        "task-cross-project",
+		WorkerID:  workerID,
+		ProjectID: "proj-b",
+		RunID:     "run-1",
+		Attempt:   1,
+		Status:    domain.WorkerTaskStatusAssigned,
+	})
+	if err == nil {
+		t.Fatal("expected project-scoped worker FK to reject task for same worker_id in another project")
 	}
 }
 

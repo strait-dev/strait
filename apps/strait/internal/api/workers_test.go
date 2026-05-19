@@ -87,6 +87,7 @@ func TestHandleDeleteWorker_PublishErrorReturns503(t *testing.T) {
 func TestHandleDeleteWorker_HealthyPublishReturns200(t *testing.T) {
 	t.Parallel()
 	var publishedChannel string
+	var subscribedChannel string
 	var publishedData string
 	pub := &mockPublisher{
 		publishFn: func(_ context.Context, channel string, data []byte) error {
@@ -95,6 +96,7 @@ func TestHandleDeleteWorker_HealthyPublishReturns200(t *testing.T) {
 			return nil
 		},
 		subscribeFn: func(ctx context.Context, channel string) (*pubsub.Subscription, error) {
+			subscribedChannel = channel
 			ch := make(chan []byte, 1)
 			ch <- []byte("worker-1")
 			return pubsub.NewSubscription(ch, func() {}), nil
@@ -111,8 +113,11 @@ func TestHandleDeleteWorker_HealthyPublishReturns200(t *testing.T) {
 	if out == nil || out.Body["status"] != "disconnected" {
 		t.Fatalf("expected disconnected envelope, got %+v", out)
 	}
-	if !strings.HasPrefix(publishedChannel, "worker:disconnect:") {
-		t.Fatalf("expected channel prefix worker:disconnect:, got %q", publishedChannel)
+	if publishedChannel != "worker:disconnect:proj-1:worker-1" {
+		t.Fatalf("expected project-scoped disconnect channel, got %q", publishedChannel)
+	}
+	if subscribedChannel != "worker:disconnect_ack:proj-1:worker-1" {
+		t.Fatalf("expected project-scoped disconnect ack channel, got %q", subscribedChannel)
 	}
 	if publishedData != "worker-1" {
 		t.Fatalf("expected published data %q, got %q", "worker-1", publishedData)

@@ -229,10 +229,10 @@ func itoa(i int) string {
 }
 
 // TestIntegration_CrossReplica_WorkerDisconnect verifies that publishing to the
-// worker:disconnect:<id> Redis channel causes a subscribed stream to receive the
-// signal. This exercises the cross-replica disconnect path end-to-end: the DELETE
-// /v1/workers/:id handler publishes to this channel; the stream goroutine
-// subscribes and closes the stream on receipt.
+// project-scoped worker disconnect Redis channel causes a subscribed stream to
+// receive the signal. This exercises the cross-replica disconnect path
+// end-to-end: the DELETE /v1/workers/:id handler publishes to this channel;
+// the stream goroutine subscribes and closes the stream on receipt.
 func TestIntegration_CrossReplica_WorkerDisconnect(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -249,7 +249,8 @@ func TestIntegration_CrossReplica_WorkerDisconnect(t *testing.T) {
 	pub := pubsub.NewRedisPublisher(client)
 
 	workerID := "cross-replica-worker-1"
-	channel := fmt.Sprintf("worker:disconnect:%s", workerID)
+	projectID := "proj-cross-replica"
+	channel := workerDisconnectChannel(projectID, workerID)
 
 	sub, err := pub.Subscribe(ctx, channel)
 	if err != nil {

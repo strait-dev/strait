@@ -171,7 +171,7 @@ func TestRegistry_ReconnectStorm(t *testing.T) {
 	defer r.mu.RUnlock()
 	for keyID, workers := range r.byAPIKey {
 		for _, w := range workers {
-			if _, ok := r.workers[w.WorkerID]; !ok {
+			if _, ok := r.workers[workerRegistryKey(w.ProjectID, w.WorkerID)]; !ok {
 				t.Errorf("byAPIKey[%s] references worker %s not in workers map", keyID, w.WorkerID)
 			}
 		}
@@ -211,7 +211,7 @@ func TestRegistry_ReconnectStorm_ParallelDeregister(t *testing.T) {
 	defer r.mu.RUnlock()
 	for keyID, workers := range r.byAPIKey {
 		for _, w := range workers {
-			if _, ok := r.workers[w.WorkerID]; !ok {
+			if _, ok := r.workers[workerRegistryKey(w.ProjectID, w.WorkerID)]; !ok {
 				t.Errorf("byAPIKey[%s] references worker %s not in workers map", keyID, w.WorkerID)
 			}
 		}
