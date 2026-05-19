@@ -53,11 +53,27 @@ func newFakeSLAStore(contracts ...EnterpriseContract) *fakeSLAStore {
 	return &fakeSLAStore{contracts: contracts, credits: map[string]SLACreditRow{}}
 }
 
-func (f *fakeSLAStore) ListEnterpriseContractsActiveAt(_ context.Context, _ time.Time) ([]EnterpriseContract, error) {
+func (f *fakeSLAStore) ListEnterpriseContractsActiveAt(_ context.Context, at time.Time) ([]EnterpriseContract, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	out := make([]EnterpriseContract, len(f.contracts))
-	copy(out, f.contracts)
+	out := make([]EnterpriseContract, 0, len(f.contracts))
+	for _, contract := range f.contracts {
+		if !contract.ContractStartDate.After(at) && contract.ContractEndDate.After(at) {
+			out = append(out, contract)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeSLAStore) ListEnterpriseContractsOverlappingPeriod(_ context.Context, periodStart, periodEnd time.Time) ([]EnterpriseContract, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]EnterpriseContract, 0, len(f.contracts))
+	for _, contract := range f.contracts {
+		if contract.ContractStartDate.Before(periodEnd) && contract.ContractEndDate.After(periodStart) {
+			out = append(out, contract)
+		}
+	}
 	return out, nil
 }
 
@@ -151,6 +167,30 @@ func TestSLACalculator_99_5_Pct_IssuesTenPercent(t *testing.T) {
 	// $1,500/mo monthly base × 10% = $150 = 150_000_000 micro-USD.
 	if got.creditMicrousd != 150_000_000 {
 		t.Errorf("credit_microusd = %d, want 150_000_000", got.creditMicrousd)
+	}
+}
+
+func TestSLACalculator_IncludesContractThatLapsedDuringCreditedMonth(t *testing.T) {
+	t.Parallel()
+
+	contract := newTestContract("org-lapsed-mid-period", EnterpriseTierStarter)
+	contract.ContractStartDate = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	contract.ContractEndDate = time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC)
+	store := newFakeSLAStore(contract)
+	issuer := &fakeIssuer{noteID: "cn_lapsed"}
+	calc := NewSLACalculator(store, fakeUptimeSource{pct: 95.0}, time.Hour, nil).
+		WithIssuer(issuer).
+		WithClock(fixedClock(time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)))
+
+	if err := calc.Tick(context.Background()); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+
+	if store.count() != 1 {
+		t.Fatalf("expected 1 credit row for contract overlapping credited month, got %d", store.count())
+	}
+	if len(issuer.calls) != 1 {
+		t.Fatalf("expected 1 issuance call, got %d", len(issuer.calls))
 	}
 }
 

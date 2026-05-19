@@ -60,6 +60,7 @@ type CustomerLookupStore interface {
 type SLACalculatorStore interface {
 	SLACreditStore
 	ListEnterpriseContractsActiveAt(ctx context.Context, at time.Time) ([]EnterpriseContract, error)
+	ListEnterpriseContractsOverlappingPeriod(ctx context.Context, periodStart, periodEnd time.Time) ([]EnterpriseContract, error)
 }
 
 // SLACalculator runs the periodic SLA credit pipeline: for each
@@ -141,7 +142,7 @@ func (c *SLACalculator) Tick(ctx context.Context) error {
 	now := c.clock()
 	periodStart, periodEnd := previousCalendarMonth(now)
 
-	contracts, err := c.store.ListEnterpriseContractsActiveAt(ctx, periodEnd)
+	contracts, err := c.store.ListEnterpriseContractsOverlappingPeriod(ctx, periodStart, periodEnd)
 	if err != nil {
 		return err
 	}
