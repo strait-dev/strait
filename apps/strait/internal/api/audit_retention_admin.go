@@ -141,18 +141,34 @@ func (s *Server) handleSetAuditRetention(ctx context.Context, input *UpdateAudit
 		oldDays = s.config.AuditRetentionDefaultDays
 	}
 
-	if err := s.store.SetAuditRetentionDays(ctx, projectID, input.Body.Days); err != nil {
-		slog.Error("failed to persist audit retention override", "project_id", projectID, "error", err)
-		return nil, huma.Error500InternalServerError("failed to update retention")
-	}
-	if s.quotaCache != nil {
-		s.quotaCache.Invalidate(projectID)
-	}
-
-	s.emitAuditEvent(ctx, domain.AuditActionRetentionUpdated, "project_quotas", projectID, map[string]any{
+	audit, err := s.buildAuditEvent(ctx, domain.AuditActionRetentionUpdated, "project_quotas", projectID, map[string]any{
 		"old_days": oldDays,
 		"new_days": input.Body.Days,
 	})
+	if err != nil {
+		slog.Error("failed to build audit retention update event", "project_id", projectID, "error", err)
+		return nil, huma.Error500InternalServerError("failed to audit retention update")
+	}
+	if audit == nil {
+		return nil, huma.Error500InternalServerError("failed to audit retention update")
+	}
+
+	if err := s.runInTx(ctx, func(txStore APIStore) error {
+		if err := txStore.SetAuditRetentionDays(ctx, projectID, input.Body.Days); err != nil {
+			return err
+		}
+		if err := txStore.CreateAuditEvent(ctx, audit); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		slog.Error("failed to persist audited audit retention override", "project_id", projectID, "error", err)
+		return nil, huma.Error500InternalServerError("failed to update retention")
+	}
+
+	if s.quotaCache != nil {
+		s.quotaCache.Invalidate(projectID)
+	}
 
 	return &UpdateAuditRetentionOutput{Body: UpdateAuditRetentionResponse{
 		ProjectID: projectID,
