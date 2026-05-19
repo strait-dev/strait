@@ -57,7 +57,7 @@ func (q *Queries) CreateEventTrigger(ctx context.Context, trigger *domain.EventT
 	); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return fmt.Errorf("event key %q already exists: %w", trigger.EventKey, ErrEventKeyConflict)
+			return fmt.Errorf("event key already exists in project: %w", ErrEventKeyConflict)
 		}
 		return fmt.Errorf("create event trigger: %w", err)
 	}

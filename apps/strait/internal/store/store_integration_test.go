@@ -10206,6 +10206,109 @@ func TestEventTriggerGetByEventKeyForProjectScopesLookup(t *testing.T) {
 	}
 }
 
+func TestEventTriggerCreate_AllowsSameEventKeyAcrossProjects(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectA := "proj-event-trigger-same-key-a-" + newID()
+	projectB := "proj-event-trigger-same-key-b-" + newID()
+	_, runA := mustCreateJobRunWithBuildFactory(t, ctx, q, projectA, domain.StatusWaiting)
+	_, runB := mustCreateJobRunWithBuildFactory(t, ctx, q, projectB, domain.StatusWaiting)
+
+	now := time.Now().UTC()
+	eventKey := "evt-shared-" + newID()
+	triggerA := &domain.EventTrigger{
+		ID:             newID(),
+		EventKey:       eventKey,
+		ProjectID:      projectA,
+		SourceType:     "job_run",
+		JobRunID:       runA.ID,
+		Status:         domain.EventTriggerStatusWaiting,
+		RequestPayload: json.RawMessage(`{"project":"a"}`),
+		TimeoutSecs:    120,
+		RequestedAt:    now,
+		ExpiresAt:      now.Add(2 * time.Minute),
+		TriggerType:    "event",
+	}
+	triggerB := &domain.EventTrigger{
+		ID:             newID(),
+		EventKey:       eventKey,
+		ProjectID:      projectB,
+		SourceType:     "job_run",
+		JobRunID:       runB.ID,
+		Status:         domain.EventTriggerStatusWaiting,
+		RequestPayload: json.RawMessage(`{"project":"b"}`),
+		TimeoutSecs:    120,
+		RequestedAt:    now,
+		ExpiresAt:      now.Add(2 * time.Minute),
+		TriggerType:    "event",
+	}
+
+	if err := q.CreateEventTrigger(ctx, triggerA); err != nil {
+		t.Fatalf("CreateEventTrigger(projectA) error = %v", err)
+	}
+	if err := q.CreateEventTrigger(ctx, triggerB); err != nil {
+		t.Fatalf("CreateEventTrigger(projectB) error = %v", err)
+	}
+
+	gotA, err := q.GetEventTriggerByEventKeyForProject(ctx, eventKey, projectA)
+	if err != nil {
+		t.Fatalf("GetEventTriggerByEventKeyForProject(projectA) error = %v", err)
+	}
+	if gotA == nil || gotA.ID != triggerA.ID {
+		t.Fatalf("projectA trigger = %#v, want ID %q", gotA, triggerA.ID)
+	}
+
+	gotB, err := q.GetEventTriggerByEventKeyForProject(ctx, eventKey, projectB)
+	if err != nil {
+		t.Fatalf("GetEventTriggerByEventKeyForProject(projectB) error = %v", err)
+	}
+	if gotB == nil || gotB.ID != triggerB.ID {
+		t.Fatalf("projectB trigger = %#v, want ID %q", gotB, triggerB.ID)
+	}
+}
+
+func TestEventTriggerCreate_RejectsDuplicateEventKeyWithinProject(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-event-trigger-dupe-key-" + newID()
+	_, run := mustCreateJobRunWithBuildFactory(t, ctx, q, projectID, domain.StatusWaiting)
+
+	now := time.Now().UTC()
+	eventKey := "evt-dupe-" + newID()
+	first := &domain.EventTrigger{
+		ID:             newID(),
+		EventKey:       eventKey,
+		ProjectID:      projectID,
+		SourceType:     "job_run",
+		JobRunID:       run.ID,
+		Status:         domain.EventTriggerStatusWaiting,
+		RequestPayload: json.RawMessage(`{"attempt":1}`),
+		TimeoutSecs:    120,
+		RequestedAt:    now,
+		ExpiresAt:      now.Add(2 * time.Minute),
+		TriggerType:    "event",
+	}
+	second := *first
+	second.ID = newID()
+	second.RequestPayload = json.RawMessage(`{"attempt":2}`)
+
+	if err := q.CreateEventTrigger(ctx, first); err != nil {
+		t.Fatalf("CreateEventTrigger(first) error = %v", err)
+	}
+
+	err := q.CreateEventTrigger(ctx, &second)
+	if !errors.Is(err, store.ErrEventKeyConflict) {
+		t.Fatalf("CreateEventTrigger(second) error = %v, want ErrEventKeyConflict", err)
+	}
+	if strings.Contains(err.Error(), eventKey) {
+		t.Fatalf("duplicate error leaked event key %q: %v", eventKey, err)
+	}
+}
+
 func TestEventTriggerGetByStepRunID(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
