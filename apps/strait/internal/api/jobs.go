@@ -1169,6 +1169,10 @@ func (s *Server) handleBatchCreateJobs(ctx context.Context, input *BatchCreateJo
 			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: batchJobErrorMessage(err)})
 			continue
 		}
+		if err := s.checkCronOverlapPolicy(ctx, jobReq.ProjectID, jobReq.CronOverlapPolicy); err != nil {
+			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: batchJobErrorMessage(err)})
+			continue
+		}
 		if err := s.checkCronMinInterval(ctx, jobReq.ProjectID, jobReq.Cron); err != nil {
 			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: batchJobErrorMessage(err)})
 			continue

@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"sync"
 	"testing"
 
@@ -143,6 +145,43 @@ func TestPlanGate_DispatchesWorkflowRegistrationRejected_CronOverlapPolicy(t *te
 
 	if err := srv.checkCronOverlapPolicy(context.Background(), "proj-1", "skip"); err == nil {
 		t.Fatal("free tier must reject non-allow overlap policy")
+	}
+	calls := enforcer.snapshot()
+	if len(calls) != 1 || calls[0].detail["reason"] != "cron_overlap_policy" || calls[0].detail["requested_value"] != "skip" {
+		t.Fatalf("expected cron_overlap_policy dispatch with requested=skip, got %+v", calls)
+	}
+}
+
+func TestPlanGate_BatchCreateRejectsCronOverlapPolicy(t *testing.T) {
+	t.Parallel()
+
+	limits := billing.GetPlanLimits(domain.PlanFree)
+	enforcer := &dispatchRecordingEnforcer{
+		tunableLimitsEnforcer: tunableLimitsEnforcer{limits: limits},
+	}
+	ms := &APIStoreMock{
+		CreateJobFunc: func(context.Context, *domain.Job) error {
+			t.Fatal("CreateJob must not be called for a batch item rejected by cron overlap policy")
+			return nil
+		},
+	}
+	srv := newServerWithEnforcer(t, ms, &mockQueue{}, enforcer)
+
+	_, err := srv.handleBatchCreateJobs(context.Background(), &BatchCreateJobsInput{Body: BatchCreateJobsRequest{
+		Jobs: []CreateJobRequest{{
+			ProjectID:         "proj-1",
+			Name:              "batch overlap",
+			Slug:              "batch-overlap",
+			EndpointURL:       "https://example.com/run",
+			CronOverlapPolicy: "skip",
+		}},
+	}})
+	if err == nil {
+		t.Fatal("expected batch create to fail when every item violates cron overlap policy")
+	}
+	var rse *rawStatusError
+	if !errors.As(err, &rse) || rse.status != http.StatusBadRequest {
+		t.Fatalf("expected raw 400 error, got %T %v", err, err)
 	}
 	calls := enforcer.snapshot()
 	if len(calls) != 1 || calls[0].detail["reason"] != "cron_overlap_policy" || calls[0].detail["requested_value"] != "skip" {
