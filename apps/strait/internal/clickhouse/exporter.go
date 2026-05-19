@@ -571,7 +571,7 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 
 func (e *Exporter) insertRunEvents(ctx context.Context, records []RunEventRecord) error {
 	const row = "(?, ?, ?, ?, ?, ?, ?, ?, ?)"
-	query := "INSERT INTO run_events (event_id, run_id, project_id, job_id, event_type, level, message, metadata, created_at) VALUES "
+	query := "INSERT INTO run_events (event_id, run_id, project_id, job_id, event_type, level, message_class, metadata_redacted, created_at) VALUES "
 	placeholders := make([]string, len(records))
 	args := make([]any, 0, len(records)*9)
 
@@ -691,7 +691,7 @@ func (e *Exporter) insertWorkflowStepAnalytics(ctx context.Context, records []Wo
 
 func (e *Exporter) insertWebhookDeliveryEvents(ctx context.Context, records []WebhookDeliveryEventRecord) error {
 	const row = "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-	query := "INSERT INTO webhook_delivery_events (delivery_id, run_id, job_id, project_id, webhook_url, status, attempts, last_status_code, duration_ms, event_type, created_at, delivered_at) VALUES "
+	query := "INSERT INTO webhook_delivery_events (delivery_id, run_id, job_id, project_id, webhook_host, status, attempts, last_status_code, duration_ms, event_type, created_at, delivered_at) VALUES "
 	placeholders := make([]string, len(records))
 	args := make([]any, 0, len(records)*12)
 

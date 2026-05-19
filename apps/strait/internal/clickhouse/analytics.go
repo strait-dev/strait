@@ -519,13 +519,13 @@ func (s *AnalyticsStore) GetRunDurationDistribution(ctx context.Context, project
 // GetRunFailureReasons returns top failure messages from run events.
 func (s *AnalyticsStore) GetRunFailureReasons(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.RunFailureReason, error) {
 	query := `
-		SELECT message,
+		SELECT message_class,
 			count() AS count,
 			max(created_at) AS last_seen,
 			any(run_id) AS example_run_id
 		FROM run_events
 		WHERE project_id = ? AND level = 'error' AND created_at >= ? AND created_at < ?
-		GROUP BY message
+		GROUP BY message_class
 		ORDER BY count DESC
 		LIMIT ?`
 
@@ -1097,7 +1097,7 @@ func (s *AnalyticsStore) GetWorkflowSummary(ctx context.Context, projectID strin
 // GetWebhookDeliveryStats returns delivery stats per webhook URL.
 func (s *AnalyticsStore) GetWebhookDeliveryStats(ctx context.Context, projectID string, from, to time.Time) ([]store.WebhookEndpointStats, error) {
 	query := `
-		SELECT webhook_url,
+		SELECT webhook_host,
 			count() AS total,
 			countIf(status = 'delivered') AS delivered,
 			countIf(status = 'failed') AS failed,
@@ -1106,7 +1106,7 @@ func (s *AnalyticsStore) GetWebhookDeliveryStats(ctx context.Context, projectID 
 			coalesce(quantile(0.95)(duration_ms), 0) AS p95_latency_ms
 		FROM webhook_delivery_events
 		WHERE project_id = ? AND created_at >= ? AND created_at < ?
-		GROUP BY webhook_url
+		GROUP BY webhook_host
 		ORDER BY total DESC`
 
 	rows, err := s.client.Query(ctx, query, projectID, from, to)
@@ -1135,7 +1135,7 @@ func (s *AnalyticsStore) GetWebhookEndpointHealth(ctx context.Context, projectID
 	}
 
 	query := fmt.Sprintf(`
-		SELECT webhook_url,
+		SELECT webhook_host,
 			%s(created_at) AS period,
 			CASE WHEN count() > 0
 				THEN countIf(status = 'delivered') / count()
@@ -1144,8 +1144,8 @@ func (s *AnalyticsStore) GetWebhookEndpointHealth(ctx context.Context, projectID
 			coalesce(avg(duration_ms), 0) AS avg_latency_ms
 		FROM webhook_delivery_events
 		WHERE project_id = ? AND created_at >= ? AND created_at < ?
-		GROUP BY webhook_url, period
-		ORDER BY webhook_url, period`, truncFn)
+		GROUP BY webhook_host, period
+		ORDER BY webhook_host, period`, truncFn)
 
 	rows, err := s.client.Query(ctx, query, projectID, from, to)
 	if err != nil {
@@ -1170,7 +1170,7 @@ func (s *AnalyticsStore) GetWebhookEndpointHealth(ctx context.Context, projectID
 // GetTopFailingWebhooks ranks webhook endpoints by failure count.
 func (s *AnalyticsStore) GetTopFailingWebhooks(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TopFailingEndpoint, error) {
 	query := `
-		SELECT webhook_url,
+		SELECT webhook_host,
 			countIf(status = 'failed') AS failed,
 			count() AS total,
 			CASE WHEN count() > 0
@@ -1180,7 +1180,7 @@ func (s *AnalyticsStore) GetTopFailingWebhooks(ctx context.Context, projectID st
 			'' AS last_error
 		FROM webhook_delivery_events
 		WHERE project_id = ? AND created_at >= ? AND created_at < ?
-		GROUP BY webhook_url
+		GROUP BY webhook_host
 		HAVING countIf(status = 'failed') > 0
 		ORDER BY failed DESC
 		LIMIT ?`

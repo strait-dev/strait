@@ -119,3 +119,46 @@ func TestSchemaAlterations_AreIdempotent(t *testing.T) {
 		}
 	}
 }
+
+func TestSchemaDDL_UsesRedactedLongLivedAnalyticsColumns(t *testing.T) {
+	t.Parallel()
+
+	for _, raw := range []string{"message String", "metadata String", "webhook_url String"} {
+		if strings.Contains(RunEventsTable, raw) || strings.Contains(WebhookDeliveryEventsTable, raw) {
+			t.Fatalf("schema still declares raw sensitive analytics column %q", raw)
+		}
+	}
+	for _, safe := range []string{"message_class LowCardinality(String)", "metadata_redacted String DEFAULT '{}'", "webhook_host String"} {
+		if !strings.Contains(RunEventsTable, safe) && !strings.Contains(WebhookDeliveryEventsTable, safe) {
+			t.Fatalf("schema missing safe analytics column %q", safe)
+		}
+	}
+	if strings.Contains(WebhookDeliveryEventsTable, "ORDER BY (project_id, webhook_url") {
+		t.Fatal("webhook analytics table still orders by raw webhook_url")
+	}
+	if !strings.Contains(WebhookDeliveryEventsTable, "ORDER BY (project_id, webhook_host") {
+		t.Fatal("webhook analytics table does not order by redacted webhook_host")
+	}
+}
+
+func TestSchemaAlterations_AddRedactedAnalyticsColumns(t *testing.T) {
+	t.Parallel()
+
+	required := map[string]bool{
+		"ALTER TABLE run_events ADD COLUMN IF NOT EXISTS message_class":             false,
+		"ALTER TABLE run_events ADD COLUMN IF NOT EXISTS metadata_redacted":         false,
+		"ALTER TABLE webhook_delivery_events ADD COLUMN IF NOT EXISTS webhook_host": false,
+	}
+	for _, alt := range schemaAlterations {
+		for prefix := range required {
+			if strings.HasPrefix(alt.ddl, prefix) {
+				required[prefix] = true
+			}
+		}
+	}
+	for prefix, found := range required {
+		if !found {
+			t.Fatalf("schema alterations missing %q", prefix)
+		}
+	}
+}

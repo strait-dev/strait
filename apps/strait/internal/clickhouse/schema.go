@@ -14,8 +14,8 @@ CREATE TABLE IF NOT EXISTS run_events (
     job_id String,
     event_type LowCardinality(String),
     level LowCardinality(String),
-    message String,
-    metadata String,
+    message_class LowCardinality(String),
+    metadata_redacted String DEFAULT '{}',
     created_at DateTime64(3),
     inserted_at DateTime64(3) DEFAULT now64(3)
 ) ENGINE = MergeTree()
@@ -166,7 +166,7 @@ CREATE TABLE IF NOT EXISTS webhook_delivery_events (
     run_id String,
     job_id String,
     project_id String,
-    webhook_url String,
+    webhook_host String,
     status LowCardinality(String),
     attempts UInt8,
     last_status_code UInt16,
@@ -177,7 +177,7 @@ CREATE TABLE IF NOT EXISTS webhook_delivery_events (
     inserted_at DateTime64(3) DEFAULT now64(3)
 ) ENGINE = MergeTree()
 PARTITION BY toDate(inserted_at)
-ORDER BY (project_id, webhook_url, created_at)
+ORDER BY (project_id, webhook_host, created_at)
 TTL inserted_at + INTERVAL 365 DAY
 `
 
@@ -262,6 +262,18 @@ var schemaAlterations = []struct {
 	{
 		"run_analytics",
 		"ALTER TABLE run_analytics ADD COLUMN IF NOT EXISTS job_version_id String DEFAULT ''",
+	},
+	{
+		"run_events",
+		"ALTER TABLE run_events ADD COLUMN IF NOT EXISTS message_class LowCardinality(String) DEFAULT ''",
+	},
+	{
+		"run_events",
+		"ALTER TABLE run_events ADD COLUMN IF NOT EXISTS metadata_redacted String DEFAULT '{}'",
+	},
+	{
+		"webhook_delivery_events",
+		"ALTER TABLE webhook_delivery_events ADD COLUMN IF NOT EXISTS webhook_host String DEFAULT ''",
 	},
 }
 
