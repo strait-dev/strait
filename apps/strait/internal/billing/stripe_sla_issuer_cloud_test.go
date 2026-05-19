@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -336,6 +337,47 @@ func TestStripeSLAIssuer_IdempotencyKeyStableAcrossCalls(t *testing.T) {
 	}
 	if keys[0] != keys[1] {
 		t.Fatalf("idempotency keys differ across retries: %q vs %q", keys[0], keys[1])
+	}
+}
+
+func TestStripeSLAIssuer_InvoiceLookupConstrainedToSLAPeriod(t *testing.T) {
+	fake := newStripeFake(t)
+	fake.invoiceIDByStatus["open"] = "in_test_open"
+	fake.invoiceAmountRemainingByStatus["open"] = 10_000
+
+	issuer := newTestIssuer(stubLookup{sub: subWithCustomer("cus_period")})
+	periodEnd := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+
+	if _, err := issuer.IssueCredit(context.Background(), "org-1", 5_000_000, periodEnd); err != nil {
+		t.Fatalf("IssueCredit: %v", err)
+	}
+
+	var invoiceQuery url.Values
+	for _, r := range fake.snapshot() {
+		if r.Method == http.MethodGet && r.Path == "/v1/invoices" {
+			rawQuery := strings.TrimPrefix(r.Body, "?")
+			query, err := url.ParseQuery(rawQuery)
+			if err != nil {
+				t.Fatalf("parse invoice query %q: %v", rawQuery, err)
+			}
+			invoiceQuery = query
+			break
+		}
+	}
+	if invoiceQuery == nil {
+		t.Fatal("expected invoice list request")
+	}
+
+	wantStart := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC).Unix()
+	wantEnd := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC).Unix()
+	if got := invoiceQuery.Get("created[gte]"); got != fmt.Sprint(wantStart) {
+		t.Fatalf("created[gte] = %q, want %d", got, wantStart)
+	}
+	if got := invoiceQuery.Get("created[lt]"); got != fmt.Sprint(wantEnd) {
+		t.Fatalf("created[lt] = %q, want %d", got, wantEnd)
+	}
+	if got := invoiceQuery.Get("customer"); got != "cus_period" {
+		t.Fatalf("customer = %q, want cus_period", got)
 	}
 }
 
