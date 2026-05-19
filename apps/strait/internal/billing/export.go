@@ -12,7 +12,20 @@ import (
 	"github.com/go-pdf/fpdf"
 )
 
-const maxUsageExportPeriod = 370 * 24 * time.Hour
+const (
+	maxUsageExportPeriod       = 370 * 24 * time.Hour
+	maxUsageExportRows         = 10_000
+	maxUsageExportQueryTimeout = 15 * time.Second
+)
+
+var (
+	ErrUsageExportTooLarge          = errors.New("usage export exceeds maximum row limit")
+	ErrUsageExportRequiresBoundedDB = errors.New("usage export requires bounded usage query support")
+)
+
+type boundedOrgUsagePeriodStore interface {
+	GetOrgUsageForPeriodLimited(ctx context.Context, orgID string, from, to time.Time, limit int) ([]UsageRecord, error)
+}
 
 // ExportPeriod defines the time range for a usage export.
 type ExportPeriod struct {
@@ -26,7 +39,7 @@ func ExportCSV(ctx context.Context, store Store, orgID string, period ExportPeri
 	if err := validateExportPeriod(period); err != nil {
 		return nil, err
 	}
-	records, err := store.GetOrgUsageForPeriod(ctx, orgID, period.From, period.To)
+	records, err := getUsageRecordsForExport(ctx, store, orgID, period)
 	if err != nil {
 		return nil, fmt.Errorf("getting usage records for export: %w", err)
 	}
@@ -69,7 +82,7 @@ func ExportPDF(ctx context.Context, store Store, orgID string, period ExportPeri
 	if err := validateExportPeriod(period); err != nil {
 		return nil, err
 	}
-	records, err := store.GetOrgUsageForPeriod(ctx, orgID, period.From, period.To)
+	records, err := getUsageRecordsForExport(ctx, store, orgID, period)
 	if err != nil {
 		return nil, fmt.Errorf("getting usage records for PDF export: %w", err)
 	}
@@ -171,6 +184,25 @@ func validateExportPeriod(period ExportPeriod) error {
 		return fmt.Errorf("usage export period cannot exceed %d days", int(maxUsageExportPeriod.Hours()/24))
 	}
 	return nil
+}
+
+func getUsageRecordsForExport(ctx context.Context, store Store, orgID string, period ExportPeriod) ([]UsageRecord, error) {
+	boundedStore, ok := store.(boundedOrgUsagePeriodStore)
+	if !ok {
+		return nil, ErrUsageExportRequiresBoundedDB
+	}
+
+	queryCtx, cancel := context.WithTimeout(ctx, maxUsageExportQueryTimeout)
+	defer cancel()
+
+	records, err := boundedStore.GetOrgUsageForPeriodLimited(queryCtx, orgID, period.From, period.To, maxUsageExportRows+1)
+	if err != nil {
+		return nil, err
+	}
+	if len(records) > maxUsageExportRows {
+		return nil, fmt.Errorf("%w: max %d rows", ErrUsageExportTooLarge, maxUsageExportRows)
+	}
+	return records, nil
 }
 
 func escapeCSVFormulaCell(value string) string {

@@ -346,6 +346,13 @@ func (m *mockBillingStore) GetOrgUsageForPeriod(_ context.Context, _ string, _, 
 	return m.usageRecords, nil
 }
 
+func (m *mockBillingStore) GetOrgUsageForPeriodLimited(_ context.Context, _ string, _, _ time.Time, limit int) ([]UsageRecord, error) {
+	if len(m.usageRecords) > limit {
+		return m.usageRecords[:limit], nil
+	}
+	return m.usageRecords, nil
+}
+
 func (m *mockBillingStore) GetProjectUsageForPeriod(_ context.Context, _ string, _, _ time.Time) ([]UsageRecord, error) {
 	return m.usageRecords, nil
 }

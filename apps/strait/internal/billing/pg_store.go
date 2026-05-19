@@ -882,9 +882,19 @@ func (s *PgStore) ReplaceUsageRecord(ctx context.Context, rec *UsageRecord) erro
 }
 
 func (s *PgStore) GetOrgUsageForPeriod(ctx context.Context, orgID string, from, to time.Time) ([]UsageRecord, error) {
-	endExclusive := to.AddDate(0, 0, 1)
+	return s.getOrgUsageForPeriod(ctx, orgID, from, to, 0)
+}
 
-	rows, err := s.pool.Query(ctx, `
+func (s *PgStore) GetOrgUsageForPeriodLimited(ctx context.Context, orgID string, from, to time.Time, limit int) ([]UsageRecord, error) {
+	if limit <= 0 {
+		return nil, errors.New("usage period limit must be positive")
+	}
+	return s.getOrgUsageForPeriod(ctx, orgID, from, to, limit)
+}
+
+func (s *PgStore) getOrgUsageForPeriod(ctx context.Context, orgID string, from, to time.Time, limit int) ([]UsageRecord, error) {
+	endExclusive := to.AddDate(0, 0, 1)
+	query := `
 		WITH run_counts AS (
 			SELECT p.org_id,
 				jr.project_id,
@@ -952,8 +962,15 @@ func (s *PgStore) GetOrgUsageForPeriod(ctx context.Context, orgID string, from, 
 				SELECT * FROM recorded_compute
 			) usage
 		GROUP BY org_id, project_id, period_date
-		ORDER BY period_date ASC
-	`, orgID, from, endExclusive)
+		ORDER BY period_date ASC`
+	args := []any{orgID, from, endExclusive}
+	if limit > 0 {
+		query += `
+		LIMIT $4`
+		args = append(args, limit)
+	}
+
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("getting org usage for period: %w", err)
 	}

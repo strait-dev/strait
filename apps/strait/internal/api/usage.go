@@ -429,6 +429,9 @@ func (s *Server) handleExportUsage(ctx context.Context, input *ExportUsageInput)
 	case "csv":
 		csvData, csvErr := s.usageService.ExportUsageCSV(ctx, orgID, from, to)
 		if csvErr != nil {
+			if errors.Is(csvErr, billing.ErrUsageExportTooLarge) {
+				return nil, huma.Error413RequestEntityTooLarge(csvErr.Error())
+			}
 			slog.Error("failed to export usage", "error", csvErr)
 			return nil, huma.Error500InternalServerError("failed to export usage")
 		}
@@ -439,6 +442,9 @@ func (s *Server) handleExportUsage(ctx context.Context, input *ExportUsageInput)
 	case "pdf":
 		pdfData, pdfErr := s.usageService.ExportUsagePDF(ctx, orgID, from, to)
 		if pdfErr != nil {
+			if errors.Is(pdfErr, billing.ErrUsageExportTooLarge) {
+				return nil, huma.Error413RequestEntityTooLarge(pdfErr.Error())
+			}
 			slog.Error("failed to export usage PDF", "error", pdfErr)
 			return nil, huma.Error500InternalServerError("failed to export usage")
 		}

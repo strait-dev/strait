@@ -3,6 +3,7 @@ package billing
 import (
 	"context"
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -11,11 +12,33 @@ import (
 
 type mockExportStore struct {
 	mockBillingStore
-	usageRecords []UsageRecord
+	usageRecords      []UsageRecord
+	limitedQueryLimit int
 }
 
 func (m *mockExportStore) GetOrgUsageForPeriod(_ context.Context, _ string, _, _ time.Time) ([]UsageRecord, error) {
 	return m.usageRecords, nil
+}
+
+func (m *mockExportStore) GetOrgUsageForPeriodLimited(_ context.Context, _ string, _, _ time.Time, limit int) ([]UsageRecord, error) {
+	m.limitedQueryLimit = limit
+	if len(m.usageRecords) > limit {
+		return m.usageRecords[:limit], nil
+	}
+	return m.usageRecords, nil
+}
+
+func makeUsageExportRecords(count int) []UsageRecord {
+	records := make([]UsageRecord, count)
+	for i := range records {
+		records[i] = UsageRecord{
+			ProjectID:        fmt.Sprintf("proj-%05d", i),
+			PeriodDate:       time.Date(2026, 1, 1+(i%31), 0, 0, 0, 0, time.UTC),
+			RunsCount:        1,
+			ComputeCostMicro: 1000,
+		}
+	}
+	return records
 }
 
 func TestExportCSV_Empty(t *testing.T) {
@@ -295,6 +318,42 @@ func TestDeepSecExportPDF_RejectsOversizedPeriod(t *testing.T) {
 
 	if _, err := ExportPDF(context.Background(), store, "org-1", period); err == nil {
 		t.Fatal("expected oversized export period error")
+	}
+}
+
+func TestDeepSecExportCSV_RejectsRowOverflowWithBoundedQuery(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExportStore{usageRecords: makeUsageExportRecords(maxUsageExportRows + 1)}
+	period := ExportPeriod{
+		From: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		To:   time.Date(2026, 1, 31, 0, 0, 0, 0, time.UTC),
+	}
+
+	_, err := ExportCSV(context.Background(), store, "org-1", period)
+	if !errors.Is(err, ErrUsageExportTooLarge) {
+		t.Fatalf("ExportCSV error = %v, want ErrUsageExportTooLarge", err)
+	}
+	if store.limitedQueryLimit != maxUsageExportRows+1 {
+		t.Fatalf("limited query limit = %d, want %d", store.limitedQueryLimit, maxUsageExportRows+1)
+	}
+}
+
+func TestDeepSecExportPDF_RejectsRowOverflowWithBoundedQuery(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExportStore{usageRecords: makeUsageExportRecords(maxUsageExportRows + 1)}
+	period := ExportPeriod{
+		From: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		To:   time.Date(2026, 1, 31, 0, 0, 0, 0, time.UTC),
+	}
+
+	_, err := ExportPDF(context.Background(), store, "org-1", period)
+	if !errors.Is(err, ErrUsageExportTooLarge) {
+		t.Fatalf("ExportPDF error = %v, want ErrUsageExportTooLarge", err)
+	}
+	if store.limitedQueryLimit != maxUsageExportRows+1 {
+		t.Fatalf("limited query limit = %d, want %d", store.limitedQueryLimit, maxUsageExportRows+1)
 	}
 }
 
