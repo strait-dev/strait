@@ -846,6 +846,11 @@ func validateWorkflowSteps(steps []workflowStepRequest) error {
 				return errors.New("event_key must be at most 512 characters")
 			}
 		}
+		if step.EventNotifyURL != "" {
+			if err := validateURL(step.EventNotifyURL); err != nil {
+				return fmt.Errorf("step %s has invalid event_notify_url: %w", step.StepRef, err)
+			}
+		}
 		if step.StepType == domain.WorkflowStepTypeSleep {
 			if step.SleepDurationSecs <= 0 {
 				return errors.New("sleep steps require sleep_duration_secs > 0")

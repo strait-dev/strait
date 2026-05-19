@@ -85,3 +85,70 @@ func TestValidateWorkflowSteps_AllowsMaxSleepDuration(t *testing.T) {
 		t.Fatalf("validate max sleep duration: %v", err)
 	}
 }
+
+func TestValidateWorkflowSteps_RejectsInvalidEventNotifyURL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		notifyURL string
+		want      string
+	}{
+		{
+			name:      "localhost",
+			notifyURL: "http://localhost/hook",
+			want:      "event_notify_url",
+		},
+		{
+			name:      "private ip",
+			notifyURL: "http://192.168.1.10/hook",
+			want:      "event_notify_url",
+		},
+		{
+			name:      "non http scheme",
+			notifyURL: "file:///etc/passwd",
+			want:      "event_notify_url",
+		},
+		{
+			name:      "disallowed port",
+			notifyURL: "https://example.com:4444/hook",
+			want:      "port 4444 is not allowed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			steps := []workflowStepRequest{{
+				StepRef:        "wait",
+				StepType:       domain.WorkflowStepTypeWaitForEvent,
+				EventKey:       "external.signal",
+				EventNotifyURL: tt.notifyURL,
+			}}
+
+			err := validateWorkflowSteps(steps)
+			if err == nil {
+				t.Fatal("expected event_notify_url validation error")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("expected error containing %q, got %v", tt.want, err)
+			}
+		})
+	}
+}
+
+func TestValidateWorkflowSteps_AllowsValidEventNotifyURL(t *testing.T) {
+	t.Parallel()
+
+	steps := []workflowStepRequest{{
+		StepRef:        "wait",
+		StepType:       domain.WorkflowStepTypeWaitForEvent,
+		EventKey:       "external.signal",
+		EventNotifyURL: "https://example.com:443/hook",
+	}}
+
+	if err := validateWorkflowSteps(steps); err != nil {
+		t.Fatalf("validate valid event_notify_url: %v", err)
+	}
+}
