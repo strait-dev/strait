@@ -813,6 +813,9 @@ func validateWorkflowSteps(steps []workflowStepRequest) error {
 		if step.StepType == "" {
 			step.StepType = domain.WorkflowStepTypeJob
 		}
+		if !isValidWorkflowStepType(step.StepType) {
+			return fmt.Errorf("step %s has invalid step_type %q", step.StepRef, step.StepType)
+		}
 		if step.StepType == domain.WorkflowStepTypeJob && step.JobID == "" {
 			return errors.New("job steps require job_id")
 		}
@@ -905,6 +908,19 @@ func validateWorkflowSteps(steps []workflowStepRequest) error {
 	}
 
 	return nil
+}
+
+func isValidWorkflowStepType(stepType domain.WorkflowStepType) bool {
+	switch stepType {
+	case domain.WorkflowStepTypeJob,
+		domain.WorkflowStepTypeApproval,
+		domain.WorkflowStepTypeSubWorkflow,
+		domain.WorkflowStepTypeWaitForEvent,
+		domain.WorkflowStepTypeSleep:
+		return true
+	default:
+		return false
+	}
 }
 
 type DryRunWorkflowInput struct {

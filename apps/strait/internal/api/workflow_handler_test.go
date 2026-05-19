@@ -185,6 +185,27 @@ func TestHandleCreateWorkflow_InvalidStep(t *testing.T) {
 	}
 }
 
+func TestHandleCreateWorkflow_RejectsUnknownStepType(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		CreateWorkflowFunc: func(_ context.Context, _ *domain.Workflow) error {
+			t.Fatal("CreateWorkflow must not be called for an unknown step_type")
+			return nil
+		},
+	}
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+	w := httptest.NewRecorder()
+	body := `{"project_id":"proj-1","name":"wf","slug":"wf","steps":[{"job_id":"job-1","step_ref":"s1","step_type":"approval_bypass"}]}`
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows", body))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "invalid step_type") {
+		t.Fatalf("expected invalid step_type validation error, got: %s", w.Body.String())
+	}
+}
+
 func TestHandleCreateWorkflow_CrossProjectBlockedBeforeCreate(t *testing.T) {
 	t.Parallel()
 
@@ -457,6 +478,38 @@ func TestHandleUpdateWorkflow_SuccessWithStepReplacement(t *testing.T) {
 	}
 	if createStepCalls != 1 {
 		t.Fatalf("create step calls = %d, want 1", createStepCalls)
+	}
+}
+
+func TestHandleUpdateWorkflow_RejectsUnknownStepType(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, ProjectID: "proj-1", Name: "wf", Slug: "wf"}, nil
+		},
+		UpdateWorkflowFunc: func(_ context.Context, _ *domain.Workflow) error {
+			t.Fatal("UpdateWorkflow must not be called for an unknown step_type")
+			return nil
+		},
+		DeleteStepsByWorkflowFunc: func(_ context.Context, _ string) error {
+			t.Fatal("DeleteStepsByWorkflow must not be called for an unknown step_type")
+			return nil
+		},
+		CreateWorkflowStepFunc: func(_ context.Context, _ *domain.WorkflowStep) error {
+			t.Fatal("CreateWorkflowStep must not be called for an unknown step_type")
+			return nil
+		},
+	}
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+	w := httptest.NewRecorder()
+	body := `{"steps":[{"job_id":"job-1","step_ref":"s1","step_type":"approval_bypass"}]}`
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPatch, "/v1/workflows/wf-1", body, "proj-1"))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "invalid step_type") {
+		t.Fatalf("expected invalid step_type validation error, got: %s", w.Body.String())
 	}
 }
 
