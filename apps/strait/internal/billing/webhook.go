@@ -1206,6 +1206,12 @@ func (h *WebhookHandler) handlePaymentFailed(ctx context.Context, data json.RawM
 	if existing.PlanTier == string(domain.PlanFree) {
 		return nil
 	}
+	if existing.PaymentStatus == "restricted" {
+		h.logger.Info("payment failed for already restricted org, leaving restriction in place",
+			"org_id", orgID,
+		)
+		return nil
+	}
 
 	graceEnd := time.Now().Add(72 * time.Hour)
 	if err := h.store.UpdatePaymentStatus(ctx, orgID, "grace", &graceEnd); err != nil && !errors.Is(err, ErrSubscriptionNotFound) {
