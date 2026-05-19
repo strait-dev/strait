@@ -85,11 +85,11 @@ type AuditEmitHarness struct {
 	store AuditEmitStore
 	sink  AuditEmitSink
 
-	ch     chan *domain.AuditEvent
-	done   chan struct{}
-	startO sync.Once
-	stopO  sync.Once
-	sendMu sync.RWMutex
+	ch      chan *domain.AuditEvent
+	done    chan struct{}
+	startO  sync.Once
+	stopO   sync.Once
+	sendMu  sync.RWMutex
 	stopped atomic.Bool
 
 	// Atomic counters.
@@ -170,10 +170,12 @@ func (h *AuditEmitHarness) Emit(ev *domain.AuditEvent) {
 		h.dropped.Add(1)
 		return
 	}
+	h.inFlight.Add(1)
 	select {
 	case h.ch <- ev:
 		h.recordLatency(time.Since(start))
 	default:
+		h.inFlight.Add(-1)
 		h.dropped.Add(1)
 	}
 }
@@ -252,7 +254,6 @@ func (h *AuditEmitHarness) WaitDrain(timeout time.Duration) bool {
 func (h *AuditEmitHarness) drain() {
 	defer close(h.done)
 	for ev := range h.ch {
-		h.inFlight.Add(1)
 		h.processOne(ev)
 		h.inFlight.Add(-1)
 	}
