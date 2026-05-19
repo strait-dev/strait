@@ -54,6 +54,10 @@ func invoiceAuditFields(invoice *stripe.Invoice) map[string]string {
 	return out
 }
 
+func stripeMinorUnitsToMicroUSD(amount int64) int64 {
+	return amount * 10_000
+}
+
 var (
 	ErrInvalidSignature = errors.New("invalid webhook signature")
 	ErrUnknownPrice     = errors.New("unknown stripe price ID")
@@ -1160,7 +1164,7 @@ func (h *WebhookHandler) handlePaymentSucceeded(ctx context.Context, data json.R
 				"stripe_invoice_id":      invoice.ID,
 				"stripe_subscription_id": sub.ID,
 				"plan_tier":              existing.PlanTier,
-				"amount_paid_microusd":   invoice.AmountPaid,
+				"amount_paid_microusd":   stripeMinorUnitsToMicroUSD(invoice.AmountPaid),
 				"paid_at":                time.Now().UTC().Format(time.RFC3339Nano),
 			})
 	}
@@ -1243,7 +1247,7 @@ func (h *WebhookHandler) handlePaymentFailed(ctx context.Context, data json.RawM
 			domain.WebhookEventBillingDelinquent, map[string]any{
 				"stripe_invoice_id":   invoice.ID,
 				"grace_period_end":    graceEnd.UTC().Format(time.RFC3339Nano),
-				"amount_due_microusd": invoice.AmountDue,
+				"amount_due_microusd": stripeMinorUnitsToMicroUSD(invoice.AmountDue),
 				"attempt_count":       invoice.AttemptCount,
 			})
 	}

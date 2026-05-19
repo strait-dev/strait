@@ -24,6 +24,7 @@ type testInvoiceDataFull struct {
 	SubID              string            `json:"-"`
 	Metadata           map[string]string `json:"-"`
 	AmountDue          int64             `json:"-"`
+	AmountPaid         int64             `json:"-"`
 	DueDate            int64             `json:"-"`
 	NextPaymentAttempt int64             `json:"-"`
 }
@@ -41,6 +42,7 @@ func (d testInvoiceDataFull) MarshalJSON() ([]byte, error) {
 		Customer           *stripe.Customer `json:"customer,omitempty"`
 		Parent             *parent          `json:"parent,omitempty"`
 		AmountDue          int64            `json:"amount_due,omitempty"`
+		AmountPaid         int64            `json:"amount_paid,omitempty"`
 		DueDate            int64            `json:"due_date,omitempty"`
 		NextPaymentAttempt int64            `json:"next_payment_attempt,omitempty"`
 	}
@@ -48,6 +50,7 @@ func (d testInvoiceDataFull) MarshalJSON() ([]byte, error) {
 	inv := invoiceJSON{
 		ID:                 d.ID,
 		AmountDue:          d.AmountDue,
+		AmountPaid:         d.AmountPaid,
 		DueDate:            d.DueDate,
 		NextPaymentAttempt: d.NextPaymentAttempt,
 	}

@@ -95,9 +95,11 @@ func TestHandlePaymentFailed_DispatchesDelinquent(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rr.Code)
 	}
 	var saw bool
+	var captured fakeDispatchCall
 	for _, c := range d.calls {
 		if c.eventType == domain.WebhookEventBillingDelinquent {
 			saw = true
+			captured = c
 			if c.orgID != orgID {
 				t.Errorf("dispatched org_id = %q, want %q", c.orgID, orgID)
 			}
@@ -105,5 +107,12 @@ func TestHandlePaymentFailed_DispatchesDelinquent(t *testing.T) {
 	}
 	if !saw {
 		t.Errorf("billing.delinquent not dispatched; saw event types %v", dispatchedEventTypes(d))
+	}
+	var env BillingEventEnvelope
+	if err := json.Unmarshal(captured.payload, &env); err != nil {
+		t.Fatalf("envelope unmarshal: %v", err)
+	}
+	if env.Detail["amount_due_microusd"] != float64(15_000_000) {
+		t.Errorf("detail.amount_due_microusd = %v, want 15000000", env.Detail["amount_due_microusd"])
 	}
 }
