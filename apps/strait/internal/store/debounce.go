@@ -46,10 +46,16 @@ func (q *Queries) ListDueDebouncePending(ctx context.Context) ([]domain.Debounce
 	defer span.End()
 
 	query := `
+		WITH ranked AS (
+			SELECT id, job_id, project_id, debounce_key, payload, tags, priority, concurrency_key, ttl_secs, triggered_by, created_by, fire_at, created_at,
+			       row_number() OVER (PARTITION BY project_id ORDER BY fire_at ASC, created_at ASC, id ASC) AS project_rank
+			FROM debounce_pending
+			WHERE fire_at <= NOW()
+		)
 		SELECT id, job_id, project_id, debounce_key, payload, tags, priority, concurrency_key, ttl_secs, triggered_by, created_by, fire_at, created_at
-		FROM debounce_pending
-		WHERE fire_at <= NOW()
-		ORDER BY fire_at ASC
+		FROM ranked
+		WHERE project_rank <= 5
+		ORDER BY project_rank ASC, fire_at ASC, created_at ASC, id ASC
 		LIMIT 100`
 
 	rows, err := q.db.Query(ctx, query)
@@ -115,6 +121,22 @@ func (q *Queries) CompleteDebouncePending(ctx context.Context, id string, fireAt
 	return tag.RowsAffected() > 0, nil
 }
 
+func (q *Queries) RescheduleDebouncePending(ctx context.Context, id string, oldFireAt, nextFireAt time.Time) (bool, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.RescheduleDebouncePending")
+	defer span.End()
+
+	tag, err := q.db.Exec(ctx, `
+		UPDATE debounce_pending
+		SET fire_at = $3
+		WHERE id = $1
+		  AND fire_at = $2
+	`, id, oldFireAt, nextFireAt)
+	if err != nil {
+		return false, fmt.Errorf("reschedule debounce pending: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
 func (q *Queries) InsertDebouncePendingIfAbsent(ctx context.Context, d *domain.DebouncePending) (bool, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.InsertDebouncePendingIfAbsent")
 	defer span.End()
@@ -172,6 +194,7 @@ type DebounceStore interface {
 	DeleteDebouncePending(ctx context.Context, id string) error
 	ClaimDueDebouncePending(ctx context.Context, id string) (*domain.DebouncePending, bool, error)
 	CompleteDebouncePending(ctx context.Context, id string, fireAt time.Time) (bool, error)
+	RescheduleDebouncePending(ctx context.Context, id string, oldFireAt, nextFireAt time.Time) (bool, error)
 	InsertDebouncePendingIfAbsent(ctx context.Context, d *domain.DebouncePending) (bool, error)
 	GetJob(ctx context.Context, id string) (*domain.Job, error)
 	GetRun(ctx context.Context, id string) (*domain.JobRun, error)

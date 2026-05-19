@@ -162,6 +162,9 @@ func (m *mockSchedulerStore) ClaimDueDebouncePending(_ context.Context, _ string
 func (m *mockSchedulerStore) CompleteDebouncePending(_ context.Context, _ string, _ time.Time) (bool, error) {
 	return false, nil
 }
+func (m *mockSchedulerStore) RescheduleDebouncePending(_ context.Context, _ string, _, _ time.Time) (bool, error) {
+	return false, nil
+}
 func (m *mockSchedulerStore) InsertDebouncePendingIfAbsent(_ context.Context, _ *domain.DebouncePending) (bool, error) {
 	return false, nil
 }

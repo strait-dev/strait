@@ -15,7 +15,10 @@ import (
 	"github.com/google/uuid"
 )
 
-const debounceAdvisoryLockID int64 = 900001
+const (
+	debounceAdvisoryLockID        int64 = 900001
+	debounceAdmissionRetryBackoff       = 5 * time.Minute
+)
 
 // DebouncePoller polls for due debounce_pending entries and creates runs.
 type DebouncePoller struct {
@@ -77,6 +80,9 @@ func (p *DebouncePoller) pollLocked(ctx context.Context) error {
 		}
 		if err := p.fireDebounce(ctx, *claimed); err != nil {
 			slog.Error("debounce poller: fire", "id", item.ID, "job_id", item.JobID, "error", err)
+			if errors.Is(err, queue.ErrEnqueueThrottled) {
+				p.rescheduleThrottledPending(ctx, *claimed)
+			}
 			continue
 		}
 		completed, err := p.store.CompleteDebouncePending(ctx, claimed.ID, claimed.FireAt)
@@ -89,6 +95,18 @@ func (p *DebouncePoller) pollLocked(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func (p *DebouncePoller) rescheduleThrottledPending(ctx context.Context, d domain.DebouncePending) {
+	nextFireAt := time.Now().UTC().Add(debounceAdmissionRetryBackoff)
+	rescheduled, err := p.store.RescheduleDebouncePending(ctx, d.ID, d.FireAt, nextFireAt)
+	if err != nil {
+		slog.Error("debounce poller: reschedule throttled pending", "id", d.ID, "job_id", d.JobID, "error", err)
+		return
+	}
+	if !rescheduled {
+		slog.Info("debounce poller: throttled pending superseded before reschedule", "id", d.ID, "job_id", d.JobID)
+	}
 }
 
 func (p *DebouncePoller) fireDebounce(ctx context.Context, d domain.DebouncePending) error {

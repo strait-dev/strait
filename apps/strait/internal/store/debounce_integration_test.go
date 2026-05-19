@@ -119,6 +119,66 @@ func TestListDueDebouncePending(t *testing.T) {
 	}
 }
 
+func TestListDueDebouncePending_FairAcrossProjects(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectA := "project-debounce-fair-a"
+	projectB := "project-debounce-fair-b"
+	jobA := mustCreateJob(t, ctx, q, projectA)
+	jobB := mustCreateJob(t, ctx, q, projectB)
+	fireAt := time.Now().UTC().Add(-10 * time.Minute).Truncate(time.Microsecond)
+	for i := range 101 {
+		d := &domain.DebouncePending{
+			JobID:       jobA.ID,
+			ProjectID:   projectA,
+			DebounceKey: "a-" + newID(),
+			Payload:     json.RawMessage(`{}`),
+			TriggeredBy: "api",
+			FireAt:      fireAt.Add(time.Duration(i) * time.Microsecond),
+		}
+		if err := q.UpsertDebouncePending(ctx, d); err != nil {
+			t.Fatalf("UpsertDebouncePending(projectA %d) error = %v", i, err)
+		}
+	}
+	projectBPending := &domain.DebouncePending{
+		JobID:       jobB.ID,
+		ProjectID:   projectB,
+		DebounceKey: "b-1",
+		Payload:     json.RawMessage(`{}`),
+		TriggeredBy: "api",
+		FireAt:      fireAt.Add(9 * time.Minute),
+	}
+	if err := q.UpsertDebouncePending(ctx, projectBPending); err != nil {
+		t.Fatalf("UpsertDebouncePending(projectB) error = %v", err)
+	}
+
+	items, err := q.ListDueDebouncePending(ctx)
+	if err != nil {
+		t.Fatalf("ListDueDebouncePending() error = %v", err)
+	}
+
+	var projectACount int
+	foundProjectB := false
+	for _, item := range items {
+		switch item.ProjectID {
+		case projectA:
+			projectACount++
+		case projectB:
+			if item.ID == projectBPending.ID {
+				foundProjectB = true
+			}
+		}
+	}
+	if !foundProjectB {
+		t.Fatalf("due list omitted later project while one project had many older rows: %+v", items)
+	}
+	if projectACount > 5 {
+		t.Fatalf("due list allowed one project to monopolize batch: projectA count = %d", projectACount)
+	}
+}
+
 func TestClaimDueDebouncePending_OnlyClaimsDueRows(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -169,6 +229,57 @@ func TestClaimDueDebouncePending_OnlyClaimsDueRows(t *testing.T) {
 	}
 	if ok || claimed != nil {
 		t.Fatalf("future row was claimed: %+v ok=%v", claimed, ok)
+	}
+}
+
+func TestRescheduleDebouncePending_OnlyIfFireAtUnchanged(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-debounce-reschedule")
+	originalFireAt := time.Now().UTC().Add(-1 * time.Minute).Truncate(time.Microsecond)
+	due := &domain.DebouncePending{
+		JobID:       job.ID,
+		ProjectID:   job.ProjectID,
+		DebounceKey: "reschedule-key",
+		Payload:     json.RawMessage(`{}`),
+		TriggeredBy: "api",
+		FireAt:      originalFireAt,
+	}
+	if err := q.UpsertDebouncePending(ctx, due); err != nil {
+		t.Fatalf("UpsertDebouncePending(due) error = %v", err)
+	}
+
+	staleUpdated, err := q.RescheduleDebouncePending(ctx, due.ID, originalFireAt.Add(time.Second), time.Now().UTC().Add(5*time.Minute))
+	if err != nil {
+		t.Fatalf("RescheduleDebouncePending(stale) error = %v", err)
+	}
+	if staleUpdated {
+		t.Fatal("stale fire_at rescheduled pending row")
+	}
+	stillDue, err := q.ListDueDebouncePending(ctx)
+	if err != nil {
+		t.Fatalf("ListDueDebouncePending(after stale reschedule) error = %v", err)
+	}
+	if len(stillDue) != 1 || stillDue[0].ID != due.ID {
+		t.Fatalf("stale reschedule changed due row: %+v", stillDue)
+	}
+
+	nextFireAt := time.Now().UTC().Add(5 * time.Minute).Truncate(time.Microsecond)
+	rescheduled, err := q.RescheduleDebouncePending(ctx, due.ID, originalFireAt, nextFireAt)
+	if err != nil {
+		t.Fatalf("RescheduleDebouncePending(current) error = %v", err)
+	}
+	if !rescheduled {
+		t.Fatal("current fire_at did not reschedule pending row")
+	}
+	claimed, ok, err := q.ClaimDueDebouncePending(ctx, due.ID)
+	if err != nil {
+		t.Fatalf("ClaimDueDebouncePending(rescheduled) error = %v", err)
+	}
+	if ok || claimed != nil {
+		t.Fatalf("rescheduled future row was claimable: %+v ok=%v", claimed, ok)
 	}
 }
 

@@ -21,6 +21,7 @@ type mockDebounceStore struct {
 	deleted           []string
 	claimed           []string
 	completed         []string
+	rescheduled       []debounceReschedule
 	restored          []string
 	jobs              map[string]*domain.Job
 	runs              map[string]*domain.JobRun
@@ -32,6 +33,12 @@ type mockDebounceStore struct {
 	tryAdvisoryLockFn func(ctx context.Context, lockID int64) (bool, error)
 	txCalls           int
 	txLockIDs         []int64
+}
+
+type debounceReschedule struct {
+	id         string
+	oldFireAt  time.Time
+	nextFireAt time.Time
 }
 
 func (m *mockDebounceStore) ListDueDebouncePending(_ context.Context) ([]domain.DebouncePending, error) {
@@ -70,6 +77,23 @@ func (m *mockDebounceStore) CompleteDebouncePending(_ context.Context, id string
 		if m.duePending[i].ID == id && m.duePending[i].FireAt.Equal(fireAt) {
 			m.duePending = append(m.duePending[:i], m.duePending[i+1:]...)
 			m.completed = append(m.completed, id)
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (m *mockDebounceStore) RescheduleDebouncePending(_ context.Context, id string, oldFireAt, nextFireAt time.Time) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.duePending {
+		if m.duePending[i].ID == id && m.duePending[i].FireAt.Equal(oldFireAt) {
+			m.duePending[i].FireAt = nextFireAt
+			m.rescheduled = append(m.rescheduled, debounceReschedule{
+				id:         id,
+				oldFireAt:  oldFireAt,
+				nextFireAt: nextFireAt,
+			})
 			return true, nil
 		}
 	}
@@ -381,12 +405,13 @@ func TestDebouncePoller_DeletesPendingWhenRunAlreadyExists(t *testing.T) {
 	}
 }
 
-func TestDebouncePoller_LeavesPendingWhenFireTimeProjectQuotaExceeded(t *testing.T) {
+func TestDebouncePoller_ReschedulesPendingWhenFireTimeProjectQuotaExceeded(t *testing.T) {
 	t.Parallel()
 
+	originalFireAt := time.Now().Add(-time.Second)
 	ds := &mockDebounceStore{
 		duePending: []domain.DebouncePending{
-			{ID: "dp-1", JobID: "job-1", ProjectID: "proj-1", FireAt: time.Now().Add(-time.Second)},
+			{ID: "dp-1", JobID: "job-1", ProjectID: "proj-1", FireAt: originalFireAt},
 		},
 		jobs: map[string]*domain.Job{
 			"job-1": {ID: "job-1", ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60},
@@ -409,17 +434,27 @@ func TestDebouncePoller_LeavesPendingWhenFireTimeProjectQuotaExceeded(t *testing
 	if len(ds.completed) != 0 {
 		t.Fatalf("pending completed despite fire-time quota failure: %v", ds.completed)
 	}
-	if len(ds.duePending) != 1 || ds.duePending[0].ID != "dp-1" {
-		t.Fatalf("pending was not retained after fire-time quota failure: %v", ds.duePending)
+	if len(ds.rescheduled) != 1 || ds.rescheduled[0].id != "dp-1" {
+		t.Fatalf("pending was not rescheduled after fire-time quota failure: %v", ds.rescheduled)
+	}
+	if !ds.rescheduled[0].oldFireAt.Equal(originalFireAt) {
+		t.Fatalf("reschedule used old_fire_at %s, want %s", ds.rescheduled[0].oldFireAt, originalFireAt)
+	}
+	if !ds.rescheduled[0].nextFireAt.After(time.Now().UTC()) {
+		t.Fatalf("reschedule next fire_at is not in the future: %s", ds.rescheduled[0].nextFireAt)
+	}
+	if len(ds.duePending) != 1 || ds.duePending[0].ID != "dp-1" || !ds.duePending[0].FireAt.After(time.Now().UTC()) {
+		t.Fatalf("pending was not retained in future after fire-time quota failure: %v", ds.duePending)
 	}
 }
 
-func TestDebouncePoller_LeavesPendingWhenFireTimeRateLimitExceeded(t *testing.T) {
+func TestDebouncePoller_ReschedulesPendingWhenFireTimeRateLimitExceeded(t *testing.T) {
 	t.Parallel()
 
+	originalFireAt := time.Now().Add(-time.Second)
 	ds := &mockDebounceStore{
 		duePending: []domain.DebouncePending{
-			{ID: "dp-1", JobID: "job-1", ProjectID: "proj-1", FireAt: time.Now().Add(-time.Second)},
+			{ID: "dp-1", JobID: "job-1", ProjectID: "proj-1", FireAt: originalFireAt},
 		},
 		jobs: map[string]*domain.Job{
 			"job-1": {
@@ -448,8 +483,17 @@ func TestDebouncePoller_LeavesPendingWhenFireTimeRateLimitExceeded(t *testing.T)
 	if len(ds.completed) != 0 {
 		t.Fatalf("pending completed despite fire-time rate limit failure: %v", ds.completed)
 	}
-	if len(ds.duePending) != 1 || ds.duePending[0].ID != "dp-1" {
-		t.Fatalf("pending was not retained after fire-time rate limit failure: %v", ds.duePending)
+	if len(ds.rescheduled) != 1 || ds.rescheduled[0].id != "dp-1" {
+		t.Fatalf("pending was not rescheduled after fire-time rate limit failure: %v", ds.rescheduled)
+	}
+	if !ds.rescheduled[0].oldFireAt.Equal(originalFireAt) {
+		t.Fatalf("reschedule used old_fire_at %s, want %s", ds.rescheduled[0].oldFireAt, originalFireAt)
+	}
+	if !ds.rescheduled[0].nextFireAt.After(time.Now().UTC()) {
+		t.Fatalf("reschedule next fire_at is not in the future: %s", ds.rescheduled[0].nextFireAt)
+	}
+	if len(ds.duePending) != 1 || ds.duePending[0].ID != "dp-1" || !ds.duePending[0].FireAt.After(time.Now().UTC()) {
+		t.Fatalf("pending was not retained in future after fire-time rate limit failure: %v", ds.duePending)
 	}
 }
 
