@@ -117,6 +117,10 @@ func findContainer(serviceName string) (string, error) {
 	return "", fmt.Errorf("no running loadtest container %q for service %q", expected, serviceName)
 }
 
+func chaosCleanupContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), 2*time.Minute)
+}
+
 func (ce *ChaosEngine) findPostgresContainer() (string, error) {
 	return findContainer("postgres")
 }
@@ -311,7 +315,9 @@ func (ce *ChaosEngine) chaosWorkerKill(ctx context.Context) error {
 	// Wait 30 seconds
 	time.Sleep(30 * time.Second)
 
-	start := exec.CommandContext(ctx, "docker", "start", container)
+	cleanupCtx, cleanupCancel := chaosCleanupContext()
+	defer cleanupCancel()
+	start := exec.CommandContext(cleanupCtx, "docker", "start", container)
 	if err := start.Run(); err != nil {
 		return fmt.Errorf("failed to restart strait container %s: %w", container, err)
 	}
@@ -337,7 +343,9 @@ func (ce *ChaosEngine) chaosDatabaseFailover(ctx context.Context) error {
 	time.Sleep(10 * time.Second)
 
 	// Unpause
-	unpause := exec.CommandContext(ctx, "docker", "unpause", container)
+	cleanupCtx, cleanupCancel := chaosCleanupContext()
+	defer cleanupCancel()
+	unpause := exec.CommandContext(cleanupCtx, "docker", "unpause", container)
 	if err := unpause.Run(); err != nil {
 		return fmt.Errorf("failed to unpause postgres container %s: %w", container, err)
 	}
@@ -363,7 +371,9 @@ func (ce *ChaosEngine) chaosRedisFailure(ctx context.Context) error {
 	time.Sleep(2 * time.Minute)
 
 	// Restart Redis
-	start := exec.CommandContext(ctx, "docker", "start", container)
+	cleanupCtx, cleanupCancel := chaosCleanupContext()
+	defer cleanupCancel()
+	start := exec.CommandContext(cleanupCtx, "docker", "start", container)
 	if err := start.Run(); err != nil {
 		return fmt.Errorf("failed to restart redis container %s: %w", container, err)
 	}
@@ -437,7 +447,9 @@ func (ce *ChaosEngine) chaosDiskPressure(ctx context.Context) error {
 	time.Sleep(10 * time.Second)
 
 	// Clean up
-	_, _ = ce.harness.Pool.Exec(ctx, `
+	cleanupCtx, cleanupCancel := chaosCleanupContext()
+	defer cleanupCancel()
+	_, _ = ce.harness.Pool.Exec(cleanupCtx, `
 		DELETE FROM run_events re
 		USING job_runs jr
 		WHERE re.run_id = jr.id
@@ -447,7 +459,7 @@ func (ce *ChaosEngine) chaosDiskPressure(ctx context.Context) error {
 		  AND re.data @> '{"source":"loadtest","scenario":"disk_pressure"}'::jsonb`,
 		ce.projectID,
 	)
-	_, _ = ce.harness.Pool.Exec(ctx, `
+	_, _ = ce.harness.Pool.Exec(cleanupCtx, `
 		DELETE FROM job_runs
 		WHERE id LIKE 'loadtest-pressure-%'
 		  AND project_id = $1`,
@@ -505,7 +517,9 @@ func (ce *ChaosEngine) chaosClockSkew(ctx context.Context) error {
 	}
 
 	// Clean up the skewed rows
-	_, _ = ce.harness.Pool.Exec(ctx,
+	cleanupCtx, cleanupCancel := chaosCleanupContext()
+	defer cleanupCancel()
+	_, _ = ce.harness.Pool.Exec(cleanupCtx,
 		`DELETE FROM job_runs
 		 WHERE project_id = $1
 		   AND id LIKE 'loadtest-clock-skew-%'
@@ -564,10 +578,12 @@ func (ce *ChaosEngine) chaosCascadingFailure(ctx context.Context) error {
 	time.Sleep(2 * time.Minute)
 
 	// Restart everything
-	if err := exec.CommandContext(ctx, "docker", "start", redisContainer).Run(); err != nil {
+	cleanupCtx, cleanupCancel := chaosCleanupContext()
+	defer cleanupCancel()
+	if err := exec.CommandContext(cleanupCtx, "docker", "start", redisContainer).Run(); err != nil {
 		return fmt.Errorf("restarting redis: %w", err)
 	}
-	if err := exec.CommandContext(ctx, "docker", "start", straitContainer).Run(); err != nil {
+	if err := exec.CommandContext(cleanupCtx, "docker", "start", straitContainer).Run(); err != nil {
 		return fmt.Errorf("restarting strait: %w", err)
 	}
 	time.Sleep(10 * time.Second)

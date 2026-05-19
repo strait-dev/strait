@@ -79,6 +79,30 @@ func TestChaosHarness_DiskPressureCleanupIsRunScoped(t *testing.T) {
 	}
 }
 
+func TestChaosHarness_CleanupUsesDetachedContext(t *testing.T) {
+	t.Parallel()
+
+	data, err := os.ReadFile("chaos.go")
+	if err != nil {
+		t.Fatalf("read chaos.go: %v", err)
+	}
+	source := string(data)
+	if !strings.Contains(source, "func chaosCleanupContext() (context.Context, context.CancelFunc)") {
+		t.Fatal("chaos cleanup helper is missing")
+	}
+	for _, required := range []string{
+		"exec.CommandContext(cleanupCtx, \"docker\", \"start\", container)",
+		"exec.CommandContext(cleanupCtx, \"docker\", \"unpause\", container)",
+		"ce.harness.Pool.Exec(cleanupCtx, `",
+		"exec.CommandContext(cleanupCtx, \"docker\", \"start\", redisContainer)",
+		"exec.CommandContext(cleanupCtx, \"docker\", \"start\", straitContainer)",
+	} {
+		if !strings.Contains(source, required) {
+			t.Fatalf("chaos cleanup missing detached-context fragment %q", required)
+		}
+	}
+}
+
 func TestFindContainer_RequiresExactLoadtestContainerName(t *testing.T) {
 	restore := stubDockerContainerNames(t, []string{
 		"customer-postgres",
