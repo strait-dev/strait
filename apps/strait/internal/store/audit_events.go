@@ -1156,30 +1156,41 @@ func (q *Queries) keyForEpoch(cache map[int][]byte, epoch int) ([]byte, error) {
 }
 
 // AuditEventsDMLRestricted reports whether the current database role lacks
-// destructive table-level privileges on audit_events. When migration 000187 has
-// taken effect (the strait_app role exists and is the current role), the
-// REVOKE UPDATE/DELETE sequence and column-scoped UPDATE(signature) grant leave
+// destructive DML privileges on audit_events. When migration 000187 has taken
+// effect (the strait_app role exists and is the current role), the REVOKE
+// UPDATE/DELETE sequence and column-scoped UPDATE(signature) grant leave
 // has_table_privilege returning false for unqualified UPDATE and DELETE checks.
-// We also require TRUNCATE to be unavailable. When the current role is a
+// We also require TRUNCATE to be unavailable and reject column-level UPDATE
+// privileges on every column except signature. When the current role is a
 // superuser or the migration was skipped (strait_app not provisioned), one of
 // these checks returns true and we report restricted = false, letting the DML
 // guard probe surface a degraded state.
 //
-// The column argument is deliberately omitted so the check succeeds only
-// when every column allows UPDATE — the tamper-evident path requires all
-// columns except `signature` to be read-only.
+// The table-level UPDATE check is deliberately unqualified and the
+// has_column_privilege scan is deliberately scoped to non-signature columns:
+// the tamper-evident path requires every audit field except signature to be
+// read-only to the application role.
 func (q *Queries) AuditEventsDMLRestricted(ctx context.Context) (bool, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.AuditEventsDMLRestricted")
 	defer span.End()
 
-	var hasUpdate, hasDelete, hasTruncate bool
+	var hasUpdate, hasDelete, hasTruncate, hasUnsafeColumnUpdate bool
 	if err := q.db.QueryRow(ctx, `
 		SELECT
 			has_table_privilege(current_user, 'audit_events', 'UPDATE'),
 			has_table_privilege(current_user, 'audit_events', 'DELETE'),
-			has_table_privilege(current_user, 'audit_events', 'TRUNCATE')
-	`).Scan(&hasUpdate, &hasDelete, &hasTruncate); err != nil {
+			has_table_privilege(current_user, 'audit_events', 'TRUNCATE'),
+			EXISTS (
+				SELECT 1
+				FROM pg_attribute
+				WHERE attrelid = 'audit_events'::regclass
+				  AND attnum > 0
+				  AND NOT attisdropped
+				  AND attname != 'signature'
+				  AND has_column_privilege(current_user, 'audit_events', attname, 'UPDATE')
+			)
+	`).Scan(&hasUpdate, &hasDelete, &hasTruncate, &hasUnsafeColumnUpdate); err != nil {
 		return false, fmt.Errorf("audit dml privilege check: %w", err)
 	}
-	return !hasUpdate && !hasDelete && !hasTruncate, nil
+	return !hasUpdate && !hasDelete && !hasTruncate && !hasUnsafeColumnUpdate, nil
 }

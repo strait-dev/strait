@@ -9,20 +9,22 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-func TestAuditEventsDMLRestricted_ChecksUpdateDeleteAndTruncate(t *testing.T) {
+func TestAuditEventsDMLRestricted_ChecksTableAndColumnPrivileges(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name        string
-		hasUpdate   bool
-		hasDelete   bool
-		hasTruncate bool
-		want        bool
+		name                  string
+		hasUpdate             bool
+		hasDelete             bool
+		hasTruncate           bool
+		hasUnsafeColumnUpdate bool
+		want                  bool
 	}{
 		{name: "restricted", want: true},
 		{name: "update allowed", hasUpdate: true},
 		{name: "delete allowed", hasDelete: true},
 		{name: "truncate allowed", hasTruncate: true},
+		{name: "non signature column update allowed", hasUnsafeColumnUpdate: true},
 	}
 
 	for _, tc := range cases {
@@ -35,11 +37,17 @@ func TestAuditEventsDMLRestricted_ChecksUpdateDeleteAndTruncate(t *testing.T) {
 							t.Fatalf("privilege query %q missing %s check", sql, privilege)
 						}
 					}
+					for _, required := range []string{"has_column_privilege", "attname != 'signature'"} {
+						if !strings.Contains(sql, required) {
+							t.Fatalf("privilege query %q missing %s check", sql, required)
+						}
+					}
 					return &mockRow{
 						scanFn: func(dest ...any) error {
 							*dest[0].(*bool) = tc.hasUpdate
 							*dest[1].(*bool) = tc.hasDelete
 							*dest[2].(*bool) = tc.hasTruncate
+							*dest[3].(*bool) = tc.hasUnsafeColumnUpdate
 							return nil
 						},
 					}

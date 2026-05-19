@@ -5,10 +5,10 @@ import (
 	"fmt"
 )
 
-// AuditDMLPrivilegeChecker reports whether destructive table-level DML on
+// AuditDMLPrivilegeChecker reports whether destructive DML on
 // audit_events is restricted for the current database role. Implemented by
 // *store.Queries via has_table_privilege checks for UPDATE, DELETE, and
-// TRUNCATE.
+// TRUNCATE plus column-level UPDATE checks.
 //
 // When UPDATE is not restricted for any column other than `signature`,
 // the DML guardrail from migration 000187 is a silent no-op — a compromised
@@ -45,7 +45,7 @@ func NewAuditDMLGuardProbe(checker AuditDMLPrivilegeChecker) Checker {
 			return fmt.Errorf("audit DML privilege probe failed: %w", err)
 		}
 		if !restricted {
-			return fmt.Errorf("audit_events UPDATE/DELETE/TRUNCATE is not restricted for current role; migration 000187 is a no-op on this install — see SELFHOST.md for the strait_app role prerequisite")
+			return fmt.Errorf("audit_events UPDATE/DELETE/TRUNCATE or non-signature column UPDATE is not restricted for current role; migration 000187 is a no-op on this install — see SELFHOST.md for the strait_app role prerequisite")
 		}
 		return nil
 	})
