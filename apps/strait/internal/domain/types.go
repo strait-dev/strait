@@ -963,7 +963,8 @@ func (s WorkflowRunStatus) IsTerminal() bool {
 
 func (s WorkflowRunStatus) IsValid() bool {
 	switch s {
-	case WfStatusPending, WfStatusRunning, WfStatusPaused, WfStatusCompleted, WfStatusFailed, WfStatusTimedOut, WfStatusCanceled:
+	case WfStatusPending, WfStatusRunning, WfStatusPaused, WfStatusCompleted, WfStatusFailed, WfStatusTimedOut, WfStatusCanceled,
+		WfStatusCompensating, WfStatusCompensated, WfStatusCompensationFailed:
 		return true
 	default:
 		return false
