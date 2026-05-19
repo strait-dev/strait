@@ -18,6 +18,7 @@ import (
 type AnalyticsHandler struct {
 	exporter *clickhouse.Exporter
 	logger   *slog.Logger
+	dedupe   *recentDedupe
 }
 
 // NewAnalyticsHandler creates a CDC handler that enqueues run analytics to ClickHouse.
@@ -25,7 +26,7 @@ func NewAnalyticsHandler(exporter *clickhouse.Exporter, logger *slog.Logger) *An
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &AnalyticsHandler{exporter: exporter, logger: logger}
+	return &AnalyticsHandler{exporter: exporter, logger: logger, dedupe: newRecentDedupe(16_384)}
 }
 
 // Table returns the table this handler watches.
@@ -61,6 +62,9 @@ func (h *AnalyticsHandler) Handle(_ context.Context, msg Message) error {
 
 	status := domain.RunStatus(record.Status)
 	if !status.IsTerminal() {
+		return nil
+	}
+	if !h.dedupe.Remember(runAnalyticsDedupeKey(msg, record.ID, record.Status, record.FinishedAt)) {
 		return nil
 	}
 
@@ -109,6 +113,13 @@ func (h *AnalyticsHandler) Handle(_ context.Context, msg Message) error {
 	}
 
 	return nil
+}
+
+func runAnalyticsDedupeKey(msg Message, runID, status, finishedAt string) string {
+	if msg.Metadata.IdempotencyKey != "" {
+		return "run_analytics:cdc:" + msg.Metadata.IdempotencyKey
+	}
+	return "run_analytics:run:" + runID + ":" + status + ":" + finishedAt
 }
 
 type cdcTags string
