@@ -241,17 +241,7 @@ func (q *Queries) CountWebhookSubscriptionsByOrg(ctx context.Context, orgID stri
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountWebhookSubscriptionsByOrg")
 	defer span.End()
 
-	var count int
-	err := q.db.QueryRow(ctx, `
-		SELECT COUNT(*)
-		FROM webhook_subscriptions ws
-		WHERE ws.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
-		  AND ws.active = true
-	`, orgID).Scan(&count)
-	if err != nil {
-		return 0, fmt.Errorf("count webhook subscriptions by org: %w", err)
-	}
-	return count, nil
+	return q.countWebhookSubscriptionsByOrgIgnoringProjectRLS(ctx, orgID)
 }
 
 // CountLogDrainsByOrg counts log drains across all active projects in an org.

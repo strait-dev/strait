@@ -77,13 +77,8 @@ func (q *Queries) createWebhookSubscriptionWithOrgLimitLocked(ctx context.Contex
 		return fmt.Errorf("lock webhook endpoint limit: %w", err)
 	}
 
-	var count int
-	if err := q.db.QueryRow(ctx, `
-		SELECT COUNT(*)
-		FROM webhook_subscriptions ws
-		WHERE ws.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
-		  AND ws.active = TRUE
-	`, orgID).Scan(&count); err != nil {
+	count, err := q.countWebhookSubscriptionsByOrgIgnoringProjectRLS(ctx, orgID)
+	if err != nil {
 		return fmt.Errorf("count webhook subscriptions before create: %w", err)
 	}
 	if count >= maxEndpoints {
@@ -91,6 +86,40 @@ func (q *Queries) createWebhookSubscriptionWithOrgLimitLocked(ctx context.Contex
 	}
 
 	return q.CreateWebhookSubscription(ctx, sub)
+}
+
+func (q *Queries) countWebhookSubscriptionsByOrgIgnoringProjectRLS(ctx context.Context, orgID string) (count int, err error) {
+	var currentProjectID string
+	if err := q.db.QueryRow(ctx, `SELECT COALESCE(current_setting('app.current_project_id', true), '')`).Scan(&currentProjectID); err != nil {
+		return 0, fmt.Errorf("read project context before webhook subscription count: %w", err)
+	}
+
+	if currentProjectID != "" {
+		if _, err := q.db.Exec(ctx, `SELECT set_config('app.current_project_id', '', true)`); err != nil {
+			return 0, fmt.Errorf("clear project context for org webhook subscription count: %w", err)
+		}
+		defer func() {
+			if restoreErr := q.SetProjectContext(ctx, currentProjectID); restoreErr != nil {
+				restoreErr = fmt.Errorf("restore project context after org webhook subscription count: %w", restoreErr)
+				if err != nil {
+					err = errors.Join(err, restoreErr)
+					return
+				}
+				err = restoreErr
+			}
+		}()
+	}
+
+	err = q.db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM webhook_subscriptions ws
+		WHERE ws.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
+		  AND ws.active = TRUE
+	`, orgID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count webhook subscriptions by org: %w", err)
+	}
+	return count, nil
 }
 
 func (q *Queries) ListWebhookSubscriptions(ctx context.Context, projectID string) ([]domain.WebhookSubscription, error) {
