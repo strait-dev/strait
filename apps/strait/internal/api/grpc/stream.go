@@ -72,6 +72,20 @@ func workerDisconnectAckChannel(projectID, workerID string) string {
 	return fmt.Sprintf("worker:disconnect_ack:%s:%s", projectID, workerID)
 }
 
+func subscribeRequiredWorkerControlChannel(ctx context.Context, pub pubsub.Publisher, channel, purpose string) (*pubsub.Subscription, error) {
+	if pub == nil {
+		return nil, status.Errorf(codes.Unavailable, "worker stream %s subscription unavailable", purpose)
+	}
+	sub, err := pub.Subscribe(ctx, channel)
+	if err != nil || sub == nil {
+		if err == nil {
+			err = errors.New("nil subscription")
+		}
+		return nil, status.Errorf(codes.Unavailable, "worker stream %s subscription failed: %v", purpose, err)
+	}
+	return sub, nil
+}
+
 // workerService implements workerv1.WorkerServiceServer.
 type workerService struct {
 	queries         *store.Queries
@@ -131,9 +145,15 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	}()
 	if apiKey.ID != "" {
 		revokeChannel := fmt.Sprintf("apikey:revoked:%s", apiKey.ID)
-		revokeKeySub, _ = s.pub.Subscribe(ctx, revokeChannel)
+		revokeKeySub, err = subscribeRequiredWorkerControlChannel(ctx, s.pub, revokeChannel, "api key revocation")
+		if err != nil {
+			return err
+		}
 		expireChannel := fmt.Sprintf("apikey:expires:%s", apiKey.ID)
-		expireKeySub, _ = s.pub.Subscribe(ctx, expireChannel)
+		expireKeySub, err = subscribeRequiredWorkerControlChannel(ctx, s.pub, expireChannel, "api key expiry")
+		if err != nil {
+			return err
+		}
 	}
 
 	// Receive and validate the registration message.
@@ -153,11 +173,17 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	apiKeyExpiresAt, apiKeyHasExpiry = APIKeyExpiresAtFromContext(ctx)
 	if revokeKeySub == nil && apiKey.ID != "" {
 		revokeChannel := fmt.Sprintf("apikey:revoked:%s", apiKey.ID)
-		revokeKeySub, _ = s.pub.Subscribe(ctx, revokeChannel)
+		revokeKeySub, err = subscribeRequiredWorkerControlChannel(ctx, s.pub, revokeChannel, "api key revocation")
+		if err != nil {
+			return err
+		}
 	}
 	if expireKeySub == nil && apiKey.ID != "" {
 		expireChannel := fmt.Sprintf("apikey:expires:%s", apiKey.ID)
-		expireKeySub, _ = s.pub.Subscribe(ctx, expireChannel)
+		expireKeySub, err = subscribeRequiredWorkerControlChannel(ctx, s.pub, expireChannel, "api key expiry")
+		if err != nil {
+			return err
+		}
 	}
 	regPayload, ok := firstMsg.Payload.(*workerv1.WorkerMessage_Registration)
 	if !ok || regPayload.Registration == nil {

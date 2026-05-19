@@ -130,6 +130,17 @@ func (p *testRevocationPublisher) Subscribe(_ context.Context, channel string) (
 
 func (p *testRevocationPublisher) Close() error { return nil }
 
+type failingSubscribePublisher struct{}
+
+func (failingSubscribePublisher) Publish(context.Context, string, []byte) error { return nil }
+func (failingSubscribePublisher) PublishBatch(context.Context, []pubsub.PubSubMessage) error {
+	return nil
+}
+func (failingSubscribePublisher) Subscribe(context.Context, string) (*pubsub.Subscription, error) {
+	return nil, errors.New("redis subscription unavailable")
+}
+func (failingSubscribePublisher) Close() error { return nil }
+
 func seedGRPCAPIKey(t *testing.T, ctx context.Context, q *store.Queries, projectID, keyID, rawKey string) {
 	t.Helper()
 	seedGRPCAPIKeyWithExpiry(t, ctx, q, projectID, keyID, rawKey, nil)
@@ -147,6 +158,44 @@ func seedGRPCAPIKeyWithExpiry(t *testing.T, ctx context.Context, q *store.Querie
 		ExpiresAt: expiresAt,
 	}); err != nil {
 		t.Fatalf("CreateAPIKey: %v", err)
+	}
+}
+
+func TestIntegration_StreamTasks_SubscribeFailureRejectsWorker(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	const (
+		projectID = "proj-subscribe-failure"
+		apiKeyID  = "key-subscribe-failure"
+		rawKey    = "strait_subscribeFailureKey"
+	)
+	seedGRPCAPIKey(t, ctx, q, projectID, apiKeyID, rawKey)
+
+	streamCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stream := newBlockingWorkerStream(streamCtx, rawKey)
+	svc := &workerService{
+		queries:        q,
+		pub:            failingSubscribePublisher{},
+		registry:       NewConnectionRegistry(),
+		resultChannels: NewResultChannelRegistry(),
+	}
+
+	err = svc.StreamTasks(stream)
+	if status.Code(err) != codes.Unavailable {
+		t.Fatalf("StreamTasks error = %v, want Unavailable", err)
+	}
+	if got := svc.registry.Snapshot(); len(got) != 0 {
+		t.Fatalf("subscribe failure mutated registry: got %d workers", len(got))
 	}
 }
 
