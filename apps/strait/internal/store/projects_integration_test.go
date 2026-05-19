@@ -188,6 +188,41 @@ func TestDeleteProject(t *testing.T) {
 	}
 }
 
+func TestDeleteProject_DisablesWorkflows(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	st := mustStore(t)
+
+	p := &domain.Project{ID: newID(), OrgID: "org-delete-workflows", Name: "Delete Workflows"}
+	if err := st.CreateProject(ctx, p); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+	wf := &domain.Workflow{
+		ID:        newID(),
+		ProjectID: p.ID,
+		Name:      "delete-project-workflow",
+		Slug:      "delete-project-workflow",
+		Enabled:   true,
+		Version:   1,
+		Cron:      "*/5 * * * *",
+	}
+	if err := st.CreateWorkflow(ctx, wf); err != nil {
+		t.Fatalf("CreateWorkflow() error = %v", err)
+	}
+
+	if err := st.DeleteProject(ctx, p.ID); err != nil {
+		t.Fatalf("DeleteProject() error = %v", err)
+	}
+
+	var enabled bool
+	if err := testDB.Pool.QueryRow(ctx, `SELECT enabled FROM workflows WHERE id = $1`, wf.ID).Scan(&enabled); err != nil {
+		t.Fatalf("read workflow enabled after project delete: %v", err)
+	}
+	if enabled {
+		t.Fatal("project deletion must disable workflows")
+	}
+}
+
 func TestDeleteProject_RecreateRevivesProject(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)

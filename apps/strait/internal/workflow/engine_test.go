@@ -31,6 +31,7 @@ type mockEngineStore struct {
 	countRunningWorkflowRunsFn        func(ctx context.Context, workflowID string) (int, error)
 	createWorkflowRunFn               func(ctx context.Context, run *domain.WorkflowRun) error
 	createWorkflowRunBootstrapFn      func(ctx context.Context, run *domain.WorkflowRun, stepRuns []domain.WorkflowStepRun, startedAt time.Time) error
+	isProjectRunnableFn               func(ctx context.Context, projectID string) (bool, error)
 	createWorkflowStepRunFn           func(ctx context.Context, sr *domain.WorkflowStepRun) error
 	createWorkflowStepApprovalFn      func(ctx context.Context, approval *domain.WorkflowStepApproval) error
 	createEventTriggerFn              func(ctx context.Context, trigger *domain.EventTrigger) error
@@ -63,6 +64,13 @@ func (m *mockEngineStore) GetWorkflowVersion(ctx context.Context, workflowID str
 		return m.getWorkflowVersionFn(ctx, workflowID, version)
 	}
 	return nil, nil
+}
+
+func (m *mockEngineStore) IsProjectRunnable(ctx context.Context, projectID string) (bool, error) {
+	if m.isProjectRunnableFn != nil {
+		return m.isProjectRunnableFn(ctx, projectID)
+	}
+	return true, nil
 }
 
 func (m *mockEngineStore) ListStepsByWorkflowVersion(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error) {
@@ -379,6 +387,34 @@ func TestTriggerWorkflow(t *testing.T) {
 		_, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-b", nil, "", nil, nil)
 		if err == nil || !strings.Contains(err.Error(), "does not belong") {
 			t.Fatalf("expected project mismatch error, got %v", err)
+		}
+	})
+
+	t.Run("inactive project", func(t *testing.T) {
+		t.Parallel()
+		var listedSteps bool
+		ms := &mockEngineStore{
+			getWorkflowFn: func(_ context.Context, _ string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: "wf", ProjectID: "proj-1", Enabled: true}, nil
+			},
+			isProjectRunnableFn: func(_ context.Context, projectID string) (bool, error) {
+				if projectID != "proj-1" {
+					t.Fatalf("projectID = %q, want proj-1", projectID)
+				}
+				return false, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				listedSteps = true
+				return nil, nil
+			},
+		}
+		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+		_, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-1", nil, "", nil, nil)
+		if err == nil || !strings.Contains(err.Error(), "not active") {
+			t.Fatalf("expected inactive project error, got %v", err)
+		}
+		if listedSteps {
+			t.Fatal("inactive project should fail before loading workflow steps")
 		}
 	})
 

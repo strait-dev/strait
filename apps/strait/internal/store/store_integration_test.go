@@ -5918,6 +5918,10 @@ func TestListCronWorkflows(t *testing.T) {
 	mustClean(t, ctx)
 
 	projectID := "project-cron-workflows"
+	project := &domain.Project{ID: projectID, OrgID: "org-cron-workflows", Name: "Cron Workflows"}
+	if err := q.CreateProject(ctx, project); err != nil {
+		t.Fatalf("CreateProject(active) error = %v", err)
+	}
 
 	// Create a workflow with cron
 	wf1 := &domain.Workflow{ID: newID(), ProjectID: projectID, Name: "wf-cron", Slug: "wf-cron-slug", Enabled: true, Version: 1}
@@ -5943,6 +5947,36 @@ func TestListCronWorkflows(t *testing.T) {
 	_, err = testDB.Pool.Exec(ctx, `UPDATE workflows SET cron = $1 WHERE id = $2`, "*/5 * * * *", wf3.ID)
 	if err != nil {
 		t.Fatalf("set cron disabled error = %v", err)
+	}
+
+	suspendedProject := &domain.Project{ID: "project-cron-workflows-suspended", OrgID: project.OrgID, Name: "Suspended Cron Workflows"}
+	if err := q.CreateProject(ctx, suspendedProject); err != nil {
+		t.Fatalf("CreateProject(suspended) error = %v", err)
+	}
+	wfSuspended := &domain.Workflow{ID: newID(), ProjectID: suspendedProject.ID, Name: "wf-suspended-cron", Slug: "wf-suspended-cron-slug", Enabled: true, Version: 1}
+	if err := q.CreateWorkflow(ctx, wfSuspended); err != nil {
+		t.Fatalf("CreateWorkflow(suspended project) error = %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE workflows SET cron = $1 WHERE id = $2`, "*/7 * * * *", wfSuspended.ID); err != nil {
+		t.Fatalf("set cron suspended error = %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE projects SET suspended = true WHERE id = $1`, suspendedProject.ID); err != nil {
+		t.Fatalf("suspend project error = %v", err)
+	}
+
+	deletedProject := &domain.Project{ID: "project-cron-workflows-deleted", OrgID: project.OrgID, Name: "Deleted Cron Workflows"}
+	if err := q.CreateProject(ctx, deletedProject); err != nil {
+		t.Fatalf("CreateProject(deleted) error = %v", err)
+	}
+	wfDeleted := &domain.Workflow{ID: newID(), ProjectID: deletedProject.ID, Name: "wf-deleted-cron", Slug: "wf-deleted-cron-slug", Enabled: true, Version: 1}
+	if err := q.CreateWorkflow(ctx, wfDeleted); err != nil {
+		t.Fatalf("CreateWorkflow(deleted project) error = %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE workflows SET cron = $1 WHERE id = $2`, "*/11 * * * *", wfDeleted.ID); err != nil {
+		t.Fatalf("set cron deleted error = %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE projects SET deleted_at = NOW() WHERE id = $1`, deletedProject.ID); err != nil {
+		t.Fatalf("delete project row error = %v", err)
 	}
 
 	cronWfs, err := q.ListCronWorkflows(ctx)

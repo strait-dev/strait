@@ -66,6 +66,10 @@ type workflowCanaryStore interface {
 	GetWorkflowVersion(ctx context.Context, workflowID string, version int) (*domain.WorkflowVersion, error)
 }
 
+type projectExecutionStateStore interface {
+	IsProjectRunnable(ctx context.Context, projectID string) (bool, error)
+}
+
 // NewWorkflowEngine creates a new workflow engine for triggering and managing workflow runs.
 func NewWorkflowEngine(store EngineStore, queue EngineQueue, logger *slog.Logger) *WorkflowEngine {
 	if logger == nil {
@@ -184,6 +188,17 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 	if wf.ProjectID != "" && projectID != wf.ProjectID {
 		triggerStatus = "error"
 		return nil, fmt.Errorf("workflow %s does not belong to project %s", workflowID, projectID)
+	}
+	if projectChecker, ok := e.store.(projectExecutionStateStore); ok {
+		runnable, checkErr := projectChecker.IsProjectRunnable(ctx, projectID)
+		if checkErr != nil {
+			triggerStatus = "error"
+			return nil, fmt.Errorf("check workflow project execution state: %w", checkErr)
+		}
+		if !runnable {
+			triggerStatus = "error"
+			return nil, fmt.Errorf("project %s is not active for workflow execution", projectID)
+		}
 	}
 	if err := e.applyCanaryRouting(ctx, wf); err != nil {
 		triggerStatus = "error"

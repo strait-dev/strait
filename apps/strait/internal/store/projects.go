@@ -143,6 +143,7 @@ func (q *Queries) deleteProjectRows(ctx context.Context, id string) error {
 		`DELETE FROM project_quotas WHERE project_id = $1`,
 		`DELETE FROM usage_records WHERE project_id = $1`,
 		`UPDATE jobs SET enabled = false WHERE project_id = $1`,
+		`UPDATE workflows SET enabled = false WHERE project_id = $1`,
 		`UPDATE projects SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1`,
 	}
 
@@ -165,4 +166,23 @@ func (q *Queries) CountProjectsByOrg(ctx context.Context, orgID string) (int, er
 		return 0, fmt.Errorf("count projects by org: %w", err)
 	}
 	return count, nil
+}
+
+// IsProjectRunnable reports whether a project is active and allowed to execute
+// scheduled or workflow-triggered work.
+func (q *Queries) IsProjectRunnable(ctx context.Context, projectID string) (bool, error) {
+	var runnable bool
+	err := q.db.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM projects
+			WHERE id = $1
+			  AND deleted_at IS NULL
+			  AND COALESCE(suspended, false) = false
+		)
+	`, projectID).Scan(&runnable)
+	if err != nil {
+		return false, fmt.Errorf("check project runnable: %w", err)
+	}
+	return runnable, nil
 }
