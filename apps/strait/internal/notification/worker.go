@@ -142,6 +142,15 @@ func (w *Worker) dispatch(ctx context.Context, d *domain.NotificationDelivery) e
 		d.NextRetryAt = nil
 		return w.finishClaim(ctx, d)
 	}
+	if !ch.Enabled {
+		d.LastError = "notification channel disabled"
+		d.Status = "failed"
+		d.NextRetryAt = nil
+		if w.deliveriesCounter != nil {
+			w.deliveriesCounter.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "disabled")))
+		}
+		return w.finishClaim(ctx, d)
+	}
 
 	sender, ok := w.senders[ch.ChannelType]
 	if !ok {

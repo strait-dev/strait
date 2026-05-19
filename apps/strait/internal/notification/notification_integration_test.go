@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -755,6 +756,60 @@ func TestWorkerProcessesDeliveryFromRealDB(t *testing.T) {
 	}
 	if deliveries[0].Status != "delivered" {
 		t.Errorf("delivery status = %q, want %q", deliveries[0].Status, "delivered")
+	}
+}
+
+func TestWorkerSkipsQueuedDeliveryAfterChannelDisabled(t *testing.T) {
+	ctx := context.Background()
+	st := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-worker-disabled"
+	ch := makeChannel(projectID, domain.ChannelTypeSlack, "worker-disabled-ch", json.RawMessage(`{"webhook_url":"https://disabled"}`))
+	if err := st.CreateNotificationChannel(ctx, ch); err != nil {
+		t.Fatalf("CreateNotificationChannel() error = %v", err)
+	}
+
+	d := makeDelivery(ch.ID, projectID, domain.NotificationEventSpendingLimitWarning, json.RawMessage(`{"org_id":"org-disabled"}`))
+	if err := st.CreateNotificationDelivery(ctx, d); err != nil {
+		t.Fatalf("CreateNotificationDelivery() error = %v", err)
+	}
+
+	ch.Enabled = false
+	if err := st.UpdateNotificationChannel(ctx, ch); err != nil {
+		t.Fatalf("UpdateNotificationChannel(disabled) error = %v", err)
+	}
+
+	sender := &fakeSender{}
+	w := notification.NewWorker(st, &http.Client{})
+	w.RegisterSender(domain.ChannelTypeSlack, sender)
+
+	workerCtx, cancel := context.WithCancel(ctx)
+	w.Start(workerCtx)
+
+	time.Sleep(500 * time.Millisecond)
+	cancel()
+	w.Stop()
+
+	if sender.callCount() != 0 {
+		t.Fatalf("sender.Send() called %d times for disabled channel, want 0", sender.callCount())
+	}
+
+	deliveries, err := st.ListNotificationDeliveries(ctx, projectID, 10, nil)
+	if err != nil {
+		t.Fatalf("ListNotificationDeliveries() error = %v", err)
+	}
+	if len(deliveries) != 1 {
+		t.Fatalf("ListNotificationDeliveries() returned %d, want 1", len(deliveries))
+	}
+	if deliveries[0].Status != "failed" {
+		t.Fatalf("delivery status = %q, want failed", deliveries[0].Status)
+	}
+	if deliveries[0].Attempts != 0 {
+		t.Fatalf("delivery attempts = %d, want 0", deliveries[0].Attempts)
+	}
+	if !strings.Contains(deliveries[0].LastError, "disabled") {
+		t.Fatalf("last error = %q, want disabled reason", deliveries[0].LastError)
 	}
 }
 
