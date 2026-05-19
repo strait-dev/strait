@@ -261,17 +261,18 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 
 	errMsg := err.Error()
 	errClass := classifyError(err)
+	stateKey := endpointStateKey(job.ProjectID, job.EndpointURL)
 	addWorkerRunBreadcrumb(ctx, "worker.dispatch", "run failed", run, job, map[string]any{
 		"error_class":  errClass,
 		"max_attempts": policy.maxAttempts,
 	})
-	if recordErr := e.store.RecordEndpointCircuitFailure(ctx, job.EndpointURL, time.Now().UTC(), e.circuitThreshold, e.circuitOpenFor); recordErr != nil {
+	if recordErr := e.store.RecordEndpointCircuitFailure(ctx, stateKey, time.Now().UTC(), e.circuitThreshold, e.circuitOpenFor); recordErr != nil {
 		e.logger.Warn("failed to record circuit breaker failure", "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", recordErr)
 	}
 
 	// Record health score for failed dispatch.
 	if _, hsErr := e.healthScorer.RecordResult(ctx, DispatchResult{
-		EndpointURL:  job.EndpointURL,
+		EndpointURL:  stateKey,
 		Success:      false,
 		LatencyMs:    0,
 		JobTimeoutMs: float64(job.TimeoutSecs * 1000),
@@ -440,14 +441,15 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 		"timeout_secs": policy.timeoutSecs,
 		"max_attempts": policy.maxAttempts,
 	})
+	stateKey := endpointStateKey(job.ProjectID, job.EndpointURL)
 
-	if err := e.store.RecordEndpointCircuitFailure(ctx, job.EndpointURL, time.Now().UTC(), e.circuitThreshold, e.circuitOpenFor); err != nil {
+	if err := e.store.RecordEndpointCircuitFailure(ctx, stateKey, time.Now().UTC(), e.circuitThreshold, e.circuitOpenFor); err != nil {
 		e.logger.Warn("failed to record circuit breaker timeout", "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", err)
 	}
 
 	// Record health score for timeout (counts as failure with timeout flag).
 	if _, hsErr := e.healthScorer.RecordResult(ctx, DispatchResult{
-		EndpointURL:  job.EndpointURL,
+		EndpointURL:  stateKey,
 		Success:      false,
 		TimedOut:     true,
 		LatencyMs:    float64(job.TimeoutSecs * 1000),

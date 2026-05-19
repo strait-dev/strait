@@ -62,6 +62,7 @@ type mockExecutorStore struct {
 	heartbeatRunIDs    []string
 	scheduleRetryCalls []scheduleRetryCall
 	clearRetryCalls    []string
+	healthResultKeys   []string
 }
 
 type scheduleRetryCall struct {
@@ -286,12 +287,24 @@ func (m *mockExecutorStore) AtomicRecordHealthResult(
 	_, _, _ float64,
 	_ float64,
 ) (*domain.EndpointHealthScore, error) {
+	m.mu.Lock()
+	m.healthResultKeys = append(m.healthResultKeys, endpointURL)
+	m.mu.Unlock()
+
 	return &domain.EndpointHealthScore{
 		EndpointURL:  endpointURL,
 		HealthScore:  100.0,
 		SuccessRate:  1.0,
 		LatencyScore: 1.0,
 	}, nil
+}
+
+func (m *mockExecutorStore) healthResults() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]string, len(m.healthResultKeys))
+	copy(out, m.healthResultKeys)
+	return out
 }
 
 func (m *mockExecutorStore) CountExecutingRunsByOrg(_ context.Context, _ string) (int, error) {
@@ -565,6 +578,80 @@ func TestExecutor_CircuitBreaker_RecordsFailure(t *testing.T) {
 
 	if failureCalled.Load() != 1 {
 		t.Fatalf("record failure called = %d, want 1", failureCalled.Load())
+	}
+}
+
+func TestExecutor_CircuitBreakerFailureUsesProjectScopedEndpointKey(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte("temporary failure"))
+	}))
+	defer server.Close()
+
+	var precheckKey string
+	var failureKey string
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return testJob(server.URL, 1, 5), nil
+	}
+	store.canDispatchFn = func(_ context.Context, endpointURL string, _ time.Time) (bool, *time.Time, error) {
+		precheckKey = endpointURL
+		return true, nil, nil
+	}
+	store.recordFailureFn = func(_ context.Context, endpointURL string, _ time.Time, _ int, _ time.Duration) error {
+		failureKey = endpointURL
+		return nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	run := testRun(1)
+	exec.execute(context.Background(), run)
+
+	want := endpointStateKey("proj-1", server.URL)
+	if precheckKey != want {
+		t.Fatalf("precheck endpoint key = %q, want %q", precheckKey, want)
+	}
+	if failureKey != want {
+		t.Fatalf("failure endpoint key = %q, want %q", failureKey, want)
+	}
+	healthKeys := store.healthResults()
+	if len(healthKeys) == 0 {
+		t.Fatal("expected health failure to be recorded")
+	}
+	if healthKeys[len(healthKeys)-1] != want {
+		t.Fatalf("health endpoint key = %q, want %q", healthKeys[len(healthKeys)-1], want)
+	}
+}
+
+func TestExecutor_TimeoutFailureUsesProjectScopedEndpointKey(t *testing.T) {
+	t.Parallel()
+
+	var failureKey string
+	store := &mockExecutorStore{}
+	store.recordFailureFn = func(_ context.Context, endpointURL string, _ time.Time, _ int, _ time.Duration) error {
+		failureKey = endpointURL
+		return nil
+	}
+	exec := newSnoozeTestExecutor(t, store, 0)
+
+	run := testRun(1)
+	run.Status = domain.StatusExecuting
+	job := testJob("http://timeout.test", 3, 30)
+	policy := executionPolicy{maxAttempts: 3, timeoutSecs: 30}
+
+	exec.handleTimeout(context.Background(), run, job, policy, nil)
+
+	want := endpointStateKey("proj-1", job.EndpointURL)
+	if failureKey != want {
+		t.Fatalf("timeout failure endpoint key = %q, want %q", failureKey, want)
+	}
+	healthKeys := store.healthResults()
+	if len(healthKeys) == 0 {
+		t.Fatal("expected timeout health result to be recorded")
+	}
+	if healthKeys[len(healthKeys)-1] != want {
+		t.Fatalf("timeout health endpoint key = %q, want %q", healthKeys[len(healthKeys)-1], want)
 	}
 }
 
