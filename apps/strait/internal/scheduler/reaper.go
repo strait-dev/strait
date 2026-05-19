@@ -96,6 +96,7 @@ type QueueDepthMonitorStore interface {
 // AutoRotateAPIKeysStore is an optional interface for automatic API key rotation.
 type AutoRotateAPIKeysStore interface {
 	ListAPIKeysDueRotation(ctx context.Context) ([]domain.APIKey, error)
+	GetProjectQuota(ctx context.Context, projectID string) (*store.ProjectQuota, error)
 	CreateAPIKey(ctx context.Context, key *domain.APIKey) error
 	MarkAPIKeyRotated(ctx context.Context, oldKeyID, newKeyID string, graceExpiresAt time.Time) error
 	RevokeAPIKey(ctx context.Context, id string) error
@@ -1345,6 +1346,12 @@ func (r *Reaper) autoRotateAPIKeys(ctx context.Context) {
 			continue
 		}
 
+		expiresAt, err := autoRotatedAPIKeyExpiry(ctx, rotateStore, oldKey)
+		if err != nil {
+			r.logger.Warn("skipping api key auto-rotation that violates lifetime policy", "key_id", oldKey.ID, "project_id", oldKey.ProjectID, "error", err)
+			continue
+		}
+
 		// Generate new key material.
 		rawBytes := make([]byte, 32)
 		if _, err := rand.Read(rawBytes); err != nil {
@@ -1361,7 +1368,7 @@ func (r *Reaper) autoRotateAPIKeys(ctx context.Context) {
 			KeyHash:               hex.EncodeToString(keyHash[:]),
 			KeyPrefix:             rawKey[:domain.APIKeyPrefixLen],
 			Scopes:                oldKey.Scopes,
-			ExpiresAt:             oldKey.ExpiresAt,
+			ExpiresAt:             expiresAt,
 			EnvironmentID:         oldKey.EnvironmentID,
 			RotationIntervalDays:  oldKey.RotationIntervalDays,
 			RotationWebhookURL:    oldKey.RotationWebhookURL,
@@ -1415,6 +1422,18 @@ func (r *Reaper) autoRotateAPIKeys(ctx context.Context) {
 			Details:      details,
 		})
 	}
+}
+
+func autoRotatedAPIKeyExpiry(ctx context.Context, rotateStore AutoRotateAPIKeysStore, oldKey domain.APIKey) (*time.Time, error) {
+	quota, err := rotateStore.GetProjectQuota(ctx, oldKey.ProjectID)
+	if err != nil {
+		return nil, fmt.Errorf("load project quota: %w", err)
+	}
+	maxLifetimeDays := 0
+	if quota != nil {
+		maxLifetimeDays = quota.MaxKeyLifetimeDays
+	}
+	return domain.ApplyAPIKeyLifetimePolicy(time.Now(), oldKey.ExpiresAt, maxLifetimeDays)
 }
 
 func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL string, encryptedSecret []byte, oldKeyID, newKeyID, newKey, newKeyPrefix, projectID string) error {

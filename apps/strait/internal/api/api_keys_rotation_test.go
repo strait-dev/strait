@@ -16,9 +16,10 @@ import (
 func TestHandleRotateAPIKey(t *testing.T) {
 	t.Parallel()
 
+	expiresAt := time.Now().Add(24 * time.Hour)
 	ms := &APIStoreMock{}
 	ms.GetAPIKeyByIDFunc = func(_ context.Context, id string) (*domain.APIKey, error) {
-		return &domain.APIKey{ID: id, ProjectID: "proj-1", OrgID: "org-1", Name: "prod key", Scopes: []string{"jobs:read"}}, nil
+		return &domain.APIKey{ID: id, ProjectID: "proj-1", OrgID: "org-1", Name: "prod key", Scopes: []string{"jobs:read"}, ExpiresAt: &expiresAt}, nil
 	}
 	ms.CreateAPIKeyFunc = func(_ context.Context, key *domain.APIKey) error {
 		if key.ProjectID != "proj-1" {
@@ -53,9 +54,10 @@ func TestHandleRotateAPIKey(t *testing.T) {
 func TestHandleRotateAPIKey_PublishesWorkerExpiryDeadline(t *testing.T) {
 	t.Parallel()
 
+	expiresAt := time.Now().Add(24 * time.Hour)
 	ms := &APIStoreMock{}
 	ms.GetAPIKeyByIDFunc = func(_ context.Context, id string) (*domain.APIKey, error) {
-		return &domain.APIKey{ID: id, ProjectID: "proj-1", OrgID: "org-1", Name: "worker key", Scopes: []string{domain.ScopeWorkersConnect}}, nil
+		return &domain.APIKey{ID: id, ProjectID: "proj-1", OrgID: "org-1", Name: "worker key", Scopes: []string{domain.ScopeWorkersConnect}, ExpiresAt: &expiresAt}, nil
 	}
 	ms.CreateAPIKeyFunc = func(_ context.Context, key *domain.APIKey) error {
 		key.ID = "key-new"
@@ -103,10 +105,11 @@ func TestHandleRotateAPIKey_PublishesWorkerExpiryDeadline(t *testing.T) {
 func TestHandleRotateAPIKey_RevokeReplacementWhenMarkFails(t *testing.T) {
 	t.Parallel()
 
+	expiresAt := time.Now().Add(24 * time.Hour)
 	var revokedReplacement atomic.Bool
 	ms := &APIStoreMock{}
 	ms.GetAPIKeyByIDFunc = func(_ context.Context, id string) (*domain.APIKey, error) {
-		return &domain.APIKey{ID: id, ProjectID: "proj-1", OrgID: "org-1", Name: "prod key", Scopes: []string{"jobs:read"}}, nil
+		return &domain.APIKey{ID: id, ProjectID: "proj-1", OrgID: "org-1", Name: "prod key", Scopes: []string{"jobs:read"}, ExpiresAt: &expiresAt}, nil
 	}
 	ms.CreateAPIKeyFunc = func(_ context.Context, key *domain.APIKey) error {
 		key.ID = "key-replacement"

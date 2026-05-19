@@ -20,7 +20,7 @@ import (
 // 100 years. time.Duration(days)*24*time.Hour overflows once days exceeds
 // ~106,750, and even an "expires never" intent is not a good reason to
 // open the API to user-controlled int64 overflow.
-const maxAPIKeyDurationDays = 36500
+const maxAPIKeyDurationDays = domain.MaxAPIKeyDurationDays
 
 type CreateAPIKeyRequest struct {
 	ProjectID            string   `json:"project_id" validate:"required"`
@@ -146,29 +146,23 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, input *CreateAPIKeyInpu
 }
 
 func (s *Server) apiKeyExpiryFromProjectPolicy(ctx context.Context, projectID string, requested *time.Time) (*time.Time, error) {
-	expiresAt := requested
 	quota, err := s.store.GetProjectQuota(ctx, projectID)
 	if err != nil {
 		slog.Warn("failed to load project quota while creating api key",
 			"project_id", projectID, "error", err)
 		return nil, huma.Error500InternalServerError("failed to load project quota")
 	}
-	if quota != nil && quota.MaxKeyLifetimeDays > 0 {
-		// Cap the project quota itself at maxAPIKeyDurationDays so a misconfigured
-		// "huge" quota cannot wrap time.Duration math into a past timestamp.
-		effectiveMaxDays := min(quota.MaxKeyLifetimeDays, maxAPIKeyDurationDays)
-		maxExpiry := time.Now().Add(time.Duration(effectiveMaxDays) * 24 * time.Hour)
-		if expiresAt == nil {
-			expiresAt = &maxExpiry
-			slog.Info("api key expiry auto-capped by project max_key_lifetime_days",
-				"project_id", projectID, "max_days", effectiveMaxDays)
-		} else if expiresAt.After(maxExpiry) {
-			return nil, huma.Error400BadRequest(
-				fmt.Sprintf("expires_in_days exceeds project maximum of %d days", effectiveMaxDays))
-		}
+	maxLifetimeDays := 0
+	if quota != nil {
+		maxLifetimeDays = quota.MaxKeyLifetimeDays
 	}
-	if expiresAt == nil {
-		return nil, huma.Error400BadRequest("expires_in_days is required when project max_key_lifetime_days is not configured")
+	expiresAt, err := domain.ApplyAPIKeyLifetimePolicy(time.Now(), requested, maxLifetimeDays)
+	if err != nil {
+		return nil, huma.Error400BadRequest(err.Error())
+	}
+	if requested == nil && maxLifetimeDays > 0 {
+		slog.Info("api key expiry auto-capped by project max_key_lifetime_days",
+			"project_id", projectID, "max_days", min(maxLifetimeDays, maxAPIKeyDurationDays))
 	}
 	return expiresAt, nil
 }
@@ -364,7 +358,11 @@ func (s *Server) handleRotateAPIKey(ctx context.Context, input *RotateAPIKeyInpu
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to generate api key")
 	}
-	newKey := &domain.APIKey{ProjectID: oldKey.ProjectID, OrgID: oldKey.OrgID, Name: oldKey.Name + " (rotated)", KeyHash: hashAPIKey(rawKey), KeyPrefix: rawKey[:domain.APIKeyPrefixLen], Scopes: oldKey.Scopes, ExpiresAt: oldKey.ExpiresAt, EnvironmentID: oldKey.EnvironmentID, RotationIntervalDays: oldKey.RotationIntervalDays, RotationWebhookURL: oldKey.RotationWebhookURL, RotationWebhookSecret: oldKey.RotationWebhookSecret}
+	expiresAt, err := s.apiKeyExpiryFromProjectPolicy(ctx, oldKey.ProjectID, oldKey.ExpiresAt)
+	if err != nil {
+		return nil, err
+	}
+	newKey := &domain.APIKey{ProjectID: oldKey.ProjectID, OrgID: oldKey.OrgID, Name: oldKey.Name + " (rotated)", KeyHash: hashAPIKey(rawKey), KeyPrefix: rawKey[:domain.APIKeyPrefixLen], Scopes: oldKey.Scopes, ExpiresAt: expiresAt, EnvironmentID: oldKey.EnvironmentID, RotationIntervalDays: oldKey.RotationIntervalDays, RotationWebhookURL: oldKey.RotationWebhookURL, RotationWebhookSecret: oldKey.RotationWebhookSecret}
 	if oldKey.RotationIntervalDays != nil && *oldKey.RotationIntervalDays > 0 {
 		nr := time.Now().Add(time.Duration(*oldKey.RotationIntervalDays) * 24 * time.Hour)
 		newKey.NextRotationAt = &nr
