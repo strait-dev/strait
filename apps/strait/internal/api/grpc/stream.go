@@ -58,9 +58,10 @@ const (
 )
 
 var (
-	errForceDisconnected = errors.New("force disconnected by API request")
-	errAPIKeyRevoked     = errors.New("api key revoked")
-	errAPIKeyExpired     = errors.New("api key expired")
+	errForceDisconnected             = errors.New("force disconnected by API request")
+	errAPIKeyRevoked                 = errors.New("api key revoked")
+	errAPIKeyExpired                 = errors.New("api key expired")
+	errWorkerConnectionRenewalFailed = errors.New("worker connection reservation renewal failed")
 )
 
 func workerDisconnectChannel(projectID, workerID string) string {
@@ -241,9 +242,19 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 		)
 	}
 
+	var workerConnectionRenewer workerConnectionReservationEnforcer
+	if reserver, ok := s.billingEnforcer.(workerConnectionReservationEnforcer); ok && orgID != "" && workerConnectionReservationID != "" {
+		workerConnectionRenewer = reserver
+	}
+
 	// Run recv and send loops concurrently. If either exits, the stream closes.
 	var wg conc.WaitGroup
-	streamErr := make(chan error, workerStreamGoroutineCount(disconnectSub, revokeKeySub, apiKeyHasExpiry || expireKeySub != nil))
+	streamErr := make(chan error, workerStreamGoroutineCount(
+		disconnectSub,
+		revokeKeySub,
+		apiKeyHasExpiry || expireKeySub != nil,
+		workerConnectionRenewer != nil,
+	))
 
 	// Disconnect signal listener: closes the stream when a force-disconnect is published.
 	if disconnectSub != nil {
@@ -258,6 +269,9 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	if apiKeyHasExpiry || expireKeySub != nil {
 		closeExpireSubOnEarlyReturn = false
 		s.listenForAPIKeyExpiry(ctx, &wg, streamErr, apiKeyExpiresAt, apiKeyHasExpiry, expireKeySub, cw, apiKey.ID, reg.WorkerId, projectID)
+	}
+	if workerConnectionRenewer != nil {
+		s.startWorkerConnectionReservationRenewal(ctx, &wg, streamErr, workerConnectionRenewer, orgID, workerConnectionReservationID, reg.WorkerId)
 	}
 
 	startWorkerSendLoop(ctx, &wg, streamErr, sendCh, stream)
@@ -276,7 +290,7 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	return firstErr
 }
 
-func workerStreamGoroutineCount(disconnectSub, revokeKeySub *pubsub.Subscription, hasExpiry bool) int {
+func workerStreamGoroutineCount(disconnectSub, revokeKeySub *pubsub.Subscription, hasExpiry, renewsWorkerConnection bool) int {
 	goroutineCount := 2
 	if disconnectSub != nil {
 		goroutineCount++
@@ -285,6 +299,9 @@ func workerStreamGoroutineCount(disconnectSub, revokeKeySub *pubsub.Subscription
 		goroutineCount++
 	}
 	if hasExpiry {
+		goroutineCount++
+	}
+	if renewsWorkerConnection {
 		goroutineCount++
 	}
 	return goroutineCount
@@ -397,6 +414,43 @@ func listenForWorkerForceDisconnect(
 				"project_id", projectID,
 			)
 			streamErr <- errForceDisconnected
+		}
+	})
+}
+
+func (s *workerService) startWorkerConnectionReservationRenewal(
+	ctx context.Context,
+	wg *conc.WaitGroup,
+	streamErr chan<- error,
+	reserver workerConnectionReservationEnforcer,
+	orgID string,
+	reservationID string,
+	workerID string,
+) {
+	lease := s.workerConnectionLease()
+	interval := lease / 3
+	if interval < 10*time.Millisecond {
+		interval = 10 * time.Millisecond
+	}
+	wg.Go(func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				streamErr <- nil
+				return
+			case <-ticker.C:
+				if err := reserver.RenewWorkerConnection(ctx, orgID, reservationID, lease); err != nil {
+					slog.Warn("grpc worker connection reservation renewal failed; closing stream",
+						"worker_id", workerID,
+						"org_id", orgID,
+						"error", err,
+					)
+					streamErr <- errWorkerConnectionRenewalFailed
+					return
+				}
+			}
 		}
 	})
 }
@@ -550,6 +604,8 @@ func streamDisconnectReason(err error) string {
 		return "revoked"
 	case errors.Is(err, errAPIKeyExpired):
 		return "expired"
+	case errors.Is(err, errWorkerConnectionRenewalFailed):
+		return "worker_connection_reservation_lost"
 	default:
 		return "error"
 	}
