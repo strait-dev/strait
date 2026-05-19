@@ -366,3 +366,43 @@ func TestUpdateJob_StaleVersionDoesNotCreateSnapshot(t *testing.T) {
 		t.Fatalf("valid update version = %d, want %d", current.Version, job.Version+1)
 	}
 }
+
+func TestUpdateJob_StaleVersionDoesNotBlockFutureSnapshot(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-job-version-stale-future")
+	stale := *job
+
+	job.Name = "winner-before-stale"
+	if err := q.UpdateJob(ctx, job); err != nil {
+		t.Fatalf("UpdateJob(winner) error = %v", err)
+	}
+	winnerVersion := job.Version
+
+	stale.Name = "stale-poison"
+	if err := q.UpdateJob(ctx, &stale); !errors.Is(err, store.ErrJobVersionConflict) {
+		t.Fatalf("UpdateJob(stale) error = %v, want ErrJobVersionConflict", err)
+	}
+
+	current, err := q.GetJob(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("GetJob(current) error = %v", err)
+	}
+	current.Name = "valid-after-stale"
+	if err := q.UpdateJob(ctx, current); err != nil {
+		t.Fatalf("UpdateJob(valid after stale) error = %v", err)
+	}
+
+	versioned, err := q.GetJobAtVersion(ctx, job.ID, winnerVersion)
+	if err != nil {
+		t.Fatalf("GetJobAtVersion(winner version) error = %v", err)
+	}
+	if versioned.Name != "winner-before-stale" {
+		t.Fatalf("versioned name = %q, want winner-before-stale", versioned.Name)
+	}
+	if current.Version != winnerVersion+1 {
+		t.Fatalf("valid update version = %d, want %d", current.Version, winnerVersion+1)
+	}
+}
