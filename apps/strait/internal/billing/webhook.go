@@ -777,22 +777,6 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data jso
 
 	periodStart, periodEnd := extractPeriod(&sub)
 
-	// If subscription returns to active from a grace/restricted state, clear it.
-	if status == "active" {
-		existing, existErr := h.store.GetOrgSubscription(ctx, orgID)
-		if existErr == nil && (existing.PaymentStatus == "grace" || existing.PaymentStatus == "restricted") {
-			if err := h.store.UpdatePaymentStatus(ctx, orgID, "ok", nil); err != nil && !errors.Is(err, ErrSubscriptionNotFound) {
-				return fmt.Errorf("clearing grace period on active: %w", err)
-			}
-			if h.enforcer != nil {
-				h.enforcer.InvalidateOrgCache(orgID)
-			}
-			h.logger.Info("payment recovered, grace period cleared",
-				"org_id", orgID,
-			)
-		}
-	}
-
 	// Check if this is a downgrade by comparing plan limits.
 	existing, existErr := h.store.GetOrgSubscription(ctx, orgID)
 	if existErr != nil && !errors.Is(existErr, ErrSubscriptionNotFound) {
