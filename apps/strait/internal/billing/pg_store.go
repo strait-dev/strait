@@ -1251,24 +1251,37 @@ func (s *PgStore) UpdatePaymentStatus(ctx context.Context, orgID string, status 
 // RestrictExpiredContractIfCurrent restricts an org only if the contract row
 // still matches the expired, non-renewing state observed by the scheduler.
 func (s *PgStore) RestrictExpiredContractIfCurrent(ctx context.Context, orgID string, contractEndDate time.Time) (bool, error) {
-	tag, err := s.pool.Exec(ctx, `
-		UPDATE organization_subscriptions os
-		SET payment_status = 'restricted',
-		    updated_at = NOW()
-		WHERE os.org_id = $1
-		  AND EXISTS (
-		      SELECT 1
-		      FROM enterprise_contracts ec
-		      WHERE ec.org_id = $1
-		        AND ec.contract_end_date = $2
-		        AND ec.contract_end_date <= NOW()
-		        AND ec.auto_renew = false
-		  )
-	`, orgID, contractEndDate)
+	entitlements, err := json.Marshal(GetPlanLimits(domain.PlanFree))
 	if err != nil {
-		return false, fmt.Errorf("restricting expired contract if current: %w", err)
+		return false, fmt.Errorf("marshalling expired contract entitlements: %w", err)
 	}
-	return tag.RowsAffected() > 0, nil
+	var restricted bool
+	err = WithBillingTx(ctx, s.pool, func(tx pgx.Tx) error {
+		tag, execErr := tx.Exec(ctx, `
+			UPDATE organization_subscriptions os
+			SET payment_status = 'restricted',
+			    entitlements = $3::jsonb,
+			    updated_at = NOW()
+			WHERE os.org_id = $1
+			  AND EXISTS (
+			      SELECT 1
+			      FROM enterprise_contracts ec
+			      WHERE ec.org_id = $1
+			        AND ec.contract_end_date = $2
+			        AND ec.contract_end_date <= NOW()
+			        AND ec.auto_renew = false
+			  )
+		`, orgID, contractEndDate, entitlements)
+		if execErr != nil {
+			return fmt.Errorf("restricting expired contract if current: %w", execErr)
+		}
+		restricted = tag.RowsAffected() > 0
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return restricted, nil
 }
 
 // RestrictExpiredGracePeriod atomically moves an org from expired payment grace

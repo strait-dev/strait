@@ -68,6 +68,14 @@ type mockContractEmailSender struct {
 	sent []contractReminderCall
 }
 
+type mockContractExpiryInvalidator struct {
+	orgs []string
+}
+
+func (m *mockContractExpiryInvalidator) InvalidateOrgCache(orgID string) {
+	m.orgs = append(m.orgs, orgID)
+}
+
 type contractReminderCall struct {
 	to            []string
 	endDate       string
@@ -193,6 +201,25 @@ func TestContractExpiryChecker_RestrictsExpiredNonRenewingContract(t *testing.T)
 
 	if len(store.restricted) != 1 || store.restricted[0] != "org-expired" {
 		t.Fatalf("restricted orgs = %v, want [org-expired]", store.restricted)
+	}
+}
+
+func TestContractExpiryChecker_InvalidatesOrgCacheAfterRestriction(t *testing.T) {
+	t.Parallel()
+
+	store := &mockContractExpiryStore{
+		expired: []billing.EnterpriseContract{
+			{OrgID: "org-expired", ContractEndDate: time.Now().Add(-time.Hour), AutoRenew: false},
+			{OrgID: "org-stale", ContractEndDate: time.Now().Add(-time.Hour), AutoRenew: false},
+		},
+		restrictOK: map[string]bool{"org-expired": true, "org-stale": false},
+	}
+	invalidator := &mockContractExpiryInvalidator{}
+	checker := NewContractExpiryChecker(store, nil, time.Hour).WithOrgCacheInvalidator(invalidator)
+	checker.check(context.Background())
+
+	if len(invalidator.orgs) != 1 || invalidator.orgs[0] != "org-expired" {
+		t.Fatalf("invalidated orgs = %v, want [org-expired]", invalidator.orgs)
 	}
 }
 

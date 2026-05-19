@@ -36,14 +36,19 @@ type contractRestrictionStore interface {
 	RestrictExpiredContractIfCurrent(ctx context.Context, orgID string, contractEndDate time.Time) (bool, error)
 }
 
+type contractExpiryOrgCacheInvalidator interface {
+	InvalidateOrgCache(orgID string)
+}
+
 // ContractExpiryChecker periodically checks for enterprise contracts
 // approaching expiry and sends renewal or expiry reminder emails.
 type ContractExpiryChecker struct {
-	store      ContractExpiryStore
-	emails     ContractExpiryEmailSender
-	interval   time.Duration
-	reminderMu sync.Mutex
-	reminders  map[string]struct{}
+	store       ContractExpiryStore
+	emails      ContractExpiryEmailSender
+	interval    time.Duration
+	invalidator contractExpiryOrgCacheInvalidator
+	reminderMu  sync.Mutex
+	reminders   map[string]struct{}
 }
 
 // NewContractExpiryChecker creates a new contract expiry checker.
@@ -54,6 +59,13 @@ func NewContractExpiryChecker(store ContractExpiryStore, emails ContractExpiryEm
 		interval:  interval,
 		reminders: make(map[string]struct{}),
 	}
+}
+
+// WithOrgCacheInvalidator clears cached billing limits after a contract
+// restriction so plan gates stop seeing stale paid entitlements.
+func (c *ContractExpiryChecker) WithOrgCacheInvalidator(invalidator contractExpiryOrgCacheInvalidator) *ContractExpiryChecker {
+	c.invalidator = invalidator
+	return c
 }
 
 // Run starts the periodic contract expiry check loop.
@@ -105,6 +117,9 @@ func (c *ContractExpiryChecker) restrictExpiredContracts(ctx context.Context) {
 			slog.Info("contract expiry: skipped stale expired contract restriction",
 				"org_id", contract.OrgID, "contract_end", contract.ContractEndDate)
 			continue
+		}
+		if c.invalidator != nil {
+			c.invalidator.InvalidateOrgCache(contract.OrgID)
 		}
 
 		slog.Warn("contract expired, org restricted",
