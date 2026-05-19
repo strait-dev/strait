@@ -196,6 +196,84 @@ func TestDeepSecExportCSV_EscapesFormulaProjectID(t *testing.T) {
 	}
 }
 
+func TestDeepSecExportCSV_EscapesHiddenFormulaProjectID(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name      string
+		projectID string
+	}{
+		{"bom_equals", "\uFEFF=HYPERLINK(\"https://attacker.test\")"},
+		{"zwsp_plus", "\u200b+SUM(1,1)"},
+		{"lrm_minus", "\u200e-1+1"},
+		{"combining_mark_at", "\u0301@cmd"},
+		{"space_then_equals", " =cmd"},
+		{"tab_then_equals", "\t=cmd"},
+		{"nul_then_equals", "\x00=cmd"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &mockExportStore{
+				usageRecords: []UsageRecord{{
+					ProjectID:        tc.projectID,
+					PeriodDate:       time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC),
+					RunsCount:        1,
+					ComputeCostMicro: 1000,
+				}},
+			}
+			period := ExportPeriod{
+				From: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+				To:   time.Date(2026, 1, 31, 0, 0, 0, 0, time.UTC),
+			}
+
+			data, err := ExportCSV(context.Background(), store, "org-1", period)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			reader := csv.NewReader(strings.NewReader(string(data)))
+			records, err := reader.ReadAll()
+			if err != nil {
+				t.Fatalf("failed to parse CSV: %v", err)
+			}
+			if got := records[1][1]; !strings.HasPrefix(got, "'") {
+				t.Fatalf("project cell = %q, want formula escaped with apostrophe", got)
+			}
+		})
+	}
+}
+
+func TestDeepSecExportCSV_PreservesBenignInvisibleProjectID(t *testing.T) {
+	t.Parallel()
+
+	projectID := "\uFEFFproject-benign"
+	store := &mockExportStore{
+		usageRecords: []UsageRecord{{
+			ProjectID:        projectID,
+			PeriodDate:       time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC),
+			RunsCount:        1,
+			ComputeCostMicro: 1000,
+		}},
+	}
+	period := ExportPeriod{
+		From: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		To:   time.Date(2026, 1, 31, 0, 0, 0, 0, time.UTC),
+	}
+
+	data, err := ExportCSV(context.Background(), store, "org-1", period)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	reader := csv.NewReader(strings.NewReader(string(data)))
+	records, err := reader.ReadAll()
+	if err != nil {
+		t.Fatalf("failed to parse CSV: %v", err)
+	}
+	if got := records[1][1]; got != projectID {
+		t.Fatalf("project cell = %q, want unchanged %q", got, projectID)
+	}
+}
+
 func TestDeepSecExportCSV_RejectsOversizedPeriod(t *testing.T) {
 	store := &mockExportStore{}
 	period := ExportPeriod{

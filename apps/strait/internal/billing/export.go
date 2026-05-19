@@ -6,8 +6,8 @@ import (
 	"encoding/csv"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
+	"unicode"
 
 	"github.com/go-pdf/fpdf"
 )
@@ -177,16 +177,22 @@ func escapeCSVFormulaCell(value string) string {
 	if value == "" {
 		return value
 	}
-	trimmed := strings.TrimLeft(value, " \t\r\n")
-	if trimmed == "" {
-		return value
-	}
-	switch trimmed[0] {
-	case '=', '+', '-', '@':
+	switch value[0] {
+	case '\t', '\r', '\n', '\x00':
 		return "'" + value
-	default:
+	}
+	for _, r := range value {
+		if unicode.Is(unicode.Cf, r) || unicode.IsMark(r) ||
+			unicode.IsSpace(r) || unicode.IsControl(r) {
+			continue
+		}
+		switch r {
+		case '=', '+', '-', '@':
+			return "'" + value
+		}
 		return value
 	}
+	return value
 }
 
 func microToUSDString(micro int64) string {
