@@ -25,6 +25,7 @@ type SLOStore interface {
 type SLOHandler struct {
 	store  SLOStore
 	logger *slog.Logger
+	dedupe *recentDedupe
 }
 
 // NewSLOHandler creates a CDC handler that inserts SLO evaluation data points.
@@ -32,7 +33,7 @@ func NewSLOHandler(store SLOStore, logger *slog.Logger) *SLOHandler {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &SLOHandler{store: store, logger: logger}
+	return &SLOHandler{store: store, logger: logger, dedupe: newRecentDedupe(16_384)}
 }
 
 // Table returns the table this handler watches.
@@ -78,6 +79,10 @@ func (h *SLOHandler) Handle(ctx context.Context, msg Message) error {
 		if slo.EvaluatedAt != nil {
 			continue
 		}
+		dedupeKey := sloEvaluationDedupeKey(msg, record.ID, record.Status, slo.ID)
+		if !h.dedupe.Remember(dedupeKey) {
+			continue
+		}
 		eval := &domain.JobSLOEvaluation{
 			ID:              uuid.Must(uuid.NewV7()).String(),
 			SLOID:           slo.ID,
@@ -86,6 +91,7 @@ func (h *SLOHandler) Handle(ctx context.Context, msg Message) error {
 			EvaluatedAt:     now,
 		}
 		if insertErr := h.store.InsertSLOEvaluation(ctx, eval); insertErr != nil {
+			h.dedupe.Forget(dedupeKey)
 			h.logger.Warn("cdc slo handler: failed to insert evaluation",
 				"slo_id", slo.ID, "run_id", record.ID, "error", insertErr)
 			insertErrs = append(insertErrs, insertErr)
@@ -96,6 +102,13 @@ func (h *SLOHandler) Handle(ctx context.Context, msg Message) error {
 		return fmt.Errorf("slo handler: insert evaluation: %w", err)
 	}
 	return nil
+}
+
+func sloEvaluationDedupeKey(msg Message, runID, status, sloID string) string {
+	if msg.Metadata.IdempotencyKey != "" {
+		return "slo:cdc:" + msg.Metadata.IdempotencyKey + ":" + sloID
+	}
+	return "slo:run:" + runID + ":" + status + ":" + sloID
 }
 
 func sloCurrentValue(status domain.RunStatus) float64 {

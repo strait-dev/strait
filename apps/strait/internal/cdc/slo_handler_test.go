@@ -155,6 +155,59 @@ func TestSLOHandler_DoesNotOverwriteExistingSLOEvaluationWithPlaceholder(t *test
 	}
 }
 
+func TestSLOHandler_RedeliveredTerminalUpdateInsertsEvaluationOnce(t *testing.T) {
+	t.Parallel()
+	store := &mockSLOStore{
+		slos: []domain.JobSLOStatus{
+			{JobSLO: domain.JobSLO{ID: "slo-1", JobID: "job-1"}},
+		},
+	}
+	h := NewSLOHandler(store, nil)
+
+	msg := cdcUpdateMsg("completed", "p1", "run-redelivered", "job-1")
+	msg.Metadata.IdempotencyKey = "wal:job_runs:run-redelivered:completed"
+	if err := h.Handle(context.Background(), msg); err != nil {
+		t.Fatalf("first delivery: %v", err)
+	}
+	msg.AckID = "ack-redelivery"
+	if err := h.Handle(context.Background(), msg); err != nil {
+		t.Fatalf("redelivery: %v", err)
+	}
+
+	if len(store.evaluations) != 1 {
+		t.Fatalf("evaluations = %d, want 1", len(store.evaluations))
+	}
+}
+
+func TestSLOHandler_InsertErrorDoesNotConsumeRedeliveryDedupe(t *testing.T) {
+	t.Parallel()
+	store := &mockSLOStore{
+		slos: []domain.JobSLOStatus{
+			{JobSLO: domain.JobSLO{ID: "slo-1", JobID: "job-1"}},
+		},
+		evalErr: errors.New("temporary insert failure"),
+	}
+	h := NewSLOHandler(store, nil)
+
+	msg := cdcUpdateMsg("completed", "p1", "run-retry", "job-1")
+	msg.Metadata.IdempotencyKey = "wal:job_runs:run-retry:completed"
+	if err := h.Handle(context.Background(), msg); err == nil {
+		t.Fatal("first delivery error = nil, want insert failure")
+	}
+
+	store.mu.Lock()
+	store.evalErr = nil
+	store.mu.Unlock()
+	msg.AckID = "ack-redelivery"
+	if err := h.Handle(context.Background(), msg); err != nil {
+		t.Fatalf("redelivery after insert recovery: %v", err)
+	}
+
+	if len(store.evaluations) != 1 {
+		t.Fatalf("evaluations = %d, want 1", len(store.evaluations))
+	}
+}
+
 func TestDeepSecSLOHandler_StoreErrorReturnsForRetry(t *testing.T) {
 	t.Parallel()
 	store := &mockSLOStore{
