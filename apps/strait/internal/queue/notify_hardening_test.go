@@ -185,6 +185,28 @@ func TestDegradedRecoveryReArmsWithFreshChannel(t *testing.T) {
 	}
 }
 
+func TestQueueNotifier_SuccessfulListenClearsDegradedImmediately(t *testing.T) {
+	n := NewQueueNotifier("postgres://unused", nil)
+	n.MarkDegradedForTest()
+	old := n.Degraded()
+	select {
+	case <-old:
+	default:
+		t.Fatal("old degraded channel should be closed")
+	}
+
+	n.markListenConnected()
+	fresh := n.Degraded()
+	select {
+	case <-fresh:
+		t.Fatal("successful listen should replace degraded channel immediately")
+	default:
+	}
+	if atomic.LoadInt64(&n.lastConnectedUnixNano) == 0 {
+		t.Fatal("successful listen should record connection timestamp")
+	}
+}
+
 // Verify that QueueNotifier satisfies the DegradedNotifier interface.
 var _ DegradedNotifier = (*QueueNotifier)(nil)
 
