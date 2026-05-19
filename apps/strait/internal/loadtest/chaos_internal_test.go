@@ -71,7 +71,9 @@ func TestChaosHarness_DiskPressureCleanupIsRunScoped(t *testing.T) {
 		"USING job_runs jr",
 		"re.run_id = jr.id",
 		"jr.project_id = $1",
-		"jr.id LIKE 'loadtest-pressure-%'",
+		"AND re.run_id = $2",
+		"DELETE FROM job_runs",
+		"WHERE id = $2",
 	} {
 		if !strings.Contains(source, required) {
 			t.Fatalf("disk pressure cleanup missing scoped fragment %q", required)

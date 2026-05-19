@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/sourcegraph/conc"
 )
 
@@ -406,7 +407,8 @@ func (ce *ChaosEngine) chaosDiskPressure(ctx context.Context) error {
 		return fmt.Errorf("no database pool available")
 	}
 
-	tag, err := ce.harness.Pool.Exec(ctx, `
+	var pressureRunID string
+	err := ce.harness.Pool.QueryRow(ctx, `
 		WITH target_job AS (
 			SELECT id, project_id
 			FROM jobs
@@ -424,7 +426,8 @@ func (ce *ChaosEngine) chaosDiskPressure(ctx context.Context) error {
 			       NOW()
 			FROM target_job
 			RETURNING id
-		)
+		),
+		inserted_events AS (
 		INSERT INTO run_events (id, run_id, type, level, message, data, created_at)
 		SELECT gen_random_uuid()::text,
 		       pressure_run.id,
@@ -433,15 +436,18 @@ func (ce *ChaosEngine) chaosDiskPressure(ctx context.Context) error {
 		       'loadtest disk pressure',
 		       jsonb_build_object('source', 'loadtest', 'scenario', 'disk_pressure'),
 		       NOW()
-		FROM pressure_run, generate_series(1, 100000)`,
+			FROM pressure_run, generate_series(1, 100000)
+			RETURNING 1
+		)
+		SELECT id FROM pressure_run`,
 		ce.projectID,
 		ce.jobSlug,
-	)
+	).Scan(&pressureRunID)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("no loadtest job found for project %s and job %s", ce.projectID, ce.jobSlug)
+		}
 		return fmt.Errorf("inserting pressure rows: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("no loadtest job found for project %s and job %s", ce.projectID, ce.jobSlug)
 	}
 
 	time.Sleep(10 * time.Second)
@@ -454,16 +460,18 @@ func (ce *ChaosEngine) chaosDiskPressure(ctx context.Context) error {
 		USING job_runs jr
 		WHERE re.run_id = jr.id
 		  AND jr.project_id = $1
-		  AND jr.id LIKE 'loadtest-pressure-%'
+		  AND re.run_id = $2
 		  AND re.type = 'loadtest_pressure'
 		  AND re.data @> '{"source":"loadtest","scenario":"disk_pressure"}'::jsonb`,
 		ce.projectID,
+		pressureRunID,
 	)
 	_, _ = ce.harness.Pool.Exec(cleanupCtx, `
 		DELETE FROM job_runs
-		WHERE id LIKE 'loadtest-pressure-%'
+		WHERE id = $2
 		  AND project_id = $1`,
 		ce.projectID,
+		pressureRunID,
 	)
 	return nil
 }
