@@ -188,3 +188,77 @@ func TestPlanGate_BatchCreateRejectsCronOverlapPolicy(t *testing.T) {
 		t.Fatalf("expected cron_overlap_policy dispatch with requested=skip, got %+v", calls)
 	}
 }
+
+func TestPlanGate_CreateJobRejectsOnFailureChaining(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		triggerJob      string
+		triggerWorkflow string
+	}{
+		{name: "failure job", triggerJob: "job-fallback"},
+		{name: "failure workflow", triggerWorkflow: "workflow-fallback"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			enforcer := &tunableLimitsEnforcer{limits: billing.GetPlanLimits(domain.PlanFree)}
+			ms := &APIStoreMock{
+				CreateJobFunc: func(context.Context, *domain.Job) error {
+					t.Fatal("CreateJob must not be called when on_failure chaining is not available")
+					return nil
+				},
+			}
+			srv := newServerWithEnforcer(t, ms, &mockQueue{}, enforcer)
+
+			_, err := srv.handleCreateJob(context.Background(), &CreateJobInput{Body: CreateJobRequest{
+				ProjectID:                "proj-1",
+				Name:                     "failure chain",
+				Slug:                     "failure-chain",
+				EndpointURL:              "https://example.com/run",
+				OnFailureTriggerJob:      tt.triggerJob,
+				OnFailureTriggerWorkflow: tt.triggerWorkflow,
+			}})
+			if !isHumaStatusError(err, http.StatusForbidden) {
+				t.Fatalf("expected 403 for unavailable on_failure chaining, got %v", err)
+			}
+		})
+	}
+}
+
+func TestPlanGate_CloneJobRejectsOnFailureChaining(t *testing.T) {
+	t.Parallel()
+
+	source := &domain.Job{
+		ID:                       "job-source",
+		ProjectID:                "proj-1",
+		Name:                     "Source",
+		Slug:                     "source",
+		EndpointURL:              "https://example.com/run",
+		OnFailureTriggerJob:      "job-fallback",
+		OnFailureTriggerWorkflow: "workflow-fallback",
+	}
+	enforcer := &tunableLimitsEnforcer{limits: billing.GetPlanLimits(domain.PlanFree)}
+	ms := &APIStoreMock{
+		GetJobFunc: func(context.Context, string) (*domain.Job, error) {
+			return source, nil
+		},
+		CreateJobFunc: func(context.Context, *domain.Job) error {
+			t.Fatal("CreateJob must not be called when cloned on_failure chaining is not available")
+			return nil
+		},
+	}
+	srv := newServerWithEnforcer(t, ms, &mockQueue{}, enforcer)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+
+	_, err := srv.handleCloneJob(ctx, &CloneJobInput{
+		JobID: "job-source",
+		Body:  CloneJobRequest{Name: "Clone", Slug: "clone"},
+	})
+	if !isHumaStatusError(err, http.StatusForbidden) {
+		t.Fatalf("expected 403 for cloned on_failure chaining, got %v", err)
+	}
+}

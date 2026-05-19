@@ -141,6 +141,9 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 	if err := s.checkJobChainingAllowed(ctx, req.ProjectID, req.OnCompleteTriggerJob, req.OnCompleteTriggerWorkflow); err != nil {
 		return nil, err
 	}
+	if err := s.checkJobChainingAllowed(ctx, req.ProjectID, req.OnFailureTriggerJob, req.OnFailureTriggerWorkflow); err != nil {
+		return nil, err
+	}
 	if err := s.checkCronOverlapPolicy(ctx, req.ProjectID, req.CronOverlapPolicy); err != nil {
 		return nil, err
 	}
@@ -918,6 +921,9 @@ func (s *Server) handleCloneJob(ctx context.Context, input *CloneJobInput) (*Clo
 		return nil, err
 	}
 	if err := s.checkJobChainingAllowed(ctx, source.ProjectID, source.OnCompleteTriggerJob, source.OnCompleteTriggerWorkflow); err != nil {
+		return nil, err
+	}
+	if err := s.checkJobChainingAllowed(ctx, source.ProjectID, source.OnFailureTriggerJob, source.OnFailureTriggerWorkflow); err != nil {
 		return nil, err
 	}
 	if err := s.checkCronOverlapPolicy(ctx, source.ProjectID, string(source.CronOverlapPolicy)); err != nil {
