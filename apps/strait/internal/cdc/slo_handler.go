@@ -79,7 +79,7 @@ func (h *SLOHandler) Handle(ctx context.Context, msg Message) error {
 		if slo.EvaluatedAt != nil {
 			continue
 		}
-		dedupeKey := sloEvaluationDedupeKey(msg, record.ID, record.Status, slo.ID)
+		dedupeKey := sloEvaluationDedupeKey(record.ID, slo.ID)
 		if !h.dedupe.Remember(dedupeKey) {
 			continue
 		}
@@ -104,11 +104,8 @@ func (h *SLOHandler) Handle(ctx context.Context, msg Message) error {
 	return nil
 }
 
-func sloEvaluationDedupeKey(msg Message, runID, status, sloID string) string {
-	if msg.Metadata.IdempotencyKey != "" {
-		return "slo:cdc:" + msg.Metadata.IdempotencyKey + ":" + sloID
-	}
-	return "slo:run:" + runID + ":" + status + ":" + sloID
+func sloEvaluationDedupeKey(runID, sloID string) string {
+	return "slo:run:" + runID + ":" + sloID
 }
 
 func sloCurrentValue(status domain.RunStatus) float64 {

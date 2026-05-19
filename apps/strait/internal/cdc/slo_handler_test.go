@@ -179,6 +179,31 @@ func TestSLOHandler_RedeliveredTerminalUpdateInsertsEvaluationOnce(t *testing.T)
 	}
 }
 
+func TestSLOHandler_MultipleTerminalUpdatesForSameRunInsertEvaluationOnce(t *testing.T) {
+	t.Parallel()
+	store := &mockSLOStore{
+		slos: []domain.JobSLOStatus{
+			{JobSLO: domain.JobSLO{ID: "slo-1", JobID: "job-1"}},
+		},
+	}
+	h := NewSLOHandler(store, nil)
+
+	first := cdcUpdateMsg("failed", "p1", "run-terminal", "job-1")
+	first.Metadata.IdempotencyKey = "wal:job_runs:run-terminal:failed"
+	if err := h.Handle(context.Background(), first); err != nil {
+		t.Fatalf("first terminal update: %v", err)
+	}
+	second := cdcUpdateMsg("dead_letter", "p1", "run-terminal", "job-1")
+	second.Metadata.IdempotencyKey = "wal:job_runs:run-terminal:dead-letter"
+	if err := h.Handle(context.Background(), second); err != nil {
+		t.Fatalf("second terminal update: %v", err)
+	}
+
+	if len(store.evaluations) != 1 {
+		t.Fatalf("evaluations = %d, want 1", len(store.evaluations))
+	}
+}
+
 func TestSLOHandler_InsertErrorDoesNotConsumeRedeliveryDedupe(t *testing.T) {
 	t.Parallel()
 	store := &mockSLOStore{
