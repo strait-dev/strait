@@ -134,13 +134,13 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, input *CreateAPIKeyInpu
 		return nil, huma.Error500InternalServerError("failed to create api key")
 	}
 	s.emitAuditEvent(ctx, domain.AuditActionAPIKeyCreated, "api_key", key.ID, map[string]any{
-		"name":                   key.Name,
-		"key_prefix":             key.KeyPrefix,
-		"scopes":                 key.Scopes,
-		"expires_at":             key.ExpiresAt,
-		"environment_id":         key.EnvironmentID,
-		"rotation_interval_days": req.RotationIntervalDays,
-		"rotation_webhook_url":   key.RotationWebhookURL,
+		"name":                      key.Name,
+		"key_prefix":                key.KeyPrefix,
+		"scopes":                    key.Scopes,
+		"expires_at":                key.ExpiresAt,
+		"environment_id":            key.EnvironmentID,
+		"rotation_interval_days":    req.RotationIntervalDays,
+		"rotation_webhook_url_host": urlHost(key.RotationWebhookURL),
 	})
 	return &CreateAPIKeyOutput{Body: CreateAPIKeyResponse{ID: key.ID, ProjectID: key.ProjectID, Name: key.Name, Key: rawKey, KeyPrefix: key.KeyPrefix, Scopes: key.Scopes, ExpiresAt: key.ExpiresAt, CreatedAt: key.CreatedAt, RotationWebhookSecret: rotationWebhookSecretPlaintext}}, nil
 }

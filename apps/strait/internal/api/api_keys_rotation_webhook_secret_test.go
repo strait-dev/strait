@@ -120,6 +120,78 @@ func TestCreateAPIKey_RotationWebhookSecret_ReturnedOnce(t *testing.T) {
 	}
 }
 
+func TestCreateAPIKey_RotationWebhookURL_RedactedInAudit(t *testing.T) {
+	t.Parallel()
+
+	auditCh := make(chan *domain.AuditEvent, 1)
+	ms := &APIStoreMock{
+		GetProjectQuotaFunc: func(_ context.Context, _ string) (*store.ProjectQuota, error) {
+			return &store.ProjectQuota{ProjectID: "proj-1", MaxKeyLifetimeDays: 365}, nil
+		},
+		CreateAPIKeyFunc: func(_ context.Context, key *domain.APIKey) error {
+			key.ID = "key-new"
+			key.CreatedAt = time.Now()
+			return nil
+		},
+		CreateAuditEventFunc: func(_ context.Context, ev *domain.AuditEvent) error {
+			if ev.Action == domain.AuditActionAPIKeyCreated {
+				auditCh <- ev
+			}
+			return nil
+		},
+	}
+
+	cfg := &config.Config{
+		InternalSecret:        "test-secret-value",
+		MaxBulkTriggerItems:   500,
+		JWTSigningKey:         testJWTSigningKey,
+		AllowPrivateEndpoints: true,
+	}
+	srv := NewServer(ServerDeps{
+		Config:    cfg,
+		Store:     ms,
+		Queue:     &mockQueue{},
+		PubSub:    &mockPublisher{},
+		Encryptor: roundTripEncryptor{},
+		Edition:   domain.EditionCloud,
+	})
+	t.Cleanup(srv.Close)
+
+	rawURL := "https://localhost/rotate/super-secret-path?token=opaque-shared-secret"
+	body := `{"project_id":"proj-1","name":"k","scopes":["jobs:read"],"expires_in_days":30,"rotation_interval_days":30,"rotation_webhook_url":"` + rawURL + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/api-keys", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201; body: %s", w.Code, w.Body.String())
+	}
+
+	var ev *domain.AuditEvent
+	select {
+	case ev = <-auditCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for api key created audit event")
+	}
+
+	details := string(ev.Details)
+	for _, forbidden := range []string{
+		rawURL,
+		"super-secret-path",
+		"opaque-shared-secret",
+		"rotation_webhook_url\"",
+	} {
+		if strings.Contains(details, forbidden) {
+			t.Fatalf("audit details leaked %q: %s", forbidden, details)
+		}
+	}
+	if !strings.Contains(details, "rotation_webhook_url_host") || !strings.Contains(details, "localhost") {
+		t.Fatalf("audit details should include only webhook URL host, got: %s", details)
+	}
+}
+
 func TestCreateAPIKey_RotationIntervalRequiresWebhookURL(t *testing.T) {
 	t.Parallel()
 
