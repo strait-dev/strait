@@ -10942,6 +10942,19 @@ func TestReceiveEventAndRequeueRun(t *testing.T) {
 	if updatedRun.Status != domain.StatusQueued {
 		t.Fatalf("run status = %q, want %q", updatedRun.Status, domain.StatusQueued)
 	}
+	checkpoint, err := q.GetLatestCheckpoint(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetLatestCheckpoint() error = %v", err)
+	}
+	if checkpoint == nil {
+		t.Fatal("GetLatestCheckpoint() = nil")
+	}
+	if checkpoint.Source != "event_trigger" {
+		t.Fatalf("checkpoint source = %q, want event_trigger", checkpoint.Source)
+	}
+	if !jsonEqual(checkpoint.State, payload) {
+		t.Fatalf("checkpoint state = %s, want %s", string(checkpoint.State), string(payload))
+	}
 
 	updatedTrigger, err := q.GetEventTriggerByEventKey(ctx, trigger.EventKey)
 	if err != nil {

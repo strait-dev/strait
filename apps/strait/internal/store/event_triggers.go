@@ -741,6 +741,15 @@ func (q *Queries) ReceiveEventAndRequeueRun(ctx context.Context, triggerID strin
 		if tag.RowsAffected() == 0 {
 			return fmt.Errorf("%w: id %s from %s", ErrRunConflict, jobRunID, domain.StatusWaiting)
 		}
+		if len(payload) > 0 {
+			if err := txQ.CreateRunCheckpoint(ctx, &domain.RunCheckpoint{
+				RunID:  jobRunID,
+				Source: "event_trigger",
+				State:  payload,
+			}); err != nil {
+				return fmt.Errorf("create event checkpoint: %w", err)
+			}
+		}
 		return nil
 	}
 
