@@ -98,6 +98,7 @@ type AutoRotateAPIKeysStore interface {
 	ListAPIKeysDueRotation(ctx context.Context) ([]domain.APIKey, error)
 	GetProjectQuota(ctx context.Context, projectID string) (*store.ProjectQuota, error)
 	CreateAPIKey(ctx context.Context, key *domain.APIKey) error
+	CreateRotatedAPIKey(ctx context.Context, oldKeyID string, newKey *domain.APIKey, graceExpiresAt time.Time) error
 	MarkAPIKeyRotated(ctx context.Context, oldKeyID, newKeyID string, graceExpiresAt time.Time) error
 	RevokeAPIKey(ctx context.Context, id string) error
 	DisableAPIKeyAutoRotation(ctx context.Context, id string) error
@@ -1362,6 +1363,7 @@ func (r *Reaper) autoRotateAPIKeys(ctx context.Context) {
 		keyHash := sha256.Sum256([]byte(rawKey))
 
 		newKey := &domain.APIKey{
+			ID:                    uuid.Must(uuid.NewV7()).String(),
 			ProjectID:             oldKey.ProjectID,
 			OrgID:                 oldKey.OrgID,
 			Name:                  oldKey.Name + " (auto-rotated)",
@@ -1380,27 +1382,14 @@ func (r *Reaper) autoRotateAPIKeys(ctx context.Context) {
 			newKey.NextRotationAt = &nextRotation
 		}
 
-		if err := rotateStore.CreateAPIKey(ctx, newKey); err != nil {
-			r.logger.Error("failed to create rotated api key", "key_id", oldKey.ID, "error", err)
-			continue
-		}
-
 		if err := r.notifyRotationWebhook(ctx, oldKey.RotationWebhookURL, oldKey.RotationWebhookSecret, oldKey.ID, newKey.ID, rawKey, newKey.KeyPrefix, oldKey.ProjectID); err != nil {
 			r.logger.Warn("rotation webhook notification failed; keeping old key active", "key_id", oldKey.ID, "new_key_id", newKey.ID, "error", err)
-			if newKey.ID != "" {
-				if revokeErr := rotateStore.RevokeAPIKey(ctx, newKey.ID); revokeErr != nil {
-					r.logger.Warn("failed to revoke undelivered rotated api key", "key_id", oldKey.ID, "new_key_id", newKey.ID, "error", revokeErr)
-				}
-			}
 			continue
 		}
 
 		graceExpiresAt := time.Now().Add(24 * time.Hour) // 24h grace period
-		if err := rotateStore.MarkAPIKeyRotated(ctx, oldKey.ID, newKey.ID, graceExpiresAt); err != nil {
-			r.logger.Error("failed to mark old key as rotated", "key_id", oldKey.ID, "new_key_id", newKey.ID, "error", err)
-			if revokeErr := rotateStore.RevokeAPIKey(ctx, newKey.ID); revokeErr != nil {
-				r.logger.Warn("failed to revoke unlinked rotated api key", "key_id", oldKey.ID, "new_key_id", newKey.ID, "error", revokeErr)
-			}
+		if err := rotateStore.CreateRotatedAPIKey(ctx, oldKey.ID, newKey, graceExpiresAt); err != nil {
+			r.logger.Error("failed to atomically create rotated api key", "key_id", oldKey.ID, "new_key_id", newKey.ID, "error", err)
 			continue
 		}
 

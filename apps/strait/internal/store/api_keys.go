@@ -525,3 +525,31 @@ func (q *Queries) MarkAPIKeyRotated(ctx context.Context, oldKeyID, newKeyID stri
 	}
 	return nil
 }
+
+func (q *Queries) CreateRotatedAPIKey(ctx context.Context, oldKeyID string, newKey *domain.APIKey, graceExpiresAt time.Time) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateRotatedAPIKey")
+	defer span.End()
+
+	if oldKeyID == "" {
+		return fmt.Errorf("create rotated api key: old key id is required")
+	}
+	if newKey == nil {
+		return fmt.Errorf("create rotated api key: new key is required")
+	}
+	if newKey.ID == "" {
+		newKey.ID = uuid.Must(uuid.NewV7()).String()
+	}
+
+	if err := q.withTx(ctx, func(tx *Queries) error {
+		if err := tx.CreateAPIKey(ctx, newKey); err != nil {
+			return err
+		}
+		if err := tx.MarkAPIKeyRotated(ctx, oldKeyID, newKey.ID, graceExpiresAt); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("create rotated api key: %w", err)
+	}
+	return nil
+}

@@ -9422,6 +9422,63 @@ func TestMarkAPIKeyRotated(t *testing.T) {
 	}
 }
 
+func TestCreateRotatedAPIKey_AtomicallyCreatesAndLinks(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-api-create-rotated-" + newID()
+	oldKey := &domain.APIKey{ProjectID: projectID, Name: "old", KeyHash: "hash-" + newID(), KeyPrefix: "sk_old", Scopes: []string{"jobs:read"}}
+	newKey := &domain.APIKey{ProjectID: projectID, Name: "new", KeyHash: "hash-" + newID(), KeyPrefix: "sk_new", Scopes: []string{"jobs:read"}}
+	if err := q.CreateAPIKey(ctx, oldKey); err != nil {
+		t.Fatalf("CreateAPIKey(old) error = %v", err)
+	}
+
+	grace := time.Now().UTC().Add(30 * time.Minute).Truncate(time.Microsecond)
+	if err := q.CreateRotatedAPIKey(ctx, oldKey.ID, newKey, grace); err != nil {
+		t.Fatalf("CreateRotatedAPIKey() error = %v", err)
+	}
+	if newKey.ID == "" {
+		t.Fatal("CreateRotatedAPIKey() did not set new key ID")
+	}
+
+	oldStored, err := q.GetAPIKeyByID(ctx, oldKey.ID)
+	if err != nil {
+		t.Fatalf("GetAPIKeyByID(old) error = %v", err)
+	}
+	if oldStored.ReplacedByKeyID != newKey.ID {
+		t.Fatalf("ReplacedByKeyID = %q, want %q", oldStored.ReplacedByKeyID, newKey.ID)
+	}
+	newStored, err := q.GetAPIKeyByID(ctx, newKey.ID)
+	if err != nil {
+		t.Fatalf("GetAPIKeyByID(new) error = %v", err)
+	}
+	if newStored.RevokedAt != nil {
+		t.Fatalf("new key revoked_at = %v, want nil", newStored.RevokedAt)
+	}
+}
+
+func TestCreateRotatedAPIKey_RollsBackNewKeyWhenOldKeyCannotBeLinked(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-api-create-rotated-rollback-" + newID()
+	newKey := &domain.APIKey{ProjectID: projectID, Name: "new", KeyHash: "hash-" + newID(), KeyPrefix: "sk_new", Scopes: []string{"jobs:read"}}
+	if err := q.CreateRotatedAPIKey(ctx, "missing-old-key", newKey, time.Now().UTC().Add(time.Hour)); err == nil {
+		t.Fatal("CreateRotatedAPIKey() error = nil, want old key link failure")
+	}
+	if newKey.ID == "" {
+		t.Fatal("CreateRotatedAPIKey() did not assign new key ID before rollback")
+	}
+	if _, err := q.GetAPIKeyByID(ctx, newKey.ID); err == nil {
+		t.Fatal("rolled-back rotated key remained queryable by ID")
+	}
+	if _, err := q.GetAPIKeyByHash(ctx, newKey.KeyHash); err == nil {
+		t.Fatal("rolled-back rotated key remained queryable by hash")
+	}
+}
+
 func TestGetJobAtVersion(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
