@@ -95,11 +95,30 @@ func redactOTLPEndpoint(u *url.URL) string {
 
 func isCredentialQueryKey(key string) bool {
 	key = strings.ToLower(key)
+	switch key {
+	case "code",
+		"jwt",
+		"oauth_verifier",
+		"passcode",
+		"samlart",
+		"samlresponse",
+		"session",
+		"sessionid",
+		"sid",
+		"sig",
+		"ticket":
+		return true
+	}
 	return strings.Contains(key, "token") ||
 		strings.Contains(key, "key") ||
 		strings.Contains(key, "secret") ||
 		strings.Contains(key, "password") ||
 		strings.Contains(key, "auth") ||
 		strings.Contains(key, "credential") ||
-		strings.Contains(key, "signature")
+		strings.Contains(key, "signature") ||
+		strings.Contains(key, "session") ||
+		strings.Contains(key, "jwt") ||
+		strings.Contains(key, "saml") ||
+		strings.Contains(key, "assertion") ||
+		strings.Contains(key, "ticket")
 }
