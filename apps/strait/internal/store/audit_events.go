@@ -596,18 +596,11 @@ func (q *Queries) StreamAuditEvents(ctx context.Context, projectID, actorID, res
 // audit signing key and secret encryption key so audit writes produced by fn
 // (e.g. the retention tombstone) sign correctly.
 func (q *Queries) withTxInheritKeys(ctx context.Context, fn func(*Queries) error) error {
-	begin, ok := q.db.(TxBeginner)
+	_, ok := q.db.(TxBeginner)
 	if !ok {
 		return fn(q)
 	}
-	return WithTx(ctx, begin, func(txQ *Queries) error {
-		txQ.auditSigningKey = q.auditSigningKey
-		txQ.secretEncryptionKey = q.secretEncryptionKey
-		txQ.oldSecretEncryptionKeys = append([]string(nil), q.oldSecretEncryptionKeys...)
-		txQ.tombstoneInsertHook = q.tombstoneInsertHook
-		txQ.auditEventPostInsertHook = q.auditEventPostInsertHook
-		return fn(txQ)
-	})
+	return q.withTx(ctx, fn)
 }
 
 // acquireProjectRotationLock takes a per-project transaction-scoped advisory

@@ -504,6 +504,33 @@ type connAcquirer interface {
 }
 
 func WithTx(ctx context.Context, db TxBeginner, fn func(q *Queries) error) error {
+	return withTx(ctx, db, nil, fn)
+}
+
+func (q *Queries) withTx(ctx context.Context, fn func(q *Queries) error) error {
+	if q == nil {
+		return fmt.Errorf("with transaction: queries is nil")
+	}
+	if fn == nil {
+		return fmt.Errorf("with transaction: fn is nil")
+	}
+	beginner, ok := q.db.(TxBeginner)
+	if !ok {
+		return fmt.Errorf("with transaction: underlying db does not support transactions")
+	}
+	return withTx(ctx, beginner, q, fn)
+}
+
+// WithTxQueries runs fn inside a transaction whose Queries inherits this
+// instance's encryption, audit-signing, analytics, and test-hook configuration.
+func (q *Queries) WithTxQueries(ctx context.Context, fn func(q *Queries) error) error {
+	return q.withTx(ctx, fn)
+}
+
+func withTx(ctx context.Context, db TxBeginner, parent *Queries, fn func(q *Queries) error) error {
+	if fn == nil {
+		return fmt.Errorf("with transaction: fn is nil")
+	}
 	tx, err := db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
@@ -519,7 +546,11 @@ func WithTx(ctx context.Context, db TxBeginner, fn func(q *Queries) error) error
 		}
 	}()
 
-	if err := fn(New(tx)); err != nil {
+	txQ := New(tx)
+	if parent != nil {
+		txQ = parent.withDB(tx)
+	}
+	if err := fn(txQ); err != nil {
 		return err
 	}
 
@@ -574,6 +605,27 @@ func (q *Queries) WithTx(ctx context.Context, fn func(context.Context, DBTX) err
 // pgx.RepeatableRead for per-project retention trims so the DISTINCT
 // project-id SELECT and per-project DELETEs observe a consistent snapshot).
 func WithTxOptions(ctx context.Context, db TxBeginnerOptions, opts pgx.TxOptions, fn func(q *Queries) error) error {
+	return withTxOptions(ctx, db, opts, nil, fn)
+}
+
+func (q *Queries) withTxOptions(ctx context.Context, opts pgx.TxOptions, fn func(q *Queries) error) error {
+	if q == nil {
+		return fmt.Errorf("with transaction options: queries is nil")
+	}
+	if fn == nil {
+		return fmt.Errorf("with transaction options: fn is nil")
+	}
+	beginner, ok := q.db.(TxBeginnerOptions)
+	if !ok {
+		return fmt.Errorf("with transaction options: underlying db does not support transactions")
+	}
+	return withTxOptions(ctx, beginner, opts, q, fn)
+}
+
+func withTxOptions(ctx context.Context, db TxBeginnerOptions, opts pgx.TxOptions, parent *Queries, fn func(q *Queries) error) error {
+	if fn == nil {
+		return fmt.Errorf("with transaction options: fn is nil")
+	}
 	tx, err := db.BeginTx(ctx, opts)
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
@@ -589,7 +641,11 @@ func WithTxOptions(ctx context.Context, db TxBeginnerOptions, opts pgx.TxOptions
 		}
 	}()
 
-	if err := fn(New(tx)); err != nil {
+	txQ := New(tx)
+	if parent != nil {
+		txQ = parent.withDB(tx)
+	}
+	if err := fn(txQ); err != nil {
 		return err
 	}
 

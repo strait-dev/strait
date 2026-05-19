@@ -753,7 +753,7 @@ func (q *Queries) ReceiveEventAndRequeueRun(ctx context.Context, triggerID strin
 		return nil
 	}
 
-	txb, ok := q.db.(TxBeginner)
+	_, ok := q.db.(TxBeginner)
 	if !ok {
 		// Non-atomic fallback is unsafe: marking the trigger as received and
 		// requeuing the run must happen atomically. Return an error instead
@@ -762,7 +762,7 @@ func (q *Queries) ReceiveEventAndRequeueRun(ctx context.Context, triggerID strin
 		return fmt.Errorf("receive event and requeue run requires transaction support")
 	}
 
-	return WithTx(ctx, txb, func(txQ *Queries) error {
+	return q.withTx(ctx, func(txQ *Queries) error {
 		if err := txQ.UpdateEventTriggerStatusFrom(ctx, triggerID, domain.EventTriggerStatusWaiting, domain.EventTriggerStatusReceived, payload, &receivedAt, ""); err != nil {
 			return fmt.Errorf("update trigger status: %w", err)
 		}
@@ -799,13 +799,13 @@ func (q *Queries) BatchReceiveEventTriggers(ctx context.Context, triggerIDs []st
 		return resolved, nil
 	}
 
-	txb, ok := q.db.(TxBeginner)
+	_, ok := q.db.(TxBeginner)
 	if !ok {
 		return do(q)
 	}
 
 	var resolved []string
-	err := WithTx(ctx, txb, func(txQ *Queries) error {
+	err := q.withTx(ctx, func(txQ *Queries) error {
 		var txErr error
 		resolved, txErr = do(txQ)
 		return txErr

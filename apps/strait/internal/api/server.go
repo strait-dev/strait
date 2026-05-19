@@ -815,10 +815,18 @@ func NewServer(deps ServerDeps) *Server {
 	}
 
 	if deps.TxPool != nil {
-		srv.runInTx = func(ctx context.Context, fn func(s APIStore) error) error {
-			return store.WithTx(ctx, deps.TxPool, func(q *store.Queries) error {
-				return fn(q)
-			})
+		if configuredStore, ok := deps.Store.(*store.Queries); ok {
+			srv.runInTx = func(ctx context.Context, fn func(s APIStore) error) error {
+				return configuredStore.WithTxQueries(ctx, func(q *store.Queries) error {
+					return fn(q)
+				})
+			}
+		} else {
+			srv.runInTx = func(ctx context.Context, fn func(s APIStore) error) error {
+				return store.WithTx(ctx, deps.TxPool, func(q *store.Queries) error {
+					return fn(q)
+				})
+			}
 		}
 	} else {
 		srv.runInTx = func(_ context.Context, fn func(s APIStore) error) error {

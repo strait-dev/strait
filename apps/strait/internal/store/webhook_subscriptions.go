@@ -58,12 +58,12 @@ func (q *Queries) CreateWebhookSubscriptionWithOrgLimit(ctx context.Context, sub
 		return q.createWebhookSubscriptionWithOrgLimitLocked(ctx, sub, orgID, maxEndpoints)
 	}
 
-	beginner, ok := q.db.(TxBeginner)
+	_, ok := q.db.(TxBeginner)
 	if !ok {
 		return q.createWebhookSubscriptionWithOrgLimitLocked(ctx, sub, orgID, maxEndpoints)
 	}
 
-	return WithTx(ctx, beginner, func(txq *Queries) error {
+	return q.withTx(ctx, func(txq *Queries) error {
 		return txq.createWebhookSubscriptionWithOrgLimitLocked(ctx, sub, orgID, maxEndpoints)
 	})
 }
@@ -136,12 +136,12 @@ func (q *Queries) DeleteWebhookSubscription(ctx context.Context, id string) erro
 		return q.deleteWebhookSubscriptionLocked(ctx, id)
 	}
 
-	beginner, ok := q.db.(TxBeginner)
+	_, ok := q.db.(TxBeginner)
 	if !ok {
 		return q.deleteWebhookSubscriptionLocked(ctx, id)
 	}
 
-	return WithTx(ctx, beginner, func(txq *Queries) error {
+	return q.withTx(ctx, func(txq *Queries) error {
 		return txq.deleteWebhookSubscriptionLocked(ctx, id)
 	})
 }

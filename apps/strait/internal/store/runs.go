@@ -1514,12 +1514,12 @@ func (q *Queries) SnoozeRunWithLock(ctx context.Context, id string, from, to dom
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.SnoozeRunWithLock")
 	defer span.End()
 
-	beginner, ok := q.db.(TxBeginner)
+	_, ok := q.db.(TxBeginner)
 	if !ok {
 		return fmt.Errorf("snooze run with lock: underlying db does not support transactions")
 	}
 
-	return WithTx(ctx, beginner, func(txQ *Queries) error {
+	return q.withTx(ctx, func(txQ *Queries) error {
 		var locked string
 		err := txQ.db.QueryRow(ctx, `
 			SELECT id FROM job_runs
@@ -2663,8 +2663,8 @@ func (q *Queries) BulkReplayDeadLetterRuns(ctx context.Context, runIDs []string,
 		return nil
 	}
 
-	if beginner, ok := q.db.(TxBeginner); ok {
-		if err := WithTx(ctx, beginner, replayRuns); err != nil {
+	if _, ok := q.db.(TxBeginner); ok {
+		if err := q.withTx(ctx, replayRuns); err != nil {
 			return nil, fmt.Errorf("bulk replay dead letter runs transaction: %w", err)
 		}
 	} else {
@@ -2818,12 +2818,12 @@ func (q *Queries) ResetRunIdempotencyKey(ctx context.Context, runID string) erro
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ResetRunIdempotencyKey")
 	defer span.End()
 
-	txb, ok := q.db.(TxBeginner)
+	_, ok := q.db.(TxBeginner)
 	if !ok {
 		return fmt.Errorf("reset idempotency key requires transaction support")
 	}
 
-	return WithTx(ctx, txb, func(txQ *Queries) error {
+	return q.withTx(ctx, func(txQ *Queries) error {
 		// Fetch run details needed for idempotency cleanup.
 		var idempotencyKey *string
 		var jobID string

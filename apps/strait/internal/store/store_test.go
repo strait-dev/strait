@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -111,6 +112,126 @@ func (m *mockRow) Scan(dest ...any) error {
 		return m.scanFn(dest...)
 	}
 	return nil
+}
+
+type configTx struct {
+	pgx.Tx
+	committed  bool
+	rolledBack bool
+}
+
+func (t *configTx) Commit(context.Context) error {
+	t.committed = true
+	return nil
+}
+
+func (t *configTx) Rollback(context.Context) error {
+	t.rolledBack = true
+	return nil
+}
+
+type configTxBeginner struct {
+	mockDBTX
+	tx *configTx
+}
+
+func (b *configTxBeginner) Begin(context.Context) (pgx.Tx, error) {
+	return b.tx, nil
+}
+
+type configTxOptionsBeginner struct {
+	mockDBTX
+	tx   *configTx
+	opts pgx.TxOptions
+}
+
+func (b *configTxOptionsBeginner) BeginTx(_ context.Context, opts pgx.TxOptions) (pgx.Tx, error) {
+	b.opts = opts
+	return b.tx, nil
+}
+
+func TestQueriesWithTx_InheritsConfiguration(t *testing.T) {
+	t.Parallel()
+
+	tx := &configTx{}
+	q := New(&configTxBeginner{tx: tx})
+	q.secretEncryptionKey = "primary-secret-key"
+	q.oldSecretEncryptionKeys = []string{"old-secret-key"}
+	q.auditSigningKey = []byte("audit-signing-key")
+	q.maxSLOWindowHours = 72
+	q.tombstoneInsertHook = func(context.Context) error { return nil }
+	q.auditEventPostInsertHook = func(context.Context) error { return nil }
+
+	err := q.withTx(context.Background(), func(txQ *Queries) error {
+		if txQ == q {
+			t.Fatal("tx query reused parent instance")
+		}
+		if txQ.db != tx {
+			t.Fatalf("tx query db = %#v, want transaction", txQ.db)
+		}
+		if txQ.secretEncryptionKey != q.secretEncryptionKey {
+			t.Fatalf("secretEncryptionKey = %q, want inherited", txQ.secretEncryptionKey)
+		}
+		if !reflect.DeepEqual(txQ.oldSecretEncryptionKeys, q.oldSecretEncryptionKeys) {
+			t.Fatalf("oldSecretEncryptionKeys = %#v, want %#v", txQ.oldSecretEncryptionKeys, q.oldSecretEncryptionKeys)
+		}
+		if len(txQ.oldSecretEncryptionKeys) == 0 {
+			t.Fatal("oldSecretEncryptionKeys was not copied")
+		}
+		txQ.oldSecretEncryptionKeys[0] = "mutated"
+		if string(txQ.auditSigningKey) != string(q.auditSigningKey) {
+			t.Fatalf("auditSigningKey = %q, want inherited", string(txQ.auditSigningKey))
+		}
+		if txQ.maxSLOWindowHours != q.maxSLOWindowHours {
+			t.Fatalf("maxSLOWindowHours = %d, want %d", txQ.maxSLOWindowHours, q.maxSLOWindowHours)
+		}
+		if txQ.tombstoneInsertHook == nil || txQ.auditEventPostInsertHook == nil {
+			t.Fatal("transaction query did not inherit audit hooks")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("withTx() error = %v", err)
+	}
+	if !tx.committed || tx.rolledBack {
+		t.Fatalf("commit/rollback = %v/%v, want committed only", tx.committed, tx.rolledBack)
+	}
+	if q.oldSecretEncryptionKeys[0] != "old-secret-key" {
+		t.Fatalf("parent old key mutated to %q", q.oldSecretEncryptionKeys[0])
+	}
+}
+
+func TestQueriesWithTxOptions_InheritsConfiguration(t *testing.T) {
+	t.Parallel()
+
+	tx := &configTx{}
+	beginner := &configTxOptionsBeginner{tx: tx}
+	q := New(beginner)
+	q.secretEncryptionKey = "primary-secret-key"
+	q.auditSigningKey = []byte("audit-signing-key")
+
+	opts := pgx.TxOptions{IsoLevel: pgx.Serializable}
+	err := q.withTxOptions(context.Background(), opts, func(txQ *Queries) error {
+		if txQ.db != tx {
+			t.Fatalf("tx query db = %#v, want transaction", txQ.db)
+		}
+		if txQ.secretEncryptionKey != q.secretEncryptionKey {
+			t.Fatalf("secretEncryptionKey = %q, want inherited", txQ.secretEncryptionKey)
+		}
+		if string(txQ.auditSigningKey) != string(q.auditSigningKey) {
+			t.Fatalf("auditSigningKey = %q, want inherited", string(txQ.auditSigningKey))
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("withTxOptions() error = %v", err)
+	}
+	if beginner.opts.IsoLevel != opts.IsoLevel {
+		t.Fatalf("tx options iso level = %q, want %q", beginner.opts.IsoLevel, opts.IsoLevel)
+	}
+	if !tx.committed || tx.rolledBack {
+		t.Fatalf("commit/rollback = %v/%v, want committed only", tx.committed, tx.rolledBack)
+	}
 }
 
 func TestUpdateRunStatus_IdempotentSameTarget(t *testing.T) {

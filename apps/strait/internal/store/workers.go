@@ -184,13 +184,13 @@ func (q *Queries) RecoverStaleWorkerTasksExcept(ctx context.Context, cutoff time
 		activeWorkerIDs = []string{}
 	}
 
-	txb, ok := q.db.(TxBeginner)
+	_, ok := q.db.(TxBeginner)
 	if !ok {
 		return 0, fmt.Errorf("recover stale worker tasks requires transaction support")
 	}
 
 	var affected int64
-	err := WithTx(ctx, txb, func(txQ *Queries) error {
+	err := q.withTx(ctx, func(txQ *Queries) error {
 		const query = `
 			WITH stale_workers AS (
 				SELECT id, project_id
@@ -665,13 +665,13 @@ func (q *Queries) RequeueOpenWorkerTasks(ctx context.Context, workerID, projectI
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.RequeueOpenWorkerTasks")
 	defer span.End()
 
-	txb, ok := q.db.(TxBeginner)
+	_, ok := q.db.(TxBeginner)
 	if !ok {
 		return 0, fmt.Errorf("requeue open worker tasks requires transaction support")
 	}
 
 	var affected int64
-	err := WithTx(ctx, txb, func(txQ *Queries) error {
+	err := q.withTx(ctx, func(txQ *Queries) error {
 		const query = `
 			WITH open_tasks AS (
 				SELECT id, run_id

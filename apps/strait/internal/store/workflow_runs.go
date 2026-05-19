@@ -449,7 +449,7 @@ func (q *Queries) CreateWorkflowRunBootstrap(ctx context.Context, run *domain.Wo
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateWorkflowRunBootstrap")
 	defer span.End()
 
-	txb, ok := q.db.(TxBeginner)
+	_, ok := q.db.(TxBeginner)
 	if !ok {
 		if err := q.CreateWorkflowRun(ctx, run); err != nil {
 			return err
@@ -466,7 +466,7 @@ func (q *Queries) CreateWorkflowRunBootstrap(ctx context.Context, run *domain.Wo
 		return nil
 	}
 
-	return WithTx(ctx, txb, func(txQ *Queries) error {
+	return q.withTx(ctx, func(txQ *Queries) error {
 		if err := txQ.CreateWorkflowRun(ctx, run); err != nil {
 			return fmt.Errorf("create workflow run bootstrap: %w", err)
 		}

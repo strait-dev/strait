@@ -344,13 +344,13 @@ func (q *Queries) RetryQuarantinedOutbox(ctx context.Context, projectID, id stri
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.RetryQuarantinedOutbox")
 	defer span.End()
 
-	beginner, ok := q.db.(TxBeginner)
+	_, ok := q.db.(TxBeginner)
 	if !ok {
 		return nil, fmt.Errorf("retry quarantined outbox: db does not support transactions")
 	}
 
 	var cloned OutboxRow
-	err := WithTx(ctx, beginner, func(txQ *Queries) error {
+	err := q.withTx(ctx, func(txQ *Queries) error {
 		source, err := loadOutboxRowStateForUpdate(ctx, txQ.db, projectID, id)
 		if err != nil {
 			return err

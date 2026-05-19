@@ -448,8 +448,8 @@ func (q *Queries) DeleteJob(ctx context.Context, id string) error {
 
 	// If the underlying connection supports transactions, wrap the whole
 	// delete in one so a crash mid-way doesn't leave orphaned data.
-	if txb, ok := q.db.(TxBeginner); ok {
-		return WithTx(ctx, txb, func(tx *Queries) error {
+	if _, ok := q.db.(TxBeginner); ok {
+		return q.withTx(ctx, func(tx *Queries) error {
 			return tx.deleteJobTx(ctx, id)
 		})
 	}
