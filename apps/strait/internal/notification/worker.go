@@ -12,6 +12,7 @@ import (
 	"strait/internal/domain"
 	"strait/internal/store"
 
+	concpool "github.com/sourcegraph/conc/pool"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
@@ -26,7 +27,11 @@ type Worker struct {
 	deliveriesCounter metric.Int64Counter
 }
 
-const deliveryLeaseDuration = 2 * time.Minute
+const (
+	deliveryLeaseDuration        = 2 * time.Minute
+	notificationClaimBatchSize   = 16
+	notificationWorkerConcurrent = 8
+)
 
 // NewWorker creates a notification delivery worker.
 func NewWorker(ns store.NotificationStore, client *http.Client, webhookOptions ...WebhookSenderOption) *Worker {
@@ -113,11 +118,7 @@ func (w *Worker) run(ctx context.Context) {
 
 func (w *Worker) process(ctx context.Context) {
 	for {
-		// Claim and dispatch one delivery at a time so each send gets the full
-		// lease window. The lease duration must comfortably exceed a single
-		// delivery attempt, and batch claiming is intentionally avoided here to
-		// prevent later items in a slow batch from expiring before dispatch.
-		deliveries, err := w.store.ClaimPendingNotificationDeliveries(ctx, 1, deliveryLeaseDuration)
+		deliveries, err := w.store.ClaimPendingNotificationDeliveries(ctx, notificationClaimBatchSize, deliveryLeaseDuration)
 		if err != nil {
 			slog.Error("failed to claim pending notification deliveries", "error", err)
 			return
@@ -126,11 +127,22 @@ func (w *Worker) process(ctx context.Context) {
 			return
 		}
 
-		d := &deliveries[0]
-		if err := w.dispatch(ctx, d); err != nil {
-			slog.Warn("notification delivery failed", "delivery_id", d.ID, "channel_id", d.ChannelID, "error", err)
-		}
+		w.dispatchBatch(ctx, deliveries)
 	}
+}
+
+func (w *Worker) dispatchBatch(ctx context.Context, deliveries []domain.NotificationDelivery) {
+	p := concpool.New().WithContext(ctx).WithMaxGoroutines(notificationWorkerConcurrent)
+	for i := range deliveries {
+		d := deliveries[i]
+		p.Go(func(ctx context.Context) error {
+			if err := w.dispatch(ctx, &d); err != nil {
+				slog.Warn("notification delivery failed", "delivery_id", d.ID, "channel_id", d.ChannelID, "error", err)
+			}
+			return nil
+		})
+	}
+	_ = p.Wait()
 }
 
 func (w *Worker) dispatch(ctx context.Context, d *domain.NotificationDelivery) error {

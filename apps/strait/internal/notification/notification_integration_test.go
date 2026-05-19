@@ -813,6 +813,81 @@ func TestWorkerSkipsQueuedDeliveryAfterChannelDisabled(t *testing.T) {
 	}
 }
 
+func TestWorkerDispatchesFastDeliveryWhileSlowEndpointBlocks(t *testing.T) {
+	ctx := context.Background()
+	st := mustStore(t)
+	mustClean(t, ctx)
+
+	chSlow := makeChannel("proj-worker-slow", domain.ChannelTypeSlack, "slow-ch", json.RawMessage(`{"webhook_url":"https://slow"}`))
+	chFast := makeChannel("proj-worker-fast", domain.ChannelTypeSlack, "fast-ch", json.RawMessage(`{"webhook_url":"https://fast"}`))
+	for _, ch := range []*domain.NotificationChannel{chSlow, chFast} {
+		if err := st.CreateNotificationChannel(ctx, ch); err != nil {
+			t.Fatalf("CreateNotificationChannel(%s) error = %v", ch.ID, err)
+		}
+	}
+
+	dSlow := makeDelivery(chSlow.ID, chSlow.ProjectID, domain.NotificationEventSpendingLimitWarning, json.RawMessage(`{"org_id":"slow"}`))
+	dFast := makeDelivery(chFast.ID, chFast.ProjectID, domain.NotificationEventSpendingLimitWarning, json.RawMessage(`{"org_id":"fast"}`))
+	for _, d := range []*domain.NotificationDelivery{dSlow, dFast} {
+		if err := st.CreateNotificationDelivery(ctx, d); err != nil {
+			t.Fatalf("CreateNotificationDelivery(%s) error = %v", d.ID, err)
+		}
+	}
+
+	slowStarted := make(chan struct{})
+	releaseSlow := make(chan struct{})
+	fastSent := make(chan struct{})
+	sender := &fakeSender{
+		sendFunc: func(_ context.Context, ch *domain.NotificationChannel, _ *domain.NotificationDelivery) error {
+			switch ch.ProjectID {
+			case chSlow.ProjectID:
+				close(slowStarted)
+				<-releaseSlow
+			case chFast.ProjectID:
+				close(fastSent)
+			}
+			return nil
+		},
+	}
+	w := notification.NewWorker(st, &http.Client{})
+	w.RegisterSender(domain.ChannelTypeSlack, sender)
+
+	workerCtx, cancel := context.WithCancel(ctx)
+	w.Start(workerCtx)
+	defer func() {
+		cancel()
+		w.Stop()
+	}()
+
+	select {
+	case <-slowStarted:
+	case <-time.After(time.Second):
+		t.Fatal("slow delivery was not started")
+	}
+	select {
+	case <-fastSent:
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("fast delivery was blocked behind slow endpoint")
+	}
+	close(releaseSlow)
+
+	deadline := time.After(2 * time.Second)
+	for {
+		deliveries, err := st.ListNotificationDeliveries(ctx, chFast.ProjectID, 10, nil)
+		if err != nil {
+			t.Fatalf("ListNotificationDeliveries() error = %v", err)
+		}
+		if len(deliveries) == 1 && deliveries[0].Status == "delivered" {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("fast delivery was not marked delivered, got %+v", deliveries)
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+}
+
 func TestWorkerMarksDeliveryFailedAfterMaxAttempts(t *testing.T) {
 	ctx := context.Background()
 	st := mustStore(t)

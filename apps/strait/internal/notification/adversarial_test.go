@@ -73,6 +73,12 @@ func (r *recordingSender) Send(_ context.Context, _ *domain.NotificationChannel,
 	return nil
 }
 
+type ChannelSenderFunc func(context.Context, *domain.NotificationChannel, *domain.NotificationDelivery) error
+
+func (f ChannelSenderFunc) Send(ctx context.Context, ch *domain.NotificationChannel, d *domain.NotificationDelivery) error {
+	return f(ctx, ch, d)
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -1100,10 +1106,12 @@ func TestWorker_SuccessfulDelivery_SetsDeliveredAt(t *testing.T) {
 	}
 }
 
-func TestWorker_ProcessesOneAtATime(t *testing.T) {
+func TestWorker_ClaimsBatches(t *testing.T) {
 	t.Parallel()
 
-	// Verify that the worker claims exactly 1 delivery at a time.
+	// Verify that the worker claims a bounded batch so one slow delivery does
+	// not monopolize the global worker loop before unrelated deliveries are
+	// even attempted.
 	var claimedLimits []int
 	var mu sync.Mutex
 	var callCount atomic.Int32
@@ -1132,6 +1140,7 @@ func TestWorker_ProcessesOneAtATime(t *testing.T) {
 				ProjectID:   "proj-1",
 				ChannelType: domain.ChannelTypeWebhook,
 				Config:      cfg,
+				Enabled:     true,
 			}, nil
 		},
 		updateFn: func(_ context.Context, _ *domain.NotificationDelivery) (bool, error) {
@@ -1152,9 +1161,91 @@ func TestWorker_ProcessesOneAtATime(t *testing.T) {
 	defer mu.Unlock()
 
 	for i, limit := range claimedLimits {
-		if limit != 1 {
-			t.Errorf("claim call %d: limit = %d, want 1", i, limit)
+		if limit != notificationClaimBatchSize {
+			t.Errorf("claim call %d: limit = %d, want %d", i, limit, notificationClaimBatchSize)
 		}
+	}
+}
+
+func TestWorker_DispatchesClaimedDeliveriesConcurrently(t *testing.T) {
+	t.Parallel()
+
+	slowStarted := make(chan struct{})
+	releaseSlow := make(chan struct{})
+	fastSent := make(chan struct{})
+	done := make(chan struct{})
+
+	st := &controllableNotificationStore{
+		claimFn: func(_ context.Context, _ int, _ time.Duration) ([]domain.NotificationDelivery, error) {
+			return []domain.NotificationDelivery{
+				{
+					ID:          "del-slow",
+					ChannelID:   "ch-1",
+					ProjectID:   "proj-slow",
+					EventType:   "test.event",
+					Payload:     json.RawMessage(`{}`),
+					MaxAttempts: 3,
+				},
+				{
+					ID:          "del-fast",
+					ChannelID:   "ch-1",
+					ProjectID:   "proj-fast",
+					EventType:   "test.event",
+					Payload:     json.RawMessage(`{}`),
+					MaxAttempts: 3,
+				},
+			}, nil
+		},
+		getChanFn: func(_ context.Context, _, projectID string) (*domain.NotificationChannel, error) {
+			cfg, _ := json.Marshal(webhookConfig{URL: "https://example.com/hook"})
+			return &domain.NotificationChannel{
+				ID:          "ch-1",
+				ProjectID:   projectID,
+				ChannelType: domain.ChannelTypeWebhook,
+				Config:      cfg,
+				Enabled:     true,
+			}, nil
+		},
+		updateFn: func(_ context.Context, _ *domain.NotificationDelivery) (bool, error) {
+			return true, nil
+		},
+	}
+
+	w := NewWorker(st, &http.Client{})
+	w.RegisterSender(domain.ChannelTypeWebhook, ChannelSenderFunc(func(_ context.Context, _ *domain.NotificationChannel, d *domain.NotificationDelivery) error {
+		switch d.ID {
+		case "del-slow":
+			close(slowStarted)
+			<-releaseSlow
+		case "del-fast":
+			close(fastSent)
+		}
+		return nil
+	}))
+
+	go func() {
+		defer close(done)
+		w.dispatchBatch(context.Background(), []domain.NotificationDelivery{
+			{ID: "del-slow", ChannelID: "ch-1", ProjectID: "proj-slow", MaxAttempts: 3},
+			{ID: "del-fast", ChannelID: "ch-1", ProjectID: "proj-fast", MaxAttempts: 3},
+		})
+	}()
+
+	select {
+	case <-slowStarted:
+	case <-time.After(time.Second):
+		t.Fatal("slow delivery was not started")
+	}
+	select {
+	case <-fastSent:
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("fast delivery was blocked behind slow delivery")
+	}
+	close(releaseSlow)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("dispatch batch did not finish after slow delivery released")
 	}
 }
 
