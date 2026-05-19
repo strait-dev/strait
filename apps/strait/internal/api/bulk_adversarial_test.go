@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+	"strait/internal/store"
 )
 
 // TestBulkTrigger_PriorityCheckedAfterIdempotencyHit_NotInvokedForCachedRun
@@ -129,5 +130,134 @@ func TestBulkTrigger_PerItemErrorMessageReferencesItemIndex(t *testing.T) {
 	bodyStr := w.Body.String()
 	if !strings.Contains(bodyStr, "item 2") {
 		t.Errorf("error body must reference 'item 2' (the offending index), got: %s", bodyStr)
+	}
+}
+
+func TestBulkTrigger_DailyCostBudgetExceeded(t *testing.T) {
+	t.Parallel()
+
+	var enqueued atomic.Bool
+	var budgetChecks atomic.Int64
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return testEnabledJob(id), nil
+		},
+		GetProjectQuotaFunc: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
+			return &store.ProjectQuota{ProjectID: projectID, MaxDailyCostMicrousd: 5000, Timezone: "UTC"}, nil
+		},
+		SumProjectDailyCostMicrousdFunc: func(_ context.Context, projectID string, timezone string) (int64, error) {
+			budgetChecks.Add(1)
+			if projectID != "proj-1" {
+				t.Fatalf("projectID = %q, want proj-1", projectID)
+			}
+			if timezone != "UTC" {
+				t.Fatalf("timezone = %q, want UTC", timezone)
+			}
+			return 5000, nil
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+		enqueued.Store(true)
+		return nil
+	}}
+	srv := newTestServer(t, ms, mq, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-budget/trigger/bulk", `{"items":[{},{}]}`))
+
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d: %s", w.Code, w.Body.String())
+	}
+	if enqueued.Load() {
+		t.Fatal("expected bulk trigger not to enqueue when daily cost budget is exhausted")
+	}
+	if got := budgetChecks.Load(); got != 1 {
+		t.Fatalf("daily budget checks = %d, want 1", got)
+	}
+}
+
+func TestBulkTrigger_DailyCostBudgetAllIdempotencyHitsBypass(t *testing.T) {
+	t.Parallel()
+
+	existingRun := &domain.JobRun{ID: "existing-run", Status: domain.StatusCompleted}
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return testEnabledJob(id), nil
+		},
+		GetProjectQuotaFunc: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
+			return &store.ProjectQuota{ProjectID: projectID, MaxDailyCostMicrousd: 5000, Timezone: "UTC"}, nil
+		},
+		GetRunByIdempotencyKeyFunc: func(_ context.Context, _ string, _ string) (*domain.JobRun, error) {
+			return existingRun, nil
+		},
+		SumProjectDailyCostMicrousdFunc: func(_ context.Context, _ string, _ string) (int64, error) {
+			t.Fatal("daily budget must not be checked when every item is an idempotency hit")
+			return 0, nil
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+		t.Fatal("idempotency-only bulk trigger must not enqueue a new run")
+		return nil
+	}}
+	srv := newTestServer(t, ms, mq, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(
+		http.MethodPost,
+		"/v1/jobs/job-budget/trigger/bulk",
+		`{"items":[{"idempotency_key":"cached-a"},{"idempotency_key":"cached-b"}]}`,
+	))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp BulkTriggerResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if resp.Created != 0 {
+		t.Fatalf("created = %d, want 0", resp.Created)
+	}
+	for idx, result := range resp.Results {
+		if !result.IdempotencyHit {
+			t.Fatalf("result %d idempotency_hit = false, want true", idx)
+		}
+	}
+}
+
+func TestBulkTrigger_DailyCostBudgetCheckedOnceForNewBatch(t *testing.T) {
+	t.Parallel()
+
+	var budgetChecks atomic.Int64
+	var enqueued atomic.Int64
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return testEnabledJob(id), nil
+		},
+		GetProjectQuotaFunc: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
+			return &store.ProjectQuota{ProjectID: projectID, MaxDailyCostMicrousd: 5000, Timezone: "UTC"}, nil
+		},
+		SumProjectDailyCostMicrousdFunc: func(_ context.Context, _ string, _ string) (int64, error) {
+			budgetChecks.Add(1)
+			return 3000, nil
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+		enqueued.Add(1)
+		return nil
+	}}
+	srv := newTestServer(t, ms, mq, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-budget/trigger/bulk", `{"items":[{},{},{}]}`))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if got := budgetChecks.Load(); got != 1 {
+		t.Fatalf("daily budget checks = %d, want 1", got)
+	}
+	if got := enqueued.Load(); got != 3 {
+		t.Fatalf("enqueued runs = %d, want 3", got)
 	}
 }

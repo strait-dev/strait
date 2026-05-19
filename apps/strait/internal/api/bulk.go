@@ -161,6 +161,7 @@ func (s *Server) handleBulkTriggerJob(ctx context.Context, input *BulkTriggerJob
 		var pendingRuns []*domain.JobRun
 
 		enqueuedInBatch := 0
+		dailyCostBudgetChecked := false
 		for _, item := range req.Items {
 			itemIdx := len(results)
 
@@ -256,6 +257,13 @@ func (s *Server) handleBulkTriggerJob(ctx context.Context, input *BulkTriggerJob
 					})
 					continue
 				}
+			}
+
+			if !dailyCostBudgetChecked {
+				if err := s.checkTriggerDailyCostBudget(ctx, job.ProjectID, projectQuota); err != nil {
+					return err
+				}
+				dailyCostBudgetChecked = true
 			}
 
 			runID := uuid.Must(uuid.NewV7()).String()
