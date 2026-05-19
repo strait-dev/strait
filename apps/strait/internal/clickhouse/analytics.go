@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"strait/internal/httputil"
 	"strait/internal/store"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -1056,6 +1057,7 @@ func (s *AnalyticsStore) GetWebhookDeliveryStats(ctx context.Context, projectID 
 		if err := rows.Scan(&s.URL, &s.Total, &s.Delivered, &s.Failed, &s.Dead, &s.AvgLatencyMs, &s.P95LatencyMs); err != nil {
 			return nil, fmt.Errorf("clickhouse webhook delivery stats scan: %w", err)
 		}
+		s.URL = redactWebhookAnalyticsURL(s.URL)
 		result = append(result, s)
 	}
 	return result, rows.Err()
@@ -1094,6 +1096,7 @@ func (s *AnalyticsStore) GetWebhookEndpointHealth(ctx context.Context, projectID
 		if err := rows.Scan(&b.URL, &period, &b.SuccessRate, &b.AvgLatencyMs); err != nil {
 			return nil, fmt.Errorf("clickhouse webhook endpoint health scan: %w", err)
 		}
+		b.URL = redactWebhookAnalyticsURL(b.URL)
 		b.Period = period.Format(time.RFC3339)
 		result = append(result, b)
 	}
@@ -1130,9 +1133,14 @@ func (s *AnalyticsStore) GetTopFailingWebhooks(ctx context.Context, projectID st
 		if err := rows.Scan(&e.URL, &e.Failed, &e.Total, &e.FailureRate, &e.LastError); err != nil {
 			return nil, fmt.Errorf("clickhouse top failing webhooks scan: %w", err)
 		}
+		e.URL = redactWebhookAnalyticsURL(e.URL)
 		result = append(result, e)
 	}
 	return result, rows.Err()
+}
+
+func redactWebhookAnalyticsURL(rawURL string) string {
+	return httputil.RedactURLForLog(rawURL)
 }
 
 // Event Analytics.
