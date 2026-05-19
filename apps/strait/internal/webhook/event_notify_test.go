@@ -1615,6 +1615,79 @@ func TestAttemptDelivery_RedactsSecretURLFromTransportError(t *testing.T) {
 	}
 }
 
+func TestAttemptDelivery_RedactsMalformedWebhookURLFromCreateRequestError(t *testing.T) {
+	t.Parallel()
+
+	rawURL := "http://user:password@%zz.example/hook?token=secret-value"
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	delivery := &domain.WebhookDelivery{
+		ID:          "whd-redact-malformed-url",
+		WebhookURL:  rawURL,
+		Status:      domain.WebhookStatusPending,
+		MaxAttempts: 3,
+		NextRetryAt: &now,
+		Payload:     json.RawMessage(`{"event":"run.failed"}`),
+	}
+	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
+		t.Fatalf("create delivery: %v", err)
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default())
+	worker.processBatch(context.Background())
+
+	got := ms.getDeliveries()[0]
+	if got.Status != domain.WebhookStatusDead {
+		t.Fatalf("status = %s, want dead", got.Status)
+	}
+	for _, leaked := range []string{"user", "password", "secret-value", "token", rawURL} {
+		if strings.Contains(got.LastError, leaked) {
+			t.Fatalf("last_error leaked malformed URL secret %q: %s", leaked, got.LastError)
+		}
+	}
+	if got.LastError != "create request: invalid webhook URL" {
+		t.Fatalf("last_error = %q, want sanitized create request error", got.LastError)
+	}
+}
+
+func TestAttemptBatchDelivery_RedactsMalformedWebhookURLFromCreateRequestError(t *testing.T) {
+	t.Parallel()
+
+	rawURL := "http://user:password@%zz.example/hook?token=secret-value"
+	ms := &mockDeliveryStore{}
+	now := time.Now().Add(-time.Second)
+	for i := 1; i <= 2; i++ {
+		delivery := &domain.WebhookDelivery{
+			ID:          fmt.Sprintf("whd-redact-malformed-batch-%d", i),
+			WebhookURL:  rawURL,
+			Status:      domain.WebhookStatusPending,
+			MaxAttempts: 3,
+			NextRetryAt: &now,
+			Payload:     json.RawMessage(`{"event":"run.failed"}`),
+		}
+		if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
+			t.Fatalf("create delivery %d: %v", i, err)
+		}
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default(), WithBatchByURL(true))
+	worker.processBatch(context.Background())
+
+	for _, got := range ms.getDeliveries() {
+		if got.Status != domain.WebhookStatusDead {
+			t.Fatalf("status for %s = %s, want dead", got.ID, got.Status)
+		}
+		for _, leaked := range []string{"user", "password", "secret-value", "token", rawURL} {
+			if strings.Contains(got.LastError, leaked) {
+				t.Fatalf("last_error for %s leaked malformed URL secret %q: %s", got.ID, leaked, got.LastError)
+			}
+		}
+		if got.LastError != "create request: invalid webhook URL" {
+			t.Fatalf("last_error for %s = %q, want sanitized create request error", got.ID, got.LastError)
+		}
+	}
+}
+
 // Batch helper tests.
 
 func TestGroupByURL_Empty(t *testing.T) {

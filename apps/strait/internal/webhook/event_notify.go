@@ -628,10 +628,11 @@ func (n *DeliveryWorker) attemptBatchDelivery(ctx context.Context, webhookURL st
 
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, webhookURL, bytes.NewReader(batchBody))
 	if err != nil {
+		errMsg := "create request: invalid webhook URL"
 		for i := range deliveries {
-			n.recordFailure(ctx, &deliveries[i], now, false, fmt.Sprintf("create request: %v", err))
+			n.recordFailure(ctx, &deliveries[i], now, false, errMsg)
 		}
-		span.SetStatus(codes.Error, "create request failed")
+		span.SetStatus(codes.Error, errMsg)
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -978,7 +979,7 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, d.WebhookURL, bytes.NewReader(body))
 	if err != nil {
-		errMsg := fmt.Sprintf("create request: %v", err)
+		errMsg := "create request: invalid webhook URL"
 		n.recordFailure(ctx, d, now, false, errMsg)
 		span.SetStatus(codes.Error, errMsg)
 		return
