@@ -4,6 +4,10 @@ package loadtest
 
 import (
 	"context"
+	"errors"
+	"os"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -62,5 +66,37 @@ func TestSleepWithContextReturnsOnCancellation(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
 		t.Fatalf("sleepWithContext took %s after cancellation", elapsed)
+	}
+}
+
+func TestRecordLongRunOutcomeCountsOnlyCompletedTerminalStatus(t *testing.T) {
+	t.Parallel()
+
+	var completed, failed atomic.Int32
+	recordLongRunOutcome("completed", nil, &completed, &failed)
+	recordLongRunOutcome("failed", nil, &completed, &failed)
+	recordLongRunOutcome("completed", errors.New("poll timeout"), &completed, &failed)
+
+	if completed.Load() != 1 {
+		t.Fatalf("completed = %d, want 1", completed.Load())
+	}
+	if failed.Load() != 2 {
+		t.Fatalf("failed = %d, want 2", failed.Load())
+	}
+}
+
+func TestEnduranceLongRunsUseTriggerAndWait(t *testing.T) {
+	t.Parallel()
+
+	data, err := os.ReadFile("endurance.go")
+	if err != nil {
+		t.Fatalf("read endurance.go: %v", err)
+	}
+	source := string(data)
+	if !strings.Contains(source, "h.TriggerAndWait(ctx, \"loadtest-project\", slowProcessJobID") {
+		t.Fatal("long-run endurance jobs must wait for terminal status")
+	}
+	if strings.Contains(source, "h.TriggerJob(ctx, \"loadtest-project\", slowProcessJobID") {
+		t.Fatal("long-run endurance jobs still count trigger acceptance as completion")
 	}
 }

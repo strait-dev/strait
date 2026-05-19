@@ -162,15 +162,11 @@ func (er *EnduranceRunner) Run(ctx context.Context, h *Harness) (*EnduranceResul
 	var longRunCompleted, longRunFailed atomic.Int32
 	for range er.config.LongRunJobs {
 		wg.Go(func() {
-			err := h.TriggerJob(ctx, "loadtest-project", slowProcessJobID, map[string]any{
+			_, status, _, err := h.TriggerAndWait(ctx, "loadtest-project", slowProcessJobID, map[string]any{
 				"work_duration": er.config.LongRunMinutes * 60,
 				"timestamp":     time.Now().UnixMilli(),
-			})
-			if err != nil {
-				longRunFailed.Add(1)
-			} else {
-				longRunCompleted.Add(1)
-			}
+			}, longRunWaitTimeout(er.config.LongRunMinutes))
+			recordLongRunOutcome(status, err, &longRunCompleted, &longRunFailed)
 		})
 	}
 
@@ -215,6 +211,21 @@ func (er *EnduranceRunner) Run(ctx context.Context, h *Harness) (*EnduranceResul
 	result.LongRunFailed = int(longRunFailed.Load())
 
 	return result, alerts, nil
+}
+
+func longRunWaitTimeout(minutes int) time.Duration {
+	if minutes <= 0 {
+		return time.Minute
+	}
+	return time.Duration(minutes)*time.Minute + 5*time.Minute
+}
+
+func recordLongRunOutcome(status string, err error, completed, failed *atomic.Int32) {
+	if err != nil || status != "completed" {
+		failed.Add(1)
+		return
+	}
+	completed.Add(1)
 }
 
 func (er *EnduranceRunner) checkThresholds(hour int, prev, curr *MetricsSnapshot) []Alert {
