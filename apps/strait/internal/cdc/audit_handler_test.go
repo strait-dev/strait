@@ -43,6 +43,50 @@ func TestAuditHandler_TerminalUpdate_CreatesEvent(t *testing.T) {
 	}
 }
 
+func TestAuditHandler_RedeliveredTerminalUpdateCreatesAuditEventOnce(t *testing.T) {
+	t.Parallel()
+	store := &mockAuditStore{}
+	h := NewAuditHandler(store, nil)
+
+	msg := cdcUpdateMsg("completed", "p1", "run-redelivered", "job-1")
+	msg.Metadata.IdempotencyKey = "wal:job_runs:run-redelivered:completed"
+	if err := h.Handle(context.Background(), msg); err != nil {
+		t.Fatalf("first delivery: %v", err)
+	}
+	msg.AckID = "ack-redelivery"
+	if err := h.Handle(context.Background(), msg); err != nil {
+		t.Fatalf("redelivery: %v", err)
+	}
+
+	if len(store.events) != 1 {
+		t.Fatalf("audit events = %d, want 1", len(store.events))
+	}
+}
+
+func TestAuditHandler_StoreErrorDoesNotConsumeRedeliveryDedupe(t *testing.T) {
+	t.Parallel()
+	store := &mockAuditStore{err: errors.New("temporary store failure")}
+	h := NewAuditHandler(store, nil)
+
+	msg := cdcUpdateMsg("completed", "p1", "run-retry", "job-1")
+	msg.Metadata.IdempotencyKey = "wal:job_runs:run-retry:completed"
+	if err := h.Handle(context.Background(), msg); err == nil {
+		t.Fatal("first delivery error = nil, want store failure")
+	}
+
+	store.mu.Lock()
+	store.err = nil
+	store.mu.Unlock()
+	msg.AckID = "ack-redelivery"
+	if err := h.Handle(context.Background(), msg); err != nil {
+		t.Fatalf("redelivery after store recovery: %v", err)
+	}
+
+	if len(store.events) != 1 {
+		t.Fatalf("audit events = %d, want 1", len(store.events))
+	}
+}
+
 func TestAuditHandler_InsertAction_CreatesEvent(t *testing.T) {
 	t.Parallel()
 	store := &mockAuditStore{}

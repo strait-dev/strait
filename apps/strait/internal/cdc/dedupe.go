@@ -40,3 +40,23 @@ func (d *recentDedupe) Remember(key string) bool {
 	}
 	return true
 }
+
+func (d *recentDedupe) Forget(key string) {
+	if d == nil || key == "" {
+		return
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if _, ok := d.seen[key]; !ok {
+		return
+	}
+	delete(d.seen, key)
+	for i, existing := range d.order {
+		if existing == key {
+			copy(d.order[i:], d.order[i+1:])
+			d.order = d.order[:len(d.order)-1]
+			return
+		}
+	}
+}
