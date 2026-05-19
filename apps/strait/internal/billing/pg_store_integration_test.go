@@ -2615,6 +2615,84 @@ func TestPgStore_DeactivateExcessCronJobs(t *testing.T) {
 		t.Errorf("DeactivateExcessCronJobs returned %d ids, want 3", len(deactivated))
 	}
 }
+
+func TestPgStore_DeactivateExcessCronJobs_IncludesWorkflows(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-deactcron-workflows-" + newID()
+	p := createProject(t, ctx, q, orgID, "P")
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	oldJob := createJob(t, ctx, q, p.ID)
+	newJob := createJob(t, ctx, q, p.ID)
+	oldWorkflow := &domain.Workflow{
+		ID:        newID(),
+		ProjectID: p.ID,
+		Name:      "old scheduled workflow",
+		Slug:      "old-scheduled-workflow-" + newID(),
+		Enabled:   true,
+		Cron:      "0 * * * *",
+		Version:   1,
+	}
+	if err := q.CreateWorkflow(ctx, oldWorkflow); err != nil {
+		t.Fatalf("CreateWorkflow(old) error = %v", err)
+	}
+	newWorkflow := &domain.Workflow{
+		ID:        newID(),
+		ProjectID: p.ID,
+		Name:      "new scheduled workflow",
+		Slug:      "new-scheduled-workflow-" + newID(),
+		Enabled:   true,
+		Cron:      "15 * * * *",
+		Version:   1,
+	}
+	if err := q.CreateWorkflow(ctx, newWorkflow); err != nil {
+		t.Fatalf("CreateWorkflow(new) error = %v", err)
+	}
+
+	updates := []struct {
+		table string
+		id    string
+		at    time.Time
+	}{
+		{table: "jobs", id: oldJob.ID, at: base},
+		{table: "workflows", id: oldWorkflow.ID, at: base.Add(time.Hour)},
+		{table: "jobs", id: newJob.ID, at: base.Add(2 * time.Hour)},
+		{table: "workflows", id: newWorkflow.ID, at: base.Add(3 * time.Hour)},
+	}
+	for _, update := range updates {
+		if _, err := testDB.Pool.Exec(ctx, "UPDATE "+update.table+" SET updated_at = $2 WHERE id = $1", update.id, update.at); err != nil {
+			t.Fatalf("set %s updated_at for %s: %v", update.table, update.id, err)
+		}
+	}
+
+	deactivated, err := pgStore.DeactivateExcessCronJobs(ctx, orgID, 2)
+	if err != nil {
+		t.Fatalf("DeactivateExcessCronJobs error = %v", err)
+	}
+	if len(deactivated) != 2 {
+		t.Fatalf("DeactivateExcessCronJobs returned %d ids, want 2", len(deactivated))
+	}
+
+	assertCronCleared := func(table, id string, wantCleared bool) {
+		t.Helper()
+		var cron string
+		if err := testDB.Pool.QueryRow(ctx, "SELECT COALESCE(cron, '') FROM "+table+" WHERE id = $1", id).Scan(&cron); err != nil {
+			t.Fatalf("query %s cron for %s: %v", table, id, err)
+		}
+		if gotCleared := cron == ""; gotCleared != wantCleared {
+			t.Fatalf("%s %s cron cleared = %v, want %v (cron=%q)", table, id, gotCleared, wantCleared, cron)
+		}
+	}
+	assertCronCleared("jobs", oldJob.ID, true)
+	assertCronCleared("workflows", oldWorkflow.ID, true)
+	assertCronCleared("jobs", newJob.ID, false)
+	assertCronCleared("workflows", newWorkflow.ID, false)
+}
+
 func TestPgStore_CountMembersAndExecutingRunsByOrg(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)

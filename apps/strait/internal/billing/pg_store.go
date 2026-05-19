@@ -1567,36 +1567,60 @@ func (s *PgStore) UpdateMonthlyUsageEmail(ctx context.Context, orgID string, ena
 	return nil
 }
 
-// DeactivateExcessCronJobs disables cron jobs beyond the given limit for an org.
-// Keeps the most recently updated jobs; clears cron on the oldest excess.
-// Returns the IDs of the jobs whose cron was cleared so callers can dispatch
-// per-schedule suspension events.
+// DeactivateExcessCronJobs disables cron jobs and workflows beyond the given
+// shared schedule limit for an org. Keeps the most recently updated schedules;
+// clears cron on the oldest excess. Returns the IDs whose cron was cleared so
+// callers can dispatch per-schedule suspension events.
 func (s *PgStore) DeactivateExcessCronJobs(ctx context.Context, orgID string, maxSchedules int) ([]string, error) {
 	rows, err := s.pool.Query(ctx, `
-		UPDATE jobs SET cron = '', updated_at = NOW()
-		WHERE id IN (
-			SELECT j.id FROM jobs j
-			WHERE j.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
+		WITH active_projects AS (
+			SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL
+		),
+		ranked_schedules AS (
+			SELECT 'job' AS kind, j.id, j.updated_at
+			FROM jobs j
+			WHERE j.project_id IN (SELECT id FROM active_projects)
 			  AND j.cron IS NOT NULL AND j.cron != ''
-			ORDER BY j.updated_at DESC
+			UNION ALL
+			SELECT 'workflow' AS kind, w.id, w.updated_at
+			FROM workflows w
+			WHERE w.project_id IN (SELECT id FROM active_projects)
+			  AND w.cron IS NOT NULL AND w.cron != ''
+		),
+		excess_schedules AS (
+			SELECT kind, id
+			FROM ranked_schedules
+			ORDER BY updated_at DESC, id DESC
 			OFFSET $2
+		),
+		disabled_jobs AS (
+			UPDATE jobs SET cron = '', updated_at = NOW()
+			WHERE id IN (SELECT id FROM excess_schedules WHERE kind = 'job')
+			RETURNING id
+		),
+		disabled_workflows AS (
+			UPDATE workflows SET cron = '', updated_at = NOW()
+			WHERE id IN (SELECT id FROM excess_schedules WHERE kind = 'workflow')
+			RETURNING id
 		)
-		RETURNING id
+		SELECT id FROM disabled_jobs
+		UNION ALL
+		SELECT id FROM disabled_workflows
 	`, orgID, maxSchedules)
 	if err != nil {
-		return nil, fmt.Errorf("deactivate excess cron jobs: %w", err)
+		return nil, fmt.Errorf("deactivate excess cron schedules: %w", err)
 	}
 	defer rows.Close()
 	var ids []string
 	for rows.Next() {
 		var id string
 		if scanErr := rows.Scan(&id); scanErr != nil {
-			return nil, fmt.Errorf("scan deactivated cron job id: %w", scanErr)
+			return nil, fmt.Errorf("scan deactivated cron schedule id: %w", scanErr)
 		}
 		ids = append(ids, id)
 	}
 	if rowsErr := rows.Err(); rowsErr != nil {
-		return nil, fmt.Errorf("iterating deactivated cron jobs: %w", rowsErr)
+		return nil, fmt.Errorf("iterating deactivated cron schedules: %w", rowsErr)
 	}
 	return ids, nil
 }

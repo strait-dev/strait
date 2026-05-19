@@ -461,6 +461,91 @@ func TestDeactivateExcessCronJobs(t *testing.T) {
 	}
 }
 
+func TestDeactivateExcessCronJobs_IncludesWorkflows(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	orgID := "org-deactivate-cron-workflows-" + newID()
+	projectID := "proj-deactivate-cron-workflows-" + newID()
+	if err := q.CreateProject(ctx, &domain.Project{ID: projectID, OrgID: orgID, Name: "P"}); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	oldJob := baseJob(newID(), projectID)
+	oldJob.Cron = "*/5 * * * *"
+	if err := q.CreateJob(ctx, oldJob); err != nil {
+		t.Fatalf("CreateJob(old) error = %v", err)
+	}
+	newJob := baseJob(newID(), projectID)
+	newJob.Cron = "*/5 * * * *"
+	if err := q.CreateJob(ctx, newJob); err != nil {
+		t.Fatalf("CreateJob(new) error = %v", err)
+	}
+	oldWorkflow := &domain.Workflow{
+		ID:        newID(),
+		ProjectID: projectID,
+		Name:      "old scheduled workflow",
+		Slug:      "old-scheduled-workflow",
+		Enabled:   true,
+		Cron:      "0 * * * *",
+		Version:   1,
+	}
+	if err := q.CreateWorkflow(ctx, oldWorkflow); err != nil {
+		t.Fatalf("CreateWorkflow(old) error = %v", err)
+	}
+	newWorkflow := &domain.Workflow{
+		ID:        newID(),
+		ProjectID: projectID,
+		Name:      "new scheduled workflow",
+		Slug:      "new-scheduled-workflow",
+		Enabled:   true,
+		Cron:      "15 * * * *",
+		Version:   1,
+	}
+	if err := q.CreateWorkflow(ctx, newWorkflow); err != nil {
+		t.Fatalf("CreateWorkflow(new) error = %v", err)
+	}
+	updates := []struct {
+		table string
+		id    string
+		at    time.Time
+	}{
+		{table: "jobs", id: oldJob.ID, at: base},
+		{table: "workflows", id: oldWorkflow.ID, at: base.Add(time.Hour)},
+		{table: "jobs", id: newJob.ID, at: base.Add(2 * time.Hour)},
+		{table: "workflows", id: newWorkflow.ID, at: base.Add(3 * time.Hour)},
+	}
+	for _, update := range updates {
+		if _, err := testDB.Pool.Exec(ctx, "UPDATE "+update.table+" SET updated_at = $2 WHERE id = $1", update.id, update.at); err != nil {
+			t.Fatalf("set %s updated_at for %s: %v", update.table, update.id, err)
+		}
+	}
+
+	deactivated, err := q.DeactivateExcessCronJobs(ctx, orgID, 2)
+	if err != nil {
+		t.Fatalf("DeactivateExcessCronJobs() error = %v", err)
+	}
+	if len(deactivated) != 2 {
+		t.Fatalf("deactivated = %d, want 2", len(deactivated))
+	}
+	assertCronCleared := func(table, id string, wantCleared bool) {
+		t.Helper()
+		var cron string
+		if err := testDB.Pool.QueryRow(ctx, "SELECT COALESCE(cron, '') FROM "+table+" WHERE id = $1", id).Scan(&cron); err != nil {
+			t.Fatalf("query %s cron for %s: %v", table, id, err)
+		}
+		if gotCleared := cron == ""; gotCleared != wantCleared {
+			t.Fatalf("%s %s cron cleared = %v, want %v (cron=%q)", table, id, gotCleared, wantCleared, cron)
+		}
+	}
+	assertCronCleared("jobs", oldJob.ID, true)
+	assertCronCleared("workflows", oldWorkflow.ID, true)
+	assertCronCleared("jobs", newJob.ID, false)
+	assertCronCleared("workflows", newWorkflow.ID, false)
+}
+
 func TestDeactivateExcessWebhookSubscriptions(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
