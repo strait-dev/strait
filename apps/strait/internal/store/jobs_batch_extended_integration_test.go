@@ -1030,6 +1030,38 @@ func TestJobs_ListRunsByOrg_ExcludesDeletedProjects(t *testing.T) {
 	}
 }
 
+func TestJobs_ListRunsByOrg_ExcludesRetentionMaskedRuns(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	orgID := "org-list-runs-masked-" + newID()
+	projectID := "project-list-runs-masked-" + newID()
+
+	project := &domain.Project{ID: projectID, OrgID: orgID, Name: "test"}
+	if err := q.CreateProject(ctx, project); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+
+	job := mustCreateJob(t, ctx, q, projectID)
+	visibleRun := mustCreateRun(t, ctx, q, job)
+	maskedRun := mustCreateRun(t, ctx, q, job)
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE job_runs SET visible_until = NOW() WHERE id = $1`, maskedRun.ID); err != nil {
+		t.Fatalf("mask run: %v", err)
+	}
+
+	runs, err := q.ListRunsByOrg(ctx, orgID, 100, nil)
+	if err != nil {
+		t.Fatalf("ListRunsByOrg() error = %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("len = %d, want 1 visible run: %+v", len(runs), runs)
+	}
+	if runs[0].ID != visibleRun.ID {
+		t.Fatalf("run id = %q, want visible run %q", runs[0].ID, visibleRun.ID)
+	}
+}
+
 // --------------------------------------------------------------------------.
 // ListEnabledLogDrains.
 // --------------------------------------------------------------------------.
