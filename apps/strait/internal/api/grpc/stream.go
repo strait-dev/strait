@@ -1059,6 +1059,13 @@ func (s *workerService) reconcileInFlightTasks(ctx context.Context, workerID, pr
 				"worker_id", workerID, "run_id_len", len(t.RunId))
 			continue
 		}
+		if t.AssignmentId == "" || t.Attempt <= 0 {
+			slog.Warn("grpc reconcile: missing assignment identity - skipping",
+				"worker_id", workerID,
+				"run_id", t.RunId,
+			)
+			continue
+		}
 		if len(t.ErrorMessage) > maxErrorMsgBytes {
 			t.ErrorMessage = t.ErrorMessage[:maxErrorMsgBytes]
 		}
@@ -1073,7 +1080,7 @@ func (s *workerService) reconcileInFlightTasks(ctx context.Context, workerID, pr
 		}
 
 		// Adversarial guard: verify ownership via worker_tasks.
-		taskRow, err := s.queries.GetOpenWorkerTaskByRunID(ctx, workerID, projectID, t.RunId)
+		taskRow, err := s.queries.GetOpenWorkerTaskByAssignment(ctx, t.AssignmentId, workerID, projectID, t.RunId, int(t.Attempt))
 		if err != nil {
 			slog.Warn("grpc reconcile: ownership lookup failed",
 				"worker_id", workerID,
@@ -1084,9 +1091,11 @@ func (s *workerService) reconcileInFlightTasks(ctx context.Context, workerID, pr
 		}
 		if taskRow == nil {
 			// No matching worker_tasks row — mismatch; reject.
-			slog.Warn("grpc reconcile: rejecting in-flight task not owned by this worker",
+			slog.Warn("grpc reconcile: rejecting in-flight task not owned by this assignment",
 				"worker_id", workerID,
 				"run_id", t.RunId,
+				"assignment_id", t.AssignmentId,
+				"attempt", t.Attempt,
 			)
 			continue
 		}

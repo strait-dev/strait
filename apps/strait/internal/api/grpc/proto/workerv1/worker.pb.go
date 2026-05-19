@@ -379,6 +379,8 @@ type InFlightTask struct {
 	Status        string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"` // completed | failed | abandoned
 	ErrorMessage  string                 `protobuf:"bytes,3,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
 	OutputJson    []byte                 `protobuf:"bytes,4,opt,name=output_json,json=outputJson,proto3" json:"output_json,omitempty"`
+	AssignmentId  string                 `protobuf:"bytes,5,opt,name=assignment_id,json=assignmentId,proto3" json:"assignment_id,omitempty"`
+	Attempt       int32                  `protobuf:"varint,6,opt,name=attempt,proto3" json:"attempt,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -439,6 +441,20 @@ func (x *InFlightTask) GetOutputJson() []byte {
 		return x.OutputJson
 	}
 	return nil
+}
+
+func (x *InFlightTask) GetAssignmentId() string {
+	if x != nil {
+		return x.AssignmentId
+	}
+	return ""
+}
+
+func (x *InFlightTask) GetAttempt() int32 {
+	if x != nil {
+		return x.Attempt
+	}
+	return 0
 }
 
 type TaskAssignment struct {
@@ -909,13 +925,15 @@ const file_worker_v1_worker_proto_rawDesc = "" +
 	"\bmetadata\x18\v \x03(\v22.strait.worker.v1.WorkerRegistration.MetadataEntryR\bmetadata\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x83\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xc2\x01\n" +
 	"\fInFlightTask\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12#\n" +
 	"\rerror_message\x18\x03 \x01(\tR\ferrorMessage\x12\x1f\n" +
 	"\voutput_json\x18\x04 \x01(\fR\n" +
-	"outputJson\"\xd8\x03\n" +
+	"outputJson\x12#\n" +
+	"\rassignment_id\x18\x05 \x01(\tR\fassignmentId\x12\x18\n" +
+	"\aattempt\x18\x06 \x01(\x05R\aattempt\"\xd8\x03\n" +
 	"\x0eTaskAssignment\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x19\n" +
 	"\bjob_slug\x18\x02 \x01(\tR\ajobSlug\x12\x14\n" +

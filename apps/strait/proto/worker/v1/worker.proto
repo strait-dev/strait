@@ -44,6 +44,8 @@ message InFlightTask {
   string status = 2; // completed | failed | abandoned
   string error_message = 3;
   bytes output_json = 4;
+  string assignment_id = 5;
+  int32 attempt = 6;
 }
 
 message TaskAssignment {
