@@ -3,6 +3,8 @@ package clickhouse
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"strait/internal/httputil"
@@ -533,17 +535,79 @@ func (s *AnalyticsStore) GetRunFailureReasons(ctx context.Context, projectID str
 	}
 	defer rows.Close()
 
-	result := make([]store.RunFailureReason, 0)
+	type failureReasonAgg struct {
+		reason   store.RunFailureReason
+		lastSeen time.Time
+	}
+	byReason := make(map[string]*failureReasonAgg)
+	order := make([]string, 0)
 	for rows.Next() {
-		var r store.RunFailureReason
+		var rawMessage string
+		var count int
 		var lastSeen time.Time
-		if err := rows.Scan(&r.Message, &r.Count, &lastSeen, &r.ExampleRunID); err != nil {
+		var exampleRunID string
+		if err := rows.Scan(&rawMessage, &count, &lastSeen, &exampleRunID); err != nil {
 			return nil, fmt.Errorf("clickhouse failure reasons scan: %w", err)
 		}
-		r.LastSeen = lastSeen.Format(time.RFC3339)
-		result = append(result, r)
+		reason := safeRunFailureReason(rawMessage)
+		agg, ok := byReason[reason]
+		if !ok {
+			agg = &failureReasonAgg{
+				reason: store.RunFailureReason{
+					Message:      reason,
+					ExampleRunID: exampleRunID,
+				},
+				lastSeen: lastSeen,
+			}
+			byReason[reason] = agg
+			order = append(order, reason)
+		}
+		agg.reason.Count += count
+		if lastSeen.After(agg.lastSeen) || agg.reason.LastSeen == "" {
+			agg.lastSeen = lastSeen
+			agg.reason.LastSeen = lastSeen.Format(time.RFC3339)
+			agg.reason.ExampleRunID = exampleRunID
+		}
 	}
+	result := make([]store.RunFailureReason, 0, len(order))
+	for _, reason := range order {
+		result = append(result, byReason[reason].reason)
+	}
+	sort.SliceStable(result, func(i, j int) bool {
+		return result[i].Count > result[j].Count
+	})
 	return result, rows.Err()
+}
+
+func safeRunFailureReason(message string) string {
+	normalized := strings.ToLower(strings.TrimSpace(message))
+	if normalized == "" {
+		return "unknown_error"
+	}
+	switch {
+	case strings.Contains(normalized, "timeout") || strings.Contains(normalized, "deadline exceeded"):
+		return "timeout"
+	case strings.Contains(normalized, "context canceled") || strings.Contains(normalized, "context cancelled"):
+		return "canceled"
+	case strings.Contains(normalized, "rate limit") || strings.Contains(normalized, "too many requests") || strings.Contains(normalized, "status 429"):
+		return "rate_limited"
+	case strings.Contains(normalized, "dns") ||
+		strings.Contains(normalized, "no such host") ||
+		strings.Contains(normalized, "connection refused") ||
+		strings.Contains(normalized, "connection reset") ||
+		strings.Contains(normalized, "network"):
+		return "network_error"
+	case strings.Contains(normalized, "status 4") || strings.Contains(normalized, "http 4"):
+		return "http_client_error"
+	case strings.Contains(normalized, "status 5") || strings.Contains(normalized, "http 5"):
+		return "http_server_error"
+	case strings.Contains(normalized, "panic"):
+		return "panic"
+	case strings.Contains(normalized, "invalid") || strings.Contains(normalized, "validation"):
+		return "validation_error"
+	default:
+		return "application_error"
+	}
 }
 
 // GetRunSummary returns aggregate run statistics.
