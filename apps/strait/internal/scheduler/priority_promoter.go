@@ -139,6 +139,7 @@ WITH candidates AS (
 UPDATE job_runs
 SET priority = LEAST(priority + 1, $1)
 WHERE id IN (SELECT id FROM candidates)
+  AND status = 'queued'
 `
 	tag, err := p.db.Exec(ctx, q, p.maxPriority, p.ageThreshold.Seconds(), p.batchLimit)
 	if err != nil {
