@@ -167,6 +167,9 @@ func (c *SLACalculator) processContract(ctx context.Context, contract Enterprise
 		return
 	}
 	if existing != nil {
+		if c.dispatcher != nil && existing.WebhookDispatchedAt == nil {
+			c.dispatchSLACreditWebhook(ctx, contract.OrgID, *existing)
+		}
 		return
 	}
 
@@ -209,27 +212,15 @@ func (c *SLACalculator) processContract(ctx context.Context, contract Enterprise
 		StripeCreditNoteID: creditNoteID,
 		IssuedAt:           now,
 	}
-	if c.dispatcher != nil {
-		detail := map[string]any{
-			"period_start":          periodStart.UTC().Format(time.RFC3339),
-			"period_end":            periodEnd.UTC().Format(time.RFC3339),
-			"uptime_pct":            uptime,
-			"target_pct":            cfg.UptimeSLAPct,
-			"credit_pct":            creditPct,
-			"credit_microusd":       creditMicrousd,
-			"stripe_credit_note_id": creditNoteID,
-		}
-		if err := DispatchBillingWebhook(ctx, c.dispatcher, contract.OrgID, domain.PlanEnterprise, domain.WebhookEventSLACreditIssued, detail); err != nil {
-			c.logger.Warn("dispatch sla.credit_issued failed", "org_id", contract.OrgID, "error", err)
-			return
-		}
-	}
 	if err := c.store.InsertSLACredit(ctx, row); err != nil {
 		if errors.Is(err, ErrSLACreditAlreadyIssued) {
 			return
 		}
 		c.logger.Warn("persisting sla credit failed", "org_id", contract.OrgID, "error", err)
 		return
+	}
+	if c.dispatcher != nil {
+		c.dispatchSLACreditWebhook(ctx, contract.OrgID, row)
 	}
 
 	c.logger.Info("sla credit issued",
@@ -242,6 +233,31 @@ func (c *SLACalculator) processContract(ctx context.Context, contract Enterprise
 		"credit_microusd", creditMicrousd,
 		"stripe_credit_note_id", creditNoteID,
 	)
+}
+
+func (c *SLACalculator) dispatchSLACreditWebhook(ctx context.Context, orgID string, row SLACreditRow) {
+	detail := map[string]any{
+		"period_start":          row.PeriodStart.UTC().Format(time.RFC3339),
+		"period_end":            row.PeriodEnd.UTC().Format(time.RFC3339),
+		"uptime_pct":            row.UptimePct,
+		"target_pct":            row.TargetPct,
+		"credit_pct":            row.CreditPct,
+		"credit_microusd":       row.CreditMicrousd,
+		"stripe_credit_note_id": row.StripeCreditNoteID,
+	}
+	if err := DispatchBillingWebhook(ctx, c.dispatcher, orgID, domain.PlanEnterprise, domain.WebhookEventSLACreditIssued, detail); err != nil {
+		c.logger.Warn("dispatch sla.credit_issued failed", "org_id", orgID, "error", err)
+		return
+	}
+	dispatchedAt := c.clock().UTC()
+	marked, err := c.store.MarkSLACreditWebhookDispatched(ctx, orgID, row.PeriodStart, row.PeriodEnd, dispatchedAt)
+	if err != nil {
+		c.logger.Warn("mark sla.credit_issued dispatched failed", "org_id", orgID, "error", err)
+		return
+	}
+	if !marked {
+		c.logger.Debug("sla.credit_issued already marked dispatched", "org_id", orgID)
+	}
 }
 
 // previousCalendarMonth returns [start, end) for the calendar month

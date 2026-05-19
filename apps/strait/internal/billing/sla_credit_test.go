@@ -102,10 +102,33 @@ func (f *fakeSLAStore) GetSLACredit(_ context.Context, orgID string, start, end 
 	return nil, nil
 }
 
+func (f *fakeSLAStore) MarkSLACreditWebhookDispatched(_ context.Context, orgID string, start, end, dispatchedAt time.Time) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	k := f.key(orgID, start, end)
+	row, ok := f.credits[k]
+	if !ok || row.WebhookDispatchedAt != nil {
+		return false, nil
+	}
+	row.WebhookDispatchedAt = &dispatchedAt
+	f.credits[k] = row
+	return true, nil
+}
+
 func (f *fakeSLAStore) count() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.credits)
+}
+
+func (f *fakeSLAStore) creditFor(orgID string, start, end time.Time) *SLACreditRow {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	row, ok := f.credits[f.key(orgID, start, end)]
+	if !ok {
+		return nil
+	}
+	return &row
 }
 
 func newTestContract(orgID string, tier EnterpriseTier) EnterpriseContract {
@@ -289,11 +312,62 @@ func TestSLACalculator_IssuerFailure_DoesNotPersist(t *testing.T) {
 	}
 }
 
-func TestDeepSecSLACalculator_DispatchFailureDoesNotPersist(t *testing.T) {
+func TestSLACalculator_DispatchFailurePersistsAndRetriesUndispatchedCredit(t *testing.T) {
 	t.Parallel()
 
-	store := newFakeSLAStore(newTestContract("org-dispatch-fail", EnterpriseTierStarter))
+	orgID := "org-dispatch-fail"
+	store := newFakeSLAStore(newTestContract(orgID, EnterpriseTierStarter))
 	dispatcher := &fakeDispatcher{err: errors.New("webhook outbox down")}
+	calc := NewSLACalculator(store, fakeUptimeSource{pct: 95.0}, time.Hour, nil).
+		WithDispatcher(dispatcher).
+		WithClock(fixedClock(time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)))
+
+	ctx := context.Background()
+	if err := calc.Tick(ctx); err != nil {
+		t.Fatalf("tick 1: %v", err)
+	}
+
+	if store.count() != 1 {
+		t.Fatalf("expected 1 durable credit row after dispatch failure, got %d", store.count())
+	}
+	if len(dispatcher.calls) != 1 {
+		t.Errorf("expected 1 dispatch attempt, got %d", len(dispatcher.calls))
+	}
+	periodStart, periodEnd := previousCalendarMonth(time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC))
+	row := store.creditFor(orgID, periodStart, periodEnd)
+	if row == nil {
+		t.Fatal("expected persisted credit row")
+	}
+	if row.WebhookDispatchedAt != nil {
+		t.Fatal("failed dispatch must not mark webhook_dispatched_at")
+	}
+
+	dispatcher.err = nil
+	if err := calc.Tick(ctx); err != nil {
+		t.Fatalf("tick 2: %v", err)
+	}
+	if len(dispatcher.calls) != 2 {
+		t.Fatalf("expected retry dispatch attempt, got %d", len(dispatcher.calls))
+	}
+	row = store.creditFor(orgID, periodStart, periodEnd)
+	if row == nil || row.WebhookDispatchedAt == nil {
+		t.Fatal("successful retry should mark webhook_dispatched_at")
+	}
+}
+
+func TestSLACalculator_DispatchesOnlyAfterCreditIsPersisted(t *testing.T) {
+	t.Parallel()
+
+	orgID := "org-dispatch-after-persist"
+	store := newFakeSLAStore(newTestContract(orgID, EnterpriseTierStarter))
+	periodStart, periodEnd := previousCalendarMonth(time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC))
+	dispatcher := &fakeDispatcher{
+		onDispatch: func() {
+			if row := store.creditFor(orgID, periodStart, periodEnd); row == nil {
+				t.Fatal("sla.credit_issued dispatched before credit row was persisted")
+			}
+		},
+	}
 	calc := NewSLACalculator(store, fakeUptimeSource{pct: 95.0}, time.Hour, nil).
 		WithDispatcher(dispatcher).
 		WithClock(fixedClock(time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)))
@@ -301,12 +375,35 @@ func TestDeepSecSLACalculator_DispatchFailureDoesNotPersist(t *testing.T) {
 	if err := calc.Tick(context.Background()); err != nil {
 		t.Fatalf("tick: %v", err)
 	}
+	if len(dispatcher.calls) != 1 {
+		t.Fatalf("expected one dispatch, got %d", len(dispatcher.calls))
+	}
+}
 
-	if store.count() != 0 {
-		t.Errorf("expected 0 credit rows after dispatch failure, got %d", store.count())
+func TestSLACalculator_ConcurrentTicksDispatchOnceAfterInsertWins(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeSLAStore(newTestContract("org-concurrent-dispatch", EnterpriseTierStarter))
+	dispatcher := &fakeDispatcher{}
+	calc := NewSLACalculator(store, fakeUptimeSource{pct: 95.0}, time.Hour, nil).
+		WithDispatcher(dispatcher).
+		WithClock(fixedClock(time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)))
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = calc.Tick(context.Background())
+		}()
+	}
+	wg.Wait()
+
+	if store.count() != 1 {
+		t.Fatalf("expected one credit row, got %d", store.count())
 	}
 	if len(dispatcher.calls) != 1 {
-		t.Errorf("expected 1 dispatch attempt, got %d", len(dispatcher.calls))
+		t.Fatalf("expected exactly one webhook dispatch, got %d", len(dispatcher.calls))
 	}
 }
 

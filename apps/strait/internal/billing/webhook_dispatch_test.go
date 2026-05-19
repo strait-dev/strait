@@ -12,9 +12,10 @@ import (
 )
 
 type fakeDispatcher struct {
-	mu    sync.Mutex
-	calls []fakeDispatchCall
-	err   error
+	mu         sync.Mutex
+	calls      []fakeDispatchCall
+	err        error
+	onDispatch func()
 }
 
 type fakeDispatchCall struct {
@@ -25,9 +26,14 @@ type fakeDispatchCall struct {
 
 func (f *fakeDispatcher) DispatchBillingEvent(_ context.Context, orgID, eventType string, payload []byte) error {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.calls = append(f.calls, fakeDispatchCall{orgID: orgID, eventType: eventType, payload: payload})
-	return f.err
+	err := f.err
+	onDispatch := f.onDispatch
+	f.mu.Unlock()
+	if onDispatch != nil {
+		onDispatch()
+	}
+	return err
 }
 
 func TestDispatchBillingWebhook_PayloadShape(t *testing.T) {
