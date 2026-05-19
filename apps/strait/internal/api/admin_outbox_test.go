@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -335,6 +336,55 @@ func TestHandleAdminRetryOutbox_ConflictWhenActiveCloneExists(t *testing.T) {
 	}
 }
 
+func TestHandleAdminRetryOutbox_AuditFailureFailsRequest(t *testing.T) {
+	t.Parallel()
+
+	retryCalls := 0
+	mock := &adminOutboxStoreMock{
+		APIStoreMock: &APIStoreMock{
+			CreateAuditEventFunc: func(_ context.Context, ev *domain.AuditEvent) error {
+				if ev.Action != "outbox.retry" {
+					t.Fatalf("audit action = %q, want outbox.retry", ev.Action)
+				}
+				return errors.New("audit unavailable")
+			},
+		},
+		getFn: func(_ context.Context, projectID, id string) (*store.QuarantinedOutboxRow, error) {
+			return &store.QuarantinedOutboxRow{
+				ID:         id,
+				ProjectID:  projectID,
+				JobID:      "job-1",
+				Error:      "terminal failure",
+				CreatedAt:  time.Now().Add(-time.Minute),
+				ConsumedAt: time.Now(),
+			}, nil
+		},
+		retryFn: func(_ context.Context, projectID, id string) (*store.OutboxRow, error) {
+			retryCalls++
+			retryOf := id
+			return &store.OutboxRow{
+				ID:              "retry-1",
+				ProjectID:       projectID,
+				JobID:           "job-1",
+				CreatedAt:       time.Now(),
+				RetryOfOutboxID: &retryOf,
+			}, nil
+		},
+	}
+
+	srv := newTestServer(t, mock, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	r := authedProjectRequest(http.MethodPost, "/v1/admin/outbox/outbox-1/retry", "", "proj-outbox")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 when audit write fails, got %d: %s", w.Code, w.Body.String())
+	}
+	if retryCalls != 1 {
+		t.Fatalf("retry calls = %d, want 1", retryCalls)
+	}
+}
+
 func TestHandleAdminPurgeOutbox_OK_WritesAudit(t *testing.T) {
 	t.Parallel()
 
@@ -417,6 +467,45 @@ func assertOutboxAuditDetailsRedacted(t *testing.T, details json.RawMessage, for
 		if !strings.Contains(raw, required) {
 			t.Fatalf("audit details missing %q: %s", required, raw)
 		}
+	}
+}
+
+func TestHandleAdminPurgeOutbox_AuditFailureFailsRequest(t *testing.T) {
+	t.Parallel()
+
+	purgeCalls := 0
+	mock := &adminOutboxStoreMock{
+		APIStoreMock: &APIStoreMock{
+			CreateAuditEventFunc: func(_ context.Context, ev *domain.AuditEvent) error {
+				if ev.Action != "outbox.purge" {
+					t.Fatalf("audit action = %q, want outbox.purge", ev.Action)
+				}
+				return errors.New("audit unavailable")
+			},
+		},
+		purgeFn: func(_ context.Context, projectID, id string) (*store.QuarantinedOutboxRow, error) {
+			purgeCalls++
+			return &store.QuarantinedOutboxRow{
+				ID:         id,
+				ProjectID:  projectID,
+				JobID:      "job-1",
+				Error:      "terminal failure",
+				CreatedAt:  time.Now().Add(-time.Minute),
+				ConsumedAt: time.Now(),
+			}, nil
+		},
+	}
+
+	srv := newTestServer(t, mock, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	r := authedProjectRequest(http.MethodPost, "/v1/admin/outbox/outbox-1/purge", "", "proj-outbox")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 when audit write fails, got %d: %s", w.Code, w.Body.String())
+	}
+	if purgeCalls != 1 {
+		t.Fatalf("purge calls = %d, want 1", purgeCalls)
 	}
 }
 
