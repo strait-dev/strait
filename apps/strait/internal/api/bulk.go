@@ -238,7 +238,7 @@ func (s *Server) handleBulkTriggerJob(ctx context.Context, input *BulkTriggerJob
 				if countErr != nil {
 					return huma.Error500InternalServerError("failed to evaluate job rate limit")
 				}
-				if runCount >= job.RateLimitMax {
+				if runCount+enqueuedInBatch >= job.RateLimitMax {
 					return huma.Error429TooManyRequests("job rate limit exceeded")
 				}
 			}

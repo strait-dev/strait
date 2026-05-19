@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -130,6 +131,47 @@ func TestBulkTrigger_PerItemErrorMessageReferencesItemIndex(t *testing.T) {
 	bodyStr := w.Body.String()
 	if !strings.Contains(bodyStr, "item 2") {
 		t.Errorf("error body must reference 'item 2' (the offending index), got: %s", bodyStr)
+	}
+}
+
+func TestBulkTrigger_RateLimitCountsPendingBatchItems(t *testing.T) {
+	t.Parallel()
+
+	var enqueued atomic.Bool
+	job := testEnabledJob("job-rate")
+	job.RateLimitMax = 2
+	job.RateLimitWindowSecs = 60
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			if id != job.ID {
+				t.Fatalf("job id = %q, want %q", id, job.ID)
+			}
+			return job, nil
+		},
+		GetProjectQuotaFunc: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
+			return &store.ProjectQuota{ProjectID: projectID}, nil
+		},
+		CountRunsForJobSinceFunc: func(_ context.Context, jobID string, _ time.Time) (int, error) {
+			if jobID != job.ID {
+				t.Fatalf("jobID = %q, want %q", jobID, job.ID)
+			}
+			return 1, nil
+		},
+	}
+	mq := &mockQueue{enqueueBatchFn: func(_ context.Context, _ []*domain.JobRun) (int64, error) {
+		enqueued.Store(true)
+		return 0, nil
+	}}
+	srv := newTestServer(t, ms, mq, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-rate/trigger/bulk", `{"items":[{},{}]}`))
+
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d: %s", w.Code, w.Body.String())
+	}
+	if enqueued.Load() {
+		t.Fatal("bulk trigger enqueued items beyond the per-job rate limit")
 	}
 }
 
