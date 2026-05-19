@@ -223,6 +223,43 @@ func TestExecuteDequeue_ExtraArgsPassedThrough(t *testing.T) {
 	}
 }
 
+func TestDequeuePartitionedProjectPathsExcludeWorkerModeRuns(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		run  func(*PostgresQueue)
+	}{
+		{
+			name: "partitioned",
+			run: func(q *PostgresQueue) {
+				_, _ = q.DequeueNPartitioned(context.Background(), 5, []string{"project-1"})
+			},
+		},
+		{
+			name: "by project",
+			run: func(q *PostgresQueue) {
+				_, _ = q.DequeueNByProject(context.Background(), 5, "project-1")
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var captured string
+			db := &mockDBTX{
+				queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+					captured = sql
+					return nil, errors.New("captured")
+				},
+			}
+			tc.run(NewPostgresQueue(db))
+			if !strings.Contains(captured, "COALESCE(jr.execution_mode, j.execution_mode, 'http') = 'http'") {
+				t.Fatalf("dequeue SQL does not exclude worker-mode runs:\n%s", captured)
+			}
+		})
+	}
+}
+
 func TestWithStatementTimeout_ReturnsTxForExplicitCommit(t *testing.T) {
 	t.Parallel()
 	commitErr := errors.New("connection lost")

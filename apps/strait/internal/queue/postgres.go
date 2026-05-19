@@ -821,6 +821,7 @@ func (q *PostgresQueue) DequeueNPartitioned(ctx context.Context, n int, projectI
 			  AND j.enabled = true
 			  AND NOT j.paused
 			  AND jr.project_id = ANY($2)
+			  AND COALESCE(jr.execution_mode, j.execution_mode, 'http') = 'http'
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
 			  AND NOT EXISTS (SELECT 1 FROM job_retries rt WHERE rt.run_id = jr.id AND rt.next_retry_at > NOW())
 			  %s
@@ -845,6 +846,7 @@ func (q *PostgresQueue) DequeueNByProject(ctx context.Context, n int, projectID 
 			  AND j.enabled = true
 			  AND NOT j.paused
 			  AND jr.project_id = $2
+			  AND COALESCE(jr.execution_mode, j.execution_mode, 'http') = 'http'
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
 			  AND NOT EXISTS (SELECT 1 FROM job_retries rt WHERE rt.run_id = jr.id AND rt.next_retry_at > NOW())
 			  %s
