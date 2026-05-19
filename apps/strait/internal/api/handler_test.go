@@ -1614,6 +1614,37 @@ func TestHandleBulkReplayDeadLetterRuns_Success(t *testing.T) {
 	}
 }
 
+func TestHandleBulkReplayDeadLetterRuns_RunIDsModeDoesNotSendProjectIDOrLimit(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, Status: domain.StatusDeadLetter, ProjectID: "proj-1"}, nil
+		},
+		BulkReplayDeadLetterRunsFunc: func(_ context.Context, runIDs []string, projectID string, limit int) ([]domain.JobRun, error) {
+			if len(runIDs) != 1 || runIDs[0] != "run-1" {
+				t.Fatalf("unexpected run_ids: %+v", runIDs)
+			}
+			if projectID != "" {
+				t.Fatalf("run_ids replay must not also pass project_id, got %q", projectID)
+			}
+			if limit != 0 {
+				t.Fatalf("run_ids replay must not also pass limit, got %d", limit)
+			}
+			return []domain.JobRun{{ID: "run-1", Status: domain.StatusQueued, Attempt: 1}}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/bulk-dlq-replay", `{"run_ids":["run-1"],"limit":123}`))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestHandleTriggerJob_DryRunMode(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{

@@ -615,13 +615,11 @@ func (s *Server) handleBulkReplayDeadLetterRuns(ctx context.Context, input *Bulk
 	)
 	if !hasRunIDs && environmentIDFromContext(ctx) != "" {
 		runs, err = s.bulkReplayDeadLetterRunsForEnvironment(ctx, projectIDFromContext(ctx), req.Limit)
+	} else if hasRunIDs {
+		runs, err = s.store.BulkReplayDeadLetterRuns(ctx, req.RunIDs, "", 0)
 	} else {
 		// Scope bulk replay to the caller's project when using project_id mode.
-		effectiveProjectID := req.ProjectID
-		if effectiveProjectID == "" {
-			effectiveProjectID = projectIDFromContext(ctx)
-		}
-		runs, err = s.store.BulkReplayDeadLetterRuns(ctx, req.RunIDs, effectiveProjectID, req.Limit)
+		runs, err = s.store.BulkReplayDeadLetterRuns(ctx, nil, req.ProjectID, req.Limit)
 	}
 	if err != nil {
 		errMsg := err.Error()
