@@ -418,6 +418,41 @@ func TestAnomalyMonitor_Cooldown_SkipsRecentlyAlerted(t *testing.T) {
 	}
 }
 
+func TestAnomalyMonitor_DefaultCooldownDeduplicatesTicks(t *testing.T) {
+	t.Parallel()
+
+	var deliveryCount int
+	s := &mockAnomalyMonitorStore{
+		listAllSubscribedOrgIDsFn: func(context.Context) ([]string, error) {
+			return []string{"org-default-cooldown"}, nil
+		},
+		getOrgSubscriptionFn: func(_ context.Context, _ string) (*billing.OrgSubscription, error) {
+			return defaultOrgSub("org-default-cooldown"), nil
+		},
+		getOrgUsageForPeriodFn: func(_ context.Context, orgID string, _, _ time.Time) ([]billing.UsageRecord, error) {
+			return buildSpikeUsage(orgID, "proj-1", 1000, 5000), nil
+		},
+		listProjectsByOrgFn: func(_ context.Context, _ string) ([]string, error) {
+			return []string{"proj-1"}, nil
+		},
+		listEnabledNotificationChannelsFn: func(_ context.Context, _ string) ([]domain.NotificationChannel, error) {
+			return []domain.NotificationChannel{{ID: "ch-1", ProjectID: "proj-1"}}, nil
+		},
+		createNotificationDeliveryFn: func(_ context.Context, _ *domain.NotificationDelivery) error {
+			deliveryCount++
+			return nil
+		},
+	}
+
+	am := NewAnomalyMonitor(s, time.Minute)
+	am.check(context.Background())
+	am.check(context.Background())
+
+	if deliveryCount != 1 {
+		t.Fatalf("deliveries = %d, want 1 with default cooldown", deliveryCount)
+	}
+}
+
 func TestAnomalyMonitor_Cooldown_AlertsAfter4Hours(t *testing.T) {
 	t.Parallel()
 

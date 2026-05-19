@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"strait/internal/billing"
@@ -46,6 +47,7 @@ func NewAnomalyMonitor(s AnomalyMonitorStore, interval time.Duration) *AnomalyMo
 	}
 	return &AnomalyMonitor{
 		store:    s,
+		cooldown: newMemoryAnomalyCooldown(4 * time.Hour),
 		interval: interval,
 		logger:   slog.Default(),
 	}
@@ -53,7 +55,9 @@ func NewAnomalyMonitor(s AnomalyMonitorStore, interval time.Duration) *AnomalyMo
 
 // WithCooldown sets the cooldown provider for deduplicating alerts.
 func (am *AnomalyMonitor) WithCooldown(c AnomalyCooldown) *AnomalyMonitor {
-	am.cooldown = c
+	if c != nil {
+		am.cooldown = c
+	}
 	return am
 }
 
@@ -220,6 +224,40 @@ func projectScopedAnomalyPayload(projectID string, alert billing.AnomalyAlert) j
 		"timestamp":          time.Now().UTC(),
 	})
 	return payload
+}
+
+type memoryAnomalyCooldown struct {
+	mu      sync.Mutex
+	ttl     time.Duration
+	entries map[string]time.Time
+}
+
+func newMemoryAnomalyCooldown(ttl time.Duration) *memoryAnomalyCooldown {
+	if ttl <= 0 {
+		ttl = 4 * time.Hour
+	}
+	return &memoryAnomalyCooldown{ttl: ttl, entries: make(map[string]time.Time)}
+}
+
+func (m *memoryAnomalyCooldown) InCooldown(_ context.Context, orgID string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	expiresAt, ok := m.entries[orgID]
+	if !ok {
+		return false, nil
+	}
+	if time.Now().After(expiresAt) {
+		delete(m.entries, orgID)
+		return false, nil
+	}
+	return true, nil
+}
+
+func (m *memoryAnomalyCooldown) SetCooldown(_ context.Context, orgID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.entries[orgID] = time.Now().Add(m.ttl)
+	return nil
 }
 
 // RedisCooldown implements AnomalyCooldown using Redis SET with TTL.
