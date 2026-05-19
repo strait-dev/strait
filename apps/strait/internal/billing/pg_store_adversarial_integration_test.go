@@ -569,6 +569,64 @@ func TestAdversarial_ExpiringContractBoundaries(t *testing.T) {
 	}
 }
 
+func TestPgStore_ListEnterpriseContractsOverlappingPeriod_IncludesMidPeriodLapse(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	periodStart := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	periodEnd := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	subID := "sub_sla_overlap"
+
+	insertContract := func(suffix string, start, end time.Time) string {
+		t.Helper()
+		orgID := "org-sla-overlap-" + suffix + "-" + newID()
+		c := &billing.EnterpriseContract{
+			ID:                     "contract_sla_overlap_" + suffix,
+			OrgID:                  orgID,
+			EnterpriseTier:         billing.EnterpriseTierStarter,
+			AnnualCommitmentCents:  1_800_000,
+			IncludedCreditMicrousd: 1_000_000_000,
+			ComputeDiscountPct:     10,
+			ContractStartDate:      start,
+			ContractEndDate:        end,
+			AutoRenew:              true,
+			BillingCadence:         "annual",
+			StripeSubscriptionID:   &subID,
+			CreatedAt:              time.Now().UTC(),
+			UpdatedAt:              time.Now().UTC(),
+		}
+		if err := pgStore.UpsertEnterpriseContract(ctx, c); err != nil {
+			t.Fatalf("UpsertEnterpriseContract(%s): %v", suffix, err)
+		}
+		return orgID
+	}
+
+	lapsedMidPeriod := insertContract("lapsed", periodStart.AddDate(0, -1, 0), periodStart.Add(14*24*time.Hour))
+	activeThroughPeriod := insertContract("active", periodStart.Add(7*24*time.Hour), periodEnd.Add(24*time.Hour))
+	insertContract("ended-at-start", periodStart.AddDate(0, -1, 0), periodStart)
+	insertContract("starts-at-end", periodEnd, periodEnd.AddDate(0, 1, 0))
+
+	contracts, err := pgStore.ListEnterpriseContractsOverlappingPeriod(ctx, periodStart, periodEnd)
+	if err != nil {
+		t.Fatalf("ListEnterpriseContractsOverlappingPeriod: %v", err)
+	}
+
+	seen := make(map[string]bool, len(contracts))
+	for _, contract := range contracts {
+		seen[contract.OrgID] = true
+	}
+	if !seen[lapsedMidPeriod] {
+		t.Fatal("expected contract that lapsed mid-period to be included")
+	}
+	if !seen[activeThroughPeriod] {
+		t.Fatal("expected contract active through period to be included")
+	}
+	if len(contracts) != 2 {
+		t.Fatalf("expected only the two overlapping contracts, got %d: %+v", len(contracts), contracts)
+	}
+}
+
 // --------------------------------------------------------------------------
 // A14: Empty org ID returns not-found, not a cross-org leak
 // --------------------------------------------------------------------------.
