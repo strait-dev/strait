@@ -850,6 +850,9 @@ func validateWorkflowSteps(steps []workflowStepRequest) error {
 			if step.SleepDurationSecs <= 0 {
 				return errors.New("sleep steps require sleep_duration_secs > 0")
 			}
+			if step.SleepDurationSecs > domain.MaxSleepDurationSecs {
+				return fmt.Errorf("sleep_duration_secs must be <= %d", domain.MaxSleepDurationSecs)
+			}
 		}
 		if step.TimeoutSecsOverride < 0 {
 			return errors.New("timeout_secs_override must be >= 0")

@@ -390,7 +390,10 @@ func (e *WorkflowEngine) startSleepStep(
 ) error {
 	durationSecs := step.SleepDurationSecs
 	if durationSecs <= 0 {
-		durationSecs = 60 // default 1 minute
+		durationSecs = domain.DefaultSleepDurationSecs
+	}
+	if durationSecs > domain.MaxSleepDurationSecs {
+		return fmt.Errorf("sleep duration %d exceeds maximum %d", durationSecs, domain.MaxSleepDurationSecs)
 	}
 	expiresAt := now.Add(time.Duration(durationSecs) * time.Second)
 

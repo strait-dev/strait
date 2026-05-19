@@ -6364,6 +6364,38 @@ func TestStartStep_Sleep_CreatesTrigger(t *testing.T) {
 	}
 }
 
+func TestStartStep_Sleep_RejectsDurationAboveCap(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockEngineStore{
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			t.Fatal("oversized sleep step must not update step status")
+			return nil
+		},
+		createEventTriggerFn: func(_ context.Context, _ *domain.EventTrigger) error {
+			t.Fatal("oversized sleep step must not create an event trigger")
+			return nil
+		},
+	}
+	engine := NewWorkflowEngine(ms, nil, slog.Default())
+
+	step := &domain.WorkflowStep{
+		StepRef:           "sleep-too-long",
+		StepType:          domain.WorkflowStepTypeSleep,
+		SleepDurationSecs: domain.MaxSleepDurationSecs + 1,
+	}
+	stepRun := &domain.WorkflowStepRun{ID: "sr-sleep-too-long", StepRef: "sleep-too-long"}
+	wfRun := &domain.WorkflowRun{ID: "wr-1", ProjectID: "proj-1"}
+
+	err := engine.startStep(context.Background(), stepRun, step, wfRun, nil)
+	if err == nil {
+		t.Fatal("expected oversized sleep duration error")
+	}
+	if !strings.Contains(err.Error(), "exceeds maximum") {
+		t.Fatalf("expected sleep duration cap error, got %v", err)
+	}
+}
+
 // Scheduling semantics regression tests.
 
 func TestEffectiveResourceClass(t *testing.T) {
