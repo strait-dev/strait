@@ -165,6 +165,13 @@ func (s *Server) handleBulkTriggerJob(ctx context.Context, input *BulkTriggerJob
 		for _, item := range req.Items {
 			itemIdx := len(results)
 
+			if err := validateTriggerScheduledAt(item.ScheduledAt); err != nil {
+				return huma.Error400BadRequest(fmt.Sprintf("scheduled_at validation failed for item %d: %v", itemIdx, err))
+			}
+			if err := validateTriggerTTLSecs(item.TTLSecs); err != nil {
+				return huma.Error400BadRequest(fmt.Sprintf("ttl_secs validation failed for item %d: %v", itemIdx, err))
+			}
+
 			if len(item.Tags) > 0 {
 				if err := validateTags(item.Tags); err != nil {
 					return huma.Error400BadRequest(fmt.Sprintf("invalid tags for item %d: %v", itemIdx, err))

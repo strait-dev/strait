@@ -52,6 +52,8 @@ type TriggerRequest struct {
 	BatchKey       string            `json:"batch_key,omitempty" validate:"max=256"`
 }
 
+const maxTriggerTTLSecs = 30 * 24 * 60 * 60
+
 type TriggerJobInput struct {
 	JobID             string `path:"jobID"`
 	XIdempotencyKey   string `header:"X-Idempotency-Key"`
@@ -554,6 +556,19 @@ func validateTriggerScheduledAt(scheduledAt *time.Time) error {
 	}
 	if delay > 30*24*time.Hour {
 		return errors.New("scheduled_at cannot exceed 30 days from now")
+	}
+	return nil
+}
+
+func validateTriggerTTLSecs(ttlSecs *int) error {
+	if ttlSecs == nil {
+		return nil
+	}
+	if *ttlSecs < 0 {
+		return errors.New("ttl_secs must be greater than or equal to 0")
+	}
+	if *ttlSecs > maxTriggerTTLSecs {
+		return errors.New("ttl_secs cannot exceed 30 days")
 	}
 	return nil
 }
