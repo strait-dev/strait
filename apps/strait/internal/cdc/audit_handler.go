@@ -48,6 +48,10 @@ func (h *AuditHandler) Table() string { return "job_runs" }
 
 // Handle processes a CDC event for a job run change.
 func (h *AuditHandler) Handle(ctx context.Context, msg Message) error {
+	if !isAuditCDCAction(msg.Action) {
+		return nil
+	}
+
 	var record struct {
 		ID        string `json:"id"`
 		JobID     string `json:"job_id"`
@@ -90,6 +94,15 @@ func (h *AuditHandler) Handle(ctx context.Context, msg Message) error {
 	}
 
 	return nil
+}
+
+func isAuditCDCAction(action Action) bool {
+	switch action {
+	case ActionInsert, ActionUpdate, ActionDelete:
+		return true
+	default:
+		return false
+	}
 }
 
 func auditDedupeKey(msg Message, action, runID, status string) string {

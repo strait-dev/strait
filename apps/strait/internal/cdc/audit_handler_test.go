@@ -360,6 +360,31 @@ func TestDeepSecAuditHandler_IgnoresReadEmptyAndUnknownActions(t *testing.T) {
 	}
 }
 
+func TestAuditHandler_UnsupportedSnapshotActionsDoNotParseOrAudit(t *testing.T) {
+	t.Parallel()
+
+	for _, action := range []Action{ActionRead, Action("snapshot"), ""} {
+		t.Run(string(action), func(t *testing.T) {
+			t.Parallel()
+			store := &mockAuditStore{}
+			h := NewAuditHandler(store, nil)
+
+			err := h.Handle(context.Background(), Message{
+				AckID:    "ack-snapshot",
+				Action:   action,
+				Record:   json.RawMessage(`not valid json`),
+				Metadata: Metadata{TableName: "job_runs"},
+			})
+			if err != nil {
+				t.Fatalf("Handle error = %v, want nil for unsupported snapshot action", err)
+			}
+			if len(store.events) != 0 {
+				t.Fatalf("events = %d, want 0: %#v", len(store.events), store.events)
+			}
+		})
+	}
+}
+
 func TestDeepSecAuditHandler_StoreErrorReturnsForRetry(t *testing.T) {
 	t.Parallel()
 	store := &mockAuditStore{
