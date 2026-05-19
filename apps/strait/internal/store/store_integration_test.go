@@ -3839,6 +3839,89 @@ func TestWorkflowStep_CRUD(t *testing.T) {
 	}
 }
 
+func TestWorkflowStepLookupScopesThroughParentWorkflowUnderRLS(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectA := "project-workflow-step-rls-a-" + newID()
+	projectB := "project-workflow-step-rls-b-" + newID()
+
+	jobA := mustCreateJob(t, ctx, q, projectA)
+	workflowA := &domain.Workflow{
+		ProjectID: projectA,
+		Name:      "Step RLS A",
+		Slug:      "step-rls-a-" + newID(),
+		Enabled:   true,
+	}
+	if err := q.CreateWorkflow(ctx, workflowA); err != nil {
+		t.Fatalf("CreateWorkflow(A) error = %v", err)
+	}
+	stepA := &domain.WorkflowStep{
+		WorkflowID: workflowA.ID,
+		JobID:      jobA.ID,
+		StepRef:    "own",
+		DependsOn:  []string{},
+	}
+	if err := q.CreateWorkflowStep(ctx, stepA); err != nil {
+		t.Fatalf("CreateWorkflowStep(A) error = %v", err)
+	}
+
+	jobB := mustCreateJob(t, ctx, q, projectB)
+	workflowB := &domain.Workflow{
+		ProjectID: projectB,
+		Name:      "Step RLS B",
+		Slug:      "step-rls-b-" + newID(),
+		Enabled:   true,
+	}
+	if err := q.CreateWorkflow(ctx, workflowB); err != nil {
+		t.Fatalf("CreateWorkflow(B) error = %v", err)
+	}
+	stepB := &domain.WorkflowStep{
+		WorkflowID: workflowB.ID,
+		JobID:      jobB.ID,
+		StepRef:    "foreign",
+		DependsOn:  []string{},
+	}
+	if err := q.CreateWorkflowStep(ctx, stepB); err != nil {
+		t.Fatalf("CreateWorkflowStep(B) error = %v", err)
+	}
+
+	runAsProject(t, ctx, projectA, false, func(txq *store.Queries) {
+		own, err := txq.GetWorkflowStep(ctx, stepA.ID)
+		if err != nil {
+			t.Fatalf("GetWorkflowStep(own) error = %v", err)
+		}
+		if own.ID != stepA.ID {
+			t.Fatalf("GetWorkflowStep(own) ID = %q, want %q", own.ID, stepA.ID)
+		}
+
+		if _, err := txq.GetWorkflowStep(ctx, stepB.ID); !errors.Is(err, store.ErrWorkflowStepNotFound) {
+			t.Fatalf("GetWorkflowStep(foreign) error = %v, want ErrWorkflowStepNotFound", err)
+		}
+
+		foreignSteps, err := txq.ListStepsByWorkflow(ctx, workflowB.ID)
+		if err != nil {
+			t.Fatalf("ListStepsByWorkflow(foreign) error = %v", err)
+		}
+		if len(foreignSteps) != 0 {
+			t.Fatalf("ListStepsByWorkflow(foreign) len = %d, want 0", len(foreignSteps))
+		}
+
+		if err := txq.DeleteStepsByWorkflow(ctx, workflowB.ID); err != nil {
+			t.Fatalf("DeleteStepsByWorkflow(foreign) error = %v", err)
+		}
+	})
+
+	foreignAfterDelete, err := q.GetWorkflowStep(ctx, stepB.ID)
+	if err != nil {
+		t.Fatalf("GetWorkflowStep(foreign after blocked delete) error = %v", err)
+	}
+	if foreignAfterDelete.ID != stepB.ID {
+		t.Fatalf("foreign step deleted or changed: got %q, want %q", foreignAfterDelete.ID, stepB.ID)
+	}
+}
+
 func TestWorkflowRun_CRUD(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
