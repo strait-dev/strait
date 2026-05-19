@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -15,9 +16,10 @@ import (
 
 // ExporterConfig controls the async export worker behavior.
 type ExporterConfig struct {
-	BatchSize     int           // Max events per batch insert.
-	FlushInterval time.Duration // Max time between flushes.
-	Enabled       bool          // Feature gate.
+	BatchSize      int           // Max events per batch insert.
+	FlushInterval  time.Duration // Max time between flushes.
+	MaxBufferBytes int           // Max approximate bytes buffered before dropping oldest records.
+	Enabled        bool          // Feature gate.
 }
 
 // RunEventRecord maps to the run_events ClickHouse table.
@@ -155,9 +157,16 @@ type BillingEventRecord struct {
 	Details   string // JSON blob
 }
 
-// maxFlushRetries is the maximum number of consecutive flush failures before
-// a batch is dropped to prevent unbounded growth.
-const maxFlushRetries = 2
+const (
+	// maxFlushRetries is the maximum number of consecutive flush failures before
+	// a batch is dropped to prevent unbounded growth.
+	maxFlushRetries = 2
+
+	// defaultMaxBufferBytes caps queued ClickHouse export records by approximate
+	// in-memory payload size. The record-count cap alone does not protect the
+	// exporter from large event metadata or failure messages.
+	defaultMaxBufferBytes = 16 << 20
+)
 
 // ExporterMetrics holds optional OTel counters for exporter observability.
 type ExporterMetrics struct {
@@ -174,6 +183,7 @@ type Exporter struct {
 
 	mu                  sync.Mutex
 	pending             []any // buffered records
+	pendingBytes        int
 	consecutiveFailures int
 	stopping            atomic.Bool
 	stopOnce            sync.Once
@@ -191,6 +201,9 @@ func NewExporter(client *Client, config ExporterConfig, logger *slog.Logger) *Ex
 	}
 	if config.FlushInterval <= 0 {
 		config.FlushInterval = 5 * time.Second
+	}
+	if config.MaxBufferBytes <= 0 {
+		config.MaxBufferBytes = defaultMaxBufferBytes
 	}
 	if logger == nil {
 		logger = slog.Default()
@@ -220,25 +233,32 @@ func (e *Exporter) WithMetrics(m *ExporterMetrics) *Exporter {
 }
 
 // Enqueue adds a record to the export buffer. Safe for concurrent use.
-// Returns false if the exporter is stopping.
+// Returns false if the exporter is stopping or the record is too large to
+// retain within the byte-size buffer cap.
 func (e *Exporter) Enqueue(record any) bool {
 	if e == nil || e.stopping.Load() {
+		return false
+	}
+	recordBytes := estimateRecordBytes(record)
+	maxBufferBytes := e.maxBufferBytes()
+	if recordBytes > maxBufferBytes {
+		e.logger.Warn("clickhouse exporter record exceeds byte buffer cap, dropped record", "bytes", recordBytes, "max_bytes", maxBufferBytes)
+		if e.metrics != nil && e.metrics.DroppedRecords != nil {
+			e.metrics.DroppedRecords.Add(context.Background(), 1)
+		}
 		return false
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
 	e.pending = append(e.pending, record)
+	e.pendingBytes += recordBytes
 
-	// Backpressure: drop oldest if buffer exceeds 10x batch size.
-	// Reallocate to release memory held by dropped elements.
-	maxBuffer := e.config.BatchSize * 10
-	if len(e.pending) > maxBuffer {
-		dropped := len(e.pending) - maxBuffer
-		kept := make([]any, maxBuffer)
-		copy(kept, e.pending[dropped:])
-		e.pending = kept
-		e.logger.Warn("clickhouse exporter buffer overflow, dropped oldest records", "dropped", dropped)
+	if dropped := e.trimPendingOldestLocked(); dropped > 0 {
+		e.logger.Warn("clickhouse exporter buffer overflow, dropped oldest records", "dropped", dropped, "pending_bytes", e.pendingBytes, "max_bytes", e.maxBufferBytes())
+		if e.metrics != nil && e.metrics.DroppedRecords != nil {
+			e.metrics.DroppedRecords.Add(context.Background(), int64(dropped))
+		}
 	}
 	return true
 }
@@ -298,7 +318,9 @@ func (e *Exporter) flush(ctx context.Context) {
 		return
 	}
 	batch := e.pending
+	batchBytes := e.pendingBytes
 	e.pending = make([]any, 0, e.config.BatchSize)
+	e.pendingBytes = 0
 	e.mu.Unlock()
 
 	if err := e.insertBatch(ctx, batch); err != nil {
@@ -309,14 +331,14 @@ func (e *Exporter) flush(ctx context.Context) {
 		e.mu.Lock()
 		e.consecutiveFailures++
 		if e.consecutiveFailures <= maxFlushRetries {
-			maxBuffer := e.config.BatchSize * 10
 			combined := append(batch, e.pending...) //nolint:gocritic // intentional prepend of failed batch
-			if len(combined) > maxBuffer {
-				// Keep the front (failed batch first) and drop newest overflow.
-				combined = combined[:maxBuffer]
-			}
+			e.pendingBytes += batchBytes
 			e.pending = combined
-			e.logger.Warn("clickhouse requeued failed batch", "attempt", e.consecutiveFailures)
+			dropped := e.trimPendingNewestLocked()
+			e.logger.Warn("clickhouse requeued failed batch", "attempt", e.consecutiveFailures, "dropped", dropped, "pending_bytes", e.pendingBytes, "max_bytes", e.maxBufferBytes())
+			if dropped > 0 && e.metrics != nil && e.metrics.DroppedRecords != nil {
+				e.metrics.DroppedRecords.Add(ctx, int64(dropped))
+			}
 		} else {
 			e.logger.Error("clickhouse dropping batch after max retries", "dropped", len(batch))
 			if e.metrics != nil && e.metrics.DroppedRecords != nil {
@@ -329,6 +351,99 @@ func (e *Exporter) flush(ctx context.Context) {
 	e.mu.Lock()
 	e.consecutiveFailures = 0
 	e.mu.Unlock()
+}
+
+func (e *Exporter) maxBufferRecords() int {
+	if e == nil || e.config.BatchSize <= 0 {
+		return 1000 * 10
+	}
+	return e.config.BatchSize * 10
+}
+
+func (e *Exporter) maxBufferBytes() int {
+	if e == nil || e.config.MaxBufferBytes <= 0 {
+		return defaultMaxBufferBytes
+	}
+	return e.config.MaxBufferBytes
+}
+
+func (e *Exporter) trimPendingOldestLocked() int {
+	return e.trimPendingLocked(true)
+}
+
+func (e *Exporter) trimPendingNewestLocked() int {
+	return e.trimPendingLocked(false)
+}
+
+func (e *Exporter) trimPendingLocked(dropOldest bool) int {
+	maxRecords := e.maxBufferRecords()
+	maxBytes := e.maxBufferBytes()
+	dropped := 0
+	for len(e.pending) > 0 && (len(e.pending) > maxRecords || e.pendingBytes > maxBytes) {
+		dropIndex := len(e.pending) - 1
+		if dropOldest {
+			dropIndex = 0
+		}
+		e.pendingBytes -= estimateRecordBytes(e.pending[dropIndex])
+		if e.pendingBytes < 0 {
+			e.pendingBytes = 0
+		}
+		e.pending = append(e.pending[:dropIndex], e.pending[dropIndex+1:]...)
+		dropped++
+	}
+	if dropped > 0 {
+		kept := make([]any, len(e.pending))
+		copy(kept, e.pending)
+		e.pending = kept
+	}
+	return dropped
+}
+
+func estimateRecordsBytes(records []any) int {
+	total := 0
+	for _, record := range records {
+		total += estimateRecordBytes(record)
+	}
+	return total
+}
+
+func estimateRecordBytes(record any) int {
+	return estimateRecordValueBytes(reflect.ValueOf(record)) + 64
+}
+
+func estimateRecordValueBytes(v reflect.Value) int {
+	if !v.IsValid() {
+		return 0
+	}
+	if v.Type() == reflect.TypeOf(time.Time{}) {
+		return 24
+	}
+	switch v.Kind() {
+	case reflect.Pointer, reflect.Interface:
+		if v.IsNil() {
+			return 8
+		}
+		return 8 + estimateRecordValueBytes(v.Elem())
+	case reflect.String:
+		return v.Len()
+	case reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return 8
+	case reflect.Struct:
+		size := 0
+		for i := range v.NumField() {
+			size += estimateRecordValueBytes(v.Field(i))
+		}
+		return size
+	case reflect.Slice, reflect.Array:
+		size := 0
+		for i := range v.Len() {
+			size += estimateRecordValueBytes(v.Index(i))
+		}
+		return size
+	default:
+		return 16
+	}
 }
 
 // insertBatch writes a batch of records to ClickHouse, grouping by record type.
