@@ -3176,6 +3176,7 @@ func TestJobDependency_CRUD(t *testing.T) {
 func TestEnvironment_CRUD(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
+	q.SetSecretEncryptionKey("0123456789abcdef0123456789abcdef")
 	mustClean(t, ctx)
 
 	projectID := "project-environment-crud"
@@ -3286,6 +3287,7 @@ func TestEnvironment_CRUD(t *testing.T) {
 func TestEnvironment_InheritanceResolution(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
+	q.SetSecretEncryptionKey("0123456789abcdef0123456789abcdef")
 	mustClean(t, ctx)
 
 	projectID := "project-environment-inheritance"
@@ -3376,6 +3378,7 @@ func TestEnvironment_InheritanceResolution(t *testing.T) {
 func TestEnvironment_InheritanceResolutionDoesNotCrossProjects(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
+	q.SetSecretEncryptionKey("0123456789abcdef0123456789abcdef")
 	mustClean(t, ctx)
 
 	parent := &domain.Environment{

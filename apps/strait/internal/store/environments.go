@@ -159,6 +159,10 @@ func (q *Queries) UpdateEnvironment(ctx context.Context, env *domain.Environment
 // ErrStandardEnvironment is returned when attempting to delete or rename a standard environment.
 var ErrStandardEnvironment = errors.New("cannot modify standard environment")
 
+// ErrEnvironmentVariableEncryptionRequired is returned when callers try to
+// persist environment variables without configuring at-rest secret encryption.
+var ErrEnvironmentVariableEncryptionRequired = errors.New("environment variable encryption key is required")
+
 func (q *Queries) DeleteEnvironment(ctx context.Context, id string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteEnvironment")
 	defer span.End()
@@ -323,8 +327,11 @@ func (q *Queries) prepareEnvironmentVariables(envID string, variables map[string
 	if err != nil {
 		return nil, nil, err
 	}
-	if q.secretEncryptionKey == "" || len(variables) == 0 {
+	if len(variables) == 0 {
 		return variablesJSON, nil, nil
+	}
+	if q.secretEncryptionKey == "" {
+		return nil, nil, fmt.Errorf("prepare environment variables for %s: %w", envID, ErrEnvironmentVariableEncryptionRequired)
 	}
 	enc, err := q.secretEncryptor()
 	if err != nil {
@@ -342,10 +349,7 @@ func (q *Queries) decryptEnvironmentVariables(envID string, variablesRaw, variab
 		return variablesRaw, nil
 	}
 	if q.secretEncryptionKey == "" {
-		if len(variablesRaw) > 0 && string(variablesRaw) != `{}` {
-			return variablesRaw, nil
-		}
-		return nil, fmt.Errorf("decrypt environment variables for %s: secret encryption key is not configured", envID)
+		return nil, fmt.Errorf("decrypt environment variables for %s: %w", envID, ErrEnvironmentVariableEncryptionRequired)
 	}
 	enc, err := q.secretEncryptor()
 	if err != nil {
@@ -353,9 +357,6 @@ func (q *Queries) decryptEnvironmentVariables(envID string, variablesRaw, variab
 	}
 	decrypted, err := enc.Decrypt(variablesEncrypted)
 	if err != nil {
-		if len(variablesRaw) > 0 && string(variablesRaw) != `{}` {
-			return variablesRaw, nil
-		}
 		return nil, fmt.Errorf("decrypt environment variables for %s: %w", envID, err)
 	}
 	return decrypted, nil

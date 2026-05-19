@@ -16,6 +16,7 @@ import (
 func TestCreateEnvironment(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
+	q.SetSecretEncryptionKey("0123456789abcdef0123456789abcdef")
 	mustClean(t, ctx)
 
 	env := &domain.Environment{
@@ -176,6 +177,7 @@ func TestListEnvironments(t *testing.T) {
 func TestUpdateEnvironment(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
+	q.SetSecretEncryptionKey("0123456789abcdef0123456789abcdef")
 	mustClean(t, ctx)
 
 	projectID := "proj-update-env-" + newID()
@@ -215,6 +217,45 @@ func TestUpdateEnvironment(t *testing.T) {
 	}
 	if got.Variables["B"] != "3" {
 		t.Fatalf("Variable B = %q, want %q", got.Variables["B"], "3")
+	}
+}
+
+func TestEnvironmentVariablesRequireEncryptionKey(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	env := &domain.Environment{
+		ProjectID: "proj-env-require-encryption-" + newID(),
+		Name:      "Secrets",
+		Slug:      "secrets",
+		Variables: map[string]string{"API_TOKEN": "plaintext-must-not-persist"},
+	}
+	if err := q.CreateEnvironment(ctx, env); !errors.Is(err, store.ErrEnvironmentVariableEncryptionRequired) {
+		t.Fatalf("CreateEnvironment() error = %v, want ErrEnvironmentVariableEncryptionRequired", err)
+	}
+	var count int
+	if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM environments WHERE slug = $1`, env.Slug).Scan(&count); err != nil {
+		t.Fatalf("count rejected environment: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("environment with unencrypted variables was persisted, count = %d", count)
+	}
+
+	empty := &domain.Environment{ProjectID: env.ProjectID, Name: "Empty", Slug: "empty"}
+	if err := q.CreateEnvironment(ctx, empty); err != nil {
+		t.Fatalf("CreateEnvironment(empty variables) error = %v", err)
+	}
+	empty.Variables = map[string]string{"API_TOKEN": "plaintext-must-not-persist"}
+	if err := q.UpdateEnvironment(ctx, empty); !errors.Is(err, store.ErrEnvironmentVariableEncryptionRequired) {
+		t.Fatalf("UpdateEnvironment() error = %v, want ErrEnvironmentVariableEncryptionRequired", err)
+	}
+	var variablesRaw []byte
+	if err := testDB.Pool.QueryRow(ctx, `SELECT variables FROM environments WHERE id = $1`, empty.ID).Scan(&variablesRaw); err != nil {
+		t.Fatalf("read variables after rejected update: %v", err)
+	}
+	if string(variablesRaw) != "{}" {
+		t.Fatalf("rejected update persisted plaintext variables = %s", variablesRaw)
 	}
 }
 
@@ -326,6 +367,7 @@ func TestCreateStandardEnvironments(t *testing.T) {
 func TestGetResolvedEnvironmentVariables(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
+	q.SetSecretEncryptionKey("0123456789abcdef0123456789abcdef")
 	mustClean(t, ctx)
 
 	projectID := "proj-resolve-vars-" + newID()
@@ -413,6 +455,41 @@ func TestEnvironmentVariablesEncryptedWithoutPlaintextCopy(t *testing.T) {
 	}
 	if got.Variables["API_TOKEN"] != "super-secret-token" {
 		t.Fatalf("decrypted API_TOKEN = %q", got.Variables["API_TOKEN"])
+	}
+}
+
+func TestEnvironmentVariablesDoNotFallbackToPlaintextOnDecryptFailure(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	q.SetSecretEncryptionKey("0123456789abcdef0123456789abcdef")
+	mustClean(t, ctx)
+
+	env := &domain.Environment{
+		ProjectID: "proj-env-no-plaintext-fallback-" + newID(),
+		Name:      "No Fallback",
+		Slug:      "no-fallback",
+		Variables: map[string]string{"API_TOKEN": "encrypted-token"},
+	}
+	if err := q.CreateEnvironment(ctx, env); err != nil {
+		t.Fatalf("CreateEnvironment() error = %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE environments
+		SET variables = $2, variables_encrypted = $3
+		WHERE id = $1`,
+		env.ID,
+		[]byte(`{"API_TOKEN":"plaintext-fallback"}`),
+		[]byte(`not-valid-ciphertext`),
+	); err != nil {
+		t.Fatalf("tamper environment variables: %v", err)
+	}
+
+	if _, err := q.GetEnvironment(ctx, env.ID); err == nil {
+		t.Fatal("GetEnvironment() error = nil, want decrypt failure instead of plaintext fallback")
+	}
+	qWithoutKey := mustStore(t)
+	if _, err := qWithoutKey.GetEnvironment(ctx, env.ID); !errors.Is(err, store.ErrEnvironmentVariableEncryptionRequired) {
+		t.Fatalf("GetEnvironment(without key) error = %v, want ErrEnvironmentVariableEncryptionRequired", err)
 	}
 }
 
