@@ -607,8 +607,8 @@ func (s *UsageService) GetProjectBudget(ctx context.Context, projectID string) (
 
 // SetProjectBudget validates and stores a project budget.
 func (s *UsageService) SetProjectBudget(ctx context.Context, projectID string, budgetMicro int64, action string) error {
-	if action != "reject" && action != "notify" {
-		return fmt.Errorf("budget_action must be 'reject' or 'notify'")
+	if action != "reject" && action != "block" && action != "notify" {
+		return fmt.Errorf("budget_action must be 'reject', 'block', or 'notify'")
 	}
 	if budgetMicro < 0 {
 		budgetMicro = -1 // normalize to "no budget"

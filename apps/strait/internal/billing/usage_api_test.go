@@ -712,6 +712,17 @@ func TestUsageService_SetProjectBudget_Valid(t *testing.T) {
 	}
 }
 
+func TestUsageService_SetProjectBudget_AcceptsBlockAction(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{}
+	svc, _ := newUsageServiceTest(t, store)
+
+	if err := svc.SetProjectBudget(context.Background(), "proj-1", 5_000_000, "block"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestUsageService_SetProjectBudget_InvalidAction(t *testing.T) {
 	t.Parallel()
 	svc, _ := newUsageServiceTest(t, &mockBillingStore{})
