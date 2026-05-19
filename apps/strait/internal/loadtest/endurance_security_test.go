@@ -85,6 +85,20 @@ func TestRecordLongRunOutcomeCountsOnlyCompletedTerminalStatus(t *testing.T) {
 	}
 }
 
+func TestRecordLongRunOutcomeDoesNotCountAcceptedSubmissionAsCompleted(t *testing.T) {
+	t.Parallel()
+
+	var completed, failed atomic.Int32
+	recordLongRunOutcome("", nil, &completed, &failed)
+
+	if completed.Load() != 0 {
+		t.Fatalf("completed = %d, want 0 for accepted-but-not-terminal run", completed.Load())
+	}
+	if failed.Load() != 1 {
+		t.Fatalf("failed = %d, want 1 for accepted-but-not-terminal run", failed.Load())
+	}
+}
+
 func TestEnduranceLongRunsUseTriggerAndWait(t *testing.T) {
 	t.Parallel()
 
