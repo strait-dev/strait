@@ -75,6 +75,9 @@ func (h *SLOHandler) Handle(ctx context.Context, msg Message) error {
 
 	var insertErrs []error
 	for _, slo := range slos {
+		if slo.EvaluatedAt != nil {
+			continue
+		}
 		eval := &domain.JobSLOEvaluation{
 			ID:              uuid.Must(uuid.NewV7()).String(),
 			SLOID:           slo.ID,

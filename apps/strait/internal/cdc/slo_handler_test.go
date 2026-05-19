@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"strait/internal/domain"
 )
@@ -121,6 +122,36 @@ func TestSLOHandler_MultipleSLOs_AllEvaluated(t *testing.T) {
 		if eval.CurrentValue != 0.0 {
 			t.Errorf("expected current_value=0.0 for failed, got %f", eval.CurrentValue)
 		}
+	}
+}
+
+func TestSLOHandler_DoesNotOverwriteExistingSLOEvaluationWithPlaceholder(t *testing.T) {
+	t.Parallel()
+	currentValue := 0.997
+	budgetRemaining := 0.84
+	evaluatedAt := time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC)
+	store := &mockSLOStore{
+		slos: []domain.JobSLOStatus{
+			{
+				JobSLO:          domain.JobSLO{ID: "slo-real", JobID: "job-1"},
+				CurrentValue:    &currentValue,
+				BudgetRemaining: &budgetRemaining,
+				EvaluatedAt:     &evaluatedAt,
+			},
+			{JobSLO: domain.JobSLO{ID: "slo-empty", JobID: "job-1"}},
+		},
+	}
+	h := NewSLOHandler(store, nil)
+
+	if err := h.Handle(context.Background(), cdcUpdateMsg("failed", "p1", "run-1", "job-1")); err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+
+	if len(store.evaluations) != 1 {
+		t.Fatalf("evaluations = %d, want 1", len(store.evaluations))
+	}
+	if store.evaluations[0].SLOID != "slo-empty" {
+		t.Fatalf("inserted SLOID = %q, want slo-empty", store.evaluations[0].SLOID)
 	}
 }
 
