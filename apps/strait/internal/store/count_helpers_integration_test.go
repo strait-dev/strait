@@ -348,6 +348,79 @@ func TestDeactivateExcessEnvironments(t *testing.T) {
 	}
 }
 
+func TestDeactivateExcessEnvironments_PreservesStandardEnvironments(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	orgID := "org-deactivate-envs-standard-" + newID()
+	projectID := "proj-deactivate-envs-standard-" + newID()
+
+	if err := q.CreateProject(ctx, &domain.Project{ID: projectID, OrgID: orgID, Name: "P"}); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+	if err := q.CreateStandardEnvironments(ctx, projectID); err != nil {
+		t.Fatalf("CreateStandardEnvironments() error = %v", err)
+	}
+
+	standardBefore, err := q.ListEnvironments(ctx, projectID, 10, nil)
+	if err != nil {
+		t.Fatalf("ListEnvironments(before) error = %v", err)
+	}
+	standardIDs := map[string]bool{}
+	for _, env := range standardBefore {
+		if env.IsStandard {
+			standardIDs[env.ID] = true
+		}
+	}
+	if len(standardIDs) != 3 {
+		t.Fatalf("standard environment count before cleanup = %d, want 3", len(standardIDs))
+	}
+
+	time.Sleep(5 * time.Millisecond)
+	for i := range 5 {
+		env := &domain.Environment{
+			ProjectID: projectID,
+			Name:      "custom-env-" + newID(),
+			Slug:      "custom-env-slug-" + newID(),
+		}
+		if err := q.CreateEnvironment(ctx, env); err != nil {
+			t.Fatalf("CreateEnvironment(%d) error = %v", i, err)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	deactivated, err := q.DeactivateExcessEnvironments(ctx, orgID, 2)
+	if err != nil {
+		t.Fatalf("DeactivateExcessEnvironments() error = %v", err)
+	}
+	if deactivated != 3 {
+		t.Fatalf("deactivated custom environments = %d, want 3", deactivated)
+	}
+
+	remaining, err := q.ListEnvironments(ctx, projectID, 20, nil)
+	if err != nil {
+		t.Fatalf("ListEnvironments(after) error = %v", err)
+	}
+	var standardCount, customCount int
+	for _, env := range remaining {
+		if env.IsStandard {
+			standardCount++
+			if !standardIDs[env.ID] {
+				t.Fatalf("unexpected standard environment after cleanup: %s", env.ID)
+			}
+			continue
+		}
+		customCount++
+	}
+	if standardCount != 3 {
+		t.Fatalf("standard environment count after cleanup = %d, want 3", standardCount)
+	}
+	if customCount != 2 {
+		t.Fatalf("custom environment count after cleanup = %d, want 2", customCount)
+	}
+}
+
 func TestDeactivateExcessCronJobs(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

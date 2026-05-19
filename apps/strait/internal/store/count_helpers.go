@@ -142,6 +142,7 @@ func (q *Queries) DeactivateExcessEnvironments(ctx context.Context, orgID string
 		WHERE id IN (
 			SELECT e.id FROM environments e
 			WHERE e.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
+			  AND e.is_standard = false
 			ORDER BY e.created_at DESC
 			OFFSET $2
 		)
