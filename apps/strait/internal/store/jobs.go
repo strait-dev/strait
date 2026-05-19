@@ -260,7 +260,12 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 	}
 
 	query := `
-		WITH snapshot AS (
+		WITH current_job AS (
+			SELECT *
+			FROM jobs
+			WHERE id = $25 AND version = $57
+			FOR UPDATE
+		), snapshot AS (
 			INSERT INTO job_versions (id, job_id, version, version_id, name, slug, description, cron, payload_schema,
 				tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 				rate_limit_max, rate_limit_window_secs, dedup_window_secs, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id,
@@ -283,9 +288,9 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 				on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping,
 				max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
 				COALESCE(paused, false), paused_at, pause_reason, COALESCE(endpoint_signing_secret, '')
-			FROM jobs WHERE id = $25
+			FROM current_job
 		)
-		UPDATE jobs
+		UPDATE jobs AS j
 		SET group_id = $1,
 		    name = $2,
 		    slug = $3,
@@ -310,7 +315,7 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		    retry_strategy = $22,
 		    retry_delays_secs = $23,
 		    environment_id = $24,
-		    version = version + 1,
+		    version = j.version + 1,
 		    version_id = $26,
 		    updated_by = $27,
 		    version_policy = $28,
@@ -343,9 +348,9 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		    blocked_tools = $56,
 		    endpoint_signing_secret = $58,
 		    updated_at = NOW()
-		WHERE id = $25
-		  AND version = $57
-		RETURNING updated_at, version, version_id`
+		FROM current_job
+		WHERE j.id = current_job.id
+		RETURNING j.updated_at, j.version, j.version_id`
 
 	tagsJSON, err := marshalTags(job.Tags)
 	if err != nil {

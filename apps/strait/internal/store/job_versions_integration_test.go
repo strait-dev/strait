@@ -325,3 +325,44 @@ func TestGetJobAtVersion_PreservesExecutionSnapshot(t *testing.T) {
 		t.Fatalf("EndpointSigningSecret = %q, want pinned secret", got.EndpointSigningSecret)
 	}
 }
+
+func TestUpdateJob_StaleVersionDoesNotCreateSnapshot(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-job-version-stale-snapshot")
+	stale := *job
+
+	job.Name = "winner"
+	if err := q.UpdateJob(ctx, job); err != nil {
+		t.Fatalf("UpdateJob(winner) error = %v", err)
+	}
+
+	stale.Name = "stale"
+	if err := q.UpdateJob(ctx, &stale); !errors.Is(err, store.ErrJobVersionConflict) {
+		t.Fatalf("UpdateJob(stale) error = %v, want ErrJobVersionConflict", err)
+	}
+
+	var poisoned int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM job_versions WHERE job_id = $1 AND version = $2
+	`, job.ID, job.Version).Scan(&poisoned); err != nil {
+		t.Fatalf("count poisoned snapshots: %v", err)
+	}
+	if poisoned != 0 {
+		t.Fatalf("stale update created %d snapshot(s) for live version %d, want 0", poisoned, job.Version)
+	}
+
+	current, err := q.GetJob(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("GetJob(current) error = %v", err)
+	}
+	current.Name = "valid-after-stale"
+	if err := q.UpdateJob(ctx, current); err != nil {
+		t.Fatalf("UpdateJob(valid after stale) error = %v", err)
+	}
+	if current.Version != job.Version+1 {
+		t.Fatalf("valid update version = %d, want %d", current.Version, job.Version+1)
+	}
+}
