@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"testing"
 
 	"strait/internal/domain"
@@ -202,5 +203,125 @@ func TestGetJobAtVersion_SnapshotAndFallback(t *testing.T) {
 	}
 	if fallback.ID != job.ID {
 		t.Fatalf("GetJobAtVersion(fallback) id = %q, want %q", fallback.ID, job.ID)
+	}
+}
+
+func TestGetJobAtVersion_PreservesExecutionSnapshot(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-job-version-execution-snapshot")
+
+	poisonPinned := 7
+	job.Name = "pinned-execution-config"
+	job.ExecutionMode = domain.ExecutionModeWorker
+	job.Queue = "critical"
+	job.PreferredRegions = []string{"iad1", "sfo1"}
+	job.PoisonPillThreshold = &poisonPinned
+	job.DebounceWindowSecs = 11
+	job.BatchWindowSecs = 12
+	job.BatchMaxSize = 13
+	job.OnCompleteTriggerWorkflow = "workflow-pinned"
+	job.OnCompleteTriggerJob = "job-pinned"
+	job.OnCompletePayloadMapping = json.RawMessage(`{"complete":"pinned"}`)
+	job.OnFailureTriggerJob = "job-failure-pinned"
+	job.OnFailureTriggerWorkflow = "workflow-failure-pinned"
+	job.OnFailurePayloadMapping = json.RawMessage(`{"failure":"pinned"}`)
+	job.MaxTokensPerRun = 101
+	job.MaxToolCallsPerRun = 9
+	job.MaxIterationsPerRun = 5
+	job.AllowedTools = []string{"search", "http"}
+	job.BlockedTools = []string{"shell"}
+	job.EndpointSigningSecret = "signing-secret-pinned"
+	if err := q.UpdateJob(ctx, job); err != nil {
+		t.Fatalf("UpdateJob(pinned config) error = %v", err)
+	}
+
+	if err := q.PauseJob(ctx, job.ID, "versioned pause"); err != nil {
+		t.Fatalf("PauseJob() error = %v", err)
+	}
+	job, err := q.GetJob(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("GetJob(after pause) error = %v", err)
+	}
+	pinnedVersion := job.Version
+
+	poisonLive := 3
+	job.Name = "live-execution-config"
+	job.ExecutionMode = domain.ExecutionModeHTTP
+	job.Queue = "default"
+	job.PreferredRegions = []string{"fra1"}
+	job.PoisonPillThreshold = &poisonLive
+	job.DebounceWindowSecs = 21
+	job.BatchWindowSecs = 22
+	job.BatchMaxSize = 23
+	job.OnCompleteTriggerWorkflow = "workflow-live"
+	job.OnCompleteTriggerJob = "job-live"
+	job.OnCompletePayloadMapping = json.RawMessage(`{"complete":"live"}`)
+	job.OnFailureTriggerJob = "job-failure-live"
+	job.OnFailureTriggerWorkflow = "workflow-failure-live"
+	job.OnFailurePayloadMapping = json.RawMessage(`{"failure":"live"}`)
+	job.MaxTokensPerRun = 202
+	job.MaxToolCallsPerRun = 19
+	job.MaxIterationsPerRun = 15
+	job.AllowedTools = []string{"db"}
+	job.BlockedTools = []string{"network"}
+	job.EndpointSigningSecret = "signing-secret-live"
+	if err := q.UpdateJob(ctx, job); err != nil {
+		t.Fatalf("UpdateJob(live config) error = %v", err)
+	}
+	if err := q.ResumeJob(ctx, job.ID); err != nil {
+		t.Fatalf("ResumeJob() error = %v", err)
+	}
+
+	got, err := q.GetJobAtVersion(ctx, job.ID, pinnedVersion)
+	if err != nil {
+		t.Fatalf("GetJobAtVersion(pinned) error = %v", err)
+	}
+	if got.Name != "pinned-execution-config" {
+		t.Fatalf("Name = %q, want pinned-execution-config", got.Name)
+	}
+	if got.ExecutionMode != domain.ExecutionModeWorker {
+		t.Fatalf("ExecutionMode = %q, want worker", got.ExecutionMode)
+	}
+	if got.Queue != "critical" {
+		t.Fatalf("Queue = %q, want critical", got.Queue)
+	}
+	if !reflect.DeepEqual(got.PreferredRegions, []string{"iad1", "sfo1"}) {
+		t.Fatalf("PreferredRegions = %#v, want [iad1 sfo1]", got.PreferredRegions)
+	}
+	if got.PoisonPillThreshold == nil || *got.PoisonPillThreshold != poisonPinned {
+		t.Fatalf("PoisonPillThreshold = %v, want %d", got.PoisonPillThreshold, poisonPinned)
+	}
+	if got.DebounceWindowSecs != 11 || got.BatchWindowSecs != 12 || got.BatchMaxSize != 13 {
+		t.Fatalf("batch/debounce = %d/%d/%d, want 11/12/13", got.DebounceWindowSecs, got.BatchWindowSecs, got.BatchMaxSize)
+	}
+	if got.OnCompleteTriggerWorkflow != "workflow-pinned" || got.OnCompleteTriggerJob != "job-pinned" {
+		t.Fatalf("complete triggers = %q/%q, want pinned values", got.OnCompleteTriggerWorkflow, got.OnCompleteTriggerJob)
+	}
+	if !jsonEqual(got.OnCompletePayloadMapping, json.RawMessage(`{"complete":"pinned"}`)) {
+		t.Fatalf("OnCompletePayloadMapping = %s, want pinned", string(got.OnCompletePayloadMapping))
+	}
+	if got.OnFailureTriggerWorkflow != "workflow-failure-pinned" || got.OnFailureTriggerJob != "job-failure-pinned" {
+		t.Fatalf("failure triggers = %q/%q, want pinned values", got.OnFailureTriggerWorkflow, got.OnFailureTriggerJob)
+	}
+	if !jsonEqual(got.OnFailurePayloadMapping, json.RawMessage(`{"failure":"pinned"}`)) {
+		t.Fatalf("OnFailurePayloadMapping = %s, want pinned", string(got.OnFailurePayloadMapping))
+	}
+	if got.MaxTokensPerRun != 101 || got.MaxToolCallsPerRun != 9 || got.MaxIterationsPerRun != 5 {
+		t.Fatalf("guardrails = %d/%d/%d, want 101/9/5", got.MaxTokensPerRun, got.MaxToolCallsPerRun, got.MaxIterationsPerRun)
+	}
+	if !reflect.DeepEqual(got.AllowedTools, []string{"search", "http"}) {
+		t.Fatalf("AllowedTools = %#v, want pinned", got.AllowedTools)
+	}
+	if !reflect.DeepEqual(got.BlockedTools, []string{"shell"}) {
+		t.Fatalf("BlockedTools = %#v, want pinned", got.BlockedTools)
+	}
+	if !got.Paused || got.PauseReason != "versioned pause" || got.PausedAt == nil {
+		t.Fatalf("pause snapshot = paused:%v reason:%q paused_at:%v, want pinned pause", got.Paused, got.PauseReason, got.PausedAt)
+	}
+	if got.EndpointSigningSecret != "signing-secret-pinned" {
+		t.Fatalf("EndpointSigningSecret = %q, want pinned secret", got.EndpointSigningSecret)
 	}
 }
