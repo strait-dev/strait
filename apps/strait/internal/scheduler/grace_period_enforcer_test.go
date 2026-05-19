@@ -20,6 +20,8 @@ type mockGraceEnforcerStore struct {
 	updateStatusErrs map[string]error
 	updatePlanErrs   map[string]error
 	ineligibleOrgs   map[string]bool
+	cleanupOps       []string
+	projectIDs       []string
 }
 
 func (m *mockGraceEnforcerStore) GetOrgSubscription(_ context.Context, orgID string) (*billing.OrgSubscription, error) {
@@ -101,6 +103,66 @@ func (m *mockGraceEnforcerStore) RestrictExpiredGracePeriod(_ context.Context, o
 	return true, nil
 }
 
+func (m *mockGraceEnforcerStore) SuspendExcessProjects(_ context.Context, _ string, _ int) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cleanupOps = append(m.cleanupOps, "projects")
+	return 0, nil
+}
+
+func (m *mockGraceEnforcerStore) DeactivateExcessCronJobs(_ context.Context, _ string, _ int) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cleanupOps = append(m.cleanupOps, "cron")
+	return nil, nil
+}
+
+func (m *mockGraceEnforcerStore) DeactivateExcessWebhookSubscriptions(_ context.Context, _ string, _ int) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cleanupOps = append(m.cleanupOps, "webhook")
+	return 0, nil
+}
+
+func (m *mockGraceEnforcerStore) DeactivateExcessEnvironments(_ context.Context, _ string, _ int) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cleanupOps = append(m.cleanupOps, "environment")
+	return 0, nil
+}
+
+func (m *mockGraceEnforcerStore) DeactivateExcessLogDrains(_ context.Context, _ string, _ int) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cleanupOps = append(m.cleanupOps, "log_drain")
+	return 0, nil
+}
+
+func (m *mockGraceEnforcerStore) DeactivateExcessNotificationChannelsByProject(_ context.Context, projectID string, _ int) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cleanupOps = append(m.cleanupOps, "notification:"+projectID)
+	return 0, nil
+}
+
+func (m *mockGraceEnforcerStore) ListProjectsByOrg(_ context.Context, _ string) ([]string, error) {
+	if m.projectIDs != nil {
+		return m.projectIDs, nil
+	}
+	return []string{"project-1"}, nil
+}
+
+func (m *mockGraceEnforcerStore) PauseHTTPJobsByOrg(_ context.Context, _ string, _ string) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cleanupOps = append(m.cleanupOps, "pause_http")
+	return nil, nil
+}
+
+func (m *mockGraceEnforcerStore) CountMembersByOrg(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
+
 func TestGraceEnforcer_PastGrace_RestrictsToFree(t *testing.T) {
 	t.Parallel()
 
@@ -125,6 +187,50 @@ func TestGraceEnforcer_PastGrace_RestrictsToFree(t *testing.T) {
 	}
 	if store.updatedPlans["org-expired"] != "free" {
 		t.Errorf("expected free plan, got %q", store.updatedPlans["org-expired"])
+	}
+}
+
+func TestGraceEnforcer_PastGrace_EnforcesFreeTierResourceCleanup(t *testing.T) {
+	t.Parallel()
+
+	pastGrace := time.Now().Add(-1 * time.Hour)
+	store := &mockGraceEnforcerStore{
+		graceOrgs: []billing.OrgSubscription{
+			{
+				OrgID:          "org-expired-cleanup",
+				PlanTier:       "pro",
+				PaymentStatus:  "grace",
+				GracePeriodEnd: &pastGrace,
+			},
+		},
+		projectIDs: []string{"project-a", "project-b"},
+	}
+
+	g := NewGracePeriodEnforcer(store, nil, time.Hour)
+	g.enforce(context.Background())
+
+	if store.updatedStatuses["org-expired-cleanup"] != "restricted" {
+		t.Fatalf("expected restricted status, got %q", store.updatedStatuses["org-expired-cleanup"])
+	}
+	if store.updatedPlans["org-expired-cleanup"] != "free" {
+		t.Fatalf("expected free plan, got %q", store.updatedPlans["org-expired-cleanup"])
+	}
+	got := make(map[string]bool)
+	for _, op := range store.cleanupOps {
+		got[op] = true
+	}
+	for _, want := range []string{
+		"projects",
+		"cron",
+		"webhook",
+		"environment",
+		"log_drain",
+		"notification:project-a",
+		"notification:project-b",
+	} {
+		if !got[want] {
+			t.Fatalf("expected free-tier cleanup op %q, got %v", want, store.cleanupOps)
+		}
 	}
 }
 

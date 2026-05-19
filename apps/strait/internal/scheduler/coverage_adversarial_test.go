@@ -176,6 +176,42 @@ func (m *covMockGraceStoreWithGetError) RestrictExpiredGracePeriod(_ context.Con
 	return true, nil
 }
 
+func (m *covMockGraceStoreWithGetError) SuspendExcessProjects(context.Context, string, int) (int, error) {
+	return 0, nil
+}
+
+func (m *covMockGraceStoreWithGetError) DeactivateExcessCronJobs(context.Context, string, int) ([]string, error) {
+	return nil, nil
+}
+
+func (m *covMockGraceStoreWithGetError) DeactivateExcessWebhookSubscriptions(context.Context, string, int) (int64, error) {
+	return 0, nil
+}
+
+func (m *covMockGraceStoreWithGetError) DeactivateExcessEnvironments(context.Context, string, int) (int64, error) {
+	return 0, nil
+}
+
+func (m *covMockGraceStoreWithGetError) DeactivateExcessLogDrains(context.Context, string, int) (int64, error) {
+	return 0, nil
+}
+
+func (m *covMockGraceStoreWithGetError) DeactivateExcessNotificationChannelsByProject(context.Context, string, int) (int64, error) {
+	return 0, nil
+}
+
+func (m *covMockGraceStoreWithGetError) ListProjectsByOrg(context.Context, string) ([]string, error) {
+	return nil, nil
+}
+
+func (m *covMockGraceStoreWithGetError) PauseHTTPJobsByOrg(context.Context, string, string) ([]string, error) {
+	return nil, nil
+}
+
+func (m *covMockGraceStoreWithGetError) CountMembersByOrg(context.Context, string) (int, error) {
+	return 0, nil
+}
+
 func TestGraceEnforcer_ConcurrentlyResolved(t *testing.T) {
 	t.Parallel()
 

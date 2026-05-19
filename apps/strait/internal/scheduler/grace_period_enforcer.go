@@ -6,10 +6,12 @@ import (
 	"time"
 
 	"strait/internal/billing"
+	"strait/internal/domain"
 )
 
 // GraceEnforcerStore defines the store operations needed by the grace period enforcer.
 type GraceEnforcerStore interface {
+	planResourceLimitStore
 	ListOrgsInGracePeriod(ctx context.Context) ([]billing.OrgSubscription, error)
 	GetOrgSubscription(ctx context.Context, orgID string) (*billing.OrgSubscription, error)
 	RestrictExpiredGracePeriod(ctx context.Context, orgID string, graceEnd *time.Time) (bool, error)
@@ -104,6 +106,14 @@ func (g *GracePeriodEnforcer) enforceLocked(ctx context.Context) error {
 		}
 		if !restricted {
 			slog.Info("grace period enforcer: org no longer eligible for restriction", "org_id", sub.OrgID)
+			continue
+		}
+
+		if err := enforcePlanResourceLimits(ctx, g.store, g.enforcer, nil, sub.OrgID, string(domain.PlanFree)); err != nil {
+			slog.Warn("failed to enforce free-tier limits after grace restriction",
+				"org_id", sub.OrgID,
+				"error", err,
+			)
 			continue
 		}
 
