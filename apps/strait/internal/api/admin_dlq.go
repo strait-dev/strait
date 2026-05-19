@@ -72,10 +72,7 @@ func (s *Server) requireAdminScope(ctx context.Context, scope string) error {
 	}
 }
 
-// writeDLQAudit writes a best-effort audit_events row for a DLQ admin
-// mutation. Failures are logged but do not fail the caller; the mutation
-// has already committed by the time we try to write the audit row.
-func (s *Server) writeDLQAudit(ctx context.Context, projectID, action, runID string, before, after any) {
+func newDLQAuditEvent(ctx context.Context, projectID, action, runID string, before, after any) (*domain.AuditEvent, error) {
 	details := map[string]any{
 		"run_id": runID,
 		"before": before,
@@ -83,15 +80,14 @@ func (s *Server) writeDLQAudit(ctx context.Context, projectID, action, runID str
 	}
 	raw, err := json.Marshal(details)
 	if err != nil {
-		slog.Error("audit marshal failed", "action", action, "run_id", runID, "err", err)
-		return
+		return nil, err
 	}
 	actorID := actorFromContext(ctx)
 	actorType, _ := ctx.Value(ctxActorTypeKey).(string)
 	if actorType == "" {
 		actorType = "api_key"
 	}
-	ev := &domain.AuditEvent{
+	return &domain.AuditEvent{
 		ProjectID:    projectID,
 		ActorID:      actorID,
 		ActorType:    actorType,
@@ -99,15 +95,7 @@ func (s *Server) writeDLQAudit(ctx context.Context, projectID, action, runID str
 		ResourceType: "job_run",
 		ResourceID:   runID,
 		Details:      raw,
-	}
-	if err := s.store.CreateAuditEvent(ctx, ev); err != nil {
-		slog.Error("audit write failed",
-			"action", action,
-			"run_id", runID,
-			"project_id", projectID,
-			"err", err,
-		)
-	}
+	}, nil
 }
 
 // GET /v1/admin/dlq.
@@ -330,7 +318,24 @@ func (s *Server) handleAdminUnmaskDLQ(ctx context.Context, input *AdminDLQRunInp
 	}
 	span.SetAttributes(attribute.String("project.id", original.ProjectID))
 
-	if err := s.store.UnmaskDLQRun(ctx, input.RunID); err != nil {
+	audit, err := newDLQAuditEvent(ctx, original.ProjectID, "dlq.unmask", input.RunID,
+		map[string]any{"masked": true},
+		map[string]any{"masked": false},
+	)
+	if err != nil {
+		slog.Error("dlq audit marshal failed", "action", "dlq.unmask", "run_id", input.RunID, "project_id", original.ProjectID, "actor_id", actorID, "err", err)
+		return nil, huma.Error500InternalServerError("failed to audit dlq unmask")
+	}
+
+	if err := s.runInTx(ctx, func(txStore APIStore) error {
+		if err := txStore.UnmaskDLQRun(ctx, input.RunID); err != nil {
+			return err
+		}
+		if err := txStore.CreateAuditEvent(ctx, audit); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
 		switch {
 		case errors.Is(err, store.ErrRunNotFound):
 			return nil, huma.Error404NotFound("run not found")
@@ -347,11 +352,6 @@ func (s *Server) handleAdminUnmaskDLQ(ctx context.Context, input *AdminDLQRunInp
 			return nil, huma.Error500InternalServerError("failed to unmask dlq run")
 		}
 	}
-
-	s.writeDLQAudit(ctx, original.ProjectID, "dlq.unmask", input.RunID,
-		map[string]any{"masked": true},
-		map[string]any{"masked": false},
-	)
 
 	slog.Info("dlq unmask",
 		"action", "dlq.unmask",
@@ -388,7 +388,24 @@ func (s *Server) handleAdminPurgeDLQ(ctx context.Context, input *AdminDLQRunInpu
 	}
 	span.SetAttributes(attribute.String("project.id", original.ProjectID))
 
-	if err := s.store.PurgeDLQRun(ctx, input.RunID); err != nil {
+	audit, err := newDLQAuditEvent(ctx, original.ProjectID, "dlq.purge", input.RunID,
+		map[string]any{"status": original.Status, "job_id": original.JobID},
+		map[string]any{"deleted": true},
+	)
+	if err != nil {
+		slog.Error("dlq audit marshal failed", "action", "dlq.purge", "run_id", input.RunID, "project_id", original.ProjectID, "actor_id", actorID, "err", err)
+		return nil, huma.Error500InternalServerError("failed to audit dlq purge")
+	}
+
+	if err := s.runInTx(ctx, func(txStore APIStore) error {
+		if err := txStore.PurgeDLQRun(ctx, input.RunID); err != nil {
+			return err
+		}
+		if err := txStore.CreateAuditEvent(ctx, audit); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
 		switch {
 		case errors.Is(err, store.ErrRunNotFound):
 			return nil, huma.Error404NotFound("run not found")
@@ -405,11 +422,6 @@ func (s *Server) handleAdminPurgeDLQ(ctx context.Context, input *AdminDLQRunInpu
 			return nil, huma.Error500InternalServerError("failed to purge dlq run")
 		}
 	}
-
-	s.writeDLQAudit(ctx, original.ProjectID, "dlq.purge", input.RunID,
-		map[string]any{"status": original.Status, "job_id": original.JobID},
-		map[string]any{"deleted": true},
-	)
 
 	slog.Info("dlq purge",
 		"action", "dlq.purge",

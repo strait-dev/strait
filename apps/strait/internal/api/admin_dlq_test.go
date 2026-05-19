@@ -130,6 +130,35 @@ func TestHandleAdminUnmaskDLQ_Conflict(t *testing.T) {
 	}
 }
 
+func TestHandleAdminUnmaskDLQ_AuditFailureFailsRequest(t *testing.T) {
+	t.Parallel()
+	unmaskCalls := 0
+	mock := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, ProjectID: "proj-1", JobID: "job-1", Status: domain.StatusDeadLetter}, nil
+		},
+		UnmaskDLQRunFunc: func(_ context.Context, _ string) error {
+			unmaskCalls++
+			return nil
+		},
+		CreateAuditEventFunc: func(_ context.Context, ev *domain.AuditEvent) error {
+			if ev.Action != "dlq.unmask" {
+				t.Fatalf("audit action = %q, want dlq.unmask", ev.Action)
+			}
+			return errors.New("audit unavailable")
+		},
+	}
+	srv := newTestServer(t, mock, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/admin/dlq/run-1/unmask", ""))
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 when audit write fails, got %d: %s", w.Code, w.Body.String())
+	}
+	if unmaskCalls != 1 {
+		t.Fatalf("expected unmask attempt before audit failure, got %d", unmaskCalls)
+	}
+}
+
 func TestHandleAdminPurgeDLQ_OK(t *testing.T) {
 	t.Parallel()
 	purgeCalls := 0
@@ -156,6 +185,35 @@ func TestHandleAdminPurgeDLQ_OK(t *testing.T) {
 	}
 	if purgeCalls != 1 {
 		t.Fatalf("expected 1 purge call, got %d", purgeCalls)
+	}
+}
+
+func TestHandleAdminPurgeDLQ_AuditFailureFailsRequest(t *testing.T) {
+	t.Parallel()
+	purgeCalls := 0
+	mock := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, ProjectID: "proj-1", JobID: "job-1", Status: domain.StatusDeadLetter}, nil
+		},
+		PurgeDLQRunFunc: func(_ context.Context, _ string) error {
+			purgeCalls++
+			return nil
+		},
+		CreateAuditEventFunc: func(_ context.Context, ev *domain.AuditEvent) error {
+			if ev.Action != "dlq.purge" {
+				t.Fatalf("audit action = %q, want dlq.purge", ev.Action)
+			}
+			return errors.New("audit unavailable")
+		},
+	}
+	srv := newTestServer(t, mock, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/admin/dlq/run-1/purge", ""))
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 when audit write fails, got %d: %s", w.Code, w.Body.String())
+	}
+	if purgeCalls != 1 {
+		t.Fatalf("expected purge attempt before audit failure, got %d", purgeCalls)
 	}
 }
 
