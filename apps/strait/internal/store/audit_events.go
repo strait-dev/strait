@@ -166,19 +166,24 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateAuditEvent")
 	defer span.End()
 
-	if ev.ID == "" {
-		ev.ID = uuid.Must(uuid.NewV7()).String()
+	if ev == nil {
+		return fmt.Errorf("create audit event: event is nil")
 	}
 
-	details := ev.Details
+	working := *ev
+	if working.ID == "" {
+		working.ID = uuid.Must(uuid.NewV7()).String()
+	}
+
+	details := working.Details
 	if len(details) == 0 {
 		details = json.RawMessage(`{}`)
 	}
-	ev.Details = details
+	working.Details = details
 
 	// Default schema version for new events.
-	if ev.SchemaVersion == 0 {
-		ev.SchemaVersion = domain.AuditEventSchemaVersionCurrent
+	if working.SchemaVersion == 0 {
+		working.SchemaVersion = domain.AuditEventSchemaVersionCurrent
 	}
 	// Auto-derive shard_id from resource_type for normal events. The chain
 	// identity is (project_id, shard_id); routing each resource type into
@@ -189,15 +194,15 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 	// per-shard anchors — so we never overwrite it. Callers that need the
 	// legacy unsharded chain must clear ShardID explicitly and pass an
 	// anchor; ordinary writers do not opt out.
-	if !ev.IsAnchor && ev.ShardID == "" && ev.ResourceType != "" {
-		ev.ShardID = ev.ResourceType
+	if !working.IsAnchor && working.ShardID == "" && working.ResourceType != "" {
+		working.ShardID = working.ResourceType
 	}
 	// Shard-aware writes require at least v4 because the canonical form
 	// binds ShardID. Force the bump so a caller cannot accidentally chain
 	// a shard row under a v3 signature that omits the shard binding —
 	// that would allow flipping shard_id without invalidating the HMAC.
-	if ev.ShardID != "" && ev.SchemaVersion < 4 {
-		ev.SchemaVersion = 4
+	if working.ShardID != "" && working.SchemaVersion < 4 {
+		working.SchemaVersion = 4
 	}
 
 	// Atomic signed insert.
@@ -212,20 +217,20 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 	// withTxInheritKeys opens a fresh tx when q is pool-backed, or runs
 	// inline when q is already tx-backed (e.g. called from rotation or
 	// from the retention tombstone path inside an outer transaction).
-	return q.withTxInheritKeys(ctx, func(tx *Queries) error {
-		if err := acquireProjectRotationLock(ctx, tx, ev.ProjectID); err != nil {
+	err := q.withTxInheritKeys(ctx, func(tx *Queries) error {
+		if err := acquireProjectRotationLock(ctx, tx, working.ProjectID); err != nil {
 			return fmt.Errorf("create audit event: rotation lock: %w", err)
 		}
-		if ev.RotationEpoch == 0 && !ev.IsAnchor {
+		if working.RotationEpoch == 0 && !working.IsAnchor {
 			var currentEpoch int
 			if err := tx.db.QueryRow(ctx, `
 				SELECT COALESCE(MAX(rotation_epoch), 0)
 				FROM audit_events
 				WHERE project_id = $1
-			`, ev.ProjectID).Scan(&currentEpoch); err != nil {
+			`, working.ProjectID).Scan(&currentEpoch); err != nil {
 				return fmt.Errorf("create audit event: read current epoch: %w", err)
 			}
-			ev.RotationEpoch = currentEpoch
+			working.RotationEpoch = currentEpoch
 		}
 
 		// Chain lock. Legacy (empty shard_id) writes serialize under
@@ -242,10 +247,10 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 		// queue on the same chain lock. The lock is transaction-scoped
 		// via pg_advisory_xact_lock.
 		chainLockNs := AdvisoryLockNsAuditChain
-		chainLockKey := ev.ProjectID
-		if ev.ShardID != "" {
+		chainLockKey := working.ProjectID
+		if working.ShardID != "" {
 			chainLockNs = AdvisoryLockNsAuditChainShard
-			chainLockKey = ev.ProjectID + ":" + ev.ShardID
+			chainLockKey = working.ProjectID + ":" + working.ShardID
 		}
 		if err := AcquireAdvisoryLock(ctx, tx, chainLockNs, chainLockKey); err != nil {
 			return fmt.Errorf("create audit event: chain lock: %w", err)
@@ -254,7 +259,7 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 		// Assign the timestamp under the chain lock so chronological verifier
 		// order matches serialized insertion order even when concurrent writers
 		// waited on the same project lock.
-		ev.CreatedAt = time.Now().UTC().Truncate(time.Microsecond)
+		working.CreatedAt = time.Now().UTC().Truncate(time.Microsecond)
 
 		// Read the tail signature under the lock so no concurrent writer
 		// can slip a row between this read and our insert. The shard_id
@@ -271,10 +276,10 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 			     ORDER BY rotation_epoch DESC, created_at DESC, id DESC LIMIT 1),
 			    $3
 			)
-		`, ev.ProjectID, ev.ShardID, ZeroHash).Scan(&prevHash); err != nil {
+		`, working.ProjectID, working.ShardID, ZeroHash).Scan(&prevHash); err != nil {
 			return fmt.Errorf("create audit event: read prev hash: %w", err)
 		}
-		ev.PreviousHash = prevHash
+		working.PreviousHash = prevHash
 
 		// INSERT the row with an empty signature and RETURNING details so
 		// the canonical (JSONB-normalized) bytes — the exact form the
@@ -310,28 +315,28 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 			)
 			RETURNING details
 		`,
-			ev.ID, ev.ProjectID, ev.ActorID, ev.ActorType, ev.Action, ev.ResourceType, ev.ResourceID,
-			details, ev.PreviousHash, ev.CreatedAt,
-			ev.RemoteIP, ev.UserAgent, ev.RequestID, ev.TraceID, ev.SchemaVersion,
-			ev.IsAnchor, ev.RotationEpoch, ev.ShardID,
-		).Scan(&ev.Details); err != nil {
+			working.ID, working.ProjectID, working.ActorID, working.ActorType, working.Action, working.ResourceType, working.ResourceID,
+			details, working.PreviousHash, working.CreatedAt,
+			working.RemoteIP, working.UserAgent, working.RequestID, working.TraceID, working.SchemaVersion,
+			working.IsAnchor, working.RotationEpoch, working.ShardID,
+		).Scan(&working.Details); err != nil {
 			return fmt.Errorf("create audit event: insert: %w", err)
 		}
 
-		// Compute and persist the HMAC signature now that ev.Details holds
+		// Compute and persist the HMAC signature now that working.Details holds
 		// the canonical bytes. When no signing key is configured — legacy
 		// unit-test / bootstrap installs — leave the empty sentinel;
 		// VerifyAuditChain gates on q.auditSigningKey != nil and is never
 		// called in that mode.
 		if tx.auditSigningKey != nil {
-			signingKey, err := tx.resolveSigningKeyForEpoch(ctx, ev.ProjectID, ev.RotationEpoch)
+			signingKey, err := tx.resolveSigningKeyForEpoch(ctx, working.ProjectID, working.RotationEpoch)
 			if err != nil {
 				return err
 			}
-			ev.Signature = ComputeAuditSignature(ev, signingKey)
+			working.Signature = ComputeAuditSignature(&working, signingKey)
 			if _, err := tx.db.Exec(ctx, `
 				UPDATE audit_events SET signature = $1 WHERE id = $2
-			`, ev.Signature, ev.ID); err != nil {
+			`, working.Signature, working.ID); err != nil {
 				return fmt.Errorf("create audit event: update signature: %w", err)
 			}
 		}
@@ -343,6 +348,11 @@ func (q *Queries) CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) e
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	*ev = working
+	return nil
 }
 
 // resolveSigningKeyForEpoch returns the per-epoch HMAC signing key used for
