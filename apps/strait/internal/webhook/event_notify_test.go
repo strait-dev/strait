@@ -1058,6 +1058,81 @@ func TestComputeReplayKeyUnsigned(t *testing.T) {
 	}
 }
 
+func TestComputeIdempotencyKey_HMACDerivation(t *testing.T) {
+	t.Parallel()
+
+	secret := []byte("whsec_test_secret_bytes")
+	deliveryID := "whd-signed-1"
+
+	got := ComputeIdempotencyKey(secret, deliveryID, 2)
+
+	mac := hmac.New(sha256.New, secret)
+	mac.Write([]byte("whd-signed-1:2"))
+	want := idempotencyKeyPrefix + hex.EncodeToString(mac.Sum(nil))[:replayKeyHexLen]
+
+	if got != want {
+		t.Fatalf("ComputeIdempotencyKey=%q, want %q", got, want)
+	}
+	if strings.Contains(got, deliveryID) {
+		t.Fatalf("signed idempotency key leaked delivery ID: %q", got)
+	}
+	if got == ComputeIdempotencyKey(secret, deliveryID, 1) {
+		t.Fatal("idempotency key must change by attempt")
+	}
+	if unsigned := ComputeIdempotencyKey(nil, deliveryID, 2); unsigned != "whd-signed-1:2" {
+		t.Fatalf("nil secret should preserve legacy unsigned key, got %q", unsigned)
+	}
+}
+
+func TestAttemptDelivery_WithSubscriptionID_AuthenticatesReplayAndIdempotencyKeys(t *testing.T) {
+	t.Parallel()
+
+	var receivedReplayKey, receivedIdempotencyKey string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedReplayKey = r.Header.Get("X-Strait-Replay-Key")
+		receivedIdempotencyKey = r.Header.Get("X-Strait-Idempotency-Key")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	secret := "test-hmac-secret-key"
+	ms := &mockDeliveryStore{
+		getSecretsFn: func(_ context.Context, _ string) (string, string, *time.Time, error) {
+			return secret, "", nil, nil
+		},
+	}
+	now := time.Now().Add(-time.Second)
+	delivery := &domain.WebhookDelivery{
+		ID:             "whd-authenticated-keys",
+		SubscriptionID: "sub-authenticated-keys",
+		WebhookURL:     ts.URL,
+		Status:         domain.WebhookStatusPending,
+		MaxAttempts:    5,
+		NextRetryAt:    &now,
+		Payload:        json.RawMessage(`{"event":"run.completed"}`),
+	}
+	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
+		t.Fatalf("create delivery: %v", err)
+	}
+
+	worker := NewDeliveryWorker(ms, slog.Default())
+	worker.processBatch(context.Background())
+
+	wantReplay := ComputeReplayKey([]byte(secret), delivery.ID)
+	if receivedReplayKey != wantReplay {
+		t.Fatalf("replay key = %q, want %q", receivedReplayKey, wantReplay)
+	}
+	wantIdempotency := ComputeIdempotencyKey([]byte(secret), delivery.ID, 1)
+	if receivedIdempotencyKey != wantIdempotency {
+		t.Fatalf("idempotency key = %q, want %q", receivedIdempotencyKey, wantIdempotency)
+	}
+	for _, header := range []string{receivedReplayKey, receivedIdempotencyKey} {
+		if strings.Contains(header, delivery.ID) {
+			t.Fatalf("signed webhook key leaked delivery ID: %q", header)
+		}
+	}
+}
+
 // TestAttemptDelivery_ReplayKeyStableAcrossRetries asserts that the new
 // X-Strait-Replay-Key header is identical across retries of the same delivery
 // row, unlike X-Strait-Idempotency-Key which intentionally changes per

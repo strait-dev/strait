@@ -996,7 +996,6 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 	}
 	req.Header.Set("X-Strait-Delivery-ID", d.ID)
 	req.Header.Set("X-Strait-Attempt", fmt.Sprintf("%d/%d", d.Attempts, d.MaxAttempts))
-	req.Header.Set("X-Strait-Idempotency-Key", fmt.Sprintf("%s:%d", d.ID, d.Attempts))
 	signatureTimestamp := strconv.FormatInt(now.UTC().Unix(), 10)
 	req.Header.Set("X-Strait-Timestamp", signatureTimestamp)
 
@@ -1035,6 +1034,7 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 		signingSecret = subSecret
 	}
 
+	req.Header.Set("X-Strait-Idempotency-Key", ComputeIdempotencyKey([]byte(signingSecret), d.ID, d.Attempts))
 	req.Header.Set("X-Strait-Replay-Key", ComputeReplayKey([]byte(signingSecret), d.ID))
 
 	if signingSecret != "" {
@@ -1407,6 +1407,8 @@ const replayKeyPrefix = "rk_"
 // history.
 const replayKeyHexLen = 32
 
+const idempotencyKeyPrefix = "ik_"
+
 // ComputeReplayKey derives a subscriber-visible replay key that is
 // stable across every retry of the same physical delivery row AND bound
 // to the subscription's HMAC secret. Subscribers can verify the key by
@@ -1435,6 +1437,21 @@ func ComputeReplayKey(secret []byte, deliveryID string) string {
 	sum := mac.Sum(nil)
 	rawLen := min(replayKeyHexLen/2, len(sum))
 	return replayKeyPrefix + hex.EncodeToString(sum[:rawLen])
+}
+
+func ComputeIdempotencyKey(secret []byte, deliveryID string, attempt int) string {
+	if deliveryID == "" || attempt < 1 {
+		return ""
+	}
+	raw := fmt.Sprintf("%s:%d", deliveryID, attempt)
+	if len(secret) == 0 {
+		return raw
+	}
+	mac := hmac.New(sha256.New, secret)
+	_, _ = mac.Write([]byte(raw))
+	sum := mac.Sum(nil)
+	rawLen := min(replayKeyHexLen/2, len(sum))
+	return idempotencyKeyPrefix + hex.EncodeToString(sum[:rawLen])
 }
 
 // ComputeReplayKeyUnsigned derives a deterministic replay key for
