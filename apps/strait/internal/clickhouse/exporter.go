@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"strait/internal/httputil"
+
 	"github.com/sourcegraph/conc"
 	"go.opentelemetry.io/otel/metric"
 )
@@ -468,7 +470,7 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 	for _, rec := range batch {
 		switch r := rec.(type) {
 		case RunEventRecord:
-			events = append(events, r)
+			events = append(events, sanitizeRunEventRecord(r))
 		case RunAnalyticsRecord:
 			analytics = append(analytics, r)
 		case RunUsageEventRecord:
@@ -478,7 +480,7 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 		case JobMetadataRecord:
 			jobMeta = append(jobMeta, r)
 		case WebhookDeliveryEventRecord:
-			webhookDeliveries = append(webhookDeliveries, r)
+			webhookDeliveries = append(webhookDeliveries, sanitizeWebhookDeliveryEventRecord(r))
 		case WorkflowRunAnalyticsRecord:
 			workflowRuns = append(workflowRuns, r)
 		case WorkflowStepAnalyticsRecord:
@@ -574,6 +576,7 @@ func (e *Exporter) insertRunEvents(ctx context.Context, records []RunEventRecord
 	args := make([]any, 0, len(records)*9)
 
 	for i, r := range records {
+		r = sanitizeRunEventRecord(r)
 		placeholders[i] = row
 		args = append(args, r.EventID, r.RunID, r.ProjectID, r.JobID, r.EventType, r.Level, r.Message, r.Metadata, r.CreatedAt)
 	}
@@ -693,6 +696,7 @@ func (e *Exporter) insertWebhookDeliveryEvents(ctx context.Context, records []We
 	args := make([]any, 0, len(records)*12)
 
 	for i, r := range records {
+		r = sanitizeWebhookDeliveryEventRecord(r)
 		placeholders[i] = row
 		args = append(args, r.DeliveryID, r.RunID, r.JobID, r.ProjectID, r.WebhookURL,
 			r.Status, r.Attempts, r.LastStatusCode, r.DurationMs, r.EventType, r.CreatedAt, r.DeliveredAt)
@@ -713,6 +717,49 @@ func (e *Exporter) insertBillingEvents(ctx context.Context, records []BillingEve
 	}
 
 	return e.client.Exec(ctx, query+strings.Join(placeholders, ", "), args...)
+}
+
+func sanitizeRunEventRecord(r RunEventRecord) RunEventRecord {
+	r.Message = safeRunEventAnalyticsMessage(r)
+	if strings.TrimSpace(r.Metadata) != "" {
+		r.Metadata = "{}"
+	}
+	return r
+}
+
+func safeRunEventAnalyticsMessage(r RunEventRecord) string {
+	if strings.EqualFold(strings.TrimSpace(r.Level), "error") {
+		return safeRunFailureReason(r.Message)
+	}
+	switch normalizedAnalyticsLabel(r.EventType) {
+	case "run_started", "run_completed", "run_failed", "run_timed_out", "run_canceled", "run_retrying", "run_snoozed":
+		return normalizedAnalyticsLabel(r.EventType)
+	}
+	switch normalizedAnalyticsLabel(r.Level) {
+	case "debug", "info", "warn", "warning", "error":
+		return "level_" + normalizedAnalyticsLabel(r.Level)
+	default:
+		return "run_event"
+	}
+}
+
+func normalizedAnalyticsLabel(label string) string {
+	label = strings.ToLower(strings.TrimSpace(label))
+	if label == "" || len(label) > 64 {
+		return ""
+	}
+	for _, r := range label {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			continue
+		}
+		return ""
+	}
+	return label
+}
+
+func sanitizeWebhookDeliveryEventRecord(r WebhookDeliveryEventRecord) WebhookDeliveryEventRecord {
+	r.WebhookURL = httputil.RedactURLForLog(r.WebhookURL)
+	return r
 }
 
 // PendingCount returns the number of records waiting to be flushed.

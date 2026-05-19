@@ -273,6 +273,71 @@ func TestExporter_FlushFailureRequeueHonorsByteCap(t *testing.T) {
 	}
 }
 
+func TestSanitizeRunEventRecord_DropsRawMessageAndMetadata(t *testing.T) {
+	t.Parallel()
+
+	rec := sanitizeRunEventRecord(RunEventRecord{
+		EventID:   "evt-1",
+		RunID:     "run-1",
+		ProjectID: "proj-1",
+		JobID:     "job-1",
+		EventType: "log.line",
+		Level:     "error",
+		Message:   "failed with Authorization: Bearer secret-token and password=hunter2",
+		Metadata:  `{"authorization":"Bearer secret-token","password":"hunter2"}`,
+		CreatedAt: time.Now(),
+	})
+
+	if rec.Message != "application_error" {
+		t.Fatalf("sanitized message = %q, want application_error", rec.Message)
+	}
+	if rec.Metadata != "{}" {
+		t.Fatalf("sanitized metadata = %q, want {}", rec.Metadata)
+	}
+	for _, leaked := range []string{"secret-token", "hunter2", "Authorization", "password"} {
+		if strings.Contains(rec.Message, leaked) || strings.Contains(rec.Metadata, leaked) {
+			t.Fatalf("sanitized run event leaked %q: message=%q metadata=%q", leaked, rec.Message, rec.Metadata)
+		}
+	}
+}
+
+func TestSanitizeRunEventRecord_KeepsOnlyKnownEventLabels(t *testing.T) {
+	t.Parallel()
+
+	safe := sanitizeRunEventRecord(RunEventRecord{EventType: "run_completed", Level: "info", Message: "contains secret-token"})
+	if safe.Message != "run_completed" {
+		t.Fatalf("safe event message = %q, want run_completed", safe.Message)
+	}
+
+	unknown := sanitizeRunEventRecord(RunEventRecord{EventType: "custom-secret-token", Level: "info", Message: "contains secret-token"})
+	if unknown.Message != "level_info" {
+		t.Fatalf("unknown event message = %q, want level_info", unknown.Message)
+	}
+	if strings.Contains(unknown.Message, "secret-token") {
+		t.Fatalf("unknown event label leaked raw token: %q", unknown.Message)
+	}
+}
+
+func TestSanitizeWebhookDeliveryEventRecord_RedactsURLBeforePersistence(t *testing.T) {
+	t.Parallel()
+
+	rec := sanitizeWebhookDeliveryEventRecord(WebhookDeliveryEventRecord{
+		DeliveryID: "del-1",
+		ProjectID:  "proj-1",
+		WebhookURL: "https://user:pass@hooks.example.com/services/T00/B00/token?api_key=secret#frag",
+		CreatedAt:  time.Now(),
+	})
+
+	if rec.WebhookURL != "https://hooks.example.com" {
+		t.Fatalf("sanitized webhook URL = %q, want host-only URL", rec.WebhookURL)
+	}
+	for _, leaked := range []string{"user", "pass", "services", "token", "api_key", "secret", "frag"} {
+		if strings.Contains(rec.WebhookURL, leaked) {
+			t.Fatalf("sanitized webhook URL leaked %q: %q", leaked, rec.WebhookURL)
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------.
 // insertBatch: every record type through a failing client
 // ---------------------------------------------------------------------------.
