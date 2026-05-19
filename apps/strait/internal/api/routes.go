@@ -203,7 +203,7 @@ func (s *Server) routes() chi.Router {
 		r.Use(s.apiKeyOrSecretAuth)
 		r.Use(s.projectContextMiddleware)
 		r.Use(s.projectRateLimit)
-		r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", s.handleProjectActivityStream)
+		r.With(s.requireActivityStreamPermissions).Get("/", s.handleProjectActivityStream)
 	})
 
 	// Org-scoped cross-project query routes.

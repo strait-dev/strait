@@ -9,7 +9,17 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/sourcegraph/conc"
+
+	"strait/internal/domain"
 )
+
+func (s *Server) requireActivityStreamPermissions(next http.Handler) http.Handler {
+	return s.requirePermission(domain.ScopeRunsRead)(
+		s.requirePermission(domain.ScopeWorkflowsRead)(
+			s.requirePermission(domain.ScopeJobsRead)(next),
+		),
+	)
+}
 
 // handleProjectActivityStream serves a real-time SSE stream of all CDC events
 // for a project. Subscribes to job_runs, workflow_runs, and event_triggers
