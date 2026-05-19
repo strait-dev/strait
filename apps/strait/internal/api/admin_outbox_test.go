@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -232,6 +233,7 @@ func TestHandleAdminGetOutbox_OK_IncludesRetryLineage(t *testing.T) {
 func TestHandleAdminRetryOutbox_OK_WritesAudit(t *testing.T) {
 	t.Parallel()
 
+	idempotencyKey := "idem-retry-secret-sk_live_raw_key"
 	var gotAudit *domain.AuditEvent
 	mock := &adminOutboxStoreMock{
 		APIStoreMock: &APIStoreMock{
@@ -242,12 +244,15 @@ func TestHandleAdminRetryOutbox_OK_WritesAudit(t *testing.T) {
 		},
 		getFn: func(_ context.Context, projectID, id string) (*store.QuarantinedOutboxRow, error) {
 			return &store.QuarantinedOutboxRow{
-				ID:         id,
-				ProjectID:  projectID,
-				JobID:      "job-1",
-				Error:      "terminal failure",
-				CreatedAt:  time.Now().Add(-time.Minute),
-				ConsumedAt: time.Now(),
+				ID:             id,
+				ProjectID:      projectID,
+				JobID:          "job-1",
+				Payload:        json.RawMessage(`{"authorization":"Bearer retry-payload-token","body":"retry payload secret"}`),
+				Metadata:       json.RawMessage(`{"api_key":"retry-metadata-secret"}`),
+				IdempotencyKey: &idempotencyKey,
+				Error:          "terminal failure with retry-secret-error",
+				CreatedAt:      time.Now().Add(-time.Minute),
+				ConsumedAt:     time.Now(),
 			}, nil
 		},
 		retryFn: func(_ context.Context, projectID, id string) (*store.OutboxRow, error) {
@@ -291,6 +296,13 @@ func TestHandleAdminRetryOutbox_OK_WritesAudit(t *testing.T) {
 	if gotAudit.ResourceType != "enqueue_outbox" || gotAudit.ResourceID != "outbox-1" {
 		t.Fatalf("unexpected audit resource: %s/%s", gotAudit.ResourceType, gotAudit.ResourceID)
 	}
+	assertOutboxAuditDetailsRedacted(t, gotAudit.Details, []string{
+		"retry-payload-token",
+		"retry payload secret",
+		"retry-metadata-secret",
+		idempotencyKey,
+		"retry-secret-error",
+	})
 }
 
 func TestHandleAdminRetryOutbox_ConflictWhenActiveCloneExists(t *testing.T) {
@@ -326,6 +338,7 @@ func TestHandleAdminRetryOutbox_ConflictWhenActiveCloneExists(t *testing.T) {
 func TestHandleAdminPurgeOutbox_OK_WritesAudit(t *testing.T) {
 	t.Parallel()
 
+	idempotencyKey := "idem-purge-secret-sk_live_raw_key"
 	var gotAudit *domain.AuditEvent
 	mock := &adminOutboxStoreMock{
 		APIStoreMock: &APIStoreMock{
@@ -336,12 +349,15 @@ func TestHandleAdminPurgeOutbox_OK_WritesAudit(t *testing.T) {
 		},
 		purgeFn: func(_ context.Context, projectID, id string) (*store.QuarantinedOutboxRow, error) {
 			return &store.QuarantinedOutboxRow{
-				ID:         id,
-				ProjectID:  projectID,
-				JobID:      "job-1",
-				Error:      "terminal failure",
-				CreatedAt:  time.Now().Add(-time.Minute),
-				ConsumedAt: time.Now(),
+				ID:             id,
+				ProjectID:      projectID,
+				JobID:          "job-1",
+				Payload:        json.RawMessage(`{"authorization":"Bearer purge-payload-token","body":"purge payload secret"}`),
+				Metadata:       json.RawMessage(`{"api_key":"purge-metadata-secret"}`),
+				IdempotencyKey: &idempotencyKey,
+				Error:          "terminal failure with purge-secret-error",
+				CreatedAt:      time.Now().Add(-time.Minute),
+				ConsumedAt:     time.Now(),
 			}, nil
 		},
 	}
@@ -370,6 +386,37 @@ func TestHandleAdminPurgeOutbox_OK_WritesAudit(t *testing.T) {
 	}
 	if gotAudit.Action != "outbox.purge" {
 		t.Fatalf("audit action = %s, want outbox.purge", gotAudit.Action)
+	}
+	assertOutboxAuditDetailsRedacted(t, gotAudit.Details, []string{
+		"purge-payload-token",
+		"purge payload secret",
+		"purge-metadata-secret",
+		idempotencyKey,
+		"purge-secret-error",
+	})
+}
+
+func assertOutboxAuditDetailsRedacted(t *testing.T, details json.RawMessage, forbidden []string) {
+	t.Helper()
+
+	raw := string(details)
+	for _, value := range forbidden {
+		if strings.Contains(raw, value) {
+			t.Fatalf("audit details leaked %q: %s", value, raw)
+		}
+	}
+	for _, required := range []string{
+		"payload_sha256",
+		"metadata_sha256",
+		"payload_bytes",
+		"metadata_bytes",
+		"idempotency_key_present",
+		"error_present",
+		"error_bytes",
+	} {
+		if !strings.Contains(raw, required) {
+			t.Fatalf("audit details missing %q: %s", required, raw)
+		}
 	}
 }
 

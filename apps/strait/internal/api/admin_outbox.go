@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -185,7 +187,7 @@ func (s *Server) handleAdminRetryOutbox(ctx context.Context, input *AdminOutboxM
 		}
 	}
 
-	s.writeOutboxAudit(ctx, projectID, "outbox.retry", input.OutboxID, source, map[string]any{
+	s.writeOutboxAudit(ctx, projectID, "outbox.retry", input.OutboxID, outboxAuditSnapshot(*source), map[string]any{
 		"retry_outbox_id": cloned.ID,
 	})
 
@@ -224,7 +226,7 @@ func (s *Server) handleAdminPurgeOutbox(ctx context.Context, input *AdminOutboxM
 		}
 	}
 
-	s.writeOutboxAudit(ctx, projectID, "outbox.purge", input.OutboxID, row, map[string]any{
+	s.writeOutboxAudit(ctx, projectID, "outbox.purge", input.OutboxID, outboxAuditSnapshot(*row), map[string]any{
 		"purged": true,
 	})
 
@@ -258,13 +260,47 @@ func adminOutboxRow(row store.QuarantinedOutboxRow) AdminOutboxRow {
 	}
 }
 
+func outboxAuditSnapshot(row store.QuarantinedOutboxRow) map[string]any {
+	snapshot := map[string]any{
+		"id":                      row.ID,
+		"project_id":              row.ProjectID,
+		"job_id":                  row.JobID,
+		"priority":                row.Priority,
+		"created_at":              row.CreatedAt,
+		"consumed_at":             row.ConsumedAt,
+		"payload_bytes":           len(row.Payload),
+		"metadata_bytes":          len(row.Metadata),
+		"idempotency_key_present": row.IdempotencyKey != nil && *row.IdempotencyKey != "",
+		"error_present":           strings.TrimSpace(row.Error) != "",
+		"error_bytes":             len(row.Error),
+	}
+	if len(row.Payload) > 0 {
+		snapshot["payload_sha256"] = outboxAuditHash(row.Payload)
+	}
+	if len(row.Metadata) > 0 {
+		snapshot["metadata_sha256"] = outboxAuditHash(row.Metadata)
+	}
+	if row.ScheduledAt != nil {
+		snapshot["scheduled_at"] = *row.ScheduledAt
+	}
+	if row.RetryOfOutboxID != nil {
+		snapshot["retry_of_outbox_id"] = *row.RetryOfOutboxID
+	}
+	return snapshot
+}
+
+func outboxAuditHash(raw []byte) string {
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}
+
 func (s *Server) writeOutboxAudit(ctx context.Context, projectID, action, outboxID string, before, after any) {
 	details := map[string]any{
 		"outbox_id": outboxID,
 		"before":    before,
 		"after":     after,
 	}
-	raw, err := json.Marshal(details)
+	raw, err := s.marshalAndCapDetails(ctx, action, details)
 	if err != nil {
 		slog.Error("outbox audit marshal failed", "action", action, "outbox_id", outboxID, "err", err)
 		return
