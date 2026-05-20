@@ -80,6 +80,66 @@ func TestListStepRunStatusesByWorkflowRun(t *testing.T) {
 	}
 }
 
+func TestListStepRunsByWorkflowRun_CursorMovesForward(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	wf, wfRun, first := mustCreateWorkflowStepFixture(t, ctx, q, "project-step-run-cursor-"+newID(), domain.StepPending)
+	stepJob := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(wf.ProjectID)})
+	secondStep := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, &testutil.WorkflowStepOpts{
+		JobID:   new(stepJob.ID),
+		StepRef: new("cursor-second-" + newID()),
+	})
+	second := testutil.MustCreateWorkflowStepRun(t, ctx, q, wfRun.ID, secondStep.ID, &testutil.WorkflowStepRunOpts{
+		Status:  new(domain.StepPending),
+		StepRef: new(secondStep.StepRef),
+	})
+	thirdStep := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, &testutil.WorkflowStepOpts{
+		JobID:   new(stepJob.ID),
+		StepRef: new("cursor-third-" + newID()),
+	})
+	third := testutil.MustCreateWorkflowStepRun(t, ctx, q, wfRun.ID, thirdStep.ID, &testutil.WorkflowStepRunOpts{
+		Status:  new(domain.StepPending),
+		StepRef: new(thirdStep.StepRef),
+	})
+
+	baseTime := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	for i, stepRunID := range []string{first.ID, second.ID, third.ID} {
+		if _, err := testDB.Pool.Exec(ctx, `
+			UPDATE workflow_step_runs
+			SET created_at = $2
+			WHERE id = $1
+		`, stepRunID, baseTime.Add(time.Duration(i)*time.Minute)); err != nil {
+			t.Fatalf("set step run created_at(%d): %v", i, err)
+		}
+	}
+
+	page1, err := q.ListStepRunsByWorkflowRun(ctx, wfRun.ID, 2, nil)
+	if err != nil {
+		t.Fatalf("ListStepRunsByWorkflowRun(page1) error = %v", err)
+	}
+	if len(page1) != 2 || page1[0].ID != first.ID || page1[1].ID != second.ID {
+		t.Fatalf("page1 IDs = %v, want [%s %s]", stepRunIDs(page1), first.ID, second.ID)
+	}
+	cursor := page1[1].CreatedAt
+	page2, err := q.ListStepRunsByWorkflowRun(ctx, wfRun.ID, 2, &cursor)
+	if err != nil {
+		t.Fatalf("ListStepRunsByWorkflowRun(page2) error = %v", err)
+	}
+	if len(page2) != 1 || page2[0].ID != third.ID {
+		t.Fatalf("page2 IDs = %v, want [%s]", stepRunIDs(page2), third.ID)
+	}
+}
+
+func stepRunIDs(stepRuns []domain.WorkflowStepRun) []string {
+	ids := make([]string, 0, len(stepRuns))
+	for _, stepRun := range stepRuns {
+		ids = append(ids, stepRun.ID)
+	}
+	return ids
+}
+
 func TestUpdateStepRunStatusFrom(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

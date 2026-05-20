@@ -120,7 +120,7 @@ func (q *Queries) ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID s
 	param := 2
 
 	if cursor != nil {
-		query += fmt.Sprintf(" AND created_at < $%d", param)
+		query += fmt.Sprintf(" AND created_at > $%d", param)
 		args = append(args, *cursor)
 		param++
 	}
