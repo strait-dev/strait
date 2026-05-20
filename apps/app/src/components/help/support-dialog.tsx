@@ -36,36 +36,50 @@ import { useForm } from "react-hook-form";
 import type z from "zod/v4";
 import { getPostHog } from "@/lib/analytics";
 import { HelpCircleIcon, LoadingIcon } from "@/lib/icons";
+import { enforceRateLimit } from "@/lib/rate-limit.server";
 import { getResend } from "@/lib/resend.server";
 import { SupportFormSchema } from "@/lib/schema";
 import { authMiddleware } from "@/middlewares/auth";
 import type { AuthUser } from "@/routes/__root";
 import { MILLISECONDS_PER_SECOND, TIMER_INTERVAL_MS } from "@/utils/constants";
 
+const SUPPORT_COOLDOWN_SECONDS = 60;
+
 const supportAction = createServerFn({ method: "POST" })
   .inputValidator(SupportFormSchema)
   .middleware([authMiddleware])
-  .handler(
-    async ({ data, context }) =>
-      await getResend().emails.send({
-        from: "Support <hello@usestrait.com>",
-        to: "leo@strait.dev",
-        subject: `Support — ${data.email}`,
-        react: Support({
-          ...data,
-          name: context.user.name,
-          date: format(new Date(), "MMMM dd, yyyy"),
-          createdAt: format(
-            new Date(context.user.createdAt as unknown as string),
-            "MMMM dd, yyyy"
-          ),
-          lastLogin: format(
-            new Date(context.user.updatedAt as unknown as string),
-            "MMMM dd, yyyy"
-          ),
-        }),
-      })
-  );
+  .handler(async ({ data, context }) => {
+    await enforceRateLimit({
+      key: `support:${context.user.id}`,
+      limit: 5,
+      windowSeconds: 3600,
+    });
+
+    const email = context.user.email;
+    if (!email) {
+      throw new Error("Authenticated email is required");
+    }
+
+    return await getResend().emails.send({
+      from: "Support <hello@usestrait.com>",
+      to: "leo@strait.dev",
+      subject: `Support — ${email}`,
+      react: Support({
+        ...data,
+        email,
+        name: context.user.name,
+        date: format(new Date(), "MMMM dd, yyyy"),
+        createdAt: format(
+          new Date(context.user.createdAt as unknown as string),
+          "MMMM dd, yyyy"
+        ),
+        lastLogin: format(
+          new Date(context.user.updatedAt as unknown as string),
+          "MMMM dd, yyyy"
+        ),
+      }),
+    });
+  });
 
 type Props = {
   user: AuthUser;
@@ -119,7 +133,7 @@ const SupportDialog = ({ user }: Props) => {
   >({
     defaultValues: {
       email: user.email,
-      subject: undefined,
+      subject: "",
       priority: "low",
       environment: "production",
       message: "",
@@ -137,8 +151,15 @@ const SupportDialog = ({ user }: Props) => {
     }
 
     startTransition(() => {
-      getPostHog()?.capture("support_submitted");
-      toast.promise(supportAction({ data: values }), {
+      const promise = supportAction({ data: values }).then((result) => {
+        const cooldownEnd =
+          Date.now() + SUPPORT_COOLDOWN_SECONDS * MILLISECONDS_PER_SECOND;
+        localStorage.setItem(STORAGE_KEY, String(cooldownEnd));
+        setCooldownTime(SUPPORT_COOLDOWN_SECONDS);
+        getPostHog()?.capture("support_submitted");
+        return result;
+      });
+      toast.promise(promise, {
         loading: "Sending request...",
         success: "Request sent successfully",
         error: "Error sending request",
