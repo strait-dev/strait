@@ -1,18 +1,35 @@
 /**
  * Job cost estimation query hook.
  *
- * Fetches estimated execution cost from `GET /v1/cost-estimate` for a given
- * machine preset and timeout. Used in job creation forms and pricing calculators.
+ * Estimates execution cost for a given machine preset and timeout.
+ * Used in job creation forms and pricing calculators.
  */
 
 import { queryOptions } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
 import z from "zod/v4";
 import { queryKeys } from "@/hooks/query-keys";
-import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
-import { getOrgIdFromSession } from "./session";
+import { requireActiveOrgAccess } from "@/middlewares/require-access";
 import { STALE_30S } from "./types";
+
+const COST_PER_RUN_MICROUSD = 20;
+
+const PRESET_MULTIPLIERS: Record<string, number> = {
+  micro: 1,
+  small: 2,
+  "small-1x": 2,
+  medium: 4,
+  "medium-2x": 4,
+  large: 8,
+  "large-4x": 8,
+};
+
+const estimateCost = (preset: string, timeoutSecs: number): number => {
+  const multiplier = PRESET_MULTIPLIERS[preset] ?? 1;
+  const timeoutMultiplier = Math.max(1, Math.ceil(timeoutSecs / 300));
+  return COST_PER_RUN_MICROUSD * multiplier * timeoutMultiplier;
+};
 
 /** Cost comparison for an alternative machine preset. */
 type CostAlternative = {
@@ -64,23 +81,33 @@ const getCostEstimateServerFn = createServerFn({ method: "GET" })
   )
   .middleware([authMiddleware])
   .handler(async ({ data, context }) => {
-    const orgId = getOrgIdFromSession(
-      context.session as Record<string, unknown>
-    );
+    await requireActiveOrgAccess(context);
 
-    if (!orgId) {
-      return null;
-    }
+    const estimatedCost = estimateCost(data.preset, data.timeoutSecs);
+    const alternatives = Object.keys(PRESET_MULTIPLIERS)
+      .filter((preset) => preset !== data.preset && !preset.includes("-"))
+      .map((preset) => {
+        const cost = estimateCost(preset, data.timeoutSecs);
+        return {
+          preset,
+          cost,
+          savings_pct:
+            estimatedCost > 0
+              ? Math.max(0, Math.round((1 - cost / estimatedCost) * 100))
+              : 0,
+        };
+      });
 
-    return await runWithSentryReport(
-      apiEffect<CostEstimate>("/v1/cost-estimate", {
-        params: {
-          org_id: orgId,
-          preset: data.preset,
-          timeout_secs: data.timeoutSecs,
-        },
-      })
-    );
+    return {
+      preset: data.preset,
+      timeout_secs: data.timeoutSecs,
+      estimated_cost_microusd: estimatedCost,
+      alternatives,
+      credit_info: {
+        remaining_credit: 0,
+        estimated_runs_remaining: 0,
+      },
+    } satisfies CostEstimate;
   });
 
 /**

@@ -16,7 +16,10 @@ import z from "zod/v4";
 import { queryKeys } from "@/hooks/query-keys";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
-import { getOrgIdFromSession } from "./session";
+import {
+  requireActiveOrgAccess,
+  requireActiveOrgAdmin,
+} from "@/middlewares/require-access";
 import { REFETCH_5M } from "./types";
 
 /** Organization email notification preferences. */
@@ -29,13 +32,7 @@ export type EmailPreferences = {
 const getEmailPreferencesServerFn = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async (ctx) => {
-    const orgId = getOrgIdFromSession(
-      ctx.context.session as Record<string, unknown>
-    );
-
-    if (!orgId) {
-      return { monthly_usage_email: true };
-    }
+    const orgId = await requireActiveOrgAccess(ctx.context);
 
     return await runWithSentryReport(
       apiEffect<EmailPreferences>("/v1/usage/email-preferences", {
@@ -75,13 +72,7 @@ const updateEmailPreferencesServerFn = createServerFn({ method: "POST" })
   )
   .middleware([authMiddleware])
   .handler(async ({ data, context }) => {
-    const orgId = getOrgIdFromSession(
-      context.session as Record<string, unknown>
-    );
-
-    if (!orgId) {
-      throw new Error("No active organization");
-    }
+    const orgId = await requireActiveOrgAdmin(context);
 
     return await runWithSentryReport(
       apiEffect<{ status: string }>("/v1/usage/email-preferences", {

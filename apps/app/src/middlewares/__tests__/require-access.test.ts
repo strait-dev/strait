@@ -7,6 +7,8 @@ vi.mock("@/lib/auth.server", () => ({
 
 import {
   getOrganizationRole,
+  requireActiveOrgAccess,
+  requireActiveOrgAdmin,
   requireActiveProjectAccess,
   requireActiveProjectAdmin,
   requireOrgAccess,
@@ -181,6 +183,28 @@ describe("role-gated access helpers", () => {
         activeProjectId: "project-1",
       })
     ).resolves.toBe("project-1");
+  });
+
+  it("returns the active org after live membership checks", async () => {
+    mockQuery.mockResolvedValue({ rowCount: 1 });
+
+    await expect(
+      requireActiveOrgAccess({
+        user: { id: "user-1" },
+        activeOrganizationId: "org-1",
+      })
+    ).resolves.toBe("org-1");
+  });
+
+  it("requires admin role for active org admin checks", async () => {
+    mockQuery.mockResolvedValue({ rows: [{ role: "member" }] });
+
+    await expect(
+      requireActiveOrgAdmin({
+        user: { id: "user-1" },
+        activeOrganizationId: "org-1",
+      })
+    ).rejects.toThrow("Forbidden");
   });
 
   it("rejects active project admin checks when the session has no project", async () => {

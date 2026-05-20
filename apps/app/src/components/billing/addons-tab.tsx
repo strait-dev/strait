@@ -14,18 +14,27 @@ import { createServerFn } from "@tanstack/react-start";
 import { useState } from "react";
 import { ADDON_CATALOG, getActivePackCount } from "@/hooks/billing/use-addons";
 import { orgUsageQueryOptions } from "@/hooks/billing/use-org-usage";
+import { apiRequest } from "@/lib/api-client.server";
 import { assertCloudEdition } from "@/lib/edition";
-import { findOrCreateCustomer, getStripeClient } from "@/lib/stripe.server";
+import { enforceRateLimit } from "@/lib/rate-limit.server";
+import {
+  findOrCreateCustomerForOrg,
+  getStripeClient,
+} from "@/lib/stripe.server";
 import { authMiddleware } from "@/middlewares/auth";
+import { requireActiveOrgAdmin } from "@/middlewares/require-access";
 
-const ADDON_PRICE_MAP: Record<string, string | undefined> = {
+const getAddonPriceMap = (): Record<string, string | undefined> => ({
   "addon-concurrent-runs": process.env.STRIPE_ADDON_CONCURRENT_RUNS_PRICE_ID,
   "addon-members": process.env.STRIPE_ADDON_MEMBERS_PRICE_ID,
   "addon-cron-schedules": process.env.STRIPE_ADDON_CRON_SCHEDULES_PRICE_ID,
   "addon-data-retention": process.env.STRIPE_ADDON_DATA_RETENTION_PRICE_ID,
   "addon-webhook-endpoints":
     process.env.STRIPE_ADDON_WEBHOOK_ENDPOINTS_PRICE_ID,
-};
+});
+
+/** Plans that can purchase add-ons. Enterprise has custom terms. */
+const ADDON_ELIGIBLE_PLANS = new Set(["starter", "pro", "scale", "business"]);
 
 const startAddonCheckoutServerFn = createServerFn({ method: "POST" })
   .inputValidator((data: { checkoutSlug: string }) => data)
@@ -35,10 +44,18 @@ const startAddonCheckoutServerFn = createServerFn({ method: "POST" })
     // even though this component is already unreachable from the nav.
     assertCloudEdition("Addon checkout");
     const stripe = getStripeClient();
+    const orgId = await requireActiveOrgAdmin(context);
 
-    const priceId = ADDON_PRICE_MAP[data.checkoutSlug];
+    const priceId = getAddonPriceMap()[data.checkoutSlug];
     if (!priceId) {
       throw new Error(`Invalid addon: ${data.checkoutSlug}`);
+    }
+
+    const usage = await apiRequest<{ plan?: string }>("/v1/usage/current", {
+      params: { org_id: orgId },
+    });
+    if (!ADDON_ELIGIBLE_PLANS.has(usage.plan ?? "free")) {
+      throw new Error("Add-ons are not available for the current plan");
     }
 
     const baseUrl =
@@ -46,29 +63,34 @@ const startAddonCheckoutServerFn = createServerFn({ method: "POST" })
       process.env.VITE_BASE_URL ??
       "http://localhost:5173";
 
-    const ctx = context as unknown as {
-      session?: {
-        user: { email: string };
-        session: { activeOrganizationId?: string };
-      };
-    };
-    const email = ctx?.session?.user?.email;
-    const orgId = ctx?.session?.session?.activeOrganizationId;
+    const email = context.user.email;
+    if (!email) {
+      throw new Error("Email is required for checkout");
+    }
 
-    const customerId = email
-      ? await findOrCreateCustomer(email, orgId ? { org_id: orgId } : undefined)
-      : undefined;
+    await enforceRateLimit({
+      key: `addon-checkout:${orgId}:${context.user.id}`,
+      limit: 10,
+      windowSeconds: 300,
+    });
+
+    const customerId = await findOrCreateCustomerForOrg({
+      email,
+      orgId,
+      userId: context.user.id,
+      name: context.user.name,
+    });
 
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       line_items: [{ price: priceId, quantity: 1 }],
       success_url: `${baseUrl}/app/billing?addon_success=true`,
       cancel_url: `${baseUrl}/app/billing`,
-      ...(customerId ? { customer: customerId } : { customer_email: email }),
+      customer: customerId,
       allow_promotion_codes: true,
       automatic_tax: { enabled: true },
       subscription_data: {
-        metadata: orgId ? { org_id: orgId } : {},
+        metadata: { org_id: orgId },
       },
     });
 
@@ -77,9 +99,6 @@ const startAddonCheckoutServerFn = createServerFn({ method: "POST" })
         session.url ?? `${baseUrl}/app/billing?error=checkout_failed`,
     };
   });
-
-/** Plans that can purchase add-ons. Enterprise has custom terms. */
-const ADDON_ELIGIBLE_PLANS = new Set(["starter", "pro", "scale"]);
 
 const AddonsTab = () => {
   const { data: usage } = useQuery(orgUsageQueryOptions());

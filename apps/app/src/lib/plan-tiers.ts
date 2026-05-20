@@ -3,7 +3,8 @@ const TIER_RANK: Record<string, number> = {
   starter: 1,
   pro: 2,
   scale: 3,
-  enterprise: 4,
+  business: 4,
+  enterprise: 5,
 };
 
 /** Returns true if switching from `currentTier` to `targetTier` is a downgrade. */

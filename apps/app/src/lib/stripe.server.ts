@@ -30,37 +30,42 @@ export const getStripeClient = (): Stripe => {
   return _stripeClient;
 };
 
-/**
- * Look up an existing Stripe customer by email.
- *
- * @returns The Stripe customer ID, or `null` if no customer exists for the email.
- * @see https://docs.stripe.com/api/customers/list
- */
-export const findCustomerByEmail = async (
-  email: string
+export const findCustomerByOrg = async (
+  email: string,
+  orgId: string
 ): Promise<string | null> => {
   const stripe = getStripeClient();
-  const customers = await stripe.customers.list({ email, limit: 1 });
-  return customers.data[0]?.id ?? null;
+  const customers = await stripe.customers.list({ email, limit: 100 });
+  const match = customers.data.find(
+    (customer) => customer.metadata?.org_id === orgId
+  );
+  return match?.id ?? null;
 };
 
-/**
- * Find an existing Stripe customer by email, or create one if none exists.
- * Prevents duplicate customers when multiple checkout sessions are created.
- *
- * @returns The Stripe customer ID (existing or newly created).
- * @see https://docs.stripe.com/api/customers/create
- */
-export const findOrCreateCustomer = async (
-  email: string,
-  metadata?: Record<string, string>
-): Promise<string> => {
-  const existing = await findCustomerByEmail(email);
+export const findOrCreateCustomerForOrg = async ({
+  email,
+  orgId,
+  userId,
+  name,
+}: {
+  email: string;
+  orgId: string;
+  userId?: string;
+  name?: string | null;
+}): Promise<string> => {
+  const existing = await findCustomerByOrg(email, orgId);
   if (existing) {
     return existing;
   }
 
   const stripe = getStripeClient();
-  const customer = await stripe.customers.create({ email, metadata });
+  const customer = await stripe.customers.create({
+    email,
+    name: name ?? undefined,
+    metadata: {
+      org_id: orgId,
+      ...(userId ? { user_id: userId } : {}),
+    },
+  });
   return customer.id;
 };

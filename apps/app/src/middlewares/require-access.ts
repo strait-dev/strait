@@ -178,6 +178,28 @@ export async function requireActiveProjectAccess(
   return projectId as string;
 }
 
+export async function requireActiveOrgAccess(
+  context: AuthzContext
+): Promise<string> {
+  const orgId = context.activeOrganizationId;
+  if (!orgId) {
+    throw new Error("Forbidden");
+  }
+  await requireOrgAccess(context.user.id, orgId);
+  return orgId;
+}
+
+export async function requireActiveOrgAdmin(
+  context: AuthzContext
+): Promise<string> {
+  const orgId = context.activeOrganizationId;
+  if (!orgId) {
+    throw new Error("Forbidden");
+  }
+  await requireOrgAdmin(context.user.id, orgId);
+  return orgId;
+}
+
 export async function requireActiveProjectAdmin(
   context: AuthzContext
 ): Promise<string> {

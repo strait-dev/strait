@@ -46,7 +46,7 @@ import {
   STRAIT_API_SCOPES,
 } from "@/lib/oauth-scopes";
 import { getResend } from "@/lib/resend.server";
-import { findCustomerByEmail, getStripeClient } from "@/lib/stripe.server";
+import { findOrCreateCustomerForOrg } from "@/lib/stripe.server";
 
 /**
  * Resolve the auth database connection string.
@@ -153,16 +153,11 @@ const createStripeCustomer = async (
     return;
   }
   try {
-    const existing = await findCustomerByEmail(user.email);
-    if (existing) {
-      return; // Customer already exists
-    }
-
-    const stripe = getStripeClient();
-    await stripe.customers.create({
+    await findOrCreateCustomerForOrg({
       email: user.email,
       name: user.name || undefined,
-      metadata: { org_id: orgId, user_id: user.id },
+      orgId,
+      userId: user.id,
     });
   } catch (err) {
     console.error("Failed to create Stripe customer for user", user.id, err);

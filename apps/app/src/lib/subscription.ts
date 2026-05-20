@@ -1,6 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
+import { getRequestHeaders } from "@tanstack/react-start/server";
+import { getAuth } from "@/lib/auth.server";
 import { isCommunityEdition } from "@/lib/edition";
-import { findCustomerByEmail, getStripeClient } from "@/lib/stripe.server";
+import { findCustomerByOrg, getStripeClient } from "@/lib/stripe.server";
+import { requireOrgAccess } from "@/middlewares/require-access";
 
 type CustomerPortalResponse = {
   url: string | null;
@@ -17,7 +20,7 @@ type CustomerPortalResponse = {
  */
 export const getCustomerPortalUrlServerFn = createServerFn({
   method: "GET",
-}).handler(async ({ context }): Promise<CustomerPortalResponse> => {
+}).handler(async (): Promise<CustomerPortalResponse> => {
   if (isCommunityEdition) {
     return {
       url: null,
@@ -25,10 +28,13 @@ export const getCustomerPortalUrlServerFn = createServerFn({
     };
   }
 
-  const ctx = context as { session?: { user: { email: string } } } | undefined;
-  const session = ctx?.session;
+  const headers = getRequestHeaders();
+  const session = await (await getAuth()).api.getSession({ headers });
+  const email = session?.user?.email;
+  const orgId = (session?.session as Record<string, unknown> | undefined)
+    ?.activeOrganizationId;
 
-  if (!session) {
+  if (!(session?.user?.id && email && typeof orgId === "string" && orgId)) {
     return {
       url: null,
       error: "Session not found",
@@ -36,7 +42,8 @@ export const getCustomerPortalUrlServerFn = createServerFn({
   }
 
   try {
-    const customerId = await findCustomerByEmail(session.user.email);
+    await requireOrgAccess(session.user.id, orgId);
+    const customerId = await findCustomerByOrg(email, orgId);
 
     if (!customerId) {
       return {

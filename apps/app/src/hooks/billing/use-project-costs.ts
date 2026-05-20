@@ -10,7 +10,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { queryKeys } from "@/hooks/query-keys";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
-import { getOrgIdFromSession } from "./session";
+import { requireActiveOrgAccess } from "@/middlewares/require-access";
 import { type LimitAction, REFETCH_10M } from "./types";
 
 /** Cost breakdown for a single project in the current billing period. */
@@ -37,13 +37,7 @@ export type ProjectCostEntry = {
 const getProjectCostsServerFn = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async (ctx) => {
-    const orgId = getOrgIdFromSession(
-      ctx.context.session as Record<string, unknown>
-    );
-
-    if (!orgId) {
-      return [] as ProjectCostEntry[];
-    }
+    const orgId = await requireActiveOrgAccess(ctx.context);
 
     const now = new Date();
     const fromDate = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-01`;
