@@ -20,6 +20,7 @@ type UsageReportEmailerStore interface {
 
 type usageReportClaimStore interface {
 	ClaimUsageReportSend(ctx context.Context, orgID string, periodEnd time.Time) (bool, error)
+	FinalizeUsageReportSend(ctx context.Context, orgID string, periodEnd time.Time) error
 	ReleaseUsageReportSendClaim(ctx context.Context, orgID string, periodEnd time.Time) error
 }
 
@@ -255,8 +256,8 @@ func (re *UsageReportEmailer) sendReport(ctx context.Context, orgID string, sub 
 }
 
 func (re *UsageReportEmailer) finalizeReportSent(ctx context.Context, orgID string, periodEnd time.Time) error {
-	if _, ok := re.store.(usageReportClaimStore); ok {
-		return nil
+	if claimStore, ok := re.store.(usageReportClaimStore); ok {
+		return claimStore.FinalizeUsageReportSend(ctx, orgID, periodEnd)
 	}
 	return re.store.RecordSentUsageReport(ctx, orgID, periodEnd)
 }

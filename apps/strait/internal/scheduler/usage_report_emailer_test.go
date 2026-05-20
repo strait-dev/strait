@@ -18,6 +18,8 @@ type mockReportStore struct {
 	usageRecords         []billing.UsageRecord
 	sentReports          map[string]bool // key: "orgID|periodEnd"
 	recordSentCalls      []string        // tracks orgIDs for RecordSentUsageReport calls
+	finalizeCalls        []string
+	releaseCalls         []string
 	hasSentUsageReportFn func(ctx context.Context, orgID string, periodEnd time.Time) (bool, error)
 }
 
@@ -174,10 +176,21 @@ func (m *mockReportStore) ClaimUsageReportSend(_ context.Context, orgID string, 
 }
 
 func (m *mockReportStore) ReleaseUsageReportSendClaim(_ context.Context, orgID string, periodEnd time.Time) error {
+	m.releaseCalls = append(m.releaseCalls, orgID)
 	if m.sentReports != nil {
 		key := orgID + "|" + periodEnd.Format("2006-01-02")
 		delete(m.sentReports, key)
 	}
+	return nil
+}
+
+func (m *mockReportStore) FinalizeUsageReportSend(_ context.Context, orgID string, periodEnd time.Time) error {
+	m.finalizeCalls = append(m.finalizeCalls, orgID)
+	if m.sentReports == nil {
+		m.sentReports = make(map[string]bool)
+	}
+	key := orgID + "|" + periodEnd.Format("2006-01-02")
+	m.sentReports[key] = true
 	return nil
 }
 
@@ -564,5 +577,40 @@ func TestUsageReportEmailer_ClaimPreventsDuplicateEmailSideEffect(t *testing.T) 
 
 	if len(emailAPI.sent) != 1 {
 		t.Fatalf("emails sent = %d, want pre-send claim to allow only one side effect", len(emailAPI.sent))
+	}
+}
+
+func TestUsageReportEmailer_FinalizesClaimOnlyAfterSuccessfulSend(t *testing.T) {
+	t.Parallel()
+
+	yesterday := time.Now().UTC().Add(-24 * time.Hour).Truncate(24 * time.Hour)
+	periodStart := yesterday.AddDate(0, -1, 0)
+	store := &mockReportStore{
+		orgIDs: []string{"org-finalize"},
+		subscriptions: map[string]*billing.OrgSubscription{
+			"org-finalize": {
+				OrgID:              "org-finalize",
+				PlanTier:           "starter",
+				Status:             "active",
+				MonthlyUsageEmail:  true,
+				CurrentPeriodStart: &periodStart,
+				CurrentPeriodEnd:   &yesterday,
+			},
+		},
+		adminEmails: map[string][]string{"org-finalize": {"admin@example.com"}},
+	}
+
+	emailAPI := &mockResendAPI{}
+	emailer := NewUsageReportEmailer(store, emailAPI, "billing@test.dev", time.Hour)
+	emailer.checkAndSend(context.Background())
+
+	if len(emailAPI.sent) != 1 {
+		t.Fatalf("emails sent = %d, want 1", len(emailAPI.sent))
+	}
+	if len(store.finalizeCalls) != 1 || store.finalizeCalls[0] != "org-finalize" {
+		t.Fatalf("finalizeCalls = %v, want successful send finalized", store.finalizeCalls)
+	}
+	if len(store.releaseCalls) != 0 {
+		t.Fatalf("releaseCalls = %v, want no release after successful send", store.releaseCalls)
 	}
 }

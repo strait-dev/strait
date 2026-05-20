@@ -1494,6 +1494,7 @@ func (s *PgStore) HasSentUsageReport(ctx context.Context, orgID string, periodEn
 		SELECT EXISTS(
 			SELECT 1 FROM sent_usage_reports
 			WHERE org_id = $1 AND period_end = $2
+			  AND send_status = 'sent'
 		)
 	`, orgID, periodEnd.Truncate(24*time.Hour)).Scan(&exists)
 	if err != nil {
@@ -1505,9 +1506,12 @@ func (s *PgStore) HasSentUsageReport(ctx context.Context, orgID string, periodEn
 // RecordSentUsageReport records that a usage report email was sent for deduplication.
 func (s *PgStore) RecordSentUsageReport(ctx context.Context, orgID string, periodEnd time.Time) error {
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO sent_usage_reports (org_id, period_end)
-		VALUES ($1, $2)
-		ON CONFLICT (org_id, period_end) DO NOTHING
+		INSERT INTO sent_usage_reports (org_id, period_end, send_status, sent_at, claimed_at)
+		VALUES ($1, $2, 'sent', NOW(), NULL)
+		ON CONFLICT (org_id, period_end) DO UPDATE
+		SET send_status = 'sent',
+		    sent_at = NOW(),
+		    claimed_at = NULL
 	`, orgID, periodEnd.Truncate(24*time.Hour))
 	if err != nil {
 		return fmt.Errorf("recording sent usage report: %w", err)
@@ -1518,15 +1522,42 @@ func (s *PgStore) RecordSentUsageReport(ctx context.Context, orgID string, perio
 // ClaimUsageReportSend atomically claims an org/period report before the email
 // side effect. A false return means another scheduler already claimed or sent it.
 func (s *PgStore) ClaimUsageReportSend(ctx context.Context, orgID string, periodEnd time.Time) (bool, error) {
-	tag, err := s.pool.Exec(ctx, `
-		INSERT INTO sent_usage_reports (org_id, period_end)
-		VALUES ($1, $2)
-		ON CONFLICT (org_id, period_end) DO NOTHING
-	`, orgID, periodEnd.Truncate(24*time.Hour))
+	var claimed int
+	err := s.pool.QueryRow(ctx, `
+		INSERT INTO sent_usage_reports (org_id, period_end, send_status, claimed_at, sent_at)
+		VALUES ($1, $2, 'claimed', NOW(), NULL)
+		ON CONFLICT (org_id, period_end) DO UPDATE
+		SET send_status = 'claimed',
+		    claimed_at = NOW(),
+		    sent_at = NULL
+		WHERE sent_usage_reports.send_status = 'claimed'
+		  AND sent_usage_reports.claimed_at < NOW() - INTERVAL '1 hour'
+		RETURNING 1
+	`, orgID, periodEnd.Truncate(24*time.Hour)).Scan(&claimed)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
 		return false, fmt.Errorf("claiming usage report send: %w", err)
 	}
-	return tag.RowsAffected() == 1, nil
+	return claimed == 1, nil
+}
+
+// FinalizeUsageReportSend marks a pre-send report claim as sent after the
+// email side effect succeeds.
+func (s *PgStore) FinalizeUsageReportSend(ctx context.Context, orgID string, periodEnd time.Time) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO sent_usage_reports (org_id, period_end, send_status, sent_at, claimed_at)
+		VALUES ($1, $2, 'sent', NOW(), NULL)
+		ON CONFLICT (org_id, period_end) DO UPDATE
+		SET send_status = 'sent',
+		    sent_at = NOW(),
+		    claimed_at = NULL
+	`, orgID, periodEnd.Truncate(24*time.Hour))
+	if err != nil {
+		return fmt.Errorf("finalizing usage report send: %w", err)
+	}
+	return nil
 }
 
 // ReleaseUsageReportSendClaim releases a pre-send claim after a definite send
@@ -1535,6 +1566,7 @@ func (s *PgStore) ReleaseUsageReportSendClaim(ctx context.Context, orgID string,
 	_, err := s.pool.Exec(ctx, `
 		DELETE FROM sent_usage_reports
 		WHERE org_id = $1 AND period_end = $2
+		  AND send_status = 'claimed'
 	`, orgID, periodEnd.Truncate(24*time.Hour))
 	if err != nil {
 		return fmt.Errorf("releasing usage report send claim: %w", err)

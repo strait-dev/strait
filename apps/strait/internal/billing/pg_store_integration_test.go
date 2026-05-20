@@ -3733,6 +3733,74 @@ func TestPgStore_UsageReportDedup_TimeTruncation(t *testing.T) {
 	}
 }
 
+func TestPgStore_UsageReportClaimState_AllowsStaleClaimRetry(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgID := "org-report-claim-" + newID()
+	periodEnd := time.Date(2026, 4, 30, 23, 0, 0, 0, time.UTC)
+
+	claimed, err := pgStore.ClaimUsageReportSend(ctx, orgID, periodEnd)
+	if err != nil {
+		t.Fatalf("ClaimUsageReportSend: %v", err)
+	}
+	if !claimed {
+		t.Fatal("first ClaimUsageReportSend returned false, want true")
+	}
+
+	sent, err := pgStore.HasSentUsageReport(ctx, orgID, periodEnd)
+	if err != nil {
+		t.Fatalf("HasSentUsageReport after claim: %v", err)
+	}
+	if sent {
+		t.Fatal("pre-send claim must not be treated as a sent usage report")
+	}
+
+	claimed, err = pgStore.ClaimUsageReportSend(ctx, orgID, periodEnd)
+	if err != nil {
+		t.Fatalf("second ClaimUsageReportSend: %v", err)
+	}
+	if claimed {
+		t.Fatal("fresh claim should block duplicate sender")
+	}
+
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE sent_usage_reports
+		SET claimed_at = NOW() - INTERVAL '2 hours'
+		WHERE org_id = $1 AND period_end = $2
+	`, orgID, periodEnd.Truncate(24*time.Hour)); err != nil {
+		t.Fatalf("age claim: %v", err)
+	}
+
+	claimed, err = pgStore.ClaimUsageReportSend(ctx, orgID, periodEnd)
+	if err != nil {
+		t.Fatalf("stale ClaimUsageReportSend: %v", err)
+	}
+	if !claimed {
+		t.Fatal("stale claim should be claimable again")
+	}
+
+	if err := pgStore.FinalizeUsageReportSend(ctx, orgID, periodEnd); err != nil {
+		t.Fatalf("FinalizeUsageReportSend: %v", err)
+	}
+	sent, err = pgStore.HasSentUsageReport(ctx, orgID, periodEnd)
+	if err != nil {
+		t.Fatalf("HasSentUsageReport after finalize: %v", err)
+	}
+	if !sent {
+		t.Fatal("finalized report should be treated as sent")
+	}
+
+	claimed, err = pgStore.ClaimUsageReportSend(ctx, orgID, periodEnd)
+	if err != nil {
+		t.Fatalf("claim after finalized send: %v", err)
+	}
+	if claimed {
+		t.Fatal("sent usage report should block future claims")
+	}
+}
+
 // --------------------------------------------------------------------------
 // L3: CountMembersByOrg includes soft-deleted project members
 // --------------------------------------------------------------------------.
