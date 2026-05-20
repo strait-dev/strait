@@ -112,10 +112,10 @@ func (q *QuotaResumeEnforcer) enforceLocked(ctx context.Context) error {
 				"org_id", orgID, "error", err)
 			continue
 		}
-		q.markResumed(sub.OrgID, periodKey)
 		if resumed == 0 {
 			continue
 		}
+		q.markResumed(sub.OrgID, periodKey)
 
 		// Invalidate the enforcer cache so the next run check picks up the
 		// refreshed plan limits for the new period.

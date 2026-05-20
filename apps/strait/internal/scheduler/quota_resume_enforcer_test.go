@@ -9,10 +9,11 @@ import (
 )
 
 type mockQuotaResumeStore struct {
-	orgIDs       []string
-	subs         map[string]*billing.OrgSubscription
-	unpauseCalls int
-	boundaries   []time.Time
+	orgIDs        []string
+	subs          map[string]*billing.OrgSubscription
+	unpauseCalls  int
+	boundaries    []time.Time
+	resumeResults []int64
 }
 
 func (m *mockQuotaResumeStore) ListAllSubscribedOrgIDs(context.Context) ([]string, error) {
@@ -31,6 +32,11 @@ func (m *mockQuotaResumeStore) UnpauseJobsByPauseReason(context.Context, string,
 func (m *mockQuotaResumeStore) UnpauseJobsByPauseReasonBefore(_ context.Context, _ string, _ string, pausedBefore time.Time) (int64, error) {
 	m.unpauseCalls++
 	m.boundaries = append(m.boundaries, pausedBefore)
+	if len(m.resumeResults) > 0 {
+		resumed := m.resumeResults[0]
+		m.resumeResults = m.resumeResults[1:]
+		return resumed, nil
+	}
 	return 1, nil
 }
 
@@ -117,5 +123,32 @@ func TestDeepSecQuotaResumeEnforcer_FreeTierCatchesUpAfterFirstOfMonth(t *testin
 	wantBoundary := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
 	if !boundary.Equal(wantBoundary) {
 		t.Fatalf("boundary = %v, want %v", boundary, wantBoundary)
+	}
+}
+
+func TestQuotaResumeEnforcer_DoesNotMarkPeriodResumedWhenNoRowsMatched(t *testing.T) {
+	t.Parallel()
+
+	periodEnd := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+	store := &mockQuotaResumeStore{
+		orgIDs: []string{"org-1"},
+		subs: map[string]*billing.OrgSubscription{
+			"org-1": {OrgID: "org-1", CurrentPeriodEnd: &periodEnd},
+		},
+		resumeResults: []int64{0, 1},
+	}
+	enforcer := NewQuotaResumeEnforcer(store, nil, time.Minute)
+
+	if err := enforcer.enforceLocked(context.Background()); err != nil {
+		t.Fatalf("first enforceLocked() error = %v", err)
+	}
+	if err := enforcer.enforceLocked(context.Background()); err != nil {
+		t.Fatalf("second enforceLocked() error = %v", err)
+	}
+	if store.unpauseCalls != 2 {
+		t.Fatalf("unpause calls = %d, want retry after empty boundary pass", store.unpauseCalls)
+	}
+	if len(store.boundaries) != 2 || !store.boundaries[0].Equal(periodEnd) || !store.boundaries[1].Equal(periodEnd) {
+		t.Fatalf("unpause boundaries = %v, want two attempts at %v", store.boundaries, periodEnd)
 	}
 }
