@@ -48,7 +48,6 @@ const mimeTypes = new Map([
   [".woff", "font/woff"],
   [".woff2", "font/woff2"],
   [".ttf", "font/ttf"],
-  [".map", "application/json; charset=utf-8"],
   [".wasm", "application/wasm"],
 ]);
 
@@ -93,6 +92,11 @@ async function tryServeStatic(req, res) {
   const file = await resolveStaticFile(urlPath);
   if (!file) {
     return false;
+  }
+  if (path.extname(file.path) === ".map") {
+    res.statusCode = 404;
+    res.end();
+    return true;
   }
 
   res.setHeader("content-type", contentTypeFor(file.path));

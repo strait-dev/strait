@@ -10,7 +10,7 @@
     "start": "wrangler dev",
     "start:node": "node ./scripts/node-server.mjs",
     "preview": "vite preview",
-    "deploy": "vite build && bun run sentry:upload-sourcemaps && wrangler deploy",
+    "deploy": "SENTRY_UPLOAD_SOURCEMAPS=true vite build && bun run sentry:upload-sourcemaps && wrangler deploy",
     "sentry:upload-sourcemaps": "tsx scripts/sentry-sourcemaps.ts",
     "biome:lint": "biome lint ./src ./e2e",
     "biome:format": "biome format --write ./src ./e2e",

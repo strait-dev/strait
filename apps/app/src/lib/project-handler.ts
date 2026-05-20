@@ -1,20 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
-import { getRequestHeaders } from "@tanstack/react-start/server";
 import z from "zod/v4";
 import type { Project } from "@/hooks/api/types";
-import { apiPath } from "@/lib/api-client.server";
-import { getAuth, getAuthPool } from "@/lib/auth.server";
-import {
-  apiEffect,
-  runWithFallback,
-  runWithSentryReport,
-} from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
-import {
-  requireOrgAccess,
-  requireProjectAccess,
-  requireProjectAdmin,
-} from "@/middlewares/require-access";
 
 /**
  * Ensures the project table exists in the auth database.
@@ -25,6 +12,7 @@ export async function ensureProjectTable() {
   if (tableEnsured) {
     return;
   }
+  const { getAuthPool } = await import("@/lib/auth.server");
   await getAuthPool().query(`
     CREATE TABLE IF NOT EXISTS project (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
@@ -55,6 +43,15 @@ export const createProjectServerFn = createServerFn({ method: "POST" })
   )
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
+    const [
+      { getAuthPool },
+      { requireOrgAccess },
+      { apiEffect, runWithFallback },
+    ] = await Promise.all([
+      import("@/lib/auth.server"),
+      import("@/middlewares/require-access"),
+      import("@/lib/effect-api.server"),
+    ]);
     await requireOrgAccess(context.user.id, data.organizationId);
     await ensureProjectTable();
 
@@ -101,6 +98,8 @@ export const listProjectsServerFn = createServerFn({ method: "GET" })
   )
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
+    const { getAuthPool } = await import("@/lib/auth.server");
+    const { requireOrgAccess } = await import("@/middlewares/require-access");
     await requireOrgAccess(context.user.id, data.organizationId);
     await ensureProjectTable();
 
@@ -122,6 +121,7 @@ export const getProjectServerFn = createServerFn({ method: "GET" })
   )
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
+    const { getAuthPool } = await import("@/lib/auth.server");
     await ensureProjectTable();
 
     const activeOrgId = (context as Record<string, unknown>)
@@ -147,6 +147,17 @@ export const deleteProjectServerFn = createServerFn({ method: "POST" })
   )
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
+    const [
+      { apiPath },
+      { getAuthPool },
+      { apiEffect, runWithSentryReport },
+      { requireProjectAdmin },
+    ] = await Promise.all([
+      import("@/lib/api-client.server"),
+      import("@/lib/auth.server"),
+      import("@/lib/effect-api.server"),
+      import("@/middlewares/require-access"),
+    ]);
     const activeOrgId = (context as Record<string, unknown>)
       .activeOrganizationId as string | undefined;
     if (!activeOrgId) {
@@ -197,6 +208,12 @@ export const setActiveProjectServerFn = createServerFn({ method: "POST" })
   )
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
+    const [{ getRequestHeaders }, { getAuth }, { requireProjectAccess }] =
+      await Promise.all([
+        import("@tanstack/react-start/server"),
+        import("@/lib/auth.server"),
+        import("@/middlewares/require-access"),
+      ]);
     const activeOrgId = (context as Record<string, unknown>)
       .activeOrganizationId as string | undefined;
     await requireProjectAccess(context.user.id, data.projectId, activeOrgId);

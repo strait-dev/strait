@@ -21,6 +21,10 @@ const enableNgrok = !!process.env.NGROK_AUTHTOKEN && !process.env.DISABLE_NGROK;
 const buildTarget: "cloudflare" | "node" =
   process.env.BUILD_TARGET === "node" ? "node" : "cloudflare";
 
+const emitSourcemapsForSentry =
+  buildTarget === "cloudflare" &&
+  process.env.SENTRY_UPLOAD_SOURCEMAPS === "true";
+
 const sentryRelease = maybeResolveSentryRelease(process.env);
 
 function maybeResolveSentryRelease(env: NodeJS.ProcessEnv): string | undefined {
@@ -88,9 +92,10 @@ function wellKnownOAuthPlugin(): Plugin {
 
         try {
           // Dynamic import to avoid loading auth.server.ts at Vite config time
-          const { auth } = await server.ssrLoadModule(
+          const { getAuth } = await server.ssrLoadModule(
             "/src/lib/auth.server.ts"
           );
+          const auth = await getAuth();
 
           const data =
             req.url === "/.well-known/oauth-authorization-server"
@@ -155,7 +160,7 @@ export default defineConfig({
     exclude: ["@electric-sql/pglite", "drizzle-orm/pglite"],
   },
   build: {
-    sourcemap: true,
+    sourcemap: emitSourcemapsForSentry,
     rollupOptions: {
       // Externalize PGlite and test-only dependencies to prevent bundling
       // PGlite is a 20MB in-memory PostgreSQL used only for API tests

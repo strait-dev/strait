@@ -76,6 +76,8 @@
     "STRIPE_PRO_YEARLY_PRICE_ID": "",
     "STRIPE_SCALE_MONTHLY_PRICE_ID": "",
     "STRIPE_SCALE_YEARLY_PRICE_ID": "",
+    "STRIPE_BUSINESS_MONTHLY_PRICE_ID": "",
+    "STRIPE_BUSINESS_YEARLY_PRICE_ID": "",
 
     // Transactional email sender address.
     "RESEND_SUPPORT_EMAIL": "noreply@example.com",

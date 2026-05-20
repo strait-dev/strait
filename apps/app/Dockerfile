@@ -19,14 +19,11 @@
 #
 # Build context is the repo root (not apps/app) because the TanStack
 # Start app depends on workspace packages @strait/transactional and
-# @strait/ui. The root .dockerignore already excludes everything not
-# needed.
-#
-# Base image digests are deliberately unpinned on this commit. Dependabot's
-# docker ecosystem will pin both images on its first run, matching the
-# convention used in apps/strait/Dockerfile.
+# @strait/ui. Copy only the app and package source needed for the build
+# so untracked local secret files in the repo root are not copied into
+# builder layers.
 
-FROM --platform=$BUILDPLATFORM oven/bun:1.3.11-alpine AS builder
+FROM --platform=$BUILDPLATFORM oven/bun:1.3.11-alpine@sha256:7ed9f74c326d1c260abe247ac423ccbf5ac92af62bb442d515d1f92f21e8ea9b AS builder
 WORKDIR /repo
 
 # Copy the lockfile and every workspace manifest first so `bun install`
@@ -44,8 +41,13 @@ COPY packages/ui/package.json packages/ui/
 
 RUN bun install --frozen-lockfile
 
-# Source. Excluded paths are controlled by the root .dockerignore.
-COPY . .
+# Source. Keep this explicit so ignored local secrets never enter the build stage.
+COPY apps/app/instrument.server.ts apps/app/knip.json apps/app/tsconfig.json apps/app/vite.config.ts apps/app/vitest.config.ts apps/app/wrangler.jsonc apps/app/
+COPY apps/app/public apps/app/public
+COPY apps/app/scripts apps/app/scripts
+COPY apps/app/server apps/app/server
+COPY apps/app/src apps/app/src
+COPY packages packages
 
 ARG VERSION=dev
 ARG COMMIT=none
@@ -55,9 +57,9 @@ ENV VITE_APP_VERSION=$VERSION \
     VITE_APP_DATE=$DATE \
     VITE_STRAIT_EDITION=community
 
-RUN cd apps/app && BUILD_TARGET=node bun run build
+RUN cd apps/app && BUILD_TARGET=node bun run build && find dist -name '*.map' -type f -delete
 
-FROM gcr.io/distroless/nodejs22-debian12:nonroot AS runtime
+FROM gcr.io/distroless/nodejs22-debian12:nonroot@sha256:13593b7570658e8477de39e2f4a1dd25db2f836d68a0ba771251572d23bb4f8e AS runtime
 WORKDIR /app
 
 # `nonroot` (UID 65532) is provided by the distroless image — no
