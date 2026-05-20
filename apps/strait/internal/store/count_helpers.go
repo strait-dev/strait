@@ -313,7 +313,7 @@ func (q *Queries) DeactivateExcessNotificationChannelsByProject(ctx context.Cont
 			SELECT nc.id FROM notification_channels nc
 			WHERE nc.project_id = $1
 			  AND nc.enabled = true
-			ORDER BY nc.created_at ASC
+			ORDER BY nc.created_at DESC, nc.id DESC
 			OFFSET $2
 		)
 	`, projectID, maxChannels)

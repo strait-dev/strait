@@ -647,3 +647,58 @@ func TestDeactivateExcessLogDrains_DisablesOldest(t *testing.T) {
 		}
 	}
 }
+
+func TestDeactivateExcessNotificationChannelsByProject_DisablesOldest(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	orgID := "org-notification-trim-" + newID()
+	projectID := "proj-notification-trim-" + newID()
+	if err := q.CreateProject(ctx, &domain.Project{ID: projectID, OrgID: orgID, Name: "P"}); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+
+	baseTime := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	ids := make([]string, 4)
+	for i := range ids {
+		ids[i] = "notification-trim-" + newID()
+		channel := &domain.NotificationChannel{
+			ID:          ids[i],
+			ProjectID:   projectID,
+			ChannelType: domain.ChannelTypeWebhook,
+			Name:        "ops",
+			Config:      []byte(`{"url":"https://example.com/hooks/ops"}`),
+			Enabled:     true,
+		}
+		if err := q.CreateNotificationChannel(ctx, channel); err != nil {
+			t.Fatalf("CreateNotificationChannel(%d) error = %v", i, err)
+		}
+		if _, err := testDB.Pool.Exec(ctx, `
+			UPDATE notification_channels
+			SET created_at = $2, updated_at = $2
+			WHERE id = $1
+		`, ids[i], baseTime.Add(time.Duration(i)*time.Minute)); err != nil {
+			t.Fatalf("set notification channel created_at(%d): %v", i, err)
+		}
+	}
+
+	deactivated, err := q.DeactivateExcessNotificationChannelsByProject(ctx, projectID, 2)
+	if err != nil {
+		t.Fatalf("DeactivateExcessNotificationChannelsByProject() error = %v", err)
+	}
+	if deactivated != 2 {
+		t.Fatalf("deactivated = %d, want 2", deactivated)
+	}
+
+	for i, id := range ids {
+		var enabled bool
+		if err := testDB.Pool.QueryRow(ctx, `SELECT enabled FROM notification_channels WHERE id = $1`, id).Scan(&enabled); err != nil {
+			t.Fatalf("query notification channel %d enabled: %v", i, err)
+		}
+		wantEnabled := i >= 2
+		if enabled != wantEnabled {
+			t.Fatalf("notification channel %d enabled = %v, want %v", i, enabled, wantEnabled)
+		}
+	}
+}
