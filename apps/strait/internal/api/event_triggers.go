@@ -112,7 +112,7 @@ func (s *Server) handleSendEvent(ctx context.Context, input *SendEventInput) (*S
 		return nil, huma.Error409Conflict("event trigger is not in waiting state")
 	}
 	now := time.Now()
-	if trigger.SourceType == domain.EventSourceJobRun && trigger.JobRunID != "" {
+	if trigger.SourceType == domain.EventSourceJobRun && trigger.JobRunID != "" { //nolint:nestif
 		if err := s.store.ReceiveEventAndRequeueRun(ctx, trigger.ID, req.Payload, now, trigger.JobRunID); err != nil {
 			if errors.Is(err, store.ErrEventTriggerConflict) {
 				return nil, huma.Error409Conflict("event trigger is not in waiting state")

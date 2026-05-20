@@ -1628,7 +1628,7 @@ func TestWebhook_PastDueSetsGracePeriod(t *testing.T) {
 	}
 }
 
-func TestWebhook_ActiveClearsGracePeriod(t *testing.T) {
+func TestWebhook_ActiveSubscriptionUpdateDoesNotClearGracePeriod(t *testing.T) {
 	t.Parallel()
 
 	graceEnd := time.Now().Add(48 * time.Hour)
@@ -1667,8 +1667,8 @@ func TestWebhook_ActiveClearsGracePeriod(t *testing.T) {
 	}
 
 	sub, _ := store.GetOrgSubscription(context.Background(), "00000000-0000-0000-0000-00000000002e")
-	if sub.PaymentStatus != "ok" {
-		t.Fatalf("expected payment_status=ok after recovery, got %s", sub.PaymentStatus)
+	if sub.PaymentStatus != "grace" {
+		t.Fatalf("expected payment_status=grace until invoice payment recovery, got %s", sub.PaymentStatus)
 	}
 }
 
@@ -1694,15 +1694,14 @@ func TestWebhook_PaymentSucceededClearsGrace(t *testing.T) {
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
-	// Stripe fires customer.subscription.updated with active status when payment recovers.
-	data := testSubscriptionData{
-		ID:         subID,
-		ProductID:  "starter-id",
+	// Stripe fires invoice.paid when payment actually recovers.
+	data := testInvoiceData{
+		ID:         "inv_paid",
 		CustomerID: customerID,
-		Status:     "active",
+		SubID:      subID,
 		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-00000000002f"},
 	}
-	body := webhookPayload(t, "customer.subscription.updated", data)
+	body := webhookPayload(t, "invoice.paid", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
 	if rr.Code != http.StatusOK {

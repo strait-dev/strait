@@ -73,7 +73,7 @@ func (q *Queries) createWebhookSubscriptionWithOrgLimitLocked(ctx context.Contex
 		return q.CreateWebhookSubscription(ctx, sub)
 	}
 
-	if _, err := q.db.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, "webhook_endpoint_limit:"+orgID); err != nil {
+	if err := q.acquireWebhookEndpointLimitLock(ctx, orgID); err != nil {
 		return fmt.Errorf("lock webhook endpoint limit: %w", err)
 	}
 
@@ -86,6 +86,28 @@ func (q *Queries) createWebhookSubscriptionWithOrgLimitLocked(ctx context.Contex
 	}
 
 	return q.CreateWebhookSubscription(ctx, sub)
+}
+
+func (q *Queries) acquireWebhookEndpointLimitLock(ctx context.Context, orgID string) error {
+	lockKey := "webhook_endpoint_limit:" + orgID
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		var locked bool
+		if err := q.db.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock(hashtext($1))`, lockKey).Scan(&locked); err != nil {
+			return err
+		}
+		if locked {
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 func (q *Queries) countWebhookSubscriptionsByOrgIgnoringProjectRLS(ctx context.Context, orgID string) (count int, err error) {

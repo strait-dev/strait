@@ -536,48 +536,44 @@ func hasPersistedEntitlements(raw []byte) bool {
 	return len(trimmed) > 2 && string(trimmed) != "{}"
 }
 
-// checkPaymentStatus checks the org's payment/grace status. Returns
-// (false, nil) when normal plan enforcement should continue, or (false, err)
-// when payment state blocks the operation. Active grace allows payment access
-// but must not skip normal quota enforcement.
-func (e *Enforcer) checkPaymentStatus(ctx context.Context, orgID string) (bool, error) {
+// checkPaymentStatus checks the org's payment/grace status. nil means normal
+// plan enforcement should continue. Active grace allows payment access but
+// must not skip normal quota enforcement.
+func (e *Enforcer) checkPaymentStatus(ctx context.Context, orgID string) error {
 	sub, err := e.store.GetOrgSubscription(ctx, orgID)
 	if err != nil {
 		if errors.Is(err, ErrSubscriptionNotFound) {
-			return false, nil // free tier, no payment status
+			return nil // free tier, no payment status
 		}
 		e.logger.Warn("failed to get org subscription for payment check", "org_id", orgID, "error", err)
-		if err := e.boundedFailOpen(ctx, orgID, "payment_status", "db_error"); err != nil {
-			return false, err
-		}
-		return false, nil
+		return e.boundedFailOpen(ctx, orgID, "payment_status", "db_error")
 	}
 
 	switch sub.PaymentStatus {
 	case "restricted":
-		return false, &LimitError{
+		return &LimitError{
 			Code:    "payment_restricted",
 			Message: "Your account is restricted due to failed payment. Please update your payment method.",
 			Plan:    sub.PlanTier,
 		}
 	case "suspended":
-		return false, &LimitError{
+		return &LimitError{
 			Code:    "payment_suspended",
 			Message: "Your account is suspended due to failed payment. Please update your payment method.",
 			Plan:    sub.PlanTier,
 		}
 	case "grace":
 		if sub.GracePeriodEnd != nil && time.Now().Before(*sub.GracePeriodEnd) {
-			return false, nil
+			return nil
 		}
 		// Grace period has expired.
-		return false, &LimitError{
+		return &LimitError{
 			Code:    "grace_period_expired",
 			Message: "Your payment grace period has expired. Please update your payment method.",
 			Plan:    sub.PlanTier,
 		}
 	default:
-		return false, nil
+		return nil
 	}
 }
 
@@ -588,10 +584,8 @@ func (e *Enforcer) CheckDailyRunLimit(ctx context.Context, orgID string) error {
 		return nil
 	}
 
-	if skipLimits, err := e.checkPaymentStatus(ctx, orgID); err != nil {
+	if err := e.checkPaymentStatus(ctx, orgID); err != nil {
 		return err
-	} else if skipLimits {
-		return nil
 	}
 
 	limits, err := e.GetOrgPlanLimits(ctx, orgID)
@@ -689,10 +683,8 @@ func (e *Enforcer) CheckDailyAIModelCallLimit(ctx context.Context, orgID string)
 		return nil
 	}
 
-	if skipLimits, err := e.checkPaymentStatus(ctx, orgID); err != nil {
+	if err := e.checkPaymentStatus(ctx, orgID); err != nil {
 		return err
-	} else if skipLimits {
-		return nil
 	}
 
 	limits, err := e.GetOrgPlanLimits(ctx, orgID)
@@ -797,10 +789,8 @@ func (e *Enforcer) CheckMonthlyRunLimit(ctx context.Context, orgID string) error
 		return nil
 	}
 
-	if skipLimits, err := e.checkPaymentStatus(ctx, orgID); err != nil {
+	if err := e.checkPaymentStatus(ctx, orgID); err != nil {
 		return err
-	} else if skipLimits {
-		return nil
 	}
 
 	limits, err := e.GetOrgPlanLimits(ctx, orgID)
@@ -1019,10 +1009,8 @@ func (e *Enforcer) CheckConcurrentRunLimit(ctx context.Context, orgID string) er
 		return nil
 	}
 
-	if skipLimits, err := e.checkPaymentStatus(ctx, orgID); err != nil {
+	if err := e.checkPaymentStatus(ctx, orgID); err != nil {
 		return err
-	} else if skipLimits {
-		return nil
 	}
 
 	limits, err := e.GetOrgPlanLimits(ctx, orgID)
@@ -1502,10 +1490,7 @@ func (e *Enforcer) ReserveWorkerConnection(ctx context.Context, orgID, reservati
 
 	lease = normalizeWorkerConnectionLease(lease)
 	now := time.Now().UTC()
-	ttl := int((lease * 2).Seconds())
-	if ttl < 1 {
-		ttl = 1
-	}
+	ttl := max(int((lease * 2).Seconds()), 1)
 	result, err := workerConnectionReserveScript.Run(ctx, e.rdb, []string{workerConnectionReservationsKey(orgID)},
 		reservationID,
 		now.UnixMilli(),

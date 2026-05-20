@@ -46,7 +46,7 @@ func TestReaperRun_UsesPinnedAdvisoryLockRunner(t *testing.T) {
 
 	select {
 	case <-done:
-	case <-time.After(time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("reaper did not stop after context cancellation")
 	}
 

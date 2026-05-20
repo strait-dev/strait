@@ -633,7 +633,6 @@ func TestReserveWorkerConnection_EnforcesCapAcrossEnforcers(t *testing.T) {
 	}
 	t.Cleanup(release)
 
-	err = nil
 	_, err = enforcerB.ReserveWorkerConnection(ctx, "org_workers", "replica-b-worker", time.Minute)
 	if err == nil {
 		t.Fatal("expected second cross-replica worker reservation to hit free cap")

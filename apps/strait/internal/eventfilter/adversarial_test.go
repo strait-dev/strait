@@ -3,6 +3,7 @@ package eventfilter
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -19,8 +20,8 @@ func TestEval_DeeplyNestedPath(t *testing.T) {
 
 	// Build the nested JSON payload.
 	payload := `"leaf"`
-	for i := len(parts) - 1; i >= 0; i-- {
-		payload = fmt.Sprintf(`{%q:%s}`, parts[i], payload)
+	for _, part := range slices.Backward(parts) {
+		payload = fmt.Sprintf(`{%q:%s}`, part, payload)
 	}
 
 	filter := fmt.Sprintf(`{"eq":[[%q,"leaf"]]}`, deepPath)
@@ -161,26 +162,16 @@ func TestEval_NullValueInPath(t *testing.T) {
 func TestEval_EmptyFieldPath(t *testing.T) {
 	t.Parallel()
 
-	// Empty path for has condition.
+	// Empty paths are rejected before evaluation.
 	filter := json.RawMessage(`{"has":[""]}`)
 	payload := json.RawMessage(`{"":"secret"}`)
-	match, err := Eval(filter, payload)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// getField splits on "." producing [""], so it looks up key "".
-	if !match {
-		t.Fatal("expected empty key to match when payload has empty key")
+	if _, err := Eval(filter, payload); err == nil {
+		t.Fatal("expected empty field path to be rejected")
 	}
 
-	// Empty key not in payload.
 	payload = json.RawMessage(`{"a":"b"}`)
-	match, err = Eval(filter, payload)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if match {
-		t.Fatal("expected empty key to not match when payload lacks empty key")
+	if _, err := Eval(filter, payload); err == nil {
+		t.Fatal("expected empty field path to be rejected")
 	}
 }
 
@@ -188,7 +179,7 @@ func TestEval_EmptyFieldPath(t *testing.T) {
 func TestEval_PathWithOnlyDots(t *testing.T) {
 	t.Parallel()
 
-	paths := []string{".", "..", "....", strings.Repeat(".", 100)}
+	paths := []string{".", "..", "...."}
 	payload := json.RawMessage(`{"":"nested"}`)
 
 	for _, p := range paths {
@@ -198,6 +189,11 @@ func TestEval_PathWithOnlyDots(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error for path %q: %v", p, err)
 		}
+	}
+
+	filter := fmt.Sprintf(`{"has":[%q]}`, strings.Repeat(".", 100))
+	if _, err := Eval(json.RawMessage(filter), payload); err == nil {
+		t.Fatal("expected over-segmented dotted path to be rejected")
 	}
 }
 

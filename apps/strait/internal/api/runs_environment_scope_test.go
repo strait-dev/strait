@@ -13,7 +13,9 @@ import (
 
 func envScopedRunCtx() context.Context {
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
-	return context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
+	return context.WithValue(ctx, ctxActorIDKey, "apikey:test")
 }
 
 func newEnvScopedRunServer(t *testing.T) *Server {

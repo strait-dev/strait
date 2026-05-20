@@ -616,7 +616,7 @@ func TestUsageEndpoint_OIDC_NoRoleForbidden(t *testing.T) {
 	}
 }
 
-func TestUsageEndpoint_OIDC_ReadRoleAllowed(t *testing.T) {
+func TestUsageEndpoint_OIDC_ProjectReadRoleForbiddenForOrgBillingRead(t *testing.T) {
 	t.Parallel()
 
 	enforcer := &mockBillingEnforcer{
@@ -636,8 +636,8 @@ func TestUsageEndpoint_OIDC_ReadRoleAllowed(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 with projects:read, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for project-scoped OIDC on org billing read, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

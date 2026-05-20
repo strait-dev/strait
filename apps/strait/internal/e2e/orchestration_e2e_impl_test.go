@@ -261,7 +261,7 @@ func TestEndToEndWorkerMode(t *testing.T) {
 	if _, err := testEnv.DB.Pool.Exec(ctx,
 		`INSERT INTO workers (id, project_id, queue_name, hostname, version, status, last_seen_at, registered_at)
 		 VALUES ($1, $2, $3, 'test-host', '1.0', 'active', NOW(), NOW())
-		 ON CONFLICT (id) DO NOTHING`,
+		 ON CONFLICT (project_id, id) DO NOTHING`,
 		workerID, projectID, queueName,
 	); err != nil {
 		t.Fatalf("insert worker row: %v", err)
@@ -297,8 +297,10 @@ func TestEndToEndWorkerMode(t *testing.T) {
 
 			// Send TaskResult back via result channel.
 			result := &workerv1.TaskResult{
-				RunId:  assignment.RunId,
-				Status: "success",
+				RunId:        assignment.RunId,
+				Status:       "success",
+				AssignmentId: assignment.AssignmentId,
+				Attempt:      assignment.Attempt,
 			}
 			resultChannels.Send(assignment.RunId, projectID, workerID, result)
 

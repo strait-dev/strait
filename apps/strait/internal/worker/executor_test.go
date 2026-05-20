@@ -4800,6 +4800,12 @@ func TestDeepSecEndpointStateKeyScopesByProject(t *testing.T) {
 	if a == b {
 		t.Fatal("endpoint state keys for different projects must differ")
 	}
+	if strings.Contains(a, "\x00") || strings.Contains(b, "\x00") {
+		t.Fatalf("endpoint state keys must be valid Postgres text: %q %q", a, b)
+	}
+	if strings.Contains(a, endpoint) || strings.Contains(b, endpoint) {
+		t.Fatalf("project-scoped endpoint state keys must not store raw endpoint URL: %q %q", a, b)
+	}
 	if endpointStateKey("", endpoint) != endpoint {
 		t.Fatal("empty project should preserve legacy endpoint key")
 	}

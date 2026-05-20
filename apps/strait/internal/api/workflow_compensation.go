@@ -174,7 +174,7 @@ func compensationJobPayload(workflowRunID string, step workflow.CompensationStep
 		"step_run_id":          step.StepRunID,
 		"step_ref":             step.StepRef,
 		"compensation_job_id":  step.CompensationJobID,
-		"original_step_output": json.RawMessage(step.OriginalOutput),
+		"original_step_output": step.OriginalOutput,
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {

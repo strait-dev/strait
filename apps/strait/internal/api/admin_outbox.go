@@ -190,10 +190,7 @@ func (s *Server) handleAdminRetryOutbox(ctx context.Context, input *AdminOutboxM
 		if err != nil {
 			return err
 		}
-		if err := txStore.CreateAuditEvent(ctx, audit); err != nil {
-			return err
-		}
-		return nil
+		return txStore.CreateAuditEvent(ctx, audit)
 	}); err != nil {
 		switch {
 		case errors.Is(err, store.ErrOutboxRowNotFound):
@@ -248,10 +245,7 @@ func (s *Server) handleAdminPurgeOutbox(ctx context.Context, input *AdminOutboxM
 		if err != nil {
 			return err
 		}
-		if err := txStore.CreateAuditEvent(ctx, audit); err != nil {
-			return err
-		}
-		return nil
+		return txStore.CreateAuditEvent(ctx, audit)
 	}); err != nil {
 		switch {
 		case errors.Is(err, store.ErrOutboxRowNotFound):

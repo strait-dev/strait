@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -345,10 +346,11 @@ func TestEnvironment_EnvironmentScopedCallerCannotSetOtherParent(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
 	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-staging")
+	parentID := "env-prod"
 
 	_, err := srv.handleUpdateEnvironment(ctx, &UpdateEnvironmentInput{
 		EnvID: "env-staging",
-		Body:  UpdateEnvironmentRequest{ParentID: ptrString("env-prod")},
+		Body:  UpdateEnvironmentRequest{ParentID: &parentID},
 	})
 	if err == nil {
 		t.Fatal("expected cross-environment parent update to fail")
@@ -934,14 +936,5 @@ func FuzzSecretKey(f *testing.F) {
 }
 
 func containsString(values []string, needle string) bool {
-	for _, value := range values {
-		if value == needle {
-			return true
-		}
-	}
-	return false
-}
-
-func ptrString(value string) *string {
-	return &value
+	return slices.Contains(values, needle)
 }

@@ -107,7 +107,7 @@ type workerService struct {
 //  4. Client sends TaskResult when a run completes or fails.
 //  5. Client sends LogLine for in-flight run logs.
 //  6. On disconnect: server deregisters the worker and emits an audit event.
-func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksServer) error {
+func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksServer) error { //nolint:gocyclo,cyclop,funlen
 	ctx := stream.Context()
 
 	// Authenticate the connecting worker via the Bearer API key in gRPC metadata.
@@ -454,10 +454,7 @@ func (s *workerService) startWorkerConnectionReservationRenewal(
 	workerID string,
 ) {
 	lease := s.workerConnectionLease()
-	interval := lease / 3
-	if interval < 10*time.Millisecond {
-		interval = 10 * time.Millisecond
-	}
+	interval := max(lease/3, 10*time.Millisecond)
 	wg.Go(func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
@@ -523,7 +520,7 @@ func (s *workerService) listenForAPIKeyExpiry(
 	expiresAt time.Time,
 	hasExpiry bool,
 	expireKeySub *pubsub.Subscription,
-	cw *ConnectedWorker,
+	_ *ConnectedWorker,
 	apiKeyID string,
 	workerID string,
 	projectID string,

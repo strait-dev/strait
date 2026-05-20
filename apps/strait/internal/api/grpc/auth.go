@@ -27,9 +27,9 @@ const (
 
 	grpcCtxProjectIDKey     grpcContextKey = "grpc_project_id"
 	grpcCtxOrgIDKey         grpcContextKey = "grpc_org_id"
-	grpcCtxAPIKeyIDKey      grpcContextKey = "grpc_api_key_id" //nolint:gosec // not a credential; context-key name
-	grpcCtxAPIKeyKey        grpcContextKey = "grpc_api_key"    //nolint:gosec // not a credential; context-key name
-	grpcCtxAPIKeyExpiresKey grpcContextKey = "grpc_api_key_expires_at"
+	grpcCtxAPIKeyIDKey      grpcContextKey = "grpc_api_key_id"         //nolint:gosec // not a credential; context-key name
+	grpcCtxAPIKeyKey        grpcContextKey = "grpc_api_key"            //nolint:gosec // not a credential; context-key name
+	grpcCtxAPIKeyExpiresKey grpcContextKey = "grpc_api_key_expires_at" //nolint:gosec // context key label, not a credential
 	grpcCtxEnvironmentIDKey grpcContextKey = "grpc_environment_id"
 )
 

@@ -320,9 +320,10 @@ func TestAdv_UsageFlusher_ConcurrentFlush(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	// 10 goroutines * 1 record each = 10 upserts.
-	if upsertCount != 10 {
-		t.Fatalf("expected 10 upserts from concurrent flush, got %d", upsertCount)
+	// 10 goroutines * 1 record per lookback day.
+	wantUpserts := 10 * usageFlusherReconcileLookbackDays
+	if upsertCount != wantUpserts {
+		t.Fatalf("expected %d upserts from concurrent flush, got %d", wantUpserts, upsertCount)
 	}
 }
 

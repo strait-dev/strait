@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -2220,12 +2221,12 @@ func TestHandleGetEnvironment_Success(t *testing.T) {
 	if resp["id"] != "env-1" {
 		t.Fatalf("expected id=env-1, got %v", resp["id"])
 	}
-	resolved, ok := resp["resolved_variables"].(map[string]any)
+	resolved, ok := resp["resolved_variable_keys"].([]any)
 	if !ok {
-		t.Fatalf("expected resolved_variables object, got %T", resp["resolved_variables"])
+		t.Fatalf("expected resolved_variable_keys array, got %T", resp["resolved_variable_keys"])
 	}
-	if resolved["REGION"] != "us-east-1" {
-		t.Fatalf("expected resolved REGION, got %v", resolved["REGION"])
+	if !slices.ContainsFunc(resolved, func(v any) bool { return v == "REGION" }) {
+		t.Fatalf("expected resolved REGION key, got %v", resolved)
 	}
 }
 

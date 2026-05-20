@@ -342,6 +342,9 @@ func TestTenantIso_EventTrigger_SendByPrefix_DropsForeignEnv(t *testing.T) {
 
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-aaa")
 	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeJobsTrigger})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "apikey:test")
 	_, err := srv.handleSendEventByPrefix(ctx, &SendEventByPrefixInput{Prefix: "user.signup"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

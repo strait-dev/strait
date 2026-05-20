@@ -457,7 +457,7 @@ func (s *Server) handleListJobs(ctx context.Context, input *ListJobsInput) (*Lis
 			}
 			return nil, huma.Error500InternalServerError("failed to look up job by slug")
 		}
-		if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
+		if callerEnv := environmentIDFromContext(ctx); callerEnv != "" && job.EnvironmentID != callerEnv {
 			return emptyPage(), nil
 		}
 		return &ListJobsOutput{Body: paginatedResult([]domain.Job{*job}, limit, func(j domain.Job) string {

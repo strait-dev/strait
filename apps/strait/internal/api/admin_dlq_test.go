@@ -345,11 +345,9 @@ func TestHandleAdminListDLQ_FilteredEnvironmentScopeFiltersForeignRuns(t *testin
 	}
 }
 
-// TestHandleAdminPurgeDLQ_AuditWriteFailure_LogsButSucceeds verifies that
-// when the audit write fails after a successful mutation, the handler
-// still returns 200 (the mutation committed and cannot be rolled back)
-// and emits a structured error log so operators can reconcile.
-func TestHandleAdminPurgeDLQ_AuditWriteFailure_LogsButSucceeds(t *testing.T) {
+// TestHandleAdminPurgeDLQ_AuditWriteFailure_FailsClosed verifies that
+// audit durability is part of the purge transaction.
+func TestHandleAdminPurgeDLQ_AuditWriteFailure_FailsClosed(t *testing.T) {
 	// Not parallel: we swap the process-wide default slog handler.
 	var buf bytes.Buffer
 	prev := slog.Default()
@@ -370,11 +368,11 @@ func TestHandleAdminPurgeDLQ_AuditWriteFailure_LogsButSucceeds(t *testing.T) {
 	srv := newTestServer(t, mock, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/admin/dlq/run-1/purge", ""))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 (audit failure must not fail the mutation), got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 when audit persistence fails, got %d: %s", w.Code, w.Body.String())
 	}
-	if !strings.Contains(buf.String(), "audit write failed") {
-		t.Fatalf("expected 'audit write failed' log entry, got: %s", buf.String())
+	if !strings.Contains(buf.String(), "dlq purge failed") {
+		t.Fatalf("expected 'dlq purge failed' log entry, got: %s", buf.String())
 	}
 	if !strings.Contains(buf.String(), "run_id=run-1") {
 		t.Fatalf("expected run_id in log entry, got: %s", buf.String())

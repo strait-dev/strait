@@ -499,7 +499,7 @@ func (d *WorkerDispatcher) buildAssignment(run *domain.JobRun, job *domain.Job, 
 		PayloadJson:  run.Payload,
 		TimeoutSecs:  int32(job.TimeoutSecs), //nolint:gosec // TimeoutSecs is validated upstream to be non-negative and within range
 		AssignmentId: assignmentID,
-		Attempt:      int32(attempt), //nolint:gosec // Attempts are bounded by job retry policy and stored as int in Postgres.
+		Attempt:      int32(attempt),
 	}
 
 	// JWT run-token so the worker SDK can authenticate callbacks.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -72,6 +73,7 @@ type SLACalculator struct {
 	uptime     UptimeSource
 	issuer     SLACreditIssuer
 	dispatcher BillingEventDispatcher
+	dispatchMu sync.Mutex
 	interval   time.Duration
 	logger     *slog.Logger
 	clock      func() time.Time
@@ -236,6 +238,24 @@ func (c *SLACalculator) processContract(ctx context.Context, contract Enterprise
 }
 
 func (c *SLACalculator) dispatchSLACreditWebhook(ctx context.Context, orgID string, row SLACreditRow) {
+	c.dispatchMu.Lock()
+	defer c.dispatchMu.Unlock()
+
+	current, err := c.store.GetSLACredit(ctx, orgID, row.PeriodStart, row.PeriodEnd)
+	if err != nil {
+		c.logger.Warn("sla credit dispatch lookup failed", "org_id", orgID, "error", err)
+		return
+	}
+	if current == nil {
+		c.logger.Warn("sla credit disappeared before webhook dispatch", "org_id", orgID)
+		return
+	}
+	if current.WebhookDispatchedAt != nil {
+		c.logger.Debug("sla.credit_issued already dispatched", "org_id", orgID)
+		return
+	}
+	row = *current
+
 	detail := map[string]any{
 		"period_start":          row.PeriodStart.UTC().Format(time.RFC3339),
 		"period_end":            row.PeriodEnd.UTC().Format(time.RFC3339),

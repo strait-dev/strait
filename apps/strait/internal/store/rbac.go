@@ -242,10 +242,7 @@ func (q *Queries) AssignMemberRoleWithOrgLimit(ctx context.Context, m *domain.Pr
 			}
 		}
 
-		if err := New(tx).AssignMemberRole(txCtx, m); err != nil {
-			return err
-		}
-		return nil
+		return New(tx).AssignMemberRole(txCtx, m)
 	})
 }
 

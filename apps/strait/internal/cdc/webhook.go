@@ -187,8 +187,8 @@ func (wr *WebhookReceiver) verifySignature(r *http.Request, body []byte) bool {
 		return false
 	}
 	got = strings.TrimSpace(got)
-	if strings.HasPrefix(got, "sha256=") {
-		got = strings.TrimPrefix(got, "sha256=")
+	if trimmed, ok := strings.CutPrefix(got, "sha256="); ok {
+		got = trimmed
 	}
 	gotBytes, err := hex.DecodeString(got)
 	if err != nil {

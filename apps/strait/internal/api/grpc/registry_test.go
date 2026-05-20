@@ -44,12 +44,12 @@ func TestRegistry_Register_HappyPath(t *testing.T) {
 	}
 }
 
-// TestRegistry_Register_Collision verifies that re-registration with a different API key
-// returns an error (hijack protection).
+// TestRegistry_Register_Collision verifies that re-registration of the same
+// project worker ID with a different API key returns an error (hijack protection).
 func TestRegistry_Register_Collision(t *testing.T) {
 	r := NewConnectionRegistry()
 	w1 := makeWorker("w1", "proj-a", "key-1", []string{"default"}, 4)
-	w2 := makeWorker("w1", "proj-b", "key-2", []string{"default"}, 4)
+	w2 := makeWorker("w1", "proj-a", "key-2", []string{"default"}, 4)
 
 	if err := r.Register(w1); err != nil {
 		t.Fatalf("first register failed: %v", err)

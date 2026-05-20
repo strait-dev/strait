@@ -2,11 +2,13 @@ package worker
 
 import (
 	"context"
+	"sync"
 )
 
 type dispatchCacheKey struct{}
 
 type dispatchCache struct {
+	mu     sync.RWMutex
 	values map[string]any
 }
 
@@ -22,6 +24,8 @@ func dispatchCacheGet[T any](ctx context.Context, key string) (T, bool) {
 	if !ok || c == nil {
 		return zero, false
 	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	v, found := c.values[key]
 	if !found {
 		return zero, false
@@ -38,5 +42,7 @@ func dispatchCacheSet(ctx context.Context, key string, value any) {
 	if !ok || c == nil {
 		return
 	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.values[key] = value
 }

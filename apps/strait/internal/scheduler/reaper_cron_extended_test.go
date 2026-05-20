@@ -582,8 +582,9 @@ func TestUsageFlusher_UpsertError_ContinuesOtherRecords_Ext(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if upsertCalls != 2 {
-		t.Fatalf("expected 2 upsert calls (one fails, one succeeds), got %d", upsertCalls)
+	wantCalls := usageFlusherReconcileLookbackDays * 2
+	if upsertCalls != wantCalls {
+		t.Fatalf("expected %d upsert calls across lookback (one fails, one succeeds per day), got %d", wantCalls, upsertCalls)
 	}
 }
 

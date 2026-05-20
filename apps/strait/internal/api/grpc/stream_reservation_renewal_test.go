@@ -32,7 +32,7 @@ func (r *reservationRenewalRecorder) RenewWorkerConnection(context.Context, stri
 func TestWorkerConnectionReservationRenewal_RenewsWithoutHeartbeat(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	recorder := &reservationRenewalRecorder{}
@@ -60,7 +60,7 @@ func TestWorkerConnectionReservationRenewal_RenewsWithoutHeartbeat(t *testing.T)
 func TestWorkerConnectionReservationRenewal_FailureClosesStream(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	recorder := &reservationRenewalRecorder{failOnCall: 1}

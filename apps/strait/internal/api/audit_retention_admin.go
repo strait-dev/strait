@@ -157,10 +157,7 @@ func (s *Server) handleSetAuditRetention(ctx context.Context, input *UpdateAudit
 		if err := txStore.SetAuditRetentionDays(ctx, projectID, input.Body.Days); err != nil {
 			return err
 		}
-		if err := txStore.CreateAuditEvent(ctx, audit); err != nil {
-			return err
-		}
-		return nil
+		return txStore.CreateAuditEvent(ctx, audit)
 	}); err != nil {
 		slog.Error("failed to persist audited audit retention override", "project_id", projectID, "error", err)
 		return nil, huma.Error500InternalServerError("failed to update retention")

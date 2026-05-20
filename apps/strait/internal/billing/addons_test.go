@@ -90,9 +90,9 @@ func TestEffectiveLimits_History30dPack(t *testing.T) {
 
 func TestEffectiveLimits_ComplianceArchive_SetsSIEMExport(t *testing.T) {
 	t.Parallel()
-	base := GetPlanLimits(domain.PlanPro)
+	base := GetPlanLimits(domain.PlanScale)
 	if base.HasSIEMExport {
-		t.Fatalf("precondition: Pro should not have SIEM export")
+		t.Fatalf("precondition: Scale should not have SIEM export")
 	}
 
 	result := EffectiveLimits(base, []Addon{

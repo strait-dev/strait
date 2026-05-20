@@ -73,6 +73,7 @@ func TestDispatchSpendingLimit_StaleCacheFailsClosed(t *testing.T) {
 		PlanTier:              string(domain.PlanPro),
 		Status:                "active",
 		SpendingLimitMicrousd: 5_000_000,
+		LimitAction:           "block",
 	}
 	// Mock store returns 6_000_000 = $6 of spend (over the $5 cap).
 	// Real recent spend may be lower; we only see what the store says.
@@ -97,6 +98,7 @@ func TestDispatchSpendingLimit_NotInfluencedByDailyCounter(t *testing.T) {
 		PlanTier:              string(domain.PlanPro),
 		Status:                "active",
 		SpendingLimitMicrousd: 1_000_000,
+		LimitAction:           "block",
 	}
 	h := newDispatchHarness(t, sub, 5_000_000) // way over
 

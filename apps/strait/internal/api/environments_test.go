@@ -213,9 +213,9 @@ func TestHandleListEnvironments_EnvironmentScopedCallerOnlySeesOwnEnvironment(t 
 	if err != nil {
 		t.Fatalf("handleListEnvironments returned error: %v", err)
 	}
-	items, ok := out.Body.Data.([]domain.Environment)
+	items, ok := out.Body.Data.([]EnvironmentResponse)
 	if !ok {
-		t.Fatalf("items type = %T, want []domain.Environment", out.Body.Data)
+		t.Fatalf("items type = %T, want []EnvironmentResponse", out.Body.Data)
 	}
 	if len(items) != 1 || items[0].ID != "env-prod" {
 		t.Fatalf("items = %+v, want only env-prod", items)

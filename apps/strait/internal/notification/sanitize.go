@@ -12,7 +12,7 @@ func sanitizeDeliveryError(err error) string {
 }
 
 func redactURLSubstrings(message string) string {
-	return urlLikePattern.ReplaceAllStringFunc(message, func(raw string) string {
+	return urlLikePattern.ReplaceAllStringFunc(message, func(string) string {
 		return "[redacted-url]"
 	})
 }

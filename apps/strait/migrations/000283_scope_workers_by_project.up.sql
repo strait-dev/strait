@@ -11,5 +11,8 @@ ALTER TABLE worker_tasks
     REFERENCES workers(project_id, id)
     ON DELETE CASCADE;
 
+-- safety-ok: worker_tasks contains bounded active dispatch rows and this index
+-- supports project-scoped worker lookups. golang-migrate wraps migrations in a
+-- transaction, so CONCURRENTLY is not viable here.
 CREATE INDEX IF NOT EXISTS idx_worker_tasks_project_worker
     ON worker_tasks (project_id, worker_id, status);

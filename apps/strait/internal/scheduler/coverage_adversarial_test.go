@@ -374,8 +374,8 @@ func TestUsageFlusher_AdvisoryLocker_Acquired(t *testing.T) {
 	uf := NewUsageFlusher(s, time.Minute).WithAdvisoryLocker(locker)
 	uf.flush(context.Background())
 
-	if upsertCount.Load() != 1 {
-		t.Fatalf("expected 1 upsert, got %d", upsertCount.Load())
+	if upsertCount.Load() != usageFlusherReconcileLookbackDays {
+		t.Fatalf("expected %d upserts across lookback, got %d", usageFlusherReconcileLookbackDays, upsertCount.Load())
 	}
 }
 

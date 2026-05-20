@@ -331,10 +331,7 @@ func (s *Server) handleAdminUnmaskDLQ(ctx context.Context, input *AdminDLQRunInp
 		if err := txStore.UnmaskDLQRun(ctx, input.RunID); err != nil {
 			return err
 		}
-		if err := txStore.CreateAuditEvent(ctx, audit); err != nil {
-			return err
-		}
-		return nil
+		return txStore.CreateAuditEvent(ctx, audit)
 	}); err != nil {
 		switch {
 		case errors.Is(err, store.ErrRunNotFound):
@@ -401,10 +398,7 @@ func (s *Server) handleAdminPurgeDLQ(ctx context.Context, input *AdminDLQRunInpu
 		if err := txStore.PurgeDLQRun(ctx, input.RunID); err != nil {
 			return err
 		}
-		if err := txStore.CreateAuditEvent(ctx, audit); err != nil {
-			return err
-		}
-		return nil
+		return txStore.CreateAuditEvent(ctx, audit)
 	}); err != nil {
 		switch {
 		case errors.Is(err, store.ErrRunNotFound):

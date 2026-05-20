@@ -13,8 +13,6 @@ import (
 // TestLogIdempotencyRollbackErr_NilNoLog verifies the helper is a no-op on
 // the happy path (committed transactions and clean rollbacks).
 func TestLogIdempotencyRollbackErr_NilNoLog(t *testing.T) {
-	t.Parallel()
-
 	var buf bytes.Buffer
 	old := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
@@ -31,8 +29,6 @@ func TestLogIdempotencyRollbackErr_NilNoLog(t *testing.T) {
 // for the expected committed-then-deferred-rollback path. pgx returns
 // ErrTxClosed from Rollback() after a successful Commit().
 func TestLogIdempotencyRollbackErr_TxClosedNoLog(t *testing.T) {
-	t.Parallel()
-
 	var buf bytes.Buffer
 	old := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
@@ -49,8 +45,6 @@ func TestLogIdempotencyRollbackErr_TxClosedNoLog(t *testing.T) {
 // ErrTxClosed errors are also suppressed — pgx callers occasionally wrap
 // the sentinel before bubbling it up.
 func TestLogIdempotencyRollbackErr_TxClosedWrappedNoLog(t *testing.T) {
-	t.Parallel()
-
 	var buf bytes.Buffer
 	old := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
@@ -69,8 +63,6 @@ func TestLogIdempotencyRollbackErr_TxClosedWrappedNoLog(t *testing.T) {
 // error message attached. This is the operational signal we lost when the
 // previous code used `_ = tx.Rollback(ctx)`.
 func TestLogIdempotencyRollbackErr_RealErrorEmitsWarn(t *testing.T) {
-	t.Parallel()
-
 	var buf bytes.Buffer
 	old := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))

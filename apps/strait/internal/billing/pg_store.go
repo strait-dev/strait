@@ -268,6 +268,8 @@ func (s *PgStore) UpdateOrgSubscriptionFull(ctx context.Context, orgID, planTier
 			SET plan_tier = $2, status = $3,
 				current_period_start = COALESCE($4, current_period_start),
 				current_period_end = COALESCE($5, current_period_end),
+				payment_status = CASE WHEN $3 = 'active' THEN 'ok' ELSE payment_status END,
+				grace_period_end = CASE WHEN $3 = 'active' THEN NULL ELSE grace_period_end END,
 				updated_at = NOW()
 			WHERE org_id = $1
 		`, orgID, planTier, status, periodStart, periodEnd)
@@ -708,10 +710,7 @@ func (s *PgStore) ReconcileFlatUsageCosts(ctx context.Context, orgID string, dat
 	if err := s.reconcileCompletedRunCosts(ctx, orgID, date); err != nil {
 		return err
 	}
-	if err := s.reconcileDeliveredWebhookCosts(ctx, orgID, date); err != nil {
-		return err
-	}
-	return nil
+	return s.reconcileDeliveredWebhookCosts(ctx, orgID, date)
 }
 
 func (s *PgStore) reconcileCompletedRunCosts(ctx context.Context, orgID string, date time.Time) error {

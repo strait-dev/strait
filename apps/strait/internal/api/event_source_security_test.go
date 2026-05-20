@@ -52,8 +52,8 @@ func TestEventSource_FilterExpressionInjection(t *testing.T) {
 	}
 }
 
-// TestEventSource_FilterExpressionDoS verifies that a filter with a very large number
-// of eq conditions completes without hanging or crashing.
+// TestEventSource_FilterExpressionDoS verifies that oversized filter expressions
+// fail closed instead of consuming unbounded parser work.
 func TestEventSource_FilterExpressionDoS(t *testing.T) {
 	t.Parallel()
 
@@ -69,17 +69,13 @@ func TestEventSource_FilterExpressionDoS(t *testing.T) {
 
 	payload := json.RawMessage(`{"field":"no_match"}`)
 
-	match, err := eventfilter.Eval(filterJSON, payload)
-	if err != nil {
-		t.Fatalf("filter eval should not error: %v", err)
-	}
-	if match {
-		t.Fatal("should not match when value differs from all 100K conditions")
+	if _, err := eventfilter.Eval(filterJSON, payload); err == nil {
+		t.Fatal("expected oversized filter expression to be rejected")
 	}
 }
 
-// TestEventSource_FilterExpressionNestedPaths verifies that deeply nested dot-separated
-// paths in filter expressions are handled without panic or stack overflow.
+// TestEventSource_FilterExpressionNestedPaths verifies that deeply nested
+// dot-separated paths fail closed before recursive evaluation.
 func TestEventSource_FilterExpressionNestedPaths(t *testing.T) {
 	t.Parallel()
 
@@ -92,12 +88,8 @@ func TestEventSource_FilterExpressionNestedPaths(t *testing.T) {
 	filter := json.RawMessage(fmt.Sprintf(`{"has":[%q]}`, path))
 	payload := json.RawMessage(`{"a":{"b":"c"}}`)
 
-	match, err := eventfilter.Eval(filter, payload)
-	if err != nil {
-		t.Fatalf("filter eval should not error on deep path: %v", err)
-	}
-	if match {
-		t.Fatal("deeply nested path should not match shallow payload")
+	if _, err := eventfilter.Eval(filter, payload); err == nil {
+		t.Fatal("expected deeply nested filter path to be rejected")
 	}
 }
 

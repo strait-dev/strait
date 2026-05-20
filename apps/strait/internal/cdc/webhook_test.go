@@ -101,6 +101,7 @@ func TestWebhookReceiver_UnknownTable_Returns200(t *testing.T) {
 	wr := NewWebhookReceiver(nil, nil)
 
 	msg := Message{
+		Action:   ActionUpdate,
 		Metadata: Metadata{TableName: "unknown_table"},
 	}
 
@@ -132,6 +133,7 @@ func TestWebhookReceiver_HandlerError_Returns500(t *testing.T) {
 	wr.RegisterHandler(h)
 
 	msg := Message{
+		Action:   ActionUpdate,
 		Metadata: Metadata{TableName: "job_runs"},
 	}
 

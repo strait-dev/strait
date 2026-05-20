@@ -417,7 +417,7 @@ func estimateRecordValueBytes(v reflect.Value) int {
 	if !v.IsValid() {
 		return 0
 	}
-	if v.Type() == reflect.TypeOf(time.Time{}) {
+	if v.Type() == reflect.TypeFor[time.Time]() {
 		return 24
 	}
 	switch v.Kind() {
@@ -433,8 +433,8 @@ func estimateRecordValueBytes(v reflect.Value) int {
 		return 8
 	case reflect.Struct:
 		size := 0
-		for i := range v.NumField() {
-			size += estimateRecordValueBytes(v.Field(i))
+		for _, field := range v.Fields() {
+			size += estimateRecordValueBytes(field)
 		}
 		return size
 	case reflect.Slice, reflect.Array:

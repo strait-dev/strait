@@ -3,6 +3,8 @@ package worker
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -906,7 +908,8 @@ func endpointStateKey(projectID, endpointURL string) string {
 	if projectID == "" {
 		return endpointURL
 	}
-	return projectID + "\x00" + endpointURL
+	sum := sha256.Sum256([]byte(endpointURL))
+	return "project:" + projectID + ":endpoint:" + hex.EncodeToString(sum[:])
 }
 
 // snoozeRunFromExecuting re-queues a run that is currently in the Executing

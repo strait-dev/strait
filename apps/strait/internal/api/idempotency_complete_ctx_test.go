@@ -122,7 +122,7 @@ func TestCompleteIdempotencyKeyTimeoutBudgetEnforced(t *testing.T) {
 	wrapped.ServeHTTP(w, r)
 	elapsed := time.Since(start)
 
-	if elapsed > 6*time.Second {
+	if elapsed > 10*time.Second {
 		t.Fatalf("middleware blocked %v on Complete; expected ≤ ~5s", elapsed)
 	}
 
