@@ -10,7 +10,7 @@ import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { apiPath } from "@/lib/api-client.server";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
-import { requireActiveProjectAccess } from "@/middlewares/require-access";
+import { requireActiveProjectScope } from "@/middlewares/require-project-scope";
 
 export const fetchEvents = createServerFn({ method: "GET" })
   .inputValidator(
@@ -26,7 +26,7 @@ export const fetchEvents = createServerFn({ method: "GET" })
   .handler(
     // @ts-expect-error tsgo cannot resolve createServerFn handler generics
     async ({ context, data }): Promise<PaginatedResponse<EventTrigger>> => {
-      await requireActiveProjectAccess(context);
+      await requireActiveProjectScope(context, "jobs:read");
       return await runWithSentryReport(
         apiEffect<PaginatedResponse<EventTrigger>>("/v1/events", {
           params: {
@@ -47,7 +47,7 @@ export const fetchEvent = createServerFn({ method: "GET" })
   .handler(
     // @ts-expect-error tsgo cannot resolve createServerFn handler generics
     async ({ context, data }): Promise<EventTrigger> => {
-      await requireActiveProjectAccess(context);
+      await requireActiveProjectScope(context, "jobs:read");
       return await runWithSentryReport(
         apiEffect<EventTrigger>(apiPath`/v1/events/${data.eventKey}`)
       );

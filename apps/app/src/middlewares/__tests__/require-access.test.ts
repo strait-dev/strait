@@ -123,10 +123,10 @@ describe("role-gated access helpers", () => {
     mockQuery.mockReset();
   });
 
-  it("returns the strongest role when multiple roles are stored", async () => {
+  it("rejects comma-separated stored roles", async () => {
     mockQuery.mockResolvedValue({ rows: [{ role: "admin,owner" }] });
 
-    await expect(getOrganizationRole("user-1", "org-1")).resolves.toBe("owner");
+    await expect(getOrganizationRole("user-1", "org-1")).resolves.toBe(null);
   });
 
   it("allows admins for admin-gated organization operations", async () => {

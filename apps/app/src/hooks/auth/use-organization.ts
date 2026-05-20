@@ -15,7 +15,6 @@ import { getAuth } from "@/lib/auth.server";
 import {
   deleteLastOrganizationWithTokenServerFn,
   deleteOrganizationWithTokenServerFn,
-  purgeOrganizationWithTokenServerFn,
   requestOrganizationDeletionServerFn,
   resendOrganizationDeletionCodeServerFn,
   setActiveOrganizationAuth,
@@ -24,7 +23,6 @@ import {
 import type {
   DeleteLastOrganizationWithTokenSchema,
   DeleteOrganizationWithTokenSchema,
-  PurgeOrganizationWithTokenSchema,
   RequestOrganizationDeletionSchema,
   ResendOrganizationDeletionCodeResponseSchema,
   ResendOrganizationDeletionCodeSchema,
@@ -403,23 +401,6 @@ export const useDeleteOrganizationWithToken = () =>
   >({
     mutationKey: ["organizations", "deleteWithToken"],
     mutationFn: (data) => deleteOrganizationWithTokenServerFn({ data }),
-  });
-
-/**
- * Hook to purge organization with token.
- */
-export const usePurgeOrganizationWithToken = () =>
-  useMutation<
-    {
-      success: boolean;
-      message?: string;
-      organizationId?: string;
-    },
-    Error,
-    z.infer<typeof PurgeOrganizationWithTokenSchema>
-  >({
-    mutationKey: ["organizations", "purge"],
-    mutationFn: (data) => purgeOrganizationWithTokenServerFn({ data }),
   });
 
 /**

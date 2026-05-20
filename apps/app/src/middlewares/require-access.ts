@@ -19,13 +19,15 @@ function parseStoredRoles(role: unknown): OrganizationRole[] {
     return [];
   }
 
-  return role
-    .split(",")
-    .map((value) => value.trim())
-    .filter(
-      (value): value is OrganizationRole =>
-        value === "owner" || value === "admin" || value === "member"
-    );
+  const normalized = role.trim();
+  if (
+    normalized === "owner" ||
+    normalized === "admin" ||
+    normalized === "member"
+  ) {
+    return [normalized];
+  }
+  return [];
 }
 
 function hasRequiredRole(

@@ -484,10 +484,12 @@ const createAuth = () => {
         defaultOrganizationId: {
           type: "string",
           required: false,
+          input: false,
         },
         activeProjectId: {
           type: "string",
           required: false,
+          input: false,
         },
       },
     },

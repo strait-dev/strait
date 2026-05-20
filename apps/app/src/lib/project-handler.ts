@@ -208,20 +208,17 @@ export const setActiveProjectServerFn = createServerFn({ method: "POST" })
   )
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
-    const [{ getRequestHeaders }, { getAuth }, { requireProjectAccess }] =
-      await Promise.all([
-        import("@tanstack/react-start/server"),
-        import("@/lib/auth.server"),
-        import("@/middlewares/require-access"),
-      ]);
+    const [{ getAuthPool }, { requireProjectAccess }] = await Promise.all([
+      import("@/lib/auth.server"),
+      import("@/middlewares/require-access"),
+    ]);
     const activeOrgId = (context as Record<string, unknown>)
       .activeOrganizationId as string | undefined;
     await requireProjectAccess(context.user.id, data.projectId, activeOrgId);
 
-    const headers = getRequestHeaders();
-    await (await getAuth()).api.updateUser({
-      body: { activeProjectId: data.projectId },
-      headers,
-    });
+    await getAuthPool().query(
+      `UPDATE "user" SET "activeProjectId" = $1 WHERE id = $2`,
+      [data.projectId, context.user.id]
+    );
     return { success: true };
   });

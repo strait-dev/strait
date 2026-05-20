@@ -1,15 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockRedisDel = vi.fn();
+const mockRedisExpire = vi.fn();
 const mockRedisGet = vi.fn();
 const mockRedisGetDel = vi.fn();
+const mockRedisIncr = vi.fn();
 const mockRedisSet = vi.fn();
 
 vi.mock("@upstash/redis", () => ({
   Redis: class {
     del = mockRedisDel;
+    expire = mockRedisExpire;
     get = mockRedisGet;
     getdel = mockRedisGetDel;
+    incr = mockRedisIncr;
     set = mockRedisSet;
   },
 }));
@@ -112,11 +116,24 @@ describe("one-time and conditional operations", () => {
       nx: true,
     });
   });
+
+  it("uses Redis INCR and sets expiry for the first rate-limit hit", async () => {
+    const { kvIncrementWithTtl } = await importKvWithRedis();
+    mockRedisIncr.mockResolvedValueOnce(1).mockResolvedValueOnce(2);
+    mockRedisExpire.mockResolvedValue(1);
+
+    await expect(kvIncrementWithTtl("limit", { ex: 60 })).resolves.toBe(1);
+    await expect(kvIncrementWithTtl("limit", { ex: 60 })).resolves.toBe(2);
+
+    expect(mockRedisIncr).toHaveBeenCalledWith("limit");
+    expect(mockRedisExpire).toHaveBeenCalledTimes(1);
+    expect(mockRedisExpire).toHaveBeenCalledWith("limit", 60);
+  });
 });
 
 describe("memory fallback without Redis configuration", () => {
   it("supports get, set, conditional set, and consume", async () => {
-    const { kvGet, kvGetDelete, kvSet, kvSetIfAbsent } =
+    const { kvGet, kvGetDelete, kvIncrementWithTtl, kvSet, kvSetIfAbsent } =
       await importKvWithoutRedis();
 
     await kvSet("mem-key", "mem-value", { ex: 60 });
@@ -126,6 +143,8 @@ describe("memory fallback without Redis configuration", () => {
     ).resolves.toBe(false);
     await expect(kvGetDelete("mem-key")).resolves.toBe("mem-value");
     await expect(kvGet("mem-key")).resolves.toBe(null);
+    await expect(kvIncrementWithTtl("mem-limit", { ex: 60 })).resolves.toBe(1);
+    await expect(kvIncrementWithTtl("mem-limit", { ex: 60 })).resolves.toBe(2);
   });
 
   it("expires entries after TTL", async () => {

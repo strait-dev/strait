@@ -1,6 +1,5 @@
 import {
   OrganizationDeleted,
-  OrganizationPurged,
   OrganizationVerificationCode,
 } from "@strait/transactional";
 import { createServerFn } from "@tanstack/react-start";
@@ -20,7 +19,6 @@ import type {
 import {
   DeleteLastOrganizationWithTokenSchema,
   DeleteOrganizationWithTokenSchema,
-  PurgeOrganizationWithTokenSchema,
   RequestOrganizationDeletionSchema,
   ResendOrganizationDeletionCodeSchema,
   VerifyOrganizationDeletionSchema,
@@ -31,7 +29,7 @@ type ProjectRow = {
   id: string;
 };
 
-type DeletionOperation = "delete" | "purge";
+type DeletionOperation = "delete";
 
 const COOLDOWN_SECONDS = 60;
 const CODE_TTL_SECONDS = 300;
@@ -151,7 +149,8 @@ export const setActiveOrganizationAuth = createServerFn({ method: "POST" })
     const headers = getRequestHeaders();
     await ensureProjectTable();
 
-    const result = await (await getAuth()).api.setActiveOrganization({
+    const auth = await getAuth();
+    const result = await auth.api.setActiveOrganization({
       body: { organizationId: data.organizationId },
       headers,
     });
@@ -171,13 +170,17 @@ export const setActiveOrganizationAuth = createServerFn({ method: "POST" })
 
     const activeProjectId = projectResult.rows[0]?.id ?? null;
 
-    await (await getAuth()).api.updateUser({
-      body: {
-        defaultOrganizationId: data.organizationId,
-        activeProjectId,
-      },
-      headers,
-    });
+    const session = await auth.api.getSession({ headers });
+    if (!session?.user?.id) {
+      throw new Error("Unauthorized");
+    }
+
+    await getAuthPool().query(
+      `UPDATE "user"
+       SET "defaultOrganizationId" = $1, "activeProjectId" = $2
+       WHERE id = $3`,
+      [data.organizationId, activeProjectId, session.user.id]
+    );
 
     return result;
   });
@@ -461,81 +464,6 @@ export const deleteOrganizationWithTokenServerFn = createServerFn({
   });
 
 /**
- * Server function to purge organization data with verification token.
- * Clears all organization data but keeps the organization structure.
- */
-export const purgeOrganizationWithTokenServerFn = createServerFn({
-  method: "POST",
-})
-  .inputValidator((data: z.infer<typeof PurgeOrganizationWithTokenSchema>) =>
-    PurgeOrganizationWithTokenSchema.parse(data)
-  )
-  .middleware([authMiddleware])
-  .handler(async ({ context, data }) => {
-    const { organizationId, verificationToken } = data;
-
-    const tokenKey = deletionTokenKey(organizationId, context.user.id, "purge");
-    const storedToken = await kvGetDelete(tokenKey);
-
-    if (!storedToken || storedToken !== verificationToken) {
-      return {
-        success: false,
-        message: "Verification token invalid or expired",
-      };
-    }
-
-    const organization = await getFullOrganizationAuth({
-      data: { organizationId },
-    });
-
-    if (!organization) {
-      throw new Error("Organization not found");
-    }
-
-    const membership = organization.members.find(
-      (member: any) => member.userId === context.user.id
-    );
-
-    if (!(membership && ["owner", "admin"].includes(membership.role))) {
-      throw new Error(
-        "You do not have permission to purge the data of this organization"
-      );
-    }
-
-    const organizations = await listOrganizationsAuth();
-
-    if (organizations && organizations.length > 1) {
-      throw new Error(
-        "This action can only be used when there is only one organization"
-      );
-    }
-
-    const projectIds = await listOrganizationProjectIds(organizationId);
-    await deleteBackendProjects(projectIds);
-    await clearActiveProjectIds(projectIds);
-    await getAuthPool().query(
-      "DELETE FROM project WHERE organization_id = $1",
-      [organizationId]
-    );
-
-    await getResend().emails.send({
-      from: "Strait <hello@usestrait.com>",
-      to: context.user.email,
-      subject: "Organization data purged successfully",
-      react: OrganizationPurged({
-        name: context.user.name,
-        organizationName: organization.name,
-      }),
-    });
-
-    return {
-      success: true,
-      message: "Organization data purged successfully",
-      organizationId,
-    };
-  });
-
-/**
  * Server function to resend organization deletion code.
  * Implements rate limiting and sends new verification code.
  */
@@ -661,16 +589,21 @@ export const deleteLastOrganizationWithTokenServerFn = createServerFn({
     await deleteBackendProjects(projectIds);
     await clearActiveProjectIds(projectIds);
 
-    await (await getAuth()).api.updateUser({
-      body: {
-        defaultOrganizationId: null,
-        activeProjectId: null,
-      },
-      headers,
-    });
+    const auth = await getAuth();
+    const session = await auth.api.getSession({ headers });
+    if (!session?.user?.id) {
+      throw new Error("Unauthorized");
+    }
+
+    await getAuthPool().query(
+      `UPDATE "user"
+       SET "defaultOrganizationId" = NULL, "activeProjectId" = NULL
+       WHERE id = $1`,
+      [session.user.id]
+    );
 
     // Delete the organization via Better Auth
-    await (await getAuth()).api.deleteOrganization({
+    await auth.api.deleteOrganization({
       body: { organizationId },
       headers,
     });

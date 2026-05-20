@@ -68,7 +68,7 @@ export const RequestOrganizationDeletionSchema = z.object({
 export const VerifyOrganizationDeletionSchema = z.object({
   organizationId: z.string({ message: "Invalid organization ID" }),
   verificationCode: z.string({ message: "Invalid verification code" }),
-  operation: z.enum(["delete", "purge"]).default("delete"),
+  operation: z.literal("delete").default("delete"),
 });
 
 export const VerifyOrganizationDeletionResponseSchema = z.object({
@@ -93,11 +93,6 @@ export const ResendOrganizationDeletionCodeResponseSchema = z.object({
   success: z.boolean(),
   message: z.string().optional(),
   cooldownRemaining: z.number().optional(),
-});
-
-export const PurgeOrganizationWithTokenSchema = z.object({
-  organizationId: z.string({ message: "Invalid organization ID" }),
-  verificationToken: z.string({ message: "Invalid verification token" }),
 });
 
 export const DeleteLastOrganizationWithTokenSchema = z.object({

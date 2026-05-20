@@ -22,6 +22,11 @@ import {
   requireActiveProjectAdmin,
 } from "@/middlewares/require-access";
 
+export type CreateWebhookResult = {
+  subscription: WebhookSubscription;
+  signing_secret: string;
+};
+
 export const fetchWebhookSubscriptions = createServerFn({ method: "GET" })
   .inputValidator((data: ListParams) => data)
   .middleware([authMiddleware])
@@ -66,14 +71,10 @@ export const createWebhookFn = createServerFn({ method: "POST" })
     (data: { webhook_url: string; event_types: string[] }) => data
   )
   .middleware([authMiddleware])
-  .handler(async ({ context, data }): Promise<WebhookSubscription> => {
+  .handler(async ({ context, data }): Promise<CreateWebhookResult> => {
     const projectId = await requireActiveProjectAdmin(context);
-    type CreateWebhookResponse = {
-      subscription: WebhookSubscription;
-      signing_secret: string;
-    };
-    const response = await runWithSentryReport(
-      apiEffect<CreateWebhookResponse>("/v1/webhooks/subscriptions", {
+    return await runWithSentryReport(
+      apiEffect<CreateWebhookResult>("/v1/webhooks/subscriptions", {
         method: "POST",
         body: {
           project_id: projectId,
@@ -82,7 +83,6 @@ export const createWebhookFn = createServerFn({ method: "POST" })
         },
       })
     );
-    return response.subscription;
   });
 
 export const deleteWebhookFn = createServerFn({ method: "POST" })
@@ -150,7 +150,9 @@ export const useCreateWebhook = () => {
     mutationFn: (data: { webhook_url: string; event_types: string[] }) =>
       createWebhookFn({ data }),
     onSuccess: (data) => {
-      getPostHog()?.capture("webhook_created", { webhook_id: data?.id });
+      getPostHog()?.capture("webhook_created", {
+        webhook_id: data.subscription.id,
+      });
     },
     onError: (err) => {
       getPostHog()?.capture("mutation_error", {

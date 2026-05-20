@@ -64,6 +64,13 @@ function memorySetIfAbsent(
   return true;
 }
 
+function memoryIncrementWithTtl(key: string, ttlSeconds: number): number {
+  const current = memoryGet(key);
+  const next = current ? Number.parseInt(current, 10) + 1 : 1;
+  memorySet(key, String(Number.isFinite(next) ? next : 1), ttlSeconds);
+  return Number.isFinite(next) ? next : 1;
+}
+
 /**
  * Get a value from the KV store. Tries Redis first, falls back to memory.
  */
@@ -154,4 +161,24 @@ export async function kvSetIfAbsent(
   }
 
   return memorySetIfAbsent(key, value, ttl);
+}
+
+export async function kvIncrementWithTtl(
+  key: string,
+  opts: { ex: number }
+): Promise<number> {
+  const kv = getKv();
+  if (kv) {
+    try {
+      const count = await kv.incr(key);
+      if (count === 1) {
+        await kv.expire(key, opts.ex);
+      }
+      return count;
+    } catch {
+      throw new Error("KV increment failed");
+    }
+  }
+
+  return memoryIncrementWithTtl(key, opts.ex);
 }

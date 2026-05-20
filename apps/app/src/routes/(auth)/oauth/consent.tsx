@@ -150,15 +150,12 @@ const submitConsent = createServerFn({ method: "POST" })
 
 export const Route = createFileRoute("/(auth)/oauth/consent")({
   validateSearch: consentSearchSchema,
-  beforeLoad: ({ context, search }) => {
+  beforeLoad: ({ context, location }) => {
     if (!context.isAuthenticated) {
-      const qs = buildSearchParams(
-        search as Record<string, string | undefined>
-      );
       throw redirect({
         to: OAUTH_LOGIN_PAGE,
         search: {
-          redirect: `/oauth/consent${qs ? `?${qs}` : ""}`,
+          redirect: `/oauth/consent${location.searchStr}`,
         },
       });
     }
@@ -248,9 +245,10 @@ function OAuthConsentPage() {
     parseScopes(search.scope);
 
   // Build the oauth_query string for the consent endpoint
-  const oauthQuery = buildSearchParams(
-    search as Record<string, string | undefined>
-  );
+  const oauthQuery =
+    typeof window === "undefined"
+      ? buildSearchParams(search as Record<string, string | undefined>)
+      : window.location.search.slice(1);
 
   if (!(search.client_id && search.redirect_uri)) {
     return <ConsentMissingParams />;

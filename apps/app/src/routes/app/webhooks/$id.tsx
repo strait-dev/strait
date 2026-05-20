@@ -136,7 +136,9 @@ function WebhookDetailPage() {
   const deleteWebhook = useDeleteWebhook();
   const testWebhook = useTestWebhook();
 
-  const deliveries = deliveriesData?.data ?? [];
+  const deliveries = (deliveriesData?.data ?? []).filter(
+    (delivery) => delivery.subscription_id === id
+  );
 
   const table = useReactTable({
     data: deliveries,

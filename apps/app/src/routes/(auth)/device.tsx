@@ -7,6 +7,7 @@ import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";
 import { apiRequest } from "@/lib/api-client.server";
 import { authMiddleware } from "@/middlewares/auth";
+import { requireActiveProjectAccess } from "@/middlewares/require-access";
 
 const deviceSearchSchema = z.object({
   code: z.string().optional().catch(undefined),
@@ -24,10 +25,7 @@ const approveDeviceCode = createServerFn({ method: "POST" })
   )
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
-    const projectId = context.activeProjectId;
-    if (!projectId) {
-      throw new Error("Select a project before authorizing a device");
-    }
+    const projectId = await requireActiveProjectAccess(context);
     return await apiRequest<ApproveResponse>("/v1/cli/device-codes/approve", {
       method: "POST",
       projectId,

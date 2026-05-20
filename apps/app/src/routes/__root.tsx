@@ -35,7 +35,6 @@ export type Session = {
   session: {
     id: string;
     userId: string;
-    token: string;
     expiresAt: Date;
   };
 } | null;

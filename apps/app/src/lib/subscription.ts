@@ -3,7 +3,7 @@ import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getAuth } from "@/lib/auth.server";
 import { isCommunityEdition } from "@/lib/edition";
 import { findCustomerByOrg, getStripeClient } from "@/lib/stripe.server";
-import { requireOrgAccess } from "@/middlewares/require-access";
+import { requireOrgAdmin } from "@/middlewares/require-access";
 
 type CustomerPortalResponse = {
   url: string | null;
@@ -42,7 +42,7 @@ export const getCustomerPortalUrlServerFn = createServerFn({
   }
 
   try {
-    await requireOrgAccess(session.user.id, orgId);
+    await requireOrgAdmin(session.user.id, orgId);
     const customerId = await findCustomerByOrg(email, orgId);
 
     if (!customerId) {

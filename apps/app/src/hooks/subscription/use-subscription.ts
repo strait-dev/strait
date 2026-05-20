@@ -17,6 +17,7 @@ import { Effect } from "effect";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { getAuth } from "@/lib/auth.server";
 import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
+import { enforceRateLimit } from "@/lib/rate-limit.server";
 import { findCustomerByOrg, getStripeClient } from "@/lib/stripe.server";
 import { requireOrgAccess } from "@/middlewares/require-access";
 import { selectBestSubscription } from "./subscription-helpers";
@@ -57,6 +58,10 @@ const subscriptionCache = new Map<
   string,
   { value: NormalizedSubscription | null; expiresAt: number }
 >();
+const subscriptionInflight = new Map<
+  string,
+  Promise<NormalizedSubscription | null>
+>();
 
 const SUBSCRIPTION_CACHE_MS = 60_000;
 
@@ -82,28 +87,40 @@ const getSubscriptionByEmail = async (
     return cached.value;
   }
 
-  const customerId = await findCustomerByOrg(email, orgId);
-  if (!customerId) {
-    subscriptionCache.set(cacheKey, {
-      value: null,
-      expiresAt: Date.now() + SUBSCRIPTION_CACHE_MS,
-    });
-    return null;
+  const inflight = subscriptionInflight.get(cacheKey);
+  if (inflight) {
+    return await inflight;
   }
 
-  const stripe = getStripeClient();
-  const { data: subscriptions } = await stripe.subscriptions.list({
-    customer: customerId,
-    limit: 20,
-    expand: ["data.items.data.price"],
+  const request = (async () => {
+    const customerId = await findCustomerByOrg(email, orgId);
+    if (!customerId) {
+      subscriptionCache.set(cacheKey, {
+        value: null,
+        expiresAt: Date.now() + SUBSCRIPTION_CACHE_MS,
+      });
+      return null;
+    }
+
+    const stripe = getStripeClient();
+    const { data: subscriptions } = await stripe.subscriptions.list({
+      customer: customerId,
+      limit: 20,
+      expand: ["data.items.data.price"],
+    });
+
+    const value = selectBestSubscription(subscriptions);
+    subscriptionCache.set(cacheKey, {
+      value,
+      expiresAt: Date.now() + SUBSCRIPTION_CACHE_MS,
+    });
+    return value;
+  })().finally(() => {
+    subscriptionInflight.delete(cacheKey);
   });
 
-  const value = selectBestSubscription(subscriptions);
-  subscriptionCache.set(cacheKey, {
-    value,
-    expiresAt: Date.now() + SUBSCRIPTION_CACHE_MS,
-  });
-  return value;
+  subscriptionInflight.set(cacheKey, request);
+  return await request;
 };
 
 type SessionWithActiveOrg = {
@@ -144,6 +161,12 @@ const getSubscriptionServerFn = createServerFn({ method: "GET" }).handler(
     } catch {
       return null;
     }
+
+    await enforceRateLimit({
+      key: `subscription:${billingSession.orgId}:${billingSession.session.user.id}`,
+      limit: 30,
+      windowSeconds: 60,
+    });
 
     const subscription = await getSubscriptionByEmail(
       billingSession.email,
