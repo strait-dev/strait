@@ -14,8 +14,13 @@ import type {
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, HIGH_CHURN_STALE_TIME } from "@/hooks/utils";
 import { getPostHog } from "@/lib/analytics";
+import { apiPath } from "@/lib/api-client.server";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
+import {
+  requireActiveProjectAccess,
+  requireActiveProjectAdmin,
+} from "@/middlewares/require-access";
 
 export const fetchRuns = createServerFn({ method: "GET" })
   .inputValidator(
@@ -30,8 +35,9 @@ export const fetchRuns = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(
     // @ts-expect-error tsgo cannot resolve createServerFn handler generics
-    async ({ data }): Promise<PaginatedResponse<JobRun>> =>
-      await runWithSentryReport(
+    async ({ context, data }): Promise<PaginatedResponse<JobRun>> => {
+      await requireActiveProjectAccess(context);
+      return await runWithSentryReport(
         apiEffect<PaginatedResponse<JobRun>>("/v1/runs", {
           params: {
             limit: data.limit,
@@ -41,7 +47,8 @@ export const fetchRuns = createServerFn({ method: "GET" })
             search: data.search,
           },
         })
-      )
+      );
+    }
   );
 
 export const fetchRun = createServerFn({ method: "GET" })
@@ -49,8 +56,12 @@ export const fetchRun = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(
     // @ts-expect-error tsgo cannot resolve createServerFn handler generics
-    async ({ data }): Promise<JobRun> =>
-      await runWithSentryReport(apiEffect<JobRun>(`/v1/runs/${data.id}`))
+    async ({ context, data }): Promise<JobRun> => {
+      await requireActiveProjectAccess(context);
+      return await runWithSentryReport(
+        apiEffect<JobRun>(apiPath`/v1/runs/${data.id}`)
+      );
+    }
   );
 
 export const fetchRunEvents = createServerFn({ method: "GET" })
@@ -60,15 +71,17 @@ export const fetchRunEvents = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(
     // @ts-expect-error tsgo cannot resolve createServerFn handler generics
-    async ({ data }): Promise<PaginatedResponse<RunEvent>> =>
-      await runWithSentryReport(
+    async ({ context, data }): Promise<PaginatedResponse<RunEvent>> => {
+      await requireActiveProjectAccess(context);
+      return await runWithSentryReport(
         apiEffect<PaginatedResponse<RunEvent>>(
-          `/v1/runs/${data.runId}/events`,
+          apiPath`/v1/runs/${data.runId}/events`,
           {
             params: { limit: data.limit, cursor: data.cursor },
           }
         )
-      )
+      );
+    }
   );
 
 export const replayRunFn = createServerFn({ method: "POST" })
@@ -76,23 +89,25 @@ export const replayRunFn = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(
     // @ts-expect-error tsgo cannot resolve createServerFn handler generics
-    async ({ data }): Promise<JobRun> =>
-      await runWithSentryReport(
-        apiEffect<JobRun>(`/v1/runs/${data.runId}/replay`, {
+    async ({ context, data }): Promise<JobRun> => {
+      await requireActiveProjectAdmin(context);
+      return await runWithSentryReport(
+        apiEffect<JobRun>(apiPath`/v1/runs/${data.runId}/replay`, {
           method: "POST",
         })
-      )
+      );
+    }
   );
 
 export const cancelRunFn = createServerFn({ method: "POST" })
   .inputValidator((data: { runId: string }) => data)
   .middleware([authMiddleware])
-  .handler(
-    async ({ data }): Promise<void> =>
-      await runWithSentryReport(
-        apiEffect<void>(`/v1/runs/${data.runId}`, { method: "DELETE" })
-      )
-  );
+  .handler(async ({ context, data }): Promise<void> => {
+    await requireActiveProjectAdmin(context);
+    return await runWithSentryReport(
+      apiEffect<void>(apiPath`/v1/runs/${data.runId}`, { method: "DELETE" })
+    );
+  });
 
 type RunsSearchParams = ListParams & {
   status?: string;

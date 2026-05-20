@@ -8,9 +8,13 @@ import z from "zod/v4";
 import type { ProjectSettings, Region } from "@/hooks/api/types";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { getPostHog } from "@/lib/analytics";
+import { apiPath } from "@/lib/api-client.server";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
-import { requireProjectAccess } from "@/middlewares/require-access";
+import {
+  requireProjectAccess,
+  requireProjectAdmin,
+} from "@/middlewares/require-access";
 
 export const fetchRegions = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
@@ -30,7 +34,9 @@ export const fetchProjectSettings = createServerFn({ method: "GET" })
     await requireProjectAccess(context.user.id, data.projectId, activeOrgId);
 
     return await runWithSentryReport(
-      apiEffect<ProjectSettings>(`/v1/projects/${data.projectId}/settings`)
+      apiEffect<ProjectSettings>(
+        apiPath`/v1/projects/${data.projectId}/settings`
+      )
     );
   });
 
@@ -47,13 +53,16 @@ export const updateProjectSettingsFn = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     const activeOrgId = (context as Record<string, unknown>)
       .activeOrganizationId as string | undefined;
-    await requireProjectAccess(context.user.id, data.projectId, activeOrgId);
+    await requireProjectAdmin(context.user.id, data.projectId, activeOrgId);
 
     return await runWithSentryReport(
-      apiEffect<ProjectSettings>(`/v1/projects/${data.projectId}/settings`, {
-        method: "PUT",
-        body: { default_region: data.default_region },
-      })
+      apiEffect<ProjectSettings>(
+        apiPath`/v1/projects/${data.projectId}/settings`,
+        {
+          method: "PUT",
+          body: { default_region: data.default_region },
+        }
+      )
     );
   });
 

@@ -10,31 +10,37 @@ import { cancelRunFn } from "@/hooks/api/use-runs";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { getPostHog } from "@/lib/analytics";
+import { apiPath } from "@/lib/api-client.server";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
+import {
+  requireActiveProjectAccess,
+  requireActiveProjectAdmin,
+} from "@/middlewares/require-access";
 
 // Bulk cancel server function (uses the dedicated bulk endpoint)
 
 const bulkCancelRunsFn = createServerFn({ method: "POST" })
   .inputValidator((data: { run_ids: string[] }) => data)
   .middleware([authMiddleware])
-  .handler(
-    async ({ data }): Promise<{ canceled: number }> =>
-      await runWithSentryReport(
-        apiEffect<{ canceled: number }>("/v1/runs/bulk-cancel", {
-          method: "POST",
-          body: { run_ids: data.run_ids },
-        })
-      )
-  );
+  .handler(async ({ context, data }): Promise<{ canceled: number }> => {
+    await requireActiveProjectAdmin(context);
+    return await runWithSentryReport(
+      apiEffect<{ canceled: number }>("/v1/runs/bulk-cancel", {
+        method: "POST",
+        body: { run_ids: data.run_ids },
+      })
+    );
+  });
 
 export const fetchDlqRuns = createServerFn({ method: "GET" })
   .inputValidator((data: ListParams & { search?: string }) => data)
   .middleware([authMiddleware])
   .handler(
     // @ts-expect-error tsgo cannot resolve createServerFn handler generics
-    async ({ data }): Promise<PaginatedResponse<JobRun>> =>
-      await runWithSentryReport(
+    async ({ context, data }): Promise<PaginatedResponse<JobRun>> => {
+      await requireActiveProjectAccess(context);
+      return await runWithSentryReport(
         apiEffect<PaginatedResponse<JobRun>>("/v1/runs/dlq", {
           params: {
             limit: data.limit,
@@ -42,7 +48,8 @@ export const fetchDlqRuns = createServerFn({ method: "GET" })
             search: data.search,
           },
         })
-      )
+      );
+    }
   );
 
 export const replayDlqRunFn = createServerFn({ method: "POST" })
@@ -50,12 +57,14 @@ export const replayDlqRunFn = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(
     // @ts-expect-error tsgo cannot resolve createServerFn handler generics
-    async ({ data }): Promise<JobRun> =>
-      await runWithSentryReport(
-        apiEffect<JobRun>(`/v1/runs/${data.runId}/dlq-replay`, {
+    async ({ context, data }): Promise<JobRun> => {
+      await requireActiveProjectAdmin(context);
+      return await runWithSentryReport(
+        apiEffect<JobRun>(apiPath`/v1/runs/${data.runId}/dlq-replay`, {
           method: "POST",
         })
-      )
+      );
+    }
   );
 
 export const bulkReplayDlqFn = createServerFn({ method: "POST" })
@@ -63,8 +72,12 @@ export const bulkReplayDlqFn = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(
     // @ts-expect-error tsgo cannot resolve createServerFn handler generics
-    async ({ data }): Promise<{ replayed: JobRun[]; count: number }> =>
-      await runWithSentryReport(
+    async ({
+      context,
+      data,
+    }): Promise<{ replayed: JobRun[]; count: number }> => {
+      await requireActiveProjectAdmin(context);
+      return await runWithSentryReport(
         apiEffect<{ replayed: JobRun[]; count: number }>(
           "/v1/runs/bulk-dlq-replay",
           {
@@ -72,7 +85,8 @@ export const bulkReplayDlqFn = createServerFn({ method: "POST" })
             body: { run_ids: data.run_ids },
           }
         )
-      )
+      );
+    }
   );
 
 export const dlqQueryOptions = (search?: ListParams & { search?: string }) =>

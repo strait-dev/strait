@@ -2,6 +2,12 @@ import { getAuthPool } from "@/lib/auth.server";
 
 export type OrganizationRole = "owner" | "admin" | "member";
 
+export type AuthzContext = {
+  user: { id: string };
+  activeOrganizationId?: string;
+  activeProjectId?: string;
+};
+
 const roleRank: Record<OrganizationRole, number> = {
   member: 1,
   admin: 2,
@@ -155,4 +161,34 @@ export async function requireProjectAdmin(
   activeOrganizationId: string | undefined
 ): Promise<void> {
   await requireProjectRole(userId, projectId, activeOrganizationId, "admin");
+}
+
+export async function requireActiveProjectAccess(
+  context: AuthzContext
+): Promise<string> {
+  const projectId = context.activeProjectId;
+  if (!projectId) {
+    throw new Error("Forbidden");
+  }
+  await requireProjectAccess(
+    context.user.id,
+    projectId,
+    context.activeOrganizationId
+  );
+  return projectId as string;
+}
+
+export async function requireActiveProjectAdmin(
+  context: AuthzContext
+): Promise<string> {
+  const projectId = context.activeProjectId;
+  if (!projectId) {
+    throw new Error("Forbidden");
+  }
+  await requireProjectAdmin(
+    context.user.id,
+    projectId,
+    context.activeOrganizationId
+  );
+  return projectId as string;
 }
