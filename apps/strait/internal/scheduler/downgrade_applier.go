@@ -278,13 +278,6 @@ func enforcePlanResourceLimits(
 	return errors.Join(errs...)
 }
 
-// dispatchScheduleSuspended emits one schedule.suspended webhook event per
-// suspended job. Failures are logged but do not interrupt downgrade
-// application — the local state change is the source of truth.
-func (d *DowngradeApplier) dispatchScheduleSuspended(ctx context.Context, orgID, planTier string, jobIDs []string, reason string) {
-	dispatchScheduleSuspended(ctx, d.billingDispatcher, orgID, planTier, jobIDs, reason)
-}
-
 func dispatchScheduleSuspended(ctx context.Context, dispatcher billing.BillingEventDispatcher, orgID, planTier string, jobIDs []string, reason string) {
 	if dispatcher == nil || len(jobIDs) == 0 {
 		return

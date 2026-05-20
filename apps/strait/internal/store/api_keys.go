@@ -545,10 +545,7 @@ func (q *Queries) CreateRotatedAPIKey(ctx context.Context, oldKeyID string, newK
 		if err := tx.CreateAPIKey(ctx, newKey); err != nil {
 			return err
 		}
-		if err := tx.MarkAPIKeyRotated(ctx, oldKeyID, newKey.ID, graceExpiresAt); err != nil {
-			return err
-		}
-		return nil
+		return tx.MarkAPIKeyRotated(ctx, oldKeyID, newKey.ID, graceExpiresAt)
 	}); err != nil {
 		return fmt.Errorf("create rotated api key: %w", err)
 	}

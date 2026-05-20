@@ -1124,6 +1124,10 @@ func (s *slaCalculatorStore) GetSLACredit(ctx context.Context, orgID string, per
 	return s.slaCreditStore.GetSLACredit(ctx, orgID, periodStart, periodEnd)
 }
 
+func (s *slaCalculatorStore) MarkSLACreditWebhookDispatched(ctx context.Context, orgID string, periodStart, periodEnd, dispatchedAt time.Time) (bool, error) {
+	return s.slaCreditStore.MarkSLACreditWebhookDispatched(ctx, orgID, periodStart, periodEnd, dispatchedAt)
+}
+
 func applyWorkerPlaneToExecutorConfig(execCfg *worker.ExecutorConfig, workerPlane *grpcserver.Server, jwtSigningKey string) {
 	if execCfg == nil || workerPlane == nil {
 		return
