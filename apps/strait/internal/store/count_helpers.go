@@ -226,7 +226,7 @@ func (q *Queries) DeactivateExcessWebhookSubscriptions(ctx context.Context, orgI
 			SELECT ws.id FROM webhook_subscriptions ws
 			WHERE ws.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
 			  AND ws.active = true
-			ORDER BY ws.created_at ASC
+			ORDER BY ws.created_at DESC, ws.id DESC
 			OFFSET $2
 		)
 	`, orgID, maxEndpoints)

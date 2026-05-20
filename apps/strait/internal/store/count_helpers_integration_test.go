@@ -702,3 +702,58 @@ func TestDeactivateExcessNotificationChannelsByProject_DisablesOldest(t *testing
 		}
 	}
 }
+
+func TestDeactivateExcessWebhookSubscriptions_DisablesOldest(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	orgID := "org-webhook-trim-" + newID()
+	projectID := "proj-webhook-trim-" + newID()
+	if err := q.CreateProject(ctx, &domain.Project{ID: projectID, OrgID: orgID, Name: "P"}); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+
+	baseTime := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	ids := make([]string, 4)
+	for i := range ids {
+		ids[i] = "webhook-trim-" + newID()
+		sub := &domain.WebhookSubscription{
+			ID:         ids[i],
+			ProjectID:  projectID,
+			WebhookURL: "https://example.com/hook-" + newID(),
+			EventTypes: []string{"run.completed"},
+			Secret:     "secret",
+			Active:     true,
+		}
+		if err := q.CreateWebhookSubscription(ctx, sub); err != nil {
+			t.Fatalf("CreateWebhookSubscription(%d) error = %v", i, err)
+		}
+		if _, err := testDB.Pool.Exec(ctx, `
+			UPDATE webhook_subscriptions
+			SET created_at = $2
+			WHERE id = $1
+		`, ids[i], baseTime.Add(time.Duration(i)*time.Minute)); err != nil {
+			t.Fatalf("set webhook subscription created_at(%d): %v", i, err)
+		}
+	}
+
+	deactivated, err := q.DeactivateExcessWebhookSubscriptions(ctx, orgID, 2)
+	if err != nil {
+		t.Fatalf("DeactivateExcessWebhookSubscriptions() error = %v", err)
+	}
+	if deactivated != 2 {
+		t.Fatalf("deactivated = %d, want 2", deactivated)
+	}
+
+	for i, id := range ids {
+		var active bool
+		if err := testDB.Pool.QueryRow(ctx, `SELECT active FROM webhook_subscriptions WHERE id = $1`, id).Scan(&active); err != nil {
+			t.Fatalf("query webhook subscription %d active: %v", i, err)
+		}
+		wantActive := i >= 2
+		if active != wantActive {
+			t.Fatalf("webhook subscription %d active = %v, want %v", i, active, wantActive)
+		}
+	}
+}
