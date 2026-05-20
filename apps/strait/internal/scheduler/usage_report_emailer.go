@@ -215,8 +215,8 @@ func (re *UsageReportEmailer) sendReport(ctx context.Context, orgID string, sub 
 		addonCount = len(addons)
 	}
 	var periodSpend int64
-	if spend, err := re.store.SumOrgPeriodSpend(ctx, orgID, periodStart); err == nil {
-		periodSpend = spend
+	if usage, err := re.store.GetOrgUsageForPeriod(ctx, orgID, periodStart, periodEnd); err == nil {
+		periodSpend = sumUsageRecordSpend(usage)
 	}
 	overage := max(periodSpend, 0)
 
@@ -260,6 +260,14 @@ func (re *UsageReportEmailer) finalizeReportSent(ctx context.Context, orgID stri
 		return claimStore.FinalizeUsageReportSend(ctx, orgID, periodEnd)
 	}
 	return re.store.RecordSentUsageReport(ctx, orgID, periodEnd)
+}
+
+func sumUsageRecordSpend(records []billing.UsageRecord) int64 {
+	var total int64
+	for _, record := range records {
+		total += record.ComputeCostMicro + record.AICostMicro
+	}
+	return total
 }
 
 func buildUsageReportHTML(orgID, planTier string, periodStart, periodEnd time.Time, creditMicro int64, addonCount int, overageMicro int64) string {

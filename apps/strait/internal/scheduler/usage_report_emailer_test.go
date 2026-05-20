@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,11 +17,18 @@ type mockReportStore struct {
 	subscriptions        map[string]*billing.OrgSubscription
 	adminEmails          map[string][]string
 	usageRecords         []billing.UsageRecord
+	usagePeriodCalls     []usagePeriodCall
 	sentReports          map[string]bool // key: "orgID|periodEnd"
 	recordSentCalls      []string        // tracks orgIDs for RecordSentUsageReport calls
 	finalizeCalls        []string
 	releaseCalls         []string
 	hasSentUsageReportFn func(ctx context.Context, orgID string, periodEnd time.Time) (bool, error)
+}
+
+type usagePeriodCall struct {
+	orgID string
+	from  time.Time
+	to    time.Time
 }
 
 func (m *mockReportStore) ListAllSubscribedOrgIDs(context.Context) ([]string, error) {
@@ -42,8 +50,29 @@ func (m *mockReportStore) GetOrgSubscriptionByStripeSubscriptionID(context.Conte
 	return nil, billing.ErrSubscriptionNotFound
 }
 
-func (m *mockReportStore) GetOrgUsageForPeriod(context.Context, string, time.Time, time.Time) ([]billing.UsageRecord, error) {
-	return m.usageRecords, nil
+func (m *mockReportStore) GetOrgUsageForPeriod(_ context.Context, orgID string, from, to time.Time) ([]billing.UsageRecord, error) {
+	m.usagePeriodCalls = append(m.usagePeriodCalls, usagePeriodCall{orgID: orgID, from: from, to: to})
+	return filterUsageRecords(m.usageRecords, from, to, 0), nil
+}
+
+func (m *mockReportStore) GetOrgUsageForPeriodLimited(_ context.Context, orgID string, from, to time.Time, limit int) ([]billing.UsageRecord, error) {
+	m.usagePeriodCalls = append(m.usagePeriodCalls, usagePeriodCall{orgID: orgID, from: from, to: to})
+	return filterUsageRecords(m.usageRecords, from, to, limit), nil
+}
+
+func filterUsageRecords(records []billing.UsageRecord, from, to time.Time, limit int) []billing.UsageRecord {
+	endExclusive := to.AddDate(0, 0, 1)
+	filtered := make([]billing.UsageRecord, 0, len(records))
+	for _, record := range records {
+		if record.PeriodDate.Before(from) || !record.PeriodDate.Before(endExclusive) {
+			continue
+		}
+		filtered = append(filtered, record)
+		if limit > 0 && len(filtered) >= limit {
+			break
+		}
+	}
+	return filtered
 }
 
 func (m *mockReportStore) ListOrgAdminEmails(_ context.Context, orgID string) ([]string, error) {
@@ -612,5 +641,63 @@ func TestUsageReportEmailer_FinalizesClaimOnlyAfterSuccessfulSend(t *testing.T) 
 	}
 	if len(store.releaseCalls) != 0 {
 		t.Fatalf("releaseCalls = %v, want no release after successful send", store.releaseCalls)
+	}
+}
+
+func TestUsageReportEmailer_UsesBoundedPeriodTotals(t *testing.T) {
+	t.Parallel()
+
+	periodStart := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	periodEnd := time.Date(2026, 4, 30, 0, 0, 0, 0, time.UTC)
+	store := &mockReportStore{
+		orgIDs: []string{"org-bounded"},
+		subscriptions: map[string]*billing.OrgSubscription{
+			"org-bounded": {
+				OrgID:              "org-bounded",
+				PlanTier:           "starter",
+				Status:             "active",
+				MonthlyUsageEmail:  true,
+				CurrentPeriodStart: &periodStart,
+				CurrentPeriodEnd:   &periodEnd,
+			},
+		},
+		adminEmails: map[string][]string{"org-bounded": {"admin@example.com"}},
+		usageRecords: []billing.UsageRecord{
+			{
+				OrgID:            "org-bounded",
+				ProjectID:        "project-in-period",
+				PeriodDate:       time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC),
+				ComputeCostMicro: 1_000_000,
+			},
+			{
+				OrgID:            "org-bounded",
+				ProjectID:        "project-after-period",
+				PeriodDate:       time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+				ComputeCostMicro: 9_000_000,
+			},
+		},
+	}
+
+	emailAPI := &mockResendAPI{}
+	emailer := NewUsageReportEmailer(store, emailAPI, "billing@test.dev", time.Hour)
+	emailer.checkAndSend(context.Background())
+
+	if len(emailAPI.sent) != 1 {
+		t.Fatalf("emails sent = %d, want 1", len(emailAPI.sent))
+	}
+	html := emailAPI.sent[0].Html
+	if !strings.Contains(html, "$1.00") {
+		t.Fatalf("email HTML = %q, want in-period overage total", html)
+	}
+	if strings.Contains(html, "$10.00") || strings.Contains(html, "$9.00") {
+		t.Fatalf("email HTML = %q, contains out-of-period usage", html)
+	}
+	if len(store.usagePeriodCalls) < 2 {
+		t.Fatalf("usagePeriodCalls = %v, want PDF and HTML total period queries", store.usagePeriodCalls)
+	}
+	for _, call := range store.usagePeriodCalls {
+		if !call.from.Equal(periodStart) || !call.to.Equal(periodEnd) {
+			t.Fatalf("usage period call = %+v, want %v to %v", call, periodStart, periodEnd)
+		}
 	}
 }
