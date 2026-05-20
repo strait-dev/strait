@@ -1,20 +1,20 @@
 # Self-hosting Strait
 
-There are two ways to self-host. Pick the one that matches where you want the dashboard to run.
+Two ways to self-host. Pick the one that matches where you want the dashboard to run.
 
-| | Option 1 — Cloudflare dashboard | Option 2 — Full Docker stack |
+| | Cloudflare dashboard | Full Docker stack |
 |---|---|---|
 | Setup | One click | `make selfhost` |
 | Dashboard runs on | Your own Cloudflare account | Your own hardware |
 | API runs on | Your own infrastructure (anywhere reachable) | Docker Compose on the same host |
-| Postgres | Neon / Supabase / any hosted or self-hosted PostgreSQL | Bundled `postgres:18-alpine` |
+| Postgres | Neon, Supabase, or any hosted or self-hosted PostgreSQL | Bundled `postgres:18-alpine` |
 | Best for | Fast setup, teams already on Cloudflare | Air-gapped, on-prem, or Docker-first teams |
 
 Both options run the community edition. The hosted Strait Cloud service is not required.
 
 ---
 
-## Option 1 — Deploy the dashboard to Cloudflare
+## Option 1: Deploy the dashboard to Cloudflare
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/strait-dev/strait)
 
@@ -26,7 +26,7 @@ See [apps/app/README.md](apps/app/README.md#deploy-to-cloudflare) for the exact 
 
 ---
 
-## Option 2 — Run the full stack locally with Docker Compose
+## Option 2: Run the full stack locally with Docker Compose
 
 ### Prerequisites
 
@@ -104,18 +104,27 @@ curl -X POST "http://localhost:8080/v1/jobs/$(echo $JOB | jq -r .id)/trigger" \
 
 | Service | Image | Port | Purpose |
 |---|---|---|---|
-| `strait` | `ghcr.io/strait-dev/strait:0.1.6` | 8080 | API server + worker | <!-- x-release-please-version -->
+| `strait` | `ghcr.io/strait-dev/strait:0.1.6` | 8080 | API server and worker | <!-- x-release-please-version -->
 | `strait-app` | `ghcr.io/strait-dev/strait-app:0.1.6` | 3000 | Dashboard UI | <!-- x-release-please-version -->
-
-`docker-compose.selfhost.yml` pins to the exact release tag listed above so a `docker compose up` always reproduces a known-good combination. Override with `STRAIT_IMAGE` / `STRAIT_APP_IMAGE` to track `:latest`, `:0.1`, `:0`, or any specific version.
 | `postgres` | `postgres:18-alpine` | 5432 | Primary database |
-| `redis` | `redis:8-alpine` | 6379 | Pub/sub, caching |
+| `redis` | `redis:8-alpine` | 6379 | Pub/sub and caching |
+
+`docker-compose.selfhost.yml` pins to the exact release tags listed above, so a `docker compose up` always reproduces a known-good combination. Override with `STRAIT_IMAGE` or `STRAIT_APP_IMAGE` to track `:latest`, `:0.1`, `:0`, or any specific version.
 
 ## Community edition
 
 Self-hosting runs the community edition. It includes job creation, scheduling, HTTP and gRPC worker dispatch, retry strategies, workflows, webhook delivery, live run updates, API keys, RBAC, run management, and `dead_letter` replay.
 
 The hosted service at [strait.dev](https://strait.dev) adds managed infrastructure, usage metering, and hosted reporting. Your job code still runs on your own infrastructure on either edition.
+
+## Dependencies
+
+| Dependency | Required for |
+|---|---|
+| PostgreSQL 18+ | Source of truth and queue (`SELECT ... FOR UPDATE SKIP LOCKED`) |
+| Redis 8+ | Pub/sub, SSE streaming, gRPC worker plane signalling |
+
+PostgreSQL is the only hard requirement: Strait will start without Redis, but SSE, live run updates, and the gRPC worker plane will not work. Run with Redis unless you have a specific reason not to.
 
 ## Environment overrides
 
@@ -235,10 +244,33 @@ docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml up -d
 
 ## Troubleshooting
 
-**Strait API won't start.** Check the logs first: `docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml logs strait`. Usual culprits are PostgreSQL not yet ready (give it a moment, then retry) or bad secrets in `.env.selfhost`. Run `docker ps` to confirm Postgres is healthy. If the secrets look corrupted, regenerate them with `make selfhost-reset` followed by `make selfhost`.
+### Strait API will not start
 
-**Dashboard can't reach the API.** Both services must share the same `INTERNAL_SECRET` from `.env.selfhost`. After fixing it, restart both: `docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml restart`.
+1. Read the logs:
+   ```bash
+   docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml logs strait
+   ```
+2. Confirm Postgres is healthy with `docker ps`. The API retries the database for a few seconds on startup; if Postgres is still booting, give it a moment.
+3. If the secrets in `.env.selfhost` look corrupted, regenerate them:
+   ```bash
+   make selfhost-reset
+   make selfhost
+   ```
 
-**Migrations failed.** They run automatically on startup. Look at `docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml logs strait | grep migration` to see which one and why.
+### Dashboard cannot reach the API
+
+Both services must share the same `INTERNAL_SECRET` from `.env.selfhost`. Fix the value, then restart both:
+
+```bash
+docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml restart
+```
+
+### Migrations failed
+
+Migrations run automatically on startup. Find the failing one in the logs:
+
+```bash
+docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml logs strait | grep migration
+```
 
 For development setup, see [CONTRIBUTING.md](CONTRIBUTING.md).

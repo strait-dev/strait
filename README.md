@@ -10,11 +10,11 @@
 
 Strait runs your background jobs and orchestrates multi-step workflows. One service, backed by PostgreSQL and Redis. No RabbitMQ, no SQS, no Kafka.
 
-- Full run lifecycle from `queued` to terminal state, plus `dead_letter` runs for failures that exhaust their retries -- visible in a live dashboard.
+- Run lifecycle from `queued` through every terminal state, including `dead_letter` runs for failures that exhausted their retries. All of it visible in a live dashboard.
 - Workflow engine with branching, parallel steps, sub-workflows, approval gates, and compensation steps.
-- Configurable retry strategies (exponential, linear, fixed, custom) with jitter and per-endpoint circuit breakers.
+- Retry strategies (exponential, linear, fixed, custom) with jitter and per-endpoint circuit breakers.
 - Durable workflows that survive multi-day sleeps, with checkpoints, expected-completion tracking, and stage notifications.
-- OpenTelemetry traces, Prometheus metrics, structured logs, and real-time SSE streaming.
+- OpenTelemetry traces, Prometheus metrics, structured logs, SSE streaming.
 - SDKs in [TypeScript](https://github.com/strait-dev/strait-ts), [Python](https://github.com/strait-dev/strait-python), [Go](https://github.com/strait-dev/strait-go), [Ruby](https://github.com/strait-dev/strait-ruby), and [Rust](https://github.com/strait-dev/strait-rust). Same feature set on each.
 - Self-host needs nothing beyond what's in `docker-compose.selfhost.yml`.
 
@@ -51,12 +51,12 @@ Bun monorepos need one manual setting during the Workers Builds import (`Root di
 | Dashboard UI | ✓ | ✓ |
 | Tracing, metrics, logs, and live updates | ✓ | ✓ |
 | Interactive API reference at `/reference` | ✓ | ✓ |
-| Billing, metering, usage limits, Stripe | — | ✓ |
-| Multi-region hosted orchestration | — | ✓ |
-| Hosted ClickHouse reporting | — | ✓ |
-| SLA + 24/7 support | — | ✓ |
+| Billing, metering, usage limits, Stripe | | ✓ |
+| Multi-region hosted orchestration | | ✓ |
+| Hosted ClickHouse reporting | | ✓ |
+| SLA + 24/7 support | | ✓ |
 
-Self-host is the community edition. Billing is compiled out of the dashboard image — there is no way to connect Stripe, view plan limits, or reach an upgrade screen. Your data and your users stay on your infrastructure.
+Self-host runs the community edition. Billing is compiled out of the dashboard image: no Stripe connection, no plan limits, no upgrade screen. Your data and your users stay on your infrastructure.
 
 ---
 
@@ -97,13 +97,13 @@ Turborepo monorepo managed with Bun. The bits that matter:
 
 ```
 apps/
-  strait/   Go service — API, worker, scheduler, all in one binary
-  app/      TanStack Start dashboard (React 19, Vite)
-  docs/     Mintlify docs
-packages/   Shared TS packages (ui, billing, config, transactional, …)
-docker-compose.selfhost.yml   One-command self-host stack
-SELFHOST.md                   Self-host walkthrough
-AGENTS.md                     Contributor operating guide
+  strait/   Go service. API, worker, scheduler, all in one binary.
+  app/      TanStack Start dashboard (React 19, Vite).
+  docs/     Mintlify docs.
+packages/   Shared TS packages (ui, billing, config, transactional, ...).
+docker-compose.selfhost.yml   One-command self-host stack.
+SELFHOST.md                   Self-host walkthrough.
+AGENTS.md                     Contributor operating guide.
 ```
 
 Install and run workspace tasks:
