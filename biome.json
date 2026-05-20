@@ -17,6 +17,7 @@
       "!tanstack",
       "!dist",
       "!build",
+      "!**/.context",
       "!**/_generated",
       "!**/routeTree.gen.ts",
       "!**/.agents/skills"
