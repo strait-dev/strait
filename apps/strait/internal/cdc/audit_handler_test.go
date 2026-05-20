@@ -43,6 +43,50 @@ func TestAuditHandler_TerminalUpdate_CreatesEvent(t *testing.T) {
 	}
 }
 
+func TestAuditHandler_RedeliveredTerminalUpdateCreatesAuditEventOnce(t *testing.T) {
+	t.Parallel()
+	store := &mockAuditStore{}
+	h := NewAuditHandler(store, nil)
+
+	msg := cdcUpdateMsg("completed", "p1", "run-redelivered", "job-1")
+	msg.Metadata.IdempotencyKey = "wal:job_runs:run-redelivered:completed"
+	if err := h.Handle(context.Background(), msg); err != nil {
+		t.Fatalf("first delivery: %v", err)
+	}
+	msg.AckID = "ack-redelivery"
+	if err := h.Handle(context.Background(), msg); err != nil {
+		t.Fatalf("redelivery: %v", err)
+	}
+
+	if len(store.events) != 1 {
+		t.Fatalf("audit events = %d, want 1", len(store.events))
+	}
+}
+
+func TestAuditHandler_StoreErrorDoesNotConsumeRedeliveryDedupe(t *testing.T) {
+	t.Parallel()
+	store := &mockAuditStore{err: errors.New("temporary store failure")}
+	h := NewAuditHandler(store, nil)
+
+	msg := cdcUpdateMsg("completed", "p1", "run-retry", "job-1")
+	msg.Metadata.IdempotencyKey = "wal:job_runs:run-retry:completed"
+	if err := h.Handle(context.Background(), msg); err == nil {
+		t.Fatal("first delivery error = nil, want store failure")
+	}
+
+	store.mu.Lock()
+	store.err = nil
+	store.mu.Unlock()
+	msg.AckID = "ack-redelivery"
+	if err := h.Handle(context.Background(), msg); err != nil {
+		t.Fatalf("redelivery after store recovery: %v", err)
+	}
+
+	if len(store.events) != 1 {
+		t.Fatalf("audit events = %d, want 1", len(store.events))
+	}
+}
+
 func TestAuditHandler_InsertAction_CreatesEvent(t *testing.T) {
 	t.Parallel()
 	store := &mockAuditStore{}
@@ -93,12 +137,27 @@ func TestAuditHandler_ActorIsSystemCDC(t *testing.T) {
 	}
 }
 
-func TestAuditHandler_DetailsContainFullRecord(t *testing.T) {
+func TestDeepSecAuditHandler_DetailsExcludeSensitiveRecordFields(t *testing.T) {
 	t.Parallel()
 	store := &mockAuditStore{}
 	h := NewAuditHandler(store, nil)
 
-	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-42", "job-7"))
+	record, _ := json.Marshal(map[string]any{
+		"id":         "run-42",
+		"job_id":     "job-7",
+		"project_id": "p1",
+		"status":     "completed",
+		"attempt":    2,
+		"payload":    map[string]any{"api_key": "secret"},
+		"result":     map[string]any{"token": "secret"},
+		"error":      "contains user payload",
+	})
+	err := h.Handle(context.Background(), Message{
+		AckID:    "ack-1",
+		Action:   ActionUpdate,
+		Record:   record,
+		Metadata: Metadata{TableName: "job_runs"},
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -110,11 +169,16 @@ func TestAuditHandler_DetailsContainFullRecord(t *testing.T) {
 	if err := json.Unmarshal(store.events[0].Details, &details); err != nil {
 		t.Fatalf("details is not valid JSON: %v", err)
 	}
-	if details["id"] != "run-42" {
-		t.Errorf("expected id=run-42, got %v", details["id"])
+	if details["run_id"] != "run-42" {
+		t.Errorf("expected run_id=run-42, got %v", details["run_id"])
 	}
 	if details["job_id"] != "job-7" {
 		t.Errorf("expected job_id=job-7, got %v", details["job_id"])
+	}
+	for _, sensitive := range []string{"payload", "result", "error"} {
+		if _, ok := details[sensitive]; ok {
+			t.Fatalf("audit details included sensitive field %q: %#v", sensitive, details)
+		}
 	}
 }
 
@@ -256,7 +320,72 @@ func TestAuditHandler_HighHeartbeatVolume_NoWriteAmplification(t *testing.T) {
 	}
 }
 
-func TestAuditHandler_StoreError_Resilient(t *testing.T) {
+func TestDeepSecAuditHandler_IgnoresReadEmptyAndUnknownActions(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name   string
+		action Action
+		status string
+	}{
+		{name: "read non terminal", action: ActionRead, status: "executing"},
+		{name: "read terminal", action: ActionRead, status: "completed"},
+		{name: "empty action", action: "", status: "completed"},
+		{name: "unknown action", action: Action("snapshot"), status: "completed"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			store := &mockAuditStore{}
+			h := NewAuditHandler(store, nil)
+			record, _ := json.Marshal(map[string]any{
+				"id":         "run-1",
+				"job_id":     "job-1",
+				"project_id": "p1",
+				"status":     tt.status,
+			})
+
+			err := h.Handle(context.Background(), Message{
+				AckID:    "ack-unsupported",
+				Action:   tt.action,
+				Record:   record,
+				Metadata: Metadata{TableName: "job_runs"},
+			})
+			if err != nil {
+				t.Fatalf("Handle error = %v", err)
+			}
+			if len(store.events) != 0 {
+				t.Fatalf("events = %d, want 0: %#v", len(store.events), store.events)
+			}
+		})
+	}
+}
+
+func TestAuditHandler_UnsupportedSnapshotActionsDoNotParseOrAudit(t *testing.T) {
+	t.Parallel()
+
+	for _, action := range []Action{ActionRead, Action("snapshot"), ""} {
+		t.Run(string(action), func(t *testing.T) {
+			t.Parallel()
+			store := &mockAuditStore{}
+			h := NewAuditHandler(store, nil)
+
+			err := h.Handle(context.Background(), Message{
+				AckID:    "ack-snapshot",
+				Action:   action,
+				Record:   json.RawMessage(`not valid json`),
+				Metadata: Metadata{TableName: "job_runs"},
+			})
+			if err != nil {
+				t.Fatalf("Handle error = %v, want nil for unsupported snapshot action", err)
+			}
+			if len(store.events) != 0 {
+				t.Fatalf("events = %d, want 0: %#v", len(store.events), store.events)
+			}
+		})
+	}
+}
+
+func TestDeepSecAuditHandler_StoreErrorReturnsForRetry(t *testing.T) {
 	t.Parallel()
 	store := &mockAuditStore{
 		err: errors.New("db connection failed"),
@@ -264,7 +393,7 @@ func TestAuditHandler_StoreError_Resilient(t *testing.T) {
 	h := NewAuditHandler(store, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
-	if err != nil {
-		t.Fatalf("expected nil error on store failure, got: %v", err)
+	if err == nil {
+		t.Fatal("expected error on store failure")
 	}
 }

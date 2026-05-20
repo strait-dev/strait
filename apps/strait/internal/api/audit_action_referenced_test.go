@@ -24,6 +24,7 @@ var auditActionReferenceAllowlist = map[string]string{
 	"AuditActionWorkerConnected":    "emitted from internal/api/grpc/stream.go (grpc subdirectory not scanned)",
 	"AuditActionWorkerDisconnected": "emitted from internal/api/grpc/stream.go (grpc subdirectory not scanned)",
 	"AuditActionWorkerTaskRouted":   "emitted from internal/api/grpc/dispatch.go (grpc subdirectory not scanned)",
+	"AuditActionDeadletterAged":     "emitted from internal/store/audit_deadletter.go (outside scanned audit emitter set)",
 
 	// The following actions are defined for future use in billing/scheduler
 	// hooks and are not yet wired to call sites.

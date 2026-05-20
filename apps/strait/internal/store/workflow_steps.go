@@ -105,21 +105,21 @@ func (q *Queries) ListStepsByWorkflow(ctx context.Context, workflowID string) ([
 	defer span.End()
 
 	query := `
-		SELECT id, workflow_id, job_id, step_ref, depends_on, condition, on_failure, payload,
-		       step_type, approval_timeout_secs, approval_approvers,
-		       retry_max_attempts, retry_backoff, retry_initial_delay_secs, retry_max_delay_secs,
-		       timeout_secs_override, output_transform,
-		       sub_workflow_id, max_nesting_depth,
-		       event_key, event_timeout_secs, event_notify_url, sleep_duration_secs, event_emit_key,
-		       concurrency_key, resource_class,
-		       cost_gate_threshold_microusd, cost_gate_timeout_secs, cost_gate_default_action,
-		       expected_duration_secs, stage_notifications,
-		       compensation_job_id, compensation_timeout_secs,
-		       created_at
-		FROM workflow_steps
-		WHERE workflow_id = $1
-		ORDER BY created_at ASC
-		LIMIT 500`
+		SELECT ws.id, ws.workflow_id, ws.job_id, ws.step_ref, ws.depends_on, ws.condition, ws.on_failure, ws.payload,
+		       ws.step_type, ws.approval_timeout_secs, ws.approval_approvers,
+		       ws.retry_max_attempts, ws.retry_backoff, ws.retry_initial_delay_secs, ws.retry_max_delay_secs,
+		       ws.timeout_secs_override, ws.output_transform,
+		       ws.sub_workflow_id, ws.max_nesting_depth,
+		       ws.event_key, ws.event_timeout_secs, ws.event_notify_url, ws.sleep_duration_secs, ws.event_emit_key,
+		       ws.concurrency_key, ws.resource_class,
+		       ws.cost_gate_threshold_microusd, ws.cost_gate_timeout_secs, ws.cost_gate_default_action,
+		       ws.expected_duration_secs, ws.stage_notifications,
+		       ws.compensation_job_id, ws.compensation_timeout_secs,
+		       ws.created_at
+		FROM workflow_steps ws
+		JOIN workflows w ON w.id = ws.workflow_id
+		WHERE ws.workflow_id = $1
+		ORDER BY ws.created_at ASC`
 
 	rows, err := q.db.Query(ctx, query, workflowID)
 	if err != nil {
@@ -148,19 +148,20 @@ func (q *Queries) GetWorkflowStep(ctx context.Context, id string) (*domain.Workf
 	defer span.End()
 
 	query := `
-		SELECT id, workflow_id, job_id, step_ref, depends_on, condition, on_failure, payload,
-		       step_type, approval_timeout_secs, approval_approvers,
-		       retry_max_attempts, retry_backoff, retry_initial_delay_secs, retry_max_delay_secs,
-		       timeout_secs_override, output_transform,
-		       sub_workflow_id, max_nesting_depth,
-		       event_key, event_timeout_secs, event_notify_url, sleep_duration_secs, event_emit_key,
-		       concurrency_key, resource_class,
-		       cost_gate_threshold_microusd, cost_gate_timeout_secs, cost_gate_default_action,
-		       expected_duration_secs, stage_notifications,
-		       compensation_job_id, compensation_timeout_secs,
-		       created_at
-		FROM workflow_steps
-		WHERE id = $1`
+		SELECT ws.id, ws.workflow_id, ws.job_id, ws.step_ref, ws.depends_on, ws.condition, ws.on_failure, ws.payload,
+		       ws.step_type, ws.approval_timeout_secs, ws.approval_approvers,
+		       ws.retry_max_attempts, ws.retry_backoff, ws.retry_initial_delay_secs, ws.retry_max_delay_secs,
+		       ws.timeout_secs_override, ws.output_transform,
+		       ws.sub_workflow_id, ws.max_nesting_depth,
+		       ws.event_key, ws.event_timeout_secs, ws.event_notify_url, ws.sleep_duration_secs, ws.event_emit_key,
+		       ws.concurrency_key, ws.resource_class,
+		       ws.cost_gate_threshold_microusd, ws.cost_gate_timeout_secs, ws.cost_gate_default_action,
+		       ws.expected_duration_secs, ws.stage_notifications,
+		       ws.compensation_job_id, ws.compensation_timeout_secs,
+		       ws.created_at
+		FROM workflow_steps ws
+		JOIN workflows w ON w.id = ws.workflow_id
+		WHERE ws.id = $1`
 
 	step, err := scanWorkflowStep(q.db.QueryRow(ctx, query, id))
 	if err != nil {
@@ -177,7 +178,10 @@ func (q *Queries) DeleteStepsByWorkflow(ctx context.Context, workflowID string) 
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteStepsByWorkflow")
 	defer span.End()
 
-	query := `DELETE FROM workflow_steps WHERE workflow_id = $1`
+	query := `
+		DELETE FROM workflow_steps ws
+		WHERE ws.workflow_id = $1
+		  AND EXISTS (SELECT 1 FROM workflows w WHERE w.id = ws.workflow_id)`
 
 	if _, err := q.db.Exec(ctx, query, workflowID); err != nil {
 		return fmt.Errorf("delete workflow steps by workflow: %w", err)

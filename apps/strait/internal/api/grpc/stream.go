@@ -16,6 +16,7 @@ import (
 	"strait/internal/pubsub"
 	"strait/internal/store"
 
+	"github.com/google/uuid"
 	"github.com/sourcegraph/conc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -57,9 +58,33 @@ const (
 )
 
 var (
-	errForceDisconnected = errors.New("force disconnected by API request")
-	errAPIKeyRevoked     = errors.New("api key revoked")
+	errForceDisconnected             = errors.New("force disconnected by API request")
+	errAPIKeyRevoked                 = errors.New("api key revoked")
+	errAPIKeyExpired                 = errors.New("api key expired")
+	errWorkerConnectionRenewalFailed = errors.New("worker connection reservation renewal failed")
 )
+
+func workerDisconnectChannel(projectID, workerID string) string {
+	return fmt.Sprintf("worker:disconnect:%s:%s", projectID, workerID)
+}
+
+func workerDisconnectAckChannel(projectID, workerID string) string {
+	return fmt.Sprintf("worker:disconnect_ack:%s:%s", projectID, workerID)
+}
+
+func subscribeRequiredWorkerControlChannel(ctx context.Context, pub pubsub.Publisher, channel, purpose string) (*pubsub.Subscription, error) {
+	if pub == nil {
+		return nil, status.Errorf(codes.Unavailable, "worker stream %s subscription unavailable", purpose)
+	}
+	sub, err := pub.Subscribe(ctx, channel)
+	if err != nil || sub == nil {
+		if err == nil {
+			err = errors.New("nil subscription")
+		}
+		return nil, status.Errorf(codes.Unavailable, "worker stream %s subscription failed: %v", purpose, err)
+	}
+	return sub, nil
+}
 
 // workerService implements workerv1.WorkerServiceServer.
 type workerService struct {
@@ -82,7 +107,7 @@ type workerService struct {
 //  4. Client sends TaskResult when a run completes or fails.
 //  5. Client sends LogLine for in-flight run logs.
 //  6. On disconnect: server deregisters the worker and emits an audit event.
-func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksServer) error {
+func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksServer) error { //nolint:gocyclo,cyclop,funlen
 	ctx := stream.Context()
 
 	// Authenticate the connecting worker via the Bearer API key in gRPC metadata.
@@ -94,6 +119,7 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	projectID := apiKey.ProjectID
 	pendingProjectID := projectID
 	pendingAPIKeyID := apiKey.ID
+	apiKeyExpiresAt, apiKeyHasExpiry := APIKeyExpiresAtFromContext(ctx)
 
 	releasePending, err := s.reservePendingWorkerStream(pendingProjectID, pendingAPIKeyID)
 	if err != nil {
@@ -106,21 +132,34 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	}()
 
 	var revokeKeySub *pubsub.Subscription
+	var expireKeySub *pubsub.Subscription
 	closeRevokeSubOnEarlyReturn := true
+	closeExpireSubOnEarlyReturn := true
 	defer func() {
 		if closeRevokeSubOnEarlyReturn && revokeKeySub != nil {
 			revokeKeySub.Close()
 		}
+		if closeExpireSubOnEarlyReturn && expireKeySub != nil {
+			expireKeySub.Close()
+		}
 	}()
 	if apiKey.ID != "" {
 		revokeChannel := fmt.Sprintf("apikey:revoked:%s", apiKey.ID)
-		revokeKeySub, _ = s.pub.Subscribe(ctx, revokeChannel)
+		revokeKeySub, err = subscribeRequiredWorkerControlChannel(ctx, s.pub, revokeChannel, "api key revocation")
+		if err != nil {
+			return err
+		}
+		expireChannel := fmt.Sprintf("apikey:expires:%s", apiKey.ID)
+		expireKeySub, err = subscribeRequiredWorkerControlChannel(ctx, s.pub, expireChannel, "api key expiry")
+		if err != nil {
+			return err
+		}
 	}
 
 	// Receive and validate the registration message.
-	firstMsg, err := recvWorkerRegistrationMessage(ctx, stream, revokeKeySub, apiKey.ID)
+	firstMsg, err := recvWorkerRegistrationMessage(ctx, stream, revokeKeySub, apiKey.ID, apiKeyExpiresAt, apiKeyHasExpiry)
 	if err != nil {
-		if errors.Is(err, errAPIKeyRevoked) {
+		if errors.Is(err, errAPIKeyRevoked) || errors.Is(err, errAPIKeyExpired) {
 			return err
 		}
 		return status.Errorf(codes.Internal, "recv registration: %v", err)
@@ -131,9 +170,20 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	}
 	ctx = withAPIKeyContext(ctx, apiKey)
 	projectID = apiKey.ProjectID
+	apiKeyExpiresAt, apiKeyHasExpiry = APIKeyExpiresAtFromContext(ctx)
 	if revokeKeySub == nil && apiKey.ID != "" {
 		revokeChannel := fmt.Sprintf("apikey:revoked:%s", apiKey.ID)
-		revokeKeySub, _ = s.pub.Subscribe(ctx, revokeChannel)
+		revokeKeySub, err = subscribeRequiredWorkerControlChannel(ctx, s.pub, revokeChannel, "api key revocation")
+		if err != nil {
+			return err
+		}
+	}
+	if expireKeySub == nil && apiKey.ID != "" {
+		expireChannel := fmt.Sprintf("apikey:expires:%s", apiKey.ID)
+		expireKeySub, err = subscribeRequiredWorkerControlChannel(ctx, s.pub, expireChannel, "api key expiry")
+		if err != nil {
+			return err
+		}
 	}
 	regPayload, ok := firstMsg.Payload.(*workerv1.WorkerMessage_Registration)
 	if !ok || regPayload.Registration == nil {
@@ -146,21 +196,12 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	}
 	configureGRPCSentryWorkerScope(ctx, reg.WorkerId, reg.Name, reg.Hostname, reg.SdkLanguage, reg.SdkVersion)
 
-	// Reject cross-project worker_id collisions. The in-memory registry
-	// rejects same-id-different-api-key on this replica, but a separate
-	// replica or a stale workers row could already own this id under a
-	// different project. Without this check, the DB-side
-	// `WHERE workers.project_id = EXCLUDED.project_id` upsert guard would
-	// silently no-op the row sync, leaving the worker alive in memory but
-	// invisible in the DB to its own project.
-	if err := s.rejectCrossProjectWorkerCollision(ctx, reg.WorkerId, projectID); err != nil {
-		return err
-	}
-
-	orgID, err := s.checkPlanConnectionLimit(ctx, projectID)
+	workerConnectionReservationID := uuid.Must(uuid.NewV7()).String()
+	orgID, releaseWorkerConnection, err := s.checkPlanConnectionLimit(ctx, projectID, workerConnectionReservationID)
 	if err != nil {
 		return err
 	}
+	defer releaseWorkerConnection()
 
 	// Per-stream typed send channel for outbound ServerMessages.
 	// The dispatcher pushes TaskAssignment / CancelTask messages here; the send
@@ -218,7 +259,7 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	// Subscribe to the cross-replica force-disconnect channel for this worker.
 	// When DELETE /v1/workers/:id is called on any replica, it publishes to this
 	// channel and the owning replica (which is running this goroutine) closes the stream.
-	disconnectChannel := fmt.Sprintf("worker:disconnect:%s", reg.WorkerId)
+	disconnectChannel := workerDisconnectChannel(projectID, reg.WorkerId)
 	disconnectSub, subErr := s.pub.Subscribe(ctx, disconnectChannel)
 	if subErr != nil {
 		slog.Warn("grpc: failed to subscribe to disconnect channel",
@@ -227,9 +268,19 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 		)
 	}
 
+	var workerConnectionRenewer workerConnectionReservationEnforcer
+	if reserver, ok := s.billingEnforcer.(workerConnectionReservationEnforcer); ok && orgID != "" && workerConnectionReservationID != "" {
+		workerConnectionRenewer = reserver
+	}
+
 	// Run recv and send loops concurrently. If either exits, the stream closes.
 	var wg conc.WaitGroup
-	streamErr := make(chan error, workerStreamGoroutineCount(disconnectSub, revokeKeySub))
+	streamErr := make(chan error, workerStreamGoroutineCount(
+		disconnectSub,
+		revokeKeySub,
+		apiKeyHasExpiry || expireKeySub != nil,
+		workerConnectionRenewer != nil,
+	))
 
 	// Disconnect signal listener: closes the stream when a force-disconnect is published.
 	if disconnectSub != nil {
@@ -241,9 +292,16 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 		closeRevokeSubOnEarlyReturn = false
 		s.listenForAPIKeyRevocation(ctx, &wg, streamErr, revokeKeySub, cw, apiKey.ID, reg.WorkerId, projectID)
 	}
+	if apiKeyHasExpiry || expireKeySub != nil {
+		closeExpireSubOnEarlyReturn = false
+		s.listenForAPIKeyExpiry(ctx, &wg, streamErr, apiKeyExpiresAt, apiKeyHasExpiry, expireKeySub, cw, apiKey.ID, reg.WorkerId, projectID)
+	}
+	if workerConnectionRenewer != nil {
+		s.startWorkerConnectionReservationRenewal(ctx, &wg, streamErr, workerConnectionRenewer, orgID, workerConnectionReservationID, reg.WorkerId)
+	}
 
 	startWorkerSendLoop(ctx, &wg, streamErr, sendCh, stream)
-	s.startWorkerRecvLoop(ctx, &wg, streamErr, stream, reg.WorkerId, projectID)
+	s.startWorkerRecvLoop(ctx, &wg, streamErr, stream, reg.WorkerId, projectID, orgID, workerConnectionReservationID)
 
 	// Wait for the first stream-ending signal. We deregister synchronously so
 	// no new ReserveWorkerForQueue call can hand out our sendCh, but we do not
@@ -258,12 +316,18 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	return firstErr
 }
 
-func workerStreamGoroutineCount(disconnectSub, revokeKeySub *pubsub.Subscription) int {
+func workerStreamGoroutineCount(disconnectSub, revokeKeySub *pubsub.Subscription, hasExpiry, renewsWorkerConnection bool) int {
 	goroutineCount := 2
 	if disconnectSub != nil {
 		goroutineCount++
 	}
 	if revokeKeySub != nil {
+		goroutineCount++
+	}
+	if hasExpiry {
+		goroutineCount++
+	}
+	if renewsWorkerConnection {
 		goroutineCount++
 	}
 	return goroutineCount
@@ -275,20 +339,6 @@ func sendWorkerRegistrationAck(stream workerv1.WorkerService_StreamTasksServer, 
 			Ack: &workerv1.Acknowledged{Id: workerID},
 		},
 	})
-}
-
-func (s *workerService) rejectCrossProjectWorkerCollision(ctx context.Context, workerID, projectID string) error {
-	existingProject, ok, err := s.queries.GetWorkerProjectByID(ctx, workerID)
-	if err != nil {
-		slog.Warn("grpc registration: worker project lookup failed",
-			"worker_id", workerID, "error", err)
-		return status.Errorf(codes.Internal, "worker registration: lookup failed")
-	}
-	if ok && existingProject != projectID {
-		return status.Errorf(codes.AlreadyExists,
-			"worker_id %q already registered under a different project", workerID)
-	}
-	return nil
 }
 
 func newConnectedWorkerFromRegistration(
@@ -351,6 +401,8 @@ func (s *workerService) startWorkerRecvLoop(
 	stream workerv1.WorkerService_StreamTasksServer,
 	workerID string,
 	projectID string,
+	orgID string,
+	workerConnectionReservationID string,
 ) {
 	wg.Go(func() {
 		for {
@@ -359,7 +411,7 @@ func (s *workerService) startWorkerRecvLoop(
 				streamErr <- err
 				return
 			}
-			if err := s.handleWorkerMessage(ctx, workerID, projectID, msg); err != nil {
+			if err := s.handleWorkerMessage(ctx, workerID, projectID, orgID, workerConnectionReservationID, msg); err != nil {
 				slog.Warn("grpc handle worker message error",
 					"worker_id", workerID,
 					"error", err,
@@ -388,6 +440,40 @@ func listenForWorkerForceDisconnect(
 				"project_id", projectID,
 			)
 			streamErr <- errForceDisconnected
+		}
+	})
+}
+
+func (s *workerService) startWorkerConnectionReservationRenewal(
+	ctx context.Context,
+	wg *conc.WaitGroup,
+	streamErr chan<- error,
+	reserver workerConnectionReservationEnforcer,
+	orgID string,
+	reservationID string,
+	workerID string,
+) {
+	lease := s.workerConnectionLease()
+	interval := max(lease/3, 10*time.Millisecond)
+	wg.Go(func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				streamErr <- nil
+				return
+			case <-ticker.C:
+				if err := reserver.RenewWorkerConnection(ctx, orgID, reservationID, lease); err != nil {
+					slog.Warn("grpc worker connection reservation renewal failed; closing stream",
+						"worker_id", workerID,
+						"org_id", orgID,
+						"error", err,
+					)
+					streamErr <- errWorkerConnectionRenewalFailed
+					return
+				}
+			}
 		}
 	})
 }
@@ -427,6 +513,106 @@ func (s *workerService) listenForAPIKeyRevocation(
 	})
 }
 
+func (s *workerService) listenForAPIKeyExpiry(
+	ctx context.Context,
+	wg *conc.WaitGroup,
+	streamErr chan<- error,
+	expiresAt time.Time,
+	hasExpiry bool,
+	expireKeySub *pubsub.Subscription,
+	_ *ConnectedWorker,
+	apiKeyID string,
+	workerID string,
+	projectID string,
+) {
+	wg.Go(func() {
+		var timer *time.Timer
+		var timerCh <-chan time.Time
+		resetTimer := func(deadline time.Time) bool {
+			wait := time.Until(deadline)
+			if wait <= 0 {
+				return false
+			}
+			if timer == nil {
+				timer = time.NewTimer(wait)
+			} else {
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+				timer.Reset(wait)
+			}
+			timerCh = timer.C
+			return true
+		}
+		if hasExpiry && !resetTimer(expiresAt) {
+			streamErr <- errAPIKeyExpired
+			s.registry.CloseByAPIKey(apiKeyID)
+			return
+		}
+		defer func() {
+			if timer != nil {
+				timer.Stop()
+			}
+			if expireKeySub != nil {
+				expireKeySub.Close()
+			}
+		}()
+		var expireSignalCh <-chan []byte
+		if expireKeySub != nil {
+			expireSignalCh = expireKeySub.Ch
+		}
+		for {
+			select {
+			case <-ctx.Done():
+				streamErr <- nil
+				return
+			case payload, ok := <-expireSignalCh:
+				if !ok {
+					expireSignalCh = nil
+					continue
+				}
+				nextExpiry, err := parseAPIKeyExpirySignal(payload)
+				if err != nil {
+					slog.Warn("grpc worker api key expiry signal invalid, closing stream",
+						"worker_id", workerID,
+						"api_key_id", apiKeyID,
+						"project_id", projectID,
+						"error", err,
+					)
+					s.registry.CloseByAPIKey(apiKeyID)
+					streamErr <- errAPIKeyExpired
+					return
+				}
+				if !resetTimer(nextExpiry) {
+					streamErr <- errAPIKeyExpired
+					s.registry.CloseByAPIKey(apiKeyID)
+					return
+				}
+			case <-timerCh:
+				slog.Info("grpc worker api key rotation grace expired, closing stream",
+					"worker_id", workerID,
+					"api_key_id", apiKeyID,
+					"project_id", projectID,
+				)
+				streamErr <- errAPIKeyExpired
+				s.registry.CloseByAPIKey(apiKeyID)
+				return
+			}
+		}
+	})
+}
+
+func parseAPIKeyExpirySignal(payload []byte) (time.Time, error) {
+	deadline, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(string(payload)))
+	if err != nil {
+		return time.Time{}, fmt.Errorf("parse api key expiry signal: %w", err)
+	}
+	return deadline, nil
+}
+
 func streamDisconnectReason(err error) string {
 	switch {
 	case err == nil:
@@ -439,6 +625,10 @@ func streamDisconnectReason(err error) string {
 		return "forced"
 	case errors.Is(err, errAPIKeyRevoked):
 		return "revoked"
+	case errors.Is(err, errAPIKeyExpired):
+		return "expired"
+	case errors.Is(err, errWorkerConnectionRenewalFailed):
+		return "worker_connection_reservation_lost"
 	default:
 		return "error"
 	}
@@ -450,24 +640,39 @@ func streamDisconnectReason(err error) string {
 // (which may be empty if no enforcer is wired or the lookup failed) so the
 // caller can attach it to the ConnectedWorker entry. Existing connections
 // are never evicted; this is a connect-time gate only.
-func (s *workerService) checkPlanConnectionLimit(ctx context.Context, projectID string) (string, error) {
+func (s *workerService) checkPlanConnectionLimit(ctx context.Context, projectID, reservationID string) (string, func(), error) {
+	releaseNoop := func() {}
 	if s.billingEnforcer == nil {
-		return "", nil
+		return "", releaseNoop, nil
 	}
 	orgID, orgErr := s.billingEnforcer.GetActiveProjectOrgID(ctx, projectID)
 	if orgErr != nil {
 		slog.Warn("grpc registration: project org lookup failed (fail-open)",
 			"project_id", projectID, "error", orgErr)
-		return "", nil
+		return "", releaseNoop, nil
 	}
 	if orgID == "" {
-		return "", nil
+		return "", releaseNoop, nil
+	}
+	if reserver, ok := s.billingEnforcer.(workerConnectionReservationEnforcer); ok {
+		release, err := reserver.ReserveWorkerConnection(ctx, orgID, reservationID, s.workerConnectionLease())
+		if err != nil {
+			return orgID, releaseNoop, status.Errorf(codes.ResourceExhausted, "%v", err)
+		}
+		return orgID, release, nil
 	}
 	currentActive := s.registry.CountByOrg(orgID)
 	if err := s.billingEnforcer.CheckWorkerConnectionLimit(ctx, orgID, currentActive); err != nil {
-		return orgID, status.Errorf(codes.ResourceExhausted, "%v", err)
+		return orgID, releaseNoop, status.Errorf(codes.ResourceExhausted, "%v", err)
 	}
-	return orgID, nil
+	return orgID, releaseNoop, nil
+}
+
+func (s *workerService) workerConnectionLease() time.Duration {
+	if s.cfg != nil && s.cfg.WorkerHeartbeatTimeout > 0 {
+		return s.cfg.WorkerHeartbeatTimeout * 3
+	}
+	return 90 * time.Second
 }
 
 func (s *workerService) reservePendingWorkerStream(projectID, apiKeyID string) (func(), error) {
@@ -483,9 +688,31 @@ func (s *workerService) reservePendingWorkerStream(projectID, apiKeyID string) (
 	}, nil
 }
 
-func recvWorkerRegistrationMessage(ctx context.Context, stream workerv1.WorkerService_StreamTasksServer, revokeKeySub *pubsub.Subscription, apiKeyID string) (*workerv1.WorkerMessage, error) {
-	if revokeKeySub == nil {
+func recvWorkerRegistrationMessage(
+	ctx context.Context,
+	stream workerv1.WorkerService_StreamTasksServer,
+	revokeKeySub *pubsub.Subscription,
+	apiKeyID string,
+	apiKeyExpiresAt time.Time,
+	apiKeyHasExpiry bool,
+) (*workerv1.WorkerMessage, error) {
+	if revokeKeySub == nil && !apiKeyHasExpiry {
 		return stream.Recv()
+	}
+	if apiKeyHasExpiry && !apiKeyExpiresAt.After(time.Now()) {
+		return nil, errAPIKeyExpired
+	}
+
+	var expiryCh <-chan time.Time
+	var expiryTimer *time.Timer
+	if apiKeyHasExpiry {
+		expiryTimer = time.NewTimer(time.Until(apiKeyExpiresAt))
+		expiryCh = expiryTimer.C
+		defer expiryTimer.Stop()
+	}
+	var revokeCh <-chan []byte
+	if revokeKeySub != nil {
+		revokeCh = revokeKeySub.Ch
 	}
 
 	type recvResult struct {
@@ -502,9 +729,12 @@ func recvWorkerRegistrationMessage(ctx context.Context, stream workerv1.WorkerSe
 	select {
 	case res := <-recvCh:
 		return res.msg, res.err
-	case <-revokeKeySub.Ch:
+	case <-revokeCh:
 		slog.Info("grpc worker api key revoked before registration", "api_key_id", apiKeyID)
 		return nil, errAPIKeyRevoked
+	case <-expiryCh:
+		slog.Info("grpc worker api key expired before registration", "api_key_id", apiKeyID)
+		return nil, errAPIKeyExpired
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
@@ -521,10 +751,10 @@ func (s *workerService) cleanupRegistration(projectID, workerID string, token ui
 }
 
 // handleWorkerMessage dispatches an incoming WorkerMessage to the appropriate handler.
-func (s *workerService) handleWorkerMessage(ctx context.Context, workerID, projectID string, msg *workerv1.WorkerMessage) error {
+func (s *workerService) handleWorkerMessage(ctx context.Context, workerID, projectID, orgID, workerConnectionReservationID string, msg *workerv1.WorkerMessage) error {
 	switch p := msg.Payload.(type) {
 	case *workerv1.WorkerMessage_Heartbeat:
-		return s.handleHeartbeat(ctx, workerID, p.Heartbeat)
+		return s.handleHeartbeat(ctx, workerID, projectID, orgID, workerConnectionReservationID, p.Heartbeat)
 	case *workerv1.WorkerMessage_TaskResult:
 		return s.handleTaskResult(ctx, workerID, projectID, p.TaskResult)
 	case *workerv1.WorkerMessage_LogLine:
@@ -541,6 +771,11 @@ func (s *workerService) handleWorkerMessage(ctx context.Context, workerID, proje
 
 func (s *workerService) handleAck(ctx context.Context, workerID, projectID string, ack *workerv1.Acknowledged) error {
 	if ack == nil || ack.Id == "" {
+		return nil
+	}
+	if len(ack.Id) > maxRunIDLen {
+		slog.Warn("grpc ack: run_id exceeds bound — rejecting",
+			"worker_id", workerID, "run_id_len", len(ack.Id))
 		return nil
 	}
 	task, err := s.queries.GetOpenWorkerTaskByRunID(ctx, workerID, projectID, ack.Id)
@@ -560,9 +795,19 @@ func (s *workerService) handleAck(ctx context.Context, workerID, projectID strin
 // without changing observability — the dbSync row already carries the same
 // timestamp. The slot hint in hb is informational; the server is
 // authoritative on slot accounting via Increment/DecrementSlots.
-func (s *workerService) handleHeartbeat(_ context.Context, _ string, hb *workerv1.Heartbeat) error {
+func (s *workerService) handleHeartbeat(ctx context.Context, workerID, projectID, orgID, workerConnectionReservationID string, hb *workerv1.Heartbeat) error {
 	if hb == nil {
 		return nil
+	}
+	if err := s.queries.RenewWorkerStreamLease(ctx, workerID, projectID, time.Now().Add(s.workerConnectionLease())); err != nil {
+		slog.Warn("grpc heartbeat: failed to renew worker stream lease",
+			"worker_id", workerID, "project_id", projectID, "error", err)
+	}
+	if reserver, ok := s.billingEnforcer.(workerConnectionReservationEnforcer); ok && orgID != "" && workerConnectionReservationID != "" {
+		if err := reserver.RenewWorkerConnection(ctx, orgID, workerConnectionReservationID, s.workerConnectionLease()); err != nil {
+			slog.Warn("grpc heartbeat: failed to renew worker connection reservation",
+				"worker_id", workerID, "org_id", orgID, "error", err)
+		}
 	}
 	return nil
 }
@@ -582,6 +827,13 @@ func (s *workerService) handleTaskResult(ctx context.Context, workerID, projectI
 	if len(tr.RunId) > maxRunIDLen {
 		slog.Warn("grpc task result: run_id exceeds bound — rejecting",
 			"worker_id", workerID, "run_id_len", len(tr.RunId))
+		return nil
+	}
+	if tr.AssignmentId == "" || tr.Attempt <= 0 {
+		slog.Warn("grpc task result: missing assignment identity - rejecting",
+			"worker_id", workerID,
+			"run_id", tr.RunId,
+		)
 		return nil
 	}
 	// Cap error message so a worker can't bloat DB rows or page logs.
@@ -605,7 +857,18 @@ func (s *workerService) handleTaskResult(ctx context.Context, workerID, projectI
 	// project's dispatch goroutine: Send drops the message on project mismatch.
 	if s.resultChannels != nil {
 		sent, sendErr := s.resultChannels.SendAfterHandoff(tr.RunId, projectID, workerID, tr, func() (bool, error) {
-			return s.queries.MarkOpenWorkerTaskResultReceivedByRunID(ctx, workerID, projectID, tr.RunId)
+			return s.queries.MarkWorkerTaskResultReceivedByAssignment(
+				ctx,
+				tr.AssignmentId,
+				workerID,
+				projectID,
+				tr.RunId,
+				int(tr.Attempt),
+				tr.Status,
+				tr.ErrorMessage,
+				copyJSONBytes(tr.OutputJson),
+				tr.DurationMs,
+			)
 		})
 		if sendErr != nil {
 			slog.Warn("grpc task result: result handoff failed",
@@ -643,7 +906,7 @@ func (s *workerService) handleTaskResult(ctx context.Context, workerID, projectI
 	// worker. This mirrors handleLogLine so a worker cannot mark runs it was
 	// never assigned. The row also gives us the task ID needed to drive the
 	// worker_tasks transition below.
-	taskRow, taskErr := s.queries.GetOpenWorkerTaskByRunID(ctx, workerID, projectID, tr.RunId)
+	taskRow, taskErr := s.queries.GetOpenWorkerTaskByAssignment(ctx, tr.AssignmentId, workerID, projectID, tr.RunId, int(tr.Attempt))
 	if taskErr != nil {
 		slog.Warn("grpc task result fallback: ownership lookup failed",
 			"worker_id", workerID, "run_id", tr.RunId, "error", taskErr)
@@ -819,6 +1082,13 @@ func (s *workerService) reconcileInFlightTasks(ctx context.Context, workerID, pr
 				"worker_id", workerID, "run_id_len", len(t.RunId))
 			continue
 		}
+		if t.AssignmentId == "" || t.Attempt <= 0 {
+			slog.Warn("grpc reconcile: missing assignment identity - skipping",
+				"worker_id", workerID,
+				"run_id", t.RunId,
+			)
+			continue
+		}
 		if len(t.ErrorMessage) > maxErrorMsgBytes {
 			t.ErrorMessage = t.ErrorMessage[:maxErrorMsgBytes]
 		}
@@ -833,7 +1103,7 @@ func (s *workerService) reconcileInFlightTasks(ctx context.Context, workerID, pr
 		}
 
 		// Adversarial guard: verify ownership via worker_tasks.
-		taskRow, err := s.queries.GetOpenWorkerTaskByRunID(ctx, workerID, projectID, t.RunId)
+		taskRow, err := s.queries.GetOpenWorkerTaskByAssignment(ctx, t.AssignmentId, workerID, projectID, t.RunId, int(t.Attempt))
 		if err != nil {
 			slog.Warn("grpc reconcile: ownership lookup failed",
 				"worker_id", workerID,
@@ -844,9 +1114,11 @@ func (s *workerService) reconcileInFlightTasks(ctx context.Context, workerID, pr
 		}
 		if taskRow == nil {
 			// No matching worker_tasks row — mismatch; reject.
-			slog.Warn("grpc reconcile: rejecting in-flight task not owned by this worker",
+			slog.Warn("grpc reconcile: rejecting in-flight task not owned by this assignment",
 				"worker_id", workerID,
 				"run_id", t.RunId,
+				"assignment_id", t.AssignmentId,
+				"attempt", t.Attempt,
 			)
 			continue
 		}
@@ -1041,7 +1313,7 @@ func validateRegistration(reg *workerv1.WorkerRegistration) error {
 	if reg == nil {
 		return status.Error(codes.InvalidArgument, "registration must not be nil")
 	}
-	if reg.WorkerId == "" {
+	if strings.TrimSpace(reg.WorkerId) == "" {
 		return status.Error(codes.InvalidArgument, "worker_id must be non-empty")
 	}
 	if len(reg.WorkerId) > maxWorkerIDLen {
@@ -1141,6 +1413,14 @@ func (s *workerService) dbUpsertWorker(ctx context.Context, cw *ConnectedWorker)
 			"worker_id", cw.WorkerID,
 			"error", err,
 		)
+		return
+	}
+	if err := s.queries.RenewWorkerStreamLease(ctx, cw.WorkerID, cw.ProjectID, time.Now().Add(s.workerConnectionLease())); err != nil {
+		slog.Warn("grpc: initial worker stream lease failed",
+			"worker_id", cw.WorkerID,
+			"project_id", cw.ProjectID,
+			"error", err,
+		)
 	}
 }
 
@@ -1170,11 +1450,11 @@ func (s *workerService) finalizeDisconnect(projectID, workerID string) {
 			"task_count", count,
 		)
 	}
-	if err := s.queries.SetWorkerStatus(ctx, workerID, domain.WorkerStatusOffline); err != nil {
+	if err := s.queries.SetWorkerStatus(ctx, workerID, projectID, domain.WorkerStatusOffline); err != nil {
 		slog.Warn("grpc worker disconnect: failed to mark offline",
 			"worker_id", workerID, "error", err)
 	}
-	ackChannel := fmt.Sprintf("worker:disconnect_ack:%s", workerID)
+	ackChannel := workerDisconnectAckChannel(projectID, workerID)
 	if err := s.pub.Publish(ctx, ackChannel, []byte(workerID)); err != nil {
 		slog.Warn("grpc worker disconnect: failed to publish ack",
 			"worker_id", workerID,

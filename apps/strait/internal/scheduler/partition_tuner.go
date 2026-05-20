@@ -146,21 +146,14 @@ func (t *PartitionTuner) runOnce(ctx context.Context) error {
 		}
 	}()
 
-	if t.advisoryLocker != nil {
-		acquired, err := t.advisoryLocker.TryAdvisoryLock(ctx, partitionTunerAdvisoryLockID)
-		if err != nil {
-			return err
-		}
-		if !acquired {
-			return nil
-		}
-		defer func() {
-			if err := t.advisoryLocker.ReleaseAdvisoryLock(ctx, partitionTunerAdvisoryLockID); err != nil {
-				t.logger.Debug("tuner lock release failed", "error", err)
-			}
-		}()
+	acquired, err := runWithOptionalAdvisoryLock(ctx, t.advisoryLocker, partitionTunerAdvisoryLockID, t.runLocked)
+	if err != nil || !acquired {
+		return err
 	}
+	return nil
+}
 
+func (t *PartitionTuner) runLocked(ctx context.Context) error {
 	partitions, err := t.store.ListJobRunsPartitions(ctx)
 	if err != nil {
 		return fmt.Errorf("list partitions: %w", err)
@@ -235,7 +228,8 @@ func (t *PartitionTuner) runOnce(ctx context.Context) error {
 func hotPartitionNames(now time.Time) map[string]struct{} {
 	out := make(map[string]struct{}, 2)
 	cur := now.UTC()
-	prev := cur.AddDate(0, -1, 0)
+	currentMonth := time.Date(cur.Year(), cur.Month(), 1, 0, 0, 0, 0, time.UTC)
+	prev := currentMonth.AddDate(0, -1, 0)
 	out[fmt.Sprintf("job_runs_p%04d_%02d", cur.Year(), int(cur.Month()))] = struct{}{}
 	out[fmt.Sprintf("job_runs_p%04d_%02d", prev.Year(), int(prev.Month()))] = struct{}{}
 	return out

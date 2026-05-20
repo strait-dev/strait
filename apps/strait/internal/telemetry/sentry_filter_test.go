@@ -184,6 +184,27 @@ func TestBeforeSend_SanitizesEvent(t *testing.T) {
 	}
 }
 
+func TestSanitizeQueryString_RedactsCommonCredentialParameters(t *testing.T) {
+	t.Parallel()
+
+	got := SanitizeQueryString("sig=signed&code=oauth-code&jwt=header.payload&session_id=cookievalue&sid=short&samlresponse=assertion&ticket=tgt&ok=1&tenant=prod")
+	for _, leaked := range []string{"signed", "oauth-code", "header.payload", "cookievalue", "short", "assertion", "tgt"} {
+		if strings.Contains(got, leaked) {
+			t.Fatalf("sanitized query leaked %q: %s", leaked, got)
+		}
+	}
+	for _, key := range []string{"sig", "code", "jwt", "session_id", "sid", "samlresponse", "ticket"} {
+		if !strings.Contains(got, key+"=%5BREDACTED%5D") {
+			t.Fatalf("sanitized query missing redaction for %s: %s", key, got)
+		}
+	}
+	for _, preserved := range []string{"ok=1", "tenant=prod"} {
+		if !strings.Contains(got, preserved) {
+			t.Fatalf("sanitized query should preserve %s: %s", preserved, got)
+		}
+	}
+}
+
 func TestBeforeSendTransaction_SamplesHeavyTransactions(t *testing.T) {
 	t.Parallel()
 
@@ -216,12 +237,19 @@ func TestSentryTracesSamplerDropsHeavyTransactionsEarly(t *testing.T) {
 	if normal != 0.5 {
 		t.Fatalf("normal transaction sample rate = %v, want 0.5", normal)
 	}
+	parentTrue := sampler(sentry.SamplingContext{
+		Span:          &sentry.Span{Name: "GET /v1/jobs"},
+		ParentSampled: sentry.SampledTrue,
+	})
+	if parentTrue != 0.5 {
+		t.Fatalf("sampled parent sample rate = %v, want 0.5", parentTrue)
+	}
 	parentFalse := sampler(sentry.SamplingContext{
 		Span:          &sentry.Span{Name: "GET /v1/jobs"},
 		ParentSampled: sentry.SampledFalse,
 	})
-	if parentFalse != 0 {
-		t.Fatalf("unsampled parent sample rate = %v, want 0", parentFalse)
+	if parentFalse != 0.5 {
+		t.Fatalf("unsampled parent sample rate = %v, want 0.5", parentFalse)
 	}
 }
 

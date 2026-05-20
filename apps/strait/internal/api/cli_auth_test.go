@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -57,6 +58,22 @@ func TestHandleDeviceCode_Success(t *testing.T) {
 	}
 }
 
+func TestDeviceCodePollIntervalFitsPublicRouteRateLimit(t *testing.T) {
+	t.Parallel()
+
+	if deviceCodePollInterval <= 0 {
+		t.Fatal("deviceCodePollInterval must be positive")
+	}
+	pollsPerWindow := 1 // the initial /device-code request shares the same public route bucket.
+	pollsPerWindow += int(cliAuthRateLimitWindow / (time.Duration(deviceCodePollInterval) * time.Second))
+	if cliAuthRateLimitWindow%(time.Duration(deviceCodePollInterval)*time.Second) != 0 {
+		pollsPerWindow++
+	}
+	if pollsPerWindow > cliAuthRateLimitRequests {
+		t.Fatalf("advertised polling interval allows %d polls per window, route limit is %d", pollsPerWindow, cliAuthRateLimitRequests)
+	}
+}
+
 func TestHandleDeviceCode_CodesAreUnique(t *testing.T) {
 	t.Parallel()
 
@@ -85,6 +102,105 @@ func TestHandleDeviceCode_CodesAreUnique(t *testing.T) {
 	}
 	if codes[0].UserCode == codes[1].UserCode {
 		t.Fatal("expected different user_codes")
+	}
+}
+
+func TestHandleDeviceCode_CleansExpiredCodesBeforeCreate(t *testing.T) {
+	t.Parallel()
+
+	var cleanupCalled bool
+	var createSawCleanup bool
+	ms := &APIStoreMock{
+		CleanupExpiredDeviceCodesFunc: func(context.Context) (int64, error) {
+			cleanupCalled = true
+			return 3, nil
+		},
+		CreateDeviceCodeFunc: func(_ context.Context, _, _ string, _ string, _ []string, _ time.Time) error {
+			createSawCleanup = cleanupCalled
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/v1/cli/auth/device-code", nil)
+	r.Header.Set("Content-Type", "application/json")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !cleanupCalled {
+		t.Fatal("CleanupExpiredDeviceCodes was not called")
+	}
+	if !createSawCleanup {
+		t.Fatal("CreateDeviceCode ran before expired code cleanup")
+	}
+}
+
+func TestHandleDeviceCode_CleanupFailurePreventsCreate(t *testing.T) {
+	t.Parallel()
+
+	var createCalled bool
+	ms := &APIStoreMock{
+		CleanupExpiredDeviceCodesFunc: func(context.Context) (int64, error) {
+			return 0, errors.New("cleanup unavailable")
+		},
+		CreateDeviceCodeFunc: func(context.Context, string, string, string, []string, time.Time) error {
+			createCalled = true
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/v1/cli/auth/device-code", nil)
+	r.Header.Set("Content-Type", "application/json")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
+	}
+	if createCalled {
+		t.Fatal("CreateDeviceCode must not run when expired code cleanup fails")
+	}
+}
+
+func TestHandleDeviceToken_CleansExpiredCodesBeforeLookup(t *testing.T) {
+	t.Parallel()
+
+	var cleanupCalled bool
+	var lookupSawCleanup bool
+	ms := &APIStoreMock{
+		CleanupExpiredDeviceCodesFunc: func(context.Context) (int64, error) {
+			cleanupCalled = true
+			return 1, nil
+		},
+		GetDeviceCodeByDeviceCodeFunc: func(_ context.Context, _ string) (*store.DeviceCodeRow, error) {
+			lookupSawCleanup = cleanupCalled
+			return &store.DeviceCodeRow{
+				ID:        "dc-1",
+				Status:    "pending",
+				ExpiresAt: time.Now().Add(10 * time.Minute),
+			}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	body := `{"device_code":"test-device-code","grant_type":"device_code"}`
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/v1/cli/auth/token", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected authorization_pending 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if !cleanupCalled {
+		t.Fatal("CleanupExpiredDeviceCodes was not called")
+	}
+	if !lookupSawCleanup {
+		t.Fatal("GetDeviceCodeByDeviceCode ran before expired code cleanup")
 	}
 }
 

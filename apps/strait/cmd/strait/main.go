@@ -297,6 +297,9 @@ func runServe(ctx context.Context, modeOverride string) error {
 	if err != nil {
 		return err
 	}
+	if err := validateBillingRedisDependency(cfg, rdb); err != nil {
+		return err
+	}
 	if rdb != nil {
 		defer rdb.Close()
 	}
@@ -438,7 +441,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 	if chClient != nil {
 		chAnalytics = clickhouse.NewAnalyticsStore(chClient, clickhouse.NewPgHealthAdapter(dbPool))
 	}
-	workerPlane, err := startGRPCServer(g, cfg, queries, pub, rdb, billingEnforcer, version)
+	workerPlane, err := startGRPCServer(g, cfg, queries, pub, rdb, billingEnforcer, version, apiEncryptor)
 	if err != nil {
 		return fmt.Errorf("starting grpc server: %w", err)
 	}
@@ -450,6 +453,13 @@ func runServe(ctx context.Context, modeOverride string) error {
 	}
 
 	slog.Info("strait stopped")
+	return nil
+}
+
+func validateBillingRedisDependency(cfg *config.Config, rdb *redis.Client) error {
+	if cfg != nil && cfg.BillingEnforcementEnabled && rdb == nil {
+		return fmt.Errorf("billing enforcement requires Redis; set REDIS_URL or disable BILLING_ENFORCEMENT_ENABLED")
+	}
 	return nil
 }
 
@@ -509,7 +519,7 @@ func logAuditDMLGuardStartup(ctx context.Context, checker health.AuditDMLPrivile
 		metrics.AuditDMLRestrictionStatus.Add(ctx, 1,
 			otelmetric.WithAttributes(otelattr.String("status", status)))
 	}
-	restricted, err := checker.AuditEventsUpdateRestricted(ctx)
+	restricted, err := checker.AuditEventsDMLRestricted(ctx)
 	if err != nil {
 		slog.Warn("audit DML restriction probe failed at startup",
 			"error", err,

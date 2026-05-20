@@ -34,6 +34,15 @@ func nonAdminCtx(projectID string) context.Context {
 	return ctx
 }
 
+type atomicDropAPIStore struct {
+	*APIStoreMock
+	drop func(context.Context, string, string, *domain.AuditEvent) (bool, error)
+}
+
+func (s *atomicDropAPIStore) DropAuditEventDeadletterWithAudit(ctx context.Context, id, projectID string, auditEvent *domain.AuditEvent) (bool, error) {
+	return s.drop(ctx, id, projectID, auditEvent)
+}
+
 func TestListDeadletter_RequiresAdmin(t *testing.T) {
 	t.Parallel()
 	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
@@ -204,31 +213,21 @@ func TestReplayDeadletter_NotFound_404(t *testing.T) {
 func TestDropDeadletter_EmitsAuditAndRemoves(t *testing.T) {
 	t.Parallel()
 
-	seed := &domain.AuditEvent{ID: "dlq-1", ProjectID: "proj-a", Action: domain.AuditActionJobTriggered, CreatedAt: time.Now().UTC()}
 	var (
-		mu           sync.Mutex
-		deletedID    string
-		selfAuditHit bool
-		seenReason   string
+		mu             sync.Mutex
+		droppedID      string
+		droppedProject string
+		selfAuditHit   bool
+		seenReason     string
 	)
 
-	ms := &APIStoreMock{
-		GetAuditEventDeadletterFunc: func(_ context.Context, id, projectID string) (*domain.AuditEvent, error) {
-			if id == seed.ID && projectID == seed.ProjectID {
-				clone := *seed
-				return &clone, nil
-			}
-			return nil, nil
-		},
-		DeleteAuditEventDeadletterFunc: func(_ context.Context, id, _ string) error {
+	ms := &atomicDropAPIStore{
+		APIStoreMock: &APIStoreMock{},
+		drop: func(_ context.Context, id, projectID string, ev *domain.AuditEvent) (bool, error) {
 			mu.Lock()
 			defer mu.Unlock()
-			deletedID = id
-			return nil
-		},
-		CreateAuditEventFunc: func(_ context.Context, ev *domain.AuditEvent) error {
-			mu.Lock()
-			defer mu.Unlock()
+			droppedID = id
+			droppedProject = projectID
 			if ev.Action == domain.AuditActionDeadletterDropped {
 				selfAuditHit = true
 				var d map[string]any
@@ -237,7 +236,7 @@ func TestDropDeadletter_EmitsAuditAndRemoves(t *testing.T) {
 					seenReason = s
 				}
 			}
-			return nil
+			return true, nil
 		},
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -248,11 +247,14 @@ func TestDropDeadletter_EmitsAuditAndRemoves(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if deletedID != "dlq-1" {
-		t.Errorf("DeleteAuditEventDeadletter called with %q, want %q", deletedID, "dlq-1")
+	if droppedID != "dlq-1" {
+		t.Errorf("DropAuditEventDeadletterWithAudit called with id %q, want %q", droppedID, "dlq-1")
+	}
+	if droppedProject != "proj-a" {
+		t.Errorf("DropAuditEventDeadletterWithAudit project = %q, want %q", droppedProject, "proj-a")
 	}
 	if !selfAuditHit {
-		t.Error("expected audit.deadletter_dropped self-audit, none emitted")
+		t.Error("expected audit.deadletter_dropped event to be persisted with the drop")
 	}
 	if seenReason != "corrupt_payload" {
 		t.Errorf("self-audit reason = %q, want %q", seenReason, "corrupt_payload")
@@ -262,18 +264,13 @@ func TestDropDeadletter_EmitsAuditAndRemoves(t *testing.T) {
 func TestDropDeadletter_CrossTenant_404(t *testing.T) {
 	t.Parallel()
 
-	// Store returns nil because GetAuditEventDeadletter is project-scoped:
-	// row belongs to proj-b but the admin is on proj-a.
-	ms := &APIStoreMock{
-		GetAuditEventDeadletterFunc: func(_ context.Context, _, projectID string) (*domain.AuditEvent, error) {
-			if projectID == "proj-a" {
-				return nil, nil // row exists under proj-b but not visible
+	ms := &atomicDropAPIStore{
+		APIStoreMock: &APIStoreMock{},
+		drop: func(_ context.Context, _, projectID string, _ *domain.AuditEvent) (bool, error) {
+			if projectID != "proj-a" {
+				t.Fatalf("drop project = %q, want proj-a", projectID)
 			}
-			return &domain.AuditEvent{ID: "dlq-1", ProjectID: "proj-b"}, nil
-		},
-		DeleteAuditEventDeadletterFunc: func(_ context.Context, _, _ string) error {
-			t.Error("Delete must not be called on a cross-tenant drop")
-			return nil
+			return false, nil
 		},
 	}
 	srv := newTestServer(t, ms, nil, nil)

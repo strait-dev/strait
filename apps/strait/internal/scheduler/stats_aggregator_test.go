@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -130,4 +131,46 @@ func TestStatsAggregator_LockNotAcquired_Skips(t *testing.T) {
 
 	_ = ctx
 	_ = a
+}
+
+func TestStatsAggregator_RetriesFailedHourAfterClockAdvances(t *testing.T) {
+	t.Parallel()
+
+	firstTick := time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC)
+	secondTick := firstTick.Add(time.Hour)
+	firstHour := firstTick.Add(-time.Hour)
+	secondHour := secondTick.Add(-time.Hour)
+	var tick atomic.Int32
+	var calls []time.Time
+	store := &mockStatsStore{
+		aggregateFn: func(_ context.Context, hour time.Time) error {
+			calls = append(calls, hour)
+			if len(calls) == 1 {
+				return errors.New("transient aggregation failure")
+			}
+			return nil
+		},
+	}
+	aggregator := NewStatsAggregator(store)
+	aggregator.now = func() time.Time {
+		if tick.Load() == 0 {
+			return firstTick
+		}
+		return secondTick
+	}
+
+	if err := aggregator.runLocked(context.Background()); err != nil {
+		t.Fatalf("first runLocked() error = %v", err)
+	}
+	tick.Store(1)
+	if err := aggregator.runLocked(context.Background()); err != nil {
+		t.Fatalf("second runLocked() error = %v", err)
+	}
+
+	if len(calls) != 3 {
+		t.Fatalf("aggregate calls = %v, want failed hour retried before new hour", calls)
+	}
+	if !calls[0].Equal(firstHour) || !calls[1].Equal(firstHour) || !calls[2].Equal(secondHour) {
+		t.Fatalf("aggregate calls = %v, want [%v %v %v]", calls, firstHour, firstHour, secondHour)
+	}
 }

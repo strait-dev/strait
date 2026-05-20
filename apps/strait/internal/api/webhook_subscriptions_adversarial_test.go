@@ -22,7 +22,7 @@ func TestWebhookSubscriptions_RunsWriteScopeCannotCreateSubscription(t *testing.
 			return nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithEncryptor(t, ms, &mockQueue{}, &mockEncryptor{})
 
 	body := `{"project_id":"proj-1","webhook_url":"https://example.com/hook","event_types":["run.completed"],"secret":"secret"}`
 	w := httptest.NewRecorder()
@@ -50,7 +50,7 @@ func TestWebhookSubscriptions_WebhooksWriteScopeCanCreateSubscription(t *testing
 			return nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithEncryptor(t, ms, &mockQueue{}, &mockEncryptor{})
 
 	body := `{"project_id":"proj-1","webhook_url":"https://example.com/hook","event_types":["run.completed"],"secret":"secret"}`
 	w := httptest.NewRecorder()
@@ -64,6 +64,51 @@ func TestWebhookSubscriptions_WebhooksWriteScopeCanCreateSubscription(t *testing
 	}
 	if !called {
 		t.Fatal("CreateWebhookSubscription was not called")
+	}
+}
+
+func TestWebhookTest_RunsWriteScopeCannotTestWebhook(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
+			return &domain.APIKey{ID: "key-runs", ProjectID: "proj-1", Scopes: []string{domain.ScopeRunsWrite}}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/v1/webhooks/test", strings.NewReader(`{}`))
+	r.Header.Set("Authorization", "Bearer strait_runs_write")
+	r.Header.Set("Content-Type", "application/json")
+
+	srv.ServeHTTP(w, r)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestWebhookTest_WebhooksWriteScopeReachesValidation(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
+			return &domain.APIKey{ID: "key-webhooks", ProjectID: "proj-1", Scopes: []string{domain.ScopeWebhooksWrite}}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/v1/webhooks/test", strings.NewReader(`{}`))
+	r.Header.Set("Authorization", "Bearer strait_webhooks_write")
+	r.Header.Set("Content-Type", "application/json")
+
+	srv.ServeHTTP(w, r)
+	if w.Code == http.StatusForbidden {
+		t.Fatalf("webhooks:write should authorize webhook test endpoint: %s", w.Body.String())
+	}
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected authorized request to reach body validation, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -82,7 +127,7 @@ func webhookSubStore() *APIStoreMock {
 // subscriptions endpoint and returns the recorder.
 func postWebhookSub(t *testing.T, body string) *httptest.ResponseRecorder {
 	t.Helper()
-	srv := newTestServer(t, webhookSubStore(), &mockQueue{}, nil)
+	srv := newTestServerWithEncryptor(t, webhookSubStore(), &mockQueue{}, &mockEncryptor{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/webhooks/subscriptions", body))
 	return w

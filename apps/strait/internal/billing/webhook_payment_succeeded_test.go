@@ -42,6 +42,7 @@ func TestHandlePaymentSucceeded_DispatchesPaymentSucceeded_OnRecovery(t *testing
 		CustomerID: stripeCustID,
 		SubID:      stripeSubID,
 		Metadata:   map[string]string{"org_id": orgID},
+		AmountPaid: 1234,
 	})
 	rr := fireWebhook(t, h, "invoice.paid", data)
 	if rr.Code != http.StatusOK {
@@ -81,6 +82,9 @@ func TestHandlePaymentSucceeded_DispatchesPaymentSucceeded_OnRecovery(t *testing
 	}
 	if detail["stripe_invoice_id"] != "in_recover_1" {
 		t.Errorf("detail.stripe_invoice_id = %v, want in_recover_1", detail["stripe_invoice_id"])
+	}
+	if detail["amount_paid_microusd"] != float64(12_340_000) {
+		t.Errorf("detail.amount_paid_microusd = %v, want 12340000", detail["amount_paid_microusd"])
 	}
 }
 

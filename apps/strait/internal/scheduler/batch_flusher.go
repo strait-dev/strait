@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -20,6 +21,11 @@ type BatchFlusher struct {
 	store    store.BatchStore
 	queue    queue.Queue
 	interval time.Duration
+}
+
+type transactionalBatchStore interface {
+	WithTx(ctx context.Context, fn func(context.Context, store.DBTX) error) error
+	DrainBatchBufferInTx(ctx context.Context, tx store.DBTX, jobID, batchKey string, limit int) ([]domain.BatchBufferItem, error)
 }
 
 func NewBatchFlusher(s store.BatchStore, q queue.Queue, interval time.Duration) *BatchFlusher {
@@ -46,20 +52,18 @@ func (f *BatchFlusher) Run(ctx context.Context) {
 }
 
 func (f *BatchFlusher) poll(ctx context.Context) {
-	acquired, err := f.store.TryAdvisoryLock(ctx, batchAdvisoryLockID)
-	if err != nil || !acquired {
+	_, err := runWithOptionalAdvisoryLock(ctx, f.store, batchAdvisoryLockID, f.pollLocked)
+	if err != nil {
+		slog.Warn("batch flusher: advisory lock cycle failed", "error", err)
 		return
 	}
-	defer func() {
-		if err := f.store.ReleaseAdvisoryLock(ctx, batchAdvisoryLockID); err != nil {
-			slog.Warn("failed to release batch advisory lock", "error", err)
-		}
-	}()
+}
 
+func (f *BatchFlusher) pollLocked(ctx context.Context) error {
 	batches, err := f.store.ListFlushableBatches(ctx)
 	if err != nil {
 		slog.Error("batch flusher: list flushable", "error", err)
-		return
+		return nil
 	}
 
 	for _, batch := range batches {
@@ -67,6 +71,7 @@ func (f *BatchFlusher) poll(ctx context.Context) {
 			slog.Error("batch flusher: flush", "job_id", batch.JobID, "batch_key", batch.BatchKey, "error", err)
 		}
 	}
+	return nil
 }
 
 func (f *BatchFlusher) flush(ctx context.Context, batch store.FlushableBatch) error {
@@ -83,7 +88,11 @@ func (f *BatchFlusher) flush(ctx context.Context, batch store.FlushableBatch) er
 		limit = batch.ItemCount
 	}
 
-	items, err := f.store.DrainBatchBuffer(ctx, batch.JobID, batch.BatchKey, limit)
+	if txStore, ok := f.store.(transactionalBatchStore); ok {
+		return f.flushInTx(ctx, txStore, batch, job, limit)
+	}
+
+	items, err := f.store.ListBatchBufferItems(ctx, batch.JobID, batch.BatchKey, limit)
 	if err != nil {
 		return err
 	}
@@ -107,22 +116,105 @@ func (f *BatchFlusher) flush(ctx context.Context, batch store.FlushableBatch) er
 	}
 
 	run := &domain.JobRun{
-		ID:            uuid.Must(uuid.NewV7()).String(),
-		JobID:         batch.JobID,
-		ProjectID:     batch.ProjectID,
-		Tags:          job.Tags,
-		Status:        domain.StatusQueued,
-		Attempt:       1,
-		Payload:       batchPayload,
-		TriggeredBy:   "batch",
-		Priority:      items[0].Priority,
-		JobVersion:    job.Version,
-		JobVersionID:  job.VersionID,
-		ExpiresAt:     &expiresAt,
-		CreatedBy:     items[0].CreatedBy,
-		ExecutionMode: job.ExecutionMode,
-		QueueName:     job.Queue,
+		ID:             uuid.Must(uuid.NewV7()).String(),
+		JobID:          batch.JobID,
+		ProjectID:      batch.ProjectID,
+		Tags:           job.Tags,
+		Status:         domain.StatusQueued,
+		Attempt:        1,
+		Payload:        batchPayload,
+		TriggeredBy:    "batch",
+		Priority:       items[0].Priority,
+		JobVersion:     job.Version,
+		JobVersionID:   job.VersionID,
+		ExpiresAt:      &expiresAt,
+		CreatedBy:      items[0].CreatedBy,
+		ExecutionMode:  job.ExecutionMode,
+		QueueName:      job.Queue,
+		IdempotencyKey: batchIdempotencyKey(batch, items),
 	}
 
-	return queue.EnqueueWithRetry(ctx, f.queue, run, queue.DefaultInternalEnqueueRetryConfig())
+	err = queue.EnqueueWithRetry(ctx, f.queue, run, queue.DefaultInternalEnqueueRetryConfig())
+	if err != nil && !errors.Is(err, domain.ErrIdempotencyConflict) {
+		return err
+	}
+	return f.store.DeleteBatchBufferItems(ctx, batchItemIDs(items))
+}
+
+func (f *BatchFlusher) flushInTx(
+	ctx context.Context,
+	txStore transactionalBatchStore,
+	batch store.FlushableBatch,
+	job *domain.Job,
+	limit int,
+) error {
+	return txStore.WithTx(ctx, func(txCtx context.Context, tx store.DBTX) error {
+		items, err := txStore.DrainBatchBufferInTx(txCtx, tx, batch.JobID, batch.BatchKey, limit)
+		if err != nil {
+			return err
+		}
+		if len(items) == 0 {
+			return nil
+		}
+		run, err := buildBatchRun(batch, job, items)
+		if err != nil {
+			return err
+		}
+		err = f.queue.EnqueueInTx(txCtx, tx, run)
+		if errors.Is(err, domain.ErrIdempotencyConflict) {
+			return nil
+		}
+		return err
+	})
+}
+
+func buildBatchRun(batch store.FlushableBatch, job *domain.Job, items []domain.BatchBufferItem) (*domain.JobRun, error) {
+	payloads := make([]json.RawMessage, len(items))
+	for i, item := range items {
+		payloads[i] = item.Payload
+	}
+	batchPayload, err := json.Marshal(map[string]any{"items": payloads})
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	expiresAt := now.Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
+	if job.RunTTLSecs > 0 {
+		expiresAt = now.Add(time.Duration(job.RunTTLSecs) * time.Second)
+	}
+
+	return &domain.JobRun{
+		ID:             uuid.Must(uuid.NewV7()).String(),
+		JobID:          batch.JobID,
+		ProjectID:      batch.ProjectID,
+		Tags:           job.Tags,
+		Status:         domain.StatusQueued,
+		Attempt:        1,
+		Payload:        batchPayload,
+		TriggeredBy:    "batch",
+		Priority:       items[0].Priority,
+		JobVersion:     job.Version,
+		JobVersionID:   job.VersionID,
+		ExpiresAt:      &expiresAt,
+		CreatedBy:      items[0].CreatedBy,
+		ExecutionMode:  job.ExecutionMode,
+		QueueName:      job.Queue,
+		IdempotencyKey: batchIdempotencyKey(batch, items),
+	}, nil
+}
+
+func batchItemIDs(items []domain.BatchBufferItem) []string {
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		ids = append(ids, item.ID)
+	}
+	return ids
+}
+
+func batchIdempotencyKey(batch store.FlushableBatch, items []domain.BatchBufferItem) string {
+	if len(items) == 0 {
+		return ""
+	}
+	return "batch:" + batch.JobID + ":" + batch.BatchKey + ":" + items[0].ID + ":" + items[len(items)-1].ID
 }

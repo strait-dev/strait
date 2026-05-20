@@ -3,10 +3,12 @@
 package loadtest
 
 import (
+	"context"
 	"errors"
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestChaosHarness_DoesNotUseHostWideProcessKills(t *testing.T) {
@@ -52,6 +54,53 @@ func TestChaosHarness_RunEventsPressureUsesCurrentSchema(t *testing.T) {
 	} {
 		if !strings.Contains(source, required) {
 			t.Fatalf("job_runs chaos scenario missing expected schema fragment %q", required)
+		}
+	}
+}
+
+func TestChaosHarness_DiskPressureCleanupIsRunScoped(t *testing.T) {
+	t.Parallel()
+
+	data, err := os.ReadFile("chaos.go")
+	if err != nil {
+		t.Fatalf("read chaos.go: %v", err)
+	}
+	source := string(data)
+	for _, required := range []string{
+		"DELETE FROM run_events re",
+		"USING job_runs jr",
+		"re.run_id = jr.id",
+		"jr.project_id = $1",
+		"AND re.run_id = $2",
+		"DELETE FROM job_runs",
+		"WHERE id = $2",
+	} {
+		if !strings.Contains(source, required) {
+			t.Fatalf("disk pressure cleanup missing scoped fragment %q", required)
+		}
+	}
+}
+
+func TestChaosHarness_CleanupUsesDetachedContext(t *testing.T) {
+	t.Parallel()
+
+	data, err := os.ReadFile("chaos.go")
+	if err != nil {
+		t.Fatalf("read chaos.go: %v", err)
+	}
+	source := string(data)
+	if !strings.Contains(source, "func chaosCleanupContext() (context.Context, context.CancelFunc)") {
+		t.Fatal("chaos cleanup helper is missing")
+	}
+	for _, required := range []string{
+		"exec.CommandContext(cleanupCtx, \"docker\", \"start\", container)",
+		"exec.CommandContext(cleanupCtx, \"docker\", \"unpause\", container)",
+		"ce.harness.Pool.Exec(cleanupCtx, `",
+		"exec.CommandContext(cleanupCtx, \"docker\", \"start\", redisContainer)",
+		"exec.CommandContext(cleanupCtx, \"docker\", \"start\", straitContainer)",
+	} {
+		if !strings.Contains(source, required) {
+			t.Fatalf("chaos cleanup missing detached-context fragment %q", required)
 		}
 	}
 }
@@ -119,6 +168,80 @@ func TestFindContainer_PropagatesDockerListError(t *testing.T) {
 
 	if _, err := findContainer("postgres"); !errors.Is(err, want) {
 		t.Fatalf("findContainer(postgres) error = %v, want %v", err, want)
+	}
+}
+
+func TestChaosCascadingFailure_FailsClosedWhenRedisMissing(t *testing.T) {
+	restore := stubDockerContainerNames(t, []string{"strait"})
+	defer restore()
+
+	ce := &ChaosEngine{}
+	err := ce.chaosCascadingFailure(t.Context())
+	if err == nil {
+		t.Fatal("expected cascading failure scenario to fail when redis container is missing")
+	}
+	if !strings.Contains(err.Error(), "finding redis container") {
+		t.Fatalf("error = %q, want redis discovery failure", err.Error())
+	}
+}
+
+func TestTrafficSpikeFailsClosedWhenAllTriggersFail(t *testing.T) {
+	t.Parallel()
+
+	ce := &ChaosEngine{
+		loadRate: 10,
+		trigger: func(context.Context, string, string, map[string]any) error {
+			return errors.New("trigger rejected")
+		},
+	}
+
+	attempts, successes, err := ce.runTrafficSpike(t.Context(), 20*time.Millisecond, time.Millisecond)
+	if err == nil {
+		t.Fatal("expected traffic spike to fail when every trigger fails")
+	}
+	if attempts == 0 {
+		t.Fatal("expected traffic spike attempts")
+	}
+	if successes != 0 {
+		t.Fatalf("successes = %d, want 0", successes)
+	}
+	if ce.errorCount.Load() == 0 {
+		t.Fatal("expected failed spike attempts to increment errorCount")
+	}
+}
+
+func TestTrafficSpikeRequiresAtLeastOneAttempt(t *testing.T) {
+	t.Parallel()
+
+	ce := &ChaosEngine{loadRate: 1}
+	attempts, successes, err := ce.runTrafficSpike(t.Context(), time.Nanosecond, time.Hour)
+	if err == nil {
+		t.Fatal("expected traffic spike with no ticks to fail")
+	}
+	if attempts != 0 || successes != 0 {
+		t.Fatalf("attempts=%d successes=%d, want zero values", attempts, successes)
+	}
+}
+
+func TestTrafficSpikeCountsSuccessfulTriggers(t *testing.T) {
+	t.Parallel()
+
+	ce := &ChaosEngine{
+		loadRate: 10,
+		trigger: func(context.Context, string, string, map[string]any) error {
+			return nil
+		},
+	}
+
+	attempts, successes, err := ce.runTrafficSpike(t.Context(), 20*time.Millisecond, time.Millisecond)
+	if err != nil {
+		t.Fatalf("runTrafficSpike() error = %v", err)
+	}
+	if attempts == 0 || successes == 0 {
+		t.Fatalf("attempts=%d successes=%d, want non-zero", attempts, successes)
+	}
+	if ce.triggerCount.Load() != successes {
+		t.Fatalf("triggerCount = %d, want successes %d", ce.triggerCount.Load(), successes)
 	}
 }
 

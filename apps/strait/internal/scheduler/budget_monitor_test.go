@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -182,6 +183,10 @@ func TestBudgetMonitor_80Percent_TriggersWebhook(t *testing.T) {
 	if deliveries[0].EventType != domain.NotificationEventSpendingLimitWarning {
 		t.Errorf("expected event %s, got %s", domain.NotificationEventSpendingLimitWarning, deliveries[0].EventType)
 	}
+	if deliveries[0].DedupeKey == "" {
+		t.Fatal("expected budget notification delivery to carry a durable dedupe key")
+	}
+	assertProjectScopedBudgetPayload(t, deliveries[0].Payload)
 }
 
 func TestBudgetMonitor_100Percent_TriggersWebhookAndEmail(t *testing.T) {
@@ -230,6 +235,72 @@ func TestBudgetMonitor_100Percent_TriggersWebhookAndEmail(t *testing.T) {
 	}
 	if !channelTypes["ch-webhook"] || !channelTypes["ch-email"] {
 		t.Error("expected both webhook and email channel deliveries")
+	}
+	for _, d := range deliveries {
+		assertProjectScopedBudgetPayload(t, d.Payload)
+	}
+}
+
+func TestBudgetMonitor_RunLimitPayloadOmitsOrgScopeValues(t *testing.T) {
+	t.Parallel()
+
+	assertProjectScopedBudgetPayload(t, runLimitNotificationPayload())
+}
+
+func assertProjectScopedBudgetPayload(t *testing.T, payload json.RawMessage) {
+	t.Helper()
+	var decoded map[string]any
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	for _, key := range []string{"org_id", "overage_pct", "spending_limit_usd", "current_spend_usd"} {
+		if _, ok := decoded[key]; ok {
+			t.Fatalf("project-scoped budget payload leaked %q: %s", key, string(payload))
+		}
+	}
+	if decoded["event"] == "" {
+		t.Fatalf("payload missing event: %s", string(payload))
+	}
+	if decoded["threshold_pct"] == nil {
+		t.Fatalf("payload missing threshold_pct: %s", string(payload))
+	}
+}
+
+func TestBudgetMonitor_SpendingAlertRetriesAfterDeliveryFailure(t *testing.T) {
+	t.Parallel()
+
+	attempts := 0
+	ss := &mockSpendingLimitStore{
+		listAllSubscribedOrgIDsFn: func(context.Context) ([]string, error) {
+			return []string{"org-1"}, nil
+		},
+		getOrgSubscriptionFn: func(context.Context, string) (*billing.OrgSubscription, error) {
+			return newSpendingLimitSub("org-1", 100_000_000, "starter"), nil
+		},
+		sumOrgPeriodSpendFn: func(context.Context, string, time.Time) (int64, error) {
+			return 119_990_000, nil
+		},
+		listProjectsByOrgFn: func(context.Context, string) ([]string, error) {
+			return []string{"proj-1"}, nil
+		},
+		listEnabledNotificationChannelsFn: func(context.Context, string) ([]domain.NotificationChannel, error) {
+			return []domain.NotificationChannel{{ID: "ch-webhook", ProjectID: "proj-1", ChannelType: domain.ChannelTypeWebhook}}, nil
+		},
+		createNotificationDeliveryFn: func(context.Context, *domain.NotificationDelivery) error {
+			attempts++
+			if attempts == 1 {
+				return errors.New("transient delivery insert failure")
+			}
+			return nil
+		},
+	}
+
+	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
+	bm.check(context.Background())
+	bm.check(context.Background())
+
+	if attempts != 2 {
+		t.Fatalf("delivery attempts = %d, want retry after first failure", attempts)
 	}
 }
 

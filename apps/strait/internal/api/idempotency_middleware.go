@@ -13,7 +13,6 @@ import (
 	"net"
 	"net/http"
 	"path"
-	"strings"
 	"time"
 
 	"strait/internal/store"
@@ -44,10 +43,8 @@ const defaultIdempotencyCleanupTimeout = 5 * time.Second
 // key. Without this, a client retrying with "/v1/jobs/" or "/v1//jobs"
 // would compute a different key than the original "/v1/jobs" call and
 // re-execute the operation. path.Clean handles "..", "//", and trailing
-// slashes; we additionally lowercase ASCII because chi treats routes as
-// case-sensitive but RFC 3986 considers the path component itself
-// case-sensitive — we choose dedupe-safety over fidelity here, which
-// is the correct trade for retry semantics.
+// slashes. It intentionally preserves case because chi routes are
+// case-sensitive and distinct routes must not share an idempotency cache key.
 func canonicalizeIdempotencyPath(p string) string {
 	if p == "" {
 		return "/"
@@ -57,7 +54,7 @@ func canonicalizeIdempotencyPath(p string) string {
 	if cleaned == "." {
 		return "/"
 	}
-	return strings.ToLower(cleaned)
+	return cleaned
 }
 
 // idempotencyCompositeKey returns a length-prefixed SHA-256 of the
@@ -109,7 +106,7 @@ func (s *Server) idempotencyFailOpen() bool {
 // (timeout middleware, client disconnect). defer cancel() guarantees
 // timer release even if DeleteIdempotencyKey panics.
 func (s *Server) runIdempotencyCleanup(parentCtx context.Context, projectID, compositeKey, keyHash string) {
-	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(parentCtx), s.idempotencyCleanupTimeout())
+	cleanupCtx, cancel := context.WithTimeout(store.ContextWithoutTx(context.WithoutCancel(parentCtx)), s.idempotencyCleanupTimeout())
 	defer cancel()
 	if _, err := s.store.DeleteIdempotencyKey(cleanupCtx, projectID, compositeKey); err != nil {
 		slog.Warn("idempotency cleanup failed; pending row may block retries until TTL",
@@ -259,27 +256,35 @@ func (s *Server) idempotencyMiddleware(next http.Handler) http.Handler {
 			// Only cache 2xx responses. Error responses delete the pending
 			// row so the client can retry with the same key.
 			if cw.statusCode >= 200 && cw.statusCode < 300 {
-				// Detach from r.Context() because chi's timeout middleware
-				// and client disconnects cancel it the moment the handler
-				// returns; a canceled context here would race the cache
-				// write and force the next retry to re-execute the
-				// already-successful operation.
-				completeCtx, completeCancel := context.WithTimeout(
-					context.WithoutCancel(r.Context()),
-					s.idempotencyCleanupTimeout(),
-				)
-				if completeErr := s.store.CompleteIdempotencyKey(completeCtx, projectID, compositeKey, cw.statusCode, cw.headers, cw.body.Bytes()); completeErr != nil {
-					slog.Error("idempotency key complete failed",
-						"idempotency_key_hash", keyHash,
-						"project_id", projectID,
-						"error", completeErr)
-					// Drop the pending row so retries are not blocked by
-					// 409 until TTL expires; replay cache is sacrificed.
-					completeCancel()
-					cleanup()
-				} else {
-					completeCancel()
+				complete := func() {
+					// Detach from r.Context() because chi's timeout middleware
+					// and client disconnects cancel it the moment the handler
+					// returns; a canceled context here would race the cache
+					// write and force the next retry to re-execute the
+					// already-successful operation.
+					completeCtx, completeCancel := context.WithTimeout(
+						store.ContextWithoutTx(context.WithoutCancel(r.Context())),
+						s.idempotencyCleanupTimeout(),
+					)
+					defer completeCancel()
+					if completeErr := s.store.CompleteIdempotencyKey(completeCtx, projectID, compositeKey, cw.statusCode, cw.headers, cw.body.Bytes()); completeErr != nil {
+						slog.Error("idempotency key complete failed",
+							"idempotency_key_hash", keyHash,
+							"project_id", projectID,
+							"error", completeErr)
+						// Drop the pending row so retries are not blocked by
+						// 409 until TTL expires; replay cache is sacrificed.
+						cleanup()
+					}
 				}
+				if registerTxCompletionHooks(r.Context(), func(context.Context) {
+					complete()
+				}, func(context.Context) {
+					cleanup()
+				}) {
+					return
+				}
+				complete()
 			} else {
 				cleanup()
 			}

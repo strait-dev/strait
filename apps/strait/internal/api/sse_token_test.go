@@ -53,6 +53,154 @@ func TestHandleCreateSSEToken_Success(t *testing.T) {
 	if resp.ExpiresAt.After(time.Now().Add(6 * time.Minute)) {
 		t.Error("expires_at exceeds 5-minute TTL")
 	}
+
+	claims := srv.parseSSEToken(resp.Token)
+	if claims == nil {
+		t.Fatal("created token did not parse")
+	}
+	if claims.ProjectID != "proj-1" {
+		t.Fatalf("project_id = %q, want proj-1", claims.ProjectID)
+	}
+}
+
+func TestHandleCreateSSEToken_PreservesEnvironmentScope(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
+	handler := srv.requirePermission(domain.ScopeRunsRead)(
+		TypedHandler(srv, http.StatusCreated, srv.handleCreateSSEToken),
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/sse-token", nil)
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeRunsRead})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "apikey:test")
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201; body: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	claims := srv.parseSSEToken(resp.Token)
+	if claims == nil {
+		t.Fatal("created token did not parse")
+	}
+	if claims.EnvironmentID != "env-prod" {
+		t.Fatalf("environment_id = %q, want env-prod", claims.EnvironmentID)
+	}
+}
+
+func TestHandleCreateSSEToken_UserRBACPermissionsMintUsableToken(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetUserPermissionsFunc: func(_ context.Context, projectID, actorID string) ([]string, error) {
+			if projectID != "proj-1" || actorID != "user-1" {
+				t.Fatalf("unexpected permission lookup: project=%q actor=%q", projectID, actorID)
+			}
+			return []string{domain.ScopeRunsRead}, nil
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+	handler := srv.requirePermission(domain.ScopeRunsRead)(
+		TypedHandler(srv, http.StatusCreated, srv.handleCreateSSEToken),
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/sse-token", nil)
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "user-1")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{})
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201; body: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	claims := srv.parseSSEToken(resp.Token)
+	if claims == nil {
+		t.Fatal("created token did not parse")
+	}
+	if !domain.HasScopeStrict(claims.Scopes, domain.ScopeRunsRead) {
+		t.Fatalf("minted token scopes %v do not include %s", claims.Scopes, domain.ScopeRunsRead)
+	}
+
+	tokenCtx := context.WithValue(context.Background(), ctxProjectIDKey, claims.ProjectID)
+	tokenCtx = context.WithValue(tokenCtx, ctxActorTypeKey, "sse_token")
+	tokenCtx = context.WithValue(tokenCtx, ctxActorIDKey, "sse:proj-1")
+	tokenCtx = context.WithValue(tokenCtx, ctxScopesKey, claims.Scopes)
+	tokenReq := httptest.NewRequest(http.MethodGet, "/v1/runs/run-1/stream", nil).WithContext(tokenCtx)
+	tokenW := httptest.NewRecorder()
+	srv.requirePermission(domain.ScopeRunsRead)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})).ServeHTTP(tokenW, tokenReq)
+
+	if tokenW.Code != http.StatusNoContent {
+		t.Fatalf("minted token should be usable for runs:read, got %d: %s", tokenW.Code, tokenW.Body.String())
+	}
+}
+
+func TestHandleCreateSSEToken_UserScopesRespectExplicitOIDCUpperBound(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetUserPermissionsFunc: func(_ context.Context, _, _ string) ([]string, error) {
+			return []string{domain.ScopeAll}, nil
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+	handler := srv.requirePermission(domain.ScopeRunsRead)(
+		TypedHandler(srv, http.StatusCreated, srv.handleCreateSSEToken),
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/sse-token", nil)
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "user-1")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeRunsRead})
+	ctx = context.WithValue(ctx, ctxOIDCScopeClaimPresentKey, true)
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201; body: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	claims := srv.parseSSEToken(resp.Token)
+	if claims == nil {
+		t.Fatal("created token did not parse")
+	}
+	if len(claims.Scopes) != 1 || claims.Scopes[0] != domain.ScopeRunsRead {
+		t.Fatalf("scopes = %v, want only [%s]", claims.Scopes, domain.ScopeRunsRead)
+	}
 }
 
 func TestParseSSEToken_Valid(t *testing.T) {
@@ -252,6 +400,59 @@ func TestSSETokenAuth_ShortLivedJWT_BypassesAPIKeyAuth(t *testing.T) {
 	// Should not be 401 (unauthenticated) -- the SSE token should have authenticated.
 	if w.Code == http.StatusUnauthorized {
 		t.Errorf("SSE token should bypass API key auth, got 401; body: %s", w.Body.String())
+	}
+}
+
+func TestSSETokenAuth_RestoresEnvironmentScope(t *testing.T) {
+	t.Parallel()
+
+	srv := NewServer(ServerDeps{
+		Config: &config.Config{
+			InternalSecret: "test-secret-value",
+			JWTSigningKey:  testJWTSigningKey,
+		},
+		Store:  &APIStoreMock{},
+		Queue:  &mockQueue{},
+		PubSub: &mockPublisher{},
+	})
+	t.Cleanup(srv.Close)
+
+	claims := SSETokenClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    sseTokenIssuer,
+			Subject:   "proj-1",
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(5 * time.Minute)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+		ProjectID:     "proj-1",
+		EnvironmentID: "env-prod",
+		Scopes:        []string{domain.ScopeJobsRead},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signed, err := token.SignedString([]byte(testJWTSigningKey))
+	if err != nil {
+		t.Fatalf("sign error: %v", err)
+	}
+
+	handler := srv.sseTokenAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := projectIDFromContext(r.Context()); got != "proj-1" {
+			t.Fatalf("project_id = %q, want proj-1", got)
+		}
+		if got := environmentIDFromContext(r.Context()); got != "env-prod" {
+			t.Fatalf("environment_id = %q, want env-prod", got)
+		}
+		if got := scopesFromContext(r.Context()); len(got) != 1 || got[0] != domain.ScopeJobsRead {
+			t.Fatalf("scopes = %v, want [%s]", got, domain.ScopeJobsRead)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/events/test-key/stream?token="+signed, nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204; body: %s", w.Code, w.Body.String())
 	}
 }
 

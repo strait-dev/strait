@@ -126,7 +126,7 @@ func TestWorkerModePollClaimsAndDispatchesWithWorkerPlane(t *testing.T) {
 		HeartbeatInterval:   50 * time.Millisecond,
 		WebhookMaxAttempts:  1,
 		MaxDequeueBatchSize: 1,
-		QueueSnapshotter:    staticQueueSnapshotter{queues: []domain.WorkerQueueRef{{QueueName: "default"}}},
+		QueueSnapshotter:    staticQueueSnapshotter{queues: []domain.WorkerQueueRef{{ProjectID: job.ProjectID, QueueName: "default"}}},
 		WorkerDispatcher:    dispatcher,
 	})
 	t.Cleanup(func() {
@@ -276,7 +276,7 @@ func TestWorkerModeDispatchHonorsJobTimeoutAndRequeues(t *testing.T) {
 		HeartbeatInterval:   50 * time.Millisecond,
 		WebhookMaxAttempts:  1,
 		MaxDequeueBatchSize: 1,
-		QueueSnapshotter:    staticQueueSnapshotter{queues: []domain.WorkerQueueRef{{QueueName: "default"}}},
+		QueueSnapshotter:    staticQueueSnapshotter{queues: []domain.WorkerQueueRef{{ProjectID: job.ProjectID, QueueName: "default"}}},
 		WorkerDispatcher:    dispatcher,
 	})
 	t.Cleanup(func() {

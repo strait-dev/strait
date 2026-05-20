@@ -4,11 +4,28 @@ import (
 	"bytes"
 	"context"
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"time"
+	"unicode"
 
 	"github.com/go-pdf/fpdf"
 )
+
+const (
+	maxUsageExportPeriod       = 370 * 24 * time.Hour
+	maxUsageExportRows         = 10_000
+	maxUsageExportQueryTimeout = 15 * time.Second
+)
+
+var (
+	ErrUsageExportTooLarge          = errors.New("usage export exceeds maximum row limit")
+	ErrUsageExportRequiresBoundedDB = errors.New("usage export requires bounded usage query support")
+)
+
+type boundedOrgUsagePeriodStore interface {
+	GetOrgUsageForPeriodLimited(ctx context.Context, orgID string, from, to time.Time, limit int) ([]UsageRecord, error)
+}
 
 // ExportPeriod defines the time range for a usage export.
 type ExportPeriod struct {
@@ -19,7 +36,10 @@ type ExportPeriod struct {
 // ExportCSV generates a CSV export of usage data for an org over the given period.
 // The CSV columns are: date, project, runs, compute_cost_usd, ai_tokens, ai_cost_usd, total_usd.
 func ExportCSV(ctx context.Context, store Store, orgID string, period ExportPeriod) ([]byte, error) {
-	records, err := store.GetOrgUsageForPeriod(ctx, orgID, period.From, period.To)
+	if err := validateExportPeriod(period); err != nil {
+		return nil, err
+	}
+	records, err := getUsageRecordsForExport(ctx, store, orgID, period)
 	if err != nil {
 		return nil, fmt.Errorf("getting usage records for export: %w", err)
 	}
@@ -37,7 +57,7 @@ func ExportCSV(ctx context.Context, store Store, orgID string, period ExportPeri
 		totalMicro := r.ComputeCostMicro + r.AICostMicro
 		row := []string{
 			r.PeriodDate.Format("2006-01-02"),
-			r.ProjectID,
+			escapeCSVFormulaCell(r.ProjectID),
 			fmt.Sprintf("%d", r.RunsCount),
 			microToUSDString(r.ComputeCostMicro),
 			fmt.Sprintf("%d", r.AITokensTotal),
@@ -59,7 +79,10 @@ func ExportCSV(ctx context.Context, store Store, orgID string, period ExportPeri
 
 // ExportPDF generates a PDF export of usage data for an org over the given period.
 func ExportPDF(ctx context.Context, store Store, orgID string, period ExportPeriod) ([]byte, error) {
-	records, err := store.GetOrgUsageForPeriod(ctx, orgID, period.From, period.To)
+	if err := validateExportPeriod(period); err != nil {
+		return nil, err
+	}
+	records, err := getUsageRecordsForExport(ctx, store, orgID, period)
 	if err != nil {
 		return nil, fmt.Errorf("getting usage records for PDF export: %w", err)
 	}
@@ -148,6 +171,60 @@ func ExportPDF(ctx context.Context, store Store, orgID string, period ExportPeri
 	}
 
 	return buf.Bytes(), nil
+}
+
+func validateExportPeriod(period ExportPeriod) error {
+	if period.From.IsZero() || period.To.IsZero() {
+		return errors.New("usage export period requires from and to")
+	}
+	if period.To.Before(period.From) {
+		return errors.New("usage export period to must be on or after from")
+	}
+	if period.To.Sub(period.From) > maxUsageExportPeriod {
+		return fmt.Errorf("usage export period cannot exceed %d days", int(maxUsageExportPeriod.Hours()/24))
+	}
+	return nil
+}
+
+func getUsageRecordsForExport(ctx context.Context, store Store, orgID string, period ExportPeriod) ([]UsageRecord, error) {
+	boundedStore, ok := store.(boundedOrgUsagePeriodStore)
+	if !ok {
+		return nil, ErrUsageExportRequiresBoundedDB
+	}
+
+	queryCtx, cancel := context.WithTimeout(ctx, maxUsageExportQueryTimeout)
+	defer cancel()
+
+	records, err := boundedStore.GetOrgUsageForPeriodLimited(queryCtx, orgID, period.From, period.To, maxUsageExportRows+1)
+	if err != nil {
+		return nil, err
+	}
+	if len(records) > maxUsageExportRows {
+		return nil, fmt.Errorf("%w: max %d rows", ErrUsageExportTooLarge, maxUsageExportRows)
+	}
+	return records, nil
+}
+
+func escapeCSVFormulaCell(value string) string {
+	if value == "" {
+		return value
+	}
+	switch value[0] {
+	case '\t', '\r', '\n', '\x00':
+		return "'" + value
+	}
+	for _, r := range value {
+		if unicode.Is(unicode.Cf, r) || unicode.IsMark(r) ||
+			unicode.IsSpace(r) || unicode.IsControl(r) {
+			continue
+		}
+		switch r {
+		case '=', '+', '-', '@':
+			return "'" + value
+		}
+		return value
+	}
+	return value
 }
 
 func microToUSDString(micro int64) string {

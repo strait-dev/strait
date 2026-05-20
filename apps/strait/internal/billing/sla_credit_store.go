@@ -2,6 +2,7 @@ package billing
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"time"
 
@@ -15,16 +16,17 @@ import (
 // re-tick within the same billing period observes the existing row
 // and skips re-issuance.
 type SLACreditRow struct {
-	ID                 string
-	OrgID              string
-	PeriodStart        time.Time
-	PeriodEnd          time.Time
-	UptimePct          float64
-	TargetPct          float64
-	CreditPct          int
-	CreditMicrousd     int64
-	StripeCreditNoteID string
-	IssuedAt           time.Time
+	ID                  string
+	OrgID               string
+	PeriodStart         time.Time
+	PeriodEnd           time.Time
+	UptimePct           float64
+	TargetPct           float64
+	CreditPct           int
+	CreditMicrousd      int64
+	StripeCreditNoteID  string
+	IssuedAt            time.Time
+	WebhookDispatchedAt *time.Time
 }
 
 // ErrSLACreditAlreadyIssued is returned by InsertSLACredit when a credit
@@ -37,6 +39,7 @@ var ErrSLACreditAlreadyIssued = errors.New("sla credit already issued for period
 type SLACreditStore interface {
 	InsertSLACredit(ctx context.Context, row SLACreditRow) error
 	GetSLACredit(ctx context.Context, orgID string, periodStart, periodEnd time.Time) (*SLACreditRow, error)
+	MarkSLACreditWebhookDispatched(ctx context.Context, orgID string, periodStart, periodEnd, dispatchedAt time.Time) (bool, error)
 }
 
 // PgSLACreditStore is the production SLACreditStore backed by Postgres.
@@ -107,11 +110,13 @@ func (s *PgSLACreditStore) GetSLACredit(ctx context.Context, orgID string, perio
 	row := s.pool.QueryRow(ctx, `
         SELECT id, org_id, period_start, period_end,
                uptime_pct, target_pct, credit_pct,
-               credit_microusd, COALESCE(stripe_credit_note_id, ''), issued_at
+               credit_microusd, COALESCE(stripe_credit_note_id, ''), issued_at,
+               webhook_dispatched_at
         FROM sla_credits
         WHERE org_id = $1 AND period_start = $2 AND period_end = $3
     `, orgID, periodStart, periodEnd)
 	var r SLACreditRow
+	var webhookDispatchedAt sql.NullTime
 	if err := row.Scan(
 		&r.ID,
 		&r.OrgID,
@@ -123,11 +128,30 @@ func (s *PgSLACreditStore) GetSLACredit(ctx context.Context, orgID string, perio
 		&r.CreditMicrousd,
 		&r.StripeCreditNoteID,
 		&r.IssuedAt,
+		&webhookDispatchedAt,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil //nolint:nilnil // "no row" is a valid result the caller distinguishes from error
 		}
 		return nil, err
 	}
+	if webhookDispatchedAt.Valid {
+		r.WebhookDispatchedAt = &webhookDispatchedAt.Time
+	}
 	return &r, nil
+}
+
+func (s *PgSLACreditStore) MarkSLACreditWebhookDispatched(ctx context.Context, orgID string, periodStart, periodEnd, dispatchedAt time.Time) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `
+        UPDATE sla_credits
+        SET webhook_dispatched_at = $4
+        WHERE org_id = $1
+          AND period_start = $2
+          AND period_end = $3
+          AND webhook_dispatched_at IS NULL
+    `, orgID, periodStart, periodEnd, dispatchedAt)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
 }

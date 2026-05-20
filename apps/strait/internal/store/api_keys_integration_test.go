@@ -536,6 +536,48 @@ func TestListAPIKeysDueRotation(t *testing.T) {
 	}
 }
 
+func TestDisableAPIKeyAutoRotationClearsSchedulerEligibility(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	rotDays := 30
+	pastRotation := time.Now().UTC().Add(-1 * time.Hour).Truncate(time.Microsecond)
+	key := &domain.APIKey{
+		ProjectID:            "proj-disable-rotation-" + newID(),
+		Name:                 "due-without-webhook",
+		KeyHash:              "hash-" + newID(),
+		KeyPrefix:            "sk_dis",
+		Scopes:               []string{"jobs:read"},
+		RotationIntervalDays: &rotDays,
+		NextRotationAt:       &pastRotation,
+	}
+	if err := q.CreateAPIKey(ctx, key); err != nil {
+		t.Fatalf("CreateAPIKey() error = %v", err)
+	}
+
+	if err := q.DisableAPIKeyAutoRotation(ctx, key.ID); err != nil {
+		t.Fatalf("DisableAPIKeyAutoRotation() error = %v", err)
+	}
+	got, err := q.GetAPIKeyByID(ctx, key.ID)
+	if err != nil {
+		t.Fatalf("GetAPIKeyByID() error = %v", err)
+	}
+	if got.NextRotationAt != nil {
+		t.Fatalf("NextRotationAt = %v, want nil", got.NextRotationAt)
+	}
+
+	keys, err := q.ListAPIKeysDueRotation(ctx)
+	if err != nil {
+		t.Fatalf("ListAPIKeysDueRotation() error = %v", err)
+	}
+	for _, due := range keys {
+		if due.ID == key.ID {
+			t.Fatal("disabled key is still listed as due for rotation")
+		}
+	}
+}
+
 func TestListAPIKeysExpiringSoon(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

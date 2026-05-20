@@ -1328,6 +1328,8 @@ func TestRuns_CancelActiveRunsForJob_HappyPath(t *testing.T) {
 
 	r1 := baseRun(job, newID())
 	r1.Status = domain.StatusQueued
+	r1.WorkflowStepRunID = "step-run-cancel-active"
+	r1.ExecutionMode = domain.ExecutionModeWorker
 	if err := q.CreateRun(ctx, r1); err != nil {
 		t.Fatalf("CreateRun error = %v", err)
 	}
@@ -1343,6 +1345,48 @@ func TestRuns_CancelActiveRunsForJob_HappyPath(t *testing.T) {
 	}
 	if len(canceled) != 2 {
 		t.Fatalf("len = %d, want 2", len(canceled))
+	}
+	byID := make(map[string]store.CanceledRun, len(canceled))
+	for _, cr := range canceled {
+		byID[cr.ID] = cr
+	}
+	if got := byID[r1.ID]; got.WorkflowStepRunID != "step-run-cancel-active" || got.JobID != job.ID || got.ProjectID != job.ProjectID || got.ExecutionMode != domain.ExecutionModeWorker {
+		t.Fatalf("canceled run metadata = %+v", got)
+	}
+}
+
+func TestRuns_CancelActiveRunsForJobExcept_PreservesReplacementRun(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-cancel-active-except")
+
+	oldRun := baseRun(job, newID())
+	oldRun.Status = domain.StatusExecuting
+	if err := q.CreateRun(ctx, oldRun); err != nil {
+		t.Fatalf("CreateRun oldRun error = %v", err)
+	}
+	replacement := baseRun(job, newID())
+	replacement.Status = domain.StatusQueued
+	if err := q.CreateRun(ctx, replacement); err != nil {
+		t.Fatalf("CreateRun replacement error = %v", err)
+	}
+
+	canceled, err := q.CancelActiveRunsForJobExcept(ctx, job.ID, replacement.ID, "cron overlap")
+	if err != nil {
+		t.Fatalf("CancelActiveRunsForJobExcept() error = %v", err)
+	}
+	if len(canceled) != 1 || canceled[0].ID != oldRun.ID {
+		t.Fatalf("canceled = %+v, want only old run %s", canceled, oldRun.ID)
+	}
+
+	gotReplacement, err := q.GetRun(ctx, replacement.ID)
+	if err != nil {
+		t.Fatalf("GetRun(replacement) error = %v", err)
+	}
+	if gotReplacement.Status != domain.StatusQueued {
+		t.Fatalf("replacement status = %q, want queued", gotReplacement.Status)
 	}
 }
 

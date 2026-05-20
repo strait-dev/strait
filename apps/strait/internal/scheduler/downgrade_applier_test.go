@@ -2,12 +2,14 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"testing"
 	"time"
 
 	"strait/internal/billing"
+	"strait/internal/domain"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
@@ -16,13 +18,18 @@ import (
 type mockDowngradeStore struct {
 	pendingOrgs   []billing.OrgSubscription
 	appliedOrgIDs []string
+	clearedOrgIDs []string
 	applyErrors   map[string]error
+	applyIfTierFn func(ctx context.Context, orgID, pendingTier string) (bool, error)
+	clearIfTierFn func(ctx context.Context, orgID, pendingTier string) (bool, error)
 	listErr       error
+	operations    []string
 
 	// HTTP pause tracking.
 	pauseHTTPCalls []pauseHTTPCall
 	pauseHTTPIDs   []string
 	pauseHTTPErr   error
+	cronErr        error
 
 	// Log drain / notification channel cleanup tracking.
 	logDrainCalls     []deactivateCall
@@ -59,22 +66,53 @@ func (m *mockDowngradeStore) ApplyPendingDowngrade(_ context.Context, orgID stri
 		}
 	}
 	m.appliedOrgIDs = append(m.appliedOrgIDs, orgID)
+	m.operations = append(m.operations, "apply:"+orgID)
 	return nil
 }
 
+func (m *mockDowngradeStore) ApplyPendingDowngradeIfTier(ctx context.Context, orgID, pendingTier string) (bool, error) {
+	if m.applyIfTierFn != nil {
+		return m.applyIfTierFn(ctx, orgID, pendingTier)
+	}
+	if err := m.ApplyPendingDowngrade(ctx, orgID); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (m *mockDowngradeStore) ApplyPendingDowngradeTierIfPending(ctx context.Context, orgID, pendingTier string) (bool, error) {
+	return m.ApplyPendingDowngradeIfTier(ctx, orgID, pendingTier)
+}
+
+func (m *mockDowngradeStore) ClearPendingPlanTierIfTier(ctx context.Context, orgID, pendingTier string) (bool, error) {
+	if m.clearIfTierFn != nil {
+		return m.clearIfTierFn(ctx, orgID, pendingTier)
+	}
+	m.clearedOrgIDs = append(m.clearedOrgIDs, orgID)
+	m.operations = append(m.operations, "clear:"+orgID)
+	return true, nil
+}
+
 func (m *mockDowngradeStore) SuspendExcessProjects(_ context.Context, _ string, _ int) (int, error) {
+	m.operations = append(m.operations, "suspend")
 	return 0, nil
 }
 
 func (m *mockDowngradeStore) DeactivateExcessCronJobs(_ context.Context, _ string, _ int) ([]string, error) {
+	m.operations = append(m.operations, "cron")
+	if m.cronErr != nil {
+		return nil, m.cronErr
+	}
 	return nil, nil
 }
 
 func (m *mockDowngradeStore) DeactivateExcessWebhookSubscriptions(_ context.Context, _ string, _ int) (int64, error) {
+	m.operations = append(m.operations, "webhook")
 	return 0, nil
 }
 
 func (m *mockDowngradeStore) DeactivateExcessEnvironments(_ context.Context, _ string, _ int) (int64, error) {
+	m.operations = append(m.operations, "environment")
 	return 0, nil
 }
 
@@ -83,6 +121,7 @@ func (m *mockDowngradeStore) ListProjectsByOrg(_ context.Context, _ string) ([]s
 }
 
 func (m *mockDowngradeStore) PauseHTTPJobsByOrg(_ context.Context, orgID string, reason string) ([]string, error) {
+	m.operations = append(m.operations, "pause_http")
 	m.pauseHTTPCalls = append(m.pauseHTTPCalls, pauseHTTPCall{orgID: orgID, reason: reason})
 	if m.pauseHTTPErr != nil {
 		return nil, m.pauseHTTPErr
@@ -114,7 +153,9 @@ func newTestEnforcer(t *testing.T) *billing.Enforcer {
 }
 
 // mockEnforcerStore satisfies billing.Store for the enforcer.
-type mockEnforcerStore struct{}
+type mockEnforcerStore struct {
+	subscriptions map[string]*billing.OrgSubscription
+}
 
 func (m *mockEnforcerStore) UpdateEntitlements(context.Context, string, billing.OrgPlanLimits) error {
 	return nil
@@ -123,7 +164,13 @@ func (m *mockEnforcerStore) TryMarkBillingCapEvent(context.Context, string, bill
 	return false, nil
 }
 func (m *mockEnforcerStore) EnsureOrgSubscription(_ context.Context, _ string) error { return nil }
-func (m *mockEnforcerStore) GetOrgSubscription(_ context.Context, _ string) (*billing.OrgSubscription, error) {
+func (m *mockEnforcerStore) GetOrgSubscription(_ context.Context, orgID string) (*billing.OrgSubscription, error) {
+	if m.subscriptions != nil {
+		if sub, ok := m.subscriptions[orgID]; ok {
+			cp := *sub
+			return &cp, nil
+		}
+	}
 	return nil, billing.ErrSubscriptionNotFound
 }
 func (m *mockEnforcerStore) GetOrgSubscriptionByStripeCustomerID(context.Context, string) (*billing.OrgSubscription, error) {
@@ -153,6 +200,12 @@ func (m *mockEnforcerStore) SetPendingDowngrade(_ context.Context, _, _ string, 
 }
 func (m *mockEnforcerStore) ClearPendingPlanTier(_ context.Context, _ string) error  { return nil }
 func (m *mockEnforcerStore) ApplyPendingDowngrade(_ context.Context, _ string) error { return nil }
+func (m *mockEnforcerStore) ApplyPendingDowngradeTierIfPending(context.Context, string, string) (bool, error) {
+	return true, nil
+}
+func (m *mockEnforcerStore) ClearPendingPlanTierIfTier(context.Context, string, string) (bool, error) {
+	return true, nil
+}
 func (m *mockEnforcerStore) ListOrgsWithPendingDowngrade(_ context.Context) ([]billing.OrgSubscription, error) {
 	return nil, nil
 }
@@ -360,6 +413,117 @@ func TestDowngradeApplier_ContinuesOnSingleOrgError(t *testing.T) {
 	}
 	if store.appliedOrgIDs[0] != "org-ok" {
 		t.Errorf("expected org-ok to succeed, got %q", store.appliedOrgIDs[0])
+	}
+}
+
+func TestDowngradeApplier_DoesNotApplyWhenPendingTierChanged(t *testing.T) {
+	t.Parallel()
+
+	free := "free"
+	pastEnd := time.Now().Add(-1 * time.Hour)
+	store := &mockDowngradeStore{
+		pendingOrgs: []billing.OrgSubscription{
+			{OrgID: "org-raced", PlanTier: "pro", PendingPlanTier: &free, CurrentPeriodEnd: &pastEnd},
+		},
+		applyIfTierFn: func(_ context.Context, orgID, pendingTier string) (bool, error) {
+			if orgID != "org-raced" || pendingTier != "free" {
+				t.Fatalf("conditional apply got org=%q tier=%q", orgID, pendingTier)
+			}
+			return false, nil
+		},
+	}
+
+	applier := NewDowngradeApplier(store, nil, time.Minute)
+	applier.apply(context.Background())
+
+	if len(store.appliedOrgIDs) != 0 {
+		t.Fatalf("expected stale pending tier to skip apply, got %v", store.appliedOrgIDs)
+	}
+}
+
+func TestDowngradeApplier_RetainsPendingTierWhenLimitEnforcementFails(t *testing.T) {
+	t.Parallel()
+
+	free := "free"
+	pastEnd := time.Now().Add(-1 * time.Hour)
+	store := &mockDowngradeStore{
+		pendingOrgs: []billing.OrgSubscription{
+			{OrgID: "org-fail-enforce", PlanTier: "pro", PendingPlanTier: &free, CurrentPeriodEnd: &pastEnd},
+		},
+		cronErr: fmt.Errorf("cron deactivate failed"),
+	}
+
+	applier := NewDowngradeApplier(store, nil, time.Minute)
+	applier.apply(context.Background())
+
+	if len(store.appliedOrgIDs) != 1 || store.appliedOrgIDs[0] != "org-fail-enforce" {
+		t.Fatalf("pending downgrade should apply before enforcement, got %v", store.appliedOrgIDs)
+	}
+	if len(store.operations) < 2 {
+		t.Fatalf("expected apply and enforcement operations, got %v", store.operations)
+	}
+	if store.operations[0] != "apply:org-fail-enforce" {
+		t.Fatalf("first operation = %q, want apply before enforcement; operations=%v", store.operations[0], store.operations)
+	}
+	if len(store.clearedOrgIDs) != 0 {
+		t.Fatalf("pending tier should stay set for retry after enforcement failure, cleared=%v operations=%v", store.clearedOrgIDs, store.operations)
+	}
+}
+
+func TestDowngradeApplier_InvalidatesOrgCacheAfterTierTransitionBeforeCleanup(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	free := string(domain.PlanFree)
+	orgID := "org-cache-downgrade"
+	pastEnd := time.Now().Add(-1 * time.Hour)
+	enforcerStore := &mockEnforcerStore{
+		subscriptions: map[string]*billing.OrgSubscription{
+			orgID: {OrgID: orgID, PlanTier: string(domain.PlanPro), Status: "active"},
+		},
+	}
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { rdb.Close() })
+	enforcer := billing.NewEnforcer(enforcerStore, rdb, slog.Default())
+
+	primed, err := enforcer.GetOrgPlanLimits(ctx, orgID)
+	if err != nil {
+		t.Fatalf("prime plan limits: %v", err)
+	}
+	if primed.PlanTier != domain.PlanPro {
+		t.Fatalf("primed plan tier = %s, want %s", primed.PlanTier, domain.PlanPro)
+	}
+
+	store := &mockDowngradeStore{
+		pendingOrgs: []billing.OrgSubscription{
+			{OrgID: orgID, PlanTier: string(domain.PlanPro), PendingPlanTier: &free, CurrentPeriodEnd: &pastEnd},
+		},
+		cronErr: fmt.Errorf("cleanup failed after tier transition"),
+		applyIfTierFn: func(_ context.Context, gotOrgID, pendingTier string) (bool, error) {
+			if gotOrgID != orgID || pendingTier != free {
+				t.Fatalf("conditional apply got org=%q tier=%q", gotOrgID, pendingTier)
+			}
+			enforcerStore.subscriptions[orgID] = &billing.OrgSubscription{OrgID: orgID, PlanTier: free, Status: "active"}
+			sub := enforcerStore.subscriptions[orgID]
+			entitlements := billing.GetPlanLimits(domain.PlanFree)
+			sub.Entitlements, _ = json.Marshal(entitlements)
+			return true, nil
+		},
+	}
+
+	applier := NewDowngradeApplier(store, enforcer, time.Minute)
+	applier.apply(ctx)
+
+	if len(store.clearedOrgIDs) != 0 {
+		t.Fatalf("cleanup failure should retain pending tier for retry, cleared=%v", store.clearedOrgIDs)
+	}
+	after, err := enforcer.GetOrgPlanLimits(ctx, orgID)
+	if err != nil {
+		t.Fatalf("plan limits after failed cleanup: %v", err)
+	}
+	if after.PlanTier != domain.PlanFree {
+		t.Fatalf("plan tier after failed cleanup = %s, want %s", after.PlanTier, domain.PlanFree)
 	}
 }
 

@@ -236,6 +236,12 @@ func parseKey(key string) ([]byte, error) {
 	if decoded, err := base64.RawStdEncoding.DecodeString(key); err == nil && len(decoded) == 32 {
 		return decoded, nil
 	}
+	if decoded, err := base64.URLEncoding.DecodeString(key); err == nil && len(decoded) == 32 {
+		return decoded, nil
+	}
+	if decoded, err := base64.RawURLEncoding.DecodeString(key); err == nil && len(decoded) == 32 {
+		return decoded, nil
+	}
 
 	return nil, errInvalidKeyLength
 }

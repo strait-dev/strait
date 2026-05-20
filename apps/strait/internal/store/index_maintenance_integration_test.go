@@ -4,7 +4,10 @@ package store_test
 
 import (
 	"context"
+	"errors"
 	"testing"
+
+	"strait/internal/store"
 )
 
 func TestReindexIndexConcurrently(t *testing.T) {
@@ -26,5 +29,16 @@ func TestReindexIndexConcurrently_EmptyNameReturnsError(t *testing.T) {
 	err := q.ReindexIndexConcurrently(ctx, "")
 	if err == nil {
 		t.Fatal("ReindexIndexConcurrently(empty) expected error, got nil")
+	}
+}
+
+func TestReindexIndexConcurrently_MissingIndexReturnsErrIndexNotFound(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	err := q.ReindexIndexConcurrently(ctx, "idx_strait_missing_for_security_test")
+	if !errors.Is(err, store.ErrIndexNotFound) {
+		t.Fatalf("ReindexIndexConcurrently(missing) error = %v, want ErrIndexNotFound", err)
 	}
 }

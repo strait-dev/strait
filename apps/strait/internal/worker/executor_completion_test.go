@@ -60,7 +60,7 @@ func TestCompleteRunWithWebhook_NoTxPool_WithWebhook(t *testing.T) {
 	// Webhook is silently skipped (but warning log emitted).
 }
 
-func TestCompleteRunWithWebhook_WithTxPool_NoWebhook(t *testing.T) {
+func TestCompleteRunWithWebhook_WithTxPool_NoWebhookUsesTransaction(t *testing.T) {
 	t.Parallel()
 	store := &mockExecutorStore{}
 	txPool := &mockTxBeginner{}
@@ -75,14 +75,13 @@ func TestCompleteRunWithWebhook_WithTxPool_NoWebhook(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Should NOT have started a transaction.
-	if txPool.beginCalled {
-		t.Fatal("transaction should not start when WebhookURL is empty")
+	if !txPool.beginCalled {
+		t.Fatal("expected transaction to be started for terminal status update")
 	}
 
 	calls := store.statusUpdates()
-	if len(calls) != 1 {
-		t.Fatalf("expected 1 plain status update, got %d", len(calls))
+	if len(calls) != 0 {
+		t.Fatalf("expected 0 plain store calls (tx path should be used), got %d", len(calls))
 	}
 }
 

@@ -569,6 +569,64 @@ func TestAdversarial_ExpiringContractBoundaries(t *testing.T) {
 	}
 }
 
+func TestPgStore_ListEnterpriseContractsOverlappingPeriod_IncludesMidPeriodLapse(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	periodStart := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	periodEnd := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	subID := "sub_sla_overlap"
+
+	insertContract := func(suffix string, start, end time.Time) string {
+		t.Helper()
+		orgID := "org-sla-overlap-" + suffix + "-" + newID()
+		c := &billing.EnterpriseContract{
+			ID:                     "contract_sla_overlap_" + suffix,
+			OrgID:                  orgID,
+			EnterpriseTier:         billing.EnterpriseTierStarter,
+			AnnualCommitmentCents:  1_800_000,
+			IncludedCreditMicrousd: 1_000_000_000,
+			ComputeDiscountPct:     10,
+			ContractStartDate:      start,
+			ContractEndDate:        end,
+			AutoRenew:              true,
+			BillingCadence:         "annual",
+			StripeSubscriptionID:   &subID,
+			CreatedAt:              time.Now().UTC(),
+			UpdatedAt:              time.Now().UTC(),
+		}
+		if err := pgStore.UpsertEnterpriseContract(ctx, c); err != nil {
+			t.Fatalf("UpsertEnterpriseContract(%s): %v", suffix, err)
+		}
+		return orgID
+	}
+
+	lapsedMidPeriod := insertContract("lapsed", periodStart.AddDate(0, -1, 0), periodStart.Add(14*24*time.Hour))
+	activeThroughPeriod := insertContract("active", periodStart.Add(7*24*time.Hour), periodEnd.Add(24*time.Hour))
+	insertContract("ended-at-start", periodStart.AddDate(0, -1, 0), periodStart)
+	insertContract("starts-at-end", periodEnd, periodEnd.AddDate(0, 1, 0))
+
+	contracts, err := pgStore.ListEnterpriseContractsOverlappingPeriod(ctx, periodStart, periodEnd)
+	if err != nil {
+		t.Fatalf("ListEnterpriseContractsOverlappingPeriod: %v", err)
+	}
+
+	seen := make(map[string]bool, len(contracts))
+	for _, contract := range contracts {
+		seen[contract.OrgID] = true
+	}
+	if !seen[lapsedMidPeriod] {
+		t.Fatal("expected contract that lapsed mid-period to be included")
+	}
+	if !seen[activeThroughPeriod] {
+		t.Fatal("expected contract active through period to be included")
+	}
+	if len(contracts) != 2 {
+		t.Fatalf("expected only the two overlapping contracts, got %d: %+v", len(contracts), contracts)
+	}
+}
+
 // --------------------------------------------------------------------------
 // A14: Empty org ID returns not-found, not a cross-org leak
 // --------------------------------------------------------------------------.
@@ -676,6 +734,144 @@ func TestAdversarial_DeactivateExcessEnvironments_KeepsNewest(t *testing.T) {
 		}
 		if !isNewest && exists {
 			t.Errorf("env %d (oldest) should be deleted", i)
+		}
+	}
+}
+
+func TestAdversarial_DeactivateExcessEnvironments_PreservesStandardEnvironments(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-env-standard-" + newID()
+	p := createProject(t, ctx, q, orgID, "P")
+	standardID := createEnvironment(t, ctx, p.ID, "standard")
+	customOldID := createEnvironment(t, ctx, p.ID, "custom-old")
+	customNewID := createEnvironment(t, ctx, p.ID, "custom-new")
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE environments
+		SET is_standard = CASE WHEN id = $1 THEN true ELSE false END,
+		    created_at = CASE
+		      WHEN id = $1 THEN $4::timestamptz
+		      WHEN id = $2 THEN $5::timestamptz
+		      ELSE $6::timestamptz
+		    END
+		WHERE id IN ($1, $2, $3)
+	`, standardID, customOldID, customNewID,
+		time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 1, 1, 1, 0, 0, 0, time.UTC),
+		time.Date(2026, 1, 1, 2, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("seed environment timestamps: %v", err)
+	}
+
+	deactivated, err := pgStore.DeactivateExcessEnvironments(ctx, orgID, 1)
+	if err != nil {
+		t.Fatalf("DeactivateExcessEnvironments: %v", err)
+	}
+	if deactivated != 1 {
+		t.Fatalf("deactivated = %d, want only oldest custom environment", deactivated)
+	}
+	for _, id := range []string{standardID, customNewID} {
+		var exists bool
+		if err := testDB.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM environments WHERE id = $1)`, id).Scan(&exists); err != nil {
+			t.Fatalf("check env %s: %v", id, err)
+		}
+		if !exists {
+			t.Fatalf("environment %s should be preserved", id)
+		}
+	}
+	var oldExists bool
+	if err := testDB.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM environments WHERE id = $1)`, customOldID).Scan(&oldExists); err != nil {
+		t.Fatalf("check old custom env: %v", err)
+	}
+	if oldExists {
+		t.Fatal("oldest non-standard environment should be deleted")
+	}
+}
+
+func TestAdversarial_DeactivateExcessLogDrains_KeepsNewest(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-log-order-" + newID()
+	p := createProject(t, ctx, q, orgID, "P")
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	var ids []string
+	for i := range 4 {
+		id := "ld-" + newID()
+		ids = append(ids, id)
+		if _, err := testDB.Pool.Exec(ctx, `
+			INSERT INTO log_drains (id, project_id, name, drain_type, endpoint_url, enabled, created_at, updated_at)
+			VALUES ($1, $2, $3, 'http', 'https://example.com/drain', true, $4, $4)
+		`, id, p.ID, fmt.Sprintf("drain-%d", i), base.Add(time.Duration(i)*time.Hour)); err != nil {
+			t.Fatalf("insert log drain %d: %v", i, err)
+		}
+	}
+
+	deactivated, err := pgStore.DeactivateExcessLogDrains(ctx, orgID, 2)
+	if err != nil {
+		t.Fatalf("DeactivateExcessLogDrains: %v", err)
+	}
+	if deactivated != 2 {
+		t.Fatalf("deactivated = %d, want 2", deactivated)
+	}
+	for i, id := range ids {
+		var enabled bool
+		if err := testDB.Pool.QueryRow(ctx, `SELECT enabled FROM log_drains WHERE id = $1`, id).Scan(&enabled); err != nil {
+			t.Fatalf("check drain %d: %v", i, err)
+		}
+		isNewest := i >= 2
+		if isNewest && !enabled {
+			t.Fatalf("newest drain %d should remain enabled", i)
+		}
+		if !isNewest && enabled {
+			t.Fatalf("oldest drain %d should be disabled", i)
+		}
+	}
+}
+
+func TestAdversarial_DeactivateExcessNotificationChannels_KeepsNewest(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-notif-order-" + newID()
+	p := createProject(t, ctx, q, orgID, "P")
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	var ids []string
+	for i := range 4 {
+		id := "nc-" + newID()
+		ids = append(ids, id)
+		if _, err := testDB.Pool.Exec(ctx, `
+			INSERT INTO notification_channels (id, project_id, channel_type, name, config, enabled, created_at, updated_at)
+			VALUES ($1, $2, 'webhook', $3, $5, true, $4, $4)
+		`, id, p.ID, fmt.Sprintf("channel-%d", i), base.Add(time.Duration(i)*time.Hour), []byte("{}")); err != nil {
+			t.Fatalf("insert notification channel %d: %v", i, err)
+		}
+	}
+
+	deactivated, err := pgStore.DeactivateExcessNotificationChannelsByProject(ctx, p.ID, 2)
+	if err != nil {
+		t.Fatalf("DeactivateExcessNotificationChannelsByProject: %v", err)
+	}
+	if deactivated != 2 {
+		t.Fatalf("deactivated = %d, want 2", deactivated)
+	}
+	for i, id := range ids {
+		var enabled bool
+		if err := testDB.Pool.QueryRow(ctx, `SELECT enabled FROM notification_channels WHERE id = $1`, id).Scan(&enabled); err != nil {
+			t.Fatalf("check channel %d: %v", i, err)
+		}
+		isNewest := i >= 2
+		if isNewest && !enabled {
+			t.Fatalf("newest channel %d should remain enabled", i)
+		}
+		if !isNewest && enabled {
+			t.Fatalf("oldest channel %d should be disabled", i)
 		}
 	}
 }

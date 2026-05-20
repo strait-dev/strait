@@ -60,10 +60,11 @@ type ConnectedWorker struct {
 
 // ConnectionRegistry is an in-memory store of all active worker streams on
 // this replica. It is the authoritative source for slot accounting.
-// Workers are keyed by worker ID; project isolation is enforced at registration.
+// Workers are keyed by project ID + worker ID so tenants can choose stable
+// worker IDs without a different project squatting on the same name.
 type ConnectionRegistry struct {
 	mu                   sync.RWMutex
-	workers              map[string]*ConnectedWorker   // keyed by worker_id
+	workers              map[string]*ConnectedWorker   // keyed by project_id + worker_id
 	byAPIKey             map[string][]*ConnectedWorker // keyed by api_key_id
 	pendingByProject     map[string]int
 	pendingByAPIKey      map[string]int
@@ -86,6 +87,10 @@ func NewConnectionRegistry() *ConnectionRegistry {
 		maxStreamsPerProject: defaultMaxWorkerStreamsPerProject,
 		maxStreamsPerAPIKey:  defaultMaxWorkerStreamsPerAPIKey,
 	}
+}
+
+func workerRegistryKey(projectID, workerID string) string {
+	return projectID + "\x00" + workerID
 }
 
 func (r *ConnectionRegistry) ReservePendingStream(projectID, apiKeyID string) error {
@@ -139,9 +144,10 @@ func (r *ConnectionRegistry) Register(w *ConnectedWorker) error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if existing, ok := r.workers[w.WorkerID]; ok {
+	key := workerRegistryKey(w.ProjectID, w.WorkerID)
+	if existing, ok := r.workers[key]; ok {
 		if existing.APIKeyID != w.APIKeyID {
-			return fmt.Errorf("worker_id %q already registered under a different api key", w.WorkerID)
+			return fmt.Errorf("worker_id %q already registered in project %q under a different api key", w.WorkerID, w.ProjectID)
 		}
 		// Same key reconnecting: signal the stale stream to exit, then evict
 		// the old byAPIKey pointer. The once guards against a concurrent
@@ -149,12 +155,12 @@ func (r *ConnectionRegistry) Register(w *ConnectedWorker) error {
 		if existing.revokeCh != nil {
 			existing.revokeOnce.Do(func() { close(existing.revokeCh) })
 		}
-		delete(r.workers, existing.WorkerID)
+		delete(r.workers, key)
 		if existing.APIKeyID != "" {
 			list := r.byAPIKey[existing.APIKeyID]
 			filtered := list[:0]
 			for _, e := range list {
-				if e.WorkerID != existing.WorkerID {
+				if workerRegistryKey(e.ProjectID, e.WorkerID) != key {
 					filtered = append(filtered, e)
 				}
 			}
@@ -172,7 +178,7 @@ func (r *ConnectionRegistry) Register(w *ConnectedWorker) error {
 		return fmt.Errorf("%w: api key %s has reached %d active streams", ErrWorkerStreamQuotaExceeded, w.APIKeyID, r.maxStreamsPerAPIKey)
 	}
 	w.regToken = r.nextToken.Add(1)
-	r.workers[w.WorkerID] = w
+	r.workers[key] = w
 	if w.APIKeyID != "" {
 		r.byAPIKey[w.APIKeyID] = append(r.byAPIKey[w.APIKeyID], w)
 	}
@@ -221,8 +227,16 @@ func (r *ConnectionRegistry) Deregister(workerID string, token uint64) bool {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	w, ok := r.workers[workerID]
-	if !ok {
+	var key string
+	var w *ConnectedWorker
+	for candidateKey, candidate := range r.workers {
+		if candidate.WorkerID == workerID && candidate.regToken == token {
+			key = candidateKey
+			w = candidate
+			break
+		}
+	}
+	if w == nil {
 		return false
 	}
 	if w.regToken != token {
@@ -230,12 +244,12 @@ func (r *ConnectionRegistry) Deregister(workerID string, token uint64) bool {
 		// is a stale goroutine cleaning up its own (already-superseded) entry.
 		return false
 	}
-	delete(r.workers, workerID)
+	delete(r.workers, key)
 	if w.APIKeyID != "" {
 		list := r.byAPIKey[w.APIKeyID]
 		filtered := list[:0]
 		for _, entry := range list {
-			if entry.WorkerID != workerID {
+			if entry.regToken != token {
 				filtered = append(filtered, entry)
 			}
 		}
@@ -267,8 +281,10 @@ func (r *ConnectionRegistry) CloseByAPIKey(apiKeyID string) {
 func (r *ConnectionRegistry) MarkDraining(workerID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if w, ok := r.workers[workerID]; ok {
-		w.Status = "draining"
+	for _, w := range r.workers {
+		if w.WorkerID == workerID {
+			w.Status = "draining"
+		}
 	}
 }
 
@@ -303,7 +319,7 @@ func (r *ConnectionRegistry) PickWorkerForQueue(projectID, queue string) (*Conne
 // ctx.Done() when sending so it gives up if the worker disconnects (the
 // stream's send loop exits on ctx.Done(), so receiving stops). On any
 // failure to actually deliver the work, the caller must call
-// IncrementSlots(workerID) to release the reservation.
+// IncrementProjectSlots(projectID, workerID) to release the reservation.
 func (r *ConnectionRegistry) ReserveWorkerForQueue(projectID, queue, environmentID string) (workerID string, sendCh chan<- *workerv1.ServerMessage, ok bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -337,24 +353,51 @@ func (r *ConnectionRegistry) pickLocked(projectID, queue, environmentID string) 
 	return best
 }
 
-// IncrementSlots increases a worker's available slots by one (called when a
-// task completes or fails). Capped at SlotsTotal so a misbehaving worker
-// cannot inflate its slot count and become preferred for every dispatch.
-func (r *ConnectionRegistry) IncrementSlots(workerID string) {
+// IncrementProjectSlots increases a worker's available slots by one (called
+// when a task completes or fails). Capped at SlotsTotal so a misbehaving
+// worker cannot inflate its slot count and become preferred for every
+// dispatch.
+func (r *ConnectionRegistry) IncrementProjectSlots(projectID, workerID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if w, ok := r.workers[workerID]; ok && w.SlotsAvailable < w.SlotsTotal {
+	if w, ok := r.workers[workerRegistryKey(projectID, workerID)]; ok && w.SlotsAvailable < w.SlotsTotal {
 		w.SlotsAvailable++
 	}
 }
 
-// DecrementSlots decreases a worker's available slots by one (called when a
-// task is assigned).
+// IncrementSlots preserves the historical test helper behavior for callers
+// that only have a worker ID. Production dispatch paths should use
+// IncrementProjectSlots.
+func (r *ConnectionRegistry) IncrementSlots(workerID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, w := range r.workers {
+		if w.WorkerID == workerID && w.SlotsAvailable < w.SlotsTotal {
+			w.SlotsAvailable++
+			return
+		}
+	}
+}
+
+// DecrementProjectSlots decreases a worker's available slots by one.
+func (r *ConnectionRegistry) DecrementProjectSlots(projectID, workerID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if w, ok := r.workers[workerRegistryKey(projectID, workerID)]; ok && w.SlotsAvailable > 0 {
+		w.SlotsAvailable--
+	}
+}
+
+// DecrementSlots preserves the historical test helper behavior for callers
+// that only have a worker ID.
 func (r *ConnectionRegistry) DecrementSlots(workerID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if w, ok := r.workers[workerID]; ok && w.SlotsAvailable > 0 {
-		w.SlotsAvailable--
+	for _, w := range r.workers {
+		if w.WorkerID == workerID && w.SlotsAvailable > 0 {
+			w.SlotsAvailable--
+			return
+		}
 	}
 }
 
@@ -397,7 +440,8 @@ func (r *ConnectionRegistry) SnapshotQueues() []string {
 
 // SnapshotWorkerQueues returns the deduplicated set of queue/environment
 // scopes across all active workers on this replica. Empty EnvironmentID means
-// a project-wide worker can accept runs from any environment.
+// a project-wide worker can accept runs from any environment in the same
+// project.
 func (r *ConnectionRegistry) SnapshotWorkerQueues() []domain.WorkerQueueRef {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -409,6 +453,7 @@ func (r *ConnectionRegistry) SnapshotWorkerQueues() []domain.WorkerQueueRef {
 		}
 		for _, q := range w.Queues {
 			seen[domain.WorkerQueueRef{
+				ProjectID:     w.ProjectID,
 				QueueName:     q,
 				EnvironmentID: w.EnvironmentID,
 			}] = struct{}{}

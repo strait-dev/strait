@@ -82,6 +82,9 @@ func (s *Server) handleBulkTriggerJob(ctx context.Context, input *BulkTriggerJob
 	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("job not found")
 	}
+	if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
 
 	// Validate plan gates on the existing job definition -- catches downgraded orgs.
 	if err := s.checkHTTPModeAllowed(ctx, job.ExecutionMode, job.ProjectID); err != nil {
@@ -158,8 +161,16 @@ func (s *Server) handleBulkTriggerJob(ctx context.Context, input *BulkTriggerJob
 		var pendingRuns []*domain.JobRun
 
 		enqueuedInBatch := 0
+		dailyCostBudgetChecked := false
 		for _, item := range req.Items {
 			itemIdx := len(results)
+
+			if err := validateTriggerScheduledAt(item.ScheduledAt); err != nil {
+				return huma.Error400BadRequest(fmt.Sprintf("scheduled_at validation failed for item %d: %v", itemIdx, err))
+			}
+			if err := validateTriggerTTLSecs(item.TTLSecs); err != nil {
+				return huma.Error400BadRequest(fmt.Sprintf("ttl_secs validation failed for item %d: %v", itemIdx, err))
+			}
 
 			if len(item.Tags) > 0 {
 				if err := validateTags(item.Tags); err != nil {
@@ -234,7 +245,7 @@ func (s *Server) handleBulkTriggerJob(ctx context.Context, input *BulkTriggerJob
 				if countErr != nil {
 					return huma.Error500InternalServerError("failed to evaluate job rate limit")
 				}
-				if runCount >= job.RateLimitMax {
+				if runCount+enqueuedInBatch >= job.RateLimitMax {
 					return huma.Error429TooManyRequests("job rate limit exceeded")
 				}
 			}
@@ -253,6 +264,13 @@ func (s *Server) handleBulkTriggerJob(ctx context.Context, input *BulkTriggerJob
 					})
 					continue
 				}
+			}
+
+			if !dailyCostBudgetChecked {
+				if err := s.checkTriggerDailyCostBudget(ctx, job.ProjectID, projectQuota); err != nil {
+					return err
+				}
+				dailyCostBudgetChecked = true
 			}
 
 			runID := uuid.Must(uuid.NewV7()).String()
@@ -449,6 +467,11 @@ func (s *Server) handleBulkCancelRuns(ctx context.Context, input *BulkCancelRuns
 			failed++
 			continue
 		}
+		if err := s.requireRunEnvironmentMatch(ctx, run); err != nil {
+			results = append(results, BulkCancelResult{ID: runID, Status: "failed", Error: "run not found"})
+			failed++
+			continue
+		}
 		if run.Status.IsTerminal() {
 			results = append(results, BulkCancelResult{ID: runID, Status: string(run.Status), Error: "run already in terminal state"})
 			failed++
@@ -524,6 +547,24 @@ func (s *Server) handleBulkCancelAll(ctx context.Context, input *BulkCancelAllIn
 	if req.JobID == "" && req.BatchID == "" && req.TriggeredBy == "" && req.Status == "" {
 		return nil, huma.Error400BadRequest("at least one filter is required")
 	}
+	if environmentIDFromContext(ctx) != "" {
+		if req.JobID == "" {
+			return nil, huma.Error403Forbidden("environment-scoped bulk cancellation requires a job_id filter")
+		}
+		job, err := s.store.GetJob(ctx, req.JobID)
+		if err != nil {
+			if errors.Is(err, store.ErrJobNotFound) {
+				return nil, huma.Error404NotFound("job not found")
+			}
+			return nil, huma.Error500InternalServerError("failed to get job")
+		}
+		if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
+			return nil, huma.Error404NotFound("job not found")
+		}
+		if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
+			return nil, huma.Error404NotFound("job not found")
+		}
+	}
 
 	now := time.Now()
 	ids, err := s.store.BulkCancelByFilter(ctx, projectID, store.BulkCancelFilter{
@@ -543,4 +584,18 @@ func (s *Server) handleBulkCancelAll(ctx context.Context, input *BulkCancelAllIn
 	})
 
 	return &BulkCancelAllOutput{Body: map[string]any{"canceled": len(ids), "run_ids": ids}}, nil
+}
+
+func (s *Server) requireRunEnvironmentMatch(ctx context.Context, run *domain.JobRun) error {
+	if environmentIDFromContext(ctx) == "" || run == nil {
+		return nil
+	}
+	job, err := s.store.GetJob(ctx, run.JobID)
+	if err != nil {
+		return err
+	}
+	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
+		return err
+	}
+	return requireEnvironmentMatch(ctx, job.EnvironmentID)
 }

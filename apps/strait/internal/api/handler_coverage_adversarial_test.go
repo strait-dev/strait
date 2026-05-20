@@ -86,6 +86,46 @@ func TestHandlerActivityStream_EnvironmentScopedCallerRejectedBeforeSubscribe(t 
 	}
 }
 
+func TestHandlerActivityStream_RequiresWorkflowAndJobReadScopes(t *testing.T) {
+	t.Parallel()
+	pub := &mockPublisher{
+		subscribeFn: func(context.Context, string) (*pubsub.Subscription, error) {
+			t.Fatal("activity stream must not subscribe before all stream scopes are authorized")
+			return nil, nil
+		},
+	}
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, pub)
+	handler := srv.requireActivityStreamPermissions(http.HandlerFunc(srv.handleProjectActivityStream))
+
+	tests := []struct {
+		name   string
+		scopes []string
+	}{
+		{name: "runs only", scopes: []string{domain.ScopeRunsRead}},
+		{name: "runs and workflows only", scopes: []string{domain.ScopeRunsRead, domain.ScopeWorkflowsRead}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r := authedRequest(http.MethodGet, "/v1/projects/proj-1/activity/stream/", "")
+			rctx := chi.NewRouteContext()
+			rctx.URLParams.Add("projectID", "proj-1")
+			ctx := context.WithValue(r.Context(), chi.RouteCtxKey, rctx)
+			ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+			ctx = context.WithValue(ctx, ctxScopesKey, tt.scopes)
+			ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
+			ctx = context.WithValue(ctx, ctxActorIDKey, "apikey:test")
+			r = r.WithContext(ctx)
+
+			handler.ServeHTTP(w, r)
+
+			if w.Code != http.StatusForbidden {
+				t.Fatalf("status = %d, want 403; body: %s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
 func TestHandlerActivityStream_SubscribeError(t *testing.T) {
 	t.Parallel()
 	pub := &mockPublisher{

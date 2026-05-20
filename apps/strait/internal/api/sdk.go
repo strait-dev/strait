@@ -187,9 +187,6 @@ func (s *Server) runTokenAuth(next http.Handler) http.Handler {
 			return []byte(s.config.JWTSigningKey), nil
 		}, jwt.WithExpirationRequired(), jwt.WithIssuer(domain.RunTokenIssuer))
 		if err != nil || !token.Valid {
-			if claims.Issuer != domain.RunTokenIssuer {
-				s.auditRunTokenRejected(r.Context(), chi.URLParam(r, "runID"), "bad_issuer", claims)
-			}
 			recordAuthDecision(r.Context(), "jwt", "failure")
 			respondError(w, r, http.StatusUnauthorized, "invalid run token")
 			return
@@ -236,17 +233,20 @@ func (s *Server) runTokenAuth(next http.Handler) http.Handler {
 		}
 		if status.IsTerminal() {
 			recordAuthDecision(r.Context(), "jwt", "failure")
+			s.emitRunTokenRejectedAudit(r.Context(), subject, projectID, "terminal_run", claims.Issuer != "")
 			respondError(w, r, http.StatusGone, "run has reached a terminal state")
 			return
 		}
 		if attempt > 0 && attempt != claims.Attempt {
 			recordAuthDecision(r.Context(), "jwt", "failure")
+			s.emitRunTokenRejectedAudit(r.Context(), subject, projectID, "stale_attempt", claims.Issuer != "")
 			respondError(w, r, http.StatusUnauthorized, "run token attempt is stale")
 			return
 		}
 		if claims.AssignmentID != "" {
 			if err := s.verifyRunTokenAssignment(r.Context(), subject, projectID, claims.AssignmentID); err != nil {
 				recordAuthDecision(r.Context(), "jwt", "failure")
+				s.emitRunTokenRejectedAudit(r.Context(), subject, projectID, "assignment_mismatch", claims.Issuer != "")
 				respondError(w, r, http.StatusUnauthorized, err.Error())
 				return
 			}
@@ -268,19 +268,16 @@ func (s *Server) runTokenAuth(next http.Handler) http.Handler {
 	})
 }
 
-func (s *Server) auditRunTokenRejected(ctx context.Context, runID, reason string, claims *runTokenClaims) {
-	if s == nil || s.store == nil {
+func (s *Server) emitRunTokenRejectedAudit(ctx context.Context, runID, projectID, reason string, issuerPresent bool) {
+	if projectID == "" {
 		return
 	}
-	details := map[string]any{
+	ctx = context.WithValue(ctx, ctxProjectIDKey, projectID)
+	s.emitAuditEventAsync(ctx, domain.AuditActionAuthRunTokenRejected, "run", runID, map[string]any{
 		"reason":         reason,
 		"run_id":         runID,
-		"issuer_present": claims != nil && claims.Issuer != "",
-	}
-	if claims != nil && claims.Issuer != "" {
-		details["issuer"] = claims.Issuer
-	}
-	s.emitAuditEvent(ctx, domain.AuditActionAuthRunTokenRejected, "run", runID, details)
+		"issuer_present": issuerPresent,
+	})
 }
 
 func (s *Server) revalidateRunTokenState(ctx context.Context) error {

@@ -30,6 +30,12 @@ func (s *Server) handleCreateJobDependency(ctx context.Context, input *CreateJob
 		}
 		return nil, huma.Error500InternalServerError("failed to get job")
 	}
+	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
+	if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
 	req := input.Body
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
@@ -46,6 +52,9 @@ func (s *Server) handleCreateJobDependency(ctx context.Context, input *CreateJob
 	}
 	if depJob.ProjectID != job.ProjectID {
 		return nil, huma.Error400BadRequest("dependency jobs must belong to the same project")
+	}
+	if err := requireEnvironmentMatch(ctx, depJob.EnvironmentID); err != nil {
+		return nil, huma.Error400BadRequest("dependency job does not belong to the authenticated environment")
 	}
 	condition := req.Condition
 	if condition == "" {

@@ -103,7 +103,7 @@ func lookupWorker(t *testing.T, r *ConnectionRegistry, id string) *ConnectedWork
 	t.Helper()
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	w, ok := r.workers[id]
+	w, ok := r.workers[workerRegistryKey("proj-a", id)]
 	if !ok {
 		t.Fatalf("worker %s not found", id)
 	}

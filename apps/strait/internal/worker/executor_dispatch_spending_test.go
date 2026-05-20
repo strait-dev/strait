@@ -145,6 +145,7 @@ func TestDispatchSpendingLimit_OverLimit_RejectsBeforeCounters(t *testing.T) {
 		PlanTier:              string(domain.PlanPro),
 		Status:                "active",
 		SpendingLimitMicrousd: 1_000_000, // $1 cap
+		LimitAction:           "block",
 	}
 	h := newDispatchHarness(t, sub, 5_000_000) // $5 spent
 
@@ -165,6 +166,7 @@ func TestDispatchSpendingLimit_AtLimitRejects(t *testing.T) {
 		PlanTier:              string(domain.PlanPro),
 		Status:                "active",
 		SpendingLimitMicrousd: 2_500_000,
+		LimitAction:           "block",
 	}
 	h := newDispatchHarness(t, sub, 2_500_000)
 

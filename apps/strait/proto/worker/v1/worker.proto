@@ -44,6 +44,8 @@ message InFlightTask {
   string status = 2; // completed | failed | abandoned
   string error_message = 3;
   bytes output_json = 4;
+  string assignment_id = 5;
+  int32 attempt = 6;
 }
 
 message TaskAssignment {
@@ -56,6 +58,8 @@ message TaskAssignment {
   string hmac_signature = 7;
   string hmac_timestamp = 8;
   map<string, string> metadata = 9;
+  string assignment_id = 10;
+  int32 attempt = 11;
 }
 
 message TaskResult {
@@ -64,6 +68,8 @@ message TaskResult {
   bytes output_json = 3;
   string error_message = 4;
   int64 duration_ms = 5;
+  string assignment_id = 6;
+  int32 attempt = 7;
 }
 
 message Heartbeat {

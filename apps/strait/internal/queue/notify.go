@@ -124,6 +124,11 @@ func (n *QueueNotifier) DegradedReset() {
 	}
 }
 
+func (n *QueueNotifier) markListenConnected() {
+	atomic.StoreInt64(&n.lastConnectedUnixNano, time.Now().UnixNano())
+	n.DegradedReset()
+}
+
 // DroppedNotifications returns the total wake notifications dropped because
 // the wake channel was full. Exposed for tests.
 func (n *QueueNotifier) DroppedNotifications() uint64 {
@@ -162,9 +167,9 @@ func (n *QueueNotifier) Run(ctx context.Context) {
 			n.DegradedReset()
 		}
 
-		if disconnectStart.IsZero() {
-			disconnectStart = time.Now()
-		} else if time.Since(disconnectStart) > degradedThreshold {
+		now := time.Now()
+		disconnectStart = disconnectStartForFailedListen(disconnectStart, connected, now)
+		if !disconnectStart.Equal(now) && time.Since(disconnectStart) > degradedThreshold {
 			n.markDegraded()
 			n.logger.Warn("queue notifier degraded: aggressive polling engaged",
 				"disconnected_for", time.Since(disconnectStart),
@@ -187,6 +192,13 @@ func (n *QueueNotifier) Run(ctx context.Context) {
 		// If the loop successfully connects on the next iteration it
 		// will clear disconnectStart through listenLoop's first success.
 	}
+}
+
+func disconnectStartForFailedListen(previous time.Time, connected bool, now time.Time) time.Time {
+	if connected || previous.IsZero() {
+		return now
+	}
+	return previous
 }
 
 // backoffDelay returns an exponential backoff duration with jitter for
@@ -217,7 +229,7 @@ func (n *QueueNotifier) listenLoop(ctx context.Context) (connected bool, err err
 		return false, fmt.Errorf("listen on %s: %w", n.channel, err)
 	}
 
-	atomic.StoreInt64(&n.lastConnectedUnixNano, time.Now().UnixNano())
+	n.markListenConnected()
 	n.logger.Info("queue notifier listening", "channel", n.channel)
 
 	for {

@@ -3,8 +3,11 @@ package scheduler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"hash/fnv"
 	"log/slog"
+	"sync"
 	"time"
 
 	"strait/internal/domain"
@@ -12,6 +15,7 @@ import (
 	"strait/internal/store"
 	"strait/internal/telemetry"
 
+	"github.com/google/uuid"
 	"github.com/robfig/cron/v3"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -26,7 +30,33 @@ type CronStore interface {
 	CountActiveRunsForJob(ctx context.Context, jobID string) (int, error)
 	CancelActiveRunsForJob(ctx context.Context, jobID string, reason string) ([]store.CanceledRun, error)
 	CancelChildRunsByParentIDs(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error)
+	TryAcquireCronFire(ctx context.Context, projectID, key string, ttl time.Duration) (bool, error)
 }
+
+type cronCancelExceptStore interface {
+	CancelActiveRunsForJobExcept(ctx context.Context, jobID string, excludeRunID string, reason string) ([]store.CanceledRun, error)
+}
+
+type CronAdmissionStore interface {
+	GetProjectQuota(ctx context.Context, projectID string) (*store.ProjectQuota, error)
+	CountProjectQueuedRuns(ctx context.Context, projectID string) (int, error)
+	CountProjectActiveRuns(ctx context.Context, projectID string) (int, error)
+	CountRunsForJobSince(ctx context.Context, jobID string, since time.Time) (int, error)
+	SumProjectDailyCostMicrousd(ctx context.Context, projectID string, timezone string) (int64, error)
+}
+
+type cronAdmissionTransactioner interface {
+	WithTx(ctx context.Context, fn func(context.Context, store.DBTX) error) error
+}
+
+var (
+	errCronProjectQueuedQuotaExceeded    = errors.New("cron project queued quota exceeded")
+	errCronProjectExecutingQuotaExceeded = errors.New("cron project executing quota exceeded")
+	errCronProjectDailyCostQuotaExceeded = errors.New("cron project daily cost quota exceeded")
+	errCronJobRateLimitExceeded          = errors.New("cron job rate limit exceeded")
+)
+
+const cronFireDedupeTTL = 25 * time.Hour
 
 type WorkflowTrigger interface {
 	TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride, extraTags map[string]string) (*domain.WorkflowRun, error)
@@ -41,6 +71,8 @@ type CronScheduler struct {
 	workflowCallback  WorkflowCallback
 	metrics           *telemetry.Metrics
 	defaultRunTTLSecs int
+	scheduleMu        sync.Mutex
+	entryIDs          []cron.EntryID
 }
 
 // NewCronScheduler creates a new cron-based job and workflow scheduler.
@@ -82,29 +114,54 @@ func (cs *CronScheduler) LoadJobs(ctx context.Context) error {
 		return fmt.Errorf("list cron workflows: %w", err)
 	}
 
+	cs.scheduleMu.Lock()
+	defer cs.scheduleMu.Unlock()
+	for _, id := range cs.entryIDs {
+		cs.cron.Remove(id)
+	}
+	cs.entryIDs = cs.entryIDs[:0]
+
 	for _, j := range jobs {
 		job := j
-		_, err := cs.cron.AddFunc(job.Cron, func() {
+		expr, tzErr := cronExpressionWithValidatedTimezone(job.Cron, job.Timezone)
+		if tzErr != nil {
+			slog.Warn("skipping cron job with invalid timezone",
+				"job_id", job.ID,
+				"project_id", job.ProjectID,
+				"timezone", job.Timezone,
+				"error", tzErr,
+			)
+			continue
+		}
+		id, err := cs.cron.AddFunc(expr, func() {
 			cs.triggerJob(cs.ctx, job)
 		})
 		if err != nil {
 			return fmt.Errorf("register cron job %s: %w", job.ID, err)
 		}
+		cs.entryIDs = append(cs.entryIDs, id)
 	}
 
 	if cs.workflowTrigger != nil {
 		for _, wf := range workflows {
 			workflow := wf
-			expr := workflow.Cron
-			if workflow.CronTimezone != "" {
-				expr = fmt.Sprintf("CRON_TZ=%s %s", workflow.CronTimezone, workflow.Cron)
+			expr, tzErr := cronExpressionWithValidatedTimezone(workflow.Cron, workflow.CronTimezone)
+			if tzErr != nil {
+				slog.Warn("skipping cron workflow with invalid timezone",
+					"workflow_id", workflow.ID,
+					"project_id", workflow.ProjectID,
+					"timezone", workflow.CronTimezone,
+					"error", tzErr,
+				)
+				continue
 			}
-			_, err := cs.cron.AddFunc(expr, func() {
+			id, err := cs.cron.AddFunc(expr, func() {
 				cs.triggerWorkflow(cs.ctx, workflow)
 			})
 			if err != nil {
 				return fmt.Errorf("register cron workflow %s: %w", workflow.ID, err)
 			}
+			cs.entryIDs = append(cs.entryIDs, id)
 		}
 	}
 
@@ -113,21 +170,29 @@ func (cs *CronScheduler) LoadJobs(ctx context.Context) error {
 }
 
 func (cs *CronScheduler) triggerJob(ctx context.Context, job domain.Job) {
+	cs.withCronFireLock(ctx, job.ProjectID, "job", job.ID, func(lockCtx context.Context, fireKey string) {
+		cs.triggerJobLocked(lockCtx, job, fireKey)
+	})
+}
+
+func (cs *CronScheduler) triggerJobLocked(ctx context.Context, job domain.Job, fireKey string) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "cron.TriggerJob")
 	defer span.End()
 
 	cs.recordCronDrift(ctx, job.Cron)
 
 	run := domain.JobRun{
-		JobID:         job.ID,
-		ProjectID:     job.ProjectID,
-		Tags:          job.Tags,
-		TriggeredBy:   domain.TriggerCron,
-		JobVersion:    job.Version,
-		JobVersionID:  job.VersionID,
-		CreatedBy:     "system:cron",
-		ExecutionMode: job.ExecutionMode,
-		QueueName:     job.Queue,
+		ID:             uuid.Must(uuid.NewV7()).String(),
+		JobID:          job.ID,
+		ProjectID:      job.ProjectID,
+		Tags:           job.Tags,
+		TriggeredBy:    domain.TriggerCron,
+		JobVersion:     job.Version,
+		JobVersionID:   job.VersionID,
+		CreatedBy:      "system:cron",
+		ExecutionMode:  job.ExecutionMode,
+		QueueName:      job.Queue,
+		IdempotencyKey: fireKey,
 	}
 
 	if job.RunTTLSecs > 0 {
@@ -157,22 +222,6 @@ func (cs *CronScheduler) triggerJob(ctx context.Context, job domain.Job) {
 			return
 		}
 
-	case domain.OverlapPolicyCancelRunning:
-		canceledRuns, err := cs.store.CancelActiveRunsForJob(ctx, job.ID,
-			"canceled by cron overlap policy: cancel_running")
-		if err != nil {
-			slog.Error("failed to cancel active runs for job", "job_id", job.ID, "error", err)
-			if cs.metrics != nil {
-				cs.metrics.CronTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "error")))
-			}
-			return
-		}
-		if len(canceledRuns) > 0 {
-			slog.Info("canceled active runs before cron enqueue",
-				"job_id", job.ID, "canceled", len(canceledRuns), "policy", "cancel_running")
-			cs.processCanceledRuns(ctx, job.ID, canceledRuns)
-		}
-
 	case domain.OverlapPolicyAllow:
 		// Default: always enqueue.
 
@@ -180,13 +229,51 @@ func (cs *CronScheduler) triggerJob(ctx context.Context, job domain.Job) {
 		// Treat unknown/empty as allow for forward compatibility.
 	}
 
-	if err := queue.EnqueueWithRetry(ctx, cs.queue, &run, queue.DefaultInternalEnqueueRetryConfig()); err != nil {
+	err := cs.withCronAdmissionGuard(ctx, &job, func(enqueueCtx context.Context, tx store.DBTX) error {
+		if tx != nil && cs.queue != nil {
+			return cs.queue.EnqueueInTx(enqueueCtx, tx, &run)
+		}
+		return queue.EnqueueWithRetry(enqueueCtx, cs.queue, &run, queue.DefaultInternalEnqueueRetryConfig())
+	})
+	if err != nil {
+		if errors.Is(err, domain.ErrIdempotencyConflict) {
+			if cs.metrics != nil {
+				cs.metrics.CronTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "skipped")))
+			}
+			slog.Info("skipping duplicate cron fire", "job_id", job.ID, "project_id", job.ProjectID, "fire_key", fireKey)
+			return
+		}
+		if isCronAdmissionLimitError(err) {
+			if cs.metrics != nil {
+				cs.metrics.CronTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "skipped")))
+			}
+			slog.Info("skipping cron trigger: admission limit exceeded", "job_id", job.ID, "project_id", job.ProjectID, "error", err)
+			return
+		}
 		slog.Error("failed to enqueue cron run", "job_id", job.ID, "project_id", job.ProjectID, "error", err)
 		if cs.metrics != nil {
 			cs.metrics.CronTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "error")))
 		}
 		return
 	}
+
+	if job.CronOverlapPolicy == domain.OverlapPolicyCancelRunning {
+		canceledRuns, cancelErr := cs.cancelActiveRunsForReplacement(ctx, job.ID, run.ID,
+			"canceled by cron overlap policy: cancel_running")
+		if cancelErr != nil {
+			slog.Error("failed to cancel active runs after cron enqueue", "job_id", job.ID, "error", cancelErr)
+			if cs.metrics != nil {
+				cs.metrics.CronTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "error")))
+			}
+			return
+		}
+		if len(canceledRuns) > 0 {
+			slog.Info("canceled active runs after cron enqueue",
+				"job_id", job.ID, "canceled", len(canceledRuns), "policy", "cancel_running")
+			cs.processCanceledRuns(ctx, job.ID, canceledRuns)
+		}
+	}
+
 	if cs.metrics != nil {
 		cs.metrics.CronTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "success")))
 	}
@@ -194,7 +281,103 @@ func (cs *CronScheduler) triggerJob(ctx context.Context, job domain.Job) {
 	slog.Info("cron run enqueued", "job_id", job.ID, "project_id", job.ProjectID, "run_id", run.ID)
 }
 
+func (cs *CronScheduler) cancelActiveRunsForReplacement(ctx context.Context, jobID string, replacementRunID string, reason string) ([]store.CanceledRun, error) {
+	if s, ok := cs.store.(cronCancelExceptStore); ok {
+		return s.CancelActiveRunsForJobExcept(ctx, jobID, replacementRunID, reason)
+	}
+	return cs.store.CancelActiveRunsForJob(ctx, jobID, reason)
+}
+
+func (cs *CronScheduler) withCronAdmissionGuard(ctx context.Context, job *domain.Job, fn func(context.Context, store.DBTX) error) error {
+	limits, ok := cs.store.(CronAdmissionStore)
+	if !ok {
+		return fn(ctx, nil)
+	}
+
+	if txer, ok := cs.store.(cronAdmissionTransactioner); ok {
+		return txer.WithTx(ctx, func(txCtx context.Context, tx store.DBTX) error {
+			if _, err := tx.Exec(txCtx, "SELECT pg_advisory_xact_lock($1)", cronAdmissionLockID(job.ProjectID)); err != nil {
+				return fmt.Errorf("acquire cron admission lock: %w", err)
+			}
+			if err := checkCronAdmissionLimits(txCtx, limits, job); err != nil {
+				return err
+			}
+			return fn(txCtx, tx)
+		})
+	}
+
+	if err := checkCronAdmissionLimits(ctx, limits, job); err != nil {
+		return err
+	}
+	return fn(ctx, nil)
+}
+
+func checkCronAdmissionLimits(ctx context.Context, limits CronAdmissionStore, job *domain.Job) error {
+	quota, err := limits.GetProjectQuota(ctx, job.ProjectID)
+	if err != nil {
+		return fmt.Errorf("get cron project quota: %w", err)
+	}
+	//nolint:nestif
+	if quota != nil {
+		if quota.MaxQueuedRuns > 0 {
+			queuedRuns, countErr := limits.CountProjectQueuedRuns(ctx, job.ProjectID)
+			if countErr != nil {
+				return fmt.Errorf("evaluate cron project queued quota: %w", countErr)
+			}
+			if queuedRuns >= quota.MaxQueuedRuns {
+				return errCronProjectQueuedQuotaExceeded
+			}
+		}
+		if quota.MaxExecutingRuns > 0 {
+			activeRuns, countErr := limits.CountProjectActiveRuns(ctx, job.ProjectID)
+			if countErr != nil {
+				return fmt.Errorf("evaluate cron project active quota: %w", countErr)
+			}
+			if activeRuns >= quota.MaxExecutingRuns {
+				return errCronProjectExecutingQuotaExceeded
+			}
+		}
+		if quota.MaxDailyCostMicrousd > 0 {
+			tz := quota.Timezone
+			if tz == "" {
+				tz = "UTC"
+			}
+			dailyCost, costErr := limits.SumProjectDailyCostMicrousd(ctx, job.ProjectID, tz)
+			if costErr != nil {
+				return fmt.Errorf("evaluate cron project daily cost quota: %w", costErr)
+			}
+			if dailyCost >= quota.MaxDailyCostMicrousd {
+				return errCronProjectDailyCostQuotaExceeded
+			}
+		}
+	}
+	if job.RateLimitMax > 0 && job.RateLimitWindowSecs > 0 {
+		since := time.Now().Add(-time.Duration(job.RateLimitWindowSecs) * time.Second)
+		runCount, countErr := limits.CountRunsForJobSince(ctx, job.ID, since)
+		if countErr != nil {
+			return fmt.Errorf("evaluate cron job rate limit: %w", countErr)
+		}
+		if runCount >= job.RateLimitMax {
+			return errCronJobRateLimitExceeded
+		}
+	}
+	return nil
+}
+
+func isCronAdmissionLimitError(err error) bool {
+	return errors.Is(err, errCronProjectQueuedQuotaExceeded) ||
+		errors.Is(err, errCronProjectExecutingQuotaExceeded) ||
+		errors.Is(err, errCronProjectDailyCostQuotaExceeded) ||
+		errors.Is(err, errCronJobRateLimitExceeded)
+}
+
 func (cs *CronScheduler) triggerWorkflow(ctx context.Context, workflow domain.Workflow) {
+	cs.withCronFireLock(ctx, workflow.ProjectID, "workflow", workflow.ID, func(lockCtx context.Context, fireKey string) {
+		cs.triggerWorkflowLocked(lockCtx, workflow, fireKey)
+	})
+}
+
+func (cs *CronScheduler) triggerWorkflowLocked(ctx context.Context, workflow domain.Workflow, fireKey string) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "cron.TriggerWorkflow")
 	defer span.End()
 
@@ -218,7 +401,7 @@ func (cs *CronScheduler) triggerWorkflow(ctx context.Context, workflow domain.Wo
 		}
 	}
 
-	if _, err := cs.workflowTrigger.TriggerWorkflow(ctx, workflow.ID, workflow.ProjectID, nil, domain.TriggerCron, nil, nil); err != nil {
+	if _, err := cs.workflowTrigger.TriggerWorkflow(ctx, workflow.ID, workflow.ProjectID, nil, domain.TriggerCron, nil, map[string]string{"cron_fire_key": fireKey}); err != nil {
 		slog.Error("failed to trigger cron workflow", "workflow_id", workflow.ID, "project_id", workflow.ProjectID, "error", err)
 		if cs.metrics != nil {
 			cs.metrics.CronTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "error")))
@@ -246,12 +429,85 @@ func (cs *CronScheduler) processCanceledRuns(ctx context.Context, jobID string, 
 
 	if cs.workflowCallback != nil {
 		for _, cr := range runs {
-			canceledRun := &domain.JobRun{ID: cr.ID, Status: domain.StatusCanceled}
+			canceledRun := &domain.JobRun{
+				ID:                cr.ID,
+				JobID:             cr.JobID,
+				ProjectID:         cr.ProjectID,
+				WorkflowStepRunID: cr.WorkflowStepRunID,
+				Status:            domain.StatusCanceled,
+				Error:             "canceled by cron overlap policy: cancel_running",
+				ExecutionMode:     cr.ExecutionMode,
+			}
 			if cbErr := cs.workflowCallback.OnJobRunTerminal(ctx, canceledRun); cbErr != nil {
 				slog.Error("workflow callback failed on cron cancel", "run_id", cr.ID, "error", cbErr)
 			}
 		}
 	}
+}
+
+func cronExpressionWithTimezone(expr, timezone string) string {
+	if timezone == "" {
+		return expr
+	}
+	return fmt.Sprintf("CRON_TZ=%s %s", timezone, expr)
+}
+
+func cronExpressionWithValidatedTimezone(expr, timezone string) (string, error) {
+	if timezone == "" {
+		return expr, nil
+	}
+	if _, err := time.LoadLocation(timezone); err != nil {
+		return "", fmt.Errorf("invalid cron timezone %q: %w", timezone, err)
+	}
+	return cronExpressionWithTimezone(expr, timezone), nil
+}
+
+func (cs *CronScheduler) withCronFireLock(ctx context.Context, projectID, kind, id string, fn func(context.Context, string)) {
+	fireKey := cronFireKey(kind, id, time.Now().UTC())
+	acquiredFire, err := cs.store.TryAcquireCronFire(ctx, projectID, fireKey, cronFireDedupeTTL)
+	if err != nil {
+		slog.Warn("cron fire idempotency claim failed", "kind", kind, "id", id, "project_id", projectID, "fire_key", fireKey, "error", err)
+		return
+	}
+	if !acquiredFire {
+		slog.Info("cron fire skipped: durable fire key already claimed", "kind", kind, "id", id, "project_id", projectID, "fire_key", fireKey)
+		return
+	}
+
+	locker, ok := cs.store.(AdvisoryLocker)
+	if !ok {
+		fn(ctx, fireKey)
+		return
+	}
+
+	acquired, err := runWithOptionalAdvisoryLock(ctx, locker, cronFireLockID(fireKey), func(lockCtx context.Context) error {
+		fn(lockCtx, fireKey)
+		return nil
+	})
+	if err != nil {
+		slog.Warn("cron fire advisory lock failed", "kind", kind, "id", id, "error", err)
+		return
+	}
+	if !acquired {
+		slog.Info("cron fire skipped: another scheduler owns fire", "kind", kind, "id", id)
+	}
+}
+
+func cronFireKey(kind, id string, now time.Time) string {
+	return fmt.Sprintf("cron:%s:%s:%d", kind, id, now.Truncate(time.Minute).Unix())
+}
+
+func cronFireLockID(key string) int64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(key))
+	return int64(h.Sum64() >> 1)
+}
+
+func cronAdmissionLockID(projectID string) int64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte("trigger-limit:"))
+	_, _ = h.Write([]byte(projectID))
+	return int64(h.Sum64() >> 1)
 }
 
 func (cs *CronScheduler) Start() {

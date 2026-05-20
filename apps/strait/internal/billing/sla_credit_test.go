@@ -53,11 +53,27 @@ func newFakeSLAStore(contracts ...EnterpriseContract) *fakeSLAStore {
 	return &fakeSLAStore{contracts: contracts, credits: map[string]SLACreditRow{}}
 }
 
-func (f *fakeSLAStore) ListEnterpriseContractsActiveAt(_ context.Context, _ time.Time) ([]EnterpriseContract, error) {
+func (f *fakeSLAStore) ListEnterpriseContractsActiveAt(_ context.Context, at time.Time) ([]EnterpriseContract, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	out := make([]EnterpriseContract, len(f.contracts))
-	copy(out, f.contracts)
+	out := make([]EnterpriseContract, 0, len(f.contracts))
+	for _, contract := range f.contracts {
+		if !contract.ContractStartDate.After(at) && contract.ContractEndDate.After(at) {
+			out = append(out, contract)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeSLAStore) ListEnterpriseContractsOverlappingPeriod(_ context.Context, periodStart, periodEnd time.Time) ([]EnterpriseContract, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]EnterpriseContract, 0, len(f.contracts))
+	for _, contract := range f.contracts {
+		if contract.ContractStartDate.Before(periodEnd) && contract.ContractEndDate.After(periodStart) {
+			out = append(out, contract)
+		}
+	}
 	return out, nil
 }
 
@@ -86,10 +102,33 @@ func (f *fakeSLAStore) GetSLACredit(_ context.Context, orgID string, start, end 
 	return nil, nil
 }
 
+func (f *fakeSLAStore) MarkSLACreditWebhookDispatched(_ context.Context, orgID string, start, end, dispatchedAt time.Time) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	k := f.key(orgID, start, end)
+	row, ok := f.credits[k]
+	if !ok || row.WebhookDispatchedAt != nil {
+		return false, nil
+	}
+	row.WebhookDispatchedAt = &dispatchedAt
+	f.credits[k] = row
+	return true, nil
+}
+
 func (f *fakeSLAStore) count() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.credits)
+}
+
+func (f *fakeSLAStore) creditFor(orgID string, start, end time.Time) *SLACreditRow {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	row, ok := f.credits[f.key(orgID, start, end)]
+	if !ok {
+		return nil
+	}
+	return &row
 }
 
 func newTestContract(orgID string, tier EnterpriseTier) EnterpriseContract {
@@ -151,6 +190,30 @@ func TestSLACalculator_99_5_Pct_IssuesTenPercent(t *testing.T) {
 	// $1,500/mo monthly base × 10% = $150 = 150_000_000 micro-USD.
 	if got.creditMicrousd != 150_000_000 {
 		t.Errorf("credit_microusd = %d, want 150_000_000", got.creditMicrousd)
+	}
+}
+
+func TestSLACalculator_IncludesContractThatLapsedDuringCreditedMonth(t *testing.T) {
+	t.Parallel()
+
+	contract := newTestContract("org-lapsed-mid-period", EnterpriseTierStarter)
+	contract.ContractStartDate = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	contract.ContractEndDate = time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC)
+	store := newFakeSLAStore(contract)
+	issuer := &fakeIssuer{noteID: "cn_lapsed"}
+	calc := NewSLACalculator(store, fakeUptimeSource{pct: 95.0}, time.Hour, nil).
+		WithIssuer(issuer).
+		WithClock(fixedClock(time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)))
+
+	if err := calc.Tick(context.Background()); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+
+	if store.count() != 1 {
+		t.Fatalf("expected 1 credit row for contract overlapping credited month, got %d", store.count())
+	}
+	if len(issuer.calls) != 1 {
+		t.Fatalf("expected 1 issuance call, got %d", len(issuer.calls))
 	}
 }
 
@@ -246,6 +309,99 @@ func TestSLACalculator_IssuerFailure_DoesNotPersist(t *testing.T) {
 	}
 	if len(issuer.calls) != 1 {
 		t.Errorf("expected 1 issuance attempt, got %d", len(issuer.calls))
+	}
+}
+
+func TestSLACalculator_DispatchFailurePersistsAndRetriesUndispatchedCredit(t *testing.T) {
+	t.Parallel()
+
+	orgID := "org-dispatch-fail"
+	store := newFakeSLAStore(newTestContract(orgID, EnterpriseTierStarter))
+	dispatcher := &fakeDispatcher{err: errors.New("webhook outbox down")}
+	calc := NewSLACalculator(store, fakeUptimeSource{pct: 95.0}, time.Hour, nil).
+		WithDispatcher(dispatcher).
+		WithClock(fixedClock(time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)))
+
+	ctx := context.Background()
+	if err := calc.Tick(ctx); err != nil {
+		t.Fatalf("tick 1: %v", err)
+	}
+
+	if store.count() != 1 {
+		t.Fatalf("expected 1 durable credit row after dispatch failure, got %d", store.count())
+	}
+	if len(dispatcher.calls) != 1 {
+		t.Errorf("expected 1 dispatch attempt, got %d", len(dispatcher.calls))
+	}
+	periodStart, periodEnd := previousCalendarMonth(time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC))
+	row := store.creditFor(orgID, periodStart, periodEnd)
+	if row == nil {
+		t.Fatal("expected persisted credit row")
+	}
+	if row.WebhookDispatchedAt != nil {
+		t.Fatal("failed dispatch must not mark webhook_dispatched_at")
+	}
+
+	dispatcher.err = nil
+	if err := calc.Tick(ctx); err != nil {
+		t.Fatalf("tick 2: %v", err)
+	}
+	if len(dispatcher.calls) != 2 {
+		t.Fatalf("expected retry dispatch attempt, got %d", len(dispatcher.calls))
+	}
+	row = store.creditFor(orgID, periodStart, periodEnd)
+	if row == nil || row.WebhookDispatchedAt == nil {
+		t.Fatal("successful retry should mark webhook_dispatched_at")
+	}
+}
+
+func TestSLACalculator_DispatchesOnlyAfterCreditIsPersisted(t *testing.T) {
+	t.Parallel()
+
+	orgID := "org-dispatch-after-persist"
+	store := newFakeSLAStore(newTestContract(orgID, EnterpriseTierStarter))
+	periodStart, periodEnd := previousCalendarMonth(time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC))
+	dispatcher := &fakeDispatcher{
+		onDispatch: func() {
+			if row := store.creditFor(orgID, periodStart, periodEnd); row == nil {
+				t.Fatal("sla.credit_issued dispatched before credit row was persisted")
+			}
+		},
+	}
+	calc := NewSLACalculator(store, fakeUptimeSource{pct: 95.0}, time.Hour, nil).
+		WithDispatcher(dispatcher).
+		WithClock(fixedClock(time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)))
+
+	if err := calc.Tick(context.Background()); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+	if len(dispatcher.calls) != 1 {
+		t.Fatalf("expected one dispatch, got %d", len(dispatcher.calls))
+	}
+}
+
+func TestSLACalculator_ConcurrentTicksDispatchOnceAfterInsertWins(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeSLAStore(newTestContract("org-concurrent-dispatch", EnterpriseTierStarter))
+	dispatcher := &fakeDispatcher{}
+	calc := NewSLACalculator(store, fakeUptimeSource{pct: 95.0}, time.Hour, nil).
+		WithDispatcher(dispatcher).
+		WithClock(fixedClock(time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)))
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			_ = calc.Tick(context.Background())
+		})
+	}
+	wg.Wait()
+
+	if store.count() != 1 {
+		t.Fatalf("expected one credit row, got %d", store.count())
+	}
+	if len(dispatcher.calls) != 1 {
+		t.Fatalf("expected exactly one webhook dispatch, got %d", len(dispatcher.calls))
 	}
 }
 

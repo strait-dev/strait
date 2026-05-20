@@ -26,15 +26,13 @@ func (q *Queries) CreateNotificationChannel(ctx context.Context, ch *domain.Noti
 	if q.secretEncryptionKey != "" && len(configBytes) > 0 {
 		enc, encErr := q.secretEncryptor()
 		if encErr != nil {
-			slog.Warn("failed to create encryptor for notification channel config", "channel_id", ch.ID, "error", encErr)
-		} else {
-			encrypted, encryptErr := enc.Encrypt(configBytes)
-			if encryptErr != nil {
-				slog.Warn("failed to encrypt notification channel config", "channel_id", ch.ID, "error", encryptErr)
-			} else {
-				configBytes = encrypted
-			}
+			return fmt.Errorf("create notification channel config encryptor: %w", encErr)
 		}
+		encrypted, encryptErr := enc.Encrypt(configBytes)
+		if encryptErr != nil {
+			return fmt.Errorf("encrypt notification channel config: %w", encryptErr)
+		}
+		configBytes = encrypted
 	}
 
 	query := `
@@ -208,15 +206,13 @@ func (q *Queries) UpdateNotificationChannel(ctx context.Context, ch *domain.Noti
 	if q.secretEncryptionKey != "" && len(configBytes) > 0 {
 		enc, encErr := q.secretEncryptor()
 		if encErr != nil {
-			slog.Warn("failed to create encryptor for notification channel config", "channel_id", ch.ID, "error", encErr)
-		} else {
-			encrypted, encryptErr := enc.Encrypt(configBytes)
-			if encryptErr != nil {
-				slog.Warn("failed to encrypt notification channel config", "channel_id", ch.ID, "error", encryptErr)
-			} else {
-				configBytes = encrypted
-			}
+			return fmt.Errorf("update notification channel config encryptor: %w", encErr)
 		}
+		encrypted, encryptErr := enc.Encrypt(configBytes)
+		if encryptErr != nil {
+			return fmt.Errorf("encrypt notification channel config: %w", encryptErr)
+		}
+		configBytes = encrypted
 	}
 
 	query := `
@@ -261,8 +257,9 @@ func (q *Queries) CreateNotificationDelivery(ctx context.Context, d *domain.Noti
 	}
 
 	query := `
-		INSERT INTO notification_deliveries (id, channel_id, project_id, event_type, payload, status, max_attempts, next_retry_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO notification_deliveries (id, channel_id, project_id, event_type, payload, status, max_attempts, next_retry_at, dedupe_key)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULLIF($9, ''))
+		ON CONFLICT (dedupe_key) WHERE dedupe_key IS NOT NULL AND dedupe_key <> '' DO NOTHING
 		RETURNING created_at, updated_at`
 
 	err := q.db.QueryRow(
@@ -276,8 +273,12 @@ func (q *Queries) CreateNotificationDelivery(ctx context.Context, d *domain.Noti
 		d.Status,
 		d.MaxAttempts,
 		d.NextRetryAt,
+		d.DedupeKey,
 	).Scan(&d.CreatedAt, &d.UpdatedAt)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) && d.DedupeKey != "" {
+			return nil
+		}
 		return fmt.Errorf("create notification delivery: %w", err)
 	}
 

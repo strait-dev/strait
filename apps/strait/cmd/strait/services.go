@@ -45,6 +45,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/redis/go-redis/v9"
+	"github.com/resend/resend-go/v2"
 	"github.com/sourcegraph/conc/pool"
 )
 
@@ -276,6 +277,13 @@ func startCDCConsumer(g *pool.ContextPool, cfg *config.Config, pub pubsub.Publis
 	cdcConsumer.RegisterHandler(cdc.NewWorkflowRunHandler(pub, slog.Default()))
 	cdcConsumer.RegisterHandler(cdc.NewWorkflowStepRunHandler(pub, slog.Default()))
 	cdcConsumer.RegisterHandler(cdc.NewEventTriggerHandler(pub, slog.Default()))
+	cdcConsumer.RegisterAdditionalHandler(cdc.NewWebhookTriggerHandler(queries, slog.Default()))
+	cdcConsumer.RegisterAdditionalHandler(cdc.NewNotificationTriggerHandler(queries, slog.Default()))
+	cdcConsumer.RegisterAdditionalHandler(cdc.NewAuditHandler(queries, slog.Default()))
+	cdcConsumer.RegisterAdditionalHandler(cdc.NewSLOHandler(queries, slog.Default()))
+	if chExporter != nil {
+		cdcConsumer.RegisterAdditionalHandler(cdc.NewAnalyticsHandler(chExporter, slog.Default()))
+	}
 
 	g.Go(func(ctx context.Context) error {
 		cdcConsumer.Run(ctx)
@@ -295,15 +303,20 @@ func startCDCConsumer(g *pool.ContextPool, cfg *config.Config, pub pubsub.Publis
 	})
 
 	// Create webhook receiver for push-based CDC delivery.
-	webhookReceiver := cdc.NewWebhookReceiver(pub, slog.Default())
+	receiverOpts := []cdc.WebhookReceiverOption{}
+	if cfg.SequinWebhookSecret != "" {
+		receiverOpts = append(receiverOpts, cdc.WithWebhookSecret(cfg.SequinWebhookSecret))
+	} else {
+		slog.Warn("cdc webhook signature verification disabled: SEQUIN_WEBHOOK_SECRET is not set")
+	}
+	webhookReceiver := cdc.NewWebhookReceiver(pub, slog.Default(), receiverOpts...)
 	webhookReceiver.RegisterHandler(cdc.NewJobRunHandler(pub, slog.Default()))
 	webhookReceiver.RegisterHandler(cdc.NewWorkflowRunHandler(pub, slog.Default()))
 	webhookReceiver.RegisterHandler(cdc.NewWorkflowStepRunHandler(pub, slog.Default()))
 	webhookReceiver.RegisterHandler(cdc.NewEventTriggerHandler(pub, slog.Default()))
 
 	// CDC-driven side effects: each handler watches job_runs for status
-	// transitions and triggers a downstream action. Registered as additional
-	// handlers since the pull consumer only supports one handler per table.
+	// transitions and triggers a downstream action.
 	webhookReceiver.RegisterAdditionalHandler(cdc.NewWebhookTriggerHandler(queries, slog.Default()))
 	webhookReceiver.RegisterAdditionalHandler(cdc.NewNotificationTriggerHandler(queries, slog.Default()))
 	webhookReceiver.RegisterAdditionalHandler(cdc.NewAuditHandler(queries, slog.Default()))
@@ -313,7 +326,7 @@ func startCDCConsumer(g *pool.ContextPool, cfg *config.Config, pub pubsub.Publis
 	}
 
 	slog.Info("cdc consumer enabled",
-		"base_url", cfg.SequinBaseURL,
+		"base_url", httputil.RedactURLForLog(cfg.SequinBaseURL),
 		"consumer", cfg.SequinConsumerName,
 	)
 
@@ -354,7 +367,13 @@ func startNotificationWorker(g *pool.ContextPool, cfg *config.Config, queries *s
 			return http.ErrUseLastResponse
 		},
 	}
-	notifWorker := notification.NewWorker(queries, httpClient, notification.WithWebhookAllowPrivateEndpoints(cfg.AllowPrivateEndpoints))
+	notifWorker := notification.NewWorkerWithEmail(
+		queries,
+		httpClient,
+		cfg.ResendAPIKey,
+		cfg.ResendFromEmail,
+		notification.WithWebhookAllowPrivateEndpoints(cfg.AllowPrivateEndpoints),
+	)
 	if metrics != nil {
 		notifWorker.WithDeliveriesCounter(metrics.NotificationDeliveriesTotal)
 	}
@@ -487,7 +506,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 	)
 	if siemDrain != nil {
 		slog.Info("audit SIEM drain enabled",
-			"endpoint", cfg.AuditSIEMEndpoint,
+			"endpoint", httputil.RedactURLForLog(cfg.AuditSIEMEndpoint),
 			"batch_size", cfg.AuditSIEMBatchSize,
 			"flush_interval", cfg.AuditSIEMFlushInterval)
 	}
@@ -558,7 +577,7 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 // It is symmetric to startAPIServer: the server shuts down before the HTTP
 // server on SIGTERM so that connected workers can reconnect to other replicas
 // before the HTTP surface disappears.
-func startGRPCServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, pub pubsub.Publisher, rdb *redis.Client, billingEnforcer *billing.Enforcer, version string) (*grpcserver.Server, error) {
+func startGRPCServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, pub pubsub.Publisher, rdb *redis.Client, billingEnforcer *billing.Enforcer, version string, decryptor grpcserver.SecretDecryptor) (*grpcserver.Server, error) {
 	if cfg.Mode != "api" && cfg.Mode != "all" {
 		return nil, nil
 	}
@@ -581,6 +600,7 @@ func startGRPCServer(g *pool.ContextPool, cfg *config.Config, queries *store.Que
 	opts := []grpcserver.ServerOption{
 		grpcserver.WithAuthLimiter(ratelimit.NewAuthLimiter(rdb, rdb != nil)),
 		grpcserver.WithVersion(version),
+		grpcserver.WithSecretDecryptor(decryptor),
 	}
 	if billingEnforcer != nil {
 		opts = append(opts, grpcserver.WithBillingEnforcer(billingEnforcer))
@@ -692,6 +712,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		Mode:                    cfg.Mode,
 		Version:                 version,
 		EventChannelSize:        cfg.WorkerEventChannelSize,
+		SecretDecryptor:         encryptor,
 	}
 	applyWorkerPlaneToExecutorConfig(&execCfg, workerPlane, cfg.JWTSigningKey)
 
@@ -902,6 +923,19 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 					Logger:     slog.Default(),
 				}).WithAdvisoryLocker(queries),
 			),
+			scheduler.WithHeartbeatGC(
+				scheduler.NewHeartbeatGC(queries, scheduler.HeartbeatGCConfig{
+					Interval:   time.Hour,
+					BatchLimit: 10000,
+					Logger:     slog.Default(),
+				}).WithAdvisoryLocker(queries),
+			),
+			scheduler.WithSLOEvaluator(
+				scheduler.NewSLOEvaluator(queries, slog.Default(),
+					scheduler.WithSLOWebhookNotifier(scheduler.NewSLOWebhookAdapter(queries)),
+					scheduler.WithSLOEvaluatorAdvisoryLocker(queries),
+				),
+			),
 		}
 		if cfg.TerminalArchiveEnabled && cfg.PartitionReclaimEnabled {
 			reclaimer := scheduler.NewPartitionReclaimer(queries, scheduler.PartitionReclaimerConfig{
@@ -915,38 +949,65 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 				"safety_months", cfg.PartitionReclaimSafety,
 			)
 		}
+		billingCostAccountingEnabled := cfg.BillingEnforcementEnabled || cfg.StripeWebhookSecret != ""
+		var schedulerBillingStore *billing.PgStore
+		if billingCostAccountingEnabled {
+			schedulerBillingStore = billing.NewPgStore(dbPool)
+		}
 		if cfg.BillingEnforcementEnabled && billingEnforcer != nil {
 			reconciler := scheduler.NewConcurrentReconciler(billingEnforcer, queries, 5*time.Minute)
 			schedOpts = append(schedOpts, scheduler.WithConcurrentReconciler(reconciler))
 			slog.Info("concurrent run reconciler enabled")
 
-			billingStore := billing.NewPgStore(dbPool)
-			downgradeApplier := scheduler.NewDowngradeApplier(billingStore, billingEnforcer, 5*time.Minute)
+			budgetStore := newBudgetMonitorStore(schedulerBillingStore, queries)
+			schedOpts = append(schedOpts,
+				scheduler.WithBudgetMonitoringStores(budgetStore, budgetStore, billingEnforcer),
+			)
+			slog.Info("billing budget monitors enabled")
+
+			downgradeApplier := scheduler.NewDowngradeApplier(schedulerBillingStore, billingEnforcer, 5*time.Minute)
 			if billingDispatcher != nil {
 				downgradeApplier.WithBillingDispatcher(billingDispatcher)
 			}
 			schedOpts = append(schedOpts, scheduler.WithDowngradeApplier(downgradeApplier))
 			slog.Info("downgrade applier enabled")
 
-			webhookCleanup := scheduler.NewWebhookMessageCleanup(billingStore, slog.Default())
+			gracePeriodEnforcer := scheduler.NewGracePeriodEnforcer(schedulerBillingStore, billingEnforcer, time.Hour).
+				WithAdvisoryLocker(queries)
+			schedOpts = append(schedOpts, scheduler.WithGracePeriodEnforcer(gracePeriodEnforcer))
+			slog.Info("grace period enforcer enabled")
+
+			webhookCleanup := scheduler.NewWebhookMessageCleanup(schedulerBillingStore, slog.Default())
 			schedOpts = append(schedOpts, scheduler.WithWebhookMessageCleanup(webhookCleanup))
 
 			billingEmailSender := billing.NewBillingEmailSender(cfg.ResendAPIKey, "billing@strait.dev", slog.Default())
-			contractExpiryChecker := scheduler.NewContractExpiryChecker(billingStore, billingEmailSender, 24*time.Hour)
+			contractExpiryChecker := scheduler.NewContractExpiryChecker(schedulerBillingStore, billingEmailSender, 24*time.Hour).
+				WithOrgCacheInvalidator(billingEnforcer)
 			schedOpts = append(schedOpts, scheduler.WithContractExpiryChecker(contractExpiryChecker))
 			slog.Info("contract expiry checker enabled")
 
-			retentionResolver := billing.NewPlanRetentionResolver(billingStore)
+			if cfg.ResendAPIKey != "" {
+				usageReportEmailer := scheduler.NewUsageReportEmailer(
+					schedulerBillingStore,
+					resend.NewClient(cfg.ResendAPIKey).Emails,
+					"billing@strait.dev",
+					24*time.Hour,
+				)
+				schedOpts = append(schedOpts, scheduler.WithUsageReportEmailer(usageReportEmailer))
+				slog.Info("usage report emailer enabled")
+			}
+
+			retentionResolver := billing.NewPlanRetentionResolver(schedulerBillingStore)
 			schedOpts = append(schedOpts, scheduler.WithOrgRetentionResolver(retentionResolver))
 			slog.Info("per-org plan retention enabled")
 
-			quotaResumeEnforcer := scheduler.NewQuotaResumeEnforcer(billingStore, billingEnforcer, time.Hour).
+			quotaResumeEnforcer := scheduler.NewQuotaResumeEnforcer(schedulerBillingStore, billingEnforcer, time.Hour).
 				WithAdvisoryLocker(queries)
 			schedOpts = append(schedOpts, scheduler.WithQuotaResumeEnforcer(quotaResumeEnforcer))
 			slog.Info("quota resume enforcer enabled")
 
 			anomalyMonitor := scheduler.NewAnomalyMonitor(
-				&anomalyMonitorStore{PgStore: billingStore, queries: queries},
+				&anomalyMonitorStore{PgStore: schedulerBillingStore, queries: queries},
 				15*time.Minute,
 			).WithAdvisoryLocker(queries)
 			schedOpts = append(schedOpts, scheduler.WithAnomalyMonitor(anomalyMonitor))
@@ -954,19 +1015,19 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 
 			dunnerOpts := []billing.DunnerOption{
 				billing.WithDunnerEmails(billingEmailSender),
-				billing.WithDunnerAdminLookup(billingStore),
+				billing.WithDunnerAdminLookup(schedulerBillingStore),
 				billing.WithDunnerLogger(slog.Default()),
 			}
 			if billingDispatcher != nil {
 				dunnerOpts = append(dunnerOpts, billing.WithDunnerDispatcher(billingDispatcher))
 			}
-			dunner := billing.NewDunner(billingStore, dunnerOpts...)
+			dunner := billing.NewDunner(schedulerBillingStore, dunnerOpts...)
 			schedOpts = append(schedOpts, scheduler.WithDunner(dunner))
 			slog.Info("dunning state machine enabled")
 
 			slaCreditStore := billing.NewPgSLACreditStore(dbPool)
 			slaCalculator := billing.NewSLACalculator(
-				&slaCalculatorStore{PgStore: billingStore, slaCreditStore: slaCreditStore},
+				&slaCalculatorStore{PgStore: schedulerBillingStore, slaCreditStore: slaCreditStore},
 				newUptimeSource(cfg, slog.Default()),
 				24*time.Hour,
 				slog.Default(),
@@ -974,12 +1035,20 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 			if billingDispatcher != nil {
 				slaCalculator.WithDispatcher(billingDispatcher)
 			}
-			if issuer := newSLAIssuer(cfg, billingStore, slog.Default()); issuer != nil {
+			if issuer := newSLAIssuer(cfg, schedulerBillingStore, slog.Default()); issuer != nil {
 				slaCalculator.WithIssuer(issuer)
 				slog.Info("sla credit stripe issuer enabled")
 			}
 			schedOpts = append(schedOpts, scheduler.WithSLACalculator(slaCalculator))
 			slog.Info("sla credit calculator enabled")
+		}
+		if billingCostAccountingEnabled {
+			schedOpts = append(schedOpts,
+				scheduler.WithUsageFlusher(
+					scheduler.NewUsageFlusher(schedulerBillingStore, time.Hour).WithAdvisoryLocker(queries),
+				),
+			)
+			slog.Info("billing usage flusher enabled")
 		}
 		// Backpressure sampler: produces the per-project
 		// strait.queue.backpressure_tokens_available gauge. Without this
@@ -1053,6 +1122,10 @@ func (s *slaCalculatorStore) InsertSLACredit(ctx context.Context, row billing.SL
 
 func (s *slaCalculatorStore) GetSLACredit(ctx context.Context, orgID string, periodStart, periodEnd time.Time) (*billing.SLACreditRow, error) {
 	return s.slaCreditStore.GetSLACredit(ctx, orgID, periodStart, periodEnd)
+}
+
+func (s *slaCalculatorStore) MarkSLACreditWebhookDispatched(ctx context.Context, orgID string, periodStart, periodEnd, dispatchedAt time.Time) (bool, error) {
+	return s.slaCreditStore.MarkSLACreditWebhookDispatched(ctx, orgID, periodStart, periodEnd, dispatchedAt)
 }
 
 func applyWorkerPlaneToExecutorConfig(execCfg *worker.ExecutorConfig, workerPlane *grpcserver.Server, jwtSigningKey string) {

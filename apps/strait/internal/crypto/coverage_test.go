@@ -179,6 +179,27 @@ func TestParseKey_Base64RawStandard(t *testing.T) {
 	}
 }
 
+func TestParseKey_Base64URLSafe(t *testing.T) {
+	t.Parallel()
+	raw := make([]byte, 32)
+	for i := range raw {
+		raw[i] = 0xff - byte(i)
+	}
+
+	for _, encoded := range []string{
+		base64.URLEncoding.EncodeToString(raw),
+		base64.RawURLEncoding.EncodeToString(raw),
+	} {
+		enc, err := NewEncryptor(encoded)
+		if err != nil {
+			t.Fatalf("NewEncryptor(%q) error: %v", encoded, err)
+		}
+		if enc == nil {
+			t.Fatal("expected non-nil encryptor")
+		}
+	}
+}
+
 func TestParseKey_64CharsNonHex(t *testing.T) {
 	t.Parallel()
 	// 64 chars that are not valid hex.

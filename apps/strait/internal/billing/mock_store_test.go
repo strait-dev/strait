@@ -73,7 +73,9 @@ type mockBillingStore struct {
 	enterpriseContracts        map[string]*EnterpriseContract
 	upsertEnterpriseContractFn func(ctx context.Context, c *EnterpriseContract) error
 	activeAddons               []Addon
+	listActiveAddonsErr        error
 	lastAddonCreated           *Addon
+	deactivatedAddonIDs        []string
 	httpJobCount               int
 	getProjectBudgetFn         func(ctx context.Context, projectID string) (int64, string, error)
 	getProjectPeriodSpendFn    func(ctx context.Context, projectID string, periodStart time.Time) (int64, error)
@@ -344,6 +346,13 @@ func (m *mockBillingStore) GetOrgUsageForPeriod(_ context.Context, _ string, _, 
 	return m.usageRecords, nil
 }
 
+func (m *mockBillingStore) GetOrgUsageForPeriodLimited(_ context.Context, _ string, _, _ time.Time, limit int) ([]UsageRecord, error) {
+	if len(m.usageRecords) > limit {
+		return m.usageRecords[:limit], nil
+	}
+	return m.usageRecords, nil
+}
+
 func (m *mockBillingStore) GetProjectUsageForPeriod(_ context.Context, _ string, _, _ time.Time) ([]UsageRecord, error) {
 	return m.usageRecords, nil
 }
@@ -447,6 +456,9 @@ func (m *mockBillingStore) UpdateMonthlyUsageEmail(_ context.Context, _ string, 
 }
 
 func (m *mockBillingStore) ListActiveAddons(_ context.Context, _ string) ([]Addon, error) {
+	if m.listActiveAddonsErr != nil {
+		return nil, m.listActiveAddonsErr
+	}
 	return m.activeAddons, nil
 }
 
@@ -458,7 +470,13 @@ func (m *mockBillingStore) CreateAddon(_ context.Context, addon *Addon) error {
 	return nil
 }
 
-func (m *mockBillingStore) DeactivateAddon(_ context.Context, _ string) error {
+func (m *mockBillingStore) DeactivateAddon(_ context.Context, id string) error {
+	m.deactivatedAddonIDs = append(m.deactivatedAddonIDs, id)
+	for i := range m.activeAddons {
+		if m.activeAddons[i].ID == id {
+			m.activeAddons[i].Active = false
+		}
+	}
 	return nil
 }
 

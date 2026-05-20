@@ -260,18 +260,37 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 	}
 
 	query := `
-		WITH snapshot AS (
+		WITH current_job AS (
+			SELECT *
+			FROM jobs
+			WHERE id = $25 AND version = $57
+			FOR UPDATE
+		), snapshot AS (
 			INSERT INTO job_versions (id, job_id, version, version_id, name, slug, description, cron, payload_schema,
 				tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 				rate_limit_max, rate_limit_window_secs, dedup_window_secs, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id,
-				group_id, project_id, enabled, backwards_compatible, created_by, updated_by, cron_overlap_policy, result_schema)
+				group_id, project_id, enabled, backwards_compatible, created_by, updated_by,
+				max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold,
+				poison_pill_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size,
+				execution_mode, preferred_regions, queue_name,
+				on_complete_trigger_workflow, on_complete_trigger_job, on_complete_payload_mapping,
+				on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping,
+				max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
+				paused, paused_at, pause_reason, endpoint_signing_secret)
 			SELECT $29, id, version, version_id, name, slug, description, cron, payload_schema,
 				tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 				rate_limit_max, rate_limit_window_secs, dedup_window_secs, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id,
-				group_id, project_id, enabled, backwards_compatible, created_by, updated_by, cron_overlap_policy, result_schema
-			FROM jobs WHERE id = $25
+				group_id, project_id, enabled, backwards_compatible, created_by, updated_by,
+				max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold,
+				poison_pill_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size,
+				COALESCE(execution_mode, 'http'), COALESCE(preferred_regions, '{}'), COALESCE(NULLIF(queue_name, ''), 'default'),
+				on_complete_trigger_workflow, on_complete_trigger_job, on_complete_payload_mapping,
+				on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping,
+				max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
+				COALESCE(paused, false), paused_at, pause_reason, COALESCE(endpoint_signing_secret, '')
+			FROM current_job
 		)
-		UPDATE jobs
+		UPDATE jobs AS j
 		SET group_id = $1,
 		    name = $2,
 		    slug = $3,
@@ -296,7 +315,7 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		    retry_strategy = $22,
 		    retry_delays_secs = $23,
 		    environment_id = $24,
-		    version = version + 1,
+		    version = j.version + 1,
 		    version_id = $26,
 		    updated_by = $27,
 		    version_policy = $28,
@@ -329,9 +348,9 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		    blocked_tools = $56,
 		    endpoint_signing_secret = $58,
 		    updated_at = NOW()
-		WHERE id = $25
-		  AND version = $57
-		RETURNING updated_at, version, version_id`
+		FROM current_job
+		WHERE j.id = current_job.id
+		RETURNING j.updated_at, j.version, j.version_id`
 
 	tagsJSON, err := marshalTags(job.Tags)
 	if err != nil {
@@ -429,8 +448,8 @@ func (q *Queries) DeleteJob(ctx context.Context, id string) error {
 
 	// If the underlying connection supports transactions, wrap the whole
 	// delete in one so a crash mid-way doesn't leave orphaned data.
-	if txb, ok := q.db.(TxBeginner); ok {
-		return WithTx(ctx, txb, func(tx *Queries) error {
+	if _, ok := q.db.(TxBeginner); ok {
+		return q.withTx(ctx, func(tx *Queries) error {
 			return tx.deleteJobTx(ctx, id)
 		})
 	}
@@ -471,6 +490,9 @@ func (q *Queries) deleteJobTx(ctx context.Context, id string) error {
 	}
 	if _, err := q.db.Exec(ctx, `DELETE FROM job_dependencies WHERE job_id = $1 OR depends_on_job_id = $1`, id); err != nil {
 		return fmt.Errorf("delete job dependencies: %w", err)
+	}
+	if _, err := q.db.Exec(ctx, `DELETE FROM job_memory WHERE job_id = $1`, id); err != nil {
+		return fmt.Errorf("delete job memory: %w", err)
 	}
 
 	tag, err := q.db.Exec(ctx, `DELETE FROM jobs WHERE id = $1`, id)
@@ -523,8 +545,7 @@ func (q *Queries) ListCronJobs(ctx context.Context) ([]domain.Job, error) {
 		       paused, paused_at, pause_reason, endpoint_signing_secret
 		FROM jobs
 		WHERE enabled = TRUE AND NOT paused AND cron IS NOT NULL AND cron <> ''
-		ORDER BY created_at DESC
-		LIMIT 10000`
+		ORDER BY created_at DESC`
 
 	rows, err := q.db.Query(ctx, query)
 	if err != nil {

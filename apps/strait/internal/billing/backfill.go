@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -142,10 +143,31 @@ func backfillOneOrgRow(ctx context.Context, pool *pgxpool.Pool, store *PgStore, 
 	if dryRun {
 		return true, nil
 	}
-	if err := store.UpdateEntitlements(ctx, orgID, want); err != nil {
+	updated, err := UpdateEntitlementsIfUnchanged(ctx, pool, orgID, want, sub.UpdatedAt)
+	if err != nil {
 		return false, fmt.Errorf("update: %w", err)
 	}
-	return true, nil
+	return updated, nil
+}
+
+// UpdateEntitlementsIfUnchanged writes entitlements only if the subscription
+// row has not changed since observedUpdatedAt. Backfill uses this to avoid
+// overwriting fresher webhook or operator mutations with a stale snapshot.
+func UpdateEntitlementsIfUnchanged(ctx context.Context, pool *pgxpool.Pool, orgID string, entitlements OrgPlanLimits, observedUpdatedAt time.Time) (bool, error) {
+	payload, err := json.Marshal(entitlements)
+	if err != nil {
+		return false, fmt.Errorf("marshal entitlements: %w", err)
+	}
+	tag, err := pool.Exec(ctx, `
+		UPDATE organization_subscriptions
+		SET entitlements = $2::jsonb, updated_at = NOW()
+		WHERE org_id = $1
+		  AND updated_at = $3
+	`, orgID, payload, observedUpdatedAt)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
 }
 
 func readPersistedEntitlements(ctx context.Context, pool *pgxpool.Pool, orgID string) (OrgPlanLimits, error) {

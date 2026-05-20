@@ -170,7 +170,7 @@ func (s *Server) routes() chi.Router {
 
 	// CLI device authorization endpoints (no auth required).
 	r.Route("/v1/cli/auth", func(r chi.Router) {
-		r.Use(rateLimit(10, time.Minute))
+		r.Use(rateLimit(cliAuthRateLimitRequests, cliAuthRateLimitWindow))
 		r.Post("/device-code", TypedHandler(s, http.StatusOK, s.handleDeviceCode))
 		r.Post("/token", TypedHandler(s, http.StatusOK, s.handleDeviceToken))
 	})
@@ -203,7 +203,7 @@ func (s *Server) routes() chi.Router {
 		r.Use(s.apiKeyOrSecretAuth)
 		r.Use(s.projectContextMiddleware)
 		r.Use(s.projectRateLimit)
-		r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", s.handleProjectActivityStream)
+		r.With(s.requireActivityStreamPermissions).Get("/", s.handleProjectActivityStream)
 	})
 
 	// Org-scoped cross-project query routes.
@@ -310,7 +310,7 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleGetEnvironment))
 				r.With(s.requirePermission(domain.ScopeJobsWrite)).Patch("/", TypedHandler(s, http.StatusOK, s.handleUpdateEnvironment))
 				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/", TypedHandler(s, http.StatusNoContent, s.handleDeleteEnvironment))
-				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/variables", TypedHandler(s, http.StatusOK, s.handleGetResolvedVariables))
+				r.With(s.requirePermission(domain.ScopeSecretsRead)).Get("/variables", TypedHandler(s, http.StatusOK, s.handleGetResolvedVariables))
 			})
 		})
 
@@ -364,7 +364,7 @@ func (s *Server) routes() chi.Router {
 		r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/webhook-deliveries/{deliveryID}/retry", TypedHandler(s, http.StatusOK, s.handleRetryWebhookDelivery))
 
 		r.Route("/webhooks", func(r chi.Router) {
-			r.With(s.requirePermission(domain.ScopeRunsWrite), s.idempotencyMiddleware, rateLimit(5, time.Minute)).Post("/test", TypedHandler(s, http.StatusOK, s.handleTestWebhook))
+			r.With(s.requirePermission(domain.ScopeWebhooksWrite), s.idempotencyMiddleware, rateLimit(5, time.Minute)).Post("/test", TypedHandler(s, http.StatusOK, s.handleTestWebhook))
 			r.Route("/deliveries", func(r chi.Router) {
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListWebhookDeliveries))
 				r.With(s.requirePermission(domain.ScopeRunsRead)).Get("/{id}", TypedHandler(s, http.StatusOK, s.handleGetWebhookDelivery))
@@ -372,7 +372,7 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeRunsWrite)).Post("/{id}/replay", TypedHandler(s, http.StatusCreated, s.handleReplayWebhookDelivery))
 			})
 			r.Route("/subscriptions", func(r chi.Router) {
-				r.With(s.requirePermission(domain.ScopeWebhooksWrite), s.idempotencyMiddleware).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateWebhookSubscription))
+				r.With(s.requirePermission(domain.ScopeWebhooksWrite)).Post("/", TypedHandler(s, http.StatusCreated, s.handleCreateWebhookSubscription))
 				r.With(s.requirePermission(domain.ScopeWebhooksRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleListWebhookSubscriptions))
 				r.With(s.requirePermission(domain.ScopeWebhooksWrite)).Delete("/{id}", TypedHandler(s, http.StatusNoContent, s.handleDeleteWebhookSubscription))
 				r.With(s.requirePermission(domain.ScopeWebhooksWrite)).Post("/{id}/rotate-secret", TypedHandler(s, http.StatusOK, s.handleRotateWebhookSecret))
@@ -533,7 +533,7 @@ func (s *Server) routes() chi.Router {
 
 		r.Route("/workflow-policies", func(r chi.Router) {
 			r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/{projectID}", TypedHandler(s, http.StatusOK, s.handleGetWorkflowPolicy))
-			r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Put("/{projectID}", TypedHandler(s, http.StatusOK, s.handleUpsertWorkflowPolicy))
+			r.With(s.requirePermission(domain.ScopeRBACManage)).Put("/{projectID}", TypedHandler(s, http.StatusOK, s.handleUpsertWorkflowPolicy))
 		})
 
 		r.Route("/workflows", func(r chi.Router) {
@@ -587,7 +587,7 @@ func (s *Server) routes() chi.Router {
 			})
 		})
 		r.With(
-			s.requirePermission(domain.ScopeJobsWrite),
+			s.requireAnyPermission(domain.ScopeJobsTrigger, domain.ScopeWorkflowsTrigger),
 			rateLimit(triggerRateLimitRequests, triggerRateLimitWindow),
 		).Post("/events/dispatch", TypedHandler(s, http.StatusOK, s.handleDispatchEvent))
 
@@ -596,12 +596,12 @@ func (s *Server) routes() chi.Router {
 			r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/stats", TypedHandler(s, http.StatusOK, s.handleGetEventTriggerStats))
 			r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/purge", TypedHandler(s, http.StatusOK, s.handlePurgeEventTriggers))
 			r.Route("/prefix/{prefix}", func(r chi.Router) {
-				r.With(s.requirePermission(domain.ScopeJobsTrigger), s.idempotencyMiddleware, rateLimit(triggerRateLimitRequests, triggerRateLimitWindow)).Post("/send", TypedHandler(s, http.StatusOK, s.handleSendEventByPrefix))
+				r.With(s.requireAnyPermission(domain.ScopeJobsTrigger, domain.ScopeWorkflowsTrigger), s.idempotencyMiddleware, rateLimit(triggerRateLimitRequests, triggerRateLimitWindow)).Post("/send", TypedHandler(s, http.StatusOK, s.handleSendEventByPrefix))
 			})
 			r.Route("/{eventKey}", func(r chi.Router) {
 				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/", TypedHandler(s, http.StatusOK, s.handleGetEventTrigger))
-				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/", TypedHandler(s, http.StatusOK, s.handleCancelEventTrigger))
-				r.With(s.requirePermission(domain.ScopeJobsTrigger), s.idempotencyMiddleware, rateLimit(triggerRateLimitRequests, triggerRateLimitWindow)).Post("/send", TypedHandler(s, http.StatusOK, s.handleSendEvent))
+				r.With(s.requireAnyPermission(domain.ScopeJobsWrite, domain.ScopeWorkflowsWrite)).Delete("/", TypedHandler(s, http.StatusOK, s.handleCancelEventTrigger))
+				r.With(s.requireAnyPermission(domain.ScopeJobsTrigger, domain.ScopeWorkflowsTrigger), s.idempotencyMiddleware, rateLimit(triggerRateLimitRequests, triggerRateLimitWindow)).Post("/send", TypedHandler(s, http.StatusOK, s.handleSendEvent))
 			})
 		})
 

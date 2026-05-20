@@ -13,6 +13,9 @@ var (
 	// idempotency unique index constraint (idx_runs_idempotency). Callers
 	// should retry by looking up the existing run via GetRunByIdempotencyKey.
 	ErrIdempotencyConflict = errors.New("idempotency key conflict")
+
+	// ErrCanaryNotFound is returned when no active canary deployment exists.
+	ErrCanaryNotFound = errors.New("no active canary deployment found")
 )
 
 // TransitionError is returned when an FSM state transition is invalid.

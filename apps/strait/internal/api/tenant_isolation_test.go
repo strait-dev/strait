@@ -69,7 +69,7 @@ func newIsolationStore() *APIStoreMock {
 			}
 			return nil, nil
 		},
-		ListEventTriggersByProjectFunc: func(_ context.Context, projectID, _, _, _ string, _ int, _ *time.Time) ([]domain.EventTrigger, error) {
+		ListEventTriggersByProjectFunc: func(_ context.Context, projectID, _, _, _, _ string, _ int, _ *time.Time) ([]domain.EventTrigger, error) {
 			if projectID == projectA {
 				return []domain.EventTrigger{{ID: "et-a", ProjectID: projectA, EventKey: "event.a", Status: "waiting", RequestedAt: now}}, nil
 			}
@@ -680,13 +680,14 @@ func TestTenantIsolation_RevokeAPIKey_CrossProject(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now()
+	expiresAt := now.Add(24 * time.Hour)
 	ms := newIsolationStore()
 	ms.GetAPIKeyByIDFunc = func(_ context.Context, id string) (*domain.APIKey, error) {
 		switch id {
 		case "key-a":
-			return &domain.APIKey{ID: "key-a", ProjectID: projectA, Name: "Key A", KeyHash: "h", KeyPrefix: "strait_a", CreatedAt: now}, nil
+			return &domain.APIKey{ID: "key-a", ProjectID: projectA, Name: "Key A", KeyHash: "h", KeyPrefix: "strait_a", CreatedAt: now, ExpiresAt: &expiresAt}, nil
 		case "key-b":
-			return &domain.APIKey{ID: "key-b", ProjectID: projectB, Name: "Key B", KeyHash: "h", KeyPrefix: "strait_b", CreatedAt: now}, nil
+			return &domain.APIKey{ID: "key-b", ProjectID: projectB, Name: "Key B", KeyHash: "h", KeyPrefix: "strait_b", CreatedAt: now, ExpiresAt: &expiresAt}, nil
 		}
 		return nil, nil
 	}
@@ -724,13 +725,14 @@ func TestTenantIsolation_RotateAPIKey_CrossProject(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now()
+	expiresAt := now.Add(24 * time.Hour)
 	ms := newIsolationStore()
 	ms.GetAPIKeyByIDFunc = func(_ context.Context, id string) (*domain.APIKey, error) {
 		switch id {
 		case "key-a":
-			return &domain.APIKey{ID: "key-a", ProjectID: projectA, Name: "Key A", KeyHash: "h", KeyPrefix: "strait_a", CreatedAt: now}, nil
+			return &domain.APIKey{ID: "key-a", ProjectID: projectA, Name: "Key A", KeyHash: "h", KeyPrefix: "strait_a", CreatedAt: now, ExpiresAt: &expiresAt}, nil
 		case "key-b":
-			return &domain.APIKey{ID: "key-b", ProjectID: projectB, Name: "Key B", KeyHash: "h", KeyPrefix: "strait_b", CreatedAt: now}, nil
+			return &domain.APIKey{ID: "key-b", ProjectID: projectB, Name: "Key B", KeyHash: "h", KeyPrefix: "strait_b", CreatedAt: now, ExpiresAt: &expiresAt}, nil
 		}
 		return nil, nil
 	}

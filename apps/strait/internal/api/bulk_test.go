@@ -244,6 +244,63 @@ func TestHandleBulkTrigger_WithScheduledAt(t *testing.T) {
 	}
 }
 
+func TestHandleBulkTrigger_RejectsOutOfRangeScheduledAtAndTTL(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "past scheduled_at",
+			body: fmt.Sprintf(`{"items":[{"scheduled_at":"%s"}]}`, time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)),
+			want: "scheduled_at",
+		},
+		{
+			name: "far future scheduled_at",
+			body: fmt.Sprintf(`{"items":[{"scheduled_at":"%s"}]}`, time.Now().Add(31*24*time.Hour).UTC().Format(time.RFC3339)),
+			want: "30 days",
+		},
+		{
+			name: "negative ttl",
+			body: `{"items":[{"ttl_secs":-1}]}`,
+			want: "ttl_secs",
+		},
+		{
+			name: "too large ttl",
+			body: `{"items":[{"ttl_secs":2592001}]}`,
+			want: "ttl_secs",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ms := &APIStoreMock{
+				GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+					return testEnabledJob(id), nil
+				},
+			}
+			mq := &mockQueue{enqueueFn: func(context.Context, *domain.JobRun) error {
+				t.Fatal("bulk trigger must not enqueue invalid item")
+				return nil
+			}}
+			srv := newTestServer(t, ms, mq, nil)
+
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger/bulk", tc.body))
+
+			if w.Code != http.StatusBadRequest && w.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("status = %d, want 400/422: %s", w.Code, w.Body.String())
+			}
+			if !strings.Contains(w.Body.String(), tc.want) {
+				t.Fatalf("response = %s, want fragment %q", w.Body.String(), tc.want)
+			}
+		})
+	}
+}
+
 func TestHandleBulkTrigger_EmptyItems(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) { return testEnabledJob(id), nil }}

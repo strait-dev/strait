@@ -12,15 +12,13 @@ import (
 	"strait/internal/testutil"
 )
 
-// TestIntegration_Heartbeat_DoesNotWriteDB pins the Phase D contract: the
-// gRPC heartbeat handler must NOT write to the workers table. last_seen_at
-// is refreshed by the dbSync loop instead. Writing on every heartbeat
-// caused N×workers DB writes per HeartbeatInterval without changing
-// observability.
+// TestIntegration_Heartbeat_RenewsStreamLeaseWithoutTouchingLastSeen pins the
+// heartbeat contract: the stream renews its cross-replica liveness lease, while
+// last_seen_at remains owned by the dbSync loop.
 //
 // We seed a workers row with an old last_seen_at, fire a heartbeat, and
 // assert the timestamp is unchanged.
-func TestIntegration_Heartbeat_DoesNotWriteDB(t *testing.T) {
+func TestIntegration_Heartbeat_RenewsStreamLeaseWithoutTouchingLastSeen(t *testing.T) {
 	ctx := context.Background()
 	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
 	if err != nil {
@@ -61,20 +59,24 @@ func TestIntegration_Heartbeat_DoesNotWriteDB(t *testing.T) {
 	}
 
 	hb := &workerv1.Heartbeat{}
-	if err := svc.handleHeartbeat(ctx, workerID, hb); err != nil {
+	if err := svc.handleHeartbeat(ctx, workerID, projectID, "", "", hb); err != nil {
 		t.Fatalf("handleHeartbeat: %v", err)
 	}
 
 	var afterTS time.Time
+	var leaseExpiresAt *time.Time
 	if err := env.DB.Pool.QueryRow(ctx,
-		`SELECT last_seen_at FROM workers WHERE id = $1`, workerID,
-	).Scan(&afterTS); err != nil {
+		`SELECT last_seen_at, stream_lease_expires_at FROM workers WHERE id = $1`, workerID,
+	).Scan(&afterTS, &leaseExpiresAt); err != nil {
 		t.Fatalf("read post-heartbeat last_seen_at: %v", err)
 	}
 
 	if !afterTS.Equal(beforeTS) {
 		t.Fatalf("heartbeat wrote to workers table: last_seen_at moved from %v to %v",
 			beforeTS, afterTS)
+	}
+	if leaseExpiresAt == nil || !leaseExpiresAt.After(time.Now()) {
+		t.Fatalf("stream lease = %v, want future timestamp", leaseExpiresAt)
 	}
 }
 

@@ -35,6 +35,7 @@ type Server struct {
 	resultChannels  *ResultChannelRegistry
 	runFinalizer    atomic.Value
 	authLimiter     grpcAuthLimiter
+	secretDecryptor SecretDecryptor
 	billingEnforcer planLimitEnforcer
 	gs              *grpc.Server
 	version         string
@@ -50,6 +51,11 @@ type planLimitEnforcer interface {
 	GetActiveProjectOrgID(ctx context.Context, projectID string) (string, error)
 }
 
+type workerConnectionReservationEnforcer interface {
+	ReserveWorkerConnection(ctx context.Context, orgID, reservationID string, lease time.Duration) (func(), error)
+	RenewWorkerConnection(ctx context.Context, orgID, reservationID string, lease time.Duration) error
+}
+
 type ServerOption func(*Server)
 
 func WithAuthLimiter(limiter grpcAuthLimiter) ServerOption {
@@ -61,6 +67,12 @@ func WithAuthLimiter(limiter grpcAuthLimiter) ServerOption {
 func WithVersion(version string) ServerOption {
 	return func(s *Server) {
 		s.version = version
+	}
+}
+
+func WithSecretDecryptor(dec SecretDecryptor) ServerOption {
+	return func(s *Server) {
+		s.secretDecryptor = dec
 	}
 }
 
@@ -116,7 +128,8 @@ func (s *Server) Registry() *ConnectionRegistry {
 // WorkerDispatcher returns a WorkerDispatcher wired to this server's registry
 // and result channel registry. Used by the executor to dispatch worker-mode runs.
 func (s *Server) WorkerDispatcher(jwtSigningKey string) *WorkerDispatcher {
-	return NewWorkerDispatcher(s.registry, s.queries, jwtSigningKey, s.resultChannels)
+	return NewWorkerDispatcher(s.registry, s.queries, jwtSigningKey, s.resultChannels).
+		WithSecretDecryptor(s.secretDecryptor)
 }
 
 // SetRunResultFinalizer wires the executor-owned completion path for worker
@@ -229,7 +242,7 @@ func (s *Server) Serve(ctx context.Context) error {
 	var bgWG conc.WaitGroup
 	bgWG.Go(func() { runDBSync(ctx, s.registry, s.queries, s.cfg.WorkerDBSyncInterval) })
 	bgWG.Go(func() {
-		runSweep(ctx, s.registry, s.queries, s.cfg.WorkerHeartbeatTimeout, s.cfg.WorkerDisconnectSweepInterval)
+		runSweep(ctx, s.registry, s.queries, s.cfg.WorkerHeartbeatTimeout, s.cfg.WorkerDisconnectSweepInterval, s.runResultFinalizer)
 	})
 
 	var shutdownWG conc.WaitGroup
@@ -255,6 +268,15 @@ func (s *Server) Serve(ctx context.Context) error {
 		return fmt.Errorf("grpc serve: %w", err)
 	}
 	return nil
+}
+
+func (s *Server) runResultFinalizer() WorkerRunResultFinalizer {
+	v := s.runFinalizer.Load()
+	if v == nil {
+		return nil
+	}
+	finalizer, _ := v.(WorkerRunResultFinalizer)
+	return finalizer
 }
 
 // GracefulStop stops the gRPC server gracefully.

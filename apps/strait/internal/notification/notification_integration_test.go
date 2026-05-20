@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -755,6 +756,135 @@ func TestWorkerProcessesDeliveryFromRealDB(t *testing.T) {
 	}
 	if deliveries[0].Status != "delivered" {
 		t.Errorf("delivery status = %q, want %q", deliveries[0].Status, "delivered")
+	}
+}
+
+func TestWorkerSkipsQueuedDeliveryAfterChannelDisabled(t *testing.T) {
+	ctx := context.Background()
+	st := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-worker-disabled"
+	ch := makeChannel(projectID, domain.ChannelTypeSlack, "worker-disabled-ch", json.RawMessage(`{"webhook_url":"https://disabled"}`))
+	if err := st.CreateNotificationChannel(ctx, ch); err != nil {
+		t.Fatalf("CreateNotificationChannel() error = %v", err)
+	}
+
+	d := makeDelivery(ch.ID, projectID, domain.NotificationEventSpendingLimitWarning, json.RawMessage(`{"org_id":"org-disabled"}`))
+	if err := st.CreateNotificationDelivery(ctx, d); err != nil {
+		t.Fatalf("CreateNotificationDelivery() error = %v", err)
+	}
+
+	ch.Enabled = false
+	if err := st.UpdateNotificationChannel(ctx, ch); err != nil {
+		t.Fatalf("UpdateNotificationChannel(disabled) error = %v", err)
+	}
+
+	sender := &fakeSender{}
+	w := notification.NewWorker(st, &http.Client{})
+	w.RegisterSender(domain.ChannelTypeSlack, sender)
+
+	workerCtx, cancel := context.WithCancel(ctx)
+	w.Start(workerCtx)
+
+	time.Sleep(500 * time.Millisecond)
+	cancel()
+	w.Stop()
+
+	if sender.callCount() != 0 {
+		t.Fatalf("sender.Send() called %d times for disabled channel, want 0", sender.callCount())
+	}
+
+	deliveries, err := st.ListNotificationDeliveries(ctx, projectID, 10, nil)
+	if err != nil {
+		t.Fatalf("ListNotificationDeliveries() error = %v", err)
+	}
+	if len(deliveries) != 1 {
+		t.Fatalf("ListNotificationDeliveries() returned %d, want 1", len(deliveries))
+	}
+	if deliveries[0].Status != "failed" {
+		t.Fatalf("delivery status = %q, want failed", deliveries[0].Status)
+	}
+	if deliveries[0].Attempts != 0 {
+		t.Fatalf("delivery attempts = %d, want 0", deliveries[0].Attempts)
+	}
+	if !strings.Contains(deliveries[0].LastError, "disabled") {
+		t.Fatalf("last error = %q, want disabled reason", deliveries[0].LastError)
+	}
+}
+
+func TestWorkerDispatchesFastDeliveryWhileSlowEndpointBlocks(t *testing.T) {
+	ctx := context.Background()
+	st := mustStore(t)
+	mustClean(t, ctx)
+
+	chSlow := makeChannel("proj-worker-slow", domain.ChannelTypeSlack, "slow-ch", json.RawMessage(`{"webhook_url":"https://slow"}`))
+	chFast := makeChannel("proj-worker-fast", domain.ChannelTypeSlack, "fast-ch", json.RawMessage(`{"webhook_url":"https://fast"}`))
+	for _, ch := range []*domain.NotificationChannel{chSlow, chFast} {
+		if err := st.CreateNotificationChannel(ctx, ch); err != nil {
+			t.Fatalf("CreateNotificationChannel(%s) error = %v", ch.ID, err)
+		}
+	}
+
+	dSlow := makeDelivery(chSlow.ID, chSlow.ProjectID, domain.NotificationEventSpendingLimitWarning, json.RawMessage(`{"org_id":"slow"}`))
+	dFast := makeDelivery(chFast.ID, chFast.ProjectID, domain.NotificationEventSpendingLimitWarning, json.RawMessage(`{"org_id":"fast"}`))
+	for _, d := range []*domain.NotificationDelivery{dSlow, dFast} {
+		if err := st.CreateNotificationDelivery(ctx, d); err != nil {
+			t.Fatalf("CreateNotificationDelivery(%s) error = %v", d.ID, err)
+		}
+	}
+
+	slowStarted := make(chan struct{})
+	releaseSlow := make(chan struct{})
+	fastSent := make(chan struct{})
+	sender := &fakeSender{
+		sendFunc: func(_ context.Context, ch *domain.NotificationChannel, _ *domain.NotificationDelivery) error {
+			switch ch.ProjectID {
+			case chSlow.ProjectID:
+				close(slowStarted)
+				<-releaseSlow
+			case chFast.ProjectID:
+				close(fastSent)
+			}
+			return nil
+		},
+	}
+	w := notification.NewWorker(st, &http.Client{})
+	w.RegisterSender(domain.ChannelTypeSlack, sender)
+
+	workerCtx, cancel := context.WithCancel(ctx)
+	w.Start(workerCtx)
+	defer func() {
+		cancel()
+		w.Stop()
+	}()
+
+	select {
+	case <-slowStarted:
+	case <-time.After(time.Second):
+		t.Fatal("slow delivery was not started")
+	}
+	select {
+	case <-fastSent:
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("fast delivery was blocked behind slow endpoint")
+	}
+	close(releaseSlow)
+
+	deadline := time.After(2 * time.Second)
+	for {
+		deliveries, err := st.ListNotificationDeliveries(ctx, chFast.ProjectID, 10, nil)
+		if err != nil {
+			t.Fatalf("ListNotificationDeliveries() error = %v", err)
+		}
+		if len(deliveries) == 1 && deliveries[0].Status == "delivered" {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("fast delivery was not marked delivered, got %+v", deliveries)
+		case <-time.After(25 * time.Millisecond):
+		}
 	}
 }
 

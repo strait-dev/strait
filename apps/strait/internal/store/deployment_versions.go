@@ -248,13 +248,13 @@ func (q *Queries) RollbackDeploymentVersion(ctx context.Context, deploymentID, p
 }
 
 func (q *Queries) promoteDeploymentVersion(ctx context.Context, deploymentID, projectID, environment, updatedBy string, rollback bool) (*domain.DeploymentVersion, error) {
-	txb, ok := q.db.(TxBeginner)
+	_, ok := q.db.(TxBeginner)
 	if !ok {
 		return nil, fmt.Errorf("promote deployment version: transactional database required")
 	}
 
 	var promoted *domain.DeploymentVersion
-	err := WithTx(ctx, txb, func(txQ *Queries) error {
+	err := q.withTx(ctx, func(txQ *Queries) error {
 		var previousPromotedID *string
 		row := txQ.db.QueryRow(
 			ctx,

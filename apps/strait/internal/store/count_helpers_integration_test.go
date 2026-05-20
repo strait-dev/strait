@@ -53,6 +53,21 @@ func TestCountCronJobsByOrg(t *testing.T) {
 		t.Fatalf("CreateJob(no cron) error = %v", err)
 	}
 
+	// Create a cron workflow in our org. Scheduled workflow runs consume the
+	// same plan quota as scheduled jobs.
+	workflow := &domain.Workflow{
+		ID:        newID(),
+		ProjectID: projectID,
+		Name:      "scheduled workflow",
+		Slug:      "scheduled-workflow",
+		Enabled:   true,
+		Cron:      "15 * * * *",
+		Version:   1,
+	}
+	if err := q.CreateWorkflow(ctx, workflow); err != nil {
+		t.Fatalf("CreateWorkflow(cron) error = %v", err)
+	}
+
 	// Create a cron job in the other org.
 	otherJob := baseJob(newID(), otherProjectID)
 	otherJob.Cron = "0 * * * *"
@@ -64,8 +79,8 @@ func TestCountCronJobsByOrg(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CountCronJobsByOrg() error = %v", err)
 	}
-	if count != 2 {
-		t.Fatalf("count = %d, want 2", count)
+	if count != 3 {
+		t.Fatalf("count = %d, want 3", count)
 	}
 
 	// Other org has its own count.
@@ -333,6 +348,79 @@ func TestDeactivateExcessEnvironments(t *testing.T) {
 	}
 }
 
+func TestDeactivateExcessEnvironments_PreservesStandardEnvironments(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	orgID := "org-deactivate-envs-standard-" + newID()
+	projectID := "proj-deactivate-envs-standard-" + newID()
+
+	if err := q.CreateProject(ctx, &domain.Project{ID: projectID, OrgID: orgID, Name: "P"}); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+	if err := q.CreateStandardEnvironments(ctx, projectID); err != nil {
+		t.Fatalf("CreateStandardEnvironments() error = %v", err)
+	}
+
+	standardBefore, err := q.ListEnvironments(ctx, projectID, 10, nil)
+	if err != nil {
+		t.Fatalf("ListEnvironments(before) error = %v", err)
+	}
+	standardIDs := map[string]bool{}
+	for _, env := range standardBefore {
+		if env.IsStandard {
+			standardIDs[env.ID] = true
+		}
+	}
+	if len(standardIDs) != 3 {
+		t.Fatalf("standard environment count before cleanup = %d, want 3", len(standardIDs))
+	}
+
+	time.Sleep(5 * time.Millisecond)
+	for i := range 5 {
+		env := &domain.Environment{
+			ProjectID: projectID,
+			Name:      "custom-env-" + newID(),
+			Slug:      "custom-env-slug-" + newID(),
+		}
+		if err := q.CreateEnvironment(ctx, env); err != nil {
+			t.Fatalf("CreateEnvironment(%d) error = %v", i, err)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	deactivated, err := q.DeactivateExcessEnvironments(ctx, orgID, 2)
+	if err != nil {
+		t.Fatalf("DeactivateExcessEnvironments() error = %v", err)
+	}
+	if deactivated != 3 {
+		t.Fatalf("deactivated custom environments = %d, want 3", deactivated)
+	}
+
+	remaining, err := q.ListEnvironments(ctx, projectID, 20, nil)
+	if err != nil {
+		t.Fatalf("ListEnvironments(after) error = %v", err)
+	}
+	var standardCount, customCount int
+	for _, env := range remaining {
+		if env.IsStandard {
+			standardCount++
+			if !standardIDs[env.ID] {
+				t.Fatalf("unexpected standard environment after cleanup: %s", env.ID)
+			}
+			continue
+		}
+		customCount++
+	}
+	if standardCount != 3 {
+		t.Fatalf("standard environment count after cleanup = %d, want 3", standardCount)
+	}
+	if customCount != 2 {
+		t.Fatalf("custom environment count after cleanup = %d, want 2", customCount)
+	}
+}
+
 func TestDeactivateExcessCronJobs(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -371,6 +459,91 @@ func TestDeactivateExcessCronJobs(t *testing.T) {
 	if count != 2 {
 		t.Fatalf("count after deactivation = %d, want 2", count)
 	}
+}
+
+func TestDeactivateExcessCronJobs_IncludesWorkflows(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	orgID := "org-deactivate-cron-workflows-" + newID()
+	projectID := "proj-deactivate-cron-workflows-" + newID()
+	if err := q.CreateProject(ctx, &domain.Project{ID: projectID, OrgID: orgID, Name: "P"}); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	oldJob := baseJob(newID(), projectID)
+	oldJob.Cron = "*/5 * * * *"
+	if err := q.CreateJob(ctx, oldJob); err != nil {
+		t.Fatalf("CreateJob(old) error = %v", err)
+	}
+	newJob := baseJob(newID(), projectID)
+	newJob.Cron = "*/5 * * * *"
+	if err := q.CreateJob(ctx, newJob); err != nil {
+		t.Fatalf("CreateJob(new) error = %v", err)
+	}
+	oldWorkflow := &domain.Workflow{
+		ID:        newID(),
+		ProjectID: projectID,
+		Name:      "old scheduled workflow",
+		Slug:      "old-scheduled-workflow",
+		Enabled:   true,
+		Cron:      "0 * * * *",
+		Version:   1,
+	}
+	if err := q.CreateWorkflow(ctx, oldWorkflow); err != nil {
+		t.Fatalf("CreateWorkflow(old) error = %v", err)
+	}
+	newWorkflow := &domain.Workflow{
+		ID:        newID(),
+		ProjectID: projectID,
+		Name:      "new scheduled workflow",
+		Slug:      "new-scheduled-workflow",
+		Enabled:   true,
+		Cron:      "15 * * * *",
+		Version:   1,
+	}
+	if err := q.CreateWorkflow(ctx, newWorkflow); err != nil {
+		t.Fatalf("CreateWorkflow(new) error = %v", err)
+	}
+	updates := []struct {
+		table string
+		id    string
+		at    time.Time
+	}{
+		{table: "jobs", id: oldJob.ID, at: base},
+		{table: "workflows", id: oldWorkflow.ID, at: base.Add(time.Hour)},
+		{table: "jobs", id: newJob.ID, at: base.Add(2 * time.Hour)},
+		{table: "workflows", id: newWorkflow.ID, at: base.Add(3 * time.Hour)},
+	}
+	for _, update := range updates {
+		if _, err := testDB.Pool.Exec(ctx, "UPDATE "+update.table+" SET updated_at = $2 WHERE id = $1", update.id, update.at); err != nil {
+			t.Fatalf("set %s updated_at for %s: %v", update.table, update.id, err)
+		}
+	}
+
+	deactivated, err := q.DeactivateExcessCronJobs(ctx, orgID, 2)
+	if err != nil {
+		t.Fatalf("DeactivateExcessCronJobs() error = %v", err)
+	}
+	if len(deactivated) != 2 {
+		t.Fatalf("deactivated = %d, want 2", len(deactivated))
+	}
+	assertCronCleared := func(table, id string, wantCleared bool) {
+		t.Helper()
+		var cron string
+		if err := testDB.Pool.QueryRow(ctx, "SELECT COALESCE(cron, '') FROM "+table+" WHERE id = $1", id).Scan(&cron); err != nil {
+			t.Fatalf("query %s cron for %s: %v", table, id, err)
+		}
+		if gotCleared := cron == ""; gotCleared != wantCleared {
+			t.Fatalf("%s %s cron cleared = %v, want %v (cron=%q)", table, id, gotCleared, wantCleared, cron)
+		}
+	}
+	assertCronCleared("jobs", oldJob.ID, true)
+	assertCronCleared("workflows", oldWorkflow.ID, true)
+	assertCronCleared("jobs", newJob.ID, false)
+	assertCronCleared("workflows", newWorkflow.ID, false)
 }
 
 func TestDeactivateExcessWebhookSubscriptions(t *testing.T) {
@@ -416,5 +589,171 @@ func TestDeactivateExcessWebhookSubscriptions(t *testing.T) {
 	}
 	if count != 2 {
 		t.Fatalf("count after deactivation = %d, want 2", count)
+	}
+}
+
+func TestDeactivateExcessLogDrains_DisablesOldest(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	orgID := "org-log-drain-trim-" + newID()
+	projectID := "proj-log-drain-trim-" + newID()
+	if err := q.CreateProject(ctx, &domain.Project{ID: projectID, OrgID: orgID, Name: "P"}); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+
+	baseTime := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	ids := make([]string, 4)
+	for i := range ids {
+		ids[i] = "drain-trim-" + newID()
+		drain := &domain.LogDrain{
+			ID:          ids[i],
+			ProjectID:   projectID,
+			Name:        "drain",
+			DrainType:   "http",
+			EndpointURL: "https://example.com/logs",
+			AuthType:    "none",
+			Enabled:     true,
+		}
+		if err := q.CreateLogDrain(ctx, drain); err != nil {
+			t.Fatalf("CreateLogDrain(%d) error = %v", i, err)
+		}
+		if _, err := testDB.Pool.Exec(ctx, `
+			UPDATE log_drains
+			SET created_at = $2, updated_at = $2
+			WHERE id = $1
+		`, ids[i], baseTime.Add(time.Duration(i)*time.Minute)); err != nil {
+			t.Fatalf("set log drain created_at(%d): %v", i, err)
+		}
+	}
+
+	deactivated, err := q.DeactivateExcessLogDrains(ctx, orgID, 2)
+	if err != nil {
+		t.Fatalf("DeactivateExcessLogDrains() error = %v", err)
+	}
+	if deactivated != 2 {
+		t.Fatalf("deactivated = %d, want 2", deactivated)
+	}
+
+	for i, id := range ids {
+		var enabled bool
+		if err := testDB.Pool.QueryRow(ctx, `SELECT enabled FROM log_drains WHERE id = $1`, id).Scan(&enabled); err != nil {
+			t.Fatalf("query log drain %d enabled: %v", i, err)
+		}
+		wantEnabled := i >= 2
+		if enabled != wantEnabled {
+			t.Fatalf("log drain %d enabled = %v, want %v", i, enabled, wantEnabled)
+		}
+	}
+}
+
+func TestDeactivateExcessNotificationChannelsByProject_DisablesOldest(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	orgID := "org-notification-trim-" + newID()
+	projectID := "proj-notification-trim-" + newID()
+	if err := q.CreateProject(ctx, &domain.Project{ID: projectID, OrgID: orgID, Name: "P"}); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+
+	baseTime := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	ids := make([]string, 4)
+	for i := range ids {
+		ids[i] = "notification-trim-" + newID()
+		channel := &domain.NotificationChannel{
+			ID:          ids[i],
+			ProjectID:   projectID,
+			ChannelType: domain.ChannelTypeWebhook,
+			Name:        "ops",
+			Config:      []byte(`{"url":"https://example.com/hooks/ops"}`),
+			Enabled:     true,
+		}
+		if err := q.CreateNotificationChannel(ctx, channel); err != nil {
+			t.Fatalf("CreateNotificationChannel(%d) error = %v", i, err)
+		}
+		if _, err := testDB.Pool.Exec(ctx, `
+			UPDATE notification_channels
+			SET created_at = $2, updated_at = $2
+			WHERE id = $1
+		`, ids[i], baseTime.Add(time.Duration(i)*time.Minute)); err != nil {
+			t.Fatalf("set notification channel created_at(%d): %v", i, err)
+		}
+	}
+
+	deactivated, err := q.DeactivateExcessNotificationChannelsByProject(ctx, projectID, 2)
+	if err != nil {
+		t.Fatalf("DeactivateExcessNotificationChannelsByProject() error = %v", err)
+	}
+	if deactivated != 2 {
+		t.Fatalf("deactivated = %d, want 2", deactivated)
+	}
+
+	for i, id := range ids {
+		var enabled bool
+		if err := testDB.Pool.QueryRow(ctx, `SELECT enabled FROM notification_channels WHERE id = $1`, id).Scan(&enabled); err != nil {
+			t.Fatalf("query notification channel %d enabled: %v", i, err)
+		}
+		wantEnabled := i >= 2
+		if enabled != wantEnabled {
+			t.Fatalf("notification channel %d enabled = %v, want %v", i, enabled, wantEnabled)
+		}
+	}
+}
+
+func TestDeactivateExcessWebhookSubscriptions_DisablesOldest(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	orgID := "org-webhook-trim-" + newID()
+	projectID := "proj-webhook-trim-" + newID()
+	if err := q.CreateProject(ctx, &domain.Project{ID: projectID, OrgID: orgID, Name: "P"}); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+
+	baseTime := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	ids := make([]string, 4)
+	for i := range ids {
+		ids[i] = "webhook-trim-" + newID()
+		sub := &domain.WebhookSubscription{
+			ID:         ids[i],
+			ProjectID:  projectID,
+			WebhookURL: "https://example.com/hook-" + newID(),
+			EventTypes: []string{"run.completed"},
+			Secret:     "secret",
+			Active:     true,
+		}
+		if err := q.CreateWebhookSubscription(ctx, sub); err != nil {
+			t.Fatalf("CreateWebhookSubscription(%d) error = %v", i, err)
+		}
+		if _, err := testDB.Pool.Exec(ctx, `
+			UPDATE webhook_subscriptions
+			SET created_at = $2
+			WHERE id = $1
+		`, ids[i], baseTime.Add(time.Duration(i)*time.Minute)); err != nil {
+			t.Fatalf("set webhook subscription created_at(%d): %v", i, err)
+		}
+	}
+
+	deactivated, err := q.DeactivateExcessWebhookSubscriptions(ctx, orgID, 2)
+	if err != nil {
+		t.Fatalf("DeactivateExcessWebhookSubscriptions() error = %v", err)
+	}
+	if deactivated != 2 {
+		t.Fatalf("deactivated = %d, want 2", deactivated)
+	}
+
+	for i, id := range ids {
+		var active bool
+		if err := testDB.Pool.QueryRow(ctx, `SELECT active FROM webhook_subscriptions WHERE id = $1`, id).Scan(&active); err != nil {
+			t.Fatalf("query webhook subscription %d active: %v", i, err)
+		}
+		wantActive := i >= 2
+		if active != wantActive {
+			t.Fatalf("webhook subscription %d active = %v, want %v", i, active, wantActive)
+		}
 	}
 }

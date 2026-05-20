@@ -201,20 +201,22 @@ type fakeGRPCAuthLimiter struct {
 	blocked     bool
 	retryAfter  time.Duration
 	blockChecks []string
+	scopes      []string
 	failures    []string
 	resets      []string
 }
 
-func (f *fakeGRPCAuthLimiter) IsBlocked(_ context.Context, ip string) (bool, time.Duration) {
+func (f *fakeGRPCAuthLimiter) IsBlockedScoped(_ context.Context, ip, scope string) (bool, time.Duration) {
 	f.blockChecks = append(f.blockChecks, ip)
+	f.scopes = append(f.scopes, scope)
 	return f.blocked, f.retryAfter
 }
 
-func (f *fakeGRPCAuthLimiter) RecordFailure(_ context.Context, ip string) {
+func (f *fakeGRPCAuthLimiter) RecordFailureScoped(_ context.Context, ip, _ string) {
 	f.failures = append(f.failures, ip)
 }
 
-func (f *fakeGRPCAuthLimiter) Reset(_ context.Context, ip string) {
+func (f *fakeGRPCAuthLimiter) ResetScoped(_ context.Context, ip, _ string) {
 	f.resets = append(f.resets, ip)
 }
 
@@ -356,5 +358,60 @@ func TestValidateWorkerAPIKey_AllowsWorkersConnectScope(t *testing.T) {
 
 	if err := validateWorkerAPIKey(apiKey); err != nil {
 		t.Fatalf("validateWorkerAPIKey() error = %v, want nil", err)
+	}
+}
+
+func TestWorkerAPIKeyExpiresAt_UsesEarliestExpiryBoundary(t *testing.T) {
+	now := time.Now()
+	expiresAt := now.Add(10 * time.Minute)
+	graceExpiresAt := now.Add(2 * time.Minute)
+	apiKey := &domain.APIKey{
+		ID:             "k",
+		ProjectID:      "p",
+		ExpiresAt:      &expiresAt,
+		GraceExpiresAt: &graceExpiresAt,
+		Scopes:         []string{domain.ScopeWorkersConnect},
+	}
+
+	got, ok := workerAPIKeyExpiresAt(apiKey)
+	if !ok {
+		t.Fatal("expected expiry boundary")
+	}
+	if !got.Equal(graceExpiresAt) {
+		t.Fatalf("expiry = %s, want grace expiry %s", got, graceExpiresAt)
+	}
+}
+
+func TestWorkerAPIKeyExpiresAt_StoresDeadlineInContext(t *testing.T) {
+	expiresAt := time.Now().Add(5 * time.Minute)
+	ctx := withAPIKeyContext(context.Background(), &domain.APIKey{
+		ID:        "k",
+		ProjectID: "p",
+		ExpiresAt: &expiresAt,
+		Scopes:    []string{domain.ScopeWorkersConnect},
+	})
+
+	got, ok := APIKeyExpiresAtFromContext(ctx)
+	if !ok {
+		t.Fatal("expected expiry boundary in context")
+	}
+	if !got.Equal(expiresAt) {
+		t.Fatalf("context expiry = %s, want %s", got, expiresAt)
+	}
+}
+
+func TestWorkerAPIKeyExpiresAt_NoDeadlineForNonExpiringKey(t *testing.T) {
+	apiKey := &domain.APIKey{
+		ID:        "k",
+		ProjectID: "p",
+		Scopes:    []string{domain.ScopeWorkersConnect},
+	}
+
+	if _, ok := workerAPIKeyExpiresAt(apiKey); ok {
+		t.Fatal("expected no expiry boundary")
+	}
+	ctx := withAPIKeyContext(context.Background(), apiKey)
+	if _, ok := APIKeyExpiresAtFromContext(ctx); ok {
+		t.Fatal("expected no expiry boundary in context")
 	}
 }

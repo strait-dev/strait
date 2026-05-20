@@ -2,6 +2,7 @@ package billing
 
 import (
 	"errors"
+	"math"
 	"sync"
 	"time"
 )
@@ -269,6 +270,9 @@ var SLACreditTiers = []SLACreditTier{
 // For tiers with a higher SLA target, uptimes between the highest credit tier
 // boundary and the target receive the lightest credit (10%).
 func CalculateSLACredit(uptimePct float64, slaTarget float64) int {
+	if math.IsNaN(uptimePct) || math.IsNaN(slaTarget) || slaTarget <= 0 {
+		return 0
+	}
 	if uptimePct >= slaTarget {
 		return 0
 	}

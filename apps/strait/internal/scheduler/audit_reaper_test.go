@@ -22,12 +22,13 @@ type fakeAuditReclaimerStore struct {
 	createFn  func(ctx context.Context, ev *domain.AuditEvent) error
 	deleteFn  func(ctx context.Context, id, projectID string) error
 
-	createCalls    atomic.Int32
-	deleteCalls    atomic.Int32
-	incCalls       atomic.Int32
-	markCalls      atomic.Int32
-	deleteAgedFn   func(ctx context.Context, cutoff time.Time) (map[string]int64, error)
-	deleteAgedHits atomic.Int32
+	createCalls           atomic.Int32
+	deleteCalls           atomic.Int32
+	incCalls              atomic.Int32
+	markCalls             atomic.Int32
+	deleteAgedFn          func(ctx context.Context, cutoff time.Time) (map[string]int64, error)
+	deleteAgedWithAuditFn func(ctx context.Context, cutoff time.Time, maxAgeDays int) (map[string]int64, error)
+	deleteAgedHits        atomic.Int32
 }
 
 func (f *fakeAuditReclaimerStore) ListAuditEventsDeadletter(_ context.Context, _ int) ([]domain.AuditEvent, []string, error) {
@@ -52,10 +53,36 @@ func (f *fakeAuditReclaimerStore) MarkAuditDeadletterReclaimed(_ context.Context
 	return nil
 }
 
+func (f *fakeAuditReclaimerStore) ReplayAuditEventDeadletter(ctx context.Context, id, projectID, newEventID string) (*domain.AuditEvent, bool, error) {
+	ev := &domain.AuditEvent{ID: newEventID, ProjectID: projectID}
+	f.createCalls.Add(1)
+	if f.createFn != nil {
+		if err := f.createFn(ctx, ev); err != nil {
+			return nil, false, err
+		}
+	}
+	f.markCalls.Add(1)
+	if f.deleteFn != nil {
+		if err := f.deleteFn(ctx, id, projectID); err != nil {
+			return nil, false, err
+		}
+	}
+	f.deleteCalls.Add(1)
+	return ev, true, nil
+}
+
 func (f *fakeAuditReclaimerStore) DeleteAuditDeadletterOlderThan(ctx context.Context, cutoff time.Time) (map[string]int64, error) {
 	f.deleteAgedHits.Add(1)
 	if f.deleteAgedFn != nil {
 		return f.deleteAgedFn(ctx, cutoff)
+	}
+	return nil, nil
+}
+
+func (f *fakeAuditReclaimerStore) DeleteAuditDeadletterOlderThanWithAudit(ctx context.Context, cutoff time.Time, maxAgeDays int) (map[string]int64, error) {
+	f.deleteAgedHits.Add(1)
+	if f.deleteAgedWithAuditFn != nil {
+		return f.deleteAgedWithAuditFn(ctx, cutoff, maxAgeDays)
 	}
 	return nil, nil
 }
@@ -283,13 +310,16 @@ func TestReclaimAuditDeadletter_IdempotentWhenAlreadyReclaimed(t *testing.T) {
 	}
 }
 
-// TestReapDeadletter_DropsAgedRows_CallsDelete asserts the new retention
-// reaper invokes the store and emits one audit.deadletter_aged event per
-// affected project.
+// TestReapDeadletter_DropsAgedRows_CallsDelete asserts the retention reaper
+// delegates to the atomic store path that writes audit.deadletter_aged markers
+// in the same transaction as the delete.
 func TestReapDeadletter_DropsAgedRows_CallsDelete(t *testing.T) {
 	ctx := context.Background()
 	fake := &fakeAuditReclaimerStore{}
-	fake.deleteAgedFn = func(_ context.Context, _ time.Time) (map[string]int64, error) {
+	fake.deleteAgedWithAuditFn = func(_ context.Context, _ time.Time, maxAgeDays int) (map[string]int64, error) {
+		if maxAgeDays != 30 {
+			t.Fatalf("maxAgeDays = %d, want 30", maxAgeDays)
+		}
 		return map[string]int64{"proj-a": 7, "proj-b": 3}, nil
 	}
 	r := NewReaper(fake, time.Second, time.Minute, 0, 0, false, nil).
@@ -297,11 +327,10 @@ func TestReapDeadletter_DropsAgedRows_CallsDelete(t *testing.T) {
 	r.reapDeadletter(ctx)
 
 	if got := fake.deleteAgedHits.Load(); got != 1 {
-		t.Fatalf("DeleteAuditDeadletterOlderThan calls = %d, want 1", got)
+		t.Fatalf("DeleteAuditDeadletterOlderThanWithAudit calls = %d, want 1", got)
 	}
-	// One audit.deadletter_aged event per project that lost rows.
-	if got := fake.createCalls.Load(); got != 2 {
-		t.Fatalf("CreateAuditEvent calls = %d, want 2 (one per affected project)", got)
+	if got := fake.createCalls.Load(); got != 0 {
+		t.Fatalf("CreateAuditEvent calls = %d, want 0 (audit marker is written inside the atomic store call)", got)
 	}
 }
 
@@ -410,6 +439,37 @@ func TestReapAuditEvents_ZeroDaysSkipsTrim(t *testing.T) {
 	}
 	if !seenDisabled {
 		t.Errorf("default sweep excluded = %v, want to contain proj-disabled", excluded)
+	}
+}
+
+func TestReapAuditEvents_RejectsOverflowRetentionDays(t *testing.T) {
+	ctx := context.Background()
+	fake := newFakeAuditRetentionStore([]store.AuditRetentionOverride{
+		{ProjectID: "proj-overflow", Days: domain.MaxAuditRetentionDays + 1},
+	})
+
+	r := NewReaper(fake, time.Second, time.Minute, 0, 0, false, nil).
+		WithAuditRetention(365)
+	r.reapAuditEvents(ctx)
+
+	if got := fake.perProjectCalls["proj-overflow"]; got != 0 {
+		t.Errorf("overflow override delete calls = %d, want 0", got)
+	}
+	if len(fake.excludingCalls) != 1 {
+		t.Fatalf("default sweep calls = %d, want 1", len(fake.excludingCalls))
+	}
+}
+
+func TestReapAuditEvents_RejectsOverflowDefaultRetentionDays(t *testing.T) {
+	ctx := context.Background()
+	fake := newFakeAuditRetentionStore(nil)
+
+	r := NewReaper(fake, time.Second, time.Minute, 0, 0, false, nil).
+		WithAuditRetention(domain.MaxAuditRetentionDays + 1)
+	r.reapAuditEvents(ctx)
+
+	if len(fake.excludingCalls) != 0 {
+		t.Fatalf("default sweep calls = %d, want 0 for overflow default", len(fake.excludingCalls))
 	}
 }
 

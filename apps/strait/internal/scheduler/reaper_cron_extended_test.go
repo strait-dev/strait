@@ -84,6 +84,36 @@ func TestReaper_OrgRetention_ResolverError_Continues(t *testing.T) {
 	r.reapPerOrgRetention(context.Background())
 }
 
+func TestReaper_OrgRetention_RetentionLookupErrorSkipsDeletes(t *testing.T) {
+	t.Parallel()
+
+	resolver := &mockOrgRetentionResolver{
+		orgIDs:        []string{"org-1"},
+		retentionErrs: map[string]error{"org-1": errors.New("subscription lookup failed")},
+	}
+	var deleteRunsCalled atomic.Bool
+	var deleteWfRunsCalled atomic.Bool
+	store := &mockReaperStoreWithOrgRetention{
+		mockReaperStore: &mockReaperStore{},
+		deleteRunsByOrgFn: func(context.Context, string, time.Duration) (int64, error) {
+			deleteRunsCalled.Store(true)
+			return 0, nil
+		},
+		deleteWfRunsByOrgFn: func(context.Context, string, time.Duration) (int64, error) {
+			deleteWfRunsCalled.Store(true)
+			return 0, nil
+		},
+	}
+
+	r := NewReaper(store, time.Second, 5*time.Minute, 0, 0, true, nil).
+		WithOrgRetention(resolver)
+	r.reapPerOrgRetention(context.Background())
+
+	if deleteRunsCalled.Load() || deleteWfRunsCalled.Load() {
+		t.Fatal("retention deletes must be skipped when plan retention cannot be resolved")
+	}
+}
+
 func TestReaper_OrgRetention_NilResolver_SkipsOrgRetention(t *testing.T) {
 	t.Parallel()
 
@@ -503,7 +533,7 @@ func TestUsageFlusher_ListOrgsError_Ext(t *testing.T) {
 		listAllSubscribedOrgIDsFn: func(context.Context) ([]string, error) {
 			return nil, errors.New("db error")
 		},
-		upsertUsageRecordFn: func(_ context.Context, _ *billing.UsageRecord) error {
+		replaceUsageRecordFn: func(_ context.Context, _ *billing.UsageRecord) error {
 			upsertCalled.Store(true)
 			return nil
 		},
@@ -536,7 +566,7 @@ func TestUsageFlusher_UpsertError_ContinuesOtherRecords_Ext(t *testing.T) {
 				{OrgID: "org-1", ProjectID: "proj-ok", PeriodDate: today, RunsCount: 2},
 			}, nil
 		},
-		upsertUsageRecordFn: func(_ context.Context, rec *billing.UsageRecord) error {
+		replaceUsageRecordFn: func(_ context.Context, rec *billing.UsageRecord) error {
 			mu.Lock()
 			upsertCalls++
 			mu.Unlock()
@@ -552,8 +582,9 @@ func TestUsageFlusher_UpsertError_ContinuesOtherRecords_Ext(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if upsertCalls != 2 {
-		t.Fatalf("expected 2 upsert calls (one fails, one succeeds), got %d", upsertCalls)
+	wantCalls := usageFlusherReconcileLookbackDays * 2
+	if upsertCalls != wantCalls {
+		t.Fatalf("expected %d upsert calls across lookback (one fails, one succeeds per day), got %d", wantCalls, upsertCalls)
 	}
 }
 
@@ -652,6 +683,7 @@ func TestUsageReportEmailer_SameDayDedup(t *testing.T) {
 type mockOrgRetentionResolver struct {
 	orgIDs        []string
 	retentionDays map[string]int
+	retentionErrs map[string]error
 	listErr       error
 }
 
@@ -663,6 +695,9 @@ func (m *mockOrgRetentionResolver) ListAllSubscribedOrgIDs(_ context.Context) ([
 }
 
 func (m *mockOrgRetentionResolver) GetOrgRetentionDays(_ context.Context, orgID string) (int, error) {
+	if err, ok := m.retentionErrs[orgID]; ok {
+		return 0, err
+	}
 	if days, ok := m.retentionDays[orgID]; ok {
 		return days, nil
 	}

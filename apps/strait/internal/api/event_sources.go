@@ -73,7 +73,10 @@ func (s *Server) handleCreateEventSource(ctx context.Context, input *CreateEvent
 		Schema: req.Schema, Enabled: enabled,
 		SignatureHeader: req.SignatureHeader, SignatureAlgorithm: req.SignatureAlgorithm,
 	}
-	if req.SignatureSecret != "" && s.encryptor != nil {
+	if req.SignatureSecret != "" {
+		if s.encryptor == nil {
+			return nil, huma.Error500InternalServerError("signature secret encryption is not configured")
+		}
 		enc, encErr := s.encryptor.Encrypt([]byte(req.SignatureSecret))
 		if encErr != nil {
 			return nil, huma.Error500InternalServerError("failed to encrypt signature secret")
@@ -160,7 +163,10 @@ func (s *Server) handleUpdateEventSource(ctx context.Context, input *UpdateEvent
 	if req.SignatureAlgorithm != nil {
 		patch["signature_algorithm"] = *req.SignatureAlgorithm
 	}
-	if req.SignatureSecret != nil && s.encryptor != nil {
+	if req.SignatureSecret != nil {
+		if s.encryptor == nil {
+			return nil, huma.Error500InternalServerError("signature secret encryption is not configured")
+		}
 		if *req.SignatureSecret == "" {
 			patch["signature_secret_enc"] = nil
 		} else {
@@ -362,7 +368,7 @@ type DispatchEventOutput struct {
 	Body map[string]any
 }
 
-func (s *Server) handleDispatchEvent(ctx context.Context, input *DispatchEventInput) (*DispatchEventOutput, error) {
+func (s *Server) handleDispatchEvent(ctx context.Context, input *DispatchEventInput) (*DispatchEventOutput, error) { //nolint:gocognit,gocyclo,cyclop,funlen
 	req := input.Body
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
@@ -377,7 +383,11 @@ func (s *Server) handleDispatchEvent(ctx context.Context, input *DispatchEventIn
 	if !source.Enabled {
 		return nil, huma.Error400BadRequest("event source is disabled")
 	}
-	if source.SignatureAlgorithm != "" && len(source.SignatureSecretEnc) > 0 && s.encryptor != nil {
+	if source.SignatureAlgorithm != "" {
+		if source.SignatureHeader == "" || len(source.SignatureSecretEnc) == 0 || s.encryptor == nil {
+			slog.Error("event source signature verification is misconfigured", "source_id", source.ID, "has_header", source.SignatureHeader != "", "has_secret", len(source.SignatureSecretEnc) > 0, "has_encryptor", s.encryptor != nil)
+			return nil, huma.Error500InternalServerError("signature verification is not configured")
+		}
 		// Retrieve raw request from context for signature header access.
 		r := requestFromContext(ctx)
 		if r == nil {
@@ -416,6 +426,10 @@ func (s *Server) handleDispatchEvent(ctx context.Context, input *DispatchEventIn
 		}
 		switch sub.TargetType {
 		case "job":
+			if !s.hasProjectPermission(ctx, domain.ScopeJobsTrigger) {
+				slog.Warn("event dispatch: caller lacks job trigger permission", "subscription_id", sub.ID, "project_id", source.ProjectID)
+				continue
+			}
 			job, jobErr := s.store.GetJob(ctx, sub.TargetID)
 			if jobErr != nil || job == nil || !job.Enabled {
 				slog.Error("event dispatch: target job not found or disabled", "target_id", sub.TargetID, "subscription_id", sub.ID, "project_id", source.ProjectID)
@@ -429,17 +443,36 @@ func (s *Server) handleDispatchEvent(ctx context.Context, input *DispatchEventIn
 				slog.Info("event dispatch: target job is paused, skipping", "target_id", sub.TargetID, "subscription_id", sub.ID, "project_id", source.ProjectID)
 				continue
 			}
+			projectQuota, quotaErr := s.quotaCache.Get(ctx, job.ProjectID)
+			if quotaErr != nil {
+				slog.Error("event dispatch: quota load failed", "target_id", sub.TargetID, "subscription_id", sub.ID, "project_id", source.ProjectID, "error", quotaErr)
+				continue
+			}
+			if err := s.checkTriggerDispatchPriority(ctx, job.ProjectID, 0); err != nil {
+				slog.Warn("event dispatch: dispatch priority blocked", "target_id", sub.TargetID, "subscription_id", sub.ID, "project_id", source.ProjectID, "error", err)
+				continue
+			}
+			if err := s.checkTriggerDailyCostBudget(ctx, job.ProjectID, projectQuota); err != nil {
+				slog.Warn("event dispatch: daily cost budget blocked", "target_id", sub.TargetID, "subscription_id", sub.ID, "project_id", source.ProjectID, "error", err)
+				continue
+			}
 			run := &domain.JobRun{
 				JobID: sub.TargetID, ProjectID: source.ProjectID, Attempt: 1,
 				Payload: req.Payload, TriggeredBy: "event",
 				JobVersion: job.Version, JobVersionID: job.VersionID,
 			}
-			if enqErr := s.queue.Enqueue(ctx, run); enqErr != nil {
+			if enqErr := s.withTriggerLimitGuard(ctx, job, projectQuota, func(guardCtx context.Context, tx store.DBTX) error {
+				return s.enqueueTriggerRun(guardCtx, tx, run)
+			}); enqErr != nil {
 				slog.Error("event dispatch: enqueue failed", "target_id", sub.TargetID, "subscription_id", sub.ID, "project_id", source.ProjectID, "error", enqErr)
 				continue
 			}
 			dispatched++
 		case "workflow":
+			if !s.hasProjectPermission(ctx, domain.ScopeWorkflowsTrigger) {
+				slog.Warn("event dispatch: caller lacks workflow trigger permission", "subscription_id", sub.ID, "project_id", source.ProjectID)
+				continue
+			}
 			wf, wfErr := s.store.GetWorkflow(ctx, sub.TargetID)
 			if wfErr != nil {
 				slog.Error("event dispatch: target workflow not found", "target_id", sub.TargetID, "subscription_id", sub.ID, "project_id", source.ProjectID, "error", wfErr)

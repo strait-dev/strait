@@ -99,6 +99,14 @@ type DeleteWorkerOutput struct {
 
 var workerDisconnectAckTimeout = 5 * time.Second
 
+func workerDisconnectChannel(projectID, workerID string) string {
+	return fmt.Sprintf("worker:disconnect:%s:%s", projectID, workerID)
+}
+
+func workerDisconnectAckChannel(projectID, workerID string) string {
+	return fmt.Sprintf("worker:disconnect_ack:%s:%s", projectID, workerID)
+}
+
 func (s *Server) workerDisconnectAckTimeout() time.Duration {
 	if s != nil && s.config != nil && s.config.WorkerDisconnectAckTimeout > 0 {
 		return s.config.WorkerDisconnectAckTimeout
@@ -135,7 +143,7 @@ func (s *Server) handleDeleteWorker(ctx context.Context, input *DeleteWorkerInpu
 		)
 		return nil, huma.Error503ServiceUnavailable("worker force-disconnect unavailable: pubsub not configured")
 	}
-	ackChannel := fmt.Sprintf("worker:disconnect_ack:%s", input.WorkerID)
+	ackChannel := workerDisconnectAckChannel(projectID, input.WorkerID)
 	ackSub, subErr := s.pubsub.Subscribe(ctx, ackChannel)
 	if subErr != nil || ackSub == nil {
 		slog.Error("worker force-disconnect: ack subscription failed",
@@ -146,7 +154,7 @@ func (s *Server) handleDeleteWorker(ctx context.Context, input *DeleteWorkerInpu
 	}
 	defer ackSub.Close()
 
-	channel := fmt.Sprintf("worker:disconnect:%s", input.WorkerID)
+	channel := workerDisconnectChannel(projectID, input.WorkerID)
 	if pubErr := s.pubsub.Publish(ctx, channel, []byte(input.WorkerID)); pubErr != nil {
 		slog.Error("worker force-disconnect: publish failed",
 			"worker_id", input.WorkerID,

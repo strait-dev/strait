@@ -66,13 +66,13 @@ func (i *StripeSLAIssuer) IssueCredit(ctx context.Context, orgID string, creditM
 	}
 	idemKey := fmt.Sprintf("sla-credit-%s-%s", orgID, periodEnd.UTC().Format("2006-01"))
 
-	if inv, ok := i.findInvoiceForPeriod(ctx, customerID); ok {
+	if inv, ok := i.findInvoiceForPeriod(ctx, customerID, periodEnd); ok && inv.AmountRemaining >= amountCents {
 		amount := amountCents
 		params := &stripe.CreditNoteParams{
 			Invoice: stripe.String(inv.ID),
 			Amount:  &amount,
 			Reason:  stripe.String(string(stripe.CreditNoteReasonOrderChange)),
-			Memo:    stripe.String(fmt.Sprintf("SLA credit for %s", periodEnd.UTC().Format("January 2006"))),
+			Memo:    stripe.String(fmt.Sprintf("SLA credit for %s", slaCreditPeriodLabel(periodEnd))),
 		}
 		params.Context = ctx
 		params.SetIdempotencyKey(idemKey)
@@ -95,7 +95,7 @@ func (i *StripeSLAIssuer) IssueCredit(ctx context.Context, orgID string, creditM
 		Customer:    stripe.String(customerID),
 		Amount:      &negAmount,
 		Currency:    stripe.String("usd"),
-		Description: stripe.String(fmt.Sprintf("SLA credit for %s", periodEnd.UTC().Format("January 2006"))),
+		Description: stripe.String(fmt.Sprintf("SLA credit for %s", slaCreditPeriodLabel(periodEnd))),
 	}
 	cbtParams.Context = ctx
 	cbtParams.SetIdempotencyKey(idemKey)
@@ -112,6 +112,14 @@ func (i *StripeSLAIssuer) IssueCredit(ctx context.Context, orgID string, creditM
 	return cbt.ID, nil
 }
 
+func slaCreditPeriodLabel(periodEnd time.Time) string {
+	end := periodEnd.UTC()
+	if end.IsZero() {
+		return end.Format("January 2006")
+	}
+	return end.Add(-time.Nanosecond).Format("January 2006")
+}
+
 // findInvoiceForPeriod returns the most relevant invoice for the SLA
 // period: an open invoice with a non-zero remaining balance. Stripe
 // rejects credit notes against fully-paid invoices ("amount must be
@@ -119,17 +127,28 @@ func (i *StripeSLAIssuer) IssueCredit(ctx context.Context, orgID string, creditM
 // candidates and the caller falls back to a customer-balance
 // transaction — which ends up in the same place for the customer
 // (negative balance applied to the next invoice).
-func (i *StripeSLAIssuer) findInvoiceForPeriod(ctx context.Context, customerID string) (*stripe.Invoice, bool) {
-	if inv, ok := i.lookupInvoice(ctx, customerID, "open"); ok && inv.AmountRemaining > 0 {
+func (i *StripeSLAIssuer) findInvoiceForPeriod(ctx context.Context, customerID string, periodEnd time.Time) (*stripe.Invoice, bool) {
+	periodStart, periodEnd := slaCreditInvoiceWindow(periodEnd)
+	if inv, ok := i.lookupInvoice(ctx, customerID, "open", periodStart, periodEnd); ok && inv.AmountRemaining > 0 {
 		return inv, true
 	}
 	return nil, false
 }
 
-func (i *StripeSLAIssuer) lookupInvoice(ctx context.Context, customerID, status string) (*stripe.Invoice, bool) {
+func slaCreditInvoiceWindow(periodEnd time.Time) (time.Time, time.Time) {
+	labelInstant := periodEnd.UTC().Add(-time.Nanosecond)
+	start := time.Date(labelInstant.Year(), labelInstant.Month(), 1, 0, 0, 0, 0, time.UTC)
+	return start, start.AddDate(0, 1, 0)
+}
+
+func (i *StripeSLAIssuer) lookupInvoice(ctx context.Context, customerID, status string, periodStart, periodEnd time.Time) (*stripe.Invoice, bool) {
 	params := &stripe.InvoiceListParams{
 		Customer: stripe.String(customerID),
 		Status:   stripe.String(status),
+		CreatedRange: &stripe.RangeQueryParams{
+			GreaterThanOrEqual: periodStart.Unix(),
+			LesserThan:         periodEnd.Unix(),
+		},
 	}
 	params.Filters.AddFilter("limit", "", "1")
 	params.Context = ctx

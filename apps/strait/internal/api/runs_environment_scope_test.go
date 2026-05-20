@@ -13,7 +13,9 @@ import (
 
 func envScopedRunCtx() context.Context {
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
-	return context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
+	return context.WithValue(ctx, ctxActorIDKey, "apikey:test")
 }
 
 func newEnvScopedRunServer(t *testing.T) *Server {
@@ -210,5 +212,42 @@ func TestHandleBulkReplayDeadLetterRuns_ProjectModeFiltersEnvironment(t *testing
 	}
 	if len(replayedRunIDs) != 1 || replayedRunIDs[0] != "run-prod" {
 		t.Fatalf("replayed run IDs = %v, want only env-prod dead-letter run", replayedRunIDs)
+	}
+}
+
+func TestHandleListDeadLetterRuns_EnvironmentScopeFiltersForeignRuns(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		ListDeadLetterRunsFunc: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
+			return []domain.JobRun{
+				{ID: "run-prod", JobID: "job-prod", ProjectID: "proj-1", CreatedAt: time.Now().Add(-time.Minute)},
+				{ID: "run-staging", JobID: "job-staging", ProjectID: "proj-1", CreatedAt: time.Now().Add(-2 * time.Minute)},
+			}, nil
+		},
+		GetJobFunc: func(_ context.Context, jobID string) (*domain.Job, error) {
+			switch jobID {
+			case "job-prod":
+				return &domain.Job{ID: jobID, ProjectID: "proj-1", EnvironmentID: "env-prod"}, nil
+			case "job-staging":
+				return &domain.Job{ID: jobID, ProjectID: "proj-1", EnvironmentID: "env-staging"}, nil
+			default:
+				return nil, nil
+			}
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	out, err := srv.handleListDeadLetterRuns(envScopedRunCtx(), &ListDeadLetterRunsInput{Limit: "10"})
+	if err != nil {
+		t.Fatalf("handleListDeadLetterRuns: %v", err)
+	}
+
+	runs, ok := out.Body.Data.([]domain.JobRun)
+	if !ok {
+		t.Fatalf("unexpected runs payload type: %T", out.Body.Data)
+	}
+	if len(runs) != 1 || runs[0].ID != "run-prod" {
+		t.Fatalf("filtered DLQ runs = %+v, want only env-prod run", runs)
 	}
 }

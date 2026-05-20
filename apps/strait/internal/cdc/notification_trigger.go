@@ -3,6 +3,7 @@ package cdc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -71,7 +72,7 @@ func (h *NotificationTriggerHandler) Handle(ctx context.Context, msg Message) er
 	if err != nil {
 		h.logger.Warn("cdc notification trigger: failed to list channels",
 			"project_id", record.ProjectID, "error", err)
-		return nil
+		return fmt.Errorf("notification trigger: list channels: %w", err)
 	}
 
 	payload, _ := json.Marshal(map[string]any{
@@ -86,6 +87,7 @@ func (h *NotificationTriggerHandler) Handle(ctx context.Context, msg Message) er
 	})
 
 	now := time.Now()
+	var createErrs []error
 	for _, ch := range channels {
 		if !ch.Enabled {
 			continue
@@ -99,11 +101,20 @@ func (h *NotificationTriggerHandler) Handle(ctx context.Context, msg Message) er
 			Status:      "pending",
 			MaxAttempts: 5,
 			NextRetryAt: &now,
+			DedupeKey:   notificationTriggerDedupeKey(record.ID, eventType, ch.ID),
 		}); createErr != nil {
 			h.logger.Warn("cdc notification trigger: failed to create delivery",
 				"run_id", record.ID, "channel_id", ch.ID, "error", createErr)
+			createErrs = append(createErrs, createErr)
 		}
 	}
 
+	if err := errors.Join(createErrs...); err != nil {
+		return fmt.Errorf("notification trigger: create delivery: %w", err)
+	}
 	return nil
+}
+
+func notificationTriggerDedupeKey(runID, eventType, channelID string) string {
+	return fmt.Sprintf("cdc:job_runs:%s:%s:%s", runID, eventType, channelID)
 }

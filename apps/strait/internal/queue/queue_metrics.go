@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sync"
 
 	"go.opentelemetry.io/otel"
@@ -401,13 +402,31 @@ func initArchiveMetrics(meter metric.Meter, m *QueueMetrics) error {
 	return nil
 }
 
+var jobRunsPartitionMetricRE = regexp.MustCompile(`^job_runs_p\d{4}_(0[1-9]|1[0-2])$`)
+
+func partitionMetricLabel(partition string) string {
+	switch {
+	case partition == "job_runs":
+		return "job_runs"
+	case partition == "job_run_queue":
+		return "job_run_queue"
+	case jobRunsPartitionMetricRE.MatchString(partition):
+		return "job_runs_partition"
+	case partition == "":
+		return "unknown"
+	default:
+		return "other"
+	}
+}
+
 // RecordPartitionStats records gauge values for a single partition. The
-// partition label is passed through as a dimension on every emitted point.
+// partition dimension is collapsed to a bounded label set before recording so
+// tenant-controlled or date-derived relnames cannot create unbounded series.
 func (m *QueueMetrics) RecordPartitionStats(ctx context.Context, partition string, stats PartitionStats) {
 	if m == nil {
 		return
 	}
-	attrs := metric.WithAttributes(attribute.String("partition", partition))
+	attrs := metric.WithAttributes(attribute.String("partition", partitionMetricLabel(partition)))
 	m.DeadTupleRatio.Record(ctx, stats.DeadTupleRatio, attrs)
 	m.LiveTuples.Record(ctx, stats.LiveTuples, attrs)
 	if stats.TotalUpdates > 0 {

@@ -32,6 +32,7 @@ type AuditStore interface {
 type AuditHandler struct {
 	store  AuditStore
 	logger *slog.Logger
+	dedupe *recentDedupe
 }
 
 // NewAuditHandler creates a CDC handler that creates audit events for run changes.
@@ -39,7 +40,7 @@ func NewAuditHandler(store AuditStore, logger *slog.Logger) *AuditHandler {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &AuditHandler{store: store, logger: logger}
+	return &AuditHandler{store: store, logger: logger, dedupe: newRecentDedupe(16_384)}
 }
 
 // Table returns the table this handler watches.
@@ -47,10 +48,16 @@ func (h *AuditHandler) Table() string { return "job_runs" }
 
 // Handle processes a CDC event for a job run change.
 func (h *AuditHandler) Handle(ctx context.Context, msg Message) error {
+	if !isAuditCDCAction(msg.Action) {
+		return nil
+	}
+
 	var record struct {
 		ID        string `json:"id"`
+		JobID     string `json:"job_id"`
 		ProjectID string `json:"project_id"`
 		Status    string `json:"status"`
+		Attempt   int    `json:"attempt"`
 	}
 	if err := json.Unmarshal(msg.Record, &record); err != nil {
 		return fmt.Errorf("audit handler: unmarshal record: %w", err)
@@ -60,15 +67,14 @@ func (h *AuditHandler) Handle(ctx context.Context, msg Message) error {
 		return nil
 	}
 
-	// Suppress UPDATE-driven audit rows for non-terminal status transitions
-	// (heartbeats, queued→dequeued→executing→waiting flips). Terminal
-	// states still emit because they are the lifecycle event downstream
-	// consumers care about. INSERT/DELETE are unaffected and fall through.
-	if msg.Action == ActionUpdate && !domain.RunStatus(record.Status).IsTerminal() {
+	action, emit := auditAction(msg.Action, record.Status)
+	if !emit {
 		return nil
 	}
-
-	action := auditAction(msg.Action, record.Status)
+	dedupeKey := auditDedupeKey(msg, action, record.ID, record.Status)
+	if !h.dedupe.Remember(dedupeKey) {
+		return nil
+	}
 
 	ev := &domain.AuditEvent{
 		ProjectID:    record.ProjectID,
@@ -77,25 +83,69 @@ func (h *AuditHandler) Handle(ctx context.Context, msg Message) error {
 		Action:       action,
 		ResourceType: "run",
 		ResourceID:   record.ID,
-		Details:      msg.Record,
+		Details:      auditDetails(msg, record.ID, record.JobID, record.ProjectID, record.Status, record.Attempt),
 	}
 
 	if err := h.store.CreateAuditEvent(ctx, ev); err != nil {
+		h.dedupe.Forget(dedupeKey)
 		h.logger.Warn("cdc audit handler: failed to create audit event",
 			"run_id", record.ID, "action", action, "error", err)
-		return nil
+		return fmt.Errorf("audit handler: create audit event: %w", err)
 	}
 
 	return nil
 }
 
-func auditAction(action Action, status string) string {
+func isAuditCDCAction(action Action) bool {
+	switch action {
+	case ActionInsert, ActionUpdate, ActionDelete:
+		return true
+	default:
+		return false
+	}
+}
+
+func auditDedupeKey(msg Message, action, runID, status string) string {
+	if msg.Metadata.IdempotencyKey != "" {
+		return "audit:cdc:" + msg.Metadata.IdempotencyKey
+	}
+	return "audit:run:" + action + ":" + runID + ":" + status
+}
+
+func auditDetails(msg Message, runID, jobID, projectID, status string, attempt int) json.RawMessage {
+	details := map[string]any{
+		"schema_version": "cdc.run.audit.v1",
+		"run_id":         runID,
+		"job_id":         jobID,
+		"project_id":     projectID,
+		"status":         status,
+		"cdc_action":     msg.Action,
+	}
+	if attempt > 0 {
+		details["attempt"] = attempt
+	}
+	if msg.Metadata.CommitTimestamp != "" {
+		details["commit_timestamp"] = msg.Metadata.CommitTimestamp
+	}
+	data, err := json.Marshal(details)
+	if err != nil {
+		return json.RawMessage(`{"schema_version":"cdc.run.audit.v1"}`)
+	}
+	return data
+}
+
+func auditAction(action Action, status string) (string, bool) {
 	switch action {
 	case ActionInsert:
-		return "run.created"
+		return "run.created", true
 	case ActionDelete:
-		return "run.deleted"
+		return "run.deleted", true
+	case ActionUpdate:
+		if !domain.RunStatus(status).IsTerminal() {
+			return "", false
+		}
+		return "run." + status, true
 	default:
-		return "run." + status
+		return "", false
 	}
 }

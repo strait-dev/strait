@@ -148,9 +148,42 @@ func TestRecordPartitionStats_MaxValues(t *testing.T) {
 	})
 }
 
+func TestPartitionMetricLabel_BoundsCardinality(t *testing.T) {
+	tests := map[string]string{
+		"job_runs":              "job_runs",
+		"job_run_queue":         "job_run_queue",
+		"job_runs_p2026_04":     "job_runs_partition",
+		"job_runs_p9999_12":     "job_runs_partition",
+		"":                      "unknown",
+		"customer_123_job_runs": "other",
+		"job_runs_p2026_13":     "other",
+		"job_runs_p2026_04_x":   "other",
+	}
+	for partition, want := range tests {
+		if got := partitionMetricLabel(partition); got != want {
+			t.Errorf("partitionMetricLabel(%q) = %q, want %q", partition, got, want)
+		}
+	}
+}
+
+func TestPartitionMetricLabel_FuzzSeedsCollapseUnboundedNames(t *testing.T) {
+	for _, partition := range []string{
+		"job_runs_p2026_04",
+		"job_runs_p2027_05",
+		"job_runs_p2028_06",
+		"tenant_a_jobs",
+		"tenant_b_jobs",
+		"tenant_c_jobs",
+	} {
+		got := partitionMetricLabel(partition)
+		if got != "job_runs_partition" && got != "other" {
+			t.Errorf("partitionMetricLabel(%q) = %q, want bounded label", partition, got)
+		}
+	}
+}
+
 // FuzzPartitionLabelCardinality ensures arbitrary partition label values
-// never cause the recorder to panic. Cardinality is bounded by the caller
-// (who passes the Postgres relname) so we only assert safety here.
+// never cause the recorder to panic and always collapses to the bounded label set.
 func FuzzPartitionLabelCardinality(f *testing.F) {
 	f.Add("job_runs")
 	f.Add("job_runs_p2026_04")
@@ -159,6 +192,17 @@ func FuzzPartitionLabelCardinality(f *testing.F) {
 	f.Fuzz(func(t *testing.T, label string) {
 		if len(label) > 256 {
 			return
+		}
+		got := partitionMetricLabel(label)
+		allowed := map[string]bool{
+			"job_runs":           true,
+			"job_run_queue":      true,
+			"job_runs_partition": true,
+			"unknown":            true,
+			"other":              true,
+		}
+		if !allowed[got] {
+			t.Fatalf("partitionMetricLabel(%q) = %q, want bounded label", label, got)
 		}
 		m, err := Metrics()
 		if err != nil {

@@ -12,6 +12,7 @@ import (
 	"strait/internal/domain"
 	"strait/internal/store"
 
+	concpool "github.com/sourcegraph/conc/pool"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
@@ -26,7 +27,11 @@ type Worker struct {
 	deliveriesCounter metric.Int64Counter
 }
 
-const deliveryLeaseDuration = 2 * time.Minute
+const (
+	deliveryLeaseDuration        = 2 * time.Minute
+	notificationClaimBatchSize   = 16
+	notificationWorkerConcurrent = 8
+)
 
 // NewWorker creates a notification delivery worker.
 func NewWorker(ns store.NotificationStore, client *http.Client, webhookOptions ...WebhookSenderOption) *Worker {
@@ -41,9 +46,31 @@ func NewWorker(ns store.NotificationStore, client *http.Client, webhookOptions .
 	}
 }
 
+// NewWorkerWithEmail creates a notification worker and registers the email
+// sender when Resend credentials are configured.
+func NewWorkerWithEmail(ns store.NotificationStore, client *http.Client, resendAPIKey, resendFromEmail string, webhookOptions ...WebhookSenderOption) *Worker {
+	w := NewWorker(ns, client, webhookOptions...)
+	if resendAPIKey == "" {
+		return w
+	}
+	emailSender, err := NewEmailSender(resendAPIKey, resendFromEmail)
+	if err != nil {
+		slog.Warn("failed to initialize email notification sender", "error", err)
+		return w
+	}
+	w.RegisterSender(domain.ChannelTypeEmail, emailSender)
+	return w
+}
+
 // RegisterSender adds or replaces a channel sender for the given channel type.
 func (w *Worker) RegisterSender(channelType string, sender ChannelSender) {
 	w.senders[channelType] = sender
+}
+
+// HasSender reports whether a sender is registered for a channel type.
+func (w *Worker) HasSender(channelType string) bool {
+	_, ok := w.senders[channelType]
+	return ok
 }
 
 // WithDeliveriesCounter attaches an OTel counter for tracking delivery outcomes.
@@ -91,11 +118,7 @@ func (w *Worker) run(ctx context.Context) {
 
 func (w *Worker) process(ctx context.Context) {
 	for {
-		// Claim and dispatch one delivery at a time so each send gets the full
-		// lease window. The lease duration must comfortably exceed a single
-		// delivery attempt, and batch claiming is intentionally avoided here to
-		// prevent later items in a slow batch from expiring before dispatch.
-		deliveries, err := w.store.ClaimPendingNotificationDeliveries(ctx, 1, deliveryLeaseDuration)
+		deliveries, err := w.store.ClaimPendingNotificationDeliveries(ctx, notificationClaimBatchSize, deliveryLeaseDuration)
 		if err != nil {
 			slog.Error("failed to claim pending notification deliveries", "error", err)
 			return
@@ -104,11 +127,22 @@ func (w *Worker) process(ctx context.Context) {
 			return
 		}
 
-		d := &deliveries[0]
-		if err := w.dispatch(ctx, d); err != nil {
-			slog.Warn("notification delivery failed", "delivery_id", d.ID, "channel_id", d.ChannelID, "error", err)
-		}
+		w.dispatchBatch(ctx, deliveries)
 	}
+}
+
+func (w *Worker) dispatchBatch(ctx context.Context, deliveries []domain.NotificationDelivery) {
+	p := concpool.New().WithContext(ctx).WithMaxGoroutines(notificationWorkerConcurrent)
+	for i := range deliveries {
+		d := deliveries[i]
+		p.Go(func(ctx context.Context) error {
+			if err := w.dispatch(ctx, &d); err != nil {
+				slog.Warn("notification delivery failed", "delivery_id", d.ID, "channel_id", d.ChannelID, "error", err)
+			}
+			return nil
+		})
+	}
+	_ = p.Wait()
 }
 
 func (w *Worker) dispatch(ctx context.Context, d *domain.NotificationDelivery) error {
@@ -118,6 +152,15 @@ func (w *Worker) dispatch(ctx context.Context, d *domain.NotificationDelivery) e
 		d.LastError = fmt.Sprintf("failed to get channel: %v", err)
 		d.Status = "failed"
 		d.NextRetryAt = nil
+		return w.finishClaim(ctx, d)
+	}
+	if !ch.Enabled {
+		d.LastError = "notification channel disabled"
+		d.Status = "failed"
+		d.NextRetryAt = nil
+		if w.deliveriesCounter != nil {
+			w.deliveriesCounter.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "disabled")))
+		}
 		return w.finishClaim(ctx, d)
 	}
 
@@ -134,7 +177,7 @@ func (w *Worker) dispatch(ctx context.Context, d *domain.NotificationDelivery) e
 	d.Attempts++
 
 	if sendErr != nil {
-		d.LastError = sendErr.Error()
+		d.LastError = sanitizeDeliveryError(sendErr)
 		if d.Attempts >= d.MaxAttempts {
 			d.Status = "failed"
 			d.NextRetryAt = nil

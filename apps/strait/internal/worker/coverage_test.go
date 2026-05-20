@@ -714,6 +714,30 @@ func TestDispatchToEndpoint_Success(t *testing.T) {
 	}
 }
 
+func TestDispatchToEndpoint_SuccessWithTextBodyReturnsJSONString(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "ok")
+	}))
+	defer srv.Close()
+
+	e := &Executor{httpClient: srv.Client(), logger: noopLogger()}
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 1}
+
+	result, err := e.dispatchToEndpoint(context.Background(), srv.URL, run, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !json.Valid(result) {
+		t.Fatalf("result should be valid JSON, got %s", result)
+	}
+	if string(result) != `"ok"` {
+		t.Fatalf("result = %s, want JSON string %q", result, `"ok"`)
+	}
+}
+
 func TestDispatchToEndpoint_WithExtraHeaders(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

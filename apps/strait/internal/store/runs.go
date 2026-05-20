@@ -1514,12 +1514,12 @@ func (q *Queries) SnoozeRunWithLock(ctx context.Context, id string, from, to dom
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.SnoozeRunWithLock")
 	defer span.End()
 
-	beginner, ok := q.db.(TxBeginner)
+	_, ok := q.db.(TxBeginner)
 	if !ok {
 		return fmt.Errorf("snooze run with lock: underlying db does not support transactions")
 	}
 
-	return WithTx(ctx, beginner, func(txQ *Queries) error {
+	return q.withTx(ctx, func(txQ *Queries) error {
 		var locked string
 		err := txQ.db.QueryRow(ctx, `
 			SELECT id FROM job_runs
@@ -2663,8 +2663,8 @@ func (q *Queries) BulkReplayDeadLetterRuns(ctx context.Context, runIDs []string,
 		return nil
 	}
 
-	if beginner, ok := q.db.(TxBeginner); ok {
-		if err := WithTx(ctx, beginner, replayRuns); err != nil {
+	if _, ok := q.db.(TxBeginner); ok {
+		if err := q.withTx(ctx, replayRuns); err != nil {
 			return nil, fmt.Errorf("bulk replay dead letter runs transaction: %w", err)
 		}
 	} else {
@@ -2818,12 +2818,12 @@ func (q *Queries) ResetRunIdempotencyKey(ctx context.Context, runID string) erro
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ResetRunIdempotencyKey")
 	defer span.End()
 
-	txb, ok := q.db.(TxBeginner)
+	_, ok := q.db.(TxBeginner)
 	if !ok {
 		return fmt.Errorf("reset idempotency key requires transaction support")
 	}
 
-	return WithTx(ctx, txb, func(txQ *Queries) error {
+	return q.withTx(ctx, func(txQ *Queries) error {
 		// Fetch run details needed for idempotency cleanup.
 		var idempotencyKey *string
 		var jobID string
@@ -3005,22 +3005,40 @@ func (q *Queries) CountActiveRunsForJob(ctx context.Context, jobID string) (int,
 
 // CanceledRun holds metadata about a run that was canceled.
 type CanceledRun struct {
-	ID            string
-	ExecutionMode domain.ExecutionMode
+	ID                string
+	JobID             string
+	ProjectID         string
+	WorkflowStepRunID string
+	ExecutionMode     domain.ExecutionMode
 }
 
 // CancelActiveRunsForJob cancels all non-terminal runs for a job and returns
 // details of each canceled run. Used by the cron overlap policy cancel_running.
 func (q *Queries) CancelActiveRunsForJob(ctx context.Context, jobID string, reason string) ([]CanceledRun, error) {
+	return q.cancelActiveRunsForJob(ctx, jobID, "", reason)
+}
+
+// CancelActiveRunsForJobExcept cancels all non-terminal runs for a job except
+// excludeRunID. Cron cancel_running uses this after inserting the replacement
+// run so the replacement cannot be canceled by the broad active-run update.
+func (q *Queries) CancelActiveRunsForJobExcept(ctx context.Context, jobID string, excludeRunID string, reason string) ([]CanceledRun, error) {
+	if excludeRunID == "" {
+		return q.CancelActiveRunsForJob(ctx, jobID, reason)
+	}
+	return q.cancelActiveRunsForJob(ctx, jobID, excludeRunID, reason)
+}
+
+func (q *Queries) cancelActiveRunsForJob(ctx context.Context, jobID string, excludeRunID string, reason string) ([]CanceledRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CancelActiveRunsForJob")
 	defer span.End()
 
 	query := `UPDATE job_runs
 		SET status = 'canceled', finished_at = NOW(), error = $2
 		WHERE job_id = $1
+		  AND ($3 = '' OR id <> $3)
 		  AND status IN ('queued', 'dequeued', 'executing', 'waiting', 'delayed')
-		RETURNING id, COALESCE(execution_mode, 'http')`
-	rows, err := q.db.Query(ctx, query, jobID, reason)
+		RETURNING id, job_id, project_id, COALESCE(workflow_step_run_id, ''), COALESCE(execution_mode, 'http')`
+	rows, err := q.db.Query(ctx, query, jobID, reason, excludeRunID)
 	if err != nil {
 		return nil, fmt.Errorf("cancel active runs for job: %w", err)
 	}
@@ -3030,7 +3048,7 @@ func (q *Queries) CancelActiveRunsForJob(ctx context.Context, jobID string, reas
 	for rows.Next() {
 		var cr CanceledRun
 		var execMode string
-		if err := rows.Scan(&cr.ID, &execMode); err != nil {
+		if err := rows.Scan(&cr.ID, &cr.JobID, &cr.ProjectID, &cr.WorkflowStepRunID, &execMode); err != nil {
 			return nil, fmt.Errorf("scan canceled run: %w", err)
 		}
 		cr.ExecutionMode = domain.ExecutionMode(execMode)

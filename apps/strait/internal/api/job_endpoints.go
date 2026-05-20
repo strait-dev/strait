@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"time"
 
+	straitcrypto "strait/internal/crypto"
 	"strait/internal/domain"
 	"strait/internal/httputil"
 	"strait/internal/store"
@@ -48,6 +49,27 @@ type SetJobEndpointResponse struct {
 // SetJobEndpointOutput is the typed output for the set-endpoint route.
 type SetJobEndpointOutput struct {
 	Body *SetJobEndpointResponse
+}
+
+func (s *Server) encryptEndpointSigningSecret(secret string) (string, error) {
+	if secret == "" {
+		return secret, nil
+	}
+	if s.encryptor == nil {
+		return "", fmt.Errorf("endpoint signing secret encryption is not configured")
+	}
+	return straitcrypto.EncryptField(s.encryptor, secret)
+}
+
+func (s *Server) preserveOrEncryptEndpointSigningSecret(secret string) (string, error) {
+	if secret == "" || straitcrypto.IsEncryptedField(secret) {
+		return secret, nil
+	}
+	return straitcrypto.PreserveOrEncryptField(s.encryptor, secret)
+}
+
+func (s *Server) decryptEndpointSigningSecret(secret string) (string, error) {
+	return straitcrypto.DecryptField(s.encryptor, secret)
 }
 
 // VerifyJobEndpointInput is the typed input for the verify-endpoint route.
@@ -109,6 +131,9 @@ func (s *Server) handleSetJobEndpoint(ctx context.Context, input *SetJobEndpoint
 	if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
 		return nil, huma.Error404NotFound("job not found")
 	}
+	if err := s.requireSecretsWriteForSecretBearingEndpointChange(ctx, job, input.Body.EndpointURL, input.Body.FallbackEndpointURL); err != nil {
+		return nil, err
+	}
 
 	// Default to preserving the existing signing secret. Only generate a fresh
 	// one when the caller explicitly opts in via rotate_signing_secret=true.
@@ -121,6 +146,10 @@ func (s *Server) handleSetJobEndpoint(ctx context.Context, input *SetJobEndpoint
 		}
 		signingSecret = "esec_" + hex.EncodeToString(secretBytes)
 		plaintextSecret = signingSecret
+	}
+	signingSecret, err = s.preserveOrEncryptEndpointSigningSecret(signingSecret)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to encrypt endpoint signing secret")
 	}
 
 	if err := s.store.UpdateJobEndpoint(ctx, input.JobID, input.Body.EndpointURL, input.Body.FallbackEndpointURL, signingSecret); err != nil {
@@ -154,6 +183,31 @@ func (s *Server) handleSetJobEndpoint(ctx context.Context, input *SetJobEndpoint
 	}}, nil
 }
 
+func (s *Server) requireSecretsWriteForSecretBearingEndpointChange(ctx context.Context, job *domain.Job, endpointURL, fallbackURL string) error {
+	if job == nil {
+		return nil
+	}
+	if job.EndpointURL == endpointURL && job.FallbackEndpointURL == fallbackURL {
+		return nil
+	}
+	if s.hasProjectPermission(ctx, domain.ScopeSecretsWrite) {
+		return nil
+	}
+	secrets, err := s.store.ListJobSecrets(ctx, job.ProjectID, job.ID, job.EnvironmentID, 1, nil)
+	if err != nil {
+		slog.Error("failed to check job secrets before endpoint change",
+			"job_id", job.ID,
+			"project_id", job.ProjectID,
+			"error", err,
+		)
+		return huma.Error500InternalServerError("failed to check job secrets")
+	}
+	if len(secrets) > 0 {
+		return huma.Error403Forbidden("changing endpoint for a job with attached secrets requires secrets:write")
+	}
+	return nil
+}
+
 // handleVerifyJobEndpoint sends a signed HMAC test ping to the job's stored
 // endpoint URL and returns the outcome. Mirrors handleTestWebhook.
 func (s *Server) handleVerifyJobEndpoint(ctx context.Context, input *VerifyJobEndpointInput) (*VerifyJobEndpointOutput, error) {
@@ -185,7 +239,11 @@ func (s *Server) handleVerifyJobEndpoint(ctx context.Context, input *VerifyJobEn
 	httpReq.Header.Set("User-Agent", "Strait-Endpoint-Verify/1.0")
 	httpReq.Header.Set("X-Strait-Timestamp", ts)
 	if job.EndpointSigningSecret != "" {
-		httpReq.Header.Set("X-Strait-Signature", worker.SignHTTPDispatch(job.EndpointSigningSecret, ts, testPayload))
+		signingSecret, err := s.decryptEndpointSigningSecret(job.EndpointSigningSecret)
+		if err != nil {
+			return nil, huma.Error500InternalServerError("failed to decrypt endpoint signing secret")
+		}
+		httpReq.Header.Set("X-Strait-Signature", worker.SignHTTPDispatch(signingSecret, ts, testPayload))
 	}
 
 	// Re-validate the URL on every hop. Without CheckRedirect, the bare client

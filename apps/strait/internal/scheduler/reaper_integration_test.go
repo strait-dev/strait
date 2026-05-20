@@ -113,6 +113,9 @@ func (baseReaperStore) IncrementAuditDeadletterAttempt(_ context.Context, _ stri
 func (baseReaperStore) MarkAuditDeadletterReclaimed(_ context.Context, _, _ string) error {
 	return nil
 }
+func (baseReaperStore) ReplayAuditEventDeadletter(_ context.Context, _, _, _ string) (*domain.AuditEvent, bool, error) {
+	return nil, false, nil
+}
 func (baseReaperStore) DeleteAuditDeadletterOlderThan(_ context.Context, _ time.Time) (map[string]int64, error) {
 	return nil, nil
 }

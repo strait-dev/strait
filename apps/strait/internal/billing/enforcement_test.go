@@ -146,6 +146,62 @@ func TestEnforcer_CheckConcurrentRunLimit(t *testing.T) {
 	}
 }
 
+func TestEnforcer_CheckConcurrentRunLimit_ActivePaymentGraceStillEnforcesPlanCap(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+	ctx := context.Background()
+	graceEnd := time.Now().Add(time.Hour)
+	store.subscriptions = map[string]*OrgSubscription{
+		"org_grace": {
+			OrgID:          "org_grace",
+			PlanTier:       string(domain.PlanFree),
+			Status:         "active",
+			PaymentStatus:  "grace",
+			GracePeriodEnd: &graceEnd,
+		},
+	}
+
+	for range ConcurrentFree {
+		if err := enforcer.CheckConcurrentRunLimit(ctx, "org_grace"); err != nil {
+			t.Fatalf("unexpected error before cap: %v", err)
+		}
+	}
+	err := enforcer.CheckConcurrentRunLimit(ctx, "org_grace")
+	if err == nil {
+		t.Fatal("expected active grace org to remain subject to concurrent run cap")
+	}
+	var le *LimitError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "org_concurrent_run_limit_exceeded" {
+		t.Fatalf("Code = %q, want org_concurrent_run_limit_exceeded", le.Code)
+	}
+}
+
+func TestEnforcer_CheckConcurrentRunLimit_PlanLimitLookupErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	enforcer := NewEnforcer(&mockBillingStore{
+		getOrgSubscriptionFn: func(context.Context, string) (*OrgSubscription, error) {
+			return nil, errors.New("subscription store unavailable")
+		},
+	}, rdb, slog.Default())
+
+	err := enforcer.CheckConcurrentRunLimit(context.Background(), "org-plan-error")
+	if err == nil {
+		t.Fatal("expected concurrent limit check to fail closed when plan limits cannot be loaded")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "billing_plan_unavailable" {
+		t.Fatalf("Code = %q, want billing_plan_unavailable", le.Code)
+	}
+}
+
 func TestEnforcer_CheckProjectLimit(t *testing.T) {
 	t.Parallel()
 	enforcer, store, _ := setupEnforcer(t)
@@ -165,6 +221,27 @@ func TestEnforcer_CheckProjectLimit(t *testing.T) {
 	store.projects["org_empty"] = []string{}
 	if err := enforcer.CheckProjectLimit(context.Background(), "org_empty"); err != nil {
 		t.Fatalf("should pass with 0 projects: %v", err)
+	}
+}
+
+func TestEnforcer_CheckProjectLimit_PlanLimitLookupErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	enforcer := NewEnforcer(&mockBillingStore{
+		getOrgSubscriptionFn: func(context.Context, string) (*OrgSubscription, error) {
+			return nil, errors.New("subscription store unavailable")
+		},
+	}, nil, slog.Default())
+
+	err := enforcer.CheckProjectLimit(context.Background(), "org-plan-error")
+	if err == nil {
+		t.Fatal("expected project limit check to fail closed when plan limits cannot be loaded")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "billing_plan_unavailable" {
+		t.Fatalf("Code = %q, want billing_plan_unavailable", le.Code)
 	}
 }
 
@@ -534,6 +611,46 @@ func TestReconcileAll_NilRedis(t *testing.T) {
 	}
 }
 
+func TestReserveWorkerConnection_EnforcesCapAcrossEnforcers(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdbA := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { rdbA.Close() })
+	rdbB := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { rdbB.Close() })
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org_workers": {OrgID: "org_workers", PlanTier: string(domain.PlanFree), Status: "active"},
+		},
+	}
+	enforcerA := NewEnforcer(store, rdbA, slog.Default())
+	enforcerB := NewEnforcer(store, rdbB, slog.Default())
+	ctx := context.Background()
+
+	release, err := enforcerA.ReserveWorkerConnection(ctx, "org_workers", "replica-a-worker", time.Minute)
+	if err != nil {
+		t.Fatalf("first reservation should pass: %v", err)
+	}
+	t.Cleanup(release)
+
+	_, err = enforcerB.ReserveWorkerConnection(ctx, "org_workers", "replica-b-worker", time.Minute)
+	if err == nil {
+		t.Fatal("expected second cross-replica worker reservation to hit free cap")
+	}
+	var le *LimitError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "worker_connections_reached" {
+		t.Fatalf("Code = %q, want worker_connections_reached", le.Code)
+	}
+
+	release()
+	if _, err := enforcerB.ReserveWorkerConnection(ctx, "org_workers", "replica-b-worker", time.Minute); err != nil {
+		t.Fatalf("reservation after release should pass: %v", err)
+	}
+}
+
 // Member limit tests.
 
 func TestCheckMemberLimit_FreeUnderLimit_Passes(t *testing.T) {
@@ -566,6 +683,27 @@ func TestCheckMemberLimit_FreeAtLimit_Blocked(t *testing.T) {
 	}
 	if le.Limit != int64(freeLimits.MaxMembersPerOrg) {
 		t.Errorf("limit = %d, want %d", le.Limit, freeLimits.MaxMembersPerOrg)
+	}
+}
+
+func TestCheckMemberLimit_PlanLimitLookupErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	enforcer := NewEnforcer(&mockBillingStore{
+		getOrgSubscriptionFn: func(context.Context, string) (*OrgSubscription, error) {
+			return nil, errors.New("subscription store unavailable")
+		},
+	}, nil, slog.Default())
+
+	err := enforcer.CheckMemberLimit(context.Background(), "org-plan-error")
+	if err == nil {
+		t.Fatal("expected member limit check to fail closed when plan limits cannot be loaded")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "billing_plan_unavailable" {
+		t.Fatalf("Code = %q, want billing_plan_unavailable", le.Code)
 	}
 }
 
@@ -822,6 +960,32 @@ func TestGracePeriod_PaymentRestricted_RejectedImmediately(t *testing.T) {
 	}
 	if le.Code != "payment_restricted" {
 		t.Errorf("code = %q, want payment_restricted", le.Code)
+	}
+}
+
+func TestDeepSecPaymentSuspendedRejectedImmediately(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+
+	store.subscriptions = map[string]*OrgSubscription{
+		"org_suspended": {
+			OrgID:         "org_suspended",
+			PlanTier:      "starter",
+			Status:        "active",
+			PaymentStatus: "suspended",
+		},
+	}
+
+	err := enforcer.CheckDailyRunLimit(context.Background(), "org_suspended")
+	if err == nil {
+		t.Fatal("expected rejection for suspended payment status")
+	}
+	var le *LimitError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected LimitError, got %T", err)
+	}
+	if le.Code != "payment_suspended" {
+		t.Errorf("code = %q, want payment_suspended", le.Code)
 	}
 }
 

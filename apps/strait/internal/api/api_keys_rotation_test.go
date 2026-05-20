@@ -16,9 +16,10 @@ import (
 func TestHandleRotateAPIKey(t *testing.T) {
 	t.Parallel()
 
+	expiresAt := time.Now().Add(24 * time.Hour)
 	ms := &APIStoreMock{}
 	ms.GetAPIKeyByIDFunc = func(_ context.Context, id string) (*domain.APIKey, error) {
-		return &domain.APIKey{ID: id, ProjectID: "proj-1", OrgID: "org-1", Name: "prod key", Scopes: []string{"jobs:read"}}, nil
+		return &domain.APIKey{ID: id, ProjectID: "proj-1", OrgID: "org-1", Name: "prod key", Scopes: []string{"jobs:read"}, ExpiresAt: &expiresAt}, nil
 	}
 	ms.CreateAPIKeyFunc = func(_ context.Context, key *domain.APIKey) error {
 		if key.ProjectID != "proj-1" {
@@ -50,13 +51,65 @@ func TestHandleRotateAPIKey(t *testing.T) {
 	}
 }
 
+func TestHandleRotateAPIKey_PublishesWorkerExpiryDeadline(t *testing.T) {
+	t.Parallel()
+
+	expiresAt := time.Now().Add(24 * time.Hour)
+	ms := &APIStoreMock{}
+	ms.GetAPIKeyByIDFunc = func(_ context.Context, id string) (*domain.APIKey, error) {
+		return &domain.APIKey{ID: id, ProjectID: "proj-1", OrgID: "org-1", Name: "worker key", Scopes: []string{domain.ScopeWorkersConnect}, ExpiresAt: &expiresAt}, nil
+	}
+	ms.CreateAPIKeyFunc = func(_ context.Context, key *domain.APIKey) error {
+		key.ID = "key-new"
+		return nil
+	}
+	ms.MarkAPIKeyRotatedFunc = func(_ context.Context, oldKeyID, newKeyID string, graceExpiresAt time.Time) error {
+		if oldKeyID != "key-old" || newKeyID != "key-new" {
+			t.Fatalf("unexpected rotate args: %s %s", oldKeyID, newKeyID)
+		}
+		if time.Until(graceExpiresAt) <= 0 {
+			t.Fatalf("grace deadline is not in the future: %s", graceExpiresAt)
+		}
+		return nil
+	}
+
+	var publishedChannel string
+	var publishedDeadline time.Time
+	pub := &mockPublisher{publishFn: func(_ context.Context, channel string, data []byte) error {
+		publishedChannel = channel
+		var err error
+		publishedDeadline, err = time.Parse(time.RFC3339Nano, string(data))
+		if err != nil {
+			t.Fatalf("expiry payload is not RFC3339Nano: %q", string(data))
+		}
+		return nil
+	}}
+	srv := newTestServer(t, ms, nil, pub)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+
+	_, err := srv.handleRotateAPIKey(ctx, &RotateAPIKeyInput{
+		KeyID: "key-old",
+		Body:  RotateAPIKeyRequest{GracePeriodMinutes: 30},
+	})
+	if err != nil {
+		t.Fatalf("handleRotateAPIKey: %v", err)
+	}
+	if publishedChannel != "apikey:expires:key-old" {
+		t.Fatalf("published channel = %q, want apikey:expires:key-old", publishedChannel)
+	}
+	if time.Until(publishedDeadline) <= 0 {
+		t.Fatalf("published deadline is not in the future: %s", publishedDeadline)
+	}
+}
+
 func TestHandleRotateAPIKey_RevokeReplacementWhenMarkFails(t *testing.T) {
 	t.Parallel()
 
+	expiresAt := time.Now().Add(24 * time.Hour)
 	var revokedReplacement atomic.Bool
 	ms := &APIStoreMock{}
 	ms.GetAPIKeyByIDFunc = func(_ context.Context, id string) (*domain.APIKey, error) {
-		return &domain.APIKey{ID: id, ProjectID: "proj-1", OrgID: "org-1", Name: "prod key", Scopes: []string{"jobs:read"}}, nil
+		return &domain.APIKey{ID: id, ProjectID: "proj-1", OrgID: "org-1", Name: "prod key", Scopes: []string{"jobs:read"}, ExpiresAt: &expiresAt}, nil
 	}
 	ms.CreateAPIKeyFunc = func(_ context.Context, key *domain.APIKey) error {
 		key.ID = "key-replacement"

@@ -19,6 +19,8 @@ type promAPI interface {
 	Query(ctx context.Context, query string, ts time.Time, opts ...promv1.Option) (model.Value, promv1.Warnings, error)
 }
 
+const defaultPrometheusUptimeQueryTimeout = 10 * time.Second
+
 // PrometheusUptimeSource resolves monthly platform uptime by running an
 // instant query against a Prometheus-compatible API at the end of the
 // billing period. The query is operator-configurable; the default is
@@ -26,9 +28,10 @@ type promAPI interface {
 // the same interface accepts any PromQL that returns a percentage in
 // [0, 100] for the period.
 type PrometheusUptimeSource struct {
-	api    promAPI
-	query  string
-	logger *slog.Logger
+	api          promAPI
+	query        string
+	queryTimeout time.Duration
+	logger       *slog.Logger
 }
 
 // NewPrometheusUptimeSource constructs the uptime source against the
@@ -50,9 +53,10 @@ func NewPrometheusUptimeSource(promURL, query string, logger *slog.Logger) (*Pro
 		return nil, fmt.Errorf("prometheus uptime source: new client: %w", err)
 	}
 	return &PrometheusUptimeSource{
-		api:    promv1.NewAPI(client),
-		query:  query,
-		logger: logger,
+		api:          promv1.NewAPI(client),
+		query:        query,
+		queryTimeout: defaultPrometheusUptimeQueryTimeout,
+		logger:       logger,
 	}, nil
 }
 
@@ -68,7 +72,14 @@ func NewPrometheusUptimeSource(promURL, query string, logger *slog.Logger) (*Pro
 // changing the calculator. TODO(per-tenant uptime): wire orgID into the
 // query when a real-customer ask lands.
 func (p *PrometheusUptimeSource) MonthlyUptimePct(ctx context.Context, _ string, _, periodEnd time.Time) (float64, error) {
-	val, warnings, err := p.api.Query(ctx, p.query, periodEnd)
+	timeout := p.queryTimeout
+	if timeout <= 0 {
+		timeout = defaultPrometheusUptimeQueryTimeout
+	}
+	queryCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	val, warnings, err := p.api.Query(queryCtx, p.query, periodEnd)
 	if err != nil {
 		return 0, fmt.Errorf("prometheus uptime query: %w", err)
 	}
@@ -92,8 +103,8 @@ func (p *PrometheusUptimeSource) MonthlyUptimePct(ctx context.Context, _ string,
 	return uptime, nil
 }
 
-// extractUptime unwraps the first numeric sample from a Prometheus
-// instant-query result. Scalar and Vector are both valid shapes for
+// extractUptime unwraps numeric samples from a Prometheus instant-query
+// result. Scalar and Vector are both valid shapes for
 // `avg_over_time(...) * 100`; Matrix / String are not.
 func extractUptime(v model.Value) (float64, bool) {
 	switch x := v.(type) {
@@ -103,7 +114,11 @@ func extractUptime(v model.Value) (float64, bool) {
 		if len(x) == 0 {
 			return 0, false
 		}
-		return float64(x[0].Value), true
+		var sum float64
+		for _, sample := range x {
+			sum += float64(sample.Value)
+		}
+		return sum / float64(len(x)), true
 	default:
 		return 0, false
 	}

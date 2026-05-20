@@ -53,6 +53,13 @@ func TestValidateRegistration(t *testing.T) {
 			wantCode:   codes.InvalidArgument,
 		},
 		{
+			name:       "blank worker_id",
+			mutate:     func(r *workerv1.WorkerRegistration) { r.WorkerId = " \t" },
+			wantErr:    true,
+			wantSubstr: "worker_id must be non-empty",
+			wantCode:   codes.InvalidArgument,
+		},
+		{
 			name:       "oversized worker_id",
 			mutate:     func(r *workerv1.WorkerRegistration) { r.WorkerId = strings.Repeat("x", maxWorkerIDLen+1) },
 			wantErr:    true,

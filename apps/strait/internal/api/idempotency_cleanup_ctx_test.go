@@ -2,11 +2,16 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+
+	"strait/internal/store"
 )
 
 // TestPanicCleanupRunsAfterContextCancel pins the panic-cleanup
@@ -78,6 +83,51 @@ func TestPanicCleanupRunsAfterContextCancel(t *testing.T) {
 	}
 	if !deleteCtxDeadline {
 		t.Fatal("DeleteIdempotencyKey context must carry a deadline so cleanup cannot block forever")
+	}
+}
+
+func TestPanicCleanupStripsRequestTransactionFromDetachedContext(t *testing.T) {
+	t.Parallel()
+
+	var (
+		mu         sync.Mutex
+		deleteTxOK bool
+	)
+
+	ms := &APIStoreMock{
+		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ time.Duration) (string, int, http.Header, []byte, error) {
+			return "acquired", 0, nil, nil, nil
+		},
+		DeleteIdempotencyKeyFunc: func(ctx context.Context, _, _ string) (int64, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			_, deleteTxOK = store.TxFromContext(ctx)
+			return 1, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	handler := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		panic("handler exploded")
+	})
+	wrapped := srv.idempotencyMiddleware(handler)
+
+	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
+	r.Header.Set("Idempotency-Key", "panic-cleanup-tx")
+	ctx := store.ContextWithTx(idempotencyTestCtx(r.Context(), "proj-1"), &idempotencyCleanupTx{})
+	r = r.WithContext(ctx)
+	w := httptest.NewRecorder()
+
+	func() {
+		defer func() { _ = recover() }()
+		wrapped.ServeHTTP(w, r)
+	}()
+
+	mu.Lock()
+	defer mu.Unlock()
+	if deleteTxOK {
+		t.Fatal("DeleteIdempotencyKey cleanup context retained the request transaction")
 	}
 }
 
@@ -199,4 +249,90 @@ func TestCleanupBoundsCleanupDuration(t *testing.T) {
 	}
 }
 
+func TestSuccessCompletionRunsAfterRLSTxCommit(t *testing.T) {
+	t.Parallel()
+
+	tx := &rlsFakeTx{}
+	var completeAfterCommit bool
+	ms := &APIStoreMock{
+		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ time.Duration) (string, int, http.Header, []byte, error) {
+			return "acquired", 0, nil, nil, nil
+		},
+		CompleteIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ int, _ http.Header, _ []byte) error {
+			completeAfterCommit = tx.commitCalls == 1
+			return nil
+		},
+		DeleteIdempotencyKeyFunc: func(context.Context, string, string) (int64, error) {
+			t.Fatal("DeleteIdempotencyKey should not run on committed success")
+			return 0, nil
+		},
+	}
+	srv := &Server{store: ms, txPool: &rlsFakeTxBeginner{tx: tx}}
+	handler := srv.rlsTxMiddleware(srv.idempotencyMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	})))
+
+	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
+	r.Header.Set("Idempotency-Key", "complete-after-commit")
+	r = r.WithContext(idempotencyTestCtx(r.Context(), "proj-1"))
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, r)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201", w.Code)
+	}
+	if tx.commitCalls != 1 {
+		t.Fatalf("Commit calls = %d, want 1", tx.commitCalls)
+	}
+	if !completeAfterCommit {
+		t.Fatal("CompleteIdempotencyKey ran before the RLS transaction committed")
+	}
+}
+
+func TestSuccessPendingKeyCleanedWhenRLSTxCommitFails(t *testing.T) {
+	t.Parallel()
+
+	tx := &rlsFakeTx{commitErr: errors.New("commit failed")}
+	var completeCalled bool
+	var deleteCalled bool
+	ms := &APIStoreMock{
+		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ time.Duration) (string, int, http.Header, []byte, error) {
+			return "acquired", 0, nil, nil, nil
+		},
+		CompleteIdempotencyKeyFunc: func(context.Context, string, string, int, http.Header, []byte) error {
+			completeCalled = true
+			return nil
+		},
+		DeleteIdempotencyKeyFunc: func(context.Context, string, string) (int64, error) {
+			deleteCalled = true
+			return 1, nil
+		},
+	}
+	srv := &Server{store: ms, txPool: &rlsFakeTxBeginner{tx: tx}}
+	handler := srv.rlsTxMiddleware(srv.idempotencyMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	})))
+
+	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
+	r.Header.Set("Idempotency-Key", "cleanup-after-commit-fail")
+	r = r.WithContext(idempotencyTestCtx(r.Context(), "proj-1"))
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, r)
+
+	if completeCalled {
+		t.Fatal("CompleteIdempotencyKey should not run when the RLS transaction does not commit")
+	}
+	if !deleteCalled {
+		t.Fatal("DeleteIdempotencyKey should clean the pending key when commit fails")
+	}
+}
+
 type testCancelKey struct{}
+
+type idempotencyCleanupTx struct {
+	pgx.Tx
+}

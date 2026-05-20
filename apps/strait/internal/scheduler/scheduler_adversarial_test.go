@@ -250,7 +250,7 @@ func TestCronScheduler_TriggerJob_SkipPolicy_CountError(t *testing.T) {
 	}
 }
 
-func TestCronScheduler_TriggerJob_CancelRunning_CancelError(t *testing.T) {
+func TestCronScheduler_TriggerJob_CancelRunning_CancelErrorAfterEnqueue(t *testing.T) {
 	t.Parallel()
 
 	var enqueued atomic.Int32
@@ -275,8 +275,8 @@ func TestCronScheduler_TriggerJob_CancelRunning_CancelError(t *testing.T) {
 	}
 	cs.triggerJob(context.Background(), job)
 
-	if enqueued.Load() != 0 {
-		t.Fatal("expected cancel error to prevent enqueue")
+	if enqueued.Load() != 1 {
+		t.Fatal("expected replacement run to stay enqueued when post-enqueue cancel fails")
 	}
 }
 
@@ -1592,6 +1592,17 @@ func (m *advMockDowngradeStore) ApplyPendingDowngrade(ctx context.Context, orgID
 		return m.applyFn(ctx, orgID)
 	}
 	return nil
+}
+
+func (m *advMockDowngradeStore) ApplyPendingDowngradeTierIfPending(ctx context.Context, orgID, _ string) (bool, error) {
+	if err := m.ApplyPendingDowngrade(ctx, orgID); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (m *advMockDowngradeStore) ClearPendingPlanTierIfTier(context.Context, string, string) (bool, error) {
+	return true, nil
 }
 
 func (m *advMockDowngradeStore) SuspendExcessProjects(ctx context.Context, orgID string, maxProjects int) (int, error) {

@@ -134,6 +134,91 @@ func TestCreateWebhookSubscriptionWithOrgLimit_ConcurrentCreatesCannotExceedLimi
 	}
 }
 
+func TestCountWebhookSubscriptionsByOrg_IncludesSiblingProjectsUnderProjectRLS(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	orgID := "org-webhook-rls-count-" + newID()
+	projectA := "proj-webhook-rls-count-a-" + newID()
+	projectB := "proj-webhook-rls-count-b-" + newID()
+	for _, projectID := range []string{projectA, projectB} {
+		if err := q.CreateProject(ctx, &domain.Project{ID: projectID, OrgID: orgID, Name: projectID}); err != nil {
+			t.Fatalf("CreateProject(%s) error = %v", projectID, err)
+		}
+	}
+
+	for _, projectID := range []string{projectA, projectB} {
+		sub := &domain.WebhookSubscription{
+			ID:         "sub-webhook-rls-count-" + newID(),
+			ProjectID:  projectID,
+			WebhookURL: "https://example.com/hook/" + newID(),
+			EventTypes: []string{"run.completed"},
+			Secret:     "whsec_test",
+			Active:     true,
+		}
+		if err := q.CreateWebhookSubscription(ctx, sub); err != nil {
+			t.Fatalf("CreateWebhookSubscription(%s) error = %v", projectID, err)
+		}
+	}
+
+	var count int
+	var err error
+	runAsProject(t, ctx, projectA, false, func(txq *store.Queries) {
+		count, err = txq.CountWebhookSubscriptionsByOrg(ctx, orgID)
+	})
+	if err != nil {
+		t.Fatalf("CountWebhookSubscriptionsByOrg() under project RLS error = %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("CountWebhookSubscriptionsByOrg() under project RLS = %d, want 2", count)
+	}
+}
+
+func TestCreateWebhookSubscriptionWithOrgLimit_CountsSiblingProjectsUnderProjectRLS(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	orgID := "org-webhook-rls-limit-" + newID()
+	projectA := "proj-webhook-rls-limit-a-" + newID()
+	projectB := "proj-webhook-rls-limit-b-" + newID()
+	for _, projectID := range []string{projectA, projectB} {
+		if err := q.CreateProject(ctx, &domain.Project{ID: projectID, OrgID: orgID, Name: projectID}); err != nil {
+			t.Fatalf("CreateProject(%s) error = %v", projectID, err)
+		}
+	}
+
+	existing := &domain.WebhookSubscription{
+		ID:         "sub-webhook-rls-existing-" + newID(),
+		ProjectID:  projectB,
+		WebhookURL: "https://example.com/hook/existing",
+		EventTypes: []string{"run.completed"},
+		Secret:     "whsec_test",
+		Active:     true,
+	}
+	if err := q.CreateWebhookSubscription(ctx, existing); err != nil {
+		t.Fatalf("CreateWebhookSubscription(existing) error = %v", err)
+	}
+
+	candidate := &domain.WebhookSubscription{
+		ID:         "sub-webhook-rls-candidate-" + newID(),
+		ProjectID:  projectA,
+		WebhookURL: "https://example.com/hook/candidate",
+		EventTypes: []string{"run.failed"},
+		Secret:     "whsec_test",
+		Active:     true,
+	}
+
+	var err error
+	runAsProject(t, ctx, projectA, false, func(txq *store.Queries) {
+		err = txq.CreateWebhookSubscriptionWithOrgLimit(ctx, candidate, orgID, 1)
+	})
+	if !errors.Is(err, store.ErrWebhookEndpointLimitExceeded) {
+		t.Fatalf("CreateWebhookSubscriptionWithOrgLimit() error = %v, want ErrWebhookEndpointLimitExceeded", err)
+	}
+}
+
 func TestWebhookDeliverySubscriptionPayloadRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -332,6 +417,53 @@ func TestDeleteWebhookSubscription(t *testing.T) {
 	_, err := q.GetWebhookSubscription(ctx, sub.ID)
 	if !errors.Is(err, store.ErrWebhookSubscriptionNotFound) {
 		t.Fatalf("GetWebhookSubscription(deleted) error = %v, want ErrWebhookSubscriptionNotFound", err)
+	}
+}
+
+func TestDeleteWebhookSubscription_WithDeliveriesDetachesHistory(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	sub := &domain.WebhookSubscription{
+		ProjectID:  "proj-delete-ws-delivery-" + newID(),
+		WebhookURL: "https://example.com/del-with-history",
+		EventTypes: []string{"run.completed"},
+		Secret:     "s",
+		Active:     true,
+	}
+	if err := q.CreateWebhookSubscription(ctx, sub); err != nil {
+		t.Fatalf("CreateWebhookSubscription() error = %v", err)
+	}
+
+	delivery := &domain.WebhookDelivery{
+		SubscriptionID: sub.ID,
+		WebhookURL:     sub.WebhookURL,
+		Status:         domain.WebhookStatusDelivered,
+		Attempts:       1,
+		MaxAttempts:    3,
+		Payload:        json.RawMessage(`{"status":"completed"}`),
+	}
+	if err := q.CreateWebhookDelivery(ctx, delivery); err != nil {
+		t.Fatalf("CreateWebhookDelivery() error = %v", err)
+	}
+
+	if err := q.DeleteWebhookSubscription(ctx, sub.ID); err != nil {
+		t.Fatalf("DeleteWebhookSubscription() error = %v", err)
+	}
+
+	if _, err := q.GetWebhookSubscription(ctx, sub.ID); !errors.Is(err, store.ErrWebhookSubscriptionNotFound) {
+		t.Fatalf("GetWebhookSubscription(deleted) error = %v, want ErrWebhookSubscriptionNotFound", err)
+	}
+	gotDelivery, err := q.GetWebhookDelivery(ctx, delivery.ID)
+	if err != nil {
+		t.Fatalf("GetWebhookDelivery(history) error = %v", err)
+	}
+	if gotDelivery.SubscriptionID != "" {
+		t.Fatalf("SubscriptionID = %q, want detached empty value", gotDelivery.SubscriptionID)
+	}
+	if gotDelivery.ProjectID != sub.ProjectID {
+		t.Fatalf("ProjectID = %q, want %q", gotDelivery.ProjectID, sub.ProjectID)
 	}
 }
 

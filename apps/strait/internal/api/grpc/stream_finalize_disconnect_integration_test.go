@@ -4,6 +4,7 @@ package grpc
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -215,7 +216,7 @@ func TestIntegration_TaskResultHandoffPrecedesDisconnectRequeue(t *testing.T) {
 	q := store.New(env.DB.Pool)
 	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
 	resultChannels := NewResultChannelRegistry()
-	resultCh := resultChannels.Register(runID, projectID, workerID)
+	resultCh := resultChannels.Register(runID, projectID, workerID, taskID, 1)
 	t.Cleanup(func() { resultChannels.Deregister(runID) })
 
 	svc := &workerService{
@@ -226,9 +227,11 @@ func TestIntegration_TaskResultHandoffPrecedesDisconnectRequeue(t *testing.T) {
 	}
 
 	if err := svc.handleTaskResult(ctx, workerID, projectID, &workerv1.TaskResult{
-		RunId:      runID,
-		Status:     "success",
-		OutputJson: []byte(`{"ok":true}`),
+		RunId:        runID,
+		Status:       "success",
+		OutputJson:   []byte(`{"ok":true}`),
+		AssignmentId: taskID,
+		Attempt:      1,
 	}); err != nil {
 		t.Fatalf("handleTaskResult: %v", err)
 	}
@@ -239,6 +242,16 @@ func TestIntegration_TaskResultHandoffPrecedesDisconnectRequeue(t *testing.T) {
 	}
 	if task.Status != domain.WorkerTaskStatusResultReceived {
 		t.Fatalf("worker task status after stream handoff = %q, want result_received", task.Status)
+	}
+	if task.Result == nil {
+		t.Fatal("worker task result was not durably persisted before channel delivery")
+	}
+	var durableOutput map[string]bool
+	if err := json.Unmarshal(task.Result.Output, &durableOutput); err != nil {
+		t.Fatalf("unmarshal durable worker result: %v", err)
+	}
+	if task.Result.Status != "success" || !durableOutput["ok"] {
+		t.Fatalf("worker task durable result = %+v, want success output", task.Result)
 	}
 
 	svc.finalizeDisconnect(projectID, workerID)
@@ -258,6 +271,72 @@ func TestIntegration_TaskResultHandoffPrecedesDisconnectRequeue(t *testing.T) {
 		}
 	default:
 		t.Fatal("expected buffered result to be delivered to dispatcher channel")
+	}
+}
+
+func TestIntegration_TaskResultHandoffRejectsStaleAssignmentIdentity(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
+	resultChannels := NewResultChannelRegistry()
+	resultCh := resultChannels.Register(runID, projectID, workerID, taskID, 1)
+	t.Cleanup(func() { resultChannels.Deregister(runID) })
+
+	svc := &workerService{
+		queries:        q,
+		pub:            &noopPublisher{},
+		registry:       NewConnectionRegistry(),
+		resultChannels: resultChannels,
+	}
+
+	staleResults := []*workerv1.TaskResult{
+		{RunId: runID, Status: "success", Attempt: 1},
+		{RunId: runID, Status: "success", AssignmentId: "old-task", Attempt: 1},
+		{RunId: runID, Status: "success", AssignmentId: taskID, Attempt: 2},
+	}
+	for i, tr := range staleResults {
+		if err := svc.handleTaskResult(ctx, workerID, projectID, tr); err != nil {
+			t.Fatalf("handleTaskResult stale #%d: %v", i, err)
+		}
+	}
+
+	task, err := q.GetWorkerTask(ctx, taskID)
+	if err != nil {
+		t.Fatalf("GetWorkerTask: %v", err)
+	}
+	if task.Status != domain.WorkerTaskStatusAssigned {
+		t.Fatalf("stale result changed worker task status to %q, want assigned", task.Status)
+	}
+	if task.Result != nil {
+		t.Fatalf("stale result persisted task result: %+v", task.Result)
+	}
+	select {
+	case got := <-resultCh:
+		t.Fatalf("stale result delivered to dispatcher channel: %#v", got)
+	default:
+	}
+
+	exact := assignedTaskResult(runID, taskID, "success")
+	exact.OutputJson = []byte(`{"ok":true}`)
+	if err := svc.handleTaskResult(ctx, workerID, projectID, exact); err != nil {
+		t.Fatalf("handleTaskResult exact: %v", err)
+	}
+	select {
+	case got := <-resultCh:
+		if got == nil || got.AssignmentId != taskID || got.Attempt != 1 {
+			t.Fatalf("delivered result = %#v, want exact assignment", got)
+		}
+	default:
+		t.Fatal("expected exact result to be delivered")
 	}
 }
 

@@ -271,7 +271,11 @@ func TestE2E_Environment_CreateAndGet(t *testing.T) {
 	if asString(t, env, "id") != envID {
 		t.Fatalf("expected environment id %s", envID)
 	}
-	resolved := asObject(t, env, "resolved_variables")
+	w = doRequest(t, http.MethodGet, "/v1/environments/"+envID+"/variables", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("get resolved variables status = %d, body = %s", w.Code, w.Body.String())
+	}
+	resolved := asObject(t, mustDecodeObject(t, w), "variables")
 	if asString(t, resolved, "REGION") != "us-east-1" {
 		t.Fatalf("expected resolved REGION us-east-1, got %s", asString(t, resolved, "REGION"))
 	}
@@ -384,7 +388,11 @@ func TestE2E_Environment_Update(t *testing.T) {
 	if asString(t, updated, "name") != "New" {
 		t.Fatalf("expected updated name, got %s", asString(t, updated, "name"))
 	}
-	vars := asObject(t, updated, "variables")
+	w = doRequest(t, http.MethodGet, "/v1/environments/"+envID+"/variables", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("get updated variables status = %d, body = %s", w.Code, w.Body.String())
+	}
+	vars := asObject(t, mustDecodeObject(t, w), "variables")
 	if asString(t, vars, "LOG_LEVEL") != "debug" {
 		t.Fatalf("expected LOG_LEVEL=debug, got %s", asString(t, vars, "LOG_LEVEL"))
 	}

@@ -125,6 +125,17 @@ func TestLoad_WorkerDBSyncIntervalInvariant(t *testing.T) {
 	}
 }
 
+func TestLoad_RunsAggregateValidateInvariants(t *testing.T) {
+	setRequiredAuditEnv(t)
+	t.Setenv("DB_MIN_CONNS", "100")
+	t.Setenv("DB_MAX_CONNS", "50")
+
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "DB_MIN_CONNS") {
+		t.Fatalf("Load() error = %v, want DB_MIN_CONNS validation error", err)
+	}
+}
+
 func TestValidate_LockTimeoutExceedsStatementTimeout(t *testing.T) {
 	c := validConfig()
 	c.DBLockTimeout = 60 * time.Second
@@ -233,6 +244,19 @@ func TestValidate_AuditRetentionNegative(t *testing.T) {
 	_, err := Load()
 	if err == nil {
 		t.Fatal("expected error for negative audit retention")
+	}
+}
+
+func TestValidate_AuditRetentionTooLarge(t *testing.T) {
+	setRequiredAuditEnv(t)
+	t.Setenv("AUDIT_RETENTION_DEFAULT_DAYS", "36501")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for oversized audit retention")
+	}
+	if !strings.Contains(err.Error(), "AUDIT_RETENTION_DEFAULT_DAYS") {
+		t.Fatalf("error = %v, want AUDIT_RETENTION_DEFAULT_DAYS", err)
 	}
 }
 
@@ -352,6 +376,16 @@ func TestValidate_AuditDLQMaxAgeDaysZero(t *testing.T) {
 	_, err := Load()
 	if err != nil {
 		t.Fatalf("DLQ max age=0 should be valid (disables sweep): %v", err)
+	}
+}
+
+func TestValidate_AuditDLQMaxAgeDaysTooLarge(t *testing.T) {
+	setRequiredAuditEnv(t)
+	t.Setenv("AUDIT_DLQ_MAX_AGE_DAYS", "36501")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for oversized DLQ max age")
 	}
 }
 

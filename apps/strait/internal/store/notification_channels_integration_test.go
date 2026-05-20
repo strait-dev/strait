@@ -83,6 +83,51 @@ func TestCreateNotificationChannel_CustomID(t *testing.T) {
 	}
 }
 
+func TestCreateNotificationChannel_InvalidEncryptionKeyFailsClosed(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	q.SetSecretEncryptionKey("short")
+	mustClean(t, ctx)
+
+	ch := &domain.NotificationChannel{
+		ProjectID:   "proj-create-nc-invalid-key-" + newID(),
+		ChannelType: domain.ChannelTypeWebhook,
+		Name:        "ops-webhook",
+		Config:      []byte(`{"url":"https://example.com/hooks/ops"}`),
+		Enabled:     true,
+	}
+
+	if err := q.CreateNotificationChannel(ctx, ch); err == nil {
+		t.Fatal("CreateNotificationChannel() error = nil, want encryption failure")
+	}
+	if _, err := q.GetNotificationChannel(ctx, ch.ID, ch.ProjectID); !errors.Is(err, store.ErrNotificationChannelNotFound) {
+		t.Fatalf("GetNotificationChannel() error = %v, want ErrNotificationChannelNotFound", err)
+	}
+}
+
+func TestUpdateNotificationChannel_InvalidEncryptionKeyFailsClosed(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	ch := &domain.NotificationChannel{
+		ProjectID:   "proj-update-nc-invalid-key-" + newID(),
+		ChannelType: domain.ChannelTypeWebhook,
+		Name:        "ops-webhook",
+		Config:      []byte(`{"url":"https://example.com/hooks/ops"}`),
+		Enabled:     true,
+	}
+	if err := q.CreateNotificationChannel(ctx, ch); err != nil {
+		t.Fatalf("CreateNotificationChannel() error = %v", err)
+	}
+
+	q.SetSecretEncryptionKey("short")
+	ch.Config = []byte(`{"url":"https://example.com/hooks/updated"}`)
+	if err := q.UpdateNotificationChannel(ctx, ch); err == nil {
+		t.Fatal("UpdateNotificationChannel() error = nil, want encryption failure")
+	}
+}
+
 func TestGetNotificationChannel_NotFound(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -391,6 +436,50 @@ func TestCreateNotificationDelivery(t *testing.T) {
 	}
 	if d.CreatedAt.IsZero() {
 		t.Fatal("CreateNotificationDelivery() did not set CreatedAt")
+	}
+}
+
+func TestCreateNotificationDelivery_DedupeKeySkipsDuplicate(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-create-nd-dedupe-" + newID()
+	ch := &domain.NotificationChannel{
+		ProjectID:   projectID,
+		ChannelType: domain.ChannelTypeWebhook,
+		Name:        "ch",
+		Config:      []byte(`{}`),
+		Enabled:     true,
+	}
+	if err := q.CreateNotificationChannel(ctx, ch); err != nil {
+		t.Fatalf("CreateNotificationChannel() error = %v", err)
+	}
+
+	for i := 0; i < 2; i++ {
+		d := &domain.NotificationDelivery{
+			ChannelID:   ch.ID,
+			ProjectID:   projectID,
+			EventType:   domain.NotificationEventSpendingLimitWarning,
+			Payload:     json.RawMessage(`{"threshold":80}`),
+			Status:      "pending",
+			MaxAttempts: 3,
+			DedupeKey:   "budget:org-1:80:2026-05-16:" + projectID + ":" + ch.ID,
+		}
+		if err := q.CreateNotificationDelivery(ctx, d); err != nil {
+			t.Fatalf("CreateNotificationDelivery(%d) error = %v", i, err)
+		}
+	}
+
+	var count int
+	if err := testDB.Pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM notification_deliveries WHERE dedupe_key = $1`,
+		"budget:org-1:80:2026-05-16:"+projectID+":"+ch.ID,
+	).Scan(&count); err != nil {
+		t.Fatalf("count deduped deliveries: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("deduped delivery count = %d, want 1", count)
 	}
 }
 

@@ -44,12 +44,12 @@ func TestRegistry_Register_HappyPath(t *testing.T) {
 	}
 }
 
-// TestRegistry_Register_Collision verifies that re-registration with a different API key
-// returns an error (hijack protection).
+// TestRegistry_Register_Collision verifies that re-registration of the same
+// project worker ID with a different API key returns an error (hijack protection).
 func TestRegistry_Register_Collision(t *testing.T) {
 	r := NewConnectionRegistry()
 	w1 := makeWorker("w1", "proj-a", "key-1", []string{"default"}, 4)
-	w2 := makeWorker("w1", "proj-b", "key-2", []string{"default"}, 4)
+	w2 := makeWorker("w1", "proj-a", "key-2", []string{"default"}, 4)
 
 	if err := r.Register(w1); err != nil {
 		t.Fatalf("first register failed: %v", err)
@@ -255,9 +255,9 @@ func TestRegistry_SnapshotWorkerQueues_IncludesEnvironmentScopes(t *testing.T) {
 		seen[ref] = struct{}{}
 	}
 	want := []domain.WorkerQueueRef{
-		{QueueName: "q1"},
-		{QueueName: "q2"},
-		{QueueName: "q1", EnvironmentID: "env-staging"},
+		{ProjectID: "proj-a", QueueName: "q1"},
+		{ProjectID: "proj-a", QueueName: "q2"},
+		{ProjectID: "proj-a", QueueName: "q1", EnvironmentID: "env-staging"},
 	}
 	if len(seen) != len(want) {
 		t.Fatalf("snapshot refs = %+v, want %d unique refs", got, len(want))
@@ -267,7 +267,7 @@ func TestRegistry_SnapshotWorkerQueues_IncludesEnvironmentScopes(t *testing.T) {
 			t.Fatalf("missing worker queue ref %+v from %+v", ref, got)
 		}
 	}
-	if _, ok := seen[domain.WorkerQueueRef{QueueName: "q3", EnvironmentID: "env-prod"}]; ok {
+	if _, ok := seen[domain.WorkerQueueRef{ProjectID: "proj-a", QueueName: "q3", EnvironmentID: "env-prod"}]; ok {
 		t.Fatalf("draining worker ref leaked into snapshot: %+v", got)
 	}
 }
@@ -468,7 +468,7 @@ func TestRegistry_Concurrent_RegisterDeregister(t *testing.T) {
 	defer r.mu.RUnlock()
 	for keyID, workers := range r.byAPIKey {
 		for _, w := range workers {
-			if _, ok := r.workers[w.WorkerID]; !ok {
+			if _, ok := r.workers[workerRegistryKey(w.ProjectID, w.WorkerID)]; !ok {
 				t.Errorf("byAPIKey[%s] references worker %s not in workers map", keyID, w.WorkerID)
 			}
 		}

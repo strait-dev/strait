@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,21 +15,26 @@ import (
 // stubPromAPI implements the narrow promAPI surface so tests do not need
 // a real Prometheus server.
 type stubPromAPI struct {
-	value model.Value
-	warns promv1.Warnings
-	err   error
+	value   model.Value
+	warns   promv1.Warnings
+	err     error
+	queryFn func(ctx context.Context, query string, ts time.Time, opts ...promv1.Option) (model.Value, promv1.Warnings, error)
 }
 
-func (s stubPromAPI) Query(_ context.Context, _ string, _ time.Time, _ ...promv1.Option) (model.Value, promv1.Warnings, error) {
+func (s stubPromAPI) Query(ctx context.Context, query string, ts time.Time, opts ...promv1.Option) (model.Value, promv1.Warnings, error) {
+	if s.queryFn != nil {
+		return s.queryFn(ctx, query, ts, opts...)
+	}
 	return s.value, s.warns, s.err
 }
 
 func newTestUptimeSource(t *testing.T, api promAPI) *PrometheusUptimeSource {
 	t.Helper()
 	return &PrometheusUptimeSource{
-		api:    api,
-		query:  "avg_over_time(up{job=\"strait\"}[30d]) * 100",
-		logger: slog.New(slog.DiscardHandler),
+		api:          api,
+		query:        "avg_over_time(up{job=\"strait\"}[30d]) * 100",
+		queryTimeout: defaultPrometheusUptimeQueryTimeout,
+		logger:       slog.New(slog.DiscardHandler),
 	}
 }
 
@@ -68,6 +74,24 @@ func TestPrometheusUptimeSource_VectorValue(t *testing.T) {
 	}
 	if got != 97.25 {
 		t.Fatalf("got %v, want 97.25", got)
+	}
+}
+
+func TestDeepSecPrometheusUptimeSource_VectorAveragesAllSeries(t *testing.T) {
+	t.Parallel()
+
+	vec := model.Vector{
+		{Value: model.SampleValue(80), Timestamp: model.Time(0), Metric: model.Metric{"region": "iad1"}},
+		{Value: model.SampleValue(100), Timestamp: model.Time(0), Metric: model.Metric{"region": "fra1"}},
+	}
+	src := newTestUptimeSource(t, stubPromAPI{value: vec})
+
+	got, err := src.MonthlyUptimePct(context.Background(), "org-1", time.Time{}, time.Now())
+	if err != nil {
+		t.Fatalf("MonthlyUptimePct: %v", err)
+	}
+	if got != 90 {
+		t.Fatalf("got %v, want average 90", got)
 	}
 }
 
@@ -119,6 +143,39 @@ func TestPrometheusUptimeSource_APIErrorWrapped(t *testing.T) {
 	_, err := src.MonthlyUptimePct(context.Background(), "org-1", time.Time{}, time.Now())
 	if !errors.Is(err, sentinel) {
 		t.Fatalf("expected wrapped sentinel error, got %v", err)
+	}
+}
+
+func TestPrometheusUptimeSource_QueryReceivesBoundedDeadline(t *testing.T) {
+	t.Parallel()
+
+	var sawDeadline atomic.Bool
+	const timeout = 25 * time.Millisecond
+	src := newTestUptimeSource(t, stubPromAPI{
+		queryFn: func(ctx context.Context, _ string, _ time.Time, _ ...promv1.Option) (model.Value, promv1.Warnings, error) {
+			deadline, ok := ctx.Deadline()
+			if !ok {
+				t.Fatal("Prometheus query context did not include a deadline")
+			}
+			remaining := time.Until(deadline)
+			if remaining <= 0 || remaining > timeout {
+				t.Fatalf("query deadline remaining = %s, want within %s", remaining, timeout)
+			}
+			sawDeadline.Store(true)
+			return scalar(99.9), nil, nil
+		},
+	})
+	src.queryTimeout = timeout
+
+	got, err := src.MonthlyUptimePct(context.Background(), "org-1", time.Time{}, time.Now())
+	if err != nil {
+		t.Fatalf("MonthlyUptimePct() error = %v", err)
+	}
+	if got != 99.9 {
+		t.Fatalf("MonthlyUptimePct() = %v, want 99.9", got)
+	}
+	if !sawDeadline.Load() {
+		t.Fatal("query stub was not called")
 	}
 }
 

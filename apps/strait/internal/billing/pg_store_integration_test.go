@@ -842,6 +842,119 @@ func TestPgStore_ApplyPendingDowngrade(t *testing.T) {
 	}
 }
 
+func TestPgStore_ApplyPendingDowngradeIfTier_RequiresSamePendingTier(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgID := "org-applydown-if-tier-" + newID()
+	ensureSub(t, ctx, pgStore, orgID)
+	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgID, "pro", "active"); err != nil {
+		t.Fatalf("UpdateOrgSubscriptionPlan error = %v", err)
+	}
+	if err := pgStore.SetPendingPlanTier(ctx, orgID, "starter"); err != nil {
+		t.Fatalf("SetPendingPlanTier error = %v", err)
+	}
+
+	applied, err := pgStore.ApplyPendingDowngradeIfTier(ctx, orgID, "free")
+	if err != nil {
+		t.Fatalf("ApplyPendingDowngradeIfTier wrong tier error = %v", err)
+	}
+	if applied {
+		t.Fatal("expected wrong pending tier to skip conditional apply")
+	}
+	sub, err := pgStore.GetOrgSubscription(ctx, orgID)
+	if err != nil {
+		t.Fatalf("GetOrgSubscription error = %v", err)
+	}
+	if sub.PlanTier != "pro" || sub.PendingPlanTier == nil || *sub.PendingPlanTier != "starter" {
+		t.Fatalf("subscription changed after wrong-tier apply: plan=%q pending=%v", sub.PlanTier, sub.PendingPlanTier)
+	}
+
+	applied, err = pgStore.ApplyPendingDowngradeIfTier(ctx, orgID, "starter")
+	if err != nil {
+		t.Fatalf("ApplyPendingDowngradeIfTier correct tier error = %v", err)
+	}
+	if !applied {
+		t.Fatal("expected matching pending tier to apply")
+	}
+	sub, err = pgStore.GetOrgSubscription(ctx, orgID)
+	if err != nil {
+		t.Fatalf("GetOrgSubscription after apply error = %v", err)
+	}
+	if sub.PlanTier != "starter" || sub.PendingPlanTier != nil {
+		t.Fatalf("subscription not conditionally applied: plan=%q pending=%v", sub.PlanTier, sub.PendingPlanTier)
+	}
+}
+
+func TestPgStore_ApplyPendingDowngradeTierIfPending_RetainsPendingUntilConditionalClear(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgID := "org-applydown-retain-" + newID()
+	ensureSub(t, ctx, pgStore, orgID)
+	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgID, "pro", "active"); err != nil {
+		t.Fatalf("UpdateOrgSubscriptionPlan error = %v", err)
+	}
+	if err := pgStore.SetPendingPlanTier(ctx, orgID, "starter"); err != nil {
+		t.Fatalf("SetPendingPlanTier error = %v", err)
+	}
+
+	applied, err := pgStore.ApplyPendingDowngradeTierIfPending(ctx, orgID, "free")
+	if err != nil {
+		t.Fatalf("ApplyPendingDowngradeTierIfPending wrong tier error = %v", err)
+	}
+	if applied {
+		t.Fatal("expected wrong pending tier to skip retained apply")
+	}
+
+	applied, err = pgStore.ApplyPendingDowngradeTierIfPending(ctx, orgID, "starter")
+	if err != nil {
+		t.Fatalf("ApplyPendingDowngradeTierIfPending error = %v", err)
+	}
+	if !applied {
+		t.Fatal("expected matching pending tier to apply")
+	}
+	sub, err := pgStore.GetOrgSubscription(ctx, orgID)
+	if err != nil {
+		t.Fatalf("GetOrgSubscription after retained apply error = %v", err)
+	}
+	if sub.PlanTier != "starter" || sub.PendingPlanTier == nil || *sub.PendingPlanTier != "starter" {
+		t.Fatalf("retained apply should set plan and keep pending tier: plan=%q pending=%v", sub.PlanTier, sub.PendingPlanTier)
+	}
+
+	cleared, err := pgStore.ClearPendingPlanTierIfTier(ctx, orgID, "free")
+	if err != nil {
+		t.Fatalf("ClearPendingPlanTierIfTier wrong tier error = %v", err)
+	}
+	if cleared {
+		t.Fatal("expected wrong pending tier to skip conditional clear")
+	}
+	sub, err = pgStore.GetOrgSubscription(ctx, orgID)
+	if err != nil {
+		t.Fatalf("GetOrgSubscription after skipped clear error = %v", err)
+	}
+	if sub.PendingPlanTier == nil || *sub.PendingPlanTier != "starter" {
+		t.Fatalf("wrong-tier clear should retain pending tier, got %v", sub.PendingPlanTier)
+	}
+
+	cleared, err = pgStore.ClearPendingPlanTierIfTier(ctx, orgID, "starter")
+	if err != nil {
+		t.Fatalf("ClearPendingPlanTierIfTier error = %v", err)
+	}
+	if !cleared {
+		t.Fatal("expected matching pending tier to clear")
+	}
+	sub, err = pgStore.GetOrgSubscription(ctx, orgID)
+	if err != nil {
+		t.Fatalf("GetOrgSubscription after clear error = %v", err)
+	}
+	if sub.PlanTier != "starter" || sub.PendingPlanTier != nil {
+		t.Fatalf("conditional clear should only remove pending tier: plan=%q pending=%v", sub.PlanTier, sub.PendingPlanTier)
+	}
+}
+
 // --------------------------------------------------------------------------.
 // Test 15: ApplyPendingDowngrade no pending
 // --------------------------------------------------------------------------.
@@ -1250,6 +1363,246 @@ func TestPgStore_UpsertUsageRecord(t *testing.T) {
 		t.Errorf("ai_cost = %d, want 600000", ai)
 	}
 }
+
+func TestPgStore_ReplaceUsageRecord_ReplacesSnapshot(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-usagesnap-" + newID()
+	p := createProject(t, ctx, q, orgID, "P")
+	day := time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC)
+	now := time.Now().UTC()
+
+	rec := &billing.UsageRecord{
+		ID:               newID(),
+		OrgID:            orgID,
+		ProjectID:        p.ID,
+		PeriodDate:       day,
+		RunsCount:        10,
+		ComputeCostMicro: 5_000_000,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}
+	if err := pgStore.ReplaceUsageRecord(ctx, rec); err != nil {
+		t.Fatalf("ReplaceUsageRecord error = %v", err)
+	}
+	rec2 := &billing.UsageRecord{
+		ID:               newID(),
+		OrgID:            orgID,
+		ProjectID:        p.ID,
+		PeriodDate:       day,
+		RunsCount:        3,
+		ComputeCostMicro: 1_000_000,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}
+	if err := pgStore.ReplaceUsageRecord(ctx, rec2); err != nil {
+		t.Fatalf("second ReplaceUsageRecord error = %v", err)
+	}
+
+	var runs, compute int64
+	err := testDB.Pool.QueryRow(ctx,
+		"SELECT runs_count, compute_cost_microusd FROM usage_records WHERE org_id = $1 AND project_id = $2 AND period_date = $3",
+		orgID, p.ID, day).Scan(&runs, &compute)
+	if err != nil {
+		t.Fatalf("query usage_records: %v", err)
+	}
+	if runs != 3 {
+		t.Errorf("runs_count = %d, want replacement 3", runs)
+	}
+	if compute != 1_000_000 {
+		t.Errorf("compute_cost = %d, want replacement 1000000", compute)
+	}
+}
+
+func TestPgStore_GetUsageForPeriod_IncludesRecordedComputeCosts(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-usage-compute-" + newID()
+	p := createProject(t, ctx, q, orgID, "P")
+	day := time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC)
+	now := day.Add(12 * time.Hour)
+
+	rec := &billing.UsageRecord{
+		ID:               newID(),
+		OrgID:            orgID,
+		ProjectID:        p.ID,
+		PeriodDate:       day,
+		RunsCount:        1,
+		ComputeCostMicro: 2_500_000,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}
+	if err := pgStore.UpsertUsageRecord(ctx, rec); err != nil {
+		t.Fatalf("UpsertUsageRecord error = %v", err)
+	}
+
+	from := day
+	to := day
+	orgRecords, err := pgStore.GetOrgUsageForPeriod(ctx, orgID, from, to)
+	if err != nil {
+		t.Fatalf("GetOrgUsageForPeriod error = %v", err)
+	}
+	assertRecordedComputeUsage(t, orgRecords, p.ID, 2_500_000)
+
+	projectRecords, err := pgStore.GetProjectUsageForPeriod(ctx, p.ID, from, to)
+	if err != nil {
+		t.Fatalf("GetProjectUsageForPeriod error = %v", err)
+	}
+	assertRecordedComputeUsage(t, projectRecords, p.ID, 2_500_000)
+
+	dailyRecords, err := pgStore.GetOrgDailyUsage(ctx, orgID, day)
+	if err != nil {
+		t.Fatalf("GetOrgDailyUsage error = %v", err)
+	}
+	assertRecordedComputeUsage(t, dailyRecords, p.ID, 2_500_000)
+}
+
+func TestPgStore_RecordUsageCost_DedupesLedgerAndUsage(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-cost-ledger-" + newID()
+	p := createProject(t, ctx, q, orgID, "P")
+	day := time.Date(2026, 3, 16, 0, 0, 0, 0, time.UTC)
+	now := day.Add(10 * time.Hour)
+	rec := &billing.UsageRecord{
+		ID:               newID(),
+		OrgID:            orgID,
+		ProjectID:        p.ID,
+		PeriodDate:       day,
+		RunsCount:        1,
+		ComputeCostMicro: 20,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}
+
+	recorded, err := pgStore.RecordUsageCost(ctx, rec, "strait:cost_recorded:run-ledger-1", "http")
+	if err != nil {
+		t.Fatalf("RecordUsageCost first call error = %v", err)
+	}
+	if !recorded {
+		t.Fatal("RecordUsageCost first call recorded = false, want true")
+	}
+
+	recorded, err = pgStore.RecordUsageCost(ctx, rec, "strait:cost_recorded:run-ledger-1", "http")
+	if err != nil {
+		t.Fatalf("RecordUsageCost duplicate call error = %v", err)
+	}
+	if recorded {
+		t.Fatal("RecordUsageCost duplicate call recorded = true, want false")
+	}
+
+	var runs, compute int64
+	if err := testDB.Pool.QueryRow(ctx,
+		"SELECT runs_count, compute_cost_microusd FROM usage_records WHERE org_id = $1 AND project_id = $2 AND period_date = $3",
+		orgID, p.ID, day,
+	).Scan(&runs, &compute); err != nil {
+		t.Fatalf("query usage_records: %v", err)
+	}
+	if runs != 1 || compute != 20 {
+		t.Fatalf("usage aggregate = runs %d compute %d, want runs 1 compute 20", runs, compute)
+	}
+
+	var events int
+	if err := testDB.Pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM billing_cost_events WHERE idempotency_key = $1",
+		"strait:cost_recorded:run-ledger-1",
+	).Scan(&events); err != nil {
+		t.Fatalf("query billing_cost_events: %v", err)
+	}
+	if events != 1 {
+		t.Fatalf("billing_cost_events count = %d, want 1", events)
+	}
+}
+
+func TestPgStore_ReconcileFlatUsageCosts_RepairsMissingLedgerAndUsage(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-cost-reconcile-" + newID()
+	p := createProject(t, ctx, q, orgID, "P")
+	job := createJob(t, ctx, q, p.ID)
+	finishedAt := time.Now().UTC()
+	run := createRun(t, ctx, q, job, domain.StatusCompleted)
+	if _, err := testDB.Pool.Exec(ctx,
+		"UPDATE job_runs SET finished_at = $1, execution_mode = $2 WHERE id = $3",
+		finishedAt, domain.ExecutionModeHTTP, run.ID,
+	); err != nil {
+		t.Fatalf("set completed run fields: %v", err)
+	}
+
+	statusCode := 200
+	delivery := &domain.WebhookDelivery{
+		ID:             newID(),
+		RunID:          run.ID,
+		JobID:          job.ID,
+		WebhookURL:     "https://example.com/callback",
+		Status:         domain.WebhookStatusDelivered,
+		Attempts:       1,
+		MaxAttempts:    3,
+		LastStatusCode: &statusCode,
+		DeliveredAt:    &finishedAt,
+	}
+	if err := q.CreateWebhookDelivery(ctx, delivery); err != nil {
+		t.Fatalf("CreateWebhookDelivery error = %v", err)
+	}
+
+	day := time.Date(finishedAt.Year(), finishedAt.Month(), finishedAt.Day(), 0, 0, 0, 0, time.UTC)
+	if err := pgStore.ReconcileFlatUsageCosts(ctx, orgID, day); err != nil {
+		t.Fatalf("ReconcileFlatUsageCosts error = %v", err)
+	}
+	if err := pgStore.ReconcileFlatUsageCosts(ctx, orgID, day); err != nil {
+		t.Fatalf("ReconcileFlatUsageCosts duplicate error = %v", err)
+	}
+
+	var eventCount int
+	if err := testDB.Pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM billing_cost_events WHERE org_id = $1",
+		orgID,
+	).Scan(&eventCount); err != nil {
+		t.Fatalf("count billing_cost_events: %v", err)
+	}
+	if eventCount != 2 {
+		t.Fatalf("billing_cost_events count = %d, want 2", eventCount)
+	}
+
+	var runs, compute int64
+	if err := testDB.Pool.QueryRow(ctx,
+		"SELECT runs_count, compute_cost_microusd FROM usage_records WHERE org_id = $1 AND project_id = $2 AND period_date = $3",
+		orgID, p.ID, day,
+	).Scan(&runs, &compute); err != nil {
+		t.Fatalf("query reconciled usage_records: %v", err)
+	}
+	if runs != 2 || compute != billing.HTTPCostPerRunMicrousd+billing.WebhookDeliveryCostPerRunMicrousd {
+		t.Fatalf("reconciled usage = runs %d compute %d, want runs 2 compute %d",
+			runs, compute, billing.HTTPCostPerRunMicrousd+billing.WebhookDeliveryCostPerRunMicrousd)
+	}
+}
+
+func assertRecordedComputeUsage(t *testing.T, records []billing.UsageRecord, projectID string, want int64) {
+	t.Helper()
+	for _, rec := range records {
+		if rec.ProjectID != projectID {
+			continue
+		}
+		if rec.ComputeCostMicro != want {
+			t.Fatalf("ComputeCostMicro = %d, want %d in records %#v", rec.ComputeCostMicro, want, records)
+		}
+		return
+	}
+	t.Fatalf("usage records missing project %s: %#v", projectID, records)
+}
+
 func TestPgStore_GetProjectBudget_NoRow(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -1382,6 +1735,20 @@ func TestPgStore_ListAllSubscribedOrgIDs(t *testing.T) {
 	}
 }
 
+func TestPlanRetentionResolver_MissingSubscriptionDoesNotFallbackToFreeRetention(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	resolver := billing.NewPlanRetentionResolver(billing.NewPgStore(testDB.Pool))
+
+	days, err := resolver.GetOrgRetentionDays(ctx, "org-retention-missing-"+newID())
+	if !errors.Is(err, billing.ErrSubscriptionNotFound) {
+		t.Fatalf("GetOrgRetentionDays error = %v, want ErrSubscriptionNotFound", err)
+	}
+	if days != 0 {
+		t.Fatalf("days = %d, want 0 so retention reaper skips uncertain orgs", days)
+	}
+}
+
 // --------------------------------------------------------------------------.
 // Test 35: UpdatePaymentStatus
 // --------------------------------------------------------------------------.
@@ -1457,6 +1824,82 @@ func TestPgStore_ListOrgsInGracePeriod(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("orgExpired not found in grace period list")
+	}
+}
+
+func TestPgStore_RestrictExpiredGracePeriod_AtomicConditionalUpdate(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgExpired := "org-grace-restrict-" + newID()
+	orgRecovered := "org-grace-recovered-" + newID()
+	orgFuture := "org-grace-future-" + newID()
+	ensureSub(t, ctx, pgStore, orgExpired)
+	ensureSub(t, ctx, pgStore, orgRecovered)
+	ensureSub(t, ctx, pgStore, orgFuture)
+
+	past := time.Now().UTC().Add(-48 * time.Hour)
+	future := time.Now().UTC().Add(48 * time.Hour)
+	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgExpired, "pro", "active"); err != nil {
+		t.Fatalf("UpdateOrgSubscriptionPlan expired: %v", err)
+	}
+	if err := pgStore.UpdatePaymentStatus(ctx, orgExpired, "grace", &past); err != nil {
+		t.Fatalf("UpdatePaymentStatus expired: %v", err)
+	}
+	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgRecovered, "pro", "active"); err != nil {
+		t.Fatalf("UpdateOrgSubscriptionPlan recovered: %v", err)
+	}
+	if err := pgStore.UpdatePaymentStatus(ctx, orgRecovered, "ok", nil); err != nil {
+		t.Fatalf("UpdatePaymentStatus recovered: %v", err)
+	}
+	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgFuture, "pro", "active"); err != nil {
+		t.Fatalf("UpdateOrgSubscriptionPlan future: %v", err)
+	}
+	if err := pgStore.UpdatePaymentStatus(ctx, orgFuture, "grace", &future); err != nil {
+		t.Fatalf("UpdatePaymentStatus future: %v", err)
+	}
+
+	restricted, err := pgStore.RestrictExpiredGracePeriod(ctx, orgExpired, &past)
+	if err != nil {
+		t.Fatalf("RestrictExpiredGracePeriod expired: %v", err)
+	}
+	if !restricted {
+		t.Fatal("expected expired grace period to be restricted")
+	}
+
+	expiredSub, err := pgStore.GetOrgSubscription(ctx, orgExpired)
+	if err != nil {
+		t.Fatalf("GetOrgSubscription expired: %v", err)
+	}
+	if expiredSub.PlanTier != "free" || expiredSub.Status != "restricted" || expiredSub.PaymentStatus != "restricted" {
+		t.Fatalf("expected atomic free/restricted state, got plan=%q status=%q payment=%q", expiredSub.PlanTier, expiredSub.Status, expiredSub.PaymentStatus)
+	}
+
+	for _, tt := range []struct {
+		name     string
+		orgID    string
+		graceEnd *time.Time
+	}{
+		{name: "recovered payment", orgID: orgRecovered, graceEnd: &past},
+		{name: "future grace", orgID: orgFuture, graceEnd: &future},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			changed, err := pgStore.RestrictExpiredGracePeriod(ctx, tt.orgID, tt.graceEnd)
+			if err != nil {
+				t.Fatalf("RestrictExpiredGracePeriod: %v", err)
+			}
+			if changed {
+				t.Fatal("expected conditional update to skip ineligible org")
+			}
+			sub, err := pgStore.GetOrgSubscription(ctx, tt.orgID)
+			if err != nil {
+				t.Fatalf("GetOrgSubscription: %v", err)
+			}
+			if sub.PlanTier != "pro" || sub.Status != "active" {
+				t.Fatalf("expected plan/status to remain unchanged, got plan=%q status=%q", sub.PlanTier, sub.Status)
+			}
+		})
 	}
 }
 
@@ -1629,6 +2072,30 @@ func TestPgStore_ListOrgAdminEmails(t *testing.T) {
 	}
 }
 
+func TestPgStore_ListOrgAdminEmails_ExcludesUnverifiedEmails(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-adminemails-verified-" + newID()
+	p := createProject(t, ctx, q, orgID, "P")
+
+	createAdminMember(t, ctx, q, p.ID, "verified-admin", "verified@example.com")
+	createAdminMember(t, ctx, q, p.ID, "unverified-admin", "unverified@example.com")
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE users SET email_verified = false WHERE id = $1`, "unverified-admin"); err != nil {
+		t.Fatalf("mark unverified admin: %v", err)
+	}
+
+	emails, err := pgStore.ListOrgAdminEmails(ctx, orgID)
+	if err != nil {
+		t.Fatalf("ListOrgAdminEmails error = %v", err)
+	}
+	if len(emails) != 1 || emails[0] != "verified@example.com" {
+		t.Fatalf("ListOrgAdminEmails = %v, want only verified@example.com", emails)
+	}
+}
+
 // --------------------------------------------------------------------------.
 // Test 41: HasSentUsageReport and RecordSentUsageReport
 // --------------------------------------------------------------------------.
@@ -1664,6 +2131,37 @@ func TestPgStore_UsageReportDedup(t *testing.T) {
 	// Idempotent second recording.
 	if err := pgStore.RecordSentUsageReport(ctx, orgID, periodEnd); err != nil {
 		t.Fatalf("RecordSentUsageReport idempotent error = %v", err)
+	}
+}
+
+func TestPgStore_ClaimContractReminderSend_DeduplicatesByOrgDateWindow(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgID := "org-contract-claim-" + newID()
+	contractEnd := time.Date(2026, 6, 30, 18, 30, 0, 0, time.UTC)
+
+	claimed, err := pgStore.ClaimContractReminderSend(ctx, orgID, contractEnd, 30)
+	if err != nil {
+		t.Fatalf("ClaimContractReminderSend first: %v", err)
+	}
+	if !claimed {
+		t.Fatal("expected first contract reminder claim to succeed")
+	}
+	claimed, err = pgStore.ClaimContractReminderSend(ctx, orgID, contractEnd.Add(5*time.Hour), 30)
+	if err != nil {
+		t.Fatalf("ClaimContractReminderSend duplicate: %v", err)
+	}
+	if claimed {
+		t.Fatal("expected duplicate same-day reminder claim to be skipped")
+	}
+	claimed, err = pgStore.ClaimContractReminderSend(ctx, orgID, contractEnd, 7)
+	if err != nil {
+		t.Fatalf("ClaimContractReminderSend different window: %v", err)
+	}
+	if !claimed {
+		t.Fatal("expected different reminder window to claim separately")
 	}
 }
 
@@ -2117,6 +2615,84 @@ func TestPgStore_DeactivateExcessCronJobs(t *testing.T) {
 		t.Errorf("DeactivateExcessCronJobs returned %d ids, want 3", len(deactivated))
 	}
 }
+
+func TestPgStore_DeactivateExcessCronJobs_IncludesWorkflows(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-deactcron-workflows-" + newID()
+	p := createProject(t, ctx, q, orgID, "P")
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	oldJob := createJob(t, ctx, q, p.ID)
+	newJob := createJob(t, ctx, q, p.ID)
+	oldWorkflow := &domain.Workflow{
+		ID:        newID(),
+		ProjectID: p.ID,
+		Name:      "old scheduled workflow",
+		Slug:      "old-scheduled-workflow-" + newID(),
+		Enabled:   true,
+		Cron:      "0 * * * *",
+		Version:   1,
+	}
+	if err := q.CreateWorkflow(ctx, oldWorkflow); err != nil {
+		t.Fatalf("CreateWorkflow(old) error = %v", err)
+	}
+	newWorkflow := &domain.Workflow{
+		ID:        newID(),
+		ProjectID: p.ID,
+		Name:      "new scheduled workflow",
+		Slug:      "new-scheduled-workflow-" + newID(),
+		Enabled:   true,
+		Cron:      "15 * * * *",
+		Version:   1,
+	}
+	if err := q.CreateWorkflow(ctx, newWorkflow); err != nil {
+		t.Fatalf("CreateWorkflow(new) error = %v", err)
+	}
+
+	updates := []struct {
+		table string
+		id    string
+		at    time.Time
+	}{
+		{table: "jobs", id: oldJob.ID, at: base},
+		{table: "workflows", id: oldWorkflow.ID, at: base.Add(time.Hour)},
+		{table: "jobs", id: newJob.ID, at: base.Add(2 * time.Hour)},
+		{table: "workflows", id: newWorkflow.ID, at: base.Add(3 * time.Hour)},
+	}
+	for _, update := range updates {
+		if _, err := testDB.Pool.Exec(ctx, "UPDATE "+update.table+" SET updated_at = $2 WHERE id = $1", update.id, update.at); err != nil {
+			t.Fatalf("set %s updated_at for %s: %v", update.table, update.id, err)
+		}
+	}
+
+	deactivated, err := pgStore.DeactivateExcessCronJobs(ctx, orgID, 2)
+	if err != nil {
+		t.Fatalf("DeactivateExcessCronJobs error = %v", err)
+	}
+	if len(deactivated) != 2 {
+		t.Fatalf("DeactivateExcessCronJobs returned %d ids, want 2", len(deactivated))
+	}
+
+	assertCronCleared := func(table, id string, wantCleared bool) {
+		t.Helper()
+		var cron string
+		if err := testDB.Pool.QueryRow(ctx, "SELECT COALESCE(cron, '') FROM "+table+" WHERE id = $1", id).Scan(&cron); err != nil {
+			t.Fatalf("query %s cron for %s: %v", table, id, err)
+		}
+		if gotCleared := cron == ""; gotCleared != wantCleared {
+			t.Fatalf("%s %s cron cleared = %v, want %v (cron=%q)", table, id, gotCleared, wantCleared, cron)
+		}
+	}
+	assertCronCleared("jobs", oldJob.ID, true)
+	assertCronCleared("workflows", oldWorkflow.ID, true)
+	assertCronCleared("jobs", newJob.ID, false)
+	assertCronCleared("workflows", newWorkflow.ID, false)
+}
+
 func TestPgStore_CountMembersAndExecutingRunsByOrg(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -2349,6 +2925,105 @@ func TestPgStore_ListExpiringContracts(t *testing.T) {
 	if len(within0) != 0 {
 		t.Fatalf("expected 0 contracts expiring within 0 days, got %d", len(within0))
 	}
+}
+
+func TestPgStore_ListExpiredContracts(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgExpired := "org-expired-contract-" + newID()
+	expired := makeContract(orgExpired, billing.EnterpriseTierStarter, time.Now().Add(-time.Hour))
+	if err := pgStore.UpsertEnterpriseContract(ctx, expired); err != nil {
+		t.Fatal(err)
+	}
+
+	orgFuture := "org-future-contract-" + newID()
+	future := makeContract(orgFuture, billing.EnterpriseTierGrowth, time.Now().Add(24*time.Hour))
+	if err := pgStore.UpsertEnterpriseContract(ctx, future); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := pgStore.ListExpiredContracts(ctx)
+	if err != nil {
+		t.Fatalf("ListExpiredContracts() error = %v", err)
+	}
+	if len(got) != 1 || got[0].OrgID != orgExpired {
+		t.Fatalf("expired contracts = %+v, want only %s", got, orgExpired)
+	}
+}
+
+func TestPgStore_RestrictExpiredContractIfCurrentSkipsRenewedContract(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgID := "org-expired-renewed-" + newID()
+	ensureSub(t, ctx, pgStore, orgID)
+	observedEnd := time.Now().UTC().Add(-time.Hour).Truncate(time.Microsecond)
+	contract := makeContract(orgID, billing.EnterpriseTierStarter, observedEnd)
+	contract.AutoRenew = false
+	if err := pgStore.UpsertEnterpriseContract(ctx, contract); err != nil {
+		t.Fatalf("UpsertEnterpriseContract expired: %v", err)
+	}
+
+	renewed := *contract
+	renewed.ContractEndDate = time.Now().UTC().Add(365 * 24 * time.Hour).Truncate(time.Microsecond)
+	renewed.AutoRenew = true
+	if err := pgStore.UpsertEnterpriseContract(ctx, &renewed); err != nil {
+		t.Fatalf("UpsertEnterpriseContract renewed: %v", err)
+	}
+
+	restricted, err := pgStore.RestrictExpiredContractIfCurrent(ctx, orgID, observedEnd)
+	if err != nil {
+		t.Fatalf("RestrictExpiredContractIfCurrent() error = %v", err)
+	}
+	if restricted {
+		t.Fatal("RestrictExpiredContractIfCurrent() restricted renewed contract")
+	}
+	sub, err := pgStore.GetOrgSubscription(ctx, orgID)
+	if err != nil {
+		t.Fatalf("GetOrgSubscription() error = %v", err)
+	}
+	if sub.PaymentStatus == "restricted" {
+		t.Fatal("payment status was restricted for stale expired contract")
+	}
+}
+
+func TestPgStore_RestrictExpiredContractIfCurrentClearsEnterpriseEntitlements(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgID := "org-expired-entitlements-" + newID()
+	ensureSub(t, ctx, pgStore, orgID)
+	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgID, string(domain.PlanEnterprise), "active"); err != nil {
+		t.Fatalf("UpdateOrgSubscriptionPlan enterprise: %v", err)
+	}
+	mustEqualLimits(t, readEntitlements(t, ctx, orgID), billing.GetPlanLimits(domain.PlanEnterprise), "before expired contract restriction")
+
+	observedEnd := time.Now().UTC().Add(-time.Hour).Truncate(time.Microsecond)
+	contract := makeContract(orgID, billing.EnterpriseTierStarter, observedEnd)
+	contract.AutoRenew = false
+	if err := pgStore.UpsertEnterpriseContract(ctx, contract); err != nil {
+		t.Fatalf("UpsertEnterpriseContract expired: %v", err)
+	}
+
+	restricted, err := pgStore.RestrictExpiredContractIfCurrent(ctx, orgID, observedEnd)
+	if err != nil {
+		t.Fatalf("RestrictExpiredContractIfCurrent() error = %v", err)
+	}
+	if !restricted {
+		t.Fatal("expected expired non-renewing contract to be restricted")
+	}
+	sub, err := pgStore.GetOrgSubscription(ctx, orgID)
+	if err != nil {
+		t.Fatalf("GetOrgSubscription() error = %v", err)
+	}
+	if sub.PaymentStatus != "restricted" {
+		t.Fatalf("payment status = %q, want restricted", sub.PaymentStatus)
+	}
+	mustEqualLimits(t, readEntitlements(t, ctx, orgID), billing.GetPlanLimits(domain.PlanFree), "after expired contract restriction")
 }
 
 func TestPgStore_EnterpriseContract_CrossOrgIsolation(t *testing.T) {
@@ -3055,6 +3730,74 @@ func TestPgStore_UsageReportDedup_TimeTruncation(t *testing.T) {
 	}
 	if !sent {
 		t.Error("expected dedup match after truncation (23:59:59 -> 00:00:00)")
+	}
+}
+
+func TestPgStore_UsageReportClaimState_AllowsStaleClaimRetry(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgID := "org-report-claim-" + newID()
+	periodEnd := time.Date(2026, 4, 30, 23, 0, 0, 0, time.UTC)
+
+	claimed, err := pgStore.ClaimUsageReportSend(ctx, orgID, periodEnd)
+	if err != nil {
+		t.Fatalf("ClaimUsageReportSend: %v", err)
+	}
+	if !claimed {
+		t.Fatal("first ClaimUsageReportSend returned false, want true")
+	}
+
+	sent, err := pgStore.HasSentUsageReport(ctx, orgID, periodEnd)
+	if err != nil {
+		t.Fatalf("HasSentUsageReport after claim: %v", err)
+	}
+	if sent {
+		t.Fatal("pre-send claim must not be treated as a sent usage report")
+	}
+
+	claimed, err = pgStore.ClaimUsageReportSend(ctx, orgID, periodEnd)
+	if err != nil {
+		t.Fatalf("second ClaimUsageReportSend: %v", err)
+	}
+	if claimed {
+		t.Fatal("fresh claim should block duplicate sender")
+	}
+
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE sent_usage_reports
+		SET claimed_at = NOW() - INTERVAL '2 hours'
+		WHERE org_id = $1 AND period_end = $2
+	`, orgID, periodEnd.Truncate(24*time.Hour)); err != nil {
+		t.Fatalf("age claim: %v", err)
+	}
+
+	claimed, err = pgStore.ClaimUsageReportSend(ctx, orgID, periodEnd)
+	if err != nil {
+		t.Fatalf("stale ClaimUsageReportSend: %v", err)
+	}
+	if !claimed {
+		t.Fatal("stale claim should be claimable again")
+	}
+
+	if err := pgStore.FinalizeUsageReportSend(ctx, orgID, periodEnd); err != nil {
+		t.Fatalf("FinalizeUsageReportSend: %v", err)
+	}
+	sent, err = pgStore.HasSentUsageReport(ctx, orgID, periodEnd)
+	if err != nil {
+		t.Fatalf("HasSentUsageReport after finalize: %v", err)
+	}
+	if !sent {
+		t.Fatal("finalized report should be treated as sent")
+	}
+
+	claimed, err = pgStore.ClaimUsageReportSend(ctx, orgID, periodEnd)
+	if err != nil {
+		t.Fatalf("claim after finalized send: %v", err)
+	}
+	if claimed {
+		t.Fatal("sent usage report should block future claims")
 	}
 }
 

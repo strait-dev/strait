@@ -32,7 +32,8 @@ func TestRotateWebhookSecret_Success(t *testing.T) {
 			return nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	enc := &mockEncryptor{}
+	srv := newTestServerWithEncryptor(t, ms, &mockQueue{}, enc)
 
 	body := `{"grace_period_minutes": 120}`
 	r := httptest.NewRequest(http.MethodPost, "/v1/webhooks/subscriptions/sub-1/rotate-secret", bytes.NewBufferString(body))
@@ -55,9 +56,6 @@ func TestRotateWebhookSecret_Success(t *testing.T) {
 	if rotatedSecret == "" || rotatedSecret == "old-secret" {
 		t.Fatal("expected new secret to be generated")
 	}
-	if rotatedSecret[:6] != "whsec_" {
-		t.Fatalf("expected whsec_ prefix, got %s", rotatedSecret[:6])
-	}
 	if time.Until(rotatedGrace) < 119*time.Minute {
 		t.Fatalf("grace period too short: %v", rotatedGrace)
 	}
@@ -69,6 +67,11 @@ func TestRotateWebhookSecret_Success(t *testing.T) {
 	if resp["new_secret"] == nil {
 		t.Fatal("response should contain new_secret")
 	}
+	newSecret, ok := resp["new_secret"].(string)
+	if !ok {
+		t.Fatalf("new_secret has unexpected type %T", resp["new_secret"])
+	}
+	requireBase64EncryptedSecretPlaintext(t, enc, rotatedSecret, newSecret)
 }
 
 func TestRotateWebhookSecret_DefaultGracePeriod(t *testing.T) {
@@ -84,7 +87,7 @@ func TestRotateWebhookSecret_DefaultGracePeriod(t *testing.T) {
 			return nil
 		},
 	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServerWithEncryptor(t, ms, &mockQueue{}, &mockEncryptor{})
 
 	r := httptest.NewRequest(http.MethodPost, "/v1/webhooks/subscriptions/sub-1/rotate-secret", bytes.NewBufferString(`{}`))
 	r.Header.Set("Content-Type", "application/json")

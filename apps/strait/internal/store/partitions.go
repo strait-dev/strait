@@ -311,3 +311,71 @@ func (q *Queries) DropPartitionWithTimeout(ctx context.Context, partition string
 	}
 	return nil
 }
+
+// DropPartitionIfEmptyWithTimeout locks, verifies, counts, and drops a
+// known history partition in one transaction. This avoids the TOCTOU race
+// where a writer inserts into a partition between a separate COUNT(*) and
+// DROP TABLE.
+func (q *Queries) DropPartitionIfEmptyWithTimeout(ctx context.Context, partition string, timeout time.Duration) (bool, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DropPartitionIfEmptyWithTimeout")
+	defer span.End()
+
+	beginner, ok := q.db.(TxBeginner)
+	if !ok {
+		return false, fmt.Errorf("drop empty partition: db does not support transactions")
+	}
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("drop empty partition begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	ms := timeout.Milliseconds()
+	if _, err := tx.Exec(ctx, fmt.Sprintf("SET LOCAL lock_timeout = %d", ms)); err != nil {
+		return false, fmt.Errorf("drop empty partition set lock_timeout: %w", err)
+	}
+
+	quoted, err := SafeQuoteIdent(partition)
+	if err != nil {
+		return false, fmt.Errorf("drop empty partition: invalid name %q: %w", partition, err)
+	}
+
+	if _, err := tx.Exec(ctx, "LOCK TABLE "+quoted+" IN ACCESS EXCLUSIVE MODE"); err != nil {
+		return false, fmt.Errorf("drop empty partition lock %s: %w", partition, err)
+	}
+
+	var isKnownChild bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM pg_inherits i
+			JOIN pg_class c ON c.oid = i.inhrelid
+			JOIN pg_class p ON p.oid = i.inhparent
+			WHERE c.relname = $1
+			  AND p.relname IN ('job_runs', 'enqueue_outbox_history')
+		)`, partition).Scan(&isKnownChild); err != nil {
+		return false, fmt.Errorf("drop empty partition verify parent %s: %w", partition, err)
+	}
+	if !isKnownChild {
+		return false, fmt.Errorf("drop empty partition %s: not a managed history partition", partition)
+	}
+
+	var count int64
+	if err := tx.QueryRow(ctx, "SELECT COUNT(*) FROM "+quoted).Scan(&count); err != nil {
+		return false, fmt.Errorf("drop empty partition count %s: %w", partition, err)
+	}
+	if count > 0 {
+		if err := tx.Commit(ctx); err != nil {
+			return false, fmt.Errorf("drop empty partition commit after non-empty count: %w", err)
+		}
+		return false, nil
+	}
+
+	if _, err := tx.Exec(ctx, "DROP TABLE "+quoted); err != nil {
+		return false, fmt.Errorf("drop empty partition %s: %w", partition, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("drop empty partition commit: %w", err)
+	}
+	return true, nil
+}

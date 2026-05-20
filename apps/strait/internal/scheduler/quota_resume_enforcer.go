@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"time"
 
 	"strait/internal/billing"
@@ -16,6 +17,7 @@ type QuotaResumeEnforcerStore interface {
 	ListAllSubscribedOrgIDs(ctx context.Context) ([]string, error)
 	GetOrgSubscription(ctx context.Context, orgID string) (*billing.OrgSubscription, error)
 	UnpauseJobsByPauseReason(ctx context.Context, orgID, reason string) (int64, error)
+	UnpauseJobsByPauseReasonBefore(ctx context.Context, orgID, reason string, pausedBefore time.Time) (int64, error)
 }
 
 // Advisory lock ID for the quota resume enforcer (arbitrary unique constant).
@@ -33,14 +35,17 @@ type QuotaResumeEnforcer struct {
 	enforcer       *billing.Enforcer
 	advisoryLocker AdvisoryLocker
 	interval       time.Duration
+	resumedMu      sync.Mutex
+	resumedPeriods map[string]string
 }
 
 // NewQuotaResumeEnforcer creates a new quota resume enforcer.
 func NewQuotaResumeEnforcer(store QuotaResumeEnforcerStore, enforcer *billing.Enforcer, interval time.Duration) *QuotaResumeEnforcer {
 	return &QuotaResumeEnforcer{
-		store:    store,
-		enforcer: enforcer,
-		interval: interval,
+		store:          store,
+		enforcer:       enforcer,
+		interval:       interval,
+		resumedPeriods: make(map[string]string),
 	}
 }
 
@@ -66,26 +71,18 @@ func (q *QuotaResumeEnforcer) Run(ctx context.Context) {
 }
 
 func (q *QuotaResumeEnforcer) enforce(ctx context.Context) {
-	if q.advisoryLocker != nil {
-		acquired, err := q.advisoryLocker.TryAdvisoryLock(ctx, quotaResumeEnforcerLockID)
-		if err != nil {
-			slog.Warn("quota resume enforcer: failed to acquire advisory lock", "error", err)
-			return
-		}
-		if !acquired {
-			return
-		}
-		defer func() {
-			if relErr := q.advisoryLocker.ReleaseAdvisoryLock(ctx, quotaResumeEnforcerLockID); relErr != nil {
-				slog.Warn("quota resume enforcer: failed to release advisory lock", "error", relErr)
-			}
-		}()
+	_, err := runWithOptionalAdvisoryLock(ctx, q.advisoryLocker, quotaResumeEnforcerLockID, q.enforceLocked)
+	if err != nil {
+		slog.Warn("quota resume enforcer: advisory lock cycle failed", "error", err)
+		return
 	}
+}
 
+func (q *QuotaResumeEnforcer) enforceLocked(ctx context.Context) error {
 	orgIDs, err := q.store.ListAllSubscribedOrgIDs(ctx)
 	if err != nil {
 		slog.Warn("quota resume enforcer: failed to list subscribed orgs", "error", err)
-		return
+		return nil
 	}
 
 	now := time.Now().UTC()
@@ -101,11 +98,15 @@ func (q *QuotaResumeEnforcer) enforce(ctx context.Context) {
 		// Only attempt to resume when a billing period boundary has been
 		// crossed. For free-tier orgs the period resets on the calendar month;
 		// for paid plans the Stripe period anchors are used.
-		if !q.isNewBillingPeriod(now, sub) {
+		periodKey, boundary, ok := q.resumePeriodKey(now, sub)
+		if !ok {
+			continue
+		}
+		if q.alreadyResumed(sub.OrgID, periodKey) {
 			continue
 		}
 
-		resumed, err := q.store.UnpauseJobsByPauseReason(ctx, orgID, "quota_exceeded")
+		resumed, err := q.store.UnpauseJobsByPauseReasonBefore(ctx, orgID, "quota_exceeded", boundary)
 		if err != nil {
 			slog.Warn("quota resume enforcer: failed to unpause jobs",
 				"org_id", orgID, "error", err)
@@ -114,6 +115,7 @@ func (q *QuotaResumeEnforcer) enforce(ctx context.Context) {
 		if resumed == 0 {
 			continue
 		}
+		q.markResumed(sub.OrgID, periodKey)
 
 		// Invalidate the enforcer cache so the next run check picks up the
 		// refreshed plan limits for the new period.
@@ -126,18 +128,36 @@ func (q *QuotaResumeEnforcer) enforce(ctx context.Context) {
 			"jobs_resumed", resumed,
 		)
 	}
+	return nil
 }
 
-// isNewBillingPeriod returns true when the current time is at or past the
-// subscription's billing period boundary. For free-tier orgs (no period end
-// set) it resets on the first day of each calendar month; for paid plans it
-// uses the current_period_end anchor from Stripe.
-func (q *QuotaResumeEnforcer) isNewBillingPeriod(now time.Time, sub *billing.OrgSubscription) bool {
+func (q *QuotaResumeEnforcer) resumePeriodKey(now time.Time, sub *billing.OrgSubscription) (string, time.Time, bool) {
+	if sub == nil {
+		return "", time.Time{}, false
+	}
 	if sub.CurrentPeriodEnd != nil {
 		// New billing period: current time is past the stored period end.
-		return now.After(*sub.CurrentPeriodEnd)
+		if !now.After(*sub.CurrentPeriodEnd) {
+			return "", time.Time{}, false
+		}
+		boundary := sub.CurrentPeriodEnd.UTC()
+		return boundary.Format(time.RFC3339Nano), boundary, true
 	}
-	// Free tier: period resets at the start of each calendar month.
-	// We treat "now is the 1st of any month" as the reset boundary.
-	return now.Day() == 1
+	boundary := time.Date(now.UTC().Year(), now.UTC().Month(), 1, 0, 0, 0, 0, time.UTC)
+	if !now.After(boundary) {
+		return "", time.Time{}, false
+	}
+	return boundary.Format("2006-01"), boundary, true
+}
+
+func (q *QuotaResumeEnforcer) alreadyResumed(orgID, periodKey string) bool {
+	q.resumedMu.Lock()
+	defer q.resumedMu.Unlock()
+	return q.resumedPeriods[orgID] == periodKey
+}
+
+func (q *QuotaResumeEnforcer) markResumed(orgID, periodKey string) {
+	q.resumedMu.Lock()
+	defer q.resumedMu.Unlock()
+	q.resumedPeriods[orgID] = periodKey
 }

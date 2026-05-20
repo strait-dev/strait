@@ -130,10 +130,16 @@ func finishSchedulerLifecycleCheckIn(meta sentrySchedulerMetadata, component str
 }
 
 func runSchedulerCycleCheckIn(ctx context.Context, interval time.Duration, fn func()) {
+	_ = runSchedulerCycleCheckInWithError(ctx, interval, func() error {
+		fn()
+		return nil
+	})
+}
+
+func runSchedulerCycleCheckInWithError(ctx context.Context, interval time.Duration, fn func() error) (err error) {
 	checkInCtx, ok := ctx.Value(schedulerCheckInContextKey{}).(schedulerCheckInContext)
 	if !ok || !checkInCtx.meta.checkInsEnabled {
-		fn()
-		return
+		return fn()
 	}
 	component := checkInCtx.component + "_cycle"
 	checkInID := startSchedulerCycleCheckIn(checkInCtx.meta, component, interval)
@@ -145,9 +151,12 @@ func runSchedulerCycleCheckIn(ctx context.Context, interval time.Duration, fn fu
 			finishSchedulerCycleCheckIn(checkInCtx.meta, component, checkInID, status, time.Since(started), nil)
 			panic(r)
 		}
+		if err != nil {
+			status = sentry.CheckInStatusError
+		}
 		finishSchedulerCycleCheckIn(checkInCtx.meta, component, checkInID, status, time.Since(started), nil)
 	}()
-	fn()
+	return fn()
 }
 
 func startSchedulerCycleCheckIn(meta sentrySchedulerMetadata, component string, interval time.Duration) sentry.EventID {

@@ -9,6 +9,7 @@ import (
 
 	"time"
 
+	"strait/internal/billing"
 	"strait/internal/clickhouse"
 	"strait/internal/config"
 	"strait/internal/queue"
@@ -47,6 +48,7 @@ type Scheduler struct {
 	staleSubscriptionChecker *StaleSubscriptionChecker
 	webhookMessageCleanup    *WebhookMessageCleanup
 	contractExpiryChecker    *ContractExpiryChecker
+	usageReportEmailer       *UsageReportEmailer
 	priorityPromoter         *PriorityPromoter
 	dunner                   DunnerRunner
 	slaCalculator            SLACalculatorRunner
@@ -57,12 +59,15 @@ type Scheduler struct {
 	partitionReclaimer       *PartitionReclaimer
 	dlqAgeOut                *DLQAgeOut
 	outboxFlusher            *OutboxFlusher
+	sloEvaluator             *SLOEvaluator
 	planDriftMonitor         *PlanDriftMonitor
 	backpressureSampler      *BackpressureSampler
 	idempotencyGC            *IdempotencyGC
+	heartbeatGC              *HeartbeatGC
 	wg                       conc.WaitGroup
 	tracker                  componentTracker
 	componentShutdownTimeout time.Duration
+	cronReloadInterval       time.Duration
 }
 
 // New creates a new scheduler that runs the cron, poller, and reaper.
@@ -97,6 +102,7 @@ func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queu
 			checkInMonitorPrefix: cfg.SentrySchedulerCheckInPrefix,
 		}},
 		componentShutdownTimeout: cfg.SchedulerComponentShutdownTimeout,
+		cronReloadInterval:       time.Minute,
 	}
 	for _, opt := range opts {
 		opt(sched)
@@ -131,6 +137,12 @@ func WithSchedulerMetrics(m *telemetry.Metrics) SchedulerOption {
 	}
 }
 
+func WithCronReloadInterval(interval time.Duration) SchedulerOption {
+	return func(s *Scheduler) {
+		s.cronReloadInterval = interval
+	}
+}
+
 // WithChExporter attaches the ClickHouse exporter to the reaper for event trigger analytics.
 func WithChExporter(e *clickhouse.Exporter) SchedulerOption {
 	return func(s *Scheduler) {
@@ -143,6 +155,27 @@ func WithChExporter(e *clickhouse.Exporter) SchedulerOption {
 func WithRotationSecretDecryptor(d SecretDecryptor) SchedulerOption {
 	return func(s *Scheduler) {
 		s.reaper.WithRotationSecretDecryptor(d)
+	}
+}
+
+// WithBudgetWebhookEnqueuer sets the webhook enqueuer for the budget monitor.
+func WithBudgetWebhookEnqueuer(enqueuer BudgetMonitorWebhookEnqueuer) SchedulerOption {
+	return func(s *Scheduler) {
+		s.budgetMonitor.enqueuer = enqueuer
+	}
+}
+
+// WithBudgetMonitoringStores wires the concrete billing stores into the
+// always-running budget monitor. Without this option the monitor loop runs but
+// has no spending/run-limit producers to evaluate.
+func WithBudgetMonitoringStores(spending SpendingLimitStore, runLimits RunLimitStore, enforcer *billing.Enforcer) SchedulerOption {
+	return func(s *Scheduler) {
+		if spending != nil {
+			s.budgetMonitor.WithSpendingLimitStore(spending)
+		}
+		if runLimits != nil && enforcer != nil {
+			s.budgetMonitor.WithRunLimitNotifications(runLimits, enforcer)
+		}
 	}
 }
 
@@ -224,6 +257,13 @@ func WithIdempotencyGC(g *IdempotencyGC) SchedulerOption {
 	}
 }
 
+// WithHeartbeatGC enables periodic deletion of orphaned heartbeat rows.
+func WithHeartbeatGC(g *HeartbeatGC) SchedulerOption {
+	return func(s *Scheduler) {
+		s.heartbeatGC = g
+	}
+}
+
 // WithBackpressureSampler enables the periodic sampler that populates
 // the strait.queue.backpressure_tokens_available gauge from the
 // project_rate_limits table. Pass nil (or a nil sampler built by
@@ -286,6 +326,13 @@ func WithUsageFlusher(flusher *UsageFlusher) SchedulerOption {
 	}
 }
 
+// WithSLOEvaluator enables periodic SLO evaluation and alert delivery.
+func WithSLOEvaluator(evaluator *SLOEvaluator) SchedulerOption {
+	return func(s *Scheduler) {
+		s.sloEvaluator = evaluator
+	}
+}
+
 // WithGracePeriodEnforcer enables periodic enforcement of expired payment grace periods.
 func WithGracePeriodEnforcer(enforcer *GracePeriodEnforcer) SchedulerOption {
 	return func(s *Scheduler) {
@@ -329,6 +376,13 @@ func WithContractExpiryChecker(checker *ContractExpiryChecker) SchedulerOption {
 	}
 }
 
+// WithUsageReportEmailer enables monthly usage report emails for opted-in paid orgs.
+func WithUsageReportEmailer(emailer *UsageReportEmailer) SchedulerOption {
+	return func(s *Scheduler) {
+		s.usageReportEmailer = emailer
+	}
+}
+
 // WithIndexMaintainerAdvisoryLocker enables single-leader execution of the
 // periodic REINDEX loop across multiple worker instances sharing a database.
 // Without this, every worker runs REINDEX independently, which is safe (the
@@ -354,6 +408,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 
 	s.cron.Start()
+	if s.cronReloadInterval > 0 {
+		s.tracker.track(ctx, &s.wg, "cron_reloader", func(componentCtx context.Context) { s.runCronReloader(componentCtx) })
+	}
 	s.tracker.track(ctx, &s.wg, "poller", func(componentCtx context.Context) { s.poller.Run(componentCtx) })
 	s.tracker.track(ctx, &s.wg, "reaper", func(componentCtx context.Context) { s.reaper.Run(componentCtx) })
 	s.tracker.track(ctx, &s.wg, "index_maintainer", func(componentCtx context.Context) { s.indexMaintainer.Run(componentCtx) })
@@ -364,6 +421,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	s.tracker.track(ctx, &s.wg, "memory_cleanup", func(componentCtx context.Context) { s.memoryCleanup.Run(componentCtx) })
 	if s.usageFlusher != nil {
 		s.tracker.track(ctx, &s.wg, "usage_flusher", func(componentCtx context.Context) { s.usageFlusher.Run(componentCtx) })
+	}
+	if s.sloEvaluator != nil {
+		s.tracker.track(ctx, &s.wg, "slo_evaluator", func(componentCtx context.Context) { s.sloEvaluator.Run(componentCtx, 5*time.Minute) })
 	}
 	if s.concurrentReconciler != nil {
 		s.tracker.track(ctx, &s.wg, "concurrent_reconciler", func(componentCtx context.Context) { s.concurrentReconciler.Run(componentCtx) })
@@ -394,6 +454,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 	if s.contractExpiryChecker != nil {
 		s.tracker.track(ctx, &s.wg, "contract_expiry_checker", func(componentCtx context.Context) { s.contractExpiryChecker.Run(componentCtx) })
+	}
+	if s.usageReportEmailer != nil {
+		s.tracker.track(ctx, &s.wg, "usage_report_emailer", func(componentCtx context.Context) { s.usageReportEmailer.Run(componentCtx) })
 	}
 	if s.priorityPromoter != nil {
 		s.tracker.track(ctx, &s.wg, "priority_promoter", func(componentCtx context.Context) { s.priorityPromoter.Run(componentCtx) })
@@ -428,9 +491,27 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	if s.idempotencyGC != nil {
 		s.tracker.track(ctx, &s.wg, "idempotency_gc", func(componentCtx context.Context) { s.idempotencyGC.Run(componentCtx) })
 	}
+	if s.heartbeatGC != nil {
+		s.tracker.track(ctx, &s.wg, "heartbeat_gc", func(componentCtx context.Context) { s.heartbeatGC.Run(componentCtx) })
+	}
 
 	slog.Info("scheduler started")
 	return nil
+}
+
+func (s *Scheduler) runCronReloader(ctx context.Context) {
+	ticker := time.NewTicker(s.cronReloadInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := s.cron.LoadJobs(ctx); err != nil {
+				slog.Warn("cron reload failed", "error", err)
+			}
+		}
+	}
 }
 
 func (s *Scheduler) Stop() {

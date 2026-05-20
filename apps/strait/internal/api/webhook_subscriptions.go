@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -104,14 +105,14 @@ func (s *Server) handleCreateWebhookSubscription(ctx context.Context, input *Cre
 	}
 	plaintextSecret := "whsec_" + hex.EncodeToString(b)
 
-	storedSecret := plaintextSecret
-	if s.encryptor != nil {
-		enc, encErr := s.encryptor.Encrypt([]byte(plaintextSecret))
-		if encErr != nil {
-			return nil, huma.Error500InternalServerError("failed to encrypt webhook secret")
-		}
-		storedSecret = string(enc)
+	if s.encryptor == nil {
+		return nil, huma.Error500InternalServerError("webhook secret encryption is not configured")
 	}
+	enc, encErr := s.encryptor.Encrypt([]byte(plaintextSecret))
+	if encErr != nil {
+		return nil, huma.Error500InternalServerError("failed to encrypt webhook secret")
+	}
+	storedSecret := base64.StdEncoding.EncodeToString(enc)
 	sub := &domain.WebhookSubscription{
 		ProjectID:  req.ProjectID,
 		WebhookURL: req.WebhookURL,
@@ -259,14 +260,14 @@ func (s *Server) handleRotateWebhookSecret(ctx context.Context, input *RotateWeb
 	}
 	newSecret := "whsec_" + hex.EncodeToString(b)
 
-	secretToStore := newSecret
-	if s.encryptor != nil {
-		enc, encErr := s.encryptor.Encrypt([]byte(newSecret))
-		if encErr != nil {
-			return nil, huma.Error500InternalServerError("failed to encrypt webhook secret")
-		}
-		secretToStore = string(enc)
+	if s.encryptor == nil {
+		return nil, huma.Error500InternalServerError("webhook secret encryption is not configured")
 	}
+	enc, encErr := s.encryptor.Encrypt([]byte(newSecret))
+	if encErr != nil {
+		return nil, huma.Error500InternalServerError("failed to encrypt webhook secret")
+	}
+	secretToStore := base64.StdEncoding.EncodeToString(enc)
 
 	graceExpiresAt := time.Now().Add(time.Duration(graceMins) * time.Minute)
 	if err := s.store.RotateWebhookSecret(ctx, input.ID, secretToStore, graceExpiresAt); err != nil {

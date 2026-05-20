@@ -112,6 +112,7 @@ type NotificationDelivery struct {
 	LastError   string          `json:"last_error,omitempty"`
 	NextRetryAt *time.Time      `json:"next_retry_at,omitempty"`
 	DeliveredAt *time.Time      `json:"delivered_at,omitempty"`
+	DedupeKey   string          `json:"-"`
 	ClaimToken  string          `json:"-"`
 	LeaseExpiry *time.Time      `json:"-"`
 	CreatedAt   time.Time       `json:"created_at"`
@@ -737,6 +738,7 @@ type WebhookDelivery struct {
 	WebhookURL     string          `json:"webhook_url"`
 	WebhookSecret  string          `json:"-"`
 	Payload        json.RawMessage `json:"-"`
+	DedupeKey      string          `json:"-"`
 	RetryPolicy    string          `json:"webhook_retry_policy,omitempty"`
 	Status         string          `json:"status"`
 	Attempts       int             `json:"attempts"`
@@ -961,7 +963,8 @@ func (s WorkflowRunStatus) IsTerminal() bool {
 
 func (s WorkflowRunStatus) IsValid() bool {
 	switch s {
-	case WfStatusPending, WfStatusRunning, WfStatusPaused, WfStatusCompleted, WfStatusFailed, WfStatusTimedOut, WfStatusCanceled:
+	case WfStatusPending, WfStatusRunning, WfStatusPaused, WfStatusCompleted, WfStatusFailed, WfStatusTimedOut, WfStatusCanceled,
+		WfStatusCompensating, WfStatusCompensated, WfStatusCompensationFailed:
 		return true
 	default:
 		return false
@@ -1038,6 +1041,14 @@ const (
 
 // DefaultEventTimeoutSecs is the default timeout for wait_for_event steps (1 hour).
 const DefaultEventTimeoutSecs = 3600
+
+// DefaultSleepDurationSecs is the default duration for sleep steps (1 minute).
+const DefaultSleepDurationSecs = 60
+
+// MaxSleepDurationSecs is the upper bound enforced on sleep steps (30 days).
+// Sleep steps create durable trigger rows; allowing unbounded durations lets a
+// workflow definition pin rows and workflow runs for years.
+const MaxSleepDurationSecs = 30 * 24 * 3600
 
 // MaxEventTimeoutSecs is the upper bound enforced on wait_for_event step
 // timeouts (30 days). Without a cap, a workflow author can pin a step in
@@ -1120,9 +1131,11 @@ const (
 	ExecutionModeWorker ExecutionMode = "worker"
 )
 
-// WorkerQueueRef identifies a connected worker queue scope. Empty
-// EnvironmentID means the worker is project-wide for that queue.
+// WorkerQueueRef identifies a connected worker queue scope. ProjectID is
+// required so worker-mode dequeue never claims another tenant's queued runs.
+// Empty EnvironmentID means the worker is project-wide for that queue.
 type WorkerQueueRef struct {
+	ProjectID     string
 	QueueName     string
 	EnvironmentID string
 }
@@ -1483,18 +1496,31 @@ const (
 	WorkerTaskStatusAssigned       WorkerTaskStatus = "assigned"
 	WorkerTaskStatusAccepted       WorkerTaskStatus = "accepted"
 	WorkerTaskStatusResultReceived WorkerTaskStatus = "result_received"
+	WorkerTaskStatusFinalizing     WorkerTaskStatus = "finalizing"
 	WorkerTaskStatusCompleted      WorkerTaskStatus = "completed"
 	WorkerTaskStatusFailed         WorkerTaskStatus = "failed"
 )
 
 // WorkerTask represents a job run assigned to a specific worker.
 type WorkerTask struct {
-	ID         string           `json:"id"`
-	WorkerID   string           `json:"worker_id"`
-	RunID      string           `json:"run_id"`
-	ProjectID  string           `json:"project_id"`
-	Status     WorkerTaskStatus `json:"status"`
-	AssignedAt time.Time        `json:"assigned_at"`
-	AcceptedAt *time.Time       `json:"accepted_at,omitempty"`
-	FinishedAt *time.Time       `json:"finished_at,omitempty"`
+	ID         string            `json:"id"`
+	WorkerID   string            `json:"worker_id"`
+	RunID      string            `json:"run_id"`
+	ProjectID  string            `json:"project_id"`
+	Attempt    int               `json:"attempt"`
+	Status     WorkerTaskStatus  `json:"status"`
+	AssignedAt time.Time         `json:"assigned_at"`
+	AcceptedAt *time.Time        `json:"accepted_at,omitempty"`
+	FinishedAt *time.Time        `json:"finished_at,omitempty"`
+	Result     *WorkerTaskResult `json:"result,omitempty"`
+}
+
+// WorkerTaskResult is the durable TaskResult payload accepted from the worker
+// stream before executor finalization commits terminal run state.
+type WorkerTaskResult struct {
+	Status     string          `json:"status"`
+	Output     json.RawMessage `json:"output,omitempty"`
+	Error      string          `json:"error,omitempty"`
+	DurationMS int64           `json:"duration_ms,omitempty"`
+	ReceivedAt *time.Time      `json:"received_at,omitempty"`
 }

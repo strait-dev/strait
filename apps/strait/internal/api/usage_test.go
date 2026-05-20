@@ -83,6 +83,8 @@ type mockUsageService struct {
 	anomalyAlerts   []billing.AnomalyAlert
 	exportData      []byte
 	exportPDFData   []byte
+	exportErr       error
+	exportPDFErr    error
 	forecast        *billing.UsageForecastResponse
 	downgrade       *billing.DowngradeImpact
 	currentUsageErr error
@@ -124,6 +126,9 @@ func (m *mockUsageService) GetProjectCosts(_ context.Context, _ string, _, _ tim
 }
 
 func (m *mockUsageService) ExportUsageCSV(_ context.Context, _ string, _, _ time.Time) ([]byte, error) {
+	if m.exportErr != nil {
+		return nil, m.exportErr
+	}
 	if m.exportData != nil {
 		return m.exportData, nil
 	}
@@ -131,6 +136,9 @@ func (m *mockUsageService) ExportUsageCSV(_ context.Context, _ string, _, _ time
 }
 
 func (m *mockUsageService) ExportUsagePDF(_ context.Context, _ string, _, _ time.Time) ([]byte, error) {
+	if m.exportPDFErr != nil {
+		return nil, m.exportPDFErr
+	}
 	if m.exportPDFData != nil {
 		return m.exportPDFData, nil
 	}
@@ -608,7 +616,7 @@ func TestUsageEndpoint_OIDC_NoRoleForbidden(t *testing.T) {
 	}
 }
 
-func TestUsageEndpoint_OIDC_ReadRoleAllowed(t *testing.T) {
+func TestUsageEndpoint_OIDC_ProjectReadRoleForbiddenForOrgBillingRead(t *testing.T) {
 	t.Parallel()
 
 	enforcer := &mockBillingEnforcer{
@@ -628,8 +636,8 @@ func TestUsageEndpoint_OIDC_ReadRoleAllowed(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 with projects:read, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for project-scoped OIDC on org billing read, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -1017,6 +1025,20 @@ func TestExportUsage_InvalidFormat(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestExportUsage_RowLimitExceededReturns413(t *testing.T) {
+	t.Parallel()
+
+	srv := newUsageTestServer(t, &mockBillingEnforcer{}, &mockUsageService{
+		exportErr: billing.ErrUsageExportTooLarge,
+	})
+	req := authedRequest(http.MethodGet, "/v1/usage/export?org_id=org-1&from=2026-01-01&to=2026-01-31&format=csv", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected 413, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

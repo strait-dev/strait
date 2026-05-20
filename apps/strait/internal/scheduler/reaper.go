@@ -65,6 +65,7 @@ type ReaperStore interface {
 	ListAuditEventsDeadletterWithAttempts(ctx context.Context, limit int) ([]domain.AuditEvent, []string, []store.AuditDeadletterAttemptInfo, error)
 	IncrementAuditDeadletterAttempt(ctx context.Context, id string) error
 	MarkAuditDeadletterReclaimed(ctx context.Context, dlqID, newEventID string) error
+	ReplayAuditEventDeadletter(ctx context.Context, id, projectID, newEventID string) (*domain.AuditEvent, bool, error)
 	DeleteAuditDeadletterOlderThan(ctx context.Context, cutoff time.Time) (map[string]int64, error)
 	CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error
 	DeleteAuditEventDeadletter(ctx context.Context, id, projectID string) error
@@ -95,9 +96,12 @@ type QueueDepthMonitorStore interface {
 // AutoRotateAPIKeysStore is an optional interface for automatic API key rotation.
 type AutoRotateAPIKeysStore interface {
 	ListAPIKeysDueRotation(ctx context.Context) ([]domain.APIKey, error)
+	GetProjectQuota(ctx context.Context, projectID string) (*store.ProjectQuota, error)
 	CreateAPIKey(ctx context.Context, key *domain.APIKey) error
+	CreateRotatedAPIKey(ctx context.Context, oldKeyID string, newKey *domain.APIKey, graceExpiresAt time.Time) error
 	MarkAPIKeyRotated(ctx context.Context, oldKeyID, newKeyID string, graceExpiresAt time.Time) error
 	RevokeAPIKey(ctx context.Context, id string) error
+	DisableAPIKeyAutoRotation(ctx context.Context, id string) error
 	CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error
 }
 
@@ -1337,6 +1341,15 @@ func (r *Reaper) autoRotateAPIKeys(ctx context.Context) {
 	for _, oldKey := range keys {
 		if oldKey.RotationWebhookURL == "" {
 			r.logger.Warn("skipping api key auto-rotation without rotation webhook", "key_id", oldKey.ID, "project_id", oldKey.ProjectID)
+			if err := rotateStore.DisableAPIKeyAutoRotation(ctx, oldKey.ID); err != nil {
+				r.logger.Error("failed to disable api key auto-rotation without webhook", "key_id", oldKey.ID, "project_id", oldKey.ProjectID, "error", err)
+			}
+			continue
+		}
+
+		expiresAt, err := autoRotatedAPIKeyExpiry(ctx, rotateStore, oldKey)
+		if err != nil {
+			r.logger.Warn("skipping api key auto-rotation that violates lifetime policy", "key_id", oldKey.ID, "project_id", oldKey.ProjectID, "error", err)
 			continue
 		}
 
@@ -1350,13 +1363,14 @@ func (r *Reaper) autoRotateAPIKeys(ctx context.Context) {
 		keyHash := sha256.Sum256([]byte(rawKey))
 
 		newKey := &domain.APIKey{
+			ID:                    uuid.Must(uuid.NewV7()).String(),
 			ProjectID:             oldKey.ProjectID,
 			OrgID:                 oldKey.OrgID,
 			Name:                  oldKey.Name + " (auto-rotated)",
 			KeyHash:               hex.EncodeToString(keyHash[:]),
 			KeyPrefix:             rawKey[:domain.APIKeyPrefixLen],
 			Scopes:                oldKey.Scopes,
-			ExpiresAt:             oldKey.ExpiresAt,
+			ExpiresAt:             expiresAt,
 			EnvironmentID:         oldKey.EnvironmentID,
 			RotationIntervalDays:  oldKey.RotationIntervalDays,
 			RotationWebhookURL:    oldKey.RotationWebhookURL,
@@ -1368,27 +1382,14 @@ func (r *Reaper) autoRotateAPIKeys(ctx context.Context) {
 			newKey.NextRotationAt = &nextRotation
 		}
 
-		if err := rotateStore.CreateAPIKey(ctx, newKey); err != nil {
-			r.logger.Error("failed to create rotated api key", "key_id", oldKey.ID, "error", err)
-			continue
-		}
-
 		if err := r.notifyRotationWebhook(ctx, oldKey.RotationWebhookURL, oldKey.RotationWebhookSecret, oldKey.ID, newKey.ID, rawKey, newKey.KeyPrefix, oldKey.ProjectID); err != nil {
 			r.logger.Warn("rotation webhook notification failed; keeping old key active", "key_id", oldKey.ID, "new_key_id", newKey.ID, "error", err)
-			if newKey.ID != "" {
-				if revokeErr := rotateStore.RevokeAPIKey(ctx, newKey.ID); revokeErr != nil {
-					r.logger.Warn("failed to revoke undelivered rotated api key", "key_id", oldKey.ID, "new_key_id", newKey.ID, "error", revokeErr)
-				}
-			}
 			continue
 		}
 
 		graceExpiresAt := time.Now().Add(24 * time.Hour) // 24h grace period
-		if err := rotateStore.MarkAPIKeyRotated(ctx, oldKey.ID, newKey.ID, graceExpiresAt); err != nil {
-			r.logger.Error("failed to mark old key as rotated", "key_id", oldKey.ID, "new_key_id", newKey.ID, "error", err)
-			if revokeErr := rotateStore.RevokeAPIKey(ctx, newKey.ID); revokeErr != nil {
-				r.logger.Warn("failed to revoke unlinked rotated api key", "key_id", oldKey.ID, "new_key_id", newKey.ID, "error", revokeErr)
-			}
+		if err := rotateStore.CreateRotatedAPIKey(ctx, oldKey.ID, newKey, graceExpiresAt); err != nil {
+			r.logger.Error("failed to atomically create rotated api key", "key_id", oldKey.ID, "new_key_id", newKey.ID, "error", err)
 			continue
 		}
 
@@ -1410,6 +1411,18 @@ func (r *Reaper) autoRotateAPIKeys(ctx context.Context) {
 			Details:      details,
 		})
 	}
+}
+
+func autoRotatedAPIKeyExpiry(ctx context.Context, rotateStore AutoRotateAPIKeysStore, oldKey domain.APIKey) (*time.Time, error) {
+	quota, err := rotateStore.GetProjectQuota(ctx, oldKey.ProjectID)
+	if err != nil {
+		return nil, fmt.Errorf("load project quota: %w", err)
+	}
+	maxLifetimeDays := 0
+	if quota != nil {
+		maxLifetimeDays = quota.MaxKeyLifetimeDays
+	}
+	return domain.ApplyAPIKeyLifetimePolicy(time.Now(), oldKey.ExpiresAt, maxLifetimeDays)
 }
 
 func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL string, encryptedSecret []byte, oldKeyID, newKeyID, newKey, newKeyPrefix, projectID string) error {
@@ -1455,7 +1468,7 @@ func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL string, e
 		} else {
 			deliveryID := uuid.Must(uuid.NewV7()).String()
 			timestamp := time.Now().UTC().Format(time.RFC3339)
-			straitcrypto.SignWebhookRequest(req, plaintext, payload, deliveryID, timestamp)
+			straitcrypto.SignWebhookRequest(req, canonicalRotationWebhookSecret(plaintext), payload, deliveryID, timestamp)
 		}
 	}
 
@@ -1467,14 +1480,8 @@ func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL string, e
 		}
 	}
 	requestClient := *client
-	requestClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if len(via) >= 3 {
-			return fmt.Errorf("too many redirects")
-		}
-		if err := validateRotationWebhookURL(req.URL.String(), r.allowPrivateEndpoints); err != nil {
-			return fmt.Errorf("redirect blocked: %w", err)
-		}
-		return nil
+	requestClient.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
 	}
 	resp, err := requestClient.Do(req)
 	if err != nil {
@@ -1490,6 +1497,16 @@ func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL string, e
 	}
 
 	return nil
+}
+
+func canonicalRotationWebhookSecret(plaintext []byte) []byte {
+	if bytes.HasPrefix(plaintext, []byte("whsec_")) {
+		return plaintext
+	}
+	out := make([]byte, len("whsec_")+hex.EncodedLen(len(plaintext)))
+	copy(out, "whsec_")
+	hex.Encode(out[len("whsec_"):], plaintext)
+	return out
 }
 
 func validateRotationWebhookURL(rawURL string, allowPrivateEndpoints bool) error {

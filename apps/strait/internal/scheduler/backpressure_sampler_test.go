@@ -56,6 +56,15 @@ func TestBackpressureSampler_TickCallsSampler(t *testing.T) {
 	}
 }
 
+func TestBackpressureSamplerMetricAttributes_DoNotIncludeProjectID(t *testing.T) {
+	t.Parallel()
+	for _, attr := range backpressureMetricAttributes() {
+		if string(attr.Key) == "project_id" {
+			t.Fatalf("backpressure sampler must not emit raw project_id metric label")
+		}
+	}
+}
+
 func TestBackpressureSampler_TickSwallowsError(t *testing.T) {
 	t.Parallel()
 	m, err := queue.Metrics()

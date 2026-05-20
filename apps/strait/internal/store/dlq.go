@@ -32,20 +32,13 @@ func (q *Queries) ReplayDeadLetterRunWithAudit(ctx context.Context, runID string
 		return nil, fmt.Errorf("replay dlq with audit: audit event is required")
 	}
 
-	beginner, ok := q.db.(TxBeginner)
+	_, ok := q.db.(TxBeginner)
 	if !ok {
 		return nil, fmt.Errorf("replay dlq with audit: db does not support transactions")
 	}
 
 	var result *domain.JobRun
-	err := WithTx(ctx, beginner, func(txQ *Queries) error {
-		// Carry the outer Queries' audit signing and secret keys into the
-		// tx scope so CreateAuditEvent signs this event under the same
-		// chain as the non-transactional path.
-		txQ.auditSigningKey = q.auditSigningKey
-		txQ.secretEncryptionKey = q.secretEncryptionKey
-		txQ.oldSecretEncryptionKeys = append([]string(nil), q.oldSecretEncryptionKeys...)
-
+	err := q.withTx(ctx, func(txQ *Queries) error {
 		run, err := txQ.ReplayDeadLetterRun(ctx, runID)
 		if err != nil {
 			return err

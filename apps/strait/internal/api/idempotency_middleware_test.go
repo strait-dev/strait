@@ -232,6 +232,40 @@ func TestCreateAPIKeyRoute_DoesNotCacheRawSecretResponses(t *testing.T) {
 	}
 }
 
+func TestCreateWebhookSubscriptionRoute_DoesNotCacheSigningSecretResponses(t *testing.T) {
+	t.Parallel()
+
+	createCalls := 0
+	ms := &APIStoreMock{
+		TryAcquireIdempotencyKeyFunc: func(context.Context, string, string, time.Duration) (string, int, http.Header, []byte, error) {
+			t.Fatal("webhook subscription creation responses contain raw signing secrets and must not be idempotency-cached")
+			return "", 0, nil, nil, nil
+		},
+		CreateWebhookSubscriptionFunc: func(_ context.Context, sub *domain.WebhookSubscription) error {
+			createCalls++
+			sub.ID = "sub-created"
+			sub.CreatedAt = time.Now()
+			return nil
+		},
+	}
+	srv := newTestServerWithEncryptor(t, ms, &mockQueue{}, &mockEncryptor{})
+
+	req := authedProjectRequest(http.MethodPost, "/v1/webhooks/subscriptions", `{"project_id":"proj-1","webhook_url":"https://example.com/hook","event_types":["run.completed"]}`, "proj-1")
+	req.Header.Set("Idempotency-Key", "create-webhook-subscription")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if createCalls != 1 {
+		t.Fatalf("expected webhook subscription creation to run once, got %d", createCalls)
+	}
+	if len(ms.TryAcquireIdempotencyKeyCalls()) != 0 {
+		t.Fatal("webhook subscription creation unexpectedly used idempotency cache")
+	}
+}
+
 func TestIdempotencyMiddleware_PendingKey_Returns409(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{

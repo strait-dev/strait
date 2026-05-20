@@ -122,6 +122,19 @@ func (e *Enforcer) boundedFailOpen(ctx context.Context, orgID, checkType, reason
 	return nil
 }
 
+func (e *Enforcer) failClosedPlanLimitLookup(ctx context.Context, orgID, checkType string, err error) error {
+	e.recordRejection(ctx, checkType, domain.PlanFree)
+	addBillingSentryBreadcrumb(ctx, checkType, "billing plan limit lookup failed closed", map[string]any{
+		"org_id": orgID,
+		"error":  err.Error(),
+	})
+	return &LimitError{
+		Code:    "billing_plan_unavailable",
+		Message: "Billing enforcement is temporarily unavailable. Please retry shortly.",
+		Plan:    string(domain.PlanFree),
+	}
+}
+
 // resetFailOpen clears the fail-open tracker for a successful check.
 func (e *Enforcer) resetFailOpen(orgID, checkType string) {
 	e.failOpenTracker.Delete(orgID + ":" + checkType)
@@ -523,42 +536,44 @@ func hasPersistedEntitlements(raw []byte) bool {
 	return len(trimmed) > 2 && string(trimmed) != "{}"
 }
 
-// checkPaymentStatus checks the org's payment/grace status. Returns
-// (true, nil) if the caller should skip further limit checks (active grace),
-// (false, nil) if normal enforcement should continue, or (false, err) if blocked.
-func (e *Enforcer) checkPaymentStatus(ctx context.Context, orgID string) (bool, error) {
+// checkPaymentStatus checks the org's payment/grace status. nil means normal
+// plan enforcement should continue. Active grace allows payment access but
+// must not skip normal quota enforcement.
+func (e *Enforcer) checkPaymentStatus(ctx context.Context, orgID string) error {
 	sub, err := e.store.GetOrgSubscription(ctx, orgID)
 	if err != nil {
 		if errors.Is(err, ErrSubscriptionNotFound) {
-			return false, nil // free tier, no payment status
+			return nil // free tier, no payment status
 		}
 		e.logger.Warn("failed to get org subscription for payment check", "org_id", orgID, "error", err)
-		if err := e.boundedFailOpen(ctx, orgID, "payment_status", "db_error"); err != nil {
-			return false, err
-		}
-		return false, nil
+		return e.boundedFailOpen(ctx, orgID, "payment_status", "db_error")
 	}
 
 	switch sub.PaymentStatus {
 	case "restricted":
-		return false, &LimitError{
+		return &LimitError{
 			Code:    "payment_restricted",
 			Message: "Your account is restricted due to failed payment. Please update your payment method.",
 			Plan:    sub.PlanTier,
 		}
+	case "suspended":
+		return &LimitError{
+			Code:    "payment_suspended",
+			Message: "Your account is suspended due to failed payment. Please update your payment method.",
+			Plan:    sub.PlanTier,
+		}
 	case "grace":
 		if sub.GracePeriodEnd != nil && time.Now().Before(*sub.GracePeriodEnd) {
-			// Active grace period: allow the run, skip further limit checks.
-			return true, nil
+			return nil
 		}
 		// Grace period has expired.
-		return false, &LimitError{
+		return &LimitError{
 			Code:    "grace_period_expired",
 			Message: "Your payment grace period has expired. Please update your payment method.",
 			Plan:    sub.PlanTier,
 		}
 	default:
-		return false, nil
+		return nil
 	}
 }
 
@@ -569,10 +584,8 @@ func (e *Enforcer) CheckDailyRunLimit(ctx context.Context, orgID string) error {
 		return nil
 	}
 
-	if skipLimits, err := e.checkPaymentStatus(ctx, orgID); err != nil {
+	if err := e.checkPaymentStatus(ctx, orgID); err != nil {
 		return err
-	} else if skipLimits {
-		return nil
 	}
 
 	limits, err := e.GetOrgPlanLimits(ctx, orgID)
@@ -670,10 +683,8 @@ func (e *Enforcer) CheckDailyAIModelCallLimit(ctx context.Context, orgID string)
 		return nil
 	}
 
-	if skipLimits, err := e.checkPaymentStatus(ctx, orgID); err != nil {
+	if err := e.checkPaymentStatus(ctx, orgID); err != nil {
 		return err
-	} else if skipLimits {
-		return nil
 	}
 
 	limits, err := e.GetOrgPlanLimits(ctx, orgID)
@@ -778,10 +789,8 @@ func (e *Enforcer) CheckMonthlyRunLimit(ctx context.Context, orgID string) error
 		return nil
 	}
 
-	if skipLimits, err := e.checkPaymentStatus(ctx, orgID); err != nil {
+	if err := e.checkPaymentStatus(ctx, orgID); err != nil {
 		return err
-	} else if skipLimits {
-		return nil
 	}
 
 	limits, err := e.GetOrgPlanLimits(ctx, orgID)
@@ -1000,16 +1009,14 @@ func (e *Enforcer) CheckConcurrentRunLimit(ctx context.Context, orgID string) er
 		return nil
 	}
 
-	if skipLimits, err := e.checkPaymentStatus(ctx, orgID); err != nil {
+	if err := e.checkPaymentStatus(ctx, orgID); err != nil {
 		return err
-	} else if skipLimits {
-		return nil
 	}
 
 	limits, err := e.GetOrgPlanLimits(ctx, orgID)
 	if err != nil {
 		e.logger.Warn("failed to get org plan limits for concurrent check", "org_id", orgID, "error", err)
-		return nil
+		return e.failClosedPlanLimitLookup(ctx, orgID, "concurrent_limit", err)
 	}
 
 	if limits.MaxConcurrentRuns == -1 {
@@ -1156,7 +1163,7 @@ func (e *Enforcer) CheckProjectLimit(ctx context.Context, orgID string) error {
 	limits, err := e.GetOrgPlanLimits(ctx, orgID)
 	if err != nil {
 		e.logger.Warn("failed to get org plan limits for project check", "org_id", orgID, "error", err)
-		return nil
+		return e.failClosedPlanLimitLookup(ctx, orgID, "project_limit", err)
 	}
 
 	if limits.MaxProjectsPerOrg == -1 {
@@ -1286,23 +1293,34 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 			e.tryDispatchCapEvent(ctx, orgID, limits.PlanTier,
 				BillingCapEventDisabled,
 				domain.WebhookEventBillingCapDisabled, capDetail)
-		case "block":
+		case "block", "reject":
 			e.tryDispatchCapEvent(ctx, orgID, limits.PlanTier,
 				BillingCapEventOverageDisabled,
 				domain.WebhookEventBillingOverageDisabled, capDetail)
 		}
 
-		return &LimitError{
-			Code:         "spending_limit_reached",
-			Message:      fmt.Sprintf("Your monthly spending limit of $%.2f has been reached.", float64(sub.SpendingLimitMicrousd)/1000000),
-			CurrentUsage: overageSpend,
-			Limit:        sub.SpendingLimitMicrousd,
-			Plan:         sub.PlanTier,
-			UpgradeURL:   "/settings/billing",
+		if spendingLimitActionBlocks(sub.LimitAction) {
+			return &LimitError{
+				Code:         "spending_limit_reached",
+				Message:      fmt.Sprintf("Your monthly spending limit of $%.2f has been reached.", float64(sub.SpendingLimitMicrousd)/1000000),
+				CurrentUsage: overageSpend,
+				Limit:        sub.SpendingLimitMicrousd,
+				Plan:         sub.PlanTier,
+				UpgradeURL:   "/settings/billing",
+			}
 		}
 	}
 
 	return nil
+}
+
+func spendingLimitActionBlocks(action string) bool {
+	switch action {
+	case "block", "reject", "disable":
+		return true
+	default:
+		return false
+	}
 }
 
 func (e *Enforcer) checkFreeTierIncludedCredit(ctx context.Context, orgID string, sub *OrgSubscription) error {
@@ -1354,7 +1372,7 @@ func (e *Enforcer) CheckProjectBudgetLimit(ctx context.Context, projectID string
 	// budget_action="notify" or unset means the budget is informational only.
 	// budget < 0 indicates "no budget configured" via the GetProjectBudget
 	// sentinel and must always pass.
-	if action != "block" || budget < 0 {
+	if !projectBudgetActionBlocks(action) || budget < 0 {
 		return nil
 	}
 
@@ -1405,6 +1423,139 @@ func (e *Enforcer) CheckProjectBudgetLimit(ctx context.Context, projectID string
 		Plan:         planLabel,
 		UpgradeURL:   "/settings/billing",
 	}
+}
+
+func projectBudgetActionBlocks(action string) bool {
+	switch action {
+	case "block", "reject":
+		return true
+	default:
+		return false
+	}
+}
+
+func workerConnectionReservationsKey(orgID string) string {
+	return "strait:worker_connections:" + orgID
+}
+
+var workerConnectionReserveScript = redis.NewScript(`
+local key = KEYS[1]
+local reservation = ARGV[1]
+local now_ms = tonumber(ARGV[2])
+local expires_ms = tonumber(ARGV[3])
+local limit = tonumber(ARGV[4])
+local ttl_seconds = tonumber(ARGV[5])
+
+redis.call('ZREMRANGEBYSCORE', key, '-inf', now_ms)
+local count = redis.call('ZCARD', key)
+if limit ~= -1 and count >= limit then
+  return {0, count}
+end
+redis.call('ZADD', key, expires_ms, reservation)
+redis.call('EXPIRE', key, ttl_seconds)
+return {1, count + 1}
+`)
+
+const defaultWorkerConnectionLease = 90 * time.Second
+
+func normalizeWorkerConnectionLease(lease time.Duration) time.Duration {
+	if lease <= 0 {
+		return defaultWorkerConnectionLease
+	}
+	if lease < 10*time.Second {
+		return 10 * time.Second
+	}
+	return lease
+}
+
+// ReserveWorkerConnection creates a distributed, expiring worker-connection
+// reservation for orgID. The returned release function must be called when the
+// stream exits. Heartbeats should call RenewWorkerConnection before lease
+// expiry so long-lived streams remain counted across API replicas.
+func (e *Enforcer) ReserveWorkerConnection(ctx context.Context, orgID, reservationID string, lease time.Duration) (func(), error) {
+	releaseNoop := func() {}
+	if e == nil || orgID == "" || reservationID == "" || e.rdb == nil {
+		return releaseNoop, nil
+	}
+
+	limits, err := e.GetOrgPlanLimits(ctx, orgID)
+	if err != nil {
+		e.logger.Warn("failed to get org plan limits for worker connection reservation",
+			"org_id", orgID, "error", err)
+		return releaseNoop, nil
+	}
+	if limits.WorkerConnections == -1 {
+		return releaseNoop, nil
+	}
+
+	lease = normalizeWorkerConnectionLease(lease)
+	now := time.Now().UTC()
+	ttl := max(int((lease * 2).Seconds()), 1)
+	result, err := workerConnectionReserveScript.Run(ctx, e.rdb, []string{workerConnectionReservationsKey(orgID)},
+		reservationID,
+		now.UnixMilli(),
+		now.Add(lease).UnixMilli(),
+		limits.WorkerConnections,
+		ttl,
+	).Result()
+	if err != nil {
+		e.logger.Warn("failed to reserve worker connection", "org_id", orgID, "error", err)
+		return releaseNoop, e.boundedFailOpen(ctx, orgID, "worker_connections", "redis_error")
+	}
+
+	vals, ok := result.([]any)
+	if !ok || len(vals) < 2 {
+		e.logger.Warn("unexpected worker connection reservation result", "org_id", orgID)
+		return releaseNoop, e.boundedFailOpen(ctx, orgID, "worker_connections", "redis_error")
+	}
+	allowed, _ := vals[0].(int64)
+	current, _ := vals[1].(int64)
+	if allowed == 0 {
+		e.recordRejection(ctx, "worker_connections", limits.PlanTier)
+		return releaseNoop, &LimitError{
+			Code: "worker_connections_reached",
+			Message: fmt.Sprintf(
+				"Your %s plan allows %d concurrent worker connections per organization. Active: %d. Upgrade to add more.",
+				limits.DisplayName, limits.WorkerConnections, current,
+			),
+			CurrentUsage: current,
+			Limit:        int64(limits.WorkerConnections),
+			Plan:         string(limits.PlanTier),
+			UpgradeURL:   "/upgrade",
+		}
+	}
+
+	released := sync.Once{}
+	return func() {
+		released.Do(func() {
+			if err := e.rdb.ZRem(context.Background(), workerConnectionReservationsKey(orgID), reservationID).Err(); err != nil {
+				e.logger.Warn("failed to release worker connection reservation",
+					"org_id", orgID, "error", err)
+			}
+		})
+	}, nil
+}
+
+// RenewWorkerConnection extends an existing distributed worker-connection
+// reservation. Missing reservations are left missing; the next reconnect will
+// create a fresh reservation and enforce the cap again.
+func (e *Enforcer) RenewWorkerConnection(ctx context.Context, orgID, reservationID string, lease time.Duration) error {
+	if e == nil || orgID == "" || reservationID == "" || e.rdb == nil {
+		return nil
+	}
+	lease = normalizeWorkerConnectionLease(lease)
+	expiresAt := time.Now().UTC().Add(lease).UnixMilli()
+	ttl := lease * 2
+	if err := e.rdb.ZAddXX(ctx, workerConnectionReservationsKey(orgID), redis.Z{
+		Score:  float64(expiresAt),
+		Member: reservationID,
+	}).Err(); err != nil {
+		return fmt.Errorf("renew worker connection reservation: %w", err)
+	}
+	if err := e.rdb.Expire(ctx, workerConnectionReservationsKey(orgID), ttl).Err(); err != nil {
+		return fmt.Errorf("renew worker connection reservation ttl: %w", err)
+	}
+	return nil
 }
 
 // CheckWorkerConnectionLimit hard-rejects new gRPC worker registrations once an
@@ -1704,7 +1855,7 @@ func (e *Enforcer) CheckMemberLimit(ctx context.Context, orgID string) error {
 	limits, err := e.GetOrgPlanLimits(ctx, orgID)
 	if err != nil {
 		e.logger.Warn("failed to get org plan limits for member check", "org_id", orgID, "error", err)
-		return nil
+		return e.failClosedPlanLimitLookup(ctx, orgID, "member_limit", err)
 	}
 
 	if limits.MaxMembersPerOrg == -1 {

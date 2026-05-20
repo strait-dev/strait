@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"strait/internal/billing"
@@ -46,6 +47,7 @@ func NewAnomalyMonitor(s AnomalyMonitorStore, interval time.Duration) *AnomalyMo
 	}
 	return &AnomalyMonitor{
 		store:    s,
+		cooldown: newMemoryAnomalyCooldown(4 * time.Hour),
 		interval: interval,
 		logger:   slog.Default(),
 	}
@@ -53,7 +55,9 @@ func NewAnomalyMonitor(s AnomalyMonitorStore, interval time.Duration) *AnomalyMo
 
 // WithCooldown sets the cooldown provider for deduplicating alerts.
 func (am *AnomalyMonitor) WithCooldown(c AnomalyCooldown) *AnomalyMonitor {
-	am.cooldown = c
+	if c != nil {
+		am.cooldown = c
+	}
 	return am
 }
 
@@ -74,37 +78,29 @@ func (am *AnomalyMonitor) Run(ctx context.Context) {
 			return
 		case <-ticker.C:
 			runSchedulerCycleCheckIn(ctx, am.interval, func() {
-				am.check(context.WithoutCancel(ctx))
+				am.check(ctx)
 			})
 		}
 	}
 }
 
 func (am *AnomalyMonitor) check(ctx context.Context) {
-	if am.advisoryLocker != nil {
-		acquired, err := am.advisoryLocker.TryAdvisoryLock(ctx, anomalyMonitorLockID)
-		if err != nil {
-			am.logger.Warn("anomaly monitor: failed to acquire advisory lock", "error", err)
-			return
-		}
-		if !acquired {
-			return
-		}
-		defer func() {
-			if relErr := am.advisoryLocker.ReleaseAdvisoryLock(ctx, anomalyMonitorLockID); relErr != nil {
-				am.logger.Warn("anomaly monitor: failed to release advisory lock", "error", relErr)
-			}
-		}()
+	_, err := runWithOptionalAdvisoryLock(ctx, am.advisoryLocker, anomalyMonitorLockID, am.checkLocked)
+	if err != nil {
+		am.logger.Warn("anomaly monitor: advisory lock cycle failed", "error", err)
+		return
 	}
+}
 
+func (am *AnomalyMonitor) checkLocked(ctx context.Context) error {
 	orgIDs, err := am.store.ListAllSubscribedOrgIDs(ctx)
 	if err != nil {
 		am.logger.Warn("anomaly monitor: failed to list subscribed orgs", "error", err)
-		return
+		return nil
 	}
 
 	if len(orgIDs) == 0 {
-		return
+		return nil
 	}
 
 	for _, orgID := range orgIDs {
@@ -164,6 +160,7 @@ func (am *AnomalyMonitor) check(ctx context.Context) {
 			"severity", alerts[0].Severity,
 		)
 	}
+	return nil
 }
 
 func (am *AnomalyMonitor) sendAnomalyNotification(ctx context.Context, orgID string, alert billing.AnomalyAlert) {
@@ -174,17 +171,6 @@ func (am *AnomalyMonitor) sendAnomalyNotification(ctx context.Context, orgID str
 			"org_id", orgID, "error", err)
 		return
 	}
-
-	payload, _ := json.Marshal(map[string]any{
-		"event":           domain.NotificationEventCostAnomaly,
-		"org_id":          orgID,
-		"spike_ratio":     alert.SpikeRatio,
-		"severity":        alert.Severity,
-		"today_spend":     alert.TodaySpend,
-		"avg_7d_spend":    alert.Avg7dSpend,
-		"top_contributor": alert.TopContributor,
-		"timestamp":       time.Now().UTC(),
-	})
 
 	// Send email for high (5x+) and critical (10x+) spikes in addition to all channels.
 	isHighOrCritical := alert.Severity == billing.AnomalySeverityHigh || alert.Severity == billing.AnomalySeverityCritical
@@ -212,6 +198,7 @@ func (am *AnomalyMonitor) sendAnomalyNotification(ctx context.Context, orgID str
 				continue
 			}
 
+			payload := projectScopedAnomalyPayload(projectID, alert)
 			d := &domain.NotificationDelivery{
 				ChannelID:   ch.ID,
 				ProjectID:   projectID,
@@ -226,6 +213,51 @@ func (am *AnomalyMonitor) sendAnomalyNotification(ctx context.Context, orgID str
 			}
 		}
 	}
+}
+
+func projectScopedAnomalyPayload(projectID string, alert billing.AnomalyAlert) json.RawMessage {
+	payload, _ := json.Marshal(map[string]any{
+		"event":              domain.NotificationEventCostAnomaly,
+		"project_id":         projectID,
+		"severity":           alert.Severity,
+		"is_top_contributor": projectID != "" && projectID == alert.TopContributor,
+		"timestamp":          time.Now().UTC(),
+	})
+	return payload
+}
+
+type memoryAnomalyCooldown struct {
+	mu      sync.Mutex
+	ttl     time.Duration
+	entries map[string]time.Time
+}
+
+func newMemoryAnomalyCooldown(ttl time.Duration) *memoryAnomalyCooldown {
+	if ttl <= 0 {
+		ttl = 4 * time.Hour
+	}
+	return &memoryAnomalyCooldown{ttl: ttl, entries: make(map[string]time.Time)}
+}
+
+func (m *memoryAnomalyCooldown) InCooldown(_ context.Context, orgID string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	expiresAt, ok := m.entries[orgID]
+	if !ok {
+		return false, nil
+	}
+	if time.Now().After(expiresAt) {
+		delete(m.entries, orgID)
+		return false, nil
+	}
+	return true, nil
+}
+
+func (m *memoryAnomalyCooldown) SetCooldown(_ context.Context, orgID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.entries[orgID] = time.Now().Add(m.ttl)
+	return nil
 }
 
 // RedisCooldown implements AnomalyCooldown using Redis SET with TTL.

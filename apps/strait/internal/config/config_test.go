@@ -105,6 +105,7 @@ func TestLoad_Defaults(t *testing.T) {
 		{"Edition", cfg.Edition, "community"},
 		{"SequinBatchSize", cfg.SequinBatchSize, 200},
 		{"SequinWaitTimeMs", cfg.SequinWaitTimeMs, 5000},
+		{"SequinWebhookSecret", cfg.SequinWebhookSecret, ""},
 		{"GRPCBindAddr", cfg.GRPCBindAddr, "127.0.0.1"},
 		{"GRPCPort", cfg.GRPCPort, 50051},
 		{"RedisPoolSize", cfg.RedisPoolSize, 30},
@@ -377,10 +378,10 @@ func TestLoad_MaxBulkTriggerItemsDefault(t *testing.T) {
 
 func TestLoad_DurationOverrides(t *testing.T) {
 	setRequiredEnv(t)
-	t.Setenv("HEARTBEAT_INTERVAL", "5s")
+	t.Setenv("HEARTBEAT_INTERVAL", "10s")
 	t.Setenv("REAPER_INTERVAL", "1m")
 	t.Setenv("STALE_THRESHOLD", "2m")
-	t.Setenv("POLLER_INTERVAL", "10s")
+	t.Setenv("POLLER_INTERVAL", "2s")
 	t.Setenv("DB_MAX_CONN_LIFETIME", "1h")
 	t.Setenv("DB_MAX_CONN_IDLE_TIME", "10m")
 	t.Setenv("WEBHOOK_TIMEOUT", "30s")
@@ -398,10 +399,10 @@ func TestLoad_DurationOverrides(t *testing.T) {
 		got  time.Duration
 		want time.Duration
 	}{
-		{"HeartbeatInterval", cfg.HeartbeatInterval, 5 * time.Second},
+		{"HeartbeatInterval", cfg.HeartbeatInterval, 10 * time.Second},
 		{"ReaperInterval", cfg.ReaperInterval, time.Minute},
 		{"StaleThreshold", cfg.StaleThreshold, 2 * time.Minute},
-		{"PollerInterval", cfg.PollerInterval, 10 * time.Second},
+		{"PollerInterval", cfg.PollerInterval, 2 * time.Second},
 		{"DBMaxConnLifetime", cfg.DBMaxConnLifetime, time.Hour},
 		{"DBMaxConnIdleTime", cfg.DBMaxConnIdleTime, 10 * time.Minute},
 		{"WebhookTimeout", cfg.WebhookTimeout, 30 * time.Second},
@@ -800,6 +801,19 @@ func TestLoad_SequinBaseURLValidation(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
+}
+
+func TestDeepSecLoad_SequinWebhookSecret(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("SEQUIN_WEBHOOK_SECRET", "cdc-webhook-secret-32-bytes-min")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.SequinWebhookSecret != "cdc-webhook-secret-32-bytes-min" {
+		t.Fatalf("SequinWebhookSecret = %q", cfg.SequinWebhookSecret)
+	}
 }
 
 func TestLoad_StringOverrides(t *testing.T) {

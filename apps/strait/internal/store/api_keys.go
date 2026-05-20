@@ -369,6 +369,28 @@ func (q *Queries) ListAPIKeysDueRotation(ctx context.Context) ([]domain.APIKey, 
 	return keys, rows.Err()
 }
 
+// DisableAPIKeyAutoRotation clears scheduler eligibility for a key whose
+// auto-rotation configuration cannot be completed safely, such as legacy rows
+// that have a rotation interval but no webhook URL to deliver the new secret.
+func (q *Queries) DisableAPIKeyAutoRotation(ctx context.Context, id string) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DisableAPIKeyAutoRotation")
+	defer span.End()
+
+	tag, err := q.db.Exec(ctx, `
+		UPDATE api_keys
+		SET next_rotation_at = NULL
+		WHERE id = $1
+		  AND revoked_at IS NULL
+		  AND replaced_by_key_id IS NULL`, id)
+	if err != nil {
+		return fmt.Errorf("disable api key auto-rotation: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrAPIKeyNotFound
+	}
+	return nil
+}
+
 func (q *Queries) ListAPIKeysExpiringSoon(ctx context.Context, projectID string, withinDays int) ([]domain.APIKey, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListAPIKeysExpiringSoon")
 	defer span.End()
@@ -410,7 +432,8 @@ func (q *Queries) ListRunsByOrg(ctx context.Context, orgID string, limit int, cu
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, is_rollback, replayed_run_id
 		FROM job_runs
-		WHERE project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)`
+		WHERE project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
+		  AND ` + VisibleRunsClause
 
 	args := []any{orgID}
 	param := 2
@@ -500,6 +523,31 @@ func (q *Queries) MarkAPIKeyRotated(ctx context.Context, oldKeyID, newKeyID stri
 	}
 	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("api key not found, already revoked, or already rotated")
+	}
+	return nil
+}
+
+func (q *Queries) CreateRotatedAPIKey(ctx context.Context, oldKeyID string, newKey *domain.APIKey, graceExpiresAt time.Time) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateRotatedAPIKey")
+	defer span.End()
+
+	if oldKeyID == "" {
+		return fmt.Errorf("create rotated api key: old key id is required")
+	}
+	if newKey == nil {
+		return fmt.Errorf("create rotated api key: new key is required")
+	}
+	if newKey.ID == "" {
+		newKey.ID = uuid.Must(uuid.NewV7()).String()
+	}
+
+	if err := q.withTx(ctx, func(tx *Queries) error {
+		if err := tx.CreateAPIKey(ctx, newKey); err != nil {
+			return err
+		}
+		return tx.MarkAPIKeyRotated(ctx, oldKeyID, newKey.ID, graceExpiresAt)
+	}); err != nil {
+		return fmt.Errorf("create rotated api key: %w", err)
 	}
 	return nil
 }

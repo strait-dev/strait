@@ -185,6 +185,75 @@ func TestHandleCreateWorkflow_InvalidStep(t *testing.T) {
 	}
 }
 
+func TestHandleCreateWorkflow_RejectsUnknownStepType(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		CreateWorkflowFunc: func(_ context.Context, _ *domain.Workflow) error {
+			t.Fatal("CreateWorkflow must not be called for an unknown step_type")
+			return nil
+		},
+	}
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+	w := httptest.NewRecorder()
+	body := `{"project_id":"proj-1","name":"wf","slug":"wf","steps":[{"job_id":"job-1","step_ref":"s1","step_type":"approval_bypass"}]}`
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows", body))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "invalid step_type") {
+		t.Fatalf("expected invalid step_type validation error, got: %s", w.Body.String())
+	}
+}
+
+func TestHandleCreateWorkflow_CrossProjectBlockedBeforeCreate(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		CreateWorkflowFunc: func(_ context.Context, _ *domain.Workflow) error {
+			t.Fatal("CreateWorkflow must not be called for a cross-project body")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+
+	_, err := srv.handleCreateWorkflow(ctx, &CreateWorkflowInput{Body: createWorkflowRequest{
+		ProjectID: "proj-2",
+		Name:      "wf",
+		Slug:      "wf",
+	}})
+	if !isHumaStatusError(err, http.StatusNotFound) {
+		t.Fatalf("expected 404, got %v", err)
+	}
+}
+
+func TestHandleCreateWorkflow_RejectsCrossProjectJobStep(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-2"}, nil
+		},
+		CreateWorkflowFunc: func(_ context.Context, _ *domain.Workflow) error {
+			t.Fatal("CreateWorkflow must not be called for a cross-project job step")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+
+	_, err := srv.handleCreateWorkflow(ctx, &CreateWorkflowInput{Body: createWorkflowRequest{
+		ProjectID: "proj-1",
+		Name:      "wf",
+		Slug:      "wf",
+		Steps:     []workflowStepRequest{{StepRef: "run-other", JobID: "job-other"}},
+	}})
+	if !isHumaStatusError(err, http.StatusBadRequest) {
+		t.Fatalf("expected 400, got %v", err)
+	}
+}
+
 func TestHandleCreateWorkflow_InvalidResourceClass(t *testing.T) {
 	t.Parallel()
 	srv := newWorkflowTestServer(t, &APIStoreMock{}, &mockQueue{}, nil, nil)
@@ -296,6 +365,73 @@ func TestHandleListWorkflows_MissingProjectID(t *testing.T) {
 	}
 }
 
+func TestHandleCreateWorkflow_ScheduledWorkflowEnforcesScheduleLimit(t *testing.T) {
+	t.Parallel()
+	createCalled := false
+	ms := &APIStoreMock{
+		CountCronJobsByOrgFunc: func(_ context.Context, orgID string) (int, error) {
+			if orgID != "org-1" {
+				t.Fatalf("orgID = %q, want org-1", orgID)
+			}
+			return 5, nil
+		},
+		CreateWorkflowFunc: func(_ context.Context, _ *domain.Workflow) error {
+			createCalled = true
+			return nil
+		},
+	}
+
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+	srv.edition = domain.EditionCloud
+	srv.billingEnforcer = &mockBillingEnforcer{projectOrgMap: map[string]string{"proj-1": "org-1"}}
+	w := httptest.NewRecorder()
+	body := `{"project_id":"proj-1","name":"wf","slug":"wf","cron":"*/5 * * * *","steps":[{"job_id":"job-1","step_ref":"s1"}]}`
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows", body))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if createCalled {
+		t.Fatal("expected CreateWorkflow not to be called after schedule limit failure")
+	}
+}
+
+func TestHandleCloneWorkflow_ScheduledWorkflowEnforcesScheduleLimit(t *testing.T) {
+	t.Parallel()
+	createCalled := false
+	ms := &APIStoreMock{
+		GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, ProjectID: "proj-1", Name: "wf", Slug: "wf", Enabled: true, Cron: "*/5 * * * *"}, nil
+		},
+		ListStepsByWorkflowFunc: func(context.Context, string) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{{ID: "s1", StepRef: "s1", JobID: "job-1"}}, nil
+		},
+		CountCronJobsByOrgFunc: func(_ context.Context, orgID string) (int, error) {
+			if orgID != "org-1" {
+				t.Fatalf("orgID = %q, want org-1", orgID)
+			}
+			return 5, nil
+		},
+		CreateWorkflowFunc: func(context.Context, *domain.Workflow) error {
+			createCalled = true
+			return nil
+		},
+	}
+
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+	srv.edition = domain.EditionCloud
+	srv.billingEnforcer = &mockBillingEnforcer{projectOrgMap: map[string]string{"proj-1": "org-1"}}
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows/wf-1/clone", `{}`))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if createCalled {
+		t.Fatal("expected CreateWorkflow not to be called after schedule limit failure")
+	}
+}
+
 func TestHandleUpdateWorkflow_SuccessWithStepReplacement(t *testing.T) {
 	t.Parallel()
 	deleteCalled := false
@@ -342,6 +478,71 @@ func TestHandleUpdateWorkflow_SuccessWithStepReplacement(t *testing.T) {
 	}
 	if createStepCalls != 1 {
 		t.Fatalf("create step calls = %d, want 1", createStepCalls)
+	}
+}
+
+func TestHandleUpdateWorkflow_RejectsUnknownStepType(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, ProjectID: "proj-1", Name: "wf", Slug: "wf"}, nil
+		},
+		UpdateWorkflowFunc: func(_ context.Context, _ *domain.Workflow) error {
+			t.Fatal("UpdateWorkflow must not be called for an unknown step_type")
+			return nil
+		},
+		DeleteStepsByWorkflowFunc: func(_ context.Context, _ string) error {
+			t.Fatal("DeleteStepsByWorkflow must not be called for an unknown step_type")
+			return nil
+		},
+		CreateWorkflowStepFunc: func(_ context.Context, _ *domain.WorkflowStep) error {
+			t.Fatal("CreateWorkflowStep must not be called for an unknown step_type")
+			return nil
+		},
+	}
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+	w := httptest.NewRecorder()
+	body := `{"steps":[{"job_id":"job-1","step_ref":"s1","step_type":"approval_bypass"}]}`
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPatch, "/v1/workflows/wf-1", body, "proj-1"))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "invalid step_type") {
+		t.Fatalf("expected invalid step_type validation error, got: %s", w.Body.String())
+	}
+}
+
+func TestHandleUpdateWorkflow_AddingCronEnforcesScheduleLimit(t *testing.T) {
+	t.Parallel()
+	updateCalled := false
+	ms := &APIStoreMock{
+		GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, ProjectID: "proj-1", Name: "wf", Slug: "wf", Enabled: true}, nil
+		},
+		CountCronJobsByOrgFunc: func(_ context.Context, orgID string) (int, error) {
+			if orgID != "org-1" {
+				t.Fatalf("orgID = %q, want org-1", orgID)
+			}
+			return 5, nil
+		},
+		UpdateWorkflowFunc: func(_ context.Context, _ *domain.Workflow) error {
+			updateCalled = true
+			return nil
+		},
+	}
+
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+	srv.edition = domain.EditionCloud
+	srv.billingEnforcer = &mockBillingEnforcer{projectOrgMap: map[string]string{"proj-1": "org-1"}}
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/workflows/wf-1", `{"cron":"*/5 * * * *"}`))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if updateCalled {
+		t.Fatal("expected UpdateWorkflow not to be called after schedule limit failure")
 	}
 }
 
@@ -1281,7 +1482,11 @@ func TestHandleGetWorkflowRunLabels(t *testing.T) {
 
 func TestHandleDryRunWorkflow(t *testing.T) {
 	t.Parallel()
-	ms := &APIStoreMock{}
+	ms := &APIStoreMock{
+		GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, ProjectID: "proj-1"}, nil
+		},
+	}
 	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
 
 	t.Run("valid DAG", func(t *testing.T) {
@@ -1342,6 +1547,9 @@ func TestHandleWorkflowPlan(t *testing.T) {
 func TestHandleWorkflowGraph(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, ProjectID: "proj-1"}, nil
+		},
 		ListStepsByWorkflowFunc: func(_ context.Context, workflowID string) ([]domain.WorkflowStep, error) {
 			if workflowID != "wf-1" {
 				t.Fatalf("workflowID = %q, want wf-1", workflowID)
@@ -1364,6 +1572,36 @@ func TestHandleWorkflowGraph(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/graph?format=dot", ""))
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestWorkflowTopologyEndpoints_RejectCrossProjectBeforeLoadingSteps(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, ProjectID: "proj-other"}, nil
+		},
+		ListStepsByWorkflowFunc: func(_ context.Context, _ string) ([]domain.WorkflowStep, error) {
+			t.Fatal("ListStepsByWorkflow must not run for cross-project workflow topology access")
+			return nil, nil
+		},
+	}
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+
+	_, err := srv.handleDryRunWorkflow(ctx, &DryRunWorkflowInput{
+		WorkflowID: "wf-other",
+		Body: dryRunWorkflowRequest{Steps: []workflowStepRequest{
+			{StepRef: "a"},
+		}},
+	})
+	if !isHumaStatusError(err, http.StatusNotFound) {
+		t.Fatalf("dry run error = %v, want 404", err)
+	}
+
+	_, err = srv.handleWorkflowGraph(ctx, &WorkflowGraphInput{WorkflowID: "wf-other"})
+	if !isHumaStatusError(err, http.StatusNotFound) {
+		t.Fatalf("graph error = %v, want 404", err)
 	}
 }
 
@@ -2297,7 +2535,21 @@ func TestHandleCancelWorkflowRun_ErrorPaths(t *testing.T) {
 
 func TestHandleDryRunWorkflow_ErrorPaths(t *testing.T) {
 	t.Parallel()
-	srv := newWorkflowTestServer(t, &APIStoreMock{}, &mockQueue{}, nil, nil)
+	ms := &APIStoreMock{
+		GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, ProjectID: "proj-1"}, nil
+		},
+		ListStepsByWorkflowFunc: func(_ context.Context, workflowID string) ([]domain.WorkflowStep, error) {
+			if workflowID != "wf-1" {
+				t.Fatalf("workflowID = %q, want wf-1", workflowID)
+			}
+			return []domain.WorkflowStep{
+				{StepRef: "a", DependsOn: []string{"b"}},
+				{StepRef: "b", DependsOn: []string{"a"}},
+			}, nil
+		},
+	}
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
 
 	t.Run("invalid_json_body", func(t *testing.T) {
 		t.Parallel()
@@ -3123,8 +3375,8 @@ func TestHandleCloneWorkflow(t *testing.T) {
 				if wf.Slug != "custom-slug" {
 					t.Fatalf("expected slug 'custom-slug', got %q", wf.Slug)
 				}
-				if wf.ProjectID != "proj-2" {
-					t.Fatalf("expected project proj-2, got %s", wf.ProjectID)
+				if wf.ProjectID != "proj-1" {
+					t.Fatalf("expected project proj-1, got %s", wf.ProjectID)
 				}
 				return nil
 			},
@@ -3138,11 +3390,37 @@ func TestHandleCloneWorkflow(t *testing.T) {
 
 		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
 		w := httptest.NewRecorder()
-		body := `{"name":"Custom Name","slug":"custom-slug","project_id":"proj-2"}`
+		body := `{"name":"Custom Name","slug":"custom-slug","project_id":"proj-1"}`
 		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows/wf-1/clone", body))
 
 		if w.Code != http.StatusCreated {
 			t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("rejects cross-project target", func(t *testing.T) {
+		t.Parallel()
+		ms := &APIStoreMock{
+			GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: id, ProjectID: "proj-1", Name: "Original", Slug: "original", Enabled: true}, nil
+			},
+			ListStepsByWorkflowFunc: func(_ context.Context, _ string) ([]domain.WorkflowStep, error) {
+				t.Fatal("ListStepsByWorkflow must not run for cross-project clone target")
+				return nil, nil
+			},
+			CreateWorkflowFunc: func(_ context.Context, _ *domain.Workflow) error {
+				t.Fatal("CreateWorkflow must not run for cross-project clone target")
+				return nil
+			},
+		}
+
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		body := `{"name":"Custom Name","slug":"custom-slug","project_id":"proj-2"}`
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows/wf-1/clone", body))
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
 		}
 	})
 
@@ -3489,6 +3767,90 @@ func TestHandleUpsertWorkflowPolicy_ErrorPaths(t *testing.T) {
 	})
 }
 
+func TestHandleUpsertWorkflowPolicy_APIKeyRejected(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		UpsertWorkflowPolicyFunc: func(_ context.Context, _ *domain.WorkflowPolicy) error {
+			t.Fatal("UpsertWorkflowPolicy must not be called for API-key policy changes")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeWorkflowsWrite})
+
+	_, err := srv.handleUpsertWorkflowPolicy(ctx, &UpsertWorkflowPolicyInput{
+		ProjectID: "proj-1",
+		Body:      upsertWorkflowPolicyRequest{MaxFanOut: 0, MaxDepth: 0},
+	})
+	if !isHumaStatusError(err, http.StatusForbidden) {
+		t.Fatalf("expected 403, got %v", err)
+	}
+}
+
+func TestHandleUpsertWorkflowPolicy_WorkflowAuthorRejected(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		UpsertWorkflowPolicyFunc: func(_ context.Context, _ *domain.WorkflowPolicy) error {
+			t.Fatal("UpsertWorkflowPolicy must not be called for workflow authors without rbac:manage")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "user-workflow-author")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeWorkflowsWrite})
+
+	_, err := srv.handleUpsertWorkflowPolicy(ctx, &UpsertWorkflowPolicyInput{
+		ProjectID: "proj-1",
+		Body:      upsertWorkflowPolicyRequest{MaxFanOut: 0, MaxDepth: 0},
+	})
+	if !isHumaStatusError(err, http.StatusForbidden) {
+		t.Fatalf("expected 403, got %v", err)
+	}
+}
+
+func TestHandleUpsertWorkflowPolicy_RBACManagerAllowed(t *testing.T) {
+	t.Parallel()
+
+	var upserted bool
+	ms := &APIStoreMock{
+		GetUserPermissionsFunc: func(_ context.Context, projectID, actorID string) ([]string, error) {
+			if projectID != "proj-1" || actorID != "user-rbac-manager" {
+				t.Fatalf("permission lookup = %s %s", projectID, actorID)
+			}
+			return []string{domain.ScopeRBACManage}, nil
+		},
+		UpsertWorkflowPolicyFunc: func(_ context.Context, p *domain.WorkflowPolicy) error {
+			upserted = true
+			if p.ProjectID != "proj-1" || p.MaxFanOut != 2 {
+				t.Fatalf("policy = %+v", p)
+			}
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "user-rbac-manager")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeRBACManage})
+
+	_, err := srv.handleUpsertWorkflowPolicy(ctx, &UpsertWorkflowPolicyInput{
+		ProjectID: "proj-1",
+		Body:      upsertWorkflowPolicyRequest{MaxFanOut: 2, MaxDepth: 3},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !upserted {
+		t.Fatal("expected workflow policy upsert")
+	}
+}
+
 func TestHandleWorkflowVersionDiff_ErrorPaths(t *testing.T) {
 	t.Parallel()
 
@@ -3714,21 +4076,10 @@ func TestPublishWorkflowRunHook_FiresWebhook(t *testing.T) {
 
 	var webhookCreated atomic.Bool
 	webhookDone := make(chan struct{}, 1)
-	var getCalls atomic.Int32
 	ms := &APIStoreMock{
-		GetWorkflowRunFunc: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
-			n := getCalls.Add(1)
-			if n == 1 {
-				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusRunning}, nil
-			}
-			return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusPaused}, nil
-		},
-		UpdateWorkflowRunStatusFunc: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
-			return nil
-		},
 		ListWebhookSubscriptionsFunc: func(_ context.Context, projectID string) ([]domain.WebhookSubscription, error) {
 			return []domain.WebhookSubscription{
-				{ID: "sub-1", ProjectID: projectID, WebhookURL: "https://example.com/hook", EventTypes: []string{"workflow_run.pause"}, Active: true},
+				{ID: "sub-1", ProjectID: projectID, WebhookURL: "https://example.com/hook", EventTypes: []string{domain.WebhookEventWorkflowCompleted}, Active: true},
 			}, nil
 		},
 		CreateWebhookDeliveryFunc: func(_ context.Context, d *domain.WebhookDelivery) error {
@@ -3740,24 +4091,58 @@ func TestPublishWorkflowRunHook_FiresWebhook(t *testing.T) {
 			if d.WebhookURL != "https://example.com/hook" {
 				t.Errorf("expected webhook URL, got %s", d.WebhookURL)
 			}
+			if d.ProjectID != "proj-1" {
+				t.Errorf("ProjectID = %q, want proj-1", d.ProjectID)
+			}
+			if len(d.Payload) == 0 {
+				t.Error("expected workflow hook payload to be stored in Payload")
+			}
+			if d.LastError != "" {
+				t.Errorf("LastError = %q, want empty for pending workflow hook delivery", d.LastError)
+			}
 			return nil
 		},
 	}
 
 	pub := &mockPublisher{}
 	srv := newWorkflowTestServer(t, ms, &mockQueue{}, pub, nil)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/pause", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	srv.publishWorkflowRunHook(context.Background(),
+		&domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusCompleted},
+		domain.WfStatusRunning,
+		domain.WfStatusCompleted,
+		"completed",
+	)
 
 	select {
 	case <-webhookDone:
 	case <-time.After(2 * time.Second):
 		t.Error("expected webhook delivery to be created for pause event")
 	}
+}
+
+func TestPublishWorkflowRunHook_SkipsUncreatableWorkflowRunReason(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		ListWebhookSubscriptionsFunc: func(_ context.Context, projectID string) ([]domain.WebhookSubscription, error) {
+			return []domain.WebhookSubscription{
+				{ID: "legacy-sub", ProjectID: projectID, WebhookURL: "https://example.com/hook", EventTypes: []string{"workflow_run.pause"}, Active: true},
+			}, nil
+		},
+		CreateWebhookDeliveryFunc: func(context.Context, *domain.WebhookDelivery) error {
+			t.Fatal("workflow_run.pause is not creatable and must not enqueue subscription deliveries")
+			return nil
+		},
+	}
+
+	srv := newWorkflowTestServer(t, ms, &mockQueue{}, &mockPublisher{}, nil)
+	srv.publishWorkflowRunHook(context.Background(),
+		&domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusPaused},
+		domain.WfStatusRunning,
+		domain.WfStatusPaused,
+		"pause",
+	)
+	time.Sleep(20 * time.Millisecond)
 }
 
 func TestPublishWorkflowRunHook_NilDelivery(t *testing.T) {

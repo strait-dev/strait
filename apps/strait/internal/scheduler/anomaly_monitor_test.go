@@ -418,6 +418,41 @@ func TestAnomalyMonitor_Cooldown_SkipsRecentlyAlerted(t *testing.T) {
 	}
 }
 
+func TestAnomalyMonitor_DefaultCooldownDeduplicatesTicks(t *testing.T) {
+	t.Parallel()
+
+	var deliveryCount int
+	s := &mockAnomalyMonitorStore{
+		listAllSubscribedOrgIDsFn: func(context.Context) ([]string, error) {
+			return []string{"org-default-cooldown"}, nil
+		},
+		getOrgSubscriptionFn: func(_ context.Context, _ string) (*billing.OrgSubscription, error) {
+			return defaultOrgSub("org-default-cooldown"), nil
+		},
+		getOrgUsageForPeriodFn: func(_ context.Context, orgID string, _, _ time.Time) ([]billing.UsageRecord, error) {
+			return buildSpikeUsage(orgID, "proj-1", 1000, 5000), nil
+		},
+		listProjectsByOrgFn: func(_ context.Context, _ string) ([]string, error) {
+			return []string{"proj-1"}, nil
+		},
+		listEnabledNotificationChannelsFn: func(_ context.Context, _ string) ([]domain.NotificationChannel, error) {
+			return []domain.NotificationChannel{{ID: "ch-1", ProjectID: "proj-1"}}, nil
+		},
+		createNotificationDeliveryFn: func(_ context.Context, _ *domain.NotificationDelivery) error {
+			deliveryCount++
+			return nil
+		},
+	}
+
+	am := NewAnomalyMonitor(s, time.Minute)
+	am.check(context.Background())
+	am.check(context.Background())
+
+	if deliveryCount != 1 {
+		t.Fatalf("deliveries = %d, want 1 with default cooldown", deliveryCount)
+	}
+}
+
 func TestAnomalyMonitor_Cooldown_AlertsAfter4Hours(t *testing.T) {
 	t.Parallel()
 
@@ -811,11 +846,16 @@ func TestAnomalyMonitor_NotificationDeliveryCreated(t *testing.T) {
 	if payload["event"] != domain.NotificationEventCostAnomaly {
 		t.Errorf("payload event mismatch: %v", payload["event"])
 	}
-	if payload["org_id"] != "org-1" {
-		t.Errorf("payload org_id mismatch: %v", payload["org_id"])
+	if payload["project_id"] != "proj-1" {
+		t.Errorf("payload project_id mismatch: %v", payload["project_id"])
 	}
 	if payload["severity"] == nil {
 		t.Error("payload missing severity")
+	}
+	for _, key := range []string{"org_id", "today_spend", "avg_7d_spend", "top_contributor", "spike_ratio"} {
+		if _, ok := payload[key]; ok {
+			t.Fatalf("project-scoped payload leaked org-wide field %q: %v", key, payload)
+		}
 	}
 }
 
@@ -945,7 +985,7 @@ func TestAnomalyMonitor_3xSpike_NoEmail(t *testing.T) {
 	}
 }
 
-func TestAnomalyMonitor_WebhookPayload_IncludesTopContributor(t *testing.T) {
+func TestAnomalyMonitor_WebhookPayload_RedactsOrgWideAnomalyData(t *testing.T) {
 	t.Parallel()
 
 	var deliveries []*domain.NotificationDelivery
@@ -957,14 +997,17 @@ func TestAnomalyMonitor_WebhookPayload_IncludesTopContributor(t *testing.T) {
 			return defaultOrgSub("org-1"), nil
 		},
 		getOrgUsageForPeriodFn: func(_ context.Context, orgID string, _, _ time.Time) ([]billing.UsageRecord, error) {
-			return buildSpikeUsage(orgID, "proj-main", 1000, 5000), nil
+			return append(
+				buildSpikeUsage(orgID, "proj-main", 1000, 5000),
+				buildSpikeUsage(orgID, "proj-other", 1000, 2000)...,
+			), nil
 		},
 		listProjectsByOrgFn: func(_ context.Context, _ string) ([]string, error) {
-			return []string{"proj-main"}, nil
+			return []string{"proj-main", "proj-other"}, nil
 		},
-		listEnabledNotificationChannelsFn: func(_ context.Context, _ string) ([]domain.NotificationChannel, error) {
+		listEnabledNotificationChannelsFn: func(_ context.Context, projectID string) ([]domain.NotificationChannel, error) {
 			return []domain.NotificationChannel{
-				{ID: "ch-1", ProjectID: "proj-main", ChannelType: domain.ChannelTypeWebhook},
+				{ID: "ch-" + projectID, ProjectID: projectID, ChannelType: domain.ChannelTypeWebhook},
 			}, nil
 		},
 		createNotificationDeliveryFn: func(_ context.Context, d *domain.NotificationDelivery) error {
@@ -980,16 +1023,19 @@ func TestAnomalyMonitor_WebhookPayload_IncludesTopContributor(t *testing.T) {
 		t.Fatal("expected at least 1 delivery")
 	}
 
-	var payload map[string]any
-	if err := json.Unmarshal(deliveries[0].Payload, &payload); err != nil {
-		t.Fatalf("failed to unmarshal payload: %v", err)
-	}
-	tc, ok := payload["top_contributor"]
-	if !ok {
-		t.Fatal("payload missing top_contributor field")
-	}
-	if tc == "" {
-		t.Error("top_contributor should not be empty")
+	for _, d := range deliveries {
+		var payload map[string]any
+		if err := json.Unmarshal(d.Payload, &payload); err != nil {
+			t.Fatalf("failed to unmarshal payload: %v", err)
+		}
+		if payload["project_id"] != d.ProjectID {
+			t.Fatalf("payload project_id = %v, want %s", payload["project_id"], d.ProjectID)
+		}
+		for _, key := range []string{"org_id", "today_spend", "avg_7d_spend", "top_contributor", "spike_ratio"} {
+			if _, ok := payload[key]; ok {
+				t.Fatalf("project-scoped payload leaked org-wide field %q: %v", key, payload)
+			}
+		}
 	}
 }
 

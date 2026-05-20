@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -1614,6 +1615,37 @@ func TestHandleBulkReplayDeadLetterRuns_Success(t *testing.T) {
 	}
 }
 
+func TestHandleBulkReplayDeadLetterRuns_RunIDsModeDoesNotSendProjectIDOrLimit(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, Status: domain.StatusDeadLetter, ProjectID: "proj-1"}, nil
+		},
+		BulkReplayDeadLetterRunsFunc: func(_ context.Context, runIDs []string, projectID string, limit int) ([]domain.JobRun, error) {
+			if len(runIDs) != 1 || runIDs[0] != "run-1" {
+				t.Fatalf("unexpected run_ids: %+v", runIDs)
+			}
+			if projectID != "" {
+				t.Fatalf("run_ids replay must not also pass project_id, got %q", projectID)
+			}
+			if limit != 0 {
+				t.Fatalf("run_ids replay must not also pass limit, got %d", limit)
+			}
+			return []domain.JobRun{{ID: "run-1", Status: domain.StatusQueued, Attempt: 1}}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/bulk-dlq-replay", `{"run_ids":["run-1"],"limit":123}`))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestHandleTriggerJob_DryRunMode(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
@@ -2189,12 +2221,12 @@ func TestHandleGetEnvironment_Success(t *testing.T) {
 	if resp["id"] != "env-1" {
 		t.Fatalf("expected id=env-1, got %v", resp["id"])
 	}
-	resolved, ok := resp["resolved_variables"].(map[string]any)
+	resolved, ok := resp["resolved_variable_keys"].([]any)
 	if !ok {
-		t.Fatalf("expected resolved_variables object, got %T", resp["resolved_variables"])
+		t.Fatalf("expected resolved_variable_keys array, got %T", resp["resolved_variable_keys"])
 	}
-	if resolved["REGION"] != "us-east-1" {
-		t.Fatalf("expected resolved REGION, got %v", resolved["REGION"])
+	if !slices.ContainsFunc(resolved, func(v any) bool { return v == "REGION" }) {
+		t.Fatalf("expected resolved REGION key, got %v", resolved)
 	}
 }
 

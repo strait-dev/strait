@@ -103,11 +103,12 @@ type Config struct {
 	MaxBulkTriggerItems int           `env:"MAX_BULK_TRIGGER_ITEMS" default:"500"`
 
 	// Sequin CDC settings
-	SequinBaseURL      string `env:"SEQUIN_BASE_URL"`
-	SequinConsumerName string `env:"SEQUIN_CONSUMER_NAME"`
-	SequinAPIToken     string `env:"SEQUIN_API_TOKEN"`
-	SequinBatchSize    int    `env:"SEQUIN_BATCH_SIZE" default:"200"`
-	SequinWaitTimeMs   int    `env:"SEQUIN_WAIT_TIME_MS" default:"5000"`
+	SequinBaseURL       string `env:"SEQUIN_BASE_URL"`
+	SequinConsumerName  string `env:"SEQUIN_CONSUMER_NAME"`
+	SequinAPIToken      string `env:"SEQUIN_API_TOKEN"`
+	SequinWebhookSecret string `env:"SEQUIN_WEBHOOK_SECRET"`
+	SequinBatchSize     int    `env:"SEQUIN_BATCH_SIZE" default:"200"`
+	SequinWaitTimeMs    int    `env:"SEQUIN_WAIT_TIME_MS" default:"5000"`
 
 	// CORS settings
 	CORSAllowedOrigins   []string `env:"CORS_ALLOWED_ORIGINS"`
@@ -383,6 +384,9 @@ func Load() (*Config, error) {
 	if err := validateLoaded(&cfg); err != nil {
 		return nil, err
 	}
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid config: %w", err)
+	}
 
 	slog.Info("config loaded",
 		"mode", cfg.Mode,
@@ -401,7 +405,7 @@ func Load() (*Config, error) {
 // well-defined cases to match the pre-refactor behavior of Load. Returns a
 // *domain.ConfigError pinpointing the offending field, or nil on success.
 //
-//nolint:gocyclo,cyclop
+//nolint:gocognit,gocyclo,cyclop
 func validateLoaded(cfg *Config) error {
 	if cfg.DatabaseURL == "" {
 		return &domain.ConfigError{Field: "DATABASE_URL", Message: "is required"}
@@ -482,6 +486,12 @@ func validateLoaded(cfg *Config) error {
 	if cfg.AuditRetentionDefaultDays < 0 {
 		return &domain.ConfigError{Field: "AUDIT_RETENTION_DEFAULT_DAYS", Message: "must be >= 0"}
 	}
+	if cfg.AuditRetentionDefaultDays > domain.MaxAuditRetentionDays {
+		return &domain.ConfigError{
+			Field:   "AUDIT_RETENTION_DEFAULT_DAYS",
+			Message: fmt.Sprintf("must be <= %d", domain.MaxAuditRetentionDays),
+		}
+	}
 	if cfg.AuditAsyncBufferSize < 256 {
 		return &domain.ConfigError{Field: "AUDIT_ASYNC_BUFFER_SIZE", Message: "must be >= 256"}
 	}
@@ -490,6 +500,12 @@ func validateLoaded(cfg *Config) error {
 	}
 	if cfg.AuditDLQMaxAgeDays < 0 {
 		return &domain.ConfigError{Field: "AUDIT_DLQ_MAX_AGE_DAYS", Message: "must be >= 0 (0 disables retention sweep)"}
+	}
+	if cfg.AuditDLQMaxAgeDays > domain.MaxAuditRetentionDays {
+		return &domain.ConfigError{
+			Field:   "AUDIT_DLQ_MAX_AGE_DAYS",
+			Message: fmt.Sprintf("must be <= %d", domain.MaxAuditRetentionDays),
+		}
 	}
 	if cfg.AuditDLQMaxReclaimAttempts < 0 {
 		return &domain.ConfigError{Field: "AUDIT_DLQ_MAX_RECLAIM_ATTEMPTS", Message: "must be >= 0 (0 disables the cap)"}

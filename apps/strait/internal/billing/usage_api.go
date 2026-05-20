@@ -376,7 +376,10 @@ func (s *UsageService) GetUsageForecast(ctx context.Context, orgID string) (*Usa
 	projectedCompute := float64(avgDailyCompute*int64(daysInMonth)) / 1000000
 	projectedAI := float64(avgDailyAI*int64(daysInMonth)) / 1000000
 
-	limits, _ := s.enforcer.GetOrgPlanLimits(ctx, orgID)
+	limits, err := s.enforcer.GetOrgPlanLimits(ctx, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("getting org plan limits for forecast: %w", err)
+	}
 	recommended := recommendPlan(projectedRuns, avgDailyCompute*int64(daysInMonth))
 
 	daysUntilLimit := 0
@@ -469,7 +472,10 @@ func (s *UsageService) GetSpendingLimit(ctx context.Context, orgID string) (*Spe
 
 	limits := GetPlanLimits(domain.PlanTier(sub.PlanTier))
 	periodStart, _ := usagePeriodWindow(time.Now().UTC(), limits.PlanTier, sub)
-	periodSpend, _ := s.store.SumOrgPeriodSpend(ctx, orgID, periodStart)
+	periodSpend, err := s.store.SumOrgPeriodSpend(ctx, orgID, periodStart)
+	if err != nil {
+		return nil, fmt.Errorf("summing org period spend: %w", err)
+	}
 	overageSpend := computeOverageSpend(periodSpend, 0)
 
 	if limits.PlanTier == domain.PlanFree {
@@ -601,8 +607,8 @@ func (s *UsageService) GetProjectBudget(ctx context.Context, projectID string) (
 
 // SetProjectBudget validates and stores a project budget.
 func (s *UsageService) SetProjectBudget(ctx context.Context, projectID string, budgetMicro int64, action string) error {
-	if action != "reject" && action != "notify" {
-		return fmt.Errorf("budget_action must be 'reject' or 'notify'")
+	if action != "reject" && action != "block" && action != "notify" {
+		return fmt.Errorf("budget_action must be 'reject', 'block', or 'notify'")
 	}
 	if budgetMicro < 0 {
 		budgetMicro = -1 // normalize to "no budget"

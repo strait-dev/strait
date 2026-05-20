@@ -105,6 +105,10 @@ type workerTaskCompletionDispatcher interface {
 	CompleteWorkerTask(ctx context.Context, opaque any, status domain.WorkerTaskStatus) error
 }
 
+type SecretDecryptor interface {
+	Decrypt([]byte) ([]byte, error)
+}
+
 // Executor polls the queue and executes job runs via HTTP dispatch.
 type Executor struct {
 	pool                     *Pool
@@ -151,6 +155,7 @@ type Executor struct {
 	stripeUsageReporter     *billing.StripeUsageReporter
 	stripeUsageWG           conc.WaitGroup // tracks in-flight Stripe usage event goroutines
 	runCostRecorder         *billing.RunCostRecorder
+	secretDecryptor         SecretDecryptor
 	stop                    chan struct{}
 	done                    chan struct{}
 	stopOnce                sync.Once
@@ -225,6 +230,7 @@ type ExecutorConfig struct {
 	BillingEnforcer            *billing.Enforcer            // Optional: org-level billing enforcement (cloud only).
 	StripeUsageReporter        *billing.StripeUsageReporter // Optional: Stripe usage event reporting (cloud only).
 	RunCostRecorder            *billing.RunCostRecorder     // Optional: flat per-run cost recording (cloud only).
+	SecretDecryptor            SecretDecryptor              // Optional: decrypts encrypted endpoint signing secrets.
 	// QueueSnapshotter provides the set of queue names with active workers on
 	// this replica. When set, the poll loop performs a second dequeue pass
 	// for worker-mode runs filtered to those queues.
@@ -348,6 +354,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		billingEnforcer:          cfg.BillingEnforcer,
 		stripeUsageReporter:      cfg.StripeUsageReporter,
 		runCostRecorder:          cfg.RunCostRecorder,
+		secretDecryptor:          cfg.SecretDecryptor,
 		healthScorer:             NewHealthScorer(cfg.Store),
 		onCompleteTrigger:        NewOnCompleteTrigger(cfg.WorkflowLookup, cfg.WorkflowTriggerer, cfg.JobLookup, cfg.JobEnqueuer, slog.Default()),
 		stop:                     make(chan struct{}),

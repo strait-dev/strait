@@ -3,6 +3,7 @@ package billing
 import (
 	"context"
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -11,11 +12,33 @@ import (
 
 type mockExportStore struct {
 	mockBillingStore
-	usageRecords []UsageRecord
+	usageRecords      []UsageRecord
+	limitedQueryLimit int
 }
 
 func (m *mockExportStore) GetOrgUsageForPeriod(_ context.Context, _ string, _, _ time.Time) ([]UsageRecord, error) {
 	return m.usageRecords, nil
+}
+
+func (m *mockExportStore) GetOrgUsageForPeriodLimited(_ context.Context, _ string, _, _ time.Time, limit int) ([]UsageRecord, error) {
+	m.limitedQueryLimit = limit
+	if len(m.usageRecords) > limit {
+		return m.usageRecords[:limit], nil
+	}
+	return m.usageRecords, nil
+}
+
+func makeUsageExportRecords(count int) []UsageRecord {
+	records := make([]UsageRecord, count)
+	for i := range records {
+		records[i] = UsageRecord{
+			ProjectID:        fmt.Sprintf("proj-%05d", i),
+			PeriodDate:       time.Date(2026, 1, 1+(i%31), 0, 0, 0, 0, time.UTC),
+			RunsCount:        1,
+			ComputeCostMicro: 1000,
+		}
+	}
+	return records
 }
 
 func TestExportCSV_Empty(t *testing.T) {
@@ -115,6 +138,222 @@ func TestExportCSV_WithRecords(t *testing.T) {
 	}
 	if records[1][6] != "7.000000" {
 		t.Errorf("expected total_usd 7.000000, got %s", records[1][6])
+	}
+}
+
+func TestExportCSV_SingleDayPeriodAllowed(t *testing.T) {
+	t.Parallel()
+	day := time.Date(2026, 2, 3, 0, 0, 0, 0, time.UTC)
+	store := &mockExportStore{
+		usageRecords: []UsageRecord{{
+			ProjectID:        "proj-one-day",
+			PeriodDate:       day,
+			RunsCount:        1,
+			ComputeCostMicro: 1_000_000,
+		}},
+	}
+
+	data, err := ExportCSV(context.Background(), store, "org-1", ExportPeriod{From: day, To: day})
+	if err != nil {
+		t.Fatalf("ExportCSV single-day period: %v", err)
+	}
+	reader := csv.NewReader(strings.NewReader(string(data)))
+	records, err := reader.ReadAll()
+	if err != nil {
+		t.Fatalf("parse CSV: %v", err)
+	}
+	if len(records) != 2 {
+		t.Fatalf("rows = %d, want header + one record", len(records))
+	}
+}
+
+func TestExportPDF_SingleDayPeriodAllowed(t *testing.T) {
+	t.Parallel()
+	day := time.Date(2026, 2, 3, 0, 0, 0, 0, time.UTC)
+	store := &mockExportStore{
+		usageRecords: []UsageRecord{{
+			ProjectID:        "proj-one-day",
+			PeriodDate:       day,
+			RunsCount:        1,
+			ComputeCostMicro: 1_000_000,
+		}},
+	}
+
+	data, err := ExportPDF(context.Background(), store, "org-1", ExportPeriod{From: day, To: day})
+	if err != nil {
+		t.Fatalf("ExportPDF single-day period: %v", err)
+	}
+	if !strings.HasPrefix(string(data), "%PDF-") {
+		t.Fatalf("expected PDF output, got %q", string(data[:5]))
+	}
+}
+
+func TestDeepSecExportCSV_EscapesFormulaProjectID(t *testing.T) {
+	store := &mockExportStore{
+		usageRecords: []UsageRecord{
+			{
+				ProjectID:        "=HYPERLINK(\"https://attacker.test\")",
+				PeriodDate:       time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC),
+				RunsCount:        1,
+				ComputeCostMicro: 1000,
+			},
+		},
+	}
+	period := ExportPeriod{
+		From: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		To:   time.Date(2026, 1, 31, 0, 0, 0, 0, time.UTC),
+	}
+
+	data, err := ExportCSV(context.Background(), store, "org-1", period)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	reader := csv.NewReader(strings.NewReader(string(data)))
+	records, err := reader.ReadAll()
+	if err != nil {
+		t.Fatalf("failed to parse CSV: %v", err)
+	}
+	if got := records[1][1]; !strings.HasPrefix(got, "'=") {
+		t.Fatalf("project cell = %q, want formula escaped with apostrophe", got)
+	}
+}
+
+func TestDeepSecExportCSV_EscapesHiddenFormulaProjectID(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name      string
+		projectID string
+	}{
+		{"bom_equals", "\uFEFF=HYPERLINK(\"https://attacker.test\")"},
+		{"zwsp_plus", "\u200b+SUM(1,1)"},
+		{"lrm_minus", "\u200e-1+1"},
+		{"combining_mark_at", "\u0301@cmd"},
+		{"space_then_equals", " =cmd"},
+		{"tab_then_equals", "\t=cmd"},
+		{"nul_then_equals", "\x00=cmd"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &mockExportStore{
+				usageRecords: []UsageRecord{{
+					ProjectID:        tc.projectID,
+					PeriodDate:       time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC),
+					RunsCount:        1,
+					ComputeCostMicro: 1000,
+				}},
+			}
+			period := ExportPeriod{
+				From: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+				To:   time.Date(2026, 1, 31, 0, 0, 0, 0, time.UTC),
+			}
+
+			data, err := ExportCSV(context.Background(), store, "org-1", period)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			reader := csv.NewReader(strings.NewReader(string(data)))
+			records, err := reader.ReadAll()
+			if err != nil {
+				t.Fatalf("failed to parse CSV: %v", err)
+			}
+			if got := records[1][1]; !strings.HasPrefix(got, "'") {
+				t.Fatalf("project cell = %q, want formula escaped with apostrophe", got)
+			}
+		})
+	}
+}
+
+func TestDeepSecExportCSV_PreservesBenignInvisibleProjectID(t *testing.T) {
+	t.Parallel()
+
+	projectID := "\uFEFFproject-benign"
+	store := &mockExportStore{
+		usageRecords: []UsageRecord{{
+			ProjectID:        projectID,
+			PeriodDate:       time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC),
+			RunsCount:        1,
+			ComputeCostMicro: 1000,
+		}},
+	}
+	period := ExportPeriod{
+		From: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		To:   time.Date(2026, 1, 31, 0, 0, 0, 0, time.UTC),
+	}
+
+	data, err := ExportCSV(context.Background(), store, "org-1", period)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	reader := csv.NewReader(strings.NewReader(string(data)))
+	records, err := reader.ReadAll()
+	if err != nil {
+		t.Fatalf("failed to parse CSV: %v", err)
+	}
+	if got := records[1][1]; got != projectID {
+		t.Fatalf("project cell = %q, want unchanged %q", got, projectID)
+	}
+}
+
+func TestDeepSecExportCSV_RejectsOversizedPeriod(t *testing.T) {
+	store := &mockExportStore{}
+	period := ExportPeriod{
+		From: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+		To:   time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+
+	if _, err := ExportCSV(context.Background(), store, "org-1", period); err == nil {
+		t.Fatal("expected oversized export period error")
+	}
+}
+
+func TestDeepSecExportPDF_RejectsOversizedPeriod(t *testing.T) {
+	store := &mockExportStore{}
+	period := ExportPeriod{
+		From: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+		To:   time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+
+	if _, err := ExportPDF(context.Background(), store, "org-1", period); err == nil {
+		t.Fatal("expected oversized export period error")
+	}
+}
+
+func TestDeepSecExportCSV_RejectsRowOverflowWithBoundedQuery(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExportStore{usageRecords: makeUsageExportRecords(maxUsageExportRows + 1)}
+	period := ExportPeriod{
+		From: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		To:   time.Date(2026, 1, 31, 0, 0, 0, 0, time.UTC),
+	}
+
+	_, err := ExportCSV(context.Background(), store, "org-1", period)
+	if !errors.Is(err, ErrUsageExportTooLarge) {
+		t.Fatalf("ExportCSV error = %v, want ErrUsageExportTooLarge", err)
+	}
+	if store.limitedQueryLimit != maxUsageExportRows+1 {
+		t.Fatalf("limited query limit = %d, want %d", store.limitedQueryLimit, maxUsageExportRows+1)
+	}
+}
+
+func TestDeepSecExportPDF_RejectsRowOverflowWithBoundedQuery(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExportStore{usageRecords: makeUsageExportRecords(maxUsageExportRows + 1)}
+	period := ExportPeriod{
+		From: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		To:   time.Date(2026, 1, 31, 0, 0, 0, 0, time.UTC),
+	}
+
+	_, err := ExportPDF(context.Background(), store, "org-1", period)
+	if !errors.Is(err, ErrUsageExportTooLarge) {
+		t.Fatalf("ExportPDF error = %v, want ErrUsageExportTooLarge", err)
+	}
+	if store.limitedQueryLimit != maxUsageExportRows+1 {
+		t.Fatalf("limited query limit = %d, want %d", store.limitedQueryLimit, maxUsageExportRows+1)
 	}
 }
 

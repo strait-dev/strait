@@ -5,6 +5,7 @@ package clickhouse
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -174,6 +175,166 @@ func TestExporter_FlushFailure_NilMetricCounters(t *testing.T) {
 	// Should not panic even with nil counters.
 	for range maxFlushRetries + 1 {
 		e.flush(context.Background())
+	}
+}
+
+func TestExporter_RejectsSingleRecordAboveByteCap(t *testing.T) {
+	t.Parallel()
+
+	e := NewExporter(&Client{}, ExporterConfig{
+		Enabled:        true,
+		BatchSize:      100,
+		MaxBufferBytes: 256,
+	}, slog.Default())
+
+	ok := e.Enqueue(RunEventRecord{
+		EventID:   "evt-large",
+		RunID:     "run-1",
+		ProjectID: "proj-1",
+		Message:   strings.Repeat("x", 512),
+		CreatedAt: time.Now(),
+	})
+	if ok {
+		t.Fatal("oversized record was accepted")
+	}
+	if e.PendingCount() != 0 {
+		t.Fatalf("pending count = %d, want 0", e.PendingCount())
+	}
+	if e.pendingBytes != 0 {
+		t.Fatalf("pendingBytes = %d, want 0", e.pendingBytes)
+	}
+}
+
+func TestExporter_EnqueueDropsOldestByByteCap(t *testing.T) {
+	t.Parallel()
+
+	e := NewExporter(&Client{}, ExporterConfig{
+		Enabled:        true,
+		BatchSize:      100,
+		MaxBufferBytes: 512,
+	}, slog.Default())
+
+	for _, id := range []string{"old", "middle", "new"} {
+		if !e.Enqueue(RunEventRecord{
+			EventID:   id,
+			RunID:     "run-1",
+			ProjectID: "proj-1",
+			Message:   strings.Repeat("x", 180),
+			CreatedAt: time.Now(),
+		}) {
+			t.Fatalf("record %q was unexpectedly rejected", id)
+		}
+	}
+
+	if e.pendingBytes > e.config.MaxBufferBytes {
+		t.Fatalf("pendingBytes = %d, want <= %d", e.pendingBytes, e.config.MaxBufferBytes)
+	}
+	for _, rec := range e.pending {
+		event, ok := rec.(RunEventRecord)
+		if !ok {
+			t.Fatalf("pending record type = %T, want RunEventRecord", rec)
+		}
+		if event.EventID == "old" {
+			t.Fatal("oldest record remained after byte-cap overflow")
+		}
+	}
+}
+
+func TestExporter_FlushFailureRequeueHonorsByteCap(t *testing.T) {
+	t.Parallel()
+
+	e := &Exporter{
+		client: newFailingClient(t),
+		config: ExporterConfig{BatchSize: 100, MaxBufferBytes: 420},
+		logger: slog.Default(),
+		stopCh: make(chan struct{}),
+		done:   make(chan struct{}),
+	}
+	e.pending = []any{
+		RunEventRecord{EventID: "first", ProjectID: "proj-1", Message: strings.Repeat("a", 120), CreatedAt: time.Now()},
+		RunEventRecord{EventID: "second", ProjectID: "proj-1", Message: strings.Repeat("b", 120), CreatedAt: time.Now()},
+		RunEventRecord{EventID: "third", ProjectID: "proj-1", Message: strings.Repeat("c", 120), CreatedAt: time.Now()},
+	}
+	e.pendingBytes = estimateRecordsBytes(e.pending)
+
+	e.flush(context.Background())
+
+	if e.pendingBytes > e.config.MaxBufferBytes {
+		t.Fatalf("pendingBytes after requeue = %d, want <= %d", e.pendingBytes, e.config.MaxBufferBytes)
+	}
+	if e.PendingCount() == 0 {
+		t.Fatal("failed batch was fully dropped on first retry")
+	}
+	for _, rec := range e.pending {
+		event := rec.(RunEventRecord)
+		if event.EventID == "third" {
+			t.Fatal("newest failed record remained after requeue byte-cap trim")
+		}
+	}
+}
+
+func TestSanitizeRunEventRecord_DropsRawMessageAndMetadata(t *testing.T) {
+	t.Parallel()
+
+	rec := sanitizeRunEventRecord(RunEventRecord{
+		EventID:   "evt-1",
+		RunID:     "run-1",
+		ProjectID: "proj-1",
+		JobID:     "job-1",
+		EventType: "log.line",
+		Level:     "error",
+		Message:   "failed with Authorization: Bearer secret-token and password=hunter2",
+		Metadata:  `{"authorization":"Bearer secret-token","password":"hunter2"}`,
+		CreatedAt: time.Now(),
+	})
+
+	if rec.Message != "application_error" {
+		t.Fatalf("sanitized message = %q, want application_error", rec.Message)
+	}
+	if rec.Metadata != "{}" {
+		t.Fatalf("sanitized metadata = %q, want {}", rec.Metadata)
+	}
+	for _, leaked := range []string{"secret-token", "hunter2", "Authorization", "password"} {
+		if strings.Contains(rec.Message, leaked) || strings.Contains(rec.Metadata, leaked) {
+			t.Fatalf("sanitized run event leaked %q: message=%q metadata=%q", leaked, rec.Message, rec.Metadata)
+		}
+	}
+}
+
+func TestSanitizeRunEventRecord_KeepsOnlyKnownEventLabels(t *testing.T) {
+	t.Parallel()
+
+	safe := sanitizeRunEventRecord(RunEventRecord{EventType: "run_completed", Level: "info", Message: "contains secret-token"})
+	if safe.Message != "run_completed" {
+		t.Fatalf("safe event message = %q, want run_completed", safe.Message)
+	}
+
+	unknown := sanitizeRunEventRecord(RunEventRecord{EventType: "custom-secret-token", Level: "info", Message: "contains secret-token"})
+	if unknown.Message != "level_info" {
+		t.Fatalf("unknown event message = %q, want level_info", unknown.Message)
+	}
+	if strings.Contains(unknown.Message, "secret-token") {
+		t.Fatalf("unknown event label leaked raw token: %q", unknown.Message)
+	}
+}
+
+func TestSanitizeWebhookDeliveryEventRecord_RedactsURLBeforePersistence(t *testing.T) {
+	t.Parallel()
+
+	rec := sanitizeWebhookDeliveryEventRecord(WebhookDeliveryEventRecord{
+		DeliveryID: "del-1",
+		ProjectID:  "proj-1",
+		WebhookURL: "https://user:pass@hooks.example.com/services/T00/B00/token?api_key=secret#frag",
+		CreatedAt:  time.Now(),
+	})
+
+	if rec.WebhookURL != "https://hooks.example.com" {
+		t.Fatalf("sanitized webhook URL = %q, want host-only URL", rec.WebhookURL)
+	}
+	for _, leaked := range []string{"user", "pass", "services", "token", "api_key", "secret", "frag"} {
+		if strings.Contains(rec.WebhookURL, leaked) {
+			t.Fatalf("sanitized webhook URL leaked %q: %q", leaked, rec.WebhookURL)
+		}
 	}
 }
 

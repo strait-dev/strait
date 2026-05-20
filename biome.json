@@ -17,6 +17,8 @@
       "!tanstack",
       "!dist",
       "!build",
+      "!**/.context",
+      "!**/.deepsec",
       "!**/_generated",
       "!**/routeTree.gen.ts",
       "!**/.agents/skills"

@@ -16,6 +16,7 @@ type reconFakeDB struct {
 	queryCalls int
 	forcedErr  error
 	delta      int64
+	panicRun   bool
 }
 
 func (f *reconFakeDB) Exec(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
@@ -26,6 +27,9 @@ func (f *reconFakeDB) Query(_ context.Context, _ string, _ ...any) (pgx.Rows, er
 }
 func (f *reconFakeDB) QueryRow(_ context.Context, _ string, _ ...any) pgx.Row {
 	f.queryCalls++
+	if f.panicRun {
+		panic("counter db panic")
+	}
 	return &fakeRow{err: f.forcedErr, delta: f.delta}
 }
 
@@ -125,6 +129,17 @@ func TestCounterReconciler_QueryErrorLogsButContinues(t *testing.T) {
 	}
 	if r.Iterations() != 1 {
 		t.Errorf("iterations = %d", r.Iterations())
+	}
+}
+
+func TestCounterReconciler_PanicReturnsError(t *testing.T) {
+	db := &reconFakeDB{panicRun: true}
+	r := NewCounterReconciler(db, CounterReconcilerConfig{})
+	if err := r.runOnce(context.Background()); err == nil {
+		t.Fatal("runOnce error = nil, want recovered panic error")
+	}
+	if r.Iterations() != 1 {
+		t.Fatalf("iterations = %d, want 1", r.Iterations())
 	}
 }
 

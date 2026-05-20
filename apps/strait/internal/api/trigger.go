@@ -52,6 +52,8 @@ type TriggerRequest struct {
 	BatchKey       string            `json:"batch_key,omitempty" validate:"max=256"`
 }
 
+const maxTriggerTTLSecs = 30 * 24 * 60 * 60
+
 type TriggerJobInput struct {
 	JobID             string `path:"jobID"`
 	XIdempotencyKey   string `header:"X-Idempotency-Key"`
@@ -110,28 +112,24 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 	if err := validateTags(req.Tags); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
+	if err := validateTriggerScheduledAt(req.ScheduledAt); err != nil {
+		return nil, huma.Error400BadRequest(err.Error())
+	}
 
 	// Handle dry-run mode
 	if req.DryRun {
 		result, err := s.validateTriggerRequest(ctx, jobID, req)
 		if err != nil {
+			var statusErr huma.StatusError
+			if errors.As(err, &statusErr) {
+				return nil, statusErr
+			}
 			return nil, huma.Error400BadRequest(err.Error())
 		}
 		return nil, &rawStatusError{status: http.StatusOK, body: result}
 	}
 	if err := validatePayloadAgainstSchema(req.Payload, job.PayloadSchema); err != nil {
 		return nil, huma.Error400BadRequest("payload validation failed: " + err.Error())
-	}
-
-	// Validate scheduled_at bounds.
-	if req.ScheduledAt != nil {
-		delay := time.Until(*req.ScheduledAt)
-		if delay < 0 {
-			return nil, huma.Error400BadRequest("scheduled_at must not be in the past")
-		}
-		if delay > 30*24*time.Hour {
-			return nil, huma.Error400BadRequest("scheduled_at cannot exceed 30 days from now")
-		}
 	}
 
 	payload, payloadHash, err := canonicalizePayload(req.Payload)
@@ -171,15 +169,8 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		}
 	}
 
-	// Billing: enforce dispatch priority cap before any quota or run creation work.
-	if s.billingEnforcer != nil && req.Priority > 0 {
-		if err := s.billingEnforcer.CheckMaxDispatchPriority(ctx, job.ProjectID, req.Priority); err != nil {
-			var rse *rawStatusError
-			if converted := limitErrorTo402(err, ""); converted != nil && errors.As(converted, &rse) {
-				return nil, converted
-			}
-			return nil, huma.Error402PaymentRequired(err.Error())
-		}
+	if err := s.checkTriggerDispatchPriority(ctx, job.ProjectID, req.Priority); err != nil {
+		return nil, err
 	}
 
 	var projectQuota *store.ProjectQuota
@@ -188,18 +179,8 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		return nil, huma.Error500InternalServerError("failed to load project quota")
 	}
 
-	if projectQuota != nil && projectQuota.MaxDailyCostMicrousd > 0 {
-		tz := projectQuota.Timezone
-		if tz == "" {
-			tz = "UTC"
-		}
-		dailyCost, costErr := s.store.SumProjectDailyCostMicrousd(ctx, job.ProjectID, tz)
-		if costErr != nil {
-			return nil, huma.Error500InternalServerError(fmt.Sprintf("failed to evaluate daily cost budget (timezone: %s)", tz))
-		}
-		if dailyCost >= projectQuota.MaxDailyCostMicrousd {
-			return nil, huma.Error429TooManyRequests("project daily cost budget exceeded")
-		}
+	if err := s.checkTriggerDailyCostBudget(ctx, job.ProjectID, projectQuota); err != nil {
+		return nil, err
 	}
 
 	if job.DedupWindowSecs > 0 {
@@ -240,6 +221,14 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		}); err != nil {
 			return nil, triggerLimitAPIError(err, "failed to upsert debounce pending")
 		}
+		s.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", job.ID, map[string]any{
+			"debounced":         true,
+			"fire_at":           fireAt,
+			"priority":          req.Priority,
+			"debounce_key_hash": hashIdempotencyKey(req.DebounceKey),
+			"tag_keys":          tagKeys(req.Tags),
+			"triggered_by":      domain.TriggerDebounce,
+		})
 		return &TriggerJobOutput{Body: map[string]any{
 			"debounced": true,
 			"fire_at":   fireAt,
@@ -260,6 +249,7 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 			CreatedBy:   actorFromContext(ctx),
 		}
 		var batchOutput *TriggerJobOutput
+		var batchRunID string
 		if err := s.withTriggerLimitGuard(ctx, job, projectQuota, func(guardCtx context.Context, tx store.DBTX) error {
 			if err := s.store.InsertBatchBufferItem(guardCtx, item); err != nil {
 				return fmt.Errorf("insert batch buffer item: %w", err)
@@ -314,6 +304,7 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 				slog.Error("batch immediate flush enqueue failed", "job_id", job.ID, "error", enqErr)
 				return enqErr
 			}
+			batchRunID = batchRun.ID
 			batchOutput = &TriggerJobOutput{Body: map[string]any{
 				"id":     batchRun.ID,
 				"status": batchRun.Status,
@@ -327,9 +318,27 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 			return nil, triggerLimitAPIError(err, "failed to insert batch buffer item")
 		}
 		if batchOutput != nil {
+			s.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", job.ID, map[string]any{
+				"run_id":           batchRunID,
+				"batch":            true,
+				"priority":         req.Priority,
+				"batch_key_hash":   hashIdempotencyKey(req.BatchKey),
+				"tag_keys":         tagKeys(req.Tags),
+				"triggered_by":     "batch",
+				"batch_max_size":   job.BatchMaxSize,
+				"batch_window_sec": job.BatchWindowSecs,
+			})
 			return batchOutput, nil
 		}
 
+		s.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", job.ID, map[string]any{
+			"buffered":         true,
+			"priority":         req.Priority,
+			"batch_key_hash":   hashIdempotencyKey(req.BatchKey),
+			"tag_keys":         tagKeys(req.Tags),
+			"triggered_by":     "batch_buffer",
+			"batch_window_sec": job.BatchWindowSecs,
+		})
 		return &TriggerJobOutput{Body: map[string]any{
 			"buffered": true,
 		}}, nil
@@ -471,6 +480,15 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		return nil, triggerLimitAPIError(err, "failed to enqueue run")
 	}
 	if waitingRun {
+		s.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", job.ID, map[string]any{
+			"run_id":               run.ID,
+			"scheduled_at":         scheduledAt,
+			"priority":             req.Priority,
+			"idempotency_key_hash": hashIdempotencyKey(idempotencyKey),
+			"tag_keys":             tagKeys(runTags),
+			"triggered_by":         run.TriggeredBy,
+			"waiting":              true,
+		})
 		return &TriggerJobOutput{Body: map[string]any{
 			"id":              run.ID,
 			"status":          run.Status,
@@ -494,6 +512,65 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		"payload_hash":    payloadHash,
 		"idempotency_hit": false,
 	}}, nil
+}
+
+func (s *Server) checkTriggerDispatchPriority(ctx context.Context, projectID string, priority int) error {
+	if s.billingEnforcer == nil || priority <= 0 {
+		return nil
+	}
+	if err := s.billingEnforcer.CheckMaxDispatchPriority(ctx, projectID, priority); err != nil {
+		var rse *rawStatusError
+		if converted := limitErrorTo402(err, ""); converted != nil && errors.As(converted, &rse) {
+			return converted
+		}
+		return huma.Error402PaymentRequired(err.Error())
+	}
+	return nil
+}
+
+func (s *Server) checkTriggerDailyCostBudget(ctx context.Context, projectID string, projectQuota *store.ProjectQuota) error {
+	if projectQuota == nil || projectQuota.MaxDailyCostMicrousd <= 0 {
+		return nil
+	}
+	tz := projectQuota.Timezone
+	if tz == "" {
+		tz = "UTC"
+	}
+	dailyCost, err := s.store.SumProjectDailyCostMicrousd(ctx, projectID, tz)
+	if err != nil {
+		return huma.Error500InternalServerError(fmt.Sprintf("failed to evaluate daily cost budget (timezone: %s)", tz))
+	}
+	if dailyCost >= projectQuota.MaxDailyCostMicrousd {
+		return huma.Error429TooManyRequests("project daily cost budget exceeded")
+	}
+	return nil
+}
+
+func validateTriggerScheduledAt(scheduledAt *time.Time) error {
+	if scheduledAt == nil {
+		return nil
+	}
+	delay := time.Until(*scheduledAt)
+	if delay < 0 {
+		return errors.New("scheduled_at must not be in the past")
+	}
+	if delay > 30*24*time.Hour {
+		return errors.New("scheduled_at cannot exceed 30 days from now")
+	}
+	return nil
+}
+
+func validateTriggerTTLSecs(ttlSecs *int) error {
+	if ttlSecs == nil {
+		return nil
+	}
+	if *ttlSecs < 0 {
+		return errors.New("ttl_secs must be greater than or equal to 0")
+	}
+	if *ttlSecs > maxTriggerTTLSecs {
+		return errors.New("ttl_secs cannot exceed 30 days")
+	}
+	return nil
 }
 
 // hashIdempotencyKey returns a short SHA-256 prefix of the idempotency key,
@@ -740,7 +817,7 @@ type DryRunJobInfo struct {
 	VersionID     string               `json:"version_id,omitempty"`
 }
 
-//nolint:nestif
+//nolint:cyclop,gocyclo,nestif
 func (s *Server) validateTriggerRequest(ctx context.Context, jobID string, req TriggerRequest) (*DryRunValidationResult, error) {
 	if err := validateRunCreationJobID(jobID); err != nil {
 		return nil, err
@@ -762,6 +839,10 @@ func (s *Server) validateTriggerRequest(ctx context.Context, jobID string, req T
 		return nil, errors.New("job is paused -- resume it before triggering new runs")
 	}
 
+	if err := validateTriggerScheduledAt(req.ScheduledAt); err != nil {
+		return nil, err
+	}
+
 	if err := validatePayloadAgainstSchema(req.Payload, job.PayloadSchema); err != nil {
 		return nil, fmt.Errorf("payload validation failed: %w", err)
 	}
@@ -779,6 +860,10 @@ func (s *Server) validateTriggerRequest(ctx context.Context, jobID string, req T
 	}
 
 	if projectQuota != nil {
+		if err := s.checkTriggerDailyCostBudget(ctx, job.ProjectID, projectQuota); err != nil {
+			return nil, err
+		}
+
 		if projectQuota.MaxQueuedRuns > 0 {
 			queuedRuns, countErr := s.store.CountProjectQueuedRuns(ctx, job.ProjectID)
 			if countErr != nil {
@@ -798,6 +883,10 @@ func (s *Server) validateTriggerRequest(ctx context.Context, jobID string, req T
 				return nil, errors.New("project executing quota exceeded")
 			}
 		}
+	}
+
+	if err := s.checkTriggerDispatchPriority(ctx, job.ProjectID, req.Priority); err != nil {
+		return nil, err
 	}
 
 	if job.RateLimitMax > 0 && job.RateLimitWindowSecs > 0 {

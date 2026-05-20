@@ -54,6 +54,10 @@ func invoiceAuditFields(invoice *stripe.Invoice) map[string]string {
 	return out
 }
 
+func stripeMinorUnitsToMicroUSD(amount int64) int64 {
+	return amount * 10_000
+}
+
 var (
 	ErrInvalidSignature = errors.New("invalid webhook signature")
 	ErrUnknownPrice     = errors.New("unknown stripe price ID")
@@ -777,22 +781,6 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data jso
 
 	periodStart, periodEnd := extractPeriod(&sub)
 
-	// If subscription returns to active from a grace/restricted state, clear it.
-	if status == "active" {
-		existing, existErr := h.store.GetOrgSubscription(ctx, orgID)
-		if existErr == nil && (existing.PaymentStatus == "grace" || existing.PaymentStatus == "restricted") {
-			if err := h.store.UpdatePaymentStatus(ctx, orgID, "ok", nil); err != nil && !errors.Is(err, ErrSubscriptionNotFound) {
-				return fmt.Errorf("clearing grace period on active: %w", err)
-			}
-			if h.enforcer != nil {
-				h.enforcer.InvalidateOrgCache(orgID)
-			}
-			h.logger.Info("payment recovered, grace period cleared",
-				"org_id", orgID,
-			)
-		}
-	}
-
 	// Check if this is a downgrade by comparing plan limits.
 	existing, existErr := h.store.GetOrgSubscription(ctx, orgID)
 	if existErr != nil && !errors.Is(existErr, ErrSubscriptionNotFound) {
@@ -864,6 +852,9 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data jso
 			if upsertErr := h.store.UpsertOrgSubscription(ctx, orgSub); upsertErr != nil {
 				return upsertErr
 			}
+			if _, reconcileErr := ReconcileActiveAddonsForPlan(ctx, h.store, orgID, GetPlanLimits(tier)); reconcileErr != nil {
+				return fmt.Errorf("reconciling add-ons after subscription fallback create: %w", reconcileErr)
+			}
 			if h.enforcer != nil {
 				h.enforcer.InvalidateOrgCache(orgID)
 			}
@@ -883,6 +874,9 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data jso
 
 	if h.enforcer != nil {
 		h.enforcer.InvalidateOrgCache(orgID)
+	}
+	if _, err := ReconcileActiveAddonsForPlan(ctx, h.store, orgID, GetPlanLimits(tier)); err != nil {
+		return fmt.Errorf("reconciling add-ons after subscription update: %w", err)
 	}
 
 	// Auto-unpause HTTP jobs that were paused due to a previous plan downgrade.
@@ -1170,7 +1164,7 @@ func (h *WebhookHandler) handlePaymentSucceeded(ctx context.Context, data json.R
 				"stripe_invoice_id":      invoice.ID,
 				"stripe_subscription_id": sub.ID,
 				"plan_tier":              existing.PlanTier,
-				"amount_paid_microusd":   invoice.AmountPaid,
+				"amount_paid_microusd":   stripeMinorUnitsToMicroUSD(invoice.AmountPaid),
 				"paid_at":                time.Now().UTC().Format(time.RFC3339Nano),
 			})
 	}
@@ -1216,6 +1210,12 @@ func (h *WebhookHandler) handlePaymentFailed(ctx context.Context, data json.RawM
 	if existing.PlanTier == string(domain.PlanFree) {
 		return nil
 	}
+	if existing.PaymentStatus == "restricted" {
+		h.logger.Info("payment failed for already restricted org, leaving restriction in place",
+			"org_id", orgID,
+		)
+		return nil
+	}
 
 	graceEnd := time.Now().Add(72 * time.Hour)
 	if err := h.store.UpdatePaymentStatus(ctx, orgID, "grace", &graceEnd); err != nil && !errors.Is(err, ErrSubscriptionNotFound) {
@@ -1247,7 +1247,7 @@ func (h *WebhookHandler) handlePaymentFailed(ctx context.Context, data json.RawM
 			domain.WebhookEventBillingDelinquent, map[string]any{
 				"stripe_invoice_id":   invoice.ID,
 				"grace_period_end":    graceEnd.UTC().Format(time.RFC3339Nano),
-				"amount_due_microusd": invoice.AmountDue,
+				"amount_due_microusd": stripeMinorUnitsToMicroUSD(invoice.AmountDue),
 				"attempt_count":       invoice.AttemptCount,
 			})
 	}
@@ -1293,6 +1293,9 @@ func (h *WebhookHandler) handleSubscriptionPaused(ctx context.Context, data json
 			return nil
 		}
 		return fmt.Errorf("pausing subscription: %w", err)
+	}
+	if err := h.store.UpdatePaymentStatus(ctx, orgID, "restricted", nil); err != nil && !errors.Is(err, ErrSubscriptionNotFound) {
+		return fmt.Errorf("restricting paused subscription: %w", err)
 	}
 
 	if h.enforcer != nil {
@@ -1351,6 +1354,12 @@ func (h *WebhookHandler) handleSubscriptionResumed(ctx context.Context, data jso
 			return nil
 		}
 		return fmt.Errorf("resuming subscription: %w", err)
+	}
+	if err := h.store.UpdatePaymentStatus(ctx, orgID, "ok", nil); err != nil && !errors.Is(err, ErrSubscriptionNotFound) {
+		return fmt.Errorf("clearing payment restriction on subscription resume: %w", err)
+	}
+	if _, err := ReconcileActiveAddonsForPlan(ctx, h.store, orgID, GetPlanLimits(tier)); err != nil {
+		return fmt.Errorf("reconciling add-ons after subscription resume: %w", err)
 	}
 
 	if h.enforcer != nil {

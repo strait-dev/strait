@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	straitcrypto "strait/internal/crypto"
 	"strait/internal/domain"
 )
 
@@ -21,7 +22,8 @@ func TestHandleCreateJob_WorkerModeDefaultsQueueName(t *testing.T) {
 		},
 	}
 
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	enc := &mockEncryptor{}
+	srv := newTestServerWithEncryptor(t, ms, &mockQueue{}, enc)
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
 
 	_, err := srv.handleCreateJob(ctx, &CreateJobInput{Body: CreateJobRequest{
@@ -54,7 +56,8 @@ func TestHandleCreateJob_PersistsEndpointSigningSecret(t *testing.T) {
 		},
 	}
 
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	enc := &mockEncryptor{}
+	srv := newTestServerWithEncryptor(t, ms, &mockQueue{}, enc)
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
 
 	_, err := srv.handleCreateJob(ctx, &CreateJobInput{Body: CreateJobRequest{
@@ -71,8 +74,52 @@ func TestHandleCreateJob_PersistsEndpointSigningSecret(t *testing.T) {
 	if captured == nil {
 		t.Fatal("expected CreateJob to be called")
 	}
-	if captured.EndpointSigningSecret != "loadtest-secret-32-bytes-long" {
-		t.Fatalf("captured.EndpointSigningSecret = %q", captured.EndpointSigningSecret)
+	requireEncryptedSecretPlaintext(t, enc, captured.EndpointSigningSecret, "loadtest-secret-32-bytes-long")
+}
+
+func TestHandleCreateJob_EncryptsEndpointSigningSecretAtRest(t *testing.T) {
+	t.Parallel()
+
+	var captured *domain.Job
+	ms := &APIStoreMock{
+		CreateJobFunc: func(_ context.Context, job *domain.Job) error {
+			cp := *job
+			captured = &cp
+			job.ID = "job-http-encrypted"
+			return nil
+		},
+	}
+
+	enc := &mockEncryptor{}
+	srv := newTestServerWithEncryptor(t, ms, &mockQueue{}, enc)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+
+	_, err := srv.handleCreateJob(ctx, &CreateJobInput{Body: CreateJobRequest{
+		ProjectID:             "proj-1",
+		Name:                  "Signed HTTP Job",
+		Slug:                  "signed-http-job",
+		EndpointURL:           "https://example.com/hook",
+		EndpointSigningSecret: "loadtest-secret-32-bytes-long",
+		ExecutionMode:         string(domain.ExecutionModeHTTP),
+	}})
+	if err != nil {
+		t.Fatalf("handleCreateJob: %v", err)
+	}
+	if captured == nil {
+		t.Fatal("expected CreateJob to be called")
+	}
+	if captured.EndpointSigningSecret == "loadtest-secret-32-bytes-long" {
+		t.Fatal("endpoint signing secret was stored in plaintext")
+	}
+	if !straitcrypto.IsEncryptedField(captured.EndpointSigningSecret) {
+		t.Fatalf("endpoint signing secret = %q, want encrypted field prefix", captured.EndpointSigningSecret)
+	}
+	plaintext, err := straitcrypto.DecryptField(enc, captured.EndpointSigningSecret)
+	if err != nil {
+		t.Fatalf("decrypt stored endpoint signing secret: %v", err)
+	}
+	if plaintext != "loadtest-secret-32-bytes-long" {
+		t.Fatalf("decrypted endpoint signing secret = %q", plaintext)
 	}
 }
 

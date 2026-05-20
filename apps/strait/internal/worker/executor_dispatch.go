@@ -3,10 +3,13 @@ package worker
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptrace"
 	"strconv"
@@ -15,6 +18,7 @@ import (
 
 	workergrpc "strait/internal/api/grpc"
 	"strait/internal/billing"
+	straitcrypto "strait/internal/crypto"
 	"strait/internal/domain"
 	"strait/internal/httputil"
 	"strait/internal/store"
@@ -50,15 +54,46 @@ func addHMACHeaders(headers map[string]string, secret string, body []byte) {
 	headers["X-Strait-Signature"] = SignHTTPDispatch(secret, ts, body)
 }
 
+func (e *Executor) endpointSigningSecret(job *domain.Job) (string, error) {
+	secret, err := straitcrypto.DecryptField(e.secretDecryptor, job.EndpointSigningSecret)
+	if err != nil {
+		return "", fmt.Errorf("decrypt endpoint signing secret: %w", err)
+	}
+	return secret, nil
+}
+
+func dispatchSecretsCacheKey(job *domain.Job) string {
+	return "secrets:" + job.ID + ":" + job.EnvironmentID
+}
+
+func (e *Executor) dispatchSecrets(ctx context.Context, job *domain.Job) ([]domain.JobSecret, error) {
+	secretsCacheKey := dispatchSecretsCacheKey(job)
+	if cached, ok := dispatchCacheGet[[]domain.JobSecret](ctx, secretsCacheKey); ok {
+		return cached, nil
+	}
+
+	secrets, err := e.store.ListJobSecretsByJob(ctx, job.ID, job.EnvironmentID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load secrets for job %s: %w", job.ID, err)
+	}
+	dispatchCacheSet(ctx, secretsCacheKey, secrets)
+	return secrets, nil
+}
+
 // resolveJobForRun loads the job configuration for a run, applying version
 // policy rules. For "pin" (default), returns the enqueue-time version. For
 // "latest", upgrades to the current version. For "minor", upgrades only if
 // the current version is marked backwards_compatible.
 func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*domain.Job, error) {
 	var current *domain.Job
+	bypassCache := false
 	if e.jobCache != nil {
 		if cached, err := e.jobCache.Get(ctx, run.JobID); err == nil {
-			current = cached
+			current = cloneJob(cached)
+			if current.VersionPolicy == domain.VersionPolicyLatest || current.VersionPolicy == domain.VersionPolicyMinor {
+				current = nil
+				bypassCache = true
+			}
 		}
 	}
 
@@ -66,7 +101,7 @@ func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*d
 		// Coalesce concurrent cache misses for the same job so a fan-out of
 		// runs does not stampede the DB. Mirrors billing.Enforcer.GetOrgLimits.
 		result, err, _ := e.jobResolveGroup.Do(run.JobID, func() (any, error) {
-			if e.jobCache != nil {
+			if e.jobCache != nil && !bypassCache {
 				if cached, gerr := e.jobCache.Get(ctx, run.JobID); gerr == nil {
 					return cached, nil
 				}
@@ -76,18 +111,18 @@ func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*d
 				return nil, gerr
 			}
 			if e.jobCache != nil {
-				_ = e.jobCache.Set(ctx, run.JobID, job)
+				_ = e.jobCache.Set(ctx, run.JobID, cloneJob(job))
 			}
-			return job, nil
+			return cloneJob(job), nil
 		})
 		if err != nil {
 			return nil, fmt.Errorf("load current job: %w", err)
 		}
-		current = result.(*domain.Job)
+		current = cloneJob(result.(*domain.Job))
 	}
 
 	if current.Version == run.JobVersion {
-		return current, nil
+		return cloneJob(current), nil
 	}
 
 	switch current.VersionPolicy {
@@ -100,7 +135,7 @@ func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*d
 		)
 		run.JobVersion = current.Version
 		run.JobVersionID = current.VersionID
-		return current, nil
+		return cloneJob(current), nil
 
 	case domain.VersionPolicyMinor:
 		if current.BackwardsCompatible {
@@ -112,7 +147,7 @@ func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*d
 			)
 			run.JobVersion = current.Version
 			run.JobVersionID = current.VersionID
-			return current, nil
+			return cloneJob(current), nil
 		}
 		e.logger.Info("version policy: minor upgrade skipped (not backwards compatible)",
 			"run_id", run.ID,
@@ -125,6 +160,44 @@ func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*d
 	}
 
 	return e.store.GetJobAtVersion(ctx, run.JobID, run.JobVersion)
+}
+
+func cloneJob(job *domain.Job) *domain.Job {
+	if job == nil {
+		return nil
+	}
+	cloned := *job
+	if job.Tags != nil {
+		cloned.Tags = maps.Clone(job.Tags)
+	}
+	if job.DefaultRunMetadata != nil {
+		cloned.DefaultRunMetadata = maps.Clone(job.DefaultRunMetadata)
+	}
+	if job.RetryDelaysSecs != nil {
+		cloned.RetryDelaysSecs = append([]int(nil), job.RetryDelaysSecs...)
+	}
+	if job.RateLimitKeys != nil {
+		cloned.RateLimitKeys = append([]domain.RateLimitKey(nil), job.RateLimitKeys...)
+	}
+	if job.PreferredRegions != nil {
+		cloned.PreferredRegions = append([]string(nil), job.PreferredRegions...)
+	}
+	if job.AllowedTools != nil {
+		cloned.AllowedTools = append([]string(nil), job.AllowedTools...)
+	}
+	if job.BlockedTools != nil {
+		cloned.BlockedTools = append([]string(nil), job.BlockedTools...)
+	}
+	if job.ResultSchema != nil {
+		cloned.ResultSchema = append(json.RawMessage(nil), job.ResultSchema...)
+	}
+	if job.OnCompletePayloadMapping != nil {
+		cloned.OnCompletePayloadMapping = append(json.RawMessage(nil), job.OnCompletePayloadMapping...)
+	}
+	if job.OnFailurePayloadMapping != nil {
+		cloned.OnFailurePayloadMapping = append(json.RawMessage(nil), job.OnFailurePayloadMapping...)
+	}
+	return &cloned
 }
 
 func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
@@ -141,7 +214,7 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 	handler(ctx, ec)
 }
 
-//nolint:gocyclo,cyclop,funlen,gocognit
+//nolint:gocyclo,cyclop,funlen,gocognit,nestif
 func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 	run := ec.Run
 	executeStart := ec.Start
@@ -266,6 +339,17 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 					"environment_id", job.EnvironmentID,
 					"error", err,
 				)
+			} else if secrets, err := e.dispatchSecrets(ctx, job); err != nil {
+				e.logger.Warn("environment ENDPOINT_URL ignored because dispatch secrets could not be checked",
+					"run_id", run.ID,
+					"environment_id", job.EnvironmentID,
+					"error", err,
+				)
+			} else if len(secrets) > 0 {
+				e.logger.Warn("environment ENDPOINT_URL ignored because job dispatch includes secrets",
+					"run_id", run.ID,
+					"environment_id", job.EnvironmentID,
+				)
 			} else {
 				e.logger.Info("overriding endpoint URL from environment",
 					"run_id", run.ID,
@@ -289,10 +373,10 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 
 	var prefetchWG conc.WaitGroup
 	prefetchWG.Go(func() {
-		circuitAllowed, circuitRetryAt, circuitErr = e.store.CanDispatchEndpoint(ctx, job.EndpointURL, time.Now().UTC())
+		circuitAllowed, circuitRetryAt, circuitErr = e.store.CanDispatchEndpoint(ctx, endpointStateKey(job.ProjectID, job.EndpointURL), time.Now().UTC())
 	})
 	prefetchWG.Go(func() {
-		healthScore, healthAllowed, healthErr = e.healthScorer.CheckHealth(ctx, job.EndpointURL)
+		healthScore, healthAllowed, healthErr = e.healthScorer.CheckHealth(ctx, endpointStateKey(job.ProjectID, job.EndpointURL))
 	})
 	if policy.timeoutSecs > 0 {
 		prefetchWG.Go(func() {
@@ -399,16 +483,21 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 			errClass := classifyError(err)
 			if shouldUseFallbackForClass(errClass) {
 				fallbackHeaders := make(map[string]string)
-				addHMACHeaders(fallbackHeaders, job.EndpointSigningSecret, run.Payload)
-				fallbackResult, fallbackErr := e.dispatchToEndpoint(execCtx, job.FallbackEndpointURL, run, fallbackHeaders)
-				if fallbackErr == nil {
-					e.handleSuccess(ctx, run, job, fallbackResult, execTrace)
-					return
+				signingSecret, secretErr := e.endpointSigningSecret(job)
+				if secretErr != nil {
+					err = errors.Join(err, secretErr)
+				} else {
+					addHMACHeaders(fallbackHeaders, signingSecret, run.Payload)
+					fallbackResult, fallbackErr := e.dispatchToEndpoint(execCtx, job.FallbackEndpointURL, run, fallbackHeaders)
+					if fallbackErr == nil {
+						e.handleSuccess(ctx, run, job, fallbackResult, execTrace)
+						return
+					}
+					err = errors.Join(
+						fmt.Errorf("primary dispatch failed: %w", err),
+						fmt.Errorf("fallback dispatch failed: %w", fallbackErr),
+					)
 				}
-				err = errors.Join(
-					fmt.Errorf("primary dispatch failed: %w", err),
-					fmt.Errorf("fallback dispatch failed: %w", fallbackErr),
-				)
 			}
 		}
 
@@ -499,14 +588,12 @@ func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *dom
 		cp         *domain.RunCheckpoint
 	)
 
-	secretsEnvironment := job.EnvironmentID
-	secretsCacheKey := "secrets:" + job.ID + ":" + secretsEnvironment
-	if cached, ok := dispatchCacheGet[[]domain.JobSecret](ctx, secretsCacheKey); ok {
+	if cached, ok := dispatchCacheGet[[]domain.JobSecret](ctx, dispatchSecretsCacheKey(job)); ok {
 		secrets = cached
 	} else {
 		var dispatchWG conc.WaitGroup
 		dispatchWG.Go(func() {
-			secrets, secretsErr = e.store.ListJobSecretsByJob(tracedCtx, job.ID, secretsEnvironment)
+			secrets, secretsErr = e.dispatchSecrets(tracedCtx, job)
 		})
 		if run.Attempt > 1 {
 			checkpointCacheKey := "checkpoint:" + run.ID
@@ -519,9 +606,6 @@ func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *dom
 			}
 		}
 		dispatchWG.Wait()
-		if secretsErr == nil {
-			dispatchCacheSet(ctx, secretsCacheKey, secrets)
-		}
 		if run.Attempt > 1 && cp != nil {
 			dispatchCacheSet(ctx, "checkpoint:"+run.ID, cp)
 		}
@@ -561,7 +645,11 @@ func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *dom
 	}
 
 	// Add HMAC body+timestamp signing so the endpoint can verify request authenticity.
-	addHMACHeaders(extraHeaders, job.EndpointSigningSecret, run.Payload)
+	signingSecret, err := e.endpointSigningSecret(job)
+	if err != nil {
+		return nil, nil, err
+	}
+	addHMACHeaders(extraHeaders, signingSecret, run.Payload)
 
 	if run.Attempt > 1 {
 		if cp != nil {
@@ -613,18 +701,9 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 	}()
 
 	extraHeaders := make(map[string]string)
-	var secrets []domain.JobSecret
-	secretsEnvironment := job.EnvironmentID
-	secretsCacheKey := "secrets:" + job.ID + ":" + secretsEnvironment
-	if cached, ok := dispatchCacheGet[[]domain.JobSecret](ctx, secretsCacheKey); ok {
-		secrets = cached
-	} else {
-		var err error
-		secrets, err = e.store.ListJobSecretsByJob(ctx, job.ID, secretsEnvironment)
-		if err != nil {
-			return fmt.Errorf("failed to load secrets for job %s: %w", job.ID, err)
-		}
-		dispatchCacheSet(ctx, secretsCacheKey, secrets)
+	secrets, err := e.dispatchSecrets(ctx, job)
+	if err != nil {
+		return err
 	}
 	for _, secret := range secrets {
 		extraHeaders[fmt.Sprintf("X-Secret-%s", secret.SecretKey)] = secret.EncryptedValue
@@ -676,7 +755,11 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 	}
 
 	// Add HMAC body+timestamp signing so the endpoint can verify request authenticity.
-	addHMACHeaders(extraHeaders, job.EndpointSigningSecret, run.Payload)
+	signingSecret, err := e.endpointSigningSecret(job)
+	if err != nil {
+		return err
+	}
+	addHMACHeaders(extraHeaders, signingSecret, run.Payload)
 
 	_, dispatchErr := e.dispatchToEndpoint(ctx, job.EndpointURL, run, extraHeaders)
 	return dispatchErr
@@ -731,7 +814,7 @@ func (e *Executor) dispatchToEndpoint(ctx context.Context, endpointURL string, r
 	defer resp.Body.Close()
 	recordDispatchResponseStatus(ctx, "http", resp.StatusCode)
 
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, (1<<20)-2))
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
@@ -743,10 +826,21 @@ func (e *Executor) dispatchToEndpoint(ctx context.Context, endpointURL string, r
 	recordDispatchAttempt(ctx, "http", "success")
 
 	if len(respBody) > 0 {
-		return json.RawMessage(respBody), nil
+		return normalizeDispatchResult(respBody), nil
 	}
 
 	return nil, nil
+}
+
+func normalizeDispatchResult(body []byte) json.RawMessage {
+	if json.Valid(body) {
+		return json.RawMessage(body)
+	}
+	encoded, err := json.Marshal(string(body))
+	if err != nil {
+		return nil
+	}
+	return json.RawMessage(encoded)
 }
 
 func (e *Executor) snoozeRun(ctx context.Context, run *domain.JobRun, reason string, retryAt *time.Time) {
@@ -782,17 +876,21 @@ func (e *Executor) snoozeRun(ctx context.Context, run *domain.JobRun, reason str
 	} else if err := e.store.ClearRetry(ctx, run.ID); err != nil {
 		e.logger.Warn("failed to clear retry on snooze", "run_id", run.ID, "job_id", run.JobID, "error", err)
 	}
-	if err := e.store.SnoozeRunWithLock(ctx, run.ID, domain.StatusDequeued, domain.StatusQueued, fields); err != nil {
+	from := domain.StatusDequeued
+	if run.Status == domain.StatusExecuting {
+		from = domain.StatusExecuting
+	}
+	if err := e.store.SnoozeRunWithLock(ctx, run.ID, from, domain.StatusQueued, fields); err != nil {
 		if errors.Is(err, store.ErrRunLocked) {
-			recordSnoozeSkipped(ctx, string(domain.StatusDequeued), "locked")
+			recordSnoozeSkipped(ctx, string(from), "locked")
 			e.logger.Warn("snooze skipped: run row locked by another transaction",
-				"run_id", run.ID, "job_id", run.JobID, "from", domain.StatusDequeued)
+				"run_id", run.ID, "job_id", run.JobID, "from", from)
 			return
 		}
 		if errors.Is(err, store.ErrRunConflict) {
-			recordSnoozeSkipped(ctx, string(domain.StatusDequeued), "conflict")
+			recordSnoozeSkipped(ctx, string(from), "conflict")
 			e.logger.Warn("snooze skipped: run no longer in expected state",
-				"run_id", run.ID, "job_id", run.JobID, "from", domain.StatusDequeued)
+				"run_id", run.ID, "job_id", run.JobID, "from", from)
 			return
 		}
 		e.logger.Error("failed to snooze run", "run_id", run.ID, "job_id", run.JobID, "error", err)
@@ -801,9 +899,17 @@ func (e *Executor) snoozeRun(ctx context.Context, run *domain.JobRun, reason str
 
 	e.emit(ctx, RunLifecycleEvent{
 		Type: EventSnoozed, Run: run,
-		FromStatus: domain.StatusDequeued, ToStatus: domain.StatusQueued,
+		FromStatus: from, ToStatus: domain.StatusQueued,
 		Attempt: run.Attempt,
 	})
+}
+
+func endpointStateKey(projectID, endpointURL string) string {
+	if projectID == "" {
+		return endpointURL
+	}
+	sum := sha256.Sum256([]byte(endpointURL))
+	return "project:" + projectID + ":endpoint:" + hex.EncodeToString(sum[:])
 }
 
 // snoozeRunFromExecuting re-queues a run that is currently in the Executing

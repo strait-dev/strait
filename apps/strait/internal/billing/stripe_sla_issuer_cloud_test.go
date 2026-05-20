@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -172,6 +173,39 @@ func TestStripeSLAIssuer_OpenInvoice_IssuesCreditNote(t *testing.T) {
 	}
 }
 
+func TestDeepSecStripeSLAIssuer_OpenInvoiceBelowCreditFallsBackToBalanceTxn(t *testing.T) {
+	fake := newStripeFake(t)
+	fake.invoiceIDByStatus["open"] = "in_test_low_balance"
+	fake.invoiceAmountRemainingByStatus["open"] = 1_000 // $10 still owed
+
+	issuer := newTestIssuer(stubLookup{sub: subWithCustomer("cus_low_balance")})
+	periodEnd := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+
+	id, err := issuer.IssueCredit(context.Background(), "org-1", 50_000_000, periodEnd)
+	if err != nil {
+		t.Fatalf("IssueCredit: %v", err)
+	}
+	if id != "cbtxn_test_123" {
+		t.Fatalf("id = %q, want cbtxn_test_123", id)
+	}
+
+	reqs := fake.snapshot()
+	for _, r := range reqs {
+		if r.Method == http.MethodPost && r.Path == "/v1/credit_notes" {
+			t.Fatalf("must not POST credit note larger than open balance; got body=%s", r.Body)
+		}
+	}
+	var sawCBT bool
+	for _, r := range reqs {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.Path, "/balance_transactions") {
+			sawCBT = true
+		}
+	}
+	if !sawCBT {
+		t.Fatalf("expected balance transaction fallback; requests=%+v", reqs)
+	}
+}
+
 // TestStripeSLAIssuer_PaidInvoice_FallsThroughToBalanceTxn guards the
 // post-payment branch: when the only matching invoice is fully paid
 // (amount_remaining == 0) Stripe rejects credit-note `amount` with a
@@ -306,6 +340,47 @@ func TestStripeSLAIssuer_IdempotencyKeyStableAcrossCalls(t *testing.T) {
 	}
 }
 
+func TestStripeSLAIssuer_InvoiceLookupConstrainedToSLAPeriod(t *testing.T) {
+	fake := newStripeFake(t)
+	fake.invoiceIDByStatus["open"] = "in_test_open"
+	fake.invoiceAmountRemainingByStatus["open"] = 10_000
+
+	issuer := newTestIssuer(stubLookup{sub: subWithCustomer("cus_period")})
+	periodEnd := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+
+	if _, err := issuer.IssueCredit(context.Background(), "org-1", 5_000_000, periodEnd); err != nil {
+		t.Fatalf("IssueCredit: %v", err)
+	}
+
+	var invoiceQuery url.Values
+	for _, r := range fake.snapshot() {
+		if r.Method == http.MethodGet && r.Path == "/v1/invoices" {
+			rawQuery := strings.TrimPrefix(r.Body, "?")
+			query, err := url.ParseQuery(rawQuery)
+			if err != nil {
+				t.Fatalf("parse invoice query %q: %v", rawQuery, err)
+			}
+			invoiceQuery = query
+			break
+		}
+	}
+	if invoiceQuery == nil {
+		t.Fatal("expected invoice list request")
+	}
+
+	wantStart := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC).Unix()
+	wantEnd := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC).Unix()
+	if got := invoiceQuery.Get("created[gte]"); got != fmt.Sprint(wantStart) {
+		t.Fatalf("created[gte] = %q, want %d", got, wantStart)
+	}
+	if got := invoiceQuery.Get("created[lt]"); got != fmt.Sprint(wantEnd) {
+		t.Fatalf("created[lt] = %q, want %d", got, wantEnd)
+	}
+	if got := invoiceQuery.Get("customer"); got != "cus_period" {
+		t.Fatalf("customer = %q, want cus_period", got)
+	}
+}
+
 // TestStripeSLAIssuer_StripeFailure_PropagatesWrappedError guards the
 // "atomic on failure" contract relied on by the SLACalculator: a Stripe
 // 5xx must surface as an error so the caller skips persisting the
@@ -364,5 +439,13 @@ func TestStripeSLAIssuer_RoundsMicrousdToCents(t *testing.T) {
 		if got := microusdToCents(c.in); got != c.want {
 			t.Errorf("microusdToCents(%d) = %d, want %d", c.in, got, c.want)
 		}
+	}
+}
+
+func TestSLACreditPeriodLabel_UsesExclusivePeriodEnd(t *testing.T) {
+	t.Parallel()
+	periodEnd := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	if got := slaCreditPeriodLabel(periodEnd); got != "April 2026" {
+		t.Fatalf("slaCreditPeriodLabel(%s) = %q, want April 2026", periodEnd, got)
 	}
 }

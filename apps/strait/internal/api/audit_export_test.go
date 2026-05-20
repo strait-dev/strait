@@ -7,10 +7,12 @@ import (
 	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -129,6 +131,69 @@ func TestAuditExport_EnvironmentScopedKeyRejected(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "project-wide key") {
 		t.Fatalf("error = %q, want project-wide key message", err.Error())
+	}
+}
+
+func TestAuditExport_CreatesDurableAuditEventBeforeStreaming(t *testing.T) {
+	t.Parallel()
+
+	var auditCreated atomic.Bool
+	ms := &APIStoreMock{
+		CreateAuditEventFunc: func(_ context.Context, ev *domain.AuditEvent) error {
+			if ev.Action != domain.AuditActionAuditExported {
+				t.Fatalf("audit action = %q, want %q", ev.Action, domain.AuditActionAuditExported)
+			}
+			if ev.ResourceID != "proj-1" {
+				t.Fatalf("audit resource id = %q, want proj-1", ev.ResourceID)
+			}
+			auditCreated.Store(true)
+			return nil
+		},
+		StreamAuditEventsFunc: func(_ context.Context, _, _, _ string, _, _ time.Time, fn func(*domain.AuditEvent) error) error {
+			if !auditCreated.Load() {
+				t.Fatal("audit export streamed before durable audit event was created")
+			}
+			return fn(&domain.AuditEvent{ID: "ev-1", ProjectID: "proj-1", CreatedAt: time.Now()})
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	w := httptest.NewRecorder()
+	r := authedProjectRequest(http.MethodGet, "/v1/audit-events/export?from=2026-01-01T00:00:00Z&to=2026-02-01T00:00:00Z&format=ndjson", "", "proj-1")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !auditCreated.Load() {
+		t.Fatal("expected durable audit event to be created")
+	}
+}
+
+func TestAuditExport_AuditWriteFailurePreventsStreaming(t *testing.T) {
+	t.Parallel()
+
+	var streamCalled atomic.Bool
+	ms := &APIStoreMock{
+		CreateAuditEventFunc: func(_ context.Context, _ *domain.AuditEvent) error {
+			return errors.New("audit store unavailable")
+		},
+		StreamAuditEventsFunc: func(_ context.Context, _, _, _ string, _, _ time.Time, _ func(*domain.AuditEvent) error) error {
+			streamCalled.Store(true)
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	w := httptest.NewRecorder()
+	r := authedProjectRequest(http.MethodGet, "/v1/audit-events/export?from=2026-01-01T00:00:00Z&to=2026-02-01T00:00:00Z&format=ndjson", "", "proj-1")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
+	}
+	if streamCalled.Load() {
+		t.Fatal("audit export streamed after required audit write failed")
 	}
 }
 

@@ -2,8 +2,11 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
+
+	"strait/internal/store"
 )
 
 const defaultIndexMaintenanceInterval = 24 * time.Hour
@@ -65,30 +68,29 @@ func (m *IndexMaintainer) WithAdvisoryLocker(locker AdvisoryLocker) *IndexMainta
 
 func (m *IndexMaintainer) Run(ctx context.Context) {
 	loop := NewMaintenanceLoop("index-maintenance", m.interval, m.logger, func(loopCtx context.Context) {
-		if m.advisoryLocker != nil {
-			acquired, err := m.advisoryLocker.TryAdvisoryLock(loopCtx, indexMaintainerAdvisoryLockID)
-			if err != nil {
-				m.logger.Error("index maintenance advisory lock check failed, skipping cycle", "error", err)
-				return
-			}
-			if !acquired {
-				m.logger.Debug("index maintenance advisory lock held by another instance, skipping cycle")
-				return
-			}
-			defer func() {
-				if err := m.advisoryLocker.ReleaseAdvisoryLock(loopCtx, indexMaintainerAdvisoryLockID); err != nil {
-					m.logger.Warn("failed to release index maintenance advisory lock", "error", err)
-				}
-			}()
+		acquired, err := runWithOptionalAdvisoryLock(loopCtx, m.advisoryLocker, indexMaintainerAdvisoryLockID, m.runLocked)
+		if err != nil {
+			m.logger.Error("index maintenance advisory lock cycle failed", "error", err)
+			return
 		}
-
-		for _, indexName := range m.indexes {
-			if err := m.store.ReindexIndexConcurrently(loopCtx, indexName); err != nil {
-				m.logger.Error("failed to reindex partial index", "index", indexName, "error", err)
-				continue
-			}
-			m.logger.Info("reindexed partial index", "index", indexName)
+		if !acquired {
+			m.logger.Debug("index maintenance advisory lock held by another instance, skipping cycle")
 		}
 	})
 	loop.Run(ctx)
+}
+
+func (m *IndexMaintainer) runLocked(ctx context.Context) error {
+	for _, indexName := range m.indexes {
+		if err := m.store.ReindexIndexConcurrently(ctx, indexName); err != nil {
+			if errors.Is(err, store.ErrIndexNotFound) {
+				m.logger.Debug("skipping missing reindex target", "index", indexName)
+				continue
+			}
+			m.logger.Error("failed to reindex partial index", "index", indexName, "error", err)
+			continue
+		}
+		m.logger.Info("reindexed partial index", "index", indexName)
+	}
+	return nil
 }

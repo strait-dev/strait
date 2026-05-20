@@ -32,6 +32,7 @@ func TestNotifyRotationWebhook_SignsWithHMACWhenSecretPresent(t *testing.T) {
 	t.Parallel()
 
 	plaintext := []byte("rotation-secret")
+	signingSecret := []byte("whsec_" + hex.EncodeToString(plaintext))
 	var (
 		mu          sync.Mutex
 		gotBody     []byte
@@ -74,7 +75,7 @@ func TestNotifyRotationWebhook_SignsWithHMACWhenSecretPresent(t *testing.T) {
 		t.Fatalf("X-Strait-Signature wrong shape: %q", gotSig)
 	}
 
-	mac := hmac.New(sha256.New, plaintext)
+	mac := hmac.New(sha256.New, signingSecret)
 	mac.Write([]byte(gotTS))
 	mac.Write([]byte("."))
 	mac.Write([]byte(gotDelivery))
@@ -90,6 +91,50 @@ func TestNotifyRotationWebhook_SignsWithHMACWhenSecretPresent(t *testing.T) {
 	}
 	if !bytes.Contains(gotBody, []byte(`"event":"api_key.auto_rotated"`)) {
 		t.Fatalf("unexpected body: %s", gotBody)
+	}
+}
+
+func TestNotifyRotationWebhook_DoesNotFollowRedirects(t *testing.T) {
+	t.Parallel()
+
+	var (
+		mu             sync.Mutex
+		redirectCalled bool
+		targetCalled   bool
+	)
+	target := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		targetCalled = true
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+
+	redirector := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		redirectCalled = true
+		mu.Unlock()
+		w.Header().Set("Location", target.URL)
+		w.WriteHeader(http.StatusTemporaryRedirect)
+	}))
+	defer redirector.Close()
+
+	r := NewReaper(&mockReaperStore{}, time.Second, 30*time.Second, 0, 0, false, nil).
+		WithAllowPrivateEndpoints(true)
+	r.rotationWebhookClient = redirector.Client()
+
+	err := r.notifyRotationWebhook(context.Background(), redirector.URL, nil, "old-key", "new-key", "strait_secret", "strait_secre", "proj-1")
+	if err == nil {
+		t.Fatal("expected redirect response to fail the rotation webhook")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !redirectCalled {
+		t.Fatal("expected initial webhook endpoint to be called")
+	}
+	if targetCalled {
+		t.Fatal("rotation webhook followed redirect target")
 	}
 }
 

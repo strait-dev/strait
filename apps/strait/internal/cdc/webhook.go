@@ -1,10 +1,22 @@
 package cdc
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
+	"sync"
+	"time"
+)
+
+const (
+	maxWebhookBodyBytes = 1 << 20
+	webhookDedupeTTL    = 10 * time.Minute
 )
 
 // WebhookReceiver handles CDC events pushed by Sequin webhook sinks.
@@ -15,19 +27,48 @@ type WebhookReceiver struct {
 	additionalHandlers map[string][]Handler
 	publisher          EventPublisher
 	logger             *slog.Logger
+	secret             string
+	dedupeTTL          time.Duration
+	seenMu             sync.Mutex
+	seen               map[string]time.Time
+}
+
+// WebhookReceiverOption configures a CDC webhook receiver.
+type WebhookReceiverOption func(*WebhookReceiver)
+
+// WithWebhookSecret enables HMAC-SHA256 request body verification for Sequin
+// push delivery. Empty secrets leave verification disabled so test/dev pull-only
+// deployments can instantiate a receiver without synthetic signatures.
+func WithWebhookSecret(secret string) WebhookReceiverOption {
+	return func(wr *WebhookReceiver) {
+		wr.secret = strings.TrimSpace(secret)
+	}
+}
+
+// WithWebhookDedupeTTL overrides duplicate suppression TTL for tests.
+func WithWebhookDedupeTTL(ttl time.Duration) WebhookReceiverOption {
+	return func(wr *WebhookReceiver) {
+		wr.dedupeTTL = ttl
+	}
 }
 
 // NewWebhookReceiver creates a new CDC webhook receiver.
-func NewWebhookReceiver(publisher EventPublisher, logger *slog.Logger) *WebhookReceiver {
+func NewWebhookReceiver(publisher EventPublisher, logger *slog.Logger, opts ...WebhookReceiverOption) *WebhookReceiver {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &WebhookReceiver{
+	wr := &WebhookReceiver{
 		handlers:           make(map[string]Handler),
 		additionalHandlers: make(map[string][]Handler),
 		publisher:          publisher,
 		logger:             logger,
+		dedupeTTL:          webhookDedupeTTL,
+		seen:               make(map[string]time.Time),
 	}
+	for _, opt := range opts {
+		opt(wr)
+	}
+	return wr
 }
 
 // RegisterHandler adds the primary handler for a specific table name.
@@ -45,9 +86,22 @@ func (wr *WebhookReceiver) RegisterAdditionalHandler(h Handler) {
 // ServeHTTP processes a CDC webhook push from Sequin.
 // Returns 200 on success (Sequin marks delivered), 500 on failure (Sequin retries).
 func (wr *WebhookReceiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxWebhookBodyBytes))
 	if err != nil {
+		if strings.Contains(err.Error(), "request body too large") {
+			http.Error(w, "payload too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "failed to read body", http.StatusBadRequest)
+		return
+	}
+	if !wr.verifySignature(r, body) {
+		http.Error(w, "invalid signature", http.StatusUnauthorized)
 		return
 	}
 
@@ -56,6 +110,21 @@ func (wr *WebhookReceiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid message format", http.StatusBadRequest)
 		return
 	}
+	if err := validateWebhookMessage(msg); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	dedupeKey, claimed := wr.claimDedupe(msg)
+	if !claimed {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	processed := false
+	defer func() {
+		if !processed {
+			wr.releaseDedupe(dedupeKey)
+		}
+	}()
 
 	tableName := msg.Metadata.TableName
 	handler, ok := wr.handlers[tableName]
@@ -91,13 +160,103 @@ func (wr *WebhookReceiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Run additional handlers (webhook delivery, notifications, audit, etc.).
 	// Always runs regardless of whether the primary handler used Collect or Handle.
-	// Errors are logged but don't fail the primary delivery.
 	for _, ah := range wr.additionalHandlers[tableName] {
 		if ahErr := ah.Handle(r.Context(), msg); ahErr != nil {
-			wr.logger.Warn("cdc webhook: additional handler failed",
+			wr.logger.Error("cdc webhook: additional handler failed",
 				"table", tableName, "handler", ah.Table(), "error", ahErr)
+			http.Error(w, "handler error", http.StatusInternalServerError)
+			return
 		}
 	}
 
+	processed = true
 	w.WriteHeader(http.StatusOK)
+}
+
+func (wr *WebhookReceiver) verifySignature(r *http.Request, body []byte) bool {
+	if wr.secret == "" {
+		return true
+	}
+	got := firstHeader(r,
+		"X-Sequin-Signature",
+		"Sequin-Signature",
+		"X-Hub-Signature-256",
+		"X-Signature",
+	)
+	if got == "" {
+		return false
+	}
+	got = strings.TrimSpace(got)
+	if trimmed, ok := strings.CutPrefix(got, "sha256="); ok {
+		got = trimmed
+	}
+	gotBytes, err := hex.DecodeString(got)
+	if err != nil {
+		return false
+	}
+	mac := hmac.New(sha256.New, []byte(wr.secret))
+	_, _ = mac.Write(body)
+	return hmac.Equal(gotBytes, mac.Sum(nil))
+}
+
+func firstHeader(r *http.Request, names ...string) string {
+	for _, name := range names {
+		if value := r.Header.Get(name); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func validateWebhookMessage(msg Message) error {
+	if msg.Metadata.TableName == "" {
+		return errors.New("metadata.table_name is required")
+	}
+	switch msg.Action {
+	case ActionInsert, ActionUpdate, ActionDelete:
+		return nil
+	default:
+		return errors.New("invalid action")
+	}
+}
+
+func (wr *WebhookReceiver) dedupeKey(msg Message) string {
+	if msg.Metadata.IdempotencyKey != "" {
+		return msg.Metadata.IdempotencyKey
+	}
+	return msg.AckID
+}
+
+func (wr *WebhookReceiver) claimDedupe(msg Message) (string, bool) {
+	key := wr.dedupeKey(msg)
+	if key == "" || wr.dedupeTTL <= 0 {
+		return "", true
+	}
+	now := time.Now()
+	wr.seenMu.Lock()
+	defer wr.seenMu.Unlock()
+	wr.pruneSeenLocked(now)
+	expiresAt, ok := wr.seen[key]
+	if ok && now.Before(expiresAt) {
+		return key, false
+	}
+	wr.seen[key] = now.Add(wr.dedupeTTL)
+	return key, true
+}
+
+func (wr *WebhookReceiver) releaseDedupe(key string) {
+	if key == "" || wr.dedupeTTL <= 0 {
+		return
+	}
+	wr.seenMu.Lock()
+	defer wr.seenMu.Unlock()
+	delete(wr.seen, key)
+}
+
+func (wr *WebhookReceiver) pruneSeenLocked(now time.Time) {
+	for key, expiresAt := range wr.seen {
+		if !now.Before(expiresAt) {
+			delete(wr.seen, key)
+		}
+	}
 }

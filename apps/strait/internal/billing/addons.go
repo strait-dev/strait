@@ -1,6 +1,10 @@
 package billing
 
-import "time"
+import (
+	"context"
+	"fmt"
+	"time"
+)
 
 // AddonType identifies an add-on product.
 type AddonType string
@@ -117,6 +121,7 @@ type Addon struct {
 // quantities are silently ignored.
 func EffectiveLimits(base OrgPlanLimits, addons []Addon) OrgPlanLimits {
 	result := base
+	appliedPacks := make(map[AddonType]int, len(addons))
 
 	for _, addon := range addons {
 		if !addon.Active || addon.Quantity <= 0 {
@@ -128,7 +133,12 @@ func EffectiveLimits(base OrgPlanLimits, addons []Addon) OrgPlanLimits {
 			continue
 		}
 
-		increment := pack.PackSize * addon.Quantity
+		quantity := allowedAddonQuantity(base, addon, appliedPacks)
+		if quantity <= 0 {
+			continue
+		}
+		appliedPacks[addon.AddonType] += quantity
+		increment := pack.PackSize * quantity
 
 		switch addon.AddonType {
 		case AddonConcurrency100:
@@ -155,4 +165,63 @@ func EffectiveLimits(base OrgPlanLimits, addons []Addon) OrgPlanLimits {
 	}
 
 	return result
+}
+
+func allowedAddonQuantity(base OrgPlanLimits, addon Addon, applied map[AddonType]int) int {
+	if base.MaxAddonPacks == nil {
+		return 0
+	}
+	maxPacks, ok := base.MaxAddonPacks[addon.AddonType]
+	if !ok {
+		return 0
+	}
+	quantity := addon.Quantity
+	if maxPacks >= 0 {
+		remaining := maxPacks - applied[addon.AddonType]
+		if remaining <= 0 {
+			return 0
+		}
+		if quantity > remaining {
+			quantity = remaining
+		}
+	}
+	if pack, ok := AddonPacks[addon.AddonType]; ok && pack.MaxTotal >= 0 {
+		remainingTotal := pack.MaxTotal - applied[addon.AddonType]
+		if remainingTotal <= 0 {
+			return 0
+		}
+		if quantity > remainingTotal {
+			quantity = remainingTotal
+		}
+	}
+	return quantity
+}
+
+// ReconcileActiveAddonsForPlan deactivates active add-on rows that are no
+// longer allowed by the supplied base plan limits or that exceed the plan's
+// pack cap. Call this after immediate plan changes so stale paid add-ons do
+// not remain authoritative in future entitlement refreshes.
+func ReconcileActiveAddonsForPlan(ctx context.Context, store Store, orgID string, limits OrgPlanLimits) (int, error) {
+	if store == nil || orgID == "" {
+		return 0, nil
+	}
+	addons, err := store.ListActiveAddons(ctx, orgID)
+	if err != nil {
+		return 0, fmt.Errorf("list active addons for reconcile: %w", err)
+	}
+
+	applied := make(map[AddonType]int, len(addons))
+	deactivated := 0
+	for _, addon := range addons {
+		quantity := allowedAddonQuantity(limits, addon, applied)
+		if quantity <= 0 || quantity < addon.Quantity {
+			if err := store.DeactivateAddon(ctx, addon.ID); err != nil {
+				return deactivated, fmt.Errorf("deactivate disallowed addon %s: %w", addon.ID, err)
+			}
+			deactivated++
+			continue
+		}
+		applied[addon.AddonType] += quantity
+	}
+	return deactivated, nil
 }

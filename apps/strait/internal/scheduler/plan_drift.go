@@ -122,19 +122,14 @@ func (m *PlanDriftMonitor) runOnce(ctx context.Context) error {
 		}
 	}()
 
-	if m.advisoryLocker != nil {
-		acquired, err := m.advisoryLocker.TryAdvisoryLock(ctx, planDriftAdvisoryLockID)
-		if err != nil {
-			return err
-		}
-		if !acquired {
-			return nil
-		}
-		defer func() {
-			_ = m.advisoryLocker.ReleaseAdvisoryLock(ctx, planDriftAdvisoryLockID)
-		}()
+	acquired, err := runWithOptionalAdvisoryLock(ctx, m.advisoryLocker, planDriftAdvisoryLockID, m.runLocked)
+	if err != nil || !acquired {
+		return err
 	}
+	return nil
+}
 
+func (m *PlanDriftMonitor) runLocked(ctx context.Context) error {
 	for _, q := range m.queries {
 		if err := m.checkOne(ctx, q); err != nil {
 			m.logger.Warn("plan drift check failed", "query", q.Name, "error", err)

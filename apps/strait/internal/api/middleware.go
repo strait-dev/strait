@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"strait/internal/billing"
@@ -36,6 +37,7 @@ const ctxActorIDKey contextKey = "actor_id"
 const ctxActorTypeKey contextKey = "actor_type" // "user" or "api_key"
 const ctxAuthKeyObjKey contextKey = "api_key_obj"
 const ctxOIDCScopeClaimPresentKey contextKey = "oidc_scope_claim_present"
+const ctxTxCompletionHooksKey contextKey = "tx_completion_hooks"
 
 // ctxInternalCallerKey is set to true by internalSecretAuth after the
 // X-Internal-Secret header passes constant-time comparison. It is the
@@ -223,6 +225,9 @@ func (s *Server) sseTokenAuth(next http.Handler) http.Handler {
 				recordAuthTokenAge(r.Context(), "jwt", claims.IssuedAt.Time)
 			}
 			ctx := context.WithValue(r.Context(), ctxProjectIDKey, claims.ProjectID)
+			if claims.EnvironmentID != "" {
+				ctx = context.WithValue(ctx, ctxEnvironmentIDKey, claims.EnvironmentID)
+			}
 			ctx = context.WithValue(ctx, ctxScopesKey, claims.Scopes)
 			ctx = context.WithValue(ctx, ctxActorTypeKey, "sse_token")
 			ctx = context.WithValue(ctx, ctxActorIDKey, "sse:"+claims.ProjectID)
@@ -376,6 +381,13 @@ func requireEnvironmentMatch(ctx context.Context, resourceEnvironmentID string) 
 	return nil
 }
 
+func requireProjectWideScope(ctx context.Context, resource string) error {
+	if environmentIDFromContext(ctx) == "" {
+		return nil
+	}
+	return huma.Error403Forbidden(resource + " requires a project-wide key")
+}
+
 // requireRunAccess fetches the run by ID and enforces tenant isolation.
 // Returns an appropriate huma error if the caller does not own the run.
 // Internal callers (scheduler, worker) that operate without a project
@@ -435,7 +447,7 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 		clientIP := realIP(r, s.trustedProxies)
 
 		// Check if this IP is locked out from too many failed attempts.
-		if blocked, retryAfter := s.authLimiter.IsBlocked(r.Context(), clientIP); blocked {
+		if blocked, retryAfter := s.authLimiter.IsBlockedScoped(r.Context(), clientIP, ratelimit.AuthScopeAPIKey); blocked {
 			recordAuthDecision(r.Context(), "api_key", "throttled")
 			recordAuthRateLimitThrottled(r.Context(), "api_key")
 			w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())))
@@ -445,7 +457,7 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer strait_") {
-			s.authLimiter.RecordFailure(r.Context(), clientIP)
+			s.authLimiter.RecordFailureScoped(r.Context(), clientIP, ratelimit.AuthScopeAPIKey)
 			recordAuthDecision(r.Context(), "api_key", "failure")
 			respondError(w, r, http.StatusUnauthorized, "invalid or missing api key")
 			return
@@ -456,14 +468,14 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 
 		apiKey, err := s.store.GetAPIKeyByHash(r.Context(), keyHash)
 		if err != nil || apiKey == nil {
-			s.authLimiter.RecordFailure(r.Context(), clientIP)
+			s.authLimiter.RecordFailureScoped(r.Context(), clientIP, ratelimit.AuthScopeAPIKey)
 			recordAuthDecision(r.Context(), "api_key", "failure")
 			respondError(w, r, http.StatusUnauthorized, "invalid api key")
 			return
 		}
 
 		if apiKey.RevokedAt != nil {
-			s.authLimiter.RecordFailure(r.Context(), clientIP)
+			s.authLimiter.RecordFailureScoped(r.Context(), clientIP, ratelimit.AuthScopeAPIKey)
 			recordAuthDecision(r.Context(), "api_key", "failure")
 			respondError(w, r, http.StatusUnauthorized, "api key has been revoked")
 			return
@@ -471,13 +483,13 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 
 		now := time.Now()
 		if apiKey.ExpiresAt != nil && apiKey.ExpiresAt.Before(now) {
-			s.authLimiter.RecordFailure(r.Context(), clientIP)
+			s.authLimiter.RecordFailureScoped(r.Context(), clientIP, ratelimit.AuthScopeAPIKey)
 			recordAuthDecision(r.Context(), "api_key", "failure")
 			respondError(w, r, http.StatusUnauthorized, "api key has expired")
 			return
 		}
 		if apiKey.GraceExpiresAt != nil && apiKey.GraceExpiresAt.Before(now) {
-			s.authLimiter.RecordFailure(r.Context(), clientIP)
+			s.authLimiter.RecordFailureScoped(r.Context(), clientIP, ratelimit.AuthScopeAPIKey)
 			recordAuthDecision(r.Context(), "api_key", "failure")
 			respondError(w, r, http.StatusUnauthorized, "api key rotation grace period has ended")
 			return
@@ -486,7 +498,7 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 		// Successful auth — clear the brute-force counter for this IP so
 		// a legitimate user who fat-fingered their key a few times before
 		// finding the right one isn't held up by the lockout window.
-		s.authLimiter.Reset(r.Context(), clientIP)
+		s.authLimiter.ResetScoped(r.Context(), clientIP, ratelimit.AuthScopeAPIKey)
 		recordAuthDecision(r.Context(), "api_key", "success")
 		recordAuthTokenAge(r.Context(), "api_key", apiKey.CreatedAt)
 
@@ -553,12 +565,7 @@ func (s *Server) oidcAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		clientIP := realIP(r, s.trustedProxies)
 
-		// Check if this IP is locked out from too many failed attempts.
-		// Mirrors apiKeyAuth/internalSecretAuth so all three auth paths
-		// share the same brute-force budget — without this, an attacker
-		// could pivot from API-key brute force to OIDC token brute force
-		// once locked out on one path.
-		if blocked, retryAfter := s.authLimiter.IsBlocked(r.Context(), clientIP); blocked {
+		if blocked, retryAfter := s.authLimiter.IsBlockedScoped(r.Context(), clientIP, ratelimit.AuthScopeOIDC); blocked {
 			recordAuthDecision(r.Context(), "oidc", "throttled")
 			recordAuthRateLimitThrottled(r.Context(), "oidc")
 			w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())))
@@ -569,7 +576,7 @@ func (s *Server) oidcAuth(next http.Handler) http.Handler {
 		authHeader := r.Header.Get("Authorization")
 		token := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
 		if token == "" {
-			s.authLimiter.RecordFailure(r.Context(), clientIP)
+			s.authLimiter.RecordFailureScoped(r.Context(), clientIP, ratelimit.AuthScopeOIDC)
 			recordAuthDecision(r.Context(), "oidc", "failure")
 			respondError(w, r, http.StatusUnauthorized, "missing bearer token")
 			return
@@ -577,14 +584,13 @@ func (s *Server) oidcAuth(next http.Handler) http.Handler {
 
 		claims, err := s.oidcVerifier.verify(token)
 		if err != nil {
-			s.authLimiter.RecordFailure(r.Context(), clientIP)
+			s.authLimiter.RecordFailureScoped(r.Context(), clientIP, ratelimit.AuthScopeOIDC)
 			recordAuthDecision(r.Context(), "oidc", "failure")
 			respondError(w, r, http.StatusUnauthorized, "invalid bearer token")
 			return
 		}
 
-		// Successful OIDC verification — clear the brute-force counter.
-		s.authLimiter.Reset(r.Context(), clientIP)
+		s.authLimiter.ResetScoped(r.Context(), clientIP, ratelimit.AuthScopeOIDC)
 		recordAuthDecision(r.Context(), "oidc", "success")
 		if claims.IssuedAt != nil {
 			recordAuthTokenAge(r.Context(), "oidc", claims.IssuedAt.Time)
@@ -642,7 +648,7 @@ func (s *Server) internalSecretAuth(next http.Handler) http.Handler {
 		clientIP := realIP(r, s.trustedProxies)
 
 		// Check if this IP is locked out from too many failed attempts.
-		if blocked, retryAfter := s.authLimiter.IsBlocked(r.Context(), clientIP); blocked {
+		if blocked, retryAfter := s.authLimiter.IsBlockedScoped(r.Context(), clientIP, ratelimit.AuthScopeInternalSecret); blocked {
 			recordAuthDecision(r.Context(), "internal_secret", "throttled")
 			recordAuthRateLimitThrottled(r.Context(), "internal_secret")
 			w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())))
@@ -652,14 +658,13 @@ func (s *Server) internalSecretAuth(next http.Handler) http.Handler {
 
 		secret := r.Header.Get("X-Internal-Secret")
 		if secret == "" || subtle.ConstantTimeCompare([]byte(secret), []byte(s.config.InternalSecret)) != 1 {
-			s.authLimiter.RecordFailure(r.Context(), clientIP)
+			s.authLimiter.RecordFailureScoped(r.Context(), clientIP, ratelimit.AuthScopeInternalSecret)
 			recordAuthDecision(r.Context(), "internal_secret", "failure")
 			respondError(w, r, http.StatusUnauthorized, "invalid or missing internal secret")
 			return
 		}
 
-		// Successful internal-secret auth — clear the brute-force counter.
-		s.authLimiter.Reset(r.Context(), clientIP)
+		s.authLimiter.ResetScoped(r.Context(), clientIP, ratelimit.AuthScopeInternalSecret)
 		recordAuthDecision(r.Context(), "internal_secret", "success")
 
 		ctx := r.Context()
@@ -921,6 +926,60 @@ func (s *Server) requirePermission(permission string) func(http.Handler) http.Ha
 	}
 }
 
+func (s *Server) requireAnyPermission(permissions ...string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			for _, permission := range permissions {
+				if s.hasProjectPermission(r.Context(), permission) {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+			respondError(w, r, http.StatusForbidden, "insufficient permissions")
+		})
+	}
+}
+
+func (s *Server) hasProjectPermission(ctx context.Context, permission string) bool {
+	if scopesFromContext(ctx) == nil && isInternalCaller(ctx) {
+		return true
+	}
+
+	scopes := scopesFromContext(ctx)
+	switch actorTypeFromContext(ctx) {
+	case "api_key":
+		return domain.HasScope(scopes, permission)
+	case "sse_token":
+		return domain.HasScopeStrict(scopes, permission)
+	case "user":
+		projectID := projectIDFromContext(ctx)
+		actorID := actorFromContext(ctx)
+		if projectID == "" || actorID == "" {
+			return false
+		}
+		if ctx.Value(ctxOIDCScopeClaimPresentKey) == true && len(scopes) == 0 {
+			return false
+		}
+		if len(scopes) > 0 && !domain.HasScope(scopes, permission) {
+			return false
+		}
+		perms, cached := s.permCache.Get(projectID, actorID)
+		if !cached {
+			var err error
+			perms, err = s.store.GetUserPermissions(ctx, projectID, actorID)
+			if err != nil {
+				return false
+			}
+			if perms != nil {
+				s.permCache.Set(projectID, actorID, perms)
+			}
+		}
+		return domain.HasScopeStrict(perms, permission)
+	default:
+		return false
+	}
+}
+
 // resourceFromRequest extracts the resource type and ID from the chi route context.
 // Returns empty strings if the request doesn't target a specific resource.
 func resourceFromRequest(r *http.Request) (string, string) {
@@ -1053,7 +1112,8 @@ func (s *Server) rlsTxMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		ctx = store.ContextWithTx(ctx, tx)
+		hooks := &txCompletionHooks{}
+		ctx = context.WithValue(store.ContextWithTx(ctx, tx), ctxTxCompletionHooksKey, hooks)
 
 		// Track whether a panic occurred so we can rollback instead of
 		// committing. Without this, a recovered panic could leave the
@@ -1064,6 +1124,7 @@ func (s *Server) rlsTxMiddleware(next http.Handler) http.Handler {
 				if rbErr := tx.Rollback(context.Background()); rbErr != nil && !errors.Is(rbErr, context.Canceled) {
 					slog.Warn("failed to rollback RLS tx after panic", "error", rbErr)
 				}
+				hooks.runRollback(context.Background())
 			}
 		}()
 
@@ -1075,16 +1136,65 @@ func (s *Server) rlsTxMiddleware(next http.Handler) http.Handler {
 			if rbErr := tx.Rollback(ctx); rbErr != nil && !errors.Is(rbErr, context.Canceled) {
 				slog.Warn("failed to rollback RLS tx after oversized response", "error", rbErr)
 			}
+			hooks.runRollback(context.Background())
 			respondError(w, r, http.StatusRequestEntityTooLarge, err.Error())
 			return
 		}
 		if err := tx.Commit(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			slog.Warn("failed to commit RLS tx", "project_id", projectID, "error", err)
+			hooks.runRollback(context.Background())
 			respondError(w, r, http.StatusInternalServerError, "security context commit failed")
 			return
 		}
+		hooks.runCommit(context.Background())
 		bw.FlushTo(w)
 	})
+}
+
+type txCompletionHooks struct {
+	mu            sync.Mutex
+	afterCommit   []func(context.Context)
+	afterRollback []func(context.Context)
+}
+
+func registerTxCompletionHooks(ctx context.Context, afterCommit, afterRollback func(context.Context)) bool {
+	hooks, ok := ctx.Value(ctxTxCompletionHooksKey).(*txCompletionHooks)
+	if !ok || hooks == nil {
+		return false
+	}
+	hooks.mu.Lock()
+	defer hooks.mu.Unlock()
+	if afterCommit != nil {
+		hooks.afterCommit = append(hooks.afterCommit, afterCommit)
+	}
+	if afterRollback != nil {
+		hooks.afterRollback = append(hooks.afterRollback, afterRollback)
+	}
+	return true
+}
+
+func (h *txCompletionHooks) runCommit(ctx context.Context) {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	hooks := append([]func(context.Context){}, h.afterCommit...)
+	h.mu.Unlock()
+	for _, hook := range hooks {
+		hook(ctx)
+	}
+}
+
+func (h *txCompletionHooks) runRollback(ctx context.Context) {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	hooks := append([]func(context.Context){}, h.afterRollback...)
+	h.mu.Unlock()
+	for _, hook := range hooks {
+		hook(ctx)
+	}
 }
 
 const maxRLSBufferedResponseBytes = 16 << 20

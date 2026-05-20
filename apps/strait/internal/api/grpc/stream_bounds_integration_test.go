@@ -37,7 +37,7 @@ func TestIntegration_HandleTaskResult_OversizedRunIDRejected(t *testing.T) {
 	svc := fallbackService(q)
 
 	huge := strings.Repeat("x", maxRunIDLen+1)
-	tr := &workerv1.TaskResult{RunId: huge, Status: "success"}
+	tr := &workerv1.TaskResult{RunId: huge, Status: "success", AssignmentId: taskID, Attempt: 1}
 	if err := svc.handleTaskResult(ctx, workerID, projectID, tr); err != nil {
 		t.Fatalf("handleTaskResult unexpectedly errored: %v", err)
 	}
@@ -67,11 +67,12 @@ func TestIntegration_HandleTaskResult_OversizedErrorTruncated(t *testing.T) {
 	}
 
 	q := store.New(env.DB.Pool)
-	projectID, workerID, runID, _ := seedRunWithTask(t, ctx, q, env)
+	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
 	svc := fallbackService(q)
 
 	hugeErr := strings.Repeat("e", maxErrorMsgBytes*4)
-	tr := &workerv1.TaskResult{RunId: runID, Status: "failed", ErrorMessage: hugeErr}
+	tr := assignedTaskResult(runID, taskID, "failed")
+	tr.ErrorMessage = hugeErr
 	if err := svc.handleTaskResult(ctx, workerID, projectID, tr); err != nil {
 		t.Fatalf("handleTaskResult: %v", err)
 	}

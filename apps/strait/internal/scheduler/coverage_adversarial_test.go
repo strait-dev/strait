@@ -168,6 +168,50 @@ func (m *covMockGraceStoreWithGetError) UpdateOrgSubscriptionPlan(_ context.Cont
 	return nil
 }
 
+func (m *covMockGraceStoreWithGetError) RestrictExpiredGracePeriod(_ context.Context, orgID string, _ *time.Time) (bool, error) {
+	if m.updatedStatuses == nil {
+		m.updatedStatuses = make(map[string]string)
+	}
+	m.updatedStatuses[orgID] = "restricted"
+	return true, nil
+}
+
+func (m *covMockGraceStoreWithGetError) SuspendExcessProjects(context.Context, string, int) (int, error) {
+	return 0, nil
+}
+
+func (m *covMockGraceStoreWithGetError) DeactivateExcessCronJobs(context.Context, string, int) ([]string, error) {
+	return nil, nil
+}
+
+func (m *covMockGraceStoreWithGetError) DeactivateExcessWebhookSubscriptions(context.Context, string, int) (int64, error) {
+	return 0, nil
+}
+
+func (m *covMockGraceStoreWithGetError) DeactivateExcessEnvironments(context.Context, string, int) (int64, error) {
+	return 0, nil
+}
+
+func (m *covMockGraceStoreWithGetError) DeactivateExcessLogDrains(context.Context, string, int) (int64, error) {
+	return 0, nil
+}
+
+func (m *covMockGraceStoreWithGetError) DeactivateExcessNotificationChannelsByProject(context.Context, string, int) (int64, error) {
+	return 0, nil
+}
+
+func (m *covMockGraceStoreWithGetError) ListProjectsByOrg(context.Context, string) ([]string, error) {
+	return nil, nil
+}
+
+func (m *covMockGraceStoreWithGetError) PauseHTTPJobsByOrg(context.Context, string, string) ([]string, error) {
+	return nil, nil
+}
+
+func (m *covMockGraceStoreWithGetError) CountMembersByOrg(context.Context, string) (int, error) {
+	return 0, nil
+}
+
 func TestGraceEnforcer_ConcurrentlyResolved(t *testing.T) {
 	t.Parallel()
 
@@ -204,9 +248,8 @@ func TestGraceEnforcer_UpdatePlanError(t *testing.T) {
 	g := NewGracePeriodEnforcer(s, nil, time.Minute)
 	g.enforce(context.Background())
 
-	// Status update should succeed but plan update should fail and continue.
-	if s.updatedStatuses["org-plan-err"] != "restricted" {
-		t.Error("expected status to be updated even if plan update fails")
+	if len(s.updatedStatuses) != 0 {
+		t.Error("expected atomic restriction failure to leave status unchanged")
 	}
 }
 
@@ -318,7 +361,7 @@ func TestUsageFlusher_AdvisoryLocker_Acquired(t *testing.T) {
 				{OrgID: "org-1", ProjectID: "proj-1", PeriodDate: today, RunsCount: 5},
 			}, nil
 		},
-		upsertUsageRecordFn: func(_ context.Context, _ *billing.UsageRecord) error {
+		replaceUsageRecordFn: func(_ context.Context, _ *billing.UsageRecord) error {
 			upsertCount.Add(1)
 			return nil
 		},
@@ -331,8 +374,8 @@ func TestUsageFlusher_AdvisoryLocker_Acquired(t *testing.T) {
 	uf := NewUsageFlusher(s, time.Minute).WithAdvisoryLocker(locker)
 	uf.flush(context.Background())
 
-	if upsertCount.Load() != 1 {
-		t.Fatalf("expected 1 upsert, got %d", upsertCount.Load())
+	if upsertCount.Load() != usageFlusherReconcileLookbackDays {
+		t.Fatalf("expected %d upserts across lookback, got %d", usageFlusherReconcileLookbackDays, upsertCount.Load())
 	}
 }
 
@@ -368,7 +411,7 @@ func TestUsageFlusher_UpsertError_ContinuesOtherRecords(t *testing.T) {
 				{OrgID: "org-1", ProjectID: "proj-ok", PeriodDate: today, RunsCount: 2},
 			}, nil
 		},
-		upsertUsageRecordFn: func(_ context.Context, rec *billing.UsageRecord) error {
+		replaceUsageRecordFn: func(_ context.Context, rec *billing.UsageRecord) error {
 			if rec.ProjectID == "proj-fail" {
 				return errors.New("upsert failed")
 			}
@@ -740,8 +783,29 @@ func TestCronScheduler_ConcurrentTriggerSameJob(t *testing.T) {
 	}
 	wg.Wait()
 
-	if enqueued.Load() != 20 {
-		t.Fatalf("expected 20 enqueues with allow policy, got %d", enqueued.Load())
+	if enqueued.Load() != 1 {
+		t.Fatalf("expected one durable cron fire enqueue, got %d", enqueued.Load())
+	}
+}
+
+func TestCronScheduler_DurableFireKeySkipsWorkflowAfterLockRelease(t *testing.T) {
+	t.Parallel()
+
+	var triggered atomic.Int32
+	ms := &mockCronStore{}
+	wt := &mockWorkflowTrigger{
+		triggerWorkflowFn: func(_ context.Context, _, _ string, _ json.RawMessage, _ string, _ []domain.StepOverride) (*domain.WorkflowRun, error) {
+			triggered.Add(1)
+			return &domain.WorkflowRun{ID: "wf-run-1"}, nil
+		},
+	}
+
+	wf := domain.Workflow{ID: "wf-race", ProjectID: "p1", Cron: "* * * * *"}
+	NewCronScheduler(context.Background(), ms, &mockQueue{}, wt).triggerWorkflow(context.Background(), wf)
+	NewCronScheduler(context.Background(), ms, &mockQueue{}, wt).triggerWorkflow(context.Background(), wf)
+
+	if triggered.Load() != 1 {
+		t.Fatalf("expected one durable cron workflow fire, got %d", triggered.Load())
 	}
 }
 
@@ -881,6 +945,14 @@ func (m *covMockBatchStoreWithJobError) ListFlushableBatches(_ context.Context) 
 
 func (m *covMockBatchStoreWithJobError) DrainBatchBuffer(_ context.Context, _, _ string, _ int) ([]domain.BatchBufferItem, error) {
 	return nil, nil
+}
+
+func (m *covMockBatchStoreWithJobError) ListBatchBufferItems(_ context.Context, _, _ string, _ int) ([]domain.BatchBufferItem, error) {
+	return nil, nil
+}
+
+func (m *covMockBatchStoreWithJobError) DeleteBatchBufferItems(_ context.Context, _ []string) error {
+	return nil
 }
 
 func (m *covMockBatchStoreWithJobError) GetJob(_ context.Context, _ string) (*domain.Job, error) {

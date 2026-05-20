@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"time"
 
 	"strait/internal/domain"
 )
@@ -14,6 +15,9 @@ func TestHandleSetJobEndpoint_EnvironmentScopedCallerCannotReplaceOtherEnvironme
 	ms := &APIStoreMock{
 		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
 			return &domain.Job{ID: id, ProjectID: "proj-1", EnvironmentID: "env-staging"}, nil
+		},
+		ListJobSecretsFunc: func(_ context.Context, _, _, _ string, _ int, _ *time.Time) ([]domain.JobSecret, error) {
+			return nil, nil
 		},
 		UpdateJobEndpointFunc: func(_ context.Context, _, _, _, _ string) error {
 			t.Fatal("UpdateJobEndpoint should not be called for a mismatched environment")

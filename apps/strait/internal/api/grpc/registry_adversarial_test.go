@@ -10,9 +10,10 @@ import (
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
 )
 
-// TestAdversarial_WorkerIDHijack verifies that a second worker with the same ID but
-// a different API key receives AlreadyExists (surfaced as an error from Register).
-func TestAdversarial_WorkerIDHijack(t *testing.T) {
+// TestAdversarial_WorkerIDHijackSameProject verifies that a second worker
+// with the same ID in the same project but a different API key receives
+// AlreadyExists (surfaced as an error from Register).
+func TestAdversarial_WorkerIDHijackSameProject(t *testing.T) {
 	r := NewConnectionRegistry()
 
 	legit := makeWorker("target-worker", "proj-a", "key-legit", []string{"q"}, 4)
@@ -20,19 +21,70 @@ func TestAdversarial_WorkerIDHijack(t *testing.T) {
 		t.Fatalf("legitimate register failed: %v", err)
 	}
 
-	hijacker := makeWorker("target-worker", "proj-b", "key-attacker", []string{"q"}, 4)
+	hijacker := makeWorker("target-worker", "proj-a", "key-attacker", []string{"q"}, 4)
 	err := r.Register(hijacker)
 	if err == nil {
 		t.Fatal("expected error for worker_id hijack attempt, got nil")
 	}
-	if !strings.Contains(err.Error(), "different api key") {
-		t.Errorf("error should mention 'different api key', got: %s", err.Error())
+	if !strings.Contains(err.Error(), "different api key") || !strings.Contains(err.Error(), "proj-a") {
+		t.Errorf("error should mention the same-project api-key collision, got: %s", err.Error())
 	}
 
 	// The original worker must still be registered.
 	snap := r.Snapshot()
 	if len(snap) != 1 || snap[0].APIKeyID != "key-legit" {
 		t.Errorf("original worker was displaced by hijacker: %+v", snap)
+	}
+}
+
+func TestAdversarial_WorkerIDNamespaceAllowsSameIDAcrossProjects(t *testing.T) {
+	r := NewConnectionRegistry()
+
+	if err := r.Register(makeWorker("shared-worker", "proj-a", "key-a", []string{"q"}, 4)); err != nil {
+		t.Fatalf("register proj-a worker: %v", err)
+	}
+	if err := r.Register(makeWorker("shared-worker", "proj-b", "key-b", []string{"q"}, 4)); err != nil {
+		t.Fatalf("same worker id in another project must not be rejected: %v", err)
+	}
+
+	snap := r.Snapshot()
+	if len(snap) != 2 {
+		t.Fatalf("snapshot len = %d, want 2: %+v", len(snap), snap)
+	}
+	for _, projectID := range []string{"proj-a", "proj-b"} {
+		picked, ok := r.PickWorkerForQueue(projectID, "q")
+		if !ok {
+			t.Fatalf("project %s could not pick its worker", projectID)
+		}
+		if picked.ProjectID != projectID || picked.WorkerID != "shared-worker" {
+			t.Fatalf("project %s picked wrong worker: %+v", projectID, picked)
+		}
+	}
+}
+
+func TestAdversarial_WorkerIDNamespaceProjectScopedSlotRelease(t *testing.T) {
+	r := NewConnectionRegistry()
+
+	if err := r.Register(makeWorker("shared-worker", "proj-a", "key-a", []string{"q"}, 2)); err != nil {
+		t.Fatalf("register proj-a worker: %v", err)
+	}
+	if err := r.Register(makeWorker("shared-worker", "proj-b", "key-b", []string{"q"}, 2)); err != nil {
+		t.Fatalf("register proj-b worker: %v", err)
+	}
+
+	r.DecrementProjectSlots("proj-a", "shared-worker")
+	r.IncrementProjectSlots("proj-b", "shared-worker")
+
+	snap := r.Snapshot()
+	available := map[string]int32{}
+	for _, worker := range snap {
+		available[worker.ProjectID] = worker.SlotsAvailable
+	}
+	if available["proj-a"] != 1 {
+		t.Fatalf("proj-a slots = %d, want 1", available["proj-a"])
+	}
+	if available["proj-b"] != 2 {
+		t.Fatalf("proj-b slots = %d, want capped 2", available["proj-b"])
 	}
 }
 

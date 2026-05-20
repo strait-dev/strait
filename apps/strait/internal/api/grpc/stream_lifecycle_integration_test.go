@@ -130,7 +130,23 @@ func (p *testRevocationPublisher) Subscribe(_ context.Context, channel string) (
 
 func (p *testRevocationPublisher) Close() error { return nil }
 
+type failingSubscribePublisher struct{}
+
+func (failingSubscribePublisher) Publish(context.Context, string, []byte) error { return nil }
+func (failingSubscribePublisher) PublishBatch(context.Context, []pubsub.PubSubMessage) error {
+	return nil
+}
+func (failingSubscribePublisher) Subscribe(context.Context, string) (*pubsub.Subscription, error) {
+	return nil, errors.New("redis subscription unavailable")
+}
+func (failingSubscribePublisher) Close() error { return nil }
+
 func seedGRPCAPIKey(t *testing.T, ctx context.Context, q *store.Queries, projectID, keyID, rawKey string) {
+	t.Helper()
+	seedGRPCAPIKeyWithExpiry(t, ctx, q, projectID, keyID, rawKey, nil)
+}
+
+func seedGRPCAPIKeyWithExpiry(t *testing.T, ctx context.Context, q *store.Queries, projectID, keyID, rawKey string, expiresAt *time.Time) {
 	t.Helper()
 	if err := q.CreateAPIKey(ctx, &domain.APIKey{
 		ID:        keyID,
@@ -139,8 +155,47 @@ func seedGRPCAPIKey(t *testing.T, ctx context.Context, q *store.Queries, project
 		KeyHash:   hashGRPCAPIKey(rawKey),
 		KeyPrefix: "strait",
 		Scopes:    []string{"*"},
+		ExpiresAt: expiresAt,
 	}); err != nil {
 		t.Fatalf("CreateAPIKey: %v", err)
+	}
+}
+
+func TestIntegration_StreamTasks_SubscribeFailureRejectsWorker(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	const (
+		projectID = "proj-subscribe-failure"
+		apiKeyID  = "key-subscribe-failure"
+		rawKey    = "strait_subscribeFailureKey"
+	)
+	seedGRPCAPIKey(t, ctx, q, projectID, apiKeyID, rawKey)
+
+	streamCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stream := newBlockingWorkerStream(streamCtx, rawKey)
+	svc := &workerService{
+		queries:        q,
+		pub:            failingSubscribePublisher{},
+		registry:       NewConnectionRegistry(),
+		resultChannels: NewResultChannelRegistry(),
+	}
+
+	err = svc.StreamTasks(stream)
+	if status.Code(err) != codes.Unavailable {
+		t.Fatalf("StreamTasks error = %v, want Unavailable", err)
+	}
+	if got := svc.registry.Snapshot(); len(got) != 0 {
+		t.Fatalf("subscribe failure mutated registry: got %d workers", len(got))
 	}
 }
 
@@ -304,6 +359,233 @@ func TestIntegration_StreamTasks_RevokeBeforeRegistrationRejectsWorker(t *testin
 	select {
 	case msg := <-stream.sentCh:
 		t.Fatalf("revoked pre-registration stream sent message: %T", msg.Payload)
+	default:
+	}
+}
+
+func TestIntegration_StreamTasks_APIKeyExpiryClosesRegisteredStream(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	const (
+		projectID = "proj-stream-expiry"
+		workerID  = "worker-stream-expiry"
+		apiKeyID  = "key-stream-expiry"
+		rawKey    = "strait_streamExpiryTestKey"
+	)
+	expiresAt := time.Now().Add(750 * time.Millisecond)
+	seedGRPCAPIKeyWithExpiry(t, ctx, q, projectID, apiKeyID, rawKey, &expiresAt)
+
+	streamCtx, cancel := context.WithCancel(ctx)
+	stream := newBlockingWorkerStream(streamCtx, rawKey)
+	stream.recvCh <- &workerv1.WorkerMessage{
+		Payload: &workerv1.WorkerMessage_Registration{
+			Registration: &workerv1.WorkerRegistration{
+				WorkerId:       workerID,
+				Name:           "expiring worker",
+				Hostname:       "host",
+				SdkVersion:     "1.0.0",
+				SdkLanguage:    "go",
+				Queues:         []string{"default"},
+				SlotsTotal:     1,
+				SlotsAvailable: 1,
+			},
+		},
+	}
+
+	svc := &workerService{
+		queries:        q,
+		pub:            &noopPublisher{},
+		registry:       NewConnectionRegistry(),
+		resultChannels: NewResultChannelRegistry(),
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- svc.StreamTasks(stream)
+	}()
+
+	select {
+	case msg := <-stream.sentCh:
+		if msg.GetAck() == nil {
+			t.Fatalf("first server message = %T, want ack", msg.Payload)
+		}
+	case err := <-done:
+		t.Fatalf("StreamTasks returned before registration ack: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for registration ack")
+	}
+
+	select {
+	case err := <-done:
+		if err == nil || !errors.Is(err, errAPIKeyExpired) {
+			t.Fatalf("StreamTasks error = %v, want api key expired", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("StreamTasks did not return after API-key expiry")
+	}
+
+	if got := svc.registry.Snapshot(); len(got) != 0 {
+		t.Fatalf("expired stream left registered worker: got %d workers", len(got))
+	}
+	cancel()
+	select {
+	case <-stream.recvDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("recv loop did not exit after test context cancellation")
+	}
+}
+
+func TestIntegration_StreamTasks_APIKeyRotationGraceSignalClosesRegisteredStream(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	const (
+		projectID = "proj-stream-rotation-expiry"
+		workerID  = "worker-stream-rotation-expiry"
+		apiKeyID  = "key-stream-rotation-expiry"
+		rawKey    = "strait_streamRotationExpiryKey"
+	)
+	seedGRPCAPIKey(t, ctx, q, projectID, apiKeyID, rawKey)
+
+	pub := newTestRevocationPublisher()
+	streamCtx, cancel := context.WithCancel(ctx)
+	stream := newBlockingWorkerStream(streamCtx, rawKey)
+	stream.recvCh <- &workerv1.WorkerMessage{
+		Payload: &workerv1.WorkerMessage_Registration{
+			Registration: &workerv1.WorkerRegistration{
+				WorkerId:       workerID,
+				Name:           "rotation expiring worker",
+				Hostname:       "host",
+				SdkVersion:     "1.0.0",
+				SdkLanguage:    "go",
+				Queues:         []string{"default"},
+				SlotsTotal:     1,
+				SlotsAvailable: 1,
+			},
+		},
+	}
+
+	svc := &workerService{
+		queries:        q,
+		pub:            pub,
+		registry:       NewConnectionRegistry(),
+		resultChannels: NewResultChannelRegistry(),
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- svc.StreamTasks(stream)
+	}()
+
+	select {
+	case msg := <-stream.sentCh:
+		if msg.GetAck() == nil {
+			t.Fatalf("first server message = %T, want ack", msg.Payload)
+		}
+	case err := <-done:
+		t.Fatalf("StreamTasks returned before registration ack: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for registration ack")
+	}
+
+	graceExpiresAt := time.Now().Add(250 * time.Millisecond)
+	if err := pub.Publish(ctx, "apikey:expires:"+apiKeyID, []byte(graceExpiresAt.UTC().Format(time.RFC3339Nano))); err != nil {
+		t.Fatalf("publish expiry signal: %v", err)
+	}
+
+	select {
+	case err := <-done:
+		if err == nil || !errors.Is(err, errAPIKeyExpired) {
+			t.Fatalf("StreamTasks error = %v, want api key expired", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("StreamTasks did not return after rotation grace expiry signal")
+	}
+	if got := svc.registry.Snapshot(); len(got) != 0 {
+		t.Fatalf("rotation-expired stream left registered worker: got %d workers", len(got))
+	}
+	cancel()
+	select {
+	case <-stream.recvDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("recv loop did not exit after test context cancellation")
+	}
+}
+
+func TestIntegration_StreamTasks_APIKeyExpiryBeforeRegistrationRejectsWorker(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	const (
+		projectID = "proj-pre-registration-expiry"
+		apiKeyID  = "key-pre-registration-expiry"
+		rawKey    = "strait_preRegistrationExpiryKey"
+	)
+	expiresAt := time.Now().Add(250 * time.Millisecond)
+	seedGRPCAPIKeyWithExpiry(t, ctx, q, projectID, apiKeyID, rawKey, &expiresAt)
+
+	streamCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stream := newBlockingWorkerStream(streamCtx, rawKey)
+	svc := &workerService{
+		queries:        q,
+		pub:            &noopPublisher{},
+		registry:       NewConnectionRegistry(),
+		resultChannels: NewResultChannelRegistry(),
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- svc.StreamTasks(stream)
+	}()
+
+	select {
+	case <-stream.recvWait:
+	case err := <-done:
+		t.Fatalf("StreamTasks returned before registration wait: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for pre-registration recv")
+	}
+
+	select {
+	case err := <-done:
+		if err == nil || !errors.Is(err, errAPIKeyExpired) {
+			t.Fatalf("StreamTasks error = %v, want api key expired", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("StreamTasks did not return after pre-registration API-key expiry")
+	}
+	if got := svc.registry.Snapshot(); len(got) != 0 {
+		t.Fatalf("expired pre-registration stream mutated registry: got %d workers", len(got))
+	}
+	select {
+	case msg := <-stream.sentCh:
+		t.Fatalf("expired pre-registration stream sent message: %T", msg.Payload)
 	default:
 	}
 }

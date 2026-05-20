@@ -29,6 +29,8 @@ var commonForbiddenKeys = []string{
 	"private_key",
 	"auth_header",
 	"webhook_secret",
+	"endpoint_signing_secret",
+	"signing_secret",
 	"api_key_plaintext",
 	"raw_key",
 	"token",

@@ -71,12 +71,12 @@ func (q *Queries) UpsertJobMemoryWithQuota(ctx context.Context, mem *domain.JobM
 		return &JobMemoryQuotaError{Kind: jobMemoryQuotaKindPerKey, Max: maxPerKey}
 	}
 
-	beginner, ok := q.db.(TxBeginner)
+	_, ok := q.db.(TxBeginner)
 	if !ok {
 		return fmt.Errorf("upsert job memory with quota: db does not support transactions")
 	}
 
-	return WithTx(ctx, beginner, func(txQ *Queries) error {
+	return q.withTx(ctx, func(txQ *Queries) error {
 		if err := txQ.AdvisoryXactLock(ctx, hashString(mem.JobID)); err != nil {
 			return fmt.Errorf("advisory lock: %w", err)
 		}
@@ -114,12 +114,12 @@ func (q *Queries) UpsertJobMemoryWithQuotaForActiveRun(ctx context.Context, runI
 		return &JobMemoryQuotaError{Kind: jobMemoryQuotaKindPerKey, Max: maxPerKey}
 	}
 
-	beginner, ok := q.db.(TxBeginner)
+	_, ok := q.db.(TxBeginner)
 	if !ok {
 		return fmt.Errorf("upsert active job memory with quota: db does not support transactions")
 	}
 
-	return WithTx(ctx, beginner, func(txQ *Queries) error {
+	return q.withTx(ctx, func(txQ *Queries) error {
 		var active bool
 		if err := txQ.db.QueryRow(ctx, `
 			SELECT TRUE

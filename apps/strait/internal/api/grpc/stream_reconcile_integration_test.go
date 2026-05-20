@@ -32,7 +32,7 @@ func TestIntegration_Reconcile_CompletedUpdatesWorkerTask(t *testing.T) {
 	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
 	svc := fallbackService(q)
 
-	tasks := []*workerv1.InFlightTask{{RunId: runID, Status: "completed", OutputJson: []byte(`{"recovered":true}`)}}
+	tasks := []*workerv1.InFlightTask{{RunId: runID, AssignmentId: taskID, Attempt: 1, Status: "completed", OutputJson: []byte(`{"recovered":true}`)}}
 	svc.reconcileInFlightTasks(ctx, workerID, projectID, tasks)
 
 	got, err := q.GetWorkerTask(ctx, taskID)
@@ -76,7 +76,7 @@ func TestIntegration_Reconcile_FailedUpdatesWorkerTask(t *testing.T) {
 	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
 	svc := fallbackService(q)
 
-	tasks := []*workerv1.InFlightTask{{RunId: runID, Status: "failed", ErrorMessage: "boom"}}
+	tasks := []*workerv1.InFlightTask{{RunId: runID, AssignmentId: taskID, Attempt: 1, Status: "failed", ErrorMessage: "boom"}}
 	svc.reconcileInFlightTasks(ctx, workerID, projectID, tasks)
 
 	got, err := q.GetWorkerTask(ctx, taskID)
@@ -104,7 +104,7 @@ func TestIntegration_Reconcile_CompletedUsesRunFinalizer(t *testing.T) {
 	finalizer := &recordingRunFinalizer{}
 	svc := fallbackServiceWithFinalizer(q, finalizer)
 
-	tasks := []*workerv1.InFlightTask{{RunId: runID, Status: "completed", OutputJson: []byte(`{"recovered":true}`)}}
+	tasks := []*workerv1.InFlightTask{{RunId: runID, AssignmentId: taskID, Attempt: 1, Status: "completed", OutputJson: []byte(`{"recovered":true}`)}}
 	svc.reconcileInFlightTasks(ctx, workerID, projectID, tasks)
 
 	if len(finalizer.calls) != 1 {
@@ -146,7 +146,7 @@ func TestIntegration_Reconcile_InvalidCompletedOutputRoutesFailure(t *testing.T)
 	finalizer := &recordingRunFinalizer{}
 	svc := fallbackServiceWithFinalizer(q, finalizer)
 
-	tasks := []*workerv1.InFlightTask{{RunId: runID, Status: "completed", OutputJson: []byte(`{"recovered":`)}}
+	tasks := []*workerv1.InFlightTask{{RunId: runID, AssignmentId: taskID, Attempt: 1, Status: "completed", OutputJson: []byte(`{"recovered":`)}}
 	svc.reconcileInFlightTasks(ctx, workerID, projectID, tasks)
 
 	if len(finalizer.calls) != 1 {
@@ -181,7 +181,7 @@ func TestIntegration_Reconcile_FailedUsesRunFinalizer(t *testing.T) {
 	finalizer := &recordingRunFinalizer{}
 	svc := fallbackServiceWithFinalizer(q, finalizer)
 
-	tasks := []*workerv1.InFlightTask{{RunId: runID, Status: "failed", ErrorMessage: "boom"}}
+	tasks := []*workerv1.InFlightTask{{RunId: runID, AssignmentId: taskID, Attempt: 1, Status: "failed", ErrorMessage: "boom"}}
 	svc.reconcileInFlightTasks(ctx, workerID, projectID, tasks)
 
 	if len(finalizer.calls) != 1 {
@@ -225,7 +225,7 @@ func TestIntegration_Reconcile_OwnershipMismatchSkips(t *testing.T) {
 	projectID, _, runID, taskID := seedRunWithTask(t, ctx, q, env)
 	svc := fallbackService(q)
 
-	tasks := []*workerv1.InFlightTask{{RunId: runID, Status: "completed"}}
+	tasks := []*workerv1.InFlightTask{{RunId: runID, AssignmentId: taskID, Attempt: 1, Status: "completed"}}
 	// Use a worker ID that has no worker_tasks row for runID.
 	svc.reconcileInFlightTasks(ctx, "impostor-worker", projectID, tasks)
 
@@ -242,6 +242,60 @@ func TestIntegration_Reconcile_OwnershipMismatchSkips(t *testing.T) {
 	}
 	if run.Status != domain.StatusExecuting {
 		t.Fatalf("ownership mismatch should not touch run: got %q", run.Status)
+	}
+}
+
+func TestIntegration_Reconcile_StaleAssignmentReplaySkipsCurrentTask(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	projectID, workerID, runID, staleTaskID := seedRunWithTask(t, ctx, q, env)
+	if err := q.UpdateWorkerTaskStatus(ctx, staleTaskID, domain.WorkerTaskStatusFailed); err != nil {
+		t.Fatalf("mark stale task failed: %v", err)
+	}
+	const currentTaskID = "task-current-assignment"
+	if err := q.CreateWorkerTask(ctx, &domain.WorkerTask{
+		ID:        currentTaskID,
+		WorkerID:  workerID,
+		ProjectID: projectID,
+		RunID:     runID,
+		Attempt:   2,
+		Status:    domain.WorkerTaskStatusAssigned,
+	}); err != nil {
+		t.Fatalf("create current task: %v", err)
+	}
+	svc := fallbackService(q)
+
+	tasks := []*workerv1.InFlightTask{{
+		RunId:        runID,
+		AssignmentId: staleTaskID,
+		Attempt:      1,
+		Status:       "completed",
+		OutputJson:   []byte(`{"stale":true}`),
+	}}
+	svc.reconcileInFlightTasks(ctx, workerID, projectID, tasks)
+
+	current, err := q.GetWorkerTask(ctx, currentTaskID)
+	if err != nil {
+		t.Fatalf("GetWorkerTask current: %v", err)
+	}
+	if current.Status != domain.WorkerTaskStatusAssigned {
+		t.Fatalf("stale replay changed current worker_task: got %q, want assigned", current.Status)
+	}
+	run, err := q.GetRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if run.Status != domain.StatusExecuting {
+		t.Fatalf("stale replay changed run: got %q, want executing", run.Status)
 	}
 }
 
@@ -263,7 +317,7 @@ func TestIntegration_Reconcile_UnknownStatusIgnored(t *testing.T) {
 	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
 	svc := fallbackService(q)
 
-	tasks := []*workerv1.InFlightTask{{RunId: runID, Status: "zombie"}}
+	tasks := []*workerv1.InFlightTask{{RunId: runID, AssignmentId: taskID, Attempt: 1, Status: "zombie"}}
 	svc.reconcileInFlightTasks(ctx, workerID, projectID, tasks)
 
 	got, err := q.GetWorkerTask(ctx, taskID)

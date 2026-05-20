@@ -13,6 +13,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -1627,7 +1628,7 @@ func TestWebhook_PastDueSetsGracePeriod(t *testing.T) {
 	}
 }
 
-func TestWebhook_ActiveClearsGracePeriod(t *testing.T) {
+func TestWebhook_ActiveSubscriptionUpdateDoesNotClearGracePeriod(t *testing.T) {
 	t.Parallel()
 
 	graceEnd := time.Now().Add(48 * time.Hour)
@@ -1666,8 +1667,8 @@ func TestWebhook_ActiveClearsGracePeriod(t *testing.T) {
 	}
 
 	sub, _ := store.GetOrgSubscription(context.Background(), "00000000-0000-0000-0000-00000000002e")
-	if sub.PaymentStatus != "ok" {
-		t.Fatalf("expected payment_status=ok after recovery, got %s", sub.PaymentStatus)
+	if sub.PaymentStatus != "grace" {
+		t.Fatalf("expected payment_status=grace until invoice payment recovery, got %s", sub.PaymentStatus)
 	}
 }
 
@@ -1693,15 +1694,14 @@ func TestWebhook_PaymentSucceededClearsGrace(t *testing.T) {
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, testSecret, slog.Default(), nil, nil)
 
-	// Stripe fires customer.subscription.updated with active status when payment recovers.
-	data := testSubscriptionData{
-		ID:         subID,
-		ProductID:  "starter-id",
+	// Stripe fires invoice.paid when payment actually recovers.
+	data := testInvoiceData{
+		ID:         "inv_paid",
 		CustomerID: customerID,
-		Status:     "active",
+		SubID:      subID,
 		Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-00000000002f"},
 	}
-	body := webhookPayload(t, "customer.subscription.updated", data)
+	body := webhookPayload(t, "invoice.paid", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
 	if rr.Code != http.StatusOK {
@@ -2283,6 +2283,51 @@ func TestUsageService_GetProjectBudget(t *testing.T) {
 	}
 }
 
+func TestUsageService_GetSpendingLimit_ReturnsSpendAggregationError(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-spend-error": {
+				OrgID:                 "org-spend-error",
+				PlanTier:              string(domain.PlanPro),
+				Status:                "active",
+				SpendingLimitMicrousd: 10_000_000,
+				LimitAction:           "reject",
+			},
+		},
+		sumSpendErr: errors.New("spend aggregation unavailable"),
+	}
+	svc := NewUsageService(store, NewEnforcer(store, nil, slog.Default()))
+
+	_, err := svc.GetSpendingLimit(context.Background(), "org-spend-error")
+	if err == nil {
+		t.Fatal("expected spend aggregation error")
+	}
+	if !strings.Contains(err.Error(), "summing org period spend") {
+		t.Fatalf("error = %v, want spend aggregation context", err)
+	}
+}
+
+func TestUsageService_GetUsageForecast_ReturnsPlanLimitError(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		getOrgSubscriptionFn: func(context.Context, string) (*OrgSubscription, error) {
+			return nil, errors.New("plan lookup unavailable")
+		},
+	}
+	svc := NewUsageService(store, NewEnforcer(store, nil, slog.Default()))
+
+	_, err := svc.GetUsageForecast(context.Background(), "org-forecast-error")
+	if err == nil {
+		t.Fatal("expected plan lookup error")
+	}
+	if !strings.Contains(err.Error(), "getting org plan limits for forecast") {
+		t.Fatalf("error = %v, want plan-limit context", err)
+	}
+}
+
 func TestUsageService_PreviewDowngrade(t *testing.T) {
 	t.Parallel()
 
@@ -2324,6 +2369,39 @@ func TestUsageService_PreviewDowngrade(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("expected projects in manual actions")
+	}
+}
+
+func TestPreviewDowngrade_UsesActualUsageNotCurrentPlanCaps(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-preview-actual": {
+				OrgID:    "org-preview-actual",
+				PlanTier: string(domain.PlanPro),
+				Status:   "active",
+			},
+		},
+		projects:      map[string][]string{"org-preview-actual": {"p1"}},
+		memberCounts:  map[string]int{"org-preview-actual": 2},
+		executingRuns: map[string]int{"org-preview-actual": 3},
+	}
+
+	impact, err := PreviewDowngrade(context.Background(), store, "org-preview-actual", domain.PlanFree)
+	if err != nil {
+		t.Fatalf("PreviewDowngrade: %v", err)
+	}
+
+	byResource := make(map[string]ResourceImpact, len(impact.Impacts))
+	for _, item := range impact.Impacts {
+		byResource[item.Resource] = item
+	}
+	if got := byResource["members_per_org"].Current; got != 2 {
+		t.Fatalf("members_per_org current = %d, want actual count 2", got)
+	}
+	if got := byResource["concurrent_runs"].Current; got != 3 {
+		t.Fatalf("concurrent_runs current = %d, want actual executing count 3", got)
 	}
 }
 

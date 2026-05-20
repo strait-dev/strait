@@ -3,6 +3,7 @@ package billing
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"strait/internal/domain"
 )
@@ -29,25 +30,25 @@ func (r *PlanRetentionResolver) ListAllSubscribedOrgIDs(ctx context.Context) ([]
 
 // GetOrgRetentionDays returns the retention period for an org based on their plan tier
 // plus any purchased retention packs from add_ons.
-// Falls back to free-tier retention on any error.
 func (r *PlanRetentionResolver) GetOrgRetentionDays(ctx context.Context, orgID string) (int, error) {
 	if orgID == "" {
-		return GetPlanLimits(domain.PlanFree).RetentionDays, nil
+		return 0, errors.New("org id is required")
 	}
 
 	sub, err := r.store.GetOrgSubscription(ctx, orgID)
 	if err != nil {
 		if errors.Is(err, ErrSubscriptionNotFound) {
-			return GetPlanLimits(domain.PlanFree).RetentionDays, nil
+			return 0, ErrSubscriptionNotFound
 		}
-		return GetPlanLimits(domain.PlanFree).RetentionDays, nil
+		return 0, fmt.Errorf("get org subscription for retention: %w", err)
 	}
 
 	limits := GetPlanLimits(domain.PlanTier(sub.PlanTier))
-	days := limits.RetentionDays
-	// Extra retention: each retention_pack unit adds retentionPackDays days.
-	if sub.AddOns.RetentionPack > 0 {
-		days += sub.AddOns.RetentionPack * retentionPackDays
+	addons, err := r.store.ListActiveAddons(ctx, orgID)
+	if err != nil {
+		return 0, fmt.Errorf("list active add-ons for retention: %w", err)
 	}
-	return days, nil
+	limits = EffectiveLimits(limits, addons)
+	limits = ApplySubscriptionAddOns(limits, sub.AddOns)
+	return limits.RetentionDays, nil
 }

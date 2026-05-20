@@ -300,7 +300,7 @@ func TestAdv_UsageFlusher_ConcurrentFlush(t *testing.T) {
 				{OrgID: "org-concurrent", ProjectID: "proj-1", PeriodDate: today, RunsCount: 1},
 			}, nil
 		},
-		upsertUsageRecordFn: func(_ context.Context, _ *billing.UsageRecord) error {
+		replaceUsageRecordFn: func(_ context.Context, _ *billing.UsageRecord) error {
 			mu.Lock()
 			upsertCount++
 			mu.Unlock()
@@ -320,9 +320,10 @@ func TestAdv_UsageFlusher_ConcurrentFlush(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	// 10 goroutines * 1 record each = 10 upserts.
-	if upsertCount != 10 {
-		t.Fatalf("expected 10 upserts from concurrent flush, got %d", upsertCount)
+	// 10 goroutines * 1 record per lookback day.
+	wantUpserts := 10 * usageFlusherReconcileLookbackDays
+	if upsertCount != wantUpserts {
+		t.Fatalf("expected %d upserts from concurrent flush, got %d", wantUpserts, upsertCount)
 	}
 }
 
@@ -363,6 +364,17 @@ func (m *billingAdvMockDowngradeStore) ApplyPendingDowngrade(ctx context.Context
 		return m.applyFn(ctx, orgID)
 	}
 	return nil
+}
+
+func (m *billingAdvMockDowngradeStore) ApplyPendingDowngradeTierIfPending(ctx context.Context, orgID, _ string) (bool, error) {
+	if err := m.ApplyPendingDowngrade(ctx, orgID); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (m *billingAdvMockDowngradeStore) ClearPendingPlanTierIfTier(context.Context, string, string) (bool, error) {
+	return true, nil
 }
 
 func (m *billingAdvMockDowngradeStore) SuspendExcessProjects(_ context.Context, _ string, _ int) (int, error) {

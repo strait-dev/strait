@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"time"
@@ -67,6 +68,131 @@ func (s *Server) validateCallerCanGrantPermissions(ctx context.Context, requeste
 		}
 	}
 	return nil
+}
+
+func (s *Server) rolePermissionsIncludingParents(ctx context.Context, projectID string, permissions []string, parentRoleID string) ([]string, error) {
+	effective := append([]string{}, permissions...)
+	if parentRoleID == "" {
+		return effective, nil
+	}
+	seen := map[string]struct{}{}
+	currentParent := parentRoleID
+	for depth := 0; currentParent != ""; depth++ {
+		if depth >= 20 {
+			return nil, huma.Error400BadRequest("parent role chain is too deep")
+		}
+		if _, ok := seen[currentParent]; ok {
+			return nil, huma.Error400BadRequest("parent role chain contains a cycle")
+		}
+		seen[currentParent] = struct{}{}
+		parent, err := s.store.GetProjectRole(ctx, currentParent)
+		if err != nil {
+			if errors.Is(err, store.ErrRoleNotFound) {
+				return nil, huma.Error400BadRequest("parent role not found")
+			}
+			return nil, huma.Error500InternalServerError("failed to verify parent role")
+		}
+		if parent.ProjectID != "" && parent.ProjectID != projectID {
+			return nil, huma.Error400BadRequest("parent role not found")
+		}
+		effective = append(effective, parent.Permissions...)
+		currentParent = parent.ParentRoleID
+	}
+	return effective, nil
+}
+
+func (s *Server) usersAffectedByRoleMutation(ctx context.Context, projectID, roleID string) ([]string, error) {
+	roles, err := s.listAllProjectRolesForInvalidation(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	affectedRoles := map[string]struct{}{roleID: {}}
+	for changed := true; changed; {
+		changed = false
+		for i := range roles {
+			if roles[i].ParentRoleID == "" {
+				continue
+			}
+			if _, parentAffected := affectedRoles[roles[i].ParentRoleID]; !parentAffected {
+				continue
+			}
+			if _, alreadyAffected := affectedRoles[roles[i].ID]; alreadyAffected {
+				continue
+			}
+			affectedRoles[roles[i].ID] = struct{}{}
+			changed = true
+		}
+	}
+
+	members, err := s.listAllProjectMembersForInvalidation(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	users := make([]string, 0, len(members))
+	for i := range members {
+		if _, ok := affectedRoles[members[i].RoleID]; ok {
+			users = append(users, members[i].UserID)
+		}
+	}
+	return users, nil
+}
+
+func (s *Server) listAllProjectRolesForInvalidation(ctx context.Context, projectID string) ([]domain.ProjectRole, error) {
+	var (
+		out    []domain.ProjectRole
+		cursor *time.Time
+	)
+	for {
+		roles, err := s.store.ListProjectRoles(ctx, projectID, maxPageLimit+1, cursor)
+		if err != nil {
+			return nil, err
+		}
+		if len(roles) == 0 {
+			return out, nil
+		}
+		page := roles
+		hasMore := len(roles) > maxPageLimit
+		if hasMore {
+			page = roles[:maxPageLimit]
+		}
+		out = append(out, page...)
+		if !hasMore {
+			return out, nil
+		}
+		cursor = &page[len(page)-1].CreatedAt
+	}
+}
+
+func (s *Server) listAllProjectMembersForInvalidation(ctx context.Context, projectID string) ([]domain.ProjectMemberRole, error) {
+	var (
+		out    []domain.ProjectMemberRole
+		cursor *time.Time
+	)
+	for {
+		members, err := s.store.ListProjectMembers(ctx, projectID, maxPageLimit+1, cursor)
+		if err != nil {
+			return nil, err
+		}
+		if len(members) == 0 {
+			return out, nil
+		}
+		page := members
+		hasMore := len(members) > maxPageLimit
+		if hasMore {
+			page = members[:maxPageLimit]
+		}
+		out = append(out, page...)
+		if !hasMore {
+			return out, nil
+		}
+		cursor = &page[len(page)-1].CreatedAt
+	}
+}
+
+func (s *Server) invalidatePermissionCacheForUsers(projectID string, userIDs []string) {
+	for _, userID := range userIDs {
+		s.permCache.Invalidate(projectID, userID)
+	}
 }
 
 type createRoleRequest struct {
@@ -161,6 +287,22 @@ func (s *Server) emitAuditEvent(ctx context.Context, action, resourceType, resou
 	}
 }
 
+// createRequiredAuditEvent persists an audit row for security-sensitive
+// operations that must fail closed when they cannot be audited before
+// returning protected data.
+func (s *Server) createRequiredAuditEvent(ctx context.Context, action, resourceType, resourceID string, details map[string]any) error {
+	ev, err := s.buildAuditEvent(ctx, action, resourceType, resourceID, details)
+	if err != nil {
+		return err
+	}
+	if ev == nil {
+		return errors.New("audit event was not built")
+	}
+	auditCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	return s.store.CreateAuditEvent(auditCtx, ev)
+}
+
 type CreateRoleInput struct{ Body createRoleRequest }
 type CreateRoleOutput struct{ Body *domain.ProjectRole }
 
@@ -176,10 +318,15 @@ func (s *Server) handleCreateRole(ctx context.Context, input *CreateRoleInput) (
 	if err := domain.ValidateScopes(req.Permissions); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
-	if err := s.validateCallerCanGrantPermissions(ctx, req.Permissions); err != nil {
+	projectID := projectIDFromContext(ctx)
+	effectivePermissions, err := s.rolePermissionsIncludingParents(ctx, projectID, req.Permissions, req.ParentRoleID)
+	if err != nil {
 		return nil, err
 	}
-	role := &domain.ProjectRole{ProjectID: projectIDFromContext(ctx), Name: req.Name, Description: req.Description, Permissions: req.Permissions, ParentRoleID: req.ParentRoleID}
+	if err := s.validateCallerCanGrantPermissions(ctx, effectivePermissions); err != nil {
+		return nil, err
+	}
+	role := &domain.ProjectRole{ProjectID: projectID, Name: req.Name, Description: req.Description, Permissions: req.Permissions, ParentRoleID: req.ParentRoleID}
 	if err := s.store.CreateProjectRole(ctx, role); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create role")
 	}
@@ -275,9 +422,6 @@ func (s *Server) handleUpdateRole(ctx context.Context, input *UpdateRoleInput) (
 	if err := domain.ValidateScopes(req.Permissions); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
-	if err := s.validateCallerCanGrantPermissions(ctx, req.Permissions); err != nil {
-		return nil, err
-	}
 	roleID := input.RoleID
 	previousRole, err := s.store.GetProjectRole(ctx, roleID)
 	if err != nil {
@@ -288,6 +432,17 @@ func (s *Server) handleUpdateRole(ctx context.Context, input *UpdateRoleInput) (
 	}
 	if err := requireProjectMatch(ctx, previousRole.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("role not found")
+	}
+	effectivePermissions, err := s.rolePermissionsIncludingParents(ctx, previousRole.ProjectID, req.Permissions, req.ParentRoleID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.validateCallerCanGrantPermissions(ctx, effectivePermissions); err != nil {
+		return nil, err
+	}
+	affectedUsers, err := s.usersAffectedByRoleMutation(ctx, previousRole.ProjectID, roleID)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to load role assignments")
 	}
 	role := &domain.ProjectRole{ID: roleID, Name: req.Name, Description: req.Description, Permissions: req.Permissions, ParentRoleID: req.ParentRoleID}
 	if err := s.store.UpdateProjectRole(ctx, role); err != nil {
@@ -306,6 +461,7 @@ func (s *Server) handleUpdateRole(ctx context.Context, input *UpdateRoleInput) (
 	if updated == nil {
 		updated = role
 	}
+	s.invalidatePermissionCacheForUsers(previousRole.ProjectID, affectedUsers)
 	s.emitAuditEvent(ctx, domain.AuditActionRoleUpdated, "role", roleID, map[string]any{"changes": map[string]any{"before": previousRole, "after": updated}})
 	return &UpdateRoleOutput{Body: updated}, nil
 }
@@ -330,12 +486,17 @@ func (s *Server) handleDeleteRole(ctx context.Context, input *DeleteRoleInput) (
 		return nil, huma.Error404NotFound("role not found or is a system role")
 	}
 
+	affectedUsers, err := s.usersAffectedByRoleMutation(ctx, role.ProjectID, input.RoleID)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to load role assignments")
+	}
 	if err := s.store.DeleteProjectRole(ctx, input.RoleID); err != nil {
 		if errors.Is(err, store.ErrRoleNotFound) {
 			return nil, huma.Error404NotFound("role not found or is a system role")
 		}
 		return nil, huma.Error500InternalServerError("failed to delete role")
 	}
+	s.invalidatePermissionCacheForUsers(role.ProjectID, affectedUsers)
 	slog.Info("role deleted", "role_id", input.RoleID, "actor", actorFromContext(ctx), "project_id", projectIDFromContext(ctx))
 	s.emitAuditEvent(ctx, domain.AuditActionRoleDeleted, "role", input.RoleID, nil)
 	return nil, nil
@@ -359,22 +520,14 @@ type bulkAssignMemberResult struct {
 type AssignMemberInput struct{ Body assignMemberRequest }
 type AssignMemberOutput struct{ Body *domain.ProjectMemberRole }
 
+type orgLimitedMemberAssigner interface {
+	AssignMemberRoleWithOrgLimit(ctx context.Context, m *domain.ProjectMemberRole, orgID string, maxMembers int) error
+}
+
 func (s *Server) handleAssignMember(ctx context.Context, input *AssignMemberInput) (*AssignMemberOutput, error) {
 	req := input.Body
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
-	}
-	if s.billingEnforcer != nil {
-		projectID := projectIDFromContext(ctx)
-		orgID, err := s.billingEnforcer.GetActiveProjectOrgID(ctx, projectID)
-		if err == nil && orgID != "" {
-			if err := s.billingEnforcer.CheckMemberLimit(ctx, orgID); err != nil {
-				var le *billing.LimitError
-				if errors.As(err, &le) {
-					return nil, le
-				}
-			}
-		}
 	}
 	// Prevent self-assignment: callers cannot assign roles to themselves.
 	caller := actorFromContext(ctx)
@@ -391,11 +544,19 @@ func (s *Server) handleAssignMember(ctx context.Context, input *AssignMemberInpu
 	if targetRole.ProjectID != "" && targetRole.ProjectID != projectIDFromContext(ctx) {
 		return nil, huma.Error400BadRequest("role not found")
 	}
-	if err := s.validateCallerCanGrantPermissions(ctx, targetRole.Permissions); err != nil {
+	effectivePermissions, err := s.rolePermissionsIncludingParents(ctx, projectIDFromContext(ctx), targetRole.Permissions, targetRole.ParentRoleID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.validateCallerCanGrantPermissions(ctx, effectivePermissions); err != nil {
 		return nil, err
 	}
 	m := &domain.ProjectMemberRole{ProjectID: projectIDFromContext(ctx), UserID: req.UserID, RoleID: req.RoleID, GrantedBy: caller}
-	if err := s.store.AssignMemberRole(ctx, m); err != nil {
+	if err := s.assignMemberRoleWithBillingLimit(ctx, m); err != nil {
+		var le *billing.LimitError
+		if errors.As(err, &le) {
+			return nil, le
+		}
 		return nil, huma.Error500InternalServerError("failed to assign role")
 	}
 	s.permCache.Invalidate(m.ProjectID, m.UserID)
@@ -435,12 +596,22 @@ func (s *Server) handleBulkAssignMembers(ctx context.Context, input *BulkAssignM
 			results = append(results, bulkAssignMemberResult{UserID: item.UserID, RoleID: item.RoleID, Status: "error", Error: "role not found"})
 			continue
 		}
-		if err := s.validateCallerCanGrantPermissions(ctx, targetRole.Permissions); err != nil {
+		effectivePermissions, err := s.rolePermissionsIncludingParents(ctx, projectID, targetRole.Permissions, targetRole.ParentRoleID)
+		if err != nil {
+			results = append(results, bulkAssignMemberResult{UserID: item.UserID, RoleID: item.RoleID, Status: "error", Error: err.Error()})
+			continue
+		}
+		if err := s.validateCallerCanGrantPermissions(ctx, effectivePermissions); err != nil {
 			results = append(results, bulkAssignMemberResult{UserID: item.UserID, RoleID: item.RoleID, Status: "error", Error: err.Error()})
 			continue
 		}
 		m := &domain.ProjectMemberRole{ProjectID: projectID, UserID: item.UserID, RoleID: item.RoleID, GrantedBy: actor}
-		if err := s.store.AssignMemberRole(ctx, m); err != nil {
+		if err := s.assignMemberRoleWithBillingLimit(ctx, m); err != nil {
+			var le *billing.LimitError
+			if errors.As(err, &le) {
+				results = append(results, bulkAssignMemberResult{UserID: item.UserID, RoleID: item.RoleID, Status: "error", Error: le.Message})
+				continue
+			}
 			results = append(results, bulkAssignMemberResult{UserID: item.UserID, RoleID: item.RoleID, Status: "error", Error: "failed to assign role"})
 			continue
 		}
@@ -449,6 +620,49 @@ func (s *Server) handleBulkAssignMembers(ctx context.Context, input *BulkAssignM
 		results = append(results, bulkAssignMemberResult{UserID: item.UserID, RoleID: item.RoleID, Status: "assigned"})
 	}
 	return &BulkAssignMembersOutput{Body: map[string]any{"results": results, "total": len(results)}}, nil
+}
+
+func (s *Server) assignMemberRoleWithBillingLimit(ctx context.Context, m *domain.ProjectMemberRole) error {
+	if s.billingEnforcer == nil {
+		return s.store.AssignMemberRole(ctx, m)
+	}
+
+	orgID, err := s.billingEnforcer.GetActiveProjectOrgID(ctx, m.ProjectID)
+	if err != nil || orgID == "" {
+		return s.store.AssignMemberRole(ctx, m)
+	}
+
+	limits, err := s.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
+	if err != nil {
+		if checkErr := s.billingEnforcer.CheckMemberLimit(ctx, orgID); checkErr != nil {
+			return checkErr
+		}
+		return s.store.AssignMemberRole(ctx, m)
+	}
+	if limits.MaxMembersPerOrg == -1 {
+		return s.store.AssignMemberRole(ctx, m)
+	}
+
+	if assigner, ok := s.store.(orgLimitedMemberAssigner); ok {
+		if err := assigner.AssignMemberRoleWithOrgLimit(ctx, m, orgID, limits.MaxMembersPerOrg); err != nil {
+			if errors.Is(err, store.ErrMemberLimitReached) {
+				return &billing.LimitError{
+					Code:       "member_limit_reached",
+					Message:    fmt.Sprintf("Your %s plan allows %d members per organization. Upgrade to add more.", limits.DisplayName, limits.MaxMembersPerOrg),
+					Limit:      int64(limits.MaxMembersPerOrg),
+					Plan:       string(limits.PlanTier),
+					UpgradeURL: "/upgrade",
+				}
+			}
+			return err
+		}
+		return nil
+	}
+
+	if err := s.billingEnforcer.CheckMemberLimit(ctx, orgID); err != nil {
+		return err
+	}
+	return s.store.AssignMemberRole(ctx, m)
 }
 
 type ListMembersInput struct {

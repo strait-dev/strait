@@ -76,6 +76,41 @@ func (s *Server) resolveUsageOrgIDTyped(ctx context.Context, orgID string) (stri
 	return orgID, nil
 }
 
+func requireOrgScopedBillingWrite(ctx context.Context, orgID string) error {
+	if isInternalCaller(ctx) || scopesFromContext(ctx) == nil {
+		return nil
+	}
+	if callerOrg := orgIDFromContext(ctx); callerOrg == "" || callerOrg != orgID {
+		return huma.Error403Forbidden("org-scoped billing mutation requires authentication bound to the target organization")
+	}
+	return nil
+}
+
+func requireOrgScopedBillingRead(ctx context.Context, orgID string) error {
+	if isInternalCaller(ctx) || scopesFromContext(ctx) == nil {
+		return nil
+	}
+	if callerOrg := orgIDFromContext(ctx); callerOrg == "" || callerOrg != orgID {
+		return huma.Error403Forbidden("org-scoped billing read requires authentication bound to the target organization")
+	}
+	return nil
+}
+
+func requireProjectBudgetAPIKeyScope(ctx context.Context, targetProjectID string) error {
+	if isInternalCaller(ctx) || scopesFromContext(ctx) == nil {
+		return nil
+	}
+	if orgIDFromContext(ctx) != "" {
+		return nil
+	}
+	if projectIDFromContext(ctx) != targetProjectID {
+		return huma.Error403Forbidden("project-scoped billing access is limited to the authenticated project")
+	}
+	return nil
+}
+
+const maxUsageDateRange = 370 * 24 * time.Hour
+
 func parseDateRangeTyped(fromStr, toStr string) (time.Time, time.Time, error) {
 	if fromStr == "" || toStr == "" {
 		return time.Time{}, time.Time{}, huma.Error400BadRequest("from and to query parameters are required (format: YYYY-MM-DD)")
@@ -91,6 +126,9 @@ func parseDateRangeTyped(fromStr, toStr string) (time.Time, time.Time, error) {
 	if to.Before(from) {
 		return time.Time{}, time.Time{}, huma.Error400BadRequest("to date must be after from date")
 	}
+	if to.Sub(from) > maxUsageDateRange {
+		return time.Time{}, time.Time{}, huma.Error400BadRequest("date range must not exceed 370 days")
+	}
 	return from, to, nil
 }
 
@@ -105,6 +143,9 @@ func (s *Server) handleGetCurrentUsage(ctx context.Context, input *GetCurrentUsa
 	}
 	orgID, err := s.resolveUsageOrgIDTyped(ctx, input.OrgID)
 	if err != nil {
+		return nil, err
+	}
+	if err := requireOrgScopedBillingRead(ctx, orgID); err != nil {
 		return nil, err
 	}
 	usage, usageErr := s.usageService.GetCurrentUsage(ctx, orgID)
@@ -134,6 +175,9 @@ func (s *Server) handleGetUsageHistory(ctx context.Context, input *GetUsageHisto
 	if err != nil {
 		return nil, err
 	}
+	if err := requireOrgScopedBillingRead(ctx, orgID); err != nil {
+		return nil, err
+	}
 	from, to, err := parseDateRangeTyped(input.From, input.To)
 	if err != nil {
 		return nil, err
@@ -159,6 +203,9 @@ func (s *Server) handleGetUsageForecast(ctx context.Context, input *GetUsageFore
 	if err != nil {
 		return nil, err
 	}
+	if err := requireOrgScopedBillingRead(ctx, orgID); err != nil {
+		return nil, err
+	}
 	forecast, fErr := s.usageService.GetUsageForecast(ctx, orgID)
 	if fErr != nil {
 		slog.Error("failed to get usage forecast", "error", fErr)
@@ -180,6 +227,9 @@ func (s *Server) handleGetProjectCosts(ctx context.Context, input *GetProjectCos
 	}
 	orgID, err := s.resolveUsageOrgIDTyped(ctx, input.OrgID)
 	if err != nil {
+		return nil, err
+	}
+	if err := requireOrgScopedBillingRead(ctx, orgID); err != nil {
 		return nil, err
 	}
 	from, to, err := parseDateRangeTyped(input.From, input.To)
@@ -205,6 +255,9 @@ func (s *Server) handleGetSpendingLimit(ctx context.Context, input *GetSpendingL
 	}
 	orgID, err := s.resolveUsageOrgIDTyped(ctx, input.OrgID)
 	if err != nil {
+		return nil, err
+	}
+	if err := requireOrgScopedBillingRead(ctx, orgID); err != nil {
 		return nil, err
 	}
 	limit, lErr := s.usageService.GetSpendingLimit(ctx, orgID)
@@ -233,6 +286,9 @@ func (s *Server) handleUpdateSpendingLimit(ctx context.Context, input *UpdateSpe
 	if err != nil {
 		return nil, err
 	}
+	if err := requireOrgScopedBillingWrite(ctx, orgID); err != nil {
+		return nil, err
+	}
 	if err := s.usageService.SetSpendingLimit(ctx, orgID, input.Body.LimitMicrousd, input.Body.Action); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
@@ -253,6 +309,9 @@ type GetEmailPreferencesOutput struct{ Body any }
 func (s *Server) handleGetEmailPreferences(ctx context.Context, input *GetEmailPreferencesInput) (*GetEmailPreferencesOutput, error) {
 	orgID, err := s.resolveUsageOrgIDTyped(ctx, input.OrgID)
 	if err != nil {
+		return nil, err
+	}
+	if err := requireOrgScopedBillingRead(ctx, orgID); err != nil {
 		return nil, err
 	}
 	if s.usageService == nil {
@@ -280,6 +339,9 @@ func (s *Server) handleUpdateEmailPreferences(ctx context.Context, input *Update
 	if err != nil {
 		return nil, err
 	}
+	if err := requireOrgScopedBillingWrite(ctx, orgID); err != nil {
+		return nil, err
+	}
 	if s.usageService == nil {
 		return nil, huma.Error501NotImplemented("usage service not configured")
 	}
@@ -304,6 +366,9 @@ func (s *Server) handleGetDowngradePreview(ctx context.Context, input *GetDowngr
 	}
 	orgID, err := s.resolveUsageOrgIDTyped(ctx, input.OrgID)
 	if err != nil {
+		return nil, err
+	}
+	if err := requireOrgScopedBillingRead(ctx, orgID); err != nil {
 		return nil, err
 	}
 	if input.TargetTier == "" {
@@ -342,6 +407,9 @@ func (s *Server) handleExportUsage(ctx context.Context, input *ExportUsageInput)
 	if err != nil {
 		return nil, err
 	}
+	if err := requireOrgScopedBillingRead(ctx, orgID); err != nil {
+		return nil, err
+	}
 	from, to, err := parseDateRangeTyped(input.From, input.To)
 	if err != nil {
 		return nil, err
@@ -361,6 +429,9 @@ func (s *Server) handleExportUsage(ctx context.Context, input *ExportUsageInput)
 	case "csv":
 		csvData, csvErr := s.usageService.ExportUsageCSV(ctx, orgID, from, to)
 		if csvErr != nil {
+			if errors.Is(csvErr, billing.ErrUsageExportTooLarge) {
+				return nil, huma.Error413RequestEntityTooLarge(csvErr.Error())
+			}
 			slog.Error("failed to export usage", "error", csvErr)
 			return nil, huma.Error500InternalServerError("failed to export usage")
 		}
@@ -371,6 +442,9 @@ func (s *Server) handleExportUsage(ctx context.Context, input *ExportUsageInput)
 	case "pdf":
 		pdfData, pdfErr := s.usageService.ExportUsagePDF(ctx, orgID, from, to)
 		if pdfErr != nil {
+			if errors.Is(pdfErr, billing.ErrUsageExportTooLarge) {
+				return nil, huma.Error413RequestEntityTooLarge(pdfErr.Error())
+			}
 			slog.Error("failed to export usage PDF", "error", pdfErr)
 			return nil, huma.Error500InternalServerError("failed to export usage")
 		}
@@ -405,6 +479,9 @@ func (s *Server) handleGetAnomalyAlerts(ctx context.Context, input *GetAnomalyAl
 	if err != nil {
 		return nil, err
 	}
+	if err := requireOrgScopedBillingRead(ctx, orgID); err != nil {
+		return nil, err
+	}
 	alerts, aErr := s.usageService.DetectAnomalies(ctx, orgID)
 	if aErr != nil {
 		slog.Error("failed to detect anomalies", "error", aErr)
@@ -430,6 +507,9 @@ func (s *Server) handleGetProjectBudget(ctx context.Context, input *GetProjectBu
 	}
 	if err := s.validateProjectBelongsToCallerOrg(ctx, input.ProjectID); err != nil {
 		return nil, huma.Error403Forbidden("access denied")
+	}
+	if err := requireProjectBudgetAPIKeyScope(ctx, input.ProjectID); err != nil {
+		return nil, err
 	}
 	budget, bErr := s.usageService.GetProjectBudget(ctx, input.ProjectID)
 	if bErr != nil {
@@ -458,6 +538,9 @@ func (s *Server) handleUpdateProjectBudget(ctx context.Context, input *UpdatePro
 	if err := s.validateProjectBelongsToCallerOrg(ctx, req.ProjectID); err != nil {
 		return nil, huma.Error403Forbidden("access denied")
 	}
+	if err := requireProjectBudgetAPIKeyScope(ctx, req.ProjectID); err != nil {
+		return nil, err
+	}
 	if err := s.usageService.SetProjectBudget(ctx, req.ProjectID, req.BudgetMicro, req.Action); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
@@ -479,6 +562,9 @@ func (s *Server) handleGetAnomalyConfig(ctx context.Context, input *GetAnomalyCo
 	}
 	orgID, err := s.resolveUsageOrgIDTyped(ctx, input.OrgID)
 	if err != nil {
+		return nil, err
+	}
+	if err := requireOrgScopedBillingRead(ctx, orgID); err != nil {
 		return nil, err
 	}
 	cfg, cErr := s.usageService.GetAnomalyConfig(ctx, orgID)
@@ -505,6 +591,9 @@ func (s *Server) handleUpdateAnomalyConfig(ctx context.Context, input *UpdateAno
 	}
 	orgID, err := s.resolveUsageOrgIDTyped(ctx, input.OrgID)
 	if err != nil {
+		return nil, err
+	}
+	if err := requireOrgScopedBillingWrite(ctx, orgID); err != nil {
 		return nil, err
 	}
 	if err := s.usageService.SetAnomalyConfig(ctx, orgID, input.Body.Warning, input.Body.Critical); err != nil {

@@ -141,6 +141,9 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 	if err := s.checkJobChainingAllowed(ctx, req.ProjectID, req.OnCompleteTriggerJob, req.OnCompleteTriggerWorkflow); err != nil {
 		return nil, err
 	}
+	if err := s.checkJobChainingAllowed(ctx, req.ProjectID, req.OnFailureTriggerJob, req.OnFailureTriggerWorkflow); err != nil {
+		return nil, err
+	}
 	if err := s.checkCronOverlapPolicy(ctx, req.ProjectID, req.CronOverlapPolicy); err != nil {
 		return nil, err
 	}
@@ -157,13 +160,9 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 		return nil, err
 	}
 
-	signingSecret := req.EndpointSigningSecret
-	if req.WebhookSecret != "" {
-		if signingSecret != "" && signingSecret != req.WebhookSecret {
-			slog.Warn("both webhook_secret and endpoint_signing_secret supplied on job create; using webhook_secret",
-				"project_id", req.ProjectID, "slug", req.Slug)
-		}
-		signingSecret = req.WebhookSecret
+	signingSecret, err := s.resolveCreateJobSigningSecret(req)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to encrypt endpoint signing secret")
 	}
 
 	job := &domain.Job{
@@ -240,6 +239,40 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 	return &CreateJobOutput{Body: job}, nil
 }
 
+func (s *Server) resolveCreateJobSigningSecret(req CreateJobRequest) (string, error) {
+	signingSecret := req.EndpointSigningSecret
+	if req.WebhookSecret != "" {
+		if signingSecret != "" && signingSecret != req.WebhookSecret {
+			slog.Warn("both webhook_secret and endpoint_signing_secret supplied on job create; using webhook_secret",
+				"project_id", req.ProjectID, "slug", req.Slug)
+		}
+		signingSecret = req.WebhookSecret
+	}
+	return s.encryptEndpointSigningSecret(signingSecret)
+}
+
+func sanitizedJobUpdateAuditChanges(req UpdateJobRequest) map[string]any {
+	secretChanged := req.EndpointSigningSecret != nil || req.WebhookSecret != nil
+	req.EndpointSigningSecret = nil
+	req.WebhookSecret = nil
+
+	raw, err := json.Marshal(req)
+	if err != nil {
+		return map[string]any{"marshal_error": true, "signing_credential_changed": secretChanged}
+	}
+	var changes map[string]any
+	if err := json.Unmarshal(raw, &changes); err != nil {
+		return map[string]any{"marshal_error": true, "signing_credential_changed": secretChanged}
+	}
+	if changes == nil {
+		changes = map[string]any{}
+	}
+	if secretChanged {
+		changes["signing_credential_changed"] = true
+	}
+	return changes
+}
+
 // validateCreateJobFields validates the scalar and cron fields on a CreateJobRequest,
 // applies defaults, and checks plan gates that do not depend on execution mode.
 // It mutates req to apply defaults (MaxAttempts, TimeoutSecs, RetryPriorityBoost).
@@ -249,6 +282,9 @@ func (s *Server) validateCreateJobFields(ctx context.Context, req *CreateJobRequ
 	}
 	if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
 		return huma.Error403Forbidden("project_id does not match authenticated project")
+	}
+	if err := requireEnvironmentMatch(ctx, req.EnvironmentID); err != nil {
+		return huma.Error403Forbidden("environment_id does not match authenticated environment")
 	}
 	if err := validateJobName(req.Name); err != nil {
 		return huma.Error400BadRequest(err.Error())
@@ -421,6 +457,9 @@ func (s *Server) handleListJobs(ctx context.Context, input *ListJobsInput) (*Lis
 			}
 			return nil, huma.Error500InternalServerError("failed to look up job by slug")
 		}
+		if callerEnv := environmentIDFromContext(ctx); callerEnv != "" && job.EnvironmentID != callerEnv {
+			return emptyPage(), nil
+		}
 		return &ListJobsOutput{Body: paginatedResult([]domain.Job{*job}, limit, func(j domain.Job) string {
 			return j.CreatedAt.Format(time.RFC3339Nano)
 		})}, nil
@@ -438,6 +477,7 @@ func (s *Server) handleListJobs(ctx context.Context, input *ListJobsInput) (*Lis
 	if listErr != nil {
 		return nil, huma.Error500InternalServerError("failed to list jobs")
 	}
+	jobs = filterJobsForEnvironment(ctx, jobs)
 
 	return &ListJobsOutput{Body: paginatedResult(jobs, limit, func(j domain.Job) string {
 		return j.CreatedAt.Format(time.RFC3339Nano)
@@ -574,6 +614,17 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 		}
 		job.Tags = *req.Tags
 	}
+	nextEndpointURL := job.EndpointURL
+	nextFallbackEndpointURL := job.FallbackEndpointURL
+	if req.EndpointURL != nil {
+		nextEndpointURL = *req.EndpointURL
+	}
+	if req.FallbackEndpointURL != nil {
+		nextFallbackEndpointURL = *req.FallbackEndpointURL
+	}
+	if err := s.requireSecretsWriteForSecretBearingEndpointChange(ctx, job, nextEndpointURL, nextFallbackEndpointURL); err != nil {
+		return nil, err
+	}
 	if req.EndpointURL != nil {
 		if err := validateURL(*req.EndpointURL); err != nil {
 			return nil, huma.Error400BadRequest("invalid endpoint_url: " + err.Error())
@@ -581,16 +632,22 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 		job.EndpointURL = *req.EndpointURL
 	}
 	if req.WebhookSecret != nil || req.EndpointSigningSecret != nil {
+		var signingSecret string
 		switch {
 		case req.WebhookSecret != nil && req.EndpointSigningSecret != nil && *req.WebhookSecret != *req.EndpointSigningSecret:
 			slog.Warn("both webhook_secret and endpoint_signing_secret supplied on job update; using webhook_secret",
 				"job_id", job.ID, "project_id", job.ProjectID)
-			job.EndpointSigningSecret = *req.WebhookSecret
+			signingSecret = *req.WebhookSecret
 		case req.WebhookSecret != nil:
-			job.EndpointSigningSecret = *req.WebhookSecret
+			signingSecret = *req.WebhookSecret
 		default:
-			job.EndpointSigningSecret = *req.EndpointSigningSecret
+			signingSecret = *req.EndpointSigningSecret
 		}
+		signingSecret, err = s.encryptEndpointSigningSecret(signingSecret)
+		if err != nil {
+			return nil, huma.Error500InternalServerError("failed to encrypt endpoint signing secret")
+		}
+		job.EndpointSigningSecret = signingSecret
 	}
 	if req.FallbackEndpointURL != nil {
 		job.FallbackEndpointURL = *req.FallbackEndpointURL
@@ -654,6 +711,9 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 		job.RetryPriorityBoost = *req.RetryPriorityBoost
 	}
 	if req.EnvironmentID != nil {
+		if err := requireEnvironmentMatch(ctx, *req.EnvironmentID); err != nil {
+			return nil, huma.Error403Forbidden("environment_id does not match authenticated environment")
+		}
 		job.EnvironmentID = *req.EnvironmentID
 	}
 	if req.Enabled != nil {
@@ -753,7 +813,7 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 	s.enqueueJobMetadata(job)
 
 	s.emitAuditEvent(ctx, domain.AuditActionJobUpdated, "job", job.ID, map[string]any{
-		"changes": req,
+		"changes": sanitizedJobUpdateAuditChanges(req),
 		"name":    job.Name,
 		"slug":    job.Slug,
 	})
@@ -863,6 +923,9 @@ func (s *Server) handleCloneJob(ctx context.Context, input *CloneJobInput) (*Clo
 	if err := s.checkJobChainingAllowed(ctx, source.ProjectID, source.OnCompleteTriggerJob, source.OnCompleteTriggerWorkflow); err != nil {
 		return nil, err
 	}
+	if err := s.checkJobChainingAllowed(ctx, source.ProjectID, source.OnFailureTriggerJob, source.OnFailureTriggerWorkflow); err != nil {
+		return nil, err
+	}
 	if err := s.checkCronOverlapPolicy(ctx, source.ProjectID, string(source.CronOverlapPolicy)); err != nil {
 		return nil, err
 	}
@@ -970,6 +1033,20 @@ func normalizeJobQueueName(name string) string {
 		return defaultJobQueueName
 	}
 	return name
+}
+
+func filterJobsForEnvironment(ctx context.Context, jobs []domain.Job) []domain.Job {
+	callerEnv := environmentIDFromContext(ctx)
+	if callerEnv == "" {
+		return jobs
+	}
+	filtered := jobs[:0]
+	for _, job := range jobs {
+		if job.EnvironmentID == callerEnv {
+			filtered = append(filtered, job)
+		}
+	}
+	return filtered
 }
 
 func validateTags(tags map[string]string) error {
@@ -1085,85 +1162,74 @@ func (s *Server) handleBatchCreateJobs(ctx context.Context, input *BatchCreateJo
 
 	var resp BatchCreateJobsResponse
 	for i, jobReq := range req.Jobs {
-		if err := s.validate.Struct(&jobReq); err != nil {
-			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: "validation failed"})
+		if err := s.validateCreateJobFields(ctx, &jobReq); err != nil {
+			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: batchJobErrorMessage(err)})
 			continue
 		}
-		if err := validateJobName(jobReq.Name); err != nil {
-			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: err.Error()})
+		execMode, err := s.resolveAndCheckExecMode(ctx, &jobReq)
+		if err != nil {
+			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: batchJobErrorMessage(err)})
 			continue
 		}
-		if err := validateJobSlug(jobReq.Slug); err != nil {
-			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: err.Error()})
+		if err := s.checkScheduleLimit(ctx, jobReq.ProjectID, jobReq.Cron); err != nil {
+			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: batchJobErrorMessage(err)})
 			continue
 		}
-		if err := validateEndpointNotEmpty(jobReq.EndpointURL); err != nil {
-			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: err.Error()})
+		if err := s.checkCronOverlapPolicy(ctx, jobReq.ProjectID, jobReq.CronOverlapPolicy); err != nil {
+			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: batchJobErrorMessage(err)})
 			continue
 		}
-
-		if err := validateURL(jobReq.EndpointURL); err != nil {
-			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: "invalid endpoint_url: " + err.Error()})
+		if err := s.checkCronMinInterval(ctx, jobReq.ProjectID, jobReq.Cron); err != nil {
+			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: batchJobErrorMessage(err)})
 			continue
 		}
-
-		if err := validateRetryConfig(jobReq.RetryStrategy, jobReq.RetryDelaysSecs); err != nil {
-			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: err.Error()})
+		if err := s.checkRunTTLLimit(ctx, jobReq.ProjectID, jobReq.RunTTLSecs); err != nil {
+			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: batchJobErrorMessage(err)})
 			continue
 		}
-
-		if jobReq.MaxAttempts == 0 {
-			jobReq.MaxAttempts = s.defaultJobMaxAttempts()
-		}
-		if jobReq.TimeoutSecs == 0 {
-			jobReq.TimeoutSecs = s.defaultJobTimeoutSecs()
-		}
-		if jobReq.TimeoutSecs > 86400 {
-			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: "timeout_secs must not exceed 86400 (24 hours)"})
+		if err := s.checkPerJobConcurrencyLimit(ctx, jobReq.ProjectID, jobReq.MaxConcurrency, jobReq.MaxConcurrencyPerKey); err != nil {
+			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: batchJobErrorMessage(err)})
 			continue
 		}
-		if jobReq.RetryPriorityBoost == 0 {
-			jobReq.RetryPriorityBoost = 1
-		}
-
-		if len(jobReq.Tags) > 0 {
-			if err := validateTags(jobReq.Tags); err != nil {
-				resp.Errors = append(resp.Errors, BatchError{Index: i, Message: err.Error()})
-				continue
-			}
-		}
-
-		if err := requireProjectMatch(ctx, jobReq.ProjectID); err != nil {
-			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: "project not found"})
+		signingSecret, err := s.resolveCreateJobSigningSecret(jobReq)
+		if err != nil {
+			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: "failed to encrypt endpoint signing secret"})
 			continue
 		}
 
 		job := &domain.Job{
-			ProjectID:           jobReq.ProjectID,
-			GroupID:             jobReq.GroupID,
-			Name:                jobReq.Name,
-			Slug:                jobReq.Slug,
-			Description:         jobReq.Description,
-			Cron:                jobReq.Cron,
-			PayloadSchema:       jobReq.PayloadSchema,
-			Tags:                jobReq.Tags,
-			EndpointURL:         jobReq.EndpointURL,
-			FallbackEndpointURL: jobReq.FallbackEndpointURL,
-			MaxAttempts:         jobReq.MaxAttempts,
-			TimeoutSecs:         jobReq.TimeoutSecs,
-			MaxConcurrency:      jobReq.MaxConcurrency,
-			ExecutionWindowCron: jobReq.ExecutionWindowCron,
-			Timezone:            jobReq.Timezone,
-			RateLimitMax:        jobReq.RateLimitMax,
-			RateLimitWindowSecs: jobReq.RateLimitWindowSecs,
-			DedupWindowSecs:     jobReq.DedupWindowSecs,
-			RunTTLSecs:          jobReq.RunTTLSecs,
-			RetryStrategy:       jobReq.RetryStrategy,
-			RetryDelaysSecs:     jobReq.RetryDelaysSecs,
-			RetryPriorityBoost:  jobReq.RetryPriorityBoost,
-			EnvironmentID:       jobReq.EnvironmentID,
-			PreferredRegions:    jobReq.PreferredRegions,
-			Enabled:             true,
+			ProjectID:             jobReq.ProjectID,
+			GroupID:               jobReq.GroupID,
+			Name:                  jobReq.Name,
+			Slug:                  jobReq.Slug,
+			Description:           jobReq.Description,
+			Cron:                  jobReq.Cron,
+			PayloadSchema:         jobReq.PayloadSchema,
+			Tags:                  jobReq.Tags,
+			EndpointURL:           jobReq.EndpointURL,
+			EndpointSigningSecret: signingSecret,
+			FallbackEndpointURL:   jobReq.FallbackEndpointURL,
+			MaxAttempts:           jobReq.MaxAttempts,
+			TimeoutSecs:           jobReq.TimeoutSecs,
+			MaxConcurrency:        jobReq.MaxConcurrency,
+			ExecutionWindowCron:   jobReq.ExecutionWindowCron,
+			Timezone:              jobReq.Timezone,
+			RateLimitMax:          jobReq.RateLimitMax,
+			RateLimitWindowSecs:   jobReq.RateLimitWindowSecs,
+			DedupWindowSecs:       jobReq.DedupWindowSecs,
+			RunTTLSecs:            jobReq.RunTTLSecs,
+			RetryStrategy:         jobReq.RetryStrategy,
+			RetryDelaysSecs:       jobReq.RetryDelaysSecs,
+			RetryPriorityBoost:    jobReq.RetryPriorityBoost,
+			EnvironmentID:         jobReq.EnvironmentID,
+			PreferredRegions:      jobReq.PreferredRegions,
+			Enabled:               true,
+			ExecutionMode:         execMode,
+			Queue:                 normalizeJobQueueName(jobReq.QueueName),
+			CronOverlapPolicy:     domain.CronOverlapPolicy(jobReq.CronOverlapPolicy),
+			VersionPolicy:         domain.VersionPolicyPin,
+			CreatedBy:             actorFromContext(ctx),
+			UpdatedBy:             actorFromContext(ctx),
 		}
 
 		if err := s.store.CreateJob(ctx, job); err != nil {
@@ -1191,6 +1257,19 @@ func (s *Server) handleBatchCreateJobs(ctx context.Context, input *BatchCreateJo
 	}
 
 	return &BatchCreateJobsOutput{Body: resp}, nil
+}
+
+func batchJobErrorMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	var rse *rawStatusError
+	if errors.As(err, &rse) {
+		if msg, ok := rse.body.(string); ok && msg != "" {
+			return msg
+		}
+	}
+	return err.Error()
 }
 
 // BatchEnableJobsInput is the typed input for batch enabling jobs.
@@ -1221,14 +1300,22 @@ func (s *Server) handleBatchEnableJobs(ctx context.Context, input *BatchEnableJo
 		s.emitInternalSecretBypassAudit(ctx, "batch_enable_jobs.project_match", "handleBatchEnableJobs", "job", "")
 	}
 
-	updated, err := s.store.BatchUpdateJobsEnabled(ctx, req.IDs, true, projectID)
+	ids, err := s.filterBatchJobIDsForCaller(ctx, req.IDs)
+	if err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return &BatchUpdateResultOutput{Body: BatchUpdateResult{Updated: 0}}, nil
+	}
+
+	updated, err := s.store.BatchUpdateJobsEnabled(ctx, ids, true, projectID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to enable jobs")
 	}
 
 	s.emitAuditEvent(ctx, domain.AuditActionJobBatchEnabled, "job", "", map[string]any{
 		"count":   updated,
-		"job_ids": req.IDs,
+		"job_ids": ids,
 	})
 
 	return &BatchUpdateResultOutput{Body: BatchUpdateResult{Updated: updated}}, nil
@@ -1257,17 +1344,49 @@ func (s *Server) handleBatchDisableJobs(ctx context.Context, input *BatchDisable
 		s.emitInternalSecretBypassAudit(ctx, "batch_disable_jobs.project_match", "handleBatchDisableJobs", "job", "")
 	}
 
-	updated, err := s.store.BatchUpdateJobsEnabled(ctx, req.IDs, false, projectID)
+	ids, err := s.filterBatchJobIDsForCaller(ctx, req.IDs)
+	if err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return &BatchUpdateResultOutput{Body: BatchUpdateResult{Updated: 0}}, nil
+	}
+
+	updated, err := s.store.BatchUpdateJobsEnabled(ctx, ids, false, projectID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to disable jobs")
 	}
 
 	s.emitAuditEvent(ctx, domain.AuditActionJobBatchDisabled, "job", "", map[string]any{
 		"count":   updated,
-		"job_ids": req.IDs,
+		"job_ids": ids,
 	})
 
 	return &BatchUpdateResultOutput{Body: BatchUpdateResult{Updated: updated}}, nil
+}
+
+func (s *Server) filterBatchJobIDsForCaller(ctx context.Context, ids []string) ([]string, error) {
+	if projectIDFromContext(ctx) == "" || environmentIDFromContext(ctx) == "" {
+		return ids, nil
+	}
+	filtered := make([]string, 0, len(ids))
+	for _, id := range ids {
+		job, err := s.store.GetJob(ctx, id)
+		if err != nil {
+			if errors.Is(err, store.ErrJobNotFound) {
+				continue
+			}
+			return nil, huma.Error500InternalServerError("failed to get job")
+		}
+		if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
+			continue
+		}
+		if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
+			continue
+		}
+		filtered = append(filtered, id)
+	}
+	return filtered, nil
 }
 
 // JobHealthResponse wraps health stats with the time window.

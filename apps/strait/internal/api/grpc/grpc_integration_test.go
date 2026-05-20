@@ -74,7 +74,7 @@ func TestIntegration_Sweep_EvictsStaleWorkers(t *testing.T) {
 	_, err = env.DB.Pool.Exec(ctx, `
 		INSERT INTO workers (id, project_id, queue_name, hostname, version, status, last_seen_at, registered_at)
 		VALUES ('stale-worker', 'proj-stale', 'q1', 'host1', '1.0', 'active', NOW() - INTERVAL '1 hour', NOW() - INTERVAL '1 hour')
-		ON CONFLICT (id) DO UPDATE SET last_seen_at = NOW() - INTERVAL '1 hour', status = 'active'
+		ON CONFLICT (project_id, id) DO UPDATE SET last_seen_at = NOW() - INTERVAL '1 hour', status = 'active'
 	`)
 	if err != nil {
 		t.Fatalf("insert stale worker: %v", err)
@@ -93,8 +93,8 @@ func TestIntegration_Sweep_EvictsStaleWorkers(t *testing.T) {
 	// Verify the worker status is now 'offline'.
 	var status string
 	err = env.DB.Pool.QueryRow(ctx,
-		`SELECT status FROM workers WHERE id = $1`,
-		"stale-worker",
+		`SELECT status FROM workers WHERE id = $1 AND project_id = $2`,
+		"stale-worker", "proj-stale",
 	).Scan(&status)
 	if err != nil {
 		t.Fatalf("query worker status: %v", err)
@@ -229,10 +229,10 @@ func itoa(i int) string {
 }
 
 // TestIntegration_CrossReplica_WorkerDisconnect verifies that publishing to the
-// worker:disconnect:<id> Redis channel causes a subscribed stream to receive the
-// signal. This exercises the cross-replica disconnect path end-to-end: the DELETE
-// /v1/workers/:id handler publishes to this channel; the stream goroutine
-// subscribes and closes the stream on receipt.
+// project-scoped worker disconnect Redis channel causes a subscribed stream to
+// receive the signal. This exercises the cross-replica disconnect path
+// end-to-end: the DELETE /v1/workers/:id handler publishes to this channel;
+// the stream goroutine subscribes and closes the stream on receipt.
 func TestIntegration_CrossReplica_WorkerDisconnect(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -249,7 +249,8 @@ func TestIntegration_CrossReplica_WorkerDisconnect(t *testing.T) {
 	pub := pubsub.NewRedisPublisher(client)
 
 	workerID := "cross-replica-worker-1"
-	channel := fmt.Sprintf("worker:disconnect:%s", workerID)
+	projectID := "proj-cross-replica"
+	channel := workerDisconnectChannel(projectID, workerID)
 
 	sub, err := pub.Subscribe(ctx, channel)
 	if err != nil {

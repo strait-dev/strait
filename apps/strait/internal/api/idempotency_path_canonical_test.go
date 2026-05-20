@@ -11,7 +11,8 @@ import (
 
 // TestCanonicalizeIdempotencyPath is the unit-level table for the
 // canonicalization rules: same logical resource regardless of trailing
-// slash, double slashes, dot segments, or case.
+// slash, double slashes, or dot segments. Case is preserved because route
+// matching is case-sensitive.
 func TestCanonicalizeIdempotencyPath(t *testing.T) {
 	t.Parallel()
 
@@ -28,8 +29,8 @@ func TestCanonicalizeIdempotencyPath(t *testing.T) {
 		{"triple_slash", "/v1///jobs", "/v1/jobs"},
 		{"dot_segment", "/v1/./jobs", "/v1/jobs"},
 		{"parent_segment", "/v1/foo/../jobs", "/v1/jobs"},
-		{"uppercase", "/V1/Jobs", "/v1/jobs"},
-		{"mixed_case_with_slash", "/V1/JOBS/", "/v1/jobs"},
+		{"uppercase", "/V1/Jobs", "/V1/Jobs"},
+		{"mixed_case_with_slash", "/V1/JOBS/", "/V1/JOBS"},
 		{"already_clean", "/v1/jobs/abc", "/v1/jobs/abc"},
 	}
 
@@ -45,7 +46,7 @@ func TestCanonicalizeIdempotencyPath(t *testing.T) {
 
 // TestIdempotencyKeySurvivesPathCosmetics is the middleware-level
 // regression: two requests that differ only in trailing slash, double
-// slashes, or case must hash to the SAME composite key, so the second
+// slashes, or dot segments must hash to the SAME composite key, so the second
 // call replays the cached response instead of re-executing.
 func TestIdempotencyKeySurvivesPathCosmetics(t *testing.T) {
 	t.Parallel()
@@ -53,7 +54,6 @@ func TestIdempotencyKeySurvivesPathCosmetics(t *testing.T) {
 	cases := [][2]string{
 		{"/v1/jobs", "/v1/jobs/"},
 		{"/v1/jobs", "/v1//jobs"},
-		{"/v1/jobs", "/V1/Jobs"},
 		{"/v1/jobs/abc", "/v1/jobs/./abc"},
 	}
 
@@ -113,6 +113,7 @@ func TestIdempotencyKeyDistinguishesDifferentResources(t *testing.T) {
 		{"/v1/jobs", "/v1/runs"},
 		{"/v1/jobs/abc", "/v1/jobs/def"},
 		{"/v1/jobs", "/v2/jobs"},
+		{"/v1/jobs", "/V1/Jobs"},
 	}
 
 	for _, pair := range pairs {

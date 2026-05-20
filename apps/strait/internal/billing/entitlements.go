@@ -32,7 +32,7 @@ func ComputeEntitlements(sub *OrgSubscription, addons []Addon) OrgPlanLimits {
 	// can persist after a successful resume webhook clears Status back to
 	// "active", and we don't want that lingering flag to suppress the new
 	// tier's entitlements.
-	if sub.Status == "restricted" {
+	if sub.Status == "restricted" || sub.Status == "paused" || sub.PaymentStatus == "restricted" {
 		return GetPlanLimits(domain.PlanFree)
 	}
 

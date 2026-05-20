@@ -85,6 +85,17 @@ func TestPartitionTuner_HotPartitionNames_CrossYear(t *testing.T) {
 	}
 }
 
+func TestPartitionTuner_HotPartitionNames_MonthEndIncludesPreviousMonth(t *testing.T) {
+	now := time.Date(2026, 3, 31, 23, 59, 59, 0, time.UTC)
+	hot := hotPartitionNames(now)
+	if _, ok := hot["job_runs_p2026_03"]; !ok {
+		t.Error("missing current month")
+	}
+	if _, ok := hot["job_runs_p2026_02"]; !ok {
+		t.Error("missing February as previous month on March 31")
+	}
+}
+
 func TestPartitionTuner_AppliesHotThenCold(t *testing.T) {
 	s := &fakeTunerStore{
 		partitions: []string{

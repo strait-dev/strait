@@ -7,9 +7,11 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/httputil"
 
 	"github.com/danielgtaylor/huma/v2"
 )
@@ -18,7 +20,7 @@ import (
 // 100 years. time.Duration(days)*24*time.Hour overflows once days exceeds
 // ~106,750, and even an "expires never" intent is not a good reason to
 // open the API to user-controlled int64 overflow.
-const maxAPIKeyDurationDays = 36500
+const maxAPIKeyDurationDays = domain.MaxAPIKeyDurationDays
 
 type CreateAPIKeyRequest struct {
 	ProjectID            string   `json:"project_id" validate:"required"`
@@ -86,6 +88,15 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, input *CreateAPIKeyInpu
 	if req.ExpiresIn != nil && *req.ExpiresIn <= 0 {
 		return nil, huma.Error400BadRequest("expires_in_days must be greater than 0")
 	}
+	if req.RotationWebhookURL != "" {
+		if err := validateAPIKeyRotationWebhookURL(req.RotationWebhookURL, s.config != nil && s.config.AllowPrivateEndpoints); err != nil {
+			slog.Warn("rotation webhook URL rejected", "url", httputil.RedactURLForLog(req.RotationWebhookURL), "error", err)
+			return nil, huma.Error400BadRequest("invalid rotation_webhook_url")
+		}
+	}
+	if req.RotationIntervalDays != nil && *req.RotationIntervalDays > 0 && req.RotationWebhookURL == "" {
+		return nil, huma.Error400BadRequest("rotation_webhook_url is required when rotation_interval_days is set")
+	}
 
 	var expiresAt *time.Time
 	if req.ExpiresIn != nil {
@@ -112,54 +123,62 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, input *CreateAPIKeyInpu
 		if _, err := rand.Read(secretBytes); err != nil {
 			return nil, huma.Error500InternalServerError("failed to generate rotation webhook secret")
 		}
-		ciphertext, err := s.encryptor.Encrypt(secretBytes)
+		rotationWebhookSecretPlaintext = "whsec_" + hex.EncodeToString(secretBytes)
+		ciphertext, err := s.encryptor.Encrypt([]byte(rotationWebhookSecretPlaintext))
 		if err != nil {
 			return nil, huma.Error500InternalServerError("failed to encrypt rotation webhook secret")
 		}
 		key.RotationWebhookSecret = ciphertext
-		rotationWebhookSecretPlaintext = "whsec_" + hex.EncodeToString(secretBytes)
 	}
 	if err := s.store.CreateAPIKey(ctx, key); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create api key")
 	}
 	s.emitAuditEvent(ctx, domain.AuditActionAPIKeyCreated, "api_key", key.ID, map[string]any{
-		"name":                   key.Name,
-		"key_prefix":             key.KeyPrefix,
-		"scopes":                 key.Scopes,
-		"expires_at":             key.ExpiresAt,
-		"environment_id":         key.EnvironmentID,
-		"rotation_interval_days": req.RotationIntervalDays,
-		"rotation_webhook_url":   key.RotationWebhookURL,
+		"name":                      key.Name,
+		"key_prefix":                key.KeyPrefix,
+		"scopes":                    key.Scopes,
+		"expires_at":                key.ExpiresAt,
+		"environment_id":            key.EnvironmentID,
+		"rotation_interval_days":    req.RotationIntervalDays,
+		"rotation_webhook_url_host": urlHost(key.RotationWebhookURL),
 	})
 	return &CreateAPIKeyOutput{Body: CreateAPIKeyResponse{ID: key.ID, ProjectID: key.ProjectID, Name: key.Name, Key: rawKey, KeyPrefix: key.KeyPrefix, Scopes: key.Scopes, ExpiresAt: key.ExpiresAt, CreatedAt: key.CreatedAt, RotationWebhookSecret: rotationWebhookSecretPlaintext}}, nil
 }
 
 func (s *Server) apiKeyExpiryFromProjectPolicy(ctx context.Context, projectID string, requested *time.Time) (*time.Time, error) {
-	expiresAt := requested
 	quota, err := s.store.GetProjectQuota(ctx, projectID)
 	if err != nil {
 		slog.Warn("failed to load project quota while creating api key",
 			"project_id", projectID, "error", err)
 		return nil, huma.Error500InternalServerError("failed to load project quota")
 	}
-	if quota != nil && quota.MaxKeyLifetimeDays > 0 {
-		// Cap the project quota itself at maxAPIKeyDurationDays so a misconfigured
-		// "huge" quota cannot wrap time.Duration math into a past timestamp.
-		effectiveMaxDays := min(quota.MaxKeyLifetimeDays, maxAPIKeyDurationDays)
-		maxExpiry := time.Now().Add(time.Duration(effectiveMaxDays) * 24 * time.Hour)
-		if expiresAt == nil {
-			expiresAt = &maxExpiry
-			slog.Info("api key expiry auto-capped by project max_key_lifetime_days",
-				"project_id", projectID, "max_days", effectiveMaxDays)
-		} else if expiresAt.After(maxExpiry) {
-			return nil, huma.Error400BadRequest(
-				fmt.Sprintf("expires_in_days exceeds project maximum of %d days", effectiveMaxDays))
-		}
+	maxLifetimeDays := 0
+	if quota != nil {
+		maxLifetimeDays = quota.MaxKeyLifetimeDays
 	}
-	if expiresAt == nil {
-		return nil, huma.Error400BadRequest("expires_in_days is required when project max_key_lifetime_days is not configured")
+	expiresAt, err := domain.ApplyAPIKeyLifetimePolicy(time.Now(), requested, maxLifetimeDays)
+	if err != nil {
+		return nil, huma.Error400BadRequest(err.Error())
+	}
+	if requested == nil && maxLifetimeDays > 0 {
+		slog.Info("api key expiry auto-capped by project max_key_lifetime_days",
+			"project_id", projectID, "max_days", min(maxLifetimeDays, maxAPIKeyDurationDays))
 	}
 	return expiresAt, nil
+}
+
+func validateAPIKeyRotationWebhookURL(rawURL string, allowPrivateEndpoints bool) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("parse rotation webhook url: %w", err)
+	}
+	if parsed.Scheme != "https" {
+		return fmt.Errorf("rotation webhook must use https")
+	}
+	if err := httputil.ValidateExternalURL(rawURL); err != nil && !allowPrivateEndpoints {
+		return fmt.Errorf("ssrf guard rejected rotation webhook url: %w", err)
+	}
+	return nil
 }
 
 type ListAPIKeysInput struct {
@@ -339,7 +358,11 @@ func (s *Server) handleRotateAPIKey(ctx context.Context, input *RotateAPIKeyInpu
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to generate api key")
 	}
-	newKey := &domain.APIKey{ProjectID: oldKey.ProjectID, OrgID: oldKey.OrgID, Name: oldKey.Name + " (rotated)", KeyHash: hashAPIKey(rawKey), KeyPrefix: rawKey[:domain.APIKeyPrefixLen], Scopes: oldKey.Scopes, ExpiresAt: oldKey.ExpiresAt, EnvironmentID: oldKey.EnvironmentID, RotationIntervalDays: oldKey.RotationIntervalDays, RotationWebhookURL: oldKey.RotationWebhookURL}
+	expiresAt, err := s.apiKeyExpiryFromProjectPolicy(ctx, oldKey.ProjectID, oldKey.ExpiresAt)
+	if err != nil {
+		return nil, err
+	}
+	newKey := &domain.APIKey{ProjectID: oldKey.ProjectID, OrgID: oldKey.OrgID, Name: oldKey.Name + " (rotated)", KeyHash: hashAPIKey(rawKey), KeyPrefix: rawKey[:domain.APIKeyPrefixLen], Scopes: oldKey.Scopes, ExpiresAt: expiresAt, EnvironmentID: oldKey.EnvironmentID, RotationIntervalDays: oldKey.RotationIntervalDays, RotationWebhookURL: oldKey.RotationWebhookURL, RotationWebhookSecret: oldKey.RotationWebhookSecret}
 	if oldKey.RotationIntervalDays != nil && *oldKey.RotationIntervalDays > 0 {
 		nr := time.Now().Add(time.Duration(*oldKey.RotationIntervalDays) * 24 * time.Hour)
 		newKey.NextRotationAt = &nr
@@ -359,6 +382,18 @@ func (s *Server) handleRotateAPIKey(ctx context.Context, input *RotateAPIKeyInpu
 			}
 		}
 		return nil, huma.Error500InternalServerError("failed to mark old key as rotated")
+	}
+	if s.pubsub != nil && oldKey.ID != "" {
+		expireChannel := fmt.Sprintf("apikey:expires:%s", oldKey.ID)
+		if pubErr := s.pubsub.Publish(ctx, expireChannel, []byte(graceExpiresAt.UTC().Format(time.RFC3339Nano))); pubErr != nil {
+			slog.Error("api key rotation expiry broadcast failed",
+				"key_id", oldKey.ID,
+				"error", pubErr,
+			)
+			if s.config != nil && s.config.GRPCEnabled {
+				return nil, huma.Error503ServiceUnavailable("api key rotated but active worker stream expiry broadcast failed")
+			}
+		}
 	}
 	s.emitAuditEvent(ctx, domain.AuditActionAPIKeyRotated, "api_key", input.KeyID, map[string]any{"new_key_id": newKey.ID, "grace_expires_at": graceExpiresAt, "grace_period_minute": req.GracePeriodMinutes})
 	return &RotateAPIKeyOutput{Body: map[string]any{"old_key_id": oldKey.ID, "new_key_id": newKey.ID, "project_id": newKey.ProjectID, "name": newKey.Name, "key": rawKey, "key_prefix": newKey.KeyPrefix, "scopes": newKey.Scopes, "expires_at": newKey.ExpiresAt, "created_at": newKey.CreatedAt, "grace_expires_at": graceExpiresAt}}, nil

@@ -159,6 +159,112 @@ func TestCreateAPIKey_QuotaLookupFailureFailsClosed(t *testing.T) {
 	}
 }
 
+func TestRotateAPIKey_MaxLifetime_AutoCapsLegacyNoExpiry(t *testing.T) {
+	t.Parallel()
+
+	var created *domain.APIKey
+	ms := &APIStoreMock{
+		GetAPIKeyByIDFunc: func(_ context.Context, id string) (*domain.APIKey, error) {
+			return &domain.APIKey{
+				ID:        id,
+				ProjectID: "proj-1",
+				Name:      "legacy-no-expiry",
+				Scopes:    []string{domain.ScopeJobsRead},
+			}, nil
+		},
+		GetProjectQuotaFunc: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
+			return &store.ProjectQuota{ProjectID: projectID, MaxKeyLifetimeDays: 30}, nil
+		},
+		CreateAPIKeyFunc: func(_ context.Context, key *domain.APIKey) error {
+			created = key
+			key.ID = "key-rotated"
+			return nil
+		},
+		MarkAPIKeyRotatedFunc: func(context.Context, string, string, time.Time) error { return nil },
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+
+	_, err := srv.handleRotateAPIKey(ctx, &RotateAPIKeyInput{KeyID: "key-old"})
+	if err != nil {
+		t.Fatalf("handleRotateAPIKey: %v", err)
+	}
+	if created == nil || created.ExpiresAt == nil {
+		t.Fatal("rotated legacy key should receive a policy-capped expiry")
+	}
+	if created.ExpiresAt.After(time.Now().Add(31 * 24 * time.Hour)) {
+		t.Fatalf("rotated expiry = %v, want within project max lifetime", created.ExpiresAt)
+	}
+}
+
+func TestRotateAPIKey_NoMaxLifetime_RejectsLegacyNoExpiry(t *testing.T) {
+	t.Parallel()
+
+	createCalled := false
+	ms := &APIStoreMock{
+		GetAPIKeyByIDFunc: func(_ context.Context, id string) (*domain.APIKey, error) {
+			return &domain.APIKey{
+				ID:        id,
+				ProjectID: "proj-1",
+				Name:      "legacy-no-expiry",
+				Scopes:    []string{domain.ScopeJobsRead},
+			}, nil
+		},
+		GetProjectQuotaFunc: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
+			return &store.ProjectQuota{ProjectID: projectID, MaxKeyLifetimeDays: 0}, nil
+		},
+		CreateAPIKeyFunc: func(context.Context, *domain.APIKey) error {
+			createCalled = true
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+
+	_, err := srv.handleRotateAPIKey(ctx, &RotateAPIKeyInput{KeyID: "key-old"})
+	if !isHumaStatusError(err, http.StatusBadRequest) {
+		t.Fatalf("expected 400 for legacy no-expiry rotation without policy, got %v", err)
+	}
+	if createCalled {
+		t.Fatal("replacement key must not be created when lifetime policy rejects rotation")
+	}
+}
+
+func TestRotateAPIKey_MaxLifetime_RejectsOverlongLegacyExpiry(t *testing.T) {
+	t.Parallel()
+
+	overlong := time.Now().Add(365 * 24 * time.Hour)
+	createCalled := false
+	ms := &APIStoreMock{
+		GetAPIKeyByIDFunc: func(_ context.Context, id string) (*domain.APIKey, error) {
+			return &domain.APIKey{
+				ID:        id,
+				ProjectID: "proj-1",
+				Name:      "overlong-expiry",
+				Scopes:    []string{domain.ScopeJobsRead},
+				ExpiresAt: &overlong,
+			}, nil
+		},
+		GetProjectQuotaFunc: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
+			return &store.ProjectQuota{ProjectID: projectID, MaxKeyLifetimeDays: 30}, nil
+		},
+		CreateAPIKeyFunc: func(context.Context, *domain.APIKey) error {
+			createCalled = true
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+
+	_, err := srv.handleRotateAPIKey(ctx, &RotateAPIKeyInput{KeyID: "key-old"})
+	if !isHumaStatusError(err, http.StatusBadRequest) {
+		t.Fatalf("expected 400 for overlong rotation expiry, got %v", err)
+	}
+	if createCalled {
+		t.Fatal("replacement key must not be created when expiry exceeds policy")
+	}
+}
+
 func TestCreateAPIKey_Adversarial_ExpiresZero_Rejected(t *testing.T) {
 	t.Parallel()
 

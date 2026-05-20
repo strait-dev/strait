@@ -193,14 +193,25 @@ func (q *Queries) ListJobSecretsByJob(ctx context.Context, jobID, environment st
 
 	query := `
 		SELECT s.id, s.project_id, s.job_id, s.environment, s.secret_key, s.encrypted_value, s.key_version, s.created_at, s.updated_at
-		FROM job_secrets s
-		JOIN jobs j ON j.id = $1
-		WHERE s.project_id = j.project_id
-		  AND (s.job_id = $1 OR s.job_id IS NULL)
-		  AND s.environment = COALESCE(NULLIF(j.environment_id, ''), $2)
-		ORDER BY s.created_at ASC`
+			FROM job_secrets s
+			JOIN jobs j ON j.id = $1
+			WHERE s.project_id = j.project_id
+			  AND s.job_id = $1
+			  AND s.environment = COALESCE(
+			    NULLIF(j.environment_id, ''),
+			    NULLIF($2, ''),
+			    (
+			      SELECT e.id
+			      FROM environments e
+			      WHERE e.project_id = j.project_id
+			        AND e.slug = $3
+			      LIMIT 1
+			    ),
+			    $3
+			  )
+			ORDER BY s.secret_key ASC, s.created_at ASC`
 
-	rows, err := q.db.Query(ctx, query, jobID, environment)
+	rows, err := q.db.Query(ctx, query, jobID, environment, "production")
 	if err != nil {
 		return nil, fmt.Errorf("list job secrets by job: %w", err)
 	}

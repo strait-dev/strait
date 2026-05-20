@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"time"
 
+	"strait/internal/domain"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -266,6 +268,8 @@ func (s *PgStore) UpdateOrgSubscriptionFull(ctx context.Context, orgID, planTier
 			SET plan_tier = $2, status = $3,
 				current_period_start = COALESCE($4, current_period_start),
 				current_period_end = COALESCE($5, current_period_end),
+				payment_status = CASE WHEN $3 = 'active' THEN 'ok' ELSE payment_status END,
+				grace_period_end = CASE WHEN $3 = 'active' THEN NULL ELSE grace_period_end END,
 				updated_at = NOW()
 			WHERE org_id = $1
 		`, orgID, planTier, status, periodStart, periodEnd)
@@ -350,6 +354,69 @@ func (s *PgStore) ApplyPendingDowngrade(ctx context.Context, orgID string) error
 		}
 		return s.refreshEntitlements(ctx, tx, orgID)
 	})
+}
+
+func (s *PgStore) ApplyPendingDowngradeIfTier(ctx context.Context, orgID, pendingTier string) (bool, error) {
+	var applied bool
+	if err := WithBillingTx(ctx, s.pool, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `
+			UPDATE organization_subscriptions
+			SET plan_tier = pending_plan_tier,
+				pending_plan_tier = NULL,
+				updated_at = NOW()
+			WHERE org_id = $1
+			  AND pending_plan_tier = $2
+		`, orgID, pendingTier)
+		if err != nil {
+			return fmt.Errorf("applying pending downgrade conditionally: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return nil
+		}
+		applied = true
+		return s.refreshEntitlements(ctx, tx, orgID)
+	}); err != nil {
+		return false, err
+	}
+	return applied, nil
+}
+
+func (s *PgStore) ApplyPendingDowngradeTierIfPending(ctx context.Context, orgID, pendingTier string) (bool, error) {
+	var applied bool
+	if err := WithBillingTx(ctx, s.pool, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `
+			UPDATE organization_subscriptions
+			SET plan_tier = pending_plan_tier,
+				updated_at = NOW()
+			WHERE org_id = $1
+			  AND pending_plan_tier = $2
+		`, orgID, pendingTier)
+		if err != nil {
+			return fmt.Errorf("applying pending downgrade tier: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return nil
+		}
+		applied = true
+		return s.refreshEntitlements(ctx, tx, orgID)
+	}); err != nil {
+		return false, err
+	}
+	return applied, nil
+}
+
+func (s *PgStore) ClearPendingPlanTierIfTier(ctx context.Context, orgID, pendingTier string) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE organization_subscriptions
+		SET pending_plan_tier = NULL,
+			updated_at = NOW()
+		WHERE org_id = $1
+		  AND pending_plan_tier = $2
+	`, orgID, pendingTier)
+	if err != nil {
+		return false, fmt.Errorf("clearing pending plan tier conditionally: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
 }
 
 func (s *PgStore) ListOrgsWithPendingDowngrade(ctx context.Context) ([]OrgSubscription, error) {
@@ -606,7 +673,169 @@ func (s *PgStore) SetProjectOrgID(ctx context.Context, projectID, orgID string) 
 }
 
 func (s *PgStore) UpsertUsageRecord(ctx context.Context, rec *UsageRecord) error {
+	return upsertUsageRecord(ctx, s.pool, rec)
+}
+
+func (s *PgStore) RecordUsageCost(ctx context.Context, rec *UsageRecord, idempotencyKey, executionMode string) (bool, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("begin record usage cost tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	tag, err := tx.Exec(ctx, `
+		INSERT INTO billing_cost_events (
+			idempotency_key, org_id, project_id, period_date, execution_mode,
+			compute_cost_microusd, created_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (idempotency_key) DO NOTHING
+	`, idempotencyKey, rec.OrgID, rec.ProjectID, rec.PeriodDate, executionMode, rec.ComputeCostMicro, rec.CreatedAt)
+	if err != nil {
+		return false, fmt.Errorf("recording billing cost event: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return false, nil
+	}
+
+	if err := upsertUsageRecord(ctx, tx, rec); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("commit record usage cost tx: %w", err)
+	}
+	return true, nil
+}
+
+func (s *PgStore) ReconcileFlatUsageCosts(ctx context.Context, orgID string, date time.Time) error {
+	if err := s.reconcileCompletedRunCosts(ctx, orgID, date); err != nil {
+		return err
+	}
+	return s.reconcileDeliveredWebhookCosts(ctx, orgID, date)
+}
+
+func (s *PgStore) reconcileCompletedRunCosts(ctx context.Context, orgID string, date time.Time) error {
 	_, err := s.pool.Exec(ctx, `
+		WITH missing AS (
+			SELECT
+				'strait:cost_recorded:' || jr.id AS idempotency_key,
+				p.org_id,
+				jr.project_id,
+				DATE(COALESCE(jr.finished_at, jr.created_at)) AS period_date,
+				COALESCE(NULLIF(jr.execution_mode, ''), 'http') AS execution_mode,
+				CASE
+					WHEN COALESCE(NULLIF(jr.execution_mode, ''), 'http') = 'worker' THEN $3::bigint
+					ELSE $4::bigint
+				END AS compute_cost_microusd,
+				COALESCE(jr.finished_at, jr.created_at) AS created_at
+			FROM job_runs jr
+			JOIN projects p ON p.id = jr.project_id
+			LEFT JOIN billing_cost_events b ON b.idempotency_key = 'strait:cost_recorded:' || jr.id
+			WHERE p.org_id = $1
+			  AND jr.status = $5
+			  AND DATE(COALESCE(jr.finished_at, jr.created_at)) = $2
+			  AND b.idempotency_key IS NULL
+		), inserted AS (
+			INSERT INTO billing_cost_events (
+				idempotency_key, org_id, project_id, period_date, execution_mode,
+				compute_cost_microusd, created_at
+			)
+			SELECT idempotency_key, org_id, project_id, period_date, execution_mode,
+				compute_cost_microusd, created_at
+			FROM missing
+			ON CONFLICT (idempotency_key) DO NOTHING
+			RETURNING org_id, project_id, period_date, compute_cost_microusd, created_at
+		), aggregated AS (
+			SELECT
+				org_id,
+				project_id,
+				period_date,
+				COUNT(*)::bigint AS runs_count,
+				SUM(compute_cost_microusd)::bigint AS compute_cost_microusd,
+				MIN(created_at) AS created_at,
+				MAX(created_at) AS updated_at
+			FROM inserted
+			GROUP BY org_id, project_id, period_date
+		)
+		INSERT INTO usage_records (
+			id, org_id, project_id, period_date,
+			runs_count, compute_cost_microusd, ai_tokens_total, ai_cost_microusd,
+			created_at, updated_at
+		)
+		SELECT gen_random_uuid()::text, org_id, project_id, period_date,
+			runs_count, compute_cost_microusd, 0, 0, created_at, updated_at
+		FROM aggregated
+		ON CONFLICT (org_id, project_id, period_date) DO UPDATE SET
+			runs_count = usage_records.runs_count + EXCLUDED.runs_count,
+			compute_cost_microusd = usage_records.compute_cost_microusd + EXCLUDED.compute_cost_microusd,
+			updated_at = NOW()
+	`, orgID, date, WorkerCostPerRunMicrousd, HTTPCostPerRunMicrousd, domain.StatusCompleted)
+	if err != nil {
+		return fmt.Errorf("reconciling completed run usage costs: %w", err)
+	}
+	return nil
+}
+
+func (s *PgStore) reconcileDeliveredWebhookCosts(ctx context.Context, orgID string, date time.Time) error {
+	_, err := s.pool.Exec(ctx, `
+		WITH missing AS (
+			SELECT
+				'strait:cost_recorded:' || wd.id AS idempotency_key,
+				p.org_id,
+				wd.project_id,
+				DATE(COALESCE(wd.delivered_at, wd.updated_at, wd.created_at)) AS period_date,
+				'webhook_delivery' AS execution_mode,
+				$3::bigint AS compute_cost_microusd,
+				COALESCE(wd.delivered_at, wd.updated_at, wd.created_at) AS created_at
+			FROM webhook_deliveries wd
+			JOIN projects p ON p.id = wd.project_id
+			LEFT JOIN billing_cost_events b ON b.idempotency_key = 'strait:cost_recorded:' || wd.id
+			WHERE p.org_id = $1
+			  AND wd.status = $4
+			  AND DATE(COALESCE(wd.delivered_at, wd.updated_at, wd.created_at)) = $2
+			  AND b.idempotency_key IS NULL
+		), inserted AS (
+			INSERT INTO billing_cost_events (
+				idempotency_key, org_id, project_id, period_date, execution_mode,
+				compute_cost_microusd, created_at
+			)
+			SELECT idempotency_key, org_id, project_id, period_date, execution_mode,
+				compute_cost_microusd, created_at
+			FROM missing
+			ON CONFLICT (idempotency_key) DO NOTHING
+			RETURNING org_id, project_id, period_date, compute_cost_microusd, created_at
+		), aggregated AS (
+			SELECT
+				org_id,
+				project_id,
+				period_date,
+				COUNT(*)::bigint AS runs_count,
+				SUM(compute_cost_microusd)::bigint AS compute_cost_microusd,
+				MIN(created_at) AS created_at,
+				MAX(created_at) AS updated_at
+			FROM inserted
+			GROUP BY org_id, project_id, period_date
+		)
+		INSERT INTO usage_records (
+			id, org_id, project_id, period_date,
+			runs_count, compute_cost_microusd, ai_tokens_total, ai_cost_microusd,
+			created_at, updated_at
+		)
+		SELECT gen_random_uuid()::text, org_id, project_id, period_date,
+			runs_count, compute_cost_microusd, 0, 0, created_at, updated_at
+		FROM aggregated
+		ON CONFLICT (org_id, project_id, period_date) DO UPDATE SET
+			runs_count = usage_records.runs_count + EXCLUDED.runs_count,
+			compute_cost_microusd = usage_records.compute_cost_microusd + EXCLUDED.compute_cost_microusd,
+			updated_at = NOW()
+	`, orgID, date, WebhookDeliveryCostPerRunMicrousd, domain.WebhookStatusDelivered)
+	if err != nil {
+		return fmt.Errorf("reconciling delivered webhook usage costs: %w", err)
+	}
+	return nil
+}
+
+func upsertUsageRecord(ctx context.Context, q querier, rec *UsageRecord) error {
+	_, err := q.Exec(ctx, `
 		INSERT INTO usage_records (
 			id, org_id, project_id, period_date,
 			runs_count, compute_cost_microusd, ai_tokens_total, ai_cost_microusd,
@@ -628,10 +857,43 @@ func (s *PgStore) UpsertUsageRecord(ctx context.Context, rec *UsageRecord) error
 	return nil
 }
 
-func (s *PgStore) GetOrgUsageForPeriod(ctx context.Context, orgID string, from, to time.Time) ([]UsageRecord, error) {
-	endExclusive := to.AddDate(0, 0, 1)
+func (s *PgStore) ReplaceUsageRecord(ctx context.Context, rec *UsageRecord) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO usage_records (
+			id, org_id, project_id, period_date,
+			runs_count, compute_cost_microusd, ai_tokens_total, ai_cost_microusd,
+			created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		ON CONFLICT (org_id, project_id, period_date) DO UPDATE SET
+			runs_count = EXCLUDED.runs_count,
+			compute_cost_microusd = EXCLUDED.compute_cost_microusd,
+			ai_tokens_total = EXCLUDED.ai_tokens_total,
+			ai_cost_microusd = EXCLUDED.ai_cost_microusd,
+			updated_at = NOW()
+	`, rec.ID, rec.OrgID, rec.ProjectID, rec.PeriodDate,
+		rec.RunsCount, rec.ComputeCostMicro, rec.AITokensTotal, rec.AICostMicro,
+		rec.CreatedAt, rec.UpdatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("replacing usage record: %w", err)
+	}
+	return nil
+}
 
-	rows, err := s.pool.Query(ctx, `
+func (s *PgStore) GetOrgUsageForPeriod(ctx context.Context, orgID string, from, to time.Time) ([]UsageRecord, error) {
+	return s.getOrgUsageForPeriod(ctx, orgID, from, to, 0)
+}
+
+func (s *PgStore) GetOrgUsageForPeriodLimited(ctx context.Context, orgID string, from, to time.Time, limit int) ([]UsageRecord, error) {
+	if limit <= 0 {
+		return nil, errors.New("usage period limit must be positive")
+	}
+	return s.getOrgUsageForPeriod(ctx, orgID, from, to, limit)
+}
+
+func (s *PgStore) getOrgUsageForPeriod(ctx context.Context, orgID string, from, to time.Time, limit int) ([]UsageRecord, error) {
+	endExclusive := to.AddDate(0, 0, 1)
+	query := `
 		WITH run_counts AS (
 			SELECT p.org_id,
 				jr.project_id,
@@ -648,10 +910,10 @@ func (s *PgStore) GetOrgUsageForPeriod(ctx context.Context, orgID string, from, 
 			  AND jr.created_at >= $2
 			  AND jr.created_at < $3
 			GROUP BY p.org_id, jr.project_id, DATE(jr.created_at)
-		), ai_usage AS (
-			SELECT p.org_id,
-				jr.project_id,
-				DATE(ru.created_at) AS period_date,
+			), ai_usage AS (
+				SELECT p.org_id,
+					jr.project_id,
+					DATE(ru.created_at) AS period_date,
 				0::bigint AS runs_count,
 				0::bigint AS compute_cost_microusd,
 				COALESCE(SUM(ru.total_tokens), 0)::bigint AS ai_tokens_total,
@@ -663,11 +925,26 @@ func (s *PgStore) GetOrgUsageForPeriod(ctx context.Context, orgID string, from, 
 			JOIN projects p ON p.id = jr.project_id
 			WHERE p.org_id = $1
 			  AND ru.created_at >= $2
-			  AND ru.created_at < $3
-			GROUP BY p.org_id, jr.project_id, DATE(ru.created_at)
-		)
-		SELECT '' AS id,
-			org_id,
+				  AND ru.created_at < $3
+				GROUP BY p.org_id, jr.project_id, DATE(ru.created_at)
+			), recorded_compute AS (
+				SELECT org_id,
+					project_id,
+					period_date,
+					0::bigint AS runs_count,
+					COALESCE(SUM(compute_cost_microusd), 0)::bigint AS compute_cost_microusd,
+					0::bigint AS ai_tokens_total,
+					0::bigint AS ai_cost_microusd,
+					MIN(created_at) AS created_at,
+					MAX(updated_at) AS updated_at
+				FROM usage_records
+				WHERE org_id = $1
+				  AND period_date >= $2::date
+				  AND period_date < $3::date
+				GROUP BY org_id, project_id, period_date
+			)
+			SELECT '' AS id,
+				org_id,
 			project_id,
 			period_date,
 			SUM(runs_count) AS runs_count,
@@ -676,14 +953,23 @@ func (s *PgStore) GetOrgUsageForPeriod(ctx context.Context, orgID string, from, 
 			SUM(ai_cost_microusd) AS ai_cost_microusd,
 			MIN(created_at) AS created_at,
 			MAX(updated_at) AS updated_at
-		FROM (
-			SELECT * FROM run_counts
-			UNION ALL
-			SELECT * FROM ai_usage
-		) usage
+			FROM (
+				SELECT * FROM run_counts
+				UNION ALL
+				SELECT * FROM ai_usage
+				UNION ALL
+				SELECT * FROM recorded_compute
+			) usage
 		GROUP BY org_id, project_id, period_date
-		ORDER BY period_date ASC
-	`, orgID, from, endExclusive)
+		ORDER BY period_date ASC`
+	args := []any{orgID, from, endExclusive}
+	if limit > 0 {
+		query += `
+		LIMIT $4`
+		args = append(args, limit)
+	}
+
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("getting org usage for period: %w", err)
 	}
@@ -711,10 +997,10 @@ func (s *PgStore) GetProjectUsageForPeriod(ctx context.Context, projectID string
 			  AND jr.created_at >= $2
 			  AND jr.created_at < $3
 			GROUP BY p.org_id, jr.project_id, DATE(jr.created_at)
-		), ai_usage AS (
-			SELECT p.org_id,
-				jr.project_id,
-				DATE(ru.created_at) AS period_date,
+			), ai_usage AS (
+				SELECT p.org_id,
+					jr.project_id,
+					DATE(ru.created_at) AS period_date,
 				0::bigint AS runs_count,
 				0::bigint AS compute_cost_microusd,
 				COALESCE(SUM(ru.total_tokens), 0)::bigint AS ai_tokens_total,
@@ -726,11 +1012,26 @@ func (s *PgStore) GetProjectUsageForPeriod(ctx context.Context, projectID string
 			JOIN projects p ON p.id = jr.project_id
 			WHERE jr.project_id = $1
 			  AND ru.created_at >= $2
-			  AND ru.created_at < $3
-			GROUP BY p.org_id, jr.project_id, DATE(ru.created_at)
-		)
-		SELECT '' AS id,
-			org_id,
+				  AND ru.created_at < $3
+				GROUP BY p.org_id, jr.project_id, DATE(ru.created_at)
+			), recorded_compute AS (
+				SELECT org_id,
+					project_id,
+					period_date,
+					0::bigint AS runs_count,
+					COALESCE(SUM(compute_cost_microusd), 0)::bigint AS compute_cost_microusd,
+					0::bigint AS ai_tokens_total,
+					0::bigint AS ai_cost_microusd,
+					MIN(created_at) AS created_at,
+					MAX(updated_at) AS updated_at
+				FROM usage_records
+				WHERE project_id = $1
+				  AND period_date >= $2::date
+				  AND period_date < $3::date
+				GROUP BY org_id, project_id, period_date
+			)
+			SELECT '' AS id,
+				org_id,
 			project_id,
 			period_date,
 			SUM(runs_count) AS runs_count,
@@ -739,11 +1040,13 @@ func (s *PgStore) GetProjectUsageForPeriod(ctx context.Context, projectID string
 			SUM(ai_cost_microusd) AS ai_cost_microusd,
 			MIN(created_at) AS created_at,
 			MAX(updated_at) AS updated_at
-		FROM (
-			SELECT * FROM run_counts
-			UNION ALL
-			SELECT * FROM ai_usage
-		) usage
+			FROM (
+				SELECT * FROM run_counts
+				UNION ALL
+				SELECT * FROM ai_usage
+				UNION ALL
+				SELECT * FROM recorded_compute
+			) usage
 		GROUP BY org_id, project_id, period_date
 		ORDER BY period_date ASC
 	`, projectID, from, endExclusive)
@@ -771,10 +1074,10 @@ func (s *PgStore) GetOrgDailyUsage(ctx context.Context, orgID string, date time.
 			WHERE p.org_id = $1
 			  AND DATE(jr.created_at) = $2
 			GROUP BY p.org_id, jr.project_id, DATE(jr.created_at)
-		), ai_usage AS (
-			SELECT p.org_id,
-				jr.project_id,
-				DATE(ru.created_at) AS period_date,
+			), ai_usage AS (
+				SELECT p.org_id,
+					jr.project_id,
+					DATE(ru.created_at) AS period_date,
 				0::bigint AS runs_count,
 				0::bigint AS compute_cost_microusd,
 				COALESCE(SUM(ru.total_tokens), 0)::bigint AS ai_tokens_total,
@@ -785,11 +1088,25 @@ func (s *PgStore) GetOrgDailyUsage(ctx context.Context, orgID string, date time.
 			JOIN job_runs jr ON jr.id = ru.run_id
 			JOIN projects p ON p.id = jr.project_id
 			WHERE p.org_id = $1
-			  AND DATE(ru.created_at) = $2
-			GROUP BY p.org_id, jr.project_id, DATE(ru.created_at)
-		)
-		SELECT '' AS id,
-			org_id,
+				  AND DATE(ru.created_at) = $2
+				GROUP BY p.org_id, jr.project_id, DATE(ru.created_at)
+			), recorded_compute AS (
+				SELECT org_id,
+					project_id,
+					period_date,
+					0::bigint AS runs_count,
+					COALESCE(SUM(compute_cost_microusd), 0)::bigint AS compute_cost_microusd,
+					0::bigint AS ai_tokens_total,
+					0::bigint AS ai_cost_microusd,
+					MIN(created_at) AS created_at,
+					MAX(updated_at) AS updated_at
+				FROM usage_records
+				WHERE org_id = $1
+				  AND period_date = $2
+				GROUP BY org_id, project_id, period_date
+			)
+			SELECT '' AS id,
+				org_id,
 			project_id,
 			period_date,
 			SUM(runs_count) AS runs_count,
@@ -798,11 +1115,13 @@ func (s *PgStore) GetOrgDailyUsage(ctx context.Context, orgID string, date time.
 			SUM(ai_cost_microusd) AS ai_cost_microusd,
 			MIN(created_at) AS created_at,
 			MAX(updated_at) AS updated_at
-		FROM (
-			SELECT * FROM run_counts
-			UNION ALL
-			SELECT * FROM ai_usage
-		) usage
+			FROM (
+				SELECT * FROM run_counts
+				UNION ALL
+				SELECT * FROM ai_usage
+				UNION ALL
+				SELECT * FROM recorded_compute
+			) usage
 		GROUP BY org_id, project_id, period_date
 	`, orgID, date)
 	if err != nil {
@@ -885,13 +1204,7 @@ func (s *PgStore) UpdateAnomalyThresholds(ctx context.Context, orgID string, war
 }
 
 func (s *PgStore) ListAllSubscribedOrgIDs(ctx context.Context) ([]string, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT org_id
-		FROM organization_subscriptions
-		WHERE status = 'active'
-		ORDER BY org_id
-		LIMIT 50000
-	`)
+	rows, err := s.pool.Query(ctx, listAllSubscribedOrgIDsSQL())
 	if err != nil {
 		return nil, fmt.Errorf("listing subscribed org IDs: %w", err)
 	}
@@ -908,19 +1221,95 @@ func (s *PgStore) ListAllSubscribedOrgIDs(ctx context.Context) ([]string, error)
 	return ids, rows.Err()
 }
 
+func listAllSubscribedOrgIDsSQL() string {
+	return `
+		SELECT org_id
+		FROM organization_subscriptions
+		WHERE status = 'active'
+		ORDER BY org_id
+	`
+}
+
 func (s *PgStore) UpdatePaymentStatus(ctx context.Context, orgID string, status string, graceEnd *time.Time) error {
+	return WithBillingTx(ctx, s.pool, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `
+			UPDATE organization_subscriptions
+			SET payment_status = $2, grace_period_end = $3, updated_at = NOW()
+			WHERE org_id = $1
+		`, orgID, status, graceEnd)
+		if err != nil {
+			return fmt.Errorf("updating payment status: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrSubscriptionNotFound
+		}
+		return s.refreshEntitlements(ctx, tx, orgID)
+	})
+}
+
+// RestrictExpiredContractIfCurrent restricts an org only if the contract row
+// still matches the expired, non-renewing state observed by the scheduler.
+func (s *PgStore) RestrictExpiredContractIfCurrent(ctx context.Context, orgID string, contractEndDate time.Time) (bool, error) {
+	entitlements, err := json.Marshal(GetPlanLimits(domain.PlanFree))
+	if err != nil {
+		return false, fmt.Errorf("marshalling expired contract entitlements: %w", err)
+	}
+	var restricted bool
+	err = WithBillingTx(ctx, s.pool, func(tx pgx.Tx) error {
+		tag, execErr := tx.Exec(ctx, `
+			UPDATE organization_subscriptions os
+			SET payment_status = 'restricted',
+			    entitlements = $3::jsonb,
+			    updated_at = NOW()
+			WHERE os.org_id = $1
+			  AND EXISTS (
+			      SELECT 1
+			      FROM enterprise_contracts ec
+			      WHERE ec.org_id = $1
+			        AND ec.contract_end_date = $2
+			        AND ec.contract_end_date <= NOW()
+			        AND ec.auto_renew = false
+			  )
+		`, orgID, contractEndDate, entitlements)
+		if execErr != nil {
+			return fmt.Errorf("restricting expired contract if current: %w", execErr)
+		}
+		restricted = tag.RowsAffected() > 0
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return restricted, nil
+}
+
+// RestrictExpiredGracePeriod atomically moves an org from expired payment grace
+// to restricted/free. The conditional WHERE clause makes concurrent recovery
+// webhooks win without leaving payment_status and plan_tier half-updated.
+func (s *PgStore) RestrictExpiredGracePeriod(ctx context.Context, orgID string, graceEnd *time.Time) (bool, error) {
+	if graceEnd == nil {
+		return false, nil
+	}
+	entitlements, err := json.Marshal(GetPlanLimits(domain.PlanFree))
+	if err != nil {
+		return false, fmt.Errorf("marshalling restricted entitlements: %w", err)
+	}
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE organization_subscriptions
-		SET payment_status = $2, grace_period_end = $3, updated_at = NOW()
+		SET plan_tier = 'free',
+			status = 'restricted',
+			payment_status = 'restricted',
+			entitlements = $3::jsonb,
+			updated_at = NOW()
 		WHERE org_id = $1
-	`, orgID, status, graceEnd)
+		  AND payment_status = 'grace'
+		  AND grace_period_end = $2
+		  AND grace_period_end < NOW()
+	`, orgID, graceEnd, entitlements)
 	if err != nil {
-		return fmt.Errorf("updating payment status: %w", err)
+		return false, fmt.Errorf("restricting expired grace period: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
-		return ErrSubscriptionNotFound
-	}
-	return nil
+	return tag.RowsAffected() > 0, nil
 }
 
 func (s *PgStore) ListOrgsInGracePeriod(ctx context.Context) ([]OrgSubscription, error) {
@@ -1078,6 +1467,8 @@ func (s *PgStore) ListOrgAdminEmails(ctx context.Context, orgID string) ([]strin
 		  AND pr.name = 'admin'
 		  AND u.email IS NOT NULL
 		  AND u.email != ''
+		  AND COALESCE(u.email_verified, false) = true
+		ORDER BY u.email
 	`, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("listing org admin emails: %w", err)
@@ -1102,6 +1493,7 @@ func (s *PgStore) HasSentUsageReport(ctx context.Context, orgID string, periodEn
 		SELECT EXISTS(
 			SELECT 1 FROM sent_usage_reports
 			WHERE org_id = $1 AND period_end = $2
+			  AND send_status = 'sent'
 		)
 	`, orgID, periodEnd.Truncate(24*time.Hour)).Scan(&exists)
 	if err != nil {
@@ -1113,14 +1505,84 @@ func (s *PgStore) HasSentUsageReport(ctx context.Context, orgID string, periodEn
 // RecordSentUsageReport records that a usage report email was sent for deduplication.
 func (s *PgStore) RecordSentUsageReport(ctx context.Context, orgID string, periodEnd time.Time) error {
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO sent_usage_reports (org_id, period_end)
-		VALUES ($1, $2)
-		ON CONFLICT (org_id, period_end) DO NOTHING
+		INSERT INTO sent_usage_reports (org_id, period_end, send_status, sent_at, claimed_at)
+		VALUES ($1, $2, 'sent', NOW(), NULL)
+		ON CONFLICT (org_id, period_end) DO UPDATE
+		SET send_status = 'sent',
+		    sent_at = NOW(),
+		    claimed_at = NULL
 	`, orgID, periodEnd.Truncate(24*time.Hour))
 	if err != nil {
 		return fmt.Errorf("recording sent usage report: %w", err)
 	}
 	return nil
+}
+
+// ClaimUsageReportSend atomically claims an org/period report before the email
+// side effect. A false return means another scheduler already claimed or sent it.
+func (s *PgStore) ClaimUsageReportSend(ctx context.Context, orgID string, periodEnd time.Time) (bool, error) {
+	var claimed int
+	err := s.pool.QueryRow(ctx, `
+		INSERT INTO sent_usage_reports (org_id, period_end, send_status, claimed_at, sent_at)
+		VALUES ($1, $2, 'claimed', NOW(), NULL)
+		ON CONFLICT (org_id, period_end) DO UPDATE
+		SET send_status = 'claimed',
+		    claimed_at = NOW(),
+		    sent_at = NULL
+		WHERE sent_usage_reports.send_status = 'claimed'
+		  AND sent_usage_reports.claimed_at < NOW() - INTERVAL '1 hour'
+		RETURNING 1
+	`, orgID, periodEnd.Truncate(24*time.Hour)).Scan(&claimed)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("claiming usage report send: %w", err)
+	}
+	return claimed == 1, nil
+}
+
+// FinalizeUsageReportSend marks a pre-send report claim as sent after the
+// email side effect succeeds.
+func (s *PgStore) FinalizeUsageReportSend(ctx context.Context, orgID string, periodEnd time.Time) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO sent_usage_reports (org_id, period_end, send_status, sent_at, claimed_at)
+		VALUES ($1, $2, 'sent', NOW(), NULL)
+		ON CONFLICT (org_id, period_end) DO UPDATE
+		SET send_status = 'sent',
+		    sent_at = NOW(),
+		    claimed_at = NULL
+	`, orgID, periodEnd.Truncate(24*time.Hour))
+	if err != nil {
+		return fmt.Errorf("finalizing usage report send: %w", err)
+	}
+	return nil
+}
+
+// ReleaseUsageReportSendClaim releases a pre-send claim after a definite send
+// failure so a later scheduler tick can retry the report.
+func (s *PgStore) ReleaseUsageReportSendClaim(ctx context.Context, orgID string, periodEnd time.Time) error {
+	_, err := s.pool.Exec(ctx, `
+		DELETE FROM sent_usage_reports
+		WHERE org_id = $1 AND period_end = $2
+		  AND send_status = 'claimed'
+	`, orgID, periodEnd.Truncate(24*time.Hour))
+	if err != nil {
+		return fmt.Errorf("releasing usage report send claim: %w", err)
+	}
+	return nil
+}
+
+func (s *PgStore) ClaimContractReminderSend(ctx context.Context, orgID string, contractEndDate time.Time, reminderWindowDays int) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `
+		INSERT INTO contract_reminder_sends (org_id, contract_end_date, reminder_window_days)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (org_id, contract_end_date, reminder_window_days) DO NOTHING
+	`, orgID, contractEndDate.UTC().Truncate(24*time.Hour), reminderWindowDays)
+	if err != nil {
+		return false, fmt.Errorf("claiming contract reminder send: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
 }
 
 // UpdateMonthlyUsageEmail updates the email preference for an org.
@@ -1136,36 +1598,60 @@ func (s *PgStore) UpdateMonthlyUsageEmail(ctx context.Context, orgID string, ena
 	return nil
 }
 
-// DeactivateExcessCronJobs disables cron jobs beyond the given limit for an org.
-// Keeps the most recently updated jobs; clears cron on the oldest excess.
-// Returns the IDs of the jobs whose cron was cleared so callers can dispatch
-// per-schedule suspension events.
+// DeactivateExcessCronJobs disables cron jobs and workflows beyond the given
+// shared schedule limit for an org. Keeps the most recently updated schedules;
+// clears cron on the oldest excess. Returns the IDs whose cron was cleared so
+// callers can dispatch per-schedule suspension events.
 func (s *PgStore) DeactivateExcessCronJobs(ctx context.Context, orgID string, maxSchedules int) ([]string, error) {
 	rows, err := s.pool.Query(ctx, `
-		UPDATE jobs SET cron = '', updated_at = NOW()
-		WHERE id IN (
-			SELECT j.id FROM jobs j
-			WHERE j.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
+		WITH active_projects AS (
+			SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL
+		),
+		ranked_schedules AS (
+			SELECT 'job' AS kind, j.id, j.updated_at
+			FROM jobs j
+			WHERE j.project_id IN (SELECT id FROM active_projects)
 			  AND j.cron IS NOT NULL AND j.cron != ''
-			ORDER BY j.updated_at DESC
+			UNION ALL
+			SELECT 'workflow' AS kind, w.id, w.updated_at
+			FROM workflows w
+			WHERE w.project_id IN (SELECT id FROM active_projects)
+			  AND w.cron IS NOT NULL AND w.cron != ''
+		),
+		excess_schedules AS (
+			SELECT kind, id
+			FROM ranked_schedules
+			ORDER BY updated_at DESC, id DESC
 			OFFSET $2
+		),
+		disabled_jobs AS (
+			UPDATE jobs SET cron = '', updated_at = NOW()
+			WHERE id IN (SELECT id FROM excess_schedules WHERE kind = 'job')
+			RETURNING id
+		),
+		disabled_workflows AS (
+			UPDATE workflows SET cron = '', updated_at = NOW()
+			WHERE id IN (SELECT id FROM excess_schedules WHERE kind = 'workflow')
+			RETURNING id
 		)
-		RETURNING id
+		SELECT id FROM disabled_jobs
+		UNION ALL
+		SELECT id FROM disabled_workflows
 	`, orgID, maxSchedules)
 	if err != nil {
-		return nil, fmt.Errorf("deactivate excess cron jobs: %w", err)
+		return nil, fmt.Errorf("deactivate excess cron schedules: %w", err)
 	}
 	defer rows.Close()
 	var ids []string
 	for rows.Next() {
 		var id string
 		if scanErr := rows.Scan(&id); scanErr != nil {
-			return nil, fmt.Errorf("scan deactivated cron job id: %w", scanErr)
+			return nil, fmt.Errorf("scan deactivated cron schedule id: %w", scanErr)
 		}
 		ids = append(ids, id)
 	}
 	if rowsErr := rows.Err(); rowsErr != nil {
-		return nil, fmt.Errorf("iterating deactivated cron jobs: %w", rowsErr)
+		return nil, fmt.Errorf("iterating deactivated cron schedules: %w", rowsErr)
 	}
 	return ids, nil
 }
@@ -1178,6 +1664,7 @@ func (s *PgStore) DeactivateExcessEnvironments(ctx context.Context, orgID string
 		WHERE id IN (
 			SELECT e.id FROM environments e
 			WHERE e.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
+			  AND e.is_standard = false
 			ORDER BY e.created_at DESC
 			OFFSET $2
 		)
@@ -1216,7 +1703,7 @@ func (s *PgStore) DeactivateExcessLogDrains(ctx context.Context, orgID string, m
 			SELECT ld.id FROM log_drains ld
 			WHERE ld.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
 			  AND ld.enabled = true
-			ORDER BY ld.created_at ASC
+			ORDER BY ld.created_at DESC
 			OFFSET $2
 		)
 	`, orgID, maxDrains)
@@ -1235,7 +1722,7 @@ func (s *PgStore) DeactivateExcessNotificationChannelsByProject(ctx context.Cont
 			SELECT nc.id FROM notification_channels nc
 			WHERE nc.project_id = $1
 			  AND nc.enabled = true
-			ORDER BY nc.created_at ASC
+			ORDER BY nc.created_at DESC
 			OFFSET $2
 		)
 	`, projectID, maxChannels)
@@ -1527,6 +2014,39 @@ func (s *PgStore) ListExpiringContracts(ctx context.Context, withinDays int) ([]
 	return contracts, rows.Err()
 }
 
+func (s *PgStore) ListExpiredContracts(ctx context.Context) ([]EnterpriseContract, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, org_id, enterprise_tier, annual_commitment_cents,
+			included_credit_microusd, compute_discount_pct,
+			contract_start_date, contract_end_date,
+			auto_renew, billing_cadence, stripe_subscription_id,
+			notes, created_at, updated_at
+		FROM enterprise_contracts
+		WHERE contract_end_date <= NOW()
+		ORDER BY contract_end_date ASC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("listing expired contracts: %w", err)
+	}
+	defer rows.Close()
+
+	var contracts []EnterpriseContract
+	for rows.Next() {
+		var c EnterpriseContract
+		if err := rows.Scan(
+			&c.ID, &c.OrgID, &c.EnterpriseTier,
+			&c.AnnualCommitmentCents, &c.IncludedCreditMicrousd, &c.ComputeDiscountPct,
+			&c.ContractStartDate, &c.ContractEndDate,
+			&c.AutoRenew, &c.BillingCadence, &c.StripeSubscriptionID,
+			&c.Notes, &c.CreatedAt, &c.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scanning expired enterprise contract: %w", err)
+		}
+		contracts = append(contracts, c)
+	}
+	return contracts, rows.Err()
+}
+
 // ListEnterpriseContractsActiveAt returns every enterprise contract whose
 // window covers the supplied instant. The SLA-credit calculator passes the
 // period-end so a contract that lapsed mid-month still contributes a credit
@@ -1559,6 +2079,44 @@ func (s *PgStore) ListEnterpriseContractsActiveAt(ctx context.Context, at time.T
 			&c.Notes, &c.CreatedAt, &c.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scanning enterprise contract: %w", err)
+		}
+		contracts = append(contracts, c)
+	}
+	return contracts, rows.Err()
+}
+
+// ListEnterpriseContractsOverlappingPeriod returns every enterprise contract
+// whose contract window overlaps [periodStart, periodEnd). This is used for
+// SLA credits because a contract that lapsed mid-month still covered part of
+// the credited period.
+func (s *PgStore) ListEnterpriseContractsOverlappingPeriod(ctx context.Context, periodStart, periodEnd time.Time) ([]EnterpriseContract, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, org_id, enterprise_tier, annual_commitment_cents,
+			included_credit_microusd, compute_discount_pct,
+			contract_start_date, contract_end_date,
+			auto_renew, billing_cadence, stripe_subscription_id,
+			notes, created_at, updated_at
+		FROM enterprise_contracts
+		WHERE contract_start_date < $2
+		  AND contract_end_date   > $1
+		ORDER BY org_id ASC
+	`, periodStart, periodEnd)
+	if err != nil {
+		return nil, fmt.Errorf("listing overlapping enterprise contracts: %w", err)
+	}
+	defer rows.Close()
+
+	var contracts []EnterpriseContract
+	for rows.Next() {
+		var c EnterpriseContract
+		if err := rows.Scan(
+			&c.ID, &c.OrgID, &c.EnterpriseTier,
+			&c.AnnualCommitmentCents, &c.IncludedCreditMicrousd, &c.ComputeDiscountPct,
+			&c.ContractStartDate, &c.ContractEndDate,
+			&c.AutoRenew, &c.BillingCadence, &c.StripeSubscriptionID,
+			&c.Notes, &c.CreatedAt, &c.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scanning overlapping enterprise contract: %w", err)
 		}
 		contracts = append(contracts, c)
 	}
@@ -1616,6 +2174,27 @@ func (s *PgStore) UnpauseJobsByPauseReason(ctx context.Context, orgID, reason st
 	`, orgID, reason)
 	if err != nil {
 		return 0, fmt.Errorf("unpausing jobs by reason: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// UnpauseJobsByPauseReasonBefore unpauses only jobs paused before a billing
+// period boundary so jobs paused again during the new period stay paused.
+func (s *PgStore) UnpauseJobsByPauseReasonBefore(ctx context.Context, orgID, reason string, pausedBefore time.Time) (int64, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE jobs SET
+			paused = false,
+			paused_at = NULL,
+			pause_reason = NULL,
+			updated_at = NOW()
+		WHERE project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
+		  AND pause_reason = $2
+		  AND paused = true
+		  AND paused_at IS NOT NULL
+		  AND paused_at < $3
+	`, orgID, reason, pausedBefore.UTC())
+	if err != nil {
+		return 0, fmt.Errorf("unpausing jobs by reason before boundary: %w", err)
 	}
 	return tag.RowsAffected(), nil
 }

@@ -12,6 +12,7 @@ import (
 	"crypto/hmac"
 	cryptorand "crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -290,7 +291,11 @@ func (n *DeliveryWorker) maybeDecryptSecret(deliveryID, kind, secret string) str
 	if secret == "" || n.secretDecryptor == nil {
 		return secret
 	}
-	plain, err := n.secretDecryptor.Decrypt([]byte(secret))
+	ciphertext, decodeErr := base64.StdEncoding.DecodeString(secret)
+	if decodeErr != nil {
+		ciphertext = []byte(secret)
+	}
+	plain, err := n.secretDecryptor.Decrypt(ciphertext)
 	if err != nil {
 		n.logger.Warn("failed to decrypt webhook signing secret; subscriber will not be able to verify signature",
 			"delivery_id", deliveryID, "secret_kind", kind, "error", err)
@@ -623,10 +628,11 @@ func (n *DeliveryWorker) attemptBatchDelivery(ctx context.Context, webhookURL st
 
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, webhookURL, bytes.NewReader(batchBody))
 	if err != nil {
+		errMsg := "create request: invalid webhook URL"
 		for i := range deliveries {
-			n.recordFailure(ctx, &deliveries[i], now, false, fmt.Sprintf("create request: %v", err))
+			n.recordFailure(ctx, &deliveries[i], now, false, errMsg)
 		}
-		span.SetStatus(codes.Error, "create request failed")
+		span.SetStatus(codes.Error, errMsg)
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -973,7 +979,7 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, d.WebhookURL, bytes.NewReader(body))
 	if err != nil {
-		errMsg := fmt.Sprintf("create request: %v", err)
+		errMsg := "create request: invalid webhook URL"
 		n.recordFailure(ctx, d, now, false, errMsg)
 		span.SetStatus(codes.Error, errMsg)
 		return
@@ -990,7 +996,6 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 	}
 	req.Header.Set("X-Strait-Delivery-ID", d.ID)
 	req.Header.Set("X-Strait-Attempt", fmt.Sprintf("%d/%d", d.Attempts, d.MaxAttempts))
-	req.Header.Set("X-Strait-Idempotency-Key", fmt.Sprintf("%s:%d", d.ID, d.Attempts))
 	signatureTimestamp := strconv.FormatInt(now.UTC().Unix(), 10)
 	req.Header.Set("X-Strait-Timestamp", signatureTimestamp)
 
@@ -1029,6 +1034,7 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 		signingSecret = subSecret
 	}
 
+	req.Header.Set("X-Strait-Idempotency-Key", ComputeIdempotencyKey([]byte(signingSecret), d.ID, d.Attempts))
 	req.Header.Set("X-Strait-Replay-Key", ComputeReplayKey([]byte(signingSecret), d.ID))
 
 	if signingSecret != "" {
@@ -1401,6 +1407,8 @@ const replayKeyPrefix = "rk_"
 // history.
 const replayKeyHexLen = 32
 
+const idempotencyKeyPrefix = "ik_"
+
 // ComputeReplayKey derives a subscriber-visible replay key that is
 // stable across every retry of the same physical delivery row AND bound
 // to the subscription's HMAC secret. Subscribers can verify the key by
@@ -1429,6 +1437,21 @@ func ComputeReplayKey(secret []byte, deliveryID string) string {
 	sum := mac.Sum(nil)
 	rawLen := min(replayKeyHexLen/2, len(sum))
 	return replayKeyPrefix + hex.EncodeToString(sum[:rawLen])
+}
+
+func ComputeIdempotencyKey(secret []byte, deliveryID string, attempt int) string {
+	if deliveryID == "" || attempt < 1 {
+		return ""
+	}
+	raw := fmt.Sprintf("%s:%d", deliveryID, attempt)
+	if len(secret) == 0 {
+		return raw
+	}
+	mac := hmac.New(sha256.New, secret)
+	_, _ = mac.Write([]byte(raw))
+	sum := mac.Sum(nil)
+	rawLen := min(replayKeyHexLen/2, len(sum))
+	return idempotencyKeyPrefix + hex.EncodeToString(sum[:rawLen])
 }
 
 // ComputeReplayKeyUnsigned derives a deterministic replay key for

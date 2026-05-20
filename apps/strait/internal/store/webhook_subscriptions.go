@@ -58,12 +58,12 @@ func (q *Queries) CreateWebhookSubscriptionWithOrgLimit(ctx context.Context, sub
 		return q.createWebhookSubscriptionWithOrgLimitLocked(ctx, sub, orgID, maxEndpoints)
 	}
 
-	beginner, ok := q.db.(TxBeginner)
+	_, ok := q.db.(TxBeginner)
 	if !ok {
 		return q.createWebhookSubscriptionWithOrgLimitLocked(ctx, sub, orgID, maxEndpoints)
 	}
 
-	return WithTx(ctx, beginner, func(txq *Queries) error {
+	return q.withTx(ctx, func(txq *Queries) error {
 		return txq.createWebhookSubscriptionWithOrgLimitLocked(ctx, sub, orgID, maxEndpoints)
 	})
 }
@@ -73,17 +73,12 @@ func (q *Queries) createWebhookSubscriptionWithOrgLimitLocked(ctx context.Contex
 		return q.CreateWebhookSubscription(ctx, sub)
 	}
 
-	if _, err := q.db.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, "webhook_endpoint_limit:"+orgID); err != nil {
+	if err := q.acquireWebhookEndpointLimitLock(ctx, orgID); err != nil {
 		return fmt.Errorf("lock webhook endpoint limit: %w", err)
 	}
 
-	var count int
-	if err := q.db.QueryRow(ctx, `
-		SELECT COUNT(*)
-		FROM webhook_subscriptions ws
-		WHERE ws.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
-		  AND ws.active = TRUE
-	`, orgID).Scan(&count); err != nil {
+	count, err := q.countWebhookSubscriptionsByOrgIgnoringProjectRLS(ctx, orgID)
+	if err != nil {
 		return fmt.Errorf("count webhook subscriptions before create: %w", err)
 	}
 	if count >= maxEndpoints {
@@ -91,6 +86,62 @@ func (q *Queries) createWebhookSubscriptionWithOrgLimitLocked(ctx context.Contex
 	}
 
 	return q.CreateWebhookSubscription(ctx, sub)
+}
+
+func (q *Queries) acquireWebhookEndpointLimitLock(ctx context.Context, orgID string) error {
+	lockKey := "webhook_endpoint_limit:" + orgID
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		var locked bool
+		if err := q.db.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock(hashtext($1))`, lockKey).Scan(&locked); err != nil {
+			return err
+		}
+		if locked {
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func (q *Queries) countWebhookSubscriptionsByOrgIgnoringProjectRLS(ctx context.Context, orgID string) (count int, err error) {
+	var currentProjectID string
+	if err := q.db.QueryRow(ctx, `SELECT COALESCE(current_setting('app.current_project_id', true), '')`).Scan(&currentProjectID); err != nil {
+		return 0, fmt.Errorf("read project context before webhook subscription count: %w", err)
+	}
+
+	if currentProjectID != "" {
+		if _, err := q.db.Exec(ctx, `SELECT set_config('app.current_project_id', '', true)`); err != nil {
+			return 0, fmt.Errorf("clear project context for org webhook subscription count: %w", err)
+		}
+		defer func() {
+			if restoreErr := q.SetProjectContext(ctx, currentProjectID); restoreErr != nil {
+				restoreErr = fmt.Errorf("restore project context after org webhook subscription count: %w", restoreErr)
+				if err != nil {
+					err = errors.Join(err, restoreErr)
+					return
+				}
+				err = restoreErr
+			}
+		}()
+	}
+
+	err = q.db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM webhook_subscriptions ws
+		WHERE ws.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
+		  AND ws.active = TRUE
+	`, orgID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count webhook subscriptions by org: %w", err)
+	}
+	return count, nil
 }
 
 func (q *Queries) ListWebhookSubscriptions(ctx context.Context, projectID string) ([]domain.WebhookSubscription, error) {
@@ -128,6 +179,28 @@ func (q *Queries) ListWebhookSubscriptions(ctx context.Context, projectID string
 func (q *Queries) DeleteWebhookSubscription(ctx context.Context, id string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteWebhookSubscription")
 	defer span.End()
+
+	if _, ok := TxFromContext(ctx); ok {
+		return q.deleteWebhookSubscriptionLocked(ctx, id)
+	}
+	if _, ok := q.db.(pgx.Tx); ok {
+		return q.deleteWebhookSubscriptionLocked(ctx, id)
+	}
+
+	_, ok := q.db.(TxBeginner)
+	if !ok {
+		return q.deleteWebhookSubscriptionLocked(ctx, id)
+	}
+
+	return q.withTx(ctx, func(txq *Queries) error {
+		return txq.deleteWebhookSubscriptionLocked(ctx, id)
+	})
+}
+
+func (q *Queries) deleteWebhookSubscriptionLocked(ctx context.Context, id string) error {
+	if _, err := q.db.Exec(ctx, `UPDATE webhook_deliveries SET subscription_id = NULL WHERE subscription_id = $1`, id); err != nil {
+		return fmt.Errorf("detach webhook deliveries from subscription: %w", err)
+	}
 
 	query := `DELETE FROM webhook_subscriptions WHERE id = $1`
 	tag, err := q.db.Exec(ctx, query, id)

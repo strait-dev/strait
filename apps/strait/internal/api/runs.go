@@ -489,7 +489,12 @@ func (s *Server) handleListDeadLetterRuns(ctx context.Context, input *ListDeadLe
 		return nil, huma.Error400BadRequest(err.Error())
 	}
 
-	runs, err := s.store.ListDeadLetterRuns(ctx, projectID, limit+1, cursor)
+	var runs []domain.JobRun
+	if environmentIDFromContext(ctx) != "" {
+		runs, err = s.listDeadLetterRunsForEnvironment(ctx, projectID, limit+1, cursor)
+	} else {
+		runs, err = s.store.ListDeadLetterRuns(ctx, projectID, limit+1, cursor)
+	}
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list dead letter runs")
 	}
@@ -610,13 +615,11 @@ func (s *Server) handleBulkReplayDeadLetterRuns(ctx context.Context, input *Bulk
 	)
 	if !hasRunIDs && environmentIDFromContext(ctx) != "" {
 		runs, err = s.bulkReplayDeadLetterRunsForEnvironment(ctx, projectIDFromContext(ctx), req.Limit)
+	} else if hasRunIDs {
+		runs, err = s.store.BulkReplayDeadLetterRuns(ctx, req.RunIDs, "", 0)
 	} else {
 		// Scope bulk replay to the caller's project when using project_id mode.
-		effectiveProjectID := req.ProjectID
-		if effectiveProjectID == "" {
-			effectiveProjectID = projectIDFromContext(ctx)
-		}
-		runs, err = s.store.BulkReplayDeadLetterRuns(ctx, req.RunIDs, effectiveProjectID, req.Limit)
+		runs, err = s.store.BulkReplayDeadLetterRuns(ctx, nil, req.ProjectID, req.Limit)
 	}
 	if err != nil {
 		errMsg := err.Error()
@@ -1228,6 +1231,43 @@ func (s *Server) runMatchesEnvironment(ctx context.Context, run domain.JobRun, j
 	allowed := requireEnvironmentMatch(ctx, job.EnvironmentID) == nil
 	jobEnvCache[run.JobID] = allowed
 	return allowed, nil
+}
+
+func (s *Server) listDeadLetterRunsForEnvironment(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
+	jobEnvCache := make(map[string]bool)
+	filtered := make([]domain.JobRun, 0, limit)
+	pageCursor := cursor
+	fetchLimit := max(limit, 25)
+
+	for {
+		page, err := s.store.ListDeadLetterRuns(ctx, projectID, fetchLimit, pageCursor)
+		if err != nil {
+			return nil, err
+		}
+		if len(page) == 0 {
+			return filtered, nil
+		}
+
+		for _, run := range page {
+			allowed, err := s.runMatchesEnvironment(ctx, run, jobEnvCache)
+			if err != nil {
+				return nil, err
+			}
+			if !allowed {
+				continue
+			}
+			filtered = append(filtered, run)
+			if len(filtered) >= limit {
+				return filtered, nil
+			}
+		}
+
+		if len(page) < fetchLimit {
+			return filtered, nil
+		}
+		lastCreatedAt := page[len(page)-1].CreatedAt
+		pageCursor = &lastCreatedAt
+	}
 }
 
 func (s *Server) bulkReplayDeadLetterRunsForEnvironment(ctx context.Context, projectID string, limit int) ([]domain.JobRun, error) {

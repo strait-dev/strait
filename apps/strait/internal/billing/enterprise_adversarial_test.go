@@ -219,3 +219,13 @@ func TestCalculateSLACredit_NegativeUptime(t *testing.T) {
 		t.Errorf("CalculateSLACredit(-10.0, 99.9) = %d, want 50", got)
 	}
 }
+
+func TestCalculateSLACredit_NaNUptimeDoesNotGrantCredit(t *testing.T) {
+	t.Parallel()
+	if got := CalculateSLACredit(math.NaN(), EnterpriseStarterSLAPct); got != 0 {
+		t.Fatalf("CalculateSLACredit(NaN, 99.9) = %d, want 0", got)
+	}
+	if got := CalculateSLACredit(99.0, math.NaN()); got != 0 {
+		t.Fatalf("CalculateSLACredit(99.0, NaN) = %d, want 0", got)
+	}
+}

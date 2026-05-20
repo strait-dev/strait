@@ -326,8 +326,8 @@ func TestDowngradeApplier_NilPendingTier_SkipsEnforcement(t *testing.T) {
 	applier := NewDowngradeApplier(s, nil, time.Minute)
 	applier.apply(context.Background())
 
-	if len(s.appliedOrgIDs) != 1 {
-		t.Fatalf("expected 1 applied, got %d", len(s.appliedOrgIDs))
+	if len(s.appliedOrgIDs) != 0 {
+		t.Fatalf("expected nil pending tier to skip apply, got %d", len(s.appliedOrgIDs))
 	}
 }
 

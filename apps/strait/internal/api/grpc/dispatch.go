@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
+	straitcrypto "strait/internal/crypto"
 	"strait/internal/domain"
 	"strait/internal/store"
 
@@ -27,10 +29,15 @@ import (
 // On no available worker for the run's queue, WorkerDispatch returns
 // ErrNoWorkerAvailable so the caller can leave the run queued for the next tick.
 type WorkerDispatcher struct {
-	registry       *ConnectionRegistry
-	queries        *store.Queries
-	jwtSigningKey  string
-	resultChannels *ResultChannelRegistry
+	registry        *ConnectionRegistry
+	queries         *store.Queries
+	jwtSigningKey   string
+	resultChannels  *ResultChannelRegistry
+	secretDecryptor SecretDecryptor
+}
+
+type SecretDecryptor interface {
+	Decrypt([]byte) ([]byte, error)
 }
 
 type WorkerTaskResult struct {
@@ -51,10 +58,14 @@ type ResultChannelRegistry struct {
 }
 
 type resultChannelEntry struct {
-	ch        chan *workerv1.TaskResult
-	projectID string
-	workerID  string
+	ch           chan *workerv1.TaskResult
+	projectID    string
+	workerID     string
+	assignmentID string
+	attempt      int
 }
+
+var ErrResultChannelAlreadyRegistered = errors.New("result channel already registered")
 
 // NewResultChannelRegistry creates an empty registry.
 func NewResultChannelRegistry() *ResultChannelRegistry {
@@ -63,15 +74,38 @@ func NewResultChannelRegistry() *ResultChannelRegistry {
 	}
 }
 
+func (d *WorkerDispatcher) WithSecretDecryptor(dec SecretDecryptor) *WorkerDispatcher {
+	d.secretDecryptor = dec
+	return d
+}
+
 // Register creates a buffered channel for the given run ID, scoped to the
 // run's project ID, and returns it. The dispatcher must pass the authoritative
 // project ID from the run row (not user input).
-func (r *ResultChannelRegistry) Register(runID, projectID, workerID string) chan *workerv1.TaskResult {
+func (r *ResultChannelRegistry) Register(runID, projectID, workerID, assignmentID string, attempt int) chan *workerv1.TaskResult {
+	ch, _ := r.TryRegister(runID, projectID, workerID, assignmentID, attempt)
+	return ch
+}
+
+// TryRegister creates a result channel unless the run already has an active
+// waiter. Duplicate registration is rejected so concurrent dispatch attempts
+// for the same run cannot overwrite the original channel and orphan its
+// dispatcher.
+func (r *ResultChannelRegistry) TryRegister(runID, projectID, workerID, assignmentID string, attempt int) (chan *workerv1.TaskResult, bool) {
 	ch := make(chan *workerv1.TaskResult, 1)
 	r.mu.Lock()
-	r.channels[runID] = resultChannelEntry{ch: ch, projectID: projectID, workerID: workerID}
-	r.mu.Unlock()
-	return ch
+	defer r.mu.Unlock()
+	if _, exists := r.channels[runID]; exists {
+		return nil, false
+	}
+	r.channels[runID] = resultChannelEntry{
+		ch:           ch,
+		projectID:    projectID,
+		workerID:     workerID,
+		assignmentID: assignmentID,
+		attempt:      attempt,
+	}
+	return ch, true
 }
 
 // Deregister removes the channel for the given run ID. Must be called by
@@ -90,7 +124,7 @@ func (r *ResultChannelRegistry) Send(runID, projectID, workerID string, result *
 	r.mu.Lock()
 	entry, ok := r.channels[runID]
 	r.mu.Unlock()
-	if !ok || entry.projectID != projectID || entry.workerID != workerID {
+	if !ok || !entry.matches(projectID, workerID, result) {
 		return false
 	}
 	select {
@@ -114,7 +148,7 @@ func (r *ResultChannelRegistry) SendAfterHandoff(
 	defer r.mu.Unlock()
 
 	entry, ok := r.channels[runID]
-	if !ok || entry.projectID != projectID || entry.workerID != workerID {
+	if !ok || !entry.matches(projectID, workerID, result) {
 		return false, nil
 	}
 	if len(entry.ch) == cap(entry.ch) {
@@ -132,6 +166,18 @@ func (r *ResultChannelRegistry) SendAfterHandoff(
 	default:
 		return false, nil
 	}
+}
+
+func (e resultChannelEntry) matches(projectID, workerID string, result *workerv1.TaskResult) bool {
+	if result == nil {
+		return false
+	}
+	return e.projectID == projectID &&
+		e.workerID == workerID &&
+		e.assignmentID != "" &&
+		result.AssignmentId == e.assignmentID &&
+		e.attempt > 0 &&
+		int(result.Attempt) == e.attempt
 }
 
 // ErrNoWorkerAvailable is returned when no connected worker services the run's queue.
@@ -199,22 +245,27 @@ func (d *WorkerDispatcher) WorkerDispatch(
 	if sendCh == nil {
 		// Defensive: a worker entry without a send channel should never be
 		// pickable, but if one slipped through, release the reservation.
-		d.registry.IncrementSlots(workerID)
+		d.registry.IncrementProjectSlots(run.ProjectID, workerID)
 		trace.Result = "nil_send_channel"
 		return nil, ErrNoWorkerAvailable
 	}
 
 	// Insert worker_tasks record so the reaper can pick it up if the
 	// worker disconnects without reporting a result.
+	attempt := run.Attempt
+	if attempt <= 0 {
+		attempt = 1
+	}
 	task := &domain.WorkerTask{
 		ID:        uuid.Must(uuid.NewV7()).String(),
 		WorkerID:  workerID,
 		RunID:     run.ID,
 		ProjectID: run.ProjectID,
+		Attempt:   attempt,
 		Status:    domain.WorkerTaskStatusAssigned,
 	}
 	if err := d.queries.CreateWorkerTask(ctx, task); err != nil {
-		d.registry.IncrementSlots(workerID)
+		d.registry.IncrementProjectSlots(run.ProjectID, workerID)
 		trace.TaskID = task.ID
 		trace.Result = "task_record_failed"
 		return nil, fmt.Errorf("worker dispatch: record task: %w", err)
@@ -225,11 +276,22 @@ func (d *WorkerDispatcher) WorkerDispatch(
 	// never miss a TaskResult that arrives before we start waiting. The
 	// channel is bound to run.ProjectID so any TaskResult arriving from a
 	// worker authenticated to a different project is dropped on the floor.
-	resultCh := d.resultChannels.Register(run.ID, run.ProjectID, workerID)
+	resultCh, registered := d.resultChannels.TryRegister(run.ID, run.ProjectID, workerID, task.ID, task.Attempt)
+	if !registered {
+		d.markWorkerTaskFailedAfterAbort(ctx, task.ID, run.ID)
+		d.registry.IncrementProjectSlots(run.ProjectID, workerID)
+		trace.Result = "result_channel_duplicate"
+		return nil, ErrResultChannelAlreadyRegistered
+	}
 	defer d.resultChannels.Deregister(run.ID)
 
 	// Build and send the TaskAssignment.
-	assignment := d.buildAssignment(run, job, task.ID)
+	assignment, err := d.buildAssignment(run, job, task.ID)
+	if err != nil {
+		d.markWorkerTaskFailedAfterAbort(ctx, task.ID, run.ID)
+		d.registry.IncrementProjectSlots(run.ProjectID, workerID)
+		return nil, err
+	}
 	msg := &workerv1.ServerMessage{
 		Payload: &workerv1.ServerMessage_TaskAssignment{
 			TaskAssignment: assignment,
@@ -242,7 +304,7 @@ func (d *WorkerDispatcher) WorkerDispatch(
 		d.emitTaskRoutedAudit(ctx, run, job, workerID)
 	case <-ctx.Done():
 		d.markWorkerTaskFailedAfterAbort(ctx, task.ID, run.ID)
-		d.registry.IncrementSlots(workerID)
+		d.registry.IncrementProjectSlots(run.ProjectID, workerID)
 		trace.Result = "send_cancelled"
 		return nil, ctx.Err()
 	}
@@ -250,7 +312,7 @@ func (d *WorkerDispatcher) WorkerDispatch(
 	// Wait for the TaskResult or context cancellation.
 	select {
 	case result, open := <-resultCh:
-		d.registry.IncrementSlots(workerID)
+		d.registry.IncrementProjectSlots(run.ProjectID, workerID)
 		if !open || result == nil {
 			trace.Result = "result_channel_closed"
 			return nil, fmt.Errorf("worker dispatch: result channel closed for run %s", run.ID)
@@ -272,7 +334,7 @@ func (d *WorkerDispatcher) WorkerDispatch(
 		// Best-effort cancellation: notify the worker.
 		d.sendCancel(sendCh, run.ID)
 		d.markWorkerTaskFailedAfterAbort(ctx, task.ID, run.ID)
-		d.registry.IncrementSlots(workerID)
+		d.registry.IncrementProjectSlots(run.ProjectID, workerID)
 		trace.Result = "wait_cancelled"
 		return nil, ctx.Err()
 	}
@@ -425,13 +487,19 @@ func (d *WorkerDispatcher) sendCancel(sendCh chan<- *workerv1.ServerMessage, run
 
 // buildAssignment constructs a TaskAssignment for the given run and job,
 // including JWT run-token and HMAC signature (matching the HTTP dispatch path).
-func (d *WorkerDispatcher) buildAssignment(run *domain.JobRun, job *domain.Job, assignmentID string) *workerv1.TaskAssignment {
+func (d *WorkerDispatcher) buildAssignment(run *domain.JobRun, job *domain.Job, assignmentID string) (*workerv1.TaskAssignment, error) {
+	attempt := run.Attempt
+	if attempt <= 0 {
+		attempt = 1
+	}
 	a := &workerv1.TaskAssignment{
-		RunId:       run.ID,
-		JobSlug:     job.Slug,
-		Queue:       job.Queue,
-		PayloadJson: run.Payload,
-		TimeoutSecs: int32(job.TimeoutSecs), //nolint:gosec // TimeoutSecs is validated upstream to be non-negative and within range
+		RunId:        run.ID,
+		JobSlug:      job.Slug,
+		Queue:        job.Queue,
+		PayloadJson:  run.Payload,
+		TimeoutSecs:  int32(job.TimeoutSecs), //nolint:gosec // TimeoutSecs is validated upstream to be non-negative and within range
+		AssignmentId: assignmentID,
+		Attempt:      int32(attempt),
 	}
 
 	// JWT run-token so the worker SDK can authenticate callbacks.
@@ -445,7 +513,7 @@ func (d *WorkerDispatcher) buildAssignment(run *domain.JobRun, job *domain.Job, 
 			AssignmentID string `json:"assignment_id,omitempty"`
 			jwt.RegisteredClaims
 		}{
-			Attempt:      run.Attempt,
+			Attempt:      attempt,
 			AssignmentID: assignmentID,
 			RegisteredClaims: jwt.RegisteredClaims{
 				Issuer:    domain.RunTokenIssuer,
@@ -463,12 +531,16 @@ func (d *WorkerDispatcher) buildAssignment(run *domain.JobRun, job *domain.Job, 
 	// HMAC-SHA256 body+timestamp signing (same algorithm as worker.SignHTTPDispatch
 	// in internal/worker/sign.go — reproduced here to avoid circular import).
 	if job.EndpointSigningSecret != "" {
+		signingSecret, err := straitcrypto.DecryptField(d.secretDecryptor, job.EndpointSigningSecret)
+		if err != nil {
+			return nil, fmt.Errorf("decrypt endpoint signing secret: %w", err)
+		}
 		ts := strconv.FormatInt(time.Now().UTC().Unix(), 10)
 		a.HmacTimestamp = ts
-		a.HmacSignature = dispatchHMAC(job.EndpointSigningSecret, ts, run.Payload)
+		a.HmacSignature = dispatchHMAC(signingSecret, ts, run.Payload)
 	}
 
-	return a
+	return a, nil
 }
 
 // dispatchHMAC returns `v1=<hex-sha256>` for the given secret, timestamp, and

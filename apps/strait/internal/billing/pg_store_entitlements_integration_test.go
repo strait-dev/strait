@@ -141,3 +141,83 @@ func TestPgStore_UpdateEntitlements_ConcurrentWritersConverge(t *testing.T) {
 			got.MaxEnvironments, a.MaxEnvironments, b.MaxEnvironments)
 	}
 }
+
+func TestDeepSecPgStore_ApplyPendingDowngradeIfTierRefreshesEntitlements(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgID := "org-pending-ent-" + newID()
+	if err := pgStore.EnsureOrgSubscription(ctx, orgID); err != nil {
+		t.Fatalf("EnsureOrgSubscription: %v", err)
+	}
+	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgID, string(domain.PlanPro), "active"); err != nil {
+		t.Fatalf("UpdateOrgSubscriptionPlan: %v", err)
+	}
+	if err := pgStore.SetPendingPlanTier(ctx, orgID, string(domain.PlanFree)); err != nil {
+		t.Fatalf("SetPendingPlanTier: %v", err)
+	}
+
+	applied, err := pgStore.ApplyPendingDowngradeIfTier(ctx, orgID, string(domain.PlanFree))
+	if err != nil {
+		t.Fatalf("ApplyPendingDowngradeIfTier: %v", err)
+	}
+	if !applied {
+		t.Fatal("expected pending downgrade to apply")
+	}
+
+	got := readDeepSecEntitlements(t, ctx, orgID)
+	want := billing.GetPlanLimits(domain.PlanFree)
+	if got.PlanTier != want.PlanTier || got.MaxRunsPerDay != want.MaxRunsPerDay {
+		t.Fatalf("entitlements not refreshed to free tier: got tier=%q max_runs=%d want tier=%q max_runs=%d",
+			got.PlanTier, got.MaxRunsPerDay, want.PlanTier, want.MaxRunsPerDay)
+	}
+}
+
+func TestDeepSecPgStore_ApplyPendingDowngradeTierIfPendingRefreshesEntitlements(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgID := "org-pending-tier-ent-" + newID()
+	if err := pgStore.EnsureOrgSubscription(ctx, orgID); err != nil {
+		t.Fatalf("EnsureOrgSubscription: %v", err)
+	}
+	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgID, string(domain.PlanScale), "active"); err != nil {
+		t.Fatalf("UpdateOrgSubscriptionPlan: %v", err)
+	}
+	if err := pgStore.SetPendingPlanTier(ctx, orgID, string(domain.PlanStarter)); err != nil {
+		t.Fatalf("SetPendingPlanTier: %v", err)
+	}
+
+	applied, err := pgStore.ApplyPendingDowngradeTierIfPending(ctx, orgID, string(domain.PlanStarter))
+	if err != nil {
+		t.Fatalf("ApplyPendingDowngradeTierIfPending: %v", err)
+	}
+	if !applied {
+		t.Fatal("expected pending tier to apply")
+	}
+
+	got := readDeepSecEntitlements(t, ctx, orgID)
+	want := billing.GetPlanLimits(domain.PlanStarter)
+	if got.PlanTier != want.PlanTier || got.MaxRunsPerDay != want.MaxRunsPerDay {
+		t.Fatalf("entitlements not refreshed to starter tier: got tier=%q max_runs=%d want tier=%q max_runs=%d",
+			got.PlanTier, got.MaxRunsPerDay, want.PlanTier, want.MaxRunsPerDay)
+	}
+}
+
+func readDeepSecEntitlements(t *testing.T, ctx context.Context, orgID string) billing.OrgPlanLimits {
+	t.Helper()
+
+	var raw []byte
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT entitlements FROM organization_subscriptions WHERE org_id = $1
+	`, orgID).Scan(&raw); err != nil {
+		t.Fatalf("read entitlements: %v", err)
+	}
+	var got billing.OrgPlanLimits
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshal entitlements: %v", err)
+	}
+	return got
+}

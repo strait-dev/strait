@@ -101,8 +101,8 @@ var _ APIStore = &APIStoreMock{}
 //			CountEnvironmentsByProjectFunc: func(ctx context.Context, projectID string) (int, error) {
 //				panic("mock out the CountEnvironmentsByProject method")
 //			},
-//			CountEventTriggersFinishedBeforeFunc: func(ctx context.Context, before time.Time) (int64, error) {
-//				panic("mock out the CountEventTriggersFinishedBefore method")
+//			CountEventTriggersFinishedBeforeForProjectFunc: func(ctx context.Context, projectID string, environmentID string, before time.Time) (int64, error) {
+//				panic("mock out the CountEventTriggersFinishedBeforeForProject method")
 //			},
 //			CountLogDrainsByOrgFunc: func(ctx context.Context, orgID string) (int, error) {
 //				panic("mock out the CountLogDrainsByOrg method")
@@ -248,8 +248,8 @@ var _ APIStore = &APIStoreMock{}
 //			DeleteEventSubscriptionFunc: func(ctx context.Context, subID string) error {
 //				panic("mock out the DeleteEventSubscription method")
 //			},
-//			DeleteEventTriggersFinishedBeforeFunc: func(ctx context.Context, before time.Time, limit int) (int64, error) {
-//				panic("mock out the DeleteEventTriggersFinishedBefore method")
+//			DeleteEventTriggersFinishedBeforeForProjectFunc: func(ctx context.Context, projectID string, environmentID string, before time.Time, limit int) (int64, error) {
+//				panic("mock out the DeleteEventTriggersFinishedBeforeForProject method")
 //			},
 //			DeleteIdempotencyKeyFunc: func(ctx context.Context, projectID string, key string) (int64, error) {
 //				panic("mock out the DeleteIdempotencyKey method")
@@ -377,7 +377,7 @@ var _ APIStore = &APIStoreMock{}
 //			GetEventTriggerByEventKeyFunc: func(ctx context.Context, eventKey string) (*domain.EventTrigger, error) {
 //				panic("mock out the GetEventTriggerByEventKey method")
 //			},
-//			GetEventTriggerStatsFunc: func(ctx context.Context, projectID string) (*store.EventTriggerStats, error) {
+//			GetEventTriggerStatsFunc: func(ctx context.Context, projectID string, environmentID string) (*store.EventTriggerStats, error) {
 //				panic("mock out the GetEventTriggerStats method")
 //			},
 //			GetJobFunc: func(ctx context.Context, id string) (*domain.Job, error) {
@@ -542,7 +542,7 @@ var _ APIStore = &APIStoreMock{}
 //			ListEventTriggersByKeyPrefixFunc: func(ctx context.Context, prefix string, projectID string) ([]domain.EventTrigger, error) {
 //				panic("mock out the ListEventTriggersByKeyPrefix method")
 //			},
-//			ListEventTriggersByProjectFunc: func(ctx context.Context, projectID string, status string, workflowRunID string, sourceType string, limit int, cursor *time.Time) ([]domain.EventTrigger, error) {
+//			ListEventTriggersByProjectFunc: func(ctx context.Context, projectID string, environmentID string, status string, workflowRunID string, sourceType string, limit int, cursor *time.Time) ([]domain.EventTrigger, error) {
 //				panic("mock out the ListEventTriggersByProject method")
 //			},
 //			ListEventsFunc: func(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunEvent, error) {
@@ -806,6 +806,9 @@ var _ APIStore = &APIStoreMock{}
 //			UpdateEventTriggerStatusFunc: func(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error {
 //				panic("mock out the UpdateEventTriggerStatus method")
 //			},
+//			UpdateEventTriggerStatusFromFunc: func(ctx context.Context, id string, from string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error {
+//				panic("mock out the UpdateEventTriggerStatusFrom method")
+//			},
 //			UpdateHeartbeatFunc: func(ctx context.Context, id string) error {
 //				panic("mock out the UpdateHeartbeat method")
 //			},
@@ -969,8 +972,8 @@ type APIStoreMock struct {
 	// CountEnvironmentsByProjectFunc mocks the CountEnvironmentsByProject method.
 	CountEnvironmentsByProjectFunc func(ctx context.Context, projectID string) (int, error)
 
-	// CountEventTriggersFinishedBeforeFunc mocks the CountEventTriggersFinishedBefore method.
-	CountEventTriggersFinishedBeforeFunc func(ctx context.Context, before time.Time) (int64, error)
+	// CountEventTriggersFinishedBeforeForProjectFunc mocks the CountEventTriggersFinishedBeforeForProject method.
+	CountEventTriggersFinishedBeforeForProjectFunc func(ctx context.Context, projectID string, environmentID string, before time.Time) (int64, error)
 
 	// CountLogDrainsByOrgFunc mocks the CountLogDrainsByOrg method.
 	CountLogDrainsByOrgFunc func(ctx context.Context, orgID string) (int, error)
@@ -1116,8 +1119,8 @@ type APIStoreMock struct {
 	// DeleteEventSubscriptionFunc mocks the DeleteEventSubscription method.
 	DeleteEventSubscriptionFunc func(ctx context.Context, subID string) error
 
-	// DeleteEventTriggersFinishedBeforeFunc mocks the DeleteEventTriggersFinishedBefore method.
-	DeleteEventTriggersFinishedBeforeFunc func(ctx context.Context, before time.Time, limit int) (int64, error)
+	// DeleteEventTriggersFinishedBeforeForProjectFunc mocks the DeleteEventTriggersFinishedBeforeForProject method.
+	DeleteEventTriggersFinishedBeforeForProjectFunc func(ctx context.Context, projectID string, environmentID string, before time.Time, limit int) (int64, error)
 
 	// DeleteIdempotencyKeyFunc mocks the DeleteIdempotencyKey method.
 	DeleteIdempotencyKeyFunc func(ctx context.Context, projectID string, key string) (int64, error)
@@ -1246,7 +1249,7 @@ type APIStoreMock struct {
 	GetEventTriggerByEventKeyFunc func(ctx context.Context, eventKey string) (*domain.EventTrigger, error)
 
 	// GetEventTriggerStatsFunc mocks the GetEventTriggerStats method.
-	GetEventTriggerStatsFunc func(ctx context.Context, projectID string) (*store.EventTriggerStats, error)
+	GetEventTriggerStatsFunc func(ctx context.Context, projectID string, environmentID string) (*store.EventTriggerStats, error)
 
 	// GetJobFunc mocks the GetJob method.
 	GetJobFunc func(ctx context.Context, id string) (*domain.Job, error)
@@ -1411,7 +1414,7 @@ type APIStoreMock struct {
 	ListEventTriggersByKeyPrefixFunc func(ctx context.Context, prefix string, projectID string) ([]domain.EventTrigger, error)
 
 	// ListEventTriggersByProjectFunc mocks the ListEventTriggersByProject method.
-	ListEventTriggersByProjectFunc func(ctx context.Context, projectID string, status string, workflowRunID string, sourceType string, limit int, cursor *time.Time) ([]domain.EventTrigger, error)
+	ListEventTriggersByProjectFunc func(ctx context.Context, projectID string, environmentID string, status string, workflowRunID string, sourceType string, limit int, cursor *time.Time) ([]domain.EventTrigger, error)
 
 	// ListEventsFunc mocks the ListEvents method.
 	ListEventsFunc func(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunEvent, error)
@@ -1673,6 +1676,9 @@ type APIStoreMock struct {
 
 	// UpdateEventTriggerStatusFunc mocks the UpdateEventTriggerStatus method.
 	UpdateEventTriggerStatusFunc func(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
+
+	// UpdateEventTriggerStatusFromFunc mocks the UpdateEventTriggerStatusFrom method.
+	UpdateEventTriggerStatusFromFunc func(ctx context.Context, id string, from string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
 
 	// UpdateHeartbeatFunc mocks the UpdateHeartbeat method.
 	UpdateHeartbeatFunc func(ctx context.Context, id string) error
@@ -2002,10 +2008,14 @@ type APIStoreMock struct {
 			// ProjectID is the projectID argument value.
 			ProjectID string
 		}
-		// CountEventTriggersFinishedBefore holds details about calls to the CountEventTriggersFinishedBefore method.
-		CountEventTriggersFinishedBefore []struct {
+		// CountEventTriggersFinishedBeforeForProject holds details about calls to the CountEventTriggersFinishedBeforeForProject method.
+		CountEventTriggersFinishedBeforeForProject []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
+			// EnvironmentID is the environmentID argument value.
+			EnvironmentID string
 			// Before is the before argument value.
 			Before time.Time
 		}
@@ -2367,10 +2377,14 @@ type APIStoreMock struct {
 			// SubID is the subID argument value.
 			SubID string
 		}
-		// DeleteEventTriggersFinishedBefore holds details about calls to the DeleteEventTriggersFinishedBefore method.
-		DeleteEventTriggersFinishedBefore []struct {
+		// DeleteEventTriggersFinishedBeforeForProject holds details about calls to the DeleteEventTriggersFinishedBeforeForProject method.
+		DeleteEventTriggersFinishedBeforeForProject []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
+			// EnvironmentID is the environmentID argument value.
+			EnvironmentID string
 			// Before is the before argument value.
 			Before time.Time
 			// Limit is the limit argument value.
@@ -2734,6 +2748,8 @@ type APIStoreMock struct {
 			Ctx context.Context
 			// ProjectID is the projectID argument value.
 			ProjectID string
+			// EnvironmentID is the environmentID argument value.
+			EnvironmentID string
 		}
 		// GetJob holds details about calls to the GetJob method.
 		GetJob []struct {
@@ -3227,6 +3243,8 @@ type APIStoreMock struct {
 			Ctx context.Context
 			// ProjectID is the projectID argument value.
 			ProjectID string
+			// EnvironmentID is the environmentID argument value.
+			EnvironmentID string
 			// Status is the status argument value.
 			Status string
 			// WorkflowRunID is the workflowRunID argument value.
@@ -4137,6 +4155,23 @@ type APIStoreMock struct {
 			// ErrMsg is the errMsg argument value.
 			ErrMsg string
 		}
+		// UpdateEventTriggerStatusFrom holds details about calls to the UpdateEventTriggerStatusFrom method.
+		UpdateEventTriggerStatusFrom []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ID is the id argument value.
+			ID string
+			// From is the from argument value.
+			From string
+			// Status is the status argument value.
+			Status string
+			// ResponsePayload is the responsePayload argument value.
+			ResponsePayload json.RawMessage
+			// ReceivedAt is the receivedAt argument value.
+			ReceivedAt *time.Time
+			// ErrMsg is the errMsg argument value.
+			ErrMsg string
+		}
 		// UpdateHeartbeat holds details about calls to the UpdateHeartbeat method.
 		UpdateHeartbeat []struct {
 			// Ctx is the ctx argument value.
@@ -4368,293 +4403,294 @@ type APIStoreMock struct {
 			ProjectID string
 		}
 	}
-	lockAggregateCostStatsHourly           sync.RWMutex
-	lockApproveDeviceCode                  sync.RWMutex
-	lockApproveDeviceCodeByUserCode        sync.RWMutex
-	lockAreAllDescendantsTerminal          sync.RWMutex
-	lockAreJobDependenciesSatisfied        sync.RWMutex
-	lockAssignMemberRole                   sync.RWMutex
-	lockBatchReceiveEventTriggers          sync.RWMutex
-	lockBatchUpdateJobsEnabled             sync.RWMutex
-	lockBulkCancelByFilter                 sync.RWMutex
-	lockBulkCancelRuns                     sync.RWMutex
-	lockBulkCancelWorkflowRuns             sync.RWMutex
-	lockBulkReplayDeadLetterRuns           sync.RWMutex
-	lockCancelChildRunsByParentIDs         sync.RWMutex
-	lockCancelEventTriggersByWorkflowRun   sync.RWMutex
-	lockCancelJobRunsByWorkflowRun         sync.RWMutex
-	lockCancelNonTerminalStepRuns          sync.RWMutex
-	lockCleanupExpiredDeviceCodes          sync.RWMutex
-	lockCompleteCanaryDeployment           sync.RWMutex
-	lockCompleteIdempotencyKey             sync.RWMutex
-	lockCountActiveEventTriggersByProject  sync.RWMutex
-	lockCountActiveWorkflowRunsByVersion   sync.RWMutex
-	lockCountAuditEventsDeadletter         sync.RWMutex
-	lockCountBatchBufferItems              sync.RWMutex
-	lockCountCronJobsByOrg                 sync.RWMutex
-	lockCountEnvironmentsByOrg             sync.RWMutex
-	lockCountEnvironmentsByProject         sync.RWMutex
-	lockCountEventTriggersFinishedBefore   sync.RWMutex
-	lockCountLogDrainsByOrg                sync.RWMutex
-	lockCountNotificationChannelsByProject sync.RWMutex
-	lockCountProjectActiveRuns             sync.RWMutex
-	lockCountProjectQueuedRuns             sync.RWMutex
-	lockCountRunIterations                 sync.RWMutex
-	lockCountRunToolCalls                  sync.RWMutex
-	lockCountRunningWorkflowRuns           sync.RWMutex
-	lockCountRunsForJobSince               sync.RWMutex
-	lockCountWebhookSubscriptionsByOrg     sync.RWMutex
-	lockCountWebhookSubscriptionsByProject sync.RWMutex
-	lockCreateAPIKey                       sync.RWMutex
-	lockCreateAuditEvent                   sync.RWMutex
-	lockCreateAuditEventDeadletter         sync.RWMutex
-	lockCreateBatchOperation               sync.RWMutex
-	lockCreateCanaryDeployment             sync.RWMutex
-	lockCreateDeploymentVersion            sync.RWMutex
-	lockCreateDeviceCode                   sync.RWMutex
-	lockCreateEnvironment                  sync.RWMutex
-	lockCreateEventSource                  sync.RWMutex
-	lockCreateEventSubscription            sync.RWMutex
-	lockCreateEventTrigger                 sync.RWMutex
-	lockCreateJob                          sync.RWMutex
-	lockCreateJobDependency                sync.RWMutex
-	lockCreateJobGroup                     sync.RWMutex
-	lockCreateJobSecret                    sync.RWMutex
-	lockCreateLogDrain                     sync.RWMutex
-	lockCreateNotificationChannel          sync.RWMutex
-	lockCreateNotificationDelivery         sync.RWMutex
-	lockCreateProject                      sync.RWMutex
-	lockCreateProjectRole                  sync.RWMutex
-	lockCreateResourcePolicy               sync.RWMutex
-	lockCreateRun                          sync.RWMutex
-	lockCreateRunCheckpoint                sync.RWMutex
-	lockCreateRunIteration                 sync.RWMutex
-	lockCreateRunResourceSnapshot          sync.RWMutex
-	lockCreateRunToolCall                  sync.RWMutex
-	lockCreateRunUsage                     sync.RWMutex
-	lockCreateTagPolicy                    sync.RWMutex
-	lockCreateWebhookDelivery              sync.RWMutex
-	lockCreateWebhookSubscription          sync.RWMutex
-	lockCreateWorkflow                     sync.RWMutex
-	lockCreateWorkflowRunLabels            sync.RWMutex
-	lockCreateWorkflowStep                 sync.RWMutex
-	lockCreateWorkflowVersionSnapshot      sync.RWMutex
-	lockDeleteAuditEventDeadletter         sync.RWMutex
-	lockDeleteEnvironment                  sync.RWMutex
-	lockDeleteEventSource                  sync.RWMutex
-	lockDeleteEventSubscription            sync.RWMutex
-	lockDeleteEventTriggersFinishedBefore  sync.RWMutex
-	lockDeleteIdempotencyKey               sync.RWMutex
-	lockDeleteJob                          sync.RWMutex
-	lockDeleteJobDependency                sync.RWMutex
-	lockDeleteJobGroup                     sync.RWMutex
-	lockDeleteJobMemory                    sync.RWMutex
-	lockDeleteJobSecret                    sync.RWMutex
-	lockDeleteLogDrain                     sync.RWMutex
-	lockDeleteNotificationChannel          sync.RWMutex
-	lockDeleteProject                      sync.RWMutex
-	lockDeleteProjectRole                  sync.RWMutex
-	lockDeleteResourcePolicy               sync.RWMutex
-	lockDeleteRunState                     sync.RWMutex
-	lockDeleteStepsByWorkflow              sync.RWMutex
-	lockDeleteTagPolicy                    sync.RWMutex
-	lockDeleteWebhookSubscription          sync.RWMutex
-	lockDeleteWorkflow                     sync.RWMutex
-	lockDrainBatchBuffer                   sync.RWMutex
-	lockExchangeDeviceCode                 sync.RWMutex
-	lockFinalizeBatchOperation             sync.RWMutex
-	lockFinalizeDeploymentVersion          sync.RWMutex
-	lockFindRecentRunByPayload             sync.RWMutex
-	lockGetAPIKeyByHash                    sync.RWMutex
-	lockGetAPIKeyByID                      sync.RWMutex
-	lockGetActiveCanaryDeployment          sync.RWMutex
-	lockGetApprovalStats                   sync.RWMutex
-	lockGetAuditEvent                      sync.RWMutex
-	lockGetAuditEventDeadletter            sync.RWMutex
-	lockGetAuditExportRowCap               sync.RWMutex
-	lockGetAuditRetentionDays              sync.RWMutex
-	lockGetBatchOperation                  sync.RWMutex
-	lockGetCostAnalytics                   sync.RWMutex
-	lockGetCostOutliers                    sync.RWMutex
-	lockGetCostTrends                      sync.RWMutex
-	lockGetDebugBundle                     sync.RWMutex
-	lockGetDeploymentVersion               sync.RWMutex
-	lockGetDeviceCodeByDeviceCode          sync.RWMutex
-	lockGetDeviceCodeByUserCode            sync.RWMutex
-	lockGetEnvironment                     sync.RWMutex
-	lockGetEventSource                     sync.RWMutex
-	lockGetEventSourceByName               sync.RWMutex
-	lockGetEventSubscription               sync.RWMutex
-	lockGetEventTriggerByEventKey          sync.RWMutex
-	lockGetEventTriggerStats               sync.RWMutex
-	lockGetJob                             sync.RWMutex
-	lockGetJobBySlug                       sync.RWMutex
-	lockGetJobDependency                   sync.RWMutex
-	lockGetJobGroup                        sync.RWMutex
-	lockGetJobGroupStats                   sync.RWMutex
-	lockGetJobHealthStats                  sync.RWMutex
-	lockGetJobMemory                       sync.RWMutex
-	lockGetJobSecret                       sync.RWMutex
-	lockGetJobVersionByVersionID           sync.RWMutex
-	lockGetLogDrain                        sync.RWMutex
-	lockGetMemberRole                      sync.RWMutex
-	lockGetNotificationChannel             sync.RWMutex
-	lockGetPerformanceAnalytics            sync.RWMutex
-	lockGetProject                         sync.RWMutex
-	lockGetProjectQuota                    sync.RWMutex
-	lockGetProjectRole                     sync.RWMutex
-	lockGetResolvedEnvironmentVariables    sync.RWMutex
-	lockGetResourcePolicies                sync.RWMutex
-	lockGetRun                             sync.RWMutex
-	lockGetRunByIdempotencyKey             sync.RWMutex
-	lockGetRunState                        sync.RWMutex
-	lockGetRunStatus                       sync.RWMutex
-	lockGetRunsByIDs                       sync.RWMutex
-	lockGetStepRunByWorkflowRunAndRef      sync.RWMutex
-	lockGetTagPolicyActions                sync.RWMutex
-	lockGetTopCosts                        sync.RWMutex
-	lockGetUserPermissions                 sync.RWMutex
-	lockGetWebhookDelivery                 sync.RWMutex
-	lockGetWebhookSubscription             sync.RWMutex
-	lockGetWebhookSubscriptionSecrets      sync.RWMutex
-	lockGetWorker                          sync.RWMutex
-	lockGetWorkflow                        sync.RWMutex
-	lockGetWorkflowBySlug                  sync.RWMutex
-	lockGetWorkflowPolicyByProject         sync.RWMutex
-	lockGetWorkflowRun                     sync.RWMutex
-	lockGetWorkflowStepApprovalByStepRunID sync.RWMutex
-	lockGetWorkflowVersionByVersionID      sync.RWMutex
-	lockInsertBatchBufferItem              sync.RWMutex
-	lockInsertEvent                        sync.RWMutex
-	lockListAPIKeysByOrg                   sync.RWMutex
-	lockListAPIKeysByProject               sync.RWMutex
-	lockListAPIKeysExpiringSoon            sync.RWMutex
-	lockListActiveWorkflowVersions         sync.RWMutex
-	lockListAuditEvents                    sync.RWMutex
-	lockListAuditEventsDeadletterByProject sync.RWMutex
-	lockListBatchOperations                sync.RWMutex
-	lockListChildRuns                      sync.RWMutex
-	lockListDeadLetterRuns                 sync.RWMutex
-	lockListDeadLetterRunsFiltered         sync.RWMutex
-	lockListDeploymentVersions             sync.RWMutex
-	lockListEnvironments                   sync.RWMutex
-	lockListEventSources                   sync.RWMutex
-	lockListEventSubscriptionsBySource     sync.RWMutex
-	lockListEventTriggersByKeyPrefix       sync.RWMutex
-	lockListEventTriggersByProject         sync.RWMutex
-	lockListEvents                         sync.RWMutex
-	lockListEventsByRunFiltered            sync.RWMutex
-	lockListJobDependencies                sync.RWMutex
-	lockListJobGroups                      sync.RWMutex
-	lockListJobMemory                      sync.RWMutex
-	lockListJobSecrets                     sync.RWMutex
-	lockListJobVersionsByJob               sync.RWMutex
-	lockListJobs                           sync.RWMutex
-	lockListJobsByGroup                    sync.RWMutex
-	lockListJobsByOrg                      sync.RWMutex
-	lockListJobsByTag                      sync.RWMutex
-	lockListLogDrains                      sync.RWMutex
-	lockListNotificationChannels           sync.RWMutex
-	lockListNotificationDeliveries         sync.RWMutex
-	lockListProjectMembers                 sync.RWMutex
-	lockListProjectRoles                   sync.RWMutex
-	lockListProjectsByOrg                  sync.RWMutex
-	lockListResourcePolicies               sync.RWMutex
-	lockListRunCheckpoints                 sync.RWMutex
-	lockListRunLineage                     sync.RWMutex
-	lockListRunOutputs                     sync.RWMutex
-	lockListRunResourceSnapshots           sync.RWMutex
-	lockListRunState                       sync.RWMutex
-	lockListRunToolCalls                   sync.RWMutex
-	lockListRunUsage                       sync.RWMutex
-	lockListRunsByOrg                      sync.RWMutex
-	lockListRunsByProject                  sync.RWMutex
-	lockListRunsByTag                      sync.RWMutex
-	lockListStepRunsByWorkflowRun          sync.RWMutex
-	lockListStepsByWorkflow                sync.RWMutex
-	lockListStepsByWorkflowVersion         sync.RWMutex
-	lockListTagPolicies                    sync.RWMutex
-	lockListWebhookDeliveries              sync.RWMutex
-	lockListWebhookSubscriptions           sync.RWMutex
-	lockListWorkerTasksByWorker            sync.RWMutex
-	lockListWorkers                        sync.RWMutex
-	lockListWorkflowRunLabels              sync.RWMutex
-	lockListWorkflowRuns                   sync.RWMutex
-	lockListWorkflowRunsByProject          sync.RWMutex
-	lockListWorkflowRunsByTag              sync.RWMutex
-	lockListWorkflowStepDecisions          sync.RWMutex
-	lockListWorkflowVersions               sync.RWMutex
-	lockListWorkflows                      sync.RWMutex
-	lockListWorkflowsByTag                 sync.RWMutex
-	lockMarkAPIKeyRotated                  sync.RWMutex
-	lockMarkAuditDeadletterReclaimed       sync.RWMutex
-	lockMarkJobRunsPausedByWorkflowRun     sync.RWMutex
-	lockMarkRunReplayed                    sync.RWMutex
-	lockPauseJob                           sync.RWMutex
-	lockPauseJobsByGroup                   sync.RWMutex
-	lockPromoteDeploymentVersion           sync.RWMutex
-	lockPurgeDLQRun                        sync.RWMutex
-	lockQueueStats                         sync.RWMutex
-	lockReceiveEventAndRequeueRun          sync.RWMutex
-	lockRemoveMemberRole                   sync.RWMutex
-	lockReplayDeadLetterRun                sync.RWMutex
-	lockReplayDeadLetterRunWithAudit       sync.RWMutex
-	lockReplayWebhookDelivery              sync.RWMutex
-	lockRequeuePausedJobRuns               sync.RWMutex
-	lockRescheduleRun                      sync.RWMutex
-	lockResetRunIdempotencyKey             sync.RWMutex
-	lockResumeJob                          sync.RWMutex
-	lockResumeJobsByGroup                  sync.RWMutex
-	lockRetryWebhookDelivery               sync.RWMutex
-	lockRevokeAPIKey                       sync.RWMutex
-	lockRollbackDeploymentVersion          sync.RWMutex
-	lockRotateAuditSigningKey              sync.RWMutex
-	lockRotateWebhookSecret                sync.RWMutex
-	lockSeedProjectSystemRoles             sync.RWMutex
-	lockSetAuditExportRowCap               sync.RWMutex
-	lockSetAuditRetentionDays              sync.RWMutex
-	lockSetEventTriggerSentBy              sync.RWMutex
-	lockStreamAuditEvents                  sync.RWMutex
-	lockStreamJobs                         sync.RWMutex
-	lockStreamRuns                         sync.RWMutex
-	lockStreamWorkflows                    sync.RWMutex
-	lockSumJobMemorySizeBytes              sync.RWMutex
-	lockSumProjectDailyCostMicrousd        sync.RWMutex
-	lockSumRunCostMicrousd                 sync.RWMutex
-	lockSumRunTotalTokens                  sync.RWMutex
-	lockTouchAPIKeyLastUsed                sync.RWMutex
-	lockTryAcquireIdempotencyKey           sync.RWMutex
-	lockUnmaskDLQRun                       sync.RWMutex
-	lockUpdateCanaryDeploymentTraffic      sync.RWMutex
-	lockUpdateEnvironment                  sync.RWMutex
-	lockUpdateEventSource                  sync.RWMutex
-	lockUpdateEventTriggerStatus           sync.RWMutex
-	lockUpdateHeartbeat                    sync.RWMutex
-	lockUpdateJob                          sync.RWMutex
-	lockUpdateJobEndpoint                  sync.RWMutex
-	lockUpdateJobGroup                     sync.RWMutex
-	lockUpdateLogDrain                     sync.RWMutex
-	lockUpdateNotificationChannel          sync.RWMutex
-	lockUpdateProjectDefaultRegion         sync.RWMutex
-	lockUpdateProjectMaxKeyLifetimeDays    sync.RWMutex
-	lockUpdateProjectRole                  sync.RWMutex
-	lockUpdateRunDebugMode                 sync.RWMutex
-	lockUpdateRunMetadata                  sync.RWMutex
-	lockUpdateRunStatus                    sync.RWMutex
-	lockUpdateStepRunStatus                sync.RWMutex
-	lockUpdateWebhookDelivery              sync.RWMutex
-	lockUpdateWorkflow                     sync.RWMutex
-	lockUpdateWorkflowRunStatus            sync.RWMutex
-	lockUpdateWorkflowStepApproval         sync.RWMutex
-	lockUpsertDebouncePending              sync.RWMutex
-	lockUpsertJobMemory                    sync.RWMutex
-	lockUpsertJobMemoryWithQuota           sync.RWMutex
-	lockUpsertRunOutput                    sync.RWMutex
-	lockUpsertRunState                     sync.RWMutex
-	lockUpsertWorkflowPolicy               sync.RWMutex
-	lockUserHasProjectAccess               sync.RWMutex
-	lockVerifyAuditChain                   sync.RWMutex
-	lockVerifyAuditChainIncremental        sync.RWMutex
+	lockAggregateCostStatsHourly                    sync.RWMutex
+	lockApproveDeviceCode                           sync.RWMutex
+	lockApproveDeviceCodeByUserCode                 sync.RWMutex
+	lockAreAllDescendantsTerminal                   sync.RWMutex
+	lockAreJobDependenciesSatisfied                 sync.RWMutex
+	lockAssignMemberRole                            sync.RWMutex
+	lockBatchReceiveEventTriggers                   sync.RWMutex
+	lockBatchUpdateJobsEnabled                      sync.RWMutex
+	lockBulkCancelByFilter                          sync.RWMutex
+	lockBulkCancelRuns                              sync.RWMutex
+	lockBulkCancelWorkflowRuns                      sync.RWMutex
+	lockBulkReplayDeadLetterRuns                    sync.RWMutex
+	lockCancelChildRunsByParentIDs                  sync.RWMutex
+	lockCancelEventTriggersByWorkflowRun            sync.RWMutex
+	lockCancelJobRunsByWorkflowRun                  sync.RWMutex
+	lockCancelNonTerminalStepRuns                   sync.RWMutex
+	lockCleanupExpiredDeviceCodes                   sync.RWMutex
+	lockCompleteCanaryDeployment                    sync.RWMutex
+	lockCompleteIdempotencyKey                      sync.RWMutex
+	lockCountActiveEventTriggersByProject           sync.RWMutex
+	lockCountActiveWorkflowRunsByVersion            sync.RWMutex
+	lockCountAuditEventsDeadletter                  sync.RWMutex
+	lockCountBatchBufferItems                       sync.RWMutex
+	lockCountCronJobsByOrg                          sync.RWMutex
+	lockCountEnvironmentsByOrg                      sync.RWMutex
+	lockCountEnvironmentsByProject                  sync.RWMutex
+	lockCountEventTriggersFinishedBeforeForProject  sync.RWMutex
+	lockCountLogDrainsByOrg                         sync.RWMutex
+	lockCountNotificationChannelsByProject          sync.RWMutex
+	lockCountProjectActiveRuns                      sync.RWMutex
+	lockCountProjectQueuedRuns                      sync.RWMutex
+	lockCountRunIterations                          sync.RWMutex
+	lockCountRunToolCalls                           sync.RWMutex
+	lockCountRunningWorkflowRuns                    sync.RWMutex
+	lockCountRunsForJobSince                        sync.RWMutex
+	lockCountWebhookSubscriptionsByOrg              sync.RWMutex
+	lockCountWebhookSubscriptionsByProject          sync.RWMutex
+	lockCreateAPIKey                                sync.RWMutex
+	lockCreateAuditEvent                            sync.RWMutex
+	lockCreateAuditEventDeadletter                  sync.RWMutex
+	lockCreateBatchOperation                        sync.RWMutex
+	lockCreateCanaryDeployment                      sync.RWMutex
+	lockCreateDeploymentVersion                     sync.RWMutex
+	lockCreateDeviceCode                            sync.RWMutex
+	lockCreateEnvironment                           sync.RWMutex
+	lockCreateEventSource                           sync.RWMutex
+	lockCreateEventSubscription                     sync.RWMutex
+	lockCreateEventTrigger                          sync.RWMutex
+	lockCreateJob                                   sync.RWMutex
+	lockCreateJobDependency                         sync.RWMutex
+	lockCreateJobGroup                              sync.RWMutex
+	lockCreateJobSecret                             sync.RWMutex
+	lockCreateLogDrain                              sync.RWMutex
+	lockCreateNotificationChannel                   sync.RWMutex
+	lockCreateNotificationDelivery                  sync.RWMutex
+	lockCreateProject                               sync.RWMutex
+	lockCreateProjectRole                           sync.RWMutex
+	lockCreateResourcePolicy                        sync.RWMutex
+	lockCreateRun                                   sync.RWMutex
+	lockCreateRunCheckpoint                         sync.RWMutex
+	lockCreateRunIteration                          sync.RWMutex
+	lockCreateRunResourceSnapshot                   sync.RWMutex
+	lockCreateRunToolCall                           sync.RWMutex
+	lockCreateRunUsage                              sync.RWMutex
+	lockCreateTagPolicy                             sync.RWMutex
+	lockCreateWebhookDelivery                       sync.RWMutex
+	lockCreateWebhookSubscription                   sync.RWMutex
+	lockCreateWorkflow                              sync.RWMutex
+	lockCreateWorkflowRunLabels                     sync.RWMutex
+	lockCreateWorkflowStep                          sync.RWMutex
+	lockCreateWorkflowVersionSnapshot               sync.RWMutex
+	lockDeleteAuditEventDeadletter                  sync.RWMutex
+	lockDeleteEnvironment                           sync.RWMutex
+	lockDeleteEventSource                           sync.RWMutex
+	lockDeleteEventSubscription                     sync.RWMutex
+	lockDeleteEventTriggersFinishedBeforeForProject sync.RWMutex
+	lockDeleteIdempotencyKey                        sync.RWMutex
+	lockDeleteJob                                   sync.RWMutex
+	lockDeleteJobDependency                         sync.RWMutex
+	lockDeleteJobGroup                              sync.RWMutex
+	lockDeleteJobMemory                             sync.RWMutex
+	lockDeleteJobSecret                             sync.RWMutex
+	lockDeleteLogDrain                              sync.RWMutex
+	lockDeleteNotificationChannel                   sync.RWMutex
+	lockDeleteProject                               sync.RWMutex
+	lockDeleteProjectRole                           sync.RWMutex
+	lockDeleteResourcePolicy                        sync.RWMutex
+	lockDeleteRunState                              sync.RWMutex
+	lockDeleteStepsByWorkflow                       sync.RWMutex
+	lockDeleteTagPolicy                             sync.RWMutex
+	lockDeleteWebhookSubscription                   sync.RWMutex
+	lockDeleteWorkflow                              sync.RWMutex
+	lockDrainBatchBuffer                            sync.RWMutex
+	lockExchangeDeviceCode                          sync.RWMutex
+	lockFinalizeBatchOperation                      sync.RWMutex
+	lockFinalizeDeploymentVersion                   sync.RWMutex
+	lockFindRecentRunByPayload                      sync.RWMutex
+	lockGetAPIKeyByHash                             sync.RWMutex
+	lockGetAPIKeyByID                               sync.RWMutex
+	lockGetActiveCanaryDeployment                   sync.RWMutex
+	lockGetApprovalStats                            sync.RWMutex
+	lockGetAuditEvent                               sync.RWMutex
+	lockGetAuditEventDeadletter                     sync.RWMutex
+	lockGetAuditExportRowCap                        sync.RWMutex
+	lockGetAuditRetentionDays                       sync.RWMutex
+	lockGetBatchOperation                           sync.RWMutex
+	lockGetCostAnalytics                            sync.RWMutex
+	lockGetCostOutliers                             sync.RWMutex
+	lockGetCostTrends                               sync.RWMutex
+	lockGetDebugBundle                              sync.RWMutex
+	lockGetDeploymentVersion                        sync.RWMutex
+	lockGetDeviceCodeByDeviceCode                   sync.RWMutex
+	lockGetDeviceCodeByUserCode                     sync.RWMutex
+	lockGetEnvironment                              sync.RWMutex
+	lockGetEventSource                              sync.RWMutex
+	lockGetEventSourceByName                        sync.RWMutex
+	lockGetEventSubscription                        sync.RWMutex
+	lockGetEventTriggerByEventKey                   sync.RWMutex
+	lockGetEventTriggerStats                        sync.RWMutex
+	lockGetJob                                      sync.RWMutex
+	lockGetJobBySlug                                sync.RWMutex
+	lockGetJobDependency                            sync.RWMutex
+	lockGetJobGroup                                 sync.RWMutex
+	lockGetJobGroupStats                            sync.RWMutex
+	lockGetJobHealthStats                           sync.RWMutex
+	lockGetJobMemory                                sync.RWMutex
+	lockGetJobSecret                                sync.RWMutex
+	lockGetJobVersionByVersionID                    sync.RWMutex
+	lockGetLogDrain                                 sync.RWMutex
+	lockGetMemberRole                               sync.RWMutex
+	lockGetNotificationChannel                      sync.RWMutex
+	lockGetPerformanceAnalytics                     sync.RWMutex
+	lockGetProject                                  sync.RWMutex
+	lockGetProjectQuota                             sync.RWMutex
+	lockGetProjectRole                              sync.RWMutex
+	lockGetResolvedEnvironmentVariables             sync.RWMutex
+	lockGetResourcePolicies                         sync.RWMutex
+	lockGetRun                                      sync.RWMutex
+	lockGetRunByIdempotencyKey                      sync.RWMutex
+	lockGetRunState                                 sync.RWMutex
+	lockGetRunStatus                                sync.RWMutex
+	lockGetRunsByIDs                                sync.RWMutex
+	lockGetStepRunByWorkflowRunAndRef               sync.RWMutex
+	lockGetTagPolicyActions                         sync.RWMutex
+	lockGetTopCosts                                 sync.RWMutex
+	lockGetUserPermissions                          sync.RWMutex
+	lockGetWebhookDelivery                          sync.RWMutex
+	lockGetWebhookSubscription                      sync.RWMutex
+	lockGetWebhookSubscriptionSecrets               sync.RWMutex
+	lockGetWorker                                   sync.RWMutex
+	lockGetWorkflow                                 sync.RWMutex
+	lockGetWorkflowBySlug                           sync.RWMutex
+	lockGetWorkflowPolicyByProject                  sync.RWMutex
+	lockGetWorkflowRun                              sync.RWMutex
+	lockGetWorkflowStepApprovalByStepRunID          sync.RWMutex
+	lockGetWorkflowVersionByVersionID               sync.RWMutex
+	lockInsertBatchBufferItem                       sync.RWMutex
+	lockInsertEvent                                 sync.RWMutex
+	lockListAPIKeysByOrg                            sync.RWMutex
+	lockListAPIKeysByProject                        sync.RWMutex
+	lockListAPIKeysExpiringSoon                     sync.RWMutex
+	lockListActiveWorkflowVersions                  sync.RWMutex
+	lockListAuditEvents                             sync.RWMutex
+	lockListAuditEventsDeadletterByProject          sync.RWMutex
+	lockListBatchOperations                         sync.RWMutex
+	lockListChildRuns                               sync.RWMutex
+	lockListDeadLetterRuns                          sync.RWMutex
+	lockListDeadLetterRunsFiltered                  sync.RWMutex
+	lockListDeploymentVersions                      sync.RWMutex
+	lockListEnvironments                            sync.RWMutex
+	lockListEventSources                            sync.RWMutex
+	lockListEventSubscriptionsBySource              sync.RWMutex
+	lockListEventTriggersByKeyPrefix                sync.RWMutex
+	lockListEventTriggersByProject                  sync.RWMutex
+	lockListEvents                                  sync.RWMutex
+	lockListEventsByRunFiltered                     sync.RWMutex
+	lockListJobDependencies                         sync.RWMutex
+	lockListJobGroups                               sync.RWMutex
+	lockListJobMemory                               sync.RWMutex
+	lockListJobSecrets                              sync.RWMutex
+	lockListJobVersionsByJob                        sync.RWMutex
+	lockListJobs                                    sync.RWMutex
+	lockListJobsByGroup                             sync.RWMutex
+	lockListJobsByOrg                               sync.RWMutex
+	lockListJobsByTag                               sync.RWMutex
+	lockListLogDrains                               sync.RWMutex
+	lockListNotificationChannels                    sync.RWMutex
+	lockListNotificationDeliveries                  sync.RWMutex
+	lockListProjectMembers                          sync.RWMutex
+	lockListProjectRoles                            sync.RWMutex
+	lockListProjectsByOrg                           sync.RWMutex
+	lockListResourcePolicies                        sync.RWMutex
+	lockListRunCheckpoints                          sync.RWMutex
+	lockListRunLineage                              sync.RWMutex
+	lockListRunOutputs                              sync.RWMutex
+	lockListRunResourceSnapshots                    sync.RWMutex
+	lockListRunState                                sync.RWMutex
+	lockListRunToolCalls                            sync.RWMutex
+	lockListRunUsage                                sync.RWMutex
+	lockListRunsByOrg                               sync.RWMutex
+	lockListRunsByProject                           sync.RWMutex
+	lockListRunsByTag                               sync.RWMutex
+	lockListStepRunsByWorkflowRun                   sync.RWMutex
+	lockListStepsByWorkflow                         sync.RWMutex
+	lockListStepsByWorkflowVersion                  sync.RWMutex
+	lockListTagPolicies                             sync.RWMutex
+	lockListWebhookDeliveries                       sync.RWMutex
+	lockListWebhookSubscriptions                    sync.RWMutex
+	lockListWorkerTasksByWorker                     sync.RWMutex
+	lockListWorkers                                 sync.RWMutex
+	lockListWorkflowRunLabels                       sync.RWMutex
+	lockListWorkflowRuns                            sync.RWMutex
+	lockListWorkflowRunsByProject                   sync.RWMutex
+	lockListWorkflowRunsByTag                       sync.RWMutex
+	lockListWorkflowStepDecisions                   sync.RWMutex
+	lockListWorkflowVersions                        sync.RWMutex
+	lockListWorkflows                               sync.RWMutex
+	lockListWorkflowsByTag                          sync.RWMutex
+	lockMarkAPIKeyRotated                           sync.RWMutex
+	lockMarkAuditDeadletterReclaimed                sync.RWMutex
+	lockMarkJobRunsPausedByWorkflowRun              sync.RWMutex
+	lockMarkRunReplayed                             sync.RWMutex
+	lockPauseJob                                    sync.RWMutex
+	lockPauseJobsByGroup                            sync.RWMutex
+	lockPromoteDeploymentVersion                    sync.RWMutex
+	lockPurgeDLQRun                                 sync.RWMutex
+	lockQueueStats                                  sync.RWMutex
+	lockReceiveEventAndRequeueRun                   sync.RWMutex
+	lockRemoveMemberRole                            sync.RWMutex
+	lockReplayDeadLetterRun                         sync.RWMutex
+	lockReplayDeadLetterRunWithAudit                sync.RWMutex
+	lockReplayWebhookDelivery                       sync.RWMutex
+	lockRequeuePausedJobRuns                        sync.RWMutex
+	lockRescheduleRun                               sync.RWMutex
+	lockResetRunIdempotencyKey                      sync.RWMutex
+	lockResumeJob                                   sync.RWMutex
+	lockResumeJobsByGroup                           sync.RWMutex
+	lockRetryWebhookDelivery                        sync.RWMutex
+	lockRevokeAPIKey                                sync.RWMutex
+	lockRollbackDeploymentVersion                   sync.RWMutex
+	lockRotateAuditSigningKey                       sync.RWMutex
+	lockRotateWebhookSecret                         sync.RWMutex
+	lockSeedProjectSystemRoles                      sync.RWMutex
+	lockSetAuditExportRowCap                        sync.RWMutex
+	lockSetAuditRetentionDays                       sync.RWMutex
+	lockSetEventTriggerSentBy                       sync.RWMutex
+	lockStreamAuditEvents                           sync.RWMutex
+	lockStreamJobs                                  sync.RWMutex
+	lockStreamRuns                                  sync.RWMutex
+	lockStreamWorkflows                             sync.RWMutex
+	lockSumJobMemorySizeBytes                       sync.RWMutex
+	lockSumProjectDailyCostMicrousd                 sync.RWMutex
+	lockSumRunCostMicrousd                          sync.RWMutex
+	lockSumRunTotalTokens                           sync.RWMutex
+	lockTouchAPIKeyLastUsed                         sync.RWMutex
+	lockTryAcquireIdempotencyKey                    sync.RWMutex
+	lockUnmaskDLQRun                                sync.RWMutex
+	lockUpdateCanaryDeploymentTraffic               sync.RWMutex
+	lockUpdateEnvironment                           sync.RWMutex
+	lockUpdateEventSource                           sync.RWMutex
+	lockUpdateEventTriggerStatus                    sync.RWMutex
+	lockUpdateEventTriggerStatusFrom                sync.RWMutex
+	lockUpdateHeartbeat                             sync.RWMutex
+	lockUpdateJob                                   sync.RWMutex
+	lockUpdateJobEndpoint                           sync.RWMutex
+	lockUpdateJobGroup                              sync.RWMutex
+	lockUpdateLogDrain                              sync.RWMutex
+	lockUpdateNotificationChannel                   sync.RWMutex
+	lockUpdateProjectDefaultRegion                  sync.RWMutex
+	lockUpdateProjectMaxKeyLifetimeDays             sync.RWMutex
+	lockUpdateProjectRole                           sync.RWMutex
+	lockUpdateRunDebugMode                          sync.RWMutex
+	lockUpdateRunMetadata                           sync.RWMutex
+	lockUpdateRunStatus                             sync.RWMutex
+	lockUpdateStepRunStatus                         sync.RWMutex
+	lockUpdateWebhookDelivery                       sync.RWMutex
+	lockUpdateWorkflow                              sync.RWMutex
+	lockUpdateWorkflowRunStatus                     sync.RWMutex
+	lockUpdateWorkflowStepApproval                  sync.RWMutex
+	lockUpsertDebouncePending                       sync.RWMutex
+	lockUpsertJobMemory                             sync.RWMutex
+	lockUpsertJobMemoryWithQuota                    sync.RWMutex
+	lockUpsertRunOutput                             sync.RWMutex
+	lockUpsertRunState                              sync.RWMutex
+	lockUpsertWorkflowPolicy                        sync.RWMutex
+	lockUserHasProjectAccess                        sync.RWMutex
+	lockVerifyAuditChain                            sync.RWMutex
+	lockVerifyAuditChainIncremental                 sync.RWMutex
 }
 
 // AggregateCostStatsHourly calls AggregateCostStatsHourlyFunc.
@@ -5823,43 +5859,51 @@ func (mock *APIStoreMock) CountEnvironmentsByProjectCalls() []struct {
 	return calls
 }
 
-// CountEventTriggersFinishedBefore calls CountEventTriggersFinishedBeforeFunc.
-func (mock *APIStoreMock) CountEventTriggersFinishedBefore(ctx context.Context, before time.Time) (int64, error) {
+// CountEventTriggersFinishedBeforeForProject calls CountEventTriggersFinishedBeforeForProjectFunc.
+func (mock *APIStoreMock) CountEventTriggersFinishedBeforeForProject(ctx context.Context, projectID string, environmentID string, before time.Time) (int64, error) {
 	callInfo := struct {
-		Ctx    context.Context
-		Before time.Time
+		Ctx           context.Context
+		ProjectID     string
+		EnvironmentID string
+		Before        time.Time
 	}{
-		Ctx:    ctx,
-		Before: before,
+		Ctx:           ctx,
+		ProjectID:     projectID,
+		EnvironmentID: environmentID,
+		Before:        before,
 	}
-	mock.lockCountEventTriggersFinishedBefore.Lock()
-	mock.calls.CountEventTriggersFinishedBefore = append(mock.calls.CountEventTriggersFinishedBefore, callInfo)
-	mock.lockCountEventTriggersFinishedBefore.Unlock()
-	if mock.CountEventTriggersFinishedBeforeFunc == nil {
+	mock.lockCountEventTriggersFinishedBeforeForProject.Lock()
+	mock.calls.CountEventTriggersFinishedBeforeForProject = append(mock.calls.CountEventTriggersFinishedBeforeForProject, callInfo)
+	mock.lockCountEventTriggersFinishedBeforeForProject.Unlock()
+	if mock.CountEventTriggersFinishedBeforeForProjectFunc == nil {
 		var (
 			nOut   int64
 			errOut error
 		)
 		return nOut, errOut
 	}
-	return mock.CountEventTriggersFinishedBeforeFunc(ctx, before)
+	return mock.CountEventTriggersFinishedBeforeForProjectFunc(ctx, projectID, environmentID, before)
 }
 
-// CountEventTriggersFinishedBeforeCalls gets all the calls that were made to CountEventTriggersFinishedBefore.
+// CountEventTriggersFinishedBeforeForProjectCalls gets all the calls that were made to CountEventTriggersFinishedBeforeForProject.
 // Check the length with:
 //
-//	len(mockedAPIStore.CountEventTriggersFinishedBeforeCalls())
-func (mock *APIStoreMock) CountEventTriggersFinishedBeforeCalls() []struct {
-	Ctx    context.Context
-	Before time.Time
+//	len(mockedAPIStore.CountEventTriggersFinishedBeforeForProjectCalls())
+func (mock *APIStoreMock) CountEventTriggersFinishedBeforeForProjectCalls() []struct {
+	Ctx           context.Context
+	ProjectID     string
+	EnvironmentID string
+	Before        time.Time
 } {
 	var calls []struct {
-		Ctx    context.Context
-		Before time.Time
+		Ctx           context.Context
+		ProjectID     string
+		EnvironmentID string
+		Before        time.Time
 	}
-	mock.lockCountEventTriggersFinishedBefore.RLock()
-	calls = mock.calls.CountEventTriggersFinishedBefore
-	mock.lockCountEventTriggersFinishedBefore.RUnlock()
+	mock.lockCountEventTriggersFinishedBeforeForProject.RLock()
+	calls = mock.calls.CountEventTriggersFinishedBeforeForProject
+	mock.lockCountEventTriggersFinishedBeforeForProject.RUnlock()
 	return calls
 }
 
@@ -7789,47 +7833,55 @@ func (mock *APIStoreMock) DeleteEventSubscriptionCalls() []struct {
 	return calls
 }
 
-// DeleteEventTriggersFinishedBefore calls DeleteEventTriggersFinishedBeforeFunc.
-func (mock *APIStoreMock) DeleteEventTriggersFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error) {
+// DeleteEventTriggersFinishedBeforeForProject calls DeleteEventTriggersFinishedBeforeForProjectFunc.
+func (mock *APIStoreMock) DeleteEventTriggersFinishedBeforeForProject(ctx context.Context, projectID string, environmentID string, before time.Time, limit int) (int64, error) {
 	callInfo := struct {
-		Ctx    context.Context
-		Before time.Time
-		Limit  int
+		Ctx           context.Context
+		ProjectID     string
+		EnvironmentID string
+		Before        time.Time
+		Limit         int
 	}{
-		Ctx:    ctx,
-		Before: before,
-		Limit:  limit,
+		Ctx:           ctx,
+		ProjectID:     projectID,
+		EnvironmentID: environmentID,
+		Before:        before,
+		Limit:         limit,
 	}
-	mock.lockDeleteEventTriggersFinishedBefore.Lock()
-	mock.calls.DeleteEventTriggersFinishedBefore = append(mock.calls.DeleteEventTriggersFinishedBefore, callInfo)
-	mock.lockDeleteEventTriggersFinishedBefore.Unlock()
-	if mock.DeleteEventTriggersFinishedBeforeFunc == nil {
+	mock.lockDeleteEventTriggersFinishedBeforeForProject.Lock()
+	mock.calls.DeleteEventTriggersFinishedBeforeForProject = append(mock.calls.DeleteEventTriggersFinishedBeforeForProject, callInfo)
+	mock.lockDeleteEventTriggersFinishedBeforeForProject.Unlock()
+	if mock.DeleteEventTriggersFinishedBeforeForProjectFunc == nil {
 		var (
 			nOut   int64
 			errOut error
 		)
 		return nOut, errOut
 	}
-	return mock.DeleteEventTriggersFinishedBeforeFunc(ctx, before, limit)
+	return mock.DeleteEventTriggersFinishedBeforeForProjectFunc(ctx, projectID, environmentID, before, limit)
 }
 
-// DeleteEventTriggersFinishedBeforeCalls gets all the calls that were made to DeleteEventTriggersFinishedBefore.
+// DeleteEventTriggersFinishedBeforeForProjectCalls gets all the calls that were made to DeleteEventTriggersFinishedBeforeForProject.
 // Check the length with:
 //
-//	len(mockedAPIStore.DeleteEventTriggersFinishedBeforeCalls())
-func (mock *APIStoreMock) DeleteEventTriggersFinishedBeforeCalls() []struct {
-	Ctx    context.Context
-	Before time.Time
-	Limit  int
+//	len(mockedAPIStore.DeleteEventTriggersFinishedBeforeForProjectCalls())
+func (mock *APIStoreMock) DeleteEventTriggersFinishedBeforeForProjectCalls() []struct {
+	Ctx           context.Context
+	ProjectID     string
+	EnvironmentID string
+	Before        time.Time
+	Limit         int
 } {
 	var calls []struct {
-		Ctx    context.Context
-		Before time.Time
-		Limit  int
+		Ctx           context.Context
+		ProjectID     string
+		EnvironmentID string
+		Before        time.Time
+		Limit         int
 	}
-	mock.lockDeleteEventTriggersFinishedBefore.RLock()
-	calls = mock.calls.DeleteEventTriggersFinishedBefore
-	mock.lockDeleteEventTriggersFinishedBefore.RUnlock()
+	mock.lockDeleteEventTriggersFinishedBeforeForProject.RLock()
+	calls = mock.calls.DeleteEventTriggersFinishedBeforeForProject
+	mock.lockDeleteEventTriggersFinishedBeforeForProject.RUnlock()
 	return calls
 }
 
@@ -9619,13 +9671,15 @@ func (mock *APIStoreMock) GetEventTriggerByEventKeyCalls() []struct {
 }
 
 // GetEventTriggerStats calls GetEventTriggerStatsFunc.
-func (mock *APIStoreMock) GetEventTriggerStats(ctx context.Context, projectID string) (*store.EventTriggerStats, error) {
+func (mock *APIStoreMock) GetEventTriggerStats(ctx context.Context, projectID string, environmentID string) (*store.EventTriggerStats, error) {
 	callInfo := struct {
-		Ctx       context.Context
-		ProjectID string
+		Ctx           context.Context
+		ProjectID     string
+		EnvironmentID string
 	}{
-		Ctx:       ctx,
-		ProjectID: projectID,
+		Ctx:           ctx,
+		ProjectID:     projectID,
+		EnvironmentID: environmentID,
 	}
 	mock.lockGetEventTriggerStats.Lock()
 	mock.calls.GetEventTriggerStats = append(mock.calls.GetEventTriggerStats, callInfo)
@@ -9637,7 +9691,7 @@ func (mock *APIStoreMock) GetEventTriggerStats(ctx context.Context, projectID st
 		)
 		return eventTriggerStatsOut, errOut
 	}
-	return mock.GetEventTriggerStatsFunc(ctx, projectID)
+	return mock.GetEventTriggerStatsFunc(ctx, projectID, environmentID)
 }
 
 // GetEventTriggerStatsCalls gets all the calls that were made to GetEventTriggerStats.
@@ -9645,12 +9699,14 @@ func (mock *APIStoreMock) GetEventTriggerStats(ctx context.Context, projectID st
 //
 //	len(mockedAPIStore.GetEventTriggerStatsCalls())
 func (mock *APIStoreMock) GetEventTriggerStatsCalls() []struct {
-	Ctx       context.Context
-	ProjectID string
+	Ctx           context.Context
+	ProjectID     string
+	EnvironmentID string
 } {
 	var calls []struct {
-		Ctx       context.Context
-		ProjectID string
+		Ctx           context.Context
+		ProjectID     string
+		EnvironmentID string
 	}
 	mock.lockGetEventTriggerStats.RLock()
 	calls = mock.calls.GetEventTriggerStats
@@ -12037,10 +12093,11 @@ func (mock *APIStoreMock) ListEventTriggersByKeyPrefixCalls() []struct {
 }
 
 // ListEventTriggersByProject calls ListEventTriggersByProjectFunc.
-func (mock *APIStoreMock) ListEventTriggersByProject(ctx context.Context, projectID string, status string, workflowRunID string, sourceType string, limit int, cursor *time.Time) ([]domain.EventTrigger, error) {
+func (mock *APIStoreMock) ListEventTriggersByProject(ctx context.Context, projectID string, environmentID string, status string, workflowRunID string, sourceType string, limit int, cursor *time.Time) ([]domain.EventTrigger, error) {
 	callInfo := struct {
 		Ctx           context.Context
 		ProjectID     string
+		EnvironmentID string
 		Status        string
 		WorkflowRunID string
 		SourceType    string
@@ -12049,6 +12106,7 @@ func (mock *APIStoreMock) ListEventTriggersByProject(ctx context.Context, projec
 	}{
 		Ctx:           ctx,
 		ProjectID:     projectID,
+		EnvironmentID: environmentID,
 		Status:        status,
 		WorkflowRunID: workflowRunID,
 		SourceType:    sourceType,
@@ -12065,7 +12123,7 @@ func (mock *APIStoreMock) ListEventTriggersByProject(ctx context.Context, projec
 		)
 		return eventTriggersOut, errOut
 	}
-	return mock.ListEventTriggersByProjectFunc(ctx, projectID, status, workflowRunID, sourceType, limit, cursor)
+	return mock.ListEventTriggersByProjectFunc(ctx, projectID, environmentID, status, workflowRunID, sourceType, limit, cursor)
 }
 
 // ListEventTriggersByProjectCalls gets all the calls that were made to ListEventTriggersByProject.
@@ -12075,6 +12133,7 @@ func (mock *APIStoreMock) ListEventTriggersByProject(ctx context.Context, projec
 func (mock *APIStoreMock) ListEventTriggersByProjectCalls() []struct {
 	Ctx           context.Context
 	ProjectID     string
+	EnvironmentID string
 	Status        string
 	WorkflowRunID string
 	SourceType    string
@@ -12084,6 +12143,7 @@ func (mock *APIStoreMock) ListEventTriggersByProjectCalls() []struct {
 	var calls []struct {
 		Ctx           context.Context
 		ProjectID     string
+		EnvironmentID string
 		Status        string
 		WorkflowRunID string
 		SourceType    string
@@ -16128,6 +16188,65 @@ func (mock *APIStoreMock) UpdateEventTriggerStatusCalls() []struct {
 	mock.lockUpdateEventTriggerStatus.RLock()
 	calls = mock.calls.UpdateEventTriggerStatus
 	mock.lockUpdateEventTriggerStatus.RUnlock()
+	return calls
+}
+
+// UpdateEventTriggerStatusFrom calls UpdateEventTriggerStatusFromFunc.
+func (mock *APIStoreMock) UpdateEventTriggerStatusFrom(ctx context.Context, id string, from string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error {
+	callInfo := struct {
+		Ctx             context.Context
+		ID              string
+		From            string
+		Status          string
+		ResponsePayload json.RawMessage
+		ReceivedAt      *time.Time
+		ErrMsg          string
+	}{
+		Ctx:             ctx,
+		ID:              id,
+		From:            from,
+		Status:          status,
+		ResponsePayload: responsePayload,
+		ReceivedAt:      receivedAt,
+		ErrMsg:          errMsg,
+	}
+	mock.lockUpdateEventTriggerStatusFrom.Lock()
+	mock.calls.UpdateEventTriggerStatusFrom = append(mock.calls.UpdateEventTriggerStatusFrom, callInfo)
+	mock.lockUpdateEventTriggerStatusFrom.Unlock()
+	if mock.UpdateEventTriggerStatusFromFunc == nil {
+		var (
+			errOut error
+		)
+		return errOut
+	}
+	return mock.UpdateEventTriggerStatusFromFunc(ctx, id, from, status, responsePayload, receivedAt, errMsg)
+}
+
+// UpdateEventTriggerStatusFromCalls gets all the calls that were made to UpdateEventTriggerStatusFrom.
+// Check the length with:
+//
+//	len(mockedAPIStore.UpdateEventTriggerStatusFromCalls())
+func (mock *APIStoreMock) UpdateEventTriggerStatusFromCalls() []struct {
+	Ctx             context.Context
+	ID              string
+	From            string
+	Status          string
+	ResponsePayload json.RawMessage
+	ReceivedAt      *time.Time
+	ErrMsg          string
+} {
+	var calls []struct {
+		Ctx             context.Context
+		ID              string
+		From            string
+		Status          string
+		ResponsePayload json.RawMessage
+		ReceivedAt      *time.Time
+		ErrMsg          string
+	}
+	mock.lockUpdateEventTriggerStatusFrom.RLock()
+	calls = mock.calls.UpdateEventTriggerStatusFrom
+	mock.lockUpdateEventTriggerStatusFrom.RUnlock()
 	return calls
 }
 

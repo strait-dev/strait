@@ -62,7 +62,7 @@ func (s *SlackSender) Send(ctx context.Context, channel *domain.NotificationChan
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("send slack notification: %w", err)
+		return fmt.Errorf("send slack notification: %s", sanitizeDeliveryError(err))
 	}
 	defer resp.Body.Close()
 

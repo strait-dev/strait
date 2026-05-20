@@ -4,17 +4,21 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
 
 	"strait/internal/clickhouse"
 	"strait/internal/domain"
+	"strait/internal/store"
 
 	"github.com/danielgtaylor/huma/v2"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
+
+const maxEventTriggerPurgeDays = 36500
 
 // SendEventRequest is the payload for POST /v1/events/{eventKey}/send.
 type SendEventRequest struct {
@@ -34,6 +38,34 @@ func validateEventKey(key string) string {
 		}
 	}
 	return ""
+}
+
+type eventTriggerMutation string
+
+const (
+	eventTriggerMutationSend   eventTriggerMutation = "send"
+	eventTriggerMutationCancel eventTriggerMutation = "cancel"
+)
+
+func eventTriggerMutationScope(trigger *domain.EventTrigger, mutation eventTriggerMutation) string {
+	if trigger.SourceType == domain.EventSourceWorkflowStep {
+		if mutation == eventTriggerMutationCancel {
+			return domain.ScopeWorkflowsWrite
+		}
+		return domain.ScopeWorkflowsTrigger
+	}
+	if mutation == eventTriggerMutationCancel {
+		return domain.ScopeJobsWrite
+	}
+	return domain.ScopeJobsTrigger
+}
+
+func (s *Server) requireEventTriggerMutationPermission(ctx context.Context, trigger *domain.EventTrigger, mutation eventTriggerMutation) error {
+	required := eventTriggerMutationScope(trigger, mutation)
+	if s.hasProjectPermission(ctx, required) {
+		return nil
+	}
+	return huma.Error403Forbidden("insufficient permissions: requires " + required)
 }
 
 type SendEventInput struct {
@@ -70,6 +102,9 @@ func (s *Server) handleSendEvent(ctx context.Context, input *SendEventInput) (*S
 	if err := requireEnvironmentMatch(ctx, trigger.EnvironmentID); err != nil {
 		return nil, huma.Error404NotFound("event trigger not found")
 	}
+	if err := s.requireEventTriggerMutationPermission(ctx, trigger, eventTriggerMutationSend); err != nil {
+		return nil, err
+	}
 	if trigger.Status != domain.EventTriggerStatusWaiting {
 		if trigger.Status == domain.EventTriggerStatusReceived && payloadsMatch(trigger.ResponsePayload, req.Payload) {
 			return &SendEventOutput{Body: trigger}, nil
@@ -77,19 +112,25 @@ func (s *Server) handleSendEvent(ctx context.Context, input *SendEventInput) (*S
 		return nil, huma.Error409Conflict("event trigger is not in waiting state")
 	}
 	now := time.Now()
-	if trigger.SourceType == domain.EventSourceJobRun && trigger.JobRunID != "" {
+	if trigger.SourceType == domain.EventSourceJobRun && trigger.JobRunID != "" { //nolint:nestif
 		if err := s.store.ReceiveEventAndRequeueRun(ctx, trigger.ID, req.Payload, now, trigger.JobRunID); err != nil {
+			if errors.Is(err, store.ErrEventTriggerConflict) {
+				return nil, huma.Error409Conflict("event trigger is not in waiting state")
+			}
 			return nil, huma.Error500InternalServerError("failed to receive event")
 		}
 	} else if trigger.SourceType == domain.EventSourceWorkflowStep && trigger.WorkflowStepRunID != "" {
 		if err := s.runInTx(ctx, func(txStore APIStore) error {
-			if err := txStore.UpdateEventTriggerStatus(ctx, trigger.ID, domain.EventTriggerStatusReceived, req.Payload, &now, ""); err != nil {
+			if err := txStore.UpdateEventTriggerStatusFrom(ctx, trigger.ID, domain.EventTriggerStatusWaiting, domain.EventTriggerStatusReceived, req.Payload, &now, ""); err != nil {
 				return fmt.Errorf("update event trigger status: %w", err)
 			}
 			return txStore.UpdateStepRunStatus(ctx, trigger.WorkflowStepRunID, domain.StepCompleted, map[string]any{
 				"output": req.Payload, "finished_at": now,
 			})
 		}); err != nil {
+			if errors.Is(err, store.ErrEventTriggerConflict) {
+				return nil, huma.Error409Conflict("event trigger is not in waiting state")
+			}
 			return nil, huma.Error500InternalServerError("failed to receive event")
 		}
 		trigger.Status = domain.EventTriggerStatusReceived
@@ -101,7 +142,10 @@ func (s *Server) handleSendEvent(ctx context.Context, input *SendEventInput) (*S
 			}
 		}
 	} else {
-		if err := s.store.UpdateEventTriggerStatus(ctx, trigger.ID, domain.EventTriggerStatusReceived, req.Payload, &now, ""); err != nil {
+		if err := s.store.UpdateEventTriggerStatusFrom(ctx, trigger.ID, domain.EventTriggerStatusWaiting, domain.EventTriggerStatusReceived, req.Payload, &now, ""); err != nil {
+			if errors.Is(err, store.ErrEventTriggerConflict) {
+				return nil, huma.Error409Conflict("event trigger is not in waiting state")
+			}
 			return nil, huma.Error500InternalServerError("failed to update event trigger")
 		}
 		trigger.Status = domain.EventTriggerStatusReceived
@@ -218,11 +262,17 @@ func (s *Server) handleCancelEventTrigger(ctx context.Context, input *CancelEven
 	if err := requireEnvironmentMatch(ctx, trigger.EnvironmentID); err != nil {
 		return nil, huma.Error404NotFound("event trigger not found")
 	}
+	if err := s.requireEventTriggerMutationPermission(ctx, trigger, eventTriggerMutationCancel); err != nil {
+		return nil, err
+	}
 	if trigger.Status != domain.EventTriggerStatusWaiting {
 		return nil, huma.Error409Conflict("event trigger is not in waiting state")
 	}
 	now := time.Now()
-	if err := s.store.UpdateEventTriggerStatus(ctx, trigger.ID, domain.EventTriggerStatusCanceled, nil, nil, "canceled by user"); err != nil {
+	if err := s.store.UpdateEventTriggerStatusFrom(ctx, trigger.ID, domain.EventTriggerStatusWaiting, domain.EventTriggerStatusCanceled, nil, nil, "canceled by user"); err != nil {
+		if errors.Is(err, store.ErrEventTriggerConflict) {
+			return nil, huma.Error409Conflict("event trigger is not in waiting state")
+		}
 		return nil, huma.Error500InternalServerError("failed to cancel event trigger")
 	}
 	trigger.Status = domain.EventTriggerStatusCanceled
@@ -275,7 +325,7 @@ func (s *Server) handleListEventTriggers(ctx context.Context, input *ListEventTr
 	if err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
-	triggers, err := s.store.ListEventTriggersByProject(ctx, projectID, input.Status, input.WorkflowRunID, input.SourceType, limit+1, cursor)
+	triggers, err := s.store.ListEventTriggersByProject(ctx, projectID, environmentIDFromContext(ctx), input.Status, input.WorkflowRunID, input.SourceType, limit+1, cursor)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list event triggers")
 	}
@@ -322,7 +372,7 @@ func (s *Server) handleGetEventTriggerStats(ctx context.Context, _ *GetEventTrig
 	if projectID == "" {
 		return nil, huma.Error400BadRequest("project context is required -- authenticate with an API key")
 	}
-	stats, err := s.store.GetEventTriggerStats(ctx, projectID)
+	stats, err := s.store.GetEventTriggerStats(ctx, projectID, environmentIDFromContext(ctx))
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to get event trigger stats")
 	}
@@ -380,6 +430,9 @@ func (s *Server) handleSendEventByPrefix(ctx context.Context, input *SendEventBy
 	filtered := triggers[:0]
 	for i := range triggers {
 		if envErr := requireEnvironmentMatch(ctx, triggers[i].EnvironmentID); envErr != nil {
+			continue
+		}
+		if err := s.requireEventTriggerMutationPermission(ctx, &triggers[i], eventTriggerMutationSend); err != nil {
 			continue
 		}
 		filtered = append(filtered, triggers[i])
@@ -447,9 +500,17 @@ func (s *Server) handlePurgeEventTriggers(ctx context.Context, input *PurgeEvent
 	if req.OlderThanDays < 1 {
 		return nil, huma.Error400BadRequest("older_than_days must be >= 1")
 	}
+	if req.OlderThanDays > maxEventTriggerPurgeDays {
+		return nil, huma.Error400BadRequest(fmt.Sprintf("older_than_days must be <= %d", maxEventTriggerPurgeDays))
+	}
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return nil, huma.Error400BadRequest("project context is required -- authenticate with an API key")
+	}
+	environmentID := environmentIDFromContext(ctx)
 	before := time.Now().Add(-time.Duration(req.OlderThanDays) * 24 * time.Hour)
 	if req.DryRun {
-		count, err := s.store.CountEventTriggersFinishedBefore(ctx, before)
+		count, err := s.store.CountEventTriggersFinishedBeforeForProject(ctx, projectID, environmentID, before)
 		if err != nil {
 			return nil, huma.Error500InternalServerError("failed to count triggers")
 		}
@@ -460,7 +521,7 @@ func (s *Server) handlePurgeEventTriggers(ctx context.Context, input *PurgeEvent
 		})
 		return &PurgeEventTriggersOutput{Body: map[string]any{"dry_run": true, "would_delete": count}}, nil
 	}
-	deleted, err := s.store.DeleteEventTriggersFinishedBefore(ctx, before, 10000)
+	deleted, err := s.store.DeleteEventTriggersFinishedBeforeForProject(ctx, projectID, environmentID, before, 10000)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to purge triggers")
 	}

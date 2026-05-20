@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -12,15 +13,9 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-// RegisterWorker upserts a worker record, updating last_seen_at and status.
-//
-// The UPDATE branch is gated on workers.project_id = EXCLUDED.project_id so
-// a worker_id colliding with a different project (e.g. across replicas
-// where the in-memory cross-project rejection only covers the local
-// process) cannot silently overwrite the original project's queue,
-// hostname, version, or status fields. On project mismatch the upsert is
-// a silent no-op; callers should detect and reject the conflict at the
-// stream layer via GetWorkerByIDAcrossProjects.
+// RegisterWorker upserts a worker record scoped by project_id and worker id,
+// updating last_seen_at and status. Worker IDs are tenant-local identifiers:
+// two projects may use the same worker ID without colliding.
 func (q *Queries) RegisterWorker(ctx context.Context, w *domain.Worker) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.RegisterWorker")
 	defer span.End()
@@ -28,13 +23,12 @@ func (q *Queries) RegisterWorker(ctx context.Context, w *domain.Worker) error {
 	query := `
 		INSERT INTO workers (id, project_id, queue_name, hostname, version, status, last_seen_at, registered_at)
 		VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-		ON CONFLICT (id) DO UPDATE
+		ON CONFLICT (project_id, id) DO UPDATE
 		SET queue_name   = EXCLUDED.queue_name,
 		    hostname     = EXCLUDED.hostname,
 		    version      = EXCLUDED.version,
 		    status       = EXCLUDED.status,
-		    last_seen_at = NOW()
-		WHERE workers.project_id = EXCLUDED.project_id`
+		    last_seen_at = NOW()`
 
 	_, err := q.db.Exec(ctx, query,
 		w.ID, w.ProjectID, w.QueueName, w.Hostname, w.Version, string(w.Status),
@@ -45,17 +39,17 @@ func (q *Queries) RegisterWorker(ctx context.Context, w *domain.Worker) error {
 	return nil
 }
 
-// GetWorkerProjectByID returns the project_id of an existing workers row by
-// its primary key, or "" with (false, nil) if no row exists. Used by the
-// gRPC stream layer to reject cross-project worker_id collisions before
-// any DB write or in-memory registration.
+// GetWorkerProjectByID returns one project_id for an existing worker id, or
+// "" with (false, nil) if no row exists. Worker IDs are scoped by project, so
+// this helper is only for legacy diagnostics and must not be used as an
+// authorization or registration uniqueness check.
 func (q *Queries) GetWorkerProjectByID(ctx context.Context, workerID string) (string, bool, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetWorkerProjectByID")
 	defer span.End()
 
 	var projectID string
 	err := q.db.QueryRow(ctx,
-		`SELECT project_id FROM workers WHERE id = $1`,
+		`SELECT project_id FROM workers WHERE id = $1 ORDER BY registered_at DESC LIMIT 1`,
 		workerID,
 	).Scan(&projectID)
 	if err != nil {
@@ -67,14 +61,14 @@ func (q *Queries) GetWorkerProjectByID(ctx context.Context, workerID string) (st
 	return projectID, true, nil
 }
 
-// SetWorkerStatus transitions a worker to a new status.
-func (q *Queries) SetWorkerStatus(ctx context.Context, workerID string, status domain.WorkerStatus) error {
+// SetWorkerStatus transitions a worker to a new status within one project.
+func (q *Queries) SetWorkerStatus(ctx context.Context, workerID, projectID string, status domain.WorkerStatus) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.SetWorkerStatus")
 	defer span.End()
 
 	_, err := q.db.Exec(ctx,
-		`UPDATE workers SET status = $1, last_seen_at = NOW() WHERE id = $2`,
-		string(status), workerID,
+		`UPDATE workers SET status = $1, last_seen_at = NOW() WHERE id = $2 AND project_id = $3`,
+		string(status), workerID, projectID,
 	)
 	if err != nil {
 		return fmt.Errorf("set worker status: %w", err)
@@ -141,15 +135,147 @@ func (q *Queries) ListWorkers(ctx context.Context, projectID, queueName string, 
 
 // EvictStaleWorkers marks workers offline if they have not sent a heartbeat since cutoff.
 func (q *Queries) EvictStaleWorkers(ctx context.Context, cutoff time.Time) (int64, error) {
+	return q.EvictStaleWorkersExcept(ctx, cutoff, nil)
+}
+
+// EvictStaleWorkersExcept marks stale workers offline unless they are known to
+// still be connected on this replica.
+func (q *Queries) EvictStaleWorkersExcept(ctx context.Context, cutoff time.Time, activeWorkerIDs []string) (int64, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.EvictStaleWorkers")
 	defer span.End()
+	if activeWorkerIDs == nil {
+		activeWorkerIDs = []string{}
+	}
 
 	tag, err := q.db.Exec(ctx,
-		`UPDATE workers SET status = 'offline' WHERE last_seen_at < $1 AND status != 'offline'`,
-		cutoff,
+		`UPDATE workers
+		 SET status = 'offline'
+		 WHERE last_seen_at < $1
+		   AND (stream_lease_expires_at IS NULL OR stream_lease_expires_at < NOW())
+		   AND status != 'offline'
+		   AND NOT (id = ANY($2::text[]))`,
+		cutoff, activeWorkerIDs,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("evict stale workers: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// RecoverStaleWorkerTasks marks stale workers' open assignments failed and
+// requeues still-executing worker-mode runs before the worker row is evicted.
+func (q *Queries) RecoverStaleWorkerTasks(ctx context.Context, cutoff time.Time, reason string) (int64, error) {
+	return q.RecoverStaleWorkerTasksExcept(ctx, cutoff, reason, nil)
+}
+
+// RecoverStaleWorkerTasksExcept requeues open tasks owned by stale workers
+// unless the worker is still connected in the caller's local registry.
+func (q *Queries) RecoverStaleWorkerTasksExcept(ctx context.Context, cutoff time.Time, reason string, activeWorkerIDs []string) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.RecoverStaleWorkerTasks")
+	defer span.End()
+	if activeWorkerIDs == nil {
+		activeWorkerIDs = []string{}
+	}
+
+	_, ok := q.db.(TxBeginner)
+	if !ok {
+		return 0, fmt.Errorf("recover stale worker tasks requires transaction support")
+	}
+
+	var affected int64
+	err := q.withTx(ctx, func(txQ *Queries) error {
+		const query = `
+			WITH stale_workers AS (
+				SELECT id, project_id
+				FROM workers
+				WHERE last_seen_at < $1
+				  AND (stream_lease_expires_at IS NULL OR stream_lease_expires_at < NOW())
+				  AND NOT (id = ANY($3::text[]))
+			),
+			open_tasks AS (
+				SELECT wt.id, wt.run_id
+				FROM worker_tasks wt
+				JOIN stale_workers sw
+				  ON sw.id = wt.worker_id
+				 AND sw.project_id = wt.project_id
+				WHERE wt.status IN ('assigned', 'accepted')
+			),
+			requeued_runs AS (
+				UPDATE job_runs
+				SET status = 'queued',
+				    started_at = NULL,
+				    finished_at = NULL,
+				    heartbeat_at = NULL,
+				    next_retry_at = NULL,
+				    error = $2,
+				    error_class = 'transient'
+				WHERE id IN (SELECT run_id FROM open_tasks)
+				  AND status = 'executing'
+				RETURNING id
+			)
+			UPDATE worker_tasks
+			SET status = 'failed',
+			    finished_at = NOW()
+			WHERE id IN (SELECT id FROM open_tasks)`
+
+		tag, err := txQ.db.Exec(ctx, query, cutoff, reason, activeWorkerIDs)
+		if err != nil {
+			return fmt.Errorf("recover stale worker tasks: %w", err)
+		}
+		affected = tag.RowsAffected()
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	return affected, nil
+}
+
+// RenewWorkerStreamLease records an authoritative cross-replica lease for an
+// active worker stream. Stale recovery must not requeue tasks while this lease
+// remains valid, even if last_seen_at has fallen behind.
+func (q *Queries) RenewWorkerStreamLease(ctx context.Context, workerID, projectID string, expiresAt time.Time) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.RenewWorkerStreamLease")
+	defer span.End()
+
+	_, err := q.db.Exec(ctx,
+		`UPDATE workers
+		 SET stream_lease_expires_at = $1
+		 WHERE id = $2
+		   AND project_id = $3`,
+		expiresAt,
+		workerID,
+		projectID,
+	)
+	if err != nil {
+		return fmt.Errorf("renew worker stream lease: %w", err)
+	}
+	return nil
+}
+
+// DeleteStaleOfflineWorkers removes old offline worker rows once they have no
+// open task handoff state. This prevents stale rows from reserving a globally
+// keyed worker_id forever while preserving recent disconnect history.
+func (q *Queries) DeleteStaleOfflineWorkers(ctx context.Context, cutoff time.Time) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteStaleOfflineWorkers")
+	defer span.End()
+
+	tag, err := q.db.Exec(ctx,
+		`DELETE FROM workers w
+		 WHERE w.status = 'offline'
+		   AND w.last_seen_at < $1
+		   AND NOT EXISTS (
+			SELECT 1
+			FROM worker_tasks wt
+			WHERE wt.worker_id = w.id
+			  AND wt.project_id = w.project_id
+			  AND wt.status IN ('assigned', 'accepted', 'result_received', 'finalizing')
+		   )`,
+		cutoff,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("delete stale offline workers: %w", err)
 	}
 	return tag.RowsAffected(), nil
 }
@@ -158,11 +284,14 @@ func (q *Queries) EvictStaleWorkers(ctx context.Context, cutoff time.Time) (int6
 func (q *Queries) CreateWorkerTask(ctx context.Context, t *domain.WorkerTask) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateWorkerTask")
 	defer span.End()
+	if t.Attempt <= 0 {
+		t.Attempt = 1
+	}
 
 	_, err := q.db.Exec(ctx,
-		`INSERT INTO worker_tasks (id, worker_id, run_id, project_id, status, assigned_at)
-		 VALUES ($1, $2, $3, $4, $5, NOW())`,
-		t.ID, t.WorkerID, t.RunID, t.ProjectID, string(t.Status),
+		`INSERT INTO worker_tasks (id, worker_id, run_id, project_id, attempt, status, assigned_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+		t.ID, t.WorkerID, t.RunID, t.ProjectID, t.Attempt, string(t.Status),
 	)
 	if err != nil {
 		return fmt.Errorf("create worker task: %w", err)
@@ -214,6 +343,151 @@ func (q *Queries) MarkWorkerTaskResultReceived(ctx context.Context, taskID strin
 	return tag.RowsAffected() == 1, nil
 }
 
+// MarkWorkerTaskResultReceivedByAssignment durably records a worker result for
+// one exact assignment before the in-memory dispatch waiter is notified.
+func (q *Queries) MarkWorkerTaskResultReceivedByAssignment(
+	ctx context.Context,
+	taskID string,
+	workerID string,
+	projectID string,
+	runID string,
+	attempt int,
+	status string,
+	errorMessage string,
+	output []byte,
+	durationMS int64,
+) (bool, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.MarkWorkerTaskResultReceivedByAssignment")
+	defer span.End()
+
+	if attempt <= 0 {
+		return false, nil
+	}
+	var outputJSON any
+	if len(output) > 0 {
+		if json.Valid(output) {
+			outputJSON = json.RawMessage(output)
+		}
+	}
+
+	tag, err := q.db.Exec(ctx,
+		`UPDATE worker_tasks
+		 SET status = $1,
+		     result_status = $2,
+		     result_error = NULLIF($3, ''),
+		     result_output = $4,
+		     result_duration_ms = $5,
+		     result_received_at = NOW()
+		 WHERE id = $6
+		   AND worker_id = $7
+		   AND project_id = $8
+		   AND run_id = $9
+		   AND attempt = $10
+		   AND status IN ('assigned', 'accepted')`,
+		string(domain.WorkerTaskStatusResultReceived),
+		status,
+		errorMessage,
+		outputJSON,
+		durationMS,
+		taskID,
+		workerID,
+		projectID,
+		runID,
+		attempt,
+	)
+	if err != nil {
+		return false, fmt.Errorf("mark worker task result received by assignment: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+// ClaimRecoverableWorkerTaskResults claims durable worker results that reached
+// the stream boundary but were never finalized, usually because the API process
+// crashed after the handoff.
+func (q *Queries) ClaimRecoverableWorkerTaskResults(ctx context.Context, cutoff time.Time, limit int) ([]domain.WorkerTask, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ClaimRecoverableWorkerTaskResults")
+	defer span.End()
+
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := q.db.Query(ctx,
+		`WITH target AS (
+			SELECT wt.id
+			FROM worker_tasks wt
+			JOIN job_runs jr ON jr.id = wt.run_id
+			WHERE wt.status = $1
+			  AND wt.result_status IS NOT NULL
+			  AND wt.result_received_at IS NOT NULL
+			  AND wt.result_received_at < $2
+			  AND jr.status = 'executing'
+			ORDER BY wt.result_received_at ASC
+			LIMIT $3
+			FOR UPDATE SKIP LOCKED
+		)
+		UPDATE worker_tasks wt
+		SET status = $4
+		FROM target
+		WHERE wt.id = target.id
+		RETURNING wt.id, wt.worker_id, wt.run_id, wt.project_id, wt.attempt, wt.status,
+		          wt.assigned_at, wt.accepted_at, wt.finished_at,
+		          wt.result_status, wt.result_output, wt.result_error, wt.result_duration_ms, wt.result_received_at`,
+		string(domain.WorkerTaskStatusResultReceived),
+		cutoff,
+		limit,
+		string(domain.WorkerTaskStatusFinalizing),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("claim recoverable worker task results: %w", err)
+	}
+	defer rows.Close()
+
+	var tasks []domain.WorkerTask
+	for rows.Next() {
+		var task domain.WorkerTask
+		var status string
+		var resultStatus, resultError *string
+		var resultOutput []byte
+		var resultDurationMS *int64
+		var resultReceivedAt *time.Time
+		if err := rows.Scan(
+			&task.ID, &task.WorkerID, &task.RunID, &task.ProjectID, &task.Attempt, &status,
+			&task.AssignedAt, &task.AcceptedAt, &task.FinishedAt,
+			&resultStatus, &resultOutput, &resultError, &resultDurationMS, &resultReceivedAt,
+		); err != nil {
+			return nil, fmt.Errorf("claim recoverable worker task results scan: %w", err)
+		}
+		task.Status = domain.WorkerTaskStatus(status)
+		task.Result = buildWorkerTaskResult(resultStatus, resultOutput, resultError, resultDurationMS, resultReceivedAt)
+		tasks = append(tasks, task)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("claim recoverable worker task results rows: %w", err)
+	}
+	return tasks, nil
+}
+
+// ResetWorkerTaskFinalizingToResultReceived releases a recovery claim after a
+// transient finalizer failure so a later sweep can retry.
+func (q *Queries) ResetWorkerTaskFinalizingToResultReceived(ctx context.Context, taskID string) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ResetWorkerTaskFinalizingToResultReceived")
+	defer span.End()
+
+	_, err := q.db.Exec(ctx,
+		`UPDATE worker_tasks
+		 SET status = $1
+		 WHERE id = $2
+		   AND status = $3`,
+		string(domain.WorkerTaskStatusResultReceived),
+		taskID,
+		string(domain.WorkerTaskStatusFinalizing),
+	)
+	if err != nil {
+		return fmt.Errorf("reset worker task finalizing to result received: %w", err)
+	}
+	return nil
+}
+
 // MarkOpenWorkerTaskResultReceivedByRunID closes the latest open assignment
 // for a worker/run pair to disconnect requeue as soon as its TaskResult reaches
 // the API stream boundary.
@@ -250,13 +524,55 @@ func (q *Queries) GetWorkerTask(ctx context.Context, taskID string) (*domain.Wor
 
 	var t domain.WorkerTask
 	var status string
+	var resultStatus, resultError *string
+	var resultOutput []byte
+	var resultDurationMS *int64
+	var resultReceivedAt *time.Time
 	err := q.db.QueryRow(ctx,
-		`SELECT id, worker_id, run_id, project_id, status, assigned_at, accepted_at, finished_at
+		`SELECT id, worker_id, run_id, project_id, attempt, status, assigned_at, accepted_at, finished_at,
+		        result_status, result_output, result_error, result_duration_ms, result_received_at
 		 FROM worker_tasks WHERE id = $1`,
 		taskID,
-	).Scan(&t.ID, &t.WorkerID, &t.RunID, &t.ProjectID, &status, &t.AssignedAt, &t.AcceptedAt, &t.FinishedAt)
+	).Scan(
+		&t.ID, &t.WorkerID, &t.RunID, &t.ProjectID, &t.Attempt, &status, &t.AssignedAt, &t.AcceptedAt, &t.FinishedAt,
+		&resultStatus, &resultOutput, &resultError, &resultDurationMS, &resultReceivedAt,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("get worker task: %w", err)
+	}
+	t.Status = domain.WorkerTaskStatus(status)
+	t.Result = buildWorkerTaskResult(resultStatus, resultOutput, resultError, resultDurationMS, resultReceivedAt)
+	return &t, nil
+}
+
+// GetOpenWorkerTaskByAssignment fetches the active task row that exactly
+// matches a worker result's assignment identity.
+func (q *Queries) GetOpenWorkerTaskByAssignment(ctx context.Context, taskID, workerID, projectID, runID string, attempt int) (*domain.WorkerTask, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetOpenWorkerTaskByAssignment")
+	defer span.End()
+
+	if attempt <= 0 {
+		return nil, nil //nolint:nilnil // nil signals "not found"
+	}
+	var t domain.WorkerTask
+	var status string
+	err := q.db.QueryRow(ctx,
+		`SELECT id, worker_id, run_id, project_id, attempt, status, assigned_at, accepted_at, finished_at
+		 FROM worker_tasks
+		 WHERE id = $1
+		   AND worker_id = $2
+		   AND project_id = $3
+		   AND run_id = $4
+		   AND attempt = $5
+		   AND status IN ('assigned', 'accepted')
+		 LIMIT 1`,
+		taskID, workerID, projectID, runID, attempt,
+	).Scan(&t.ID, &t.WorkerID, &t.RunID, &t.ProjectID, &t.Attempt, &status, &t.AssignedAt, &t.AcceptedAt, &t.FinishedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil //nolint:nilnil // nil signals "not found"
+		}
+		return nil, fmt.Errorf("get open worker task by assignment: %w", err)
 	}
 	t.Status = domain.WorkerTaskStatus(status)
 	return &t, nil
@@ -273,7 +589,7 @@ func (q *Queries) GetOpenWorkerTaskByRunID(ctx context.Context, workerID, projec
 	var t domain.WorkerTask
 	var status string
 	err := q.db.QueryRow(ctx,
-		`SELECT id, worker_id, run_id, project_id, status, assigned_at, accepted_at, finished_at
+		`SELECT id, worker_id, run_id, project_id, attempt, status, assigned_at, accepted_at, finished_at
 		 FROM worker_tasks
 		 WHERE worker_id = $1
 		   AND project_id = $2
@@ -282,7 +598,7 @@ func (q *Queries) GetOpenWorkerTaskByRunID(ctx context.Context, workerID, projec
 		 ORDER BY assigned_at DESC
 		 LIMIT 1`,
 		workerID, projectID, runID,
-	).Scan(&t.ID, &t.WorkerID, &t.RunID, &t.ProjectID, &status, &t.AssignedAt, &t.AcceptedAt, &t.FinishedAt)
+	).Scan(&t.ID, &t.WorkerID, &t.RunID, &t.ProjectID, &t.Attempt, &status, &t.AssignedAt, &t.AcceptedAt, &t.FinishedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil //nolint:nilnil // nil signals "not found"
@@ -303,7 +619,7 @@ func (q *Queries) ListWorkerTasksByWorker(ctx context.Context, workerID, project
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListWorkerTasksByWorker")
 	defer span.End()
 
-	query := `SELECT id, worker_id, run_id, project_id, status, assigned_at, accepted_at, finished_at
+	query := `SELECT id, worker_id, run_id, project_id, attempt, status, assigned_at, accepted_at, finished_at
 	          FROM worker_tasks WHERE worker_id = $1 AND project_id = $2`
 	args := []any{workerID, projectID}
 	param := 3
@@ -327,7 +643,7 @@ func (q *Queries) ListWorkerTasksByWorker(ctx context.Context, workerID, project
 	for rows.Next() {
 		var t domain.WorkerTask
 		var s string
-		if err := rows.Scan(&t.ID, &t.WorkerID, &t.RunID, &t.ProjectID, &s, &t.AssignedAt, &t.AcceptedAt, &t.FinishedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.WorkerID, &t.RunID, &t.ProjectID, &t.Attempt, &s, &t.AssignedAt, &t.AcceptedAt, &t.FinishedAt); err != nil {
 			return nil, fmt.Errorf("list worker tasks scan: %w", err)
 		}
 		t.Status = domain.WorkerTaskStatus(s)
@@ -342,13 +658,13 @@ func (q *Queries) RequeueOpenWorkerTasks(ctx context.Context, workerID, projectI
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.RequeueOpenWorkerTasks")
 	defer span.End()
 
-	txb, ok := q.db.(TxBeginner)
+	_, ok := q.db.(TxBeginner)
 	if !ok {
 		return 0, fmt.Errorf("requeue open worker tasks requires transaction support")
 	}
 
 	var affected int64
-	err := WithTx(ctx, txb, func(txQ *Queries) error {
+	err := q.withTx(ctx, func(txQ *Queries) error {
 		const query = `
 			WITH open_tasks AS (
 				SELECT id, run_id
@@ -387,4 +703,24 @@ func (q *Queries) RequeueOpenWorkerTasks(ctx context.Context, workerID, projectI
 	}
 
 	return affected, nil
+}
+
+func buildWorkerTaskResult(status *string, output []byte, errText *string, durationMS *int64, receivedAt *time.Time) *domain.WorkerTaskResult {
+	if status == nil && len(output) == 0 && errText == nil && durationMS == nil && receivedAt == nil {
+		return nil
+	}
+	result := &domain.WorkerTaskResult{ReceivedAt: receivedAt}
+	if status != nil {
+		result.Status = *status
+	}
+	if len(output) > 0 {
+		result.Output = json.RawMessage(append([]byte(nil), output...))
+	}
+	if errText != nil {
+		result.Error = *errText
+	}
+	if durationMS != nil {
+		result.DurationMS = *durationMS
+	}
+	return result
 }

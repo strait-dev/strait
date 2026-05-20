@@ -8,13 +8,17 @@ import (
 )
 
 type fakeGCStore struct {
-	deleted int64
-	err     error
-	calls   int
+	deleted  int64
+	err      error
+	panicRun bool
+	calls    int
 }
 
 func (f *fakeGCStore) DeleteOrphanedHeartbeats(_ context.Context, _ int) (int64, error) {
 	f.calls++
+	if f.panicRun {
+		panic("heartbeat store panic")
+	}
 	return f.deleted, f.err
 }
 
@@ -66,6 +70,17 @@ func TestHeartbeatGC_DeleteError(t *testing.T) {
 	g := NewHeartbeatGC(s, HeartbeatGCConfig{})
 	if err := g.runOnce(context.Background()); err == nil {
 		t.Error("expected error propagation")
+	}
+}
+
+func TestHeartbeatGC_PanicReturnsError(t *testing.T) {
+	s := &fakeGCStore{panicRun: true}
+	g := NewHeartbeatGC(s, HeartbeatGCConfig{})
+	if err := g.runOnce(context.Background()); err == nil {
+		t.Fatal("runOnce error = nil, want recovered panic error")
+	}
+	if g.Iterations() != 1 {
+		t.Fatalf("iterations = %d, want 1", g.Iterations())
 	}
 }
 

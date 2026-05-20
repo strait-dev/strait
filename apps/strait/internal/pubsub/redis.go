@@ -67,10 +67,12 @@ func NewRedisClient(redisURL, sentinelMaster string, sentinelAddrs []string, poo
 		}
 		if redisURL != "" {
 			parsedOpts, err := redis.ParseURL(redisURL)
-			if err == nil {
-				opts.Password = parsedOpts.Password
-				opts.DB = parsedOpts.DB
+			if err != nil {
+				return nil, fmt.Errorf("parse redis sentinel url: %w", err)
 			}
+			opts.Password = parsedOpts.Password
+			opts.DB = parsedOpts.DB
+			opts.TLSConfig = parsedOpts.TLSConfig
 		}
 		pool.applyToFailover(opts)
 

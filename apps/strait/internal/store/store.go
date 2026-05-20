@@ -25,6 +25,7 @@ var (
 	ErrEnvironmentNotFound          = errors.New("environment not found")
 	ErrJobSecretNotFound            = errors.New("job secret not found")
 	ErrAuditEventNotFound           = errors.New("audit event not found")
+	ErrMemberLimitReached           = errors.New("member limit reached")
 	ErrRunNotFound                  = errors.New("run not found")
 	ErrRunConflict                  = errors.New("run status update conflict")
 	ErrRunLocked                    = errors.New("run row locked by another transaction")
@@ -35,6 +36,7 @@ var (
 	ErrWorkflowRunNotFound          = errors.New("workflow run not found")
 	ErrWorkflowStepRunNotFound      = errors.New("workflow step run not found")
 	ErrEventKeyConflict             = errors.New("event key conflict")
+	ErrEventTriggerConflict         = errors.New("event trigger status update conflict")
 	ErrWorkflowVersionNotFound      = errors.New("workflow version not found")
 	ErrDeploymentVersionNotFound    = errors.New("deployment version not found")
 	ErrNotificationChannelNotFound  = errors.New("notification channel not found")
@@ -308,15 +310,19 @@ type WorkflowStepRunStore interface {
 type EventTriggerStore interface {
 	CreateEventTrigger(ctx context.Context, trigger *domain.EventTrigger) error
 	GetEventTriggerByEventKey(ctx context.Context, eventKey string) (*domain.EventTrigger, error)
+	GetEventTriggerByEventKeyForProject(ctx context.Context, eventKey, projectID string) (*domain.EventTrigger, error)
 	GetEventTriggerByStepRunID(ctx context.Context, stepRunID string) (*domain.EventTrigger, error)
 	GetEventTriggerByJobRunID(ctx context.Context, jobRunID string) (*domain.EventTrigger, error)
 	UpdateEventTriggerStatus(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
+	UpdateEventTriggerStatusFrom(ctx context.Context, id string, from string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
 	ListExpiredEventTriggers(ctx context.Context) ([]domain.EventTrigger, error)
-	ListEventTriggersByProject(ctx context.Context, projectID, status, workflowRunID, sourceType string, limit int, cursor *time.Time) ([]domain.EventTrigger, error)
+	ListEventTriggersByProject(ctx context.Context, projectID, environmentID, status, workflowRunID, sourceType string, limit int, cursor *time.Time) ([]domain.EventTrigger, error)
 	CancelEventTriggersByWorkflowRun(ctx context.Context, workflowRunID string) (int64, error)
 	CancelEventTriggerByJobRun(ctx context.Context, jobRunID string) error
 	ListReceivedEventTriggersWithStaleSteps(ctx context.Context) ([]domain.EventTrigger, error)
 	DeleteEventTriggersFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error)
+	DeleteEventTriggersFinishedBeforeForProject(ctx context.Context, projectID, environmentID string, before time.Time, limit int) (int64, error)
+	CountEventTriggersFinishedBeforeForProject(ctx context.Context, projectID, environmentID string, before time.Time) (int64, error)
 	ReceiveEventAndRequeueRun(ctx context.Context, triggerID string, payload json.RawMessage, receivedAt time.Time, jobRunID string) error
 	SetEventTriggerSentBy(ctx context.Context, id, sentBy string) error
 	BatchReceiveEventTriggers(ctx context.Context, triggerIDs []string, payload json.RawMessage, receivedAt time.Time, sentBy string) ([]string, error)
@@ -498,6 +504,33 @@ type connAcquirer interface {
 }
 
 func WithTx(ctx context.Context, db TxBeginner, fn func(q *Queries) error) error {
+	return withTx(ctx, db, nil, fn)
+}
+
+func (q *Queries) withTx(ctx context.Context, fn func(q *Queries) error) error {
+	if q == nil {
+		return fmt.Errorf("with transaction: queries is nil")
+	}
+	if fn == nil {
+		return fmt.Errorf("with transaction: fn is nil")
+	}
+	beginner, ok := q.db.(TxBeginner)
+	if !ok {
+		return fmt.Errorf("with transaction: underlying db does not support transactions")
+	}
+	return withTx(ctx, beginner, q, fn)
+}
+
+// WithTxQueries runs fn inside a transaction whose Queries inherits this
+// instance's encryption, audit-signing, analytics, and test-hook configuration.
+func (q *Queries) WithTxQueries(ctx context.Context, fn func(q *Queries) error) error {
+	return q.withTx(ctx, fn)
+}
+
+func withTx(ctx context.Context, db TxBeginner, parent *Queries, fn func(q *Queries) error) error {
+	if fn == nil {
+		return fmt.Errorf("with transaction: fn is nil")
+	}
 	tx, err := db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
@@ -513,7 +546,11 @@ func WithTx(ctx context.Context, db TxBeginner, fn func(q *Queries) error) error
 		}
 	}()
 
-	if err := fn(New(tx)); err != nil {
+	txQ := New(tx)
+	if parent != nil {
+		txQ = parent.withDB(tx)
+	}
+	if err := fn(txQ); err != nil {
 		return err
 	}
 
@@ -568,6 +605,27 @@ func (q *Queries) WithTx(ctx context.Context, fn func(context.Context, DBTX) err
 // pgx.RepeatableRead for per-project retention trims so the DISTINCT
 // project-id SELECT and per-project DELETEs observe a consistent snapshot).
 func WithTxOptions(ctx context.Context, db TxBeginnerOptions, opts pgx.TxOptions, fn func(q *Queries) error) error {
+	return withTxOptions(ctx, db, opts, nil, fn)
+}
+
+func (q *Queries) withTxOptions(ctx context.Context, opts pgx.TxOptions, fn func(q *Queries) error) error {
+	if q == nil {
+		return fmt.Errorf("with transaction options: queries is nil")
+	}
+	if fn == nil {
+		return fmt.Errorf("with transaction options: fn is nil")
+	}
+	beginner, ok := q.db.(TxBeginnerOptions)
+	if !ok {
+		return fmt.Errorf("with transaction options: underlying db does not support transactions")
+	}
+	return withTxOptions(ctx, beginner, opts, q, fn)
+}
+
+func withTxOptions(ctx context.Context, db TxBeginnerOptions, opts pgx.TxOptions, parent *Queries, fn func(q *Queries) error) error {
+	if fn == nil {
+		return fmt.Errorf("with transaction options: fn is nil")
+	}
 	tx, err := db.BeginTx(ctx, opts)
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
@@ -583,7 +641,11 @@ func WithTxOptions(ctx context.Context, db TxBeginnerOptions, opts pgx.TxOptions
 		}
 	}()
 
-	if err := fn(New(tx)); err != nil {
+	txQ := New(tx)
+	if parent != nil {
+		txQ = parent.withDB(tx)
+	}
+	if err := fn(txQ); err != nil {
 		return err
 	}
 
@@ -619,7 +681,7 @@ func (q *Queries) ReleaseAdvisoryLock(ctx context.Context, lockID int64) error {
 // PostgreSQL connection for the full duration of fn. Use this for long-running
 // leader-election sections; TryAdvisoryLock/ReleaseAdvisoryLock can acquire and
 // release on different pooled connections when the underlying DBTX is a pool.
-func (q *Queries) RunWithAdvisoryLock(ctx context.Context, lockID int64, fn func(context.Context) error) (bool, error) {
+func (q *Queries) RunWithAdvisoryLock(ctx context.Context, lockID int64, fn func(context.Context) error) (acquired bool, err error) {
 	if q == nil {
 		return false, fmt.Errorf("run with advisory lock: queries is nil")
 	}
@@ -638,7 +700,6 @@ func (q *Queries) RunWithAdvisoryLock(ctx context.Context, lockID int64, fn func
 	}
 	defer conn.Release()
 
-	var acquired bool
 	if err := conn.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", lockID).Scan(&acquired); err != nil {
 		return false, fmt.Errorf("pg_try_advisory_lock: %w", err)
 	}
@@ -646,17 +707,21 @@ func (q *Queries) RunWithAdvisoryLock(ctx context.Context, lockID int64, fn func
 		return false, nil
 	}
 
-	runErr := fn(ctx)
+	defer func() {
+		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
 
-	var released bool
-	if err := conn.QueryRow(ctx, "SELECT pg_advisory_unlock($1)", lockID).Scan(&released); err != nil {
-		return true, errors.Join(runErr, fmt.Errorf("pg_advisory_unlock: %w", err))
-	}
-	if !released {
-		return true, errors.Join(runErr, fmt.Errorf("pg_advisory_unlock: lock %d was not held by pinned connection", lockID))
-	}
+		var released bool
+		if releaseErr := conn.QueryRow(releaseCtx, "SELECT pg_advisory_unlock($1)", lockID).Scan(&released); releaseErr != nil {
+			err = errors.Join(err, fmt.Errorf("pg_advisory_unlock: %w", releaseErr))
+			return
+		}
+		if !released {
+			err = errors.Join(err, fmt.Errorf("pg_advisory_unlock: lock %d was not held by pinned connection", lockID))
+		}
+	}()
 
-	return true, runErr
+	return true, fn(ctx)
 }
 
 func advisoryConnAcquirer(db DBTX) (connAcquirer, bool) {

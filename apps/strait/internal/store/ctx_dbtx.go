@@ -23,6 +23,25 @@ func ContextWithTx(ctx context.Context, tx pgx.Tx) context.Context {
 	return context.WithValue(ctx, ctxTxKey{}, tx)
 }
 
+type withoutTxContext struct {
+	context.Context
+}
+
+func (c withoutTxContext) Value(key any) any {
+	if key == (ctxTxKey{}) {
+		return nil
+	}
+	return c.Context.Value(key)
+}
+
+// ContextWithoutTx returns a context that preserves cancellation, deadlines,
+// and all non-store values from ctx while hiding any transaction installed by
+// ContextWithTx. Use it for detached background work that must outlive an
+// HTTP request transaction, such as best-effort cleanup after a panic.
+func ContextWithoutTx(ctx context.Context) context.Context {
+	return withoutTxContext{Context: ctx}
+}
+
 // TxFromContext returns the transaction previously stored via ContextWithTx,
 // or nil/false if none was set. Exported so middleware and tests can inspect
 // the bound transaction without reaching into the store package internals.

@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync/atomic"
 	"time"
@@ -98,29 +99,23 @@ func (g *IdempotencyGC) RunOnceForTest(ctx context.Context) error {
 	return g.runOnce(ctx)
 }
 
-func (g *IdempotencyGC) runOnce(ctx context.Context) error {
+func (g *IdempotencyGC) runOnce(ctx context.Context) (err error) {
 	defer func() {
 		g.iterations.Add(1)
 		if r := recover(); r != nil {
 			g.logger.Warn("idempotency GC panic recovered", "panic", r)
+			err = fmt.Errorf("idempotency GC panic: %v", r)
 		}
 	}()
 
-	if g.advisoryLocker != nil {
-		acquired, err := g.advisoryLocker.TryAdvisoryLock(ctx, idempotencyGCAdvisoryLockID)
-		if err != nil {
-			return err
-		}
-		if !acquired {
-			return nil
-		}
-		defer func() {
-			if err := g.advisoryLocker.ReleaseAdvisoryLock(ctx, idempotencyGCAdvisoryLockID); err != nil {
-				g.logger.Debug("idempotency GC lock release failed", "error", err)
-			}
-		}()
+	acquired, err := runWithOptionalAdvisoryLock(ctx, g.advisoryLocker, idempotencyGCAdvisoryLockID, g.runLocked)
+	if err != nil || !acquired {
+		return err
 	}
+	return nil
+}
 
+func (g *IdempotencyGC) runLocked(ctx context.Context) error {
 	deleted, err := g.store.DeleteExpiredIdempotencyEntries(ctx, g.batchLimit)
 	if err != nil {
 		g.logger.Warn("idempotency GC delete failed", "error", err)
