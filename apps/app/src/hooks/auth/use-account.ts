@@ -3,9 +3,14 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
+import { createServerFn } from "@tanstack/react-start";
+import { getRequestHeaders } from "@tanstack/react-start/server";
+import z from "zod/v4";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
+import { getAuth } from "@/lib/auth.server";
 import { authClient } from "@/lib/auth-client";
+import { authMiddleware } from "@/middlewares/auth";
 
 type Account = {
   id: string;
@@ -21,12 +26,55 @@ type Passkey = {
 
 type Session = {
   id: string;
-  token: string;
   createdAt: string | Date;
   updatedAt: string | Date;
   ipAddress: string | null;
   userAgent: string | null;
+  isCurrent: boolean;
 };
+
+type RawAuthSession = Omit<Session, "isCurrent"> & {
+  token: string;
+};
+
+const listSessionsServerFn = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async () => {
+    const headers = getRequestHeaders();
+    const [sessions, currentSession] = await Promise.all([
+      (await getAuth()).api.listSessions({ headers }),
+      (await getAuth()).api.getSession({ headers }),
+    ]);
+    const currentToken = currentSession?.session?.token ?? null;
+    return ((sessions ?? []) as unknown as RawAuthSession[]).map(
+      ({ token, ...session }) => ({
+        ...session,
+        isCurrent: token === currentToken,
+      })
+    );
+  });
+
+const revokeSessionServerFn = createServerFn({ method: "POST" })
+  .inputValidator((data: { sessionId: string }) =>
+    z.object({ sessionId: z.string().min(1) }).parse(data)
+  )
+  .middleware([authMiddleware])
+  .handler(async ({ data }) => {
+    const headers = getRequestHeaders();
+    const sessions = ((await (
+      await getAuth()
+    ).api.listSessions({
+      headers,
+    })) ?? []) as unknown as RawAuthSession[];
+    const session = sessions.find((item) => item.id === data.sessionId);
+    if (!session) {
+      throw new Error("Session not found");
+    }
+    await (await getAuth()).api.revokeSession({
+      body: { token: session.token },
+      headers,
+    });
+  });
 
 /** Query options for fetching linked authentication accounts (Google, GitHub, credential). */
 export const accountsQueryOptions = () =>
@@ -62,23 +110,7 @@ export const passkeysQueryOptions = () =>
 export const sessionsQueryOptions = () =>
   queryOptions({
     queryKey: queryKeys.auth.sessions.queryKey,
-    queryFn: async () => {
-      const [sessionsResult, sessionResult] = await Promise.all([
-        authClient.listSessions(),
-        authClient.getSession(),
-      ]);
-
-      if (sessionsResult.error) {
-        throw new Error(
-          sessionsResult.error.message ?? "Failed to load sessions"
-        );
-      }
-
-      return {
-        sessions: (sessionsResult.data ?? []) as unknown as Session[],
-        currentToken: sessionResult.data?.session?.token ?? null,
-      };
-    },
+    queryFn: async () => ({ sessions: await listSessionsServerFn() }),
     staleTime: DEFAULT_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
   });
@@ -146,13 +178,8 @@ export const useDeletePasskey = () => {
 export const useRevokeSession = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (token: string) => {
-      const result = await authClient.revokeSession({ token });
-      if (result.error) {
-        throw new Error(result.error.message ?? "Failed to revoke session");
-      }
-      return result.data;
-    },
+    mutationFn: (sessionId: string) =>
+      revokeSessionServerFn({ data: { sessionId } }),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.auth.sessions.queryKey,

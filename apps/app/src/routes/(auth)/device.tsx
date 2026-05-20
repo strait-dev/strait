@@ -13,7 +13,7 @@ const deviceSearchSchema = z.object({
 });
 
 type ApproveResponse = {
-  approved: boolean;
+  status: string;
 };
 
 const approveDeviceCode = createServerFn({ method: "POST" })
@@ -23,15 +23,20 @@ const approveDeviceCode = createServerFn({ method: "POST" })
     })
   )
   .middleware([authMiddleware])
-  .handler(
-    async ({ data }) =>
-      await apiRequest<ApproveResponse>("/v1/cli/auth/approve", {
-        method: "POST",
-        body: {
-          user_code: data.userCode,
-        },
-      })
-  );
+  .handler(async ({ context, data }) => {
+    const projectId = context.activeProjectId;
+    if (!projectId) {
+      throw new Error("Select a project before authorizing a device");
+    }
+    return await apiRequest<ApproveResponse>("/v1/cli/device-codes/approve", {
+      method: "POST",
+      projectId,
+      body: {
+        project_id: projectId,
+        user_code: data.userCode,
+      },
+    });
+  });
 
 export const Route = createFileRoute("/(auth)/device")({
   validateSearch: deviceSearchSchema,

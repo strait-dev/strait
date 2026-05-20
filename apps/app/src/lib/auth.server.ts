@@ -482,6 +482,9 @@ const createAuth = () => {
       },
     },
     user: {
+      changeEmail: {
+        enabled: true,
+      },
       additionalFields: {
         defaultOrganizationId: {
           type: "string",
