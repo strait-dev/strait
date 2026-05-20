@@ -328,6 +328,56 @@ func TestGetCostGateDefaultAction(t *testing.T) {
 	}
 }
 
+func TestGetCostGateDefaultAction_UsesVersionSnapshot(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-cost-gate-snapshot-" + newID()
+	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
+		ProjectID: new(projectID),
+		Name:      new("workflow-" + newID()),
+		Slug:      new("workflow-slug-" + newID()),
+	})
+	stepJob := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(projectID)})
+	stepRef := "cost-gate-" + newID()
+	step := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, &testutil.WorkflowStepOpts{
+		JobID:   new(stepJob.ID),
+		StepRef: new(stepRef),
+	})
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE workflow_steps
+		SET cost_gate_default_action = 'reject'
+		WHERE id = $1
+	`, step.ID); err != nil {
+		t.Fatalf("set snapshot cost gate action: %v", err)
+	}
+	if err := q.CreateWorkflowVersionSnapshot(ctx, wf.ID, 1); err != nil {
+		t.Fatalf("CreateWorkflowVersionSnapshot() error = %v", err)
+	}
+
+	wfRun := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID)})
+	stepRun := testutil.MustCreateWorkflowStepRun(t, ctx, q, wfRun.ID, step.ID, &testutil.WorkflowStepRunOpts{
+		Status:  new(domain.StepWaiting),
+		StepRef: new(stepRef),
+	})
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE workflow_steps
+		SET cost_gate_default_action = 'approve'
+		WHERE id = $1
+	`, step.ID); err != nil {
+		t.Fatalf("mutate live cost gate action: %v", err)
+	}
+
+	action, err := q.GetCostGateDefaultAction(ctx, stepRun.ID)
+	if err != nil {
+		t.Fatalf("GetCostGateDefaultAction() error = %v", err)
+	}
+	if action != "reject" {
+		t.Fatalf("GetCostGateDefaultAction() = %q, want snapshot action reject", action)
+	}
+}
+
 func TestListOrphanedStepRuns_Empty(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

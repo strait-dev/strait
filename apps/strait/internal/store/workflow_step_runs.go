@@ -639,10 +639,12 @@ func (q *Queries) GetCostGateDefaultAction(ctx context.Context, stepRunID string
 	defer span.End()
 
 	query := `
-		SELECT COALESCE(ws.cost_gate_default_action, '')
+		SELECT COALESCE(wvs.cost_gate_default_action, '')
 		FROM workflow_step_runs wsr
 		JOIN workflow_runs wr ON wr.id = wsr.workflow_run_id
-		JOIN workflow_steps ws ON ws.workflow_id = wr.workflow_id AND ws.step_ref = wsr.step_ref
+		JOIN workflow_version_steps wvs
+		  ON wvs.workflow_version_id = wr.workflow_id || ':v' || wr.workflow_version
+		 AND wvs.step_ref = wsr.step_ref
 		WHERE wsr.id = $1`
 
 	var action string
