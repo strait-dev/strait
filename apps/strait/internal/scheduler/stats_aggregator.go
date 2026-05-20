@@ -3,6 +3,8 @@ package scheduler
 import (
 	"context"
 	"log/slog"
+	"slices"
+	"sync"
 	"time"
 )
 
@@ -17,6 +19,9 @@ type StatsAggregator struct {
 	store          StatsAggregatorStore
 	advisoryLocker AdvisoryLocker
 	logger         *slog.Logger
+	now            func() time.Time
+	retryMu        sync.Mutex
+	retryHours     []time.Time
 }
 
 // statsAggregatorLockID is the pg_advisory_lock key for single-leader aggregation.
@@ -27,6 +32,7 @@ func NewStatsAggregator(s StatsAggregatorStore) *StatsAggregator {
 	return &StatsAggregator{
 		store:  s,
 		logger: slog.Default(),
+		now:    time.Now,
 	}
 }
 
@@ -52,17 +58,40 @@ func (a *StatsAggregator) Run(ctx context.Context) {
 }
 
 func (a *StatsAggregator) runLocked(ctx context.Context) error {
-	previousHour := time.Now().Add(-time.Hour).Truncate(time.Hour)
-	if err := a.store.AggregateHourlyStats(ctx, previousHour); err != nil {
-		a.logger.Error("failed to aggregate hourly stats", "hour", previousHour, "error", err)
-		return nil
-	}
-	a.logger.Info("aggregated hourly stats", "hour", previousHour)
+	previousHour := a.now().Add(-time.Hour).Truncate(time.Hour)
+	failed := make([]time.Time, 0)
+	for _, hour := range a.hoursToAggregate(previousHour) {
+		if err := a.store.AggregateHourlyStats(ctx, hour); err != nil {
+			a.logger.Error("failed to aggregate hourly stats", "hour", hour, "error", err)
+			failed = append(failed, hour)
+			continue
+		}
+		a.logger.Info("aggregated hourly stats", "hour", hour)
 
-	if err := a.store.AggregateCostStatsHourly(ctx, previousHour); err != nil {
-		a.logger.Error("failed to aggregate cost stats hourly", "hour", previousHour, "error", err)
-		return nil
+		if err := a.store.AggregateCostStatsHourly(ctx, hour); err != nil {
+			a.logger.Error("failed to aggregate cost stats hourly", "hour", hour, "error", err)
+			failed = append(failed, hour)
+			continue
+		}
+		a.logger.Info("aggregated cost stats hourly", "hour", hour)
 	}
-	a.logger.Info("aggregated cost stats hourly", "hour", previousHour)
+	a.setRetryHours(failed)
 	return nil
+}
+
+func (a *StatsAggregator) hoursToAggregate(previousHour time.Time) []time.Time {
+	a.retryMu.Lock()
+	defer a.retryMu.Unlock()
+
+	hours := slices.Clone(a.retryHours)
+	if !slices.ContainsFunc(hours, func(hour time.Time) bool { return hour.Equal(previousHour) }) {
+		hours = append(hours, previousHour)
+	}
+	return hours
+}
+
+func (a *StatsAggregator) setRetryHours(hours []time.Time) {
+	a.retryMu.Lock()
+	defer a.retryMu.Unlock()
+	a.retryHours = slices.Clone(hours)
 }
