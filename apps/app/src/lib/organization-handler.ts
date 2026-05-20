@@ -10,7 +10,7 @@ import z from "zod/v4";
 import { apiPath } from "@/lib/api-client.server";
 import { getAuth, getAuthPool } from "@/lib/auth.server";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
-import { kvGet, kvSet } from "@/lib/kv.server";
+import { kvGet, kvGetDelete, kvSet, kvSetIfAbsent } from "@/lib/kv.server";
 import { ensureProjectTable } from "@/lib/project-handler";
 import { getResend } from "@/lib/resend.server";
 import type {
@@ -30,6 +30,40 @@ import { authMiddleware } from "@/middlewares/auth";
 type ProjectRow = {
   id: string;
 };
+
+type DeletionOperation = "delete" | "purge";
+
+const COOLDOWN_SECONDS = 60;
+const CODE_TTL_SECONDS = 300;
+const TOKEN_TTL_SECONDS = 300;
+
+function deletionCodeKey(organizationId: string, userId: string): string {
+  return `org-deletion:${organizationId}:${userId}`;
+}
+
+function deletionCooldownKey(organizationId: string, userId: string): string {
+  return `org-deletion-cooldown:${organizationId}:${userId}`;
+}
+
+function deletionTokenKey(
+  organizationId: string,
+  userId: string,
+  operation: DeletionOperation
+): string {
+  return `org-deletion-token:${operation}:${organizationId}:${userId}`;
+}
+
+function remainingCooldownSeconds(stored: string | null): number {
+  if (!stored) {
+    return 0;
+  }
+  const now = Date.now();
+  const then = Number.parseInt(stored, 10);
+  if (!Number.isFinite(then)) {
+    return 0;
+  }
+  return Math.max(0, Math.ceil((then + COOLDOWN_SECONDS * 1000 - now) / 1000));
+}
 
 /**
  * Server function to create a new organization.
@@ -223,22 +257,11 @@ export const requestOrganizationDeletionServerFn = createServerFn({
   .handler(async ({ context, data }) => {
     const { organizationId } = data;
 
-    const cooldownKey = `org-deletion-cooldown:${organizationId}:${context.user.id}`;
+    const cooldownKey = deletionCooldownKey(organizationId, context.user.id);
     const lastRequestTime = await kvGet(cooldownKey);
-    const now = Date.now();
+    const remainingTime = remainingCooldownSeconds(lastRequestTime);
 
-    const COOLDOWN_TIME = 60_000;
-    const THOUSAND = 1000;
-
-    if (
-      lastRequestTime &&
-      now - Number.parseInt(lastRequestTime as string, 10) < COOLDOWN_TIME
-    ) {
-      const remainingTime = Math.ceil(
-        (Number.parseInt(lastRequestTime as string, 10) + COOLDOWN_TIME - now) /
-          THOUSAND
-      );
-
+    if (remainingTime > 0) {
       return {
         success: true,
         cooldownRemaining: remainingTime,
@@ -260,16 +283,28 @@ export const requestOrganizationDeletionServerFn = createServerFn({
       throw new Error("Organization not found");
     }
 
-    const key = `org-deletion:${organizationId}:${context.user.id}`;
-
     const SIX_DIGIT_CODE_LENGTH = 6;
-    const FIVE_MINUTES_S = 300;
-    const COOLDOWN_TIME_S = 60;
+    const now = Date.now();
+    const cooldownAcquired = await kvSetIfAbsent(cooldownKey, now.toString(), {
+      ex: COOLDOWN_SECONDS,
+    });
+
+    if (!cooldownAcquired) {
+      return {
+        success: true,
+        cooldownRemaining: COOLDOWN_SECONDS,
+      };
+    }
 
     const verificationCode = nanoid(SIX_DIGIT_CODE_LENGTH);
 
-    await kvSet(key, verificationCode, { ex: FIVE_MINUTES_S });
-    await kvSet(cooldownKey, now.toString(), { ex: COOLDOWN_TIME_S });
+    await kvSet(
+      deletionCodeKey(organizationId, context.user.id),
+      verificationCode,
+      {
+        ex: CODE_TTL_SECONDS,
+      }
+    );
 
     await getResend().emails.send({
       from: "Strait <noreply@strait.dev>",
@@ -284,7 +319,7 @@ export const requestOrganizationDeletionServerFn = createServerFn({
 
     return {
       success: true,
-      cooldownRemaining: COOLDOWN_TIME,
+      cooldownRemaining: COOLDOWN_SECONDS,
     };
   });
 
@@ -300,8 +335,8 @@ export const verifyOrganizationDeletionServerFn = createServerFn({
   )
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
-    const key = `org-deletion:${data.organizationId}:${context.user.id}`;
-    const storedCode = await kvGet(key);
+    const key = deletionCodeKey(data.organizationId, context.user.id);
+    const storedCode = await kvGetDelete(key);
 
     const storedCodeStr = storedCode ? storedCode.toString() : null;
     const inputCodeStr = data.verificationCode;
@@ -313,12 +348,15 @@ export const verifyOrganizationDeletionServerFn = createServerFn({
     }
 
     const ONE_TIME_TOKEN_LENGTH = 15;
-    const FIVE_MINUTES_S = 300;
 
     const verificationToken = `${context.user.id}-${Date.now()}-${nanoid(ONE_TIME_TOKEN_LENGTH)}`;
 
-    const tokenKey = `org-deletion-token:${data.organizationId}:${context.user.id}`;
-    await kvSet(tokenKey, verificationToken, { ex: FIVE_MINUTES_S });
+    const tokenKey = deletionTokenKey(
+      data.organizationId,
+      context.user.id,
+      data.operation
+    );
+    await kvSet(tokenKey, verificationToken, { ex: TOKEN_TTL_SECONDS });
 
     return {
       success: true,
@@ -340,8 +378,12 @@ export const deleteOrganizationWithTokenServerFn = createServerFn({
   .handler(async ({ context, data }) => {
     const { organizationId, verificationToken, nextOrganizationId } = data;
 
-    const tokenKey = `org-deletion-token:${organizationId}:${context.user.id}`;
-    const storedToken = await kvGet(tokenKey);
+    const tokenKey = deletionTokenKey(
+      organizationId,
+      context.user.id,
+      "delete"
+    );
+    const storedToken = await kvGetDelete(tokenKey);
 
     if (!storedToken || storedToken !== verificationToken) {
       return {
@@ -432,8 +474,8 @@ export const purgeOrganizationWithTokenServerFn = createServerFn({
   .handler(async ({ context, data }) => {
     const { organizationId, verificationToken } = data;
 
-    const tokenKey = `org-deletion-token:${organizationId}:${context.user.id}`;
-    const storedToken = await kvGet(tokenKey);
+    const tokenKey = deletionTokenKey(organizationId, context.user.id, "purge");
+    const storedToken = await kvGetDelete(tokenKey);
 
     if (!storedToken || storedToken !== verificationToken) {
       return {
@@ -508,22 +550,11 @@ export const resendOrganizationDeletionCodeServerFn = createServerFn({
   .handler(async ({ context, data }) => {
     const { organizationId } = data;
 
-    const cooldownKey = `org-deletion-cooldown:${organizationId}:${context.user.id}`;
+    const cooldownKey = deletionCooldownKey(organizationId, context.user.id);
     const lastRequestTime = await kvGet(cooldownKey);
-    const now = Date.now();
+    const remainingTime = remainingCooldownSeconds(lastRequestTime);
 
-    const COOLDOWN_TIME = 60_000;
-    const THOUSAND = 1000;
-
-    if (
-      lastRequestTime &&
-      now - Number.parseInt(lastRequestTime as string, 10) < COOLDOWN_TIME
-    ) {
-      const remainingTime = Math.ceil(
-        (Number.parseInt(lastRequestTime as string, 10) + COOLDOWN_TIME - now) /
-          THOUSAND
-      );
-
+    if (remainingTime > 0) {
       return {
         success: false,
         message: "Please wait 60 seconds before requesting a new code",
@@ -539,16 +570,29 @@ export const resendOrganizationDeletionCodeServerFn = createServerFn({
       throw new Error("Organization not found");
     }
 
-    const key = `org-deletion:${organizationId}:${context.user.id}`;
-
     const SIX_DIGIT_CODE_LENGTH = 6;
-    const FIVE_MINUTES_S = 300;
-    const COOLDOWN_TIME_S = 60;
+    const now = Date.now();
+    const cooldownAcquired = await kvSetIfAbsent(cooldownKey, now.toString(), {
+      ex: COOLDOWN_SECONDS,
+    });
+
+    if (!cooldownAcquired) {
+      return {
+        success: false,
+        message: "Please wait 60 seconds before requesting a new code",
+        cooldownRemaining: COOLDOWN_SECONDS,
+      } satisfies z.infer<typeof ResendOrganizationDeletionCodeResponseSchema>;
+    }
 
     const verificationCode = nanoid(SIX_DIGIT_CODE_LENGTH);
 
-    await kvSet(key, verificationCode, { ex: FIVE_MINUTES_S });
-    await kvSet(cooldownKey, now.toString(), { ex: COOLDOWN_TIME_S });
+    await kvSet(
+      deletionCodeKey(organizationId, context.user.id),
+      verificationCode,
+      {
+        ex: CODE_TTL_SECONDS,
+      }
+    );
 
     await getResend().emails.send({
       from: "Strait <hello@usestrait.com>",
@@ -563,7 +607,7 @@ export const resendOrganizationDeletionCodeServerFn = createServerFn({
 
     return {
       success: true,
-      cooldownRemaining: COOLDOWN_TIME,
+      cooldownRemaining: COOLDOWN_SECONDS,
     } satisfies z.infer<typeof ResendOrganizationDeletionCodeResponseSchema>;
   });
 
@@ -582,8 +626,12 @@ export const deleteLastOrganizationWithTokenServerFn = createServerFn({
   .handler(async ({ context, data }) => {
     const { organizationId, verificationToken } = data;
 
-    const tokenKey = `org-deletion-token:${organizationId}:${context.user.id}`;
-    const storedToken = await kvGet(tokenKey);
+    const tokenKey = deletionTokenKey(
+      organizationId,
+      context.user.id,
+      "delete"
+    );
+    const storedToken = await kvGetDelete(tokenKey);
 
     if (!storedToken || storedToken !== verificationToken) {
       return {

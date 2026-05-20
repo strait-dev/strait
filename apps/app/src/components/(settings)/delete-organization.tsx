@@ -138,6 +138,7 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
       setStep("deleting");
       const result = await verifyDeletion.mutateAsync({
         organizationId,
+        operation: "delete",
         verificationCode,
       });
 

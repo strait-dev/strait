@@ -33,6 +33,7 @@ export const RequestOrganizationDeletionSchema = z.object({
 export const VerifyOrganizationDeletionSchema = z.object({
   organizationId: z.string({ message: "Invalid organization ID" }),
   verificationCode: z.string({ message: "Invalid verification code" }),
+  operation: z.enum(["delete", "purge"]).default("delete"),
 });
 
 export const VerifyOrganizationDeletionResponseSchema = z.object({
