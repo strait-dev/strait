@@ -290,7 +290,7 @@ func (q *Queries) DeactivateExcessLogDrains(ctx context.Context, orgID string, m
 			SELECT ld.id FROM log_drains ld
 			WHERE ld.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
 			  AND ld.enabled = true
-			ORDER BY ld.created_at ASC
+			ORDER BY ld.created_at DESC, ld.id DESC
 			OFFSET $2
 		)
 	`, orgID, maxDrains)

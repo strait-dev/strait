@@ -591,3 +591,59 @@ func TestDeactivateExcessWebhookSubscriptions(t *testing.T) {
 		t.Fatalf("count after deactivation = %d, want 2", count)
 	}
 }
+
+func TestDeactivateExcessLogDrains_DisablesOldest(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	orgID := "org-log-drain-trim-" + newID()
+	projectID := "proj-log-drain-trim-" + newID()
+	if err := q.CreateProject(ctx, &domain.Project{ID: projectID, OrgID: orgID, Name: "P"}); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+
+	baseTime := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	ids := make([]string, 4)
+	for i := range ids {
+		ids[i] = "drain-trim-" + newID()
+		drain := &domain.LogDrain{
+			ID:          ids[i],
+			ProjectID:   projectID,
+			Name:        "drain",
+			DrainType:   "http",
+			EndpointURL: "https://example.com/logs",
+			AuthType:    "none",
+			Enabled:     true,
+		}
+		if err := q.CreateLogDrain(ctx, drain); err != nil {
+			t.Fatalf("CreateLogDrain(%d) error = %v", i, err)
+		}
+		if _, err := testDB.Pool.Exec(ctx, `
+			UPDATE log_drains
+			SET created_at = $2, updated_at = $2
+			WHERE id = $1
+		`, ids[i], baseTime.Add(time.Duration(i)*time.Minute)); err != nil {
+			t.Fatalf("set log drain created_at(%d): %v", i, err)
+		}
+	}
+
+	deactivated, err := q.DeactivateExcessLogDrains(ctx, orgID, 2)
+	if err != nil {
+		t.Fatalf("DeactivateExcessLogDrains() error = %v", err)
+	}
+	if deactivated != 2 {
+		t.Fatalf("deactivated = %d, want 2", deactivated)
+	}
+
+	for i, id := range ids {
+		var enabled bool
+		if err := testDB.Pool.QueryRow(ctx, `SELECT enabled FROM log_drains WHERE id = $1`, id).Scan(&enabled); err != nil {
+			t.Fatalf("query log drain %d enabled: %v", i, err)
+		}
+		wantEnabled := i >= 2
+		if enabled != wantEnabled {
+			t.Fatalf("log drain %d enabled = %v, want %v", i, enabled, wantEnabled)
+		}
+	}
+}
