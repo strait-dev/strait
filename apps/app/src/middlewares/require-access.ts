@@ -1,5 +1,62 @@
 import { getAuthPool } from "@/lib/auth.server";
 
+export type OrganizationRole = "owner" | "admin" | "member";
+
+const roleRank: Record<OrganizationRole, number> = {
+  member: 1,
+  admin: 2,
+  owner: 3,
+};
+
+function parseStoredRoles(role: unknown): OrganizationRole[] {
+  if (typeof role !== "string") {
+    return [];
+  }
+
+  return role
+    .split(",")
+    .map((value) => value.trim())
+    .filter(
+      (value): value is OrganizationRole =>
+        value === "owner" || value === "admin" || value === "member"
+    );
+}
+
+function hasRequiredRole(
+  storedRole: unknown,
+  minimumRole: OrganizationRole
+): boolean {
+  return parseStoredRoles(storedRole).some(
+    (role) => roleRank[role] >= roleRank[minimumRole]
+  );
+}
+
+export async function getOrganizationRole(
+  userId: string,
+  organizationId: string
+): Promise<OrganizationRole | null> {
+  if (!(userId && organizationId)) {
+    throw new Error("Forbidden");
+  }
+
+  const result = await getAuthPool().query<{ role: string }>(
+    'SELECT "role" FROM member WHERE "userId" = $1 AND "organizationId" = $2 LIMIT 1',
+    [userId, organizationId]
+  );
+
+  const roles = parseStoredRoles(result.rows[0]?.role);
+  if (roles.includes("owner")) {
+    return "owner";
+  }
+  if (roles.includes("admin")) {
+    return "admin";
+  }
+  if (roles.includes("member")) {
+    return "member";
+  }
+  return null;
+}
+
 /**
  * Validates that the user is a member of the given organization.
  * Throws "Forbidden" if not.
@@ -18,6 +75,25 @@ export async function requireOrgAccess(
   );
 
   if (result.rowCount === 0) {
+    throw new Error("Forbidden");
+  }
+}
+
+export async function requireOrgRole(
+  userId: string,
+  organizationId: string,
+  minimumRole: OrganizationRole
+): Promise<void> {
+  if (!(userId && organizationId)) {
+    throw new Error("Forbidden");
+  }
+
+  const result = await getAuthPool().query<{ role: string }>(
+    'SELECT "role" FROM member WHERE "userId" = $1 AND "organizationId" = $2 LIMIT 1',
+    [userId, organizationId]
+  );
+
+  if (!hasRequiredRole(result.rows[0]?.role, minimumRole)) {
     throw new Error("Forbidden");
   }
 }
@@ -47,4 +123,36 @@ export async function requireProjectAccess(
   if (result.rowCount === 0) {
     throw new Error("Forbidden");
   }
+}
+
+export async function requireProjectRole(
+  userId: string,
+  projectId: string,
+  activeOrganizationId: string | undefined,
+  minimumRole: OrganizationRole
+): Promise<void> {
+  await requireProjectAccess(userId, projectId, activeOrganizationId);
+  await requireOrgRole(userId, activeOrganizationId ?? "", minimumRole);
+}
+
+export async function requireOrgAdmin(
+  userId: string,
+  organizationId: string
+): Promise<void> {
+  await requireOrgRole(userId, organizationId, "admin");
+}
+
+export async function requireOrgOwner(
+  userId: string,
+  organizationId: string
+): Promise<void> {
+  await requireOrgRole(userId, organizationId, "owner");
+}
+
+export async function requireProjectAdmin(
+  userId: string,
+  projectId: string,
+  activeOrganizationId: string | undefined
+): Promise<void> {
+  await requireProjectRole(userId, projectId, activeOrganizationId, "admin");
 }

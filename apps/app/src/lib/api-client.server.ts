@@ -21,6 +21,61 @@ export type RequestOptions = {
   responseType?: "json" | "text" | "arraybuffer";
 };
 
+const encodedRouteControlPattern = /%(?:2e|2f|5c)/i;
+const routeControlCharPattern = /[/?#\\]/;
+
+function validateRawApiPath(path: string): void {
+  if (!path.startsWith("/")) {
+    throw new Error("API path must be absolute");
+  }
+  if (path.startsWith("//")) {
+    throw new Error("API path cannot be protocol-relative");
+  }
+  if (path.includes("?") || path.includes("#")) {
+    throw new Error("API path cannot contain query or fragment syntax");
+  }
+  if (path.includes("\\")) {
+    throw new Error("API path cannot contain backslashes");
+  }
+  if (encodedRouteControlPattern.test(path)) {
+    throw new Error("API path cannot contain encoded route-control bytes");
+  }
+
+  for (const segment of path.split("/")) {
+    if (segment === "." || segment === "..") {
+      throw new Error("API path cannot contain dot segments");
+    }
+  }
+}
+
+export function apiPathSegment(value: string): string {
+  if (!value) {
+    throw new Error("API path segment cannot be empty");
+  }
+  if (value === "." || value === "..") {
+    throw new Error("API path segment cannot be a dot segment");
+  }
+  if (routeControlCharPattern.test(value)) {
+    throw new Error("API path segment contains route-control characters");
+  }
+  if (encodedRouteControlPattern.test(value)) {
+    throw new Error("API path segment contains encoded route-control bytes");
+  }
+  return encodeURIComponent(value);
+}
+
+export function apiPath(
+  strings: TemplateStringsArray,
+  ...segments: Array<string | number>
+): string {
+  let path = strings[0] ?? "";
+  for (let i = 0; i < segments.length; i += 1) {
+    path += apiPathSegment(String(segments[i])) + (strings[i + 1] ?? "");
+  }
+  validateRawApiPath(path);
+  return path;
+}
+
 /** Resolve the active project ID from the current session. */
 async function resolveProjectId(): Promise<string | undefined> {
   try {
@@ -34,15 +89,6 @@ async function resolveProjectId(): Promise<string | undefined> {
         return activeProjectId;
       }
     }
-
-    // Fallback to activeOrganizationId for backwards compatibility
-    if (session?.session) {
-      const activeOrgId = (session.session as Record<string, unknown>)
-        .activeOrganizationId;
-      if (typeof activeOrgId === "string" && activeOrgId) {
-        return activeOrgId;
-      }
-    }
   } catch {
     // Session resolution is best-effort
   }
@@ -54,7 +100,11 @@ function buildUrl(
   path: string,
   params?: Record<string, string | number | boolean | undefined>
 ): URL {
+  validateRawApiPath(path);
   const url = new URL(path, getApiBaseUrl());
+  if (url.pathname !== path) {
+    throw new Error("API path was normalized unexpectedly");
+  }
   if (params) {
     for (const [key, value] of Object.entries(params)) {
       if (value !== undefined && value !== "") {
