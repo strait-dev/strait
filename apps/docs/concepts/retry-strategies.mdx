@@ -1,10 +1,10 @@
 ---
 title: "Retry Strategies"
-description: "How Strait handles execution failures."
+description: "How Strait handles execution failures, circuit breakers, fallbacks, and dead_letter."
 icon: "rotate"
 ---
 
-When a job fails because of a timeout, network error, or retryable response, Strait uses the job's retry policy to decide when to try again.
+When a job fails because of a timeout, network error, or retryable response, Strait uses the job's retry policy to decide when to try again. This page covers the four retry strategies, plus the surrounding controls that keep retries from making things worse: circuit breakers, fallback endpoints, and `dead_letter` handling.
 
 ## Core Strategies
 
@@ -69,8 +69,63 @@ Retries can be configured at multiple levels:
 - Workflow step level: override retry behavior for one step.
 - Run override: trigger a specific run with a different retry policy.
 
+## Circuit Breakers
+
+When an endpoint fails repeatedly, Strait can pause dispatches to that endpoint for a short period. Runs are retried later instead of continuing to hit an unhealthy service.
+
+| State | What happens |
+| :--- | :--- |
+| `closed` | Runs dispatch normally. |
+| `open` | Runs wait and retry later. |
+| `half_open` | Strait sends a test request before resuming normal traffic. |
+
+Circuit breakers are useful when a dependency is down and repeated calls would only create more failures.
+
+## Fallback Endpoints
+
+Set `fallback_endpoint_url` when a job can safely use a backup endpoint.
+
+```json
+{
+  "endpoint_url": "https://api.example.com/jobs/send-email",
+  "fallback_endpoint_url": "https://backup.example.com/jobs/send-email"
+}
+```
+
+The fallback should perform the same job and accept the same payload shape as the primary endpoint.
+
 ## dead_letter
 
 `dead_letter` holds runs that exhausted all retries. Inspect the failure and replay the run after the issue is fixed.
 
-Strait can also move repeated identical failures to `dead_letter` early with `poison_pill_threshold`. See [Resilience](/concepts/resilience).
+Some runs should not keep retrying. A malformed payload, missing customer record, or unsupported state can fail the same way every time. Set `poison_pill_threshold` to move repeated identical failures to `dead_letter` early instead of running through the full retry budget:
+
+```json
+{
+  "poison_pill_threshold": 3
+}
+```
+
+See the [Handle Failed Runs](/guides/handle-failed-runs) guide for inspecting and replaying `dead_letter` runs.
+
+## Recommended Baseline
+
+For most production jobs, start with:
+
+```json
+{
+  "max_attempts": 5,
+  "retry_strategy": "exponential",
+  "retry_backoff_secs": 30,
+  "max_concurrency": 10,
+  "poison_pill_threshold": 3
+}
+```
+
+Then tune rate limits and concurrency based on the capacity of the service you call.
+
+## Related
+
+- [Adaptive Concurrency](/concepts/adaptive-concurrency)
+- [Handle Failed Runs](/guides/handle-failed-runs)
+- [Production Job Guide](/guides/production-job)
