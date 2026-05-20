@@ -57,7 +57,7 @@ SDK client configuration. These values are read by all five SDKs.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `sdk.base_url` | string | — | API base URL. |
+| `sdk.base_url` | string | | API base URL. |
 | `sdk.auth_type` | `"bearer"` \| `"apiKey"` \| `"runToken"` | `"apiKey"` | Authentication strategy. |
 | `sdk.timeout_ms` | integer | `30000` | Request timeout in milliseconds. |
 
@@ -71,7 +71,7 @@ These fields are read by the CLI only. SDKs ignore them.
 | `worker.concurrency` | integer | SDK default | Number of runs a local worker process may execute concurrently. |
 | `worker.grpc_url` | string | Derived from `sdk.base_url` | gRPC endpoint used by worker-mode clients. |
 | `worker.queue_name` | string | `default` | Queue drained by the worker process. |
-| `cli.default_environment` | string | — | Default environment used by CLI commands. |
+| `cli.default_environment` | string | | Default environment used by CLI commands. |
 
 ## Environment Variable Overrides
 
@@ -91,7 +91,7 @@ Environment variables **always** take precedence over `strait.json` values. This
 
 ## Config File Discovery
 
-All SDKs and the CLI look for `strait.json` in the current working directory. There is no upward directory traversal — the file must be at the project root where commands are invoked.
+All SDKs and the CLI look for `strait.json` in the current working directory. There is no upward directory traversal. The file must be at the project root where commands are invoked.
 
 ### SDK discovery order
 

@@ -165,7 +165,7 @@ main().catch(console.error);
 ```
 
 ```typescript
-// Helper used by the job — replace with your actual document store
+// Helper used by the job. Replace with your actual document store.
 async function fetchDocument(id: string): Promise<{ text: string }> {
   const res = await fetch(`https://my-api.com/documents/${id}`);
   if (!res.ok) throw new Error(`Document ${id} not found`);
@@ -183,5 +183,5 @@ async function fetchDocument(id: string): Promise<{ text: string }> {
 
 ## Next steps
 
-- [Cost Budgets](/concepts/cost-budgets) — configure alerts, per-job limits, and monthly roll-ups
-- [Workflows](/tutorials/data-pipeline) — chain multiple AI steps into a pipeline with approval gates
+- [Cost Budgets](/concepts/cost-budgets): configure alerts, per-job limits, and monthly roll-ups
+- [Workflows](/tutorials/data-pipeline): chain multiple AI steps into a pipeline with approval gates

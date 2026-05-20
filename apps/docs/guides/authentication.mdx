@@ -149,24 +149,24 @@ Use OIDC when user requests should carry their own IdP tokens. Backend services 
 
 Strait resolves bearer tokens in this order:
 
-1. Token starts with `strait_` -- API key auth path.
-2. Other bearer token -- OIDC verifier (if configured).
-3. Server secret header -- trusted backend auth path.
+1. Token starts with `strait_`: API key auth path.
+2. Other bearer token: OIDC verifier (if configured).
+3. Server secret header: trusted backend auth path.
 
 ### Configuration
 
 Turn on OIDC by configuring your server with:
 
-- **Issuer** -- your IdP's issuer URL (e.g., `https://clerk.example.com`)
-- **Audience** -- expected audience claim
-- **Public key** -- verification key settings
+- **Issuer**: your IdP's issuer URL (e.g., `https://clerk.example.com`)
+- **Audience**: expected audience claim
+- **Public key**: verification key settings
 
 ### Context Mapping
 
 On successful verification, Strait maps token claims into:
 
-- **Actor identity** -- the authenticated user (used for audit and RBAC)
-- **Project context** -- when provided by claim or header mapping
+- **Actor identity**: the authenticated user (used for audit and RBAC)
+- **Project context**: when provided by claim or header mapping
 
 Authorization still flows through RBAC policies and permission checks.
 

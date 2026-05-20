@@ -12,7 +12,7 @@ A job is failing intermittently and logs alone don't explain why. Enable debug m
 
 Two ways to turn it on:
 
-**At trigger time** — set `debug_mode` on the request that starts the run:
+**At trigger time**: set `debug_mode` on the request that starts the run.
 
 ```bash
 curl -X POST https://api.strait.dev/v1/jobs/{jobID}/trigger \
@@ -20,7 +20,7 @@ curl -X POST https://api.strait.dev/v1/jobs/{jobID}/trigger \
   -d '{"payload": {"prompt": "summarize Q4"}, "debug_mode": true}'
 ```
 
-**After the run starts** — call the debug endpoint on an existing run:
+**After the run starts**: call the debug endpoint on an existing run.
 
 ```bash
 curl -X POST https://api.strait.dev/v1/runs/{runID}/debug \
@@ -77,4 +77,4 @@ curl https://api.strait.dev/v1/runs/{runID}/debug-bundle \
 
 ## Performance note
 
-Debug mode adds overhead — extra database writes for every event, checkpoint, and resource sample. Use it when investigating a specific failure, not on every run in production.
+Debug mode adds overhead: extra database writes for every event, checkpoint, and resource sample. Use it when investigating a specific failure, not on every run in production.

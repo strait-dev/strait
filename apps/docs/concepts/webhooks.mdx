@@ -3,7 +3,7 @@ title: "Webhooks"
 description: "Real-time notifications when jobs complete, runs fail, or events trigger."
 ---
 
-Webhooks notify your services when something happens in Strait — a job completes, a run fails, or an event triggers. Strait signs every webhook so you can verify it came from us.
+Webhooks notify your services when something happens in Strait: a job completes, a run fails, or an event triggers. Strait signs every webhook so you can verify it came from us.
 
 ## Two Types of Webhooks
 
@@ -11,7 +11,7 @@ Strait has two webhook models with different delivery guarantees:
 
 **Job webhooks** are configured on the job itself (`webhook_url`). When a run reaches a terminal state (`completed`, `failed`, `timed_out`), Strait sends a signed POST to that URL. Delivery is retried in-memory up to 3 times.
 
-**Event trigger webhooks** are configured on wait-for-event steps (`notify_url`). These use durable delivery — Strait persists the delivery to the database before dispatch, so notifications survive process restarts.
+**Event trigger webhooks** are configured on wait-for-event steps (`notify_url`). These use durable delivery: Strait persists the delivery to the database before dispatch, so notifications survive process restarts.
 
 ## Setting Up a Job Webhook
 
@@ -45,8 +45,8 @@ If you set a `webhook_secret`, Strait signs the payload with HMAC-SHA256. The si
 
 Headers included on signed deliveries:
 
-- `X-Strait-Timestamp` — Unix timestamp used in signing
-- `X-Strait-Signature` — `sha256=<hex signature>`
+- `X-Strait-Timestamp`: Unix timestamp used in signing
+- `X-Strait-Signature`: `sha256=<hex signature>`
 
 **Signed payload format:**
 ```
@@ -74,9 +74,9 @@ func verifySignature(payload []byte, timestamp string, signatureHeader string, s
 
 ## Retry Behavior
 
-**Job webhooks** retry up to 3 times with short backoff (immediate, 1s, 5s). Retries are in-memory — if the process restarts, in-flight retries are lost.
+**Job webhooks** retry up to 3 times with short backoff (immediate, 1s, 5s). Retries are in-memory: if the process restarts, in-flight retries are lost.
 
-**Event trigger webhooks** retry up to 5 times with exponential backoff (5s, 25s, 125s, 625s, capped at 30 minutes). Retries are durable — they survive process restarts.
+**Event trigger webhooks** retry up to 5 times with exponential backoff (5s, 25s, 125s, 625s, capped at 30 minutes). Retries are durable and survive process restarts.
 
 For both types, 4xx responses are treated as permanent failures (no retries). 5xx responses and timeouts are retried.
 
@@ -102,5 +102,5 @@ Always use HTTPS for your webhook URLs to protect the payload and signature in t
 
 ## Related Concepts
 
-- [Webhook Subscriptions](/concepts/webhook-subscriptions) — project-wide notifications by event type.
-- [Event Triggers](/concepts/event-triggers) — durable waits for events within workflow steps.
+- [Webhook Subscriptions](/concepts/webhook-subscriptions): project-wide notifications by event type.
+- [Event Triggers](/concepts/event-triggers): durable waits for events within workflow steps.

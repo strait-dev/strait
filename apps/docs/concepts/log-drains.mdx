@@ -112,10 +112,10 @@ Fields: timestamp (ISO 8601), level (debug/info/warn/error), message, run_id, jo
 | `LOG_DRAIN_WORKER_INTERVAL` | `60s` | Interval at which the delivery worker polls for pending log events. |
 
 <Info>
-Log drains use at-least-once delivery. Events are buffered and flushed on the configured interval. If delivery fails, events are retried. Your endpoint may receive duplicate events during retries — use the `run_id` + `timestamp` combination for deduplication.
+Log drains use at-least-once delivery. Events are buffered and flushed on the configured interval. If delivery fails, events are retried. Your endpoint may receive duplicate events during retries. Use the `run_id` + `timestamp` combination for deduplication.
 </Info>
 
 ## Related Concepts
 
-- [Runs](/concepts/runs) — the execution instances whose logs are forwarded.
-- [Jobs](/concepts/jobs) — the job definitions that produce runs.
+- [Runs](/concepts/runs): the execution instances whose logs are forwarded.
+- [Jobs](/concepts/jobs): the job definitions that produce runs.

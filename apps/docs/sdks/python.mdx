@@ -325,17 +325,17 @@ except StraitError as e:
 
 | Exception | HTTP Status | Description |
 |---|---|---|
-| `StraitError` | -- | Base class for all errors |
-| `TransportError` | -- | Network failure (connection refused, DNS) |
-| `DecodeError` | -- | Response body could not be decoded |
-| `ValidationError` | -- | Input validation failed before sending |
+| `StraitError` | | Base class for all errors |
+| `TransportError` | | Network failure (connection refused, DNS) |
+| `DecodeError` | | Response body could not be decoded |
+| `ValidationError` | | Input validation failed before sending |
 | `UnauthorizedError` | 401, 403 | Authentication or authorization failure |
 | `NotFoundError` | 404 | Resource does not exist |
 | `ConflictError` | 409 | Duplicate resource or version conflict |
 | `RateLimitedError` | 429 | Rate limit exceeded; includes `retry_after_ms` |
 | `ApiError` | other | Any other HTTP error |
-| `TimeoutError` | -- | Polling timeout exceeded |
-| `DagValidationError` | -- | Invalid workflow dependency graph |
+| `TimeoutError` | | Polling timeout exceeded |
+| `DagValidationError` | | Invalid workflow dependency graph |
 
 ## Middleware
 

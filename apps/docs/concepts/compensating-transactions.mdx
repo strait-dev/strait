@@ -12,8 +12,8 @@ Compensating transactions let you attach an undo job to a step. If the workflow 
 
 Use compensation when workflow steps have side effects that may need to be reversed:
 
-- **Payments**: Charge a card, then something fails downstream -- refund the charge.
-- **Reservations**: Reserve inventory or capacity, then a later step fails -- release the reservation.
+- **Payments**: Charge a card, then something fails downstream. Refund the charge.
+- **Reservations**: Reserve inventory or capacity, then a later step fails. Release the reservation.
 - **External API calls**: Create a resource in a third-party system, then delete it if a later step fails.
 
 If a step is read-only, it usually does not need a compensation job.

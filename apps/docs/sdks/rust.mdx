@@ -398,16 +398,16 @@ match client.jobs().get("job_nonexistent").await {
 
 | Error variant | HTTP Status | Description |
 |---|---|---|
-| `Transport` | -- | Network failure or connection refused |
-| `Timeout` | -- | Request or polling timeout exceeded |
-| `Validation` | -- | Invalid configuration or input |
+| `Transport` | | Network failure or connection refused |
+| `Timeout` | | Request or polling timeout exceeded |
+| `Validation` | | Invalid configuration or input |
 | `Unauthorized` | 401, 403 | Authentication or authorization failure |
 | `NotFound` | 404 | Resource does not exist |
 | `Conflict` | 409 | Duplicate resource or version conflict |
 | `RateLimited` | 429 | Too many requests; includes `retry_after` duration |
 | `Api` | other | Any other HTTP error |
-| `Cancelled` | -- | Operation cancelled via `CancellationToken` |
-| `DagValidation` | -- | Invalid workflow dependency graph (cycles, missing dependencies) |
+| `Cancelled` | | Operation cancelled via `CancellationToken` |
+| `DagValidation` | | Invalid workflow dependency graph (cycles, missing dependencies) |
 
 ## Middleware
 

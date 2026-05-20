@@ -3,7 +3,7 @@ title: "Idempotency"
 description: "Prevent duplicate job executions with idempotency keys and payload-based deduplication."
 ---
 
-A user double-clicks "Place Order." Without idempotency, they get charged twice. Strait's idempotency prevents this -- every trigger with the same key returns the original run instead of creating a duplicate.
+A user double-clicks "Place Order." Without idempotency, they get charged twice. Strait's idempotency prevents this: every trigger with the same key returns the original run instead of creating a duplicate.
 
 ## Idempotency Keys
 

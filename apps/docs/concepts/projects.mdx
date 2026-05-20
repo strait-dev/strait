@@ -6,13 +6,13 @@ icon: "folder"
 
 ## What is a Project?
 
-A project is the top-level container in Strait. Every job, workflow, run, environment, secret, and API key belongs to exactly one project. Use projects to separate concerns — one per service, team, or deployment stage.
+A project is the top-level container in Strait. Every job, workflow, run, environment, secret, and API key belongs to exactly one project. Use projects to separate concerns: one per service, team, or deployment stage.
 
 Projects provide:
 
-- **Isolation** — jobs and workflows in one project cannot reference resources in another.
-- **Quotas** — per-project limits on concurrency, cost, and rate of API calls.
-- **Scoped API keys** — each key grants access to a single project with fine-grained permission scopes.
+- **Isolation**: jobs and workflows in one project cannot reference resources in another.
+- **Quotas**: per-project limits on concurrency, cost, and rate of API calls.
+- **Scoped API keys**: each key grants access to a single project with fine-grained permission scopes.
 
 ---
 
@@ -79,7 +79,7 @@ Quotas are tied to your `plan_tier`. When a limit is reached, Strait rejects the
 
 ## API Key Scopes
 
-Each API key is scoped to a project and carries a set of permission scopes. Assign only the scopes a service needs — a worker that triggers jobs does not need `secrets:write`.
+Each API key is scoped to a project and carries a set of permission scopes. Assign only the scopes a service needs. A worker that triggers jobs does not need `secrets:write`.
 
 | Category | Scopes |
 |---|---|
@@ -111,4 +111,4 @@ Organization (org_id)
         └── API Keys
 ```
 
-Everything lives inside a project. Organizations group projects but do not own resources directly — they exist for billing aggregation and cross-project API key access.
+Everything lives inside a project. Organizations group projects but do not own resources directly. They exist for billing aggregation and cross-project API key access.

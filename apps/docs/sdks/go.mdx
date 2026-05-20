@@ -222,9 +222,9 @@ pipeline := authoring.DefineWorkflow(authoring.WorkflowConfig{
 ```
 
 **Step types:**
-- `JobStep` -- runs an existing job definition
-- `ApprovalStep` -- pauses for human or programmatic approval
-- `AIStep` -- executes any step with cost tracking. Not limited to AI models — use it for any step where you need to track spend.
+- `JobStep`: runs an existing job definition
+- `ApprovalStep`: pauses for human or programmatic approval
+- `AIStep`: executes any step with cost tracking. Not limited to AI models; use it for any step where you need to track spend.
 
 ## Composition Helpers
 
@@ -309,14 +309,14 @@ if err != nil {
 
 | Error type | HTTP status | When it occurs |
 |---|---|---|
-| `TransportError` | -- | Network failure, DNS resolution, connection refused |
+| `TransportError` | | Network failure, DNS resolution, connection refused |
 | `UnauthorizedError` | 401, 403 | Invalid or expired API key or run token |
 | `NotFoundError` | 404 | Resource does not exist |
 | `ConflictError` | 409 | Duplicate slug, version conflict |
 | `ValidationError` | 422 | Invalid request payload |
 | `RateLimitedError` | 429 | Rate limit exceeded (includes `RetryAfter`) |
 | `ApiError` | other | Any other HTTP error |
-| `TimeoutError` | -- | Polling timeout in `WaitForRun` |
+| `TimeoutError` | | Polling timeout in `WaitForRun` |
 
 ## SSE Streaming
 

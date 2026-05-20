@@ -39,7 +39,7 @@ ClickHouse reporting includes:
 | Variable | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `CLICKHOUSE_ENABLED` | Boolean | `false` | Enable the ClickHouse client and create tables on startup. |
-| `CLICKHOUSE_URL` | String | -- | Native protocol URL (e.g., `clickhouse://localhost:9000`). Required when enabled. |
+| `CLICKHOUSE_URL` | String | | Native protocol URL (e.g., `clickhouse://localhost:9000`). Required when enabled. |
 | `CLICKHOUSE_DATABASE` | String | `strait` | Target database name. |
 | `CLICKHOUSE_BATCH_SIZE` | Integer | `1000` | Maximum records per batch insert. |
 | `CLICKHOUSE_FLUSH_INTERVAL` | Duration | `5s` | Maximum time between flushes. |

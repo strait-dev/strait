@@ -18,8 +18,8 @@ Event Sources push events into the system. Event Triggers wait for events from w
 
 A subscription connects a source to a target. Two target types are supported:
 
-- **`job`** — when matched, a new job run is enqueued with `triggered_by: "event"` and the dispatched payload.
-- **`workflow`** — when matched, a new workflow run is triggered with the dispatched payload.
+- **`job`**: when matched, a new job run is enqueued with `triggered_by: "event"` and the dispatched payload.
+- **`workflow`**: when matched, a new workflow run is triggered with the dispatched payload.
 
 A single event source can have multiple subscriptions, each pointing to a different target with its own filter expression. This lets one inbound event trigger several jobs and workflows at once.
 
@@ -97,6 +97,6 @@ The optional `schema` field on an event source accepts a JSON Schema definition.
 
 ## Related Concepts
 
-- [Event Triggers](/concepts/event-triggers) — durable waits for events within workflow steps and runs.
-- [Jobs](/concepts/jobs) — the unit of work that event subscriptions can target.
-- [Workflows](/concepts/workflows) — multi-step orchestrations that event subscriptions can target.
+- [Event Triggers](/concepts/event-triggers): durable waits for events within workflow steps and runs.
+- [Jobs](/concepts/jobs): the unit of work that event subscriptions can target.
+- [Workflows](/concepts/workflows): multi-step orchestrations that event subscriptions can target.

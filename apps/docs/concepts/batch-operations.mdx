@@ -68,7 +68,7 @@ If your job has a [deduplication window](/concepts/jobs) configured, duplicate p
 
 ## Error Handling
 
-Individual items can fail without failing the entire batch. Each item becomes its own run with independent retry and failure handling. A batch with 1,000 items where 3 fail gives you 997 successful runs and 3 failed runs to investigate -- not a single failed batch.
+Individual items can fail without failing the entire batch. Each item becomes its own run with independent retry and failure handling. A batch with 1,000 items where 3 fail gives you 997 successful runs and 3 failed runs to investigate, not a single failed batch.
 
 ## Configuration Reference
 

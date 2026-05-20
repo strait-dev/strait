@@ -3,7 +3,7 @@ title: "Cost Budgets"
 description: "Per-run and daily spending limits to prevent runaway costs on workloads with variable cost."
 ---
 
-Cost budgets prevent runaway spending on workloads with variable cost. Set per-run and daily limits to control how much your jobs can spend on API calls — LLM tokens, external services, or any usage your code reports.
+Cost budgets prevent runaway spending on workloads with variable cost. Set per-run and daily limits to control how much your jobs can spend on API calls: LLM tokens, external services, or any usage your code reports.
 
 ## When to Use It
 
@@ -41,7 +41,7 @@ await ctx.report_usage(
 
 3. **Daily check**: Before a new run is enqueued, Strait checks total cost for the current day (in the project's configured timezone). If the daily limit is reached, the trigger is rejected.
 
-All costs use **micro-USD** (1/1,000,000 of a dollar) with integer precision. This avoids floating-point rounding errors — $0.01 is `10000` micro-USD.
+All costs use **micro-USD** (1/1,000,000 of a dollar) with integer precision. This avoids floating-point rounding errors: $0.01 is `10000` micro-USD.
 
 ## Setting Budgets
 

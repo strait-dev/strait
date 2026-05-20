@@ -179,7 +179,7 @@ Scopes restrict what an API key is allowed to do. Assign only the scopes your in
 
 | Scope | Description |
 |-------|-------------|
-| `*` | Wildcard -- full access. Use sparingly. |
+| `*` | Wildcard: full access. Use sparingly. |
 | `jobs:read` | Read job definitions. |
 | `jobs:write` | Create and update jobs. |
 | `jobs:trigger` | Trigger job runs. |
@@ -211,8 +211,8 @@ Keys created via CLI device-code authentication (`strait login`) receive the `CL
 
 All `api-keys` subcommands accept `--output` (`-o`) to switch between formats:
 
-- **`table`** (default) -- human-readable columns, suitable for terminal use.
-- **`json`** -- machine-readable JSON, suitable for piping into `jq` or automation scripts.
+- **`table`** (default): human-readable columns, suitable for terminal use.
+- **`json`**: machine-readable JSON, suitable for piping into `jq` or automation scripts.
 
 ```bash
 # Pipe key creation into jq to extract just the raw key

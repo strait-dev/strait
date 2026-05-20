@@ -7,7 +7,7 @@ You deploy a new version of a job while 50 runs are executing the old version. V
 
 ## When to Use Versioning
 
-Versioning is automatic -- every `UpdateJob` or workflow `PATCH` creates a new version. What you choose is the **version policy** that controls how in-flight runs interact with updates.
+Versioning is automatic: every `UpdateJob` or workflow `PATCH` creates a new version. What you choose is the **version policy** that controls how in-flight runs interact with updates.
 
 ## How It Works
 
@@ -63,7 +63,7 @@ POST /v1/jobs
 ```
 
 <Note>
-Version policy is enforced at dequeue time. `pin` is the default and the safest choice -- it applies automatically when you do not specify a policy.
+Version policy is enforced at dequeue time. `pin` is the default and the safest choice. It applies automatically when you do not specify a policy.
 </Note>
 
 ## Workflow Versioning
@@ -85,10 +85,10 @@ To acknowledge a breaking update, set `breaking_change: true` in the request bod
 
 ## Browsing Versions
 
-- `GET /v1/jobs/{jobID}/versions` -- list all version snapshots
-- `GET /v1/workflows/{workflowID}/versions` -- list workflow version snapshots
-- `GET /v1/workflows/{workflowID}/versions/{versionID}/steps` -- step graph for a specific version
-- `GET /v1/workflows/{workflowID}/active-versions` -- versions with active runs and status breakdowns
+- `GET /v1/jobs/{jobID}/versions`: list all version snapshots
+- `GET /v1/workflows/{workflowID}/versions`: list workflow version snapshots
+- `GET /v1/workflows/{workflowID}/versions/{versionID}/steps`: step graph for a specific version
+- `GET /v1/workflows/{workflowID}/active-versions`: versions with active runs and status breakdowns
 
 ## Dual Version Identifiers
 

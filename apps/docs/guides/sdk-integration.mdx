@@ -53,10 +53,10 @@ app.post('/jobs/send-email', async (req, res) => {
 
 Strait delivers the request with:
 
-- **`req.body.payload`** -- the data you passed when triggering the job.
-- **`req.body.run_id`** -- unique identifier for this run.
-- **`req.body.attempt`** -- which attempt this is (starts at 1, increments on retry).
-- **`x-sdk-token` header** -- a short-lived JWT for calling SDK endpoints during execution.
+- **`req.body.payload`**: the data you passed when triggering the job.
+- **`req.body.run_id`**: unique identifier for this run.
+- **`req.body.attempt`**: which attempt this is (starts at 1, increments on retry).
+- **`x-sdk-token` header**: a short-lived JWT for calling SDK endpoints during execution.
 
 ---
 
