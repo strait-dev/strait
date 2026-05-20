@@ -97,4 +97,27 @@ describe("apiRequest path validation", () => {
       })
     );
   });
+
+  it("can override the project ID for target-project operations", async () => {
+    vi.stubEnv("INTERNAL_SECRET", "test-secret");
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 204,
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await apiRequest("/v1/projects/project-2", {
+      method: "DELETE",
+      projectId: "project-2",
+    });
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://localhost:8080/v1/projects/project-2",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "X-Project-Id": "project-2",
+        }),
+      })
+    );
+  });
 });

@@ -18,6 +18,7 @@ export type RequestOptions = {
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
   body?: unknown;
   params?: Record<string, string | number | boolean | undefined>;
+  projectId?: string | null;
   responseType?: "json" | "text" | "arraybuffer";
 };
 
@@ -130,9 +131,18 @@ export async function apiRequest<T>(
   path: string,
   options: RequestOptions = {}
 ): Promise<T> {
-  const { method = "GET", body, params, responseType = "json" } = options;
+  const {
+    method = "GET",
+    body,
+    params,
+    projectId: projectIdOverride,
+    responseType = "json",
+  } = options;
   const url = buildUrl(path, params);
-  const projectId = await resolveProjectId();
+  const projectId =
+    projectIdOverride === undefined
+      ? await resolveProjectId()
+      : (projectIdOverride ?? undefined);
 
   const fetchHeaders: Record<string, string> = {
     "X-Internal-Secret": getInternalSecret(),

@@ -2,12 +2,18 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import z from "zod/v4";
 import type { Project } from "@/hooks/api/types";
+import { apiPath } from "@/lib/api-client.server";
 import { getAuth, getAuthPool } from "@/lib/auth.server";
-import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
+import {
+  apiEffect,
+  runWithFallback,
+  runWithSentryReport,
+} from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 import {
   requireOrgAccess,
   requireProjectAccess,
+  requireProjectAdmin,
 } from "@/middlewares/require-access";
 
 /**
@@ -15,7 +21,7 @@ import {
  * Called lazily on first project operation.
  */
 let tableEnsured = false;
-async function ensureProjectTable() {
+export async function ensureProjectTable() {
   if (tableEnsured) {
     return;
   }
@@ -146,22 +152,39 @@ export const deleteProjectServerFn = createServerFn({ method: "POST" })
     if (!activeOrgId) {
       throw new Error("Forbidden");
     }
-    await requireOrgAccess(context.user.id, activeOrgId);
     await ensureProjectTable();
+    await requireProjectAdmin(context.user.id, data.id, activeOrgId);
+
+    const projectResult = await getAuthPool().query<{ id: string }>(
+      "SELECT id FROM project WHERE id = $1 AND organization_id = $2",
+      [data.id, activeOrgId]
+    );
+
+    if (projectResult.rowCount === 0) {
+      throw new Error("Project not found or permission denied");
+    }
+
+    await runWithSentryReport(
+      apiEffect(apiPath`/v1/projects/${data.id}`, {
+        method: "DELETE",
+        projectId: data.id,
+      })
+    );
 
     const result = await getAuthPool().query(
-      "DELETE FROM project WHERE id = $1 AND created_by = $2 RETURNING id",
-      [data.id, context.user.id]
+      "DELETE FROM project WHERE id = $1 AND organization_id = $2 RETURNING id",
+      [data.id, activeOrgId]
     );
 
     if (result.rowCount === 0) {
       throw new Error("Project not found or permission denied");
     }
 
-    // Sync deletion to Go service (best-effort).
-    await runWithFallback(
-      apiEffect(`/v1/projects/${data.id}`, { method: "DELETE" }),
-      undefined
+    await getAuthPool().query(
+      `UPDATE "user"
+       SET "activeProjectId" = NULL
+       WHERE "activeProjectId" = $1`,
+      [data.id]
     );
 
     return { success: true };

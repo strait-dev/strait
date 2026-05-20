@@ -27,6 +27,7 @@ import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import type { OrganizationData } from "@/hooks/auth/use-organization";
 import {
+  useDeleteLastOrganizationWithToken,
   useDeleteOrganizationWithToken,
   useOrganizations,
   useRequestOrganizationDeletion,
@@ -55,13 +56,15 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
   const requestDeletion = useRequestOrganizationDeletion();
   const verifyDeletion = useVerifyOrganizationDeletion();
   const deleteMutation = useDeleteOrganizationWithToken();
+  const deleteLastMutation = useDeleteLastOrganizationWithToken();
   const resendCode = useResendOrganizationDeletionCode();
   const { data: orgsData } = useOrganizations();
 
   const isPending =
     requestDeletion.isPending ||
     verifyDeletion.isPending ||
-    deleteMutation.isPending;
+    deleteMutation.isPending ||
+    deleteLastMutation.isPending;
 
   useEffect(() => {
     if (resendCooldown <= 0) {
@@ -149,16 +152,17 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
       );
 
       if (otherOrgs.length === 0) {
-        toast.error("You cannot delete your only organization.");
-        setStep("verify");
-        return;
+        await deleteLastMutation.mutateAsync({
+          organizationId,
+          verificationToken: result.verificationToken,
+        });
+      } else {
+        await deleteMutation.mutateAsync({
+          organizationId,
+          verificationToken: result.verificationToken,
+          nextOrganizationId: otherOrgs[0].id,
+        });
       }
-
-      await deleteMutation.mutateAsync({
-        organizationId,
-        verificationToken: result.verificationToken,
-        nextOrganizationId: otherOrgs[0].id,
-      });
 
       await queryClient.invalidateQueries();
       router.invalidate();
@@ -193,7 +197,7 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
           <HugeiconsIcon className="size-4" icon={AlertIcon} />
           <AlertDescription>
             {isLastOrg
-              ? "You cannot delete your only organization. Create a new organization first before deleting this one."
+              ? "Warning: This is your only organization. Deleting it will reset your workspace and return you to onboarding."
               : "Warning: This action is irreversible and all organization data will be permanently lost."}
           </AlertDescription>
         </Alert>
@@ -203,11 +207,7 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
           onOpenChange={(open) => !open && handleClose()}
           open={isOpen}
         >
-          <Button
-            disabled={isLastOrg}
-            onClick={handleOpen}
-            variant="destructive"
-          >
+          <Button onClick={handleOpen} variant="destructive">
             <HugeiconsIcon className="size-4" icon={TrashIcon} />
             Delete Organization
           </Button>
@@ -305,7 +305,8 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
                       disabled={
                         verificationCode.length < 6 ||
                         verifyDeletion.isPending ||
-                        deleteMutation.isPending
+                        deleteMutation.isPending ||
+                        deleteLastMutation.isPending
                       }
                       onClick={(e) => {
                         e.preventDefault();

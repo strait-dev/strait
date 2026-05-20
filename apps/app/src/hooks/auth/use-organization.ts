@@ -97,7 +97,7 @@ interface UpdateOrganizationParams {
   id?: string;
   language?: string | null;
   logo?: string | null;
-  metadata?: string | null;
+  metadata?: Record<string, unknown> | string | null;
   name?: string | null;
   organizationId?: string;
   phone?: string | null;
@@ -191,7 +191,9 @@ const updateOrganizationServerFn = createServerFn({ method: "POST" })
           ...(metadata
             ? {
                 metadata:
-                  typeof metadata === "string" ? { value: metadata } : metadata,
+                  typeof metadata === "string"
+                    ? JSON.parse(metadata)
+                    : metadata,
               }
             : {}),
         },

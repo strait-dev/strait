@@ -7,8 +7,11 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { nanoid } from "nanoid";
 import z from "zod/v4";
-import { getAuth } from "@/lib/auth.server";
+import { apiPath } from "@/lib/api-client.server";
+import { getAuth, getAuthPool } from "@/lib/auth.server";
+import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { kvGet, kvSet } from "@/lib/kv.server";
+import { ensureProjectTable } from "@/lib/project-handler";
 import { getResend } from "@/lib/resend.server";
 import type {
   ResendOrganizationDeletionCodeResponseSchema,
@@ -23,6 +26,10 @@ import {
   VerifyOrganizationDeletionSchema,
 } from "@/lib/schema";
 import { authMiddleware } from "@/middlewares/auth";
+
+type ProjectRow = {
+  id: string;
+};
 
 /**
  * Server function to create a new organization.
@@ -105,25 +112,40 @@ export const setActiveOrganizationAuth = createServerFn({ method: "POST" })
   .inputValidator((data: { organizationId: string }) =>
     z.object({ organizationId: z.string() }).parse(data)
   )
+  .middleware([authMiddleware])
   .handler(async ({ data }) => {
-    try {
-      const headers = getRequestHeaders();
+    const headers = getRequestHeaders();
+    await ensureProjectTable();
 
-      const result = await (await getAuth()).api.setActiveOrganization({
-        body: { organizationId: data.organizationId },
-        headers,
-      });
+    const result = await (await getAuth()).api.setActiveOrganization({
+      body: { organizationId: data.organizationId },
+      headers,
+    });
 
-      // Also update the user's defaultOrganizationId
-      await (await getAuth()).api.updateUser({
-        body: { defaultOrganizationId: data.organizationId },
-        headers,
-      });
-
-      return result ?? null;
-    } catch {
-      return null;
+    if (!result) {
+      throw new Error("Failed to set active organization");
     }
+
+    const projectResult = await getAuthPool().query<ProjectRow>(
+      `SELECT id
+       FROM project
+       WHERE organization_id = $1
+       ORDER BY created_at ASC
+       LIMIT 1`,
+      [data.organizationId]
+    );
+
+    const activeProjectId = projectResult.rows[0]?.id ?? null;
+
+    await (await getAuth()).api.updateUser({
+      body: {
+        defaultOrganizationId: data.organizationId,
+        activeProjectId,
+      },
+      headers,
+    });
+
+    return result;
   });
 
 /**
@@ -145,6 +167,47 @@ const listOrganizationsAuth = createServerFn({ method: "GET" }).handler(
     }
   }
 );
+
+async function listOrganizationProjectIds(
+  organizationId: string
+): Promise<string[]> {
+  await ensureProjectTable();
+  const result = await getAuthPool().query<ProjectRow>(
+    "SELECT id FROM project WHERE organization_id = $1 ORDER BY created_at ASC",
+    [organizationId]
+  );
+  return result.rows.map((row) => row.id);
+}
+
+async function deleteBackendProjects(projectIds: string[]): Promise<void> {
+  for (const projectId of projectIds) {
+    try {
+      await runWithSentryReport(
+        apiEffect(apiPath`/v1/projects/${projectId}`, {
+          method: "DELETE",
+          projectId,
+        })
+      );
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("(404)")) {
+        continue;
+      }
+      throw error;
+    }
+  }
+}
+
+async function clearActiveProjectIds(projectIds: string[]): Promise<void> {
+  if (projectIds.length === 0) {
+    return;
+  }
+  await getAuthPool().query(
+    `UPDATE "user"
+     SET "activeProjectId" = NULL
+     WHERE "activeProjectId" = ANY($1::text[])`,
+    [projectIds]
+  );
+}
 
 /**
  * Request organization deletion.
@@ -296,28 +359,40 @@ export const deleteOrganizationWithTokenServerFn = createServerFn({
     }
 
     const headers = getRequestHeaders();
+    const organizations = await listOrganizationsAuth();
+    const otherOrganizations = organizations.filter(
+      (org: { id: string }) => org.id !== organizationId
+    );
+
+    if (otherOrganizations.length === 0) {
+      throw new Error("Use the last organization deletion flow");
+    }
+
+    if (
+      !(
+        nextOrganizationId &&
+        otherOrganizations.some(
+          (org: { id: string }) => org.id === nextOrganizationId
+        )
+      )
+    ) {
+      throw new Error("A valid next organization is required");
+    }
 
     // Check if this is the user's default organization
     const session = await (await getAuth()).api.getSession({ headers });
     const defaultOrgId = (session?.user as Record<string, unknown> | undefined)
       ?.defaultOrganizationId as string | undefined;
     const isDefaultOrganization = defaultOrgId === organizationId;
+    const projectIds = await listOrganizationProjectIds(organizationId);
+
+    await deleteBackendProjects(projectIds);
+    await clearActiveProjectIds(projectIds);
 
     if (isDefaultOrganization) {
-      if (nextOrganizationId) {
-        await setActiveOrganizationAuth({
-          data: { organizationId: nextOrganizationId },
-        });
-      }
-
-      try {
-        await (await getAuth()).api.updateUser({
-          body: { activeProjectId: null },
-          headers,
-        });
-      } catch {
-        // Best-effort cleanup — projects are cascade-deleted with the org
-      }
+      await setActiveOrganizationAuth({
+        data: { organizationId: nextOrganizationId },
+      });
     }
 
     // Delete the organization via Better Auth
@@ -393,25 +468,29 @@ export const purgeOrganizationWithTokenServerFn = createServerFn({
       );
     }
 
-    try {
-      await getResend().emails.send({
-        from: "Strait <hello@usestrait.com>",
-        to: context.user.email,
-        subject: "Organization data purged successfully",
-        react: OrganizationPurged({
-          name: context.user.name,
-          organizationName: organization.name,
-        }),
-      });
+    const projectIds = await listOrganizationProjectIds(organizationId);
+    await deleteBackendProjects(projectIds);
+    await clearActiveProjectIds(projectIds);
+    await getAuthPool().query(
+      "DELETE FROM project WHERE organization_id = $1",
+      [organizationId]
+    );
 
-      return {
-        success: true,
-        message: "Organization data purged successfully",
-        organizationId,
-      };
-    } catch {
-      throw new Error("Error purging organization data");
-    }
+    await getResend().emails.send({
+      from: "Strait <hello@usestrait.com>",
+      to: context.user.email,
+      subject: "Organization data purged successfully",
+      react: OrganizationPurged({
+        name: context.user.name,
+        organizationName: organization.name,
+      }),
+    });
+
+    return {
+      success: true,
+      message: "Organization data purged successfully",
+      organizationId,
+    };
   });
 
 /**
@@ -522,6 +601,25 @@ export const deleteLastOrganizationWithTokenServerFn = createServerFn({
     }
 
     const headers = getRequestHeaders();
+    const organizations = await listOrganizationsAuth();
+    if (
+      organizations.some((org: { id: string }) => org.id === organizationId) &&
+      organizations.length > 1
+    ) {
+      throw new Error("Use the organization switch deletion flow");
+    }
+
+    const projectIds = await listOrganizationProjectIds(organizationId);
+    await deleteBackendProjects(projectIds);
+    await clearActiveProjectIds(projectIds);
+
+    await (await getAuth()).api.updateUser({
+      body: {
+        defaultOrganizationId: null,
+        activeProjectId: null,
+      },
+      headers,
+    });
 
     // Delete the organization via Better Auth
     await (await getAuth()).api.deleteOrganization({
