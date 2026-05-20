@@ -280,3 +280,24 @@ func TestHasSLOData_SkipsIdleWindows(t *testing.T) {
 		t.Fatal("unknown SLO metric should not be evaluated")
 	}
 }
+
+func TestSLOEvaluator_AdvisoryLockerNotAcquiredSkipsEvaluation(t *testing.T) {
+	t.Parallel()
+
+	locker := &testAdvisoryLocker{acquired: false}
+	evaluator := NewSLOEvaluator(nil, nil).WithAdvisoryLocker(locker)
+
+	acquired, err := evaluator.evaluateWithOptionalLeader(context.Background())
+	if err != nil {
+		t.Fatalf("evaluateWithOptionalLeader() error = %v", err)
+	}
+	if acquired {
+		t.Fatal("evaluateWithOptionalLeader() acquired lock, want false")
+	}
+	if locker.tryCalls != 1 {
+		t.Fatalf("tryCalls = %d, want 1", locker.tryCalls)
+	}
+	if locker.releaseCalls != 0 {
+		t.Fatalf("releaseCalls = %d, want 0 for unacquired lock", locker.releaseCalls)
+	}
+}

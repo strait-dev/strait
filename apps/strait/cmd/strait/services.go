@@ -933,6 +933,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 			scheduler.WithSLOEvaluator(
 				scheduler.NewSLOEvaluator(queries, slog.Default(),
 					scheduler.WithSLOWebhookNotifier(scheduler.NewSLOWebhookAdapter(queries)),
+					scheduler.WithSLOEvaluatorAdvisoryLocker(queries),
 				),
 			),
 		}

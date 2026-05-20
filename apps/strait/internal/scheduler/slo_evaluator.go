@@ -16,10 +16,14 @@ import (
 
 // SLOEvaluator periodically evaluates all job SLOs and records results.
 type SLOEvaluator struct {
-	store    *store.Queries
-	logger   *slog.Logger
-	notifier SLOWebhookNotifier
+	store          *store.Queries
+	logger         *slog.Logger
+	notifier       SLOWebhookNotifier
+	advisoryLocker AdvisoryLocker
 }
+
+// sloEvaluatorLockID is the advisory lock key for single-leader SLO evaluation.
+const sloEvaluatorLockID int64 = 900_100_022
 
 // NewSLOEvaluator creates a new SLO evaluator.
 func NewSLOEvaluator(store *store.Queries, logger *slog.Logger, opts ...SLOEvaluatorOption) *SLOEvaluator {
@@ -41,6 +45,19 @@ func WithSLOWebhookNotifier(n SLOWebhookNotifier) SLOEvaluatorOption {
 	return func(e *SLOEvaluator) {
 		e.notifier = n
 	}
+}
+
+// WithSLOEvaluatorAdvisoryLocker enables single-leader SLO evaluation across replicas.
+func WithSLOEvaluatorAdvisoryLocker(locker AdvisoryLocker) SLOEvaluatorOption {
+	return func(e *SLOEvaluator) {
+		e.advisoryLocker = locker
+	}
+}
+
+// WithAdvisoryLocker enables single-leader SLO evaluation across replicas.
+func (e *SLOEvaluator) WithAdvisoryLocker(locker AdvisoryLocker) *SLOEvaluator {
+	e.advisoryLocker = locker
+	return e
 }
 
 // Evaluate runs a single evaluation cycle for all SLOs.
@@ -96,12 +113,16 @@ func (e *SLOEvaluator) Run(ctx context.Context, interval time.Duration) {
 			return
 		case <-ticker.C:
 			runSchedulerCycleCheckIn(ctx, interval, func() {
-				if err := e.Evaluate(ctx); err != nil {
+				if _, err := e.evaluateWithOptionalLeader(ctx); err != nil {
 					e.logger.Warn("slo evaluation cycle failed", "error", err)
 				}
 			})
 		}
 	}
+}
+
+func (e *SLOEvaluator) evaluateWithOptionalLeader(ctx context.Context) (bool, error) {
+	return runWithOptionalAdvisoryLock(ctx, e.advisoryLocker, sloEvaluatorLockID, e.Evaluate)
 }
 
 // evaluateSLO queries the hot job_runs table only. WindowHours exceeding
