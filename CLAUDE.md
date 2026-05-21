@@ -120,7 +120,7 @@ Map of platform capabilities. Each links to the doc that explains it in depth �
 
 **Resilience and operations**
 - Retry strategies — `apps/docs/concepts/retry-strategies.mdx`
-- Adaptive concurrency, resilience patterns — `apps/docs/concepts/adaptive-concurrency.mdx`, `apps/docs/concepts/resilience.mdx`
+- Adaptive concurrency and resilience patterns — `apps/docs/concepts/adaptive-concurrency.mdx`
 - Canary deployments — `apps/docs/concepts/canary-deployments.mdx`
 - Cost budgets — `apps/docs/concepts/cost-budgets.mdx`
 - Environments (dev/stg/prd) — `apps/docs/concepts/environments.mdx`

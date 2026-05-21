@@ -114,7 +114,7 @@ curl -X POST http://localhost:8080/v1/projects \
 API_KEY=$(curl -s -X POST http://localhost:8080/v1/api-keys \
   -H "Content-Type: application/json" \
   -H "X-Internal-Secret: $SECRET" \
-  -d '{"project_id": "my-project", "name": "dev-key"}' | jq -r '.key')
+  -d '{"project_id": "my-project", "name": "dev-key", "scopes": ["*"]}' | jq -r '.key')
 
 curl -X POST http://localhost:8080/v1/jobs \
   -H "Authorization: Bearer $API_KEY" \

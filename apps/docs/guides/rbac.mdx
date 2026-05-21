@@ -89,7 +89,7 @@ curl -X POST https://your-strait/v1/roles \
     "project_id": "proj_abc",
     "name": "senior-operator",
     "parent_role_id": "role_operator",
-    "permissions": ["secrets:read", "environments:write"]
+    "permissions": ["secrets:read", "secrets:write"]
   }'
 ```
 
@@ -99,12 +99,12 @@ curl -X POST https://your-strait/v1/roles \
   "project_id": "proj_abc",
   "name": "senior-operator",
   "parent_role_id": "role_operator",
-  "permissions": ["secrets:read", "environments:write"],
+  "permissions": ["secrets:read", "secrets:write"],
   "created_at": "2026-03-15T10:10:00Z"
 }
 ```
 
-The `senior-operator` role inherits everything from `operator` (trigger jobs, view runs, approve workflow steps) and adds `secrets:read` and `environments:write`. Check the full permission chain with `GET /v1/roles/{roleID}?include_lineage=true`.
+The `senior-operator` role inherits everything from `operator` (trigger jobs, view runs, approve workflow steps) and adds `secrets:read` and `secrets:write`. Check the full permission chain with `GET /v1/roles/{roleID}?include_lineage=true`.
 
 ## Resource Policies
 
