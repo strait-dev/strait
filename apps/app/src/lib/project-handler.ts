@@ -8,12 +8,13 @@ import { authMiddleware } from "@/middlewares/auth";
  * Called lazily on first project operation.
  */
 let tableEnsured = false;
-export async function ensureProjectTable() {
+export async function ensureProjectTable(pool: {
+  query: (sql: string) => Promise<unknown>;
+}) {
   if (tableEnsured) {
     return;
   }
-  const { getAuthPool } = await import("@/lib/auth.server");
-  await getAuthPool().query(`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS project (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
       organization_id TEXT NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
@@ -53,14 +54,15 @@ export const createProjectServerFn = createServerFn({ method: "POST" })
       import("@/lib/effect-api.server"),
     ]);
     await requireOrgAccess(context.user.id, data.organizationId);
-    await ensureProjectTable();
+    const authPool = getAuthPool();
+    await ensureProjectTable(authPool);
 
     const slug = data.name
       .toLowerCase()
       .replace(/\s+/g, "-")
       .replace(/[^a-z0-9-]/g, "");
 
-    const result = await getAuthPool().query<Project>(
+    const result = await authPool.query<Project>(
       `INSERT INTO project (organization_id, name, slug, description, created_by)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING id, organization_id, name, slug, description, created_by, created_at::text, updated_at::text`,
@@ -101,9 +103,10 @@ export const listProjectsServerFn = createServerFn({ method: "GET" })
     const { getAuthPool } = await import("@/lib/auth.server");
     const { requireOrgAccess } = await import("@/middlewares/require-access");
     await requireOrgAccess(context.user.id, data.organizationId);
-    await ensureProjectTable();
+    const authPool = getAuthPool();
+    await ensureProjectTable(authPool);
 
-    const result = await getAuthPool().query<Project>(
+    const result = await authPool.query<Project>(
       `SELECT id, organization_id, name, slug, description, created_by, created_at::text, updated_at::text
        FROM project
        WHERE organization_id = $1
@@ -122,7 +125,8 @@ export const getProjectServerFn = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
     const { getAuthPool } = await import("@/lib/auth.server");
-    await ensureProjectTable();
+    const authPool = getAuthPool();
+    await ensureProjectTable(authPool);
 
     const activeOrgId = (context as Record<string, unknown>)
       .activeOrganizationId as string | undefined;
@@ -131,7 +135,7 @@ export const getProjectServerFn = createServerFn({ method: "GET" })
       return null;
     }
 
-    const result = await getAuthPool().query<Project>(
+    const result = await authPool.query<Project>(
       `SELECT id, organization_id, name, slug, description, created_by, created_at::text, updated_at::text
        FROM project
        WHERE id = $1 AND organization_id = $2`,
@@ -163,10 +167,11 @@ export const deleteProjectServerFn = createServerFn({ method: "POST" })
     if (!activeOrgId) {
       throw new Error("Forbidden");
     }
-    await ensureProjectTable();
+    const authPool = getAuthPool();
+    await ensureProjectTable(authPool);
     await requireProjectAdmin(context.user.id, data.id, activeOrgId);
 
-    const projectResult = await getAuthPool().query<{ id: string }>(
+    const projectResult = await authPool.query<{ id: string }>(
       "SELECT id FROM project WHERE id = $1 AND organization_id = $2",
       [data.id, activeOrgId]
     );
@@ -182,7 +187,7 @@ export const deleteProjectServerFn = createServerFn({ method: "POST" })
       })
     );
 
-    const result = await getAuthPool().query(
+    const result = await authPool.query(
       "DELETE FROM project WHERE id = $1 AND organization_id = $2 RETURNING id",
       [data.id, activeOrgId]
     );
@@ -191,7 +196,7 @@ export const deleteProjectServerFn = createServerFn({ method: "POST" })
       throw new Error("Project not found or permission denied");
     }
 
-    await getAuthPool().query(
+    await authPool.query(
       `UPDATE "user"
        SET "activeProjectId" = NULL
        WHERE "activeProjectId" = $1`,

@@ -8,7 +8,6 @@ import {
   CredenzaDescription,
   CredenzaHeader,
   CredenzaTitle,
-  CredenzaTrigger,
 } from "@strait/ui/components/credenza";
 import {
   Form,
@@ -177,23 +176,25 @@ const SupportDialog = ({ user }: Props) => {
       }}
       open={open}
     >
-      <CredenzaTrigger
-        render={
-          <Button
-            aria-label="Get help"
-            className="text-muted-foreground/65 group-data-[active=true]/menu-button:text-primary"
-            disabled={cooldownTime > 0}
-            size="icon"
-            variant="outline"
-          />
-        }
+      <Button
+        aria-label="Get help"
+        className="text-muted-foreground/65 group-data-[active=true]/menu-button:text-primary"
+        disabled={cooldownTime > 0}
+        onClick={() => {
+          setOpen(true);
+          getPostHog()?.capture("support_opened");
+        }}
+        size="icon"
+        type="button"
+        variant="outline"
       >
         <HugeiconsIcon
           aria-hidden="true"
           className="size-4"
           icon={HelpCircleIcon}
         />
-      </CredenzaTrigger>
+        <span className="sr-only">Get help</span>
+      </Button>
 
       <CredenzaContent className="flex max-h-[90vh] max-w-3xl flex-col md:max-w-[600px]">
         <CredenzaHeader className="flex-none">

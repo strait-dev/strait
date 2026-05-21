@@ -255,6 +255,7 @@ function EnterpriseContactPage() {
                         field.state.meta.errors.length > 0
                       }
                       className="w-full"
+                      id={field.name}
                     >
                       <SelectValue placeholder="Select team size" />
                     </SelectTrigger>
@@ -285,7 +286,7 @@ function EnterpriseContactPage() {
                     onValueChange={(val) => field.handleChange(val as string)}
                     value={field.state.value}
                   >
-                    <SelectTrigger className="w-full">
+                    <SelectTrigger className="w-full" id={field.name}>
                       <SelectValue placeholder="Select use case" />
                     </SelectTrigger>
                     <SelectContent>
@@ -310,7 +311,7 @@ function EnterpriseContactPage() {
                     onValueChange={(val) => field.handleChange(val as string)}
                     value={field.state.value}
                   >
-                    <SelectTrigger className="w-full">
+                    <SelectTrigger className="w-full" id={field.name}>
                       <SelectValue placeholder="Select range" />
                     </SelectTrigger>
                     <SelectContent>

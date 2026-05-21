@@ -8,7 +8,6 @@ import {
   CredenzaDescription,
   CredenzaHeader,
   CredenzaTitle,
-  CredenzaTrigger,
 } from "@strait/ui/components/credenza";
 import {
   Form,
@@ -165,19 +164,18 @@ const FeedbackDialog = ({ user }: Props) => {
 
   return (
     <Credenza onOpenChange={setOpen} open={open}>
-      <CredenzaTrigger
-        render={
-          <Button
-            aria-label="Send feedback"
-            className="text-muted-foreground/65 group-data-[active=true]/menu-button:text-primary"
-            disabled={cooldownTime > 0}
-            size="icon"
-            variant="outline"
-          />
-        }
+      <Button
+        aria-label="Send feedback"
+        className="text-muted-foreground/65 group-data-[active=true]/menu-button:text-primary"
+        disabled={cooldownTime > 0}
+        onClick={() => setOpen(true)}
+        size="icon"
+        type="button"
+        variant="outline"
       >
         <HugeiconsIcon aria-hidden="true" className="size-4" icon={ChatIcon} />
-      </CredenzaTrigger>
+        <span className="sr-only">Send feedback</span>
+      </Button>
 
       <CredenzaContent>
         <CredenzaHeader>

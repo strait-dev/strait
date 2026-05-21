@@ -147,7 +147,7 @@ export const setActiveOrganizationAuth = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
     const headers = getRequestHeaders();
-    await ensureProjectTable();
+    await ensureProjectTable(getAuthPool());
 
     const auth = await getAuth();
     const result = await auth.api.setActiveOrganization({
@@ -208,7 +208,7 @@ const listOrganizationsAuth = createServerFn({ method: "GET" }).handler(
 async function listOrganizationProjectIds(
   organizationId: string
 ): Promise<string[]> {
-  await ensureProjectTable();
+  await ensureProjectTable(getAuthPool());
   const result = await getAuthPool().query<ProjectRow>(
     "SELECT id FROM project WHERE organization_id = $1 ORDER BY created_at ASC",
     [organizationId]
