@@ -95,7 +95,7 @@ const syncInventory = defineJob({
   name: "Sync Inventory",
   slug: "sync-inventory",
   endpointUrl: "https://worker.dev/jobs/sync",
-  projectId: "proj_1",
+  projectId: "proj_abc123",
 
   // Schema validation via adapter: Zod, ArkType, or Valibot.
   schema: zodSchema(z.object({ sku: z.string() })),
@@ -161,7 +161,7 @@ import { defineWorkflow, step } from "@strait/ts";
 const pipeline = defineWorkflow({
   name: "Order Pipeline",
   slug: "order-pipeline",
-  projectId: "proj_1",
+  projectId: "proj_abc123",
   steps: [
     step.job("validate", "job_validate"),
     step.job("charge", "job_charge", { dependsOn: ["validate"] }),
@@ -205,7 +205,7 @@ import { defineAgent } from "@strait/ts";
 const researchAgent = defineAgent({
   name: "Research Agent",
   slug: "research-agent",
-  projectId: "proj_1",
+  projectId: "proj_abc123",
 
   model: "gpt-4o",
   systemPrompt: "You are a research assistant. Gather data and produce a report.",
@@ -348,7 +348,7 @@ import { withRetry } from "@strait/ts";
 
 const run = await withRetry(
   () => client.triggerJob({
-    pathParams: { jobID: "job_1" },
+    pathParams: { jobID: "job_abc123" },
     body: { payload: { sku: "A" } },
   }),
   { attempts: 5, delayMs: 250, jitter: "full" }
@@ -483,7 +483,7 @@ Non-GET operations have `*Result` variants that return `{ ok, data, error }` ins
 ```ts
 const result = await client.createJobResult({
   body: {
-    project_id: "proj_1",
+    project_id: "proj_abc123",
     name: "Sync",
     slug: "sync",
     endpoint_url: "https://worker.dev/sync",

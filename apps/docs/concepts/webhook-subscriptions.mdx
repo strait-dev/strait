@@ -21,7 +21,7 @@ curl -X POST https://your-strait-instance/v1/webhook-subscriptions \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "project_id": "proj_abc",
+    "project_id": "proj_abc123",
     "url": "https://your-service.com/webhooks/strait",
     "event_types": ["run.completed", "run.failed", "workflow.completed"]
   }'
@@ -32,7 +32,7 @@ Response:
 {
   "subscription": {
     "id": "wsub_123",
-    "project_id": "proj_abc",
+    "project_id": "proj_abc123",
     "url": "https://your-service.com/webhooks/strait",
     "event_types": ["run.completed", "run.failed", "workflow.completed"],
     "enabled": true,

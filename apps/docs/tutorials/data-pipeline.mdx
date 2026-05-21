@@ -40,7 +40,7 @@ const client = createClient({
 const extractJob = defineJob({
   name: "Extract Data",
   slug: "extract-data",
-  projectId: "proj_1",
+  projectId: "proj_abc123",
   maxAttempts: 3,
   retryStrategy: "exponential",
   timeoutSecs: 120,
@@ -65,7 +65,7 @@ Define the remaining jobs with the same structure. Each needs a slug, timeout, a
 const transformJob = defineJob({
   name: "Transform Data",
   slug: "transform-data",
-  projectId: "proj_1",
+  projectId: "proj_abc123",
   maxAttempts: 3,
   retryStrategy: "exponential",
   timeoutSecs: 180,
@@ -78,7 +78,7 @@ const transformJob = defineJob({
 const loadJob = defineJob({
   name: "Load Data",
   slug: "load-data",
-  projectId: "proj_1",
+  projectId: "proj_abc123",
   maxAttempts: 3,
   retryStrategy: "exponential",
   timeoutSecs: 300,
@@ -91,7 +91,7 @@ const loadJob = defineJob({
 const summaryJob = defineJob({
   name: "Send Summary",
   slug: "send-summary",
-  projectId: "proj_1",
+  projectId: "proj_abc123",
   maxAttempts: 2,
   retryStrategy: "fixed",
   timeoutSecs: 30,
@@ -114,7 +114,7 @@ import { defineWorkflow, step } from "@strait/ts";
 const pipeline = defineWorkflow({
   name: "Daily ETL Pipeline",
   slug: "daily-etl",
-  projectId: "proj_1",
+  projectId: "proj_abc123",
   cron: "0 2 * * *",
   steps: [
     step.job({ ref: "extract", jobId: extractJob.id }),
@@ -160,7 +160,7 @@ If `load` fails after exhausting all 3 retry attempts, the compensation job runs
 const cleanupJob = defineJob({
   name: "Cleanup Partial Load",
   slug: "cleanup-partial-load",
-  projectId: "proj_1",
+  projectId: "proj_abc123",
   maxAttempts: 3,
   retryStrategy: "exponential",
   timeoutSecs: 120,
@@ -180,14 +180,14 @@ Register all jobs and the workflow, then trigger a run:
 
 ```typescript
 // Register jobs
-await extractJob.register(client, { projectId: "proj_1" });
-await transformJob.register(client, { projectId: "proj_1" });
-await loadJob.register(client, { projectId: "proj_1" });
-await summaryJob.register(client, { projectId: "proj_1" });
-await cleanupJob.register(client, { projectId: "proj_1" });
+await extractJob.register(client, { projectId: "proj_abc123" });
+await transformJob.register(client, { projectId: "proj_abc123" });
+await loadJob.register(client, { projectId: "proj_abc123" });
+await summaryJob.register(client, { projectId: "proj_abc123" });
+await cleanupJob.register(client, { projectId: "proj_abc123" });
 
 // Register and trigger the workflow
-await pipeline.register(client, { projectId: "proj_1" });
+await pipeline.register(client, { projectId: "proj_abc123" });
 const run = await pipeline.trigger(client, {
   payload: { source: "external-api", date: "2026-03-15" },
 });

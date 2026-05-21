@@ -171,7 +171,7 @@ syncInventory := authoring.DefineJob(authoring.JobConfig{
     Name:           "Sync Inventory",
     Slug:           "sync-inventory",
     EndpointURL:    "https://worker.example/jobs/sync",
-    ProjectID:      "proj_1",
+    ProjectID:      "proj_abc123",
     MaxConcurrency: 5,
     MaxAttempts:    5,
     RetryStrategy:  "exponential",
@@ -202,7 +202,7 @@ import "github.com/strait-dev/strait-go/authoring"
 pipeline := authoring.DefineWorkflow(authoring.WorkflowConfig{
     Name:      "Order Pipeline",
     Slug:      "order-pipeline",
-    ProjectID: "proj_1",
+    ProjectID: "proj_abc123",
     Steps: []authoring.Step{
         authoring.JobStep("validate", "job_validate", nil),
         authoring.JobStep("charge", "job_charge", &authoring.StepOpts{
@@ -236,7 +236,7 @@ Utilities for common patterns: retries, polling, and pagination.
 import "github.com/strait-dev/strait-go/helpers"
 
 run, err := helpers.WithRetry(ctx, func() (*operations.Run, error) {
-    return jobs.Trigger(ctx, "job_1", &operations.TriggerJobRequest{
+    return jobs.Trigger(ctx, "job_abc123", &operations.TriggerJobRequest{
         Payload: map[string]any{"sku": "A"},
     })
 }, &helpers.RetryConfig{

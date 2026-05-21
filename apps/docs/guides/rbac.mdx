@@ -30,8 +30,8 @@ curl -X POST https://your-strait-instance/v1/members \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "project_id": "proj_abc",
-    "user_id": "user_123",
+    "project_id": "proj_abc123",
+    "user_id": "user_abc123",
     "role_id": "role_operator"
   }'
 ```
@@ -39,8 +39,8 @@ curl -X POST https://your-strait-instance/v1/members \
 ```json Response
 {
   "id": "member_xyz",
-  "project_id": "proj_abc",
-  "user_id": "user_123",
+  "project_id": "proj_abc123",
+  "user_id": "user_abc123",
   "role_id": "role_operator",
   "created_at": "2026-03-15T10:00:00Z"
 }
@@ -55,7 +55,7 @@ curl -X POST https://your-strait-instance/v1/roles \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "project_id": "proj_abc",
+    "project_id": "proj_abc123",
     "name": "deployer",
     "permissions": ["jobs:read", "jobs:trigger", "runs:read", "workflows:read", "workflows:trigger"]
   }'
@@ -64,7 +64,7 @@ curl -X POST https://your-strait-instance/v1/roles \
 ```json Response
 {
   "id": "role_deployer",
-  "project_id": "proj_abc",
+  "project_id": "proj_abc123",
   "name": "deployer",
   "permissions": [
     "jobs:read",
@@ -86,7 +86,7 @@ curl -X POST https://your-strait-instance/v1/roles \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "project_id": "proj_abc",
+    "project_id": "proj_abc123",
     "name": "senior-operator",
     "parent_role_id": "role_operator",
     "permissions": ["secrets:read", "secrets:write"]
@@ -96,7 +96,7 @@ curl -X POST https://your-strait-instance/v1/roles \
 ```json Response
 {
   "id": "role_senior_operator",
-  "project_id": "proj_abc",
+  "project_id": "proj_abc123",
   "name": "senior-operator",
   "parent_role_id": "role_operator",
   "permissions": ["secrets:read", "secrets:write"],
@@ -115,8 +115,8 @@ curl -X POST https://your-strait-instance/v1/resource-policies \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "project_id": "proj_abc",
-    "user_id": "user_456",
+    "project_id": "proj_abc123",
+    "user_id": "user_def456",
     "resource_type": "job",
     "resource_id": "job_critical",
     "permissions": ["jobs:trigger", "runs:read"]
@@ -126,8 +126,8 @@ curl -X POST https://your-strait-instance/v1/resource-policies \
 ```json Response
 {
   "id": "rpol_abc",
-  "project_id": "proj_abc",
-  "user_id": "user_456",
+  "project_id": "proj_abc123",
+  "user_id": "user_def456",
   "resource_type": "job",
   "resource_id": "job_critical",
   "permissions": ["jobs:trigger", "runs:read"],
@@ -144,8 +144,8 @@ curl -X POST https://your-strait-instance/v1/tag-policies \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "project_id": "proj_abc",
-    "user_id": "user_456",
+    "project_id": "proj_abc123",
+    "user_id": "user_def456",
     "tag_key": "team",
     "tag_value": "billing",
     "permissions": ["jobs:read", "jobs:trigger", "runs:read"]
@@ -155,8 +155,8 @@ curl -X POST https://your-strait-instance/v1/tag-policies \
 ```json Response
 {
   "id": "tpol_abc",
-  "project_id": "proj_abc",
-  "user_id": "user_456",
+  "project_id": "proj_abc123",
+  "user_id": "user_def456",
   "tag_key": "team",
   "tag_value": "billing",
   "permissions": ["jobs:read", "jobs:trigger", "runs:read"],
@@ -164,7 +164,7 @@ curl -X POST https://your-strait-instance/v1/tag-policies \
 }
 ```
 
-After this, `user_456` can read and trigger any job tagged `team:billing`.
+After this, `user_def456` can read and trigger any job tagged `team:billing`.
 
 ## How Permissions Resolve
 

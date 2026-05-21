@@ -14,7 +14,7 @@ curl -X POST "https://your-strait-instance/v1/log-drains" \
   -H "Authorization: Bearer strait_..." \
   -H "Content-Type: application/json" \
   -d '{
-    "project_id": "proj_1",
+    "project_id": "proj_abc123",
     "name": "datadog-errors",
     "drain_type": "http",
     "endpoint_url": "https://http-intake.logs.datadoghq.com/api/v2/logs",
@@ -33,7 +33,7 @@ curl -X POST "https://your-strait-instance/v1/log-drains" \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "project_id": "proj_1",
+    "project_id": "proj_abc123",
     "name": "splunk-errors",
     "drain_type": "http",
     "endpoint_url": "https://your-splunk:8088/services/collector/event",
@@ -52,7 +52,7 @@ curl -X POST "https://your-strait-instance/v1/log-drains" \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "project_id": "proj_1",
+    "project_id": "proj_abc123",
     "name": "custom-logs",
     "drain_type": "http",
     "endpoint_url": "https://your-service.com/logs",
@@ -98,7 +98,7 @@ Each log event delivered to your drain endpoint is a JSON object:
   "message": "HTTP POST to endpoint failed: connection refused",
   "run_id": "run_abc123",
   "job_id": "job_xyz",
-  "project_id": "proj_1",
+  "project_id": "proj_abc123",
   "attempt": 2
 }
 ```

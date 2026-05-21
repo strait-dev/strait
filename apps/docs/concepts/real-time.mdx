@@ -47,25 +47,25 @@ Each SSE message contains a JSON object with a `type` field. The table below cov
 **Status change**: emitted whenever a run moves through its lifecycle.
 
 ```json
-{"type": "status_change", "run_id": "...", "from": "queued", "to": "executing", "timestamp": "2025-06-01T12:00:00Z"}
+{"type": "status_change", "run_id": "...", "from": "queued", "to": "executing", "timestamp": "2026-06-01T12:00:00Z"}
 ```
 
 **SDK event**: your code calls the SDK logger or emits custom events.
 
 ```json
-{"type": "event", "event_type": "log", "run_id": "...", "level": "info", "message": "Processing row 42", "data": {}, "timestamp": "2025-06-01T12:00:01Z"}
+{"type": "event", "event_type": "log", "run_id": "...", "level": "info", "message": "Processing row 42", "data": {}, "timestamp": "2026-06-01T12:00:01Z"}
 ```
 
 **Progress**: report completion percentage from long-running work.
 
 ```json
-{"type": "event", "event_type": "progress", "percent": 50, "message": "Halfway", "timestamp": "2025-06-01T12:00:02Z"}
+{"type": "event", "event_type": "progress", "percent": 50, "message": "Halfway", "timestamp": "2026-06-01T12:00:02Z"}
 ```
 
 **Stream chunk**: incremental output, typically from streamed API responses.
 
 ```json
-{"type": "stream_chunk", "chunk": "partial output text", "stream_id": "abc", "done": false, "timestamp": "2025-06-01T12:00:03Z"}
+{"type": "stream_chunk", "chunk": "partial output text", "stream_id": "abc", "done": false, "timestamp": "2026-06-01T12:00:03Z"}
 ```
 
 For LLM or other streamed response chunks specifically, use the dedicated stream endpoint:
@@ -85,7 +85,7 @@ GET /v1/projects/{projectID}/activity/stream
 This feed merges job runs, workflow runs, and event triggers into one stream. Each message describes what changed:
 
 ```json
-{"type": "run.updated", "run_id": "...", "status": "completed", "previous_status": "executing", "timestamp": "2025-06-01T12:01:00Z"}
+{"type": "run.updated", "run_id": "...", "status": "completed", "previous_status": "executing", "timestamp": "2026-06-01T12:01:00Z"}
 ```
 
 Use this for dashboards, audit logs, or any UI that needs a live view of project-wide activity.

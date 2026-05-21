@@ -39,7 +39,7 @@ client = Client.from_env()
 run = client.runs.trigger(
     job_id="send-welcome-email",
     payload={
-        "user_id": "usr_123",
+        "user_id": "user_abc123",
         "email": "customer@example.com",
     },
 )
@@ -60,7 +60,7 @@ async def main():
 
     run = await client.runs.trigger(
         job_id="send-welcome-email",
-        payload={"user_id": "usr_123"},
+        payload={"user_id": "user_abc123"},
     )
 
     print(run.id, run.status)

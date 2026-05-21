@@ -58,7 +58,7 @@ func main() {
 
     run, err := jobs.Trigger(ctx, "send-welcome-email", &operations.TriggerJobRequest{
         Payload: map[string]any{
-            "user_id": "usr_123",
+            "user_id": "user_abc123",
             "email": "customer@example.com",
         },
     })

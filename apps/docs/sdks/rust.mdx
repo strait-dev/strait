@@ -35,7 +35,7 @@ async fn main() -> Result<(), StraitError> {
 
     // Create a job
     let job = client.jobs().create(CreateJobRequest {
-        project_id: "proj_1".into(),
+        project_id: "proj_abc123".into(),
         name: "Send welcome email".into(),
         slug: "send-welcome-email".into(),
         endpoint_url: "https://worker.example/jobs/welcome".into(),
@@ -44,7 +44,7 @@ async fn main() -> Result<(), StraitError> {
 
     // Trigger a run
     let run = client.jobs().trigger(&job.id, TriggerJobRequest {
-        payload: serde_json::json!({ "user_id": "usr_42" }),
+        payload: serde_json::json!({ "user_id": "user_abc123" }),
         ..Default::default()
     }).await?;
 
@@ -113,7 +113,7 @@ use strait::authoring::*;
 let sync_inventory = define_job! {
     name: "Sync Inventory",
     slug: "sync-inventory",
-    project_id: "proj_1",
+    project_id: "proj_abc123",
     endpoint_url: "https://worker.example/jobs/sync",
     max_concurrency: 5,
     max_attempts: 5,
@@ -163,7 +163,7 @@ use strait::authoring::*;
 let pipeline = define_workflow! {
     name: "Order Pipeline",
     slug: "order-pipeline",
-    project_id: "proj_1",
+    project_id: "proj_abc123",
     steps: [
         step::job("validate", "job_validate"),
         step::job("charge", "job_charge").depends_on(["validate"]),
@@ -188,7 +188,7 @@ use strait::authoring::*;
 let research_agent = define_agent! {
     name: "Research Agent",
     slug: "research-agent",
-    project_id: "proj_1",
+    project_id: "proj_abc123",
     model: "claude-sonnet-4-20250514",
     max_tokens: 4096,
     cost_budget_usd: 0.50,
@@ -249,7 +249,7 @@ async fn test_workflow_steps() {
 use strait::composition::*;
 
 let run = with_retry(
-    || client.jobs().trigger("job_1", TriggerJobRequest {
+    || client.jobs().trigger("job_abc123", TriggerJobRequest {
         payload: json!({ "sku": "A" }),
         ..Default::default()
     }),
@@ -308,7 +308,7 @@ use strait::composition::*;
 
 let budget = CostBudget::new(5.00); // $5.00 USD limit
 
-let run = client.jobs().trigger("job_1", TriggerJobRequest {
+let run = client.jobs().trigger("job_abc123", TriggerJobRequest {
     payload: json!({ "query": "analyze dataset" }),
     cost_budget: Some(budget),
     ..Default::default()
@@ -353,7 +353,7 @@ use futures::StreamExt;
 
 // Stream all runs
 let mut stream = client.runs().list_stream(ListRunsQuery {
-    project_id: "proj_1".into(),
+    project_id: "proj_abc123".into(),
     ..Default::default()
 });
 

@@ -45,21 +45,21 @@ All filters combine with AND logic. Every filter is optional.
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \
-  "https://api.strait.dev/v1/audit-events?actor_id=usr_abc123"
+  "https://api.strait.dev/v1/audit-events?actor_id=user_abc123"
 ```
 
 **Find all job changes in a specific week:**
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \
-  "https://api.strait.dev/v1/audit-events?resource_type=job&from=2025-06-01T00:00:00Z&to=2025-06-08T00:00:00Z"
+  "https://api.strait.dev/v1/audit-events?resource_type=job&from=2026-06-01T00:00:00Z&to=2026-06-08T00:00:00Z"
 ```
 
 **Track the full history of a single run:**
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \
-  "https://api.strait.dev/v1/audit-events?resource_type=run&resource_id=run_xyz789&order=asc"
+  "https://api.strait.dev/v1/audit-events?resource_type=run&resource_id=run_abc123&order=asc"
 ```
 
 <Warning>
@@ -72,7 +72,7 @@ Results are cursor-based. The response includes `next_cursor` when more pages ex
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \
-  "https://api.strait.dev/v1/audit-events?limit=25&cursor=2025-06-15T10:30:00.000000000Z"
+  "https://api.strait.dev/v1/audit-events?limit=25&cursor=2026-06-15T10:30:00.000000000Z"
 ```
 
 ## Exporting
@@ -88,7 +88,7 @@ Export audit events with `GET /v1/audit-events/export`. Both `from` and `to` are
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \
   -o audit-events.json \
-  "https://api.strait.dev/v1/audit-events/export?from=2025-06-01T00:00:00Z&to=2025-06-30T00:00:00Z&format=ndjson"
+  "https://api.strait.dev/v1/audit-events/export?from=2026-06-01T00:00:00Z&to=2026-06-30T00:00:00Z&format=ndjson"
 ```
 
 Exports support the same `actor_id` and `resource_type` filters as the list endpoint. Large exports should use narrow time windows.
@@ -126,7 +126,7 @@ curl -X PUT \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"days": 730}' \
-  "https://api.strait.dev/v1/projects/proj_abc/audit/retention"
+  "https://api.strait.dev/v1/projects/proj_abc123/audit/retention"
 ```
 
 Set `days` to `0` to disable retention trimming entirely.

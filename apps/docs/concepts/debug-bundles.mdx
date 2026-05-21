@@ -54,11 +54,11 @@ curl https://api.strait.dev/v1/runs/{runID}/debug-bundle \
 {
   "run_id": "run_abc123",
   "events": [
-    {"type": "state_change", "from": "queued", "to": "executing", "at": "2025-01-15T10:00:01Z"},
-    {"type": "tool_call", "name": "search", "duration_ms": 340, "at": "2025-01-15T10:00:02Z"}
+    {"type": "state_change", "from": "queued", "to": "executing", "at": "2026-01-15T10:00:01Z"},
+    {"type": "tool_call", "name": "search", "duration_ms": 340, "at": "2026-01-15T10:00:02Z"}
   ],
   "checkpoints": [
-    {"step": 1, "state": "executing", "at": "2025-01-15T10:00:01Z"}
+    {"step": 1, "state": "executing", "at": "2026-01-15T10:00:01Z"}
   ],
   "usage": [
     {"model": "gpt-4o", "input_tokens": 1200, "output_tokens": 350, "cost_usd": 0.018}
@@ -70,7 +70,7 @@ curl https://api.strait.dev/v1/runs/{runID}/debug-bundle \
     {"step": 2, "value": "Q4 revenue grew 12% year-over-year..."}
   ],
   "resource_snapshots": [
-    {"at": "2025-01-15T10:00:02Z", "cpu_percent": 42.1, "memory_mb": 256}
+    {"at": "2026-01-15T10:00:02Z", "cpu_percent": 42.1, "memory_mb": 256}
   ]
 }
 ```

@@ -25,9 +25,9 @@ POST /v1/jobs/{jobID}/trigger/bulk
 ```json
 {
   "items": [
-    { "payload": { "user_id": "usr_001", "message": "Your order shipped" } },
-    { "payload": { "user_id": "usr_002", "message": "Your order shipped" } },
-    { "payload": { "user_id": "usr_003", "message": "Your order shipped" } }
+    { "payload": { "user_id": "user_001", "message": "Your order shipped" } },
+    { "payload": { "user_id": "user_002", "message": "Your order shipped" } },
+    { "payload": { "user_id": "user_003", "message": "Your order shipped" } }
   ]
 }
 ```
@@ -45,7 +45,7 @@ GET /v1/batch-operations/{batchID}?project_id=...
 ```json
 {
   "id": "batch_abc",
-  "job_id": "job_456",
+  "job_id": "job_abc123",
   "item_count": 3,
   "created_count": 3,
   "finished_at": null
