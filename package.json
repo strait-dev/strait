@@ -46,6 +46,7 @@
     "yaml": ">=2.8.3",
     "picomatch": "4.0.4"
   },
+  "trustedDependencies": [],
   "devDependencies": {
     "@biomejs/biome": "2.4.14",
     "@manypkg/cli": "^0.25.1",
