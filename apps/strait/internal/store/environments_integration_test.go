@@ -493,6 +493,38 @@ func TestEnvironmentVariablesDoNotFallbackToPlaintextOnDecryptFailure(t *testing
 	}
 }
 
+func TestEnvironmentVariablesRejectLegacyPlaintextWithoutCiphertext(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	q.SetSecretEncryptionKey("0123456789abcdef0123456789abcdef")
+	mustClean(t, ctx)
+
+	env := &domain.Environment{
+		ProjectID: "proj-env-legacy-plaintext-" + newID(),
+		Name:      "Legacy Plaintext",
+		Slug:      "legacy-plaintext",
+	}
+	if err := q.CreateEnvironment(ctx, env); err != nil {
+		t.Fatalf("CreateEnvironment() error = %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE environments
+		SET variables = $2, variables_encrypted = NULL
+		WHERE id = $1`,
+		env.ID,
+		[]byte(`{"API_TOKEN":"legacy-plaintext"}`),
+	); err != nil {
+		t.Fatalf("tamper environment variables: %v", err)
+	}
+
+	if _, err := q.GetEnvironment(ctx, env.ID); !errors.Is(err, store.ErrEnvironmentVariableEncryptionRequired) {
+		t.Fatalf("GetEnvironment() error = %v, want ErrEnvironmentVariableEncryptionRequired", err)
+	}
+	if _, err := q.GetResolvedEnvironmentVariables(ctx, env.ID); !errors.Is(err, store.ErrEnvironmentVariableEncryptionRequired) {
+		t.Fatalf("GetResolvedEnvironmentVariables() error = %v, want ErrEnvironmentVariableEncryptionRequired", err)
+	}
+}
+
 func TestResolvedEnvironmentVariablesUseEncryptedParentChain(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

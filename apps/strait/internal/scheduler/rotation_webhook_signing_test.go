@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -120,10 +121,11 @@ func TestNotifyRotationWebhook_DoesNotFollowRedirects(t *testing.T) {
 	defer redirector.Close()
 
 	r := NewReaper(&mockReaperStore{}, time.Second, 30*time.Second, 0, 0, false, nil).
-		WithAllowPrivateEndpoints(true)
+		WithAllowPrivateEndpoints(true).
+		WithRotationSecretDecryptor(stubSecretDecryptor{plaintext: []byte("rotation-secret")})
 	r.rotationWebhookClient = redirector.Client()
 
-	err := r.notifyRotationWebhook(context.Background(), redirector.URL, nil, "old-key", "new-key", "strait_secret", "strait_secre", "proj-1")
+	err := r.notifyRotationWebhook(context.Background(), redirector.URL, []byte("ciphertext"), "old-key", "new-key", "strait_secret", "strait_secre", "proj-1")
 	if err == nil {
 		t.Fatal("expected redirect response to fail the rotation webhook")
 	}
@@ -138,19 +140,12 @@ func TestNotifyRotationWebhook_DoesNotFollowRedirects(t *testing.T) {
 	}
 }
 
-func TestNotifyRotationWebhook_LegacyKeyDeliversUnsigned(t *testing.T) {
+func TestNotifyRotationWebhook_MissingSecretFailsClosed(t *testing.T) {
 	t.Parallel()
 
-	var (
-		mu     sync.Mutex
-		gotSig string
-		gotTS  string
-	)
-	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		gotSig = r.Header.Get("X-Strait-Signature")
-		gotTS = r.Header.Get("X-Strait-Timestamp")
-		mu.Unlock()
+	var called atomic.Bool
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called.Store(true)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
@@ -160,28 +155,21 @@ func TestNotifyRotationWebhook_LegacyKeyDeliversUnsigned(t *testing.T) {
 		WithRotationSecretDecryptor(stubSecretDecryptor{plaintext: []byte("unused")})
 	r.rotationWebhookClient = server.Client()
 
-	if err := r.notifyRotationWebhook(context.Background(), server.URL, nil, "old-key", "new-key", "strait_secret", "strait_secre", "proj-1"); err != nil {
-		t.Fatalf("notifyRotationWebhook: %v", err)
+	if err := r.notifyRotationWebhook(context.Background(), server.URL, nil, "old-key", "new-key", "strait_secret", "strait_secre", "proj-1"); err == nil {
+		t.Fatal("expected missing signing secret to fail")
 	}
 
-	mu.Lock()
-	defer mu.Unlock()
-	if gotSig != "" || gotTS != "" {
-		t.Fatalf("legacy unsigned delivery should not set signing headers, got sig=%q ts=%q", gotSig, gotTS)
+	if called.Load() {
+		t.Fatal("webhook endpoint was called despite missing signing secret")
 	}
 }
 
-func TestNotifyRotationWebhook_DecryptFailureDeliversUnsigned(t *testing.T) {
+func TestNotifyRotationWebhook_DecryptFailureFailsClosed(t *testing.T) {
 	t.Parallel()
 
-	var (
-		mu     sync.Mutex
-		gotSig string
-	)
-	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		gotSig = r.Header.Get("X-Strait-Signature")
-		mu.Unlock()
+	var called atomic.Bool
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called.Store(true)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
@@ -191,28 +179,21 @@ func TestNotifyRotationWebhook_DecryptFailureDeliversUnsigned(t *testing.T) {
 		WithRotationSecretDecryptor(stubSecretDecryptor{err: errors.New("kms unavailable")})
 	r.rotationWebhookClient = server.Client()
 
-	if err := r.notifyRotationWebhook(context.Background(), server.URL, []byte("ciphertext"), "old-key", "new-key", "strait_secret", "strait_secre", "proj-1"); err != nil {
-		t.Fatalf("notifyRotationWebhook: %v", err)
+	if err := r.notifyRotationWebhook(context.Background(), server.URL, []byte("ciphertext"), "old-key", "new-key", "strait_secret", "strait_secre", "proj-1"); err == nil {
+		t.Fatal("expected decrypt failure to fail")
 	}
 
-	mu.Lock()
-	defer mu.Unlock()
-	if gotSig != "" {
-		t.Fatalf("decrypt failure should fall back to unsigned, got sig=%q", gotSig)
+	if called.Load() {
+		t.Fatal("webhook endpoint was called despite decrypt failure")
 	}
 }
 
-func TestNotifyRotationWebhook_NoDecryptorDeliversUnsigned(t *testing.T) {
+func TestNotifyRotationWebhook_NoDecryptorFailsClosed(t *testing.T) {
 	t.Parallel()
 
-	var (
-		mu     sync.Mutex
-		gotSig string
-	)
-	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		gotSig = r.Header.Get("X-Strait-Signature")
-		mu.Unlock()
+	var called atomic.Bool
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called.Store(true)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
@@ -221,13 +202,11 @@ func TestNotifyRotationWebhook_NoDecryptorDeliversUnsigned(t *testing.T) {
 		WithAllowPrivateEndpoints(true)
 	r.rotationWebhookClient = server.Client()
 
-	if err := r.notifyRotationWebhook(context.Background(), server.URL, []byte("ciphertext"), "old-key", "new-key", "strait_secret", "strait_secre", "proj-1"); err != nil {
-		t.Fatalf("notifyRotationWebhook: %v", err)
+	if err := r.notifyRotationWebhook(context.Background(), server.URL, []byte("ciphertext"), "old-key", "new-key", "strait_secret", "strait_secre", "proj-1"); err == nil {
+		t.Fatal("expected missing decryptor to fail")
 	}
 
-	mu.Lock()
-	defer mu.Unlock()
-	if gotSig != "" {
-		t.Fatalf("missing decryptor should fall back to unsigned, got sig=%q", gotSig)
+	if called.Load() {
+		t.Fatal("webhook endpoint was called despite missing decryptor")
 	}
 }
