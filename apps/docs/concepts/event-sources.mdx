@@ -62,7 +62,7 @@ Combine conditions:
 
 Send events into the system via `POST /v1/events/dispatch`:
 
-1. The source is looked up by `name` from the request body.
+1. The source is looked up by `source` from the request body.
 2. If the source is disabled, the dispatch is rejected.
 3. Each enabled subscription is evaluated against the event payload.
 4. Matching subscriptions trigger their target (enqueue a job run or start a workflow run).
@@ -82,6 +82,50 @@ A disabled event source rejects all dispatches. Subscriptions with `enabled: fal
 
 The optional `schema` field on an event source accepts a JSON Schema definition. When set, inbound event payloads are validated against this schema before subscriptions are evaluated, catching malformed payloads early.
 
+## End-to-End Example
+
+Create a source, subscribe a job to it, then dispatch an event.
+
+Create the source:
+
+```bash
+curl -X POST https://api.strait.dev/v1/event-sources \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_id": "my-project",
+    "name": "github-events"
+  }'
+# { "id": "src_abc123", "name": "github-events", "enabled": true, ... }
+```
+
+Subscribe a job to the source, firing only on `push` events:
+
+```bash
+curl -X POST https://api.strait.dev/v1/event-sources/src_abc123/subscribe \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "target_type": "job",
+    "target_id": "build-site",
+    "filter_expr": "payload.action == \"push\""
+  }'
+```
+
+Dispatch an event into the source. Matching subscriptions enqueue their target:
+
+```bash
+curl -X POST https://api.strait.dev/v1/events/dispatch \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source": "github-events",
+    "project_id": "my-project",
+    "payload": { "action": "push", "ref": "refs/heads/main" }
+  }'
+# { "dispatched": 1, "source": "github-events" }
+```
+
 ## API Reference
 
 | Operation | Method | Path |
@@ -91,9 +135,9 @@ The optional `schema` field on an event source accepts a JSON Schema definition.
 | Get source | `GET` | `/v1/event-sources/{sourceID}` |
 | Update source | `PATCH` | `/v1/event-sources/{sourceID}` |
 | Delete source | `DELETE` | `/v1/event-sources/{sourceID}` |
-| Create subscription | `POST` | `/v1/event-sources/{sourceID}/subscriptions` |
+| Subscribe target | `POST` | `/v1/event-sources/{sourceID}/subscribe` |
 | List subscriptions | `GET` | `/v1/event-sources/{sourceID}/subscriptions` |
-| Delete subscription | `DELETE` | `/v1/event-sources/{sourceID}/subscriptions/{subscriptionID}` |
+| Delete subscription | `DELETE` | `/v1/event-sources/{sourceID}/subscriptions/{subID}` |
 
 ## Related Concepts
 

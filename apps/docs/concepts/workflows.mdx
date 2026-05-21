@@ -156,12 +156,12 @@ Workflow runs expose APIs to inspect the graph, retry a step, or replay a branch
 
 Common operations:
 
-| Operation | Use it when |
-|---|---|
-| Retry a step | One step failed because of a transient issue. |
-| Replay a subtree | A step and its downstream work should run again. |
-| View graph | You need to see which steps ran, failed, or are waiting. |
-| Explain a run | You need to understand why a step did or did not run. |
+| Operation | Endpoint | Use it when |
+|---|---|---|
+| View graph | `GET /v1/workflow-runs/{workflowRunID}/graph` | You need to see which steps ran, failed, or are waiting. |
+| Explain a run | `GET /v1/workflow-runs/{workflowRunID}/explain` | You need to understand why a step did or did not run. |
+| Retry a step | `POST /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/retry` | One step failed because of a transient issue. |
+| Replay a subtree | `POST /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/replay-subtree` | A step and its downstream work should run again. |
 
 For request and response schemas, use the API reference.
 
