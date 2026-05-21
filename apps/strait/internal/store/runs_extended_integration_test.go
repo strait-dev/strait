@@ -1213,6 +1213,57 @@ func TestRuns_BatchUpdateHeartbeat_NonexistentIDs(t *testing.T) {
 	}
 }
 
+func BenchmarkHeartbeatWritePath(b *testing.B) {
+	ctx := context.Background()
+	if testDB == nil || testDB.Pool == nil {
+		b.Fatal("testDB is not initialized")
+	}
+	q := store.New(testDB.Pool)
+	if err := testDB.CleanTables(ctx); err != nil {
+		b.Fatalf("CleanTables() error = %v", err)
+	}
+
+	job := baseJob(newID(), "project-heartbeat-bench")
+	if err := q.CreateJob(ctx, job); err != nil {
+		b.Fatalf("CreateJob() error = %v", err)
+	}
+
+	const runCount = 1000
+	ids := make([]string, 0, runCount)
+	for range runCount {
+		run := baseRun(job, newID())
+		run.Status = domain.StatusExecuting
+		now := time.Now().UTC()
+		run.StartedAt = &now
+		run.HeartbeatAt = &now
+		if err := q.CreateRun(ctx, run); err != nil {
+			b.Fatalf("CreateRun() error = %v", err)
+		}
+		ids = append(ids, run.ID)
+	}
+	if err := q.BatchUpsertHeartbeatSideTable(ctx, ids); err != nil {
+		b.Fatalf("seed side-table heartbeats: %v", err)
+	}
+
+	b.Run("job_runs_heartbeat_at", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if err := q.BatchUpdateHeartbeat(ctx, ids); err != nil {
+				b.Fatalf("BatchUpdateHeartbeat() error = %v", err)
+			}
+		}
+	})
+
+	b.Run("side_table_upsert", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if err := q.BatchUpsertHeartbeatSideTable(ctx, ids); err != nil {
+				b.Fatalf("BatchUpsertHeartbeatSideTable() error = %v", err)
+			}
+		}
+	})
+}
+
 // ResetRunIdempotencyKey.
 
 func TestRuns_ResetRunIdempotencyKey_HappyPath(t *testing.T) {

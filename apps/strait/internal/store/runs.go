@@ -1311,8 +1311,18 @@ func (q *Queries) ListStaleRuns(ctx context.Context, threshold time.Duration) ([
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, machine_id, deployment_id, pinned_image_uri, pinned_image_digest, is_rollback, replayed_run_id
 		FROM job_runs
-		WHERE status = '%s' AND (heartbeat_at < NOW() - $1::interval OR heartbeat_at IS NULL) AND finished_at IS NULL AND started_at IS NOT NULL
-		ORDER BY heartbeat_at ASC
+		LEFT JOIN (
+			SELECT run_id, heartbeat_at AS side_heartbeat_at
+			FROM job_run_heartbeats
+		) h ON h.run_id = job_runs.id
+		WHERE status = '%s'
+		  AND (
+		      COALESCE(h.side_heartbeat_at, heartbeat_at) < NOW() - $1::interval
+		      OR COALESCE(h.side_heartbeat_at, heartbeat_at) IS NULL
+		  )
+		  AND finished_at IS NULL
+		  AND started_at IS NOT NULL
+		ORDER BY COALESCE(h.side_heartbeat_at, heartbeat_at) ASC NULLS FIRST
 		LIMIT 1000`, domain.StatusExecuting)
 
 	rows, err := q.db.Query(ctx, query, threshold.String())

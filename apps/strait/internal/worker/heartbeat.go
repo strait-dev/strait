@@ -38,6 +38,11 @@ type heartbeatLegacyStore interface {
 	UpdateHeartbeat(ctx context.Context, id string) error
 }
 
+type heartbeatSideTableStore interface {
+	UpsertHeartbeatSideTable(ctx context.Context, id string) error
+	BatchUpsertHeartbeatSideTable(ctx context.Context, ids []string) error
+}
+
 type heartbeatStoreAdapter struct {
 	store heartbeatLegacyStore
 }
@@ -53,6 +58,18 @@ func (a heartbeatStoreAdapter) BatchUpdateHeartbeat(ctx context.Context, ids []s
 		}
 	}
 	return nil
+}
+
+type heartbeatSideTableAdapter struct {
+	store heartbeatSideTableStore
+}
+
+func (a heartbeatSideTableAdapter) UpdateHeartbeat(ctx context.Context, id string) error {
+	return a.store.UpsertHeartbeatSideTable(ctx, id)
+}
+
+func (a heartbeatSideTableAdapter) BatchUpdateHeartbeat(ctx context.Context, ids []string) error {
+	return a.store.BatchUpsertHeartbeatSideTable(ctx, ids)
 }
 
 type HeartbeatManager struct {
@@ -72,6 +89,9 @@ func NewHeartbeatManager(s HeartbeatStore, interval time.Duration) *HeartbeatMan
 }
 
 func NewHeartbeatSender(s heartbeatLegacyStore, interval time.Duration) *HeartbeatManager {
+	if store, ok := s.(heartbeatSideTableStore); ok {
+		return NewHeartbeatManager(heartbeatSideTableAdapter{store: store}, interval)
+	}
 	if store, ok := s.(HeartbeatStore); ok {
 		return NewHeartbeatManager(store, interval)
 	}
