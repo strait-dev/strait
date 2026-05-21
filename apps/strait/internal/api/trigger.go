@@ -90,6 +90,7 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 	if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
 		return nil, huma.Error404NotFound("job not found")
 	}
+	s.emitInternalSecretBypassAuditIfProjectless(ctx, "trigger_job.project_match", "handleTriggerJob", "job", job.ID)
 
 	if !job.Enabled {
 		return nil, huma.Error400BadRequest("job is disabled")
