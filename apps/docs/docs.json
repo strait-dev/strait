@@ -123,7 +123,12 @@
               },
               {
                 "group": "Operations",
-                "pages": ["operations/observability", "concepts/debug-bundles"]
+                "pages": [
+                  "operations/observability",
+                  "operations/health-readiness",
+                  "guides/troubleshooting",
+                  "concepts/debug-bundles"
+                ]
               },
               {
                 "group": "Security and Access",
