@@ -34,6 +34,7 @@ describe("requireActiveProjectScope", () => {
     mockApiRequest
       .mockResolvedValueOnce({
         data: [{ user_id: "user-1", role_id: "role-1" }],
+        has_more: false,
       })
       .mockResolvedValueOnce({
         role: { permissions: ["jobs:read"] },
@@ -44,6 +45,7 @@ describe("requireActiveProjectScope", () => {
       requireActiveProjectScope({ user: { id: "user-1" } }, "jobs:read")
     ).resolves.toBe("project-1");
     expect(mockApiRequest).toHaveBeenNthCalledWith(1, "/v1/members", {
+      params: { limit: 100 },
       projectId: "project-1",
     });
     expect(mockApiRequest).toHaveBeenNthCalledWith(2, "/v1/roles/role-1", {
@@ -56,6 +58,7 @@ describe("requireActiveProjectScope", () => {
     mockApiRequest
       .mockResolvedValueOnce({
         data: [{ user_id: "user-1", role_id: "role-1" }],
+        has_more: false,
       })
       .mockResolvedValueOnce({
         role: { permissions: ["jobs:write"] },
@@ -71,6 +74,7 @@ describe("requireActiveProjectScope", () => {
     mockApiRequest
       .mockResolvedValueOnce({
         data: [{ user_id: "user-1", role_id: "role-1" }],
+        has_more: false,
       })
       .mockResolvedValueOnce({
         role: { permissions: ["*"] },
@@ -85,6 +89,7 @@ describe("requireActiveProjectScope", () => {
   it("rejects access when the user has no project member role", async () => {
     mockApiRequest.mockResolvedValueOnce({
       data: [{ user_id: "other-user", role_id: "role-1" }],
+      has_more: false,
     });
 
     await expect(
@@ -97,6 +102,7 @@ describe("requireActiveProjectScope", () => {
     mockApiRequest
       .mockResolvedValueOnce({
         data: [{ user_id: "user-1", role_id: "role-1" }],
+        has_more: false,
       })
       .mockResolvedValueOnce({
         role: { permissions: ["jobs:write"] },
@@ -106,5 +112,38 @@ describe("requireActiveProjectScope", () => {
     await expect(
       requireActiveProjectScope({ user: { id: "user-1" } }, "jobs:read")
     ).rejects.toThrow("Forbidden");
+  });
+
+  it("continues through member pages until it finds the user's role", async () => {
+    mockApiRequest
+      .mockResolvedValueOnce({
+        data: [{ user_id: "other-user", role_id: "role-1" }],
+        has_more: true,
+        next_cursor: "cursor-2",
+      })
+      .mockResolvedValueOnce({
+        data: [{ user_id: "user-1", role_id: "role-2" }],
+        has_more: false,
+      })
+      .mockResolvedValueOnce({
+        role: { permissions: ["jobs:read"] },
+        lineage: [],
+      });
+
+    await expect(
+      requireActiveProjectScope({ user: { id: "user-1" } }, "jobs:read")
+    ).resolves.toBe("project-1");
+    expect(mockApiRequest).toHaveBeenNthCalledWith(1, "/v1/members", {
+      params: { limit: 100 },
+      projectId: "project-1",
+    });
+    expect(mockApiRequest).toHaveBeenNthCalledWith(2, "/v1/members", {
+      params: { limit: 100, cursor: "cursor-2" },
+      projectId: "project-1",
+    });
+    expect(mockApiRequest).toHaveBeenNthCalledWith(3, "/v1/roles/role-2", {
+      params: { include_lineage: true },
+      projectId: "project-1",
+    });
   });
 });

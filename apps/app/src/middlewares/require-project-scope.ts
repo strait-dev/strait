@@ -15,6 +15,8 @@ type ProjectRole = {
 
 type PaginatedResponse<T> = {
   data: T[];
+  has_more?: boolean;
+  next_cursor?: string;
 };
 
 type RoleWithLineageResponse = {
@@ -45,18 +47,39 @@ function roleResponseHasScope(
   return false;
 }
 
+async function findProjectMembership(
+  projectId: string,
+  userId: string
+): Promise<ProjectMemberRole | undefined> {
+  let cursor: string | undefined;
+
+  for (;;) {
+    const members = await apiRequest<PaginatedResponse<ProjectMemberRole>>(
+      "/v1/members",
+      {
+        params: {
+          limit: 100,
+          ...(cursor ? { cursor } : {}),
+        },
+        projectId,
+      }
+    );
+    const membership = members.data.find((member) => member.user_id === userId);
+
+    if (membership || members.has_more !== true || !members.next_cursor) {
+      return membership;
+    }
+
+    cursor = members.next_cursor;
+  }
+}
+
 export async function requireActiveProjectScope(
   context: AuthzContext,
   scope: string
 ): Promise<string> {
   const projectId = await requireActiveProjectAccess(context);
-  const members = await apiRequest<PaginatedResponse<ProjectMemberRole>>(
-    "/v1/members",
-    { projectId }
-  );
-  const membership = members.data.find(
-    (member) => member.user_id === context.user.id
-  );
+  const membership = await findProjectMembership(projectId, context.user.id);
 
   if (!membership?.role_id) {
     throw new Error("Forbidden");
