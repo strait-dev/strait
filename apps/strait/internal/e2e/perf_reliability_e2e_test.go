@@ -116,8 +116,8 @@ func TestE2E_WebhookCircuitBreakerBlocksDelivery(t *testing.T) {
 	if d.Status != domain.WebhookStatusPending {
 		t.Fatalf("delivery status = %s, want pending", d.Status)
 	}
-	if d.Attempts == 0 {
-		t.Fatal("expected attempts to increment when blocked by circuit breaker")
+	if d.Attempts != 0 {
+		t.Fatalf("expected circuit breaker block not to consume an attempt, got %d", d.Attempts)
 	}
 }
 

@@ -13,6 +13,9 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestHandleUpdateJob_Success(t *testing.T) {
@@ -1278,6 +1281,105 @@ func TestHandleTriggerJob_DedupWindowReturnsExistingRun(t *testing.T) {
 	}
 	if enqueued {
 		t.Fatal("expected enqueue to be skipped when dedup window hit")
+	}
+}
+
+type txAPIStoreMock struct {
+	*APIStoreMock
+}
+
+func (m *txAPIStoreMock) WithTx(ctx context.Context, fn func(context.Context, store.DBTX) error) error {
+	return fn(ctx, fakeDBTX{})
+}
+
+type fakeDBTX struct{}
+
+func (fakeDBTX) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+	return pgconn.CommandTag{}, nil
+}
+
+func (fakeDBTX) Query(context.Context, string, ...any) (pgx.Rows, error) {
+	return nil, errors.New("fake DBTX does not support Query")
+}
+
+func (fakeDBTX) QueryRow(context.Context, string, ...any) pgx.Row {
+	return nil
+}
+
+func TestHandleTriggerJob_DedupWindowRechecksInsideLimitGuard(t *testing.T) {
+	t.Parallel()
+	var findCalls int
+	enqueued := false
+	base := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60, DedupWindowSecs: 300}, nil
+		},
+		FindRecentRunByPayloadFunc: func(_ context.Context, _ string, _ json.RawMessage, _ time.Time) (*domain.JobRun, error) {
+			findCalls++
+			if findCalls == 1 {
+				return nil, nil
+			}
+			return &domain.JobRun{ID: "run-winner", Status: domain.StatusQueued}, nil
+		},
+	}
+	base.AreJobDependenciesSatisfiedFunc = func(_ context.Context, _ *domain.JobRun) (bool, error) {
+		t.Fatal("dependencies should not be evaluated after guarded dedup hit")
+		return true, nil
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+		enqueued = true
+		return nil
+	}}
+
+	srv := newTestServer(t, &txAPIStoreMock{APIStoreMock: base}, mq, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{"payload":{"a":1}}`))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if findCalls != 2 {
+		t.Fatalf("FindRecentRunByPayload calls = %d, want 2", findCalls)
+	}
+	if enqueued {
+		t.Fatal("expected enqueue to be skipped when guarded dedup recheck hits")
+	}
+	if !strings.Contains(w.Body.String(), "run-winner") {
+		t.Fatalf("response did not return dedup winner: %s", w.Body.String())
+	}
+}
+
+func TestHandleTriggerJob_DelayedRunExpiresRelativeToScheduledAt(t *testing.T) {
+	t.Parallel()
+	scheduledAt := time.Now().Add(2 * time.Hour).UTC().Truncate(time.Second)
+	ttlSecs := 60
+	var capturedRun *domain.JobRun
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
+		},
+	}
+	ms.AreJobDependenciesSatisfiedFunc = func(_ context.Context, _ *domain.JobRun) (bool, error) { return true, nil }
+	mq := &mockQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+		clone := *run
+		capturedRun = &clone
+		return nil
+	}}
+
+	srv := newTestServer(t, ms, mq, nil)
+	w := httptest.NewRecorder()
+	body := fmt.Sprintf(`{"scheduled_at":%q,"ttl_secs":%d}`, scheduledAt.Format(time.RFC3339), ttlSecs)
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", body))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if capturedRun == nil || capturedRun.ExpiresAt == nil {
+		t.Fatal("expected enqueued run with expires_at")
+	}
+	want := scheduledAt.Add(time.Duration(ttlSecs) * time.Second)
+	if capturedRun.ExpiresAt.Before(want.Add(-time.Second)) || capturedRun.ExpiresAt.After(want.Add(time.Second)) {
+		t.Fatalf("expires_at = %s, want around %s", capturedRun.ExpiresAt.Format(time.RFC3339), want.Format(time.RFC3339))
 	}
 }
 

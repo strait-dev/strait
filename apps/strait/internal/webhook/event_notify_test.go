@@ -831,21 +831,21 @@ func TestWithChExporter_NilExporter_NoPanic(t *testing.T) {
 	worker.processBatch(context.Background())
 }
 
-func TestPow(t *testing.T) {
+func TestExponentialWebhookBackoff(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		base, exp, want int
+		attempts int
+		want     time.Duration
 	}{
-		{5, 0, 1},
-		{5, 1, 5},
-		{5, 2, 25},
-		{5, 3, 125},
-		{5, 4, 625},
+		{1, 5 * time.Second},
+		{2, 25 * time.Second},
+		{3, 125 * time.Second},
+		{4, 625 * time.Second},
 	}
 	for _, tc := range cases {
-		if got := pow(tc.base, tc.exp); got != tc.want {
-			t.Errorf("pow(%d, %d) = %d, want %d", tc.base, tc.exp, got, tc.want)
+		if got := exponentialWebhookBackoff(tc.attempts); got != tc.want {
+			t.Errorf("exponentialWebhookBackoff(%d) = %s, want %s", tc.attempts, got, tc.want)
 		}
 	}
 }
@@ -2257,14 +2257,14 @@ func TestAttemptBatchDelivery_CircuitBreakerOpen_SkipsBatch(t *testing.T) {
 		t.Fatal("expected no HTTP requests when circuit breaker is open")
 	}
 
-	// Circuit breaker open is retryable, so first attempt goes to pending (scheduled retry),
-	// not dead. Only becomes dead after max attempts exhausted.
+	// Circuit breaker open is retryable, but it is not a delivery attempt:
+	// no outbound HTTP request was made, so attempts must not be consumed.
 	for _, d := range ms.getDeliveries() {
 		if d.Status != domain.WebhookStatusPending {
 			t.Fatalf("expected pending for %s (circuit breaker, retryable), got %s", d.ID, d.Status)
 		}
-		if d.Attempts != 1 {
-			t.Fatalf("expected 1 attempt for %s, got %d", d.ID, d.Attempts)
+		if d.Attempts != 0 {
+			t.Fatalf("expected 0 attempts for %s, got %d", d.ID, d.Attempts)
 		}
 	}
 }
@@ -4707,6 +4707,22 @@ func TestBackoffForRetryPolicy_LinearCapsAt30Min(t *testing.T) {
 	approxBackoff(t, got, 30*time.Minute, "linear attempt 500 (capped)")
 	if got > 30*time.Minute+(30*time.Minute)/5 {
 		t.Fatalf("linear backoff for attempt 500 = %s, exceeded 30m cap + jitter", got)
+	}
+}
+
+func TestBackoffForRetryPolicy_HugeAttemptsDoNotOverflow(t *testing.T) {
+	t.Parallel()
+
+	exponential := backoffForRetryPolicy(domain.WebhookRetryPolicyExponential, 1_000_000)
+	approxBackoff(t, exponential, maxWebhookBackoff, "huge exponential attempt")
+	if exponential <= 0 {
+		t.Fatalf("huge exponential backoff = %s, want positive capped duration", exponential)
+	}
+
+	linear := backoffForRetryPolicy(domain.WebhookRetryPolicyLinear, int(^uint(0)>>1))
+	approxBackoff(t, linear, maxWebhookBackoff, "huge linear attempt")
+	if linear <= 0 {
+		t.Fatalf("huge linear backoff = %s, want positive capped duration", linear)
 	}
 }
 

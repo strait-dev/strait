@@ -184,8 +184,7 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 	}
 
 	if job.DedupWindowSecs > 0 {
-		since := time.Now().Add(-time.Duration(job.DedupWindowSecs) * time.Second)
-		existingRun, findErr := s.store.FindRecentRunByPayload(ctx, job.ID, payload, since)
+		existingRun, findErr := s.findRecentDeduplicatedRun(ctx, job, payload)
 		if findErr != nil {
 			return nil, huma.Error500InternalServerError("failed to evaluate payload deduplication")
 		}
@@ -359,15 +358,16 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		scheduledAt = adjustedScheduledAt
 	}
 
+	expiresBase := triggerExpiryBase(now, scheduledAt)
 	var expiresAt time.Time
 	if req.TTLSecs != nil && *req.TTLSecs > 0 {
-		expiresAt = now.Add(time.Duration(*req.TTLSecs) * time.Second)
+		expiresAt = expiresBase.Add(time.Duration(*req.TTLSecs) * time.Second)
 	} else if job.RunTTLSecs > 0 {
-		expiresAt = now.Add(time.Duration(job.RunTTLSecs) * time.Second)
+		expiresAt = expiresBase.Add(time.Duration(job.RunTTLSecs) * time.Second)
 	} else if s.config.DefaultRunTTLSecs > 0 {
-		expiresAt = now.Add(time.Duration(s.config.DefaultRunTTLSecs) * time.Second)
+		expiresAt = expiresBase.Add(time.Duration(s.config.DefaultRunTTLSecs) * time.Second)
 	} else {
-		expiresAt = now.Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
+		expiresAt = expiresBase.Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
 	}
 
 	status := domain.StatusQueued
@@ -426,7 +426,18 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 	)
 
 	waitingRun := false
+	var deduplicatedRun *domain.JobRun
 	if err := s.withTriggerLimitGuard(ctx, job, projectQuota, func(guardCtx context.Context, tx store.DBTX) error {
+		if job.DedupWindowSecs > 0 {
+			existingRun, findErr := s.findRecentDeduplicatedRun(guardCtx, job, payload)
+			if findErr != nil {
+				return fmt.Errorf("evaluate payload deduplication: %w", findErr)
+			}
+			if existingRun != nil {
+				deduplicatedRun = existingRun
+				return nil
+			}
+		}
 		if status == domain.StatusQueued {
 			satisfied, depErr := s.store.AreJobDependenciesSatisfied(guardCtx, run)
 			if depErr != nil {
@@ -479,6 +490,14 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		}
 		return nil, triggerLimitAPIError(err, "failed to enqueue run")
 	}
+	if deduplicatedRun != nil {
+		return &TriggerJobOutput{Body: map[string]any{
+			"id":              deduplicatedRun.ID,
+			"status":          deduplicatedRun.Status,
+			"payload_hash":    payloadHash,
+			"idempotency_hit": false,
+		}}, nil
+	}
 	if waitingRun {
 		s.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", job.ID, map[string]any{
 			"run_id":               run.ID,
@@ -526,6 +545,14 @@ func (s *Server) checkTriggerDispatchPriority(ctx context.Context, projectID str
 		return huma.Error402PaymentRequired(err.Error())
 	}
 	return nil
+}
+
+func (s *Server) findRecentDeduplicatedRun(ctx context.Context, job *domain.Job, payload json.RawMessage) (*domain.JobRun, error) {
+	if job == nil || job.DedupWindowSecs <= 0 {
+		return nil, nil
+	}
+	since := time.Now().Add(-time.Duration(job.DedupWindowSecs) * time.Second)
+	return s.store.FindRecentRunByPayload(ctx, job.ID, payload, since)
 }
 
 func (s *Server) checkTriggerDailyCostBudget(ctx context.Context, projectID string, projectQuota *store.ProjectQuota) error {
@@ -925,15 +952,16 @@ func (s *Server) validateTriggerRequest(ctx context.Context, jobID string, req T
 		scheduledAt = adjustedScheduledAt
 	}
 
+	expiresBase := triggerExpiryBase(now, scheduledAt)
 	var expiresAt time.Time
 	if req.TTLSecs != nil && *req.TTLSecs > 0 {
-		expiresAt = now.Add(time.Duration(*req.TTLSecs) * time.Second)
+		expiresAt = expiresBase.Add(time.Duration(*req.TTLSecs) * time.Second)
 	} else if job.RunTTLSecs > 0 {
-		expiresAt = now.Add(time.Duration(job.RunTTLSecs) * time.Second)
+		expiresAt = expiresBase.Add(time.Duration(job.RunTTLSecs) * time.Second)
 	} else if s.config.DefaultRunTTLSecs > 0 {
-		expiresAt = now.Add(time.Duration(s.config.DefaultRunTTLSecs) * time.Second)
+		expiresAt = expiresBase.Add(time.Duration(s.config.DefaultRunTTLSecs) * time.Second)
 	} else {
-		expiresAt = now.Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
+		expiresAt = expiresBase.Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
 	}
 
 	return &DryRunValidationResult{
@@ -944,6 +972,13 @@ func (s *Server) validateTriggerRequest(ctx context.Context, jobID string, req T
 		ExpiresAt:          expiresAt,
 		ValidationWarnings: warnings,
 	}, nil
+}
+
+func triggerExpiryBase(now time.Time, scheduledAt *time.Time) time.Time {
+	if scheduledAt != nil && scheduledAt.After(now) {
+		return *scheduledAt
+	}
+	return now
 }
 
 func dryRunJobInfo(job *domain.Job) *DryRunJobInfo {
