@@ -1,5 +1,15 @@
 import fs from "node:fs";
 
+const projectContextPath = "playwright/.auth/project.json";
+const defaultApiUrl = "http://localhost:8080";
+const internalSecretHeader = "X-Internal-Secret";
+const defaultJobEndpointUrl = "https://httpbin.org/post";
+
+type ProjectContext = {
+  projectId?: string;
+  orgId?: string;
+};
+
 /** API helper for seeding and cleaning up test data via the Go backend. */
 export class ApiHelper {
   private readonly baseUrl: string;
@@ -8,22 +18,15 @@ export class ApiHelper {
   private readonly orgId: string | null = null;
 
   constructor() {
-    this.baseUrl = process.env.STRAIT_API_URL ?? "http://localhost:8080";
+    this.baseUrl = process.env.STRAIT_API_URL ?? defaultApiUrl;
     this.secret = process.env.INTERNAL_SECRET ?? "";
 
-    // Auto-load project ID from global-setup
-    try {
-      const ctx = JSON.parse(
-        fs.readFileSync("playwright/.auth/project.json", "utf-8")
-      );
-      if (ctx.projectId) {
-        this.projectId = ctx.projectId;
-      }
-      if (ctx.orgId) {
-        this.orgId = ctx.orgId;
-      }
-    } catch {
-      // project.json may not exist yet
+    const ctx = readProjectContext();
+    if (ctx?.projectId) {
+      this.projectId = ctx.projectId;
+    }
+    if (ctx?.orgId) {
+      this.orgId = ctx.orgId;
     }
   }
 
@@ -55,7 +58,7 @@ export class ApiHelper {
     body?: unknown
   ): Promise<T> {
     const headers: Record<string, string> = {
-      "X-Internal-Secret": this.secret,
+      [internalSecretHeader]: this.secret,
       "Content-Type": "application/json",
     };
 
@@ -132,7 +135,7 @@ export class ApiHelper {
   async createJobAndTrigger(name: string) {
     const job = await this.createJob({
       name,
-      endpoint_url: "https://httpbin.org/post",
+      endpoint_url: defaultJobEndpointUrl,
     });
     const run = await this.triggerJob(job.id);
     return { jobId: job.id, runId: run.id };
@@ -289,6 +292,15 @@ export class ApiHelper {
 
   revokeApiKey(id: string) {
     return this.request("DELETE", `/v1/api-keys/${id}`);
+  }
+}
+
+/** Read the project and organization created by global setup, if available. */
+function readProjectContext(): ProjectContext | null {
+  try {
+    return JSON.parse(fs.readFileSync(projectContextPath, "utf-8"));
+  } catch {
+    return null;
   }
 }
 

@@ -26,6 +26,25 @@ import {
   requireActiveProjectAdmin,
 } from "@/middlewares/require-access";
 
+const emptyWorkflowStepsResponse: PaginatedResponse<WorkflowStep> = {
+  data: [],
+  has_more: false,
+};
+const emptyWorkflowVersionsResponse: PaginatedResponse<WorkflowVersionSummary> =
+  {
+    data: [],
+    has_more: false,
+  };
+
+type WorkflowVersionSummary = {
+  version_id?: string;
+};
+
+/** Normalize Strait API list responses, which may be raw arrays on older handlers. */
+function dataFromPaginatedOrArray<T>(response: PaginatedResponse<T> | T[]) {
+  return Array.isArray(response) ? response : response.data;
+}
+
 export const fetchWorkflows = createServerFn({ method: "GET" })
   .inputValidator(
     (data: { limit?: number; cursor?: string; search?: string }) => data
@@ -62,20 +81,15 @@ export const fetchWorkflowSteps = createServerFn({ method: "GET" })
     async ({ context, data }): Promise<WorkflowStep[]> => {
       await requireActiveProjectAccess(context);
       const resp = await runWithFallback(
-        apiEffect<PaginatedResponse<WorkflowStep>>(
+        apiEffect<PaginatedResponse<WorkflowVersionSummary>>(
           apiPath`/v1/workflows/${data.workflowId}/versions`,
           { params: { limit: 1 } }
         ),
-        { data: [], has_more: false }
+        emptyWorkflowVersionsResponse
       );
-      let versions: unknown[] = [];
-      if (Array.isArray(resp)) {
-        versions = resp;
-      } else if (Array.isArray(resp.data)) {
-        versions = resp.data;
-      }
+      const versions = dataFromPaginatedOrArray(resp);
       if (versions.length > 0) {
-        const latestVersion = versions[0] as unknown as { version_id?: string };
+        const latestVersion = versions[0];
         if (!latestVersion.version_id) {
           return [] as WorkflowStep[];
         }
@@ -83,12 +97,9 @@ export const fetchWorkflowSteps = createServerFn({ method: "GET" })
           apiEffect<PaginatedResponse<WorkflowStep>>(
             apiPath`/v1/workflows/${data.workflowId}/versions/${latestVersion.version_id}/steps`
           ),
-          { data: [], has_more: false }
+          emptyWorkflowStepsResponse
         );
-        if (Array.isArray(stepsResp)) {
-          return stepsResp;
-        }
-        return Array.isArray(stepsResp.data) ? stepsResp.data : [];
+        return dataFromPaginatedOrArray(stepsResp);
       }
       return [] as WorkflowStep[];
     }
