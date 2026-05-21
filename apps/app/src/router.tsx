@@ -5,7 +5,7 @@ import {
   QueryClientProvider,
 } from "@tanstack/react-query";
 import { createRouter } from "@tanstack/react-router";
-import { routerWithQueryClient } from "@tanstack/react-router-with-query";
+import { setupRouterSsrQueryIntegration } from "@tanstack/react-router-ssr-query";
 import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";
 import { PostHogProvider } from "@/components/providers/posthog-provider";
@@ -43,28 +43,31 @@ export const getRouter = () => {
     },
   });
 
-  const router = routerWithQueryClient(
-    createRouter({
-      routeTree,
-      context: {
-        queryClient,
-        isAuthenticated: false,
-        session: null,
-      },
-      defaultPreload: "intent",
-      defaultPreloadStaleTime: 0,
-      scrollRestoration: true,
-      defaultStructuralSharing: true,
-      defaultNotFoundComponent: NotFound,
-      defaultErrorComponent: ({ error }) => <ErrorComponent error={error} />,
-      Wrap: ({ children }) => (
-        <QueryClientProvider client={queryClient}>
-          <PostHogProvider>{children}</PostHogProvider>
-        </QueryClientProvider>
-      ),
-    }),
-    queryClient
-  );
+  const router = createRouter({
+    routeTree,
+    context: {
+      queryClient,
+      isAuthenticated: false,
+      session: null,
+    },
+    defaultPreload: "intent",
+    defaultPreloadStaleTime: 0,
+    scrollRestoration: true,
+    defaultStructuralSharing: true,
+    defaultNotFoundComponent: NotFound,
+    defaultErrorComponent: ({ error }) => <ErrorComponent error={error} />,
+    Wrap: ({ children }) => (
+      <QueryClientProvider client={queryClient}>
+        <PostHogProvider>{children}</PostHogProvider>
+      </QueryClientProvider>
+    ),
+  });
+
+  setupRouterSsrQueryIntegration({
+    router,
+    queryClient,
+    wrapQueryClient: false,
+  });
 
   initializeSentry(router);
 

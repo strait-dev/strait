@@ -1,0 +1,44 @@
+name: Zizmor
+
+# Static analysis for GitHub Actions workflows and composite actions.
+# https://docs.zizmor.sh
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - ".github/workflows/**"
+      - ".github/actions/**"
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+      - ".github/actions/**"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: zizmor-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  zizmor:
+    name: GitHub Actions static analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read # checkout
+      actions: read # online audits against the repo's workflow runs
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: zizmorcore/zizmor-action@5f14fd08f7cf1cb1609c1e344975f152c7ee938d # v0.5.6
+        with:
+          # Fail the job directly on findings instead of uploading SARIF.
+          # SARIF upload to the Security tab requires GitHub Advanced Security,
+          # which is not enabled on this private repository. If GHAS is enabled
+          # later, set this to true to surface findings in the Security tab.
+          advanced-security: false
