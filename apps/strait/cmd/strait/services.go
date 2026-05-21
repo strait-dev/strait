@@ -1154,7 +1154,25 @@ func runMigrations(databaseURL, mode string, lockTimeout time.Duration) error {
 	}
 	defer db.Close()
 
-	driver, err := pgmigrate.WithInstance(db, &pgmigrate.Config{
+	ctx := context.Background()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("open migration connection: %w", err)
+	}
+	defer conn.Close()
+
+	// Set lock_timeout on the same connection used by golang-migrate's
+	// PostgreSQL driver. A pool-level SET can land on a different connection
+	// and leave migration DDL waiting indefinitely on locks.
+	if lockTimeout > 0 {
+		lockTimeoutMs := lockTimeout.Milliseconds()
+		if _, execErr := conn.ExecContext(ctx, fmt.Sprintf("SET lock_timeout = '%dms'", lockTimeoutMs)); execErr != nil {
+			return fmt.Errorf("set lock_timeout: %w", execErr)
+		}
+		slog.Info("migration lock timeout set", "timeout_ms", lockTimeoutMs)
+	}
+
+	driver, err := pgmigrate.WithConnection(ctx, conn, &pgmigrate.Config{
 		MigrationsTable: "strait_schema_migrations",
 	})
 	if err != nil {
@@ -1184,15 +1202,6 @@ func runMigrations(databaseURL, mode string, lockTimeout time.Duration) error {
 	if mode == "validate" {
 		slog.Info("migration mode is validate, skipping apply")
 		return nil
-	}
-
-	// Set lock timeout to prevent long DDL waits blocking other transactions.
-	if lockTimeout > 0 {
-		lockTimeoutMs := lockTimeout.Milliseconds()
-		if _, execErr := db.Exec(fmt.Sprintf("SET lock_timeout = '%dms'", lockTimeoutMs)); execErr != nil {
-			return fmt.Errorf("set lock_timeout: %w", execErr)
-		}
-		slog.Info("migration lock timeout set", "timeout_ms", lockTimeoutMs)
 	}
 
 	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
