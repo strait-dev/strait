@@ -4,13 +4,15 @@ const jobName = `e2e-core-detail-${Date.now()}`;
 
 let api: ApiHelper;
 let jobId: string;
+let endpointUrl: string;
 
 test.describe("Job Detail", () => {
   test.beforeAll(async () => {
     api = new ApiHelper();
+    endpointUrl = api.fakeEndpoint("/success");
     const job = await api.createJob({
       name: jobName,
-      endpoint_url: "https://httpbin.org/post",
+      endpoint_url: endpointUrl,
       max_attempts: 3,
       timeout_secs: 20,
       description: "Detail job seeded by Playwright",
@@ -38,7 +40,7 @@ test.describe("Job Detail", () => {
     await expect(page.getByText("Total Runs")).toBeVisible();
     await expect(page.getByText("Run Status Distribution")).toBeVisible();
     await expect(page.getByText("Configuration")).toBeVisible();
-    await expect(page.getByText("https://httpbin.org/post")).toBeVisible();
+    await expect(page.getByText(endpointUrl)).toBeVisible();
   });
 
   test("time window selection keeps health cards visible", async ({ page }) => {

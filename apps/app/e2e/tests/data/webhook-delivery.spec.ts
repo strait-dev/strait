@@ -2,6 +2,7 @@ import { ApiHelper, expect, test } from "../../fixtures";
 
 const api = new ApiHelper();
 let webhookId: string;
+let webhookHost: string;
 
 test.describe("Webhook Delivery", () => {
   test.describe.configure({ mode: "serial" });
@@ -9,10 +10,11 @@ test.describe("Webhook Delivery", () => {
   test.beforeAll(async () => {
     try {
       const wh = await api.createWebhook({
-        webhook_url: "https://httpbin.org/post",
+        webhook_url: api.fakeEndpoint("/echo"),
         event_types: ["run.completed", "run.failed"],
       });
       webhookId = wh.id;
+      webhookHost = new URL(api.getFakeEndpointUrl()).host;
     } catch {
       // API may not be available
     }
@@ -34,7 +36,7 @@ test.describe("Webhook Delivery", () => {
     await page.goto("/app/webhooks");
     const table = page.locator("table");
     if (await table.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await expect(page.getByText("httpbin.org").first()).toBeVisible({
+      await expect(page.getByText(webhookHost).first()).toBeVisible({
         timeout: 10_000,
       });
     }
@@ -69,8 +71,7 @@ test.describe("Webhook Delivery", () => {
     await page.goto("/app/webhooks");
     const table = page.locator("table");
     if (await table.isVisible({ timeout: 5000 }).catch(() => false)) {
-      // httpbin.org should no longer appear
-      const webhookText = page.getByText("httpbin.org");
+      const webhookText = page.getByText(webhookHost);
       await expect(webhookText).not.toBeVisible({ timeout: 5000 });
     }
   });

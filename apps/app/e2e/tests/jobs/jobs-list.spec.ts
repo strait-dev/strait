@@ -13,14 +13,14 @@ test.describe("Jobs List", () => {
     api = new ApiHelper();
     const activeJob = await api.createJob({
       name: activeJobName,
-      endpoint_url: "https://httpbin.org/post",
+      endpoint_url: api.fakeEndpoint("/success"),
       max_attempts: 2,
       timeout_secs: 15,
       description: "Active job seeded by Playwright",
     });
     const pausedJob = await api.createJob({
       name: pausedJobName,
-      endpoint_url: "https://httpbin.org/post",
+      endpoint_url: api.fakeEndpoint("/success"),
       max_attempts: 1,
       timeout_secs: 10,
       description: "Paused job seeded by Playwright",

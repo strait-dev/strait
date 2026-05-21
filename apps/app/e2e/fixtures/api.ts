@@ -1,13 +1,13 @@
-import fs from "node:fs";
+import { readRunContext } from "../support/run-context";
 
-const projectContextPath = "playwright/.auth/project.json";
 const defaultApiUrl = "http://localhost:8080";
 const internalSecretHeader = "X-Internal-Secret";
-const defaultJobEndpointUrl = "https://httpbin.org/post";
+const fallbackJobEndpointUrl = "http://127.0.0.1:0/success";
 
 type ProjectContext = {
   projectId?: string;
   orgId?: string;
+  fakeEndpointUrl?: string;
 };
 
 /** API helper for seeding and cleaning up test data via the Go backend. */
@@ -16,6 +16,7 @@ export class ApiHelper {
   private readonly secret: string;
   private projectId: string | null = null;
   private readonly orgId: string | null = null;
+  private readonly fakeEndpointUrl: string | null = null;
 
   constructor() {
     this.baseUrl = process.env.STRAIT_API_URL ?? defaultApiUrl;
@@ -27,6 +28,9 @@ export class ApiHelper {
     }
     if (ctx?.orgId) {
       this.orgId = ctx.orgId;
+    }
+    if (ctx?.fakeEndpointUrl) {
+      this.fakeEndpointUrl = ctx.fakeEndpointUrl;
     }
   }
 
@@ -50,6 +54,43 @@ export class ApiHelper {
       );
     }
     return this.orgId;
+  }
+
+  getFakeEndpointUrl() {
+    if (!this.fakeEndpointUrl) {
+      throw new Error(
+        "No fake endpoint URL found. Ensure global setup created playwright/.auth/project.json"
+      );
+    }
+    return this.fakeEndpointUrl;
+  }
+
+  fakeEndpoint(path = "/success") {
+    const base = this.fakeEndpointUrl ?? process.env.E2E_FAKE_ENDPOINT_URL;
+    return base ? `${base}${path}` : fallbackJobEndpointUrl;
+  }
+
+  health() {
+    return this.request<{ status?: string; ok?: boolean }>("GET", "/health");
+  }
+
+  listProjects() {
+    return this.request<{ data?: Array<{ id: string; name: string }> }>(
+      "GET",
+      "/v1/projects"
+    );
+  }
+
+  createProject(data: { id: string; org_id: string; name: string }) {
+    return this.request<{ id: string; name: string }>(
+      "POST",
+      "/v1/projects",
+      data
+    );
+  }
+
+  deleteProject(id: string) {
+    return this.request("DELETE", `/v1/projects/${id}`);
   }
 
   async request<T = unknown>(
@@ -87,6 +128,20 @@ export class ApiHelper {
   }
 
   // Jobs
+  listJobs(params?: { limit?: number; search?: string }) {
+    const query = new URLSearchParams();
+    if (params?.limit) {
+      query.set("limit", String(params.limit));
+    }
+    if (params?.search) {
+      query.set("search", params.search);
+    }
+    const qs = query.toString();
+    return this.request<{
+      data: Array<{ id: string; name: string; enabled: boolean }>;
+    }>("GET", `/v1/jobs${qs ? `?${qs}` : ""}`);
+  }
+
   createJob(data: {
     name: string;
     slug?: string;
@@ -135,7 +190,7 @@ export class ApiHelper {
   async createJobAndTrigger(name: string) {
     const job = await this.createJob({
       name,
-      endpoint_url: defaultJobEndpointUrl,
+      endpoint_url: this.fakeEndpoint(),
     });
     const run = await this.triggerJob(job.id);
     return { jobId: job.id, runId: run.id };
@@ -173,6 +228,25 @@ export class ApiHelper {
     return this.request<{ data: Array<{ id: string; status: string }> }>(
       "GET",
       `/v1/runs${qs ? `?${qs}` : ""}`
+    );
+  }
+
+  getStats() {
+    return this.request<{
+      queued: number;
+      executing: number;
+      delayed: number;
+    }>("GET", "/v1/stats");
+  }
+
+  getAnalytics(periodHours = 24) {
+    return this.request<{
+      throughput: Record<string, number>;
+      health_summary: Record<string, number>;
+      slowest_jobs: Record<string, unknown>[];
+    }>(
+      "GET",
+      `/v1/analytics/performance?period_hours=${encodeURIComponent(periodHours)}`
     );
   }
 
@@ -219,11 +293,10 @@ export class ApiHelper {
 
   // Webhooks
   createWebhook(data: { webhook_url: string; event_types: string[] }) {
-    return this.request<{ id: string }>(
-      "POST",
-      "/v1/webhooks/subscriptions",
-      data
-    );
+    return this.request<{ id: string }>("POST", "/v1/webhooks/subscriptions", {
+      project_id: this.getProjectId(),
+      ...data,
+    });
   }
 
   deleteWebhook(id: string) {
@@ -231,6 +304,21 @@ export class ApiHelper {
   }
 
   // Workflows
+  listWorkflows(params?: { limit?: number; search?: string }) {
+    const query = new URLSearchParams();
+    if (params?.limit) {
+      query.set("limit", String(params.limit));
+    }
+    if (params?.search) {
+      query.set("search", params.search);
+    }
+    const qs = query.toString();
+    return this.request<{ data: Array<{ id: string; name: string }> }>(
+      "GET",
+      `/v1/workflows${qs ? `?${qs}` : ""}`
+    );
+  }
+
   createWorkflow(data: {
     name: string;
     slug?: string;
@@ -297,11 +385,7 @@ export class ApiHelper {
 
 /** Read the project and organization created by global setup, if available. */
 function readProjectContext(): ProjectContext | null {
-  try {
-    return JSON.parse(fs.readFileSync(projectContextPath, "utf-8"));
-  } catch {
-    return null;
-  }
+  return readRunContext();
 }
 
 function slugFromName(name: string) {

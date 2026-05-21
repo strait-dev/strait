@@ -22,7 +22,7 @@ test.describe("Job Lifecycle", () => {
   test("creates a job via the API", async () => {
     const job = await api.createJob({
       name: testJobName,
-      endpoint_url: "https://httpbin.org/post",
+      endpoint_url: api.fakeEndpoint("/success"),
       max_attempts: 1,
       timeout_secs: 10,
     });

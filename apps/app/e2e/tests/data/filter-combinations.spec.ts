@@ -11,7 +11,7 @@ test.describe("Filter Combinations", () => {
       try {
         const job = await api.createJob({
           name: `${prefix}-job-${i}`,
-          endpoint_url: "https://httpbin.org/post",
+          endpoint_url: api.fakeEndpoint("/success"),
         });
         jobIds.push(job.id);
       } catch {

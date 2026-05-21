@@ -15,11 +15,11 @@ test.describe("Workflows", () => {
     api = new ApiHelper();
     const rootJob = await api.createJob({
       name: rootJobName,
-      endpoint_url: "https://httpbin.org/post",
+      endpoint_url: api.fakeEndpoint("/success"),
     });
     const childJob = await api.createJob({
       name: childJobName,
-      endpoint_url: "https://httpbin.org/post",
+      endpoint_url: api.fakeEndpoint("/success"),
     });
     rootJobId = rootJob.id;
     childJobId = childJob.id;
