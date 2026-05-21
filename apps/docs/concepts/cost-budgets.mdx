@@ -1,19 +1,21 @@
 ---
 title: "Cost Budgets"
-description: "Per-run and daily spending limits to prevent runaway costs on workloads with variable cost."
+description: "Cap how much a project spends per month and choose what happens when the limit is reached."
 ---
 
-Cost budgets prevent runaway spending on workloads with variable cost. Set per-run and daily limits to control how much your jobs can spend on API calls: LLM tokens, external services, or any usage your code reports.
+Cost budgets cap how much a project spends on reported usage over a calendar month. Your job code reports what each run costs; Strait totals that spend per project and, when the budget is reached, either stops new runs or simply records that the limit was crossed.
+
+<Note>
+Cost budgets are enforced only when billing enforcement is enabled (Strait Cloud, or self-hosted with `BILLING_ENFORCEMENT_ENABLED=true`). With enforcement off, the budget endpoints return `501 Not Implemented` and no budget is applied.
+</Note>
 
 ## When to Use It
 
-You run a summarization job that calls GPT-4 on user-uploaded documents. Most documents cost $0.05 per run, but a 200-page PDF could cost $15. Without a per-run budget, one bad input burns your daily spend. Without a daily budget, a spike in traffic does the same at scale.
+You run a summarization job that calls GPT-4o on user-uploaded documents. Spend is hard to predict: most months are quiet, but a burst of large documents runs up the bill fast. A monthly budget caps the project's total spend and lets you decide whether to block new runs or just be notified when it is reached.
 
 ## How It Works
 
-Your job code reports cost as it runs. Strait tracks cumulative cost per run and per project per day. When a limit is hit, Strait stops the work before more money is spent.
-
-1. **Your code reports usage**: After each API call, report what it cost via the SDK or API.
+1. **Your code reports usage.** After each paid API call, report what it cost through the SDK. Strait records it against the run and rolls it into the project's month-to-date spend.
 
 <CodeGroup>
 ```typescript TypeScript
@@ -37,92 +39,92 @@ await ctx.report_usage(
 ```
 </CodeGroup>
 
-2. **Per-run check**: Each time usage is reported, Strait checks whether the run has exceeded its `max_cost_per_run_microusd` limit. If exceeded, the run is failed.
+2. **Strait totals project spend.** Reported cost is summed per project over the current billing period (a calendar month). Both compute and AI usage count toward the total.
 
-3. **Daily check**: Before a new run is enqueued, Strait checks total cost for the current day (in the project's configured timezone). If the daily limit is reached, the trigger is rejected.
+3. **The budget action decides what happens.** When month-to-date spend reaches the budget, the project's `action` determines the outcome: `reject` and `block` stop new runs from being enqueued; `notify` leaves the budget informational and never blocks.
 
-All costs use **micro-USD** (1/1,000,000 of a dollar) with integer precision. This avoids floating-point rounding errors: $0.01 is `10000` micro-USD.
+All costs use **micro-USD** (1/1,000,000 of a dollar) as integers, so there is no floating-point rounding: $0.01 is `10000` micro-USD.
 
-## Setting Budgets
+## Setting a Budget
 
-Set budget limits on the project's quota:
+Set the budget and action for a project:
 
 ```bash
-curl -X PUT https://your-strait-instance/api/v1/projects/{projectId}/quota \
-  -H "Authorization: Bearer $API_KEY" \
+curl -X PUT https://api.strait.dev/v1/project-budget \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
   -d '{
-    "max_cost_per_run_microusd": 5000000,
-    "max_daily_cost_microusd": 100000000,
-    "timezone": "America/New_York"
+    "project_id": "my-project",
+    "budget_microusd": 100000000,
+    "action": "reject"
   }'
 ```
 
-This sets a $5 per-run limit and $100 daily limit. Runs that would exceed either limit are stopped before execution.
+This sets a $100/month budget that rejects new runs once it is reached. A negative `budget_microusd` clears the budget (no limit).
 
-## Monitoring
+| Field | Description |
+| :--- | :--- |
+| `project_id` | The project the budget applies to. |
+| `budget_microusd` | Monthly limit in micro-USD. Negative means no budget. |
+| `action` | `reject` or `block` to stop new runs at the limit; `notify` to track spend without blocking. |
 
-At 80% of the daily budget, Strait emits a structured log and metric alert so you get advance notice before runs start being rejected.
+## Checking a Budget
 
-Query current usage through the API to track spending trends and adjust limits.
+```bash
+curl "https://api.strait.dev/v1/project-budget?project_id=my-project" \
+  -H "Authorization: Bearer $STRAIT_API_KEY"
+```
 
-## Configuration Reference
+```json
+{
+  "project_id": "my-project",
+  "monthly_budget_microusd": 100000000,
+  "budget_action": "reject",
+  "current_spend_microusd": 81250000,
+  "percent_used": 81.25
+}
+```
 
-### Quota Settings
+Poll `percent_used` to track spend and warn before runs start being rejected.
 
-| Setting | Default | Description |
-| :--- | :--- | :--- |
-| `max_cost_per_run_microusd` | `0` (unlimited) | Maximum cost a single run can accumulate. |
-| `max_daily_cost_microusd` | `0` (unlimited) | Maximum total cost across all runs per day. |
-| `timezone` | `UTC` | Timezone for the daily budget window. |
+## When the Budget Is Reached
 
-### Usage Event Fields
-
-| Field | Type | Description |
-| :--- | :--- | :--- |
-| `provider` | `string` | AI provider (e.g., `openai`, `anthropic`). |
-| `model` | `string` | Model name (e.g., `gpt-4o`). |
-| `prompt_tokens` | `int` | Number of input tokens. |
-| `completion_tokens` | `int` | Number of output tokens. |
-| `total_tokens` | `int` | Sum of prompt and completion tokens. |
-| `cost_microusd` | `int64` | Cost in micro-USD. |
-
-## Plan-quota enforcement
-
-Project budgets are one of several gates Strait runs before accepting work. Plan-quota gates fire at the API boundary; when one trips, the response is a `402 Payment Required` with a canonical body:
+With a `reject` or `block` action, once month-to-date spend reaches the budget, new runs are rejected at enqueue with `402 Payment Required`:
 
 ```json
 {
   "code": "quota_exceeded",
-  "kind": "plan_cap_reached",
-  "message": "monthly run cap reached",
-  "limit": 10000,
-  "current": 10001,
+  "kind": "project_budget_reached",
+  "message": "This project has reached its monthly budget of $100.00.",
+  "limit": 100000000,
+  "current": 100000000,
   "plan": "starter",
-  "upgrade_url": "https://strait.dev/upgrade"
+  "upgrade_url": "/settings/billing"
 }
 ```
 
-Top-level `code` is always `quota_exceeded` so SDKs can branch on a single string. The granular reason lives in `kind` for finer-grained UX and telemetry.
+The top-level `code` is always `quota_exceeded`, so clients can branch on a single string; `kind` carries the specific reason (`project_budget_reached`). Other plan limits use the same envelope with a different `kind`. A `notify` budget never returns this error: it only records that the limit was crossed.
 
-The one exception is fail-open exhaustion: if the billing layer cannot reach its dependencies safely, the response is `503 Service Unavailable` with `code: "service_degraded"` so clients treat it as a transient availability event, not a plan rejection.
+## Per-Run and Daily Limits
 
-### Gates and their codes
+Strait also enforces two finer-grained caps when they are set on a project: a per-run cost ceiling (`max_cost_per_run_microusd`, checked as usage is reported) and a per-day cost ceiling (`max_daily_cost_microusd`, evaluated in the project's timezone before a run is enqueued). Both reject work with `429 Too Many Requests` when exceeded.
 
-| Gate | When it fires | HTTP | `kind` |
-| :--- | :--- | :--- | :--- |
-| `CheckMonthlyRunLimit` | Run trigger / enqueue | `402` | `plan_cap_reached` |
-| `CheckDailyRunLimit` | Run trigger / enqueue | `402` | `org_daily_run_limit_exceeded` |
-| `CheckConcurrentRunLimit` | Run dispatch | `402` | `org_concurrent_run_limit_exceeded` |
-| `CheckDailyAIModelCallLimit` | AI usage report | `402` | `org_daily_ai_call_limit_exceeded` |
-| `CheckMaxDispatchPriority` | Run trigger with custom priority | `402` | `dispatch_priority_exceeded` |
-| `CheckProjectLimit` | `POST /v1/projects/` | `402` | `project_limit_reached` |
-| `CheckMemberLimit` | Adding a member to an org | `402` | `member_limit_reached` |
-| `CheckOrgCreationLimit` | Creating an additional org | `402` | `org_limit_reached` |
-| `CheckWorkerConnectionLimit` | gRPC worker connect | `402` | `worker_connections_reached` |
-| `CheckSpendingLimit` | Run enqueue (org spend cap) | `402` | `spending_limit_reached` |
-| `CheckProjectBudgetLimit` | Run enqueue (per-project budget) | `402` | `project_budget_reached` |
-| `CheckProjectSuspended` | Any request on a project suspended by downgrade | `402` | `project_suspended` |
-| Dunning gate | Any plan-restricted operation while in arrears | `402` | `payment_restricted` / `grace_period_expired` |
-| Fail-open fallback | Billing dependency unreachable | `503` | `service_degraded` |
+These ceilings are read from project quota settings and have no public API to set them yet, so the monthly budget above is the configurable control today.
 
-Codes are stable: SDKs and dashboards can rely on these strings. New reasons are added as new `kind` values; the top-level `code: "quota_exceeded"` envelope never changes.
+## Usage Event Fields
+
+Fields accepted by the usage report (`POST /sdk/v1/runs/{runID}/usage`, which the SDK's `reportUsage` calls):
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `provider` | `string` | Provider name (e.g., `openai`, `anthropic`). Required. |
+| `model` | `string` | Model name (e.g., `gpt-4o`). Required. |
+| `prompt_tokens` | `int` | Input tokens. |
+| `completion_tokens` | `int` | Output tokens. |
+| `total_tokens` | `int` | Sum of prompt and completion tokens. |
+| `cost_microusd` | `int64` | Cost in micro-USD. Drives budget tracking. |
+
+## Related
+
+- [SLOs and Anomaly Detection](/concepts/slos)
+- [Jobs](/concepts/jobs)
+- [Observability](/operations/observability)

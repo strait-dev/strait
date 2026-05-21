@@ -6,21 +6,32 @@ icon: 'chart-line'
 
 ## Service Level Objectives
 
-Strait tracks reliability signals from workflow and run execution. These signals are used for dashboards, alerts, and SLO reporting.
+Strait tracks reliability signals from workflow and run execution and exposes them so you can define SLO targets and alerts in your own monitoring stack. Strait does not evaluate SLO targets or fire breach alerts itself; it provides the signals, and you set the thresholds in Prometheus, Grafana, or whatever you already run.
 
-| Metric | What it measures |
+| Signal | What it measures |
 |---|---|
 | `success_rate` | Percentage of runs that complete without error |
 | `p95_latency_secs` | 95th percentile run duration in seconds |
 | `p99_latency_secs` | 99th percentile run duration in seconds |
 
-SLO windows are evaluated over configured intervals such as **24 hours**, **7 days** (168h), or **30 days** (720h), depending on the deployment and analytics configuration.
+Query these signals over a window with the `period_hours` parameter, which accepts 1 to 720 hours (up to 30 days) and defaults to 24:
+
+```bash
+curl "https://api.strait.dev/v1/analytics/performance?period_hours=168" \
+  -H "Authorization: Bearer $STRAIT_API_KEY"
+```
+
+## Setting Targets and Alerts
+
+The same signals are exported as Prometheus metrics at `GET /metrics`. Define your SLO target (for example, 99.5% success over 30 days) as an alerting rule in Prometheus or Grafana against those metrics, and route the breach notification through your existing alerting. See [Observability](/operations/observability) for the metric catalog and scrape setup.
+
+This keeps SLO ownership where the rest of your alerting already lives, rather than splitting it across another product's thresholds.
 
 ## API Surface
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /v1/analytics/performance` | Review run duration, throughput, and success trends. |
+| `GET /v1/analytics/performance` | Review run duration, throughput, and success trends (`period_hours` 1-720). |
 | `GET /v1/usage/anomalies` | List detected usage and spend anomalies. |
 | `GET /v1/anomaly-config` | Read anomaly detection thresholds. |
 | `PUT /v1/anomaly-config` | Update anomaly detection thresholds. |
@@ -75,3 +86,10 @@ curl https://api.strait.dev/v1/usage/anomalies \
 ```
 
 An empty `anomalies` array means spending is within normal bounds.
+
+## Related
+
+- [Observability](/operations/observability)
+- [Cost Budgets](/concepts/cost-budgets)
+- [Retry Strategies](/concepts/retry-strategies)
+- [Health and Readiness](/operations/health-readiness)

@@ -1,73 +1,86 @@
 ---
 title: "Retry Strategies"
-description: "How Strait handles execution failures, circuit breakers, fallbacks, and dead_letter."
+description: "How Strait retries failed runs, plus circuit breakers, fallbacks, and dead_letter."
 icon: "rotate"
 ---
 
-When a job fails because of a timeout, network error, or retryable response, Strait uses the job's retry policy to decide when to try again. This page covers the four retry strategies, plus the surrounding controls that keep retries from making things worse: circuit breakers, fallback endpoints, and `dead_letter` handling.
+When a run fails because of a timeout, network error, or retryable response, Strait schedules another attempt using backoff. This page covers the backoff policies Strait applies, where you can change them, and the surrounding controls that keep retries from making things worse: circuit breakers, fallback endpoints, and `dead_letter` handling.
 
-## Core Strategies
+## Backoff Policies
 
-Strait supports four retry strategies.
+Strait applies one of two backoff policies when computing the next retry delay.
 
 ### Exponential
 
-The delay increases exponentially with each attempt.
+The delay doubles with each attempt, capped at the maximum delay.
 
-- **Formula**: `base * 2^(attempt-1)`
-- **Example**: 1s, 2s, 4s, 8s
+- **Formula**: `initial * 2^(attempt-1)`, capped at the max delay.
+- **Example** (initial 1s): 1s, 2s, 4s, 8s, ...
 - **Use it for**: temporary outages, network failures, and rate-limited endpoints.
 
-### Linear
-
-The delay increases by a constant amount with each attempt.
-
-- **Formula**: `base * attempt`
-- **Example**: 1s, 2s, 3s
-- **Use it for**: predictable backoff where exponential growth would wait too long.
+This is the default. Every job uses exponential backoff with a 1 second initial delay capped at 1 hour.
 
 ### Fixed
 
-The delay remains constant for every attempt.
+The delay stays constant for every attempt.
 
-- **Formula**: `base`
-- **Example**: 30s, 30s, 30s
+- **Formula**: `initial`, every attempt.
+- **Example** (initial 30s): 30s, 30s, 30s, ...
 - **Use it for**: polling-style retries where the interval should not change.
 
-### Custom
-
-Use an explicit list of delays in seconds.
-
-```json
-{
-  "retry_delays_secs": [1, 5, 30, 120]
-}
-```
-
-If attempts exceed the list length, Strait reuses the last delay.
+Fixed backoff is selectable per workflow step (see [Where Retries Are Configured](#where-retries-are-configured)).
 
 ## Common Properties
 
 ### Jitter
 
-Strait adds a small random variation to retry delays so many failed runs do not retry at the exact same moment.
+Strait applies +-20% random jitter to each computed delay so many runs that failed together do not retry at the same instant and overwhelm a recovering service.
 
 ### Delay Bounds
 
-- Minimum delay: 1 second.
-- Maximum delay: 1 hour.
+- **Initial delay**: 1 second by default.
+- **Maximum delay**: 1 hour by default. Exponential growth never exceeds this.
 
 ### How Retries Are Scheduled
 
-Strait records the next retry time on the run. The run stays queued until that time passes.
+Strait records the next retry time on the run and leaves it queued until that time passes. There is no busy-waiting; the run is simply not eligible to dispatch until then.
 
-## Configuration
+## Where Retries Are Configured
 
-Retries can be configured at multiple levels:
+### Job level
 
-- Job level: set `max_attempts`, `retry_strategy`, and `retry_delays_secs`.
-- Workflow step level: override retry behavior for one step.
-- Run override: trigger a specific run with a different retry policy.
+Set `max_attempts` to control how many times a run is retried before it stops. Job runs use exponential backoff with the default 1 second initial delay and 1 hour cap.
+
+```json
+{
+  "max_attempts": 5
+}
+```
+
+<Note>
+A job's backoff shape is fixed to exponential today. To use fixed backoff or to change the initial and maximum delays, configure retries on a workflow step. The `retry_strategy` and `retry_delays_secs` job fields are accepted for forward compatibility but are not yet applied; runs use exponential backoff regardless of their value.
+</Note>
+
+### Workflow step level
+
+A workflow step can override retry behavior for that step's runs:
+
+| Field | Description |
+| :--- | :--- |
+| `retry_max_attempts` | Maximum attempts for this step. |
+| `retry_backoff` | `exponential` or `fixed`. |
+| `retry_initial_delay_secs` | Initial delay (and the constant delay for `fixed`). |
+| `retry_max_delay_secs` | Cap on the delay for `exponential`. |
+
+```json
+{
+  "step_ref": "charge-card",
+  "job_id": "payment-charge",
+  "retry_max_attempts": 4,
+  "retry_backoff": "fixed",
+  "retry_initial_delay_secs": 10
+}
+```
 
 ## Circuit Breakers
 
@@ -115,14 +128,12 @@ For most production jobs, start with:
 ```json
 {
   "max_attempts": 5,
-  "retry_strategy": "exponential",
-  "retry_backoff_secs": 30,
   "max_concurrency": 10,
   "poison_pill_threshold": 3
 }
 ```
 
-Then tune rate limits and concurrency based on the capacity of the service you call.
+This gives exponential backoff (1s, 2s, 4s, ... up to 1 hour) with five attempts, bounded concurrency, and early dead-lettering of runs that fail identically. Tune rate limits and concurrency based on the capacity of the service you call.
 
 ## Related
 

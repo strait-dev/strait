@@ -1,71 +1,57 @@
 ---
 title: "Workflow Simulator"
-description: "Test workflow paths before running production jobs."
+description: "Preview the order a workflow's steps would run in before triggering a real run."
 sidebarTitle: "Simulator"
 ---
 
-The workflow simulator lets you preview workflow behavior before running production jobs.
+The workflow simulator returns the predicted execution order of a workflow's steps without running anything. It resolves each step's dependencies and reports the order they would run in, so you can sanity-check the wiring before triggering a real run.
 
-Use it to check step order, conditions, fallback paths, and compensation behavior.
+This is a static plan based on step dependencies. The simulator does not call your endpoints, execute steps, evaluate conditions, or use a payload.
 
 ## When to Use
 
-- Before deploying a workflow with several dependent steps.
-- After changing step order or adding conditional branches.
-- Before testing fallback or compensation paths against real services.
+- After adding or reordering steps, to confirm dependencies resolve into the order you expect.
+- Before triggering the first run of a newly published version.
+- To catch a step that runs earlier or later than intended because of a missing or extra `depends_on`.
 
-## Simulation Modes
+## Simulating a Workflow
 
-### Dry Run
-
-Checks conditions, resolves step dependencies, and returns the planned order. No endpoints are called.
-
-```
-POST /v1/workflows/{id}/simulate
-{
-  "mode": "dry_run",
-  "payload": {"order_id": "test-123", "amount": 99.99}
-}
+```bash
+curl -X POST https://api.strait.dev/v1/workflows/order-processing/simulate \
+  -H "Authorization: Bearer $STRAIT_API_KEY"
 ```
 
-Dry run assumes all conditions pass. Use it to check step order and parallel branches.
-
-### Sandbox
-
-Calls real endpoints with a sandbox flag. Results do not appear in production run history.
-
-Use sandbox mode when you need to check endpoint responses without creating production runs.
-
-### Failure Injection
-
-Inject failures at specific steps to test fallback paths and compensation behavior:
+The simulator uses the workflow's current published version. The response lists the resolved order:
 
 ```json
 {
-  "mode": "failure_injection",
-  "payload": {"order_id": "test-123"},
-  "failure_injection": {
-    "charge-payment": "insufficient_funds"
-  }
+  "workflow_id": "order-processing",
+  "version": 3,
+  "predicted_order": [
+    "validate-order",
+    "charge-payment",
+    "reserve-inventory",
+    "send-confirmation"
+  ],
+  "step_count": 4
 }
 ```
 
-The response shows which steps would trigger compensation and which fallback branches activate.
+| Field | Description |
+| :--- | :--- |
+| `workflow_id` | The workflow that was simulated. |
+| `version` | The published version the order was computed from. |
+| `predicted_order` | Step refs in the order they would run, resolved from `depends_on`. |
+| `step_count` | Number of steps in the workflow. |
 
-## Simulation Response
+## How the Order Is Computed
 
-The response includes:
+Strait performs a topological sort of the steps' `depends_on` relationships, so a step always appears after the steps it depends on. The order is deterministic: independent steps are returned in a stable, sorted sequence rather than at random.
 
-- **Execution plan**: ordered steps and parallel groups.
-- **Condition results**: branches the workflow would take.
-- **Estimated duration**: expected completion time.
-- **Failure paths**: injected failures and resulting recovery steps.
-
-## Simulation History
-
-Past simulations are saved per user. You can run one again or compare it with a real workflow run later.
+Steps with no dependency relationship between them can run in parallel at runtime even though `predicted_order` lists them in sequence. To see the full dependency structure, including which steps are independent, use the workflow graph at `GET /v1/workflows/{workflowID}/graph`.
 
 ## Related
 
+- [Workflows](/concepts/workflows)
 - [Workflow Debugger](/concepts/workflow-debugger)
 - [Workflow Test Suites](/concepts/workflow-test-suites)

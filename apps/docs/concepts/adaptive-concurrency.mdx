@@ -20,11 +20,19 @@ For simple jobs, start with `max_concurrency` first. Add adaptive concurrency wh
 
 ## How It Behaves
 
-Strait increases capacity gradually while work is completing successfully.
+Strait re-evaluates capacity on a fixed interval using two signals: how deep the queue is and how busy the current executors are. It does not look at success or failure rates; per-job retries and circuit breakers handle failing endpoints separately.
 
-When failures rise or throughput drops, Strait reduces capacity and lets the queue absorb the spike. It then increases again as the service recovers.
+**Scaling up.** When the queue is backing up (more than twice the current limit) and executors are busy (over 70% utilization), Strait raises the limit. The increase is tiered by how deep the backlog is:
 
-This keeps work moving without sending unlimited requests into a struggling dependency.
+| Queue depth | Increase |
+| :--- | :--- |
+| Over 1000 | Double the current limit |
+| Over 100 | Raise by 50% |
+| Otherwise | Raise by 25% |
+
+**Scaling down.** When the queue is empty and executors are mostly idle (under 20% utilization) for two consecutive checks, Strait lowers the limit by 33%.
+
+Every adjustment is clamped to the configured minimum and maximum, so capacity rises quickly under load and eases back down during quiet periods without ever leaving the bounds you set.
 
 ## Configuration
 
