@@ -1,4 +1,4 @@
-<img src="https://hxoqk4a8w8.ufs.sh/f/ZzAsUSY0y2ib988DGnzbzH8IZUEXKGOAujekVWqNxQYhbBJ5" alt="Strait header" width="100%" />
+<img src=".github/github.jpg" alt="Strait" width="100%" />
 
 # Strait
 
