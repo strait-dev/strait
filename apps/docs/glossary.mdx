@@ -10,7 +10,7 @@ Short definitions for the terms used throughout these docs. Each links to the pa
 
 **Compensation (saga).** A step that undoes the effect of an earlier step when a later step fails, so a partially completed workflow can roll back cleanly. See [Compensating Transactions](/concepts/compensating-transactions).
 
-**Dead letter.** The terminal state a run reaches after it exhausts its retries. Dead-lettered runs are kept so you can inspect and replay them rather than losing the work. See [Retry Strategies](/concepts/retry-strategies) and [Handle Failed Runs](/guides/handle-failed-runs).
+**Dead letter (`dead_letter`).** The terminal state a run reaches after it exhausts its retries. Dead-lettered runs are kept so you can inspect and replay them rather than losing the work. See [Retry Strategies](/concepts/retry-strategies) and [Handle Failed Runs](/guides/handle-failed-runs).
 
 **Durable wait.** A pause in a workflow that survives restarts, used for timers, approvals, or waiting on an external event without holding a process open. See [Durable Workflows](/concepts/durable-workflows).
 
@@ -32,7 +32,7 @@ Short definitions for the terms used throughout these docs. Each links to the pa
 
 **Retry policy.** The rules that govern how a failed run is retried: strategy, attempt count, delay, and bounds. See [Retry Strategies](/concepts/retry-strategies).
 
-**Run.** A single execution of a job or workflow. A run moves through queued and executing states to a terminal state such as completed, failed, or dead letter. See [Runs](/concepts/runs).
+**Run.** A single execution of a job or workflow. A run moves through `queued` and `executing` states to a terminal state such as `completed`, `failed`, or `dead_letter`. See [Runs](/concepts/runs).
 
 **Run token.** A short-lived credential the SDK uses to report progress and results for a specific run, separate from your long-lived API key. See [SDK Integration](/guides/sdk-integration).
 
