@@ -13,6 +13,8 @@ import (
 // and dot-separated paths (e.g. "user.email").
 var templateVarRegex = regexp.MustCompile(`\{\{([a-zA-Z_]\w*(?:\.\w+)*)\}\}`)
 
+var templateMarker = []byte("{{")
+
 // renderTemplateVars replaces {{var_name}} placeholders in JSON string values
 // of payload with corresponding values from the variables JSON object.
 //
@@ -21,7 +23,9 @@ var templateVarRegex = regexp.MustCompile(`\{\{([a-zA-Z_]\w*(?:\.\w+)*)\}\}`)
 // If {{var_name}} is embedded in a larger string, the replacement is stringified.
 // Unresolved variables are left as-is.
 func renderTemplateVars(payload, variables json.RawMessage) json.RawMessage {
-	if len(bytes.TrimSpace(payload)) == 0 || len(bytes.TrimSpace(variables)) == 0 {
+	if !bytes.Contains(payload, templateMarker) ||
+		len(bytes.TrimSpace(payload)) == 0 ||
+		len(bytes.TrimSpace(variables)) == 0 {
 		return payload
 	}
 

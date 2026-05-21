@@ -455,11 +455,17 @@ func TestStringify(t *testing.T) {
 }
 
 func BenchmarkRenderTemplateVars(b *testing.B) {
-	payload := json.RawMessage(`{
+	payloadWithTemplates := json.RawMessage(`{
 		"to":"{{user_email}}",
 		"subject":"Hello {{user_name}}",
 		"count":"{{total}}",
 		"nested":{"config":"{{settings}}","msg":"Welcome {{user_name}}, you have {{total}} items"}
+	}`)
+	payloadWithoutTemplates := json.RawMessage(`{
+		"to":"ops@example.com",
+		"subject":"Workflow complete",
+		"count":42,
+		"nested":{"config":{"theme":"dark","lang":"en"},"msg":"No substitutions needed"}
 	}`)
 	vars := json.RawMessage(`{
 		"user_email":"john@example.com",
@@ -468,11 +474,18 @@ func BenchmarkRenderTemplateVars(b *testing.B) {
 		"settings":{"theme":"dark","lang":"en"}
 	}`)
 
-	b.ReportAllocs()
-	b.ResetTimer()
-	for b.Loop() {
-		_ = renderTemplateVars(payload, vars)
-	}
+	b.Run("with_templates", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = renderTemplateVars(payloadWithTemplates, vars)
+		}
+	})
+	b.Run("without_templates", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = renderTemplateVars(payloadWithoutTemplates, vars)
+		}
+	})
 }
 
 func BenchmarkRenderStringValue(b *testing.B) {
