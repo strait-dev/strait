@@ -65,3 +65,10 @@ Outbound webhook deliveries include two identity headers:
 - `X-Strait-Replay-Key`: stable across every retry of the same delivery. Dedup on this header. If your handler sees the same replay key twice, treat the second call as a no-op.
 
 Treat replay keys as opaque values. Verify webhook authenticity with `X-Strait-Signature`.
+
+## Related
+
+- [Jobs](/concepts/jobs)
+- [Runs](/concepts/runs)
+- [Webhooks](/concepts/webhooks)
+- [Retry Strategies](/concepts/retry-strategies)

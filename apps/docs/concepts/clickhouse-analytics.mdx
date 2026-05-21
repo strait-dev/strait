@@ -48,3 +48,13 @@ ClickHouse reporting includes:
 <Warning>
 Both `CLICKHOUSE_ENABLED` and `CLICKHOUSE_EXPORT_ENABLED` must be `true` for analytics data to flow. The first creates the schema; the second starts the exporter.
 </Warning>
+
+## Querying the Data
+
+ClickHouse is a reporting store, not a second source of truth. Point Grafana, Metabase, or any ClickHouse-compatible client at `CLICKHOUSE_DATABASE` to build dashboards over the exported tables. Strait keeps serving runs from PostgreSQL regardless of whether the exporter is keeping up or the ClickHouse service is reachable.
+
+## Related
+
+- [SLOs and Anomaly Detection](/concepts/slos)
+- [Observability](/operations/observability)
+- [Environment Variables](/configuration/environment-variables)
