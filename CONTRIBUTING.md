@@ -32,7 +32,7 @@ cd apps/strait && docker compose up -d
 
 # Set up environment (copy and fill in secrets).
 cp .env.example .env
-# Edit .env — the defaults already point at the dev compose ports:
+# Edit .env. The defaults already point at the dev compose ports:
 #   DATABASE_URL=postgres://strait:strait@localhost:15432/strait?sslmode=disable
 #   REDIS_URL=redis://localhost:16379
 ```
@@ -72,7 +72,7 @@ go test ./... -count=1 -timeout=2m
 go test ./... -race -timeout=5m
 
 # Integration tests (requires running Postgres + Redis via docker compose).
-go test -tags=integration ./internal/store/... ./internal/queue/... ./internal/e2e/...
+go test -tags=integration ./...
 
 # Frontend tests.
 cd apps/app && bun test
@@ -137,10 +137,10 @@ If the change is large or touches multiple subsystems, open an issue first so we
 See the [architecture docs](apps/docs/architecture.mdx) and [AGENTS.md](AGENTS.md) for a system overview.
 
 Key directories:
-- `apps/strait/` -- Go API server, worker, scheduler
-- `apps/app/` -- TanStack Start dashboard (React)
-- `apps/docs/` -- Documentation site
-- `packages/` -- Shared packages (UI, utils, SDK, billing)
+- `apps/strait/`: Go API server, worker, scheduler.
+- `apps/app/`: TanStack Start dashboard (React).
+- `apps/docs/`: Documentation site.
+- `packages/`: Shared packages (UI, utils, SDK, billing).
 
 The marketing website lives in its own repo: <https://github.com/strait-dev/website>
 

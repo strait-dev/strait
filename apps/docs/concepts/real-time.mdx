@@ -4,7 +4,7 @@ description: "Subscribe to live updates for runs, workflows, and project activit
 icon: "signal"
 ---
 
-Strait streams live updates over [Server-Sent Events (SSE)](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events). Subscribe to a run, an event trigger, or your entire project's activity feed. No polling required — updates push to your client the moment they happen.
+Strait streams live updates over [Server-Sent Events (SSE)](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events). Subscribe to a run, an event trigger, or your entire project's activity feed. No polling required. Updates push to your client the moment they happen.
 
 ## Subscribing to a Run
 
@@ -13,7 +13,7 @@ Open an SSE connection to receive status changes and SDK events for a single run
 ```bash
 curl -N -H "Authorization: Bearer $STRAIT_API_KEY" \
   -H "Accept: text/event-stream" \
-  https://your-strait.example/v1/runs/{runID}/stream
+  https://your-strait-instance/v1/runs/{runID}/stream
 ```
 
 In a browser or Node.js client, use `EventSource`:
@@ -29,7 +29,7 @@ source.onmessage = (event) => {
 };
 
 source.onerror = () => {
-  console.log("Connection lost — EventSource will auto-reconnect.");
+  console.log("Connection lost. EventSource will auto-reconnect.");
 };
 ```
 
@@ -40,37 +40,37 @@ Each SSE message contains a JSON object with a `type` field. The table below cov
 | Type | Description | Example fields |
 | :--- | :--- | :--- |
 | `status_change` | Run transitioned between lifecycle states. | `run_id`, `from`, `to`, `timestamp` |
-| `event` | SDK-emitted event — logs, custom data, or progress. | `event_type`, `run_id`, `level`, `message`, `data` |
+| `event` | SDK-emitted event (logs, custom data, or progress). | `event_type`, `run_id`, `level`, `message`, `data` |
 | `progress` | Percentage-based progress update from the SDK. | `percent`, `message`, `timestamp` |
 | `stream_chunk` | Incremental output chunk (e.g. streamed HTTP response body). | `chunk`, `stream_id`, `done`, `timestamp` |
 
-**Status change** — emitted whenever a run moves through its lifecycle:
+**Status change**: emitted whenever a run moves through its lifecycle.
 
 ```json
-{"type": "status_change", "run_id": "...", "from": "queued", "to": "executing", "timestamp": "2025-06-01T12:00:00Z"}
+{"type": "status_change", "run_id": "...", "from": "queued", "to": "executing", "timestamp": "2026-06-01T12:00:00Z"}
 ```
 
-**SDK event** — your code calls the SDK logger or emits custom events:
+**SDK event**: your code calls the SDK logger or emits custom events.
 
 ```json
-{"type": "event", "event_type": "log", "run_id": "...", "level": "info", "message": "Processing row 42", "data": {}, "timestamp": "2025-06-01T12:00:01Z"}
+{"type": "event", "event_type": "log", "run_id": "...", "level": "info", "message": "Processing row 42", "data": {}, "timestamp": "2026-06-01T12:00:01Z"}
 ```
 
-**Progress** — report completion percentage from long-running work:
+**Progress**: report completion percentage from long-running work.
 
 ```json
-{"type": "event", "event_type": "progress", "percent": 50, "message": "Halfway", "timestamp": "2025-06-01T12:00:02Z"}
+{"type": "event", "event_type": "progress", "percent": 50, "message": "Halfway", "timestamp": "2026-06-01T12:00:02Z"}
 ```
 
-**Stream chunk** — incremental output, typically from streamed API responses:
+**Stream chunk**: incremental output, typically from streamed API responses.
 
 ```json
-{"type": "stream_chunk", "chunk": "partial output text", "stream_id": "abc", "done": false, "timestamp": "2025-06-01T12:00:03Z"}
+{"type": "stream_chunk", "chunk": "partial output text", "stream_id": "abc", "done": false, "timestamp": "2026-06-01T12:00:03Z"}
 ```
 
 For LLM or other streamed response chunks specifically, use the dedicated stream endpoint:
 
-```
+```http
 GET /v1/runs/{runID}/stream/llm
 ```
 
@@ -78,14 +78,14 @@ GET /v1/runs/{runID}/stream/llm
 
 Subscribe to all activity across a project in a single connection:
 
-```
+```http
 GET /v1/projects/{projectID}/activity/stream
 ```
 
 This feed merges job runs, workflow runs, and event triggers into one stream. Each message describes what changed:
 
 ```json
-{"type": "run.updated", "run_id": "...", "status": "completed", "previous_status": "executing", "timestamp": "2025-06-01T12:01:00Z"}
+{"type": "run.updated", "run_id": "...", "status": "completed", "previous_status": "executing", "timestamp": "2026-06-01T12:01:00Z"}
 ```
 
 Use this for dashboards, audit logs, or any UI that needs a live view of project-wide activity.
@@ -94,7 +94,7 @@ Use this for dashboards, audit logs, or any UI that needs a live view of project
 
 Track an event trigger from creation to resolution:
 
-```
+```http
 GET /v1/events/{eventKey}/stream
 ```
 
@@ -105,7 +105,7 @@ The stream closes automatically when the trigger reaches a terminal state (`rece
 SSE connections from browsers cannot send custom headers. Instead, request a short-lived token and pass it as a query parameter:
 
 1. **Get a token**: `POST /v1/sse-token` with your normal credentials. Returns a JWT valid for 5 minutes.
-2. **Connect**: Append the token to the SSE URL — `?token=<jwt>`.
+2. **Connect**: Append the token to the SSE URL as `?token=<jwt>`.
 
 ```javascript
 const res = await fetch("/v1/sse-token", {
@@ -122,7 +122,7 @@ const source = new EventSource(
 ## Connection Behavior
 
 - **Keepalive**: The server sends a comment line (`: keepalive`) every 15 seconds to prevent proxies and load balancers from closing idle connections.
-- **Max duration**: Connections close after 30 minutes by default (configurable via `SSE_MAX_CONN_DURATION`). Clients should reconnect when this happens — `EventSource` handles this automatically.
+- **Max duration**: Connections close after 30 minutes by default (configurable via `SSE_MAX_CONN_DURATION`). Clients should reconnect when this happens. `EventSource` handles this automatically.
 - **Reconnection**: The browser `EventSource` API reconnects on network errors. For custom clients, implement retry with backoff.
 
 ## Configuration

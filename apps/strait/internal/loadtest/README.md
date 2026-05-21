@@ -71,7 +71,7 @@ so metrics, traces, and logs can be correlated and filtered by environment.
 
 ## Architecture
 
-```
+```text
   loadtest_test.go          Test entrypoints (TestQuickValidation, etc.)
        │
        ├── harness.go       Infrastructure: DB pool, Redis, HTTP server, metrics
@@ -102,7 +102,7 @@ so metrics, traces, and logs can be correlated and filtered by environment.
 
 Results are written to `internal/loadtest/loadtest-results/<timestamp>/`:
 
-```
+```text
 loadtest-results/2026-03-20T09-53-12/
   quick_validation.json
   throughput_ceiling.json
@@ -138,7 +138,7 @@ go test -tags=loadtest -run TestChaosScenarios/worker_sigkill -timeout 30m -v ./
 go test -tags=loadtest -run TestErrorScenarios -timeout 1h -v ./internal/loadtest/...
 
 # Production validation (requires LOADTEST_STRAIT_URL pointing to deployed instance)
-LOADTEST_STRAIT_URL=https://api.example.com go test -tags=loadtest -run TestProductionValidation -timeout 1h -v ./internal/loadtest/...
+LOADTEST_STRAIT_URL=https://your-strait-instance go test -tags=loadtest -run TestProductionValidation -timeout 1h -v ./internal/loadtest/...
 ```
 
 ## Test Server Endpoints

@@ -17,7 +17,7 @@ curl -X POST https://api.strait.dev/v1/workflows \
   -H "Authorization: Bearer $STRAIT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "project_id": "proj_123",
+    "project_id": "proj_abc123",
     "name": "Order Pipeline",
     "slug": "order-pipeline",
     "steps": [
@@ -134,7 +134,7 @@ Approval steps pause the workflow until a person approves or rejects.
 Event waits pause until your application sends an event to Strait.
 
 ```bash
-curl -X POST https://api.strait.dev/v1/events/kyc:user_123/send \
+curl -X POST https://api.strait.dev/v1/events/kyc:user_abc123/send \
   -H "Authorization: Bearer $STRAIT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{ "payload": { "status": "approved" } }'
@@ -156,12 +156,12 @@ Workflow runs expose APIs to inspect the graph, retry a step, or replay a branch
 
 Common operations:
 
-| Operation | Use it when |
-|---|---|
-| Retry a step | One step failed because of a transient issue. |
-| Replay a subtree | A step and its downstream work should run again. |
-| View graph | You need to see which steps ran, failed, or are waiting. |
-| Explain a run | You need to understand why a step did or did not run. |
+| Operation | Endpoint | Use it when |
+|---|---|---|
+| View graph | `GET /v1/workflow-runs/{workflowRunID}/graph` | You need to see which steps ran, failed, or are waiting. |
+| Explain a run | `GET /v1/workflow-runs/{workflowRunID}/explain` | You need to understand why a step did or did not run. |
+| Retry a step | `POST /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/retry` | One step failed because of a transient issue. |
+| Replay a subtree | `POST /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/replay-subtree` | A step and its downstream work should run again. |
 
 For request and response schemas, use the API reference.
 

@@ -26,7 +26,7 @@ curl -X POST https://api.strait.dev/v1/jobs \
   -H "Authorization: Bearer $STRAIT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "project_id": "proj_123",
+    "project_id": "proj_abc123",
     "name": "Train Model",
     "slug": "train-model",
     "execution_mode": "worker",
@@ -36,17 +36,50 @@ curl -X POST https://api.strait.dev/v1/jobs \
 
 The `queue_name` lets you route work to the right set of workers.
 
+## Write the Handler
+
+A worker-mode handler is the same as an HTTP handler: it receives a run context and the payload, and returns a result. The difference is that the worker process connects to Strait instead of exposing an endpoint. With the TypeScript SDK, define the job once with `defineJob`:
+
+```typescript
+import { defineJob } from '@strait/ts';
+
+export const trainModel = defineJob({
+  name: 'train-model',
+  timeout: '30m',
+  handler: async (ctx, payload: { datasetUrl: string }) => {
+    await ctx.log(`Training on ${payload.datasetUrl}`);
+
+    const model = await train(payload.datasetUrl, {
+      onProgress: (pct) => ctx.progress(pct),
+    });
+
+    return { modelId: model.id, accuracy: model.accuracy };
+  },
+});
+```
+
+The handler runs inside your network, so it can reach private databases, local files, and internal services directly. See [SDK Integration](/guides/sdk-integration) for the full run-context API.
+
 ## Start Workers
 
-Run one or more worker processes using your SDK. Each worker registers the queues it can handle, then waits for runs.
+Workers are run with the Strait CLI, which scans your project's `dirs` for job definitions and drains the configured queue. Set the worker options in `strait.json`:
 
-At a high level, a worker does three things:
+```json
+{
+  "worker": {
+    "concurrency": 10,
+    "queue_name": "ml"
+  }
+}
+```
 
-1. Connects to Strait.
-2. Registers handlers for one or more queues.
-3. Returns a result or error for each run it receives.
+| Field | Description |
+| :--- | :--- |
+| `worker.concurrency` | How many runs one worker process executes at once. |
+| `worker.queue_name` | The queue this worker drains. Must match the job's `queue_name`. |
+| `worker.grpc_url` | gRPC endpoint for the worker connection. Defaults to a value derived from `sdk.base_url`. |
 
-See your SDK reference for language-specific worker setup.
+See [SDK Configuration](/sdks/configuration) for the full `worker` block and environment-variable overrides.
 
 ## Scale Workers
 

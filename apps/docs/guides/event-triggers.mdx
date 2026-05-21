@@ -36,7 +36,7 @@ Add a step with `type: "wait_for_event"` to your workflow. The `event_key` ident
 Start the workflow with a payload that fills in the template variables:
 
 ```bash
-curl -X POST https://strait.dev/v1/workflows/kyc-onboarding/trigger \
+curl -X POST https://api.strait.dev/v1/workflows/kyc-onboarding/trigger \
   -H "Authorization: Bearer strait_..." \
   -H "Content-Type: application/json" \
   -d '{"payload": {"user_id": "user-456"}}'
@@ -49,7 +49,7 @@ The `collect-data` step runs. When it completes, the `aml-check` step starts wai
 When the external system completes its work, send the event to Strait:
 
 ```bash
-curl -X POST https://strait.dev/v1/events/aml:user-456/send \
+curl -X POST https://api.strait.dev/v1/events/aml:user-456/send \
   -H "Authorization: Bearer strait_..." \
   -H "Content-Type: application/json" \
   -d '{"payload": {"result": "clear", "risk_score": 0.05}}'
@@ -79,7 +79,7 @@ If the event never arrives within `timeout_secs`, the step fails. The workflow t
 You can also cancel a trigger explicitly to immediately fail the step:
 
 ```bash
-curl -X DELETE https://strait.dev/v1/events/aml:user-456 \
+curl -X DELETE https://api.strait.dev/v1/events/aml:user-456 \
   -H "Authorization: Bearer strait_..."
 ```
 
@@ -125,7 +125,7 @@ When Workflow A's `process-batch` completes, it emits `batch-done:{id}`, which r
 Resolve multiple triggers at once using prefix matching:
 
 ```bash
-curl -X POST https://strait.dev/v1/events/prefix/batch-42:/send \
+curl -X POST https://api.strait.dev/v1/events/prefix/batch-42:/send \
   -H "Authorization: Bearer strait_..." \
   -H "Content-Type: application/json" \
   -d '{"payload": {"approved": true}}'
@@ -146,14 +146,14 @@ For time-based pauses, use a `sleep` step instead of an event trigger:
 }
 ```
 
-No resources are held during the sleep -- Strait completes the step automatically when the time arrives.
+No resources are held during the sleep. Strait completes the step automatically when the time arrives.
 
 ## Real-Time Monitoring
 
 Monitor a trigger's status with Server-Sent Events:
 
 ```bash
-curl -N https://strait.dev/v1/events/aml:user-456/stream \
+curl -N https://api.strait.dev/v1/events/aml:user-456/stream \
   -H "Authorization: Bearer strait_..."
 ```
 
@@ -161,5 +161,5 @@ The stream closes automatically when the trigger reaches a terminal state (`rece
 
 ## Related
 
-- [Event Triggers](/concepts/event-triggers) -- conceptual overview.
-- [Workflow Approvals](/guides/workflow-approvals) -- approval steps use event triggers under the hood.
+- [Event Triggers](/concepts/event-triggers): conceptual overview.
+- [Workflow Approvals](/guides/workflow-approvals): approval steps use event triggers under the hood.

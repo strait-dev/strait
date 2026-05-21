@@ -35,6 +35,7 @@ Strait resolves DNS for submitted URLs and rejects any that point to private IP 
 Strait validates URLs at two points:
 1. **API layer**: When you create or update a job's `endpoint_url`, `fallback_endpoint_url`, or `webhook_url`
 2. **Worker layer**: At dispatch time, when environment-specific endpoint overrides are resolved
+
 ### Allowed Ports
 To restrict outbound traffic, Strait only allows webhooks on standard and common development ports:
 - `80`, `443` (Standard HTTP/S)

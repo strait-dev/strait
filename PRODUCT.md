@@ -12,17 +12,17 @@ Full-stack developers who need reliable job scheduling without managing infrastr
 
 Technical, confident, calm.
 
-Strait speaks with authority but never condescends. It assumes you're competent. Copy is direct and precise -- no marketing fluff, no exclamation marks, no empty promises. When something is complex, it explains clearly. When something is simple, it stays out of the way.
+Strait speaks with authority but never condescends. It assumes you're competent. Copy is direct and precise: no marketing fluff, no exclamation marks, no empty promises. When something is complex, it explains clearly. When something is simple, it stays out of the way.
 
 ## Interface feel
 
-Clean and focused -- calm surfaces with depth on demand. The UI should feel like a well-maintained control room: quiet when everything is running, informative when you need to investigate, and fast to navigate. Information density is earned through hierarchy, not clutter.
+Clean and focused, with calm surfaces and depth on demand. The UI should feel like a well-maintained control room: quiet when everything is running, informative when you need to investigate, and fast to navigate. Information density is earned through hierarchy, not clutter.
 
 ## Visual references
 
-- Linear -- minimal chrome, purposeful use of color, information-dense without feeling crowded
-- Vercel -- dark-first, precise spacing, typographic confidence
-- Resend -- warm accents on dark backgrounds, developer-focused but not cold
+- Linear: minimal chrome, purposeful use of color, information-dense without feeling crowded
+- Vercel: dark-first, precise spacing, typographic confidence
+- Resend: warm accents on dark backgrounds, developer-focused but not cold
 
 ## Anti-references
 
@@ -33,11 +33,11 @@ Clean and focused -- calm surfaces with depth on demand. The UI should feel like
 
 ## Design system
 
-- **Primary color**: oklch(0.6696 0.222 37.42) -- a warm orange/red, used for primary actions, accents, and brand identity
+- **Primary color**: oklch(0.6696 0.222 37.42), a warm orange/red used for primary actions, accents, and brand identity
 - **Dark mode default**: Both the app and website default to dark mode
 - **Typography**: Geist (sans) + Geist Mono (code). No other fonts.
 - **Radius**: 0.45rem (compact, not rounded)
-- **Base color**: Neutral (not zinc, not slate -- pure neutral)
+- **Base color**: Neutral (pure neutral, not zinc or slate)
 - **Component library**: shadcn/ui (base-nova style, Base UI primitives)
 - **Icon library**: Hugeicons
 - **Chart palette**: Blue-tinted (oklch 251-265 hue range)

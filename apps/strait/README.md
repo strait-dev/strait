@@ -1,6 +1,6 @@
-# Strait — Go Service
+# Strait: Go service
 
-The core backend for Strait. This service handles the REST API, job dispatch, workflow orchestration, the gRPC worker plane, and monitoring. If you're contributing to the Go backend, this is where you work.
+The core backend for Strait. This service handles the REST API, job dispatch, workflow orchestration, the gRPC worker plane, and monitoring. If you are contributing to the Go backend, this is where you work.
 
 ## Table of contents
 
@@ -28,19 +28,19 @@ The binary (`strait`) runs in one of three modes, set via `--mode`:
 
 **Request path:**
 
-```
+```text
 Client -> chi router -> Huma middleware (auth, rate limit, idempotency)
     -> handler -> store -> PostgreSQL
                 -> pub/sub -> subscribers
 ```
 **Job execution path (HTTP mode, default):**
-```
+```text
 POST /v1/jobs/{id}/trigger -> enqueue -> worker/executor
     -> HTTP POST to job's endpoint_url (customer infra)
     -> run result -> store -> webhook delivery
 ```
 **Job execution path (worker mode, gRPC):**
-```
+```text
 POST /v1/jobs/{id}/trigger -> enqueue -> worker/executor
     -> match a connected worker (registered slugs)
     -> stream the run over the bidirectional gRPC channel
@@ -48,7 +48,7 @@ POST /v1/jobs/{id}/trigger -> enqueue -> worker/executor
     -> run result -> store -> webhook delivery
 ```
 **Workflow path:**
-```
+```text
 POST /v1/workflows/{id}/trigger -> WorkflowEngine
     -> step execution (worker) -> StepCallback -> next step
     -> rollback workflows on failure
@@ -82,14 +82,14 @@ When adding a cloud-only feature: gate it with `domain.CurrentEdition().IsCloud(
 **Prerequisites:** Go 1.26, Docker (testcontainers + local infra), `golangci-lint`.
 
 ```bash
-# Start local infrastructure (Postgres, Redis, Sequin)
+# Start local infrastructure (Postgres, Redis, Sequin).
 docker compose up -d
 
-# Build — community edition
+# Build (community edition).
 cd apps/strait
 go build ./...
 
-# Build — cloud edition
+# Build (cloud edition).
 go build -tags cloud ./...
 
 # Run unit tests
@@ -132,7 +132,7 @@ For detailed package notes, contribution rules, and architecture context, see [A
 
 ## Configuration
 
-All configuration is via environment variables. `internal/config/config.go` is the single source of truth — every supported variable, its default, and inline documentation live there. For a quick reference of available variables, see the root `.env.example`.
+All configuration is via environment variables. `internal/config/config.go` is the single source of truth. Every supported variable, its default, and its inline documentation live there. For a quick reference, see the root `.env.example`.
 
 ---
 
@@ -143,9 +143,9 @@ Migrations live in `migrations/` as numbered `.up.sql` / `.down.sql` pairs, embe
 **Rules:**
 
 1. Create the next numbered pair: `000NNN_your_change.{up,down}.sql`
-2. Write idempotent SQL — use `IF NOT EXISTS`, `IF EXISTS`
-3. Always write the down migration and verify it cleanly reverts the up
-4. Never modify an existing migration — always add a new one
+2. Write idempotent SQL. Use `IF NOT EXISTS` and `IF EXISTS`.
+3. Always write the down migration and verify it cleanly reverts the up.
+4. Never modify an existing migration. Always add a new one.
 
 ---
 
@@ -153,7 +153,7 @@ Migrations live in `migrations/` as numbered `.up.sql` / `.down.sql` pairs, embe
 
 ```bash
 go test ./...                       # unit tests
-go test -race ./...                 # race detector — run before every PR
+go test -race ./...                 # race detector. Run before every PR.
 go test -tags=integration ./...     # integration tests (real Postgres via testcontainers)
 ```
 
@@ -163,7 +163,7 @@ go test -tags=integration ./...     # integration tests (real Postgres via testc
 | `*_adversarial_test.go` | Security and abuse-case tests: auth bypass, injection, oversized input |
 | `*_fuzz_test.go` | Go fuzz tests for input parsing |
 
-Mocks are generated via `moq` — run `go generate ./...` after interface changes.
+Mocks are generated via `moq`. Run `go generate ./...` after interface changes.
 
 ---
 
@@ -180,17 +180,17 @@ Mocks are generated via `moq` — run `go generate ./...` after interface change
 
 ### Code conventions
 
-- Raw SQL with `pgx/v5` — no ORM, no query builders
-- Structured concurrency with `sourcegraph/conc` (safe goroutine lifecycle) and `alitto/pond` (bounded worker pools)
-- Wrap errors with `%w` and enough context to trace the call site
-- No global state — everything wired through constructors and functional options (`WithLogger`, `WithMetrics`, `WithStore`, etc.)
-- No emojis in code, comments, logs, or commit messages
+- Raw SQL with `pgx/v5`. No ORM, no query builders.
+- Structured concurrency with `sourcegraph/conc` (safe goroutine lifecycle) and `alitto/pond` (bounded worker pools).
+- Wrap errors with `%w` and enough context to trace the call site.
+- No global state. Wire dependencies through constructors and functional options (`WithLogger`, `WithMetrics`, `WithStore`, ...).
+- No emojis in code, comments, logs, or commit messages.
 
 ### Commit style
 
 Conventional commits are required: `type(scope): summary`
 
-```
+```text
 feat(api): add webhook retry endpoint
 fix(worker): drain in-flight runs on SIGTERM
 test(build): cover orchestrator dispatch paths

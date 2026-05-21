@@ -15,7 +15,7 @@ icon: "circle-question"
     Runs beyond your daily limit are queued and processed the following day. No overage fees on Free or Starter plans. Pro plan users who regularly exceed limits can contact us for burst pricing.
   </Accordion>
   <Accordion title="Can I self-host instead?">
-    Yes. Strait is fully open-source. Self-hosting is free with no feature restrictions. You just need PostgreSQL.
+    Yes. Strait is fully open-source and self-hosting is free with no feature restrictions. You need PostgreSQL. Redis is also recommended, since live updates, SSE streaming, and the gRPC worker plane all depend on it.
   </Accordion>
   <Accordion title="What does 'concurrent runs' mean?">
     The maximum number of jobs executing at the same time. If all slots are busy, new runs wait in the queue.

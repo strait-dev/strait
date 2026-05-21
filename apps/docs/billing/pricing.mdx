@@ -29,16 +29,12 @@ When you reach your daily run limit, new runs are queued and processed the next 
 
 On the Pro plan, contact us for burst pricing if you regularly exceed your daily limit.
 
-Concurrent run limits are hard caps — if all slots are occupied, new runs wait in the queue until a slot opens.
+Concurrent run limits are hard caps. If all slots are occupied, new runs wait in the queue until a slot opens.
 
 ## Self-Hosted
 
 Strait is open-source under the Apache 2.0 license. Self-host on your infrastructure with no license fees, no run limits, and no feature restrictions.
 
-**You provide:** PostgreSQL, Redis, and a server to run the Strait binary.
+Self-hosting requires PostgreSQL, Redis, and a server to run the Strait binary. You handle updates, backups, monitoring, and scaling, and in return you keep full control over your data and infrastructure. Every feature available in the cloud plans works in self-hosted mode, except billing and the multi-region hosted orchestrator.
 
-**You manage:** Updates, backups, monitoring, and scaling.
-
-**You get:** Full control over your data and infrastructure. Every feature available in the cloud plans (except billing and the multi-region hosted orchestrator) works in self-hosted mode.
-
-See [SELFHOST.md](https://github.com/strait-dev/strait/blob/master/SELFHOST.md) for the setup guide.
+See the [Self-Hosting](/guides/self-hosting) guide for setup.

@@ -52,8 +52,8 @@ Self-hosted Docker Compose includes the supporting services Strait needs. For se
 
 Strait supports two ways to run customer code:
 
-- **HTTP jobs** -- Strait sends a POST request to your configured endpoint.
-- **Worker jobs** -- your worker keeps a connection open to Strait and receives work over that connection.
+- **HTTP jobs**: Strait sends a POST request to your configured endpoint.
+- **Worker jobs**: your worker keeps a connection open to Strait and receives work over that connection.
 
 Use HTTP jobs when your code is already exposed as an endpoint. Use worker jobs when the code should stay inside your private network.
 
@@ -69,8 +69,8 @@ Strait records run status, attempts, timing, logs, and workflow progress. You ca
 
 ## Read Next
 
-- [Jobs](/concepts/jobs) -- define work Strait can trigger.
-- [Runs](/concepts/runs) -- track execution and retries.
-- [Workflows](/concepts/workflows) -- coordinate multi-step processes.
-- [Execution Modes](/concepts/execution-modes) -- choose HTTP or connected workers.
-- [Deployment](/guides/deployment) -- run Strait in production.
+- [Jobs](/concepts/jobs): define work Strait can trigger.
+- [Runs](/concepts/runs): track execution and retries.
+- [Workflows](/concepts/workflows): coordinate multi-step processes.
+- [Execution Modes](/concepts/execution-modes): choose HTTP or connected workers.
+- [Deployment](/guides/deployment): run Strait in production.

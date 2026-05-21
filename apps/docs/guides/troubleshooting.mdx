@@ -1,0 +1,93 @@
+---
+title: "Troubleshooting"
+description: "Diagnose common failures: startup, connectivity, stuck runs, webhook delivery, and worker disconnects."
+icon: "wrench"
+---
+
+This page covers the failures teams hit most often and how to narrow each one down. Start with the [health endpoints](/operations/health-readiness): the internal `/health/ready` view names the exact subsystem that is down, which usually points straight at the cause.
+
+```bash
+curl http://localhost:8080/health/ready -H "X-Internal-Secret: $INTERNAL_SECRET"
+```
+
+## The API will not start
+
+**Check the logs first.** Strait logs the reason it exited on startup.
+
+```bash
+docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml logs strait
+```
+
+Common causes:
+
+- **PostgreSQL is not reachable yet.** Strait retries the database for a few seconds on boot. If Postgres is still starting, give it a moment. If it never connects, verify `DATABASE_URL` and that the database accepts connections from the API host.
+- **A required secret is missing or too short.** `INTERNAL_SECRET` and `JWT_SIGNING_KEY` must be set, and `INTERNAL_SECRET` needs at least 16 characters. See [Environment Variables](/configuration/environment-variables).
+- **A migration is dirty** (see below).
+
+## The dashboard cannot reach the API
+
+The dashboard and the API authenticate to each other with a shared `INTERNAL_SECRET`. If they hold different values, internal calls fail. Set the same value on both processes and restart them.
+
+```bash
+docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml restart
+```
+
+Also confirm the dashboard's `STRAIT_API_URL` (or equivalent) points at a URL the dashboard can actually reach. A Cloudflare-hosted dashboard cannot call `localhost`.
+
+## Migrations failed
+
+Migrations run automatically on startup. A failed migration leaves the schema marked dirty, and the next boot refuses to proceed rather than run against an inconsistent schema. The internal `/health/ready` view reports the `migrations` check as down.
+
+Find the failing migration in the logs:
+
+```bash
+docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml logs strait | grep -i migration
+```
+
+Resolve the underlying SQL error, then restart. Do not edit historical migration files; fix the data or environment condition that made the migration fail.
+
+## Live updates and SSE stopped working
+
+Real-time run updates, SSE streaming, and gRPC worker-plane signalling all depend on Redis. If the internal `/health` view shows `redis` or `sequin_cdc` as `down`, the instance keeps serving core API and queue traffic (those checks are non-critical and the instance reports `degraded`, not `down`), but live features are impaired.
+
+- Verify `REDIS_URL` and that Redis is reachable.
+- If you are running without Redis on purpose, this is expected. Run with Redis to restore live updates. See [Real-time updates](/concepts/real-time).
+
+## Runs are stuck or not progressing
+
+If runs sit in `pending` and never start:
+
+- **No workers are claiming work.** For HTTP jobs, confirm the API can reach the job's `endpoint_url`. For worker-mode jobs, confirm a worker is connected. Check the `worker_pool` and `queue_depth` subsystems in the internal `/health` view.
+- **The queue is backed up.** A `queue_depth` check reported as down means pending work exceeds the configured threshold. Add worker capacity or raise the threshold once you have confirmed throughput is healthy. See [Adaptive Concurrency](/concepts/adaptive-concurrency).
+
+If a run is stuck in `running` after its worker died, the reaper returns it to the queue once the worker stops heartbeating, and the run is retried according to its retry policy. See [Retry Strategies](/concepts/retry-strategies).
+
+## Webhooks are not being delivered
+
+Strait persists each delivery before dispatch and retries with exponential backoff, so transient receiver failures recover on their own. Two things stop delivery longer term:
+
+- **The circuit opened.** After 5 consecutive `5xx` responses, Strait stops sending to that endpoint for 60 seconds, then probes with a single delivery. Repeated failures keep the circuit open. Fix the receiver, and delivery resumes on the next successful probe.
+- **The receiver rejects the signature.** Verify your endpoint validates the `X-Strait-Signature` HMAC against the subscription's signing secret, and that the secret matches. See [Webhook Subscriptions](/concepts/webhook-subscriptions).
+
+Permanently failed deliveries stay available for review and replay, so nothing is lost while you debug the receiver.
+
+## Workers keep disconnecting
+
+Worker-mode jobs run over a long-lived gRPC stream. Frequent disconnects usually trace to:
+
+- **An idle proxy or load balancer** closing the connection. Ensure any proxy in front of the gRPC port allows long-lived streams and generous idle timeouts.
+- **Network instability** between the worker and the API. The worker reconnects automatically, but in-flight runs on a dropped connection are reaped and retried.
+
+See [Execution Modes](/concepts/execution-modes) for how HTTP and worker dispatch differ.
+
+## When you need more detail
+
+- Raise log verbosity with `LOG_LEVEL=debug` to trace a single request or run.
+- Generate a [debug bundle](/concepts/debug-bundles) to capture run state, timing, and errors for a support conversation.
+- Check [Observability](/operations/observability) to wire metrics, traces, and error reporting that surface these issues before users report them.
+
+## Related
+
+- [Health and Readiness](/operations/health-readiness)
+- [Observability](/operations/observability)
+- [Self-Hosting](/guides/self-hosting)

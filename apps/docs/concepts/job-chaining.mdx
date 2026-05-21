@@ -52,7 +52,7 @@ If the first job returns:
 
 ```json
 {
-  "user": { "id": "user_123" },
+  "user": { "id": "user_abc123" },
   "payment": { "amount": 49.99 }
 }
 ```
@@ -61,7 +61,7 @@ The next job receives:
 
 ```json
 {
-  "user_id": "user_123",
+  "user_id": "user_abc123",
   "amount": 49.99
 }
 ```
@@ -72,8 +72,8 @@ Failure triggers receive a payload with the failed run and error details.
 
 ```json
 {
-  "source_job_id": "job_123",
-  "source_run_id": "run_456",
+  "source_job_id": "job_abc123",
+  "source_run_id": "run_def456",
   "status": "failed",
   "attempt": 3,
   "error": "connection refused",
@@ -86,9 +86,9 @@ Use failure chains for notifications, cleanup, or a recovery job that can safely
 
 ## Loop Protection
 
-Strait limits chain depth to prevent accidental loops.
+Every run carries the depth of the chain that produced it, and Strait stops following the chain once that depth reaches 10.
 
-For example, if job A triggers job B and job B triggers job A, Strait stops the chain after the project limit is reached.
+For example, if job A triggers job B and job B triggers job A, the runs climb one level per hop until the tenth, where the next downstream trigger is skipped. A misconfigured cycle cannot run forever.
 
 ## Related
 

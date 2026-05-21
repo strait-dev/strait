@@ -10,10 +10,10 @@ Strait connects to PostgreSQL, Redis, and optional monitoring tools.
 
 <CardGroup cols={2}>
   <Card title="PostgreSQL" icon="database">
-    The only required dependency. Strait uses database locks for queue semantics, LISTEN/NOTIFY for real-time updates, and stores all state in Postgres.
+    Required. Strait stores all state in Postgres and uses `SELECT ... FOR UPDATE SKIP LOCKED` plus `LISTEN`/`NOTIFY` for queue semantics and worker wake-ups.
   </Card>
   <Card title="Redis" icon="bolt">
-    Required. Powers real-time updates, pub/sub notifications, and live dashboard updates.
+    Strongly recommended. Powers pub/sub, SSE streaming for the dashboard, live run updates, and gRPC worker-plane signalling. Strait will start without it, but those features will not work.
   </Card>
 </CardGroup>
 
@@ -23,8 +23,8 @@ Strait connects to PostgreSQL, Redis, and optional monitoring tools.
   <Card title="OpenTelemetry" icon="signal">
     Export traces, metrics, and logs via OTLP to any OpenTelemetry-compatible backend.
   </Card>
-  <Card title="Grafana Cloud" icon="chart-line">
-    Pre-built dashboards for job throughput, run latency, queue depth, and error rates.
+  <Card title="Grafana" icon="chart-line" href="/operations/observability">
+    Pre-built dashboards for job throughput, run latency, queue depth, and error rates. Shipped in `apps/strait/monitoring/grafana/`.
   </Card>
   <Card title="ClickHouse" icon="chart-bar" href="/concepts/clickhouse-analytics">
     Analytics for run history, cost, and throughput.
