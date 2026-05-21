@@ -139,7 +139,7 @@
               },
               {
                 "group": "Self-Hosting",
-                "pages": ["guides/deployment"]
+                "pages": ["guides/self-hosting", "guides/deployment"]
               },
               {
                 "group": "Configuration",

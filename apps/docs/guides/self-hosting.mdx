@@ -1,0 +1,158 @@
+---
+title: "Self-Hosting"
+description: "Run the community edition on your own infrastructure with Docker Compose or a Cloudflare-hosted dashboard."
+icon: "server"
+---
+
+Strait ships as a single Go binary, so self-hosting is mostly a matter of running that binary next to PostgreSQL and Redis. This guide covers the community edition. The hosted service at [strait.dev](https://strait.dev) is never required to run Strait yourself.
+
+There are two common setups. Pick the one that matches where you want the dashboard to live.
+
+| | Cloudflare dashboard | Full Docker stack |
+|---|---|---|
+| Setup | One click, then a manual import step | `make selfhost` |
+| Dashboard runs on | Your Cloudflare account | Your hardware |
+| API runs on | Any host the dashboard can reach | Docker Compose on the same host |
+| PostgreSQL | Neon, Supabase, or any hosted/self-hosted instance | Bundled `postgres:18-alpine` |
+| Best for | Teams already on Cloudflare | Air-gapped, on-prem, or Docker-first teams |
+
+For production scaling, region strategy, and splitting API and worker capacity, read [Deployment](/guides/deployment) after you have a stack running.
+
+## Option 1: Full Docker stack
+
+This is the fastest way to get everything running on one host.
+
+### Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/) and Docker Compose v2 or newer
+- 2 GB RAM minimum, 4 GB recommended
+- Ports 3000, 8080, 5432, and 6379 free
+
+### Quick start
+
+```bash
+git clone https://github.com/strait-dev/strait.git
+cd strait
+make selfhost
+```
+
+`make selfhost` generates secrets with `./packages/scripts/selfhost-init.sh`, then starts the stack with `docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml up -d`.
+
+Check the API and open the dashboard:
+
+```bash
+curl http://localhost:8080/health
+# {"edition":"community","status":"ok"}
+
+open http://localhost:3000
+```
+
+Stop or reset the stack:
+
+```bash
+make selfhost-down    # stop containers, keep data
+make selfhost-reset   # stop and wipe data and secrets
+```
+
+### What runs
+
+| Service | Image | Port | Purpose |
+|---|---|---|---|
+| `strait-api` | `ghcr.io/strait-dev/strait` | 8080 | API server and worker |
+| `strait-app` | `ghcr.io/strait-dev/strait-app` | 3000 | Dashboard |
+| `strait-postgres` | `postgres:18-alpine` | 5432 | Source of truth and queue |
+| `strait-redis` | `redis:8-alpine` | 6379 | Pub/sub, SSE, worker-plane signalling |
+| `strait-sequin` | `sequin/sequin` | internal | Change data capture feeding real-time updates |
+
+`docker-compose.selfhost.yml` pins each image to a known-good release tag, so `docker compose up` reproduces the same combination every time. Override `STRAIT_IMAGE` or `STRAIT_APP_IMAGE` to track a different tag.
+
+## Option 2: Cloudflare dashboard
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/strait-dev/strait)
+
+The button forks the repo and starts a Cloudflare Workers Builds import. Cloudflare does not yet support Bun workspaces in one-click deploys, so during import set the **Root directory** to `apps/app` and provide the custom **Build command** documented in [apps/app/README.md](https://github.com/strait-dev/strait/blob/master/apps/app/README.md).
+
+The dashboard still needs a Strait API server. Run the API with Option 1, on a VPS, or on any host Cloudflare can reach, then point `STRAIT_API_URL` at it in the Worker variables.
+
+## Dependencies
+
+| Dependency | Required for |
+|---|---|
+| PostgreSQL 18+ | Source of truth and queue (`SELECT ... FOR UPDATE SKIP LOCKED`) |
+| Redis 8+ | Pub/sub, SSE streaming, gRPC worker-plane signalling |
+
+PostgreSQL is the only hard requirement. Strait starts without Redis, but live run updates, SSE, and the gRPC worker plane stop working. Run with Redis unless you have a specific reason not to.
+
+## Configuration
+
+Edit `.env.selfhost`, or add entries to the `environment:` block in `docker-compose.selfhost.yml`. The variables teams change most often:
+
+| Variable | Default | Description |
+|---|---|---|
+| `WORKER_CONCURRENCY` | `25` | Maximum concurrent job executions |
+| `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, or `error` |
+| `RATE_LIMIT_REQUESTS` | `100` | Requests per minute per IP |
+| `DEFAULT_JOB_TIMEOUT_SECS` | `300` | Default job timeout |
+| `DEFAULT_JOB_MAX_ATTEMPTS` | `3` | Default retry attempts |
+
+The full list lives in [Environment Variables](/configuration/environment-variables).
+
+## Your first job
+
+Open `http://localhost:3000`, sign up, and use the **Create project** wizard, which walks through installing an SDK and triggering a run.
+
+To skip the dashboard, drive the API directly with the internal secret from `.env.selfhost`:
+
+```bash
+SECRET="<INTERNAL_SECRET from .env.selfhost>"
+
+curl -X POST http://localhost:8080/v1/projects \
+  -H "Content-Type: application/json" \
+  -H "X-Internal-Secret: $SECRET" \
+  -d '{"id": "my-project", "org_id": "my-org", "name": "My Project"}'
+
+API_KEY=$(curl -s -X POST http://localhost:8080/v1/api-keys \
+  -H "Content-Type: application/json" \
+  -H "X-Internal-Secret: $SECRET" \
+  -d '{"project_id": "my-project", "name": "dev-key"}' | jq -r '.key')
+
+curl -X POST http://localhost:8080/v1/jobs \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"project_id":"my-project","name":"My Job","slug":"my-job","endpoint_url":"https://httpbin.org/post","max_attempts":3,"timeout_secs":30}'
+```
+
+## Upgrading
+
+```bash
+docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml pull
+docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml up -d
+```
+
+Migrations run automatically on startup.
+
+## Backups
+
+Use the bundled script, which gzips a dump into `./backups` and prunes files older than 30 days:
+
+```bash
+./packages/scripts/selfhost-backup.sh
+# Backup saved to ./backups/strait_20260325_120000.sql.gz
+```
+
+Restore a dump into the running database:
+
+```bash
+gunzip -c backups/strait_20260325_120000.sql.gz | docker exec -i strait-postgres psql -U strait strait
+```
+
+Schedule daily backups with cron:
+
+```bash
+0 3 * * * cd /path/to/strait && ./packages/scripts/selfhost-backup.sh
+```
+
+## Related
+
+- [Deployment](/guides/deployment)
+- [Environment Variables](/configuration/environment-variables)
