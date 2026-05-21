@@ -46,7 +46,7 @@ If you set a `webhook_secret`, Strait signs the payload with HMAC-SHA256. The si
 Headers included on signed deliveries:
 
 - `X-Strait-Timestamp` — Unix timestamp used in signing
-- `X-Strait-Signature` — `sha256=<hex signature>`
+- `X-Strait-Signature` — `v1=<hex signature>`
 
 **Signed payload format:**
 ```
@@ -58,10 +58,10 @@ signature      = HMAC-SHA256(webhook_secret, signed_payload)
 
 ```go
 func verifySignature(payload []byte, timestamp string, signatureHeader string, secret string) bool {
-    if !strings.HasPrefix(signatureHeader, "sha256=") || timestamp == "" {
+    if !strings.HasPrefix(signatureHeader, "v1=") || timestamp == "" {
         return false
     }
-    actualSig := signatureHeader[7:]
+    actualSig := signatureHeader[3:]
 
     mac := hmac.New(sha256.New, []byte(secret))
     mac.Write([]byte(timestamp + "."))

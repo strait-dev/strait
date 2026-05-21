@@ -105,6 +105,8 @@ jobs:
       id-token: write # keyless cosign signing via Fulcio OIDC
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
@@ -225,13 +227,15 @@ jobs:
       # cosign verify above is the full gate we need.
 
       - name: Verify pushed tags are pullable from GHCR
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
         run: |
           set -euo pipefail
           while IFS= read -r tag; do
             [ -z "$tag" ] && continue
             echo "Verifying $tag..."
             docker buildx imagetools inspect "$tag" > /dev/null
-          done <<< "${{ steps.meta.outputs.tags }}"
+          done <<< "$TAGS"
 
   cloud-api:
     needs: check-ci
@@ -244,6 +248,8 @@ jobs:
       id-token: write # keyless cosign signing via Fulcio OIDC
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
@@ -362,13 +368,15 @@ jobs:
       # attestation manifests exist.
 
       - name: Verify pushed tags are pullable from GHCR
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
         run: |
           set -euo pipefail
           while IFS= read -r tag; do
             [ -z "$tag" ] && continue
             echo "Verifying $tag..."
             docker buildx imagetools inspect "$tag" > /dev/null
-          done <<< "${{ steps.meta.outputs.tags }}"
+          done <<< "$TAGS"
 
   strait-app:
     needs: check-ci
@@ -383,6 +391,8 @@ jobs:
       id-token: write # keyless cosign signing via Fulcio OIDC
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
@@ -485,13 +495,15 @@ jobs:
             "${REGISTRY}/strait-dev/strait-app@${DIGEST}"
 
       - name: Verify pushed tags are pullable from GHCR
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
         run: |
           set -euo pipefail
           while IFS= read -r tag; do
             [ -z "$tag" ] && continue
             echo "Verifying $tag..."
             docker buildx imagetools inspect "$tag" > /dev/null
-          done <<< "${{ steps.meta.outputs.tags }}"
+          done <<< "$TAGS"
 
   release-gate:
     name: Release Gate
@@ -528,6 +540,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
         with:
@@ -540,9 +553,10 @@ jobs:
 
       - name: Resolve previous release tag
         id: prev
+        env:
+          CURRENT: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          CURRENT="${{ github.ref_name }}"
           # Most recent stable semver tag (no pre-release suffix), excluding CURRENT.
           PREV="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | grep -v "^${CURRENT}$" | head -1 || true)"
           echo "tag=${PREV}" >> "$GITHUB_OUTPUT"

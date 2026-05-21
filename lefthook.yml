@@ -91,6 +91,19 @@ pre-push:
       fail_text: "buf lint failed (install buf: brew install bufbuild/buf/buf)"
       timeout: 60s
 
+    - name: zizmor
+      glob:
+        - ".github/workflows/**"
+        - ".github/actions/**"
+      skip:
+        - run: test "${SKIP_RUN_ALL:-0}" = "1"
+      run: |
+        if command -v zizmor > /dev/null 2>&1; then
+          zizmor --offline .github/workflows .github/actions
+        fi
+      fail_text: "zizmor found GitHub Actions security issues (install: brew install zizmor)"
+      timeout: 30s
+
 
 commit-msg:
   commands:

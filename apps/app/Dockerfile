@@ -23,7 +23,7 @@
 # so untracked local secret files in the repo root are not copied into
 # builder layers.
 
-FROM --platform=$BUILDPLATFORM oven/bun:1.3.11-alpine@sha256:7ed9f74c326d1c260abe247ac423ccbf5ac92af62bb442d515d1f92f21e8ea9b AS builder
+FROM --platform=$BUILDPLATFORM oven/bun:1.3.14-alpine AS builder
 WORKDIR /repo
 
 # Copy the lockfile and every workspace manifest first so `bun install`
