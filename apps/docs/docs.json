@@ -165,7 +165,7 @@
               },
               {
                 "group": "Reference",
-                "pages": ["architecture"]
+                "pages": ["architecture", "glossary", "faq"]
               }
             ]
           },

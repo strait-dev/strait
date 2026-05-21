@@ -1,0 +1,50 @@
+---
+title: "Glossary"
+description: "Core Strait terms in one place, each linked to a deeper explanation."
+icon: "book-a"
+---
+
+Short definitions for the terms used throughout these docs. Each links to the page that covers it in depth.
+
+**API key.** A long-lived credential scoped to a project, used to authenticate API and SDK calls. See [Authentication](/guides/authentication).
+
+**Compensation (saga).** A step that undoes the effect of an earlier step when a later step fails, so a partially completed workflow can roll back cleanly. See [Compensating Transactions](/concepts/compensating-transactions).
+
+**Dead letter.** The terminal state a run reaches after it exhausts its retries. Dead-lettered runs are kept so you can inspect and replay them rather than losing the work. See [Retry Strategies](/concepts/retry-strategies) and [Handle Failed Runs](/guides/handle-failed-runs).
+
+**Durable wait.** A pause in a workflow that survives restarts, used for timers, approvals, or waiting on an external event without holding a process open. See [Durable Workflows](/concepts/durable-workflows).
+
+**Edition.** Which build of Strait you run: community (open source, self-hosted) or cloud (the hosted service with billing and multi-region). The edition is fixed at compile time. See [Self-Hosting](/guides/self-hosting).
+
+**Event trigger.** A rule that starts a job or workflow when a matching event arrives, instead of on a schedule or a manual trigger. See [Event Triggers](/concepts/event-triggers).
+
+**Execution mode.** How Strait reaches your code: HTTP mode POSTs to an endpoint you expose, worker mode streams runs to a long-lived worker over gRPC. See [Execution Modes](/concepts/execution-modes).
+
+**Idempotency key.** A caller-supplied key that makes a trigger request safe to retry, so the same request does not create duplicate runs. See [Idempotency](/guides/idempotency).
+
+**Internal secret.** A shared secret that authenticates trusted service-to-service calls, including the dashboard-to-API path and the `/metrics` scrape endpoint. See [Environment Variables](/configuration/environment-variables).
+
+**Job.** A definition of work: where it runs, its retry policy, timeout, and limits. Triggering a job creates a run. See [Jobs](/concepts/jobs).
+
+**Project.** The tenancy and ownership boundary that groups jobs, workflows, runs, and API keys. See [Projects](/concepts/projects).
+
+**Queue.** The pending work waiting to execute. Strait uses PostgreSQL as the queue with `SELECT ... FOR UPDATE SKIP LOCKED`, so no separate message broker is needed. See [Runs](/concepts/runs).
+
+**Retry policy.** The rules that govern how a failed run is retried: strategy, attempt count, delay, and bounds. See [Retry Strategies](/concepts/retry-strategies).
+
+**Run.** A single execution of a job or workflow. A run moves through queued and executing states to a terminal state such as completed, failed, or dead letter. See [Runs](/concepts/runs).
+
+**Run token.** A short-lived credential the SDK uses to report progress and results for a specific run, separate from your long-lived API key. See [SDK Integration](/guides/sdk-integration).
+
+**Schedule.** A cron expression, with time zone and execution window, that triggers a job on a recurring basis. See [Scheduling](/concepts/scheduling).
+
+**Step.** One unit of work within a workflow. Steps declare dependencies on other steps, and Strait runs them in the resulting order. See [Workflows](/concepts/workflows).
+
+**Worker plane.** The gRPC channel that connects long-lived worker processes to the API so runs can be streamed to them and results streamed back. See [Execution Modes](/concepts/execution-modes).
+
+**Workflow.** A set of steps with dependencies, conditions, and failure handling that run as a coordinated unit. See [Workflows](/concepts/workflows).
+
+## Related
+
+- [Introduction](/introduction)
+- [Architecture](/architecture)
