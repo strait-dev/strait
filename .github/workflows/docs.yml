@@ -1,0 +1,29 @@
+name: Docs
+
+on:
+  push:
+    paths:
+      - "apps/docs/**"
+      - ".github/workflows/docs.yml"
+      - ".github/actions/setup-js/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Docs lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: ./.github/actions/setup-js
+
+      - name: Lint docs
+        working-directory: apps/docs
+        run: bun run lint

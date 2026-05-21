@@ -214,6 +214,14 @@ When touching DB / queue / workflow / scheduler / pubsub:
 cd apps/strait && go test -tags integration ./...
 ```
 
+When touching docs (`apps/docs`):
+
+```bash
+cd apps/docs && bun run lint
+```
+
+This runs the docs linter (`scripts/lint-docs.mjs`): frontmatter completeness, no em/en-dashes, no marketing buzzwords, every code fence has a language tag, internal links and anchors resolve, normalized example hosts, and no orphan pages. CI enforces it via `.github/workflows/docs.yml`.
+
 Lefthook is mandatory:
 
 ```bash
