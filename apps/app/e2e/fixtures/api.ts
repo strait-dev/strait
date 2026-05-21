@@ -5,6 +5,7 @@ export class ApiHelper {
   private readonly baseUrl: string;
   private readonly secret: string;
   private projectId: string | null = null;
+  private readonly orgId: string | null = null;
 
   constructor() {
     this.baseUrl = process.env.STRAIT_API_URL ?? "http://localhost:8080";
@@ -18,6 +19,9 @@ export class ApiHelper {
       if (ctx.projectId) {
         this.projectId = ctx.projectId;
       }
+      if (ctx.orgId) {
+        this.orgId = ctx.orgId;
+      }
     } catch {
       // project.json may not exist yet
     }
@@ -25,6 +29,24 @@ export class ApiHelper {
 
   setProjectId(id: string) {
     this.projectId = id;
+  }
+
+  getProjectId() {
+    if (!this.projectId) {
+      throw new Error(
+        "No project ID found. Ensure global setup created playwright/.auth/project.json"
+      );
+    }
+    return this.projectId;
+  }
+
+  getOrgId() {
+    if (!this.orgId) {
+      throw new Error(
+        "No organization ID found. Ensure global setup created playwright/.auth/project.json"
+      );
+    }
+    return this.orgId;
   }
 
   async request<T = unknown>(
@@ -64,12 +86,19 @@ export class ApiHelper {
   // Jobs
   createJob(data: {
     name: string;
+    slug?: string;
     endpoint_url: string;
+    description?: string;
     max_attempts?: number;
     timeout_secs?: number;
     cron?: string;
+    enabled?: boolean;
   }) {
-    return this.request<{ id: string; name: string }>("POST", "/v1/jobs", data);
+    return this.request<{ id: string; name: string }>("POST", "/v1/jobs", {
+      project_id: this.getProjectId(),
+      slug: data.slug ?? slugFromName(data.name),
+      ...data,
+    });
   }
 
   getJob(id: string) {
@@ -83,12 +112,20 @@ export class ApiHelper {
     return this.request<{ id: string; status: string }>(
       "POST",
       `/v1/jobs/${id}/trigger`,
-      { payload }
+      { project_id: this.getProjectId(), payload }
     );
   }
 
   deleteJob(id: string) {
     return this.request("DELETE", `/v1/jobs/${id}`);
+  }
+
+  pauseJob(id: string) {
+    return this.request("POST", `/v1/jobs/${id}/pause`);
+  }
+
+  resumeJob(id: string) {
+    return this.request("POST", `/v1/jobs/${id}/resume`);
   }
 
   /** Create a job and immediately trigger it. Returns both IDs. */
@@ -191,12 +228,30 @@ export class ApiHelper {
   }
 
   // Workflows
-  createWorkflow(data: { name: string; steps?: unknown[] }) {
-    return this.request<{ id: string }>("POST", "/v1/workflows", data);
+  createWorkflow(data: {
+    name: string;
+    slug?: string;
+    description?: string;
+    steps?: unknown[];
+    enabled?: boolean;
+  }) {
+    return this.request<{ id: string; name: string }>("POST", "/v1/workflows", {
+      project_id: this.getProjectId(),
+      slug: data.slug ?? slugFromName(data.name),
+      ...data,
+    });
   }
 
   deleteWorkflow(id: string) {
     return this.request("DELETE", `/v1/workflows/${id}`);
+  }
+
+  triggerWorkflow(id: string, payload?: unknown) {
+    return this.request<{ id: string; status: string }>(
+      "POST",
+      `/v1/workflows/${id}/trigger`,
+      { project_id: this.getProjectId(), payload }
+    );
   }
 
   // DLQ
@@ -235,4 +290,13 @@ export class ApiHelper {
   revokeApiKey(id: string) {
     return this.request("DELETE", `/v1/api-keys/${id}`);
   }
+}
+
+function slugFromName(name: string) {
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+  return slug || `e2e-${Date.now()}`;
 }

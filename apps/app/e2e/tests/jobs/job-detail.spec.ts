@@ -1,142 +1,51 @@
-import { expect, test } from "../../fixtures";
+import { ApiHelper, expect, test } from "../../fixtures";
+
+const jobName = `e2e-core-detail-${Date.now()}`;
+
+let api: ApiHelper;
+let jobId: string;
 
 test.describe("Job Detail", () => {
-  test("invalid job ID shows error or not found", async ({ page }) => {
-    await page.goto("/app/jobs/nonexistent-id-12345");
-    await expect(page.locator("body")).toBeVisible({ timeout: 10_000 });
+  test.beforeAll(async () => {
+    api = new ApiHelper();
+    const job = await api.createJob({
+      name: jobName,
+      endpoint_url: "https://httpbin.org/post",
+      max_attempts: 3,
+      timeout_secs: 20,
+      description: "Detail job seeded by Playwright",
+    });
+    jobId = job.id;
   });
 
-  test("job detail page has overview tab when job exists", async ({ page }) => {
-    await page.goto("/app/jobs");
-    const firstRow = page.locator("table tbody tr").first();
-    if (!(await firstRow.isVisible({ timeout: 5000 }).catch(() => false))) {
-      test.skip();
-      return;
-    }
-    const jobLink = firstRow.locator("a").first();
-    if (await jobLink.isVisible()) {
-      await jobLink.click();
-      await expect(page.getByText("Overview")).toBeVisible();
-    }
-  });
-
-  test("time window selector has expected options", async ({ page }) => {
-    await page.goto("/app/jobs");
-    const firstRow = page.locator("table tbody tr").first();
-    if (!(await firstRow.isVisible({ timeout: 5000 }).catch(() => false))) {
-      test.skip();
-      return;
-    }
-    const jobLink = firstRow.locator("a").first();
-    if (await jobLink.isVisible()) {
-      await jobLink.click();
-      await expect(page.getByRole("button", { name: "1 hour" })).toBeVisible();
-      await expect(page.getByRole("button", { name: "7 days" })).toBeVisible();
+  test.afterAll(async () => {
+    if (jobId) {
+      await api.deleteJob(jobId).catch(() => undefined);
     }
   });
 
-  test("configuration card shows job settings", async ({ page }) => {
-    await page.goto("/app/jobs");
-    const firstRow = page.locator("table tbody tr").first();
-    if (!(await firstRow.isVisible({ timeout: 5000 }).catch(() => false))) {
-      test.skip();
-      return;
-    }
-    const jobLink = firstRow.locator("a").first();
-    if (await jobLink.isVisible()) {
-      await jobLink.click();
-      await expect(page.getByText("Configuration")).toBeVisible();
-    }
+  test("overview shows status, actions, metrics, and configuration", async ({
+    page,
+  }) => {
+    await page.goto(`/app/jobs/${jobId}`, { waitUntil: "domcontentloaded" });
+
+    await expect(page.getByRole("heading", { name: jobName })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Trigger" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "1 hour" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "7 days" })).toBeVisible();
+    await expect(page.getByText("Success Rate")).toBeVisible();
+    await expect(page.getByText("Total Runs")).toBeVisible();
+    await expect(page.getByText("Run Status Distribution")).toBeVisible();
+    await expect(page.getByText("Configuration")).toBeVisible();
+    await expect(page.getByText("https://httpbin.org/post")).toBeVisible();
   });
 
-  test("stats cards show on overview tab", async ({ page }) => {
-    await page.goto("/app/jobs");
-    const firstRow = page.locator("table tbody tr").first();
-    if (!(await firstRow.isVisible({ timeout: 5000 }).catch(() => false))) {
-      test.skip();
-      return;
-    }
-    const jobLink = firstRow.locator("a").first();
-    if (await jobLink.isVisible()) {
-      await jobLink.click();
-      await expect(page.getByText("Success Rate")).toBeVisible();
-      await expect(page.getByText("Total Runs")).toBeVisible();
-    }
-  });
+  test("time window selection keeps health cards visible", async ({ page }) => {
+    await page.goto(`/app/jobs/${jobId}`, { waitUntil: "domcontentloaded" });
 
-  test("trigger button is visible on detail page", async ({ page }) => {
-    await page.goto("/app/jobs");
-    const firstRow = page.locator("table tbody tr").first();
-    if (!(await firstRow.isVisible({ timeout: 5000 }).catch(() => false))) {
-      test.skip();
-      return;
-    }
-    const jobLink = firstRow.locator("a").first();
-    if (await jobLink.isVisible()) {
-      await jobLink.click();
-      await expect(
-        page.getByRole("button", { name: /trigger/i })
-      ).toBeVisible();
-    }
-  });
-
-  test("pause/resume button is visible on detail page", async ({ page }) => {
-    await page.goto("/app/jobs");
-    const firstRow = page.locator("table tbody tr").first();
-    if (!(await firstRow.isVisible({ timeout: 5000 }).catch(() => false))) {
-      test.skip();
-      return;
-    }
-    const jobLink = firstRow.locator("a").first();
-    if (await jobLink.isVisible()) {
-      await jobLink.click();
-      const pauseBtn = page.getByRole("button", { name: /pause|resume/i });
-      await expect(pauseBtn).toBeVisible();
-    }
-  });
-
-  test("switching time windows updates stats", async ({ page }) => {
-    await page.goto("/app/jobs");
-    const firstRow = page.locator("table tbody tr").first();
-    if (!(await firstRow.isVisible({ timeout: 5000 }).catch(() => false))) {
-      test.skip();
-      return;
-    }
-    const jobLink = firstRow.locator("a").first();
-    if (await jobLink.isVisible()) {
-      await jobLink.click();
-      await page.getByRole("button", { name: "30 days" }).click();
-      await page.waitForTimeout(500);
-      await expect(page.getByText("Success Rate")).toBeVisible();
-    }
-  });
-
-  test("settings tab renders", async ({ page }) => {
-    await page.goto("/app/jobs");
-    const firstRow = page.locator("table tbody tr").first();
-    if (!(await firstRow.isVisible({ timeout: 5000 }).catch(() => false))) {
-      test.skip();
-      return;
-    }
-    const jobLink = firstRow.locator("a").first();
-    if (await jobLink.isVisible()) {
-      await jobLink.click();
-      await page.getByText("Settings").click();
-      await page.waitForTimeout(500);
-    }
-  });
-
-  test("status badge shows on detail header", async ({ page }) => {
-    await page.goto("/app/jobs");
-    const firstRow = page.locator("table tbody tr").first();
-    if (!(await firstRow.isVisible({ timeout: 5000 }).catch(() => false))) {
-      test.skip();
-      return;
-    }
-    const jobLink = firstRow.locator("a").first();
-    if (await jobLink.isVisible()) {
-      await jobLink.click();
-      await page.waitForTimeout(500);
-    }
+    await page.getByRole("button", { name: "30 days" }).click();
+    await expect(page.getByRole("button", { name: "30 days" })).toBeVisible();
+    await expect(page.getByText("Failed Runs")).toBeVisible();
   });
 });

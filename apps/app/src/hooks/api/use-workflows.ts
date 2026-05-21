@@ -15,7 +15,11 @@ import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { getPostHog } from "@/lib/analytics";
 import { apiPath } from "@/lib/api-client.server";
-import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
+import {
+  apiEffect,
+  runWithFallback,
+  runWithSentryReport,
+} from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 import {
   requireActiveProjectAccess,
@@ -57,20 +61,34 @@ export const fetchWorkflowSteps = createServerFn({ method: "GET" })
     // @ts-expect-error tsgo cannot resolve createServerFn handler generics
     async ({ context, data }): Promise<WorkflowStep[]> => {
       await requireActiveProjectAccess(context);
-      const resp = await runWithSentryReport(
+      const resp = await runWithFallback(
         apiEffect<PaginatedResponse<WorkflowStep>>(
           apiPath`/v1/workflows/${data.workflowId}/versions`,
           { params: { limit: 1 } }
-        )
+        ),
+        { data: [], has_more: false }
       );
-      if (resp.data.length > 0) {
-        const latestVersion = resp.data[0] as unknown as { id: string };
-        const stepsResp = await runWithSentryReport(
+      let versions: unknown[] = [];
+      if (Array.isArray(resp)) {
+        versions = resp;
+      } else if (Array.isArray(resp.data)) {
+        versions = resp.data;
+      }
+      if (versions.length > 0) {
+        const latestVersion = versions[0] as unknown as { version_id?: string };
+        if (!latestVersion.version_id) {
+          return [] as WorkflowStep[];
+        }
+        const stepsResp = await runWithFallback(
           apiEffect<PaginatedResponse<WorkflowStep>>(
-            apiPath`/v1/workflows/${data.workflowId}/versions/${latestVersion.id}/steps`
-          )
+            apiPath`/v1/workflows/${data.workflowId}/versions/${latestVersion.version_id}/steps`
+          ),
+          { data: [], has_more: false }
         );
-        return stepsResp.data;
+        if (Array.isArray(stepsResp)) {
+          return stepsResp;
+        }
+        return Array.isArray(stepsResp.data) ? stepsResp.data : [];
       }
       return [] as WorkflowStep[];
     }

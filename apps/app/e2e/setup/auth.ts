@@ -55,11 +55,12 @@ export async function signInAndSaveState(
   // Verify session in browser and save storageState
   const browser = await chromium.launch();
   const context = await browser.newContext();
+  const cookieDomain = new URL(baseURL).hostname;
   await context.addCookies([
     {
       name: "better-auth.session_token",
       value: tokenMatch[1],
-      domain: "localhost",
+      domain: cookieDomain,
       path: "/",
       httpOnly: true,
       secure: false,

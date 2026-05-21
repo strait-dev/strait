@@ -110,7 +110,15 @@ function JobsPage() {
   const typed = data as PaginatedResponse<Job> | undefined;
 
   const filteredData = useMemo(() => {
-    const jobs = hasProject ? (typed?.data ?? []) : [];
+    let jobs = hasProject ? (typed?.data ?? []) : [];
+    const query = search.query?.trim().toLowerCase();
+    if (query) {
+      jobs = jobs.filter((job: Job) =>
+        [job.name, job.slug, job.description]
+          .filter(Boolean)
+          .some((value) => value?.toLowerCase().includes(query))
+      );
+    }
     if (selectedStatuses.length === 0) {
       return jobs;
     }
@@ -123,7 +131,7 @@ function JobsPage() {
       }
       return false;
     });
-  }, [typed, selectedStatuses, hasProject]);
+  }, [typed, selectedStatuses, hasProject, search.query]);
 
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
 
