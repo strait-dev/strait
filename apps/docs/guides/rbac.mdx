@@ -26,7 +26,7 @@ Run `POST /v1/seed-roles` to create all four built-in roles in your project.
 Add a user to a project with a specific role using the members endpoint.
 
 ```bash
-curl -X POST https://your-strait/v1/members \
+curl -X POST https://your-strait-instance/v1/members \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -51,7 +51,7 @@ curl -X POST https://your-strait/v1/members \
 When built-in roles don't fit, create a custom role with exactly the permissions you need. This example creates a `deployer` role that can trigger jobs and view runs but cannot delete anything.
 
 ```bash
-curl -X POST https://your-strait/v1/roles \
+curl -X POST https://your-strait-instance/v1/roles \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -82,7 +82,7 @@ curl -X POST https://your-strait/v1/roles \
 A role can inherit all permissions from a parent role, then add its own on top. This avoids duplicating permission lists across related roles.
 
 ```bash
-curl -X POST https://your-strait/v1/roles \
+curl -X POST https://your-strait-instance/v1/roles \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -111,7 +111,7 @@ The `senior-operator` role inherits everything from `operator` (trigger jobs, vi
 Grant a specific user access to a specific resource, regardless of their role. Use this when one person needs elevated access to a single job or workflow.
 
 ```bash
-curl -X POST https://your-strait/v1/resource-policies \
+curl -X POST https://your-strait-instance/v1/resource-policies \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -140,7 +140,7 @@ curl -X POST https://your-strait/v1/resource-policies \
 Grant access to any resource matching a tag. When new resources are created with that tag, the policy applies automatically.
 
 ```bash
-curl -X POST https://your-strait/v1/tag-policies \
+curl -X POST https://your-strait-instance/v1/tag-policies \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{

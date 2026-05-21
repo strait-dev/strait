@@ -10,7 +10,7 @@ Log drains forward your job execution logs to external platforms like Datadog, S
 Create a log drain that sends error and warning logs to Datadog:
 
 ```bash
-curl -X POST "https://strait.example.com/v1/log-drains" \
+curl -X POST "https://your-strait-instance/v1/log-drains" \
   -H "Authorization: Bearer strait_..." \
   -H "Content-Type: application/json" \
   -d '{
@@ -29,7 +29,7 @@ curl -X POST "https://strait.example.com/v1/log-drains" \
 ### Splunk HEC
 
 ```bash
-curl -X POST "https://your-strait/v1/log-drains" \
+curl -X POST "https://your-strait-instance/v1/log-drains" \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -48,7 +48,7 @@ curl -X POST "https://your-strait/v1/log-drains" \
 ### Generic HTTP Endpoint
 
 ```bash
-curl -X POST "https://your-strait/v1/log-drains" \
+curl -X POST "https://your-strait-instance/v1/log-drains" \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{

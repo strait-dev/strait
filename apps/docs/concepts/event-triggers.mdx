@@ -88,7 +88,7 @@ When the event arrives, Strait re-queues the run with the event payload availabl
 Send an event to resolve one waiting key:
 
 ```bash
-curl -X POST https://strait.dev/v1/events/approval:order_123/send \
+curl -X POST https://api.strait.dev/v1/events/approval:order_123/send \
   -H "Authorization: Bearer strait_..." \
   -H "Content-Type: application/json" \
   -d '{
@@ -119,7 +119,7 @@ Use longer timeouts for human approvals and shorter timeouts for machine-to-mach
 Cancel a wait when the external work is no longer needed:
 
 ```bash
-curl -X DELETE https://strait.dev/v1/events/approval:order_123 \
+curl -X DELETE https://api.strait.dev/v1/events/approval:order_123 \
   -H "Authorization: Bearer strait_..."
 ```
 
@@ -128,14 +128,14 @@ curl -X DELETE https://strait.dev/v1/events/approval:order_123 \
 List waiting events:
 
 ```bash
-curl "https://strait.dev/v1/events?status=waiting" \
+curl "https://api.strait.dev/v1/events?status=waiting" \
   -H "Authorization: Bearer strait_..."
 ```
 
 Stream updates for one event:
 
 ```bash
-curl -N https://strait.dev/v1/events/approval:order_123/stream \
+curl -N https://api.strait.dev/v1/events/approval:order_123/stream \
   -H "Authorization: Bearer strait_..."
 ```
 

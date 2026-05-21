@@ -86,11 +86,11 @@ Failed event trigger deliveries are stored in the database. You can inspect and 
 
 ```bash
 # List failed deliveries
-curl "https://strait.example.com/v1/webhooks/deliveries?status=failed" \
+curl "https://your-strait-instance/v1/webhooks/deliveries?status=failed" \
   -H "Authorization: Bearer strait_..."
 
 # Retry a specific delivery
-curl -X POST "https://strait.example.com/v1/webhooks/deliveries/{deliveryID}/retry" \
+curl -X POST "https://your-strait-instance/v1/webhooks/deliveries/{deliveryID}/retry" \
   -H "Authorization: Bearer strait_..."
 ```
 

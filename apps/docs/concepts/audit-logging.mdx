@@ -30,7 +30,7 @@ Each event captures the actor:
 List audit events for a project via the API:
 
 ```bash
-curl "https://strait.example.com/v1/audit-events?project_id=proj_1" \
+curl "https://your-strait-instance/v1/audit-events?project_id=proj_1" \
   -H "Authorization: Bearer strait_..."
 ```
 
@@ -43,11 +43,11 @@ Every audit event is signed and linked to the previous event in the same project
 Verify the chain at any time:
 
 ```bash
-curl "https://strait.example.com/v1/audit-events/verify?project_id=proj_1" \
+curl "https://your-strait-instance/v1/audit-events/verify?project_id=proj_1" \
   -H "Authorization: Bearer strait_..."
 
 # Incremental verification (from last verified point)
-curl "https://strait.example.com/v1/audit-events/verify?project_id=proj_1&incremental=true" \
+curl "https://your-strait-instance/v1/audit-events/verify?project_id=proj_1&incremental=true" \
   -H "Authorization: Bearer strait_..."
 ```
 

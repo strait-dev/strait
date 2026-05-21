@@ -22,7 +22,7 @@ Use the server secret for trusted backend calls. Set it with the `INTERNAL_SECRE
 
 ```bash
 curl -H "Authorization: Bearer $INTERNAL_SECRET" \
-  https://strait.example.com/v1/jobs
+  https://your-strait-instance/v1/jobs
 ```
 
 The server secret grants full access to all endpoints. Do not use it from browsers or mobile apps.
@@ -34,7 +34,7 @@ curl -H "Authorization: Bearer $INTERNAL_SECRET" \
      -H "X-Project-Id: proj_123" \
      -H "X-Actor-Id: user_abc" \
      -H "X-Actor-Email: alice@example.com" \
-     https://strait.example.com/v1/jobs
+     https://your-strait-instance/v1/jobs
 ```
 
 When these headers are present, Strait records the actor for audit logging and applies RBAC checks for that user.
@@ -52,7 +52,7 @@ Per-project keys with scoped permissions. Use API keys for external integrations
 ### Creating a Key
 
 ```bash
-curl -X POST https://strait.example.com/v1/api-keys \
+curl -X POST https://your-strait-instance/v1/api-keys \
   -H "Authorization: Bearer $INTERNAL_SECRET" \
   -d '{
     "project_id": "proj_123",
@@ -76,7 +76,7 @@ API keys must expire. If the project has a `max_key_lifetime_days` policy, omitt
 
 ```bash
 curl -H "Authorization: Bearer strait_abc123..." \
-  https://strait.example.com/v1/jobs
+  https://your-strait-instance/v1/jobs
 ```
 
 ### Scope Categories
@@ -100,7 +100,7 @@ Keys with empty scopes (`[]`) retain full access for backwards compatibility wit
 ### Revoking a Key
 
 ```bash
-curl -X DELETE https://strait.example.com/v1/api-keys/key_abc \
+curl -X DELETE https://your-strait-instance/v1/api-keys/key_abc \
   -H "Authorization: Bearer $INTERNAL_SECRET"
 ```
 
@@ -117,7 +117,7 @@ Rotate keys with a grace period for zero-downtime credential rollovers.
 `POST /v1/api-keys/{keyID}/rotate`
 
 ```bash
-curl -X POST https://strait.example.com/v1/api-keys/key_abc/rotate \
+curl -X POST https://your-strait-instance/v1/api-keys/key_abc/rotate \
   -H "Authorization: Bearer $INTERNAL_SECRET" \
   -d '{"name": "ci-key-2026-05", "grace_period_seconds": 3600}'
 ```

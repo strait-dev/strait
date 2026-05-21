@@ -13,7 +13,7 @@ Open an SSE connection to receive status changes and SDK events for a single run
 ```bash
 curl -N -H "Authorization: Bearer $STRAIT_API_KEY" \
   -H "Accept: text/event-stream" \
-  https://your-strait.example/v1/runs/{runID}/stream
+  https://your-strait-instance/v1/runs/{runID}/stream
 ```
 
 In a browser or Node.js client, use `EventSource`:

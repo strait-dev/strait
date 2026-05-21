@@ -184,18 +184,18 @@ Every error response follows the same shape:
 
 ```bash
 # Runtime graph snapshot
-curl -X GET "https://strait.dev/v1/workflow-runs/wr_123/graph" \
+curl -X GET "https://api.strait.dev/v1/workflow-runs/wr_123/graph" \
   -H "Authorization: Bearer strait_live_abc123"
 ```
 
 ```bash
 # Explain why a step is waiting/skipped
-curl -X GET "https://strait.dev/v1/workflow-runs/wr_123/explain?step_ref=deploy&decision_type=resource" \
+curl -X GET "https://api.strait.dev/v1/workflow-runs/wr_123/explain?step_ref=deploy&decision_type=resource" \
   -H "Authorization: Bearer strait_live_abc123"
 ```
 
 ```bash
 # Replay a failed branch from step 'deploy'
-curl -X POST "https://strait.dev/v1/workflow-runs/wr_123/steps/deploy/replay-subtree" \
+curl -X POST "https://api.strait.dev/v1/workflow-runs/wr_123/steps/deploy/replay-subtree" \
   -H "Authorization: Bearer strait_live_abc123"
 ```
