@@ -53,7 +53,6 @@
                   "guides/production-job",
                   "guides/private-workers",
                   "guides/handle-failed-runs",
-                  "guides/deployment",
                   "guides/authentication",
                   "sdks/typescript-quickstart",
                   "sdks/python-quickstart",
@@ -80,7 +79,6 @@
               {
                 "group": "Job Features",
                 "pages": [
-                  "concepts/retry-strategies",
                   "concepts/scheduling",
                   "concepts/event-triggers",
                   "concepts/event-sources",
@@ -92,9 +90,28 @@
                 ]
               },
               {
+                "group": "Reliability",
+                "pages": [
+                  "concepts/retry-strategies",
+                  "concepts/durable-workflows",
+                  "concepts/compensating-transactions",
+                  "concepts/adaptive-concurrency",
+                  "concepts/canary-deployments",
+                  "concepts/cost-budgets",
+                  "concepts/slos"
+                ]
+              },
+              {
+                "group": "Workflow Tooling",
+                "pages": [
+                  "concepts/workflow-simulator",
+                  "concepts/workflow-test-suites",
+                  "concepts/workflow-debugger"
+                ]
+              },
+              {
                 "group": "Monitoring",
                 "pages": [
-                  "operations/observability",
                   "concepts/real-time",
                   "concepts/webhooks",
                   "concepts/webhook-subscriptions",
@@ -103,6 +120,10 @@
                   "concepts/notifications",
                   "concepts/audit-logging"
                 ]
+              },
+              {
+                "group": "Operations",
+                "pages": ["operations/observability", "concepts/debug-bundles"]
               },
               {
                 "group": "Security and Access",
@@ -117,6 +138,18 @@
                 ]
               },
               {
+                "group": "Self-Hosting",
+                "pages": ["guides/deployment"]
+              },
+              {
+                "group": "Configuration",
+                "pages": ["configuration/environment-variables"]
+              },
+              {
+                "group": "Integrations",
+                "pages": ["integrations/index"]
+              },
+              {
                 "group": "Compare",
                 "pages": [
                   "compare/message-queues",
@@ -126,29 +159,8 @@
                 ]
               },
               {
-                "group": "Advanced",
-                "pages": [
-                  "concepts/durable-workflows",
-                  "concepts/compensating-transactions",
-                  "concepts/adaptive-concurrency",
-                  "concepts/canary-deployments",
-                  "concepts/cost-budgets",
-                  "concepts/slos",
-                  "concepts/debug-bundles",
-                  "concepts/workflow-simulator",
-                  "concepts/workflow-test-suites",
-                  "concepts/workflow-debugger",
-                  "architecture",
-                  "changelog"
-                ]
-              },
-              {
-                "group": "Configuration",
-                "pages": ["configuration/environment-variables"]
-              },
-              {
-                "group": "Integrations",
-                "pages": ["integrations/index"]
+                "group": "Reference",
+                "pages": ["architecture"]
               }
             ]
           },
@@ -215,6 +227,10 @@
   },
   "navbar": {
     "links": [
+      {
+        "label": "Changelog",
+        "href": "https://github.com/strait-dev/strait/releases"
+      },
       {
         "label": "Website",
         "href": "https://strait.dev"
