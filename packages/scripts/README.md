@@ -13,14 +13,14 @@ Shell scripts for self-hosted Strait deployments.
 
 Called by Makefile targets:
 
-```
+```bash
 make selfhost        # runs selfhost-init.sh then starts compose
 make selfhost-reset  # runs selfhost-init.sh --reset
 ```
 
 `selfhost-backup.sh` is intended for cron scheduling:
 
-```
+```text
 0 3 * * * cd /path/to/strait && ./packages/scripts/selfhost-backup.sh
 ```
 

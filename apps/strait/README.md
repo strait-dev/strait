@@ -28,19 +28,19 @@ The binary (`strait`) runs in one of three modes, set via `--mode`:
 
 **Request path:**
 
-```
+```text
 Client -> chi router -> Huma middleware (auth, rate limit, idempotency)
     -> handler -> store -> PostgreSQL
                 -> pub/sub -> subscribers
 ```
 **Job execution path (HTTP mode, default):**
-```
+```text
 POST /v1/jobs/{id}/trigger -> enqueue -> worker/executor
     -> HTTP POST to job's endpoint_url (customer infra)
     -> run result -> store -> webhook delivery
 ```
 **Job execution path (worker mode, gRPC):**
-```
+```text
 POST /v1/jobs/{id}/trigger -> enqueue -> worker/executor
     -> match a connected worker (registered slugs)
     -> stream the run over the bidirectional gRPC channel
@@ -48,7 +48,7 @@ POST /v1/jobs/{id}/trigger -> enqueue -> worker/executor
     -> run result -> store -> webhook delivery
 ```
 **Workflow path:**
-```
+```text
 POST /v1/workflows/{id}/trigger -> WorkflowEngine
     -> step execution (worker) -> StepCallback -> next step
     -> rollback workflows on failure
@@ -190,7 +190,7 @@ Mocks are generated via `moq`. Run `go generate ./...` after interface changes.
 
 Conventional commits are required: `type(scope): summary`
 
-```
+```text
 feat(api): add webhook retry endpoint
 fix(worker): drain in-flight runs on SIGTERM
 test(build): cover orchestrator dispatch paths

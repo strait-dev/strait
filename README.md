@@ -8,7 +8,7 @@
 
 **Open-source job orchestration in a single Go binary.**
 
-Strait runs your background jobs and orchestrates multi-step workflows. One service, backed by PostgreSQL and Redis. No RabbitMQ, no SQS, no Kafka.
+Strait runs your background jobs and orchestrates multi-step workflows from a single service backed by PostgreSQL and Redis, with no separate message broker to operate.
 
 - Run lifecycle from `queued` through every terminal state, including `dead_letter` runs for failures that exhausted their retries. All of it visible in a live dashboard.
 - Workflow engine with branching, parallel steps, sub-workflows, approval gates, and compensation steps.
@@ -30,7 +30,7 @@ cd strait
 make selfhost
 ```
 
-That starts the Strait API, dashboard, database, and supporting services on your machine. Open http://localhost:3000, sign up, and create your first job. No Stripe, no billing, no third-party accounts.
+That starts the Strait API, dashboard, database, and supporting services on your machine. Open http://localhost:3000, sign up, and create your first job. Everything runs locally, with no Stripe, billing, or third-party accounts involved.
 
 Full walkthrough and hardening guide: [`SELFHOST.md`](SELFHOST.md).
 
@@ -56,7 +56,7 @@ Bun monorepos need one manual setting during the Workers Builds import (`Root di
 | Hosted ClickHouse reporting | | ✓ |
 | SLA + 24/7 support | | ✓ |
 
-Self-host runs the community edition. Billing is compiled out of the dashboard image: no Stripe connection, no plan limits, no upgrade screen. Your data and your users stay on your infrastructure.
+Self-host runs the community edition. Billing is compiled out of the dashboard image, so there is no Stripe connection, plan limit, or upgrade screen, and your data and users stay on your infrastructure.
 
 ---
 
@@ -95,7 +95,7 @@ Dedicated repositories:
 
 Turborepo monorepo managed with Bun. The bits that matter:
 
-```
+```text
 apps/
   strait/   Go service. API, worker, scheduler, all in one binary.
   app/      TanStack Start dashboard (React 19, Vite).
