@@ -5,6 +5,7 @@ const port = Number(process.env.E2E_FAKE_ENDPOINT_PORT || "0");
 const infoPath =
   process.env.E2E_FAKE_ENDPOINT_INFO_PATH ||
   "playwright/.auth/fake-endpoint.json";
+const publicHost = process.env.E2E_FAKE_ENDPOINT_PUBLIC_HOST || "localtest.me";
 const retryAttempts = new Map();
 
 const server = http.createServer(async (req, res) => {
@@ -66,7 +67,7 @@ server.listen(port, "127.0.0.1", () => {
   const address = server.address();
   const actualPort =
     typeof address === "object" && address ? address.port : port;
-  const url = `http://127.0.0.1:${actualPort}`;
+  const url = `http://${publicHost}:${actualPort}`;
   fs.mkdirSync(infoPath.split("/").slice(0, -1).join("/"), { recursive: true });
   fs.writeFileSync(
     infoPath,

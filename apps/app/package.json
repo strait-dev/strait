@@ -19,6 +19,7 @@
     "test": "vitest run",
     "test:watch": "vitest watch",
     "e2e": "playwright test --config e2e/playwright.config.ts",
+    "e2e:core": "playwright test --config e2e/playwright.config.ts tests/harness tests/core-dashboard",
     "e2e:ui": "playwright test --config e2e/playwright.config.ts --ui",
     "e2e:headed": "playwright test --config e2e/playwright.config.ts --headed",
     "generate:api": "cd ../../apps/strait && go run ./scripts/dump-openapi docs/openapi.json && cd ../../apps/app && openapi-typescript ../../apps/strait/docs/openapi.json -o ./src/lib/api/schema.d.ts --export-type",

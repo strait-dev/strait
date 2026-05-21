@@ -292,11 +292,15 @@ export class ApiHelper {
   }
 
   // Webhooks
-  createWebhook(data: { webhook_url: string; event_types: string[] }) {
-    return this.request<{ id: string }>("POST", "/v1/webhooks/subscriptions", {
+  async createWebhook(data: { webhook_url: string; event_types: string[] }) {
+    const result = await this.request<{
+      id?: string;
+      subscription?: { id: string };
+    }>("POST", "/v1/webhooks/subscriptions", {
       project_id: this.getProjectId(),
       ...data,
     });
+    return { id: result.id ?? result.subscription?.id ?? "" };
   }
 
   deleteWebhook(id: string) {
