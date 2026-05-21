@@ -1,22 +1,27 @@
 <img src=".github/github.jpg" alt="Strait" width="100%" />
 
-# Strait
+<h1 align="center">Strait</h1>
 
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/strait-dev/strait/badge)](https://scorecard.dev/viewer/?uri=github.com/strait-dev/strait)
-[![Go Report Card](https://goreportcard.com/badge/github.com/strait-dev/strait)](https://goreportcard.com/report/github.com/strait-dev/strait)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+<p align="center"><strong>Open-source job orchestration in a single Go binary.</strong></p>
 
-**Open-source job orchestration in a single Go binary.**
+<p align="center">
+  <a href="https://scorecard.dev/viewer/?uri=github.com/strait-dev/strait"><img src="https://api.scorecard.dev/projects/github.com/strait-dev/strait/badge" alt="OpenSSF Scorecard" /></a>
+  <a href="https://goreportcard.com/report/github.com/strait-dev/strait"><img src="https://goreportcard.com/badge/github.com/strait-dev/strait" alt="Go Report Card" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License: Apache 2.0" /></a>
+</p>
 
 Strait runs your background jobs and orchestrates multi-step workflows from a single service backed by PostgreSQL and Redis, with no separate message broker to operate.
 
-- Run lifecycle from `queued` through every terminal state, including `dead_letter` runs for failures that exhausted their retries. All of it visible in a live dashboard.
-- Workflow engine with branching, parallel steps, sub-workflows, approval gates, and compensation steps.
-- Retry strategies (exponential, linear, fixed, custom) with jitter and per-endpoint circuit breakers.
-- Durable workflows that survive multi-day sleeps, with checkpoints, expected-completion tracking, and stage notifications.
-- OpenTelemetry traces, Prometheus metrics, structured logs, SSE streaming.
-- SDKs in [TypeScript](https://github.com/strait-dev/strait-ts), [Python](https://github.com/strait-dev/strait-python), [Go](https://github.com/strait-dev/strait-go), [Ruby](https://github.com/strait-dev/strait-ruby), and [Rust](https://github.com/strait-dev/strait-rust). Same feature set on each.
-- Self-host needs nothing beyond what's in `docker-compose.selfhost.yml`.
+- **Jobs and runs.** Trigger work over HTTP or a connected worker, then watch each run move from `queued` to `completed`, or to `dead_letter` when its retries run out, in a live dashboard.
+- **Your code, your infrastructure.** Strait never runs your code itself. It reaches the endpoint you expose over HTTP, or a long-lived worker you connect over gRPC, and streams the results back.
+- **Workflows.** Compose multi-step workflows with branching, parallel steps, sub-workflows, human approval gates, and compensation steps that roll back partial work when something fails.
+- **Durable execution.** Workflows survive process restarts and multi-day sleeps, with checkpoints, expected-completion tracking, and stage notifications.
+- **Retries and resilience.** Exponential, linear, fixed, or custom backoff with jitter, per-endpoint circuit breakers, and adaptive concurrency that backs off under load.
+- **Scheduling and events.** Cron schedules with timezone support, plus event triggers and inbound event sources that start work when something happens elsewhere.
+- **Failure recovery.** Inspect a failed run, fix the cause, and replay it. Dead-letter runs are kept for review instead of silently dropped.
+- **Observability built in.** OpenTelemetry traces, Prometheus metrics, structured logs, and real-time SSE streaming, with optional ClickHouse analytics, audit logs, and log drains.
+- **SDKs and tooling.** Official SDKs for [TypeScript](https://github.com/strait-dev/strait-ts), [Python](https://github.com/strait-dev/strait-python), [Go](https://github.com/strait-dev/strait-go), [Ruby](https://github.com/strait-dev/strait-ruby), and [Rust](https://github.com/strait-dev/strait-rust) with the same feature set on each, plus a [CLI](https://github.com/strait-dev/cli) and an [MCP server](https://github.com/strait-dev/mcp).
+- **One binary, self-host ready.** Strait ships as a single Go binary, and self-hosting needs nothing beyond `docker-compose.selfhost.yml`.
 
 ---
 
