@@ -26,7 +26,7 @@
 # docker ecosystem will pin both images on its first run, matching the
 # convention used in apps/strait/Dockerfile.
 
-FROM --platform=$BUILDPLATFORM oven/bun:1.3.11-alpine AS builder
+FROM --platform=$BUILDPLATFORM oven/bun:1.3.14-alpine AS builder
 WORKDIR /repo
 
 # Copy the lockfile and every workspace manifest first so `bun install`

@@ -127,7 +127,7 @@ services:
   # node_modules on the host volume.
   strait-app-migrate:
     container_name: strait-app-migrate
-    image: oven/bun:1.3.11-alpine
+    image: oven/bun:1.3.14-alpine
     restart: "no"
     working_dir: /repo/apps/app
     command:
