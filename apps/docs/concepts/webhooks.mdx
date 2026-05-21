@@ -49,7 +49,7 @@ Headers included on signed deliveries:
 - `X-Strait-Signature`: `sha256=<hex signature>`
 
 **Signed payload format:**
-```
+```text
 signed_payload = "{unix_timestamp}.{raw_json_body}"
 signature      = HMAC-SHA256(webhook_secret, signed_payload)
 ```

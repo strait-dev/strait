@@ -63,13 +63,13 @@ Only completed steps with a `compensation_job_id` are undone. `send-confirmation
 
 Compensation is an explicit recovery action on a `failed` or `timed_out` run, not an automatic rollback at the moment a step fails. Trigger it with:
 
-```
+```http
 POST /v1/workflow-runs/{workflowRunID}/compensate
 ```
 
 Preview which steps would be undone, and in what order, before committing:
 
-```
+```http
 GET /v1/workflow-runs/{workflowRunID}/compensation-plan
 ```
 

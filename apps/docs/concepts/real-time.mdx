@@ -70,7 +70,7 @@ Each SSE message contains a JSON object with a `type` field. The table below cov
 
 For LLM or other streamed response chunks specifically, use the dedicated stream endpoint:
 
-```
+```http
 GET /v1/runs/{runID}/stream/llm
 ```
 
@@ -78,7 +78,7 @@ GET /v1/runs/{runID}/stream/llm
 
 Subscribe to all activity across a project in a single connection:
 
-```
+```http
 GET /v1/projects/{projectID}/activity/stream
 ```
 
@@ -94,7 +94,7 @@ Use this for dashboards, audit logs, or any UI that needs a live view of project
 
 Track an event trigger from creation to resolution:
 
-```
+```http
 GET /v1/events/{eventKey}/stream
 ```
 

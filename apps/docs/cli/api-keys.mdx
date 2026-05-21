@@ -32,7 +32,7 @@ The raw key is returned **only once** at creation time. Store it in a secret man
 
 ### REST equivalent
 
-```
+```http
 POST /v1/api-keys
 ```
 
@@ -67,7 +67,7 @@ strait api-keys list --project proj_abc123
 
 ### REST equivalent
 
-```
+```http
 GET /v1/api-keys?limit=20&cursor=
 ```
 
@@ -91,7 +91,7 @@ strait api-keys expiring --project proj_abc123 --within-days 14
 
 ### REST equivalent
 
-```
+```http
 GET /v1/api-keys/expiring-soon?within_days=14
 ```
 
@@ -118,7 +118,7 @@ The new key inherits the old key's name (with a ` (rotated)` suffix), scopes, ex
 
 ### REST equivalent
 
-```
+```http
 POST /v1/api-keys/{keyID}/rotate
 ```
 
@@ -165,7 +165,7 @@ strait api-keys revoke key-abc123
 
 ### REST equivalent
 
-```
+```http
 DELETE /v1/api-keys/{keyID}
 ```
 

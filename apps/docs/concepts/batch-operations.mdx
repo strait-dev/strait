@@ -18,7 +18,7 @@ Any time you need to create many runs of the same job from a single trigger poin
 
 Send an array of payloads to the bulk trigger endpoint:
 
-```
+```http
 POST /v1/jobs/{jobID}/trigger/bulk
 ```
 
@@ -38,7 +38,7 @@ Strait creates a `BatchOperation` to track the group and individual runs for eac
 
 Query the batch to see how many items have been processed:
 
-```
+```http
 GET /v1/batch-operations/{batchID}?project_id=...
 ```
 
@@ -58,7 +58,7 @@ GET /v1/batch-operations/{batchID}?project_id=...
 
 To list all runs in a batch:
 
-```
+```http
 GET /v1/runs?batch_id={batchID}
 ```
 
