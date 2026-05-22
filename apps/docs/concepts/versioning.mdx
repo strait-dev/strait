@@ -7,7 +7,7 @@ You deploy a new version of a job while 50 runs are executing the old version. V
 
 ## When to Use Versioning
 
-Versioning is automatic -- every `UpdateJob` or workflow `PATCH` creates a new version. What you choose is the **version policy** that controls how in-flight runs interact with updates.
+Versioning is automatic: every `UpdateJob` or workflow `PATCH` creates a new version. What you choose is the **version policy** that controls how in-flight runs interact with updates.
 
 ## How It Works
 
@@ -15,8 +15,8 @@ When you update a job or workflow, Strait snapshots the current configuration be
 
 ```json
 {
-  "id": "run_123",
-  "job_id": "job_456",
+  "id": "run_abc123",
+  "job_id": "job_abc123",
   "job_version": 2,
   "job_version_id": "ver_xyz789ghi012",
   "status": "completed"
@@ -63,7 +63,7 @@ POST /v1/jobs
 ```
 
 <Note>
-Version policy is enforced at dequeue time. `pin` is the default and the safest choice -- it applies automatically when you do not specify a policy.
+Version policy is enforced at dequeue time. `pin` is the default and the safest choice. It applies automatically when you do not specify a policy.
 </Note>
 
 ## Workflow Versioning
@@ -85,10 +85,10 @@ To acknowledge a breaking update, set `breaking_change: true` in the request bod
 
 ## Browsing Versions
 
-- `GET /v1/jobs/{jobID}/versions` -- list all version snapshots
-- `GET /v1/workflows/{workflowID}/versions` -- list workflow version snapshots
-- `GET /v1/workflows/{workflowID}/versions/{versionID}/steps` -- step graph for a specific version
-- `GET /v1/workflows/{workflowID}/active-versions` -- versions with active runs and status breakdowns
+- `GET /v1/jobs/{jobID}/versions`: list all version snapshots
+- `GET /v1/workflows/{workflowID}/versions`: list workflow version snapshots
+- `GET /v1/workflows/{workflowID}/versions/{versionID}/steps`: step graph for a specific version
+- `GET /v1/workflows/{workflowID}/active-versions`: versions with active runs and status breakdowns
 
 ## Dual Version Identifiers
 
@@ -98,3 +98,9 @@ Each version has two identifiers:
 | :--- | :--- | :--- |
 | `version` | Integer | Auto-incrementing counter (1, 2, 3...). For ordering. |
 | `version_id` | String | Globally unique ID (`ver_k8f2m9x1p3`). Safe for URLs and APIs. |
+
+## Related
+
+- [Jobs](/concepts/jobs)
+- [Canary Deployments](/concepts/canary-deployments)
+- [Workflows](/concepts/workflows)

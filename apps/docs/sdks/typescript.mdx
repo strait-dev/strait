@@ -95,9 +95,9 @@ const syncInventory = defineJob({
   name: "Sync Inventory",
   slug: "sync-inventory",
   endpointUrl: "https://worker.dev/jobs/sync",
-  projectId: "proj_1",
+  projectId: "proj_abc123",
 
-  // Schema validation via adapter — Zod, ArkType, or Valibot
+  // Schema validation via adapter: Zod, ArkType, or Valibot.
   schema: zodSchema(z.object({ sku: z.string() })),
 
   // Retry and concurrency
@@ -106,7 +106,7 @@ const syncInventory = defineJob({
   retryStrategy: "exponential",
   timeoutSecs: 300,
 
-  // Run handler — receives validated payload and RunContext
+  // Run handler. Receives validated payload and RunContext.
   run: async (payload, ctx) => {
     ctx.logger.info("Starting sync", { sku: payload.sku });
     await ctx.reportProgress(0.5);
@@ -161,7 +161,7 @@ import { defineWorkflow, step } from "@strait/ts";
 const pipeline = defineWorkflow({
   name: "Order Pipeline",
   slug: "order-pipeline",
-  projectId: "proj_1",
+  projectId: "proj_abc123",
   steps: [
     step.job("validate", "job_validate"),
     step.job("charge", "job_charge", { dependsOn: ["validate"] }),
@@ -194,7 +194,7 @@ All step types accept `dependsOn` to declare dependencies. Steps with no depende
 
 ## Durable AI Agents
 
-`defineAgent` creates a long-running, durable AI agent with built-in cost tracking, tool calling, and checkpoint persistence. The agent survives restarts — it resumes from its last checkpoint automatically.
+`defineAgent` creates a long-running, durable AI agent with built-in cost tracking, tool calling, and checkpoint persistence. The agent survives restarts and resumes from its last checkpoint automatically.
 
 > `defineAgent` is a convenience wrapper around `defineJob` with built-in cost tracking, tool calling, and checkpoint persistence. You can achieve the same behavior with `defineJob`.
 
@@ -205,7 +205,7 @@ import { defineAgent } from "@strait/ts";
 const researchAgent = defineAgent({
   name: "Research Agent",
   slug: "research-agent",
-  projectId: "proj_1",
+  projectId: "proj_abc123",
 
   model: "gpt-4o",
   systemPrompt: "You are a research assistant. Gather data and produce a report.",
@@ -231,7 +231,7 @@ const run = await researchAgent.trigger(client, {
 
 ### Cost Tracking
 
-Every agent run tracks token usage and cost across all LLM calls. Set `maxCostUsd` to enforce a hard budget — the agent stops when the limit is reached rather than running up unbounded costs.
+Every agent run tracks token usage and cost across all LLM calls. Set `maxCostUsd` to enforce a hard budget: the agent stops when the limit is reached rather than running up unbounded costs.
 
 ## AI SDK Integration
 
@@ -348,7 +348,7 @@ import { withRetry } from "@strait/ts";
 
 const run = await withRetry(
   () => client.triggerJob({
-    pathParams: { jobID: "job_1" },
+    pathParams: { jobID: "job_abc123" },
     body: { payload: { sku: "A" } },
   }),
   { attempts: 5, delayMs: 250, jitter: "full" }
@@ -398,7 +398,7 @@ const completed = await triggerAndWait(client, "job_sync", {
 ```ts
 import { withIdempotency } from "@strait/ts";
 
-// Wraps a trigger call with an idempotency key — safe to retry on network errors
+// Wraps a trigger call with an idempotency key. Safe to retry on network errors.
 const run = await withIdempotency(
   "order-123-sync",
   () => client.triggerJob({
@@ -448,16 +448,16 @@ All errors extend `Data.TaggedError`, which means you can pattern-match on `_tag
 
 | Error | HTTP Status | Description |
 |---|---|---|
-| `TransportError` | -- | Network failure (DNS, connection refused, socket timeout) |
-| `DecodeError` | -- | Response body could not be parsed as JSON |
-| `ValidationError` | -- | Configuration or input validation failed before the request was sent |
+| `TransportError` | | Network failure (DNS, connection refused, socket timeout) |
+| `DecodeError` | | Response body could not be parsed as JSON |
+| `ValidationError` | | Configuration or input validation failed before the request was sent |
 | `UnauthorizedError` | 401, 403 | Authentication or authorization failure |
 | `NotFoundError` | 404 | Resource not found |
 | `ConflictError` | 409 | Duplicate resource or version conflict |
 | `RateLimitedError` | 429 | Rate limit exceeded. The error includes `retryAfterMs`. |
 | `ApiError` | other | Any other HTTP error not covered by a specific type |
-| `TimeoutError` | -- | Polling or wait operation timed out |
-| `DagValidationError` | -- | Invalid workflow dependency graph (cycles, missing step references) |
+| `TimeoutError` | | Polling or wait operation timed out |
+| `DagValidationError` | | Invalid workflow dependency graph (cycles, missing step references) |
 
 ### Tagged Errors
 
@@ -483,7 +483,7 @@ Non-GET operations have `*Result` variants that return `{ ok, data, error }` ins
 ```ts
 const result = await client.createJobResult({
   body: {
-    project_id: "proj_1",
+    project_id: "proj_abc123",
     name: "Sync",
     slug: "sync",
     endpoint_url: "https://worker.dev/sync",
@@ -491,7 +491,7 @@ const result = await client.createJobResult({
 });
 
 if (!result.ok) {
-  // result.error is a typed error — same types as above
+  // result.error is a typed error. Same types as above.
   console.error(result.error._tag, result.error.message);
 } else {
   console.log("Created:", result.data.id);
@@ -566,6 +566,6 @@ The SDK uses subpath exports to keep your bundle lean. Import from the path that
 |---|---|
 | `@strait/ts` | Core client, types, errors, composition helpers, state machines |
 | `@strait/ts/node` | `createClientFromConfigFile`, `createClientFromEnv` (requires Node/Bun APIs) |
-| `@strait/ts/ai` | AI SDK integration — `createStraitProvider`, `createStraitAgent` |
-| `@strait/ts/testing` | Test harness — `createTestContext` |
-| `@strait/ts/schema` | Schema adapters — `zodSchema`, `arkSchema`, `valibotSchema` |
+| `@strait/ts/ai` | AI SDK integration: `createStraitProvider`, `createStraitAgent` |
+| `@strait/ts/testing` | Test harness: `createTestContext` |
+| `@strait/ts/schema` | Schema adapters: `zodSchema`, `arkSchema`, `valibotSchema` |

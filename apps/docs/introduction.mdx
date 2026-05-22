@@ -9,7 +9,7 @@ og:image: "/images/og.png"
 
 Strait runs background jobs and multi-step workflows. You define the work, where it runs, and when it should happen. Strait handles the queue, retries, schedules, dependencies, and run history.
 
-It ships as one Go binary. PostgreSQL stores state and queued work. Redis powers live updates. You do not need RabbitMQ, SQS, Kafka, or a separate workflow engine.
+It ships as a single Go binary backed by PostgreSQL for state and queued work, with Redis for live updates. There is no separate message broker or workflow engine to run.
 
 ## When to Use It
 

@@ -1,9 +1,9 @@
 ---
 title: "Environments"
-description: "Run the same job against different endpoints — staging vs production, US vs EU, or any configuration your deployment needs."
+description: "Run the same job against different endpoints: staging vs production, US vs EU, or any configuration your deployment needs."
 ---
 
-Environments let you run the same job against different endpoints — staging vs production, US vs EU, or any variation your deployment needs. Instead of duplicating job definitions, you create environments with different configuration and point jobs at them.
+Environments let you run the same job against different endpoints (staging vs production, US vs EU, or any variation your deployment needs). Instead of duplicating job definitions, you create environments with different configuration and point jobs at them.
 
 ## When to Use It
 
@@ -19,9 +19,11 @@ Create two environments:
 
 ```bash
 # Create staging environment
-curl -X POST https://your-strait-instance/api/v1/projects/{projectId}/environments \
+curl -X POST https://api.strait.dev/v1/environments \
   -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
   -d '{
+    "project_id": "my-project",
     "name": "Staging",
     "slug": "staging",
     "variables": {
@@ -30,9 +32,11 @@ curl -X POST https://your-strait-instance/api/v1/projects/{projectId}/environmen
   }'
 
 # Create production environment
-curl -X POST https://your-strait-instance/api/v1/projects/{projectId}/environments \
+curl -X POST https://api.strait.dev/v1/environments \
   -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
   -d '{
+    "project_id": "my-project",
     "name": "Production",
     "slug": "production",
     "variables": {
@@ -44,8 +48,9 @@ curl -X POST https://your-strait-instance/api/v1/projects/{projectId}/environmen
 Then bind a job to an environment:
 
 ```bash
-curl -X PATCH https://your-strait-instance/api/v1/jobs/{jobId} \
+curl -X PATCH https://api.strait.dev/v1/jobs/{jobId} \
   -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
   -d '{ "environment_id": "env_staging_id" }'
 ```
 
@@ -55,7 +60,7 @@ The job now dispatches to the staging URL. Switch it to production by changing `
 
 Environments can have parents. A child environment inherits all variables from its parent, and can override specific values.
 
-```
+```text
 Production (parent)
   ENDPOINT_URL=https://api.myapp.com/jobs
   API_KEY=prod-key-123
@@ -83,3 +88,10 @@ Standard environments cannot be deleted or renamed. Create custom environments a
 When an environment defines `ENDPOINT_URL`, Strait validates the URL to prevent requests to private networks. Private IP ranges (`10.0.0.0/8`, `192.168.0.0/16`) and loopback addresses (`127.0.0.1`) are blocked. Validation runs both when you update the environment and when the job dispatches.
 
 Environment variables are encrypted at rest when `SECRET_ENCRYPTION_KEY` is configured.
+
+## Related
+
+- [Jobs](/concepts/jobs)
+- [Projects](/concepts/projects)
+- [Security](/guides/security)
+- [Environment Variables](/configuration/environment-variables)

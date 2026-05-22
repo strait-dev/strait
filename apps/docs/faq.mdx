@@ -1,0 +1,52 @@
+---
+title: "FAQ"
+description: "Common questions about running Strait, execution modes, dependencies, and editions."
+icon: "circle-question"
+---
+
+Questions about pricing and plans live in the [Billing FAQ](/billing/faq). This page covers running and operating Strait.
+
+<AccordionGroup>
+  <Accordion title="Does Strait run my job code?">
+    No. Your code runs on your own infrastructure. Strait orchestrates the work and reaches your code in one of two ways: it POSTs to an HTTP endpoint you expose, or it streams runs to a long-lived worker process that connects over gRPC. See [Execution Modes](/concepts/execution-modes).
+  </Accordion>
+  <Accordion title="Do I need Redis?">
+    PostgreSQL is the only hard requirement. Strait starts without Redis, but live run updates, SSE streaming, and the gRPC worker plane all depend on it, so those features stop working. Run with Redis unless you have a specific reason not to. See [Self-Hosting](/guides/self-hosting).
+  </Accordion>
+  <Accordion title="Do I need a message broker like RabbitMQ, Kafka, or SQS?">
+    No. PostgreSQL is the queue, using `SELECT ... FOR UPDATE SKIP LOCKED` to claim work without a separate broker. See [Architecture](/architecture).
+  </Accordion>
+  <Accordion title="HTTP mode or worker mode?">
+    Use HTTP mode when your code can expose an endpoint Strait can reach. Use worker mode when your code runs somewhere Strait cannot call directly, such as a private network, or when you want workers to pull work over a single outbound gRPC connection. See [Execution Modes](/concepts/execution-modes) and [Run Private Workers](/guides/private-workers).
+  </Accordion>
+  <Accordion title="How do retries interact with idempotency keys?">
+    Retries re-run the same run, so your endpoint should be safe to call more than once. Idempotency keys apply to trigger requests: they stop a retried trigger from creating duplicate runs. The two solve different problems, and production jobs usually want both. See [Idempotency](/guides/idempotency) and [Retry Strategies](/concepts/retry-strategies).
+  </Accordion>
+  <Accordion title="What is the difference between the community and cloud editions?">
+    The community edition is open source and self-hosted, with the full orchestration feature set. The cloud edition is the hosted service at strait.dev, adding managed infrastructure, usage metering, multi-region, and billing. Your job code runs on your own infrastructure either way. The edition is selected at compile time, not by an environment variable.
+  </Accordion>
+  <Accordion title="Can I run only the API or only workers?">
+    Yes. The binary runs in `api`, `worker`, or `all` mode. Start with `all` for small deployments, then split into separate `api` and `worker` processes as traffic grows. See [Deployment](/guides/deployment).
+  </Accordion>
+  <Accordion title="What versions of PostgreSQL and Redis are supported?">
+    PostgreSQL 18 and Redis 8 are the tested versions and what the self-host stack ships. See [Self-Hosting](/guides/self-hosting).
+  </Accordion>
+  <Accordion title="How are secrets stored?">
+    Secrets are encrypted at rest using the keys you configure (`ENCRYPTION_KEY`, `SECRET_ENCRYPTION_KEY`). Use unique values per environment and store them in a secret manager. See [Environment Variables](/configuration/environment-variables).
+  </Accordion>
+  <Accordion title="How do I upgrade?">
+    Pull the new image and restart. Migrations run automatically on startup. See [Self-Hosting](/guides/self-hosting) for the self-host flow and [Deployment](/guides/deployment) for production.
+  </Accordion>
+  <Accordion title="Is there an SDK?">
+    Yes, for TypeScript, Python, Go, Ruby, and Rust, plus an MCP server. You can also call the REST API directly. See the [SDKs overview](/sdks/overview).
+  </Accordion>
+  <Accordion title="What happens to a run if a worker dies mid-execution?">
+    The run is reaped once the worker stops heartbeating and returned to the queue, then retried according to its retry policy. See [Troubleshooting](/guides/troubleshooting) and [Retry Strategies](/concepts/retry-strategies).
+  </Accordion>
+</AccordionGroup>
+
+## Related
+
+- [Billing FAQ](/billing/faq)
+- [Glossary](/glossary)
+- [Troubleshooting](/guides/troubleshooting)

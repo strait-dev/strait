@@ -11,8 +11,8 @@ This page lists the settings most deployments need. The full runtime has additio
 | Variable | Description |
 |---|---|
 | `DATABASE_URL` | PostgreSQL connection string. |
-| `INTERNAL_SECRET` | Secret for trusted service-to-service access. Use 32+ characters. |
-| `JWT_SIGNING_KEY` | Secret used to sign run tokens for SDK calls. Use 32+ characters. |
+| `INTERNAL_SECRET` | Secret for trusted service-to-service access. Minimum 16 characters; 32 or more recommended. |
+| `JWT_SIGNING_KEY` | Secret used to sign run tokens for SDK calls. 32 or more characters recommended. |
 | `ENCRYPTION_KEY` | Key used for encrypted data at rest. |
 | `SECRET_ENCRYPTION_KEY` | Key used to encrypt stored secrets. |
 
@@ -41,7 +41,7 @@ export SECRET_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 
 | Variable | Default | Description |
 |---|---|---|
-| `WORKER_CONCURRENCY` | `10` | Max jobs a worker can execute at the same time. |
+| `WORKER_CONCURRENCY` | `25` | Max jobs a worker can execute at the same time. |
 | `WORKER_QUEUE_SIZE` | `0` | Local queue size per worker. `0` means unbounded. |
 | `EXECUTOR_HTTP_TIMEOUT` | `5m` | Max time for HTTP job execution. |
 | `DEFAULT_JOB_TIMEOUT_SECS` | `300` | Default timeout for jobs without an explicit timeout. |
@@ -105,8 +105,8 @@ export SECRET_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 | `SEQUIN_CONSUMER_NAME` | - | Sequin HTTP pull consumer name. |
 | `SEQUIN_API_TOKEN` | - | Bearer token used for Sequin API calls. |
 | `SEQUIN_WEBHOOK_SECRET` | - | HMAC-SHA256 secret used to verify Sequin push webhook request bodies. Set this when using `/internal/cdc/webhook`. |
-| `CDC_BATCH_SIZE` | `200` | Max CDC messages fetched per pull request. |
-| `CDC_WAIT_TIME_MS` | `5000` | Sequin long-poll wait time in milliseconds. |
+| `SEQUIN_BATCH_SIZE` | `200` | Max CDC messages fetched per pull request. `CDC_BATCH_SIZE` is accepted as an alias. |
+| `SEQUIN_WAIT_TIME_MS` | `5000` | Sequin long-poll wait time in milliseconds. `CDC_WAIT_TIME_MS` is accepted as an alias. |
 
 ## Retention
 

@@ -74,7 +74,7 @@ docker run \
 The deploy workflow runs preflight checks (`go vet`, `golangci-lint`, `go build`, `go test`) before pushing. If any check fails, the deploy is aborted.
 
 ```bash
-# From apps/strait/ — runs vet, lint, build, test before deploying
+# From apps/strait/. Runs vet, lint, build, test before deploying.
 make deploy
 
 # Or from repo root
@@ -133,7 +133,7 @@ capacity into separate processes by passing `--mode api` or `--mode worker`.
 
 ## Sequin Deployment
 
-Sequin watches your database for changes (new runs, status updates, workflow progress) and streams them through Redis so Strait can deliver real-time updates, SSE events, and webhooks. It runs as a separate container included in Docker Compose, pinned to `sequin/sequin:v0.14.6` -- no build step needed.
+Sequin watches your database for changes (new runs, status updates, workflow progress) and streams them through Redis so Strait can deliver real-time updates, SSE events, and webhooks. It runs as a separate container included in Docker Compose, pinned to `sequin/sequin:v0.14.6`. No build step needed.
 
 ```bash
 # From repo root
@@ -160,7 +160,7 @@ Sequin requires the following secrets configured in your deployment platform:
 - **Edge regions**: Deploy additional instances in other regions for faster API responses globally.
 - **Sequin**: Single instance, co-located with the database. Sequin maintains a persistent connection to the database to detect changes, so it must run in the same region. Multiple instances would cause duplicate event processing.
 
-For local self-hosting, use the root `SELFHOST.md` guide.
+For community self-hosting, see the [Self-Hosting](/guides/self-hosting) guide.
 
 ## Scaling
 

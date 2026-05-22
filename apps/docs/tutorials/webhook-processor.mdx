@@ -26,7 +26,7 @@ const client = createClient({
   auth: { type: "bearer", token: process.env.STRAIT_API_KEY! },
 });
 
-// Register the job (config only — your Express handler does the work)
+// Register the job. Config only; your Express handler does the work.
 await client.jobs.create({
   body: {
     project_id: process.env.STRAIT_PROJECT_ID!,
@@ -48,7 +48,7 @@ curl -X POST https://api.strait.dev/v1/jobs \
   -H "Authorization: Bearer $STRAIT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "project_id": "proj_1",
+    "project_id": "proj_abc123",
     "slug": "process-stripe-webhook",
     "name": "Process Stripe Webhook",
     "endpoint_url": "https://your-api.com/jobs/process-stripe-webhook",
@@ -106,7 +106,7 @@ If your handler throws or returns a non-200 status, Strait retries automatically
 
 ## Step 3: Set Up Your Webhook Receiver
 
-Create an endpoint that Stripe sends events to. It verifies the Stripe signature, then triggers Strait to process the event. Return 200 immediately -- Strait owns the retries from here.
+Create an endpoint that Stripe sends events to. It verifies the Stripe signature, then triggers Strait to process the event. Return 200 immediately. Strait owns the retries from here.
 
 ```typescript
 import Stripe from "stripe";
@@ -193,14 +193,14 @@ If Strait receives a second trigger with the same idempotency key, it returns th
 
 With this setup, every Stripe webhook is:
 
-- **Retried automatically** -- transient failures like database downtime or rate limits resolve on their own across 5 retry attempts.
-- **Tracked end-to-end** -- every run has logs, attempt history, and a terminal status visible in the Strait dashboard.
-- **Idempotent** -- duplicate deliveries from Stripe are collapsed into a single run.
-- **Observable** -- completion and failure webhooks let your app react to outcomes without polling.
+- **Retried automatically**: transient failures like database downtime or rate limits resolve on their own across 5 retry attempts.
+- **Tracked end-to-end**: every run has logs, attempt history, and a terminal status visible in the Strait dashboard.
+- **Idempotent**: duplicate deliveries from Stripe are collapsed into a single run.
+- **Observable**: completion and failure webhooks let your app react to outcomes without polling.
 
 ## Next steps
 
-- [Retry strategies](/concepts/retry-strategies) -- tune backoff timing and jitter for your workload
-- [Webhooks](/concepts/webhooks) -- configure additional webhook events and delivery settings
-- [Idempotency](/guides/idempotency) -- understand deduplication windows and key scoping
-- [Runs](/concepts/runs) -- understand what happens after retries are exhausted
+- [Retry strategies](/concepts/retry-strategies): tune backoff timing and jitter for your workload
+- [Webhooks](/concepts/webhooks): configure additional webhook events and delivery settings
+- [Idempotency](/guides/idempotency): understand deduplication windows and key scoping
+- [Runs](/concepts/runs): understand what happens after retries are exhausted

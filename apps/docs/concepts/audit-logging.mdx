@@ -21,8 +21,8 @@ Every API mutation is recorded with who performed it, what changed, and when:
 
 Each event captures the actor:
 
-- **Users** — identity from JWT or OIDC claims (dashboard or CLI actions).
-- **Service accounts** — identity from the API key used.
+- **Users**: identity from JWT or OIDC claims (dashboard or CLI actions).
+- **Service accounts**: identity from the API key used.
 - **System**: actions started by Strait or trusted backend calls.
 
 ## Querying Audit Logs
@@ -30,7 +30,7 @@ Each event captures the actor:
 List audit events for a project via the API:
 
 ```bash
-curl "https://strait.example.com/v1/audit-events?project_id=proj_1" \
+curl "https://your-strait-instance/v1/audit-events?project_id=proj_abc123" \
   -H "Authorization: Bearer strait_..."
 ```
 
@@ -43,11 +43,11 @@ Every audit event is signed and linked to the previous event in the same project
 Verify the chain at any time:
 
 ```bash
-curl "https://strait.example.com/v1/audit-events/verify?project_id=proj_1" \
+curl "https://your-strait-instance/v1/audit-events/verify?project_id=proj_abc123" \
   -H "Authorization: Bearer strait_..."
 
 # Incremental verification (from last verified point)
-curl "https://strait.example.com/v1/audit-events/verify?project_id=proj_1&incremental=true" \
+curl "https://your-strait-instance/v1/audit-events/verify?project_id=proj_abc123&incremental=true" \
   -H "Authorization: Bearer strait_..."
 ```
 
@@ -73,9 +73,9 @@ Audit events are automatically pruned after a configurable retention window. The
 
 Per-project overrides are available:
 
-- `PUT /v1/projects/{id}/audit/retention` with body `{"days": 90}` — set a custom window.
+- `PUT /v1/projects/{id}/audit/retention` with body `{"days": 90}`: set a custom window.
 - Set `days` to `0` to disable pruning (events are never deleted).
-- `GET /v1/projects/{id}/audit/retention` — check the current setting.
+- `GET /v1/projects/{id}/audit/retention`: check the current setting.
 
 ## Configuration Reference
 

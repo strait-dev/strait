@@ -160,7 +160,7 @@ client.workflows.create(workflow)
 
 The resulting execution graph:
 
-```
+```text
 build -> approve -> release-notes -> deploy
 ```
 
@@ -223,7 +223,7 @@ Resume long-running workflows from a saved checkpoint:
 
 ```ruby
 result = Strait::Composition.with_checkpoint_resume(
-  run_id: "run_123",
+  run_id: "run_abc123",
   client: client
 ) do |ctx|
   step_one(ctx)

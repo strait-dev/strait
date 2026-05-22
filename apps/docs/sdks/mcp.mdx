@@ -4,7 +4,7 @@ description: "Connect AI agents to Strait through the Model Context Protocol"
 icon: "robot"
 ---
 
-The Strait MCP server (`@strait/mcp-server`) gives any MCP-compatible AI agent native access to the full Strait API. Instead of writing SDK code, your agent discovers and calls 133 tools, reads 5 live resources, and uses 18 prompt templates -- all through natural language.
+The Strait MCP server (`@strait/mcp-server`) gives any MCP-compatible AI agent native access to the full Strait API. Instead of writing SDK code, your agent discovers and calls 133 tools, reads 5 live resources, and uses 18 prompt templates, all through natural language.
 
 Works with Claude Desktop, Claude Code, Cursor, Windsurf, VS Code Copilot, OpenAI Codex CLI, and any other MCP-compatible client.
 
@@ -121,7 +121,7 @@ Once connected, interact with Strait using natural language. Here are examples b
 
 **Example prompts:**
 
-```
+```text
 "List my jobs"
 "Create a job called data-sync that runs every hour"
 "Why did run run_abc123 fail? Show me the logs"
@@ -154,9 +154,9 @@ See [Configuration](/sdks/configuration) for the full `strait.json` schema.
 |--------|---------|----------|------------|---------|
 | API Key | `STRAIT_API_KEY` | `--api-key` | `apiKey` | (required) |
 | Base URL | `STRAIT_BASE_URL` | `--base-url` | `baseUrl` | `https://api.strait.dev` |
-| Transport | -- | `--transport` | `transport` | `stdio` |
-| Port | -- | `--port` | `port` | `3000` |
-| Config file path | -- | `--config` | -- | `./strait.json` |
+| Transport | | `--transport` | `transport` | `stdio` |
+| Port | | `--port` | `port` | `3000` |
+| Config file path | | `--config` | | `./strait.json` |
 
 <Note>
   The API key is optional when OAuth is configured via `OAUTH_ISSUER_URL` and `OAUTH_RESOURCE_URL`.
@@ -164,7 +164,7 @@ See [Configuration](/sdks/configuration) for the full `strait.json` schema.
 
 ## Prompt Templates
 
-18 built-in prompt templates guide the AI through multi-step workflows. These are not single-shot -- each template structures an end-to-end investigation or action.
+18 built-in prompt templates guide the AI through multi-step workflows. Each template structures an end-to-end investigation or action, not a single-shot query.
 
 | Prompt | What it does |
 |--------|-------------|
@@ -215,7 +215,7 @@ Resources provide read-only snapshots that AI agents can reference without makin
 
 ## Architecture
 
-```
+```text
 MCP Client <-- stdio or HTTP --> @strait/mcp-server (Node.js) -- REST --> Strait API
 ```
 
@@ -229,7 +229,7 @@ To export traces, set `OTEL_EXPORTER_OTLP_ENDPOINT` to your collector endpoint.
 |-------|-----|
 | `STRAIT_API_KEY is required` | Set via env var, `--api-key` flag, or `strait.json` |
 | `NetworkError: API unreachable` | Check `STRAIT_BASE_URL` (default: `https://api.strait.dev`) |
-| `ApiError: 401 Unauthorized` | API key expired or missing scopes -- regenerate at [strait.dev](https://strait.dev) |
-| `ApiError: 404 Not Found` | Resource does not exist -- use the list tool to find available resources |
-| `RateLimitError: 429` | Automatic retry with backoff -- reduce request frequency if persistent |
+| `ApiError: 401 Unauthorized` | API key expired or missing scopes. Regenerate at [strait.dev](https://strait.dev). |
+| `ApiError: 404 Not Found` | Resource does not exist. Use the list tool to find available resources. |
+| `RateLimitError: 429` | Automatic retry with backoff. Reduce request frequency if the error persists. |
 | MCP client not detecting server | Check config path, check that `npx` is on your PATH, restart your IDE |

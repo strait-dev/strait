@@ -39,7 +39,7 @@ If no timezone is set, schedules run in UTC.
 Set `scheduled_at` when triggering a job to create a run for a future time.
 
 ```bash
-curl -X POST https://strait.dev/v1/jobs/send-email/trigger \
+curl -X POST https://api.strait.dev/v1/jobs/send-email/trigger \
   -H "Authorization: Bearer strait_..." \
   -H "Content-Type: application/json" \
   -d '{

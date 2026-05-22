@@ -114,7 +114,7 @@ All endpoints accept and return JSON. Use the interactive API explorer below for
 ### Created (201)
 ```json
 {
-  "id": "job_new123",
+  "id": "job_def456",
   "name": "New Job",
   "created_at": "2026-03-15T10:05:00Z"
 }
@@ -135,10 +135,10 @@ Every error response follows the same shape:
 }
 ```
 
-- `error.code` — machine-readable canonical code (see table below). SDKs branch on this field.
-- `error.message` — human-readable summary suitable for logs.
-- `error.details` — optional array of contextual messages (per-field validation errors, downstream causes).
-- `request_id` — present when the request reached the router; quote this when filing support tickets.
+- `error.code`: machine-readable canonical code (see table below). SDKs branch on this field.
+- `error.message`: human-readable summary suitable for logs.
+- `error.details`: optional array of contextual messages (per-field validation errors, downstream causes).
+- `request_id`: present when the request reached the router; quote this when filing support tickets.
 
 ## Error Codes
 
@@ -148,7 +148,7 @@ Every error response follows the same shape:
 |`authentication_required`|401|Missing or invalid authentication.|
 |`forbidden`|403|Authenticated but insufficient permissions.|
 |`not_found`|404|The requested resource does not exist.|
-|`conflict`|409|Idempotency key conflict — a run with this key already exists.|
+|`conflict`|409|Idempotency key conflict: a run with this key already exists.|
 |`validation_failed`|422|Request body failed schema or field-level validation. See `details`.|
 |`rate_limited`|429|Too many requests. Wait and retry.|
 |`enqueue_throttled`|429|Per-job or per-project enqueue throttle exceeded. Retry with backoff.|
@@ -184,18 +184,18 @@ Every error response follows the same shape:
 
 ```bash
 # Runtime graph snapshot
-curl -X GET "https://strait.dev/v1/workflow-runs/wr_123/graph" \
+curl -X GET "https://api.strait.dev/v1/workflow-runs/wr_abc123/graph" \
   -H "Authorization: Bearer strait_live_abc123"
 ```
 
 ```bash
 # Explain why a step is waiting/skipped
-curl -X GET "https://strait.dev/v1/workflow-runs/wr_123/explain?step_ref=deploy&decision_type=resource" \
+curl -X GET "https://api.strait.dev/v1/workflow-runs/wr_abc123/explain?step_ref=deploy&decision_type=resource" \
   -H "Authorization: Bearer strait_live_abc123"
 ```
 
 ```bash
 # Replay a failed branch from step 'deploy'
-curl -X POST "https://strait.dev/v1/workflow-runs/wr_123/steps/deploy/replay-subtree" \
+curl -X POST "https://api.strait.dev/v1/workflow-runs/wr_abc123/steps/deploy/replay-subtree" \
   -H "Authorization: Bearer strait_live_abc123"
 ```

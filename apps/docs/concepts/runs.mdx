@@ -6,7 +6,7 @@ icon: "play"
 
 A run is one execution of a [job](/concepts/jobs). It records the payload, status, attempts, timing, result, and error details.
 
-Runs are what you watch when work is happening. Jobs define what can run. Runs show what actually happened.
+Runs are what you watch while work is happening: a job defines what can run, and the run shows what actually happened.
 
 ## Run States
 
@@ -37,7 +37,7 @@ curl -X POST https://api.strait.dev/v1/jobs/send-welcome-email/trigger \
   -H "Authorization: Bearer $STRAIT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "payload": { "user_id": "usr_42" },
+    "payload": { "user_id": "user_abc123" },
     "metadata": { "source": "signup" }
   }'
 ```
@@ -46,8 +46,8 @@ Response:
 
 ```json
 {
-  "id": "run_123",
-  "job_id": "job_123",
+  "id": "run_abc123",
+  "job_id": "job_abc123",
   "status": "queued",
   "attempt": 1
 }
@@ -56,7 +56,7 @@ Response:
 ## Check Status
 
 ```bash
-curl https://api.strait.dev/v1/runs/run_123 \
+curl https://api.strait.dev/v1/runs/run_abc123 \
   -H "Authorization: Bearer $STRAIT_API_KEY"
 ```
 
@@ -67,7 +67,7 @@ Completed runs include a `result`. Failed and timed-out runs include error detai
 Use server-sent events when you want to wait for a run in a script or update a dashboard in real time.
 
 ```bash
-curl -N https://api.strait.dev/v1/runs/run_123/stream \
+curl -N https://api.strait.dev/v1/runs/run_abc123/stream \
   -H "Authorization: Bearer $STRAIT_API_KEY"
 ```
 
@@ -94,7 +94,7 @@ See [Handle Failed Runs](/guides/handle-failed-runs) for a practical recovery fl
 Replay creates another attempt at the same work.
 
 ```bash
-curl -X POST https://api.strait.dev/v1/runs/run_123/replay \
+curl -X POST https://api.strait.dev/v1/runs/run_abc123/replay \
   -H "Authorization: Bearer $STRAIT_API_KEY"
 ```
 

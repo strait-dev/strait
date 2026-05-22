@@ -18,16 +18,16 @@ Any time you need to create many runs of the same job from a single trigger poin
 
 Send an array of payloads to the bulk trigger endpoint:
 
-```
+```http
 POST /v1/jobs/{jobID}/trigger/bulk
 ```
 
 ```json
 {
   "items": [
-    { "payload": { "user_id": "usr_001", "message": "Your order shipped" } },
-    { "payload": { "user_id": "usr_002", "message": "Your order shipped" } },
-    { "payload": { "user_id": "usr_003", "message": "Your order shipped" } }
+    { "payload": { "user_id": "user_001", "message": "Your order shipped" } },
+    { "payload": { "user_id": "user_002", "message": "Your order shipped" } },
+    { "payload": { "user_id": "user_003", "message": "Your order shipped" } }
   ]
 }
 ```
@@ -38,14 +38,14 @@ Strait creates a `BatchOperation` to track the group and individual runs for eac
 
 Query the batch to see how many items have been processed:
 
-```
+```http
 GET /v1/batch-operations/{batchID}?project_id=...
 ```
 
 ```json
 {
   "id": "batch_abc",
-  "job_id": "job_456",
+  "job_id": "job_abc123",
   "item_count": 3,
   "created_count": 3,
   "finished_at": null
@@ -58,7 +58,7 @@ GET /v1/batch-operations/{batchID}?project_id=...
 
 To list all runs in a batch:
 
-```
+```http
 GET /v1/runs?batch_id={batchID}
 ```
 
@@ -68,7 +68,7 @@ If your job has a [deduplication window](/concepts/jobs) configured, duplicate p
 
 ## Error Handling
 
-Individual items can fail without failing the entire batch. Each item becomes its own run with independent retry and failure handling. A batch with 1,000 items where 3 fail gives you 997 successful runs and 3 failed runs to investigate -- not a single failed batch.
+Individual items can fail without failing the entire batch. Each item becomes its own run with independent retry and failure handling. A batch with 1,000 items where 3 fail gives you 997 successful runs and 3 failed runs to investigate, not a single failed batch.
 
 ## Configuration Reference
 
@@ -81,3 +81,10 @@ Individual items can fail without failing the entire batch. Each item becomes it
 | `created_by` | `string` | Actor who initiated the batch (user ID or `apikey:<id>`). |
 | `created_at` | `timestamp` | When the batch was created. |
 | `finished_at` | `timestamp` | When all items were processed. Null while in progress. |
+
+## Related
+
+- [Jobs](/concepts/jobs)
+- [Runs](/concepts/runs)
+- [Idempotency](/guides/idempotency)
+- [Handle Failed Runs](/guides/handle-failed-runs)
