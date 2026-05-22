@@ -212,6 +212,32 @@ func TestSimulate_NoSteps(t *testing.T) {
 	}
 }
 
+func BenchmarkSimulateWorkflow_Chain100(b *testing.B) {
+	steps := make([]domain.WorkflowStep, 100)
+	for i := range steps {
+		steps[i] = domain.WorkflowStep{
+			StepRef:              fmt.Sprintf("step-%03d", i),
+			StepType:             domain.WorkflowStepTypeJob,
+			ExpectedDurationSecs: 1,
+		}
+		if i > 0 {
+			steps[i].DependsOn = []string{steps[i-1].StepRef}
+		}
+	}
+	req := &SimulateRequest{Mode: SimModeDryRun}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		result, err := SimulateWorkflow(steps, req, nil)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(result.ExecutionPlan) != len(steps) {
+			b.Fatalf("execution plan length = %d, want %d", len(result.ExecutionPlan), len(steps))
+		}
+	}
+}
+
 // ValidateSimulateRequest tests.
 
 func TestValidateSimulateRequest_Valid(t *testing.T) {

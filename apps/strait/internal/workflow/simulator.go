@@ -3,7 +3,6 @@ package workflow
 import (
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"strait/internal/domain"
 )
@@ -86,31 +85,25 @@ func SimulateWorkflow(
 	}
 
 	// Build topological order.
-	order := buildTopologicalOrder(steps)
-	stepByRef := make(map[string]*domain.WorkflowStep, len(steps))
-	for i := range steps {
-		stepByRef[steps[i].StepRef] = &steps[i]
-	}
+	stepIndex := buildStepIndex(steps)
+	order := buildTopologicalOrderIndexesWithStepIndex(steps, stepIndex)
 
 	// Assign parallel groups.
-	groups := assignParallelGroups(steps, order)
+	groups := assignParallelGroups(steps, order, stepIndex)
 
 	// Build execution plan.
 	plan := make([]SimulatedStep, 0, len(order))
-	failurePaths := make([]SimulatedStep, 0)
-	conditionResults := make(map[string]bool)
+	var failurePaths []SimulatedStep
+	var conditionResults map[string]bool
 
-	for i, ref := range order {
-		step := stepByRef[ref]
-		if step == nil {
-			continue
-		}
+	for i, stepIdx := range order {
+		step := &steps[stepIdx]
 
 		simStep := SimulatedStep{
-			StepRef:           ref,
+			StepRef:           step.StepRef,
 			StepType:          string(step.StepType),
 			Order:             i + 1,
-			ParallelGroup:     groups[ref],
+			ParallelGroup:     groups[stepIdx],
 			DependsOn:         step.DependsOn,
 			EstimatedDuration: step.ExpectedDurationSecs,
 		}
@@ -128,7 +121,10 @@ func SimulateWorkflow(
 		if len(step.Condition) > 0 {
 			met := true // dry-run assumes conditions pass.
 			simStep.ConditionMet = &met
-			conditionResults[ref] = met
+			if conditionResults == nil {
+				conditionResults = make(map[string]bool)
+			}
+			conditionResults[step.StepRef] = met
 		}
 
 		// Compensation info.
@@ -139,7 +135,7 @@ func SimulateWorkflow(
 
 		// Failure injection.
 		if req.FailureInjection != nil {
-			if errMsg, injected := req.FailureInjection[ref]; injected {
+			if errMsg, injected := req.FailureInjection[step.StepRef]; injected {
 				simStep.InjectedFailure = errMsg
 				failurePaths = append(failurePaths, simStep)
 			}
@@ -151,10 +147,7 @@ func SimulateWorkflow(
 	// Calculate totals.
 	totalDuration := 0
 	var totalCost int64
-	epoch := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
-	if expectedTime := CalculateExpectedCompletion(steps, epoch); expectedTime != nil {
-		totalDuration = int(expectedTime.Sub(epoch).Seconds())
-	}
+	totalDuration = calculateExpectedDurationFromOrder(steps, order, stepIndex)
 	for _, s := range plan {
 		totalCost += s.EstimatedCost
 	}
@@ -173,38 +166,59 @@ func SimulateWorkflow(
 	}, nil
 }
 
-func assignParallelGroups(steps []domain.WorkflowStep, order []string) map[string]int {
-	groups := make(map[string]int, len(steps))
-	depDepth := make(map[string]int, len(steps))
-
-	stepByRef := make(map[string]*domain.WorkflowStep, len(steps))
-	for i := range steps {
-		stepByRef[steps[i].StepRef] = &steps[i]
-	}
-
-	for _, ref := range order {
-		step := stepByRef[ref]
-		if step == nil {
-			continue
-		}
+func assignParallelGroups(steps []domain.WorkflowStep, order []int, stepIndex map[string]int) []int {
+	groups := make([]int, len(steps))
+	depDepth := make([]int, len(steps))
+	for _, stepIdx := range order {
+		step := &steps[stepIdx]
 		maxParentDepth := -1
 		for _, dep := range step.DependsOn {
-			if d, ok := depDepth[dep]; ok && d > maxParentDepth {
+			depIdx, ok := stepIndex[dep]
+			if ok && depDepth[depIdx] > maxParentDepth {
+				d := depDepth[depIdx]
 				maxParentDepth = d
 			}
 		}
 		depth := maxParentDepth + 1
-		depDepth[ref] = depth
-		groups[ref] = depth
+		depDepth[stepIdx] = depth
+		groups[stepIdx] = depth
 	}
 
 	return groups
 }
 
-func buildSimulationDAG(steps []domain.WorkflowStep, groups map[string]int) SimulationDAG {
+func calculateExpectedDurationFromOrder(
+	steps []domain.WorkflowStep,
+	order []int,
+	stepIndex map[string]int,
+) int {
+	dist := make([]int, len(steps))
+	maxDist := 0
+	for _, stepIdx := range order {
+		step := &steps[stepIdx]
+		parentDist := 0
+		for _, dep := range step.DependsOn {
+			depIdx, ok := stepIndex[dep]
+			if ok && dist[depIdx] > parentDist {
+				parentDist = dist[depIdx]
+			}
+		}
+		dist[stepIdx] = parentDist + step.ExpectedDurationSecs
+		if dist[stepIdx] > maxDist {
+			maxDist = dist[stepIdx]
+		}
+	}
+	return maxDist
+}
+
+func buildSimulationDAG(steps []domain.WorkflowStep, groups []int) SimulationDAG {
+	edgeCount := 0
+	for _, s := range steps {
+		edgeCount += len(s.DependsOn)
+	}
 	dag := SimulationDAG{
 		Nodes: make([]DAGNode, len(steps)),
-		Edges: make([]DAGEdge, 0),
+		Edges: make([]DAGEdge, 0, edgeCount),
 	}
 
 	for i, s := range steps {
@@ -216,7 +230,7 @@ func buildSimulationDAG(steps []domain.WorkflowStep, groups map[string]int) Simu
 			ID:       s.StepRef,
 			StepRef:  s.StepRef,
 			StepType: stepType,
-			Group:    groups[s.StepRef],
+			Group:    groups[i],
 		}
 		for _, dep := range s.DependsOn {
 			dag.Edges = append(dag.Edges, DAGEdge{From: dep, To: s.StepRef})
