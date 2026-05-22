@@ -150,6 +150,10 @@ func buildStepIndex(steps []domain.WorkflowStep) map[string]int {
 }
 
 func buildTopologicalOrderIndexesWithStepIndex(steps []domain.WorkflowStep, stepIndex map[string]int) []int {
+	if stepsFormOrderedLinearChain(steps, stepIndex) {
+		return orderedStepIndexes(len(steps))
+	}
+
 	needsDepDedup := false
 	for _, s := range steps {
 		needsDepDedup = needsDepDedup || len(s.DependsOn) > 1
@@ -239,6 +243,33 @@ func buildTopologicalOrderIndexesWithStepIndex(steps []domain.WorkflowStep, step
 	}
 
 	return order
+}
+
+func stepsFormOrderedLinearChain(steps []domain.WorkflowStep, stepIndex map[string]int) bool {
+	if len(steps) <= 1 {
+		return true
+	}
+	if len(steps[0].DependsOn) != 0 {
+		return false
+	}
+	for stepIdx := 1; stepIdx < len(steps); stepIdx++ {
+		deps := steps[stepIdx].DependsOn
+		if len(deps) != 1 {
+			return false
+		}
+		if depIdx, ok := stepIndex[deps[0]]; !ok || depIdx != stepIdx-1 {
+			return false
+		}
+	}
+	return true
+}
+
+func orderedStepIndexes(size int) []int {
+	indexes := make([]int, size)
+	for i := range indexes {
+		indexes[i] = i
+	}
+	return indexes
 }
 
 // ValidateCompensationRequest checks that a workflow run is eligible for compensation.

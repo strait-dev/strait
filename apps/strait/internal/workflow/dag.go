@@ -31,6 +31,14 @@ func ValidateDAG(steps []domain.WorkflowStep) error {
 		needsDepDedup = needsDepDedup || len(s.DependsOn) > 1
 	}
 
+	alreadyOrdered, err := validateDAGDependenciesAreOrdered(steps, stepIndex)
+	if err != nil {
+		return err
+	}
+	if alreadyOrdered {
+		return nil
+	}
+
 	inDegree := make([]int, len(steps))
 	childCounts := make([]int, len(steps))
 	var depSeen []int
@@ -124,4 +132,23 @@ func ValidateDAG(steps []domain.WorkflowStep) error {
 	}
 
 	return nil
+}
+
+func validateDAGDependenciesAreOrdered(steps []domain.WorkflowStep, stepIndex map[string]int) (bool, error) {
+	alreadyOrdered := true
+	for stepIdx, s := range steps {
+		for _, dep := range s.DependsOn {
+			depIdx, exists := stepIndex[dep]
+			if !exists {
+				return false, fmt.Errorf("step %q depends on unknown step %q", s.StepRef, dep)
+			}
+			if depIdx == stepIdx {
+				return false, fmt.Errorf("step %q depends on itself", s.StepRef)
+			}
+			if depIdx > stepIdx {
+				alreadyOrdered = false
+			}
+		}
+	}
+	return alreadyOrdered, nil
 }

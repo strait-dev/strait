@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -50,6 +51,13 @@ func TestValidateDAG(t *testing.T) {
 			steps: []domain.WorkflowStep{
 				step("A"),
 				step("B", "A", "A"),
+			},
+		},
+		{
+			name: "valid: unordered input falls back to topological validation",
+			steps: []domain.WorkflowStep{
+				step("B", "A"),
+				step("A"),
 			},
 		},
 		{
@@ -165,28 +173,48 @@ func step(ref string, deps ...string) domain.WorkflowStep {
 }
 
 func BenchmarkValidateDAG(b *testing.B) {
-	steps := make([]domain.WorkflowStep, 20)
-	for i := range steps {
-		steps[i] = domain.WorkflowStep{StepRef: strings.Repeat("s", i+1)}
-		if i > 0 {
-			steps[i].DependsOn = []string{steps[i-1].StepRef}
-		}
-	}
+	steps := benchmarkDAGChain(20)
 	for b.Loop() {
 		_ = ValidateDAG(steps)
 	}
 }
 
-func BenchmarkBuildTopologicalOrder(b *testing.B) {
-	steps := make([]domain.WorkflowStep, 100)
-	for i := range steps {
-		steps[i] = domain.WorkflowStep{StepRef: strings.Repeat("s", i+1)}
-		if i > 0 {
-			steps[i].DependsOn = []string{steps[i-1].StepRef}
+func BenchmarkValidateDAG_Chain1000(b *testing.B) {
+	steps := benchmarkDAGChain(1000)
+	b.ReportAllocs()
+	for b.Loop() {
+		if err := ValidateDAG(steps); err != nil {
+			b.Fatal(err)
 		}
 	}
+}
+
+func BenchmarkBuildTopologicalOrder(b *testing.B) {
+	steps := benchmarkDAGChain(100)
 	b.ReportAllocs()
 	for b.Loop() {
 		_ = buildTopologicalOrder(steps)
 	}
+}
+
+func BenchmarkBuildTopologicalOrder_Chain1000(b *testing.B) {
+	steps := benchmarkDAGChain(1000)
+	b.ReportAllocs()
+	for b.Loop() {
+		order := buildTopologicalOrder(steps)
+		if len(order) != len(steps) {
+			b.Fatalf("order length = %d, want %d", len(order), len(steps))
+		}
+	}
+}
+
+func benchmarkDAGChain(size int) []domain.WorkflowStep {
+	steps := make([]domain.WorkflowStep, size)
+	for i := range steps {
+		steps[i] = domain.WorkflowStep{StepRef: fmt.Sprintf("step-%04d", i)}
+		if i > 0 {
+			steps[i].DependsOn = []string{steps[i-1].StepRef}
+		}
+	}
+	return steps
 }
