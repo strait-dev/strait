@@ -187,6 +187,22 @@ func CompareRuns(
 		comp.StatusDiff = &StringDiff{A: string(runA.Status), B: string(runB.Status)}
 	}
 
+	if len(stepsA) == len(stepsB) {
+		sameOrder := true
+		for i := range stepsA {
+			if stepsA[i].StepRef != stepsB[i].StepRef {
+				sameOrder = false
+				break
+			}
+		}
+		if sameOrder {
+			for i := range stepsA {
+				appendStepComparisonDiff(comp, &stepsA[i], &stepsB[i])
+			}
+			return comp
+		}
+	}
+
 	stepsBMap := make(map[string]*domain.WorkflowStepRun, len(stepsB))
 	for i := range stepsB {
 		stepsBMap[stepsB[i].StepRef] = &stepsB[i]
@@ -206,15 +222,7 @@ func CompareRuns(
 		}
 		matchedB++
 
-		if string(a.Status) != string(b.Status) {
-			sc.StatusDiff = &StringDiff{A: string(a.Status), B: string(b.Status)}
-		}
-		sc.DurationA = stepDurationMS(a)
-		sc.DurationB = stepDurationMS(b)
-
-		if sc.StatusDiff != nil || sc.DurationA != sc.DurationB {
-			comp.StepDiffs = append(comp.StepDiffs, sc)
-		}
+		appendStepComparisonDiff(comp, a, b)
 	}
 	if matchedB == len(stepsB) {
 		return comp
@@ -237,6 +245,20 @@ func CompareRuns(
 	}
 
 	return comp
+}
+
+func appendStepComparisonDiff(comp *RunComparison, a, b *domain.WorkflowStepRun) {
+	sc := StepComparison{
+		StepRef:   a.StepRef,
+		DurationA: stepDurationMS(a),
+		DurationB: stepDurationMS(b),
+	}
+	if string(a.Status) != string(b.Status) {
+		sc.StatusDiff = &StringDiff{A: string(a.Status), B: string(b.Status)}
+	}
+	if sc.StatusDiff != nil || sc.DurationA != sc.DurationB {
+		comp.StepDiffs = append(comp.StepDiffs, sc)
+	}
 }
 
 func stepDurationMS(sr *domain.WorkflowStepRun) int64 {
