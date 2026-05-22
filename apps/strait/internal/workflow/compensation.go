@@ -42,8 +42,10 @@ func BuildCompensationPlan(
 		runByRef[stepRuns[i].StepRef] = &stepRuns[i]
 	}
 
-	// Collect completed steps with compensation jobs.
-	var compensable []compensableEntry
+	// Collect completed steps with compensation jobs by definition index so the
+	// final plan can be produced by one reverse topological pass.
+	compensableRuns := make([]*domain.WorkflowStepRun, len(steps))
+	compensableCount := 0
 	for i := range steps {
 		step := &steps[i]
 		if step.CompensationJobID == "" {
@@ -53,49 +55,37 @@ func BuildCompensationPlan(
 		if !ok || sr.Status != domain.StepCompleted {
 			continue
 		}
-		compensable = append(compensable, compensableEntry{
-			stepIdx: i,
-			stepRun: sr,
-		})
+		compensableRuns[i] = sr
+		compensableCount++
 	}
 
-	if len(compensable) == 0 {
+	if compensableCount == 0 {
 		return nil, nil
 	}
 
-	// Sort in reverse topological order.
 	topoOrder := buildTopologicalOrderIndexes(steps)
-	orderIndex := make([]int, len(steps))
-	for i, stepIdx := range topoOrder {
-		orderIndex[stepIdx] = i
-	}
-
-	sort.Slice(compensable, func(i, j int) bool {
-		// Higher topological index = later in execution = first to compensate.
-		return orderIndex[compensable[i].stepIdx] > orderIndex[compensable[j].stepIdx]
-	})
 
 	plan := &CompensationPlan{
 		WorkflowRunID: workflowRunID,
-		Steps:         make([]CompensationStep, len(compensable)),
+		Steps:         make([]CompensationStep, 0, compensableCount),
 	}
-	for i, entry := range compensable {
-		step := &steps[entry.stepIdx]
-		plan.Steps[i] = CompensationStep{
+	for i := len(topoOrder) - 1; i >= 0; i-- {
+		stepIdx := topoOrder[i]
+		stepRun := compensableRuns[stepIdx]
+		if stepRun == nil {
+			continue
+		}
+		step := &steps[stepIdx]
+		plan.Steps = append(plan.Steps, CompensationStep{
 			StepRef:           step.StepRef,
-			StepRunID:         entry.stepRun.ID,
+			StepRunID:         stepRun.ID,
 			CompensationJobID: step.CompensationJobID,
 			TimeoutSecs:       step.CompensationTimeoutSecs,
-			OriginalOutput:    entry.stepRun.Output,
-		}
+			OriginalOutput:    stepRun.Output,
+		})
 	}
 
 	return plan, nil
-}
-
-type compensableEntry struct {
-	stepIdx int
-	stepRun *domain.WorkflowStepRun
 }
 
 // buildTopologicalOrder returns step refs in topological order using Kahn's algorithm.

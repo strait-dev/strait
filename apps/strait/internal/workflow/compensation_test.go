@@ -102,6 +102,37 @@ func BenchmarkBuildCompensationPlan_Chain100(b *testing.B) {
 	}
 }
 
+func BenchmarkBuildCompensationPlan_Chain1000(b *testing.B) {
+	steps := make([]domain.WorkflowStep, 1000)
+	stepRuns := make([]domain.WorkflowStepRun, 1000)
+	for i := range steps {
+		ref := fmt.Sprintf("step-%04d", i)
+		steps[i] = domain.WorkflowStep{
+			StepRef:           ref,
+			CompensationJobID: "comp-" + ref,
+		}
+		if i > 0 {
+			steps[i].DependsOn = []string{steps[i-1].StepRef}
+		}
+		stepRuns[i] = domain.WorkflowStepRun{
+			ID:      "sr-" + ref,
+			StepRef: ref,
+			Status:  domain.StepCompleted,
+		}
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		plan, err := BuildCompensationPlan("wfr-bench", steps, stepRuns)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(plan.Steps) != len(steps) {
+			b.Fatalf("plan length = %d, want %d", len(plan.Steps), len(steps))
+		}
+	}
+}
+
 func TestCompensation_SkipsStepsWithoutCompensation(t *testing.T) {
 	t.Parallel()
 	steps := []domain.WorkflowStep{
