@@ -84,8 +84,10 @@ func BuildDebugView(
 	}
 
 	stepMap := make(map[string]*domain.WorkflowStep, len(steps))
+	dataFlowCap := 0
 	for i := range steps {
 		stepMap[steps[i].StepRef] = &steps[i]
+		dataFlowCap += len(steps[i].DependsOn)
 	}
 
 	view := &DebugView{
@@ -97,7 +99,7 @@ func BuildDebugView(
 		Error:         wfRun.Error,
 		Payload:       wfRun.Payload,
 		Steps:         make([]DebugStep, 0, len(stepRuns)),
-		DataFlow:      make([]DataFlowEdge, 0),
+		DataFlow:      make([]DataFlowEdge, 0, dataFlowCap),
 	}
 
 	if wfRun.StartedAt != nil && wfRun.FinishedAt != nil {
@@ -139,6 +141,18 @@ func BuildDebugView(
 		view.Steps = append(view.Steps, ds)
 	}
 
+	var outputSizeByRef map[string]int
+	if dataFlowCap > 0 {
+		for _, sr := range stepRuns {
+			if len(sr.Output) > 0 {
+				if outputSizeByRef == nil {
+					outputSizeByRef = make(map[string]int, len(stepRuns))
+				}
+				outputSizeByRef[sr.StepRef] = len(sr.Output)
+			}
+		}
+	}
+
 	// Build data flow edges from step dependencies.
 	for _, sr := range stepRuns {
 		step := stepMap[sr.StepRef]
@@ -150,13 +164,7 @@ func BuildDebugView(
 				FromStepRef: dep,
 				ToStepRef:   sr.StepRef,
 			}
-			// Calculate data size from output of parent step.
-			for _, parentSR := range stepRuns {
-				if parentSR.StepRef == dep && len(parentSR.Output) > 0 {
-					edge.DataSize = len(parentSR.Output)
-					break
-				}
-			}
+			edge.DataSize = outputSizeByRef[dep]
 			view.DataFlow = append(view.DataFlow, edge)
 		}
 	}
@@ -179,42 +187,24 @@ func CompareRuns(
 		comp.StatusDiff = &StringDiff{A: string(runA.Status), B: string(runB.Status)}
 	}
 
-	stepsAMap := make(map[string]*domain.WorkflowStepRun, len(stepsA))
-	for i := range stepsA {
-		stepsAMap[stepsA[i].StepRef] = &stepsA[i]
-	}
 	stepsBMap := make(map[string]*domain.WorkflowStepRun, len(stepsB))
 	for i := range stepsB {
 		stepsBMap[stepsB[i].StepRef] = &stepsB[i]
 	}
 
-	// All refs from both runs.
-	allRefs := make(map[string]bool)
-	for _, s := range stepsA {
-		allRefs[s.StepRef] = true
-	}
-	for _, s := range stepsB {
-		allRefs[s.StepRef] = true
-	}
+	matchedB := 0
+	for i := range stepsA {
+		a := &stepsA[i]
+		b, inB := stepsBMap[a.StepRef]
 
-	for ref := range allRefs {
-		a, inA := stepsAMap[ref]
-		b, inB := stepsBMap[ref]
-
-		sc := StepComparison{StepRef: ref}
-
-		if inA && !inB {
+		sc := StepComparison{StepRef: a.StepRef}
+		if !inB {
 			sc.OnlyInA = true
 			sc.DurationA = stepDurationMS(a)
 			comp.StepDiffs = append(comp.StepDiffs, sc)
 			continue
 		}
-		if !inA && inB {
-			sc.OnlyInB = true
-			sc.DurationB = stepDurationMS(b)
-			comp.StepDiffs = append(comp.StepDiffs, sc)
-			continue
-		}
+		matchedB++
 
 		if string(a.Status) != string(b.Status) {
 			sc.StatusDiff = &StringDiff{A: string(a.Status), B: string(b.Status)}
@@ -225,6 +215,25 @@ func CompareRuns(
 		if sc.StatusDiff != nil || sc.DurationA != sc.DurationB {
 			comp.StepDiffs = append(comp.StepDiffs, sc)
 		}
+	}
+	if matchedB == len(stepsB) {
+		return comp
+	}
+
+	stepsAMap := make(map[string]struct{}, len(stepsA))
+	for i := range stepsA {
+		stepsAMap[stepsA[i].StepRef] = struct{}{}
+	}
+	for i := range stepsB {
+		b := &stepsB[i]
+		if _, ok := stepsAMap[b.StepRef]; ok {
+			continue
+		}
+		comp.StepDiffs = append(comp.StepDiffs, StepComparison{
+			StepRef:   b.StepRef,
+			OnlyInB:   true,
+			DurationB: stepDurationMS(b),
+		})
 	}
 
 	return comp

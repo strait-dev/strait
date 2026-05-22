@@ -246,6 +246,30 @@ func TestCompare_MissingSteps(t *testing.T) {
 	}
 }
 
+func TestCompare_MissingStepsInA(t *testing.T) {
+	t.Parallel()
+	runA := &domain.WorkflowRun{ID: "a", Status: domain.WfStatusCompleted}
+	runB := &domain.WorkflowRun{ID: "b", Status: domain.WfStatusCompleted}
+	stepsA := []domain.WorkflowStepRun{
+		{StepRef: "s1", Status: domain.StepCompleted},
+	}
+	stepsB := []domain.WorkflowStepRun{
+		{StepRef: "s1", Status: domain.StepCompleted},
+		{StepRef: "s2", Status: domain.StepCompleted},
+	}
+
+	comp := CompareRuns(runA, stepsA, runB, stepsB)
+	found := false
+	for _, d := range comp.StepDiffs {
+		if d.StepRef == "s2" && d.OnlyInB {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected s2 to be marked as only_in_b")
+	}
+}
+
 // Adversarial tests.
 
 func TestDebugView_1000StepWorkflow(t *testing.T) {
@@ -327,5 +351,55 @@ func TestDebugView_LargeOutputPayload(t *testing.T) {
 	}
 	if len(view.Steps[0].Output) < 1024*1024 {
 		t.Error("large output should be preserved in debug view")
+	}
+}
+
+func BenchmarkBuildDebugView_DataFlowChain1000(b *testing.B) {
+	wfRun := &domain.WorkflowRun{ID: "wfr-1", WorkflowID: "wf-1", Status: domain.WfStatusCompleted}
+	steps := make([]domain.WorkflowStep, 1000)
+	stepRuns := make([]domain.WorkflowStepRun, 1000)
+	for i := range steps {
+		ref := fmt.Sprintf("step-%04d", i)
+		steps[i] = domain.WorkflowStep{StepRef: ref, StepType: "job"}
+		if i > 0 {
+			steps[i].DependsOn = []string{fmt.Sprintf("step-%04d", i-1)}
+		}
+		stepRuns[i] = domain.WorkflowStepRun{
+			ID:      "sr-" + ref,
+			StepRef: ref,
+			Status:  domain.StepCompleted,
+			Output:  json.RawMessage(`{"ok":true}`),
+		}
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		view, err := BuildDebugView(wfRun, steps, stepRuns, nil)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(view.DataFlow) != len(steps)-1 {
+			b.Fatalf("data flow edges = %d, want %d", len(view.DataFlow), len(steps)-1)
+		}
+	}
+}
+
+func BenchmarkCompareRuns_Identical1000Steps(b *testing.B) {
+	runA := &domain.WorkflowRun{ID: "a", Status: domain.WfStatusCompleted}
+	runB := &domain.WorkflowRun{ID: "b", Status: domain.WfStatusCompleted}
+	stepsA := make([]domain.WorkflowStepRun, 1000)
+	stepsB := make([]domain.WorkflowStepRun, 1000)
+	for i := range stepsA {
+		ref := fmt.Sprintf("step-%04d", i)
+		stepsA[i] = domain.WorkflowStepRun{StepRef: ref, Status: domain.StepCompleted}
+		stepsB[i] = domain.WorkflowStepRun{StepRef: ref, Status: domain.StepCompleted}
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		comp := CompareRuns(runA, stepsA, runB, stepsB)
+		if len(comp.StepDiffs) != 0 {
+			b.Fatalf("step diffs = %d, want 0", len(comp.StepDiffs))
+		}
 	}
 }
