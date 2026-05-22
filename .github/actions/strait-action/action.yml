@@ -36,8 +36,10 @@ runs:
     - name: Determine version
       id: version
       shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
       run: |
-        VERSION="${{ inputs.version }}"
+        VERSION="$INPUT_VERSION"
         if [ "$VERSION" = "latest" ]; then
           VERSION=$(curl -fsSL "https://api.github.com/repos/leonardomso/strait/releases/latest" | grep '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')
           if [ -z "$VERSION" ]; then
@@ -64,10 +66,13 @@ runs:
     - name: Install CLI
       id: install
       shell: bash
-      run: |
-        VERSION="${{ steps.version.outputs.version }}"
-        OS="${{ steps.platform.outputs.os }}"
-        ARCH="${{ steps.platform.outputs.arch }}"
+      env:
+        VERSION: ${{ steps.version.outputs.version }}
+        OS: ${{ steps.platform.outputs.os }}
+        ARCH: ${{ steps.platform.outputs.arch }}
+      # INSTALL_DIR below is a fixed, non-attacker-controlled path; adding it to
+      # PATH is required to expose the installed CLI to later steps.
+      run: | # zizmor: ignore[github-env]
         INSTALL_DIR="${HOME}/.strait/bin"
         mkdir -p "$INSTALL_DIR"
 
@@ -100,5 +105,8 @@ runs:
         STRAIT_API_KEY: ${{ inputs.api-key }}
         STRAIT_PROJECT: ${{ inputs.project }}
         STRAIT_CI: "true"
+        INPUT_COMMAND: ${{ inputs.command }}
       run: |
-        strait ${{ inputs.command }}
+        # INPUT_COMMAND is intentionally unquoted so the command string splits
+        # into separate CLI arguments (e.g. "jobs list").
+        strait $INPUT_COMMAND

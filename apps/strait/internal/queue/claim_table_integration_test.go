@@ -14,7 +14,7 @@ import (
 
 // ---------------------------------------------------------------------------
 // DequeueNTwoPhase
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestTwoPhaseDequeue_ReturnsCorrectRuns(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -111,7 +111,7 @@ func TestTwoPhaseDequeue_NoDuplicates(t *testing.T) {
 	job := mustCreateJob(t, ctx, st, "project-twophase-nodup")
 	q := mustQueue(t)
 
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		mustEnqueueRun(t, ctx, q, job)
 	}
 
@@ -119,10 +119,8 @@ func TestTwoPhaseDequeue_NoDuplicates(t *testing.T) {
 	var wg sync.WaitGroup
 	var dupes int64
 
-	for g := 0; g < 4; g++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 4 {
+		wg.Go(func() {
 			batch, err := q.DequeueNTwoPhase(ctx, 10)
 			if err != nil {
 				t.Errorf("dequeue: %v", err)
@@ -134,7 +132,7 @@ func TestTwoPhaseDequeue_NoDuplicates(t *testing.T) {
 					dupes++
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -148,7 +146,7 @@ func TestTwoPhaseDequeue_NoDuplicates(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // DequeueNClaim (claim table path)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestClaimTable_DequeueNClaim_ReturnsCorrectRuns(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -235,7 +233,7 @@ func TestClaimTable_DequeueNClaim_NegativeN_ReturnsNil(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // Dual-write: Enqueue inserts both job_runs and job_run_queue
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestClaimTable_DualWrite_EnqueueInsertsBothTables(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -279,7 +277,7 @@ func TestClaimTable_DualWrite_EnqueueInsertsBothTables(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // Fan-out trigger: pausing a job updates claim rows
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestClaimTable_FanOutTrigger_PauseJob(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -290,7 +288,7 @@ func TestClaimTable_FanOutTrigger_PauseJob(t *testing.T) {
 	job := mustCreateJob(t, ctx, st, "project-fanout-pause")
 	q := mustQueue(t)
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		mustEnqueueRun(t, ctx, q, job)
 	}
 
@@ -326,7 +324,7 @@ func TestClaimTable_FanOutTrigger_PauseJob(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // Fan-out trigger: disabling a job updates claim rows
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestClaimTable_FanOutTrigger_DisableJob(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -337,7 +335,7 @@ func TestClaimTable_FanOutTrigger_DisableJob(t *testing.T) {
 	job := mustCreateJob(t, ctx, st, "project-fanout-disable")
 	q := mustQueue(t)
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		mustEnqueueRun(t, ctx, q, job)
 	}
 
@@ -373,7 +371,7 @@ func TestClaimTable_FanOutTrigger_DisableJob(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // Fan-out trigger: concurrency change propagates to claim rows
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestClaimTable_FanOutTrigger_ConcurrencyChange(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -399,7 +397,7 @@ func TestClaimTable_FanOutTrigger_ConcurrencyChange(t *testing.T) {
 	}
 
 	q := mustQueue(t)
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		mustEnqueueRun(t, ctx, q, job)
 	}
 
@@ -436,7 +434,7 @@ func TestClaimTable_FanOutTrigger_ConcurrencyChange(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // DequeueNClaim: no duplicates under concurrency
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestClaimTable_DequeueNClaim_NoDuplicates(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -447,17 +445,15 @@ func TestClaimTable_DequeueNClaim_NoDuplicates(t *testing.T) {
 	job := mustCreateJob(t, ctx, st, "project-claim-nodup")
 	q := mustQueue(t)
 
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		mustEnqueueRun(t, ctx, q, job)
 	}
 
 	var seen sync.Map
 	var wg sync.WaitGroup
 
-	for g := 0; g < 4; g++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 4 {
+		wg.Go(func() {
 			batch, err := q.DequeueNClaim(ctx, 10)
 			if err != nil {
 				t.Errorf("DequeueNClaim: %v", err)
@@ -468,7 +464,7 @@ func TestClaimTable_DequeueNClaim_NoDuplicates(t *testing.T) {
 					t.Errorf("duplicate run ID: %s", r.ID)
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -479,9 +475,374 @@ func TestClaimTable_DequeueNClaim_NoDuplicates(t *testing.T) {
 	}
 }
 
+func TestClaimTable_DequeueNForWorker_RoutesNonDefaultWorkerQueue(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	mustClean(t, ctx)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-worker-claim-routing")
+	markWorkerJobQueue(t, ctx, job, "priority")
+	q := mustQueue(t)
+
+	run := &domain.JobRun{
+		ID:            newID(),
+		JobID:         job.ID,
+		ProjectID:     job.ProjectID,
+		Priority:      10,
+		ExecutionMode: domain.ExecutionModeWorker,
+		QueueName:     "priority",
+	}
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue worker run: %v", err)
+	}
+
+	assertClaimRouting(t, ctx, run.ID, domain.ExecutionModeWorker, "priority")
+
+	batch, err := q.DequeueNForWorkerQueues(ctx, 1, []domain.WorkerQueueRef{{ProjectID: job.ProjectID, QueueName: "priority"}})
+	if err != nil {
+		t.Fatalf("DequeueNForWorker: %v", err)
+	}
+	if len(batch) != 1 {
+		t.Fatalf("DequeueNForWorker returned %d runs, want 1", len(batch))
+	}
+	if batch[0].ID != run.ID {
+		t.Fatalf("DequeueNForWorker run ID = %q, want %q", batch[0].ID, run.ID)
+	}
+	if batch[0].Status != domain.StatusExecuting {
+		t.Fatalf("DequeueNForWorker status = %q, want executing", batch[0].Status)
+	}
+}
+
+func TestClaimTable_DequeueNForWorkerQueues_FiltersByEnvironment(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	mustClean(t, ctx)
+	st := mustStore(t)
+	q := mustQueue(t)
+	projectID := "project-worker-claim-env"
+	prodEnvID := mustCreateEnvironment(t, ctx, st, projectID, "production")
+	stagingEnvID := mustCreateEnvironment(t, ctx, st, projectID, "staging")
+
+	prodJob := mustCreateJob(t, ctx, st, projectID)
+	markWorkerJobQueueEnvironment(t, ctx, prodJob, "priority", prodEnvID)
+	prodRun := &domain.JobRun{
+		ID:            newID(),
+		JobID:         prodJob.ID,
+		ProjectID:     prodJob.ProjectID,
+		Priority:      100,
+		ExecutionMode: domain.ExecutionModeWorker,
+		QueueName:     "priority",
+	}
+	if err := q.Enqueue(ctx, prodRun); err != nil {
+		t.Fatalf("Enqueue prod worker run: %v", err)
+	}
+
+	stagingJob := mustCreateJob(t, ctx, st, projectID)
+	markWorkerJobQueueEnvironment(t, ctx, stagingJob, "priority", stagingEnvID)
+	stagingRun := &domain.JobRun{
+		ID:            newID(),
+		JobID:         stagingJob.ID,
+		ProjectID:     stagingJob.ProjectID,
+		Priority:      1,
+		ExecutionMode: domain.ExecutionModeWorker,
+		QueueName:     "priority",
+	}
+	if err := q.Enqueue(ctx, stagingRun); err != nil {
+		t.Fatalf("Enqueue staging worker run: %v", err)
+	}
+
+	batch, err := q.DequeueNForWorkerQueues(ctx, 1, []domain.WorkerQueueRef{{ProjectID: projectID, QueueName: "priority", EnvironmentID: stagingEnvID}})
+	if err != nil {
+		t.Fatalf("DequeueNForWorkerQueues(staging): %v", err)
+	}
+	if len(batch) != 1 || batch[0].ID != stagingRun.ID {
+		t.Fatalf("staging-scoped dequeue = %+v, want only staging run %s", batch, stagingRun.ID)
+	}
+
+	prodBatch, err := q.DequeueNForWorkerQueues(ctx, 1, []domain.WorkerQueueRef{{ProjectID: projectID, QueueName: "priority", EnvironmentID: prodEnvID}})
+	if err != nil {
+		t.Fatalf("DequeueNForWorkerQueues(prod): %v", err)
+	}
+	if len(prodBatch) != 1 || prodBatch[0].ID != prodRun.ID {
+		t.Fatalf("prod-scoped dequeue = %+v, want remaining prod run %s", prodBatch, prodRun.ID)
+	}
+}
+
+func TestClaimTable_DequeueNForWorkerQueues_ProjectWideScopeMatchesAnyEnvironment(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	mustClean(t, ctx)
+	st := mustStore(t)
+	q := mustQueue(t)
+	projectID := "project-worker-claim-wide"
+	prodEnvID := mustCreateEnvironment(t, ctx, st, projectID, "production")
+	stagingEnvID := mustCreateEnvironment(t, ctx, st, projectID, "staging")
+
+	wantIDs := map[string]struct{}{}
+	for _, envID := range []string{prodEnvID, stagingEnvID} {
+		job := mustCreateJob(t, ctx, st, projectID)
+		markWorkerJobQueueEnvironment(t, ctx, job, "priority", envID)
+		run := &domain.JobRun{
+			ID:            newID(),
+			JobID:         job.ID,
+			ProjectID:     job.ProjectID,
+			Priority:      10,
+			ExecutionMode: domain.ExecutionModeWorker,
+			QueueName:     "priority",
+		}
+		if err := q.Enqueue(ctx, run); err != nil {
+			t.Fatalf("Enqueue worker run for env %s: %v", envID, err)
+		}
+		wantIDs[run.ID] = struct{}{}
+	}
+
+	batch, err := q.DequeueNForWorkerQueues(ctx, 2, []domain.WorkerQueueRef{{ProjectID: projectID, QueueName: "priority"}})
+	if err != nil {
+		t.Fatalf("DequeueNForWorkerQueues(project-wide): %v", err)
+	}
+	if len(batch) != len(wantIDs) {
+		t.Fatalf("project-wide dequeue returned %d runs, want %d: %+v", len(batch), len(wantIDs), batch)
+	}
+	for _, run := range batch {
+		if _, ok := wantIDs[run.ID]; !ok {
+			t.Fatalf("project-wide dequeue returned unexpected run %s", run.ID)
+		}
+		delete(wantIDs, run.ID)
+	}
+	if len(wantIDs) != 0 {
+		t.Fatalf("project-wide dequeue missed runs: %+v", wantIDs)
+	}
+}
+
+func TestClaimTable_DequeueNForWorkerQueues_FiltersByProject(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	mustClean(t, ctx)
+	st := mustStore(t)
+	q := mustQueue(t)
+
+	projectA := "project-worker-claim-scope-a"
+	projectB := "project-worker-claim-scope-b"
+
+	jobA := mustCreateJob(t, ctx, st, projectA)
+	markWorkerJobQueue(t, ctx, jobA, "priority")
+	runA := &domain.JobRun{
+		ID:            newID(),
+		JobID:         jobA.ID,
+		ProjectID:     jobA.ProjectID,
+		Priority:      1,
+		ExecutionMode: domain.ExecutionModeWorker,
+		QueueName:     "priority",
+	}
+	if err := q.Enqueue(ctx, runA); err != nil {
+		t.Fatalf("Enqueue project A worker run: %v", err)
+	}
+
+	jobB := mustCreateJob(t, ctx, st, projectB)
+	markWorkerJobQueue(t, ctx, jobB, "priority")
+	runB := &domain.JobRun{
+		ID:            newID(),
+		JobID:         jobB.ID,
+		ProjectID:     jobB.ProjectID,
+		Priority:      100,
+		ExecutionMode: domain.ExecutionModeWorker,
+		QueueName:     "priority",
+	}
+	if err := q.Enqueue(ctx, runB); err != nil {
+		t.Fatalf("Enqueue project B worker run: %v", err)
+	}
+
+	batch, err := q.DequeueNForWorkerQueues(ctx, 2, []domain.WorkerQueueRef{{ProjectID: projectA, QueueName: "priority"}})
+	if err != nil {
+		t.Fatalf("DequeueNForWorkerQueues(project A): %v", err)
+	}
+	if len(batch) != 1 || batch[0].ID != runA.ID {
+		t.Fatalf("project-scoped dequeue = %+v, want only project A run %s", batch, runA.ID)
+	}
+
+	var statusB string
+	if err := testDB.Pool.QueryRow(ctx, `SELECT status FROM job_runs WHERE id = $1`, runB.ID).Scan(&statusB); err != nil {
+		t.Fatalf("query project B run status: %v", err)
+	}
+	if statusB != string(domain.StatusQueued) {
+		t.Fatalf("project B run status = %q, want queued", statusB)
+	}
+}
+
+func TestClaimTable_DequeueNForWorker_IgnoresHTTPAndOtherQueues(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	mustClean(t, ctx)
+	st := mustStore(t)
+	q := mustQueue(t)
+
+	httpJob := mustCreateJob(t, ctx, st, "project-worker-claim-filter")
+	httpRun := &domain.JobRun{
+		ID:            newID(),
+		JobID:         httpJob.ID,
+		ProjectID:     httpJob.ProjectID,
+		Priority:      100,
+		ExecutionMode: domain.ExecutionModeHTTP,
+		QueueName:     "priority",
+	}
+	if err := q.Enqueue(ctx, httpRun); err != nil {
+		t.Fatalf("Enqueue HTTP run: %v", err)
+	}
+
+	otherQueueJob := mustCreateJob(t, ctx, st, "project-worker-claim-filter")
+	markWorkerJobQueue(t, ctx, otherQueueJob, "other")
+	otherQueueRun := &domain.JobRun{
+		ID:            newID(),
+		JobID:         otherQueueJob.ID,
+		ProjectID:     otherQueueJob.ProjectID,
+		Priority:      90,
+		ExecutionMode: domain.ExecutionModeWorker,
+		QueueName:     "other",
+	}
+	if err := q.Enqueue(ctx, otherQueueRun); err != nil {
+		t.Fatalf("Enqueue other queue run: %v", err)
+	}
+
+	priorityJob := mustCreateJob(t, ctx, st, "project-worker-claim-filter")
+	markWorkerJobQueue(t, ctx, priorityJob, "priority")
+	priorityRun := &domain.JobRun{
+		ID:            newID(),
+		JobID:         priorityJob.ID,
+		ProjectID:     priorityJob.ProjectID,
+		Priority:      1,
+		ExecutionMode: domain.ExecutionModeWorker,
+		QueueName:     "priority",
+	}
+	if err := q.Enqueue(ctx, priorityRun); err != nil {
+		t.Fatalf("Enqueue priority worker run: %v", err)
+	}
+
+	batch, err := q.DequeueNForWorkerQueues(ctx, 10, []domain.WorkerQueueRef{{ProjectID: priorityJob.ProjectID, QueueName: "priority"}})
+	if err != nil {
+		t.Fatalf("DequeueNForWorker: %v", err)
+	}
+	if len(batch) != 1 {
+		t.Fatalf("DequeueNForWorker returned %d runs, want 1", len(batch))
+	}
+	if batch[0].ID != priorityRun.ID {
+		t.Fatalf("DequeueNForWorker run ID = %q, want %q", batch[0].ID, priorityRun.ID)
+	}
+}
+
+func TestClaimTable_DequeueNClaim_IgnoresWorkerModeRuns(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	mustClean(t, ctx)
+	st := mustStore(t)
+	q := mustQueue(t)
+
+	httpJob := mustCreateJob(t, ctx, st, "project-http-claim-filter")
+	httpRun := &domain.JobRun{
+		ID:            newID(),
+		JobID:         httpJob.ID,
+		ProjectID:     httpJob.ProjectID,
+		Priority:      10,
+		ExecutionMode: domain.ExecutionModeHTTP,
+		QueueName:     "default",
+	}
+	if err := q.Enqueue(ctx, httpRun); err != nil {
+		t.Fatalf("Enqueue HTTP run: %v", err)
+	}
+
+	workerJob := mustCreateJob(t, ctx, st, "project-http-claim-filter")
+	markWorkerJobQueue(t, ctx, workerJob, "priority")
+	workerRun := &domain.JobRun{
+		ID:            newID(),
+		JobID:         workerJob.ID,
+		ProjectID:     workerJob.ProjectID,
+		Priority:      100,
+		ExecutionMode: domain.ExecutionModeWorker,
+		QueueName:     "priority",
+	}
+	if err := q.Enqueue(ctx, workerRun); err != nil {
+		t.Fatalf("Enqueue worker run: %v", err)
+	}
+
+	httpBatch, err := q.DequeueNClaim(ctx, 10)
+	if err != nil {
+		t.Fatalf("DequeueNClaim: %v", err)
+	}
+	if len(httpBatch) != 1 {
+		t.Fatalf("DequeueNClaim returned %d runs, want only the HTTP run", len(httpBatch))
+	}
+	if httpBatch[0].ID != httpRun.ID {
+		t.Fatalf("DequeueNClaim run ID = %q, want HTTP run %q", httpBatch[0].ID, httpRun.ID)
+	}
+
+	workerBatch, err := q.DequeueNForWorkerQueues(ctx, 10, []domain.WorkerQueueRef{{ProjectID: workerJob.ProjectID, QueueName: "priority"}})
+	if err != nil {
+		t.Fatalf("DequeueNForWorker: %v", err)
+	}
+	if len(workerBatch) != 1 {
+		t.Fatalf("DequeueNForWorker returned %d runs, want worker run left for worker pass", len(workerBatch))
+	}
+	if workerBatch[0].ID != workerRun.ID {
+		t.Fatalf("DequeueNForWorker run ID = %q, want worker run %q", workerBatch[0].ID, workerRun.ID)
+	}
+}
+
+func TestClaimTable_RequeueRestoresWorkerRouting(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	mustClean(t, ctx)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-worker-claim-requeue")
+	markWorkerJobQueue(t, ctx, job, "priority")
+	q := mustQueue(t)
+
+	run := &domain.JobRun{
+		ID:            newID(),
+		JobID:         job.ID,
+		ProjectID:     job.ProjectID,
+		Priority:      10,
+		ExecutionMode: domain.ExecutionModeWorker,
+		QueueName:     "priority",
+	}
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue worker run: %v", err)
+	}
+	firstBatch, err := q.DequeueNForWorkerQueues(ctx, 1, []domain.WorkerQueueRef{{ProjectID: job.ProjectID, QueueName: "priority"}})
+	if err != nil {
+		t.Fatalf("first DequeueNForWorker: %v", err)
+	}
+	if len(firstBatch) != 1 || firstBatch[0].ID != run.ID {
+		t.Fatalf("first DequeueNForWorker = %+v, want run %s", firstBatch, run.ID)
+	}
+
+	if _, err := testDB.Pool.Exec(ctx,
+		`UPDATE job_runs
+		 SET status = 'queued', started_at = NULL, heartbeat_at = NULL
+		 WHERE id = $1 AND status = 'executing'`,
+		run.ID,
+	); err != nil {
+		t.Fatalf("requeue run: %v", err)
+	}
+	assertClaimRouting(t, ctx, run.ID, domain.ExecutionModeWorker, "priority")
+
+	secondBatch, err := q.DequeueNForWorkerQueues(ctx, 1, []domain.WorkerQueueRef{{ProjectID: job.ProjectID, QueueName: "priority"}})
+	if err != nil {
+		t.Fatalf("second DequeueNForWorker: %v", err)
+	}
+	if len(secondBatch) != 1 || secondBatch[0].ID != run.ID {
+		t.Fatalf("second DequeueNForWorker = %+v, want run %s", secondBatch, run.ID)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Reaper hot-partition avoidance
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestReaper_HotPartitionAvoidance(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -496,11 +857,11 @@ func TestReaper_HotPartitionAvoidance(t *testing.T) {
 	hotIDs := make([]string, 3)
 	coldIDs := make([]string, 3)
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		r := mustEnqueueRun(t, ctx, q, job)
 		hotIDs[i] = r.ID
 	}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		r := mustEnqueueRun(t, ctx, q, job)
 		coldIDs[i] = r.ID
 	}
@@ -567,7 +928,7 @@ func TestReaper_HotPartitionAvoidance(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // SQLCommenter tag presence in dequeue queries
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestSQLCommenter_DequeueTagPresent(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -680,7 +1041,7 @@ func TestDequeueVariants_StatusContract(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // Reliability: reconciler repairs missing claims
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestClaimReconciler_RepairsMissingClaims(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -757,7 +1118,7 @@ func TestClaimReconciler_RepairsMissingClaims(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // Reliability: reconciler removes stale / orphan claim rows
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestClaimReconciler_RemovesStaleClaims(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -822,7 +1183,7 @@ func TestClaimReconciler_RemovesStaleClaims(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // Reliability: retry exhaustion transitions to terminal failure
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestRetryExhaustion_TransitionsToDead(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

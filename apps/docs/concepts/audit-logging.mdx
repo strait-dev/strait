@@ -21,16 +21,16 @@ Every API mutation is recorded with who performed it, what changed, and when:
 
 Each event captures the actor:
 
-- **Users** — identity from JWT or OIDC claims (dashboard or CLI actions).
-- **Service accounts** — identity from the API key used.
-- **Internal** — system-initiated actions or service-to-service calls.
+- **Users**: identity from JWT or OIDC claims (dashboard or CLI actions).
+- **Service accounts**: identity from the API key used.
+- **System**: actions started by Strait or trusted backend calls.
 
 ## Querying Audit Logs
 
 List audit events for a project via the API:
 
 ```bash
-curl "https://strait.example.com/v1/audit-events?project_id=proj_1" \
+curl "https://your-strait-instance/v1/audit-events?project_id=proj_abc123" \
   -H "Authorization: Bearer strait_..."
 ```
 
@@ -38,20 +38,20 @@ Each event includes the action, resource type, resource ID, actor, timestamp, an
 
 ## Integrity
 
-Every audit event is signed with HMAC-SHA256 and chained to the previous event in the same project. This creates a tamper-evident log — any insertion, deletion, or modification breaks the cryptographic chain.
+Every audit event is signed and linked to the previous event in the same project. This creates a tamper-evident log. Any insertion, deletion, or modification breaks the chain.
 
 Verify the chain at any time:
 
 ```bash
-curl "https://strait.example.com/v1/audit-events/verify?project_id=proj_1" \
+curl "https://your-strait-instance/v1/audit-events/verify?project_id=proj_abc123" \
   -H "Authorization: Bearer strait_..."
 
 # Incremental verification (from last verified point)
-curl "https://strait.example.com/v1/audit-events/verify?project_id=proj_1&incremental=true" \
+curl "https://your-strait-instance/v1/audit-events/verify?project_id=proj_abc123&incremental=true" \
   -H "Authorization: Bearer strait_..."
 ```
 
-Key rotation is supported via `POST /v1/audit-events/rotate-key`. A tombstone event marks the boundary so verification spans key generations.
+Key rotation is supported via `POST /v1/projects/{id}/audit/rotate-key`. Existing audit history remains verifiable after rotation.
 
 ## Forwarding to SIEM
 
@@ -61,7 +61,7 @@ Forward audit events to an external security platform in real time by setting `A
 | :--- | :--- | :--- |
 | `AUDIT_SIEM_ENDPOINT` | _(disabled)_ | HTTP(S) URL to POST batched events to. |
 | `AUDIT_SIEM_BATCH_SIZE` | `100` | Events per batch. |
-| `AUDIT_SIEM_FLUSH_INTERVAL` | `5s` | Max time between flushes. |
+| `AUDIT_SIEM_FLUSH_INTERVAL` | `10s` | Max time between flushes. |
 
 ## Export
 
@@ -73,9 +73,9 @@ Audit events are automatically pruned after a configurable retention window. The
 
 Per-project overrides are available:
 
-- `PUT /v1/projects/{id}/audit/retention` with body `{"days": 90}` — set a custom window.
+- `PUT /v1/projects/{id}/audit/retention` with body `{"days": 90}`: set a custom window.
 - Set `days` to `0` to disable pruning (events are never deleted).
-- `GET /v1/projects/{id}/audit/retention` — check the current setting.
+- `GET /v1/projects/{id}/audit/retention`: check the current setting.
 
 ## Configuration Reference
 
@@ -83,10 +83,9 @@ Per-project overrides are available:
 | :--- | :--- | :--- |
 | `SECRET_ENCRYPTION_KEY` | _(required)_ | Base key used to derive the audit signing key. |
 | `AUDIT_RETENTION_DEFAULT_DAYS` | `365` | Default retention window in days. |
-| `AUDIT_ASYNC_BUFFER_SIZE` | `8192` | Capacity of the async emit channel. |
 | `AUDIT_SIEM_ENDPOINT` | _(disabled)_ | SIEM forwarding target URL. |
 | `AUDIT_SIEM_BATCH_SIZE` | `100` | Events per SIEM batch. |
-| `AUDIT_SIEM_FLUSH_INTERVAL` | `5s` | Max interval between SIEM flushes. |
+| `AUDIT_SIEM_FLUSH_INTERVAL` | `10s` | Max interval between SIEM flushes. |
 
 ## Related Concepts
 

@@ -76,9 +76,9 @@ func TestHotUpdateIndexes_HotRatioStaysHighAcrossLifecycle(t *testing.T) {
 
 	// Enqueue -> dequeue -> mark completed for 100 runs, which exercises
 	// every status transition the worker does on the hot path.
-	const N = 100
-	ids := make([]string, 0, N)
-	for i := 0; i < N; i++ {
+	const n = 100
+	ids := make([]string, 0, n)
+	for range n {
 		run := &domain.JobRun{
 			ID:        newID(),
 			JobID:     job.ID,
@@ -91,7 +91,7 @@ func TestHotUpdateIndexes_HotRatioStaysHighAcrossLifecycle(t *testing.T) {
 		ids = append(ids, run.ID)
 	}
 
-	for i := 0; i < N; i++ {
+	for range n {
 		r, err := q.Dequeue(ctx)
 		if err != nil {
 			t.Fatalf("dequeue: %v", err)
@@ -168,7 +168,7 @@ func TestHotUpdateIndexes_ExplainUsesCorrectIndex(t *testing.T) {
 	q := mustQueue(t)
 
 	// Seed some rows in different statuses so the planner prefers an index.
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		mustEnqueueRun(t, ctx, q, job)
 	}
 	// Force some into dead_letter so that partial index has entries.

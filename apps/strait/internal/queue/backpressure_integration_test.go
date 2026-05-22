@@ -38,7 +38,7 @@ func TestBackpressure_ExhaustionThrottles(t *testing.T) {
 	project := "proj-bp-exhaust"
 
 	// Consume 3 tokens — all should succeed.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if err := bp.TryConsume(ctx, project); err != nil {
 			t.Fatalf("consume %d: %v", i, err)
 		}
@@ -112,7 +112,7 @@ func TestBackpressure_DisabledIsNoOp(t *testing.T) {
 		DefaultRefillPerSec: 1,
 	}, false)
 	// Hammer 1000 times; none should throttle.
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		if err := bp.TryConsume(ctx, "proj-bp-off"); err != nil {
 			t.Fatalf("disabled throttled at %d: %v", i, err)
 		}
@@ -132,11 +132,9 @@ func TestBackpressure_ConcurrentConsumers(t *testing.T) {
 
 	var allowed, throttled atomic.Int64
 	var wg sync.WaitGroup
-	for g := 0; g < 20; g++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for i := 0; i < 5; i++ {
+	for range 20 {
+		wg.Go(func() {
+			for range 5 {
 				err := bp.TryConsume(ctx, project)
 				if err == nil {
 					allowed.Add(1)
@@ -144,7 +142,7 @@ func TestBackpressure_ConcurrentConsumers(t *testing.T) {
 					throttled.Add(1)
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 

@@ -1,343 +1,173 @@
 ---
 title: "Workflows"
-description: "Coordinating complex tasks with Directed Acyclic Graphs (DAGs)."
+description: "Coordinate multi-step work with dependencies, approvals, and retries."
 icon: "diagram-project"
 ---
 
-A workflow is a set of steps with dependencies between them. You define which steps run first, which wait for others to finish, and what happens when something fails. Strait runs the steps in the right order, passing data between them.
+A workflow is a set of steps that run in a defined order. Use workflows when one job depends on another, when several jobs can run in parallel, or when a process needs approvals, waits, or recovery steps.
 
-## Create and Trigger a Workflow
+Each workflow trigger creates a workflow run. Each job step creates its own [run](/concepts/runs), so you can inspect every step separately.
 
-Before exploring the details, here is an end-to-end example: create a workflow with three steps, then trigger it.
+## Create a Workflow
 
-### Create the workflow
-
-This workflow runs `validate`, then `process` (which depends on `validate`), then `notify` (which depends on `process`).
+This workflow validates an order, processes payment, then sends a confirmation.
 
 ```bash
 curl -X POST https://api.strait.dev/v1/workflows \
-  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
+    "project_id": "proj_abc123",
     "name": "Order Pipeline",
     "slug": "order-pipeline",
     "steps": [
       {
         "step_ref": "validate",
         "step_type": "job",
-        "job_id": "job_validate_order",
-        "depends_on": []
+        "job_id": "job_validate_order"
       },
       {
-        "step_ref": "process",
+        "step_ref": "charge",
         "step_type": "job",
-        "job_id": "job_process_payment",
+        "job_id": "job_charge_card",
         "depends_on": ["validate"]
       },
       {
         "step_ref": "notify",
         "step_type": "job",
         "job_id": "job_send_confirmation",
-        "depends_on": ["process"]
+        "depends_on": ["charge"]
       }
     ]
   }'
 ```
 
-**Response:**
-
-```json
-{
-  "id": "wf_01JQ3K7M9N0P1Q2R3S4T5U6V7W",
-  "slug": "order-pipeline",
-  "name": "Order Pipeline",
-  "version": 1,
-  "steps": [
-    { "step_ref": "validate", "step_type": "job", "job_id": "job_validate_order", "depends_on": [] },
-    { "step_ref": "process", "step_type": "job", "job_id": "job_process_payment", "depends_on": ["validate"] },
-    { "step_ref": "notify", "step_type": "job", "job_id": "job_send_confirmation", "depends_on": ["process"] }
-  ],
-  "created_at": "2025-01-15T10:00:00Z"
-}
-```
-
-### Trigger the workflow
+Trigger it:
 
 ```bash
 curl -X POST https://api.strait.dev/v1/workflows/order-pipeline/trigger \
-  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{
-    "payload": {
-      "order_id": "ord_42",
-      "amount": 99.00,
-      "customer_email": "alice@example.com"
-    }
-  }'
+  -d '{ "payload": { "order_id": "ord_42" } }'
 ```
 
-**Response:**
+## Dependencies
+
+Steps with no dependencies start first. A step with `depends_on` waits until its dependencies finish.
 
 ```json
 {
-  "id": "wfr_01JQ3K8A2B3C4D5E6F7G8H9J0K",
-  "workflow_id": "wf_01JQ3K7M9N0P1Q2R3S4T5U6V7W",
-  "status": "running",
-  "payload": {
-    "order_id": "ord_42",
-    "amount": 99.00,
-    "customer_email": "alice@example.com"
-  },
-  "created_at": "2025-01-15T10:30:00Z"
+  "step_ref": "ship",
+  "step_type": "job",
+  "job_id": "job_ship_order",
+  "depends_on": ["charge", "reserve_inventory"]
 }
 ```
 
-Strait immediately begins executing root steps (those with no dependencies). Each step creates a [Run](/concepts/runs) you can monitor individually.
-
----
-
-## DAG Concepts
-
-A workflow is structured as a directed acyclic graph (DAG) — a dependency graph where steps can depend on other steps, but circular dependencies are not allowed:
-- **Steps** are the individual units of work (the nodes).
-- **Dependencies** connect steps via the `depends_on` field (the edges).
-- **Fan-out** means one step triggers multiple downstream steps. **Fan-in** means one step waits for multiple upstream steps to finish.
-
-A workflow can include up to **1000** steps.
-
-<Note>
-For implementation-level behavior (scheduler decisions, explainability APIs, critical-path estimates, policy enforcement, and replay controls), see [DAG Runtime](/concepts/dag-runtime).
-</Note>
+This lets you model fan-out and fan-in without writing polling code.
 
 ## Step Types
 
-| Type | Description |
-| :--- | :--- |
-| `job` | Runs a [Job](/concepts/jobs). Use for any work that calls an HTTP endpoint. |
-| `approval` | Pauses the workflow until a person approves or rejects. Use for deploy gates, compliance checks, or anything requiring human sign-off. |
-| `sub_workflow` | Runs another workflow as a nested step. Use to reuse an existing workflow as part of a larger pipeline. |
-| `wait_for_event` | Pauses until an external event arrives via API. Use for third-party callbacks or human-in-the-loop steps. See [Event Triggers](/concepts/event-triggers). |
-| `sleep` | Pauses for a specified duration without consuming resources. Use for cooldown periods or scheduled delays. |
+| Type | Use it for |
+|---|---|
+| `job` | Run a Strait job. |
+| `approval` | Wait for a person to approve or reject. |
+| `wait_for_event` | Wait for an external callback or event. |
+| `sleep` | Wait for a duration without keeping a worker busy. |
+| `sub_workflow` | Reuse another workflow as a step. |
 
-## Workflow Versioning
+## Passing Data Between Steps
 
-Workflows use a snapshotting mechanism. Every time a workflow's steps are updated, the `version` increments. The entire DAG definition is copied to a versioned table, ensuring that running workflows are not disrupted by changes to the definition.
+Each step receives the workflow payload, its own configured payload, and outputs from parent steps.
 
-When you update a workflow that has active runs on a previous version, the update response includes `active_runs_on_previous_version` and `previous_version_id` so you can assess the impact. Set `breaking_change: true` in the update request to record a `workflow.updated_breaking` audit event. See [Versioning](/concepts/versioning#breaking-change-detection) for details.
-
-## Step Conditions
-
-Steps can define a `condition` (JSON) that must evaluate to true before the step starts.
-- **step_status**: Check the status of a dependency (e.g., `completed`, `failed`).
-- **step_status_in**: Check a dependency against a set of statuses.
-- **not**: Invert a nested condition.
-- **Composite Logic**: Use `all_of` or `any_of` for complex boolean logic.
-
-If a condition is false, the step is marked as `skipped`.
-
-### Cost Gates
-
-A cost gate pauses a workflow step if the projected cost exceeds a threshold. Set `cost_gate_threshold_microusd` on a step:
+Use templates when a step needs data from an earlier step:
 
 ```json
 {
-  "step_ref": "expensive-analysis",
-  "job_id": "job_analysis",
-  "cost_gate_threshold_microusd": 10000000,
-  "cost_gate_timeout_secs": 3600,
-  "cost_gate_default_action": "reject"
-}
-```
-
-If the estimated cost exceeds $10 (10,000,000 micro-USD), the step pauses for manual approval. If no one approves within `cost_gate_timeout_secs`, the `cost_gate_default_action` applies (approve or reject).
-
-### Stage Notifications
-
-Configure per-step notifications for lifecycle events:
-
-```json
-{
-  "step_ref": "critical-step",
-  "stage_notifications": {
-    "on_complete": true,
-    "on_failure": true,
-    "on_skipped": false
+  "step_ref": "notify",
+  "step_type": "job",
+  "job_id": "job_send_confirmation",
+  "depends_on": ["charge"],
+  "payload": {
+    "order_id": "{{payload.order_id}}",
+    "receipt_id": "{{parent_outputs.charge.receipt_id}}"
   }
 }
 ```
 
-When enabled, Strait sends notifications through your configured [notification channels](/concepts/notifications) when the step completes, fails, or is skipped.
+## Conditions
 
-## Data Flow and Templates
-
-Workflows support dynamic data flow between steps using template variables.
-
-### Template Variable Rendering
-Use `{{var}}` syntax with dot notation to access data:
-- `{{payload.key}}`: Access the initial workflow trigger payload.
-- `{{parent_outputs.step_ref.key}}`: Access the output of a specific parent step.
-
-### Output Transforms
-Steps can define an `output_transform` using JSONPath expressions. This lets a step export only a subset of its result to downstream steps.
-
-### Payload Merging
-The payload for a step is constructed by merging three layers:
-1. **Trigger Payload**: The data provided when the workflow was started.
-2. **Step Payload**: Static data defined in the workflow step configuration.
-3. **Parent Outputs**: The results (optionally transformed) of all direct dependencies.
-
-## Failure Policies
-
-The `on_failure` field determines the workflow's behavior when a step fails:
-- `fail_workflow` (default): The entire workflow run transitions to `failed`.
-- `skip_dependents`: The failed step's dependents are marked as `skipped`, but other branches continue.
-- `continue`: The failure is ignored, and dependents proceed as if it succeeded.
-
-## Concurrency Control
-
-- `max_concurrent_runs`: Limits how many instances of the workflow can run simultaneously.
-- `max_parallel_steps`: Limits the number of steps that can execute in parallel within a single workflow run.
-- `concurrency_key` (step-level): Serializes steps that share the same key, even if they are otherwise ready to run.
-- `resource_class` (step-level): Assigns a step to a capacity bucket (`small`, `medium`, or `large`). The scheduler respects per-class capacity limits when determining which steps to start.
-
-## Sub-workflow Nesting
-
-Workflows can trigger other workflows using the `sub_workflow` step type.
-- **Depth Limit**: The engine enforces a default maximum nesting depth of 10 to prevent infinite recursion.
-- **Propagation**: When a sub-workflow completes, its outputs are aggregated and returned to the parent step.
-
-## Workflow Policies
-
-Project-level governance controls that apply to all workflows in a project:
-
-| Policy | Description |
-| :--- | :--- |
-| `max_fan_out` | Maximum steps a single step can trigger. Prevents one step from spawning too many parallel branches. |
-| `max_depth` | Maximum sequential dependencies from start to finish. Prevents deeply nested workflows that are hard to debug. |
-| `forbidden_step_types` | List of step types that cannot be used in workflows for this project. |
-| `require_approval_for_deploy` | When true, requires an approval step before any deploy-type step. |
-
-Policies are managed via `GET /v1/workflow-policies/{projectID}` and `PUT /v1/workflow-policies/{projectID}`. They are enforced at workflow create, update, and trigger time.
-
-## Step Overrides
-
-At trigger time, you can provide `step_overrides` to selectively enable or disable specific steps for that specific run.
-
-For previewing the resulting execution order (after overrides), use `POST /v1/workflows/{workflowID}/plan`. This endpoint accepts optional `step_overrides`, applies them to the current workflow version, validates the resulting DAG, and returns the topological execution order, root steps, and step count.
-
-For validating a DAG structure without persisting changes, use `POST /v1/workflows/{workflowID}/dry-run`. This accepts an optional `steps` array and returns whether the DAG is valid.
-
-## Runtime Introspection and Recovery
-
-Beyond definition and execution, workflow runs expose runtime control APIs:
-
-- `GET /v1/workflow-runs/{workflowRunID}/graph`: execution graph, runnable set, and critical-path estimate.
-- `GET /v1/workflow-runs/{workflowRunID}/explain`: paginated scheduler/condition decision log.
-- `POST /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/retry`: retry a single terminal step.
-- `POST /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/replay-subtree`: replay a branch from a selected step.
-
-Version analysis APIs:
-
-- `GET /v1/workflows/{workflowID}/versions/{fromVersionID}/diff/{toVersionID}`
-- `GET /v1/workflows/{workflowID}/versions/{versionID}/impact`
-- `POST /v1/workflows/{workflowID}/simulate`
-
-These endpoints are intended for operations and incident response, not only workflow authoring.
-For detailed endpoint payloads and operational runbooks, see [DAG Runtime](/concepts/dag-runtime) and [DAG Operations Playbook](/guides/dag-operations-playbook).
-
-## Workflow Lifecycle
-
-### Workflow Run States
-```text
-                    ┌─────────┐
-                    │ pending │
-                    └────┬────┘
-                         │ start
-                         v
-   ┌────────────────┬─────────┬────────────────────┐
-   │                │ running │                     │
-   │                └────┬────┘                     │
-   │          pause │    │    ^ resume              │
-   │                v    │    │                     │
-   │              ┌──────┴────┴┐                    │
-   │              │   paused   │                    │
-   │              └──────┬─────┘                    │
-   │                     │                          │
-   │    ┌──────────┬─────┴─────┬──────────┐         │
-   │    v          v           v          v         │
-   │ completed   failed    timed_out   canceled     │
-   └────────────────────────────────────────────────┘
-```
-
-### Step Run States
-```text
-                    ┌─────────┐
-                    │ pending │
-                    └────┬────┘
-                         │
-          ┌──────────────┼──────────────┐
-          v              v              v
-     ┌─────────┐    ┌─────────┐    ┌─────────┐
-     │ waiting │    │ skipped │    │ canceled│
-     └────┬────┘    └─────────┘    └─────────┘
-          │ start
-          v
-     ┌─────────┐
-     │ running │
-     └────┬────┘
-          │
-    ┌─────┴─────┐
-    v           v
- completed    failed
-```
-
-## Event-Driven Steps
-
-### wait_for_event
-
-Pauses the workflow until an external event arrives via API. The step creates an [Event Trigger](/concepts/event-triggers) with a globally unique `event_key` and optional timeout. The wait consumes no compute resources.
+Use conditions when a step should run only in some cases.
 
 ```json
 {
-  "step_ref": "aml-check",
-  "type": "wait_for_event",
-  "event_key": "aml:{{payload.user_id}}",
-  "timeout_secs": 86400,
-  "depends_on": ["extract"]
+  "step_ref": "manual-review",
+  "step_type": "approval",
+  "depends_on": ["risk-check"],
+  "condition": {
+    "type": "gt",
+    "left": "{{parent_outputs.risk-check.score}}",
+    "right": 80
+  }
 }
 ```
 
-When the event arrives (via `POST /v1/events/{eventKey}/send`), the step completes with the event payload as output, and downstream steps can access it via `{{parent_outputs.aml-check.*}}`.
+If the condition is false, the step is skipped.
 
-### sleep
+## Failure Behavior
 
-Durable sleep steps pause a workflow for a specified duration without consuming resources:
+By default, a failed step fails the workflow. You can change this per step with `on_failure`.
 
-```json
-{
-  "step_ref": "cooldown",
-  "type": "sleep",
-  "sleep_duration": "1h",
-  "depends_on": ["notify"]
-}
+| Policy | Behavior |
+|---|---|
+| `fail_workflow` | Stop the workflow and mark it failed. |
+| `skip_dependents` | Skip steps that depend on the failed step. |
+| `continue` | Continue as if the step succeeded. |
+| `compensate` | Run configured compensation steps. |
+
+Use [Compensating Transactions](/concepts/compensating-transactions) when your workflow performs side effects that may need to be undone.
+
+## Approvals and Event Waits
+
+Approval steps pause the workflow until a person approves or rejects.
+
+Event waits pause until your application sends an event to Strait.
+
+```bash
+curl -X POST https://api.strait.dev/v1/events/kyc:user_abc123/send \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "payload": { "status": "approved" } }'
 ```
 
-The step completes automatically when the duration expires.
+See [Workflow Approvals](/guides/workflow-approvals) and [Event Triggers](/concepts/event-triggers).
 
-### Event Chaining
+## Versioning
 
-Steps can auto-emit events on completion using `event_emit_key`:
+Workflows are versioned. A workflow run keeps using the version it started with, even if you edit the workflow while that run is active.
 
-```json
-{
-  "step_ref": "process",
-  "job_id": "job_process",
-  "event_emit_key": "done:{{payload.batch_id}}"
-}
-```
+Use `breaking_change: true` when an update intentionally changes the workflow contract.
 
-When this step completes, it auto-resolves any waiting trigger with key `done:{batch_id}`, enabling cross-workflow coordination.
+See [Versioning](/concepts/versioning) for details.
 
-## Step-Level Retries
+## Inspect and Recover
 
-Each step can have its own retry configuration (`retry_max_attempts`, `retry_backoff`), allowing transient failures in one part of the DAG to be resolved without restarting the entire workflow.
+Workflow runs expose APIs to inspect the graph, retry a step, or replay a branch.
+
+Common operations:
+
+| Operation | Endpoint | Use it when |
+|---|---|---|
+| View graph | `GET /v1/workflow-runs/{workflowRunID}/graph` | You need to see which steps ran, failed, or are waiting. |
+| Explain a run | `GET /v1/workflow-runs/{workflowRunID}/explain` | You need to understand why a step did or did not run. |
+| Retry a step | `POST /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/retry` | One step failed because of a transient issue. |
+| Replay a subtree | `POST /v1/workflow-runs/{workflowRunID}/steps/{stepRef}/replay-subtree` | A step and its downstream work should run again. |
+
+For request and response schemas, use the API reference.
+
+## Related
+
+- [Build a Data Pipeline](/tutorials/data-pipeline)
+- [Workflow Approvals](/guides/workflow-approvals)
+- [Durable Workflows](/concepts/durable-workflows)
+- [Compensating Transactions](/concepts/compensating-transactions)

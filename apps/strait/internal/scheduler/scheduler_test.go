@@ -44,6 +44,10 @@ func (m *mockSchedulerStore) CancelChildRunsByParentIDs(ctx context.Context, par
 	return m.cron.CancelChildRunsByParentIDs(ctx, parentIDs, finishedAt, reason)
 }
 
+func (m *mockSchedulerStore) TryAcquireCronFire(ctx context.Context, projectID string, key string, ttl time.Duration) (bool, error) {
+	return m.cron.TryAcquireCronFire(ctx, projectID, key, ttl)
+}
+
 func (m *mockSchedulerStore) DeleteWorkflowRunsFinishedBefore(ctx context.Context, before time.Time, limit int) (int64, error) {
 	return m.reaper.DeleteWorkflowRunsFinishedBefore(ctx, before, limit)
 }
@@ -152,8 +156,35 @@ func (m *mockSchedulerStore) ListDueDebouncePending(_ context.Context) ([]domain
 	return nil, nil
 }
 func (m *mockSchedulerStore) DeleteDebouncePending(_ context.Context, _ string) error { return nil }
+func (m *mockSchedulerStore) ClaimDueDebouncePending(_ context.Context, _ string) (*domain.DebouncePending, bool, error) {
+	return nil, false, nil
+}
+func (m *mockSchedulerStore) CompleteDebouncePending(_ context.Context, _ string, _ time.Time) (bool, error) {
+	return false, nil
+}
+func (m *mockSchedulerStore) RescheduleDebouncePending(_ context.Context, _ string, _, _ time.Time) (bool, error) {
+	return false, nil
+}
+func (m *mockSchedulerStore) InsertDebouncePendingIfAbsent(_ context.Context, _ *domain.DebouncePending) (bool, error) {
+	return false, nil
+}
 func (m *mockSchedulerStore) GetJob(_ context.Context, _ string) (*domain.Job, error) {
 	return nil, nil
+}
+func (m *mockSchedulerStore) GetProjectQuota(context.Context, string) (*store.ProjectQuota, error) {
+	return nil, nil
+}
+func (m *mockSchedulerStore) CountProjectQueuedRuns(context.Context, string) (int, error) {
+	return 0, nil
+}
+func (m *mockSchedulerStore) CountProjectActiveRuns(context.Context, string) (int, error) {
+	return 0, nil
+}
+func (m *mockSchedulerStore) CountRunsForJobSince(context.Context, string, time.Time) (int, error) {
+	return 0, nil
+}
+func (m *mockSchedulerStore) SumProjectDailyCostMicrousd(context.Context, string, string) (int64, error) {
+	return 0, nil
 }
 func (m *mockSchedulerStore) CreateRun(_ context.Context, _ *domain.JobRun) error { return nil }
 func (m *mockSchedulerStore) TryAdvisoryLock(_ context.Context, _ int64) (bool, error) {
@@ -168,6 +199,12 @@ func (m *mockSchedulerStore) ListFlushableBatches(_ context.Context) ([]store.Fl
 func (m *mockSchedulerStore) DrainBatchBuffer(_ context.Context, _, _ string, _ int) ([]domain.BatchBufferItem, error) {
 	return nil, nil
 }
+func (m *mockSchedulerStore) ListBatchBufferItems(_ context.Context, _, _ string, _ int) ([]domain.BatchBufferItem, error) {
+	return nil, nil
+}
+func (m *mockSchedulerStore) DeleteBatchBufferItems(_ context.Context, _ []string) error {
+	return nil
+}
 
 // StatsAggregatorStore methods (no-op for tests).
 func (m *mockSchedulerStore) AggregateHourlyStats(_ context.Context, _ time.Time) error {
@@ -176,33 +213,6 @@ func (m *mockSchedulerStore) AggregateHourlyStats(_ context.Context, _ time.Time
 
 func (m *mockSchedulerStore) AggregateCostStatsHourly(_ context.Context, _ time.Time) error {
 	return nil
-}
-
-// RunComputeUsageStore methods (no-op for tests).
-func (m *mockSchedulerStore) CreateRunComputeUsage(_ context.Context, _ *domain.RunComputeUsage) error {
-	return nil
-}
-func (m *mockSchedulerStore) GetRunComputeUsage(_ context.Context, _ string) (*domain.RunComputeUsage, error) {
-	return nil, nil
-}
-func (m *mockSchedulerStore) SumDailyComputeCost(_ context.Context, _, _ string) (int64, error) {
-	return 0, nil
-}
-func (m *mockSchedulerStore) ListRunComputeUsageByProject(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.RunComputeUsage, error) {
-	return nil, nil
-}
-func (m *mockSchedulerStore) ListProjectsWithComputeLimit(_ context.Context) ([]store.ProjectComputeQuota, error) {
-	return nil, nil
-}
-func (m *mockSchedulerStore) ReserveBudget(_ context.Context, _, _, _, _ string, _ int64, _ string, _ int64) error {
-	return nil
-}
-func (m *mockSchedulerStore) CommitReservation(_ context.Context, _ string, _ int64, _ float64, _ string, _, _ *time.Time) error {
-	return nil
-}
-func (m *mockSchedulerStore) ReleaseReservation(_ context.Context, _ string) error { return nil }
-func (m *mockSchedulerStore) CleanupStaleReservations(_ context.Context, _ time.Duration) (int64, error) {
-	return 0, nil
 }
 
 // CostEstimateRefresherStore methods (no-op for tests).
@@ -242,6 +252,9 @@ func (m *mockSchedulerStore) IncrementAuditDeadletterAttempt(_ context.Context, 
 }
 func (m *mockSchedulerStore) MarkAuditDeadletterReclaimed(_ context.Context, _, _ string) error {
 	return nil
+}
+func (m *mockSchedulerStore) ReplayAuditEventDeadletter(_ context.Context, _, _, _ string) (*domain.AuditEvent, bool, error) {
+	return nil, false, nil
 }
 func (m *mockSchedulerStore) DeleteAuditDeadletterOlderThan(_ context.Context, _ time.Time) (map[string]int64, error) {
 	return nil, nil
@@ -292,6 +305,58 @@ func TestScheduler_New(t *testing.T) {
 	s := New(context.Background(), testSchedulerConfig(), store, &mockQueue{}, nil, nil)
 	if s == nil {
 		t.Fatal("expected scheduler to be non-nil")
+	}
+}
+
+func TestWithBudgetMonitoringStores_WiresSpendingStore(t *testing.T) {
+	t.Parallel()
+
+	spending := &mockSpendingLimitStore{}
+	s := &Scheduler{budgetMonitor: NewBudgetMonitor(struct{}{}, nil, time.Minute)}
+
+	WithBudgetMonitoringStores(spending, nil, nil)(s)
+
+	if s.budgetMonitor.spendingStore != spending {
+		t.Fatal("expected spending store to be wired into budget monitor")
+	}
+}
+
+func TestWithSLOEvaluator_WiresSchedulerComponent(t *testing.T) {
+	t.Parallel()
+
+	evaluator := &SLOEvaluator{}
+	s := &Scheduler{}
+
+	WithSLOEvaluator(evaluator)(s)
+
+	if s.sloEvaluator != evaluator {
+		t.Fatal("expected SLO evaluator to be wired into scheduler")
+	}
+}
+
+func TestWithHeartbeatGC_WiresSchedulerComponent(t *testing.T) {
+	t.Parallel()
+
+	gc := &HeartbeatGC{}
+	s := &Scheduler{}
+
+	WithHeartbeatGC(gc)(s)
+
+	if s.heartbeatGC != gc {
+		t.Fatal("expected heartbeat GC to be wired into scheduler")
+	}
+}
+
+func TestWithGracePeriodEnforcer_WiresSchedulerComponent(t *testing.T) {
+	t.Parallel()
+
+	enforcer := &GracePeriodEnforcer{}
+	s := &Scheduler{}
+
+	WithGracePeriodEnforcer(enforcer)(s)
+
+	if s.gracePeriodEnforcer != enforcer {
+		t.Fatal("expected grace period enforcer to be wired into scheduler")
 	}
 }
 

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -20,6 +21,25 @@ type ctxTxKey struct{}
 // request runs on the same tx and therefore sees the same session variable.
 func ContextWithTx(ctx context.Context, tx pgx.Tx) context.Context {
 	return context.WithValue(ctx, ctxTxKey{}, tx)
+}
+
+type withoutTxContext struct {
+	context.Context
+}
+
+func (c withoutTxContext) Value(key any) any {
+	if key == (ctxTxKey{}) {
+		return nil
+	}
+	return c.Context.Value(key)
+}
+
+// ContextWithoutTx returns a context that preserves cancellation, deadlines,
+// and all non-store values from ctx while hiding any transaction installed by
+// ContextWithTx. Use it for detached background work that must outlive an
+// HTTP request transaction, such as best-effort cleanup after a panic.
+func ContextWithoutTx(ctx context.Context) context.Context {
+	return withoutTxContext{Context: ctx}
 }
 
 // TxFromContext returns the transaction previously stored via ContextWithTx,
@@ -63,6 +83,22 @@ func (c *ctxAwareDBTX) QueryRow(ctx context.Context, sql string, args ...any) pg
 		return tx.QueryRow(ctx, sql, args...)
 	}
 	return c.pool.QueryRow(ctx, sql, args...)
+}
+
+func (c *ctxAwareDBTX) Begin(ctx context.Context) (pgx.Tx, error) {
+	beginner, ok := c.pool.(TxBeginner)
+	if !ok {
+		return nil, fmt.Errorf("underlying db does not support transactions")
+	}
+	return beginner.Begin(ctx)
+}
+
+func (c *ctxAwareDBTX) BeginTx(ctx context.Context, opts pgx.TxOptions) (pgx.Tx, error) {
+	beginner, ok := c.pool.(TxBeginnerOptions)
+	if !ok {
+		return nil, fmt.Errorf("underlying db does not support transaction options")
+	}
+	return beginner.BeginTx(ctx, opts)
 }
 
 // NewWithContextRouting constructs a Queries whose underlying DBTX routes

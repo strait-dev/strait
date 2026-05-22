@@ -3,12 +3,14 @@ package cdc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/httputil"
 )
 
 // WebhookTriggerStore is the minimal store interface for CDC-driven webhook delivery.
@@ -73,9 +75,10 @@ func (h *WebhookTriggerHandler) Handle(ctx context.Context, msg Message) error {
 	if err != nil {
 		h.logger.Warn("cdc webhook trigger: failed to list subscriptions",
 			"project_id", record.ProjectID, "error", err)
-		return nil // Don't nack on store errors.
+		return fmt.Errorf("webhook trigger: list subscriptions: %w", err)
 	}
 
+	var createErrs []error
 	for _, sub := range subs {
 		if !sub.Active {
 			continue
@@ -97,20 +100,32 @@ func (h *WebhookTriggerHandler) Handle(ctx context.Context, msg Message) error {
 
 		now := time.Now()
 		if createErr := h.store.CreateWebhookDelivery(ctx, &domain.WebhookDelivery{
-			RunID:       record.ID,
-			JobID:       record.JobID,
-			WebhookURL:  sub.WebhookURL,
-			Status:      "pending",
-			MaxAttempts: 5,
-			NextRetryAt: &now,
-			LastError:   string(payload),
+			RunID:          record.ID,
+			JobID:          record.JobID,
+			SubscriptionID: sub.ID,
+			ProjectID:      record.ProjectID,
+			WebhookURL:     sub.WebhookURL,
+			WebhookSecret:  sub.Secret,
+			Payload:        payload,
+			Status:         "pending",
+			MaxAttempts:    5,
+			NextRetryAt:    &now,
+			DedupeKey:      webhookTriggerDedupeKey(record.ID, eventType, sub.ID),
 		}); createErr != nil {
 			h.logger.Warn("cdc webhook trigger: failed to create delivery",
-				"run_id", record.ID, "webhook_url", sub.WebhookURL, "error", createErr)
+				"run_id", record.ID, "webhook_url", httputil.RedactURLForLog(sub.WebhookURL), "error", createErr)
+			createErrs = append(createErrs, createErr)
 		}
 	}
 
+	if err := errors.Join(createErrs...); err != nil {
+		return fmt.Errorf("webhook trigger: create delivery: %w", err)
+	}
 	return nil
+}
+
+func webhookTriggerDedupeKey(runID, eventType, subscriptionID string) string {
+	return fmt.Sprintf("cdc:job_runs:%s:%s:%s", runID, eventType, subscriptionID)
 }
 
 func mapStatusToWebhookEvent(s domain.RunStatus) string {
@@ -123,6 +138,8 @@ func mapStatusToWebhookEvent(s domain.RunStatus) string {
 		return domain.WebhookEventRunTimedOut
 	case domain.StatusCanceled:
 		return domain.WebhookEventRunCanceled
+	case domain.StatusCrashed, domain.StatusSystemFailed, domain.StatusExpired, domain.StatusDeadLetter:
+		return domain.WebhookEventRunFailed
 	default:
 		return ""
 	}

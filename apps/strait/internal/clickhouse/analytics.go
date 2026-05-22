@@ -3,8 +3,11 @@ package clickhouse
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
+	"strait/internal/httputil"
 	"strait/internal/store"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -166,21 +169,6 @@ func (s *AnalyticsStore) GetCostAnalytics(ctx context.Context, projectID string,
 		return nil, fmt.Errorf("clickhouse cost analytics ai totals: %w", err)
 	}
 
-	// Compute cost totals.
-	computeQuery := `
-		SELECT coalesce(sum(cost_microusd), 0)
-		FROM compute_usage
-		WHERE project_id = ? AND started_at >= ? AND started_at < ?`
-	computeRow, err := s.client.QueryRow(ctx, computeQuery, projectID, from, to)
-	if err != nil {
-		return nil, fmt.Errorf("clickhouse cost analytics compute totals: %w", err)
-	}
-	if err := computeRow.Scan(
-		&result.TotalComputeCostMicrousd,
-	); err != nil {
-		return nil, fmt.Errorf("clickhouse cost analytics compute totals: %w", err)
-	}
-
 	// By model breakdown.
 	modelQuery := `
 		SELECT model,
@@ -311,50 +299,6 @@ func (s *AnalyticsStore) GetTopCosts(ctx context.Context, projectID string, from
 		items = append(items, item)
 	}
 	return items, rows.Err()
-}
-
-// GetComputeCostAnalytics returns compute costs grouped by machine preset from ClickHouse.
-func (s *AnalyticsStore) GetComputeCostAnalytics(ctx context.Context, projectID string, from, to time.Time) (*store.ComputeCostAnalytics, error) {
-	result := &store.ComputeCostAnalytics{
-		ByPreset: make([]store.CostByPreset, 0),
-	}
-
-	totalQuery := `
-		SELECT coalesce(sum(cost_microusd), 0)
-		FROM compute_usage
-		WHERE project_id = ? AND started_at >= ? AND started_at < ?`
-	totalRow, err := s.client.QueryRow(ctx, totalQuery, projectID, from, to)
-	if err != nil {
-		return nil, fmt.Errorf("clickhouse compute cost analytics total: %w", err)
-	}
-	if err := totalRow.Scan(&result.TotalCostMicrousd); err != nil {
-		return nil, fmt.Errorf("clickhouse compute cost analytics total: %w", err)
-	}
-
-	presetQuery := `
-		SELECT machine_preset,
-			sum(cost_microusd),
-			count(),
-			coalesce(sum(duration_secs), 0)
-		FROM compute_usage
-		WHERE project_id = ? AND started_at >= ? AND started_at < ?
-		GROUP BY machine_preset
-		ORDER BY sum(cost_microusd) DESC`
-
-	rows, err := s.client.Query(ctx, presetQuery, projectID, from, to)
-	if err != nil {
-		return nil, fmt.Errorf("clickhouse compute cost analytics by preset: %w", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var p store.CostByPreset
-		if err := rows.Scan(&p.Preset, &p.CostMicrousd, &p.RunCount, &p.DurationSecs); err != nil {
-			return nil, fmt.Errorf("clickhouse compute cost analytics by preset scan: %w", err)
-		}
-		result.ByPreset = append(result.ByPreset, p)
-	}
-	return result, rows.Err()
 }
 
 // GetCostOutliers finds runs whose total cost exceeds the per-job average by
@@ -575,13 +519,13 @@ func (s *AnalyticsStore) GetRunDurationDistribution(ctx context.Context, project
 // GetRunFailureReasons returns top failure messages from run events.
 func (s *AnalyticsStore) GetRunFailureReasons(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.RunFailureReason, error) {
 	query := `
-		SELECT message,
+		SELECT message_class,
 			count() AS count,
 			max(created_at) AS last_seen,
 			any(run_id) AS example_run_id
 		FROM run_events
 		WHERE project_id = ? AND level = 'error' AND created_at >= ? AND created_at < ?
-		GROUP BY message
+		GROUP BY message_class
 		ORDER BY count DESC
 		LIMIT ?`
 
@@ -591,17 +535,79 @@ func (s *AnalyticsStore) GetRunFailureReasons(ctx context.Context, projectID str
 	}
 	defer rows.Close()
 
-	result := make([]store.RunFailureReason, 0)
+	type failureReasonAgg struct {
+		reason   store.RunFailureReason
+		lastSeen time.Time
+	}
+	byReason := make(map[string]*failureReasonAgg)
+	order := make([]string, 0)
 	for rows.Next() {
-		var r store.RunFailureReason
+		var rawMessage string
+		var count int
 		var lastSeen time.Time
-		if err := rows.Scan(&r.Message, &r.Count, &lastSeen, &r.ExampleRunID); err != nil {
+		var exampleRunID string
+		if err := rows.Scan(&rawMessage, &count, &lastSeen, &exampleRunID); err != nil {
 			return nil, fmt.Errorf("clickhouse failure reasons scan: %w", err)
 		}
-		r.LastSeen = lastSeen.Format(time.RFC3339)
-		result = append(result, r)
+		reason := safeRunFailureReason(rawMessage)
+		agg, ok := byReason[reason]
+		if !ok {
+			agg = &failureReasonAgg{
+				reason: store.RunFailureReason{
+					Message:      reason,
+					ExampleRunID: exampleRunID,
+				},
+				lastSeen: lastSeen,
+			}
+			byReason[reason] = agg
+			order = append(order, reason)
+		}
+		agg.reason.Count += count
+		if lastSeen.After(agg.lastSeen) || agg.reason.LastSeen == "" {
+			agg.lastSeen = lastSeen
+			agg.reason.LastSeen = lastSeen.Format(time.RFC3339)
+			agg.reason.ExampleRunID = exampleRunID
+		}
 	}
+	result := make([]store.RunFailureReason, 0, len(order))
+	for _, reason := range order {
+		result = append(result, byReason[reason].reason)
+	}
+	sort.SliceStable(result, func(i, j int) bool {
+		return result[i].Count > result[j].Count
+	})
 	return result, rows.Err()
+}
+
+func safeRunFailureReason(message string) string {
+	normalized := strings.ToLower(strings.TrimSpace(message))
+	if normalized == "" {
+		return "unknown_error"
+	}
+	switch {
+	case strings.Contains(normalized, "timeout") || strings.Contains(normalized, "deadline exceeded"):
+		return "timeout"
+	case strings.Contains(normalized, "context canceled") || strings.Contains(normalized, "context cancelled"):
+		return "canceled"
+	case strings.Contains(normalized, "rate limit") || strings.Contains(normalized, "too many requests") || strings.Contains(normalized, "status 429"):
+		return "rate_limited"
+	case strings.Contains(normalized, "dns") ||
+		strings.Contains(normalized, "no such host") ||
+		strings.Contains(normalized, "connection refused") ||
+		strings.Contains(normalized, "connection reset") ||
+		strings.Contains(normalized, "network"):
+		return "network_error"
+	case strings.Contains(normalized, "status 4") || strings.Contains(normalized, "http 4"):
+		return "http_client_error"
+	case strings.Contains(normalized, "status 5") || strings.Contains(normalized, "http 5"):
+		return "http_server_error"
+	case strings.Contains(normalized, "panic"):
+		return "panic"
+	case strings.Contains(normalized, "invalid") || strings.Contains(normalized, "validation"):
+		return "validation_error"
+	default:
+		return "application_error"
+	}
 }
 
 // GetRunSummary returns aggregate run statistics.
@@ -1091,7 +1097,7 @@ func (s *AnalyticsStore) GetWorkflowSummary(ctx context.Context, projectID strin
 // GetWebhookDeliveryStats returns delivery stats per webhook URL.
 func (s *AnalyticsStore) GetWebhookDeliveryStats(ctx context.Context, projectID string, from, to time.Time) ([]store.WebhookEndpointStats, error) {
 	query := `
-		SELECT webhook_url,
+		SELECT webhook_host,
 			count() AS total,
 			countIf(status = 'delivered') AS delivered,
 			countIf(status = 'failed') AS failed,
@@ -1100,7 +1106,7 @@ func (s *AnalyticsStore) GetWebhookDeliveryStats(ctx context.Context, projectID 
 			coalesce(quantile(0.95)(duration_ms), 0) AS p95_latency_ms
 		FROM webhook_delivery_events
 		WHERE project_id = ? AND created_at >= ? AND created_at < ?
-		GROUP BY webhook_url
+		GROUP BY webhook_host
 		ORDER BY total DESC`
 
 	rows, err := s.client.Query(ctx, query, projectID, from, to)
@@ -1115,6 +1121,7 @@ func (s *AnalyticsStore) GetWebhookDeliveryStats(ctx context.Context, projectID 
 		if err := rows.Scan(&s.URL, &s.Total, &s.Delivered, &s.Failed, &s.Dead, &s.AvgLatencyMs, &s.P95LatencyMs); err != nil {
 			return nil, fmt.Errorf("clickhouse webhook delivery stats scan: %w", err)
 		}
+		s.URL = redactWebhookAnalyticsURL(s.URL)
 		result = append(result, s)
 	}
 	return result, rows.Err()
@@ -1128,7 +1135,7 @@ func (s *AnalyticsStore) GetWebhookEndpointHealth(ctx context.Context, projectID
 	}
 
 	query := fmt.Sprintf(`
-		SELECT webhook_url,
+		SELECT webhook_host,
 			%s(created_at) AS period,
 			CASE WHEN count() > 0
 				THEN countIf(status = 'delivered') / count()
@@ -1137,8 +1144,8 @@ func (s *AnalyticsStore) GetWebhookEndpointHealth(ctx context.Context, projectID
 			coalesce(avg(duration_ms), 0) AS avg_latency_ms
 		FROM webhook_delivery_events
 		WHERE project_id = ? AND created_at >= ? AND created_at < ?
-		GROUP BY webhook_url, period
-		ORDER BY webhook_url, period`, truncFn)
+		GROUP BY webhook_host, period
+		ORDER BY webhook_host, period`, truncFn)
 
 	rows, err := s.client.Query(ctx, query, projectID, from, to)
 	if err != nil {
@@ -1153,6 +1160,7 @@ func (s *AnalyticsStore) GetWebhookEndpointHealth(ctx context.Context, projectID
 		if err := rows.Scan(&b.URL, &period, &b.SuccessRate, &b.AvgLatencyMs); err != nil {
 			return nil, fmt.Errorf("clickhouse webhook endpoint health scan: %w", err)
 		}
+		b.URL = redactWebhookAnalyticsURL(b.URL)
 		b.Period = period.Format(time.RFC3339)
 		result = append(result, b)
 	}
@@ -1162,7 +1170,7 @@ func (s *AnalyticsStore) GetWebhookEndpointHealth(ctx context.Context, projectID
 // GetTopFailingWebhooks ranks webhook endpoints by failure count.
 func (s *AnalyticsStore) GetTopFailingWebhooks(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TopFailingEndpoint, error) {
 	query := `
-		SELECT webhook_url,
+		SELECT webhook_host,
 			countIf(status = 'failed') AS failed,
 			count() AS total,
 			CASE WHEN count() > 0
@@ -1172,7 +1180,7 @@ func (s *AnalyticsStore) GetTopFailingWebhooks(ctx context.Context, projectID st
 			'' AS last_error
 		FROM webhook_delivery_events
 		WHERE project_id = ? AND created_at >= ? AND created_at < ?
-		GROUP BY webhook_url
+		GROUP BY webhook_host
 		HAVING countIf(status = 'failed') > 0
 		ORDER BY failed DESC
 		LIMIT ?`
@@ -1189,9 +1197,14 @@ func (s *AnalyticsStore) GetTopFailingWebhooks(ctx context.Context, projectID st
 		if err := rows.Scan(&e.URL, &e.Failed, &e.Total, &e.FailureRate, &e.LastError); err != nil {
 			return nil, fmt.Errorf("clickhouse top failing webhooks scan: %w", err)
 		}
+		e.URL = redactWebhookAnalyticsURL(e.URL)
 		result = append(result, e)
 	}
 	return result, rows.Err()
+}
+
+func redactWebhookAnalyticsURL(rawURL string) string {
+	return httputil.RedactURLForLog(rawURL)
 }
 
 // Event Analytics.
@@ -1331,33 +1344,4 @@ func (s *AnalyticsStore) GetCostByTrigger(ctx context.Context, projectID string,
 		}
 	}
 	return result, nil
-}
-
-// GetCostByMachine groups cost by machine preset.
-func (s *AnalyticsStore) GetCostByMachine(ctx context.Context, projectID string, from, to time.Time) ([]store.CostByMachine, error) {
-	query := `
-		SELECT machine_preset,
-			coalesce(sum(cost_microusd), 0) AS cost,
-			coalesce(sum(duration_secs), 0) AS duration_secs,
-			count() AS run_count
-		FROM compute_usage
-		WHERE project_id = ? AND started_at >= ? AND started_at < ?
-		GROUP BY machine_preset
-		ORDER BY cost DESC`
-
-	rows, err := s.client.Query(ctx, query, projectID, from, to)
-	if err != nil {
-		return nil, fmt.Errorf("clickhouse cost by machine: %w", err)
-	}
-	defer rows.Close()
-
-	result := make([]store.CostByMachine, 0)
-	for rows.Next() {
-		var c store.CostByMachine
-		if err := rows.Scan(&c.Preset, &c.Cost, &c.DurationSecs, &c.RunCount); err != nil {
-			return nil, fmt.Errorf("clickhouse cost by machine scan: %w", err)
-		}
-		result = append(result, c)
-	}
-	return result, rows.Err()
 }

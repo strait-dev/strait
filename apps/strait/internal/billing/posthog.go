@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 // PostHogClient sends server-side events to PostHog's capture API.
@@ -95,11 +97,12 @@ func (c *PostHogClient) CaptureAsync(distinctID, event string, properties map[st
 	if c == nil {
 		return
 	}
-	go func() {
+	var wg conc.WaitGroup
+	wg.Go(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		c.Capture(ctx, distinctID, event, properties)
-	}()
+	})
 }
 
 // CaptureRevenueEvent is a convenience method for revenue-related events.

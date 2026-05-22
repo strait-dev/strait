@@ -12,7 +12,7 @@ func TestGetEventTriggerStats_Empty(t *testing.T) {
 	q := mustStore(t)
 	mustClean(t, ctx)
 
-	stats, err := q.GetEventTriggerStats(ctx, "project-event-trigger-stats-empty")
+	stats, err := q.GetEventTriggerStats(ctx, "project-event-trigger-stats-empty", "")
 	if err != nil {
 		t.Fatalf("GetEventTriggerStats() error = %v", err)
 	}

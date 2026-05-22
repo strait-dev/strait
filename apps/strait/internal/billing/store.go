@@ -5,6 +5,15 @@ import (
 	"time"
 )
 
+// SubscriptionAddOns captures per-org optional add-on quantities.
+// Each field holds the number of purchased packs of that add-on type.
+// The zero value means no add-ons purchased.
+type SubscriptionAddOns struct {
+	RetentionPack     int `json:"retention_pack"`
+	PrioritySlotPack  int `json:"priority_slot_pack"`
+	WorkerConnections int `json:"worker_connections"`
+}
+
 // OrgSubscription represents an organization's subscription state.
 type OrgSubscription struct {
 	ID                         string
@@ -12,6 +21,7 @@ type OrgSubscription struct {
 	PlanTier                   string
 	StripeSubscriptionID       *string
 	StripeCustomerID           *string
+	StripeLookupKey            *string
 	Status                     string
 	CurrentPeriodStart         *time.Time
 	CurrentPeriodEnd           *time.Time
@@ -27,8 +37,44 @@ type OrgSubscription struct {
 	OverrideConcurrentRunLimit *int
 	EnforcementMode            string // "enforce" (default), "warn", "disabled"
 	MonthlyUsageEmail          bool   // opt-in for monthly PDF usage report emails
-	CreatedAt                  time.Time
-	UpdatedAt                  time.Time
+	AddOns                     SubscriptionAddOns
+	// Entitlements holds the raw JSONB snapshot from
+	// organization_subscriptions.entitlements. When non-empty (and != "{}")
+	// it represents the authoritative resolved plan limits as of the most
+	// recent mutator. The Enforcer reads this directly on the hot path
+	// (Phase 3.5); callers that need the typed value should use
+	// ComputeEntitlements over (sub, addons) instead.
+	Entitlements []byte
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+// BillingCapEvent identifies a per-period spend-cap webhook event. The string
+// returned by Column is the organization_subscriptions column that records
+// when the corresponding event was last dispatched in the current period.
+// Restricting the enum to these four values keeps the SQL safe from caller-
+// controlled column names without per-call validation.
+type BillingCapEvent int
+
+const (
+	BillingCapEventWarning BillingCapEvent = iota
+	BillingCapEventReached
+	BillingCapEventDisabled
+	BillingCapEventOverageDisabled
+)
+
+func (e BillingCapEvent) Column() string {
+	switch e {
+	case BillingCapEventWarning:
+		return "cap_warning_dispatched_at"
+	case BillingCapEventReached:
+		return "cap_reached_dispatched_at"
+	case BillingCapEventDisabled:
+		return "cap_disabled_dispatched_at"
+	case BillingCapEventOverageDisabled:
+		return "overage_disabled_dispatched_at"
+	}
+	return ""
 }
 
 // UsageRecord represents a daily usage aggregate per org and project.
@@ -50,8 +96,11 @@ type Store interface {
 	// Organization subscriptions
 	EnsureOrgSubscription(ctx context.Context, orgID string) error
 	GetOrgSubscription(ctx context.Context, orgID string) (*OrgSubscription, error)
+	GetOrgSubscriptionByStripeSubscriptionID(ctx context.Context, stripeSubscriptionID string) (*OrgSubscription, error)
+	GetOrgSubscriptionByStripeCustomerID(ctx context.Context, stripeCustomerID string) (*OrgSubscription, error)
 	UpsertOrgSubscription(ctx context.Context, sub *OrgSubscription) error
 	UpdateOrgSubscriptionPlan(ctx context.Context, orgID, planTier, status string) error
+	UpdateOrgSubscriptionStatus(ctx context.Context, orgID, status string) error
 	UpdateOrgSubscriptionFull(ctx context.Context, orgID, planTier, status string, periodStart, periodEnd *time.Time) error
 	UpdateSpendingLimit(ctx context.Context, orgID string, limitMicrousd int64, action string) error
 	SetPendingPlanTier(ctx context.Context, orgID, tier string) error
@@ -59,6 +108,7 @@ type Store interface {
 	ClearPendingPlanTier(ctx context.Context, orgID string) error
 	ApplyPendingDowngrade(ctx context.Context, orgID string) error
 	ListOrgsWithPendingDowngrade(ctx context.Context) ([]OrgSubscription, error)
+	UpdateEntitlements(ctx context.Context, orgID string, entitlements OrgPlanLimits) error
 
 	// Project-org mapping
 	GetProjectOrgID(ctx context.Context, projectID string) (string, error)
@@ -86,6 +136,13 @@ type Store interface {
 
 	// Anomaly thresholds
 	UpdateAnomalyThresholds(ctx context.Context, orgID string, warning, critical float64) error
+
+	// TryMarkBillingCapEvent atomically stamps the cap-event dispatched-at
+	// column to NOW() when it is NULL. Returns true when the caller is the
+	// first dispatcher in the current period; false when a prior caller
+	// already marked the column. The dedup column is reset to NULL on
+	// current_period_start rollover by UpsertOrgSubscription.
+	TryMarkBillingCapEvent(ctx context.Context, orgID string, ev BillingCapEvent) (bool, error)
 
 	// Grace period
 	UpdatePaymentStatus(ctx context.Context, orgID string, status string, graceEnd *time.Time) error
@@ -130,7 +187,7 @@ type Store interface {
 	ListExpiringContracts(ctx context.Context, withinDays int) ([]EnterpriseContract, error)
 
 	// HTTP-mode job lifecycle (downgrade auto-pause / upgrade auto-unpause)
-	PauseHTTPJobsByOrg(ctx context.Context, orgID, reason string) (int64, error)
+	PauseHTTPJobsByOrg(ctx context.Context, orgID, reason string) ([]string, error)
 	UnpauseJobsByPauseReason(ctx context.Context, orgID, reason string) (int64, error)
 	CountHTTPJobsByOrg(ctx context.Context, orgID string) (int, error)
 }

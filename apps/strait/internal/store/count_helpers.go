@@ -8,21 +8,23 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-// CountCronJobsByOrg counts jobs with a non-empty cron expression across all
-// projects belonging to the given org.
+// CountCronJobsByOrg counts scheduled jobs and workflows with a non-empty cron
+// expression across all projects belonging to the given org.
 func (q *Queries) CountCronJobsByOrg(ctx context.Context, orgID string) (int, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountCronJobsByOrg")
 	defer span.End()
 
 	var count int
 	err := q.db.QueryRow(ctx, `
-		SELECT COUNT(*)
-		FROM jobs
-		WHERE project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
-		  AND cron IS NOT NULL AND cron != ''
+		WITH active_projects AS (
+			SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL
+		)
+		SELECT
+			(SELECT COUNT(*) FROM jobs WHERE project_id IN (SELECT id FROM active_projects) AND cron IS NOT NULL AND cron != '') +
+			(SELECT COUNT(*) FROM workflows WHERE project_id IN (SELECT id FROM active_projects) AND cron IS NOT NULL AND cron != '')
 	`, orgID).Scan(&count)
 	if err != nil {
-		return 0, fmt.Errorf("count cron jobs by org: %w", err)
+		return 0, fmt.Errorf("count cron schedules by org: %w", err)
 	}
 	return count, nil
 }
@@ -115,7 +117,7 @@ func (q *Queries) DeleteWorkflowRunsByOrgOlderThan(ctx context.Context, orgID st
 			SELECT wr.id FROM workflow_runs wr
 			JOIN workflows w ON wr.workflow_id = w.id
 			WHERE w.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
-			  AND wr.status IN ('completed', 'failed', 'canceled', 'timed_out')
+			  AND wr.status IN ('completed', 'failed', 'timed_out', 'canceled', 'compensated', 'compensation_failed')
 			  AND wr.finished_at IS NOT NULL
 			  AND wr.finished_at < $2
 			LIMIT 1000
@@ -140,6 +142,7 @@ func (q *Queries) DeactivateExcessEnvironments(ctx context.Context, orgID string
 		WHERE id IN (
 			SELECT e.id FROM environments e
 			WHERE e.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
+			  AND e.is_standard = false
 			ORDER BY e.created_at DESC
 			OFFSET $2
 		)
@@ -150,26 +153,65 @@ func (q *Queries) DeactivateExcessEnvironments(ctx context.Context, orgID string
 	return result.RowsAffected(), nil
 }
 
-// DeactivateExcessCronJobs disables cron jobs beyond the given limit for an org.
-// Keeps the most recently updated jobs and clears the cron field on the oldest excess ones.
-func (q *Queries) DeactivateExcessCronJobs(ctx context.Context, orgID string, maxSchedules int) (int64, error) {
+// DeactivateExcessCronJobs disables cron jobs and workflows beyond the given
+// shared schedule limit for an org. Keeps the most recently updated schedules
+// and clears the cron field on the oldest excess ones. Returns the IDs whose
+// cron was cleared.
+func (q *Queries) DeactivateExcessCronJobs(ctx context.Context, orgID string, maxSchedules int) ([]string, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeactivateExcessCronJobs")
 	defer span.End()
 
-	result, err := q.db.Exec(ctx, `
-		UPDATE jobs SET cron = '', updated_at = NOW()
-		WHERE id IN (
-			SELECT j.id FROM jobs j
-			WHERE j.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
+	rows, err := q.db.Query(ctx, `
+		WITH active_projects AS (
+			SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL
+		),
+		ranked_schedules AS (
+			SELECT 'job' AS kind, j.id, j.updated_at
+			FROM jobs j
+			WHERE j.project_id IN (SELECT id FROM active_projects)
 			  AND j.cron IS NOT NULL AND j.cron != ''
-			ORDER BY j.updated_at DESC
+			UNION ALL
+			SELECT 'workflow' AS kind, w.id, w.updated_at
+			FROM workflows w
+			WHERE w.project_id IN (SELECT id FROM active_projects)
+			  AND w.cron IS NOT NULL AND w.cron != ''
+		),
+		excess_schedules AS (
+			SELECT kind, id
+			FROM ranked_schedules
+			ORDER BY updated_at DESC, id DESC
 			OFFSET $2
+		),
+		disabled_jobs AS (
+			UPDATE jobs SET cron = '', updated_at = NOW()
+			WHERE id IN (SELECT id FROM excess_schedules WHERE kind = 'job')
+			RETURNING id
+		),
+		disabled_workflows AS (
+			UPDATE workflows SET cron = '', updated_at = NOW()
+			WHERE id IN (SELECT id FROM excess_schedules WHERE kind = 'workflow')
+			RETURNING id
 		)
+		SELECT id FROM disabled_jobs
+		UNION ALL
+		SELECT id FROM disabled_workflows
 	`, orgID, maxSchedules)
 	if err != nil {
-		return 0, fmt.Errorf("deactivate excess cron jobs: %w", err)
+		return nil, fmt.Errorf("deactivate excess cron schedules: %w", err)
 	}
-	return result.RowsAffected(), nil
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if scanErr := rows.Scan(&id); scanErr != nil {
+			return nil, fmt.Errorf("scan deactivated cron schedule id: %w", scanErr)
+		}
+		ids = append(ids, id)
+	}
+	if rowsErr := rows.Err(); rowsErr != nil {
+		return nil, fmt.Errorf("iterating deactivated cron schedules: %w", rowsErr)
+	}
+	return ids, nil
 }
 
 // DeactivateExcessWebhookSubscriptions deactivates webhook subscriptions beyond
@@ -184,7 +226,7 @@ func (q *Queries) DeactivateExcessWebhookSubscriptions(ctx context.Context, orgI
 			SELECT ws.id FROM webhook_subscriptions ws
 			WHERE ws.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
 			  AND ws.active = true
-			ORDER BY ws.created_at ASC
+			ORDER BY ws.created_at DESC, ws.id DESC
 			OFFSET $2
 		)
 	`, orgID, maxEndpoints)
@@ -199,17 +241,86 @@ func (q *Queries) CountWebhookSubscriptionsByOrg(ctx context.Context, orgID stri
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountWebhookSubscriptionsByOrg")
 	defer span.End()
 
+	return q.countWebhookSubscriptionsByOrgIgnoringProjectRLS(ctx, orgID)
+}
+
+// CountLogDrainsByOrg counts log drains across all active projects in an org.
+func (q *Queries) CountLogDrainsByOrg(ctx context.Context, orgID string) (int, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountLogDrainsByOrg")
+	defer span.End()
+
 	var count int
 	err := q.db.QueryRow(ctx, `
 		SELECT COUNT(*)
-		FROM webhook_subscriptions ws
-		WHERE ws.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
-		  AND ws.active = true
+		FROM log_drains
+		WHERE project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
 	`, orgID).Scan(&count)
 	if err != nil {
-		return 0, fmt.Errorf("count webhook subscriptions by org: %w", err)
+		return 0, fmt.Errorf("count log drains by org: %w", err)
 	}
 	return count, nil
+}
+
+// CountNotificationChannelsByProject counts notification channels for a project.
+func (q *Queries) CountNotificationChannelsByProject(ctx context.Context, projectID string) (int, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountNotificationChannelsByProject")
+	defer span.End()
+
+	var count int
+	err := q.db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM notification_channels
+		WHERE project_id = $1
+	`, projectID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count notification channels by project: %w", err)
+	}
+	return count, nil
+}
+
+// DeactivateExcessLogDrains disables log drains beyond the given org-wide limit.
+// Keeps the most recently created drains and disables the oldest excess ones.
+func (q *Queries) DeactivateExcessLogDrains(ctx context.Context, orgID string, maxDrains int) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeactivateExcessLogDrains")
+	defer span.End()
+
+	result, err := q.db.Exec(ctx, `
+		UPDATE log_drains SET enabled = false, updated_at = NOW()
+		WHERE id IN (
+			SELECT ld.id FROM log_drains ld
+			WHERE ld.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
+			  AND ld.enabled = true
+			ORDER BY ld.created_at DESC, ld.id DESC
+			OFFSET $2
+		)
+	`, orgID, maxDrains)
+	if err != nil {
+		return 0, fmt.Errorf("deactivate excess log drains: %w", err)
+	}
+	return result.RowsAffected(), nil
+}
+
+// DeactivateExcessNotificationChannelsByProject disables notification channels
+// beyond the per-project limit. Keeps the most recently created channels and
+// disables the oldest excess ones.
+func (q *Queries) DeactivateExcessNotificationChannelsByProject(ctx context.Context, projectID string, maxChannels int) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeactivateExcessNotificationChannelsByProject")
+	defer span.End()
+
+	result, err := q.db.Exec(ctx, `
+		UPDATE notification_channels SET enabled = false, updated_at = NOW()
+		WHERE id IN (
+			SELECT nc.id FROM notification_channels nc
+			WHERE nc.project_id = $1
+			  AND nc.enabled = true
+			ORDER BY nc.created_at DESC, nc.id DESC
+			OFFSET $2
+		)
+	`, projectID, maxChannels)
+	if err != nil {
+		return 0, fmt.Errorf("deactivate excess notification channels: %w", err)
+	}
+	return result.RowsAffected(), nil
 }
 
 // CountWebhookSubscriptionsByProject counts webhook subscriptions for a project.

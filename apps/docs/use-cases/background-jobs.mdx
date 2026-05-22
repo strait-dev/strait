@@ -1,0 +1,47 @@
+---
+title: "Run Background Jobs"
+description: "Move slow or unreliable work out of the request path."
+icon: "briefcase"
+---
+
+Use Strait for work that should happen outside a user request but still needs a clear result.
+
+Common examples include emails, imports, exports, reports, cache warming, cleanup, and calls to slow third-party APIs.
+
+## What Strait Handles
+
+- Queuing work until a worker can run it.
+- Retrying temporary failures.
+- Timing out stuck work.
+- Recording attempts, payloads, results, and errors.
+- Moving exhausted failures to `dead_letter` for review.
+
+Your application still owns the job code. Strait decides when it runs and records what happened.
+
+## Recommended Setup
+
+Start with an HTTP job if your application already has an endpoint Strait can call.
+
+Use worker mode if the job must stay inside a private network.
+
+For most production jobs, configure:
+
+```json
+{
+  "timeout_secs": 60,
+  "max_attempts": 5,
+  "retry_strategy": "exponential",
+  "max_concurrency": 10,
+  "poison_pill_threshold": 3
+}
+```
+
+Add an idempotency key when the same business action may be triggered more than once.
+
+## Read Next
+
+- [Quick Start](/quickstart)
+- [Create a Production Job](/guides/production-job)
+- [Jobs](/concepts/jobs)
+- [Runs](/concepts/runs)
+- [Idempotency](/guides/idempotency)

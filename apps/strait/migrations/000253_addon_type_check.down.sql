@@ -1,0 +1,1 @@
+ALTER TABLE organization_addons DROP CONSTRAINT IF EXISTS organization_addons_addon_type_check;

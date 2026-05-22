@@ -162,6 +162,9 @@ func TestHandleUpdateRole(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{}
+	ms.GetProjectRoleFunc = func(_ context.Context, id string) (*domain.ProjectRole, error) {
+		return &domain.ProjectRole{ID: id, Name: "deployer", Permissions: []string{"jobs:read"}}, nil
+	}
 	ms.UpdateProjectRoleFunc = func(_ context.Context, role *domain.ProjectRole) error {
 		return nil
 	}
@@ -181,6 +184,9 @@ func TestHandleUpdateRole_NotFound(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{}
+	ms.GetProjectRoleFunc = func(_ context.Context, _ string) (*domain.ProjectRole, error) {
+		return nil, store.ErrRoleNotFound
+	}
 	ms.UpdateProjectRoleFunc = func(_ context.Context, _ *domain.ProjectRole) error {
 		return store.ErrRoleNotFound
 	}
@@ -360,6 +366,139 @@ func TestHandleAssignMember_InvalidatesCache(t *testing.T) {
 	_, ok := srv.permCache.Get("", "user-reassign")
 	if ok {
 		t.Fatal("expected cache miss after assign — should be invalidated")
+	}
+}
+
+func TestHandleUpdateRole_InvalidatesAssignedAndInheritedPermissionCache(t *testing.T) {
+	projectID := "proj-1"
+	roleID := "role-parent"
+	childRoleID := "role-child"
+	otherRoleID := "role-other"
+
+	getRoleCalls := 0
+	ms := &APIStoreMock{}
+	ms.GetProjectRoleFunc = func(_ context.Context, id string) (*domain.ProjectRole, error) {
+		getRoleCalls++
+		if id != roleID {
+			return nil, store.ErrRoleNotFound
+		}
+		if getRoleCalls == 1 {
+			return &domain.ProjectRole{ID: roleID, ProjectID: projectID, Name: "operator", Permissions: []string{domain.ScopeJobsRead}}, nil
+		}
+		return &domain.ProjectRole{ID: roleID, ProjectID: projectID, Name: "operator", Permissions: []string{domain.ScopeJobsWrite}}, nil
+	}
+	ms.ListProjectRolesFunc = func(_ context.Context, gotProjectID string, _ int, _ *time.Time) ([]domain.ProjectRole, error) {
+		if gotProjectID != projectID {
+			t.Fatalf("ListProjectRoles project = %q, want %q", gotProjectID, projectID)
+		}
+		return []domain.ProjectRole{
+			{ID: roleID, ProjectID: projectID},
+			{ID: childRoleID, ProjectID: projectID, ParentRoleID: roleID},
+			{ID: otherRoleID, ProjectID: projectID},
+		}, nil
+	}
+	ms.ListProjectMembersFunc = func(_ context.Context, gotProjectID string, _ int, _ *time.Time) ([]domain.ProjectMemberRole, error) {
+		if gotProjectID != projectID {
+			t.Fatalf("ListProjectMembers project = %q, want %q", gotProjectID, projectID)
+		}
+		return []domain.ProjectMemberRole{
+			{ProjectID: projectID, UserID: "user-direct", RoleID: roleID},
+			{ProjectID: projectID, UserID: "user-child", RoleID: childRoleID},
+			{ProjectID: projectID, UserID: "user-other", RoleID: otherRoleID},
+		}, nil
+	}
+	ms.UpdateProjectRoleFunc = func(_ context.Context, role *domain.ProjectRole) error {
+		if role.ID != roleID {
+			t.Fatalf("UpdateProjectRole ID = %q, want %q", role.ID, roleID)
+		}
+		return nil
+	}
+	srv := newTestServer(t, ms, nil, nil)
+	srv.permCache.Set(projectID, "user-direct", []string{domain.ScopeJobsRead})
+	srv.permCache.Set(projectID, "user-child", []string{domain.ScopeJobsRead})
+	srv.permCache.Set(projectID, "user-other", []string{domain.ScopeJobsRead})
+
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, projectID)
+	_, err := srv.handleUpdateRole(ctx, &UpdateRoleInput{
+		RoleID: roleID,
+		Body: updateRoleRequest{
+			Name:        "operator",
+			Permissions: []string{domain.ScopeJobsWrite},
+		},
+	})
+	if err != nil {
+		t.Fatalf("handleUpdateRole: %v", err)
+	}
+
+	if _, ok := srv.permCache.Get(projectID, "user-direct"); ok {
+		t.Fatal("direct assignee cache remained after role update")
+	}
+	if _, ok := srv.permCache.Get(projectID, "user-child"); ok {
+		t.Fatal("child role assignee cache remained after parent role update")
+	}
+	if _, ok := srv.permCache.Get(projectID, "user-other"); !ok {
+		t.Fatal("unrelated role assignee cache was invalidated")
+	}
+}
+
+func TestHandleDeleteRole_InvalidatesAssignedAndInheritedPermissionCache(t *testing.T) {
+	projectID := "proj-1"
+	roleID := "role-parent"
+	childRoleID := "role-child"
+	otherRoleID := "role-other"
+
+	ms := &APIStoreMock{}
+	ms.GetProjectRoleFunc = func(_ context.Context, id string) (*domain.ProjectRole, error) {
+		if id != roleID {
+			return nil, store.ErrRoleNotFound
+		}
+		return &domain.ProjectRole{ID: roleID, ProjectID: projectID, Name: "operator", Permissions: []string{domain.ScopeJobsRead}}, nil
+	}
+	ms.ListProjectRolesFunc = func(_ context.Context, gotProjectID string, _ int, _ *time.Time) ([]domain.ProjectRole, error) {
+		if gotProjectID != projectID {
+			t.Fatalf("ListProjectRoles project = %q, want %q", gotProjectID, projectID)
+		}
+		return []domain.ProjectRole{
+			{ID: roleID, ProjectID: projectID},
+			{ID: childRoleID, ProjectID: projectID, ParentRoleID: roleID},
+			{ID: otherRoleID, ProjectID: projectID},
+		}, nil
+	}
+	ms.ListProjectMembersFunc = func(_ context.Context, gotProjectID string, _ int, _ *time.Time) ([]domain.ProjectMemberRole, error) {
+		if gotProjectID != projectID {
+			t.Fatalf("ListProjectMembers project = %q, want %q", gotProjectID, projectID)
+		}
+		return []domain.ProjectMemberRole{
+			{ProjectID: projectID, UserID: "user-direct", RoleID: roleID},
+			{ProjectID: projectID, UserID: "user-child", RoleID: childRoleID},
+			{ProjectID: projectID, UserID: "user-other", RoleID: otherRoleID},
+		}, nil
+	}
+	ms.DeleteProjectRoleFunc = func(_ context.Context, id string) error {
+		if id != roleID {
+			t.Fatalf("DeleteProjectRole ID = %q, want %q", id, roleID)
+		}
+		return nil
+	}
+	srv := newTestServer(t, ms, nil, nil)
+	srv.permCache.Set(projectID, "user-direct", []string{domain.ScopeJobsRead})
+	srv.permCache.Set(projectID, "user-child", []string{domain.ScopeJobsRead})
+	srv.permCache.Set(projectID, "user-other", []string{domain.ScopeJobsRead})
+
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, projectID)
+	_, err := srv.handleDeleteRole(ctx, &DeleteRoleInput{RoleID: roleID})
+	if err != nil {
+		t.Fatalf("handleDeleteRole: %v", err)
+	}
+
+	if _, ok := srv.permCache.Get(projectID, "user-direct"); ok {
+		t.Fatal("direct assignee cache remained after role delete")
+	}
+	if _, ok := srv.permCache.Get(projectID, "user-child"); ok {
+		t.Fatal("child role assignee cache remained after parent role delete")
+	}
+	if _, ok := srv.permCache.Get(projectID, "user-other"); !ok {
+		t.Fatal("unrelated role assignee cache was invalidated")
 	}
 }
 
@@ -598,6 +737,9 @@ func TestHandleUpdateRole_StoreError(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{}
+	ms.GetProjectRoleFunc = func(_ context.Context, _ string) (*domain.ProjectRole, error) {
+		return &domain.ProjectRole{ID: "role_1", ProjectID: "proj-1", Name: "x", Permissions: []string{domain.ScopeJobsRead}}, nil
+	}
 	ms.UpdateProjectRoleFunc = func(_ context.Context, _ *domain.ProjectRole) error {
 		return fmt.Errorf("db error")
 	}

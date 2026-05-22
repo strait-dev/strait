@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"strait/internal/domain"
 )
@@ -53,6 +54,12 @@ func TestSLOHandler_TerminalRun_InsertsEvaluation(t *testing.T) {
 	}
 	if store.evaluations[0].SLOID != "slo-1" {
 		t.Errorf("expected slo_id=slo-1, got %s", store.evaluations[0].SLOID)
+	}
+	if store.evaluations[0].ID == "" {
+		t.Fatal("expected evaluation id to be set")
+	}
+	if store.evaluations[0].EvaluatedAt.IsZero() {
+		t.Fatal("expected evaluated_at to be set")
 	}
 	if store.evaluations[0].CurrentValue != 1.0 {
 		t.Errorf("expected current_value=1.0 for completed, got %f", store.evaluations[0].CurrentValue)
@@ -118,7 +125,115 @@ func TestSLOHandler_MultipleSLOs_AllEvaluated(t *testing.T) {
 	}
 }
 
-func TestSLOHandler_StoreError_Resilient(t *testing.T) {
+func TestSLOHandler_DoesNotOverwriteExistingSLOEvaluationWithPlaceholder(t *testing.T) {
+	t.Parallel()
+	currentValue := 0.997
+	budgetRemaining := 0.84
+	evaluatedAt := time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC)
+	store := &mockSLOStore{
+		slos: []domain.JobSLOStatus{
+			{
+				JobSLO:          domain.JobSLO{ID: "slo-real", JobID: "job-1"},
+				CurrentValue:    &currentValue,
+				BudgetRemaining: &budgetRemaining,
+				EvaluatedAt:     &evaluatedAt,
+			},
+			{JobSLO: domain.JobSLO{ID: "slo-empty", JobID: "job-1"}},
+		},
+	}
+	h := NewSLOHandler(store, nil)
+
+	if err := h.Handle(context.Background(), cdcUpdateMsg("failed", "p1", "run-1", "job-1")); err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+
+	if len(store.evaluations) != 1 {
+		t.Fatalf("evaluations = %d, want 1", len(store.evaluations))
+	}
+	if store.evaluations[0].SLOID != "slo-empty" {
+		t.Fatalf("inserted SLOID = %q, want slo-empty", store.evaluations[0].SLOID)
+	}
+}
+
+func TestSLOHandler_RedeliveredTerminalUpdateInsertsEvaluationOnce(t *testing.T) {
+	t.Parallel()
+	store := &mockSLOStore{
+		slos: []domain.JobSLOStatus{
+			{JobSLO: domain.JobSLO{ID: "slo-1", JobID: "job-1"}},
+		},
+	}
+	h := NewSLOHandler(store, nil)
+
+	msg := cdcUpdateMsg("completed", "p1", "run-redelivered", "job-1")
+	msg.Metadata.IdempotencyKey = "wal:job_runs:run-redelivered:completed"
+	if err := h.Handle(context.Background(), msg); err != nil {
+		t.Fatalf("first delivery: %v", err)
+	}
+	msg.AckID = "ack-redelivery"
+	if err := h.Handle(context.Background(), msg); err != nil {
+		t.Fatalf("redelivery: %v", err)
+	}
+
+	if len(store.evaluations) != 1 {
+		t.Fatalf("evaluations = %d, want 1", len(store.evaluations))
+	}
+}
+
+func TestSLOHandler_MultipleTerminalUpdatesForSameRunInsertEvaluationOnce(t *testing.T) {
+	t.Parallel()
+	store := &mockSLOStore{
+		slos: []domain.JobSLOStatus{
+			{JobSLO: domain.JobSLO{ID: "slo-1", JobID: "job-1"}},
+		},
+	}
+	h := NewSLOHandler(store, nil)
+
+	first := cdcUpdateMsg("failed", "p1", "run-terminal", "job-1")
+	first.Metadata.IdempotencyKey = "wal:job_runs:run-terminal:failed"
+	if err := h.Handle(context.Background(), first); err != nil {
+		t.Fatalf("first terminal update: %v", err)
+	}
+	second := cdcUpdateMsg("dead_letter", "p1", "run-terminal", "job-1")
+	second.Metadata.IdempotencyKey = "wal:job_runs:run-terminal:dead-letter"
+	if err := h.Handle(context.Background(), second); err != nil {
+		t.Fatalf("second terminal update: %v", err)
+	}
+
+	if len(store.evaluations) != 1 {
+		t.Fatalf("evaluations = %d, want 1", len(store.evaluations))
+	}
+}
+
+func TestSLOHandler_InsertErrorDoesNotConsumeRedeliveryDedupe(t *testing.T) {
+	t.Parallel()
+	store := &mockSLOStore{
+		slos: []domain.JobSLOStatus{
+			{JobSLO: domain.JobSLO{ID: "slo-1", JobID: "job-1"}},
+		},
+		evalErr: errors.New("temporary insert failure"),
+	}
+	h := NewSLOHandler(store, nil)
+
+	msg := cdcUpdateMsg("completed", "p1", "run-retry", "job-1")
+	msg.Metadata.IdempotencyKey = "wal:job_runs:run-retry:completed"
+	if err := h.Handle(context.Background(), msg); err == nil {
+		t.Fatal("first delivery error = nil, want insert failure")
+	}
+
+	store.mu.Lock()
+	store.evalErr = nil
+	store.mu.Unlock()
+	msg.AckID = "ack-redelivery"
+	if err := h.Handle(context.Background(), msg); err != nil {
+		t.Fatalf("redelivery after insert recovery: %v", err)
+	}
+
+	if len(store.evaluations) != 1 {
+		t.Fatalf("evaluations = %d, want 1", len(store.evaluations))
+	}
+}
+
+func TestDeepSecSLOHandler_StoreErrorReturnsForRetry(t *testing.T) {
 	t.Parallel()
 	store := &mockSLOStore{
 		slosErr: errors.New("db connection failed"),
@@ -126,8 +241,8 @@ func TestSLOHandler_StoreError_Resilient(t *testing.T) {
 	h := NewSLOHandler(store, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
-	if err != nil {
-		t.Fatalf("expected nil error on store failure, got: %v", err)
+	if err == nil {
+		t.Fatal("expected error on store failure")
 	}
 }
 
@@ -147,7 +262,7 @@ func TestSLOHandler_InvalidJSON(t *testing.T) {
 	}
 }
 
-func TestSLOHandler_InsertEvaluationError_Resilient(t *testing.T) {
+func TestDeepSecSLOHandler_InsertEvaluationErrorReturnsForRetry(t *testing.T) {
 	t.Parallel()
 	store := &mockSLOStore{
 		slos: []domain.JobSLOStatus{
@@ -159,8 +274,8 @@ func TestSLOHandler_InsertEvaluationError_Resilient(t *testing.T) {
 	h := NewSLOHandler(store, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
-	if err != nil {
-		t.Fatalf("expected nil error on insert failure, got: %v", err)
+	if err == nil {
+		t.Fatal("expected error on insert failure")
 	}
 }
 
@@ -203,5 +318,47 @@ func TestSLOHandler_CanceledStatus(t *testing.T) {
 	}
 	if store.evaluations[0].CurrentValue != 0.0 {
 		t.Errorf("expected current_value=0.0 for canceled, got %f", store.evaluations[0].CurrentValue)
+	}
+}
+
+func TestDeepSecSLOHandler_TerminalFailureStatesEvaluateAsFailures(t *testing.T) {
+	t.Parallel()
+
+	for _, status := range []domain.RunStatus{
+		domain.StatusFailed,
+		domain.StatusTimedOut,
+		domain.StatusCrashed,
+		domain.StatusSystemFailed,
+		domain.StatusCanceled,
+		domain.StatusExpired,
+		domain.StatusDeadLetter,
+	} {
+		t.Run(string(status), func(t *testing.T) {
+			t.Parallel()
+			store := &mockSLOStore{
+				slos: []domain.JobSLOStatus{
+					{JobSLO: domain.JobSLO{ID: "slo-1", JobID: "job-1"}},
+				},
+			}
+			h := NewSLOHandler(store, nil)
+
+			err := h.Handle(context.Background(), cdcUpdateMsg(string(status), "p1", "run-1", "job-1"))
+			if err != nil {
+				t.Fatalf("Handle error = %v", err)
+			}
+			if len(store.evaluations) != 1 {
+				t.Fatalf("evaluations = %d, want 1", len(store.evaluations))
+			}
+			if store.evaluations[0].CurrentValue != 0.0 {
+				t.Fatalf("status %s current value = %f, want 0.0", status, store.evaluations[0].CurrentValue)
+			}
+		})
+	}
+}
+
+func TestDeepSecSLOCurrentValue_FailsClosedForUnknownStatus(t *testing.T) {
+	t.Parallel()
+	if got := sloCurrentValue(domain.RunStatus("future_terminal")); got != 0.0 {
+		t.Fatalf("unknown status current value = %f, want 0.0", got)
 	}
 }

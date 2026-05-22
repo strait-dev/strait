@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/store"
 )
 
 func TestCreateAPIKey(t *testing.T) {
@@ -17,14 +18,14 @@ func TestCreateAPIKey(t *testing.T) {
 
 	expires := time.Now().UTC().Add(24 * time.Hour).Truncate(time.Microsecond)
 	key := &domain.APIKey{
-		ProjectID:  "proj-create-apikey-" + newID(),
-		OrgID:      "org-create-apikey-" + newID(),
-		Name:       "test-key",
-		KeyHash:    "hash-" + newID(),
-		KeyPrefix:  "sk_test_",
-		Scopes:     []string{"jobs:read", "jobs:trigger"},
-		ExpiresAt:  &expires,
-		EnvironmentID: "env-" + newID(),
+		ProjectID:          "proj-create-apikey-" + newID(),
+		OrgID:              "org-create-apikey-" + newID(),
+		Name:               "test-key",
+		KeyHash:            "hash-" + newID(),
+		KeyPrefix:          "sk_test_",
+		Scopes:             []string{"jobs:read", "jobs:trigger"},
+		ExpiresAt:          &expires,
+		EnvironmentID:      "env-" + newID(),
 		RotationWebhookURL: "https://example.com/rotate",
 	}
 
@@ -262,6 +263,67 @@ func TestListAPIKeysByOrg(t *testing.T) {
 	}
 }
 
+func TestListAPIKeysByOrg_CanRunWithClearedProjectRLSContext(t *testing.T) {
+	ctx := context.Background()
+	admin := mustStore(t)
+	mustClean(t, ctx)
+
+	orgID := "org-rls-apikeys-" + newID()
+	key1 := &domain.APIKey{
+		ProjectID: "proj-orgkeys-rls-1-" + newID(),
+		OrgID:     orgID,
+		Name:      "k1",
+		KeyHash:   "hash-" + newID(),
+		KeyPrefix: "sk_1",
+		Scopes:    []string{"api-keys:manage"},
+	}
+	key2 := &domain.APIKey{
+		ProjectID: "proj-orgkeys-rls-2-" + newID(),
+		OrgID:     orgID,
+		Name:      "k2",
+		KeyHash:   "hash-" + newID(),
+		KeyPrefix: "sk_2",
+		Scopes:    []string{"api-keys:manage"},
+	}
+	for _, key := range []*domain.APIKey{key1, key2} {
+		if err := admin.CreateAPIKey(ctx, key); err != nil {
+			t.Fatalf("CreateAPIKey(%s) error = %v", key.Name, err)
+		}
+	}
+
+	tx, err := testDB.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx, "SELECT set_config('app.current_project_id', $1, true)", key1.ProjectID); err != nil {
+		t.Fatalf("set project context: %v", err)
+	}
+	if _, err := tx.Exec(ctx, "SET LOCAL ROLE strait_app"); err != nil {
+		t.Fatalf("set local role strait_app: %v", err)
+	}
+	routed := store.New(tx)
+	projectScoped, err := routed.ListAPIKeysByOrg(ctx, orgID, 100, nil)
+	if err != nil {
+		t.Fatalf("project-scoped ListAPIKeysByOrg() error = %v", err)
+	}
+	if len(projectScoped) != 1 || projectScoped[0].ProjectID != key1.ProjectID {
+		t.Fatalf("project-scoped keys = %+v, want only %s", projectScoped, key1.ProjectID)
+	}
+
+	if err := routed.ClearProjectContext(ctx); err != nil {
+		t.Fatalf("ClearProjectContext() error = %v", err)
+	}
+	orgScoped, err := routed.ListAPIKeysByOrg(ctx, orgID, 100, nil)
+	if err != nil {
+		t.Fatalf("org-scoped ListAPIKeysByOrg() error = %v", err)
+	}
+	if len(orgScoped) != 2 {
+		t.Fatalf("org-scoped keys = %d, want 2", len(orgScoped))
+	}
+}
+
 func TestRevokeAPIKey(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -378,6 +440,21 @@ func TestMarkAPIKeyRotated_Lifecycle(t *testing.T) {
 		t.Fatalf("GraceExpiresAt = %v, want %v", got.GraceExpiresAt, grace)
 	}
 
+	otherNew := &domain.APIKey{ProjectID: projectID, Name: "new2", KeyHash: "hash-" + newID(), KeyPrefix: "sk_n2", Scopes: []string{"jobs:read"}}
+	if err := q.CreateAPIKey(ctx, otherNew); err != nil {
+		t.Fatalf("CreateAPIKey(otherNew) error = %v", err)
+	}
+	if err := q.MarkAPIKeyRotated(ctx, old.ID, otherNew.ID, grace); err == nil {
+		t.Fatal("MarkAPIKeyRotated(already rotated) error = nil, want error")
+	}
+	got, err = q.GetAPIKeyByID(ctx, old.ID)
+	if err != nil {
+		t.Fatalf("GetAPIKeyByID(old after duplicate) error = %v", err)
+	}
+	if got.ReplacedByKeyID != new_.ID {
+		t.Fatalf("ReplacedByKeyID overwritten = %q, want original %q", got.ReplacedByKeyID, new_.ID)
+	}
+
 	// Marking an already-revoked key returns error.
 	if err := q.RevokeAPIKey(ctx, old.ID); err != nil {
 		t.Fatalf("RevokeAPIKey(old) error = %v", err)
@@ -456,6 +533,48 @@ func TestListAPIKeysDueRotation(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("ListAPIKeysDueRotation() did not return due key")
+	}
+}
+
+func TestDisableAPIKeyAutoRotationClearsSchedulerEligibility(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	rotDays := 30
+	pastRotation := time.Now().UTC().Add(-1 * time.Hour).Truncate(time.Microsecond)
+	key := &domain.APIKey{
+		ProjectID:            "proj-disable-rotation-" + newID(),
+		Name:                 "due-without-webhook",
+		KeyHash:              "hash-" + newID(),
+		KeyPrefix:            "sk_dis",
+		Scopes:               []string{"jobs:read"},
+		RotationIntervalDays: &rotDays,
+		NextRotationAt:       &pastRotation,
+	}
+	if err := q.CreateAPIKey(ctx, key); err != nil {
+		t.Fatalf("CreateAPIKey() error = %v", err)
+	}
+
+	if err := q.DisableAPIKeyAutoRotation(ctx, key.ID); err != nil {
+		t.Fatalf("DisableAPIKeyAutoRotation() error = %v", err)
+	}
+	got, err := q.GetAPIKeyByID(ctx, key.ID)
+	if err != nil {
+		t.Fatalf("GetAPIKeyByID() error = %v", err)
+	}
+	if got.NextRotationAt != nil {
+		t.Fatalf("NextRotationAt = %v, want nil", got.NextRotationAt)
+	}
+
+	keys, err := q.ListAPIKeysDueRotation(ctx)
+	if err != nil {
+		t.Fatalf("ListAPIKeysDueRotation() error = %v", err)
+	}
+	for _, due := range keys {
+		if due.ID == key.ID {
+			t.Fatal("disabled key is still listed as due for rotation")
+		}
 	}
 }
 

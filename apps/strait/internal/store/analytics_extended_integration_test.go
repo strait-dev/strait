@@ -350,19 +350,5 @@ func TestGetCostByTrigger(t *testing.T) {
 	}
 }
 
-func TestGetCostByMachine(t *testing.T) {
-	ctx := context.Background()
-	q := mustStore(t)
-
-	now := time.Now().UTC()
-	result, err := q.GetCostByMachine(ctx, "project-analytics", now.Add(-1*time.Hour), now)
-	if err != nil {
-		t.Fatalf("GetCostByMachine() error = %v", err)
-	}
-	if len(result) != 0 {
-		t.Fatalf("GetCostByMachine() len = %d, want 0", len(result))
-	}
-}
-
 // Ensure unused import is referenced.
 var _ = store.New

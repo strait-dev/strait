@@ -216,7 +216,7 @@ func TestE2E_APIKey_CreateAndList(t *testing.T) {
 	mustCleanAdv(t)
 	projectID := advUnique("proj-api-key")
 
-	cw := advDoReq(t, http.MethodPost, "/v1/api-keys/", fmt.Sprintf(`{"project_id":"%s","name":"My Key"}`, projectID))
+	cw := advDoReq(t, http.MethodPost, "/v1/api-keys/", fmt.Sprintf(`{"project_id":"%s","name":"My Key","scopes":["%s"],"expires_in_days":30}`, projectID, domain.ScopeJobsRead))
 	if cw.Code != http.StatusCreated {
 		t.Fatalf("create api key status = %d; body = %s", cw.Code, cw.Body.String())
 	}
@@ -251,7 +251,7 @@ func TestE2E_APIKey_Authenticate(t *testing.T) {
 	projectID := advUnique("proj-api-auth")
 	advCreateJob(t, projectID, advUnique("job-api-auth"), "API Auth Job", "", 0)
 
-	cw := advDoReq(t, http.MethodPost, "/v1/api-keys/", fmt.Sprintf(`{"project_id":"%s","name":"Auth Key"}`, projectID))
+	cw := advDoReq(t, http.MethodPost, "/v1/api-keys/", fmt.Sprintf(`{"project_id":"%s","name":"Auth Key","scopes":["%s"],"expires_in_days":30}`, projectID, domain.ScopeJobsRead))
 	if cw.Code != http.StatusCreated {
 		t.Fatalf("create api key status = %d; body = %s", cw.Code, cw.Body.String())
 	}
@@ -272,7 +272,7 @@ func TestE2E_APIKey_Revoke(t *testing.T) {
 	mustCleanAdv(t)
 	projectID := advUnique("proj-api-revoke")
 
-	cw := advDoReq(t, http.MethodPost, "/v1/api-keys/", fmt.Sprintf(`{"project_id":"%s","name":"Revoke Key"}`, projectID))
+	cw := advDoReq(t, http.MethodPost, "/v1/api-keys/", fmt.Sprintf(`{"project_id":"%s","name":"Revoke Key","scopes":["%s"],"expires_in_days":30}`, projectID, domain.ScopeJobsRead))
 	if cw.Code != http.StatusCreated {
 		t.Fatalf("create api key status = %d; body = %s", cw.Code, cw.Body.String())
 	}
@@ -313,22 +313,26 @@ func TestE2E_BulkTrigger(t *testing.T) {
 		t.Fatalf("bulk results len mismatch: %#v", resp)
 	}
 	runIDs := map[string]bool{}
-	runTokens := map[string]bool{}
 	for i, raw := range resultsAny {
 		item, ok := raw.(map[string]any)
 		if !ok {
 			t.Fatalf("result[%d] invalid type: %T", i, raw)
 		}
-		rid := item["id"].(string)
-		rtok := item["run_token"].(string)
-		if rid == "" || rtok == "" {
-			t.Fatalf("result[%d] missing id/token: %#v", i, item)
+		rid, ok := item["id"].(string)
+		if !ok || rid == "" {
+			t.Fatalf("result[%d] missing id: %#v", i, item)
+		}
+		status, ok := item["status"].(string)
+		if !ok || status != string(domain.StatusQueued) {
+			t.Fatalf("result[%d] status = %q, want %q", i, status, domain.StatusQueued)
+		}
+		if _, ok := item["run_token"]; ok {
+			t.Fatalf("result[%d] must not expose SDK run_token: %#v", i, item)
 		}
 		runIDs[rid] = true
-		runTokens[rtok] = true
 	}
-	if len(runIDs) != 5 || len(runTokens) != 5 {
-		t.Fatalf("expected unique run ids/tokens, got ids=%d tokens=%d", len(runIDs), len(runTokens))
+	if len(runIDs) != 5 {
+		t.Fatalf("expected unique run ids, got ids=%d", len(runIDs))
 	}
 }
 
@@ -410,7 +414,8 @@ func TestE2E_CancelPropagation(t *testing.T) {
 
 	parentRun := advTriggerRun(t, parentJob["id"].(string))
 	parentRunID := parentRun["id"].(string)
-	runToken := parentRun["run_token"].(string)
+	runToken := makeE2ERunToken(t, parentRunID)
+	activateE2ERun(t, parentRunID)
 
 	spawnBody := fmt.Sprintf(`{"job_slug":"%s","project_id":"%s","payload":{"child":true}}`, childSlug, projectID)
 	sw := advDoSDKReq(t, http.MethodPost, "/sdk/v1/runs/"+parentRunID+"/spawn", runToken, spawnBody)
@@ -447,7 +452,8 @@ func TestE2E_EventLogging(t *testing.T) {
 	job := advCreateJob(t, projectID, advUnique("job-events"), "Events Job", "", 0)
 	trigger := advTriggerRun(t, job["id"].(string))
 	runID := trigger["id"].(string)
-	runToken := trigger["run_token"].(string)
+	runToken := makeE2ERunToken(t, runID)
+	activateE2ERun(t, runID)
 
 	lw := advDoSDKReq(t, http.MethodPost, "/sdk/v1/runs/"+runID+"/log", runToken, `{"message":"hello event","level":"info"}`)
 	if lw.Code != http.StatusCreated {
@@ -477,7 +483,8 @@ func TestE2E_EventFiltering(t *testing.T) {
 	job := advCreateJob(t, projectID, advUnique("job-events-filter"), "Events Filter Job", "", 0)
 	trigger := advTriggerRun(t, job["id"].(string))
 	runID := trigger["id"].(string)
-	runToken := trigger["run_token"].(string)
+	runToken := makeE2ERunToken(t, runID)
+	activateE2ERun(t, runID)
 
 	if w := advDoSDKReq(t, http.MethodPost, "/sdk/v1/runs/"+runID+"/log", runToken, `{"message":"all good","level":"info"}`); w.Code != http.StatusCreated {
 		t.Fatalf("log info status = %d; body = %s", w.Code, w.Body.String())
@@ -606,7 +613,7 @@ func TestE2E_CancelTerminalRun(t *testing.T) {
 	job := advCreateJob(t, projectID, advUnique("job-cancel-terminal"), "Cancel Terminal Job", "", 0)
 	trigger := advTriggerRun(t, job["id"].(string))
 	runID := trigger["id"].(string)
-	runToken := trigger["run_token"].(string)
+	runToken := makeE2ERunToken(t, runID)
 
 	ctx := context.Background()
 	if err := testStore.UpdateRunStatus(ctx, runID, domain.StatusQueued, domain.StatusDequeued, map[string]any{"started_at": time.Now()}); err != nil {

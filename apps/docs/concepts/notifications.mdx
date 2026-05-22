@@ -4,7 +4,7 @@ description: "Get alerted on Slack, Discord, email, or webhooks when runs comple
 icon: "bell"
 ---
 
-Notifications deliver alerts to your team when something needs attention — a deployment waiting for approval, daily spend crossing a threshold, or a critical job failing. You configure channels (where to send) and subscribe them to event types (what to send).
+Notifications deliver alerts to your team when something needs attention: a deployment waiting for approval, daily spend crossing a threshold, or a critical job failing. You configure channels (where to send) and subscribe them to event types (what to send).
 
 ## When to Use It
 
@@ -36,14 +36,14 @@ Subscribe a channel to one or more of these events:
 | `spending.limit_warning` | A run or daily budget is approaching its limit. |
 | `spending.limit_reached` | A budget limit was hit and runs are being rejected. |
 
-Runs that reach terminal states (completed, failed, timed out, crashed) also trigger notifications through CDC — any channel subscribed to the relevant project receives delivery updates.
+Runs that reach terminal states (`completed`, `failed`, `timed_out`, `crashed`) can also trigger notifications for subscribed channels.
 
 ## Setting Up Slack Notifications
 
 Create a channel, specify its type and config, and list the events it should receive:
 
 ```bash
-curl -X POST https://your-strait-instance/api/v1/notification-channels \
+curl -X POST https://your-strait-instance/v1/notification-channels \
   -H "Authorization: Bearer $API_KEY" \
   -d '{
     "name": "ops-approvals",
@@ -59,16 +59,16 @@ Update, retrieve, or delete channels with the standard REST verbs:
 
 ```bash
 # List all channels
-curl https://your-strait-instance/api/v1/notification-channels \
+curl https://your-strait-instance/v1/notification-channels \
   -H "Authorization: Bearer $API_KEY"
 
 # Update a channel
-curl -X PATCH https://your-strait-instance/api/v1/notification-channels/{channelId} \
+curl -X PATCH https://your-strait-instance/v1/notification-channels/{channelID} \
   -H "Authorization: Bearer $API_KEY" \
   -d '{ "events": ["approval.requested", "approval.expired"] }'
 
 # Delete a channel
-curl -X DELETE https://your-strait-instance/api/v1/notification-channels/{channelId} \
+curl -X DELETE https://your-strait-instance/v1/notification-channels/{channelID} \
   -H "Authorization: Bearer $API_KEY"
 ```
 
@@ -77,7 +77,7 @@ curl -X DELETE https://your-strait-instance/api/v1/notification-channels/{channe
 Webhook channels include an HMAC secret so your endpoint can verify payloads:
 
 ```bash
-curl -X POST https://your-strait-instance/api/v1/notification-channels \
+curl -X POST https://your-strait-instance/v1/notification-channels \
   -H "Authorization: Bearer $API_KEY" \
   -d '{
     "name": "cost-alerts",
@@ -97,7 +97,7 @@ Each delivery includes an `X-Strait-Signature` header containing the HMAC-SHA256
 Every notification sent is recorded as a delivery. Query deliveries to see what was sent, when, and whether it succeeded:
 
 ```bash
-curl https://your-strait-instance/api/v1/notification-deliveries \
+curl https://your-strait-instance/v1/notification-deliveries \
   -H "Authorization: Bearer $API_KEY"
 ```
 

@@ -680,26 +680,6 @@ export type paths = {
     patch?: never;
     trace?: never;
   };
-  "/v1/analytics/compute": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /**
-     * Get compute cost analytics
-     * @description Returns compute resource utilization and cost breakdown.
-     */
-    get: operations["get-compute-cost-analytics"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
   "/v1/analytics/cost-insights": {
     parameters: {
       query?: never;
@@ -732,26 +712,6 @@ export type paths = {
      * @description Returns cost analytics for the current billing period.
      */
     get: operations["get-cost-analytics"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/v1/analytics/costs/by-machine": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /**
-     * Get cost by machine type
-     * @description Returns cost breakdown grouped by machine/compute type.
-     */
-    get: operations["get-cost-by-machine"];
     put?: never;
     post?: never;
     delete?: never;
@@ -1688,26 +1648,6 @@ export type paths = {
     patch?: never;
     trace?: never;
   };
-  "/v1/cost-estimate": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /**
-     * Get cost estimate
-     * @description Returns a cost estimate based on current usage patterns.
-     */
-    get: operations["get-cost-estimate"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
   "/v1/deployments": {
     parameters: {
       query?: never;
@@ -2528,51 +2468,7 @@ export type paths = {
     patch?: never;
     trace?: never;
   };
-  "/v1/jobs/{jobID}/deployments": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /**
-     * List code deployments
-     * @description Returns deployments for a job in descending creation order.
-     */
-    get: operations["list-code-deployments"];
-    put?: never;
-    /**
-     * Create a code deployment
-     * @description Creates a deployment record and returns a presigned URL for uploading the source tarball.
-     */
-    post: operations["create-code-deployment"];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/v1/jobs/{jobID}/deployments/{deploymentID}": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /**
-     * Get a code deployment
-     * @description Returns the current state of a code deployment, including build status and logs.
-     */
-    get: operations["get-code-deployment"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/v1/jobs/{jobID}/deployments/{deploymentID}/confirm": {
+  "/v1/jobs/{jobID}/endpoint": {
     parameters: {
       query?: never;
       header?: never;
@@ -2582,37 +2478,17 @@ export type paths = {
     get?: never;
     put?: never;
     /**
-     * Confirm a code deployment
-     * @description Verifies the tarball upload and triggers the container image build.
+     * Set job endpoint
+     * @description Sets the HTTP endpoint URL for a job and generates a fresh HMAC signing secret. SSRF-safe: private/loopback addresses are rejected at registration time.
      */
-    post: operations["confirm-code-deployment"];
+    post: operations["set-job-endpoint"];
     delete?: never;
     options?: never;
     head?: never;
     patch?: never;
     trace?: never;
   };
-  "/v1/jobs/{jobID}/deployments/{deploymentID}/logs": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /**
-     * Stream deployment build logs
-     * @description Returns stored build logs for terminal deployments. For in-progress builds, use ?stream=true to receive live logs as SSE (text/event-stream).
-     */
-    get: operations["stream-deployment-logs"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/v1/jobs/{jobID}/deployments/{deploymentID}/rollback": {
+  "/v1/jobs/{jobID}/endpoint/verify": {
     parameters: {
       query?: never;
       header?: never;
@@ -2622,10 +2498,10 @@ export type paths = {
     get?: never;
     put?: never;
     /**
-     * Roll back to a deployment
-     * @description Sets an earlier ready deployment as the active one for the job.
+     * Verify job endpoint
+     * @description Sends a signed HMAC test ping to the job's configured endpoint URL and returns the outcome.
      */
-    post: operations["rollback-code-deployment"];
+    post: operations["verify-job-endpoint"];
     delete?: never;
     options?: never;
     head?: never;
@@ -3209,7 +3085,7 @@ export type paths = {
     };
     /**
      * List available regions
-     * @description Returns all available execution regions.
+     * @description Returns all supported execution regions with display metadata.
      */
     get: operations["list-regions"];
     put?: never;
@@ -4398,6 +4274,70 @@ export type paths = {
      * @description Sends a test payload to a webhook URL to verify connectivity.
      */
     post: operations["test-webhook"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/workers": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * List workers
+     * @description Returns a paginated list of connected and recently-seen workers for the current project.
+     */
+    get: operations["list-workers"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/workers/{workerID}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Get a worker
+     * @description Returns details of a specific worker. Returns 404 for workers in other projects to avoid existence leaks.
+     */
+    get: operations["get-worker"];
+    put?: never;
+    post?: never;
+    /**
+     * Force-disconnect a worker
+     * @description Publishes a disconnect signal to the owning replica; the worker stream is closed within milliseconds. Returns 404 for workers in other projects.
+     */
+    delete: operations["force-disconnect-worker"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/workers/{workerID}/tasks": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * List worker tasks
+     * @description Returns a paginated list of run tasks assigned to a specific worker.
+     */
+    get: operations["list-worker-tasks"];
+    put?: never;
+    post?: never;
     delete?: never;
     options?: never;
     head?: never;
@@ -5609,7 +5549,6 @@ export type components = {
     BulkTriggerResult: {
       id: string;
       idempotency_hit: boolean;
-      run_token: string;
       status: string;
     };
     CanaryDeployment: {
@@ -5658,36 +5597,6 @@ export type components = {
       project_id?: string;
       slug?: string;
     };
-    CodeDeployment: {
-      /**
-       * Format: uri
-       * @description A URL to the JSON Schema for this object.
-       * @example https://api.strait.dev/schemas/CodeDeployment.json
-       */
-      readonly $schema?: string;
-      build_logs?: string;
-      built_image_digest?: string;
-      built_image_uri?: string;
-      /** Format: date-time */
-      created_at: string;
-      created_by?: string;
-      error_message?: string;
-      /** Format: date-time */
-      finished_at?: string;
-      id: string;
-      job_id: string;
-      project_id: string;
-      runtime: string;
-      source_hash: string;
-      /** Format: int64 */
-      source_size_bytes: number;
-      source_uri: string;
-      status: string;
-      /** Format: date-time */
-      updated_at: string;
-      /** Format: int64 */
-      version: number;
-    };
     CompensationPlan: {
       /**
        * Format: uri
@@ -5705,15 +5614,6 @@ export type components = {
       StepRunID: string;
       /** Format: int64 */
       TimeoutSecs: number;
-    };
-    ConfirmCodeDeploymentInputBody: {
-      /**
-       * Format: uri
-       * @description A URL to the JSON Schema for this object.
-       * @example https://api.strait.dev/schemas/ConfirmCodeDeploymentInputBody.json
-       */
-      readonly $schema?: string;
-      project_id: string;
     };
     CreateAPIKeyRequest: {
       /**
@@ -5765,30 +5665,6 @@ export type components = {
       /** Format: int64 */
       traffic_pct: number;
       workflow_id: string;
-    };
-    CreateCodeDeploymentOutputBody: {
-      /**
-       * Format: uri
-       * @description A URL to the JSON Schema for this object.
-       * @example https://api.strait.dev/schemas/CreateCodeDeploymentOutputBody.json
-       */
-      readonly $schema?: string;
-      deployment: components["schemas"]["CodeDeployment"];
-      upload_url: string;
-    };
-    CreateCodeDeploymentRequest: {
-      /**
-       * Format: uri
-       * @description A URL to the JSON Schema for this object.
-       * @example https://api.strait.dev/schemas/CreateCodeDeploymentRequest.json
-       */
-      readonly $schema?: string;
-      job_id: string;
-      project_id: string;
-      runtime: string;
-      source_hash: string;
-      /** Format: int64 */
-      source_size_bytes: number;
     };
     CreateDeploymentVersionRequest: {
       /**
@@ -5882,14 +5758,13 @@ export type components = {
         [key: string]: string;
       };
       description?: string;
+      endpoint_signing_secret?: string;
       endpoint_url: string;
       environment_id?: string;
       execution_mode?: string;
       execution_window_cron?: string;
       fallback_endpoint_url?: string;
       group_id?: string;
-      image_uri?: string;
-      machine_preset?: string;
       /** Format: int64 */
       max_attempts: number;
       /** Format: int64 */
@@ -5911,11 +5786,11 @@ export type components = {
       poison_pill_threshold?: number;
       preferred_regions?: string[] | null;
       project_id: string;
+      queue_name?: string;
       /** Format: int64 */
       rate_limit_max?: number;
       /** Format: int64 */
       rate_limit_window_secs?: number;
-      region?: string;
       result_schema?: unknown;
       retry_delays_secs?: number[] | null;
       /** Format: int64 */
@@ -6433,6 +6308,15 @@ export type components = {
       readonly $schema?: string;
       plans: components["schemas"]["PlanResponse"][] | null;
     };
+    GetRegionsOutputBody: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://api.strait.dev/schemas/GetRegionsOutputBody.json
+       */
+      readonly $schema?: string;
+      regions: components["schemas"]["RegionResponse"][] | null;
+    };
     HealthCheckOutputBody: {
       /**
        * Format: uri
@@ -6458,7 +6342,6 @@ export type components = {
        * @example https://api.strait.dev/schemas/Job.json
        */
       readonly $schema?: string;
-      active_deployment_id?: string;
       allowed_tools?: string[] | null;
       backwards_compatible?: boolean;
       /** Format: int64 */
@@ -6489,8 +6372,6 @@ export type components = {
       fallback_endpoint_url?: string;
       group_id?: string;
       id: string;
-      image_uri?: string;
-      machine_preset?: string;
       /** Format: int64 */
       max_attempts: number;
       /** Format: int64 */
@@ -6519,6 +6400,7 @@ export type components = {
       poison_pill_threshold?: number;
       preferred_regions?: string[] | null;
       project_id: string;
+      queue?: string;
       /** Format: int64 */
       queue_depth_alert_threshold?: number;
       rate_limit_keys?: components["schemas"]["RateLimitKey"][] | null;
@@ -6526,18 +6408,14 @@ export type components = {
       rate_limit_max?: number;
       /** Format: int64 */
       rate_limit_window_secs?: number;
-      region?: string;
       result_schema?: unknown;
       retry_delays_secs?: number[] | null;
       /** Format: int64 */
       retry_priority_boost?: number;
       retry_strategy?: string;
-      rollback_source_deployment_id?: string;
       /** Format: int64 */
       run_ttl_secs?: number;
-      runtime?: string;
       slug: string;
-      source_type?: string;
       tags?: {
         [key: string]: string;
       };
@@ -6657,7 +6535,6 @@ export type components = {
       created_at: string;
       created_by?: string;
       debug_mode: boolean;
-      deployment_id?: string;
       error?: string;
       error_class?: string;
       execution_mode?: string;
@@ -6677,7 +6554,6 @@ export type components = {
       job_version_id?: string;
       /** Format: int64 */
       lineage_depth: number;
-      machine_id?: string;
       /** Format: int64 */
       max_attempts_override?: number;
       metadata?: {
@@ -6687,11 +6563,10 @@ export type components = {
       next_retry_at?: string;
       parent_run_id?: string;
       payload?: unknown;
-      pinned_image_digest?: string;
-      pinned_image_uri?: string;
       /** Format: int64 */
       priority: number;
       project_id: string;
+      queue_name?: string;
       replayed_run_id?: string;
       result?: unknown;
       retry_backoff?: string;
@@ -6746,14 +6621,11 @@ export type components = {
       endpoint_url: string;
       fallback_endpoint_url?: string;
       id: string;
-      image_uri?: string;
       job_id: string;
-      machine_preset?: string;
       /** Format: int64 */
       max_attempts: number;
       name: string;
       payload_schema?: unknown;
-      region?: string;
       /** Format: int64 */
       run_ttl_secs?: number;
       slug: string;
@@ -6776,6 +6648,30 @@ export type components = {
       readonly $schema?: string;
       entries: components["schemas"]["DeadletterEntry"][] | null;
       next_cursor?: string;
+    };
+    ListWorkerTasksOutputBody: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://api.strait.dev/schemas/ListWorkerTasksOutputBody.json
+       */
+      readonly $schema?: string;
+      data: components["schemas"]["WorkerTask"][] | null;
+      has_more: boolean;
+      /** Format: int64 */
+      offset: number;
+    };
+    ListWorkersOutputBody: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://api.strait.dev/schemas/ListWorkersOutputBody.json
+       */
+      readonly $schema?: string;
+      data: components["schemas"]["Worker"][] | null;
+      has_more: boolean;
+      /** Format: int64 */
+      offset: number;
     };
     LogDrain: {
       /**
@@ -6862,14 +6758,7 @@ export type components = {
     PlanResponse: {
       ai_assistant_byok: boolean;
       allowed_regions: string[] | null;
-      /** Format: int64 */
-      compute_credit_microusd: number;
       display_name: string;
-      /** Format: int64 */
-      free_managed_max_timeout?: number;
-      free_managed_preset?: string;
-      /** Format: int64 */
-      free_managed_runs_per_month: number;
       has_audit_logs: boolean;
       has_custom_rbac: boolean;
       has_data_residency: boolean;
@@ -6877,7 +6766,6 @@ export type components = {
       has_ip_allowlisting: boolean;
       has_priority_queue: boolean;
       has_rbac: boolean;
-      has_reserved_capacity: boolean;
       has_scim: boolean;
       has_secret_rotation: boolean;
       has_session_management: boolean;
@@ -6902,6 +6790,8 @@ export type components = {
       max_projects_per_org: number;
       /** Format: int64 */
       max_runs_per_day: number;
+      /** Format: int64 */
+      max_runs_per_month: number;
       /** Format: int64 */
       max_webhook_subs_per_project: number;
       /** Format: int64 */
@@ -7007,15 +6897,6 @@ export type components = {
       country: string;
       label: string;
     };
-    RegionsListResponse: {
-      /**
-       * Format: uri
-       * @description A URL to the JSON Schema for this object.
-       * @example https://api.strait.dev/schemas/RegionsListResponse.json
-       */
-      readonly $schema?: string;
-      regions: components["schemas"]["RegionResponse"][] | null;
-    };
     ReplayDeadletterResponse: {
       /**
        * Format: uri
@@ -7060,16 +6941,6 @@ export type components = {
        * @example https://api.strait.dev/schemas/RestartRunRequest.json
        */
       readonly $schema?: string;
-      machine_preset?: string;
-    };
-    RollbackCodeDeploymentInputBody: {
-      /**
-       * Format: uri
-       * @description A URL to the JSON Schema for this object.
-       * @example https://api.strait.dev/schemas/RollbackCodeDeploymentInputBody.json
-       */
-      readonly $schema?: string;
-      project_id: string;
     };
     RotateAPIKeyRequest: {
       /**
@@ -7497,6 +7368,16 @@ export type components = {
       readonly $schema?: string;
       debug_mode: boolean;
     };
+    SetJobEndpointRequest: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://api.strait.dev/schemas/SetJobEndpointRequest.json
+       */
+      readonly $schema?: string;
+      endpoint_url: string;
+      fallback_endpoint_url?: string;
+    };
     SkipStepRequest: {
       /**
        * Format: uri
@@ -7777,8 +7658,6 @@ export type components = {
       execution_window_cron?: string;
       fallback_endpoint_url?: string;
       group_id?: string;
-      image_uri?: string;
-      machine_preset?: string;
       /** Format: int64 */
       max_attempts?: number;
       /** Format: int64 */
@@ -7799,11 +7678,11 @@ export type components = {
        */
       poison_pill_threshold?: number;
       preferred_regions?: string[];
+      queue_name?: string;
       /** Format: int64 */
       rate_limit_max?: number;
       /** Format: int64 */
       rate_limit_window_secs?: number;
-      region?: string;
       result_schema?: unknown;
       retry_delays_secs?: number[];
       /** Format: int64 */
@@ -7977,6 +7856,20 @@ export type components = {
       max_fan_out: number;
       require_approval_for_deploy: boolean;
     };
+    VerifyJobEndpointResult: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://api.strait.dev/schemas/VerifyJobEndpointResult.json
+       */
+      readonly $schema?: string;
+      error?: string;
+      /** Format: int64 */
+      latency_ms: number;
+      /** Format: int64 */
+      status_code?: number;
+      success: boolean;
+    };
     WebhookDelivery: {
       /**
        * Format: uri
@@ -8000,6 +7893,8 @@ export type components = {
       max_attempts: number;
       /** Format: date-time */
       next_retry_at?: string;
+      org_id?: string;
+      project_id?: string;
       run_id?: string;
       status: string;
       subscription_id?: string;
@@ -8022,6 +7917,37 @@ export type components = {
       id: string;
       project_id: string;
       webhook_url: string;
+    };
+    Worker: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://api.strait.dev/schemas/Worker.json
+       */
+      readonly $schema?: string;
+      hostname: string;
+      id: string;
+      /** Format: date-time */
+      last_seen_at: string;
+      project_id: string;
+      queue_name: string;
+      /** Format: date-time */
+      registered_at: string;
+      status: string;
+      version: string;
+    };
+    WorkerTask: {
+      /** Format: date-time */
+      accepted_at?: string;
+      /** Format: date-time */
+      assigned_at: string;
+      /** Format: date-time */
+      finished_at?: string;
+      id: string;
+      project_id: string;
+      run_id: string;
+      status: string;
+      worker_id: string;
     };
     WorkflowGraphResponse: {
       /**
@@ -10670,96 +10596,6 @@ export interface operations {
       };
     };
   };
-  "confirm-code-deployment": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        jobID: string;
-        deploymentID: string;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["ConfirmCodeDeploymentInputBody"];
-      };
-    };
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["CodeDeployment"];
-        };
-      };
-      /** @description Bad Request */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Unauthorized */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Not Found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Conflict */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Unprocessable Entity */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Internal Server Error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-    };
-  };
   "create-api-key": {
     parameters: {
       query?: never;
@@ -10907,93 +10743,6 @@ export interface operations {
       };
       /** @description Internal Server Error */
       500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-    };
-  };
-  "create-code-deployment": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["CreateCodeDeploymentRequest"];
-      };
-    };
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["CreateCodeDeploymentOutputBody"];
-        };
-      };
-      /** @description Bad Request */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Unauthorized */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Not Found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Unprocessable Entity */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Internal Server Error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Service Unavailable */
-      503: {
         headers: {
           [name: string]: unknown;
         };
@@ -14042,6 +13791,66 @@ export interface operations {
       };
     };
   };
+  "force-disconnect-worker": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workerID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            [key: string]: string;
+          };
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
   "get-active-versions": {
     parameters: {
       query?: never;
@@ -14570,74 +14379,6 @@ export interface operations {
       };
     };
   };
-  "get-code-deployment": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        jobID: string;
-        deploymentID: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["CodeDeployment"];
-        };
-      };
-      /** @description Unauthorized */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Not Found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Unprocessable Entity */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Internal Server Error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-    };
-  };
   "get-compensation-plan": {
     parameters: {
       query?: never;
@@ -14656,74 +14397,6 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["CompensationPlan"];
-        };
-      };
-      /** @description Bad Request */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Unauthorized */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Not Found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Unprocessable Entity */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Internal Server Error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-    };
-  };
-  "get-compute-cost-analytics": {
-    parameters: {
-      query?: {
-        from?: string;
-        to?: string;
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": unknown;
         };
       };
       /** @description Bad Request */
@@ -14841,65 +14514,6 @@ export interface operations {
       };
     };
   };
-  "get-cost-by-machine": {
-    parameters: {
-      query?: {
-        from?: string;
-        to?: string;
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": unknown;
-        };
-      };
-      /** @description Unauthorized */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Not Found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Unprocessable Entity */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Internal Server Error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-    };
-  };
   "get-cost-by-trigger": {
     parameters: {
       query?: {
@@ -14923,84 +14537,6 @@ export interface operations {
       };
       /** @description Unauthorized */
       401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Not Found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Unprocessable Entity */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Internal Server Error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-    };
-  };
-  "get-cost-estimate": {
-    parameters: {
-      query?: {
-        preset?: string;
-        timeout_secs?: string;
-        org_id?: string;
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": unknown;
-        };
-      };
-      /** @description Bad Request */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Unauthorized */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Forbidden */
-      403: {
         headers: {
           [name: string]: unknown;
         };
@@ -18646,6 +18182,64 @@ export interface operations {
       };
     };
   };
+  "get-worker": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workerID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Worker"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
   "get-workflow": {
     parameters: {
       query?: never;
@@ -19928,76 +19522,6 @@ export interface operations {
       };
       /** @description Not Found */
       404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Unprocessable Entity */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Internal Server Error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-    };
-  };
-  "list-code-deployments": {
-    parameters: {
-      query?: {
-        limit?: string;
-        cursor?: string;
-      };
-      header?: never;
-      path: {
-        jobID: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["PaginatedResponse"];
-        };
-      };
-      /** @description Bad Request */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Unauthorized */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Forbidden */
-      403: {
         headers: {
           [name: string]: unknown;
         };
@@ -21363,20 +20887,11 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          "application/json": components["schemas"]["RegionsListResponse"];
+          "application/json": components["schemas"]["GetRegionsOutputBody"];
         };
       };
       /** @description Unauthorized */
       401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Not Found */
-      404: {
         headers: {
           [name: string]: unknown;
         };
@@ -22490,6 +22005,135 @@ export interface operations {
       };
       /** @description Not Found */
       404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  "list-worker-tasks": {
+    parameters: {
+      query?: {
+        limit?: string;
+        offset?: string;
+      };
+      header?: never;
+      path: {
+        workerID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ListWorkerTasksOutputBody"];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  "list-workers": {
+    parameters: {
+      query?: {
+        limit?: string;
+        offset?: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ListWorkersOutputBody"];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
         headers: {
           [name: string]: unknown;
         };
@@ -25039,96 +24683,6 @@ export interface operations {
       };
     };
   };
-  "rollback-code-deployment": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        jobID: string;
-        deploymentID: string;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["RollbackCodeDeploymentInputBody"];
-      };
-    };
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["CodeDeployment"];
-        };
-      };
-      /** @description Bad Request */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Unauthorized */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Not Found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Conflict */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Unprocessable Entity */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Internal Server Error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-    };
-  };
   "rollback-deployment": {
     parameters: {
       query?: never;
@@ -27632,6 +27186,77 @@ export interface operations {
       };
     };
   };
+  "set-job-endpoint": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        jobID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SetJobEndpointRequest"];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Job"];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
   "simulate-workflow": {
     parameters: {
       query?: never;
@@ -27791,68 +27416,6 @@ export interface operations {
       };
       /** @description Service Unavailable */
       503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-    };
-  };
-  "stream-deployment-logs": {
-    parameters: {
-      query?: {
-        /** @description If true, open SSE stream for in-progress builds */
-        stream?: boolean;
-      };
-      header?: never;
-      path: {
-        /** @description Job ID */
-        jobID: string;
-        /** @description Deployment ID */
-        deploymentID: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description No Content */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      /** @description Unauthorized */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Not Found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Unprocessable Entity */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Internal Server Error */
-      500: {
         headers: {
           [name: string]: unknown;
         };
@@ -28208,7 +27771,6 @@ export interface operations {
       header?: {
         "X-Idempotency-Key"?: string;
         "Idempotency-Key"?: string;
-        "X-Region"?: string;
         Traceparent?: string;
         Tracestate?: string;
       };
@@ -29629,6 +29191,82 @@ export interface operations {
       };
       /** @description Unprocessable Entity */
       422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
+  "verify-job-endpoint": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        jobID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["VerifyJobEndpointResult"];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Too Many Requests */
+      429: {
         headers: {
           [name: string]: unknown;
         };

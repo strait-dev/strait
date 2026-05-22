@@ -4,7 +4,7 @@ description: "Connect AI agents to Strait through the Model Context Protocol"
 icon: "robot"
 ---
 
-The Strait MCP server (`@strait/mcp-server`) gives any MCP-compatible AI agent native access to the full Strait API. Instead of writing SDK code, your agent discovers and calls 133 tools, reads 5 live resources, and uses 18 prompt templates -- all through natural language.
+The Strait MCP server (`@strait/mcp-server`) gives any MCP-compatible AI agent native access to the full Strait API. Instead of writing SDK code, your agent discovers and calls 133 tools, reads 5 live resources, and uses 18 prompt templates, all through natural language.
 
 Works with Claude Desktop, Claude Code, Cursor, Windsurf, VS Code Copilot, OpenAI Codex CLI, and any other MCP-compatible client.
 
@@ -113,16 +113,15 @@ Once connected, interact with Strait using natural language. Here are examples b
 | Category | Ask your AI to... |
 |----------|-------------------|
 | **Jobs** | List, create, update, delete, trigger, clone, view versions, check health |
-| **Runs** | View logs, watch live, retry failures, compare runs, manage the review queue |
-| **Workflows** | Create DAGs, trigger, visualize, dry-run, simulate, manage versions |
+| **Runs** | View logs, watch live, retry failures, compare runs, manage `dead_letter` runs |
+| **Workflows** | Create workflows, trigger, visualize, dry-run, simulate, manage versions |
 | **Diagnostics** | Debug failures, audit security, triage alerts, generate health dashboards |
 | **Cost** | Analyze spend, forecast costs, find optimization opportunities |
 | **Infrastructure** | Manage webhooks, secrets, API keys, environments, notifications |
-| **Deployments** | Validate, diff, deploy, rollback, promote across environments |
 
 **Example prompts:**
 
-```
+```text
 "List my jobs"
 "Create a job called data-sync that runs every hour"
 "Why did run run_abc123 fail? Show me the logs"
@@ -155,9 +154,9 @@ See [Configuration](/sdks/configuration) for the full `strait.json` schema.
 |--------|---------|----------|------------|---------|
 | API Key | `STRAIT_API_KEY` | `--api-key` | `apiKey` | (required) |
 | Base URL | `STRAIT_BASE_URL` | `--base-url` | `baseUrl` | `https://api.strait.dev` |
-| Transport | -- | `--transport` | `transport` | `stdio` |
-| Port | -- | `--port` | `port` | `3000` |
-| Config file path | -- | `--config` | -- | `./strait.json` |
+| Transport | | `--transport` | `transport` | `stdio` |
+| Port | | `--port` | `port` | `3000` |
+| Config file path | | `--config` | | `./strait.json` |
 
 <Note>
   The API key is optional when OAuth is configured via `OAUTH_ISSUER_URL` and `OAUTH_RESOURCE_URL`.
@@ -165,7 +164,7 @@ See [Configuration](/sdks/configuration) for the full `strait.json` schema.
 
 ## Prompt Templates
 
-18 built-in prompt templates guide the AI through multi-step workflows. These are not single-shot -- each template structures an end-to-end investigation or action.
+18 built-in prompt templates guide the AI through multi-step workflows. Each template structures an end-to-end investigation or action, not a single-shot query.
 
 | Prompt | What it does |
 |--------|-------------|
@@ -174,8 +173,7 @@ See [Configuration](/sdks/configuration) for the full `strait.json` schema.
 | `incident-response` | Production incident investigation |
 | `setup-job` | Guided job creation from natural language |
 | `cost-report` | Cost report with trend analysis |
-| `workflow-status` | Workflow run deep-dive with step analysis |
-| `deploy-preview` | Guided deployment with validation and confirmation |
+| `workflow-status` | Workflow run review with step analysis |
 | `onboard-project` | New project setup wizard |
 | `security-audit` | Security review of keys, secrets, webhooks |
 | `migrate-jobs` | Migrate jobs between environments |
@@ -190,15 +188,14 @@ See [Configuration](/sdks/configuration) for the full `strait.json` schema.
 
 ## Tools Overview
 
-The server exposes 133 tools across 9 categories. Each tool maps to a Strait API operation and includes full input validation.
+The server exposes 126 tools across 8 categories. Each tool maps to a Strait API operation and includes full input validation.
 
 | Category | Count | Operations |
 |----------|-------|-----------|
 | **Jobs** | 15 | list, get, create, update, delete, trigger, bulk trigger, versions, clone, health, batch ops, dependencies |
-| **Runs** | 19 | list, get, logs, events, cancel, retry, watch, diff, review queue, bulk replay, children, outputs, usage, pause/resume |
-| **Workflows** | 15 | list, get, create, update, delete, trigger, DAG, clone, dry-run, plan, simulate, versions, diff |
+| **Runs** | 19 | list, get, logs, events, cancel, retry, watch, diff, `dead_letter`, bulk replay, children, outputs, usage, pause/resume |
+| **Workflows** | 15 | list, get, create, update, delete, trigger, dependency graph, clone, dry-run, plan, simulate, versions, diff |
 | **Workflow Runs** | 15 | list, get, cancel, steps, watch, approve/reject, graph, timeline, resume, retry, explain |
-| **Deployments** | 7 | deploy, list, rollback, validate, diff, finalize, promote |
 | **Analytics** | 10 | performance, costs, trends, failures, reliability, history |
 | **Usage** | 5 | current, history, forecast, project costs, anomalies |
 | **Webhooks** | 7 | list, get, create, delete, deliveries, retry, test |
@@ -218,7 +215,7 @@ Resources provide read-only snapshots that AI agents can reference without makin
 
 ## Architecture
 
-```
+```text
 MCP Client <-- stdio or HTTP --> @strait/mcp-server (Node.js) -- REST --> Strait API
 ```
 
@@ -232,7 +229,7 @@ To export traces, set `OTEL_EXPORTER_OTLP_ENDPOINT` to your collector endpoint.
 |-------|-----|
 | `STRAIT_API_KEY is required` | Set via env var, `--api-key` flag, or `strait.json` |
 | `NetworkError: API unreachable` | Check `STRAIT_BASE_URL` (default: `https://api.strait.dev`) |
-| `ApiError: 401 Unauthorized` | API key expired or missing scopes -- regenerate at [strait.dev](https://strait.dev) |
-| `ApiError: 404 Not Found` | Resource does not exist -- use the list tool to find available resources |
-| `RateLimitError: 429` | Automatic retry with backoff -- reduce request frequency if persistent |
+| `ApiError: 401 Unauthorized` | API key expired or missing scopes. Regenerate at [strait.dev](https://strait.dev). |
+| `ApiError: 404 Not Found` | Resource does not exist. Use the list tool to find available resources. |
+| `RateLimitError: 429` | Automatic retry with backoff. Reduce request frequency if the error persists. |
 | MCP client not detecting server | Check config path, check that `npx` is on your PATH, restart your IDE |

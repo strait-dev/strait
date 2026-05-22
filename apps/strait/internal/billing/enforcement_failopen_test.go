@@ -149,7 +149,6 @@ func TestEnforcer_FailOpen_AllCheckTypes(t *testing.T) {
 	}{
 		{"payment_status", "payment_status"},
 		{"daily_run", "daily_run"},
-		{"managed_run", "managed_run"},
 		{"concurrent_run", "concurrent_run"},
 		{"spending_limit", "spending_limit"},
 		{"project_budget", "project_budget"},

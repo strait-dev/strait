@@ -217,7 +217,7 @@ func FuzzTryAcquireIdempotencyKey_KeyPassthrough(f *testing.F) {
 	f.Fuzz(func(t *testing.T, key string) {
 		capture := newFuzzCaptureDB()
 		q := New(capture)
-		_, _, _, _ = q.TryAcquireIdempotencyKey(context.Background(), "proj-fuzz", key, time.Hour)
+		_, _, _, _, _ = q.TryAcquireIdempotencyKey(context.Background(), "proj-fuzz", key, time.Hour)
 		// The first call the store makes is INSERT ... ON CONFLICT DO
 		// NOTHING. The key must be in args exactly as provided.
 		if !argsContain(capture.args, key) {
@@ -401,10 +401,6 @@ func FuzzDomainIsValid_StatusAndModes_NoPanic(f *testing.F) {
 		// CronOverlapPolicy.
 		cop := domain.CronOverlapPolicy(s)
 		_ = cop.IsValid()
-
-		// MachinePreset.
-		mp := domain.MachinePreset(s)
-		_ = mp.IsValid()
 	})
 }
 

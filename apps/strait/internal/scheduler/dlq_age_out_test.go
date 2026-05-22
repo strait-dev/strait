@@ -10,13 +10,17 @@ import (
 )
 
 type fakeDLQAgeOutStore struct {
-	masked int64
-	err    error
-	calls  int
+	masked   int64
+	err      error
+	panicRun bool
+	calls    int
 }
 
 func (f *fakeDLQAgeOutStore) MaskOldDLQRows(_ context.Context, _ time.Duration, _ int) (int64, error) {
 	f.calls++
+	if f.panicRun {
+		panic("dlq store panic")
+	}
 	return f.masked, f.err
 }
 
@@ -62,6 +66,17 @@ func TestDLQAgeOut_StoreErrorPropagates(t *testing.T) {
 	a := NewDLQAgeOut(s, DLQAgeOutConfig{})
 	if err := a.runOnce(context.Background()); err == nil {
 		t.Error("expected error")
+	}
+}
+
+func TestDLQAgeOut_PanicReturnsError(t *testing.T) {
+	s := &fakeDLQAgeOutStore{panicRun: true}
+	a := NewDLQAgeOut(s, DLQAgeOutConfig{})
+	if err := a.runOnce(context.Background()); err == nil {
+		t.Fatal("runOnce error = nil, want recovered panic error")
+	}
+	if a.Iterations() != 1 {
+		t.Fatalf("iterations = %d, want 1", a.Iterations())
 	}
 }
 

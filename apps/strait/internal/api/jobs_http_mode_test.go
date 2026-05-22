@@ -18,9 +18,10 @@ func (m *mockHTTPModeEnforcer) GetOrgPlanLimits(_ context.Context, _ string) (bi
 	return m.planLimits, nil
 }
 
-func TestCheckHTTPModeAllowed_FreePlanRejected(t *testing.T) {
+func TestCheckHTTPModeAllowed_FreePlanAllowed(t *testing.T) {
 	t.Parallel()
 
+	// HTTP mode is available on all plans including free.
 	enforcer := &mockHTTPModeEnforcer{
 		mockBillingEnforcer: mockBillingEnforcer{
 			projectOrgMap: map[string]string{"proj-1": "org-1"},
@@ -34,14 +35,15 @@ func TestCheckHTTPModeAllowed_FreePlanRejected(t *testing.T) {
 	}
 
 	err := s.checkHTTPModeAllowed(context.Background(), domain.ExecutionModeHTTP, "proj-1")
-	if err == nil {
-		t.Fatal("expected error for free plan HTTP mode")
+	if err != nil {
+		t.Fatalf("expected no error for free plan HTTP mode, got: %v", err)
 	}
 }
 
-func TestCheckHTTPModeAllowed_StarterPlanRejected(t *testing.T) {
+func TestCheckHTTPModeAllowed_StarterPlanAllowed(t *testing.T) {
 	t.Parallel()
 
+	// HTTP mode is available on all plans including starter.
 	enforcer := &mockHTTPModeEnforcer{
 		mockBillingEnforcer: mockBillingEnforcer{
 			projectOrgMap: map[string]string{"proj-1": "org-1"},
@@ -55,8 +57,8 @@ func TestCheckHTTPModeAllowed_StarterPlanRejected(t *testing.T) {
 	}
 
 	err := s.checkHTTPModeAllowed(context.Background(), domain.ExecutionModeHTTP, "proj-1")
-	if err == nil {
-		t.Fatal("expected error for starter plan HTTP mode")
+	if err != nil {
+		t.Fatalf("expected no error for starter plan HTTP mode, got: %v", err)
 	}
 }
 
@@ -95,17 +97,17 @@ func TestCheckHTTPModeAllowed_CommunityEditionAllowed(t *testing.T) {
 	}
 }
 
-func TestCheckHTTPModeAllowed_ManagedModeSkipped(t *testing.T) {
+func TestCheckHTTPModeAllowed_WorkerModeSkipped(t *testing.T) {
 	t.Parallel()
 
-	// Managed mode should always pass (not gated).
+	// Worker mode should always pass (not gated).
 	s := &Server{
 		edition: domain.EditionCloud,
 	}
 
-	err := s.checkHTTPModeAllowed(context.Background(), domain.ExecutionModeManaged, "proj-1")
+	err := s.checkHTTPModeAllowed(context.Background(), domain.ExecutionModeWorker, "proj-1")
 	if err != nil {
-		t.Fatalf("expected no error for managed mode, got: %v", err)
+		t.Fatalf("expected no error for worker mode, got: %v", err)
 	}
 }
 

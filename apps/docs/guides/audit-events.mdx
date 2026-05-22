@@ -8,7 +8,7 @@ Audit events record every change in your Strait project. Query them to investiga
 
 ## What Gets Recorded
 
-Strait logs every mutation and administrative action, organized by category:
+Strait logs every change, organized by category:
 
 - **Job operations**: creation, updates, deletion, trigger events
 - **Run operations**: state transitions, retries, cancellations
@@ -16,6 +16,7 @@ Strait logs every mutation and administrative action, organized by category:
 - **Auth operations**: API key creation, rotation, revocation, OIDC token exchanges
 - **Settings changes**: project configuration, retention policy updates, quota changes
 - **Webhook operations**: subscription creation, deletion, delivery replays, endpoint tests
+- **Worker operations**: worker connections, force-disconnect requests, and worker-mode task routing
 
 Each event includes the actor, timestamp, resource type, resource ID, and a description of the change.
 
@@ -25,7 +26,7 @@ List audit events with `GET /v1/audit-events`. Requires the `rbac.manage` permis
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \
-  "https://strait.dev/v1/audit-events?limit=25"
+  "https://api.strait.dev/v1/audit-events?limit=25"
 ```
 
 ### Filtering
@@ -44,21 +45,21 @@ All filters combine with AND logic. Every filter is optional.
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \
-  "https://strait.dev/v1/audit-events?actor_id=usr_abc123"
+  "https://api.strait.dev/v1/audit-events?actor_id=user_abc123"
 ```
 
 **Find all job changes in a specific week:**
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \
-  "https://strait.dev/v1/audit-events?resource_type=job&from=2025-06-01T00:00:00Z&to=2025-06-08T00:00:00Z"
+  "https://api.strait.dev/v1/audit-events?resource_type=job&from=2026-06-01T00:00:00Z&to=2026-06-08T00:00:00Z"
 ```
 
 **Track the full history of a single run:**
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \
-  "https://strait.dev/v1/audit-events?resource_type=run&resource_id=run_xyz789&order=asc"
+  "https://api.strait.dev/v1/audit-events?resource_type=run&resource_id=run_abc123&order=asc"
 ```
 
 <Warning>
@@ -71,7 +72,7 @@ Results are cursor-based. The response includes `next_cursor` when more pages ex
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \
-  "https://strait.dev/v1/audit-events?limit=25&cursor=2025-06-15T10:30:00.000000000Z"
+  "https://api.strait.dev/v1/audit-events?limit=25&cursor=2026-06-15T10:30:00.000000000Z"
 ```
 
 ## Exporting
@@ -87,25 +88,25 @@ Export audit events with `GET /v1/audit-events/export`. Both `from` and `to` are
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \
   -o audit-events.json \
-  "https://strait.dev/v1/audit-events/export?from=2025-06-01T00:00:00Z&to=2025-06-30T00:00:00Z&format=ndjson"
+  "https://api.strait.dev/v1/audit-events/export?from=2026-06-01T00:00:00Z&to=2026-06-30T00:00:00Z&format=ndjson"
 ```
 
-Exports support the same `actor_id` and `resource_type` filters as the list endpoint. Exports are capped at 1,000,000 rows by default and rate-limited to 10 per project per hour.
+Exports support the same `actor_id` and `resource_type` filters as the list endpoint. Large exports should use narrow time windows.
 
 ## Chain Verification
 
-Every audit event is HMAC-SHA256 signed and chained to its predecessor. Verify the chain is intact:
+Verify the audit log when you need evidence that history has not been changed:
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \
-  "https://strait.dev/v1/audit-events/verify"
+  "https://api.strait.dev/v1/audit-events/verify"
 ```
 
 For large audit logs, use incremental mode to check only events added since the last verification:
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \
-  "https://strait.dev/v1/audit-events/verify?incremental=true"
+  "https://api.strait.dev/v1/audit-events/verify?incremental=true"
 ```
 
 <Tip>
@@ -114,7 +115,7 @@ Run full verification periodically (e.g. weekly) and incremental checks more fre
 
 ## Key Rotation
 
-Rotate the HMAC signing key with `POST /v1/projects/{id}/audit/rotate-key`. The rotation is atomic -- old signatures remain verifiable because the chain verifier detects key epoch boundaries automatically.
+Rotate the audit signing key with `POST /v1/projects/{id}/audit/rotate-key`. Existing audit history remains verifiable after rotation.
 
 ## Retention
 
@@ -125,25 +126,15 @@ curl -X PUT \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"days": 730}' \
-  "https://strait.dev/v1/projects/proj_abc/audit/retention"
+  "https://api.strait.dev/v1/projects/proj_abc123/audit/retention"
 ```
 
-Set `days` to `0` to disable retention trimming entirely. When events are deleted, a tombstone anchor preserves chain continuity so verification still passes.
-
-## Review Queue
-
-Audit events that fail to persist after all retries land in a review queue. Administrators can inspect and replay them:
-
-| Endpoint | Method | Description |
-| :--- | :--- | :--- |
-| `/v1/audit/review-queue` | GET | List events in the review queue |
-| `/v1/audit/review-queue/{id}/replay` | POST | Replay an event into the primary chain |
-| `/v1/audit/review-queue/{id}` | DELETE | Permanently drop an event |
+Set `days` to `0` to disable retention trimming entirely.
 
 ## Related
 
-- [Audit Logging](/concepts/audit-logging) -- conceptual overview of signing, chaining, and reliability.
-- [Authentication](/guides/authentication) -- how actor identity is established.
-- [Authentication: API Key Rotation](/guides/authentication#api-key-rotation) -- rotating API keys (separate from audit key rotation).
-- [RBAC](/guides/rbac) -- permission model for audit access.
-- [Security](/guides/security) -- broader security model.
+- [Audit Logging](/concepts/audit-logging): conceptual overview of signing, chaining, and reliability.
+- [Authentication](/guides/authentication): how actor identity is established.
+- [Authentication: API Key Rotation](/guides/authentication#api-key-rotation): rotating API keys (separate from audit key rotation).
+- [RBAC](/guides/rbac): permission model for audit access.
+- [Security](/guides/security): broader security model.

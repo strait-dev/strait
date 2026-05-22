@@ -17,10 +17,10 @@ func TestSecrets_Create(t *testing.T) {
 
 	tgt := newTargeter("POST", "/v1/secrets/", func() []byte {
 		secretKey := "secret-" + newID()
-		return []byte(fmt.Sprintf(
+		return fmt.Appendf(nil,
 			`{"project_id":"%s","secret_key":"%s","value":"val-%s"}`,
 			projectID, secretKey, newID(),
-		))
+		)
 	})
 
 	t.Run("baseline", func(t *testing.T) {

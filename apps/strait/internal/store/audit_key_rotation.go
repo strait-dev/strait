@@ -10,6 +10,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
+	mrand "math/rand/v2"
+	"time"
 
 	"strait/internal/domain"
 
@@ -35,8 +38,19 @@ func DeriveAuditSigningKeyForEpoch(secret, projectID string, epoch int) ([]byte,
 	if secret == "" {
 		return nil, fmt.Errorf("audit signing key: secret is empty")
 	}
+	root, err := DeriveAuditSigningKey(secret)
+	if err != nil {
+		return nil, err
+	}
+	return DeriveAuditSigningKeyForEpochFromRoot(root, projectID, epoch)
+}
+
+func DeriveAuditSigningKeyForEpochFromRoot(root []byte, projectID string, epoch int) ([]byte, error) {
+	if len(root) == 0 {
+		return nil, fmt.Errorf("audit signing key: root key is empty")
+	}
 	info := fmt.Appendf(nil, "audit-event-signing:epoch:%d:project:%s", epoch, projectID)
-	reader := hkdf.New(sha256.New, []byte(secret), info, nil)
+	reader := hkdf.New(sha256.New, root, info, nil)
 	key := make([]byte, 32)
 	if _, err := io.ReadFull(reader, key); err != nil {
 		return nil, fmt.Errorf("audit signing key: hkdf derive: %w", err)
@@ -66,15 +80,30 @@ func (q *Queries) GetAuditSigningKey(ctx context.Context, projectID string, epoc
 		return nil, fmt.Errorf("get audit signing key: %w", err)
 	}
 
-	envelopeKey, err := q.secretKey()
-	if err != nil {
-		return nil, fmt.Errorf("get audit signing key: envelope key: %w", err)
+	var firstErr error
+	for i, candidate := range q.secretEncryptionKeyCandidates() {
+		envelopeKey, keyErr := deriveSecretKey(candidate)
+		if keyErr != nil {
+			if firstErr == nil {
+				firstErr = keyErr
+			}
+			continue
+		}
+		plaintextHex, decryptErr := decryptAuditKey(ciphertext, envelopeKey)
+		if decryptErr == nil {
+			if i > 0 {
+				slog.Warn("decrypted audit signing key using old encryption key; rotate audit key to re-encrypt", "project_id", projectID, "epoch", epoch)
+			}
+			return plaintextHex, nil
+		}
+		if firstErr == nil {
+			firstErr = decryptErr
+		}
 	}
-	plaintextHex, err := decryptAuditKey(ciphertext, envelopeKey)
-	if err != nil {
-		return nil, fmt.Errorf("get audit signing key: decrypt: %w", err)
+	if firstErr != nil {
+		return nil, fmt.Errorf("get audit signing key: decrypt: %w", firstErr)
 	}
-	return plaintextHex, nil
+	return nil, fmt.Errorf("get audit signing key: envelope key: secret encryption key is not configured")
 }
 
 // storeAuditSigningKey encrypts and inserts the per-epoch HMAC signing
@@ -176,9 +205,24 @@ func (q *Queries) RotateAuditSigningKey(ctx context.Context, projectID, actorID 
 
 	// Retry budget: a bounded number of unique-violation retries handles
 	// genuine contention without masking a permanent schema fault.
-	const maxAttempts = 8
+	// Between attempts we sleep with exponential backoff + full jitter
+	// so a burst of contended rotations does not lock-step retry against
+	// the same anchor row and force every retry through the same hot
+	// advisory key. Without the sleep a busy-loop on 23505 would also
+	// hammer the database under contention.
+	const (
+		maxAttempts = 8
+		baseDelay   = 10 * time.Millisecond
+		maxDelay    = 200 * time.Millisecond
+	)
 	var lastErr error
-	for range maxAttempts {
+	for attempt := range maxAttempts {
+		if err := ctx.Err(); err != nil {
+			if lastErr != nil {
+				return 0, fmt.Errorf("rotate audit signing key: %w", errors.Join(err, lastErr))
+			}
+			return 0, fmt.Errorf("rotate audit signing key: %w", err)
+		}
 		newEpoch, err := q.rotateAuditSigningKeyOnce(ctx, projectID, actorID)
 		if err == nil {
 			return newEpoch, nil
@@ -190,6 +234,21 @@ func (q *Queries) RotateAuditSigningKey(ctx context.Context, projectID, actorID 
 			// Retry — the advisory lock is transaction-scoped so the
 			// next attempt takes a fresh one and will read the new max.
 			lastErr = err
+			if attempt == maxAttempts-1 {
+				break
+			}
+			shift := min(attempt, 4)
+			delay := min(baseDelay<<shift, maxDelay)
+			half := delay / 2
+			jitter := time.Duration(mrand.Int64N(int64(half) + 1)) //nolint:gosec // jitter only; not used for any security boundary
+			sleep := half + jitter
+			t := time.NewTimer(sleep)
+			select {
+			case <-ctx.Done():
+				t.Stop()
+				return 0, fmt.Errorf("rotate audit signing key: %w", errors.Join(ctx.Err(), lastErr))
+			case <-t.C:
+			}
 			continue
 		}
 		return 0, err
@@ -217,12 +276,10 @@ func (q *Queries) rotateAuditSigningKeyOnce(ctx context.Context, projectID, acto
 		}
 		newEpoch = currentEpoch + 1
 
-		// Derive and store the new per-epoch HMAC key. INTERNAL_SECRET
-		// is carried via secretEncryptionKey here: we reuse the same
-		// string, which is already provisioned for secret envelope
-		// encryption, as the HKDF input for audit key derivation.
-		// Distinct HKDF info parameters prevent cross-purpose key reuse.
-		newKey, err := DeriveAuditSigningKeyForEpoch(txQ.secretEncryptionKey, projectID, newEpoch)
+		// Derive and store the new per-epoch HMAC key from the audit
+		// signing root. secretEncryptionKey is only the envelope key for
+		// the encrypted row and must not be able to derive signatures.
+		newKey, err := DeriveAuditSigningKeyForEpochFromRoot(txQ.auditSigningKey, projectID, newEpoch)
 		if err != nil {
 			return fmt.Errorf("derive new epoch key: %w", err)
 		}
@@ -230,41 +287,105 @@ func (q *Queries) rotateAuditSigningKeyOnce(ctx context.Context, projectID, acto
 			return err
 		}
 
-		// Emit the anchor signed under the NEW epoch's key. Post-rotation
-		// events chain from this anchor and verify under the same key,
-		// so the anchor's own signature must also be bound to the new
-		// epoch — otherwise a compromise of the old key would let an
-		// attacker forge the anchor itself.
-		details, err := json.Marshal(map[string]any{
-			"previous_epoch": currentEpoch,
-			"new_epoch":      newEpoch,
-			"rotated_by":     actorID,
-		})
-		if err != nil {
-			return fmt.Errorf("marshal details: %w", err)
+		// Enumerate the shards that exist for this project at the moment
+		// of rotation. Each shard chain transitions to the new epoch via
+		// its own anchor; without a per-shard anchor a shard with prior
+		// rows would have no row carrying the new epoch and the chain
+		// would silently stall at the boundary. If no rows exist yet we
+		// still emit a single legacy-shard anchor so the rotation is
+		// recorded forensically and any future event in any shard can
+		// chain from a verified anchor.
+		//
+		// The query is split so the non-empty shard scan can ride the
+		// partial index idx_audit_events_shard_chain (WHERE shard_id != '')
+		// instead of forcing a sequential scan over the entire project's
+		// audit_events history. The empty-shard probe is a cheap EXISTS
+		// over the same project_id, served by the project_id+created_at
+		// integrity index that exists for the legacy chain.
+		rows, qErr := txQ.db.Query(ctx, `
+			SELECT shard_id FROM (
+				SELECT DISTINCT shard_id
+				FROM audit_events
+				WHERE project_id = $1 AND shard_id != ''
+				UNION ALL
+				SELECT '' AS shard_id
+				WHERE EXISTS (
+					SELECT 1 FROM audit_events
+					WHERE project_id = $1 AND shard_id = ''
+				)
+			) s
+		`, projectID)
+		if qErr != nil {
+			return fmt.Errorf("read shards: %w", qErr)
 		}
-		ev := &domain.AuditEvent{
-			ProjectID:     projectID,
-			ActorID:       actorID,
-			ActorType:     "user",
-			Action:        domain.AuditActionKeyRotated,
-			ResourceType:  "audit_signing_key",
-			ResourceID:    fmt.Sprintf("epoch-%d", newEpoch),
-			Details:       json.RawMessage(details),
-			IsAnchor:      true,
-			RotationEpoch: newEpoch,
+		var shards []string
+		for rows.Next() {
+			var sid string
+			if scanErr := rows.Scan(&sid); scanErr != nil {
+				rows.Close()
+				return fmt.Errorf("scan shard: %w", scanErr)
+			}
+			shards = append(shards, sid)
+		}
+		rows.Close()
+		if rowsErr := rows.Err(); rowsErr != nil {
+			return fmt.Errorf("rows err: %w", rowsErr)
+		}
+		if len(shards) == 0 {
+			shards = []string{""}
 		}
 
-		// Sign the anchor under the new key by swapping the tx Queries'
-		// signing key for the duration of the CreateAuditEvent call.
+		// Sign the anchors under the new key by swapping the tx Queries'
+		// signing key for the duration of the CreateAuditEvent calls.
 		// The tx Queries is already a fresh instance produced by WithTx,
 		// so the swap is confined to this tx.
 		prevKey := txQ.auditSigningKey
 		txQ.auditSigningKey = newKey
 		defer func() { txQ.auditSigningKey = prevKey }()
 
-		if err := txQ.CreateAuditEvent(ctx, ev); err != nil {
-			return fmt.Errorf("write anchor: %w", err)
+		for _, shardID := range shards {
+			// Emit the anchor signed under the NEW epoch's key. Post-
+			// rotation events in this shard chain from this anchor and
+			// verify under the same key, so the anchor's own signature
+			// must also be bound to the new epoch — otherwise a
+			// compromise of the old key would let an attacker forge
+			// the anchor itself.
+			details, err := json.Marshal(map[string]any{
+				"previous_epoch": currentEpoch,
+				"new_epoch":      newEpoch,
+				"rotated_by":     actorID,
+				"shard_id":       shardID,
+			})
+			if err != nil {
+				return fmt.Errorf("marshal details: %w", err)
+			}
+			resourceID := fmt.Sprintf("epoch-%d", newEpoch)
+			if shardID != "" {
+				resourceID = fmt.Sprintf("epoch-%d-%s", newEpoch, shardID)
+			}
+			ev := &domain.AuditEvent{
+				ProjectID:     projectID,
+				ShardID:       shardID,
+				ActorID:       actorID,
+				ActorType:     "user",
+				Action:        domain.AuditActionKeyRotated,
+				ResourceType:  "audit_signing_key",
+				ResourceID:    resourceID,
+				Details:       json.RawMessage(details),
+				IsAnchor:      true,
+				RotationEpoch: newEpoch,
+			}
+			// Fail closed if a future edit drops IsAnchor: the auto-
+			// derivation in CreateAuditEvent would otherwise route the
+			// rotation anchor into a shard literally named after its
+			// resource_type ("audit_signing_key") and orphan it from the
+			// shard whose chain it is supposed to anchor.
+			if !ev.IsAnchor {
+				return fmt.Errorf("rotate audit signing key: refusing to emit non-anchor row (project %s, shard %q)", projectID, shardID)
+			}
+			if err := txQ.CreateAuditEvent(ctx, ev); err != nil {
+				return fmt.Errorf("write anchor (shard %q): %w", shardID, err)
+			}
 		}
 		return nil
 	})

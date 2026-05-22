@@ -74,6 +74,26 @@ func TestClaimCursor_ExpiresAfterInterval(t *testing.T) {
 	}
 }
 
+func TestClaimCursor_AdvanceRearmsAfterExpiry(t *testing.T) {
+	c := NewClaimCursor(10 * time.Millisecond)
+	expiredAt := time.Now()
+	c.Advance(expiredAt, "id-1")
+	time.Sleep(30 * time.Millisecond)
+	if _, _, ok := c.Snapshot(); ok {
+		t.Fatal("cursor should be expired before rearm")
+	}
+
+	rearmedAt := expiredAt.Add(time.Second)
+	c.Advance(rearmedAt, "id-2")
+	ts, id, ok := c.Snapshot()
+	if !ok {
+		t.Fatal("cursor should be valid after advancing an expired cursor")
+	}
+	if !ts.Equal(rearmedAt) || id != "id-2" {
+		t.Fatalf("Snapshot = (%v, %q, %v), want (%v, id-2, true)", ts, id, ok, rearmedAt)
+	}
+}
+
 func TestClaimCursor_ForceExpire(t *testing.T) {
 	c := NewClaimCursor(60 * time.Second)
 	c.Advance(time.Now(), "id-1")

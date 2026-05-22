@@ -13,7 +13,7 @@ Strait ships with four roles that cover the most common access patterns.
 | Role | What they can do |
 | --- | --- |
 | `admin` | Full access. Create and delete jobs, manage workflows, configure settings, manage team members. |
-| `operator` | Run and monitor. Trigger jobs, view runs, approve workflow steps, replay from the review queue. Cannot delete jobs or manage settings. |
+| `operator` | Run and monitor. Trigger jobs, view runs, approve workflow steps, replay `dead_letter` runs. Cannot delete jobs or manage settings. |
 | `viewer` | Read-only. View jobs, runs, and workflows. Cannot trigger, modify, or delete anything. |
 | `triggerer` | Trigger only. Can trigger existing jobs and view their runs. Cannot create, modify, or delete jobs. |
 
@@ -26,12 +26,12 @@ Run `POST /v1/seed-roles` to create all four built-in roles in your project.
 Add a user to a project with a specific role using the members endpoint.
 
 ```bash
-curl -X POST https://your-strait/v1/members \
+curl -X POST https://your-strait-instance/v1/members \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "project_id": "proj_abc",
-    "user_id": "user_123",
+    "project_id": "proj_abc123",
+    "user_id": "user_abc123",
     "role_id": "role_operator"
   }'
 ```
@@ -39,8 +39,8 @@ curl -X POST https://your-strait/v1/members \
 ```json Response
 {
   "id": "member_xyz",
-  "project_id": "proj_abc",
-  "user_id": "user_123",
+  "project_id": "proj_abc123",
+  "user_id": "user_abc123",
   "role_id": "role_operator",
   "created_at": "2026-03-15T10:00:00Z"
 }
@@ -51,11 +51,11 @@ curl -X POST https://your-strait/v1/members \
 When built-in roles don't fit, create a custom role with exactly the permissions you need. This example creates a `deployer` role that can trigger jobs and view runs but cannot delete anything.
 
 ```bash
-curl -X POST https://your-strait/v1/roles \
+curl -X POST https://your-strait-instance/v1/roles \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "project_id": "proj_abc",
+    "project_id": "proj_abc123",
     "name": "deployer",
     "permissions": ["jobs:read", "jobs:trigger", "runs:read", "workflows:read", "workflows:trigger"]
   }'
@@ -64,7 +64,7 @@ curl -X POST https://your-strait/v1/roles \
 ```json Response
 {
   "id": "role_deployer",
-  "project_id": "proj_abc",
+  "project_id": "proj_abc123",
   "name": "deployer",
   "permissions": [
     "jobs:read",
@@ -82,41 +82,41 @@ curl -X POST https://your-strait/v1/roles \
 A role can inherit all permissions from a parent role, then add its own on top. This avoids duplicating permission lists across related roles.
 
 ```bash
-curl -X POST https://your-strait/v1/roles \
+curl -X POST https://your-strait-instance/v1/roles \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "project_id": "proj_abc",
+    "project_id": "proj_abc123",
     "name": "senior-operator",
     "parent_role_id": "role_operator",
-    "permissions": ["secrets:read", "environments:write"]
+    "permissions": ["secrets:read", "secrets:write"]
   }'
 ```
 
 ```json Response
 {
   "id": "role_senior_operator",
-  "project_id": "proj_abc",
+  "project_id": "proj_abc123",
   "name": "senior-operator",
   "parent_role_id": "role_operator",
-  "permissions": ["secrets:read", "environments:write"],
+  "permissions": ["secrets:read", "secrets:write"],
   "created_at": "2026-03-15T10:10:00Z"
 }
 ```
 
-The `senior-operator` role inherits everything from `operator` (trigger jobs, view runs, approve workflow steps) and adds `secrets:read` and `environments:write`. Check the full permission chain with `GET /v1/roles/{roleID}?include_lineage=true`.
+The `senior-operator` role inherits everything from `operator` (trigger jobs, view runs, approve workflow steps) and adds `secrets:read` and `secrets:write`. Check the full permission chain with `GET /v1/roles/{roleID}?include_lineage=true`.
 
 ## Resource Policies
 
 Grant a specific user access to a specific resource, regardless of their role. Use this when one person needs elevated access to a single job or workflow.
 
 ```bash
-curl -X POST https://your-strait/v1/resource-policies \
+curl -X POST https://your-strait-instance/v1/resource-policies \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "project_id": "proj_abc",
-    "user_id": "user_456",
+    "project_id": "proj_abc123",
+    "user_id": "user_def456",
     "resource_type": "job",
     "resource_id": "job_critical",
     "permissions": ["jobs:trigger", "runs:read"]
@@ -126,8 +126,8 @@ curl -X POST https://your-strait/v1/resource-policies \
 ```json Response
 {
   "id": "rpol_abc",
-  "project_id": "proj_abc",
-  "user_id": "user_456",
+  "project_id": "proj_abc123",
+  "user_id": "user_def456",
   "resource_type": "job",
   "resource_id": "job_critical",
   "permissions": ["jobs:trigger", "runs:read"],
@@ -140,12 +140,12 @@ curl -X POST https://your-strait/v1/resource-policies \
 Grant access to any resource matching a tag. When new resources are created with that tag, the policy applies automatically.
 
 ```bash
-curl -X POST https://your-strait/v1/tag-policies \
+curl -X POST https://your-strait-instance/v1/tag-policies \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "project_id": "proj_abc",
-    "user_id": "user_456",
+    "project_id": "proj_abc123",
+    "user_id": "user_def456",
     "tag_key": "team",
     "tag_value": "billing",
     "permissions": ["jobs:read", "jobs:trigger", "runs:read"]
@@ -155,8 +155,8 @@ curl -X POST https://your-strait/v1/tag-policies \
 ```json Response
 {
   "id": "tpol_abc",
-  "project_id": "proj_abc",
-  "user_id": "user_456",
+  "project_id": "proj_abc123",
+  "user_id": "user_def456",
   "tag_key": "team",
   "tag_value": "billing",
   "permissions": ["jobs:read", "jobs:trigger", "runs:read"],
@@ -164,7 +164,7 @@ curl -X POST https://your-strait/v1/tag-policies \
 }
 ```
 
-After this, `user_456` can read and trigger any job tagged `team:billing`.
+After this, `user_def456` can read and trigger any job tagged `team:billing`.
 
 ## How Permissions Resolve
 

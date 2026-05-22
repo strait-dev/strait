@@ -24,7 +24,7 @@ from strait import Client
 client = Client.from_env()
 
 job = client.jobs.create(
-    project_id="proj_1",
+    project_id="proj_abc123",
     name="Sync inventory",
     slug="sync-inventory",
     endpoint_url="https://worker.example/jobs/sync",
@@ -44,7 +44,7 @@ async def main():
     client = AsyncClient.from_env()
 
     job = await client.jobs.create(
-        project_id="proj_1",
+        project_id="proj_abc123",
         name="Sync inventory",
         slug="sync-inventory",
         endpoint_url="https://worker.example/jobs/sync",
@@ -90,7 +90,7 @@ from strait import Client
 
 client = Client(
     base_url="https://api.strait.dev",
-    api_key="sk_live_...",
+    api_key="strait_...",
     auth_type="bearer",
     timeout_ms=30_000,
 )
@@ -102,8 +102,8 @@ The client exposes domain services covering all API operations. Each service is 
 
 | Service | Description | Example |
 |---|---|---|
-| `client.jobs` | List, create, get, update, delete, trigger, bulk_trigger | `client.jobs.list(project_id="proj_1")` |
-| `client.runs` | List, get, delete, replay, bulk_cancel, get_dlq | `client.runs.trigger(job_id="job_1", payload={})` |
+| `client.jobs` | List, create, get, update, delete, trigger, bulk_trigger | `client.jobs.list(project_id="proj_abc123")` |
+| `client.runs` | List, get, delete, replay, bulk_cancel, get_dlq | `client.runs.trigger(job_id="job_abc123", payload={})` |
 | `client.workflows` | List, create, trigger, get_diff, get_policy | `client.workflows.create(...)` |
 | `client.workflow_runs` | List, pause, resume, approve_step, skip_step | `client.workflow_runs.list(workflow_id="wf_1")` |
 | `client.deployments` | List, create, finalize, promote, rollback | `client.deployments.list()` |
@@ -126,7 +126,7 @@ The client exposes domain services covering all API operations. Each service is 
 
 ```python
 runs = client.runs.list(
-    job_id="job_1",
+    job_id="job_abc123",
     status="completed",
     limit=50,
 )
@@ -139,7 +139,7 @@ for run in runs.data:
 
 ```python
 run = client.runs.trigger(
-    job_id="job_1",
+    job_id="job_abc123",
     payload={"sku": "ABC-123"},
 )
 
@@ -160,7 +160,7 @@ sync_inventory = define_job(
     name="Sync Inventory",
     slug="sync-inventory",
     endpoint_url="https://worker.dev/jobs/sync",
-    project_id="proj_1",
+    project_id="proj_abc123",
     max_concurrency=5,
     max_attempts=5,
     retry_strategy="exponential",
@@ -187,7 +187,7 @@ from strait import define_job
     name="Process Order",
     slug="process-order",
     endpoint_url="https://worker.dev/jobs/process",
-    project_id="proj_1",
+    project_id="proj_abc123",
 )
 def process_order(payload, ctx):
     ctx.logger.info("Processing order", order_id=payload["order_id"])
@@ -206,7 +206,7 @@ from strait import define_workflow, step
 order_pipeline = define_workflow(
     name="Order Pipeline",
     slug="order-pipeline",
-    project_id="proj_1",
+    project_id="proj_abc123",
     steps=[
         step.job("validate", "job_validate"),
         step.job("charge", "job_charge", depends_on=["validate"]),
@@ -216,7 +216,7 @@ order_pipeline = define_workflow(
     ],
 )
 
-# DAG is validated at definition time
+# Dependency graph is validated at definition time
 order_pipeline.register(client)
 workflow_run = order_pipeline.trigger(client)
 ```
@@ -231,7 +231,7 @@ workflow_run = order_pipeline.trigger(client)
 | `step.sleep(name, seconds)` | Pause for a fixed duration |
 | `step.condition(name, expression)` | Branch based on a condition |
 
-All step types accept `depends_on` to define DAG edges.
+All step types accept `depends_on` to define dependencies.
 
 ## Composition Helpers
 
@@ -243,7 +243,7 @@ Utilities for production use: retry, polling, pagination, cost budgets, and chec
 from strait import with_retry
 
 run = with_retry(
-    lambda: client.runs.trigger(job_id="job_1", payload={"sku": "A"}),
+    lambda: client.runs.trigger(job_id="job_abc123", payload={"sku": "A"}),
     attempts=5,
     delay_ms=250,
     jitter="full",
@@ -285,7 +285,7 @@ from strait import cost_budget
 with cost_budget(max_cost_cents=5000) as budget:
     for sku in skus:
         budget.check()
-        client.runs.trigger(job_id="job_1", payload={"sku": sku})
+        client.runs.trigger(job_id="job_abc123", payload={"sku": sku})
 ```
 
 ### Checkpoint resume
@@ -300,7 +300,7 @@ ckpt = checkpoint("inventory-sync-batch")
 for sku in skus:
     if ckpt.already_processed(sku):
         continue
-    client.runs.trigger(job_id="job_1", payload={"sku": sku})
+    client.runs.trigger(job_id="job_abc123", payload={"sku": sku})
     ckpt.mark(sku)
 ```
 
@@ -325,17 +325,17 @@ except StraitError as e:
 
 | Exception | HTTP Status | Description |
 |---|---|---|
-| `StraitError` | -- | Base class for all errors |
-| `TransportError` | -- | Network failure (connection refused, DNS) |
-| `DecodeError` | -- | Response body could not be decoded |
-| `ValidationError` | -- | Input validation failed before sending |
+| `StraitError` | | Base class for all errors |
+| `TransportError` | | Network failure (connection refused, DNS) |
+| `DecodeError` | | Response body could not be decoded |
+| `ValidationError` | | Input validation failed before sending |
 | `UnauthorizedError` | 401, 403 | Authentication or authorization failure |
 | `NotFoundError` | 404 | Resource does not exist |
 | `ConflictError` | 409 | Duplicate resource or version conflict |
 | `RateLimitedError` | 429 | Rate limit exceeded; includes `retry_after_ms` |
 | `ApiError` | other | Any other HTTP error |
-| `TimeoutError` | -- | Polling timeout exceeded |
-| `DagValidationError` | -- | Invalid workflow DAG structure |
+| `TimeoutError` | | Polling timeout exceeded |
+| `DagValidationError` | | Invalid workflow dependency graph |
 
 ## Middleware
 

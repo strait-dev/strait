@@ -343,7 +343,7 @@ func TestRedisPublisher_PublishBatch_LargeCount(t *testing.T) {
 	for i := range messages {
 		messages[i] = pubsub.PubSubMessage{
 			Channel: "test:batch-large",
-			Data:    []byte(fmt.Sprintf("msg-%03d", i)),
+			Data:    fmt.Appendf(nil, "msg-%03d", i),
 		}
 	}
 

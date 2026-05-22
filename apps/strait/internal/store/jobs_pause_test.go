@@ -272,7 +272,7 @@ func TestListCronJobs_LongPauseNoCronAccumulation(t *testing.T) {
 
 	// Simulate multiple cron scheduler ticks -- each calls ListCronJobs.
 	// The paused job should never be returned, so no runs would be queued.
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		jobs, err := q.ListCronJobs(ctx)
 		if err != nil {
 			t.Fatalf("ListCronJobs() tick %d error = %v", i, err)

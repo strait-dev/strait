@@ -1,0 +1,362 @@
+//go:build integration
+
+package grpc
+
+import (
+	"context"
+	"encoding/json"
+	"testing"
+
+	workerv1 "strait/internal/api/grpc/proto/workerv1"
+	"strait/internal/domain"
+	"strait/internal/store"
+	"strait/internal/testutil"
+)
+
+// TestIntegration_Reconcile_CompletedUpdatesWorkerTask asserts that
+// reconcileInFlightTasks transitions the worker_tasks row to "completed"
+// in addition to the run row — regression for the same-class bug as the
+// fallback path.
+func TestIntegration_Reconcile_CompletedUpdatesWorkerTask(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
+	svc := fallbackService(q)
+
+	tasks := []*workerv1.InFlightTask{{RunId: runID, AssignmentId: taskID, Attempt: 1, Status: "completed", OutputJson: []byte(`{"recovered":true}`)}}
+	svc.reconcileInFlightTasks(ctx, workerID, projectID, tasks)
+
+	got, err := q.GetWorkerTask(ctx, taskID)
+	if err != nil {
+		t.Fatalf("GetWorkerTask: %v", err)
+	}
+	if got.Status != domain.WorkerTaskStatusCompleted {
+		t.Fatalf("worker_tasks not transitioned: got %q, want completed", got.Status)
+	}
+	run, err := q.GetRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if run.Status != domain.StatusCompleted {
+		t.Fatalf("run not transitioned: got %q, want completed", run.Status)
+	}
+	var result map[string]bool
+	if err := json.Unmarshal(run.Result, &result); err != nil {
+		t.Fatalf("unmarshal run result: %v", err)
+	}
+	if !result["recovered"] {
+		t.Fatalf("run result = %s, want in-flight output_json", string(run.Result))
+	}
+}
+
+// TestIntegration_Reconcile_FailedUpdatesWorkerTask asserts the failed/abandoned
+// branch transitions the worker_tasks row to "failed" so it doesn't linger in
+// "assigned" after the run is requeued or dead-lettered.
+func TestIntegration_Reconcile_FailedUpdatesWorkerTask(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
+	svc := fallbackService(q)
+
+	tasks := []*workerv1.InFlightTask{{RunId: runID, AssignmentId: taskID, Attempt: 1, Status: "failed", ErrorMessage: "boom"}}
+	svc.reconcileInFlightTasks(ctx, workerID, projectID, tasks)
+
+	got, err := q.GetWorkerTask(ctx, taskID)
+	if err != nil {
+		t.Fatalf("GetWorkerTask: %v", err)
+	}
+	if got.Status != domain.WorkerTaskStatusFailed {
+		t.Fatalf("worker_tasks not transitioned: got %q, want failed", got.Status)
+	}
+}
+
+func TestIntegration_Reconcile_CompletedUsesRunFinalizer(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
+	finalizer := &recordingRunFinalizer{}
+	svc := fallbackServiceWithFinalizer(q, finalizer)
+
+	tasks := []*workerv1.InFlightTask{{RunId: runID, AssignmentId: taskID, Attempt: 1, Status: "completed", OutputJson: []byte(`{"recovered":true}`)}}
+	svc.reconcileInFlightTasks(ctx, workerID, projectID, tasks)
+
+	if len(finalizer.calls) != 1 {
+		t.Fatalf("finalizer calls = %d, want 1", len(finalizer.calls))
+	}
+	call := finalizer.calls[0]
+	if call.runID != runID || call.status != "success" || string(call.output) != `{"recovered":true}` {
+		t.Fatalf("unexpected finalizer call: %+v", call)
+	}
+	task, err := q.GetWorkerTask(ctx, taskID)
+	if err != nil {
+		t.Fatalf("GetWorkerTask: %v", err)
+	}
+	if task.Status != domain.WorkerTaskStatusCompleted {
+		t.Fatalf("worker task status = %q, want completed", task.Status)
+	}
+	run, err := q.GetRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if run.Status != domain.StatusExecuting {
+		t.Fatalf("reconcile should let finalizer own run transition, got %q", run.Status)
+	}
+}
+
+func TestIntegration_Reconcile_InvalidCompletedOutputRoutesFailure(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
+	finalizer := &recordingRunFinalizer{}
+	svc := fallbackServiceWithFinalizer(q, finalizer)
+
+	tasks := []*workerv1.InFlightTask{{RunId: runID, AssignmentId: taskID, Attempt: 1, Status: "completed", OutputJson: []byte(`{"recovered":`)}}
+	svc.reconcileInFlightTasks(ctx, workerID, projectID, tasks)
+
+	if len(finalizer.calls) != 1 {
+		t.Fatalf("finalizer calls = %d, want 1", len(finalizer.calls))
+	}
+	call := finalizer.calls[0]
+	if call.runID != runID || call.status != "failed" || call.errorMessage != invalidWorkerOutputError || call.output != nil {
+		t.Fatalf("unexpected finalizer call for invalid output: %+v", call)
+	}
+	task, err := q.GetWorkerTask(ctx, taskID)
+	if err != nil {
+		t.Fatalf("GetWorkerTask: %v", err)
+	}
+	if task.Status != domain.WorkerTaskStatusFailed {
+		t.Fatalf("worker task status = %q, want failed", task.Status)
+	}
+}
+
+func TestIntegration_Reconcile_FailedUsesRunFinalizer(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
+	finalizer := &recordingRunFinalizer{}
+	svc := fallbackServiceWithFinalizer(q, finalizer)
+
+	tasks := []*workerv1.InFlightTask{{RunId: runID, AssignmentId: taskID, Attempt: 1, Status: "failed", ErrorMessage: "boom"}}
+	svc.reconcileInFlightTasks(ctx, workerID, projectID, tasks)
+
+	if len(finalizer.calls) != 1 {
+		t.Fatalf("finalizer calls = %d, want 1", len(finalizer.calls))
+	}
+	call := finalizer.calls[0]
+	if call.runID != runID || call.status != "failed" || call.errorMessage != "boom" {
+		t.Fatalf("unexpected finalizer call: %+v", call)
+	}
+	task, err := q.GetWorkerTask(ctx, taskID)
+	if err != nil {
+		t.Fatalf("GetWorkerTask: %v", err)
+	}
+	if task.Status != domain.WorkerTaskStatusFailed {
+		t.Fatalf("worker task status = %q, want failed", task.Status)
+	}
+	run, err := q.GetRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if run.Status != domain.StatusExecuting {
+		t.Fatalf("reconcile should let finalizer own run transition, got %q", run.Status)
+	}
+}
+
+// TestIntegration_Reconcile_OwnershipMismatchSkips guards the adversarial path:
+// a worker reporting an in-flight run it doesn't own (no matching worker_tasks
+// row) must NOT touch either the run or any worker_tasks row.
+func TestIntegration_Reconcile_OwnershipMismatchSkips(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	projectID, _, runID, taskID := seedRunWithTask(t, ctx, q, env)
+	svc := fallbackService(q)
+
+	tasks := []*workerv1.InFlightTask{{RunId: runID, AssignmentId: taskID, Attempt: 1, Status: "completed"}}
+	// Use a worker ID that has no worker_tasks row for runID.
+	svc.reconcileInFlightTasks(ctx, "impostor-worker", projectID, tasks)
+
+	got, err := q.GetWorkerTask(ctx, taskID)
+	if err != nil {
+		t.Fatalf("GetWorkerTask: %v", err)
+	}
+	if got.Status != domain.WorkerTaskStatusAssigned {
+		t.Fatalf("ownership mismatch should not touch worker_task: got %q", got.Status)
+	}
+	run, err := q.GetRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if run.Status != domain.StatusExecuting {
+		t.Fatalf("ownership mismatch should not touch run: got %q", run.Status)
+	}
+}
+
+func TestIntegration_Reconcile_StaleAssignmentReplaySkipsCurrentTask(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	projectID, workerID, runID, staleTaskID := seedRunWithTask(t, ctx, q, env)
+	if err := q.UpdateWorkerTaskStatus(ctx, staleTaskID, domain.WorkerTaskStatusFailed); err != nil {
+		t.Fatalf("mark stale task failed: %v", err)
+	}
+	const currentTaskID = "task-current-assignment"
+	if err := q.CreateWorkerTask(ctx, &domain.WorkerTask{
+		ID:        currentTaskID,
+		WorkerID:  workerID,
+		ProjectID: projectID,
+		RunID:     runID,
+		Attempt:   2,
+		Status:    domain.WorkerTaskStatusAssigned,
+	}); err != nil {
+		t.Fatalf("create current task: %v", err)
+	}
+	svc := fallbackService(q)
+
+	tasks := []*workerv1.InFlightTask{{
+		RunId:        runID,
+		AssignmentId: staleTaskID,
+		Attempt:      1,
+		Status:       "completed",
+		OutputJson:   []byte(`{"stale":true}`),
+	}}
+	svc.reconcileInFlightTasks(ctx, workerID, projectID, tasks)
+
+	current, err := q.GetWorkerTask(ctx, currentTaskID)
+	if err != nil {
+		t.Fatalf("GetWorkerTask current: %v", err)
+	}
+	if current.Status != domain.WorkerTaskStatusAssigned {
+		t.Fatalf("stale replay changed current worker_task: got %q, want assigned", current.Status)
+	}
+	run, err := q.GetRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if run.Status != domain.StatusExecuting {
+		t.Fatalf("stale replay changed run: got %q, want executing", run.Status)
+	}
+}
+
+// TestIntegration_Reconcile_UnknownStatusIgnored asserts that a malformed
+// status string ("zombie") is logged and skipped — never producing a panic
+// or a partial state transition.
+func TestIntegration_Reconcile_UnknownStatusIgnored(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
+	svc := fallbackService(q)
+
+	tasks := []*workerv1.InFlightTask{{RunId: runID, AssignmentId: taskID, Attempt: 1, Status: "zombie"}}
+	svc.reconcileInFlightTasks(ctx, workerID, projectID, tasks)
+
+	got, err := q.GetWorkerTask(ctx, taskID)
+	if err != nil {
+		t.Fatalf("GetWorkerTask: %v", err)
+	}
+	if got.Status != domain.WorkerTaskStatusAssigned {
+		t.Fatalf("unknown status should not transition worker_task: got %q", got.Status)
+	}
+}
+
+// TestIntegration_Reconcile_NilAndEmptyEntries asserts the loop tolerates
+// nil entries and empty RunId values without panicking or affecting state.
+func TestIntegration_Reconcile_NilAndEmptyEntries(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	projectID, workerID, _, taskID := seedRunWithTask(t, ctx, q, env)
+	svc := fallbackService(q)
+
+	tasks := []*workerv1.InFlightTask{
+		nil,
+		{RunId: "", Status: "completed"},
+	}
+	svc.reconcileInFlightTasks(ctx, workerID, projectID, tasks)
+
+	got, err := q.GetWorkerTask(ctx, taskID)
+	if err != nil {
+		t.Fatalf("GetWorkerTask: %v", err)
+	}
+	if got.Status != domain.WorkerTaskStatusAssigned {
+		t.Fatalf("nil/empty entries should not affect state: got %q", got.Status)
+	}
+}

@@ -88,16 +88,6 @@ groups:
           summary: "Stalled workflow runs detected"
           description: "The reaper found workflows stuck in an intermediate state."
 
-      # Managed execution
-      - alert: StraitManagedMachinesSaturated
-        expr: strait_managed_machines_active > 8
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Managed machines approaching limit"
-          description: "Active managed machines near MAX_CONCURRENT_MACHINES. Check for stuck containers."
-
       # DB pool health
       - alert: StraitDBPoolExhausted
         expr: strait_db_pool_acquired_conns / clamp_min(strait_db_pool_max_conns, 1) > 0.9

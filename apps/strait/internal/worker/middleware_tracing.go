@@ -3,6 +3,9 @@ package worker
 import (
 	"context"
 
+	"strait/internal/domain"
+	"strait/internal/httputil"
+
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
@@ -15,11 +18,11 @@ func TracingMiddleware() ExecutionMiddleware {
 		return func(ctx context.Context, ec *ExecutionContext) {
 			// Inject parent trace context from run metadata if present.
 			if ec.Run.Metadata != nil {
-				if tp, ok := ec.Run.Metadata["_trace_parent"]; ok && tp != "" {
+				if tp, ok := ec.Run.Metadata[domain.RunMetadataTraceParent]; ok && tp != "" {
 					carrier := propagation.MapCarrier{
 						"traceparent": tp,
 					}
-					if ts, ok := ec.Run.Metadata["_trace_state"]; ok && ts != "" {
+					if ts, ok := ec.Run.Metadata[domain.RunMetadataTraceState]; ok && ts != "" {
 						carrier["tracestate"] = ts
 					}
 					ctx = otel.GetTextMapPropagator().Extract(ctx, carrier)
@@ -37,7 +40,7 @@ func TracingMiddleware() ExecutionMiddleware {
 			)
 			if ec.Job != nil {
 				span.SetAttributes(
-					attribute.String("job.endpoint", ec.Job.EndpointURL),
+					attribute.String("job.endpoint", httputil.RedactURLForLog(ec.Job.EndpointURL)),
 					attribute.Int("job.version", ec.Job.Version),
 				)
 			}

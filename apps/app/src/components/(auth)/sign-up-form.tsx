@@ -16,7 +16,7 @@ import { consumeUtmParams, utmToSetOnce } from "@/lib/utm";
 
 const signUpSchema = z.object({
   name: z.string().min(1, "Name is required"),
-  email: z.string().email("Invalid email address"),
+  email: z.email("Invalid email address"),
   password: z.string().min(8, "Password must be at least 8 characters"),
 });
 
@@ -106,6 +106,16 @@ const SignUpForm = ({ redirectTo, disabled }: SignUpFormProps) => {
             <Field className="w-full">
               <FieldLabel htmlFor={field.name}>Full name</FieldLabel>
               <Input
+                aria-describedby={
+                  field.state.meta.isTouched &&
+                  field.state.meta.errors.length > 0
+                    ? `${field.name}-error`
+                    : undefined
+                }
+                aria-invalid={
+                  field.state.meta.isTouched &&
+                  field.state.meta.errors.length > 0
+                }
                 autoComplete="name"
                 disabled={disabled}
                 id={field.name}
@@ -115,11 +125,12 @@ const SignUpForm = ({ redirectTo, disabled }: SignUpFormProps) => {
                 type="text"
                 value={field.state.value}
               />
-              {field.state.meta.errors.length > 0 && (
-                <FieldError>
-                  {formatFieldErrors(field.state.meta.errors)}
-                </FieldError>
-              )}
+              {field.state.meta.isTouched &&
+                field.state.meta.errors.length > 0 && (
+                  <FieldError id={`${field.name}-error`}>
+                    {formatFieldErrors(field.state.meta.errors)}
+                  </FieldError>
+                )}
             </Field>
           )}
         </form.Field>
@@ -129,6 +140,16 @@ const SignUpForm = ({ redirectTo, disabled }: SignUpFormProps) => {
             <Field className="w-full">
               <FieldLabel htmlFor={field.name}>Email</FieldLabel>
               <Input
+                aria-describedby={
+                  field.state.meta.isTouched &&
+                  field.state.meta.errors.length > 0
+                    ? `${field.name}-error`
+                    : undefined
+                }
+                aria-invalid={
+                  field.state.meta.isTouched &&
+                  field.state.meta.errors.length > 0
+                }
                 autoComplete="email"
                 disabled={disabled}
                 id={field.name}
@@ -138,11 +159,12 @@ const SignUpForm = ({ redirectTo, disabled }: SignUpFormProps) => {
                 type="email"
                 value={field.state.value}
               />
-              {field.state.meta.errors.length > 0 && (
-                <FieldError>
-                  {formatFieldErrors(field.state.meta.errors)}
-                </FieldError>
-              )}
+              {field.state.meta.isTouched &&
+                field.state.meta.errors.length > 0 && (
+                  <FieldError id={`${field.name}-error`}>
+                    {formatFieldErrors(field.state.meta.errors)}
+                  </FieldError>
+                )}
             </Field>
           )}
         </form.Field>
@@ -152,6 +174,16 @@ const SignUpForm = ({ redirectTo, disabled }: SignUpFormProps) => {
             <Field className="w-full">
               <FieldLabel htmlFor={field.name}>Password</FieldLabel>
               <PasswordInput
+                aria-describedby={
+                  field.state.meta.isTouched &&
+                  field.state.meta.errors.length > 0
+                    ? `${field.name}-error`
+                    : undefined
+                }
+                aria-invalid={
+                  field.state.meta.isTouched &&
+                  field.state.meta.errors.length > 0
+                }
                 autoComplete="new-password"
                 disabled={disabled}
                 id={field.name}
@@ -160,11 +192,12 @@ const SignUpForm = ({ redirectTo, disabled }: SignUpFormProps) => {
                 placeholder="At least 8 characters"
                 value={field.state.value}
               />
-              {field.state.meta.errors.length > 0 && (
-                <FieldError>
-                  {formatFieldErrors(field.state.meta.errors)}
-                </FieldError>
-              )}
+              {field.state.meta.isTouched &&
+                field.state.meta.errors.length > 0 && (
+                  <FieldError id={`${field.name}-error`}>
+                    {formatFieldErrors(field.state.meta.errors)}
+                  </FieldError>
+                )}
             </Field>
           )}
         </form.Field>

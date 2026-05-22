@@ -50,7 +50,7 @@ const UpgradeNudgeBanner = () => {
   // Priority 1: Scale breakeven -- only show to Pro users.
   if (forecast?.scale_breakeven && currentPlan === "pro") {
     return (
-      <div className="flex items-center justify-between rounded-custom border border-accent/30 bg-accent/5 px-4 py-2">
+      <div className="flex items-center justify-between rounded border border-accent/30 bg-accent/5 px-4 py-2">
         <p className="text-foreground text-sm">
           Your projected spend exceeds $99/mo. Upgrade to <strong>Scale</strong>{" "}
           for the same price and get 5x concurrent runs, audit logs, and canary
@@ -82,7 +82,7 @@ const UpgradeNudgeBanner = () => {
     // Show when Pro base ($49.99) + addon spend approaches Scale ($99)
     if (49.99 * MICRO_USD + forecast.addon_spend_microusd >= 89 * MICRO_USD) {
       return (
-        <div className="flex items-center justify-between rounded-custom border border-accent/30 bg-accent/5 px-4 py-2">
+        <div className="flex items-center justify-between rounded border border-accent/30 bg-accent/5 px-4 py-2">
           <p className="text-foreground text-sm">
             You're spending <strong>${totalSpend}/mo</strong> on Pro + add-ons
             (${addonSpend} in add-ons). Scale ($99/mo) gives you 5x limits
@@ -111,8 +111,8 @@ const UpgradeNudgeBanner = () => {
       forecast.projected_overage_microusd / MICRO_USD
     ).toFixed(2);
     return (
-      <div className="flex items-center justify-between rounded-custom border border-yellow-200 bg-yellow-50 px-4 py-2 dark:border-yellow-800 dark:bg-yellow-950">
-        <p className="text-sm text-yellow-800 dark:text-yellow-200">
+      <div className="flex items-center justify-between rounded border border-warning/30 bg-warning/5 px-4 py-2">
+        <p className="text-sm text-warning">
           Your projected overage this month is{" "}
           <strong>${projectedOverage}</strong>. Consider upgrading for more
           included credit.
@@ -137,10 +137,8 @@ const UpgradeNudgeBanner = () => {
   const firstAlert = approaching[0];
 
   return (
-    <div className="flex items-center justify-between rounded-custom border border-yellow-200 bg-yellow-50 px-4 py-2 dark:border-yellow-800 dark:bg-yellow-950">
-      <p className="text-sm text-yellow-800 dark:text-yellow-200">
-        {firstAlert.message}
-      </p>
+    <div className="flex items-center justify-between rounded border border-warning/30 bg-warning/5 px-4 py-2">
+      <p className="text-sm text-warning">{firstAlert.message}</p>
       <div className="flex items-center gap-2">
         <Button onClick={handleUpgrade} variant="default">
           Upgrade

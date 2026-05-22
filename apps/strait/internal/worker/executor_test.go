@@ -21,6 +21,7 @@ import (
 	"github.com/sourcegraph/conc"
 
 	"strait/internal/domain"
+	"strait/internal/httputil"
 	"strait/internal/queue"
 	orcstore "strait/internal/store"
 	"strait/internal/testutil"
@@ -34,32 +35,40 @@ type statusUpdateCall struct {
 }
 
 type mockExecutorStore struct {
-	getJobFn                  func(ctx context.Context, id string) (*domain.Job, error)
-	getJobAtVersionFn         func(ctx context.Context, jobID string, version int) (*domain.Job, error)
-	listSecretsFn             func(ctx context.Context, jobID, environment string) ([]domain.JobSecret, error)
-	getWorkflowStepRunFn      func(ctx context.Context, id string) (*domain.WorkflowStepRun, error)
-	getWorkflowRunFn          func(ctx context.Context, id string) (*domain.WorkflowRun, error)
-	listStepsByWorkflowVerFn  func(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
-	updateRunStatusFn         func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
-	updateHeartbeatFn         func(ctx context.Context, id string) error
-	batchUpdateHeartbeatFn    func(ctx context.Context, ids []string) error
-	canDispatchFn             func(ctx context.Context, endpointURL string, now time.Time) (bool, *time.Time, error)
-	recordFailureFn           func(ctx context.Context, endpointURL string, now time.Time, threshold int, openDuration time.Duration) error
-	recordSuccessFn           func(ctx context.Context, endpointURL string) error
-	getJobHealthStatsFn       func(ctx context.Context, jobID string, since time.Time) (*orcstore.JobHealthStats, error)
-	getResolvedEnvVarsFn      func(ctx context.Context, id string) (map[string]string, error)
-	getLatestCheckpointFn     func(ctx context.Context, runID string) (*domain.RunCheckpoint, error)
-	getRunFn                  func(ctx context.Context, id string) (*domain.JobRun, error)
-	getProjectQuotaFn         func(ctx context.Context, projectID string) (*orcstore.ProjectQuota, error)
-	sumDailyComputeCostFn     func(ctx context.Context, projectID, timezone string) (int64, error)
-	createRunComputeUsageFn   func(ctx context.Context, usage *domain.RunComputeUsage) error
-	insertEventFn             func(ctx context.Context, event *domain.RunEvent) error
-	recordOOMEventFn          func(ctx context.Context, jobID, preset string) error
-	getPresetRecommendationFn func(ctx context.Context, jobID string) (*orcstore.PresetRecommendation, error)
+	getJobFn                 func(ctx context.Context, id string) (*domain.Job, error)
+	getJobAtVersionFn        func(ctx context.Context, jobID string, version int) (*domain.Job, error)
+	listSecretsFn            func(ctx context.Context, jobID, environment string) ([]domain.JobSecret, error)
+	getWorkflowStepRunFn     func(ctx context.Context, id string) (*domain.WorkflowStepRun, error)
+	getWorkflowRunFn         func(ctx context.Context, id string) (*domain.WorkflowRun, error)
+	listStepsByWorkflowVerFn func(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
+	updateRunStatusFn        func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	snoozeRunWithLockFn      func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	updateHeartbeatFn        func(ctx context.Context, id string) error
+	batchUpdateHeartbeatFn   func(ctx context.Context, ids []string) error
+	scheduleRetryFn          func(ctx context.Context, runID string, at time.Time, attempt int) error
+	clearRetryFn             func(ctx context.Context, runID string) error
+	canDispatchFn            func(ctx context.Context, endpointURL string, now time.Time) (bool, *time.Time, error)
+	recordFailureFn          func(ctx context.Context, endpointURL string, now time.Time, threshold int, openDuration time.Duration) error
+	recordSuccessFn          func(ctx context.Context, endpointURL string) error
+	getJobHealthStatsFn      func(ctx context.Context, jobID string, since time.Time) (*orcstore.JobHealthStats, error)
+	getResolvedEnvVarsFn     func(ctx context.Context, id string) (map[string]string, error)
+	getLatestCheckpointFn    func(ctx context.Context, runID string) (*domain.RunCheckpoint, error)
+	getRunFn                 func(ctx context.Context, id string) (*domain.JobRun, error)
+	getProjectQuotaFn        func(ctx context.Context, projectID string) (*orcstore.ProjectQuota, error)
+	insertEventFn            func(ctx context.Context, event *domain.RunEvent) error
 
-	mu              sync.Mutex
-	statusCalls     []statusUpdateCall
-	heartbeatRunIDs []string
+	mu                 sync.Mutex
+	statusCalls        []statusUpdateCall
+	heartbeatRunIDs    []string
+	scheduleRetryCalls []scheduleRetryCall
+	clearRetryCalls    []string
+	healthResultKeys   []string
+}
+
+type scheduleRetryCall struct {
+	runID   string
+	at      time.Time
+	attempt int
 }
 
 func (m *mockExecutorStore) GetJob(ctx context.Context, id string) (*domain.Job, error) {
@@ -93,6 +102,27 @@ func (m *mockExecutorStore) UpdateRunStatus(ctx context.Context, id string, from
 	return m.updateRunStatusFn(ctx, id, from, to, fields)
 }
 
+func (m *mockExecutorStore) SnoozeRunWithLock(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error {
+	m.mu.Lock()
+	m.statusCalls = append(m.statusCalls, statusUpdateCall{
+		id:     id,
+		from:   from,
+		to:     to,
+		fields: maps.Clone(fields),
+	})
+	m.mu.Unlock()
+
+	if m.snoozeRunWithLockFn != nil {
+		return m.snoozeRunWithLockFn(ctx, id, from, to, fields)
+	}
+	// Default: delegate to UpdateRunStatus so existing tests that only stub
+	// updateRunStatusFn keep observing snooze attempts.
+	if m.updateRunStatusFn == nil {
+		return nil
+	}
+	return m.updateRunStatusFn(ctx, id, from, to, fields)
+}
+
 func (m *mockExecutorStore) ListJobSecretsByJob(ctx context.Context, jobID, environment string) ([]domain.JobSecret, error) {
 	if m.listSecretsFn == nil {
 		return nil, nil
@@ -120,6 +150,42 @@ func (m *mockExecutorStore) BatchUpdateHeartbeat(ctx context.Context, ids []stri
 		return nil
 	}
 	return m.batchUpdateHeartbeatFn(ctx, ids)
+}
+
+func (m *mockExecutorStore) ScheduleRetry(ctx context.Context, runID string, at time.Time, attempt int) error {
+	m.mu.Lock()
+	m.scheduleRetryCalls = append(m.scheduleRetryCalls, scheduleRetryCall{runID: runID, at: at, attempt: attempt})
+	m.mu.Unlock()
+	if m.scheduleRetryFn != nil {
+		return m.scheduleRetryFn(ctx, runID, at, attempt)
+	}
+	return nil
+}
+
+func (m *mockExecutorStore) ClearRetry(ctx context.Context, runID string) error {
+	m.mu.Lock()
+	m.clearRetryCalls = append(m.clearRetryCalls, runID)
+	m.mu.Unlock()
+	if m.clearRetryFn != nil {
+		return m.clearRetryFn(ctx, runID)
+	}
+	return nil
+}
+
+func (m *mockExecutorStore) scheduleRetries() []scheduleRetryCall {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]scheduleRetryCall, len(m.scheduleRetryCalls))
+	copy(out, m.scheduleRetryCalls)
+	return out
+}
+
+func (m *mockExecutorStore) clearRetries() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]string, len(m.clearRetryCalls))
+	copy(out, m.clearRetryCalls)
+	return out
 }
 
 func (m *mockExecutorStore) GetWorkflowStepRun(ctx context.Context, id string) (*domain.WorkflowStepRun, error) {
@@ -199,43 +265,11 @@ func (m *mockExecutorStore) GetProjectQuota(ctx context.Context, projectID strin
 	return m.getProjectQuotaFn(ctx, projectID)
 }
 
-func (m *mockExecutorStore) SumDailyComputeCost(ctx context.Context, projectID, timezone string) (int64, error) {
-	if m.sumDailyComputeCostFn == nil {
-		return 0, nil
-	}
-	return m.sumDailyComputeCostFn(ctx, projectID, timezone)
-}
-
-func (m *mockExecutorStore) CreateRunComputeUsage(ctx context.Context, usage *domain.RunComputeUsage) error {
-	if m.createRunComputeUsageFn == nil {
-		return nil
-	}
-	return m.createRunComputeUsageFn(ctx, usage)
-}
-
 func (m *mockExecutorStore) InsertEvent(ctx context.Context, event *domain.RunEvent) error {
 	if m.insertEventFn == nil {
 		return nil
 	}
 	return m.insertEventFn(ctx, event)
-}
-
-func (m *mockExecutorStore) SetRunMachineID(_ context.Context, _, _ string) error {
-	return nil
-}
-
-func (m *mockExecutorStore) RecordOOMEvent(ctx context.Context, jobID, preset string) error {
-	if m.recordOOMEventFn != nil {
-		return m.recordOOMEventFn(ctx, jobID, preset)
-	}
-	return nil
-}
-
-func (m *mockExecutorStore) GetPresetRecommendation(ctx context.Context, jobID string) (*orcstore.PresetRecommendation, error) {
-	if m.getPresetRecommendationFn != nil {
-		return m.getPresetRecommendationFn(ctx, jobID)
-	}
-	return nil, nil
 }
 
 func (m *mockExecutorStore) GetEndpointHealthScore(_ context.Context, _ string) (*domain.EndpointHealthScore, error) {
@@ -253,12 +287,24 @@ func (m *mockExecutorStore) AtomicRecordHealthResult(
 	_, _, _ float64,
 	_ float64,
 ) (*domain.EndpointHealthScore, error) {
+	m.mu.Lock()
+	m.healthResultKeys = append(m.healthResultKeys, endpointURL)
+	m.mu.Unlock()
+
 	return &domain.EndpointHealthScore{
 		EndpointURL:  endpointURL,
 		HealthScore:  100.0,
 		SuccessRate:  1.0,
 		LatencyScore: 1.0,
 	}, nil
+}
+
+func (m *mockExecutorStore) healthResults() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]string, len(m.healthResultKeys))
+	copy(out, m.healthResultKeys)
+	return out
 }
 
 func (m *mockExecutorStore) CountExecutingRunsByOrg(_ context.Context, _ string) (int, error) {
@@ -437,10 +483,12 @@ func TestExecutor_Dispatch_IncludesSecretHeadersWhenEnabled(t *testing.T) {
 
 	store := &mockExecutorStore{}
 	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
-		return testJob(server.URL, 1, 5), nil
+		job := testJob(server.URL, 1, 5)
+		job.EnvironmentID = "env-secret"
+		return job, nil
 	}
 	store.listSecretsFn = func(_ context.Context, jobID, environment string) ([]domain.JobSecret, error) {
-		if jobID != "job-1" || environment != "production" {
+		if jobID != "job-1" || environment != "env-secret" {
 			t.Fatalf("unexpected args: %q %q", jobID, environment)
 		}
 		return []domain.JobSecret{{SecretKey: "API_KEY", EncryptedValue: "super-secret"}}, nil
@@ -494,12 +542,15 @@ func TestExecutor_CircuitOpen_RequeuesBeforeExecuting(t *testing.T) {
 	if calls[0].from != domain.StatusDequeued || calls[0].to != domain.StatusQueued {
 		t.Fatalf("transition = %s->%s, want %s->%s", calls[0].from, calls[0].to, domain.StatusDequeued, domain.StatusQueued)
 	}
-	gotRetryAt, ok := calls[0].fields["next_retry_at"].(*time.Time)
-	if !ok || gotRetryAt == nil {
-		t.Fatalf("next_retry_at field type = %T, want *time.Time", calls[0].fields["next_retry_at"])
+	if _, ok := calls[0].fields["next_retry_at"]; ok {
+		t.Fatalf("next_retry_at must not be in job_runs UPDATE fields; lives in job_retries side table now")
 	}
-	if !gotRetryAt.Equal(retryAt) {
-		t.Fatalf("next_retry_at = %v, want %v", *gotRetryAt, retryAt)
+	scheduled := store.scheduleRetries()
+	if len(scheduled) != 1 {
+		t.Fatalf("ScheduleRetry calls = %d, want 1", len(scheduled))
+	}
+	if !scheduled[0].at.Equal(retryAt) {
+		t.Fatalf("ScheduleRetry at = %v, want %v", scheduled[0].at, retryAt)
 	}
 }
 
@@ -527,6 +578,80 @@ func TestExecutor_CircuitBreaker_RecordsFailure(t *testing.T) {
 
 	if failureCalled.Load() != 1 {
 		t.Fatalf("record failure called = %d, want 1", failureCalled.Load())
+	}
+}
+
+func TestExecutor_CircuitBreakerFailureUsesProjectScopedEndpointKey(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte("temporary failure"))
+	}))
+	defer server.Close()
+
+	var precheckKey string
+	var failureKey string
+	store := &mockExecutorStore{}
+	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
+		return testJob(server.URL, 1, 5), nil
+	}
+	store.canDispatchFn = func(_ context.Context, endpointURL string, _ time.Time) (bool, *time.Time, error) {
+		precheckKey = endpointURL
+		return true, nil, nil
+	}
+	store.recordFailureFn = func(_ context.Context, endpointURL string, _ time.Time, _ int, _ time.Duration) error {
+		failureKey = endpointURL
+		return nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	run := testRun(1)
+	exec.execute(context.Background(), run)
+
+	want := endpointStateKey("proj-1", server.URL)
+	if precheckKey != want {
+		t.Fatalf("precheck endpoint key = %q, want %q", precheckKey, want)
+	}
+	if failureKey != want {
+		t.Fatalf("failure endpoint key = %q, want %q", failureKey, want)
+	}
+	healthKeys := store.healthResults()
+	if len(healthKeys) == 0 {
+		t.Fatal("expected health failure to be recorded")
+	}
+	if healthKeys[len(healthKeys)-1] != want {
+		t.Fatalf("health endpoint key = %q, want %q", healthKeys[len(healthKeys)-1], want)
+	}
+}
+
+func TestExecutor_TimeoutFailureUsesProjectScopedEndpointKey(t *testing.T) {
+	t.Parallel()
+
+	var failureKey string
+	store := &mockExecutorStore{}
+	store.recordFailureFn = func(_ context.Context, endpointURL string, _ time.Time, _ int, _ time.Duration) error {
+		failureKey = endpointURL
+		return nil
+	}
+	exec := newSnoozeTestExecutor(t, store, 0)
+
+	run := testRun(1)
+	run.Status = domain.StatusExecuting
+	job := testJob("http://timeout.test", 3, 30)
+	policy := executionPolicy{maxAttempts: 3, timeoutSecs: 30}
+
+	exec.handleTimeout(context.Background(), run, job, policy, nil)
+
+	want := endpointStateKey("proj-1", job.EndpointURL)
+	if failureKey != want {
+		t.Fatalf("timeout failure endpoint key = %q, want %q", failureKey, want)
+	}
+	healthKeys := store.healthResults()
+	if len(healthKeys) == 0 {
+		t.Fatal("expected timeout health result to be recorded")
+	}
+	if healthKeys[len(healthKeys)-1] != want {
+		t.Fatalf("timeout health endpoint key = %q, want %q", healthKeys[len(healthKeys)-1], want)
 	}
 }
 
@@ -1681,7 +1806,7 @@ func TestSendWebhookOnce_Success(t *testing.T) {
 	job := &domain.Job{WebhookURL: srv.URL}
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", ProjectID: "proj-1", Status: domain.StatusCompleted}
 
-	result := sendWebhookOnce(t.Context(), job, run)
+	result := sendWebhookOnceWith(t.Context(), webhookClient, job, run)
 	if !result.Delivered {
 		t.Errorf("Delivered = false, want true")
 	}
@@ -1700,7 +1825,7 @@ func TestSendWebhookOnce_ServerError(t *testing.T) {
 	job := &domain.Job{WebhookURL: srv.URL}
 	run := &domain.JobRun{ID: "run-1", Status: domain.StatusFailed}
 
-	result := sendWebhookOnce(t.Context(), job, run)
+	result := sendWebhookOnceWith(t.Context(), webhookClient, job, run)
 	if result.Delivered {
 		t.Error("Delivered = true, want false")
 	}
@@ -1719,7 +1844,7 @@ func TestSendWebhookOnce_ClientError(t *testing.T) {
 	job := &domain.Job{WebhookURL: srv.URL}
 	run := &domain.JobRun{ID: "run-1", Status: domain.StatusFailed}
 
-	result := sendWebhookOnce(t.Context(), job, run)
+	result := sendWebhookOnceWith(t.Context(), webhookClient, job, run)
 	if result.Delivered {
 		t.Error("Delivered = true, want false")
 	}
@@ -1744,7 +1869,7 @@ func TestSendWebhookOnce_WithSignature(t *testing.T) {
 	job := &domain.Job{WebhookURL: srv.URL, WebhookSecret: "my-secret"}
 	run := &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}
 
-	result := sendWebhookOnce(t.Context(), job, run)
+	result := sendWebhookOnceWith(t.Context(), webhookClient, job, run)
 	if !result.Delivered {
 		t.Fatal("Delivered = false")
 	}
@@ -1783,7 +1908,7 @@ func TestSendWebhookOnce_PayloadContent(t *testing.T) {
 		Attempt:   2,
 	}
 
-	sendWebhookOnce(t.Context(), job, run)
+	sendWebhookOnceWith(t.Context(), webhookClient, job, run)
 
 	if gotPayload.RunID != "run-123" {
 		t.Errorf("RunID = %s, want run-123", gotPayload.RunID)
@@ -1807,7 +1932,7 @@ func TestSendWebhookOnce_NetworkError(t *testing.T) {
 	job := &domain.Job{WebhookURL: "http://localhost:59999/webhook"}
 	run := &domain.JobRun{ID: "run-1", Status: domain.StatusFailed}
 
-	result := sendWebhookOnce(t.Context(), job, run)
+	result := sendWebhookOnceWith(t.Context(), webhookClient, job, run)
 	if result.Delivered {
 		t.Error("Delivered = true, want false")
 	}
@@ -2414,6 +2539,70 @@ func TestExecutor_EnvironmentOverride_Success(t *testing.T) {
 	}
 	if !overrideCalled {
 		t.Fatal("override server should have been called")
+	}
+}
+
+func TestExecutor_EnvironmentOverride_WithSecretsUsesOriginalEndpoint(t *testing.T) {
+	t.Parallel()
+
+	var overrideCalled atomic.Bool
+	overrideServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		overrideCalled.Store(true)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer overrideServer.Close()
+
+	var originalSecretHeader atomic.Value
+	originalServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		originalSecretHeader.Store(r.Header.Get("X-Secret-API_KEY"))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"from":"original"}`))
+	}))
+	defer originalServer.Close()
+
+	overrideParsed, err := url.Parse(overrideServer.URL)
+	if err != nil {
+		t.Fatalf("parse override server url: %v", err)
+	}
+	overrideURL := "http://example.com" + ":" + overrideParsed.Port()
+
+	store := &mockExecutorStore{}
+	store.getJobFn = func(_ context.Context, _ string) (*domain.Job, error) {
+		job := testJob(originalServer.URL, 1, 5)
+		job.EnvironmentID = "env-1"
+		return job, nil
+	}
+	store.getResolvedEnvVarsFn = func(_ context.Context, id string) (map[string]string, error) {
+		if id != "env-1" {
+			t.Fatalf("unexpected environment ID: %q", id)
+		}
+		return map[string]string{"ENDPOINT_URL": overrideURL}, nil
+	}
+	store.listSecretsFn = func(_ context.Context, jobID, environment string) ([]domain.JobSecret, error) {
+		if jobID != "job-1" || environment != "env-1" {
+			t.Fatalf("unexpected secret scope: job_id=%q environment=%q", jobID, environment)
+		}
+		return []domain.JobSecret{{SecretKey: "API_KEY", EncryptedValue: "super-secret"}}, nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, originalServer.Client())
+	run := testRun(1)
+
+	exec.execute(context.Background(), run)
+
+	calls := store.statusUpdates()
+	if len(calls) != 2 {
+		t.Fatalf("status update calls = %d, want 2", len(calls))
+	}
+	if calls[1].to != domain.StatusCompleted {
+		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusCompleted)
+	}
+	if overrideCalled.Load() {
+		t.Fatal("override endpoint received dispatch despite job secrets")
+	}
+	if got, _ := originalSecretHeader.Load().(string); got != "super-secret" {
+		t.Fatalf("original endpoint secret header = %q, want super-secret", got)
 	}
 }
 
@@ -3420,7 +3609,7 @@ func TestHandleFailure_BoostNotAppliedWhenPoisonPill(t *testing.T) {
 	errBody := "fail"
 	endpointErr := &domain.EndpointError{StatusCode: 500, Body: errBody}
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 3, Priority: 3, Metadata: map[string]string{
-		"_error_hash":       errorHash(endpointErr.Error()),
+		"_error_hash":       errorHashForError(endpointErr),
 		"_error_hash_count": "2",
 	}}
 	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com", RetryPriorityBoost: 2, PoisonPillThreshold: &threshold}
@@ -4402,7 +4591,7 @@ func TestHandleFailure_PoisonPillDetected(t *testing.T) {
 	errBody := "fail"
 	endpointErr := &domain.EndpointError{StatusCode: 500, Body: errBody}
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 3, Metadata: map[string]string{
-		"_error_hash":       errorHash(endpointErr.Error()),
+		"_error_hash":       errorHashForError(endpointErr),
 		"_error_hash_count": "2",
 	}}
 	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com", PoisonPillThreshold: &threshold}
@@ -4518,6 +4707,107 @@ func TestResolveJob_CacheHit(t *testing.T) {
 
 	if getJobCalls.Load() != 1 {
 		t.Errorf("expected 1 GetJob call (cache hit), got %d", getJobCalls.Load())
+	}
+}
+
+func TestDeepSecResolveJob_ClonesCachedJobBeforeEnvironmentOverrideMutation(t *testing.T) {
+	t.Parallel()
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        &mockExecutorStore{},
+		PollInterval: time.Hour,
+		JobCacheTTL:  5 * time.Minute,
+	})
+	t.Cleanup(exec.CloseCache)
+
+	cached := &domain.Job{ID: "job-1", ProjectID: "proj-1", Version: 1, EndpointURL: "https://original.example/run"}
+	if err := exec.jobCache.Set(context.Background(), "job-1", cached); err != nil {
+		t.Fatalf("seed cache: %v", err)
+	}
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 1}
+
+	resolved, err := exec.resolveJobForRun(context.Background(), run)
+	if err != nil {
+		t.Fatalf("resolveJobForRun: %v", err)
+	}
+	resolved.EndpointURL = "https://override.example/run"
+
+	again, err := exec.jobCache.Get(context.Background(), "job-1")
+	if err != nil {
+		t.Fatalf("read cache: %v", err)
+	}
+	if again.EndpointURL != "https://original.example/run" {
+		t.Fatalf("cached endpoint mutated to %q", again.EndpointURL)
+	}
+}
+
+func TestDeepSecResolveJob_RefreshesLatestPolicyCacheHit(t *testing.T) {
+	t.Parallel()
+
+	var getJobCalls atomic.Int32
+	store := &mockExecutorStore{
+		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+			getJobCalls.Add(1)
+			return &domain.Job{
+				ID:            "job-1",
+				ProjectID:     "proj-1",
+				Version:       2,
+				VersionID:     "v2",
+				VersionPolicy: domain.VersionPolicyLatest,
+				EndpointURL:   "https://fresh.example/run",
+			}, nil
+		},
+	}
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+		JobCacheTTL:  5 * time.Minute,
+	})
+	t.Cleanup(exec.CloseCache)
+	if err := exec.jobCache.Set(context.Background(), "job-1", &domain.Job{
+		ID:            "job-1",
+		ProjectID:     "proj-1",
+		Version:       1,
+		VersionPolicy: domain.VersionPolicyLatest,
+		EndpointURL:   "https://stale.example/run",
+	}); err != nil {
+		t.Fatalf("seed cache: %v", err)
+	}
+
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 1}
+	resolved, err := exec.resolveJobForRun(context.Background(), run)
+	if err != nil {
+		t.Fatalf("resolveJobForRun: %v", err)
+	}
+	if getJobCalls.Load() != 1 {
+		t.Fatalf("GetJob calls = %d, want 1", getJobCalls.Load())
+	}
+	if resolved.Version != 2 || resolved.EndpointURL != "https://fresh.example/run" {
+		t.Fatalf("resolved stale job: version=%d endpoint=%q", resolved.Version, resolved.EndpointURL)
+	}
+}
+
+func TestDeepSecEndpointStateKeyScopesByProject(t *testing.T) {
+	t.Parallel()
+
+	endpoint := "https://shared.example/run"
+	a := endpointStateKey("proj-a", endpoint)
+	b := endpointStateKey("proj-b", endpoint)
+	if a == b {
+		t.Fatal("endpoint state keys for different projects must differ")
+	}
+	if strings.Contains(a, "\x00") || strings.Contains(b, "\x00") {
+		t.Fatalf("endpoint state keys must be valid Postgres text: %q %q", a, b)
+	}
+	if strings.Contains(a, endpoint) || strings.Contains(b, endpoint) {
+		t.Fatalf("project-scoped endpoint state keys must not store raw endpoint URL: %q %q", a, b)
+	}
+	if endpointStateKey("", endpoint) != endpoint {
+		t.Fatal("empty project should preserve legacy endpoint key")
 	}
 }
 
@@ -4674,5 +4964,32 @@ func TestHandleSuccess_NoStatsAvailable(t *testing.T) {
 	}
 	if calls[0].to != domain.StatusCompleted {
 		t.Errorf("expected completed, got %s", calls[0].to)
+	}
+}
+
+func TestNewExecutor_DefaultHTTPClientBlocksPrivateDNSAtDispatch(t *testing.T) {
+	restore := httputil.SetLookupHostForTest(func(host string) ([]string, error) {
+		if host != "rebind.test" {
+			return nil, fmt.Errorf("unexpected host lookup: %s", host)
+		}
+		return []string{"127.0.0.1"}, nil
+	})
+	t.Cleanup(restore)
+
+	exec := NewExecutor(ExecutorConfig{})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	_, err := exec.dispatchToEndpoint(ctx, "http://rebind.test/hook", &domain.JobRun{
+		ID:      "run-ssrf",
+		JobID:   "job-ssrf",
+		Attempt: 1,
+		Payload: json.RawMessage(`{"ok":true}`),
+	}, nil)
+	if err == nil {
+		t.Fatal("expected SSRF-safe executor client to reject private DNS answer")
+	}
+	if !strings.Contains(err.Error(), "blocked private") && !strings.Contains(err.Error(), "resolves to private") {
+		t.Fatalf("expected private-address rejection, got %v", err)
 	}
 }

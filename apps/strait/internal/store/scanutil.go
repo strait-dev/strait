@@ -20,6 +20,15 @@ var (
 	_ Querier = (pgx.Tx)(nil)
 )
 
+// hashString returns a deterministic int64 hash suitable for advisory lock keys.
+func hashString(s string) int64 {
+	var h int64
+	for _, c := range s {
+		h = h*31 + int64(c)
+	}
+	return h
+}
+
 // ScanOne executes a query and scans a single row into a struct of type T.
 // Returns pgx.ErrNoRows if no rows match.
 func ScanOne[T any](ctx context.Context, q Querier, query string, args ...any) (T, error) {

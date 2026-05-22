@@ -34,22 +34,22 @@ func NewPoolSampler(pool *pgxpool.Pool, interval time.Duration, logger *slog.Log
 	}
 	meter := otel.Meter("strait/db_pool")
 
-	acquired, err := meter.Int64Gauge("strait.db.pool_acquired_conns",
+	acquired, err := meter.Int64Gauge("strait_db_pool_acquired_conns",
 		metric.WithDescription("Connections currently acquired from the pool"))
 	if err != nil {
 		return nil, err
 	}
-	idle, err := meter.Int64Gauge("strait.db.pool_idle_conns",
+	idle, err := meter.Int64Gauge("strait_db_pool_idle_conns",
 		metric.WithDescription("Connections currently idle in the pool"))
 	if err != nil {
 		return nil, err
 	}
-	total, err := meter.Int64Gauge("strait.db.pool_total_conns",
+	total, err := meter.Int64Gauge("strait_db_pool_total_conns",
 		metric.WithDescription("Total connections in the pool (acquired + idle)"))
 	if err != nil {
 		return nil, err
 	}
-	maxConns, err := meter.Int64Gauge("strait.db.pool_max_conns",
+	maxConns, err := meter.Int64Gauge("strait_db_pool_max_conns",
 		metric.WithDescription("Maximum pool size"))
 	if err != nil {
 		return nil, err

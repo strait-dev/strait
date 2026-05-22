@@ -1,0 +1,61 @@
+---
+title: "Strait and Cron"
+description: "When cron is enough, and when scheduled jobs need run history and recovery."
+icon: "calendar"
+---
+
+Cron runs a command on a schedule. Strait also schedules work, and adds run history, retries, replay, and workflow support around it.
+
+Cron is still a good tool for simple local automation. Strait fits recurring work that a team needs to operate.
+
+## Use Cron When
+
+Cron is usually enough when:
+
+- The job runs on one host.
+- Failure can be handled by logs or a simple alert.
+- You do not need per-run payloads or results.
+- You do not need replay from a dashboard or API.
+- You do not need access control around who can trigger or inspect work.
+
+## Use Strait When
+
+Use Strait for scheduled work when:
+
+- Every execution should have a run record.
+- Failures should retry automatically.
+- Failed work should be replayable.
+- Jobs need concurrency limits or rate limits.
+- Schedules need timezones, overlap policies, or execution windows.
+- A scheduled process has multiple dependent steps.
+
+## Example
+
+Cron is enough for a local disk cleanup script.
+
+Strait is a better fit for a daily customer billing check:
+
+1. Find invoices.
+2. Call a payment provider.
+3. Retry temporary provider failures.
+4. Record each run.
+5. Replay failed accounts after an outage.
+
+## Migration Path
+
+Start by turning each cron task into a job.
+
+Then add:
+
+- `cron` for the schedule
+- `cron_overlap_policy` to avoid duplicate work
+- `timeout_secs` and `max_attempts`
+- `max_concurrency` if the task calls limited services
+- metadata or tags for search
+
+## Related
+
+- [Schedule Recurring Work](/use-cases/scheduled-work)
+- [Scheduling](/concepts/scheduling)
+- [Create a Production Job](/guides/production-job)
+- [Handle Failed Runs](/guides/handle-failed-runs)

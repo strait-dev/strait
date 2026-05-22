@@ -74,6 +74,24 @@ func TestWorker_StopIsIdempotent(t *testing.T) {
 	wg.Wait()
 }
 
+func TestNewWorkerWithEmail_RegistersEmailSenderWhenConfigured(t *testing.T) {
+	t.Parallel()
+
+	w := NewWorkerWithEmail(&stubNotificationStore{}, &http.Client{}, "re_test_key", "alerts@example.com")
+	if !w.HasSender(domain.ChannelTypeEmail) {
+		t.Fatal("email sender was not registered when Resend API key was configured")
+	}
+}
+
+func TestNewWorkerWithEmail_SkipsEmailSenderWithoutAPIKey(t *testing.T) {
+	t.Parallel()
+
+	w := NewWorkerWithEmail(&stubNotificationStore{}, &http.Client{}, "", "alerts@example.com")
+	if w.HasSender(domain.ChannelTypeEmail) {
+		t.Fatal("email sender was registered without Resend API key")
+	}
+}
+
 // panicNotificationStore panics on ClaimPendingNotificationDeliveries to test recovery.
 type panicNotificationStore struct {
 	stubNotificationStore

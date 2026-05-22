@@ -1,0 +1,1 @@
+-- Data deduplication is intentionally irreversible.

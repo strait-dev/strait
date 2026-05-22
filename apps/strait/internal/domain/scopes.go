@@ -23,6 +23,7 @@ const (
 	ScopeProjectsRead     = "projects:read"
 	ScopeProjectsWrite    = "projects:write"
 	ScopeProjectsManage   = "projects:manage"
+	ScopeWorkersConnect   = "workers:connect"
 	// DLQ admin scopes used by the admin DLQ HTTP endpoints.
 	ScopeDLQRead     = "dlq:read"
 	ScopeDLQReplay   = "dlq:replay"
@@ -53,6 +54,7 @@ var ValidScopes = map[string]bool{
 	ScopeProjectsRead:     true,
 	ScopeProjectsWrite:    true,
 	ScopeProjectsManage:   true,
+	ScopeWorkersConnect:   true,
 	ScopeDLQRead:          true,
 	ScopeDLQReplay:        true,
 	ScopeDLQPurge:         true,
@@ -101,6 +103,13 @@ func HasScope(scopes []string, required string) bool {
 	if len(scopes) == 0 {
 		return true // backwards compatible: empty = full access
 	}
+	return HasScopeStrict(scopes, required)
+}
+
+// HasScopeStrict returns true only when scopes explicitly contains the
+// requested scope or wildcard. Empty/nil scope lists deny access. Use this for
+// RBAC-derived permissions, resource policies, and short-lived delegated tokens.
+func HasScopeStrict(scopes []string, required string) bool {
 	for _, s := range scopes {
 		if s == ScopeAll || s == required {
 			return true

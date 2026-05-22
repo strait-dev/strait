@@ -19,6 +19,11 @@ type Config struct {
 	RedisURL                  string        `env:"REDIS_URL"`
 	RedisSentinelMaster       string        `env:"REDIS_SENTINEL_MASTER"`
 	RedisSentinelAddrs        []string      `env:"REDIS_SENTINEL_ADDRS"`
+	RedisPoolSize             int           `env:"REDIS_POOL_SIZE" default:"30"`
+	RedisMinIdleConns         int           `env:"REDIS_MIN_IDLE_CONNS" default:"5"`
+	RedisReadTimeout          time.Duration `env:"REDIS_READ_TIMEOUT" default:"3s"`
+	RedisWriteTimeout         time.Duration `env:"REDIS_WRITE_TIMEOUT" default:"3s"`
+	RedisConnMaxLifetime      time.Duration `env:"REDIS_CONN_MAX_LIFETIME" default:"30m"`
 	Mode                      string        `env:"MODE" default:"all"`
 	Port                      int           `env:"PORT" default:"8080"`
 	WorkerConcurrency         int           `env:"WORKER_CONCURRENCY" default:"25"`
@@ -98,15 +103,23 @@ type Config struct {
 	MaxBulkTriggerItems int           `env:"MAX_BULK_TRIGGER_ITEMS" default:"500"`
 
 	// Sequin CDC settings
-	SequinBaseURL      string `env:"SEQUIN_BASE_URL"`
-	SequinConsumerName string `env:"SEQUIN_CONSUMER_NAME"`
-	SequinAPIToken     string `env:"SEQUIN_API_TOKEN"`
-	SequinBatchSize    int    `env:"SEQUIN_BATCH_SIZE" default:"10"`
-	SequinWaitTimeMs   int    `env:"SEQUIN_WAIT_TIME_MS" default:"5000"`
+	SequinBaseURL       string `env:"SEQUIN_BASE_URL"`
+	SequinConsumerName  string `env:"SEQUIN_CONSUMER_NAME"`
+	SequinAPIToken      string `env:"SEQUIN_API_TOKEN"`
+	SequinWebhookSecret string `env:"SEQUIN_WEBHOOK_SECRET"`
+	SequinBatchSize     int    `env:"SEQUIN_BATCH_SIZE" default:"200"`
+	SequinWaitTimeMs    int    `env:"SEQUIN_WAIT_TIME_MS" default:"5000"`
 
 	// CORS settings
 	CORSAllowedOrigins   []string `env:"CORS_ALLOWED_ORIGINS"`
 	CORSAllowCredentials bool     `env:"CORS_ALLOW_CREDENTIALS" default:"false"`
+
+	// TrustedProxies is a comma-separated list of CIDR ranges (or single IPs)
+	// that are allowed to set the X-Forwarded-For header. When empty (the
+	// default), X-Forwarded-For is ignored entirely and the connection's
+	// RemoteAddr is used for rate-limit / lockout accounting. This prevents
+	// clients from spoofing their source IP by adding their own XFF entries.
+	TrustedProxies []string `env:"TRUSTED_PROXIES"`
 
 	WorkerPartitions       []string `env:"WORKER_PARTITIONS"`
 	WorkerPartitionWeights string   `env:"WORKER_PARTITION_WEIGHTS"`
@@ -141,6 +154,12 @@ type Config struct {
 
 	// RBAC permission cache
 	PermissionCacheTTL time.Duration `env:"PERMISSION_CACHE_TTL" default:"5m"`
+
+	// ProjectQuotaCacheTTL bounds how long a cached project quota row may be
+	// reused before refetching. Quotas change rarely (admin updates, billing
+	// plan transitions) so a short TTL is a safe trade-off against fresh
+	// reads on every trigger/SDK call. Set to 0 to disable caching.
+	ProjectQuotaCacheTTL time.Duration `env:"PROJECT_QUOTA_CACHE_TTL" default:"60s"`
 
 	// Worker/Executor timeouts
 	WebhookTimeout             time.Duration `env:"WEBHOOK_TIMEOUT" default:"10s"`
@@ -181,7 +200,7 @@ type Config struct {
 	// Workflow settings
 	MaxWorkflowNestingDepth int `env:"MAX_WORKFLOW_NESTING_DEPTH" default:"10"`
 
-	CDCBatchSize  int `env:"CDC_BATCH_SIZE" default:"10"`
+	CDCBatchSize  int `env:"CDC_BATCH_SIZE" default:"200"`
 	CDCWaitTimeMs int `env:"CDC_WAIT_TIME_MS" default:"5000"`
 
 	// SSE settings
@@ -189,6 +208,13 @@ type Config struct {
 	SSEMaxConns           int64         `env:"SSE_MAX_CONNS" default:"5000"`
 	SSEMaxConnsPerProject int64         `env:"SSE_MAX_CONNS_PER_PROJECT" default:"100"`
 	SSEMaxConnDuration    time.Duration `env:"SSE_MAX_CONN_DURATION" default:"30m"`
+
+	// Idempotency settings. IdempotencyFailOpen=false (the default) makes
+	// the middleware return 503 when the idempotency store is unavailable,
+	// so non-idempotent operations are never executed twice during a DB
+	// outage. Setting it to true degrades to "no dedupe" on store errors.
+	IdempotencyFailOpen       bool          `env:"IDEMPOTENCY_FAIL_OPEN" default:"false"`
+	IdempotencyCleanupTimeout time.Duration `env:"IDEMPOTENCY_CLEANUP_TIMEOUT" default:"5s"`
 
 	// Log drain settings
 	LogDrainWorkerInterval     time.Duration `env:"LOG_DRAIN_WORKER_INTERVAL" default:"1m"`
@@ -203,30 +229,8 @@ type Config struct {
 	BatchFlushInterval         time.Duration `env:"BATCH_FLUSH_INTERVAL" default:"1s"`
 	WebhookRequireTLS          bool          `env:"WEBHOOK_REQUIRE_TLS" default:"false"`
 	AllowPrivateEndpoints      bool          `env:"ALLOW_PRIVATE_ENDPOINTS" default:"false"`
-	// Managed execution (container runtime)
-	AllowedImageRegistries  []string      `env:"ALLOWED_IMAGE_REGISTRIES" envSeparator:"," envDefault:""`
-	RequireImageDigest      bool          `env:"REQUIRE_IMAGE_DIGEST" envDefault:"false"`
-	ComputeRuntime          string        `env:"COMPUTE_RUNTIME" default:"k8s"`
-	ComputeFallbackProvider string        `env:"COMPUTE_FALLBACK_PROVIDER"`
-	DefaultRegion           string        `env:"DEFAULT_REGION" default:"iad"`
-	ExternalAPIURL          string        `env:"EXTERNAL_API_URL"`
-	MaxConcurrentMachines   int           `env:"MAX_CONCURRENT_MACHINES" default:"10"`
-	WarmPoolEnabled         bool          `env:"WARM_POOL_ENABLED" default:"false"`
-	WarmPoolMaxPerJob       int           `env:"WARM_POOL_MAX_PER_JOB" default:"0"`
-	WarmPoolTTL             time.Duration `env:"WARM_POOL_TTL"`
-	DisableMachinePoolReuse bool          `env:"DISABLE_MACHINE_POOL_REUSE" default:"true"`
-
-	// Kubernetes runtime
-	K8sKubeconfig    string        `env:"K8S_KUBECONFIG"`
-	K8sNamespace     string        `env:"K8S_NAMESPACE" default:"default"`
-	K8sPriorityClass string        `env:"K8S_PRIORITY_CLASS" default:"strait-job"`
-	K8sGCEnabled     bool          `env:"K8S_GC_ENABLED" default:"true"`
-	K8sGCMaxAge      time.Duration `env:"K8S_GC_MAX_AGE" default:"30m"`
-	K8sGCInterval    time.Duration `env:"K8S_GC_INTERVAL" default:"5m"`
-	// K8sRuntimeClass sets the RuntimeClassName on all job pods.
-	// Set to "gvisor" to enable gVisor kernel isolation on worker nodes that have
-	// the RuntimeClass installed. Leave empty to use the node default runtime.
-	K8sRuntimeClass string `env:"K8S_RUNTIME_CLASS" default:""`
+	DefaultRegion              string        `env:"DEFAULT_REGION" default:"iad"`
+	ExternalAPIURL             string        `env:"EXTERNAL_API_URL"`
 
 	// Region gating
 	EnforceRegionGating bool `env:"ENFORCE_REGION_GATING" default:"false"`
@@ -252,16 +256,44 @@ type Config struct {
 	StripeProYearlyPriceID               string `env:"STRIPE_PRO_YEARLY_PRICE_ID"`
 	StripeScaleMonthlyPriceID            string `env:"STRIPE_SCALE_MONTHLY_PRICE_ID"`
 	StripeScaleYearlyPriceID             string `env:"STRIPE_SCALE_YEARLY_PRICE_ID"`
+	StripeBusinessMonthlyPriceID         string `env:"STRIPE_BUSINESS_MONTHLY_PRICE_ID"`
+	StripeBusinessYearlyPriceID          string `env:"STRIPE_BUSINESS_YEARLY_PRICE_ID"`
 	StripeEnterpriseStarterYearlyPriceID string `env:"STRIPE_ENTERPRISE_STARTER_YEARLY_PRICE_ID"`
 	StripeEnterpriseGrowthYearlyPriceID  string `env:"STRIPE_ENTERPRISE_GROWTH_YEARLY_PRICE_ID"`
 	StripeEnterpriseLargeYearlyPriceID   string `env:"STRIPE_ENTERPRISE_LARGE_YEARLY_PRICE_ID"`
-	StripeAddonConcurrentRunsID          string `env:"STRIPE_ADDON_CONCURRENT_RUNS_PRICE_ID"`
-	StripeAddonMembersID                 string `env:"STRIPE_ADDON_MEMBERS_PRICE_ID"`
-	StripeAddonCronSchedulesID           string `env:"STRIPE_ADDON_CRON_SCHEDULES_PRICE_ID"`
-	StripeAddonDataRetentionID           string `env:"STRIPE_ADDON_DATA_RETENTION_PRICE_ID"`
-	StripeAddonWebhookEndpointsID        string `env:"STRIPE_ADDON_WEBHOOK_ENDPOINTS_PRICE_ID"`
 	StripeMeterID                        string `env:"STRIPE_METER_ID"`
 	BillingEnforcementEnabled            bool   `env:"BILLING_ENFORCEMENT_ENABLED" default:"false"`
+	// BillingEntitlementsAuthoritative governs whether the Enforcer reads
+	// the persisted entitlements snapshot on the hot path (true, default)
+	// or always recomputes from the catalog + addons pipeline (false).
+	// Operators can flip this to false as an escape hatch if a bad
+	// migration/backfill writes corrupt snapshots.
+	BillingEntitlementsAuthoritative bool `env:"BILLING_ENTITLEMENTS_AUTHORITATIVE" default:"true"`
+
+	// Orchestration-only tier price IDs (new billing model).
+	// Set these to the Stripe Price IDs for each plan's flat monthly subscription.
+	StripeStarterPriceID    string `env:"STRIPE_STARTER_PRICE_ID"`
+	StripeProPriceID        string `env:"STRIPE_PRO_PRICE_ID"`
+	StripeScalePriceID      string `env:"STRIPE_SCALE_PRICE_ID"`
+	StripeEnterprisePriceID string `env:"STRIPE_ENTERPRISE_PRICE_ID"`
+	// Overage meter price IDs — one per paid tier, used for metered billing.
+	StripeStarterOveragePriceID string `env:"STRIPE_STARTER_OVERAGE_PRICE_ID"`
+	StripeProOveragePriceID     string `env:"STRIPE_PRO_OVERAGE_PRICE_ID"`
+	StripeScaleOveragePriceID   string `env:"STRIPE_SCALE_OVERAGE_PRICE_ID"`
+	// Add-on price IDs for optional per-org upgrades.
+	StripeRetentionPackPriceID    string `env:"STRIPE_RETENTION_PACK_PRICE_ID"`
+	StripePrioritySlotPackPriceID string `env:"STRIPE_PRIORITY_SLOT_PACK_PRICE_ID"`
+	StripeLogDrainVolumePriceID   string `env:"STRIPE_LOG_DRAIN_VOLUME_PRICE_ID"`
+	StripeWorkerConnectionPriceID string `env:"STRIPE_WORKER_CONNECTION_PRICE_ID"`
+
+	// Prometheus uptime source for the SLA credit calculator. When
+	// PrometheusQueryURL is unset the SLACalculator falls back to a
+	// 100% StaticUptimeSource (no breaches), which keeps community /
+	// dev deployments quiet. The default query is service-level
+	// (Strait's `up` metric) — swap it in operators' env when a
+	// per-tenant aggregation is plumbed in.
+	PrometheusQueryURL    string `env:"PROMETHEUS_QUERY_URL"`
+	PrometheusUptimeQuery string `env:"PROMETHEUS_UPTIME_QUERY" default:"avg_over_time(up{job=\"strait\"}[30d]) * 100"`
 
 	// Resend email integration
 	ResendAPIKey    string `env:"RESEND_API_KEY"`
@@ -272,8 +304,17 @@ type Config struct {
 	PostHogHost   string `env:"POSTHOG_HOST" default:"https://us.i.posthog.com"`
 
 	// Sentry error tracking
-	SentryDSN         string `env:"SENTRY_DSN"`
-	SentryEnvironment string `env:"SENTRY_ENVIRONMENT" default:"development"`
+	SentryDSN                     string  `env:"SENTRY_DSN"`
+	SentryEnvironment             string  `env:"SENTRY_ENVIRONMENT" default:"development"`
+	SentryTracesSampleRate        float64 `env:"SENTRY_TRACES_SAMPLE_RATE" default:"0.1"`
+	SentryRelease                 string  `env:"SENTRY_RELEASE"`
+	SentryDebug                   bool    `env:"SENTRY_DEBUG" default:"false"`
+	SentryMaxBreadcrumbs          int     `env:"SENTRY_MAX_BREADCRUMBS" default:"100"`
+	SentryMaxSpans                int     `env:"SENTRY_MAX_SPANS" default:"1000"`
+	SentryMaxErrorDepth           int     `env:"SENTRY_MAX_ERROR_DEPTH" default:"100"`
+	SentryStrictTraceContinuation bool    `env:"SENTRY_STRICT_TRACE_CONTINUATION" default:"false"`
+	SentrySchedulerCheckIns       bool    `env:"SENTRY_SCHEDULER_CHECKINS" default:"false"`
+	SentrySchedulerCheckInPrefix  string  `env:"SENTRY_SCHEDULER_CHECKIN_PREFIX" default:"strait-scheduler"`
 
 	// Pyroscope continuous profiling
 	PyroscopeEndpoint  string `env:"PYROSCOPE_ENDPOINT"`
@@ -286,80 +327,22 @@ type Config struct {
 	// This field exists for config logging but is ignored by domain.ParseEdition.
 	Edition string `env:"STRAIT_EDITION" default:"community"`
 
-	// Code-first build pipeline (STR-385).
+	// gRPC server settings.
+	GRPCEnabled              bool          `env:"GRPC_ENABLED" default:"true"`
+	GRPCBindAddr             string        `env:"GRPC_BIND_ADDR" default:"127.0.0.1"`
+	GRPCPort                 int           `env:"GRPC_PORT" default:"50051"`
+	GRPCAllowPlaintext       bool          `env:"GRPC_ALLOW_PLAINTEXT" default:"false"`
+	GRPCTLSCertPath          string        `env:"GRPC_TLS_CERT_PATH"`
+	GRPCTLSKeyPath           string        `env:"GRPC_TLS_KEY_PATH"`
+	GRPCKeepaliveTime        time.Duration `env:"GRPC_KEEPALIVE_TIME" default:"30s"`
+	GRPCKeepaliveTimeout     time.Duration `env:"GRPC_KEEPALIVE_TIMEOUT" default:"10s"`
+	GRPCPubsubStartupTimeout time.Duration `env:"GRPC_PUBSUB_STARTUP_TIMEOUT" default:"30s"`
 
-	// BuildKit daemon address. Used by the build orchestrator to submit builds.
-	BuildKitAddress string `env:"BUILDKIT_ADDRESS" default:"tcp://buildkitd.strait-build.svc.cluster.local:1234"`
-	// BuildKitAddresses is an optional comma-separated list of BuildKit daemon
-	// addresses used for multi-node round-robin dispatch. When non-empty it
-	// overrides BuildKitAddress.
-	BuildKitAddresses string `env:"BUILDKIT_ADDRESSES" default:""`
-	BuildKitNamespace string `env:"BUILDKIT_NAMESPACE" default:"strait-build"`
-
-	// Deployment GC removes stale pending and old failed/timed_out deployments.
-	DeploymentGCEnabled    bool          `env:"DEPLOYMENT_GC_ENABLED" default:"true"`
-	DeploymentGCInterval   time.Duration `env:"DEPLOYMENT_GC_INTERVAL" default:"1h"`
-	DeploymentGCPendingTTL time.Duration `env:"DEPLOYMENT_GC_PENDING_TTL" default:"15m"`
-	DeploymentGCFailedAge  time.Duration `env:"DEPLOYMENT_GC_FAILED_AGE" default:"168h"` // 7 days
-
-	BuildKitCacheEnabled bool          `env:"BUILDKIT_CACHE_ENABLED" default:"true"`
-	BuildMaxTarballMB    int           `env:"BUILD_MAX_TARBALL_MB" default:"256"`
-	BuildTimeout         time.Duration `env:"BUILD_TIMEOUT" default:"10m"`
-
-	// Object store for deployment tarballs.
-	// Type selects the implementation: "s3" (default, works for R2 and MinIO).
-	ObjectStoreType           string `env:"OBJECT_STORE_TYPE" default:"s3"`
-	ObjectStoreBucket         string `env:"OBJECT_STORE_BUCKET"`
-	ObjectStoreEndpoint       string `env:"OBJECT_STORE_ENDPOINT"` // e.g. "https://{account}.r2.cloudflarestorage.com" or "http://minio:9000"
-	ObjectStoreRegion         string `env:"OBJECT_STORE_REGION" default:"auto"`
-	ObjectStoreAccessKey      string `env:"OBJECT_STORE_ACCESS_KEY"`
-	ObjectStoreSecretKey      string `env:"OBJECT_STORE_SECRET_KEY"`
-	ObjectStoreForcePathStyle bool   `env:"OBJECT_STORE_FORCE_PATH_STYLE" default:"false"` // set true for MinIO
-
-	// Container registry for built images.
-	// Type selects the implementation: "ecr" or "generic" (Docker Registry API v2).
-	ContainerRegistryType   string `env:"CONTAINER_REGISTRY_TYPE" default:"ecr"`
-	ContainerRegistryURL    string `env:"CONTAINER_REGISTRY_URL"`  // for generic
-	ContainerRegistryUser   string `env:"CONTAINER_REGISTRY_USER"` // for generic
-	ContainerRegistryPass   string `env:"CONTAINER_REGISTRY_PASS"` // for generic
-	ContainerRegistryPrefix string `env:"CONTAINER_REGISTRY_PREFIX" default:"strait-jobs"`
-	ECRRegion               string `env:"ECR_REGION" default:"us-east-1"`
-	ECRRegistryID           string `env:"ECR_REGISTRY_ID"` // AWS account ID; defaults to caller account
-	ECRRoleARN              string `env:"ECR_ROLE_ARN"`    // optional IAM role for cross-account access
-	// BuildExtraRegistryAuths is a JSON object mapping registry hostnames to
-	// bearer tokens used for authenticating private base images at build time.
-	// Example: {"private.registry.io": "base64token", "ghcr.io": "ghp_token"}
-	BuildExtraRegistryAuths string `env:"BUILD_EXTRA_REGISTRY_AUTHS" default:"{}"`
-
-	// Dispatcher mode: multi-cluster job routing (--mode dispatcher).
-	// DispatcherClusterRegistryConfigMap is the name of the K8s ConfigMap that
-	// contains the cluster-registry.yaml manifest listing all Strait clusters.
-	// Defaults to the name deployed by the infra repo.
-	DispatcherClusterRegistryConfigMap string `env:"DISPATCHER_CLUSTER_REGISTRY_CONFIGMAP" default:"cluster-registry"`
-	// DispatcherClusterRegistryNamespace is the K8s namespace that contains the
-	// cluster-registry ConfigMap.
-	DispatcherClusterRegistryNamespace string `env:"DISPATCHER_CLUSTER_REGISTRY_NAMESPACE" default:"strait"`
-	// DispatcherRefreshInterval controls how often the dispatcher re-reads cluster
-	// queue depths. Shorter intervals improve routing accuracy at the cost of more
-	// Prometheus queries.
-	DispatcherRefreshInterval time.Duration `env:"DISPATCHER_REFRESH_INTERVAL" default:"5s"`
-
-	// Performance: image pull policy and lazy loading.
-	// ImagePullPolicy matches the Kubernetes imagePullPolicy values.
-	ImagePullPolicy string `env:"IMAGE_PULL_POLICY" default:"IfNotPresent"`
-	// PrePullEnabled deploys a DaemonSet that pre-pulls base runtime images to
-	// all nodes, eliminating cold-start latency on the first run.
-	PrePullEnabled bool `env:"PRE_PULL_ENABLED" default:"false"`
-	// SOCIEnabled enables Seekable OCI (SOCI) lazy image loading via the
-	// AWS SOCI snapshotter. Requires the SOCI snapshotter to be installed on nodes.
-	// When enabled, container startup begins before the full image is pulled.
-	SOCIEnabled bool `env:"SOCI_ENABLED" default:"false"`
-	// SOCIMinImageBytes is the minimum compressed image size (in bytes) below which
-	// SOCI index generation is skipped — the overhead of lazy loading is not worth it
-	// for small images. Defaults to 10 MiB.
-	// NOTE: size-based skipping is not yet implemented; this config is reserved for
-	// a future optimisation once post-build image size querying is available.
-	SOCIMinImageBytes int64 `env:"SOCI_MIN_IMAGE_SIZE_BYTES" default:"10485760"`
+	// gRPC Worker connection management.
+	WorkerHeartbeatTimeout        time.Duration `env:"WORKER_HEARTBEAT_TIMEOUT" default:"30s"`
+	WorkerDBSyncInterval          time.Duration `env:"WORKER_DB_SYNC_INTERVAL" default:"15s"`
+	WorkerDisconnectSweepInterval time.Duration `env:"WORKER_DISCONNECT_SWEEP_INTERVAL" default:"30s"`
+	WorkerDisconnectAckTimeout    time.Duration `env:"WORKER_DISCONNECT_ACK_TIMEOUT" default:"5s"`
 }
 
 // Load reads configuration from environment variables.
@@ -401,6 +384,9 @@ func Load() (*Config, error) {
 	if err := validateLoaded(&cfg); err != nil {
 		return nil, err
 	}
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid config: %w", err)
+	}
 
 	slog.Info("config loaded",
 		"mode", cfg.Mode,
@@ -416,11 +402,10 @@ func Load() (*Config, error) {
 // validateLoaded runs the post-load validation gauntlet on a populated
 // Config: required fields, enumerated values, URL parsing, edition gating,
 // CORS policy, and audit subsystem invariants. It mutates cfg in two
-// well-defined cases (community-edition ComputeRuntime override; no other
-// assignments) to match the pre-refactor behavior of Load. Returns a
+// well-defined cases to match the pre-refactor behavior of Load. Returns a
 // *domain.ConfigError pinpointing the offending field, or nil on success.
 //
-//nolint:gocyclo,cyclop,gocognit
+//nolint:gocognit,gocyclo,cyclop
 func validateLoaded(cfg *Config) error {
 	if cfg.DatabaseURL == "" {
 		return &domain.ConfigError{Field: "DATABASE_URL", Message: "is required"}
@@ -472,37 +457,6 @@ func validateLoaded(cfg *Config) error {
 		}
 	}
 
-	switch cfg.ComputeRuntime {
-	case "none", "docker", "k8s", "":
-		// valid
-	default:
-		return &domain.ConfigError{Field: "COMPUTE_RUNTIME", Message: "must be none, docker, or k8s"}
-	}
-	if cfg.ComputeRuntime == "k8s" || cfg.ComputeFallbackProvider == "k8s" {
-		if cfg.K8sNamespace == "" {
-			return &domain.ConfigError{Field: "K8S_NAMESPACE", Message: "is required when using k8s compute runtime"}
-		}
-	}
-	if cfg.ComputeFallbackProvider != "" {
-		switch cfg.ComputeFallbackProvider {
-		case "docker", "k8s":
-			// valid
-		default:
-			return &domain.ConfigError{Field: "COMPUTE_FALLBACK_PROVIDER", Message: "must be docker or k8s"}
-		}
-		if cfg.ComputeFallbackProvider == cfg.ComputeRuntime {
-			return &domain.ConfigError{Field: "COMPUTE_FALLBACK_PROVIDER", Message: "must differ from COMPUTE_RUNTIME"}
-		}
-		if cfg.ComputeRuntime == "none" || cfg.ComputeRuntime == "" {
-			return &domain.ConfigError{Field: "COMPUTE_FALLBACK_PROVIDER", Message: "requires a primary COMPUTE_RUNTIME"}
-		}
-	}
-	if domain.ParseEdition(cfg.Edition) == domain.EditionCommunity && cfg.ComputeRuntime != "none" && cfg.ComputeRuntime != "" {
-		slog.Warn("community edition does not support managed execution; overriding COMPUTE_RUNTIME to none",
-			"configured", cfg.ComputeRuntime)
-		cfg.ComputeRuntime = "none"
-	}
-
 	if cfg.ClickHouseEnabled && cfg.ClickHouseURL == "" {
 		return &domain.ConfigError{Field: "CLICKHOUSE_URL", Message: "is required when CLICKHOUSE_ENABLED=true"}
 	}
@@ -532,6 +486,12 @@ func validateLoaded(cfg *Config) error {
 	if cfg.AuditRetentionDefaultDays < 0 {
 		return &domain.ConfigError{Field: "AUDIT_RETENTION_DEFAULT_DAYS", Message: "must be >= 0"}
 	}
+	if cfg.AuditRetentionDefaultDays > domain.MaxAuditRetentionDays {
+		return &domain.ConfigError{
+			Field:   "AUDIT_RETENTION_DEFAULT_DAYS",
+			Message: fmt.Sprintf("must be <= %d", domain.MaxAuditRetentionDays),
+		}
+	}
 	if cfg.AuditAsyncBufferSize < 256 {
 		return &domain.ConfigError{Field: "AUDIT_ASYNC_BUFFER_SIZE", Message: "must be >= 256"}
 	}
@@ -540,6 +500,12 @@ func validateLoaded(cfg *Config) error {
 	}
 	if cfg.AuditDLQMaxAgeDays < 0 {
 		return &domain.ConfigError{Field: "AUDIT_DLQ_MAX_AGE_DAYS", Message: "must be >= 0 (0 disables retention sweep)"}
+	}
+	if cfg.AuditDLQMaxAgeDays > domain.MaxAuditRetentionDays {
+		return &domain.ConfigError{
+			Field:   "AUDIT_DLQ_MAX_AGE_DAYS",
+			Message: fmt.Sprintf("must be <= %d", domain.MaxAuditRetentionDays),
+		}
 	}
 	if cfg.AuditDLQMaxReclaimAttempts < 0 {
 		return &domain.ConfigError{Field: "AUDIT_DLQ_MAX_RECLAIM_ATTEMPTS", Message: "must be >= 0 (0 disables the cap)"}
@@ -561,6 +527,24 @@ func validateLoaded(cfg *Config) error {
 			return &domain.ConfigError{Field: "AUDIT_SIEM_ENDPOINT", Message: "must not contain userinfo (user:password@host) — use AUDIT_SIEM_AUTH_TOKEN for credentials"}
 		}
 	}
+	if cfg.WorkerDBSyncInterval <= cfg.HeartbeatInterval {
+		return &domain.ConfigError{
+			Field:   "WORKER_DB_SYNC_INTERVAL",
+			Message: fmt.Sprintf("must be > HEARTBEAT_INTERVAL (%v), got %v", cfg.HeartbeatInterval, cfg.WorkerDBSyncInterval),
+		}
+	}
+	if cfg.WorkerDBSyncInterval >= cfg.StaleThreshold {
+		return &domain.ConfigError{
+			Field:   "WORKER_DB_SYNC_INTERVAL",
+			Message: fmt.Sprintf("must be < STALE_THRESHOLD (%v), got %v", cfg.StaleThreshold, cfg.WorkerDBSyncInterval),
+		}
+	}
+	if cfg.WorkerDisconnectAckTimeout <= 0 {
+		return &domain.ConfigError{Field: "WORKER_DISCONNECT_ACK_TIMEOUT", Message: "must be > 0"}
+	}
+	if cfg.GRPCPubsubStartupTimeout <= 0 {
+		return &domain.ConfigError{Field: "GRPC_PUBSUB_STARTUP_TIMEOUT", Message: "must be > 0"}
+	}
 
 	return nil
 }
@@ -575,8 +559,9 @@ func (c *Config) Redacted() map[string]any {
 		"WorkerConcurrency":      c.WorkerConcurrency,
 		"PollerInterval":         c.PollerInterval.String(),
 		"DBMaxConns":             c.DBMaxConns,
-		"ComputeRuntime":         c.ComputeRuntime,
 		"SentryEnvironment":      c.SentryEnvironment,
+		"SentryTracesSampleRate": c.SentryTracesSampleRate,
+		"SentryRelease":          c.SentryRelease,
 		"DefaultAPIKeyRateLimit": c.DefaultAPIKeyRateLimit,
 		"DatabaseURL":            "[REDACTED]",
 		"RedisURL":               "[REDACTED]",

@@ -41,9 +41,6 @@ export type APIPlan = {
   max_runs_per_day: number;
   max_concurrent_runs: number;
   compute_credit_microusd: number;
-  free_managed_runs_per_month: number;
-  free_managed_preset: string;
-  free_managed_max_timeout: number;
   retention_days: number;
   allowed_regions: string[];
   max_alert_rules_per_project: number;
@@ -175,14 +172,6 @@ export const apiPlansToPricingPlans = (plans: APIPlan[]): PricingPlan[] => {
           name: `${formatLimit(p.max_runs_per_day)} runs/day`,
           included: true,
         },
-        ...(p.free_managed_runs_per_month > 0
-          ? [
-              {
-                name: `${p.free_managed_runs_per_month} managed runs/mo (${p.free_managed_preset}, ${p.free_managed_max_timeout}s)`,
-                included: true,
-              },
-            ]
-          : []),
         ...(p.compute_credit_microusd > 0
           ? [
               {

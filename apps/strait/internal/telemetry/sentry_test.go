@@ -309,6 +309,66 @@ func TestSanitizeValue_NonSensitiveKeyWithSecretPattern(t *testing.T) {
 	}
 }
 
+func TestSanitizeSentryEvent_RedactsNestedContext(t *testing.T) {
+	t.Parallel()
+
+	event := &sentry.Event{
+		Contexts: map[string]sentry.Context{
+			"nested": {
+				"request": map[string]any{
+					"token": "secret-token",
+					"error": "postgres://user:pass@host:5432/db",
+					"items": []any{
+						map[string]any{"authorization": "Bearer abc123"},
+						"redis://default:pass@redis:6379/0",
+					},
+				},
+			},
+		},
+	}
+
+	sanitizeSentryEvent(event)
+
+	request := event.Contexts["nested"]["request"].(map[string]any)
+	if _, ok := request["token"]; ok {
+		t.Fatal("nested token key should be dropped")
+	}
+	if got := request["error"].(string); strings.Contains(got, "postgres://") {
+		t.Fatalf("nested context error was not scrubbed: %q", got)
+	}
+	items := request["items"].([]any)
+	item := items[0].(map[string]any)
+	if _, ok := item["authorization"]; ok {
+		t.Fatal("nested authorization key should be dropped")
+	}
+	if got := items[1].(string); strings.Contains(got, "redis://") {
+		t.Fatalf("nested slice value was not scrubbed: %q", got)
+	}
+}
+
+func TestSanitizeBreadcrumbData_RedactsNestedValues(t *testing.T) {
+	t.Parallel()
+
+	got := sanitizeBreadcrumbData(map[string]any{
+		"headers": "Authorization: Bearer abc",
+		"details": map[string]any{
+			"secret": "value",
+			"error":  "redis://default:pass@redis:6379/0",
+		},
+	})
+
+	if _, ok := got["headers"]; ok {
+		t.Fatal("headers key should be dropped")
+	}
+	details := got["details"].(map[string]any)
+	if _, ok := details["secret"]; ok {
+		t.Fatal("nested secret key should be dropped")
+	}
+	if value := details["error"].(string); strings.Contains(value, "redis://") {
+		t.Fatalf("nested breadcrumb value was not scrubbed: %q", value)
+	}
+}
+
 // --- ScrubSecrets tests.
 
 func TestScrubSecrets_PostgresURL(t *testing.T) {
@@ -414,21 +474,43 @@ func TestSanitizeQueryString_InvalidInput(t *testing.T) {
 	}
 }
 
-// --- sentryTagKeys tests.
+func TestSanitizeQueryString_RedactsCredentialAliases(t *testing.T) {
+	t.Parallel()
+
+	got := SanitizeQueryString("access_token=a&client_secret=b&x-api-key=c&signature=d&tenant=prod")
+	for _, secret := range []string{"=a", "=b", "=c", "=d"} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("sanitized query %q still contains secret marker %q", got, secret)
+		}
+	}
+	for _, want := range []string{
+		"access_token=%5BREDACTED%5D",
+		"client_secret=%5BREDACTED%5D",
+		"signature=%5BREDACTED%5D",
+		"tenant=prod",
+		"x-api-key=%5BREDACTED%5D",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("sanitized query %q missing %q", got, want)
+		}
+	}
+}
+
+// --- Sentry tag taxonomy tests.
 
 func TestSentryTagKeys_Contains_KnownKeys(t *testing.T) {
 	t.Parallel()
 	knownKeys := []string{
 		"run_id", "job_id", "project_id", "workflow_run_id",
-		"delivery_id", "trigger_id", "step_run_id", "machine_id",
+		"delivery_id", "trigger_id", "step_run_id",
 		"table", "batch_key", "error_class", "attempt",
 		"status_code", "operation", "consumer", "approval_id",
 		"key_id", "subscription_id", "source_id", "drain_id", "batch_id",
 	}
 
 	for _, key := range knownKeys {
-		if !sentryTagKeys[key] {
-			t.Errorf("sentryTagKeys missing %q", key)
+		if _, ok := SentryTagFromString(key); !ok {
+			t.Errorf("SentryTagFromString missing %q", key)
 		}
 	}
 }
@@ -437,8 +519,8 @@ func TestSentryTagKeys_DoesNotContain_NonTagKeys(t *testing.T) {
 	t.Parallel()
 	nonTagKeys := []string{"error", "message", "level", "timestamp", "random_key"}
 	for _, key := range nonTagKeys {
-		if sentryTagKeys[key] {
-			t.Errorf("sentryTagKeys should not contain %q", key)
+		if _, ok := SentryTagFromString(key); ok {
+			t.Errorf("SentryTagFromString should not contain %q", key)
 		}
 	}
 }
@@ -603,6 +685,38 @@ func TestSentryHandler_TagKeys_SetAsTag(t *testing.T) {
 	}
 	if event.Tags["project_id"] != "proj-456" {
 		t.Errorf("expected tag project_id=proj-456, got %q", event.Tags["project_id"])
+	}
+}
+
+func TestSentryHandler_UsesContextHubScope(t *testing.T) {
+	collector := &sentryEventCollector{}
+	initTestSentry(t, collector)
+
+	ctx := EnsureSentryHub(context.Background())
+	hub := sentry.GetHubFromContext(ctx)
+	if hub == nil {
+		t.Fatal("expected context hub")
+	}
+	hub.ConfigureScope(func(scope *sentry.Scope) {
+		SetSentryTag(scope, TagRequestID, "req-123")
+		scope.SetContext("http.request", sentry.Context{"route": "/v1/jobs"})
+	})
+
+	var buf bytes.Buffer
+	inner := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
+	logger := slog.New(NewSentryHandler(inner))
+
+	logger.ErrorContext(ctx, "request failed", "error", errors.New("boom"))
+
+	if collector.len() != 1 {
+		t.Fatalf("expected 1 sentry event, got %d", collector.len())
+	}
+	event := collector.get(0)
+	if got := event.Tags["request_id"]; got != "req-123" {
+		t.Fatalf("request_id tag = %q, want req-123", got)
+	}
+	if event.Contexts["http.request"]["route"] != "/v1/jobs" {
+		t.Fatalf("http.request context = %v, want route", event.Contexts["http.request"])
 	}
 }
 

@@ -254,6 +254,28 @@ func TestAuthLimiter_TTL_Expires(t *testing.T) {
 	}
 }
 
+// Regression: every RecordFailure must leave a TTL on the
+// counter key. The previous implementation used a non-transactional
+// Pipeline so a partial failure between INCR and PExpire could leave
+// a TTL-less key, which would never expire and effectively lock out
+// the IP forever. We now use TxPipelined (MULTI/EXEC).
+func TestAuthLimiter_RecordFailure_AlwaysSetsTTL(t *testing.T) {
+	t.Parallel()
+	limiter, mr := newTestAuthLimiter(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	limiter.RecordFailure(ctx, "9.9.9.9")
+
+	ttl := mr.TTL(authFailKey(AuthScopeAPIKey, "9.9.9.9"))
+	if ttl <= 0 {
+		t.Fatalf("RecordFailure left key without TTL: ttl=%s (key would never expire)", ttl)
+	}
+	if ttl > authFailWindow() {
+		t.Fatalf("RecordFailure TTL %s longer than configured window %s", ttl, authFailWindow())
+	}
+}
+
 func TestAuthLimiter_Reset(t *testing.T) {
 	t.Parallel()
 	limiter, _ := newTestAuthLimiter(t)
@@ -268,6 +290,86 @@ func TestAuthLimiter_Reset(t *testing.T) {
 	blocked, _ := limiter.IsBlocked(ctx, "1.2.3.4")
 	if blocked {
 		t.Error("should not be blocked after reset")
+	}
+}
+
+func TestAuthLimiter_LockoutExpiresBeforeFailureWindow(t *testing.T) {
+	t.Parallel()
+	limiter, mr := newTestAuthLimiter(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	for range 10 {
+		limiter.RecordFailure(ctx, "1.2.3.4")
+	}
+
+	blocked, retryAfter := limiter.IsBlocked(ctx, "1.2.3.4")
+	if !blocked {
+		t.Fatal("should be blocked at first threshold")
+	}
+	if retryAfter != time.Minute {
+		t.Fatalf("retryAfter = %v, want 1m", retryAfter)
+	}
+
+	mr.FastForward(time.Minute + time.Second)
+
+	blocked, _ = limiter.IsBlocked(ctx, "1.2.3.4")
+	if blocked {
+		t.Fatal("should not remain blocked after the advertised lockout expires")
+	}
+	if !mr.Exists(authFailKey(AuthScopeAPIKey, "1.2.3.4")) {
+		t.Fatal("failure window should remain so later failures can reach higher tiers")
+	}
+}
+
+func TestAuthLimiter_ScopedResetDoesNotClearOtherAuthSchemes(t *testing.T) {
+	t.Parallel()
+	limiter, _ := newTestAuthLimiter(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ip := "1.2.3.4"
+
+	for range 10 {
+		limiter.RecordFailureScoped(ctx, ip, AuthScopeOIDC)
+	}
+	limiter.ResetScoped(ctx, ip, AuthScopeAPIKey)
+
+	blocked, retryAfter := limiter.IsBlockedScoped(ctx, ip, AuthScopeOIDC)
+	if !blocked {
+		t.Fatal("OIDC failures should survive an unrelated API-key success reset")
+	}
+	if retryAfter != time.Minute {
+		t.Fatalf("retryAfter = %v, want 1m", retryAfter)
+	}
+
+	apiBlocked, _ := limiter.IsBlockedScoped(ctx, ip, AuthScopeAPIKey)
+	if apiBlocked {
+		t.Fatal("API-key scope should not be blocked")
+	}
+}
+
+func TestAuthLimiter_HigherTierReachableAfterShortLockoutExpires(t *testing.T) {
+	t.Parallel()
+	limiter, mr := newTestAuthLimiter(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ip := "1.2.3.4"
+
+	for range 10 {
+		limiter.RecordFailure(ctx, ip)
+	}
+	mr.FastForward(time.Minute + time.Second)
+
+	for range 15 {
+		limiter.RecordFailure(ctx, ip)
+	}
+
+	blocked, retryAfter := limiter.IsBlocked(ctx, ip)
+	if !blocked {
+		t.Fatal("should be blocked after reaching second threshold")
+	}
+	if retryAfter != 5*time.Minute {
+		t.Fatalf("retryAfter = %v, want 5m", retryAfter)
 	}
 }
 

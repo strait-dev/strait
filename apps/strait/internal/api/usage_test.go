@@ -62,7 +62,18 @@ func (m *mockBillingEnforcer) GetDailyRunCount(_ context.Context, _ string) (int
 	return 0, nil
 }
 
+func (m *mockBillingEnforcer) CheckMaxDispatchPriority(_ context.Context, _ string, _ int) error {
+	return nil
+}
+
 func (m *mockBillingEnforcer) EnsureOrgSubscription(_ context.Context, _ string) error { return nil }
+
+func (m *mockBillingEnforcer) CheckDailyAIModelCallLimit(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *mockBillingEnforcer) DispatchBilling(_ context.Context, _ string, _ domain.PlanTier, _ string, _ map[string]any) {
+}
 
 type mockUsageService struct {
 	currentUsage    *billing.CurrentUsageResponse
@@ -72,6 +83,8 @@ type mockUsageService struct {
 	anomalyAlerts   []billing.AnomalyAlert
 	exportData      []byte
 	exportPDFData   []byte
+	exportErr       error
+	exportPDFErr    error
 	forecast        *billing.UsageForecastResponse
 	downgrade       *billing.DowngradeImpact
 	currentUsageErr error
@@ -113,6 +126,9 @@ func (m *mockUsageService) GetProjectCosts(_ context.Context, _ string, _, _ tim
 }
 
 func (m *mockUsageService) ExportUsageCSV(_ context.Context, _ string, _, _ time.Time) ([]byte, error) {
+	if m.exportErr != nil {
+		return nil, m.exportErr
+	}
 	if m.exportData != nil {
 		return m.exportData, nil
 	}
@@ -120,6 +136,9 @@ func (m *mockUsageService) ExportUsageCSV(_ context.Context, _ string, _, _ time
 }
 
 func (m *mockUsageService) ExportUsagePDF(_ context.Context, _ string, _, _ time.Time) ([]byte, error) {
+	if m.exportPDFErr != nil {
+		return nil, m.exportPDFErr
+	}
 	if m.exportPDFData != nil {
 		return m.exportPDFData, nil
 	}
@@ -501,20 +520,6 @@ func TestGetProjectCosts_Success(t *testing.T) {
 	}
 }
 
-func TestGetCostEstimate_InvalidPreset_400(t *testing.T) {
-	t.Parallel()
-
-	srv := newUsageTestServer(t, &mockBillingEnforcer{}, &mockUsageService{})
-	req := authedRequest(http.MethodGet, "/v1/cost-estimate?preset=nonexistent&timeout_secs=60", "")
-
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for invalid preset, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
 func TestGetDowngradePreview_InvalidTier_400(t *testing.T) {
 	t.Parallel()
 
@@ -589,85 +594,6 @@ func TestGetUsageHistory_APIKey_CrossTenantForbidden(t *testing.T) {
 	}
 }
 
-// Cost estimate cross-tenant tests.
-
-func TestCostEstimate_APIKey_CrossTenantForbidden(t *testing.T) {
-	t.Parallel()
-
-	enforcer := &mockBillingEnforcer{
-		projectOrgMap: map[string]string{"proj-1": "org-A"},
-	}
-	srv := newUsageTestServerFull(t, usageTestServerOpts{
-		enforcer: enforcer,
-		usageSvc: &mockUsageService{},
-	})
-
-	req := apiKeyRequest(http.MethodGet, "/v1/cost-estimate?org_id=org-B&preset=micro&timeout_secs=60", "", "proj-1")
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 for cross-tenant cost estimate, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestCostEstimate_APIKey_SameTenantAllowed(t *testing.T) {
-	t.Parallel()
-
-	enforcer := &mockBillingEnforcer{
-		projectOrgMap: map[string]string{"proj-1": "org-A"},
-	}
-	srv := newUsageTestServerFull(t, usageTestServerOpts{
-		enforcer: enforcer,
-		usageSvc: &mockUsageService{},
-	})
-
-	req := apiKeyRequest(http.MethodGet, "/v1/cost-estimate?org_id=org-A&preset=micro&timeout_secs=60", "", "proj-1")
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 for same-tenant cost estimate, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestCostEstimate_APIKey_NoOrgID_Allowed(t *testing.T) {
-	t.Parallel()
-
-	enforcer := &mockBillingEnforcer{
-		projectOrgMap: map[string]string{"proj-1": "org-A"},
-	}
-	srv := newUsageTestServerFull(t, usageTestServerOpts{
-		enforcer: enforcer,
-		usageSvc: &mockUsageService{},
-	})
-
-	req := apiKeyRequest(http.MethodGet, "/v1/cost-estimate?preset=micro&timeout_secs=60", "", "proj-1")
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 without org_id, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestCostEstimate_InternalSecret_AllowsAnyOrg(t *testing.T) {
-	t.Parallel()
-
-	srv := newUsageTestServerFull(t, usageTestServerOpts{
-		enforcer: &mockBillingEnforcer{},
-		usageSvc: &mockUsageService{},
-	})
-
-	req := authedRequest(http.MethodGet, "/v1/cost-estimate?org_id=any-org&preset=micro&timeout_secs=60", "")
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 for internal secret cost estimate, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
 func TestUsageEndpoint_OIDC_NoRoleForbidden(t *testing.T) {
 	t.Parallel()
 
@@ -690,7 +616,7 @@ func TestUsageEndpoint_OIDC_NoRoleForbidden(t *testing.T) {
 	}
 }
 
-func TestUsageEndpoint_OIDC_ReadRoleAllowed(t *testing.T) {
+func TestUsageEndpoint_OIDC_ProjectReadRoleForbiddenForOrgBillingRead(t *testing.T) {
 	t.Parallel()
 
 	enforcer := &mockBillingEnforcer{
@@ -710,8 +636,8 @@ func TestUsageEndpoint_OIDC_ReadRoleAllowed(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 with projects:read, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for project-scoped OIDC on org billing read, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -1099,6 +1025,20 @@ func TestExportUsage_InvalidFormat(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestExportUsage_RowLimitExceededReturns413(t *testing.T) {
+	t.Parallel()
+
+	srv := newUsageTestServer(t, &mockBillingEnforcer{}, &mockUsageService{
+		exportErr: billing.ErrUsageExportTooLarge,
+	})
+	req := authedRequest(http.MethodGet, "/v1/usage/export?org_id=org-1&from=2026-01-01&to=2026-01-31&format=csv", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected 413, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

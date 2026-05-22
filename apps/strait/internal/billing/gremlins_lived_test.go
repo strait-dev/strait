@@ -3,7 +3,6 @@ package billing
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"math"
 	"net/http"
@@ -85,8 +84,10 @@ func TestGetCurrentUsage_EnterpriseContractCredit(t *testing.T) {
 	}
 }
 
-func TestGetCurrentUsage_CreditRemainingAboveZero(t *testing.T) {
+func TestGetCurrentUsage_CreditRemainingZero_NoIncludedCredit(t *testing.T) {
 	t.Parallel()
+	// Orchestration-only: non-enterprise plans have no included compute credit.
+	// CreditRemainingMicro and CreditUsedPercent are always 0.
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
 			"org-s": {OrgID: "org-s", PlanTier: "starter", Status: "active"},
@@ -101,11 +102,11 @@ func TestGetCurrentUsage_CreditRemainingAboveZero(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.CreditRemainingMicro != 1_000_000 {
-		t.Errorf("CreditRemainingMicro = %d, want 1000000", resp.CreditRemainingMicro)
+	if resp.CreditRemainingMicro != 0 {
+		t.Errorf("CreditRemainingMicro = %d, want 0 (no included credit in orchestration-only mode)", resp.CreditRemainingMicro)
 	}
-	if resp.CreditUsedPercent <= 0 {
-		t.Error("CreditUsedPercent should be positive")
+	if resp.CreditUsedPercent != 0 {
+		t.Errorf("CreditUsedPercent = %f, want 0 (no included credit in orchestration-only mode)", resp.CreditUsedPercent)
 	}
 }
 
@@ -149,8 +150,9 @@ func TestGetCurrentUsage_SpendAboveCreditRemainZero(t *testing.T) {
 	if resp.CreditRemainingMicro != 0 {
 		t.Errorf("CreditRemainingMicro = %d, want 0 when spend > credit", resp.CreditRemainingMicro)
 	}
-	if resp.OverageMicro != 1 {
-		t.Errorf("OverageMicro = %d, want 1", resp.OverageMicro)
+	// Orchestration-only: all spend is overage (no included compute credit).
+	if resp.OverageMicro != CreditStarterMicrousd+1 {
+		t.Errorf("OverageMicro = %d, want %d (all spend is overage)", resp.OverageMicro, CreditStarterMicrousd+1)
 	}
 }
 
@@ -158,7 +160,7 @@ func TestGetCurrentUsage_ActiveAddonsPopulated(t *testing.T) {
 	t.Parallel()
 	store := &mockBillingStore{
 		activeAddons: []Addon{
-			{AddonType: AddonConcurrentRuns, Quantity: 2, Active: true},
+			{AddonType: AddonConcurrency100, Quantity: 2, Active: true},
 		},
 	}
 	svc, _ := newUsageServiceTest(t, store)
@@ -177,12 +179,13 @@ func TestGetCurrentUsage_ActiveAddonsPopulated(t *testing.T) {
 
 func TestGetCurrentUsage_OverageAlertMessage(t *testing.T) {
 	t.Parallel()
+	const spend = CreditStarterMicrousd + 5_000_000
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
 			"org-s": {OrgID: "org-s", PlanTier: "starter", Status: "active"},
 		},
 		periodSpendByOrg: map[string]int64{
-			"org-s": CreditStarterMicrousd + 5_000_000,
+			"org-s": spend,
 		},
 	}
 	svc, _ := newUsageServiceTest(t, store)
@@ -191,16 +194,14 @@ func TestGetCurrentUsage_OverageAlertMessage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.OverageMicro != 5_000_000 {
-		t.Errorf("OverageMicro = %d, want 5000000", resp.OverageMicro)
+	// Orchestration-only: all spend is overage (no included compute credit).
+	if resp.OverageMicro != spend {
+		t.Errorf("OverageMicro = %d, want %d", resp.OverageMicro, spend)
 	}
 	var found bool
 	for _, a := range resp.Alerts {
 		if a.Dimension == "overage" {
 			found = true
-			if !strings.Contains(a.Message, "$5.00") {
-				t.Errorf("overage alert message = %q, want contains $5.00", a.Message)
-			}
 		}
 	}
 	if !found {
@@ -274,8 +275,9 @@ func TestGetUsageForecast_ProjectedOverage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Orchestration-only: no included credit; all projected spend is overage.
 	projectedMicro := int64(5_000_000) * 30
-	expectedOverage := computeOverageSpend(projectedMicro, CreditStarterMicrousd)
+	expectedOverage := computeOverageSpend(projectedMicro, 0)
 	if forecast.ProjectedOverageMicro != expectedOverage {
 		t.Errorf("ProjectedOverageMicro = %d, want %d", forecast.ProjectedOverageMicro, expectedOverage)
 	}
@@ -292,7 +294,7 @@ func TestGetUsageForecast_AddonSpendIncluded(t *testing.T) {
 			{PeriodDate: now.AddDate(0, 0, -1), RunsCount: 10, ComputeCostMicro: 1_000_000},
 		},
 		activeAddons: []Addon{
-			{AddonType: AddonConcurrentRuns, Quantity: 2, Active: true},
+			{AddonType: AddonConcurrency100, Quantity: 2, Active: true},
 		},
 	}
 	svc, _ := newUsageServiceTest(t, store)
@@ -302,7 +304,7 @@ func TestGetUsageForecast_AddonSpendIncluded(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	pack := AddonPacks[AddonConcurrentRuns]
+	pack := AddonPacks[AddonConcurrency100]
 	expectedAddonMicro := int64(pack.PriceCents) * 2 * 10000
 	if forecast.AddonSpendMicro != expectedAddonMicro {
 		t.Errorf("AddonSpendMicro = %d, want %d", forecast.AddonSpendMicro, expectedAddonMicro)
@@ -317,7 +319,7 @@ func TestGetUsageForecast_AddonInactive_NotCounted(t *testing.T) {
 			{PeriodDate: now, RunsCount: 1, ComputeCostMicro: 100},
 		},
 		activeAddons: []Addon{
-			{AddonType: AddonConcurrentRuns, Quantity: 2, Active: false},
+			{AddonType: AddonConcurrency100, Quantity: 2, Active: false},
 		},
 	}
 	svc, _ := newUsageServiceTest(t, store)
@@ -343,7 +345,7 @@ func TestGetUsageForecast_ScaleBreakeven(t *testing.T) {
 			{PeriodDate: now, RunsCount: 500, ComputeCostMicro: 10_000_000},
 		},
 		activeAddons: []Addon{
-			{AddonType: AddonConcurrentRuns, Quantity: 5, Active: true},
+			{AddonType: AddonConcurrency100, Quantity: 5, Active: true},
 		},
 	}
 	svc, _ := newUsageServiceTest(t, store)
@@ -761,44 +763,6 @@ func TestPostHogClient_Timeout_Positive(t *testing.T) {
 	}
 }
 
-// Enforcement LIVED mutants.
-
-func TestCheckProjectBudgetLimit_RejectMessageFormat(t *testing.T) {
-	t.Parallel()
-	store := &mockBillingStore{
-		getProjectBudgetFn: func(_ context.Context, _ string) (int64, string, error) {
-			return 5_000_000, "reject", nil
-		},
-		getProjectPeriodSpendFn: func(_ context.Context, _ string, _ time.Time) (int64, error) {
-			return 5_000_000, nil
-		},
-	}
-
-	mr := miniredis.RunT(t)
-	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	t.Cleanup(func() { _ = rdb.Close() })
-	enforcer := NewEnforcer(store, rdb, slog.Default())
-
-	err := enforcer.CheckProjectBudgetLimit(context.Background(), "proj-1")
-	if err == nil {
-		t.Fatal("expected error when spend >= budget with reject action")
-	}
-	var limErr *LimitError
-	if !errors.As(err, &limErr) {
-		t.Fatalf("expected *LimitError, got %T", err)
-	}
-	expectedMsg := fmt.Sprintf("This project's monthly budget of $%.2f has been reached.", float64(5_000_000)/1000000)
-	if limErr.Message != expectedMsg {
-		t.Errorf("message = %q, want %q", limErr.Message, expectedMsg)
-	}
-	if limErr.CurrentUsage != 5_000_000 {
-		t.Errorf("CurrentUsage = %d, want 5000000", limErr.CurrentUsage)
-	}
-	if limErr.Limit != 5_000_000 {
-		t.Errorf("Limit = %d, want 5000000", limErr.Limit)
-	}
-}
-
 func TestReconcileAllConcurrentCounts_UsesMapValue(t *testing.T) {
 	t.Parallel()
 	mr := miniredis.RunT(t)
@@ -849,30 +813,17 @@ func TestApplyComputeDiscount_OnePercentDiscount(t *testing.T) {
 
 // Plans LIVED mutant.
 
-func TestIsDowngrade_CreditComparison_EnterpriseSkipped(t *testing.T) {
+func TestIsDowngrade_ScaleToPro_IsDowngrade(t *testing.T) {
 	t.Parallel()
-	proLimits := GetPlanLimits(domain.PlanPro)
-	scaleLimits := GetPlanLimits(domain.PlanScale)
-	if proLimits.ComputeCreditMicrousd >= scaleLimits.ComputeCreditMicrousd {
-		t.Fatal("precondition: pro credit < scale credit")
-	}
 	if !IsDowngrade(domain.PlanScale, domain.PlanPro) {
-		t.Error("scale -> pro should be a downgrade (credit decreases)")
-	}
-	if IsDowngrade(domain.PlanFree, domain.PlanEnterprise) {
-		t.Error("free -> enterprise should not be a downgrade (credit comparison skipped for enterprise)")
+		t.Error("scale -> pro should be a downgrade (concurrent runs decrease)")
 	}
 }
 
-func TestIsDowngrade_ProToStarter_CreditDecreases(t *testing.T) {
+func TestIsDowngrade_ProToStarter_IsDowngrade(t *testing.T) {
 	t.Parallel()
 	if !IsDowngrade(domain.PlanPro, domain.PlanStarter) {
 		t.Error("pro -> starter should be a downgrade")
-	}
-	starterLimits := GetPlanLimits(domain.PlanStarter)
-	proLimits := GetPlanLimits(domain.PlanPro)
-	if starterLimits.ComputeCreditMicrousd >= proLimits.ComputeCreditMicrousd {
-		t.Fatal("precondition: starter credit < pro credit")
 	}
 }
 
@@ -882,7 +833,7 @@ func TestEffectiveLimits_ZeroQuantity_Ignored(t *testing.T) {
 	t.Parallel()
 	base := GetPlanLimits(domain.PlanPro)
 	addons := []Addon{
-		{AddonType: AddonConcurrentRuns, Quantity: 0, Active: true},
+		{AddonType: AddonConcurrency100, Quantity: 0, Active: true},
 	}
 	result := EffectiveLimits(base, addons)
 	if result.MaxConcurrentRuns != base.MaxConcurrentRuns {
@@ -891,17 +842,17 @@ func TestEffectiveLimits_ZeroQuantity_Ignored(t *testing.T) {
 	}
 }
 
-func TestEffectiveLimits_RetentionExactlyAtCap(t *testing.T) {
+func TestEffectiveLimits_HistoryAddsAdditively(t *testing.T) {
 	t.Parallel()
 	base := GetPlanLimits(domain.PlanPro)
-	pack := AddonPacks[AddonDataRetention]
-	packs := (pack.MaxTotal - base.RetentionDays) / pack.PackSize
+	pack := AddonPacks[AddonHistory30d]
 	addons := []Addon{
-		{AddonType: AddonDataRetention, Quantity: packs, Active: true},
+		{AddonType: AddonHistory30d, Quantity: 3, Active: true},
 	}
 	result := EffectiveLimits(base, addons)
-	if result.RetentionDays != pack.MaxTotal {
-		t.Errorf("retention at cap = %d, want %d", result.RetentionDays, pack.MaxTotal)
+	want := base.RetentionDays + pack.PackSize*3
+	if result.RetentionDays != want {
+		t.Errorf("retention = %d, want %d", result.RetentionDays, want)
 	}
 }
 
@@ -1092,10 +1043,10 @@ func TestCalculateSLACredit_BoundaryTiers(t *testing.T) {
 		expected int
 	}{
 		{99.0, 99.9, 10},
-		{98.99, 99.9, 20},
-		{95.0, 99.9, 20},
-		{94.99, 99.9, 30},
-		{90.0, 99.9, 30},
+		{98.99, 99.9, 25},
+		{95.0, 99.9, 25},
+		{94.99, 99.9, 50},
+		{90.0, 99.9, 50},
 		{89.99, 99.9, 50},
 	}
 	for _, tt := range tests {
@@ -1104,56 +1055,6 @@ func TestCalculateSLACredit_BoundaryTiers(t *testing.T) {
 			t.Errorf("CalculateSLACredit(%.2f, %.1f) = %d, want %d",
 				tt.uptime, tt.target, got, tt.expected)
 		}
-	}
-}
-
-// Cost estimator LIVED mutants.
-
-func TestFindCheaperAlternative_ZeroCost_ReturnsNil(t *testing.T) {
-	t.Parallel()
-	alt := findCheaperAlternative("medium-1x", 60, 0)
-	if alt != nil {
-		t.Error("expected nil for zero cost")
-	}
-}
-
-func TestFindCheaperAlternative_SmallestPreset_ReturnsNil(t *testing.T) {
-	t.Parallel()
-	alt := findCheaperAlternative("micro", 60, 100)
-	if alt != nil {
-		t.Errorf("expected nil for smallest preset, got %+v", alt)
-	}
-}
-
-func TestFindCheaperAlternative_LargePreset_ReturnsCheaper(t *testing.T) {
-	t.Parallel()
-	alt := findCheaperAlternative("medium-2x", 60, 1_000_000)
-	if alt == nil {
-		t.Fatal("expected cheaper alternative for medium-2x")
-	}
-	if alt.SavingsPct <= 0 {
-		t.Errorf("SavingsPct = %f, want > 0", alt.SavingsPct)
-	}
-	if alt.CostMicro >= 1_000_000 {
-		t.Errorf("CostMicro = %d, want < 1000000", alt.CostMicro)
-	}
-}
-
-func TestEstimateWhatIfCost_MonthlyCostArithmetic(t *testing.T) {
-	t.Parallel()
-	est, err := EstimateWhatIf("small-1x", 60, "* * * * *", 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if est.MonthlyCostUsd <= 0 {
-		t.Errorf("MonthlyCostUsd = %f, want > 0", est.MonthlyCostUsd)
-	}
-	if est.DailyCostUsd <= 0 {
-		t.Errorf("DailyCostUsd = %f, want > 0", est.DailyCostUsd)
-	}
-	expectedMonthly := est.DailyCostUsd * 30
-	if math.Abs(est.MonthlyCostUsd-expectedMonthly) > 0.001 {
-		t.Errorf("MonthlyCostUsd = %f, want DailyCostUsd*30 = %f", est.MonthlyCostUsd, expectedMonthly)
 	}
 }
 
@@ -1192,13 +1093,14 @@ func TestEnforcer_CheckSpendingLimit_MessageContainsDollarAmount(t *testing.T) {
 	}
 }
 
-func TestEnforcer_CheckSpendingLimit_FreeTierMessageContainsDollarAmount(t *testing.T) {
+func TestEnforcer_CheckSpendingLimit_FreeTierMessageContainsBudget(t *testing.T) {
 	t.Parallel()
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	store := &mockBillingStore{
 		periodSpendByOrg: map[string]int64{
-			"org-free-over": CreditFreeMicrousd + 1,
+			// Any spend triggers the free-tier cap in orchestration-only mode.
+			"org-free-over": 1,
 		},
 	}
 	enforcer := NewEnforcer(store, rdb, slog.Default())
@@ -1211,9 +1113,9 @@ func TestEnforcer_CheckSpendingLimit_FreeTierMessageContainsDollarAmount(t *test
 	if !errors.As(err, &le) {
 		t.Fatalf("expected *LimitError, got %T", err)
 	}
-	expectedAmt := fmt.Sprintf("$%.2f", float64(CreditFreeMicrousd)/1_000_000)
-	if !strings.Contains(le.Message, expectedAmt) {
-		t.Errorf("message should contain %s, got: %s", expectedAmt, le.Message)
+	// Message should reference budget being reached (no dollar amount for $0 credit).
+	if !strings.Contains(le.Message, "budget") && !strings.Contains(le.Message, "compute") {
+		t.Errorf("message should reference compute budget, got: %s", le.Message)
 	}
 }
 
@@ -1235,19 +1137,6 @@ func TestEnforcer_DecrConcurrentRunCount_EmptyOrgID(t *testing.T) {
 	store := &mockBillingStore{}
 	enforcer := NewEnforcer(store, rdb, slog.Default())
 	enforcer.DecrConcurrentRunCount(context.Background(), "")
-}
-
-// CheckManagedRunLimit enforcement.go:495.
-
-func TestEnforcer_CheckManagedRunLimit_EmptyOrgID(t *testing.T) {
-	t.Parallel()
-	mr := miniredis.RunT(t)
-	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	store := &mockBillingStore{}
-	enforcer := NewEnforcer(store, rdb, slog.Default())
-	if err := enforcer.CheckManagedRunLimit(context.Background(), ""); err != nil {
-		t.Fatalf("empty org should return nil: %v", err)
-	}
 }
 
 // Enforcement recordRejection/recordFailOpen nil-metrics guards.

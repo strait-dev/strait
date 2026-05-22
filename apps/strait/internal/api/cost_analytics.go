@@ -93,28 +93,4 @@ func (s *Server) handleGetTopCosts(ctx context.Context, input *TopCostsInput) (*
 	return &TopCostsOutput{Body: items}, nil
 }
 
-type ComputeCostInput struct {
-	From string `query:"from"`
-	To   string `query:"to"`
-}
-type ComputeCostOutput struct{ Body any }
-
-func (s *Server) handleGetComputeCostAnalytics(ctx context.Context, input *ComputeCostInput) (*ComputeCostOutput, error) {
-	ctx, span := otel.Tracer("strait").Start(ctx, "api.GetComputeCostAnalytics")
-	defer span.End()
-
-	projectID := projectIDFromContext(ctx)
-	from, to, err := parseCostTimeRangeTyped(input.From, input.To)
-	if err != nil {
-		return nil, err
-	}
-	span.SetAttributes(attribute.String("from", from.Format(time.RFC3339)), attribute.String("to", to.Format(time.RFC3339)))
-
-	analytics, aErr := s.analytics().GetComputeCostAnalytics(ctx, projectID, from, to)
-	if aErr != nil {
-		return nil, huma.Error500InternalServerError("failed to get compute cost analytics")
-	}
-	return &ComputeCostOutput{Body: analytics}, nil
-}
-
 const maxCostWindow = 90 * 24 * time.Hour

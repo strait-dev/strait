@@ -65,8 +65,18 @@ func runBackfillHistory(ctx context.Context, batchSize int, dryRun bool) error {
 
 	queries := store.New(pool)
 
+	return runBackfillHistoryWithStore(ctx, queries, cfg.RunRetentionShort, cfg.RunRetentionLong, batchSize, dryRun)
+}
+
+type backfillHistoryStore interface {
+	CountStrandedTerminalRuns(ctx context.Context, shortRetention, longRetention time.Duration) (int64, error)
+	ArchiveTerminalRunsPastRetention(ctx context.Context, shortRetention, longRetention time.Duration, batchSize int) (int64, error)
+	CountDuplicateHistoryRuns(ctx context.Context) (int64, error)
+}
+
+func runBackfillHistoryWithStore(ctx context.Context, queries backfillHistoryStore, shortRetention, longRetention time.Duration, batchSize int, dryRun bool) error {
 	if dryRun {
-		count, err := queries.CountStrandedTerminalRuns(ctx, cfg.RunRetentionShort, cfg.RunRetentionLong)
+		count, err := queries.CountStrandedTerminalRuns(ctx, shortRetention, longRetention)
 		if err != nil {
 			return fmt.Errorf("count stranded: %w", err)
 		}
@@ -74,11 +84,10 @@ func runBackfillHistory(ctx context.Context, batchSize int, dryRun bool) error {
 		return nil
 	}
 
-	cutoff := time.Now()
 	var totalMoved int64
 
 	for {
-		moved, err := queries.BackfillTerminalRunsToHistory(ctx, cutoff, batchSize)
+		moved, err := queries.ArchiveTerminalRunsPastRetention(ctx, shortRetention, longRetention, batchSize)
 		if err != nil {
 			return fmt.Errorf("backfill batch: %w", err)
 		}

@@ -32,7 +32,7 @@ The raw key is returned **only once** at creation time. Store it in a secret man
 
 ### REST equivalent
 
-```
+```http
 POST /v1/api-keys
 ```
 
@@ -67,7 +67,7 @@ strait api-keys list --project proj_abc123
 
 ### REST equivalent
 
-```
+```http
 GET /v1/api-keys?limit=20&cursor=
 ```
 
@@ -91,7 +91,7 @@ strait api-keys expiring --project proj_abc123 --within-days 14
 
 ### REST equivalent
 
-```
+```http
 GET /v1/api-keys/expiring-soon?within_days=14
 ```
 
@@ -118,7 +118,7 @@ The new key inherits the old key's name (with a ` (rotated)` suffix), scopes, ex
 
 ### REST equivalent
 
-```
+```http
 POST /v1/api-keys/{keyID}/rotate
 ```
 
@@ -147,7 +147,7 @@ The response returns both `old_key_id` and `new_key_id`, plus `grace_expires_at`
   </Step>
 </Steps>
 
-For a deeper walkthrough, see [API Key Rotation](/guides/authentication#api-key-rotation).
+For the full flow, see [API Key Rotation](/guides/authentication#api-key-rotation).
 
 ---
 
@@ -165,7 +165,7 @@ strait api-keys revoke key-abc123
 
 ### REST equivalent
 
-```
+```http
 DELETE /v1/api-keys/{keyID}
 ```
 
@@ -179,7 +179,7 @@ Scopes restrict what an API key is allowed to do. Assign only the scopes your in
 
 | Scope | Description |
 |-------|-------------|
-| `*` | Wildcard -- full access. Use sparingly. |
+| `*` | Wildcard: full access. Use sparingly. |
 | `jobs:read` | Read job definitions. |
 | `jobs:write` | Create and update jobs. |
 | `jobs:trigger` | Trigger job runs. |
@@ -198,13 +198,9 @@ Scopes restrict what an API key is allowed to do. Assign only the scopes your in
 | `projects:read` | Read project metadata. |
 | `projects:write` | Update project settings. |
 | `projects:manage` | Full project administration. |
-| `dlq:read` | Read review queue entries. |
-| `dlq:replay` | Replay review queue entries. |
-| `dlq:purge` | Purge review queue entries. |
-| `outbox:read` | Read outbox entries. |
-| `outbox:retry` | Retry outbox entries. |
-| `outbox:purge` | Purge outbox entries. |
-
+| `dlq:read` | Read `dead_letter` runs. |
+| `dlq:replay` | Replay `dead_letter` runs. |
+| `dlq:purge` | Purge `dead_letter` runs. |
 <Tip>
 Keys created via CLI device-code authentication (`strait login`) receive the `CLIDefaultScopes` set, which includes standard operational scopes but excludes `api-keys:manage`, `rbac:manage`, and `projects:manage` to limit blast radius.
 </Tip>
@@ -215,8 +211,8 @@ Keys created via CLI device-code authentication (`strait login`) receive the `CL
 
 All `api-keys` subcommands accept `--output` (`-o`) to switch between formats:
 
-- **`table`** (default) -- human-readable columns, suitable for terminal use.
-- **`json`** -- machine-readable JSON, suitable for piping into `jq` or automation scripts.
+- **`table`** (default): human-readable columns, suitable for terminal use.
+- **`json`**: machine-readable JSON, suitable for piping into `jq` or automation scripts.
 
 ```bash
 # Pipe key creation into jq to extract just the raw key

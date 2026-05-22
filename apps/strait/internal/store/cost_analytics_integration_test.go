@@ -93,24 +93,6 @@ func TestGetTopCosts_Empty(t *testing.T) {
 	}
 }
 
-func TestGetComputeCostAnalytics_Empty(t *testing.T) {
-	ctx := context.Background()
-	q := mustStore(t)
-	mustClean(t, ctx)
-
-	now := time.Now().UTC()
-	result, err := q.GetComputeCostAnalytics(ctx, "project-compute-cost", now.Add(-1*time.Hour), now)
-	if err != nil {
-		t.Fatalf("GetComputeCostAnalytics() error = %v", err)
-	}
-	if result == nil {
-		t.Fatal("GetComputeCostAnalytics() returned nil")
-	}
-	if result.TotalCostMicrousd != 0 {
-		t.Fatalf("TotalCostMicrousd = %d, want 0", result.TotalCostMicrousd)
-	}
-}
-
 func TestAggregateCostStatsHourly(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

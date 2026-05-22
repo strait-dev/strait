@@ -113,7 +113,7 @@ func TestGetQuarantinedOutbox_NotFound(t *testing.T) {
 
 	q := mustStore(t)
 	_, err := q.GetQuarantinedOutbox(ctx, "project-outbox-missing", "missing")
-	if err != store.ErrOutboxRowNotFound {
+	if !errors.Is(err, store.ErrOutboxRowNotFound) {
 		t.Fatalf("GetQuarantinedOutbox() error = %v, want %v", err, store.ErrOutboxRowNotFound)
 	}
 }

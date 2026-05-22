@@ -1,6 +1,6 @@
 ---
 title: "Execution Modes"
-description: "Choose how Strait runs your jobs: call your API endpoint or run code in a managed container."
+description: "Choose how Strait runs your jobs: call your HTTP endpoint or dispatch to a connected worker."
 icon: "play"
 ---
 
@@ -8,14 +8,13 @@ Strait supports two execution modes that control where and how your job code run
 
 ## Comparison
 
-| | HTTP (default) | Managed |
+| | HTTP (default) | Worker |
 | :--- | :--- | :--- |
-| How it works | Strait POSTs to your endpoint | Strait runs code in a container |
-| Your code runs on | Your servers | Strait-managed Docker or Kubernetes |
-| Setup | Point a job at an endpoint URL | Provide a container image or upload source code |
-| Scaling | You scale your endpoint | Strait scales containers |
-| Cold start | None (your server is already running) | 1-2s warm, 5-15s cold |
-| Best for | Existing APIs, microservices, serverless | Isolated execution, GPU workloads, custom runtimes |
+| How it works | Strait POSTs to your endpoint | Strait streams runs to a connected worker over gRPC |
+| Your code runs on | Your servers | Any host running the Strait worker SDK |
+| Setup | Point a job at an endpoint URL | Run the worker SDK and register handlers |
+| Capacity | You run enough endpoint capacity | Add or remove workers; Strait distributes runs across them |
+| Best for | Existing APIs, microservices, serverless | Long-lived processes, on-prem fleets, persistent connections |
 
 ---
 
@@ -23,9 +22,9 @@ Strait supports two execution modes that control where and how your job code run
 
 HTTP is the default execution mode. Strait sends an HTTP POST to your job's `endpoint_url` with the run payload, headers (`X-Run-ID`, `X-Job-ID`, `X-Attempt`), and an SDK token. Your server processes the request and returns an HTTP response.
 
-- **2xx** — run succeeds.
-- **408, 429, 5xx** — transient failure, Strait retries.
-- **Other 4xx** — permanent failure, no retry.
+- **2xx**: run succeeds.
+- **408, 429, 5xx**: transient failure, Strait retries.
+- **Other 4xx**: permanent failure, no retry.
 
 ### When to use HTTP
 
@@ -43,27 +42,26 @@ HTTP is the default execution mode. Strait sends an HTTP POST to your job's `end
 }
 ```
 
-No `execution_mode` field is needed — HTTP is the default. See [Jobs](/concepts/jobs) for the full configuration reference.
+No `execution_mode` field is needed. HTTP is the default. See [Jobs](/concepts/jobs) for the main job fields and examples.
 
 ---
 
-## Managed Mode
+## Worker Mode
 
-In managed mode, Strait provisions a container, runs your code inside it, and collects the result. Each run gets its own ephemeral container with no shared state.
+In worker mode, Strait dispatches runs to a long-lived worker process that connects to the API over gRPC. Workers register at startup, hold a streaming connection, and receive runs as Strait dequeues them.
 
-When Strait dequeues a managed run:
+When Strait dequeues a worker run:
 
-1. **Provision container.** Strait creates a new container from your image, or acquires one from the warm pool (reducing cold start from ~15s to ~2s).
-2. **Inject context.** Run payload, API URL, SDK token, and project secrets are passed as environment variables.
-3. **Wait for exit.** The container runs until the process exits. Exit code `0` means success; non-zero triggers a retry.
-4. **Record result.** Duration and the completion result are recorded on the run.
+1. **Match a worker.** Strait selects a connected worker whose registered queues include the job's `queue_name`.
+2. **Stream the run.** The run payload and an SDK token are streamed to the worker over the gRPC channel.
+3. **Wait for the result.** The worker executes your handler and streams the result back; Strait records duration and the final state on the run.
+4. **Recover.** If a worker disconnects, Strait returns unfinished work to the queue.
 
-### When to use managed mode
+### When to use worker mode
 
-- Jobs need isolated execution with no shared state between runs.
-- You need custom runtimes — Python ML pipelines, Rust binaries, or anything that runs in Docker.
-- Jobs require specific compute resources (CPU, memory, GPU).
-- You want Strait to handle infrastructure scaling.
+- You want a persistent gRPC connection rather than exposing a public HTTP endpoint.
+- You run on networks (on-prem, private VPC) where Strait cannot reach your servers directly.
+- You need a single process to handle many runs concurrently with shared in-memory state (caches, connection pools).
 
 ### Example
 
@@ -71,42 +69,26 @@ When Strait dequeues a managed run:
 {
   "name": "Train Model",
   "slug": "train-model",
-  "execution_mode": "managed",
-  "machine_preset": "medium-1x",
-  "image": "my-registry.example.com/trainer:latest"
+  "execution_mode": "worker"
 }
 ```
 
-The `machine_preset` field controls CPU and memory allocation. See [Managed Execution](/concepts/managed-execution) for compute presets, warm pool configuration, pause/resume, and the full configuration reference.
-
----
-
-## Code Deployments
-
-If you don't want to build container images yourself, use code deployments. Upload your source code as a tarball, and Strait builds the image with BuildKit, pushes it to your registry, and runs it — the same as managed mode, but Strait owns the build step too.
-
-```bash
-curl -X POST https://api.yourproject.strait.sh/v1/deployments \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -F "file=@./my-job.tar.gz" \
-  -F "runtime=python" \
-  -F "job_slug=train-model"
-```
-
-See [Code Deployments](/concepts/code-deployments) for supported runtimes, build configuration, and deployment workflows.
+Start a worker with the SDK and it will pick up runs for any registered queue. See the SDK integration guide for the connection and registration flow.
 
 ---
 
 ## Choosing a Mode
 
-```
-Do you already have an API endpoint that does the work?
+```text
+Do you already have an HTTP endpoint that does the work?
 ├── Yes → Use HTTP mode.
-└── No
-    ├── Do you have a container image ready?
-    │   └── Yes → Use managed mode with your image.
-    └── No
-        └── Use code deployments. Upload source code, Strait builds and runs it.
+└── No  → Run a worker process and use worker mode.
 ```
 
-**Start with HTTP** if you have existing infrastructure. It requires no changes to your deployment — just point a job at your endpoint. Switch to managed mode when you need isolation, custom runtimes, or want Strait to handle compute scaling.
+**Start with HTTP** if you have existing infrastructure. It requires no changes to your deployment; just point a job at your endpoint. Switch to worker mode when you need a persistent connection, run on a network Strait can't reach, or want to keep heavy state in-process.
+
+## Related
+
+- [Jobs](/concepts/jobs)
+- [Run Private Workers](/guides/private-workers)
+- [SDK Integration](/guides/sdk-integration)

@@ -12,18 +12,18 @@ A job is failing intermittently and logs alone don't explain why. Enable debug m
 
 Two ways to turn it on:
 
-**At trigger time** — set `debug_mode` on the request that starts the run:
+**At trigger time**: set `debug_mode` on the request that starts the run.
 
 ```bash
-curl -X POST https://api.strait.so/v1/jobs/{jobID}/trigger \
+curl -X POST https://api.strait.dev/v1/jobs/{jobID}/trigger \
   -H "Authorization: Bearer $STRAIT_API_KEY" \
-  -d '{"input": {"prompt": "summarize Q4"}, "debug_mode": true}'
+  -d '{"payload": {"prompt": "summarize Q4"}, "debug_mode": true}'
 ```
 
-**After the run starts** — call the debug endpoint on an existing run:
+**After the run starts**: call the debug endpoint on an existing run.
 
 ```bash
-curl -X POST https://api.strait.so/v1/runs/{runID}/debug \
+curl -X POST https://api.strait.dev/v1/runs/{runID}/debug \
   -H "Authorization: Bearer $STRAIT_API_KEY" \
   -d '{"debug_mode": true}'
 ```
@@ -34,7 +34,7 @@ The second approach is useful when a run is already in progress and you want to 
 
 | Data type | Description |
 |---|---|
-| Events | Every state transition and internal event the run produced |
+| Events | State changes and events emitted during the run |
 | Checkpoints | Snapshots of run state at each step boundary |
 | Usage records | Token counts and cost per model call |
 | Tool calls | Input, output, and duration of each tool invocation |
@@ -46,7 +46,7 @@ The second approach is useful when a run is already in progress and you want to 
 Once the run finishes, fetch the full bundle:
 
 ```bash
-curl https://api.strait.so/v1/runs/{runID}/debug-bundle \
+curl https://api.strait.dev/v1/runs/{runID}/debug-bundle \
   -H "Authorization: Bearer $STRAIT_API_KEY"
 ```
 
@@ -54,11 +54,11 @@ curl https://api.strait.so/v1/runs/{runID}/debug-bundle \
 {
   "run_id": "run_abc123",
   "events": [
-    {"type": "state_change", "from": "pending", "to": "running", "at": "2025-01-15T10:00:01Z"},
-    {"type": "tool_call", "name": "search", "duration_ms": 340, "at": "2025-01-15T10:00:02Z"}
+    {"type": "state_change", "from": "queued", "to": "executing", "at": "2026-01-15T10:00:01Z"},
+    {"type": "tool_call", "name": "search", "duration_ms": 340, "at": "2026-01-15T10:00:02Z"}
   ],
   "checkpoints": [
-    {"step": 1, "state": "running", "at": "2025-01-15T10:00:01Z"}
+    {"step": 1, "state": "executing", "at": "2026-01-15T10:00:01Z"}
   ],
   "usage": [
     {"model": "gpt-4o", "input_tokens": 1200, "output_tokens": 350, "cost_usd": 0.018}
@@ -70,11 +70,11 @@ curl https://api.strait.so/v1/runs/{runID}/debug-bundle \
     {"step": 2, "value": "Q4 revenue grew 12% year-over-year..."}
   ],
   "resource_snapshots": [
-    {"at": "2025-01-15T10:00:02Z", "cpu_percent": 42.1, "memory_mb": 256}
+    {"at": "2026-01-15T10:00:02Z", "cpu_percent": 42.1, "memory_mb": 256}
   ]
 }
 ```
 
 ## Performance note
 
-Debug mode adds overhead — extra database writes for every event, checkpoint, and resource sample. Use it when investigating a specific failure, not on every run in production.
+Debug mode adds overhead: extra database writes for every event, checkpoint, and resource sample. Use it when investigating a specific failure, not on every run in production.

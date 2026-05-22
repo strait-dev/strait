@@ -111,7 +111,6 @@ func (re *RampEngine) Run(ctx context.Context) (*RampResult, error) {
 		}
 
 		stepResult := re.runStep(ctx, currentRate)
-		result.Steps = append(result.Steps, stepResult)
 		result.TotalOperations += stepResult.Operations
 		result.TotalErrors += stepResult.Errors
 
@@ -119,10 +118,12 @@ func (re *RampEngine) Run(ctx context.Context) (*RampResult, error) {
 		if stopReason := re.checkStopConditions(stepResult); stopReason != "" {
 			stepResult.StoppedEarly = true
 			stepResult.StopReason = stopReason
+			result.Steps = append(result.Steps, stepResult)
 			result.BreakingRate = currentRate
 			result.Bottleneck = stopReason
 			break
 		}
+		result.Steps = append(result.Steps, stepResult)
 
 		maxSustained = currentRate
 		currentRate += re.config.StepSize

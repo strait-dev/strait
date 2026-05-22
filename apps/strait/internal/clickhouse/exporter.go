@@ -4,19 +4,24 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"strait/internal/httputil"
+
+	"github.com/sourcegraph/conc"
 	"go.opentelemetry.io/otel/metric"
 )
 
 // ExporterConfig controls the async export worker behavior.
 type ExporterConfig struct {
-	BatchSize     int           // Max events per batch insert.
-	FlushInterval time.Duration // Max time between flushes.
-	Enabled       bool          // Feature gate.
+	BatchSize      int           // Max events per batch insert.
+	FlushInterval  time.Duration // Max time between flushes.
+	MaxBufferBytes int           // Max approximate bytes buffered before dropping oldest records.
+	Enabled        bool          // Feature gate.
 }
 
 // RunEventRecord maps to the run_events ClickHouse table.
@@ -39,7 +44,6 @@ type RunAnalyticsRecord struct {
 	ProjectID           string
 	Status              string
 	ExecutionMode       string
-	MachinePreset       string
 	Attempt             int
 	DurationMs          uint64
 	QueueWaitMs         uint64
@@ -51,18 +55,6 @@ type RunAnalyticsRecord struct {
 	CreatedAt           time.Time
 	StartedAt           *time.Time
 	FinishedAt          *time.Time
-}
-
-// ComputeUsageRecord maps to the compute_usage ClickHouse table.
-type ComputeUsageRecord struct {
-	RunID         string
-	ProjectID     string
-	MachinePreset string
-	MachineID     string
-	DurationSecs  float64
-	CostMicrousd  int64
-	StartedAt     time.Time
-	FinishedAt    time.Time
 }
 
 // RunUsageEventRecord maps to the run_usage_events ClickHouse table.
@@ -167,9 +159,16 @@ type BillingEventRecord struct {
 	Details   string // JSON blob
 }
 
-// maxFlushRetries is the maximum number of consecutive flush failures before
-// a batch is dropped to prevent unbounded growth.
-const maxFlushRetries = 2
+const (
+	// maxFlushRetries is the maximum number of consecutive flush failures before
+	// a batch is dropped to prevent unbounded growth.
+	maxFlushRetries = 2
+
+	// defaultMaxBufferBytes caps queued ClickHouse export records by approximate
+	// in-memory payload size. The record-count cap alone does not protect the
+	// exporter from large event metadata or failure messages.
+	defaultMaxBufferBytes = 16 << 20
+)
 
 // ExporterMetrics holds optional OTel counters for exporter observability.
 type ExporterMetrics struct {
@@ -186,6 +185,7 @@ type Exporter struct {
 
 	mu                  sync.Mutex
 	pending             []any // buffered records
+	pendingBytes        int
 	consecutiveFailures int
 	stopping            atomic.Bool
 	stopOnce            sync.Once
@@ -203,6 +203,9 @@ func NewExporter(client *Client, config ExporterConfig, logger *slog.Logger) *Ex
 	}
 	if config.FlushInterval <= 0 {
 		config.FlushInterval = 5 * time.Second
+	}
+	if config.MaxBufferBytes <= 0 {
+		config.MaxBufferBytes = defaultMaxBufferBytes
 	}
 	if logger == nil {
 		logger = slog.Default()
@@ -232,25 +235,32 @@ func (e *Exporter) WithMetrics(m *ExporterMetrics) *Exporter {
 }
 
 // Enqueue adds a record to the export buffer. Safe for concurrent use.
-// Returns false if the exporter is stopping.
+// Returns false if the exporter is stopping or the record is too large to
+// retain within the byte-size buffer cap.
 func (e *Exporter) Enqueue(record any) bool {
 	if e == nil || e.stopping.Load() {
+		return false
+	}
+	recordBytes := estimateRecordBytes(record)
+	maxBufferBytes := e.maxBufferBytes()
+	if recordBytes > maxBufferBytes {
+		e.logger.Warn("clickhouse exporter record exceeds byte buffer cap, dropped record", "bytes", recordBytes, "max_bytes", maxBufferBytes)
+		if e.metrics != nil && e.metrics.DroppedRecords != nil {
+			e.metrics.DroppedRecords.Add(context.Background(), 1)
+		}
 		return false
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
 	e.pending = append(e.pending, record)
+	e.pendingBytes += recordBytes
 
-	// Backpressure: drop oldest if buffer exceeds 10x batch size.
-	// Reallocate to release memory held by dropped elements.
-	maxBuffer := e.config.BatchSize * 10
-	if len(e.pending) > maxBuffer {
-		dropped := len(e.pending) - maxBuffer
-		kept := make([]any, maxBuffer)
-		copy(kept, e.pending[dropped:])
-		e.pending = kept
-		e.logger.Warn("clickhouse exporter buffer overflow, dropped oldest records", "dropped", dropped)
+	if dropped := e.trimPendingOldestLocked(); dropped > 0 {
+		e.logger.Warn("clickhouse exporter buffer overflow, dropped oldest records", "dropped", dropped, "pending_bytes", e.pendingBytes, "max_bytes", e.maxBufferBytes())
+		if e.metrics != nil && e.metrics.DroppedRecords != nil {
+			e.metrics.DroppedRecords.Add(context.Background(), int64(dropped))
+		}
 	}
 	return true
 }
@@ -263,7 +273,8 @@ func (e *Exporter) Start(ctx context.Context) {
 	// Replace the pre-closed done channel with a fresh one so Stop() can
 	// wait for the goroutine to finish.
 	e.done = make(chan struct{})
-	go func() { //nolint:gosec // ctx is intentionally captured for the flush loop lifetime.
+	var wg conc.WaitGroup
+	wg.Go(func() {
 		defer close(e.done)
 		defer func() {
 			if r := recover(); r != nil {
@@ -285,7 +296,7 @@ func (e *Exporter) Start(ctx context.Context) {
 				return
 			}
 		}
-	}()
+	})
 }
 
 // Stop signals the exporter to flush remaining records and shut down.
@@ -309,7 +320,9 @@ func (e *Exporter) flush(ctx context.Context) {
 		return
 	}
 	batch := e.pending
+	batchBytes := e.pendingBytes
 	e.pending = make([]any, 0, e.config.BatchSize)
+	e.pendingBytes = 0
 	e.mu.Unlock()
 
 	if err := e.insertBatch(ctx, batch); err != nil {
@@ -320,14 +333,14 @@ func (e *Exporter) flush(ctx context.Context) {
 		e.mu.Lock()
 		e.consecutiveFailures++
 		if e.consecutiveFailures <= maxFlushRetries {
-			maxBuffer := e.config.BatchSize * 10
 			combined := append(batch, e.pending...) //nolint:gocritic // intentional prepend of failed batch
-			if len(combined) > maxBuffer {
-				// Keep the front (failed batch first) and drop newest overflow.
-				combined = combined[:maxBuffer]
-			}
+			e.pendingBytes += batchBytes
 			e.pending = combined
-			e.logger.Warn("clickhouse requeued failed batch", "attempt", e.consecutiveFailures)
+			dropped := e.trimPendingNewestLocked()
+			e.logger.Warn("clickhouse requeued failed batch", "attempt", e.consecutiveFailures, "dropped", dropped, "pending_bytes", e.pendingBytes, "max_bytes", e.maxBufferBytes())
+			if dropped > 0 && e.metrics != nil && e.metrics.DroppedRecords != nil {
+				e.metrics.DroppedRecords.Add(ctx, int64(dropped))
+			}
 		} else {
 			e.logger.Error("clickhouse dropping batch after max retries", "dropped", len(batch))
 			if e.metrics != nil && e.metrics.DroppedRecords != nil {
@@ -342,6 +355,99 @@ func (e *Exporter) flush(ctx context.Context) {
 	e.mu.Unlock()
 }
 
+func (e *Exporter) maxBufferRecords() int {
+	if e == nil || e.config.BatchSize <= 0 {
+		return 1000 * 10
+	}
+	return e.config.BatchSize * 10
+}
+
+func (e *Exporter) maxBufferBytes() int {
+	if e == nil || e.config.MaxBufferBytes <= 0 {
+		return defaultMaxBufferBytes
+	}
+	return e.config.MaxBufferBytes
+}
+
+func (e *Exporter) trimPendingOldestLocked() int {
+	return e.trimPendingLocked(true)
+}
+
+func (e *Exporter) trimPendingNewestLocked() int {
+	return e.trimPendingLocked(false)
+}
+
+func (e *Exporter) trimPendingLocked(dropOldest bool) int {
+	maxRecords := e.maxBufferRecords()
+	maxBytes := e.maxBufferBytes()
+	dropped := 0
+	for len(e.pending) > 0 && (len(e.pending) > maxRecords || e.pendingBytes > maxBytes) {
+		dropIndex := len(e.pending) - 1
+		if dropOldest {
+			dropIndex = 0
+		}
+		e.pendingBytes -= estimateRecordBytes(e.pending[dropIndex])
+		if e.pendingBytes < 0 {
+			e.pendingBytes = 0
+		}
+		e.pending = append(e.pending[:dropIndex], e.pending[dropIndex+1:]...)
+		dropped++
+	}
+	if dropped > 0 {
+		kept := make([]any, len(e.pending))
+		copy(kept, e.pending)
+		e.pending = kept
+	}
+	return dropped
+}
+
+func estimateRecordsBytes(records []any) int {
+	total := 0
+	for _, record := range records {
+		total += estimateRecordBytes(record)
+	}
+	return total
+}
+
+func estimateRecordBytes(record any) int {
+	return estimateRecordValueBytes(reflect.ValueOf(record)) + 64
+}
+
+func estimateRecordValueBytes(v reflect.Value) int {
+	if !v.IsValid() {
+		return 0
+	}
+	if v.Type() == reflect.TypeFor[time.Time]() {
+		return 24
+	}
+	switch v.Kind() {
+	case reflect.Pointer, reflect.Interface:
+		if v.IsNil() {
+			return 8
+		}
+		return 8 + estimateRecordValueBytes(v.Elem())
+	case reflect.String:
+		return v.Len()
+	case reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return 8
+	case reflect.Struct:
+		size := 0
+		for _, field := range v.Fields() {
+			size += estimateRecordValueBytes(field)
+		}
+		return size
+	case reflect.Slice, reflect.Array:
+		size := 0
+		for i := range v.Len() {
+			size += estimateRecordValueBytes(v.Index(i))
+		}
+		return size
+	default:
+		return 16
+	}
+}
+
 // insertBatch writes a batch of records to ClickHouse, grouping by record type.
 //
 //nolint:gocyclo,cyclop
@@ -352,7 +458,6 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 
 	var events []RunEventRecord
 	var analytics []RunAnalyticsRecord
-	var usage []ComputeUsageRecord
 	var runUsage []RunUsageEventRecord
 	var approvals []WorkflowApprovalEventRecord
 	var jobMeta []JobMetadataRecord
@@ -365,11 +470,9 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 	for _, rec := range batch {
 		switch r := rec.(type) {
 		case RunEventRecord:
-			events = append(events, r)
+			events = append(events, sanitizeRunEventRecord(r))
 		case RunAnalyticsRecord:
 			analytics = append(analytics, r)
-		case ComputeUsageRecord:
-			usage = append(usage, r)
 		case RunUsageEventRecord:
 			runUsage = append(runUsage, r)
 		case WorkflowApprovalEventRecord:
@@ -377,7 +480,7 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 		case JobMetadataRecord:
 			jobMeta = append(jobMeta, r)
 		case WebhookDeliveryEventRecord:
-			webhookDeliveries = append(webhookDeliveries, r)
+			webhookDeliveries = append(webhookDeliveries, sanitizeWebhookDeliveryEventRecord(r))
 		case WorkflowRunAnalyticsRecord:
 			workflowRuns = append(workflowRuns, r)
 		case WorkflowStepAnalyticsRecord:
@@ -400,11 +503,6 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 	if len(analytics) > 0 {
 		if err := e.insertRunAnalytics(ctx, analytics); err != nil {
 			errs = append(errs, fmt.Errorf("run_analytics: %w", err))
-		}
-	}
-	if len(usage) > 0 {
-		if err := e.insertComputeUsage(ctx, usage); err != nil {
-			errs = append(errs, fmt.Errorf("compute_usage: %w", err))
 		}
 	}
 	if len(runUsage) > 0 {
@@ -459,7 +557,6 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 	e.logger.Debug("clickhouse exporter flushed batch",
 		"events", len(events),
 		"analytics", len(analytics),
-		"usage", len(usage),
 		"run_usage", len(runUsage),
 		"approvals", len(approvals),
 		"job_metadata", len(jobMeta),
@@ -474,11 +571,12 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 
 func (e *Exporter) insertRunEvents(ctx context.Context, records []RunEventRecord) error {
 	const row = "(?, ?, ?, ?, ?, ?, ?, ?, ?)"
-	query := "INSERT INTO run_events (event_id, run_id, project_id, job_id, event_type, level, message, metadata, created_at) VALUES "
+	query := "INSERT INTO run_events (event_id, run_id, project_id, job_id, event_type, level, message_class, metadata_redacted, created_at) VALUES "
 	placeholders := make([]string, len(records))
 	args := make([]any, 0, len(records)*9)
 
 	for i, r := range records {
+		r = sanitizeRunEventRecord(r)
 		placeholders[i] = row
 		args = append(args, r.EventID, r.RunID, r.ProjectID, r.JobID, r.EventType, r.Level, r.Message, r.Metadata, r.CreatedAt)
 	}
@@ -487,30 +585,16 @@ func (e *Exporter) insertRunEvents(ctx context.Context, records []RunEventRecord
 }
 
 func (e *Exporter) insertRunAnalytics(ctx context.Context, records []RunAnalyticsRecord) error {
-	const row = "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-	query := "INSERT INTO run_analytics (run_id, job_id, project_id, status, execution_mode, machine_preset, attempt, duration_ms, queue_wait_ms, cost_microusd, compute_cost_microusd, triggered_by, tags, job_version_id, created_at, started_at, finished_at) VALUES "
+	const row = "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+	query := "INSERT INTO run_analytics (run_id, job_id, project_id, status, execution_mode, attempt, duration_ms, queue_wait_ms, cost_microusd, compute_cost_microusd, triggered_by, tags, job_version_id, created_at, started_at, finished_at) VALUES "
 	placeholders := make([]string, len(records))
-	args := make([]any, 0, len(records)*17)
+	args := make([]any, 0, len(records)*16)
 
 	for i, r := range records {
 		placeholders[i] = row
-		args = append(args, r.RunID, r.JobID, r.ProjectID, r.Status, r.ExecutionMode, r.MachinePreset,
+		args = append(args, r.RunID, r.JobID, r.ProjectID, r.Status, r.ExecutionMode,
 			r.Attempt, r.DurationMs, r.QueueWaitMs, r.CostMicrousd, r.ComputeCostMicrousd, r.TriggeredBy,
 			r.Tags, r.JobVersionID, r.CreatedAt, r.StartedAt, r.FinishedAt)
-	}
-
-	return e.client.Exec(ctx, query+strings.Join(placeholders, ", "), args...)
-}
-
-func (e *Exporter) insertComputeUsage(ctx context.Context, records []ComputeUsageRecord) error {
-	const row = "(?, ?, ?, ?, ?, ?, ?, ?)"
-	query := "INSERT INTO compute_usage (run_id, project_id, machine_preset, machine_id, duration_secs, cost_microusd, started_at, finished_at) VALUES "
-	placeholders := make([]string, len(records))
-	args := make([]any, 0, len(records)*8)
-
-	for i, r := range records {
-		placeholders[i] = row
-		args = append(args, r.RunID, r.ProjectID, r.MachinePreset, r.MachineID, r.DurationSecs, r.CostMicrousd, r.StartedAt, r.FinishedAt)
 	}
 
 	return e.client.Exec(ctx, query+strings.Join(placeholders, ", "), args...)
@@ -607,11 +691,12 @@ func (e *Exporter) insertWorkflowStepAnalytics(ctx context.Context, records []Wo
 
 func (e *Exporter) insertWebhookDeliveryEvents(ctx context.Context, records []WebhookDeliveryEventRecord) error {
 	const row = "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-	query := "INSERT INTO webhook_delivery_events (delivery_id, run_id, job_id, project_id, webhook_url, status, attempts, last_status_code, duration_ms, event_type, created_at, delivered_at) VALUES "
+	query := "INSERT INTO webhook_delivery_events (delivery_id, run_id, job_id, project_id, webhook_host, status, attempts, last_status_code, duration_ms, event_type, created_at, delivered_at) VALUES "
 	placeholders := make([]string, len(records))
 	args := make([]any, 0, len(records)*12)
 
 	for i, r := range records {
+		r = sanitizeWebhookDeliveryEventRecord(r)
 		placeholders[i] = row
 		args = append(args, r.DeliveryID, r.RunID, r.JobID, r.ProjectID, r.WebhookURL,
 			r.Status, r.Attempts, r.LastStatusCode, r.DurationMs, r.EventType, r.CreatedAt, r.DeliveredAt)
@@ -634,6 +719,49 @@ func (e *Exporter) insertBillingEvents(ctx context.Context, records []BillingEve
 	return e.client.Exec(ctx, query+strings.Join(placeholders, ", "), args...)
 }
 
+func sanitizeRunEventRecord(r RunEventRecord) RunEventRecord {
+	r.Message = safeRunEventAnalyticsMessage(r)
+	if strings.TrimSpace(r.Metadata) != "" {
+		r.Metadata = "{}"
+	}
+	return r
+}
+
+func safeRunEventAnalyticsMessage(r RunEventRecord) string {
+	if strings.EqualFold(strings.TrimSpace(r.Level), "error") {
+		return safeRunFailureReason(r.Message)
+	}
+	switch normalizedAnalyticsLabel(r.EventType) {
+	case "run_started", "run_completed", "run_failed", "run_timed_out", "run_canceled", "run_retrying", "run_snoozed":
+		return normalizedAnalyticsLabel(r.EventType)
+	}
+	switch normalizedAnalyticsLabel(r.Level) {
+	case "debug", "info", "warn", "warning", "error":
+		return "level_" + normalizedAnalyticsLabel(r.Level)
+	default:
+		return "run_event"
+	}
+}
+
+func normalizedAnalyticsLabel(label string) string {
+	label = strings.ToLower(strings.TrimSpace(label))
+	if label == "" || len(label) > 64 {
+		return ""
+	}
+	for _, r := range label {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			continue
+		}
+		return ""
+	}
+	return label
+}
+
+func sanitizeWebhookDeliveryEventRecord(r WebhookDeliveryEventRecord) WebhookDeliveryEventRecord {
+	r.WebhookURL = httputil.RedactURLForLog(r.WebhookURL)
+	return r
+}
+
 // PendingCount returns the number of records waiting to be flushed.
 func (e *Exporter) PendingCount() int {
 	if e == nil {
@@ -642,4 +770,16 @@ func (e *Exporter) PendingCount() int {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return len(e.pending)
+}
+
+// PendingSnapshot returns a copy of queued records for diagnostics and tests.
+func (e *Exporter) PendingSnapshot() []any {
+	if e == nil {
+		return nil
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	out := make([]any, len(e.pending))
+	copy(out, e.pending)
+	return out
 }

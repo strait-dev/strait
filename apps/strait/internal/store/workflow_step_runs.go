@@ -120,7 +120,7 @@ func (q *Queries) ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID s
 	param := 2
 
 	if cursor != nil {
-		query += fmt.Sprintf(" AND created_at < $%d", param)
+		query += fmt.Sprintf(" AND created_at > $%d", param)
 		args = append(args, *cursor)
 		param++
 	}
@@ -371,17 +371,47 @@ func (q *Queries) IncrementStepDeps(ctx context.Context, workflowRunID string, c
 	defer span.End()
 
 	query := `
+		WITH candidates AS (
+			SELECT
+				wsr.id,
+				wsr.workflow_run_id,
+				wsr.step_ref,
+				wvs.job_id,
+				wvs.condition,
+				wvs.payload,
+				wvs.depends_on
+			FROM workflow_step_runs wsr
+			JOIN workflow_runs wr ON wr.id = wsr.workflow_run_id
+			JOIN workflow_version_steps wvs
+			  ON wvs.workflow_version_id = wr.workflow_id || ':v' || wr.workflow_version
+			 AND wvs.step_ref = wsr.step_ref
+			WHERE wsr.workflow_run_id = $1
+			  AND wsr.status = 'waiting'
+			  AND $2 = ANY(wvs.depends_on)
+			  AND EXISTS (
+				SELECT 1
+				FROM workflow_step_runs completed
+				WHERE completed.workflow_run_id = wsr.workflow_run_id
+				  AND completed.step_ref = $2
+				  AND completed.status IN ('completed', 'skipped')
+			  )
+		),
+		dependency_counts AS (
+			SELECT c.id, COUNT(DISTINCT dep.step_ref)::int AS deps_completed
+			FROM candidates c
+			JOIN workflow_step_runs dep
+			  ON dep.workflow_run_id = c.workflow_run_id
+			 AND dep.step_ref = ANY(c.depends_on)
+			 AND dep.status IN ('completed', 'skipped')
+			GROUP BY c.id
+		)
 		UPDATE workflow_step_runs wsr
-		SET deps_completed = deps_completed + 1
-		FROM workflow_runs wr
-		JOIN workflow_version_steps wvs
-		  ON wvs.workflow_version_id = wr.workflow_id || ':v' || wr.workflow_version
-		WHERE wr.id = wsr.workflow_run_id
-		  AND wvs.step_ref = wsr.step_ref
-		  AND wsr.workflow_run_id = $1
-		  AND wsr.status = 'waiting'
-		  AND $2 = ANY(wvs.depends_on)
-		RETURNING wsr.id, wsr.step_ref, wsr.deps_completed, wsr.deps_required, wvs.job_id, wvs.condition, wvs.payload, wsr.workflow_run_id`
+		SET deps_completed = LEAST(wsr.deps_required, dc.deps_completed)
+		FROM candidates c
+		JOIN dependency_counts dc ON dc.id = c.id
+		WHERE wsr.id = c.id
+		  AND dc.deps_completed > wsr.deps_completed
+		RETURNING wsr.id, wsr.step_ref, wsr.deps_completed, wsr.deps_required, c.job_id, c.condition, c.payload, wsr.workflow_run_id`
 
 	rows, err := q.db.Query(ctx, query, workflowRunID, completedStepRef)
 	if err != nil {
@@ -609,10 +639,12 @@ func (q *Queries) GetCostGateDefaultAction(ctx context.Context, stepRunID string
 	defer span.End()
 
 	query := `
-		SELECT COALESCE(ws.cost_gate_default_action, '')
+		SELECT COALESCE(wvs.cost_gate_default_action, '')
 		FROM workflow_step_runs wsr
 		JOIN workflow_runs wr ON wr.id = wsr.workflow_run_id
-		JOIN workflow_steps ws ON ws.workflow_id = wr.workflow_id AND ws.step_ref = wsr.step_ref
+		JOIN workflow_version_steps wvs
+		  ON wvs.workflow_version_id = wr.workflow_id || ':v' || wr.workflow_version
+		 AND wvs.step_ref = wsr.step_ref
 		WHERE wsr.id = $1`
 
 	var action string

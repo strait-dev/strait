@@ -1,318 +1,76 @@
 ---
 title: "Architecture"
-description: "How Strait works and how to deploy it."
+description: "How Strait fits into your application."
 icon: "sitemap"
 og:image: "/images/og.png"
 ---
 
-Strait is a single Go binary that runs your jobs and workflows. It needs PostgreSQL (for state and queuing) and Redis (for real-time updates). Everything else is optional.
+Strait coordinates background jobs and workflows. Your application still owns the business logic. Strait handles when work runs, how it is retried, and how each run is tracked.
 
-## System Overview
+## The Model
 
 ```text
-                    ┌──────────────────────────────────┐
-                    │           API Server              │
-                    │  (HTTP router + middleware)        │
-                    │                                    │
-                    │  /v1/jobs/* ── Job CRUD + Health   │
-                    │  /v1/workflows/* ── DAG CRUD + plan│
-                    │  /v1/workflow-runs/* ── graph/explain│
-                    │  /v1/workflow-policies/* ── governance│
-                    │  /v1/jobs/{id}/trigger ── Enqueue  │
-                    │  /v1/runs/* ── Run management      │
-                    │  /v1/events/* ── Event triggers     │
-                    │  /sdk/v1/* ── SDK (JWT auth)        │
-                    │  /metrics ── Prometheus              │
-                    └──────────┬───────────────────────┘
-                               │ Enqueue (budget check)
-                               v
-                    ┌──────────────────────────────────┐
-                    │         PostgreSQL                 │
-                    │                                    │
-                    │  jobs ── job definitions           │
-                    │  job_runs ── run state + queue     │
-                    │  workflows ── DAG definitions      │
-                    │  workflow_runs ── workflow state   │
-                    │  event_triggers ── durable waits   │
-                    │  run_events ── log entries         │
-                    │  run_usage ── AI cost tracking     │
-                    │  environments ── endpoint config   │
-                    │  project_quotas ── budget limits   │
-                    │                                    │
-                    │  Queue: job claiming                │
-                    └──────────┬───────────────────────┘
-                               │ Dequeue
-                               v
-                    ┌──────────────────────────────────┐
-                    │         Worker Executor            │
-                    │                                    │
-                    │  Poll ─> Claim N available runs    │
-                    │  Workflow Engine:                  │
-                    │  - Dependency validation           │
-                    │  - Dependency resolution           │
-                    │  - Condition Evaluation            │
-                    │  - Template Rendering              │
-                    │  - Sub-workflow Nesting            │
-                    │                                    │
-                    │  Job Execution:                    │
-                    │  - Resolve ─> Env + URL validation │
-                    │  - Execute ─> HTTP POST to endpt   │
-                    │  - Retry ─> Smart strategy select  │
-                    │  - Trace ─> Execution timing       │
-                    │  - Review queue on exhaust         │
-                    └──────────┬───────────────────────┘
-                               │ Webhook / PubSub
-                               v
-                    ┌──────────────────────────────────┐
-                    │  Scheduler         │  Redis       │
-                    │  - Cron ticker     │  - PubSub    │
-                    │  - Delayed poller  │  - SSE       │
-                    │  - Stale reaper    │  streaming   │
-                    │  - Event reaper    │              │
-                    │  - Retention       │              │
-                    │  - Pool pruner     │              │
-                    └──────────────────────────────────┘
-                               │
-                               v
-                    ┌──────────────────────────────────┐
-                    │  ClickHouse (optional analytics)  │
-                    │                                    │
-                    │  run_events ── lifecycle timeline  │
-                    │  run_analytics ── run summaries   │
-                    │  compute_usage ── cost tracking    │
-                    │                                    │
-                    │  Async batch export (10s / 100)    │
-                    └──────────────────────────────────┘
+Your app or service
+        |
+        | trigger a job or workflow
+        v
+Strait API
+        |
+        | stores state and queues work
+        v
+Strait worker
+        |
+        | calls your HTTP endpoint or connected worker
+        v
+Your code
 ```
 
-## What You Need
+Strait does not run customer code inside the Strait process. It dispatches work to code you own, then records the result so you can monitor, retry, replay, and audit it.
 
-| Component | Required | Purpose |
-|---|---|---|
-| PostgreSQL 16+ | Yes | Stores jobs, runs, workflows. Also serves as the job queue. |
-| Redis 7+ | Yes | Powers real-time updates (SSE) and pub/sub notifications. |
-| Sequin | Yes (self-host) | Streams database changes for real-time event processing. Included in Docker Compose. |
-| ClickHouse | No | Optional analytics backend for large-scale run metrics. See [ClickHouse Analytics](/concepts/clickhouse-analytics). |
+## What Runs
 
-## Components
+Strait ships as one Go binary with three modes:
 
-Strait organizes all jobs and workflows under [projects](/concepts/projects), the top-level grouping for access control, cost budgets, and environment configuration. Within a project, Strait has three main components: an API server that handles HTTP requests, a worker that executes jobs, and a scheduler that runs background tasks (cron, retries, cleanup). You deploy all three in one binary or split them for horizontal scaling.
+| Mode | Use it for |
+|---|---|
+| `all` | Local development and smaller deployments. Runs the API, worker, and scheduler together. |
+| `api` | Serving API traffic behind a load balancer. |
+| `worker` | Processing queued jobs and workflow steps. |
 
-## Deployment Modes
+You can start with `all` and split API and worker processes later as traffic grows.
 
-Strait runs in three modes from the same binary:
+## Required Services
 
-| Mode | What it runs | When to use |
-|---|---|---|
-| `--mode all` | API + Worker + Scheduler | Development, small deployments |
-| `--mode api` | API server only | Scale API capacity independently |
-| `--mode worker` | Worker + Scheduler only | Scale job processing independently |
+| Service | Purpose |
+|---|---|
+| PostgreSQL | Stores projects, jobs, runs, workflows, and queued work. |
+| Redis | Powers live updates and pub/sub notifications. |
 
-In production, run one or more `api` instances behind a load balancer and one or more `worker` instances. All instances share the same PostgreSQL and Redis.
+Self-hosted Docker Compose includes the supporting services Strait needs. For setup instructions, see [Quick Start](/quickstart) and [Deployment](/guides/deployment).
 
-On shutdown, Strait waits for in-flight jobs to finish and releases all resources cleanly before the process exits.
-## How the Queue Works
+## Execution Modes
 
-Strait uses PostgreSQL as its job queue. Workers claim available jobs from the queue, process them, and record results back to the database. Jobs are dequeued in priority order (higher priority first), with FIFO ordering within the same priority level. Delayed jobs wait until their scheduled time arrives, and retrying jobs wait until their backoff period expires. If a worker crashes after claiming a job but before completing it, a background reaper detects the stalled run and returns it to the queue for reprocessing.
+Strait supports two ways to run customer code:
 
-## Run Lifecycle
+- **HTTP jobs**: Strait sends a POST request to your configured endpoint.
+- **Worker jobs**: your worker keeps a connection open to Strait and receives work over that connection.
 
-Every run moves through a set of states: **queued** -> **executing** -> **completed** (or **failed** / **timed_out**). Failed runs retry up to the configured max attempts, then move to the review queue for manual inspection.
+Use HTTP jobs when your code is already exposed as an endpoint. Use worker jobs when the code should stay inside your private network.
 
-For the full lifecycle diagram and state transition details, see [Runs](/concepts/runs#run-lifecycle).
+## Runs and Workflows
 
-## Authentication
+A job trigger creates a run. Most runs move from `queued` to `executing` to `completed`. Failed runs retry according to the job's retry policy. If retries are exhausted, the run moves to `dead_letter` so it can be inspected and replayed.
 
-Strait uses two authentication schemes:
+Workflows connect jobs into ordered steps. Steps can run in parallel, wait for approvals or external events, pass data between steps, and recover failed branches.
 
-<Tabs>
-  <Tab title="Internal Secret">
-    Used for management API (`/v1/*`). Requires `Authorization: Bearer <INTERNAL_SECRET>` header. Simple string comparison provides fast auth for job CRUD, triggering, and run management.
-  </Tab>
-  <Tab title="Run Token">
-    Used for SDK API (`/sdk/v1/*`). Uses JWT HS256 signed with `JWT_SIGNING_KEY`. Token contains `sub` (runID), `exp` (timeout + 60s), and `iat`. Stateless auth—server validates signature on each request.
-  </Tab>
-</Tabs>
+## Monitoring
 
-## Execution Lifecycle
+Strait records run status, attempts, timing, logs, and workflow progress. You can watch runs in real time, subscribe to webhooks, export metrics, and inspect failures through the dashboard or API.
 
-<Steps>
-  <Step title="Trigger">
-    You send a POST to `/v1/jobs/{id}/trigger`. Strait checks your cost budget, creates a job run (status `queued` or `delayed`), and generates a run token.
-  </Step>
-  <Step title="Dequeue">
-    A worker claims available runs from the queue and begins processing them.
-  </Step>
-  <Step title="Execute">
-    The run is submitted to the worker pool. In-flight jobs continue to completion even if Strait is shutting down. A background process sends heartbeats so the system can detect stalled runs.
-  </Step>
-  <Step title="Resolve Environment">
-    If your job has an `environment_id`, the executor resolves environment variables. It checks for `ENDPOINT_URL` overrides and validates URLs to block requests to private or loopback networks.
-  </Step>
-  <Step title="Dispatch">
-    Executor sends HTTP POST to resolved endpoint URL. Headers include `X-Run-ID`, `X-Job-ID`, `X-Attempt`, and `X-SDK-Token`. Payload includes job payload and metadata.
-  </Step>
-  <Step title="Execution Tracing">
-    Strait captures a timing breakdown for each run: queue wait, dequeue, connection, time-to-first-byte, transfer, and total duration. Stored on the run for debugging and performance analysis.
-  </Step>
-  <Step title="Result Handling">
-    2xx response -> status=completed, store result. Non-2xx -> schedule retry using job's retry_strategy or mark failed. Timeout -> retry or timed_out. Adaptive timeout adjustment applied.
-  </Step>
-  <Step title="Review Queue">
-    If the run has exhausted all retry attempts, it moves to the review queue instead of staying as failed. You can replay these runs via the review queue endpoint.
-  </Step>
-  <Step title="Webhook">
-    Upon reaching terminal state, send signed POST to job's `webhook_url`. Job-run webhooks are retried up to 3 times with exponential backoff (1s, 5s delays). Event-trigger webhooks use persistent delivery via the `webhook_deliveries` table with up to 5 retries and exponential backoff, surviving process restarts. See [Webhooks](/concepts/webhooks) for the full delivery lifecycle.
-  </Step>
-  <Step title="PubSub">
-    State change published to Redis channel `run:{runID}` for SSE streaming.
-  </Step>
-</Steps>
+## Read Next
 
-## Workflow Engine
-
-The workflow engine executes DAGs where each step is a job, approval gate, event wait, sleep, or nested workflow. Steps run in parallel when they have no dependencies on each other. When all of a step's parents complete, the step starts.
-
-Workflows support conditional branching, data flow between steps via template variables, and governance policies to limit fan-out and depth.
-
-For step types, conditions, data flow, and recovery controls, see [Workflows](/concepts/workflows). For scheduler behavior and explainability, see [DAG Runtime](/concepts/dag-runtime).
-
-## Managed Execution
-
-Strait supports managed execution where your jobs run inside containers managed by Docker or Kubernetes. See [Managed Execution](/concepts/managed-execution) for details.
-
-## Graceful Shutdown
-
-The shutdown sequence protects in-flight work:
-
-<Steps>
-  <Step title="Signal Capture">
-    Strait captures SIGINT and SIGTERM. Cancellation propagates to all subsystems.
-  </Step>
-  <Step title="Worker Pool Shutdown">
-    The worker polling loop exits. The pool blocks until all in-flight jobs complete.
-  </Step>
-  <Step title="Scheduler Shutdown">
-    Cron ticker stops, delayed poller exits, reaper stops. No new jobs scheduled.
-  </Step>
-  <Step title="HTTP Server Shutdown">
-    Server shuts down with 10-second grace period to drain in-flight HTTP requests.
-  </Step>
-  <Step title="Resource Cleanup">
-    Database and Redis connections close. Metric exporters flush remaining data.
-  </Step>
-</Steps>
-
-Jobs already executing when shutdown begins are allowed to complete and record their results. This prevents partial execution and data loss during deployments.
-
-## Observability
-
-### Distributed Tracing
-
-OpenTelemetry spans cover critical operations:
-
-- **HTTP requests**: Middleware traces request duration, path, and status code
-- **Database queries**: Each store method is instrumented with span attributes (query type, table)
-- **Queue operations**: Dequeue, enqueue, and retry operations traced
-- **Workflow execution**: Step completion, dependency resolution, sub-workflow propagation traced
-
-Spans include parent-child relationships, linking a slow job run across API server, worker, and external endpoint in trace visualization tools like Jaeger or Tempo.
-
-### Prometheus Metrics
-
-Metrics exposed at `GET /metrics`:
-
-- `strait_run_transitions_total`: Counter for each state transition (labeled by from_status, to_status)
-- `strait_dispatch_duration_seconds`: Histogram of HTTP dispatch latency (labeled by job_id, outcome)
-- `strait_dequeue_duration_seconds`: Histogram of queue polling latency
-- `strait_worker_pool_active`: Gauge of currently active workers
-- `strait_worker_pool_queued`: Gauge of tasks waiting in the pool buffer
-
-### Structured Logging
-
-Structured JSON logging via `log/slog` captures events with consistent fields:
-
-- `run_id`: Job run identifier for correlation
-- `job_id`: Job identifier for filtering
-- `status`: State transition
-- `error`: Error details with stack trace
-- `duration_ms`: Operation timing
-
-Logs are human-readable in development and machine-parseable in production for log aggregation systems.
-
-## Scheduler Background Tasks
-
-The scheduler runs several background processes:
-
-<Tabs>
-  <Tab title="Cron Scheduler">
-    Every second, checks for jobs whose next execution time has arrived and enqueues new runs with `triggered_by = 'cron'`. Supports cron expressions, timezones, and execution windows.
-  </Tab>
-  <Tab title="Delayed Poller">
-    Polls every 5 seconds for delayed runs whose `scheduled_at` time has arrived and transitions them to `queued`. Use this for one-off delayed runs instead of cron schedules.
-  </Tab>
-  <Tab title="Stale Reaper">
-    Polls on the configured reaper interval and performs multiple stale-recovery passes:
-    - **Stale claimed runs**: re-queues runs stuck after claiming
-    - **Stale executing runs**: marks runs as `crashed` on heartbeat loss
-    - **Stalled workflow runs**: detects workflow runs with no progression for `WF_STALL_THRESHOLD` and applies `WF_STALL_ACTION` (`log_only`, `reconcile`, or `fail_workflow`)
-    - **Timed out workflow runs**: marks workflow run `timed_out`, cancels non-terminal steps/job runs, and cancels pending event triggers
-  </Tab>
-  <Tab title="Event Trigger Reaper">
-    Polls every 30 seconds for expired event triggers (still `waiting` past their `expires_at`). Transitions them to `timed_out` and triggers step failure. Also handles:
-    - **Sleep triggers**: Completes sleep steps when their duration expires
-    - **Inconsistent triggers**: Finds `received` triggers with still-`waiting` steps/runs (30s grace period) and re-resolves them
-    - **Expired approvals**: Fails approval steps past their timeout
-
-    In multi-instance deployments, only one instance runs the reaper at a time using database-level coordination. Other instances skip the cycle and try again on the next interval.
-  </Tab>
-  <Tab title="Retention Worker">
-    Every hour, deletes terminal runs based on retention policy:
-    - completed/failed/canceled/expired: 30 days
-    - timed_out/crashed/system_failed: 90 days
-    - event triggers: configurable via `EVENT_TRIGGER_RETENTION`
-    Deletes in batches for efficient cleanup.
-  </Tab>
-</Tabs>
-
-## Health Endpoints
-
-Strait exposes health and readiness endpoints for infrastructure orchestration:
-
-- **`GET /health`** (liveness): Returns 200 if the process is alive. Used by Kubernetes liveness probes.
-- **`GET /health/ready`** (readiness): Returns 200 when all dependencies are ready (database, Redis, worker pool). Returns 503 with a JSON body detailing which component is not ready. Used by Kubernetes readiness probes to prevent routing traffic to uninitialized instances.
-
-Each subsystem registers its own health check function, so you can extend readiness verification without modifying the health endpoint itself.
-
-## Resilience Patterns
-
-Strait uses several patterns to protect against cascading failures:
-
-- **Circuit Breaker**: Tracks consecutive failures per endpoint. When failures exceed a threshold, the circuit "opens" and Strait stops dispatching to that endpoint until it recovers. This prevents overwhelming a failing service.
-- **Concurrency Limiting**: You can set a `max_concurrency` cap per job. Strait enforces this at dequeue time, so no more than N runs of the same job execute simultaneously.
-- **Rate Limiting**: Per-job `rate_limit_max` and `rate_limit_window_secs` control how fast Strait dispatches to your endpoint.
-- **Retry Strategies**: Configurable per-job with exponential, linear, fixed, or custom per-attempt delays. All strategies add random jitter (+/-20%) to prevent a thundering herd (all retries hitting your endpoint at the same time).
-
-For detailed resilience patterns, see [Resilience](/concepts/resilience).
-
-## ClickHouse Analytics
-
-Strait supports an optional ClickHouse backend for analytics over run metrics and cost data. PostgreSQL remains the source of truth; ClickHouse receives copies via an async pipeline.
-
-See [ClickHouse Analytics](/concepts/clickhouse-analytics) for tables, configuration, and setup.
-
-## Related Documentation
-
-- [Introduction](/introduction) -- Product overview and key features
-- [Quick Start](/quickstart) -- Getting started guide
-- [Jobs](/concepts/jobs) -- Job definitions and configuration
-- [Runs](/concepts/runs) -- Run lifecycle and states
-- [Workflows](/concepts/workflows) -- DAG orchestration details
-- [DAG Runtime](/concepts/dag-runtime) -- Detailed DAG scheduler behavior, explainability, policy enforcement, and recovery controls
-- [DAG Operations Playbook](/guides/dag-operations-playbook) -- On-call triage, recovery, and hardening runbook for DAG incidents
-- [Managed Execution](/concepts/managed-execution) -- Docker and Kubernetes container runtime
-- [ClickHouse Analytics](/concepts/clickhouse-analytics) -- Optional analytics backend for run metrics and cost tracking
-- [Event Triggers](/concepts/event-triggers) -- Durable external event waits
-- [CDC](/concepts/cdc) -- Real-time change data capture
-- [Resilience](/concepts/resilience) -- Circuit breaker, rate limiting, and graceful degradation
-- [Security](/guides/security) -- URL validation, HMAC signing, and access control
+- [Jobs](/concepts/jobs): define work Strait can trigger.
+- [Runs](/concepts/runs): track execution and retries.
+- [Workflows](/concepts/workflows): coordinate multi-step processes.
+- [Execution Modes](/concepts/execution-modes): choose HTTP or connected workers.
+- [Deployment](/guides/deployment): run Strait in production.

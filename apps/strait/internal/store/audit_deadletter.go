@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"strait/internal/domain"
@@ -36,6 +37,9 @@ func (q *Queries) CreateAuditEventDeadletter(ctx context.Context, ev *domain.Aud
 
 	if ev.SchemaVersion == 0 {
 		ev.SchemaVersion = domain.AuditEventSchemaVersionCurrent
+	}
+	if ev.CreatedAt.IsZero() {
+		ev.CreatedAt = time.Now().UTC()
 	}
 
 	_, err := q.db.Exec(ctx, `
@@ -110,8 +114,10 @@ func (q *Queries) ListAuditEventsDeadletter(ctx context.Context, limit int) ([]d
 // project_id for admin inspection. Tenant isolation is enforced structurally:
 // the project_id is a required filter, not an optional one.
 //
-// Ordered by queued_at ASC (oldest first). Pagination uses a queued_at cursor
-// encoded as RFC3339Nano; an empty cursor starts from the oldest row.
+// Ordered by queued_at ASC (oldest first). Pagination uses a composite
+// queued_at|id cursor so rows sharing the same queued_at timestamp cannot be
+// skipped between pages. For compatibility with older clients, a bare
+// RFC3339Nano cursor is still accepted and behaves as queued_at-only.
 func (q *Queries) ListAuditEventsDeadletterByProject(ctx context.Context, projectID string, limit int, cursor string) ([]domain.AuditEvent, []string, []string, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListAuditEventsDeadletterByProject")
 	defer span.End()
@@ -136,19 +142,32 @@ func (q *Queries) ListAuditEventsDeadletterByProject(ctx context.Context, projec
 			LIMIT $2
 		`, projectID, limit)
 	} else {
-		cursorTime, parseErr := time.Parse(time.RFC3339Nano, cursor)
+		cursorTime, cursorID, parseErr := parseAuditDeadletterCursor(cursor)
 		if parseErr != nil {
 			return nil, nil, nil, fmt.Errorf("invalid cursor: %w", parseErr)
 		}
-		rows, err = q.db.Query(ctx, `
-			SELECT id, project_id, actor_id, actor_type, action, resource_type, resource_id,
-			       details, created_at, remote_ip, user_agent, request_id, trace_id, schema_version,
-			       queued_at
-			FROM audit_events_deadletter
-			WHERE project_id = $1 AND queued_at > $2
-			ORDER BY queued_at ASC, id ASC
-			LIMIT $3
-		`, projectID, cursorTime, limit)
+		if cursorID == "" {
+			rows, err = q.db.Query(ctx, `
+				SELECT id, project_id, actor_id, actor_type, action, resource_type, resource_id,
+				       details, created_at, remote_ip, user_agent, request_id, trace_id, schema_version,
+				       queued_at
+				FROM audit_events_deadletter
+				WHERE project_id = $1 AND queued_at > $2
+				ORDER BY queued_at ASC, id ASC
+				LIMIT $3
+			`, projectID, cursorTime, limit)
+		} else {
+			rows, err = q.db.Query(ctx, `
+				SELECT id, project_id, actor_id, actor_type, action, resource_type, resource_id,
+				       details, created_at, remote_ip, user_agent, request_id, trace_id, schema_version,
+				       queued_at
+				FROM audit_events_deadletter
+				WHERE project_id = $1
+				  AND (queued_at > $2 OR (queued_at = $2 AND id > $3))
+				ORDER BY queued_at ASC, id ASC
+				LIMIT $4
+			`, projectID, cursorTime, cursorID, limit)
+		}
 	}
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("list audit deadletter by project: %w", err)
@@ -171,9 +190,25 @@ func (q *Queries) ListAuditEventsDeadletterByProject(ctx context.Context, projec
 		}
 		events = append(events, ev)
 		ids = append(ids, ev.ID)
-		cursors = append(cursors, queuedAt.Format(time.RFC3339Nano))
+		cursors = append(cursors, auditDeadletterCursor(queuedAt, ev.ID))
 	}
 	return events, ids, cursors, rows.Err()
+}
+
+func auditDeadletterCursor(queuedAt time.Time, id string) string {
+	return queuedAt.UTC().Format(time.RFC3339Nano) + "|" + id
+}
+
+func parseAuditDeadletterCursor(cursor string) (time.Time, string, error) {
+	if idx := strings.LastIndex(cursor, "|"); idx > 0 {
+		ts, err := time.Parse(time.RFC3339Nano, cursor[:idx])
+		if err != nil {
+			return time.Time{}, "", err
+		}
+		return ts, cursor[idx+1:], nil
+	}
+	ts, err := time.Parse(time.RFC3339Nano, cursor)
+	return ts, "", err
 }
 
 // GetAuditEventDeadletter fetches a single deadletter event by id,
@@ -193,7 +228,7 @@ func (q *Queries) GetAuditEventDeadletter(ctx context.Context, id, projectID str
 		SELECT id, project_id, actor_id, actor_type, action, resource_type, resource_id,
 		       details, created_at, remote_ip, user_agent, request_id, trace_id, schema_version
 		FROM audit_events_deadletter
-		WHERE id = $1 AND project_id = $2
+		WHERE id = $1 AND project_id = $2 AND reclaimed_event_id IS NULL
 	`, id, projectID).Scan(
 		&ev.ID, &ev.ProjectID, &ev.ActorID, &ev.ActorType, &ev.Action,
 		&ev.ResourceType, &ev.ResourceID, &ev.Details, &ev.CreatedAt,
@@ -206,6 +241,88 @@ func (q *Queries) GetAuditEventDeadletter(ctx context.Context, id, projectID str
 		return nil, fmt.Errorf("get audit deadletter: %w", err)
 	}
 	return &ev, nil
+}
+
+// ReplayAuditEventDeadletter atomically moves one deadletter row into the
+// signed audit chain and removes the DLQ row. The deadletter row is locked with
+// FOR UPDATE before insertion so concurrent admin/reaper attempts cannot insert
+// duplicate audit-chain events for the same DLQ id.
+func (q *Queries) ReplayAuditEventDeadletter(ctx context.Context, id, projectID, newEventID string) (*domain.AuditEvent, bool, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ReplayAuditEventDeadletter")
+	defer span.End()
+
+	if id == "" || projectID == "" || newEventID == "" {
+		return nil, false, fmt.Errorf("id, project_id, and new_event_id are required")
+	}
+
+	if tx, ok := TxFromContext(ctx); ok {
+		return q.replayAuditEventDeadletterTx(ctx, tx, id, projectID, newEventID)
+	}
+
+	beginner, ok := q.db.(TxBeginner)
+	if !ok {
+		return nil, false, fmt.Errorf("replay audit deadletter: db does not support transactions")
+	}
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return nil, false, fmt.Errorf("replay audit deadletter: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	ev, replayed, err := q.replayAuditEventDeadletterTx(ctx, tx, id, projectID, newEventID)
+	if err != nil || !replayed {
+		return ev, replayed, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, false, fmt.Errorf("replay audit deadletter: commit tx: %w", err)
+	}
+	return ev, true, nil
+}
+
+func (q *Queries) replayAuditEventDeadletterTx(ctx context.Context, tx pgx.Tx, id, projectID, newEventID string) (*domain.AuditEvent, bool, error) {
+	txq := q.withDB(tx)
+	var ev domain.AuditEvent
+	err := tx.QueryRow(ctx, `
+		SELECT id, project_id, actor_id, actor_type, action, resource_type, resource_id,
+		       details, created_at, remote_ip, user_agent, request_id, trace_id, schema_version
+		FROM audit_events_deadletter
+		WHERE id = $1 AND project_id = $2 AND reclaimed_event_id IS NULL
+		FOR UPDATE
+	`, id, projectID).Scan(
+		&ev.ID, &ev.ProjectID, &ev.ActorID, &ev.ActorType, &ev.Action,
+		&ev.ResourceType, &ev.ResourceID, &ev.Details, &ev.CreatedAt,
+		&ev.RemoteIP, &ev.UserAgent, &ev.RequestID, &ev.TraceID, &ev.SchemaVersion,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("replay audit deadletter: lock row: %w", err)
+	}
+
+	ev.ID = newEventID
+	if err := txq.CreateAuditEvent(ctx, &ev); err != nil {
+		return nil, false, fmt.Errorf("replay audit deadletter: create audit event: %w", err)
+	}
+
+	if tag, err := tx.Exec(ctx, `
+		UPDATE audit_events_deadletter
+		SET reclaimed_event_id = $3
+		WHERE id = $1 AND project_id = $2 AND reclaimed_event_id IS NULL
+	`, id, projectID, newEventID); err != nil {
+		return nil, false, fmt.Errorf("replay audit deadletter: mark reclaimed: %w", err)
+	} else if tag.RowsAffected() == 0 {
+		return nil, false, fmt.Errorf("replay audit deadletter: lost deadletter row after lock")
+	}
+
+	if tag, err := tx.Exec(ctx, `DELETE FROM audit_events_deadletter WHERE id = $1 AND project_id = $2`, id, projectID); err != nil {
+		return nil, false, fmt.Errorf("replay audit deadletter: delete dlq row: %w", err)
+	} else if tag.RowsAffected() == 0 {
+		return nil, false, fmt.Errorf("replay audit deadletter: delete matched no row")
+	}
+
+	return &ev, true, nil
 }
 
 // DeleteAuditEventDeadletter removes a single row from the deadletter
@@ -229,6 +346,78 @@ func (q *Queries) DeleteAuditEventDeadletter(ctx context.Context, id, projectID 
 		return fmt.Errorf("delete audit deadletter: no row matched id=%s project_id=%s", id, projectID)
 	}
 	return nil
+}
+
+// DropAuditEventDeadletterWithAudit atomically records the operator drop in
+// the signed audit chain and removes the deadletter row. The audit insert is
+// deliberately inside the same transaction as the delete so an operator cannot
+// permanently discard DLQ evidence without a durable self-audit record.
+func (q *Queries) DropAuditEventDeadletterWithAudit(ctx context.Context, id, projectID string, auditEvent *domain.AuditEvent) (bool, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DropAuditEventDeadletterWithAudit")
+	defer span.End()
+
+	if id == "" || projectID == "" {
+		return false, fmt.Errorf("id and project_id are required")
+	}
+	if auditEvent == nil {
+		return false, fmt.Errorf("audit event is required")
+	}
+	if auditEvent.ProjectID != "" && auditEvent.ProjectID != projectID {
+		return false, fmt.Errorf("audit event project_id %q does not match deadletter project_id %q", auditEvent.ProjectID, projectID)
+	}
+	auditEvent.ProjectID = projectID
+
+	if tx, ok := TxFromContext(ctx); ok {
+		return q.dropAuditEventDeadletterWithAuditTx(ctx, tx, id, projectID, auditEvent)
+	}
+
+	beginner, ok := q.db.(TxBeginner)
+	if !ok {
+		return false, fmt.Errorf("drop audit deadletter with audit: db does not support transactions")
+	}
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("drop audit deadletter with audit: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	dropped, err := q.dropAuditEventDeadletterWithAuditTx(ctx, tx, id, projectID, auditEvent)
+	if err != nil || !dropped {
+		return dropped, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("drop audit deadletter with audit: commit tx: %w", err)
+	}
+	return true, nil
+}
+
+func (q *Queries) dropAuditEventDeadletterWithAuditTx(ctx context.Context, tx pgx.Tx, id, projectID string, auditEvent *domain.AuditEvent) (bool, error) {
+	var lockedID string
+	err := tx.QueryRow(ctx, `
+		SELECT id
+		FROM audit_events_deadletter
+		WHERE id = $1 AND project_id = $2 AND reclaimed_event_id IS NULL
+		FOR UPDATE
+	`, id, projectID).Scan(&lockedID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("drop audit deadletter with audit: lock row: %w", err)
+	}
+
+	if err := q.withDB(tx).CreateAuditEvent(ctx, auditEvent); err != nil {
+		return false, fmt.Errorf("drop audit deadletter with audit: create audit event: %w", err)
+	}
+	if tag, err := tx.Exec(ctx, `
+		DELETE FROM audit_events_deadletter
+		WHERE id = $1 AND project_id = $2 AND reclaimed_event_id IS NULL
+	`, id, projectID); err != nil {
+		return false, fmt.Errorf("drop audit deadletter with audit: delete dlq row: %w", err)
+	} else if tag.RowsAffected() == 0 {
+		return false, fmt.Errorf("drop audit deadletter with audit: delete matched no row")
+	}
+	return true, nil
 }
 
 // AuditDeadletterAttemptInfo carries the fields the reclaimer needs to make
@@ -313,12 +502,15 @@ func (q *Queries) MarkAuditDeadletterReclaimed(ctx context.Context, dlqID, newEv
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.MarkAuditDeadletterReclaimed")
 	defer span.End()
 
-	_, err := q.db.Exec(ctx,
+	tag, err := q.db.Exec(ctx,
 		`UPDATE audit_events_deadletter SET reclaimed_event_id = $2 WHERE id = $1`,
 		dlqID, newEventID,
 	)
 	if err != nil {
 		return fmt.Errorf("mark audit deadletter reclaimed: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("mark audit deadletter reclaimed: no row matched id=%s", dlqID)
 	}
 	return nil
 }
@@ -341,7 +533,8 @@ func (q *Queries) DeleteAuditDeadletterOlderThan(ctx context.Context, cutoff tim
 	rows, err := q.db.Query(ctx, `
 		WITH to_delete AS (
 			SELECT id FROM audit_events_deadletter
-			WHERE created_at < $1
+			WHERE created_at >= TIMESTAMPTZ '2000-01-01'
+			  AND created_at < $1
 			LIMIT $2
 		),
 		deleted AS (
@@ -368,4 +561,102 @@ func (q *Queries) DeleteAuditDeadletterOlderThan(ctx context.Context, cutoff tim
 		out[pid] = dropped
 	}
 	return out, rows.Err()
+}
+
+// DeleteAuditDeadletterOlderThanWithAudit atomically drops aged deadletter rows
+// and writes one audit.deadletter_aged marker per affected project. If any
+// marker cannot be signed or inserted, the transaction rolls back and the DLQ
+// evidence remains for a later retry.
+func (q *Queries) DeleteAuditDeadletterOlderThanWithAudit(ctx context.Context, cutoff time.Time, maxAgeDays int) (map[string]int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteAuditDeadletterOlderThanWithAudit")
+	defer span.End()
+
+	beginner, ok := q.db.(TxBeginner)
+	if !ok {
+		return nil, fmt.Errorf("delete audit deadletter older than with audit: db does not support transactions")
+	}
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("delete audit deadletter older than with audit: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	dropped, err := q.deleteAuditDeadletterOlderThanWithAuditTx(ctx, tx, cutoff, maxAgeDays)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("delete audit deadletter older than with audit: commit tx: %w", err)
+	}
+	return dropped, nil
+}
+
+func (q *Queries) deleteAuditDeadletterOlderThanWithAuditTx(ctx context.Context, tx pgx.Tx, cutoff time.Time, maxAgeDays int) (map[string]int64, error) {
+	const batchLimit = 1000
+	rows, err := tx.Query(ctx, `
+		SELECT id, project_id
+		FROM audit_events_deadletter
+		WHERE created_at >= TIMESTAMPTZ '2000-01-01'
+		  AND created_at < $1
+		ORDER BY created_at ASC
+		LIMIT $2
+		FOR UPDATE SKIP LOCKED
+	`, cutoff, batchLimit)
+	if err != nil {
+		return nil, fmt.Errorf("delete audit deadletter older than with audit: select rows: %w", err)
+	}
+
+	idsByProject := make(map[string][]string)
+	for rows.Next() {
+		var id, projectID string
+		if err := rows.Scan(&id, &projectID); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("delete audit deadletter older than with audit: scan row: %w", err)
+		}
+		idsByProject[projectID] = append(idsByProject[projectID], id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, fmt.Errorf("delete audit deadletter older than with audit: iterate rows: %w", err)
+	}
+	rows.Close()
+
+	dropped := make(map[string]int64, len(idsByProject))
+	txQ := q.withDB(tx)
+	for projectID, ids := range idsByProject {
+		if len(ids) == 0 {
+			continue
+		}
+		details, err := json.Marshal(map[string]any{
+			"dropped_count":  len(ids),
+			"reason":         "max_age_exceeded",
+			"max_age_cutoff": cutoff.Format(time.RFC3339),
+			"max_age_days":   maxAgeDays,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("delete audit deadletter older than with audit: marshal marker: %w", err)
+		}
+		ev := &domain.AuditEvent{
+			ID:           uuid.Must(uuid.NewV7()).String(),
+			ProjectID:    projectID,
+			ActorID:      "system",
+			ActorType:    "system",
+			Action:       domain.AuditActionDeadletterAged,
+			ResourceType: "audit_events_deadletter",
+			ResourceID:   "retention",
+			Details:      json.RawMessage(details),
+		}
+		if err := txQ.CreateAuditEvent(ctx, ev); err != nil {
+			return nil, fmt.Errorf("delete audit deadletter older than with audit: create audit event: %w", err)
+		}
+		tag, err := tx.Exec(ctx, `
+			DELETE FROM audit_events_deadletter
+			WHERE project_id = $1 AND id = ANY($2)
+		`, projectID, ids)
+		if err != nil {
+			return nil, fmt.Errorf("delete audit deadletter older than with audit: delete rows: %w", err)
+		}
+		dropped[projectID] = tag.RowsAffected()
+	}
+	return dropped, nil
 }

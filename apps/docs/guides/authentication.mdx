@@ -1,46 +1,46 @@
 ---
 title: "Authentication & Authorization"
-description: "How to authenticate requests to Strait: internal secrets, API keys, OIDC tokens, and role-based access control."
+description: "Choose the right auth method for apps, users, and trusted backend services."
 icon: "key"
 ---
 
-Strait uses three authentication methods: a shared secret for admin access, API keys for applications, and OIDC tokens for user-facing requests.
+Strait supports three authentication methods: a server secret for trusted backend access, API keys for applications, and OIDC tokens for user-facing requests.
 
 ## Quick Decision
 
 | Method | Use when | Example |
 |---|---|---|
-| Internal Secret | Admin and service-to-service calls | `Authorization: Bearer YOUR_SECRET` |
+| Server Secret | Trusted backend calls | `Authorization: Bearer YOUR_SECRET` |
 | API Key | Applications and integrations | `Authorization: Bearer strait_sk_...` |
 | OIDC | User requests from your identity provider | `Authorization: Bearer eyJ...` |
 
 ---
 
-## Internal Secret
+## Server Secret
 
-A shared secret for administrative tasks and internal service-to-service communication. Set via the `INTERNAL_SECRET` environment variable.
+Use the server secret for trusted backend calls. Set it with the `INTERNAL_SECRET` environment variable.
 
 ```bash
 curl -H "Authorization: Bearer $INTERNAL_SECRET" \
-  https://strait.example.com/v1/jobs
+  https://your-strait-instance/v1/jobs
 ```
 
-Internal secret auth grants full access to all endpoints. No scope or role checks are applied.
+The server secret grants full access to all endpoints. Do not use it from browsers or mobile apps.
 
 Your application uses this path to pass user identity to Strait via headers:
 
 ```bash
 curl -H "Authorization: Bearer $INTERNAL_SECRET" \
-     -H "X-Project-Id: proj_123" \
-     -H "X-Actor-Id: user_abc" \
+     -H "X-Project-Id: proj_abc123" \
+     -H "X-Actor-Id: user_abc123" \
      -H "X-Actor-Email: alice@example.com" \
-     https://strait.example.com/v1/jobs
+     https://your-strait-instance/v1/jobs
 ```
 
 When these headers are present, Strait records the actor for audit logging and applies RBAC checks for that user.
 
 <Warning>
-  The internal secret grants unrestricted access. In production, restrict it to backend services and never expose it to client-side code.
+  The server secret grants unrestricted access. In production, keep it in backend services and secret managers only.
 </Warning>
 
 ---
@@ -52,20 +52,21 @@ Per-project keys with scoped permissions. Use API keys for external integrations
 ### Creating a Key
 
 ```bash
-curl -X POST https://strait.example.com/v1/api-keys \
+curl -X POST https://your-strait-instance/v1/api-keys \
   -H "Authorization: Bearer $INTERNAL_SECRET" \
   -d '{
-    "project_id": "proj_123",
+    "project_id": "proj_abc123",
     "name": "ci-deploy-key",
-    "scopes": ["jobs:read", "jobs:write", "jobs:trigger"]
+    "scopes": ["jobs:read", "jobs:write", "jobs:trigger"],
+    "expires_in_days": 90
   }'
 ```
 
-The response includes the raw key once. Store it in your secret manager immediately.
+API keys must expire. If the project has a `max_key_lifetime_days` policy, omitted expirations are auto-capped to that policy; otherwise provide a positive `expires_in_days` value. The response includes the raw key once. Store it in your secret manager immediately.
 
 ```json
 {
-  "id": "key_abc",
+  "id": "key_abc123",
   "key": "strait_abc123...",
   "scopes": ["jobs:read", "jobs:write", "jobs:trigger"]
 }
@@ -75,7 +76,7 @@ The response includes the raw key once. Store it in your secret manager immediat
 
 ```bash
 curl -H "Authorization: Bearer strait_abc123..." \
-  https://strait.example.com/v1/jobs
+  https://your-strait-instance/v1/jobs
 ```
 
 ### Scope Categories
@@ -86,6 +87,11 @@ curl -H "Authorization: Bearer strait_abc123..." \
 | Runs | `runs:read`, `runs:write` | View and manage runs |
 | Workflows | `workflows:read`, `workflows:write`, `workflows:trigger` | View, manage, and trigger workflows |
 | Secrets | `secrets:read`, `secrets:write` | View and manage job secrets |
+| Webhooks | `webhooks:read`, `webhooks:write` | View and manage webhook subscriptions |
+| Projects | `projects:read`, `projects:write`, `projects:manage` | View, update, and administer projects |
+| Workers | `workers:connect` | Connect a worker process over gRPC |
+| Dead-letter runs | `dlq:read`, `dlq:replay`, `dlq:purge` | Inspect, replay, and purge dead-lettered runs |
+| Outbox | `outbox:read`, `outbox:retry`, `outbox:purge` | Inspect, retry, and purge outbox events |
 | Admin | `api-keys:manage`, `rbac:manage`, `stats:read` | Manage keys, roles, and view stats |
 | Wildcard | `*` | Full access |
 
@@ -94,7 +100,7 @@ Keys with empty scopes (`[]`) retain full access for backwards compatibility wit
 ### Revoking a Key
 
 ```bash
-curl -X DELETE https://strait.example.com/v1/api-keys/key_abc \
+curl -X DELETE https://your-strait-instance/v1/api-keys/key_abc123 \
   -H "Authorization: Bearer $INTERNAL_SECRET"
 ```
 
@@ -111,7 +117,7 @@ Rotate keys with a grace period for zero-downtime credential rollovers.
 `POST /v1/api-keys/{keyID}/rotate`
 
 ```bash
-curl -X POST https://strait.example.com/v1/api-keys/key_abc/rotate \
+curl -X POST https://your-strait-instance/v1/api-keys/key_abc123/rotate \
   -H "Authorization: Bearer $INTERNAL_SECRET" \
   -d '{"name": "ci-key-2026-05", "grace_period_seconds": 3600}'
 ```
@@ -142,35 +148,35 @@ When your users authenticate through an identity provider (Clerk, Auth0, Okta), 
 
 ### When to Use
 
-Use OIDC when user requests should carry their own IdP tokens. Service-to-service traffic continues using the internal secret.
+Use OIDC when user requests should carry their own IdP tokens. Backend services can continue using the server secret.
 
 ### Token Routing
 
 Strait resolves bearer tokens in this order:
 
-1. Token starts with `strait_` -- API key auth path.
-2. Other bearer token -- OIDC verifier (if configured).
-3. Internal secret header -- internal secret auth path.
+1. Token starts with `strait_`: API key auth path.
+2. Other bearer token: OIDC verifier (if configured).
+3. Server secret header: trusted backend auth path.
 
 ### Configuration
 
-Enable OIDC by configuring your server with:
+Turn on OIDC by configuring your server with:
 
-- **Issuer** -- your IdP's issuer URL (e.g., `https://clerk.example.com`)
-- **Audience** -- expected audience claim
-- **Public key** -- verification key settings
+- **Issuer**: your IdP's issuer URL (e.g., `https://clerk.example.com`)
+- **Audience**: expected audience claim
+- **Public key**: verification key settings
 
 ### Context Mapping
 
 On successful verification, Strait maps token claims into:
 
-- **Actor identity** -- the authenticated user (used for audit and RBAC)
-- **Project context** -- when provided by claim or header mapping
+- **Actor identity**: the authenticated user (used for audit and RBAC)
+- **Project context**: when provided by claim or header mapping
 
 Authorization still flows through RBAC policies and permission checks.
 
 <Tip>
-  Run OIDC and internal-secret user identity in parallel during migration, then phase out internal headers for user traffic once your app is fully token-based.
+  Run OIDC and server-secret user identity in parallel during migration. Once user traffic carries OIDC tokens, stop sending actor headers for those requests.
 </Tip>
 
 ---

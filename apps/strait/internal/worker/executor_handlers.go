@@ -14,8 +14,10 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/httputil"
 	"strait/internal/queue"
 	"strait/internal/store"
+	"strait/internal/telemetry"
 
 	"github.com/getsentry/sentry-go"
 	"go.opentelemetry.io/otel"
@@ -33,9 +35,12 @@ func recordRetryAttempt(ctx context.Context, attempt int) {
 	qm.RetryAttempts.Record(ctx, float64(attempt))
 }
 
-func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *domain.Job, result json.RawMessage, execTrace *domain.ExecutionTrace) {
+func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *domain.Job, result json.RawMessage, execTrace *domain.ExecutionTrace) bool {
 	ctx, span := otel.Tracer("strait").Start(ctx, "executor.HandleSuccess")
 	defer span.End()
+	addWorkerRunBreadcrumb(ctx, "worker.dispatch", "run completed", run, job, map[string]any{
+		"to_status": string(domain.StatusCompleted),
+	})
 
 	now := time.Now()
 	fields := map[string]any{
@@ -58,11 +63,11 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 			"job_id", run.JobID,
 			"error", err,
 		)
-		return
+		return false
 	}
 	if e.txPool == nil && job.EndpointURL != "" {
-		if err := e.store.RecordEndpointCircuitSuccess(ctx, job.EndpointURL); err != nil {
-			e.logger.Warn("failed to record circuit breaker success", "endpoint", job.EndpointURL, "error", err)
+		if err := e.store.RecordEndpointCircuitSuccess(ctx, endpointStateKey(job.ProjectID, job.EndpointURL)); err != nil {
+			e.logger.Warn("failed to record circuit breaker success", "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", err)
 		}
 	}
 
@@ -73,12 +78,12 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 
 	// Record health score for successful dispatch.
 	if _, hsErr := e.healthScorer.RecordResult(ctx, DispatchResult{
-		EndpointURL:  job.EndpointURL,
+		EndpointURL:  endpointStateKey(job.ProjectID, job.EndpointURL),
 		Success:      true,
 		LatencyMs:    float64(execDur.Milliseconds()),
 		JobTimeoutMs: float64(job.TimeoutSecs * 1000),
 	}); hsErr != nil {
-		e.logger.Warn("failed to record health score success", "endpoint", job.EndpointURL, "error", hsErr)
+		e.logger.Warn("failed to record health score success", "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", hsErr)
 	}
 
 	e.logger.Info(
@@ -117,6 +122,7 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 			}
 		}
 	}
+	return true
 }
 
 func classifyError(err error) string {
@@ -200,20 +206,25 @@ func isBudgetError(err error) bool {
 		strings.Contains(msg, "cost limit")
 }
 
-// errorHash returns a 16-char hex digest of the first 200 characters of an
-// error message. Used for poison pill detection to identify identical errors
-// across retry attempts without storing the full error string in metadata.
+// errorHash returns a 16-char hex digest of the first 200 runes of an error
+// message. Used for poison pill detection to identify identical errors across
+// retry attempts without storing the full error string in metadata. Truncates
+// by rune so multi-byte UTF-8 sequences are never split mid-character.
 func errorHash(errMsg string) string {
-	prefix := errMsg
-	if len(prefix) > 200 {
-		// Truncate by runes so multi-byte UTF-8 sequences are not split.
-		runes := []rune(prefix)
-		if len(runes) > 200 {
-			prefix = string(runes[:200])
-		}
+	runes := []rune(errMsg)
+	if len(runes) > 200 {
+		runes = runes[:200]
 	}
-	h := sha256.Sum256([]byte(prefix))
+	h := sha256.Sum256([]byte(string(runes)))
 	return hex.EncodeToString(h[:8])
+}
+
+func errorHashForError(err error) string {
+	var endpointErr *domain.EndpointError
+	if errors.As(err, &endpointErr) {
+		return errorHash(fmt.Sprintf("endpoint returned %d: %s", endpointErr.StatusCode, endpointErr.Body))
+	}
+	return errorHash(err.Error())
 }
 
 // boostPriority adds boost to current priority, capping at 10 and
@@ -244,24 +255,29 @@ func shouldUseFallbackForClass(errClass string) bool {
 	}
 }
 
-func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *domain.Job, policy executionPolicy, err error, execTrace *domain.ExecutionTrace) {
+func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *domain.Job, policy executionPolicy, err error, execTrace *domain.ExecutionTrace) bool {
 	ctx, span := otel.Tracer("strait").Start(ctx, "executor.HandleFailure")
 	defer span.End()
 
 	errMsg := err.Error()
 	errClass := classifyError(err)
-	if recordErr := e.store.RecordEndpointCircuitFailure(ctx, job.EndpointURL, time.Now().UTC(), e.circuitThreshold, e.circuitOpenFor); recordErr != nil {
-		e.logger.Warn("failed to record circuit breaker failure", "endpoint", job.EndpointURL, "error", recordErr)
+	stateKey := endpointStateKey(job.ProjectID, job.EndpointURL)
+	addWorkerRunBreadcrumb(ctx, "worker.dispatch", "run failed", run, job, map[string]any{
+		"error_class":  errClass,
+		"max_attempts": policy.maxAttempts,
+	})
+	if recordErr := e.store.RecordEndpointCircuitFailure(ctx, stateKey, time.Now().UTC(), e.circuitThreshold, e.circuitOpenFor); recordErr != nil {
+		e.logger.Warn("failed to record circuit breaker failure", "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", recordErr)
 	}
 
 	// Record health score for failed dispatch.
 	if _, hsErr := e.healthScorer.RecordResult(ctx, DispatchResult{
-		EndpointURL:  job.EndpointURL,
+		EndpointURL:  stateKey,
 		Success:      false,
 		LatencyMs:    0,
 		JobTimeoutMs: float64(job.TimeoutSecs * 1000),
 	}); hsErr != nil {
-		e.logger.Warn("failed to record health score failure", "endpoint", job.EndpointURL, "error", hsErr)
+		e.logger.Warn("failed to record health score failure", "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", hsErr)
 	}
 
 	e.logger.Warn(
@@ -284,7 +300,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 	// wasting retries and risking circuit breaker trips.
 	var metadataModified bool
 	if shouldRetry && job.PoisonPillThreshold != nil && *job.PoisonPillThreshold > 0 {
-		hash := errorHash(errMsg)
+		hash := errorHashForError(err)
 		prevHash := run.Metadata["_error_hash"]
 		count := 1
 		if prevHash == hash {
@@ -312,19 +328,30 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 
 	if shouldRetry {
 		retryAt := NextRetryAtWithPolicy(run.Attempt, policy.retryBackoff, policy.retryInitialSecs, policy.retryMaxSecs)
-		fields := map[string]any{
+		addWorkerRunBreadcrumb(ctx, "worker.retry", "run retry scheduled", run, job, map[string]any{
 			"attempt":       run.Attempt + 1,
-			"next_retry_at": retryAt,
-			"error":         errMsg,
+			"next_retry_at": retryAt.Format(time.RFC3339),
 			"error_class":   errClass,
-			"started_at":    nil,
-			"finished_at":   nil,
+		})
+		fields := map[string]any{
+			"attempt":     run.Attempt + 1,
+			"error":       errMsg,
+			"error_class": errClass,
+			"started_at":  nil,
+			"finished_at": nil,
 		}
 		if metadataModified {
 			fields["metadata"] = run.Metadata
 		}
 		if job.RetryPriorityBoost > 0 {
 			fields["priority"] = boostPriority(run.Priority, job.RetryPriorityBoost)
+		}
+		// Side-table schedule write keeps the indexed job_runs.next_retry_at
+		// column untouched so the requeue UPDATE stays HOT-eligible.
+		if scheduleErr := e.store.ScheduleRetry(ctx, run.ID, retryAt, run.Attempt+1); scheduleErr != nil {
+			e.logger.Error("failed to schedule retry",
+				"run_id", run.ID, "job_id", run.JobID, "error", scheduleErr)
+			return false
 		}
 		err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, fields)
 		if err != nil {
@@ -334,23 +361,23 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 				"job_id", run.JobID,
 				"error", err,
 			)
-		} else {
-			e.logger.Info(
-				"run re-enqueued for retry",
-				"run_id", run.ID,
-				"job_id", run.JobID,
-				"attempt", run.Attempt+1,
-				"next_retry_at", retryAt,
-			)
-			recordRetryAttempt(ctx, run.Attempt+1)
-			e.emit(ctx, RunLifecycleEvent{
-				Type: EventRetried, Run: run, Job: job,
-				FromStatus: domain.StatusExecuting, ToStatus: domain.StatusQueued,
-				ExecTrace: execTrace, Attempt: run.Attempt + 1,
-				QueueWait: queueWait(run),
-			})
+			return false
 		}
-		return
+		e.logger.Info(
+			"run re-enqueued for retry",
+			"run_id", run.ID,
+			"job_id", run.JobID,
+			"attempt", run.Attempt+1,
+			"next_retry_at", retryAt,
+		)
+		recordRetryAttempt(ctx, run.Attempt+1)
+		e.emit(ctx, RunLifecycleEvent{
+			Type: EventRetried, Run: run, Job: job,
+			FromStatus: domain.StatusExecuting, ToStatus: domain.StatusQueued,
+			ExecTrace: execTrace, Attempt: run.Attempt + 1,
+			QueueWait: queueWait(run),
+		})
+		return true
 	}
 
 	now := time.Now()
@@ -370,11 +397,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 	run.Status = targetStatus
 
 	sentry.WithScope(func(scope *sentry.Scope) {
-		scope.SetTag("run_id", run.ID)
-		scope.SetTag("job_id", run.JobID)
-		scope.SetTag("project_id", run.ProjectID)
-		scope.SetTag("error_class", errClass)
-		scope.SetTag("attempt", fmt.Sprintf("%d", run.Attempt))
+		e.applyWorkerSentryScope(scope, run, map[string]any{"error_class": errClass})
 		scope.SetLevel(sentry.LevelWarning)
 		scope.SetContext("failure", map[string]any{
 			"error_message": errMsg,
@@ -394,7 +417,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 			"job_id", run.JobID,
 			"error", updateErr,
 		)
-		return
+		return false
 	}
 	e.emit(ctx, RunLifecycleEvent{
 		Type: EventDeadLettered, Run: run, Job: job,
@@ -408,25 +431,31 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 	if e.onCompleteTrigger != nil {
 		e.onCompleteTrigger.MaybeTriggerOnFailure(ctx, run, job, errMsg)
 	}
+	return true
 }
 
 func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *domain.Job, policy executionPolicy, execTrace *domain.ExecutionTrace) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "executor.HandleTimeout")
 	defer span.End()
+	addWorkerRunBreadcrumb(ctx, "worker.dispatch", "run timed out", run, job, map[string]any{
+		"timeout_secs": policy.timeoutSecs,
+		"max_attempts": policy.maxAttempts,
+	})
+	stateKey := endpointStateKey(job.ProjectID, job.EndpointURL)
 
-	if err := e.store.RecordEndpointCircuitFailure(ctx, job.EndpointURL, time.Now().UTC(), e.circuitThreshold, e.circuitOpenFor); err != nil {
-		e.logger.Warn("failed to record circuit breaker timeout", "endpoint", job.EndpointURL, "error", err)
+	if err := e.store.RecordEndpointCircuitFailure(ctx, stateKey, time.Now().UTC(), e.circuitThreshold, e.circuitOpenFor); err != nil {
+		e.logger.Warn("failed to record circuit breaker timeout", "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", err)
 	}
 
 	// Record health score for timeout (counts as failure with timeout flag).
 	if _, hsErr := e.healthScorer.RecordResult(ctx, DispatchResult{
-		EndpointURL:  job.EndpointURL,
+		EndpointURL:  stateKey,
 		Success:      false,
 		TimedOut:     true,
 		LatencyMs:    float64(job.TimeoutSecs * 1000),
 		JobTimeoutMs: float64(job.TimeoutSecs * 1000),
 	}); hsErr != nil {
-		e.logger.Warn("failed to record health score timeout", "endpoint", job.EndpointURL, "error", hsErr)
+		e.logger.Warn("failed to record health score timeout", "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", hsErr)
 	}
 
 	e.logger.Warn(
@@ -440,15 +469,19 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 	if run.Attempt < policy.maxAttempts {
 		retryAt := NextRetryAtWithPolicy(run.Attempt, policy.retryBackoff, policy.retryInitialSecs, policy.retryMaxSecs)
 		fields := map[string]any{
-			"attempt":       run.Attempt + 1,
-			"next_retry_at": retryAt,
-			"error":         "execution timed out",
-			"error_class":   "transient",
-			"started_at":    nil,
-			"finished_at":   nil,
+			"attempt":     run.Attempt + 1,
+			"error":       "execution timed out",
+			"error_class": "transient",
+			"started_at":  nil,
+			"finished_at": nil,
 		}
 		if job.RetryPriorityBoost > 0 {
 			fields["priority"] = boostPriority(run.Priority, job.RetryPriorityBoost)
+		}
+		if scheduleErr := e.store.ScheduleRetry(ctx, run.ID, retryAt, run.Attempt+1); scheduleErr != nil {
+			e.logger.Error("failed to schedule timeout retry",
+				"run_id", run.ID, "job_id", run.JobID, "error", scheduleErr)
+			return
 		}
 		err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, fields)
 		if err != nil {
@@ -483,10 +516,7 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 	run.Status = domain.StatusTimedOut
 
 	sentry.WithScope(func(scope *sentry.Scope) {
-		scope.SetTag("run_id", run.ID)
-		scope.SetTag("job_id", run.JobID)
-		scope.SetTag("project_id", run.ProjectID)
-		scope.SetTag("attempt", fmt.Sprintf("%d", run.Attempt))
+		e.applyWorkerSentryScope(scope, run, nil)
 		scope.SetLevel(sentry.LevelWarning)
 		scope.SetContext("timeout", map[string]any{
 			"timeout_secs": policy.timeoutSecs,
@@ -526,45 +556,56 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 // The run must be in StatusExecuting when this is called.
 func (e *Executor) completeRunWithWebhook(ctx context.Context, run *domain.JobRun, job *domain.Job, to domain.RunStatus, fields map[string]any) error {
 	from := domain.StatusExecuting
-	if e.txPool != nil && job.WebhookURL != "" {
+	webhookRun := runForTerminalWebhook(run, to, fields)
+	if e.txPool != nil {
 		return store.WithTx(ctx, e.txPool, func(q *store.Queries) error {
 			if err := q.UpdateRunStatus(ctx, run.ID, from, to, fields); err != nil {
 				return err
 			}
 			if to == domain.StatusCompleted && job.EndpointURL != "" {
-				if err := q.RecordEndpointCircuitSuccess(ctx, job.EndpointURL); err != nil {
+				if err := q.RecordEndpointCircuitSuccess(ctx, endpointStateKey(job.ProjectID, job.EndpointURL)); err != nil {
 					return err
 				}
 			}
-			_, err := q.EnqueueRunWebhook(ctx, job, run, e.webhookMaxRetry)
+			if job.WebhookURL == "" {
+				return nil
+			}
+			_, err := q.EnqueueRunWebhook(ctx, job, webhookRun, e.webhookMaxRetry)
 			return err
 		})
 	}
 	if e.txPool == nil && job.WebhookURL != "" {
 		e.logger.Warn("txPool not configured, webhook delivery skipped for completed run",
-			"run_id", run.ID, "job_id", job.ID, "webhook_url", job.WebhookURL)
+			"run_id", run.ID, "job_id", job.ID, "webhook_url", httputil.RedactURLForLog(job.WebhookURL))
 	}
 	return e.store.UpdateRunStatus(ctx, run.ID, from, to, fields)
+}
+
+func runForTerminalWebhook(run *domain.JobRun, status domain.RunStatus, fields map[string]any) *domain.JobRun {
+	webhookRun := *run
+	webhookRun.Status = status
+	if result, ok := fields["result"].(json.RawMessage); ok {
+		webhookRun.Result = result
+	}
+	if errMsg, ok := fields["error"].(string); ok {
+		webhookRun.Error = errMsg
+	}
+	if finishedAt, ok := fields["finished_at"].(time.Time); ok {
+		webhookRun.FinishedAt = &finishedAt
+	}
+	return &webhookRun
 }
 
 func (e *Executor) handleSystemFailure(ctx context.Context, run *domain.JobRun, reason string) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "executor.HandleSystemFailure")
 	defer span.End()
+	addWorkerRunBreadcrumb(ctx, "worker.dispatch", "run system failure", run, nil, map[string]any{
+		"error_class": "server",
+	})
 
 	sentry.WithScope(func(scope *sentry.Scope) {
-		scope.SetTag("run_id", run.ID)
-		scope.SetTag("job_id", run.JobID)
-		scope.SetTag("project_id", run.ProjectID)
-		scope.SetTag("error_class", "server")
+		e.applyWorkerSentryScope(scope, run, map[string]any{"error_class": "server"})
 		scope.SetLevel(sentry.LevelError)
-		scope.SetContext("run", map[string]any{
-			"run_id":         run.ID,
-			"job_id":         run.JobID,
-			"project_id":     run.ProjectID,
-			"attempt":        run.Attempt,
-			"from_status":    string(run.Status),
-			"execution_mode": string(run.ExecutionMode),
-		})
 		scope.SetFingerprint([]string{"system_failure", reason})
 		sentry.CaptureMessage(fmt.Sprintf("system failure: %s", reason))
 	})
@@ -617,6 +658,107 @@ func durationMillisecondsAtLeastOne(d time.Duration) int64 {
 		return 1
 	}
 	return ms
+}
+
+func addWorkerRunBreadcrumb(ctx context.Context, category, message string, run *domain.JobRun, job *domain.Job, data map[string]any) {
+	if run == nil {
+		return
+	}
+	if data == nil {
+		data = map[string]any{}
+	}
+	data["run_id"] = run.ID
+	data["job_id"] = run.JobID
+	data["project_id"] = run.ProjectID
+	data["attempt"] = run.Attempt
+	data["status"] = string(run.Status)
+	data["execution_mode"] = string(run.ExecutionMode)
+	if job != nil {
+		data["job_version"] = job.Version
+		data["environment_id"] = job.EnvironmentID
+	}
+	telemetry.AddSentryBreadcrumb(ctx, category, message, data)
+}
+
+func (e *Executor) applyWorkerSentryScope(scope *sentry.Scope, run *domain.JobRun, data map[string]any) {
+	telemetry.ApplySentryRuntimeScope(scope, telemetry.SentryRuntime{
+		Edition:   string(domain.BuildEdition()),
+		Subsystem: telemetry.SubsystemWorker,
+		Mode:      e.mode,
+		Region:    e.defaultRegion,
+		Version:   e.version,
+	})
+	if run != nil {
+		telemetry.SetSentryTag(scope, telemetry.TagRunID, run.ID)
+		telemetry.SetSentryTag(scope, telemetry.TagJobID, run.JobID)
+		telemetry.SetSentryTag(scope, telemetry.TagProjectID, run.ProjectID)
+		telemetry.SetSentryTag(scope, telemetry.TagAttempt, fmt.Sprintf("%d", run.Attempt))
+		if run.CreatedBy != "" {
+			actorType := workerActorType(run)
+			telemetry.SetSentryTag(scope, telemetry.TagActorID, run.CreatedBy)
+			telemetry.SetSentryTag(scope, telemetry.TagActorType, actorType)
+			scope.SetUser(sentry.User{
+				ID: run.CreatedBy,
+				Data: map[string]string{
+					"actor_type": actorType,
+					"project_id": run.ProjectID,
+				},
+			})
+		}
+		requestContext := sentry.Context{
+			"created_by":   run.CreatedBy,
+			"triggered_by": run.TriggeredBy,
+		}
+		if requestID := run.Metadata[domain.RunMetadataSentryRequestID]; requestID != "" {
+			telemetry.SetSentryTag(scope, telemetry.TagRequestID, requestID)
+			requestContext["request_id"] = requestID
+		}
+		route := run.Metadata[domain.RunMetadataSentryRoute]
+		if route == "" {
+			route = "worker.dispatch"
+		}
+		telemetry.SetSentryTag(scope, telemetry.TagRoute, route)
+		requestContext["route"] = route
+		if actorType := run.Metadata[domain.RunMetadataSentryActorType]; actorType != "" {
+			requestContext["actor_type"] = actorType
+		}
+		scope.SetContext("dispatch.request", requestContext)
+		scope.SetContext("run", sentry.Context{
+			"run_id":         run.ID,
+			"job_id":         run.JobID,
+			"project_id":     run.ProjectID,
+			"attempt":        run.Attempt,
+			"priority":       run.Priority,
+			"execution_mode": string(run.ExecutionMode),
+			"status":         string(run.Status),
+		})
+	}
+	for key, val := range data {
+		if tag, ok := telemetry.SentryTagFromString(key); ok {
+			telemetry.SetSentryTag(scope, tag, fmt.Sprintf("%v", val))
+		}
+	}
+}
+
+func workerActorType(run *domain.JobRun) string {
+	if run == nil {
+		return ""
+	}
+	if actorType := run.Metadata[domain.RunMetadataSentryActorType]; actorType != "" {
+		return actorType
+	}
+	switch {
+	case strings.HasPrefix(run.CreatedBy, "apikey:"):
+		return "api_key"
+	case strings.HasPrefix(run.CreatedBy, "run:"):
+		return "run_token"
+	case strings.HasPrefix(run.CreatedBy, "sse:"):
+		return "sse_token"
+	case run.CreatedBy != "":
+		return "user"
+	default:
+		return ""
+	}
 }
 
 // queueWait returns the duration a run spent queued (created_at to started_at).

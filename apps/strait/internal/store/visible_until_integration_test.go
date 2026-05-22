@@ -124,7 +124,7 @@ func TestMaskRunsByOrgOlderThan_HOTUpdateEligible(t *testing.T) {
 		t.Fatalf("job: %v", err)
 	}
 	// Enqueue a batch and mark them all as old terminal.
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		r := baseRun(job, newID())
 		r.Status = domain.StatusCompleted
 		if err := q.CreateRun(ctx, r); err != nil {

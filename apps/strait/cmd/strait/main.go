@@ -23,7 +23,6 @@ import (
 	"strait/internal/webhook"
 	"strait/internal/workflow"
 
-	"github.com/getsentry/sentry-go"
 	"github.com/lmittmann/tint"
 	"github.com/redis/go-redis/v9"
 	concpool "github.com/sourcegraph/conc/pool"
@@ -67,71 +66,43 @@ func runServe(ctx context.Context, modeOverride string) error {
 	switch cfg.Mode {
 	case "api", "worker", "all":
 		// Standard modes — fall through to normal service startup.
-	case "dispatcher":
-		return runDispatcher(ctx, cfg)
 	default:
-		return fmt.Errorf("invalid mode %q: must be api, worker, all, or dispatcher", cfg.Mode)
+		return fmt.Errorf("invalid mode %q: must be api, worker, or all", cfg.Mode)
 	}
 
 	setupLogging(cfg.LogLevel, cfg.LogFormat)
 
 	if cfg.SentryDSN != "" {
-		if err := sentry.Init(sentry.ClientOptions{
-			Dsn:              cfg.SentryDSN,
-			Environment:      cfg.SentryEnvironment,
-			Release:          version,
-			AttachStacktrace: true,
-			SampleRate:       1.0,
-			TracesSampleRate: 0.1,
-			IgnoreErrors: []string{
-				"context canceled",
-				"context deadline exceeded",
-				"connection refused",
-				"connection reset by peer",
-				"broken pipe",
-				"use of closed network connection",
-			},
-			BeforeSend: func(event *sentry.Event, _ *sentry.EventHint) *sentry.Event {
-				if event.Request != nil {
-					event.Request.Headers = nil
-					event.Request.Cookies = ""
-					event.Request.Data = ""
-					if event.Request.QueryString != "" {
-						event.Request.QueryString = telemetry.SanitizeQueryString(event.Request.QueryString)
-					}
-				}
-				for i := range event.Exception {
-					event.Exception[i].Value = telemetry.ScrubSecrets(event.Exception[i].Value)
-				}
-				event.Message = telemetry.ScrubSecrets(event.Message)
-				for i := range event.Breadcrumbs {
-					if event.Breadcrumbs[i].Data != nil {
-						for _, key := range []string{
-							"request_body", "response_body", "headers",
-							"authorization", "token", "secret",
-						} {
-							delete(event.Breadcrumbs[i].Data, key)
-						}
-					}
-				}
-				for k, v := range event.Contexts["extra"] {
-					if s, ok := v.(string); ok {
-						event.Contexts["extra"][k] = telemetry.SanitizeValue(k, s)
-					}
-				}
-				return event
-			},
-		}); err != nil {
-			return fmt.Errorf("init sentry: %w", err)
+		release := cfg.SentryRelease
+		if release == "" {
+			release = telemetry.BuildSentryRelease(version, commit)
 		}
-		defer sentry.Flush(2 * time.Second)
+		shutdownSentry, err := telemetry.InitSentry(telemetry.SentryConfig{
+			DSN:                     cfg.SentryDSN,
+			Environment:             cfg.SentryEnvironment,
+			Release:                 release,
+			TracesSampleRate:        cfg.SentryTracesSampleRate,
+			Debug:                   cfg.SentryDebug,
+			MaxBreadcrumbs:          cfg.SentryMaxBreadcrumbs,
+			MaxSpans:                cfg.SentryMaxSpans,
+			MaxErrorDepth:           cfg.SentryMaxErrorDepth,
+			StrictTraceContinuation: cfg.SentryStrictTraceContinuation,
+		})
+		if err != nil {
+			return err
+		}
+		defer shutdownSentry()
 
 		// Re-wrap the slog handler to pipe Error-level logs to Sentry.
 		currentHandler := slog.Default().Handler()
 		sentryLogger := slog.New(telemetry.NewSentryHandler(currentHandler))
 		slog.SetDefault(sentryLogger)
 
-		slog.Info("sentry initialized", "environment", cfg.SentryEnvironment)
+		slog.Info("sentry initialized",
+			"environment", cfg.SentryEnvironment,
+			"release", release,
+			"traces_sample_rate", cfg.SentryTracesSampleRate,
+		)
 	}
 
 	slog.Info("starting strait",
@@ -300,7 +271,11 @@ func runServe(ctx context.Context, modeOverride string) error {
 	// on it, and every subsequent store call inside the request runs on
 	// the same tx.
 	queries := store.NewWithContextRouting(dbPool)
+	if chClient != nil {
+		queries.SetClickHouseDB(chClient.DB())
+	}
 	queries.SetSecretEncryptionKey(cfg.SecretEncryptionKey)
+	queries.SetOldSecretEncryptionKeys(cfg.EncryptionKeyOld)
 	if cfg.RunRetentionShort > 0 {
 		queries.SetMaxSLOWindowHours(int(cfg.RunRetentionShort.Hours()))
 	}
@@ -322,6 +297,9 @@ func runServe(ctx context.Context, modeOverride string) error {
 	if err != nil {
 		return err
 	}
+	if err := validateBillingRedisDependency(cfg, rdb); err != nil {
+		return err
+	}
 	if rdb != nil {
 		defer rdb.Close()
 	}
@@ -340,10 +318,21 @@ func runServe(ctx context.Context, modeOverride string) error {
 		webhook.WithMaxPayloadBytes(cfg.WebhookMaxPayloadBytes),
 		webhook.WithConcurrency(cfg.WebhookConcurrency),
 		webhook.WithChExporter(chExporter),
+		webhook.WithAllowPrivateEndpoints(cfg.AllowPrivateEndpoints),
 		webhook.WithHTTPTransport(cfg.WebhookTimeout, cfg.WebhookIdleConnTimeout, cfg.WebhookMaxIdleConns, cfg.WebhookMaxIdleConnsPerHost),
 		webhook.WithBatchByURL(cfg.WebhookBatchEnabled),
 		webhook.WithMaxBatchSize(cfg.WebhookMaxBatchSize),
 	)
+	// Webhook signing secrets are stored encrypted at rest when an
+	// encryption key is configured, so the delivery worker must decrypt
+	// before computing the outbound HMAC. Without this the signature is
+	// computed over the AES-GCM ciphertext and cannot be verified by
+	// subscribers.
+	if webhookEnc, encErr := crypto.NewKeyRotatorFromStrings(cfg.EncryptionKey, cfg.EncryptionKeyOld...); cfg.EncryptionKey != "" && encErr == nil {
+		webhookOptions = append(webhookOptions, webhook.WithSecretDecryptor(webhookEnc))
+	} else if cfg.EncryptionKey != "" && encErr != nil {
+		slog.Warn("failed to create encryptor for webhook secrets; webhook signature decryption disabled", "error", encErr)
+	}
 	eventNotifier := webhook.NewEventNotifier(queries, slog.Default(), webhookOptions...)
 
 	onTriggerCreate := func(trigger *domain.EventTrigger) {
@@ -389,7 +378,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 
 	var apiEncryptor api.Encryptor
 	if cfg.EncryptionKey != "" {
-		enc, encErr := crypto.NewEncryptor(cfg.EncryptionKey)
+		enc, encErr := crypto.NewKeyRotatorFromStrings(cfg.EncryptionKey, cfg.EncryptionKeyOld...)
 		if encErr != nil {
 			slog.Warn("failed to create encryptor for API; event source signature encryption disabled", "error", encErr)
 		} else {
@@ -400,15 +389,31 @@ func runServe(ctx context.Context, modeOverride string) error {
 	// Create a shared billing enforcer (used by both API webhook handler and worker executor).
 	// Only created when billing enforcement is enabled or Stripe webhook secret is set.
 	var billingEnforcer *billing.Enforcer
+	var billingDispatcher *webhook.BillingDispatcher
 	if rdb != nil && (cfg.BillingEnforcementEnabled || cfg.StripeWebhookSecret != "") {
 		billingStore := billing.NewPgStore(dbPool)
+
+		// The dispatcher fans org-scoped billing events out to project-level
+		// webhook subscriptions. Constructed before NewEnforcer so it can be
+		// plumbed into both the API enforcer and the worker-side schedulers
+		// (Dunner / DowngradeApplier / SLACalculator).
+		billingDispatcher = webhook.NewBillingDispatcher(eventNotifier, billingStore, queries, slog.Default())
+
 		var enforcerOpts []billing.EnforcerOption
 		billingEmailSender := billing.NewBillingEmailSender(cfg.ResendAPIKey, "billing@strait.dev", slog.Default())
 		if billingEmailSender != nil {
 			enforcerOpts = append(enforcerOpts, billing.WithEnforcerBillingEmails(billingEmailSender))
 		}
+		enforcerOpts = append(enforcerOpts, billing.WithSentryRuntime(cfg.Mode, cfg.DefaultRegion, version))
+		enforcerOpts = append(enforcerOpts, billing.WithEntitlementsAuthoritative(cfg.BillingEntitlementsAuthoritative))
+		enforcerOpts = append(enforcerOpts, billing.WithBillingDispatcher(billingDispatcher))
 		billingEnforcer = billing.NewEnforcer(billingStore, rdb, slog.Default(), enforcerOpts...)
 		billingEnforcer.StartCleanup(ctx)
+
+		// Wire webhook delivery cost recording. Each successful outbound delivery
+		// is billed at the same flat rate as an HTTP run (20 micro-USD).
+		webhookCostRecorder := billing.NewRunCostRecorder(billingStore, rdb, nil, slog.Default())
+		eventNotifier.SetRunCostRecorder(webhookCostRecorder)
 	}
 
 	if (cfg.BillingEnforcementEnabled || cfg.StripeWebhookSecret != "") && cfg.StripeWebhookSecret == "" {
@@ -436,14 +441,25 @@ func runServe(ctx context.Context, modeOverride string) error {
 	if chClient != nil {
 		chAnalytics = clickhouse.NewAnalyticsStore(chClient, clickhouse.NewPgHealthAdapter(dbPool))
 	}
+	workerPlane, err := startGRPCServer(g, cfg, queries, pub, rdb, billingEnforcer, version, apiEncryptor)
+	if err != nil {
+		return fmt.Errorf("starting grpc server: %w", err)
+	}
 	startAPIServer(g, cfg, queries, dbPool, dbPool, q, pub, metricsHandler, metrics, stepCallback, workflowEngine, healthReg, rdb, apiEncryptor, billingEnforcer, chAnalytics, chExporter, cdcWebhookReceiver)
-	startWorker(g, cfg, queries, dbPool, dbPool, q, bp, pub, metrics, stepCallback, workflowEngine, healthReg, billingEnforcer, chExporter)
+	startWorker(g, cfg, queries, dbPool, dbPool, q, bp, pub, metrics, stepCallback, workflowEngine, healthReg, billingEnforcer, billingDispatcher, chExporter, workerPlane, apiEncryptor)
 
 	if err := g.Wait(); err != nil {
 		return fmt.Errorf("services: %w", err)
 	}
 
 	slog.Info("strait stopped")
+	return nil
+}
+
+func validateBillingRedisDependency(cfg *config.Config, rdb *redis.Client) error {
+	if cfg != nil && cfg.BillingEnforcementEnabled && rdb == nil {
+		return fmt.Errorf("billing enforcement requires Redis; set REDIS_URL or disable BILLING_ENFORCEMENT_ENABLED")
+	}
 	return nil
 }
 
@@ -503,7 +519,7 @@ func logAuditDMLGuardStartup(ctx context.Context, checker health.AuditDMLPrivile
 		metrics.AuditDMLRestrictionStatus.Add(ctx, 1,
 			otelmetric.WithAttributes(otelattr.String("status", status)))
 	}
-	restricted, err := checker.AuditEventsUpdateRestricted(ctx)
+	restricted, err := checker.AuditEventsDMLRestricted(ctx)
 	if err != nil {
 		slog.Warn("audit DML restriction probe failed at startup",
 			"error", err,

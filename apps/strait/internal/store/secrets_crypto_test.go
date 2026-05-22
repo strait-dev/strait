@@ -157,6 +157,32 @@ func TestDecryptSecretWithFallback_WrongKey_Fails(t *testing.T) {
 	}
 }
 
+func TestDecryptSecretWithFallback_OldConfiguredKey(t *testing.T) {
+	t.Parallel()
+
+	oldQ := &Queries{secretEncryptionKey: "old-secret-key"}
+	oldKey, err := oldQ.secretKey()
+	if err != nil {
+		t.Fatalf("old secretKey error: %v", err)
+	}
+	encrypted, err := encryptSecret("rotated-secret", oldKey)
+	if err != nil {
+		t.Fatalf("encryptSecret error: %v", err)
+	}
+
+	newQ := &Queries{
+		secretEncryptionKey:     "new-secret-key",
+		oldSecretEncryptionKeys: []string{"old-secret-key"},
+	}
+	decrypted, err := newQ.decryptSecretWithFallback(encrypted)
+	if err != nil {
+		t.Fatalf("decryptSecretWithFallback error: %v", err)
+	}
+	if decrypted != "rotated-secret" {
+		t.Fatalf("decryptSecretWithFallback = %q, want rotated-secret", decrypted)
+	}
+}
+
 func FuzzSecretEncryptDecrypt(f *testing.F) {
 	f.Add("hello world")
 	f.Add("")

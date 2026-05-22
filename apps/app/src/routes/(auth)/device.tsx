@@ -99,9 +99,9 @@ function DeviceAuthPage() {
         title="Device Authorized"
       >
         <div className="flex flex-col items-center gap-3">
-          <div className="flex size-12 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30">
+          <div className="flex size-12 items-center justify-center rounded-full bg-success/10">
             <svg
-              className="size-6 text-green-600 dark:text-green-400"
+              className="size-6 text-success"
               fill="none"
               stroke="currentColor"
               strokeWidth={2}
@@ -152,14 +152,14 @@ function DeviceAuthPage() {
 
         <div className="flex w-full gap-3">
           <button
-            className="flex-1 rounded-custom border border-border bg-background px-4 py-2.5 font-medium text-foreground text-sm transition-colors hover:bg-muted"
+            className="flex-1 rounded border border-border bg-background px-4 py-2.5 font-medium text-foreground text-sm transition-colors hover:bg-muted"
             onClick={() => window.close()}
             type="button"
           >
             Deny
           </button>
           <button
-            className="flex-1 rounded-custom bg-primary px-4 py-2.5 font-medium text-primary-foreground text-sm transition-colors hover:bg-primary/90 disabled:opacity-50"
+            className="flex-1 rounded bg-primary px-4 py-2.5 font-medium text-primary-foreground text-sm transition-colors hover:bg-primary/90 disabled:opacity-50"
             disabled={status === "approving"}
             onClick={handleApprove}
             type="button"

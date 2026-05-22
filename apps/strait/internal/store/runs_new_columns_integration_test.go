@@ -134,3 +134,101 @@ func TestListRunsByProject_PayloadContainsFilter(t *testing.T) {
 		t.Fatalf("run ID = %q, want %q", runs[0].ID, run1.ID)
 	}
 }
+
+func TestListRunsByProjectFiltered_ComposesStatusTagAndEnvironment(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	q := mustStore(t)
+	projectID := "project-filtered-runs"
+	if err := q.CreateProject(ctx, &domain.Project{
+		ID:    projectID,
+		OrgID: "org-filtered-runs",
+		Name:  "Filtered Runs",
+	}); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+	if err := q.CreateEnvironment(ctx, &domain.Environment{
+		ID:        "env-prod",
+		ProjectID: projectID,
+		Name:      "Production",
+		Slug:      "production",
+	}); err != nil {
+		t.Fatalf("CreateEnvironment(prod) error = %v", err)
+	}
+	if err := q.CreateEnvironment(ctx, &domain.Environment{
+		ID:        "env-staging",
+		ProjectID: projectID,
+		Name:      "Staging",
+		Slug:      "staging",
+	}); err != nil {
+		t.Fatalf("CreateEnvironment(staging) error = %v", err)
+	}
+
+	prodJob := baseJob(newID(), projectID)
+	prodJob.EnvironmentID = "env-prod"
+	if err := q.CreateJob(ctx, prodJob); err != nil {
+		t.Fatalf("CreateJob(prod) error = %v", err)
+	}
+
+	stagingJob := baseJob(newID(), projectID)
+	stagingJob.EnvironmentID = "env-staging"
+	if err := q.CreateJob(ctx, stagingJob); err != nil {
+		t.Fatalf("CreateJob(staging) error = %v", err)
+	}
+
+	wantRun := baseRun(prodJob, newID())
+	wantRun.Tags = map[string]string{"team": "core"}
+	if err := q.CreateRun(ctx, wantRun); err != nil {
+		t.Fatalf("CreateRun(want) error = %v", err)
+	}
+
+	wrongEnv := baseRun(stagingJob, newID())
+	wrongEnv.Tags = map[string]string{"team": "core"}
+	if err := q.CreateRun(ctx, wrongEnv); err != nil {
+		t.Fatalf("CreateRun(wrong env) error = %v", err)
+	}
+
+	wrongTag := baseRun(prodJob, newID())
+	wrongTag.Tags = map[string]string{"team": "edge"}
+	if err := q.CreateRun(ctx, wrongTag); err != nil {
+		t.Fatalf("CreateRun(wrong tag) error = %v", err)
+	}
+
+	failedStatus := domain.StatusFailed
+	wrongStatus := baseRun(prodJob, newID())
+	wrongStatus.Status = failedStatus
+	wrongStatus.Tags = map[string]string{"team": "core"}
+	if err := q.CreateRun(ctx, wrongStatus); err != nil {
+		t.Fatalf("CreateRun(wrong status) error = %v", err)
+	}
+
+	envID := "env-prod"
+	runs, err := q.ListRunsByProjectFiltered(
+		ctx,
+		projectID,
+		nil,
+		[]domain.RunStatus{domain.StatusQueued},
+		"team",
+		"core",
+		&envID,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		20,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("ListRunsByProjectFiltered() error = %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("len(runs) = %d, want 1", len(runs))
+	}
+	if runs[0].ID != wantRun.ID {
+		t.Fatalf("run ID = %q, want %q", runs[0].ID, wantRun.ID)
+	}
+}

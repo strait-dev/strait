@@ -51,7 +51,7 @@ func TestHealthSampler_HappyPath(t *testing.T) {
 	job := mustCreateJob(t, ctx, st, "project-health-sampler-happy")
 	q := mustQueue(t)
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		mustEnqueueRun(t, ctx, q, job)
 	}
 

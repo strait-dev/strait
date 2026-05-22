@@ -1,28 +1,34 @@
 ---
 title: "Durable Workflows"
-description: "Long-running workflows that survive restarts, wait for events, and track expected completion."
+description: "Run workflows that wait for hours or days without losing progress."
 sidebarTitle: "Durable Workflows"
 ---
 
-Some workflows take hours or days -- an order that waits for payment confirmation, an approval that waits for a human, a pipeline that sleeps between stages. Durable workflows survive process restarts and keep running until every step is done.
+Some workflows take longer than a single request: an order may wait for payment, a deployment may wait for approval, or a pipeline may pause until the next business day.
 
-## When to Use Durable Workflows
+Durable workflows keep that progress in Strait until every step finishes or fails.
 
-You need a durable workflow when your process outlives a single request:
+## When to Use Them
 
-- **Multi-day order fulfillment**: Create order, wait for payment, reserve inventory, wait for shipping label, send confirmation.
-- **Human-in-the-loop approvals**: Run automated checks, pause for a manager's approval, then deploy.
-- **Scheduled pipelines**: Process data, sleep 6 hours, check results, sleep until next business day.
+Use durable workflows when a process needs to wait:
 
-## How Durable Waits Work
+- **Order fulfillment**: Create an order, wait for payment, reserve inventory, then send confirmation.
+- **Human approval**: Run checks, pause for a reviewer, then continue.
+- **Delayed follow-up**: Run a step, sleep for a period, then check the result later.
 
-Three step types create waits that consume no compute resources. Each is backed by a database record, not an in-memory timer, so they survive process restarts.
+## Wait Types
 
-- **Sleep steps**: Strait creates a trigger with an expiration time. When the time arrives, the step completes automatically.
-- **Wait-for-event steps**: Strait creates a trigger keyed to a specific event. External systems call `POST /v1/events/{eventKey}/send` to resolve the trigger and continue the workflow.
-- **Approval steps**: Strait creates an approval record. The step waits until a human approves or rejects it via the API, or the approval timeout expires.
+Durable workflows support three wait types:
 
-## Example: E-Commerce Order Flow
+| Wait type | Use it when |
+|---|---|
+| `sleep` | The workflow should continue after a known duration. |
+| `wait_for_event` | An external system will send a matching event later. |
+| `approval` | A person must approve or reject the step. |
+
+While a workflow waits, it does not keep a worker busy.
+
+## Example
 
 ```json
 {
@@ -55,11 +61,11 @@ Three step types create waits that consume no compute resources. Each is backed 
 }
 ```
 
-This workflow creates an order, waits up to 24 hours for a payment event, pauses for manual approval on high-value orders, reserves inventory, and sends a confirmation. If the process restarts at any point, every step picks up where it left off.
+This workflow waits up to 24 hours for payment, pauses for approval on high-value orders, reserves inventory, and sends a confirmation.
 
-## Expected Completion Tracking
+## Completion Estimates
 
-Each step can declare an `expected_duration_secs` estimate. Strait calculates the expected completion time by finding the longest chain of dependent steps (the critical path) and summing their durations.
+Add `expected_duration_secs` to steps when you want Strait to estimate when a workflow should finish.
 
 ```json
 {
@@ -71,11 +77,11 @@ Each step can declare an `expected_duration_secs` estimate. Strait calculates th
 }
 ```
 
-Expected duration: 18 seconds (5 + 10 + 3 along the critical path). For parallel branches, only the longest branch counts. As steps complete, the estimate recalculates based on remaining work.
+In this example, the expected duration is 18 seconds. If the workflow has parallel branches, Strait uses the branch that takes the longest.
 
-## Stage Notifications
+## Step Notifications
 
-Steps can notify your team when they reach specific states:
+Steps can notify your team when they complete, fail, or are skipped.
 
 ```json
 {
@@ -88,4 +94,10 @@ Steps can notify your team when they reach specific states:
 }
 ```
 
-When a step transitions to a matching state, Strait sends notifications to all enabled project channels (webhook, Slack, email, Discord). The payload includes the workflow ID, run ID, step ref, status, and timestamp.
+Use step notifications for approval handoffs, failed payment steps, or any stage where a person needs to know what happened.
+
+## Related
+
+- [Workflows](/concepts/workflows)
+- [Event Triggers](/concepts/event-triggers)
+- [Workflow Approvals](/guides/workflow-approvals)

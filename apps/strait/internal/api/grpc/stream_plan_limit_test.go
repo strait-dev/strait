@@ -1,0 +1,343 @@
+package grpc
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sync"
+	"sync/atomic"
+	"testing"
+)
+
+// stubPlanLimitEnforcer is a hand-rolled implementation of planLimitEnforcer
+// that records calls and returns canned values. We don't use a moq because
+// the interface is defined in this package and only used at one call site.
+type stubPlanLimitEnforcer struct {
+	mu sync.Mutex
+
+	// Configured behavior.
+	orgIDForProject map[string]string
+	orgLookupErr    error
+	limit           int            // -1 means unlimited
+	limitErrByOrg   map[string]int // optional override: org -> threshold
+
+	// Recorded calls.
+	checkCalls    []checkWorkerLimitCall
+	orgLookupHits int
+}
+
+type checkWorkerLimitCall struct {
+	OrgID         string
+	CurrentActive int
+}
+
+func (s *stubPlanLimitEnforcer) GetActiveProjectOrgID(_ context.Context, projectID string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.orgLookupHits++
+	if s.orgLookupErr != nil {
+		return "", s.orgLookupErr
+	}
+	return s.orgIDForProject[projectID], nil
+}
+
+func (s *stubPlanLimitEnforcer) CheckWorkerConnectionLimit(_ context.Context, orgID string, currentActive int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.checkCalls = append(s.checkCalls, checkWorkerLimitCall{OrgID: orgID, CurrentActive: currentActive})
+
+	threshold := s.limit
+	if t, ok := s.limitErrByOrg[orgID]; ok {
+		threshold = t
+	}
+	if threshold == -1 {
+		return nil
+	}
+	if currentActive >= threshold {
+		return fmt.Errorf("worker connections cap %d reached", threshold)
+	}
+	return nil
+}
+
+func (s *stubPlanLimitEnforcer) callsLen() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.checkCalls)
+}
+
+// TestRegistry_CountByOrg verifies that CountByOrg only counts entries whose
+// OrgID matches the supplied value, and treats empty as zero.
+func TestRegistry_CountByOrg(t *testing.T) {
+	t.Parallel()
+
+	r := NewConnectionRegistry()
+
+	w1 := makeWorker("w1", "proj-a", "key-1", []string{"q"}, 1)
+	w1.OrgID = "org-1"
+	w2 := makeWorker("w2", "proj-a", "key-2", []string{"q"}, 1)
+	w2.OrgID = "org-1"
+	w3 := makeWorker("w3", "proj-b", "key-3", []string{"q"}, 1)
+	w3.OrgID = "org-2"
+	w4 := makeWorker("w4", "proj-c", "key-4", []string{"q"}, 1)
+	// Empty OrgID — must not count toward any org.
+
+	for _, w := range []*ConnectedWorker{w1, w2, w3, w4} {
+		if err := r.Register(w); err != nil {
+			t.Fatalf("register %s: %v", w.WorkerID, err)
+		}
+	}
+
+	if got := r.CountByOrg("org-1"); got != 2 {
+		t.Errorf("CountByOrg(org-1) = %d, want 2", got)
+	}
+	if got := r.CountByOrg("org-2"); got != 1 {
+		t.Errorf("CountByOrg(org-2) = %d, want 1", got)
+	}
+	if got := r.CountByOrg("org-3"); got != 0 {
+		t.Errorf("CountByOrg(org-3) = %d, want 0", got)
+	}
+	if got := r.CountByOrg(""); got != 0 {
+		t.Errorf("CountByOrg(\"\") = %d, want 0", got)
+	}
+}
+
+// TestRegistry_CountByOrg_Concurrent exercises CountByOrg under concurrent
+// register / deregister to surface any data race.
+func TestRegistry_CountByOrg_Concurrent(t *testing.T) {
+	t.Parallel()
+
+	r := NewConnectionRegistry()
+	r.maxStreamsPerProject = 1000
+	r.maxStreamsPerAPIKey = 1000
+
+	const n = 100
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := range n {
+		go func(i int) {
+			defer wg.Done()
+			w := makeWorker(fmt.Sprintf("w-%d", i), "proj-a", fmt.Sprintf("key-%d", i), []string{"q"}, 1)
+			w.OrgID = "org-1"
+			_ = r.Register(w)
+		}(i)
+	}
+
+	// Concurrently call CountByOrg.
+	var readDone atomic.Bool
+	go func() {
+		for !readDone.Load() {
+			_ = r.CountByOrg("org-1")
+		}
+	}()
+
+	wg.Wait()
+	readDone.Store(true)
+
+	if got := r.CountByOrg("org-1"); got != n {
+		t.Errorf("after registers, CountByOrg(org-1) = %d, want %d", got, n)
+	}
+}
+
+// gatingResult mirrors the real stream gating logic in stream.go so we can
+// unit-test it without spinning up a full bidirectional gRPC stream. If the
+// real call site changes, this test will rot; that's acceptable — the
+// adversarial integration tests in stream_*_integration_test.go cover the
+// wired path.
+func gatingResult(ctx context.Context, enforcer planLimitEnforcer, registry *ConnectionRegistry, projectID string) (orgID string, blocked bool) {
+	if enforcer == nil {
+		return "", false
+	}
+	orgID, err := enforcer.GetActiveProjectOrgID(ctx, projectID)
+	if err != nil {
+		// Fail-open mirrors stream.go.
+		orgID = ""
+	}
+	if orgID == "" {
+		return "", false
+	}
+	currentActive := registry.CountByOrg(orgID)
+	if err := enforcer.CheckWorkerConnectionLimit(ctx, orgID, currentActive); err != nil {
+		return orgID, true
+	}
+	return orgID, false
+}
+
+// TestStreamGating_NilEnforcer_FailsOpen verifies that a server with no
+// billing enforcer (community edition) never blocks a connection.
+func TestStreamGating_NilEnforcer_FailsOpen(t *testing.T) {
+	t.Parallel()
+
+	r := NewConnectionRegistry()
+	if _, blocked := gatingResult(context.Background(), nil, r, "proj-a"); blocked {
+		t.Fatal("expected fail-open with nil enforcer, got blocked")
+	}
+}
+
+// TestStreamGating_OrgLookupError_FailsOpen verifies that a transient DB
+// error during org resolution does not block the connection.
+func TestStreamGating_OrgLookupError_FailsOpen(t *testing.T) {
+	t.Parallel()
+
+	enforcer := &stubPlanLimitEnforcer{
+		orgLookupErr: errors.New("db down"),
+		limit:        0, // would block everything if we reached this
+	}
+	r := NewConnectionRegistry()
+	orgID, blocked := gatingResult(context.Background(), enforcer, r, "proj-a")
+	if blocked {
+		t.Fatal("expected fail-open on org lookup error, got blocked")
+	}
+	if orgID != "" {
+		t.Errorf("orgID = %q, want empty (lookup failed)", orgID)
+	}
+	if got := enforcer.callsLen(); got != 0 {
+		t.Errorf("CheckWorkerConnectionLimit calls = %d, want 0 when lookup fails", got)
+	}
+}
+
+// TestStreamGating_UnresolvedOrg_FailsOpen verifies that an empty OrgID
+// (project not bound to an org) does not block the connection.
+func TestStreamGating_UnresolvedOrg_FailsOpen(t *testing.T) {
+	t.Parallel()
+
+	enforcer := &stubPlanLimitEnforcer{
+		orgIDForProject: map[string]string{}, // no entry → returns ""
+		limit:           0,
+	}
+	r := NewConnectionRegistry()
+	if _, blocked := gatingResult(context.Background(), enforcer, r, "proj-a"); blocked {
+		t.Fatal("expected fail-open with unresolved org, got blocked")
+	}
+	if got := enforcer.callsLen(); got != 0 {
+		t.Errorf("CheckWorkerConnectionLimit calls = %d, want 0 when org unresolved", got)
+	}
+}
+
+// TestStreamGating_BelowLimit_Allows verifies happy path: org has 2 active
+// workers under a 5-worker cap, the new one is allowed.
+func TestStreamGating_BelowLimit_Allows(t *testing.T) {
+	t.Parallel()
+
+	enforcer := &stubPlanLimitEnforcer{
+		orgIDForProject: map[string]string{"proj-a": "org-1"},
+		limit:           5,
+	}
+	r := NewConnectionRegistry()
+	for i := range 2 {
+		w := makeWorker(fmt.Sprintf("existing-%d", i), "proj-a", fmt.Sprintf("key-%d", i), []string{"q"}, 1)
+		w.OrgID = "org-1"
+		if err := r.Register(w); err != nil {
+			t.Fatalf("register existing %d: %v", i, err)
+		}
+	}
+
+	orgID, blocked := gatingResult(context.Background(), enforcer, r, "proj-a")
+	if blocked {
+		t.Fatal("expected allow at 2/5, got blocked")
+	}
+	if orgID != "org-1" {
+		t.Errorf("orgID = %q, want org-1", orgID)
+	}
+	if calls := enforcer.checkCalls; len(calls) != 1 || calls[0].CurrentActive != 2 {
+		t.Errorf("check calls = %+v, want one call with CurrentActive=2", calls)
+	}
+}
+
+// TestStreamGating_AtLimit_Blocks verifies that once active == cap, the next
+// connect is rejected. The real stream.go translates this rejection to
+// codes.ResourceExhausted; we only verify the gating decision here.
+func TestStreamGating_AtLimit_Blocks(t *testing.T) {
+	t.Parallel()
+
+	enforcer := &stubPlanLimitEnforcer{
+		orgIDForProject: map[string]string{"proj-a": "org-1"},
+		limit:           3,
+	}
+	r := NewConnectionRegistry()
+	for i := range 3 {
+		w := makeWorker(fmt.Sprintf("existing-%d", i), "proj-a", fmt.Sprintf("key-%d", i), []string{"q"}, 1)
+		w.OrgID = "org-1"
+		if err := r.Register(w); err != nil {
+			t.Fatalf("register existing %d: %v", i, err)
+		}
+	}
+
+	if _, blocked := gatingResult(context.Background(), enforcer, r, "proj-a"); !blocked {
+		t.Fatal("expected block at 3/3, got allow")
+	}
+}
+
+// TestStreamGating_OverLimit_Blocks covers the "downgrade resulted in over-cap"
+// scenario: existing connections > cap. New connections still must be rejected.
+func TestStreamGating_OverLimit_Blocks(t *testing.T) {
+	t.Parallel()
+
+	enforcer := &stubPlanLimitEnforcer{
+		orgIDForProject: map[string]string{"proj-a": "org-1"},
+		limit:           1, // org was Pro (25), now Free (1)
+	}
+	r := NewConnectionRegistry()
+	// Seed 5 existing connections that survived a downgrade.
+	for i := range 5 {
+		w := makeWorker(fmt.Sprintf("survivor-%d", i), "proj-a", fmt.Sprintf("key-%d", i), []string{"q"}, 1)
+		w.OrgID = "org-1"
+		if err := r.Register(w); err != nil {
+			t.Fatalf("register survivor %d: %v", i, err)
+		}
+	}
+	if _, blocked := gatingResult(context.Background(), enforcer, r, "proj-a"); !blocked {
+		t.Fatal("expected block at 5/1, got allow")
+	}
+}
+
+// TestStreamGating_UnlimitedTier_NeverBlocks verifies that limit=-1 (unlimited,
+// e.g. Enterprise) accepts any number of connections.
+func TestStreamGating_UnlimitedTier_NeverBlocks(t *testing.T) {
+	t.Parallel()
+
+	enforcer := &stubPlanLimitEnforcer{
+		orgIDForProject: map[string]string{"proj-a": "org-1"},
+		limit:           -1,
+	}
+	r := NewConnectionRegistry()
+	for i := range 50 {
+		w := makeWorker(fmt.Sprintf("w-%d", i), "proj-a", fmt.Sprintf("key-%d", i), []string{"q"}, 1)
+		w.OrgID = "org-1"
+		if err := r.Register(w); err != nil {
+			t.Fatalf("register %d: %v", i, err)
+		}
+	}
+	if _, blocked := gatingResult(context.Background(), enforcer, r, "proj-a"); blocked {
+		t.Fatal("expected allow at 50/unlimited, got blocked")
+	}
+}
+
+// TestStreamGating_PerOrgIsolation verifies that org-A's connections do not
+// count toward org-B's quota.
+func TestStreamGating_PerOrgIsolation(t *testing.T) {
+	t.Parallel()
+
+	enforcer := &stubPlanLimitEnforcer{
+		orgIDForProject: map[string]string{"proj-a": "org-1", "proj-b": "org-2"},
+		limit:           2,
+	}
+	r := NewConnectionRegistry()
+	// Saturate org-1.
+	for i := range 2 {
+		w := makeWorker(fmt.Sprintf("a-%d", i), "proj-a", fmt.Sprintf("ka-%d", i), []string{"q"}, 1)
+		w.OrgID = "org-1"
+		if err := r.Register(w); err != nil {
+			t.Fatalf("register a-%d: %v", i, err)
+		}
+	}
+
+	// org-1 is at cap, must be blocked.
+	if _, blocked := gatingResult(context.Background(), enforcer, r, "proj-a"); !blocked {
+		t.Fatal("expected block for org-1 (saturated)")
+	}
+
+	// org-2 is empty, must be allowed.
+	if _, blocked := gatingResult(context.Background(), enforcer, r, "proj-b"); blocked {
+		t.Fatal("expected allow for org-2 (empty)")
+	}
+}

@@ -629,6 +629,7 @@ func TestEmitEventIfConfigured_ResolvesWaitingTrigger(t *testing.T) {
 				return &domain.WorkflowRun{
 					ID:              "wr-1",
 					WorkflowID:      "wf-1",
+					ProjectID:       "proj-1",
 					WorkflowVersion: 1,
 					Status:          domain.WfStatusRunning,
 					Payload:         json.RawMessage(`{"env":"prod"}`),
@@ -699,7 +700,7 @@ func TestEmitEventIfConfigured_ResolvesWaitingTrigger(t *testing.T) {
 
 	// Call tryEmitEvent which should resolve the waiting trigger AND resume the step.
 	wc := testWfCtx(
-		&domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", WorkflowVersion: 1, Status: domain.WfStatusRunning, Payload: json.RawMessage(`{"env":"prod"}`)},
+		&domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", ProjectID: "proj-1", WorkflowVersion: 1, Status: domain.WfStatusRunning, Payload: json.RawMessage(`{"env":"prod"}`)},
 		[]domain.WorkflowStep{
 			{StepRef: "emitter", EventEmitKey: "chain:{{env}}:done"},
 			{StepRef: "waiter", StepType: domain.WorkflowStepTypeWaitForEvent, EventKey: "chain:prod:done"},
@@ -994,7 +995,7 @@ func TestEmitEventIfConfigured_TriggerNotFound(t *testing.T) {
 	cb.emitEventIfConfigured(context.Background(),
 		&domain.WorkflowStepRun{ID: "sr-1"},
 		&domain.WorkflowStep{StepRef: "step-1", EventEmitKey: "emit:test"},
-		&domain.WorkflowRun{ID: "wr-1"},
+		&domain.WorkflowRun{ID: "wr-1", ProjectID: "proj-1"},
 	)
 }
 
@@ -1016,7 +1017,7 @@ func TestEmitEventIfConfigured_TriggerAlreadyReceived(t *testing.T) {
 	cb.emitEventIfConfigured(context.Background(),
 		&domain.WorkflowStepRun{ID: "sr-1"},
 		&domain.WorkflowStep{StepRef: "step-1", EventEmitKey: "emit:test"},
-		&domain.WorkflowRun{ID: "wr-1"},
+		&domain.WorkflowRun{ID: "wr-1", ProjectID: "proj-1"},
 	)
 }
 
@@ -1034,7 +1035,7 @@ func TestEmitEventIfConfigured_GetTriggerError(t *testing.T) {
 	cb.emitEventIfConfigured(context.Background(),
 		&domain.WorkflowStepRun{ID: "sr-1"},
 		&domain.WorkflowStep{StepRef: "step-1", EventEmitKey: "emit:test"},
-		&domain.WorkflowRun{ID: "wr-1"},
+		&domain.WorkflowRun{ID: "wr-1", ProjectID: "proj-1"},
 	)
 }
 
@@ -1060,7 +1061,7 @@ func TestEmitEventIfConfigured_UpdateTriggerError(t *testing.T) {
 	cb.emitEventIfConfigured(context.Background(),
 		&domain.WorkflowStepRun{ID: "sr-1", Output: json.RawMessage(`{"ok":true}`)},
 		&domain.WorkflowStep{StepRef: "step-1", EventEmitKey: "emit:test"},
-		&domain.WorkflowRun{ID: "wr-1"},
+		&domain.WorkflowRun{ID: "wr-1", ProjectID: "proj-1"},
 	)
 }
 
@@ -1092,7 +1093,7 @@ func TestEmitEventIfConfigured_JobRunSource(t *testing.T) {
 	cb.emitEventIfConfigured(context.Background(),
 		&domain.WorkflowStepRun{ID: "sr-1", Output: json.RawMessage(`{"result":"done"}`)},
 		&domain.WorkflowStep{StepRef: "step-1", EventEmitKey: "emit:job"},
-		&domain.WorkflowRun{ID: "wr-1"},
+		&domain.WorkflowRun{ID: "wr-1", ProjectID: "proj-1"},
 	)
 
 	if requeuedRunID != "run-99" {

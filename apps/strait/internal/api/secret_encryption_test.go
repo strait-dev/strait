@@ -10,9 +10,10 @@ import (
 	"strait/internal/domain"
 )
 
-func TestHandleCreateSecret_EncryptsValue(t *testing.T) {
+func TestHandleCreateSecret_DelegatesValueEncryptionToStore(t *testing.T) {
 	t.Parallel()
 
+	apiEncryptor := &countingSecretEncryptor{}
 	var storedSecret *domain.JobSecret
 	ms := &APIStoreMock{
 		CreateJobSecretFunc: func(_ context.Context, secret *domain.JobSecret) error {
@@ -25,7 +26,7 @@ func TestHandleCreateSecret_EncryptsValue(t *testing.T) {
 		},
 	}
 
-	srv := newTestServerWithEncryptor(t, ms, &mockQueue{}, &mockEncryptor{})
+	srv := newTestServerWithEncryptor(t, ms, &mockQueue{}, apiEncryptor)
 
 	body := `{"project_id":"proj-1","job_id":"job-1","environment":"production","secret_key":"DB_PASSWORD","value":"super-secret-value"}`
 	w := httptest.NewRecorder()
@@ -39,19 +40,11 @@ func TestHandleCreateSecret_EncryptsValue(t *testing.T) {
 		t.Fatal("CreateJobSecret was not called")
 	}
 
-	// The encrypted value should NOT equal the plaintext input.
-	if storedSecret.EncryptedValue == "super-secret-value" {
-		t.Fatal("secret EncryptedValue was stored as plaintext, expected actually encrypted value")
+	if storedSecret.EncryptedValue != "super-secret-value" {
+		t.Fatalf("API should pass plaintext to store for single encryption, got %q", storedSecret.EncryptedValue)
 	}
-
-	// Verify decryption roundtrip.
-	enc := &mockEncryptor{}
-	decrypted, err := enc.Decrypt([]byte(storedSecret.EncryptedValue))
-	if err != nil {
-		t.Fatalf("failed to decrypt stored value: %v", err)
-	}
-	if string(decrypted) != "super-secret-value" {
-		t.Fatalf("decrypted value = %q, want %q", string(decrypted), "super-secret-value")
+	if apiEncryptor.calls != 0 {
+		t.Fatalf("API encryptor calls = %d, want 0; store owns job secret encryption", apiEncryptor.calls)
 	}
 }
 
@@ -91,7 +84,7 @@ func TestHandleCreateSecret_WithoutEncryptor_StoresRaw(t *testing.T) {
 	}
 }
 
-func TestHandleCreateSecret_EncryptedValueDiffersFromPlaintext(t *testing.T) {
+func TestHandleCreateSecret_PassesPlaintextValuesToStore(t *testing.T) {
 	t.Parallel()
 
 	plaintexts := []string{
@@ -115,7 +108,8 @@ func TestHandleCreateSecret_EncryptedValueDiffersFromPlaintext(t *testing.T) {
 				},
 			}
 
-			srv := newTestServerWithEncryptor(t, ms, &mockQueue{}, &mockEncryptor{})
+			apiEncryptor := &countingSecretEncryptor{}
+			srv := newTestServerWithEncryptor(t, ms, &mockQueue{}, apiEncryptor)
 
 			body := `{"project_id":"proj-1","job_id":"job-1","environment":"production","secret_key":"KEY","value":"` + pt + `"}`
 			w := httptest.NewRecorder()
@@ -129,8 +123,11 @@ func TestHandleCreateSecret_EncryptedValueDiffersFromPlaintext(t *testing.T) {
 				t.Fatal("CreateJobSecret was not called")
 			}
 
-			if storedSecret.EncryptedValue == pt {
-				t.Fatalf("EncryptedValue should differ from plaintext %q", pt)
+			if storedSecret.EncryptedValue != pt {
+				t.Fatalf("EncryptedValue passed to store = %q, want plaintext %q", storedSecret.EncryptedValue, pt)
+			}
+			if apiEncryptor.calls != 0 {
+				t.Fatalf("API encryptor calls = %d, want 0; store owns job secret encryption", apiEncryptor.calls)
 			}
 		})
 	}

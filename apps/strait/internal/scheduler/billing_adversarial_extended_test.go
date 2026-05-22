@@ -12,7 +12,6 @@ import (
 
 	"strait/internal/billing"
 	"strait/internal/domain"
-	"strait/internal/store"
 
 	"github.com/sourcegraph/conc"
 )
@@ -20,61 +19,6 @@ import (
 // Section separator.
 // Adversarial tests: try to break scheduler components through edge cases.
 // Section separator.
-
-func TestAdv_BudgetMonitor_Int64Overflow(t *testing.T) {
-	t.Parallel()
-
-	enqueuer := &mockEnqueuer{}
-	s := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) {
-			return []store.ProjectComputeQuota{
-				{ProjectID: "proj-overflow", Timezone: "UTC", ComputeDailyCostLimitMicrousd: math.MaxInt64},
-			}, nil
-		},
-		sumDailyCostFn: func(_ context.Context, _ string, _ string) (int64, error) {
-			return math.MaxInt64, nil
-		},
-	}
-
-	bm := NewBudgetMonitor(s, enqueuer, time.Minute)
-	// Should not panic on near-MaxInt64 values.
-	bm.check(context.Background())
-
-	// The threshold calculation (MaxInt64 * 80 / 100) would overflow if done naively.
-	// Verify that the monitor handles it without crashing.
-	// Whether it alerts or not depends on overflow handling; the key assertion is no panic.
-}
-
-func TestAdv_BudgetMonitor_AllProjectsFail(t *testing.T) {
-	t.Parallel()
-
-	enqueuer := &mockEnqueuer{}
-	projects := make([]store.ProjectComputeQuota, 10)
-	for i := range projects {
-		projects[i] = store.ProjectComputeQuota{
-			ProjectID:                     fmt.Sprintf("proj-fail-%d", i),
-			Timezone:                      "UTC",
-			ComputeDailyCostLimitMicrousd: 100_000,
-		}
-	}
-
-	s := &mockBudgetStore{
-		listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) {
-			return projects, nil
-		},
-		sumDailyCostFn: func(_ context.Context, _ string, _ string) (int64, error) {
-			return 0, errors.New("query timeout")
-		},
-	}
-
-	bm := NewBudgetMonitor(s, enqueuer, time.Minute)
-	// All project checks fail: must not panic, no alerts.
-	bm.check(context.Background())
-
-	if len(enqueuer.calls) != 0 {
-		t.Fatalf("expected 0 alerts when all projects fail, got %d", len(enqueuer.calls))
-	}
-}
 
 func TestAdv_DowngradeApplier_ConcurrentApply(t *testing.T) {
 	t.Parallel()
@@ -356,7 +300,7 @@ func TestAdv_UsageFlusher_ConcurrentFlush(t *testing.T) {
 				{OrgID: "org-concurrent", ProjectID: "proj-1", PeriodDate: today, RunsCount: 1},
 			}, nil
 		},
-		upsertUsageRecordFn: func(_ context.Context, _ *billing.UsageRecord) error {
+		replaceUsageRecordFn: func(_ context.Context, _ *billing.UsageRecord) error {
 			mu.Lock()
 			upsertCount++
 			mu.Unlock()
@@ -376,9 +320,10 @@ func TestAdv_UsageFlusher_ConcurrentFlush(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	// 10 goroutines * 1 record each = 10 upserts.
-	if upsertCount != 10 {
-		t.Fatalf("expected 10 upserts from concurrent flush, got %d", upsertCount)
+	// 10 goroutines * 1 record per lookback day.
+	wantUpserts := 10 * usageFlusherReconcileLookbackDays
+	if upsertCount != wantUpserts {
+		t.Fatalf("expected %d upserts from concurrent flush, got %d", wantUpserts, upsertCount)
 	}
 }
 
@@ -421,12 +366,23 @@ func (m *billingAdvMockDowngradeStore) ApplyPendingDowngrade(ctx context.Context
 	return nil
 }
 
+func (m *billingAdvMockDowngradeStore) ApplyPendingDowngradeTierIfPending(ctx context.Context, orgID, _ string) (bool, error) {
+	if err := m.ApplyPendingDowngrade(ctx, orgID); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (m *billingAdvMockDowngradeStore) ClearPendingPlanTierIfTier(context.Context, string, string) (bool, error) {
+	return true, nil
+}
+
 func (m *billingAdvMockDowngradeStore) SuspendExcessProjects(_ context.Context, _ string, _ int) (int, error) {
 	return 0, nil
 }
 
-func (m *billingAdvMockDowngradeStore) DeactivateExcessCronJobs(_ context.Context, _ string, _ int) (int64, error) {
-	return 0, nil
+func (m *billingAdvMockDowngradeStore) DeactivateExcessCronJobs(_ context.Context, _ string, _ int) ([]string, error) {
+	return nil, nil
 }
 
 func (m *billingAdvMockDowngradeStore) DeactivateExcessWebhookSubscriptions(_ context.Context, _ string, _ int) (int64, error) {
@@ -441,7 +397,19 @@ func (m *billingAdvMockDowngradeStore) ListProjectsByOrg(_ context.Context, _ st
 	return nil, nil
 }
 
-func (m *billingAdvMockDowngradeStore) PauseHTTPJobsByOrg(_ context.Context, _ string, _ string) (int64, error) {
+func (m *billingAdvMockDowngradeStore) PauseHTTPJobsByOrg(_ context.Context, _ string, _ string) ([]string, error) {
+	return nil, nil
+}
+
+func (m *billingAdvMockDowngradeStore) DeactivateExcessLogDrains(_ context.Context, _ string, _ int) (int64, error) {
+	return 0, nil
+}
+
+func (m *billingAdvMockDowngradeStore) DeactivateExcessNotificationChannelsByProject(_ context.Context, _ string, _ int) (int64, error) {
+	return 0, nil
+}
+
+func (m *billingAdvMockDowngradeStore) CountMembersByOrg(_ context.Context, _ string) (int, error) {
 	return 0, nil
 }
 

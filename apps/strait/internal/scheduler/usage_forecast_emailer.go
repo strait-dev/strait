@@ -52,7 +52,9 @@ func (fe *UsageForecastEmailer) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			fe.send(context.WithoutCancel(ctx))
+			runSchedulerCycleCheckIn(ctx, fe.interval, func() {
+				fe.send(context.WithoutCancel(ctx))
+			})
 		}
 	}
 }

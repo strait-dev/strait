@@ -46,12 +46,13 @@ func setupSpendingEnforcer(t *testing.T, orgID, planTier string, spendingLimit i
 func TestOverage_FreeTier_HardCap(t *testing.T) {
 	t.Parallel()
 
-	// Free tier: $1.00 credit (1,000,000 micro-USD). Should block when exhausted.
-	enforcer, _ := setupSpendingEnforcer(t, "org-free", "free", 0, CreditFreeMicrousd+1)
+	// Orchestration-only: free tier has no included compute credit.
+	// Any non-zero spend triggers the budget cap.
+	enforcer, _ := setupSpendingEnforcer(t, "org-free", "free", 0, 1)
 
 	err := enforcer.CheckSpendingLimit(context.Background(), "org-free")
 	if err == nil {
-		t.Fatal("expected spending limit error for free tier over credit")
+		t.Fatal("expected spending limit error for free tier with any spend")
 	}
 
 	var le *LimitError
@@ -63,14 +64,15 @@ func TestOverage_FreeTier_HardCap(t *testing.T) {
 	}
 }
 
-func TestOverage_FreeTier_UnderCredit_Passes(t *testing.T) {
+func TestOverage_FreeTier_ZeroSpend_Passes(t *testing.T) {
 	t.Parallel()
 
-	enforcer, _ := setupSpendingEnforcer(t, "org-free", "free", 0, CreditFreeMicrousd-1)
+	// Free tier passes when there is no spend.
+	enforcer, _ := setupSpendingEnforcer(t, "org-free", "free", 0, 0)
 
 	err := enforcer.CheckSpendingLimit(context.Background(), "org-free")
 	if err != nil {
-		t.Fatalf("expected pass under free credit: %v", err)
+		t.Fatalf("expected pass with zero spend: %v", err)
 	}
 }
 
@@ -90,21 +92,21 @@ func TestOverage_PaidTier_NoSpendingLimit_Allows(t *testing.T) {
 func TestOverage_PaidTier_WithSpendingLimit_Blocks(t *testing.T) {
 	t.Parallel()
 
-	// Pro with $50 spending limit. Credit is $49.99, so total allowed = $99.99.
-	// Spend = $100 -> overage = $50.01 > $50 limit -> block.
+	// Pro with $50 spending limit. Orchestration-only: no included credit.
+	// Total spend = $100 > $50 limit -> block.
 	enforcer, _ := setupSpendingEnforcer(t, "org-pro", "pro", 50_000_000, 100_000_000)
 
 	err := enforcer.CheckSpendingLimit(context.Background(), "org-pro")
 	if err == nil {
-		t.Fatal("expected spending limit block at $50 overage cap")
+		t.Fatal("expected spending limit block at $50 total cap")
 	}
 }
 
 func TestOverage_PaidTier_ZeroSpendingLimit_Blocks(t *testing.T) {
 	t.Parallel()
 
-	// Pro with $0 spending limit -> hard cap at included credit.
-	enforcer, _ := setupSpendingEnforcer(t, "org-pro", "pro", 0, CreditProMicrousd+1)
+	// Pro with $0 spending limit: any spend triggers the cap.
+	enforcer, _ := setupSpendingEnforcer(t, "org-pro", "pro", 0, 1)
 
 	err := enforcer.CheckSpendingLimit(context.Background(), "org-pro")
 	if err == nil {
@@ -115,7 +117,7 @@ func TestOverage_PaidTier_ZeroSpendingLimit_Blocks(t *testing.T) {
 func TestOverage_ScaleTier_NoSpendingLimit(t *testing.T) {
 	t.Parallel()
 
-	// Scale with no spending limit. $200 usage on $99 credit -> $101 overage.
+	// Scale with no spending limit: high spend is allowed.
 	enforcer, _ := setupSpendingEnforcer(t, "org-scale", "scale", -1, 200_000_000)
 
 	err := enforcer.CheckSpendingLimit(context.Background(), "org-scale")
@@ -131,35 +133,35 @@ func TestOverage_NoSubscription_FreeTierFallback(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	store := &mockBillingStore{
 		periodSpendByOrg: map[string]int64{
-			"org-none": CreditFreeMicrousd + 1,
+			// Any spend triggers the free-tier cap (no included credit in orchestration-only mode).
+			"org-none": 1,
 		},
 	}
 	enforcer := NewEnforcer(store, rdb, slog.Default())
 
-	// No subscription -> falls back to free tier -> hard cap at $1.
 	err := enforcer.CheckSpendingLimit(context.Background(), "org-none")
 	if err == nil {
-		t.Fatal("expected free tier fallback to block over $1 credit")
+		t.Fatal("expected free tier fallback to block any spend")
 	}
 }
 
-func TestOverage_StarterTier_UnderCredit_Passes(t *testing.T) {
+func TestOverage_StarterTier_NoLimit_LargeSpend_Passes(t *testing.T) {
 	t.Parallel()
 
-	enforcer, _ := setupSpendingEnforcer(t, "org-starter", "starter", -1, CreditStarterMicrousd-1)
+	// Starter with no spending limit (-1): unlimited spend is allowed.
+	enforcer, _ := setupSpendingEnforcer(t, "org-starter", "starter", -1, 50_000_000)
 
 	err := enforcer.CheckSpendingLimit(context.Background(), "org-starter")
 	if err != nil {
-		t.Fatalf("expected pass under starter credit: %v", err)
+		t.Fatalf("expected pass with no spending limit: %v", err)
 	}
 }
 
 func TestOverage_ConcurrentSpendChecks(t *testing.T) {
 	t.Parallel()
 
-	// Pro with $10 spending limit, currently at $59.98 spend ($49.99 credit + $9.99 overage).
-	// This is just under the limit. Many concurrent checks should all pass.
-	enforcer, _ := setupSpendingEnforcer(t, "org-race", "pro", 10_000_000, 59_980_000)
+	// Pro with $100 spending limit, spend = $9.99 (well under). Concurrent checks should all pass.
+	enforcer, _ := setupSpendingEnforcer(t, "org-race", "pro", 100_000_000, 9_990_000)
 
 	var wg conc.WaitGroup
 	errs := make(chan error, 100)
@@ -184,6 +186,8 @@ func TestOverage_ConcurrentSpendChecks(t *testing.T) {
 func TestOverage_AllTiers_CorrectBehavior(t *testing.T) {
 	t.Parallel()
 
+	// Orchestration-only: no included compute credit. SpendingLimitMicrousd is
+	// compared against total period spend, not overage above included credit.
 	tests := []struct {
 		name          string
 		tier          string
@@ -191,12 +195,13 @@ func TestOverage_AllTiers_CorrectBehavior(t *testing.T) {
 		periodSpend   int64
 		wantBlock     bool
 	}{
-		{"free_under", "free", 0, 500_000, false},
+		{"free_zero", "free", 0, 0, false},
+		{"free_any_spend", "free", 0, 1, true},
 		{"free_over", "free", 0, 1_500_000, true},
 		{"starter_no_limit_over", "starter", -1, 50_000_000, false},
 		{"pro_no_limit_over", "pro", -1, 100_000_000, false},
 		{"scale_no_limit_over", "scale", -1, 200_000_000, false},
-		{"pro_with_limit_under", "pro", 50_000_000, 80_000_000, false},
+		{"pro_with_limit_under", "pro", 50_000_000, 40_000_000, false},
 		{"pro_with_limit_over", "pro", 50_000_000, 100_000_000, true},
 	}
 

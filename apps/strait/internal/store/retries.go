@@ -51,8 +51,22 @@ func (q *Queries) ClearRetry(ctx context.Context, runID string) error {
 	return nil
 }
 
+// ClearRetries removes retry records for a batch of run IDs. Used by the
+// dequeue path to drop the side-table entry once a run is claimed.
+func (q *Queries) ClearRetries(ctx context.Context, ids []string) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ClearRetries")
+	defer span.End()
+
+	if len(ids) == 0 {
+		return nil
+	}
+	if _, err := q.db.Exec(ctx, `DELETE FROM job_retries WHERE run_id = ANY($1)`, ids); err != nil {
+		return fmt.Errorf("clear retries: %w", err)
+	}
+	return nil
+}
+
 // ReadyRetries returns up to limit run_ids whose next_retry_at has passed.
-// Used by the DelayedPoller to wake runs that are ready to claim.
 func (q *Queries) ReadyRetries(ctx context.Context, limit int) ([]string, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ReadyRetries")
 	defer span.End()

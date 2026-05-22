@@ -3,19 +3,42 @@ package scheduler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"testing"
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/store"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type mockDebounceStore struct {
 	mu                sync.Mutex
 	duePending        []domain.DebouncePending
 	deleted           []string
+	claimed           []string
+	completed         []string
+	rescheduled       []debounceReschedule
+	restored          []string
 	jobs              map[string]*domain.Job
+	runs              map[string]*domain.JobRun
+	quota             *store.ProjectQuota
+	queuedRuns        int
+	activeRuns        int
+	runsSince         int
+	dailyCost         int64
 	tryAdvisoryLockFn func(ctx context.Context, lockID int64) (bool, error)
+	txCalls           int
+	txLockIDs         []int64
+}
+
+type debounceReschedule struct {
+	id         string
+	oldFireAt  time.Time
+	nextFireAt time.Time
 }
 
 func (m *mockDebounceStore) ListDueDebouncePending(_ context.Context) ([]domain.DebouncePending, error) {
@@ -31,6 +54,65 @@ func (m *mockDebounceStore) DeleteDebouncePending(_ context.Context, id string) 
 	return nil
 }
 
+func (m *mockDebounceStore) ClaimDueDebouncePending(_ context.Context, id string) (*domain.DebouncePending, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.duePending {
+		if m.duePending[i].ID == id {
+			if m.duePending[i].FireAt.After(time.Now()) {
+				return nil, false, nil
+			}
+			claimed := m.duePending[i]
+			m.claimed = append(m.claimed, id)
+			return &claimed, true, nil
+		}
+	}
+	return nil, false, nil
+}
+
+func (m *mockDebounceStore) CompleteDebouncePending(_ context.Context, id string, fireAt time.Time) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.duePending {
+		if m.duePending[i].ID == id && m.duePending[i].FireAt.Equal(fireAt) {
+			m.duePending = append(m.duePending[:i], m.duePending[i+1:]...)
+			m.completed = append(m.completed, id)
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (m *mockDebounceStore) RescheduleDebouncePending(_ context.Context, id string, oldFireAt, nextFireAt time.Time) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.duePending {
+		if m.duePending[i].ID == id && m.duePending[i].FireAt.Equal(oldFireAt) {
+			m.duePending[i].FireAt = nextFireAt
+			m.rescheduled = append(m.rescheduled, debounceReschedule{
+				id:         id,
+				oldFireAt:  oldFireAt,
+				nextFireAt: nextFireAt,
+			})
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (m *mockDebounceStore) InsertDebouncePendingIfAbsent(_ context.Context, d *domain.DebouncePending) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, existing := range m.duePending {
+		if existing.JobID == d.JobID && existing.DebounceKey == d.DebounceKey {
+			return false, nil
+		}
+	}
+	m.duePending = append(m.duePending, *d)
+	m.restored = append(m.restored, d.ID)
+	return true, nil
+}
+
 func (m *mockDebounceStore) GetJob(_ context.Context, id string) (*domain.Job, error) {
 	if m.jobs != nil {
 		if job, ok := m.jobs[id]; ok {
@@ -38,6 +120,35 @@ func (m *mockDebounceStore) GetJob(_ context.Context, id string) (*domain.Job, e
 		}
 	}
 	return nil, nil
+}
+
+func (m *mockDebounceStore) GetRun(_ context.Context, id string) (*domain.JobRun, error) {
+	if m.runs != nil {
+		if run, ok := m.runs[id]; ok {
+			return run, nil
+		}
+	}
+	return nil, store.ErrRunNotFound
+}
+
+func (m *mockDebounceStore) GetProjectQuota(context.Context, string) (*store.ProjectQuota, error) {
+	return m.quota, nil
+}
+
+func (m *mockDebounceStore) CountProjectQueuedRuns(context.Context, string) (int, error) {
+	return m.queuedRuns, nil
+}
+
+func (m *mockDebounceStore) CountProjectActiveRuns(context.Context, string) (int, error) {
+	return m.activeRuns, nil
+}
+
+func (m *mockDebounceStore) CountRunsForJobSince(context.Context, string, time.Time) (int, error) {
+	return m.runsSince, nil
+}
+
+func (m *mockDebounceStore) SumProjectDailyCostMicrousd(context.Context, string, string) (int64, error) {
+	return m.dailyCost, nil
 }
 
 func (m *mockDebounceStore) CreateRun(_ context.Context, _ *domain.JobRun) error {
@@ -52,6 +163,36 @@ func (m *mockDebounceStore) TryAdvisoryLock(ctx context.Context, lockID int64) (
 }
 
 func (m *mockDebounceStore) ReleaseAdvisoryLock(_ context.Context, _ int64) error {
+	return nil
+}
+
+func (m *mockDebounceStore) WithTx(ctx context.Context, fn func(context.Context, store.DBTX) error) error {
+	m.mu.Lock()
+	m.txCalls++
+	m.mu.Unlock()
+	return fn(ctx, &mockDebounceTx{store: m})
+}
+
+type mockDebounceTx struct {
+	store *mockDebounceStore
+}
+
+func (m *mockDebounceTx) Exec(_ context.Context, _ string, arguments ...any) (pgconn.CommandTag, error) {
+	if len(arguments) > 0 {
+		if lockID, ok := arguments[0].(int64); ok {
+			m.store.mu.Lock()
+			m.store.txLockIDs = append(m.store.txLockIDs, lockID)
+			m.store.mu.Unlock()
+		}
+	}
+	return pgconn.NewCommandTag("SELECT 1"), nil
+}
+
+func (m *mockDebounceTx) Query(context.Context, string, ...any) (pgx.Rows, error) {
+	return nil, errors.New("unexpected query")
+}
+
+func (m *mockDebounceTx) QueryRow(context.Context, string, ...any) pgx.Row {
 	return nil
 }
 
@@ -74,12 +215,14 @@ func TestDebouncePoller_FiresDuePending(t *testing.T) {
 		},
 		jobs: map[string]*domain.Job{
 			"job-1": {
-				ID:          "job-1",
-				ProjectID:   "proj-1",
-				Enabled:     true,
-				TimeoutSecs: 300,
-				Version:     2,
-				VersionID:   "v-2",
+				ID:            "job-1",
+				ProjectID:     "proj-1",
+				Enabled:       true,
+				TimeoutSecs:   300,
+				Version:       2,
+				VersionID:     "v-2",
+				ExecutionMode: domain.ExecutionModeWorker,
+				Queue:         "priority",
 			},
 		},
 	}
@@ -102,6 +245,9 @@ func TestDebouncePoller_FiresDuePending(t *testing.T) {
 	if run.JobID != "job-1" {
 		t.Fatalf("expected job_id=job-1, got %s", run.JobID)
 	}
+	if run.ID != "dp-1" {
+		t.Fatalf("expected durable debounce run ID dp-1, got %s", run.ID)
+	}
 	if run.TriggeredBy != domain.TriggerDebounce {
 		t.Fatalf("expected triggered_by=debounce, got %s", run.TriggeredBy)
 	}
@@ -114,9 +260,27 @@ func TestDebouncePoller_FiresDuePending(t *testing.T) {
 	if string(run.Payload) != `{"action":"reindex"}` {
 		t.Fatalf("expected payload preserved, got %s", string(run.Payload))
 	}
+	if run.ExecutionMode != domain.ExecutionModeWorker {
+		t.Fatalf("expected execution_mode worker, got %q", run.ExecutionMode)
+	}
+	if run.QueueName != "priority" {
+		t.Fatalf("expected queue_name priority, got %q", run.QueueName)
+	}
 
-	if len(ds.deleted) != 1 || ds.deleted[0] != "dp-1" {
-		t.Fatalf("expected dp-1 to be deleted, got %v", ds.deleted)
+	if len(ds.claimed) != 1 || ds.claimed[0] != "dp-1" {
+		t.Fatalf("expected dp-1 to be claimed, got %v", ds.claimed)
+	}
+	if len(ds.completed) != 1 || ds.completed[0] != "dp-1" {
+		t.Fatalf("expected dp-1 to be completed after enqueue, got %v", ds.completed)
+	}
+	if len(ds.restored) != 0 {
+		t.Fatalf("expected successful fire to avoid restore, got %v", ds.restored)
+	}
+	if ds.txCalls != 1 {
+		t.Fatalf("expected debounce fire to use transactional admission guard, got %d tx calls", ds.txCalls)
+	}
+	if len(ds.txLockIDs) != 1 || ds.txLockIDs[0] != cronAdmissionLockID("proj-1") {
+		t.Fatalf("expected project trigger-limit lock %d, got %v", cronAdmissionLockID("proj-1"), ds.txLockIDs)
 	}
 }
 
@@ -145,8 +309,253 @@ func TestDebouncePoller_SkipsDisabledJob(t *testing.T) {
 	if len(enqueued) != 0 {
 		t.Fatalf("expected no runs for disabled job, got %d", len(enqueued))
 	}
-	if len(ds.deleted) != 1 {
-		t.Fatalf("expected pending deleted even for disabled job, got %d deleted", len(ds.deleted))
+	if len(ds.claimed) != 1 {
+		t.Fatalf("expected pending claimed even for disabled job, got %d claimed", len(ds.claimed))
+	}
+	if len(ds.completed) != 1 {
+		t.Fatalf("expected disabled job pending to complete, got %d completed", len(ds.completed))
+	}
+}
+
+func TestDebouncePoller_SkipsPausedJob(t *testing.T) {
+	t.Parallel()
+
+	ds := &mockDebounceStore{
+		duePending: []domain.DebouncePending{
+			{ID: "dp-1", JobID: "job-1", ProjectID: "proj-1", FireAt: time.Now().Add(-time.Second)},
+		},
+		jobs: map[string]*domain.Job{
+			"job-1": {ID: "job-1", Enabled: true, Paused: true},
+		},
+	}
+
+	var enqueued []*domain.JobRun
+	q := &mockQueue{
+		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			enqueued = append(enqueued, run)
+			return nil
+		},
+	}
+	poller := NewDebouncePoller(ds, q, time.Second)
+	poller.poll(context.Background())
+
+	if len(enqueued) != 0 {
+		t.Fatalf("expected no runs for paused job, got %d", len(enqueued))
+	}
+	if len(ds.claimed) != 1 {
+		t.Fatalf("expected pending claimed for paused job, got %d claimed", len(ds.claimed))
+	}
+	if len(ds.completed) != 1 {
+		t.Fatalf("expected paused job pending to complete, got %d completed", len(ds.completed))
+	}
+}
+
+func TestDebouncePoller_UsesPendingIDAsIdempotencyKey(t *testing.T) {
+	t.Parallel()
+
+	ds := &mockDebounceStore{
+		duePending: []domain.DebouncePending{
+			{ID: "dp-1", JobID: "job-1", ProjectID: "proj-1", FireAt: time.Now().Add(-time.Second)},
+		},
+		jobs: map[string]*domain.Job{
+			"job-1": {ID: "job-1", Enabled: true, TimeoutSecs: 60},
+		},
+	}
+
+	var key string
+	q := &mockQueue{
+		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			key = run.IdempotencyKey
+			return nil
+		},
+	}
+	poller := NewDebouncePoller(ds, q, time.Second)
+	poller.poll(context.Background())
+
+	if key != "debounce:dp-1" {
+		t.Fatalf("idempotency key = %q, want debounce:dp-1", key)
+	}
+}
+
+func TestDebouncePoller_DeletesPendingWhenRunAlreadyExists(t *testing.T) {
+	t.Parallel()
+
+	ds := &mockDebounceStore{
+		duePending: []domain.DebouncePending{
+			{ID: "dp-1", JobID: "job-1", ProjectID: "proj-1", FireAt: time.Now().Add(-time.Second)},
+		},
+		jobs: map[string]*domain.Job{
+			"job-1": {ID: "job-1", Enabled: true, TimeoutSecs: 60},
+		},
+		runs: map[string]*domain.JobRun{
+			"dp-1": {ID: "dp-1", JobID: "job-1", ProjectID: "proj-1"},
+		},
+	}
+
+	q := &mockQueue{
+		enqueueFn: func(context.Context, *domain.JobRun) error {
+			return errors.New("duplicate key")
+		},
+	}
+	poller := NewDebouncePoller(ds, q, time.Second)
+	poller.poll(context.Background())
+
+	if len(ds.restored) != 0 {
+		t.Fatalf("expected existing durable debounce run to avoid pending restore, got %v", ds.restored)
+	}
+}
+
+func TestDebouncePoller_ReschedulesPendingWhenFireTimeProjectQuotaExceeded(t *testing.T) {
+	t.Parallel()
+
+	originalFireAt := time.Now().Add(-time.Second)
+	ds := &mockDebounceStore{
+		duePending: []domain.DebouncePending{
+			{ID: "dp-1", JobID: "job-1", ProjectID: "proj-1", FireAt: originalFireAt},
+		},
+		jobs: map[string]*domain.Job{
+			"job-1": {ID: "job-1", ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60},
+		},
+		quota:      &store.ProjectQuota{MaxQueuedRuns: 1},
+		queuedRuns: 1,
+	}
+
+	var enqueued int
+	q := &mockQueue{enqueueFn: func(context.Context, *domain.JobRun) error {
+		enqueued++
+		return nil
+	}}
+	poller := NewDebouncePoller(ds, q, time.Second)
+	poller.poll(context.Background())
+
+	if enqueued != 0 {
+		t.Fatalf("enqueued = %d, want 0 while quota exceeded", enqueued)
+	}
+	if len(ds.completed) != 0 {
+		t.Fatalf("pending completed despite fire-time quota failure: %v", ds.completed)
+	}
+	if len(ds.rescheduled) != 1 || ds.rescheduled[0].id != "dp-1" {
+		t.Fatalf("pending was not rescheduled after fire-time quota failure: %v", ds.rescheduled)
+	}
+	if !ds.rescheduled[0].oldFireAt.Equal(originalFireAt) {
+		t.Fatalf("reschedule used old_fire_at %s, want %s", ds.rescheduled[0].oldFireAt, originalFireAt)
+	}
+	if !ds.rescheduled[0].nextFireAt.After(time.Now().UTC()) {
+		t.Fatalf("reschedule next fire_at is not in the future: %s", ds.rescheduled[0].nextFireAt)
+	}
+	if len(ds.duePending) != 1 || ds.duePending[0].ID != "dp-1" || !ds.duePending[0].FireAt.After(time.Now().UTC()) {
+		t.Fatalf("pending was not retained in future after fire-time quota failure: %v", ds.duePending)
+	}
+}
+
+func TestDebouncePoller_ReschedulesPendingWhenFireTimeRateLimitExceeded(t *testing.T) {
+	t.Parallel()
+
+	originalFireAt := time.Now().Add(-time.Second)
+	ds := &mockDebounceStore{
+		duePending: []domain.DebouncePending{
+			{ID: "dp-1", JobID: "job-1", ProjectID: "proj-1", FireAt: originalFireAt},
+		},
+		jobs: map[string]*domain.Job{
+			"job-1": {
+				ID:                  "job-1",
+				ProjectID:           "proj-1",
+				Enabled:             true,
+				TimeoutSecs:         60,
+				RateLimitMax:        1,
+				RateLimitWindowSecs: 60,
+			},
+		},
+		runsSince: 1,
+	}
+
+	var enqueued int
+	q := &mockQueue{enqueueFn: func(context.Context, *domain.JobRun) error {
+		enqueued++
+		return nil
+	}}
+	poller := NewDebouncePoller(ds, q, time.Second)
+	poller.poll(context.Background())
+
+	if enqueued != 0 {
+		t.Fatalf("enqueued = %d, want 0 while job rate limit exceeded", enqueued)
+	}
+	if len(ds.completed) != 0 {
+		t.Fatalf("pending completed despite fire-time rate limit failure: %v", ds.completed)
+	}
+	if len(ds.rescheduled) != 1 || ds.rescheduled[0].id != "dp-1" {
+		t.Fatalf("pending was not rescheduled after fire-time rate limit failure: %v", ds.rescheduled)
+	}
+	if !ds.rescheduled[0].oldFireAt.Equal(originalFireAt) {
+		t.Fatalf("reschedule used old_fire_at %s, want %s", ds.rescheduled[0].oldFireAt, originalFireAt)
+	}
+	if !ds.rescheduled[0].nextFireAt.After(time.Now().UTC()) {
+		t.Fatalf("reschedule next fire_at is not in the future: %s", ds.rescheduled[0].nextFireAt)
+	}
+	if len(ds.duePending) != 1 || ds.duePending[0].ID != "dp-1" || !ds.duePending[0].FireAt.After(time.Now().UTC()) {
+		t.Fatalf("pending was not retained in future after fire-time rate limit failure: %v", ds.duePending)
+	}
+}
+
+func TestDebouncePoller_SkipsPendingExtendedAfterDueList(t *testing.T) {
+	t.Parallel()
+
+	ds := &mockDebounceStore{
+		duePending: []domain.DebouncePending{
+			{ID: "dp-1", JobID: "job-1", ProjectID: "proj-1", FireAt: time.Now().Add(10 * time.Minute)},
+		},
+		jobs: map[string]*domain.Job{
+			"job-1": {ID: "job-1", ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60},
+		},
+	}
+
+	var enqueued int
+	q := &mockQueue{enqueueFn: func(context.Context, *domain.JobRun) error {
+		enqueued++
+		return nil
+	}}
+	poller := NewDebouncePoller(ds, q, time.Second)
+	poller.pollLocked(context.Background())
+
+	if enqueued != 0 {
+		t.Fatalf("enqueued = %d, want 0 for pending row extended into the future", enqueued)
+	}
+	if len(ds.claimed) != 0 {
+		t.Fatalf("future pending was claimed: %v", ds.claimed)
+	}
+}
+
+func TestDebouncePoller_RestoreDoesNotOverwriteNewerPending(t *testing.T) {
+	t.Parallel()
+
+	past := time.Now().Add(-time.Second)
+	future := time.Now().Add(10 * time.Minute)
+	ds := &mockDebounceStore{
+		duePending: []domain.DebouncePending{
+			{ID: "dp-old", JobID: "job-1", ProjectID: "proj-1", DebounceKey: "key", FireAt: past},
+		},
+		jobs: map[string]*domain.Job{
+			"job-1": {ID: "job-1", ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60},
+		},
+	}
+
+	q := &mockQueue{enqueueFn: func(context.Context, *domain.JobRun) error {
+		ds.mu.Lock()
+		ds.duePending[0].FireAt = future
+		ds.mu.Unlock()
+		return errors.New("temporary queue failure")
+	}}
+	poller := NewDebouncePoller(ds, q, time.Second)
+	poller.poll(context.Background())
+
+	if len(ds.restored) != 0 {
+		t.Fatalf("old pending restored over newer pending: %v", ds.restored)
+	}
+	if len(ds.completed) != 0 {
+		t.Fatalf("updated pending completed after enqueue failure: %v", ds.completed)
+	}
+	if len(ds.duePending) != 1 || ds.duePending[0].ID != "dp-old" || !ds.duePending[0].FireAt.Equal(future) {
+		t.Fatalf("newer pending was not preserved: %+v", ds.duePending)
 	}
 }
 

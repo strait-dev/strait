@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sync"
 
 	"go.opentelemetry.io/otel"
@@ -47,6 +48,10 @@ type QueueMetrics struct {
 	IndexDeadItems                metric.Int64Gauge
 	ClaimTableDeadTuples          metric.Int64Gauge
 	ClaimTableLiveTuples          metric.Int64Gauge
+	ClaimDuration                 metric.Float64Histogram
+	LockSkipped                   metric.Int64Counter
+	VisibilityTimeoutExpirations  metric.Int64Counter
+	ConcurrencyUtilization        metric.Float64Gauge
 }
 
 var (
@@ -78,7 +83,7 @@ func newQueueMetrics() (*QueueMetrics, error) {
 	meter := otel.Meter("strait/queue_health")
 
 	oldestAge, err := meter.Float64Histogram(
-		"strait.queue.oldest_queued_age_seconds",
+		"strait_queue_oldest_queued_age_seconds",
 		metric.WithDescription("Age in seconds of the oldest queued run observed at dequeue time"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(0.1, 0.5, 1, 5, 10, 30, 60, 300, 900, 3600),
@@ -87,7 +92,7 @@ func newQueueMetrics() (*QueueMetrics, error) {
 		return nil, fmt.Errorf("oldest queued age histogram: %w", err)
 	}
 	scanRows, err := meter.Float64Histogram(
-		"strait.queue.dequeue_scan_rows",
+		"strait_queue_dequeue_scan_rows",
 		metric.WithDescription("Approximate rows examined per dequeue claim (from pg_stat_statements where available)"),
 		metric.WithUnit("1"),
 		metric.WithExplicitBucketBoundaries(1, 10, 100, 1000, 10000, 100000),
@@ -96,56 +101,56 @@ func newQueueMetrics() (*QueueMetrics, error) {
 		return nil, fmt.Errorf("dequeue scan rows histogram: %w", err)
 	}
 	deadRatio, err := meter.Float64Gauge(
-		"strait.queue.dead_tuple_ratio",
+		"strait_queue_dead_tuple_ratio",
 		metric.WithDescription("Ratio of dead tuples to live tuples per job_runs partition"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("dead tuple ratio gauge: %w", err)
 	}
 	liveTuples, err := meter.Int64Gauge(
-		"strait.queue.live_tuples",
+		"strait_queue_live_tuples",
 		metric.WithDescription("Live tuple count per job_runs partition"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("live tuples gauge: %w", err)
 	}
 	hotRatio, err := meter.Float64Gauge(
-		"strait.queue.hot_update_ratio",
+		"strait_queue_hot_update_ratio",
 		metric.WithDescription("HOT updates / total updates per job_runs partition"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("hot update ratio gauge: %w", err)
 	}
 	notifyDropped, err := meter.Int64Counter(
-		"strait.queue.notify_dropped_total",
+		"strait_queue_notify_dropped_total",
 		metric.WithDescription("Number of queue wake notifications dropped because the wake channel was full"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("notify dropped counter: %w", err)
 	}
 	notifyReconnects, err := meter.Int64Counter(
-		"strait.queue.notify_reconnects_total",
+		"strait_queue_notify_reconnects_total",
 		metric.WithDescription("Number of times the LISTEN connection had to reconnect"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("notify reconnects counter: %w", err)
 	}
 	notifyWakeDelivered, err := meter.Int64Counter(
-		"strait.queue.notify_wake_delivered_total",
+		"strait_queue_notify_wake_delivered_total",
 		metric.WithDescription("Number of queue wake notifications successfully delivered to the wake channel"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("notify wake delivered counter: %w", err)
 	}
 	heartbeatReclaims, err := meter.Int64Counter(
-		"strait.queue.heartbeat_reclaims_total",
+		"strait_queue_heartbeat_reclaims_total",
 		metric.WithDescription("Number of stuck runs reclaimed after a heartbeat went stale"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("heartbeat reclaims counter: %w", err)
 	}
 	retryLag, err := meter.Float64Histogram(
-		"strait.queue.retry_schedule_lag_seconds",
+		"strait_queue_retry_schedule_lag_seconds",
 		metric.WithDescription("Delta between intended next_retry_at and observed dequeue time"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30),
@@ -154,14 +159,14 @@ func newQueueMetrics() (*QueueMetrics, error) {
 		return nil, fmt.Errorf("retry schedule lag histogram: %w", err)
 	}
 	masked, err := meter.Int64Gauge(
-		"strait.queue.masked_rows_pending",
+		"strait_queue_masked_rows_pending",
 		metric.WithDescription("Number of rows marked visible_until but not yet physically dropped"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("masked rows pending gauge: %w", err)
 	}
 	counterDrift, err := meter.Int64Gauge(
-		"strait.queue.counter_drift",
+		"strait_queue_counter_drift",
 		metric.WithDescription("Absolute drift observed between trigger-maintained counters and ground truth (job_active_counts + dlq_counts combined)"),
 	)
 	if err != nil {
@@ -169,7 +174,7 @@ func newQueueMetrics() (*QueueMetrics, error) {
 	}
 
 	partitionDequeueLag, err := meter.Float64Histogram(
-		"strait.queue.partition_dequeue_lag_seconds",
+		"strait_queue_partition_dequeue_lag_seconds",
 		metric.WithDescription("Wall-clock duration of a DequeueNPartitioned call per partition"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5),
@@ -178,7 +183,7 @@ func newQueueMetrics() (*QueueMetrics, error) {
 		return nil, fmt.Errorf("partition dequeue lag histogram: %w", err)
 	}
 	claimToStart, err := meter.Float64Histogram(
-		"strait.queue.claim_to_start_seconds",
+		"strait_queue_claim_to_start_seconds",
 		metric.WithDescription("Time between a run being claimed by the executor and the start of user work"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5),
@@ -187,7 +192,7 @@ func newQueueMetrics() (*QueueMetrics, error) {
 		return nil, fmt.Errorf("claim to start histogram: %w", err)
 	}
 	circuitTransitions, err := meter.Int64Counter(
-		"strait.queue.circuit_state_transitions_total",
+		"strait_queue_circuit_state_transitions_total",
 		metric.WithDescription("DB circuit breaker state transitions, labelled by from/to"),
 		metric.WithUnit("1"),
 	)
@@ -195,7 +200,7 @@ func newQueueMetrics() (*QueueMetrics, error) {
 		return nil, fmt.Errorf("circuit state transitions counter: %w", err)
 	}
 	outboxLag, err := meter.Float64Histogram(
-		"strait.queue.outbox_lag_seconds",
+		"strait_queue_outbox_lag_seconds",
 		metric.WithDescription("Age of an outbox row at the time the flusher promoted it"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(0.1, 0.5, 1, 5, 10, 30, 60, 300, 900),
@@ -204,7 +209,7 @@ func newQueueMetrics() (*QueueMetrics, error) {
 		return nil, fmt.Errorf("outbox lag histogram: %w", err)
 	}
 	outboxQuarantinedTotal, err := meter.Int64Counter(
-		"strait.queue.outbox_quarantined_total",
+		"strait_queue_outbox_quarantined_total",
 		metric.WithDescription("Terminal outbox rows quarantined after enqueue promotion failed"),
 		metric.WithUnit("1"),
 	)
@@ -212,7 +217,7 @@ func newQueueMetrics() (*QueueMetrics, error) {
 		return nil, fmt.Errorf("outbox quarantined counter: %w", err)
 	}
 	backpressureTokens, err := meter.Int64Gauge(
-		"strait.queue.backpressure_tokens_available",
+		"strait_queue_backpressure_tokens_available",
 		metric.WithDescription("Available backpressure tokens per project (sampled)"),
 		metric.WithUnit("1"),
 	)
@@ -220,7 +225,7 @@ func newQueueMetrics() (*QueueMetrics, error) {
 		return nil, fmt.Errorf("backpressure tokens gauge: %w", err)
 	}
 	eventChannelDropped, err := meter.Int64Counter(
-		"strait.worker.event_channel_dropped_total",
+		"strait_worker_event_channel_dropped_total",
 		metric.WithDescription("Executor lifecycle events dropped because the event channel was full or closed"),
 		metric.WithUnit("1"),
 	)
@@ -228,7 +233,7 @@ func newQueueMetrics() (*QueueMetrics, error) {
 		return nil, fmt.Errorf("event channel dropped counter: %w", err)
 	}
 	retryAttempts, err := meter.Float64Histogram(
-		"strait.worker.retry_attempts",
+		"strait_worker_retry_attempt_number",
 		metric.WithDescription("Attempt number observed when a run was re-enqueued for retry"),
 		metric.WithUnit("1"),
 		metric.WithExplicitBucketBoundaries(1, 2, 3, 4, 5, 7, 10, 15, 20),
@@ -237,7 +242,7 @@ func newQueueMetrics() (*QueueMetrics, error) {
 		return nil, fmt.Errorf("retry attempts histogram: %w", err)
 	}
 	dlqOldestAge, err := meter.Float64Gauge(
-		"strait.queue.dlq_oldest_unmasked_age_seconds",
+		"strait_queue_dlq_oldest_unmasked_age_seconds",
 		metric.WithDescription("Age in seconds of the oldest visible dead-letter row"),
 		metric.WithUnit("s"),
 	)
@@ -245,7 +250,7 @@ func newQueueMetrics() (*QueueMetrics, error) {
 		return nil, fmt.Errorf("dlq oldest unmasked age gauge: %w", err)
 	}
 	schedulerShutdownTimeouts, err := meter.Int64Counter(
-		"strait.scheduler.shutdown_timeouts_total",
+		"strait_scheduler_shutdown_timeouts_total",
 		metric.WithDescription("Scheduler background components that exceeded the configured shutdown deadline"),
 		metric.WithUnit("1"),
 	)
@@ -253,7 +258,7 @@ func newQueueMetrics() (*QueueMetrics, error) {
 		return nil, fmt.Errorf("scheduler shutdown timeouts counter: %w", err)
 	}
 	eventChannelSaturation, err := meter.Float64Gauge(
-		"strait.worker.event_channel_saturation_ratio",
+		"strait_worker_event_channel_saturation_ratio",
 		metric.WithDescription("Fraction of the executor event channel buffer in use (0.0-1.0)"),
 		metric.WithUnit("1"),
 	)
@@ -294,7 +299,7 @@ func newQueueMetrics() (*QueueMetrics, error) {
 func initArchiveMetrics(meter metric.Meter, m *QueueMetrics) error {
 	var err error
 	m.HistoryRowsArchivedTotal, err = meter.Int64Counter(
-		"strait.queue.history_rows_archived_total",
+		"strait_queue_history_rows_archived_total",
 		metric.WithDescription("Terminal runs archived from hot storage to history"),
 		metric.WithUnit("1"),
 	)
@@ -302,14 +307,14 @@ func initArchiveMetrics(meter metric.Meter, m *QueueMetrics) error {
 		return fmt.Errorf("history rows archived counter: %w", err)
 	}
 	m.HistoryLiveTuples, err = meter.Int64Gauge(
-		"strait.queue.history_live_tuples",
+		"strait_queue_history_live_tuples",
 		metric.WithDescription("Live tuple count in job_runs_history"),
 	)
 	if err != nil {
 		return fmt.Errorf("history live tuples gauge: %w", err)
 	}
 	m.HistoryRetentionDeletedTotal, err = meter.Int64Counter(
-		"strait.queue.history_retention_deleted_total",
+		"strait_queue_history_retention_deleted_total",
 		metric.WithDescription("History rows deleted by retention reaper"),
 		metric.WithUnit("1"),
 	)
@@ -317,21 +322,21 @@ func initArchiveMetrics(meter metric.Meter, m *QueueMetrics) error {
 		return fmt.Errorf("history retention deleted counter: %w", err)
 	}
 	m.ArchiveStrandedTerminal, err = meter.Int64Gauge(
-		"strait.queue.archive_stranded_terminal",
+		"strait_queue_archive_stranded_terminal",
 		metric.WithDescription("Terminal runs still in hot table past retention cutoff"),
 	)
 	if err != nil {
 		return fmt.Errorf("archive stranded terminal gauge: %w", err)
 	}
 	m.QueueDepthByStatus, err = meter.Int64Gauge(
-		"strait.queue.depth_by_status",
+		"strait_queue_depth_by_status",
 		metric.WithDescription("Queue depth grouped by run status"),
 	)
 	if err != nil {
 		return fmt.Errorf("queue depth by status gauge: %w", err)
 	}
 	m.NotifyDegradedDurationSeconds, err = meter.Float64Histogram(
-		"strait.queue.notify_degraded_duration_seconds",
+		"strait_queue_notify_degraded_duration_seconds",
 		metric.WithDescription("Duration of notify degraded mode episodes"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(1, 5, 10, 30, 60, 300, 600, 1800),
@@ -340,7 +345,7 @@ func initArchiveMetrics(meter metric.Meter, m *QueueMetrics) error {
 		return fmt.Errorf("notify degraded duration histogram: %w", err)
 	}
 	m.IndexDeadItems, err = meter.Int64Gauge(
-		"strait.queue.index_dead_items",
+		"strait_queue_index_dead_items",
 		metric.WithDescription("Dead index entries in the dequeue covering index (from pgstatindex)"),
 		metric.WithUnit("1"),
 	)
@@ -348,29 +353,80 @@ func initArchiveMetrics(meter metric.Meter, m *QueueMetrics) error {
 		return fmt.Errorf("index dead items gauge: %w", err)
 	}
 	m.ClaimTableDeadTuples, err = meter.Int64Gauge(
-		"strait.queue.claim_table_dead_tuples",
+		"strait_queue_claim_table_dead_tuples",
 		metric.WithDescription("Dead tuple count in job_run_queue claim table"),
 	)
 	if err != nil {
 		return fmt.Errorf("claim table dead tuples gauge: %w", err)
 	}
 	m.ClaimTableLiveTuples, err = meter.Int64Gauge(
-		"strait.queue.claim_table_live_tuples",
+		"strait_queue_claim_table_live_tuples",
 		metric.WithDescription("Live tuple count in job_run_queue claim table"),
 	)
 	if err != nil {
 		return fmt.Errorf("claim table live tuples gauge: %w", err)
 	}
+	m.ClaimDuration, err = meter.Float64Histogram(
+		"strait_queue_claim_duration_seconds",
+		metric.WithDescription("Duration of queue claim attempts by queue and result"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5),
+	)
+	if err != nil {
+		return fmt.Errorf("claim duration histogram: %w", err)
+	}
+	m.LockSkipped, err = meter.Int64Counter(
+		"strait_queue_lock_skipped_total",
+		metric.WithDescription("Queue rows skipped because another worker held a SKIP LOCKED claim"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return fmt.Errorf("lock skipped counter: %w", err)
+	}
+	m.VisibilityTimeoutExpirations, err = meter.Int64Counter(
+		"strait_queue_visibility_timeout_expirations_total",
+		metric.WithDescription("Runs reclaimed after visibility timeout or heartbeat expiration"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return fmt.Errorf("visibility timeout expirations counter: %w", err)
+	}
+	m.ConcurrencyUtilization, err = meter.Float64Gauge(
+		"strait_queue_concurrency_utilization",
+		metric.WithDescription("Queue concurrency utilization ratio in [0,1]"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return fmt.Errorf("concurrency utilization gauge: %w", err)
+	}
 	return nil
 }
 
+var jobRunsPartitionMetricRE = regexp.MustCompile(`^job_runs_p\d{4}_(0[1-9]|1[0-2])$`)
+
+func partitionMetricLabel(partition string) string {
+	switch {
+	case partition == "job_runs":
+		return "job_runs"
+	case partition == "job_run_queue":
+		return "job_run_queue"
+	case jobRunsPartitionMetricRE.MatchString(partition):
+		return "job_runs_partition"
+	case partition == "":
+		return "unknown"
+	default:
+		return "other"
+	}
+}
+
 // RecordPartitionStats records gauge values for a single partition. The
-// partition label is passed through as a dimension on every emitted point.
+// partition dimension is collapsed to a bounded label set before recording so
+// tenant-controlled or date-derived relnames cannot create unbounded series.
 func (m *QueueMetrics) RecordPartitionStats(ctx context.Context, partition string, stats PartitionStats) {
 	if m == nil {
 		return
 	}
-	attrs := metric.WithAttributes(attribute.String("partition", partition))
+	attrs := metric.WithAttributes(attribute.String("partition", partitionMetricLabel(partition)))
 	m.DeadTupleRatio.Record(ctx, stats.DeadTupleRatio, attrs)
 	m.LiveTuples.Record(ctx, stats.LiveTuples, attrs)
 	if stats.TotalUpdates > 0 {

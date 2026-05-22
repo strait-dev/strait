@@ -5,7 +5,7 @@ icon: "terminal"
 og:image: "/images/og.png"
 ---
 
-The Strait CLI is a single Go binary with 55+ commands covering job management, workflow orchestration, deployment, declarative GitOps, local development, and real-time monitoring.
+The Strait CLI is a single Go binary covering job management, workflow orchestration, declarative GitOps, local development, and real-time monitoring.
 
 ## Installation
 
@@ -104,19 +104,18 @@ Create and manage multi-step workflows.
 | `strait workflows visualize <wf>` | Render workflow graph in the terminal |
 | `strait workflows trigger <wf>` | Trigger a workflow run |
 
-### Deployment
+### Releases
 
-Build, deploy, and promote releases.
+Record and promote customer-owned workflow releases. Strait stores release metadata and traffic state; your own infrastructure builds and runs the code.
 
 | Command | Description |
 |---|---|
-| `strait deploy` | Deploy the current project |
-| `strait deploy create` | Create a new deployment |
-| `strait deploy finalize` | Finalize a deployment after validation |
-| `strait deploy promote` | Promote a deployment to the next environment |
-| `strait deploy rollback` | Roll back to a previous deployment |
-| `strait deploy list` | List deployments |
-| `strait verify` | Verify a deployment is healthy |
+| `strait deploy create` | Create release metadata |
+| `strait deploy finalize` | Finalize a release after validation |
+| `strait deploy promote` | Promote a release to active |
+| `strait deploy rollback` | Roll back to a previous release |
+| `strait deploy list` | List releases |
+| `strait verify` | Verify a release is healthy |
 
 ### Logs
 
@@ -139,7 +138,7 @@ Declarative configuration management for infrastructure-as-code workflows.
 | `strait diff` | Show the diff between local and remote state |
 | `strait apply` | Apply local configuration to the platform |
 | `strait export` | Export current remote state to local files |
-| `strait build` | Build and bundle configuration for deployment |
+| `strait validate` | Validate local configuration |
 | `strait project` | Manage project-level settings |
 
 ### Secrets

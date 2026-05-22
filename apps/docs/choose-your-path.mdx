@@ -1,87 +1,50 @@
 ---
 title: "Choose Your Path"
-description: "Cloud or self-host — pick the right setup for your team"
+description: "Cloud or self-host: choose the setup that fits your team."
 icon: "route"
 ---
 
-## Two Ways to Run Strait
+You can use Strait Cloud or run Strait yourself. The API and SDKs are the same, so you can start in one environment and move later if your requirements change.
 
-Strait runs as a managed cloud service or self-hosted on your infrastructure. Both use the same API, SDKs, and features. Pick the option that fits your team's requirements.
-
-| | Cloud | Self-Host |
+| | Cloud | Self-host |
 |---|---|---|
-| Setup | Sign up at app.strait.dev | Docker Compose or Kubernetes |
-| Infrastructure | Managed by Strait | You manage PostgreSQL + Redis |
-| Updates | Automatic | You pull and deploy |
-| Pricing | Free tier + paid plans | Free forever |
+| Setup | Sign up at app.strait.dev | Docker Compose or your own service host |
+| Infrastructure | Hosted by Strait | You run PostgreSQL and Redis |
+| Updates | Rolled out by Strait | You pull and deploy |
+| Pricing | Free tier plus paid plans | Free, no limits |
 | Data | Hosted by Strait | Your servers, your data |
-| Support | Email + SLA (paid plans) | Community + GitHub Issues |
-| Best for | Teams that want to start fast | Teams with compliance or data requirements |
+| Support | Email plus SLA on paid plans | GitHub Issues |
 
-## Cloud Quickstart
+Choose Cloud when you want the fastest setup and do not need to keep run data inside your own network. Choose self-host when you have compliance, residency, air-gap, or operational control requirements.
 
-<Steps>
-  <Step title="Sign up">
-    Create an account at [app.strait.dev](https://app.strait.dev).
-  </Step>
-  <Step title="Get your API key">
-    Go to **Settings > API Keys** and create a new key.
-  </Step>
-  <Step title="Install an SDK and trigger your first job">
-    ```typescript
-    import { createClient } from "@strait/ts";
+## Cloud setup
 
-    const client = createClient({
-      baseUrl: "https://api.strait.dev",
-      auth: {
-        type: "bearer",
-        token: "sk_live_...",
-      },
-    });
+Sign up at [app.strait.dev](https://app.strait.dev), create an API key under **Settings → API Keys**, install an SDK, and trigger your first job:
 
-    // Trigger a job
-    const run = await client.triggerJob({
-      pathParams: { jobID: "my-first-job" },
-      body: { payload: { message: "Hello from Strait!" } },
-    });
+```typescript
+import { createClient } from "@strait/ts";
 
-    console.log(run.id, run.status); // run_abc123 queued
-    ```
-  </Step>
-</Steps>
+const client = createClient({
+  baseUrl: "https://api.strait.dev",
+  auth: { type: "bearer", token: "strait_..." },
+});
 
-## Self-Host Quickstart
+const run = await client.triggerJob({
+  pathParams: { jobID: "my-first-job" },
+  body: { payload: { message: "Hello from Strait!" } },
+});
 
-<Steps>
-  <Step title="Clone and start">
-    ```bash
-    git clone https://github.com/strait-dev/strait.git
-    cd strait
-    make selfhost
-    ```
-    This starts Strait with PostgreSQL and Redis via Docker Compose.
-  </Step>
-  <Step title="Open the dashboard">
-    Go to [http://localhost:3000](http://localhost:3000) to access the Strait dashboard.
-  </Step>
-  <Step title="Next steps">
-    Build from source or configure production settings: [Full quickstart guide](/quickstart).
-  </Step>
-</Steps>
+console.log(run.id, run.status); // run_abc123 queued
+```
 
-## Next Steps
+## Self-host setup
 
-<CardGroup cols={2}>
-  <Card title="Quickstart" icon="rocket" href="/quickstart">
-    Full self-host setup guide with configuration details.
-  </Card>
-  <Card title="SDKs" icon="code" href="/sdks/overview">
-    Install the TypeScript, Python, or Go SDK for cloud or self-host.
-  </Card>
-  <Card title="Pricing" icon="credit-card" href="/billing/pricing">
-    Compare cloud plans and features.
-  </Card>
-  <Card title="Production Self-Host" icon="server" href="https://github.com/strait-dev/strait/blob/master/SELFHOST.md">
-    Deploy Strait on your own infrastructure at scale.
-  </Card>
-</CardGroup>
+```bash
+git clone https://github.com/strait-dev/strait.git
+cd strait
+make selfhost
+```
+
+That boots PostgreSQL, Redis, the Strait API, and the dashboard via Docker Compose. Open [http://localhost:3000](http://localhost:3000) and sign up.
+
+The full self-host walkthrough lives in the [Self-Hosting](/guides/self-hosting) guide. For a local development setup, see the [Quick Start](/quickstart).

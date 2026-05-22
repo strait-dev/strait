@@ -39,9 +39,13 @@ func (m *MaintenanceLoop) Run(ctx context.Context) {
 		case <-ctx.Done():
 			m.logger.Info("maintenance loop stopping", "name", m.name)
 			return
-		case <-ticker.C:
+		case scheduledAt := <-ticker.C:
 			if m.task != nil {
-				m.task(ctx)
+				startedAt := time.Now()
+				runSchedulerCycleCheckIn(ctx, m.interval, func() {
+					m.task(ctx)
+				})
+				recordSchedulerLoop(ctx, m.name, scheduledAt, startedAt, m.interval, "tick", 1)
 			}
 		}
 	}

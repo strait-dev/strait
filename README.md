@@ -1,26 +1,31 @@
-<img src="https://hxoqk4a8w8.ufs.sh/f/ZzAsUSY0y2ib988DGnzbzH8IZUEXKGOAujekVWqNxQYhbBJ5" alt="Strait header" width="100%" />
+<img src=".github/github.jpg" alt="Strait" width="100%" />
 
-# Strait
+<h1 align="center">Strait</h1>
 
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/strait-dev/strait/badge)](https://scorecard.dev/viewer/?uri=github.com/strait-dev/strait)
-[![Go Report Card](https://goreportcard.com/badge/github.com/strait-dev/strait)](https://goreportcard.com/report/github.com/strait-dev/strait)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+<p align="center"><strong>Open-source job orchestration in a single Go binary.</strong></p>
 
-**Production-grade job orchestration for engineering teams and AI agents — in a single binary.**
+<p align="center">
+  <a href="https://scorecard.dev/viewer/?uri=github.com/strait-dev/strait"><img src="https://api.scorecard.dev/projects/github.com/strait-dev/strait/badge" alt="OpenSSF Scorecard" /></a>
+  <a href="https://goreportcard.com/report/github.com/strait-dev/strait"><img src="https://goreportcard.com/badge/github.com/strait-dev/strait" alt="Go Report Card" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License: Apache 2.0" /></a>
+</p>
 
-Strait handles job queuing, scheduling, state tracking, and execution in one Go service backed by Postgres and Redis. No RabbitMQ, no SQS, no Kafka.
+Strait runs your background jobs and orchestrates multi-step workflows from a single service backed by PostgreSQL and Redis, with no separate message broker to operate.
 
-- **Full run lifecycle** — every run is tracked from creation through completion, failure, timeout, and review queue, with a real-time dashboard to match
-- **Workflow engine** — branching, parallel steps, sub-workflows, approval gates, and compensating transactions
-- **Smart retries** — configurable retry strategies with jitter and per-endpoint circuit breakers
-- **Durable workflows** — multi-day sleeps, checkpoints, expected completion tracking, and stage notifications
-- **Observability built in** — OpenTelemetry tracing, Prometheus metrics, structured logging, and real-time streaming
-- **Multi-language SDKs** — [TypeScript](https://github.com/strait-dev/strait-ts), [Python](https://github.com/strait-dev/strait-python), [Go](https://github.com/strait-dev/strait-go), [Ruby](https://github.com/strait-dev/strait-ruby), [Rust](https://github.com/strait-dev/strait-rust), all with full feature parity
-- **Zero third-party runtime deps for self-host** — everything ships in Docker Compose
+- **Jobs and runs.** Trigger work over HTTP or a connected worker, then watch each run move from `queued` to `completed`, or to `dead_letter` when its retries run out, in a live dashboard.
+- **Your code, your infrastructure.** Strait never runs your code itself. It reaches the endpoint you expose over HTTP, or a long-lived worker you connect over gRPC, and streams the results back.
+- **Workflows.** Compose multi-step workflows with branching, parallel steps, sub-workflows, human approval gates, and compensation steps that roll back partial work when something fails.
+- **Durable execution.** Workflows survive process restarts and multi-day sleeps, with checkpoints, expected-completion tracking, and stage notifications.
+- **Retries and resilience.** Exponential, linear, fixed, or custom backoff with jitter, per-endpoint circuit breakers, and adaptive concurrency that backs off under load.
+- **Scheduling and events.** Cron schedules with timezone support, plus event triggers and inbound event sources that start work when something happens elsewhere.
+- **Failure recovery.** Inspect a failed run, fix the cause, and replay it. Dead-letter runs are kept for review instead of silently dropped.
+- **Observability built in.** OpenTelemetry traces, Prometheus metrics, structured logs, and real-time SSE streaming, with optional ClickHouse analytics, audit logs, and log drains.
+- **SDKs and tooling.** Official SDKs for [TypeScript](https://github.com/strait-dev/strait-ts), [Python](https://github.com/strait-dev/strait-python), [Go](https://github.com/strait-dev/strait-go), [Ruby](https://github.com/strait-dev/strait-ruby), and [Rust](https://github.com/strait-dev/strait-rust) with the same feature set on each, plus a [CLI](https://github.com/strait-dev/cli) and an [MCP server](https://github.com/strait-dev/mcp).
+- **One binary, self-host ready.** Strait ships as a single Go binary, and self-hosting needs nothing beyond `docker-compose.selfhost.yml`.
 
 ---
 
-## Get started in 60 seconds
+## Get started
 
 ### Self-host with Docker Compose
 
@@ -30,7 +35,7 @@ cd strait
 make selfhost
 ```
 
-That boots Postgres, Redis, Sequin, the Strait API, and the dashboard on your own machine. Open http://localhost:3000, sign up, and create your first job. **No Stripe. No billing. No telemetry. No third-party accounts.**
+That starts the Strait API, dashboard, database, and supporting services on your machine. Open http://localhost:3000, sign up, and create your first job. Everything runs locally, with no Stripe, billing, or third-party accounts involved.
 
 Full walkthrough and hardening guide: [`SELFHOST.md`](SELFHOST.md).
 
@@ -40,71 +45,23 @@ Full walkthrough and hardening guide: [`SELFHOST.md`](SELFHOST.md).
 
 Bun monorepos need one manual setting during the Workers Builds import (`Root directory: apps/app` + a custom build command). Full walkthrough: [`apps/app/README.md`](apps/app/README.md#deploy-to-cloudflare).
 
----
-
-## Let an AI agent do the setup for you
-
-Paste the block below into Claude Code, Cursor, Codex, Aider, or any coding agent and it will clone Strait, bring up the self-host stack, and walk you through triggering your first job — end to end. No manual commands.
-
-~~~
-You are setting up Strait, a self-hosted job orchestration platform, on my
-machine. Do everything end to end without stopping to ask me for confirmation
-unless something actually fails.
-
-1. Confirm Docker and Docker Compose v2 are installed and Docker is running.
-   If Docker is not running, stop and tell me to start Docker Desktop.
-2. Clone https://github.com/strait-dev/strait.git to a fresh directory and cd
-   into it. If the repo already exists, cd into it and `git pull`.
-3. Run `make selfhost`. This generates `.env.selfhost` with random secrets,
-   then brings up Postgres, Redis, Sequin, the Strait API, and the dashboard
-   via `docker-compose.selfhost.yml`.
-4. Wait for every service to be healthy. Poll
-   `curl -sf http://localhost:8080/health`, `curl -sf http://localhost:3000/login`,
-   and `docker compose -f docker-compose.selfhost.yml ps` until all containers
-   report `(healthy)`. Time out after 3 minutes and report which container
-   failed if so.
-5. Using the REST API directly (not the dashboard), create a project, an API
-   key, and a job that POSTs to https://httpbin.org/post. Trigger a run with a
-   small JSON payload. Poll the run status until it reaches `completed` or
-   `failed`, then print the run ID, final state, and elapsed time.
-6. Print next steps: how to open the dashboard (http://localhost:3000), where
-   the API reference lives (http://localhost:8080/reference), how to view logs
-   (`docker compose -f docker-compose.selfhost.yml logs -f strait`), and how
-   to tear the stack down (`make selfhost-down`).
-
-Important rules:
-- Use `SELFHOST.md` as the source of truth for any command I did not spell out
-  above.
-- Do not install billing, Stripe, or Infisical. Strait's self-host edition has
-  billing compiled out — do not try to set up a paid plan or prompt me for a
-  payment provider.
-- Do not commit or push anything. Do not touch my global git config.
-- If `make selfhost` is unavailable on my system, fall back to
-  `./packages/scripts/selfhost-init.sh` + `docker compose --env-file .env.selfhost
-  -f docker-compose.selfhost.yml up -d`.
-- Print a single concise summary at the end with the URLs, the project/API-key/
-  job IDs you created, and the command to stop the stack.
-~~~
-
----
-
 ## What you get
 
 | | Self-host (community) | Cloud ([strait.dev](https://strait.dev)) |
 |---|---|---|
-| Job orchestration with retries, workflows, and review queue | ✓ | ✓ |
+| Job orchestration with retries, workflows, and `dead_letter` recovery | ✓ | ✓ |
 | Workflow engine with branching, rollback, and approval gates | ✓ | ✓ |
 | Real-time streaming and live updates | ✓ | ✓ |
 | All SDKs (TS, Python, Go, Ruby, Rust) | ✓ | ✓ |
 | Dashboard UI | ✓ | ✓ |
-| Built-in observability (tracing, metrics, logs) | ✓ | ✓ |
+| Tracing, metrics, logs, and live updates | ✓ | ✓ |
 | Interactive API reference at `/reference` | ✓ | ✓ |
-| Billing, metering, usage limits, Stripe | — | ✓ |
-| Managed multi-region execution | — | ✓ |
-| Advanced analytics (ClickHouse) | — | ✓ |
-| SLA + 24/7 support | — | ✓ |
+| Billing, metering, usage limits, Stripe | | ✓ |
+| Multi-region hosted orchestration | | ✓ |
+| Hosted ClickHouse reporting | | ✓ |
+| SLA + 24/7 support | | ✓ |
 
-Self-host is the community edition. Billing is compiled out of the dashboard image — there is no way to connect Stripe, view plan limits, or reach an upgrade screen. You own your data, your infrastructure, and your users.
+Self-host runs the community edition. Billing is compiled out of the dashboard image, so there is no Stripe connection, plan limit, or upgrade screen, and your data and users stay on your infrastructure.
 
 ---
 
@@ -113,12 +70,15 @@ Self-host is the community edition. Billing is compiled out of the dashboard ima
 | Topic | Link |
 |---|---|
 | Product overview | [`apps/docs/introduction.mdx`](apps/docs/introduction.mdx) |
-| 10-minute quickstart | [`apps/docs/quickstart.mdx`](apps/docs/quickstart.mdx) |
-| Architecture deep dive | [`apps/docs/architecture.mdx`](apps/docs/architecture.mdx) |
+| Choose the right path | [`apps/docs/choose-your-path.mdx`](apps/docs/choose-your-path.mdx) |
+| Quickstart | [`apps/docs/quickstart.mdx`](apps/docs/quickstart.mdx) |
+| Use cases | [`apps/docs/use-cases/background-jobs.mdx`](apps/docs/use-cases/background-jobs.mdx) |
+| Compare Strait | [`apps/docs/compare/message-queues.mdx`](apps/docs/compare/message-queues.mdx) |
+| Architecture | [`apps/docs/architecture.mdx`](apps/docs/architecture.mdx) |
 | Core concepts | [`apps/docs/concepts/jobs.mdx`](apps/docs/concepts/jobs.mdx) |
 | API reference | [`apps/docs/api-reference/overview.mdx`](apps/docs/api-reference/overview.mdx) |
 | SDK reference | [`apps/docs/sdks/overview.mdx`](apps/docs/sdks/overview.mdx) |
-| Guides (auth, security, performance, and more) | [`apps/docs/guides/authentication.mdx`](apps/docs/guides/authentication.mdx) |
+| Guides | [`apps/docs/guides/production-job.mdx`](apps/docs/guides/production-job.mdx) |
 | Contributor operating guide | [`AGENTS.md`](AGENTS.md) |
 | Self-host walkthrough | [`SELFHOST.md`](SELFHOST.md) |
 
@@ -140,15 +100,15 @@ Dedicated repositories:
 
 Turborepo monorepo managed with Bun. The bits that matter:
 
-```
+```text
 apps/
-  strait/   Go service — API, worker, scheduler, all in one binary
-  app/      TanStack Start dashboard (React 19, Vite)
-  docs/     Mintlify docs
-packages/   Shared TS packages (ui, billing, config, transactional, …)
-docker-compose.selfhost.yml   One-command self-host stack
-SELFHOST.md                   Self-host walkthrough
-AGENTS.md                     Operating guide for contributors + AI agents
+  strait/   Go service. API, worker, scheduler, all in one binary.
+  app/      TanStack Start dashboard (React 19, Vite).
+  docs/     Mintlify docs.
+packages/   Shared TS packages (ui, billing, config, transactional, ...).
+docker-compose.selfhost.yml   One-command self-host stack.
+SELFHOST.md                   Self-host walkthrough.
+AGENTS.md                     Contributor operating guide.
 ```
 
 Install and run workspace tasks:
@@ -176,7 +136,7 @@ Run hooks:
 lefthook run pre-commit
 ```
 
-See [`AGENTS.md`](AGENTS.md) for the full contributor guide — tech stack, module layout, coding conventions, testing patterns, and how AI agents should work in this repo.
+See [`AGENTS.md`](AGENTS.md) for the full contributor guide: tech stack, module layout, coding conventions, testing patterns, and repository workflow.
 
 ---
 

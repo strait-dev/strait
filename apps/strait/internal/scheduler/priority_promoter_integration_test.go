@@ -47,7 +47,7 @@ func createJobAndQueuedRuns(t *testing.T, st *store.Queries, q *queue.PostgresQu
 	}
 
 	runs := make([]*domain.JobRun, 0, n)
-	for i := 0; i < n; i++ {
+	for range n {
 		r := &domain.JobRun{
 			ID:        uuid.Must(uuid.NewV7()).String(),
 			JobID:     job.ID,

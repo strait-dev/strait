@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -171,13 +172,7 @@ func TestJobs_ListOrgsWithExecutingRuns_HappyPath(t *testing.T) {
 		t.Fatalf("ListOrgsWithExecutingRuns() error = %v", err)
 	}
 
-	found := false
-	for _, o := range orgs {
-		if o == orgID {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(orgs, orgID)
 	if !found {
 		t.Fatalf("org %q not in result %v", orgID, orgs)
 	}
@@ -566,6 +561,75 @@ func TestBatch_DrainBatchBuffer_LimitRespected(t *testing.T) {
 	remaining, _ := q.CountBatchBufferItems(ctx, job.ID, "lim-key")
 	if remaining != 3 {
 		t.Fatalf("remaining = %d, want 3", remaining)
+	}
+}
+
+func TestBatch_DrainBatchBuffer_SkipsRowsLockedByConcurrentDrain(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-drain-locked")
+	for i := range 4 {
+		item := &domain.BatchBufferItem{
+			ID:          "locked-batch-item-" + newID(),
+			JobID:       job.ID,
+			ProjectID:   job.ProjectID,
+			BatchKey:    "locked-key",
+			Payload:     json.RawMessage(`{"i":` + string(rune('0'+i)) + `}`),
+			Tags:        json.RawMessage(`{}`),
+			TriggeredBy: "manual",
+		}
+		if err := q.InsertBatchBufferItem(ctx, item); err != nil {
+			t.Fatalf("InsertBatchBufferItem() error = %v", err)
+		}
+	}
+
+	tx, err := testDB.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	firstDrain, err := q.DrainBatchBufferInTx(ctx, tx, job.ID, "locked-key", 2)
+	if err != nil {
+		t.Fatalf("DrainBatchBufferInTx() error = %v", err)
+	}
+	if len(firstDrain) != 2 {
+		t.Fatalf("first drain len = %d, want 2", len(firstDrain))
+	}
+
+	secondDrain, err := q.DrainBatchBuffer(ctx, job.ID, "locked-key", 4)
+	if err != nil {
+		t.Fatalf("concurrent DrainBatchBuffer() error = %v", err)
+	}
+	if len(secondDrain) != 2 {
+		t.Fatalf("second drain len = %d, want 2", len(secondDrain))
+	}
+
+	seen := make(map[string]bool, 4)
+	for _, item := range firstDrain {
+		seen[item.ID] = true
+	}
+	for _, item := range secondDrain {
+		if seen[item.ID] {
+			t.Fatalf("item %s drained twice while first transaction held locks", item.ID)
+		}
+		seen[item.ID] = true
+	}
+	if len(seen) != 4 {
+		t.Fatalf("unique drained items = %d, want 4", len(seen))
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit first drain: %v", err)
+	}
+	remaining, err := q.CountBatchBufferItems(ctx, job.ID, "locked-key")
+	if err != nil {
+		t.Fatalf("CountBatchBufferItems() error = %v", err)
+	}
+	if remaining != 0 {
+		t.Fatalf("remaining = %d, want 0", remaining)
 	}
 }
 
@@ -963,6 +1027,38 @@ func TestJobs_ListRunsByOrg_ExcludesDeletedProjects(t *testing.T) {
 	}
 	if len(runs) != 0 {
 		t.Fatalf("len = %d, want 0 (project deleted)", len(runs))
+	}
+}
+
+func TestJobs_ListRunsByOrg_ExcludesRetentionMaskedRuns(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	orgID := "org-list-runs-masked-" + newID()
+	projectID := "project-list-runs-masked-" + newID()
+
+	project := &domain.Project{ID: projectID, OrgID: orgID, Name: "test"}
+	if err := q.CreateProject(ctx, project); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+
+	job := mustCreateJob(t, ctx, q, projectID)
+	visibleRun := mustCreateRun(t, ctx, q, job)
+	maskedRun := mustCreateRun(t, ctx, q, job)
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE job_runs SET visible_until = NOW() WHERE id = $1`, maskedRun.ID); err != nil {
+		t.Fatalf("mask run: %v", err)
+	}
+
+	runs, err := q.ListRunsByOrg(ctx, orgID, 100, nil)
+	if err != nil {
+		t.Fatalf("ListRunsByOrg() error = %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("len = %d, want 1 visible run: %+v", len(runs), runs)
+	}
+	if runs[0].ID != visibleRun.ID {
+		t.Fatalf("run id = %q, want visible run %q", runs[0].ID, visibleRun.ID)
 	}
 }
 

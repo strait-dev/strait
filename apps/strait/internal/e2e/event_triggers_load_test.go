@@ -1,5 +1,4 @@
 //go:build integration
-// +build integration
 
 package e2e_test
 
@@ -25,14 +24,14 @@ func TestEventTriggerLoadCreate(t *testing.T) {
 	ctx := context.Background()
 
 	start := time.Now()
-	for i := 0; i < count; i++ {
+	for i := range count {
 		trigger := &domain.EventTrigger{
-			ID:         fmt.Sprintf("load-create-%d-%d", time.Now().UnixNano(), i),
-			EventKey:   fmt.Sprintf("load:create:%d:%d", time.Now().UnixNano(), i),
-			ProjectID:  "proj-load-test",
-			SourceType: domain.EventSourceJobRun,
+			ID:          fmt.Sprintf("load-create-%d-%d", time.Now().UnixNano(), i),
+			EventKey:    fmt.Sprintf("load:create:%d:%d", time.Now().UnixNano(), i),
+			ProjectID:   "proj-load-test",
+			SourceType:  domain.EventSourceJobRun,
 			TriggerType: "event",
-			Status:     domain.EventTriggerStatusWaiting,
+			Status:      domain.EventTriggerStatusWaiting,
 			TimeoutSecs: 3600,
 			RequestedAt: time.Now(),
 			ExpiresAt:   time.Now().Add(time.Hour),
@@ -56,7 +55,7 @@ func TestEventTriggerLoadSendConcurrent(t *testing.T) {
 
 	// Pre-create triggers.
 	triggers := make([]*domain.EventTrigger, concurrency)
-	for i := 0; i < concurrency; i++ {
+	for i := range concurrency {
 		triggers[i] = &domain.EventTrigger{
 			ID:          fmt.Sprintf("load-send-%d-%d", time.Now().UnixNano(), i),
 			EventKey:    fmt.Sprintf("load:send:%d:%d", time.Now().UnixNano(), i),
@@ -79,7 +78,7 @@ func TestEventTriggerLoadSendConcurrent(t *testing.T) {
 	payload := json.RawMessage(`{"approved":true}`)
 
 	start := time.Now()
-	for i := 0; i < concurrency; i++ {
+	for i := range concurrency {
 		idx := i
 		wg.Go(func() {
 			errs[idx] = testStore.UpdateEventTriggerStatus(

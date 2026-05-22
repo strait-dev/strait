@@ -17,7 +17,7 @@ var auditMetricRegex = regexp.MustCompile(`\bstrait_audit_[a-z_]+\b`)
 
 // metricsGoAuditNames returns the set of strait.audit.* instrument
 // names declared in metrics.go. The OTel exporter translates dots to
-// underscores for Prometheus, so "strait.audit.events_emitted_total"
+// underscores for Prometheus, so "strait_audit_events_emitted_total"
 // in Go is "strait_audit_events_emitted_total" on the scrape side.
 // Observable gauges in Go are queried by their bare Prometheus name
 // (no _total suffix) so we keep them in the set as-is.
@@ -67,7 +67,7 @@ func dashboardAuditMetricRefs(t *testing.T) map[string]struct{} {
 	if !ok {
 		t.Fatal("runtime.Caller failed")
 	}
-	dashPath := filepath.Join(filepath.Dir(thisFile), "..", "..", "k8s", "grafana", "audit-events.json")
+	dashPath := filepath.Join(filepath.Dir(thisFile), "..", "..", "monitoring", "grafana", "audit-events.json")
 	raw, err := os.ReadFile(dashPath)
 	if err != nil {
 		t.Fatalf("read audit-events.json: %v", err)

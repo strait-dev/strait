@@ -1,7 +1,9 @@
 package telemetry
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"strings"
 	"testing"
 )
@@ -46,6 +48,38 @@ func TestInit_WithEndpoint(t *testing.T) {
 		_ = shutdown(ctx)
 	}
 	// If error occurs, that's acceptable for a non-existent endpoint
+}
+
+func TestInit_RedactsCredentialedEndpointInStartupLog(t *testing.T) {
+	ctx := context.Background()
+	var buf bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() {
+		slog.SetDefault(previous)
+	})
+
+	shutdown, err := Init(ctx, "test-service", "http://user:pass@localhost:4318/v1/traces?sig=signed&tenant=prod", "test")
+	if err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	_ = shutdown(ctx)
+
+	out := buf.String()
+	if !strings.Contains(out, "otel tracing enabled") {
+		t.Fatalf("startup log missing enable message: %s", out)
+	}
+	for _, leaked := range []string{"user", "pass", "signed"} {
+		if strings.Contains(out, leaked) {
+			t.Fatalf("startup log leaked %q: %s", leaked, out)
+		}
+	}
+	if !strings.Contains(out, "sig=%5Bredacted%5D") {
+		t.Fatalf("startup log missing redacted signature query: %s", out)
+	}
+	if !strings.Contains(out, "tenant=prod") {
+		t.Fatalf("startup log should preserve non-sensitive query params: %s", out)
+	}
 }
 
 // TestInit_ServiceName verifies that Init accepts a service name.

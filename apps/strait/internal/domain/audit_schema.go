@@ -29,6 +29,8 @@ var commonForbiddenKeys = []string{
 	"private_key",
 	"auth_header",
 	"webhook_secret",
+	"endpoint_signing_secret",
+	"signing_secret",
 	"api_key_plaintext",
 	"raw_key",
 	"token",
@@ -56,6 +58,10 @@ var AuditActionSchemas = map[string]AuditActionSchema{
 	},
 	AuditActionAPIKeyListRead: {
 		Description: "API key list read.",
+	},
+	AuditActionAuthRunTokenRejected: {
+		Required:    []string{"reason", "run_id"},
+		Description: "SDK run-token authentication rejected before run-scoped API access.",
 	},
 
 	// Audit.
@@ -262,15 +268,15 @@ var AuditActionSchemas = map[string]AuditActionSchema{
 	},
 	AuditActionRunPaused: {
 		Required:    []string{"job_id"},
-		Description: "Managed run paused.",
+		Description: "Run paused.",
 	},
 	AuditActionRunResumed: {
 		Required:    []string{"job_id"},
-		Description: "Managed run resumed.",
+		Description: "Run resumed.",
 	},
 	AuditActionRunRestarted: {
 		Required:    []string{"job_id"},
-		Description: "Managed run restarted.",
+		Description: "Run restarted.",
 	},
 	AuditActionRunsExported: {
 		Required:    []string{"format", "from", "to", "project_id"},
@@ -552,19 +558,7 @@ var AuditActionSchemas = map[string]AuditActionSchema{
 		Description: "Event triggers purged.",
 	},
 
-	// Code + deployment versions.
-	AuditActionCodeDeploymentCreated: {
-		Required:    []string{"job_id", "runtime"},
-		Description: "Code-first deployment created.",
-	},
-	AuditActionCodeDeploymentConfirmed: {
-		Required:    []string{"job_id", "runtime"},
-		Description: "Code-first deployment confirmed and queued for build.",
-	},
-	AuditActionCodeDeploymentRolledBack: {
-		Required:    []string{"job_id"},
-		Description: "Code-first deployment rolled back.",
-	},
+	// Deployment versions.
 	AuditActionDeploymentVersionCreated: {
 		Required:    []string{"environment"},
 		Description: "Artifact deployment version created.",
@@ -580,6 +574,18 @@ var AuditActionSchemas = map[string]AuditActionSchema{
 	AuditActionDeploymentVersionRolledBack: {
 		Required:    []string{"environment"},
 		Description: "Artifact deployment version rolled back.",
+	},
+
+	// Job endpoints.
+	AuditActionEndpointSet: {
+		Required:    []string{"job_id", "endpoint_url_host"},
+		Forbidden:   []string{"endpoint_signing_secret", "signing_secret"},
+		Description: "Job HTTP endpoint URL updated; a fresh HMAC signing secret was generated.",
+	},
+	AuditActionEndpointVerified: {
+		Required:    []string{"job_id", "endpoint_url_host", "success"},
+		Forbidden:   []string{"endpoint_signing_secret", "signing_secret"},
+		Description: "Signed test ping sent to the job endpoint; result recorded.",
 	},
 
 	// Billing / usage.
@@ -602,6 +608,48 @@ var AuditActionSchemas = map[string]AuditActionSchema{
 	AuditActionAnomalyConfigUpdated: {
 		Required:    []string{"warning_threshold", "critical_threshold"},
 		Description: "Anomaly detection thresholds updated.",
+	},
+
+	// Worker connections (gRPC streaming).
+	AuditActionWorkerConnected: {
+		Required:    []string{"worker_id", "hostname"},
+		Description: "Worker connected via gRPC streaming.",
+	},
+	AuditActionWorkerDisconnected: {
+		Required:    []string{"worker_id"},
+		Description: "Worker disconnected from gRPC stream.",
+	},
+	AuditActionWorkerForceDisconnected: {
+		Required:    []string{"worker_id", "reason"},
+		Description: "Worker force-disconnected by operator or revocation broadcast.",
+	},
+	AuditActionWorkerTaskRouted: {
+		Required:    []string{"run_id", "worker_id", "queue", "project_id"},
+		Description: "Worker-mode run routed to a connected gRPC worker.",
+	},
+	AuditActionWorkerDeleteAcked: {
+		Required:    []string{"worker_id"},
+		Description: "Worker force-disconnect request was acknowledged by the worker-plane replica.",
+	},
+	AuditActionWorkerDeleteTimeout: {
+		Required:    []string{"worker_id", "timeout_ms"},
+		Description: "Worker force-disconnect request timed out waiting for worker-plane acknowledgement.",
+	},
+
+	// Billing-period enforcement lifecycle.
+	AuditActionSubscriptionChanged: {
+		Required:    []string{"org_id", "plan_tier"},
+		Description: "Org subscription changed (plan upgrade, downgrade, or renewal).",
+	},
+	AuditActionUsageThresholdReached: {
+		Required:    []string{"org_id", "plan_tier", "metric", "threshold_pct", "current", "limit"},
+		Description: "Org crossed an 80%, 90%, or 100% threshold of a metered quota in the current billing period. Emitted at most once per (org, metric, threshold) per period.",
+	},
+
+	// Internal-secret bypass.
+	AuditActionInternalSecretBypass: {
+		Required:    []string{"gate", "caller", "handler"},
+		Description: "Project-scoped handler entered via X-Internal-Secret without a project context. gate names the skipped check, caller is the sender identity (api-key:<id> or 'unknown'), handler names the entry point.",
 	},
 }
 

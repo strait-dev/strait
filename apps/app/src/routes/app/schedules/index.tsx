@@ -14,7 +14,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   getCoreRowModel,
   getFilteredRowModel,
-  getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
@@ -37,6 +36,7 @@ import {
   useResumeSchedule,
   useTriggerSchedule,
 } from "@/hooks/api/use-schedules";
+import { useCursorPagination } from "@/hooks/use-cursor-pagination";
 import {
   CalendarIcon,
   EyeIcon,
@@ -51,17 +51,24 @@ import type { AppRouteContext } from "@/routes/app/layout";
 export const searchSchema = z.object({
   query: z.string().optional(),
   status: z.array(z.string()).optional(),
-  page: z.number().optional().default(1),
-  perPage: z.number().optional().default(20),
+  cursor: z.string().optional(),
+  perPage: z.number().optional(),
 });
 
 export const Route = createFileRoute("/app/schedules/")({
+  head: () => ({ meta: [{ title: "Schedules · Strait" }] }),
   validateSearch: zodValidator(searchSchema),
-  loader: async ({ context }) => {
+  loaderDeps: ({ search }) => ({
+    limit: search.perPage ?? 20,
+    cursor: search.cursor,
+  }),
+  loader: async ({ context, deps }) => {
     const { session } = context as AppRouteContext;
     const hasProject = !!session.user.activeProjectId;
     if (hasProject) {
-      await context.queryClient.ensureQueryData(schedulesQueryOptions());
+      await context.queryClient.ensureQueryData(
+        schedulesQueryOptions({ limit: deps.limit, cursor: deps.cursor })
+      );
     }
     return { hasProject, session };
   },
@@ -75,6 +82,10 @@ function SchedulesPage() {
   const { hasProject, session } = Route.useLoaderData();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
+  const pagination = useCursorPagination(
+    { cursor: search.cursor, perPage: search.perPage },
+    navigate
+  );
   const [selectedSchedule, setSelectedSchedule] = useState<Job | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const triggerSchedule = useTriggerSchedule();
@@ -82,14 +93,18 @@ function SchedulesPage() {
   const resumeSchedule = useResumeSchedule();
 
   const { data } = useQuery({
-    ...schedulesQueryOptions(),
+    ...schedulesQueryOptions({
+      limit: pagination.perPage,
+      cursor: pagination.cursor,
+    }),
     enabled: hasProject,
   });
 
   const selectedStatuses = search.status ?? [];
 
+  const typed = data as PaginatedResponse<Job> | undefined;
+
   const filteredData = useMemo(() => {
-    const typed = data as PaginatedResponse<Job> | undefined;
     const jobs = hasProject ? (typed?.data ?? []) : [];
     if (selectedStatuses.length === 0) {
       return jobs;
@@ -103,7 +118,7 @@ function SchedulesPage() {
       }
       return false;
     });
-  }, [data, selectedStatuses, hasProject]);
+  }, [typed, selectedStatuses, hasProject]);
 
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
 
@@ -126,13 +141,17 @@ function SchedulesPage() {
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
+    manualPagination: true,
     enableRowSelection: true,
     onRowSelectionChange: setRowSelection,
     state: { globalFilter: search.query ?? "", rowSelection },
     onGlobalFilterChange: (query) =>
       navigate({
-        search: (prev) => ({ ...prev, query: query || undefined, page: 1 }),
+        search: (prev) => ({
+          ...prev,
+          query: query || undefined,
+          cursor: undefined,
+        }),
       }),
     getRowId: (row) => row.id,
   });
@@ -140,6 +159,19 @@ function SchedulesPage() {
   const selectedIds = Object.keys(rowSelection).filter(
     (id) => rowSelection[id]
   );
+
+  const summary = useMemo(() => {
+    let enabled = 0;
+    let paused = 0;
+    for (const job of filteredData) {
+      if (job.enabled) {
+        enabled++;
+      } else {
+        paused++;
+      }
+    }
+    return { enabled, paused };
+  }, [filteredData]);
 
   function toggleStatus(status: string) {
     const current = new Set(selectedStatuses);
@@ -153,7 +185,7 @@ function SchedulesPage() {
       search: (prev) => ({
         ...prev,
         status: arr.length > 0 ? arr : undefined,
-        page: 1,
+        cursor: undefined,
       }),
     });
   }
@@ -173,6 +205,26 @@ function SchedulesPage() {
 
   return (
     <Shell>
+      <h1 className="sr-only">Schedules</h1>
+      {filteredData.length > 0 && (
+        <div className="flex flex-wrap items-center gap-4 pb-3 text-sm">
+          <span className="text-muted-foreground">
+            {filteredData.length} schedule
+            {filteredData.length === 1 ? "" : "s"}
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block size-1.5 rounded-full bg-success" />
+            <span className="tabular-nums">{summary.enabled}</span>
+            <span className="text-muted-foreground">enabled</span>
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block size-1.5 rounded-full bg-muted-foreground/40" />
+            <span className="tabular-nums">{summary.paused}</span>
+            <span className="text-muted-foreground">paused</span>
+          </span>
+        </div>
+      )}
+
       <div className="flex items-center gap-3 pb-2.5">
         <div className="relative w-full max-w-[500px]">
           <HugeiconsIcon
@@ -188,7 +240,7 @@ function SchedulesPage() {
                 search: (prev) => ({
                   ...prev,
                   query: e.target.value || undefined,
-                  page: 1,
+                  cursor: undefined,
                 }),
               })
             }
@@ -240,6 +292,19 @@ function SchedulesPage() {
         }}
       >
         <DataTable
+          ariaLabel="Schedules"
+          cursorPagination={{
+            pageSize: pagination.perPage,
+            hasMore: typed?.has_more ?? false,
+            canGoBack: pagination.canGoBack,
+            onNext: () => {
+              if (typed?.next_cursor) {
+                pagination.goNext(typed.next_cursor);
+              }
+            },
+            onPrev: pagination.goPrev,
+            onPageSizeChange: pagination.setPerPage,
+          }}
           emptyState={emptyState}
           floatingBar={
             <DataTableFloatingBar

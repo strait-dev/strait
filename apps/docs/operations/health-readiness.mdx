@@ -1,0 +1,127 @@
+---
+title: "Health and Readiness"
+description: "Liveness and readiness endpoints for probes, load balancers, and uptime checks."
+icon: "heart-pulse"
+---
+
+Strait exposes two HTTP endpoints for health checking: `/health` for liveness and `/health/ready` for readiness. Both are unauthenticated by default and return a minimal body, so an external probe cannot fingerprint your infrastructure. Sending the `X-Internal-Secret` header returns a detailed per-subsystem breakdown.
+
+## Liveness: `/health`
+
+`/health` answers one question: is the process up and serving HTTP? It always returns `200 OK`. The `status` field reflects overall health, but the status code does not change, so a liveness probe never restarts the process just because a downstream dependency is briefly degraded.
+
+```bash
+curl http://localhost:8080/health
+```
+
+```json
+{
+  "status": "ok",
+  "version": "v0.1.6",
+  "timestamp": "2026-05-21T10:00:00Z"
+}
+```
+
+When subsystem checks are failing, `status` becomes `degraded` or `down` while the response stays `200`.
+
+The response also carries RFC 8288 `Link` headers pointing at the OpenAPI spec, the API reference, and the OAuth resource metadata, which lets agents discover the API surface from the health endpoint alone.
+
+### Internal view
+
+With the internal secret, `/health` adds the edition, process uptime, and a per-subsystem status map:
+
+```bash
+curl http://localhost:8080/health -H "X-Internal-Secret: $INTERNAL_SECRET"
+```
+
+```json
+{
+  "status": "ok",
+  "version": "v0.1.6",
+  "timestamp": "2026-05-21T10:00:00Z",
+  "edition": "community",
+  "uptime_seconds": 3600,
+  "subsystems": {
+    "database": "up",
+    "redis": "up",
+    "worker_pool": "up",
+    "queue_depth": "up",
+    "sequin_cdc": "up"
+  }
+}
+```
+
+## Readiness: `/health/ready`
+
+`/health/ready` answers a different question: should this instance receive traffic right now? It returns `200` when the instance is ready and `503 Service Unavailable` when a critical dependency is down. Point your load balancer and your Kubernetes readiness probe here.
+
+```bash
+curl http://localhost:8080/health/ready
+```
+
+```json
+{ "status": "ready" }
+```
+
+When a critical dependency is down, the same endpoint returns `503`:
+
+```json
+{ "status": "not_ready" }
+```
+
+### Internal view
+
+With the internal secret, `/health/ready` returns the full component inventory, including per-check latency and the error message for any failing check:
+
+```json
+{
+  "status": "degraded",
+  "components": [
+    { "name": "database", "status": "up", "latency_ms": 2 },
+    { "name": "redis", "status": "down", "latency_ms": 5001, "error": "redis ping failed: context deadline exceeded" },
+    { "name": "worker_pool", "status": "up", "latency_ms": 0 },
+    { "name": "queue_depth", "status": "up", "latency_ms": 3 }
+  ]
+}
+```
+
+## Critical and non-critical checks
+
+Each subsystem check is either critical or non-critical. A failing critical check makes the instance `down` and readiness returns `503`. A failing non-critical check makes the instance `degraded`: readiness still returns `200`, because the instance can serve traffic even with that dependency impaired.
+
+| Check | Criticality | Failing means |
+|---|---|---|
+| `database` | Critical | PostgreSQL is unreachable. Readiness fails. |
+| `worker_pool` | Critical | The executor pool is exhausted with no available slots. |
+| `queue_depth` | Critical | Pending work exceeds the configured threshold. |
+| `redis` | Non-critical | Pub/sub, SSE, and worker-plane signalling degrade, but the API stays ready. |
+| `sequin_cdc` | Non-critical | Change data capture is impaired, so real-time updates lag. |
+
+`degraded` is deliberate: losing Redis should not pull every instance out of rotation, because the core job and queue paths still work on PostgreSQL alone.
+
+## Wiring probes
+
+A typical Kubernetes setup uses liveness for restart decisions and readiness for traffic decisions:
+
+```yaml
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8080
+  periodSeconds: 10
+  failureThreshold: 3
+readinessProbe:
+  httpGet:
+    path: /health/ready
+    port: 8080
+  periodSeconds: 5
+  failureThreshold: 2
+```
+
+Keep the internal secret off your probes. The minimal public body is all a probe needs, and it keeps subsystem detail out of logs that scrape probe responses.
+
+## Related
+
+- [Observability](/operations/observability)
+- [Troubleshooting](/guides/troubleshooting)
+- [Environment Variables](/configuration/environment-variables)

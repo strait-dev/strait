@@ -25,10 +25,13 @@ import (
 
 type mockEngineStore struct {
 	getWorkflowFn                     func(ctx context.Context, id string) (*domain.Workflow, error)
+	getActiveCanaryDeploymentFn       func(ctx context.Context, workflowID string) (*domain.CanaryDeployment, error)
+	getWorkflowVersionFn              func(ctx context.Context, workflowID string, version int) (*domain.WorkflowVersion, error)
 	listStepsByWorkflowVerFn          func(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
 	countRunningWorkflowRunsFn        func(ctx context.Context, workflowID string) (int, error)
 	createWorkflowRunFn               func(ctx context.Context, run *domain.WorkflowRun) error
 	createWorkflowRunBootstrapFn      func(ctx context.Context, run *domain.WorkflowRun, stepRuns []domain.WorkflowStepRun, startedAt time.Time) error
+	isProjectRunnableFn               func(ctx context.Context, projectID string) (bool, error)
 	createWorkflowStepRunFn           func(ctx context.Context, sr *domain.WorkflowStepRun) error
 	createWorkflowStepApprovalFn      func(ctx context.Context, approval *domain.WorkflowStepApproval) error
 	createEventTriggerFn              func(ctx context.Context, trigger *domain.EventTrigger) error
@@ -47,6 +50,27 @@ func (m *mockEngineStore) GetWorkflow(ctx context.Context, id string) (*domain.W
 		return m.getWorkflowFn(ctx, id)
 	}
 	return nil, nil
+}
+
+func (m *mockEngineStore) GetActiveCanaryDeployment(ctx context.Context, workflowID string) (*domain.CanaryDeployment, error) {
+	if m.getActiveCanaryDeploymentFn != nil {
+		return m.getActiveCanaryDeploymentFn(ctx, workflowID)
+	}
+	return nil, domain.ErrCanaryNotFound
+}
+
+func (m *mockEngineStore) GetWorkflowVersion(ctx context.Context, workflowID string, version int) (*domain.WorkflowVersion, error) {
+	if m.getWorkflowVersionFn != nil {
+		return m.getWorkflowVersionFn(ctx, workflowID, version)
+	}
+	return nil, nil
+}
+
+func (m *mockEngineStore) IsProjectRunnable(ctx context.Context, projectID string) (bool, error) {
+	if m.isProjectRunnableFn != nil {
+		return m.isProjectRunnableFn(ctx, projectID)
+	}
+	return true, nil
 }
 
 func (m *mockEngineStore) ListStepsByWorkflowVersion(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error) {
@@ -368,6 +392,34 @@ func TestTriggerWorkflow(t *testing.T) {
 		}
 	})
 
+	t.Run("inactive project", func(t *testing.T) {
+		t.Parallel()
+		var listedSteps bool
+		ms := &mockEngineStore{
+			getWorkflowFn: func(_ context.Context, _ string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: "wf", ProjectID: "proj-1", Enabled: true}, nil
+			},
+			isProjectRunnableFn: func(_ context.Context, projectID string) (bool, error) {
+				if projectID != "proj-1" {
+					t.Fatalf("projectID = %q, want proj-1", projectID)
+				}
+				return false, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				listedSteps = true
+				return nil, nil
+			},
+		}
+		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+		_, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-1", nil, "", nil, nil)
+		if err == nil || !strings.Contains(err.Error(), "not active") {
+			t.Fatalf("expected inactive project error, got %v", err)
+		}
+		if listedSteps {
+			t.Fatal("inactive project should fail before loading workflow steps")
+		}
+	})
+
 	t.Run("GetWorkflow error", func(t *testing.T) {
 		t.Parallel()
 		ms := &mockEngineStore{
@@ -483,6 +535,84 @@ func TestTriggerWorkflow(t *testing.T) {
 			t.Fatalf("captured step runs = %d, want 2", len(capturedStepRuns))
 		}
 	})
+}
+
+func TestTriggerWorkflow_AppliesActiveCanaryRouting(t *testing.T) {
+	var listedVersion int
+	var createdVersion int
+	var createdVersionID string
+	ms := &mockEngineStore{
+		getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{
+				ID:        id,
+				ProjectID: "proj-1",
+				Enabled:   true,
+				Version:   1,
+				VersionID: "wf-v1",
+			}, nil
+		},
+		getActiveCanaryDeploymentFn: func(_ context.Context, workflowID string) (*domain.CanaryDeployment, error) {
+			if workflowID != "wf-1" {
+				t.Fatalf("canary workflowID = %q, want wf-1", workflowID)
+			}
+			return &domain.CanaryDeployment{
+				WorkflowID:    "wf-1",
+				ProjectID:     "proj-1",
+				SourceVersion: 1,
+				TargetVersion: 2,
+				TrafficPct:    100,
+				Status:        "active",
+			}, nil
+		},
+		getWorkflowVersionFn: func(_ context.Context, workflowID string, version int) (*domain.WorkflowVersion, error) {
+			if workflowID != "wf-1" || version != 2 {
+				t.Fatalf("GetWorkflowVersion(%q, %d), want wf-1,2", workflowID, version)
+			}
+			return &domain.WorkflowVersion{
+				WorkflowID:        "wf-1",
+				ProjectID:         "proj-1",
+				Version:           2,
+				VersionID:         "wf-v2",
+				Name:              "Workflow v2",
+				Slug:              "workflow",
+				Enabled:           true,
+				MaxConcurrentRuns: 4,
+				MaxParallelSteps:  3,
+			}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, workflowID string, version int) ([]domain.WorkflowStep, error) {
+			if workflowID != "wf-1" {
+				t.Fatalf("workflowID = %q, want wf-1", workflowID)
+			}
+			listedVersion = version
+			return []domain.WorkflowStep{{ID: "step-v2", JobID: "job-v2", StepRef: "root"}}, nil
+		},
+		createWorkflowRunFn: func(_ context.Context, run *domain.WorkflowRun) error {
+			run.ID = "wr-canary"
+			createdVersion = run.WorkflowVersion
+			createdVersionID = run.WorkflowVersionID
+			return nil
+		},
+	}
+	mq := &mockEngineQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+		run.ID = "run-v2"
+		return nil
+	}}
+
+	engine := NewWorkflowEngine(ms, mq, slog.Default())
+	wfRun, err := engine.TriggerWorkflow(context.Background(), "wf-1", "proj-1", nil, "manual", nil, nil)
+	if err != nil {
+		t.Fatalf("TriggerWorkflow() error = %v", err)
+	}
+	if listedVersion != 2 {
+		t.Fatalf("listedVersion = %d, want canary target version 2", listedVersion)
+	}
+	if createdVersion != 2 || createdVersionID != "wf-v2" {
+		t.Fatalf("created workflow run version = %d/%q, want 2/wf-v2", createdVersion, createdVersionID)
+	}
+	if wfRun.WorkflowVersion != 2 || wfRun.WorkflowVersionID != "wf-v2" {
+		t.Fatalf("returned workflow run version = %d/%q, want 2/wf-v2", wfRun.WorkflowVersion, wfRun.WorkflowVersionID)
+	}
 }
 
 func TestTriggerWorkflow_SnapshotIDPopulated(t *testing.T) {
@@ -795,9 +925,12 @@ type mockCallbackStore struct {
 	getWorkflowRunsByParentFn           func(ctx context.Context, parentWorkflowRunID string) ([]domain.WorkflowRun, error)
 	getEventTriggerByStepRunIDFn        func(ctx context.Context, stepRunID string) (*domain.EventTrigger, error)
 	getEventTriggerByEventKeyFn         func(ctx context.Context, eventKey string) (*domain.EventTrigger, error)
+	getEventTriggerByEventKeyProjectFn  func(ctx context.Context, eventKey, projectID string) (*domain.EventTrigger, error)
 	updateEventTriggerStatusFn          func(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
 	advisoryXactLockFn                  func(ctx context.Context, lockID int64) error
 	createWorkflowStepDecisionFn        func(ctx context.Context, d *domain.WorkflowStepDecision) error
+	markCompensationRunTerminalFn       func(ctx context.Context, jobRunID string, status string, output json.RawMessage, errMsg string, finishedAt time.Time) (*domain.CompensationRun, error)
+	countIncompleteCompensationRunsFn   func(ctx context.Context, workflowRunID string) (int, error)
 }
 
 func (m *mockCallbackStore) GetEventTriggerByStepRunID(ctx context.Context, stepRunID string) (*domain.EventTrigger, error) {
@@ -808,6 +941,16 @@ func (m *mockCallbackStore) GetEventTriggerByStepRunID(ctx context.Context, step
 }
 
 func (m *mockCallbackStore) GetEventTriggerByEventKey(ctx context.Context, eventKey string) (*domain.EventTrigger, error) {
+	if m.getEventTriggerByEventKeyFn != nil {
+		return m.getEventTriggerByEventKeyFn(ctx, eventKey)
+	}
+	return nil, nil
+}
+
+func (m *mockCallbackStore) GetEventTriggerByEventKeyForProject(ctx context.Context, eventKey, projectID string) (*domain.EventTrigger, error) {
+	if m.getEventTriggerByEventKeyProjectFn != nil {
+		return m.getEventTriggerByEventKeyProjectFn(ctx, eventKey, projectID)
+	}
 	if m.getEventTriggerByEventKeyFn != nil {
 		return m.getEventTriggerByEventKeyFn(ctx, eventKey)
 	}
@@ -833,6 +976,20 @@ func (m *mockCallbackStore) CreateWorkflowStepDecision(ctx context.Context, d *d
 		return m.createWorkflowStepDecisionFn(ctx, d)
 	}
 	return nil
+}
+
+func (m *mockCallbackStore) MarkCompensationRunTerminalByJobRunID(ctx context.Context, jobRunID string, status string, output json.RawMessage, errMsg string, finishedAt time.Time) (*domain.CompensationRun, error) {
+	if m.markCompensationRunTerminalFn != nil {
+		return m.markCompensationRunTerminalFn(ctx, jobRunID, status, output, errMsg, finishedAt)
+	}
+	return nil, nil
+}
+
+func (m *mockCallbackStore) CountIncompleteCompensationRuns(ctx context.Context, workflowRunID string) (int, error) {
+	if m.countIncompleteCompensationRunsFn != nil {
+		return m.countIncompleteCompensationRunsFn(ctx, workflowRunID)
+	}
+	return 0, nil
 }
 
 func (m *mockCallbackStore) GetStepRunByJobRunID(ctx context.Context, jobRunID string) (*domain.WorkflowStepRun, error) {
@@ -1162,6 +1319,10 @@ func (m *mockCallbackStore) GetWorkflowSnapshot(_ context.Context, _ string) (*d
 
 func (m *mockCallbackStore) RequeuePausedJobRuns(_ context.Context, _ string) (int64, error) {
 	return 0, nil
+}
+
+func (m *mockCallbackStore) ScheduleRetry(_ context.Context, _ string, _ time.Time, _ int) error {
+	return nil
 }
 
 func (m *mockCallbackStore) GetWorkflowRunsByParent(ctx context.Context, parentWorkflowRunID string) ([]domain.WorkflowRun, error) {
@@ -2093,8 +2254,8 @@ func TestStepCallback_scheduleStepRetry(t *testing.T) {
 					if fields["attempt"] != 2 {
 						t.Fatalf("expected attempt=2, got %+v", fields)
 					}
-					if _, ok := fields["next_retry_at"].(time.Time); !ok {
-						t.Fatalf("expected next_retry_at time.Time, got %+v", fields["next_retry_at"])
+					if _, ok := fields["next_retry_at"]; ok {
+						t.Fatalf("next_retry_at must not be in UpdateRunStatus fields (side-table only), got %+v", fields)
 					}
 					return tt.updateRunStatusErr
 				},
@@ -2181,8 +2342,8 @@ func TestStepCallback_OnJobRunTerminal_RetryIntegration(t *testing.T) {
 				if fields["attempt"] != 2 {
 					t.Fatalf("expected attempt=2, got %+v", fields)
 				}
-				if _, ok := fields["next_retry_at"].(time.Time); !ok {
-					t.Fatalf("missing/invalid next_retry_at: %+v", fields)
+				if _, ok := fields["next_retry_at"]; ok {
+					t.Fatalf("next_retry_at must not be in UpdateRunStatus fields (side-table only), got %+v", fields)
 				}
 				return nil
 			},
@@ -6423,6 +6584,38 @@ func TestStartStep_Sleep_CreatesTrigger(t *testing.T) {
 	}
 	if stepRun.Status != domain.StepWaiting {
 		t.Fatalf("expected step status=waiting, got %s", stepRun.Status)
+	}
+}
+
+func TestStartStep_Sleep_RejectsDurationAboveCap(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockEngineStore{
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			t.Fatal("oversized sleep step must not update step status")
+			return nil
+		},
+		createEventTriggerFn: func(_ context.Context, _ *domain.EventTrigger) error {
+			t.Fatal("oversized sleep step must not create an event trigger")
+			return nil
+		},
+	}
+	engine := NewWorkflowEngine(ms, nil, slog.Default())
+
+	step := &domain.WorkflowStep{
+		StepRef:           "sleep-too-long",
+		StepType:          domain.WorkflowStepTypeSleep,
+		SleepDurationSecs: domain.MaxSleepDurationSecs + 1,
+	}
+	stepRun := &domain.WorkflowStepRun{ID: "sr-sleep-too-long", StepRef: "sleep-too-long"}
+	wfRun := &domain.WorkflowRun{ID: "wr-1", ProjectID: "proj-1"}
+
+	err := engine.startStep(context.Background(), stepRun, step, wfRun, nil)
+	if err == nil {
+		t.Fatal("expected oversized sleep duration error")
+	}
+	if !strings.Contains(err.Error(), "exceeds maximum") {
+		t.Fatalf("expected sleep duration cap error, got %v", err)
 	}
 }
 

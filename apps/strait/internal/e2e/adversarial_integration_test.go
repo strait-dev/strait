@@ -59,7 +59,6 @@ func TestAdversarial_SQLInjectionThruAPI(t *testing.T) {
 	}
 }
 
-
 // TestAdversarial_ConcurrentDequeueSameRun verifies that when a single run is
 // enqueued, only one of many concurrent dequeue attempts receives it.
 func TestAdversarial_ConcurrentDequeueSameRun(t *testing.T) {
@@ -90,8 +89,6 @@ func TestAdversarial_ConcurrentDequeueSameRun(t *testing.T) {
 		t.Fatalf("expected exactly 1 goroutine to dequeue the run, got %d", gotRun.Load())
 	}
 }
-
-
 
 // TestAdversarial_TagSpecialCharsFullPipeline verifies that jobs with unicode,
 // angle brackets, and quotes in tags are stored and filtered correctly.
@@ -137,8 +134,6 @@ func TestAdversarial_TagSpecialCharsFullPipeline(t *testing.T) {
 		t.Fatalf("expected 1 job filtered by tag, got %d", len(jobs))
 	}
 }
-
-
 
 // TestAdversarial_CronOverlapSkipConcurrent verifies that a cron job with
 // overlap=skip policy skips new triggers while an active run exists.
@@ -209,12 +204,12 @@ func TestAdversarial_EventTriggerAdversarialKeys(t *testing.T) {
 	// Create an event trigger with regex-special characters in the key.
 	eventKey := "test.*.event[0]+(foo|bar)" + newID()
 	trigger := &domain.EventTrigger{
-		ID:         uuid.Must(uuid.NewV7()).String(),
-		EventKey:   eventKey,
-		ProjectID:  projectID,
-		SourceType: "job_run",
-		JobRunID:   run.ID,
-		Status:     "waiting",
+		ID:          uuid.Must(uuid.NewV7()).String(),
+		EventKey:    eventKey,
+		ProjectID:   projectID,
+		SourceType:  "job_run",
+		JobRunID:    run.ID,
+		Status:      "waiting",
 		TimeoutSecs: 300,
 		RequestedAt: time.Now(),
 		ExpiresAt:   time.Now().Add(5 * time.Minute),
@@ -249,7 +244,7 @@ func TestAdversarial_JobMemoryQuotaConcurrentWrites(t *testing.T) {
 	var successCount atomic.Int32
 	var quotaErrors atomic.Int32
 
-	for i := 0; i < goroutines; i++ {
+	for i := range goroutines {
 		idx := i
 		wg.Go(func() {
 			mem := &domain.JobMemory{
@@ -297,7 +292,7 @@ func TestAdversarial_BudgetEnforcementConcurrentSpend(t *testing.T) {
 	var wg conc.WaitGroup
 	var created atomic.Int32
 
-	for i := 0; i < goroutines; i++ {
+	for i := range goroutines {
 		idx := i
 		wg.Go(func() {
 			req := authedRequest(http.MethodPost, "/v1/jobs/"+jobID+"/trigger", `{"idx":`+fmt.Sprintf("%d", idx)+`}`)

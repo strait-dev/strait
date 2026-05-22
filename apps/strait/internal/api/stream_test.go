@@ -12,7 +12,133 @@ import (
 	"strait/internal/domain"
 	"strait/internal/pubsub"
 	"strait/internal/store"
+
+	"github.com/go-chi/chi/v5"
 )
+
+func runStreamRequestWithEnvironment(path, runID, projectID, environmentID string) *http.Request {
+	r := httptest.NewRequest(http.MethodGet, path, nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("runID", runID)
+	ctx := context.WithValue(r.Context(), chi.RouteCtxKey, rctx)
+	ctx = context.WithValue(ctx, ctxProjectIDKey, projectID)
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, environmentID)
+	return r.WithContext(ctx)
+}
+
+func TestHandleRunStream_CrossProjectReturns404(t *testing.T) {
+	t.Parallel()
+
+	// Regression: an authenticated caller in project "proj-attacker" must
+	// not be able to subscribe to a run owned by "proj-victim". The handler
+	// should return 404 (not 200, not 403) to avoid leaking run existence.
+	// This is the SSE BOLA bug — RLS does not enforce isolation on long-lived
+	// SSE connections, so the handler must check application-side.
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{
+				ID: id, JobID: "job-1", ProjectID: "proj-victim",
+				Status: domain.StatusExecuting, Attempt: 1,
+			}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/victim-run/stream", "", "proj-attacker"))
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 (cross-project must not leak run existence), got %d: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if strings.Contains(body, "event: ") || strings.Contains(strings.ToLower(body), "subscribe") {
+		t.Fatalf("response leaked SSE subscription evidence: %s", body)
+	}
+}
+
+func TestHandleRunLogStream_CrossProjectReturns404(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{
+				ID: id, JobID: "job-1", ProjectID: "proj-victim",
+				Status: domain.StatusExecuting, Attempt: 1,
+			}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/victim-run/stream/logs", "", "proj-attacker"))
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 (cross-project log stream must not leak), got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleRunStream_EnvironmentScopedCallerCannotStreamForeignEnvironment(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{
+				ID: id, JobID: "job-staging", ProjectID: "proj-1",
+				Status: domain.StatusExecuting, Attempt: 1,
+			}, nil
+		},
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			if id != "job-staging" {
+				t.Fatalf("GetJob id = %q, want job-staging", id)
+			}
+			return &domain.Job{ID: id, ProjectID: "proj-1", EnvironmentID: "env-staging"}, nil
+		},
+	}
+	pub := &mockPublisher{
+		subscribeFn: func(context.Context, string) (*pubsub.Subscription, error) {
+			t.Fatal("mismatched environment must be rejected before subscribing")
+			return nil, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, pub)
+	w := httptest.NewRecorder()
+	r := runStreamRequestWithEnvironment("/v1/runs/run-1/stream", "run-1", "proj-1", "env-prod")
+
+	srv.handleRunStream(w, r)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for environment mismatch, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleRunLogStream_EnvironmentScopedCallerCannotStreamForeignEnvironment(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{
+				ID: id, JobID: "job-staging", ProjectID: "proj-1",
+				Status: domain.StatusExecuting, Attempt: 1,
+			}, nil
+		},
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", EnvironmentID: "env-staging"}, nil
+		},
+	}
+	pub := &mockPublisher{
+		subscribeFn: func(context.Context, string) (*pubsub.Subscription, error) {
+			t.Fatal("mismatched environment must be rejected before subscribing")
+			return nil, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, pub)
+	w := httptest.NewRecorder()
+	r := runStreamRequestWithEnvironment("/v1/runs/run-1/stream/logs", "run-1", "proj-1", "env-prod")
+
+	srv.handleRunLogStream(w, r)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for environment mismatch, got %d: %s", w.Code, w.Body.String())
+	}
+}
 
 func TestHandleRunStream_RunNotFound(t *testing.T) {
 	t.Parallel()
@@ -24,11 +150,10 @@ func TestHandleRunStream_RunNotFound(t *testing.T) {
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/missing-run/stream", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/missing-run/stream", "", "proj-1"))
 
-	// store.ErrRunNotFound does NOT match pgx.ErrNoRows, so handler returns 500
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -42,7 +167,7 @@ func TestHandleRunStream_StoreError(t *testing.T) {
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-123/stream", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-123/stream", "", "proj-1"))
 
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
@@ -65,7 +190,7 @@ func TestHandleRunStream_TerminalRun(t *testing.T) {
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-done/stream", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-done/stream", "", "proj-1"))
 
 	if w.Code != http.StatusGone {
 		t.Fatalf("expected 410, got %d: %s", w.Code, w.Body.String())
@@ -89,7 +214,7 @@ func TestHandleRunStream_NoPubSub(t *testing.T) {
 	// nil pubsub
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-123/stream", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-123/stream", "", "proj-1"))
 
 	// When pubsub is nil, handler writes SSE headers then error event
 	if w.Code != http.StatusOK {
@@ -101,6 +226,78 @@ func TestHandleRunStream_NoPubSub(t *testing.T) {
 	body := w.Body.String()
 	if !strings.Contains(body, "event: error") {
 		t.Fatalf("expected error event in body, got: %s", body)
+	}
+}
+
+func TestHandleRunStream_RejectsWhenProjectSSELimitExceeded(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{
+				ID:        id,
+				JobID:     "job-1",
+				ProjectID: "proj-1",
+				Status:    domain.StatusExecuting,
+				Attempt:   1,
+			}, nil
+		},
+	}
+	pub := &mockPublisher{
+		subscribeFn: func(context.Context, string) (*pubsub.Subscription, error) {
+			t.Fatal("must reject before subscribing when SSE connection cap is exhausted")
+			return nil, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, pub)
+	srv.config.SSEMaxConnsPerProject = 1
+	if !srv.acquireSSEConn("proj-1") {
+		t.Fatal("failed to reserve test SSE connection")
+	}
+	defer srv.releaseSSEConn("proj-1")
+
+	w := httptest.NewRecorder()
+	r := runStreamRequestWithEnvironment("/v1/runs/run-123/stream", "run-123", "proj-1", "")
+	srv.handleRunStream(w, r)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleRunLogStream_RejectsWhenProjectSSELimitExceeded(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{
+				ID:        id,
+				JobID:     "job-1",
+				ProjectID: "proj-1",
+				Status:    domain.StatusExecuting,
+				Attempt:   1,
+			}, nil
+		},
+	}
+	pub := &mockPublisher{
+		subscribeFn: func(context.Context, string) (*pubsub.Subscription, error) {
+			t.Fatal("must reject log stream before subscribing when SSE connection cap is exhausted")
+			return nil, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, pub)
+	srv.config.SSEMaxConnsPerProject = 1
+	if !srv.acquireSSEConn("proj-1") {
+		t.Fatal("failed to reserve test SSE connection")
+	}
+	defer srv.releaseSSEConn("proj-1")
+
+	w := httptest.NewRecorder()
+	r := runStreamRequestWithEnvironment("/v1/runs/run-123/stream/logs", "run-123", "proj-1", "")
+	srv.handleRunLogStream(w, r)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -125,7 +322,7 @@ func TestHandleRunStream_SubscribeError(t *testing.T) {
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, pub)
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-123/stream", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-123/stream", "", "proj-1"))
 
 	// Handler writes SSE headers then error event for subscribe failure
 	if w.Code != http.StatusOK {
@@ -166,7 +363,7 @@ func TestHandleRunStream_ReceivesMessage(t *testing.T) {
 
 	srv := newTestServer(t, ms, &mockQueue{}, pub)
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-123/stream", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-123/stream", "", "proj-1"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -207,7 +404,7 @@ func TestHandleRunStream_ClientDisconnect(t *testing.T) {
 	// Create a request with a cancelled context to simulate client disconnect
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // immediately cancel
-	r := authedRequest(http.MethodGet, "/v1/runs/run-123/stream", "")
+	r := authedProjectRequest(http.MethodGet, "/v1/runs/run-123/stream", "", "proj-1")
 	r = r.WithContext(ctx)
 
 	srv.ServeHTTP(w, r)
@@ -245,7 +442,7 @@ func TestHandleRunStream_TerminalStatuses(t *testing.T) {
 			}
 			srv := newTestServer(t, ms, &mockQueue{}, nil)
 			w := httptest.NewRecorder()
-			srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/stream", ""))
+			srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/stream", "", "proj-1"))
 
 			if w.Code != http.StatusGone {
 				t.Fatalf("status %s: expected 410, got %d", status, w.Code)
@@ -280,7 +477,7 @@ func TestHandleRunStream_SSEHeaders(t *testing.T) {
 
 	srv := newTestServer(t, ms, &mockQueue{}, pub)
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-123/stream", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-123/stream", "", "proj-1"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -336,7 +533,7 @@ func TestHandleRunStream_NonTerminalStatuses(t *testing.T) {
 
 			srv := newTestServer(t, ms, &mockQueue{}, pub)
 			w := httptest.NewRecorder()
-			srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/stream", ""))
+			srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/stream", "", "proj-1"))
 
 			// Should NOT return 410 for non-terminal statuses
 			if w.Code == http.StatusGone {

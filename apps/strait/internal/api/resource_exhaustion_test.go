@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -350,6 +352,44 @@ func TestDoS_SSEConnectionLimitPerProject(t *testing.T) {
 	}
 }
 
+func TestDoS_SSEConnectionLimitPerProjectConcurrent(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		InternalSecret:        "test-secret-value",
+		MaxBulkTriggerItems:   500,
+		JWTSigningKey:         testJWTSigningKey,
+		SSEMaxConns:           5000,
+		SSEMaxConnsPerProject: 1,
+	}
+	srv := NewServer(ServerDeps{
+		Config:  cfg,
+		Store:   &APIStoreMock{},
+		Queue:   &mockQueue{},
+		Edition: domain.EditionCloud,
+	})
+	t.Cleanup(srv.Close)
+
+	const contenders = 64
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	var acquired atomic.Int64
+	for range contenders {
+		wg.Go(func() {
+			<-start
+			if srv.acquireSSEConn("proj-1") {
+				acquired.Add(1)
+			}
+		})
+	}
+	close(start)
+	wg.Wait()
+
+	if got := acquired.Load(); got != 1 {
+		t.Fatalf("acquired = %d, want exactly 1", got)
+	}
+}
+
 // TestDoS_SSEConnectionLimit503Response verifies that the activity stream
 // handler returns 503 when the SSE connection limit is exceeded.
 func TestDoS_SSEConnectionLimit503Response(t *testing.T) {
@@ -383,7 +423,7 @@ func TestDoS_SSEConnectionLimit503Response(t *testing.T) {
 	srv.acquireSSEConn("proj-1")
 
 	// The next SSE request should get 503.
-	req := authedRequest(http.MethodGet, "/v1/projects/proj-1/activity/stream/", "")
+	req := authedProjectRequest(http.MethodGet, "/v1/projects/proj-1/activity/stream/", "", "proj-1")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 

@@ -155,13 +155,27 @@ func (f *fakeJSONBDBTX) QueryRow(_ context.Context, sql string, args ...any) pgx
 	switch {
 	case strings.Contains(sql, "pg_try_advisory_xact_lock"):
 		return &fakeScalarRow{val: true}
-	case strings.Contains(sql, "SELECT COALESCE(") && strings.Contains(sql, "FROM audit_events"):
-		// Tail read for previous_hash.
+	case strings.Contains(sql, "MAX(rotation_epoch)") && strings.Contains(sql, "FROM audit_events"):
 		projectID, _ := args[0].(string)
-		zeroHash, _ := args[1].(string)
+		var maxEpoch int
+		for _, row := range f.rows {
+			if row["project_id"] == projectID {
+				if epoch, _ := row["rotation_epoch"].(int); epoch > maxEpoch {
+					maxEpoch = epoch
+				}
+			}
+		}
+		return &fakeScalarRow{val: maxEpoch}
+	case strings.Contains(sql, "SELECT COALESCE(") && strings.Contains(sql, "FROM audit_events"):
+		// Tail read for previous_hash. Real query takes (projectID,
+		// shardID, ZeroHash) so the tail is shard-scoped — legacy ('')
+		// writers never chain from a sharded row and vice versa.
+		projectID, _ := args[0].(string)
+		shardID, _ := args[1].(string)
+		zeroHash, _ := args[2].(string)
 		var tail string
 		for _, row := range f.rows {
-			if row["project_id"] == projectID && row["signature"] != "" {
+			if row["project_id"] == projectID && row["shard_id"] == shardID && row["signature"] != "" {
 				tail = row["signature"].(string)
 			}
 		}
@@ -174,8 +188,8 @@ func (f *fakeJSONBDBTX) QueryRow(_ context.Context, sql string, args ...any) pgx
 		// CreateAuditEvent: (id, project_id, actor_id, actor_type,
 		// action, resource_type, resource_id, details, previous_hash,
 		// created_at, remote_ip, user_agent, request_id, trace_id,
-		// schema_version, is_anchor, rotation_epoch).
-		if len(args) < 17 {
+		// schema_version, is_anchor, rotation_epoch, shard_id).
+		if len(args) < 18 {
 			return &fakeJSONBRow{err: errors.New("fake: INSERT wrong arity")}
 		}
 		detailsRaw, _ := args[7].(json.RawMessage)
@@ -199,6 +213,7 @@ func (f *fakeJSONBDBTX) QueryRow(_ context.Context, sql string, args ...any) pgx
 			"schema_version": args[14],
 			"is_anchor":      args[15],
 			"rotation_epoch": args[16],
+			"shard_id":       args[17],
 		}
 		f.rows = append(f.rows, row)
 		return &fakeJSONBRow{returningDetails: json.RawMessage(canonical)}
@@ -329,6 +344,8 @@ func (r *fakeJSONBRows) Scan(dest ...any) error {
 	*dest[15].(*uint16) = row["schema_version"].(uint16)
 	*dest[16].(*bool) = row["is_anchor"].(bool)
 	*dest[17].(*int) = row["rotation_epoch"].(int)
+	shardID, _ := row["shard_id"].(string)
+	*dest[18].(*string) = shardID
 	return nil
 }
 

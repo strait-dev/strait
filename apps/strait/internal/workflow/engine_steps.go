@@ -15,6 +15,7 @@ import (
 	"strait/internal/domain"
 	"strait/internal/queue"
 	"strait/internal/store"
+	"strait/internal/telemetry"
 
 	"go.opentelemetry.io/otel"
 )
@@ -28,12 +29,23 @@ func (e *WorkflowEngine) startStep(
 ) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "workflow.startStep")
 	defer span.End()
+	telemetry.AddSentryBreadcrumb(ctx, "workflow.step", "workflow step starting", map[string]any{
+		"workflow_id":      wfRun.WorkflowID,
+		"workflow_run_id":  wfRun.ID,
+		"workflow_step_id": step.ID,
+		"step_run_id":      stepRun.ID,
+		"step_ref":         step.StepRef,
+		"step_type":        string(step.StepType),
+		"project_id":       wfRun.ProjectID,
+		"job_id":           step.JobID,
+	})
 
 	now := time.Now()
 	if step.StepType == domain.WorkflowStepTypeApproval {
 		if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepWaiting, map[string]any{"started_at": now}); err != nil {
 			return fmt.Errorf("set approval step waiting: %w", err)
 		}
+		recordWorkflowStepTransition(ctx, string(stepRun.Status), string(domain.StepWaiting))
 
 		approval := &domain.WorkflowStepApproval{
 			ID:                fmt.Sprintf("approval:%s", stepRun.ID),
@@ -57,6 +69,9 @@ func (e *WorkflowEngine) startStep(
 		if timeoutSecs <= 0 {
 			timeoutSecs = domain.DefaultEventTimeoutSecs
 		}
+		if timeoutSecs > domain.MaxEventTimeoutSecs {
+			timeoutSecs = domain.MaxEventTimeoutSecs
+		}
 		expiresAt := now.Add(time.Duration(timeoutSecs) * time.Second)
 		trigger := &domain.EventTrigger{
 			ID:                fmt.Sprintf("evt:approval:%s", stepRun.ID),
@@ -76,6 +91,13 @@ func (e *WorkflowEngine) startStep(
 
 		stepRun.Status = domain.StepWaiting
 		stepRun.StartedAt = &now
+		telemetry.AddSentryBreadcrumb(ctx, "workflow.step", "workflow step waiting", map[string]any{
+			"workflow_run_id": wfRun.ID,
+			"step_run_id":     stepRun.ID,
+			"step_ref":        step.StepRef,
+			"step_type":       string(step.StepType),
+			"project_id":      wfRun.ProjectID,
+		})
 
 		e.enqueueApprovalNotifications(ctx, wfRun.ProjectID, approval, stepRun, wfRun)
 		return nil
@@ -101,10 +123,14 @@ func (e *WorkflowEngine) startStep(
 			if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepWaiting, map[string]any{"started_at": now}); err != nil {
 				return fmt.Errorf("set cost gate step waiting: %w", err)
 			}
+			recordWorkflowStepTransition(ctx, string(stepRun.Status), string(domain.StepWaiting))
 
 			timeoutSecs := step.CostGateTimeoutSecs
 			if timeoutSecs <= 0 {
 				timeoutSecs = domain.DefaultEventTimeoutSecs
+			}
+			if timeoutSecs > domain.MaxEventTimeoutSecs {
+				timeoutSecs = domain.MaxEventTimeoutSecs
 			}
 			expiresAt := now.Add(time.Duration(timeoutSecs) * time.Second)
 
@@ -123,6 +149,13 @@ func (e *WorkflowEngine) startStep(
 
 			stepRun.Status = domain.StepWaiting
 			stepRun.StartedAt = &now
+			telemetry.AddSentryBreadcrumb(ctx, "workflow.step", "workflow step waiting", map[string]any{
+				"workflow_run_id": wfRun.ID,
+				"step_run_id":     stepRun.ID,
+				"step_ref":        step.StepRef,
+				"step_type":       string(step.StepType),
+				"project_id":      wfRun.ProjectID,
+			})
 
 			e.enqueueApprovalNotifications(ctx, wfRun.ProjectID, approval, stepRun, wfRun)
 
@@ -158,10 +191,10 @@ func (e *WorkflowEngine) startStep(
 			jobRun.Metadata = make(map[string]string, 2)
 		}
 		if tp, ok := wfRun.TraceContext["traceparent"]; ok {
-			jobRun.Metadata["_trace_parent"] = tp
+			jobRun.Metadata[domain.RunMetadataTraceParent] = tp
 		}
 		if ts, ok := wfRun.TraceContext["tracestate"]; ok {
-			jobRun.Metadata["_trace_state"] = ts
+			jobRun.Metadata[domain.RunMetadataTraceState] = ts
 		}
 	}
 	if err := queue.EnqueueWithRetry(ctx, e.queue, jobRun, queue.DefaultInternalEnqueueRetryConfig()); err != nil {
@@ -180,9 +213,18 @@ func (e *WorkflowEngine) startStep(
 		)
 		return fmt.Errorf("set step run running (job %s already enqueued): %w", jobRun.ID, err)
 	}
+	recordWorkflowStepTransition(ctx, string(stepRun.Status), string(domain.StepRunning))
 	stepRun.Status = domain.StepRunning
 	stepRun.StartedAt = &now
 	stepRun.JobRunID = jobRun.ID
+	telemetry.AddSentryBreadcrumb(ctx, "workflow.step", "workflow step enqueued", map[string]any{
+		"workflow_run_id": wfRun.ID,
+		"step_run_id":     stepRun.ID,
+		"step_ref":        step.StepRef,
+		"project_id":      wfRun.ProjectID,
+		"job_id":          step.JobID,
+		"job_run_id":      jobRun.ID,
+	})
 
 	return nil
 }
@@ -211,8 +253,17 @@ func (e *WorkflowEngine) startSubWorkflowStep(
 	if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepRunning, map[string]any{"started_at": now}); err != nil {
 		return fmt.Errorf("set sub-workflow step running: %w", err)
 	}
+	recordWorkflowStepTransition(ctx, string(stepRun.Status), string(domain.StepRunning))
 	stepRun.Status = domain.StepRunning
 	stepRun.StartedAt = &now
+	telemetry.AddSentryBreadcrumb(ctx, "workflow.step", "workflow subworkflow step running", map[string]any{
+		"workflow_run_id":   wfRun.ID,
+		"step_run_id":       stepRun.ID,
+		"step_ref":          step.StepRef,
+		"project_id":        wfRun.ProjectID,
+		"sub_workflow_id":   step.SubWorkflowID,
+		"max_nesting_depth": maxDepth,
+	})
 
 	renderedStepPayload := renderTemplateVars(step.Payload, wfRun.Payload)
 	payload := mergePayloads(wfRun.Payload, renderedStepPayload, mergedPayload)
@@ -229,6 +280,14 @@ func (e *WorkflowEngine) startSubWorkflowStep(
 		"sub_workflow_id", step.SubWorkflowID,
 		"nesting_depth", currentDepth+1,
 	)
+	telemetry.AddSentryBreadcrumb(ctx, "workflow.state", "subworkflow triggered", map[string]any{
+		"parent_workflow_run_id": wfRun.ID,
+		"child_workflow_run_id":  childRun.ID,
+		"step_run_id":            stepRun.ID,
+		"step_ref":               step.StepRef,
+		"project_id":             wfRun.ProjectID,
+		"nesting_depth":          currentDepth + 1,
+	})
 
 	return nil
 }
@@ -261,6 +320,9 @@ func (e *WorkflowEngine) startWaitForEventStep(
 	if timeoutSecs <= 0 {
 		timeoutSecs = domain.DefaultEventTimeoutSecs
 	}
+	if timeoutSecs > domain.MaxEventTimeoutSecs {
+		timeoutSecs = domain.MaxEventTimeoutSecs
+	}
 	expiresAt := now.Add(time.Duration(timeoutSecs) * time.Second)
 
 	trigger := &domain.EventTrigger{
@@ -290,6 +352,7 @@ func (e *WorkflowEngine) startWaitForEventStep(
 	if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepWaiting, map[string]any{"started_at": now}); err != nil {
 		return fmt.Errorf("set wait_for_event step waiting: %w", err)
 	}
+	recordWorkflowStepTransition(ctx, string(stepRun.Status), string(domain.StepWaiting))
 
 	if e.onTriggerCreate != nil {
 		e.onTriggerCreate(trigger)
@@ -297,6 +360,15 @@ func (e *WorkflowEngine) startWaitForEventStep(
 
 	stepRun.Status = domain.StepWaiting
 	stepRun.StartedAt = &now
+	telemetry.AddSentryBreadcrumb(ctx, "workflow.step", "workflow step waiting", map[string]any{
+		"workflow_run_id": wfRun.ID,
+		"step_run_id":     stepRun.ID,
+		"step_ref":        step.StepRef,
+		"step_type":       string(step.StepType),
+		"project_id":      wfRun.ProjectID,
+		"timeout_secs":    timeoutSecs,
+		"expires_at":      expiresAt.Format(time.RFC3339),
+	})
 
 	e.logger.Info("wait_for_event step started",
 		"workflow_run_id", wfRun.ID,
@@ -319,7 +391,10 @@ func (e *WorkflowEngine) startSleepStep(
 ) error {
 	durationSecs := step.SleepDurationSecs
 	if durationSecs <= 0 {
-		durationSecs = 60 // default 1 minute
+		durationSecs = domain.DefaultSleepDurationSecs
+	}
+	if durationSecs > domain.MaxSleepDurationSecs {
+		return fmt.Errorf("sleep duration %d exceeds maximum %d", durationSecs, domain.MaxSleepDurationSecs)
 	}
 	expiresAt := now.Add(time.Duration(durationSecs) * time.Second)
 
@@ -347,6 +422,7 @@ func (e *WorkflowEngine) startSleepStep(
 	if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepWaiting, map[string]any{"started_at": now}); err != nil {
 		return fmt.Errorf("set sleep step waiting: %w", err)
 	}
+	recordWorkflowStepTransition(ctx, string(stepRun.Status), string(domain.StepWaiting))
 
 	if e.onTriggerCreate != nil {
 		e.onTriggerCreate(trigger)
@@ -354,6 +430,15 @@ func (e *WorkflowEngine) startSleepStep(
 
 	stepRun.Status = domain.StepWaiting
 	stepRun.StartedAt = &now
+	telemetry.AddSentryBreadcrumb(ctx, "workflow.step", "workflow step waiting", map[string]any{
+		"workflow_run_id": wfRun.ID,
+		"step_run_id":     stepRun.ID,
+		"step_ref":        step.StepRef,
+		"step_type":       string(step.StepType),
+		"project_id":      wfRun.ProjectID,
+		"duration_secs":   durationSecs,
+		"expires_at":      expiresAt.Format(time.RFC3339),
+	})
 
 	e.logger.Info("sleep step started",
 		"workflow_run_id", wfRun.ID,

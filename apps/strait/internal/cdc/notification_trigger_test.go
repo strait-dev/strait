@@ -57,6 +57,9 @@ func TestNotificationTrigger_CompletedRun_CreatesDelivery(t *testing.T) {
 	if store.deliveries[0].EventType != "run.completed" {
 		t.Errorf("expected event_type=run.completed, got %s", store.deliveries[0].EventType)
 	}
+	if store.deliveries[0].DedupeKey == "" {
+		t.Fatal("expected dedupe key to be set")
+	}
 }
 
 func TestNotificationTrigger_NonTerminalStatus_Skipped(t *testing.T) {
@@ -131,7 +134,43 @@ func TestNotificationTrigger_MultipleChannels(t *testing.T) {
 	}
 }
 
-func TestNotificationTrigger_StoreError_Resilient(t *testing.T) {
+func TestNotificationTrigger_FailureTerminalStatusesCreateFailedDelivery(t *testing.T) {
+	t.Parallel()
+
+	for _, status := range []string{"crashed", "system_failed", "expired", "dead_letter"} {
+		t.Run(status, func(t *testing.T) {
+			t.Parallel()
+			store := &mockNotificationStore{
+				channels: []domain.NotificationChannel{
+					{ID: "ch-1", ProjectID: "p1", ChannelType: "slack", Enabled: true},
+				},
+			}
+			h := NewNotificationTriggerHandler(store, nil)
+
+			if err := h.Handle(context.Background(), cdcUpdateMsg(status, "p1", "run-"+status, "job-1")); err != nil {
+				t.Fatalf("Handle() error = %v", err)
+			}
+			if len(store.deliveries) != 1 {
+				t.Fatalf("deliveries len = %d, want 1", len(store.deliveries))
+			}
+			if store.deliveries[0].EventType != domain.WebhookEventRunFailed {
+				t.Fatalf("EventType = %q, want %q", store.deliveries[0].EventType, domain.WebhookEventRunFailed)
+			}
+			if store.deliveries[0].DedupeKey == "" {
+				t.Fatal("expected dedupe key")
+			}
+			var payload map[string]any
+			if err := json.Unmarshal(store.deliveries[0].Payload, &payload); err != nil {
+				t.Fatalf("payload is not valid JSON: %v", err)
+			}
+			if payload["status"] != status {
+				t.Fatalf("status = %v, want original status %s", payload["status"], status)
+			}
+		})
+	}
+}
+
+func TestDeepSecNotificationTrigger_StoreErrorReturnsForRetry(t *testing.T) {
 	t.Parallel()
 	store := &mockNotificationStore{
 		channelsErr: errors.New("db connection failed"),
@@ -139,8 +178,8 @@ func TestNotificationTrigger_StoreError_Resilient(t *testing.T) {
 	h := NewNotificationTriggerHandler(store, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
-	if err != nil {
-		t.Fatalf("expected nil error on store failure, got: %v", err)
+	if err == nil {
+		t.Fatal("expected error on store failure")
 	}
 }
 
@@ -210,7 +249,7 @@ func TestNotificationTrigger_EmptyProjectID(t *testing.T) {
 	}
 }
 
-func TestNotificationTrigger_CreateDeliveryError_Resilient(t *testing.T) {
+func TestDeepSecNotificationTrigger_CreateDeliveryErrorReturnsForRetry(t *testing.T) {
 	t.Parallel()
 	store := &mockNotificationStore{
 		channels: []domain.NotificationChannel{
@@ -222,7 +261,7 @@ func TestNotificationTrigger_CreateDeliveryError_Resilient(t *testing.T) {
 	h := NewNotificationTriggerHandler(store, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
-	if err != nil {
-		t.Fatalf("expected nil error on delivery creation failure, got: %v", err)
+	if err == nil {
+		t.Fatal("expected error on delivery creation failure")
 	}
 }

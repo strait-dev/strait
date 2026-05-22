@@ -1,75 +1,142 @@
 ---
 title: "Retry Strategies"
-description: "How Strait handles execution failures."
+description: "How Strait retries failed runs, plus circuit breakers, fallbacks, and dead_letter."
 icon: "rotate"
 ---
 
-When a job execution fails (non-2xx response or timeout), Strait uses a retry strategy to determine when to attempt the execution again.
+When a run fails because of a timeout, network error, or retryable response, Strait schedules another attempt using backoff. This page covers the backoff policies Strait applies, where you can change them, and the surrounding controls that keep retries from making things worse: circuit breakers, fallback endpoints, and `dead_letter` handling.
 
-## Core Strategies
+## Backoff Policies
 
-Strait supports four retry strategies.
+Strait applies one of two backoff policies when computing the next retry delay.
 
-### 1. Exponential (Default)
-The delay increases exponentially with each attempt.
-- **Formula**: `base * 2^(attempt-1)`
-- **Example**:
-    - Attempt 1: ~1s
-    - Attempt 2: ~2s
-    - Attempt 3: ~4s
-    - Attempt 4: ~8s
-- **Use Case**: Best for transient network issues or rate-limited endpoints.
+### Exponential
 
-### 2. Linear
-The delay increases by a constant amount with each attempt.
-- **Formula**: `base * attempt`
-- **Example**:
-    - Attempt 1: ~1s
-    - Attempt 2: ~2s
-    - Attempt 3: ~3s
-- **Use Case**: Predictable, gradually increasing backoff.
+The delay doubles with each attempt, capped at the maximum delay.
 
-### 3. Fixed
-The delay remains constant for every attempt.
-- **Formula**: `base`
-- **Example**:
-    - Attempt 1: ~1s
-    - Attempt 2: ~1s
-    - Attempt 3: ~1s
-- **Use Case**: Polling-style retries where the interval should not change.
+- **Formula**: `initial * 2^(attempt-1)`, capped at the max delay.
+- **Example** (initial 1s): 1s, 2s, 4s, 8s, ...
+- **Use it for**: temporary outages, network failures, and rate-limited endpoints.
 
-### 4. Custom
-Uses a user-provided array of delays in seconds.
-- **Behavior**: `[1, 5, 30, 120]`
-    - Attempt 1: 1s
-    - Attempt 2: 5s
-    - Attempt 3: 30s
-    - Attempt 4: 120s
-- **Note**: If the number of attempts exceeds the array length, the last value in the array is repeated.
-- **Use Case**: Full control over the retry sequence.
+This is the default. Every job uses exponential backoff with a 1 second initial delay capped at 1 hour.
+
+### Fixed
+
+The delay stays constant for every attempt.
+
+- **Formula**: `initial`, every attempt.
+- **Example** (initial 30s): 30s, 30s, 30s, ...
+- **Use it for**: polling-style retries where the interval should not change.
+
+Fixed backoff is selectable per workflow step (see [Where Retries Are Configured](#where-retries-are-configured)).
 
 ## Common Properties
 
 ### Jitter
-A **plus or minus 20% random variation (jitter)** is applied to all calculated delays. This prevents all failed runs from retrying at the exact same moment, which could overwhelm your endpoint.
+
+Strait applies +-20% random jitter to each computed delay so many runs that failed together do not retry at the same instant and overwhelm a recovering service.
 
 ### Delay Bounds
-- **Minimum delay**: All delays are at least **1 second**, preventing zero or near-zero delays.
-- **Maximum delay**: All delays are capped at **1 hour**, no matter what the formula calculates.
+
+- **Initial delay**: 1 second by default.
+- **Maximum delay**: 1 hour by default. Exponential growth never exceeds this.
 
 ### How Retries Are Scheduled
-Strait adds the calculated delay to the current time and records it as the run's `next_retry_at`. The run stays in the queue and won't execute again until that time passes.
 
-## Configuration
+Strait records the next retry time on the run and leaves it queued until that time passes. There is no busy-waiting; the run is simply not eligible to dispatch until then.
 
-Retries can be configured at multiple levels:
+## Where Retries Are Configured
 
-- **Job Level**: Set `retry_strategy` and `retry_delays_secs` on the Job definition.
-- **Workflow Step Level**: Steps can override the job's strategy using `retry_backoff`, `retry_initial_delay_secs`, and `retry_max_delay_secs`.
-- **Run Override**: Individual runs can be triggered with overrides for `max_attempts`, `retry_backoff`, etc.
+### Job level
 
-## Review Queue
+Set `max_attempts` to control how many times a run is retried before it stops. Job runs use exponential backoff with the default 1 second initial delay and 1 hour cap.
 
-The review queue is a holding area where you can inspect and replay jobs that exhausted all retries. Instead of marking these runs as permanently `failed`, Strait moves them to a review status so you can inspect the failure and manually replay the run once you've fixed the underlying issue.
+```json
+{
+  "max_attempts": 5
+}
+```
 
-Strait can also fast-track runs to the review queue using **poison pill detection**: if you set `poison_pill_threshold` on a job and the same error repeats that many times in a row, Strait stops retrying early instead of burning through all attempts. See [Resilience: Poison Pill Detection](/concepts/resilience#poison-pill-detection) for details.
+<Note>
+A job's backoff shape is fixed to exponential today. To use fixed backoff or to change the initial and maximum delays, configure retries on a workflow step. The `retry_strategy` and `retry_delays_secs` job fields are accepted for forward compatibility but are not yet applied; runs use exponential backoff regardless of their value.
+</Note>
+
+### Workflow step level
+
+A workflow step can override retry behavior for that step's runs:
+
+| Field | Description |
+| :--- | :--- |
+| `retry_max_attempts` | Maximum attempts for this step. |
+| `retry_backoff` | `exponential` or `fixed`. |
+| `retry_initial_delay_secs` | Initial delay (and the constant delay for `fixed`). |
+| `retry_max_delay_secs` | Cap on the delay for `exponential`. |
+
+```json
+{
+  "step_ref": "charge-card",
+  "job_id": "payment-charge",
+  "retry_max_attempts": 4,
+  "retry_backoff": "fixed",
+  "retry_initial_delay_secs": 10
+}
+```
+
+## Circuit Breakers
+
+When an endpoint fails repeatedly, Strait can pause dispatches to that endpoint for a short period. Runs are retried later instead of continuing to hit an unhealthy service.
+
+| State | What happens |
+| :--- | :--- |
+| `closed` | Runs dispatch normally. |
+| `open` | Runs wait and retry later. |
+| `half_open` | Strait sends a test request before resuming normal traffic. |
+
+Circuit breakers are useful when a dependency is down and repeated calls would only create more failures.
+
+## Fallback Endpoints
+
+Set `fallback_endpoint_url` when a job can safely use a backup endpoint.
+
+```json
+{
+  "endpoint_url": "https://api.example.com/jobs/send-email",
+  "fallback_endpoint_url": "https://backup.example.com/jobs/send-email"
+}
+```
+
+The fallback should perform the same job and accept the same payload shape as the primary endpoint.
+
+## dead_letter
+
+`dead_letter` holds runs that exhausted all retries. Inspect the failure and replay the run after the issue is fixed.
+
+Some runs should not keep retrying. A malformed payload, missing customer record, or unsupported state can fail the same way every time. Set `poison_pill_threshold` to move repeated identical failures to `dead_letter` early instead of running through the full retry budget:
+
+```json
+{
+  "poison_pill_threshold": 3
+}
+```
+
+See the [Handle Failed Runs](/guides/handle-failed-runs) guide for inspecting and replaying `dead_letter` runs.
+
+## Recommended Baseline
+
+For most production jobs, start with:
+
+```json
+{
+  "max_attempts": 5,
+  "max_concurrency": 10,
+  "poison_pill_threshold": 3
+}
+```
+
+This gives exponential backoff (1s, 2s, 4s, ... up to 1 hour) with five attempts, bounded concurrency, and early dead-lettering of runs that fail identically. Tune rate limits and concurrency based on the capacity of the service you call.
+
+## Related
+
+- [Adaptive Concurrency](/concepts/adaptive-concurrency)
+- [Handle Failed Runs](/guides/handle-failed-runs)
+- [Production Job Guide](/guides/production-job)

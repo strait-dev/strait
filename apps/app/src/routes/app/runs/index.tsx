@@ -14,12 +14,11 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   getCoreRowModel,
   getFilteredRowModel,
-  getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
 import { zodValidator } from "@tanstack/zod-adapter";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { z } from "zod/v4";
 
 import ErrorComponent from "@/components/common/error-component";
@@ -38,9 +37,9 @@ import {
   useCancelRun,
   useRetryRun,
 } from "@/hooks/api/use-runs";
+import { useCursorPagination } from "@/hooks/use-cursor-pagination";
 import {
   ActivityIcon,
-  CalendarIcon,
   EyeIcon,
   FilterIcon,
   RefreshIcon,
@@ -53,17 +52,24 @@ import type { AppRouteContext } from "@/routes/app/layout";
 export const searchSchema = z.object({
   query: z.string().optional(),
   status: z.array(z.string()).optional(),
-  page: z.number().optional().default(1),
-  perPage: z.number().optional().default(20),
+  cursor: z.string().optional(),
+  perPage: z.number().optional(),
 });
 
 export const Route = createFileRoute("/app/runs/")({
+  head: () => ({ meta: [{ title: "Runs · Strait" }] }),
   validateSearch: zodValidator(searchSchema),
-  loader: async ({ context }) => {
+  loaderDeps: ({ search }) => ({
+    limit: search.perPage ?? 20,
+    cursor: search.cursor,
+  }),
+  loader: async ({ context, deps }) => {
     const { session } = context as AppRouteContext;
     const hasProject = !!session.user.activeProjectId;
     if (hasProject) {
-      await context.queryClient.ensureQueryData(runsQueryOptions());
+      await context.queryClient.ensureQueryData(
+        runsQueryOptions({ limit: deps.limit, cursor: deps.cursor })
+      );
     }
     return { hasProject, session };
   },
@@ -74,7 +80,6 @@ export const Route = createFileRoute("/app/runs/")({
 
 function RunsPage() {
   const { hasProject, session } = Route.useLoaderData();
-  const { data } = useQuery({ ...runsQueryOptions(), enabled: hasProject });
   const search = Route.useSearch();
   usePageEvent("runs_list_viewed", {
     has_query: !!search.query,
@@ -82,6 +87,17 @@ function RunsPage() {
     status_filter_count: search.status?.length ?? 0,
   });
   const navigate = Route.useNavigate();
+  const pagination = useCursorPagination(
+    { cursor: search.cursor, perPage: search.perPage },
+    navigate
+  );
+  const { data } = useQuery({
+    ...runsQueryOptions({
+      limit: pagination.perPage,
+      cursor: pagination.cursor,
+    }),
+    enabled: hasProject,
+  });
   const [selectedRun, setSelectedRun] = useState<JobRun | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const retryRun = useRetryRun();
@@ -92,6 +108,30 @@ function RunsPage() {
 
   const typed = data as PaginatedResponse<JobRun> | undefined;
   const tableData = hasProject ? (typed?.data ?? []) : [];
+
+  const summary = useMemo(() => {
+    let succeeded = 0;
+    let failed = 0;
+    let running = 0;
+    for (const run of tableData) {
+      if (run.status === "completed") {
+        succeeded++;
+      } else if (
+        run.status === "failed" ||
+        run.status === "timed_out" ||
+        run.status === "crashed" ||
+        run.status === "system_failed"
+      ) {
+        failed++;
+      } else if (run.status === "executing" || run.status === "dequeued") {
+        running++;
+      }
+    }
+    const completed = succeeded + failed;
+    const successRate =
+      completed > 0 ? Math.round((succeeded / completed) * 100) : null;
+    return { succeeded, failed, running, successRate };
+  }, [tableData]);
 
   const table = useReactTable({
     data: tableData,
@@ -106,13 +146,17 @@ function RunsPage() {
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
+    manualPagination: true,
     enableRowSelection: true,
     onRowSelectionChange: setRowSelection,
     state: { globalFilter: search.query ?? "", rowSelection },
     onGlobalFilterChange: (query) =>
       navigate({
-        search: (prev) => ({ ...prev, query: query || undefined, page: 1 }),
+        search: (prev) => ({
+          ...prev,
+          query: query || undefined,
+          cursor: undefined,
+        }),
       }),
     getRowId: (row) => row.id,
   });
@@ -133,7 +177,7 @@ function RunsPage() {
       search: (prev) => ({
         ...prev,
         status: arr.length > 0 ? arr : undefined,
-        page: 1,
+        cursor: undefined,
       }),
     });
   }
@@ -158,6 +202,38 @@ function RunsPage() {
 
   return (
     <Shell>
+      <h1 className="sr-only">Runs</h1>
+      {tableData.length > 0 && (
+        <div className="flex flex-wrap items-center gap-4 pb-3 text-sm">
+          <span className="text-muted-foreground">
+            {tableData.length} run{tableData.length === 1 ? "" : "s"}
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block size-1.5 rounded-full bg-success" />
+            <span className="tabular-nums">{summary.succeeded}</span>
+            <span className="text-muted-foreground">succeeded</span>
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block size-1.5 rounded-full bg-destructive" />
+            <span className="tabular-nums">{summary.failed}</span>
+            <span className="text-muted-foreground">failed</span>
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block size-1.5 rounded-full bg-info" />
+            <span className="tabular-nums">{summary.running}</span>
+            <span className="text-muted-foreground">running</span>
+          </span>
+          {summary.successRate !== null && (
+            <span className="ml-auto text-muted-foreground">
+              <span className="font-medium text-foreground tabular-nums">
+                {summary.successRate}%
+              </span>{" "}
+              success rate
+            </span>
+          )}
+        </div>
+      )}
+
       <div className="flex items-center gap-3 pb-2.5">
         <div className="relative w-full max-w-[500px]">
           <HugeiconsIcon
@@ -173,7 +249,7 @@ function RunsPage() {
                 search: (prev) => ({
                   ...prev,
                   query: e.target.value || undefined,
-                  page: 1,
+                  cursor: undefined,
                 }),
               })
             }
@@ -202,11 +278,6 @@ function RunsPage() {
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
-
-        <Button disabled variant="outline">
-          <HugeiconsIcon className="mr-1.5" icon={CalendarIcon} size={14} />
-          Date Range
-        </Button>
       </div>
 
       {/* biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noNoninteractiveElementInteractions lint/a11y/noStaticElementInteractions: event delegation on table container */}
@@ -229,6 +300,19 @@ function RunsPage() {
         }}
       >
         <DataTable
+          ariaLabel="Runs"
+          cursorPagination={{
+            pageSize: pagination.perPage,
+            hasMore: typed?.has_more ?? false,
+            canGoBack: pagination.canGoBack,
+            onNext: () => {
+              if (typed?.next_cursor) {
+                pagination.goNext(typed.next_cursor);
+              }
+            },
+            onPrev: pagination.goPrev,
+            onPageSizeChange: pagination.setPerPage,
+          }}
           emptyState={emptyState}
           floatingBar={
             <DataTableFloatingBar

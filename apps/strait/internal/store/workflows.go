@@ -18,6 +18,9 @@ func (q *Queries) CreateWorkflow(ctx context.Context, w *domain.Workflow) error 
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateWorkflow")
 	defer span.End()
 
+	if err := q.requireCurrentProjectContext(ctx, w.ProjectID); err != nil {
+		return fmt.Errorf("create workflow: %w", err)
+	}
 	if w.ID == "" {
 		w.ID = uuid.Must(uuid.NewV7()).String()
 	}
@@ -70,6 +73,17 @@ func (q *Queries) CreateWorkflow(ctx context.Context, w *domain.Workflow) error 
 		return fmt.Errorf("create workflow: %w", err)
 	}
 
+	return nil
+}
+
+func (q *Queries) requireCurrentProjectContext(ctx context.Context, projectID string) error {
+	var currentProjectID string
+	if err := q.db.QueryRow(ctx, `SELECT COALESCE(current_setting('app.current_project_id', true), '')`).Scan(&currentProjectID); err != nil {
+		return fmt.Errorf("read project context: %w", err)
+	}
+	if currentProjectID != "" && currentProjectID != projectID {
+		return ErrProjectContextMismatch
+	}
 	return nil
 }
 
@@ -325,11 +339,16 @@ func (q *Queries) ListCronWorkflows(ctx context.Context) ([]domain.Workflow, err
 	defer span.End()
 
 	query := `
-		SELECT id, project_id, name, slug, description, enabled, version, timeout_secs, max_concurrent_runs,
-		       max_parallel_steps, cron, cron_timezone, skip_if_running, tags, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at
-		FROM workflows
-		WHERE enabled = TRUE AND cron IS NOT NULL AND cron <> ''
-		ORDER BY created_at DESC`
+		SELECT w.id, w.project_id, w.name, w.slug, w.description, w.enabled, w.version, w.timeout_secs, w.max_concurrent_runs,
+		       w.max_parallel_steps, w.cron, w.cron_timezone, w.skip_if_running, w.tags, w.version_id, w.version_policy, w.backwards_compatible, w.created_by, w.updated_by, w.created_at, w.updated_at
+		FROM workflows w
+		JOIN projects p ON p.id = w.project_id
+		WHERE w.enabled = TRUE
+		  AND w.cron IS NOT NULL
+		  AND w.cron <> ''
+		  AND p.deleted_at IS NULL
+		  AND COALESCE(p.suspended, false) = false
+		ORDER BY w.created_at DESC`
 
 	rows, err := q.db.Query(ctx, query)
 	if err != nil {

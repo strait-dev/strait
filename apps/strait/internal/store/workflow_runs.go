@@ -231,7 +231,7 @@ func (q *Queries) DeleteWorkflowRunsFinishedBefore(ctx context.Context, before t
 		WITH doomed AS (
 			SELECT id
 			FROM workflow_runs
-			WHERE status IN ('completed', 'failed', 'canceled')
+			WHERE status IN ('completed', 'failed', 'timed_out', 'canceled', 'compensated', 'compensation_failed')
 			  AND finished_at IS NOT NULL
 			  AND finished_at < $1
 			ORDER BY finished_at ASC
@@ -449,7 +449,7 @@ func (q *Queries) CreateWorkflowRunBootstrap(ctx context.Context, run *domain.Wo
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateWorkflowRunBootstrap")
 	defer span.End()
 
-	txb, ok := q.db.(TxBeginner)
+	_, ok := q.db.(TxBeginner)
 	if !ok {
 		if err := q.CreateWorkflowRun(ctx, run); err != nil {
 			return err
@@ -466,7 +466,7 @@ func (q *Queries) CreateWorkflowRunBootstrap(ctx context.Context, run *domain.Wo
 		return nil
 	}
 
-	return WithTx(ctx, txb, func(txQ *Queries) error {
+	return q.withTx(ctx, func(txQ *Queries) error {
 		if err := txQ.CreateWorkflowRun(ctx, run); err != nil {
 			return fmt.Errorf("create workflow run bootstrap: %w", err)
 		}
@@ -646,8 +646,9 @@ func (q *Queries) BulkCancelWorkflowRuns(ctx context.Context, projectID string, 
 
 	rows, err := q.db.Query(ctx, `
 		UPDATE workflow_runs
-		SET status = 'failed', finished_at = $2, error = 'canceled by user (bulk)'
-		WHERE id = ANY($1) AND project_id = $3 AND status NOT IN ('completed', 'failed')
+		SET status = 'canceled', finished_at = $2, error = 'canceled by user (bulk)'
+		WHERE id = ANY($1) AND project_id = $3
+		  AND status NOT IN ('completed', 'failed', 'timed_out', 'canceled', 'compensated', 'compensation_failed')
 		RETURNING id
 	`, ids, now, projectID)
 	if err != nil {

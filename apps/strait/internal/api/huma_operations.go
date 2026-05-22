@@ -112,21 +112,4 @@ func (s *Server) registerStreamOps(api huma.API) {
 	}) (*struct{}, error) {
 		return nil, nil //nolint:nilnil // doc-only stub
 	})
-
-	huma.Register(api, huma.Operation{
-		OperationID: "stream-deployment-logs",
-		Method:      http.MethodGet,
-		Path:        "/v1/jobs/{jobID}/deployments/{deploymentID}/logs",
-		Summary:     "Stream deployment build logs",
-		Description: "Returns stored build logs for terminal deployments. For in-progress builds, use ?stream=true to receive live logs as SSE (text/event-stream).",
-		Tags:        []string{"Deployments"},
-		Security:    []map[string][]string{{"bearerAuth": {}}},
-		Errors:      []int{401, 404, 500},
-	}, func(_ context.Context, _ *struct {
-		JobID        string `path:"jobID" doc:"Job ID" example:"job_01HX8BQNP4"`
-		DeploymentID string `path:"deploymentID" doc:"Deployment ID" example:"deploy_01HX8BQNP4"`
-		Stream       bool   `query:"stream" doc:"If true, open SSE stream for in-progress builds" example:"true"`
-	}) (*struct{}, error) {
-		return nil, nil //nolint:nilnil // doc-only stub
-	})
 }

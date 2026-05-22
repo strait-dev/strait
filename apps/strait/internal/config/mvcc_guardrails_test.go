@@ -70,28 +70,17 @@ func TestLoad_MVCCGuardrailOverrides(t *testing.T) {
 	}
 }
 
-func TestLoad_MVCCGuardrailZeroDisables(t *testing.T) {
-	// Zero durations should parse cleanly and be interpreted as "do not set
-	// the param" by services.go. This test asserts that they load without
-	// error; the behavioral test for zero-means-skip lives in the pool
-	// integration test.
+func TestLoad_MVCCGuardrailZeroRejected(t *testing.T) {
+	// Zero database guardrail durations fail validation so deployments do not
+	// accidentally disable lock and idle-in-transaction protection.
 	setRequiredEnv(t)
 	t.Setenv("DB_IDLE_IN_TRANSACTION_TIMEOUT", "0")
 	t.Setenv("DB_LOCK_TIMEOUT", "0")
 	t.Setenv("DB_TRANSACTION_TIMEOUT", "0")
 
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if cfg.DBIdleInTransactionTimeout != 0 {
-		t.Errorf("DBIdleInTransactionTimeout = %v", cfg.DBIdleInTransactionTimeout)
-	}
-	if cfg.DBLockTimeout != 0 {
-		t.Errorf("DBLockTimeout = %v", cfg.DBLockTimeout)
-	}
-	if cfg.DBTransactionTimeout != 0 {
-		t.Errorf("DBTransactionTimeout = %v", cfg.DBTransactionTimeout)
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected validation error for zero MVCC guardrail durations")
 	}
 }
 

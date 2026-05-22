@@ -5,12 +5,6 @@ import {
   CollapsibleTrigger,
 } from "@strait/ui/components/collapsible";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@strait/ui/components/dropdown-menu";
-import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
@@ -25,20 +19,21 @@ import {
 } from "@strait/ui/components/sidebar";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Suspense, useState } from "react";
+import { Suspense } from "react";
 import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
 import { isCommunityEdition } from "@/lib/edition";
 import {
   AlertIcon,
-  AnalyticsIcon,
   BriefcaseIcon,
   ChevronDownIcon,
   ClockIcon,
   CreditCardIcon,
   DashboardIcon,
   FileTextIcon,
+  HelpCircleIcon,
   LayersIcon,
   PlayActionIcon,
+  SparklesIcon,
   TrendingUpIcon,
   WebhookIcon,
   WorkflowIcon,
@@ -59,9 +54,8 @@ type NavItem = {
 };
 
 const mainNav: NavItem[] = [
-  { title: "Overview", url: "/app", icon: DashboardIcon, exact: true },
-  { title: "Dashboard", url: "/app/dashboard", icon: TrendingUpIcon },
-  { title: "Analytics", url: "/app/analytics", icon: AnalyticsIcon },
+  { title: "Dashboard", url: "/app/dashboard", icon: DashboardIcon },
+  { title: "Analytics", url: "/app/analytics", icon: TrendingUpIcon },
   { title: "Jobs", url: "/app/jobs", icon: BriefcaseIcon },
   { title: "Workflows", url: "/app/workflows", icon: WorkflowIcon },
   { title: "Runs", url: "/app/runs", icon: PlayActionIcon },
@@ -75,27 +69,6 @@ const observabilityNav: NavItem[] = [
   { title: "Webhooks", url: "/app/webhooks", icon: WebhookIcon },
 ];
 
-type Environment = "production" | "staging" | "development";
-
-const environments: { value: Environment; label: string; dotClass: string }[] =
-  [
-    {
-      value: "production",
-      label: "Production",
-      dotClass: "bg-green-500",
-    },
-    {
-      value: "staging",
-      label: "Staging",
-      dotClass: "bg-blue-500",
-    },
-    {
-      value: "development",
-      label: "Development",
-      dotClass: "bg-yellow-500",
-    },
-  ];
-
 type Props = {
   session: NonNullable<Session>;
 };
@@ -105,10 +78,6 @@ const AppSidebar = ({ session }: Props) => {
     subscriptionStateQueryOptions()
   );
   const { shouldShowUpgrade, hasPendingPayment } = subscriptionState;
-
-  const [environment, setEnvironment] = useState<Environment>("production");
-  const currentEnv =
-    environments.find((e) => e.value === environment) ?? environments[0];
 
   const pathname = useRouterState({
     select: (s) => s.location.pathname,
@@ -126,7 +95,7 @@ const AppSidebar = ({ session }: Props) => {
   return (
     <Sidebar collapsible="offcanvas">
       <SidebarHeader className="h-16 border-sidebar-border border-b">
-        <div className="flex h-full w-full items-center justify-between px-2">
+        <div className="flex h-full w-full items-center px-2">
           <Link to="/app">
             <span className="sr-only">Strait</span>
             <img
@@ -137,32 +106,6 @@ const AppSidebar = ({ session }: Props) => {
               width={20}
             />
           </Link>
-
-          <DropdownMenu>
-            <DropdownMenuTrigger className="flex items-center gap-1.5 rounded-md border px-2 py-1 font-medium text-sidebar-foreground text-xs hover:bg-sidebar-accent">
-              <span
-                className={`inline-block size-2 rounded-full ${currentEnv.dotClass}`}
-              />
-              {currentEnv.label}
-              <HugeiconsIcon
-                className="size-3 text-muted-foreground"
-                icon={ChevronDownIcon}
-              />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" sideOffset={4}>
-              {environments.map((env) => (
-                <DropdownMenuItem
-                  key={env.value}
-                  onClick={() => setEnvironment(env.value)}
-                >
-                  <span
-                    className={`inline-block size-2 rounded-full ${env.dotClass}`}
-                  />
-                  {env.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
         </div>
       </SidebarHeader>
 
@@ -273,6 +216,44 @@ const AppSidebar = ({ session }: Props) => {
       {!isCommunityEdition && shouldShowUpgrade ? <TrialUpgradeCard /> : null}
 
       <SidebarFooter className="flex flex-col border-sidebar-border border-t">
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              isActive={pathname === "/app"}
+              render={<Link search={{ quickstart: true }} to="/app" />}
+              tooltip="Quick start"
+            >
+              <HugeiconsIcon
+                className="text-muted-foreground/65 group-data-[active=true]/menu-button:text-primary"
+                icon={SparklesIcon}
+                size={20}
+              />
+              <span>Quick start</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              render={(props) => (
+                <a
+                  {...props}
+                  href="https://strait.dev/docs"
+                  rel="noopener noreferrer"
+                  target="_blank"
+                >
+                  {props.children}
+                </a>
+              )}
+              tooltip="Documentation"
+            >
+              <HugeiconsIcon
+                className="text-muted-foreground/65"
+                icon={HelpCircleIcon}
+                size={20}
+              />
+              <span>Documentation</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
         <Suspense
           fallback={
             <SidebarMenuButton className="w-full" size="lg">

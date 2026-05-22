@@ -1,0 +1,172 @@
+package billing
+
+import (
+	"reflect"
+	"testing"
+
+	"strait/internal/domain"
+)
+
+// TestComputeEntitlements_RoundTripMatchesPipeline locks ComputeEntitlements
+// to the existing 3-step pipeline byte-for-byte across every tier × addon
+// combination from TestAddonEnforcement. Drift between the two paths is the
+// failure mode this guards against.
+func TestComputeEntitlements_RoundTripMatchesPipeline(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name   string
+		tier   domain.PlanTier
+		addons []Addon
+		addOns SubscriptionAddOns
+	}{
+		{"free_no_addons", domain.PlanFree, nil, SubscriptionAddOns{}},
+		{"starter_no_addons", domain.PlanStarter, nil, SubscriptionAddOns{}},
+		{"pro_no_addons", domain.PlanPro, nil, SubscriptionAddOns{}},
+		{"scale_no_addons", domain.PlanScale, nil, SubscriptionAddOns{}},
+		{"business_no_addons", domain.PlanBusiness, nil, SubscriptionAddOns{}},
+		{"enterprise_no_addons", domain.PlanEnterprise, nil, SubscriptionAddOns{}},
+
+		{"pro_concurrency_pack",
+			domain.PlanPro,
+			[]Addon{{AddonType: AddonConcurrency100, Quantity: 1, Active: true}},
+			SubscriptionAddOns{}},
+		{"pro_envs_pack",
+			domain.PlanPro,
+			[]Addon{{AddonType: AddonEnvironments5, Quantity: 3, Active: true}},
+			SubscriptionAddOns{}},
+		{"starter_history_pack",
+			domain.PlanStarter,
+			[]Addon{{AddonType: AddonHistory30d, Quantity: 1, Active: true}},
+			SubscriptionAddOns{}},
+		{"pro_compliance_archive",
+			domain.PlanPro,
+			[]Addon{{AddonType: AddonComplianceArchive, Quantity: 1, Active: true}},
+			SubscriptionAddOns{}},
+		{"pro_dedicated_workers",
+			domain.PlanPro,
+			[]Addon{{AddonType: AddonDedicatedWorkers, Quantity: 1, Active: true}},
+			SubscriptionAddOns{}},
+
+		{"pro_subscription_retention_pack",
+			domain.PlanPro,
+			nil,
+			SubscriptionAddOns{RetentionPack: 2}},
+		{"pro_subscription_priority_pack",
+			domain.PlanPro,
+			nil,
+			SubscriptionAddOns{PrioritySlotPack: 1}},
+		{"pro_subscription_worker_connections",
+			domain.PlanPro,
+			nil,
+			SubscriptionAddOns{WorkerConnections: 5}},
+
+		{"pro_table_and_subscription_addons",
+			domain.PlanPro,
+			[]Addon{
+				{AddonType: AddonConcurrency100, Quantity: 2, Active: true},
+				{AddonType: AddonHistory30d, Quantity: 1, Active: true},
+			},
+			SubscriptionAddOns{RetentionPack: 1, WorkerConnections: 3}},
+
+		{"enterprise_with_packs_stays_unlimited",
+			domain.PlanEnterprise,
+			[]Addon{{AddonType: AddonConcurrency100, Quantity: 10, Active: true}},
+			SubscriptionAddOns{WorkerConnections: 100}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			sub := &OrgSubscription{
+				PlanTier: string(tc.tier),
+				AddOns:   tc.addOns,
+			}
+
+			pipeline := GetPlanLimits(tc.tier)
+			pipeline = EffectiveLimits(pipeline, tc.addons)
+			pipeline = ApplySubscriptionAddOns(pipeline, tc.addOns)
+
+			got := ComputeEntitlements(sub, tc.addons)
+
+			if !reflect.DeepEqual(got, pipeline) {
+				t.Errorf("snapshot != pipeline\n got:  %+v\n want: %+v", got, pipeline)
+			}
+		})
+	}
+}
+
+// TestComputeEntitlements_UnknownTierFallsBackToFree exercises the same
+// unknown-tier fallback that GetPlanLimits provides — proves the snapshot
+// never silently upgrades a misconfigured row.
+func TestComputeEntitlements_UnknownTierFallsBackToFree(t *testing.T) {
+	t.Parallel()
+
+	sub := &OrgSubscription{PlanTier: "platinum_deluxe"}
+	got := ComputeEntitlements(sub, nil)
+	want := GetPlanLimits(domain.PlanFree)
+
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("unknown tier should fall back to Free\n got:  %+v\n want: %+v", got, want)
+	}
+}
+
+// TestComputeEntitlements_NilSubFallsBackToFree mirrors the unknown-tier
+// behavior for a missing-subscription row.
+func TestComputeEntitlements_NilSubFallsBackToFree(t *testing.T) {
+	t.Parallel()
+
+	got := ComputeEntitlements(nil, nil)
+	want := GetPlanLimits(domain.PlanFree)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("nil sub should fall back to Free\n got:  %+v\n want: %+v", got, want)
+	}
+}
+
+// TestComputeEntitlements_EmptyAddonsMatchesPlanBaseline locks the no-addon
+// path to the static catalog — guards against an empty []Addon slice
+// accidentally mutating limits.
+func TestComputeEntitlements_EmptyAddonsMatchesPlanBaseline(t *testing.T) {
+	t.Parallel()
+
+	for _, tier := range []domain.PlanTier{
+		domain.PlanFree, domain.PlanStarter, domain.PlanPro,
+		domain.PlanScale, domain.PlanBusiness, domain.PlanEnterprise,
+	} {
+		t.Run(string(tier), func(t *testing.T) {
+			t.Parallel()
+			sub := &OrgSubscription{PlanTier: string(tier)}
+			got := ComputeEntitlements(sub, []Addon{})
+			want := GetPlanLimits(tier)
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("empty addons should match catalog baseline for %s\n got:  %+v\n want: %+v", tier, got, want)
+			}
+		})
+	}
+}
+
+// TestComputeEntitlements_TableAddonsApplyBeforeSubscriptionAddons locks the
+// composition order: table addons run first, then subscription-row JSONB
+// adjustments. Both touch RetentionDays — exercising both confirms the
+// ordering produces additive (not conflicting) results.
+func TestComputeEntitlements_TableAddonsApplyBeforeSubscriptionAddons(t *testing.T) {
+	t.Parallel()
+
+	sub := &OrgSubscription{
+		PlanTier: string(domain.PlanPro),
+		AddOns:   SubscriptionAddOns{RetentionPack: 1},
+	}
+	addons := []Addon{
+		{AddonType: AddonHistory30d, Quantity: 1, Active: true},
+	}
+
+	got := ComputeEntitlements(sub, addons)
+
+	// Pro retention = 30; +30 from table addon (history_30d), +30 from
+	// subscription pack (retentionPackDays = 30) = 90.
+	wantRetention := RetentionPro + 30 + retentionPackDays
+	if got.RetentionDays != wantRetention {
+		t.Errorf("retention composition: got %d, want %d", got.RetentionDays, wantRetention)
+	}
+}

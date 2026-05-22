@@ -51,10 +51,11 @@ func TestVerifyAuditChainIncremental_ColdPath(t *testing.T) {
 	}
 }
 
-// TestVerifyAuditChainIncremental_WarmPath_ScansOnlyNewRows asserts the
-// second (and subsequent) incremental verifies see only rows appended
-// since the last checkpoint, not the whole history.
-func TestVerifyAuditChainIncremental_WarmPath_ScansOnlyNewRows(t *testing.T) {
+// TestVerifyAuditChainIncremental_WarmPath_RevalidatesPrefix asserts the
+// second (and subsequent) incremental verifies re-check the full surviving
+// chain before refreshing the checkpoint. The checkpoint is a cursor, not a
+// trust root.
+func TestVerifyAuditChainIncremental_WarmPath_RevalidatesPrefix(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
 
@@ -75,7 +76,7 @@ func TestVerifyAuditChainIncremental_WarmPath_ScansOnlyNewRows(t *testing.T) {
 		t.Fatalf("first verify: Valid=%v EventsChecked=%d (want 10 valid)", first.Valid, first.EventsChecked)
 	}
 
-	// Second verify with no new writes: 0 rows to check.
+	// Second verify with no new writes still revalidates the surviving prefix.
 	second, err := q.VerifyAuditChainIncremental(ctx, projectID)
 	if err != nil {
 		t.Fatalf("second verify: %v", err)
@@ -83,14 +84,14 @@ func TestVerifyAuditChainIncremental_WarmPath_ScansOnlyNewRows(t *testing.T) {
 	if !second.Valid {
 		t.Errorf("second verify: Valid = false on idle tail; error=%q", second.Error)
 	}
-	if second.EventsChecked != 0 {
-		t.Errorf("second verify: EventsChecked = %d, want 0 on idle tail", second.EventsChecked)
+	if second.EventsChecked != 10 {
+		t.Errorf("second verify: EventsChecked = %d, want 10 on full prefix revalidation", second.EventsChecked)
 	}
 	if !second.Incremental {
 		t.Error("second verify: Incremental = false")
 	}
 
-	// Append 3 new events, then verify: only those 3 get re-scanned.
+	// Append 3 new events, then verify: the whole surviving chain is checked.
 	insertTestChain(ctx, t, q, projectID, 3)
 
 	third, err := q.VerifyAuditChainIncremental(ctx, projectID)
@@ -100,8 +101,43 @@ func TestVerifyAuditChainIncremental_WarmPath_ScansOnlyNewRows(t *testing.T) {
 	if !third.Valid {
 		t.Errorf("third verify: Valid = false; error=%q", third.Error)
 	}
-	if third.EventsChecked != 3 {
-		t.Errorf("third verify: EventsChecked = %d, want 3 (only the new tail)", third.EventsChecked)
+	if third.EventsChecked != 13 {
+		t.Errorf("third verify: EventsChecked = %d, want 13 (full chain)", third.EventsChecked)
+	}
+}
+
+func TestVerifyAuditChainIncremental_HistoricalTamperBeforeCheckpoint(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	q := mustStore(t)
+	q.SetSecretEncryptionKey(testEncKey)
+	key, _ := store.DeriveAuditSigningKey("incremental-prefix-tamper")
+	q.SetAuditSigningKey(key)
+
+	projectID := "proj-incremental-prefix-tamper"
+	ids := insertTestChain(ctx, t, q, projectID, 5)
+
+	if _, err := q.VerifyAuditChainIncremental(ctx, projectID); err != nil {
+		t.Fatalf("initial verify: %v", err)
+	}
+
+	if _, err := testDB.Pool.Exec(ctx,
+		`UPDATE audit_events SET signature = 'deadbeefdeadbeefdeadbeefdeadbeef' WHERE id = $1`,
+		ids[1],
+	); err != nil {
+		t.Fatalf("tamper historical row: %v", err)
+	}
+
+	result, err := q.VerifyAuditChainIncremental(ctx, projectID)
+	if err != nil {
+		t.Fatalf("historical tamper verify: %v", err)
+	}
+	if result.Valid {
+		t.Fatal("incremental verify returned valid after pre-checkpoint tamper")
+	}
+	if result.BrokenAtID != ids[1] {
+		t.Fatalf("BrokenAtID = %q, want historical tampered row %q", result.BrokenAtID, ids[1])
 	}
 }
 

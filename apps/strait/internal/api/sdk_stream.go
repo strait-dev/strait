@@ -24,6 +24,9 @@ func (s *Server) handleSDKStreamChunk(ctx context.Context, input *SDKStreamChunk
 	if s.pubsub == nil {
 		return &SDKStreamChunkOutput{Body: map[string]string{"status": "ok"}}, nil
 	}
+	if err := s.ensureSDKRunActive(ctx, input.RunID); err != nil {
+		return nil, err
+	}
 	streamID := input.Body.StreamID
 	if streamID == "" {
 		streamID = "default"

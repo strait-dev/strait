@@ -20,7 +20,13 @@ type SlackSender struct {
 // NewSlackSender creates a new SlackSender with the given HTTP client.
 func NewSlackSender(client *http.Client) *SlackSender {
 	if client == nil {
-		client = &http.Client{Timeout: 10 * time.Second}
+		client = &http.Client{
+			Timeout:   10 * time.Second,
+			Transport: httputil.NewExternalTransport(false),
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		}
 	}
 	return &SlackSender{client: client}
 }
@@ -56,7 +62,7 @@ func (s *SlackSender) Send(ctx context.Context, channel *domain.NotificationChan
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("send slack notification: %w", err)
+		return fmt.Errorf("send slack notification: %s", sanitizeDeliveryError(err))
 	}
 	defer resp.Body.Close()
 

@@ -113,7 +113,7 @@ func downgradeHTTPJobsWarningHTML(periodEnd string, jobCount int) string {
     <tr><td style="height:16px;"></td></tr>
     <tr>
       <td style="font-size:14px;color:#8D8D8D;line-height:1.6;">
-        Your job configurations and run history will be fully preserved. To keep your HTTP jobs running, upgrade back to Pro or higher before the period ends. Alternatively, you can convert them to managed execution mode.
+        Your job configurations and run history will be fully preserved. To keep your HTTP jobs running, upgrade back to Pro or higher before the period ends.
       </td>
     </tr>
     <tr><td style="height:16px;"></td></tr>
@@ -175,6 +175,51 @@ func (s *BillingEmailSender) SendInvoiceUpcoming(ctx context.Context, to []strin
 	}
 	body := invoiceUpcomingHTML(amountDue, dueDate)
 	s.send(ctx, to, "Upcoming invoice", body)
+}
+
+// SendDunningStep sends the per-step dunning reminder email driven by the
+// Dunner state machine. Step values are defined in dunning.go; unrecognized
+// steps fall back to a generic past-due message.
+func (s *BillingEmailSender) SendDunningStep(ctx context.Context, to []string, planName string, step int) {
+	if s == nil || len(to) == 0 {
+		return
+	}
+	subject, body := dunningStepCopy(planName, step)
+	s.send(ctx, to, subject, body)
+}
+
+func dunningStepCopy(planName string, step int) (string, string) {
+	safePlan := html.EscapeString(planName)
+	switch step {
+	case 1:
+		return "Payment failed — action required",
+			billingEmailWrapper("Payment failed",
+				fmt.Sprintf(`<tr><td style="font-size:14px;color:#8D8D8D;line-height:1.6;">We could not collect payment for your <strong>%s</strong> plan. Update your billing details to avoid service disruption.</td></tr>`, safePlan))
+	case 2:
+		return "Payment still past due (day 3)",
+			billingEmailWrapper("Payment past due",
+				fmt.Sprintf(`<tr><td style="font-size:14px;color:#8D8D8D;line-height:1.6;">Three days have passed without a successful payment on your <strong>%s</strong> plan. Please update your billing details.</td></tr>`, safePlan))
+	case 3:
+		return "Payment still past due (day 7)",
+			billingEmailWrapper("Payment past due",
+				fmt.Sprintf(`<tr><td style="font-size:14px;color:#8D8D8D;line-height:1.6;">Your <strong>%s</strong> plan is one week past due. Access will be restricted in seven more days if payment is not received.</td></tr>`, safePlan))
+	case 4:
+		return "Access restricted — payment required",
+			billingEmailWrapper("Access restricted",
+				fmt.Sprintf(`<tr><td style="font-size:14px;color:#8D8D8D;line-height:1.6;">Your <strong>%s</strong> plan has entered restricted mode after 14 days without payment. New runs are blocked until your invoice is paid.</td></tr>`, safePlan))
+	case 5:
+		return "Final notice before suspension",
+			billingEmailWrapper("Final notice",
+				fmt.Sprintf(`<tr><td style="font-size:14px;color:#8D8D8D;line-height:1.6;">This is the final notice for your <strong>%s</strong> plan. The subscription will be suspended in 30 days if no payment is received.</td></tr>`, safePlan))
+	case 6:
+		return "Subscription suspended",
+			billingEmailWrapper("Subscription suspended",
+				fmt.Sprintf(`<tr><td style="font-size:14px;color:#8D8D8D;line-height:1.6;">Your <strong>%s</strong> subscription has been suspended. Contact support to reactivate.</td></tr>`, safePlan))
+	default:
+		return "Payment past due",
+			billingEmailWrapper("Payment past due",
+				fmt.Sprintf(`<tr><td style="font-size:14px;color:#8D8D8D;line-height:1.6;">Your <strong>%s</strong> plan has an outstanding balance. Please update your billing details.</td></tr>`, safePlan))
+	}
 }
 
 func trialEndingHTML(endDate string, daysRemaining int) string {

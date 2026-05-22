@@ -23,6 +23,8 @@ func TestHandleTestWebhook_TargetUnreachable(t *testing.T) {
 	t.Cleanup(func() { globalAllowPrivateEndpoints.Store(false) })
 
 	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
+	srv.config.AllowPrivateEndpoints = true
+	globalAllowPrivateEndpoints.Store(true)
 
 	// 192.0.2.1 is RFC 5737 TEST-NET-1, guaranteed unreachable. The SSRF
 	// guard is bypassed above so the HTTP client attempts the connection
@@ -63,6 +65,31 @@ func TestHandleTestWebhook_InvalidURL(t *testing.T) {
 
 	if w.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("expected 422, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleTestWebhook_URLValidationErrorIsGeneric(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
+
+	body, _ := json.Marshal(map[string]string{"url": "https://127.0.0.1:8443/hook?token=secret"})
+	r := httptest.NewRequest(http.MethodPost, "/v1/webhooks/test", strings.NewReader(string(body)))
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	TypedHandler(srv, http.StatusOK, srv.handleTestWebhook)(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	response := w.Body.String()
+	if !strings.Contains(response, "invalid webhook URL") {
+		t.Fatalf("response = %q, want generic invalid webhook URL message", response)
+	}
+	for _, leaked := range []string{"127.0.0.1", "token=secret", "private", "loopback"} {
+		if strings.Contains(response, leaked) {
+			t.Fatalf("response leaked validation detail %q: %s", leaked, response)
+		}
 	}
 }
 
@@ -143,6 +170,51 @@ func TestHandleReplayWebhookDelivery_WrongProject(t *testing.T) {
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 for wrong project, got %d", w.Code)
+	}
+}
+
+func TestHandleReplayWebhookDelivery_EnvironmentScopedCallerCannotReplayOtherEnvironment(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetWebhookDeliveryFunc: func(_ context.Context, _ string) (*domain.WebhookDelivery, error) {
+			return &domain.WebhookDelivery{ID: "del-1", JobID: "job-1", ProjectID: "proj-1"}, nil
+		},
+		GetJobFunc: func(_ context.Context, _ string) (*domain.Job, error) {
+			return &domain.Job{ID: "job-1", ProjectID: "proj-1", EnvironmentID: "env-staging"}, nil
+		},
+		ReplayWebhookDeliveryFunc: func(_ context.Context, _ string) (*domain.WebhookDelivery, error) {
+			t.Fatal("ReplayWebhookDelivery should not be called for a mismatched environment")
+			return nil, nil
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
+
+	_, err := srv.handleReplayWebhookDelivery(ctx, &ReplayWebhookDeliveryInput{ID: "del-1"})
+	if !isHumaStatusError(err, http.StatusNotFound) {
+		t.Fatalf("expected 404 for environment mismatch, got %v", err)
+	}
+}
+
+func TestHandleReplayWebhookDelivery_EnvironmentScopedCallerCannotReplayUnscopedSubscriptionDelivery(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetWebhookDeliveryFunc: func(_ context.Context, _ string) (*domain.WebhookDelivery, error) {
+			return &domain.WebhookDelivery{ID: "del-1", ProjectID: "proj-1", SubscriptionID: "sub-1"}, nil
+		},
+		ReplayWebhookDeliveryFunc: func(_ context.Context, _ string) (*domain.WebhookDelivery, error) {
+			t.Fatal("ReplayWebhookDelivery should not be called for an env-scoped caller without job environment")
+			return nil, nil
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
+
+	_, err := srv.handleReplayWebhookDelivery(ctx, &ReplayWebhookDeliveryInput{ID: "del-1"})
+	if !isHumaStatusError(err, http.StatusNotFound) {
+		t.Fatalf("expected 404 for env-scoped subscription delivery replay, got %v", err)
 	}
 }
 

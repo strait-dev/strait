@@ -182,6 +182,10 @@ type ReplayDeadletterResponse struct {
 	NewEventID   string `json:"new_event_id"`
 }
 
+type auditDeadletterAtomicReplayer interface {
+	ReplayAuditEventDeadletter(ctx context.Context, id, projectID, newEventID string) (*domain.AuditEvent, bool, error)
+}
+
 func (s *Server) handleReplayDeadletter(ctx context.Context, input *ReplayDeadletterInput) (*ReplayDeadletterOutput, error) {
 	if err := s.requireAdmin(ctx); err != nil {
 		return nil, err
@@ -192,6 +196,27 @@ func (s *Server) handleReplayDeadletter(ctx context.Context, input *ReplayDeadle
 	}
 	if input.ID == "" {
 		return nil, huma.Error400BadRequest("id is required")
+	}
+
+	if replayer, ok := s.store.(auditDeadletterAtomicReplayer); ok {
+		newEventID := uuid.Must(uuid.NewV7()).String()
+		newEvent, replayed, replayErr := replayer.ReplayAuditEventDeadletter(ctx, input.ID, projectID, newEventID)
+		if replayErr != nil {
+			slog.Error("audit deadletter atomic replay failed",
+				"deadletter_id", input.ID, "project_id", projectID, "error", replayErr)
+			return nil, huma.Error500InternalServerError("failed to replay deadletter into audit chain")
+		}
+		if !replayed || newEvent == nil {
+			return nil, huma.Error404NotFound("deadletter entry not found")
+		}
+		s.emitAuditEvent(ctx, domain.AuditActionDeadletterReplayed, "audit_deadletter", input.ID, map[string]any{
+			"deadletter_id": input.ID,
+			"new_event_id":  newEvent.ID,
+		})
+		return &ReplayDeadletterOutput{Body: ReplayDeadletterResponse{
+			DeadletterID: input.ID,
+			NewEventID:   newEvent.ID,
+		}}, nil
 	}
 
 	// Structural tenant isolation: the store fetch is scoped by project_id,
@@ -214,12 +239,14 @@ func (s *Server) handleReplayDeadletter(ctx context.Context, input *ReplayDeadle
 		return nil, huma.Error500InternalServerError("failed to replay deadletter into audit chain")
 	}
 	if markErr := s.store.MarkAuditDeadletterReclaimed(ctx, input.ID, newEvent.ID); markErr != nil {
-		slog.Warn("failed to mark deadletter as reclaimed",
+		slog.Error("failed to mark deadletter as reclaimed",
 			"deadletter_id", input.ID, "new_event_id", newEvent.ID, "error", markErr)
+		return nil, huma.Error500InternalServerError("failed to finalize deadletter replay")
 	}
 	if delErr := s.store.DeleteAuditEventDeadletter(ctx, input.ID, projectID); delErr != nil {
-		slog.Warn("audit deadletter delete failed after successful chain insert",
+		slog.Error("audit deadletter delete failed after successful chain insert",
 			"deadletter_id", input.ID, "new_event_id", newEvent.ID, "error", delErr)
+		return nil, huma.Error500InternalServerError("failed to finalize deadletter replay")
 	}
 
 	s.emitAuditEvent(ctx, domain.AuditActionDeadletterReplayed, "audit_deadletter", input.ID, map[string]any{
@@ -251,6 +278,10 @@ type DropDeadletterResponse struct {
 	Dropped      bool   `json:"dropped"`
 }
 
+type auditDeadletterAtomicDropper interface {
+	DropAuditEventDeadletterWithAudit(ctx context.Context, id, projectID string, auditEvent *domain.AuditEvent) (bool, error)
+}
+
 func (s *Server) handleDropDeadletter(ctx context.Context, input *DropDeadletterInput) (*DropDeadletterOutput, error) {
 	if err := s.requireAdmin(ctx); err != nil {
 		return nil, err
@@ -267,26 +298,28 @@ func (s *Server) handleDropDeadletter(ctx context.Context, input *DropDeadletter
 		reason = "operator_drop"
 	}
 
-	// Project-scoped lookup first so a cross-tenant drop is impossible.
-	ev, err := s.store.GetAuditEventDeadletter(ctx, input.ID, projectID)
-	if err != nil {
-		slog.Error("failed to fetch audit deadletter for drop",
-			"id", input.ID, "project_id", projectID, "error", err)
-		return nil, huma.Error500InternalServerError("failed to fetch deadletter entry")
-	}
-	if ev == nil {
-		return nil, huma.Error404NotFound("deadletter entry not found")
-	}
-
-	if delErr := s.store.DeleteAuditEventDeadletter(ctx, input.ID, projectID); delErr != nil {
-		slog.Error("audit deadletter drop failed", "id", input.ID, "error", delErr)
+	dropper, ok := s.store.(auditDeadletterAtomicDropper)
+	if !ok {
+		slog.Error("audit deadletter drop requires atomic audit-capable store")
 		return nil, huma.Error500InternalServerError("failed to drop deadletter entry")
 	}
-
-	s.emitAuditEvent(ctx, domain.AuditActionDeadletterDropped, "audit_deadletter", input.ID, map[string]any{
+	auditEvent, auditErr := s.buildAuditEvent(ctx, domain.AuditActionDeadletterDropped, "audit_deadletter", input.ID, map[string]any{
 		"deadletter_id": input.ID,
 		"reason":        reason,
 	})
+	if auditErr != nil {
+		slog.Error("failed to build audit deadletter drop event", "id", input.ID, "project_id", projectID, "error", auditErr)
+		return nil, huma.Error500InternalServerError("failed to build audit event")
+	}
+
+	dropped, dropErr := dropper.DropAuditEventDeadletterWithAudit(ctx, input.ID, projectID, auditEvent)
+	if dropErr != nil {
+		slog.Error("audit deadletter atomic drop failed", "id", input.ID, "project_id", projectID, "error", dropErr)
+		return nil, huma.Error500InternalServerError("failed to drop deadletter entry")
+	}
+	if !dropped {
+		return nil, huma.Error404NotFound("deadletter entry not found")
+	}
 
 	return &DropDeadletterOutput{Body: DropDeadletterResponse{
 		DeadletterID: input.ID,

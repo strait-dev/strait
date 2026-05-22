@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -131,5 +132,33 @@ func TestReconcileOnce_Success_NoError(t *testing.T) {
 	}
 	if calls != 2 {
 		t.Errorf("expected 2 Exec calls (missing + stale), got %d", calls)
+	}
+}
+
+func TestReconcileOnce_MissingClaimRestoresRoutingMetadata(t *testing.T) {
+	t.Parallel()
+
+	var insertSQL string
+	db := &mockReconcilerDB{
+		execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+			if strings.Contains(sql, "INSERT INTO job_run_queue") {
+				insertSQL = sql
+			}
+			return pgconn.NewCommandTag("INSERT 0"), nil
+		},
+	}
+	r := NewClaimReconciler(db, time.Minute)
+	if err := r.reconcileOnce(context.Background()); err != nil {
+		t.Fatalf("reconcileOnce() error = %v", err)
+	}
+
+	for _, fragment := range []string{
+		"job_enabled, job_paused, execution_mode, queue_name",
+		"COALESCE(NULLIF(jr.execution_mode, ''), NULLIF(j.execution_mode, ''), 'http')",
+		"COALESCE(NULLIF(jr.queue_name, ''), NULLIF(j.queue_name, ''), 'default')",
+	} {
+		if !strings.Contains(insertSQL, fragment) {
+			t.Fatalf("missing routing fragment %q in SQL:\n%s", fragment, insertSQL)
+		}
 	}
 }

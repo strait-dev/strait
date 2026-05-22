@@ -21,7 +21,7 @@ func TestHandleApproveDeviceCode_ExplicitScopes(t *testing.T) {
 	var createdKey *domain.APIKey
 
 	ms := &APIStoreMock{
-		GetDeviceCodeByDeviceCodeFunc: func(_ context.Context, _ string) (*store.DeviceCodeRow, error) {
+		GetDeviceCodeByUserCodeFunc: func(_ context.Context, _ string) (*store.DeviceCodeRow, error) {
 			return &store.DeviceCodeRow{
 				ID:         "dc-1",
 				DeviceCode: "test-device-code",
@@ -36,13 +36,13 @@ func TestHandleApproveDeviceCode_ExplicitScopes(t *testing.T) {
 			createdKey = key
 			return nil
 		},
-		ApproveDeviceCodeFunc: func(_ context.Context, _, _, _ string) error {
+		ApproveDeviceCodeByUserCodeFunc: func(_ context.Context, _, _, _, _ string, _ []string) error {
 			return nil
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
-	body := `{"device_code":"test-device-code","project_id":"proj-1"}`
+	body := `{"user_code":"ABCD1234","project_id":"proj-1"}`
 	w := httptest.NewRecorder()
 	r := authedRequest(http.MethodPost, "/v1/cli/device-codes/approve", body)
 	r.Header.Set("X-Project-Id", "proj-1")
@@ -57,6 +57,12 @@ func TestHandleApproveDeviceCode_ExplicitScopes(t *testing.T) {
 	}
 	if len(createdKey.Scopes) == 0 {
 		t.Fatal("CLI key must have explicit scopes, got empty (wildcard)")
+	}
+	if createdKey.ExpiresAt == nil {
+		t.Fatal("CLI key must expire")
+	}
+	if createdKey.ExpiresAt.After(time.Now().Add(time.Duration(defaultCLIKeyLifetimeDays+1) * 24 * time.Hour)) {
+		t.Fatalf("CLI key expiry = %v, want default lifetime cap", createdKey.ExpiresAt)
 	}
 
 	// Verify all scopes are valid.
@@ -73,7 +79,7 @@ func TestHandleApproveDeviceCode_ExcludesAdminScopes(t *testing.T) {
 	var createdKey *domain.APIKey
 
 	ms := &APIStoreMock{
-		GetDeviceCodeByDeviceCodeFunc: func(_ context.Context, _ string) (*store.DeviceCodeRow, error) {
+		GetDeviceCodeByUserCodeFunc: func(_ context.Context, _ string) (*store.DeviceCodeRow, error) {
 			return &store.DeviceCodeRow{
 				ID:         "dc-1",
 				DeviceCode: "test-device-code",
@@ -88,13 +94,13 @@ func TestHandleApproveDeviceCode_ExcludesAdminScopes(t *testing.T) {
 			createdKey = key
 			return nil
 		},
-		ApproveDeviceCodeFunc: func(_ context.Context, _, _, _ string) error {
+		ApproveDeviceCodeByUserCodeFunc: func(_ context.Context, _, _, _, _ string, _ []string) error {
 			return nil
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
-	body := `{"device_code":"test-device-code","project_id":"proj-1"}`
+	body := `{"user_code":"ABCD1234","project_id":"proj-1"}`
 	w := httptest.NewRecorder()
 	r := authedRequest(http.MethodPost, "/v1/cli/device-codes/approve", body)
 	r.Header.Set("X-Project-Id", "proj-1")
@@ -127,7 +133,7 @@ func TestHandleApproveDeviceCode_ScopesMatchCLIDefaults(t *testing.T) {
 	var createdKey *domain.APIKey
 
 	ms := &APIStoreMock{
-		GetDeviceCodeByDeviceCodeFunc: func(_ context.Context, _ string) (*store.DeviceCodeRow, error) {
+		GetDeviceCodeByUserCodeFunc: func(_ context.Context, _ string) (*store.DeviceCodeRow, error) {
 			return &store.DeviceCodeRow{
 				ID:         "dc-1",
 				DeviceCode: "test-device-code",
@@ -142,13 +148,13 @@ func TestHandleApproveDeviceCode_ScopesMatchCLIDefaults(t *testing.T) {
 			createdKey = key
 			return nil
 		},
-		ApproveDeviceCodeFunc: func(_ context.Context, _, _, _ string) error {
+		ApproveDeviceCodeByUserCodeFunc: func(_ context.Context, _, _, _, _ string, _ []string) error {
 			return nil
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
-	body := `{"device_code":"test-device-code","project_id":"proj-1"}`
+	body := `{"user_code":"ABCD1234","project_id":"proj-1"}`
 	w := httptest.NewRecorder()
 	r := authedRequest(http.MethodPost, "/v1/cli/device-codes/approve", body)
 	r.Header.Set("X-Project-Id", "proj-1")

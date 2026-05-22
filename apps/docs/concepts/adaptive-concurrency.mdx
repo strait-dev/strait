@@ -1,71 +1,64 @@
 ---
 title: "Adaptive Concurrency"
-description: "Automatic worker pool scaling based on system load, throughput, and error rates."
+description: "Let Strait adjust execution capacity based on current load and failures."
 sidebarTitle: "Adaptive Concurrency"
 ---
 
-Adaptive concurrency automatically scales the number of workers between a min and max bound based on observed throughput and error rates. Instead of picking a fixed worker count, Strait adjusts execution capacity in real time so you don't have to.
+Adaptive concurrency lets Strait raise or lower execution capacity between a minimum and maximum value.
+
+Use it when workload changes during the day and a fixed concurrency value is either too low for peaks or too high during quiet periods.
 
 ## When to Use It
 
-Your API handles 100 requests/second normally but spikes to 500 during peak hours. With a fixed worker pool sized for the peak, you waste resources 90% of the time. Sized for the average, you drop work during spikes.
+Use adaptive concurrency when:
 
-Adaptive concurrency scales the pool up during the spike and back down after, so you get both efficiency and capacity.
+- Traffic varies by hour, day, or upstream event.
+- A downstream service starts failing when too many requests run at once.
+- You want a guardrail without constantly tuning one fixed worker count.
 
-Use it when:
+For simple jobs, start with `max_concurrency` first. Add adaptive concurrency when total workload changes enough that a fixed value becomes hard to manage.
 
-- **Load is unpredictable**: Traffic patterns vary by time of day, events, or upstream triggers.
-- **Downstream services have limits**: Strait backs off when error rates increase, protecting APIs you call from being overwhelmed.
-- **You want efficiency without tuning**: Only the workers needed for current demand are active.
+## How It Behaves
 
-## How It Works
+Strait re-evaluates capacity on a fixed interval using two signals: how deep the queue is and how busy the current executors are. It does not look at success or failure rates; per-job retries and circuit breakers handle failing endpoints separately.
 
-Strait uses AIMD (Additive Increase, Multiplicative Decrease) — the same algorithm TCP uses for congestion control.
+**Scaling up.** When the queue is backing up (more than twice the current limit) and executors are busy (over 70% utilization), Strait raises the limit. The increase is tiered by how deep the backlog is:
 
-### Scaling Up
+| Queue depth | Increase |
+| :--- | :--- |
+| Over 1000 | Double the current limit |
+| Over 100 | Raise by 50% |
+| Otherwise | Raise by 25% |
 
-When throughput is high and errors stay low, Strait increases the worker count by 1 each monitoring interval. Gradual increases avoid overshooting — the pool climbs steadily until it hits the ceiling or errors appear.
+**Scaling down.** When the queue is empty and executors are mostly idle (under 20% utilization) for two consecutive checks, Strait lowers the limit by 33%.
 
-### Scaling Down
-
-When errors spike or throughput drops, Strait cuts concurrency by 50%. Aggressive reduction stops a bad situation from getting worse. If your downstream API starts returning 429s at 40 concurrent workers, Strait drops to 20 and climbs back gradually.
-
-### Convergence
-
-The combination of slow increase and fast decrease converges on a stable operating point: the highest throughput your system can sustain without errors. The pool oscillates slightly around this point, which is expected and healthy.
+Every adjustment is clamped to the configured minimum and maximum, so capacity rises quickly under load and eases back down during quiet periods without ever leaving the bounds you set.
 
 ## Configuration
 
-Set these environment variables on your Strait instance:
+Set these values on your Strait instance:
 
-| Variable | Default | What it controls |
+| Variable | Default | Purpose |
 | :--- | :--- | :--- |
-| `ADAPTIVE_CONCURRENCY_MIN` | `1` | Floor for the worker count. Strait never scales below this, even during error spikes. Set this to your minimum acceptable throughput. |
-| `ADAPTIVE_CONCURRENCY_MAX` | `WORKER_CONCURRENCY` | Ceiling for the worker count. Strait never scales above this, even during traffic bursts. Defaults to your configured worker concurrency. |
+| `ADAPTIVE_CONCURRENCY_MIN` | `5` | Lowest execution capacity Strait can use. |
+| `ADAPTIVE_CONCURRENCY_MAX` | `100` | Highest execution capacity Strait can use. |
 
-### Example
-
-For a system that needs at least 5 workers to keep up with baseline load and can handle up to 50 before saturating downstream services:
+Example:
 
 ```bash
 ADAPTIVE_CONCURRENCY_MIN=5
 ADAPTIVE_CONCURRENCY_MAX=50
 ```
 
-During normal load, the pool might settle at 15 workers. During a spike, it climbs toward 50. If errors start appearing at 40, AIMD cuts back to 20 and gradually climbs again.
+Choose the minimum based on your normal quiet-period workload. Choose the maximum based on what your downstream services can safely handle.
 
-### Choosing Values
+## Per-Job Limits Still Apply
 
-- **Min**: Set this to the worker count that handles your quietest period. Too low and you'll see queuing during normal operation. Too high and you waste resources during off-hours.
-- **Max**: Set this to the highest concurrency your downstream services can handle. Check your API provider's rate limits, database connection pool size, or external service SLAs.
+Adaptive concurrency controls overall execution capacity.
 
-If you're unsure, start with `MIN=1` and `MAX` at your current `WORKER_CONCURRENCY`. Monitor queue depth and error rates, then adjust.
-
-## Interaction with Per-Job Limits
-
-Adaptive concurrency controls the total worker pool size. Per-job limits (`max_concurrency`, `rate_limit_max`) still apply on top of it. If adaptive concurrency scales the pool to 50 workers but a specific job has `max_concurrency: 5`, that job still only runs 5 at a time — other workers pick up different jobs.
+Per-job limits such as `max_concurrency` and `rate_limit_max` still apply. If adaptive concurrency allows 50 active runs but a job has `max_concurrency: 5`, that job still runs at most 5 at a time.
 
 ## Related
 
-- [Resilience](/concepts/resilience) — Circuit breakers, rate limiting, and concurrency caps
+- [Retry Strategies](/concepts/retry-strategies)
 - [Environment Variables](/configuration/environment-variables)

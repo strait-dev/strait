@@ -175,23 +175,6 @@ func (s *Server) handleCancelWorkflowRun(ctx context.Context, input *CancelWorkf
 		slog.Warn("failed to cancel event triggers for workflow (non-fatal)", "workflow_run_id", run.ID, "error", triggerErr)
 	}
 
-	// Stop managed containers for cancelled workflow runs (non-fatal).
-	// Use detached context so client disconnect doesn't abort stops.
-	if s.containerRuntime != nil {
-		machineIDs, listErr := s.store.ListManagedMachineIDsByWorkflowRun(ctx, run.ID)
-		if listErr != nil {
-			slog.Warn("failed to list managed machines for workflow cancel", "workflow_run_id", run.ID, "error", listErr)
-		}
-		for _, mid := range machineIDs {
-			stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
-			if stopErr := s.containerRuntime.Stop(stopCtx, mid); stopErr != nil {
-				slog.Warn("failed to stop managed container on workflow cancel",
-					"workflow_run_id", run.ID, "machine_id", mid, "error", stopErr)
-			}
-			stopCancel()
-		}
-	}
-
 	updatedRun, err := s.store.GetWorkflowRun(ctx, run.ID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to get updated workflow run")
@@ -234,22 +217,6 @@ func (s *Server) handlePauseWorkflowRun(ctx context.Context, input *PauseWorkflo
 
 	if err := s.store.UpdateWorkflowRunStatus(ctx, run.ID, domain.WfStatusRunning, domain.WfStatusPaused, nil); err != nil {
 		return nil, huma.Error409Conflict("failed to pause workflow run")
-	}
-
-	// Stop managed containers to save compute (non-fatal).
-	if s.containerRuntime != nil {
-		machineIDs, listErr := s.store.ListManagedMachineIDsByWorkflowRun(ctx, run.ID)
-		if listErr != nil {
-			slog.Warn("failed to list managed machines for workflow pause", "workflow_run_id", run.ID, "error", listErr)
-		}
-		for _, mid := range machineIDs {
-			stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
-			if stopErr := s.containerRuntime.Stop(stopCtx, mid); stopErr != nil {
-				slog.Warn("failed to stop managed container on workflow pause",
-					"workflow_run_id", run.ID, "machine_id", mid, "error", stopErr)
-			}
-			stopCancel()
-		}
 	}
 
 	// Mark affected job runs so resume knows to re-dispatch them (non-fatal).

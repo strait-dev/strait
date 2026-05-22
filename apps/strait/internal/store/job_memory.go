@@ -71,12 +71,70 @@ func (q *Queries) UpsertJobMemoryWithQuota(ctx context.Context, mem *domain.JobM
 		return &JobMemoryQuotaError{Kind: jobMemoryQuotaKindPerKey, Max: maxPerKey}
 	}
 
-	beginner, ok := q.db.(TxBeginner)
+	_, ok := q.db.(TxBeginner)
 	if !ok {
 		return fmt.Errorf("upsert job memory with quota: db does not support transactions")
 	}
 
-	return WithTx(ctx, beginner, func(txQ *Queries) error {
+	return q.withTx(ctx, func(txQ *Queries) error {
+		if err := txQ.AdvisoryXactLock(ctx, hashString(mem.JobID)); err != nil {
+			return fmt.Errorf("advisory lock: %w", err)
+		}
+
+		existing, err := txQ.GetJobMemory(ctx, mem.JobID, mem.MemoryKey)
+		if err != nil {
+			return fmt.Errorf("get existing job memory: %w", err)
+		}
+
+		currentTotal, err := txQ.SumJobMemorySizeBytes(ctx, mem.JobID)
+		if err != nil {
+			return fmt.Errorf("sum job memory size: %w", err)
+		}
+
+		existingSize := 0
+		if existing != nil {
+			existingSize = existing.SizeBytes
+		}
+		if maxPerJob > 0 && currentTotal-existingSize+mem.SizeBytes > maxPerJob {
+			return &JobMemoryQuotaError{Kind: jobMemoryQuotaKindPerJob, Max: maxPerJob}
+		}
+
+		if err := txQ.UpsertJobMemory(ctx, mem); err != nil {
+			return fmt.Errorf("upsert job memory: %w", err)
+		}
+		return nil
+	})
+}
+
+func (q *Queries) UpsertJobMemoryWithQuotaForActiveRun(ctx context.Context, runID string, mem *domain.JobMemory, maxPerKey, maxPerJob, attempt int) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpsertJobMemoryWithQuotaForActiveRun")
+	defer span.End()
+
+	if maxPerKey > 0 && mem.SizeBytes > maxPerKey {
+		return &JobMemoryQuotaError{Kind: jobMemoryQuotaKindPerKey, Max: maxPerKey}
+	}
+
+	_, ok := q.db.(TxBeginner)
+	if !ok {
+		return fmt.Errorf("upsert active job memory with quota: db does not support transactions")
+	}
+
+	return q.withTx(ctx, func(txQ *Queries) error {
+		var active bool
+		if err := txQ.db.QueryRow(ctx, `
+			SELECT TRUE
+			FROM job_runs
+			WHERE id = $1
+			  AND job_id = $2
+			  AND attempt = $3
+			  AND status IN ('executing', 'waiting')
+			FOR UPDATE`, runID, mem.JobID, attempt).Scan(&active); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, runID, attempt)
+			}
+			return fmt.Errorf("verify active run for job memory: %w", err)
+		}
+
 		if err := txQ.AdvisoryXactLock(ctx, hashString(mem.JobID)); err != nil {
 			return fmt.Errorf("advisory lock: %w", err)
 		}
@@ -130,6 +188,39 @@ func (q *Queries) GetJobMemory(ctx context.Context, jobID, key string) (*domain.
 	return &mem, nil
 }
 
+// GetJobMemoryForActiveRun returns a memory row only if the supplied run is
+// active for the given attempt. The job-memory table is keyed on job_id, so
+// we additionally cross-check that the run identifies the same job.
+func (q *Queries) GetJobMemoryForActiveRun(ctx context.Context, runID, jobID, key string, attempt int) (*domain.JobMemory, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetJobMemoryForActiveRun")
+	defer span.End()
+
+	var active bool
+	if err := q.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM job_runs WHERE id = $1 AND attempt = $2 AND job_id = $3 AND status IN ('executing', 'waiting'))`, runID, attempt, jobID).Scan(&active); err != nil {
+		return nil, fmt.Errorf("check run active for attempt: %w", err)
+	}
+	if !active {
+		return nil, fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, runID, attempt)
+	}
+	return q.GetJobMemory(ctx, jobID, key)
+}
+
+// ListJobMemoryForActiveRun mirrors ListJobMemory but rejects callers whose
+// run/attempt is no longer active.
+func (q *Queries) ListJobMemoryForActiveRun(ctx context.Context, runID, jobID string, attempt int) ([]domain.JobMemory, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListJobMemoryForActiveRun")
+	defer span.End()
+
+	var active bool
+	if err := q.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM job_runs WHERE id = $1 AND attempt = $2 AND job_id = $3 AND status IN ('executing', 'waiting'))`, runID, attempt, jobID).Scan(&active); err != nil {
+		return nil, fmt.Errorf("check run active for attempt: %w", err)
+	}
+	if !active {
+		return nil, fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, runID, attempt)
+	}
+	return q.ListJobMemory(ctx, jobID)
+}
+
 func (q *Queries) ListJobMemory(ctx context.Context, jobID string) ([]domain.JobMemory, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListJobMemory")
 	defer span.End()
@@ -169,6 +260,38 @@ func (q *Queries) DeleteJobMemory(ctx context.Context, jobID, key string) error 
 	_, err := q.db.Exec(ctx, `DELETE FROM job_memory WHERE job_id = $1 AND memory_key = $2`, jobID, key)
 	if err != nil {
 		return fmt.Errorf("delete job memory: %w", err)
+	}
+	return nil
+}
+
+func (q *Queries) DeleteJobMemoryForActiveRun(ctx context.Context, runID, jobID, key string, attempt int) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteJobMemoryForActiveRun")
+	defer span.End()
+
+	var active bool
+	query := `
+		WITH active_run AS (
+			SELECT id
+			FROM job_runs
+			WHERE id = $1
+			  AND job_id = $2
+			  AND attempt = $4
+			  AND status IN ('executing', 'waiting')
+			FOR UPDATE
+		),
+		deleted AS (
+			DELETE FROM job_memory
+			WHERE job_id = $2
+			  AND memory_key = $3
+			  AND EXISTS (SELECT 1 FROM active_run)
+			RETURNING 1
+		)
+		SELECT EXISTS (SELECT 1 FROM active_run)`
+	if err := q.db.QueryRow(ctx, query, runID, jobID, key, attempt).Scan(&active); err != nil {
+		return fmt.Errorf("delete active job memory: %w", err)
+	}
+	if !active {
+		return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, runID, attempt)
 	}
 	return nil
 }

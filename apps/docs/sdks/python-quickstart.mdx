@@ -1,0 +1,75 @@
+---
+title: "Python Quickstart"
+description: "Install the Python SDK and trigger your first run."
+icon: "python"
+---
+
+Use the Python SDK when your application, scripts, or workers are written in Python.
+
+This page shows the shortest path: install the package, create a client, trigger a job, and inspect the run.
+
+## Install
+
+```bash
+pip install strait-python
+```
+
+The SDK requires Python 3.11 or later.
+
+## Configure
+
+Set your API key:
+
+```bash
+export STRAIT_API_KEY="strait_..."
+export STRAIT_BASE_URL="https://api.strait.dev"
+```
+
+Create a client from the environment:
+
+```python
+from strait import Client
+
+client = Client.from_env()
+```
+
+## Trigger a Job
+
+```python
+run = client.runs.trigger(
+    job_id="send-welcome-email",
+    payload={
+        "user_id": "user_abc123",
+        "email": "customer@example.com",
+    },
+)
+
+print(run.id, run.status)
+```
+
+The response returns a run ID. Store it if you need to check status later.
+
+## Use Async Code
+
+```python
+import asyncio
+from strait import AsyncClient
+
+async def main():
+    client = AsyncClient.from_env()
+
+    run = await client.runs.trigger(
+        job_id="send-welcome-email",
+        payload={"user_id": "user_abc123"},
+    )
+
+    print(run.id, run.status)
+
+asyncio.run(main())
+```
+
+## Next
+
+- [Python Reference](/sdks/python)
+- [SDK Integration](/guides/sdk-integration)
+- [Create a Production Job](/guides/production-job)

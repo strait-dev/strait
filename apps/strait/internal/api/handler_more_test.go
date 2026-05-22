@@ -606,6 +606,61 @@ func TestHandleTriggerJob_EnqueueError(t *testing.T) {
 	}
 }
 
+func TestHandleTriggerJob_ImmediateBatchFlushPreservesWorkerModeQueue(t *testing.T) {
+	t.Parallel()
+	var enqueued *domain.JobRun
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{
+				ID:              id,
+				ProjectID:       "proj-1",
+				Enabled:         true,
+				TimeoutSecs:     120,
+				BatchWindowSecs: 60,
+				BatchMaxSize:    2,
+				ExecutionMode:   domain.ExecutionModeWorker,
+				Queue:           "critical-workers",
+			}, nil
+		},
+		InsertBatchBufferItemFunc: func(_ context.Context, _ *domain.BatchBufferItem) error {
+			return nil
+		},
+		CountBatchBufferItemsFunc: func(_ context.Context, _, _ string) (int, error) {
+			return 2, nil
+		},
+		DrainBatchBufferFunc: func(_ context.Context, jobID, batchKey string, limit int) ([]domain.BatchBufferItem, error) {
+			if jobID != "job-123" || batchKey != "batch-a" || limit != 2 {
+				t.Fatalf("unexpected drain args: job=%q batch=%q limit=%d", jobID, batchKey, limit)
+			}
+			return []domain.BatchBufferItem{
+				{Payload: json.RawMessage(`{"n":1}`)},
+				{Payload: json.RawMessage(`{"n":2}`)},
+			}, nil
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+		enqueued = run
+		return nil
+	}}
+
+	srv := newTestServer(t, ms, mq, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{"batch_key":"batch-a","payload":{"n":2}}`))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if enqueued == nil {
+		t.Fatal("expected immediate batch run to be enqueued")
+	}
+	if enqueued.ExecutionMode != domain.ExecutionModeWorker {
+		t.Fatalf("execution mode = %q, want worker", enqueued.ExecutionMode)
+	}
+	if enqueued.QueueName != "critical-workers" {
+		t.Fatalf("queue = %q, want critical-workers", enqueued.QueueName)
+	}
+}
+
 func TestValidateURL_ValidHTTPS(t *testing.T) {
 	t.Parallel()
 	if err := validateURL("https://example.com"); err != nil {
@@ -1523,6 +1578,42 @@ func TestHandleListWebhookDeliveries_Success(t *testing.T) {
 	}
 }
 
+func TestHandleListWebhookDeliveries_RedactsWebhookURLSecrets(t *testing.T) {
+	t.Parallel()
+
+	rawURL := "https://user:pass@hooks.example.com/services/T00/B00/token?secret=value#frag"
+	ms := &APIStoreMock{
+		ListWebhookDeliveriesFunc: func(context.Context, string, string, int, *time.Time) ([]domain.WebhookDelivery, error) {
+			return []domain.WebhookDelivery{{
+				ID:         "del-1",
+				WebhookURL: rawURL,
+				Status:     domain.WebhookStatusFailed,
+				CreatedAt:  time.Now().UTC(),
+			}}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	req := authedProjectRequest(http.MethodGet, "/v1/webhook-deliveries", "", "proj-1")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "user:pass") || strings.Contains(w.Body.String(), "/services/") || strings.Contains(w.Body.String(), "secret=value") {
+		t.Fatalf("response leaked sensitive webhook URL components: %s", w.Body.String())
+	}
+	var deliveries []domain.WebhookDelivery
+	decodePaginatedList(t, w.Body.Bytes(), &deliveries)
+	if len(deliveries) != 1 {
+		t.Fatalf("len(deliveries) = %d, want 1", len(deliveries))
+	}
+	if deliveries[0].WebhookURL != "https://hooks.example.com" {
+		t.Fatalf("webhook_url = %q, want redacted host URL", deliveries[0].WebhookURL)
+	}
+}
+
 func TestHandleListWebhookDeliveries_WithStatusFilter(t *testing.T) {
 	t.Parallel()
 	var gotStatus string
@@ -1543,6 +1634,53 @@ func TestHandleListWebhookDeliveries_WithStatusFilter(t *testing.T) {
 	}
 	if gotStatus != "pending" {
 		t.Errorf("status = %q, want %q", gotStatus, "pending")
+	}
+}
+
+func TestHandleListWebhookDeliveries_EnvironmentScopeFiltersForeignDeliveries(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC().Truncate(time.Second)
+	ms := &APIStoreMock{
+		ListWebhookDeliveriesFunc: func(_ context.Context, projectID, status string, _ int, _ *time.Time) ([]domain.WebhookDelivery, error) {
+			if projectID != "proj-1" {
+				t.Fatalf("projectID = %q, want proj-1", projectID)
+			}
+			if status != domain.WebhookStatusFailed {
+				t.Fatalf("status = %q, want %q", status, domain.WebhookStatusFailed)
+			}
+			return []domain.WebhookDelivery{
+				{ID: "del-staging", JobID: "job-staging", ProjectID: "proj-1", Status: domain.WebhookStatusFailed, CreatedAt: now.Add(-2 * time.Second)},
+				{ID: "del-prod", JobID: "job-prod", ProjectID: "proj-1", Status: domain.WebhookStatusFailed, CreatedAt: now.Add(-1 * time.Second)},
+			}, nil
+		},
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			switch id {
+			case "job-prod":
+				return &domain.Job{ID: id, ProjectID: "proj-1", EnvironmentID: "env-prod"}, nil
+			case "job-staging":
+				return &domain.Job{ID: id, ProjectID: "proj-1", EnvironmentID: "env-staging"}, nil
+			default:
+				t.Fatalf("unexpected job lookup %q", id)
+				return nil, nil
+			}
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
+	out, err := srv.handleListWebhookDeliveries(ctx, &ListWebhookDeliveriesInput{
+		Status: domain.WebhookStatusFailed,
+	})
+	if err != nil {
+		t.Fatalf("handleListWebhookDeliveries returned error: %v", err)
+	}
+	deliveries, ok := out.Body.Data.([]domain.WebhookDelivery)
+	if !ok {
+		t.Fatalf("response data type = %T, want []domain.WebhookDelivery", out.Body.Data)
+	}
+	if len(deliveries) != 1 || deliveries[0].ID != "del-prod" {
+		t.Fatalf("deliveries = %#v, want only del-prod", deliveries)
 	}
 }
 
@@ -1703,6 +1841,36 @@ func TestHandleGetWebhookDelivery_Success(t *testing.T) {
 	}
 }
 
+func TestHandleGetWebhookDelivery_RedactsWebhookURLSecrets(t *testing.T) {
+	t.Parallel()
+
+	rawURL := "https://user:pass@hooks.example.com/services/T00/B00/token?secret=value#frag"
+	ms := &APIStoreMock{
+		GetWebhookDeliveryFunc: func(context.Context, string) (*domain.WebhookDelivery, error) {
+			return &domain.WebhookDelivery{ID: "del-1", WebhookURL: rawURL, Status: domain.WebhookStatusFailed}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	req := authedRequest(http.MethodGet, "/v1/webhooks/deliveries/del-1", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "user:pass") || strings.Contains(w.Body.String(), "/services/") || strings.Contains(w.Body.String(), "secret=value") {
+		t.Fatalf("response leaked sensitive webhook URL components: %s", w.Body.String())
+	}
+	var delivery domain.WebhookDelivery
+	if err := json.NewDecoder(w.Body).Decode(&delivery); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if delivery.WebhookURL != "https://hooks.example.com" {
+		t.Fatalf("webhook_url = %q, want redacted host URL", delivery.WebhookURL)
+	}
+}
+
 func TestHandleGetWebhookDelivery_NotFound(t *testing.T) {
 	t.Parallel()
 
@@ -1754,6 +1922,51 @@ func TestHandleRetryWebhookDelivery_Conflict(t *testing.T) {
 		RetryWebhookDeliveryFunc: func(context.Context, string) (*domain.WebhookDelivery, error) {
 			t.Fatal("RetryWebhookDelivery should not be called")
 			return nil, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	req := authedRequest(http.MethodPost, "/v1/webhooks/deliveries/del-1/retry", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409; body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleRetryWebhookDelivery_GetNotFoundErrorReturns404(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetWebhookDeliveryFunc: func(context.Context, string) (*domain.WebhookDelivery, error) {
+			return nil, fmt.Errorf("webhook delivery not found")
+		},
+		RetryWebhookDeliveryFunc: func(context.Context, string) (*domain.WebhookDelivery, error) {
+			t.Fatal("RetryWebhookDelivery should not be called when get returns not found")
+			return nil, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	req := authedRequest(http.MethodPost, "/v1/webhooks/deliveries/missing/retry", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404; body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleRetryWebhookDelivery_NoLongerRetriableReturns409(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetWebhookDeliveryFunc: func(context.Context, string) (*domain.WebhookDelivery, error) {
+			return &domain.WebhookDelivery{ID: "del-1", Status: domain.WebhookStatusFailed}, nil
+		},
+		RetryWebhookDeliveryFunc: func(context.Context, string) (*domain.WebhookDelivery, error) {
+			return nil, fmt.Errorf("webhook delivery not retriable")
 		},
 	}
 
@@ -1920,6 +2133,39 @@ func TestHandleTriggerJob_PriorityValidRange(t *testing.T) {
 				t.Errorf("status = %d, want 201; body: %s", w.Code, w.Body.String())
 			}
 		})
+	}
+}
+
+func TestHandleRetryWebhookDelivery_RedactsWebhookURLSecrets(t *testing.T) {
+	t.Parallel()
+
+	rawURL := "https://user:pass@hooks.example.com/services/T00/B00/token?secret=value#frag"
+	ms := &APIStoreMock{
+		GetWebhookDeliveryFunc: func(context.Context, string) (*domain.WebhookDelivery, error) {
+			return &domain.WebhookDelivery{ID: "del-1", WebhookURL: rawURL, Status: domain.WebhookStatusFailed}, nil
+		},
+		RetryWebhookDeliveryFunc: func(context.Context, string) (*domain.WebhookDelivery, error) {
+			return &domain.WebhookDelivery{ID: "del-1", WebhookURL: rawURL, Status: domain.WebhookStatusPending}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	req := authedRequest(http.MethodPost, "/v1/webhooks/deliveries/del-1/retry", "")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "user:pass") || strings.Contains(w.Body.String(), "/services/") || strings.Contains(w.Body.String(), "secret=value") {
+		t.Fatalf("response leaked sensitive webhook URL components: %s", w.Body.String())
+	}
+	var delivery domain.WebhookDelivery
+	if err := json.NewDecoder(w.Body).Decode(&delivery); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if delivery.WebhookURL != "https://hooks.example.com" {
+		t.Fatalf("webhook_url = %q, want redacted host URL", delivery.WebhookURL)
 	}
 }
 

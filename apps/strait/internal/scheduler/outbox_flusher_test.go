@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+	"strait/internal/queue"
 
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -26,6 +27,15 @@ func TestClassifyOutboxEnqueueError_IdempotencyConflictIsTerminal(t *testing.T) 
 	}
 }
 
+func TestClassifyOutboxEnqueueError_BackpressureThrottleIsRetryable(t *testing.T) {
+	t.Parallel()
+
+	err := errors.Join(errors.New("wrapped"), queue.ErrEnqueueThrottled)
+	if classifyOutboxEnqueueError(err) != outboxEnqueueRetryable {
+		t.Fatal("backpressure throttle should be retryable")
+	}
+}
+
 func TestClassifyOutboxEnqueueError_ForeignKeyViolationIsTerminal(t *testing.T) {
 	t.Parallel()
 
@@ -41,5 +51,13 @@ func TestClassifyOutboxEnqueueError_SerializationFailureIsRetryable(t *testing.T
 	err := errors.Join(errors.New("wrapped"), &pgconn.PgError{Code: "40001"})
 	if classifyOutboxEnqueueError(err) != outboxEnqueueRetryable {
 		t.Fatal("serialization failure should be retryable")
+	}
+}
+
+func TestClassifyOutboxEnqueueError_UnknownErrorIsRetryable(t *testing.T) {
+	t.Parallel()
+
+	if classifyOutboxEnqueueError(errors.New("temporary unknown enqueue failure")) != outboxEnqueueRetryable {
+		t.Fatal("unknown enqueue errors should be retried instead of quarantining outbox rows")
 	}
 }

@@ -15,7 +15,7 @@ Build a four-step ETL pipeline that extracts data from an API, transforms it, lo
 
 ## What you'll build
 
-```
+```text
 extract ──┐
           ├──► load ──► notify
 transform ┘     │
@@ -23,11 +23,11 @@ transform ┘     │
              cleanup
 ```
 
-Extract and transform have no dependency on each other, so Strait runs them in parallel. Load depends on both — it waits until both complete before starting. Notify runs after a successful load. If load fails after all retry attempts, the cleanup compensation job runs automatically.
+Extract and transform have no dependency on each other, so Strait runs them in parallel. Load depends on both and waits until both complete before starting. Notify runs after a successful load. If load fails after all retry attempts, the cleanup compensation job runs automatically.
 
 ## Step 1: Define the jobs
 
-Each pipeline stage is a separate job. Here is the extract job in full — the others follow the same pattern.
+Each pipeline stage is a separate job. Here is the extract job in full; the others follow the same pattern.
 
 ```typescript
 import { defineJob, createClient } from "@strait/ts";
@@ -40,7 +40,7 @@ const client = createClient({
 const extractJob = defineJob({
   name: "Extract Data",
   slug: "extract-data",
-  projectId: "proj_1",
+  projectId: "proj_abc123",
   maxAttempts: 3,
   retryStrategy: "exponential",
   timeoutSecs: 120,
@@ -65,7 +65,7 @@ Define the remaining jobs with the same structure. Each needs a slug, timeout, a
 const transformJob = defineJob({
   name: "Transform Data",
   slug: "transform-data",
-  projectId: "proj_1",
+  projectId: "proj_abc123",
   maxAttempts: 3,
   retryStrategy: "exponential",
   timeoutSecs: 180,
@@ -78,7 +78,7 @@ const transformJob = defineJob({
 const loadJob = defineJob({
   name: "Load Data",
   slug: "load-data",
-  projectId: "proj_1",
+  projectId: "proj_abc123",
   maxAttempts: 3,
   retryStrategy: "exponential",
   timeoutSecs: 300,
@@ -91,7 +91,7 @@ const loadJob = defineJob({
 const summaryJob = defineJob({
   name: "Send Summary",
   slug: "send-summary",
-  projectId: "proj_1",
+  projectId: "proj_abc123",
   maxAttempts: 2,
   retryStrategy: "fixed",
   timeoutSecs: 30,
@@ -102,7 +102,7 @@ const summaryJob = defineJob({
 });
 ```
 
-For the full handler pattern — receiving the webhook, verifying the signature, and returning results — see the [SDK integration guide](/guides/sdk-integration).
+For the full handler pattern (receiving the webhook, verifying the signature, and returning results), see the [SDK integration guide](/guides/sdk-integration).
 
 ## Step 2: Define the workflow
 
@@ -114,7 +114,7 @@ import { defineWorkflow, step } from "@strait/ts";
 const pipeline = defineWorkflow({
   name: "Daily ETL Pipeline",
   slug: "daily-etl",
-  projectId: "proj_1",
+  projectId: "proj_abc123",
   cron: "0 2 * * *",
   steps: [
     step.job({ ref: "extract", jobId: extractJob.id }),
@@ -135,7 +135,7 @@ const pipeline = defineWorkflow({
 });
 ```
 
-`extract` and `transform` have no `dependsOn`, so Strait schedules them simultaneously. `load` lists both as dependencies — it starts only after both complete. `notify` depends on `load`, so it runs last. The `cron` field schedules the pipeline to run daily at 2:00 AM UTC.
+`extract` and `transform` have no `dependsOn`, so Strait schedules them simultaneously. `load` lists both as dependencies and starts only after both complete. `notify` depends on `load`, so it runs last. The `cron` field schedules the pipeline to run daily at 2:00 AM UTC.
 
 ## Step 3: Handle data flow between steps
 
@@ -160,7 +160,7 @@ If `load` fails after exhausting all 3 retry attempts, the compensation job runs
 const cleanupJob = defineJob({
   name: "Cleanup Partial Load",
   slug: "cleanup-partial-load",
-  projectId: "proj_1",
+  projectId: "proj_abc123",
   maxAttempts: 3,
   retryStrategy: "exponential",
   timeoutSecs: 120,
@@ -180,14 +180,14 @@ Register all jobs and the workflow, then trigger a run:
 
 ```typescript
 // Register jobs
-await extractJob.register(client, { projectId: "proj_1" });
-await transformJob.register(client, { projectId: "proj_1" });
-await loadJob.register(client, { projectId: "proj_1" });
-await summaryJob.register(client, { projectId: "proj_1" });
-await cleanupJob.register(client, { projectId: "proj_1" });
+await extractJob.register(client, { projectId: "proj_abc123" });
+await transformJob.register(client, { projectId: "proj_abc123" });
+await loadJob.register(client, { projectId: "proj_abc123" });
+await summaryJob.register(client, { projectId: "proj_abc123" });
+await cleanupJob.register(client, { projectId: "proj_abc123" });
 
 // Register and trigger the workflow
-await pipeline.register(client, { projectId: "proj_1" });
+await pipeline.register(client, { projectId: "proj_abc123" });
 const run = await pipeline.trigger(client, {
   payload: { source: "external-api", date: "2026-03-15" },
 });
@@ -205,15 +205,15 @@ The response includes the overall workflow status and per-step status, so you ca
 
 ## What you get
 
-- **Parallel execution** — extract and transform run simultaneously, cutting total pipeline time
-- **Automatic fan-in** — load waits for all upstream steps without polling or manual coordination
-- **Per-step retries** — each job has its own retry policy; a transient failure in load does not re-run extract
-- **Compensation on failure** — if load fails permanently, cleanup runs automatically to undo partial writes
-- **Scheduled execution** — the `cron` field runs the pipeline on a schedule without external triggers
+- **Parallel execution**: extract and transform run simultaneously, cutting total pipeline time.
+- **Automatic fan-in**: load waits for all upstream steps without polling or manual coordination.
+- **Per-step retries**: each job has its own retry policy; a transient failure in load does not re-run extract.
+- **Compensation on failure**: if load fails permanently, cleanup runs automatically to undo partial writes.
+- **Scheduled execution**: the `cron` field runs the pipeline on a schedule without external triggers.
 
 ## Next steps
 
-- [Workflows](/concepts/workflows) — workflow configuration and lifecycle
-- [DAG Runtime](/concepts/dag-runtime) — how parallel steps, fan-out, and fan-in execute
-- [Compensating Transactions](/concepts/compensating-transactions) — saga-pattern rollback across steps
-- [Scheduling](/concepts/scheduling) — cron expressions and timezone handling
+- [Workflows](/concepts/workflows): workflow configuration and lifecycle
+- [Workflows](/concepts/workflows): how parallel steps, fan-out, and fan-in work
+- [Compensating Transactions](/concepts/compensating-transactions): saga-pattern rollback across steps
+- [Scheduling](/concepts/scheduling): cron expressions and timezone handling

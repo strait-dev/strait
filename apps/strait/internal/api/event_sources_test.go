@@ -234,6 +234,12 @@ func TestHandleDeleteEventSource_NotFound(t *testing.T) {
 func TestHandleSubscribeToEventSource_Success(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetEventSourceFunc: func(_ context.Context, sourceID, projectID string) (*domain.EventSource, error) {
+			return &domain.EventSource{ID: sourceID, ProjectID: projectID, Name: "src", Enabled: true}, nil
+		},
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true}, nil
+		},
 		CreateEventSubscriptionFunc: func(_ context.Context, sub *domain.EventSubscription) error {
 			sub.ID = "sub-1"
 			sub.CreatedAt = time.Now()
@@ -249,7 +255,7 @@ func TestHandleSubscribeToEventSource_Success(t *testing.T) {
 	}`
 
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/event-sources/src-1/subscribe", body))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/event-sources/src-1/subscribe", body, "proj-1"))
 
 	if w.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
@@ -285,6 +291,9 @@ func TestHandleSubscribeToEventSource_MissingTargetType(t *testing.T) {
 func TestHandleListEventSourceSubscriptions_Success(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetEventSourceFunc: func(_ context.Context, sourceID, projectID string) (*domain.EventSource, error) {
+			return &domain.EventSource{ID: sourceID, ProjectID: projectID}, nil
+		},
 		ListEventSubscriptionsBySourceFunc: func(_ context.Context, sourceID string) ([]domain.EventSubscription, error) {
 			return []domain.EventSubscription{
 				{ID: "sub-1", SourceID: sourceID, TargetType: "job", TargetID: "job-1", Enabled: true},
@@ -294,7 +303,7 @@ func TestHandleListEventSourceSubscriptions_Success(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/event-sources/src-1/subscriptions", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/event-sources/src-1/subscriptions", "", "proj-1"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -314,6 +323,9 @@ func TestHandleListEventSourceSubscriptions_Success(t *testing.T) {
 func TestHandleDeleteEventSubscription_Success(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetEventSourceFunc: func(_ context.Context, sourceID, projectID string) (*domain.EventSource, error) {
+			return &domain.EventSource{ID: sourceID, ProjectID: projectID}, nil
+		},
 		GetEventSubscriptionFunc: func(_ context.Context, subID string) (*domain.EventSubscription, error) {
 			return &domain.EventSubscription{ID: subID, SourceID: "src-1"}, nil
 		},
@@ -324,7 +336,7 @@ func TestHandleDeleteEventSubscription_Success(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/event-sources/src-1/subscriptions/sub-1", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodDelete, "/v1/event-sources/src-1/subscriptions/sub-1", "", "proj-1"))
 
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
@@ -334,6 +346,9 @@ func TestHandleDeleteEventSubscription_Success(t *testing.T) {
 func TestHandleDeleteEventSubscription_NotFound(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetEventSourceFunc: func(_ context.Context, sourceID, projectID string) (*domain.EventSource, error) {
+			return &domain.EventSource{ID: sourceID, ProjectID: projectID}, nil
+		},
 		GetEventSubscriptionFunc: func(_ context.Context, _ string) (*domain.EventSubscription, error) {
 			return nil, store.ErrEventSubscriptionNotFound
 		},
@@ -341,7 +356,7 @@ func TestHandleDeleteEventSubscription_NotFound(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/event-sources/src-1/subscriptions/sub-999", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodDelete, "/v1/event-sources/src-1/subscriptions/sub-999", "", "proj-1"))
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())

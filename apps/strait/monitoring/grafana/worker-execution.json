@@ -1,0 +1,291 @@
+{
+  "dashboard": {
+    "uid": "strait-worker-execution",
+    "title": "Strait - Worker Execution",
+    "description": "Worker pool saturation, dispatch duration, retries, gRPC stream health, and execution payload characteristics.",
+    "tags": ["strait", "worker", "grpc", "dispatch"],
+    "schemaVersion": 39,
+    "version": 1,
+    "refresh": "30s",
+    "time": {
+      "from": "now-6h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "title": "Worker pool occupancy",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 0,
+          "y": 0
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (mode) (strait_worker_pool_active)",
+            "legendFormat": "active {{mode}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          },
+          {
+            "refId": "B",
+            "expr": "sum by (mode) (strait_worker_pool_idle)",
+            "legendFormat": "idle {{mode}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          },
+          {
+            "refId": "C",
+            "expr": "sum by (mode) (strait_worker_pool_running)",
+            "legendFormat": "running {{mode}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
+      },
+      {
+        "title": "Dispatch latency",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 8,
+          "y": 0
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "histogram_quantile(0.95, sum by (le, mode, outcome) (rate(strait_worker_dispatch_duration_seconds_bucket[$interval])))",
+            "legendFormat": "p95 {{mode}} {{outcome}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          },
+          {
+            "refId": "B",
+            "expr": "histogram_quantile(0.95, sum by (le, mode) (rate(strait_dispatch_duration_seconds_bucket[$interval])))",
+            "legendFormat": "legacy p95 {{mode}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
+      },
+      {
+        "title": "Attempts and retries",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 16,
+          "y": 0
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (mode, outcome) (rate(strait_dispatch_attempts_total[$interval]))",
+            "legendFormat": "{{mode}} {{outcome}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          },
+          {
+            "refId": "B",
+            "expr": "sum by (mode, reason) (rate(strait_worker_retry_total[$interval]))",
+            "legendFormat": "retry {{mode}} {{reason}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ops"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
+      },
+      {
+        "title": "gRPC worker plane",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 8
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (queue) (strait_grpc_worker_streams_open)",
+            "legendFormat": "open {{queue}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          },
+          {
+            "refId": "B",
+            "expr": "sum by (reason) (rate(strait_grpc_worker_stream_disconnects_total[$interval]))",
+            "legendFormat": "disconnect {{reason}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          },
+          {
+            "refId": "C",
+            "expr": "histogram_quantile(0.95, sum by (le) (rate(strait_grpc_run_dispatch_e2e_seconds_bucket[$interval])))",
+            "legendFormat": "dispatch e2e p95",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
+      },
+      {
+        "title": "Payload and response profile",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 8
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "histogram_quantile(0.95, sum by (le, mode) (rate(strait_dispatch_payload_bytes_bucket[$interval])))",
+            "legendFormat": "payload p95 {{mode}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          },
+          {
+            "refId": "B",
+            "expr": "sum by (mode, status_class) (rate(strait_dispatch_response_status_total[$interval]))",
+            "legendFormat": "{{mode}} {{status_class}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          },
+          {
+            "refId": "C",
+            "expr": "histogram_quantile(0.95, sum by (le) (rate(strait_worker_heartbeat_lag_seconds_bucket[$interval])))",
+            "legendFormat": "heartbeat lag p95",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
+      }
+    ],
+    "templating": {
+      "list": [
+        {
+          "name": "datasource",
+          "type": "datasource",
+          "label": "Datasource",
+          "query": "prometheus",
+          "current": {
+            "text": "Prometheus",
+            "value": "prometheus"
+          },
+          "hide": 0
+        },
+        {
+          "name": "interval",
+          "type": "interval",
+          "label": "Interval",
+          "options": [
+            {
+              "selected": false,
+              "text": "1m",
+              "value": "1m"
+            },
+            {
+              "selected": true,
+              "text": "5m",
+              "value": "5m"
+            },
+            {
+              "selected": false,
+              "text": "15m",
+              "value": "15m"
+            },
+            {
+              "selected": false,
+              "text": "1h",
+              "value": "1h"
+            }
+          ],
+          "current": {
+            "text": "5m",
+            "value": "5m"
+          },
+          "hide": 0
+        }
+      ]
+    }
+  }
+}

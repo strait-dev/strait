@@ -37,14 +37,16 @@ func (p *DelayedPoller) Run(ctx context.Context) {
 			p.logger.Info("delayed poller stopping")
 			return
 		case <-ticker.C:
-			activated, err := p.store.ActivateDueRuns(ctx, 1000)
-			if err != nil {
-				p.logger.Error("failed to activate due runs", "error", err)
-				continue
-			}
-			if activated > 0 {
-				p.logger.Info("activated delayed runs", "count", activated)
-			}
+			runSchedulerCycleCheckIn(ctx, p.interval, func() {
+				activated, err := p.store.ActivateDueRuns(ctx, 1000)
+				if err != nil {
+					p.logger.Error("failed to activate due runs", "error", err)
+					return
+				}
+				if activated > 0 {
+					p.logger.Info("activated delayed runs", "count", activated)
+				}
+			})
 		}
 	}
 }

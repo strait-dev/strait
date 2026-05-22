@@ -18,13 +18,13 @@ var (
 func init() {
 	meter := otel.Meter("strait/worker")
 	heartbeatFlushDuration, _ = meter.Float64Histogram(
-		"strait.worker.heartbeat_flush_duration_seconds",
+		"strait_worker_heartbeat_flush_duration_seconds",
 		metric.WithDescription("Duration of heartbeat batch flush to database"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5),
 	)
 	heartbeatFlushErrors, _ = meter.Int64Counter(
-		"strait.worker.heartbeat_flush_errors_total",
+		"strait_worker_heartbeat_flush_errors_total",
 		metric.WithDescription("Heartbeat batch flush failures"),
 	)
 }
@@ -76,6 +76,7 @@ type HeartbeatManager struct {
 	store               HeartbeatStore
 	interval            time.Duration
 	active              sync.Map
+	registeredAt        sync.Map
 	now                 func() time.Time
 	consecutiveFailures int
 }
@@ -102,10 +103,12 @@ type HeartbeatSender = HeartbeatManager
 
 func (h *HeartbeatManager) Register(runID string) {
 	h.active.Store(runID, struct{}{})
+	h.registeredAt.Store(runID, h.now())
 }
 
 func (h *HeartbeatManager) Deregister(runID string) {
 	h.active.Delete(runID)
+	h.registeredAt.Delete(runID)
 }
 
 func (h *HeartbeatManager) ActiveCount() int {
@@ -152,6 +155,7 @@ func (h *HeartbeatManager) flush(ctx context.Context) {
 	start := time.Now()
 	err := h.store.BatchUpdateHeartbeat(flushCtx, ids)
 	elapsed := time.Since(start).Seconds()
+	h.recordOldestLag(ctx, ids)
 
 	if heartbeatFlushDuration != nil {
 		heartbeatFlushDuration.Record(ctx, elapsed)
@@ -172,6 +176,27 @@ func (h *HeartbeatManager) flush(ctx context.Context) {
 		return
 	}
 	h.consecutiveFailures = 0
+}
+
+func (h *HeartbeatManager) recordOldestLag(ctx context.Context, ids []string) {
+	var oldest time.Time
+	for _, id := range ids {
+		value, ok := h.registeredAt.Load(id)
+		if !ok {
+			continue
+		}
+		registeredAt, ok := value.(time.Time)
+		if !ok || registeredAt.IsZero() {
+			continue
+		}
+		if oldest.IsZero() || registeredAt.Before(oldest) {
+			oldest = registeredAt
+		}
+	}
+	if oldest.IsZero() {
+		return
+	}
+	recordHeartbeatLag(ctx, h.now().Sub(oldest))
 }
 
 func (h *HeartbeatManager) collectActiveIDs() []string {

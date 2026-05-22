@@ -69,7 +69,7 @@ func newIsolationStore() *APIStoreMock {
 			}
 			return nil, nil
 		},
-		ListEventTriggersByProjectFunc: func(_ context.Context, projectID, _, _, _ string, _ int, _ *time.Time) ([]domain.EventTrigger, error) {
+		ListEventTriggersByProjectFunc: func(_ context.Context, projectID, _, _, _, _ string, _ int, _ *time.Time) ([]domain.EventTrigger, error) {
 			if projectID == projectA {
 				return []domain.EventTrigger{{ID: "et-a", ProjectID: projectA, EventKey: "event.a", Status: "waiting", RequestedAt: now}}, nil
 			}
@@ -680,13 +680,14 @@ func TestTenantIsolation_RevokeAPIKey_CrossProject(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now()
+	expiresAt := now.Add(24 * time.Hour)
 	ms := newIsolationStore()
 	ms.GetAPIKeyByIDFunc = func(_ context.Context, id string) (*domain.APIKey, error) {
 		switch id {
 		case "key-a":
-			return &domain.APIKey{ID: "key-a", ProjectID: projectA, Name: "Key A", KeyHash: "h", KeyPrefix: "strait_a", CreatedAt: now}, nil
+			return &domain.APIKey{ID: "key-a", ProjectID: projectA, Name: "Key A", KeyHash: "h", KeyPrefix: "strait_a", CreatedAt: now, ExpiresAt: &expiresAt}, nil
 		case "key-b":
-			return &domain.APIKey{ID: "key-b", ProjectID: projectB, Name: "Key B", KeyHash: "h", KeyPrefix: "strait_b", CreatedAt: now}, nil
+			return &domain.APIKey{ID: "key-b", ProjectID: projectB, Name: "Key B", KeyHash: "h", KeyPrefix: "strait_b", CreatedAt: now, ExpiresAt: &expiresAt}, nil
 		}
 		return nil, nil
 	}
@@ -724,13 +725,14 @@ func TestTenantIsolation_RotateAPIKey_CrossProject(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now()
+	expiresAt := now.Add(24 * time.Hour)
 	ms := newIsolationStore()
 	ms.GetAPIKeyByIDFunc = func(_ context.Context, id string) (*domain.APIKey, error) {
 		switch id {
 		case "key-a":
-			return &domain.APIKey{ID: "key-a", ProjectID: projectA, Name: "Key A", KeyHash: "h", KeyPrefix: "strait_a", CreatedAt: now}, nil
+			return &domain.APIKey{ID: "key-a", ProjectID: projectA, Name: "Key A", KeyHash: "h", KeyPrefix: "strait_a", CreatedAt: now, ExpiresAt: &expiresAt}, nil
 		case "key-b":
-			return &domain.APIKey{ID: "key-b", ProjectID: projectB, Name: "Key B", KeyHash: "h", KeyPrefix: "strait_b", CreatedAt: now}, nil
+			return &domain.APIKey{ID: "key-b", ProjectID: projectB, Name: "Key B", KeyHash: "h", KeyPrefix: "strait_b", CreatedAt: now, ExpiresAt: &expiresAt}, nil
 		}
 		return nil, nil
 	}
@@ -859,7 +861,7 @@ func TestTenantIsolation_ListEventSourceSubscriptions_CrossProject(t *testing.T)
 	}{
 		{"own project source", "src-b", projectB, http.StatusOK},
 		{"cross project source", "src-a", projectB, http.StatusNotFound},
-		{"no project context (internal)", "src-a", "", http.StatusOK},
+		{"no project context (internal)", "src-a", "", http.StatusBadRequest},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -912,7 +914,7 @@ func TestTenantIsolation_DeleteEventSubscription_CrossProject(t *testing.T) {
 	}{
 		{"own project source", "src-b", "sub-2", projectB, http.StatusNoContent},
 		{"cross project source", "src-a", "sub-1", projectB, http.StatusNotFound},
-		{"no project context (internal)", "src-a", "sub-1", "", http.StatusNoContent},
+		{"no project context (internal)", "src-a", "sub-1", "", http.StatusBadRequest},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -923,6 +925,208 @@ func TestTenantIsolation_DeleteEventSubscription_CrossProject(t *testing.T) {
 					tt.sourceID, tt.subID, tt.projectID, w.Code, tt.wantCode, w.Body.String())
 			}
 		})
+	}
+}
+
+// TestTenantIsolation_DispatchEvent_CrossProject verifies that a project-scoped
+// caller cannot dispatch events for a different project by supplying a forged
+// project_id in the request body.
+func TestTenantIsolation_DispatchEvent_CrossProject(t *testing.T) {
+	t.Parallel()
+
+	ms := newIsolationStore()
+	ms.GetEventSourceByNameFunc = func(_ context.Context, _, _ string) (*domain.EventSource, error) {
+		t.Fatal("GetEventSourceByName must not be called for mismatched project_id")
+		return nil, nil
+	}
+	ms.ListEventSubscriptionsBySourceFunc = func(_ context.Context, _ string) ([]domain.EventSubscription, error) {
+		t.Fatal("ListEventSubscriptionsBySource must not be called for mismatched project_id")
+		return nil, nil
+	}
+	srv := newTestServer(t, ms, &mockQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			t.Fatal("queue.Enqueue must not be called for mismatched project_id")
+			return nil
+		},
+	}, nil)
+
+	body := `{"source":"source-a","project_id":"` + projectA + `","payload":{"type":"deploy"}}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/events/dispatch", body, projectB))
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestTenantIsolation_DispatchEvent_OwnProjectAllowed(t *testing.T) {
+	t.Parallel()
+
+	ms := newIsolationStore()
+	ms.GetEventSourceByNameFunc = func(_ context.Context, projectID, name string) (*domain.EventSource, error) {
+		if projectID != projectB {
+			t.Fatalf("projectID = %q, want %q", projectID, projectB)
+		}
+		if name != "source-b" {
+			t.Fatalf("name = %q, want source-b", name)
+		}
+		return &domain.EventSource{ID: "src-b", ProjectID: projectB, Name: "source-b", Enabled: true}, nil
+	}
+	ms.ListEventSubscriptionsBySourceFunc = func(_ context.Context, sourceID string) ([]domain.EventSubscription, error) {
+		if sourceID != "src-b" {
+			t.Fatalf("sourceID = %q, want src-b", sourceID)
+		}
+		return []domain.EventSubscription{
+			{ID: "sub-b", SourceID: "src-b", TargetType: "job", TargetID: "job-b", FilterExpr: json.RawMessage(`{"eq":[["type","deploy"]]}`), Enabled: true},
+		}, nil
+	}
+	enqueued := false
+	srv := newTestServer(t, ms, &mockQueue{
+		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			enqueued = true
+			if run.ProjectID != projectB {
+				t.Fatalf("run.ProjectID = %q, want %q", run.ProjectID, projectB)
+			}
+			if run.JobID != "job-b" {
+				t.Fatalf("run.JobID = %q, want job-b", run.JobID)
+			}
+			return nil
+		},
+	}, nil)
+
+	body := `{"source":"source-b","project_id":"` + projectB + `","payload":{"type":"deploy"}}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/events/dispatch", body, projectB))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !enqueued {
+		t.Fatal("expected own-project dispatch to enqueue one run")
+	}
+}
+
+func TestTenantIsolation_DispatchEvent_SkipsStaleCrossProjectJobSubscription(t *testing.T) {
+	t.Parallel()
+
+	ms := newIsolationStore()
+	ms.GetEventSourceByNameFunc = func(_ context.Context, projectID, name string) (*domain.EventSource, error) {
+		return &domain.EventSource{ID: "src-a", ProjectID: projectID, Name: name, Enabled: true}, nil
+	}
+	ms.ListEventSubscriptionsBySourceFunc = func(_ context.Context, sourceID string) ([]domain.EventSubscription, error) {
+		return []domain.EventSubscription{
+			{ID: "sub-cross-job", SourceID: sourceID, TargetType: "job", TargetID: "job-b", FilterExpr: json.RawMessage(`{"eq":[["type","deploy"]]}`), Enabled: true},
+		}, nil
+	}
+	ms.GetJobFunc = func(_ context.Context, id string) (*domain.Job, error) {
+		if id != "job-b" {
+			t.Fatalf("id = %q, want job-b", id)
+		}
+		return &domain.Job{ID: "job-b", ProjectID: projectB, Enabled: true}, nil
+	}
+	srv := newTestServer(t, ms, &mockQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			t.Fatal("queue.Enqueue must not be called for stale cross-project job subscription")
+			return nil
+		},
+	}, nil)
+
+	body := `{"source":"source-a","project_id":"` + projectA + `","payload":{"type":"deploy"}}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/events/dispatch", body, projectA))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if got := int(resp["dispatched"].(float64)); got != 0 {
+		t.Fatalf("dispatched = %d, want 0", got)
+	}
+}
+
+func TestTenantIsolation_DispatchEvent_SkipsNilJobSubscription(t *testing.T) {
+	t.Parallel()
+
+	ms := newIsolationStore()
+	ms.GetEventSourceByNameFunc = func(_ context.Context, projectID, name string) (*domain.EventSource, error) {
+		return &domain.EventSource{ID: "src-a", ProjectID: projectID, Name: name, Enabled: true}, nil
+	}
+	ms.ListEventSubscriptionsBySourceFunc = func(_ context.Context, sourceID string) ([]domain.EventSubscription, error) {
+		return []domain.EventSubscription{
+			{ID: "sub-missing-job", SourceID: sourceID, TargetType: "job", TargetID: "job-missing", FilterExpr: json.RawMessage(`{"eq":[["type","deploy"]]}`), Enabled: true},
+		}, nil
+	}
+	ms.GetJobFunc = func(_ context.Context, id string) (*domain.Job, error) {
+		if id != "job-missing" {
+			t.Fatalf("id = %q, want job-missing", id)
+		}
+		return nil, nil
+	}
+	srv := newTestServer(t, ms, &mockQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			t.Fatal("queue.Enqueue must not be called for nil job subscription")
+			return nil
+		},
+	}, nil)
+
+	body := `{"source":"source-a","project_id":"` + projectA + `","payload":{"type":"deploy"}}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/events/dispatch", body, projectA))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if got := int(resp["dispatched"].(float64)); got != 0 {
+		t.Fatalf("dispatched = %d, want 0", got)
+	}
+}
+
+func TestTenantIsolation_DispatchEvent_SkipsStaleCrossProjectWorkflowSubscription(t *testing.T) {
+	t.Parallel()
+
+	ms := newIsolationStore()
+	ms.GetEventSourceByNameFunc = func(_ context.Context, projectID, name string) (*domain.EventSource, error) {
+		return &domain.EventSource{ID: "src-a", ProjectID: projectID, Name: name, Enabled: true}, nil
+	}
+	ms.ListEventSubscriptionsBySourceFunc = func(_ context.Context, sourceID string) ([]domain.EventSubscription, error) {
+		return []domain.EventSubscription{
+			{ID: "sub-cross-wf", SourceID: sourceID, TargetType: "workflow", TargetID: "wf-b", FilterExpr: json.RawMessage(`{"eq":[["type","deploy"]]}`), Enabled: true},
+		}, nil
+	}
+	ms.GetWorkflowFunc = func(_ context.Context, id string) (*domain.Workflow, error) {
+		if id != "wf-b" {
+			t.Fatalf("id = %q, want wf-b", id)
+		}
+		return &domain.Workflow{ID: "wf-b", ProjectID: projectB, Enabled: true}, nil
+	}
+	wfEngine := &mockWorkflowTrigger{
+		triggerWorkflowFn: func(context.Context, string, string, json.RawMessage, string, []domain.StepOverride) (*domain.WorkflowRun, error) {
+			t.Fatal("workflow trigger must not be called for stale cross-project workflow subscription")
+			return nil, nil
+		},
+	}
+	srv := newTestServerWithWorkflowEngine(t, ms, &mockQueue{}, wfEngine)
+
+	body := `{"source":"source-a","project_id":"` + projectA + `","payload":{"type":"deploy"}}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/events/dispatch", body, projectA))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if got := int(resp["dispatched"].(float64)); got != 0 {
+		t.Fatalf("dispatched = %d, want 0", got)
 	}
 }
 

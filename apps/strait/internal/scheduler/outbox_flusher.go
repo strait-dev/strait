@@ -81,13 +81,21 @@ func (f *OutboxFlusher) Errors() int64     { return f.errors.Load() }
 func (f *OutboxFlusher) Run(ctx context.Context) {
 	ticker := time.NewTicker(f.interval)
 	defer ticker.Stop()
-	_ = f.flushOnce(ctx)
+	if err := runSchedulerCycleCheckInWithError(ctx, f.interval, func() error {
+		return f.flushOnce(ctx)
+	}); err != nil {
+		f.logger.Warn("outbox flusher cycle failed", "error", err)
+	}
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			_ = f.flushOnce(ctx)
+			if err := runSchedulerCycleCheckInWithError(ctx, f.interval, func() error {
+				return f.flushOnce(ctx)
+			}); err != nil {
+				f.logger.Warn("outbox flusher cycle failed", "error", err)
+			}
 		}
 	}
 }
@@ -97,11 +105,13 @@ func (f *OutboxFlusher) FlushOnceForTest(ctx context.Context) error {
 	return f.flushOnce(ctx)
 }
 
-func (f *OutboxFlusher) flushOnce(ctx context.Context) error {
+func (f *OutboxFlusher) flushOnce(ctx context.Context) (err error) {
 	defer func() {
 		f.iterations.Add(1)
 		if r := recover(); r != nil {
+			f.errors.Add(1)
 			f.logger.Warn("outbox flusher panic recovered", "panic", r)
+			err = fmt.Errorf("outbox flusher panic: %v", r)
 		}
 	}()
 
@@ -130,7 +140,24 @@ func (f *OutboxFlusher) flushOnce(ctx context.Context) error {
 			return fmt.Errorf("outbox flusher: create savepoint for row %s: %w", row.ID, err)
 		}
 
-		run := f.toJobRun(row)
+		run, err := f.toJobRun(row)
+		if err != nil {
+			f.errors.Add(1)
+			if rollbackErr := rollbackAndReleaseSavepoint(ctx, tx, savepoint); rollbackErr != nil {
+				return fmt.Errorf("outbox flusher: rollback failed row %s: %w", row.ID, rollbackErr)
+			}
+			msg := store.TruncateOutboxError(err.Error())
+			if markErr := store.MarkOutboxErroredInTx(ctx, tx, row.ID, msg); markErr != nil {
+				return fmt.Errorf("outbox flusher: quarantine row %s: %w", row.ID, markErr)
+			}
+			if qm != nil && qm.OutboxQuarantinedTotal != nil {
+				qm.OutboxQuarantinedTotal.Add(ctx, 1)
+			}
+			f.logger.Warn("outbox flusher: invalid row metadata, row quarantined",
+				"outbox_id", row.ID, "job_id", row.JobID, "error", msg,
+			)
+			continue
+		}
 		if err := f.queue.EnqueueInTx(ctx, tx, run); err != nil {
 			f.errors.Add(1)
 			if rollbackErr := rollbackAndReleaseSavepoint(ctx, tx, savepoint); rollbackErr != nil {
@@ -187,6 +214,9 @@ func classifyOutboxEnqueueError(err error) outboxEnqueueDisposition {
 	if errors.Is(err, domain.ErrIdempotencyConflict) {
 		return outboxEnqueueTerminal
 	}
+	if errors.Is(err, queue.ErrEnqueueThrottled) {
+		return outboxEnqueueRetryable
+	}
 	if _, ok := queue.AsTerminalEnqueue(err); ok {
 		return outboxEnqueueTerminal
 	}
@@ -211,7 +241,7 @@ func classifyOutboxEnqueueError(err error) outboxEnqueueDisposition {
 		}
 	}
 
-	return outboxEnqueueTerminal
+	return outboxEnqueueRetryable
 }
 
 func execSavepoint(ctx context.Context, tx pgx.Tx, sql string) error {
@@ -226,21 +256,25 @@ func rollbackAndReleaseSavepoint(ctx context.Context, tx pgx.Tx, name string) er
 	return execSavepoint(ctx, tx, "RELEASE SAVEPOINT "+name)
 }
 
-func (f *OutboxFlusher) toJobRun(row store.OutboxRow) *domain.JobRun {
+func (f *OutboxFlusher) toJobRun(row store.OutboxRow) (*domain.JobRun, error) {
 	run := &domain.JobRun{
-		ID:          uuid.Must(uuid.NewV7()).String(),
-		JobID:       row.JobID,
-		ProjectID:   row.ProjectID,
-		Payload:     row.Payload,
-		Priority:    row.Priority,
-		ScheduledAt: row.ScheduledAt,
-		TriggeredBy: domain.TriggerManual,
+		ID:            uuid.Must(uuid.NewV7()).String(),
+		JobID:         row.JobID,
+		ProjectID:     row.ProjectID,
+		Payload:       row.Payload,
+		Priority:      row.Priority,
+		ScheduledAt:   row.ScheduledAt,
+		TriggeredBy:   domain.TriggerManual,
+		ExecutionMode: domain.ExecutionMode(row.ExecutionMode),
+		QueueName:     row.QueueName,
 	}
 	if row.IdempotencyKey != nil {
 		run.IdempotencyKey = *row.IdempotencyKey
 	}
 	if len(row.Metadata) > 0 {
-		_ = json.Unmarshal(row.Metadata, &run.Metadata)
+		if err := json.Unmarshal(row.Metadata, &run.Metadata); err != nil {
+			return nil, fmt.Errorf("decode outbox metadata for row %s: %w", row.ID, err)
+		}
 	}
-	return run
+	return run, nil
 }

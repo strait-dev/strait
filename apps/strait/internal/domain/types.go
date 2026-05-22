@@ -45,14 +45,27 @@ const (
 const MaxJobChainDepth = 10
 
 const (
-	WebhookEventRunCompleted         = "run.completed"
-	WebhookEventRunFailed            = "run.failed"
-	WebhookEventRunTimedOut          = "run.timed_out"
-	WebhookEventRunCanceled          = "run.canceled"
-	WebhookEventWorkflowCompleted    = "workflow.completed"
-	WebhookEventWorkflowFailed       = "workflow.failed"
-	WebhookEventComputeBudgetWarning = "compute_budget_warning"
-	WebhookEventSLOBudgetWarning     = "slo.budget_warning"
+	WebhookEventRunCompleted      = "run.completed"
+	WebhookEventRunFailed         = "run.failed"
+	WebhookEventRunTimedOut       = "run.timed_out"
+	WebhookEventRunCanceled       = "run.canceled"
+	WebhookEventWorkflowCompleted = "workflow.completed"
+	WebhookEventWorkflowFailed    = "workflow.failed"
+	WebhookEventSLOBudgetWarning  = "slo.budget_warning"
+
+	// Outbound billing-state events. Dispatched via the same
+	// webhook_subscriptions pipeline as run/workflow events, with HMAC
+	// signing, retries, and the circuit breaker.
+	WebhookEventBillingCapWarning            = "billing.cap_warning"
+	WebhookEventBillingCapReached            = "billing.cap_reached"
+	WebhookEventBillingCapDisabled           = "billing.cap_disabled"
+	WebhookEventBillingOverageDisabled       = "billing.overage_disabled"
+	WebhookEventBillingSuspended             = "billing.suspended"
+	WebhookEventBillingDelinquent            = "billing.delinquent"
+	WebhookEventBillingPaymentSucceeded      = "billing.payment_succeeded"
+	WebhookEventScheduleSuspended            = "schedule.suspended"
+	WebhookEventWorkflowRegistrationRejected = "workflow.registration_rejected"
+	WebhookEventSLACreditIssued              = "sla.credit_issued"
 )
 
 const (
@@ -99,15 +112,12 @@ type NotificationDelivery struct {
 	LastError   string          `json:"last_error,omitempty"`
 	NextRetryAt *time.Time      `json:"next_retry_at,omitempty"`
 	DeliveredAt *time.Time      `json:"delivered_at,omitempty"`
+	DedupeKey   string          `json:"-"`
 	ClaimToken  string          `json:"-"`
 	LeaseExpiry *time.Time      `json:"-"`
 	CreatedAt   time.Time       `json:"created_at"`
 	UpdatedAt   time.Time       `json:"updated_at"`
 }
-
-// ComputeBudgetAlertThresholdPct is the percentage of daily compute budget
-// that triggers a warning alert.
-const ComputeBudgetAlertThresholdPct = 80
 
 // Error class constants for run error categorization.
 const (
@@ -260,20 +270,25 @@ type AuditEvent struct {
 	TraceID       string          `json:"trace_id,omitempty" doc:"OpenTelemetry trace ID when available"`
 	SchemaVersion uint16          `json:"schema_version,omitempty" doc:"Signature schema version (1=original, 2=with forensic fields)"`
 	// IsAnchor marks the row as a chain-boundary anchor (e.g. signing key
-	// rotation). Anchors are out-of-band forensic markers: they are NOT
-	// part of the canonical HMAC form, but the verifier honors them as
-	// epoch boundaries so a rotation does not invalidate pre-rotation
-	// signatures.
+	// rotation). Schema v3+ signs this value as part of the canonical HMAC
+	// form so anchor markers cannot be toggled without detection.
 	IsAnchor bool `json:"is_anchor,omitempty"`
 	// RotationEpoch is the signing key epoch under which this row was
 	// written. Epoch 0 is the initial key. Monotonically increasing per
-	// project. Also not part of the canonical HMAC form.
+	// project. Schema v3+ signs this value as part of the canonical HMAC form.
 	RotationEpoch int `json:"rotation_epoch,omitempty"`
+	// ShardID partitions the audit chain within a project. Legacy rows
+	// (written before the shard column existed) carry '' and continue to
+	// verify under the per-project chain. Non-empty values key a
+	// per-(project, shard_id) sub-chain whose tail-read, signature, and
+	// retention/rotation anchors are independent of other shards in the
+	// same project. Schema v4+ binds shard_id into the canonical HMAC form.
+	ShardID string `json:"shard_id,omitempty"`
 }
 
 // AuditEventSchemaVersionCurrent is the schema version stamped on new
 // audit events. Bump whenever the canonical form changes.
-const AuditEventSchemaVersionCurrent uint16 = 2
+const AuditEventSchemaVersionCurrent uint16 = 3
 
 // AuditChainVerification is the result of verifying the HMAC chain
 // integrity for a project's audit event log.
@@ -346,9 +361,7 @@ type Job struct {
 	BatchWindowSecs           int               `json:"batch_window_secs,omitempty"`
 	BatchMaxSize              int               `json:"batch_max_size,omitempty"`
 	ExecutionMode             ExecutionMode     `json:"execution_mode,omitempty"`
-	MachinePreset             MachinePreset     `json:"machine_preset,omitempty"`
-	ImageURI                  string            `json:"image_uri,omitempty"`
-	Region                    string            `json:"region,omitempty"`
+	Queue                     string            `json:"queue,omitempty"`
 	PreferredRegions          []string          `json:"preferred_regions,omitempty"`
 	OnCompleteTriggerWorkflow string            `json:"on_complete_trigger_workflow,omitempty"`
 	OnCompleteTriggerJob      string            `json:"on_complete_trigger_job,omitempty"`
@@ -361,18 +374,11 @@ type Job struct {
 	MaxIterationsPerRun       int               `json:"max_iterations_per_run,omitempty"`
 	AllowedTools              []string          `json:"allowed_tools,omitempty"`
 	BlockedTools              []string          `json:"blocked_tools,omitempty"`
-	// Code-first deployment fields.
-	// SourceType defaults to "image" (existing behavior). Set to "code" for strait-deployed jobs.
-	SourceType         SourceType `json:"source_type,omitempty"`
-	RuntimeType        Runtime    `json:"runtime,omitempty"`
-	ActiveDeploymentID string     `json:"active_deployment_id,omitempty"`
-	// RollbackSourceDeploymentID is the deployment that was active before the most
-	// recent rollback operation. It is cleared when a new code build succeeds.
-	RollbackSourceDeploymentID string    `json:"rollback_source_deployment_id,omitempty"`
-	CreatedBy                  string    `json:"created_by,omitempty"`
-	UpdatedBy                  string    `json:"updated_by,omitempty"`
-	CreatedAt                  time.Time `json:"created_at"`
-	UpdatedAt                  time.Time `json:"updated_at"`
+	EndpointSigningSecret     string            `json:"-"`
+	CreatedBy                 string            `json:"created_by,omitempty"`
+	UpdatedBy                 string            `json:"updated_by,omitempty"`
+	CreatedAt                 time.Time         `json:"created_at"`
+	UpdatedAt                 time.Time         `json:"updated_at"`
 }
 
 // DebouncePending represents a pending debounced trigger waiting to fire.
@@ -517,15 +523,8 @@ type JobRun struct {
 	BatchID               string            `json:"batch_id,omitempty"`
 	ConcurrencyKey        string            `json:"concurrency_key,omitempty"`
 	ExecutionMode         ExecutionMode     `json:"execution_mode,omitempty"`
-	MachineID             string            `json:"machine_id,omitempty"`
-	// Code-first deployment: populated at queue time when job.SourceType == "code".
-	// Pinning the image digest ensures retries and workflow steps always use the
-	// same image even if a new deployment lands between attempts.
-	DeploymentID      string `json:"deployment_id,omitempty"`
-	PinnedImageURI    string `json:"pinned_image_uri,omitempty"`
-	PinnedImageDigest string `json:"pinned_image_digest,omitempty"`
-	// IsRollback is true when this run was created after a RollbackToDeployment
-	// call, meaning the job is using an older deployment rather than the latest build.
+	QueueName             string            `json:"queue_name,omitempty"`
+	// IsRollback is retained for historical run records; always false for new runs.
 	IsRollback bool `json:"is_rollback,omitempty"`
 	// ReplayedRunID is set on a dead-letter run after it has been successfully
 	// replayed via the admin DLQ endpoint; points to the new run that superseded
@@ -649,21 +648,6 @@ type RunOutput struct {
 	CreatedAt time.Time       `json:"created_at"`
 }
 
-// RunComputeUsage tracks container wall-clock time and cost for managed runs.
-type RunComputeUsage struct {
-	ID            string     `json:"id"`
-	RunID         string     `json:"run_id"`
-	ProjectID     string     `json:"project_id"`
-	JobID         string     `json:"job_id"`
-	MachinePreset string     `json:"machine_preset"`
-	MachineID     string     `json:"machine_id"`
-	DurationSecs  float64    `json:"duration_secs"`
-	CostMicrousd  int64      `json:"cost_microusd"`
-	StartedAt     *time.Time `json:"started_at,omitempty"`
-	FinishedAt    *time.Time `json:"finished_at,omitempty"`
-	CreatedAt     time.Time  `json:"created_at"`
-}
-
 // RunResourceSnapshot records a point-in-time resource utilization sample for a run.
 type RunResourceSnapshot struct {
 	ID             string    `json:"id"`
@@ -744,22 +728,29 @@ func (h *EndpointHealthScore) HealthLevel() string {
 }
 
 type WebhookDelivery struct {
-	ID             string     `json:"id"`
-	RunID          string     `json:"run_id,omitempty"`
-	JobID          string     `json:"job_id,omitempty"`
-	EventTriggerID string     `json:"event_trigger_id,omitempty"`
-	SubscriptionID string     `json:"subscription_id,omitempty"`
-	WebhookURL     string     `json:"webhook_url"`
-	RetryPolicy    string     `json:"webhook_retry_policy,omitempty"`
-	Status         string     `json:"status"`
-	Attempts       int        `json:"attempts"`
-	MaxAttempts    int        `json:"max_attempts"`
-	LastStatusCode *int       `json:"last_status_code,omitempty"`
-	LastError      string     `json:"last_error,omitempty"`
-	NextRetryAt    *time.Time `json:"next_retry_at,omitempty"`
-	DeliveredAt    *time.Time `json:"delivered_at,omitempty"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
+	ID             string          `json:"id"`
+	RunID          string          `json:"run_id,omitempty"`
+	JobID          string          `json:"job_id,omitempty"`
+	EventTriggerID string          `json:"event_trigger_id,omitempty"`
+	SubscriptionID string          `json:"subscription_id,omitempty"`
+	ProjectID      string          `json:"project_id,omitempty"`
+	OrgID          string          `json:"org_id,omitempty"`
+	WebhookURL     string          `json:"webhook_url"`
+	WebhookSecret  string          `json:"-"`
+	Payload        json.RawMessage `json:"-"`
+	DedupeKey      string          `json:"-"`
+	RetryPolicy    string          `json:"webhook_retry_policy,omitempty"`
+	Status         string          `json:"status"`
+	Attempts       int             `json:"attempts"`
+	MaxAttempts    int             `json:"max_attempts"`
+	LastStatusCode *int            `json:"last_status_code,omitempty"`
+	LastError      string          `json:"last_error,omitempty"`
+	NextRetryAt    *time.Time      `json:"next_retry_at,omitempty"`
+	DeliveredAt    *time.Time      `json:"delivered_at,omitempty"`
+	ClaimToken     string          `json:"-"`
+	LeaseExpiresAt *time.Time      `json:"-"`
+	CreatedAt      time.Time       `json:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
 }
 
 type WebhookSubscription struct {
@@ -774,27 +765,41 @@ type WebhookSubscription struct {
 	CreatedAt            time.Time  `json:"created_at"`
 }
 
+// APIKeyPrefixLen is the number of leading characters of a raw API key
+// that we store as the public, non-secret prefix on every APIKey row. The
+// prefix is what we surface in the UI and audit logs so an operator can
+// recognise which key fired without revealing the secret. The value is the
+// length of the literal "strait_" tag plus the first 5 hex characters of
+// the random body — short enough to be unguessable, long enough to be
+// visually distinguishable across thousands of keys per org.
+//
+// Every site that mints or stamps a key prefix must slice the raw key with
+// this constant. Drift between mint sites (api, scheduler, testutil) would
+// silently produce inconsistent prefixes that fail UI lookups.
+const APIKeyPrefixLen = 12
+
 // APIKey represents a per-project or org-scoped API key for authentication.
 type APIKey struct {
-	ID                   string     `json:"id"`
-	ProjectID            string     `json:"project_id"`
-	OrgID                string     `json:"org_id,omitempty"`
-	Name                 string     `json:"name"`
-	KeyHash              string     `json:"-"`
-	KeyPrefix            string     `json:"key_prefix"`
-	Scopes               []string   `json:"scopes"`
-	ExpiresAt            *time.Time `json:"expires_at,omitempty"`
-	LastUsedAt           *time.Time `json:"last_used_at,omitempty"`
-	CreatedAt            time.Time  `json:"created_at"`
-	RevokedAt            *time.Time `json:"revoked_at,omitempty"`
-	ReplacedByKeyID      string     `json:"replaced_by_key_id,omitempty"`
-	GraceExpiresAt       *time.Time `json:"grace_expires_at,omitempty"`
-	RateLimitRequests    int        `json:"rate_limit_requests,omitempty"`
-	RateLimitWindowSecs  int        `json:"rate_limit_window_secs,omitempty"`
-	EnvironmentID        string     `json:"environment_id,omitempty"`
-	RotationIntervalDays *int       `json:"rotation_interval_days,omitempty"`
-	NextRotationAt       *time.Time `json:"next_rotation_at,omitempty"`
-	RotationWebhookURL   string     `json:"rotation_webhook_url,omitempty"`
+	ID                    string     `json:"id"`
+	ProjectID             string     `json:"project_id"`
+	OrgID                 string     `json:"org_id,omitempty"`
+	Name                  string     `json:"name"`
+	KeyHash               string     `json:"-"`
+	KeyPrefix             string     `json:"key_prefix"`
+	Scopes                []string   `json:"scopes"`
+	ExpiresAt             *time.Time `json:"expires_at,omitempty"`
+	LastUsedAt            *time.Time `json:"last_used_at,omitempty"`
+	CreatedAt             time.Time  `json:"created_at"`
+	RevokedAt             *time.Time `json:"revoked_at,omitempty"`
+	ReplacedByKeyID       string     `json:"replaced_by_key_id,omitempty"`
+	GraceExpiresAt        *time.Time `json:"grace_expires_at,omitempty"`
+	RateLimitRequests     int        `json:"rate_limit_requests,omitempty"`
+	RateLimitWindowSecs   int        `json:"rate_limit_window_secs,omitempty"`
+	EnvironmentID         string     `json:"environment_id,omitempty"`
+	RotationIntervalDays  *int       `json:"rotation_interval_days,omitempty"`
+	NextRotationAt        *time.Time `json:"next_rotation_at,omitempty"`
+	RotationWebhookURL    string     `json:"rotation_webhook_url,omitempty"`
+	RotationWebhookSecret []byte     `json:"-"`
 }
 
 type JobVersion struct {
@@ -816,9 +821,6 @@ type JobVersion struct {
 	WebhookURL          string            `json:"webhook_url,omitempty"`
 	WebhookSecret       string            `json:"-"`
 	RunTTLSecs          int               `json:"run_ttl_secs,omitempty"`
-	MachinePreset       string            `json:"machine_preset,omitempty"`
-	ImageURI            string            `json:"image_uri,omitempty"`
-	Region              string            `json:"region,omitempty"`
 	CreatedAt           time.Time         `json:"created_at"`
 }
 
@@ -893,9 +895,16 @@ type DeploymentVersion struct {
 	UpdatedAt              time.Time               `json:"updated_at"`
 }
 
+// IsTerminal reports whether the run is in a final state where no further
+// state transitions or work are expected. Includes dead_letter — a
+// permanently-failed run that has exhausted retries IS terminal from every
+// callers' perspective (SSE handlers must hang up, webhooks/notifications
+// must fire, the reaper must skip it, replay/idempotency must consider it
+// already-resolved). Use IsDeadLetter when you need to distinguish DLQ
+// runs from normally-completed ones.
 func (s RunStatus) IsTerminal() bool {
 	switch s {
-	case StatusCompleted, StatusFailed, StatusTimedOut, StatusCrashed, StatusSystemFailed, StatusCanceled, StatusExpired:
+	case StatusCompleted, StatusFailed, StatusTimedOut, StatusCrashed, StatusSystemFailed, StatusCanceled, StatusExpired, StatusDeadLetter:
 		return true
 	default:
 		return false
@@ -922,6 +931,7 @@ func TerminalStatuses() []RunStatus {
 		StatusSystemFailed,
 		StatusCanceled,
 		StatusExpired,
+		StatusDeadLetter,
 	}
 }
 
@@ -953,7 +963,8 @@ func (s WorkflowRunStatus) IsTerminal() bool {
 
 func (s WorkflowRunStatus) IsValid() bool {
 	switch s {
-	case WfStatusPending, WfStatusRunning, WfStatusPaused, WfStatusCompleted, WfStatusFailed, WfStatusTimedOut, WfStatusCanceled:
+	case WfStatusPending, WfStatusRunning, WfStatusPaused, WfStatusCompleted, WfStatusFailed, WfStatusTimedOut, WfStatusCanceled,
+		WfStatusCompensating, WfStatusCompensated, WfStatusCompensationFailed:
 		return true
 	default:
 		return false
@@ -1031,6 +1042,21 @@ const (
 // DefaultEventTimeoutSecs is the default timeout for wait_for_event steps (1 hour).
 const DefaultEventTimeoutSecs = 3600
 
+// DefaultSleepDurationSecs is the default duration for sleep steps (1 minute).
+const DefaultSleepDurationSecs = 60
+
+// MaxSleepDurationSecs is the upper bound enforced on sleep steps (30 days).
+// Sleep steps create durable trigger rows; allowing unbounded durations lets a
+// workflow definition pin rows and workflow runs for years.
+const MaxSleepDurationSecs = 30 * 24 * 3600
+
+// MaxEventTimeoutSecs is the upper bound enforced on wait_for_event step
+// timeouts (30 days). Without a cap, a workflow author can pin a step in
+// 'waiting' for ~68 years (INT_MAX seconds), creating a permanently
+// occupied event_trigger row and an orphaned workflow_run that the reaper
+// will never clean up — a slow-burn resource exhaustion vector.
+const MaxEventTimeoutSecs = 30 * 24 * 3600
+
 // SLO metric types.
 const (
 	SLOMetricSuccessRate    = "success_rate"
@@ -1101,14 +1127,23 @@ func (p VersionPolicy) IsValid() bool {
 type ExecutionMode string
 
 const (
-	ExecutionModeHTTP    ExecutionMode = "http"
-	ExecutionModeManaged ExecutionMode = "managed"
+	ExecutionModeHTTP   ExecutionMode = "http"
+	ExecutionModeWorker ExecutionMode = "worker"
 )
+
+// WorkerQueueRef identifies a connected worker queue scope. ProjectID is
+// required so worker-mode dequeue never claims another tenant's queued runs.
+// Empty EnvironmentID means the worker is project-wide for that queue.
+type WorkerQueueRef struct {
+	ProjectID     string
+	QueueName     string
+	EnvironmentID string
+}
 
 // IsValid returns true if the execution mode is a known value.
 func (m ExecutionMode) IsValid() bool {
 	switch m {
-	case ExecutionModeHTTP, ExecutionModeManaged:
+	case ExecutionModeHTTP, ExecutionModeWorker:
 		return true
 	default:
 		return false
@@ -1129,29 +1164,6 @@ const (
 func (p CronOverlapPolicy) IsValid() bool {
 	switch p {
 	case OverlapPolicyAllow, OverlapPolicySkip, OverlapPolicyCancelRunning:
-		return true
-	default:
-		return false
-	}
-}
-
-// MachinePreset defines a compute resource tier for managed execution.
-type MachinePreset string
-
-const (
-	PresetMicro    MachinePreset = "micro"
-	PresetSmall1x  MachinePreset = "small-1x"
-	PresetSmall2x  MachinePreset = "small-2x"
-	PresetMedium1x MachinePreset = "medium-1x"
-	PresetMedium2x MachinePreset = "medium-2x"
-	PresetLarge1x  MachinePreset = "large-1x"
-	PresetLarge2x  MachinePreset = "large-2x"
-)
-
-// IsValid returns true if the machine preset is a known value.
-func (p MachinePreset) IsValid() bool {
-	switch p {
-	case PresetMicro, PresetSmall1x, PresetSmall2x, PresetMedium1x, PresetMedium2x, PresetLarge1x, PresetLarge2x:
 		return true
 	default:
 		return false
@@ -1415,11 +1427,11 @@ type TimelineResponse struct {
 }
 
 // EventTrigger represents a durable wait for an external event signal.
-// Used by wait_for_event workflow steps and SDK wait-for-event on job runs.
 type EventTrigger struct {
 	ID                string          `json:"id"`
 	EventKey          string          `json:"event_key"`
 	ProjectID         string          `json:"project_id"`
+	EnvironmentID     string          `json:"environment_id,omitempty"`       // optional env binding; empty means project-wide / legacy
 	SourceType        string          `json:"source_type"`                    // "workflow_step" or "job_run"
 	WorkflowRunID     string          `json:"workflow_run_id,omitempty"`      // set if source_type = workflow_step
 	WorkflowStepRunID string          `json:"workflow_step_run_id,omitempty"` // set if source_type = workflow_step
@@ -1456,102 +1468,59 @@ func (s DeploymentStrategy) IsValid() bool {
 	}
 }
 
-// SourceType controls whether a job dispatches via a user-supplied image or
-// code-first deployments built and managed by Strait.
-type SourceType string
+// WorkerStatus is the lifecycle state of a registered worker.
+type WorkerStatus string
 
 const (
-	// SourceTypeImage is the default: the job references an external image URI
-	// (or endpoint URL for HTTP mode). Existing behavior is unchanged.
-	SourceTypeImage SourceType = "image"
-	// SourceTypeCode means the job was deployed via `strait deploy`. Strait builds
-	// the image from uploaded source code and pins each run to the built digest.
-	SourceTypeCode SourceType = "code"
+	WorkerStatusActive   WorkerStatus = "active"
+	WorkerStatusDraining WorkerStatus = "draining"
+	WorkerStatusOffline  WorkerStatus = "offline"
 )
 
-// IsValid returns true if the source type is a known value.
-func (s SourceType) IsValid() bool {
-	switch s {
-	case SourceTypeImage, SourceTypeCode:
-		return true
-	default:
-		return false
-	}
+// Worker represents a registered worker process that polls for and executes job runs.
+type Worker struct {
+	ID           string       `json:"id"`
+	ProjectID    string       `json:"project_id"`
+	QueueName    string       `json:"queue_name"`
+	Hostname     string       `json:"hostname"`
+	Version      string       `json:"version"`
+	Status       WorkerStatus `json:"status"`
+	LastSeenAt   time.Time    `json:"last_seen_at"`
+	RegisteredAt time.Time    `json:"registered_at"`
 }
 
-// Runtime identifies the programming language for a code-first job.
-type Runtime string
+// WorkerTaskStatus is the lifecycle state of a task assigned to a worker.
+type WorkerTaskStatus string
 
 const (
-	RuntimePython     Runtime = "python"
-	RuntimeTypeScript Runtime = "typescript"
-	RuntimeRuby       Runtime = "ruby"
-	RuntimeRust       Runtime = "rust"
-	RuntimeGo         Runtime = "go"
+	WorkerTaskStatusAssigned       WorkerTaskStatus = "assigned"
+	WorkerTaskStatusAccepted       WorkerTaskStatus = "accepted"
+	WorkerTaskStatusResultReceived WorkerTaskStatus = "result_received"
+	WorkerTaskStatusFinalizing     WorkerTaskStatus = "finalizing"
+	WorkerTaskStatusCompleted      WorkerTaskStatus = "completed"
+	WorkerTaskStatusFailed         WorkerTaskStatus = "failed"
 )
 
-// IsValid returns true if the runtime is a known value.
-func (r Runtime) IsValid() bool {
-	switch r {
-	case RuntimePython, RuntimeTypeScript, RuntimeRuby, RuntimeRust, RuntimeGo:
-		return true
-	default:
-		return false
-	}
+// WorkerTask represents a job run assigned to a specific worker.
+type WorkerTask struct {
+	ID         string            `json:"id"`
+	WorkerID   string            `json:"worker_id"`
+	RunID      string            `json:"run_id"`
+	ProjectID  string            `json:"project_id"`
+	Attempt    int               `json:"attempt"`
+	Status     WorkerTaskStatus  `json:"status"`
+	AssignedAt time.Time         `json:"assigned_at"`
+	AcceptedAt *time.Time        `json:"accepted_at,omitempty"`
+	FinishedAt *time.Time        `json:"finished_at,omitempty"`
+	Result     *WorkerTaskResult `json:"result,omitempty"`
 }
 
-// AllRuntimes returns all valid Runtime values. Used to keep external
-// representations (e.g. the strait.json JSON Schema) in sync with the domain.
-func AllRuntimes() []Runtime {
-	return []Runtime{
-		RuntimePython,
-		RuntimeTypeScript,
-		RuntimeRuby,
-		RuntimeRust,
-		RuntimeGo,
-	}
-}
-
-// DeploymentBuildStatus tracks the lifecycle of a code deployment build.
-type DeploymentBuildStatus string
-
-const (
-	DeploymentStatusPending  DeploymentBuildStatus = "pending"   // upload confirmed, build not yet started
-	DeploymentStatusBuilding DeploymentBuildStatus = "building"  // BuildKit is running
-	DeploymentStatusReady    DeploymentBuildStatus = "ready"     // image pushed, runs can use it
-	DeploymentStatusFailed   DeploymentBuildStatus = "failed"    // build or push failed
-	DeploymentStatusTimedOut DeploymentBuildStatus = "timed_out" // build exceeded configured timeout
-)
-
-// IsValid returns true if the build status is a known value.
-func (s DeploymentBuildStatus) IsValid() bool {
-	switch s {
-	case DeploymentStatusPending, DeploymentStatusBuilding, DeploymentStatusReady, DeploymentStatusFailed, DeploymentStatusTimedOut:
-		return true
-	default:
-		return false
-	}
-}
-
-// CodeDeployment represents a single versioned code-first deployment of a job.
-// Each deployment corresponds to one `strait deploy` invocation: tarball upload
-// → BuildKit build → ECR push → atomic swap of active_deployment_id on the job.
-type CodeDeployment struct {
-	ID               string                `json:"id"`
-	JobID            string                `json:"job_id"`
-	ProjectID        string                `json:"project_id"`
-	Version          int                   `json:"version"`
-	Status           DeploymentBuildStatus `json:"status"`
-	Runtime          Runtime               `json:"runtime"`
-	SourceHash       string                `json:"source_hash"` // SHA-256 of uploaded tarball
-	SourceSizeBytes  int64                 `json:"source_size_bytes"`
-	SourceURI        string                `json:"source_uri"`                   // object store key
-	BuiltImageURI    string                `json:"built_image_uri,omitempty"`    // full URI after build
-	BuiltImageDigest string                `json:"built_image_digest,omitempty"` // sha256:... digest
-	BuildLogs        string                `json:"build_logs,omitempty"`
-	ErrorMessage     string                `json:"error_message,omitempty"`
-	CreatedBy        string                `json:"created_by,omitempty"`
-	CreatedAt        time.Time             `json:"created_at"`
-	UpdatedAt        time.Time             `json:"updated_at"`
-	FinishedAt       *time.Time            `json:"finished_at,omitempty"`
+// WorkerTaskResult is the durable TaskResult payload accepted from the worker
+// stream before executor finalization commits terminal run state.
+type WorkerTaskResult struct {
+	Status     string          `json:"status"`
+	Output     json.RawMessage `json:"output,omitempty"`
+	Error      string          `json:"error,omitempty"`
+	DurationMS int64           `json:"duration_ms,omitempty"`
+	ReceivedAt *time.Time      `json:"received_at,omitempty"`
 }

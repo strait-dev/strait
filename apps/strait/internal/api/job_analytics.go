@@ -19,6 +19,9 @@ type JobHistoryInput struct {
 type JobHistoryOutput struct{ Body any }
 
 func (s *Server) handleJobHistory(ctx context.Context, input *JobHistoryInput) (*JobHistoryOutput, error) {
+	if err := requireProjectWideScope(ctx, "job analytics"); err != nil {
+		return nil, err
+	}
 	ctx, span := otel.Tracer("strait").Start(ctx, "api.JobHistory")
 	defer span.End()
 	projectID := projectIDFromContext(ctx)
@@ -49,6 +52,9 @@ type JobComparisonInput struct {
 type JobComparisonOutput struct{ Body any }
 
 func (s *Server) handleJobComparison(ctx context.Context, input *JobComparisonInput) (*JobComparisonOutput, error) {
+	if err := requireProjectWideScope(ctx, "job analytics"); err != nil {
+		return nil, err
+	}
 	ctx, span := otel.Tracer("strait").Start(ctx, "api.JobComparison")
 	defer span.End()
 	projectID := projectIDFromContext(ctx)
@@ -79,6 +85,9 @@ type JobReliabilityInput struct {
 type JobReliabilityOutput struct{ Body any }
 
 func (s *Server) handleJobReliability(ctx context.Context, input *JobReliabilityInput) (*JobReliabilityOutput, error) {
+	if err := requireProjectWideScope(ctx, "job analytics"); err != nil {
+		return nil, err
+	}
 	ctx, span := otel.Tracer("strait").Start(ctx, "api.JobReliability")
 	defer span.End()
 	projectID := projectIDFromContext(ctx)
@@ -109,6 +118,9 @@ type RunsByVersionInput struct {
 type RunsByVersionOutput struct{ Body any }
 
 func (s *Server) handleRunsByVersion(ctx context.Context, input *RunsByVersionInput) (*RunsByVersionOutput, error) {
+	if err := requireProjectWideScope(ctx, "job analytics"); err != nil {
+		return nil, err
+	}
 	ctx, span := otel.Tracer("strait").Start(ctx, "api.RunsByVersion")
 	defer span.End()
 	projectID := projectIDFromContext(ctx)
@@ -135,6 +147,9 @@ type JobCostRankingInput struct {
 type JobCostRankingOutput struct{ Body any }
 
 func (s *Server) handleJobCostRanking(ctx context.Context, input *JobCostRankingInput) (*JobCostRankingOutput, error) {
+	if err := requireProjectWideScope(ctx, "job analytics"); err != nil {
+		return nil, err
+	}
 	ctx, span := otel.Tracer("strait").Start(ctx, "api.JobCostRanking")
 	defer span.End()
 	projectID := projectIDFromContext(ctx)
@@ -165,6 +180,9 @@ type TopFailingJobsInput struct {
 type TopFailingJobsOutput struct{ Body any }
 
 func (s *Server) handleTopFailingJobs(ctx context.Context, input *TopFailingJobsInput) (*TopFailingJobsOutput, error) {
+	if err := requireProjectWideScope(ctx, "job analytics"); err != nil {
+		return nil, err
+	}
 	ctx, span := otel.Tracer("strait").Start(ctx, "api.TopFailingJobs")
 	defer span.End()
 	projectID := projectIDFromContext(ctx)

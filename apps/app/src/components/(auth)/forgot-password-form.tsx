@@ -12,7 +12,7 @@ import { LoadingIcon } from "@/lib/icons";
 import { captureSentryAuthError } from "@/lib/sentry";
 
 const forgotPasswordSchema = z.object({
-  email: z.string().email("Invalid email address"),
+  email: z.email("Invalid email address"),
 });
 
 type ForgotPasswordFormProps = {
@@ -89,6 +89,16 @@ const ForgotPasswordForm = ({ disabled }: ForgotPasswordFormProps) => {
             <Field className="w-full">
               <FieldLabel htmlFor={field.name}>Email</FieldLabel>
               <Input
+                aria-describedby={
+                  field.state.meta.isTouched &&
+                  field.state.meta.errors.length > 0
+                    ? `${field.name}-error`
+                    : undefined
+                }
+                aria-invalid={
+                  field.state.meta.isTouched &&
+                  field.state.meta.errors.length > 0
+                }
                 autoComplete="email"
                 disabled={disabled}
                 id={field.name}
@@ -98,11 +108,12 @@ const ForgotPasswordForm = ({ disabled }: ForgotPasswordFormProps) => {
                 type="email"
                 value={field.state.value}
               />
-              {field.state.meta.errors.length > 0 && (
-                <FieldError>
-                  {formatFieldErrors(field.state.meta.errors)}
-                </FieldError>
-              )}
+              {field.state.meta.isTouched &&
+                field.state.meta.errors.length > 0 && (
+                  <FieldError id={`${field.name}-error`}>
+                    {formatFieldErrors(field.state.meta.errors)}
+                  </FieldError>
+                )}
             </Field>
           )}
         </form.Field>

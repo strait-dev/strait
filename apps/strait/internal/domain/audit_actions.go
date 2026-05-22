@@ -24,6 +24,9 @@ const (
 	AuditActionAPIKeyRotated  = "api_key.rotate"
 	AuditActionAPIKeyListRead = "api_key.list_read"
 
+	// SDK run-token auth.
+	AuditActionAuthRunTokenRejected = "auth.run_token.rejected"
+
 	// Audit log self-audit + read access (SOC 2 requires audit of audit reads).
 	AuditActionAuditExported      = "audit.exported"
 	AuditActionAuditExportCapped  = "audit.export_capped"
@@ -178,13 +181,14 @@ const (
 	AuditActionEventTriggerPurged       = "event_trigger.purged"
 
 	// Deployments.
-	AuditActionCodeDeploymentCreated       = "code_deployment.created"
-	AuditActionCodeDeploymentConfirmed     = "code_deployment.confirmed"
-	AuditActionCodeDeploymentRolledBack    = "code_deployment.rolled_back"
 	AuditActionDeploymentVersionCreated    = "deployment_version.created"
 	AuditActionDeploymentVersionFinalized  = "deployment_version.finalized"
 	AuditActionDeploymentVersionPromoted   = "deployment_version.promoted"
 	AuditActionDeploymentVersionRolledBack = "deployment_version.rolled_back"
+
+	// Job endpoints (HMAC signing surface).
+	AuditActionEndpointSet      = "endpoint.set"
+	AuditActionEndpointVerified = "endpoint.verified"
 
 	// Billing / usage / org settings.
 	AuditActionSpendingLimitUpdated    = "spending_limit.updated"
@@ -192,6 +196,24 @@ const (
 	AuditActionUsageExported           = "usage.exported"
 	AuditActionProjectBudgetUpdated    = "project_budget.updated"
 	AuditActionAnomalyConfigUpdated    = "anomaly_config.updated"
+
+	// Worker connections (gRPC streaming).
+	AuditActionWorkerConnected         = "worker.connected"
+	AuditActionWorkerDisconnected      = "worker.disconnected"
+	AuditActionWorkerForceDisconnected = "worker.force_disconnected"
+	AuditActionWorkerTaskRouted        = "worker.task_routed"
+	AuditActionWorkerDeleteAcked       = "worker.delete.acked"
+	AuditActionWorkerDeleteTimeout     = "worker.delete.timeout"
+
+	// Quota and cron lifecycle (billing-period enforcement).
+	AuditActionSubscriptionChanged   = "subscription.changed"
+	AuditActionUsageThresholdReached = "usage.threshold_reached"
+
+	// Internal-secret callers that skip the project_id requirement on
+	// otherwise project-scoped handlers. Recorded so a leaked
+	// X-Internal-Secret header leaves an audit trail naming the gate
+	// that was skipped and the resource that was touched.
+	AuditActionInternalSecretBypass = "auth.internal_secret_bypass"
 )
 
 // allAuditActions is the set of every action name the emit path will accept.
@@ -203,6 +225,7 @@ var allAuditActions = map[string]struct{}{
 	AuditActionAPIKeyRevoked:                   {},
 	AuditActionAPIKeyRotated:                   {},
 	AuditActionAPIKeyListRead:                  {},
+	AuditActionAuthRunTokenRejected:            {},
 	AuditActionAuditExported:                   {},
 	AuditActionAuditExportCapped:               {},
 	AuditActionAuditListRead:                   {},
@@ -318,22 +341,31 @@ var allAuditActions = map[string]struct{}{
 	AuditActionEventSentByPrefix:               {},
 	AuditActionEventTriggerCancelled:           {},
 	AuditActionEventTriggerPurged:              {},
-	AuditActionCodeDeploymentCreated:           {},
-	AuditActionCodeDeploymentConfirmed:         {},
-	AuditActionCodeDeploymentRolledBack:        {},
 	AuditActionDeploymentVersionCreated:        {},
 	AuditActionDeploymentVersionFinalized:      {},
 	AuditActionDeploymentVersionPromoted:       {},
 	AuditActionDeploymentVersionRolledBack:     {},
+	AuditActionEndpointSet:                     {},
+	AuditActionEndpointVerified:                {},
 	AuditActionSpendingLimitUpdated:            {},
 	AuditActionEmailPreferencesUpdated:         {},
 	AuditActionUsageExported:                   {},
 	AuditActionProjectBudgetUpdated:            {},
 	AuditActionAnomalyConfigUpdated:            {},
+	AuditActionWorkerConnected:                 {},
+	AuditActionWorkerDisconnected:              {},
+	AuditActionWorkerForceDisconnected:         {},
+	AuditActionWorkerTaskRouted:                {},
+	AuditActionWorkerDeleteAcked:               {},
+	AuditActionWorkerDeleteTimeout:             {},
+	AuditActionSubscriptionChanged:             {},
+	AuditActionUsageThresholdReached:           {},
+	AuditActionInternalSecretBypass:            {},
 }
 
 // IsKnownAuditAction reports whether action is a registered audit action.
-// Used by the emit path to reject typos at runtime.
+// The emit path calls this to reject typos at runtime before they reach
+// the database.
 func IsKnownAuditAction(action string) bool {
 	_, ok := allAuditActions[action]
 	return ok

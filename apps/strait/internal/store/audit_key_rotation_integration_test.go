@@ -5,8 +5,10 @@ package store_test
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/sourcegraph/conc"
 
@@ -102,22 +104,24 @@ func TestVerifyAuditChain_AcceptsAnchorBoundary(t *testing.T) {
 		t.Fatalf("newEpoch = %d, want 1", newEpoch)
 	}
 
-	// Epoch 1: 5 more events. They inherit rotation_epoch=0 by default
-	// (column default), so to simulate real post-rotation emit we manually
-	// set the epoch on each event.
-	for i := 0; i < 5; i++ {
+	// Epoch 1: 5 more events. CreateAuditEvent must assign the current
+	// rotation epoch automatically; callers should not need to know the
+	// current per-project signing epoch.
+	for i := range 5 {
 		ev := &domain.AuditEvent{
-			ProjectID:     projectID,
-			ActorID:       "actor",
-			ActorType:     "user",
-			Action:        domain.AuditActionJobCreated,
-			ResourceType:  "job",
-			ResourceID:    "post-rotation",
-			Details:       json.RawMessage(`{"post":true}`),
-			RotationEpoch: 1,
+			ProjectID:    projectID,
+			ActorID:      "actor",
+			ActorType:    "user",
+			Action:       domain.AuditActionJobCreated,
+			ResourceType: "job",
+			ResourceID:   "post-rotation",
+			Details:      json.RawMessage(`{"post":true}`),
 		}
 		if err := q.CreateAuditEvent(ctx, ev); err != nil {
 			t.Fatalf("CreateAuditEvent post-rotation %d: %v", i, err)
+		}
+		if ev.RotationEpoch != 1 {
+			t.Fatalf("post-rotation event epoch = %d, want 1", ev.RotationEpoch)
 		}
 	}
 
@@ -131,6 +135,37 @@ func TestVerifyAuditChain_AcceptsAnchorBoundary(t *testing.T) {
 	// 5 pre + 1 anchor + 5 post = 11.
 	if result.EventsChecked != 11 {
 		t.Errorf("EventsChecked = %d, want 11", result.EventsChecked)
+	}
+}
+
+func TestVerifyAuditChain_MissingNonzeroEpochKeyFailsClosed(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	q := mustStore(t)
+	q.SetSecretEncryptionKey("test-encryption-key-32bytes!!!!")
+	key, _ := store.DeriveAuditSigningKey("missing-epoch-key-secret")
+	q.SetAuditSigningKey(key)
+
+	projectID := "proj-missing-epoch-key"
+	insertTestChain(ctx, t, q, projectID, 2)
+	if _, err := q.RotateAuditSigningKey(ctx, projectID, "actor-rotator"); err != nil {
+		t.Fatalf("RotateAuditSigningKey: %v", err)
+	}
+
+	if _, err := testDB.Pool.Exec(ctx, `
+		DELETE FROM audit_signing_keys
+		WHERE project_id = $1 AND rotation_epoch = 1
+	`, projectID); err != nil {
+		t.Fatalf("delete epoch key: %v", err)
+	}
+
+	_, err := q.VerifyAuditChain(ctx, projectID)
+	if err == nil {
+		t.Fatal("expected missing nonzero epoch key to fail verification")
+	}
+	if got := err.Error(); !strings.Contains(got, "no stored key for epoch 1") {
+		t.Fatalf("VerifyAuditChain error = %v, want missing epoch key", err)
 	}
 }
 
@@ -342,7 +377,7 @@ func TestVerifyAuditChain_RealPerEpochKeys(t *testing.T) {
 	}
 	q.SetAuditSigningKey(epochKey)
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		ev := &domain.AuditEvent{
 			ProjectID:     projectID,
 			ActorID:       "actor",
@@ -428,7 +463,7 @@ func TestRotateAuditSigningKey_StoresDistinctKeyPerEpoch(t *testing.T) {
 	projectID := "proj-distinct"
 	insertTestChain(ctx, t, q, projectID, 1)
 
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if _, err := q.RotateAuditSigningKey(ctx, projectID, "actor"); err != nil {
 			t.Fatalf("rotate %d: %v", i, err)
 		}
@@ -529,6 +564,187 @@ func TestBootstrapKey_PerProjectUniqueness(t *testing.T) {
 	}
 }
 
+func TestAuditEpochKeys_DeriveFromAuditSigningRootNotEnvelopeKey(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	projectID := "proj-audit-root-separation"
+	envelopeKey := testEncKey
+
+	qA := mustStore(t)
+	qA.SetSecretEncryptionKey(envelopeKey)
+	auditRootA, _ := store.DeriveAuditSigningKey("audit-root-a")
+	qA.SetAuditSigningKey(auditRootA)
+	insertTestChain(ctx, t, qA, projectID, 1)
+	keyA, err := qA.GetAuditSigningKey(ctx, projectID, 0)
+	if err != nil || keyA == nil {
+		t.Fatalf("GetAuditSigningKey(root A): key nil=%v err=%v", keyA == nil, err)
+	}
+
+	mustClean(t, ctx)
+	qB := mustStore(t)
+	qB.SetSecretEncryptionKey(envelopeKey)
+	auditRootB, _ := store.DeriveAuditSigningKey("audit-root-b")
+	qB.SetAuditSigningKey(auditRootB)
+	insertTestChain(ctx, t, qB, projectID, 1)
+	keyB, err := qB.GetAuditSigningKey(ctx, projectID, 0)
+	if err != nil || keyB == nil {
+		t.Fatalf("GetAuditSigningKey(root B): key nil=%v err=%v", keyB == nil, err)
+	}
+
+	if string(keyA) == string(keyB) {
+		t.Fatal("epoch keys matched despite different audit signing roots and identical envelope key")
+	}
+	expectedA, err := store.DeriveAuditSigningKeyForEpochFromRoot(auditRootA, projectID, 0)
+	if err != nil {
+		t.Fatalf("DeriveAuditSigningKeyForEpochFromRoot(A): %v", err)
+	}
+	if string(keyA) != string(expectedA) {
+		t.Fatal("epoch key was not derived from the configured audit signing root")
+	}
+}
+
+func TestAuditSigningKeyDecryptsWithOldEnvelopeKey(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	projectID := "proj-audit-old-envelope"
+	oldQ := mustStore(t)
+	oldQ.SetSecretEncryptionKey("old-audit-envelope-key")
+	auditRoot, _ := store.DeriveAuditSigningKey("audit-root-old-envelope")
+	oldQ.SetAuditSigningKey(auditRoot)
+	insertTestChain(ctx, t, oldQ, projectID, 1)
+
+	newQ := mustStore(t)
+	newQ.SetSecretEncryptionKey("new-audit-envelope-key")
+	newQ.SetOldSecretEncryptionKeys([]string{"old-audit-envelope-key"})
+	newQ.SetAuditSigningKey(auditRoot)
+
+	key, err := newQ.GetAuditSigningKey(ctx, projectID, 0)
+	if err != nil {
+		t.Fatalf("GetAuditSigningKey(with old envelope): %v", err)
+	}
+	if len(key) == 0 {
+		t.Fatal("GetAuditSigningKey(with old envelope) returned empty key")
+	}
+
+	withoutOld := mustStore(t)
+	withoutOld.SetSecretEncryptionKey("new-audit-envelope-key")
+	withoutOld.SetAuditSigningKey(auditRoot)
+	if _, err := withoutOld.GetAuditSigningKey(ctx, projectID, 0); err == nil {
+		t.Fatal("GetAuditSigningKey(without old envelope) error = nil, want decrypt failure")
+	}
+}
+
+func TestVerifyAuditChain_EpochZeroBootstrapPreservesLegacyRows(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	q := mustStore(t)
+	q.SetSecretEncryptionKey(testEncKey)
+	globalKey, _ := store.DeriveAuditSigningKey("legacy-epoch-zero-secret")
+	q.SetAuditSigningKey(globalKey)
+
+	projectID := "proj-legacy-epoch-zero"
+	_ = insertLegacyEpochZeroAuditEvent(ctx, t, projectID, globalKey)
+
+	ev := &domain.AuditEvent{
+		ProjectID:    projectID,
+		ActorID:      "actor-new",
+		ActorType:    "user",
+		Action:       domain.AuditActionJobCreated,
+		ResourceType: "job",
+		ResourceID:   "job-new",
+		Details:      json.RawMessage(`{"new":true}`),
+	}
+	if err := q.CreateAuditEvent(ctx, ev); err != nil {
+		t.Fatalf("CreateAuditEvent(new epoch-0 row): %v", err)
+	}
+	if ev.RotationEpoch != 0 {
+		t.Fatalf("new event rotation_epoch = %d, want 0", ev.RotationEpoch)
+	}
+	// Auto-shard-derivation: the new event with ResourceType "job" lands in
+	// shard "job" while the legacy row carries the migration-default ''
+	// shard. Each is the head of its own sub-chain; the legacy row no
+	// longer serves as a chain ancestor for new writes.
+	if ev.ShardID != "job" {
+		t.Fatalf("new event shard_id = %q, want %q", ev.ShardID, "job")
+	}
+	if ev.PreviousHash != store.ZeroHash {
+		t.Fatalf("new event previous_hash = %q, want ZeroHash (new shard chain head)", ev.PreviousHash)
+	}
+
+	epochKey, err := q.GetAuditSigningKey(ctx, projectID, 0)
+	if err != nil {
+		t.Fatalf("GetAuditSigningKey(epoch 0): %v", err)
+	}
+	if epochKey == nil {
+		t.Fatal("expected epoch-0 bootstrap key")
+	}
+	if string(epochKey) == string(globalKey) {
+		t.Fatal("epoch-0 bootstrap key should differ from legacy global key")
+	}
+
+	result, err := q.VerifyAuditChain(ctx, projectID)
+	if err != nil {
+		t.Fatalf("VerifyAuditChain: %v", err)
+	}
+	if !result.Valid {
+		t.Fatalf("VerifyAuditChain valid = false: %s", result.Error)
+	}
+	if result.EventsChecked != 2 {
+		t.Fatalf("EventsChecked = %d, want 2", result.EventsChecked)
+	}
+}
+
+func insertLegacyEpochZeroAuditEvent(ctx context.Context, t *testing.T, projectID string, key []byte) domain.AuditEvent {
+	t.Helper()
+
+	ev := domain.AuditEvent{
+		ID:            "legacy-epoch-zero-" + newID(),
+		ProjectID:     projectID,
+		ActorID:       "actor-legacy",
+		ActorType:     "user",
+		Action:        domain.AuditActionJobCreated,
+		ResourceType:  "job",
+		ResourceID:    "job-legacy",
+		Details:       json.RawMessage(`{"legacy":true}`),
+		PreviousHash:  store.ZeroHash,
+		CreatedAt:     time.Now().UTC().Add(-time.Minute).Truncate(time.Microsecond),
+		SchemaVersion: domain.AuditEventSchemaVersionCurrent,
+		RotationEpoch: 0,
+	}
+	if err := testDB.Pool.QueryRow(ctx, `
+		INSERT INTO audit_events (
+			id, project_id, actor_id, actor_type, action, resource_type, resource_id,
+			details, signature, previous_hash, created_at,
+			remote_ip, user_agent, request_id, trace_id, schema_version,
+			is_anchor, rotation_epoch
+		)
+		VALUES (
+			$1, $2, $3, $4, $5, $6, $7,
+			$8::jsonb, '', $9, $10,
+			$11, $12, $13, $14, $15,
+			$16, $17
+		)
+		RETURNING details
+	`, ev.ID, ev.ProjectID, ev.ActorID, ev.ActorType, ev.Action, ev.ResourceType, ev.ResourceID,
+		ev.Details, ev.PreviousHash, ev.CreatedAt,
+		ev.RemoteIP, ev.UserAgent, ev.RequestID, ev.TraceID, ev.SchemaVersion,
+		ev.IsAnchor, ev.RotationEpoch).Scan(&ev.Details); err != nil {
+		t.Fatalf("insert legacy audit event: %v", err)
+	}
+	ev.Signature = store.ComputeAuditSignature(&ev, key)
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE audit_events
+		SET signature = $1
+		WHERE id = $2
+	`, ev.Signature, ev.ID); err != nil {
+		t.Fatalf("sign legacy audit event: %v", err)
+	}
+	return ev
+}
+
 // TestRotateAuditSigningKey_WritesCreatedBy asserts migration 000194's
 // created_by column is populated from the actorID passed to rotation.
 // The forensic trail now lives on both the chain event (audit.key_rotated
@@ -583,16 +799,7 @@ func TestStoreAuditSigningKey_RejectsTooShortMaterial(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected CHECK violation for 4-byte key_material, got nil")
 	}
-	if !containsSubstringIT(err.Error(), "audit_signing_keys_key_material_length") {
+	if !strings.Contains(err.Error(), "audit_signing_keys_key_material_length") {
 		t.Errorf("error = %v, expected CHECK constraint violation", err)
 	}
-}
-
-func containsSubstringIT(haystack, needle string) bool {
-	for i := 0; i+len(needle) <= len(haystack); i++ {
-		if haystack[i:i+len(needle)] == needle {
-			return true
-		}
-	}
-	return false
 }

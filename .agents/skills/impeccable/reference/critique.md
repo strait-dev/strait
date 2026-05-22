@@ -1,8 +1,22 @@
 > **Additional context needed**: what the interface is trying to accomplish.
 
+### Setup: Resolve Target and Load Ignore List
+
+Before gathering assessments, do two small bookkeeping steps. They cost almost nothing and they're what makes critique iterative across runs.
+
+1. **Resolve the primary artifact.** The user's phrasing ("the homepage", "the pricing flow") is not stable enough to track across runs. Resolve it to a concrete file path or URL: the same one you'd already need to scan code or open in a browser. Examples:
+   - "the homepage" → `site/pages/index.astro` (or `http://localhost:3000/` if you're inspecting live)
+   - "the settings modal" → the primary component file (e.g., `src/components/Settings.tsx`)
+   - "this page" → the URL or the page's source file
+   Prefer the source file path over the dev-server URL when both exist; ports drift between runs (`bun dev` vs `bun preview`), file paths don't.
+
+2. **Compute the slug.** Derive a stable slug from the resolved path or URL: strip the scheme, drop common file extensions, replace non-alphanumerics with hyphens, lowercase. Examples: `site/pages/index.astro` → `site-pages-index`, `http://localhost:3000/pricing` → `localhost-pricing`. If the input is too vague or root-level to yield a meaningful slug, skip persistence for this run and tell the user; the trend won't update but the critique still goes ahead.
+
+3. **Read the ignore list** at `.impeccable/critique/ignore.md` if it exists. Plain markdown; each non-empty, non-comment line is something the user has marked as "do not re-raise" (deferred tradeoffs, designer-intended deviations, detector false-positives the user accepts). When a finding's text matches a line here (case-insensitive substring against rule name or snippet), **drop it silently**. Do not mention it in the report. This is the ONLY input critique consumes from prior runs; anchoring on prior findings would defeat the point of independent assessment.
+
 ### Gather Assessments
 
-Launch two independent assessments. **Neither may see the other's output** — this isolation is what makes the combined score honest. Running both in one head silently anchors them to each other; do not shortcut it for cost, speed, or context-size reasons.
+Launch two independent assessments. **Neither may see the other's output.** This isolation is what makes the combined score honest. Running both in one head silently anchors them to each other; do not shortcut it for cost, speed, or context-size reasons.
 
 Delegate each assessment to a separate sub-agent (Claude Code's `Agent` tool, Codex's subagent spawning, etc.). Each returns structured findings as text. Do NOT output findings to the user yet.
 
@@ -39,11 +53,11 @@ Return structured findings covering: AI slop verdict, heuristic scores, cognitiv
 
 #### Assessment B: Automated Detection
 
-Run the bundled deterministic detector, which flags 25 specific patterns (AI slop tells + general design quality).
+Run the bundled deterministic detector, which flags 27 specific patterns (AI slop tells + general design quality).
 
 **CLI scan**:
 ```bash
-npx impeccable --json [--fast] [target]
+npx impeccable detect --json [--fast] [target]
 ```
 
 - Pass HTML/JSX/TSX/Vue/Svelte files or directories as `[target]` (anything with markup). Do not pass CSS-only files.
@@ -52,7 +66,7 @@ npx impeccable --json [--fast] [target]
 - For 500+ files, narrow scope or ask the user
 - Exit code 0 = clean, 2 = findings
 
-**Browser visualization** — **required** when browser automation tools are available AND the target is a viewable page. The `[Human]` overlay tab is the user-facing deliverable; the critique is incomplete without it. Skip only if the target is not a viewable page (CSS-only file, non-browser target).
+**Browser visualization**: **required** when browser automation tools are available AND the target is a viewable page. The `[Human]` overlay tab is the user-facing deliverable; the critique is incomplete without it. Skip only if the target is not a viewable page (CSS-only file, non-browser target).
 
 The overlay is a **visual aid for the user**. It highlights issues directly in their browser. Do NOT scroll through the page to screenshot overlays. Instead, read the console output to get the results programmatically.
 
@@ -160,9 +174,28 @@ Provocative questions that might unlock better solutions:
 - Be direct. Vague feedback wastes everyone's time.
 - Be specific. "The submit button," not "some elements."
 - Say what's wrong AND why it matters to users.
-- Give concrete suggestions, not just "consider exploring..."
+- Give concrete suggestions. Cut "consider exploring..." entirely.
 - Prioritize ruthlessly. If everything is important, nothing is.
 - Don't soften criticism. Developers need honest feedback to ship great design.
+
+### Persist the Snapshot
+
+Once the report above is finalized, write it to `.impeccable/critique/` so the user can refer back, and so `$impeccable polish` can pick up the priority issues without a copy-paste.
+
+Skip this step if the Setup slug was null (vague or root-level target).
+
+1. **Write the report body** to `.impeccable/critique/<slug>-<YYYYMMDD-HHMMSS>.md`. Use the full report (heuristic table, anti-patterns verdict, priority issues, persona red flags) but stop before the "Ask the User" / "Recommended Actions" sections that come later. Prepend a YAML frontmatter block with `target`, `total_score`, `p0_count`, `p1_count`, and the ISO timestamp.
+
+2. **Read prior snapshots** for the same slug by listing `.impeccable/critique/<slug>-*.md` (most recent 5). Parse each file's frontmatter `total_score` to build the trend.
+
+3. **Append a single line to the user-visible output**, after the report and before the questions:
+
+   > **Trend for `<slug>` (last 5 runs): 24 → 28 → 32 → 29 → 32**
+   > Wrote `.impeccable/critique/<filename>`.
+
+   If this is the first run for the slug, the trend is just one score; say so: "First run for this target, no trend yet."
+
+Failures during persistence should not block the rest of the flow; surface the error and move on.
 
 ### Ask the User
 

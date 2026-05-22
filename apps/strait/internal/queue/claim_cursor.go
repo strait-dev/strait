@@ -57,6 +57,12 @@ func (c *ClaimCursor) Advance(createdAt time.Time, id string) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	now := time.Now()
+	if c.resetAt.IsZero() || !now.Before(c.resetAt) {
+		c.createdAt = time.Time{}
+		c.id = ""
+		c.resetAt = now.Add(c.interval)
+	}
 	if c.shouldAdvanceLocked(createdAt, id) {
 		c.createdAt = createdAt
 		c.id = id

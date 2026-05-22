@@ -250,7 +250,7 @@ func TestIntegration_HistoryArchiveColumnsMatchSchema(t *testing.T) {
 	}
 
 	archiveCols := make(map[string]bool)
-	for _, raw := range strings.Split(store.HistoryArchiveColumnsForTest, ",") {
+	for raw := range strings.SplitSeq(store.HistoryArchiveColumnsForTest, ",") {
 		col := strings.TrimSpace(raw)
 		if col != "" {
 			archiveCols[col] = true
@@ -346,8 +346,7 @@ func TestIntegration_RepairOrphanedHistoryRuns(t *testing.T) {
 			heartbeat_at, next_retry_at, expires_at, parent_run_id, priority,
 			idempotency_key, job_version, workflow_step_run_id, execution_trace,
 			debug_mode, continuation_of, lineage_depth, tags, job_version_id,
-			created_by, concurrency_key, batch_id, execution_mode, machine_id,
-			deployment_id, pinned_image_uri, pinned_image_digest, is_rollback,
+			created_by, concurrency_key, batch_id, execution_mode, is_rollback,
 			replayed_run_id, max_attempts_override, timeout_secs_override,
 			retry_backoff, retry_initial_delay_secs, retry_max_delay_secs,
 			visible_until, job_enabled, job_paused, job_max_concurrency, job_max_concurrency_per_key,
@@ -359,8 +358,7 @@ func TestIntegration_RepairOrphanedHistoryRuns(t *testing.T) {
 			heartbeat_at, next_retry_at, expires_at, parent_run_id, priority,
 			idempotency_key, job_version, workflow_step_run_id, execution_trace,
 			debug_mode, continuation_of, lineage_depth, tags, job_version_id,
-			created_by, concurrency_key, batch_id, execution_mode, machine_id,
-			deployment_id, pinned_image_uri, pinned_image_digest, is_rollback,
+			created_by, concurrency_key, batch_id, execution_mode, is_rollback,
 			replayed_run_id, max_attempts_override, timeout_secs_override,
 			retry_backoff, retry_initial_delay_secs, retry_max_delay_secs,
 			visible_until, job_enabled, job_paused, job_max_concurrency, job_max_concurrency_per_key,

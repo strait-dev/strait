@@ -192,7 +192,8 @@ func TestOrgQuery_PaginationOverflow(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/organizations/org-1/runs?limit=999999", ""))
+	const orgUUID = "00000000-0000-4000-8000-0000000000aa"
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/organizations/"+orgUUID+"/runs?limit=999999", ""))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
