@@ -3,6 +3,7 @@ package workflow
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 
 	"strait/internal/domain"
@@ -63,29 +64,59 @@ func BuildCompensationPlan(
 		return nil, nil
 	}
 
-	topoOrder := buildTopologicalOrderIndexes(steps)
+	stepIndex := buildStepIndex(steps)
+	topoOrder := []int(nil)
+	if !stepsAreTopologicallyOrdered(steps, stepIndex) {
+		topoOrder = buildTopologicalOrderIndexesWithStepIndex(steps, stepIndex)
+	}
 
 	plan := &CompensationPlan{
 		WorkflowRunID: workflowRunID,
 		Steps:         make([]CompensationStep, 0, compensableCount),
 	}
-	for i := len(topoOrder) - 1; i >= 0; i-- {
-		stepIdx := topoOrder[i]
-		stepRun := compensableRuns[stepIdx]
-		if stepRun == nil {
-			continue
+	if topoOrder == nil {
+		for stepIdx := range slices.Backward(steps) {
+			appendCompensationStep(plan, steps, compensableRuns, stepIdx)
 		}
-		step := &steps[stepIdx]
-		plan.Steps = append(plan.Steps, CompensationStep{
-			StepRef:           step.StepRef,
-			StepRunID:         stepRun.ID,
-			CompensationJobID: step.CompensationJobID,
-			TimeoutSecs:       step.CompensationTimeoutSecs,
-			OriginalOutput:    stepRun.Output,
-		})
+	} else {
+		for _, stepIdx := range slices.Backward(topoOrder) {
+			appendCompensationStep(plan, steps, compensableRuns, stepIdx)
+		}
 	}
 
 	return plan, nil
+}
+
+func appendCompensationStep(
+	plan *CompensationPlan,
+	steps []domain.WorkflowStep,
+	compensableRuns []*domain.WorkflowStepRun,
+	stepIdx int,
+) {
+	stepRun := compensableRuns[stepIdx]
+	if stepRun == nil {
+		return
+	}
+	step := &steps[stepIdx]
+	plan.Steps = append(plan.Steps, CompensationStep{
+		StepRef:           step.StepRef,
+		StepRunID:         stepRun.ID,
+		CompensationJobID: step.CompensationJobID,
+		TimeoutSecs:       step.CompensationTimeoutSecs,
+		OriginalOutput:    stepRun.Output,
+	})
+}
+
+func stepsAreTopologicallyOrdered(steps []domain.WorkflowStep, stepIndex map[string]int) bool {
+	for stepIdx := range steps {
+		for _, dep := range steps[stepIdx].DependsOn {
+			depIdx, ok := stepIndex[dep]
+			if !ok || depIdx >= stepIdx {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // buildTopologicalOrder returns step refs in topological order using Kahn's algorithm.

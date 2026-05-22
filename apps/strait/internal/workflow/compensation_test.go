@@ -223,6 +223,39 @@ func TestCompensation_DiamondDAG(t *testing.T) {
 	}
 }
 
+func TestCompensation_UnorderedDefinitionsUseTopologicalFallback(t *testing.T) {
+	t.Parallel()
+
+	steps := []domain.WorkflowStep{
+		{StepRef: "c", DependsOn: []string{"b"}, CompensationJobID: "comp-c"},
+		{StepRef: "a", CompensationJobID: "comp-a"},
+		{StepRef: "b", DependsOn: []string{"a"}, CompensationJobID: "comp-b"},
+	}
+	stepRuns := []domain.WorkflowStepRun{
+		{ID: "sr-a", StepRef: "a", Status: domain.StepCompleted},
+		{ID: "sr-b", StepRef: "b", Status: domain.StepCompleted},
+		{ID: "sr-c", StepRef: "c", Status: domain.StepCompleted},
+	}
+
+	plan, err := BuildCompensationPlan("wfr-1", steps, stepRuns)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if plan == nil {
+		t.Fatal("expected non-nil plan")
+	}
+	refs := make([]string, len(plan.Steps))
+	for i, step := range plan.Steps {
+		refs[i] = step.StepRef
+	}
+	want := []string{"c", "b", "a"}
+	for i := range want {
+		if refs[i] != want[i] {
+			t.Fatalf("refs = %v, want %v", refs, want)
+		}
+	}
+}
+
 func TestCompensation_NoCompensationNeeded(t *testing.T) {
 	t.Parallel()
 	steps := []domain.WorkflowStep{

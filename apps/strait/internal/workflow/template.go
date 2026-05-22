@@ -97,13 +97,13 @@ func renderStringValue(s string, vars map[string]any) any {
 		return s
 	}
 
-	open, close, varName, ok := nextTemplateVar(s, 0)
+	open, end, varName, ok := nextTemplateVar(s, 0)
 	if !ok {
 		return s
 	}
 
 	// Entire string is a single "{{var_name}}" — preserve the variable's type.
-	if open == 0 && close == len(s) {
+	if open == 0 && end == len(s) {
 		if val, ok := resolveVar(vars, varName); ok {
 			return val
 		}
@@ -119,11 +119,11 @@ func renderStringValue(s string, vars map[string]any) any {
 		if val, ok := resolveVar(vars, varName); ok {
 			buf.WriteString(stringify(val))
 		} else {
-			buf.WriteString(s[open:close])
+			buf.WriteString(s[open:end])
 		}
-		prev = close
+		prev = end
 
-		open, close, varName, ok = nextTemplateVar(s, close)
+		open, end, varName, ok = nextTemplateVar(s, end)
 		if !ok {
 			break
 		}
@@ -232,7 +232,7 @@ func renderStringTemplate(template string, variables json.RawMessage) string {
 		return template
 	}
 
-	open, close, varName, ok := nextTemplateVar(template, 0)
+	open, end, varName, ok := nextTemplateVar(template, 0)
 	if !ok {
 		return template
 	}
@@ -245,11 +245,11 @@ func renderStringTemplate(template string, variables json.RawMessage) string {
 		if val := gjson.GetBytes(variables, varName); val.Exists() {
 			buf.WriteString(stringifyJSONResult(val))
 		} else {
-			buf.WriteString(template[open:close])
+			buf.WriteString(template[open:end])
 		}
-		prev = close
+		prev = end
 
-		open, close, varName, ok = nextTemplateVar(template, close)
+		open, end, varName, ok = nextTemplateVar(template, end)
 		if !ok {
 			break
 		}
@@ -275,7 +275,7 @@ func stringifyJSONResult(v gjson.Result) string {
 	}
 }
 
-func nextTemplateVar(s string, start int) (open int, close int, name string, ok bool) {
+func nextTemplateVar(s string, start int) (open int, end int, name string, ok bool) {
 	for start < len(s) {
 		relOpen := strings.Index(s[start:], "{{")
 		if relOpen < 0 {
@@ -288,10 +288,10 @@ func nextTemplateVar(s string, start int) (open int, close int, name string, ok 
 			return 0, 0, "", false
 		}
 		nameEnd := nameStart + relClose
-		close = nameEnd + len("}}")
+		end = nameEnd + len("}}")
 		name = s[nameStart:nameEnd]
 		if isTemplateVarName(name) {
-			return open, close, name, true
+			return open, end, name, true
 		}
 		start = open + len("{{")
 	}

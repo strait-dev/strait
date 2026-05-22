@@ -110,8 +110,8 @@ func ValidateDAG(steps []domain.WorkflowStep) error {
 
 	if visitedCount != len(steps) {
 		unvisited := make([]string, 0, len(steps)-visitedCount)
-		for i, degree := range inDegree {
-			if degree > 0 {
+		for i := range steps {
+			if inDegree[i] > 0 {
 				unvisited = append(unvisited, steps[i].StepRef)
 			}
 		}

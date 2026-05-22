@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"time"
 
 	"strait/internal/domain"
@@ -302,10 +303,7 @@ func applyStepOverridesFiltered(steps []domain.WorkflowStep, overrides []domain.
 	}
 
 	// Filter out disabled steps and prune depends_on.
-	filteredCap := len(steps) - disabledCount
-	if filteredCap < 0 {
-		filteredCap = 0
-	}
+	filteredCap := max(len(steps)-disabledCount, 0)
 	filtered := make([]domain.WorkflowStep, 0, filteredCap)
 	for i := range steps {
 		s := steps[i]
@@ -399,10 +397,5 @@ func stepRefDisabled(disabledRefs []string, disabledSet map[string]struct{}, ref
 		_, ok := disabledSet[ref]
 		return ok
 	}
-	for _, disabledRef := range disabledRefs {
-		if disabledRef == ref {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(disabledRefs, ref)
 }

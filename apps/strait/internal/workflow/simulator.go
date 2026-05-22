@@ -161,27 +161,6 @@ func SimulateWorkflow(
 	}, nil
 }
 
-func assignParallelGroups(steps []domain.WorkflowStep, order []int, stepIndex map[string]int) []int {
-	groups := make([]int, len(steps))
-	depDepth := make([]int, len(steps))
-	for _, stepIdx := range order {
-		step := &steps[stepIdx]
-		maxParentDepth := -1
-		for _, dep := range step.DependsOn {
-			depIdx, ok := stepIndex[dep]
-			if ok && depDepth[depIdx] > maxParentDepth {
-				d := depDepth[depIdx]
-				maxParentDepth = d
-			}
-		}
-		depth := maxParentDepth + 1
-		depDepth[stepIdx] = depth
-		groups[stepIdx] = depth
-	}
-
-	return groups
-}
-
 func calculateSimulationTimings(
 	steps []domain.WorkflowStep,
 	order []int,
@@ -215,30 +194,6 @@ func calculateSimulationTimings(
 	}
 
 	return groups, maxDuration
-}
-
-func calculateExpectedDurationFromOrder(
-	steps []domain.WorkflowStep,
-	order []int,
-	stepIndex map[string]int,
-) int {
-	dist := make([]int, len(steps))
-	maxDist := 0
-	for _, stepIdx := range order {
-		step := &steps[stepIdx]
-		parentDist := 0
-		for _, dep := range step.DependsOn {
-			depIdx, ok := stepIndex[dep]
-			if ok && dist[depIdx] > parentDist {
-				parentDist = dist[depIdx]
-			}
-		}
-		dist[stepIdx] = parentDist + step.ExpectedDurationSecs
-		if dist[stepIdx] > maxDist {
-			maxDist = dist[stepIdx]
-		}
-	}
-	return maxDist
 }
 
 func buildSimulationDAG(steps []domain.WorkflowStep, groups []int) SimulationDAG {

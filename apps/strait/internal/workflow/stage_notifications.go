@@ -43,7 +43,7 @@ func (n *StageNotifier) NotifyStepTransition(
 	}
 
 	var eventType string
-	switch newStatus { //nolint:exhaustive // only terminal states trigger notifications.
+	switch newStatus {
 	case domain.StepCompleted:
 		eventType = "step.completed"
 	case domain.StepFailed:

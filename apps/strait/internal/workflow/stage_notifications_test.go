@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"io"
 	"log/slog"
 	"sync"
 	"testing"
@@ -331,7 +330,7 @@ func TestStageNotification_PayloadContent(t *testing.T) {
 
 func BenchmarkStageNotification_NonTerminal(b *testing.B) {
 	store := &mockStageNotifierStore{}
-	notifier := NewStageNotifier(store, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	notifier := NewStageNotifier(store, slog.New(slog.DiscardHandler))
 	step := &domain.WorkflowStep{
 		StepRef: "charge",
 		StageNotifications: json.RawMessage(`{
@@ -346,14 +345,14 @@ func BenchmarkStageNotification_NonTerminal(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		notifier.NotifyStepTransition(ctx, step, stepRun, wfRun, domain.StepRunning)
 	}
 }
 
 func BenchmarkStageNotification_CompletedNoChannels(b *testing.B) {
 	store := &mockStageNotifierStore{}
-	notifier := NewStageNotifier(store, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	notifier := NewStageNotifier(store, slog.New(slog.DiscardHandler))
 	step := &domain.WorkflowStep{
 		StepRef:            "charge",
 		StageNotifications: json.RawMessage(`{"on_complete": true}`),
@@ -364,7 +363,7 @@ func BenchmarkStageNotification_CompletedNoChannels(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		notifier.NotifyStepTransition(ctx, step, stepRun, wfRun, domain.StepCompleted)
 	}
 }

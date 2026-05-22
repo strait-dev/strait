@@ -26,15 +26,17 @@ func CalculateExpectedCompletion(steps []domain.WorkflowStep, startTime time.Tim
 		return nil
 	}
 
-	stepIndex := make(map[string]int, len(steps))
-	needsDepDedup := false
-	for i, s := range steps {
-		if _, ok := stepIndex[s.StepRef]; !ok {
-			stepIndex[s.StepRef] = i
-		}
-		needsDepDedup = needsDepDedup || len(s.DependsOn) > 1
+	maxDist := calculateExpectedDuration(steps)
+	if maxDist == 0 {
+		return nil
 	}
 
+	expected := startTime.Add(time.Duration(maxDist) * time.Second)
+	return &expected
+}
+
+func calculateExpectedDuration(steps []domain.WorkflowStep) int {
+	stepIndex, needsDepDedup := buildExpectedCompletionStepIndex(steps)
 	// Compute longest path using dynamic programming (topological order).
 	// For each step, dist[index] = max time from any root to complete that step.
 	dist := make([]int, len(steps))
@@ -74,11 +76,7 @@ func CalculateExpectedCompletion(steps []domain.WorkflowStep, startTime time.Tim
 				maxDist = s.ExpectedDurationSecs
 			}
 		}
-		if maxDist == 0 {
-			return nil
-		}
-		expected := startTime.Add(time.Duration(maxDist) * time.Second)
-		return &expected
+		return maxDist
 	}
 
 	children := make([][]int, len(steps))
@@ -106,8 +104,8 @@ func CalculateExpectedCompletion(steps []domain.WorkflowStep, startTime time.Tim
 	}
 
 	queue := childCounts[:0]
-	for i, degree := range inDegree {
-		if degree == 0 {
+	for i := range steps {
+		if inDegree[i] == 0 {
 			queue = append(queue, i)
 			dist[i] = steps[i].ExpectedDurationSecs
 		}
@@ -136,12 +134,19 @@ func CalculateExpectedCompletion(steps []domain.WorkflowStep, startTime time.Tim
 		}
 	}
 
-	if maxDist == 0 {
-		return nil
-	}
+	return maxDist
+}
 
-	expected := startTime.Add(time.Duration(maxDist) * time.Second)
-	return &expected
+func buildExpectedCompletionStepIndex(steps []domain.WorkflowStep) (map[string]int, bool) {
+	stepIndex := make(map[string]int, len(steps))
+	needsDepDedup := false
+	for i, s := range steps {
+		if _, ok := stepIndex[s.StepRef]; !ok {
+			stepIndex[s.StepRef] = i
+		}
+		needsDepDedup = needsDepDedup || len(s.DependsOn) > 1
+	}
+	return stepIndex, needsDepDedup
 }
 
 // RecalculateExpectedCompletion updates the expected completion based on actual progress.

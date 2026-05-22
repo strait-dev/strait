@@ -52,11 +52,6 @@ type stepStatusInCondition struct {
 	Statuses []string `json:"statuses"`
 }
 
-type notCondition struct {
-	Type      string          `json:"type"`
-	Condition json.RawMessage `json:"condition"`
-}
-
 type binaryCondition struct {
 	Type  string `json:"type"`
 	Left  any    `json:"left"`
@@ -345,6 +340,8 @@ func conditionOperandString(result gjson.Result, stepStatuses map[string]domain.
 		return "", false
 	}
 	switch result.Type {
+	case gjson.Null:
+		return "", true
 	case gjson.String:
 		return result.Str, true
 	case gjson.Number, gjson.True, gjson.False:
@@ -362,10 +359,14 @@ func conditionOperandString(result gjson.Result, stepStatuses map[string]domain.
 		}
 		if value := result.Get("value"); value.Exists() {
 			switch value.Type {
+			case gjson.Null:
+				return "", true
 			case gjson.String:
 				return value.Str, true
 			case gjson.Number, gjson.True, gjson.False:
 				return value.Raw, true
+			case gjson.JSON:
+				return "", false
 			}
 		}
 	}

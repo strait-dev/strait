@@ -280,8 +280,6 @@ func failurePolicyForStepRef(steps []domain.WorkflowStep, stepRef string) domain
 
 // propagateToParent propagates the terminal status of a child workflow run
 // back to the parent step run that spawned it via sub_workflow.
-//
-//nolint:cyclop
 func (s *StepCallback) propagateToParent(ctx context.Context, childRun *domain.WorkflowRun, childStepRuns []domain.WorkflowStepRun) error {
 	if childRun.ParentWorkflowRunID == "" {
 		return nil
