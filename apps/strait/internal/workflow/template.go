@@ -32,13 +32,19 @@ func renderTemplateVars(payload, variables json.RawMessage) json.RawMessage {
 	if len(vars) == 0 {
 		return payload
 	}
+	if !payloadHasResolvableTemplate(payload, vars) {
+		return payload
+	}
 
 	var data any
 	if err := json.Unmarshal(payload, &data); err != nil {
 		return payload
 	}
 
-	rendered := walkAndRender(data, vars)
+	rendered, changed := walkAndRender(data, vars)
+	if !changed {
+		return payload
+	}
 
 	out, err := json.Marshal(rendered)
 	if err != nil {
@@ -49,24 +55,36 @@ func renderTemplateVars(payload, variables json.RawMessage) json.RawMessage {
 
 // walkAndRender recursively walks a parsed JSON value and renders template
 // variables in any string values encountered.
-func walkAndRender(v any, vars map[string]any) any {
+func walkAndRender(v any, vars map[string]any) (any, bool) {
 	switch val := v.(type) {
 	case map[string]any:
-		result := make(map[string]any, len(val))
+		changedAny := false
 		for k, child := range val {
-			result[k] = walkAndRender(child, vars)
+			rendered, changed := walkAndRender(child, vars)
+			if changed {
+				val[k] = rendered
+				changedAny = true
+			}
 		}
-		return result
+		return val, changedAny
 	case []any:
-		result := make([]any, len(val))
+		changedAny := false
 		for i, child := range val {
-			result[i] = walkAndRender(child, vars)
+			rendered, changed := walkAndRender(child, vars)
+			if changed {
+				val[i] = rendered
+				changedAny = true
+			}
 		}
-		return result
+		return val, changedAny
 	case string:
-		return renderStringValue(val, vars)
+		rendered := renderStringValue(val, vars)
+		if renderedString, ok := rendered.(string); ok && renderedString == val {
+			return val, false
+		}
+		return rendered, true
 	default:
-		return v
+		return v, false
 	}
 }
 
@@ -117,6 +135,11 @@ func renderStringValue(s string, vars map[string]any) any {
 // resolveVar looks up a variable name in the vars map. Supports dot-separated
 // paths (e.g. "user.email" resolves vars["user"]["email"]).
 func resolveVar(vars map[string]any, name string) (any, bool) {
+	if strings.IndexByte(name, '.') < 0 {
+		val, ok := vars[name]
+		return val, ok
+	}
+
 	var current any = vars
 	start := 0
 	for start <= len(name) {
@@ -140,6 +163,59 @@ func resolveVar(vars map[string]any, name string) (any, bool) {
 	}
 
 	return current, true
+}
+
+func payloadHasResolvableTemplate(payload []byte, vars map[string]any) bool {
+	start := 0
+	for start < len(payload) {
+		relOpen := bytes.Index(payload[start:], templateMarker)
+		if relOpen < 0 {
+			return false
+		}
+		open := start + relOpen
+		nameStart := open + len(templateMarker)
+		relClose := bytes.Index(payload[nameStart:], []byte("}}"))
+		if relClose < 0 {
+			return false
+		}
+		nameEnd := nameStart + relClose
+		nameBytes := payload[nameStart:nameEnd]
+		if isTemplateVarNameBytes(nameBytes) {
+			if _, ok := resolveVar(vars, string(nameBytes)); ok {
+				return true
+			}
+		}
+		start = open + len(templateMarker)
+	}
+	return false
+}
+
+func isTemplateVarNameBytes(name []byte) bool {
+	if len(name) == 0 || !isTemplateVarStart(name[0]) {
+		return false
+	}
+	previousDot := false
+	for i := 1; i < len(name); i++ {
+		c := name[i]
+		if c == '.' {
+			if previousDot || i == len(name)-1 {
+				return false
+			}
+			previousDot = true
+			continue
+		}
+		if previousDot {
+			if !isTemplateVarChar(c) {
+				return false
+			}
+			previousDot = false
+			continue
+		}
+		if !isTemplateVarChar(c) {
+			return false
+		}
+	}
+	return true
 }
 
 // renderStringTemplate renders {{var}} placeholders in a plain string (not JSON)

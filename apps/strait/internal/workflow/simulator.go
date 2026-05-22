@@ -88,13 +88,15 @@ func SimulateWorkflow(
 	stepIndex := buildStepIndex(steps)
 	order := buildTopologicalOrderIndexesWithStepIndex(steps, stepIndex)
 
-	// Assign parallel groups.
-	groups := assignParallelGroups(steps, order, stepIndex)
+	// Assign parallel groups and calculate critical-path duration in one
+	// dependency pass over the topological order.
+	groups, totalDuration := calculateSimulationTimings(steps, order, stepIndex)
 
 	// Build execution plan.
 	plan := make([]SimulatedStep, 0, len(order))
 	var failurePaths []SimulatedStep
 	var conditionResults map[string]bool
+	var totalCost int64
 
 	for i, stepIdx := range order {
 		step := &steps[stepIdx]
@@ -115,6 +117,7 @@ func SimulateWorkflow(
 		// Cost estimate.
 		if step.JobID != "" && costEstimates != nil {
 			simStep.EstimatedCost = costEstimates[step.JobID]
+			totalCost += simStep.EstimatedCost
 		}
 
 		// Condition evaluation (simplified: mark as present).
@@ -142,14 +145,6 @@ func SimulateWorkflow(
 		}
 
 		plan = append(plan, simStep)
-	}
-
-	// Calculate totals.
-	totalDuration := 0
-	var totalCost int64
-	totalDuration = calculateExpectedDurationFromOrder(steps, order, stepIndex)
-	for _, s := range plan {
-		totalCost += s.EstimatedCost
 	}
 
 	// Build DAG.
@@ -185,6 +180,41 @@ func assignParallelGroups(steps []domain.WorkflowStep, order []int, stepIndex ma
 	}
 
 	return groups
+}
+
+func calculateSimulationTimings(
+	steps []domain.WorkflowStep,
+	order []int,
+	stepIndex map[string]int,
+) ([]int, int) {
+	groups := make([]int, len(steps))
+	durationByStep := make([]int, len(steps))
+	maxDuration := 0
+	for _, stepIdx := range order {
+		step := &steps[stepIdx]
+		maxParentDepth := -1
+		parentDuration := 0
+		for _, dep := range step.DependsOn {
+			depIdx, ok := stepIndex[dep]
+			if !ok {
+				continue
+			}
+			if groups[depIdx] > maxParentDepth {
+				maxParentDepth = groups[depIdx]
+			}
+			if durationByStep[depIdx] > parentDuration {
+				parentDuration = durationByStep[depIdx]
+			}
+		}
+
+		groups[stepIdx] = maxParentDepth + 1
+		durationByStep[stepIdx] = parentDuration + step.ExpectedDurationSecs
+		if durationByStep[stepIdx] > maxDuration {
+			maxDuration = durationByStep[stepIdx]
+		}
+	}
+
+	return groups, maxDuration
 }
 
 func calculateExpectedDurationFromOrder(

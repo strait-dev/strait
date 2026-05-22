@@ -501,6 +501,13 @@ func BenchmarkRenderTemplateVars(b *testing.B) {
 			_ = renderTemplateVars(payloadWithoutTemplates, vars)
 		}
 	})
+	b.Run("unresolved_templates", func(b *testing.B) {
+		payload := json.RawMessage(`{"message":"Hello {{missing_name}}","nested":{"value":"{{missing_value}}"}}`)
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = renderTemplateVars(payload, vars)
+		}
+	})
 }
 
 func BenchmarkRenderStringValue(b *testing.B) {

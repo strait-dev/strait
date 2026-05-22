@@ -302,6 +302,8 @@ func BenchmarkEvaluateCondition(b *testing.B) {
 	statusIn := json.RawMessage(`{"type":"step_status_in","step_ref":"step-3","statuses":["failed","timed_out"]}`)
 	negated := json.RawMessage(`{"type":"not","condition":{"type":"step_status","step_ref":"step-3","status":"completed"}}`)
 	composite := json.RawMessage(`{"type":"all_of","conditions":[{"type":"step_status","step_ref":"step-1","status":"completed"},{"type":"step_status","step_ref":"step-2","status":"completed"},{"type":"step_status","step_ref":"step-3","status":"failed"}]}`)
+	eq := json.RawMessage(`{"type":"eq","left":{"step_ref":"step-1"},"right":"completed"}`)
+	regex := json.RawMessage(`{"type":"regex","left":"worker-heartbeat-0123","right":"^worker-[a-z]+-[0-9]+$"}`)
 
 	b.Run("simple", func(b *testing.B) {
 		b.ReportAllocs()
@@ -325,6 +327,18 @@ func BenchmarkEvaluateCondition(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
 			_, _ = EvaluateCondition(composite, statuses)
+		}
+	})
+	b.Run("eq_status_ref", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_, _ = EvaluateCondition(eq, statuses)
+		}
+	})
+	b.Run("regex", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_, _ = EvaluateCondition(regex, statuses)
 		}
 	})
 }

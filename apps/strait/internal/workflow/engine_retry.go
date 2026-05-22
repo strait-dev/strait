@@ -240,7 +240,21 @@ func applyStepOverrides(steps []domain.WorkflowStep, overrides []domain.StepOver
 	if len(overrides) == 0 {
 		return steps, nil
 	}
+	if len(overrides) == 1 {
+		override := overrides[0]
+		if !override.Enabled {
+			return applySingleDisabledStepOverride(steps, override.StepRef)
+		}
+		if !stepRefExists(steps, override.StepRef) {
+			return nil, fmt.Errorf("step override references unknown step_ref %q", override.StepRef)
+		}
+		return steps, nil
+	}
 
+	return applyStepOverridesFiltered(steps, overrides)
+}
+
+func applyStepOverridesFiltered(steps []domain.WorkflowStep, overrides []domain.StepOverride) ([]domain.WorkflowStep, error) {
 	var disabledRefs []string
 	var disabledSet map[string]struct{}
 	if len(overrides) <= 8 {
@@ -275,6 +289,13 @@ func applyStepOverrides(steps []domain.WorkflowStep, overrides []domain.StepOver
 	}
 	if disabledCount == 0 {
 		return steps, nil
+	}
+	if disabledSet == nil && len(disabledRefs) > 2 {
+		disabledSet = make(map[string]struct{}, len(disabledRefs))
+		for _, ref := range disabledRefs {
+			disabledSet[ref] = struct{}{}
+		}
+		disabledRefs = nil
 	}
 	if disabledSet == nil && len(disabledRefs) == 1 {
 		return applySingleDisabledStepOverride(steps, disabledRefs[0])
@@ -323,13 +344,27 @@ func applyStepOverrides(steps []domain.WorkflowStep, overrides []domain.StepOver
 }
 
 func applySingleDisabledStepOverride(steps []domain.WorkflowStep, disabledRef string) ([]domain.WorkflowStep, error) {
-	filtered := make([]domain.WorkflowStep, 0, len(steps)-1)
-	for i := range steps {
-		s := steps[i]
-		if s.StepRef == disabledRef {
-			continue
-		}
+	if len(steps) == 1 && steps[0].StepRef == disabledRef {
+		return nil, fmt.Errorf("all steps disabled by overrides")
+	}
 
+	disabledIdx := -1
+	for i := range steps {
+		if steps[i].StepRef == disabledRef {
+			disabledIdx = i
+			break
+		}
+	}
+	if disabledIdx < 0 {
+		return nil, fmt.Errorf("step override references unknown step_ref %q", disabledRef)
+	}
+
+	filtered := make([]domain.WorkflowStep, len(steps)-1)
+	copy(filtered, steps[:disabledIdx])
+	copy(filtered[disabledIdx:], steps[disabledIdx+1:])
+
+	for i := range filtered {
+		s := &filtered[i]
 		if len(s.DependsOn) > 0 {
 			removeAt := -1
 			for depIdx, dep := range s.DependsOn {
@@ -345,12 +380,6 @@ func applySingleDisabledStepOverride(steps []domain.WorkflowStep, disabledRef st
 				s.DependsOn = pruned
 			}
 		}
-
-		filtered = append(filtered, s)
-	}
-
-	if len(filtered) == 0 {
-		return nil, fmt.Errorf("all steps disabled by overrides")
 	}
 
 	return filtered, nil

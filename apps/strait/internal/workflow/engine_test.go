@@ -706,6 +706,22 @@ func TestMergePayloads(t *testing.T) {
 			t.Fatalf("missing parent_outputs: %+v", got)
 		}
 	})
+
+	t.Run("duplicate keys keep step payload value", func(t *testing.T) {
+		t.Parallel()
+		out := mergePayloads(json.RawMessage(`{"a":1,"keep":true}`), json.RawMessage(`{"a":2}`), nil)
+
+		var got map[string]any
+		if err := json.Unmarshal(out, &got); err != nil {
+			t.Fatalf("unmarshal output: %v", err)
+		}
+		if got["a"] != float64(2) {
+			t.Fatalf("a = %v, want 2", got["a"])
+		}
+		if got["keep"] != true {
+			t.Fatalf("keep = %v, want true", got["keep"])
+		}
+	})
 }
 
 func BenchmarkMergePayloads(b *testing.B) {
@@ -5670,6 +5686,48 @@ func BenchmarkApplyStepOverrides(b *testing.B) {
 			}
 		}
 	})
+	b.Run("disable_many", func(b *testing.B) {
+		overrides := []domain.StepOverride{
+			{StepRef: "step-020", Enabled: false},
+			{StepRef: "step-040", Enabled: false},
+			{StepRef: "step-060", Enabled: false},
+			{StepRef: "step-080", Enabled: false},
+		}
+		b.ReportAllocs()
+		for b.Loop() {
+			got, err := applyStepOverrides(steps, overrides)
+			if err != nil {
+				b.Fatal(err)
+			}
+			if len(got) != len(steps)-4 {
+				b.Fatalf("len(got) = %d", len(got))
+			}
+		}
+	})
+}
+
+func TestApplyStepOverrides_DoesNotMutateInputDependsOn(t *testing.T) {
+	t.Parallel()
+
+	steps := []domain.WorkflowStep{
+		{ID: "step-a", JobID: "job-a", StepRef: "a"},
+		{ID: "step-b", JobID: "job-b", StepRef: "b", DependsOn: []string{"a"}},
+		{ID: "step-c", JobID: "job-c", StepRef: "c", DependsOn: []string{"a", "b"}},
+	}
+
+	got, err := applyStepOverrides(steps, []domain.StepOverride{{StepRef: "b", Enabled: false}})
+	if err != nil {
+		t.Fatalf("applyStepOverrides() error = %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("len(got) = %d, want 2", len(got))
+	}
+	if len(got[1].DependsOn) != 1 || got[1].DependsOn[0] != "a" {
+		t.Fatalf("filtered c depends_on = %+v, want [a]", got[1].DependsOn)
+	}
+	if len(steps[2].DependsOn) != 2 || steps[2].DependsOn[0] != "a" || steps[2].DependsOn[1] != "b" {
+		t.Fatalf("input c depends_on mutated: %+v", steps[2].DependsOn)
+	}
 }
 
 func TestTriggerWorkflowWithStepOverrides(t *testing.T) {

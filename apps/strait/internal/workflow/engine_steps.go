@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"log/slog"
 	"maps"
 	"slices"
+	"strconv"
 	"time"
 
 	"strait/internal/domain"
@@ -404,6 +406,24 @@ func mergePayloads(triggerPayload, stepPayload, parentOutputs json.RawMessage) j
 		}
 	}
 
+	return mergeObjectPayloads(triggerPayload, stepPayload, parentOutputs, triggerKind, stepKind, parentBlank, stepBlank)
+}
+
+func mergeObjectPayloads(
+	triggerPayload,
+	stepPayload,
+	parentOutputs json.RawMessage,
+	triggerKind,
+	stepKind byte,
+	parentBlank,
+	stepBlank bool,
+) json.RawMessage {
+	if triggerKind == '{' && stepKind == '{' {
+		if out, ok := mergeJSONObjectPayloads(triggerPayload, stepPayload, parentOutputs, !parentBlank); ok {
+			return out
+		}
+	}
+
 	triggerObj, triggerIsObject := decodeJSONObject(triggerPayload)
 	stepObj, stepIsObject := decodeJSONObject(stepPayload)
 
@@ -437,6 +457,213 @@ func mergePayloads(triggerPayload, stepPayload, parentOutputs json.RawMessage) j
 	}
 
 	return out
+}
+
+type jsonObjectField struct {
+	key string
+	raw []byte
+}
+
+func mergeJSONObjectPayloads(triggerPayload, stepPayload, parentOutputs json.RawMessage, includeParent bool) (json.RawMessage, bool) {
+	triggerFields, ok := splitTopLevelJSONObjectFields(triggerPayload)
+	if !ok {
+		return nil, false
+	}
+	stepFields, ok := splitTopLevelJSONObjectFields(stepPayload)
+	if !ok {
+		return nil, false
+	}
+
+	var parentValue []byte
+	if includeParent {
+		parentValue = bytes.TrimSpace(parentOutputs)
+		if !json.Valid(parentValue) {
+			return nil, false
+		}
+	}
+
+	lastTriggerField := lastJSONFieldIndexes(triggerFields)
+	lastStepField := lastJSONFieldIndexes(stepFields)
+
+	outCap := len(triggerPayload) + len(stepPayload) + len(parentValue) + len(`,"parent_outputs":`)
+	out := make([]byte, 0, outCap)
+	out = append(out, '{')
+	hasField := false
+	appendField := func(raw []byte) {
+		if hasField {
+			out = append(out, ',')
+		}
+		out = append(out, raw...)
+		hasField = true
+	}
+
+	for i, field := range triggerFields {
+		if lastTriggerField[field.key] != i {
+			continue
+		}
+		if _, overwritten := lastStepField[field.key]; overwritten {
+			continue
+		}
+		if includeParent && field.key == "parent_outputs" {
+			continue
+		}
+		appendField(field.raw)
+	}
+	for i, field := range stepFields {
+		if lastStepField[field.key] != i {
+			continue
+		}
+		if includeParent && field.key == "parent_outputs" {
+			continue
+		}
+		appendField(field.raw)
+	}
+	if includeParent {
+		appendField(append([]byte(`"parent_outputs":`), parentValue...))
+	}
+	out = append(out, '}')
+
+	return out, true
+}
+
+func lastJSONFieldIndexes(fields []jsonObjectField) map[string]int {
+	indexes := make(map[string]int, len(fields))
+	for i := range fields {
+		indexes[fields[i].key] = i
+	}
+	return indexes
+}
+
+func splitTopLevelJSONObjectFields(payload json.RawMessage) ([]jsonObjectField, bool) {
+	trimmed := bytes.TrimSpace(payload)
+	if len(trimmed) < 2 || trimmed[0] != '{' || trimmed[len(trimmed)-1] != '}' || !json.Valid(trimmed) {
+		return nil, false
+	}
+	if len(trimmed) == 2 {
+		return nil, true
+	}
+
+	fields := make([]jsonObjectField, 0, 8)
+	i := 1
+	for {
+		i = skipJSONSpaces(trimmed, i)
+		if i >= len(trimmed)-1 {
+			return fields, true
+		}
+
+		fieldStart := i
+		if trimmed[i] != '"' {
+			return nil, false
+		}
+		keyStart := i
+		keyEnd, ok := scanJSONString(trimmed, i)
+		if !ok {
+			return nil, false
+		}
+		key, err := strconv.Unquote(string(trimmed[keyStart:keyEnd]))
+		if err != nil {
+			return nil, false
+		}
+		i = skipJSONSpaces(trimmed, keyEnd)
+		if i >= len(trimmed) || trimmed[i] != ':' {
+			return nil, false
+		}
+		i++
+
+		valueEnd, delimiter, ok := scanJSONObjectValue(trimmed, i)
+		if !ok {
+			return nil, false
+		}
+		fieldEnd := trimJSONRightSpaces(trimmed, fieldStart, valueEnd)
+		fields = append(fields, jsonObjectField{
+			key: key,
+			raw: bytes.TrimSpace(trimmed[fieldStart:fieldEnd]),
+		})
+
+		if delimiter == '}' {
+			return fields, true
+		}
+		i = valueEnd + 1
+	}
+}
+
+func skipJSONSpaces(in []byte, i int) int {
+	for i < len(in) {
+		switch in[i] {
+		case ' ', '\n', '\r', '\t':
+			i++
+		default:
+			return i
+		}
+	}
+	return i
+}
+
+func trimJSONRightSpaces(in []byte, start, end int) int {
+	for end > start {
+		switch in[end-1] {
+		case ' ', '\n', '\r', '\t':
+			end--
+		default:
+			return end
+		}
+	}
+	return end
+}
+
+func scanJSONString(in []byte, start int) (int, bool) {
+	escaped := false
+	for i := start + 1; i < len(in); i++ {
+		switch {
+		case escaped:
+			escaped = false
+		case in[i] == '\\':
+			escaped = true
+		case in[i] == '"':
+			return i + 1, true
+		}
+	}
+	return 0, false
+}
+
+func scanJSONObjectValue(in []byte, start int) (end int, delimiter byte, ok bool) {
+	depth := 0
+	inString := false
+	escaped := false
+	for i := start; i < len(in); i++ {
+		c := in[i]
+		if inString {
+			switch {
+			case escaped:
+				escaped = false
+			case c == '\\':
+				escaped = true
+			case c == '"':
+				inString = false
+			}
+			continue
+		}
+
+		switch c {
+		case '"':
+			inString = true
+		case '{', '[':
+			depth++
+		case '}', ']':
+			if depth == 0 {
+				if c != '}' {
+					return 0, 0, false
+				}
+				return i, c, true
+			}
+			depth--
+		case ',':
+			if depth == 0 {
+				return i, c, true
+			}
+		}
+	}
+	return 0, 0, false
 }
 
 func isBlankRaw(in json.RawMessage) bool {

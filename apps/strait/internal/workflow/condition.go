@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 
 	"strait/internal/domain"
 
@@ -19,7 +20,16 @@ const (
 	// maxRegexInputLen limits the input string matched against a regex
 	// to prevent excessive CPU usage on pathological inputs.
 	maxRegexInputLen = 10000
+
+	maxConditionRegexCacheEntries = 128
 )
+
+var conditionRegexCache = struct {
+	sync.RWMutex
+	compiled map[string]*regexp.Regexp
+}{
+	compiled: make(map[string]*regexp.Regexp),
+}
 
 type conditionEnvelope struct {
 	Type string `json:"type"`
@@ -211,6 +221,10 @@ func EvaluateCondition(cond json.RawMessage, stepStatuses map[string]domain.Step
 		return anyMet, nil
 
 	case "eq", "ne", "gt", "gte", "lt", "lte", "contains", "in", "regex":
+		if handled, ok, err := evaluateFastStringBinaryCondition(condType, cond, stepStatuses); ok || err != nil {
+			return handled, err
+		}
+
 		var c binaryCondition
 		if err := json.Unmarshal(cond, &c); err != nil {
 			return false, fmt.Errorf("unmarshal %s condition: %w", condType, err)
@@ -257,7 +271,7 @@ func EvaluateCondition(cond json.RawMessage, stepStatuses map[string]domain.Step
 			if len(pattern) > maxRegexPatternLen {
 				return false, fmt.Errorf("regex pattern exceeds maximum length of %d characters", maxRegexPatternLen)
 			}
-			re, err := regexp.Compile(pattern)
+			re, err := cachedConditionRegex(pattern)
 			if err != nil {
 				return false, fmt.Errorf("invalid regex: %w", err)
 			}
@@ -280,6 +294,109 @@ func EvaluateCondition(cond json.RawMessage, stepStatuses map[string]domain.Step
 	default:
 		return false, fmt.Errorf("unknown condition type: %q", condType)
 	}
+}
+
+func evaluateFastStringBinaryCondition(
+	condType string,
+	cond json.RawMessage,
+	stepStatuses map[string]domain.StepRunStatus,
+) (bool, bool, error) {
+	switch condType {
+	case "eq", "ne", "contains", "regex":
+	default:
+		return false, false, nil
+	}
+
+	left, ok := conditionOperandString(gjson.GetBytes(cond, "left"), stepStatuses)
+	if !ok {
+		return false, false, nil
+	}
+	right, ok := conditionOperandString(gjson.GetBytes(cond, "right"), stepStatuses)
+	if !ok {
+		return false, false, nil
+	}
+
+	switch condType {
+	case "eq":
+		return left == right, true, nil
+	case "ne":
+		return left != right, true, nil
+	case "contains":
+		return strings.Contains(left, right), true, nil
+	case "regex":
+		if len(right) > maxRegexPatternLen {
+			return false, true, fmt.Errorf("regex pattern exceeds maximum length of %d characters", maxRegexPatternLen)
+		}
+		if len(left) > maxRegexInputLen {
+			return false, true, fmt.Errorf("regex input exceeds maximum length of %d characters", maxRegexInputLen)
+		}
+		re, err := cachedConditionRegex(right)
+		if err != nil {
+			return false, true, fmt.Errorf("invalid regex: %w", err)
+		}
+		return re.MatchString(left), true, nil
+	default:
+		return false, false, nil
+	}
+}
+
+func conditionOperandString(result gjson.Result, stepStatuses map[string]domain.StepRunStatus) (string, bool) {
+	if !result.Exists() {
+		return "", false
+	}
+	switch result.Type {
+	case gjson.String:
+		return result.Str, true
+	case gjson.Number, gjson.True, gjson.False:
+		return result.Raw, true
+	case gjson.JSON:
+		if !result.IsObject() {
+			return "", false
+		}
+		if stepRef := result.Get("step_ref"); stepRef.Type == gjson.String {
+			status, found := stepStatuses[stepRef.Str]
+			if !found {
+				return "", true
+			}
+			return string(status), true
+		}
+		if value := result.Get("value"); value.Exists() {
+			switch value.Type {
+			case gjson.String:
+				return value.Str, true
+			case gjson.Number, gjson.True, gjson.False:
+				return value.Raw, true
+			}
+		}
+	}
+	return "", false
+}
+
+func cachedConditionRegex(pattern string) (*regexp.Regexp, error) {
+	conditionRegexCache.RLock()
+	re := conditionRegexCache.compiled[pattern]
+	conditionRegexCache.RUnlock()
+	if re != nil {
+		return re, nil
+	}
+
+	compiled, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, err
+	}
+
+	conditionRegexCache.Lock()
+	if existing := conditionRegexCache.compiled[pattern]; existing != nil {
+		conditionRegexCache.Unlock()
+		return existing, nil
+	}
+	if len(conditionRegexCache.compiled) >= maxConditionRegexCacheEntries {
+		conditionRegexCache.compiled = make(map[string]*regexp.Regexp)
+	}
+	conditionRegexCache.compiled[pattern] = compiled
+	conditionRegexCache.Unlock()
+
+	return compiled, nil
 }
 
 func resolveOperand(v any, stepStatuses map[string]domain.StepRunStatus) any {
