@@ -6459,6 +6459,39 @@ func TestHasResourceClassCapacity(t *testing.T) {
 	})
 }
 
+func BenchmarkHasResourceClassCapacity(b *testing.B) {
+	running := map[string]int{
+		"small":  12,
+		"medium": 8,
+		"large":  2,
+	}
+
+	b.Run("empty_class", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if !hasResourceClassCapacity(running, "") {
+				b.Fatal("expected capacity")
+			}
+		}
+	})
+	b.Run("known_class", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if !hasResourceClassCapacity(running, "medium") {
+				b.Fatal("expected capacity")
+			}
+		}
+	})
+	b.Run("unknown_class", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if !hasResourceClassCapacity(running, "gpu") {
+				b.Fatal("expected fallback capacity")
+			}
+		}
+	})
+}
+
 func TestScheduleRunnableSteps_ConcurrencyKeySerialization(t *testing.T) {
 	t.Parallel()
 

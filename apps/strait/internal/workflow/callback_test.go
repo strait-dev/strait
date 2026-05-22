@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"testing"
 	"time"
@@ -338,6 +339,88 @@ func TestCheckWorkflowCompletion_FailedWithoutContinue(t *testing.T) {
 	if wfStatus != domain.WfStatusFailed {
 		t.Fatalf("expected workflow failed, got %s", wfStatus)
 	}
+}
+
+func TestHasBlockingFailedStep(t *testing.T) {
+	t.Parallel()
+	steps := []domain.WorkflowStep{
+		{StepRef: "continue", OnFailure: domain.Continue},
+		{StepRef: "continue-too", OnFailure: domain.Continue},
+		{StepRef: "fail", OnFailure: domain.FailWorkflow},
+		{StepRef: "default"},
+	}
+	tests := []struct {
+		name           string
+		failedStepRefs []string
+		want           bool
+	}{
+		{name: "no failed refs", failedStepRefs: nil, want: false},
+		{name: "single continue failure", failedStepRefs: []string{"continue"}, want: false},
+		{name: "single explicit failure", failedStepRefs: []string{"fail"}, want: true},
+		{name: "single default failure", failedStepRefs: []string{"default"}, want: true},
+		{name: "unknown failure blocks", failedStepRefs: []string{"missing"}, want: true},
+		{name: "mixed continue and failure blocks", failedStepRefs: []string{"continue", "fail"}, want: true},
+		{name: "all continue failures do not block", failedStepRefs: []string{"continue", "continue-too"}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := hasBlockingFailedStep(steps, tt.failedStepRefs)
+			if got != tt.want {
+				t.Fatalf("hasBlockingFailedStep() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func BenchmarkHasBlockingFailedStep(b *testing.B) {
+	steps := make([]domain.WorkflowStep, 100)
+	for i := range steps {
+		steps[i] = domain.WorkflowStep{
+			StepRef:   fmt.Sprintf("step-%03d", i),
+			OnFailure: domain.FailWorkflow,
+		}
+	}
+	steps[90].OnFailure = domain.Continue
+
+	b.Run("no_failed_refs", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if hasBlockingFailedStep(steps, nil) {
+				b.Fatal("expected no blocking failure")
+			}
+		}
+	})
+	b.Run("single_continue_failure", func(b *testing.B) {
+		failedRefs := []string{"step-090"}
+		b.ReportAllocs()
+		for b.Loop() {
+			if hasBlockingFailedStep(steps, failedRefs) {
+				b.Fatal("expected continue failure to be ignored")
+			}
+		}
+	})
+	b.Run("single_blocking_failure", func(b *testing.B) {
+		failedRefs := []string{"step-099"}
+		b.ReportAllocs()
+		for b.Loop() {
+			if !hasBlockingFailedStep(steps, failedRefs) {
+				b.Fatal("expected blocking failure")
+			}
+		}
+	})
+	b.Run("multiple_continue_failures", func(b *testing.B) {
+		for i := range steps {
+			steps[i].OnFailure = domain.Continue
+		}
+		failedRefs := []string{"step-010", "step-050", "step-090"}
+		b.ReportAllocs()
+		for b.Loop() {
+			if hasBlockingFailedStep(steps, failedRefs) {
+				b.Fatal("expected no blocking failure")
+			}
+		}
+	})
 }
 
 func TestSkipDependentSteps_TransitiveSkip(t *testing.T) {

@@ -210,25 +210,13 @@ func (s *StepCallback) checkWorkflowCompletion(ctx context.Context, workflowRunI
 	// Update wc.run so downstream (propagateToParent) sees the latest state.
 	wc.run = wfRun
 
-	policyByRef := lo.Associate(wc.steps, func(step domain.WorkflowStep) (string, domain.FailurePolicy) {
-		return step.StepRef, step.OnFailure
-	})
-
 	failedStepRefs, err := s.store.ListFailedStepRunRefs(ctx, workflowRunID)
 	if err != nil {
 		return fmt.Errorf("list failed step refs: %w", err)
 	}
 
-	hasFailingStep := false
-	for _, stepRef := range failedStepRefs {
-		if policyByRef[stepRef] != domain.Continue {
-			hasFailingStep = true
-			break
-		}
-	}
-
 	now := time.Now()
-	if hasFailingStep {
+	if hasBlockingFailedStep(wc.steps, failedStepRefs) {
 		if err := s.store.UpdateWorkflowRunStatus(ctx, wfRun.ID, wfRun.Status, domain.WfStatusFailed, map[string]any{"finished_at": now}); err != nil {
 			return fmt.Errorf("mark workflow run failed: %w", err)
 		}
@@ -255,6 +243,38 @@ func (s *StepCallback) checkWorkflowCompletion(ctx context.Context, workflowRunI
 		return s.propagateToParent(ctx, wfRun, stepRuns)
 	}
 	return nil
+}
+
+func hasBlockingFailedStep(steps []domain.WorkflowStep, failedStepRefs []string) bool {
+	switch len(failedStepRefs) {
+	case 0:
+		return false
+	case 1:
+		return failurePolicyForStepRef(steps, failedStepRefs[0]) != domain.Continue
+	}
+
+	failedRefs := make(map[string]struct{}, len(failedStepRefs))
+	for _, stepRef := range failedStepRefs {
+		failedRefs[stepRef] = struct{}{}
+	}
+	for _, step := range steps {
+		if _, failed := failedRefs[step.StepRef]; failed {
+			if step.OnFailure != domain.Continue {
+				return true
+			}
+			delete(failedRefs, step.StepRef)
+		}
+	}
+	return len(failedRefs) > 0
+}
+
+func failurePolicyForStepRef(steps []domain.WorkflowStep, stepRef string) domain.FailurePolicy {
+	for _, step := range steps {
+		if step.StepRef == stepRef {
+			return step.OnFailure
+		}
+	}
+	return ""
 }
 
 // propagateToParent propagates the terminal status of a child workflow run
@@ -626,11 +646,15 @@ func effectiveResourceClass(v string) string {
 }
 
 func hasResourceClassCapacity(running map[string]int, class string) bool {
-	limits := map[string]int{"small": 50, "medium": 20, "large": 5}
 	resolved := effectiveResourceClass(class)
-	limit, ok := limits[resolved]
-	if !ok {
-		limit = limits["small"]
+	limit := 50
+	switch resolved {
+	case "medium":
+		limit = 20
+	case "large":
+		limit = 5
+	case "small":
+	default:
 		resolved = "small"
 	}
 	return running[resolved] < limit
