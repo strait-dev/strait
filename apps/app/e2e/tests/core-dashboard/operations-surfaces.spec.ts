@@ -65,7 +65,7 @@ test.describe("Operational dashboard surfaces", () => {
 
     await page.goto("/app/events", { waitUntil: "domcontentloaded" });
     await expect(page.getByRole("button", { name: "All" })).toBeVisible();
-    await expect(page.getByText("No events found.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Waiting" })).toBeVisible();
 
     await page.goto("/app/dlq", { waitUntil: "domcontentloaded" });
     await expect(

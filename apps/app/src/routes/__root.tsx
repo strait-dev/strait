@@ -123,19 +123,9 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 
 function RootComponent() {
   return (
-    <ThemeProvider
-      attribute="class"
-      defaultTheme="dark"
-      disableTransitionOnChange
-      enableColorScheme={false}
-      enableSystem={false}
-      scriptProps={{ async: true }}
-      themes={["light", "dark"]}
-    >
-      <RootDocument>
-        <Outlet />
-      </RootDocument>
-    </ThemeProvider>
+    <RootDocument>
+      <Outlet />
+    </RootDocument>
   );
 }
 
@@ -157,24 +147,34 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         className="h-full bg-background text-foreground selection:bg-foreground selection:text-background"
         suppressHydrationWarning
       >
-        {children}
-        <Toaster position="bottom-right" />
-        {import.meta.env.DEV &&
-          import.meta.env.VITE_DISABLE_DEVTOOLS !== "1" && (
-            <TanStackDevtools
-              config={{ defaultOpen: false }}
-              plugins={[
-                {
-                  name: "Tanstack Query",
-                  render: <ReactQueryDevtoolsPanel />,
-                },
-                {
-                  name: "Tanstack Router",
-                  render: <TanStackRouterDevtoolsPanel />,
-                },
-              ]}
-            />
-          )}
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="dark"
+          disableTransitionOnChange
+          enableColorScheme={false}
+          enableSystem={false}
+          scriptProps={{ async: true }}
+          themes={["light", "dark"]}
+        >
+          {children}
+          <Toaster position="bottom-right" />
+          {import.meta.env.DEV &&
+            import.meta.env.VITE_DISABLE_DEVTOOLS !== "1" && (
+              <TanStackDevtools
+                config={{ defaultOpen: false }}
+                plugins={[
+                  {
+                    name: "Tanstack Query",
+                    render: <ReactQueryDevtoolsPanel />,
+                  },
+                  {
+                    name: "Tanstack Router",
+                    render: <TanStackRouterDevtoolsPanel />,
+                  },
+                ]}
+              />
+            )}
+        </ThemeProvider>
         <Scripts />
       </body>
     </html>

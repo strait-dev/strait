@@ -70,7 +70,9 @@ export async function signInAndSaveState(
 
   const page = await context.newPage();
   try {
-    await page.goto(`${baseURL}/app/dashboard`);
+    await page.goto(`${baseURL}/app/dashboard`, {
+      waitUntil: "domcontentloaded",
+    });
     await page.waitForURL("**/app/**", { timeout: 15_000 });
     await context.storageState({ path: "playwright/.auth/user.json" });
   } finally {

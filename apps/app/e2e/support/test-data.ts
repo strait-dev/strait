@@ -12,8 +12,20 @@ export class CleanupRegistry {
   }
 
   async run() {
-    await Promise.allSettled(this.tasks.map((task) => task()));
+    // Run teardown in LIFO order so dependent resources can be unblocked before
+    // their parents are deleted.
+    const errors: unknown[] = [];
+    for (const task of this.tasks) {
+      try {
+        await task();
+      } catch (error) {
+        errors.push(error);
+      }
+    }
     this.tasks.length = 0;
+    if (errors.length > 0) {
+      throw new AggregateError(errors, "E2E cleanup failed");
+    }
   }
 }
 
