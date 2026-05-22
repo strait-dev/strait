@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"slices"
+	"strconv"
 	"time"
 
 	"strait/internal/domain"
@@ -344,18 +345,7 @@ func (s *StepCallback) propagateToParent(ctx context.Context, childRun *domain.W
 	switch childRun.Status {
 	case domain.WfStatusCompleted:
 		// Aggregate child step outputs as the parent step's output.
-		var outputPayload json.RawMessage
-		if len(childStepRuns) > 0 {
-			outputs := lo.Associate(
-				lo.Filter(childStepRuns, func(sr domain.WorkflowStepRun, _ int) bool { return len(sr.Output) > 0 }),
-				func(sr domain.WorkflowStepRun) (string, json.RawMessage) { return sr.StepRef, sr.Output },
-			)
-			if len(outputs) > 0 {
-				if raw, marshalErr := json.Marshal(outputs); marshalErr == nil {
-					outputPayload = raw
-				}
-			}
-		}
+		outputPayload := aggregateChildStepOutputs(childStepRuns)
 
 		fields := map[string]any{"finished_at": now}
 		if len(outputPayload) > 0 {
@@ -411,6 +401,32 @@ func (s *StepCallback) propagateToParent(ctx context.Context, childRun *domain.W
 		}
 		return s.handleFailedStep(ctx, parentStepRun, parentWc)
 	}
+}
+
+func aggregateChildStepOutputs(childStepRuns []domain.WorkflowStepRun) json.RawMessage {
+	if len(childStepRuns) == 0 {
+		return nil
+	}
+	var outputPayload []byte
+	for i := range childStepRuns {
+		if len(childStepRuns[i].Output) == 0 {
+			continue
+		}
+		if outputPayload == nil {
+			outputPayload = make([]byte, 0, len(childStepRuns[i].StepRef)+len(childStepRuns[i].Output)+4)
+			outputPayload = append(outputPayload, '{')
+		} else {
+			outputPayload = append(outputPayload, ',')
+		}
+		outputPayload = strconv.AppendQuote(outputPayload, childStepRuns[i].StepRef)
+		outputPayload = append(outputPayload, ':')
+		outputPayload = append(outputPayload, childStepRuns[i].Output...)
+	}
+	if outputPayload == nil {
+		return nil
+	}
+	outputPayload = append(outputPayload, '}')
+	return outputPayload
 }
 
 func (s *StepCallback) ApproveStep(ctx context.Context, workflowRunID, stepRef, approver string) error {

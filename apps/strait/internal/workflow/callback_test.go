@@ -423,6 +423,64 @@ func BenchmarkHasBlockingFailedStep(b *testing.B) {
 	})
 }
 
+func BenchmarkAggregateChildStepOutputs(b *testing.B) {
+	stepRuns := make([]domain.WorkflowStepRun, 1000)
+	for i := range stepRuns {
+		ref := fmt.Sprintf("step-%04d", i)
+		stepRuns[i] = domain.WorkflowStepRun{
+			ID:      "sr-" + ref,
+			StepRef: ref,
+		}
+		if i%2 == 0 {
+			stepRuns[i].Output = json.RawMessage(`{"ok":true}`)
+		}
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		output := aggregateChildStepOutputs(stepRuns)
+		if len(output) == 0 {
+			b.Fatal("expected aggregated output")
+		}
+	}
+}
+
+func TestAggregateChildStepOutputs(t *testing.T) {
+	t.Parallel()
+	output := aggregateChildStepOutputs([]domain.WorkflowStepRun{
+		{StepRef: `step-"a"`, Output: json.RawMessage(`{"a":1}`)},
+		{StepRef: "empty"},
+		{StepRef: "step-b", Output: json.RawMessage(`{"b":2}`)},
+	})
+	if len(output) == 0 {
+		t.Fatal("expected aggregated output")
+	}
+	var parsed map[string]json.RawMessage
+	if err := json.Unmarshal(output, &parsed); err != nil {
+		t.Fatalf("aggregated output is invalid JSON: %v", err)
+	}
+	if string(parsed[`step-"a"`]) != `{"a":1}` {
+		t.Fatalf("escaped step output = %s, want {\"a\":1}", parsed[`step-"a"`])
+	}
+	if _, ok := parsed["empty"]; ok {
+		t.Fatal("empty output should not be included")
+	}
+	if string(parsed["step-b"]) != `{"b":2}` {
+		t.Fatalf("step-b output = %s, want {\"b\":2}", parsed["step-b"])
+	}
+}
+
+func TestAggregateChildStepOutputs_NoOutputs(t *testing.T) {
+	t.Parallel()
+	output := aggregateChildStepOutputs([]domain.WorkflowStepRun{
+		{StepRef: "a"},
+		{StepRef: "b"},
+	})
+	if output != nil {
+		t.Fatalf("expected nil output, got %s", output)
+	}
+}
+
 func TestSkipDependentSteps_TransitiveSkip(t *testing.T) {
 	t.Parallel()
 	skippedIDs := make(map[string]bool)
