@@ -5567,6 +5567,18 @@ func TestApplyStepOverrides(t *testing.T) {
 		}
 	})
 
+	t.Run("unknown enabled step_ref returns error", func(t *testing.T) {
+		t.Parallel()
+		steps := []domain.WorkflowStep{
+			{ID: "step-a", JobID: "job-a", StepRef: "a"},
+		}
+
+		_, err := applyStepOverrides(steps, []domain.StepOverride{{StepRef: "nonexistent", Enabled: true}})
+		if err == nil || !strings.Contains(err.Error(), "unknown step_ref") {
+			t.Fatalf("expected unknown step_ref error, got %v", err)
+		}
+	})
+
 	t.Run("all steps disabled returns error", func(t *testing.T) {
 		t.Parallel()
 		steps := []domain.WorkflowStep{
@@ -5603,6 +5615,59 @@ func TestApplyStepOverrides(t *testing.T) {
 		}
 		if len(got[1].DependsOn) != 1 || got[1].DependsOn[0] != "a" {
 			t.Fatalf("expected c depends_on to be [a], got %+v", got[1].DependsOn)
+		}
+	})
+}
+
+func BenchmarkApplyStepOverrides(b *testing.B) {
+	steps := make([]domain.WorkflowStep, 100)
+	for i := range steps {
+		steps[i] = domain.WorkflowStep{
+			ID:      fmt.Sprintf("step-%03d", i),
+			JobID:   fmt.Sprintf("job-%03d", i),
+			StepRef: fmt.Sprintf("step-%03d", i),
+		}
+		if i > 0 {
+			steps[i].DependsOn = []string{steps[i-1].StepRef}
+		}
+	}
+
+	b.Run("none", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			got, err := applyStepOverrides(steps, nil)
+			if err != nil {
+				b.Fatal(err)
+			}
+			if len(got) != len(steps) {
+				b.Fatalf("len(got) = %d", len(got))
+			}
+		}
+	})
+	b.Run("all_enabled", func(b *testing.B) {
+		overrides := []domain.StepOverride{{StepRef: "step-050", Enabled: true}}
+		b.ReportAllocs()
+		for b.Loop() {
+			got, err := applyStepOverrides(steps, overrides)
+			if err != nil {
+				b.Fatal(err)
+			}
+			if len(got) != len(steps) {
+				b.Fatalf("len(got) = %d", len(got))
+			}
+		}
+	})
+	b.Run("disable_middle", func(b *testing.B) {
+		overrides := []domain.StepOverride{{StepRef: "step-050", Enabled: false}}
+		b.ReportAllocs()
+		for b.Loop() {
+			got, err := applyStepOverrides(steps, overrides)
+			if err != nil {
+				b.Fatal(err)
+			}
+			if len(got) != len(steps)-1 {
+				b.Fatalf("len(got) = %d", len(got))
+			}
 		}
 	})
 }
