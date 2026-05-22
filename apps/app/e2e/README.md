@@ -19,6 +19,9 @@ bun run e2e
 # Run the backend-backed core dashboard suite
 bun run e2e:core
 
+# Rebuild and start the local Go backend, then run backend-backed tests
+bun run e2e:core:local
+
 # Run with browser visible
 bun run e2e:headed
 
@@ -32,29 +35,23 @@ bun run e2e -- tests/auth/login.spec.ts
 bun run e2e -- --grep "dashboard"
 ```
 
-For local backend-backed dashboard work, it is often useful to run Strait on a
-non-default port so the app and Go service use the exact same Infisical-exported
-secret:
+For local backend-backed dashboard work, prefer the managed local runner. It
+starts a clean Postgres container and Redis when needed, exports Infisical
+secrets, rebuilds the Go binary, starts Strait with local e2e-safe webhook
+settings, runs Playwright, and stops the processes it started:
 
 ```bash
-# Terminal 1: dependencies
-cd apps/strait && docker compose up -d
-
-# Terminal 2: Go API + worker. Requires apps/app/.dev.vars from Infisical export.
-cd apps/strait
-set -a; source ../app/.dev.vars; set +a
-PORT=18081 \
-GRPC_PORT=15052 \
-DATABASE_URL='postgres://strait:strait@localhost:15432/strait?sslmode=disable' \
-REDIS_URL='redis://localhost:16379' \
-CLICKHOUSE_EXPORT_ENABLED=false \
-ALLOW_PRIVATE_ENDPOINTS=true \
-go run ./cmd/strait --mode all
-
-# Terminal 3: core dashboard e2e
 cd apps/app
-STRAIT_API_URL=http://localhost:18081 bun run e2e:core
+bun run e2e:core:local
+
+# Run a subset through the same managed backend
+bun run e2e:core:local -- tests/core-dashboard/webhook-deliveries.spec.ts
 ```
+
+The managed runner recreates the `strait-app-e2e-postgres` container by default
+so failed runs cannot leak schedules or queued jobs into the next attempt. Set
+`E2E_REUSE_POSTGRES=1` only when you intentionally want to debug against an
+existing database on port `15432`.
 
 ## Environment variables
 
@@ -119,8 +116,9 @@ e2e/
 
 ## CI
 
-Tests run in CI with 4 parallel shards. Each shard gets its own Postgres database
-(`strait_e2e_{run_id}_{shard}`) and Redis DB index to prevent conflicts.
+The backend-backed dashboard suite is currently intended for local validation.
+CI can enable it later by running `bun run e2e:core:local` in an environment
+with Docker, Infisical, and Playwright browsers available.
 
 ## Debugging
 

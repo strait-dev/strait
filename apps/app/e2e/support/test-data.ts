@@ -59,12 +59,12 @@ export class TestDataFactory {
 
   async failedJobRun(prefix: string) {
     const job = await this.job(prefix, {
-      endpoint_url: this.api.fakeEndpoint("/fail"),
+      endpoint_url: this.api.fakeEndpoint("/status/400"),
       max_attempts: 1,
       timeout_secs: 5,
     });
     const run = await this.api.triggerJob(job.id, { expected: "failure" });
-    await this.api.waitForRunStatus(run.id, ["failed"], 30_000);
+    await this.api.waitForRunStatus(run.id, ["failed", "dead_letter"], 60_000);
     return { job, run };
   }
 

@@ -1,62 +1,46 @@
-import { expect, test } from "../../fixtures";
+import { ApiHelper, expect, test } from "../../fixtures";
+import { selectTab } from "../../support/navigation";
+import { TestDataFactory } from "../../support/test-data";
 
-test.describe("API Keys", () => {
-  test("api keys section accessible from org settings", async ({ page }) => {
-    await page.goto("/app/dashboard");
-    const orgLink = page.locator("a[href*='/app/org/']").first();
-    if (!(await orgLink.isVisible({ timeout: 5000 }).catch(() => false))) {
-      test.skip();
-      return;
-    }
-    await orgLink.click();
-    const keysTab = page.getByRole("tab", { name: /api key/i });
-    if (await keysTab.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await keysTab.click();
-      await page.waitForTimeout(500);
-      await expect(page.locator("main")).toBeVisible();
-    }
-  });
+test.describe("Organization API keys", () => {
+  test.describe.configure({ timeout: 90_000 });
+  test.setTimeout(90_000);
 
-  test("create API key button exists", async ({ page }) => {
-    await page.goto("/app/dashboard");
-    const orgLink = page.locator("a[href*='/app/org/']").first();
-    if (!(await orgLink.isVisible({ timeout: 5000 }).catch(() => false))) {
-      test.skip();
-      return;
-    }
-    await orgLink.click();
-    const keysTab = page.getByRole("tab", { name: /api key/i });
-    if (await keysTab.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await keysTab.click();
-      await page.waitForTimeout(500);
-      const createBtn = page.getByText("Create API Key");
-      if (await createBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await expect(createBtn).toBeVisible();
-      }
-    }
-  });
+  test("creates and revokes an API key from organization settings", async ({
+    page,
+  }) => {
+    const api = new ApiHelper();
+    const data = new TestDataFactory(api);
+    const keyName = data.name("api-key");
 
-  test("create API key dialog opens", async ({ page }) => {
-    await page.goto("/app/dashboard");
-    const orgLink = page.locator("a[href*='/app/org/']").first();
-    if (!(await orgLink.isVisible({ timeout: 5000 }).catch(() => false))) {
-      test.skip();
-      return;
-    }
-    await orgLink.click();
-    const keysTab = page.getByRole("tab", { name: /api key/i });
-    if (await keysTab.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await keysTab.click();
-      await page.waitForTimeout(500);
-      const createBtn = page.getByText("Create API Key");
-      if (await createBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await createBtn.click();
-        await page.waitForTimeout(500);
-        const dialog = page.locator("[role='dialog']");
-        if (await dialog.isVisible({ timeout: 3000 }).catch(() => false)) {
-          await expect(dialog).toBeVisible();
-        }
-      }
-    }
+    await page.goto(`/app/org/${api.getOrgId()}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await selectTab(page, "API Keys");
+    await expect(page.getByText("Manage API keys")).toBeVisible();
+
+    await page.getByRole("button", { name: "Create Key" }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(
+      dialog.getByRole("heading", { name: "Create API Key" })
+    ).toBeVisible();
+    await dialog.getByLabel("Key Name").fill(keyName);
+    await dialog.getByRole("combobox").click();
+    await page.getByRole("option", { name: "30 days" }).click();
+    await dialog.getByRole("button", { name: "Create Key" }).click();
+
+    await expect(
+      dialog.getByRole("heading", { name: "API Key Created" })
+    ).toBeVisible({ timeout: 15_000 });
+    await expect(
+      dialog.getByText(/won't be able to see it again/i)
+    ).toBeVisible();
+    await dialog.getByRole("button", { name: "Done" }).click();
+
+    const row = page.getByRole("row", { name: new RegExp(keyName) });
+    await expect(row).toBeVisible({ timeout: 15_000 });
+    await row.getByRole("button", { name: "Revoke" }).click();
+    await page.getByRole("button", { name: "Revoke Key" }).click();
+    await expect(row).not.toBeVisible({ timeout: 15_000 });
   });
 });

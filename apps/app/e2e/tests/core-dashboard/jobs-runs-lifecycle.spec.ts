@@ -21,7 +21,7 @@ test.describe("Jobs and runs lifecycle", () => {
 
     const completedJob = await data.job("completed-run");
     const failedJob = await data.job("failed-run", {
-      endpoint_url: api.fakeEndpoint("/fail"),
+      endpoint_url: api.fakeEndpoint("/status/400"),
       max_attempts: 1,
       timeout_secs: 5,
     });
@@ -36,6 +36,7 @@ test.describe("Jobs and runs lifecycle", () => {
     const failedRun = await api.triggerJob(failedJob.id, {
       expected: "failure",
     });
+    await api.waitForRunStatus(failedRun.id, ["failed", "dead_letter"], 60_000);
 
     completedRunId = completedRun.id;
     failedRunId = failedRun.id;
@@ -70,6 +71,7 @@ test.describe("Jobs and runs lifecycle", () => {
       page.getByRole("link", { name: failedRunId.slice(0, 8) }).first()
     ).toBeVisible();
     await expect(page.getByText(/completed|succeeded/i).first()).toBeVisible();
+    await expect(page.getByText(/failed|dead letter/i).first()).toBeVisible();
   });
 
   test("opens run detail pages with job and status context", async ({

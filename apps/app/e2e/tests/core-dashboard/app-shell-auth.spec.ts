@@ -29,6 +29,17 @@ test.describe("Authenticated app shell", () => {
     await expect(page.getByRole("table", { name: "Jobs" })).toBeVisible();
     expect(api.getProjectId()).toBeTruthy();
   });
+
+  test("keeps core dashboard navigation usable on mobile", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/app/dashboard", { waitUntil: "domcontentloaded" });
+
+    await expect(page.getByText("Total Runs (24h)")).toBeVisible();
+    await page.goto("/app/jobs", { waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("table", { name: "Jobs" })).toBeVisible();
+    await page.goto("/app/workflows", { waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("table", { name: "Workflows" })).toBeVisible();
+  });
 });
 
 test.describe("Unauthenticated app shell", () => {

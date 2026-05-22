@@ -8,10 +8,10 @@ let eventKey: string;
 let workflowRunId: string;
 
 test.describe("Events and logs dashboard", () => {
-  test.describe.configure({ mode: "serial", timeout: 120_000 });
+  test.describe.configure({ timeout: 120_000 });
   test.setTimeout(120_000);
 
-  test.beforeAll(async () => {
+  test.beforeEach(async () => {
     api = new ApiHelper();
     data = new TestDataFactory(api);
 
@@ -46,7 +46,7 @@ test.describe("Events and logs dashboard", () => {
     );
   });
 
-  test.afterAll(async () => {
+  test.afterEach(async () => {
     await data?.cleanup.run();
   });
 

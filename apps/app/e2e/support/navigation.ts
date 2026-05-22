@@ -38,7 +38,7 @@ export async function gotoAndExpect(
 /** Click a Base UI tab after route hydration and verify the selected state. */
 export async function selectTab(page: Page, name: string) {
   for (let attempt = 1; attempt <= 3; attempt += 1) {
-    const tab = await tabLocator(page, name);
+    const tab = tabLocator(page, name);
     await expect(tab).toBeVisible();
 
     try {
@@ -56,16 +56,14 @@ export async function selectTab(page: Page, name: string) {
   }
 }
 
-async function tabLocator(page: Page, name: string) {
+function tabLocator(page: Page, name: string) {
   const byRole = page.getByRole("tab", { name });
-  if ((await byRole.count()) > 0) {
-    return byRole;
-  }
-
-  return page
+  const fallback = page
     .locator('[data-slot="tabs-trigger"]')
     .filter({ hasText: new RegExp(`^${escapeRegExp(name)}$`) })
     .first();
+
+  return byRole.or(fallback).first();
 }
 
 function escapeRegExp(value: string) {

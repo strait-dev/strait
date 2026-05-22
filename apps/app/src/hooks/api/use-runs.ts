@@ -22,6 +22,13 @@ import {
   requireActiveProjectAdmin,
 } from "@/middlewares/require-access";
 
+const RUN_DETAIL_RETRY_COUNT = 2;
+const RUN_DETAIL_RETRY_BASE_MS = 1000;
+const RUN_DETAIL_RETRY_MAX_MS = 3000;
+
+const runDetailRetryDelay = (attempt: number) =>
+  Math.min(RUN_DETAIL_RETRY_BASE_MS * attempt, RUN_DETAIL_RETRY_MAX_MS);
+
 export const fetchRuns = createServerFn({ method: "GET" })
   .inputValidator(
     (
@@ -130,6 +137,8 @@ export const runQueryOptions = (id: string) =>
     queryFn: () => fetchRun({ data: { id } }),
     staleTime: HIGH_CHURN_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
+    retry: RUN_DETAIL_RETRY_COUNT,
+    retryDelay: runDetailRetryDelay,
   });
 
 export const runEventsQueryOptions = (runId: string) =>
@@ -138,6 +147,8 @@ export const runEventsQueryOptions = (runId: string) =>
     queryFn: () => fetchRunEvents({ data: { runId } }),
     staleTime: HIGH_CHURN_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
+    retry: RUN_DETAIL_RETRY_COUNT,
+    retryDelay: runDetailRetryDelay,
   });
 
 export const useRetryRun = () => {

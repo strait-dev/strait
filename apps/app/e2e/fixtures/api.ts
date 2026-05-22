@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { Client } from "pg";
 import { readRunContext } from "../support/run-context";
 
 const defaultApiUrl = "http://localhost:8080";
@@ -23,10 +25,12 @@ type EventTrigger = {
 type WebhookDelivery = {
   id: string;
   subscription_id?: string;
+  webhook_url?: string;
   status: string;
   attempts: number;
   max_attempts?: number;
   last_status_code?: number;
+  last_error?: string;
   created_at?: string;
 };
 
@@ -195,6 +199,15 @@ export class ApiHelper {
     );
   }
 
+  /** Update job fields through the same API path the dashboard depends on. */
+  updateJob(id: string, data: { enabled?: boolean }) {
+    return this.request<{ id: string; name: string; enabled: boolean }>(
+      "PATCH",
+      `/v1/jobs/${id}`,
+      data
+    );
+  }
+
   triggerJob(id: string, payload?: unknown) {
     return this.request<{ id: string; status: string }>(
       "POST",
@@ -336,6 +349,26 @@ export class ApiHelper {
     return this.request("DELETE", `/v1/webhooks/subscriptions/${id}`);
   }
 
+  /** List webhook subscriptions while tolerating older and newer API envelopes. */
+  async listWebhooks(params?: { limit?: number; search?: string }) {
+    const query = new URLSearchParams();
+    if (params?.limit) {
+      query.set("limit", String(params.limit));
+    }
+    if (params?.search) {
+      query.set("search", params.search);
+    }
+    const qs = query.toString();
+    const response = await this.request<
+      | { data?: Array<{ id: string; webhook_url: string; active: boolean }> }
+      | Array<{ id: string; webhook_url: string; active: boolean }>
+      | null
+    >("GET", `/v1/webhooks/subscriptions${qs ? `?${qs}` : ""}`);
+    return {
+      data: Array.isArray(response) ? response : (response?.data ?? []),
+    };
+  }
+
   listWebhookDeliveries(params?: {
     limit?: number;
     cursor?: string;
@@ -360,6 +393,110 @@ export class ApiHelper {
       "GET",
       `/v1/webhooks/deliveries${qs ? `?${qs}` : ""}`
     );
+  }
+
+  /** Seed one webhook delivery for dashboard assertions when local CDC is absent. */
+  async seedWebhookDelivery(data: {
+    subscription_id: string;
+    webhook_url: string;
+    status: string;
+    attempts?: number;
+    max_attempts?: number;
+    last_status_code?: number;
+    last_error?: string;
+    event_type?: string;
+  }): Promise<WebhookDelivery> {
+    const id = randomUUID();
+    const payload = {
+      event_type: data.event_type ?? "workflow.completed",
+      seeded_by: "apps-app-e2e",
+      subscription_id: data.subscription_id,
+    };
+    await this.withDatabase(async (client) => {
+      await client.query(
+        `
+          INSERT INTO webhook_deliveries (
+            id,
+            webhook_url,
+            status,
+            attempts,
+            max_attempts,
+            last_status_code,
+            last_error,
+            delivered_at,
+            subscription_id,
+            project_id,
+            payload,
+            payload_size_bytes,
+            event_type,
+            created_at,
+            updated_at
+          )
+          VALUES (
+            $1,
+            $2,
+            $3,
+            $4,
+            $5,
+            $6,
+            $7,
+            NOW(),
+            $8,
+            $9,
+            $10::jsonb,
+            octet_length($10::jsonb::text),
+            $11,
+            NOW(),
+            NOW()
+          )
+        `,
+        [
+          id,
+          data.webhook_url,
+          data.status,
+          data.attempts ?? 1,
+          data.max_attempts ?? 3,
+          data.last_status_code ?? null,
+          data.last_error ?? null,
+          data.subscription_id,
+          this.getProjectId(),
+          JSON.stringify(payload),
+          data.event_type ?? "workflow.completed",
+        ]
+      );
+    });
+    return {
+      id,
+      subscription_id: data.subscription_id,
+      webhook_url: data.webhook_url,
+      status: data.status,
+      attempts: data.attempts ?? 1,
+      max_attempts: data.max_attempts ?? 3,
+      last_status_code: data.last_status_code,
+      last_error: data.last_error,
+    };
+  }
+
+  /** Remove a delivery inserted by seedWebhookDelivery. */
+  async deleteWebhookDelivery(id: string) {
+    await this.withDatabase(async (client) => {
+      await client.query("DELETE FROM webhook_deliveries WHERE id = $1", [id]);
+    });
+  }
+
+  /** Run direct database setup that cannot be produced without CDC locally. */
+  private async withDatabase<T>(fn: (client: Client) => Promise<T>) {
+    const client = new Client({
+      connectionString:
+        process.env.DATABASE_URL ??
+        "postgres://strait:strait@localhost:15432/strait?sslmode=disable",
+    });
+    await client.connect();
+    try {
+      return await fn(client);
+    } finally {
+      await client.end();
+    }
   }
 
   /** Poll project webhook deliveries until one matches an observable condition. */

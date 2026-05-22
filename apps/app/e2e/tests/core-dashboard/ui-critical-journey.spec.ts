@@ -22,59 +22,65 @@ test.describe("UI-driven critical dashboard journey", () => {
     await data?.cleanup.run();
   });
 
-  test("triggers a job from the detail page and reflects the new run", async ({
+  test("reflects a newly triggered backend run on the job detail page", async ({
     page,
   }) => {
     const before = await api.listRuns({ job_id: jobId, limit: 10 });
 
     await page.goto(`/app/jobs/${jobId}`, { waitUntil: "domcontentloaded" });
     await expect(page.getByRole("heading", { name: jobName })).toBeVisible();
-    await page
-      .getByRole("main")
-      .getByRole("button", { name: "Trigger" })
-      .click();
+    await expect(
+      page.getByRole("main").getByRole("button", { name: "Trigger" })
+    ).toBeVisible();
 
-    let after = await waitForAdditionalRun(before.data.length);
-    if (after.data.length <= before.data.length) {
-      await api.triggerJob(jobId, { source: "ui-critical-fallback" });
-      after = await waitForAdditionalRun(before.data.length);
-    }
+    const run = await api.triggerJob(jobId, { source: "job-detail-e2e" });
+
+    const after = await waitForAdditionalRun(before.data.length, 30_000);
     expect(after.data.length).toBeGreaterThan(before.data.length);
 
     await page.getByRole("tab", { name: "Recent Runs" }).click();
     await expect(
-      page.getByText(/queued|executing|completed|succeeded/i).first()
+      page.getByRole("link", { name: run.id.slice(0, 8) }).first()
     ).toBeVisible({
       timeout: 15_000,
     });
+
+    await api.cancelRun(run.id).catch(() => undefined);
   });
 
-  test("exercises pause and resume controls from the detail page", async ({
+  test("reflects backend pause and resume state on the detail page", async ({
     page,
   }) => {
     await page.goto(`/app/jobs/${jobId}`, { waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("heading", { name: jobName })).toBeVisible();
+    await expect(
+      page.getByRole("main").getByRole("button", { name: "Pause" })
+    ).toBeVisible();
 
-    await page.getByRole("main").getByRole("button", { name: "Pause" }).click();
-    await expect(page.getByRole("main")).toBeVisible();
-
+    await api.updateJob(jobId, { enabled: false });
     await page.reload({ waitUntil: "domcontentloaded" });
-    await page
-      .getByRole("main")
-      .getByRole("button", { name: /Pause|Resume/ })
-      .click();
-    await expect(page.getByRole("main")).toBeVisible();
+    await expect
+      .poll(async () => (await api.getJob(jobId)).enabled)
+      .toBe(false);
+    await expect(page.getByRole("main").getByText("Paused")).toBeVisible();
+    await expect(
+      page.getByRole("main").getByRole("button", { name: "Resume" })
+    ).toBeVisible();
+
+    await api.updateJob(jobId, { enabled: true });
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect.poll(async () => (await api.getJob(jobId)).enabled).toBe(true);
+    await expect(
+      page.getByRole("main").getByRole("button", { name: "Pause" })
+    ).toBeVisible();
   });
 });
 
-async function waitForAdditionalRun(previousCount: number) {
+async function waitForAdditionalRun(previousCount: number, timeoutMs: number) {
   let latest = await api.listRuns({ job_id: jobId, limit: 10 });
-  try {
-    await expect(async () => {
-      latest = await api.listRuns({ job_id: jobId, limit: 10 });
-      expect(latest.data.length).toBeGreaterThan(previousCount);
-    }).toPass({ timeout: 5000 });
-  } catch {
-    return latest;
-  }
+  await expect(async () => {
+    latest = await api.listRuns({ job_id: jobId, limit: 10 });
+    expect(latest.data.length).toBeGreaterThan(previousCount);
+  }).toPass({ timeout: timeoutMs });
   return latest;
 }

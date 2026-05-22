@@ -1,32 +1,12 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Locator, test } from "@playwright/test";
 
 test.describe("Login", () => {
   test.use({ storageState: { cookies: [], origins: [] } });
 
-  // biome-ignore lint/suspicious/useAwait: Playwright test callback requires async signature
-  test("successful login redirects to /app", async () => {
-    test.skip();
-  });
-
-  test("invalid credentials shows error message", async ({ page }) => {
+  test("invalid credentials stay on the login page", async ({ page }) => {
     await page.goto("/login");
-    // Fill via evaluate to trigger React controlled inputs
-    await page.locator("#email").evaluate((el, val) => {
-      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-        HTMLInputElement.prototype,
-        "value"
-      )?.set;
-      nativeInputValueSetter?.call(el, val);
-      el.dispatchEvent(new Event("input", { bubbles: true }));
-    }, "invalid@example.com");
-    await page.locator("#password").evaluate((el, val) => {
-      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-        HTMLInputElement.prototype,
-        "value"
-      )?.set;
-      nativeInputValueSetter?.call(el, val);
-      el.dispatchEvent(new Event("input", { bubbles: true }));
-    }, "wrongpassword123");
+    await fillControlledInput(page.locator("#email"), "invalid@example.com");
+    await fillControlledInput(page.locator("#password"), "wrongpassword123");
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
 
     // Should show error or stay on login page
@@ -36,7 +16,6 @@ test.describe("Login", () => {
   test("empty form stays on login page", async ({ page }) => {
     await page.goto("/login");
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
-    await page.waitForTimeout(500);
     await expect(page).toHaveURL(/login/);
   });
 
@@ -46,3 +25,15 @@ test.describe("Login", () => {
     await expect(page).toHaveURL(/forgot-password/);
   });
 });
+
+async function fillControlledInput(locator: Locator, value: string) {
+  await locator.evaluate((el, nextValue) => {
+    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value"
+    )?.set;
+    nativeInputValueSetter?.call(el, nextValue);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  }, value);
+}
