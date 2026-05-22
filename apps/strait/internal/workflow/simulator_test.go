@@ -274,12 +274,72 @@ func TestValidateSimulateRequest_InvalidFailureInjection(t *testing.T) {
 	}
 }
 
+func TestValidateSimulateRequest_ValidFailureInjection(t *testing.T) {
+	t.Parallel()
+	steps := []domain.WorkflowStep{{StepRef: "a"}, {StepRef: "b"}}
+	req := &SimulateRequest{
+		Mode: SimModeFailureInjection,
+		FailureInjection: map[string]string{
+			"a": "boom",
+			"b": "again",
+		},
+	}
+	if err := ValidateSimulateRequest(req, steps); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateSimulateRequest_SingleInvalidFailureInjection(t *testing.T) {
+	t.Parallel()
+	steps := []domain.WorkflowStep{{StepRef: "a"}}
+	req := &SimulateRequest{
+		Mode:             SimModeFailureInjection,
+		FailureInjection: map[string]string{"missing": "boom"},
+	}
+	err := ValidateSimulateRequest(req, steps)
+	if err == nil {
+		t.Fatal("expected error for unknown step ref in single failure injection")
+	}
+	if !strings.Contains(err.Error(), "missing") {
+		t.Errorf("error should mention unknown step, got: %v", err)
+	}
+}
+
 func TestValidateSimulateRequest_NilRequest(t *testing.T) {
 	t.Parallel()
 	err := ValidateSimulateRequest(nil, nil)
 	if err == nil {
 		t.Error("expected error for nil request")
 	}
+}
+
+func BenchmarkValidateSimulateRequest(b *testing.B) {
+	steps := make([]domain.WorkflowStep, 100)
+	for i := range steps {
+		steps[i] = domain.WorkflowStep{StepRef: fmt.Sprintf("step-%03d", i)}
+	}
+
+	b.Run("no_failure_injection", func(b *testing.B) {
+		req := &SimulateRequest{Mode: SimModeDryRun}
+		b.ReportAllocs()
+		for b.Loop() {
+			if err := ValidateSimulateRequest(req, steps); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+	b.Run("single_failure_injection", func(b *testing.B) {
+		req := &SimulateRequest{
+			Mode:             SimModeFailureInjection,
+			FailureInjection: map[string]string{"step-099": "boom"},
+		}
+		b.ReportAllocs()
+		for b.Loop() {
+			if err := ValidateSimulateRequest(req, steps); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
 }
 
 // Fuzz tests.

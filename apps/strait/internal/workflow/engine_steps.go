@@ -1,7 +1,6 @@
 package workflow
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -391,11 +390,25 @@ func (e *WorkflowEngine) getNestingDepth(ctx context.Context, wfRun *domain.Work
 }
 
 func mergePayloads(triggerPayload, stepPayload, parentOutputs json.RawMessage) json.RawMessage {
+	triggerKind := firstNonSpaceByte(triggerPayload)
+	stepKind := firstNonSpaceByte(stepPayload)
+	parentBlank := firstNonSpaceByte(parentOutputs) == 0
+	triggerBlank := triggerKind == 0
+	stepBlank := stepKind == 0
+	if parentBlank {
+		switch {
+		case stepBlank:
+			return cloneRaw(triggerPayload)
+		case triggerBlank || triggerKind != '{' || stepKind != '{':
+			return cloneRaw(stepPayload)
+		}
+	}
+
 	triggerObj, triggerIsObject := decodeJSONObject(triggerPayload)
 	stepObj, stepIsObject := decodeJSONObject(stepPayload)
 
 	if !triggerIsObject || !stepIsObject {
-		if len(bytes.TrimSpace(stepPayload)) > 0 {
+		if !stepBlank {
 			return cloneRaw(stepPayload)
 		}
 		return cloneRaw(triggerPayload)
@@ -405,7 +418,7 @@ func mergePayloads(triggerPayload, stepPayload, parentOutputs json.RawMessage) j
 	maps.Copy(merged, triggerObj)
 	maps.Copy(merged, stepObj)
 
-	if len(bytes.TrimSpace(parentOutputs)) > 0 {
+	if !parentBlank {
 		var parentValue any
 		if err := json.Unmarshal(parentOutputs, &parentValue); err == nil {
 			merged["parent_outputs"] = parentValue
@@ -417,7 +430,7 @@ func mergePayloads(triggerPayload, stepPayload, parentOutputs json.RawMessage) j
 	out, err := json.Marshal(merged)
 	if err != nil {
 		slog.Warn("mergePayloads: failed to marshal merged payload, falling back", "error", err)
-		if len(bytes.TrimSpace(stepPayload)) > 0 {
+		if !stepBlank {
 			return cloneRaw(stepPayload)
 		}
 		return cloneRaw(triggerPayload)
@@ -426,8 +439,24 @@ func mergePayloads(triggerPayload, stepPayload, parentOutputs json.RawMessage) j
 	return out
 }
 
+func isBlankRaw(in json.RawMessage) bool {
+	return firstNonSpaceByte(in) == 0
+}
+
+func firstNonSpaceByte(in json.RawMessage) byte {
+	for _, b := range in {
+		switch b {
+		case ' ', '\n', '\r', '\t':
+			continue
+		default:
+			return b
+		}
+	}
+	return 0
+}
+
 func decodeJSONObject(payload json.RawMessage) (map[string]any, bool) {
-	if len(bytes.TrimSpace(payload)) == 0 {
+	if isBlankRaw(payload) {
 		return map[string]any{}, true
 	}
 

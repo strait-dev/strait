@@ -682,6 +682,68 @@ func TestMergePayloads(t *testing.T) {
 			t.Fatalf("got %s, want trigger payload", string(out))
 		}
 	})
+
+	t.Run("empty trigger payload keeps step payload", func(t *testing.T) {
+		t.Parallel()
+		out := mergePayloads(nil, json.RawMessage(`{"step":true}`), nil)
+		if string(out) != `{"step":true}` {
+			t.Fatalf("got %s, want step payload", string(out))
+		}
+	})
+
+	t.Run("parent outputs added when trigger has payload and step is empty", func(t *testing.T) {
+		t.Parallel()
+		out := mergePayloads(json.RawMessage(`{"a":1}`), nil, json.RawMessage(`{"p":true}`))
+
+		var got map[string]any
+		if err := json.Unmarshal(out, &got); err != nil {
+			t.Fatalf("unmarshal output: %v", err)
+		}
+		if got["a"] != float64(1) {
+			t.Fatalf("a = %v, want 1", got["a"])
+		}
+		if _, ok := got["parent_outputs"]; !ok {
+			t.Fatalf("missing parent_outputs: %+v", got)
+		}
+	})
+}
+
+func BenchmarkMergePayloads(b *testing.B) {
+	triggerPayload := json.RawMessage(`{"account_id":"acct-123","region":"us-east-1","attempt":1,"flags":{"dry_run":false}}`)
+	stepPayload := json.RawMessage(`{"step":"validate","attempt":2,"limits":{"cpu":"500m","memory":"512Mi"}}`)
+	parentOutputs := json.RawMessage(`{"extract":{"rows":1000},"normalize":{"status":"completed"}}`)
+	nonObjectStepPayload := json.RawMessage(`"step"`)
+
+	b.Run("trigger_only", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = mergePayloads(triggerPayload, nil, nil)
+		}
+	})
+	b.Run("step_only", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = mergePayloads(nil, stepPayload, nil)
+		}
+	})
+	b.Run("object_merge", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = mergePayloads(triggerPayload, stepPayload, nil)
+		}
+	})
+	b.Run("object_merge_with_parent_outputs", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = mergePayloads(triggerPayload, stepPayload, parentOutputs)
+		}
+	})
+	b.Run("non_object_step_fallback", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = mergePayloads(triggerPayload, nonObjectStepPayload, nil)
+		}
+	})
 }
 
 type mockCallbackStore struct {

@@ -246,25 +246,34 @@ func ValidateSimulateRequest(req *SimulateRequest, steps []domain.WorkflowStep) 
 		return fmt.Errorf("request is nil")
 	}
 
-	validModes := map[SimulationMode]bool{
-		SimModeDryRun:           true,
-		SimModeSandbox:          true,
-		SimModeFailureInjection: true,
-	}
-	if !validModes[req.Mode] {
+	switch req.Mode {
+	case SimModeDryRun, SimModeSandbox, SimModeFailureInjection:
+	default:
 		return fmt.Errorf("invalid simulation mode: %s", req.Mode)
 	}
 
 	// Validate failure injection step refs exist.
-	if req.FailureInjection != nil {
-		stepRefs := make(map[string]bool, len(steps))
-		for _, s := range steps {
-			stepRefs[s.StepRef] = true
-		}
+	if len(req.FailureInjection) == 0 {
+		return nil
+	}
+	if len(req.FailureInjection) == 1 {
 		for ref := range req.FailureInjection {
-			if !stepRefs[ref] {
-				return fmt.Errorf("failure injection references unknown step: %s", ref)
+			for _, s := range steps {
+				if s.StepRef == ref {
+					return nil
+				}
 			}
+			return fmt.Errorf("failure injection references unknown step: %s", ref)
+		}
+	}
+
+	stepRefs := make(map[string]struct{}, len(steps))
+	for _, s := range steps {
+		stepRefs[s.StepRef] = struct{}{}
+	}
+	for ref := range req.FailureInjection {
+		if _, ok := stepRefs[ref]; !ok {
+			return fmt.Errorf("failure injection references unknown step: %s", ref)
 		}
 	}
 
