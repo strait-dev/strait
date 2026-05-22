@@ -20,10 +20,12 @@ func newTestCallback(ms *mockCallbackStore) *StepCallback {
 // testWfCtx builds a wfCtx from inline data for tests that call internal methods directly.
 func testWfCtx(run *domain.WorkflowRun, steps []domain.WorkflowStep) *wfCtx {
 	stepByRef := make(map[string]domain.WorkflowStep, len(steps))
-	for _, st := range steps {
+	stepIndex := make(map[string]int, len(steps))
+	for i, st := range steps {
 		stepByRef[st.StepRef] = st
+		stepIndex[st.StepRef] = i
 	}
-	return &wfCtx{run: run, steps: steps, stepByRef: stepByRef}
+	return &wfCtx{run: run, steps: steps, stepByRef: stepByRef, stepIndex: stepIndex}
 }
 
 func TestHandleFailedStep_SkipDependentsPolicy(t *testing.T) {
@@ -534,6 +536,84 @@ func TestSkipDependentSteps_TransitiveSkip(t *testing.T) {
 	if skippedIDs["sr-d"] {
 		t.Fatal("sr-d should not be skipped (independent)")
 	}
+}
+
+func BenchmarkSkipDependentSteps(b *testing.B) {
+	benchmarks := []struct {
+		name          string
+		steps         []domain.WorkflowStep
+		failedStepRef string
+		wantSkipped   int
+	}{
+		{
+			name:          "chain100",
+			steps:         benchmarkSkipDependentChain(100),
+			failedStepRef: "step-0000",
+			wantSkipped:   99,
+		},
+		{
+			name:          "chain1000",
+			steps:         benchmarkSkipDependentChain(1000),
+			failedStepRef: "step-0000",
+			wantSkipped:   999,
+		},
+		{
+			name:          "fanout1000",
+			steps:         benchmarkSkipDependentFanOut(1000),
+			failedStepRef: "root",
+			wantSkipped:   999,
+		},
+	}
+
+	for _, bm := range benchmarks {
+		b.Run(bm.name, func(b *testing.B) {
+			ms := &mockCallbackStore{
+				skipStepRunsByRefsFn: func(_ context.Context, _ string, refs []string, _ time.Time) (int64, error) {
+					if len(refs) != bm.wantSkipped {
+						b.Fatalf("skipped refs = %d, want %d", len(refs), bm.wantSkipped)
+					}
+					return int64(len(refs)), nil
+				},
+			}
+			cb := newTestCallback(ms)
+			wc := testWfCtx(
+				&domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning},
+				bm.steps,
+			)
+			ctx := context.Background()
+
+			b.ReportAllocs()
+			for b.Loop() {
+				if err := cb.skipDependentSteps(ctx, "wr-1", wc, bm.failedStepRef); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+func benchmarkSkipDependentChain(n int) []domain.WorkflowStep {
+	steps := make([]domain.WorkflowStep, n)
+	for i := range steps {
+		ref := fmt.Sprintf("step-%04d", i)
+		steps[i] = domain.WorkflowStep{StepRef: ref}
+		if i > 0 {
+			steps[i].DependsOn = []string{steps[i-1].StepRef}
+		}
+	}
+	return steps
+}
+
+func benchmarkSkipDependentFanOut(n int) []domain.WorkflowStep {
+	steps := make([]domain.WorkflowStep, n)
+	steps[0] = domain.WorkflowStep{StepRef: "root"}
+	for i := 1; i < n; i++ {
+		steps[i] = domain.WorkflowStep{
+			StepRef:   fmt.Sprintf("step-%04d", i),
+			DependsOn: []string{"root"},
+		}
+	}
+	return steps
 }
 
 func TestEmitEventIfConfigured_ResolvesWaitingTrigger(t *testing.T) {

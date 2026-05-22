@@ -202,10 +202,12 @@ func (m *mockEngineQueue) DequeueNByProject(context.Context, int, string) ([]dom
 
 func buildWfCtx(run *domain.WorkflowRun, steps []domain.WorkflowStep) *wfCtx {
 	byRef := make(map[string]domain.WorkflowStep, len(steps))
-	for _, s := range steps {
+	stepIndex := make(map[string]int, len(steps))
+	for i, s := range steps {
 		byRef[s.StepRef] = s
+		stepIndex[s.StepRef] = i
 	}
-	return &wfCtx{run: run, steps: steps, stepByRef: byRef}
+	return &wfCtx{run: run, steps: steps, stepByRef: byRef, stepIndex: stepIndex}
 }
 
 func TestTriggerWorkflow(t *testing.T) {
