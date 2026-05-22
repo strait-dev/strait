@@ -1,6 +1,7 @@
 package api
 
 import (
+	"maps"
 	"regexp"
 	"sort"
 )
@@ -91,9 +92,7 @@ func walkAndRedact(v any, seen *map[string]struct{}) (any, bool) {
 			}
 			if out == nil {
 				out = make(map[string]any, len(x))
-				for existingKey, existingValue := range x {
-					out[existingKey] = existingValue
-				}
+				maps.Copy(out, x)
 			}
 			out[k] = redacted
 			changed = true
