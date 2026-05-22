@@ -46,6 +46,13 @@ func TestValidateDAG(t *testing.T) {
 			},
 		},
 		{
+			name: "valid: duplicate dependency refs are deduplicated",
+			steps: []domain.WorkflowStep{
+				step("A"),
+				step("B", "A", "A"),
+			},
+		},
+		{
 			name: "valid: complex DAG",
 			steps: []domain.WorkflowStep{
 				step("A"),
@@ -167,5 +174,19 @@ func BenchmarkValidateDAG(b *testing.B) {
 	}
 	for b.Loop() {
 		_ = ValidateDAG(steps)
+	}
+}
+
+func BenchmarkBuildTopologicalOrder(b *testing.B) {
+	steps := make([]domain.WorkflowStep, 100)
+	for i := range steps {
+		steps[i] = domain.WorkflowStep{StepRef: strings.Repeat("s", i+1)}
+		if i > 0 {
+			steps[i].DependsOn = []string{steps[i-1].StepRef}
+		}
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = buildTopologicalOrder(steps)
 	}
 }

@@ -147,6 +147,24 @@ func TestExpectedCompletion_SingleStep(t *testing.T) {
 	}
 }
 
+func TestExpectedCompletion_DuplicateDependencyRefs(t *testing.T) {
+	t.Parallel()
+	steps := []domain.WorkflowStep{
+		{StepRef: "a", ExpectedDurationSecs: 10},
+		{StepRef: "b", DependsOn: []string{"a", "a"}, ExpectedDurationSecs: 20},
+	}
+
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	got := CalculateExpectedCompletion(steps, start)
+	if got == nil {
+		t.Fatal("expected non-nil result")
+	}
+	want := start.Add(30 * time.Second)
+	if !got.Equal(want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
 func TestRecalculateExpectedCompletion_AllCompleted(t *testing.T) {
 	t.Parallel()
 	steps := []domain.WorkflowStep{
@@ -266,5 +284,24 @@ func TestExpectedCompletion_1000StepWorkflow(t *testing.T) {
 	want := start.Add(1000 * time.Second)
 	if !got.Equal(want) {
 		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func BenchmarkCalculateExpectedCompletion(b *testing.B) {
+	steps := make([]domain.WorkflowStep, 100)
+	for i := range steps {
+		steps[i] = domain.WorkflowStep{
+			StepRef:              "step-" + string(rune('a'+i%26)) + string(rune('a'+i/26)),
+			ExpectedDurationSecs: 1,
+		}
+		if i > 0 {
+			steps[i].DependsOn = []string{steps[i-1].StepRef}
+		}
+	}
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = CalculateExpectedCompletion(steps, start)
 	}
 }

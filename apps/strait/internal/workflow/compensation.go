@@ -98,36 +98,90 @@ type compensableEntry struct {
 
 // buildTopologicalOrder returns step refs in topological order using Kahn's algorithm.
 func buildTopologicalOrder(steps []domain.WorkflowStep) []string {
-	inDegree := make(map[string]int, len(steps))
-	children := make(map[string][]string, len(steps))
-
-	for _, s := range steps {
-		if _, ok := inDegree[s.StepRef]; !ok {
-			inDegree[s.StepRef] = 0
+	stepIndex := make(map[string]int, len(steps))
+	needsDepDedup := false
+	for i, s := range steps {
+		if _, ok := stepIndex[s.StepRef]; !ok {
+			stepIndex[s.StepRef] = i
 		}
+		needsDepDedup = needsDepDedup || len(s.DependsOn) > 1
+	}
+
+	inDegree := make([]int, len(steps))
+	childCounts := make([]int, len(steps))
+	var depSeen []int
+	if needsDepDedup {
+		depSeen = make([]int, len(steps))
+	}
+	totalEdges := 0
+	for stepIdx, s := range steps {
+		seenMarker := stepIdx + 1
 		for _, dep := range s.DependsOn {
-			children[dep] = append(children[dep], s.StepRef)
-			inDegree[s.StepRef]++
+			depIdx, ok := stepIndex[dep]
+			if !ok {
+				inDegree[stepIdx]++
+				continue
+			}
+			if depSeen != nil {
+				if depSeen[depIdx] == seenMarker {
+					continue
+				}
+				depSeen[depIdx] = seenMarker
+			}
+			inDegree[stepIdx]++
+			childCounts[depIdx]++
+			totalEdges++
 		}
 	}
 
-	queue := make([]string, 0)
-	for ref, deg := range inDegree {
+	children := make([][]int, len(steps))
+	edgeStorage := make([]int, totalEdges)
+	offset := 0
+	for i, count := range childCounts {
+		children[i] = edgeStorage[offset : offset : offset+count]
+		offset += count
+	}
+	for stepIdx, s := range steps {
+		seenMarker := len(steps) + stepIdx + 1
+		for _, dep := range s.DependsOn {
+			depIdx, ok := stepIndex[dep]
+			if !ok {
+				continue
+			}
+			if depSeen != nil {
+				if depSeen[depIdx] == seenMarker {
+					continue
+				}
+				depSeen[depIdx] = seenMarker
+			}
+			children[depIdx] = append(children[depIdx], stepIdx)
+		}
+	}
+
+	queue := childCounts[:0]
+	for idx, deg := range inDegree {
 		if deg == 0 {
-			queue = append(queue, ref)
+			queue = append(queue, idx)
 		}
 	}
 	// Sort roots for deterministic order.
-	sort.Strings(queue)
+	if len(queue) > 1 {
+		sort.Slice(queue, func(i, j int) bool {
+			return steps[queue[i]].StepRef < steps[queue[j]].StepRef
+		})
+	}
 
-	var order []string
-	for len(queue) > 0 {
-		ref := queue[0]
-		queue = queue[1:]
-		order = append(order, ref)
+	order := make([]string, 0, len(steps))
+	for i := 0; i < len(queue); i++ {
+		stepIdx := queue[i]
+		order = append(order, steps[stepIdx].StepRef)
 
-		kids := children[ref]
-		sort.Strings(kids)
+		kids := children[stepIdx]
+		if len(kids) > 1 {
+			sort.Slice(kids, func(i, j int) bool {
+				return steps[kids[i]].StepRef < steps[kids[j]].StepRef
+			})
+		}
 		for _, child := range kids {
 			inDegree[child]--
 			if inDegree[child] == 0 {

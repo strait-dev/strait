@@ -26,48 +26,104 @@ func CalculateExpectedCompletion(steps []domain.WorkflowStep, startTime time.Tim
 		return nil
 	}
 
-	// Build step map and adjacency list.
-	stepMap := make(map[string]int, len(steps))
+	stepIndex := make(map[string]int, len(steps))
+	needsDepDedup := false
 	for i, s := range steps {
-		stepMap[s.StepRef] = i
+		if _, ok := stepIndex[s.StepRef]; !ok {
+			stepIndex[s.StepRef] = i
+		}
+		needsDepDedup = needsDepDedup || len(s.DependsOn) > 1
 	}
 
 	// Compute longest path using dynamic programming (topological order).
-	// For each step, dist[ref] = max time from any root to complete that step.
-	dist := make(map[string]int, len(steps))
+	// For each step, dist[index] = max time from any root to complete that step.
+	dist := make([]int, len(steps))
 
 	// Process in topological order (Kahn's algorithm).
-	inDegree := make(map[string]int, len(steps))
-	children := make(map[string][]string, len(steps))
-	for _, s := range steps {
-		inDegree[s.StepRef] = len(s.DependsOn)
+	inDegree := make([]int, len(steps))
+	childCounts := make([]int, len(steps))
+	var depSeen []int
+	if needsDepDedup {
+		depSeen = make([]int, len(steps))
+	}
+	totalEdges := 0
+	for stepIdx, s := range steps {
+		seenMarker := stepIdx + 1
 		for _, dep := range s.DependsOn {
-			children[dep] = append(children[dep], s.StepRef)
-		}
-	}
-
-	queue := make([]string, 0, len(steps))
-	for _, s := range steps {
-		if inDegree[s.StepRef] == 0 {
-			queue = append(queue, s.StepRef)
-			dist[s.StepRef] = steps[stepMap[s.StepRef]].ExpectedDurationSecs
-		}
-	}
-
-	for len(queue) > 0 {
-		ref := queue[0]
-		queue = queue[1:]
-
-		for _, child := range children[ref] {
-			childIdx := stepMap[child]
-			childDur := steps[childIdx].ExpectedDurationSecs
-			newDist := dist[ref] + childDur
-			if newDist > dist[child] {
-				dist[child] = newDist
+			depIdx, ok := stepIndex[dep]
+			if !ok {
+				inDegree[stepIdx]++
+				continue
 			}
-			inDegree[child]--
-			if inDegree[child] == 0 {
-				queue = append(queue, child)
+			if depSeen != nil {
+				if depSeen[depIdx] == seenMarker {
+					continue
+				}
+				depSeen[depIdx] = seenMarker
+			}
+			inDegree[stepIdx]++
+			childCounts[depIdx]++
+			totalEdges++
+		}
+	}
+
+	if totalEdges == 0 {
+		maxDist := 0
+		for _, s := range steps {
+			if s.ExpectedDurationSecs > maxDist {
+				maxDist = s.ExpectedDurationSecs
+			}
+		}
+		if maxDist == 0 {
+			return nil
+		}
+		expected := startTime.Add(time.Duration(maxDist) * time.Second)
+		return &expected
+	}
+
+	children := make([][]int, len(steps))
+	edgeStorage := make([]int, totalEdges)
+	offset := 0
+	for i, count := range childCounts {
+		children[i] = edgeStorage[offset : offset : offset+count]
+		offset += count
+	}
+	for stepIdx, s := range steps {
+		seenMarker := len(steps) + stepIdx + 1
+		for _, dep := range s.DependsOn {
+			depIdx, ok := stepIndex[dep]
+			if !ok {
+				continue
+			}
+			if depSeen != nil {
+				if depSeen[depIdx] == seenMarker {
+					continue
+				}
+				depSeen[depIdx] = seenMarker
+			}
+			children[depIdx] = append(children[depIdx], stepIdx)
+		}
+	}
+
+	queue := childCounts[:0]
+	for i, degree := range inDegree {
+		if degree == 0 {
+			queue = append(queue, i)
+			dist[i] = steps[i].ExpectedDurationSecs
+		}
+	}
+
+	for i := 0; i < len(queue); i++ {
+		stepIdx := queue[i]
+		for _, childIdx := range children[stepIdx] {
+			childDur := steps[childIdx].ExpectedDurationSecs
+			newDist := dist[stepIdx] + childDur
+			if newDist > dist[childIdx] {
+				dist[childIdx] = newDist
+			}
+			inDegree[childIdx]--
+			if inDegree[childIdx] == 0 {
+				queue = append(queue, childIdx)
 			}
 		}
 	}

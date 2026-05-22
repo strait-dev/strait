@@ -528,3 +528,16 @@ func TestBuildTopologicalOrder_Deterministic(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildTopologicalOrder_DuplicateDependencyRefs(t *testing.T) {
+	t.Parallel()
+	steps := []domain.WorkflowStep{
+		{StepRef: "a"},
+		{StepRef: "b", DependsOn: []string{"a", "a"}},
+	}
+
+	order := buildTopologicalOrder(steps)
+	if strings.Join(order, ",") != "a,b" {
+		t.Fatalf("order = %v, want [a b]", order)
+	}
+}
