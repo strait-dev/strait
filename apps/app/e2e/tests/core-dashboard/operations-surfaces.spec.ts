@@ -52,7 +52,7 @@ test.describe("Operational dashboard surfaces", () => {
     await expect(page.getByText(workflowName)).toBeVisible();
   });
 
-  test("renders webhook subscriptions and dead letter queue surfaces", async ({
+  test("renders webhook subscriptions, events, and dead letter queue surfaces", async ({
     page,
   }) => {
     await page.goto("/app/webhooks", { waitUntil: "domcontentloaded" });
@@ -62,6 +62,10 @@ test.describe("Operational dashboard surfaces", () => {
         .getByRole("link", { name: "Create webhook" })
         .or(page.getByRole("button", { name: "Create webhook" }))
     ).toBeVisible();
+
+    await page.goto("/app/events", { waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("button", { name: "All" })).toBeVisible();
+    await expect(page.getByText("No events found.")).toBeVisible();
 
     await page.goto("/app/dlq", { waitUntil: "domcontentloaded" });
     await expect(

@@ -73,19 +73,27 @@ function shimCloudflareWorkers(): Plugin {
 }
 
 /**
- * Vite plugin that serves /.well-known/oauth-authorization-server and
- * /.well-known/openid-configuration by calling the Better Auth API
+ * Vite plugin that serves OAuth well-known metadata by calling the Better Auth API
  * programmatically. TanStack Start's file router ignores dot-prefixed
  * directories, so these must be handled as server middleware.
  */
 function wellKnownOAuthPlugin(): Plugin {
+  const oauthServerConfigPaths = new Set([
+    "/.well-known/oauth-authorization-server",
+    "/.well-known/oauth-authorization-server/api/auth",
+  ]);
+  const openIdConfigPaths = new Set([
+    "/.well-known/openid-configuration",
+    "/api/auth/.well-known/openid-configuration",
+  ]);
+
   return {
     name: "well-known-oauth",
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
+        const path = req.url?.split("?")[0] ?? "";
         if (
-          req.url !== "/.well-known/oauth-authorization-server" &&
-          req.url !== "/.well-known/openid-configuration"
+          !(oauthServerConfigPaths.has(path) || openIdConfigPaths.has(path))
         ) {
           return next();
         }
@@ -97,10 +105,9 @@ function wellKnownOAuthPlugin(): Plugin {
           );
           const auth = await getAuth();
 
-          const data =
-            req.url === "/.well-known/oauth-authorization-server"
-              ? await auth.api.getOAuthServerConfig()
-              : await auth.api.getOpenIdConfig();
+          const data = oauthServerConfigPaths.has(path)
+            ? await auth.api.getOAuthServerConfig()
+            : await auth.api.getOpenIdConfig();
 
           res.writeHead(200, {
             "Content-Type": "application/json",

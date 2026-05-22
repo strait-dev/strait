@@ -304,7 +304,6 @@ const createAuth = () => {
       },
     },
     plugins: [
-      tanstackStartCookies(),
       organization({
         allowUserToCreateOrganization: true,
         sendInvitationEmail: async (data) => {
@@ -396,12 +395,17 @@ const createAuth = () => {
           userinfo: { window: 60, max: 60 },
           introspect: { window: 60, max: 100 },
         },
+        silenceWarnings: {
+          oauthAuthServerConfig: true,
+          openidConfig: true,
+        },
       }),
       // SSO disabled: @better-auth/sso has a known ESM incompatibility
       // (samlify requires camelcase@9 ESM-only from CJS). Re-enable when
       // https://github.com/better-auth/better-auth/issues/8620 is fixed.
       // Stripe billing is handled via standalone server functions (checkout,
       // portal) and a Go backend webhook handler, not through Better Auth plugins.
+      tanstackStartCookies(),
     ],
     databaseHooks: {
       user: {

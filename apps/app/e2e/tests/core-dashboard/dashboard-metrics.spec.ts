@@ -39,6 +39,13 @@ test.describe("Dashboard metrics and activity", () => {
   test("renders dashboard cards, charts, and recent backend runs", async ({
     page,
   }) => {
+    const consoleMessages: string[] = [];
+    page.on("console", (message) => {
+      if (message.type() === "warning" || message.type() === "error") {
+        consoleMessages.push(message.text());
+      }
+    });
+
     await page.goto("/app/dashboard", { waitUntil: "domcontentloaded" });
 
     await expect(page.getByText("Total Runs (24h)")).toBeVisible();
@@ -49,5 +56,8 @@ test.describe("Dashboard metrics and activity", () => {
     await expect(page.getByText(runId.slice(0, 8))).toBeVisible({
       timeout: 15_000,
     });
+    expect(
+      consoleMessages.filter((message) => /width\(-1\)/i.test(message))
+    ).toEqual([]);
   });
 });

@@ -84,7 +84,7 @@ export default defineConfig({
           `infisical export --env=dev --format=dotenv --output-file=${shellQuote(devVarsPath)} >/dev/null`,
           devVarsOverrideCommand,
           `infisical run --env=dev -- ${envPrefix} bun run db:migrate:bun`,
-          `DISABLE_NGROK=1 infisical run --env=dev -- ${envPrefix} bun run dev --host 127.0.0.1`,
+          `DISABLE_NGROK=1 infisical run --env=dev -- ${envPrefix} VITE_DISABLE_DEVTOOLS=1 bun run dev --host 127.0.0.1`,
         ]
           .filter(Boolean)
           .join(" && "),

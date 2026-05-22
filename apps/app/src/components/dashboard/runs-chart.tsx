@@ -5,20 +5,13 @@ import {
   CardTitle,
 } from "@strait/ui/components/card";
 import { useQuery } from "@tanstack/react-query";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from "recharts";
 import { analyticsQueryOptions } from "@/hooks/api/use-dashboard";
 import { ActivityIcon } from "@/lib/icons";
 import { CHART_COLORS } from "@/lib/status-colors";
 import ChartEmptyState from "./chart-empty-state";
 import ChartTooltip from "./chart-tooltip";
+import ResponsiveChartContainer from "./responsive-chart-container";
 
 const LABEL_MAP = {
   completed: { label: "Completed", color: CHART_COLORS.success },
@@ -88,7 +81,7 @@ const RunsChart = ({ hasProject = true }: { hasProject?: boolean }) => {
               }
             />
           ) : (
-            <ResponsiveContainer
+            <ResponsiveChartContainer
               height="100%"
               minHeight={1}
               minWidth={1}
@@ -137,7 +130,7 @@ const RunsChart = ({ hasProject = true }: { hasProject?: boolean }) => {
                   stackId="runs"
                 />
               </BarChart>
-            </ResponsiveContainer>
+            </ResponsiveChartContainer>
           )}
         </div>
       </CardContent>

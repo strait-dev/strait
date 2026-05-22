@@ -12,7 +12,10 @@ test.describe("Jobs and runs lifecycle", () => {
   test.describe.configure({ timeout: 120_000 });
   test.setTimeout(120_000);
 
-  test.beforeAll(async () => {
+  test.beforeAll(async ({ browserName }, testInfo) => {
+    testInfo.annotations.push({ description: browserName, type: "browser" });
+    testInfo.setTimeout(120_000);
+
     api = new ApiHelper();
     data = new TestDataFactory(api);
 
@@ -25,6 +28,11 @@ test.describe("Jobs and runs lifecycle", () => {
     const completedRun = await api.triggerJob(completedJob.id, {
       expected: "success",
     });
+    await api.waitForRunStatus(
+      completedRun.id,
+      ["completed", "succeeded"],
+      60_000
+    );
     const failedRun = await api.triggerJob(failedJob.id, {
       expected: "failure",
     });
@@ -52,12 +60,6 @@ test.describe("Jobs and runs lifecycle", () => {
   test("shows completed and failed runs from the real worker", async ({
     page,
   }) => {
-    await api.waitForRunStatus(
-      completedRunId,
-      ["completed", "succeeded"],
-      60_000
-    );
-
     await page.goto("/app/runs", { waitUntil: "domcontentloaded" });
 
     await expect(page.getByRole("table", { name: "Runs" })).toBeVisible();

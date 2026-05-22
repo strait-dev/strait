@@ -1,9 +1,19 @@
 import { getAuth } from "@/lib/auth.server";
 import { OAUTH_CORS_HEADERS } from "@/lib/oauth-scopes";
 
-const WELL_KNOWN_PATHS = new Set([
+const OAUTH_SERVER_CONFIG_PATHS = new Set([
   "/.well-known/oauth-authorization-server",
+  "/.well-known/oauth-authorization-server/api/auth",
+]);
+
+const OPENID_CONFIG_PATHS = new Set([
   "/.well-known/openid-configuration",
+  "/api/auth/.well-known/openid-configuration",
+]);
+
+const WELL_KNOWN_PATHS = new Set([
+  ...OAUTH_SERVER_CONFIG_PATHS,
+  ...OPENID_CONFIG_PATHS,
 ]);
 
 export function isWellKnownOAuthRequest(request: Request): boolean {
@@ -38,10 +48,9 @@ export async function handleWellKnownOAuthRequest(
     getOAuthServerConfig?: () => Promise<unknown>;
     getOpenIdConfig?: () => Promise<unknown>;
   };
-  const data =
-    url.pathname === "/.well-known/oauth-authorization-server"
-      ? await api.getOAuthServerConfig?.()
-      : await api.getOpenIdConfig?.();
+  const data = OAUTH_SERVER_CONFIG_PATHS.has(url.pathname)
+    ? await api.getOAuthServerConfig?.()
+    : await api.getOpenIdConfig?.();
 
   if (!data) {
     return new Response(JSON.stringify({ error: "not_found" }), {
