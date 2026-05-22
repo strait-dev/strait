@@ -10,6 +10,30 @@ type ProjectContext = {
   fakeEndpointUrl?: string;
 };
 
+type EventTrigger = {
+  id: string;
+  event_key: string;
+  source_type: string;
+  workflow_run_id?: string;
+  status: string;
+  request_payload?: unknown;
+  response_payload?: unknown;
+};
+
+type WebhookDelivery = {
+  id: string;
+  subscription_id?: string;
+  status: string;
+  attempts: number;
+  last_status_code?: number;
+};
+
+type WorkflowRun = {
+  id: string;
+  workflow_id: string;
+  status: string;
+};
+
 /** API helper for seeding and cleaning up test data via the Go backend. */
 export class ApiHelper {
   private readonly baseUrl: string;
@@ -307,6 +331,110 @@ export class ApiHelper {
     return this.request("DELETE", `/v1/webhooks/subscriptions/${id}`);
   }
 
+  listWebhookDeliveries(params?: {
+    limit?: number;
+    cursor?: string;
+    status?: string;
+  }) {
+    const query = new URLSearchParams();
+    if (params?.limit) {
+      query.set("limit", String(params.limit));
+    }
+    if (params?.cursor) {
+      query.set("cursor", params.cursor);
+    }
+    if (params?.status) {
+      query.set("status", params.status);
+    }
+    const qs = query.toString();
+    return this.request<{ data: WebhookDelivery[] }>(
+      "GET",
+      `/v1/webhooks/deliveries${qs ? `?${qs}` : ""}`
+    );
+  }
+
+  /** Poll project webhook deliveries until one matches an observable condition. */
+  async waitForWebhookDelivery(
+    predicate: (delivery: WebhookDelivery) => boolean,
+    timeoutMs = 30_000
+  ) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const deliveries = await this.listWebhookDeliveries({ limit: 100 });
+      const match = deliveries.data.find(predicate);
+      if (match) {
+        return match;
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    throw new Error(
+      `No webhook delivery matched predicate within ${timeoutMs}ms`
+    );
+  }
+
+  // Events
+  listEvents(params?: {
+    limit?: number;
+    cursor?: string;
+    status?: string;
+    workflow_run_id?: string;
+    source_type?: string;
+  }) {
+    const query = new URLSearchParams();
+    if (params?.limit) {
+      query.set("limit", String(params.limit));
+    }
+    if (params?.cursor) {
+      query.set("cursor", params.cursor);
+    }
+    if (params?.status) {
+      query.set("status", params.status);
+    }
+    if (params?.workflow_run_id) {
+      query.set("workflow_run_id", params.workflow_run_id);
+    }
+    if (params?.source_type) {
+      query.set("source_type", params.source_type);
+    }
+    const qs = query.toString();
+    return this.request<{ data: EventTrigger[] }>(
+      "GET",
+      `/v1/events${qs ? `?${qs}` : ""}`
+    );
+  }
+
+  getEvent(eventKey: string) {
+    return this.request<EventTrigger>(
+      "GET",
+      `/v1/events/${encodeURIComponent(eventKey)}`
+    );
+  }
+
+  sendEvent(eventKey: string, payload?: unknown) {
+    return this.request<EventTrigger>(
+      "POST",
+      `/v1/events/${encodeURIComponent(eventKey)}/send`,
+      { payload }
+    );
+  }
+
+  /** Poll project event triggers until one matches an observable condition. */
+  async waitForEventTrigger(
+    predicate: (event: EventTrigger) => boolean,
+    timeoutMs = 30_000
+  ) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const events = await this.listEvents({ limit: 100 });
+      const match = events.data.find(predicate);
+      if (match) {
+        return match;
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    throw new Error(`No event trigger matched predicate within ${timeoutMs}ms`);
+  }
+
   // Workflows
   listWorkflows(params?: { limit?: number; search?: string }) {
     const query = new URLSearchParams();
@@ -342,10 +470,52 @@ export class ApiHelper {
   }
 
   triggerWorkflow(id: string, payload?: unknown) {
-    return this.request<{ id: string; status: string }>(
-      "POST",
-      `/v1/workflows/${id}/trigger`,
-      { project_id: this.getProjectId(), payload }
+    return this.request<WorkflowRun>("POST", `/v1/workflows/${id}/trigger`, {
+      project_id: this.getProjectId(),
+      payload,
+    });
+  }
+
+  listWorkflowRuns(
+    workflowId: string,
+    params?: { limit?: number; cursor?: string }
+  ) {
+    const query = new URLSearchParams();
+    if (params?.limit) {
+      query.set("limit", String(params.limit));
+    }
+    if (params?.cursor) {
+      query.set("cursor", params.cursor);
+    }
+    const qs = query.toString();
+    return this.request<{ data: WorkflowRun[] }>(
+      "GET",
+      `/v1/workflows/${workflowId}/runs${qs ? `?${qs}` : ""}`
+    );
+  }
+
+  getWorkflowRun(id: string) {
+    return this.request<WorkflowRun>("GET", `/v1/workflow-runs/${id}`);
+  }
+
+  /** Poll until a workflow run reaches one of the expected statuses. */
+  async waitForWorkflowRunStatus(
+    workflowRunId: string,
+    targetStatuses: string[],
+    timeoutMs = 30_000
+  ) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const run = await this.getWorkflowRun(workflowRunId);
+      if (targetStatuses.includes(run.status)) {
+        return run;
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    throw new Error(
+      `Workflow run ${workflowRunId} did not reach ${targetStatuses.join(
+        "/"
+      )} within ${timeoutMs}ms`
     );
   }
 
