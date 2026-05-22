@@ -267,6 +267,21 @@ func TestRenderTemplateVars(t *testing.T) {
 		}
 	})
 
+	t.Run("invalid marker does not block later valid template", func(t *testing.T) {
+		t.Parallel()
+		payload := json.RawMessage(`{"val":"{{}} then {{x}}"}`)
+		vars := json.RawMessage(`{"x":"done"}`)
+
+		result := renderTemplateVars(payload, vars)
+		var got map[string]any
+		if err := json.Unmarshal(result, &got); err != nil {
+			t.Fatalf("unmarshal result: %v", err)
+		}
+		if got["val"] != "{{}} then done" {
+			t.Fatalf("val = %v, want '{{}} then done'", got["val"])
+		}
+	})
+
 	t.Run("nil payload returns as-is", func(t *testing.T) {
 		t.Parallel()
 		result := renderTemplateVars(nil, json.RawMessage(`{"a":"b"}`))
@@ -496,18 +511,44 @@ func BenchmarkRenderStringValue(b *testing.B) {
 	}
 
 	b.Run("no_vars", func(b *testing.B) {
-		for range b.N {
+		b.ReportAllocs()
+		for b.Loop() {
 			renderStringValue("plain string no vars", vars)
 		}
 	})
 	b.Run("single_var", func(b *testing.B) {
-		for range b.N {
+		b.ReportAllocs()
+		for b.Loop() {
 			renderStringValue("{{name}}", vars)
 		}
 	})
 	b.Run("mixed_content", func(b *testing.B) {
-		for range b.N {
+		b.ReportAllocs()
+		for b.Loop() {
 			renderStringValue("Hello {{name}}, your count is {{count}} and email is {{email}}", vars)
+		}
+	})
+}
+
+func BenchmarkRenderStringTemplate(b *testing.B) {
+	variables := json.RawMessage(`{"prefix":"check","id":"42","suffix":"done","user":{"email":"a@b.com"}}`)
+
+	b.Run("no_vars", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = renderStringTemplate("static-key", variables)
+		}
+	})
+	b.Run("single_var", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = renderStringTemplate("aml:{{id}}", variables)
+		}
+	})
+	b.Run("mixed_content", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = renderStringTemplate("{{prefix}}:{{id}}:{{suffix}}:{{user.email}}", variables)
 		}
 	})
 }

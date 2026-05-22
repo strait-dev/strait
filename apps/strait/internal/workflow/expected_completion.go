@@ -155,24 +155,131 @@ func RecalculateExpectedCompletion(
 		return nil
 	}
 
-	// Filter to remaining steps only.
-	remaining := make([]domain.WorkflowStep, 0, len(steps))
-	for _, s := range steps {
-		if !completedRefs[s.StepRef] {
-			// Remap dependencies to only include non-completed deps.
-			filtered := domain.WorkflowStep{
-				StepRef:              s.StepRef,
-				DependsOn:            make([]string, 0, len(s.DependsOn)),
-				ExpectedDurationSecs: s.ExpectedDurationSecs,
+	remainingStepIndexes := make([]int, 0, len(steps))
+	stepIndex := make(map[string]int, len(steps))
+	hasAny := false
+	for i, s := range steps {
+		if completedRefs[s.StepRef] {
+			continue
+		}
+		stepIndex[s.StepRef] = len(remainingStepIndexes)
+		remainingStepIndexes = append(remainingStepIndexes, i)
+		if s.ExpectedDurationSecs > 0 {
+			hasAny = true
+		}
+	}
+	if len(remainingStepIndexes) == 0 || !hasAny {
+		return nil
+	}
+
+	maxDist := calculateRemainingExpectedDuration(steps, remainingStepIndexes, stepIndex)
+	if maxDist == 0 {
+		return nil
+	}
+	expected := now.Add(time.Duration(maxDist) * time.Second)
+	return &expected
+}
+
+func calculateRemainingExpectedDuration(
+	steps []domain.WorkflowStep,
+	remainingStepIndexes []int,
+	stepIndex map[string]int,
+) int {
+	inDegree := make([]int, len(remainingStepIndexes))
+	childCounts := make([]int, len(remainingStepIndexes))
+	needsDepDedup := false
+	for _, originalIdx := range remainingStepIndexes {
+		needsDepDedup = needsDepDedup || len(steps[originalIdx].DependsOn) > 1
+	}
+	var depSeen []int
+	if needsDepDedup {
+		depSeen = make([]int, len(remainingStepIndexes))
+	}
+
+	totalEdges := 0
+	for compactIdx, originalIdx := range remainingStepIndexes {
+		seenMarker := compactIdx + 1
+		for _, dep := range steps[originalIdx].DependsOn {
+			depIdx, ok := stepIndex[dep]
+			if !ok {
+				continue
 			}
-			for _, dep := range s.DependsOn {
-				if !completedRefs[dep] {
-					filtered.DependsOn = append(filtered.DependsOn, dep)
+			if depSeen != nil {
+				if depSeen[depIdx] == seenMarker {
+					continue
 				}
+				depSeen[depIdx] = seenMarker
 			}
-			remaining = append(remaining, filtered)
+			inDegree[compactIdx]++
+			childCounts[depIdx]++
+			totalEdges++
 		}
 	}
 
-	return CalculateExpectedCompletion(remaining, now)
+	dist := make([]int, len(remainingStepIndexes))
+	if totalEdges == 0 {
+		maxDist := 0
+		for compactIdx, originalIdx := range remainingStepIndexes {
+			dist[compactIdx] = steps[originalIdx].ExpectedDurationSecs
+			if dist[compactIdx] > maxDist {
+				maxDist = dist[compactIdx]
+			}
+		}
+		return maxDist
+	}
+
+	children := make([][]int, len(remainingStepIndexes))
+	edgeStorage := make([]int, totalEdges)
+	offset := 0
+	for i, count := range childCounts {
+		children[i] = edgeStorage[offset : offset : offset+count]
+		offset += count
+	}
+	for compactIdx, originalIdx := range remainingStepIndexes {
+		seenMarker := len(remainingStepIndexes) + compactIdx + 1
+		for _, dep := range steps[originalIdx].DependsOn {
+			depIdx, ok := stepIndex[dep]
+			if !ok {
+				continue
+			}
+			if depSeen != nil {
+				if depSeen[depIdx] == seenMarker {
+					continue
+				}
+				depSeen[depIdx] = seenMarker
+			}
+			children[depIdx] = append(children[depIdx], compactIdx)
+		}
+	}
+
+	queue := childCounts[:0]
+	for compactIdx, degree := range inDegree {
+		if degree == 0 {
+			queue = append(queue, compactIdx)
+			dist[compactIdx] = steps[remainingStepIndexes[compactIdx]].ExpectedDurationSecs
+		}
+	}
+
+	for i := 0; i < len(queue); i++ {
+		stepIdx := queue[i]
+		for _, childIdx := range children[stepIdx] {
+			childDur := steps[remainingStepIndexes[childIdx]].ExpectedDurationSecs
+			newDist := dist[stepIdx] + childDur
+			if newDist > dist[childIdx] {
+				dist[childIdx] = newDist
+			}
+			inDegree[childIdx]--
+			if inDegree[childIdx] == 0 {
+				queue = append(queue, childIdx)
+			}
+		}
+	}
+
+	maxDist := 0
+	for _, d := range dist {
+		if d > maxDist {
+			maxDist = d
+		}
+	}
+	return maxDist
 }

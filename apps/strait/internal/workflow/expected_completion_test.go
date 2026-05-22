@@ -179,6 +179,26 @@ func TestRecalculateExpectedCompletion_AllCompleted(t *testing.T) {
 	}
 }
 
+func TestRecalculateExpectedCompletion_CompletedParentsUnblockRemainingDAG(t *testing.T) {
+	t.Parallel()
+	steps := []domain.WorkflowStep{
+		{StepRef: "a", ExpectedDurationSecs: 5},
+		{StepRef: "b", DependsOn: []string{"a"}, ExpectedDurationSecs: 10},
+		{StepRef: "c", DependsOn: []string{"a"}, ExpectedDurationSecs: 20},
+	}
+
+	now := time.Date(2026, 1, 1, 0, 0, 5, 0, time.UTC)
+	completed := map[string]bool{"a": true}
+	got := RecalculateExpectedCompletion(steps, completed, now)
+	if got == nil {
+		t.Fatal("expected non-nil result")
+	}
+	want := now.Add(20 * time.Second)
+	if !got.Equal(want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
 // Fuzz tests for expected completion.
 
 func FuzzExpectedCompletionCalculation(f *testing.F) {
@@ -303,5 +323,28 @@ func BenchmarkCalculateExpectedCompletion(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		_ = CalculateExpectedCompletion(steps, start)
+	}
+}
+
+func BenchmarkRecalculateExpectedCompletion_PartialChain100(b *testing.B) {
+	steps := make([]domain.WorkflowStep, 100)
+	completed := make(map[string]bool, 50)
+	for i := range steps {
+		steps[i] = domain.WorkflowStep{
+			StepRef:              "step-" + string(rune('a'+i%26)) + string(rune('a'+i/26)),
+			ExpectedDurationSecs: 1,
+		}
+		if i > 0 {
+			steps[i].DependsOn = []string{steps[i-1].StepRef}
+		}
+		if i < 50 {
+			completed[steps[i].StepRef] = true
+		}
+	}
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = RecalculateExpectedCompletion(steps, completed, now)
 	}
 }

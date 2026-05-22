@@ -4,14 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
-)
 
-// templateVarRegex matches {{var_name}} placeholders in strings.
-// Variable names may contain word characters (letters, digits, underscores)
-// and dot-separated paths (e.g. "user.email").
-var templateVarRegex = regexp.MustCompile(`\{\{([a-zA-Z_]\w*(?:\.\w+)*)\}\}`)
+	"github.com/tidwall/gjson"
+)
 
 var templateMarker = []byte("{{")
 
@@ -83,14 +79,13 @@ func renderStringValue(s string, vars map[string]any) any {
 		return s
 	}
 
-	matches := templateVarRegex.FindAllStringSubmatchIndex(s, -1)
-	if len(matches) == 0 {
+	open, close, varName, ok := nextTemplateVar(s, 0)
+	if !ok {
 		return s
 	}
 
 	// Entire string is a single "{{var_name}}" — preserve the variable's type.
-	if len(matches) == 1 && matches[0][0] == 0 && matches[0][1] == len(s) {
-		varName := s[matches[0][2]:matches[0][3]]
+	if open == 0 && close == len(s) {
 		if val, ok := resolveVar(vars, varName); ok {
 			return val
 		}
@@ -101,15 +96,19 @@ func renderStringValue(s string, vars map[string]any) any {
 	var buf strings.Builder
 	buf.Grow(len(s))
 	prev := 0
-	for _, m := range matches {
-		buf.WriteString(s[prev:m[0]])
-		varName := s[m[2]:m[3]]
+	for {
+		buf.WriteString(s[prev:open])
 		if val, ok := resolveVar(vars, varName); ok {
 			buf.WriteString(stringify(val))
 		} else {
-			buf.WriteString(s[m[0]:m[1]])
+			buf.WriteString(s[open:close])
 		}
-		prev = m[1]
+		prev = close
+
+		open, close, varName, ok = nextTemplateVar(s, close)
+		if !ok {
+			break
+		}
 	}
 	buf.WriteString(s[prev:])
 	return buf.String()
@@ -118,18 +117,26 @@ func renderStringValue(s string, vars map[string]any) any {
 // resolveVar looks up a variable name in the vars map. Supports dot-separated
 // paths (e.g. "user.email" resolves vars["user"]["email"]).
 func resolveVar(vars map[string]any, name string) (any, bool) {
-	parts := strings.Split(name, ".")
 	var current any = vars
-
-	for _, part := range parts {
+	start := 0
+	for start <= len(name) {
+		dot := strings.IndexByte(name[start:], '.')
+		end := len(name)
+		if dot >= 0 {
+			end = start + dot
+		}
 		m, ok := current.(map[string]any)
 		if !ok {
 			return nil, false
 		}
-		current, ok = m[part]
+		current, ok = m[name[start:end]]
 		if !ok {
 			return nil, false
 		}
+		if dot < 0 {
+			break
+		}
+		start = end + 1
 	}
 
 	return current, true
@@ -145,21 +152,110 @@ func renderStringTemplate(template string, variables json.RawMessage) string {
 		return template
 	}
 
-	var vars map[string]any
-	if err := json.Unmarshal(variables, &vars); err != nil {
-		return template
-	}
-	if len(vars) == 0 {
+	if !gjson.ValidBytes(variables) {
 		return template
 	}
 
-	return templateVarRegex.ReplaceAllStringFunc(template, func(match string) string {
-		varName := templateVarRegex.FindStringSubmatch(match)[1]
-		if val, ok := resolveVar(vars, varName); ok {
-			return stringify(val)
+	open, close, varName, ok := nextTemplateVar(template, 0)
+	if !ok {
+		return template
+	}
+
+	var buf strings.Builder
+	buf.Grow(len(template))
+	prev := 0
+	for {
+		buf.WriteString(template[prev:open])
+		if val := gjson.GetBytes(variables, varName); val.Exists() {
+			buf.WriteString(stringifyJSONResult(val))
+		} else {
+			buf.WriteString(template[open:close])
 		}
-		return match
-	})
+		prev = close
+
+		open, close, varName, ok = nextTemplateVar(template, close)
+		if !ok {
+			break
+		}
+	}
+	buf.WriteString(template[prev:])
+	return buf.String()
+}
+
+func stringifyJSONResult(v gjson.Result) string {
+	switch v.Type {
+	case gjson.String:
+		return v.Str
+	case gjson.Number:
+		return v.Raw
+	case gjson.True:
+		return "true"
+	case gjson.False:
+		return "false"
+	case gjson.JSON:
+		return v.Raw
+	default:
+		return ""
+	}
+}
+
+func nextTemplateVar(s string, start int) (open int, close int, name string, ok bool) {
+	for start < len(s) {
+		relOpen := strings.Index(s[start:], "{{")
+		if relOpen < 0 {
+			return 0, 0, "", false
+		}
+		open = start + relOpen
+		nameStart := open + len("{{")
+		relClose := strings.Index(s[nameStart:], "}}")
+		if relClose < 0 {
+			return 0, 0, "", false
+		}
+		nameEnd := nameStart + relClose
+		close = nameEnd + len("}}")
+		name = s[nameStart:nameEnd]
+		if isTemplateVarName(name) {
+			return open, close, name, true
+		}
+		start = open + len("{{")
+	}
+	return 0, 0, "", false
+}
+
+func isTemplateVarName(name string) bool {
+	if name == "" || !isTemplateVarStart(name[0]) {
+		return false
+	}
+	previousDot := false
+	for i := 1; i < len(name); i++ {
+		c := name[i]
+		if c == '.' {
+			if previousDot || i == len(name)-1 {
+				return false
+			}
+			previousDot = true
+			continue
+		}
+		if previousDot {
+			if !isTemplateVarChar(c) {
+				return false
+			}
+			previousDot = false
+			continue
+		}
+		if !isTemplateVarChar(c) {
+			return false
+		}
+	}
+	return true
+}
+
+func isTemplateVarStart(c byte) bool {
+	return c == '_' || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+}
+
+func isTemplateVarChar(c byte) bool {
+	return isTemplateVarStart(c) || (c >= '0' && c <= '9')
 }
 
 // stringify converts a value to its string representation for interpolation.

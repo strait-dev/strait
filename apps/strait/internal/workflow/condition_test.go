@@ -163,8 +163,38 @@ func TestEvaluateCondition(t *testing.T) {
 			want:         true,
 		},
 		{
+			name:         "step_status_in: empty statuses -> false",
+			cond:         mustJSON(`{"type":"step_status_in","step_ref":"validate-data","statuses":[]}`),
+			stepStatuses: map[string]domain.StepRunStatus{"validate-data": domain.StepCompleted},
+			want:         false,
+		},
+		{
 			name:         "not: inverts nested result",
 			cond:         mustJSON(`{"type":"not","condition":{"type":"step_status","step_ref":"validate-data","status":"failed"}}`),
+			stepStatuses: map[string]domain.StepRunStatus{"validate-data": domain.StepCompleted},
+			want:         true,
+		},
+		{
+			name: "all_of: short-circuits false before missing step",
+			cond: mustJSON(`{
+				"type":"all_of",
+				"conditions":[
+					{"type":"step_status","step_ref":"validate-data","status":"failed"},
+					{"type":"step_status","step_ref":"missing-step","status":"completed"}
+				]
+			}`),
+			stepStatuses: map[string]domain.StepRunStatus{"validate-data": domain.StepCompleted},
+			want:         false,
+		},
+		{
+			name: "any_of: short-circuits true before missing step",
+			cond: mustJSON(`{
+				"type":"any_of",
+				"conditions":[
+					{"type":"step_status","step_ref":"validate-data","status":"completed"},
+					{"type":"step_status","step_ref":"missing-step","status":"completed"}
+				]
+			}`),
 			stepStatuses: map[string]domain.StepRunStatus{"validate-data": domain.StepCompleted},
 			want:         true,
 		},
@@ -212,6 +242,27 @@ func TestEvaluateCondition(t *testing.T) {
 			wantErr:      true,
 			errContains:  "step_ref is required",
 		},
+		{
+			name:         "step_status: non-string step_ref -> error",
+			cond:         mustJSON(`{"type":"step_status","step_ref":123,"status":"completed"}`),
+			stepStatuses: map[string]domain.StepRunStatus{},
+			wantErr:      true,
+			errContains:  "unmarshal step_status condition",
+		},
+		{
+			name:         "step_status_in: non-array statuses -> error",
+			cond:         mustJSON(`{"type":"step_status_in","step_ref":"validate-data","statuses":{}}`),
+			stepStatuses: map[string]domain.StepRunStatus{"validate-data": domain.StepCompleted},
+			wantErr:      true,
+			errContains:  "unmarshal step_status_in condition",
+		},
+		{
+			name:         "all_of: non-array conditions -> error",
+			cond:         mustJSON(`{"type":"all_of","conditions":{}}`),
+			stepStatuses: map[string]domain.StepRunStatus{},
+			wantErr:      true,
+			errContains:  "unmarshal all_of condition",
+		},
 	}
 
 	for _, tt := range tests {
@@ -248,15 +299,31 @@ func BenchmarkEvaluateCondition(b *testing.B) {
 	}
 
 	simple := json.RawMessage(`{"type":"step_status","step_ref":"step-1","status":"completed"}`)
+	statusIn := json.RawMessage(`{"type":"step_status_in","step_ref":"step-3","statuses":["failed","timed_out"]}`)
+	negated := json.RawMessage(`{"type":"not","condition":{"type":"step_status","step_ref":"step-3","status":"completed"}}`)
 	composite := json.RawMessage(`{"type":"all_of","conditions":[{"type":"step_status","step_ref":"step-1","status":"completed"},{"type":"step_status","step_ref":"step-2","status":"completed"},{"type":"step_status","step_ref":"step-3","status":"failed"}]}`)
 
 	b.Run("simple", func(b *testing.B) {
-		for range b.N {
+		b.ReportAllocs()
+		for b.Loop() {
 			_, _ = EvaluateCondition(simple, statuses)
 		}
 	})
+	b.Run("status_in", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_, _ = EvaluateCondition(statusIn, statuses)
+		}
+	})
+	b.Run("not", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_, _ = EvaluateCondition(negated, statuses)
+		}
+	})
 	b.Run("composite", func(b *testing.B) {
-		for range b.N {
+		b.ReportAllocs()
+		for b.Loop() {
 			_, _ = EvaluateCondition(composite, statuses)
 		}
 	})
