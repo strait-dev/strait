@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -362,7 +363,13 @@ func runServe(ctx context.Context, modeOverride string) error {
 		WithMaxNestingDepth(cfg.MaxWorkflowNestingDepth).
 		WithMetrics(metrics).
 		WithOnTriggerCreate(onTriggerCreate)
-	stepCallback := workflow.NewStepCallback(queries, workflowEngine, slog.Default()).WithMetrics(metrics).WithChExporter(chExporter)
+	onWorkflowRunStatus := func(hookCtx context.Context, run *domain.WorkflowRun, from, to domain.WorkflowRunStatus, reason string) {
+		publishWorkflowRunStatusHook(hookCtx, run, from, to, reason, pub, chExporter, queries, eventNotifier)
+	}
+	stepCallback := workflow.NewStepCallback(queries, workflowEngine, slog.Default()).
+		WithMetrics(metrics).
+		WithChExporter(chExporter).
+		WithStatusHook(onWorkflowRunStatus)
 
 	healthReg := health.NewRegistry()
 	healthReg.Register(health.NewChecker("database", func(ctx context.Context) error {
@@ -461,6 +468,98 @@ func validateBillingRedisDependency(cfg *config.Config, rdb *redis.Client) error
 		return fmt.Errorf("billing enforcement requires Redis; set REDIS_URL or disable BILLING_ENFORCEMENT_ENABLED")
 	}
 	return nil
+}
+
+type workflowRunPublisher interface {
+	Publish(ctx context.Context, channel string, payload []byte) error
+}
+
+func publishWorkflowRunStatusHook(
+	ctx context.Context,
+	run *domain.WorkflowRun,
+	from,
+	to domain.WorkflowRunStatus,
+	reason string,
+	pub workflowRunPublisher,
+	chExporter *clickhouse.Exporter,
+	queries *store.Queries,
+	eventNotifier *webhook.DeliveryWorker,
+) {
+	if run == nil {
+		return
+	}
+
+	payload, err := json.Marshal(map[string]any{
+		"type":            "workflow_status_change",
+		"workflow_run_id": run.ID,
+		"workflow_id":     run.WorkflowID,
+		"project_id":      run.ProjectID,
+		"from":            string(from),
+		"to":              string(to),
+		"reason":          reason,
+		"timestamp":       time.Now().UTC(),
+	})
+	if err != nil {
+		slog.Warn("failed to marshal workflow run hook payload", "workflow_run_id", run.ID, "error", err)
+		return
+	}
+
+	if pub != nil {
+		if err := pub.Publish(ctx, fmt.Sprintf("workflow-run:%s", run.ID), payload); err != nil {
+			slog.Warn("failed to publish workflow run hook", "workflow_run_id", run.ID, "error", err)
+		}
+		if err := pub.Publish(ctx, fmt.Sprintf("workflow:%s:runs", run.WorkflowID), payload); err != nil {
+			slog.Warn("failed to publish workflow hook", "workflow_id", run.WorkflowID, "error", err)
+		}
+	}
+
+	if to.IsTerminal() && chExporter != nil {
+		var durationMs uint64
+		if run.StartedAt != nil {
+			finishedAt := time.Now()
+			if run.FinishedAt != nil {
+				finishedAt = *run.FinishedAt
+			}
+			durationMs = uint64(max(finishedAt.Sub(*run.StartedAt).Milliseconds(), 0))
+		}
+		chExporter.Enqueue(clickhouse.WorkflowRunAnalyticsRecord{
+			WorkflowRunID: run.ID,
+			WorkflowID:    run.WorkflowID,
+			ProjectID:     run.ProjectID,
+			Status:        string(to),
+			TriggeredBy:   run.TriggeredBy,
+			StepCount:     0,
+			DurationMs:    durationMs,
+			CreatedAt:     run.CreatedAt,
+			StartedAt:     run.StartedAt,
+			FinishedAt:    run.FinishedAt,
+		})
+	}
+
+	eventType, ok := workflowWebhookEventType(to)
+	if !(ok && queries != nil && eventNotifier != nil) {
+		return
+	}
+	deliveryCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	subs, err := queries.ListWebhookSubscriptions(deliveryCtx, run.ProjectID)
+	if err != nil {
+		slog.Warn("failed to list webhook subscriptions for workflow hook", "project_id", run.ProjectID, "error", err)
+		return
+	}
+	eventNotifier.EnqueueSubscriptionWebhooks(deliveryCtx, subs, eventType, payload)
+}
+
+func workflowWebhookEventType(status domain.WorkflowRunStatus) (string, bool) {
+	switch status {
+	case domain.WfStatusCompleted:
+		return domain.WebhookEventWorkflowCompleted, true
+	case domain.WfStatusFailed, domain.WfStatusTimedOut, domain.WfStatusCanceled,
+		domain.WfStatusCompensated, domain.WfStatusCompensationFailed:
+		return domain.WebhookEventWorkflowFailed, true
+	default:
+		return "", false
+	}
 }
 
 // redisPingerAdapter wraps *redis.Client to satisfy health.RedisPinger.

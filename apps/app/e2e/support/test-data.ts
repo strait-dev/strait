@@ -68,12 +68,16 @@ export class TestDataFactory {
     return { job, run };
   }
 
-  async successfulJobRun(prefix: string) {
+  async successfulJobRun(prefix: string, timeoutMs = 30_000) {
     const job = await this.job(prefix, {
       endpoint_url: this.api.fakeEndpoint("/success"),
     });
     const run = await this.api.triggerJob(job.id, { expected: "success" });
-    await this.api.waitForRunStatus(run.id, ["completed", "succeeded"], 30_000);
+    await this.api.waitForRunStatus(
+      run.id,
+      ["completed", "succeeded"],
+      timeoutMs
+    );
     return { job, run };
   }
 

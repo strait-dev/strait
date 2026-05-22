@@ -25,13 +25,18 @@ type WebhookDelivery = {
   subscription_id?: string;
   status: string;
   attempts: number;
+  max_attempts?: number;
   last_status_code?: number;
+  created_at?: string;
 };
 
 type WorkflowRun = {
   id: string;
   workflow_id: string;
   status: string;
+  triggered_by?: string;
+  workflow_version?: number;
+  created_at?: string;
 };
 
 /** API helper for seeding and cleaning up test data via the Go backend. */
@@ -335,6 +340,7 @@ export class ApiHelper {
     limit?: number;
     cursor?: string;
     status?: string;
+    webhook_id?: string;
   }) {
     const query = new URLSearchParams();
     if (params?.limit) {
@@ -345,6 +351,9 @@ export class ApiHelper {
     }
     if (params?.status) {
       query.set("status", params.status);
+    }
+    if (params?.webhook_id) {
+      query.set("webhook_id", params.webhook_id);
     }
     const qs = query.toString();
     return this.request<{ data: WebhookDelivery[] }>(
@@ -463,6 +472,21 @@ export class ApiHelper {
       slug: data.slug ?? slugFromName(data.name),
       ...data,
     });
+  }
+
+  getWorkflow(id: string) {
+    return this.request<{ id: string; name: string; enabled: boolean }>(
+      "GET",
+      `/v1/workflows/${id}`
+    );
+  }
+
+  updateWorkflow(id: string, data: { enabled?: boolean }) {
+    return this.request<{ id: string; name: string; enabled: boolean }>(
+      "PATCH",
+      `/v1/workflows/${id}`,
+      data
+    );
   }
 
   deleteWorkflow(id: string) {

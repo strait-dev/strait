@@ -66,11 +66,15 @@ STRAIT_API_URL=http://localhost:18081 bun run e2e:core
 | `INTERNAL_SECRET` | Yes | Go API internal secret |
 | `STRAIT_API_URL` | No | Go API URL (default: `http://localhost:8080`) |
 | `E2E_FAKE_ENDPOINT_URL` | No | External fake job endpoint. When omitted, global setup starts a local endpoint automatically. |
-| `E2E_FAKE_ENDPOINT_PUBLIC_HOST` | No | Hostname published for the managed fake endpoint (default: `localtest.me`, which resolves to loopback). |
+| `E2E_FAKE_ENDPOINT_PUBLIC_HOST` | No | Hostname published for the managed fake endpoint (default: `127.0.0.1`). |
 | `BETTER_AUTH_SECRET` | Yes | Better Auth secret |
 | `BETTER_AUTH_URL` | Yes | Better Auth URL |
 
 These are injected automatically by Infisical in local development.
+
+When running the dashboard e2e tests against a local Strait backend with the
+managed fake endpoint, start the backend with `ALLOW_PRIVATE_ENDPOINTS=true` so
+job dispatch and webhook delivery can call the loopback test server.
 
 ## Adding new tests
 

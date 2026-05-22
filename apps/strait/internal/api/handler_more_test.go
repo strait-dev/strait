@@ -706,6 +706,27 @@ func TestValidateURL_PrivateIP(t *testing.T) {
 	}
 }
 
+func TestValidateURL_AllowPrivateEndpointsAllowsLoopback(t *testing.T) {
+	globalAllowPrivateEndpoints.Store(true)
+	t.Cleanup(func() { globalAllowPrivateEndpoints.Store(false) })
+
+	if err := validateURL("http://127.0.0.1:49152/webhook"); err != nil {
+		t.Fatalf("expected loopback URL to be allowed, got %v", err)
+	}
+}
+
+func TestValidateURLWithTLS_AllowPrivateEndpointsRespectsTLS(t *testing.T) {
+	globalAllowPrivateEndpoints.Store(true)
+	t.Cleanup(func() { globalAllowPrivateEndpoints.Store(false) })
+
+	if err := validateURLWithTLS("http://127.0.0.1:49152/webhook", true); err == nil {
+		t.Fatal("expected TLS requirement to reject http URL")
+	}
+	if err := validateURLWithTLS("http://127.0.0.1:49152/webhook", false); err != nil {
+		t.Fatalf("expected loopback URL to be allowed without TLS requirement, got %v", err)
+	}
+}
+
 func TestValidateURL_InvalidURL(t *testing.T) {
 	t.Parallel()
 	if err := validateURL("://bad"); err == nil {

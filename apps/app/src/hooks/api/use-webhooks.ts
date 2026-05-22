@@ -27,6 +27,26 @@ export type CreateWebhookResult = {
   signing_secret: string;
 };
 
+type WebhookSubscriptionsResponse =
+  | PaginatedResponse<WebhookSubscription>
+  | WebhookSubscription[]
+  | null;
+
+/** Normalize the legacy array response and the cursor envelope shape. */
+function normalizeWebhookSubscriptions(
+  response: WebhookSubscriptionsResponse
+): PaginatedResponse<WebhookSubscription> {
+  if (Array.isArray(response)) {
+    return { data: response, has_more: false };
+  }
+
+  return {
+    data: response?.data ?? [],
+    has_more: response?.has_more ?? false,
+    next_cursor: response?.next_cursor,
+  };
+}
+
 export const fetchWebhookSubscriptions = createServerFn({ method: "GET" })
   .inputValidator((data: ListParams) => data)
   .middleware([authMiddleware])
@@ -36,12 +56,12 @@ export const fetchWebhookSubscriptions = createServerFn({ method: "GET" })
       data,
     }): Promise<PaginatedResponse<WebhookSubscription>> => {
       await requireActiveProjectAccess(context);
-      return await runWithSentryReport(
-        apiEffect<PaginatedResponse<WebhookSubscription>>(
-          "/v1/webhooks/subscriptions",
-          { params: { limit: data.limit, cursor: data.cursor } }
-        )
+      const response = await runWithSentryReport(
+        apiEffect<WebhookSubscriptionsResponse>("/v1/webhooks/subscriptions", {
+          params: { limit: data.limit, cursor: data.cursor },
+        })
       );
+      return normalizeWebhookSubscriptions(response);
     }
   );
 

@@ -1,0 +1,89 @@
+import { ApiHelper, expect, test } from "../../fixtures";
+import { gotoAndExpect, selectTab } from "../../support/navigation";
+import { TestDataFactory } from "../../support/test-data";
+
+test.describe("Workflow detail dashboard", () => {
+  test.describe.configure({ timeout: 150_000 });
+  test.setTimeout(150_000);
+
+  let api: ApiHelper;
+  let data: TestDataFactory;
+
+  test.beforeEach(() => {
+    api = new ApiHelper();
+    data = new TestDataFactory(api);
+  });
+
+  test.afterEach(async () => {
+    await data?.cleanup.run();
+  });
+
+  test("renders workflow runs, DAG steps, settings, and pause state", async ({
+    page,
+  }) => {
+    const firstJob = await data.job("workflow-detail-root");
+    const workflow = await api.createWorkflow({
+      name: data.name("workflow-detail"),
+      description: "E2E workflow detail coverage",
+      steps: [
+        {
+          job_id: firstJob.id,
+          step_ref: "fetch-record",
+          depends_on: [],
+        },
+      ],
+    });
+    data.cleanup.add(() => api.deleteWorkflow(workflow.id));
+
+    const workflowRun = await api.triggerWorkflow(workflow.id, {
+      source: "workflow-detail-e2e",
+    });
+    const completedRun = await api.waitForWorkflowRunStatus(
+      workflowRun.id,
+      ["completed"],
+      90_000
+    );
+
+    await gotoAndExpect(
+      page,
+      `/app/workflows/${workflow.id}`,
+      page.getByRole("heading", { name: workflow.name })
+    );
+
+    await expect(page.getByText("Total Runs")).toBeVisible();
+    await expect(
+      page.getByText(completedRun.id.slice(0, 8), { exact: true })
+    ).toBeVisible();
+    await expect(page.getByText("completed").first()).toBeVisible();
+
+    await selectTab(page, "Recent Runs");
+    await expect(
+      page.getByRole("table", { name: "Workflow runs" })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("row", {
+        name: new RegExp(`${completedRun.id.slice(0, 8)}\\s+completed`, "i"),
+      })
+    ).toBeVisible();
+
+    await selectTab(page, "DAG");
+    await expect(page.getByText("fetch-record")).toBeVisible();
+    await expect(page.getByText("Job").first()).toBeVisible();
+
+    await selectTab(page, "Settings");
+    await expect(page.getByText("Version Policy")).toBeVisible();
+    await expect(page.getByText("Manual")).toBeVisible();
+
+    await page.getByRole("button", { name: "Pause" }).click();
+    await expect(page.getByRole("button", { name: "Resume" })).toBeVisible();
+    await expect
+      .poll(async () => (await api.getWorkflow(workflow.id)).enabled)
+      .toBe(false);
+
+    await page.getByRole("button", { name: "Resume" }).click();
+    await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
+    await expect
+      .poll(async () => (await api.getWorkflow(workflow.id)).enabled)
+      .toBe(true);
+  });
+});

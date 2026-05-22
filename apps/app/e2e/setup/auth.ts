@@ -71,6 +71,7 @@ export async function signInAndSaveState(
   const page = await context.newPage();
   try {
     await page.goto(`${baseURL}/app/dashboard`, {
+      timeout: 90_000,
       waitUntil: "domcontentloaded",
     });
     await page.waitForURL("**/app/**", { timeout: 15_000 });

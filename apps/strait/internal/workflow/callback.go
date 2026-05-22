@@ -22,7 +22,12 @@ type StepCallback struct {
 	logger     *slog.Logger
 	metrics    *telemetry.Metrics
 	chExporter *clickhouse.Exporter
+	statusHook WorkflowRunStatusHook
 }
+
+// WorkflowRunStatusHook observes workflow run transitions completed by the
+// callback path. It must be best-effort and must not block workflow progression.
+type WorkflowRunStatusHook func(ctx context.Context, run *domain.WorkflowRun, from, to domain.WorkflowRunStatus, reason string)
 
 type CallbackStore interface {
 	GetStepRunByJobRunID(ctx context.Context, jobRunID string) (*domain.WorkflowStepRun, error)
@@ -148,6 +153,29 @@ func (s *StepCallback) WithMetrics(m *telemetry.Metrics) *StepCallback {
 func (s *StepCallback) WithChExporter(e *clickhouse.Exporter) *StepCallback {
 	s.chExporter = e
 	return s
+}
+
+// WithStatusHook attaches a best-effort observer for workflow run transitions
+// produced by callback-driven progression.
+func (s *StepCallback) WithStatusHook(hook WorkflowRunStatusHook) *StepCallback {
+	s.statusHook = hook
+	return s
+}
+
+func (s *StepCallback) publishWorkflowRunStatus(ctx context.Context, run *domain.WorkflowRun, from, to domain.WorkflowRunStatus, reason string) {
+	if s.statusHook == nil || run == nil {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			s.logger.Error("panic in workflow status hook",
+				"workflow_run_id", run.ID,
+				"from", from,
+				"to", to,
+				"panic", r)
+		}
+	}()
+	s.statusHook(ctx, run, from, to, reason)
 }
 
 func approvalAuditActor(actor string) (string, string) {

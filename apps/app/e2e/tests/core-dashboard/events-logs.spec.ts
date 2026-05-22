@@ -1,12 +1,11 @@
-import type { Locator, Page } from "@playwright/test";
 import { ApiHelper, expect, test } from "../../fixtures";
+import { gotoAndExpect } from "../../support/navigation";
 import { TestDataFactory } from "../../support/test-data";
 
 let api: ApiHelper;
 let data: TestDataFactory;
 let eventKey: string;
 let workflowRunId: string;
-const routeLoad = { timeout: 90_000, waitUntil: "domcontentloaded" } as const;
 
 test.describe("Events and logs dashboard", () => {
   test.describe.configure({ mode: "serial", timeout: 120_000 });
@@ -110,17 +109,3 @@ test.describe("Events and logs dashboard", () => {
     ).toBeVisible();
   });
 });
-
-async function gotoAndExpect(page: Page, path: string, locator: Locator) {
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
-    await page.goto(path, routeLoad);
-    try {
-      await expect(locator).toBeVisible();
-      return;
-    } catch (error) {
-      if (attempt === 2) {
-        throw error;
-      }
-    }
-  }
-}

@@ -214,6 +214,7 @@ function WebhookDetailPage() {
 
         <TabsContent value="deliveries">
           <DataTable
+            ariaLabel="Webhook deliveries"
             emptyState={
               <TableEmptyState
                 description="No deliveries have been sent to this webhook yet."
