@@ -301,8 +301,8 @@ func TestHandleGetWorkflowRunChain(t *testing.T) {
 			GetWorkflowRunFunc: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
 				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusContinued}, nil
 			},
-			GetWorkflowRunChainFunc: func(_ context.Context, _ string) ([]domain.WorkflowRun, error) {
-				return []domain.WorkflowRun{
+			GetWorkflowRunChainFunc: func(_ context.Context, _, _ string, _ int, _ string) ([]domain.WorkflowRunChainEntry, error) {
+				return []domain.WorkflowRunChainEntry{
 					{ID: "root", LineageDepth: 0},
 					{ID: "mid", LineageDepth: 1},
 					{ID: "latest", LineageDepth: 2},
@@ -316,17 +316,91 @@ func TestHandleGetWorkflowRunChain(t *testing.T) {
 			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 		}
 		var resp struct {
-			Runs  []domain.WorkflowRun `json:"runs"`
-			Total int                  `json:"total"`
+			Data       []domain.WorkflowRunChainEntry `json:"data"`
+			NextCursor *string                        `json:"next_cursor"`
+			HasMore    bool                           `json:"has_more"`
 		}
 		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 			t.Fatalf("decode: %v", err)
 		}
-		if resp.Total != 3 || len(resp.Runs) != 3 {
-			t.Fatalf("total/len = %d/%d, want 3/3", resp.Total, len(resp.Runs))
+		if len(resp.Data) != 3 {
+			t.Fatalf("len = %d, want 3", len(resp.Data))
 		}
-		if resp.Runs[0].ID != "root" || resp.Runs[2].ID != "latest" {
-			t.Fatalf("chain order = %s..%s, want root..latest", resp.Runs[0].ID, resp.Runs[2].ID)
+		if resp.HasMore || resp.NextCursor != nil {
+			t.Fatalf("has_more/next_cursor = %v/%v, want false/nil", resp.HasMore, resp.NextCursor)
+		}
+		if resp.Data[0].ID != "root" || resp.Data[2].ID != "latest" {
+			t.Fatalf("chain order = %s..%s, want root..latest", resp.Data[0].ID, resp.Data[2].ID)
+		}
+	})
+
+	t.Run("sets next_cursor when more pages exist", func(t *testing.T) {
+		t.Parallel()
+		var gotLimit int
+		var gotCursor string
+		ms := &APIStoreMock{
+			GetWorkflowRunFunc: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusContinued}, nil
+			},
+			GetWorkflowRunChainFunc: func(_ context.Context, _, _ string, limit int, cursor string) ([]domain.WorkflowRunChainEntry, error) {
+				gotLimit, gotCursor = limit, cursor
+				// Return limit (==3) entries: one extra beyond the page size of 2.
+				return []domain.WorkflowRunChainEntry{
+					{ID: "a", LineageDepth: 0},
+					{ID: "b", LineageDepth: 1},
+					{ID: "c", LineageDepth: 2},
+				}, nil
+			},
+		}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflow-runs/a/chain?limit=2", ""))
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+		// The handler must over-fetch by one (limit+1) to detect another page.
+		if gotLimit != 3 {
+			t.Fatalf("store limit = %d, want 3 (page limit 2 + 1)", gotLimit)
+		}
+		if gotCursor != "" {
+			t.Fatalf("store cursor = %q, want empty on first page", gotCursor)
+		}
+		var resp struct {
+			Data       []domain.WorkflowRunChainEntry `json:"data"`
+			NextCursor *string                        `json:"next_cursor"`
+			HasMore    bool                           `json:"has_more"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if len(resp.Data) != 2 {
+			t.Fatalf("len = %d, want 2 (trimmed to page size)", len(resp.Data))
+		}
+		if !resp.HasMore || resp.NextCursor == nil || *resp.NextCursor != "b" {
+			t.Fatalf("has_more/next_cursor = %v/%v, want true/\"b\"", resp.HasMore, resp.NextCursor)
+		}
+	})
+
+	t.Run("threads cursor through to the store", func(t *testing.T) {
+		t.Parallel()
+		var gotCursor string
+		ms := &APIStoreMock{
+			GetWorkflowRunFunc: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusContinued}, nil
+			},
+			GetWorkflowRunChainFunc: func(_ context.Context, _, _ string, _ int, cursor string) ([]domain.WorkflowRunChainEntry, error) {
+				gotCursor = cursor
+				return []domain.WorkflowRunChainEntry{{ID: "c", LineageDepth: 2}}, nil
+			},
+		}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflow-runs/a/chain?cursor=b", ""))
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+		if gotCursor != "b" {
+			t.Fatalf("store cursor = %q, want \"b\"", gotCursor)
 		}
 	})
 
@@ -351,7 +425,7 @@ func TestHandleGetWorkflowRunChain(t *testing.T) {
 			GetWorkflowRunFunc: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
 				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", ProjectID: projectA, Status: domain.WfStatusRunning}, nil
 			},
-			GetWorkflowRunChainFunc: func(_ context.Context, _ string) ([]domain.WorkflowRun, error) {
+			GetWorkflowRunChainFunc: func(_ context.Context, _, _ string, _ int, _ string) ([]domain.WorkflowRunChainEntry, error) {
 				t.Fatal("chain must not be queried across project boundary")
 				return nil, nil
 			},

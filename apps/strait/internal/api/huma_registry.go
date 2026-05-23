@@ -1644,7 +1644,7 @@ func registerAllTypedOps(api huma.API, s *Server) {
 
 	RegisterTypedOp(api, OpMeta{
 		ID: "get-workflow-run-chain", Method: http.MethodGet, Path: "/v1/workflow-runs/{workflowRunID}/chain",
-		Summary: "Get workflow run continuation chain", Description: "Returns the full continue-as-new lineage the run belongs to, ordered root-first, so callers can jump to the first or latest run in the chain.",
+		Summary: "Get workflow run continuation chain", Description: "Returns the continue-as-new lineage the run belongs to as a cursor-paginated, root-first list of lightweight run projections, so callers can jump to the first or latest run in the chain. Use limit and cursor to page; fetch full run detail via the run-detail endpoint.",
 		Tags: []string{"Workflow Runs"}, Security: bearerSecurity, Errors: []int{401, 404, 500},
 	}, s.handleGetWorkflowRunChain)
 

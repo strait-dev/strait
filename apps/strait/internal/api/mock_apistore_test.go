@@ -485,7 +485,7 @@ var _ APIStore = &APIStoreMock{}
 //			GetWorkflowRunFunc: func(ctx context.Context, id string) (*domain.WorkflowRun, error) {
 //				panic("mock out the GetWorkflowRun method")
 //			},
-//			GetWorkflowRunChainFunc: func(ctx context.Context, anyRunID string) ([]domain.WorkflowRun, error) {
+//			GetWorkflowRunChainFunc: func(ctx context.Context, anyRunID string, projectID string, limit int, cursor string) ([]domain.WorkflowRunChainEntry, error) {
 //				panic("mock out the GetWorkflowRunChain method")
 //			},
 //			GetWorkflowStepApprovalByStepRunIDFunc: func(ctx context.Context, stepRunID string) (*domain.WorkflowStepApproval, error) {
@@ -1360,7 +1360,7 @@ type APIStoreMock struct {
 	GetWorkflowRunFunc func(ctx context.Context, id string) (*domain.WorkflowRun, error)
 
 	// GetWorkflowRunChainFunc mocks the GetWorkflowRunChain method.
-	GetWorkflowRunChainFunc func(ctx context.Context, anyRunID string) ([]domain.WorkflowRun, error)
+	GetWorkflowRunChainFunc func(ctx context.Context, anyRunID string, projectID string, limit int, cursor string) ([]domain.WorkflowRunChainEntry, error)
 
 	// GetWorkflowStepApprovalByStepRunIDFunc mocks the GetWorkflowStepApprovalByStepRunID method.
 	GetWorkflowStepApprovalByStepRunIDFunc func(ctx context.Context, stepRunID string) (*domain.WorkflowStepApproval, error)
@@ -3052,6 +3052,12 @@ type APIStoreMock struct {
 			Ctx context.Context
 			// AnyRunID is the anyRunID argument value.
 			AnyRunID string
+			// ProjectID is the projectID argument value.
+			ProjectID string
+			// Limit is the limit argument value.
+			Limit int
+			// Cursor is the cursor argument value.
+			Cursor string
 		}
 		// GetWorkflowStepApprovalByStepRunID holds details about calls to the GetWorkflowStepApprovalByStepRunID method.
 		GetWorkflowStepApprovalByStepRunID []struct {
@@ -11219,25 +11225,31 @@ func (mock *APIStoreMock) GetWorkflowRunCalls() []struct {
 }
 
 // GetWorkflowRunChain calls GetWorkflowRunChainFunc.
-func (mock *APIStoreMock) GetWorkflowRunChain(ctx context.Context, anyRunID string) ([]domain.WorkflowRun, error) {
+func (mock *APIStoreMock) GetWorkflowRunChain(ctx context.Context, anyRunID string, projectID string, limit int, cursor string) ([]domain.WorkflowRunChainEntry, error) {
 	callInfo := struct {
-		Ctx      context.Context
-		AnyRunID string
+		Ctx       context.Context
+		AnyRunID  string
+		ProjectID string
+		Limit     int
+		Cursor    string
 	}{
-		Ctx:      ctx,
-		AnyRunID: anyRunID,
+		Ctx:       ctx,
+		AnyRunID:  anyRunID,
+		ProjectID: projectID,
+		Limit:     limit,
+		Cursor:    cursor,
 	}
 	mock.lockGetWorkflowRunChain.Lock()
 	mock.calls.GetWorkflowRunChain = append(mock.calls.GetWorkflowRunChain, callInfo)
 	mock.lockGetWorkflowRunChain.Unlock()
 	if mock.GetWorkflowRunChainFunc == nil {
 		var (
-			workflowRunsOut []domain.WorkflowRun
-			errOut          error
+			workflowRunChainEntrysOut []domain.WorkflowRunChainEntry
+			errOut                    error
 		)
-		return workflowRunsOut, errOut
+		return workflowRunChainEntrysOut, errOut
 	}
-	return mock.GetWorkflowRunChainFunc(ctx, anyRunID)
+	return mock.GetWorkflowRunChainFunc(ctx, anyRunID, projectID, limit, cursor)
 }
 
 // GetWorkflowRunChainCalls gets all the calls that were made to GetWorkflowRunChain.
@@ -11245,12 +11257,18 @@ func (mock *APIStoreMock) GetWorkflowRunChain(ctx context.Context, anyRunID stri
 //
 //	len(mockedAPIStore.GetWorkflowRunChainCalls())
 func (mock *APIStoreMock) GetWorkflowRunChainCalls() []struct {
-	Ctx      context.Context
-	AnyRunID string
+	Ctx       context.Context
+	AnyRunID  string
+	ProjectID string
+	Limit     int
+	Cursor    string
 } {
 	var calls []struct {
-		Ctx      context.Context
-		AnyRunID string
+		Ctx       context.Context
+		AnyRunID  string
+		ProjectID string
+		Limit     int
+		Cursor    string
 	}
 	mock.lockGetWorkflowRunChain.RLock()
 	calls = mock.calls.GetWorkflowRunChain

@@ -595,12 +595,17 @@ func (s *Server) handleContinueWorkflowRunAsNew(ctx context.Context, input *Cont
 
 type GetWorkflowRunChainInput struct {
 	WorkflowRunID string `path:"workflowRunID"`
+	Limit         string `query:"limit"`
+	Cursor        string `query:"cursor"`
 }
-type GetWorkflowRunChainOutput struct{ Body any }
+type GetWorkflowRunChainOutput struct{ Body PaginatedResponse }
 
-// handleGetWorkflowRunChain returns the full continue-as-new lineage that the
-// given run belongs to, ordered root-first, so callers can jump to the first or
-// latest run in a continuation chain.
+// handleGetWorkflowRunChain returns one cursor-paginated page of the
+// continue-as-new lineage the given run belongs to, ordered root-first, so
+// callers can navigate to the first or latest run in a continuation chain
+// without materializing the whole chain. Each entry is a lightweight projection;
+// full run detail is fetched on demand via the run-detail endpoint. The cursor
+// is the id of the last run on the previous page.
 func (s *Server) handleGetWorkflowRunChain(ctx context.Context, input *GetWorkflowRunChainInput) (*GetWorkflowRunChainOutput, error) {
 	run, err := s.store.GetWorkflowRun(ctx, input.WorkflowRunID)
 	if err != nil {
@@ -613,7 +618,11 @@ func (s *Server) handleGetWorkflowRunChain(ctx context.Context, input *GetWorkfl
 		return nil, huma.Error404NotFound("workflow run not found")
 	}
 
-	chain, err := s.store.GetWorkflowRunChain(ctx, input.WorkflowRunID)
+	limit := parseLimitParam(input.Limit)
+
+	// Scope the walk to the run's project so an untrusted cursor cannot reach
+	// another tenant's chain.
+	chain, err := s.store.GetWorkflowRunChain(ctx, input.WorkflowRunID, run.ProjectID, limit+1, input.Cursor)
 	if err != nil {
 		if errors.Is(err, store.ErrWorkflowRunNotFound) {
 			return nil, huma.Error404NotFound("workflow run not found")
@@ -621,7 +630,9 @@ func (s *Server) handleGetWorkflowRunChain(ctx context.Context, input *GetWorkfl
 		return nil, huma.Error500InternalServerError("failed to get workflow run chain")
 	}
 
-	return &GetWorkflowRunChainOutput{Body: map[string]any{"runs": chain, "total": len(chain)}}, nil
+	return &GetWorkflowRunChainOutput{Body: paginatedResult(chain, limit, func(e domain.WorkflowRunChainEntry) string {
+		return e.ID
+	})}, nil
 }
 
 type workflowRunGraphNode struct {

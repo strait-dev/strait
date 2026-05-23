@@ -1381,6 +1381,21 @@ type WorkflowRun struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+// WorkflowRunChainEntry is a lightweight projection of a workflow run for
+// continue-as-new chain navigation. It carries only the fields a chain list UI
+// needs to render a row and link to the full run detail, deliberately omitting
+// the heavy columns (payload, tags, trace_context) so a long chain can be paged
+// cheaply rather than materialized in full.
+type WorkflowRunChainEntry struct {
+	ID           string            `json:"id"`
+	LineageDepth int               `json:"lineage_depth"`
+	Status       WorkflowRunStatus `json:"status"`
+	TriggeredBy  string            `json:"triggered_by"`
+	StartedAt    *time.Time        `json:"started_at,omitempty"`
+	FinishedAt   *time.Time        `json:"finished_at,omitempty"`
+	CreatedAt    time.Time         `json:"created_at"`
+}
+
 // WorkflowStepRun represents execution of a single step within a workflow run.
 type WorkflowStepRun struct {
 	ID             string          `json:"id"`

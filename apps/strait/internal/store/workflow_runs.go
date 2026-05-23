@@ -592,72 +592,129 @@ func (q *Queries) ContinueWorkflowRunBootstrap(ctx context.Context, predecessorI
 	return q.withTx(ctx, bootstrap)
 }
 
-// GetWorkflowRunChain returns the full continue-as-new lineage that anyRunID
-// belongs to, ordered from the chain root (the run with no predecessor) to the
-// latest successor. It walks up via continued_from_workflow_run_id to find the
-// root, then forward through the predecessor links to assemble the ordered
-// series. A run with no continuations yields a single-element chain. The
-// recursion is depth-bounded as a defensive guard against malformed lineage.
-func (q *Queries) GetWorkflowRunChain(ctx context.Context, anyRunID string) ([]domain.WorkflowRun, error) {
+// GetWorkflowRunChain returns one page of the continue-as-new lineage that
+// anyRunID belongs to, ordered from the chain root (the run with no predecessor)
+// to the latest successor. It returns a lightweight projection
+// (domain.WorkflowRunChainEntry) rather than full runs, and is cursor-paginated
+// so a long chain is never materialized in full: callers fetch full detail for a
+// specific run on demand via GetWorkflowRun.
+//
+// Paging is anchored on run ids:
+//   - cursor == "" requests the first page. The chain root is located by walking
+//     up continued_from_workflow_run_id from anyRunID, then the page is read
+//     forward from the root. Root discovery is the only depth-proportional work
+//     and it walks an indexed single-column FK; everything else is O(limit).
+//   - cursor != "" requests the page that follows the run whose id is cursor.
+//     The forward walk seeds directly at that run's successor
+//     (continued_from_workflow_run_id = cursor, served by
+//     idx_workflow_runs_continued_from), so subsequent pages cost O(limit) with
+//     no root re-discovery.
+//
+// limit bounds the number of rows returned; callers pass page-size+1 to detect
+// whether more pages remain. An empty first page means anyRunID does not exist
+// in projectID (ErrWorkflowRunNotFound); an empty subsequent page simply means
+// the chain ends at the cursor.
+//
+// The walk is scoped to projectID so that a caller-supplied cursor (untrusted
+// input) can never pull runs from another tenant's chain: a continue-as-new
+// chain never crosses projects, so this scoping is both correct and a hard
+// tenant-isolation boundary.
+func (q *Queries) GetWorkflowRunChain(ctx context.Context, anyRunID, projectID string, limit int, cursor string) ([]domain.WorkflowRunChainEntry, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetWorkflowRunChain")
 	defer span.End()
 
-	query := `
-		WITH RECURSIVE ancestors AS (
-			SELECT id, continued_from_workflow_run_id, 0 AS up_depth
-			FROM workflow_runs
-			WHERE id = $1
-			UNION ALL
-			SELECT wr.id, wr.continued_from_workflow_run_id, a.up_depth + 1
-			FROM workflow_runs wr
-			JOIN ancestors a ON wr.id = a.continued_from_workflow_run_id
-			WHERE a.up_depth < 1000000
-		),
-		root AS (
-			SELECT id
-			FROM ancestors
-			WHERE continued_from_workflow_run_id IS NULL
-			ORDER BY up_depth DESC
-			LIMIT 1
-		),
-		chain AS (
-			SELECT wr.*, 0 AS chain_pos
-			FROM workflow_runs wr
-			JOIN root ON wr.id = root.id
-			UNION ALL
-			SELECT wr.*, c.chain_pos + 1
-			FROM workflow_runs wr
-			JOIN chain c ON wr.continued_from_workflow_run_id = c.id
-			WHERE c.chain_pos < 1000000
-		)
-		SELECT id, workflow_id, project_id, status, triggered_by, payload,
-		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at,
-		       continued_from_workflow_run_id, continued_to_workflow_run_id, lineage_depth
-		FROM chain
-		ORDER BY chain_pos ASC`
+	if limit <= 0 {
+		limit = 1
+	}
 
-	rows, err := q.db.Query(ctx, query, anyRunID)
+	// The recursive chain CTE carries only (id, continued_to, pos) so the walk
+	// stays cheap; the projection columns are joined onto the final page only.
+	const projection = `
+		SELECT wr.id, wr.lineage_depth, wr.status, wr.triggered_by,
+		       wr.started_at, wr.finished_at, wr.created_at
+		FROM chain c
+		JOIN workflow_runs wr ON wr.id = c.id
+		ORDER BY c.pos ASC
+		LIMIT $2`
+
+	var query string
+	seed := anyRunID
+	if cursor == "" {
+		query = `
+			WITH RECURSIVE ancestors AS (
+				SELECT id, continued_from_workflow_run_id, 0 AS up_depth
+				FROM workflow_runs
+				WHERE id = $1 AND project_id = $3
+				UNION ALL
+				SELECT wr.id, wr.continued_from_workflow_run_id, a.up_depth + 1
+				FROM workflow_runs wr
+				JOIN ancestors a ON wr.id = a.continued_from_workflow_run_id
+				WHERE a.up_depth < 1000000 AND wr.project_id = $3
+			),
+			root AS (
+				SELECT id
+				FROM ancestors
+				WHERE continued_from_workflow_run_id IS NULL
+				ORDER BY up_depth DESC
+				LIMIT 1
+			),
+			chain AS (
+				SELECT wr.id, wr.continued_to_workflow_run_id, 0 AS pos
+				FROM workflow_runs wr
+				JOIN root ON wr.id = root.id
+				UNION ALL
+				SELECT wr.id, wr.continued_to_workflow_run_id, c.pos + 1
+				FROM workflow_runs wr
+				JOIN chain c ON wr.id = c.continued_to_workflow_run_id
+				WHERE c.pos < $2 - 1 AND wr.project_id = $3
+			)` + projection
+	} else {
+		seed = cursor
+		query = `
+			WITH RECURSIVE chain AS (
+				SELECT wr.id, wr.continued_to_workflow_run_id, 0 AS pos
+				FROM workflow_runs wr
+				WHERE wr.continued_from_workflow_run_id = $1 AND wr.project_id = $3
+				UNION ALL
+				SELECT wr.id, wr.continued_to_workflow_run_id, c.pos + 1
+				FROM workflow_runs wr
+				JOIN chain c ON wr.id = c.continued_to_workflow_run_id
+				WHERE c.pos < $2 - 1 AND wr.project_id = $3
+			)` + projection
+	}
+
+	rows, err := q.db.Query(ctx, query, seed, limit, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("get workflow run chain: %w", err)
 	}
 	defer rows.Close()
 
-	chain := make([]domain.WorkflowRun, 0, 8)
+	entries := make([]domain.WorkflowRunChainEntry, 0, limit)
 	for rows.Next() {
-		run, scanErr := scanWorkflowRun(rows)
-		if scanErr != nil {
+		var entry domain.WorkflowRunChainEntry
+		var startedAt, finishedAt *time.Time
+		if scanErr := rows.Scan(
+			&entry.ID,
+			&entry.LineageDepth,
+			&entry.Status,
+			&entry.TriggeredBy,
+			&startedAt,
+			&finishedAt,
+			&entry.CreatedAt,
+		); scanErr != nil {
 			return nil, fmt.Errorf("get workflow run chain scan: %w", scanErr)
 		}
-		chain = append(chain, *run)
+		entry.StartedAt = startedAt
+		entry.FinishedAt = finishedAt
+		entries = append(entries, entry)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("get workflow run chain rows: %w", err)
 	}
-	if len(chain) == 0 {
+	if cursor == "" && len(entries) == 0 {
 		return nil, ErrWorkflowRunNotFound
 	}
-	return chain, nil
+	return entries, nil
 }
 
 func (q *Queries) ListStalledWorkflowRuns(ctx context.Context, threshold time.Duration) ([]domain.WorkflowRun, error) {
