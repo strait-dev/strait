@@ -9,7 +9,7 @@ var validTransitions = map[RunStatus][]RunStatus{
 	StatusQueued:       {StatusDequeued, StatusCanceled, StatusExpired},
 	StatusDequeued:     {StatusExecuting, StatusQueued, StatusCanceled, StatusSystemFailed},
 	StatusExecuting:    {StatusCompleted, StatusFailed, StatusTimedOut, StatusCrashed, StatusCanceled, StatusWaiting, StatusQueued, StatusSystemFailed, StatusDeadLetter, StatusPaused},
-	StatusWaiting:      {StatusExecuting, StatusCompleted, StatusFailed, StatusCanceled, StatusTimedOut},
+	StatusWaiting:      {StatusExecuting, StatusQueued, StatusCompleted, StatusFailed, StatusCanceled, StatusTimedOut},
 	StatusCompleted:    {},
 	StatusFailed:       {},
 	StatusTimedOut:     {},

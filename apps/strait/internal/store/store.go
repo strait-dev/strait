@@ -425,6 +425,12 @@ type Queries struct {
 	auditSigningKey         []byte
 	maxSLOWindowHours       int
 
+	// singletonLeaseTTL is the window a job singleton lock's lease is extended
+	// to on every heartbeat batch. Zero disables lease extension (the reaper
+	// then relies solely on terminal/missing-holder detection). Set from
+	// STALE_THRESHOLD at construction.
+	singletonLeaseTTL time.Duration
+
 	// chDB is an optional *sql.DB connected to ClickHouse. When non-nil,
 	// GetJobCostEstimate queries run_analytics for a rolling average instead
 	// of falling back to the flat-rate constant. May be nil when ClickHouse
@@ -461,6 +467,7 @@ func (q *Queries) withDB(db DBTX) *Queries {
 		auditSigningKey:          q.auditSigningKey,
 		maxSLOWindowHours:        q.maxSLOWindowHours,
 		chDB:                     q.chDB,
+		singletonLeaseTTL:        q.singletonLeaseTTL,
 		tombstoneInsertHook:      q.tombstoneInsertHook,
 		auditEventPostInsertHook: q.auditEventPostInsertHook,
 	}
@@ -480,6 +487,13 @@ func (q *Queries) SetAuditSigningKey(key []byte) {
 
 func (q *Queries) SetMaxSLOWindowHours(hours int) {
 	q.maxSLOWindowHours = hours
+}
+
+// SetSingletonLeaseTTL configures how far ahead a job singleton lock's lease is
+// pushed on every heartbeat batch. Pass STALE_THRESHOLD; zero disables lease
+// extension.
+func (q *Queries) SetSingletonLeaseTTL(ttl time.Duration) {
+	q.singletonLeaseTTL = ttl
 }
 
 // SetClickHouseDB wires an optional ClickHouse *sql.DB into the store so that

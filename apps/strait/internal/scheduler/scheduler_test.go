@@ -284,6 +284,14 @@ func (m *mockSchedulerStore) GetRunFromHistory(_ context.Context, _ string) (*do
 	return nil, nil
 }
 
+func (m *mockSchedulerStore) ListReapableSingletonJobHolders(ctx context.Context) ([]string, error) {
+	return m.reaper.ListReapableSingletonJobHolders(ctx)
+}
+
+func (m *mockSchedulerStore) ReleaseSingletonJobLockAndPromote(ctx context.Context, holderRunID string, leaseTTL time.Duration) (bool, string, error) {
+	return m.reaper.ReleaseSingletonJobLockAndPromote(ctx, holderRunID, leaseTTL)
+}
+
 func testSchedulerConfig() *config.Config {
 	return &config.Config{
 		PollerInterval:           100 * time.Millisecond,

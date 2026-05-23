@@ -48,6 +48,8 @@ type mockReaperStore struct {
 	deleteEventTriggersFinishedBeforeFn       func(ctx context.Context, before time.Time, limit int) (int64, error)
 	cancelNonTerminalStepRunsFn               func(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
 	cancelJobRunsByWorkflowRunFn              func(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
+	listReapableSingletonHoldersFn            func(ctx context.Context) ([]string, error)
+	releaseSingletonAndPromoteFn              func(ctx context.Context, holderRunID string, leaseTTL time.Duration) (bool, string, error)
 }
 
 type mockCronStore struct {
@@ -432,6 +434,20 @@ func (m *mockReaperStore) PurgeQuarantinedOutboxOlderThan(_ context.Context, _ t
 
 func (m *mockReaperStore) GetRunFromHistory(_ context.Context, _ string) (*domain.JobRun, error) {
 	return nil, nil
+}
+
+func (m *mockReaperStore) ListReapableSingletonJobHolders(ctx context.Context) ([]string, error) {
+	if m.listReapableSingletonHoldersFn != nil {
+		return m.listReapableSingletonHoldersFn(ctx)
+	}
+	return nil, nil
+}
+
+func (m *mockReaperStore) ReleaseSingletonJobLockAndPromote(ctx context.Context, holderRunID string, leaseTTL time.Duration) (bool, string, error) {
+	if m.releaseSingletonAndPromoteFn != nil {
+		return m.releaseSingletonAndPromoteFn(ctx, holderRunID, leaseTTL)
+	}
+	return false, "", nil
 }
 
 // mockWorkflowCallback implements WorkflowCallback for testing.

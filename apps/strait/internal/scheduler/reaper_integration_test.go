@@ -26,6 +26,12 @@ type baseReaperStore struct{}
 func (baseReaperStore) ListStaleRuns(_ context.Context, _ time.Duration) ([]domain.JobRun, error) {
 	return nil, nil
 }
+func (baseReaperStore) ListReapableSingletonJobHolders(_ context.Context) ([]string, error) {
+	return nil, nil
+}
+func (baseReaperStore) ReleaseSingletonJobLockAndPromote(_ context.Context, _ string, _ time.Duration) (bool, string, error) {
+	return false, "", nil
+}
 func (baseReaperStore) ListExpiredRuns(_ context.Context) ([]domain.JobRun, error) {
 	return nil, nil
 }

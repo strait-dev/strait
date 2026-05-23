@@ -56,6 +56,17 @@ type Metrics struct {
 	WorkflowStepWaitDuration metric.Float64Histogram
 	WorkflowStalledRuns      metric.Int64Counter
 
+	// Singleton (mutex) execution metrics.
+	//
+	// SingletonAcquisitions counts locks claimed (at trigger and on promotion),
+	// labeled by kind (job|workflow). SingletonConflicts counts triggers that
+	// found the key already held, labeled by kind and policy (queue|drop|replace).
+	// SingletonStaleReclaimed counts locks the reaper released from terminal,
+	// missing, or lease-expired holders.
+	SingletonAcquisitions   metric.Int64Counter
+	SingletonConflicts      metric.Int64Counter
+	SingletonStaleReclaimed metric.Int64Counter
+
 	// Worker pool gauges (reported via ObservePool callback).
 	PoolRunningWorkers metric.Int64ObservableGauge
 	PoolWaitingTasks   metric.Int64ObservableGauge
@@ -512,6 +523,33 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		return nil, nil, nil, fmt.Errorf("create workflow stalled runs counter: %w", err)
 	}
 
+	singletonAcquisitions, err := meter.Int64Counter(
+		"strait_singleton_acquisitions_total",
+		metric.WithDescription("Total singleton lock acquisitions by kind (at trigger and on promotion)"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create singleton acquisitions counter: %w", err)
+	}
+
+	singletonConflicts, err := meter.Int64Counter(
+		"strait_singleton_conflicts_total",
+		metric.WithDescription("Total singleton trigger conflicts by kind and on-conflict policy"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create singleton conflicts counter: %w", err)
+	}
+
+	singletonStaleReclaimed, err := meter.Int64Counter(
+		"strait_singleton_stale_lease_reclaimed_total",
+		metric.WithDescription("Total singleton locks reclaimed by the reaper from terminal, missing, or lease-expired holders"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create singleton stale reclaimed counter: %w", err)
+	}
+
 	poolRunning, err := meter.Int64ObservableGauge(
 		"strait_worker_pool_running",
 		metric.WithDescription("Number of goroutines currently executing tasks"),
@@ -844,6 +882,9 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		WorkflowDependencyWaits:      workflowDependencyWaits,
 		WorkflowStepWaitDuration:     workflowStepWaitDuration,
 		WorkflowStalledRuns:          workflowStalledRuns,
+		SingletonAcquisitions:        singletonAcquisitions,
+		SingletonConflicts:           singletonConflicts,
+		SingletonStaleReclaimed:      singletonStaleReclaimed,
 		PoolRunningWorkers:           poolRunning,
 		PoolWaitingTasks:             poolWaiting,
 		PoolSubmittedTasks:           poolSubmitted,

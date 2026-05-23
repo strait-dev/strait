@@ -172,6 +172,144 @@ func (q *Queries) CancelSingletonJobWaiters(ctx context.Context, jobID, lockKey,
 	return tag.RowsAffected(), nil
 }
 
+// ReleaseSingletonJobLockAndPromote releases the singleton lock held by
+// holderRunID (a job run) and, if a waiter is parked behind the same key,
+// promotes the oldest one: it re-points the lock to that waiter and transitions
+// the waiter waiting -> queued so the dequeue loop picks it up next.
+//
+// The whole operation runs in one transaction that takes a row lock on the
+// holder's lock row, so concurrent callers serialize: the executor fast-path
+// and the reaper can both fire for the same holder, yet the key is released and
+// promoted at most once. A second caller that arrives after the first commits
+// finds no lock row and returns (false, "", nil).
+//
+// Returns (released, promotedRunID, error): released is true when a lock row was
+// deleted, promotedRunID names the waiter that was promoted ("" when the key is
+// now free). leaseTTL sets the promoted holder's lease window (0 leaves it NULL).
+func (q *Queries) ReleaseSingletonJobLockAndPromote(ctx context.Context, holderRunID string, leaseTTL time.Duration) (bool, string, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ReleaseSingletonJobLockAndPromote")
+	defer span.End()
+
+	var released bool
+	var promotedRunID string
+
+	err := q.withTx(ctx, func(txQ *Queries) error {
+		// Lock the holder's row to serialize releases for this key. SELECT ...
+		// FOR UPDATE blocks a concurrent releaser until we commit; it then sees
+		// the deleted row and falls into the no-rows branch.
+		var projectID, ownerID, lockKey string
+		err := txQ.db.QueryRow(ctx, `
+			SELECT project_id, owner_id, lock_key
+			FROM singleton_locks
+			WHERE holder_run_id = $1 AND kind = $2
+			FOR UPDATE`,
+			holderRunID, string(domain.SingletonKindJob),
+		).Scan(&projectID, &ownerID, &lockKey)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil // already released; nothing to do
+			}
+			return fmt.Errorf("lock singleton holder row: %w", err)
+		}
+
+		if _, err := txQ.db.Exec(ctx,
+			`DELETE FROM singleton_locks WHERE holder_run_id = $1`, holderRunID,
+		); err != nil {
+			return fmt.Errorf("delete singleton lock: %w", err)
+		}
+		released = true
+
+		// Pick the oldest parked waiter (FIFO). The replace policy leaves at most
+		// one waiter behind a key, so the same oldest-first pick serves both
+		// queue and replace.
+		var waiterID string
+		err = txQ.db.QueryRow(ctx, `
+			SELECT id FROM job_runs
+			WHERE job_id = $1 AND singleton_key = $2 AND status = 'waiting'
+			ORDER BY created_at ASC, id ASC
+			LIMIT 1
+			FOR UPDATE SKIP LOCKED`,
+			ownerID, lockKey,
+		).Scan(&waiterID)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil // key is now free
+			}
+			return fmt.Errorf("find singleton waiter: %w", err)
+		}
+
+		var leaseUntil *time.Time
+		if leaseTTL > 0 {
+			t := time.Now().Add(leaseTTL)
+			leaseUntil = &t
+		}
+		if _, err := txQ.db.Exec(ctx, `
+			INSERT INTO singleton_locks (project_id, kind, owner_id, lock_key, holder_run_id, lease_until)
+			VALUES ($1, $2, $3, $4, $5, $6)`,
+			projectID, string(domain.SingletonKindJob), ownerID, lockKey, waiterID, leaseUntil,
+		); err != nil {
+			return fmt.Errorf("reacquire singleton lock for waiter: %w", err)
+		}
+
+		if err := txQ.UpdateRunStatus(ctx, waiterID, domain.StatusWaiting, domain.StatusQueued, nil); err != nil {
+			return fmt.Errorf("promote singleton waiter: %w", err)
+		}
+		promotedRunID = waiterID
+		return nil
+	})
+	if err != nil {
+		return false, "", err
+	}
+	return released, promotedRunID, nil
+}
+
+// ListReapableSingletonJobHolders returns the holder_run_ids of job singleton
+// locks that the reaper should release: the holder run is missing (deleted by
+// retention), already terminal (the fast-path release was missed), or has
+// crashed mid-execution (status executing/dequeued with an expired lease).
+//
+// Queued or waiting holders are deliberately excluded: they have not started,
+// so they cannot have crashed and must keep their lock until they run.
+func (q *Queries) ListReapableSingletonJobHolders(ctx context.Context) ([]string, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListReapableSingletonJobHolders")
+	defer span.End()
+
+	const query = `
+		SELECT sl.holder_run_id
+		FROM singleton_locks sl
+		WHERE sl.kind = 'job'
+		  AND (
+		      NOT EXISTS (SELECT 1 FROM job_runs jr WHERE jr.id = sl.holder_run_id)
+		      OR EXISTS (
+		          SELECT 1 FROM job_runs jr
+		          WHERE jr.id = sl.holder_run_id
+		            AND (
+		                jr.status IN ('completed','failed','timed_out','crashed','system_failed','canceled','expired','dead_letter')
+		                OR (jr.status IN ('executing','dequeued') AND sl.lease_until IS NOT NULL AND sl.lease_until < NOW())
+		            )
+		      )
+		  )`
+
+	rows, err := q.db.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list reapable singleton holders: %w", err)
+	}
+	defer rows.Close()
+
+	ids := make([]string, 0, 16)
+	for rows.Next() {
+		var id string
+		if scanErr := rows.Scan(&id); scanErr != nil {
+			return nil, fmt.Errorf("list reapable singleton holders scan: %w", scanErr)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list reapable singleton holders rows: %w", err)
+	}
+	return ids, nil
+}
+
 func scanSingletonLock(scanner scanTarget) (*domain.SingletonLock, error) {
 	var lock domain.SingletonLock
 	var kind string

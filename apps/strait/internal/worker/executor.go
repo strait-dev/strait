@@ -64,6 +64,7 @@ type ExecutorStore interface {
 		lastLatencyMs float64,
 	) (*domain.EndpointHealthScore, error)
 	CountExecutingRunsByOrg(ctx context.Context, orgID string) (int, error)
+	ReleaseSingletonJobLockAndPromote(ctx context.Context, holderRunID string, leaseTTL time.Duration) (bool, string, error)
 }
 
 type executionPolicy struct {
@@ -187,6 +188,10 @@ type Executor struct {
 	// resolveInstanceID and cached for the life of the executor.
 	instanceIDOnce sync.Once
 	instanceID     string
+	// singletonLeaseTTL is the lease window stamped on a singleton lock when a
+	// parked waiter is promoted by the terminal fast-path. Mirrors the value the
+	// trigger path uses (STALE_THRESHOLD). Zero leaves the promoted lease NULL.
+	singletonLeaseTTL time.Duration
 }
 
 type ConcurrencyLimitProvider interface {
@@ -205,7 +210,10 @@ type ExecutorConfig struct {
 	HTTPClient                 *http.Client
 	PollInterval               time.Duration
 	HeartbeatInterval          time.Duration
-	Metrics                    *telemetry.Metrics
+	// SingletonLeaseTTL is the lease window the terminal fast-path stamps on a
+	// singleton lock when promoting a parked waiter. Set from STALE_THRESHOLD.
+	SingletonLeaseTTL time.Duration
+	Metrics           *telemetry.Metrics
 	WorkflowCallback           WorkflowCallback
 	Partitions                 []string
 	PartitionWeights           string
@@ -365,6 +373,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		queueSnapshotter:         cfg.QueueSnapshotter,
 		workerDispatcher:         cfg.WorkerDispatcher,
 		queueMetrics:             resolveQueueMetrics(),
+		singletonLeaseTTL:        cfg.SingletonLeaseTTL,
 	}
 }
 
@@ -547,6 +556,40 @@ func (e *Executor) notifyWorkflowCallback(ctx context.Context, run *domain.JobRu
 			e.logger.Error("workflow callback failed", "run_id", run.ID, "error", err)
 		}
 	})
+}
+
+// releaseSingletonLock is the terminal-transition fast-path for singleton job
+// locks: when the just-finished run held a key, it releases the lock and
+// promotes the next parked waiter (waiting -> queued) so a serialized successor
+// starts within milliseconds instead of waiting for the next reaper cycle. It is
+// best-effort and idempotent; the reaper is the authoritative net. When job is
+// known and carries no singleton config the lookup is skipped entirely, so the
+// common (non-singleton) terminal path pays nothing. Pass job=nil to force the
+// indexed holder lookup (the system-failure path has no job in scope).
+func (e *Executor) releaseSingletonLock(ctx context.Context, run *domain.JobRun, job *domain.Job) {
+	if run == nil || run.ID == "" {
+		return
+	}
+	if job != nil && job.SingletonOnConflict == "" {
+		return
+	}
+
+	released, promotedRunID, err := e.store.ReleaseSingletonJobLockAndPromote(ctx, run.ID, e.singletonLeaseTTL)
+	if err != nil {
+		e.logger.Error("failed to release singleton lock", "run_id", run.ID, "error", err)
+		return
+	}
+	if !released {
+		return
+	}
+	if e.metrics != nil && e.metrics.SingletonAcquisitions != nil && promotedRunID != "" {
+		e.metrics.SingletonAcquisitions.Add(ctx, 1, metric.WithAttributes(
+			attribute.String("kind", string(domain.SingletonKindJob)),
+		))
+	}
+	if promotedRunID != "" {
+		e.logger.Info("promoted singleton waiter", "released_run_id", run.ID, "promoted_run_id", promotedRunID)
+	}
 }
 
 func (e *Executor) publishEvent(ctx context.Context, run *domain.JobRun, data map[string]any) {

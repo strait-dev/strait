@@ -763,8 +763,11 @@ func (s *Server) applyJobSingletonPolicy(ctx context.Context, tx store.DBTX, job
 		return false, "", "", fmt.Errorf("acquire singleton lock: %w", err)
 	}
 	if acquired {
+		s.recordSingletonAcquisition(ctx, domain.SingletonKindJob)
 		return true, domain.SingletonOutcomeDispatched, "", nil
 	}
+
+	s.recordSingletonConflict(ctx, domain.SingletonKindJob, job.SingletonOnConflict)
 
 	holderID := ""
 	if holder != nil {
@@ -811,6 +814,29 @@ func (s *Server) applyJobSingletonPolicy(ctx context.Context, tx store.DBTX, job
 	default:
 		return false, "", "", fmt.Errorf("unknown singleton on-conflict policy %q", job.SingletonOnConflict)
 	}
+}
+
+// recordSingletonAcquisition increments the acquisitions counter for a key
+// claimed at trigger time, labeled by kind. Nil-safe for tests/metric-less runs.
+func (s *Server) recordSingletonAcquisition(ctx context.Context, kind domain.SingletonKind) {
+	if s.metrics == nil || s.metrics.SingletonAcquisitions == nil {
+		return
+	}
+	s.metrics.SingletonAcquisitions.Add(ctx, 1, otelmetric.WithAttributes(
+		otelattr.String("kind", string(kind)),
+	))
+}
+
+// recordSingletonConflict increments the conflicts counter when a trigger loses
+// the race for a key, labeled by kind and the on-conflict policy applied.
+func (s *Server) recordSingletonConflict(ctx context.Context, kind domain.SingletonKind, policy domain.SingletonOnConflict) {
+	if s.metrics == nil || s.metrics.SingletonConflicts == nil {
+		return
+	}
+	s.metrics.SingletonConflicts.Add(ctx, 1, otelmetric.WithAttributes(
+		otelattr.String("kind", string(kind)),
+		otelattr.String("policy", string(policy)),
+	))
 }
 
 // cancelSingletonHolderJob transitions the current holder job-run to canceled so

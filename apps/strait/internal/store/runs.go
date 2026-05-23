@@ -2812,6 +2812,19 @@ func (q *Queries) BatchUpdateHeartbeat(ctx context.Context, ids []string) error 
 		return fmt.Errorf("batch update heartbeat: %w", err)
 	}
 
+	// Extend the lease of any job singleton locks held by these runs so the
+	// reaper does not reclaim a key from a live, heartbeating holder. Workflow
+	// holders have a NULL lease and are skipped by the guard.
+	if q.singletonLeaseTTL > 0 {
+		leaseUntil := time.Now().Add(q.singletonLeaseTTL)
+		if _, err := q.db.Exec(ctx,
+			`UPDATE singleton_locks SET lease_until = $2 WHERE holder_run_id = ANY($1) AND lease_until IS NOT NULL`,
+			ids, leaseUntil,
+		); err != nil {
+			return fmt.Errorf("extend singleton leases: %w", err)
+		}
+	}
+
 	return q.BatchUpsertHeartbeatSideTable(ctx, ids)
 }
 

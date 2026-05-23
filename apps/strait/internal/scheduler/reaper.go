@@ -75,6 +75,8 @@ type ReaperStore interface {
 	DeleteOutboxHistoryPastRetention(ctx context.Context, cutoff time.Time, limit int) (int64, error)
 	PurgeQuarantinedOutboxOlderThan(ctx context.Context, cutoff time.Time, limit int) (int64, error)
 	GetRunFromHistory(ctx context.Context, id string) (*domain.JobRun, error)
+	ListReapableSingletonJobHolders(ctx context.Context) ([]string, error)
+	ReleaseSingletonJobLockAndPromote(ctx context.Context, holderRunID string, leaseTTL time.Duration) (bool, string, error)
 }
 
 // DLQMonitorStore is an optional interface for DLQ depth monitoring.
@@ -401,6 +403,7 @@ func (r *Reaper) runMaintenanceCycle(ctx context.Context) {
 	r.reapStaleDequeued(ctx)
 	r.reapStale(ctx)
 	r.reapExpired(ctx)
+	r.reapSingletonLocks(ctx)
 	r.reapTimedOutWorkflows(ctx)
 	r.reapExpiredApprovals(ctx)
 	r.reapApprovalReminders(ctx)
@@ -986,6 +989,56 @@ func (r *Reaper) reapStale(ctx context.Context) {
 
 		slog.Warn("stale run marked crashed", "run_id", run.ID, "job_id", run.JobID)
 	}
+}
+
+// reapSingletonLocks is the authoritative net for singleton lock release. The
+// executor's terminal fast-path handles the common completion case; this catches
+// the rest: holders whose run row was deleted by retention, holders left in a
+// terminal state (canceled by the replace policy, or a fast-path that errored),
+// and holders that crashed mid-execution (lease expired). For each, it releases
+// the lock and promotes the next parked waiter so a key never deadlocks.
+func (r *Reaper) reapSingletonLocks(ctx context.Context) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "reaper.ReapSingletonLocks")
+	defer span.End()
+	const operation = "reap_singleton_locks"
+
+	holders, err := r.store.ListReapableSingletonJobHolders(ctx)
+	if err != nil {
+		slog.Error("failed to list reapable singleton holders", "error", err)
+		r.recordOperation(ctx, operation, "error")
+		return
+	}
+	r.recordOperation(ctx, operation, "success")
+
+	for _, holderRunID := range holders {
+		released, promotedRunID, relErr := r.store.ReleaseSingletonJobLockAndPromote(ctx, holderRunID, r.staleThreshold)
+		if relErr != nil {
+			slog.Error("failed to reap singleton lock", "holder_run_id", holderRunID, "error", relErr)
+			continue
+		}
+		if !released {
+			continue // another releaser won the race
+		}
+		r.recordSingletonReclaimed(ctx)
+		if promotedRunID != "" {
+			r.recordSingletonAcquisition(ctx, domain.SingletonKindJob)
+			slog.Info("reaper promoted singleton waiter", "released_run_id", holderRunID, "promoted_run_id", promotedRunID)
+		}
+	}
+}
+
+func (r *Reaper) recordSingletonReclaimed(ctx context.Context) {
+	if r.metrics == nil || r.metrics.SingletonStaleReclaimed == nil {
+		return
+	}
+	r.metrics.SingletonStaleReclaimed.Add(ctx, 1)
+}
+
+func (r *Reaper) recordSingletonAcquisition(ctx context.Context, kind domain.SingletonKind) {
+	if r.metrics == nil || r.metrics.SingletonAcquisitions == nil {
+		return
+	}
+	r.metrics.SingletonAcquisitions.Add(ctx, 1, metric.WithAttributes(attribute.String("kind", string(kind))))
 }
 
 func (r *Reaper) reapExpired(ctx context.Context) {
