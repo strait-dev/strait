@@ -1091,6 +1091,13 @@ func workerQueueRefArgs(refs []domain.WorkerQueueRef) ([]string, []string, []str
 	if len(refs) == 0 {
 		return nil, nil, nil
 	}
+	if len(refs) == 1 {
+		ref := refs[0]
+		if ref.ProjectID == "" || ref.QueueName == "" {
+			return nil, nil, nil
+		}
+		return []string{ref.ProjectID}, []string{ref.QueueName}, []string{ref.EnvironmentID}
+	}
 	seen := make(map[domain.WorkerQueueRef]struct{}, len(refs))
 	projectIDs := make([]string, 0, len(refs))
 	queueNames := make([]string, 0, len(refs))
