@@ -750,76 +750,97 @@ func resolveJobSingletonKey(job *domain.Job, override string, payload json.RawMe
 // and the relevant holder run id.
 func (s *Server) applyJobSingletonPolicy(ctx context.Context, tx store.DBTX, job *domain.Job, run *domain.JobRun, key string) (bool, domain.SingletonOutcome, string, error) {
 	txQ := store.New(tx)
-	// Acquire with a NULL lease. The lock is taken at trigger time, but the
-	// holder run does not start executing until a worker dequeues it, which can
-	// be much later than StaleThreshold under load. Stamping a lease here would
-	// let it expire while the run still sits queued/dequeued, so the reaper would
-	// reclaim the key and promote a waiter while the original holder is about to
-	// run -> double execution. Instead the lease is set by the first heartbeat
-	// once the holder is actually executing (see BatchUpdateHeartbeat); until
-	// then the holder is protected by the run-status stale checks, not the lease.
-	acquired, holder, err := txQ.AcquireSingletonLock(ctx, domain.SingletonLock{
-		ProjectID:   job.ProjectID,
-		Kind:        domain.SingletonKindJob,
-		OwnerID:     job.ID,
-		LockKey:     key,
-		HolderRunID: run.ID,
-		LeaseUntil:  nil,
-	})
-	if err != nil {
-		return false, "", "", fmt.Errorf("acquire singleton lock: %w", err)
-	}
-	if acquired {
-		s.recordSingletonAcquisition(ctx, domain.SingletonKindJob)
-		return true, domain.SingletonOutcomeDispatched, "", nil
-	}
 
-	s.recordSingletonConflict(ctx, domain.SingletonKindJob, job.SingletonOnConflict)
-
-	holderID := ""
-	if holder != nil {
-		holderID = holder.HolderRunID
-	}
-
-	switch job.SingletonOnConflict {
-	case domain.SingletonOnConflictDrop:
-		return false, domain.SingletonOutcomeDropped, holderID, nil
-
-	case domain.SingletonOnConflictQueue:
-		waiters, cerr := txQ.CountSingletonWaiters(ctx, domain.SingletonKindJob, job.ID, key)
-		if cerr != nil {
-			return false, "", "", fmt.Errorf("count singleton waiters: %w", cerr)
+	// On conflict we serialize the rest of the decision behind a FOR UPDATE lock
+	// on the holder row so the queue-depth check and park cannot interleave with
+	// another waiter. The enclosing trigger transaction already holds a per-project
+	// advisory lock, but pinning the holder keeps the cap correct even if that
+	// guard ever changes and mirrors the workflow path. If the holder is released
+	// in the narrow window between our acquire attempt and that lock, the key is
+	// free again and we retry the acquire; the bound guards against a pathological
+	// acquire/release storm livelocking the transaction.
+	const maxAcquireAttempts = 8
+	for attempt := 1; ; attempt++ {
+		// Acquire with a NULL lease. The lock is taken at trigger time, but the
+		// holder run does not start executing until a worker dequeues it, which can
+		// be much later than StaleThreshold under load. Stamping a lease here would
+		// let it expire while the run still sits queued/dequeued, so the reaper would
+		// reclaim the key and promote a waiter while the original holder is about to
+		// run -> double execution. Instead the lease is set by the first heartbeat
+		// once the holder is actually executing (see BatchUpdateHeartbeat); until
+		// then the holder is protected by the run-status stale checks, not the lease.
+		acquired, _, err := txQ.AcquireSingletonLock(ctx, domain.SingletonLock{
+			ProjectID:   job.ProjectID,
+			Kind:        domain.SingletonKindJob,
+			OwnerID:     job.ID,
+			LockKey:     key,
+			HolderRunID: run.ID,
+			LeaseUntil:  nil,
+		})
+		if err != nil {
+			return false, "", "", fmt.Errorf("acquire singleton lock: %w", err)
 		}
-		if job.SingletonMaxQueueDepth != nil && waiters >= *job.SingletonMaxQueueDepth {
-			return false, domain.SingletonOutcomeDropped, holderID, nil
+		if acquired {
+			s.recordSingletonAcquisition(ctx, domain.SingletonKindJob)
+			return true, domain.SingletonOutcomeDispatched, "", nil
 		}
-		run.Status = domain.StatusWaiting
-		if cerr := txQ.CreateRun(ctx, run); cerr != nil {
-			return false, "", "", fmt.Errorf("park singleton run: %w", cerr)
-		}
-		return false, domain.SingletonOutcomeQueuedBehind, holderID, nil
 
-	case domain.SingletonOnConflictReplace:
-		// Discard any waiters already parked behind the holder so the
-		// just-triggered run becomes the sole successor (keep newest).
-		if _, cerr := txQ.CancelSingletonJobWaiters(ctx, job.ID, key, "superseded by singleton replace"); cerr != nil {
-			return false, "", "", fmt.Errorf("cancel singleton waiters: %w", cerr)
-		}
-		if holderID != "" {
-			if cerr := cancelSingletonHolderJob(ctx, txQ, holderID); cerr != nil {
-				return false, "", "", fmt.Errorf("cancel singleton holder: %w", cerr)
+		// Lost the acquire race: pin the holder row for the rest of this
+		// transaction before reading the waiter count or parking.
+		holder, lerr := txQ.LockSingletonHolderForUpdate(ctx, job.ProjectID, domain.SingletonKindJob, job.ID, key)
+		if errors.Is(lerr, store.ErrSingletonLockNotFound) {
+			if attempt >= maxAcquireAttempts {
+				return false, "", "", fmt.Errorf("acquire singleton lock: key %q churned without a stable holder after %d attempts", key, attempt)
 			}
+			continue // key freed under us; retry the acquire
 		}
-		// Park the newcomer; it acquires the key when the canceled holder's
-		// terminal transition releases and promotes it (Phase 3 fast-path/reaper).
-		run.Status = domain.StatusWaiting
-		if cerr := txQ.CreateRun(ctx, run); cerr != nil {
-			return false, "", "", fmt.Errorf("park singleton replacement run: %w", cerr)
+		if lerr != nil {
+			return false, "", "", fmt.Errorf("lock singleton holder: %w", lerr)
 		}
-		return false, domain.SingletonOutcomeReplaced, holderID, nil
+		holderID := holder.HolderRunID
 
-	default:
-		return false, "", "", fmt.Errorf("unknown singleton on-conflict policy %q", job.SingletonOnConflict)
+		s.recordSingletonConflict(ctx, domain.SingletonKindJob, job.SingletonOnConflict)
+
+		switch job.SingletonOnConflict {
+		case domain.SingletonOnConflictDrop:
+			return false, domain.SingletonOutcomeDropped, holderID, nil
+
+		case domain.SingletonOnConflictQueue:
+			waiters, cerr := txQ.CountSingletonWaiters(ctx, domain.SingletonKindJob, job.ID, key)
+			if cerr != nil {
+				return false, "", "", fmt.Errorf("count singleton waiters: %w", cerr)
+			}
+			if job.SingletonMaxQueueDepth != nil && waiters >= *job.SingletonMaxQueueDepth {
+				return false, domain.SingletonOutcomeDropped, holderID, nil
+			}
+			run.Status = domain.StatusWaiting
+			if cerr := txQ.CreateRun(ctx, run); cerr != nil {
+				return false, "", "", fmt.Errorf("park singleton run: %w", cerr)
+			}
+			return false, domain.SingletonOutcomeQueuedBehind, holderID, nil
+
+		case domain.SingletonOnConflictReplace:
+			// Discard any waiters already parked behind the holder so the
+			// just-triggered run becomes the sole successor (keep newest).
+			if _, cerr := txQ.CancelSingletonJobWaiters(ctx, job.ID, key, "superseded by singleton replace"); cerr != nil {
+				return false, "", "", fmt.Errorf("cancel singleton waiters: %w", cerr)
+			}
+			if holderID != "" {
+				if cerr := cancelSingletonHolderJob(ctx, txQ, holderID); cerr != nil {
+					return false, "", "", fmt.Errorf("cancel singleton holder: %w", cerr)
+				}
+			}
+			// Park the newcomer; it acquires the key when the canceled holder's
+			// terminal transition releases and promotes it (Phase 3 fast-path/reaper).
+			run.Status = domain.StatusWaiting
+			if cerr := txQ.CreateRun(ctx, run); cerr != nil {
+				return false, "", "", fmt.Errorf("park singleton replacement run: %w", cerr)
+			}
+			return false, domain.SingletonOutcomeReplaced, holderID, nil
+
+		default:
+			return false, "", "", fmt.Errorf("unknown singleton on-conflict policy %q", job.SingletonOnConflict)
+		}
 	}
 }
 

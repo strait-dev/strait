@@ -49,81 +49,109 @@ func (q *Queries) CreateWorkflowRunSingletonBootstrap(
 	var runCreated bool
 
 	err := q.withTx(ctx, func(txQ *Queries) error {
-		acquired, holder, aerr := txQ.AcquireSingletonLock(ctx, domain.SingletonLock{
-			ProjectID:   run.ProjectID,
-			Kind:        domain.SingletonKindWorkflow,
-			OwnerID:     run.WorkflowID,
-			LockKey:     key,
-			HolderRunID: run.ID,
-			LeaseUntil:  nil, // workflow holders: terminal/missing check only
-		})
-		if aerr != nil {
-			return fmt.Errorf("acquire workflow singleton lock: %w", aerr)
-		}
-
-		if acquired {
-			if err := txQ.bootstrapWorkflowRunTx(ctx, run, stepRuns, startedAt); err != nil {
-				return err
+		// On conflict we serialize the rest of the decision behind a FOR UPDATE
+		// lock on the holder row. If the holder is released in the narrow window
+		// between our acquire attempt and that lock, the key is free again and we
+		// retry the acquire. The bound guards against a pathological acquire/
+		// release storm on the same key livelocking the transaction.
+		const maxAcquireAttempts = 8
+		for attempt := 1; ; attempt++ {
+			acquired, _, aerr := txQ.AcquireSingletonLock(ctx, domain.SingletonLock{
+				ProjectID:   run.ProjectID,
+				Kind:        domain.SingletonKindWorkflow,
+				OwnerID:     run.WorkflowID,
+				LockKey:     key,
+				HolderRunID: run.ID,
+				LeaseUntil:  nil, // workflow holders: terminal/missing check only
+			})
+			if aerr != nil {
+				return fmt.Errorf("acquire workflow singleton lock: %w", aerr)
 			}
-			outcome = domain.SingletonOutcomeDispatched
-			runCreated = true
-			return nil
-		}
 
-		// Conflict: name the run that currently holds the key so the caller can
-		// report it. On acquire the holder is the newcomer itself, so it is only
-		// meaningful here.
-		if holder != nil {
-			holderRunID = holder.HolderRunID
-		}
-
-		switch onConflict {
-		case domain.SingletonOnConflictDrop:
-			outcome = domain.SingletonOutcomeDropped
-			return nil
-
-		case domain.SingletonOnConflictQueue:
-			waiters, cerr := txQ.CountSingletonWaiters(ctx, domain.SingletonKindWorkflow, run.WorkflowID, key)
-			if cerr != nil {
-				return fmt.Errorf("count workflow singleton waiters: %w", cerr)
-			}
-			if maxQueueDepth != nil && waiters >= *maxQueueDepth {
-				outcome = domain.SingletonOutcomeDropped
+			if acquired {
+				if err := txQ.bootstrapWorkflowRunTx(ctx, run, stepRuns, startedAt); err != nil {
+					return err
+				}
+				outcome = domain.SingletonOutcomeDispatched
+				runCreated = true
 				return nil
 			}
-			if err := txQ.parkWorkflowRunTx(ctx, run, stepRuns); err != nil {
-				return err
-			}
-			outcome = domain.SingletonOutcomeQueuedBehind
-			runCreated = true
-			return nil
 
-		case domain.SingletonOnConflictReplace:
-			// Discard any waiters already parked behind the holder so the newcomer
-			// is the sole successor (keep newest).
-			if _, cerr := txQ.cancelSingletonWorkflowWaitersTx(ctx, run.WorkflowID, key, "superseded by singleton replace"); cerr != nil {
-				return fmt.Errorf("cancel workflow singleton waiters: %w", cerr)
-			}
-			if holderRunID != "" {
-				if cerr := txQ.cancelSingletonWorkflowHolderTx(ctx, holderRunID, "canceled by singleton replace policy"); cerr != nil {
-					return fmt.Errorf("cancel workflow singleton holder: %w", cerr)
+			// Lost the acquire race: pin the holder row for the rest of this
+			// transaction so the queue-depth check and park cannot interleave with
+			// another waiter or a release.
+			holder, lerr := txQ.LockSingletonHolderForUpdate(ctx, run.ProjectID, domain.SingletonKindWorkflow, run.WorkflowID, key)
+			if errors.Is(lerr, ErrSingletonLockNotFound) {
+				if attempt >= maxAcquireAttempts {
+					return fmt.Errorf("acquire workflow singleton lock: key %q churned without a stable holder after %d attempts", key, attempt)
 				}
+				continue // key freed under us; retry the acquire
 			}
-			if err := txQ.parkWorkflowRunTx(ctx, run, stepRuns); err != nil {
-				return err
+			if lerr != nil {
+				return lerr
 			}
-			outcome = domain.SingletonOutcomeReplaced
-			runCreated = true
-			return nil
+			holderRunID = holder.HolderRunID
 
-		default:
-			return fmt.Errorf("unknown singleton on-conflict policy %q", onConflict)
+			var cerr error
+			outcome, runCreated, cerr = txQ.applyWorkflowSingletonConflictTx(ctx, run, stepRuns, key, holderRunID, onConflict, maxQueueDepth)
+			return cerr
 		}
 	})
 	if err != nil {
 		return "", "", false, err
 	}
 	return outcome, holderRunID, runCreated, nil
+}
+
+// applyWorkflowSingletonConflictTx resolves the on-conflict policy for a workflow
+// run that lost the acquire race, with the holder row already pinned FOR UPDATE by
+// the caller. It returns the resulting outcome and whether a run row was created.
+// Must run inside the bootstrap transaction.
+func (q *Queries) applyWorkflowSingletonConflictTx(
+	ctx context.Context,
+	run *domain.WorkflowRun,
+	stepRuns []domain.WorkflowStepRun,
+	key string,
+	holderRunID string,
+	onConflict domain.SingletonOnConflict,
+	maxQueueDepth *int,
+) (domain.SingletonOutcome, bool, error) {
+	switch onConflict {
+	case domain.SingletonOnConflictDrop:
+		return domain.SingletonOutcomeDropped, false, nil
+
+	case domain.SingletonOnConflictQueue:
+		waiters, cerr := q.CountSingletonWaiters(ctx, domain.SingletonKindWorkflow, run.WorkflowID, key)
+		if cerr != nil {
+			return "", false, fmt.Errorf("count workflow singleton waiters: %w", cerr)
+		}
+		if maxQueueDepth != nil && waiters >= *maxQueueDepth {
+			return domain.SingletonOutcomeDropped, false, nil
+		}
+		if err := q.parkWorkflowRunTx(ctx, run, stepRuns); err != nil {
+			return "", false, err
+		}
+		return domain.SingletonOutcomeQueuedBehind, true, nil
+
+	case domain.SingletonOnConflictReplace:
+		// Discard any waiters already parked behind the holder so the newcomer
+		// is the sole successor (keep newest).
+		if _, cerr := q.cancelSingletonWorkflowWaitersTx(ctx, run.WorkflowID, key, "superseded by singleton replace"); cerr != nil {
+			return "", false, fmt.Errorf("cancel workflow singleton waiters: %w", cerr)
+		}
+		if holderRunID != "" {
+			if cerr := q.cancelSingletonWorkflowHolderTx(ctx, holderRunID, "canceled by singleton replace policy"); cerr != nil {
+				return "", false, fmt.Errorf("cancel workflow singleton holder: %w", cerr)
+			}
+		}
+		if err := q.parkWorkflowRunTx(ctx, run, stepRuns); err != nil {
+			return "", false, err
+		}
+		return domain.SingletonOutcomeReplaced, true, nil
+
+	default:
+		return "", false, fmt.Errorf("unknown singleton on-conflict policy %q", onConflict)
+	}
 }
 
 // bootstrapWorkflowRunTx inserts a workflow run, transitions it pending -> running,

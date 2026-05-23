@@ -4,6 +4,7 @@ package store_test
 
 import (
 	"context"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -576,5 +577,71 @@ func TestCreateWorkflowRunSingletonBootstrap_ConcurrentAcquire(t *testing.T) {
 	}
 	if dropped != n-1 {
 		t.Fatalf("dropped = %d, want %d", dropped, n-1)
+	}
+}
+
+// TestCreateWorkflowRunSingletonBootstrap_ConcurrentQueueCap is the Phase B
+// regression: with a held key and the queue policy capped at K, N concurrent
+// arrivals must park exactly K waiters and drop the rest. Without serializing the
+// cap check behind the holder row (FOR UPDATE), two arrivals could both read a
+// stale under-cap count and both park, overflowing the depth. The cap is checked
+// for several K so an off-by-one in the bound shows up.
+func TestCreateWorkflowRunSingletonBootstrap_ConcurrentQueueCap(t *testing.T) {
+	for _, cap := range []int{0, 1, 5} {
+		t.Run("cap="+strconv.Itoa(cap), func(t *testing.T) {
+			ctx := context.Background()
+			q := stStore(t)
+			stClean(t, ctx)
+
+			projectID := "proj-" + uuid.Must(uuid.NewV7()).String()
+			wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{ProjectID: &projectID})
+			stepJob := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: &projectID})
+			step := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, &testutil.WorkflowStepOpts{JobID: &stepJob.ID})
+			const key = "k-cap-race"
+
+			// Seed the holder so every concurrent arrival contends for the queue.
+			holderRun, hs := wfSingletonInputs(t, wf, step, key)
+			if _, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, holderRun, hs, time.Now(), key, domain.SingletonOnConflictQueue, &cap); err != nil {
+				t.Fatalf("bootstrap holder error = %v", err)
+			}
+
+			const n = 16
+			capN := cap
+			var queued, dropped int64
+			var wg conc.WaitGroup
+			for range n {
+				wg.Go(func() {
+					cq := store.New(testDB.Pool)
+					run, srs := wfSingletonInputs(t, wf, step, key)
+					outcome, _, _, err := cq.CreateWorkflowRunSingletonBootstrap(ctx, run, srs, time.Now(), key, domain.SingletonOnConflictQueue, &capN)
+					if err != nil {
+						return
+					}
+					switch outcome {
+					case domain.SingletonOutcomeQueuedBehind:
+						atomic.AddInt64(&queued, 1)
+					case domain.SingletonOutcomeDropped:
+						atomic.AddInt64(&dropped, 1)
+					}
+				})
+			}
+			wg.Wait()
+
+			if int(queued) != cap {
+				t.Fatalf("queued = %d, want exactly cap %d", queued, cap)
+			}
+			if int(dropped) != n-cap {
+				t.Fatalf("dropped = %d, want %d", dropped, n-cap)
+			}
+			// The authoritative count from the DB must also respect the cap: never
+			// more parked waiters than the bound allows.
+			parked, err := q.CountSingletonWaiters(ctx, domain.SingletonKindWorkflow, wf.ID, key)
+			if err != nil {
+				t.Fatalf("CountSingletonWaiters() error = %v", err)
+			}
+			if parked != cap {
+				t.Fatalf("parked waiters = %d, want cap %d", parked, cap)
+			}
+		})
 	}
 }

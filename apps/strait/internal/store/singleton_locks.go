@@ -80,6 +80,36 @@ func (q *Queries) GetSingletonHolder(ctx context.Context, projectID string, kind
 	return lock, nil
 }
 
+// LockSingletonHolderForUpdate reads the lock row for (project, kind, owner,
+// lock_key) and takes a FOR UPDATE row lock on it, serializing callers that lost
+// the acquire race for the same key. Holding this lock for the rest of the
+// transaction pins the holder: a concurrent waiter blocks here until we commit
+// (so two waiters cannot both pass a queue-depth check and both park), and a
+// concurrent release/promote must take the same row lock and therefore waits.
+//
+// Returns ErrSingletonLockNotFound when the key was freed between the acquire
+// attempt and this call; the caller should retry AcquireSingletonLock. Must run
+// inside a transaction.
+func (q *Queries) LockSingletonHolderForUpdate(ctx context.Context, projectID string, kind domain.SingletonKind, ownerID, lockKey string) (*domain.SingletonLock, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.LockSingletonHolderForUpdate")
+	defer span.End()
+
+	const query = `
+		SELECT project_id, kind, owner_id, lock_key, holder_run_id, acquired_at, lease_until
+		FROM singleton_locks
+		WHERE project_id = $1 AND kind = $2 AND owner_id = $3 AND lock_key = $4
+		FOR UPDATE`
+
+	lock, err := scanSingletonLock(q.db.QueryRow(ctx, query, projectID, string(kind), ownerID, lockKey))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrSingletonLockNotFound
+		}
+		return nil, fmt.Errorf("lock singleton holder for update: %w", err)
+	}
+	return lock, nil
+}
+
 // ReleaseSingletonLock removes the lock held by holderRunID, if any. It is
 // idempotent: releasing a run that holds no lock returns (false, nil). Releasing
 // by holder id (indexed) is safe to call from both the terminal-transition
