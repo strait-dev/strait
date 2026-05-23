@@ -231,6 +231,17 @@ func (s *Server) checkCronOverlapPolicy(ctx context.Context, projectID, policy s
 	)
 }
 
+// checkSingletonOnConflict verifies that the requested singleton on-conflict
+// policy is allowed on the plan. queue and drop are broadly available; replace
+// is gated behind FeatureSingletonReplace (community fails open). Empty policy
+// means the owner is not a singleton, so it is always allowed.
+func (s *Server) checkSingletonOnConflict(ctx context.Context, projectID, policy string) error {
+	if policy != string(domain.SingletonOnConflictReplace) {
+		return nil
+	}
+	return s.checkFeatureAllowed(ctx, projectID, billing.FeatureSingletonReplace, "Singleton replace policy")
+}
+
 // checkEnvironmentLimit verifies that the org has not exceeded its
 // plan's MaxEnvironments. Counts environments across ALL projects in the org
 // to match the downgrade cleanup logic (DeactivateExcessEnvironments).

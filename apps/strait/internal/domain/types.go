@@ -315,70 +315,73 @@ type AuditChainVerification struct {
 }
 
 type Job struct {
-	ID                        string            `json:"id"`
-	ProjectID                 string            `json:"project_id"`
-	GroupID                   string            `json:"group_id,omitempty"`
-	Name                      string            `json:"name"`
-	Slug                      string            `json:"slug"`
-	Description               string            `json:"description,omitempty"`
-	Cron                      string            `json:"cron,omitempty"`
-	PayloadSchema             json.RawMessage   `json:"payload_schema,omitempty"`
-	Tags                      map[string]string `json:"tags,omitempty"`
-	EndpointURL               string            `json:"endpoint_url"`
-	FallbackEndpointURL       string            `json:"fallback_endpoint_url,omitempty"`
-	MaxAttempts               int               `json:"max_attempts"`
-	TimeoutSecs               int               `json:"timeout_secs"`
-	MaxConcurrency            int               `json:"max_concurrency,omitempty"`
-	MaxConcurrencyPerKey      int               `json:"max_concurrency_per_key,omitempty"`
-	ExecutionWindowCron       string            `json:"execution_window_cron,omitempty"`
-	Timezone                  string            `json:"timezone,omitempty"`
-	RateLimitMax              int               `json:"rate_limit_max,omitempty"`
-	RateLimitWindowSecs       int               `json:"rate_limit_window_secs,omitempty"`
-	RateLimitKeys             []RateLimitKey    `json:"rate_limit_keys,omitempty"`
-	DedupWindowSecs           int               `json:"dedup_window_secs,omitempty"`
-	Enabled                   bool              `json:"enabled"`
-	Paused                    bool              `json:"paused"`
-	PausedAt                  *time.Time        `json:"paused_at,omitempty"`
-	PauseReason               string            `json:"pause_reason,omitempty"`
-	WebhookURL                string            `json:"webhook_url,omitempty"`
-	WebhookSecret             string            `json:"-"`
-	RunTTLSecs                int               `json:"run_ttl_secs,omitempty"`
-	RetryStrategy             string            `json:"retry_strategy,omitempty"`
-	RetryDelaysSecs           []int             `json:"retry_delays_secs,omitempty"`
-	RetryPriorityBoost        int               `json:"retry_priority_boost,omitempty"`
-	DLQAlertThreshold         *int              `json:"dlq_alert_threshold,omitempty"`
-	QueueDepthAlertThreshold  *int              `json:"queue_depth_alert_threshold,omitempty"`
-	PoisonPillThreshold       *int              `json:"poison_pill_threshold,omitempty"`
-	EnvironmentID             string            `json:"environment_id,omitempty"`
-	DefaultRunMetadata        map[string]string `json:"default_run_metadata,omitempty"`
-	Version                   int               `json:"version"`
-	VersionID                 string            `json:"version_id,omitempty"`
-	VersionPolicy             VersionPolicy     `json:"version_policy,omitempty"`
-	BackwardsCompatible       bool              `json:"backwards_compatible,omitempty"`
-	CronOverlapPolicy         CronOverlapPolicy `json:"cron_overlap_policy,omitempty"`
-	ResultSchema              json.RawMessage   `json:"result_schema,omitempty"`
-	DebounceWindowSecs        int               `json:"debounce_window_secs,omitempty"`
-	BatchWindowSecs           int               `json:"batch_window_secs,omitempty"`
-	BatchMaxSize              int               `json:"batch_max_size,omitempty"`
-	ExecutionMode             ExecutionMode     `json:"execution_mode,omitempty"`
-	Queue                     string            `json:"queue,omitempty"`
-	PreferredRegions          []string          `json:"preferred_regions,omitempty"`
-	OnCompleteTriggerWorkflow string            `json:"on_complete_trigger_workflow,omitempty"`
-	OnCompleteTriggerJob      string            `json:"on_complete_trigger_job,omitempty"`
-	OnCompletePayloadMapping  json.RawMessage   `json:"on_complete_payload_mapping,omitempty"`
-	OnFailureTriggerJob       string            `json:"on_failure_trigger_job,omitempty"`
-	OnFailureTriggerWorkflow  string            `json:"on_failure_trigger_workflow,omitempty"`
-	OnFailurePayloadMapping   json.RawMessage   `json:"on_failure_payload_mapping,omitempty"`
-	MaxTokensPerRun           int64             `json:"max_tokens_per_run,omitempty"`
-	MaxToolCallsPerRun        int               `json:"max_tool_calls_per_run,omitempty"`
-	MaxIterationsPerRun       int               `json:"max_iterations_per_run,omitempty"`
-	AllowedTools              []string          `json:"allowed_tools,omitempty"`
-	BlockedTools              []string          `json:"blocked_tools,omitempty"`
-	EndpointSigningSecret     string            `json:"-"`
-	CreatedBy                 string            `json:"created_by,omitempty"`
-	UpdatedBy                 string            `json:"updated_by,omitempty"`
-	CreatedAt                 time.Time         `json:"created_at"`
-	UpdatedAt                 time.Time         `json:"updated_at"`
+	ID                        string              `json:"id"`
+	ProjectID                 string              `json:"project_id"`
+	GroupID                   string              `json:"group_id,omitempty"`
+	Name                      string              `json:"name"`
+	Slug                      string              `json:"slug"`
+	Description               string              `json:"description,omitempty"`
+	Cron                      string              `json:"cron,omitempty"`
+	PayloadSchema             json.RawMessage     `json:"payload_schema,omitempty"`
+	Tags                      map[string]string   `json:"tags,omitempty"`
+	EndpointURL               string              `json:"endpoint_url"`
+	FallbackEndpointURL       string              `json:"fallback_endpoint_url,omitempty"`
+	MaxAttempts               int                 `json:"max_attempts"`
+	TimeoutSecs               int                 `json:"timeout_secs"`
+	MaxConcurrency            int                 `json:"max_concurrency,omitempty"`
+	MaxConcurrencyPerKey      int                 `json:"max_concurrency_per_key,omitempty"`
+	ExecutionWindowCron       string              `json:"execution_window_cron,omitempty"`
+	Timezone                  string              `json:"timezone,omitempty"`
+	RateLimitMax              int                 `json:"rate_limit_max,omitempty"`
+	RateLimitWindowSecs       int                 `json:"rate_limit_window_secs,omitempty"`
+	RateLimitKeys             []RateLimitKey      `json:"rate_limit_keys,omitempty"`
+	DedupWindowSecs           int                 `json:"dedup_window_secs,omitempty"`
+	Enabled                   bool                `json:"enabled"`
+	Paused                    bool                `json:"paused"`
+	PausedAt                  *time.Time          `json:"paused_at,omitempty"`
+	PauseReason               string              `json:"pause_reason,omitempty"`
+	WebhookURL                string              `json:"webhook_url,omitempty"`
+	WebhookSecret             string              `json:"-"`
+	RunTTLSecs                int                 `json:"run_ttl_secs,omitempty"`
+	RetryStrategy             string              `json:"retry_strategy,omitempty"`
+	RetryDelaysSecs           []int               `json:"retry_delays_secs,omitempty"`
+	RetryPriorityBoost        int                 `json:"retry_priority_boost,omitempty"`
+	DLQAlertThreshold         *int                `json:"dlq_alert_threshold,omitempty"`
+	QueueDepthAlertThreshold  *int                `json:"queue_depth_alert_threshold,omitempty"`
+	PoisonPillThreshold       *int                `json:"poison_pill_threshold,omitempty"`
+	EnvironmentID             string              `json:"environment_id,omitempty"`
+	DefaultRunMetadata        map[string]string   `json:"default_run_metadata,omitempty"`
+	Version                   int                 `json:"version"`
+	VersionID                 string              `json:"version_id,omitempty"`
+	VersionPolicy             VersionPolicy       `json:"version_policy,omitempty"`
+	BackwardsCompatible       bool                `json:"backwards_compatible,omitempty"`
+	CronOverlapPolicy         CronOverlapPolicy   `json:"cron_overlap_policy,omitempty"`
+	SingletonKeyExpr          json.RawMessage     `json:"singleton_key_expr,omitempty"`
+	SingletonOnConflict       SingletonOnConflict `json:"singleton_on_conflict,omitempty"`
+	SingletonMaxQueueDepth    *int                `json:"singleton_max_queue_depth,omitempty"`
+	ResultSchema              json.RawMessage     `json:"result_schema,omitempty"`
+	DebounceWindowSecs        int                 `json:"debounce_window_secs,omitempty"`
+	BatchWindowSecs           int                 `json:"batch_window_secs,omitempty"`
+	BatchMaxSize              int                 `json:"batch_max_size,omitempty"`
+	ExecutionMode             ExecutionMode       `json:"execution_mode,omitempty"`
+	Queue                     string              `json:"queue,omitempty"`
+	PreferredRegions          []string            `json:"preferred_regions,omitempty"`
+	OnCompleteTriggerWorkflow string              `json:"on_complete_trigger_workflow,omitempty"`
+	OnCompleteTriggerJob      string              `json:"on_complete_trigger_job,omitempty"`
+	OnCompletePayloadMapping  json.RawMessage     `json:"on_complete_payload_mapping,omitempty"`
+	OnFailureTriggerJob       string              `json:"on_failure_trigger_job,omitempty"`
+	OnFailureTriggerWorkflow  string              `json:"on_failure_trigger_workflow,omitempty"`
+	OnFailurePayloadMapping   json.RawMessage     `json:"on_failure_payload_mapping,omitempty"`
+	MaxTokensPerRun           int64               `json:"max_tokens_per_run,omitempty"`
+	MaxToolCallsPerRun        int                 `json:"max_tool_calls_per_run,omitempty"`
+	MaxIterationsPerRun       int                 `json:"max_iterations_per_run,omitempty"`
+	AllowedTools              []string            `json:"allowed_tools,omitempty"`
+	BlockedTools              []string            `json:"blocked_tools,omitempty"`
+	EndpointSigningSecret     string              `json:"-"`
+	CreatedBy                 string              `json:"created_by,omitempty"`
+	UpdatedBy                 string              `json:"updated_by,omitempty"`
+	CreatedAt                 time.Time           `json:"created_at"`
+	UpdatedAt                 time.Time           `json:"updated_at"`
 }
 
 // DebouncePending represents a pending debounced trigger waiting to fire.
@@ -522,6 +525,7 @@ type JobRun struct {
 	CreatedBy             string            `json:"created_by,omitempty"`
 	BatchID               string            `json:"batch_id,omitempty"`
 	ConcurrencyKey        string            `json:"concurrency_key,omitempty"`
+	SingletonKey          string            `json:"singleton_key,omitempty"`
 	ExecutionMode         ExecutionMode     `json:"execution_mode,omitempty"`
 	QueueName             string            `json:"queue_name,omitempty"`
 	// IsRollback is retained for historical run records; always false for new runs.
@@ -1185,27 +1189,30 @@ type StepOverride struct {
 
 // Workflow represents a workflow DAG definition.
 type Workflow struct {
-	ID                  string            `json:"id"`
-	ProjectID           string            `json:"project_id"`
-	Name                string            `json:"name"`
-	Slug                string            `json:"slug"`
-	Description         string            `json:"description,omitempty"`
-	Tags                map[string]string `json:"tags,omitempty"`
-	Enabled             bool              `json:"enabled"`
-	Version             int               `json:"version"`
-	TimeoutSecs         int               `json:"timeout_secs,omitempty"`
-	MaxConcurrentRuns   int               `json:"max_concurrent_runs,omitempty"`
-	MaxParallelSteps    int               `json:"max_parallel_steps,omitempty"`
-	Cron                string            `json:"cron,omitempty"`
-	CronTimezone        string            `json:"cron_timezone,omitempty"`
-	SkipIfRunning       bool              `json:"skip_if_running,omitempty"`
-	VersionID           string            `json:"version_id,omitempty"`
-	VersionPolicy       VersionPolicy     `json:"version_policy,omitempty"`
-	BackwardsCompatible bool              `json:"backwards_compatible,omitempty"`
-	CreatedBy           string            `json:"created_by,omitempty"`
-	UpdatedBy           string            `json:"updated_by,omitempty"`
-	CreatedAt           time.Time         `json:"created_at"`
-	UpdatedAt           time.Time         `json:"updated_at"`
+	ID                     string              `json:"id"`
+	ProjectID              string              `json:"project_id"`
+	Name                   string              `json:"name"`
+	Slug                   string              `json:"slug"`
+	Description            string              `json:"description,omitempty"`
+	Tags                   map[string]string   `json:"tags,omitempty"`
+	Enabled                bool                `json:"enabled"`
+	Version                int                 `json:"version"`
+	TimeoutSecs            int                 `json:"timeout_secs,omitempty"`
+	MaxConcurrentRuns      int                 `json:"max_concurrent_runs,omitempty"`
+	MaxParallelSteps       int                 `json:"max_parallel_steps,omitempty"`
+	Cron                   string              `json:"cron,omitempty"`
+	CronTimezone           string              `json:"cron_timezone,omitempty"`
+	SkipIfRunning          bool                `json:"skip_if_running,omitempty"`
+	SingletonKeyExpr       json.RawMessage     `json:"singleton_key_expr,omitempty"`
+	SingletonOnConflict    SingletonOnConflict `json:"singleton_on_conflict,omitempty"`
+	SingletonMaxQueueDepth *int                `json:"singleton_max_queue_depth,omitempty"`
+	VersionID              string              `json:"version_id,omitempty"`
+	VersionPolicy          VersionPolicy       `json:"version_policy,omitempty"`
+	BackwardsCompatible    bool                `json:"backwards_compatible,omitempty"`
+	CreatedBy              string              `json:"created_by,omitempty"`
+	UpdatedBy              string              `json:"updated_by,omitempty"`
+	CreatedAt              time.Time           `json:"created_at"`
+	UpdatedAt              time.Time           `json:"updated_at"`
 }
 
 // WorkflowStep represents a step (node) within a workflow DAG.
@@ -1357,6 +1364,7 @@ type WorkflowRun struct {
 	CreatedBy            string            `json:"created_by,omitempty"`
 	ExpectedCompletionAt *time.Time        `json:"expected_completion_at,omitempty"`
 	TraceContext         map[string]string `json:"trace_context,omitempty"`
+	SingletonKey         string            `json:"singleton_key,omitempty"`
 	CreatedAt            time.Time         `json:"created_at"`
 }
 

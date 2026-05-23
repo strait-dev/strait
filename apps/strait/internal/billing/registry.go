@@ -17,6 +17,7 @@ const (
 	FeatureSLA               Feature = "sla"
 	FeatureRBAC              Feature = "rbac"
 	FeatureAllCronOverlap    Feature = "all_cron_overlap_policies"
+	FeatureSingletonReplace  Feature = "singleton_replace_policy"
 	FeatureAIAssistantBYOK   Feature = "ai_assistant_byok"
 	FeatureDedicatedCompute  Feature = "dedicated_compute"
 	FeatureStaticIPs         Feature = "static_ips"
@@ -123,6 +124,8 @@ func (r *StaticRegistry) AllowsFeature(tier domain.PlanTier, feature Feature) bo
 		return limits.HasRBAC
 	case FeatureAllCronOverlap:
 		return limits.AllCronOverlapPolicies
+	case FeatureSingletonReplace:
+		return limits.HasSingletonReplace
 	case FeatureAIAssistantBYOK:
 		return limits.AIAssistantBYOK
 	case FeatureDedicatedCompute:

@@ -25,11 +25,13 @@ func (q *Queries) CreateWorkflowVersionSnapshot(ctx context.Context, workflowID 
 		INSERT INTO workflow_versions (
 			id, workflow_id, version, project_id, name, slug, description, enabled,
 			timeout_secs, max_concurrent_runs, max_parallel_steps, cron, cron_timezone, skip_if_running,
-			version_id, created_by, updated_by
+			version_id, created_by, updated_by,
+			singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth
 		)
 		SELECT $1, id, version, project_id, name, slug, description, enabled,
 		       timeout_secs, max_concurrent_runs, max_parallel_steps, cron, cron_timezone, skip_if_running,
-		       COALESCE(version_id, ''), COALESCE(created_by, ''), COALESCE(updated_by, '')
+		       COALESCE(version_id, ''), COALESCE(created_by, ''), COALESCE(updated_by, ''),
+		       singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth
 		FROM workflows
 		WHERE id = $2 AND version = $3
 		ON CONFLICT (workflow_id, version)
@@ -47,7 +49,10 @@ func (q *Queries) CreateWorkflowVersionSnapshot(ctx context.Context, workflowID 
 			skip_if_running = EXCLUDED.skip_if_running,
 			version_id = EXCLUDED.version_id,
 			created_by = EXCLUDED.created_by,
-			updated_by = EXCLUDED.updated_by`
+			updated_by = EXCLUDED.updated_by,
+			singleton_key_expr = EXCLUDED.singleton_key_expr,
+			singleton_on_conflict = EXCLUDED.singleton_on_conflict,
+			singleton_max_queue_depth = EXCLUDED.singleton_max_queue_depth`
 
 	tag, err := q.db.Exec(ctx, insertVersion, versionID, workflowID, version)
 	if err != nil {
