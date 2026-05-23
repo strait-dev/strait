@@ -1,3 +1,5 @@
+DROP INDEX IF EXISTS idx_job_runs_singleton_waiters;
+
 ALTER TABLE workflow_runs DROP COLUMN IF EXISTS singleton_key;
 
 ALTER TABLE job_runs DROP COLUMN IF EXISTS singleton_key;

@@ -28,9 +28,14 @@ ALTER TABLE jobs
     ADD COLUMN IF NOT EXISTS singleton_on_conflict TEXT,
     ADD COLUMN IF NOT EXISTS singleton_max_queue_depth INT;
 
+-- NOT VALID skips the validating scan, so ADD CONSTRAINT only holds its brief
+-- ACCESS EXCLUSIVE lock for the catalog change. The constraint is enforced for
+-- all new and updated rows immediately; existing rows are checked separately by
+-- VALIDATE CONSTRAINT in 000289 under a weaker SHARE UPDATE EXCLUSIVE lock.
 ALTER TABLE jobs
     ADD CONSTRAINT jobs_singleton_on_conflict_check
-    CHECK (singleton_on_conflict IS NULL OR singleton_on_conflict IN ('queue', 'drop', 'replace'));
+    CHECK (singleton_on_conflict IS NULL OR singleton_on_conflict IN ('queue', 'drop', 'replace'))
+    NOT VALID;
 
 ALTER TABLE job_versions
     ADD COLUMN IF NOT EXISTS singleton_key_expr JSONB,
@@ -43,9 +48,11 @@ ALTER TABLE workflows
     ADD COLUMN IF NOT EXISTS singleton_on_conflict TEXT,
     ADD COLUMN IF NOT EXISTS singleton_max_queue_depth INT;
 
+-- See the jobs constraint above: NOT VALID here, validated in 000289.
 ALTER TABLE workflows
     ADD CONSTRAINT workflows_singleton_on_conflict_check
-    CHECK (singleton_on_conflict IS NULL OR singleton_on_conflict IN ('queue', 'drop', 'replace'));
+    CHECK (singleton_on_conflict IS NULL OR singleton_on_conflict IN ('queue', 'drop', 'replace'))
+    NOT VALID;
 
 ALTER TABLE workflow_versions
     ADD COLUMN IF NOT EXISTS singleton_key_expr JSONB,
@@ -58,3 +65,17 @@ ALTER TABLE job_runs
 
 ALTER TABLE workflow_runs
     ADD COLUMN IF NOT EXISTS singleton_key TEXT;
+
+-- Waiter-lookup index for the job singleton path: CountSingletonWaiters, the
+-- replace-policy waiter cancel, and the FIFO promote all filter
+-- (job_id, singleton_key, status) and order by created_at. The partial
+-- predicate keeps the index to parked/holding singleton runs only.
+--
+-- safety-ok: job_runs is a partitioned parent and Postgres rejects CONCURRENTLY
+-- on partitioned tables, matching the non-concurrent partitioned-index pattern
+-- in 000220 (and 000178, 000197, 000198). singleton_key was just added NULL in
+-- this migration so the partial index covers zero existing rows; the build does
+-- not block production writes for any meaningful window.
+CREATE INDEX IF NOT EXISTS idx_job_runs_singleton_waiters
+    ON job_runs (job_id, singleton_key, status, created_at)
+    WHERE singleton_key IS NOT NULL;
