@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"testing"
 	"time"
 
@@ -535,6 +536,55 @@ func TestSkipDependentSteps_TransitiveSkip(t *testing.T) {
 	}
 	if skippedIDs["sr-d"] {
 		t.Fatal("sr-d should not be skipped (independent)")
+	}
+}
+
+func TestDependentStepRefs_OrderedChain(t *testing.T) {
+	t.Parallel()
+	steps := benchmarkSkipDependentChain(1000)
+
+	got := dependentStepRefs(steps, nil, "step-0500")
+
+	if len(got) != 499 {
+		t.Fatalf("dependentStepRefs length = %d, want 499", len(got))
+	}
+	if got[0] != "step-0501" {
+		t.Fatalf("first dependent = %q, want step-0501", got[0])
+	}
+	if got[len(got)-1] != "step-0999" {
+		t.Fatalf("last dependent = %q, want step-0999", got[len(got)-1])
+	}
+}
+
+func TestDependentStepRefs_RootFanOut(t *testing.T) {
+	t.Parallel()
+	steps := benchmarkSkipDependentFanOut(1000)
+
+	got := dependentStepRefs(steps, nil, "root")
+
+	if len(got) != 999 {
+		t.Fatalf("dependentStepRefs length = %d, want 999", len(got))
+	}
+	if got[0] != "step-0001" {
+		t.Fatalf("first dependent = %q, want step-0001", got[0])
+	}
+	if got[len(got)-1] != "step-0999" {
+		t.Fatalf("last dependent = %q, want step-0999", got[len(got)-1])
+	}
+}
+
+func TestDependentStepRefs_UnorderedDAGFallsBack(t *testing.T) {
+	t.Parallel()
+	steps := []domain.WorkflowStep{
+		{StepRef: "child", DependsOn: []string{"root"}},
+		{StepRef: "root"},
+	}
+
+	got := dependentStepRefs(steps, nil, "root")
+	want := []string{"child"}
+
+	if !slices.Equal(got, want) {
+		t.Fatalf("dependentStepRefs = %v, want %v", got, want)
 	}
 }
 

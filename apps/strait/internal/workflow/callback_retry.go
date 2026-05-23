@@ -143,6 +143,12 @@ func dependentStepRefs(steps []domain.WorkflowStep, stepIndex map[string]int, fa
 	if !ok {
 		return dependentStepRefsByMap(steps, failedStepRef)
 	}
+	if refs, ok := dependentStepRefsLinearChain(steps, failedIdx); ok {
+		return refs
+	}
+	if refs, ok := dependentStepRefsRootFanOut(steps, failedIdx); ok {
+		return refs
+	}
 
 	childCounts := make([]int, len(steps))
 	totalEdges := 0
@@ -192,6 +198,52 @@ func dependentStepRefs(steps []domain.WorkflowStep, stepIndex map[string]int, fa
 	}
 
 	return refs
+}
+
+func dependentStepRefsLinearChain(steps []domain.WorkflowStep, failedIdx int) ([]string, bool) {
+	if failedIdx < 0 || failedIdx >= len(steps) {
+		return nil, false
+	}
+	if len(steps[0].DependsOn) != 0 {
+		return nil, false
+	}
+	for i := 1; i < len(steps); i++ {
+		deps := steps[i].DependsOn
+		if len(deps) != 1 || deps[0] != steps[i-1].StepRef {
+			return nil, false
+		}
+	}
+	if failedIdx == len(steps)-1 {
+		return nil, true
+	}
+
+	refs := make([]string, 0, len(steps)-failedIdx-1)
+	for i := failedIdx + 1; i < len(steps); i++ {
+		refs = append(refs, steps[i].StepRef)
+	}
+	return refs, true
+}
+
+func dependentStepRefsRootFanOut(steps []domain.WorkflowStep, failedIdx int) ([]string, bool) {
+	if failedIdx < 0 || failedIdx >= len(steps) {
+		return nil, false
+	}
+	if failedIdx != 0 || len(steps[0].DependsOn) != 0 {
+		return nil, false
+	}
+	failedStepRef := steps[failedIdx].StepRef
+	for i := 1; i < len(steps); i++ {
+		deps := steps[i].DependsOn
+		if len(deps) != 1 || deps[0] != failedStepRef {
+			return nil, false
+		}
+	}
+
+	refs := make([]string, 0, len(steps)-1)
+	for i := 1; i < len(steps); i++ {
+		refs = append(refs, steps[i].StepRef)
+	}
+	return refs, true
 }
 
 func dependentStepRefsByMap(steps []domain.WorkflowStep, failedStepRef string) []string {
