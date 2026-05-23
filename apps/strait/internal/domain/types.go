@@ -944,6 +944,7 @@ type WorkflowRunStatus string
 
 const (
 	WfStatusPending            WorkflowRunStatus = "pending"
+	WfStatusQueued             WorkflowRunStatus = "queued"
 	WfStatusRunning            WorkflowRunStatus = "running"
 	WfStatusPaused             WorkflowRunStatus = "paused"
 	WfStatusCompleted          WorkflowRunStatus = "completed"
@@ -967,7 +968,7 @@ func (s WorkflowRunStatus) IsTerminal() bool {
 
 func (s WorkflowRunStatus) IsValid() bool {
 	switch s {
-	case WfStatusPending, WfStatusRunning, WfStatusPaused, WfStatusCompleted, WfStatusFailed, WfStatusTimedOut, WfStatusCanceled,
+	case WfStatusPending, WfStatusQueued, WfStatusRunning, WfStatusPaused, WfStatusCompleted, WfStatusFailed, WfStatusTimedOut, WfStatusCanceled,
 		WfStatusCompensating, WfStatusCompensated, WfStatusCompensationFailed:
 		return true
 	default:

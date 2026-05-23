@@ -236,6 +236,7 @@ func (s *StepCallback) checkWorkflowCompletion(ctx context.Context, workflowRunI
 		}
 		recordWorkflowActiveRunDelta(ctx, wfRun.ProjectID, -1)
 		wfRun.Status = domain.WfStatusFailed
+		s.promoteSingletonWorkflowSuccessor(ctx, wfRun)
 		if wfRun.ParentWorkflowRunID != "" {
 			stepRuns, listErr := s.store.ListStepRunsByWorkflowRun(ctx, workflowRunID, 10000, nil)
 			if listErr != nil {
@@ -251,6 +252,7 @@ func (s *StepCallback) checkWorkflowCompletion(ctx context.Context, workflowRunI
 	}
 	recordWorkflowActiveRunDelta(ctx, wfRun.ProjectID, -1)
 	wfRun.Status = domain.WfStatusCompleted
+	s.promoteSingletonWorkflowSuccessor(ctx, wfRun)
 	if wfRun.ParentWorkflowRunID != "" {
 		stepRuns, listErr := s.store.ListStepRunsByWorkflowRun(ctx, workflowRunID, 10000, nil)
 		if listErr != nil {
@@ -259,6 +261,31 @@ func (s *StepCallback) checkWorkflowCompletion(ctx context.Context, workflowRunI
 		return s.propagateToParent(ctx, wfRun, stepRuns)
 	}
 	return nil
+}
+
+// PromoteSingletonWorkflow is the reaper-facing entry point: it releases the
+// singleton lock for a terminal/missing workflow holder and promotes the next
+// parked waiter, returning whether this call removed the lock so the reaper can
+// count the reclaim exactly once. It satisfies the scheduler's WorkflowCallback.
+func (s *StepCallback) PromoteSingletonWorkflow(ctx context.Context, holderRunID string) (bool, error) {
+	if s.engine == nil {
+		return false, nil
+	}
+	return s.engine.PromoteSingletonWorkflowSuccessor(ctx, holderRunID)
+}
+
+// promoteSingletonWorkflowSuccessor releases this run's singleton lock (if it
+// held one) and promotes the next parked run for the same key. It is a
+// best-effort fast-path on the terminal transition; the reaper is the
+// authoritative net that retries release+promote for any holder this misses.
+func (s *StepCallback) promoteSingletonWorkflowSuccessor(ctx context.Context, wfRun *domain.WorkflowRun) {
+	if wfRun.SingletonKey == "" || s.engine == nil {
+		return
+	}
+	if _, err := s.engine.PromoteSingletonWorkflowSuccessor(ctx, wfRun.ID); err != nil {
+		s.logger.Warn("failed to promote workflow singleton successor (reaper will retry)",
+			"workflow_run_id", wfRun.ID, "error", err)
+	}
 }
 
 // propagateToParent propagates the terminal status of a child workflow run

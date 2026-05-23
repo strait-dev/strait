@@ -1198,6 +1198,15 @@ func applyScannedJobNullables(job *domain.Job, n scannedJobNullables) (*domain.J
 	if n.maxIterationsPerRun != nil {
 		job.MaxIterationsPerRun = *n.maxIterationsPerRun
 	}
+	applyScannedJobSingletonNullables(job, n)
+
+	return job, nil
+}
+
+// applyScannedJobSingletonNullables copies the scanned singleton columns onto the
+// job. Kept separate from applyScannedJobNullables to hold that function's
+// cognitive complexity below the linter threshold.
+func applyScannedJobSingletonNullables(job *domain.Job, n scannedJobNullables) {
 	if n.singletonKeyExpr != nil {
 		job.SingletonKeyExpr = json.RawMessage(n.singletonKeyExpr)
 	}
@@ -1207,8 +1216,6 @@ func applyScannedJobNullables(job *domain.Job, n scannedJobNullables) (*domain.J
 	if n.singletonMaxQueueDepth != nil {
 		job.SingletonMaxQueueDepth = n.singletonMaxQueueDepth
 	}
-
-	return job, nil
 }
 
 func (q *Queries) ListJobsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.Job, error) {

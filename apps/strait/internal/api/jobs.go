@@ -349,10 +349,7 @@ func (s *Server) validateCreateJobFields(ctx context.Context, req *CreateJobRequ
 	if err := validateQueueName(req.QueueName); err != nil {
 		return huma.Error400BadRequest(err.Error())
 	}
-	if err := validateSingletonConfig(req.SingletonKeyExpr, req.SingletonOnConflict, req.SingletonMaxQueueDepth); err != nil {
-		return err
-	}
-	return nil
+	return validateSingletonConfig(req.SingletonKeyExpr, req.SingletonOnConflict, req.SingletonMaxQueueDepth)
 }
 
 // validateSingletonConfig validates the singleton configuration triple. A

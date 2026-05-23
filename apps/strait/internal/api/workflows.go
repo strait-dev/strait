@@ -66,6 +66,10 @@ type createWorkflowRequest struct {
 	SkipIfRunning     bool                  `json:"skip_if_running,omitempty"`
 	VersionPolicy     string                `json:"version_policy,omitempty" validate:"omitempty,oneof=pin latest minor"`
 	Steps             []workflowStepRequest `json:"steps,omitempty"`
+
+	SingletonKeyExpr       json.RawMessage `json:"singleton_key_expr,omitempty" doc:"Singleton key expression envelope ({\"template\":\"...\"}). When set, the workflow runs as a singleton keyed by the resolved template."`
+	SingletonOnConflict    string          `json:"singleton_on_conflict,omitempty" validate:"omitempty,oneof=queue drop replace" doc:"Collision policy when the singleton key is already held: queue, drop, or replace."`
+	SingletonMaxQueueDepth *int            `json:"singleton_max_queue_depth,omitempty" validate:"omitempty,min=0" doc:"Optional per-key cap on queued-behind runs for the queue policy. NULL means unbounded."`
 }
 
 type updateWorkflowRequest struct {
@@ -84,6 +88,10 @@ type updateWorkflowRequest struct {
 	BackwardsCompatible *bool                  `json:"backwards_compatible,omitempty"`
 	Steps               *[]workflowStepRequest `json:"steps,omitempty"`
 	BreakingChange      *bool                  `json:"breaking_change,omitempty"`
+
+	SingletonKeyExpr       *json.RawMessage `json:"singleton_key_expr,omitempty" doc:"Singleton key expression envelope ({\"template\":\"...\"}). When set, the workflow runs as a singleton keyed by the resolved template."`
+	SingletonOnConflict    *string          `json:"singleton_on_conflict,omitempty" validate:"omitempty,oneof=queue drop replace" doc:"Collision policy when the singleton key is already held: queue, drop, or replace."`
+	SingletonMaxQueueDepth *int             `json:"singleton_max_queue_depth,omitempty" validate:"omitempty,min=0" doc:"Optional per-key cap on queued-behind runs for the queue policy. NULL means unbounded."`
 }
 
 type dryRunWorkflowRequest struct {
@@ -143,6 +151,12 @@ func (s *Server) handleCreateWorkflow(ctx context.Context, input *CreateWorkflow
 	if err := s.validateWorkflowPolicy(ctx, req.ProjectID, candidateSteps); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
+	if err := validateSingletonConfig(req.SingletonKeyExpr, req.SingletonOnConflict, req.SingletonMaxQueueDepth); err != nil {
+		return nil, err
+	}
+	if err := s.checkSingletonOnConflict(ctx, req.ProjectID, req.SingletonOnConflict); err != nil {
+		return nil, err
+	}
 
 	enabled := true
 	if req.Enabled != nil {
@@ -171,6 +185,10 @@ func (s *Server) handleCreateWorkflow(ctx context.Context, input *CreateWorkflow
 		VersionPolicy:     domain.VersionPolicyPin,
 		CreatedBy:         actorFromContext(ctx),
 		UpdatedBy:         actorFromContext(ctx),
+
+		SingletonKeyExpr:       req.SingletonKeyExpr,
+		SingletonOnConflict:    domain.SingletonOnConflict(req.SingletonOnConflict),
+		SingletonMaxQueueDepth: req.SingletonMaxQueueDepth,
 	}
 
 	if req.VersionPolicy != "" {
@@ -404,6 +422,23 @@ func (s *Server) handleUpdateWorkflow(ctx context.Context, input *UpdateWorkflow
 	if req.BackwardsCompatible != nil {
 		wf.BackwardsCompatible = *req.BackwardsCompatible
 	}
+	if req.SingletonKeyExpr != nil {
+		wf.SingletonKeyExpr = *req.SingletonKeyExpr
+	}
+	if req.SingletonOnConflict != nil {
+		wf.SingletonOnConflict = domain.SingletonOnConflict(*req.SingletonOnConflict)
+	}
+	if req.SingletonMaxQueueDepth != nil {
+		wf.SingletonMaxQueueDepth = req.SingletonMaxQueueDepth
+	}
+	if req.SingletonKeyExpr != nil || req.SingletonOnConflict != nil || req.SingletonMaxQueueDepth != nil {
+		if err := validateSingletonConfig(wf.SingletonKeyExpr, string(wf.SingletonOnConflict), wf.SingletonMaxQueueDepth); err != nil {
+			return nil, err
+		}
+		if err := s.checkSingletonOnConflict(ctx, wf.ProjectID, string(wf.SingletonOnConflict)); err != nil {
+			return nil, err
+		}
+	}
 	if err := validateWorkflowConfig(wf.Cron, wf.CronTimezone, wf.MaxParallelSteps); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
@@ -529,6 +564,16 @@ type TriggerWorkflowOutput struct {
 	Body any
 }
 
+// triggeredWorkflowRunResponse is the trigger response when a singleton policy
+// applied and a run exists (dispatched/queued_behind/replaced). The embedded
+// run's fields are promoted to the top level so the response keeps the normal
+// WorkflowRun shape, with the two singleton fields added additively.
+type triggeredWorkflowRunResponse struct {
+	*domain.WorkflowRun
+	SingletonOutcome     string `json:"singleton_outcome,omitempty"`
+	SingletonHolderRunID string `json:"singleton_holder_run_id,omitempty"`
+}
+
 func (s *Server) handleTriggerWorkflow(ctx context.Context, input *TriggerWorkflowInput) (*TriggerWorkflowOutput, error) {
 	if s.workflowEngine == nil {
 		return nil, huma.Error503ServiceUnavailable("workflow engine unavailable")
@@ -578,13 +623,31 @@ func (s *Server) handleTriggerWorkflow(ctx context.Context, input *TriggerWorkfl
 		triggeredBy = domain.TriggerManual
 	}
 
-	run, err := s.workflowEngine.TriggerWorkflow(ctx, workflowID, req.ProjectID, req.Payload, triggeredBy, req.StepOverrides, req.Tags)
+	run, singletonOutcome, singletonHolderRunID, err := s.workflowEngine.TriggerWorkflowWithOutcome(ctx, workflowID, req.ProjectID, req.Payload, triggeredBy, req.StepOverrides, req.Tags)
 	if err != nil {
 		if errors.Is(err, store.ErrWorkflowNotFound) {
 			return nil, huma.Error404NotFound("workflow not found")
 		}
+		if errors.Is(err, domain.ErrSingletonKeyUnresolvable) {
+			return nil, huma.Error400BadRequest(err.Error())
+		}
 		slog.Error("failed to trigger workflow", "error", err, "workflow_id", workflowID)
 		return nil, huma.Error500InternalServerError("failed to trigger workflow")
+	}
+
+	// Singleton drop: no run is created. Report the outcome and the holder it
+	// lost to, mirroring the job trigger response.
+	if singletonOutcome == domain.SingletonOutcomeDropped {
+		s.emitAuditEventAsync(ctx, domain.AuditActionWorkflowTriggered, "workflow", workflowID, map[string]any{
+			"triggered_by":      triggeredBy,
+			"tag_keys":          tagKeys(req.Tags),
+			"singleton_outcome": string(singletonOutcome),
+		})
+		body := map[string]any{"singleton_outcome": string(singletonOutcome)}
+		if singletonHolderRunID != "" {
+			body["singleton_holder_run_id"] = singletonHolderRunID
+		}
+		return &TriggerWorkflowOutput{Body: body}, nil
 	}
 
 	// Stamp audit field -- engine doesn't have access to actor context.
@@ -599,11 +662,24 @@ func (s *Server) handleTriggerWorkflow(ctx context.Context, input *TriggerWorkfl
 	}
 	s.publishWorkflowRunHook(ctx, run, domain.WfStatusPending, run.Status, "trigger")
 
-	s.emitAuditEventAsync(ctx, domain.AuditActionWorkflowTriggered, "workflow", workflowID, map[string]any{
+	auditMeta := map[string]any{
 		"run_id":       run.ID,
 		"triggered_by": triggeredBy,
 		"tag_keys":     tagKeys(req.Tags),
-	})
+	}
+	if singletonOutcome != "" {
+		auditMeta["singleton_outcome"] = string(singletonOutcome)
+		auditMeta["singleton_key_hash"] = hashIdempotencyKey(run.SingletonKey)
+	}
+	s.emitAuditEventAsync(ctx, domain.AuditActionWorkflowTriggered, "workflow", workflowID, auditMeta)
+
+	if singletonOutcome != "" {
+		return &TriggerWorkflowOutput{Body: &triggeredWorkflowRunResponse{
+			WorkflowRun:          run,
+			SingletonOutcome:     string(singletonOutcome),
+			SingletonHolderRunID: singletonHolderRunID,
+		}}, nil
+	}
 
 	return &TriggerWorkflowOutput{Body: run}, nil
 }

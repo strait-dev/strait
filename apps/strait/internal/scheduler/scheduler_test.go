@@ -292,6 +292,10 @@ func (m *mockSchedulerStore) ReleaseSingletonJobLockAndPromote(ctx context.Conte
 	return m.reaper.ReleaseSingletonJobLockAndPromote(ctx, holderRunID, leaseTTL)
 }
 
+func (m *mockSchedulerStore) ListReapableSingletonWorkflowHolders(ctx context.Context) ([]string, error) {
+	return m.reaper.ListReapableSingletonWorkflowHolders(ctx)
+}
+
 func testSchedulerConfig() *config.Config {
 	return &config.Config{
 		PollerInterval:           100 * time.Millisecond,

@@ -49,6 +49,28 @@ func TestValidateWorkflowTransition_InvalidTransitions(t *testing.T) {
 	}
 }
 
+func TestValidateWorkflowTransition_QueuedParkedState(t *testing.T) {
+	t.Parallel()
+	// A singleton-parked workflow run promotes to running or is canceled by the
+	// replace policy; it can never jump straight to a terminal completion.
+	for _, to := range []WorkflowRunStatus{WfStatusRunning, WfStatusCanceled} {
+		if err := ValidateWorkflowTransition(WfStatusQueued, to); err != nil {
+			t.Errorf("queued -> %s should be valid, got %v", to, err)
+		}
+	}
+	for _, to := range []WorkflowRunStatus{WfStatusPending, WfStatusCompleted, WfStatusFailed, WfStatusPaused} {
+		if err := ValidateWorkflowTransition(WfStatusQueued, to); err == nil {
+			t.Errorf("queued -> %s should be invalid", to)
+		}
+	}
+	if WfStatusQueued.IsTerminal() {
+		t.Error("queued must not be terminal")
+	}
+	if !WfStatusQueued.IsValid() {
+		t.Error("queued must be a valid status")
+	}
+}
+
 func TestValidateWorkflowTransition_UnknownStatus(t *testing.T) {
 	t.Parallel()
 	err := ValidateWorkflowTransition(WorkflowRunStatus("unknown"), WfStatusRunning)
@@ -92,6 +114,7 @@ func TestAllWorkflowStatusesCovered(t *testing.T) {
 	t.Parallel()
 	allStatuses := []WorkflowRunStatus{
 		WfStatusPending,
+		WfStatusQueued,
 		WfStatusRunning,
 		WfStatusPaused,
 		WfStatusCompleted,
@@ -123,6 +146,7 @@ func TestWorkflowRunStatusIsTerminal_AllStatuses(t *testing.T) {
 		expected bool
 	}{
 		{WfStatusPending, false},
+		{WfStatusQueued, false},
 		{WfStatusRunning, false},
 		{WfStatusPaused, false},
 		{WfStatusCompleted, true},
@@ -146,6 +170,7 @@ func TestWorkflowRunStatusIsTerminal_AllStatuses(t *testing.T) {
 func TestWorkflowRunStatusIsValid(t *testing.T) {
 	t.Parallel()
 	valid := []WorkflowRunStatus{
+		WfStatusQueued,
 		WfStatusRunning,
 		WfStatusCompensating,
 		WfStatusCompensated,

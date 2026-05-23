@@ -699,6 +699,10 @@ func (m *advMockWorkflowEngine) TriggerWorkflow(_ context.Context, _, _ string, 
 	return nil, errors.New("not implemented in test")
 }
 
+func (m *advMockWorkflowEngine) TriggerWorkflowWithOutcome(_ context.Context, _, _ string, _ json.RawMessage, _ string, _ []domain.StepOverride, _ map[string]string) (*domain.WorkflowRun, domain.SingletonOutcome, string, error) {
+	return nil, "", "", errors.New("not implemented in test")
+}
+
 func (m *advMockWorkflowEngine) RetryWorkflowRun(ctx context.Context, originalRunID string) (*domain.WorkflowRun, error) {
 	if m.retryFn != nil {
 		return m.retryFn(ctx, originalRunID)

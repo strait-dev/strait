@@ -129,10 +129,30 @@ func (e *WorkflowEngine) TriggerWorkflow(
 	stepOverrides []domain.StepOverride,
 	extraTags map[string]string,
 ) (*domain.WorkflowRun, error) {
-	return e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, "", "", stepOverrides, extraTags)
+	return e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, "", "", stepOverrides, extraTags, true, nil)
+}
+
+// TriggerWorkflowWithOutcome triggers a workflow and reports the singleton
+// outcome alongside the run. It is the entry point the API uses so the trigger
+// response can surface dispatched/queued_behind/dropped/replaced. A nil run with
+// no error means the trigger was dropped by the singleton policy.
+func (e *WorkflowEngine) TriggerWorkflowWithOutcome(
+	ctx context.Context,
+	workflowID, projectID string,
+	payload json.RawMessage,
+	triggeredBy string,
+	stepOverrides []domain.StepOverride,
+	extraTags map[string]string,
+) (*domain.WorkflowRun, domain.SingletonOutcome, string, error) {
+	var res singletonTriggerResult
+	run, err := e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, "", "", stepOverrides, extraTags, true, &res)
+	return run, res.outcome, res.holderID, err
 }
 
 // TriggerSubWorkflow triggers a workflow as a child of another workflow run.
+// Singleton enforcement is intentionally bypassed for sub-workflows: the parent
+// step consumes the child run ID directly, so a dropped/parked child would break
+// fan-out. Sub-workflow singleton support is a tracked follow-up.
 func (e *WorkflowEngine) TriggerSubWorkflow(
 	ctx context.Context,
 	workflowID, projectID string,
@@ -141,7 +161,36 @@ func (e *WorkflowEngine) TriggerSubWorkflow(
 	parentWorkflowRunID string,
 	parentStepRunID string,
 ) (*domain.WorkflowRun, error) {
-	return e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, parentWorkflowRunID, parentStepRunID, nil, nil)
+	return e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, parentWorkflowRunID, parentStepRunID, nil, nil, false, nil)
+}
+
+// bootstrapWorkflowRunDefault creates a workflow run and starts it (pending ->
+// running) together with its step runs, used when no singleton policy applies. It
+// prefers the store's transactional CreateWorkflowRunBootstrap when available and
+// otherwise falls back to the discrete create/start/step-run calls so the engine
+// never imports the store package.
+func (e *WorkflowEngine) bootstrapWorkflowRunDefault(ctx context.Context, wfRun *domain.WorkflowRun, stepRuns []domain.WorkflowStepRun, now time.Time) error {
+	type bootstrapStore interface {
+		CreateWorkflowRunBootstrap(ctx context.Context, run *domain.WorkflowRun, stepRuns []domain.WorkflowStepRun, startedAt time.Time) error
+	}
+	if bs, ok := e.store.(bootstrapStore); ok {
+		if err := bs.CreateWorkflowRunBootstrap(ctx, wfRun, stepRuns, now); err != nil {
+			return fmt.Errorf("create workflow bootstrap: %w", err)
+		}
+		return nil
+	}
+	if err := e.store.CreateWorkflowRun(ctx, wfRun); err != nil {
+		return fmt.Errorf("create workflow run: %w", err)
+	}
+	if err := e.store.UpdateWorkflowRunStatus(ctx, wfRun.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{"started_at": now}); err != nil {
+		return fmt.Errorf("start workflow run: %w", err)
+	}
+	for i := range stepRuns {
+		if err := e.store.CreateWorkflowStepRun(ctx, &stepRuns[i]); err != nil {
+			return fmt.Errorf("create step run %s: %w", stepRuns[i].StepRef, err)
+		}
+	}
+	return nil
 }
 
 //nolint:gocognit,gocyclo,cyclop,funlen
@@ -154,6 +203,8 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 	parentStepRunID string,
 	stepOverrides []domain.StepOverride,
 	extraTags map[string]string,
+	enforceSingleton bool,
+	res *singletonTriggerResult,
 ) (*domain.WorkflowRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "workflow.TriggerWorkflow")
 	defer span.End()
@@ -328,28 +379,33 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 		stepRuns = append(stepRuns, sr)
 	}
 
-	type bootstrapStore interface {
-		CreateWorkflowRunBootstrap(ctx context.Context, run *domain.WorkflowRun, stepRuns []domain.WorkflowStepRun, startedAt time.Time) error
+	// First-class singleton enforcement. When the workflow declares an
+	// on-conflict policy, claim the resolved key atomically with run creation.
+	// done=true means the trigger is fully handled by the policy (dropped: nil
+	// run; queued/replaced: parked run); we return that run as-is. done=false
+	// only for a dispatched outcome, where the run was bootstrapped to running in
+	// the same tx and we fall through to start its root steps.
+	bootstrapped := false
+	if enforceSingleton && wf.SingletonOnConflict != "" {
+		run, outcome, holderID, done, serr := e.bootstrapSingletonWorkflowRun(ctx, wf, wfRun, stepRuns, now)
+		if res != nil {
+			res.outcome = outcome
+			res.holderID = holderID
+		}
+		if serr != nil {
+			triggerStatus = "error"
+			return nil, serr
+		}
+		if done {
+			return run, nil
+		}
+		bootstrapped = true
 	}
-	if bs, ok := e.store.(bootstrapStore); ok {
-		if err := bs.CreateWorkflowRunBootstrap(ctx, wfRun, stepRuns, now); err != nil {
+
+	if !bootstrapped {
+		if err := e.bootstrapWorkflowRunDefault(ctx, wfRun, stepRuns, now); err != nil {
 			triggerStatus = "error"
-			return nil, fmt.Errorf("create workflow bootstrap: %w", err)
-		}
-	} else {
-		if err := e.store.CreateWorkflowRun(ctx, wfRun); err != nil {
-			triggerStatus = "error"
-			return nil, fmt.Errorf("create workflow run: %w", err)
-		}
-		if err := e.store.UpdateWorkflowRunStatus(ctx, wfRun.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{"started_at": now}); err != nil {
-			triggerStatus = "error"
-			return nil, fmt.Errorf("start workflow run: %w", err)
-		}
-		for i := range stepRuns {
-			if err := e.store.CreateWorkflowStepRun(ctx, &stepRuns[i]); err != nil {
-				triggerStatus = "error"
-				return nil, fmt.Errorf("create step run %s: %w", stepRuns[i].StepRef, err)
-			}
+			return nil, err
 		}
 	}
 	wfRun.Status = domain.WfStatusRunning
