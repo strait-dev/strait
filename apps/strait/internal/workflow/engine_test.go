@@ -854,6 +854,35 @@ func TestMergePayloads(t *testing.T) {
 			t.Fatalf("keep = %v, want true", got["keep"])
 		}
 	})
+
+	t.Run("duplicate keys keep last value within each payload", func(t *testing.T) {
+		t.Parallel()
+		out := mergePayloads(json.RawMessage(`{"a":1,"a":2}`), json.RawMessage(`{"b":1,"b":2}`), nil)
+
+		var got map[string]any
+		if err := json.Unmarshal(out, &got); err != nil {
+			t.Fatalf("unmarshal output: %v", err)
+		}
+		if got["a"] != float64(2) {
+			t.Fatalf("a = %v, want 2", got["a"])
+		}
+		if got["b"] != float64(2) {
+			t.Fatalf("b = %v, want 2", got["b"])
+		}
+	})
+
+	t.Run("escaped keys still merge", func(t *testing.T) {
+		t.Parallel()
+		out := mergePayloads(json.RawMessage(`{"tenant\u002did":"trigger"}`), json.RawMessage(`{"tenant\u002did":"step"}`), nil)
+
+		var got map[string]any
+		if err := json.Unmarshal(out, &got); err != nil {
+			t.Fatalf("unmarshal output: %v", err)
+		}
+		if got["tenant-id"] != "step" {
+			t.Fatalf("tenant-id = %v, want step", got["tenant-id"])
+		}
+	})
 }
 
 func BenchmarkMergePayloads(b *testing.B) {

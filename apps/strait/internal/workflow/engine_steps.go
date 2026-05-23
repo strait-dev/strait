@@ -550,11 +550,11 @@ type jsonObjectField struct {
 }
 
 func mergeJSONObjectPayloads(triggerPayload, stepPayload, parentOutputs json.RawMessage, includeParent bool) (json.RawMessage, bool) {
-	triggerFields, ok := splitTopLevelJSONObjectFields(triggerPayload)
+	triggerFields, triggerHasDuplicates, ok := splitTopLevelJSONObjectFields(triggerPayload)
 	if !ok {
 		return nil, false
 	}
-	stepFields, ok := splitTopLevelJSONObjectFields(stepPayload)
+	stepFields, stepHasDuplicates, ok := splitTopLevelJSONObjectFields(stepPayload)
 	if !ok {
 		return nil, false
 	}
@@ -567,7 +567,10 @@ func mergeJSONObjectPayloads(triggerPayload, stepPayload, parentOutputs json.Raw
 		}
 	}
 
-	lastTriggerField := lastJSONFieldIndexes(triggerFields)
+	var lastTriggerField map[string]int
+	if triggerHasDuplicates {
+		lastTriggerField = lastJSONFieldIndexes(triggerFields)
+	}
 	lastStepField := lastJSONFieldIndexes(stepFields)
 
 	outCap := len(triggerPayload) + len(stepPayload) + len(parentValue) + len(`,"parent_outputs":`)
@@ -583,7 +586,7 @@ func mergeJSONObjectPayloads(triggerPayload, stepPayload, parentOutputs json.Raw
 	}
 
 	for i, field := range triggerFields {
-		if lastTriggerField[field.key] != i {
+		if triggerHasDuplicates && lastTriggerField[field.key] != i {
 			continue
 		}
 		if _, overwritten := lastStepField[field.key]; overwritten {
@@ -595,7 +598,7 @@ func mergeJSONObjectPayloads(triggerPayload, stepPayload, parentOutputs json.Raw
 		appendField(field.raw)
 	}
 	for i, field := range stepFields {
-		if lastStepField[field.key] != i {
+		if stepHasDuplicates && lastStepField[field.key] != i {
 			continue
 		}
 		if includeParent && field.key == "parent_outputs" {
@@ -604,7 +607,11 @@ func mergeJSONObjectPayloads(triggerPayload, stepPayload, parentOutputs json.Raw
 		appendField(field.raw)
 	}
 	if includeParent {
-		appendField(append([]byte(`"parent_outputs":`), parentValue...))
+		if hasField {
+			out = append(out, ',')
+		}
+		out = append(out, `"parent_outputs":`...)
+		out = append(out, parentValue...)
 	}
 	out = append(out, '}')
 
@@ -619,54 +626,67 @@ func lastJSONFieldIndexes(fields []jsonObjectField) map[string]int {
 	return indexes
 }
 
-func splitTopLevelJSONObjectFields(payload json.RawMessage) ([]jsonObjectField, bool) {
+func splitTopLevelJSONObjectFields(payload json.RawMessage) ([]jsonObjectField, bool, bool) {
 	trimmed := bytes.TrimSpace(payload)
 	if len(trimmed) < 2 || trimmed[0] != '{' || trimmed[len(trimmed)-1] != '}' || !json.Valid(trimmed) {
-		return nil, false
+		return nil, false, false
 	}
 	if len(trimmed) == 2 {
-		return nil, true
+		return nil, false, true
 	}
 
 	fields := make([]jsonObjectField, 0, 8)
+	hasDuplicates := false
 	i := 1
 	for {
 		i = skipJSONSpaces(trimmed, i)
 		if i >= len(trimmed)-1 {
-			return fields, true
+			return fields, hasDuplicates, true
 		}
 
 		fieldStart := i
 		if trimmed[i] != '"' {
-			return nil, false
+			return nil, false, false
 		}
 		keyStart := i
-		keyEnd, ok := scanJSONString(trimmed, i)
+		keyEnd, escapedKey, ok := scanJSONString(trimmed, i)
 		if !ok {
-			return nil, false
+			return nil, false, false
 		}
-		key, err := strconv.Unquote(string(trimmed[keyStart:keyEnd]))
-		if err != nil {
-			return nil, false
+		var key string
+		if escapedKey {
+			var err error
+			key, err = strconv.Unquote(string(trimmed[keyStart:keyEnd]))
+			if err != nil {
+				return nil, false, false
+			}
+		} else {
+			key = string(trimmed[keyStart+1 : keyEnd-1])
 		}
 		i = skipJSONSpaces(trimmed, keyEnd)
 		if i >= len(trimmed) || trimmed[i] != ':' {
-			return nil, false
+			return nil, false, false
 		}
 		i++
 
 		valueEnd, delimiter, ok := scanJSONObjectValue(trimmed, i)
 		if !ok {
-			return nil, false
+			return nil, false, false
 		}
 		fieldEnd := trimJSONRightSpaces(trimmed, fieldStart, valueEnd)
+		for i := range fields {
+			if fields[i].key == key {
+				hasDuplicates = true
+				break
+			}
+		}
 		fields = append(fields, jsonObjectField{
 			key: key,
 			raw: bytes.TrimSpace(trimmed[fieldStart:fieldEnd]),
 		})
 
 		if delimiter == '}' {
-			return fields, true
+			return fields, hasDuplicates, true
 		}
 		i = valueEnd + 1
 	}
@@ -696,19 +716,21 @@ func trimJSONRightSpaces(in []byte, start, end int) int {
 	return end
 }
 
-func scanJSONString(in []byte, start int) (int, bool) {
+func scanJSONString(in []byte, start int) (int, bool, bool) {
 	escaped := false
+	hasEscapedByte := false
 	for i := start + 1; i < len(in); i++ {
 		switch {
 		case escaped:
 			escaped = false
 		case in[i] == '\\':
+			hasEscapedByte = true
 			escaped = true
 		case in[i] == '"':
-			return i + 1, true
+			return i + 1, hasEscapedByte, true
 		}
 	}
-	return 0, false
+	return 0, false, false
 }
 
 func scanJSONObjectValue(in []byte, start int) (end int, delimiter byte, ok bool) {
