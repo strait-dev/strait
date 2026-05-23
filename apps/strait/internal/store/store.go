@@ -34,6 +34,7 @@ var (
 	ErrWorkflowNotFound             = errors.New("workflow not found")
 	ErrWorkflowStepNotFound         = errors.New("workflow step not found")
 	ErrWorkflowRunNotFound          = errors.New("workflow run not found")
+	ErrWorkflowRunContinueConflict  = errors.New("workflow run continue-as-new conflict: predecessor no longer in expected state")
 	ErrWorkflowStepRunNotFound      = errors.New("workflow step run not found")
 	ErrEventKeyConflict             = errors.New("event key conflict")
 	ErrEventTriggerConflict         = errors.New("event trigger status update conflict")
