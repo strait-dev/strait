@@ -44,6 +44,12 @@ const (
 // to prevent infinite loops when jobs trigger each other.
 const MaxJobChainDepth = 10
 
+// DefaultMaxWorkflowContinueDepth is the default ceiling on the depth of a
+// workflow continue-as-new chain. Continue-as-new is meant for effectively
+// unbounded chains, so this is a large runaway safety net rather than a tight
+// limit; it is configurable via STRAIT_WORKFLOW_MAX_CONTINUE_DEPTH.
+const DefaultMaxWorkflowContinueDepth = 100000
+
 const (
 	WebhookEventRunCompleted      = "run.completed"
 	WebhookEventRunFailed         = "run.failed"
@@ -949,12 +955,17 @@ const (
 	WfStatusCompensating       WorkflowRunStatus = "compensating"
 	WfStatusCompensated        WorkflowRunStatus = "compensated"
 	WfStatusCompensationFailed WorkflowRunStatus = "compensation_failed"
+	// WfStatusContinued is a terminal status applied to a workflow run that was
+	// completed via continue-as-new: its work finished and a fresh successor run
+	// of the same workflow was started with carry-over input. The successor is
+	// reachable via WorkflowRun.ContinuedToWorkflowRunID.
+	WfStatusContinued WorkflowRunStatus = "continued"
 )
 
 func (s WorkflowRunStatus) IsTerminal() bool {
 	switch s {
 	case WfStatusCompleted, WfStatusFailed, WfStatusTimedOut, WfStatusCanceled,
-		WfStatusCompensated, WfStatusCompensationFailed:
+		WfStatusCompensated, WfStatusCompensationFailed, WfStatusContinued:
 		return true
 	default:
 		return false
@@ -964,7 +975,7 @@ func (s WorkflowRunStatus) IsTerminal() bool {
 func (s WorkflowRunStatus) IsValid() bool {
 	switch s {
 	case WfStatusPending, WfStatusRunning, WfStatusPaused, WfStatusCompleted, WfStatusFailed, WfStatusTimedOut, WfStatusCanceled,
-		WfStatusCompensating, WfStatusCompensated, WfStatusCompensationFailed:
+		WfStatusCompensating, WfStatusCompensated, WfStatusCompensationFailed, WfStatusContinued:
 		return true
 	default:
 		return false
@@ -1357,7 +1368,16 @@ type WorkflowRun struct {
 	CreatedBy            string            `json:"created_by,omitempty"`
 	ExpectedCompletionAt *time.Time        `json:"expected_completion_at,omitempty"`
 	TraceContext         map[string]string `json:"trace_context,omitempty"`
-	CreatedAt            time.Time         `json:"created_at"`
+	// ContinuedFromWorkflowRunID points at the predecessor run when this run was
+	// started via continue-as-new. Empty for runs that are not part of a chain.
+	ContinuedFromWorkflowRunID string `json:"continued_from_workflow_run_id,omitempty"`
+	// ContinuedToWorkflowRunID points at the successor run created when this run
+	// was terminated via continue-as-new (status WfStatusContinued).
+	ContinuedToWorkflowRunID string `json:"continued_to_workflow_run_id,omitempty"`
+	// LineageDepth is the position of this run in its continue-as-new chain. The
+	// first run is 0; each successor increments it. Guarded against runaway chains.
+	LineageDepth int       `json:"lineage_depth"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 // WorkflowStepRun represents execution of a single step within a workflow run.

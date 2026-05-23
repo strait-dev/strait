@@ -35,6 +35,10 @@ var allWorkflowRunStatuses = []WorkflowRunStatus{
 	WfStatusFailed,
 	WfStatusTimedOut,
 	WfStatusCanceled,
+	WfStatusCompensating,
+	WfStatusCompensated,
+	WfStatusCompensationFailed,
+	WfStatusContinued,
 }
 
 func TestFSM_ExhaustiveTransitionMatrix(t *testing.T) {
