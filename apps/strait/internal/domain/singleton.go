@@ -184,7 +184,13 @@ func ResolveSingletonKey(expr SingletonKeyExpr, payload json.RawMessage) (string
 
 	var data map[string]any
 	if len(payload) > 0 && string(payload) != "null" {
-		if err := json.Unmarshal(payload, &data); err != nil {
+		// UseNumber keeps numeric payload values as json.Number rather than
+		// float64, so a large integer id (for example a 19-digit account id) is
+		// interpolated into the key exactly instead of being rounded through a
+		// float and silently colliding with a nearby id.
+		dec := json.NewDecoder(bytes.NewReader(payload))
+		dec.UseNumber()
+		if err := dec.Decode(&data); err != nil {
 			// A non-object payload still resolves constant templates; only token
 			// interpolation needs structured data.
 			data = nil

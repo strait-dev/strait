@@ -146,6 +146,10 @@ func TestResolveSingletonKey(t *testing.T) {
 		{name: "literal plus interpolation", tpl: "job:${id}:run", payload: `{"id":"42"}`, want: "job:42:run"},
 		{name: "number scalar", tpl: "${n}", payload: `{"n":42}`, want: "42"},
 		{name: "float scalar", tpl: "${n}", payload: `{"n":1.5}`, want: "1.5"},
+		// Large integer ids must round-trip exactly: decoded as float64 these
+		// would lose precision and two distinct ids could collide on one key.
+		{name: "large integer id exact", tpl: "${id}", payload: `{"id":12345678901234567890}`, want: "12345678901234567890"},
+		{name: "very large integer id exact", tpl: "${id}", payload: `{"id":9007199254740993}`, want: "9007199254740993"},
 		{name: "bool scalar", tpl: "${flag}", payload: `{"flag":true}`, want: "true"},
 		{name: "whitespace trimmed in path", tpl: "${ id }", payload: `{"id":"x"}`, want: "x"},
 		{name: "missing path errors", tpl: "${missing}", payload: `{"id":"1"}`, wantErr: true},
@@ -186,6 +190,32 @@ func TestResolveSingletonKey_OverLength(t *testing.T) {
 	payload := `{"big":"` + strings.Repeat("a", maxResolvedSingletonKeyLen+1) + `"}`
 	if _, err := ResolveSingletonKey(expr, json.RawMessage(payload)); err == nil {
 		t.Fatal("expected error for over-length resolved key, got nil")
+	}
+}
+
+// TestResolveSingletonKey_LargeIntegerKeysDistinct is the precision regression:
+// two integer ids that differ only past float64's 53-bit mantissa must resolve to
+// distinct keys. Decoded as float64 they would both round to the same value and
+// silently share one singleton lock.
+func TestResolveSingletonKey_LargeIntegerKeysDistinct(t *testing.T) {
+	expr := SingletonKeyExpr{Template: "acct:${id}"}
+
+	k1, err := ResolveSingletonKey(expr, json.RawMessage(`{"id":9007199254740993}`))
+	if err != nil {
+		t.Fatalf("resolve id1 error = %v", err)
+	}
+	k2, err := ResolveSingletonKey(expr, json.RawMessage(`{"id":9007199254740994}`))
+	if err != nil {
+		t.Fatalf("resolve id2 error = %v", err)
+	}
+	if k1 == k2 {
+		t.Fatalf("adjacent large integer ids collided on key %q (precision lost)", k1)
+	}
+	if k1 != "acct:9007199254740993" {
+		t.Errorf("k1 = %q, want acct:9007199254740993", k1)
+	}
+	if k2 != "acct:9007199254740994" {
+		t.Errorf("k2 = %q, want acct:9007199254740994", k2)
 	}
 }
 
