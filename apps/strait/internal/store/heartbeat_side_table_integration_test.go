@@ -6,6 +6,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"strait/internal/domain"
 )
 
 // Integration tests for the unlogged heartbeat side table.
@@ -122,6 +124,49 @@ func TestHeartbeatSideTable_StaleDetection(t *testing.T) {
 	}
 	if len(stale) != 1 || stale[0] != staleID {
 		t.Errorf("stale = %v, want [%s]", stale, staleID)
+	}
+}
+
+func TestHeartbeatSideTable_ListStaleRunsPrefersSideTable(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-hb-side-stale-runs")
+	old := time.Now().UTC().Add(-10 * time.Minute)
+	run := baseRun(job, newID())
+	run.Status = domain.StatusExecuting
+	run.StartedAt = &old
+	run.HeartbeatAt = &old
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+
+	if err := q.UpsertHeartbeatSideTable(ctx, run.ID); err != nil {
+		t.Fatalf("fresh side-table heartbeat: %v", err)
+	}
+
+	runs, err := q.ListStaleRuns(ctx, 5*time.Minute)
+	if err != nil {
+		t.Fatalf("ListStaleRuns() fresh side-table error = %v", err)
+	}
+	if len(runs) != 0 {
+		t.Fatalf("ListStaleRuns() with fresh side-table heartbeat = %d, want 0", len(runs))
+	}
+
+	if _, err := testDB.Pool.Exec(ctx,
+		"UPDATE job_run_heartbeats SET heartbeat_at = NOW() - INTERVAL '10 minutes' WHERE run_id = $1",
+		run.ID,
+	); err != nil {
+		t.Fatalf("backdate side-table heartbeat: %v", err)
+	}
+
+	runs, err = q.ListStaleRuns(ctx, 5*time.Minute)
+	if err != nil {
+		t.Fatalf("ListStaleRuns() stale side-table error = %v", err)
+	}
+	if len(runs) != 1 || runs[0].ID != run.ID {
+		t.Fatalf("ListStaleRuns() = %v, want only %s", runs, run.ID)
 	}
 }
 

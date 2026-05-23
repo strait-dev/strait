@@ -3,6 +3,7 @@ package workflow
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 
 	"strait/internal/domain"
@@ -42,9 +43,12 @@ func BuildCompensationPlan(
 		runByRef[stepRuns[i].StepRef] = &stepRuns[i]
 	}
 
-	// Collect completed steps with compensation jobs.
-	var compensable []compensableEntry
-	for _, step := range steps {
+	// Collect completed steps with compensation jobs by definition index so the
+	// final plan can be produced by one reverse topological pass.
+	compensableRuns := make([]*domain.WorkflowStepRun, len(steps))
+	compensableCount := 0
+	for i := range steps {
+		step := &steps[i]
 		if step.CompensationJobID == "" {
 			continue
 		}
@@ -52,82 +56,184 @@ func BuildCompensationPlan(
 		if !ok || sr.Status != domain.StepCompleted {
 			continue
 		}
-		compensable = append(compensable, compensableEntry{
-			step:    step,
-			stepRun: sr,
-		})
+		compensableRuns[i] = sr
+		compensableCount++
 	}
 
-	if len(compensable) == 0 {
+	if compensableCount == 0 {
 		return nil, nil
 	}
 
-	// Sort in reverse topological order.
-	topoOrder := buildTopologicalOrder(steps)
-	orderIndex := make(map[string]int, len(topoOrder))
-	for i, ref := range topoOrder {
-		orderIndex[ref] = i
+	stepIndex := buildStepIndex(steps)
+	topoOrder := []int(nil)
+	if !stepsAreTopologicallyOrdered(steps, stepIndex) {
+		topoOrder = buildTopologicalOrderIndexesWithStepIndex(steps, stepIndex)
 	}
-
-	sort.Slice(compensable, func(i, j int) bool {
-		// Higher topological index = later in execution = first to compensate.
-		return orderIndex[compensable[i].step.StepRef] > orderIndex[compensable[j].step.StepRef]
-	})
 
 	plan := &CompensationPlan{
 		WorkflowRunID: workflowRunID,
-		Steps:         make([]CompensationStep, len(compensable)),
+		Steps:         make([]CompensationStep, 0, compensableCount),
 	}
-	for i, entry := range compensable {
-		plan.Steps[i] = CompensationStep{
-			StepRef:           entry.step.StepRef,
-			StepRunID:         entry.stepRun.ID,
-			CompensationJobID: entry.step.CompensationJobID,
-			TimeoutSecs:       entry.step.CompensationTimeoutSecs,
-			OriginalOutput:    entry.stepRun.Output,
+	if topoOrder == nil {
+		for stepIdx := range slices.Backward(steps) {
+			appendCompensationStep(plan, steps, compensableRuns, stepIdx)
+		}
+	} else {
+		for _, stepIdx := range slices.Backward(topoOrder) {
+			appendCompensationStep(plan, steps, compensableRuns, stepIdx)
 		}
 	}
 
 	return plan, nil
 }
 
-type compensableEntry struct {
-	step    domain.WorkflowStep
-	stepRun *domain.WorkflowStepRun
+func appendCompensationStep(
+	plan *CompensationPlan,
+	steps []domain.WorkflowStep,
+	compensableRuns []*domain.WorkflowStepRun,
+	stepIdx int,
+) {
+	stepRun := compensableRuns[stepIdx]
+	if stepRun == nil {
+		return
+	}
+	step := &steps[stepIdx]
+	plan.Steps = append(plan.Steps, CompensationStep{
+		StepRef:           step.StepRef,
+		StepRunID:         stepRun.ID,
+		CompensationJobID: step.CompensationJobID,
+		TimeoutSecs:       step.CompensationTimeoutSecs,
+		OriginalOutput:    stepRun.Output,
+	})
+}
+
+func stepsAreTopologicallyOrdered(steps []domain.WorkflowStep, stepIndex map[string]int) bool {
+	for stepIdx := range steps {
+		for _, dep := range steps[stepIdx].DependsOn {
+			depIdx, ok := stepIndex[dep]
+			if !ok || depIdx >= stepIdx {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // buildTopologicalOrder returns step refs in topological order using Kahn's algorithm.
 func buildTopologicalOrder(steps []domain.WorkflowStep) []string {
-	inDegree := make(map[string]int, len(steps))
-	children := make(map[string][]string, len(steps))
+	indexes := buildTopologicalOrderIndexes(steps)
+	order := make([]string, len(indexes))
+	for i, stepIdx := range indexes {
+		order[i] = steps[stepIdx].StepRef
+	}
+	return order
+}
 
-	for _, s := range steps {
-		if _, ok := inDegree[s.StepRef]; !ok {
-			inDegree[s.StepRef] = 0
+func buildTopologicalOrderIndexes(steps []domain.WorkflowStep) []int {
+	stepIndex := make(map[string]int, len(steps))
+	for i, s := range steps {
+		if _, ok := stepIndex[s.StepRef]; !ok {
+			stepIndex[s.StepRef] = i
 		}
+	}
+	return buildTopologicalOrderIndexesWithStepIndex(steps, stepIndex)
+}
+
+func buildStepIndex(steps []domain.WorkflowStep) map[string]int {
+	stepIndex := make(map[string]int, len(steps))
+	for i, s := range steps {
+		if _, ok := stepIndex[s.StepRef]; !ok {
+			stepIndex[s.StepRef] = i
+		}
+	}
+	return stepIndex
+}
+
+func buildTopologicalOrderIndexesWithStepIndex(steps []domain.WorkflowStep, stepIndex map[string]int) []int {
+	if stepsFormOrderedLinearChain(steps, stepIndex) {
+		return orderedStepIndexes(len(steps))
+	}
+
+	needsDepDedup := false
+	for _, s := range steps {
+		needsDepDedup = needsDepDedup || len(s.DependsOn) > 1
+	}
+
+	inDegree := make([]int, len(steps))
+	childCounts := make([]int, len(steps))
+	var depSeen []int
+	if needsDepDedup {
+		depSeen = make([]int, len(steps))
+	}
+	totalEdges := 0
+	for stepIdx, s := range steps {
+		seenMarker := stepIdx + 1
 		for _, dep := range s.DependsOn {
-			children[dep] = append(children[dep], s.StepRef)
-			inDegree[s.StepRef]++
+			depIdx, ok := stepIndex[dep]
+			if !ok {
+				inDegree[stepIdx]++
+				continue
+			}
+			if depSeen != nil {
+				if depSeen[depIdx] == seenMarker {
+					continue
+				}
+				depSeen[depIdx] = seenMarker
+			}
+			inDegree[stepIdx]++
+			childCounts[depIdx]++
+			totalEdges++
 		}
 	}
 
-	queue := make([]string, 0)
-	for ref, deg := range inDegree {
+	children := make([][]int, len(steps))
+	edgeStorage := make([]int, totalEdges)
+	offset := 0
+	for i, count := range childCounts {
+		children[i] = edgeStorage[offset : offset : offset+count]
+		offset += count
+	}
+	for stepIdx, s := range steps {
+		seenMarker := len(steps) + stepIdx + 1
+		for _, dep := range s.DependsOn {
+			depIdx, ok := stepIndex[dep]
+			if !ok {
+				continue
+			}
+			if depSeen != nil {
+				if depSeen[depIdx] == seenMarker {
+					continue
+				}
+				depSeen[depIdx] = seenMarker
+			}
+			children[depIdx] = append(children[depIdx], stepIdx)
+		}
+	}
+
+	queue := childCounts[:0]
+	for idx, deg := range inDegree {
 		if deg == 0 {
-			queue = append(queue, ref)
+			queue = append(queue, idx)
 		}
 	}
 	// Sort roots for deterministic order.
-	sort.Strings(queue)
+	if len(queue) > 1 {
+		sort.Slice(queue, func(i, j int) bool {
+			return steps[queue[i]].StepRef < steps[queue[j]].StepRef
+		})
+	}
 
-	var order []string
-	for len(queue) > 0 {
-		ref := queue[0]
-		queue = queue[1:]
-		order = append(order, ref)
+	order := make([]int, 0, len(steps))
+	for i := 0; i < len(queue); i++ {
+		stepIdx := queue[i]
+		order = append(order, stepIdx)
 
-		kids := children[ref]
-		sort.Strings(kids)
+		kids := children[stepIdx]
+		if len(kids) > 1 {
+			sort.Slice(kids, func(i, j int) bool {
+				return steps[kids[i]].StepRef < steps[kids[j]].StepRef
+			})
+		}
 		for _, child := range kids {
 			inDegree[child]--
 			if inDegree[child] == 0 {
@@ -137,6 +243,33 @@ func buildTopologicalOrder(steps []domain.WorkflowStep) []string {
 	}
 
 	return order
+}
+
+func stepsFormOrderedLinearChain(steps []domain.WorkflowStep, stepIndex map[string]int) bool {
+	if len(steps) <= 1 {
+		return true
+	}
+	if len(steps[0].DependsOn) != 0 {
+		return false
+	}
+	for stepIdx := 1; stepIdx < len(steps); stepIdx++ {
+		deps := steps[stepIdx].DependsOn
+		if len(deps) != 1 {
+			return false
+		}
+		if depIdx, ok := stepIndex[deps[0]]; !ok || depIdx != stepIdx-1 {
+			return false
+		}
+	}
+	return true
+}
+
+func orderedStepIndexes(size int) []int {
+	indexes := make([]int, size)
+	for i := range indexes {
+		indexes[i] = i
+	}
+	return indexes
 }
 
 // ValidateCompensationRequest checks that a workflow run is eligible for compensation.
