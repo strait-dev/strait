@@ -153,6 +153,25 @@ func (q *Queries) CountSingletonWaiters(ctx context.Context, kind domain.Singlet
 	return n, nil
 }
 
+// CancelSingletonJobWaiters cancels every job_run parked in 'waiting' behind the
+// holder of (jobID, lockKey). Used by the replace policy to discard stale
+// waiters so the just-triggered run becomes the sole successor. Returns the
+// number of waiters canceled.
+func (q *Queries) CancelSingletonJobWaiters(ctx context.Context, jobID, lockKey, reason string) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CancelSingletonJobWaiters")
+	defer span.End()
+
+	const upd = `
+		UPDATE job_runs
+		SET status = 'canceled', finished_at = NOW(), error = $3
+		WHERE job_id = $1 AND singleton_key = $2 AND status = 'waiting'`
+	tag, err := q.db.Exec(ctx, upd, jobID, lockKey, reason)
+	if err != nil {
+		return 0, fmt.Errorf("cancel singleton job waiters: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 func scanSingletonLock(scanner scanTarget) (*domain.SingletonLock, error) {
 	var lock domain.SingletonLock
 	var kind string

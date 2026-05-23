@@ -67,14 +67,14 @@ func (q *Queries) CreateRun(ctx context.Context, run *domain.JobRun) error {
 			debug_mode, continuation_of, lineage_depth,
 			tags, job_version_id, created_by, concurrency_key, batch_id,
 				execution_mode, queue_name, metadata,
-				is_rollback
+				is_rollback, singleton_key
 			)
 			SELECT
 				$1, $2, $3, $4, $5, $6, $7, $8,
 				$9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
 				$21, $22, $23,
 				$24::jsonb, $25, $26, $27, $28,
-				$29, $30, $31::jsonb, $32
+				$29, $30, $31::jsonb, $32, $33
 			WHERE NOT EXISTS (SELECT 1 FROM idempotency_check)
 			RETURNING created_at`
 
@@ -122,6 +122,7 @@ func (q *Queries) CreateRun(ctx context.Context, run *domain.JobRun) error {
 		queueName,
 		metadataJSON,
 		run.IsRollback,
+		dbscan.NilIfEmptyString(run.SingletonKey),
 	).Scan(&run.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) && run.IdempotencyKey != "" {

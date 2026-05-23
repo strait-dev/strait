@@ -2,6 +2,7 @@ package domain
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -126,6 +127,89 @@ func TestSingletonKeyExpr_JSONRoundTrip(t *testing.T) {
 	if parsed.Template != original.Template {
 		t.Errorf("round-trip Template = %q, want %q", parsed.Template, original.Template)
 	}
+}
+
+func TestResolveSingletonKey(t *testing.T) {
+	tests := []struct {
+		name    string
+		tpl     string
+		zero    bool
+		payload string
+		want    string
+		wantErr bool
+	}{
+		{name: "zero expr", zero: true, payload: `{"id":"1"}`, want: ""},
+		{name: "constant key", tpl: "global", payload: `{}`, want: "global"},
+		{name: "single interpolation", tpl: "${id}", payload: `{"id":"acct-7"}`, want: "acct-7"},
+		{name: "multi interpolation", tpl: "${account.id}-${region}", payload: `{"account":{"id":"a1"},"region":"us"}`, want: "a1-us"},
+		{name: "nested path", tpl: "${a.b.c}", payload: `{"a":{"b":{"c":"deep"}}}`, want: "deep"},
+		{name: "literal plus interpolation", tpl: "job:${id}:run", payload: `{"id":"42"}`, want: "job:42:run"},
+		{name: "number scalar", tpl: "${n}", payload: `{"n":42}`, want: "42"},
+		{name: "float scalar", tpl: "${n}", payload: `{"n":1.5}`, want: "1.5"},
+		{name: "bool scalar", tpl: "${flag}", payload: `{"flag":true}`, want: "true"},
+		{name: "whitespace trimmed in path", tpl: "${ id }", payload: `{"id":"x"}`, want: "x"},
+		{name: "missing path errors", tpl: "${missing}", payload: `{"id":"1"}`, wantErr: true},
+		{name: "non-scalar object errors", tpl: "${account}", payload: `{"account":{"id":"1"}}`, wantErr: true},
+		{name: "non-scalar array errors", tpl: "${list}", payload: `{"list":[1,2]}`, wantErr: true},
+		{name: "null value errors", tpl: "${id}", payload: `{"id":null}`, wantErr: true},
+		{name: "empty interpolation path errors", tpl: "${}", payload: `{}`, wantErr: true},
+		{name: "interpolation against non-object payload errors", tpl: "${id}", payload: `"a string"`, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var expr SingletonKeyExpr
+			if !tt.zero {
+				expr = SingletonKeyExpr{Template: tt.tpl}
+			}
+			got, err := ResolveSingletonKey(expr, json.RawMessage(tt.payload))
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("ResolveSingletonKey(%q, %q) expected error, got nil (key=%q)", tt.tpl, tt.payload, got)
+				}
+				if !errors.Is(err, ErrSingletonKeyUnresolvable) {
+					t.Errorf("error = %v, want ErrSingletonKeyUnresolvable", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ResolveSingletonKey(%q, %q) unexpected error: %v", tt.tpl, tt.payload, err)
+			}
+			if got != tt.want {
+				t.Errorf("ResolveSingletonKey(%q, %q) = %q, want %q", tt.tpl, tt.payload, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolveSingletonKey_OverLength(t *testing.T) {
+	expr := SingletonKeyExpr{Template: "${big}"}
+	payload := `{"big":"` + strings.Repeat("a", maxResolvedSingletonKeyLen+1) + `"}`
+	if _, err := ResolveSingletonKey(expr, json.RawMessage(payload)); err == nil {
+		t.Fatal("expected error for over-length resolved key, got nil")
+	}
+}
+
+func FuzzResolveSingletonKey(f *testing.F) {
+	f.Add([]byte(`{"template":"${user.id}"}`), []byte(`{"user":{"id":"42"}}`))
+	f.Add([]byte(`{"template":"global"}`), []byte(`{}`))
+	f.Add([]byte(`{"template":"${missing}"}`), []byte(`{"id":"1"}`))
+	f.Add([]byte(`{"template":"${}"}`), []byte(`{}`))
+	f.Add([]byte(`null`), []byte(`{}`))
+	f.Add([]byte(``), []byte(`null`))
+	f.Add([]byte(`{"template":"${a.b.c}"}`), []byte(`not json`))
+	f.Add([]byte(`{"template":"${n}"}`), []byte(`{"n":1.5}`))
+
+	f.Fuzz(func(t *testing.T, rawExpr, payload []byte) {
+		// ParseSingletonKeyExpr + ResolveSingletonKey must never panic.
+		expr, err := ParseSingletonKeyExpr(json.RawMessage(rawExpr))
+		if err != nil {
+			return
+		}
+		key, rerr := ResolveSingletonKey(expr, json.RawMessage(payload))
+		if rerr == nil && len(key) > maxResolvedSingletonKeyLen {
+			t.Fatalf("resolved key exceeds max length: %d", len(key))
+		}
+	})
 }
 
 func FuzzSingletonKeyExprUnmarshal(f *testing.F) {

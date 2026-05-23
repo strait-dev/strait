@@ -169,7 +169,7 @@ func (q *PostgresQueue) prepareEnqueue(run *domain.JobRun) (string, []any, error
 			debug_mode, continuation_of, lineage_depth,
 			tags, job_version_id, created_by, concurrency_key, batch_id,
 			execution_mode, queue_name, metadata,
-			is_rollback
+			is_rollback, singleton_key
 		)
 		SELECT
 			$1, $2, $3, $4, $5, $6, $7, $8,
@@ -177,7 +177,7 @@ func (q *PostgresQueue) prepareEnqueue(run *domain.JobRun) (string, []any, error
 			$21, $22, $23,
 			$24::jsonb, $25, $26, $27, $28,
 			$29, $30, $31::jsonb,
-			$32
+			$32, $33
 		WHERE NOT EXISTS (SELECT 1 FROM idempotency_check)
 		RETURNING created_at`
 
@@ -220,6 +220,7 @@ func (q *PostgresQueue) prepareEnqueue(run *domain.JobRun) (string, []any, error
 		queueName,
 		metadataJSON,
 		run.IsRollback,
+		dbscan.NilIfEmptyString(run.SingletonKey),
 	}
 
 	return query, args, nil

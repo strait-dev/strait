@@ -50,6 +50,10 @@ type TriggerRequest struct {
 	ConcurrencyKey string            `json:"concurrency_key,omitempty" validate:"max=256"`
 	DebounceKey    string            `json:"debounce_key,omitempty" validate:"max=256"`
 	BatchKey       string            `json:"batch_key,omitempty" validate:"max=256"`
+	// SingletonKey overrides the resolved singleton lock key for this trigger,
+	// bypassing the job's key-expression template. Ignored when the job is not a
+	// singleton. Empty means resolve from the configured template.
+	SingletonKey string `json:"singleton_key,omitempty" validate:"max=2048"`
 }
 
 const maxTriggerTTLSecs = 30 * 24 * 60 * 60
@@ -425,8 +429,34 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		input.Baggage,
 	)
 
+	singletonConfigured := job.SingletonOnConflict != ""
+	if singletonConfigured {
+		key, keyErr := resolveJobSingletonKey(job, req.SingletonKey, payload)
+		if keyErr != nil {
+			return nil, keyErr
+		}
+		run.SingletonKey = key
+	}
+
 	waitingRun := false
+	var singletonOutcome domain.SingletonOutcome
+	var singletonHolderRunID string
 	if err := s.withTriggerLimitGuard(ctx, job, projectQuota, func(guardCtx context.Context, tx store.DBTX) error {
+		if singletonConfigured {
+			proceed, outcome, holderID, serr := s.applyJobSingletonPolicy(guardCtx, tx, job, run, run.SingletonKey)
+			if serr != nil {
+				return serr
+			}
+			singletonOutcome = outcome
+			singletonHolderRunID = holderID
+			if !proceed {
+				// drop / queue / replace: applyJobSingletonPolicy already parked or
+				// discarded the run. Nothing left to enqueue.
+				return nil
+			}
+			// dispatched: the run acquired the key; fall through to the normal
+			// dependency-check and enqueue path holding the lock.
+		}
 		if status == domain.StatusQueued {
 			satisfied, depErr := s.store.AreJobDependenciesSatisfied(guardCtx, run)
 			if depErr != nil {
@@ -441,6 +471,10 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 						otelattr.String("job_id", run.JobID),
 					)
 					s.metrics.WorkflowDependencyWaits.Add(guardCtx, 1, attrs)
+				}
+				if singletonConfigured {
+					// Keep the parked insert atomic with the lock acquired above.
+					return store.New(tx).CreateRun(guardCtx, run)
 				}
 				return s.store.CreateRun(guardCtx, run)
 			}
@@ -479,6 +513,40 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		}
 		return nil, triggerLimitAPIError(err, "failed to enqueue run")
 	}
+
+	if singletonConfigured {
+		s.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", job.ID, map[string]any{
+			"run_id":             run.ID,
+			"priority":           req.Priority,
+			"tag_keys":           tagKeys(runTags),
+			"triggered_by":       run.TriggeredBy,
+			"singleton_key_hash": hashIdempotencyKey(run.SingletonKey),
+			"singleton_outcome":  string(singletonOutcome),
+		})
+		// drop creates no run: report the outcome and the holder it lost to.
+		if singletonOutcome == domain.SingletonOutcomeDropped {
+			body := map[string]any{
+				"singleton_outcome": string(singletonOutcome),
+				"idempotency_hit":   false,
+			}
+			if singletonHolderRunID != "" {
+				body["singleton_holder_run_id"] = singletonHolderRunID
+			}
+			return &TriggerJobOutput{Body: body}, nil
+		}
+		body := map[string]any{
+			"id":                run.ID,
+			"status":            run.Status,
+			"payload_hash":      payloadHash,
+			"idempotency_hit":   false,
+			"singleton_outcome": string(singletonOutcome),
+		}
+		if singletonHolderRunID != "" {
+			body["singleton_holder_run_id"] = singletonHolderRunID
+		}
+		return &TriggerJobOutput{Body: body}, nil
+	}
+
 	if waitingRun {
 		s.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", job.ID, map[string]any{
 			"run_id":               run.ID,
@@ -646,6 +714,123 @@ func (s *Server) enqueueTriggerRun(ctx context.Context, tx store.DBTX, run *doma
 		return s.queue.EnqueueInTx(ctx, tx, run)
 	}
 	return s.queue.Enqueue(ctx, run)
+}
+
+// resolveJobSingletonKey produces the lock key for a singleton job trigger. An
+// explicit per-trigger override wins over the configured template (already
+// length-bounded by the request validator). Otherwise the job's key expression
+// is interpolated against the canonicalized payload. An unresolvable template
+// maps to 400; a malformed stored expression maps to 500.
+func resolveJobSingletonKey(job *domain.Job, override string, payload json.RawMessage) (string, error) {
+	if override != "" {
+		return override, nil
+	}
+	expr, err := domain.ParseSingletonKeyExpr(job.SingletonKeyExpr)
+	if err != nil {
+		return "", huma.Error500InternalServerError("invalid singleton key expression")
+	}
+	key, rerr := domain.ResolveSingletonKey(expr, payload)
+	if rerr != nil {
+		if errors.Is(rerr, domain.ErrSingletonKeyUnresolvable) {
+			return "", huma.Error400BadRequest(rerr.Error())
+		}
+		return "", huma.Error500InternalServerError("failed to resolve singleton key")
+	}
+	if key == "" {
+		return "", huma.Error400BadRequest("singleton key resolved to an empty value")
+	}
+	return key, nil
+}
+
+// applyJobSingletonPolicy claims the resolved key for run inside the trigger
+// transaction. It returns proceed=true only when the key was acquired
+// (dispatched), so the caller continues to the normal enqueue path with the lock
+// held. On conflict it applies the job's on-conflict policy in-place (parking,
+// dropping, or replacing) and returns proceed=false with the resulting outcome
+// and the relevant holder run id.
+func (s *Server) applyJobSingletonPolicy(ctx context.Context, tx store.DBTX, job *domain.Job, run *domain.JobRun, key string) (bool, domain.SingletonOutcome, string, error) {
+	txQ := store.New(tx)
+	lease := time.Now().Add(s.config.StaleThreshold)
+	acquired, holder, err := txQ.AcquireSingletonLock(ctx, domain.SingletonLock{
+		ProjectID:   job.ProjectID,
+		Kind:        domain.SingletonKindJob,
+		OwnerID:     job.ID,
+		LockKey:     key,
+		HolderRunID: run.ID,
+		LeaseUntil:  &lease,
+	})
+	if err != nil {
+		return false, "", "", fmt.Errorf("acquire singleton lock: %w", err)
+	}
+	if acquired {
+		return true, domain.SingletonOutcomeDispatched, "", nil
+	}
+
+	holderID := ""
+	if holder != nil {
+		holderID = holder.HolderRunID
+	}
+
+	switch job.SingletonOnConflict {
+	case domain.SingletonOnConflictDrop:
+		return false, domain.SingletonOutcomeDropped, holderID, nil
+
+	case domain.SingletonOnConflictQueue:
+		waiters, cerr := txQ.CountSingletonWaiters(ctx, domain.SingletonKindJob, job.ID, key)
+		if cerr != nil {
+			return false, "", "", fmt.Errorf("count singleton waiters: %w", cerr)
+		}
+		if job.SingletonMaxQueueDepth != nil && waiters >= *job.SingletonMaxQueueDepth {
+			return false, domain.SingletonOutcomeDropped, holderID, nil
+		}
+		run.Status = domain.StatusWaiting
+		if cerr := txQ.CreateRun(ctx, run); cerr != nil {
+			return false, "", "", fmt.Errorf("park singleton run: %w", cerr)
+		}
+		return false, domain.SingletonOutcomeQueuedBehind, holderID, nil
+
+	case domain.SingletonOnConflictReplace:
+		// Discard any waiters already parked behind the holder so the
+		// just-triggered run becomes the sole successor (keep newest).
+		if _, cerr := txQ.CancelSingletonJobWaiters(ctx, job.ID, key, "superseded by singleton replace"); cerr != nil {
+			return false, "", "", fmt.Errorf("cancel singleton waiters: %w", cerr)
+		}
+		if holderID != "" {
+			if cerr := cancelSingletonHolderJob(ctx, txQ, holderID); cerr != nil {
+				return false, "", "", fmt.Errorf("cancel singleton holder: %w", cerr)
+			}
+		}
+		// Park the newcomer; it acquires the key when the canceled holder's
+		// terminal transition releases and promotes it (Phase 3 fast-path/reaper).
+		run.Status = domain.StatusWaiting
+		if cerr := txQ.CreateRun(ctx, run); cerr != nil {
+			return false, "", "", fmt.Errorf("park singleton replacement run: %w", cerr)
+		}
+		return false, domain.SingletonOutcomeReplaced, holderID, nil
+
+	default:
+		return false, "", "", fmt.Errorf("unknown singleton on-conflict policy %q", job.SingletonOnConflict)
+	}
+}
+
+// cancelSingletonHolderJob transitions the current holder job-run to canceled so
+// the replace newcomer can take the key. A missing or already-terminal holder is
+// a no-op: the reaper reclaims orphaned locks.
+func cancelSingletonHolderJob(ctx context.Context, txQ *store.Queries, holderID string) error {
+	st, err := txQ.GetRunStatus(ctx, holderID)
+	if err != nil {
+		if errors.Is(err, store.ErrRunNotFound) {
+			return nil
+		}
+		return err
+	}
+	if st.IsTerminal() {
+		return nil
+	}
+	return txQ.UpdateRunStatus(ctx, holderID, st, domain.StatusCanceled, map[string]any{
+		"finished_at": time.Now(),
+		"error":       "canceled by singleton replace policy",
+	})
 }
 
 // triggerLimitFallbackRetryAfterSeconds is the Retry-After hint surfaced

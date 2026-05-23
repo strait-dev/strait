@@ -3,7 +3,11 @@ package domain
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"regexp"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -152,4 +156,101 @@ func (e SingletonKeyExpr) Validate() error {
 		return fmt.Errorf("singleton key expression template exceeds %d bytes", maxSingletonTemplateLen)
 	}
 	return nil
+}
+
+// ErrSingletonKeyUnresolvable indicates a key template referenced a payload path
+// that is missing or resolves to a non-scalar value. Callers map it to a 400.
+var ErrSingletonKeyUnresolvable = errors.New("singleton key could not be resolved from payload")
+
+// maxResolvedSingletonKeyLen bounds the resolved key so an interpolated payload
+// value cannot blow up the lock_key column or the per-key index.
+const maxResolvedSingletonKeyLen = 2048
+
+// singletonInterpRe matches ${dot.path} interpolation tokens in a key template.
+var singletonInterpRe = regexp.MustCompile(`\$\{([^}]*)\}`)
+
+// ResolveSingletonKey resolves a key template against a trigger payload. Each
+// ${dot.path} token is replaced by the scalar payload value at that path; literal
+// text passes through unchanged, so a template with no tokens is a constant key
+// (a global mutex for the owner). A token whose path is missing or resolves to a
+// non-scalar (object, array, or null) yields ErrSingletonKeyUnresolvable.
+//
+// A zero expression returns ("", nil) so callers can treat "not a singleton"
+// uniformly.
+func ResolveSingletonKey(expr SingletonKeyExpr, payload json.RawMessage) (string, error) {
+	if expr.IsZero() {
+		return "", nil
+	}
+
+	var data map[string]any
+	if len(payload) > 0 && string(payload) != "null" {
+		if err := json.Unmarshal(payload, &data); err != nil {
+			// A non-object payload still resolves constant templates; only token
+			// interpolation needs structured data.
+			data = nil
+		}
+	}
+
+	var resolveErr error
+	resolved := singletonInterpRe.ReplaceAllStringFunc(expr.Template, func(token string) string {
+		if resolveErr != nil {
+			return ""
+		}
+		path := strings.TrimSpace(singletonInterpRe.FindStringSubmatch(token)[1])
+		if path == "" {
+			resolveErr = fmt.Errorf("%w: empty interpolation path", ErrSingletonKeyUnresolvable)
+			return ""
+		}
+		val := getPayloadField(data, path)
+		s, ok := scalarToKeyString(val)
+		if !ok {
+			resolveErr = fmt.Errorf("%w: path %q is missing or non-scalar", ErrSingletonKeyUnresolvable, path)
+			return ""
+		}
+		return s
+	})
+	if resolveErr != nil {
+		return "", resolveErr
+	}
+	if resolved == "" {
+		return "", fmt.Errorf("%w: template resolved to an empty key", ErrSingletonKeyUnresolvable)
+	}
+	if len(resolved) > maxResolvedSingletonKeyLen {
+		return "", fmt.Errorf("%w: resolved key exceeds %d bytes", ErrSingletonKeyUnresolvable, maxResolvedSingletonKeyLen)
+	}
+	return resolved, nil
+}
+
+// getPayloadField walks a dot path through a decoded JSON object, returning nil
+// if any segment is missing or not an object.
+func getPayloadField(data map[string]any, path string) any {
+	var current any = data
+	for part := range strings.SplitSeq(path, ".") {
+		m, ok := current.(map[string]any)
+		if !ok {
+			return nil
+		}
+		current, ok = m[part]
+		if !ok {
+			return nil
+		}
+	}
+	return current
+}
+
+// scalarToKeyString renders a JSON scalar as a stable key fragment. Numbers use
+// the shortest round-trippable form; objects, arrays, and nil are rejected.
+func scalarToKeyString(v any) (string, bool) {
+	switch t := v.(type) {
+	case string:
+		return t, true
+	case bool:
+		return strconv.FormatBool(t), true
+	case float64:
+		return strconv.FormatFloat(t, 'f', -1, 64), true
+	case json.Number:
+		return t.String(), true
+	default:
+		return "", false
+	}
 }
