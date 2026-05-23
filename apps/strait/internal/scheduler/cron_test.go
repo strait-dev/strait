@@ -1059,3 +1059,39 @@ func BenchmarkCronParse(b *testing.B) {
 		_, _ = cs.cron.AddFunc("*/5 * * * *", func() {})
 	}
 }
+
+func BenchmarkCronDriftSchedule(b *testing.B) {
+	const expr = "*/5 * * * *"
+
+	b.Run("parse_each_time", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if schedule := parseDriftSchedule(expr); schedule == nil {
+				b.Fatal("expected schedule")
+			}
+		}
+	})
+
+	b.Run("cached_lookup", func(b *testing.B) {
+		b.ReportAllocs()
+		cs := NewCronScheduler(context.Background(), nil, nil, nil)
+		cs.cacheDriftSchedule(expr)
+
+		for b.Loop() {
+			if schedule := cs.getDriftSchedule(expr); schedule == nil {
+				b.Fatal("expected schedule")
+			}
+		}
+	})
+
+	b.Run("fallback_parse_once_then_cached", func(b *testing.B) {
+		b.ReportAllocs()
+		cs := NewCronScheduler(context.Background(), nil, nil, nil)
+
+		for b.Loop() {
+			if schedule := cs.getDriftSchedule(expr); schedule == nil {
+				b.Fatal("expected schedule")
+			}
+		}
+	})
+}

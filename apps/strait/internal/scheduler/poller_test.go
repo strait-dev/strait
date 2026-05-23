@@ -148,3 +148,49 @@ func TestDelayedPoller_ClampsUnsafeDefaults(t *testing.T) {
 		t.Fatalf("maxBatchesPerTick = %d, want %d", p.maxBatchesPerTick, defaultDelayedPollerMaxBatchesPerTick)
 	}
 }
+
+func BenchmarkDelayedPollerPoll(b *testing.B) {
+	logger := slog.New(slog.DiscardHandler)
+	ctx := context.Background()
+
+	b.Run("empty", func(b *testing.B) {
+		b.ReportAllocs()
+		p := NewDelayedPoller(&mockPollerStore{
+			activateDueRunsFn: func(context.Context, int) (int64, error) {
+				return 0, nil
+			},
+		}, logger, time.Hour)
+
+		for b.Loop() {
+			p.poll(ctx)
+		}
+	})
+
+	b.Run("full_pages", func(b *testing.B) {
+		b.ReportAllocs()
+		p := NewDelayedPoller(&mockPollerStore{
+			activateDueRunsFn: func(_ context.Context, limit int) (int64, error) {
+				return int64(limit), nil
+			},
+		}, logger, time.Hour)
+		b.ReportMetric(float64(p.batchLimit*p.maxBatchesPerTick), "runs/op")
+
+		for b.Loop() {
+			p.poll(ctx)
+		}
+	})
+
+	b.Run("partial_catchup", func(b *testing.B) {
+		b.ReportAllocs()
+		p := NewDelayedPoller(&mockPollerStore{
+			activateDueRunsFn: func(_ context.Context, limit int) (int64, error) {
+				return int64(limit / 2), nil
+			},
+		}, logger, time.Hour)
+		b.ReportMetric(float64(p.batchLimit/2), "runs/op")
+
+		for b.Loop() {
+			p.poll(ctx)
+		}
+	})
+}
