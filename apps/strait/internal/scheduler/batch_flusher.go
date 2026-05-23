@@ -60,17 +60,23 @@ func (f *BatchFlusher) poll(ctx context.Context) {
 		return
 	}
 
+	jobCache := make(map[string]*domain.Job)
 	for _, batch := range batches {
-		if err := f.flush(ctx, batch); err != nil {
+		if err := f.flush(ctx, batch, jobCache); err != nil {
 			slog.Error("batch flusher: flush", "job_id", batch.JobID, "batch_key", batch.BatchKey, "error", err)
 		}
 	}
 }
 
-func (f *BatchFlusher) flush(ctx context.Context, batch store.FlushableBatch) error {
-	job, err := f.store.GetJob(ctx, batch.JobID)
-	if err != nil {
-		return err
+func (f *BatchFlusher) flush(ctx context.Context, batch store.FlushableBatch, jobCache map[string]*domain.Job) error {
+	job, ok := jobCache[batch.JobID]
+	if !ok {
+		var err error
+		job, err = f.store.GetJob(ctx, batch.JobID)
+		if err != nil {
+			return err
+		}
+		jobCache[batch.JobID] = job
 	}
 	if !job.Enabled {
 		return nil
