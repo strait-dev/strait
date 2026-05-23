@@ -16,11 +16,13 @@ var workflowMetrics = newWorkflowMetrics()
 var workflowProjectLabels = queue.NewProjectLabelAllowlist(100)
 
 type workflowRuntimeMetrics struct {
-	stepDuration     metric.Float64Histogram
-	stepTransitions  metric.Int64Counter
-	compensationRuns metric.Int64Counter
-	durableWait      metric.Float64Histogram
-	activeRuns       metric.Int64UpDownCounter
+	stepDuration      metric.Float64Histogram
+	stepTransitions   metric.Int64Counter
+	compensationRuns  metric.Int64Counter
+	durableWait       metric.Float64Histogram
+	activeRuns        metric.Int64UpDownCounter
+	continuations     metric.Int64Counter
+	continuationDepth metric.Int64Gauge
 }
 
 func newWorkflowMetrics() workflowRuntimeMetrics {
@@ -52,12 +54,24 @@ func newWorkflowMetrics() workflowRuntimeMetrics {
 		metric.WithDescription("Active workflow runs by bounded project label"),
 		metric.WithUnit("1"),
 	)
+	continuations, _ := meter.Int64Counter(
+		"strait_workflow_continuations_total",
+		metric.WithDescription("Workflow continue-as-new operations by bounded project label"),
+		metric.WithUnit("1"),
+	)
+	continuationDepth, _ := meter.Int64Gauge(
+		"strait_workflow_continuation_depth",
+		metric.WithDescription("Lineage depth of the most recent continue-as-new successor by bounded project label"),
+		metric.WithUnit("1"),
+	)
 	return workflowRuntimeMetrics{
-		stepDuration:     stepDuration,
-		stepTransitions:  stepTransitions,
-		compensationRuns: compensationRuns,
-		durableWait:      durableWait,
-		activeRuns:       activeRuns,
+		stepDuration:      stepDuration,
+		stepTransitions:   stepTransitions,
+		compensationRuns:  compensationRuns,
+		durableWait:       durableWait,
+		activeRuns:        activeRuns,
+		continuations:     continuations,
+		continuationDepth: continuationDepth,
 	}
 }
 
@@ -107,6 +121,15 @@ func recordWorkflowActiveRunDelta(ctx context.Context, projectID string, delta i
 		return
 	}
 	workflowMetrics.activeRuns.Add(ctx, delta, metric.WithAttributes(attribute.String("project", projectLabel(projectID))))
+}
+
+// recordWorkflowContinuation records a continue-as-new operation: it counts the
+// continuation and reports the successor's lineage depth, both labeled by a
+// bounded project label.
+func recordWorkflowContinuation(ctx context.Context, projectID string, depth int) {
+	attrs := metric.WithAttributes(attribute.String("project", projectLabel(projectID)))
+	workflowMetrics.continuations.Add(ctx, 1, attrs)
+	workflowMetrics.continuationDepth.Record(ctx, int64(depth), attrs)
 }
 
 func normalizeWorkflowStepKind(kind string) string {

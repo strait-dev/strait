@@ -16,7 +16,6 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
-	otelTrace "go.opentelemetry.io/otel/trace"
 )
 
 // DefaultMaxNestingDepth is the nesting limit when none is specified on the step.
@@ -27,13 +26,14 @@ const DefaultMaxNestingDepth = 10
 type EventTriggerNotifyFunc func(trigger *domain.EventTrigger)
 
 type WorkflowEngine struct {
-	store           EngineStore
-	queue           EngineQueue
-	logger          *slog.Logger
-	maxNestingDepth int
-	onTriggerCreate EventTriggerNotifyFunc
-	metrics         *telemetry.Metrics
-	runInTx         func(ctx context.Context, fn func(s EngineStore) error) error
+	store            EngineStore
+	queue            EngineQueue
+	logger           *slog.Logger
+	maxNestingDepth  int
+	maxContinueDepth int
+	onTriggerCreate  EventTriggerNotifyFunc
+	metrics          *telemetry.Metrics
+	runInTx          func(ctx context.Context, fn func(s EngineStore) error) error
 }
 
 type EngineStore interface {
@@ -77,10 +77,11 @@ func NewWorkflowEngine(store EngineStore, queue EngineQueue, logger *slog.Logger
 	}
 
 	e := &WorkflowEngine{
-		store:           store,
-		queue:           queue,
-		logger:          logger,
-		maxNestingDepth: DefaultMaxNestingDepth,
+		store:            store,
+		queue:            queue,
+		logger:           logger,
+		maxNestingDepth:  DefaultMaxNestingDepth,
+		maxContinueDepth: domain.DefaultMaxWorkflowContinueDepth,
 	}
 	e.runInTx = func(_ context.Context, fn func(s EngineStore) error) error {
 		return fn(e.store)
@@ -117,6 +118,14 @@ func (e *WorkflowEngine) WithRunInTx(fn func(ctx context.Context, fn func(s Engi
 func (e *WorkflowEngine) WithMaxNestingDepth(n int) *WorkflowEngine {
 	if n > 0 {
 		e.maxNestingDepth = n
+	}
+	return e
+}
+
+// WithMaxContinueDepth overrides the default continue-as-new lineage depth cap.
+func (e *WorkflowEngine) WithMaxContinueDepth(n int) *WorkflowEngine {
+	if n > 0 {
+		e.maxContinueDepth = n
 	}
 	return e
 }
@@ -260,19 +269,7 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 	}
 
 	// Capture W3C trace context from the current OTel span for propagation.
-	var traceCtx map[string]string
-	spanCtx := otelTrace.SpanContextFromContext(ctx)
-	if spanCtx.IsValid() {
-		traceCtx = map[string]string{
-			"traceparent": fmt.Sprintf("00-%s-%s-%s", spanCtx.TraceID(), spanCtx.SpanID(), spanCtx.TraceFlags()),
-		}
-		if spanCtx.TraceState().Len() > 0 {
-			ts := spanCtx.TraceState().String()
-			if len(ts) <= 512 {
-				traceCtx["tracestate"] = ts
-			}
-		}
-	}
+	traceCtx := currentTraceContext(ctx)
 
 	var snapshotID string
 	if snapshot != nil {
@@ -302,31 +299,7 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 		wfRun.ExpiresAt = &expiresAt
 	}
 	now := time.Now()
-
-	type rootToStart struct {
-		stepRun *domain.WorkflowStepRun
-		step    *domain.WorkflowStep
-	}
-	roots := make([]rootToStart, 0)
-	stepRuns := make([]domain.WorkflowStepRun, 0, len(steps))
-	for i := range steps {
-		step := &steps[i]
-		sr := domain.WorkflowStepRun{
-			ID:             uuid.Must(uuid.NewV7()).String(),
-			WorkflowRunID:  wfRun.ID,
-			WorkflowStepID: step.ID,
-			StepRef:        step.StepRef,
-			DepsCompleted:  0,
-			DepsRequired:   len(step.DependsOn),
-		}
-		if len(step.DependsOn) == 0 {
-			sr.Status = domain.StepPending
-			sr.DepsRequired = 0
-		} else {
-			sr.Status = domain.StepWaiting
-		}
-		stepRuns = append(stepRuns, sr)
-	}
+	stepRuns := buildInitialStepRuns(wfRun.ID, steps)
 
 	type bootstrapStore interface {
 		CreateWorkflowRunBootstrap(ctx context.Context, run *domain.WorkflowRun, stepRuns []domain.WorkflowStepRun, startedAt time.Time) error
@@ -361,9 +334,70 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 		"project_id":      wfRun.ProjectID,
 		"version":         wfRun.WorkflowVersion,
 		"step_count":      len(stepRuns),
-		"root_count":      len(roots),
+		"root_count":      countRootSteps(steps),
 	})
 
+	if err := e.startRootSteps(ctx, wfRun, steps, stepRuns); err != nil {
+		triggerStatus = "error"
+		return nil, err
+	}
+
+	return wfRun, nil
+}
+
+// buildInitialStepRuns constructs the initial step runs for a fresh workflow
+// run: root steps (no dependencies) start pending, the rest start waiting.
+// Shared by the trigger and continue-as-new paths so both seed identical state.
+func buildInitialStepRuns(wfRunID string, steps []domain.WorkflowStep) []domain.WorkflowStepRun {
+	stepRuns := make([]domain.WorkflowStepRun, 0, len(steps))
+	for i := range steps {
+		step := &steps[i]
+		sr := domain.WorkflowStepRun{
+			ID:             uuid.Must(uuid.NewV7()).String(),
+			WorkflowRunID:  wfRunID,
+			WorkflowStepID: step.ID,
+			StepRef:        step.StepRef,
+			DepsCompleted:  0,
+			DepsRequired:   len(step.DependsOn),
+		}
+		if len(step.DependsOn) == 0 {
+			sr.Status = domain.StepPending
+			sr.DepsRequired = 0
+		} else {
+			sr.Status = domain.StepWaiting
+		}
+		stepRuns = append(stepRuns, sr)
+	}
+	return stepRuns
+}
+
+// countRootSteps returns the number of steps with no dependencies.
+func countRootSteps(steps []domain.WorkflowStep) int {
+	n := 0
+	for i := range steps {
+		if len(steps[i].DependsOn) == 0 {
+			n++
+		}
+	}
+	return n
+}
+
+// startRootSteps starts the root step runs (those with no dependencies) for a
+// freshly created, running workflow run, honoring max-parallel and per-step
+// concurrency-key limits by leaving excess roots waiting. stepRuns must be
+// index-aligned with steps, as produced by buildInitialStepRuns. Shared by the
+// trigger and continue-as-new paths so both schedule roots identically.
+func (e *WorkflowEngine) startRootSteps(
+	ctx context.Context,
+	wfRun *domain.WorkflowRun,
+	steps []domain.WorkflowStep,
+	stepRuns []domain.WorkflowStepRun,
+) error {
+	type rootToStart struct {
+		stepRun *domain.WorkflowStepRun
+		step    *domain.WorkflowStep
+	}
+	roots := make([]rootToStart, 0)
 	for i := range steps {
 		step := &steps[i]
 		sr := &stepRuns[i]
@@ -377,23 +411,20 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 	for _, root := range roots {
 		if wfRun.MaxParallelSteps > 0 && runningStarts >= wfRun.MaxParallelSteps {
 			if err := e.store.UpdateStepRunStatus(ctx, root.stepRun.ID, domain.StepWaiting, nil); err != nil {
-				triggerStatus = "error"
-				return nil, fmt.Errorf("set root step waiting %s: %w", root.step.StepRef, err)
+				return fmt.Errorf("set root step waiting %s: %w", root.step.StepRef, err)
 			}
 			root.stepRun.Status = domain.StepWaiting
 			continue
 		}
 		if root.step.ConcurrencyKey != "" && runningByConcurrencyKey[root.step.ConcurrencyKey] > 0 {
 			if err := e.store.UpdateStepRunStatus(ctx, root.stepRun.ID, domain.StepWaiting, nil); err != nil {
-				triggerStatus = "error"
-				return nil, fmt.Errorf("set root step waiting by concurrency key %s: %w", root.step.StepRef, err)
+				return fmt.Errorf("set root step waiting by concurrency key %s: %w", root.step.StepRef, err)
 			}
 			root.stepRun.Status = domain.StepWaiting
 			continue
 		}
 		if err := e.startStep(ctx, root.stepRun, root.step, wfRun, nil); err != nil {
-			triggerStatus = "error"
-			return nil, fmt.Errorf("start root step %s: %w", root.step.StepRef, err)
+			return fmt.Errorf("start root step %s: %w", root.step.StepRef, err)
 		}
 		if root.stepRun.Status == domain.StepRunning {
 			runningStarts++
@@ -402,8 +433,7 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 			}
 		}
 	}
-
-	return wfRun, nil
+	return nil
 }
 
 func (e *WorkflowEngine) applyCanaryRouting(ctx context.Context, wf *domain.Workflow) error {

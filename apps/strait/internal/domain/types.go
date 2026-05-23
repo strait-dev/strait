@@ -38,6 +38,7 @@ const (
 	TriggerJobCompletion = "job_completion"
 	TriggerJobFailure    = "job_failure"
 	TriggerJobChain      = "job_chain"
+	TriggerContinuation  = "continuation"
 )
 
 // MaxJobChainDepth is the maximum allowed lineage depth for job chaining

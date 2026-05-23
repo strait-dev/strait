@@ -706,6 +706,10 @@ func (m *advMockWorkflowEngine) RetryWorkflowRun(ctx context.Context, originalRu
 	return &domain.WorkflowRun{ID: "new-" + originalRunID}, nil
 }
 
+func (m *advMockWorkflowEngine) ContinueWorkflowRunAsNew(_ context.Context, _ string, _ json.RawMessage) (*domain.WorkflowRun, error) {
+	return nil, errors.New("not implemented in test")
+}
+
 func advNewTestServerWithWorkflowEngine(t *testing.T, s APIStore, we WorkflowTrigger) *Server {
 	t.Helper()
 	cfg := &config.Config{

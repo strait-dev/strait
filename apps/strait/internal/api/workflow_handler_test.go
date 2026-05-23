@@ -20,6 +20,7 @@ import (
 type mockWorkflowTrigger struct {
 	triggerWorkflowFn   func(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride) (*domain.WorkflowRun, error)
 	retryWorkflowRunFn  func(ctx context.Context, originalRunID string) (*domain.WorkflowRun, error)
+	continueAsNewFn     func(ctx context.Context, runID string, input json.RawMessage) (*domain.WorkflowRun, error)
 	approveStepFn       func(ctx context.Context, workflowRunID, stepRef, approver string) error
 	skipStepFn          func(ctx context.Context, workflowRunID, stepRef, reason string) error
 	forceCompleteStepFn func(ctx context.Context, workflowRunID, stepRef string, result json.RawMessage) error
@@ -67,6 +68,13 @@ func (m *mockWorkflowTrigger) ResumeWorkflowRun(ctx context.Context, workflowRun
 func (m *mockWorkflowTrigger) RetryWorkflowRun(ctx context.Context, originalRunID string) (*domain.WorkflowRun, error) {
 	if m.retryWorkflowRunFn != nil {
 		return m.retryWorkflowRunFn(ctx, originalRunID)
+	}
+	return nil, nil
+}
+
+func (m *mockWorkflowTrigger) ContinueWorkflowRunAsNew(ctx context.Context, runID string, input json.RawMessage) (*domain.WorkflowRun, error) {
+	if m.continueAsNewFn != nil {
+		return m.continueAsNewFn(ctx, runID, input)
 	}
 	return nil, nil
 }
