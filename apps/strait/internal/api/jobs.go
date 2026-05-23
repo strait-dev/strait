@@ -366,6 +366,9 @@ func validateSingletonConfig(keyExpr json.RawMessage, policy string, maxQueueDep
 	if hasExpr && !hasPolicy {
 		return huma.Error400BadRequest("singleton_on_conflict is required when singleton_key_expr is set")
 	}
+	if hasPolicy && !domain.SingletonOnConflict(policy).Valid() {
+		return huma.Error400BadRequest("singleton_on_conflict must be one of queue, drop, replace")
+	}
 	if hasExpr {
 		if _, err := domain.ParseSingletonKeyExpr(keyExpr); err != nil {
 			return huma.Error400BadRequest("invalid singleton_key_expr: " + err.Error())

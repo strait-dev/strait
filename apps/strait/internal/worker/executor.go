@@ -554,15 +554,15 @@ func (e *Executor) notifyWorkflowCallback(ctx context.Context, run *domain.JobRu
 // locks: when the just-finished run held a key, it releases the lock and
 // promotes the next parked waiter (waiting -> queued) so a serialized successor
 // starts within milliseconds instead of waiting for the next reaper cycle. It is
-// best-effort and idempotent; the reaper is the authoritative net. When job is
-// known and carries no singleton config the lookup is skipped entirely, so the
-// common (non-singleton) terminal path pays nothing. Pass job=nil to force the
-// indexed holder lookup (the system-failure path has no job in scope).
-func (e *Executor) releaseSingletonLock(ctx context.Context, run *domain.JobRun, job *domain.Job) {
-	if run == nil || run.ID == "" {
-		return
-	}
-	if job != nil && job.SingletonOnConflict == "" {
+// best-effort and idempotent; the reaper is the authoritative net.
+//
+// The gate is run.SingletonKey: a run only ever holds a lock if it resolved a
+// key at trigger time, and that key is recorded on the run row. Gating on the
+// run (not the live job config) means the common non-singleton terminal path
+// pays nothing, the system-failure path needs no job in scope, and a run whose
+// job had its singleton config removed mid-flight is still released correctly.
+func (e *Executor) releaseSingletonLock(ctx context.Context, run *domain.JobRun) {
+	if run == nil || run.ID == "" || run.SingletonKey == "" {
 		return
 	}
 

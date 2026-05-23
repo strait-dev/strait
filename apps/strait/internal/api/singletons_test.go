@@ -28,6 +28,8 @@ func TestValidateSingletonConfig(t *testing.T) {
 		{name: "policy without expr", expr: nil, policy: "queue", wantErr: true},
 		{name: "policy with null expr", expr: json.RawMessage(`null`), policy: "queue", wantErr: true},
 		{name: "expr without policy", expr: json.RawMessage(`{"template":"${id}"}`), policy: "", wantErr: true},
+		{name: "unknown policy with expr", expr: json.RawMessage(`{"template":"${id}"}`), policy: "skip", wantErr: true},
+		{name: "uppercase policy with expr", expr: json.RawMessage(`{"template":"${id}"}`), policy: "QUEUE", wantErr: true},
 		{name: "invalid expr", expr: json.RawMessage(`{"template":""}`), policy: "queue", wantErr: true},
 		{name: "malformed expr", expr: json.RawMessage(`{"template":`), policy: "queue", wantErr: true},
 		{name: "depth with non-queue policy", expr: json.RawMessage(`{"template":"${id}"}`), policy: "replace", depth: &depth, wantErr: true},

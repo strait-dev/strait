@@ -21,9 +21,9 @@ func newSingletonTestExecutor(t *testing.T, store *mockExecutorStore) *Executor 
 	})
 }
 
-// TestReleaseSingletonLock_CalledForSingletonJob: a terminal run whose job
-// carries a singleton policy triggers the release+promote fast-path.
-func TestReleaseSingletonLock_CalledForSingletonJob(t *testing.T) {
+// TestReleaseSingletonLock_CalledWhenRunHeldKey: a terminal run that resolved a
+// singleton key triggers the release+promote fast-path.
+func TestReleaseSingletonLock_CalledWhenRunHeldKey(t *testing.T) {
 	t.Parallel()
 
 	store := &mockExecutorStore{
@@ -34,8 +34,7 @@ func TestReleaseSingletonLock_CalledForSingletonJob(t *testing.T) {
 	exec := newSingletonTestExecutor(t, store)
 
 	run := &domain.JobRun{ID: "run-1", SingletonKey: "k"}
-	job := &domain.Job{ID: "job-1", SingletonOnConflict: domain.SingletonOnConflictQueue}
-	exec.releaseSingletonLock(context.Background(), run, job)
+	exec.releaseSingletonLock(context.Background(), run)
 
 	calls := store.releaseSingletonCalls()
 	if len(calls) != 1 || calls[0] != "run-1" {
@@ -43,36 +42,38 @@ func TestReleaseSingletonLock_CalledForSingletonJob(t *testing.T) {
 	}
 }
 
-// TestReleaseSingletonLock_SkippedForNonSingletonJob: when the job carries no
-// singleton config the fast-path must not touch the store at all.
-func TestReleaseSingletonLock_SkippedForNonSingletonJob(t *testing.T) {
+// TestReleaseSingletonLock_SkippedWhenRunHeldNoKey: a run that never resolved a
+// singleton key cannot hold a lock, so the fast-path must not touch the store.
+// This covers the common non-singleton terminal path and the system-failure
+// path (no job in scope) identically.
+func TestReleaseSingletonLock_SkippedWhenRunHeldNoKey(t *testing.T) {
 	t.Parallel()
 
 	store := &mockExecutorStore{}
 	exec := newSingletonTestExecutor(t, store)
 
-	run := &domain.JobRun{ID: "run-1"}
-	job := &domain.Job{ID: "job-1"} // no SingletonOnConflict
-	exec.releaseSingletonLock(context.Background(), run, job)
+	run := &domain.JobRun{ID: "run-1"} // no SingletonKey
+	exec.releaseSingletonLock(context.Background(), run)
 
 	if calls := store.releaseSingletonCalls(); len(calls) != 0 {
-		t.Fatalf("expected no release for non-singleton job, got %v", calls)
+		t.Fatalf("expected no release for run without a singleton key, got %v", calls)
 	}
 }
 
-// TestReleaseSingletonLock_NilJobForcesLookup: the system-failure path passes
-// job=nil; the fast-path must still attempt the indexed holder lookup.
-func TestReleaseSingletonLock_NilJobForcesLookup(t *testing.T) {
+// TestReleaseSingletonLock_ReleasesEvenWithoutJob: the system-failure path has no
+// job in scope; a run that held a key is still released because the gate is the
+// run's recorded key, not the live job config.
+func TestReleaseSingletonLock_ReleasesEvenWithoutJob(t *testing.T) {
 	t.Parallel()
 
 	store := &mockExecutorStore{}
 	exec := newSingletonTestExecutor(t, store)
 
-	run := &domain.JobRun{ID: "run-1"}
-	exec.releaseSingletonLock(context.Background(), run, nil)
+	run := &domain.JobRun{ID: "run-1", SingletonKey: "k"}
+	exec.releaseSingletonLock(context.Background(), run)
 
 	if calls := store.releaseSingletonCalls(); len(calls) != 1 {
-		t.Fatalf("expected forced lookup for nil job, got %v", calls)
+		t.Fatalf("expected release for run with key and no job, got %v", calls)
 	}
 }
 
@@ -83,8 +84,9 @@ func TestReleaseSingletonLock_NoopForEmptyRun(t *testing.T) {
 	store := &mockExecutorStore{}
 	exec := newSingletonTestExecutor(t, store)
 
-	exec.releaseSingletonLock(context.Background(), nil, nil)
-	exec.releaseSingletonLock(context.Background(), &domain.JobRun{}, nil)
+	exec.releaseSingletonLock(context.Background(), nil)
+	exec.releaseSingletonLock(context.Background(), &domain.JobRun{})
+	exec.releaseSingletonLock(context.Background(), &domain.JobRun{ID: "run-1"}) // ID but no key
 
 	if calls := store.releaseSingletonCalls(); len(calls) != 0 {
 		t.Fatalf("expected no release for empty run, got %v", calls)

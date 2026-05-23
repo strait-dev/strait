@@ -99,7 +99,7 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 		QueueWait: queueWait(run),
 	})
 	e.notifyWorkflowCallback(ctx, run)
-	e.releaseSingletonLock(ctx, run, job)
+	e.releaseSingletonLock(ctx, run)
 
 	// Trigger on_complete workflow if configured.
 	if e.onCompleteTrigger != nil {
@@ -427,7 +427,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 		QueueWait: queueWait(run),
 	})
 	e.notifyWorkflowCallback(ctx, run)
-	e.releaseSingletonLock(ctx, run, job)
+	e.releaseSingletonLock(ctx, run)
 
 	// Trigger on_failure job/workflow if configured.
 	if e.onCompleteTrigger != nil {
@@ -545,7 +545,7 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 		QueueWait: queueWait(run),
 	})
 	e.notifyWorkflowCallback(ctx, run)
-	e.releaseSingletonLock(ctx, run, job)
+	e.releaseSingletonLock(ctx, run)
 
 	// Trigger on_failure job/workflow if configured.
 	if e.onCompleteTrigger != nil {
@@ -638,9 +638,9 @@ func (e *Executor) handleSystemFailure(ctx context.Context, run *domain.JobRun, 
 		QueueWait: queueWait(run),
 	})
 	e.notifyWorkflowCallback(ctx, run)
-	// No job in scope here, so force the indexed holder lookup to release any
-	// singleton lock the failed run held.
-	e.releaseSingletonLock(ctx, run, nil)
+	// run.SingletonKey gates the release, so no job is needed here even though
+	// the system-failure path has none in scope.
+	e.releaseSingletonLock(ctx, run)
 	// No webhook for system failures — job may not be available
 }
 
