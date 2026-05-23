@@ -577,7 +577,8 @@ func (s *Server) handleContinueWorkflowRunAsNew(ctx context.Context, input *Cont
 		case errors.Is(err, store.ErrWorkflowRunContinueConflict):
 			return nil, huma.Error409Conflict("workflow run already continued or no longer continuable")
 		default:
-			return nil, huma.Error500InternalServerError(fmt.Sprintf("failed to continue workflow run: %v", err))
+			slog.Error("continue workflow run failed", "workflow_run_id", input.WorkflowRunID, "error", err)
+			return nil, huma.Error500InternalServerError("failed to continue workflow run")
 		}
 	}
 

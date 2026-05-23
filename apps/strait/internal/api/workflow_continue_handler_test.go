@@ -3,7 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -192,8 +192,10 @@ func TestHandleContinueWorkflowRunAsNew(t *testing.T) {
 		}
 	})
 
-	t.Run("generic engine error maps to 500", func(t *testing.T) {
+	t.Run("generic engine error maps to 500 without leaking internals", func(t *testing.T) {
 		t.Parallel()
+		// A distinctive secret-looking substring the engine error must never expose.
+		const leaked = "postgres://strait:s3cr3t@db.internal:5432/strait"
 		ms := &APIStoreMock{
 			GetWorkflowRunFunc: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
 				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusRunning}, nil
@@ -201,7 +203,7 @@ func TestHandleContinueWorkflowRunAsNew(t *testing.T) {
 		}
 		trigger := &mockWorkflowTrigger{
 			continueAsNewFn: func(_ context.Context, _ string, _ json.RawMessage) (*domain.WorkflowRun, error) {
-				return nil, errors.New("boom")
+				return nil, fmt.Errorf("dial failed: %s", leaked)
 			},
 		}
 		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, trigger)
@@ -209,6 +211,15 @@ func TestHandleContinueWorkflowRunAsNew(t *testing.T) {
 		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wfr-1/continue-as-new", `{"input":{}}`))
 		if w.Code != http.StatusInternalServerError {
 			t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
+		}
+		// writeTypedError sanitizes all 5xx bodies to a generic message; the
+		// engine error (and the secret it carries) must never reach the client.
+		body := w.Body.String()
+		if strings.Contains(body, leaked) || strings.Contains(body, "dial failed") {
+			t.Fatalf("response body leaked internal error detail: %s", body)
+		}
+		if !strings.Contains(body, "internal server error") {
+			t.Fatalf("response = %s, want generic internal server error", body)
 		}
 	})
 
