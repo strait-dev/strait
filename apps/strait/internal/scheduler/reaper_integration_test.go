@@ -32,6 +32,9 @@ func (baseReaperStore) ListReapableSingletonJobHolders(_ context.Context) ([]str
 func (baseReaperStore) ReleaseSingletonJobLockAndPromote(_ context.Context, _ string, _ time.Duration) (bool, string, error) {
 	return false, "", nil
 }
+func (baseReaperStore) ListReapableSingletonWorkflowHolders(_ context.Context) ([]string, error) {
+	return nil, nil
+}
 func (baseReaperStore) ListExpiredRuns(_ context.Context) ([]domain.JobRun, error) {
 	return nil, nil
 }
@@ -600,6 +603,7 @@ type intMockWorkflowCallback struct {
 	onStepFailedFn     func(ctx context.Context, workflowRunID string, stepRunID string)
 	resumeWorkflowFn   func(ctx context.Context, workflowRunID string) error
 	approveStepFn      func(ctx context.Context, workflowRunID, stepRef, approver string) error
+	promoteSingletonFn func(ctx context.Context, holderRunID string) (bool, error)
 }
 
 func (m *intMockWorkflowCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun) error {
@@ -640,4 +644,11 @@ func (m *intMockWorkflowCallback) ApproveStep(ctx context.Context, workflowRunID
 		return m.approveStepFn(ctx, workflowRunID, stepRef, approver)
 	}
 	return nil
+}
+
+func (m *intMockWorkflowCallback) PromoteSingletonWorkflow(ctx context.Context, holderRunID string) (bool, error) {
+	if m.promoteSingletonFn != nil {
+		return m.promoteSingletonFn(ctx, holderRunID)
+	}
+	return false, nil
 }

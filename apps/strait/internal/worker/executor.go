@@ -200,20 +200,20 @@ type ConcurrencyLimitProvider interface {
 
 // ExecutorConfig holds configuration for the Executor.
 type ExecutorConfig struct {
-	Pool                       *Pool
-	Queue                      queue.Queue
-	Wake                       <-chan struct{}
-	ConcurrencyLimit           ConcurrencyLimitProvider
-	Store                      ExecutorStore
-	TxPool                     store.TxBeginner
-	Publisher                  pubsub.Publisher
-	HTTPClient                 *http.Client
-	PollInterval               time.Duration
-	HeartbeatInterval          time.Duration
+	Pool              *Pool
+	Queue             queue.Queue
+	Wake              <-chan struct{}
+	ConcurrencyLimit  ConcurrencyLimitProvider
+	Store             ExecutorStore
+	TxPool            store.TxBeginner
+	Publisher         pubsub.Publisher
+	HTTPClient        *http.Client
+	PollInterval      time.Duration
+	HeartbeatInterval time.Duration
 	// SingletonLeaseTTL is the lease window the terminal fast-path stamps on a
 	// singleton lock when promoting a parked waiter. Set from STALE_THRESHOLD.
-	SingletonLeaseTTL time.Duration
-	Metrics           *telemetry.Metrics
+	SingletonLeaseTTL          time.Duration
+	Metrics                    *telemetry.Metrics
 	WorkflowCallback           WorkflowCallback
 	Partitions                 []string
 	PartitionWeights           string
