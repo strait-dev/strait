@@ -148,7 +148,10 @@
               },
               {
                 "group": "Configuration",
-                "pages": ["configuration/environment-variables"]
+                "pages": [
+                  "configuration/environment-variables",
+                  "configuration/config-as-code"
+                ]
               },
               {
                 "group": "Integrations",
