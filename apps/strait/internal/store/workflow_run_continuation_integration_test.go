@@ -197,6 +197,49 @@ func TestContinueWorkflowRunBootstrap_StatusConflictRejected(t *testing.T) {
 	}
 }
 
+// TestContinueWorkflowRunBootstrap_ConflictLeavesNoOrphanStepRuns asserts the
+// guard-first ordering: when the predecessor is no longer in fromStatus, the
+// status guard matches no row and the bootstrap aborts before inserting the
+// successor or any of its step runs, so neither is left behind.
+func TestContinueWorkflowRunBootstrap_ConflictLeavesNoOrphanStepRuns(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-continue-orphan"
+	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{ProjectID: new(projectID)})
+
+	// Predecessor is paused, but the caller claims it is running, so the guard
+	// will not match.
+	paused := domain.WfStatusPaused
+	pred := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
+		ProjectID: new(projectID),
+		Status:    &paused,
+	})
+
+	// The successor step run is never reached (the guard rejects first), so its
+	// step ID need not exist.
+	successor := buildSuccessor(wf.ID, projectID, pred.ID, 1, nil)
+	successorStep := testutil.BuildWorkflowStepRun(successor.ID, uuid.Must(uuid.NewV7()).String(), &testutil.WorkflowStepRunOpts{StepRef: new("root")})
+
+	err := q.ContinueWorkflowRunBootstrap(ctx, pred.ID, domain.WfStatusRunning, successor, []domain.WorkflowStepRun{*successorStep}, time.Now().UTC())
+	if !errors.Is(err, store.ErrWorkflowRunContinueConflict) {
+		t.Fatalf("expected ErrWorkflowRunContinueConflict, got %v", err)
+	}
+
+	// No successor row and no orphan step runs for it.
+	if _, getErr := q.GetWorkflowRun(ctx, successor.ID); !errors.Is(getErr, store.ErrWorkflowRunNotFound) {
+		t.Errorf("expected successor not found, got %v", getErr)
+	}
+	orphanSteps, err := q.ListStepRunsByWorkflowRun(ctx, successor.ID, 100, nil)
+	if err != nil {
+		t.Fatalf("list successor step runs: %v", err)
+	}
+	if len(orphanSteps) != 0 {
+		t.Errorf("expected no orphan step runs for rejected successor, got %d", len(orphanSteps))
+	}
+}
+
 func TestContinueWorkflowRunBootstrap_CrashMidContinueRollsBack(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

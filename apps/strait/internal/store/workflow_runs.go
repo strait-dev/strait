@@ -505,18 +505,23 @@ func (q *Queries) CreateWorkflowRunBootstrap(ctx context.Context, run *domain.Wo
 // ContinueWorkflowRunBootstrap atomically completes a predecessor workflow run
 // via continue-as-new and starts its successor. Within a single transaction it:
 //
-//  1. Inserts the successor (whose continued_from_workflow_run_id and
+//  1. Claims the predecessor with a guarded status transition to continued
+//     (setting finished_at), so only one of two concurrent continuations wins.
+//     This guard runs first, before any successor work, so the losing racer
+//     bails out immediately without inserting a successor or step runs.
+//  2. Inserts the successor (whose continued_from_workflow_run_id and
 //     lineage_depth are already set on run), flips it pending -> running, and
 //     inserts its initial step runs.
-//  2. Marks the predecessor continued, setting finished_at and
-//     continued_to_workflow_run_id, guarded by its expected status so two
-//     concurrent continuations cannot both win.
-//  3. Tears down the predecessor's in-flight step runs, job runs, and event
+//  3. Links the predecessor forward to the now-existing successor via
+//     continued_to_workflow_run_id. This is a separate update because that
+//     column is a foreign key onto the successor, which must exist first.
+//  4. Tears down the predecessor's in-flight step runs, job runs, and event
 //     triggers, mirroring a cancel.
 //
-// If the predecessor is no longer in fromStatus, the whole transaction rolls
-// back and ErrWorkflowRunContinueConflict is returned, so no orphan successor
-// is left behind.
+// If the predecessor is no longer in fromStatus, the guard matches no row and
+// ErrWorkflowRunContinueConflict is returned before any successor is created;
+// any later failure rolls the whole transaction back, so no orphan successor
+// or step runs are ever left behind.
 func (q *Queries) ContinueWorkflowRunBootstrap(ctx context.Context, predecessorID string, fromStatus domain.WorkflowRunStatus, successor *domain.WorkflowRun, stepRuns []domain.WorkflowStepRun, now time.Time) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ContinueWorkflowRunBootstrap")
 	defer span.End()
@@ -526,7 +531,24 @@ func (q *Queries) ContinueWorkflowRunBootstrap(ctx context.Context, predecessorI
 	}
 
 	bootstrap := func(txQ *Queries) error {
-		// 1. Insert the successor and bring it to running with its step runs.
+		// 1. Claim the predecessor first: a guarded status transition so only
+		//    one concurrent continuation wins and the loser bails out before
+		//    doing any successor work. continued_to is set in step 3 once its
+		//    foreign-key target (the successor row) exists.
+		tag, err := txQ.db.Exec(ctx, `
+			UPDATE workflow_runs
+			SET status = $1, finished_at = $2
+			WHERE id = $3 AND status = $4`,
+			domain.WfStatusContinued, now, predecessorID, fromStatus,
+		)
+		if err != nil {
+			return fmt.Errorf("mark predecessor continued: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrWorkflowRunContinueConflict
+		}
+
+		// 2. Insert the successor and bring it to running with its step runs.
 		if err := txQ.CreateWorkflowRun(ctx, successor); err != nil {
 			return fmt.Errorf("create successor workflow run: %w", err)
 		}
@@ -540,22 +562,17 @@ func (q *Queries) ContinueWorkflowRunBootstrap(ctx context.Context, predecessorI
 			}
 		}
 
-		// 2. Mark the predecessor continued, guarded by its expected status so
-		//    only one concurrent continuation wins.
-		tag, err := txQ.db.Exec(ctx, `
+		// 3. Link the predecessor forward to the now-existing successor.
+		if _, err := txQ.db.Exec(ctx, `
 			UPDATE workflow_runs
-			SET status = $1, finished_at = $2, continued_to_workflow_run_id = $3
-			WHERE id = $4 AND status = $5`,
-			domain.WfStatusContinued, now, successor.ID, predecessorID, fromStatus,
-		)
-		if err != nil {
-			return fmt.Errorf("mark predecessor continued: %w", err)
-		}
-		if tag.RowsAffected() == 0 {
-			return ErrWorkflowRunContinueConflict
+			SET continued_to_workflow_run_id = $1
+			WHERE id = $2`,
+			successor.ID, predecessorID,
+		); err != nil {
+			return fmt.Errorf("link predecessor to successor: %w", err)
 		}
 
-		// 3. Tear down the predecessor's in-flight work, mirroring a cancel.
+		// 4. Tear down the predecessor's in-flight work, mirroring a cancel.
 		reason := "workflow continued as new"
 		if _, err := txQ.CancelNonTerminalStepRuns(ctx, predecessorID, now, reason); err != nil {
 			return fmt.Errorf("cancel predecessor step runs: %w", err)
