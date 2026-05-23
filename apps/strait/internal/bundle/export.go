@@ -1,10 +1,25 @@
 package bundle
 
 import (
+	"encoding/json"
 	"time"
 
 	"strait/internal/domain"
 )
+
+// flattenSingletonKey reduces the stored key-expression envelope to its bare
+// template string for the bundle format. Empty raw or a parse failure yields an
+// empty template, which marks the resource as non-singleton in the export.
+func flattenSingletonKey(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	expr, err := domain.ParseSingletonKeyExpr(raw)
+	if err != nil {
+		return ""
+	}
+	return expr.Template
+}
 
 // ExportBundle creates a Bundle from project resources.
 func ExportBundle(
@@ -48,6 +63,9 @@ func exportJobs(jobs []domain.Job, envIDToSlug map[string]string) []JobSpec {
 			RetryStrategy:             j.RetryStrategy,
 			Enabled:                   j.Enabled,
 			OnCompleteTriggerWorkflow: j.OnCompleteTriggerWorkflow,
+			SingletonKey:              flattenSingletonKey(j.SingletonKeyExpr),
+			SingletonOnConflict:       string(j.SingletonOnConflict),
+			SingletonMaxQueueDepth:    j.SingletonMaxQueueDepth,
 		}
 
 		// Redact webhook secrets.
@@ -71,10 +89,13 @@ func exportWorkflows(workflows []domain.Workflow, steps map[string][]domain.Work
 	specs := make([]WorkflowSpec, 0, len(workflows))
 	for _, w := range workflows {
 		spec := WorkflowSpec{
-			Slug:              w.Slug,
-			Name:              w.Name,
-			Description:       w.Description,
-			MaxConcurrentRuns: w.MaxConcurrentRuns,
+			Slug:                   w.Slug,
+			Name:                   w.Name,
+			Description:            w.Description,
+			MaxConcurrentRuns:      w.MaxConcurrentRuns,
+			SingletonKey:           flattenSingletonKey(w.SingletonKeyExpr),
+			SingletonOnConflict:    string(w.SingletonOnConflict),
+			SingletonMaxQueueDepth: w.SingletonMaxQueueDepth,
 		}
 
 		// Export steps with job slugs instead of IDs.
