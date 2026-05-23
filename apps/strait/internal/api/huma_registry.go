@@ -208,6 +208,15 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Tags: []string{"Projects"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500},
 	}, s.handleUpdateProjectSettings)
 
+	RegisterTypedOp(api, OpMeta{
+		ID: "import-bundle", Method: http.MethodPost, Path: "/v1/projects/{projectID}/bundle/import",
+		Summary: "Import a configuration bundle",
+		Description: "Applies a config-as-code bundle (jobs, workflows, environments) to a project. " +
+			"Pass dry_run=true to return the per-resource diff without writing. An apply is atomic: " +
+			"if any resource fails, the entire import is rolled back.",
+		Tags: []string{"Projects"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500},
+	}, s.handleImportBundle)
+
 	// -- Jobs --
 	RegisterTypedOp(api, OpMeta{
 		ID: "create-job", Method: http.MethodPost, Path: "/v1/jobs",
