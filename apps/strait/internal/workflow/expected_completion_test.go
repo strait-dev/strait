@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -199,6 +200,62 @@ func TestRecalculateExpectedCompletion_CompletedParentsUnblockRemainingDAG(t *te
 	}
 }
 
+func TestExpectedCompletion_UnorderedDefinitionsUseTopologicalFallback(t *testing.T) {
+	t.Parallel()
+	steps := []domain.WorkflowStep{
+		{StepRef: "b", DependsOn: []string{"a"}, ExpectedDurationSecs: 20},
+		{StepRef: "a", ExpectedDurationSecs: 10},
+		{StepRef: "c", DependsOn: []string{"b"}, ExpectedDurationSecs: 30},
+	}
+
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	got := CalculateExpectedCompletion(steps, start)
+	if got == nil {
+		t.Fatal("expected non-nil result")
+	}
+	want := start.Add(60 * time.Second)
+	if !got.Equal(want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestRecalculateExpectedCompletion_LargeCompletedPrefix(t *testing.T) {
+	t.Parallel()
+	steps := expectedCompletionChain(1000)
+	completed := make(map[string]bool, 600)
+	for i := range 600 {
+		completed[steps[i].StepRef] = true
+	}
+
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	got := RecalculateExpectedCompletion(steps, completed, now)
+	if got == nil {
+		t.Fatal("expected non-nil result")
+	}
+	want := now.Add(400 * time.Second)
+	if !got.Equal(want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestRecalculateExpectedCompletion_NonPrefixCompletionUsesFallback(t *testing.T) {
+	t.Parallel()
+	steps := expectedCompletionChain(5)
+	completed := map[string]bool{
+		steps[1].StepRef: true,
+	}
+
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	got := RecalculateExpectedCompletion(steps, completed, now)
+	if got == nil {
+		t.Fatal("expected non-nil result")
+	}
+	want := now.Add(3 * time.Second)
+	if !got.Equal(want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
 // Fuzz tests for expected completion.
 
 func FuzzExpectedCompletionCalculation(f *testing.F) {
@@ -286,15 +343,7 @@ func TestExpectedCompletion_ZeroDuration(t *testing.T) {
 
 func TestExpectedCompletion_1000StepWorkflow(t *testing.T) {
 	t.Parallel()
-	steps := make([]domain.WorkflowStep, 1000)
-	steps[0] = domain.WorkflowStep{StepRef: "s0", ExpectedDurationSecs: 1}
-	for i := 1; i < 1000; i++ {
-		steps[i] = domain.WorkflowStep{
-			StepRef:              "s" + string(rune('0'+i%10)) + string(rune('0'+i/10%10)) + string(rune('0'+i/100%10)),
-			DependsOn:            []string{steps[i-1].StepRef},
-			ExpectedDurationSecs: 1,
-		}
-	}
+	steps := expectedCompletionChain(1000)
 
 	start := time.Now()
 	got := CalculateExpectedCompletion(steps, start)
@@ -308,16 +357,7 @@ func TestExpectedCompletion_1000StepWorkflow(t *testing.T) {
 }
 
 func BenchmarkCalculateExpectedCompletion(b *testing.B) {
-	steps := make([]domain.WorkflowStep, 100)
-	for i := range steps {
-		steps[i] = domain.WorkflowStep{
-			StepRef:              "step-" + string(rune('a'+i%26)) + string(rune('a'+i/26)),
-			ExpectedDurationSecs: 1,
-		}
-		if i > 0 {
-			steps[i].DependsOn = []string{steps[i-1].StepRef}
-		}
-	}
+	steps := expectedCompletionChain(100)
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
 	b.ReportAllocs()
@@ -326,20 +366,24 @@ func BenchmarkCalculateExpectedCompletion(b *testing.B) {
 	}
 }
 
+func BenchmarkCalculateExpectedCompletion_Chain1000(b *testing.B) {
+	steps := expectedCompletionChain(1000)
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		got := CalculateExpectedCompletion(steps, start)
+		if got == nil {
+			b.Fatal("expected non-nil result")
+		}
+	}
+}
+
 func BenchmarkRecalculateExpectedCompletion_PartialChain100(b *testing.B) {
-	steps := make([]domain.WorkflowStep, 100)
+	steps := expectedCompletionChain(100)
 	completed := make(map[string]bool, 50)
-	for i := range steps {
-		steps[i] = domain.WorkflowStep{
-			StepRef:              "step-" + string(rune('a'+i%26)) + string(rune('a'+i/26)),
-			ExpectedDurationSecs: 1,
-		}
-		if i > 0 {
-			steps[i].DependsOn = []string{steps[i-1].StepRef}
-		}
-		if i < 50 {
-			completed[steps[i].StepRef] = true
-		}
+	for i := range 50 {
+		completed[steps[i].StepRef] = true
 	}
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
@@ -347,4 +391,35 @@ func BenchmarkRecalculateExpectedCompletion_PartialChain100(b *testing.B) {
 	for b.Loop() {
 		_ = RecalculateExpectedCompletion(steps, completed, now)
 	}
+}
+
+func BenchmarkRecalculateExpectedCompletion_PartialChain1000(b *testing.B) {
+	steps := expectedCompletionChain(1000)
+	completed := make(map[string]bool, 500)
+	for i := range 500 {
+		completed[steps[i].StepRef] = true
+	}
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		got := RecalculateExpectedCompletion(steps, completed, now)
+		if got == nil {
+			b.Fatal("expected non-nil result")
+		}
+	}
+}
+
+func expectedCompletionChain(size int) []domain.WorkflowStep {
+	steps := make([]domain.WorkflowStep, size)
+	for i := range steps {
+		steps[i] = domain.WorkflowStep{
+			StepRef:              fmt.Sprintf("step-%04d", i),
+			ExpectedDurationSecs: 1,
+		}
+		if i > 0 {
+			steps[i].DependsOn = []string{steps[i-1].StepRef}
+		}
+	}
+	return steps
 }

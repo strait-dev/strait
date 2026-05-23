@@ -36,6 +36,10 @@ func CalculateExpectedCompletion(steps []domain.WorkflowStep, startTime time.Tim
 }
 
 func calculateExpectedDuration(steps []domain.WorkflowStep) int {
+	if duration, ok := orderedLinearChainExpectedDuration(steps); ok {
+		return duration
+	}
+
 	stepIndex, needsDepDedup := buildExpectedCompletionStepIndex(steps)
 	// Compute longest path using dynamic programming (topological order).
 	// For each step, dist[index] = max time from any root to complete that step.
@@ -160,6 +164,14 @@ func RecalculateExpectedCompletion(
 		return nil
 	}
 
+	if maxDist, hasAny, ok := remainingLinearChainDurationFromCompletedRefs(steps, completedRefs); ok {
+		if !hasAny || maxDist == 0 {
+			return nil
+		}
+		expected := now.Add(time.Duration(maxDist) * time.Second)
+		return &expected
+	}
+
 	remainingStepIndexes := make([]int, 0, len(steps))
 	stepIndex := make(map[string]int, len(steps))
 	hasAny := false
@@ -190,6 +202,10 @@ func calculateRemainingExpectedDuration(
 	remainingStepIndexes []int,
 	stepIndex map[string]int,
 ) int {
+	if duration, ok := remainingOrderedLinearChainExpectedDuration(steps, remainingStepIndexes); ok {
+		return duration
+	}
+
 	inDegree := make([]int, len(remainingStepIndexes))
 	childCounts := make([]int, len(remainingStepIndexes))
 	needsDepDedup := false
@@ -287,4 +303,89 @@ func calculateRemainingExpectedDuration(
 		}
 	}
 	return maxDist
+}
+
+func orderedLinearChainExpectedDuration(steps []domain.WorkflowStep) (int, bool) {
+	if len(steps) == 0 {
+		return 0, true
+	}
+	if len(steps[0].DependsOn) != 0 {
+		return 0, false
+	}
+	duration := steps[0].ExpectedDurationSecs
+	for i := 1; i < len(steps); i++ {
+		deps := steps[i].DependsOn
+		if len(deps) != 1 || deps[0] != steps[i-1].StepRef {
+			return 0, false
+		}
+		duration += steps[i].ExpectedDurationSecs
+	}
+	return duration, true
+}
+
+func remainingLinearChainDurationFromCompletedRefs(
+	steps []domain.WorkflowStep,
+	completedRefs map[string]bool,
+) (int, bool, bool) {
+	if len(steps[0].DependsOn) != 0 {
+		return 0, false, false
+	}
+
+	duration := 0
+	hasAny := false
+	seenRemaining := false
+	for i := range steps {
+		if i > 0 {
+			deps := steps[i].DependsOn
+			if len(deps) != 1 || deps[0] != steps[i-1].StepRef {
+				return 0, false, false
+			}
+		}
+
+		if completedRefs[steps[i].StepRef] {
+			if seenRemaining {
+				return 0, false, false
+			}
+			continue
+		}
+
+		seenRemaining = true
+		duration += steps[i].ExpectedDurationSecs
+		hasAny = hasAny || steps[i].ExpectedDurationSecs > 0
+	}
+	return duration, hasAny, true
+}
+
+func remainingOrderedLinearChainExpectedDuration(
+	steps []domain.WorkflowStep,
+	remainingStepIndexes []int,
+) (int, bool) {
+	if len(remainingStepIndexes) == 0 {
+		return 0, true
+	}
+
+	firstIdx := remainingStepIndexes[0]
+	firstDeps := steps[firstIdx].DependsOn
+	if len(firstDeps) > 1 {
+		return 0, false
+	}
+	if len(firstDeps) == 1 && (firstIdx == 0 || firstDeps[0] != steps[firstIdx-1].StepRef) {
+		return 0, false
+	}
+
+	duration := steps[firstIdx].ExpectedDurationSecs
+	previousIdx := firstIdx
+	for compactIdx := 1; compactIdx < len(remainingStepIndexes); compactIdx++ {
+		originalIdx := remainingStepIndexes[compactIdx]
+		if originalIdx != previousIdx+1 {
+			return 0, false
+		}
+		deps := steps[originalIdx].DependsOn
+		if len(deps) != 1 || deps[0] != steps[previousIdx].StepRef {
+			return 0, false
+		}
+		duration += steps[originalIdx].ExpectedDurationSecs
+		previousIdx = originalIdx
+	}
+	return duration, true
 }
