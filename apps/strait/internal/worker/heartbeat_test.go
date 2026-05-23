@@ -38,6 +38,77 @@ func (m *mockHeartbeatStore) calls() [][]string {
 	return out
 }
 
+type mockHeartbeatSideTableStore struct {
+	mu          sync.Mutex
+	legacyCall  int
+	sideCalls   [][]string
+	singleCalls []string
+}
+
+func (m *mockHeartbeatSideTableStore) UpdateHeartbeat(context.Context, string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.legacyCall++
+	return nil
+}
+
+func (m *mockHeartbeatSideTableStore) UpsertHeartbeatSideTable(_ context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.singleCalls = append(m.singleCalls, id)
+	return nil
+}
+
+func (m *mockHeartbeatSideTableStore) BatchUpsertHeartbeatSideTable(_ context.Context, ids []string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	clone := make([]string, len(ids))
+	copy(clone, ids)
+	m.sideCalls = append(m.sideCalls, clone)
+	return nil
+}
+
+func (m *mockHeartbeatSideTableStore) snapshot() (int, [][]string, []string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	side := make([][]string, len(m.sideCalls))
+	for i := range m.sideCalls {
+		side[i] = append([]string(nil), m.sideCalls[i]...)
+	}
+	return m.legacyCall, side, append([]string(nil), m.singleCalls...)
+}
+
+func TestNewHeartbeatSender_PrefersSideTableStore(t *testing.T) {
+	t.Parallel()
+
+	store := &mockHeartbeatSideTableStore{}
+	h := NewHeartbeatSender(store, time.Hour)
+	h.Register("run-1")
+	h.Register("run-2")
+
+	h.flush(context.Background())
+
+	legacyCalls, sideCalls, singleCalls := store.snapshot()
+	if legacyCalls != 0 {
+		t.Fatalf("legacy UpdateHeartbeat calls = %d, want 0", legacyCalls)
+	}
+	if len(singleCalls) != 0 {
+		t.Fatalf("single side-table calls = %d, want 0", len(singleCalls))
+	}
+	if len(sideCalls) != 1 {
+		t.Fatalf("side-table batch calls = %d, want 1", len(sideCalls))
+	}
+	got := map[string]struct{}{}
+	for _, id := range sideCalls[0] {
+		got[id] = struct{}{}
+	}
+	for _, id := range []string{"run-1", "run-2"} {
+		if _, ok := got[id]; !ok {
+			t.Fatalf("side-table batch ids = %v, missing %s", sideCalls[0], id)
+		}
+	}
+}
+
 func TestHeartbeatManager_RegisterDeregister(t *testing.T) {
 	t.Parallel()
 

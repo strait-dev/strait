@@ -116,8 +116,139 @@ func (s *StepCallback) cancelRemainingSteps(ctx context.Context, workflowRunID s
 }
 
 func (s *StepCallback) skipDependentSteps(ctx context.Context, workflowRunID string, wc *wfCtx, failedStepRef string) error {
-	dependents := make(map[string][]string, len(wc.steps))
-	for _, step := range wc.steps {
+	refs := dependentStepRefs(wc.steps, wc.stepIndex, failedStepRef)
+	if len(refs) == 0 {
+		return nil
+	}
+	now := time.Now()
+	if _, err := s.store.SkipStepRunsByRefs(ctx, workflowRunID, refs, now); err != nil {
+		return fmt.Errorf("skip step runs by refs: %w", err)
+	}
+
+	return nil
+}
+
+func dependentStepRefs(steps []domain.WorkflowStep, stepIndex map[string]int, failedStepRef string) []string {
+	if len(steps) == 0 {
+		return nil
+	}
+
+	if stepIndex == nil {
+		stepIndex = make(map[string]int, len(steps))
+		for i := range steps {
+			stepIndex[steps[i].StepRef] = i
+		}
+	}
+	failedIdx, ok := stepIndex[failedStepRef]
+	if !ok {
+		return dependentStepRefsByMap(steps, failedStepRef)
+	}
+	if refs, ok := dependentStepRefsLinearChain(steps, failedIdx); ok {
+		return refs
+	}
+	if refs, ok := dependentStepRefsRootFanOut(steps, failedIdx); ok {
+		return refs
+	}
+
+	childCounts := make([]int, len(steps))
+	totalEdges := 0
+	for i := range steps {
+		for _, dep := range steps[i].DependsOn {
+			depIdx, ok := stepIndex[dep]
+			if !ok {
+				continue
+			}
+			childCounts[depIdx]++
+			totalEdges++
+		}
+	}
+	if childCounts[failedIdx] == 0 {
+		return nil
+	}
+
+	children := make([][]int, len(steps))
+	edgeStorage := make([]int, totalEdges)
+	offset := 0
+	for i, count := range childCounts {
+		children[i] = edgeStorage[offset : offset : offset+count]
+		offset += count
+	}
+	for stepIdx := range steps {
+		for _, dep := range steps[stepIdx].DependsOn {
+			depIdx, ok := stepIndex[dep]
+			if !ok {
+				continue
+			}
+			children[depIdx] = append(children[depIdx], stepIdx)
+		}
+	}
+
+	skipped := make([]bool, len(steps))
+	queue := make([]int, 0, len(steps)-1)
+	queue = append(queue, children[failedIdx]...)
+	refs := make([]string, 0, len(steps)-1)
+	for head := 0; head < len(queue); head++ {
+		stepIdx := queue[head]
+		if skipped[stepIdx] {
+			continue
+		}
+		skipped[stepIdx] = true
+		refs = append(refs, steps[stepIdx].StepRef)
+		queue = append(queue, children[stepIdx]...)
+	}
+
+	return refs
+}
+
+func dependentStepRefsLinearChain(steps []domain.WorkflowStep, failedIdx int) ([]string, bool) {
+	if failedIdx < 0 || failedIdx >= len(steps) {
+		return nil, false
+	}
+	if len(steps[0].DependsOn) != 0 {
+		return nil, false
+	}
+	for i := 1; i < len(steps); i++ {
+		deps := steps[i].DependsOn
+		if len(deps) != 1 || deps[0] != steps[i-1].StepRef {
+			return nil, false
+		}
+	}
+	if failedIdx == len(steps)-1 {
+		return nil, true
+	}
+
+	refs := make([]string, 0, len(steps)-failedIdx-1)
+	for i := failedIdx + 1; i < len(steps); i++ {
+		refs = append(refs, steps[i].StepRef)
+	}
+	return refs, true
+}
+
+func dependentStepRefsRootFanOut(steps []domain.WorkflowStep, failedIdx int) ([]string, bool) {
+	if failedIdx < 0 || failedIdx >= len(steps) {
+		return nil, false
+	}
+	if failedIdx != 0 || len(steps[0].DependsOn) != 0 {
+		return nil, false
+	}
+	failedStepRef := steps[failedIdx].StepRef
+	for i := 1; i < len(steps); i++ {
+		deps := steps[i].DependsOn
+		if len(deps) != 1 || deps[0] != failedStepRef {
+			return nil, false
+		}
+	}
+
+	refs := make([]string, 0, len(steps)-1)
+	for i := 1; i < len(steps); i++ {
+		refs = append(refs, steps[i].StepRef)
+	}
+	return refs, true
+}
+
+func dependentStepRefsByMap(steps []domain.WorkflowStep, failedStepRef string) []string {
+	dependents := make(map[string][]string, len(steps))
+	for _, step := range steps {
 		for _, dep := range step.DependsOn {
 			dependents[dep] = append(dependents[dep], step.StepRef)
 		}
@@ -136,19 +267,9 @@ func (s *StepCallback) skipDependentSteps(ctx context.Context, workflowRunID str
 		queue = append(queue, dependents[ref]...)
 	}
 
-	if len(toSkip) == 0 {
-		return nil
-	}
-
 	refs := make([]string, 0, len(toSkip))
 	for ref := range toSkip {
 		refs = append(refs, ref)
 	}
-
-	now := time.Now()
-	if _, err := s.store.SkipStepRunsByRefs(ctx, workflowRunID, refs, now); err != nil {
-		return fmt.Errorf("skip step runs by refs: %w", err)
-	}
-
-	return nil
+	return refs
 }
