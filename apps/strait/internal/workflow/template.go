@@ -24,15 +24,15 @@ func renderTemplateVars(payload, variables json.RawMessage) json.RawMessage {
 		len(bytes.TrimSpace(variables)) == 0 {
 		return payload
 	}
+	if !gjson.ValidBytes(variables) || !payloadHasResolvableTemplateJSON(payload, variables) {
+		return payload
+	}
 
 	var vars map[string]any
 	if err := json.Unmarshal(variables, &vars); err != nil {
 		return payload
 	}
 	if len(vars) == 0 {
-		return payload
-	}
-	if !payloadHasResolvableTemplate(payload, vars) {
 		return payload
 	}
 
@@ -51,6 +51,29 @@ func renderTemplateVars(payload, variables json.RawMessage) json.RawMessage {
 		return payload
 	}
 	return out
+}
+
+func payloadHasResolvableTemplateJSON(payload, variables []byte) bool {
+	start := 0
+	for start < len(payload) {
+		relOpen := bytes.Index(payload[start:], templateMarker)
+		if relOpen < 0 {
+			return false
+		}
+		open := start + relOpen
+		nameStart := open + len(templateMarker)
+		relClose := bytes.Index(payload[nameStart:], []byte("}}"))
+		if relClose < 0 {
+			return false
+		}
+		nameEnd := nameStart + relClose
+		nameBytes := payload[nameStart:nameEnd]
+		if isTemplateVarNameBytes(nameBytes) && gjson.GetBytes(variables, string(nameBytes)).Exists() {
+			return true
+		}
+		start = open + len(templateMarker)
+	}
+	return false
 }
 
 // walkAndRender recursively walks a parsed JSON value and renders template
@@ -163,31 +186,6 @@ func resolveVar(vars map[string]any, name string) (any, bool) {
 	}
 
 	return current, true
-}
-
-func payloadHasResolvableTemplate(payload []byte, vars map[string]any) bool {
-	start := 0
-	for start < len(payload) {
-		relOpen := bytes.Index(payload[start:], templateMarker)
-		if relOpen < 0 {
-			return false
-		}
-		open := start + relOpen
-		nameStart := open + len(templateMarker)
-		relClose := bytes.Index(payload[nameStart:], []byte("}}"))
-		if relClose < 0 {
-			return false
-		}
-		nameEnd := nameStart + relClose
-		nameBytes := payload[nameStart:nameEnd]
-		if isTemplateVarNameBytes(nameBytes) {
-			if _, ok := resolveVar(vars, string(nameBytes)); ok {
-				return true
-			}
-		}
-		start = open + len(templateMarker)
-	}
-	return false
 }
 
 func isTemplateVarNameBytes(name []byte) bool {
