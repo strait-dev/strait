@@ -128,6 +128,9 @@ var _ APIStore = &APIStoreMock{}
 //			CountRunsForJobSinceFunc: func(ctx context.Context, jobID string, since time.Time) (int, error) {
 //				panic("mock out the CountRunsForJobSince method")
 //			},
+//			CountSingletonWaitersFunc: func(ctx context.Context, kind domain.SingletonKind, ownerID string, lockKey string) (int, error) {
+//				panic("mock out the CountSingletonWaiters method")
+//			},
 //			CountWebhookSubscriptionsByOrgFunc: func(ctx context.Context, orgID string) (int, error) {
 //				panic("mock out the CountWebhookSubscriptionsByOrg method")
 //			},
@@ -629,6 +632,9 @@ var _ APIStore = &APIStoreMock{}
 //			ListRunsByTagFunc: func(ctx context.Context, projectID string, tagKey string, tagValue string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 //				panic("mock out the ListRunsByTag method")
 //			},
+//			ListSingletonLocksPageFunc: func(ctx context.Context, projectID string, kind domain.SingletonKind, ownerID string, limit int, cursor *time.Time) ([]domain.SingletonLock, error) {
+//				panic("mock out the ListSingletonLocksPage method")
+//			},
 //			ListStepRunsByWorkflowRunFunc: func(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error) {
 //				panic("mock out the ListStepRunsByWorkflowRun method")
 //			},
@@ -998,6 +1004,9 @@ type APIStoreMock struct {
 
 	// CountRunsForJobSinceFunc mocks the CountRunsForJobSince method.
 	CountRunsForJobSinceFunc func(ctx context.Context, jobID string, since time.Time) (int, error)
+
+	// CountSingletonWaitersFunc mocks the CountSingletonWaiters method.
+	CountSingletonWaitersFunc func(ctx context.Context, kind domain.SingletonKind, ownerID string, lockKey string) (int, error)
 
 	// CountWebhookSubscriptionsByOrgFunc mocks the CountWebhookSubscriptionsByOrg method.
 	CountWebhookSubscriptionsByOrgFunc func(ctx context.Context, orgID string) (int, error)
@@ -1499,6 +1508,9 @@ type APIStoreMock struct {
 
 	// ListRunsByTagFunc mocks the ListRunsByTag method.
 	ListRunsByTagFunc func(ctx context.Context, projectID string, tagKey string, tagValue string, limit int, cursor *time.Time) ([]domain.JobRun, error)
+
+	// ListSingletonLocksPageFunc mocks the ListSingletonLocksPage method.
+	ListSingletonLocksPageFunc func(ctx context.Context, projectID string, kind domain.SingletonKind, ownerID string, limit int, cursor *time.Time) ([]domain.SingletonLock, error)
 
 	// ListStepRunsByWorkflowRunFunc mocks the ListStepRunsByWorkflowRun method.
 	ListStepRunsByWorkflowRunFunc func(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error)
@@ -2076,6 +2088,17 @@ type APIStoreMock struct {
 			JobID string
 			// Since is the since argument value.
 			Since time.Time
+		}
+		// CountSingletonWaiters holds details about calls to the CountSingletonWaiters method.
+		CountSingletonWaiters []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Kind is the kind argument value.
+			Kind domain.SingletonKind
+			// OwnerID is the ownerID argument value.
+			OwnerID string
+			// LockKey is the lockKey argument value.
+			LockKey string
 		}
 		// CountWebhookSubscriptionsByOrg holds details about calls to the CountWebhookSubscriptionsByOrg method.
 		CountWebhookSubscriptionsByOrg []struct {
@@ -3582,6 +3605,21 @@ type APIStoreMock struct {
 			// Cursor is the cursor argument value.
 			Cursor *time.Time
 		}
+		// ListSingletonLocksPage holds details about calls to the ListSingletonLocksPage method.
+		ListSingletonLocksPage []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// ProjectID is the projectID argument value.
+			ProjectID string
+			// Kind is the kind argument value.
+			Kind domain.SingletonKind
+			// OwnerID is the ownerID argument value.
+			OwnerID string
+			// Limit is the limit argument value.
+			Limit int
+			// Cursor is the cursor argument value.
+			Cursor *time.Time
+		}
 		// ListStepRunsByWorkflowRun holds details about calls to the ListStepRunsByWorkflowRun method.
 		ListStepRunsByWorkflowRun []struct {
 			// Ctx is the ctx argument value.
@@ -4438,6 +4476,7 @@ type APIStoreMock struct {
 	lockCountRunToolCalls                           sync.RWMutex
 	lockCountRunningWorkflowRuns                    sync.RWMutex
 	lockCountRunsForJobSince                        sync.RWMutex
+	lockCountSingletonWaiters                       sync.RWMutex
 	lockCountWebhookSubscriptionsByOrg              sync.RWMutex
 	lockCountWebhookSubscriptionsByProject          sync.RWMutex
 	lockCreateAPIKey                                sync.RWMutex
@@ -4605,6 +4644,7 @@ type APIStoreMock struct {
 	lockListRunsByOrg                               sync.RWMutex
 	lockListRunsByProject                           sync.RWMutex
 	lockListRunsByTag                               sync.RWMutex
+	lockListSingletonLocksPage                      sync.RWMutex
 	lockListStepRunsByWorkflowRun                   sync.RWMutex
 	lockListStepsByWorkflow                         sync.RWMutex
 	lockListStepsByWorkflowVersion                  sync.RWMutex
@@ -6228,6 +6268,54 @@ func (mock *APIStoreMock) CountRunsForJobSinceCalls() []struct {
 	mock.lockCountRunsForJobSince.RLock()
 	calls = mock.calls.CountRunsForJobSince
 	mock.lockCountRunsForJobSince.RUnlock()
+	return calls
+}
+
+// CountSingletonWaiters calls CountSingletonWaitersFunc.
+func (mock *APIStoreMock) CountSingletonWaiters(ctx context.Context, kind domain.SingletonKind, ownerID string, lockKey string) (int, error) {
+	callInfo := struct {
+		Ctx     context.Context
+		Kind    domain.SingletonKind
+		OwnerID string
+		LockKey string
+	}{
+		Ctx:     ctx,
+		Kind:    kind,
+		OwnerID: ownerID,
+		LockKey: lockKey,
+	}
+	mock.lockCountSingletonWaiters.Lock()
+	mock.calls.CountSingletonWaiters = append(mock.calls.CountSingletonWaiters, callInfo)
+	mock.lockCountSingletonWaiters.Unlock()
+	if mock.CountSingletonWaitersFunc == nil {
+		var (
+			nOut   int
+			errOut error
+		)
+		return nOut, errOut
+	}
+	return mock.CountSingletonWaitersFunc(ctx, kind, ownerID, lockKey)
+}
+
+// CountSingletonWaitersCalls gets all the calls that were made to CountSingletonWaiters.
+// Check the length with:
+//
+//	len(mockedAPIStore.CountSingletonWaitersCalls())
+func (mock *APIStoreMock) CountSingletonWaitersCalls() []struct {
+	Ctx     context.Context
+	Kind    domain.SingletonKind
+	OwnerID string
+	LockKey string
+} {
+	var calls []struct {
+		Ctx     context.Context
+		Kind    domain.SingletonKind
+		OwnerID string
+		LockKey string
+	}
+	mock.lockCountSingletonWaiters.RLock()
+	calls = mock.calls.CountSingletonWaiters
+	mock.lockCountSingletonWaiters.RUnlock()
 	return calls
 }
 
@@ -13533,6 +13621,62 @@ func (mock *APIStoreMock) ListRunsByTagCalls() []struct {
 	mock.lockListRunsByTag.RLock()
 	calls = mock.calls.ListRunsByTag
 	mock.lockListRunsByTag.RUnlock()
+	return calls
+}
+
+// ListSingletonLocksPage calls ListSingletonLocksPageFunc.
+func (mock *APIStoreMock) ListSingletonLocksPage(ctx context.Context, projectID string, kind domain.SingletonKind, ownerID string, limit int, cursor *time.Time) ([]domain.SingletonLock, error) {
+	callInfo := struct {
+		Ctx       context.Context
+		ProjectID string
+		Kind      domain.SingletonKind
+		OwnerID   string
+		Limit     int
+		Cursor    *time.Time
+	}{
+		Ctx:       ctx,
+		ProjectID: projectID,
+		Kind:      kind,
+		OwnerID:   ownerID,
+		Limit:     limit,
+		Cursor:    cursor,
+	}
+	mock.lockListSingletonLocksPage.Lock()
+	mock.calls.ListSingletonLocksPage = append(mock.calls.ListSingletonLocksPage, callInfo)
+	mock.lockListSingletonLocksPage.Unlock()
+	if mock.ListSingletonLocksPageFunc == nil {
+		var (
+			singletonLocksOut []domain.SingletonLock
+			errOut            error
+		)
+		return singletonLocksOut, errOut
+	}
+	return mock.ListSingletonLocksPageFunc(ctx, projectID, kind, ownerID, limit, cursor)
+}
+
+// ListSingletonLocksPageCalls gets all the calls that were made to ListSingletonLocksPage.
+// Check the length with:
+//
+//	len(mockedAPIStore.ListSingletonLocksPageCalls())
+func (mock *APIStoreMock) ListSingletonLocksPageCalls() []struct {
+	Ctx       context.Context
+	ProjectID string
+	Kind      domain.SingletonKind
+	OwnerID   string
+	Limit     int
+	Cursor    *time.Time
+} {
+	var calls []struct {
+		Ctx       context.Context
+		ProjectID string
+		Kind      domain.SingletonKind
+		OwnerID   string
+		Limit     int
+		Cursor    *time.Time
+	}
+	mock.lockListSingletonLocksPage.RLock()
+	calls = mock.calls.ListSingletonLocksPage
+	mock.lockListSingletonLocksPage.RUnlock()
 	return calls
 }
 

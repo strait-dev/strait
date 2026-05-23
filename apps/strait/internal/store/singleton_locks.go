@@ -128,6 +128,47 @@ func (q *Queries) ListSingletonLocks(ctx context.Context, projectID string, kind
 	return locks, nil
 }
 
+// ListSingletonLocksPage returns a page of live lock rows for an owner, ordered by
+// acquired_at then lock_key, for the inspection endpoints. cursor is an exclusive
+// acquired_at lower bound; pass limit+1 to let the caller detect a further page.
+func (q *Queries) ListSingletonLocksPage(ctx context.Context, projectID string, kind domain.SingletonKind, ownerID string, limit int, cursor *time.Time) ([]domain.SingletonLock, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListSingletonLocksPage")
+	defer span.End()
+
+	query := `
+		SELECT project_id, kind, owner_id, lock_key, holder_run_id, acquired_at, lease_until
+		FROM singleton_locks
+		WHERE project_id = $1 AND kind = $2 AND owner_id = $3`
+	args := []any{projectID, string(kind), ownerID}
+	param := 4
+	if cursor != nil {
+		query += fmt.Sprintf(" AND acquired_at > $%d", param)
+		args = append(args, *cursor)
+		param++
+	}
+	query += fmt.Sprintf(" ORDER BY acquired_at ASC, lock_key ASC LIMIT $%d", param)
+	args = append(args, limit)
+
+	rows, err := q.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list singleton locks page: %w", err)
+	}
+	defer rows.Close()
+
+	locks := make([]domain.SingletonLock, 0, limit)
+	for rows.Next() {
+		lock, scanErr := scanSingletonLock(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("list singleton locks page scan: %w", scanErr)
+		}
+		locks = append(locks, *lock)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list singleton locks page rows: %w", err)
+	}
+	return locks, nil
+}
+
 // CountSingletonWaiters returns the number of runs parked behind the current
 // holder of (kind, owner, lock_key). Job waiters are job_runs in 'waiting';
 // workflow waiters are workflow_runs in 'queued'. Used to enforce the optional

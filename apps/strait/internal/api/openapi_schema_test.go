@@ -65,6 +65,43 @@ func TestOpenAPISchema_IncludesAuditAdminEndpoints(t *testing.T) {
 	}
 }
 
+// TestOpenAPISchema_IncludesSingletonEndpoints is a drift guard asserting the
+// singleton holder inspection endpoints (STR-542) are registered with Huma and
+// therefore included in the runtime-generated OpenAPI spec.
+func TestOpenAPISchema_IncludesSingletonEndpoints(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/reference/openapi.json", nil)
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var spec struct {
+		Paths map[string]map[string]any `json:"paths"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &spec); err != nil {
+		t.Fatalf("unmarshal openapi spec: %v", err)
+	}
+
+	for _, path := range []string{
+		"/v1/jobs/{jobID}/singletons",
+		"/v1/workflows/{workflowID}/singletons",
+	} {
+		methods, ok := spec.Paths[path]
+		if !ok {
+			t.Errorf("openapi spec missing path %q", path)
+			continue
+		}
+		if _, ok := methods["get"]; !ok {
+			t.Errorf("openapi spec path %q missing method %q", path, "get")
+		}
+	}
+}
+
 func TestOpenAPISchema_DoesNotExposeRemovedCodeDeploymentEndpoints(t *testing.T) {
 	t.Parallel()
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
