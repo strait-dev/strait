@@ -161,13 +161,13 @@ func (e *WorkflowEngine) ContinueWorkflowRunAsNew(
 	recordWorkflowContinuation(ctx, successor.ProjectID, nextDepth)
 
 	telemetry.AddSentryBreadcrumb(ctx, "workflow.state", "workflow continued as new", map[string]any{
-		"workflow_id":              successor.WorkflowID,
-		"predecessor_run_id":       pred.ID,
-		"successor_run_id":         successor.ID,
-		"project_id":               successor.ProjectID,
-		"version":                  successor.WorkflowVersion,
-		"lineage_depth":            nextDepth,
-		"step_count":               len(stepRuns),
+		"workflow_id":        successor.WorkflowID,
+		"predecessor_run_id": pred.ID,
+		"successor_run_id":   successor.ID,
+		"project_id":         successor.ProjectID,
+		"version":            successor.WorkflowVersion,
+		"lineage_depth":      nextDepth,
+		"step_count":         len(stepRuns),
 	})
 
 	// 7. Start the successor's root steps, exactly as a fresh trigger would.
