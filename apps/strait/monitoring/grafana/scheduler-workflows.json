@@ -5,7 +5,7 @@
     "description": "Scheduler loop health, cron drift, workflow progression, durable waits, compensation, and stalled workflows.",
     "tags": ["strait", "scheduler", "workflow"],
     "schemaVersion": 39,
-    "version": 1,
+    "version": 2,
     "refresh": "30s",
     "time": {
       "from": "now-6h",
@@ -231,6 +231,46 @@
             "refId": "D",
             "expr": "sum by (reason) (rate(strait_workflow_stalled_runs_total[$interval]))",
             "legendFormat": "stalled {{reason}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
+      },
+      {
+        "title": "Workflow continue-as-new",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 16
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (project) (rate(strait_workflow_continuations_total[$interval]))",
+            "legendFormat": "continuations {{project}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          },
+          {
+            "refId": "B",
+            "expr": "max by (project) (strait_workflow_continuation_depth)",
+            "legendFormat": "max depth {{project}}",
             "datasource": {
               "type": "prometheus",
               "uid": "${datasource}"

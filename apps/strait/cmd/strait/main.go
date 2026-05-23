@@ -360,6 +360,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 
 	workflowEngine := workflow.NewWorkflowEngine(queries, q, slog.Default()).
 		WithMaxNestingDepth(cfg.MaxWorkflowNestingDepth).
+		WithMaxContinueDepth(cfg.MaxWorkflowContinueDepth).
 		WithMetrics(metrics).
 		WithOnTriggerCreate(onTriggerCreate)
 	stepCallback := workflow.NewStepCallback(queries, workflowEngine, slog.Default()).WithMetrics(metrics).WithChExporter(chExporter)
