@@ -154,6 +154,42 @@ func TestBudgetMonitor_NextDay_AlertsAgain(t *testing.T) {
 	}
 }
 
+func TestBudgetMonitor_PruneAlertedForDate_DropsOldKeys(t *testing.T) {
+	t.Parallel()
+
+	bm := NewBudgetMonitor(&mockBudgetStore{}, nil, time.Minute)
+	bm.alertedMu.Lock()
+	bm.alertedDate = "2026-04-14"
+	bm.alerted = map[string]bool{
+		"proj-old:2026-04-14":           true,
+		"proj-today:2026-04-15":         true,
+		"spending:org-1:80:2026-04-15":  true,
+		"runlimit:org-1:80:2026-04-15":  true,
+		"spending:org-2:100:2026-04-14": true,
+	}
+	bm.alertedMu.Unlock()
+
+	bm.pruneAlertedForDate("2026-04-15")
+
+	bm.alertedMu.Lock()
+	defer bm.alertedMu.Unlock()
+	if bm.alertedDate != "2026-04-15" {
+		t.Fatalf("alertedDate = %q, want 2026-04-15", bm.alertedDate)
+	}
+	if len(bm.alerted) != 3 {
+		t.Fatalf("alerted len = %d, want 3: %#v", len(bm.alerted), bm.alerted)
+	}
+	for _, key := range []string{
+		"proj-today:2026-04-15",
+		"spending:org-1:80:2026-04-15",
+		"runlimit:org-1:80:2026-04-15",
+	} {
+		if !bm.alerted[key] {
+			t.Fatalf("expected key %q to remain after prune", key)
+		}
+	}
+}
+
 func TestBudgetMonitor_NoProjectsWithLimit_NoOp(t *testing.T) {
 	t.Parallel()
 

@@ -58,6 +58,10 @@ type BudgetMonitor struct {
 	// Key format: "projectID:YYYY-MM-DD" or "spending:orgID:80:YYYY-MM-DD"
 	alertedMu sync.Mutex
 	alerted   map[string]bool
+	// alertedDate records the UTC day represented by alerted. Cleanup is only
+	// needed when this changes; scanning the whole map every tick scales poorly
+	// for large installations with many daily alert keys.
+	alertedDate string
 }
 
 // NewBudgetMonitor creates a new budget monitor.
@@ -111,17 +115,7 @@ func (bm *BudgetMonitor) check(ctx context.Context) {
 
 	today := time.Now().UTC().Format("2006-01-02")
 
-	// Cleanup old entries in a single pass under the lock.
-	bm.alertedMu.Lock()
-	for k := range bm.alerted {
-		if len(k) > 10 {
-			dateStr := k[len(k)-10:]
-			if dateStr != today {
-				delete(bm.alerted, k)
-			}
-		}
-	}
-	bm.alertedMu.Unlock()
+	bm.pruneAlertedForDate(today)
 
 	for _, pq := range projects {
 		alertKey := pq.ProjectID + ":" + today
@@ -192,6 +186,28 @@ func (bm *BudgetMonitor) check(ctx context.Context) {
 	if bm.runLimitStore != nil && bm.enforcer != nil {
 		bm.checkRunLimitWarnings(ctx, today)
 	}
+}
+
+func (bm *BudgetMonitor) pruneAlertedForDate(today string) {
+	bm.alertedMu.Lock()
+	defer bm.alertedMu.Unlock()
+
+	if bm.alertedDate == today {
+		return
+	}
+	if len(bm.alerted) == 0 {
+		bm.alertedDate = today
+		return
+	}
+
+	todayKeys := make(map[string]bool, len(bm.alerted))
+	for k, alerted := range bm.alerted {
+		if len(k) >= len(today) && k[len(k)-len(today):] == today {
+			todayKeys[k] = alerted
+		}
+	}
+	bm.alerted = todayKeys
+	bm.alertedDate = today
 }
 
 // sendBudgetNotification sends budget threshold alerts via notification channels.
