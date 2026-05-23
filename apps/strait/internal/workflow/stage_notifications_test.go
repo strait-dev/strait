@@ -1,8 +1,10 @@
 package workflow
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"sync"
 	"testing"
 
@@ -15,9 +17,13 @@ type mockStageNotifierStore struct {
 	deliveries []domain.NotificationDelivery
 	channelErr error
 	deliverErr error
+	listCalls  int
 }
 
 func (m *mockStageNotifierStore) ListEnabledNotificationChannels(_ context.Context, _ string) ([]domain.NotificationChannel, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.listCalls++
 	if m.channelErr != nil {
 		return nil, m.channelErr
 	}
@@ -210,6 +216,37 @@ func TestStageNotification_InvalidJSON(t *testing.T) {
 	}
 }
 
+func TestStageNotification_NonTerminalStatusSkipsInvalidConfig(t *testing.T) {
+	t.Parallel()
+
+	var logBuf bytes.Buffer
+	store := &mockStageNotifierStore{
+		channels: []domain.NotificationChannel{{ID: "ch-1"}},
+	}
+	notifier := NewStageNotifier(store, slog.New(slog.NewTextHandler(&logBuf, nil)))
+
+	step := &domain.WorkflowStep{
+		StepRef:            "charge",
+		StageNotifications: json.RawMessage(`not valid json`),
+	}
+	stepRun := &domain.WorkflowStepRun{ID: "sr-1"}
+	wfRun := &domain.WorkflowRun{ID: "wfr-1", ProjectID: "proj-1"}
+
+	notifier.NotifyStepTransition(context.Background(), step, stepRun, wfRun, domain.StepRunning)
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if store.listCalls != 0 {
+		t.Fatalf("expected 0 channel lookups for non-terminal status, got %d", store.listCalls)
+	}
+	if len(store.deliveries) != 0 {
+		t.Fatalf("expected 0 deliveries for non-terminal status, got %d", len(store.deliveries))
+	}
+	if logBuf.Len() != 0 {
+		t.Fatalf("expected no log output for non-terminal status, got %q", logBuf.String())
+	}
+}
+
 func TestStageNotification_NilStep(t *testing.T) {
 	t.Parallel()
 	store := &mockStageNotifierStore{}
@@ -288,5 +325,45 @@ func TestStageNotification_PayloadContent(t *testing.T) {
 	}
 	if payload["status"] != "completed" {
 		t.Errorf("status = %v, want completed", payload["status"])
+	}
+}
+
+func BenchmarkStageNotification_NonTerminal(b *testing.B) {
+	store := &mockStageNotifierStore{}
+	notifier := NewStageNotifier(store, slog.New(slog.DiscardHandler))
+	step := &domain.WorkflowStep{
+		StepRef: "charge",
+		StageNotifications: json.RawMessage(`{
+			"on_complete": true,
+			"on_failure": true,
+			"on_skipped": true
+		}`),
+	}
+	stepRun := &domain.WorkflowStepRun{ID: "sr-1"}
+	wfRun := &domain.WorkflowRun{ID: "wfr-1", WorkflowID: "wf-1", ProjectID: "proj-1"}
+	ctx := context.Background()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		notifier.NotifyStepTransition(ctx, step, stepRun, wfRun, domain.StepRunning)
+	}
+}
+
+func BenchmarkStageNotification_CompletedNoChannels(b *testing.B) {
+	store := &mockStageNotifierStore{}
+	notifier := NewStageNotifier(store, slog.New(slog.DiscardHandler))
+	step := &domain.WorkflowStep{
+		StepRef:            "charge",
+		StageNotifications: json.RawMessage(`{"on_complete": true}`),
+	}
+	stepRun := &domain.WorkflowStepRun{ID: "sr-1"}
+	wfRun := &domain.WorkflowRun{ID: "wfr-1", WorkflowID: "wf-1", ProjectID: "proj-1"}
+	ctx := context.Background()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		notifier.NotifyStepTransition(ctx, step, stepRun, wfRun, domain.StepCompleted)
 	}
 }

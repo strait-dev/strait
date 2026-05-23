@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"time"
 
 	"strait/internal/domain"
@@ -248,42 +249,97 @@ func (e *WorkflowEngine) RetryWorkflowRun(
 // Remaining steps have their depends_on lists pruned of any removed refs.
 // Returns an error if an override references a non-existent step_ref.
 func applyStepOverrides(steps []domain.WorkflowStep, overrides []domain.StepOverride) ([]domain.WorkflowStep, error) {
-	// Build set of disabled step refs.
-	disabled := make(map[string]struct{})
-	knownRefs := make(map[string]struct{}, len(steps))
-	for _, s := range steps {
-		knownRefs[s.StepRef] = struct{}{}
+	if len(overrides) == 0 {
+		return steps, nil
 	}
-
-	for _, o := range overrides {
-		if _, ok := knownRefs[o.StepRef]; !ok {
-			return nil, fmt.Errorf("step override references unknown step_ref %q", o.StepRef)
+	if len(overrides) == 1 {
+		override := overrides[0]
+		if !override.Enabled {
+			return applySingleDisabledStepOverride(steps, override.StepRef)
 		}
-		if !o.Enabled {
-			disabled[o.StepRef] = struct{}{}
+		if !stepRefExists(steps, override.StepRef) {
+			return nil, fmt.Errorf("step override references unknown step_ref %q", override.StepRef)
 		}
-	}
-
-	if len(disabled) == 0 {
 		return steps, nil
 	}
 
+	return applyStepOverridesFiltered(steps, overrides)
+}
+
+func applyStepOverridesFiltered(steps []domain.WorkflowStep, overrides []domain.StepOverride) ([]domain.WorkflowStep, error) {
+	var disabledRefs []string
+	var disabledSet map[string]struct{}
+	if len(overrides) <= 8 {
+		for _, o := range overrides {
+			if !stepRefExists(steps, o.StepRef) {
+				return nil, fmt.Errorf("step override references unknown step_ref %q", o.StepRef)
+			}
+			if !o.Enabled {
+				disabledRefs = append(disabledRefs, o.StepRef)
+			}
+		}
+	} else {
+		knownRefs := make(map[string]struct{}, len(steps))
+		for _, s := range steps {
+			knownRefs[s.StepRef] = struct{}{}
+		}
+		disabledSet = make(map[string]struct{})
+
+		for _, o := range overrides {
+			if _, ok := knownRefs[o.StepRef]; !ok {
+				return nil, fmt.Errorf("step override references unknown step_ref %q", o.StepRef)
+			}
+			if !o.Enabled {
+				disabledSet[o.StepRef] = struct{}{}
+			}
+		}
+	}
+
+	disabledCount := len(disabledRefs)
+	if disabledSet != nil {
+		disabledCount = len(disabledSet)
+	}
+	if disabledCount == 0 {
+		return steps, nil
+	}
+	if disabledSet == nil && len(disabledRefs) > 2 {
+		disabledSet = make(map[string]struct{}, len(disabledRefs))
+		for _, ref := range disabledRefs {
+			disabledSet[ref] = struct{}{}
+		}
+		disabledRefs = nil
+	}
+	if disabledSet == nil && len(disabledRefs) == 1 {
+		return applySingleDisabledStepOverride(steps, disabledRefs[0])
+	}
+
 	// Filter out disabled steps and prune depends_on.
-	filtered := make([]domain.WorkflowStep, 0, len(steps))
-	for _, s := range steps {
-		if _, skip := disabled[s.StepRef]; skip {
+	filteredCap := max(len(steps)-disabledCount, 0)
+	filtered := make([]domain.WorkflowStep, 0, filteredCap)
+	for i := range steps {
+		s := steps[i]
+		if stepRefDisabled(disabledRefs, disabledSet, s.StepRef) {
 			continue
 		}
 
-		// Prune disabled refs from depends_on.
 		if len(s.DependsOn) > 0 {
-			pruned := make([]string, 0, len(s.DependsOn))
-			for _, dep := range s.DependsOn {
-				if _, skip := disabled[dep]; !skip {
-					pruned = append(pruned, dep)
+			removeAt := -1
+			for depIdx, dep := range s.DependsOn {
+				if stepRefDisabled(disabledRefs, disabledSet, dep) {
+					removeAt = depIdx
+					break
 				}
 			}
-			s.DependsOn = pruned
+			if removeAt >= 0 {
+				pruned := make([]string, 0, len(s.DependsOn)-1)
+				pruned = append(pruned, s.DependsOn[:removeAt]...)
+				for _, dep := range s.DependsOn[removeAt+1:] {
+					if !stepRefDisabled(disabledRefs, disabledSet, dep) {
+						pruned = append(pruned, dep)
+					}
+				}
+				s.DependsOn = pruned
+			}
 		}
 
 		filtered = append(filtered, s)
@@ -294,4 +350,63 @@ func applyStepOverrides(steps []domain.WorkflowStep, overrides []domain.StepOver
 	}
 
 	return filtered, nil
+}
+
+func applySingleDisabledStepOverride(steps []domain.WorkflowStep, disabledRef string) ([]domain.WorkflowStep, error) {
+	if len(steps) == 1 && steps[0].StepRef == disabledRef {
+		return nil, fmt.Errorf("all steps disabled by overrides")
+	}
+
+	disabledIdx := -1
+	for i := range steps {
+		if steps[i].StepRef == disabledRef {
+			disabledIdx = i
+			break
+		}
+	}
+	if disabledIdx < 0 {
+		return nil, fmt.Errorf("step override references unknown step_ref %q", disabledRef)
+	}
+
+	filtered := make([]domain.WorkflowStep, len(steps)-1)
+	copy(filtered, steps[:disabledIdx])
+	copy(filtered[disabledIdx:], steps[disabledIdx+1:])
+
+	for i := range filtered {
+		s := &filtered[i]
+		if len(s.DependsOn) > 0 {
+			removeAt := -1
+			for depIdx, dep := range s.DependsOn {
+				if dep == disabledRef {
+					removeAt = depIdx
+					break
+				}
+			}
+			if removeAt >= 0 {
+				pruned := make([]string, 0, len(s.DependsOn)-1)
+				pruned = append(pruned, s.DependsOn[:removeAt]...)
+				pruned = append(pruned, s.DependsOn[removeAt+1:]...)
+				s.DependsOn = pruned
+			}
+		}
+	}
+
+	return filtered, nil
+}
+
+func stepRefExists(steps []domain.WorkflowStep, ref string) bool {
+	for i := range steps {
+		if steps[i].StepRef == ref {
+			return true
+		}
+	}
+	return false
+}
+
+func stepRefDisabled(disabledRefs []string, disabledSet map[string]struct{}, ref string) bool {
+	if disabledSet != nil {
+		_, ok := disabledSet[ref]
+		return ok
+	}
+	return slices.Contains(disabledRefs, ref)
 }
