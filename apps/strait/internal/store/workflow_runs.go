@@ -237,7 +237,7 @@ func (q *Queries) DeleteWorkflowRunsFinishedBefore(ctx context.Context, before t
 		WITH doomed AS (
 			SELECT id
 			FROM workflow_runs
-			WHERE status IN ('completed', 'failed', 'timed_out', 'canceled', 'compensated', 'compensation_failed')
+			WHERE status IN ('completed', 'failed', 'timed_out', 'canceled', 'compensated', 'compensation_failed', 'continued')
 			  AND finished_at IS NOT NULL
 			  AND finished_at < $1
 			ORDER BY finished_at ASC
@@ -810,7 +810,7 @@ func (q *Queries) BulkCancelWorkflowRuns(ctx context.Context, projectID string, 
 		UPDATE workflow_runs
 		SET status = 'canceled', finished_at = $2, error = 'canceled by user (bulk)'
 		WHERE id = ANY($1) AND project_id = $3
-		  AND status NOT IN ('completed', 'failed', 'timed_out', 'canceled', 'compensated', 'compensation_failed')
+		  AND status NOT IN ('completed', 'failed', 'timed_out', 'canceled', 'compensated', 'compensation_failed', 'continued')
 		RETURNING id
 	`, ids, now, projectID)
 	if err != nil {

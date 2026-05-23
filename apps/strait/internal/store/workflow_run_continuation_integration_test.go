@@ -382,6 +382,216 @@ func TestGetWorkflowRunChain_NotFound(t *testing.T) {
 	}
 }
 
+// setFinishedAt forces a workflow run's status and finished_at directly, so
+// retention tests can age a run past the reaper cutoff regardless of the FSM.
+func setFinishedAt(t *testing.T, ctx context.Context, id string, status domain.WorkflowRunStatus, finishedAt time.Time) {
+	t.Helper()
+	if _, err := testDB.Pool.Exec(ctx,
+		`UPDATE workflow_runs SET status = $1, finished_at = $2 WHERE id = $3`,
+		status, finishedAt, id,
+	); err != nil {
+		t.Fatalf("set finished_at for %s: %v", id, err)
+	}
+}
+
+// TestDeleteWorkflowRun_NullsSuccessorPointerOnDelete proves the continued_to
+// foreign key is ON DELETE SET NULL: reaping a successor must not raise an FK
+// violation against the surviving predecessor's continued_to pointer. With the
+// bare FK this DELETE aborts the whole batch and stalls retention (R1).
+func TestDeleteWorkflowRun_NullsSuccessorPointerOnDelete(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-continue-fk-succ"
+	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{ProjectID: new(projectID)})
+
+	running := domain.WfStatusRunning
+	pred := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID), Status: &running})
+	succ := buildSuccessor(wf.ID, projectID, pred.ID, 1, nil)
+	if err := q.ContinueWorkflowRunBootstrap(ctx, pred.ID, running, succ, nil, time.Now().UTC()); err != nil {
+		t.Fatalf("continue pred->succ: %v", err)
+	}
+
+	// Age only the successor past the cutoff; the predecessor stays recent.
+	setFinishedAt(t, ctx, succ.ID, domain.WfStatusCompleted, time.Now().UTC().Add(-72*time.Hour))
+
+	deleted, err := q.DeleteWorkflowRunsFinishedBefore(ctx, time.Now().UTC().Add(-24*time.Hour), 100)
+	if err != nil {
+		t.Fatalf("DeleteWorkflowRunsFinishedBefore() error = %v (FK should be ON DELETE SET NULL)", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("deleted = %d, want 1", deleted)
+	}
+
+	if _, err := q.GetWorkflowRun(ctx, succ.ID); !errors.Is(err, store.ErrWorkflowRunNotFound) {
+		t.Errorf("successor still present after delete: %v", err)
+	}
+	gotPred, err := q.GetWorkflowRun(ctx, pred.ID)
+	if err != nil {
+		t.Fatalf("get predecessor: %v", err)
+	}
+	if gotPred.ContinuedToWorkflowRunID != "" {
+		t.Errorf("predecessor continued_to = %q, want empty after successor reaped", gotPred.ContinuedToWorkflowRunID)
+	}
+}
+
+// TestDeleteWorkflowRun_NullsPredecessorPointerOnDelete proves the
+// continued_from foreign key is ON DELETE SET NULL from the other direction:
+// reaping a continued root must null the surviving successor's continued_from
+// pointer rather than aborting. This also exercises R2 (continued runs are
+// eligible for retention at all).
+func TestDeleteWorkflowRun_NullsPredecessorPointerOnDelete(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-continue-fk-pred"
+	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{ProjectID: new(projectID)})
+
+	running := domain.WfStatusRunning
+	root := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID), Status: &running})
+	succ := buildSuccessor(wf.ID, projectID, root.ID, 1, nil)
+	if err := q.ContinueWorkflowRunBootstrap(ctx, root.ID, running, succ, nil, time.Now().UTC()); err != nil {
+		t.Fatalf("continue root->succ: %v", err)
+	}
+
+	// Age the continued root past the cutoff; the running successor survives.
+	setFinishedAt(t, ctx, root.ID, domain.WfStatusContinued, time.Now().UTC().Add(-72*time.Hour))
+
+	deleted, err := q.DeleteWorkflowRunsFinishedBefore(ctx, time.Now().UTC().Add(-24*time.Hour), 100)
+	if err != nil {
+		t.Fatalf("DeleteWorkflowRunsFinishedBefore() error = %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("deleted = %d, want 1 (continued root reaped)", deleted)
+	}
+
+	if _, err := q.GetWorkflowRun(ctx, root.ID); !errors.Is(err, store.ErrWorkflowRunNotFound) {
+		t.Errorf("continued root still present after delete: %v", err)
+	}
+	gotSucc, err := q.GetWorkflowRun(ctx, succ.ID)
+	if err != nil {
+		t.Fatalf("get successor: %v", err)
+	}
+	if gotSucc.ContinuedFromWorkflowRunID != "" {
+		t.Errorf("successor continued_from = %q, want empty after root reaped", gotSucc.ContinuedFromWorkflowRunID)
+	}
+	chain, err := q.GetWorkflowRunChain(ctx, succ.ID)
+	if err != nil {
+		t.Fatalf("GetWorkflowRunChain(succ): %v", err)
+	}
+	if len(chain) != 1 || chain[0].ID != succ.ID {
+		t.Fatalf("chain after root reaped = %+v, want single element %s", chain, succ.ID)
+	}
+}
+
+// TestDeleteWorkflowRun_MiddleOfChainTruncates reaps the middle run of a
+// three-run chain and asserts both neighbors survive with their lineage
+// pointers nulled and the chain split, with no FK violation.
+func TestDeleteWorkflowRun_MiddleOfChainTruncates(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-continue-fk-mid"
+	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{ProjectID: new(projectID)})
+
+	running := domain.WfStatusRunning
+	root := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID), Status: &running})
+	mid := buildSuccessor(wf.ID, projectID, root.ID, 1, nil)
+	if err := q.ContinueWorkflowRunBootstrap(ctx, root.ID, running, mid, nil, time.Now().UTC()); err != nil {
+		t.Fatalf("continue root->mid: %v", err)
+	}
+	latest := buildSuccessor(wf.ID, projectID, mid.ID, 2, nil)
+	if err := q.ContinueWorkflowRunBootstrap(ctx, mid.ID, running, latest, nil, time.Now().UTC()); err != nil {
+		t.Fatalf("continue mid->latest: %v", err)
+	}
+
+	// Age only the middle run past the cutoff.
+	setFinishedAt(t, ctx, mid.ID, domain.WfStatusContinued, time.Now().UTC().Add(-72*time.Hour))
+
+	deleted, err := q.DeleteWorkflowRunsFinishedBefore(ctx, time.Now().UTC().Add(-24*time.Hour), 100)
+	if err != nil {
+		t.Fatalf("DeleteWorkflowRunsFinishedBefore() error = %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("deleted = %d, want 1 (only the middle run)", deleted)
+	}
+
+	if _, err := q.GetWorkflowRun(ctx, mid.ID); !errors.Is(err, store.ErrWorkflowRunNotFound) {
+		t.Errorf("middle run still present after delete: %v", err)
+	}
+
+	gotRoot, err := q.GetWorkflowRun(ctx, root.ID)
+	if err != nil {
+		t.Fatalf("get root: %v", err)
+	}
+	if gotRoot.ContinuedToWorkflowRunID != "" {
+		t.Errorf("root continued_to = %q, want empty after middle reaped", gotRoot.ContinuedToWorkflowRunID)
+	}
+	gotLatest, err := q.GetWorkflowRun(ctx, latest.ID)
+	if err != nil {
+		t.Fatalf("get latest: %v", err)
+	}
+	if gotLatest.ContinuedFromWorkflowRunID != "" {
+		t.Errorf("latest continued_from = %q, want empty after middle reaped", gotLatest.ContinuedFromWorkflowRunID)
+	}
+
+	rootChain, err := q.GetWorkflowRunChain(ctx, root.ID)
+	if err != nil {
+		t.Fatalf("GetWorkflowRunChain(root): %v", err)
+	}
+	if len(rootChain) != 1 || rootChain[0].ID != root.ID {
+		t.Errorf("root chain after split = %+v, want [%s]", rootChain, root.ID)
+	}
+	latestChain, err := q.GetWorkflowRunChain(ctx, latest.ID)
+	if err != nil {
+		t.Fatalf("GetWorkflowRunChain(latest): %v", err)
+	}
+	if len(latestChain) != 1 || latestChain[0].ID != latest.ID {
+		t.Errorf("latest chain after split = %+v, want [%s]", latestChain, latest.ID)
+	}
+}
+
+// TestBulkCancelWorkflowRuns_SkipsContinued proves bulk cancel treats continued
+// as terminal: a continued predecessor must not be flipped to canceled (which
+// would bypass the FSM and corrupt lineage), while a live sibling is canceled.
+func TestBulkCancelWorkflowRuns_SkipsContinued(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-continue-bulkcancel"
+	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{ProjectID: new(projectID)})
+
+	running := domain.WfStatusRunning
+	pred := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID), Status: &running})
+	succ := buildSuccessor(wf.ID, projectID, pred.ID, 1, nil)
+	if err := q.ContinueWorkflowRunBootstrap(ctx, pred.ID, running, succ, nil, time.Now().UTC()); err != nil {
+		t.Fatalf("continue pred->succ: %v", err)
+	}
+
+	canceled, err := q.BulkCancelWorkflowRuns(ctx, projectID, []string{pred.ID, succ.ID}, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("BulkCancelWorkflowRuns() error = %v", err)
+	}
+	if len(canceled) != 1 || canceled[0] != succ.ID {
+		t.Fatalf("canceled = %v, want [%s] (continued predecessor must be skipped)", canceled, succ.ID)
+	}
+
+	gotPred, err := q.GetWorkflowRun(ctx, pred.ID)
+	if err != nil {
+		t.Fatalf("get predecessor: %v", err)
+	}
+	if gotPred.Status != domain.WfStatusContinued {
+		t.Errorf("predecessor status = %s, want continued (untouched by bulk cancel)", gotPred.Status)
+	}
+	if gotPred.ContinuedToWorkflowRunID != succ.ID {
+		t.Errorf("predecessor continued_to = %q, want %q (lineage intact)", gotPred.ContinuedToWorkflowRunID, succ.ID)
+	}
+}
+
 // FuzzWorkflowRunLineageRoundTrip ensures arbitrary carry-over payloads and tag
 // values survive a CreateWorkflowRun/GetWorkflowRun round-trip with the new
 // lineage columns populated, without corruption or panic.
