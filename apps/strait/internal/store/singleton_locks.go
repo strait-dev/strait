@@ -343,11 +343,17 @@ func (q *Queries) ReleaseSingletonJobLockAndPromote(ctx context.Context, holderR
 //
 // Queued or waiting holders are deliberately excluded: they have not started,
 // so they cannot have crashed and must keep their lock until they run.
-func (q *Queries) ListReapableSingletonJobHolders(ctx context.Context) ([]string, error) {
+//
+// limit bounds the batch so a large backlog cannot load every reapable holder
+// into memory in a single reaper cycle; the reaper drains the rest on subsequent
+// cycles. The oldest acquisitions are reclaimed first. A limit <= 0 is treated as
+// the caller asking for no bound (returns all), kept only for ad-hoc callers and
+// tests; the reaper always passes a positive bound.
+func (q *Queries) ListReapableSingletonJobHolders(ctx context.Context, limit int) ([]string, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListReapableSingletonJobHolders")
 	defer span.End()
 
-	const query = `
+	query := `
 		SELECT sl.holder_run_id
 		FROM singleton_locks sl
 		WHERE sl.kind = 'job'
@@ -361,9 +367,16 @@ func (q *Queries) ListReapableSingletonJobHolders(ctx context.Context) ([]string
 		                OR (jr.status IN ('executing','dequeued') AND sl.lease_until IS NOT NULL AND sl.lease_until < NOW())
 		            )
 		      )
-		  )`
+		  )
+		ORDER BY sl.acquired_at ASC`
 
-	rows, err := q.db.Query(ctx, query)
+	args := []any{}
+	if limit > 0 {
+		query += " LIMIT $1"
+		args = append(args, limit)
+	}
+
+	rows, err := q.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list reapable singleton holders: %w", err)
 	}

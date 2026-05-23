@@ -334,11 +334,15 @@ func (q *Queries) ReleaseSingletonWorkflowLockAndPromote(ctx context.Context, ho
 // singleton locks the reaper should release: the holder run is missing (deleted
 // by retention) or already terminal. Workflow holders carry no lease, so a
 // running or parked (queued) holder is never reclaimed by a timer.
-func (q *Queries) ListReapableSingletonWorkflowHolders(ctx context.Context) ([]string, error) {
+//
+// limit bounds the batch (oldest acquisitions first) so a backlog is drained
+// across cycles rather than loaded at once; a limit <= 0 returns all (ad-hoc and
+// test callers only). The reaper always passes a positive bound.
+func (q *Queries) ListReapableSingletonWorkflowHolders(ctx context.Context, limit int) ([]string, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListReapableSingletonWorkflowHolders")
 	defer span.End()
 
-	const query = `
+	query := `
 		SELECT sl.holder_run_id
 		FROM singleton_locks sl
 		WHERE sl.kind = 'workflow'
@@ -349,9 +353,16 @@ func (q *Queries) ListReapableSingletonWorkflowHolders(ctx context.Context) ([]s
 		          WHERE wr.id = sl.holder_run_id
 		            AND wr.status IN ('completed','failed','timed_out','canceled','compensated','compensation_failed')
 		      )
-		  )`
+		  )
+		ORDER BY sl.acquired_at ASC`
 
-	rows, err := q.db.Query(ctx, query)
+	args := []any{}
+	if limit > 0 {
+		query += " LIMIT $1"
+		args = append(args, limit)
+	}
+
+	rows, err := q.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list reapable singleton workflow holders: %w", err)
 	}

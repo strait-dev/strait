@@ -260,7 +260,7 @@ func TestListReapableSingletonJobHolders(t *testing.T) {
 	preHeartbeat := mkSingletonRun(t, ctx, q, job, domain.StatusExecuting, "k-preheartbeat")
 	acquireFor(t, ctx, q, job, "k-preheartbeat", preHeartbeat.ID, nil)
 
-	holders, err := q.ListReapableSingletonJobHolders(ctx)
+	holders, err := q.ListReapableSingletonJobHolders(ctx, 0)
 	if err != nil {
 		t.Fatalf("ListReapableSingletonJobHolders() error = %v", err)
 	}
@@ -278,6 +278,70 @@ func TestListReapableSingletonJobHolders(t *testing.T) {
 		if _, ok := got[notWant]; ok {
 			t.Errorf("holder %q should not be reapable", notWant)
 		}
+	}
+}
+
+// TestListReapableSingletonJobHolders_BoundedAndOldestFirst verifies the Phase C
+// batch bound: with more reapable holders than the limit, the query returns at
+// most limit rows, oldest acquisition first, and the reaper drains the rest on a
+// follow-up call. This keeps a large reclaim backlog from loading into memory in
+// one cycle.
+func TestListReapableSingletonJobHolders_BoundedAndOldestFirst(t *testing.T) {
+	ctx := context.Background()
+	q := stStore(t)
+	stClean(t, ctx)
+
+	projectID := "proj-" + uuid.Must(uuid.NewV7()).String()
+	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: &projectID})
+
+	// Six terminal (hence reapable) holders, each on its own key, acquired in a
+	// known order so the oldest-first guarantee is checkable.
+	const total = 6
+	ordered := make([]string, 0, total)
+	for i := range total {
+		key := "k-" + uuid.Must(uuid.NewV7()).String()
+		run := mkSingletonRun(t, ctx, q, job, domain.StatusCompleted, key)
+		acquireFor(t, ctx, q, job, key, run.ID, nil)
+		ordered = append(ordered, run.ID)
+		// Space out acquired_at so ORDER BY acquired_at ASC is unambiguous.
+		if _, err := testDB.Pool.Exec(ctx,
+			`UPDATE singleton_locks SET acquired_at = $2 WHERE holder_run_id = $1`,
+			run.ID, time.Now().Add(time.Duration(i)*time.Second),
+		); err != nil {
+			t.Fatalf("stamp acquired_at: %v", err)
+		}
+	}
+
+	// First bounded page: oldest `limit` holders only.
+	const limit = 4
+	page1, err := q.ListReapableSingletonJobHolders(ctx, limit)
+	if err != nil {
+		t.Fatalf("ListReapableSingletonJobHolders(limit) error = %v", err)
+	}
+	if len(page1) != limit {
+		t.Fatalf("page1 size = %d, want %d", len(page1), limit)
+	}
+	for i := range limit {
+		if page1[i] != ordered[i] {
+			t.Fatalf("page1[%d] = %q, want oldest %q", i, page1[i], ordered[i])
+		}
+	}
+
+	// Reap (release) the first page, then the next call surfaces the remainder.
+	for _, holderRunID := range page1 {
+		if _, _, rerr := q.ReleaseSingletonJobLockAndPromote(ctx, holderRunID); rerr != nil {
+			t.Fatalf("release %q error = %v", holderRunID, rerr)
+		}
+	}
+	page2, err := q.ListReapableSingletonJobHolders(ctx, limit)
+	if err != nil {
+		t.Fatalf("ListReapableSingletonJobHolders(page2) error = %v", err)
+	}
+	if len(page2) != total-limit {
+		t.Fatalf("page2 size = %d, want %d", len(page2), total-limit)
+	}
+	if page2[0] != ordered[limit] {
+		t.Fatalf("page2[0] = %q, want %q", page2[0], ordered[limit])
 	}
 }
 

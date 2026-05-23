@@ -519,7 +519,7 @@ func TestListReapableSingletonWorkflowHolders(t *testing.T) {
 		t.Fatalf("bootstrap running holder error = %v", err)
 	}
 
-	holders, err := q.ListReapableSingletonWorkflowHolders(ctx)
+	holders, err := q.ListReapableSingletonWorkflowHolders(ctx, 0)
 	if err != nil {
 		t.Fatalf("ListReapableSingletonWorkflowHolders() error = %v", err)
 	}

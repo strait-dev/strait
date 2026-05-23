@@ -31,6 +31,11 @@ const (
 	defaultWorkflowRetention     = 30 * 24 * time.Hour
 	defaultEventTriggerRetention = 30 * 24 * time.Hour
 	defaultDeleteBatchLimit      = 100
+	// singletonReapBatchLimit bounds how many reapable singleton holders one
+	// reaper cycle pulls per kind. A backlog (e.g. a retention sweep that deleted
+	// many holder runs) is drained over successive cycles instead of loading every
+	// reapable holder into memory at once.
+	singletonReapBatchLimit = 500
 )
 
 // ReaperStore is the subset of store operations needed by Reaper.
@@ -75,9 +80,9 @@ type ReaperStore interface {
 	DeleteOutboxHistoryPastRetention(ctx context.Context, cutoff time.Time, limit int) (int64, error)
 	PurgeQuarantinedOutboxOlderThan(ctx context.Context, cutoff time.Time, limit int) (int64, error)
 	GetRunFromHistory(ctx context.Context, id string) (*domain.JobRun, error)
-	ListReapableSingletonJobHolders(ctx context.Context) ([]string, error)
+	ListReapableSingletonJobHolders(ctx context.Context, limit int) ([]string, error)
 	ReleaseSingletonJobLockAndPromote(ctx context.Context, holderRunID string) (bool, string, error)
-	ListReapableSingletonWorkflowHolders(ctx context.Context) ([]string, error)
+	ListReapableSingletonWorkflowHolders(ctx context.Context, limit int) ([]string, error)
 }
 
 // DLQMonitorStore is an optional interface for DLQ depth monitoring.
@@ -1007,7 +1012,7 @@ func (r *Reaper) reapSingletonLocks(ctx context.Context) {
 	defer span.End()
 	const operation = "reap_singleton_locks"
 
-	holders, err := r.store.ListReapableSingletonJobHolders(ctx)
+	holders, err := r.store.ListReapableSingletonJobHolders(ctx, singletonReapBatchLimit)
 	if err != nil {
 		slog.Error("failed to list reapable singleton holders", "error", err)
 		r.recordOperation(ctx, operation, "error")
@@ -1043,7 +1048,7 @@ func (r *Reaper) reapSingletonWorkflowLocks(ctx context.Context) {
 	if r.workflowCallback == nil {
 		return
 	}
-	holders, err := r.store.ListReapableSingletonWorkflowHolders(ctx)
+	holders, err := r.store.ListReapableSingletonWorkflowHolders(ctx, singletonReapBatchLimit)
 	if err != nil {
 		slog.Error("failed to list reapable singleton workflow holders", "error", err)
 		return
