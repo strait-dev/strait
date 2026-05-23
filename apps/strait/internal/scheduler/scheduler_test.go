@@ -288,8 +288,8 @@ func (m *mockSchedulerStore) ListReapableSingletonJobHolders(ctx context.Context
 	return m.reaper.ListReapableSingletonJobHolders(ctx)
 }
 
-func (m *mockSchedulerStore) ReleaseSingletonJobLockAndPromote(ctx context.Context, holderRunID string, leaseTTL time.Duration) (bool, string, error) {
-	return m.reaper.ReleaseSingletonJobLockAndPromote(ctx, holderRunID, leaseTTL)
+func (m *mockSchedulerStore) ReleaseSingletonJobLockAndPromote(ctx context.Context, holderRunID string) (bool, string, error) {
+	return m.reaper.ReleaseSingletonJobLockAndPromote(ctx, holderRunID)
 }
 
 func (m *mockSchedulerStore) ListReapableSingletonWorkflowHolders(ctx context.Context) ([]string, error) {

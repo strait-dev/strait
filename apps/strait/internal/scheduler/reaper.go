@@ -76,7 +76,7 @@ type ReaperStore interface {
 	PurgeQuarantinedOutboxOlderThan(ctx context.Context, cutoff time.Time, limit int) (int64, error)
 	GetRunFromHistory(ctx context.Context, id string) (*domain.JobRun, error)
 	ListReapableSingletonJobHolders(ctx context.Context) ([]string, error)
-	ReleaseSingletonJobLockAndPromote(ctx context.Context, holderRunID string, leaseTTL time.Duration) (bool, string, error)
+	ReleaseSingletonJobLockAndPromote(ctx context.Context, holderRunID string) (bool, string, error)
 	ListReapableSingletonWorkflowHolders(ctx context.Context) ([]string, error)
 }
 
@@ -1016,7 +1016,7 @@ func (r *Reaper) reapSingletonLocks(ctx context.Context) {
 	r.recordOperation(ctx, operation, "success")
 
 	for _, holderRunID := range holders {
-		released, promotedRunID, relErr := r.store.ReleaseSingletonJobLockAndPromote(ctx, holderRunID, r.staleThreshold)
+		released, promotedRunID, relErr := r.store.ReleaseSingletonJobLockAndPromote(ctx, holderRunID)
 		if relErr != nil {
 			slog.Error("failed to reap singleton lock", "holder_run_id", holderRunID, "error", relErr)
 			continue

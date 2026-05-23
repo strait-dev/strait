@@ -696,7 +696,6 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		TxPool:                  txPool,
 		PollInterval:            cfg.PollerInterval,
 		HeartbeatInterval:       cfg.HeartbeatInterval,
-		SingletonLeaseTTL:       cfg.StaleThreshold,
 		Publisher:               pub,
 		Metrics:                 metrics,
 		WorkflowCallback:        stepCallback,

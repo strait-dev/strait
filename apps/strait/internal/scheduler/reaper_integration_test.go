@@ -29,7 +29,7 @@ func (baseReaperStore) ListStaleRuns(_ context.Context, _ time.Duration) ([]doma
 func (baseReaperStore) ListReapableSingletonJobHolders(_ context.Context) ([]string, error) {
 	return nil, nil
 }
-func (baseReaperStore) ReleaseSingletonJobLockAndPromote(_ context.Context, _ string, _ time.Duration) (bool, string, error) {
+func (baseReaperStore) ReleaseSingletonJobLockAndPromote(_ context.Context, _ string) (bool, string, error) {
 	return false, "", nil
 }
 func (baseReaperStore) ListReapableSingletonWorkflowHolders(_ context.Context) ([]string, error) {

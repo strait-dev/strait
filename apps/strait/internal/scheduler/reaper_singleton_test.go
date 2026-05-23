@@ -9,22 +9,20 @@ import (
 )
 
 // TestReaper_ReapSingletonLocks_ReleasesAndPromotes verifies the reaper releases
-// every reapable holder it is handed and forwards the configured lease window.
+// every reapable holder it is handed.
 func TestReaper_ReapSingletonLocks_ReleasesAndPromotes(t *testing.T) {
 	t.Parallel()
 
 	var mu sync.Mutex
 	released := []string{}
-	var gotTTL time.Duration
 	ms := &mockReaperStore{
 		listReapableSingletonHoldersFn: func(_ context.Context) ([]string, error) {
 			return []string{"holder-1", "holder-2"}, nil
 		},
-		releaseSingletonAndPromoteFn: func(_ context.Context, holderRunID string, ttl time.Duration) (bool, string, error) {
+		releaseSingletonAndPromoteFn: func(_ context.Context, holderRunID string) (bool, string, error) {
 			mu.Lock()
 			defer mu.Unlock()
 			released = append(released, holderRunID)
-			gotTTL = ttl
 			return true, "promoted-" + holderRunID, nil
 		},
 	}
@@ -33,9 +31,6 @@ func TestReaper_ReapSingletonLocks_ReleasesAndPromotes(t *testing.T) {
 
 	if len(released) != 2 {
 		t.Fatalf("expected 2 releases, got %d: %v", len(released), released)
-	}
-	if gotTTL != 30*time.Second {
-		t.Errorf("lease ttl forwarded = %v, want stale threshold 30s", gotTTL)
 	}
 }
 
@@ -49,7 +44,7 @@ func TestReaper_ReapSingletonLocks_ListError_NoPanic(t *testing.T) {
 		listReapableSingletonHoldersFn: func(_ context.Context) ([]string, error) {
 			return nil, errors.New("db down")
 		},
-		releaseSingletonAndPromoteFn: func(_ context.Context, _ string, _ time.Duration) (bool, string, error) {
+		releaseSingletonAndPromoteFn: func(_ context.Context, _ string) (bool, string, error) {
 			called = true
 			return false, "", nil
 		},
@@ -72,7 +67,7 @@ func TestReaper_ReapSingletonLocks_ReleaseError_ContinuesNextHolder(t *testing.T
 		listReapableSingletonHoldersFn: func(_ context.Context) ([]string, error) {
 			return []string{"bad", "good"}, nil
 		},
-		releaseSingletonAndPromoteFn: func(_ context.Context, holderRunID string, _ time.Duration) (bool, string, error) {
+		releaseSingletonAndPromoteFn: func(_ context.Context, holderRunID string) (bool, string, error) {
 			attempts = append(attempts, holderRunID)
 			if holderRunID == "bad" {
 				return false, "", errors.New("release failed")
@@ -97,7 +92,7 @@ func TestReaper_ReapSingletonLocks_LostRace_NoPromotion(t *testing.T) {
 		listReapableSingletonHoldersFn: func(_ context.Context) ([]string, error) {
 			return []string{"holder-1"}, nil
 		},
-		releaseSingletonAndPromoteFn: func(_ context.Context, _ string, _ time.Duration) (bool, string, error) {
+		releaseSingletonAndPromoteFn: func(_ context.Context, _ string) (bool, string, error) {
 			return false, "", nil // someone else already released it
 		},
 	}

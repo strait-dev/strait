@@ -49,7 +49,7 @@ type mockReaperStore struct {
 	cancelNonTerminalStepRunsFn               func(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
 	cancelJobRunsByWorkflowRunFn              func(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
 	listReapableSingletonHoldersFn            func(ctx context.Context) ([]string, error)
-	releaseSingletonAndPromoteFn              func(ctx context.Context, holderRunID string, leaseTTL time.Duration) (bool, string, error)
+	releaseSingletonAndPromoteFn              func(ctx context.Context, holderRunID string) (bool, string, error)
 	listReapableSingletonWorkflowHoldersFn    func(ctx context.Context) ([]string, error)
 }
 
@@ -444,9 +444,9 @@ func (m *mockReaperStore) ListReapableSingletonJobHolders(ctx context.Context) (
 	return nil, nil
 }
 
-func (m *mockReaperStore) ReleaseSingletonJobLockAndPromote(ctx context.Context, holderRunID string, leaseTTL time.Duration) (bool, string, error) {
+func (m *mockReaperStore) ReleaseSingletonJobLockAndPromote(ctx context.Context, holderRunID string) (bool, string, error) {
 	if m.releaseSingletonAndPromoteFn != nil {
-		return m.releaseSingletonAndPromoteFn(ctx, holderRunID, leaseTTL)
+		return m.releaseSingletonAndPromoteFn(ctx, holderRunID)
 	}
 	return false, "", nil
 }

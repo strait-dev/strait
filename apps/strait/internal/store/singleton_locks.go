@@ -226,8 +226,12 @@ func (q *Queries) CancelSingletonJobWaiters(ctx context.Context, jobID, lockKey,
 //
 // Returns (released, promotedRunID, error): released is true when a lock row was
 // deleted, promotedRunID names the waiter that was promoted ("" when the key is
-// now free). leaseTTL sets the promoted holder's lease window (0 leaves it NULL).
-func (q *Queries) ReleaseSingletonJobLockAndPromote(ctx context.Context, holderRunID string, leaseTTL time.Duration) (bool, string, error) {
+// now free). The promoted waiter is reacquired with a NULL lease: it is moved to
+// queued and has not started executing yet, so it must behave exactly like a
+// freshly triggered holder and have its lease stamped by the first heartbeat once
+// it runs. Stamping a lease here would let it expire while the waiter is still
+// queued and allow the reaper to reclaim the key under it.
+func (q *Queries) ReleaseSingletonJobLockAndPromote(ctx context.Context, holderRunID string) (bool, string, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ReleaseSingletonJobLockAndPromote")
 	defer span.End()
 
@@ -279,15 +283,13 @@ func (q *Queries) ReleaseSingletonJobLockAndPromote(ctx context.Context, holderR
 			return fmt.Errorf("find singleton waiter: %w", err)
 		}
 
-		var leaseUntil *time.Time
-		if leaseTTL > 0 {
-			t := time.Now().Add(leaseTTL)
-			leaseUntil = &t
-		}
+		// NULL lease: the promoted waiter is queued, not yet executing. Its lease
+		// is stamped by the first heartbeat once a worker runs it, identical to a
+		// freshly triggered holder.
 		if _, err := txQ.db.Exec(ctx, `
 			INSERT INTO singleton_locks (project_id, kind, owner_id, lock_key, holder_run_id, lease_until)
-			VALUES ($1, $2, $3, $4, $5, $6)`,
-			projectID, string(domain.SingletonKindJob), ownerID, lockKey, waiterID, leaseUntil,
+			VALUES ($1, $2, $3, $4, $5, NULL)`,
+			projectID, string(domain.SingletonKindJob), ownerID, lockKey, waiterID,
 		); err != nil {
 			return fmt.Errorf("reacquire singleton lock for waiter: %w", err)
 		}

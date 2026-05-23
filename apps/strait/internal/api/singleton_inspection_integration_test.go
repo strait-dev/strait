@@ -74,8 +74,12 @@ func TestIntegration_ListJobSingletons_HoldersAndWaiters(t *testing.T) {
 	if v1.AcquiredAt.IsZero() {
 		t.Fatalf("acct-1 acquired_at is zero")
 	}
-	if v1.LeaseUntil == nil {
-		t.Fatalf("acct-1 lease_until is nil, want a job-run lease window")
+	// A freshly triggered job holder carries a NULL lease until its first
+	// heartbeat stamps one. The holder here is parked at trigger time and never
+	// executes, so the lease stays nil. Deferring the lease is what keeps the
+	// reaper from reclaiming the key while the holder still sits queued.
+	if v1.LeaseUntil != nil {
+		t.Fatalf("acct-1 lease_until = %v, want nil for a freshly triggered (pre-heartbeat) holder", v1.LeaseUntil)
 	}
 
 	v2 := findHolderView(t, views, "acct-2")

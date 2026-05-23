@@ -69,7 +69,7 @@ func TestReleaseSingletonJobLockAndPromote_PromotesOldestWaiter(t *testing.T) {
 	time.Sleep(5 * time.Millisecond)
 	second := mkSingletonRun(t, ctx, q, job, domain.StatusWaiting, key)
 
-	released, promotedRunID, err := q.ReleaseSingletonJobLockAndPromote(ctx, holder.ID, time.Minute)
+	released, promotedRunID, err := q.ReleaseSingletonJobLockAndPromote(ctx, holder.ID)
 	if err != nil {
 		t.Fatalf("ReleaseSingletonJobLockAndPromote() error = %v", err)
 	}
@@ -87,8 +87,12 @@ func TestReleaseSingletonJobLockAndPromote_PromotesOldestWaiter(t *testing.T) {
 	if holderRow.HolderRunID != first.ID {
 		t.Fatalf("lock holder = %q, want promoted waiter %q", holderRow.HolderRunID, first.ID)
 	}
-	if holderRow.LeaseUntil == nil {
-		t.Error("expected promoted job holder to carry a lease")
+	// The promoted waiter is queued, not yet executing: it must carry a NULL
+	// lease, stamped only by its first heartbeat once it runs. A non-NULL lease
+	// here would let the reaper reclaim the key from a queued holder before it
+	// starts (the double-execution bug this guards against).
+	if holderRow.LeaseUntil != nil {
+		t.Errorf("expected promoted job holder to carry a NULL lease, got %v", holderRow.LeaseUntil)
 	}
 
 	if st, _ := q.GetRunStatus(ctx, first.ID); st != domain.StatusQueued {
@@ -114,7 +118,7 @@ func TestReleaseSingletonJobLockAndPromote_NoWaiterFreesKey(t *testing.T) {
 	lease := time.Now().Add(time.Minute)
 	acquireFor(t, ctx, q, job, key, holder.ID, &lease)
 
-	released, promotedRunID, err := q.ReleaseSingletonJobLockAndPromote(ctx, holder.ID, time.Minute)
+	released, promotedRunID, err := q.ReleaseSingletonJobLockAndPromote(ctx, holder.ID)
 	if err != nil {
 		t.Fatalf("ReleaseSingletonJobLockAndPromote() error = %v", err)
 	}
@@ -143,10 +147,10 @@ func TestReleaseSingletonJobLockAndPromote_Idempotent(t *testing.T) {
 	holder := mkSingletonRun(t, ctx, q, job, domain.StatusExecuting, key)
 	acquireFor(t, ctx, q, job, key, holder.ID, nil)
 
-	if released, _, err := q.ReleaseSingletonJobLockAndPromote(ctx, holder.ID, 0); err != nil || !released {
+	if released, _, err := q.ReleaseSingletonJobLockAndPromote(ctx, holder.ID); err != nil || !released {
 		t.Fatalf("first release: released=%v err=%v", released, err)
 	}
-	released, promotedRunID, err := q.ReleaseSingletonJobLockAndPromote(ctx, holder.ID, 0)
+	released, promotedRunID, err := q.ReleaseSingletonJobLockAndPromote(ctx, holder.ID)
 	if err != nil {
 		t.Fatalf("second release error = %v", err)
 	}
@@ -181,7 +185,7 @@ func TestReleaseSingletonJobLockAndPromote_ConcurrentSinglePromote(t *testing.T)
 	for range n {
 		wg.Go(func() {
 			cq := store.New(testDB.Pool)
-			released, promotedRunID, err := cq.ReleaseSingletonJobLockAndPromote(ctx, holder.ID, time.Minute)
+			released, promotedRunID, err := cq.ReleaseSingletonJobLockAndPromote(ctx, holder.ID)
 			if err != nil {
 				return
 			}
@@ -247,6 +251,15 @@ func TestListReapableSingletonJobHolders(t *testing.T) {
 	queued := mkSingletonRun(t, ctx, q, job, domain.StatusQueued, "k-queued")
 	acquireFor(t, ctx, q, job, "k-queued", queued.ID, &past)
 
+	// not reapable: executing holder that has not heartbeated yet (NULL lease).
+	// This is the window between trigger-time acquire and the first heartbeat.
+	// The reaper must never reclaim it on the strength of a NULL lease, or it
+	// would promote a waiter while the live holder is about to run -> double
+	// execution. The run-status stale checks (ListStaleRuns / ListStaleDequeued)
+	// are the safety net here, not the lease.
+	preHeartbeat := mkSingletonRun(t, ctx, q, job, domain.StatusExecuting, "k-preheartbeat")
+	acquireFor(t, ctx, q, job, "k-preheartbeat", preHeartbeat.ID, nil)
+
 	holders, err := q.ListReapableSingletonJobHolders(ctx)
 	if err != nil {
 		t.Fatalf("ListReapableSingletonJobHolders() error = %v", err)
@@ -261,10 +274,51 @@ func TestListReapableSingletonJobHolders(t *testing.T) {
 			t.Errorf("expected holder %q to be reapable", want)
 		}
 	}
-	for _, notWant := range []string{healthy.ID, queued.ID} {
+	for _, notWant := range []string{healthy.ID, queued.ID, preHeartbeat.ID} {
 		if _, ok := got[notWant]; ok {
 			t.Errorf("holder %q should not be reapable", notWant)
 		}
+	}
+}
+
+// TestSingletonJobLeaseSetByFirstHeartbeat verifies the core deferred-lease
+// behavior: a job lock acquired with a NULL lease (as the trigger path now does)
+// has its lease stamped by the first heartbeat once the holder starts executing.
+// Before the heartbeat the lease is NULL (reaper-safe via status checks); after,
+// it is a concrete future window the reaper honors.
+func TestSingletonJobLeaseSetByFirstHeartbeat(t *testing.T) {
+	ctx := context.Background()
+	stClean(t, ctx)
+
+	q := store.New(testDB.Pool)
+	q.SetSingletonLeaseTTL(time.Minute)
+
+	projectID := "proj-" + uuid.Must(uuid.NewV7()).String()
+	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: &projectID})
+	const key = "fresh"
+
+	// Acquire exactly as the trigger path does now: NULL lease.
+	holder := mkSingletonRun(t, ctx, q, job, domain.StatusExecuting, key)
+	acquireFor(t, ctx, q, job, key, holder.ID, nil)
+
+	before, err := q.GetSingletonHolder(ctx, projectID, domain.SingletonKindJob, job.ID, key)
+	if err != nil {
+		t.Fatalf("GetSingletonHolder() before heartbeat error = %v", err)
+	}
+	if before.LeaseUntil != nil {
+		t.Fatalf("fresh job holder lease = %v, want NULL until first heartbeat", before.LeaseUntil)
+	}
+
+	if err := q.BatchUpdateHeartbeat(ctx, []string{holder.ID}); err != nil {
+		t.Fatalf("BatchUpdateHeartbeat() error = %v", err)
+	}
+
+	after, err := q.GetSingletonHolder(ctx, projectID, domain.SingletonKindJob, job.ID, key)
+	if err != nil {
+		t.Fatalf("GetSingletonHolder() after heartbeat error = %v", err)
+	}
+	if after.LeaseUntil == nil || !after.LeaseUntil.After(time.Now()) {
+		t.Fatalf("expected first heartbeat to stamp a future lease, got %v", after.LeaseUntil)
 	}
 }
 

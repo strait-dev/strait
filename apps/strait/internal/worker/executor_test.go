@@ -57,7 +57,7 @@ type mockExecutorStore struct {
 	getProjectQuotaFn        func(ctx context.Context, projectID string) (*orcstore.ProjectQuota, error)
 	insertEventFn            func(ctx context.Context, event *domain.RunEvent) error
 
-	releaseSingletonAndPromoteFn func(ctx context.Context, holderRunID string, leaseTTL time.Duration) (bool, string, error)
+	releaseSingletonAndPromoteFn func(ctx context.Context, holderRunID string) (bool, string, error)
 
 	mu                     sync.Mutex
 	statusCalls            []statusUpdateCall
@@ -314,12 +314,12 @@ func (m *mockExecutorStore) CountExecutingRunsByOrg(_ context.Context, _ string)
 	return 0, nil
 }
 
-func (m *mockExecutorStore) ReleaseSingletonJobLockAndPromote(ctx context.Context, holderRunID string, leaseTTL time.Duration) (bool, string, error) {
+func (m *mockExecutorStore) ReleaseSingletonJobLockAndPromote(ctx context.Context, holderRunID string) (bool, string, error) {
 	m.mu.Lock()
 	m.releaseSingletonRunIDs = append(m.releaseSingletonRunIDs, holderRunID)
 	m.mu.Unlock()
 	if m.releaseSingletonAndPromoteFn != nil {
-		return m.releaseSingletonAndPromoteFn(ctx, holderRunID, leaseTTL)
+		return m.releaseSingletonAndPromoteFn(ctx, holderRunID)
 	}
 	return false, "", nil
 }

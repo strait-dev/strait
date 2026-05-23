@@ -8,7 +8,7 @@ import (
 	"strait/internal/domain"
 )
 
-func newSingletonTestExecutor(t *testing.T, store *mockExecutorStore, leaseTTL time.Duration) *Executor {
+func newSingletonTestExecutor(t *testing.T, store *mockExecutorStore) *Executor {
 	t.Helper()
 	pool := NewPool(2)
 	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
@@ -18,7 +18,6 @@ func newSingletonTestExecutor(t *testing.T, store *mockExecutorStore, leaseTTL t
 		Store:             store,
 		PollInterval:      time.Millisecond,
 		HeartbeatInterval: time.Hour,
-		SingletonLeaseTTL: leaseTTL,
 	})
 }
 
@@ -27,14 +26,12 @@ func newSingletonTestExecutor(t *testing.T, store *mockExecutorStore, leaseTTL t
 func TestReleaseSingletonLock_CalledForSingletonJob(t *testing.T) {
 	t.Parallel()
 
-	var gotTTL time.Duration
 	store := &mockExecutorStore{
-		releaseSingletonAndPromoteFn: func(_ context.Context, _ string, ttl time.Duration) (bool, string, error) {
-			gotTTL = ttl
+		releaseSingletonAndPromoteFn: func(_ context.Context, _ string) (bool, string, error) {
 			return true, "promoted-1", nil
 		},
 	}
-	exec := newSingletonTestExecutor(t, store, 45*time.Second)
+	exec := newSingletonTestExecutor(t, store)
 
 	run := &domain.JobRun{ID: "run-1", SingletonKey: "k"}
 	job := &domain.Job{ID: "job-1", SingletonOnConflict: domain.SingletonOnConflictQueue}
@@ -44,9 +41,6 @@ func TestReleaseSingletonLock_CalledForSingletonJob(t *testing.T) {
 	if len(calls) != 1 || calls[0] != "run-1" {
 		t.Fatalf("expected one release for run-1, got %v", calls)
 	}
-	if gotTTL != 45*time.Second {
-		t.Errorf("lease ttl = %v, want 45s", gotTTL)
-	}
 }
 
 // TestReleaseSingletonLock_SkippedForNonSingletonJob: when the job carries no
@@ -55,7 +49,7 @@ func TestReleaseSingletonLock_SkippedForNonSingletonJob(t *testing.T) {
 	t.Parallel()
 
 	store := &mockExecutorStore{}
-	exec := newSingletonTestExecutor(t, store, time.Minute)
+	exec := newSingletonTestExecutor(t, store)
 
 	run := &domain.JobRun{ID: "run-1"}
 	job := &domain.Job{ID: "job-1"} // no SingletonOnConflict
@@ -72,7 +66,7 @@ func TestReleaseSingletonLock_NilJobForcesLookup(t *testing.T) {
 	t.Parallel()
 
 	store := &mockExecutorStore{}
-	exec := newSingletonTestExecutor(t, store, time.Minute)
+	exec := newSingletonTestExecutor(t, store)
 
 	run := &domain.JobRun{ID: "run-1"}
 	exec.releaseSingletonLock(context.Background(), run, nil)
@@ -87,7 +81,7 @@ func TestReleaseSingletonLock_NoopForEmptyRun(t *testing.T) {
 	t.Parallel()
 
 	store := &mockExecutorStore{}
-	exec := newSingletonTestExecutor(t, store, time.Minute)
+	exec := newSingletonTestExecutor(t, store)
 
 	exec.releaseSingletonLock(context.Background(), nil, nil)
 	exec.releaseSingletonLock(context.Background(), &domain.JobRun{}, nil)

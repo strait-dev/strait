@@ -750,14 +750,21 @@ func resolveJobSingletonKey(job *domain.Job, override string, payload json.RawMe
 // and the relevant holder run id.
 func (s *Server) applyJobSingletonPolicy(ctx context.Context, tx store.DBTX, job *domain.Job, run *domain.JobRun, key string) (bool, domain.SingletonOutcome, string, error) {
 	txQ := store.New(tx)
-	lease := time.Now().Add(s.config.StaleThreshold)
+	// Acquire with a NULL lease. The lock is taken at trigger time, but the
+	// holder run does not start executing until a worker dequeues it, which can
+	// be much later than StaleThreshold under load. Stamping a lease here would
+	// let it expire while the run still sits queued/dequeued, so the reaper would
+	// reclaim the key and promote a waiter while the original holder is about to
+	// run -> double execution. Instead the lease is set by the first heartbeat
+	// once the holder is actually executing (see BatchUpdateHeartbeat); until
+	// then the holder is protected by the run-status stale checks, not the lease.
 	acquired, holder, err := txQ.AcquireSingletonLock(ctx, domain.SingletonLock{
 		ProjectID:   job.ProjectID,
 		Kind:        domain.SingletonKindJob,
 		OwnerID:     job.ID,
 		LockKey:     key,
 		HolderRunID: run.ID,
-		LeaseUntil:  &lease,
+		LeaseUntil:  nil,
 	})
 	if err != nil {
 		return false, "", "", fmt.Errorf("acquire singleton lock: %w", err)

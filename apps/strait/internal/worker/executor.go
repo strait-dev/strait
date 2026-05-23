@@ -64,7 +64,7 @@ type ExecutorStore interface {
 		lastLatencyMs float64,
 	) (*domain.EndpointHealthScore, error)
 	CountExecutingRunsByOrg(ctx context.Context, orgID string) (int, error)
-	ReleaseSingletonJobLockAndPromote(ctx context.Context, holderRunID string, leaseTTL time.Duration) (bool, string, error)
+	ReleaseSingletonJobLockAndPromote(ctx context.Context, holderRunID string) (bool, string, error)
 }
 
 type executionPolicy struct {
@@ -188,10 +188,6 @@ type Executor struct {
 	// resolveInstanceID and cached for the life of the executor.
 	instanceIDOnce sync.Once
 	instanceID     string
-	// singletonLeaseTTL is the lease window stamped on a singleton lock when a
-	// parked waiter is promoted by the terminal fast-path. Mirrors the value the
-	// trigger path uses (STALE_THRESHOLD). Zero leaves the promoted lease NULL.
-	singletonLeaseTTL time.Duration
 }
 
 type ConcurrencyLimitProvider interface {
@@ -200,19 +196,16 @@ type ConcurrencyLimitProvider interface {
 
 // ExecutorConfig holds configuration for the Executor.
 type ExecutorConfig struct {
-	Pool              *Pool
-	Queue             queue.Queue
-	Wake              <-chan struct{}
-	ConcurrencyLimit  ConcurrencyLimitProvider
-	Store             ExecutorStore
-	TxPool            store.TxBeginner
-	Publisher         pubsub.Publisher
-	HTTPClient        *http.Client
-	PollInterval      time.Duration
-	HeartbeatInterval time.Duration
-	// SingletonLeaseTTL is the lease window the terminal fast-path stamps on a
-	// singleton lock when promoting a parked waiter. Set from STALE_THRESHOLD.
-	SingletonLeaseTTL          time.Duration
+	Pool                       *Pool
+	Queue                      queue.Queue
+	Wake                       <-chan struct{}
+	ConcurrencyLimit           ConcurrencyLimitProvider
+	Store                      ExecutorStore
+	TxPool                     store.TxBeginner
+	Publisher                  pubsub.Publisher
+	HTTPClient                 *http.Client
+	PollInterval               time.Duration
+	HeartbeatInterval          time.Duration
 	Metrics                    *telemetry.Metrics
 	WorkflowCallback           WorkflowCallback
 	Partitions                 []string
@@ -373,7 +366,6 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		queueSnapshotter:         cfg.QueueSnapshotter,
 		workerDispatcher:         cfg.WorkerDispatcher,
 		queueMetrics:             resolveQueueMetrics(),
-		singletonLeaseTTL:        cfg.SingletonLeaseTTL,
 	}
 }
 
@@ -574,7 +566,7 @@ func (e *Executor) releaseSingletonLock(ctx context.Context, run *domain.JobRun,
 		return
 	}
 
-	released, promotedRunID, err := e.store.ReleaseSingletonJobLockAndPromote(ctx, run.ID, e.singletonLeaseTTL)
+	released, promotedRunID, err := e.store.ReleaseSingletonJobLockAndPromote(ctx, run.ID)
 	if err != nil {
 		e.logger.Error("failed to release singleton lock", "run_id", run.ID, "error", err)
 		return
