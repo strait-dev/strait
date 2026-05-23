@@ -10,6 +10,86 @@ export type IsolatedOrgProject = {
   projectName: string;
 };
 
+async function withAuthPool<T>(fn: (pool: pg.Pool) => Promise<T>) {
+  loadE2EEnv();
+  const authDbUrl = process.env.AUTH_DATABASE_URL;
+  if (!authDbUrl) {
+    throw new Error("AUTH_DATABASE_URL is required");
+  }
+
+  const pool = new pg.Pool({ connectionString: authDbUrl });
+  try {
+    return await fn(pool);
+  } finally {
+    await pool.end();
+  }
+}
+
+/** Give a local e2e org enough backend quota for full-suite browser runs. */
+export async function ensureUnlimitedE2EPlan(orgId: string) {
+  loadE2EEnv();
+  const databaseUrl = process.env.DATABASE_URL ?? process.env.AUTH_DATABASE_URL;
+  if (!databaseUrl) {
+    return;
+  }
+
+  const pool = new pg.Pool({ connectionString: databaseUrl });
+  try {
+    await pool.query(
+      `
+        INSERT INTO organization_subscriptions (
+          id,
+          org_id,
+          plan_tier,
+          status,
+          entitlements,
+          created_at,
+          updated_at
+        )
+        VALUES ($1, $2, 'enterprise', 'active', '{}'::jsonb, NOW(), NOW())
+        ON CONFLICT (org_id) DO UPDATE SET
+          plan_tier = 'enterprise',
+          status = 'active',
+          entitlements = '{}'::jsonb,
+          updated_at = NOW()
+      `,
+      [crypto.randomUUID(), orgId]
+    );
+  } finally {
+    await pool.end();
+  }
+}
+
+/** Point the e2e user's active project at a specific project id. */
+export async function setE2EUserActiveProjectId(projectId: string | null) {
+  const userId = readRunContext()?.userId;
+  if (!userId) {
+    throw new Error("e2e user context is required");
+  }
+
+  await withAuthPool(async (pool) => {
+    await pool.query(`UPDATE "user" SET "activeProjectId" = $1 WHERE id = $2`, [
+      projectId,
+      userId,
+    ]);
+  });
+}
+
+/** Remove the e2e user's membership from an organization. */
+export async function removeE2EUserMembership(orgId: string) {
+  const userId = readRunContext()?.userId;
+  if (!userId) {
+    throw new Error("e2e user context is required");
+  }
+
+  await withAuthPool(async (pool) => {
+    await pool.query(
+      `DELETE FROM "member" WHERE "organizationId" = $1 AND "userId" = $2`,
+      [orgId, userId]
+    );
+  });
+}
+
 /** Create an isolated auth org/project pair and sync it to the Go API. */
 export async function createIsolatedOrgProject(
   api: ApiHelper,
@@ -50,6 +130,7 @@ export async function createIsolatedOrgProject(
   }
 
   await api.createProject({ id: projectId, org_id: orgId, name: projectName });
+  await ensureUnlimitedE2EPlan(orgId);
   return { orgId, projectId, projectName };
 }
 

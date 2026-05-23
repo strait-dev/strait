@@ -1,13 +1,9 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Card, CardContent } from "@strait/ui/components/card";
-import {
-  PolarAngleAxis,
-  RadialBar,
-  RadialBarChart,
-  ResponsiveContainer,
-} from "recharts";
+import { PolarAngleAxis, RadialBar, RadialBarChart } from "recharts";
 import { CheckCircleIcon } from "@/lib/icons";
 import { CHART_COLORS } from "@/lib/status-colors";
+import ResponsiveChartContainer from "../dashboard/responsive-chart-container";
 
 type RadialUsageGaugeProps = {
   label: string;
@@ -53,7 +49,7 @@ const RadialUsageGauge = ({
           </div>
         ) : (
           <div className="relative h-[120px]">
-            <ResponsiveContainer height="100%" width="100%">
+            <ResponsiveChartContainer height="100%" width="100%">
               <RadialBarChart
                 barSize={8}
                 cx="50%"
@@ -78,7 +74,7 @@ const RadialUsageGauge = ({
                   isAnimationActive={false}
                 />
               </RadialBarChart>
-            </ResponsiveContainer>
+            </ResponsiveChartContainer>
             <div className="absolute inset-0 flex flex-col items-center justify-center">
               <span className="font-medium text-foreground text-sm tabular-nums">
                 {displayValue}

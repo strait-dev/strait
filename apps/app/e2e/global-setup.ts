@@ -9,6 +9,7 @@ import {
   ensureProjectExists,
   ensureUserExists,
 } from "./setup/db";
+import { ensureUnlimitedE2EPlan } from "./support/auth-db";
 import { loadE2EEnv } from "./support/env";
 import {
   fakeEndpointContextPath,
@@ -65,6 +66,7 @@ export default async function globalSetup() {
         apiURL,
         internalSecret
       );
+      await ensureUnlimitedE2EPlan(orgId);
 
       fs.mkdirSync("playwright/.auth", { recursive: true });
       fs.writeFileSync(

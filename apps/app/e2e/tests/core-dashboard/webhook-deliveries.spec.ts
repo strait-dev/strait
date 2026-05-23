@@ -85,4 +85,53 @@ test.describe("Webhook delivery dashboard", () => {
     await expect(page.getByText(webhookUrl).first()).toBeVisible();
     await expect(page.getByRole("row", { name: /Failed\s+400/ })).toBeVisible();
   });
+
+  test("shows failed delivery records created by real dispatch attempts", async ({
+    page,
+  }) => {
+    const webhookUrl =
+      process.env.E2E_WEBHOOK_FAILURE_URL ??
+      "https://httpbin.org/status/400?name=webhook-real-dispatch";
+    const redactedWebhookUrl = new URL(webhookUrl).origin;
+    const webhook = await api.createWebhook({
+      webhook_url: webhookUrl,
+      event_types: ["workflow.completed"],
+    });
+    data.cleanup.add(() => api.deleteWebhook(webhook.id));
+
+    const pendingDelivery = await api.seedPendingWebhookDelivery({
+      subscription_id: webhook.id,
+      webhook_url: webhookUrl,
+      event_type: "workflow.completed",
+    });
+    data.cleanup.add(() => api.deleteWebhookDelivery(pendingDelivery.id));
+
+    const delivery = await api.waitForWebhookDelivery(
+      (candidate) =>
+        candidate.id === pendingDelivery.id &&
+        candidate.subscription_id === webhook.id &&
+        candidate.webhook_url === redactedWebhookUrl &&
+        (candidate.status === "failed" ||
+          candidate.status === "dead" ||
+          candidate.status === "dead_letter") &&
+        candidate.last_status_code === 400 &&
+        candidate.attempts > 0,
+      120_000
+    );
+
+    expect(delivery.last_error).toBeTruthy();
+    expect(delivery.attempts).toBeGreaterThan(0);
+
+    await gotoAndExpect(
+      page,
+      `/app/webhooks/${webhook.id}`,
+      page.getByText(webhookUrl).first()
+    );
+    await selectTab(page, "Deliveries");
+    await expect(
+      page.getByRole("table", { name: "Webhook deliveries" })
+    ).toBeVisible();
+    await expect(page.getByText(webhookUrl).first()).toBeVisible();
+    await expect(page.getByRole("row", { name: /Failed\s+400/ })).toBeVisible();
+  });
 });

@@ -24,4 +24,53 @@ test.describe("Dashboard Charts", () => {
   test("throughput chart renders", async ({ page }) => {
     await expect(page.getByText("Throughput (24h)")).toBeVisible();
   });
+
+  test("dashboard charts render without Recharts zero-size warnings", async ({
+    page,
+  }) => {
+    const rechartsWarnings: string[] = [];
+    page.on("console", (message) => {
+      const text = message.text();
+      if (
+        text.includes(
+          "The width(0) and height(0) of chart should be greater"
+        ) ||
+        text.includes("The width(-1) and height(-1) of chart should be greater")
+      ) {
+        rechartsWarnings.push(text);
+      }
+    });
+
+    await page.goto("/app/dashboard", { waitUntil: "domcontentloaded" });
+    await expect(page.getByText("Run Activity", { exact: true })).toBeVisible();
+    await expect(page.getByText("Status Distribution")).toBeVisible();
+    await expect(page.getByText("Throughput (24h)")).toBeVisible();
+
+    expect(rechartsWarnings).toEqual([]);
+  });
+
+  test("billing charts render without Recharts zero-size warnings", async ({
+    page,
+  }) => {
+    const rechartsWarnings: string[] = [];
+    page.on("console", (message) => {
+      const text = message.text();
+      if (
+        text.includes(
+          "The width(0) and height(0) of chart should be greater"
+        ) ||
+        text.includes("The width(-1) and height(-1) of chart should be greater")
+      ) {
+        rechartsWarnings.push(text);
+      }
+    });
+
+    await page.goto("/app/billing", { waitUntil: "domcontentloaded" });
+    await expect(
+      page.getByRole("heading", { exact: true, name: "Billing" })
+    ).toBeVisible();
+    await expect(page.locator("main")).toBeVisible();
+
+    expect(rechartsWarnings).toEqual([]);
+  });
 });

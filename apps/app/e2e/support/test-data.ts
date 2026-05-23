@@ -68,6 +68,20 @@ export class TestDataFactory {
     return { job, run };
   }
 
+  async deadLetterRun(prefix: string) {
+    const job = await this.job(prefix, {
+      endpoint_url: this.api.fakeEndpoint("/success"),
+      max_attempts: 1,
+      timeout_secs: 10,
+    });
+    const run = await this.api.triggerJob(job.id, { expected: "dead-letter" });
+    await this.api.forceRunDeadLetter(
+      run.id,
+      `${job.name} exhausted retries in e2e`
+    );
+    return { job, run: { ...run, status: "dead_letter" } };
+  }
+
   async successfulJobRun(prefix: string, timeoutMs = 30_000) {
     const job = await this.job(prefix, {
       endpoint_url: this.api.fakeEndpoint("/success"),

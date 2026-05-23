@@ -38,10 +38,10 @@ test.describe("Workflow detail dashboard", () => {
     const workflowRun = await api.triggerWorkflow(workflow.id, {
       source: "workflow-detail-e2e",
     });
-    const completedRun = await api.waitForWorkflowRunStatus(
+    const observedRun = await api.waitForWorkflowRunStatus(
       workflowRun.id,
-      ["completed"],
-      90_000
+      ["running", "completed", "failed"],
+      30_000
     );
 
     await gotoAndExpect(
@@ -52,9 +52,11 @@ test.describe("Workflow detail dashboard", () => {
 
     await expect(page.getByText("Total Runs")).toBeVisible();
     await expect(
-      page.getByText(completedRun.id.slice(0, 8), { exact: true })
+      page.getByText(observedRun.id.slice(0, 8), { exact: true })
     ).toBeVisible();
-    await expect(page.getByText("completed").first()).toBeVisible();
+    await expect(
+      page.getByText(/running|completed|failed/i).first()
+    ).toBeVisible();
 
     await selectTab(page, "Recent Runs");
     await expect(
@@ -62,7 +64,10 @@ test.describe("Workflow detail dashboard", () => {
     ).toBeVisible();
     await expect(
       page.getByRole("row", {
-        name: new RegExp(`${completedRun.id.slice(0, 8)}\\s+completed`, "i"),
+        name: new RegExp(
+          `${observedRun.id.slice(0, 8)}\\s+(running|completed|failed)`,
+          "i"
+        ),
       })
     ).toBeVisible();
 

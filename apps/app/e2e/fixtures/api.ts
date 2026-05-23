@@ -43,6 +43,13 @@ type WorkflowRun = {
   created_at?: string;
 };
 
+type RawApiResponse<T = unknown> = {
+  ok: boolean;
+  status: number;
+  body: T | string | null;
+  text: string;
+};
+
 /** API helper for seeding and cleaning up test data via the Go backend. */
 export class ApiHelper {
   private readonly baseUrl: string;
@@ -131,6 +138,23 @@ export class ApiHelper {
     path: string,
     body?: unknown
   ): Promise<T> {
+    const response = await this.requestRaw<T>(method, path, body);
+
+    if (!response.ok) {
+      throw new Error(
+        `API ${method} ${path} failed (${response.status}): ${response.text}`
+      );
+    }
+
+    return response.body as T;
+  }
+
+  /** Make an API request without throwing so tests can assert error status. */
+  async requestRaw<T = unknown>(
+    method: string,
+    path: string,
+    body?: unknown
+  ): Promise<RawApiResponse<T>> {
     const headers: Record<string, string> = {
       [internalSecretHeader]: this.secret,
       "Content-Type": "application/json",
@@ -146,18 +170,26 @@ export class ApiHelper {
       body: body ? JSON.stringify(body) : undefined,
     });
 
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(
-        `API ${method} ${path} failed (${response.status}): ${text}`
-      );
-    }
+    const text = await response.text();
 
     if (response.status === 204) {
-      return {} as T;
+      return { ok: response.ok, status: response.status, body: {} as T, text };
     }
 
-    return response.json() as Promise<T>;
+    if (!text) {
+      return { ok: response.ok, status: response.status, body: null, text };
+    }
+
+    try {
+      return {
+        ok: response.ok,
+        status: response.status,
+        body: JSON.parse(text) as T,
+        text,
+      };
+    } catch {
+      return { ok: response.ok, status: response.status, body: text, text };
+    }
   }
 
   // Jobs
@@ -404,6 +436,7 @@ export class ApiHelper {
     max_attempts?: number;
     last_status_code?: number;
     last_error?: string;
+    next_retry_at?: string | null;
     event_type?: string;
   }): Promise<WebhookDelivery> {
     const id = randomUUID();
@@ -423,6 +456,7 @@ export class ApiHelper {
             max_attempts,
             last_status_code,
             last_error,
+            next_retry_at,
             delivered_at,
             subscription_id,
             project_id,
@@ -440,12 +474,13 @@ export class ApiHelper {
             $5,
             $6,
             $7,
-            NOW(),
             $8,
+            NULL,
             $9,
-            $10::jsonb,
-            octet_length($10::jsonb::text),
-            $11,
+            $10,
+            $11::jsonb,
+            octet_length($11::jsonb::text),
+            $12,
             NOW(),
             NOW()
           )
@@ -458,6 +493,7 @@ export class ApiHelper {
           data.max_attempts ?? 3,
           data.last_status_code ?? null,
           data.last_error ?? null,
+          data.next_retry_at ?? null,
           data.subscription_id,
           this.getProjectId(),
           JSON.stringify(payload),
@@ -475,6 +511,23 @@ export class ApiHelper {
       last_status_code: data.last_status_code,
       last_error: data.last_error,
     };
+  }
+
+  /** Seed a due pending delivery and let the real Go delivery worker process it. */
+  seedPendingWebhookDelivery(data: {
+    subscription_id: string;
+    webhook_url: string;
+    event_type?: string;
+  }) {
+    return this.seedWebhookDelivery({
+      subscription_id: data.subscription_id,
+      webhook_url: data.webhook_url,
+      status: "pending",
+      attempts: 0,
+      max_attempts: 3,
+      next_retry_at: new Date().toISOString(),
+      event_type: data.event_type,
+    });
   }
 
   /** Remove a delivery inserted by seedWebhookDelivery. */
@@ -697,11 +750,29 @@ export class ApiHelper {
   }
 
   replayDlqEntry(id: string) {
-    return this.request("POST", `/v1/runs/dlq/${id}/replay`);
+    return this.request("POST", `/v1/runs/${id}/dlq-replay`);
   }
 
   purgeDlqEntry(id: string) {
-    return this.request("DELETE", `/v1/runs/dlq/${id}`);
+    return this.request("POST", `/v1/admin/dlq/${id}/purge`);
+  }
+
+  /** Force a run into DLQ for deterministic dashboard coverage. */
+  async forceRunDeadLetter(runId: string, error = "e2e forced dead letter") {
+    await this.withDatabase(async (client) => {
+      await client.query(
+        `
+          UPDATE job_runs
+          SET status = 'dead_letter',
+              error = $2,
+              error_class = 'client',
+              attempt = GREATEST(attempt, 1),
+              finished_at = NOW()
+          WHERE id = $1
+        `,
+        [runId, error]
+      );
+    });
   }
 
   // API Keys

@@ -42,9 +42,9 @@ export async function selectTab(page: Page, name: string) {
     await expect(tab).toBeVisible();
 
     try {
-      await tab.click({ force: attempt > 1, timeout: 3000 });
+      await tab.click({ force: attempt > 1, timeout: 5000 });
       await expect(tab).toHaveAttribute("aria-selected", "true", {
-        timeout: 3000,
+        timeout: 5000,
       });
       return;
     } catch (error) {

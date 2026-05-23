@@ -22,6 +22,12 @@ bun run e2e:core
 # Rebuild and start the local Go backend, then run backend-backed tests
 bun run e2e:core:local
 
+# Focused local suites with the managed Go backend
+bun run e2e:local:smoke
+bun run e2e:local:regression
+bun run e2e:local:settings
+bun run e2e:local:visual
+
 # Run with browser visible
 bun run e2e:headed
 
@@ -47,6 +53,13 @@ bun run e2e:core:local
 # Run a subset through the same managed backend
 bun run e2e:core:local -- tests/core-dashboard/webhook-deliveries.spec.ts
 ```
+
+The focused local suites split coverage by stability and blast radius:
+
+- `e2e:local:smoke`: harness, dashboard smoke, and navigation checks.
+- `e2e:local:regression`: real-backend jobs, runs, workflows, webhooks, DLQ, schedules, events, and logs.
+- `e2e:local:settings`: destructive or settings-heavy account, org, project, and security flows.
+- `e2e:local:visual`: chart rendering, responsive layout, and theme checks.
 
 The managed runner recreates the `strait-app-e2e-postgres` container by default
 so failed runs cannot leak schedules or queued jobs into the next attempt. Set

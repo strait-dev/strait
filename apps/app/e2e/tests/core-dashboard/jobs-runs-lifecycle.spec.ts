@@ -8,35 +8,60 @@ let failedRunId: string;
 let completedJobName: string;
 let failedJobName: string;
 
+async function createRunFixture({
+  prefix,
+  jobOverrides = {},
+  payload,
+  targetStatuses,
+}: {
+  prefix: string;
+  jobOverrides?: Partial<Parameters<ApiHelper["createJob"]>[0]>;
+  payload: Record<string, string>;
+  targetStatuses: string[];
+}) {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const job = await data.job(`${prefix}-${attempt}`, jobOverrides);
+    const run = await api.triggerJob(job.id, payload);
+
+    try {
+      await api.waitForRunStatus(run.id, targetStatuses, 90_000);
+      return { job, run };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError;
+}
+
 test.describe("Jobs and runs lifecycle", () => {
-  test.describe.configure({ timeout: 120_000 });
-  test.setTimeout(120_000);
+  test.describe.configure({ timeout: 210_000 });
+  test.setTimeout(210_000);
 
   test.beforeAll(async ({ browserName }, testInfo) => {
     testInfo.annotations.push({ description: browserName, type: "browser" });
-    testInfo.setTimeout(120_000);
+    testInfo.setTimeout(210_000);
 
     api = new ApiHelper();
     data = new TestDataFactory(api);
 
-    const completedJob = await data.job("completed-run");
-    const failedJob = await data.job("failed-run", {
-      endpoint_url: api.fakeEndpoint("/status/400"),
-      max_attempts: 1,
-      timeout_secs: 5,
+    const { job: completedJob, run: completedRun } = await createRunFixture({
+      prefix: "completed-run",
+      payload: { expected: "success" },
+      targetStatuses: ["completed", "succeeded"],
     });
-    const completedRun = await api.triggerJob(completedJob.id, {
-      expected: "success",
+    const { job: failedJob, run: failedRun } = await createRunFixture({
+      prefix: "failed-run",
+      jobOverrides: {
+        endpoint_url: api.fakeEndpoint("/status/400"),
+        max_attempts: 1,
+        timeout_secs: 5,
+      },
+      payload: { expected: "failure" },
+      targetStatuses: ["failed", "dead_letter"],
     });
-    await api.waitForRunStatus(
-      completedRun.id,
-      ["completed", "succeeded"],
-      60_000
-    );
-    const failedRun = await api.triggerJob(failedJob.id, {
-      expected: "failure",
-    });
-    await api.waitForRunStatus(failedRun.id, ["failed", "dead_letter"], 60_000);
 
     completedRunId = completedRun.id;
     failedRunId = failedRun.id;

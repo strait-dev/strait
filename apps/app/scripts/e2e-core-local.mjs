@@ -66,6 +66,10 @@ async function main() {
       CLICKHOUSE_EXPORT_ENABLED: "false",
       ALLOW_PRIVATE_ENDPOINTS: "true",
       WEBHOOK_REQUIRE_TLS: "false",
+      RATE_LIMIT_REQUESTS: "100000",
+      DEFAULT_API_KEY_RATE_LIMIT: "100000",
+      DEFAULT_API_KEY_RATE_WINDOW_SECS: "60",
+      TRIGGER_RATE_LIMIT_REQUESTS: "100000",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
