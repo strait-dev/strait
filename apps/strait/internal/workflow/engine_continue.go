@@ -118,6 +118,9 @@ func (e *WorkflowEngine) ContinueWorkflowRunAsNew(
 		maps.Copy(runTags, pred.Tags)
 	}
 
+	// A single wall-clock reading anchors the successor's start, its expiry, and
+	// the predecessor's finished_at so expires_at == started_at + timeout exactly.
+	now := time.Now()
 	successor := &domain.WorkflowRun{
 		ID:                         uuid.Must(uuid.NewV7()).String(),
 		WorkflowID:                 wf.ID,
@@ -135,7 +138,7 @@ func (e *WorkflowEngine) ContinueWorkflowRunAsNew(
 		TraceContext:               currentTraceContext(ctx),
 	}
 	if wf.TimeoutSecs > 0 {
-		expiresAt := time.Now().Add(time.Duration(wf.TimeoutSecs) * time.Second)
+		expiresAt := now.Add(time.Duration(wf.TimeoutSecs) * time.Second)
 		successor.ExpiresAt = &expiresAt
 	}
 
@@ -146,7 +149,6 @@ func (e *WorkflowEngine) ContinueWorkflowRunAsNew(
 	if !ok {
 		return nil, fmt.Errorf("store does not support workflow continue-as-new")
 	}
-	now := time.Now()
 	if err := bootstrapper.ContinueWorkflowRunBootstrap(ctx, pred.ID, pred.Status, successor, stepRuns, now); err != nil {
 		return nil, fmt.Errorf("continue workflow run bootstrap: %w", err)
 	}
@@ -170,8 +172,25 @@ func (e *WorkflowEngine) ContinueWorkflowRunAsNew(
 		"step_count":         len(stepRuns),
 	})
 
-	// 7. Start the successor's root steps, exactly as a fresh trigger would.
+	// 7. Start the successor's root steps, exactly as a fresh trigger would. The
+	//    handoff has already committed: the predecessor is durably continued and
+	//    the successor is running. A failure here only means the root steps were
+	//    not enqueued, so log it loudly with the committed lineage rather than
+	//    letting a bare error imply nothing happened.
 	if err := e.startRootSteps(ctx, successor, steps, stepRuns); err != nil {
+		e.logger.ErrorContext(ctx, "continue-as-new committed but root step start failed",
+			"predecessor_run_id", pred.ID,
+			"successor_run_id", successor.ID,
+			"project_id", successor.ProjectID,
+			"lineage_depth", nextDepth,
+			"error", err,
+		)
+		telemetry.AddSentryBreadcrumb(ctx, "workflow.state", "continue-as-new committed but root step start failed", map[string]any{
+			"predecessor_run_id": pred.ID,
+			"successor_run_id":   successor.ID,
+			"project_id":         successor.ProjectID,
+			"lineage_depth":      nextDepth,
+		})
 		return nil, err
 	}
 

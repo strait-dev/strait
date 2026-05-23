@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -395,6 +396,97 @@ func TestContinueWorkflowRunAsNew_BootstrapError(t *testing.T) {
 	}
 	if enqueued != 0 {
 		t.Fatalf("enqueued = %d, want 0 (successor must not start when bootstrap fails)", enqueued)
+	}
+}
+
+// TestContinueWorkflowRunAsNew_ExpiryAnchoredToStart verifies the successor's
+// expires_at and started_at derive from a single wall-clock reading, so their
+// difference is exactly the configured timeout. Two separate time.Now() calls
+// would make expires_at - started_at drift below the timeout.
+func TestContinueWorkflowRunAsNew_ExpiryAnchoredToStart(t *testing.T) {
+	t.Parallel()
+	const timeoutSecs = 3600
+	ms := &mockEngineStore{
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusRunning, WorkflowVersion: 1}, nil
+		},
+		getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, ProjectID: "proj-1", Enabled: true, Version: 1, TimeoutSecs: timeoutSecs}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return continueTestSteps(), nil
+		},
+		continueWorkflowRunBootstrapFn: func(_ context.Context, _ string, _ domain.WorkflowRunStatus, _ *domain.WorkflowRun, _ []domain.WorkflowStepRun, _ time.Time) error {
+			return nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+	}
+	mq := &mockEngineQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+		run.ID = "jr-" + run.JobID
+		return nil
+	}}
+	engine := NewWorkflowEngine(ms, mq, slog.Default())
+	successor, err := engine.ContinueWorkflowRunAsNew(context.Background(), "pred-run-1", nil)
+	if err != nil {
+		t.Fatalf("ContinueWorkflowRunAsNew() error = %v", err)
+	}
+	if successor.StartedAt == nil || successor.ExpiresAt == nil {
+		t.Fatalf("StartedAt/ExpiresAt must be set: started=%v expires=%v", successor.StartedAt, successor.ExpiresAt)
+	}
+	if got := successor.ExpiresAt.Sub(*successor.StartedAt); got != timeoutSecs*time.Second {
+		t.Fatalf("expires_at - started_at = %v, want exactly %v (single time.Now anchor)", got, time.Duration(timeoutSecs)*time.Second)
+	}
+}
+
+// TestContinueWorkflowRunAsNew_StartRootStepsFailsAfterCommit verifies that when
+// root-step start fails after the handoff has already committed, the engine logs
+// the durable committed lineage (predecessor continued, successor running) before
+// surfacing the error, so the partial failure is not mistaken for a no-op.
+func TestContinueWorkflowRunAsNew_StartRootStepsFailsAfterCommit(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	var successorID string
+	ms := &mockEngineStore{
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusRunning, WorkflowVersion: 1}, nil
+		},
+		getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, ProjectID: "proj-1", Enabled: true, Version: 1}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{{ID: "s1", JobID: "job-1", StepRef: "a"}}, nil
+		},
+		continueWorkflowRunBootstrapFn: func(_ context.Context, _ string, _ domain.WorkflowRunStatus, successor *domain.WorkflowRun, _ []domain.WorkflowStepRun, _ time.Time) error {
+			successorID = successor.ID
+			return nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+	}
+	// The handoff commits, then enqueueing the root job fails.
+	mq := &mockEngineQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+		return errors.New("queue unavailable")
+	}}
+	engine := NewWorkflowEngine(ms, mq, logger)
+
+	if _, err := engine.ContinueWorkflowRunAsNew(context.Background(), "pred-run-1", nil); err == nil {
+		t.Fatal("expected error when root step start fails after commit")
+	}
+
+	logged := buf.String()
+	if !strings.Contains(logged, "continue-as-new committed but root step start failed") {
+		t.Fatalf("expected committed-but-failed error log, got: %s", logged)
+	}
+	if successorID == "" || !strings.Contains(logged, successorID) {
+		t.Fatalf("log must reference committed successor %q, got: %s", successorID, logged)
+	}
+	if !strings.Contains(logged, "pred-run-1") {
+		t.Fatalf("log must reference predecessor pred-run-1, got: %s", logged)
 	}
 }
 
