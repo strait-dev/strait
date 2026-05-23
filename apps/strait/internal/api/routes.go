@@ -104,11 +104,9 @@ func (s *Server) routes() chi.Router {
 	// once per process via sync.Once. The spec is identical for every server
 	// since it depends only on handler types, not runtime state.
 	cachedOpenAPIOnce.Do(func() {
-		// Replace Huma's default RFC 9457 ErrorModel with the Strait
-		// ErrorResponse envelope. Must run before huma.Register calls so
+		// The Strait ErrorResponse envelope override (installHumaErrorOverride)
+		// is installed in package init, before any huma.Register call here, so
 		// the generated spec references the correct error schema.
-		installHumaErrorOverride()
-
 		humaConfig := huma.DefaultConfig("Strait API", "1.0.0")
 		humaConfig.Info.Description = "Production-grade job orchestration platform for background jobs and workflows."
 		humaConfig.Servers = []*huma.Server{
