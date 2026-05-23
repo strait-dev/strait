@@ -99,7 +99,7 @@ func (m *mockWorkflowTrigger) OnStepFailed(ctx context.Context, workflowRunID st
 	}
 }
 
-func newWorkflowTestServer(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher, trigger WorkflowTrigger) *Server {
+func newWorkflowTestServer(t testing.TB, s APIStore, q *mockQueue, pub *mockPublisher, trigger WorkflowTrigger) *Server {
 	t.Helper()
 	cfg := &config.Config{
 		InternalSecret:      "test-secret-value",

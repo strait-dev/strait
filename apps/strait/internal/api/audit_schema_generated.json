@@ -3475,6 +3475,35 @@
         "bearer"
       ]
     },
+    "workflow_run.continued_as_new": {
+      "type": "object",
+      "description": "Workflow run continued as a new successor run.",
+      "properties": {
+        "successor_run_id": {
+          "type": "string",
+          "description": "required"
+        },
+        "workflow_id": {
+          "type": "string",
+          "description": "required"
+        }
+      },
+      "required": ["workflow_id", "successor_run_id"],
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "endpoint_signing_secret",
+        "signing_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
     "workflow_run.paused": {
       "type": "object",
       "description": "Workflow run paused.",

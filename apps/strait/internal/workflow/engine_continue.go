@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"time"
@@ -13,6 +14,15 @@ import (
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
 	otelTrace "go.opentelemetry.io/otel/trace"
+)
+
+var (
+	// ErrWorkflowRunNotContinuable is returned when continue-as-new is requested
+	// for a run that is not in a continuable (running or paused) state.
+	ErrWorkflowRunNotContinuable = errors.New("workflow run is not in a continuable state")
+	// ErrContinueDepthExceeded is returned when continuing would push the chain
+	// past the configured lineage-depth cap.
+	ErrContinueDepthExceeded = errors.New("workflow continuation lineage depth exceeds maximum")
 )
 
 // continueBootstrapStore is the subset of the store that performs the atomic
@@ -48,13 +58,13 @@ func (e *WorkflowEngine) ContinueWorkflowRunAsNew(
 		return nil, fmt.Errorf("workflow run not found: %s", runID)
 	}
 	if pred.Status != domain.WfStatusRunning && pred.Status != domain.WfStatusPaused {
-		return nil, fmt.Errorf("cannot continue workflow run %s: status is %s (must be running or paused)", runID, pred.Status)
+		return nil, fmt.Errorf("cannot continue workflow run %s: status is %s (must be running or paused): %w", runID, pred.Status, ErrWorkflowRunNotContinuable)
 	}
 
 	// 2. Depth guard: enforce the configurable runaway-chain cap.
 	nextDepth := pred.LineageDepth + 1
 	if nextDepth > e.maxContinueDepth {
-		return nil, fmt.Errorf("cannot continue workflow run %s: lineage depth %d exceeds max %d", runID, nextDepth, e.maxContinueDepth)
+		return nil, fmt.Errorf("cannot continue workflow run %s: lineage depth %d exceeds max %d: %w", runID, nextDepth, e.maxContinueDepth, ErrContinueDepthExceeded)
 	}
 
 	// 3. Re-resolve the latest published version (+ canary routing), exactly as

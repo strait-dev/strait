@@ -417,6 +417,10 @@ var AuditActionSchemas = map[string]AuditActionSchema{
 		Required:    []string{"workflow_id"},
 		Description: "Workflow compensation (saga rollback) triggered.",
 	},
+	AuditActionWorkflowRunContinuedAsNew: {
+		Required:    []string{"workflow_id", "successor_run_id"},
+		Description: "Workflow run continued as a new successor run.",
+	},
 
 	// Workflow steps.
 	AuditActionWorkflowStepApproved: {

@@ -13,6 +13,7 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+	"strait/internal/workflow"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/samber/lo"
@@ -531,6 +532,95 @@ func (s *Server) handleRetryWorkflowRun(ctx context.Context, input *RetryWorkflo
 	})
 
 	return &RetryWorkflowRunOutput{Body: newRun}, nil
+}
+
+type ContinueWorkflowRunAsNewInput struct {
+	WorkflowRunID string `path:"workflowRunID"`
+	Body          struct {
+		Input json.RawMessage `json:"input,omitempty" doc:"Carry-over input for the successor run. Opaque JSON forwarded as the successor's payload."`
+	}
+}
+type ContinueWorkflowRunAsNewOutput struct{ Body *domain.WorkflowRun }
+
+// handleContinueWorkflowRunAsNew atomically completes a running or paused
+// workflow run and starts a fresh successor run of the same workflow with the
+// caller-provided carry-over input, re-resolving the latest published version.
+// The predecessor is marked continued and linked bidirectionally to the
+// successor. This is the workflow-level continue-as-new primitive.
+func (s *Server) handleContinueWorkflowRunAsNew(ctx context.Context, input *ContinueWorkflowRunAsNewInput) (*ContinueWorkflowRunAsNewOutput, error) {
+	if s.workflowEngine == nil {
+		return nil, huma.Error503ServiceUnavailable("workflow engine unavailable")
+	}
+
+	run, err := s.store.GetWorkflowRun(ctx, input.WorkflowRunID)
+	if err != nil {
+		if errors.Is(err, store.ErrWorkflowRunNotFound) {
+			return nil, huma.Error404NotFound("workflow run not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get workflow run")
+	}
+	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("workflow run not found")
+	}
+
+	if run.Status.IsTerminal() {
+		return nil, huma.Error400BadRequest("can only continue a running or paused workflow run")
+	}
+
+	successor, err := s.workflowEngine.ContinueWorkflowRunAsNew(ctx, input.WorkflowRunID, input.Body.Input)
+	if err != nil {
+		switch {
+		case errors.Is(err, workflow.ErrWorkflowRunNotContinuable):
+			return nil, huma.Error400BadRequest("can only continue a running or paused workflow run")
+		case errors.Is(err, workflow.ErrContinueDepthExceeded):
+			return nil, huma.Error400BadRequest("workflow continuation depth limit exceeded")
+		case errors.Is(err, store.ErrWorkflowRunContinueConflict):
+			return nil, huma.Error409Conflict("workflow run already continued or no longer continuable")
+		default:
+			return nil, huma.Error500InternalServerError(fmt.Sprintf("failed to continue workflow run: %v", err))
+		}
+	}
+
+	s.publishWorkflowRunHook(ctx, successor, domain.WfStatusPending, successor.Status, "continue_as_new")
+
+	s.emitAuditEvent(ctx, domain.AuditActionWorkflowRunContinuedAsNew, "workflow_run", input.WorkflowRunID, map[string]any{
+		"workflow_id":      run.WorkflowID,
+		"successor_run_id": successor.ID,
+		"lineage_depth":    successor.LineageDepth,
+	})
+
+	return &ContinueWorkflowRunAsNewOutput{Body: successor}, nil
+}
+
+type GetWorkflowRunChainInput struct {
+	WorkflowRunID string `path:"workflowRunID"`
+}
+type GetWorkflowRunChainOutput struct{ Body any }
+
+// handleGetWorkflowRunChain returns the full continue-as-new lineage that the
+// given run belongs to, ordered root-first, so callers can jump to the first or
+// latest run in a continuation chain.
+func (s *Server) handleGetWorkflowRunChain(ctx context.Context, input *GetWorkflowRunChainInput) (*GetWorkflowRunChainOutput, error) {
+	run, err := s.store.GetWorkflowRun(ctx, input.WorkflowRunID)
+	if err != nil {
+		if errors.Is(err, store.ErrWorkflowRunNotFound) {
+			return nil, huma.Error404NotFound("workflow run not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get workflow run")
+	}
+	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("workflow run not found")
+	}
+
+	chain, err := s.store.GetWorkflowRunChain(ctx, input.WorkflowRunID)
+	if err != nil {
+		if errors.Is(err, store.ErrWorkflowRunNotFound) {
+			return nil, huma.Error404NotFound("workflow run not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get workflow run chain")
+	}
+
+	return &GetWorkflowRunChainOutput{Body: map[string]any{"runs": chain, "total": len(chain)}}, nil
 }
 
 type workflowRunGraphNode struct {

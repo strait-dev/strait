@@ -135,6 +135,7 @@ var handlerActionPayloads = map[string]map[string]any{
 	domain.AuditActionWorkflowRunBulkCancelled:        {"total": 5, "count": 5},
 	domain.AuditActionWorkflowRunBulkReplayed:         {"total": 5, "count": 5},
 	domain.AuditActionWorkflowRunCompensated:          {"workflow_id": "wf-1"},
+	domain.AuditActionWorkflowRunContinuedAsNew:       {"workflow_id": "wf-1", "successor_run_id": "wfr-2", "lineage_depth": 1},
 	domain.AuditActionWorkflowStepApproved:            {"workflow_run_id": "wfr-1", "step_ref": "approve", "approver": "user-1"},
 	domain.AuditActionWorkflowStepSkipped:             {"workflow_run_id": "wfr-1", "step_ref": "skip-me"},
 	domain.AuditActionWorkflowStepForceCompleted:      {"workflow_run_id": "wfr-1", "step_ref": "stuck"},

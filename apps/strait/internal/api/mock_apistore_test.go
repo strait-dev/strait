@@ -485,6 +485,9 @@ var _ APIStore = &APIStoreMock{}
 //			GetWorkflowRunFunc: func(ctx context.Context, id string) (*domain.WorkflowRun, error) {
 //				panic("mock out the GetWorkflowRun method")
 //			},
+//			GetWorkflowRunChainFunc: func(ctx context.Context, anyRunID string) ([]domain.WorkflowRun, error) {
+//				panic("mock out the GetWorkflowRunChain method")
+//			},
 //			GetWorkflowStepApprovalByStepRunIDFunc: func(ctx context.Context, stepRunID string) (*domain.WorkflowStepApproval, error) {
 //				panic("mock out the GetWorkflowStepApprovalByStepRunID method")
 //			},
@@ -1355,6 +1358,9 @@ type APIStoreMock struct {
 
 	// GetWorkflowRunFunc mocks the GetWorkflowRun method.
 	GetWorkflowRunFunc func(ctx context.Context, id string) (*domain.WorkflowRun, error)
+
+	// GetWorkflowRunChainFunc mocks the GetWorkflowRunChain method.
+	GetWorkflowRunChainFunc func(ctx context.Context, anyRunID string) ([]domain.WorkflowRun, error)
 
 	// GetWorkflowStepApprovalByStepRunIDFunc mocks the GetWorkflowStepApprovalByStepRunID method.
 	GetWorkflowStepApprovalByStepRunIDFunc func(ctx context.Context, stepRunID string) (*domain.WorkflowStepApproval, error)
@@ -3040,6 +3046,13 @@ type APIStoreMock struct {
 			// ID is the id argument value.
 			ID string
 		}
+		// GetWorkflowRunChain holds details about calls to the GetWorkflowRunChain method.
+		GetWorkflowRunChain []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// AnyRunID is the anyRunID argument value.
+			AnyRunID string
+		}
 		// GetWorkflowStepApprovalByStepRunID holds details about calls to the GetWorkflowStepApprovalByStepRunID method.
 		GetWorkflowStepApprovalByStepRunID []struct {
 			// Ctx is the ctx argument value.
@@ -4557,6 +4570,7 @@ type APIStoreMock struct {
 	lockGetWorkflowBySlug                           sync.RWMutex
 	lockGetWorkflowPolicyByProject                  sync.RWMutex
 	lockGetWorkflowRun                              sync.RWMutex
+	lockGetWorkflowRunChain                         sync.RWMutex
 	lockGetWorkflowStepApprovalByStepRunID          sync.RWMutex
 	lockGetWorkflowVersionByVersionID               sync.RWMutex
 	lockInsertBatchBufferItem                       sync.RWMutex
@@ -11201,6 +11215,46 @@ func (mock *APIStoreMock) GetWorkflowRunCalls() []struct {
 	mock.lockGetWorkflowRun.RLock()
 	calls = mock.calls.GetWorkflowRun
 	mock.lockGetWorkflowRun.RUnlock()
+	return calls
+}
+
+// GetWorkflowRunChain calls GetWorkflowRunChainFunc.
+func (mock *APIStoreMock) GetWorkflowRunChain(ctx context.Context, anyRunID string) ([]domain.WorkflowRun, error) {
+	callInfo := struct {
+		Ctx      context.Context
+		AnyRunID string
+	}{
+		Ctx:      ctx,
+		AnyRunID: anyRunID,
+	}
+	mock.lockGetWorkflowRunChain.Lock()
+	mock.calls.GetWorkflowRunChain = append(mock.calls.GetWorkflowRunChain, callInfo)
+	mock.lockGetWorkflowRunChain.Unlock()
+	if mock.GetWorkflowRunChainFunc == nil {
+		var (
+			workflowRunsOut []domain.WorkflowRun
+			errOut          error
+		)
+		return workflowRunsOut, errOut
+	}
+	return mock.GetWorkflowRunChainFunc(ctx, anyRunID)
+}
+
+// GetWorkflowRunChainCalls gets all the calls that were made to GetWorkflowRunChain.
+// Check the length with:
+//
+//	len(mockedAPIStore.GetWorkflowRunChainCalls())
+func (mock *APIStoreMock) GetWorkflowRunChainCalls() []struct {
+	Ctx      context.Context
+	AnyRunID string
+} {
+	var calls []struct {
+		Ctx      context.Context
+		AnyRunID string
+	}
+	mock.lockGetWorkflowRunChain.RLock()
+	calls = mock.calls.GetWorkflowRunChain
+	mock.lockGetWorkflowRunChain.RUnlock()
 	return calls
 }
 

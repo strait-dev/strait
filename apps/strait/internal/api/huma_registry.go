@@ -1636,6 +1636,18 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Tags: []string{"Workflow Runs"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 409, 500, 503},
 	}, s.handleRetryWorkflowRun)
 
+	RegisterTypedOp(api, OpMeta{
+		ID: "continue-workflow-run-as-new", Method: http.MethodPost, Path: "/v1/workflow-runs/{workflowRunID}/continue-as-new",
+		Summary: "Continue a workflow run as new", Description: "Atomically completes a running or paused workflow run and starts a fresh successor run of the same workflow with the provided carry-over input. The successor re-resolves the latest published version, starts with empty step history, and links bidirectionally to its predecessor.",
+		Tags: []string{"Workflow Runs"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 409, 500, 503},
+	}, s.handleContinueWorkflowRunAsNew)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "get-workflow-run-chain", Method: http.MethodGet, Path: "/v1/workflow-runs/{workflowRunID}/chain",
+		Summary: "Get workflow run continuation chain", Description: "Returns the full continue-as-new lineage the run belongs to, ordered root-first, so callers can jump to the first or latest run in the chain.",
+		Tags: []string{"Workflow Runs"}, Security: bearerSecurity, Errors: []int{401, 404, 500},
+	}, s.handleGetWorkflowRunChain)
+
 	// -- Compensation --
 	RegisterTypedOp(api, OpMeta{
 		ID: "compensate-workflow-run", Method: http.MethodPost, Path: "/v1/workflow-runs/{workflowRunID}/compensate",
