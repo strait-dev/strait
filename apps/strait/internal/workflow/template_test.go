@@ -143,6 +143,17 @@ func TestRenderTemplateVars(t *testing.T) {
 		}
 	})
 
+	t.Run("unresolved nested variable returns payload unchanged", func(t *testing.T) {
+		t.Parallel()
+		payload := json.RawMessage(`{"to":"{{user.email}}","msg":"Hello {{user.name}}"}`)
+		vars := json.RawMessage(`{"user":{"id":"u-123"}}`)
+
+		result := renderTemplateVars(payload, vars)
+		if string(result) != string(payload) {
+			t.Fatalf("expected payload unchanged, got %s", string(result))
+		}
+	})
+
 	t.Run("dot-path variable resolution", func(t *testing.T) {
 		t.Parallel()
 		payload := json.RawMessage(`{"email":"{{user.email}}"}`)
