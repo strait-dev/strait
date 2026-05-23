@@ -63,6 +63,11 @@ ALTER TABLE workflow_versions
 ALTER TABLE job_runs
     ADD COLUMN IF NOT EXISTS singleton_key TEXT;
 
+-- job_runs_history must mirror job_runs column-for-column (enforced by the
+-- HistoryTableColumnSync invariant), so archived singleton runs keep their key.
+ALTER TABLE job_runs_history
+    ADD COLUMN IF NOT EXISTS singleton_key TEXT;
+
 ALTER TABLE workflow_runs
     ADD COLUMN IF NOT EXISTS singleton_key TEXT;
 
