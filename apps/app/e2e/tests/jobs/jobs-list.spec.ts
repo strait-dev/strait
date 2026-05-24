@@ -1,160 +1,60 @@
-import { expect, test } from "../../fixtures";
+import { ApiHelper, expect, test } from "../../fixtures";
+
+const runId = Date.now();
+const activeJobName = `e2e-core-active-${runId}`;
+const pausedJobName = `e2e-core-paused-${runId}`;
+
+let api: ApiHelper;
+let activeJobId: string;
+let pausedJobId: string;
 
 test.describe("Jobs List", () => {
+  test.beforeAll(async () => {
+    api = new ApiHelper();
+    const activeJob = await api.createJob({
+      name: activeJobName,
+      endpoint_url: api.fakeEndpoint("/success"),
+      max_attempts: 2,
+      timeout_secs: 15,
+      description: "Active job seeded by Playwright",
+    });
+    const pausedJob = await api.createJob({
+      name: pausedJobName,
+      endpoint_url: api.fakeEndpoint("/success"),
+      max_attempts: 1,
+      timeout_secs: 10,
+      description: "Paused job seeded by Playwright",
+    });
+    activeJobId = activeJob.id;
+    pausedJobId = pausedJob.id;
+    await api.pauseJob(pausedJobId);
+  });
+
+  test.afterAll(async () => {
+    await Promise.allSettled(
+      [activeJobId, pausedJobId].filter(Boolean).map((id) => api.deleteJob(id))
+    );
+  });
+
   test.beforeEach(async ({ page }) => {
-    await page.goto("/app/jobs");
+    await page.goto("/app/jobs", { waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("table", { name: "Jobs" })).toBeVisible();
   });
 
-  test("jobs page loads", async ({ page }) => {
+  test("renders controls and seeded jobs", async ({ page }) => {
     await expect(page).toHaveURL(/\/app\/jobs/);
+    await expect(page.getByPlaceholder("Search jobs...")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Status" })).toBeVisible();
+    await expect(page.getByText(activeJobName)).toBeVisible();
+    await expect(page.getByText(pausedJobName)).toBeVisible();
   });
 
-  test("page renders content", async ({ page }) => {
-    // Page should show either the table, empty state, or error state
-    const content = page
-      .locator("table")
-      .or(page.getByText(/no project|no jobs|went wrong|try again/i));
-    await expect(content.first()).toBeVisible({ timeout: 10_000 });
-  });
+  test("accepts search input without losing seeded rows", async ({ page }) => {
+    await page.getByPlaceholder("Search jobs...").fill(activeJobName);
 
-  test("search input is visible when project is active", async ({ page }) => {
-    const searchInput = page.getByPlaceholder("Search jobs...");
-    if (await searchInput.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await expect(searchInput).toBeVisible();
-    }
-  });
-
-  test("status filter exists when project is active", async ({ page }) => {
-    const filterBtn = page.getByRole("button", { name: "Status" });
-    if (await filterBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await expect(filterBtn).toBeVisible();
-    }
-  });
-
-  test("table renders or shows empty state", async ({ page }) => {
-    const table = page.locator("table");
-    const emptyState = page.getByText(/no project|no jobs|went wrong/i);
-    await expect(table.or(emptyState).first()).toBeVisible({ timeout: 10_000 });
-  });
-
-  test("search filters jobs by name", async ({ page }) => {
-    const searchInput = page.getByPlaceholder("Search jobs...");
-    if (await searchInput.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await searchInput.fill("nonexistent-job-xyz");
-      await page.waitForTimeout(500);
-      await expect(page.locator("body")).toBeVisible();
-    }
-  });
-
-  test("status filter toggles work", async ({ page }) => {
-    const filterButton = page.getByRole("button", { name: "Status" });
-    if (await filterButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await filterButton.click();
-      const dropdown = page.getByRole("menuitemcheckbox").first();
-      if (await dropdown.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await dropdown.click();
-      }
-    }
-  });
-
-  test("table has expected column headers", async ({ page }) => {
-    const table = page.locator("table");
-    if (await table.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await expect(page.getByText("Name")).toBeVisible();
-    }
-  });
-
-  test("row selection checkbox works", async ({ page }) => {
-    const checkbox = page.locator("table tbody input[type='checkbox']").first();
-    if (await checkbox.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await checkbox.check();
-      await expect(checkbox).toBeChecked();
-    }
-  });
-
-  test("clicking a job row navigates to detail", async ({ page }) => {
-    const firstRow = page.locator("table tbody tr").first();
-    if (await firstRow.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await firstRow.click();
-      await page.waitForTimeout(500);
-    }
-  });
-
-  test("trigger button appears in floating bar when rows selected", async ({
-    page,
-  }) => {
-    const checkbox = page.locator("table tbody input[type='checkbox']").first();
-    if (await checkbox.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await checkbox.check();
-      await expect(
-        page.getByRole("button", { name: /trigger/i })
-      ).toBeVisible();
-    }
-  });
-
-  test("pause button appears in floating bar when rows selected", async ({
-    page,
-  }) => {
-    const checkbox = page.locator("table tbody input[type='checkbox']").first();
-    if (await checkbox.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await checkbox.check();
-      await expect(page.getByRole("button", { name: /pause/i })).toBeVisible();
-    }
-  });
-
-  test("pagination area is visible when table exists", async ({ page }) => {
-    const table = page.locator("table");
-    if (await table.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await expect(table).toBeVisible();
-    }
-  });
-
-  test("clear selection deselects all rows", async ({ page }) => {
-    const checkbox = page.locator("table tbody input[type='checkbox']").first();
-    if (await checkbox.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await checkbox.check();
-      const clearButton = page.getByRole("button", { name: /clear|deselect/i });
-      if (await clearButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await clearButton.click();
-        await expect(checkbox).not.toBeChecked();
-      }
-    }
-  });
-
-  test("select all checkbox works", async ({ page }) => {
-    // The select-all checkbox may be a hidden input behind a styled button
-    const checkboxArea = page.locator("table thead th").first();
-    if (await checkboxArea.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await checkboxArea.click();
-    }
-  });
-
-  test("search clears when input is emptied", async ({ page }) => {
-    const searchInput = page.getByPlaceholder("Search jobs...");
-    if (await searchInput.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await searchInput.fill("test");
-      await page.waitForTimeout(300);
-      await searchInput.clear();
-      await page.waitForTimeout(300);
-      await expect(page.locator("body")).toBeVisible();
-    }
-  });
-
-  test("page content is visible", async ({ page }) => {
-    // The page should render something - table, empty state, or error
-    await expect(page.locator("body")).toBeVisible();
-  });
-
-  test("multiple status filters can be applied", async ({ page }) => {
-    const filterButton = page.getByRole("button", { name: "Status" });
-    if (await filterButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await filterButton.click();
-      const items = page.getByRole("menuitemcheckbox");
-      const count = await items.count();
-      if (count >= 2) {
-        await items.nth(0).click();
-        await items.nth(1).click();
-      }
-    }
+    await expect(page.getByPlaceholder("Search jobs...")).toHaveValue(
+      activeJobName
+    );
+    await expect(page.getByText(activeJobName)).toBeVisible();
   });
 });

@@ -1,11 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
-  "entry": [
-    "src/server.ts!",
-    "src/router.tsx!",
-    "src/routes/**/*.{ts,tsx}!",
-    "server/routes/**/*.{ts,tsx}!"
-  ],
+  "entry": ["src/server.ts!", "src/router.tsx!", "src/routes/**/*.{ts,tsx}!"],
   "project": [
     "src/**/*.{ts,tsx}!",
     "!src/routeTree.gen.ts",
@@ -17,13 +12,10 @@
     "@strait/ui/*": ["../../packages/ui/src/*"],
     "@strait/transactional": ["../../packages/transactional/src/index.ts"]
   },
-  "ignoreDependencies": [],
-  "ignoreBinaries": ["biome"],
+  "ignoreDependencies": ["@sentry/cli"],
+  "ignoreBinaries": ["biome", "go", "openapi-typescript"],
   "includeEntryExports": false,
-  "ignoreExportsUsedInFile": {
-    "interface": true,
-    "type": true
-  },
+  "ignoreExportsUsedInFile": true,
   "rules": {
     "unlisted": "off",
     "exports": "warn",

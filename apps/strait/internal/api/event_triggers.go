@@ -344,6 +344,19 @@ func payloadsMatch(a, b json.RawMessage) bool {
 	if bytes.Equal(a, b) {
 		return true
 	}
+	a = bytes.TrimSpace(a)
+	b = bytes.TrimSpace(b)
+	if bytes.Equal(a, b) {
+		return true
+	}
+	if payloadHasJSONWhitespace(a) || payloadHasJSONWhitespace(b) {
+		var compactA, compactB bytes.Buffer
+		if err := json.Compact(&compactA, a); err == nil {
+			if err := json.Compact(&compactB, b); err == nil && bytes.Equal(compactA.Bytes(), compactB.Bytes()) {
+				return true
+			}
+		}
+	}
 	var va, vb any
 	if err := json.Unmarshal(a, &va); err != nil {
 		return false
@@ -360,6 +373,15 @@ func payloadsMatch(a, b json.RawMessage) bool {
 		return false
 	}
 	return bytes.Equal(ea, eb)
+}
+
+func payloadHasJSONWhitespace(payload []byte) bool {
+	for _, c := range payload {
+		if c == ' ' || c == '\n' || c == '\r' || c == '\t' {
+			return true
+		}
+	}
+	return false
 }
 
 type GetEventTriggerStatsInput struct{}

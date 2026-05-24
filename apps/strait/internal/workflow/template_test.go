@@ -597,6 +597,52 @@ func jsonStructurallyEqual(t *testing.T, a, b []byte) bool {
 	return string(ar) == string(br)
 }
 
+func TestRenderTemplateVars_RepeatedVariablesPreserveBehavior(t *testing.T) {
+	t.Parallel()
+	payload := json.RawMessage(`{
+		"first":"{{user.email}}",
+		"second":"{{user.email}}",
+		"message":"{{user.email}}/{{count}}/{{missing}}/{{user.email}}",
+		"native_count":"{{count}}",
+		"native_config":"{{config}}"
+	}`)
+	vars := json.RawMessage(`{
+		"user":{"email":"ops@example.com"},
+		"count":42,
+		"config":{"retry":3,"enabled":true}
+	}`)
+
+	result := renderTemplateVars(payload, vars)
+
+	var got map[string]any
+	if err := json.Unmarshal(result, &got); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+	if got["first"] != "ops@example.com" || got["second"] != "ops@example.com" {
+		t.Fatalf("repeated email fields = %v/%v, want ops@example.com", got["first"], got["second"])
+	}
+	if got["message"] != "ops@example.com/42/{{missing}}/ops@example.com" {
+		t.Fatalf("message = %v, want repeated interpolation with missing placeholder preserved", got["message"])
+	}
+	if got["native_count"] != float64(42) {
+		t.Fatalf("native_count = %T(%v), want JSON number 42", got["native_count"], got["native_count"])
+	}
+	if _, ok := got["native_config"].(map[string]any); !ok {
+		t.Fatalf("native_config = %T, want object", got["native_config"])
+	}
+}
+
+func TestRenderStringTemplate_RepeatedVariablesPreserveBehavior(t *testing.T) {
+	t.Parallel()
+	variables := json.RawMessage(`{"user":{"email":"ops@example.com"},"count":42}`)
+
+	got := renderStringTemplate("{{user.email}}:{{count}}:{{missing}}:{{user.email}}", variables)
+
+	if got != "ops@example.com:42:{{missing}}:ops@example.com" {
+		t.Fatalf("renderStringTemplate repeated vars = %q", got)
+	}
+}
+
 func BenchmarkRenderTemplateVars(b *testing.B) {
 	payloadWithTemplates := json.RawMessage(`{
 		"to":"{{user_email}}",
@@ -631,6 +677,26 @@ func BenchmarkRenderTemplateVars(b *testing.B) {
 	})
 	b.Run("unresolved_templates", func(b *testing.B) {
 		payload := json.RawMessage(`{"message":"Hello {{missing_name}}","nested":{"value":"{{missing_value}}"}}`)
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = renderTemplateVars(payload, vars)
+		}
+	})
+	b.Run("repeated_nested_vars", func(b *testing.B) {
+		var builder strings.Builder
+		builder.WriteByte('{')
+		for i := range 64 {
+			if i > 0 {
+				builder.WriteByte(',')
+			}
+			builder.WriteString(`"field`)
+			builder.WriteByte(byte('a' + i%26))
+			builder.WriteString(`":"{{user.email}}/{{total}}/{{missing}}/{{user.email}}"`)
+		}
+		builder.WriteByte('}')
+		payload := json.RawMessage(builder.String())
+		vars := json.RawMessage(`{"user":{"email":"john@example.com"},"total":42}`)
+
 		b.ReportAllocs()
 		for b.Loop() {
 			_ = renderTemplateVars(payload, vars)
@@ -684,6 +750,13 @@ func BenchmarkRenderStringTemplate(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
 			_ = renderStringTemplate("{{prefix}}:{{id}}:{{suffix}}:{{user.email}}", variables)
+		}
+	})
+	b.Run("repeated_nested_vars", func(b *testing.B) {
+		template := strings.Repeat("{{user.email}}:{{id}}:{{missing}}:", 16)
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = renderStringTemplate(template, variables)
 		}
 	})
 }

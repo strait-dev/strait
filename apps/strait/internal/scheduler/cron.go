@@ -71,6 +71,8 @@ type CronScheduler struct {
 	workflowCallback  WorkflowCallback
 	metrics           *telemetry.Metrics
 	defaultRunTTLSecs int
+	driftMu           sync.RWMutex
+	driftSchedules    map[string]cron.Schedule
 	scheduleMu        sync.Mutex
 	entryIDs          []cron.EntryID
 }
@@ -83,6 +85,7 @@ func NewCronScheduler(ctx context.Context, s CronStore, q queue.Queue, workflowT
 		store:           s,
 		queue:           q,
 		workflowTrigger: workflowTrigger,
+		driftSchedules:  make(map[string]cron.Schedule),
 	}
 }
 
@@ -140,6 +143,7 @@ func (cs *CronScheduler) LoadJobs(ctx context.Context) error {
 			return fmt.Errorf("register cron job %s: %w", job.ID, err)
 		}
 		cs.entryIDs = append(cs.entryIDs, id)
+		cs.cacheDriftSchedule(job.Cron)
 	}
 
 	if cs.workflowTrigger != nil {
@@ -162,6 +166,7 @@ func (cs *CronScheduler) LoadJobs(ctx context.Context) error {
 				return fmt.Errorf("register cron workflow %s: %w", workflow.ID, err)
 			}
 			cs.entryIDs = append(cs.entryIDs, id)
+			cs.cacheDriftSchedule(workflow.Cron)
 		}
 	}
 
@@ -524,9 +529,8 @@ func (cs *CronScheduler) recordCronDrift(ctx context.Context, cronExpr string) {
 	if cs.metrics == nil || cronExpr == "" {
 		return
 	}
-	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-	schedule, err := parser.Parse(cronExpr)
-	if err != nil {
+	schedule := cs.getDriftSchedule(cronExpr)
+	if schedule == nil {
 		return
 	}
 	now := time.Now()
@@ -541,4 +545,48 @@ func (cs *CronScheduler) recordCronDrift(ctx context.Context, cronExpr string) {
 			return
 		}
 	}
+}
+
+func (cs *CronScheduler) cacheDriftSchedule(cronExpr string) {
+	if cronExpr == "" {
+		return
+	}
+	schedule := parseDriftSchedule(cronExpr)
+	if schedule == nil {
+		return
+	}
+	cs.driftMu.Lock()
+	cs.driftSchedules[cronExpr] = schedule
+	cs.driftMu.Unlock()
+}
+
+func (cs *CronScheduler) getDriftSchedule(cronExpr string) cron.Schedule {
+	cs.driftMu.RLock()
+	schedule := cs.driftSchedules[cronExpr]
+	cs.driftMu.RUnlock()
+	if schedule != nil {
+		return schedule
+	}
+
+	schedule = parseDriftSchedule(cronExpr)
+	if schedule == nil {
+		return nil
+	}
+	cs.driftMu.Lock()
+	if cached := cs.driftSchedules[cronExpr]; cached != nil {
+		schedule = cached
+	} else {
+		cs.driftSchedules[cronExpr] = schedule
+	}
+	cs.driftMu.Unlock()
+	return schedule
+}
+
+func parseDriftSchedule(cronExpr string) cron.Schedule {
+	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+	schedule, err := parser.Parse(cronExpr)
+	if err != nil {
+		return nil
+	}
+	return schedule
 }

@@ -27,7 +27,6 @@ const RAW_EDITION: string | undefined =
 export const EDITION: Edition =
   RAW_EDITION === "community" ? "community" : "cloud";
 
-export const isCloudEdition = EDITION === "cloud";
 export const isCommunityEdition = EDITION === "community";
 
 /**

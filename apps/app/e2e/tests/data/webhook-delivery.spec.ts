@@ -1,77 +1,66 @@
 import { ApiHelper, expect, test } from "../../fixtures";
+import { gotoAndExpect, selectTab } from "../../support/navigation";
+import { TestDataFactory } from "../../support/test-data";
 
-const api = new ApiHelper();
+let api: ApiHelper;
+let data: TestDataFactory;
 let webhookId: string;
+let webhookUrl: string;
 
-test.describe("Webhook Delivery", () => {
-  test.describe.configure({ mode: "serial" });
-
+test.describe("Webhook data flows", () => {
   test.beforeAll(async () => {
-    try {
-      const wh = await api.createWebhook({
-        webhook_url: "https://httpbin.org/post",
-        event_types: ["run.completed", "run.failed"],
-      });
-      webhookId = wh.id;
-    } catch {
-      // API may not be available
-    }
+    api = new ApiHelper();
+    data = new TestDataFactory(api);
+
+    webhookUrl = api.fakeEndpoint("/echo?name=data-webhook");
+    const webhook = await api.createWebhook({
+      webhook_url: webhookUrl,
+      event_types: ["run.completed", "run.failed"],
+    });
+    data.cleanup.add(() => api.deleteWebhook(webhook.id));
+    webhookId = webhook.id;
   });
 
   test.afterAll(async () => {
-    if (webhookId) {
-      await api.deleteWebhook(webhookId).catch(() => {
-        /* cleanup */
-      });
-    }
+    await data?.cleanup.run();
   });
 
-  test("created webhook appears in list", async ({ page }) => {
-    if (!webhookId) {
-      test.skip();
-      return;
-    }
-    await page.goto("/app/webhooks");
-    const table = page.locator("table");
-    if (await table.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await expect(page.getByText("httpbin.org").first()).toBeVisible({
-        timeout: 10_000,
-      });
-    }
+  test("created webhook appears in the list and opens the detail page", async ({
+    page,
+  }) => {
+    await page.goto("/app/webhooks", { waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("table", { name: "Webhooks" })).toBeVisible();
+
+    await expect(page.getByText(webhookUrl).first()).toBeVisible();
+    await page.goto(`/app/webhooks/${webhookId}`, {
+      waitUntil: "domcontentloaded",
+    });
+
+    await expect(page).toHaveURL(new RegExp(`/app/webhooks/${webhookId}`));
+    await expect(page.getByText(webhookUrl).first()).toBeVisible();
   });
 
-  test("webhook detail sheet shows endpoint", async ({ page }) => {
-    if (!webhookId) {
-      test.skip();
-      return;
-    }
-    await page.goto("/app/webhooks");
-    const row = page.locator("table tbody tr").first();
-    if (await row.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await row.click();
-      await page.waitForTimeout(500);
-      const sheet = page.locator("[role='dialog']");
-      if (await sheet.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await expect(sheet).toBeVisible();
-      }
-    }
-  });
+  test("deleted webhook is removed from the list", async ({ page }) => {
+    const deleteUrl = api.fakeEndpoint("/echo?name=delete-webhook");
+    const webhook = await api.createWebhook({
+      webhook_url: deleteUrl,
+      event_types: ["run.completed"],
+    });
 
-  test("delete webhook removes from list", async ({ page }) => {
-    if (!webhookId) {
-      test.skip();
-      return;
-    }
-    // Delete via API
-    await api.deleteWebhook(webhookId);
-    webhookId = ""; // prevent afterAll from trying again
+    await gotoAndExpect(
+      page,
+      `/app/webhooks/${webhook.id}`,
+      page.getByText(deleteUrl).first()
+    );
+    await selectTab(page, "Settings");
+    await expect(page.getByText("Subscribed events")).toBeVisible();
+    await api.deleteWebhook(webhook.id);
+    await expect(async () => {
+      const webhooks = await api.listWebhooks({ limit: 100 });
+      expect(webhooks.data.some((item) => item.id === webhook.id)).toBe(false);
+    }).toPass({ timeout: 15_000 });
 
-    await page.goto("/app/webhooks");
-    const table = page.locator("table");
-    if (await table.isVisible({ timeout: 5000 }).catch(() => false)) {
-      // httpbin.org should no longer appear
-      const webhookText = page.getByText("httpbin.org");
-      await expect(webhookText).not.toBeVisible({ timeout: 5000 });
-    }
+    await page.goto("/app/webhooks", { waitUntil: "domcontentloaded" });
+    await expect(page.getByText(deleteUrl)).not.toBeVisible();
   });
 });

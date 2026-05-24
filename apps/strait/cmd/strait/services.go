@@ -188,8 +188,7 @@ func connectDatabase(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, er
 	return nil, fmt.Errorf("connect to postgres: failed after %d retries: %w", maxRetries, err)
 }
 
-// connectRedis creates and verifies a Redis client for pub/sub. Returns a nil
-// publisher and client when Redis is not configured.
+// connectRedis creates and verifies the required Redis client for pub/sub.
 // It retries with exponential backoff up to 5 times on transient failures.
 func connectRedis(ctx context.Context, cfg *config.Config) (pubsub.Publisher, *redis.Client, error) {
 	rdb, err := pubsub.NewRedisClient(cfg.RedisURL, cfg.RedisSentinelMaster, cfg.RedisSentinelAddrs, pubsub.RedisPoolOptions{
@@ -201,9 +200,6 @@ func connectRedis(ctx context.Context, cfg *config.Config) (pubsub.Publisher, *r
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("create redis client: %w", err)
-	}
-	if rdb == nil {
-		return nil, nil, nil
 	}
 
 	const maxRetries = 5
@@ -234,6 +230,28 @@ func connectRedis(ctx context.Context, cfg *config.Config) (pubsub.Publisher, *r
 	return nil, nil, fmt.Errorf("ping redis: failed after %d retries", maxRetries)
 }
 
+func waitForSequin(ctx context.Context, client *cdc.Client) error {
+	const maxRetries = 5
+	var lastErr error
+	for attempt := range maxRetries {
+		if err := client.Health(ctx); err != nil {
+			lastErr = err
+			slog.Warn("failed to reach sequin, retrying",
+				"attempt", attempt+1,
+				"max_retries", maxRetries,
+				"error", err,
+			)
+			if err := retrySleep(ctx, attempt); err != nil {
+				return fmt.Errorf("sequin health check cancelled: %w", err)
+			}
+			continue
+		}
+		slog.Info("connected to sequin")
+		return nil
+	}
+	return fmt.Errorf("connect to sequin: failed after %d retries: %w", maxRetries, lastErr)
+}
+
 // retrySleep sleeps with exponential backoff: 1s, 2s, 4s, 8s, 16s.
 // Returns an error if the context is cancelled during the sleep.
 func retrySleep(ctx context.Context, attempt int) error {
@@ -246,23 +264,25 @@ func retrySleep(ctx context.Context, attempt int) error {
 	}
 }
 
-// startCDCConsumer registers and starts the Sequin CDC consumer if configured.
-// Returns a webhook receiver for push-based CDC delivery (nil if CDC is disabled).
-func startCDCConsumer(g *pool.ContextPool, cfg *config.Config, pub pubsub.Publisher, queries *store.Queries, chExporter *clickhouse.Exporter) *cdc.WebhookReceiver {
-	if cfg.SequinBaseURL == "" {
-		return nil
+// startCDCConsumer registers and starts the required Sequin CDC consumer.
+func startCDCConsumer(ctx context.Context, g *pool.ContextPool, cfg *config.Config, pub pubsub.Publisher, queries *store.Queries, chExporter *clickhouse.Exporter) (*cdc.WebhookReceiver, error) {
+	cdcClient := cdc.NewClient(
+		cfg.SequinBaseURL,
+		cfg.SequinConsumerName,
+		cfg.SequinAPIToken,
+		cdc.WithDatabaseName(cfg.SequinDatabaseName),
+	)
+	if err := waitForSequin(ctx, cdcClient); err != nil {
+		return nil, err
 	}
-
-	cdcClient := cdc.NewClient(cfg.SequinBaseURL, cfg.SequinConsumerName, cfg.SequinAPIToken)
 
 	// Auto-provision the Sequin consumer if it does not exist.
 	cdcTables := []string{
 		"public.job_runs", "public.workflow_runs",
 		"public.workflow_step_runs", "public.event_triggers",
 	}
-	if err := cdcClient.EnsureConsumer(context.Background(), cdcTables); err != nil {
-		slog.Warn("failed to auto-provision Sequin consumer, CDC may not work",
-			"error", err, "consumer", cfg.SequinConsumerName)
+	if err := cdcClient.EnsureConsumer(ctx, cdcTables); err != nil {
+		return nil, fmt.Errorf("ensure sequin consumer %q: %w", cfg.SequinConsumerName, err)
 	}
 
 	cdcConsumer := cdc.NewConsumer(cdcClient, cdc.ConsumerConfig{
@@ -330,7 +350,7 @@ func startCDCConsumer(g *pool.ContextPool, cfg *config.Config, pub pubsub.Publis
 		"consumer", cfg.SequinConsumerName,
 	)
 
-	return webhookReceiver
+	return webhookReceiver, nil
 }
 
 func startWebhookWorker(g *pool.ContextPool, cfg *config.Config, eventNotifier *webhook.DeliveryWorker) {
@@ -422,31 +442,6 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 	var pinger api.Pinger
 	if redisPub, ok := pub.(*pubsub.RedisPublisher); ok {
 		pinger = redisPub
-	}
-
-	if pinger != nil {
-		healthReg.Register(health.NewCriticalChecker("redis", false, func(ctx context.Context) error {
-			return pinger.Ping(ctx)
-		}))
-	}
-	if cfg.SequinBaseURL != "" {
-		sequinHealthURL := cfg.SequinBaseURL + "/health"
-		healthReg.Register(health.NewCriticalChecker("sequin_cdc", false, func(ctx context.Context) error {
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, sequinHealthURL, nil)
-			if err != nil {
-				return fmt.Errorf("sequin health request: %w", err)
-			}
-			client := &http.Client{Timeout: 5 * time.Second}
-			resp, err := client.Do(req)
-			if err != nil {
-				return fmt.Errorf("sequin unreachable: %w", err)
-			}
-			_ = resp.Body.Close()
-			if resp.StatusCode >= 500 {
-				return fmt.Errorf("sequin unhealthy: HTTP %d", resp.StatusCode)
-			}
-			return nil
-		}))
 	}
 
 	billingStore := billing.NewPgStore(dbPool)
@@ -598,7 +593,7 @@ func startGRPCServer(g *pool.ContextPool, cfg *config.Config, queries *store.Que
 	slog.Info("service.startup.gate", "component", "pubsub", "result", "ok")
 
 	opts := []grpcserver.ServerOption{
-		grpcserver.WithAuthLimiter(ratelimit.NewAuthLimiter(rdb, rdb != nil)),
+		grpcserver.WithAuthLimiter(ratelimit.NewAuthLimiter(rdb, true)),
 		grpcserver.WithVersion(version),
 		grpcserver.WithSecretDecryptor(decryptor),
 	}
@@ -741,12 +736,10 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 	if metrics != nil {
 		exec.Subscribe(worker.MetricsSubscriber(metrics))
 	}
-	if pub != nil {
-		if metrics != nil {
-			exec.Subscribe(worker.PubSubSubscriber(pub, metrics.PubSubPublishErrors))
-		} else {
-			exec.Subscribe(worker.PubSubSubscriber(pub))
-		}
+	if metrics != nil {
+		exec.Subscribe(worker.PubSubSubscriber(pub, metrics.PubSubPublishErrors))
+	} else {
+		exec.Subscribe(worker.PubSubSubscriber(pub))
 	}
 	if chExporter != nil {
 		exec.Subscribe(worker.ClickHouseSubscriber(chExporter, queries, worker.ClickHouseSubscriberDeps{
@@ -1154,7 +1147,25 @@ func runMigrations(databaseURL, mode string, lockTimeout time.Duration) error {
 	}
 	defer db.Close()
 
-	driver, err := pgmigrate.WithInstance(db, &pgmigrate.Config{
+	ctx := context.Background()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("open migration connection: %w", err)
+	}
+	defer conn.Close()
+
+	// Set lock_timeout on the same connection used by golang-migrate's
+	// PostgreSQL driver. A pool-level SET can land on a different connection
+	// and leave migration DDL waiting indefinitely on locks.
+	if lockTimeout > 0 {
+		lockTimeoutMs := lockTimeout.Milliseconds()
+		if _, execErr := conn.ExecContext(ctx, fmt.Sprintf("SET lock_timeout = '%dms'", lockTimeoutMs)); execErr != nil {
+			return fmt.Errorf("set lock_timeout: %w", execErr)
+		}
+		slog.Info("migration lock timeout set", "timeout_ms", lockTimeoutMs)
+	}
+
+	driver, err := pgmigrate.WithConnection(ctx, conn, &pgmigrate.Config{
 		MigrationsTable: "strait_schema_migrations",
 	})
 	if err != nil {
@@ -1184,15 +1195,6 @@ func runMigrations(databaseURL, mode string, lockTimeout time.Duration) error {
 	if mode == "validate" {
 		slog.Info("migration mode is validate, skipping apply")
 		return nil
-	}
-
-	// Set lock timeout to prevent long DDL waits blocking other transactions.
-	if lockTimeout > 0 {
-		lockTimeoutMs := lockTimeout.Milliseconds()
-		if _, execErr := db.Exec(fmt.Sprintf("SET lock_timeout = '%dms'", lockTimeoutMs)); execErr != nil {
-			return fmt.Errorf("set lock_timeout: %w", execErr)
-		}
-		slog.Info("migration lock timeout set", "timeout_ms", lockTimeoutMs)
 	}
 
 	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {

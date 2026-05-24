@@ -8,9 +8,9 @@ export const EVENT_STATUS_STYLES: Record<
   string,
   { dot: string; label: string; badge: string }
 > = {
-  pending: {
+  waiting: {
     dot: "bg-info",
-    label: "Pending",
+    label: "Waiting",
     badge: "bg-info/10 text-info border-info/20",
   },
   received: {
@@ -18,15 +18,10 @@ export const EVENT_STATUS_STYLES: Record<
     label: "Received",
     badge: "bg-info/10 text-info border-info/20",
   },
-  expired: {
+  timed_out: {
     dot: "bg-warning",
-    label: "Expired",
+    label: "Timed Out",
     badge: "bg-warning/10 text-warning border-warning/20",
-  },
-  failed: {
-    dot: "bg-destructive",
-    label: "Failed",
-    badge: "bg-destructive/10 text-destructive border-destructive/20",
   },
   canceled: {
     dot: "bg-muted-foreground",

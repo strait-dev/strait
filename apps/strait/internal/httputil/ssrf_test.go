@@ -176,8 +176,11 @@ func TestSanitizeHTTPClientError_RemovesURLSecrets(t *testing.T) {
 		strings.Contains(got, "hooks.example.com") {
 		t.Fatalf("SanitizeHTTPClientError leaked URL data: %q", got)
 	}
-	if !strings.Contains(got, "Post") || !strings.Contains(got, "lookup failed") {
-		t.Fatalf("SanitizeHTTPClientError() = %q, want operation and root error", got)
+	if !strings.Contains(got, "Post") || !strings.Contains(got, "request failed") {
+		t.Fatalf("SanitizeHTTPClientError() = %q, want operation and generic error", got)
+	}
+	if strings.Contains(got, "lookup failed") {
+		t.Fatalf("SanitizeHTTPClientError leaked transport detail: %q", got)
 	}
 }
 
@@ -201,8 +204,11 @@ func TestSanitizeHTTPClientError_RemovesNestedURLSecrets(t *testing.T) {
 		strings.Contains(got, "internal.example.com") {
 		t.Fatalf("SanitizeHTTPClientError leaked nested URL data: %q", got)
 	}
-	if !strings.Contains(got, "Get") || !strings.Contains(got, "redirect blocked") {
-		t.Fatalf("SanitizeHTTPClientError() = %q, want nested operation and root error", got)
+	if !strings.Contains(got, "Get") || !strings.Contains(got, "request failed") {
+		t.Fatalf("SanitizeHTTPClientError() = %q, want nested operation and generic error", got)
+	}
+	if strings.Contains(got, "redirect blocked") {
+		t.Fatalf("SanitizeHTTPClientError leaked nested transport detail: %q", got)
 	}
 }
 
@@ -259,6 +265,9 @@ func TestValidateExternalURL_DNSLookupFailure(t *testing.T) {
 	if !strings.Contains(err.Error(), "DNS lookup failed") {
 		t.Fatalf("error %q does not mention DNS lookup failure", err)
 	}
+	if strings.Contains(err.Error(), "unknown.example.com") {
+		t.Fatalf("error leaked hostname: %q", err)
+	}
 }
 
 func TestSafeDialContext_BlocksPrivateResolvedAddresses(t *testing.T) {
@@ -274,6 +283,9 @@ func TestSafeDialContext_BlocksPrivateResolvedAddresses(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "resolves to private") {
 		t.Fatalf("error %q does not mention private DNS answer", err)
+	}
+	if strings.Contains(err.Error(), "internal.example.com") || strings.Contains(err.Error(), "10.0.0.5") {
+		t.Fatalf("error leaked resolved host detail: %q", err)
 	}
 }
 

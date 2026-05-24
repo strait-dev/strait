@@ -19,6 +19,61 @@ import (
 	"github.com/samber/lo"
 )
 
+type workflowStepRefHeap []string
+
+func (h *workflowStepRefHeap) init() {
+	for i := len(*h)/2 - 1; i >= 0; i-- {
+		h.siftDown(i)
+	}
+}
+
+func (h *workflowStepRefHeap) push(ref string) {
+	*h = append(*h, ref)
+	h.siftUp(len(*h) - 1)
+}
+
+func (h *workflowStepRefHeap) pop() string {
+	old := *h
+	n := len(old)
+	ref := old[0]
+	old[0] = old[n-1]
+	old[n-1] = ""
+	*h = old[:n-1]
+	h.siftDown(0)
+	return ref
+}
+
+func (h *workflowStepRefHeap) siftUp(i int) {
+	refs := *h
+	for i > 0 {
+		parent := (i - 1) / 2
+		if refs[parent] <= refs[i] {
+			return
+		}
+		refs[parent], refs[i] = refs[i], refs[parent]
+		i = parent
+	}
+}
+
+func (h *workflowStepRefHeap) siftDown(i int) {
+	refs := *h
+	for {
+		left := 2*i + 1
+		if left >= len(refs) {
+			return
+		}
+		child := left
+		if right := left + 1; right < len(refs) && refs[right] < refs[left] {
+			child = right
+		}
+		if refs[i] <= refs[child] {
+			return
+		}
+		refs[i], refs[child] = refs[child], refs[i]
+		i = child
+	}
+}
+
 type approveWorkflowStepRequest struct {
 	Approver string `json:"approver,omitempty"` // deprecated: ignored, approver is taken from auth context
 }
@@ -745,21 +800,20 @@ func estimateWorkflowCriticalPath(steps []domain.WorkflowStep, runByRef map[stri
 		}
 	}
 
-	queue := make([]string, 0, len(steps))
+	queue := make(workflowStepRefHeap, 0, len(steps))
 	for ref, degree := range indegree {
 		if degree == 0 {
 			queue = append(queue, ref)
 		}
 	}
-	sort.Strings(queue)
+	queue.init()
 
 	prev := make(map[string]string, len(steps))
 	longestByRef := make(map[string]int64, len(steps))
 	totalEstimateByRef := make(map[string]int64, len(steps))
 	remainingByRef := make(map[string]int64, len(steps))
 	for len(queue) > 0 {
-		ref := queue[0]
-		queue = queue[1:]
+		ref := queue.pop()
 
 		step := stepByRef[ref]
 		stepRun := runByRef[ref]
@@ -785,10 +839,9 @@ func estimateWorkflowCriticalPath(steps []domain.WorkflowStep, runByRef map[stri
 		for _, child := range children[ref] {
 			indegree[child]--
 			if indegree[child] == 0 {
-				queue = append(queue, child)
+				queue.push(child)
 			}
 		}
-		sort.Strings(queue)
 	}
 
 	pathEnd := ""
@@ -1020,7 +1073,12 @@ type GetWorkflowRunTimelineInput struct {
 }
 type GetWorkflowRunTimelineOutput struct{ Body domain.TimelineResponse }
 
-//nolint:gocognit,gocyclo,cyclop
+type workflowTimelineWindow struct {
+	start time.Time
+	end   time.Time
+	ref   string
+}
+
 func (s *Server) handleGetWorkflowRunTimeline(ctx context.Context, input *GetWorkflowRunTimelineInput) (*GetWorkflowRunTimelineOutput, error) {
 	run, err := s.store.GetWorkflowRun(ctx, input.WorkflowRunID)
 	if err != nil {
@@ -1038,6 +1096,11 @@ func (s *Server) handleGetWorkflowRunTimeline(ctx context.Context, input *GetWor
 		return nil, huma.Error500InternalServerError("failed to list step runs")
 	}
 
+	resp := buildWorkflowRunTimeline(run, stepRuns, time.Now())
+	return &GetWorkflowRunTimelineOutput{Body: resp}, nil
+}
+
+func buildWorkflowRunTimeline(run *domain.WorkflowRun, stepRuns []domain.WorkflowStepRun, now time.Time) domain.TimelineResponse {
 	// Sort by started_at ASC; steps without started_at go to the end.
 	sort.Slice(stepRuns, func(i, j int) bool {
 		if stepRuns[i].StartedAt == nil && stepRuns[j].StartedAt == nil {
@@ -1052,14 +1115,7 @@ func (s *Server) handleGetWorkflowRunTimeline(ctx context.Context, input *GetWor
 		return stepRuns[i].StartedAt.Before(*stepRuns[j].StartedAt)
 	})
 
-	// Detect parallelism by overlapping [started_at, finished_at] windows.
-	type window struct {
-		start time.Time
-		end   time.Time
-		ref   string
-	}
-	windows := make([]window, 0, len(stepRuns))
-	now := time.Now()
+	windows := make([]workflowTimelineWindow, 0, len(stepRuns))
 	for _, sr := range stepRuns {
 		if sr.StartedAt == nil {
 			continue
@@ -1068,78 +1124,20 @@ func (s *Server) handleGetWorkflowRunTimeline(ctx context.Context, input *GetWor
 		if sr.FinishedAt != nil {
 			end = *sr.FinishedAt
 		}
-		windows = append(windows, window{start: *sr.StartedAt, end: end, ref: sr.StepRef})
+		windows = append(windows, workflowTimelineWindow{start: *sr.StartedAt, end: end, ref: sr.StepRef})
 	}
-
-	parallelMap := make(map[string][]string, len(windows))
-	for i, a := range windows {
-		for j, b := range windows {
-			if i == j {
-				continue
-			}
-			// Two windows overlap if a.start < b.end AND b.start < a.end
-			if a.start.Before(b.end) && b.start.Before(a.end) {
-				parallelMap[a.ref] = append(parallelMap[a.ref], b.ref)
-			}
-		}
-	}
-
-	// Determine critical path: the step with the longest chain of sequential execution.
-	// We use a simple heuristic: the step(s) with the latest finish time are on the critical path,
-	// plus any step that is not parallel with another step that finishes later.
-	criticalRefs := make(map[string]bool)
-	if len(windows) > 0 {
-		// Find the latest finish time.
-		var latestEnd time.Time
-		for _, w := range windows {
-			if w.end.After(latestEnd) {
-				latestEnd = w.end
-			}
-		}
-		// Steps that finish at the latest time or have no parallel peers finishing later.
-		for _, w := range windows {
-			isOnCritical := true
-			for _, pRef := range parallelMap[w.ref] {
-				for _, w2 := range windows {
-					if w2.ref == pRef && w2.end.After(w.end) {
-						isOnCritical = false
-						break
-					}
-				}
-				if !isOnCritical {
-					break
-				}
-			}
-			if isOnCritical {
-				criticalRefs[w.ref] = true
-			}
-		}
-	}
+	parallelMap, criticalRefs := buildWorkflowTimelineRelationships(windows)
+	waitTracker := newWorkflowTimelineWaitTracker(stepRuns)
 
 	// Build timeline steps.
 	timelineSteps := make([]domain.TimelineStep, 0, len(stepRuns))
-	for i, sr := range stepRuns {
+	for _, sr := range stepRuns {
 		var durationMs int64
 		if sr.StartedAt != nil {
 			if sr.FinishedAt != nil {
 				durationMs = sr.FinishedAt.Sub(*sr.StartedAt).Milliseconds()
 			} else {
 				durationMs = now.Sub(*sr.StartedAt).Milliseconds()
-			}
-		}
-
-		// Calculate wait_ms: time between the previous step finishing and this step starting.
-		var waitMs int64
-		if sr.StartedAt != nil && i > 0 {
-			// Find the most recent finish time before this step started.
-			for k := i - 1; k >= 0; k-- {
-				if stepRuns[k].FinishedAt != nil {
-					gap := sr.StartedAt.Sub(*stepRuns[k].FinishedAt).Milliseconds()
-					if gap > 0 {
-						waitMs = gap
-					}
-					break
-				}
 			}
 		}
 
@@ -1152,7 +1150,7 @@ func (s *Server) handleGetWorkflowRunTimeline(ctx context.Context, input *GetWor
 			DurationMs:     durationMs,
 			ParallelWith:   parallelMap[sr.StepRef],
 			OnCriticalPath: criticalRefs[sr.StepRef],
-			WaitMs:         waitMs,
+			WaitMs:         waitTracker.waitBefore(sr.StartedAt),
 		}
 		timelineSteps = append(timelineSteps, ts)
 	}
@@ -1175,7 +1173,102 @@ func (s *Server) handleGetWorkflowRunTimeline(ctx context.Context, input *GetWor
 		Steps:         timelineSteps,
 	}
 
-	return &GetWorkflowRunTimelineOutput{Body: resp}, nil
+	return resp
+}
+
+func buildWorkflowTimelineRelationships(windows []workflowTimelineWindow) (map[string][]string, map[string]bool) {
+	parallelMap := make(map[string][]string, len(windows))
+	criticalRefs := make(map[string]bool, len(windows))
+	for _, w := range windows {
+		criticalRefs[w.ref] = true
+	}
+
+	activeCap := min(len(windows), 64)
+	active := make([]workflowTimelineWindow, 0, activeCap)
+	for i, a := range windows {
+		kept := active[:0]
+		for _, prior := range active {
+			if !prior.end.After(a.start) {
+				continue
+			}
+			kept = append(kept, prior)
+			parallelMap[a.ref] = append(parallelMap[a.ref], prior.ref)
+			if prior.end.After(a.end) {
+				criticalRefs[a.ref] = false
+			}
+			if a.end.After(prior.end) {
+				criticalRefs[prior.ref] = false
+			}
+		}
+		active = kept
+
+		for j := i + 1; j < len(windows) && windows[j].start.Before(a.end); j++ {
+			next := windows[j]
+			parallelMap[a.ref] = append(parallelMap[a.ref], next.ref)
+			if next.end.After(a.end) {
+				criticalRefs[a.ref] = false
+			}
+			if a.end.After(next.end) {
+				criticalRefs[next.ref] = false
+			}
+		}
+		active = append(active, a)
+	}
+	return parallelMap, criticalRefs
+}
+
+func buildWorkflowTimelineParallelMap(windows []workflowTimelineWindow) map[string][]string {
+	parallelMap := make(map[string][]string, len(windows))
+	for i, a := range windows {
+		for j, b := range windows {
+			if i == j {
+				continue
+			}
+			// Two windows overlap if a.start < b.end AND b.start < a.end.
+			if a.start.Before(b.end) && b.start.Before(a.end) {
+				parallelMap[a.ref] = append(parallelMap[a.ref], b.ref)
+			}
+		}
+	}
+	return parallelMap
+}
+
+type workflowTimelineWaitTracker struct {
+	finishedAt        []time.Time
+	finishIdx         int
+	mostRecentFinish  time.Time
+	hasFinishedBefore bool
+}
+
+func newWorkflowTimelineWaitTracker(stepRuns []domain.WorkflowStepRun) workflowTimelineWaitTracker {
+	finishedAt := make([]time.Time, 0, len(stepRuns))
+	for _, sr := range stepRuns {
+		if sr.FinishedAt != nil {
+			finishedAt = append(finishedAt, *sr.FinishedAt)
+		}
+	}
+	sort.Slice(finishedAt, func(i, j int) bool {
+		return finishedAt[i].Before(finishedAt[j])
+	})
+	return workflowTimelineWaitTracker{finishedAt: finishedAt}
+}
+
+func (t *workflowTimelineWaitTracker) waitBefore(startedAt *time.Time) int64 {
+	if startedAt == nil {
+		return 0
+	}
+	for t.finishIdx < len(t.finishedAt) && !t.finishedAt[t.finishIdx].After(*startedAt) {
+		t.mostRecentFinish = t.finishedAt[t.finishIdx]
+		t.hasFinishedBefore = true
+		t.finishIdx++
+	}
+	if !t.hasFinishedBefore {
+		return 0
+	}
+	if gap := startedAt.Sub(t.mostRecentFinish).Milliseconds(); gap > 0 {
+		return gap
+	}
+	return 0
 }
 
 type BulkCancelWorkflowRunsRequest struct {

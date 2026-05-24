@@ -146,6 +146,13 @@ func TestEnsureConsumer_AlreadyExists(t *testing.T) {
 	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Respond OK to the probe receive call.
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode receive body: %v", err)
+		}
+		if body["batch_size"] != float64(1) {
+			t.Fatalf("batch_size = %v, want 1", body["batch_size"])
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"data":[]}`))
 	}))
@@ -161,12 +168,19 @@ func TestEnsureConsumer_AlreadyExists(t *testing.T) {
 func TestEnsureConsumer_CreatesOnFailedProbe(t *testing.T) {
 	t.Parallel()
 	var callCount int
+	var receiveCount int
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
 		if strings.Contains(r.URL.Path, "/receive") {
-			// Fail the probe with a 404.
-			w.WriteHeader(http.StatusNotFound)
-			_, _ = w.Write([]byte("not found"))
+			receiveCount++
+			if receiveCount == 1 {
+				// Fail the probe with a 404.
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte("not found"))
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[]}`))
 			return
 		}
 		if strings.Contains(r.URL.Path, "/api/sinks") {
@@ -176,6 +190,9 @@ func TestEnsureConsumer_CreatesOnFailedProbe(t *testing.T) {
 			}
 			if body["name"] != "test-consumer" {
 				t.Fatalf("sink name = %v, want test-consumer", body["name"])
+			}
+			if body["database"] != "strait-db" {
+				t.Fatalf("database = %v, want strait-db", body["database"])
 			}
 			if r.Header.Get("Authorization") != "Bearer token" {
 				t.Fatalf("auth = %q, want Bearer token", r.Header.Get("Authorization"))
@@ -253,6 +270,37 @@ func TestDoRequest_NoPolicies(t *testing.T) {
 	}
 }
 
+func TestEnsureConsumer_DuplicateNameWaitsForConsumer(t *testing.T) {
+	t.Parallel()
+	var receiveCount int
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/receive") {
+			receiveCount++
+			if receiveCount == 1 {
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte("not found"))
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[]}`))
+			return
+		}
+		if strings.Contains(r.URL.Path, "/api/sinks") {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_, _ = w.Write([]byte(`{"validation_errors":{"name":["has already been taken"]}}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer ts.Close()
+
+	client := NewClient(ts.URL, "test-consumer", "token", WithRetryPolicy(nil), WithCircuitBreaker(nil))
+	err := client.EnsureConsumer(context.Background(), []string{"job_runs"})
+	if err != nil {
+		t.Fatalf("EnsureConsumer error: %v", err)
+	}
+}
+
 func TestDoRequest_NoAuthToken(t *testing.T) {
 	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -273,10 +321,17 @@ func TestDoRequest_NoAuthToken(t *testing.T) {
 
 func TestEnsureConsumer_NoAuthToken(t *testing.T) {
 	t.Parallel()
+	var receiveCount int
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "/receive") {
-			w.WriteHeader(http.StatusNotFound)
-			_, _ = w.Write([]byte("not found"))
+			receiveCount++
+			if receiveCount == 1 {
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte("not found"))
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[]}`))
 			return
 		}
 		if r.Header.Get("Authorization") != "" {

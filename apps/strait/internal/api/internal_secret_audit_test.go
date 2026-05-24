@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/go-chi/chi/v5"
 )
 
 // auditCapture is a tiny recorder for audit events produced via the API
@@ -49,6 +51,30 @@ func detailString(t *testing.T, ev *domain.AuditEvent, key string) string {
 	}
 	v, _ := details[key].(string)
 	return v
+}
+
+func requireBypassAudit(t *testing.T, cap *auditCapture, gate, handler, resourceType, resourceID string) {
+	t.Helper()
+	bypass := cap.findByAction(domain.AuditActionInternalSecretBypass)
+	if len(bypass) != 1 {
+		t.Fatalf("expected 1 bypass audit row; got %d (all=%d)", len(bypass), len(cap.events))
+	}
+	ev := bypass[0]
+	if got := detailString(t, ev, "gate"); got != gate {
+		t.Errorf("gate = %q, want %s", got, gate)
+	}
+	if got := detailString(t, ev, "handler"); got != handler {
+		t.Errorf("handler = %q, want %s", got, handler)
+	}
+	if got := ev.ResourceType; got != resourceType {
+		t.Errorf("resource_type = %q, want %s", got, resourceType)
+	}
+	if got := ev.ResourceID; got != resourceID {
+		t.Errorf("resource_id = %q, want %s", got, resourceID)
+	}
+	if got := detailString(t, ev, "caller"); got == "" {
+		t.Error("caller must be populated")
+	}
 }
 
 // TestBatchEnableJobs_InternalSecretBypass_EmitsAudit walks the documented
@@ -257,6 +283,211 @@ func TestCancelEventTrigger_InternalSecretBypass_EmitsAudit(t *testing.T) {
 	if got := detailString(t, bypass[0], "gate"); got != "cancel_event_trigger.project_match" {
 		t.Errorf("gate = %q", got)
 	}
+}
+
+func TestTriggerJob_InternalSecretBypass_EmitsAudit(t *testing.T) {
+	t.Parallel()
+
+	cap := &auditCapture{}
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
+		},
+		CreateAuditEventFunc: cap.record,
+	}
+	ms.AreJobDependenciesSatisfiedFunc = func(_ context.Context, _ *domain.JobRun) (bool, error) { return true, nil }
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201; got %d: %s", w.Code, w.Body.String())
+	}
+	requireBypassAudit(t, cap, "trigger_job.project_match", "handleTriggerJob", "job", "job-123")
+}
+
+func TestSetJobEndpoint_InternalSecretBypass_EmitsAudit(t *testing.T) {
+	t.Parallel()
+
+	cap := &auditCapture{}
+	job := &domain.Job{
+		ID:          "job-endpoint",
+		ProjectID:   "proj-1",
+		EndpointURL: "https://example.com/hook",
+	}
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, _ string) (*domain.Job, error) {
+			return job, nil
+		},
+		UpdateJobEndpointFunc: func(context.Context, string, string, string, string) error {
+			return nil
+		},
+		CreateAuditEventFunc: cap.record,
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	ctx := context.WithValue(context.Background(), ctxInternalCallerKey, true)
+	_, err := srv.handleSetJobEndpoint(ctx, &SetJobEndpointInput{
+		JobID: job.ID,
+		Body:  SetJobEndpointRequest{EndpointURL: job.EndpointURL},
+	})
+	if err != nil {
+		t.Fatalf("handleSetJobEndpoint: %v", err)
+	}
+	requireBypassAudit(t, cap, "set_job_endpoint.project_match", "handleSetJobEndpoint", "job", job.ID)
+}
+
+func TestVerifyJobEndpoint_InternalSecretBypass_EmitsAudit(t *testing.T) {
+	t.Parallel()
+
+	cap := &auditCapture{}
+	job := &domain.Job{ID: "job-verify", ProjectID: "proj-1"}
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, _ string) (*domain.Job, error) {
+			return job, nil
+		},
+		CreateAuditEventFunc: cap.record,
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	ctx := context.WithValue(context.Background(), ctxInternalCallerKey, true)
+	if _, err := srv.handleVerifyJobEndpoint(ctx, &VerifyJobEndpointInput{JobID: job.ID}); err == nil {
+		t.Fatal("expected missing endpoint error")
+	}
+	requireBypassAudit(t, cap, "verify_job_endpoint.project_match", "handleVerifyJobEndpoint", "job", job.ID)
+}
+
+func TestEventTriggerStream_InternalSecretBypass_EmitsAudit(t *testing.T) {
+	t.Parallel()
+
+	trigger := &domain.EventTrigger{
+		ID:         "trig-stream",
+		ProjectID:  "proj-1",
+		EventKey:   "evt.stream",
+		Status:     domain.EventTriggerStatusReceived,
+		SourceType: "manual",
+	}
+	cap := &auditCapture{}
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+			return trigger, nil
+		},
+		CreateAuditEventFunc: cap.record,
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	r := authedRequest(http.MethodGet, "/v1/events/evt.stream/stream/", "")
+	routeCtx := chi.NewRouteContext()
+	routeCtx.URLParams.Add("eventKey", trigger.EventKey)
+	ctx := context.WithValue(r.Context(), ctxInternalCallerKey, true)
+	ctx = context.WithValue(ctx, chi.RouteCtxKey, routeCtx)
+	r = r.WithContext(ctx)
+	w := httptest.NewRecorder()
+	srv.handleEventTriggerStream(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200; got %d: %s", w.Code, w.Body.String())
+	}
+	requireBypassAudit(t, cap, "event_trigger_stream.project_match", "handleEventTriggerStream", "event_trigger", trigger.ID)
+}
+
+func TestStreamSSE_InternalSecretBypass_EmitsAudit(t *testing.T) {
+	t.Parallel()
+
+	cap := &auditCapture{}
+	run := &domain.JobRun{ID: "run-stream", JobID: "job-1", ProjectID: "proj-1", Status: domain.StatusCompleted}
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, _ string) (*domain.JobRun, error) {
+			return run, nil
+		},
+		CreateAuditEventFunc: cap.record,
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	r := authedRequest(http.MethodGet, "/v1/runs/run-stream/stream/", "")
+	routeCtx := chi.NewRouteContext()
+	routeCtx.URLParams.Add("runID", run.ID)
+	ctx := context.WithValue(r.Context(), ctxInternalCallerKey, true)
+	ctx = context.WithValue(ctx, chi.RouteCtxKey, routeCtx)
+	r = r.WithContext(ctx)
+	w := httptest.NewRecorder()
+	srv.streamSSE(w, r, sseStreamOptions{channel: "run:%s", rejectIfTerminal: true})
+
+	if w.Code != http.StatusGone {
+		t.Fatalf("expected 410; got %d: %s", w.Code, w.Body.String())
+	}
+	requireBypassAudit(t, cap, "stream_sse.project_match", "streamSSE", "run", run.ID)
+}
+
+func TestCreateWebhookSubscription_InternalSecretBypass_EmitsAudit(t *testing.T) {
+	t.Parallel()
+
+	cap := &auditCapture{}
+	ms := &APIStoreMock{
+		CreateWebhookSubscriptionFunc: func(_ context.Context, sub *domain.WebhookSubscription) error {
+			sub.ID = "sub-create"
+			return nil
+		},
+		CreateAuditEventFunc: cap.record,
+	}
+	srv := newTestServerWithEncryptor(t, ms, &mockQueue{}, &mockEncryptor{})
+
+	ctx := context.WithValue(context.Background(), ctxInternalCallerKey, true)
+	_, err := srv.handleCreateWebhookSubscription(ctx, &CreateWebhookSubscriptionInput{Body: CreateWebhookSubscriptionRequest{
+		ProjectID:  "proj-1",
+		WebhookURL: "https://example.com/hook",
+		EventTypes: []string{domain.WebhookEventRunCompleted},
+	}})
+	if err != nil {
+		t.Fatalf("handleCreateWebhookSubscription: %v", err)
+	}
+	requireBypassAudit(t, cap, "create_webhook_subscription.project_match", "handleCreateWebhookSubscription", "project", "proj-1")
+}
+
+func TestDeleteWebhookSubscription_InternalSecretBypass_EmitsAudit(t *testing.T) {
+	t.Parallel()
+
+	cap := &auditCapture{}
+	ms := &APIStoreMock{
+		GetWebhookSubscriptionFunc: func(_ context.Context, _ string) (*domain.WebhookSubscription, error) {
+			return &domain.WebhookSubscription{
+				ID:         "sub-delete",
+				ProjectID:  "proj-1",
+				WebhookURL: "https://example.com/hook",
+				EventTypes: []string{domain.WebhookEventRunFailed},
+			}, nil
+		},
+		DeleteWebhookSubscriptionFunc: func(context.Context, string) error { return nil },
+		CreateAuditEventFunc:          cap.record,
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	ctx := context.WithValue(context.Background(), ctxInternalCallerKey, true)
+	if _, err := srv.handleDeleteWebhookSubscription(ctx, &DeleteWebhookSubscriptionInput{ID: "sub-delete"}); err != nil {
+		t.Fatalf("handleDeleteWebhookSubscription: %v", err)
+	}
+	requireBypassAudit(t, cap, "delete_webhook_subscription.project_match", "handleDeleteWebhookSubscription", "webhook_subscription", "sub-delete")
+}
+
+func TestRotateWebhookSecret_InternalSecretBypass_EmitsAudit(t *testing.T) {
+	t.Parallel()
+
+	cap := &auditCapture{}
+	ms := &APIStoreMock{
+		GetWebhookSubscriptionFunc: func(_ context.Context, _ string) (*domain.WebhookSubscription, error) {
+			return &domain.WebhookSubscription{ID: "sub-rotate", ProjectID: "proj-1"}, nil
+		},
+		RotateWebhookSecretFunc: func(context.Context, string, string, time.Time) error { return nil },
+		CreateAuditEventFunc:    cap.record,
+	}
+	srv := newTestServerWithEncryptor(t, ms, &mockQueue{}, &mockEncryptor{})
+
+	ctx := context.WithValue(context.Background(), ctxInternalCallerKey, true)
+	if _, err := srv.handleRotateWebhookSecret(ctx, &RotateWebhookSecretInput{ID: "sub-rotate"}); err != nil {
+		t.Fatalf("handleRotateWebhookSecret: %v", err)
+	}
+	requireBypassAudit(t, cap, "rotate_webhook_secret.project_match", "handleRotateWebhookSecret", "webhook_subscription", "sub-rotate")
 }
 
 // TestBypassCallerLabel_NoPrincipal pins the leaked-internal-secret

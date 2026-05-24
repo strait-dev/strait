@@ -50,6 +50,7 @@ func (s *Server) handleEventTriggerStream(w http.ResponseWriter, r *http.Request
 		respondError(w, r, http.StatusNotFound, "event trigger not found")
 		return
 	}
+	s.emitInternalSecretBypassAuditIfProjectless(r.Context(), "event_trigger_stream.project_match", "handleEventTriggerStream", "event_trigger", trigger.ID)
 
 	// If already terminal, return the final state as a single SSE message.
 	if trigger.Status != domain.EventTriggerStatusWaiting {

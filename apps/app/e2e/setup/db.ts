@@ -157,7 +157,33 @@ async function syncProjectToApi(
         name: "Default Project",
       }),
     });
-    return res.ok || res.status === 409;
+    if (res.ok || res.status === 409) {
+      return true;
+    }
+
+    if (res.status === 402) {
+      return await projectExists(projectId, apiURL, internalSecret);
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+async function projectExists(
+  projectId: string,
+  apiURL: string,
+  internalSecret: string
+) {
+  try {
+    const res = await fetch(`${apiURL}/v1/projects/${projectId}`, {
+      headers: {
+        "X-Internal-Secret": internalSecret,
+        "X-Project-Id": projectId,
+      },
+    });
+    return res.ok;
   } catch {
     return false;
   }

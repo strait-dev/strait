@@ -19,7 +19,6 @@ import {
   LineChart,
   Pie,
   PieChart,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
@@ -31,6 +30,7 @@ import { capitalize, formatMicroUsd } from "@/lib/format";
 import { CHART_COLORS } from "@/lib/status-colors";
 import { getCustomerPortalUrlServerFn } from "@/lib/subscription";
 import ChartTooltip from "../dashboard/chart-tooltip";
+import ResponsiveChartContainer from "../dashboard/responsive-chart-container";
 import OverageWarningBanner from "./overage-warning-banner";
 import RadialUsageGauge from "./radial-usage-gauge";
 
@@ -249,7 +249,7 @@ const UsageDashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="h-[200px]">
-              <ResponsiveContainer
+              <ResponsiveChartContainer
                 height="100%"
                 minHeight={1}
                 minWidth={1}
@@ -283,7 +283,7 @@ const UsageDashboard = () => {
                     type="monotone"
                   />
                 </LineChart>
-              </ResponsiveContainer>
+              </ResponsiveChartContainer>
             </div>
           </CardContent>
         </Card>
@@ -301,7 +301,7 @@ const UsageDashboard = () => {
             </CardHeader>
             <CardContent>
               <div className="relative h-[200px]">
-                <ResponsiveContainer
+                <ResponsiveChartContainer
                   height="100%"
                   minHeight={1}
                   minWidth={1}
@@ -322,7 +322,7 @@ const UsageDashboard = () => {
                       content={<ChartTooltip labelMap={COST_DONUT_LABEL_MAP} />}
                     />
                   </PieChart>
-                </ResponsiveContainer>
+                </ResponsiveChartContainer>
                 <div className="absolute inset-0 flex flex-col items-center justify-center">
                   <span className="font-medium text-foreground text-lg tabular-nums">
                     {formatMicroUsd(totalCost)}
@@ -371,7 +371,7 @@ const UsageDashboard = () => {
                   height: `${Math.max(200, topProjects.length * 36)}px`,
                 }}
               >
-                <ResponsiveContainer
+                <ResponsiveChartContainer
                   height="100%"
                   minHeight={1}
                   minWidth={1}
@@ -407,7 +407,7 @@ const UsageDashboard = () => {
                       radius={[0, 4, 4, 0]}
                     />
                   </BarChart>
-                </ResponsiveContainer>
+                </ResponsiveChartContainer>
               </div>
             </CardContent>
           </Card>

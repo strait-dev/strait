@@ -4,9 +4,10 @@ import (
 	"testing"
 
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
+	"strait/internal/store"
 )
 
-func TestConnectedWorkerIDs_IncludesAllConnectedWorkers(t *testing.T) {
+func TestConnectedWorkerRefs_IncludesAllConnectedWorkers(t *testing.T) {
 	registry := NewConnectionRegistry()
 	active := &ConnectedWorker{
 		WorkerID:       "worker-active",
@@ -37,15 +38,16 @@ func TestConnectedWorkerIDs_IncludesAllConnectedWorkers(t *testing.T) {
 		t.Fatalf("register draining: %v", err)
 	}
 
-	ids := connectedWorkerIDs(registry)
-	if len(ids) != 2 {
-		t.Fatalf("connectedWorkerIDs = %#v, want two connected workers", ids)
+	refs := connectedWorkerRefs(registry)
+	if len(refs) != 2 {
+		t.Fatalf("connectedWorkerRefs = %#v, want two connected workers", refs)
 	}
-	got := map[string]bool{}
-	for _, id := range ids {
-		got[id] = true
+	got := map[store.ActiveWorkerRef]bool{}
+	for _, ref := range refs {
+		got[ref] = true
 	}
-	if !got["worker-active"] || !got["worker-draining"] {
-		t.Fatalf("connectedWorkerIDs = %#v, want active and draining workers", ids)
+	if !got[store.ActiveWorkerRef{WorkerID: "worker-active", ProjectID: "project-1"}] ||
+		!got[store.ActiveWorkerRef{WorkerID: "worker-draining", ProjectID: "project-1"}] {
+		t.Fatalf("connectedWorkerRefs = %#v, want active and draining workers", refs)
 	}
 }

@@ -17,7 +17,7 @@ const ExpandedEventDetail = ({
   }
 
   const style =
-    EVENT_STATUS_STYLES[event.status] ?? EVENT_STATUS_STYLES.pending;
+    EVENT_STATUS_STYLES[event.status] ?? EVENT_STATUS_STYLES.waiting;
 
   return (
     <div className="rounded-lg border bg-card p-4">

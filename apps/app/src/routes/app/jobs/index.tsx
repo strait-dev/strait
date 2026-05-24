@@ -18,7 +18,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { zodValidator } from "@tanstack/zod-adapter";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { z } from "zod/v4";
 
 import ErrorComponent from "@/components/common/error-component";
@@ -49,9 +49,14 @@ import {
 import { ENABLED_STATUS_OPTIONS } from "@/lib/status";
 import type { AppRouteContext } from "@/routes/app/layout";
 
+const searchArraySchema = z.preprocess(
+  (value) => (typeof value === "string" ? [value] : value),
+  z.array(z.string()).optional()
+);
+
 export const searchSchema = z.object({
   query: z.string().optional(),
-  status: z.array(z.string()).optional(),
+  status: searchArraySchema,
   cursor: z.string().optional(),
   perPage: z.number().optional(),
 });
@@ -62,14 +67,21 @@ export const Route = createFileRoute("/app/jobs/")({
   loaderDeps: ({ search }) => ({
     limit: search.perPage ?? 20,
     cursor: search.cursor,
+    query: search.query,
   }),
-  loader: async ({ context, deps }) => {
+  loader: ({ context, deps }) => {
     const { session } = context as AppRouteContext;
     const hasProject = !!session.user.activeProjectId;
     if (hasProject) {
-      await context.queryClient.ensureQueryData(
-        jobsQueryOptions({ limit: deps.limit, cursor: deps.cursor })
-      );
+      context.queryClient
+        .prefetchQuery(
+          jobsQueryOptions({
+            limit: deps.limit,
+            cursor: deps.cursor,
+            search: deps.query,
+          })
+        )
+        .catch(() => undefined);
     }
     return { hasProject, session };
   },
@@ -96,11 +108,17 @@ function JobsPage() {
   const triggerJob = useTriggerJob();
   const pauseJob = usePauseJob();
   const resumeJob = useResumeJob();
+  const [query, setQuery] = useState(search.query ?? "");
+
+  useEffect(() => {
+    setQuery(search.query ?? "");
+  }, [search.query]);
 
   const { data } = useQuery({
     ...jobsQueryOptions({
       limit: pagination.perPage,
       cursor: pagination.cursor,
+      search: search.query,
     }),
     enabled: hasProject,
   });
@@ -110,7 +128,15 @@ function JobsPage() {
   const typed = data as PaginatedResponse<Job> | undefined;
 
   const filteredData = useMemo(() => {
-    const jobs = hasProject ? (typed?.data ?? []) : [];
+    let jobs = hasProject ? (typed?.data ?? []) : [];
+    const normalizedQuery = query.trim().toLowerCase();
+    if (normalizedQuery) {
+      jobs = jobs.filter((job: Job) =>
+        [job.name, job.slug, job.description]
+          .filter(Boolean)
+          .some((value) => value?.toLowerCase().includes(normalizedQuery))
+      );
+    }
     if (selectedStatuses.length === 0) {
       return jobs;
     }
@@ -123,7 +149,7 @@ function JobsPage() {
       }
       return false;
     });
-  }, [typed, selectedStatuses, hasProject]);
+  }, [typed, selectedStatuses, hasProject, query]);
 
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
 
@@ -216,17 +242,19 @@ function JobsPage() {
           <Input
             aria-label="Search"
             className="pl-9"
-            onChange={(e) =>
+            onChange={(e) => {
+              const nextQuery = e.target.value;
+              setQuery(nextQuery);
               navigate({
                 search: (prev) => ({
                   ...prev,
-                  query: e.target.value || undefined,
+                  query: nextQuery || undefined,
                   cursor: undefined,
                 }),
-              })
-            }
+              });
+            }}
             placeholder="Search jobs..."
-            value={search.query ?? ""}
+            value={query}
           />
         </div>
 

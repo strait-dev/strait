@@ -193,7 +193,7 @@ function LogsPage() {
           <DropdownMenuContent align="end" className="w-36">
             {EVENT_STATUSES.map((status) => {
               const style =
-                EVENT_STATUS_STYLES[status] ?? EVENT_STATUS_STYLES.pending;
+                EVENT_STATUS_STYLES[status] ?? EVENT_STATUS_STYLES.waiting;
               return (
                 <DropdownMenuCheckboxItem
                   checked={selectedStatuses.includes(status)}

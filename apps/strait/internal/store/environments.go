@@ -346,6 +346,13 @@ func (q *Queries) prepareEnvironmentVariables(envID string, variables map[string
 
 func (q *Queries) decryptEnvironmentVariables(envID string, variablesRaw, variablesEncrypted []byte) ([]byte, error) {
 	if len(variablesEncrypted) == 0 {
+		variables, err := unmarshalEnvironmentVariables(variablesRaw)
+		if err != nil {
+			return nil, fmt.Errorf("inspect legacy environment variables for %s: %w", envID, err)
+		}
+		if len(variables) > 0 {
+			return nil, fmt.Errorf("decrypt environment variables for %s: legacy plaintext variables are not readable: %w", envID, ErrEnvironmentVariableEncryptionRequired)
+		}
 		return variablesRaw, nil
 	}
 	if q.secretEncryptionKey == "" {

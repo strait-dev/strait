@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ type mockBatchStore struct {
 	drainedItems      []domain.BatchBufferItem
 	deletedItems      []string
 	jobs              map[string]*domain.Job
+	getJobCalls       atomic.Int32
 	tryAdvisoryLockFn func(ctx context.Context, lockID int64) (bool, error)
 }
 
@@ -37,6 +39,7 @@ func (m *mockBatchStore) DeleteBatchBufferItems(_ context.Context, ids []string)
 }
 
 func (m *mockBatchStore) GetJob(_ context.Context, id string) (*domain.Job, error) {
+	m.getJobCalls.Add(1)
 	if m.jobs != nil {
 		if job, ok := m.jobs[id]; ok {
 			return job, nil
@@ -398,5 +401,31 @@ func TestBatchFlusher_EmptyDrain(t *testing.T) {
 
 	if len(enqueued) != 0 {
 		t.Fatal("expected no runs when drain returns empty")
+	}
+}
+
+func TestBatchFlusher_CachesJobLookupWithinPoll(t *testing.T) {
+	t.Parallel()
+
+	bs := &mockBatchStore{
+		flushable: []store.FlushableBatch{
+			{JobID: "job-1", ProjectID: "proj-1", BatchKey: "a", ItemCount: 1},
+			{JobID: "job-1", ProjectID: "proj-1", BatchKey: "b", ItemCount: 1},
+			{JobID: "job-1", ProjectID: "proj-1", BatchKey: "c", ItemCount: 1},
+		},
+		drainedItems: []domain.BatchBufferItem{
+			{ID: "i1", JobID: "job-1", ProjectID: "proj-1", Payload: json.RawMessage(`{"a":1}`), Priority: 1},
+		},
+		jobs: map[string]*domain.Job{
+			"job-1": {ID: "job-1", ProjectID: "proj-1", Enabled: true, TimeoutSecs: 30, BatchMaxSize: 1},
+		},
+	}
+	q := &mockQueue{enqueueFn: func(context.Context, *domain.JobRun) error { return nil }}
+	flusher := NewBatchFlusher(bs, q, time.Second)
+
+	flusher.poll(context.Background())
+
+	if got := bs.getJobCalls.Load(); got != 1 {
+		t.Fatalf("GetJob calls = %d, want 1 for repeated batches on same job", got)
 	}
 }

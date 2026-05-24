@@ -198,6 +198,9 @@ func TestCancelRemainingSteps(t *testing.T) {
 func TestCheckWorkflowCompletion_AllCompleted(t *testing.T) {
 	t.Parallel()
 	wfStatus := domain.WfStatusRunning
+	var hookRunID string
+	var hookFrom domain.WorkflowRunStatus
+	var hookTo domain.WorkflowRunStatus
 	ms := &mockCallbackStore{
 		listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 			return []domain.WorkflowStepRun{
@@ -220,7 +223,11 @@ func TestCheckWorkflowCompletion_AllCompleted(t *testing.T) {
 		},
 	}
 
-	cb := newTestCallback(ms)
+	cb := newTestCallback(ms).WithStatusHook(func(_ context.Context, run *domain.WorkflowRun, from, to domain.WorkflowRunStatus, _ string) {
+		hookRunID = run.ID
+		hookFrom = from
+		hookTo = to
+	})
 	wc := testWfCtx(
 		&domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning},
 		[]domain.WorkflowStep{{StepRef: "s1"}, {StepRef: "s2"}},
@@ -230,6 +237,9 @@ func TestCheckWorkflowCompletion_AllCompleted(t *testing.T) {
 	}
 	if wfStatus != domain.WfStatusCompleted {
 		t.Fatalf("expected workflow completed, got %s", wfStatus)
+	}
+	if hookRunID != "wr-1" || hookFrom != domain.WfStatusRunning || hookTo != domain.WfStatusCompleted {
+		t.Fatalf("status hook = (%q, %s, %s), want wr-1 running completed", hookRunID, hookFrom, hookTo)
 	}
 }
 

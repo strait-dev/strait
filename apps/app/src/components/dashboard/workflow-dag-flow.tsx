@@ -13,7 +13,7 @@ import {
 } from "@xyflow/react";
 import FeatureBadge from "@/components/billing/feature-badge";
 import "@xyflow/react/dist/style.css";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import type { StepRunStatus, WorkflowStepType } from "@/hooks/api/types";
 
 type WorkflowDAGFlowProps = {
@@ -244,8 +244,13 @@ const WorkflowDAGFlow = ({ steps }: WorkflowDAGFlowProps) => {
     return { initialNodes: nodes, initialEdges: edges };
   }, [steps]);
 
-  const [nodes, , onNodesChange] = useNodesState(initialNodes);
-  const [edges, , onEdgesChange] = useEdgesState(initialEdges);
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+
+  useEffect(() => {
+    setNodes(initialNodes);
+    setEdges(initialEdges);
+  }, [initialNodes, initialEdges, setNodes, setEdges]);
 
   if (steps.length === 0) {
     return (

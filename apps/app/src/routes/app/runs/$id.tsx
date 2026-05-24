@@ -31,7 +31,7 @@ import {
   TabsTrigger,
 } from "@strait/ui/components/tabs";
 import { cn } from "@strait/ui/utils/index";
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
@@ -63,10 +63,10 @@ import {
 export const Route = createFileRoute("/app/runs/$id")({
   head: () => ({ meta: [{ title: "Run details · Strait" }] }),
   loader: async ({ context, params }) => {
-    await Promise.all([
-      context.queryClient.ensureQueryData(runQueryOptions(params.id)),
-      context.queryClient.ensureQueryData(runEventsQueryOptions(params.id)),
-    ]);
+    await context.queryClient.ensureQueryData(runQueryOptions(params.id));
+    await context.queryClient
+      .prefetchQuery(runEventsQueryOptions(params.id))
+      .catch(() => undefined);
   },
   pendingComponent: DetailPageSkeleton,
   errorComponent: ErrorComponent,
@@ -103,8 +103,17 @@ function RunDetailPage() {
   const { data: run } = useSuspenseQuery(runQueryOptions(id)) as {
     data: JobRun | undefined;
   };
-  const { data: eventsData } = useSuspenseQuery(runEventsQueryOptions(id)) as {
+  const {
+    data: eventsData,
+    isError: eventsError,
+    isLoading: eventsLoading,
+  } = useQuery({
+    ...runEventsQueryOptions(id),
+    throwOnError: false,
+  }) as {
     data: PaginatedResponse<RunEvent> | undefined;
+    isError: boolean;
+    isLoading: boolean;
   };
   const events = eventsData?.data ?? [];
   const [activeTab, setActiveTab] = useState("logs");
@@ -306,7 +315,11 @@ function RunDetailPage() {
         </div>
 
         <TabsContent className="mt-6" value="logs">
-          <LogViewer events={filteredEvents} />
+          <LogViewer
+            events={filteredEvents}
+            isError={eventsError}
+            isLoading={eventsLoading}
+          />
         </TabsContent>
 
         <TabsContent className="mt-6" value="payload">
@@ -331,6 +344,10 @@ type TimelineStep = {
   label: string;
   at: string | null | undefined;
 };
+
+function formatTimelineTimestamp(value: string) {
+  return `${new Date(value).toISOString().replace("T", " ").slice(0, 19)} UTC`;
+}
 
 function Timeline({ run }: { run: JobRun }) {
   const steps: TimelineStep[] = [
@@ -367,7 +384,7 @@ function Timeline({ run }: { run: JobRun }) {
                 </span>
               </div>
               <span className="pl-4 font-mono text-muted-foreground text-xs">
-                {s.at ? new Date(s.at).toLocaleString() : "—"}
+                {s.at ? formatTimelineTimestamp(s.at) : "—"}
               </span>
               {i < steps.length - 1 && (
                 <span
@@ -410,11 +427,30 @@ function Timeline({ run }: { run: JobRun }) {
   );
 }
 
-function LogViewer({ events }: { events: RunEvent[] }) {
+function LogViewer({
+  events,
+  isError,
+  isLoading,
+}: {
+  events: RunEvent[];
+  isError: boolean;
+  isLoading: boolean;
+}) {
+  if (isError) {
+    return (
+      <div
+        className="rounded-lg bg-muted p-6 text-center text-muted-foreground text-sm"
+        role="status"
+      >
+        Log events are unavailable right now.
+      </div>
+    );
+  }
+
   if (events.length === 0) {
     return (
       <div className="rounded-lg bg-muted p-6 text-center text-muted-foreground text-sm">
-        No log events for this run.
+        {isLoading ? "Loading log events..." : "No log events for this run."}
       </div>
     );
   }

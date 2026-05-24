@@ -318,7 +318,8 @@ func TestIntegration_DeepSecRecoverStaleWorkerTasksExcept_SkipsConnectedWorker(t
 		t.Fatalf("CreateWorkerTask: %v", err)
 	}
 
-	count, err := q.RecoverStaleWorkerTasksExcept(ctx, time.Now().Add(-5*time.Minute), "stale worker heartbeat", []string{workerID})
+	activeWorkers := []store.ActiveWorkerRef{{WorkerID: workerID, ProjectID: projectID}}
+	count, err := q.RecoverStaleWorkerTasksExceptRefs(ctx, time.Now().Add(-5*time.Minute), "stale worker heartbeat", activeWorkers)
 	if err != nil {
 		t.Fatalf("RecoverStaleWorkerTasksExcept: %v", err)
 	}
@@ -340,7 +341,7 @@ func TestIntegration_DeepSecRecoverStaleWorkerTasksExcept_SkipsConnectedWorker(t
 		t.Fatalf("worker task status = %q, want assigned for connected worker", gotTask.Status)
 	}
 
-	evicted, err := q.EvictStaleWorkersExcept(ctx, time.Now().Add(-5*time.Minute), []string{workerID})
+	evicted, err := q.EvictStaleWorkersExceptRefs(ctx, time.Now().Add(-5*time.Minute), activeWorkers)
 	if err != nil {
 		t.Fatalf("EvictStaleWorkersExcept: %v", err)
 	}
@@ -353,6 +354,96 @@ func TestIntegration_DeepSecRecoverStaleWorkerTasksExcept_SkipsConnectedWorker(t
 	}
 	if worker.Status != domain.WorkerStatusActive {
 		t.Fatalf("worker status = %q, want active", worker.Status)
+	}
+}
+
+func TestIntegration_RecoverStaleWorkerTasksExceptRefs_DoesNotCrossTenantByWorkerID(t *testing.T) {
+	ctx := context.Background()
+	env, err := testutil.SetupTestEnv(ctx, "../../migrations")
+	if err != nil {
+		t.Fatalf("setup test env: %v", err)
+	}
+	t.Cleanup(func() { env.Cleanup(ctx) })
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+
+	q := store.New(env.DB.Pool)
+	workerID := "shared-worker-id"
+	projectA := "proj-worker-active"
+	projectB := "proj-worker-stale"
+	for _, projectID := range []string{projectA, projectB} {
+		if err := q.CreateProject(ctx, &domain.Project{ID: projectID, OrgID: "org-" + projectID, Name: projectID}); err != nil {
+			t.Fatalf("CreateProject(%s): %v", projectID, err)
+		}
+		if err := q.RegisterWorker(ctx, &domain.Worker{
+			ID:        workerID,
+			ProjectID: projectID,
+			QueueName: "default",
+			Hostname:  "host",
+			Version:   "1.0",
+			Status:    domain.WorkerStatusActive,
+		}); err != nil {
+			t.Fatalf("RegisterWorker(%s): %v", projectID, err)
+		}
+	}
+	if _, err := env.DB.Pool.Exec(ctx, `UPDATE workers SET last_seen_at = NOW() - INTERVAL '1 hour' WHERE id = $1`, workerID); err != nil {
+		t.Fatalf("age workers: %v", err)
+	}
+
+	jobB := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: &projectB})
+	executing := domain.StatusExecuting
+	runB := testutil.BuildRun(jobB, &testutil.RunOpts{ID: new("run-cross-tenant-stale-worker"), Status: &executing})
+	runB.ExecutionMode = domain.ExecutionModeWorker
+	if err := q.CreateRun(ctx, runB); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	if err := q.CreateWorkerTask(ctx, &domain.WorkerTask{
+		ID:        "task-cross-tenant-stale-worker",
+		WorkerID:  workerID,
+		RunID:     runB.ID,
+		ProjectID: projectB,
+		Status:    domain.WorkerTaskStatusAssigned,
+	}); err != nil {
+		t.Fatalf("CreateWorkerTask: %v", err)
+	}
+
+	activeProjectA := []store.ActiveWorkerRef{{WorkerID: workerID, ProjectID: projectA}}
+	count, err := q.RecoverStaleWorkerTasksExceptRefs(ctx, time.Now().Add(-5*time.Minute), "stale worker heartbeat", activeProjectA)
+	if err != nil {
+		t.Fatalf("RecoverStaleWorkerTasksExceptRefs: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("recovered count = %d, want 1 for stale same-id worker in another project", count)
+	}
+	gotRun, err := q.GetRun(ctx, runB.ID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if gotRun.Status != domain.StatusQueued {
+		t.Fatalf("run status = %q, want queued", gotRun.Status)
+	}
+
+	evicted, err := q.EvictStaleWorkersExceptRefs(ctx, time.Now().Add(-5*time.Minute), activeProjectA)
+	if err != nil {
+		t.Fatalf("EvictStaleWorkersExceptRefs: %v", err)
+	}
+	if evicted != 1 {
+		t.Fatalf("evicted = %d, want only stale worker from project B", evicted)
+	}
+	workerA, err := q.GetWorker(ctx, workerID, projectA)
+	if err != nil {
+		t.Fatalf("GetWorker(projectA): %v", err)
+	}
+	if workerA.Status != domain.WorkerStatusActive {
+		t.Fatalf("project A worker status = %q, want active", workerA.Status)
+	}
+	workerB, err := q.GetWorker(ctx, workerID, projectB)
+	if err != nil {
+		t.Fatalf("GetWorker(projectB): %v", err)
+	}
+	if workerB.Status != domain.WorkerStatusOffline {
+		t.Fatalf("project B worker status = %q, want offline", workerB.Status)
 	}
 }
 

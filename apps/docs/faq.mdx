@@ -10,8 +10,8 @@ Questions about pricing and plans live in the [Billing FAQ](/billing/faq). This 
   <Accordion title="Does Strait run my job code?">
     No. Your code runs on your own infrastructure. Strait orchestrates the work and reaches your code in one of two ways: it POSTs to an HTTP endpoint you expose, or it streams runs to a long-lived worker process that connects over gRPC. See [Execution Modes](/concepts/execution-modes).
   </Accordion>
-  <Accordion title="Do I need Redis?">
-    PostgreSQL is the only hard requirement. Strait starts without Redis, but live run updates, SSE streaming, and the gRPC worker plane all depend on it, so those features stop working. Run with Redis unless you have a specific reason not to. See [Self-Hosting](/guides/self-hosting).
+  <Accordion title="What infrastructure does Strait require?">
+    Strait requires PostgreSQL, Redis, and Sequin. PostgreSQL is the source of truth and queue, Redis powers rate limiting and the worker transport plane, and Sequin streams database changes through CDC. Startup fails if any of the three is missing or unreachable. See [Self-Hosting](/guides/self-hosting).
   </Accordion>
   <Accordion title="Do I need a message broker like RabbitMQ, Kafka, or SQS?">
     No. PostgreSQL is the queue, using `SELECT ... FOR UPDATE SKIP LOCKED` to claim work without a separate broker. See [Architecture](/architecture).
@@ -28,8 +28,8 @@ Questions about pricing and plans live in the [Billing FAQ](/billing/faq). This 
   <Accordion title="Can I run only the API or only workers?">
     Yes. The binary runs in `api`, `worker`, or `all` mode. Start with `all` for small deployments, then split into separate `api` and `worker` processes as traffic grows. See [Deployment](/guides/deployment).
   </Accordion>
-  <Accordion title="What versions of PostgreSQL and Redis are supported?">
-    PostgreSQL 18 and Redis 8 are the tested versions and what the self-host stack ships. See [Self-Hosting](/guides/self-hosting).
+  <Accordion title="What versions of PostgreSQL, Redis, and Sequin are supported?">
+    PostgreSQL 18, Redis 8, and Sequin v0.14.6 are the tested versions and what the self-host stack ships. PostgreSQL must have logical replication enabled for Sequin. See [Self-Hosting](/guides/self-hosting).
   </Accordion>
   <Accordion title="How are secrets stored?">
     Secrets are encrypted at rest using the keys you configure (`ENCRYPTION_KEY`, `SECRET_ENCRYPTION_KEY`). Use unique values per environment and store them in a secret manager. See [Environment Variables](/configuration/environment-variables).

@@ -220,11 +220,14 @@ func (s *StepCallback) checkWorkflowCompletion(ctx context.Context, workflowRunI
 
 	now := time.Now()
 	if hasBlockingFailedStep(wc.steps, failedStepRefs) {
+		fromStatus := wfRun.Status
 		if err := s.store.UpdateWorkflowRunStatus(ctx, wfRun.ID, wfRun.Status, domain.WfStatusFailed, map[string]any{"finished_at": now}); err != nil {
 			return fmt.Errorf("mark workflow run failed: %w", err)
 		}
 		recordWorkflowActiveRunDelta(ctx, wfRun.ProjectID, -1)
 		wfRun.Status = domain.WfStatusFailed
+		wfRun.FinishedAt = &now
+		s.publishWorkflowRunStatus(ctx, wfRun, fromStatus, domain.WfStatusFailed, "workflow_completion")
 		if wfRun.ParentWorkflowRunID != "" {
 			stepOutputs, listErr := s.store.ListStepRunOutputsByWorkflowRun(ctx, workflowRunID)
 			if listErr != nil {
@@ -235,11 +238,14 @@ func (s *StepCallback) checkWorkflowCompletion(ctx context.Context, workflowRunI
 		return nil
 	}
 
+	fromStatus := wfRun.Status
 	if err := s.store.UpdateWorkflowRunStatus(ctx, wfRun.ID, wfRun.Status, domain.WfStatusCompleted, map[string]any{"finished_at": now}); err != nil {
 		return fmt.Errorf("mark workflow run completed: %w", err)
 	}
 	recordWorkflowActiveRunDelta(ctx, wfRun.ProjectID, -1)
 	wfRun.Status = domain.WfStatusCompleted
+	wfRun.FinishedAt = &now
+	s.publishWorkflowRunStatus(ctx, wfRun, fromStatus, domain.WfStatusCompleted, "workflow_completion")
 	if wfRun.ParentWorkflowRunID != "" {
 		stepOutputs, listErr := s.store.ListStepRunOutputsByWorkflowRun(ctx, workflowRunID)
 		if listErr != nil {

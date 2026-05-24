@@ -55,11 +55,12 @@ export async function signInAndSaveState(
   // Verify session in browser and save storageState
   const browser = await chromium.launch();
   const context = await browser.newContext();
+  const cookieDomain = new URL(baseURL).hostname;
   await context.addCookies([
     {
       name: "better-auth.session_token",
       value: tokenMatch[1],
-      domain: "localhost",
+      domain: cookieDomain,
       path: "/",
       httpOnly: true,
       secure: false,
@@ -69,7 +70,10 @@ export async function signInAndSaveState(
 
   const page = await context.newPage();
   try {
-    await page.goto(`${baseURL}/app/dashboard`);
+    await page.goto(`${baseURL}/app/dashboard`, {
+      timeout: 90_000,
+      waitUntil: "domcontentloaded",
+    });
     await page.waitForURL("**/app/**", { timeout: 15_000 });
     await context.storageState({ path: "playwright/.auth/user.json" });
   } finally {

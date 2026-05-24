@@ -7,7 +7,15 @@ Strait exposes the same telemetry surface in both editions: Prometheus metrics, 
 
 ## Prometheus metrics
 
-Strait exposes a Prometheus-compatible scrape endpoint at `/metrics`. The endpoint is gated by the internal-secret middleware, so scrapers must present the `X-Internal-Secret` header.
+Strait exposes a Prometheus-compatible scrape endpoint at `/metrics`. The endpoint is gated by the internal-secret middleware, so scrapers must present either the `X-Internal-Secret` header or `Authorization: Bearer <internal-secret>`.
+
+The Compose `observability` profile starts Prometheus with the shared scrape config:
+
+```bash
+make dev-observability
+# or for self-host:
+make selfhost-observability
+```
 
 ```bash
 curl http://localhost:8080/metrics \

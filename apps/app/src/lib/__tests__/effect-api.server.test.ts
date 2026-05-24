@@ -7,9 +7,11 @@ import {
   runWithSentryReport,
 } from "@/lib/effect-api.server";
 
-const mockApiRequest = vi.fn();
+const mockApiRequestEffect = vi.fn();
 vi.mock("@/lib/api-client.server", () => ({
-  apiRequest: (...args: unknown[]) => mockApiRequest(...args),
+  apiClientErrorToError: (error: { message?: string }) =>
+    new Error(error.message ?? "API request failed", { cause: error }),
+  apiRequestEffect: (...args: unknown[]) => mockApiRequestEffect(...args),
 }));
 
 const mockCaptureException = vi.fn();
@@ -23,17 +25,17 @@ afterEach(() => {
 
 describe("apiEffect", () => {
   it("returns data when apiRequest succeeds", async () => {
-    mockApiRequest.mockResolvedValue({ id: "1" });
+    mockApiRequestEffect.mockReturnValue(Effect.succeed({ id: "1" }));
 
     const result = await Effect.runPromise(apiEffect("/v1/jobs"));
 
     expect(result).toEqual({ id: "1" });
-    expect(mockApiRequest).toHaveBeenCalledWith("/v1/jobs", {});
+    expect(mockApiRequestEffect).toHaveBeenCalledWith("/v1/jobs", {});
   });
 
   it("produces ApiError with correct fields when apiRequest throws", async () => {
     const cause = new Error("network failure");
-    mockApiRequest.mockRejectedValue(cause);
+    mockApiRequestEffect.mockReturnValue(Effect.fail(cause));
 
     const result = await Effect.runPromiseExit(
       apiEffect("/v1/jobs", { method: "POST" })
@@ -52,7 +54,7 @@ describe("apiEffect", () => {
   });
 
   it("defaults method to GET when not specified", async () => {
-    mockApiRequest.mockRejectedValue(new Error("fail"));
+    mockApiRequestEffect.mockReturnValue(Effect.fail(new Error("fail")));
 
     const result = await Effect.runPromiseExit(apiEffect("/v1/test"));
 
@@ -67,7 +69,7 @@ describe("apiEffect", () => {
 
 describe("runWithFallback", () => {
   it("returns data on success", async () => {
-    mockApiRequest.mockResolvedValue({ count: 5 });
+    mockApiRequestEffect.mockReturnValue(Effect.succeed({ count: 5 }));
 
     const result = await runWithFallback(apiEffect("/v1/stats"), {
       count: 0,
@@ -78,7 +80,7 @@ describe("runWithFallback", () => {
   });
 
   it("returns fallback on failure", async () => {
-    mockApiRequest.mockRejectedValue(new Error("fail"));
+    mockApiRequestEffect.mockReturnValue(Effect.fail(new Error("fail")));
 
     const result = await runWithFallback(apiEffect("/v1/stats"), {
       count: 0,
@@ -89,7 +91,7 @@ describe("runWithFallback", () => {
 
   it("calls captureException on failure with correct tags", async () => {
     const cause = new Error("server error");
-    mockApiRequest.mockRejectedValue(cause);
+    mockApiRequestEffect.mockReturnValue(Effect.fail(cause));
 
     await runWithFallback(apiEffect("/v1/jobs", { method: "POST" }), undefined);
 
@@ -105,7 +107,7 @@ describe("runWithFallback", () => {
 
 describe("runWithSentryReport", () => {
   it("returns data on success", async () => {
-    mockApiRequest.mockResolvedValue([{ id: "1" }]);
+    mockApiRequestEffect.mockReturnValue(Effect.succeed([{ id: "1" }]));
 
     const result = await runWithSentryReport(apiEffect("/v1/jobs"));
 
@@ -115,7 +117,7 @@ describe("runWithSentryReport", () => {
 
   it("rejects with original error on failure", async () => {
     const cause = new Error("not found");
-    mockApiRequest.mockRejectedValue(cause);
+    mockApiRequestEffect.mockReturnValue(Effect.fail(cause));
 
     await expect(runWithSentryReport(apiEffect("/v1/jobs"))).rejects.toThrow(
       "not found"
@@ -124,7 +126,7 @@ describe("runWithSentryReport", () => {
 
   it("calls captureException on failure with correct tags", async () => {
     const cause = new Error("forbidden");
-    mockApiRequest.mockRejectedValue(cause);
+    mockApiRequestEffect.mockReturnValue(Effect.fail(cause));
 
     await runWithSentryReport(
       apiEffect("/v1/keys", { method: "DELETE" })

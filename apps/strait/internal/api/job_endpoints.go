@@ -97,7 +97,7 @@ func (s *Server) handleSetJobEndpoint(ctx context.Context, input *SetJobEndpoint
 		return nil, newValidationError(err)
 	}
 
-	if err := validateURL(input.Body.EndpointURL); err != nil {
+	if err := s.validateURL(input.Body.EndpointURL); err != nil {
 		slog.Warn("endpoint_url failed SSRF validation",
 			"url", httputil.RedactURLForLog(input.Body.EndpointURL),
 			"err", err.Error(),
@@ -107,7 +107,7 @@ func (s *Server) handleSetJobEndpoint(ctx context.Context, input *SetJobEndpoint
 		return nil, huma.Error400BadRequest("endpoint_url failed validation")
 	}
 	if input.Body.FallbackEndpointURL != "" {
-		if err := validateURL(input.Body.FallbackEndpointURL); err != nil {
+		if err := s.validateURL(input.Body.FallbackEndpointURL); err != nil {
 			slog.Warn("fallback_endpoint_url failed SSRF validation",
 				"url", httputil.RedactURLForLog(input.Body.FallbackEndpointURL),
 				"err", err.Error(),
@@ -131,6 +131,7 @@ func (s *Server) handleSetJobEndpoint(ctx context.Context, input *SetJobEndpoint
 	if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
 		return nil, huma.Error404NotFound("job not found")
 	}
+	s.emitInternalSecretBypassAuditIfProjectless(ctx, "set_job_endpoint.project_match", "handleSetJobEndpoint", "job", job.ID)
 	if err := s.requireSecretsWriteForSecretBearingEndpointChange(ctx, job, input.Body.EndpointURL, input.Body.FallbackEndpointURL); err != nil {
 		return nil, err
 	}
@@ -224,6 +225,7 @@ func (s *Server) handleVerifyJobEndpoint(ctx context.Context, input *VerifyJobEn
 	if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
 		return nil, huma.Error404NotFound("job not found")
 	}
+	s.emitInternalSecretBypassAuditIfProjectless(ctx, "verify_job_endpoint.project_match", "handleVerifyJobEndpoint", "job", job.ID)
 	if job.EndpointURL == "" {
 		return nil, huma.Error400BadRequest("job has no endpoint_url configured")
 	}
@@ -259,7 +261,7 @@ func (s *Server) handleVerifyJobEndpoint(ctx context.Context, input *VerifyJobEn
 			if len(via) >= 3 {
 				return fmt.Errorf("too many redirects")
 			}
-			if err := validateURL(req.URL.String()); err != nil {
+			if err := s.validateURL(req.URL.String()); err != nil {
 				return fmt.Errorf("redirect blocked by ssrf guard: %w", err)
 			}
 			return nil

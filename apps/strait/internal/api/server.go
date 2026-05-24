@@ -728,7 +728,7 @@ type ServerDeps struct {
 	TxPool               store.TxBeginner // Optional: enables transactional event trigger sends.
 	ActorSyncer          ActorSyncer
 	PoolStatter          PoolStatter              // Optional: enables DB pool backpressure middleware.
-	RedisClient          *redis.Client            // Optional: enables per-project/key rate limiting.
+	RedisClient          *redis.Client            // Required in production startup; enables rate limiting.
 	Encryptor            Encryptor                // Optional: enables event source signature encryption.
 	StripeWebhook        http.Handler             // Optional: Stripe billing webhook handler.
 	BillingEnforcer      BillingEnforcer          // Optional: enables billing limit checks on project create.
@@ -736,7 +736,7 @@ type ServerDeps struct {
 	CHExporter           *clickhouse.Exporter     // Optional: enables ClickHouse analytics export from API handlers.
 	Edition              domain.Edition           // Edition controls feature gating (community vs cloud).
 	Version              string                   // Build version (injected via ldflags).
-	CDCWebhookReceiver   http.Handler             // Optional: enables CDC webhook push endpoint.
+	CDCWebhookReceiver   http.Handler             // Required in production startup; handles CDC webhook push delivery.
 	AuditAsyncBufferSize int                      // Optional: overrides the audit async channel capacity (default 4096, minimum 256).
 	SIEMDrain            *logdrain.AuditSIEMDrain // Optional: forwards successfully persisted audit events to an external SIEM endpoint.
 }
@@ -1096,7 +1096,15 @@ func (s *Server) decodeJSON(r *http.Request, v any) error {
 }
 
 func validateURL(rawURL string) error {
-	if err := worker.ValidateEndpointURL(rawURL); err != nil {
+	return validateURLWithAllowPrivate(rawURL, globalAllowPrivateEndpoints.Load())
+}
+
+func (s *Server) validateURL(rawURL string) error {
+	return validateURLWithAllowPrivate(rawURL, s.config != nil && s.config.AllowPrivateEndpoints)
+}
+
+func validateURLWithAllowPrivate(rawURL string, allowPrivate bool) error {
+	if err := worker.ValidateEndpointURL(rawURL, worker.WithAllowPrivateEndpoints(allowPrivate)); err != nil {
 		msg := err.Error()
 		if strings.HasPrefix(msg, "URL") {
 			msg = "url" + msg[3:]
@@ -1109,7 +1117,7 @@ func validateURL(rawURL string) error {
 	// from handlers that have no server reference), we skip the network
 	// checks only when the global was set by the last NewServer call.
 	// This is safe because in production there is exactly one Server instance.
-	if globalAllowPrivateEndpoints.Load() {
+	if allowPrivate {
 		return nil
 	}
 
@@ -1140,7 +1148,12 @@ func validateURL(rawURL string) error {
 }
 
 func validateURLWithTLS(rawURL string, requireTLS bool) error {
-	if err := worker.ValidateEndpointURLWithTLS(rawURL, requireTLS); err != nil {
+	allowPrivate := globalAllowPrivateEndpoints.Load()
+	if err := worker.ValidateEndpointURL(
+		rawURL,
+		worker.WithRequireTLS(requireTLS),
+		worker.WithAllowPrivateEndpoints(allowPrivate),
+	); err != nil {
 		msg := err.Error()
 		if strings.HasPrefix(msg, "URL") {
 			msg = "url" + msg[3:]
@@ -1148,7 +1161,7 @@ func validateURLWithTLS(rawURL string, requireTLS bool) error {
 		return errors.New(msg)
 	}
 
-	if !globalAllowPrivateEndpoints.Load() {
+	if !allowPrivate {
 		if err := httputil.ValidateExternalURL(rawURL); err != nil {
 			return fmt.Errorf("url rejected: %w", err)
 		}

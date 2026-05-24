@@ -4,6 +4,13 @@ on:
   push:
     paths:
       - "apps/strait/**"
+      - "docker-compose.base.yml"
+      - "docker-compose.selfhost.yml"
+      - "Makefile"
+      - ".env.example"
+      - ".env.selfhost.example"
+      - "packages/configs/**"
+      - "packages/scripts/selfhost-init.sh"
       - ".github/workflows/test.yml"
       - ".github/actions/setup-go/**"
   workflow_dispatch:
@@ -16,6 +23,34 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  compose-config:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Validate Docker Compose configs
+        run: |
+          set -euo pipefail
+          cp .env.selfhost.example .env.selfhost
+          docker compose \
+            -f docker-compose.base.yml \
+            -f apps/strait/docker-compose.yml \
+            --profile core \
+            --profile debug \
+            --profile observability \
+            config >/tmp/strait-dev-compose.yml
+          docker compose \
+            --env-file .env.selfhost \
+            -f docker-compose.base.yml \
+            -f docker-compose.selfhost.yml \
+            --profile core \
+            --profile dashboard \
+            --profile observability \
+            config >/tmp/strait-selfhost-compose.yml
+
   unit:
     runs-on: ubuntu-latest
     timeout-minutes: 15

@@ -1,131 +1,42 @@
-# Strait Self-Hosted Deployment
+# Self-host overrides for the shared Strait runtime.
 #
-# Quick start:
-#   1. make selfhost
-#      (or run ./packages/scripts/selfhost-init.sh and docker compose manually)
-#   3. open http://localhost:3000   (Dashboard)
-#
-# Services: Postgres, Redis, Sequin (CDC), Strait API, Dashboard.
-# See SELFHOST.md for full documentation.
-
-# Load secrets from .env.selfhost for variable substitution (${VAR} syntax).
-# Services also load it via env_file for runtime env vars.
+# Start the full self-host stack:
+#   docker compose --env-file .env.selfhost -f docker-compose.base.yml -f docker-compose.selfhost.yml --profile core --profile dashboard up -d
 
 services:
   postgres:
-    container_name: strait-postgres
-    image: postgres:18-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: strait
-      POSTGRES_PASSWORD: strait
-      POSTGRES_DB: strait
     ports:
       - "5432:5432"
-    volumes:
-      # Postgres 18+ stores data under a major-version subdirectory
-      # (e.g. /var/lib/postgresql/18/docker), so the volume mounts at
-      # /var/lib/postgresql rather than /var/lib/postgresql/data. See
-      # https://github.com/docker-library/postgres/pull/1259.
-      - pgdata:/var/lib/postgresql
-      - ./packages/configs/postgres-init.sql:/docker-entrypoint-initdb.d/01-sequin.sql:ro
-    command: >
-      postgres
-      -c wal_level=logical
-      -c max_replication_slots=10
-      -c max_wal_senders=10
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U strait -d strait"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
 
   redis:
-    container_name: strait-redis
-    image: redis:8-alpine
-    restart: unless-stopped
     ports:
       - "6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
 
-  # Strait API starts first to run migrations and create tables.
+  sequin:
+    ports:
+      - "7376:7376"
+    environment:
+      SEQUIN_API_TOKEN: ${SEQUIN_API_TOKEN:?run ./packages/scripts/selfhost-init.sh}
+      SECRET_KEY_BASE: ${SEQUIN_SECRET_KEY_BASE:?run ./packages/scripts/selfhost-init.sh}
+      VAULT_KEY: ${SEQUIN_VAULT_KEY:?run ./packages/scripts/selfhost-init.sh}
+
+  strait-migrate:
+    image: ${STRAIT_IMAGE:-ghcr.io/strait-dev/strait:0.1.6} # x-release-please-version
+    environment:
+      SEQUIN_API_TOKEN: ${SEQUIN_API_TOKEN:?run ./packages/scripts/selfhost-init.sh}
+
   strait:
     container_name: strait-api
     image: ${STRAIT_IMAGE:-ghcr.io/strait-dev/strait:0.1.6} # x-release-please-version
-    restart: unless-stopped
     ports:
       - "8080:8080"
-    env_file:
-      - .env.selfhost
     environment:
+      SEQUIN_API_TOKEN: ${SEQUIN_API_TOKEN:?run ./packages/scripts/selfhost-init.sh}
       STRAIT_EDITION: community
-      DATABASE_URL: postgres://strait:strait@postgres:5432/strait?sslmode=disable
-      REDIS_URL: redis://redis:6379
-      MODE: all
-      PORT: "8080"
-      LOG_LEVEL: info
-      LOG_FORMAT: json
-      MIGRATION_MODE: auto
       ALLOW_PRIVATE_ENDPOINTS: "false"
-      WORKER_CONCURRENCY: "25"
-      SEQUIN_BASE_URL: http://sequin:7376
-      SEQUIN_CONSUMER_NAME: strait-cdc
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
 
-  # Sequin starts after Strait so tables and replication slot exist.
-  sequin:
-    container_name: strait-sequin
-    image: sequin/sequin:v0.14.6
-    restart: unless-stopped
-    ports:
-      - "7376:7376"
-    env_file:
-      - .env.selfhost
-    environment:
-      PG_HOSTNAME: postgres
-      PG_PORT: "5432"
-      PG_USERNAME: strait
-      PG_PASSWORD: strait
-      PG_DATABASE: strait
-      REDIS_URL: redis://redis:6379
-      SECRET_KEY_BASE: ${SEQUIN_SECRET_KEY_BASE}
-      VAULT_KEY: ${SEQUIN_VAULT_KEY}
-      CONFIG_FILE_PATH: /etc/sequin/config.yml
-    volumes:
-      - ./packages/configs/sequin.yml:/etc/sequin/config.yml:ro
-    depends_on:
-      strait:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:7376/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 60s
-
-  # One-shot init container that runs Better Auth migrations against the
-  # shared Postgres before strait-app starts. Uses the Bun builder image
-  # with the repo mounted because the published strait-app runtime image
-  # is intentionally minimal (node:22-alpine + compiled bundle + static
-  # assets, no source or package manager). Self-host users already have
-  # the repo cloned per SELFHOST.md, so mounting the source tree costs
-  # nothing extra. The install is fast on re-runs because bun caches
-  # node_modules on the host volume.
   strait-app-migrate:
+    profiles: ["dashboard"]
     container_name: strait-app-migrate
     image: oven/bun:1.3.14-alpine
     restart: "no"
@@ -147,6 +58,7 @@ services:
         condition: service_healthy
 
   strait-app:
+    profiles: ["dashboard"]
     container_name: strait-app
     image: ${STRAIT_APP_IMAGE:-ghcr.io/strait-dev/strait-app:0.1.6} # x-release-please-version
     restart: unless-stopped
@@ -167,6 +79,3 @@ services:
         condition: service_healthy
       strait-app-migrate:
         condition: service_completed_successfully
-
-volumes:
-  pgdata:

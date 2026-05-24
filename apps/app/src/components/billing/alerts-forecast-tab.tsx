@@ -17,7 +17,7 @@ import {
   useSetAnomalyConfig,
 } from "@/hooks/billing/use-anomaly-config";
 import { usageForecastQueryOptions } from "@/hooks/billing/use-usage-forecast";
-import { capitalize } from "@/lib/format";
+import { capitalize, formatMicroUsd } from "@/lib/format";
 import UsageStatCard from "./usage-stat-card";
 
 const SEVERITY_VARIANT: Record<
@@ -69,8 +69,8 @@ const AlertsForecastTab = () => {
                           </span>
                         </div>
                         <p className="text-sm">
-                          Today: ${(alert.today_spend ?? 0).toFixed(2)} vs 7d
-                          avg: ${(alert.avg_7d_spend ?? 0).toFixed(2)}
+                          Today: {formatMicroUsd(alert.today_spend ?? 0)} vs 7d
+                          avg: {formatMicroUsd(alert.avg_7d_spend ?? 0)}
                         </p>
                         <p className="text-muted-foreground text-xs">
                           Top contributor: {alert.top_contributor}

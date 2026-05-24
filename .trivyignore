@@ -28,8 +28,10 @@
 # all), which Node cannot do because Node links libssl dynamically.
 #
 # Reassess on or before the expiration date. If the distroless rebuild
-# has landed by then, remove this line.
-CVE-2026-28390 exp:2026-05-15
+# has landed by then, remove this line. Expiry is aligned with the four
+# sibling libssl3 CVEs below, since all five ship together in the same
+# Debian 12 source-package rebuild.
+CVE-2026-28390 exp:2026-06-10
 
 # CVE-2026-28387 / CVE-2026-28388 / CVE-2026-28389 / CVE-2026-31789 —
 # additional libssl3 vulnerabilities in the same Debian 12 source
@@ -73,23 +75,58 @@ CVE-2026-31789 exp:2026-06-10
 # v0.13.0 that bumps go.opentelemetry.io/otel.
 CVE-2026-29181 exp:2026-08-10
 
-# CVE-2026-32280 / CVE-2026-32281 / CVE-2026-32283 — Go standard
-# library TLS / x509 denial-of-service vulnerabilities. Fixed upstream
-# in Go 1.25.9 and 1.26.2.
+# Go standard-library denial-of-service / panic vulnerabilities. Two
+# upstream fix waves:
+#   - CVE-2026-32280 / CVE-2026-32281 / CVE-2026-32283: TLS / x509 DoS,
+#     fixed in Go 1.25.9 and 1.26.2.
+#   - CVE-2026-33811 (net LookupCNAME via cgo resolver),
+#     CVE-2026-33814 (net/http HTTP/2 SETTINGS-frame DoS),
+#     CVE-2026-39820 / CVE-2026-42499 (net/mail address parsing DoS),
+#     CVE-2026-39836 (net Dial/LookupPort NUL-byte panic): fixed in
+#     Go 1.25.10 and 1.26.3.
 #
 # Affects: the bundled `soci` binary (awslabs/soci-snapshotter v0.13.0)
 # inside the community and cloud strait images. Soci v0.13.0 was built
-# with Go 1.25.8; no newer soci release exists yet.
+# with Go 1.25.8; no newer soci release exists yet, so the bundled
+# binary cannot be rebuilt against a patched toolchain until upstream
+# ships one.
 #
 # Not exploitable in our context: the strait container never executes
 # soci (ENTRYPOINT is `strait`, the strait binary itself is built with
-# Go 1.26.x and is clean). When soci runs on a node it talks TLS only
-# to ECR endpoints under AWS's control, not to attacker-supplied hosts,
-# so the DoS path requires an attacker who already controls the
-# registry the node is configured to pull from.
+# Go 1.26.x and is clean). When soci runs on a node it talks only to
+# the container registry the node is configured to pull from (e.g. ECR),
+# not to attacker-supplied hosts or untrusted mail/DNS input, so every
+# DoS/panic path requires an attacker who already controls that trusted
+# registry.
 #
 # Reassess once awslabs/soci-snapshotter cuts a release newer than
-# v0.13.0 built with Go >=1.26.2.
+# v0.13.0 built with Go >=1.26.3.
 CVE-2026-32280 exp:2026-08-10
 CVE-2026-32281 exp:2026-08-10
 CVE-2026-32283 exp:2026-08-10
+CVE-2026-33811 exp:2026-08-10
+CVE-2026-33814 exp:2026-08-10
+CVE-2026-39820 exp:2026-08-10
+CVE-2026-39836 exp:2026-08-10
+CVE-2026-42499 exp:2026-08-10
+
+# CVE-2026-46680 — containerd user-ID handling bypass that can defeat a
+# `runAsNonRoot` security-context constraint. Fixed upstream in
+# containerd 1.7.32.
+#
+# Affects: the bundled `soci` binary (awslabs/soci-snapshotter v0.13.0,
+# still the latest release at this pin) inside the community and cloud
+# strait images. Soci v0.13.0 statically links containerd v1.7.30; the
+# strait binary itself does not link containerd and is clean.
+#
+# Not exploitable in our context: the strait container never executes
+# soci (ENTRYPOINT is `strait`). The vulnerable containerd code path is
+# the snapshotter/runtime user-ID resolution that runs on a node when
+# containerd itself launches a container — it is not reachable by running
+# the soci CLI, and nothing inside the strait container invokes it. Image
+# `runAsNonRoot` enforcement is performed by the host kubelet/containerd,
+# not by the copy of containerd vendored into soci.
+#
+# Reassess once awslabs/soci-snapshotter cuts a release newer than
+# v0.13.0 that bumps containerd to >=1.7.32.
+CVE-2026-46680 exp:2026-08-10
