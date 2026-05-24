@@ -11239,6 +11239,98 @@ func TestBatchReceiveEventTriggers(t *testing.T) {
 	}
 }
 
+// TestBatchReceiveEventTriggers_SkipsNonWaitingAndIdempotent covers the
+// single-UPDATE batch path: only triggers still in the waiting state
+// transition and appear in the returned ids; already-terminal triggers and
+// unknown ids are left untouched and absent, and a repeat call is a no-op that
+// does not overwrite the recorded sender.
+func TestBatchReceiveEventTriggers_SkipsNonWaitingAndIdempotent(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-event-trigger-batch-skip-" + newID()
+	_, run := mustCreateJobRunWithBuildFactory(t, ctx, q, projectID, domain.StatusWaiting)
+	now := time.Now().UTC()
+
+	waiting := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-skip-waiting-"+newID(), now.Add(-2*time.Minute), nil, nil)
+	canceled := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusCanceled, "evt-skip-canceled-"+newID(), now.Add(-time.Minute), nil, nil)
+
+	receivedAt := time.Now().UTC().Truncate(time.Microsecond)
+	updatedIDs, err := q.BatchReceiveEventTriggers(ctx, []string{waiting.ID, canceled.ID, "missing-" + newID()}, json.RawMessage(`{"ok":true}`), receivedAt, "sender-1")
+	if err != nil {
+		t.Fatalf("BatchReceiveEventTriggers() error = %v", err)
+	}
+	if len(updatedIDs) != 1 || updatedIDs[0] != waiting.ID {
+		t.Fatalf("BatchReceiveEventTriggers() = %v, want [%s]", updatedIDs, waiting.ID)
+	}
+
+	gotCanceled, err := q.GetEventTriggerByEventKey(ctx, canceled.EventKey)
+	if err != nil {
+		t.Fatalf("GetEventTriggerByEventKey(canceled) error = %v", err)
+	}
+	if gotCanceled.Status != domain.EventTriggerStatusCanceled {
+		t.Fatalf("canceled trigger status = %q, want %q", gotCanceled.Status, domain.EventTriggerStatusCanceled)
+	}
+	if gotCanceled.SentBy == "sender-1" {
+		t.Fatalf("canceled trigger sent_by overwritten to %q", gotCanceled.SentBy)
+	}
+
+	// Idempotent: nothing is still waiting, and the recorded sender stands.
+	secondIDs, err := q.BatchReceiveEventTriggers(ctx, []string{waiting.ID, canceled.ID}, json.RawMessage(`{"ok":true}`), receivedAt, "sender-2")
+	if err != nil {
+		t.Fatalf("BatchReceiveEventTriggers() second call error = %v", err)
+	}
+	if len(secondIDs) != 0 {
+		t.Fatalf("BatchReceiveEventTriggers() second call = %v, want empty", secondIDs)
+	}
+
+	gotWaiting, err := q.GetEventTriggerByEventKey(ctx, waiting.EventKey)
+	if err != nil {
+		t.Fatalf("GetEventTriggerByEventKey(waiting) error = %v", err)
+	}
+	if gotWaiting.SentBy != "sender-1" {
+		t.Fatalf("waiting trigger sent_by = %q, want %q", gotWaiting.SentBy, "sender-1")
+	}
+}
+
+// TestBatchReceiveEventTriggers_PreservesSentByWhenEmpty verifies that an empty
+// sender does not clobber an existing sent_by value (COALESCE/NULLIF guard).
+func TestBatchReceiveEventTriggers_PreservesSentByWhenEmpty(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-event-trigger-batch-sentby-" + newID()
+	_, run := mustCreateJobRunWithBuildFactory(t, ctx, q, projectID, domain.StatusWaiting)
+	now := time.Now().UTC()
+	trigger := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-sentby-"+newID(), now.Add(-time.Minute), nil, nil)
+
+	if err := q.SetEventTriggerSentBy(ctx, trigger.ID, "preset-sender"); err != nil {
+		t.Fatalf("SetEventTriggerSentBy() error = %v", err)
+	}
+
+	receivedAt := time.Now().UTC().Truncate(time.Microsecond)
+	updatedIDs, err := q.BatchReceiveEventTriggers(ctx, []string{trigger.ID}, json.RawMessage(`{"ok":true}`), receivedAt, "")
+	if err != nil {
+		t.Fatalf("BatchReceiveEventTriggers() error = %v", err)
+	}
+	if len(updatedIDs) != 1 {
+		t.Fatalf("BatchReceiveEventTriggers() len = %d, want 1", len(updatedIDs))
+	}
+
+	got, err := q.GetEventTriggerByEventKey(ctx, trigger.EventKey)
+	if err != nil {
+		t.Fatalf("GetEventTriggerByEventKey() error = %v", err)
+	}
+	if got.Status != domain.EventTriggerStatusReceived {
+		t.Fatalf("status = %q, want %q", got.Status, domain.EventTriggerStatusReceived)
+	}
+	if got.SentBy != "preset-sender" {
+		t.Fatalf("sent_by = %q, want %q (empty sender must not clobber)", got.SentBy, "preset-sender")
+	}
+}
+
 func TestReceiveEventAndRequeueRun(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
