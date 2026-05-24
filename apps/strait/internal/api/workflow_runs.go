@@ -1080,19 +1080,37 @@ func buildWorkflowTimelineRelationships(windows []workflowTimelineWindow) (map[s
 	for _, w := range windows {
 		criticalRefs[w.ref] = true
 	}
+
+	activeCap := min(len(windows), 64)
+	active := make([]workflowTimelineWindow, 0, activeCap)
 	for i, a := range windows {
-		for j, b := range windows {
-			if i == j {
+		kept := active[:0]
+		for _, prior := range active {
+			if !prior.end.After(a.start) {
 				continue
 			}
-			// Two windows overlap if a.start < b.end AND b.start < a.end.
-			if a.start.Before(b.end) && b.start.Before(a.end) {
-				parallelMap[a.ref] = append(parallelMap[a.ref], b.ref)
-				if b.end.After(a.end) {
-					criticalRefs[a.ref] = false
-				}
+			kept = append(kept, prior)
+			parallelMap[a.ref] = append(parallelMap[a.ref], prior.ref)
+			if prior.end.After(a.end) {
+				criticalRefs[a.ref] = false
+			}
+			if a.end.After(prior.end) {
+				criticalRefs[prior.ref] = false
 			}
 		}
+		active = kept
+
+		for j := i + 1; j < len(windows) && windows[j].start.Before(a.end); j++ {
+			next := windows[j]
+			parallelMap[a.ref] = append(parallelMap[a.ref], next.ref)
+			if next.end.After(a.end) {
+				criticalRefs[a.ref] = false
+			}
+			if a.end.After(next.end) {
+				criticalRefs[next.ref] = false
+			}
+		}
+		active = append(active, a)
 	}
 	return parallelMap, criticalRefs
 }

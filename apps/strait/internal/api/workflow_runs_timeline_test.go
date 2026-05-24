@@ -244,6 +244,56 @@ func TestBuildWorkflowRunTimeline_CriticalRefsDenseOverlap(t *testing.T) {
 	}
 }
 
+func TestBuildWorkflowTimelineRelationships_NoBoundaryOverlap(t *testing.T) {
+	t.Parallel()
+	base := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	windows := []workflowTimelineWindow{
+		{ref: "a", start: base, end: base.Add(time.Second)},
+		{ref: "b", start: base.Add(time.Second), end: base.Add(2 * time.Second)},
+		{ref: "c", start: base.Add(2 * time.Second), end: base.Add(3 * time.Second)},
+	}
+
+	parallelMap, criticalRefs := buildWorkflowTimelineRelationships(windows)
+
+	for _, ref := range []string{"a", "b", "c"} {
+		if len(parallelMap[ref]) != 0 {
+			t.Fatalf("%s parallel refs = %v, want none", ref, parallelMap[ref])
+		}
+		if !criticalRefs[ref] {
+			t.Fatalf("%s critical = false, want true", ref)
+		}
+	}
+}
+
+func TestBuildWorkflowTimelineRelationships_NestedOverlapOrdering(t *testing.T) {
+	t.Parallel()
+	base := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	windows := []workflowTimelineWindow{
+		{ref: "outer", start: base, end: base.Add(10 * time.Second)},
+		{ref: "inner-a", start: base.Add(time.Second), end: base.Add(2 * time.Second)},
+		{ref: "inner-b", start: base.Add(3 * time.Second), end: base.Add(4 * time.Second)},
+		{ref: "tail", start: base.Add(10 * time.Second), end: base.Add(11 * time.Second)},
+	}
+
+	parallelMap, criticalRefs := buildWorkflowTimelineRelationships(windows)
+
+	if !slices.Equal(parallelMap["outer"], []string{"inner-a", "inner-b"}) {
+		t.Fatalf("outer parallel refs = %v, want [inner-a inner-b]", parallelMap["outer"])
+	}
+	if !slices.Equal(parallelMap["inner-a"], []string{"outer"}) {
+		t.Fatalf("inner-a parallel refs = %v, want [outer]", parallelMap["inner-a"])
+	}
+	if !slices.Equal(parallelMap["inner-b"], []string{"outer"}) {
+		t.Fatalf("inner-b parallel refs = %v, want [outer]", parallelMap["inner-b"])
+	}
+	if len(parallelMap["tail"]) != 0 {
+		t.Fatalf("tail parallel refs = %v, want none", parallelMap["tail"])
+	}
+	if !criticalRefs["outer"] || criticalRefs["inner-a"] || criticalRefs["inner-b"] || !criticalRefs["tail"] {
+		t.Fatalf("critical refs = %v", criticalRefs)
+	}
+}
+
 func TestEstimateWorkflowCriticalPath_DeterministicWideReadyQueue(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
@@ -367,6 +417,40 @@ func BenchmarkBuildWorkflowRunTimeline_DenseOverlap(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
 				timelineResponseSink = buildTimeline(run, stepRuns, now)
+			}
+		})
+	}
+}
+
+func BenchmarkBuildWorkflowRunTimeline_SparseNoOverlap(b *testing.B) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	start := now.Add(-time.Hour)
+	end := start.Add(time.Second)
+	run := &domain.WorkflowRun{
+		ID:         "wr-sparse-bench",
+		Status:     domain.WfStatusCompleted,
+		StartedAt:  &start,
+		FinishedAt: &end,
+	}
+
+	for _, size := range []int{256, 1024} {
+		b.Run(fmt.Sprintf("steps=%d", size), func(b *testing.B) {
+			stepRuns := make([]domain.WorkflowStepRun, size)
+			for i := range stepRuns {
+				stepStart := start.Add(time.Duration(i*2) * time.Second)
+				stepEnd := stepStart.Add(time.Second)
+				stepRuns[i] = domain.WorkflowStepRun{
+					ID:         fmt.Sprintf("sr-%d", i),
+					StepRef:    fmt.Sprintf("step-%d", i),
+					Status:     domain.StepCompleted,
+					StartedAt:  &stepStart,
+					FinishedAt: &stepEnd,
+				}
+			}
+
+			b.ReportAllocs()
+			for b.Loop() {
+				timelineResponseSink = buildWorkflowRunTimeline(run, stepRuns, now)
 			}
 		})
 	}
