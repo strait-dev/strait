@@ -35,6 +35,9 @@ func TestBatchlog_NoDuplicateClaimsUnderConcurrentWorkers(t *testing.T) {
 			t.Fatalf("Enqueue %d: %v", i, err)
 		}
 	}
+	if _, err := q.SealDueBatches(ctx); err != nil {
+		t.Fatalf("SealDueBatches: %v", err)
+	}
 
 	seen := sync.Map{}
 	var wg sync.WaitGroup
@@ -75,6 +78,9 @@ func TestStaleLeaseBatchlog_RedeliversBeforeStart(t *testing.T) {
 	if err := q.Enqueue(ctx, run); err != nil {
 		t.Fatalf("Enqueue: %v", err)
 	}
+	if _, err := q.SealDueBatches(ctx); err != nil {
+		t.Fatalf("SealDueBatches: %v", err)
+	}
 	first, err := q.DequeueN(ctx, 1)
 	if err != nil {
 		t.Fatalf("first DequeueN: %v", err)
@@ -85,7 +91,17 @@ func TestStaleLeaseBatchlog_RedeliversBeforeStart(t *testing.T) {
 	time.Sleep(30 * time.Millisecond)
 	second, err := q.DequeueN(ctx, 1)
 	if err != nil {
-		t.Fatalf("second DequeueN: %v", err)
+		t.Fatalf("second DequeueN before reclaim: %v", err)
+	}
+	if len(second) != 0 {
+		t.Fatalf("second DequeueN before reclaim len = %d, want 0", len(second))
+	}
+	if _, err := q.ReclaimExpiredLeases(ctx); err != nil {
+		t.Fatalf("ReclaimExpiredLeases: %v", err)
+	}
+	second, err = q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("second DequeueN after reclaim: %v", err)
 	}
 	if len(second) != 1 || second[0].ID != run.ID {
 		t.Fatalf("redelivered = %+v, want run %s", second, run.ID)
@@ -103,6 +119,9 @@ func TestQueueEngine_BatchlogQueuedToExecutingDirectTransition(t *testing.T) {
 	run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
 	if err := q.Enqueue(ctx, run); err != nil {
 		t.Fatalf("Enqueue: %v", err)
+	}
+	if _, err := q.SealDueBatches(ctx); err != nil {
+		t.Fatalf("SealDueBatches: %v", err)
 	}
 	claimed, err := q.DequeueN(ctx, 1)
 	if err != nil {
@@ -177,6 +196,9 @@ func TestDelayedBatchlog_RunBecomesClaimableAtRightTime(t *testing.T) {
 	if _, err := testDB.Pool.Exec(ctx, `UPDATE job_runs SET status = 'queued', scheduled_at = NULL WHERE id = $1`, run.ID); err != nil {
 		t.Fatalf("promote delayed: %v", err)
 	}
+	if _, err := q.SealDueBatches(ctx); err != nil {
+		t.Fatalf("SealDueBatches after delay: %v", err)
+	}
 	due, err := q.DequeueN(ctx, 1)
 	if err != nil {
 		t.Fatalf("due DequeueN: %v", err)
@@ -211,6 +233,56 @@ func BenchmarkBatchlog(b *testing.B) {
 			preloadBatchlogRuns(b, ctx, q, job, 256)
 			b.StartTimer()
 		}
+	}
+}
+
+func TestBatchlog_DequeueDoesNotSealOrReclaimOnHotPath(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-batchlog-hotpath")
+	q := mustBatchlogQueue(t, 15*time.Millisecond)
+
+	run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	unsealed, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("DequeueN unsealed: %v", err)
+	}
+	if len(unsealed) != 0 {
+		t.Fatalf("DequeueN unsealed len = %d, want 0", len(unsealed))
+	}
+	if _, err := q.SealDueBatches(ctx); err != nil {
+		t.Fatalf("SealDueBatches: %v", err)
+	}
+	claimed, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("DequeueN sealed: %v", err)
+	}
+	if len(claimed) != 1 {
+		t.Fatalf("DequeueN sealed len = %d, want 1", len(claimed))
+	}
+
+	time.Sleep(30 * time.Millisecond)
+	stillLeased, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("DequeueN expired unreclaimed: %v", err)
+	}
+	if len(stillLeased) != 0 {
+		t.Fatalf("DequeueN expired unreclaimed len = %d, want 0", len(stillLeased))
+	}
+	if _, err := q.ReclaimExpiredLeases(ctx); err != nil {
+		t.Fatalf("ReclaimExpiredLeases: %v", err)
+	}
+	redelivered, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("DequeueN reclaimed: %v", err)
+	}
+	if len(redelivered) != 1 || redelivered[0].ID != run.ID {
+		t.Fatalf("redelivered = %+v, want run %s", redelivered, run.ID)
 	}
 }
 
@@ -255,5 +327,8 @@ func preloadBatchlogRuns(tb testing.TB, ctx context.Context, q *queue.BatchlogQu
 		if err := q.Enqueue(ctx, run); err != nil {
 			tb.Fatalf("Enqueue benchmark run: %v", err)
 		}
+	}
+	if _, err := q.SealDueBatches(ctx); err != nil {
+		tb.Fatalf("SealDueBatches benchmark runs: %v", err)
 	}
 }

@@ -158,6 +158,7 @@ func (q *BatchlogQueue) RunTicker(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			_, _ = q.ReclaimExpiredLeases(ctx)
 			_, _ = q.SealDueBatches(ctx)
 		}
 	}
@@ -298,12 +299,6 @@ func (q *BatchlogQueue) insertEntry(ctx context.Context, db store.DBTX, run *dom
 func (q *BatchlogQueue) dequeueN(ctx context.Context, n int, projectID string) ([]domain.JobRun, error) {
 	if n <= 0 {
 		return nil, nil
-	}
-	if _, err := q.ReclaimExpiredLeases(ctx); err != nil {
-		return nil, err
-	}
-	if _, err := q.SealDueBatches(ctx); err != nil {
-		return nil, err
 	}
 
 	projectClause := ""
