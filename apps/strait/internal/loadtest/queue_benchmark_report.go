@@ -99,6 +99,12 @@ type QueueBenchmarkReport struct {
 	Counters       QueueBenchmarkCounters `json:"counters"`
 	DequeueLatency LatencySummary         `json:"dequeue_latency"`
 	Relations      []RelationBloatSample  `json:"relations"`
+	Plans          []SQLPlanSample        `json:"plans,omitempty"`
+}
+
+type SQLPlanSample struct {
+	Name  string   `json:"name"`
+	Lines []string `json:"lines"`
 }
 
 // RelationBloatDelta compares a relation sample to a baseline sample.
@@ -279,6 +285,17 @@ func (r QueueBenchmarkReport) Markdown() string {
 			rel.TotalIndexSize,
 		)
 	}
+	if len(r.Plans) > 0 {
+		fmt.Fprintf(&b, "\n## SQL Plans\n\n")
+		for _, plan := range r.Plans {
+			fmt.Fprintf(&b, "### %s\n\n", plan.Name)
+			fmt.Fprintf(&b, "```text\n")
+			for _, line := range plan.Lines {
+				fmt.Fprintf(&b, "%s\n", line)
+			}
+			fmt.Fprintf(&b, "```\n\n")
+		}
+	}
 	return b.String()
 }
 
@@ -332,7 +349,23 @@ func (c QueueBenchmarkComparison) Markdown() string {
 			fmt.Fprintf(&b, "- `%s` / `%s`: %s\n", hint.Area, hint.Metric, hint.Detail)
 		}
 	}
+	if len(c.Baseline.Plans) > 0 || len(c.Candidate.Plans) > 0 {
+		fmt.Fprintf(&b, "\n## SQL Plans\n\n")
+		writePlansMarkdown(&b, "Baseline", c.Baseline.Plans)
+		writePlansMarkdown(&b, "Candidate", c.Candidate.Plans)
+	}
 	return b.String()
+}
+
+func writePlansMarkdown(b *strings.Builder, label string, plans []SQLPlanSample) {
+	for _, plan := range plans {
+		fmt.Fprintf(b, "### %s: %s\n\n", label, plan.Name)
+		fmt.Fprintf(b, "```text\n")
+		for _, line := range plan.Lines {
+			fmt.Fprintf(b, "%s\n", line)
+		}
+		fmt.Fprintf(b, "```\n\n")
+	}
 }
 
 func throughput(report QueueBenchmarkReport) float64 {

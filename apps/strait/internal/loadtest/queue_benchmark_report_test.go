@@ -64,10 +64,14 @@ func TestQueueBenchmarkReportMarkdown(t *testing.T) {
 			HOTUpdates:   1,
 			TotalUpdates: 2,
 		}},
+		Plans: []SQLPlanSample{{
+			Name:  "dequeue",
+			Lines: []string{"Seq Scan on job_runs"},
+		}},
 	}
 
 	md := report.Markdown()
-	for _, want := range []string{"# baseline", "Engine: `legacy`", "Duplicate claims", "`job_runs`"} {
+	for _, want := range []string{"# baseline", "Engine: `legacy`", "Duplicate claims", "`job_runs`", "SQL Plans", "Seq Scan"} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("Markdown missing %q:\n%s", want, md)
 		}
@@ -139,10 +143,14 @@ func TestQueueBenchmarkComparisonMarkdown(t *testing.T) {
 		Relations: []RelationBloatSample{{
 			Name: "queue_entries",
 		}},
+		Plans: []SQLPlanSample{{
+			Name:  "batchlog candidate selection",
+			Lines: []string{"Nested Loop"},
+		}},
 	})
 
 	md := comparison.Markdown()
-	for _, want := range []string{"# comparison", "Baseline: `legacy`", "Candidate: `batchlog`", "Relation Deltas"} {
+	for _, want := range []string{"# comparison", "Baseline: `legacy`", "Candidate: `batchlog`", "Relation Deltas", "SQL Plans", "Nested Loop"} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("Markdown missing %q:\n%s", want, md)
 		}

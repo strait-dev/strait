@@ -50,27 +50,39 @@ func TestQueueBloatComparison(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	cfg := baselineConfig{
-		Name:        "queue_bloat_comparison",
-		ProjectID:   "project-queue-comparison",
-		SingleRuns:  30,
-		BatchRuns:   30,
-		DequeueSize: 10,
-	}
-	legacy := runLegacyQueueBaseline(t, ctx, cfg.withName("legacy_queue_comparison"))
-	batchlog := runBatchlogQueueBaseline(t, ctx, cfg.withName("batchlog_queue_comparison"))
-	comparison := loadtest.CompareQueueBenchmarkReports("queue_bloat_comparison", legacy, batchlog)
+	for _, cfg := range []baselineConfig{
+		{
+			Name:        "queue_bloat_comparison_60",
+			ProjectID:   "project-queue-comparison-60",
+			SingleRuns:  30,
+			BatchRuns:   30,
+			DequeueSize: 10,
+		},
+		{
+			Name:        "queue_bloat_comparison_1000",
+			ProjectID:   "project-queue-comparison-1000",
+			SingleRuns:  500,
+			BatchRuns:   500,
+			DequeueSize: 50,
+		},
+	} {
+		t.Run(cfg.Name, func(t *testing.T) {
+			legacy := runLegacyQueueBaseline(t, ctx, cfg.withName("legacy_"+cfg.Name))
+			batchlog := runBatchlogQueueBaseline(t, ctx, cfg.withName("batchlog_"+cfg.Name))
+			comparison := loadtest.CompareQueueBenchmarkReports(cfg.Name, legacy, batchlog)
 
-	if comparison.Candidate.Counters.DuplicateClaims != 0 {
-		t.Fatalf("candidate duplicate claims = %d, want 0", comparison.Candidate.Counters.DuplicateClaims)
+			if comparison.Candidate.Counters.DuplicateClaims != 0 {
+				t.Fatalf("candidate duplicate claims = %d, want 0", comparison.Candidate.Counters.DuplicateClaims)
+			}
+			if comparison.Candidate.Counters.LostClaims != 0 {
+				t.Fatalf("candidate lost claims = %d, want 0", comparison.Candidate.Counters.LostClaims)
+			}
+			writeQueueBaselineReport(t, legacy)
+			writeQueueBaselineReport(t, batchlog)
+			writeQueueComparisonReport(t, comparison)
+			t.Logf("queue bloat comparison:\n%s", comparison.Markdown())
+		})
 	}
-	if comparison.Candidate.Counters.LostClaims != 0 {
-		t.Fatalf("candidate lost claims = %d, want 0", comparison.Candidate.Counters.LostClaims)
-	}
-	writeQueueBaselineReport(t, legacy)
-	writeQueueBaselineReport(t, batchlog)
-	writeQueueComparisonReport(t, comparison)
-	t.Logf("queue bloat comparison:\n%s", comparison.Markdown())
 }
 
 func BenchmarkQueueBaseline(b *testing.B) {
@@ -130,6 +142,7 @@ type queueBaselineHooks struct {
 	afterEnqueue  func(context.Context)
 	beforeDequeue func(context.Context)
 	exerciseExtra func(baselineTB, context.Context, *store.Queries, *domain.Job) int64
+	plans         func(baselineTB, context.Context) []loadtest.SQLPlanSample
 }
 
 func runLegacyQueueBaseline(tb baselineTB, ctx context.Context, cfg baselineConfig) loadtest.QueueBenchmarkReport {
@@ -139,6 +152,7 @@ func runLegacyQueueBaseline(tb baselineTB, ctx context.Context, cfg baselineConf
 		exerciseExtra: func(tb baselineTB, ctx context.Context, st *store.Queries, job *domain.Job) int64 {
 			return exerciseRetryAndStalePaths(tb, ctx, q, st, job)
 		},
+		plans: sampleLegacyDequeuePlans,
 	})
 }
 
@@ -161,6 +175,7 @@ func runBatchlogQueueBaseline(tb baselineTB, ctx context.Context, cfg baselineCo
 		exerciseExtra: func(tb baselineTB, ctx context.Context, _ *store.Queries, job *domain.Job) int64 {
 			return exerciseBatchlogLeaseRedelivery(tb, ctx, q, job)
 		},
+		plans: sampleBatchlogDequeuePlans,
 	})
 }
 
@@ -219,6 +234,7 @@ func runQueueBaseline(
 	if hooks.afterEnqueue != nil {
 		hooks.afterEnqueue(ctx)
 	}
+	plans := samplePlans(tb, ctx, hooks)
 
 	totalRuns := cfg.SingleRuns + cfg.BatchRuns
 	claimed := sync.Map{}
@@ -291,6 +307,7 @@ func runQueueBaseline(
 		},
 		DequeueLatency: loadtest.SummarizeLatencies(latencies),
 		Relations:      relations,
+		Plans:          plans,
 	}
 }
 
@@ -453,6 +470,104 @@ func sampleRelationBloat(tb baselineTB, ctx context.Context) []loadtest.Relation
 	}
 	if err := rows.Err(); err != nil {
 		tb.Fatalf("relation bloat rows: %v", err)
+	}
+	return out
+}
+
+func samplePlans(tb baselineTB, ctx context.Context, hooks queueBaselineHooks) []loadtest.SQLPlanSample {
+	tb.Helper()
+	if hooks.plans == nil {
+		return nil
+	}
+	return hooks.plans(tb, ctx)
+}
+
+func sampleLegacyDequeuePlans(tb baselineTB, ctx context.Context) []loadtest.SQLPlanSample {
+	tb.Helper()
+	return []loadtest.SQLPlanSample{{
+		Name: "legacy candidate selection",
+		Lines: explainText(tb, ctx, `
+			EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
+			SELECT jr.id
+			FROM job_runs jr
+			LEFT JOIN job_active_counts jac_job
+			  ON jac_job.job_id = jr.job_id AND jac_job.concurrency_key = ''
+			LEFT JOIN job_active_counts jac_key
+			  ON jac_key.job_id = jr.job_id
+			  AND jac_key.concurrency_key = COALESCE(jr.concurrency_key, '')
+			WHERE jr.status = 'queued'
+			  AND COALESCE(jr.job_enabled, true) = true
+			  AND COALESCE(jr.job_paused, false) = false
+			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
+			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
+			  AND (jr.job_max_concurrency IS NULL OR COALESCE(jac_job.count, 0) < jr.job_max_concurrency)
+			  AND (jr.job_max_concurrency_per_key IS NULL
+			       OR jr.concurrency_key IS NULL
+			       OR jr.concurrency_key = ''
+			       OR COALESCE(jac_key.count, 0) < jr.job_max_concurrency_per_key)
+			ORDER BY jr.priority DESC, jr.created_at ASC
+			LIMIT 50
+		`),
+	}}
+}
+
+func sampleBatchlogDequeuePlans(tb baselineTB, ctx context.Context) []loadtest.SQLPlanSample {
+	tb.Helper()
+	return []loadtest.SQLPlanSample{{
+		Name: "batchlog candidate selection",
+		Lines: explainText(tb, ctx, `
+			EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
+			SELECT qe.run_id
+			FROM queue_entries qe
+			JOIN job_runs jr ON jr.id = qe.run_id
+			LEFT JOIN job_active_counts jac_job
+			  ON jac_job.job_id = jr.job_id AND jac_job.concurrency_key = ''
+			LEFT JOIN job_active_counts jac_key
+			  ON jac_key.job_id = jr.job_id
+			  AND jac_key.concurrency_key = COALESCE(jr.concurrency_key, '')
+			LEFT JOIN job_batchlog_lease_counts jlc_job
+			  ON jlc_job.job_id = jr.job_id AND jlc_job.concurrency_key = ''
+			LEFT JOIN job_batchlog_lease_counts jlc_key
+			  ON jlc_key.job_id = jr.job_id
+			  AND jlc_key.concurrency_key = COALESCE(jr.concurrency_key, '')
+			WHERE qe.status = 'ready'
+			  AND qe.batch_id IS NOT NULL
+			  AND qe.available_at <= NOW()
+			  AND jr.status = 'queued'
+			  AND COALESCE(jr.job_enabled, true) = true
+			  AND COALESCE(jr.job_paused, false) = false
+			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
+			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
+			  AND (jr.job_max_concurrency IS NULL
+			       OR COALESCE(jac_job.count, 0) + COALESCE(jlc_job.count, 0) < jr.job_max_concurrency)
+			  AND (jr.job_max_concurrency_per_key IS NULL
+			       OR jr.concurrency_key IS NULL
+			       OR jr.concurrency_key = ''
+			       OR COALESCE(jac_key.count, 0) + COALESCE(jlc_key.count, 0) < jr.job_max_concurrency_per_key)
+			ORDER BY qe.batch_id ASC, jr.priority DESC, jr.created_at ASC
+			LIMIT 50
+		`),
+	}}
+}
+
+func explainText(tb baselineTB, ctx context.Context, query string) []string {
+	tb.Helper()
+	rows, err := testDB.Pool.Query(ctx, query)
+	if err != nil {
+		tb.Fatalf("explain query: %v", err)
+	}
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var line string
+		if err := rows.Scan(&line); err != nil {
+			tb.Fatalf("scan explain: %v", err)
+		}
+		out = append(out, line)
+	}
+	if err := rows.Err(); err != nil {
+		tb.Fatalf("explain rows: %v", err)
 	}
 	return out
 }
