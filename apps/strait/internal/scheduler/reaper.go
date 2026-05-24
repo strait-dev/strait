@@ -134,6 +134,11 @@ type ApprovalNotifierStore interface {
 	GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error)
 }
 
+// ApprovalNotifierBulkChannelStore optionally bulk-lists channels for approval notifications.
+type ApprovalNotifierBulkChannelStore interface {
+	ListEnabledNotificationChannelsByProjectIDs(ctx context.Context, projectIDs []string) (map[string][]domain.NotificationChannel, error)
+}
+
 // AdvisoryLocker attempts to acquire a PostgreSQL advisory lock.
 // Returns true if the lock was acquired (caller should run reaper),
 // false if another instance holds it.
@@ -607,6 +612,8 @@ func (r *Reaper) reapApprovalReminders(ctx context.Context) {
 
 	workflowRuns := make(map[string]*domain.WorkflowRun)
 	channelsByProject := make(map[string][]domain.NotificationChannel)
+	projectIDs := make([]string, 0, len(approvals))
+	seenProjectIDs := make(map[string]struct{})
 	for _, approval := range approvals {
 		if _, sent := r.reminderSent[approval.ID]; sent {
 			continue
@@ -621,6 +628,30 @@ func (r *Reaper) reapApprovalReminders(ctx context.Context) {
 				continue
 			}
 			workflowRuns[approval.WorkflowRunID] = wfRun
+		}
+
+		if _, seen := seenProjectIDs[wfRun.ProjectID]; !seen {
+			seenProjectIDs[wfRun.ProjectID] = struct{}{}
+			projectIDs = append(projectIDs, wfRun.ProjectID)
+		}
+	}
+
+	if bulkStore, ok := r.store.(ApprovalNotifierBulkChannelStore); ok && len(projectIDs) > 0 {
+		bulkChannels, chBulkErr := bulkStore.ListEnabledNotificationChannelsByProjectIDs(ctx, projectIDs)
+		if chBulkErr != nil {
+			slog.Warn("failed to bulk-list notification channels for approval reminders", "error", chBulkErr)
+		} else {
+			channelsByProject = bulkChannels
+		}
+	}
+
+	for _, approval := range approvals {
+		if _, sent := r.reminderSent[approval.ID]; sent {
+			continue
+		}
+		wfRun := workflowRuns[approval.WorkflowRunID]
+		if wfRun == nil {
+			continue
 		}
 
 		var timeRemainingSecs float64

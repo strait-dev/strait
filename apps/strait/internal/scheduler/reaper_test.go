@@ -1909,10 +1909,11 @@ func TestReaper_ReapStalledWorkflows_FailWorkflow(t *testing.T) {
 // mockNotifierReaperStore composes mockReaperStore with ApprovalNotifierStore and ApprovalReminderStore.
 type mockNotifierReaperStore struct {
 	mockReaperStore
-	listEnabledNotificationChannelsFn func(ctx context.Context, projectID string) ([]domain.NotificationChannel, error)
-	createNotificationDeliveryFn      func(ctx context.Context, d *domain.NotificationDelivery) error
-	getWorkflowRunFn                  func(ctx context.Context, id string) (*domain.WorkflowRun, error)
-	listApprovalsPastReminderPointFn  func(ctx context.Context) ([]domain.WorkflowStepApproval, error)
+	listEnabledNotificationChannelsFn             func(ctx context.Context, projectID string) ([]domain.NotificationChannel, error)
+	listEnabledNotificationChannelsByProjectIDsFn func(ctx context.Context, projectIDs []string) (map[string][]domain.NotificationChannel, error)
+	createNotificationDeliveryFn                  func(ctx context.Context, d *domain.NotificationDelivery) error
+	getWorkflowRunFn                              func(ctx context.Context, id string) (*domain.WorkflowRun, error)
+	listApprovalsPastReminderPointFn              func(ctx context.Context) ([]domain.WorkflowStepApproval, error)
 }
 
 func (m *mockNotifierReaperStore) ListEnabledNotificationChannels(ctx context.Context, projectID string) ([]domain.NotificationChannel, error) {
@@ -1920,6 +1921,21 @@ func (m *mockNotifierReaperStore) ListEnabledNotificationChannels(ctx context.Co
 		return m.listEnabledNotificationChannelsFn(ctx, projectID)
 	}
 	return nil, nil
+}
+
+func (m *mockNotifierReaperStore) ListEnabledNotificationChannelsByProjectIDs(ctx context.Context, projectIDs []string) (map[string][]domain.NotificationChannel, error) {
+	if m.listEnabledNotificationChannelsByProjectIDsFn != nil {
+		return m.listEnabledNotificationChannelsByProjectIDsFn(ctx, projectIDs)
+	}
+	result := make(map[string][]domain.NotificationChannel)
+	for _, projectID := range projectIDs {
+		channels, err := m.ListEnabledNotificationChannels(ctx, projectID)
+		if err != nil {
+			return nil, err
+		}
+		result[projectID] = channels
+	}
+	return result, nil
 }
 
 func (m *mockNotifierReaperStore) CreateNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) error {
@@ -2388,6 +2404,59 @@ func TestReaper_ReapApprovalReminders_CachesWorkflowAndChannelsPerPoll(t *testin
 	}
 }
 
+func TestReaper_ReapApprovalReminders_BulkListsChannelsForMultipleProjects(t *testing.T) {
+	t.Parallel()
+	expires := time.Now().Add(10 * time.Minute)
+	approvals := []domain.WorkflowStepApproval{
+		{ID: "appr-1", WorkflowRunID: "wr-1", WorkflowStepRunID: "sr-1", Status: domain.ApprovalStatusPending, ExpiresAt: &expires},
+		{ID: "appr-2", WorkflowRunID: "wr-2", WorkflowStepRunID: "sr-2", Status: domain.ApprovalStatusPending, ExpiresAt: &expires},
+		{ID: "appr-3", WorkflowRunID: "wr-3", WorkflowStepRunID: "sr-3", Status: domain.ApprovalStatusPending, ExpiresAt: &expires},
+	}
+	var bulkLookups atomic.Int32
+	var singleLookups atomic.Int32
+	var deliveries atomic.Int32
+	ms := &mockNotifierReaperStore{
+		listApprovalsPastReminderPointFn: func(_ context.Context) ([]domain.WorkflowStepApproval, error) {
+			return approvals, nil
+		},
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: id, ProjectID: "proj-" + id, WorkflowID: "wf-" + id}, nil
+		},
+		listEnabledNotificationChannelsFn: func(_ context.Context, _ string) ([]domain.NotificationChannel, error) {
+			singleLookups.Add(1)
+			return nil, nil
+		},
+		listEnabledNotificationChannelsByProjectIDsFn: func(_ context.Context, projectIDs []string) (map[string][]domain.NotificationChannel, error) {
+			bulkLookups.Add(1)
+			if len(projectIDs) != 3 {
+				t.Fatalf("bulk project count = %d, want 3", len(projectIDs))
+			}
+			result := make(map[string][]domain.NotificationChannel, len(projectIDs))
+			for _, projectID := range projectIDs {
+				result[projectID] = []domain.NotificationChannel{{ID: "ch-" + projectID, ProjectID: projectID}}
+			}
+			return result, nil
+		},
+		createNotificationDeliveryFn: func(_ context.Context, _ *domain.NotificationDelivery) error {
+			deliveries.Add(1)
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.reapApprovalReminders(context.Background())
+
+	if deliveries.Load() != int32(len(approvals)) {
+		t.Fatalf("expected %d deliveries, got %d", len(approvals), deliveries.Load())
+	}
+	if bulkLookups.Load() != 1 {
+		t.Fatalf("expected 1 bulk channel lookup, got %d", bulkLookups.Load())
+	}
+	if singleLookups.Load() != 0 {
+		t.Fatalf("expected no single channel lookups, got %d", singleLookups.Load())
+	}
+}
+
 func TestReaper_ReapApprovalReminders_NoApprovals(t *testing.T) {
 	t.Parallel()
 	deliveryCalled := false
@@ -2406,5 +2475,56 @@ func TestReaper_ReapApprovalReminders_NoApprovals(t *testing.T) {
 
 	if deliveryCalled {
 		t.Fatal("expected no deliveries when no approvals nearing expiry")
+	}
+}
+
+func BenchmarkReaper_ReapApprovalReminders_ManyProjects(b *testing.B) {
+	expires := time.Now().Add(10 * time.Minute)
+	const approvalCount = 128
+	approvals := make([]domain.WorkflowStepApproval, approvalCount)
+	workflowRuns := make(map[string]*domain.WorkflowRun, approvalCount)
+	for i := range approvalCount {
+		workflowRunID := fmt.Sprintf("wr-%03d", i)
+		approvals[i] = domain.WorkflowStepApproval{
+			ID:                fmt.Sprintf("appr-%03d", i),
+			WorkflowRunID:     workflowRunID,
+			WorkflowStepRunID: fmt.Sprintf("sr-%03d", i),
+			Status:            domain.ApprovalStatusPending,
+			RequestedAt:       time.Now().Add(-time.Hour),
+			ExpiresAt:         &expires,
+		}
+		workflowRuns[workflowRunID] = &domain.WorkflowRun{
+			ID:         workflowRunID,
+			ProjectID:  fmt.Sprintf("proj-%03d", i),
+			WorkflowID: fmt.Sprintf("wf-%03d", i),
+		}
+	}
+
+	ms := &mockNotifierReaperStore{
+		listApprovalsPastReminderPointFn: func(_ context.Context) ([]domain.WorkflowStepApproval, error) {
+			return approvals, nil
+		},
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			return workflowRuns[id], nil
+		},
+		listEnabledNotificationChannelsFn: func(_ context.Context, projectID string) ([]domain.NotificationChannel, error) {
+			return []domain.NotificationChannel{{ID: "ch-" + projectID, ProjectID: projectID}}, nil
+		},
+		listEnabledNotificationChannelsByProjectIDsFn: func(_ context.Context, projectIDs []string) (map[string][]domain.NotificationChannel, error) {
+			result := make(map[string][]domain.NotificationChannel, len(projectIDs))
+			for _, projectID := range projectIDs {
+				result[projectID] = []domain.NotificationChannel{{ID: "ch-" + projectID, ProjectID: projectID}}
+			}
+			return result, nil
+		},
+		createNotificationDeliveryFn: func(_ context.Context, _ *domain.NotificationDelivery) error {
+			return nil
+		},
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+		r.reapApprovalReminders(context.Background())
 	}
 }
