@@ -513,6 +513,75 @@ func TestBatchlog_DequeueDoesNotSealOrReclaimOnHotPath(t *testing.T) {
 	}
 }
 
+func TestBatchlogSeal_UsesSequenceCursorWithoutMetadataRows(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-batchlog-sequence-cursor")
+	q := mustBatchlogQueue(t, time.Second)
+
+	runA := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+	if err := q.Enqueue(ctx, runA); err != nil {
+		t.Fatalf("Enqueue runA: %v", err)
+	}
+	if sealed, err := q.SealDueBatches(ctx); err != nil {
+		t.Fatalf("SealDueBatches first: %v", err)
+	} else if sealed != 1 {
+		t.Fatalf("first sealed = %d, want 1", sealed)
+	}
+
+	runB := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+	if err := q.Enqueue(ctx, runB); err != nil {
+		t.Fatalf("Enqueue runB: %v", err)
+	}
+	if sealed, err := q.SealDueBatches(ctx); err != nil {
+		t.Fatalf("SealDueBatches second: %v", err)
+	} else if sealed != 1 {
+		t.Fatalf("second sealed = %d, want 1", sealed)
+	}
+
+	var batchA, batchB int64
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT batch_id
+		FROM queue_entries
+		WHERE run_id = $1
+	`, runA.ID).Scan(&batchA); err != nil {
+		t.Fatalf("batchA: %v", err)
+	}
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT batch_id
+		FROM queue_entries
+		WHERE run_id = $1
+	`, runB.ID).Scan(&batchB); err != nil {
+		t.Fatalf("batchB: %v", err)
+	}
+	if batchA == 0 || batchB == 0 || batchB <= batchA {
+		t.Fatalf("batch cursor values = (%d, %d), want increasing non-zero ids", batchA, batchB)
+	}
+
+	for _, relation := range []string{"queue_batches", "queue_batch_ticks", "queue_batch_seal_state"} {
+		var count int
+		if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM `+relation).Scan(&count); err != nil {
+			t.Fatalf("count %s: %v", relation, err)
+		}
+		if count != 0 {
+			t.Fatalf("%s rows = %d, want 0", relation, count)
+		}
+	}
+
+	claimed, err := q.DequeueN(ctx, 2)
+	if err != nil {
+		t.Fatalf("DequeueN: %v", err)
+	}
+	if len(claimed) != 2 {
+		t.Fatalf("DequeueN len = %d, want 2", len(claimed))
+	}
+	if claimed[0].ID != runA.ID || claimed[1].ID != runB.ID {
+		t.Fatalf("claimed order = [%s, %s], want [%s, %s]", claimed[0].ID, claimed[1].ID, runA.ID, runB.ID)
+	}
+}
+
 func TestBatchlogLeaseCounts_BlockMaxConcurrencyBeforeStart(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

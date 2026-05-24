@@ -180,30 +180,16 @@ func (q *BatchlogQueue) SealDueBatches(ctx context.Context) (int64, error) {
 			  AND (qe.next_retry_at IS NULL OR qe.next_retry_at <= NOW())
 			LIMIT 10000
 		),
-		created_batch AS (
-			INSERT INTO queue_batches (sealed_until)
-			SELECT NOW()
+		next_batch AS (
+			SELECT nextval('queue_batch_id_seq') AS id
 			WHERE EXISTS (SELECT 1 FROM due)
-			RETURNING id
 		),
 		updated AS (
 			UPDATE queue_entries qe
-			SET batch_id = cb.id, updated_at = NOW()
-			FROM created_batch cb
+			SET batch_id = nb.id, updated_at = NOW()
+			FROM next_batch nb
 			WHERE qe.run_id IN (SELECT run_id FROM due)
-			RETURNING qe.run_id, cb.id
-		),
-		tick AS (
-			INSERT INTO queue_batch_ticks (sealed_until, batch_id)
-			SELECT NOW(), id FROM created_batch
-		),
-		updated_state AS (
-			INSERT INTO queue_batch_seal_state (id, last_sealed_until, updated_at)
-			SELECT true, NOW(), NOW()
-			WHERE EXISTS (SELECT 1 FROM updated)
-			ON CONFLICT (id) DO UPDATE
-			SET last_sealed_until = EXCLUDED.last_sealed_until,
-			    updated_at = EXCLUDED.updated_at
+			RETURNING qe.run_id, nb.id
 		)
 		SELECT COALESCE(MAX(id), 0), COUNT(*) FROM updated
 	`, domain.StatusQueued).Scan(&batchID, &sealed)
