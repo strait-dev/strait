@@ -88,6 +88,7 @@ type Config struct {
 	// preserving job_runs as the ledger.
 	QueueEngine            string        `env:"QUEUE_ENGINE" default:"legacy"`
 	QueueBatchTickInterval time.Duration `env:"QUEUE_BATCH_TICK_INTERVAL" default:"100ms"`
+	OutboxEngine           string        `env:"OUTBOX_ENGINE" default:"legacy"`
 
 	// DLQ caps and overflow policy.
 	DLQMaxPerProject  int    `env:"DLQ_MAX_PER_PROJECT" default:"10000"`

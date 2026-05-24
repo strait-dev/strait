@@ -39,6 +39,7 @@ type OutboxFlusher struct {
 	queue      queue.Queue
 	interval   time.Duration
 	batchSize  int
+	engine     string
 	logger     *slog.Logger
 	iterations atomic.Int64
 	flushed    atomic.Int64
@@ -49,6 +50,7 @@ type OutboxFlusher struct {
 type OutboxFlusherConfig struct {
 	Interval  time.Duration
 	BatchSize int
+	Engine    string
 	Logger    *slog.Logger
 }
 
@@ -59,6 +61,7 @@ func NewOutboxFlusher(pool *pgxpool.Pool, q queue.Queue, cfg OutboxFlusherConfig
 		queue:     q,
 		interval:  cfg.Interval,
 		batchSize: cfg.BatchSize,
+		engine:    cfg.Engine,
 		logger:    cfg.Logger,
 	}
 	if f.interval <= 0 {
@@ -69,6 +72,9 @@ func NewOutboxFlusher(pool *pgxpool.Pool, q queue.Queue, cfg OutboxFlusherConfig
 	}
 	if f.logger == nil {
 		f.logger = slog.Default()
+	}
+	if f.engine == "" {
+		f.engine = "legacy"
 	}
 	return f
 }
@@ -112,7 +118,7 @@ func (f *OutboxFlusher) flushOnce(ctx context.Context) error {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	rows, err := store.ClaimUnconsumedOutboxInTx(ctx, tx, f.batchSize)
+	rows, err := f.claimRows(ctx, tx)
 	if err != nil {
 		f.errors.Add(1)
 		return err
@@ -137,6 +143,9 @@ func (f *OutboxFlusher) flushOnce(ctx context.Context) error {
 				return fmt.Errorf("outbox flusher: rollback failed row %s: %w", row.ID, rollbackErr)
 			}
 			if classifyOutboxEnqueueError(err) == outboxEnqueueRetryable {
+				if f.engine == "batchlog" {
+					_ = store.MarkOutboxClaimsReadyInTx(ctx, tx, []string{row.ID})
+				}
 				f.logger.Warn("outbox flusher: enqueue failed, will retry",
 					"outbox_id", row.ID, "job_id", row.JobID, "error", err,
 				)
@@ -145,6 +154,11 @@ func (f *OutboxFlusher) flushOnce(ctx context.Context) error {
 			msg := store.TruncateOutboxError(err.Error())
 			if markErr := store.MarkOutboxErroredInTx(ctx, tx, row.ID, msg); markErr != nil {
 				return fmt.Errorf("outbox flusher: quarantine row %s: %w", row.ID, markErr)
+			}
+			if f.engine == "batchlog" {
+				if markErr := store.MarkOutboxClaimsAckedInTx(ctx, tx, []string{row.ID}); markErr != nil {
+					return fmt.Errorf("outbox flusher: ack quarantined row %s: %w", row.ID, markErr)
+				}
 			}
 			if qm != nil && qm.OutboxQuarantinedTotal != nil {
 				qm.OutboxQuarantinedTotal.Add(ctx, 1)
@@ -168,6 +182,12 @@ func (f *OutboxFlusher) flushOnce(ctx context.Context) error {
 			f.errors.Add(1)
 			return err
 		}
+		if f.engine == "batchlog" {
+			if err := store.MarkOutboxClaimsAckedInTx(ctx, tx, promoted); err != nil {
+				f.errors.Add(1)
+				return err
+			}
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		f.errors.Add(1)
@@ -177,7 +197,17 @@ func (f *OutboxFlusher) flushOnce(ctx context.Context) error {
 	if len(promoted) > 0 {
 		f.logger.Debug("outbox flusher promoted", "count", len(promoted))
 	}
+	if f.engine == "batchlog" && len(promoted) > 0 {
+		_, _ = store.New(f.pool).ArchiveConsumedOutboxBatch(ctx, 0, len(promoted))
+	}
 	return nil
+}
+
+func (f *OutboxFlusher) claimRows(ctx context.Context, tx pgx.Tx) ([]store.OutboxRow, error) {
+	if f.engine == "batchlog" {
+		return store.ClaimOutboxBatchlogInTx(ctx, tx, f.batchSize, "outbox-flusher", 30*time.Second)
+	}
+	return store.ClaimUnconsumedOutboxInTx(ctx, tx, f.batchSize)
 }
 
 func classifyOutboxEnqueueError(err error) outboxEnqueueDisposition {

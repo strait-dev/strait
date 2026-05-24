@@ -905,6 +905,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 				scheduler.NewOutboxFlusher(dbPool, q, scheduler.OutboxFlusherConfig{
 					Interval:  time.Second,
 					BatchSize: 500,
+					Engine:    cfg.OutboxEngine,
 					Logger:    slog.Default(),
 				}),
 			),
