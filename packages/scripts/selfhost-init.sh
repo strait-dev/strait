@@ -49,6 +49,7 @@ SECRET_ENCRYPTION_KEY=$(gen_base64)
 BETTER_AUTH_SECRET=$(gen_hex)
 SEQUIN_SECRET_KEY_BASE=$(gen_hex)$(gen_hex)
 SEQUIN_VAULT_KEY=$(gen_base64)
+SEQUIN_API_TOKEN=$(gen_hex)
 
 cat > "$ENV_FILE" <<EOF
 # Auto-generated secrets for Strait self-hosted deployment.
@@ -73,6 +74,7 @@ BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET}
 # Sequin secrets
 SEQUIN_SECRET_KEY_BASE=${SEQUIN_SECRET_KEY_BASE}
 SEQUIN_VAULT_KEY=${SEQUIN_VAULT_KEY}
+SEQUIN_API_TOKEN=${SEQUIN_API_TOKEN}
 EOF
 
 echo "Secrets written to $ENV_FILE"

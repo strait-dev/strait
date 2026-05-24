@@ -464,6 +464,9 @@ func validateLoaded(cfg *Config) error {
 	if cfg.SequinConsumerName == "" {
 		return &domain.ConfigError{Field: "SEQUIN_CONSUMER_NAME", Message: "is required"}
 	}
+	if cfg.SequinAPIToken == "" {
+		return &domain.ConfigError{Field: "SEQUIN_API_TOKEN", Message: "is required"}
+	}
 
 	if cfg.ClickHouseEnabled && cfg.ClickHouseURL == "" {
 		return &domain.ConfigError{Field: "CLICKHOUSE_URL", Message: "is required when CLICKHOUSE_ENABLED=true"}

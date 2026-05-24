@@ -26,6 +26,7 @@ func setRequiredEnv(t *testing.T) {
 	t.Setenv("REDIS_URL", "redis://localhost:6379")
 	t.Setenv("SEQUIN_BASE_URL", "http://localhost:7376")
 	t.Setenv("SEQUIN_CONSUMER_NAME", "strait-cdc")
+	t.Setenv("SEQUIN_API_TOKEN", "sequin-api-token")
 	t.Setenv("INTERNAL_SECRET", "test-secret-value")
 	t.Setenv("JWT_SIGNING_KEY", "aaaa-test-jwt-signing-key-00000000")
 }
@@ -825,6 +826,16 @@ func TestLoad_RequiredRuntimeDependencies(t *testing.T) {
 		_, err := Load()
 		if err == nil || !strings.Contains(err.Error(), "SEQUIN_CONSUMER_NAME") {
 			t.Fatalf("error = %v, want SEQUIN_CONSUMER_NAME requirement", err)
+		}
+	})
+
+	t.Run("missing Sequin API token", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("SEQUIN_API_TOKEN", "")
+
+		_, err := Load()
+		if err == nil || !strings.Contains(err.Error(), "SEQUIN_API_TOKEN") {
+			t.Fatalf("error = %v, want SEQUIN_API_TOKEN requirement", err)
 		}
 	})
 }

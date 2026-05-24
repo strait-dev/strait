@@ -97,7 +97,7 @@ func (s *Server) handleSetJobEndpoint(ctx context.Context, input *SetJobEndpoint
 		return nil, newValidationError(err)
 	}
 
-	if err := validateURL(input.Body.EndpointURL); err != nil {
+	if err := s.validateURL(input.Body.EndpointURL); err != nil {
 		slog.Warn("endpoint_url failed SSRF validation",
 			"url", httputil.RedactURLForLog(input.Body.EndpointURL),
 			"err", err.Error(),
@@ -107,7 +107,7 @@ func (s *Server) handleSetJobEndpoint(ctx context.Context, input *SetJobEndpoint
 		return nil, huma.Error400BadRequest("endpoint_url failed validation")
 	}
 	if input.Body.FallbackEndpointURL != "" {
-		if err := validateURL(input.Body.FallbackEndpointURL); err != nil {
+		if err := s.validateURL(input.Body.FallbackEndpointURL); err != nil {
 			slog.Warn("fallback_endpoint_url failed SSRF validation",
 				"url", httputil.RedactURLForLog(input.Body.FallbackEndpointURL),
 				"err", err.Error(),
@@ -261,7 +261,7 @@ func (s *Server) handleVerifyJobEndpoint(ctx context.Context, input *VerifyJobEn
 			if len(via) >= 3 {
 				return fmt.Errorf("too many redirects")
 			}
-			if err := validateURL(req.URL.String()); err != nil {
+			if err := s.validateURL(req.URL.String()); err != nil {
 				return fmt.Errorf("redirect blocked by ssrf guard: %w", err)
 			}
 			return nil

@@ -277,8 +277,9 @@ func (c *Client) readError(resp *http.Response) error {
 // EnsureConsumer checks if the named consumer exists and creates it if not.
 // Idempotent and safe to call on every startup.
 func (c *Client) EnsureConsumer(ctx context.Context, tables []string) error {
-	// Probe: try an empty receive to check if consumer exists.
-	_, err := c.Receive(ctx, 0, 0)
+	// Probe: try a non-blocking receive to check if the consumer exists.
+	// Sequin rejects batch_size=0, so use the smallest valid batch.
+	_, err := c.Receive(ctx, 1, 0)
 	if err == nil {
 		return nil
 	}
@@ -312,7 +313,32 @@ func (c *Client) EnsureConsumer(ctx context.Context, tables []string) error {
 
 	if resp.StatusCode >= 400 {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if (resp.StatusCode == http.StatusConflict || resp.StatusCode == http.StatusUnprocessableEntity) &&
+			bytes.Contains(respBody, []byte("has already been taken")) {
+			return c.waitForConsumerReady(ctx)
+		}
 		return fmt.Errorf("create sequin sink (status %d): %s", resp.StatusCode, respBody)
 	}
-	return nil
+	return c.waitForConsumerReady(ctx)
+}
+
+func (c *Client) waitForConsumerReady(ctx context.Context) error {
+	var lastErr error
+	for attempt := range 30 {
+		_, err := c.Receive(ctx, 1, 0)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+
+		delay := min(time.Duration(attempt+1)*250*time.Millisecond, time.Second)
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return fmt.Errorf("wait for sequin consumer: %w", ctx.Err())
+		case <-timer.C:
+		}
+	}
+	return fmt.Errorf("wait for sequin consumer: %w", lastErr)
 }

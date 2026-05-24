@@ -16,11 +16,14 @@ services:
     ports:
       - "7376:7376"
     environment:
+      SEQUIN_API_TOKEN: ${SEQUIN_API_TOKEN:?run ./packages/scripts/selfhost-init.sh}
       SECRET_KEY_BASE: ${SEQUIN_SECRET_KEY_BASE:?run ./packages/scripts/selfhost-init.sh}
       VAULT_KEY: ${SEQUIN_VAULT_KEY:?run ./packages/scripts/selfhost-init.sh}
 
   strait-migrate:
     image: ${STRAIT_IMAGE:-ghcr.io/strait-dev/strait:0.1.6} # x-release-please-version
+    environment:
+      SEQUIN_API_TOKEN: ${SEQUIN_API_TOKEN:?run ./packages/scripts/selfhost-init.sh}
 
   strait:
     container_name: strait-api
@@ -28,6 +31,7 @@ services:
     ports:
       - "8080:8080"
     environment:
+      SEQUIN_API_TOKEN: ${SEQUIN_API_TOKEN:?run ./packages/scripts/selfhost-init.sh}
       STRAIT_EDITION: community
       ALLOW_PRIVATE_ENDPOINTS: "false"
 

@@ -1094,7 +1094,14 @@ func (s *Server) decodeJSON(r *http.Request, v any) error {
 }
 
 func validateURL(rawURL string) error {
-	allowPrivate := globalAllowPrivateEndpoints.Load()
+	return validateURLWithAllowPrivate(rawURL, globalAllowPrivateEndpoints.Load())
+}
+
+func (s *Server) validateURL(rawURL string) error {
+	return validateURLWithAllowPrivate(rawURL, s.config != nil && s.config.AllowPrivateEndpoints)
+}
+
+func validateURLWithAllowPrivate(rawURL string, allowPrivate bool) error {
 	if err := worker.ValidateEndpointURL(rawURL, worker.WithAllowPrivateEndpoints(allowPrivate)); err != nil {
 		msg := err.Error()
 		if strings.HasPrefix(msg, "URL") {

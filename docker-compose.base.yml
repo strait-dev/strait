@@ -8,6 +8,7 @@ x-strait-env: &strait-env
   REDIS_URL: redis://redis:6379
   SEQUIN_BASE_URL: http://sequin:7376
   SEQUIN_CONSUMER_NAME: strait-cdc
+  SEQUIN_API_TOKEN: ${SEQUIN_API_TOKEN:-local-dev-sequin-api-token-change-me}
   INTERNAL_SECRET: ${INTERNAL_SECRET:-local-dev-internal-secret-change-me}
   JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:-local-dev-jwt-signing-key-change-me-32chars}
   ENCRYPTION_KEY: ${ENCRYPTION_KEY:-local-dev-encryption-key-change-me-32chars}
@@ -26,6 +27,7 @@ x-strait-runtime-env: &strait-runtime-env
   REDIS_POOL_SIZE: ${REDIS_POOL_SIZE:-30}
   REDIS_MIN_IDLE_CONNS: ${REDIS_MIN_IDLE_CONNS:-5}
   GRPC_BIND_ADDR: ${GRPC_BIND_ADDR:-0.0.0.0}
+  GRPC_ALLOW_PLAINTEXT: ${GRPC_ALLOW_PLAINTEXT:-true}
   ALLOW_PRIVATE_ENDPOINTS: ${ALLOW_PRIVATE_ENDPOINTS:-false}
 
 services:
@@ -155,6 +157,7 @@ services:
       PG_PASSWORD: strait
       PG_DATABASE: strait
       REDIS_URL: redis://redis:6379
+      SEQUIN_API_TOKEN: ${SEQUIN_API_TOKEN:-local-dev-sequin-api-token-change-me}
       SECRET_KEY_BASE: ${SEQUIN_SECRET_KEY_BASE:-tONJRnB3NMPNPSbvLsKzE/r6lklVO+04MfFNWPBzBtBt2G5H0rrn8bwdHcRXiSQ3}
       VAULT_KEY: ${SEQUIN_VAULT_KEY:-Gw1VfMPCshBaUeXrOvIPFTVtW/d5xlv93F7BPfVo7Ys=}
       CONFIG_FILE_PATH: /etc/sequin/config.yml

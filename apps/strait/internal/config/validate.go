@@ -38,6 +38,9 @@ func (c *Config) Validate() error {
 	if c.SequinConsumerName == "" {
 		errs = append(errs, fmt.Errorf("SEQUIN_CONSUMER_NAME is required"))
 	}
+	if c.SequinAPIToken == "" {
+		errs = append(errs, fmt.Errorf("SEQUIN_API_TOKEN is required"))
+	}
 
 	// Positive-required durations.
 	requirePositive := map[string]time.Duration{

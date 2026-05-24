@@ -14,6 +14,7 @@ This page lists the settings most deployments need. The full runtime has additio
 | `REDIS_URL` | Redis connection string. Required unless `REDIS_SENTINEL_MASTER` and `REDIS_SENTINEL_ADDRS` are configured. |
 | `SEQUIN_BASE_URL` | Sequin API base URL. |
 | `SEQUIN_CONSUMER_NAME` | Sequin HTTP pull consumer name. |
+| `SEQUIN_API_TOKEN` | Sequin API token provisioned in the Sequin config. |
 | `INTERNAL_SECRET` | Secret for trusted service-to-service access. Minimum 16 characters; 32 or more recommended. |
 | `JWT_SIGNING_KEY` | Secret used to sign run tokens for SDK calls. 32 or more characters recommended. |
 | `ENCRYPTION_KEY` | Key used for encrypted data at rest. |
@@ -26,6 +27,7 @@ export DATABASE_URL="postgres://strait:strait@localhost:15432/strait?sslmode=dis
 export REDIS_URL="redis://localhost:16379"
 export SEQUIN_BASE_URL="http://localhost:7376"
 export SEQUIN_CONSUMER_NAME="strait-cdc"
+export SEQUIN_API_TOKEN="$(openssl rand -hex 32)"
 export INTERNAL_SECRET="$(openssl rand -base64 32)"
 export JWT_SIGNING_KEY="$(openssl rand -base64 32)"
 export ENCRYPTION_KEY="$(openssl rand -base64 32)"

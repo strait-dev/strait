@@ -17,12 +17,12 @@ services:
 
   strait-migrate:
     build:
-      context: .
+      context: ./apps/strait
     image: strait-dev-local:latest
 
   strait:
     build:
-      context: .
+      context: ./apps/strait
     image: strait-dev-local:latest
     ports:
       - "8080:8080"

@@ -32,6 +32,7 @@ func validConfig() *Config {
 		RedisURL:                      "redis://localhost:6379",
 		SequinBaseURL:                 "http://localhost:7376",
 		SequinConsumerName:            "strait-cdc",
+		SequinAPIToken:                "sequin-api-token",
 		DBMaxConns:                    50,
 		DBMinConns:                    10,
 		DLQMaxPerJob:                  1000,
@@ -238,6 +239,7 @@ func setRequiredAuditEnv(t *testing.T) {
 	t.Setenv("REDIS_URL", "redis://localhost:6379")
 	t.Setenv("SEQUIN_BASE_URL", "http://localhost:7376")
 	t.Setenv("SEQUIN_CONSUMER_NAME", "strait-cdc")
+	t.Setenv("SEQUIN_API_TOKEN", "sequin-api-token")
 	t.Setenv("INTERNAL_SECRET", "test-secret-value")
 	t.Setenv("JWT_SIGNING_KEY", "aaaa-test-jwt-signing-key-00000000")
 	t.Setenv("AUDIT_RETENTION_DEFAULT_DAYS", "365")

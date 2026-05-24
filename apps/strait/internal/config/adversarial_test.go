@@ -15,6 +15,7 @@ func setAdversarialRuntimeEnv(t *testing.T) {
 	t.Setenv("REDIS_URL", "redis://localhost:6379")
 	t.Setenv("SEQUIN_BASE_URL", "http://localhost:7376")
 	t.Setenv("SEQUIN_CONSUMER_NAME", "strait-cdc")
+	t.Setenv("SEQUIN_API_TOKEN", "sequin-api-token")
 }
 
 // TestConfig_IntOverflowPort verifies that an overflowing port value does not
@@ -139,6 +140,7 @@ func FuzzConfigParsing(f *testing.F) {
 		t.Setenv("REDIS_URL", "redis://localhost:6379")
 		t.Setenv("SEQUIN_BASE_URL", "http://localhost:7376")
 		t.Setenv("SEQUIN_CONSUMER_NAME", "strait-cdc")
+		t.Setenv("SEQUIN_API_TOKEN", "sequin-api-token")
 
 		// We only care that Load does not panic.
 		_, _ = Load()
