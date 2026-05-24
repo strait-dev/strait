@@ -1067,6 +1067,9 @@ func (q *PostgresQueue) DequeueNForWorkerQueues(ctx context.Context, n int, queu
 	}
 
 	var ids []string
+	if n > 1 {
+		ids = make([]string, 0, n)
+	}
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
@@ -1223,6 +1226,9 @@ func (q *PostgresQueue) DequeueNClaim(ctx context.Context, n int) ([]domain.JobR
 	}
 
 	var ids []string
+	if n > 1 {
+		ids = make([]string, 0, n)
+	}
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
