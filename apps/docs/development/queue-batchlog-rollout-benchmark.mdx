@@ -7,9 +7,9 @@ This report summarizes the local benchmark pass for the PgQue-inspired queue wor
 
 ## Result
 
-Do not switch `QUEUE_ENGINE` or `OUTBOX_ENGINE` to `batchlog` by default yet. The optimized batchlog queue is now close to the fully denormalized dequeue path in this local benchmark, and it should generate less `job_runs` churn, but it did not beat the current fastest dequeue path. The optimized batchlog outbox improved substantially after moving archival off the promotion path, but it is still slower than the legacy flusher benchmark.
+Switch `QUEUE_ENGINE` to `batchlog` by default. The optimized batchlog queue now beats the legacy queue in the comparative bloat gate while reducing `job_runs` table and index growth. Keep `OUTBOX_ENGINE` on `legacy` until the outbox batchlog path beats the legacy flusher in the same style of benchmark.
 
-Keep `QUEUE_USE_DENORMALIZED_DEQUEUE=true` as the production default. Continue optimizing batchlog before removing the remaining engine selection knobs.
+Keep `QUEUE_USE_DENORMALIZED_DEQUEUE=true` for the legacy rollback path. Continue optimizing batchlog outbox before making it the outbox default.
 
 ## Measurements
 
@@ -58,7 +58,21 @@ Final phase 6 sequential gate:
 | Outbox promotion | legacy | 340.90 ms/op |
 | Outbox promotion | batchlog | 680.34 ms/op |
 
-The phase 6 gate was run with packages serialized to avoid local testcontainer contention. Results were noisier than the shorter package-level runs, but the conclusion is unchanged: batchlog queue/outbox should not become the default until the remaining claim overhead is removed.
+The phase 6 gate was run with packages serialized to avoid local testcontainer contention. At that point the batchlog queue and outbox were not ready to become defaults because claim overhead was still too high.
+
+Final queue read-model gate after the batchlog claim, seal, and lease optimizations:
+
+| Area | Result |
+|---|---:|
+| 1k-run comparison P99 latency delta | batchlog 21.01 ms faster |
+| 1k-run comparison throughput delta | batchlog +163.49 runs/s |
+| 1k-run comparison WAL delta | batchlog -445,698 bytes |
+| duplicate claims / lost claims | 0 / 0 |
+| batch metadata table/index delta | 0 bytes |
+| removed mutable lease counter table | `job_batchlog_lease_counts` no longer exists |
+| batchlog candidate selection plan | 0.370 ms execution time |
+
+This final gate removes the earlier blocker: the batchlog candidate-selection plan went from about 104 ms with the `job_runs` join to about 0.3 ms after claiming from the `queue_entries` read model. The queue path is now acceptable as the default; the outbox path still needs follow-up work.
 
 ## Reliability Checks
 
@@ -77,23 +91,22 @@ Recommended flags:
 
 ```bash
 QUEUE_USE_DENORMALIZED_DEQUEUE=true
-QUEUE_ENGINE=legacy
+QUEUE_ENGINE=batchlog
 OUTBOX_ENGINE=legacy
 WORKFLOW_PROGRESSION_ENGINE=legacy
 ```
 
-Current batchlog experiments:
+Current non-default batchlog experiments:
 
 ```bash
-QUEUE_ENGINE=batchlog
 OUTBOX_ENGINE=batchlog
 WORKFLOW_PROGRESSION_ENGINE=batchlog
 ```
 
-Rollback is immediate: set each engine value back to `legacy` and restart workers/API processes. The batchlog tables are additive and can remain in place while the legacy paths run.
+Rollback is immediate: set `QUEUE_ENGINE=legacy` and restart workers/API processes. The batchlog tables can remain in place while the legacy path runs.
 
 ## Follow-ups
 
-- Reduce batchlog queue claim latency further, especially around batch ordering and lease-count joins.
+- Continue watching `queue_entries` dead tuples and index growth under production-like concurrency.
 - Reduce outbox batchlog claim overhead or remove the remaining `enqueue_outbox` join from the claim path.
 - Add dashboards for `queue_entries`, `outbox_claims`, and `workflow_progression_events` ready/leased/acked counts, plus lease age.

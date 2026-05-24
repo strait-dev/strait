@@ -83,10 +83,9 @@ type Config struct {
 	// columns plus job_active_counts instead of joining jobs and scanning
 	// active rows).
 	QueueUseDenormalizedDequeue bool `env:"QUEUE_USE_DENORMALIZED_DEQUEUE" default:"true"`
-	// QueueEngine selects the queue storage engine. legacy keeps the
-	// job_runs-as-queue path; batchlog claims from narrow queue_entries while
-	// preserving job_runs as the ledger.
-	QueueEngine               string        `env:"QUEUE_ENGINE" default:"legacy"`
+	// QueueEngine selects the queue storage engine. batchlog claims from
+	// narrow queue_entries while preserving job_runs as the ledger.
+	QueueEngine               string        `env:"QUEUE_ENGINE" default:"batchlog"`
 	QueueBatchTickInterval    time.Duration `env:"QUEUE_BATCH_TICK_INTERVAL" default:"100ms"`
 	OutboxEngine              string        `env:"OUTBOX_ENGINE" default:"legacy"`
 	WorkflowProgressionEngine string        `env:"WORKFLOW_PROGRESSION_ENGINE" default:"legacy"`
