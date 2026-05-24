@@ -601,16 +601,26 @@ func (r *Reaper) reapApprovalReminders(ctx context.Context) {
 		slog.Warn("failed to list approvals past reminder point", "error", err)
 		return
 	}
+	if len(approvals) == 0 {
+		return
+	}
 
+	workflowRuns := make(map[string]*domain.WorkflowRun)
+	channelsByProject := make(map[string][]domain.NotificationChannel)
 	for _, approval := range approvals {
 		if _, sent := r.reminderSent[approval.ID]; sent {
 			continue
 		}
 
-		wfRun, wfErr := ns.GetWorkflowRun(ctx, approval.WorkflowRunID)
-		if wfErr != nil || wfRun == nil {
-			slog.Warn("failed to get workflow run for approval reminder", "workflow_run_id", approval.WorkflowRunID, "error", wfErr)
-			continue
+		wfRun, ok := workflowRuns[approval.WorkflowRunID]
+		if !ok {
+			var wfErr error
+			wfRun, wfErr = ns.GetWorkflowRun(ctx, approval.WorkflowRunID)
+			if wfErr != nil || wfRun == nil {
+				slog.Warn("failed to get workflow run for approval reminder", "workflow_run_id", approval.WorkflowRunID, "error", wfErr)
+				continue
+			}
+			workflowRuns[approval.WorkflowRunID] = wfRun
 		}
 
 		var timeRemainingSecs float64
@@ -618,18 +628,29 @@ func (r *Reaper) reapApprovalReminders(ctx context.Context) {
 			timeRemainingSecs = time.Until(*approval.ExpiresAt).Seconds()
 		}
 
-		channels, chErr := ns.ListEnabledNotificationChannels(ctx, wfRun.ProjectID)
-		if chErr != nil {
-			slog.Warn("failed to list notification channels for approval reminder", "error", chErr)
-			continue
+		channels, ok := channelsByProject[wfRun.ProjectID]
+		if !ok {
+			var chErr error
+			channels, chErr = ns.ListEnabledNotificationChannels(ctx, wfRun.ProjectID)
+			if chErr != nil {
+				slog.Warn("failed to list notification channels for approval reminder", "error", chErr)
+				continue
+			}
+			channelsByProject[wfRun.ProjectID] = channels
 		}
 
-		payload, marshalErr := json.Marshal(map[string]any{
-			"approval_id":         approval.ID,
-			"workflow_run_id":     approval.WorkflowRunID,
-			"workflow_id":         wfRun.WorkflowID,
-			"step_run_id":         approval.WorkflowStepRunID,
-			"time_remaining_secs": timeRemainingSecs,
+		payload, marshalErr := json.Marshal(struct {
+			ApprovalID        string  `json:"approval_id"`
+			WorkflowRunID     string  `json:"workflow_run_id"`
+			WorkflowID        string  `json:"workflow_id"`
+			StepRunID         string  `json:"step_run_id"`
+			TimeRemainingSecs float64 `json:"time_remaining_secs"`
+		}{
+			ApprovalID:        approval.ID,
+			WorkflowRunID:     approval.WorkflowRunID,
+			WorkflowID:        wfRun.WorkflowID,
+			StepRunID:         approval.WorkflowStepRunID,
+			TimeRemainingSecs: timeRemainingSecs,
 		})
 		if marshalErr != nil {
 			continue
