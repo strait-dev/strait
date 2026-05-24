@@ -208,7 +208,7 @@ func TestAdversarial_DoubleDeactivateAddon(t *testing.T) {
 	a := &billing.Addon{
 		ID:        newID(),
 		OrgID:     orgID,
-		AddonType: billing.AddonConcurrentRuns,
+		AddonType: billing.AddonConcurrency100,
 		Quantity:  1,
 		Active:    true,
 	}
@@ -246,7 +246,7 @@ func TestAdversarial_DuplicateAddonID(t *testing.T) {
 	a := &billing.Addon{
 		ID:        id,
 		OrgID:     orgID,
-		AddonType: billing.AddonConcurrentRuns,
+		AddonType: billing.AddonConcurrency100,
 		Quantity:  1,
 		Active:    true,
 	}
@@ -389,7 +389,7 @@ func TestAdversarial_MemberDedupAcrossProjects(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // A11: Concurrent enterprise contract upserts must not lose data
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestAdversarial_ConcurrentContractUpsert(t *testing.T) {
 	ctx := context.Background()
@@ -454,7 +454,7 @@ func TestAdversarial_ConcurrentContractUpsert(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // A12: Enterprise contract UNIQUE(org_id) enforced -- only one per org
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestAdversarial_OneContractPerOrg(t *testing.T) {
 	ctx := context.Background()
@@ -465,13 +465,13 @@ func TestAdversarial_OneContractPerOrg(t *testing.T) {
 	subID := "sub_u1"
 	c1 := &billing.EnterpriseContract{
 		ID: "contract_u1", OrgID: orgID,
-		EnterpriseTier: billing.EnterpriseTierStarter,
+		EnterpriseTier:        billing.EnterpriseTierStarter,
 		AnnualCommitmentCents: 1800000, IncludedCreditMicrousd: 1000000000,
 		ComputeDiscountPct: 10,
-		ContractStartDate: time.Now(), ContractEndDate: time.Now().Add(365 * 24 * time.Hour),
+		ContractStartDate:  time.Now(), ContractEndDate: time.Now().Add(365 * 24 * time.Hour),
 		AutoRenew: true, BillingCadence: "annual",
 		StripeSubscriptionID: &subID,
-		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+		CreatedAt:            time.Now(), UpdatedAt: time.Now(),
 	}
 
 	if err := pgStore.UpsertEnterpriseContract(ctx, c1); err != nil {
@@ -502,7 +502,7 @@ func TestAdversarial_OneContractPerOrg(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // A13: ListExpiringContracts excludes already-expired and far-future
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestAdversarial_ExpiringContractBoundaries(t *testing.T) {
 	ctx := context.Background()
@@ -515,27 +515,27 @@ func TestAdversarial_ExpiringContractBoundaries(t *testing.T) {
 		orgID := "org-boundary-" + orgSuffix + "-" + newID()
 		c := &billing.EnterpriseContract{
 			ID: "contract_" + orgSuffix, OrgID: orgID,
-			EnterpriseTier: billing.EnterpriseTierStarter,
+			EnterpriseTier:        billing.EnterpriseTierStarter,
 			AnnualCommitmentCents: 1800000, IncludedCreditMicrousd: 1000000000,
 			ComputeDiscountPct: 10,
-			ContractStartDate: time.Now().Add(-365 * 24 * time.Hour),
-			ContractEndDate:   time.Now().Add(endOffset),
-			AutoRenew: true, BillingCadence: "annual",
+			ContractStartDate:  time.Now().Add(-365 * 24 * time.Hour),
+			ContractEndDate:    time.Now().Add(endOffset),
+			AutoRenew:          true, BillingCadence: "annual",
 			StripeSubscriptionID: &subID,
-			CreatedAt: time.Now(), UpdatedAt: time.Now(),
+			CreatedAt:            time.Now(), UpdatedAt: time.Now(),
 		}
 		if err := pgStore.UpsertEnterpriseContract(ctx, c); err != nil {
 			t.Fatalf("create %s: %v", orgSuffix, err)
 		}
 	}
 
-	mkContract("expired-1h", -1*time.Hour)         // already expired
-	mkContract("expired-30d", -30*24*time.Hour)     // long expired
-	mkContract("expiring-1h", 1*time.Hour)          // about to expire
-	mkContract("expiring-6d", 6*24*time.Hour)       // 6 days out
-	mkContract("expiring-29d", 29*24*time.Hour)     // 29 days out
-	mkContract("expiring-31d", 31*24*time.Hour)     // 31 days out
-	mkContract("future-365d", 365*24*time.Hour)     // way out
+	mkContract("expired-1h", -1*time.Hour)      // already expired
+	mkContract("expired-30d", -30*24*time.Hour) // long expired
+	mkContract("expiring-1h", 1*time.Hour)      // about to expire
+	mkContract("expiring-6d", 6*24*time.Hour)   // 6 days out
+	mkContract("expiring-29d", 29*24*time.Hour) // 29 days out
+	mkContract("expiring-31d", 31*24*time.Hour) // 31 days out
+	mkContract("future-365d", 365*24*time.Hour) // way out
 
 	within30, err := pgStore.ListExpiringContracts(ctx, 30)
 	if err != nil {
@@ -569,9 +569,67 @@ func TestAdversarial_ExpiringContractBoundaries(t *testing.T) {
 	}
 }
 
+func TestPgStore_ListEnterpriseContractsOverlappingPeriod_IncludesMidPeriodLapse(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	periodStart := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	periodEnd := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	subID := "sub_sla_overlap"
+
+	insertContract := func(suffix string, start, end time.Time) string {
+		t.Helper()
+		orgID := "org-sla-overlap-" + suffix + "-" + newID()
+		c := &billing.EnterpriseContract{
+			ID:                     "contract_sla_overlap_" + suffix,
+			OrgID:                  orgID,
+			EnterpriseTier:         billing.EnterpriseTierStarter,
+			AnnualCommitmentCents:  1_800_000,
+			IncludedCreditMicrousd: 1_000_000_000,
+			ComputeDiscountPct:     10,
+			ContractStartDate:      start,
+			ContractEndDate:        end,
+			AutoRenew:              true,
+			BillingCadence:         "annual",
+			StripeSubscriptionID:   &subID,
+			CreatedAt:              time.Now().UTC(),
+			UpdatedAt:              time.Now().UTC(),
+		}
+		if err := pgStore.UpsertEnterpriseContract(ctx, c); err != nil {
+			t.Fatalf("UpsertEnterpriseContract(%s): %v", suffix, err)
+		}
+		return orgID
+	}
+
+	lapsedMidPeriod := insertContract("lapsed", periodStart.AddDate(0, -1, 0), periodStart.Add(14*24*time.Hour))
+	activeThroughPeriod := insertContract("active", periodStart.Add(7*24*time.Hour), periodEnd.Add(24*time.Hour))
+	insertContract("ended-at-start", periodStart.AddDate(0, -1, 0), periodStart)
+	insertContract("starts-at-end", periodEnd, periodEnd.AddDate(0, 1, 0))
+
+	contracts, err := pgStore.ListEnterpriseContractsOverlappingPeriod(ctx, periodStart, periodEnd)
+	if err != nil {
+		t.Fatalf("ListEnterpriseContractsOverlappingPeriod: %v", err)
+	}
+
+	seen := make(map[string]bool, len(contracts))
+	for _, contract := range contracts {
+		seen[contract.OrgID] = true
+	}
+	if !seen[lapsedMidPeriod] {
+		t.Fatal("expected contract that lapsed mid-period to be included")
+	}
+	if !seen[activeThroughPeriod] {
+		t.Fatal("expected contract active through period to be included")
+	}
+	if len(contracts) != 2 {
+		t.Fatalf("expected only the two overlapping contracts, got %d: %+v", len(contracts), contracts)
+	}
+}
+
 // --------------------------------------------------------------------------
 // A14: Empty org ID returns not-found, not a cross-org leak
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestAdversarial_EmptyOrgIDContract(t *testing.T) {
 	ctx := context.Background()
@@ -586,7 +644,7 @@ func TestAdversarial_EmptyOrgIDContract(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // H5: DeactivateExcessCronJobs keeps the newest by updated_at
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestAdversarial_DeactivateExcessCronJobs_KeepsNewest(t *testing.T) {
 	ctx := context.Background()
@@ -611,8 +669,8 @@ func TestAdversarial_DeactivateExcessCronJobs_KeepsNewest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DeactivateExcessCronJobs: %v", err)
 	}
-	if deactivated != 3 {
-		t.Fatalf("deactivated = %d, want 3", deactivated)
+	if len(deactivated) != 3 {
+		t.Fatalf("deactivated = %d, want 3", len(deactivated))
 	}
 
 	for i, jid := range jobIDs {
@@ -634,7 +692,7 @@ func TestAdversarial_DeactivateExcessCronJobs_KeepsNewest(t *testing.T) {
 
 // --------------------------------------------------------------------------
 // H6: DeactivateExcessEnvironments keeps the newest by created_at
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestAdversarial_DeactivateExcessEnvironments_KeepsNewest(t *testing.T) {
 	ctx := context.Background()
@@ -680,9 +738,147 @@ func TestAdversarial_DeactivateExcessEnvironments_KeepsNewest(t *testing.T) {
 	}
 }
 
+func TestAdversarial_DeactivateExcessEnvironments_PreservesStandardEnvironments(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-env-standard-" + newID()
+	p := createProject(t, ctx, q, orgID, "P")
+	standardID := createEnvironment(t, ctx, p.ID, "standard")
+	customOldID := createEnvironment(t, ctx, p.ID, "custom-old")
+	customNewID := createEnvironment(t, ctx, p.ID, "custom-new")
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE environments
+		SET is_standard = CASE WHEN id = $1 THEN true ELSE false END,
+		    created_at = CASE
+		      WHEN id = $1 THEN $4::timestamptz
+		      WHEN id = $2 THEN $5::timestamptz
+		      ELSE $6::timestamptz
+		    END
+		WHERE id IN ($1, $2, $3)
+	`, standardID, customOldID, customNewID,
+		time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 1, 1, 1, 0, 0, 0, time.UTC),
+		time.Date(2026, 1, 1, 2, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("seed environment timestamps: %v", err)
+	}
+
+	deactivated, err := pgStore.DeactivateExcessEnvironments(ctx, orgID, 1)
+	if err != nil {
+		t.Fatalf("DeactivateExcessEnvironments: %v", err)
+	}
+	if deactivated != 1 {
+		t.Fatalf("deactivated = %d, want only oldest custom environment", deactivated)
+	}
+	for _, id := range []string{standardID, customNewID} {
+		var exists bool
+		if err := testDB.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM environments WHERE id = $1)`, id).Scan(&exists); err != nil {
+			t.Fatalf("check env %s: %v", id, err)
+		}
+		if !exists {
+			t.Fatalf("environment %s should be preserved", id)
+		}
+	}
+	var oldExists bool
+	if err := testDB.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM environments WHERE id = $1)`, customOldID).Scan(&oldExists); err != nil {
+		t.Fatalf("check old custom env: %v", err)
+	}
+	if oldExists {
+		t.Fatal("oldest non-standard environment should be deleted")
+	}
+}
+
+func TestAdversarial_DeactivateExcessLogDrains_KeepsNewest(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-log-order-" + newID()
+	p := createProject(t, ctx, q, orgID, "P")
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	var ids []string
+	for i := range 4 {
+		id := "ld-" + newID()
+		ids = append(ids, id)
+		if _, err := testDB.Pool.Exec(ctx, `
+			INSERT INTO log_drains (id, project_id, name, drain_type, endpoint_url, enabled, created_at, updated_at)
+			VALUES ($1, $2, $3, 'http', 'https://example.com/drain', true, $4, $4)
+		`, id, p.ID, fmt.Sprintf("drain-%d", i), base.Add(time.Duration(i)*time.Hour)); err != nil {
+			t.Fatalf("insert log drain %d: %v", i, err)
+		}
+	}
+
+	deactivated, err := pgStore.DeactivateExcessLogDrains(ctx, orgID, 2)
+	if err != nil {
+		t.Fatalf("DeactivateExcessLogDrains: %v", err)
+	}
+	if deactivated != 2 {
+		t.Fatalf("deactivated = %d, want 2", deactivated)
+	}
+	for i, id := range ids {
+		var enabled bool
+		if err := testDB.Pool.QueryRow(ctx, `SELECT enabled FROM log_drains WHERE id = $1`, id).Scan(&enabled); err != nil {
+			t.Fatalf("check drain %d: %v", i, err)
+		}
+		isNewest := i >= 2
+		if isNewest && !enabled {
+			t.Fatalf("newest drain %d should remain enabled", i)
+		}
+		if !isNewest && enabled {
+			t.Fatalf("oldest drain %d should be disabled", i)
+		}
+	}
+}
+
+func TestAdversarial_DeactivateExcessNotificationChannels_KeepsNewest(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+	q := mustQueries(t)
+
+	orgID := "org-notif-order-" + newID()
+	p := createProject(t, ctx, q, orgID, "P")
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	var ids []string
+	for i := range 4 {
+		id := "nc-" + newID()
+		ids = append(ids, id)
+		if _, err := testDB.Pool.Exec(ctx, `
+			INSERT INTO notification_channels (id, project_id, channel_type, name, config, enabled, created_at, updated_at)
+			VALUES ($1, $2, 'webhook', $3, $5, true, $4, $4)
+		`, id, p.ID, fmt.Sprintf("channel-%d", i), base.Add(time.Duration(i)*time.Hour), []byte("{}")); err != nil {
+			t.Fatalf("insert notification channel %d: %v", i, err)
+		}
+	}
+
+	deactivated, err := pgStore.DeactivateExcessNotificationChannelsByProject(ctx, p.ID, 2)
+	if err != nil {
+		t.Fatalf("DeactivateExcessNotificationChannelsByProject: %v", err)
+	}
+	if deactivated != 2 {
+		t.Fatalf("deactivated = %d, want 2", deactivated)
+	}
+	for i, id := range ids {
+		var enabled bool
+		if err := testDB.Pool.QueryRow(ctx, `SELECT enabled FROM notification_channels WHERE id = $1`, id).Scan(&enabled); err != nil {
+			t.Fatalf("check channel %d: %v", i, err)
+		}
+		isNewest := i >= 2
+		if isNewest && !enabled {
+			t.Fatalf("newest channel %d should remain enabled", i)
+		}
+		if !isNewest && enabled {
+			t.Fatalf("oldest channel %d should be disabled", i)
+		}
+	}
+}
+
 // --------------------------------------------------------------------------
 // H7: DeactivateExcessWebhookSubscriptions keeps the newest by created_at
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestAdversarial_DeactivateExcessWebhookSubscriptions_KeepsNewest(t *testing.T) {
 	ctx := context.Background()
@@ -729,7 +925,7 @@ func TestAdversarial_DeactivateExcessWebhookSubscriptions_KeepsNewest(t *testing
 
 // --------------------------------------------------------------------------
 // H4: SuspendExcessProjects determinism with tied created_at
-// --------------------------------------------------------------------------
+// --------------------------------------------------------------------------.
 
 func TestAdversarial_SuspendExcessProjects_TiedCreatedAt(t *testing.T) {
 	ctx := context.Background()

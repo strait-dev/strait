@@ -2,11 +2,8 @@ package api
 
 import (
 	"context"
-	"errors"
 	"strconv"
 	"time"
-
-	"strait/internal/store"
 
 	"github.com/danielgtaylor/huma/v2"
 )
@@ -23,16 +20,8 @@ type ListRunResourcesOutput struct {
 }
 
 func (s *Server) handleListRunResources(ctx context.Context, input *ListRunResourcesInput) (*ListRunResourcesOutput, error) {
-	run, err := s.store.GetRun(ctx, input.RunID)
-	if err != nil {
-		if errors.Is(err, store.ErrRunNotFound) {
-			return nil, huma.Error404NotFound("run not found")
-		}
-		return nil, huma.Error500InternalServerError("failed to get run")
-	}
-
-	if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
-		return nil, huma.Error404NotFound("run not found")
+	if err := s.requireRunAccess(ctx, input.RunID); err != nil {
+		return nil, err
 	}
 
 	var from, to *time.Time

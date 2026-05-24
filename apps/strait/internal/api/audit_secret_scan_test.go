@@ -249,6 +249,29 @@ func TestScanAndRedact_RedactsPEM(t *testing.T) {
 	}
 }
 
+func TestScanAndRedact_RedactsNestedWithoutMutatingInput(t *testing.T) {
+	t.Parallel()
+
+	secret := "Bearer abcdef1234567890ABCDEF"
+	in := map[string]any{
+		"meta": map[string]any{
+			"nested": []any{"safe", secret},
+		},
+	}
+
+	out, shapes := scanAndRedact(in)
+	if len(shapes) != 1 || shapes[0] != "bearer_token" {
+		t.Fatalf("shapes = %v, want [bearer_token]", shapes)
+	}
+	if got := in["meta"].(map[string]any)["nested"].([]any)[1]; got != secret {
+		t.Fatalf("input was mutated: got %q, want %q", got, secret)
+	}
+	got := out.(map[string]any)["meta"].(map[string]any)["nested"].([]any)[1]
+	if got != "[redacted:bearer_token]" {
+		t.Fatalf("redacted value = %q, want [redacted:bearer_token]", got)
+	}
+}
+
 // TestScanAndRedact_NoFalsePositivesOnBenignContent asserts realistic
 // identifier shapes (ULIDs, UUIDs, slugs, urls, emails, timestamps) never
 // trigger a redaction.

@@ -126,14 +126,14 @@ func TestEnforcer_CheckConcurrentRunLimit(t *testing.T) {
 	enforcer, _, _ := setupEnforcer(t)
 
 	ctx := context.Background()
-	// Free plan: 5 concurrent runs max.
-	for range 5 {
+	// Free plan: ConcurrentFree concurrent runs max.
+	for range ConcurrentFree {
 		if err := enforcer.CheckConcurrentRunLimit(ctx, "org_conc"); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	}
 
-	// Run 6 should fail.
+	// Next run should fail.
 	err := enforcer.CheckConcurrentRunLimit(ctx, "org_conc")
 	if err == nil {
 		t.Fatal("expected concurrent limit error")
@@ -143,6 +143,62 @@ func TestEnforcer_CheckConcurrentRunLimit(t *testing.T) {
 	enforcer.DecrConcurrentRunCount(ctx, "org_conc")
 	if err := enforcer.CheckConcurrentRunLimit(ctx, "org_conc"); err != nil {
 		t.Fatalf("should pass after decrement: %v", err)
+	}
+}
+
+func TestEnforcer_CheckConcurrentRunLimit_ActivePaymentGraceStillEnforcesPlanCap(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+	ctx := context.Background()
+	graceEnd := time.Now().Add(time.Hour)
+	store.subscriptions = map[string]*OrgSubscription{
+		"org_grace": {
+			OrgID:          "org_grace",
+			PlanTier:       string(domain.PlanFree),
+			Status:         "active",
+			PaymentStatus:  "grace",
+			GracePeriodEnd: &graceEnd,
+		},
+	}
+
+	for range ConcurrentFree {
+		if err := enforcer.CheckConcurrentRunLimit(ctx, "org_grace"); err != nil {
+			t.Fatalf("unexpected error before cap: %v", err)
+		}
+	}
+	err := enforcer.CheckConcurrentRunLimit(ctx, "org_grace")
+	if err == nil {
+		t.Fatal("expected active grace org to remain subject to concurrent run cap")
+	}
+	var le *LimitError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "org_concurrent_run_limit_exceeded" {
+		t.Fatalf("Code = %q, want org_concurrent_run_limit_exceeded", le.Code)
+	}
+}
+
+func TestEnforcer_CheckConcurrentRunLimit_PlanLimitLookupErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	enforcer := NewEnforcer(&mockBillingStore{
+		getOrgSubscriptionFn: func(context.Context, string) (*OrgSubscription, error) {
+			return nil, errors.New("subscription store unavailable")
+		},
+	}, rdb, slog.Default())
+
+	err := enforcer.CheckConcurrentRunLimit(context.Background(), "org-plan-error")
+	if err == nil {
+		t.Fatal("expected concurrent limit check to fail closed when plan limits cannot be loaded")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "billing_plan_unavailable" {
+		t.Fatalf("Code = %q, want billing_plan_unavailable", le.Code)
 	}
 }
 
@@ -168,33 +224,57 @@ func TestEnforcer_CheckProjectLimit(t *testing.T) {
 	}
 }
 
-func TestEnforcer_CheckSpendingLimit_FreeTierUnderIncludedCredit(t *testing.T) {
+func TestEnforcer_CheckProjectLimit_PlanLimitLookupErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	enforcer := NewEnforcer(&mockBillingStore{
+		getOrgSubscriptionFn: func(context.Context, string) (*OrgSubscription, error) {
+			return nil, errors.New("subscription store unavailable")
+		},
+	}, nil, slog.Default())
+
+	err := enforcer.CheckProjectLimit(context.Background(), "org-plan-error")
+	if err == nil {
+		t.Fatal("expected project limit check to fail closed when plan limits cannot be loaded")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "billing_plan_unavailable" {
+		t.Fatalf("Code = %q, want billing_plan_unavailable", le.Code)
+	}
+}
+
+func TestEnforcer_CheckSpendingLimit_FreeTierZeroSpend_Passes(t *testing.T) {
 	t.Parallel()
 	enforcer, store, _ := setupEnforcer(t)
 
 	store.periodSpendByOrg = map[string]int64{
-		"org_free": 900_000,
+		"org_free": 0,
 	}
 
 	if err := enforcer.CheckSpendingLimit(context.Background(), "org_free"); err != nil {
-		t.Fatalf("free tier under included credit should pass: %v", err)
+		t.Fatalf("free tier with zero spend should pass: %v", err)
 	}
 }
 
-func TestEnforcer_CheckSpendingLimit_FreeTierAtIncludedCredit(t *testing.T) {
+func TestEnforcer_CheckSpendingLimit_FreeTierAnySpend_Blocks(t *testing.T) {
 	t.Parallel()
 	enforcer, store, _ := setupEnforcer(t)
 
+	// Orchestration-only: free tier has no included compute credit.
+	// Any spend triggers the limit immediately.
 	store.periodSpendByOrg = map[string]int64{
-		"org_free": CreditFreeMicrousd,
+		"org_free": 1,
 	}
 
-	if err := enforcer.CheckSpendingLimit(context.Background(), "org_free"); err != nil {
-		t.Fatalf("free tier at included credit should pass: %v", err)
+	err := enforcer.CheckSpendingLimit(context.Background(), "org_free")
+	if err == nil {
+		t.Fatal("expected free-tier spending limit error for any spend")
 	}
 }
 
-func TestEnforcer_CheckSpendingLimit_FreeTierOverIncludedCredit(t *testing.T) {
+func TestEnforcer_CheckSpendingLimit_FreeTierOverBudget_Blocks(t *testing.T) {
 	t.Parallel()
 	enforcer, store, _ := setupEnforcer(t)
 
@@ -214,8 +294,8 @@ func TestEnforcer_CheckSpendingLimit_FreeTierOverIncludedCredit(t *testing.T) {
 	if le.Code != "spending_limit_reached" {
 		t.Fatalf("Code = %q, want spending_limit_reached", le.Code)
 	}
-	if le.Limit != CreditFreeMicrousd {
-		t.Fatalf("Limit = %d, want %d", le.Limit, CreditFreeMicrousd)
+	if le.Limit != 0 {
+		t.Fatalf("Limit = %d, want 0 (no included credit in orchestration-only mode)", le.Limit)
 	}
 }
 
@@ -236,10 +316,12 @@ func TestEnforcer_CheckSpendingLimit_FreeSubscriptionOverIncludedCredit(t *testi
 	}
 }
 
-func TestEnforcer_CheckSpendingLimit_HardCapZeroAllowsIncludedCredit(t *testing.T) {
+func TestEnforcer_CheckSpendingLimit_HardCapZeroBlocksAnySpend(t *testing.T) {
 	t.Parallel()
 	enforcer, store, _ := setupEnforcer(t)
 
+	// Orchestration-only: no included compute credit. A $0 spending cap means
+	// the org is blocked as soon as any spend is recorded.
 	store.subscriptions = map[string]*OrgSubscription{
 		"org_starter": {
 			OrgID:                 "org_starter",
@@ -250,32 +332,17 @@ func TestEnforcer_CheckSpendingLimit_HardCapZeroAllowsIncludedCredit(t *testing.
 		},
 	}
 	store.periodSpendByOrg = map[string]int64{
-		"org_starter": CreditStarterMicrousd,
+		"org_starter": 0,
 	}
 
 	if err := enforcer.CheckSpendingLimit(context.Background(), "org_starter"); err != nil {
-		t.Fatalf("hard cap at $0 overage should still allow included credit: %v", err)
+		t.Fatalf("zero spend with $0 cap should pass: %v", err)
 	}
 
-	store.periodSpendByOrg["org_starter"] = CreditStarterMicrousd + 1
+	store.periodSpendByOrg["org_starter"] = 1
 	err := enforcer.CheckSpendingLimit(context.Background(), "org_starter")
 	if err == nil {
-		t.Fatal("expected spending limit error after overage begins")
-	}
-}
-
-func TestEnforcer_CheckManagedRunLimit_FreeTierBudgetMode_NoLegacyCap(t *testing.T) {
-	t.Parallel()
-	enforcer, store, _ := setupEnforcer(t)
-
-	store.subscriptions = map[string]*OrgSubscription{
-		"org_free": {OrgID: "org_free", PlanTier: "free", Status: "active"},
-	}
-
-	for range 250 {
-		if err := enforcer.CheckManagedRunLimit(context.Background(), "org_free"); err != nil {
-			t.Fatalf("legacy managed-run cap should be disabled for free-tier budget mode: %v", err)
-		}
+		t.Fatal("expected spending limit error: any spend exceeds $0 cap")
 	}
 }
 
@@ -343,23 +410,28 @@ func TestReconcileConcurrentRunCount(t *testing.T) {
 
 func TestConcurrentCounter_CrashRecovery(t *testing.T) {
 	t.Parallel()
-	enforcer, _, mr := setupEnforcer(t)
+	enforcer, store, mr := setupEnforcer(t)
 
 	ctx := context.Background()
 
-	// Simulate 5 runs started (increment without decrement = crash scenario)
+	// Use a pro-tier org so the concurrent limit is high enough to simulate a crash.
+	store.subscriptions = map[string]*OrgSubscription{
+		"org_crash": {OrgID: "org_crash", PlanTier: "pro", Status: "active"},
+	}
+
+	// Simulate 5 runs started (increment without decrement = crash scenario).
 	for range 5 {
 		if err := enforcer.CheckConcurrentRunLimit(ctx, "org_crash"); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	}
 
-	// Reconcile: actual executing count is 2 (3 crashed)
+	// Reconcile: actual executing count is 2 (3 crashed).
 	if err := enforcer.ReconcileConcurrentRunCount(ctx, "org_crash", 2); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Verify counter is now 2
+	// Verify counter is now 2.
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	val, err := rdb.Get(ctx, "strait:org_concurrent:org_crash").Int64()
 	if err != nil {
@@ -539,6 +611,46 @@ func TestReconcileAll_NilRedis(t *testing.T) {
 	}
 }
 
+func TestReserveWorkerConnection_EnforcesCapAcrossEnforcers(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdbA := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { rdbA.Close() })
+	rdbB := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { rdbB.Close() })
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org_workers": {OrgID: "org_workers", PlanTier: string(domain.PlanFree), Status: "active"},
+		},
+	}
+	enforcerA := NewEnforcer(store, rdbA, slog.Default())
+	enforcerB := NewEnforcer(store, rdbB, slog.Default())
+	ctx := context.Background()
+
+	release, err := enforcerA.ReserveWorkerConnection(ctx, "org_workers", "replica-a-worker", time.Minute)
+	if err != nil {
+		t.Fatalf("first reservation should pass: %v", err)
+	}
+	t.Cleanup(release)
+
+	_, err = enforcerB.ReserveWorkerConnection(ctx, "org_workers", "replica-b-worker", time.Minute)
+	if err == nil {
+		t.Fatal("expected second cross-replica worker reservation to hit free cap")
+	}
+	var le *LimitError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "worker_connections_reached" {
+		t.Fatalf("Code = %q, want worker_connections_reached", le.Code)
+	}
+
+	release()
+	if _, err := enforcerB.ReserveWorkerConnection(ctx, "org_workers", "replica-b-worker", time.Minute); err != nil {
+		t.Fatalf("reservation after release should pass: %v", err)
+	}
+}
+
 // Member limit tests.
 
 func TestCheckMemberLimit_FreeUnderLimit_Passes(t *testing.T) {
@@ -571,6 +683,27 @@ func TestCheckMemberLimit_FreeAtLimit_Blocked(t *testing.T) {
 	}
 	if le.Limit != int64(freeLimits.MaxMembersPerOrg) {
 		t.Errorf("limit = %d, want %d", le.Limit, freeLimits.MaxMembersPerOrg)
+	}
+}
+
+func TestCheckMemberLimit_PlanLimitLookupErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	enforcer := NewEnforcer(&mockBillingStore{
+		getOrgSubscriptionFn: func(context.Context, string) (*OrgSubscription, error) {
+			return nil, errors.New("subscription store unavailable")
+		},
+	}, nil, slog.Default())
+
+	err := enforcer.CheckMemberLimit(context.Background(), "org-plan-error")
+	if err == nil {
+		t.Fatal("expected member limit check to fail closed when plan limits cannot be loaded")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "billing_plan_unavailable" {
+		t.Fatalf("Code = %q, want billing_plan_unavailable", le.Code)
 	}
 }
 
@@ -827,6 +960,32 @@ func TestGracePeriod_PaymentRestricted_RejectedImmediately(t *testing.T) {
 	}
 	if le.Code != "payment_restricted" {
 		t.Errorf("code = %q, want payment_restricted", le.Code)
+	}
+}
+
+func TestDeepSecPaymentSuspendedRejectedImmediately(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+
+	store.subscriptions = map[string]*OrgSubscription{
+		"org_suspended": {
+			OrgID:         "org_suspended",
+			PlanTier:      "starter",
+			Status:        "active",
+			PaymentStatus: "suspended",
+		},
+	}
+
+	err := enforcer.CheckDailyRunLimit(context.Background(), "org_suspended")
+	if err == nil {
+		t.Fatal("expected rejection for suspended payment status")
+	}
+	var le *LimitError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected LimitError, got %T", err)
+	}
+	if le.Code != "payment_suspended" {
+		t.Errorf("code = %q, want payment_suspended", le.Code)
 	}
 }
 
@@ -1139,8 +1298,8 @@ func TestEnforcer_GetOrgPlanLimits_AllowsHTTPMode(t *testing.T) {
 		planTier string
 		want     bool
 	}{
-		{"free", "free", false},
-		{"starter", "starter", false},
+		{"free", "free", true},
+		{"starter", "starter", true},
 		{"pro", "pro", true},
 		{"enterprise", "enterprise", true},
 	}
@@ -1175,8 +1334,8 @@ func TestEnforcer_GetOrgPlanLimits_NoSubscription_DefaultsFree(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if limits.AllowsHTTPMode != false {
-		t.Error("AllowsHTTPMode should be false for org with no subscription")
+	if !limits.AllowsHTTPMode {
+		t.Error("AllowsHTTPMode should be true for org with no subscription (free tier allows HTTP mode)")
 	}
 	if limits.PlanTier != domain.PlanFree {
 		t.Errorf("PlanTier = %q, want %q", limits.PlanTier, domain.PlanFree)
@@ -1231,7 +1390,7 @@ func TestEnforcer_GetOrgPlanLimits_WithAddons(t *testing.T) {
 		"org-addon": {OrgID: "org-addon", PlanTier: "pro", Status: "active"},
 	}
 	store.activeAddons = []Addon{
-		{AddonType: AddonConcurrentRuns, Quantity: 2, Active: true},
+		{AddonType: AddonConcurrency100, Quantity: 2, Active: true},
 	}
 
 	limits, err := enforcer.GetOrgPlanLimits(context.Background(), "org-addon")
@@ -1240,9 +1399,9 @@ func TestEnforcer_GetOrgPlanLimits_WithAddons(t *testing.T) {
 	}
 
 	baseLimits := GetPlanLimits(domain.PlanPro)
-	wantConcurrent := baseLimits.MaxConcurrentRuns + 100 // 2 packs x 50
+	wantConcurrent := baseLimits.MaxConcurrentRuns + 200 // 2 packs x 100
 	if limits.MaxConcurrentRuns != wantConcurrent {
-		t.Errorf("MaxConcurrentRuns = %d, want %d (base %d + 100)", limits.MaxConcurrentRuns, wantConcurrent, baseLimits.MaxConcurrentRuns)
+		t.Errorf("MaxConcurrentRuns = %d, want %d (base %d + 200)", limits.MaxConcurrentRuns, wantConcurrent, baseLimits.MaxConcurrentRuns)
 	}
 }
 
@@ -1280,5 +1439,239 @@ func TestEnforcer_Check80PercentDailyRunWarning_EmptyOrgID(t *testing.T) {
 	}
 	if warned {
 		t.Error("expected false for empty orgID")
+	}
+}
+
+// ---------------------------------------------------------------------------.
+// CheckMaxDispatchPriority -- fail-closed on DB errors.
+// ---------------------------------------------------------------------------.
+
+// TestCheckMaxDispatchPriority_DBError_FailsClosed verifies that a DB error
+// when resolving the org causes CheckMaxDispatchPriority to fail closed
+// (return a *LimitError) rather than allowing the request.
+func TestCheckMaxDispatchPriority_DBError_FailsClosed(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &mockBillingStore{
+		getProjectOrgIDFn: func(_ context.Context, _ string) (string, error) {
+			return "", errors.New("simulated db outage")
+		},
+	}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+
+	err := enforcer.CheckMaxDispatchPriority(context.Background(), "proj-1", 5)
+	if err == nil {
+		t.Fatal("expected error when DB is unavailable, got nil (fail-open antipattern)")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "dispatch_priority_exceeded" {
+		t.Fatalf("expected dispatch_priority_exceeded, got %q", le.Code)
+	}
+}
+
+// TestCheckMaxDispatchPriority_PlanLimitsError_FailsClosed verifies that a DB
+// error when loading plan limits also causes fail-closed behavior.
+func TestCheckMaxDispatchPriority_PlanLimitsError_FailsClosed(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &mockBillingStore{
+		getProjectOrgIDFn: func(_ context.Context, _ string) (string, error) {
+			return "org-1", nil
+		},
+		getOrgSubscriptionFn: func(_ context.Context, _ string) (*OrgSubscription, error) {
+			return nil, errors.New("simulated subscription lookup failure")
+		},
+	}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+
+	err := enforcer.CheckMaxDispatchPriority(context.Background(), "proj-1", 5)
+	if err == nil {
+		t.Fatal("expected error when plan limits cannot be loaded, got nil")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+}
+
+// TestCheckMaxDispatchPriority_WithinCap_Allows verifies that a valid priority
+// within the plan cap returns nil.
+func TestCheckMaxDispatchPriority_WithinCap_Allows(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+
+	store.subscriptions = map[string]*OrgSubscription{
+		"org-pro": {OrgID: "org-pro", PlanTier: "pro", Status: "active"},
+	}
+	store.getProjectOrgIDFn = func(_ context.Context, _ string) (string, error) {
+		return "org-pro", nil
+	}
+
+	// Pro plan: MaxDispatchPriority = 10. Priority 5 should be allowed.
+	limits := GetPlanLimits("pro")
+	if limits.MaxDispatchPriority < 5 {
+		t.Skipf("pro plan MaxDispatchPriority=%d < 5, skipping", limits.MaxDispatchPriority)
+	}
+
+	if err := enforcer.CheckMaxDispatchPriority(context.Background(), "proj-pro", 5); err != nil {
+		t.Fatalf("expected nil for priority within cap, got %v", err)
+	}
+}
+
+// TestCheckMaxDispatchPriority_ExceedsCap_Blocks verifies that a priority
+// above the plan cap returns a *LimitError.
+func TestCheckMaxDispatchPriority_ExceedsCap_Blocks(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+
+	store.subscriptions = map[string]*OrgSubscription{
+		"org-free": {OrgID: "org-free", PlanTier: "free", Status: "active"},
+	}
+	store.getProjectOrgIDFn = func(_ context.Context, _ string) (string, error) {
+		return "org-free", nil
+	}
+
+	// Free plan: MaxDispatchPriority = 0. Any positive priority should be blocked.
+	err := enforcer.CheckMaxDispatchPriority(context.Background(), "proj-free", 1)
+	if err == nil {
+		t.Fatal("expected LimitError for priority exceeding free-tier cap")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "dispatch_priority_exceeded" {
+		t.Fatalf("expected dispatch_priority_exceeded, got %q", le.Code)
+	}
+}
+
+// TestCheckMaxDispatchPriority_ZeroPriority_AlwaysAllowed verifies that
+// requestedPriority=0 is always allowed regardless of errors.
+func TestCheckMaxDispatchPriority_ZeroPriority_AlwaysAllowed(t *testing.T) {
+	t.Parallel()
+	store := &mockBillingStore{
+		getProjectOrgIDFn: func(_ context.Context, _ string) (string, error) {
+			return "", errors.New("should not be called for priority=0")
+		},
+	}
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+
+	if err := enforcer.CheckMaxDispatchPriority(context.Background(), "proj-1", 0); err != nil {
+		t.Fatalf("priority 0 should always be allowed, got %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------.
+// DecrMonthlyRunCount -- mirrors DecrDailyRunCount behavior for monthly quota.
+// ---------------------------------------------------------------------------.
+
+// TestDecrMonthlyRunCount_DecrAfterIncr verifies that decrementing after an
+// increment returns the counter to the baseline value.
+func TestDecrMonthlyRunCount_DecrAfterIncr(t *testing.T) {
+	t.Parallel()
+	enforcer, store, mr := setupEnforcer(t)
+	ctx := context.Background()
+
+	// Wire a starter subscription so the monthly limit kicks in.
+	store.subscriptions = map[string]*OrgSubscription{
+		"org-monthly-1": {OrgID: "org-monthly-1", PlanTier: "starter", Status: "active"},
+	}
+
+	// CheckMonthlyRunLimit increments the counter atomically on each allowed call.
+	if err := enforcer.CheckMonthlyRunLimit(ctx, "org-monthly-1"); err != nil {
+		t.Fatalf("CheckMonthlyRunLimit: %v", err)
+	}
+
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	key := monthlyRunKey("org-monthly-1", time.Now())
+	before, _ := rdb.Get(ctx, key).Int64()
+	if before != 1 {
+		t.Fatalf("expected counter=1 after one incr, got %d", before)
+	}
+
+	// Rollback (abort path).
+	enforcer.DecrMonthlyRunCount(ctx, "org-monthly-1")
+
+	after, _ := rdb.Get(ctx, key).Int64()
+	if after != 0 {
+		t.Errorf("expected counter=0 after decr, got %d", after)
+	}
+}
+
+// TestDecrMonthlyRunCount_FloorsAtZero verifies that decrementing from 0 does
+// not produce a negative value.
+func TestDecrMonthlyRunCount_FloorsAtZero(t *testing.T) {
+	t.Parallel()
+	enforcer, _, mr := setupEnforcer(t)
+	ctx := context.Background()
+
+	// Decrement with no prior increment — should be a no-op.
+	enforcer.DecrMonthlyRunCount(ctx, "org-monthly-floor")
+	enforcer.DecrMonthlyRunCount(ctx, "org-monthly-floor")
+
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	key := monthlyRunKey("org-monthly-floor", time.Now())
+	val, err := rdb.Get(ctx, key).Int64()
+	if err == nil && val < 0 {
+		t.Errorf("counter went negative: %d", val)
+	}
+	// If the key doesn't exist (redis.Nil) that's also acceptable (counter = 0).
+}
+
+// TestDecrMonthlyRunCount_EmptyOrgID verifies that an empty orgID is a no-op.
+func TestDecrMonthlyRunCount_EmptyOrgID(t *testing.T) {
+	t.Parallel()
+	enforcer, _, _ := setupEnforcer(t)
+	// Should not panic.
+	enforcer.DecrMonthlyRunCount(context.Background(), "")
+}
+
+// TestDecrMonthlyRunCount_NilRedis verifies that a nil Redis client is a no-op.
+func TestDecrMonthlyRunCount_NilRedis(t *testing.T) {
+	t.Parallel()
+	store := &mockBillingStore{}
+	enforcer := NewEnforcer(store, nil, slog.Default())
+	// Should not panic.
+	enforcer.DecrMonthlyRunCount(context.Background(), "org-1")
+}
+
+// TestDecrMonthlyRunCount_Parallel verifies that parallel incr/decr operations
+// leave the counter consistent (no race condition, no negative value).
+func TestDecrMonthlyRunCount_Parallel(t *testing.T) {
+	t.Parallel()
+	enforcer, store, mr := setupEnforcer(t)
+	ctx := context.Background()
+
+	store.subscriptions = map[string]*OrgSubscription{
+		"org-parallel": {OrgID: "org-parallel", PlanTier: "starter", Status: "active"},
+	}
+
+	const ops = 50
+	done := make(chan struct{})
+	go func() {
+		for range ops {
+			_ = enforcer.CheckMonthlyRunLimit(ctx, "org-parallel")
+		}
+		close(done)
+	}()
+	go func() {
+		for range ops {
+			enforcer.DecrMonthlyRunCount(ctx, "org-parallel")
+		}
+	}()
+	<-done
+
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	key := monthlyRunKey("org-parallel", time.Now())
+	val, err := rdb.Get(ctx, key).Int64()
+	if err == nil && val < 0 {
+		t.Errorf("counter went negative after parallel ops: %d", val)
 	}
 }

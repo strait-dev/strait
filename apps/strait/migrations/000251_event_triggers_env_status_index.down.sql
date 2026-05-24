@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS idx_event_triggers_project_env_status;

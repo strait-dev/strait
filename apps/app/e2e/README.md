@@ -6,12 +6,12 @@ Playwright tests for the Strait dashboard. Run these to verify end-to-end user f
 
 - Docker Compose running (`cd apps/strait && docker compose up -d`)
 - Go backend running (`cd apps/strait && go run ./cmd/strait --mode all`)
-- Doppler configured (`doppler setup` in the repo root)
+- Infisical configured (`infisical init` in the repo root)
 
 ## Running locally
 
 ```bash
-# Run all tests (starts dev server automatically via Doppler)
+# Run all tests (starts dev server automatically via Infisical)
 bun run e2e
 
 # Run with browser visible
@@ -39,7 +39,7 @@ bun run e2e -- --grep "dashboard"
 | `BETTER_AUTH_SECRET` | Yes | Better Auth secret |
 | `BETTER_AUTH_URL` | Yes | Better Auth URL |
 
-These are injected automatically by Doppler in local development.
+These are injected automatically by Infisical in local development.
 
 ## Adding new tests
 
@@ -73,7 +73,7 @@ e2e/
     billing/              # Billing tabs
     settings/             # Account, project settings
     onboarding/           # New user flow
-    dlq/                  # Dead letter queue
+    dlq/                  # Failed run review
     events-logs/          # Events, logs
     navigation/           # Sidebar, routing
     error-states/         # 404, auth errors

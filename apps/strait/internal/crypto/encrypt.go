@@ -54,6 +54,25 @@ func NewKeyRotator(primaryKey []byte, oldKeys ...[]byte) (*KeyRotator, error) {
 	return &KeyRotator{primary: primary, old: old}, nil
 }
 
+func NewKeyRotatorFromStrings(primaryKey string, oldKeys ...string) (*KeyRotator, error) {
+	primary, err := parseKey(primaryKey)
+	if err != nil {
+		return nil, err
+	}
+	old := make([][]byte, 0, len(oldKeys))
+	for _, key := range oldKeys {
+		if key == "" {
+			continue
+		}
+		parsed, parseErr := parseKey(key)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		old = append(old, parsed)
+	}
+	return NewKeyRotator(primary, old...)
+}
+
 func (k *KeyRotator) Encrypt(plaintext []byte) ([]byte, error) {
 	k.mu.RLock()
 	primary := k.primary
@@ -87,6 +106,26 @@ func (k *KeyRotator) Decrypt(ciphertext []byte) ([]byte, error) {
 	}
 
 	return nil, errDecryptFailed
+}
+
+func (k *KeyRotator) EncryptString(plaintext string) (string, error) {
+	ciphertext, err := k.Encrypt([]byte(plaintext))
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(ciphertext), nil
+}
+
+func (k *KeyRotator) DecryptString(ciphertext string) (string, error) {
+	raw, err := base64.StdEncoding.DecodeString(ciphertext)
+	if err != nil {
+		return "", err
+	}
+	plaintext, err := k.Decrypt(raw)
+	if err != nil {
+		return "", err
+	}
+	return string(plaintext), nil
 }
 
 func (k *KeyRotator) RotateKey(newPrimary []byte) error {
@@ -195,6 +234,12 @@ func parseKey(key string) ([]byte, error) {
 		return decoded, nil
 	}
 	if decoded, err := base64.RawStdEncoding.DecodeString(key); err == nil && len(decoded) == 32 {
+		return decoded, nil
+	}
+	if decoded, err := base64.URLEncoding.DecodeString(key); err == nil && len(decoded) == 32 {
+		return decoded, nil
+	}
+	if decoded, err := base64.RawURLEncoding.DecodeString(key); err == nil && len(decoded) == 32 {
 		return decoded, nil
 	}
 

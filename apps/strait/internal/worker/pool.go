@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/alitto/pond/v2"
+	"github.com/sourcegraph/conc"
 )
 
 // Pool manages a fixed number of concurrent worker goroutines backed by
@@ -53,13 +54,14 @@ func NewPool(concurrency int, opts ...PoolOption) *Pool {
 	}
 }
 
-// Submit schedules work on the pool. It blocks if all slots are occupied
-// (and the queue is full when backpressure is configured).
-// If ctx is canceled while waiting for a slot, the work is dropped.
+// Submit schedules work on the pool. With the default unbounded queue,
+// this returns immediately. With WithQueueSize, it blocks if the queue
+// is full. The ctx check before Submit is a best-effort guard; once
+// Submit is called, the task is queued regardless of later cancellation.
 func (p *Pool) Submit(ctx context.Context, fn func()) {
 	select {
 	case <-ctx.Done():
-		slog.Warn("pool: work dropped, context canceled")
+		slog.Warn("pool: work dropped, context canceled before submit")
 		return
 	default:
 	}
@@ -68,16 +70,21 @@ func (p *Pool) Submit(ctx context.Context, fn func()) {
 
 // ActiveCount returns the number of currently running workers.
 func (p *Pool) ActiveCount() int {
-	return int(p.inner.RunningWorkers())
+	active := int(p.inner.RunningWorkers())
+	recordWorkerPool(context.Background(), "http", int64(active), int64(p.Available()))
+	return active
 }
 
 // Available returns the number of idle worker slots.
 func (p *Pool) Available() int {
 	running := int(p.inner.RunningWorkers())
 	if running >= p.concurrency {
+		recordWorkerPool(context.Background(), "http", int64(running), 0)
 		return 0
 	}
-	return p.concurrency - running
+	idle := p.concurrency - running
+	recordWorkerPool(context.Background(), "http", int64(running), int64(idle))
+	return idle
 }
 
 // RunningWorkers returns the current number of goroutines executing tasks.
@@ -122,10 +129,11 @@ func (p *Pool) DroppedTasks() uint64 {
 // shutdown from blocking indefinitely on stuck HTTP dispatches.
 func (p *Pool) Shutdown(ctx context.Context) error {
 	done := make(chan struct{})
-	go func() {
+	var wg conc.WaitGroup
+	wg.Go(func() {
 		p.inner.StopAndWait()
 		close(done)
-	}()
+	})
 
 	select {
 	case <-done:

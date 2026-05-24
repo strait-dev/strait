@@ -211,6 +211,16 @@ const ApiKeysManagement = () => {
                               Key Name
                             </FieldLabel>
                             <Input
+                              aria-describedby={
+                                field.state.meta.isTouched &&
+                                field.state.meta.errors.length > 0
+                                  ? `${field.name}-error`
+                                  : undefined
+                              }
+                              aria-invalid={
+                                field.state.meta.isTouched &&
+                                field.state.meta.errors.length > 0
+                              }
                               id={field.name}
                               onBlur={field.handleBlur}
                               onChange={(e) =>
@@ -220,11 +230,12 @@ const ApiKeysManagement = () => {
                               type="text"
                               value={field.state.value}
                             />
-                            {field.state.meta.errors.length > 0 && (
-                              <FieldError>
-                                {formatFieldErrors(field.state.meta.errors)}
-                              </FieldError>
-                            )}
+                            {field.state.meta.isTouched &&
+                              field.state.meta.errors.length > 0 && (
+                                <FieldError id={`${field.name}-error`}>
+                                  {formatFieldErrors(field.state.meta.errors)}
+                                </FieldError>
+                              )}
                           </Field>
                         )}
                       </form.Field>
@@ -262,11 +273,12 @@ const ApiKeysManagement = () => {
                                 </div>
                               ))}
                             </div>
-                            {field.state.meta.errors.length > 0 && (
-                              <FieldError>
-                                {formatFieldErrors(field.state.meta.errors)}
-                              </FieldError>
-                            )}
+                            {field.state.meta.isTouched &&
+                              field.state.meta.errors.length > 0 && (
+                                <FieldError id={`${field.name}-error`}>
+                                  {formatFieldErrors(field.state.meta.errors)}
+                                </FieldError>
+                              )}
                           </Field>
                         )}
                       </form.Field>

@@ -43,7 +43,16 @@ func (s *Server) handleSDKResources(ctx context.Context, input *SDKResourcesInpu
 		message = fmt.Sprintf("memory pressure warning: %.1fMB (%.1f%%)", req.MemoryMB, req.MemoryPercent)
 	}
 	event := &domain.RunEvent{RunID: input.RunID, Type: domain.EventType("resource_sample"), Level: level, Message: message, Data: json.RawMessage(data)}
-	if err := s.store.InsertEvent(ctx, event); err != nil {
+	var err error
+	if guardedStore, ok := s.store.(activeRunMutationStore); ok {
+		err = guardedStore.InsertEventForActiveRun(ctx, event, runTokenAttemptFromContext(ctx))
+	} else {
+		err = s.store.InsertEvent(ctx, event)
+	}
+	if err != nil {
+		if sdkErr := s.guardedSDKMutationError(ctx, err); sdkErr != nil {
+			return nil, sdkErr
+		}
 		return nil, huma.Error500InternalServerError("failed to store resource sample")
 	}
 	return &SDKResourcesOutput{Body: map[string]string{"status": "ok"}}, nil

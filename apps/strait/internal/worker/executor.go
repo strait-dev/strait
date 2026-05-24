@@ -15,8 +15,8 @@ import (
 	"github.com/google/uuid"
 
 	"strait/internal/billing"
-	"strait/internal/compute"
 	"strait/internal/domain"
+	"strait/internal/httputil"
 	"strait/internal/pubsub"
 	"strait/internal/queue"
 	"strait/internal/store"
@@ -29,7 +29,7 @@ import (
 	"github.com/sourcegraph/conc"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
-	"golang.org/x/sync/semaphore"
+	"golang.org/x/sync/singleflight"
 )
 
 // ExecutorStore is the subset of store operations needed by Executor.
@@ -41,7 +41,10 @@ type ExecutorStore interface {
 	ListStepsByWorkflowVersion(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
 	ListJobSecretsByJob(ctx context.Context, jobID, environment string) ([]domain.JobSecret, error)
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	SnoozeRunWithLock(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
 	UpdateHeartbeat(ctx context.Context, id string) error
+	ScheduleRetry(ctx context.Context, runID string, at time.Time, attempt int) error
+	ClearRetry(ctx context.Context, runID string) error
 	CanDispatchEndpoint(ctx context.Context, endpointURL string, now time.Time) (bool, *time.Time, error)
 	RecordEndpointCircuitFailure(ctx context.Context, endpointURL string, now time.Time, threshold int, openDuration time.Duration) error
 	RecordEndpointCircuitSuccess(ctx context.Context, endpointURL string) error
@@ -50,12 +53,7 @@ type ExecutorStore interface {
 	GetLatestCheckpoint(ctx context.Context, runID string) (*domain.RunCheckpoint, error)
 	GetRun(ctx context.Context, id string) (*domain.JobRun, error)
 	GetProjectQuota(ctx context.Context, projectID string) (*store.ProjectQuota, error)
-	SumDailyComputeCost(ctx context.Context, projectID, timezone string) (int64, error)
-	CreateRunComputeUsage(ctx context.Context, usage *domain.RunComputeUsage) error
 	InsertEvent(ctx context.Context, event *domain.RunEvent) error
-	SetRunMachineID(ctx context.Context, runID, machineID string) error
-	RecordOOMEvent(ctx context.Context, jobID, preset string) error
-	GetPresetRecommendation(ctx context.Context, jobID string) (*store.PresetRecommendation, error)
 	GetEndpointHealthScore(ctx context.Context, endpointURL string) (*domain.EndpointHealthScore, error)
 	UpsertEndpointHealthScore(ctx context.Context, score *domain.EndpointHealthScore) error
 	AtomicRecordHealthResult(
@@ -82,6 +80,35 @@ type WorkflowCallback interface {
 	OnJobRunTerminal(ctx context.Context, run *domain.JobRun) error
 }
 
+// WorkerRunDispatcher is implemented by grpc.WorkerDispatcher to avoid a
+// circular import between internal/worker and internal/api/grpc. Injected
+// via ExecutorConfig.WorkerDispatcher.
+//
+// The return value is an opaque result container; callers cast it to extract
+// the status and error message fields they need. Defined as interface{} to
+// keep the worker package free of grpc proto imports — the actual type is
+// *workerv1.TaskResult.
+type WorkerRunDispatcher interface {
+	WorkerDispatch(ctx context.Context, run *domain.JobRun, job *domain.Job) (any, error)
+	// ResultStatus extracts the status string ("success", "failed", or "")
+	// from an opaque TaskResult. Returns "" for nil or wrong type.
+	ResultStatus(opaque any) string
+	// ResultError extracts the error message from a failed TaskResult.
+	// Returns "" for nil, wrong type, or empty error_message.
+	ResultError(opaque any) string
+	// ResultOutput extracts output_json from a successful TaskResult.
+	// Returns nil for nil, wrong type, or empty output_json.
+	ResultOutput(opaque any) json.RawMessage
+}
+
+type workerTaskCompletionDispatcher interface {
+	CompleteWorkerTask(ctx context.Context, opaque any, status domain.WorkerTaskStatus) error
+}
+
+type SecretDecryptor interface {
+	Decrypt([]byte) ([]byte, error)
+}
+
 // Executor polls the queue and executes job runs via HTTP dispatch.
 type Executor struct {
 	pool                     *Pool
@@ -96,6 +123,7 @@ type Executor struct {
 	publisher                pubsub.Publisher
 	metrics                  *telemetry.Metrics
 	workflowCallback         WorkflowCallback
+	workerDispatcher         WorkerRunDispatcher
 	partitionCycle           []string
 	nextPartition            int
 	bulkhead                 *ShardedBulkhead
@@ -112,34 +140,41 @@ type Executor struct {
 	defaultJobMaxConcurrency int
 	jobCache                 *cache.Cache[*domain.Job]
 	jobCacheStore            *otterstore.OtterStore
-	memoryPressureThreshold  float64
-	maxSnoozeCount           int
-	dequeueStrategy          string
-	jwtSigningKey            string
-	containerRuntime         compute.ContainerRuntime
-	managedSemaphore         *semaphore.Weighted
-	machinePool              *compute.MachinePool
-	disableMachinePoolReuse  bool
-	externalAPIURL           string
-	defaultRegion            string
-	billingEnforcer          *billing.Enforcer
-	stripeUsageReporter      *billing.StripeUsageReporter
-	stripeUsageWG            conc.WaitGroup // tracks in-flight Stripe usage event goroutines
-	stop                     chan struct{}
-	done                     chan struct{}
-	stopOnce                 sync.Once
-	pollWG                   sync.WaitGroup
-	callbackWG               sync.WaitGroup
-	pollInFlight             atomic.Int64
-	runStarted               atomic.Bool
-	claimCursor              *queue.ClaimCursor
-	degradedPollInterval     time.Duration
-	degraded                 queue.DegradedNotifier
-	useDenormalizedDequeue   bool
-	dbCircuit                *queue.DBCircuit
-	eventChannelSize         int
-	saturationWarnMu         sync.Mutex
-	saturationLastWarn       map[string]time.Time
+	// jobResolveGroup coalesces concurrent resolveJobForRun calls for the
+	// same job ID so a burst of runs does not stampede the DB while the
+	// cache is cold.
+	jobResolveGroup         singleflight.Group
+	memoryPressureThreshold float64
+	maxSnoozeCount          int
+	jwtSigningKey           string
+	externalAPIURL          string
+	defaultRegion           string
+	mode                    string
+	version                 string
+	billingEnforcer         *billing.Enforcer
+	stripeUsageReporter     *billing.StripeUsageReporter
+	stripeUsageWG           conc.WaitGroup // tracks in-flight Stripe usage event goroutines
+	runCostRecorder         *billing.RunCostRecorder
+	secretDecryptor         SecretDecryptor
+	stop                    chan struct{}
+	done                    chan struct{}
+	stopOnce                sync.Once
+	pollWG                  sync.WaitGroup
+	bgWG                    conc.WaitGroup
+	callbackWG              conc.WaitGroup
+	pollInFlight            atomic.Int64
+	runStarted              atomic.Bool
+	degradedPollInterval    time.Duration
+	degraded                queue.DegradedNotifier
+	dbCircuit               *queue.DBCircuit
+	eventChannelSize        int
+	saturationWarnMu        sync.Mutex
+	saturationLastWarn      map[string]time.Time
+	// queueSnapshotter returns the set of queue names with active workers on
+	// this replica. When non-nil, poll performs a second dequeue pass for
+	// worker-mode runs filtered to those queues. Injected from the gRPC
+	// ConnectionRegistry via QueueSnapshotter interface (no circular import).
+	queueSnapshotter QueueSnapshotter
 	// queueMetrics caches the process-wide queue metrics handle so the
 	// hot-path lifecycle emit/drop paths avoid a sync.Once + error-check
 	// lookup per event. Resolved once in NewExecutor; may be nil if the
@@ -176,6 +211,7 @@ type ExecutorConfig struct {
 	PartitionWeights           string
 	ExecutorHTTPTimeout        time.Duration
 	ExecutorIdleConnTimeout    time.Duration
+	AllowPrivateEndpoints      bool
 	WebhookMaxAttempts         int
 	MaxDequeueBatchSize        int
 	DefaultJobMaxConcurrency   int
@@ -183,20 +219,27 @@ type ExecutorConfig struct {
 	JobCacheTTL                time.Duration
 	MaxSnoozeCount             int
 	JWTSigningKey              string
-	DequeueStrategy            string
-	ContainerRuntime           compute.ContainerRuntime
 	ExternalAPIURL             string
-	MaxConcurrentMachines      int
 	DefaultRegion              string
-	WarmPoolEnabled            bool
-	WarmPoolMaxPerJob          int
-	DisableMachinePoolReuse    bool
+	Mode                       string
+	Version                    string
 	WorkflowLookup             WorkflowLookup
 	WorkflowTriggerer          WorkflowTriggerer
 	JobLookup                  JobLookup
 	JobEnqueuer                JobEnqueuer
 	BillingEnforcer            *billing.Enforcer            // Optional: org-level billing enforcement (cloud only).
 	StripeUsageReporter        *billing.StripeUsageReporter // Optional: Stripe usage event reporting (cloud only).
+	RunCostRecorder            *billing.RunCostRecorder     // Optional: flat per-run cost recording (cloud only).
+	SecretDecryptor            SecretDecryptor              // Optional: decrypts encrypted endpoint signing secrets.
+	// QueueSnapshotter provides the set of queue names with active workers on
+	// this replica. When set, the poll loop performs a second dequeue pass
+	// for worker-mode runs filtered to those queues.
+	// Typically injected from grpc.ConnectionRegistry via the QueueSnapshotter
+	// interface to avoid a circular import.
+	QueueSnapshotter QueueSnapshotter
+	// WorkerDispatcher handles gRPC-based dispatch for ExecutionModeWorker runs.
+	// Injected from the gRPC server to avoid a circular import.
+	WorkerDispatcher WorkerRunDispatcher
 	// DegradedPollInterval is the shortened poll interval used when the
 	// queue notifier enters degraded mode (LISTEN disconnected for too long).
 	// Zero/negative falls back to 1 second.
@@ -206,9 +249,6 @@ type ExecutorConfig struct {
 	// obtain the fresh channel, avoiding stale-channel re-arm. Nil means no
 	// degraded-mode support.
 	Degraded queue.DegradedNotifier
-	// UseDenormalizedDequeue opts into the job_active_counts-backed
-	// dequeue path. Defaults to false so existing deployments are unaffected.
-	UseDenormalizedDequeue bool
 	// DBCircuitConfig configures the circuit breaker for the
 	// dequeue hot path. Zero values fall back to defaults.
 	DBCircuitConfig queue.DBCircuitConfig
@@ -248,11 +288,16 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		}
 		httpClient = &http.Client{
 			Timeout: execTimeout,
-			Transport: &http.Transport{
-				MaxIdleConns:        100,
-				MaxIdleConnsPerHost: 10,
-				IdleConnTimeout:     execIdleTimeout,
-				TLSHandshakeTimeout: 10 * time.Second,
+			Transport: func() *http.Transport {
+				transport := httputil.NewExternalTransport(cfg.AllowPrivateEndpoints)
+				transport.MaxIdleConns = 100
+				transport.MaxIdleConnsPerHost = 10
+				transport.IdleConnTimeout = execIdleTimeout
+				transport.TLSHandshakeTimeout = 10 * time.Second
+				return transport
+			}(),
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+				return http.ErrUseLastResponse
 			},
 		}
 	}
@@ -262,34 +307,13 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		whMaxAttempts = 3
 	}
 
-	var managedSem *semaphore.Weighted
-	if cfg.ContainerRuntime != nil {
-		maxMachines := cfg.MaxConcurrentMachines
-		if maxMachines <= 0 {
-			maxMachines = 10
-		}
-		managedSem = semaphore.NewWeighted(int64(maxMachines))
-	}
-
-	var machinePool *compute.MachinePool
-	if cfg.WarmPoolEnabled {
-		machinePool = compute.NewMachinePool(cfg.WarmPoolMaxPerJob)
-		if cfg.ContainerRuntime != nil {
-			rt := cfg.ContainerRuntime
-			machinePool.SetOnEvict(func(machineID string) {
-				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				defer cancel()
-				_ = rt.Destroy(ctx, machineID)
-			})
-		}
-	}
-
 	var jobCache *cache.Cache[*domain.Job]
 	var jobCacheStore *otterstore.OtterStore
 	if cfg.JobCacheTTL > 0 {
 		jobCacheStore = otterstore.New(otterstore.Config{
 			DefaultTTL:  cfg.JobCacheTTL,
 			MaxCapacity: 10_000,
+			TTLJitter:   0.1,
 		})
 		jobCache = cache.New[*domain.Job](jobCacheStore)
 	}
@@ -322,25 +346,24 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		jobCacheStore:            jobCacheStore,
 		memoryPressureThreshold:  cfg.MemoryPressureThresholdPct,
 		maxSnoozeCount:           cfg.MaxSnoozeCount,
-		dequeueStrategy:          cfg.DequeueStrategy,
 		jwtSigningKey:            cfg.JWTSigningKey,
-		containerRuntime:         cfg.ContainerRuntime,
-		managedSemaphore:         managedSem,
-		machinePool:              machinePool,
-		disableMachinePoolReuse:  cfg.DisableMachinePoolReuse,
 		externalAPIURL:           cfg.ExternalAPIURL,
 		defaultRegion:            cfg.DefaultRegion,
+		mode:                     cfg.Mode,
+		version:                  cfg.Version,
 		billingEnforcer:          cfg.BillingEnforcer,
 		stripeUsageReporter:      cfg.StripeUsageReporter,
+		runCostRecorder:          cfg.RunCostRecorder,
+		secretDecryptor:          cfg.SecretDecryptor,
 		healthScorer:             NewHealthScorer(cfg.Store),
 		onCompleteTrigger:        NewOnCompleteTrigger(cfg.WorkflowLookup, cfg.WorkflowTriggerer, cfg.JobLookup, cfg.JobEnqueuer, slog.Default()),
 		stop:                     make(chan struct{}),
 		done:                     make(chan struct{}),
-		claimCursor:              queue.NewClaimCursor(60 * time.Second),
 		degradedPollInterval:     resolveDegradedPollInterval(cfg.DegradedPollInterval),
 		degraded:                 cfg.Degraded,
-		useDenormalizedDequeue:   cfg.UseDenormalizedDequeue,
 		dbCircuit:                queue.NewDBCircuit(cfg.DBCircuitConfig),
+		queueSnapshotter:         cfg.QueueSnapshotter,
+		workerDispatcher:         cfg.WorkerDispatcher,
 		queueMetrics:             resolveQueueMetrics(),
 	}
 }
@@ -452,10 +475,10 @@ func (e *Executor) sampleEventChannelSaturation(ctx context.Context, kind string
 }
 
 // resolveInstanceID returns a stable per-process identifier suitable
-// for use as a metric attribute. Prefers the OS hostname (matches K8s
-// pod name in standard deployments); falls back to a process-scoped
-// UUID if Hostname errors or returns empty. Resolution happens at most
-// once per Executor; subsequent calls return the cached value.
+// for use as a metric attribute. It prefers the OS hostname, which commonly
+// matches the container or instance identity, and falls back to a process-scoped
+// UUID if Hostname errors or returns empty. Resolution happens at most once per
+// Executor; subsequent calls return the cached value.
 func (e *Executor) resolveInstanceID() string {
 	e.instanceIDOnce.Do(func() {
 		host, err := os.Hostname()
@@ -502,7 +525,14 @@ func (e *Executor) recordEventChannelDrop(ctx context.Context, kind string) {
 func (e *Executor) runEventLoop() {
 	for env := range e.eventCh {
 		for _, sub := range e.subscribers {
-			sub(env.ctx, env.event)
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						e.logger.Error("event subscriber panicked", "panic", r)
+					}
+				}()
+				sub(env.ctx, env.event)
+			}()
 		}
 	}
 }
@@ -512,12 +542,11 @@ func (e *Executor) notifyWorkflowCallback(ctx context.Context, run *domain.JobRu
 		return
 	}
 
-	e.callbackWG.Add(1)
-	defer e.callbackWG.Done()
-
-	if err := e.workflowCallback.OnJobRunTerminal(ctx, run); err != nil {
-		e.logger.Error("workflow callback failed", "run_id", run.ID, "error", err)
-	}
+	e.callbackWG.Go(func() {
+		if err := e.workflowCallback.OnJobRunTerminal(ctx, run); err != nil {
+			e.logger.Error("workflow callback failed", "run_id", run.ID, "error", err)
+		}
+	})
 }
 
 func (e *Executor) publishEvent(ctx context.Context, run *domain.JobRun, data map[string]any) {
@@ -577,14 +606,10 @@ func (e *Executor) Run(ctx context.Context) {
 
 	e.logger.Info("executor started", "poll_interval", e.pollInterval)
 
-	e.pollWG.Go(func() {
+	e.bgWG.Go(func() {
 		e.heartbeat.Run(runCtx)
 	})
-	go e.runEventLoop()
-
-	if e.machinePool != nil {
-		go e.runPoolPruner(runCtx)
-	}
+	e.bgWG.Go(e.runEventLoop)
 
 	ticker := time.NewTicker(e.pollInterval)
 	defer ticker.Stop()
@@ -631,28 +656,6 @@ func (e *Executor) Run(ctx context.Context) {
 	}
 }
 
-func (e *Executor) runPoolPruner(ctx context.Context) {
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-e.stop:
-			return
-		case <-ticker.C:
-			pruned := e.machinePool.Prune(10*time.Minute, func(mid string) error {
-				dCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				defer cancel()
-				return e.containerRuntime.Destroy(dCtx, mid)
-			})
-			if pruned > 0 {
-				e.logger.Info("pool pruner cleaned machines", "count", pruned)
-			}
-		}
-	}
-}
-
 func (e *Executor) Shutdown(ctx context.Context) error {
 	e.stopOnce.Do(func() {
 		close(e.stop)
@@ -670,22 +673,12 @@ func (e *Executor) Shutdown(ctx context.Context) error {
 
 	e.pollWG.Wait()
 
-	if e.machinePool != nil && e.containerRuntime != nil {
-		drained := e.machinePool.Prune(0, func(mid string) error {
-			dCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			return e.containerRuntime.Destroy(dCtx, mid)
-		})
-		if drained > 0 {
-			e.logger.Info("shutdown: drained warm pool", "count", drained)
-		}
-	}
-
 	callbackDone := make(chan struct{})
-	go func() {
+	var callbackWaitWG conc.WaitGroup
+	callbackWaitWG.Go(func() {
 		e.callbackWG.Wait()
 		close(callbackDone)
-	}()
+	})
 
 	callbackTimeout := time.NewTimer(10 * time.Second)
 	defer callbackTimeout.Stop()
@@ -699,10 +692,11 @@ func (e *Executor) Shutdown(ctx context.Context) error {
 
 	// Wait for any in-flight Stripe usage event goroutines.
 	stripeDone := make(chan struct{})
-	go func() {
+	var stripeWaitWG conc.WaitGroup
+	stripeWaitWG.Go(func() {
 		e.stripeUsageWG.Wait()
 		close(stripeDone)
-	}()
+	})
 
 	stripeTimeout := time.NewTimer(10 * time.Second)
 	defer stripeTimeout.Stop()
@@ -710,6 +704,23 @@ func (e *Executor) Shutdown(ctx context.Context) error {
 	case <-stripeDone:
 	case <-stripeTimeout.C:
 		e.logger.Warn("timed out waiting for in-flight stripe usage events")
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	bgDone := make(chan struct{})
+	var bgWaitWG conc.WaitGroup
+	bgWaitWG.Go(func() {
+		e.bgWG.Wait()
+		close(bgDone)
+	})
+
+	bgTimeout := time.NewTimer(10 * time.Second)
+	defer bgTimeout.Stop()
+	select {
+	case <-bgDone:
+	case <-bgTimeout.C:
+		e.logger.Warn("timed out waiting for executor background goroutines")
 	case <-ctx.Done():
 		return ctx.Err()
 	}

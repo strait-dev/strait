@@ -8,7 +8,18 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/sourcegraph/conc"
+
+	"strait/internal/domain"
 )
+
+func (s *Server) requireActivityStreamPermissions(next http.Handler) http.Handler {
+	return s.requirePermission(domain.ScopeRunsRead)(
+		s.requirePermission(domain.ScopeWorkflowsRead)(
+			s.requirePermission(domain.ScopeJobsRead)(next),
+		),
+	)
+}
 
 // handleProjectActivityStream serves a real-time SSE stream of all CDC events
 // for a project. Subscribes to job_runs, workflow_runs, and event_triggers
@@ -17,6 +28,18 @@ func (s *Server) handleProjectActivityStream(w http.ResponseWriter, r *http.Requ
 	projectID := chi.URLParam(r, "projectID")
 	if projectID == "" {
 		respondError(w, r, http.StatusBadRequest, "project_id is required")
+		return
+	}
+
+	// Tenant isolation: SSE long-lived handlers cannot rely on RLS, so we
+	// must verify the URL projectID matches the caller's authenticated project.
+	// 404 on mismatch to avoid cross-tenant existence disclosure.
+	if callerProjectID := projectIDFromContext(r.Context()); callerProjectID == "" || projectID != callerProjectID {
+		respondError(w, r, http.StatusNotFound, "project not found")
+		return
+	}
+	if environmentIDFromContext(r.Context()) != "" {
+		respondError(w, r, http.StatusForbidden, "activity stream requires a project-wide key")
 		return
 	}
 
@@ -62,6 +85,7 @@ func (s *Server) handleProjectActivityStream(w http.ResponseWriter, r *http.Requ
 	ctx, cancel := context.WithTimeout(r.Context(), maxDuration)
 	defer cancel()
 
+	var fanoutWG conc.WaitGroup
 	for _, ch := range channels {
 		sub, err := s.pubsub.Subscribe(ctx, ch)
 		if err != nil {
@@ -69,7 +93,7 @@ func (s *Server) handleProjectActivityStream(w http.ResponseWriter, r *http.Requ
 			continue
 		}
 		defer sub.Close()
-		go func() {
+		fanoutWG.Go(func() {
 			for {
 				select {
 				case msg, ok := <-sub.Ch:
@@ -85,7 +109,7 @@ func (s *Server) handleProjectActivityStream(w http.ResponseWriter, r *http.Requ
 					return
 				}
 			}
-		}()
+		})
 	}
 
 	// SSE event loop with keepalive.

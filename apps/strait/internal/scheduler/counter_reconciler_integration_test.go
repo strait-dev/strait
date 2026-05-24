@@ -48,7 +48,7 @@ func TestCounterReconciler_HappyPath_ZeroDrift(t *testing.T) {
 	tdb, _, q, job := setupReconciler(t)
 	ctx := context.Background()
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		r := &domain.JobRun{
 			ID:        uuid.Must(uuid.NewV7()).String(),
 			JobID:     job.ID,
@@ -83,7 +83,7 @@ func TestCounterReconciler_InducedDrift_ActiveCounts(t *testing.T) {
 	tdb, _, q, job := setupReconciler(t)
 	ctx := context.Background()
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		r := &domain.JobRun{
 			ID:        uuid.Must(uuid.NewV7()).String(),
 			JobID:     job.ID,
@@ -128,12 +128,90 @@ func TestCounterReconciler_InducedDrift_ActiveCounts(t *testing.T) {
 	}
 }
 
+func TestCounterReconciler_TransactionalReconcileRepairsActiveAndDLQDrift(t *testing.T) {
+	tdb, _, q, job := setupReconciler(t)
+	ctx := context.Background()
+
+	for range 3 {
+		run := &domain.JobRun{
+			ID:        uuid.Must(uuid.NewV7()).String(),
+			JobID:     job.ID,
+			ProjectID: job.ProjectID,
+		}
+		if err := q.Enqueue(ctx, run); err != nil {
+			t.Fatalf("enqueue: %v", err)
+		}
+	}
+	if _, err := q.DequeueN(ctx, 3); err != nil {
+		t.Fatalf("dequeue: %v", err)
+	}
+	for range 2 {
+		_, err := tdb.Pool.Exec(ctx, `
+			INSERT INTO job_runs (id, job_id, project_id, status, attempt, triggered_by, created_at, finished_at)
+			VALUES ($1, $2, $3, 'dead_letter', 1, 'manual', NOW(), NOW())
+		`, uuid.Must(uuid.NewV7()).String(), job.ID, job.ProjectID)
+		if err != nil {
+			t.Fatalf("insert dlq run: %v", err)
+		}
+	}
+
+	if _, err := tdb.Pool.Exec(ctx, `UPDATE job_active_counts SET count = 99 WHERE job_id = $1`, job.ID); err != nil {
+		t.Fatalf("corrupt active count: %v", err)
+	}
+	if _, err := tdb.Pool.Exec(ctx, `UPDATE dlq_counts SET count = 42 WHERE job_id = $1`, job.ID); err != nil {
+		t.Fatalf("corrupt dlq count: %v", err)
+	}
+
+	r := scheduler.NewCounterReconciler(tdb.Pool, scheduler.CounterReconcilerConfig{})
+	if err := r.RunOnceForTest(ctx); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	var activeCount, dlqCount int
+	if err := tdb.Pool.QueryRow(ctx, `SELECT COALESCE(SUM(count), 0) FROM job_active_counts WHERE job_id = $1`, job.ID).Scan(&activeCount); err != nil {
+		t.Fatalf("query active count: %v", err)
+	}
+	if err := tdb.Pool.QueryRow(ctx, `SELECT COALESCE(SUM(count), 0) FROM dlq_counts WHERE job_id = $1`, job.ID).Scan(&dlqCount); err != nil {
+		t.Fatalf("query dlq count: %v", err)
+	}
+	if activeCount != 3 {
+		t.Errorf("active count after reconcile = %d, want 3", activeCount)
+	}
+	if dlqCount != 2 {
+		t.Errorf("dlq count after reconcile = %d, want 2", dlqCount)
+	}
+	if r.TotalDrift() == 0 {
+		t.Errorf("drift = %d, want non-zero repair signal", r.TotalDrift())
+	}
+}
+
+func TestCounterReconciler_DoesNotTakeJobRunsTableLock(t *testing.T) {
+	tdb, _, _, _ := setupReconciler(t)
+	ctx := context.Background()
+
+	writerTx, err := tdb.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin writer transaction: %v", err)
+	}
+	defer writerTx.Rollback(ctx) //nolint:errcheck
+	if _, err := writerTx.Exec(ctx, `LOCK TABLE job_runs IN ROW EXCLUSIVE MODE`); err != nil {
+		t.Fatalf("hold writer table lock: %v", err)
+	}
+
+	runCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	r := scheduler.NewCounterReconciler(tdb.Pool, scheduler.CounterReconcilerConfig{})
+	if err := r.RunOnceForTest(runCtx); err != nil {
+		t.Fatalf("reconcile while writer holds job_runs lock: %v", err)
+	}
+}
+
 func TestCounterReconciler_InducedDrift_DLQCounts(t *testing.T) {
 	tdb, _, _, job := setupReconciler(t)
 	ctx := context.Background()
 
 	// Directly insert dead_letter rows.
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		_, err := tdb.Pool.Exec(ctx, `
 			INSERT INTO job_runs (id, job_id, project_id, status, attempt, triggered_by, created_at)
 			VALUES ($1, $2, $3, 'dead_letter', 1, 'manual', NOW())
@@ -176,7 +254,7 @@ func TestCounterReconciler_BypassTriggerRepaired(t *testing.T) {
 	if err != nil {
 		t.Fatalf("disable trigger: %v", err)
 	}
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		_, err := tdb.Pool.Exec(ctx, `
 			INSERT INTO job_runs (id, job_id, project_id, status, attempt, triggered_by, created_at, started_at)
 			VALUES ($1, $2, $3, 'executing', 1, 'manual', NOW(), NOW())
@@ -221,7 +299,7 @@ func TestCounterReconciler_PropertyRandomOps(t *testing.T) {
 	var runIDs []string
 	const ops = 200
 
-	for i := 0; i < ops; i++ {
+	for range ops {
 		switch rng.IntN(5) {
 		case 0: // enqueue
 			r := &domain.JobRun{

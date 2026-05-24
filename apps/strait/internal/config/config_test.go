@@ -78,12 +78,12 @@ func TestLoad_Defaults(t *testing.T) {
 		{"DefaultJobMaxAttempts", cfg.DefaultJobMaxAttempts, 3},
 		{"DefaultJobTimeoutSecs", cfg.DefaultJobTimeoutSecs, 300},
 		{"WorkflowRetention", cfg.WorkflowRetention, 720 * time.Hour},
-		{"ReaperDeleteBatchSize", cfg.ReaperDeleteBatchSize, 100},
+		{"ReaperDeleteBatchSize", cfg.ReaperDeleteBatchSize, 5000},
 		{"StalledWorkflowThreshold", cfg.StalledWorkflowThreshold, 15 * time.Minute},
 		{"StalledWorkflowAction", cfg.StalledWorkflowAction, "log_only"},
 		{"DependencyStatusCacheTTL", cfg.DependencyStatusCacheTTL, 5 * time.Second},
 		{"MaxWorkflowNestingDepth", cfg.MaxWorkflowNestingDepth, 10},
-		{"CDCBatchSize", cfg.CDCBatchSize, 10},
+		{"CDCBatchSize", cfg.CDCBatchSize, 200},
 		{"CDCWaitTimeMs", cfg.CDCWaitTimeMs, 5000},
 		{"SSEKeepaliveInterval", cfg.SSEKeepaliveInterval, 15 * time.Second},
 		{"WorkerDrainTimeout", cfg.WorkerDrainTimeout, 30 * time.Second},
@@ -96,18 +96,23 @@ func TestLoad_Defaults(t *testing.T) {
 		{"MaxSnoozeCount", cfg.MaxSnoozeCount, 50},
 		{"DebouncePollerInterval", cfg.DebouncePollerInterval, time.Second},
 		{"BatchFlushInterval", cfg.BatchFlushInterval, time.Second},
-		{"DequeueStrategy", cfg.DequeueStrategy, "priority"},
-		{"ComputeRuntime", cfg.ComputeRuntime, "none"}, // community edition overrides k8s default to none
 		{"DefaultRegion", cfg.DefaultRegion, "iad"},
-		{"MaxConcurrentMachines", cfg.MaxConcurrentMachines, 10},
 		{"ClickHouseDatabase", cfg.ClickHouseDatabase, "strait"},
 		{"ClickHouseBatchSize", cfg.ClickHouseBatchSize, 1000},
 		{"ClickHouseFlushInterval", cfg.ClickHouseFlushInterval, 5 * time.Second},
 		{"ResendFromEmail", cfg.ResendFromEmail, "noreply@strait.dev"},
 		{"SentryEnvironment", cfg.SentryEnvironment, "development"},
 		{"Edition", cfg.Edition, "community"},
-		{"SequinBatchSize", cfg.SequinBatchSize, 10},
+		{"SequinBatchSize", cfg.SequinBatchSize, 200},
 		{"SequinWaitTimeMs", cfg.SequinWaitTimeMs, 5000},
+		{"SequinWebhookSecret", cfg.SequinWebhookSecret, ""},
+		{"GRPCBindAddr", cfg.GRPCBindAddr, "127.0.0.1"},
+		{"GRPCPort", cfg.GRPCPort, 50051},
+		{"RedisPoolSize", cfg.RedisPoolSize, 30},
+		{"RedisMinIdleConns", cfg.RedisMinIdleConns, 5},
+		{"RedisReadTimeout", cfg.RedisReadTimeout, 3 * time.Second},
+		{"RedisWriteTimeout", cfg.RedisWriteTimeout, 3 * time.Second},
+		{"RedisConnMaxLifetime", cfg.RedisConnMaxLifetime, 30 * time.Minute},
 	}
 
 	for _, tt := range tests {
@@ -136,12 +141,12 @@ func TestLoad_DefaultBooleans(t *testing.T) {
 		{"DBPgBouncerMode", cfg.DBPgBouncerMode},
 		{"WebhookRequireTLS", cfg.WebhookRequireTLS},
 		{"AllowPrivateEndpoints", cfg.AllowPrivateEndpoints},
+		{"GRPCAllowPlaintext", cfg.GRPCAllowPlaintext},
 		{"EnforceRegionGating", cfg.EnforceRegionGating},
 		{"ClickHouseEnabled", cfg.ClickHouseEnabled},
 		{"ClickHouseExportEnabled", cfg.ClickHouseExportEnabled},
 		{"OTLPMetricEnabled", cfg.OTLPMetricEnabled},
 		{"BillingEnforcementEnabled", cfg.BillingEnforcementEnabled},
-		{"WarmPoolEnabled", cfg.WarmPoolEnabled},
 	}
 
 	for _, tt := range falseFields {
@@ -373,10 +378,10 @@ func TestLoad_MaxBulkTriggerItemsDefault(t *testing.T) {
 
 func TestLoad_DurationOverrides(t *testing.T) {
 	setRequiredEnv(t)
-	t.Setenv("HEARTBEAT_INTERVAL", "5s")
+	t.Setenv("HEARTBEAT_INTERVAL", "10s")
 	t.Setenv("REAPER_INTERVAL", "1m")
 	t.Setenv("STALE_THRESHOLD", "2m")
-	t.Setenv("POLLER_INTERVAL", "10s")
+	t.Setenv("POLLER_INTERVAL", "2s")
 	t.Setenv("DB_MAX_CONN_LIFETIME", "1h")
 	t.Setenv("DB_MAX_CONN_IDLE_TIME", "10m")
 	t.Setenv("WEBHOOK_TIMEOUT", "30s")
@@ -394,10 +399,10 @@ func TestLoad_DurationOverrides(t *testing.T) {
 		got  time.Duration
 		want time.Duration
 	}{
-		{"HeartbeatInterval", cfg.HeartbeatInterval, 5 * time.Second},
+		{"HeartbeatInterval", cfg.HeartbeatInterval, 10 * time.Second},
 		{"ReaperInterval", cfg.ReaperInterval, time.Minute},
 		{"StaleThreshold", cfg.StaleThreshold, 2 * time.Minute},
-		{"PollerInterval", cfg.PollerInterval, 10 * time.Second},
+		{"PollerInterval", cfg.PollerInterval, 2 * time.Second},
 		{"DBMaxConnLifetime", cfg.DBMaxConnLifetime, time.Hour},
 		{"DBMaxConnIdleTime", cfg.DBMaxConnIdleTime, 10 * time.Minute},
 		{"WebhookTimeout", cfg.WebhookTimeout, 30 * time.Second},
@@ -450,6 +455,7 @@ func TestLoad_BoolOverrides(t *testing.T) {
 	t.Setenv("DB_PGBOUNCER_MODE", "true")
 	t.Setenv("WEBHOOK_REQUIRE_TLS", "true")
 	t.Setenv("ALLOW_PRIVATE_ENDPOINTS", "true")
+	t.Setenv("GRPC_ALLOW_PLAINTEXT", "true")
 	t.Setenv("ENFORCE_REGION_GATING", "true")
 	t.Setenv("OTLP_METRIC_ENABLED", "true")
 	t.Setenv("CORS_ALLOW_CREDENTIALS", "true")
@@ -467,6 +473,9 @@ func TestLoad_BoolOverrides(t *testing.T) {
 	}
 	if !cfg.AllowPrivateEndpoints {
 		t.Fatal("AllowPrivateEndpoints = false, want true")
+	}
+	if !cfg.GRPCAllowPlaintext {
+		t.Fatal("GRPCAllowPlaintext = false, want true")
 	}
 	if !cfg.EnforceRegionGating {
 		t.Fatal("EnforceRegionGating = false, want true")
@@ -718,257 +727,6 @@ func TestLoad_MigrationModeValidation(t *testing.T) {
 	})
 }
 
-func TestLoad_ComputeRuntimeValidation(t *testing.T) {
-	t.Run("none runtime", func(t *testing.T) {
-		setRequiredEnv(t)
-		t.Setenv("COMPUTE_RUNTIME", "none")
-
-		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if cfg.ComputeRuntime != "none" {
-			t.Fatalf("ComputeRuntime = %q, want none", cfg.ComputeRuntime)
-		}
-	})
-
-	t.Run("docker runtime with cloud edition", func(t *testing.T) {
-		setRequiredEnv(t)
-		t.Setenv("COMPUTE_RUNTIME", "docker")
-		skipIfCommunity(t)
-		skipIfCommunity(t)
-		t.Setenv("STRAIT_EDITION", "cloud")
-
-		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if cfg.ComputeRuntime != "docker" {
-			t.Fatalf("ComputeRuntime = %q, want docker", cfg.ComputeRuntime)
-		}
-	})
-
-	t.Run("invalid runtime", func(t *testing.T) {
-		setRequiredEnv(t)
-		t.Setenv("COMPUTE_RUNTIME", "kubernetes")
-
-		_, err := Load()
-		if err == nil {
-			t.Fatal("expected error for invalid COMPUTE_RUNTIME, got nil")
-		}
-		if !strings.Contains(err.Error(), "COMPUTE_RUNTIME") {
-			t.Fatalf("error = %q, want substring COMPUTE_RUNTIME", err.Error())
-		}
-	})
-
-	t.Run("community edition overrides non-none runtime", func(t *testing.T) {
-		setRequiredEnv(t)
-		t.Setenv("COMPUTE_RUNTIME", "docker")
-		t.Setenv("STRAIT_EDITION", "community")
-
-		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if cfg.ComputeRuntime != "none" {
-			t.Fatalf("ComputeRuntime = %q, want none (community edition override)", cfg.ComputeRuntime)
-		}
-	})
-
-	t.Run("k8s valid with defaults", func(t *testing.T) {
-		setRequiredEnv(t)
-		t.Setenv("COMPUTE_RUNTIME", "k8s")
-		skipIfCommunity(t)
-		skipIfCommunity(t)
-		t.Setenv("STRAIT_EDITION", "cloud")
-
-		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if cfg.ComputeRuntime != "k8s" {
-			t.Fatalf("ComputeRuntime = %q, want k8s", cfg.ComputeRuntime)
-		}
-		if cfg.K8sNamespace != "default" {
-			t.Fatalf("K8sNamespace = %q, want default", cfg.K8sNamespace)
-		}
-		if cfg.K8sPriorityClass != "strait-job" {
-			t.Fatalf("K8sPriorityClass = %q, want strait-job", cfg.K8sPriorityClass)
-		}
-	})
-
-	t.Run("k8s with custom namespace", func(t *testing.T) {
-		setRequiredEnv(t)
-		t.Setenv("COMPUTE_RUNTIME", "k8s")
-		skipIfCommunity(t)
-		skipIfCommunity(t)
-		t.Setenv("STRAIT_EDITION", "cloud")
-		t.Setenv("K8S_NAMESPACE", "strait-jobs")
-		t.Setenv("K8S_PRIORITY_CLASS", "high-priority")
-
-		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if cfg.K8sNamespace != "strait-jobs" {
-			t.Fatalf("K8sNamespace = %q, want strait-jobs", cfg.K8sNamespace)
-		}
-		if cfg.K8sPriorityClass != "high-priority" {
-			t.Fatalf("K8sPriorityClass = %q, want high-priority", cfg.K8sPriorityClass)
-		}
-	})
-
-	t.Run("k8s namespace defaults to default when empty", func(t *testing.T) {
-		setRequiredEnv(t)
-		t.Setenv("COMPUTE_RUNTIME", "k8s")
-		skipIfCommunity(t)
-		skipIfCommunity(t)
-		t.Setenv("STRAIT_EDITION", "cloud")
-		t.Setenv("K8S_NAMESPACE", "")
-
-		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if cfg.K8sNamespace != "default" {
-			t.Fatalf("K8sNamespace = %q, want default (env default)", cfg.K8sNamespace)
-		}
-	})
-
-	t.Run("k8s kubeconfig optional", func(t *testing.T) {
-		setRequiredEnv(t)
-		t.Setenv("COMPUTE_RUNTIME", "k8s")
-		skipIfCommunity(t)
-		skipIfCommunity(t)
-		t.Setenv("STRAIT_EDITION", "cloud")
-
-		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if cfg.K8sKubeconfig != "" {
-			t.Fatalf("K8sKubeconfig = %q, want empty (in-cluster fallback)", cfg.K8sKubeconfig)
-		}
-	})
-
-	t.Run("k8s with kubeconfig", func(t *testing.T) {
-		setRequiredEnv(t)
-		t.Setenv("COMPUTE_RUNTIME", "k8s")
-		skipIfCommunity(t)
-		skipIfCommunity(t)
-		t.Setenv("STRAIT_EDITION", "cloud")
-		t.Setenv("K8S_KUBECONFIG", "/path/to/kubeconfig")
-
-		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if cfg.K8sKubeconfig != "/path/to/kubeconfig" {
-			t.Fatalf("K8sKubeconfig = %q, want /path/to/kubeconfig", cfg.K8sKubeconfig)
-		}
-	})
-}
-
-func TestLoad_FallbackProviderValidation(t *testing.T) {
-	t.Run("k8s primary docker fallback", func(t *testing.T) {
-		setRequiredEnv(t)
-		skipIfCommunity(t)
-		skipIfCommunity(t)
-		t.Setenv("STRAIT_EDITION", "cloud")
-		t.Setenv("COMPUTE_RUNTIME", "k8s")
-		t.Setenv("K8S_NAMESPACE", "default")
-		t.Setenv("COMPUTE_FALLBACK_PROVIDER", "docker")
-
-		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if cfg.ComputeFallbackProvider != "docker" {
-			t.Fatalf("ComputeFallbackProvider = %q, want docker", cfg.ComputeFallbackProvider)
-		}
-	})
-
-	t.Run("empty fallback is valid", func(t *testing.T) {
-		setRequiredEnv(t)
-		skipIfCommunity(t)
-		skipIfCommunity(t)
-		t.Setenv("STRAIT_EDITION", "cloud")
-		t.Setenv("COMPUTE_RUNTIME", "k8s")
-		t.Setenv("K8S_NAMESPACE", "default")
-
-		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if cfg.ComputeFallbackProvider != "" {
-			t.Fatalf("ComputeFallbackProvider = %q, want empty", cfg.ComputeFallbackProvider)
-		}
-	})
-
-	t.Run("same as primary rejected", func(t *testing.T) {
-		setRequiredEnv(t)
-		skipIfCommunity(t)
-		skipIfCommunity(t)
-		t.Setenv("STRAIT_EDITION", "cloud")
-		t.Setenv("COMPUTE_RUNTIME", "k8s")
-		t.Setenv("K8S_NAMESPACE", "default")
-		t.Setenv("COMPUTE_FALLBACK_PROVIDER", "k8s")
-
-		_, err := Load()
-		if err == nil {
-			t.Fatal("expected error for same primary and fallback")
-		}
-		if !strings.Contains(err.Error(), "COMPUTE_FALLBACK_PROVIDER") {
-			t.Fatalf("error = %q, want substring COMPUTE_FALLBACK_PROVIDER", err.Error())
-		}
-	})
-
-	t.Run("invalid provider rejected", func(t *testing.T) {
-		setRequiredEnv(t)
-		skipIfCommunity(t)
-		skipIfCommunity(t)
-		t.Setenv("STRAIT_EDITION", "cloud")
-		t.Setenv("COMPUTE_RUNTIME", "fly")
-		t.Setenv("FLY_API_TOKEN", "fly-token")
-		t.Setenv("FLY_APP_NAME", "my-app")
-		t.Setenv("COMPUTE_FALLBACK_PROVIDER", "lambda")
-
-		_, err := Load()
-		if err == nil {
-			t.Fatal("expected error for invalid fallback provider")
-		}
-	})
-
-	t.Run("fallback without primary rejected", func(t *testing.T) {
-		setRequiredEnv(t)
-		skipIfCommunity(t)
-		skipIfCommunity(t)
-		t.Setenv("STRAIT_EDITION", "cloud")
-		t.Setenv("COMPUTE_RUNTIME", "none")
-		t.Setenv("COMPUTE_FALLBACK_PROVIDER", "k8s")
-
-		_, err := Load()
-		if err == nil {
-			t.Fatal("expected error for fallback without primary")
-		}
-	})
-
-	t.Run("fly fallback requires fly config", func(t *testing.T) {
-		setRequiredEnv(t)
-		skipIfCommunity(t)
-		skipIfCommunity(t)
-		t.Setenv("STRAIT_EDITION", "cloud")
-		t.Setenv("COMPUTE_RUNTIME", "k8s")
-		t.Setenv("COMPUTE_FALLBACK_PROVIDER", "fly")
-		// Missing FLY_API_TOKEN and FLY_APP_NAME.
-
-		_, err := Load()
-		if err == nil {
-			t.Fatal("expected error for fly fallback without token")
-		}
-	})
-}
-
 func TestLoad_ClickHouseValidation(t *testing.T) {
 	t.Run("enabled without URL fails", func(t *testing.T) {
 		setRequiredEnv(t)
@@ -1045,15 +803,37 @@ func TestLoad_SequinBaseURLValidation(t *testing.T) {
 	})
 }
 
+func TestDeepSecLoad_SequinWebhookSecret(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("SEQUIN_WEBHOOK_SECRET", "cdc-webhook-secret-32-bytes-min")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.SequinWebhookSecret != "cdc-webhook-secret-32-bytes-min" {
+		t.Fatalf("SequinWebhookSecret = %q", cfg.SequinWebhookSecret)
+	}
+}
+
 func TestLoad_StringOverrides(t *testing.T) {
 	setRequiredEnv(t)
 	t.Setenv("SENTRY_DSN", "https://sentry.io/123")
 	t.Setenv("SENTRY_ENVIRONMENT", "production")
+	t.Setenv("SENTRY_TRACES_SAMPLE_RATE", "0.25")
+	t.Setenv("SENTRY_RELEASE", "2026.05.07-sha")
+	t.Setenv("SENTRY_DEBUG", "true")
+	t.Setenv("SENTRY_MAX_BREADCRUMBS", "64")
+	t.Setenv("SENTRY_MAX_SPANS", "256")
+	t.Setenv("SENTRY_MAX_ERROR_DEPTH", "16")
+	t.Setenv("SENTRY_STRICT_TRACE_CONTINUATION", "true")
+	t.Setenv("SENTRY_SCHEDULER_CHECKINS", "true")
+	t.Setenv("SENTRY_SCHEDULER_CHECKIN_PREFIX", "custom-scheduler")
 	t.Setenv("RESEND_API_KEY", "re_123")
 	t.Setenv("RESEND_FROM_EMAIL", "support@strait.dev")
+	t.Setenv("GRPC_BIND_ADDR", "0.0.0.0")
 	skipIfCommunity(t)
 	t.Setenv("STRAIT_EDITION", "cloud")
-	t.Setenv("DEQUEUE_STRATEGY", "round_robin")
 	t.Setenv("WORKER_PARTITION_WEIGHTS", "critical:3,default:1")
 
 	cfg, err := Load()
@@ -1067,17 +847,44 @@ func TestLoad_StringOverrides(t *testing.T) {
 	if cfg.SentryEnvironment != "production" {
 		t.Fatalf("SentryEnvironment = %q, want production", cfg.SentryEnvironment)
 	}
+	if cfg.SentryTracesSampleRate != 0.25 {
+		t.Fatalf("SentryTracesSampleRate = %v, want 0.25", cfg.SentryTracesSampleRate)
+	}
+	if cfg.SentryRelease != "2026.05.07-sha" {
+		t.Fatalf("SentryRelease = %q, want 2026.05.07-sha", cfg.SentryRelease)
+	}
+	if !cfg.SentryDebug {
+		t.Fatal("SentryDebug = false, want true")
+	}
+	if cfg.SentryMaxBreadcrumbs != 64 {
+		t.Fatalf("SentryMaxBreadcrumbs = %d, want 64", cfg.SentryMaxBreadcrumbs)
+	}
+	if cfg.SentryMaxSpans != 256 {
+		t.Fatalf("SentryMaxSpans = %d, want 256", cfg.SentryMaxSpans)
+	}
+	if cfg.SentryMaxErrorDepth != 16 {
+		t.Fatalf("SentryMaxErrorDepth = %d, want 16", cfg.SentryMaxErrorDepth)
+	}
+	if !cfg.SentryStrictTraceContinuation {
+		t.Fatal("SentryStrictTraceContinuation = false, want true")
+	}
+	if !cfg.SentrySchedulerCheckIns {
+		t.Fatal("SentrySchedulerCheckIns = false, want true")
+	}
+	if cfg.SentrySchedulerCheckInPrefix != "custom-scheduler" {
+		t.Fatalf("SentrySchedulerCheckInPrefix = %q, want custom-scheduler", cfg.SentrySchedulerCheckInPrefix)
+	}
 	if cfg.ResendAPIKey != "re_123" {
 		t.Fatalf("ResendAPIKey = %q, want re_123", cfg.ResendAPIKey)
 	}
 	if cfg.ResendFromEmail != "support@strait.dev" {
 		t.Fatalf("ResendFromEmail = %q, want support@strait.dev", cfg.ResendFromEmail)
 	}
+	if cfg.GRPCBindAddr != "0.0.0.0" {
+		t.Fatalf("GRPCBindAddr = %q, want 0.0.0.0", cfg.GRPCBindAddr)
+	}
 	if cfg.Edition != "cloud" {
 		t.Fatalf("Edition = %q, want cloud", cfg.Edition)
-	}
-	if cfg.DequeueStrategy != "round_robin" {
-		t.Fatalf("DequeueStrategy = %q, want round_robin", cfg.DequeueStrategy)
 	}
 	if cfg.WorkerPartitionWeights != "critical:3,default:1" {
 		t.Fatalf("WorkerPartitionWeights = %q, want critical:3,default:1", cfg.WorkerPartitionWeights)
@@ -1107,44 +914,6 @@ func TestLoad_StripeBillingFields(t *testing.T) {
 	}
 	if !cfg.BillingEnforcementEnabled {
 		t.Fatal("BillingEnforcementEnabled = false, want true")
-	}
-}
-
-func TestLoad_ManagedExecutionFields(t *testing.T) {
-	setRequiredEnv(t)
-	t.Setenv("COMPUTE_RUNTIME", "k8s")
-	t.Setenv("K8S_NAMESPACE", "default")
-	t.Setenv("DEFAULT_REGION", "lax")
-	t.Setenv("EXTERNAL_API_URL", "https://api.strait.dev")
-	t.Setenv("MAX_CONCURRENT_MACHINES", "25")
-	t.Setenv("WARM_POOL_ENABLED", "true")
-	t.Setenv("WARM_POOL_MAX_PER_JOB", "3")
-	t.Setenv("WARM_POOL_TTL", "10m")
-	skipIfCommunity(t)
-	t.Setenv("STRAIT_EDITION", "cloud")
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if cfg.DefaultRegion != "lax" {
-		t.Fatalf("DefaultRegion = %q, want lax", cfg.DefaultRegion)
-	}
-	if cfg.ExternalAPIURL != "https://api.strait.dev" {
-		t.Fatalf("ExternalAPIURL = %q, want https://api.strait.dev", cfg.ExternalAPIURL)
-	}
-	if cfg.MaxConcurrentMachines != 25 {
-		t.Fatalf("MaxConcurrentMachines = %d, want 25", cfg.MaxConcurrentMachines)
-	}
-	if !cfg.WarmPoolEnabled {
-		t.Fatal("WarmPoolEnabled = false, want true")
-	}
-	if cfg.WarmPoolMaxPerJob != 3 {
-		t.Fatalf("WarmPoolMaxPerJob = %d, want 3", cfg.WarmPoolMaxPerJob)
-	}
-	if cfg.WarmPoolTTL != 10*time.Minute {
-		t.Fatalf("WarmPoolTTL = %v, want 10m", cfg.WarmPoolTTL)
 	}
 }
 

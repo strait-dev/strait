@@ -200,7 +200,13 @@ func TestEdge_NextRetryAtInPast(t *testing.T) {
 	q := mustQueue(t)
 	run := mustEnqueueRun(t, ctx, q, job)
 	past := time.Now().Add(-1 * time.Hour)
-	_, _ = testDB.Pool.Exec(ctx, `UPDATE job_runs SET next_retry_at=$1 WHERE id=$2`, past, run.ID)
+	// Retry schedule lives in the job_retries side table; a past timestamp
+	// means the run is claimable.
+	_, _ = testDB.Pool.Exec(ctx, `
+		INSERT INTO job_retries (run_id, next_retry_at, attempt, scheduled_at)
+		VALUES ($1, $2, 1, NOW())
+		ON CONFLICT (run_id) DO UPDATE SET next_retry_at = EXCLUDED.next_retry_at`,
+		run.ID, past)
 	batch, _ := q.DequeueN(ctx, 1)
 	if len(batch) != 1 || batch[0].ID != run.ID {
 		t.Error("run with past next_retry_at should be claimable")

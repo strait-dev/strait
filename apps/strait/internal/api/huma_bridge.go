@@ -70,6 +70,12 @@ func TypedHandler[I any, O any](s *Server, status int, handler func(ctx context.
 		// Store w and r in context for streaming/export handlers that need raw access.
 		ctx := context.WithValue(r.Context(), ctxKeyResponseWriter, w)
 		ctx = context.WithValue(ctx, ctxKeyRequest, r)
+		if strings.HasPrefix(r.URL.Path, "/sdk/") {
+			if err := s.revalidateRunTokenState(ctx); err != nil {
+				writeTypedError(w, r, err)
+				return
+			}
+		}
 
 		output, err := handler(ctx, &input)
 		if err != nil {
@@ -87,7 +93,7 @@ func TypedHandler[I any, O any](s *Server, status int, handler func(ctx context.
 // extractParams fills struct fields tagged with `path` or `query` from the request.
 func extractParams(r *http.Request, input any) error {
 	v := reflect.ValueOf(input)
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		v = v.Elem()
 	}
 	if v.Kind() != reflect.Struct {
@@ -164,7 +170,7 @@ func setStringField(fv reflect.Value, val string) error {
 
 func hasBodyField(input any) bool {
 	v := reflect.ValueOf(input)
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		v = v.Elem()
 	}
 	return v.Kind() == reflect.Struct && v.FieldByName("Body").IsValid()
@@ -188,7 +194,7 @@ func (n *nullByteStrippingReader) Read(p []byte) (int, error) {
 
 func decodeBody(s *Server, r *http.Request, input any) error {
 	v := reflect.ValueOf(input)
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		v = v.Elem()
 	}
 	bodyField := v.FieldByName("Body")
@@ -213,7 +219,7 @@ func decodeBody(s *Server, r *http.Request, input any) error {
 // stripNullBytesFromStruct recursively replaces \x00 bytes in all string
 // fields of a struct with spaces, preventing Postgres null byte errors.
 func stripNullBytesFromStruct(v reflect.Value) {
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		if v.IsNil() {
 			return
 		}
@@ -236,7 +242,7 @@ func stripNullBytesFromStruct(v reflect.Value) {
 
 func extractBodyField(output any) any {
 	v := reflect.ValueOf(output)
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		v = v.Elem()
 	}
 	if v.Kind() == reflect.Struct {
@@ -266,13 +272,29 @@ func writeTypedError(w http.ResponseWriter, r *http.Request, err error) {
 	// Check for huma status errors (e.g., huma.Error404NotFound).
 	var se huma.StatusError
 	if errors.As(err, &se) {
-		respondError(w, r, se.GetStatus(), se.Error())
+		status := se.GetStatus()
+		if status >= http.StatusInternalServerError {
+			slog.Error("typed handler returned 5xx status error", "status", status, "error", err, "path", r.URL.Path)
+			respondError(w, r, status, "internal server error")
+			return
+		}
+		respondError(w, r, status, se.Error())
 		return
 	}
-	// Check for billing limit errors.
+	// Check for billing limit errors. Convert to the canonical 402
+	// quota_exceeded body (or 503 for fail-open service_degraded) so
+	// handlers that surface a raw *billing.LimitError still get the
+	// structured response shape.
 	var le *billing.LimitError
 	if errors.As(err, &le) {
-		respondError(w, r, http.StatusForbidden, le)
+		if converted := newQuotaExceeded(le, ""); converted != nil {
+			var rse *rawStatusError
+			if errors.As(converted, &rse) {
+				respondJSON(w, rse.status, rse.body)
+				return
+			}
+		}
+		respondError(w, r, http.StatusPaymentRequired, le)
 		return
 	}
 	slog.Error("unhandled error in typed handler", "error", err, "path", r.URL.Path)
@@ -313,8 +335,10 @@ func (e *rawStatusError) GetStatus() int {
 	return e.status
 }
 
-// newValidationError creates a typedAPIError for struct validation failures,
-// preserving the same response shape as the old s.validateRequest helper.
+// newValidationError creates a typedAPIError for struct validation failures.
+// Field-level validation failures are surfaced as 422 Unprocessable Entity
+// with the canonical validation_failed code; non-validation errors fall back
+// to 400 bad_request.
 func newValidationError(err error) error {
 	var ve validator.ValidationErrors
 	if errors.As(err, &ve) {
@@ -323,9 +347,9 @@ func newValidationError(err error) error {
 			messages = append(messages, fmt.Sprintf("%s: failed on '%s'", fe.Field(), fe.Tag()))
 		}
 		return &typedAPIError{
-			status: http.StatusBadRequest,
+			status: http.StatusUnprocessableEntity,
 			apiError: APIError{
-				Code:    ErrorCodeValidationError,
+				Code:    ErrorCodeValidationFailed,
 				Message: "validation failed",
 				Details: messages,
 			},
@@ -334,7 +358,7 @@ func newValidationError(err error) error {
 	return &typedAPIError{
 		status: http.StatusBadRequest,
 		apiError: APIError{
-			Code:    ErrorCodeValidationError,
+			Code:    ErrorCodeBadRequest,
 			Message: "invalid request",
 		},
 	}

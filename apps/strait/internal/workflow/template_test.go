@@ -143,6 +143,17 @@ func TestRenderTemplateVars(t *testing.T) {
 		}
 	})
 
+	t.Run("unresolved nested variable returns payload unchanged", func(t *testing.T) {
+		t.Parallel()
+		payload := json.RawMessage(`{"to":"{{user.email}}","msg":"Hello {{user.name}}"}`)
+		vars := json.RawMessage(`{"user":{"id":"u-123"}}`)
+
+		result := renderTemplateVars(payload, vars)
+		if string(result) != string(payload) {
+			t.Fatalf("expected payload unchanged, got %s", string(result))
+		}
+	})
+
 	t.Run("dot-path variable resolution", func(t *testing.T) {
 		t.Parallel()
 		payload := json.RawMessage(`{"email":"{{user.email}}"}`)
@@ -264,6 +275,21 @@ func TestRenderTemplateVars(t *testing.T) {
 		}
 		if got["val"] != "{{}}" {
 			t.Fatalf("val = %v, want {{}}", got["val"])
+		}
+	})
+
+	t.Run("invalid marker does not block later valid template", func(t *testing.T) {
+		t.Parallel()
+		payload := json.RawMessage(`{"val":"{{}} then {{x}}"}`)
+		vars := json.RawMessage(`{"x":"done"}`)
+
+		result := renderTemplateVars(payload, vars)
+		var got map[string]any
+		if err := json.Unmarshal(result, &got); err != nil {
+			t.Fatalf("unmarshal result: %v", err)
+		}
+		if got["val"] != "{{}} then done" {
+			t.Fatalf("val = %v, want '{{}} then done'", got["val"])
 		}
 	})
 
@@ -455,11 +481,17 @@ func TestStringify(t *testing.T) {
 }
 
 func BenchmarkRenderTemplateVars(b *testing.B) {
-	payload := json.RawMessage(`{
+	payloadWithTemplates := json.RawMessage(`{
 		"to":"{{user_email}}",
 		"subject":"Hello {{user_name}}",
 		"count":"{{total}}",
 		"nested":{"config":"{{settings}}","msg":"Welcome {{user_name}}, you have {{total}} items"}
+	}`)
+	payloadWithoutTemplates := json.RawMessage(`{
+		"to":"ops@example.com",
+		"subject":"Workflow complete",
+		"count":42,
+		"nested":{"config":{"theme":"dark","lang":"en"},"msg":"No substitutions needed"}
 	}`)
 	vars := json.RawMessage(`{
 		"user_email":"john@example.com",
@@ -468,11 +500,25 @@ func BenchmarkRenderTemplateVars(b *testing.B) {
 		"settings":{"theme":"dark","lang":"en"}
 	}`)
 
-	b.ReportAllocs()
-	b.ResetTimer()
-	for b.Loop() {
-		_ = renderTemplateVars(payload, vars)
-	}
+	b.Run("with_templates", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = renderTemplateVars(payloadWithTemplates, vars)
+		}
+	})
+	b.Run("without_templates", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = renderTemplateVars(payloadWithoutTemplates, vars)
+		}
+	})
+	b.Run("unresolved_templates", func(b *testing.B) {
+		payload := json.RawMessage(`{"message":"Hello {{missing_name}}","nested":{"value":"{{missing_value}}"}}`)
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = renderTemplateVars(payload, vars)
+		}
+	})
 }
 
 func BenchmarkRenderStringValue(b *testing.B) {
@@ -483,18 +529,44 @@ func BenchmarkRenderStringValue(b *testing.B) {
 	}
 
 	b.Run("no_vars", func(b *testing.B) {
-		for range b.N {
+		b.ReportAllocs()
+		for b.Loop() {
 			renderStringValue("plain string no vars", vars)
 		}
 	})
 	b.Run("single_var", func(b *testing.B) {
-		for range b.N {
+		b.ReportAllocs()
+		for b.Loop() {
 			renderStringValue("{{name}}", vars)
 		}
 	})
 	b.Run("mixed_content", func(b *testing.B) {
-		for range b.N {
+		b.ReportAllocs()
+		for b.Loop() {
 			renderStringValue("Hello {{name}}, your count is {{count}} and email is {{email}}", vars)
+		}
+	})
+}
+
+func BenchmarkRenderStringTemplate(b *testing.B) {
+	variables := json.RawMessage(`{"prefix":"check","id":"42","suffix":"done","user":{"email":"a@b.com"}}`)
+
+	b.Run("no_vars", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = renderStringTemplate("static-key", variables)
+		}
+	})
+	b.Run("single_var", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = renderStringTemplate("aml:{{id}}", variables)
+		}
+	})
+	b.Run("mixed_content", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = renderStringTemplate("{{prefix}}:{{id}}:{{suffix}}:{{user.email}}", variables)
 		}
 	})
 }

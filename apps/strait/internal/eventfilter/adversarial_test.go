@@ -3,16 +3,16 @@ package eventfilter
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 )
 
-// TestEval_DeeplyNestedPath tests a 100-segment dot-separated path against a deeply nested payload.
+// TestEval_DeeplyNestedPath tests a nested dot-separated path against a deeply nested payload.
 func TestEval_DeeplyNestedPath(t *testing.T) {
 	t.Parallel()
 
-	// Build a 100-level deep nested map.
-	parts := make([]string, 100)
+	parts := make([]string, maxFilterPathDepth)
 	for i := range parts {
 		parts[i] = fmt.Sprintf("k%d", i)
 	}
@@ -20,8 +20,8 @@ func TestEval_DeeplyNestedPath(t *testing.T) {
 
 	// Build the nested JSON payload.
 	payload := `"leaf"`
-	for i := 99; i >= 0; i-- {
-		payload = fmt.Sprintf(`{%q:%s}`, parts[i], payload)
+	for _, part := range slices.Backward(parts) {
+		payload = fmt.Sprintf(`{%q:%s}`, part, payload)
 	}
 
 	filter := fmt.Sprintf(`{"eq":[[%q,"leaf"]]}`, deepPath)
@@ -33,8 +33,10 @@ func TestEval_DeeplyNestedPath(t *testing.T) {
 		t.Fatal("expected deeply nested path to match")
 	}
 
-	// A missing deep path should not match.
-	filter = fmt.Sprintf(`{"has":[%q]}`, deepPath+".extra")
+	// A missing deep path within the allowed depth should not match.
+	missingParts := append([]string(nil), parts...)
+	missingParts[len(missingParts)-1] = "missing"
+	filter = fmt.Sprintf(`{"has":[%q]}`, strings.Join(missingParts, "."))
 	match, err = Eval(json.RawMessage(filter), json.RawMessage(payload))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -44,11 +46,10 @@ func TestEval_DeeplyNestedPath(t *testing.T) {
 	}
 }
 
-// TestEval_HugeEqArray tests evaluation with 100k eq conditions.
+// TestEval_HugeEqArray tests that excessive eq conditions fail closed.
 func TestEval_HugeEqArray(t *testing.T) {
 	t.Parallel()
 
-	// Build a filter with many eq conditions that all match the same field.
 	conditions := make([][2]string, 100_000)
 	for i := range conditions {
 		conditions[i] = [2]string{"status", "ok"}
@@ -61,31 +62,18 @@ func TestEval_HugeEqArray(t *testing.T) {
 
 	payload := json.RawMessage(`{"status":"ok"}`)
 	match, err := Eval(json.RawMessage(filterBytes), payload)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !match {
-		t.Fatal("expected 100k eq conditions to match")
-	}
-
-	// One mismatch should cause failure.
-	conditions[50_000] = [2]string{"status", "fail"}
-	expr.Eq = conditions
-	filterBytes, _ = json.Marshal(expr)
-	match, err = Eval(json.RawMessage(filterBytes), payload)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
 	if match {
-		t.Fatal("expected mismatch in 100k eq conditions to return false")
+		t.Fatal("expected excessive eq conditions to fail closed")
+	}
+	if err == nil {
+		t.Fatal("expected excessive eq conditions to return an error")
 	}
 }
 
-// TestEval_HugeHasArray tests evaluation with 100k has conditions.
+// TestEval_HugeHasArray tests that excessive has conditions fail closed.
 func TestEval_HugeHasArray(t *testing.T) {
 	t.Parallel()
 
-	// All has conditions point to the same existing field.
 	fields := make([]string, 100_000)
 	for i := range fields {
 		fields[i] = "status"
@@ -98,23 +86,11 @@ func TestEval_HugeHasArray(t *testing.T) {
 
 	payload := json.RawMessage(`{"status":"ok"}`)
 	match, err := Eval(json.RawMessage(filterBytes), payload)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !match {
-		t.Fatal("expected 100k has conditions on existing field to match")
-	}
-
-	// One missing field should cause failure.
-	fields[99_999] = "missing_field"
-	expr.Has = fields
-	filterBytes, _ = json.Marshal(expr)
-	match, err = Eval(json.RawMessage(filterBytes), payload)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
 	if match {
-		t.Fatal("expected missing field in 100k has conditions to return false")
+		t.Fatal("expected excessive has conditions to fail closed")
+	}
+	if err == nil {
+		t.Fatal("expected excessive has conditions to return an error")
 	}
 }
 
@@ -186,26 +162,16 @@ func TestEval_NullValueInPath(t *testing.T) {
 func TestEval_EmptyFieldPath(t *testing.T) {
 	t.Parallel()
 
-	// Empty path for has condition.
+	// Empty paths are rejected before evaluation.
 	filter := json.RawMessage(`{"has":[""]}`)
 	payload := json.RawMessage(`{"":"secret"}`)
-	match, err := Eval(filter, payload)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// getField splits on "." producing [""], so it looks up key "".
-	if !match {
-		t.Fatal("expected empty key to match when payload has empty key")
+	if _, err := Eval(filter, payload); err == nil {
+		t.Fatal("expected empty field path to be rejected")
 	}
 
-	// Empty key not in payload.
 	payload = json.RawMessage(`{"a":"b"}`)
-	match, err = Eval(filter, payload)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if match {
-		t.Fatal("expected empty key to not match when payload lacks empty key")
+	if _, err := Eval(filter, payload); err == nil {
+		t.Fatal("expected empty field path to be rejected")
 	}
 }
 
@@ -213,7 +179,7 @@ func TestEval_EmptyFieldPath(t *testing.T) {
 func TestEval_PathWithOnlyDots(t *testing.T) {
 	t.Parallel()
 
-	paths := []string{".", "..", "....", strings.Repeat(".", 100)}
+	paths := []string{".", "..", "...."}
 	payload := json.RawMessage(`{"":"nested"}`)
 
 	for _, p := range paths {
@@ -223,6 +189,11 @@ func TestEval_PathWithOnlyDots(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error for path %q: %v", p, err)
 		}
+	}
+
+	filter := fmt.Sprintf(`{"has":[%q]}`, strings.Repeat(".", 100))
+	if _, err := Eval(json.RawMessage(filter), payload); err == nil {
+		t.Fatal("expected over-segmented dotted path to be rejected")
 	}
 }
 

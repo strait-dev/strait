@@ -1,0 +1,309 @@
+{
+  "dashboard": {
+    "uid": "strait-data-plane",
+    "title": "Strait - Data Plane",
+    "description": "Postgres pool health, transaction watchdog, replication lag, ClickHouse exporter, pub/sub, notifications, and log drains.",
+    "tags": ["strait", "database", "clickhouse", "redis"],
+    "schemaVersion": 39,
+    "version": 1,
+    "refresh": "30s",
+    "time": {
+      "from": "now-6h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "title": "DB pool",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 0,
+          "y": 0
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum(strait_db_pool_total_conns)",
+            "legendFormat": "total",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          },
+          {
+            "refId": "B",
+            "expr": "sum(strait_db_pool_acquired_conns)",
+            "legendFormat": "acquired",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          },
+          {
+            "refId": "C",
+            "expr": "sum(strait_db_pool_idle_conns)",
+            "legendFormat": "idle",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          },
+          {
+            "refId": "D",
+            "expr": "sum(strait_db_pool_max_conns)",
+            "legendFormat": "max",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
+      },
+      {
+        "title": "Transaction watchdog",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 8,
+          "y": 0
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "max(strait_db_longest_txn_seconds)",
+            "legendFormat": "longest txn",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          },
+          {
+            "refId": "B",
+            "expr": "sum(strait_db_idle_in_txn_count)",
+            "legendFormat": "idle in txn",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          },
+          {
+            "refId": "C",
+            "expr": "max(strait_db_oldest_xmin_age_txids)",
+            "legendFormat": "oldest xmin",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
+      },
+      {
+        "title": "Replication slot risk",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 16,
+          "y": 0
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum(strait_db_stale_replication_slots)",
+            "legendFormat": "stale slots",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          },
+          {
+            "refId": "B",
+            "expr": "max by (slot) (strait_db_oldest_slot_lag_bytes)",
+            "legendFormat": "{{slot}} lag",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
+      },
+      {
+        "title": "ClickHouse exporter",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 8
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum(strait_clickhouse_exporter_pending)",
+            "legendFormat": "pending",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          },
+          {
+            "refId": "B",
+            "expr": "sum by (reason) (rate(strait_clickhouse_dropped_records_total[$interval]))",
+            "legendFormat": "dropped {{reason}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          },
+          {
+            "refId": "C",
+            "expr": "sum by (reason) (rate(strait_clickhouse_flush_failures_total[$interval]))",
+            "legendFormat": "flush failed {{reason}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
+      },
+      {
+        "title": "Outbound integrations",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 8
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (backend, reason) (rate(strait_pubsub_publish_errors_total[$interval]))",
+            "legendFormat": "pubsub {{backend}} {{reason}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          },
+          {
+            "refId": "B",
+            "expr": "sum by (channel_type, outcome) (rate(strait_notification_deliveries_total[$interval]))",
+            "legendFormat": "notification {{channel_type}} {{outcome}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          },
+          {
+            "refId": "C",
+            "expr": "sum by (destination, outcome) (rate(strait_log_drain_events_total[$interval]))",
+            "legendFormat": "log drain {{destination}} {{outcome}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ops"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
+      }
+    ],
+    "templating": {
+      "list": [
+        {
+          "name": "datasource",
+          "type": "datasource",
+          "label": "Datasource",
+          "query": "prometheus",
+          "current": {
+            "text": "Prometheus",
+            "value": "prometheus"
+          },
+          "hide": 0
+        },
+        {
+          "name": "interval",
+          "type": "interval",
+          "label": "Interval",
+          "options": [
+            {
+              "selected": false,
+              "text": "1m",
+              "value": "1m"
+            },
+            {
+              "selected": true,
+              "text": "5m",
+              "value": "5m"
+            },
+            {
+              "selected": false,
+              "text": "15m",
+              "value": "15m"
+            },
+            {
+              "selected": false,
+              "text": "1h",
+              "value": "1h"
+            }
+          ],
+          "current": {
+            "text": "5m",
+            "value": "5m"
+          },
+          "hide": 0
+        }
+      ]
+    }
+  }
+}

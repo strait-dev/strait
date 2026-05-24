@@ -373,7 +373,7 @@ func TestAPIKey_InvalidRotationInterval(t *testing.T) {
 			}
 			srv := newTestServer(t, ms, &mockQueue{}, nil)
 
-			body := fmt.Sprintf(`{"project_id":"proj-1","name":"interval-test","rotation_interval_days":%d}`, interval)
+			body := fmt.Sprintf(`{"project_id":"proj-1","name":"interval-test","scopes":["jobs:read"],"expires_in_days":30,"rotation_interval_days":%d}`, interval)
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/api-keys/", body))
 
@@ -386,6 +386,210 @@ func TestAPIKey_InvalidRotationInterval(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestHandleCreateAPIKey_RejectsEmptyScopes(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		CreateAPIKeyFunc: func(_ context.Context, _ *domain.APIKey) error {
+			t.Fatal("CreateAPIKey must not be called for empty scopes")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	ctx := context.WithValue(context.Background(), ctxScopesKey, []string{domain.ScopeAPIKeysManage})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
+	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+
+	_, err := srv.handleCreateAPIKey(ctx, &CreateAPIKeyInput{Body: CreateAPIKeyRequest{
+		ProjectID: "proj-1",
+		Name:      "empty-scope",
+	}})
+	if !isHumaStatusError(err, http.StatusBadRequest) {
+		t.Fatalf("expected 400 for empty scopes, got %v", err)
+	}
+}
+
+func TestHandleCreateAPIKey_RejectsCrossOrgID(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		CreateAPIKeyFunc: func(_ context.Context, _ *domain.APIKey) error {
+			t.Fatal("CreateAPIKey must not be called for cross-org create")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	ctx := context.WithValue(context.Background(), ctxScopesKey, []string{domain.ScopeAll})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
+	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxOrgIDKey, "org-1")
+
+	_, err := srv.handleCreateAPIKey(ctx, &CreateAPIKeyInput{Body: CreateAPIKeyRequest{
+		ProjectID: "proj-1",
+		OrgID:     "org-2",
+		Name:      "cross-org",
+		Scopes:    []string{domain.ScopeJobsRead},
+	}})
+	if !isHumaStatusError(err, http.StatusForbidden) {
+		t.Fatalf("expected 403 for cross-org create, got %v", err)
+	}
+}
+
+func TestHandleCreateAPIKey_EnvironmentScopedCallerCannotCreateProjectWideKey(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		CreateAPIKeyFunc: func(_ context.Context, _ *domain.APIKey) error {
+			t.Fatal("CreateAPIKey must not be called for env scope mismatch")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	ctx := context.WithValue(context.Background(), ctxScopesKey, []string{domain.ScopeAPIKeysManage, domain.ScopeJobsRead})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
+	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
+
+	_, err := srv.handleCreateAPIKey(ctx, &CreateAPIKeyInput{Body: CreateAPIKeyRequest{
+		ProjectID: "proj-1",
+		Name:      "project-wide",
+		Scopes:    []string{domain.ScopeJobsRead},
+	}})
+	if !isHumaStatusError(err, http.StatusNotFound) {
+		t.Fatalf("expected 404 for env scope mismatch, got %v", err)
+	}
+}
+
+func TestHandleListAPIKeys_FiltersEnvironmentScopedCaller(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	ms := &APIStoreMock{
+		ListAPIKeysByProjectFunc: func(_ context.Context, projectID string, _ int, _ *time.Time) ([]domain.APIKey, error) {
+			if projectID != "proj-1" {
+				t.Fatalf("projectID = %q, want proj-1", projectID)
+			}
+			return []domain.APIKey{
+				{ID: "key-prod", ProjectID: "proj-1", EnvironmentID: "env-prod", CreatedAt: now},
+				{ID: "key-staging", ProjectID: "proj-1", EnvironmentID: "env-staging", CreatedAt: now},
+				{ID: "key-wide", ProjectID: "proj-1", CreatedAt: now},
+			}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	ctx := context.WithValue(context.Background(), ctxScopesKey, []string{domain.ScopeAPIKeysManage})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
+	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
+
+	out, err := srv.handleListAPIKeys(ctx, &ListAPIKeysInput{})
+	if err != nil {
+		t.Fatalf("list keys: %v", err)
+	}
+	keys, ok := out.Body.Data.([]domain.APIKey)
+	if !ok {
+		t.Fatalf("response data has type %T, want []domain.APIKey", out.Body.Data)
+	}
+	if len(keys) != 1 || keys[0].ID != "key-prod" {
+		t.Fatalf("expected only env-prod key, got %#v", keys)
+	}
+}
+
+func TestHandleRevokeAPIKey_EnvironmentScopedCallerCannotRevokeOtherEnvironment(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetAPIKeyByIDFunc: func(_ context.Context, id string) (*domain.APIKey, error) {
+			return &domain.APIKey{ID: id, ProjectID: "proj-1", EnvironmentID: "env-staging"}, nil
+		},
+		RevokeAPIKeyFunc: func(_ context.Context, _ string) error {
+			t.Fatal("RevokeAPIKey must not be called for env scope mismatch")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	ctx := context.WithValue(context.Background(), ctxScopesKey, []string{domain.ScopeAPIKeysManage})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
+	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
+
+	_, err := srv.handleRevokeAPIKey(ctx, &RevokeAPIKeyInput{KeyID: "key-staging"})
+	if !isHumaStatusError(err, http.StatusNotFound) {
+		t.Fatalf("expected 404 for env scope mismatch, got %v", err)
+	}
+}
+
+func TestHandleRotateAPIKey_EnvironmentScopedCallerCannotRotateOtherEnvironment(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetAPIKeyByIDFunc: func(_ context.Context, id string) (*domain.APIKey, error) {
+			return &domain.APIKey{
+				ID:            id,
+				ProjectID:     "proj-1",
+				Name:          "staging",
+				EnvironmentID: "env-staging",
+				Scopes:        []string{domain.ScopeJobsRead},
+			}, nil
+		},
+		CreateAPIKeyFunc: func(_ context.Context, _ *domain.APIKey) error {
+			t.Fatal("CreateAPIKey must not be called for env scope mismatch")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	ctx := context.WithValue(context.Background(), ctxScopesKey, []string{domain.ScopeAPIKeysManage, domain.ScopeJobsRead})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
+	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
+
+	_, err := srv.handleRotateAPIKey(ctx, &RotateAPIKeyInput{
+		KeyID: "key-staging",
+		Body:  RotateAPIKeyRequest{GracePeriodMinutes: 30},
+	})
+	if !isHumaStatusError(err, http.StatusNotFound) {
+		t.Fatalf("expected 404 for env scope mismatch, got %v", err)
+	}
+}
+
+func TestHandleRotateAPIKey_LimitedCallerCannotRotateLegacyBroadKey(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetAPIKeyByIDFunc: func(_ context.Context, id string) (*domain.APIKey, error) {
+			return &domain.APIKey{
+				ID:        id,
+				ProjectID: "proj-1",
+				Name:      "legacy-wide",
+				Scopes:    []string{},
+			}, nil
+		},
+		CreateAPIKeyFunc: func(_ context.Context, _ *domain.APIKey) error {
+			t.Fatal("CreateAPIKey must not be called when caller cannot receive wildcard-equivalent key")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	ctx := context.WithValue(context.Background(), ctxScopesKey, []string{domain.ScopeAPIKeysManage, domain.ScopeJobsRead})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
+	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+
+	_, err := srv.handleRotateAPIKey(ctx, &RotateAPIKeyInput{
+		KeyID: "key-legacy",
+		Body:  RotateAPIKeyRequest{GracePeriodMinutes: 30},
+	})
+	if !isHumaStatusError(err, http.StatusForbidden) {
+		t.Fatalf("expected 403 for legacy broad-key rotation, got %v", err)
 	}
 }
 

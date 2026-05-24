@@ -31,7 +31,16 @@ func (s *Server) handleSDKSetState(ctx context.Context, input *SDKSetStateInput)
 		return nil, huma.Error400BadRequest("state value must not exceed 64KB")
 	}
 	state := &domain.RunState{RunID: input.RunID, StateKey: req.Key, Value: req.Value}
-	if err := s.store.UpsertRunState(ctx, state); err != nil {
+	var err error
+	if guardedStore, ok := s.store.(activeRunMutationStore); ok {
+		err = guardedStore.UpsertRunStateForActiveRun(ctx, state, runTokenAttemptFromContext(ctx))
+	} else {
+		err = s.store.UpsertRunState(ctx, state)
+	}
+	if err != nil {
+		if sdkErr := s.guardedSDKMutationError(ctx, err); sdkErr != nil {
+			return nil, sdkErr
+		}
 		return nil, huma.Error500InternalServerError("failed to upsert run state")
 	}
 	return &SDKSetStateOutput{Body: state}, nil
@@ -44,8 +53,19 @@ type SDKGetStateInput struct {
 type SDKGetStateOutput struct{ Body *domain.RunState }
 
 func (s *Server) handleSDKGetState(ctx context.Context, input *SDKGetStateInput) (*SDKGetStateOutput, error) {
-	state, err := s.store.GetRunState(ctx, input.RunID, input.Key)
+	var (
+		state *domain.RunState
+		err   error
+	)
+	if guardedStore, ok := s.store.(activeRunMutationStore); ok {
+		state, err = guardedStore.GetRunStateForActiveRun(ctx, input.RunID, input.Key, runTokenAttemptFromContext(ctx))
+	} else {
+		state, err = s.store.GetRunState(ctx, input.RunID, input.Key)
+	}
 	if err != nil {
+		if sdkErr := s.guardedSDKMutationError(ctx, err); sdkErr != nil {
+			return nil, sdkErr
+		}
 		return nil, huma.Error500InternalServerError("failed to get run state")
 	}
 	if state == nil {
@@ -57,8 +77,19 @@ func (s *Server) handleSDKGetState(ctx context.Context, input *SDKGetStateInput)
 type SDKListStateOutput struct{ Body any }
 
 func (s *Server) handleSDKListState(ctx context.Context, input *SDKRunIDInput) (*SDKListStateOutput, error) {
-	items, err := s.store.ListRunState(ctx, input.RunID)
+	var (
+		items []domain.RunState
+		err   error
+	)
+	if guardedStore, ok := s.store.(activeRunMutationStore); ok {
+		items, err = guardedStore.ListRunStateForActiveRun(ctx, input.RunID, runTokenAttemptFromContext(ctx))
+	} else {
+		items, err = s.store.ListRunState(ctx, input.RunID)
+	}
 	if err != nil {
+		if sdkErr := s.guardedSDKMutationError(ctx, err); sdkErr != nil {
+			return nil, sdkErr
+		}
 		return nil, huma.Error500InternalServerError("failed to list run state")
 	}
 	return &SDKListStateOutput{Body: items}, nil
@@ -70,7 +101,16 @@ type SDKDeleteStateInput struct {
 }
 
 func (s *Server) handleSDKDeleteState(ctx context.Context, input *SDKDeleteStateInput) (*struct{}, error) {
-	if err := s.store.DeleteRunState(ctx, input.RunID, input.Key); err != nil {
+	var err error
+	if guardedStore, ok := s.store.(activeRunMutationStore); ok {
+		err = guardedStore.DeleteRunStateForActiveRun(ctx, input.RunID, input.Key, runTokenAttemptFromContext(ctx))
+	} else {
+		err = s.store.DeleteRunState(ctx, input.RunID, input.Key)
+	}
+	if err != nil {
+		if sdkErr := s.guardedSDKMutationError(ctx, err); sdkErr != nil {
+			return nil, sdkErr
+		}
 		return nil, huma.Error500InternalServerError("failed to delete run state")
 	}
 	return nil, nil
@@ -82,6 +122,9 @@ type ListRunStateInput struct {
 type ListRunStateOutput struct{ Body any }
 
 func (s *Server) handleListRunState(ctx context.Context, input *ListRunStateInput) (*ListRunStateOutput, error) {
+	if _, err := s.getRunForAccess(ctx, input.RunID); err != nil {
+		return nil, err
+	}
 	items, err := s.store.ListRunState(ctx, input.RunID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list run state")

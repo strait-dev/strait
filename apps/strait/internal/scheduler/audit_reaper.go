@@ -2,7 +2,6 @@ package scheduler
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	"strait/internal/domain"
@@ -101,7 +100,13 @@ func (r *Reaper) reapAuditEvents(ctx context.Context) {
 			// Disabled — skip trimming for this project.
 			continue
 		}
-		cutoff := now.Add(-time.Duration(ov.Days) * 24 * time.Hour)
+		cutoff, ok := auditRetentionCutoff(now, ov.Days)
+		if !ok {
+			r.logger.Error("invalid audit retention override days",
+				"project_id", ov.ProjectID, "days", ov.Days, "max_days", domain.MaxAuditRetentionDays)
+			r.recordOperation(ctx, "audit_retention", "error")
+			continue
+		}
 		deleted, err := r.store.DeleteAuditEventsBefore(ctx, ov.ProjectID, cutoff)
 		if err != nil {
 			r.logger.Error("failed to reap audit events for project",
@@ -118,7 +123,13 @@ func (r *Reaper) reapAuditEvents(ctx context.Context) {
 	}
 
 	// Default sweep across every project without an override.
-	defaultCutoff := now.Add(-time.Duration(r.auditRetentionDefaultDays) * 24 * time.Hour)
+	defaultCutoff, ok := auditRetentionCutoff(now, r.auditRetentionDefaultDays)
+	if !ok {
+		r.logger.Error("invalid audit retention default days",
+			"days", r.auditRetentionDefaultDays, "max_days", domain.MaxAuditRetentionDays)
+		r.recordOperation(ctx, "audit_retention", "error")
+		return
+	}
 	deleted, err := r.store.DeleteAuditEventsBeforeExcluding(ctx, defaultCutoff, excluded)
 	if err != nil {
 		r.logger.Error("failed to reap audit events (default)", "error", err)
@@ -186,11 +197,9 @@ func (r *Reaper) recordDeadletterAged(ctx context.Context, projectID string, n i
 // reapDeadletter drops audit_events_deadletter rows older than the
 // configured AUDIT_DLQ_MAX_AGE_DAYS window. Disabled when the value is 0.
 //
-// For every project that lost rows, the reaper emits an
-// audit.deadletter_aged event into the chain so the drop is itself
-// audited. The event lives outside the original DLQ row's project chain
-// only when CreateAuditEvent fails — in that case the metric still
-// records the drop count so operators can detect silent loss.
+// For every project that lost rows, the store emits an audit.deadletter_aged
+// event into the chain in the same transaction as the deletion. If the marker
+// cannot be written, the rows remain for a later retry.
 func (r *Reaper) reapDeadletter(ctx context.Context) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "reaper.reapDeadletter")
 	defer span.End()
@@ -198,8 +207,22 @@ func (r *Reaper) reapDeadletter(ctx context.Context) {
 	if r.auditDLQMaxAgeDays <= 0 {
 		return
 	}
-	cutoff := time.Now().UTC().Add(-time.Duration(r.auditDLQMaxAgeDays) * 24 * time.Hour)
-	dropped, err := r.store.DeleteAuditDeadletterOlderThan(ctx, cutoff)
+	cutoff, ok := auditRetentionCutoff(time.Now().UTC(), r.auditDLQMaxAgeDays)
+	if !ok {
+		r.logger.Error("invalid audit deadletter max age days",
+			"days", r.auditDLQMaxAgeDays, "max_days", domain.MaxAuditRetentionDays)
+		r.recordOperation(ctx, "audit_dlq_retention", "error")
+		return
+	}
+	retentionStore, ok := r.store.(interface {
+		DeleteAuditDeadletterOlderThanWithAudit(ctx context.Context, cutoff time.Time, maxAgeDays int) (map[string]int64, error)
+	})
+	if !ok {
+		r.logger.Error("audit deadletter retention requires atomic audit-delete store support")
+		r.recordOperation(ctx, "audit_dlq_retention", "error")
+		return
+	}
+	dropped, err := retentionStore.DeleteAuditDeadletterOlderThanWithAudit(ctx, cutoff, r.auditDLQMaxAgeDays)
 	if err != nil {
 		r.logger.Error("failed to drop aged audit deadletter rows", "error", err)
 		r.recordOperation(ctx, "audit_dlq_retention", "error")
@@ -214,41 +237,15 @@ func (r *Reaper) reapDeadletter(ctx context.Context) {
 			"project_id", projectID, "dropped", n,
 			"max_age_days", r.auditDLQMaxAgeDays, "cutoff", cutoff)
 		r.recordDeadletterAged(ctx, projectID, n)
-		r.emitDeadletterAgedAudit(ctx, projectID, n, cutoff)
 	}
 	r.recordOperation(ctx, "audit_dlq_retention", "ok")
 }
 
-// emitDeadletterAgedAudit writes an audit.deadletter_aged event for a
-// project whose DLQ rows were just dropped by the retention reaper. The
-// event carries dropped_count and the trigger reason. Failure to write
-// the event is logged but not fatal — the drop already happened and the
-// metric records it.
-func (r *Reaper) emitDeadletterAgedAudit(ctx context.Context, projectID string, dropped int64, cutoff time.Time) {
-	details, err := json.Marshal(map[string]any{
-		"dropped_count":  dropped,
-		"reason":         "max_age_exceeded",
-		"max_age_cutoff": cutoff.Format(time.RFC3339),
-		"max_age_days":   r.auditDLQMaxAgeDays,
-	})
-	if err != nil {
-		r.logger.Warn("marshal deadletter_aged details failed", "error", err)
-		return
+func auditRetentionCutoff(now time.Time, days int) (time.Time, bool) {
+	if days <= 0 || days > domain.MaxAuditRetentionDays {
+		return time.Time{}, false
 	}
-	ev := &domain.AuditEvent{
-		ID:           uuid.Must(uuid.NewV7()).String(),
-		ProjectID:    projectID,
-		ActorID:      "system",
-		ActorType:    "system",
-		Action:       domain.AuditActionDeadletterAged,
-		ResourceType: "audit_events_deadletter",
-		ResourceID:   "retention",
-		Details:      json.RawMessage(details),
-	}
-	if writeErr := r.store.CreateAuditEvent(ctx, ev); writeErr != nil {
-		r.logger.Warn("failed to write deadletter_aged audit event",
-			"project_id", projectID, "dropped", dropped, "error", writeErr)
-	}
+	return now.AddDate(0, 0, -days), true
 }
 
 // reclaimAuditDeadletter replays deadlettered audit events back into the
@@ -328,17 +325,16 @@ func (r *Reaper) reclaimAuditDeadletter(ctx context.Context) {
 			continue
 		}
 
-		// (3) Fresh attempt: assign a chain id, insert, mark, delete.
-		// Each chain insert gets its own deadline so a single wedged row
-		// (connection hang, contended advisory lock) cannot stall the
-		// tick and starve the rest of the DLQ backlog.
-		evCopy := ev
-		evCopy.ID = uuid.Must(uuid.NewV7()).String()
+		// (3) Fresh attempt: atomically lock the DLQ row, insert into the
+		// signed chain, mark it reclaimed, and delete the DLQ row in one
+		// transaction. The store method is the single replay primitive used
+		// by both admin and scheduler paths.
+		newEventID := uuid.Must(uuid.NewV7()).String()
 		insertCtx, insertCancel := context.WithTimeout(ctx, auditDLQPerEventReclaimTimeout)
-		writeErr := r.store.CreateAuditEvent(insertCtx, &evCopy)
+		_, replayed, writeErr := r.store.ReplayAuditEventDeadletter(insertCtx, dlqID, ev.ProjectID, newEventID)
 		insertCancel()
 		if writeErr != nil {
-			r.logger.Warn("audit deadletter reclaim chain insert failed",
+			r.logger.Warn("audit deadletter replay failed",
 				"deadletter_id", dlqID, "action", ev.Action, "error", writeErr)
 			insertFailed++
 			if incErr := r.store.IncrementAuditDeadletterAttempt(ctx, dlqID); incErr != nil {
@@ -347,20 +343,7 @@ func (r *Reaper) reclaimAuditDeadletter(ctx context.Context) {
 			}
 			continue
 		}
-		if markErr := r.store.MarkAuditDeadletterReclaimed(ctx, dlqID, evCopy.ID); markErr != nil {
-			// Idempotency anchor failed to write. The chain insert
-			// already happened — log and continue to delete. Worst
-			// case a crash here leaves the DLQ row without the
-			// idempotency marker; the next tick would re-insert into
-			// the chain. We accept that small at-least-once window
-			// because losing the chain row is far worse.
-			r.logger.Warn("failed to mark dlq row reclaimed",
-				"deadletter_id", dlqID, "new_event_id", evCopy.ID, "error", markErr)
-		}
-		if delErr := r.store.DeleteAuditEventDeadletter(ctx, dlqID, ev.ProjectID); delErr != nil {
-			r.logger.Error("audit deadletter delete failed after reclaim",
-				"deadletter_id", dlqID, "new_event_id", evCopy.ID, "error", delErr)
-			deleteFailed++
+		if !replayed {
 			continue
 		}
 		reclaimed++

@@ -1,0 +1,25 @@
+# Bun configuration. See https://bun.com/docs/runtime/bunfig
+#
+# Supply-chain hardening for `bun install`. This file is the source of truth for
+# install-time security policy across the monorepo.
+
+[install]
+# Minimum age (in seconds) a published npm version must reach before Bun will
+# install it. Freshly-published versions are filtered out, so a compromised or
+# malicious release has a window to be detected and yanked before it can enter
+# our dependency tree. 259200s = 3 days.
+minimumReleaseAge = 259200
+
+# Packages exempt from the minimumReleaseAge check. Keep this empty unless a
+# specific package must be adopted immediately (for example a security fix newer
+# than the window). Add the exact package name with a comment explaining why.
+minimumReleaseAgeExcludes = []
+
+# Lifecycle-script policy (postinstall, preinstall, install, prepare):
+#
+# Bun does NOT execute lifecycle scripts of installed dependencies by default.
+# A dependency may only run lifecycle scripts if it is listed in the root
+# package.json `trustedDependencies` allowlist, which is intentionally empty.
+# We do not set `ignoreScripts = true` here because that is an all-or-nothing
+# switch with no allowlist; the default-deny + `trustedDependencies` approach
+# gives the same protection while keeping a clean per-package opt-in.

@@ -66,13 +66,15 @@ func domainAuditEventForTest() domain.AuditEvent {
 }
 
 // TestVerifyAuditChain_QueryHasIDTiebreaker asserts that the VerifyAuditChain
-// SQL query includes "id ASC" as a tiebreaker in the ORDER BY clause. Without
-// it, two events sharing the same (rotation_epoch, created_at) can be scanned
-// in non-deterministic order, causing a false-positive chain break.
+// SQL query orders by shard_id, rotation_epoch, created_at, and id. Without
+// shard_id first the verifier interleaves rows from independent sub-chains and
+// produces a false-positive chain break. Without "id ASC" as the final tiebreaker
+// two events sharing the same (shard_id, rotation_epoch, created_at) can be
+// scanned in non-deterministic order.
 func TestVerifyAuditChain_QueryHasIDTiebreaker(t *testing.T) {
 	t.Parallel()
 
-	expected := "ORDER BY rotation_epoch ASC, created_at ASC, id ASC"
+	expected := "ORDER BY shard_id ASC, rotation_epoch ASC, created_at ASC, id ASC"
 	var lastQuery string
 	fake := &queryRecorderDBTX{
 		onQuery: func(sql string) { lastQuery = sql },
@@ -95,7 +97,7 @@ func TestVerifyAuditChain_QueryHasIDTiebreaker(t *testing.T) {
 func TestVerifyAuditChainIncremental_QueryHasIDTiebreaker(t *testing.T) {
 	t.Parallel()
 
-	expected := "ORDER BY rotation_epoch ASC, created_at ASC, id ASC"
+	expected := "ORDER BY shard_id ASC, rotation_epoch ASC, created_at ASC, id ASC"
 	var lastQuery string
 	fake := &queryRecorderDBTX{
 		onQuery: func(sql string) { lastQuery = sql },

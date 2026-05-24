@@ -18,7 +18,6 @@ import (
 	"strait/internal/store"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
 )
 
 // ---------------------------------------------------------------------------.
@@ -47,12 +46,83 @@ func TestHandlerActivityStream_NoPubSub(t *testing.T) {
 	r := authedRequest(http.MethodGet, "/v1/projects/proj-1/activity/stream/", "")
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("projectID", "proj-1")
-	r = r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
+	ctx := context.WithValue(r.Context(), chi.RouteCtxKey, rctx)
+	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+	r = r.WithContext(ctx)
 
 	srv.handleProjectActivityStream(w, r)
 
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503 when pubsub is nil, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandlerActivityStream_EnvironmentScopedCallerRejectedBeforeSubscribe(t *testing.T) {
+	t.Parallel()
+	pub := &mockPublisher{
+		subscribeFn: func(context.Context, string) (*pubsub.Subscription, error) {
+			t.Fatal("environment-scoped activity stream must be rejected before subscribing")
+			return nil, nil
+		},
+	}
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, pub)
+
+	w := httptest.NewRecorder()
+	r := authedRequest(http.MethodGet, "/v1/projects/proj-1/activity/stream/", "")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("projectID", "proj-1")
+	ctx := context.WithValue(r.Context(), chi.RouteCtxKey, rctx)
+	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
+	r = r.WithContext(ctx)
+
+	srv.handleProjectActivityStream(w, r)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for environment-scoped activity stream, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "project-wide key") {
+		t.Fatalf("expected project-wide key error, got: %s", w.Body.String())
+	}
+}
+
+func TestHandlerActivityStream_RequiresWorkflowAndJobReadScopes(t *testing.T) {
+	t.Parallel()
+	pub := &mockPublisher{
+		subscribeFn: func(context.Context, string) (*pubsub.Subscription, error) {
+			t.Fatal("activity stream must not subscribe before all stream scopes are authorized")
+			return nil, nil
+		},
+	}
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, pub)
+	handler := srv.requireActivityStreamPermissions(http.HandlerFunc(srv.handleProjectActivityStream))
+
+	tests := []struct {
+		name   string
+		scopes []string
+	}{
+		{name: "runs only", scopes: []string{domain.ScopeRunsRead}},
+		{name: "runs and workflows only", scopes: []string{domain.ScopeRunsRead, domain.ScopeWorkflowsRead}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r := authedRequest(http.MethodGet, "/v1/projects/proj-1/activity/stream/", "")
+			rctx := chi.NewRouteContext()
+			rctx.URLParams.Add("projectID", "proj-1")
+			ctx := context.WithValue(r.Context(), chi.RouteCtxKey, rctx)
+			ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+			ctx = context.WithValue(ctx, ctxScopesKey, tt.scopes)
+			ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
+			ctx = context.WithValue(ctx, ctxActorIDKey, "apikey:test")
+			r = r.WithContext(ctx)
+
+			handler.ServeHTTP(w, r)
+
+			if w.Code != http.StatusForbidden {
+				t.Fatalf("status = %d, want 403; body: %s", w.Code, w.Body.String())
+			}
+		})
 	}
 }
 
@@ -69,7 +139,9 @@ func TestHandlerActivityStream_SubscribeError(t *testing.T) {
 	r := authedRequest(http.MethodGet, "/v1/projects/proj-1/activity/stream/", "")
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("projectID", "proj-1")
-	ctx, cancel := context.WithCancel(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
+	base := context.WithValue(r.Context(), chi.RouteCtxKey, rctx)
+	base = context.WithValue(base, ctxProjectIDKey, "proj-1")
+	ctx, cancel := context.WithCancel(base)
 	r = r.WithContext(ctx)
 
 	// Cancel immediately so the handler exits its event loop after subscribe attempts.
@@ -100,7 +172,9 @@ func TestHandlerActivityStream_ReceivesMessage(t *testing.T) {
 	r := authedRequest(http.MethodGet, "/v1/projects/proj-1/activity/stream/", "")
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("projectID", "proj-1")
-	ctx, cancel := context.WithCancel(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
+	base := context.WithValue(r.Context(), chi.RouteCtxKey, rctx)
+	base = context.WithValue(base, ctxProjectIDKey, "proj-1")
+	ctx, cancel := context.WithCancel(base)
 	r = r.WithContext(ctx)
 
 	ch <- []byte(`{"type":"run_completed"}`)
@@ -165,8 +239,8 @@ func TestHandlerRollbackDeploymentVersion_MissingProjectID(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/deployments/dep-1/rollback", body))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for missing project_id, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for missing project_id, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -178,8 +252,8 @@ func TestHandlerRollbackDeploymentVersion_MissingEnvironment(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/deployments/dep-1/rollback", body))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for missing environment, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for missing environment, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -238,6 +312,9 @@ func TestHandlerRollbackDeploymentVersion_MalformedJSON(t *testing.T) {
 func TestHandlerGetJobVersion_HappyPath(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1"}, nil
+		},
 		GetJobVersionByVersionIDFunc: func(_ context.Context, versionID string) (*domain.JobVersion, error) {
 			return &domain.JobVersion{
 				ID:    versionID,
@@ -409,87 +486,6 @@ func TestHandlerListNotificationDeliveries_WithLimitAndCursor(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------.
-// 5. handleGetPlans
-// ---------------------------------------------------------------------------.
-
-func TestHandlerGetPlans_HappyPath(t *testing.T) {
-	t.Parallel()
-	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
-
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/plans", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	plans, ok := resp["plans"].([]any)
-	if !ok || len(plans) == 0 {
-		t.Fatal("expected non-empty plans array")
-	}
-}
-
-func TestHandlerGetPlans_ContainsAllTiers(t *testing.T) {
-	t.Parallel()
-	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
-
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/plans", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
-
-	var resp struct {
-		Plans []struct {
-			Tier string `json:"tier"`
-		} `json:"plans"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	expectedTiers := []string{"free", "starter", "pro", "scale", "enterprise"}
-	if len(resp.Plans) != len(expectedTiers) {
-		t.Fatalf("expected %d plans, got %d", len(expectedTiers), len(resp.Plans))
-	}
-	for i, want := range expectedTiers {
-		if resp.Plans[i].Tier != want {
-			t.Errorf("plan[%d]: expected tier=%s, got %s", i, want, resp.Plans[i].Tier)
-		}
-	}
-}
-
-func TestHandlerGetPlans_TierOrdering(t *testing.T) {
-	t.Parallel()
-	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
-
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/plans", ""))
-
-	var resp struct {
-		Plans []struct {
-			Tier            string `json:"tier"`
-			PriceMonthlyUsd int    `json:"price_monthly_usd"`
-		} `json:"plans"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	// The first three tiers (free, starter, pro) should have non-decreasing prices.
-	// Enterprise has custom pricing (0), so skip it.
-	for i := 1; i < len(resp.Plans)-1; i++ {
-		if resp.Plans[i].PriceMonthlyUsd < resp.Plans[i-1].PriceMonthlyUsd {
-			t.Errorf("plan[%d] (%s) price %d < plan[%d] (%s) price %d",
-				i, resp.Plans[i].Tier, resp.Plans[i].PriceMonthlyUsd,
-				i-1, resp.Plans[i-1].Tier, resp.Plans[i-1].PriceMonthlyUsd)
-		}
-	}
-}
-
-// ---------------------------------------------------------------------------.
 // 6. handleRunLLMStream (SSE streaming)
 // ---------------------------------------------------------------------------.
 
@@ -498,15 +494,25 @@ func llmStreamRequest(runID string) *http.Request {
 	r.Header.Set("X-Internal-Secret", "test-secret-value")
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("runID", runID)
-	r = r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
-	return r
+	// These tests dispatch directly to the handler (bypassing auth middleware),
+	// so seed the context with the project ID that the handler's BOLA check
+	// expects to match the run's ProjectID.
+	ctx := context.WithValue(r.Context(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, chi.RouteCtxKey, rctx)
+	return r.WithContext(ctx)
+}
+
+func llmStreamRequestForEnvironment(runID, environmentID string) *http.Request {
+	r := llmStreamRequest(runID)
+	ctx := context.WithValue(r.Context(), ctxEnvironmentIDKey, environmentID)
+	return r.WithContext(ctx)
 }
 
 func TestHandlerRunLLMStream_RunNotFound(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
 		GetRunFunc: func(_ context.Context, _ string) (*domain.JobRun, error) {
-			return nil, pgx.ErrNoRows
+			return nil, store.ErrRunNotFound
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
@@ -536,6 +542,35 @@ func TestHandlerRunLLMStream_TerminalRun(t *testing.T) {
 
 	if w.Code != http.StatusGone {
 		t.Fatalf("expected 410, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandlerRunLLMStream_EnvironmentScopedCallerCannotStreamForeignEnvironment(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{
+				ID: id, JobID: "job-staging", ProjectID: "proj-1",
+				Status: domain.StatusExecuting, Attempt: 1,
+			}, nil
+		},
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", EnvironmentID: "env-staging"}, nil
+		},
+	}
+	pub := &mockPublisher{
+		subscribeFn: func(context.Context, string) (*pubsub.Subscription, error) {
+			t.Fatal("mismatched environment must be rejected before subscribing")
+			return nil, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, pub)
+
+	w := httptest.NewRecorder()
+	srv.handleRunLLMStream(w, llmStreamRequestForEnvironment("run-1", "env-prod"))
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for environment mismatch, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -728,8 +763,8 @@ func TestHandlerBulkReplayWorkflowRuns_EmptyIDs(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflow-runs/bulk-replay", body, "proj-1"))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for empty IDs, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for empty IDs, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -804,8 +839,8 @@ func TestHandlerBulkReplayWorkflowRuns_MissingField(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflow-runs/bulk-replay", body, "proj-1"))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for missing workflow_run_ids, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for missing workflow_run_ids, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -839,11 +874,19 @@ func (m *advMockBillingEnforcer) GetDailyRunCount(_ context.Context, _ string) (
 	return 0, nil
 }
 func (m *advMockBillingEnforcer) EnsureOrgSubscription(_ context.Context, _ string) error { return nil }
+func (m *advMockBillingEnforcer) CheckDailyAIModelCallLimit(_ context.Context, _ string) error {
+	return nil
+}
+func (m *advMockBillingEnforcer) CheckMaxDispatchPriority(_ context.Context, _ string, _ int) error {
+	return nil
+}
 func (m *advMockBillingEnforcer) CheckOrgCreationLimit(ctx context.Context, userID string, planTier domain.PlanTier) error {
 	if m.checkOrgCreationLimitFn != nil {
 		return m.checkOrgCreationLimitFn(ctx, userID, planTier)
 	}
 	return nil
+}
+func (m *advMockBillingEnforcer) DispatchBilling(_ context.Context, _ string, _ domain.PlanTier, _ string, _ map[string]any) {
 }
 
 func advNewTestServerWithBilling(t *testing.T, s APIStore, be BillingEnforcer) *Server {
@@ -938,8 +981,19 @@ func TestHandlerCheckOrgLimit_LimitExceeded(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/billing/check-org-limit?user_id=usr-1&plan_tier=free", ""))
 
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 for limit exceeded, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusPaymentRequired {
+		t.Fatalf("expected 402 for limit exceeded, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp QuotaExceededBody
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if resp.Code != "quota_exceeded" {
+		t.Fatalf("expected code 'quota_exceeded', got %q", resp.Code)
+	}
+	if resp.Kind != "org_limit_exceeded" {
+		t.Fatalf("expected kind 'org_limit_exceeded', got %q", resp.Kind)
 	}
 }
 
@@ -980,6 +1034,9 @@ func TestHandlerCheckOrgLimit_StoreError(t *testing.T) {
 func TestHandlerListRunState_HappyPath(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, ProjectID: "proj-1"}, nil
+		},
 		ListRunStateFunc: func(_ context.Context, runID string) ([]domain.RunState, error) {
 			if runID != "run-1" {
 				t.Fatalf("unexpected runID: %s", runID)
@@ -1010,6 +1067,9 @@ func TestHandlerListRunState_HappyPath(t *testing.T) {
 func TestHandlerListRunState_StoreError(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, ProjectID: "proj-1"}, nil
+		},
 		ListRunStateFunc: func(_ context.Context, _ string) ([]domain.RunState, error) {
 			return nil, errors.New("db failure")
 		},
@@ -1027,6 +1087,9 @@ func TestHandlerListRunState_StoreError(t *testing.T) {
 func TestHandlerListRunState_EmptyResult(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, ProjectID: "proj-1"}, nil
+		},
 		ListRunStateFunc: func(_ context.Context, _ string) ([]domain.RunState, error) {
 			return []domain.RunState{}, nil
 		},

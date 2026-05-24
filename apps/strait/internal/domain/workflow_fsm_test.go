@@ -145,8 +145,16 @@ func TestWorkflowRunStatusIsTerminal_AllStatuses(t *testing.T) {
 
 func TestWorkflowRunStatusIsValid(t *testing.T) {
 	t.Parallel()
-	if !WfStatusRunning.IsValid() {
-		t.Fatal("expected running to be valid")
+	valid := []WorkflowRunStatus{
+		WfStatusRunning,
+		WfStatusCompensating,
+		WfStatusCompensated,
+		WfStatusCompensationFailed,
+	}
+	for _, status := range valid {
+		if !status.IsValid() {
+			t.Fatalf("expected %s to be valid", status)
+		}
 	}
 	if WorkflowRunStatus("not-valid").IsValid() {
 		t.Fatal("expected arbitrary workflow status to be invalid")

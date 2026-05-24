@@ -8,26 +8,31 @@ import (
 
 func validConfig() *Config {
 	return &Config{
-		WorkerConcurrency:          25,
-		HeartbeatInterval:          10 * time.Second,
-		ReaperInterval:             30 * time.Second,
-		StaleThreshold:             60 * time.Second,
-		PollerInterval:             5 * time.Second,
-		RequestTimeout:             30 * time.Second,
-		WorkerDrainTimeout:         30 * time.Second,
-		DBStatementTimeout:         30 * time.Second,
-		DBMaxConnLifetime:          30 * time.Minute,
-		DBMaxConnIdleTime:          5 * time.Minute,
-		DBHealthCheckPeriod:        30 * time.Second,
-		DBIdleInTransactionTimeout: 30 * time.Second,
-		DBLockTimeout:              5 * time.Second,
-		DBLongTxnAlertThreshold:    60 * time.Second,
-		DBWatchdogInterval:         15 * time.Second,
-		DBMaxConns:                 50,
-		DBMinConns:                 10,
-		DLQMaxPerJob:               1000,
-		DLQMaxPerProject:           10000,
-		DLQOverflowPolicy:          "drop_oldest",
+		WorkerConcurrency:             25,
+		HeartbeatInterval:             10 * time.Second,
+		ReaperInterval:                30 * time.Second,
+		StaleThreshold:                60 * time.Second,
+		PollerInterval:                5 * time.Second,
+		RequestTimeout:                30 * time.Second,
+		WorkerDrainTimeout:            30 * time.Second,
+		DBStatementTimeout:            30 * time.Second,
+		DBMaxConnLifetime:             30 * time.Minute,
+		DBMaxConnIdleTime:             5 * time.Minute,
+		DBHealthCheckPeriod:           30 * time.Second,
+		DBIdleInTransactionTimeout:    30 * time.Second,
+		DBLockTimeout:                 5 * time.Second,
+		DBLongTxnAlertThreshold:       60 * time.Second,
+		DBWatchdogInterval:            15 * time.Second,
+		WorkerDBSyncInterval:          15 * time.Second,
+		WorkerHeartbeatTimeout:        30 * time.Second,
+		WorkerDisconnectSweepInterval: 30 * time.Second,
+		WorkerDisconnectAckTimeout:    5 * time.Second,
+		GRPCPubsubStartupTimeout:      30 * time.Second,
+		DBMaxConns:                    50,
+		DBMinConns:                    10,
+		DLQMaxPerJob:                  1000,
+		DLQMaxPerProject:              10000,
+		DLQOverflowPolicy:             "drop_oldest",
 	}
 }
 
@@ -71,6 +76,63 @@ func TestValidate_StaleThresholdTooTight(t *testing.T) {
 	err := c.Validate()
 	if err == nil || !strings.Contains(err.Error(), "STALE_THRESHOLD") {
 		t.Errorf("want stale threshold error, got %v", err)
+	}
+}
+
+func TestValidate_WorkerDBSyncIntervalInvariants(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*Config)
+		want   string
+	}{
+		{
+			name:   "equal to heartbeat",
+			mutate: func(c *Config) { c.WorkerDBSyncInterval = c.HeartbeatInterval },
+			want:   "WORKER_DB_SYNC_INTERVAL",
+		},
+		{
+			name:   "less than heartbeat",
+			mutate: func(c *Config) { c.WorkerDBSyncInterval = c.HeartbeatInterval - time.Second },
+			want:   "WORKER_DB_SYNC_INTERVAL",
+		},
+		{
+			name:   "equal to stale threshold",
+			mutate: func(c *Config) { c.WorkerDBSyncInterval = c.StaleThreshold },
+			want:   "STALE_THRESHOLD",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := validConfig()
+			tt.mutate(c)
+			err := c.Validate()
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Validate() error = %v, want %s", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoad_WorkerDBSyncIntervalInvariant(t *testing.T) {
+	setRequiredAuditEnv(t)
+	t.Setenv("HEARTBEAT_INTERVAL", "10s")
+	t.Setenv("STALE_THRESHOLD", "60s")
+	t.Setenv("WORKER_DB_SYNC_INTERVAL", "10s")
+
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "WORKER_DB_SYNC_INTERVAL") {
+		t.Fatalf("Load() error = %v, want WORKER_DB_SYNC_INTERVAL", err)
+	}
+}
+
+func TestLoad_RunsAggregateValidateInvariants(t *testing.T) {
+	setRequiredAuditEnv(t)
+	t.Setenv("DB_MIN_CONNS", "100")
+	t.Setenv("DB_MAX_CONNS", "50")
+
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "DB_MIN_CONNS") {
+		t.Fatalf("Load() error = %v, want DB_MIN_CONNS validation error", err)
 	}
 }
 
@@ -182,6 +244,19 @@ func TestValidate_AuditRetentionNegative(t *testing.T) {
 	_, err := Load()
 	if err == nil {
 		t.Fatal("expected error for negative audit retention")
+	}
+}
+
+func TestValidate_AuditRetentionTooLarge(t *testing.T) {
+	setRequiredAuditEnv(t)
+	t.Setenv("AUDIT_RETENTION_DEFAULT_DAYS", "36501")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for oversized audit retention")
+	}
+	if !strings.Contains(err.Error(), "AUDIT_RETENTION_DEFAULT_DAYS") {
+		t.Fatalf("error = %v, want AUDIT_RETENTION_DEFAULT_DAYS", err)
 	}
 }
 
@@ -304,6 +379,16 @@ func TestValidate_AuditDLQMaxAgeDaysZero(t *testing.T) {
 	}
 }
 
+func TestValidate_AuditDLQMaxAgeDaysTooLarge(t *testing.T) {
+	setRequiredAuditEnv(t)
+	t.Setenv("AUDIT_DLQ_MAX_AGE_DAYS", "36501")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for oversized DLQ max age")
+	}
+}
+
 func TestValidate_AuditDLQMaxReclaimAttemptsZero(t *testing.T) {
 	setRequiredAuditEnv(t)
 	t.Setenv("AUDIT_DLQ_MAX_RECLAIM_ATTEMPTS", "0")
@@ -373,16 +458,5 @@ func TestValidate_AuditDLQReclaimBatchNegative(t *testing.T) {
 	_, err := Load()
 	if err == nil {
 		t.Fatal("expected error for negative DLQ reclaim batch")
-	}
-}
-
-func TestValidate_K8sRuntimeWithNamespace(t *testing.T) {
-	setRequiredEnv(t)
-	t.Setenv("COMPUTE_RUNTIME", "k8s")
-	t.Setenv("K8S_NAMESPACE", "default")
-
-	_, err := Load()
-	if err != nil {
-		t.Fatalf("k8s runtime with namespace should be valid: %v", err)
 	}
 }

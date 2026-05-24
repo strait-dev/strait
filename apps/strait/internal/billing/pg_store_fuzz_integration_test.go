@@ -179,9 +179,9 @@ func TestFuzz_CreateAddon(t *testing.T) {
 		addonType billing.AddonType
 		quantity  int
 	}{
-		{"zero-quantity", billing.AddonConcurrentRuns, 0},
-		{"negative-quantity", billing.AddonMembers, -1},
-		{"max-quantity", billing.AddonCronSchedules, 2147483647},
+		{"zero-quantity", billing.AddonConcurrency100, 0},
+		{"negative-quantity", billing.AddonEnvironments5, -1},
+		{"max-quantity", billing.AddonHistory30d, 2147483647},
 		{"empty-type", billing.AddonType(""), 1},
 		{"sql-injection-type", billing.AddonType("'; DROP TABLE organization_addons; --"), 1},
 		{"unicode-type", billing.AddonType("\u2603"), 1},

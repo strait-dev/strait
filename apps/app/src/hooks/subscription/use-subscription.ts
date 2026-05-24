@@ -32,7 +32,7 @@ import {
  * Maps Stripe Price IDs to plan slugs.
  *
  * Each plan tier has two prices (monthly + yearly) that both resolve
- * to the same slug. Populated from env vars set via Doppler.
+ * to the same slug. Populated from env vars set via Infisical.
  */
 const PRICE_TO_PLAN = new Map<string, PlanSlug>([
   [process.env.STRIPE_STARTER_MONTHLY_PRICE_ID ?? "", "starter"],

@@ -5,9 +5,10 @@ import (
 	"fmt"
 )
 
-// AuditDMLPrivilegeChecker reports whether UPDATE on audit_events is
-// restricted for the current database role. Implemented by *store.Queries
-// via SELECT has_table_privilege(current_user, 'audit_events', 'UPDATE').
+// AuditDMLPrivilegeChecker reports whether destructive DML on
+// audit_events is restricted for the current database role. Implemented by
+// *store.Queries via has_table_privilege checks for UPDATE, DELETE, and
+// TRUNCATE plus column-level UPDATE checks.
 //
 // When UPDATE is not restricted for any column other than `signature`,
 // the DML guardrail from migration 000187 is a silent no-op — a compromised
@@ -15,11 +16,12 @@ import (
 // guard probe reports degraded in that case so oncall can page even
 // though the service is still functional.
 type AuditDMLPrivilegeChecker interface {
-	// AuditEventsUpdateRestricted returns true when the DML guard is in
-	// effect (UPDATE limited to the signature column), false when the
-	// current role has full UPDATE. A nil error with false is a valid
-	// "unrestricted" outcome — it is not a probe failure.
-	AuditEventsUpdateRestricted(ctx context.Context) (bool, error)
+	// AuditEventsDMLRestricted returns true when the DML guard is in
+	// effect (UPDATE limited to the signature column and no DELETE/TRUNCATE),
+	// false when the current role can mutate or remove audit rows. A nil
+	// error with false is a valid "unrestricted" outcome — it is not a probe
+	// failure.
+	AuditEventsDMLRestricted(ctx context.Context) (bool, error)
 }
 
 // NewAuditDMLGuardProbe returns a non-critical Checker that verifies the
@@ -38,12 +40,12 @@ func NewAuditDMLGuardProbe(checker AuditDMLPrivilegeChecker) Checker {
 		if checker == nil {
 			return nil
 		}
-		restricted, err := checker.AuditEventsUpdateRestricted(ctx)
+		restricted, err := checker.AuditEventsDMLRestricted(ctx)
 		if err != nil {
 			return fmt.Errorf("audit DML privilege probe failed: %w", err)
 		}
 		if !restricted {
-			return fmt.Errorf("audit_events UPDATE is not restricted for current role; migration 000187 is a no-op on this install — see SELFHOST.md for the strait_app role prerequisite")
+			return fmt.Errorf("audit_events UPDATE/DELETE/TRUNCATE or non-signature column UPDATE is not restricted for current role; migration 000187 is a no-op on this install — see SELFHOST.md for the strait_app role prerequisite")
 		}
 		return nil
 	})

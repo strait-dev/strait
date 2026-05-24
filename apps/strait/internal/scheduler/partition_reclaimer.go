@@ -28,9 +28,8 @@ type PartitionReclaimer struct {
 type PartitionReclaimerStore interface {
 	ListJobRunsPartitions(ctx context.Context) ([]string, error)
 	ListOutboxHistoryPartitions(ctx context.Context) ([]string, error)
-	PartitionRowCount(ctx context.Context, partition string) (int64, error)
 	PartitionEstimatedRowCount(ctx context.Context, partition string) (int64, error)
-	DropPartitionWithTimeout(ctx context.Context, partition string, timeout time.Duration) error
+	DropPartitionIfEmptyWithTimeout(ctx context.Context, partition string, timeout time.Duration) (bool, error)
 }
 
 type PartitionReclaimerConfig struct {
@@ -70,13 +69,17 @@ func (p *PartitionReclaimer) Errors() int64     { return p.errors.Load() }
 func (p *PartitionReclaimer) Run(ctx context.Context) {
 	ticker := time.NewTicker(p.interval)
 	defer ticker.Stop()
-	_ = p.runOnce(ctx)
+	runSchedulerCycleCheckIn(ctx, p.interval, func() {
+		_ = p.runOnce(ctx)
+	})
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			_ = p.runOnce(ctx)
+			runSchedulerCycleCheckIn(ctx, p.interval, func() {
+				_ = p.runOnce(ctx)
+			})
 		}
 	}
 }
@@ -94,22 +97,17 @@ func (p *PartitionReclaimer) runOnce(ctx context.Context) error {
 		}
 	}()
 
-	if p.advisoryLocker != nil {
-		acquired, err := p.advisoryLocker.TryAdvisoryLock(ctx, partitionReclaimerAdvisoryLockID)
-		if err != nil {
-			p.errors.Add(1)
-			return err
-		}
-		if !acquired {
-			return nil
-		}
-		defer func() {
-			if err := p.advisoryLocker.ReleaseAdvisoryLock(ctx, partitionReclaimerAdvisoryLockID); err != nil {
-				p.logger.Debug("partition reclaimer lock release failed", "error", err)
-			}
-		}()
+	acquired, err := runWithOptionalAdvisoryLock(ctx, p.advisoryLocker, partitionReclaimerAdvisoryLockID, p.runLocked)
+	if err != nil {
+		return err
 	}
+	if !acquired {
+		return nil
+	}
+	return nil
+}
 
+func (p *PartitionReclaimer) runLocked(ctx context.Context) error {
 	jobPartitions, err := p.store.ListJobRunsPartitions(ctx)
 	if err != nil {
 		p.logger.Warn("partition reclaimer: list job_runs partitions failed", "error", err)
@@ -152,20 +150,14 @@ func (p *PartitionReclaimer) reclaimPartitions(ctx context.Context, partitions [
 			continue
 		}
 
-		count, err := p.store.PartitionRowCount(ctx, name)
+		dropped, err := p.store.DropPartitionIfEmptyWithTimeout(ctx, name, 5*time.Second)
 		if err != nil {
-			p.logger.Warn("partition reclaimer: row count failed", "partition", name, "error", err)
-			p.errors.Add(1)
-			continue
-		}
-		if count > 0 {
-			p.logger.Debug("partition reclaimer: skipping non-empty partition", "partition", name, "rows", count)
-			continue
-		}
-
-		if err := p.store.DropPartitionWithTimeout(ctx, name, 5*time.Second); err != nil {
 			p.logger.Warn("partition reclaimer: drop failed", "partition", name, "error", err)
 			p.errors.Add(1)
+			continue
+		}
+		if !dropped {
+			p.logger.Debug("partition reclaimer: skipping non-empty partition", "partition", name)
 			continue
 		}
 		p.dropped.Add(1)

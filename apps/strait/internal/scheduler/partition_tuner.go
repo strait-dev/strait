@@ -56,7 +56,14 @@ type PartitionTunerStore interface {
 	ListJobRunsPartitions(ctx context.Context) ([]string, error)
 	ExecDDL(ctx context.Context, sql string) error
 	PartitionExists(ctx context.Context, name string) (bool, error)
+	PartitionReloption(ctx context.Context, name, option string) (string, error)
 }
+
+// jobRunsFillfactor is the page-fill target for partitions: leaves 15% free
+// space so HOT updates can succeed on hot rows. New pg_partman partitions
+// inherit the parent's fillfactor=100, so the tuner backfills this on every
+// partition it sees, idempotently.
+const jobRunsFillfactor = "85"
 
 // PartitionTunerConfig configures the tuner.
 type PartitionTunerConfig struct {
@@ -111,13 +118,17 @@ func (t *PartitionTuner) Run(ctx context.Context) {
 	defer t.Close()
 	ticker := time.NewTicker(t.interval)
 	defer ticker.Stop()
-	_ = t.runOnce(ctx)
+	runSchedulerCycleCheckIn(ctx, t.interval, func() {
+		_ = t.runOnce(ctx)
+	})
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			_ = t.runOnce(ctx)
+			runSchedulerCycleCheckIn(ctx, t.interval, func() {
+				_ = t.runOnce(ctx)
+			})
 		}
 	}
 }
@@ -135,21 +146,14 @@ func (t *PartitionTuner) runOnce(ctx context.Context) error {
 		}
 	}()
 
-	if t.advisoryLocker != nil {
-		acquired, err := t.advisoryLocker.TryAdvisoryLock(ctx, partitionTunerAdvisoryLockID)
-		if err != nil {
-			return err
-		}
-		if !acquired {
-			return nil
-		}
-		defer func() {
-			if err := t.advisoryLocker.ReleaseAdvisoryLock(ctx, partitionTunerAdvisoryLockID); err != nil {
-				t.logger.Debug("tuner lock release failed", "error", err)
-			}
-		}()
+	acquired, err := runWithOptionalAdvisoryLock(ctx, t.advisoryLocker, partitionTunerAdvisoryLockID, t.runLocked)
+	if err != nil || !acquired {
+		return err
 	}
+	return nil
+}
 
+func (t *PartitionTuner) runLocked(ctx context.Context) error {
 	partitions, err := t.store.ListJobRunsPartitions(ctx)
 	if err != nil {
 		return fmt.Errorf("list partitions: %w", err)
@@ -185,13 +189,28 @@ func (t *PartitionTuner) runOnce(ctx context.Context) error {
 					return
 				}
 				hotN.Add(1)
+			} else {
+				if err := t.store.ExecDDL(ctx, resetSettingsSQL(p)); err != nil {
+					t.logger.Warn("reset settings failed", "partition", p, "error", err)
+					return
+				}
+				coldN.Add(1)
+			}
+
+			// Backfill fillfactor=85 on partitions that inherited the parent's
+			// default. Skipping the ALTER when already set avoids the brief
+			// AccessExclusiveLock taken by ALTER TABLE on every weekly tick.
+			current, err := t.store.PartitionReloption(ctx, p, "fillfactor")
+			if err != nil {
+				t.logger.Debug("read fillfactor failed", "partition", p, "error", err)
 				return
 			}
-			if err := t.store.ExecDDL(ctx, resetSettingsSQL(p)); err != nil {
-				t.logger.Warn("reset settings failed", "partition", p, "error", err)
+			if current == jobRunsFillfactor {
 				return
 			}
-			coldN.Add(1)
+			if err := t.store.ExecDDL(ctx, fillfactorSQL(p)); err != nil {
+				t.logger.Warn("apply fillfactor failed", "partition", p, "error", err)
+			}
 		})
 	}
 	_ = group.Wait()
@@ -209,7 +228,8 @@ func (t *PartitionTuner) runOnce(ctx context.Context) error {
 func hotPartitionNames(now time.Time) map[string]struct{} {
 	out := make(map[string]struct{}, 2)
 	cur := now.UTC()
-	prev := cur.AddDate(0, -1, 0)
+	currentMonth := time.Date(cur.Year(), cur.Month(), 1, 0, 0, 0, 0, time.UTC)
+	prev := currentMonth.AddDate(0, -1, 0)
 	out[fmt.Sprintf("job_runs_p%04d_%02d", cur.Year(), int(cur.Month()))] = struct{}{}
 	out[fmt.Sprintf("job_runs_p%04d_%02d", prev.Year(), int(prev.Month()))] = struct{}{}
 	return out
@@ -224,8 +244,17 @@ func hotSettingsSQL(partition string) string {
         autovacuum_vacuum_scale_factor = 0.01,
         autovacuum_analyze_scale_factor = 0.005,
         autovacuum_vacuum_cost_delay = 2,
+        autovacuum_vacuum_cost_limit = 1000,
         autovacuum_vacuum_insert_scale_factor = 0.01
     )`, quoted)
+}
+
+func fillfactorSQL(partition string) string {
+	quoted, err := store.SafeQuoteIdent(partition)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf(`ALTER TABLE %s SET (fillfactor = %s)`, quoted, jobRunsFillfactor)
 }
 
 func resetSettingsSQL(partition string) string {
@@ -237,6 +266,7 @@ func resetSettingsSQL(partition string) string {
         autovacuum_vacuum_scale_factor,
         autovacuum_analyze_scale_factor,
         autovacuum_vacuum_cost_delay,
+        autovacuum_vacuum_cost_limit,
         autovacuum_vacuum_insert_scale_factor
     )`, quoted)
 }

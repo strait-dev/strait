@@ -27,8 +27,16 @@ type UpdateEnvironmentRequest struct {
 }
 
 type EnvironmentResponse struct {
-	domain.Environment
-	ResolvedVariables map[string]string `json:"resolved_variables,omitempty"`
+	ID                   string    `json:"id"`
+	ProjectID            string    `json:"project_id"`
+	Name                 string    `json:"name"`
+	Slug                 string    `json:"slug"`
+	ParentID             string    `json:"parent_id,omitempty"`
+	IsStandard           bool      `json:"is_standard"`
+	VariableKeys         []string  `json:"variable_keys,omitempty"`
+	ResolvedVariableKeys []string  `json:"resolved_variable_keys,omitempty"`
+	CreatedAt            time.Time `json:"created_at"`
+	UpdatedAt            time.Time `json:"updated_at"`
 }
 
 // CreateEnvironmentInput is the typed input for creating an environment.
@@ -38,7 +46,7 @@ type CreateEnvironmentInput struct {
 
 // CreateEnvironmentOutput is the typed output for creating an environment.
 type CreateEnvironmentOutput struct {
-	Body *domain.Environment
+	Body EnvironmentResponse
 }
 
 func (s *Server) handleCreateEnvironment(ctx context.Context, input *CreateEnvironmentInput) (*CreateEnvironmentOutput, error) {
@@ -51,9 +59,20 @@ func (s *Server) handleCreateEnvironment(ctx context.Context, input *CreateEnvir
 	if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
 		return nil, huma.Error403Forbidden("project_id does not match authenticated project")
 	}
+	if environmentIDFromContext(ctx) != "" {
+		return nil, huma.Error403Forbidden("environment-scoped credentials cannot create environments")
+	}
 
 	if err := s.checkEnvironmentLimit(ctx, req.ProjectID); err != nil {
 		return nil, err
+	}
+	if err := s.validateEnvironmentParent(ctx, req.ProjectID, "", req.ParentID); err != nil {
+		return nil, err
+	}
+	if len(req.Variables) > 0 {
+		if err := s.requireEnvironmentVariableWrite(ctx); err != nil {
+			return nil, err
+		}
 	}
 
 	env := &domain.Environment{
@@ -75,7 +94,7 @@ func (s *Server) handleCreateEnvironment(ctx context.Context, input *CreateEnvir
 		"variable_keys": tagKeys(env.Variables),
 	})
 
-	return &CreateEnvironmentOutput{Body: env}, nil
+	return &CreateEnvironmentOutput{Body: environmentResponse(env, nil)}, nil
 }
 
 // GetEnvironmentInput is the typed input for getting an environment.
@@ -100,6 +119,9 @@ func (s *Server) handleGetEnvironment(ctx context.Context, input *GetEnvironment
 	if err := requireProjectMatch(ctx, env.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("environment not found")
 	}
+	if err := requireEnvironmentMatch(ctx, env.ID); err != nil {
+		return nil, huma.Error404NotFound("environment not found")
+	}
 
 	resolvedVariables, err := s.store.GetResolvedEnvironmentVariables(ctx, input.EnvID)
 	if err != nil {
@@ -109,10 +131,7 @@ func (s *Server) handleGetEnvironment(ctx context.Context, input *GetEnvironment
 		return nil, huma.Error500InternalServerError("failed to resolve environment variables")
 	}
 
-	return &GetEnvironmentOutput{Body: EnvironmentResponse{
-		Environment:       *env,
-		ResolvedVariables: resolvedVariables,
-	}}, nil
+	return &GetEnvironmentOutput{Body: environmentResponse(env, resolvedVariables)}, nil
 }
 
 // ListEnvironmentsInput is the typed input for listing environments.
@@ -138,8 +157,22 @@ func (s *Server) handleListEnvironments(ctx context.Context, input *ListEnvironm
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list environments")
 	}
+	if environmentID := environmentIDFromContext(ctx); environmentID != "" {
+		filtered := envs[:0]
+		for _, env := range envs {
+			if env.ID == environmentID {
+				filtered = append(filtered, env)
+			}
+		}
+		envs = filtered
+	}
 
-	return &ListEnvironmentsOutput{Body: paginatedResult(envs, limit, func(e domain.Environment) string {
+	responses := make([]EnvironmentResponse, 0, len(envs))
+	for i := range envs {
+		responses = append(responses, environmentResponse(&envs[i], nil))
+	}
+
+	return &ListEnvironmentsOutput{Body: paginatedResult(responses, limit, func(e EnvironmentResponse) string {
 		return e.CreatedAt.Format(time.RFC3339Nano)
 	})}, nil
 }
@@ -152,7 +185,7 @@ type UpdateEnvironmentInput struct {
 
 // UpdateEnvironmentOutput is the typed output for updating an environment.
 type UpdateEnvironmentOutput struct {
-	Body *domain.Environment
+	Body EnvironmentResponse
 }
 
 func (s *Server) handleUpdateEnvironment(ctx context.Context, input *UpdateEnvironmentInput) (*UpdateEnvironmentOutput, error) {
@@ -167,6 +200,9 @@ func (s *Server) handleUpdateEnvironment(ctx context.Context, input *UpdateEnvir
 	if err := requireProjectMatch(ctx, env.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("environment not found")
 	}
+	if err := requireEnvironmentMatch(ctx, env.ID); err != nil {
+		return nil, huma.Error404NotFound("environment not found")
+	}
 
 	req := input.Body
 	if req.Name != nil {
@@ -176,9 +212,15 @@ func (s *Server) handleUpdateEnvironment(ctx context.Context, input *UpdateEnvir
 		env.Slug = *req.Slug
 	}
 	if req.ParentID != nil {
+		if err := s.validateEnvironmentParent(ctx, env.ProjectID, env.ID, *req.ParentID); err != nil {
+			return nil, err
+		}
 		env.ParentID = *req.ParentID
 	}
 	if req.Variables != nil {
+		if err := s.requireEnvironmentVariableWrite(ctx); err != nil {
+			return nil, err
+		}
 		env.Variables = *req.Variables
 	}
 
@@ -208,7 +250,48 @@ func (s *Server) handleUpdateEnvironment(ctx context.Context, input *UpdateEnvir
 		"variable_keys":  tagKeys(env.Variables),
 	})
 
-	return &UpdateEnvironmentOutput{Body: env}, nil
+	return &UpdateEnvironmentOutput{Body: environmentResponse(env, nil)}, nil
+}
+
+func (s *Server) requireEnvironmentVariableWrite(ctx context.Context) error {
+	if isInternalCaller(ctx) {
+		return nil
+	}
+
+	projectID := projectIDFromContext(ctx)
+	if projectID == "" {
+		return huma.Error403Forbidden("environment variables require project context")
+	}
+
+	scopes := scopesFromContext(ctx)
+	switch actorTypeFromContext(ctx) {
+	case "api_key":
+		if !domain.HasScopeStrict(scopes, domain.ScopeSecretsWrite) {
+			return huma.Error403Forbidden("environment variables require secrets:write")
+		}
+		return nil
+	case "user":
+		actorID := actorFromContext(ctx)
+		if actorID == "" {
+			return huma.Error403Forbidden("environment variables require actor context")
+		}
+		if ctx.Value(ctxOIDCScopeClaimPresentKey) == true && len(scopes) == 0 {
+			return huma.Error403Forbidden("environment variables require secrets:write")
+		}
+		if len(scopes) > 0 && !domain.HasScopeStrict(scopes, domain.ScopeSecretsWrite) {
+			return huma.Error403Forbidden("environment variables require secrets:write")
+		}
+		perms, err := s.store.GetUserPermissions(ctx, projectID, actorID)
+		if err != nil {
+			return huma.Error500InternalServerError("failed to load permissions")
+		}
+		if !domain.HasScopeStrict(perms, domain.ScopeSecretsWrite) {
+			return huma.Error403Forbidden("environment variables require secrets:write")
+		}
+		return nil
+	default:
+		return huma.Error403Forbidden("environment variables require authenticated actor")
+	}
 }
 
 // DeleteEnvironmentInput is the typed input for deleting an environment.
@@ -226,6 +309,9 @@ func (s *Server) handleDeleteEnvironment(ctx context.Context, input *DeleteEnvir
 	}
 
 	if err := requireProjectMatch(ctx, env.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("environment not found")
+	}
+	if err := requireEnvironmentMatch(ctx, env.ID); err != nil {
 		return nil, huma.Error404NotFound("environment not found")
 	}
 
@@ -269,6 +355,9 @@ func (s *Server) handleGetResolvedVariables(ctx context.Context, input *GetResol
 	if err := requireProjectMatch(ctx, env.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("environment not found")
 	}
+	if err := requireEnvironmentMatch(ctx, env.ID); err != nil {
+		return nil, huma.Error404NotFound("environment not found")
+	}
 
 	resolvedVariables, err := s.store.GetResolvedEnvironmentVariables(ctx, input.EnvID)
 	if err != nil {
@@ -279,4 +368,48 @@ func (s *Server) handleGetResolvedVariables(ctx context.Context, input *GetResol
 	}
 
 	return &GetResolvedVariablesOutput{Body: map[string]map[string]string{"variables": resolvedVariables}}, nil
+}
+
+func (s *Server) validateEnvironmentParent(ctx context.Context, projectID, envID, parentID string) error {
+	if parentID == "" {
+		return nil
+	}
+	if envID != "" && parentID == envID {
+		return huma.Error400BadRequest("environment cannot inherit from itself")
+	}
+	if callerEnvID := environmentIDFromContext(ctx); callerEnvID != "" && parentID != callerEnvID {
+		return huma.Error404NotFound("parent environment not found")
+	}
+	parent, err := s.store.GetEnvironment(ctx, parentID)
+	if err != nil {
+		if errors.Is(err, store.ErrEnvironmentNotFound) {
+			return huma.Error404NotFound("parent environment not found")
+		}
+		return huma.Error500InternalServerError("failed to get parent environment")
+	}
+	if parent.ProjectID != projectID {
+		return huma.Error404NotFound("parent environment not found")
+	}
+	if err := requireEnvironmentMatch(ctx, parent.ID); err != nil {
+		return huma.Error404NotFound("parent environment not found")
+	}
+	return nil
+}
+
+func environmentResponse(env *domain.Environment, resolvedVariables map[string]string) EnvironmentResponse {
+	if env == nil {
+		return EnvironmentResponse{}
+	}
+	return EnvironmentResponse{
+		ID:                   env.ID,
+		ProjectID:            env.ProjectID,
+		Name:                 env.Name,
+		Slug:                 env.Slug,
+		ParentID:             env.ParentID,
+		IsStandard:           env.IsStandard,
+		VariableKeys:         tagKeys(env.Variables),
+		ResolvedVariableKeys: tagKeys(resolvedVariables),
+		CreatedAt:            env.CreatedAt,
+		UpdatedAt:            env.UpdatedAt,
+	}
 }

@@ -12,10 +12,22 @@ icon: "circle-question"
     Plans are billed monthly or annually (save ~17% with annual billing). You can upgrade, downgrade, or cancel at any time.
   </Accordion>
   <Accordion title="What happens if I exceed my plan limits?">
-    Runs beyond your daily limit are queued and processed the next day. You will not be charged overage fees on the Free or Starter plans.
+    Runs beyond your daily limit are queued and processed the following day. No overage fees on Free or Starter plans. Pro plan users who regularly exceed limits can contact us for burst pricing.
   </Accordion>
   <Accordion title="Can I self-host instead?">
-    Yes. Strait is fully open-source. Self-hosting is free with no feature restrictions. You just need PostgreSQL.
+    Yes. Strait is fully open-source and self-hosting is free with no feature restrictions. You need PostgreSQL. Redis is also recommended, since live updates, SSE streaming, and the gRPC worker plane all depend on it.
+  </Accordion>
+  <Accordion title="What does 'concurrent runs' mean?">
+    The maximum number of jobs executing at the same time. If all slots are busy, new runs wait in the queue.
+  </Accordion>
+  <Accordion title="Can I change plans mid-month?">
+    Yes. Upgrades take effect immediately. Downgrades take effect at the next billing cycle.
+  </Accordion>
+  <Accordion title="Is there support for self-hosted?">
+    Community support via GitHub Issues and Discussions. For dedicated support on self-hosted deployments, contact us about an Enterprise plan.
+  </Accordion>
+  <Accordion title="What payment methods do you accept?">
+    Credit card via Stripe. Enterprise plans support invoicing.
   </Accordion>
   <Accordion title="Do you offer discounts for startups?">
     Yes. Contact us at leo@strait.dev for startup pricing.

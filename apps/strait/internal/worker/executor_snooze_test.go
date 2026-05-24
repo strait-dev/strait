@@ -150,12 +150,15 @@ func TestSnoozeRun_SetsRetryAt(t *testing.T) {
 	exec.snoozeRun(context.Background(), run, "health score low", &retryAt)
 
 	calls := store.statusUpdates()
-	got, ok := calls[0].fields["next_retry_at"].(*time.Time)
-	if !ok || got == nil {
-		t.Fatalf("expected *time.Time, got %T", calls[0].fields["next_retry_at"])
+	if _, ok := calls[0].fields["next_retry_at"]; ok {
+		t.Fatalf("next_retry_at must not be in fields map; retry schedule lives in job_retries")
 	}
-	if !got.Equal(retryAt) {
-		t.Fatalf("expected next_retry_at=%v, got %v", retryAt, *got)
+	scheduled := store.scheduleRetries()
+	if len(scheduled) != 1 {
+		t.Fatalf("expected 1 ScheduleRetry call, got %d", len(scheduled))
+	}
+	if !scheduled[0].at.Equal(retryAt) {
+		t.Fatalf("expected ScheduleRetry at=%v, got %v", retryAt, scheduled[0].at)
 	}
 }
 
@@ -195,10 +198,15 @@ func TestSnoozeRun_FieldsMap(t *testing.T) {
 			t.Fatalf("expected error=%q, got %v", reason, f["error"])
 		}
 	})
-	t.Run("NilRetryAt", func(t *testing.T) {
-		retryAt, _ := f["next_retry_at"].(*time.Time)
-		if retryAt != nil {
-			t.Fatalf("expected nil next_retry_at, got %v", retryAt)
+	t.Run("NoNextRetryAtInFields", func(t *testing.T) {
+		if _, ok := f["next_retry_at"]; ok {
+			t.Fatalf("next_retry_at must not appear in fields map; lives in job_retries side table")
+		}
+		if scheduled := store.scheduleRetries(); len(scheduled) != 0 {
+			t.Fatalf("expected no ScheduleRetry calls for nil retryAt, got %d", len(scheduled))
+		}
+		if cleared := store.clearRetries(); len(cleared) != 1 || cleared[0] != run.ID {
+			t.Fatalf("expected ClearRetry for run %s, got %v", run.ID, cleared)
 		}
 	})
 }

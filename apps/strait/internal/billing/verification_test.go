@@ -112,7 +112,7 @@ func TestDeactivateAddon_DoubleCall_NoError(t *testing.T) {
 	addon := &Addon{
 		ID:        "addon-1",
 		OrgID:     "org-1",
-		AddonType: AddonConcurrentRuns,
+		AddonType: AddonConcurrency100,
 		Quantity:  1,
 		Active:    true,
 	}
@@ -158,13 +158,7 @@ func TestSelfHosted_AllFeaturesAvailable(t *testing.T) {
 		}
 	}
 
-	// Verify that all presets are allowed on enterprise.
 	enterpriseLimits := GetPlanLimits(domain.PlanEnterprise)
-	for _, preset := range []string{"micro", "small-1x", "small-2x", "medium-1x", "medium-2x", "large-1x", "large-2x"} {
-		if !enterpriseLimits.IsPresetAllowed(preset) {
-			t.Errorf("Enterprise should allow preset %q", preset)
-		}
-	}
 
 	// Verify unlimited limits.
 	if enterpriseLimits.MaxConcurrentRuns != -1 {
@@ -196,21 +190,21 @@ func TestSelfHosted_EditionCommunity_SkipsGating(t *testing.T) {
 func TestAddon_EffectiveLimits_Integration(t *testing.T) {
 	t.Parallel()
 
-	// Pro org with 2 concurrent run packs should get 200 concurrent.
+	// Pro org with 2 concurrency_100 packs should get base + 200.
 	base := GetPlanLimits(domain.PlanPro)
 	addons := []Addon{
-		{AddonType: AddonConcurrentRuns, Quantity: 2, Active: true},
+		{AddonType: AddonConcurrency100, Quantity: 2, Active: true},
 	}
 
 	result := EffectiveLimits(base, addons)
-	want := base.MaxConcurrentRuns + 100
+	want := base.MaxConcurrentRuns + 200
 	if result.MaxConcurrentRuns != want {
-		t.Errorf("MaxConcurrentRuns = %d, want %d (100 base + 100 addon)", result.MaxConcurrentRuns, want)
+		t.Errorf("MaxConcurrentRuns = %d, want %d (base + 2x100 packs)", result.MaxConcurrentRuns, want)
 	}
 
 	// Deactivate addon -> back to base.
 	deactivated := []Addon{
-		{AddonType: AddonConcurrentRuns, Quantity: 2, Active: false},
+		{AddonType: AddonConcurrency100, Quantity: 2, Active: false},
 	}
 	result = EffectiveLimits(base, deactivated)
 	if result.MaxConcurrentRuns != base.MaxConcurrentRuns {

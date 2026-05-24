@@ -109,7 +109,7 @@ func TestHeartbeatGC_BatchLimitRespected(t *testing.T) {
 	job := hbGCMakeJob(t, st, ctx, projectID)
 	// Create 10 orphan heartbeats.
 	var ids []string
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		id := uuid.Must(uuid.NewV7()).String()
 		_, err := tdb.Pool.Exec(ctx, `
 			INSERT INTO job_runs (id, job_id, project_id, status, attempt, triggered_by, created_at, finished_at)
@@ -153,5 +153,64 @@ func TestEnsureQueueTriggersPresent_MissingFailsLoud(t *testing.T) {
 	err = scheduler.EnsureQueueTriggersPresent(ctx, tdb.Pool)
 	if err == nil || !strings.Contains(err.Error(), "trg_job_runs_queue_wake_notify") {
 		t.Errorf("expected missing-trigger error, got %v", err)
+	}
+}
+
+func TestEnsureQueueTriggersPresent_DisabledFailsLoud(t *testing.T) {
+	tdb, _ := setupHeartbeatGC(t)
+	ctx := context.Background()
+	_, err := tdb.Pool.Exec(ctx, `ALTER TABLE job_runs DISABLE TRIGGER job_runs_active_counts_trg`)
+	if err != nil {
+		t.Fatalf("disable: %v", err)
+	}
+	err = scheduler.EnsureQueueTriggersPresent(ctx, tdb.Pool)
+	if err == nil || !strings.Contains(err.Error(), "job_runs_active_counts_trg") {
+		t.Errorf("expected disabled-trigger error, got %v", err)
+	}
+}
+
+func TestEnsureQueueTriggersPresent_MissingClaimQueueTriggerFailsLoud(t *testing.T) {
+	tdb, _ := setupHeartbeatGC(t)
+	ctx := context.Background()
+	_, err := tdb.Pool.Exec(ctx, `DROP TRIGGER IF EXISTS trg_job_runs_claim_queue_sync_update ON job_runs`)
+	if err != nil {
+		t.Fatalf("drop claim queue trigger: %v", err)
+	}
+	err = scheduler.EnsureQueueTriggersPresent(ctx, tdb.Pool)
+	if err == nil || !strings.Contains(err.Error(), "trg_job_runs_claim_queue_sync_update") {
+		t.Errorf("expected missing claim-queue trigger error, got %v", err)
+	}
+}
+
+func TestEnsureQueueTriggersPresent_MissingJobFanoutTriggerFailsLoud(t *testing.T) {
+	tdb, _ := setupHeartbeatGC(t)
+	ctx := context.Background()
+	_, err := tdb.Pool.Exec(ctx, `DROP TRIGGER IF EXISTS trg_jobs_fanout_queue ON jobs`)
+	if err != nil {
+		t.Fatalf("drop jobs fanout trigger: %v", err)
+	}
+	err = scheduler.EnsureQueueTriggersPresent(ctx, tdb.Pool)
+	if err == nil || !strings.Contains(err.Error(), "trg_jobs_fanout_queue") {
+		t.Errorf("expected missing jobs fanout trigger error, got %v", err)
+	}
+}
+
+func TestEnsureQueueTriggersPresent_DecoyTriggerDoesNotPass(t *testing.T) {
+	tdb, _ := setupHeartbeatGC(t)
+	ctx := context.Background()
+	_, err := tdb.Pool.Exec(ctx, `
+		DROP TRIGGER IF EXISTS trg_job_runs_queue_wake_notify ON job_runs;
+		CREATE TEMP TABLE job_runs_trigger_decoy (LIKE job_runs INCLUDING ALL);
+		CREATE TRIGGER trg_job_runs_queue_wake_notify
+		AFTER INSERT OR UPDATE OF status ON job_runs_trigger_decoy
+		FOR EACH ROW
+		EXECUTE FUNCTION notify_queue_wake();
+	`)
+	if err != nil {
+		t.Fatalf("create decoy trigger: %v", err)
+	}
+	err = scheduler.EnsureQueueTriggersPresent(ctx, tdb.Pool)
+	if err == nil || !strings.Contains(err.Error(), "trg_job_runs_queue_wake_notify") {
+		t.Errorf("expected decoy-trigger error, got %v", err)
 	}
 }

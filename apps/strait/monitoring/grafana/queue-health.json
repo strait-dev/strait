@@ -1,0 +1,264 @@
+{
+  "dashboard": {
+    "uid": "strait-queue-health",
+    "title": "Strait - Queue Health",
+    "description": "Postgres queue depth, claim latency, retry lag, lock contention, backpressure, and DLQ age.",
+    "tags": ["strait", "queue", "postgres"],
+    "schemaVersion": 39,
+    "version": 1,
+    "refresh": "30s",
+    "time": {
+      "from": "now-6h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "title": "Depth by queue",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 0,
+          "y": 0
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (queue) (strait_queue_depth)",
+            "legendFormat": "{{queue}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          },
+          {
+            "refId": "B",
+            "expr": "sum by (status) (strait_queue_depth_by_status)",
+            "legendFormat": "status {{status}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
+      },
+      {
+        "title": "Claim latency",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 8,
+          "y": 0
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "histogram_quantile(0.95, sum by (le, queue, result) (rate(strait_queue_claim_duration_seconds_bucket[$interval])))",
+            "legendFormat": "p95 {{queue}} {{result}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
+      },
+      {
+        "title": "Queue lag",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 16,
+          "y": 0
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "histogram_quantile(0.95, sum by (le, project) (rate(strait_queue_lag_seconds_bucket[$interval])))",
+            "legendFormat": "p95 {{project}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          },
+          {
+            "refId": "B",
+            "expr": "histogram_quantile(0.95, sum by (le, project) (rate(strait_queue_oldest_queued_age_seconds_bucket[$interval])))",
+            "legendFormat": "oldest {{project}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
+      },
+      {
+        "title": "Contention and visibility",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 8
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (queue) (rate(strait_queue_lock_skipped_total[$interval]))",
+            "legendFormat": "lock skipped {{queue}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          },
+          {
+            "refId": "B",
+            "expr": "sum by (queue) (rate(strait_queue_visibility_timeout_expirations_total[$interval]))",
+            "legendFormat": "visibility expired {{queue}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          },
+          {
+            "refId": "C",
+            "expr": "sum by (queue) (rate(strait_queue_heartbeat_reclaims_total[$interval]))",
+            "legendFormat": "heartbeat reclaims {{queue}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ops"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
+      },
+      {
+        "title": "Backpressure and DLQ",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 8
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (project) (strait_queue_backpressure_tokens_available)",
+            "legendFormat": "tokens {{project}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          },
+          {
+            "refId": "B",
+            "expr": "max by (queue) (strait_queue_dlq_oldest_unmasked_age_seconds)",
+            "legendFormat": "oldest dlq {{queue}}",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            }
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          },
+          "overrides": []
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        }
+      }
+    ],
+    "templating": {
+      "list": [
+        {
+          "name": "datasource",
+          "type": "datasource",
+          "label": "Datasource",
+          "query": "prometheus",
+          "current": {
+            "text": "Prometheus",
+            "value": "prometheus"
+          },
+          "hide": 0
+        },
+        {
+          "name": "interval",
+          "type": "interval",
+          "label": "Interval",
+          "options": [
+            {
+              "selected": false,
+              "text": "1m",
+              "value": "1m"
+            },
+            {
+              "selected": true,
+              "text": "5m",
+              "value": "5m"
+            },
+            {
+              "selected": false,
+              "text": "15m",
+              "value": "15m"
+            },
+            {
+              "selected": false,
+              "text": "1h",
+              "value": "1h"
+            }
+          ],
+          "current": {
+            "text": "5m",
+            "value": "5m"
+          },
+          "hide": 0
+        }
+      ]
+    }
+  }
+}

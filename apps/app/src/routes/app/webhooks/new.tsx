@@ -77,6 +77,7 @@ const createWebhookSchema = z.object({
 });
 
 export const Route = createFileRoute("/app/webhooks/new")({
+  head: () => ({ meta: [{ title: "New webhook · Strait" }] }),
   errorComponent: ErrorComponent,
   component: CreateWebhookPage,
 });
@@ -166,17 +167,28 @@ function CreateWebhookPage() {
                 <Field>
                   <FieldLabel htmlFor={field.name}>URL</FieldLabel>
                   <Input
+                    aria-describedby={
+                      field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0
+                        ? `${field.name}-error`
+                        : undefined
+                    }
+                    aria-invalid={
+                      field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0
+                    }
                     id={field.name}
                     onBlur={field.handleBlur}
                     onChange={(e) => field.handleChange(e.target.value)}
                     placeholder="https://example.com/webhooks/strait"
                     value={field.state.value}
                   />
-                  {field.state.meta.errors.length > 0 && (
-                    <FieldError>
-                      {formatFieldErrors(field.state.meta.errors)}
-                    </FieldError>
-                  )}
+                  {field.state.meta.isTouched &&
+                    field.state.meta.errors.length > 0 && (
+                      <FieldError id={`${field.name}-error`}>
+                        {formatFieldErrors(field.state.meta.errors)}
+                      </FieldError>
+                    )}
                 </Field>
               )}
             </form.Field>
@@ -255,11 +267,12 @@ function CreateWebhookPage() {
                       </label>
                     ))}
                   </div>
-                  {field.state.meta.errors.length > 0 && (
-                    <FieldError className="mt-2">
-                      {formatFieldErrors(field.state.meta.errors)}
-                    </FieldError>
-                  )}
+                  {field.state.meta.isTouched &&
+                    field.state.meta.errors.length > 0 && (
+                      <FieldError className="mt-2" id={`${field.name}-error`}>
+                        {formatFieldErrors(field.state.meta.errors)}
+                      </FieldError>
+                    )}
                 </Field>
               )}
             </form.Field>

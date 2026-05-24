@@ -17,6 +17,7 @@ import (
 
 	"strait/internal/api"
 	"strait/internal/config"
+	"strait/internal/crypto"
 	"strait/internal/domain"
 	"strait/internal/queue"
 	"strait/internal/store"
@@ -32,6 +33,8 @@ var (
 	testServer *api.Server
 )
 
+const testEncryptionKey = "0123456789abcdef0123456789abcdef"
+
 func TestMain(m *testing.M) {
 	ctx := context.Background()
 
@@ -41,24 +44,30 @@ func TestMain(m *testing.M) {
 		log.Fatalf("setup test env: %v", err)
 	}
 
-	testStore = store.New(testEnv.DB.Pool)
-	testStore.SetSecretEncryptionKey("test-encryption-key-32bytes!!!!")
+	testStore = store.NewWithContextRouting(testEnv.DB.Pool)
+	testStore.SetSecretEncryptionKey(testEncryptionKey)
 	testQueue = queue.NewPostgresQueue(testEnv.DB.Pool)
+	testEncryptor, err := crypto.NewKeyRotatorFromStrings(testEncryptionKey)
+	if err != nil {
+		log.Fatalf("setup test encryptor: %v", err)
+	}
 	testServer = api.NewServer(api.ServerDeps{
 		Config: &config.Config{
 			InternalSecret:           "test-secret-value",
 			JWTSigningKey:            testJWTSigningKey,
-			SecretEncryptionKey:      "test-encryption-key-32bytes!!!!",
+			SecretEncryptionKey:      testEncryptionKey,
+			EncryptionKey:            testEncryptionKey,
 			RateLimitRequests:        0,
 			RateLimitWindow:          time.Minute,
 			TriggerRateLimitRequests: 0,
 			TriggerRateLimitWindow:   time.Minute,
 			CORSAllowedOrigins:       []string{"*"},
 			CORSAllowCredentials:     false,
-			MaxBulkTriggerItems:     500,
+			MaxBulkTriggerItems:      500,
 		},
-		Store: testStore,
-		Queue: testQueue,
+		Store:     testStore,
+		Queue:     testQueue,
+		Encryptor: testEncryptor,
 	})
 
 	code := m.Run()
@@ -345,8 +354,8 @@ func TestE2E_TriggerJob(t *testing.T) {
 	if asString(t, resp, "status") != string(domain.StatusQueued) {
 		t.Fatalf("expected queued status, got %s", asString(t, resp, "status"))
 	}
-	if asString(t, resp, "run_token") == "" {
-		t.Fatal("expected run_token")
+	if _, ok := resp["run_token"]; ok {
+		t.Fatal("trigger response must not expose SDK run_token")
 	}
 }
 
@@ -661,7 +670,8 @@ func TestE2E_RunEvents(t *testing.T) {
 	job := createJob(t, projectID, "Events", "events-"+newID())
 	triggerResp := triggerJob(t, asString(t, job, "id"), `{"payload":{"events":true}}`, "")
 	runID := asString(t, triggerResp, "id")
-	runToken := asString(t, triggerResp, "run_token")
+	runToken := makeE2ERunToken(t, runID)
+	activateE2ERun(t, runID)
 
 	w := doSDKRequest(t, http.MethodPost, "/sdk/v1/runs/"+runID+"/log", runToken, `{"type":"log","level":"info","message":"Processing started","data":{"step":1}}`)
 	if w.Code != http.StatusCreated {
@@ -688,7 +698,8 @@ func TestE2E_RunAnnotations(t *testing.T) {
 	job := createJob(t, projectID, "Annotations", "annotations-"+newID())
 	triggerResp := triggerJob(t, asString(t, job, "id"), `{"payload":{"annotations":true}}`, "")
 	runID := asString(t, triggerResp, "id")
-	runToken := asString(t, triggerResp, "run_token")
+	runToken := makeE2ERunToken(t, runID)
+	activateE2ERun(t, runID)
 
 	w := doSDKRequest(t, http.MethodPost, "/sdk/v1/runs/"+runID+"/annotate", runToken, `{"annotations":{"env":"prod","region":"eu"}}`)
 	if w.Code != http.StatusOK {
@@ -722,11 +733,13 @@ func TestE2E_ListRunsFilterByMetadata(t *testing.T) {
 
 	prodRun := triggerJob(t, jobID, `{"payload":{"run":"prod"}}`, "")
 	prodRunID := asString(t, prodRun, "id")
-	prodRunToken := asString(t, prodRun, "run_token")
+	prodRunToken := makeE2ERunToken(t, prodRunID)
+	activateE2ERun(t, prodRunID)
 
 	stageRun := triggerJob(t, jobID, `{"payload":{"run":"stage"}}`, "")
 	stageRunID := asString(t, stageRun, "id")
-	stageRunToken := asString(t, stageRun, "run_token")
+	stageRunToken := makeE2ERunToken(t, stageRunID)
+	activateE2ERun(t, stageRunID)
 
 	w := doSDKRequest(t, http.MethodPost, "/sdk/v1/runs/"+prodRunID+"/annotate", prodRunToken, `{"annotations":{"env":"prod","region":"eu"}}`)
 	if w.Code != http.StatusOK {
@@ -845,7 +858,7 @@ func TestE2E_APIKeyLifecycle(t *testing.T) {
 	mustClean(t)
 
 	projectID := "proj-api-key-" + newID()
-	createBody := fmt.Sprintf(`{"project_id":"%s","name":"e2e-key","scopes":["jobs:read","stats:read"]}`, projectID)
+	createBody := fmt.Sprintf(`{"project_id":"%s","name":"e2e-key","scopes":["jobs:read","stats:read"],"expires_in_days":30}`, projectID)
 	w := doRequest(t, http.MethodPost, "/v1/api-keys/", createBody)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create api key status = %d, body = %s", w.Code, w.Body.String())
@@ -879,7 +892,7 @@ func TestE2E_APIKeyLifecycle(t *testing.T) {
 
 // ====================================================================
 // Test hardening: E2E tests for new features
-// ====================================================================
+// ====================================================================.
 
 func TestE2E_ScopeEnforcement(t *testing.T) {
 	mustClean(t)
@@ -890,7 +903,7 @@ func TestE2E_ScopeEnforcement(t *testing.T) {
 	jobID := asString(t, created, "id")
 
 	// Create API key with ONLY jobs:read (no write, no trigger).
-	keyBody := fmt.Sprintf(`{"project_id":"%s","name":"read-only","scopes":["jobs:read"]}`, projectID)
+	keyBody := fmt.Sprintf(`{"project_id":"%s","name":"read-only","scopes":["jobs:read"],"expires_in_days":30}`, projectID)
 	kw := doRequest(t, http.MethodPost, "/v1/api-keys/", keyBody)
 	if kw.Code != http.StatusCreated {
 		t.Fatalf("create api key status = %d, body = %s", kw.Code, kw.Body.String())
@@ -928,26 +941,14 @@ func TestE2E_ScopeEnforcement(t *testing.T) {
 	}
 }
 
-func TestE2E_EmptyScopesFullAccess(t *testing.T) {
+func TestE2E_EmptyScopesRejected(t *testing.T) {
 	mustClean(t)
 
 	projectID := "proj-empty-scopes-" + newID()
-	// Create API key with empty scopes (backwards compatible = full access).
 	keyBody := fmt.Sprintf(`{"project_id":"%s","name":"full-access","scopes":[]}`, projectID)
 	kw := doRequest(t, http.MethodPost, "/v1/api-keys/", keyBody)
-	if kw.Code != http.StatusCreated {
-		t.Fatalf("create api key status = %d, body = %s", kw.Code, kw.Body.String())
-	}
-	keyResp := mustDecodeObject(t, kw)
-	rawKey := asString(t, keyResp, "key")
-
-	// Stats should work.
-	statsReq := httptest.NewRequest(http.MethodGet, "/v1/stats", nil)
-	statsReq.Header.Set("Authorization", "Bearer "+rawKey)
-	statsW := httptest.NewRecorder()
-	testServer.ServeHTTP(statsW, statsReq)
-	if statsW.Code != http.StatusOK {
-		t.Fatalf("stats with empty scopes key: status = %d, body = %s", statsW.Code, statsW.Body.String())
+	if kw.Code != http.StatusBadRequest {
+		t.Fatalf("empty scopes create status = %d, want 400; body = %s", kw.Code, kw.Body.String())
 	}
 }
 
@@ -1163,7 +1164,7 @@ func TestE2E_TagFilteringWorkflows(t *testing.T) {
 	}
 }
 
-// ── Idempotency E2E tests ──────────────────────────────────────────────
+// ── Idempotency E2E tests ──────────────────────────────────────────────.
 
 func TestE2E_IdempotencyKeyHitReturnsOriginal(t *testing.T) {
 	mustClean(t)
@@ -1208,9 +1209,9 @@ func TestE2E_IdempotencyKeyPerJobScoping(t *testing.T) {
 }
 
 func TestE2E_IdempotencyKeyReusableAfterTerminal(t *testing.T) {
-	// After STR-329, terminal runs within 24h are returned as idempotency
-	// hits to prevent duplicate execution. The same idempotency key should
-	// return the original completed run (not create a new one).
+	// Terminal runs within 24h are returned as idempotency hits to prevent
+	// duplicate execution. The same idempotency key should return the
+	// original completed run (not create a new one).
 	mustClean(t)
 
 	projectID := "proj-idem-reuse-" + newID()
@@ -1314,7 +1315,7 @@ func TestAnalyticsEndpoint_ReturnsMetrics(t *testing.T) {
 	mustClean(t)
 
 	projectID := "proj-analytics-metrics-" + newID()
-	keyW := doRequest(t, http.MethodPost, "/v1/api-keys/", fmt.Sprintf(`{"project_id":"%s","name":"analytics-metrics-key"}`, projectID))
+	keyW := doRequest(t, http.MethodPost, "/v1/api-keys/", fmt.Sprintf(`{"project_id":"%s","name":"analytics-metrics-key","scopes":["%s"],"expires_in_days":30}`, projectID, domain.ScopeStatsRead))
 	if keyW.Code != http.StatusCreated {
 		t.Fatalf("create api key status = %d, body = %s", keyW.Code, keyW.Body.String())
 	}
@@ -1376,7 +1377,7 @@ func TestAnalyticsEndpoint_PeriodHoursParam(t *testing.T) {
 	mustClean(t)
 
 	projectID := "proj-analytics-period-" + newID()
-	keyW := doRequest(t, http.MethodPost, "/v1/api-keys/", fmt.Sprintf(`{"project_id":"%s","name":"analytics-period-key"}`, projectID))
+	keyW := doRequest(t, http.MethodPost, "/v1/api-keys/", fmt.Sprintf(`{"project_id":"%s","name":"analytics-period-key","scopes":["%s"],"expires_in_days":30}`, projectID, domain.ScopeStatsRead))
 	if keyW.Code != http.StatusCreated {
 		t.Fatalf("create api key status = %d, body = %s", keyW.Code, keyW.Body.String())
 	}
@@ -1413,7 +1414,7 @@ func TestAnalyticsEndpoint_EmptyData(t *testing.T) {
 	mustClean(t)
 
 	projectID := "proj-analytics-empty-" + newID()
-	keyW := doRequest(t, http.MethodPost, "/v1/api-keys/", fmt.Sprintf(`{"project_id":"%s","name":"analytics-empty-key"}`, projectID))
+	keyW := doRequest(t, http.MethodPost, "/v1/api-keys/", fmt.Sprintf(`{"project_id":"%s","name":"analytics-empty-key","scopes":["%s"],"expires_in_days":30}`, projectID, domain.ScopeStatsRead))
 	if keyW.Code != http.StatusCreated {
 		t.Fatalf("create api key status = %d, body = %s", keyW.Code, keyW.Body.String())
 	}
@@ -1453,8 +1454,9 @@ func TestBulkCancel_WithChildRuns(t *testing.T) {
 	parentTokens := make([]string, 0, 3)
 	for range 3 {
 		triggered := triggerJob(t, asString(t, parentJob, "id"), `{"payload":{"parent":true}}`, "")
-		parentRunIDs = append(parentRunIDs, asString(t, triggered, "id"))
-		parentTokens = append(parentTokens, asString(t, triggered, "run_token"))
+		parentRunID := asString(t, triggered, "id")
+		parentRunIDs = append(parentRunIDs, parentRunID)
+		parentTokens = append(parentTokens, makeE2ERunToken(t, parentRunID))
 	}
 
 	ctx := context.Background()
@@ -1521,7 +1523,8 @@ func TestSDK_Heartbeat(t *testing.T) {
 	job := createJob(t, projectID, "SDK Heartbeat", "sdk-heartbeat-"+newID())
 	triggered := triggerJob(t, asString(t, job, "id"), `{"payload":{"hb":true}}`, "")
 	runID := asString(t, triggered, "id")
-	token := asString(t, triggered, "run_token")
+	token := makeE2ERunToken(t, runID)
+	activateE2ERun(t, runID)
 
 	w := doSDKRequest(t, http.MethodPost, "/sdk/v1/runs/"+runID+"/heartbeat", token, "")
 	if w.Code != http.StatusOK && w.Code != http.StatusNoContent {
@@ -1545,7 +1548,8 @@ func TestSDK_LogAndProgress(t *testing.T) {
 	job := createJob(t, projectID, "SDK Log Progress", "sdk-log-progress-"+newID())
 	triggered := triggerJob(t, asString(t, job, "id"), `{"payload":{"sdk":true}}`, "")
 	runID := asString(t, triggered, "id")
-	token := asString(t, triggered, "run_token")
+	token := makeE2ERunToken(t, runID)
+	activateE2ERun(t, runID)
 
 	logW := doSDKRequest(t, http.MethodPost, "/sdk/v1/runs/"+runID+"/log", token, `{"level":"info","message":"test log"}`)
 	if logW.Code != http.StatusCreated {

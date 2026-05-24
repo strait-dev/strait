@@ -228,14 +228,14 @@ func TestTracingMiddleware(t *testing.T) {
 		exporter.Reset()
 		ec := &ExecutionContext{
 			Run:   &domain.JobRun{ID: "run-1", JobID: "job-1", ProjectID: "proj-1", Attempt: 1},
-			Job:   &domain.Job{EndpointURL: "https://api.example.com/hook", Version: 3},
+			Job:   &domain.Job{EndpointURL: "https://user:pass@api.example.com/hook?token=secret#frag", Version: 3},
 			Start: time.Now(),
 		}
 		TracingMiddleware()(nopHandler)(context.Background(), ec)
 
 		spans := exporter.GetSpans()
 		attrs := spans[0].Attributes
-		assertAttr(t, attrs, "job.endpoint", "https://api.example.com/hook")
+		assertAttr(t, attrs, "job.endpoint", "https://api.example.com")
 		assertAttrInt(t, attrs, "job.version", 3)
 	})
 

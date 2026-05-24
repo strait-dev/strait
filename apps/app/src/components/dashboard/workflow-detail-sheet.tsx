@@ -12,6 +12,7 @@ import { cn } from "@strait/ui/utils/index";
 import { Link } from "@tanstack/react-router";
 import FeatureBadge from "@/components/billing/feature-badge";
 import type { Workflow, WorkflowStepType } from "@/hooks/api/types";
+import { useTriggerWorkflow } from "@/hooks/api/use-workflows";
 import { ClockIcon, PlayActionIcon, TagIcon } from "@/lib/icons";
 import StatusBadge from "./status-badge";
 
@@ -47,6 +48,8 @@ const WorkflowDetailSheet = ({
   open,
   onOpenChange,
 }: WorkflowDetailSheetProps) => {
+  const triggerWorkflow = useTriggerWorkflow();
+
   if (!workflow) {
     return null;
   }
@@ -125,7 +128,7 @@ const WorkflowDetailSheet = ({
             <div className="space-y-2.5">
               <div className="flex items-center justify-between text-sm">
                 <span className="flex items-center gap-1.5 text-muted-foreground">
-                  <HugeiconsIcon icon={ClockIcon} size={12} />
+                  <HugeiconsIcon className="size-3" icon={ClockIcon} />
                   Timeout
                 </span>
                 <span className="font-mono text-sm">
@@ -159,7 +162,7 @@ const WorkflowDetailSheet = ({
           {workflow.tags && Object.keys(workflow.tags).length > 0 && (
             <div>
               <h4 className="mb-2 flex items-center gap-1.5 font-medium text-muted-foreground text-xs uppercase">
-                <HugeiconsIcon icon={TagIcon} size={12} />
+                <HugeiconsIcon className="size-3" icon={TagIcon} />
                 Tags
               </h4>
               <div className="flex flex-wrap gap-1.5">
@@ -171,33 +174,6 @@ const WorkflowDetailSheet = ({
               </div>
             </div>
           )}
-
-          {/* Recent Runs */}
-          <div>
-            <h4 className="mb-2 font-medium text-muted-foreground text-xs uppercase">
-              Recent Runs
-            </h4>
-            <div className="space-y-1.5">
-              {[
-                { id: "wfr_1", status: "completed" as const, time: "8m ago" },
-                { id: "wfr_2", status: "running" as const, time: "45m ago" },
-                { id: "wfr_3", status: "failed" as const, time: "2h ago" },
-              ].map((run) => (
-                <div
-                  className="flex items-center justify-between rounded-md border px-3 py-2"
-                  key={run.id}
-                >
-                  <span className="font-mono text-sm">{run.id}</span>
-                  <div className="flex items-center gap-2">
-                    <StatusBadge status={run.status} />
-                    <span className="text-muted-foreground text-sm">
-                      {run.time}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
 
         <SheetFooter>
@@ -210,8 +186,12 @@ const WorkflowDetailSheet = ({
           >
             View details
           </Button>
-          <Button className="w-full">
-            <HugeiconsIcon className="mr-1.5" icon={PlayActionIcon} size={14} />
+          <Button
+            className="w-full"
+            disabled={triggerWorkflow.isPending}
+            onClick={() => triggerWorkflow.mutate({ workflowId: workflow.id })}
+          >
+            <HugeiconsIcon className="mr-1.5 size-3.5" icon={PlayActionIcon} />
             Trigger
           </Button>
         </SheetFooter>

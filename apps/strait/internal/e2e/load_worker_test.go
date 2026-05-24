@@ -105,7 +105,7 @@ func TestLoadWorker_SDKHeartbeatFlood(t *testing.T) {
 	}
 	runData := mustDecodeObject(t, trigResp)
 	runID := asString(t, runData, "id")
-	runToken := asString(t, runData, "run_token")
+	runToken := makeE2ERunToken(t, runID)
 
 	err := testStore.UpdateRunStatus(ctx, runID, domain.StatusQueued, domain.StatusDequeued, map[string]any{
 		"started_at": time.Now().UTC(),

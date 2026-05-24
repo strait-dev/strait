@@ -19,6 +19,10 @@ func (fakePartitionTunerStore) PartitionExists(context.Context, string) (bool, e
 	return true, nil
 }
 
+func (fakePartitionTunerStore) PartitionReloption(context.Context, string, string) (string, error) {
+	return "", nil
+}
+
 func TestPartitionTuner_CloseIsIdempotent(t *testing.T) {
 	t.Parallel()
 

@@ -15,17 +15,8 @@ const (
 // wrapper around ParseEdition that makes the build-tag behavior explicit.
 func BuildEdition() Edition { return ParseEdition("") }
 
-// AllowsManagedExecution returns true when managed container execution is available.
-func (e Edition) AllowsManagedExecution() bool { return e == EditionCloud }
-
-// AllowsMultiRegion returns true when multi-region execution is available.
-func (e Edition) AllowsMultiRegion() bool { return e == EditionCloud }
-
 // AllowsAdvancedAnalytics returns true when advanced ClickHouse-backed analytics are available.
 func (e Edition) AllowsAdvancedAnalytics() bool { return e == EditionCloud }
-
-// AllowsWarmPool returns true when warm machine pool management is available.
-func (e Edition) AllowsWarmPool() bool { return e == EditionCloud }
 
 // RequiresHTTPModeGating returns true when HTTP execution mode should be gated by plan.
 // On cloud, HTTP mode is restricted to Pro+. On community (self-hosted), HTTP mode is unrestricted.

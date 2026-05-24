@@ -177,10 +177,6 @@ func TestAnalyticsStore_NilClient_QueryMethods(t *testing.T) {
 			_, err := s.GetCostByTrigger(context.Background(), "p1", from, now)
 			return err
 		}},
-		{"GetCostByMachine", func() error {
-			_, err := s.GetCostByMachine(context.Background(), "p1", from, now)
-			return err
-		}},
 	}
 
 	for _, tt := range tests {
@@ -213,10 +209,6 @@ func TestAnalyticsStore_ClosedDB_QueryRowMethods(t *testing.T) {
 	}{
 		{"GetCostAnalytics", func() error {
 			_, err := s.GetCostAnalytics(context.Background(), "p1", from, now)
-			return err
-		}},
-		{"GetComputeCostAnalytics", func() error {
-			_, err := s.GetComputeCostAnalytics(context.Background(), "p1", from, now)
 			return err
 		}},
 		{"GetApprovalStats", func() error {

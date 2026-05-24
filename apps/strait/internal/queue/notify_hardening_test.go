@@ -75,6 +75,21 @@ func TestQueueNotifier_DegradedResetNoOpWhenNotDegraded(t *testing.T) {
 	}
 }
 
+func TestDisconnectStartForFailedListenResetsAfterReconnect(t *testing.T) {
+	oldOutage := time.Now().Add(-time.Hour)
+	newOutage := time.Now()
+
+	got := disconnectStartForFailedListen(oldOutage, true, newOutage)
+	if !got.Equal(newOutage) {
+		t.Fatalf("disconnect start after connected listen = %v, want %v", got, newOutage)
+	}
+
+	stillDown := disconnectStartForFailedListen(oldOutage, false, newOutage)
+	if !stillDown.Equal(oldOutage) {
+		t.Fatalf("ongoing outage start = %v, want original %v", stillDown, oldOutage)
+	}
+}
+
 func TestQueueNotifier_ReconnectCountIsAtomic(t *testing.T) {
 	n := NewQueueNotifier("postgres://unused", nil)
 
@@ -167,6 +182,28 @@ func TestDegradedRecoveryReArmsWithFreshChannel(t *testing.T) {
 		// expected: old channel stays closed
 	default:
 		t.Error("old channel should remain closed after reset")
+	}
+}
+
+func TestQueueNotifier_SuccessfulListenClearsDegradedImmediately(t *testing.T) {
+	n := NewQueueNotifier("postgres://unused", nil)
+	n.MarkDegradedForTest()
+	old := n.Degraded()
+	select {
+	case <-old:
+	default:
+		t.Fatal("old degraded channel should be closed")
+	}
+
+	n.markListenConnected()
+	fresh := n.Degraded()
+	select {
+	case <-fresh:
+		t.Fatal("successful listen should replace degraded channel immediately")
+	default:
+	}
+	if atomic.LoadInt64(&n.lastConnectedUnixNano) == 0 {
+		t.Fatal("successful listen should record connection timestamp")
 	}
 }
 

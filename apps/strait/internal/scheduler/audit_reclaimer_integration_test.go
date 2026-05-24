@@ -17,7 +17,7 @@ import (
 // seedDLQ inserts n deadletter audit events for the given project.
 func seedDLQ(t *testing.T, ctx context.Context, q *store.Queries, projectID string, n int) {
 	t.Helper()
-	for i := 0; i < n; i++ {
+	for i := range n {
 		ev := &domain.AuditEvent{
 			ProjectID:    projectID,
 			ActorID:      "actor-dlq",
@@ -95,14 +95,12 @@ func TestReclaimAuditDeadletter_RespectsBatchCap(t *testing.T) {
 	}
 }
 
-// failingChainStore wraps *store.Queries but forces CreateAuditEvent to error
-// so the reclaimer cannot promote DLQ rows into the primary chain.
-type failingChainStore struct {
+type failingReplayStore struct {
 	*store.Queries
 }
 
-func (f *failingChainStore) CreateAuditEvent(_ context.Context, _ *domain.AuditEvent) error {
-	return errors.New("simulated chain insert failure")
+func (f *failingReplayStore) ReplayAuditEventDeadletter(context.Context, string, string, string) (*domain.AuditEvent, bool, error) {
+	return nil, false, errors.New("simulated replay failure")
 }
 
 func TestReclaimAuditDeadletter_PermanentFailure_LeavesInDLQ(t *testing.T) {
@@ -116,8 +114,7 @@ func TestReclaimAuditDeadletter_PermanentFailure_LeavesInDLQ(t *testing.T) {
 	const projectID = "proj-reclaim-permfail"
 	seedDLQ(t, ctx, q, projectID, 3)
 
-	wrapped := &failingChainStore{Queries: q}
-	r := scheduler.NewReaper(wrapped, time.Second, time.Minute, 0, 0, false, nil).
+	r := scheduler.NewReaper(&failingReplayStore{Queries: q}, time.Second, time.Minute, 0, 0, false, nil).
 		WithAuditDLQReclaimBatch(200)
 	r.ReapOnce(ctx)
 

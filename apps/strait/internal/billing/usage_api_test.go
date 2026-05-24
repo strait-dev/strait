@@ -86,12 +86,14 @@ func TestUsageService_GetCurrentUsage(t *testing.T) {
 		t.Errorf("deprecated ai assistant field = %+v, want %+v", resp.Usage.AIAssistantMessages, resp.Usage.AIModelCalls)
 	}
 	assertFloatApprox(t, resp.Usage.AIModelCalls.Percent, 35)
-	assertFloatApprox(t, resp.Usage.ConcurrentRuns.Percent, 60)
-	// Members: 2 used / 1 limit = 200% (over limit on free).
+	// ConcurrentRuns: 3 used / ConcurrentFree limit.
+	expectedConcPct := safePercent(3, int64(freeLimits.MaxConcurrentRuns))
+	assertFloatApprox(t, resp.Usage.ConcurrentRuns.Percent, expectedConcPct)
+	// Members: 2 used / MaxMembersFree limit.
 	expectedMemberPct := safePercent(2, int64(freeLimits.MaxMembersPerOrg))
 	assertFloatApprox(t, resp.Usage.Members.Percent, expectedMemberPct)
-	if resp.Usage.RetentionDays != 1 {
-		t.Errorf("retention = %d, want 1", resp.Usage.RetentionDays)
+	if resp.Usage.RetentionDays != RetentionFree {
+		t.Errorf("retention = %d, want %d", resp.Usage.RetentionDays, RetentionFree)
 	}
 }
 
@@ -249,9 +251,10 @@ func TestUsageService_GetSpendingLimit_FreeTierWithoutSubscription(t *testing.T)
 	if !resp.IsHardCapped {
 		t.Fatal("expected free tier response to be hard capped")
 	}
+	// Orchestration-only: no included credit; all spend is overage.
 	assertFloatApprox(t, resp.CurrentSpendUsd, 2.5)
-	assertFloatApprox(t, resp.OverageSpendUsd, 1.5)
-	assertFloatApprox(t, resp.IncludedCreditUsd, 1)
+	assertFloatApprox(t, resp.OverageSpendUsd, 2.5)
+	assertFloatApprox(t, resp.IncludedCreditUsd, 0)
 }
 
 func TestUsageService_GetSpendingLimit_FreeTierWithSubscription(t *testing.T) {
@@ -281,9 +284,10 @@ func TestUsageService_GetSpendingLimit_FreeTierWithSubscription(t *testing.T) {
 	if !resp.IsHardCapped {
 		t.Fatal("expected free tier response to be hard capped")
 	}
+	// Orchestration-only: no included credit; all spend is overage.
 	assertFloatApprox(t, resp.CurrentSpendUsd, 1.25)
-	assertFloatApprox(t, resp.OverageSpendUsd, 0.25)
-	assertFloatApprox(t, resp.IncludedCreditUsd, 1)
+	assertFloatApprox(t, resp.OverageSpendUsd, 1.25)
+	assertFloatApprox(t, resp.IncludedCreditUsd, 0)
 }
 
 func TestUsageService_SetSpendingLimit_FreeTierWithoutSubscription(t *testing.T) {
@@ -395,8 +399,9 @@ func TestRecommendPlan(t *testing.T) {
 		{"low_usage", 1000, 0, "free"},
 		{"moderate", 200000, 10_000_000, "starter"},
 		{"high", 1000000, 30_000_000, "pro"},
-		{"scale_range", 5000000, 60_000_000, "scale"},
-		{"very_high", 10000000, 100_000_000, "enterprise"},
+		{"scale_range", 5000000, 200_000_000, "scale"},
+		{"business_range", 8000000, 400_000_000, "business"},
+		{"very_high", 10000000, 600_000_000, "enterprise"},
 	}
 
 	for _, tt := range tests {
@@ -506,9 +511,11 @@ func TestUsageService_NoOverageAlertForFreePlan(t *testing.T) {
 	}
 }
 
-func TestUsageService_GetCurrentUsage_FreeTierAtIncludedCredit(t *testing.T) {
+func TestUsageService_GetCurrentUsage_FreeTierNoIncludedCredit(t *testing.T) {
 	t.Parallel()
 
+	// Orchestration-only: free tier has no included compute credit.
+	// All spend is overage, and IncludedCreditMicro is always 0.
 	store := &mockBillingStore{
 		periodSpendByOrg: map[string]int64{
 			"org_free": CreditFreeMicrousd,
@@ -524,27 +531,28 @@ func TestUsageService_GetCurrentUsage_FreeTierAtIncludedCredit(t *testing.T) {
 	if resp.Plan != "free" {
 		t.Fatalf("plan = %q, want free", resp.Plan)
 	}
-	if resp.IncludedCreditMicro != CreditFreeMicrousd {
-		t.Fatalf("included credit = %d, want %d", resp.IncludedCreditMicro, CreditFreeMicrousd)
+	if resp.IncludedCreditMicro != 0 {
+		t.Fatalf("included credit = %d, want 0 (no compute credit in orchestration-only mode)", resp.IncludedCreditMicro)
 	}
 	if resp.PeriodSpendMicro != CreditFreeMicrousd {
 		t.Fatalf("period spend = %d, want %d", resp.PeriodSpendMicro, CreditFreeMicrousd)
 	}
-	if resp.OverageMicro != 0 {
-		t.Fatalf("overage = %d, want 0", resp.OverageMicro)
+	// All spend is overage when there is no included credit.
+	if resp.OverageMicro != CreditFreeMicrousd {
+		t.Fatalf("overage = %d, want %d", resp.OverageMicro, CreditFreeMicrousd)
 	}
-	assertFloatApprox(t, resp.Usage.ComputeCredit.Percent, 100)
 
 	for _, alert := range resp.Alerts {
 		if alert.Dimension == "overage" {
-			t.Fatal("free plan at included credit should not have overage alert")
+			t.Fatal("free plan should not emit paid-plan overage alert")
 		}
 	}
 }
 
-func TestUsageService_GetCurrentUsage_FreeTierOverIncludedCredit(t *testing.T) {
+func TestUsageService_GetCurrentUsage_FreeTierOverSpend_NoOvgAlert(t *testing.T) {
 	t.Parallel()
 
+	// Free tier does not emit the paid-plan overage alert even with high spend.
 	store := &mockBillingStore{
 		periodSpendByOrg: map[string]int64{
 			"org_free": CreditFreeMicrousd + 250_000,
@@ -556,11 +564,6 @@ func TestUsageService_GetCurrentUsage_FreeTierOverIncludedCredit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	if resp.OverageMicro != 250_000 {
-		t.Fatalf("overage = %d, want 250000", resp.OverageMicro)
-	}
-	assertFloatApprox(t, resp.Usage.ComputeCredit.Percent, 125)
 
 	for _, alert := range resp.Alerts {
 		if alert.Dimension == "overage" {
@@ -709,6 +712,17 @@ func TestUsageService_SetProjectBudget_Valid(t *testing.T) {
 	}
 }
 
+func TestUsageService_SetProjectBudget_AcceptsBlockAction(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{}
+	svc, _ := newUsageServiceTest(t, store)
+
+	if err := svc.SetProjectBudget(context.Background(), "proj-1", 5_000_000, "block"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestUsageService_SetProjectBudget_InvalidAction(t *testing.T) {
 	t.Parallel()
 	svc, _ := newUsageServiceTest(t, &mockBillingStore{})
@@ -848,12 +862,14 @@ func TestUsageService_GetCurrentUsage_CreditBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.OverageMicro != 0 {
-		t.Errorf("overage at exactly included credit should be 0, got %d", resp.OverageMicro)
+	// Orchestration-only: all spend is overage (no included compute credit).
+	if resp.OverageMicro != CreditStarterMicrousd {
+		t.Errorf("overage should equal total spend in orchestration-only mode, got %d want %d", resp.OverageMicro, CreditStarterMicrousd)
 	}
-	assertFloatApprox(t, resp.CreditUsedPercent, 100)
+	// No included credit means CreditUsedPercent = 0.
+	assertFloatApprox(t, resp.CreditUsedPercent, 0)
 	if resp.CreditRemainingMicro != 0 {
-		t.Errorf("remaining credit should be 0 at boundary, got %d", resp.CreditRemainingMicro)
+		t.Errorf("remaining credit should always be 0 in orchestration-only mode, got %d", resp.CreditRemainingMicro)
 	}
 }
 

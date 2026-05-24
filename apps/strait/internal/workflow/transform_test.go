@@ -132,3 +132,59 @@ func TestApplyOutputTransform(t *testing.T) {
 		})
 	}
 }
+
+func BenchmarkApplyOutputTransform(b *testing.B) {
+	rawOutput := json.RawMessage(`{
+		"data":{"value":42,"nested":{"x":1,"y":2},"items":[{"id":1},{"id":2},{"id":3}]},
+		"metadata":{"status":"completed","attempt":2}
+	}`)
+
+	b.Run("no_transform", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			got, err := ApplyOutputTransform(rawOutput, "")
+			if err != nil {
+				b.Fatal(err)
+			}
+			if len(got) == 0 {
+				b.Fatal("empty output")
+			}
+		}
+	})
+	b.Run("nested_scalar", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			got, err := ApplyOutputTransform(rawOutput, "data.value")
+			if err != nil {
+				b.Fatal(err)
+			}
+			if string(got) != "42" {
+				b.Fatalf("got %s", got)
+			}
+		}
+	})
+	b.Run("nested_object", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			got, err := ApplyOutputTransform(rawOutput, "data.nested")
+			if err != nil {
+				b.Fatal(err)
+			}
+			if len(got) == 0 {
+				b.Fatal("empty object")
+			}
+		}
+	})
+	b.Run("wildcard", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			got, err := ApplyOutputTransform(rawOutput, "data.items.#.id")
+			if err != nil {
+				b.Fatal(err)
+			}
+			if string(got) != "[1,2,3]" {
+				b.Fatalf("got %s", got)
+			}
+		}
+	})
+}

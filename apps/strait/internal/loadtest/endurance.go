@@ -42,6 +42,8 @@ type EnduranceResult struct {
 	LongRunFailed    int `json:"long_run_failed"`
 }
 
+const loadGeneratorMaxInFlight = 1024
+
 // Alert represents a detected issue during endurance testing.
 type Alert struct {
 	Severity string    `json:"severity"` // LEAK, DEGRADATION, WARNING
@@ -89,6 +91,10 @@ func (er *EnduranceRunner) Run(ctx context.Context, h *Harness) (*EnduranceResul
 	// Track operations
 	var ops, errs atomic.Int64
 	var spikeActive atomic.Bool
+	fastEchoJobID := h.ResolveJobID("loadtest-fast-echo")
+	slowProcessJobID := h.ResolveJobID("loadtest-slow-process")
+	var triggerWG conc.WaitGroup
+	triggerSlots := make(chan struct{}, boundedLoadGeneratorCapacity(er.config.TargetRate*er.config.SpikeMultiple))
 
 	// Baseline load goroutine
 	var wg conc.WaitGroup
@@ -106,17 +112,23 @@ func (er *EnduranceRunner) Run(ctx context.Context, h *Harness) (*EnduranceResul
 			}
 
 			interval := time.Second / time.Duration(max(rate, 1))
-			time.Sleep(interval)
+			timer := time.NewTimer(interval)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
 
-			go func() {
-				if err := h.TriggerJob(ctx, "loadtest-project", "loadtest-fast-echo", map[string]any{
+			startTrackedLoadtestTrigger(ctx, &triggerWG, triggerSlots, func(ctx context.Context) error {
+				return h.TriggerJob(ctx, "loadtest-project", fastEchoJobID, map[string]any{
 					"timestamp": time.Now().UnixMilli(),
-				}); err != nil {
-					errs.Add(1)
-					return
-				}
+				})
+			}, func() {
 				ops.Add(1)
-			}()
+			}, func() {
+				errs.Add(1)
+			})
 		}
 	})
 
@@ -132,10 +144,15 @@ func (er *EnduranceRunner) Run(ctx context.Context, h *Harness) (*EnduranceResul
 				case <-ticker.C:
 					spikeActive.Store(true)
 					result.SpikesInjected++
-					time.Sleep(er.config.SpikeDuration)
+					if !sleepWithContext(ctx, er.config.SpikeDuration) {
+						spikeActive.Store(false)
+						return
+					}
 					spikeActive.Store(false)
 					// Allow 10 min recovery
-					time.Sleep(10 * time.Minute)
+					if !sleepWithContext(ctx, 10*time.Minute) {
+						return
+					}
 				}
 			}
 		})
@@ -145,15 +162,11 @@ func (er *EnduranceRunner) Run(ctx context.Context, h *Harness) (*EnduranceResul
 	var longRunCompleted, longRunFailed atomic.Int32
 	for range er.config.LongRunJobs {
 		wg.Go(func() {
-			err := h.TriggerJob(ctx, "loadtest-project", "loadtest-slow-cpu", map[string]any{
+			_, status, _, err := h.TriggerAndWait(ctx, "loadtest-project", slowProcessJobID, map[string]any{
 				"work_duration": er.config.LongRunMinutes * 60,
 				"timestamp":     time.Now().UnixMilli(),
-			})
-			if err != nil {
-				longRunFailed.Add(1)
-			} else {
-				longRunCompleted.Add(1)
-			}
+			}, longRunWaitTimeout(er.config.LongRunMinutes))
+			recordLongRunOutcome(status, err, &longRunCompleted, &longRunFailed)
 		})
 	}
 
@@ -189,6 +202,7 @@ func (er *EnduranceRunner) Run(ctx context.Context, h *Harness) (*EnduranceResul
 
 	// Wait for completion
 	wg.Wait()
+	triggerWG.Wait()
 
 	result.TotalOperations = ops.Load()
 	result.TotalErrors = errs.Load()
@@ -197,6 +211,21 @@ func (er *EnduranceRunner) Run(ctx context.Context, h *Harness) (*EnduranceResul
 	result.LongRunFailed = int(longRunFailed.Load())
 
 	return result, alerts, nil
+}
+
+func longRunWaitTimeout(minutes int) time.Duration {
+	if minutes <= 0 {
+		return time.Minute
+	}
+	return time.Duration(minutes)*time.Minute + 5*time.Minute
+}
+
+func recordLongRunOutcome(status string, err error, completed, failed *atomic.Int32) {
+	if err != nil || status != "completed" {
+		failed.Add(1)
+		return
+	}
+	completed.Add(1)
 }
 
 func (er *EnduranceRunner) checkThresholds(hour int, prev, curr *MetricsSnapshot) []Alert {
@@ -300,6 +329,10 @@ func (ei *ErrorInjector) Run(ctx context.Context) {
 	interval := time.Minute / time.Duration(max(ei.perMinute, 1))
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	errorJobID := ei.harness.ResolveJobID("loadtest-errors")
+	var triggerWG conc.WaitGroup
+	triggerSlots := make(chan struct{}, boundedLoadGeneratorCapacity(ei.perMinute))
+	defer triggerWG.Wait()
 
 	for {
 		select {
@@ -307,12 +340,13 @@ func (ei *ErrorInjector) Run(ctx context.Context) {
 			return
 		case <-ticker.C:
 			scenario := scenarios[rand.IntN(len(scenarios))] //nolint:gosec // non-cryptographic use for load test randomization
-			go func() {
-				_ = ei.harness.TriggerJob(ctx, ei.projectID, "loadtest-errors", map[string]any{
+			startTrackedLoadtestTrigger(ctx, &triggerWG, triggerSlots, func(ctx context.Context) error {
+				return ei.harness.TriggerJob(ctx, ei.projectID, errorJobID, map[string]any{
 					"scenario": scenario,
 				})
+			}, func() {
 				ei.injected.Add(1)
-			}()
+			}, nil)
 		}
 	}
 }
@@ -320,4 +354,53 @@ func (ei *ErrorInjector) Run(ctx context.Context) {
 // Injected returns the total number of error scenarios injected.
 func (ei *ErrorInjector) Injected() int64 {
 	return ei.injected.Load()
+}
+
+func boundedLoadGeneratorCapacity(rate int) int {
+	if rate <= 0 {
+		return 1
+	}
+	return min(rate, loadGeneratorMaxInFlight)
+}
+
+func sleepWithContext(ctx context.Context, d time.Duration) bool {
+	if d <= 0 {
+		return true
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+func startTrackedLoadtestTrigger(
+	ctx context.Context,
+	wg *conc.WaitGroup,
+	slots chan struct{},
+	trigger func(context.Context) error,
+	onSuccess func(),
+	onError func(),
+) bool {
+	select {
+	case slots <- struct{}{}:
+	case <-ctx.Done():
+		return false
+	}
+	wg.Go(func() {
+		defer func() { <-slots }()
+		if err := trigger(ctx); err != nil {
+			if onError != nil {
+				onError()
+			}
+			return
+		}
+		if onSuccess != nil {
+			onSuccess()
+		}
+	})
+	return true
 }

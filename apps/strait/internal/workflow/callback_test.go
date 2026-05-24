@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
+	"slices"
 	"testing"
 	"time"
 
@@ -19,10 +21,12 @@ func newTestCallback(ms *mockCallbackStore) *StepCallback {
 // testWfCtx builds a wfCtx from inline data for tests that call internal methods directly.
 func testWfCtx(run *domain.WorkflowRun, steps []domain.WorkflowStep) *wfCtx {
 	stepByRef := make(map[string]domain.WorkflowStep, len(steps))
-	for _, st := range steps {
+	stepIndex := make(map[string]int, len(steps))
+	for i, st := range steps {
 		stepByRef[st.StepRef] = st
+		stepIndex[st.StepRef] = i
 	}
-	return &wfCtx{run: run, steps: steps, stepByRef: stepByRef}
+	return &wfCtx{run: run, steps: steps, stepByRef: stepByRef, stepIndex: stepIndex}
 }
 
 func TestHandleFailedStep_SkipDependentsPolicy(t *testing.T) {
@@ -340,6 +344,146 @@ func TestCheckWorkflowCompletion_FailedWithoutContinue(t *testing.T) {
 	}
 }
 
+func TestHasBlockingFailedStep(t *testing.T) {
+	t.Parallel()
+	steps := []domain.WorkflowStep{
+		{StepRef: "continue", OnFailure: domain.Continue},
+		{StepRef: "continue-too", OnFailure: domain.Continue},
+		{StepRef: "fail", OnFailure: domain.FailWorkflow},
+		{StepRef: "default"},
+	}
+	tests := []struct {
+		name           string
+		failedStepRefs []string
+		want           bool
+	}{
+		{name: "no failed refs", failedStepRefs: nil, want: false},
+		{name: "single continue failure", failedStepRefs: []string{"continue"}, want: false},
+		{name: "single explicit failure", failedStepRefs: []string{"fail"}, want: true},
+		{name: "single default failure", failedStepRefs: []string{"default"}, want: true},
+		{name: "unknown failure blocks", failedStepRefs: []string{"missing"}, want: true},
+		{name: "mixed continue and failure blocks", failedStepRefs: []string{"continue", "fail"}, want: true},
+		{name: "all continue failures do not block", failedStepRefs: []string{"continue", "continue-too"}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := hasBlockingFailedStep(steps, tt.failedStepRefs)
+			if got != tt.want {
+				t.Fatalf("hasBlockingFailedStep() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func BenchmarkHasBlockingFailedStep(b *testing.B) {
+	steps := make([]domain.WorkflowStep, 100)
+	for i := range steps {
+		steps[i] = domain.WorkflowStep{
+			StepRef:   fmt.Sprintf("step-%03d", i),
+			OnFailure: domain.FailWorkflow,
+		}
+	}
+	steps[90].OnFailure = domain.Continue
+
+	b.Run("no_failed_refs", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if hasBlockingFailedStep(steps, nil) {
+				b.Fatal("expected no blocking failure")
+			}
+		}
+	})
+	b.Run("single_continue_failure", func(b *testing.B) {
+		failedRefs := []string{"step-090"}
+		b.ReportAllocs()
+		for b.Loop() {
+			if hasBlockingFailedStep(steps, failedRefs) {
+				b.Fatal("expected continue failure to be ignored")
+			}
+		}
+	})
+	b.Run("single_blocking_failure", func(b *testing.B) {
+		failedRefs := []string{"step-099"}
+		b.ReportAllocs()
+		for b.Loop() {
+			if !hasBlockingFailedStep(steps, failedRefs) {
+				b.Fatal("expected blocking failure")
+			}
+		}
+	})
+	b.Run("multiple_continue_failures", func(b *testing.B) {
+		for i := range steps {
+			steps[i].OnFailure = domain.Continue
+		}
+		failedRefs := []string{"step-010", "step-050", "step-090"}
+		b.ReportAllocs()
+		for b.Loop() {
+			if hasBlockingFailedStep(steps, failedRefs) {
+				b.Fatal("expected no blocking failure")
+			}
+		}
+	})
+}
+
+func BenchmarkAggregateChildStepOutputs(b *testing.B) {
+	stepRuns := make([]domain.WorkflowStepRun, 1000)
+	for i := range stepRuns {
+		ref := fmt.Sprintf("step-%04d", i)
+		stepRuns[i] = domain.WorkflowStepRun{
+			ID:      "sr-" + ref,
+			StepRef: ref,
+		}
+		if i%2 == 0 {
+			stepRuns[i].Output = json.RawMessage(`{"ok":true}`)
+		}
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		output := aggregateChildStepOutputs(stepRuns)
+		if len(output) == 0 {
+			b.Fatal("expected aggregated output")
+		}
+	}
+}
+
+func TestAggregateChildStepOutputs(t *testing.T) {
+	t.Parallel()
+	output := aggregateChildStepOutputs([]domain.WorkflowStepRun{
+		{StepRef: `step-"a"`, Output: json.RawMessage(`{"a":1}`)},
+		{StepRef: "empty"},
+		{StepRef: "step-b", Output: json.RawMessage(`{"b":2}`)},
+	})
+	if len(output) == 0 {
+		t.Fatal("expected aggregated output")
+	}
+	var parsed map[string]json.RawMessage
+	if err := json.Unmarshal(output, &parsed); err != nil {
+		t.Fatalf("aggregated output is invalid JSON: %v", err)
+	}
+	if string(parsed[`step-"a"`]) != `{"a":1}` {
+		t.Fatalf("escaped step output = %s, want {\"a\":1}", parsed[`step-"a"`])
+	}
+	if _, ok := parsed["empty"]; ok {
+		t.Fatal("empty output should not be included")
+	}
+	if string(parsed["step-b"]) != `{"b":2}` {
+		t.Fatalf("step-b output = %s, want {\"b\":2}", parsed["step-b"])
+	}
+}
+
+func TestAggregateChildStepOutputs_NoOutputs(t *testing.T) {
+	t.Parallel()
+	output := aggregateChildStepOutputs([]domain.WorkflowStepRun{
+		{StepRef: "a"},
+		{StepRef: "b"},
+	})
+	if output != nil {
+		t.Fatalf("expected nil output, got %s", output)
+	}
+}
+
 func TestSkipDependentSteps_TransitiveSkip(t *testing.T) {
 	t.Parallel()
 	skippedIDs := make(map[string]bool)
@@ -395,6 +539,133 @@ func TestSkipDependentSteps_TransitiveSkip(t *testing.T) {
 	}
 }
 
+func TestDependentStepRefs_OrderedChain(t *testing.T) {
+	t.Parallel()
+	steps := benchmarkSkipDependentChain(1000)
+
+	got := dependentStepRefs(steps, nil, "step-0500")
+
+	if len(got) != 499 {
+		t.Fatalf("dependentStepRefs length = %d, want 499", len(got))
+	}
+	if got[0] != "step-0501" {
+		t.Fatalf("first dependent = %q, want step-0501", got[0])
+	}
+	if got[len(got)-1] != "step-0999" {
+		t.Fatalf("last dependent = %q, want step-0999", got[len(got)-1])
+	}
+}
+
+func TestDependentStepRefs_RootFanOut(t *testing.T) {
+	t.Parallel()
+	steps := benchmarkSkipDependentFanOut(1000)
+
+	got := dependentStepRefs(steps, nil, "root")
+
+	if len(got) != 999 {
+		t.Fatalf("dependentStepRefs length = %d, want 999", len(got))
+	}
+	if got[0] != "step-0001" {
+		t.Fatalf("first dependent = %q, want step-0001", got[0])
+	}
+	if got[len(got)-1] != "step-0999" {
+		t.Fatalf("last dependent = %q, want step-0999", got[len(got)-1])
+	}
+}
+
+func TestDependentStepRefs_UnorderedDAGFallsBack(t *testing.T) {
+	t.Parallel()
+	steps := []domain.WorkflowStep{
+		{StepRef: "child", DependsOn: []string{"root"}},
+		{StepRef: "root"},
+	}
+
+	got := dependentStepRefs(steps, nil, "root")
+	want := []string{"child"}
+
+	if !slices.Equal(got, want) {
+		t.Fatalf("dependentStepRefs = %v, want %v", got, want)
+	}
+}
+
+func BenchmarkSkipDependentSteps(b *testing.B) {
+	benchmarks := []struct {
+		name          string
+		steps         []domain.WorkflowStep
+		failedStepRef string
+		wantSkipped   int
+	}{
+		{
+			name:          "chain100",
+			steps:         benchmarkSkipDependentChain(100),
+			failedStepRef: "step-0000",
+			wantSkipped:   99,
+		},
+		{
+			name:          "chain1000",
+			steps:         benchmarkSkipDependentChain(1000),
+			failedStepRef: "step-0000",
+			wantSkipped:   999,
+		},
+		{
+			name:          "fanout1000",
+			steps:         benchmarkSkipDependentFanOut(1000),
+			failedStepRef: "root",
+			wantSkipped:   999,
+		},
+	}
+
+	for _, bm := range benchmarks {
+		b.Run(bm.name, func(b *testing.B) {
+			ms := &mockCallbackStore{
+				skipStepRunsByRefsFn: func(_ context.Context, _ string, refs []string, _ time.Time) (int64, error) {
+					if len(refs) != bm.wantSkipped {
+						b.Fatalf("skipped refs = %d, want %d", len(refs), bm.wantSkipped)
+					}
+					return int64(len(refs)), nil
+				},
+			}
+			cb := newTestCallback(ms)
+			wc := testWfCtx(
+				&domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning},
+				bm.steps,
+			)
+			ctx := context.Background()
+
+			b.ReportAllocs()
+			for b.Loop() {
+				if err := cb.skipDependentSteps(ctx, "wr-1", wc, bm.failedStepRef); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+func benchmarkSkipDependentChain(n int) []domain.WorkflowStep {
+	steps := make([]domain.WorkflowStep, n)
+	for i := range steps {
+		ref := fmt.Sprintf("step-%04d", i)
+		steps[i] = domain.WorkflowStep{StepRef: ref}
+		if i > 0 {
+			steps[i].DependsOn = []string{steps[i-1].StepRef}
+		}
+	}
+	return steps
+}
+
+func benchmarkSkipDependentFanOut(n int) []domain.WorkflowStep {
+	steps := make([]domain.WorkflowStep, n)
+	steps[0] = domain.WorkflowStep{StepRef: "root"}
+	for i := 1; i < n; i++ {
+		steps[i] = domain.WorkflowStep{
+			StepRef:   fmt.Sprintf("step-%04d", i),
+			DependsOn: []string{"root"},
+		}
+	}
+	return steps
+}
+
 func TestEmitEventIfConfigured_ResolvesWaitingTrigger(t *testing.T) {
 	t.Parallel()
 
@@ -408,6 +679,7 @@ func TestEmitEventIfConfigured_ResolvesWaitingTrigger(t *testing.T) {
 				return &domain.WorkflowRun{
 					ID:              "wr-1",
 					WorkflowID:      "wf-1",
+					ProjectID:       "proj-1",
 					WorkflowVersion: 1,
 					Status:          domain.WfStatusRunning,
 					Payload:         json.RawMessage(`{"env":"prod"}`),
@@ -478,7 +750,7 @@ func TestEmitEventIfConfigured_ResolvesWaitingTrigger(t *testing.T) {
 
 	// Call tryEmitEvent which should resolve the waiting trigger AND resume the step.
 	wc := testWfCtx(
-		&domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", WorkflowVersion: 1, Status: domain.WfStatusRunning, Payload: json.RawMessage(`{"env":"prod"}`)},
+		&domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", ProjectID: "proj-1", WorkflowVersion: 1, Status: domain.WfStatusRunning, Payload: json.RawMessage(`{"env":"prod"}`)},
 		[]domain.WorkflowStep{
 			{StepRef: "emitter", EventEmitKey: "chain:{{env}}:done"},
 			{StepRef: "waiter", StepType: domain.WorkflowStepTypeWaitForEvent, EventKey: "chain:prod:done"},
@@ -773,7 +1045,7 @@ func TestEmitEventIfConfigured_TriggerNotFound(t *testing.T) {
 	cb.emitEventIfConfigured(context.Background(),
 		&domain.WorkflowStepRun{ID: "sr-1"},
 		&domain.WorkflowStep{StepRef: "step-1", EventEmitKey: "emit:test"},
-		&domain.WorkflowRun{ID: "wr-1"},
+		&domain.WorkflowRun{ID: "wr-1", ProjectID: "proj-1"},
 	)
 }
 
@@ -795,7 +1067,7 @@ func TestEmitEventIfConfigured_TriggerAlreadyReceived(t *testing.T) {
 	cb.emitEventIfConfigured(context.Background(),
 		&domain.WorkflowStepRun{ID: "sr-1"},
 		&domain.WorkflowStep{StepRef: "step-1", EventEmitKey: "emit:test"},
-		&domain.WorkflowRun{ID: "wr-1"},
+		&domain.WorkflowRun{ID: "wr-1", ProjectID: "proj-1"},
 	)
 }
 
@@ -813,7 +1085,7 @@ func TestEmitEventIfConfigured_GetTriggerError(t *testing.T) {
 	cb.emitEventIfConfigured(context.Background(),
 		&domain.WorkflowStepRun{ID: "sr-1"},
 		&domain.WorkflowStep{StepRef: "step-1", EventEmitKey: "emit:test"},
-		&domain.WorkflowRun{ID: "wr-1"},
+		&domain.WorkflowRun{ID: "wr-1", ProjectID: "proj-1"},
 	)
 }
 
@@ -839,7 +1111,7 @@ func TestEmitEventIfConfigured_UpdateTriggerError(t *testing.T) {
 	cb.emitEventIfConfigured(context.Background(),
 		&domain.WorkflowStepRun{ID: "sr-1", Output: json.RawMessage(`{"ok":true}`)},
 		&domain.WorkflowStep{StepRef: "step-1", EventEmitKey: "emit:test"},
-		&domain.WorkflowRun{ID: "wr-1"},
+		&domain.WorkflowRun{ID: "wr-1", ProjectID: "proj-1"},
 	)
 }
 
@@ -871,7 +1143,7 @@ func TestEmitEventIfConfigured_JobRunSource(t *testing.T) {
 	cb.emitEventIfConfigured(context.Background(),
 		&domain.WorkflowStepRun{ID: "sr-1", Output: json.RawMessage(`{"result":"done"}`)},
 		&domain.WorkflowStep{StepRef: "step-1", EventEmitKey: "emit:job"},
-		&domain.WorkflowRun{ID: "wr-1"},
+		&domain.WorkflowRun{ID: "wr-1", ProjectID: "proj-1"},
 	)
 
 	if requeuedRunID != "run-99" {

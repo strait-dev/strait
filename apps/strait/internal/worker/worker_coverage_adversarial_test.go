@@ -317,7 +317,7 @@ func TestIngestStripeUsageEvent_NilStripeUsageReporter(t *testing.T) {
 	})
 
 	// Should return immediately without panic.
-	exec.ingestStripeUsageEvent(context.Background(), "proj-1", "run-1", 5000)
+	exec.ingestStripeUsageEvent(context.Background(), "proj-1", "run-1", billing.HTTPCostPerRunMicrousd)
 }
 
 func TestIngestStripeUsageEvent_NilBillingEnforcer(t *testing.T) {
@@ -336,45 +336,7 @@ func TestIngestStripeUsageEvent_NilBillingEnforcer(t *testing.T) {
 	})
 
 	// Should return immediately without panic.
-	exec.ingestStripeUsageEvent(context.Background(), "proj-1", "run-1", 5000)
-}
-
-func TestIngestStripeUsageEvent_ZeroCost(t *testing.T) {
-	t.Parallel()
-
-	pool := NewPool(1)
-	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
-
-	exec := NewExecutor(ExecutorConfig{
-		Pool:                pool,
-		Queue:               &mockExecQueue{},
-		Store:               &mockExecutorStore{},
-		PollInterval:        time.Millisecond,
-		StripeUsageReporter: billing.NewStripeUsageReporter("sk_test_key", nil),
-		// BillingEnforcer is nil -- triggers early return even before cost check
-	})
-
-	// Zero cost should early return.
-	exec.ingestStripeUsageEvent(context.Background(), "proj-1", "run-1", 0)
-}
-
-func TestIngestStripeUsageEvent_NegativeCost(t *testing.T) {
-	t.Parallel()
-
-	pool := NewPool(1)
-	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
-
-	exec := NewExecutor(ExecutorConfig{
-		Pool:                pool,
-		Queue:               &mockExecQueue{},
-		Store:               &mockExecutorStore{},
-		PollInterval:        time.Millisecond,
-		StripeUsageReporter: billing.NewStripeUsageReporter("sk_test_key", nil),
-		// BillingEnforcer is nil
-	})
-
-	// Negative cost should early return.
-	exec.ingestStripeUsageEvent(context.Background(), "proj-1", "run-1", -100)
+	exec.ingestStripeUsageEvent(context.Background(), "proj-1", "run-1", billing.HTTPCostPerRunMicrousd)
 }
 
 func TestIngestStripeUsageEvent_BothNil(t *testing.T) {
@@ -391,7 +353,7 @@ func TestIngestStripeUsageEvent_BothNil(t *testing.T) {
 	})
 
 	// Both nil: should silently return.
-	exec.ingestStripeUsageEvent(context.Background(), "proj-1", "run-1", 10000)
+	exec.ingestStripeUsageEvent(context.Background(), "proj-1", "run-1", billing.HTTPCostPerRunMicrousd)
 }
 
 // ---------------------------------------------------------------------------.
@@ -654,15 +616,9 @@ func TestClickHouseSubscriber_AllDepsEnqueued(t *testing.T) {
 			{ID: "u-1", RunID: "run-all", Provider: "openai", Model: "gpt-4", PromptTokens: 100, CompletionTokens: 50, TotalTokens: 150, CostMicrousd: 5000, CreatedAt: now},
 		},
 	}
-	computeLister := &mockComputeUsageLister{
-		usage: []domain.RunComputeUsage{
-			{ID: "cu-1", RunID: "run-all", ProjectID: "proj-1", MachinePreset: "micro", DurationSecs: 3.0, CostMicrousd: 1500, StartedAt: &started, FinishedAt: &now},
-		},
-	}
 
 	sub := ClickHouseSubscriber(exporter, eventLister, ClickHouseSubscriberDeps{
-		UsageLister:        usageLister,
-		ComputeUsageLister: computeLister,
+		UsageLister: usageLister,
 	})
 
 	sub(context.Background(), RunLifecycleEvent{
@@ -676,23 +632,22 @@ func TestClickHouseSubscriber_AllDepsEnqueued(t *testing.T) {
 			FinishedAt: &now,
 		},
 		Job: &domain.Job{
-			ExecutionMode: "managed",
-			MachinePreset: "micro",
+			ExecutionMode: "http",
 		},
 		QueueWait: 100 * time.Millisecond,
 	})
 
-	// 1 analytics + 1 event + 1 usage + 1 compute = 4
+	// 1 analytics + 1 event + 1 usage = 3
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		if exporter.PendingCount() >= 4 {
+		if exporter.PendingCount() >= 3 {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	if exporter.PendingCount() != 4 {
-		t.Errorf("expected 4 pending (analytics+event+usage+compute), got %d", exporter.PendingCount())
+	if exporter.PendingCount() != 3 {
+		t.Errorf("expected 3 pending (analytics+event+usage), got %d", exporter.PendingCount())
 	}
 }
 
@@ -796,62 +751,5 @@ func TestRunEventsFromDomain_PreservesAllFields(t *testing.T) {
 	}
 	if !r.CreatedAt.Equal(now) {
 		t.Errorf("CreatedAt = %v, want %v", r.CreatedAt, now)
-	}
-}
-
-func TestClickHouseSubscriber_ComputeUsageBothTimestampsNilAndSet(t *testing.T) {
-	t.Parallel()
-
-	exporter := clickhouse.NewExporter(&clickhouse.Client{}, clickhouse.ExporterConfig{
-		Enabled:   true,
-		BatchSize: 100,
-	}, slog.Default())
-
-	now := time.Now()
-	computeLister := &mockComputeUsageLister{
-		usage: []domain.RunComputeUsage{
-			{
-				ID:            "cu-nil",
-				RunID:         "run-mixed-ts",
-				ProjectID:     "proj-1",
-				MachinePreset: "micro",
-				DurationSecs:  1.0,
-				CostMicrousd:  100,
-				StartedAt:     nil,  // nil started
-				FinishedAt:    &now, // non-nil finished
-			},
-			{
-				ID:            "cu-set",
-				RunID:         "run-mixed-ts",
-				ProjectID:     "proj-1",
-				MachinePreset: "micro",
-				DurationSecs:  2.0,
-				CostMicrousd:  200,
-				StartedAt:     &now, // non-nil started
-				FinishedAt:    nil,  // nil finished
-			},
-		},
-	}
-
-	sub := ClickHouseSubscriber(exporter, nil, ClickHouseSubscriberDeps{
-		ComputeUsageLister: computeLister,
-	})
-
-	sub(context.Background(), RunLifecycleEvent{
-		Type: EventCompleted,
-		Run:  &domain.JobRun{ID: "run-mixed-ts", ProjectID: "proj-1", JobID: "job-1"},
-	})
-
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		// 1 analytics + 2 compute usage = 3
-		if exporter.PendingCount() >= 3 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	if exporter.PendingCount() != 3 {
-		t.Errorf("expected 3 pending (1 analytics + 2 compute usage), got %d", exporter.PendingCount())
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"strait/internal/config"
 	"strait/internal/domain"
@@ -33,8 +34,14 @@ func newSDKWaitEventTestServer(t *testing.T, s APIStore) *Server {
 
 func makeSDKRunToken(t *testing.T, runID string) string {
 	t.Helper()
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, &jwt.RegisteredClaims{
-		Subject: runID,
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, &runTokenClaims{
+		Attempt: 1,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "strait:run-token",
+			Subject:   runID,
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
 	})
 	signed, err := token.SignedString([]byte(testJWTSigningKey))
 	if err != nil {
@@ -147,8 +154,8 @@ func TestHandleSDKWaitForEvent_MissingEventKey(t *testing.T) {
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusBadRequest, rr.Body.String())
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusUnprocessableEntity, rr.Body.String())
 	}
 }
 
@@ -186,6 +193,34 @@ func TestHandleSDKWaitForEvent_DefaultTimeout(t *testing.T) {
 
 	if createdTrigger.TimeoutSecs != domain.DefaultEventTimeoutSecs {
 		t.Fatalf("timeout_secs = %d, want %d", createdTrigger.TimeoutSecs, domain.DefaultEventTimeoutSecs)
+	}
+}
+
+func TestHandleSDKWaitForEvent_RejectsTimeoutAboveMaximum(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetRunFunc: func(context.Context, string) (*domain.JobRun, error) {
+			t.Fatal("timeout must be rejected before loading run")
+			return nil, nil
+		},
+		CreateEventTriggerFunc: func(context.Context, *domain.EventTrigger) error {
+			t.Fatal("timeout above maximum must not create an event trigger")
+			return nil
+		},
+	}
+	srv := newSDKWaitEventTestServer(t, ms)
+
+	body := `{"event_key":"some-key","timeout_secs":2592001}`
+	req := httptest.NewRequest(http.MethodPost, "/sdk/v1/runs/run-1/wait-for-event", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+makeSDKRunToken(t, "run-1"))
+
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusBadRequest, rr.Body.String())
 	}
 }
 

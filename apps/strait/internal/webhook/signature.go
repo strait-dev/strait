@@ -49,7 +49,7 @@ func validateHMACSHA256(secret string, body []byte, headerValue string) error {
 // Rejects signatures older than 5 minutes.
 func validateStripeV1(secret string, body []byte, headerValue string) error {
 	var ts string
-	var sig string
+	var signatures []string
 
 	for part := range strings.SplitSeq(headerValue, ",") {
 		kv := strings.SplitN(part, "=", 2)
@@ -60,11 +60,11 @@ func validateStripeV1(secret string, body []byte, headerValue string) error {
 		case "t":
 			ts = kv[1]
 		case "v1":
-			sig = kv[1]
+			signatures = append(signatures, kv[1])
 		}
 	}
 
-	if ts == "" || sig == "" {
+	if ts == "" || len(signatures) == 0 {
 		return fmt.Errorf("invalid stripe-v1 header: missing t or v1 components")
 	}
 
@@ -84,10 +84,12 @@ func validateStripeV1(secret string, body []byte, headerValue string) error {
 	mac.Write(payload)
 	computed := hex.EncodeToString(mac.Sum(nil))
 
-	if !hmac.Equal([]byte(sig), []byte(computed)) {
-		return fmt.Errorf("stripe-v1 signature mismatch")
+	for _, sig := range signatures {
+		if hmac.Equal([]byte(sig), []byte(computed)) {
+			return nil
+		}
 	}
-	return nil
+	return fmt.Errorf("stripe-v1 signature mismatch")
 }
 
 // validateGitHubSHA256 checks a GitHub X-Hub-Signature-256 header (sha256=<hex>).
@@ -96,9 +98,17 @@ func validateGitHubSHA256(secret string, body []byte, headerValue string) error 
 }
 
 // ComputeHMACSHA256 computes a HMAC-SHA256 signature and returns the hex digest.
-// Used by the delivery worker to sign outgoing webhook payloads.
 func ComputeHMACSHA256(secret string, body []byte) string {
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(body)
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// ComputeTimestampedHMACSHA256 signs "timestamp.body" so receivers can reject
+// stale replay attempts while still validating the exact delivered bytes.
+func ComputeTimestampedHMACSHA256(secret, timestamp string, body []byte) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(timestamp + "."))
+	_, _ = mac.Write(body)
 	return hex.EncodeToString(mac.Sum(nil))
 }

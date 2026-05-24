@@ -130,6 +130,35 @@ func TestHandleAdminUnmaskDLQ_Conflict(t *testing.T) {
 	}
 }
 
+func TestHandleAdminUnmaskDLQ_AuditFailureFailsRequest(t *testing.T) {
+	t.Parallel()
+	unmaskCalls := 0
+	mock := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, ProjectID: "proj-1", JobID: "job-1", Status: domain.StatusDeadLetter}, nil
+		},
+		UnmaskDLQRunFunc: func(_ context.Context, _ string) error {
+			unmaskCalls++
+			return nil
+		},
+		CreateAuditEventFunc: func(_ context.Context, ev *domain.AuditEvent) error {
+			if ev.Action != "dlq.unmask" {
+				t.Fatalf("audit action = %q, want dlq.unmask", ev.Action)
+			}
+			return errors.New("audit unavailable")
+		},
+	}
+	srv := newTestServer(t, mock, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/admin/dlq/run-1/unmask", ""))
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 when audit write fails, got %d: %s", w.Code, w.Body.String())
+	}
+	if unmaskCalls != 1 {
+		t.Fatalf("expected unmask attempt before audit failure, got %d", unmaskCalls)
+	}
+}
+
 func TestHandleAdminPurgeDLQ_OK(t *testing.T) {
 	t.Parallel()
 	purgeCalls := 0
@@ -156,6 +185,35 @@ func TestHandleAdminPurgeDLQ_OK(t *testing.T) {
 	}
 	if purgeCalls != 1 {
 		t.Fatalf("expected 1 purge call, got %d", purgeCalls)
+	}
+}
+
+func TestHandleAdminPurgeDLQ_AuditFailureFailsRequest(t *testing.T) {
+	t.Parallel()
+	purgeCalls := 0
+	mock := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, ProjectID: "proj-1", JobID: "job-1", Status: domain.StatusDeadLetter}, nil
+		},
+		PurgeDLQRunFunc: func(_ context.Context, _ string) error {
+			purgeCalls++
+			return nil
+		},
+		CreateAuditEventFunc: func(_ context.Context, ev *domain.AuditEvent) error {
+			if ev.Action != "dlq.purge" {
+				t.Fatalf("audit action = %q, want dlq.purge", ev.Action)
+			}
+			return errors.New("audit unavailable")
+		},
+	}
+	srv := newTestServer(t, mock, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/admin/dlq/run-1/purge", ""))
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 when audit write fails, got %d: %s", w.Code, w.Body.String())
+	}
+	if purgeCalls != 1 {
+		t.Fatalf("expected purge attempt before audit failure, got %d", purgeCalls)
 	}
 }
 
@@ -195,11 +253,101 @@ func TestHandleAdminListDLQ_ForbiddenWithoutScope(t *testing.T) {
 	}
 }
 
-// TestHandleAdminPurgeDLQ_AuditWriteFailure_LogsButSucceeds verifies that
-// when the audit write fails after a successful mutation, the handler
-// still returns 200 (the mutation committed and cannot be rolled back)
-// and emits a structured error log so operators can reconcile.
-func TestHandleAdminPurgeDLQ_AuditWriteFailure_LogsButSucceeds(t *testing.T) {
+func TestHandleAdminListDLQ_EnvironmentScopeFiltersForeignRuns(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		ListDeadLetterRunsFunc: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
+			return []domain.JobRun{
+				{ID: "run-prod", JobID: "job-prod", ProjectID: "proj-1", Status: domain.StatusDeadLetter, CreatedAt: time.Now().Add(-time.Minute)},
+				{ID: "run-staging", JobID: "job-staging", ProjectID: "proj-1", Status: domain.StatusDeadLetter, CreatedAt: time.Now().Add(-2 * time.Minute)},
+			}, nil
+		},
+		GetJobFunc: func(_ context.Context, jobID string) (*domain.Job, error) {
+			switch jobID {
+			case "job-prod":
+				return &domain.Job{ID: jobID, ProjectID: "proj-1", EnvironmentID: "env-prod"}, nil
+			case "job-staging":
+				return &domain.Job{ID: jobID, ProjectID: "proj-1", EnvironmentID: "env-staging"}, nil
+			default:
+				return nil, nil
+			}
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	ctx := context.WithValue(envScopedRunCtx(), ctxScopesKey, []string{domain.ScopeDLQRead})
+
+	out, err := srv.handleAdminListDLQ(ctx, &ListAdminDLQInput{Limit: "10"})
+	if err != nil {
+		t.Fatalf("handleAdminListDLQ: %v", err)
+	}
+
+	runs, ok := out.Body.Data.([]domain.JobRun)
+	if !ok {
+		t.Fatalf("unexpected runs payload type: %T", out.Body.Data)
+	}
+	if len(runs) != 1 || runs[0].ID != "run-prod" {
+		t.Fatalf("filtered admin DLQ runs = %+v, want only env-prod run", runs)
+	}
+}
+
+func TestHandleAdminListDLQ_FilteredEnvironmentScopeFiltersForeignRuns(t *testing.T) {
+	t.Parallel()
+
+	filteredCalls := 0
+	unfilteredCalls := 0
+	ms := &APIStoreMock{
+		ListDeadLetterRunsFunc: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
+			unfilteredCalls++
+			return nil, nil
+		},
+		ListDeadLetterRunsFilteredFunc: func(_ context.Context, _ string, _ *string, masked *bool, _ int, _ *time.Time) ([]domain.JobRun, error) {
+			filteredCalls++
+			if masked == nil || !*masked {
+				t.Fatalf("expected masked=true filter, got %v", masked)
+			}
+			return []domain.JobRun{
+				{ID: "run-prod", JobID: "job-prod", ProjectID: "proj-1", Status: domain.StatusDeadLetter, CreatedAt: time.Now().Add(-time.Minute)},
+				{ID: "run-staging", JobID: "job-staging", ProjectID: "proj-1", Status: domain.StatusDeadLetter, CreatedAt: time.Now().Add(-2 * time.Minute)},
+			}, nil
+		},
+		GetJobFunc: func(_ context.Context, jobID string) (*domain.Job, error) {
+			switch jobID {
+			case "job-prod":
+				return &domain.Job{ID: jobID, ProjectID: "proj-1", EnvironmentID: "env-prod"}, nil
+			case "job-staging":
+				return &domain.Job{ID: jobID, ProjectID: "proj-1", EnvironmentID: "env-staging"}, nil
+			default:
+				return nil, nil
+			}
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	ctx := context.WithValue(envScopedRunCtx(), ctxScopesKey, []string{domain.ScopeDLQRead})
+
+	out, err := srv.handleAdminListDLQ(ctx, &ListAdminDLQInput{Masked: "true", Limit: "10"})
+	if err != nil {
+		t.Fatalf("handleAdminListDLQ: %v", err)
+	}
+
+	runs, ok := out.Body.Data.([]domain.JobRun)
+	if !ok {
+		t.Fatalf("unexpected runs payload type: %T", out.Body.Data)
+	}
+	if len(runs) != 1 || runs[0].ID != "run-prod" {
+		t.Fatalf("filtered admin DLQ runs = %+v, want only env-prod run", runs)
+	}
+	if filteredCalls != 1 {
+		t.Fatalf("filtered store calls = %d, want 1", filteredCalls)
+	}
+	if unfilteredCalls != 0 {
+		t.Fatalf("unfiltered store calls = %d, want 0", unfilteredCalls)
+	}
+}
+
+// TestHandleAdminPurgeDLQ_AuditWriteFailure_FailsClosed verifies that
+// audit durability is part of the purge transaction.
+func TestHandleAdminPurgeDLQ_AuditWriteFailure_FailsClosed(t *testing.T) {
 	// Not parallel: we swap the process-wide default slog handler.
 	var buf bytes.Buffer
 	prev := slog.Default()
@@ -220,11 +368,11 @@ func TestHandleAdminPurgeDLQ_AuditWriteFailure_LogsButSucceeds(t *testing.T) {
 	srv := newTestServer(t, mock, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/admin/dlq/run-1/purge", ""))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 (audit failure must not fail the mutation), got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 when audit persistence fails, got %d: %s", w.Code, w.Body.String())
 	}
-	if !strings.Contains(buf.String(), "audit write failed") {
-		t.Fatalf("expected 'audit write failed' log entry, got: %s", buf.String())
+	if !strings.Contains(buf.String(), "dlq purge failed") {
+		t.Fatalf("expected 'dlq purge failed' log entry, got: %s", buf.String())
 	}
 	if !strings.Contains(buf.String(), "run_id=run-1") {
 		t.Fatalf("expected run_id in log entry, got: %s", buf.String())

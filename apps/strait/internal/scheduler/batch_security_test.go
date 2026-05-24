@@ -3,12 +3,10 @@ package scheduler
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"strait/internal/compute"
 	"strait/internal/domain"
 	"strait/internal/store"
 
@@ -195,57 +193,20 @@ func TestBatchFlusher_TTLZeroSeconds(t *testing.T) {
 	}
 }
 
-// TestPoolPruner_NilPool verifies that a pool pruner with a nil pool
-// exits immediately without panicking.
-func TestPoolPruner_NilPool(t *testing.T) {
-	t.Parallel()
-
-	pruner := NewPoolPruner(nil, &mockPrunerRuntime{}, time.Millisecond, time.Second)
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-
-	// Run should return immediately because pool is nil.
-	pruner.Run(ctx)
-}
-
-// TestPoolPruner_DestroyCallbackPanic verifies that a panic in the destroy
-// callback during pruning does not crash the pruner.
-func TestPoolPruner_DestroyCallbackPanic(t *testing.T) {
-	t.Parallel()
-
-	pool := compute.NewMachinePool(5)
-	pool.Release("test-project", "img:latest", "iad", "m-panic")
-
-	// TTL is nanosecond, so entries are immediately stale -- no sleep needed.
-
-	rt := &mockPrunerRuntime{
-		destroyFn: func(_ context.Context, _ string) error {
-			return errors.New("destroy failed")
-		},
-	}
-
-	pruner := NewPoolPruner(pool, rt, 10*time.Millisecond, time.Nanosecond)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-
-	// Should not panic even though destroy returns an error.
-	pruner.Run(ctx)
-}
-
 // TestAutoRotate_ConcurrentRotation verifies that multiple concurrent rotation
 // invocations do not cause data races.
 func TestAutoRotate_ConcurrentRotation(t *testing.T) {
 	t.Parallel()
 
 	rotationDays := 7
+	webhookURL := rotationWebhookURLForTest(t)
 	var rotated atomic.Int32
 
 	ms := &mockAutoRotateStore{
 		listDueRotationFn: func(context.Context) ([]domain.APIKey, error) {
 			return []domain.APIKey{
-				{ID: "key-1", ProjectID: "proj-1", RotationIntervalDays: &rotationDays},
-				{ID: "key-2", ProjectID: "proj-2", RotationIntervalDays: &rotationDays},
+				{ID: "key-1", ProjectID: "proj-1", RotationIntervalDays: &rotationDays, RotationWebhookURL: webhookURL},
+				{ID: "key-2", ProjectID: "proj-2", RotationIntervalDays: &rotationDays, RotationWebhookURL: webhookURL},
 			}, nil
 		},
 		createAPIKeyFn: func(_ context.Context, _ *domain.APIKey) error {
@@ -260,7 +221,8 @@ func TestAutoRotate_ConcurrentRotation(t *testing.T) {
 		},
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil).WithAllowPrivateEndpoints(true)
+	r.rotationWebhookClient = successfulRotationWebhookClient()
 
 	var wg conc.WaitGroup
 	for range 5 {

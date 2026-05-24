@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -214,8 +215,8 @@ func TestHandleCreateJob_MissingFields(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", `{}`))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", w.Code)
 	}
 
 	var resp struct {
@@ -228,8 +229,8 @@ func TestHandleCreateJob_MissingFields(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if resp.Error.Code != ErrorCodeValidationError {
-		t.Fatalf("expected validation_error code, got %q", resp.Error.Code)
+	if resp.Error.Code != ErrorCodeValidationFailed {
+		t.Fatalf("expected validation_failed code, got %q", resp.Error.Code)
 	}
 	if resp.Error.Message != "validation failed" {
 		t.Fatalf("expected validation failed message, got %q", resp.Error.Message)
@@ -421,8 +422,8 @@ func TestHandleCreateJobGroup_MissingFields(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/job-groups/", `{}`))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", w.Code)
 	}
 
 	var resp struct {
@@ -433,8 +434,8 @@ func TestHandleCreateJobGroup_MissingFields(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if resp.Error.Code != ErrorCodeValidationError {
-		t.Fatalf("expected validation_error code, got %q", resp.Error.Code)
+	if resp.Error.Code != ErrorCodeValidationFailed {
+		t.Fatalf("expected validation_failed code, got %q", resp.Error.Code)
 	}
 }
 
@@ -647,14 +648,17 @@ func TestHandleCreateJobDependency_MissingFields(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/dependencies", `{}`))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", w.Code)
 	}
 }
 
 func TestHandleListJobDependencies_Success(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{}
+	ms.GetJobFunc = func(_ context.Context, id string) (*domain.Job, error) {
+		return &domain.Job{ID: id, ProjectID: "proj-1"}, nil
+	}
 	ms.ListJobDependenciesFunc = func(_ context.Context, jobID string, _ int, _ *time.Time) ([]domain.JobDependency, error) {
 		return []domain.JobDependency{{ID: "dep-1", JobID: jobID, DependsOnJobID: "job-2", Condition: "completed", CreatedAt: time.Now()}}, nil
 	}
@@ -741,8 +745,8 @@ func TestHandleTriggerJob_Success(t *testing.T) {
 	if resp["id"] == nil || resp["id"] == "" {
 		t.Fatal("expected non-empty run id")
 	}
-	if resp["run_token"] == nil || resp["run_token"] == "" {
-		t.Fatal("expected non-empty run_token")
+	if _, ok := resp["run_token"]; ok {
+		t.Fatal("trigger response must not expose SDK run_token")
 	}
 	if resp["status"] != "queued" {
 		t.Fatalf("expected status=queued, got %v", resp["status"])
@@ -905,8 +909,8 @@ func TestHandleTriggerJob_WaitingDependencyConflictLookupError(t *testing.T) {
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
 	}
-	if !strings.Contains(w.Body.String(), "idempotency key") {
-		t.Fatalf("expected idempotency key error, got %s", w.Body.String())
+	if !strings.Contains(w.Body.String(), "internal server error") {
+		t.Fatalf("expected sanitized internal error, got %s", w.Body.String())
 	}
 }
 
@@ -1245,12 +1249,15 @@ func TestHandleUpdateJob_InvalidURL(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	tests := []struct {
-		name string
-		url  string
+		name       string
+		url        string
+		wantStatus int
 	}{
-		{"no scheme", "example.com/callback"},
-		{"ftp scheme", "ftp://example.com/callback"},
-		{"empty string", ""},
+		// Struct-level URL validation -> 422 validation_failed.
+		{"no scheme", "example.com/callback", http.StatusUnprocessableEntity},
+		{"empty string", "", http.StatusUnprocessableEntity},
+		// Custom scheme check past struct validation -> 400 bad_request.
+		{"ftp scheme", "ftp://example.com/callback", http.StatusBadRequest},
 	}
 
 	for _, tt := range tests {
@@ -1260,8 +1267,8 @@ func TestHandleUpdateJob_InvalidURL(t *testing.T) {
 			body := `{"endpoint_url": "` + tt.url + `"}`
 			srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123", body))
 
-			if w.Code != http.StatusBadRequest {
-				t.Fatalf("expected 400 for %q, got %d: %s", tt.url, w.Code, w.Body.String())
+			if w.Code != tt.wantStatus {
+				t.Fatalf("expected %d for %q, got %d: %s", tt.wantStatus, tt.url, w.Code, w.Body.String())
 			}
 		})
 	}
@@ -1608,6 +1615,37 @@ func TestHandleBulkReplayDeadLetterRuns_Success(t *testing.T) {
 	}
 }
 
+func TestHandleBulkReplayDeadLetterRuns_RunIDsModeDoesNotSendProjectIDOrLimit(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, Status: domain.StatusDeadLetter, ProjectID: "proj-1"}, nil
+		},
+		BulkReplayDeadLetterRunsFunc: func(_ context.Context, runIDs []string, projectID string, limit int) ([]domain.JobRun, error) {
+			if len(runIDs) != 1 || runIDs[0] != "run-1" {
+				t.Fatalf("unexpected run_ids: %+v", runIDs)
+			}
+			if projectID != "" {
+				t.Fatalf("run_ids replay must not also pass project_id, got %q", projectID)
+			}
+			if limit != 0 {
+				t.Fatalf("run_ids replay must not also pass limit, got %d", limit)
+			}
+			return []domain.JobRun{{ID: "run-1", Status: domain.StatusQueued, Attempt: 1}}, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/bulk-dlq-replay", `{"run_ids":["run-1"],"limit":123}`))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestHandleTriggerJob_DryRunMode(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
@@ -1649,6 +1687,9 @@ func TestHandleTriggerJob_DryRunMode(t *testing.T) {
 
 	if resp.Job == nil || resp.Job.ID != "job-123" {
 		t.Fatal("expected non-nil job with id=job-123")
+	}
+	if raw := w.Body.String(); strings.Contains(raw, "endpoint_url") || strings.Contains(raw, "https://example.com/callback") {
+		t.Fatalf("dry-run response leaked endpoint details: %s", raw)
 	}
 	if resp.PayloadHash == "" {
 		t.Fatal("expected non-empty payload_hash")
@@ -1886,17 +1927,19 @@ func TestHandleBatchEnableJobs_Success(t *testing.T) {
 	t.Parallel()
 	var capturedEnabled bool
 	var capturedIDs []string
+	var capturedProject string
 	ms := &APIStoreMock{
-		BatchUpdateJobsEnabledFunc: func(_ context.Context, ids []string, enabled bool) (int64, error) {
+		BatchUpdateJobsEnabledFunc: func(_ context.Context, ids []string, enabled bool, projectID string) (int64, error) {
 			capturedIDs = ids
 			capturedEnabled = enabled
+			capturedProject = projectID
 			return int64(len(ids)), nil
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/batch-enable", `{"ids":["job-1","job-2","job-3"]}`))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/jobs/batch-enable", `{"ids":["job-1","job-2","job-3"]}`, "proj-aaa"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d; body: %s", w.Code, http.StatusOK, w.Body.String())
@@ -1906,6 +1949,9 @@ func TestHandleBatchEnableJobs_Success(t *testing.T) {
 	}
 	if len(capturedIDs) != 3 {
 		t.Fatalf("expected 3 ids, got %d", len(capturedIDs))
+	}
+	if capturedProject != "proj-aaa" {
+		t.Fatalf("expected projectID=proj-aaa, got %q", capturedProject)
 	}
 
 	var resp BatchUpdateResult
@@ -1921,7 +1967,7 @@ func TestHandleBatchDisableJobs_Success(t *testing.T) {
 	t.Parallel()
 	var capturedEnabled bool
 	ms := &APIStoreMock{
-		BatchUpdateJobsEnabledFunc: func(_ context.Context, ids []string, enabled bool) (int64, error) {
+		BatchUpdateJobsEnabledFunc: func(_ context.Context, ids []string, enabled bool, _ string) (int64, error) {
 			capturedEnabled = enabled
 			return int64(len(ids)), nil
 		},
@@ -1929,7 +1975,7 @@ func TestHandleBatchDisableJobs_Success(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/batch-disable", `{"ids":["job-1","job-2"]}`))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/jobs/batch-disable", `{"ids":["job-1","job-2"]}`, "proj-aaa"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d; body: %s", w.Code, http.StatusOK, w.Body.String())
@@ -2135,8 +2181,8 @@ func TestHandleCreateEnvironment_MissingFields(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/environments/", `{}`))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", w.Code)
 	}
 }
 
@@ -2175,12 +2221,12 @@ func TestHandleGetEnvironment_Success(t *testing.T) {
 	if resp["id"] != "env-1" {
 		t.Fatalf("expected id=env-1, got %v", resp["id"])
 	}
-	resolved, ok := resp["resolved_variables"].(map[string]any)
+	resolved, ok := resp["resolved_variable_keys"].([]any)
 	if !ok {
-		t.Fatalf("expected resolved_variables object, got %T", resp["resolved_variables"])
+		t.Fatalf("expected resolved_variable_keys array, got %T", resp["resolved_variable_keys"])
 	}
-	if resolved["REGION"] != "us-east-1" {
-		t.Fatalf("expected resolved REGION, got %v", resolved["REGION"])
+	if !slices.ContainsFunc(resolved, func(v any) bool { return v == "REGION" }) {
+		t.Fatalf("expected resolved REGION key, got %v", resolved)
 	}
 }
 

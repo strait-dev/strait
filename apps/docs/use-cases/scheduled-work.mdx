@@ -1,0 +1,40 @@
+---
+title: "Schedule Recurring Work"
+description: "Replace fragile cron scripts with scheduled jobs that have retries and run history."
+icon: "calendar"
+---
+
+Use Strait for recurring work that needs more than a timer.
+
+Examples include nightly imports, customer reports, cleanup jobs, billing checks, reminders, and periodic syncs.
+
+## Why Use Strait
+
+Unlike a bare cron command, which leaves no trace once it runs, Strait records each scheduled execution as a run.
+
+That means you can see whether it ran, how long it took, what failed, and whether it retried.
+
+## Recommended Setup
+
+Add `cron` to a job or workflow:
+
+```json
+{
+  "cron": "0 9 * * 1-5",
+  "timezone": "America/New_York",
+  "cron_overlap_policy": "skip"
+}
+```
+
+Use `skip` when only one copy should run at a time.
+
+Use `allow` when every scheduled tick represents separate work.
+
+Use `execution_window_cron` when jobs may be triggered at any time but should only run during approved hours.
+
+## Read Next
+
+- [Scheduling](/concepts/scheduling)
+- [Create a Production Job](/guides/production-job)
+- [Handle Failed Runs](/guides/handle-failed-runs)
+- [Compare Strait and Cron](/compare/cron)

@@ -41,7 +41,7 @@ func wfSetup(t *testing.T) *api.Server {
 			TriggerRateLimitWindow:   time.Minute,
 			CORSAllowedOrigins:       []string{"*"},
 			CORSAllowCredentials:     false,
-			MaxBulkTriggerItems:     500,
+			MaxBulkTriggerItems:      500,
 		},
 		Store:            testStore,
 		Queue:            testQueue,
@@ -77,8 +77,20 @@ func mustJSON(t *testing.T, v any) string {
 	return string(b)
 }
 
+func wfEnsureProject(t *testing.T, projectID string) {
+	t.Helper()
+	if err := testStore.CreateProject(context.Background(), &domain.Project{
+		ID:    projectID,
+		OrgID: "org-" + projectID,
+		Name:  projectID,
+	}); err != nil {
+		t.Fatalf("create workflow test project: %v", err)
+	}
+}
+
 func wfCreateJob(t *testing.T, srv *api.Server, projectID, name, slug string) map[string]any {
 	t.Helper()
+	wfEnsureProject(t, projectID)
 	body := map[string]any{
 		"project_id":     projectID,
 		"name":           name,
@@ -99,6 +111,7 @@ func wfCreateJob(t *testing.T, srv *api.Server, projectID, name, slug string) ma
 
 func wfCreateWorkflow(t *testing.T, srv *api.Server, projectID, name, slug string, steps []map[string]any) map[string]any {
 	t.Helper()
+	wfEnsureProject(t, projectID)
 	body := map[string]any{
 		"project_id": projectID,
 		"name":       name,

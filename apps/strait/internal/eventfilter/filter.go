@@ -1,9 +1,18 @@
 package eventfilter
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
+)
+
+const (
+	maxFilterBytes      = 64 * 1024
+	maxPayloadBytes     = 1024 * 1024
+	maxFilterConditions = 256
+	maxFilterPathDepth  = 32
+	maxFilterPathLength = 512
 )
 
 // FilterExpr defines filter conditions for event payloads.
@@ -20,10 +29,21 @@ func Eval(filterExpr json.RawMessage, payload json.RawMessage) (bool, error) {
 	if len(filterExpr) == 0 || string(filterExpr) == "null" {
 		return true, nil
 	}
+	if len(filterExpr) > maxFilterBytes {
+		return false, fmt.Errorf("filter expression exceeds %d bytes", maxFilterBytes)
+	}
+	if len(payload) > maxPayloadBytes {
+		return false, fmt.Errorf("payload exceeds %d bytes", maxPayloadBytes)
+	}
 
 	var expr FilterExpr
-	if err := json.Unmarshal(filterExpr, &expr); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(filterExpr))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&expr); err != nil {
 		return false, fmt.Errorf("invalid filter expression: %w", err)
+	}
+	if err := validateFilterExpr(expr); err != nil {
+		return false, err
 	}
 
 	var data map[string]any
@@ -55,6 +75,41 @@ func Eval(filterExpr json.RawMessage, payload json.RawMessage) (bool, error) {
 	}
 
 	return true, nil
+}
+
+func validateFilterExpr(expr FilterExpr) error {
+	if len(expr.Eq)+len(expr.Ne)+len(expr.Has) > maxFilterConditions {
+		return fmt.Errorf("filter expression has too many conditions; max %d", maxFilterConditions)
+	}
+	for _, cond := range expr.Eq {
+		if err := validatePath(cond[0]); err != nil {
+			return err
+		}
+	}
+	for _, cond := range expr.Ne {
+		if err := validatePath(cond[0]); err != nil {
+			return err
+		}
+	}
+	for _, path := range expr.Has {
+		if err := validatePath(path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validatePath(path string) error {
+	if path == "" {
+		return fmt.Errorf("filter path is required")
+	}
+	if len(path) > maxFilterPathLength {
+		return fmt.Errorf("filter path exceeds %d bytes", maxFilterPathLength)
+	}
+	if len(strings.Split(path, ".")) > maxFilterPathDepth {
+		return fmt.Errorf("filter path exceeds %d segments", maxFilterPathDepth)
+	}
+	return nil
 }
 
 // getField traverses a nested map by dot-separated path.

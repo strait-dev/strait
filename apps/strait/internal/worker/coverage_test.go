@@ -154,6 +154,7 @@ func TestNotifyWorkflowCallback_Success(t *testing.T) {
 	run := &domain.JobRun{ID: "run-99", JobID: "job-1"}
 
 	e.notifyWorkflowCallback(context.Background(), run)
+	e.callbackWG.Wait()
 
 	if cb.calls.Load() != 1 {
 		t.Fatalf("expected 1 callback call, got %d", cb.calls.Load())
@@ -175,6 +176,7 @@ func TestNotifyWorkflowCallback_Error(t *testing.T) {
 
 	// Should not panic, should log error.
 	e.notifyWorkflowCallback(context.Background(), run)
+	e.callbackWG.Wait()
 
 	if cb.calls.Load() != 1 {
 		t.Fatalf("expected 1 callback call, got %d", cb.calls.Load())
@@ -436,14 +438,14 @@ func TestResolveExecutionPolicy_PartialOverrides(t *testing.T) {
 	}, cmp.AllowUnexported(executionPolicy{}))
 }
 
-// SendWebhookWithClient tests.
+// sendWebhookWithClientForTest tests.
 
 func TestSendWebhookWithClient_EmptyURL(t *testing.T) {
 	t.Parallel()
 	job := &domain.Job{ID: "job-1", WebhookURL: ""}
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", ProjectID: "proj-1"}
 
-	result := SendWebhookWithClient(context.Background(), http.DefaultClient, job, run, 3)
+	result := sendWebhookWithClientForTest(context.Background(), http.DefaultClient, job, run, 3)
 	if !result.Delivered {
 		t.Fatal("expected delivered=true for empty URL")
 	}
@@ -467,7 +469,7 @@ func TestSendWebhookWithClient_SuccessFirstAttempt(t *testing.T) {
 	job := &domain.Job{ID: "job-1", WebhookURL: srv.URL}
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", ProjectID: "proj-1", Status: domain.StatusCompleted, Attempt: 1}
 
-	result := SendWebhookWithClient(context.Background(), srv.Client(), job, run, 3)
+	result := sendWebhookWithClientForTest(context.Background(), srv.Client(), job, run, 3)
 	if !result.Delivered {
 		t.Fatalf("expected delivered=true, got error: %s", result.Error)
 	}
@@ -491,7 +493,7 @@ func TestSendWebhookWithClient_ClientErrorNoRetry(t *testing.T) {
 	job := &domain.Job{ID: "job-1", WebhookURL: srv.URL}
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", ProjectID: "proj-1"}
 
-	result := SendWebhookWithClient(context.Background(), srv.Client(), job, run, 3)
+	result := sendWebhookWithClientForTest(context.Background(), srv.Client(), job, run, 3)
 	if result.Delivered {
 		t.Fatal("expected not delivered for 400")
 	}
@@ -523,7 +525,7 @@ func TestSendWebhookWithClient_ServerErrorRetries(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	result := SendWebhookWithClient(ctx, srv.Client(), job, run, 3)
+	result := sendWebhookWithClientForTest(ctx, srv.Client(), job, run, 3)
 	if !result.Delivered {
 		t.Fatalf("expected delivered on second attempt, got error: %s", result.Error)
 	}
@@ -546,7 +548,7 @@ func TestSendWebhookWithClient_ContextCanceled(t *testing.T) {
 	// Cancel before retries can proceed.
 	cancel()
 
-	result := SendWebhookWithClient(ctx, srv.Client(), job, run, 3)
+	result := sendWebhookWithClientForTest(ctx, srv.Client(), job, run, 3)
 	if result.Delivered {
 		t.Fatal("expected not delivered when context canceled")
 	}
@@ -565,7 +567,7 @@ func TestSendWebhookWithClient_DefaultMaxAttempts(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", ProjectID: "proj-1"}
 
 	// maxAttempts=0 should default to 3.
-	result := SendWebhookWithClient(context.Background(), srv.Client(), job, run, 0)
+	result := sendWebhookWithClientForTest(context.Background(), srv.Client(), job, run, 0)
 	if !result.Delivered {
 		t.Fatalf("expected delivered=true, got error: %s", result.Error)
 	}
@@ -583,7 +585,7 @@ func TestSendWebhookWithClient_HMACSignature(t *testing.T) {
 	job := &domain.Job{ID: "job-1", WebhookURL: srv.URL, WebhookSecret: "test-secret-key"}
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", ProjectID: "proj-1", Status: domain.StatusCompleted}
 
-	result := SendWebhookWithClient(context.Background(), srv.Client(), job, run, 1)
+	result := sendWebhookWithClientForTest(context.Background(), srv.Client(), job, run, 1)
 	if !result.Delivered {
 		t.Fatalf("expected delivered=true, got error: %s", result.Error)
 	}
@@ -607,7 +609,7 @@ func TestSendWebhookWithClient_NoSignatureWithoutSecret(t *testing.T) {
 	job := &domain.Job{ID: "job-1", WebhookURL: srv.URL, WebhookSecret: ""}
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", ProjectID: "proj-1"}
 
-	result := SendWebhookWithClient(context.Background(), srv.Client(), job, run, 1)
+	result := sendWebhookWithClientForTest(context.Background(), srv.Client(), job, run, 1)
 	if !result.Delivered {
 		t.Fatalf("expected delivered=true, got error: %s", result.Error)
 	}
@@ -638,7 +640,7 @@ func TestSendWebhookWithClient_PayloadContent(t *testing.T) {
 		Error:     "some error",
 	}
 
-	result := SendWebhookWithClient(context.Background(), srv.Client(), job, run, 1)
+	result := sendWebhookWithClientForTest(context.Background(), srv.Client(), job, run, 1)
 	if !result.Delivered {
 		t.Fatalf("expected delivered=true, got error: %s", result.Error)
 	}
@@ -672,7 +674,7 @@ func TestSendWebhookWithClient_NetworkError(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	result := SendWebhookWithClient(ctx, client, job, run, 1)
+	result := sendWebhookWithClientForTest(ctx, client, job, run, 1)
 	if result.Delivered {
 		t.Fatal("expected not delivered for network error")
 	}
@@ -709,6 +711,30 @@ func TestDispatchToEndpoint_Success(t *testing.T) {
 	}
 	if string(result) != `{"result":"ok"}` {
 		t.Fatalf("expected {\"result\":\"ok\"}, got %s", string(result))
+	}
+}
+
+func TestDispatchToEndpoint_SuccessWithTextBodyReturnsJSONString(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "ok")
+	}))
+	defer srv.Close()
+
+	e := &Executor{httpClient: srv.Client(), logger: noopLogger()}
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 1}
+
+	result, err := e.dispatchToEndpoint(context.Background(), srv.URL, run, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !json.Valid(result) {
+		t.Fatalf("result should be valid JSON, got %s", result)
+	}
+	if string(result) != `"ok"` {
+		t.Fatalf("result = %s, want JSON string %q", result, `"ok"`)
 	}
 }
 

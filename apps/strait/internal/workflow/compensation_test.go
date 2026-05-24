@@ -71,6 +71,68 @@ func TestCompensation_OnlyCompletedSteps(t *testing.T) {
 	}
 }
 
+func BenchmarkBuildCompensationPlan_Chain100(b *testing.B) {
+	steps := make([]domain.WorkflowStep, 100)
+	stepRuns := make([]domain.WorkflowStepRun, 100)
+	for i := range steps {
+		ref := fmt.Sprintf("step-%03d", i)
+		steps[i] = domain.WorkflowStep{
+			StepRef:           ref,
+			CompensationJobID: "comp-" + ref,
+		}
+		if i > 0 {
+			steps[i].DependsOn = []string{steps[i-1].StepRef}
+		}
+		stepRuns[i] = domain.WorkflowStepRun{
+			ID:      "sr-" + ref,
+			StepRef: ref,
+			Status:  domain.StepCompleted,
+		}
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		plan, err := BuildCompensationPlan("wfr-bench", steps, stepRuns)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(plan.Steps) != len(steps) {
+			b.Fatalf("plan length = %d, want %d", len(plan.Steps), len(steps))
+		}
+	}
+}
+
+func BenchmarkBuildCompensationPlan_Chain1000(b *testing.B) {
+	steps := make([]domain.WorkflowStep, 1000)
+	stepRuns := make([]domain.WorkflowStepRun, 1000)
+	for i := range steps {
+		ref := fmt.Sprintf("step-%04d", i)
+		steps[i] = domain.WorkflowStep{
+			StepRef:           ref,
+			CompensationJobID: "comp-" + ref,
+		}
+		if i > 0 {
+			steps[i].DependsOn = []string{steps[i-1].StepRef}
+		}
+		stepRuns[i] = domain.WorkflowStepRun{
+			ID:      "sr-" + ref,
+			StepRef: ref,
+			Status:  domain.StepCompleted,
+		}
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		plan, err := BuildCompensationPlan("wfr-bench", steps, stepRuns)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(plan.Steps) != len(steps) {
+			b.Fatalf("plan length = %d, want %d", len(plan.Steps), len(steps))
+		}
+	}
+}
+
 func TestCompensation_SkipsStepsWithoutCompensation(t *testing.T) {
 	t.Parallel()
 	steps := []domain.WorkflowStep{
@@ -158,6 +220,39 @@ func TestCompensation_DiamondDAG(t *testing.T) {
 	// Last should be a (root).
 	if refs[len(refs)-1] != "a" {
 		t.Errorf("last step should be a, got %q", refs[len(refs)-1])
+	}
+}
+
+func TestCompensation_UnorderedDefinitionsUseTopologicalFallback(t *testing.T) {
+	t.Parallel()
+
+	steps := []domain.WorkflowStep{
+		{StepRef: "c", DependsOn: []string{"b"}, CompensationJobID: "comp-c"},
+		{StepRef: "a", CompensationJobID: "comp-a"},
+		{StepRef: "b", DependsOn: []string{"a"}, CompensationJobID: "comp-b"},
+	}
+	stepRuns := []domain.WorkflowStepRun{
+		{ID: "sr-a", StepRef: "a", Status: domain.StepCompleted},
+		{ID: "sr-b", StepRef: "b", Status: domain.StepCompleted},
+		{ID: "sr-c", StepRef: "c", Status: domain.StepCompleted},
+	}
+
+	plan, err := BuildCompensationPlan("wfr-1", steps, stepRuns)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if plan == nil {
+		t.Fatal("expected non-nil plan")
+	}
+	refs := make([]string, len(plan.Steps))
+	for i, step := range plan.Steps {
+		refs[i] = step.StepRef
+	}
+	want := []string{"c", "b", "a"}
+	for i := range want {
+		if refs[i] != want[i] {
+			t.Fatalf("refs = %v, want %v", refs, want)
+		}
 	}
 }
 
@@ -526,5 +621,18 @@ func TestBuildTopologicalOrder_Deterministic(t *testing.T) {
 				break
 			}
 		}
+	}
+}
+
+func TestBuildTopologicalOrder_DuplicateDependencyRefs(t *testing.T) {
+	t.Parallel()
+	steps := []domain.WorkflowStep{
+		{StepRef: "a"},
+		{StepRef: "b", DependsOn: []string{"a", "a"}},
+	}
+
+	order := buildTopologicalOrder(steps)
+	if strings.Join(order, ",") != "a,b" {
+		t.Fatalf("order = %v, want [a b]", order)
 	}
 }

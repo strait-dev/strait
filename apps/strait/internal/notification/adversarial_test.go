@@ -64,6 +64,27 @@ func (f *failingSender) Send(_ context.Context, _ *domain.NotificationChannel, _
 	return f.err
 }
 
+type recordingSender struct {
+	calls atomic.Int32
+}
+
+func (r *recordingSender) Send(_ context.Context, _ *domain.NotificationChannel, _ *domain.NotificationDelivery) error {
+	r.calls.Add(1)
+	return nil
+}
+
+type ChannelSenderFunc func(context.Context, *domain.NotificationChannel, *domain.NotificationDelivery) error
+
+func (f ChannelSenderFunc) Send(ctx context.Context, ch *domain.NotificationChannel, d *domain.NotificationDelivery) error {
+	return f(ctx, ch, d)
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
 // ---------------------------------------------------------------------------.
 // 1. Malformed notification payloads
 // ---------------------------------------------------------------------------.
@@ -255,6 +276,7 @@ func TestWorker_DispatchUnsupportedChannelType(t *testing.T) {
 				ProjectID:   "proj-1",
 				ChannelType: "unsupported_type",
 				Config:      json.RawMessage(`{}`),
+				Enabled:     true,
 			}, nil
 		},
 		updateFn: func(_ context.Context, d *domain.NotificationDelivery) (bool, error) {
@@ -279,6 +301,109 @@ func TestWorker_DispatchUnsupportedChannelType(t *testing.T) {
 	}
 	if !strings.Contains(updatedDelivery.LastError, "unsupported channel type") {
 		t.Errorf("LastError = %q, want it to contain 'unsupported channel type'", updatedDelivery.LastError)
+	}
+}
+
+func TestWorker_RedactsSenderURLSecretsFromLastError(t *testing.T) {
+	t.Parallel()
+
+	var updatedDelivery *domain.NotificationDelivery
+	var claimCount atomic.Int32
+	st := &controllableNotificationStore{
+		claimFn: func(_ context.Context, _ int, _ time.Duration) ([]domain.NotificationDelivery, error) {
+			if claimCount.Add(1) > 1 {
+				return nil, nil
+			}
+			return []domain.NotificationDelivery{{
+				ID:          "del-1",
+				ChannelID:   "ch-1",
+				ProjectID:   "proj-1",
+				EventType:   "test.event",
+				Payload:     json.RawMessage(`{}`),
+				MaxAttempts: 1,
+			}}, nil
+		},
+		getChanFn: func(_ context.Context, _, _ string) (*domain.NotificationChannel, error) {
+			return &domain.NotificationChannel{
+				ID:          "ch-1",
+				ProjectID:   "proj-1",
+				ChannelType: domain.ChannelTypeSlack,
+				Config:      json.RawMessage(`{"webhook_url":"https://hooks.slack.com/services/T00/B00/secret-token"}`),
+				Enabled:     true,
+			}, nil
+		},
+		updateFn: func(_ context.Context, d *domain.NotificationDelivery) (bool, error) {
+			clone := *d
+			updatedDelivery = &clone
+			return true, nil
+		},
+	}
+
+	w := NewWorker(st, &http.Client{})
+	w.RegisterSender(domain.ChannelTypeSlack, &failingSender{
+		err: fmt.Errorf("Post \"https://hooks.slack.com/services/T00/B00/secret-token\": dial tcp failed"),
+	})
+
+	processCtx, processCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer processCancel()
+	w.process(processCtx)
+
+	if updatedDelivery == nil {
+		t.Fatal("expected delivery to be updated")
+	}
+	if strings.Contains(updatedDelivery.LastError, "secret-token") || strings.Contains(updatedDelivery.LastError, "hooks.slack.com/services") {
+		t.Fatalf("LastError leaked webhook URL secret: %q", updatedDelivery.LastError)
+	}
+	if !strings.Contains(updatedDelivery.LastError, "[redacted-url]") {
+		t.Fatalf("LastError = %q, want redacted URL marker", updatedDelivery.LastError)
+	}
+}
+
+func TestSlackSender_RedactsWebhookURLInTransportError(t *testing.T) {
+	t.Parallel()
+
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return nil, fmt.Errorf("dial failed for %s", req.URL.String())
+	})}
+	sender := NewSlackSender(client)
+
+	err := sender.Send(context.Background(),
+		&domain.NotificationChannel{Config: json.RawMessage(`{"webhook_url":"https://hooks.slack.com/services/T00/B00/secret-token"}`)},
+		&domain.NotificationDelivery{EventType: "test.event", Payload: json.RawMessage(`{}`)},
+	)
+	if err == nil {
+		t.Fatal("expected send error")
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "secret-token") || strings.Contains(msg, "hooks.slack.com/services") {
+		t.Fatalf("slack error leaked webhook URL secret: %q", msg)
+	}
+	if !strings.Contains(msg, "[redacted-url]") {
+		t.Fatalf("slack error = %q, want redacted URL marker", msg)
+	}
+}
+
+func TestDiscordSender_RedactsWebhookURLInTransportError(t *testing.T) {
+	t.Parallel()
+
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return nil, fmt.Errorf("dial failed for %s", req.URL.String())
+	})}
+	sender := NewDiscordSender(client)
+
+	err := sender.Send(context.Background(),
+		&domain.NotificationChannel{Config: json.RawMessage(`{"webhook_url":"https://discord.com/api/webhooks/123/secret-token"}`)},
+		&domain.NotificationDelivery{EventType: "test.event", Payload: json.RawMessage(`{}`)},
+	)
+	if err == nil {
+		t.Fatal("expected send error")
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "secret-token") || strings.Contains(msg, "discord.com/api/webhooks") {
+		t.Fatalf("discord error leaked webhook URL secret: %q", msg)
+	}
+	if !strings.Contains(msg, "[redacted-url]") {
+		t.Fatalf("discord error = %q, want redacted URL marker", msg)
 	}
 }
 
@@ -325,6 +450,68 @@ func TestWorker_DispatchChannelNotFound(t *testing.T) {
 	}
 }
 
+func TestWorker_DispatchSkipsDisabledChannel(t *testing.T) {
+	t.Parallel()
+
+	var updatedDelivery *domain.NotificationDelivery
+	var claimCount atomic.Int32
+	st := &controllableNotificationStore{
+		claimFn: func(_ context.Context, _ int, _ time.Duration) ([]domain.NotificationDelivery, error) {
+			if claimCount.Add(1) > 1 {
+				return nil, nil
+			}
+			return []domain.NotificationDelivery{{
+				ID:          "del-disabled",
+				ChannelID:   "ch-disabled",
+				ProjectID:   "proj-1",
+				EventType:   "test.event",
+				Payload:     json.RawMessage(`{"secret":"queued-before-disable"}`),
+				MaxAttempts: 3,
+			}}, nil
+		},
+		getChanFn: func(_ context.Context, _, _ string) (*domain.NotificationChannel, error) {
+			return &domain.NotificationChannel{
+				ID:          "ch-disabled",
+				ProjectID:   "proj-1",
+				ChannelType: domain.ChannelTypeWebhook,
+				Config:      json.RawMessage(`{"url":"https://example.com/hook"}`),
+				Enabled:     false,
+			}, nil
+		},
+		updateFn: func(_ context.Context, d *domain.NotificationDelivery) (bool, error) {
+			cp := *d
+			updatedDelivery = &cp
+			return true, nil
+		},
+	}
+	sender := &recordingSender{}
+
+	w := NewWorker(st, &http.Client{})
+	w.RegisterSender(domain.ChannelTypeWebhook, sender)
+	processCtx, processCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer processCancel()
+	w.process(processCtx)
+
+	if sender.calls.Load() != 0 {
+		t.Fatalf("sender was called for disabled channel")
+	}
+	if updatedDelivery == nil {
+		t.Fatal("expected disabled delivery to be marked terminal")
+	}
+	if updatedDelivery.Status != "failed" {
+		t.Fatalf("status = %q, want failed", updatedDelivery.Status)
+	}
+	if updatedDelivery.Attempts != 0 {
+		t.Fatalf("attempts = %d, want 0 because no send was attempted", updatedDelivery.Attempts)
+	}
+	if updatedDelivery.NextRetryAt != nil {
+		t.Fatal("disabled channel delivery should not retry")
+	}
+	if !strings.Contains(updatedDelivery.LastError, "disabled") {
+		t.Fatalf("last error = %q, want disabled reason", updatedDelivery.LastError)
+	}
+}
+
 func TestWorker_DispatchSenderError_RetriesWithBackoff(t *testing.T) {
 	t.Parallel()
 
@@ -355,6 +542,7 @@ func TestWorker_DispatchSenderError_RetriesWithBackoff(t *testing.T) {
 				ProjectID:   "proj-1",
 				ChannelType: domain.ChannelTypeWebhook,
 				Config:      cfg,
+				Enabled:     true,
 			}, nil
 		},
 		updateFn: func(_ context.Context, d *domain.NotificationDelivery) (bool, error) {
@@ -419,6 +607,7 @@ func TestWorker_DispatchSenderError_ExhaustsMaxAttempts(t *testing.T) {
 				ProjectID:   "proj-1",
 				ChannelType: domain.ChannelTypeWebhook,
 				Config:      cfg,
+				Enabled:     true,
 			}, nil
 		},
 		updateFn: func(_ context.Context, d *domain.NotificationDelivery) (bool, error) {
@@ -473,6 +662,7 @@ func TestWorker_LeaseLostDuringUpdate(t *testing.T) {
 				ProjectID:   "proj-1",
 				ChannelType: domain.ChannelTypeWebhook,
 				Config:      cfgBytes,
+				Enabled:     true,
 			}, nil
 		},
 		updateFn: func(_ context.Context, _ *domain.NotificationDelivery) (bool, error) {
@@ -517,6 +707,7 @@ func TestWorker_UpdateClaimReturnsError(t *testing.T) {
 				ProjectID:   "proj-1",
 				ChannelType: domain.ChannelTypeWebhook,
 				Config:      cfg,
+				Enabled:     true,
 			}, nil
 		},
 		updateFn: func(_ context.Context, _ *domain.NotificationDelivery) (bool, error) {
@@ -756,6 +947,7 @@ func TestWorker_BackoffCalculation(t *testing.T) {
 						ProjectID:   "proj-1",
 						ChannelType: domain.ChannelTypeWebhook,
 						Config:      cfg,
+						Enabled:     true,
 					}, nil
 				},
 				updateFn: func(_ context.Context, d *domain.NotificationDelivery) (bool, error) {
@@ -823,6 +1015,7 @@ func TestWorker_ZeroMaxAttempts_FailsImmediately(t *testing.T) {
 				ProjectID:   "proj-1",
 				ChannelType: domain.ChannelTypeWebhook,
 				Config:      cfg,
+				Enabled:     true,
 			}, nil
 		},
 		updateFn: func(_ context.Context, d *domain.NotificationDelivery) (bool, error) {
@@ -877,6 +1070,7 @@ func TestWorker_SuccessfulDelivery_SetsDeliveredAt(t *testing.T) {
 				ProjectID:   "proj-1",
 				ChannelType: domain.ChannelTypeWebhook,
 				Config:      cfg,
+				Enabled:     true,
 			}, nil
 		},
 		updateFn: func(_ context.Context, d *domain.NotificationDelivery) (bool, error) {
@@ -912,10 +1106,12 @@ func TestWorker_SuccessfulDelivery_SetsDeliveredAt(t *testing.T) {
 	}
 }
 
-func TestWorker_ProcessesOneAtATime(t *testing.T) {
+func TestWorker_ClaimsBatches(t *testing.T) {
 	t.Parallel()
 
-	// Verify that the worker claims exactly 1 delivery at a time.
+	// Verify that the worker claims a bounded batch so one slow delivery does
+	// not monopolize the global worker loop before unrelated deliveries are
+	// even attempted.
 	var claimedLimits []int
 	var mu sync.Mutex
 	var callCount atomic.Int32
@@ -944,6 +1140,7 @@ func TestWorker_ProcessesOneAtATime(t *testing.T) {
 				ProjectID:   "proj-1",
 				ChannelType: domain.ChannelTypeWebhook,
 				Config:      cfg,
+				Enabled:     true,
 			}, nil
 		},
 		updateFn: func(_ context.Context, _ *domain.NotificationDelivery) (bool, error) {
@@ -964,9 +1161,91 @@ func TestWorker_ProcessesOneAtATime(t *testing.T) {
 	defer mu.Unlock()
 
 	for i, limit := range claimedLimits {
-		if limit != 1 {
-			t.Errorf("claim call %d: limit = %d, want 1", i, limit)
+		if limit != notificationClaimBatchSize {
+			t.Errorf("claim call %d: limit = %d, want %d", i, limit, notificationClaimBatchSize)
 		}
+	}
+}
+
+func TestWorker_DispatchesClaimedDeliveriesConcurrently(t *testing.T) {
+	t.Parallel()
+
+	slowStarted := make(chan struct{})
+	releaseSlow := make(chan struct{})
+	fastSent := make(chan struct{})
+	done := make(chan struct{})
+
+	st := &controllableNotificationStore{
+		claimFn: func(_ context.Context, _ int, _ time.Duration) ([]domain.NotificationDelivery, error) {
+			return []domain.NotificationDelivery{
+				{
+					ID:          "del-slow",
+					ChannelID:   "ch-1",
+					ProjectID:   "proj-slow",
+					EventType:   "test.event",
+					Payload:     json.RawMessage(`{}`),
+					MaxAttempts: 3,
+				},
+				{
+					ID:          "del-fast",
+					ChannelID:   "ch-1",
+					ProjectID:   "proj-fast",
+					EventType:   "test.event",
+					Payload:     json.RawMessage(`{}`),
+					MaxAttempts: 3,
+				},
+			}, nil
+		},
+		getChanFn: func(_ context.Context, _, projectID string) (*domain.NotificationChannel, error) {
+			cfg, _ := json.Marshal(webhookConfig{URL: "https://example.com/hook"})
+			return &domain.NotificationChannel{
+				ID:          "ch-1",
+				ProjectID:   projectID,
+				ChannelType: domain.ChannelTypeWebhook,
+				Config:      cfg,
+				Enabled:     true,
+			}, nil
+		},
+		updateFn: func(_ context.Context, _ *domain.NotificationDelivery) (bool, error) {
+			return true, nil
+		},
+	}
+
+	w := NewWorker(st, &http.Client{})
+	w.RegisterSender(domain.ChannelTypeWebhook, ChannelSenderFunc(func(_ context.Context, _ *domain.NotificationChannel, d *domain.NotificationDelivery) error {
+		switch d.ID {
+		case "del-slow":
+			close(slowStarted)
+			<-releaseSlow
+		case "del-fast":
+			close(fastSent)
+		}
+		return nil
+	}))
+
+	go func() {
+		defer close(done)
+		w.dispatchBatch(context.Background(), []domain.NotificationDelivery{
+			{ID: "del-slow", ChannelID: "ch-1", ProjectID: "proj-slow", MaxAttempts: 3},
+			{ID: "del-fast", ChannelID: "ch-1", ProjectID: "proj-fast", MaxAttempts: 3},
+		})
+	}()
+
+	select {
+	case <-slowStarted:
+	case <-time.After(time.Second):
+		t.Fatal("slow delivery was not started")
+	}
+	select {
+	case <-fastSent:
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("fast delivery was blocked behind slow delivery")
+	}
+	close(releaseSlow)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("dispatch batch did not finish after slow delivery released")
 	}
 }
 

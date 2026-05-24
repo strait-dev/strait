@@ -1,0 +1,82 @@
+---
+title: Observability
+description: Metrics, traces, profiling, error reporting, and the Sentry tag taxonomy Strait emits.
+---
+
+Strait exposes the same telemetry surface in both editions: Prometheus metrics, OpenTelemetry traces, Pyroscope profiling, and Sentry error reporting. Each is opt-in via environment variables. Nothing is uploaded anywhere unless you configure an endpoint.
+
+## Prometheus metrics
+
+Strait exposes a Prometheus-compatible scrape endpoint at `/metrics`. The endpoint is gated by the internal-secret middleware, so scrapers must present the `X-Internal-Secret` header.
+
+```bash
+curl http://localhost:8080/metrics \
+  -H "X-Internal-Secret: $INTERNAL_SECRET"
+```
+
+Pre-built scrape rules and Grafana dashboards live in [`apps/strait/monitoring/`](https://github.com/strait-dev/strait/tree/master/apps/strait/monitoring). The dashboards cover queue health, worker execution, scheduler and workflow throughput, API ingress, triggers and webhooks, and audit events.
+
+Set `WORKER_CONCURRENCY`, `ADAPTIVE_CONCURRENCY_MIN`, and `ADAPTIVE_CONCURRENCY_MAX` based on what the dashboards show under your real load. See [Adaptive Concurrency](/concepts/adaptive-concurrency).
+
+## OpenTelemetry traces
+
+| Variable | Purpose |
+| --- | --- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP endpoint for traces and logs. |
+| `OTLP_METRIC_ENDPOINT` | OTLP endpoint for metrics, if different from the trace endpoint. |
+| `OTLP_METRIC_ENABLED` | Enable OTLP metric export. Defaults to `false`. |
+
+Strait emits one span per HTTP request, per dequeued run, and per workflow step. Spans propagate `trace_id` and `span_id` into structured logs and Sentry events, so an incident in one tool can be followed into the others.
+
+## Pyroscope profiling
+
+Set `PYROSCOPE_ENDPOINT` to push CPU and allocation profiles continuously. Useful when chasing a worker slowdown that does not show up in dashboards or traces.
+
+```bash
+export PYROSCOPE_ENDPOINT=http://pyroscope.internal:4040
+```
+
+## Sentry error reporting
+
+Set `SENTRY_DSN` to send unhandled errors and panics to Sentry. The full list of Sentry-related variables (sample rate, breadcrumb limits, scheduler check-ins, release identifier) is in [Environment Variables](/configuration/environment-variables).
+
+### Tag taxonomy
+
+Strait uses a fixed Sentry tag taxonomy so issues can be searched, grouped, and routed consistently. Tags are intentionally low-cardinality except for documented resource identifiers such as `project_id`, `run_id`, and `job_id`.
+
+| Tag | Source | Cardinality | Notes |
+| --- | --- | --- | --- |
+| `edition` | Process | Low | `community` or `cloud`. |
+| `subsystem` | Capture path | Low | One of `api`, `grpc`, `worker`, `queue`, `workflow`, `scheduler`, `billing`, `webhook`, `cdc`, `logdrain`, or `unknown`. |
+| `mode` | Process config | Low | `api`, `worker`, `all`, or `unknown`. |
+| `region` | Process config | Low | Deployment region. Defaults to `unknown` when unset. |
+| `version` | Build metadata | Low | Binary or release version. Defaults to `unknown` when unset. |
+| `route` | HTTP API | Low | Chi route pattern or request path fallback. |
+| `method` | HTTP API | Low | HTTP method. |
+| `status_class` | HTTP API | Low | Normalized status family such as `4xx` or `5xx`. |
+| `service` | gRPC API | Low | Fully-qualified gRPC service name. |
+| `rpc` | gRPC API | Low | gRPC method name. |
+| `grpc_code` | gRPC API | Low | gRPC status code for captured server-side errors. |
+| `worker_id` | Worker plane | Medium | Connected worker identifier. |
+| `project_id` | Auth/domain | Identifier | Allowed high-cardinality tenant identifier. |
+| `org_id` | Auth/domain | Identifier | Organization identifier when available. |
+| `actor_id` | Auth | Identifier | API key, user, SSE token, or run token actor. |
+| `actor_type` | Auth | Low | `api_key`, `user`, `sse_token`, or `run_token`. |
+| `request_id` | HTTP API | Identifier | Request correlation ID. |
+| `trace_id` | OpenTelemetry | Identifier | Trace correlation ID. |
+| `span_id` | OpenTelemetry | Identifier | Span correlation ID. |
+| `job_id` | Domain | Identifier | Job identifier when a run or job path captures an error. |
+| `run_id` | Domain | Identifier | Run identifier when available. |
+| `workflow_id` | Domain | Identifier | Workflow identifier when available. |
+| `step_id` | Domain | Identifier | Workflow step identifier when available. |
+| `delivery_id` | Webhooks | Identifier | Webhook delivery identifier. |
+| `attempt` | Domain | Low | Retry or run attempt number. |
+| `error_class` | Capture path | Low | Normalized class such as `server`, `timeout`, or `network`. |
+
+New Sentry capture paths should use the typed helpers in `internal/telemetry/sentry_tags.go` instead of introducing free-form tag keys.
+
+## Related
+
+- [Environment Variables](/configuration/environment-variables)
+- [Real-time updates](/concepts/real-time)
+- [Log Drains](/concepts/log-drains)

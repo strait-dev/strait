@@ -1,0 +1,3 @@
+ALTER TABLE organization_subscriptions DROP CONSTRAINT IF EXISTS organization_subscriptions_plan_tier_check;
+ALTER TABLE organization_subscriptions DROP CONSTRAINT IF EXISTS organization_subscriptions_pending_plan_tier_check;
+ALTER TABLE project_quotas DROP CONSTRAINT IF EXISTS project_quotas_plan_tier_check;

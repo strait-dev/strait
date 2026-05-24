@@ -1,0 +1,256 @@
+---
+title: "API Keys"
+description: "Create, list, rotate, and revoke API keys from the Strait CLI."
+icon: "key"
+---
+
+The `strait api-keys` command group manages API keys for authenticating with the Strait API. Every subcommand requires the `api-keys:manage` scope on the calling credential.
+
+## Create a key
+
+```bash
+strait api-keys create \
+  --project proj_abc123 \
+  --name "ci-deploy-key" \
+  --scopes "jobs:write,runs:read,workflows:trigger" \
+  --expires-in-days 90
+```
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--project` | Yes | Project ID the key belongs to. |
+| `--name` | Yes | Human-readable label (max 255 characters). |
+| `--scopes` | No | Comma-separated list of scopes. Omit for full access. |
+| `--expires-in-days` | No | Key lifetime in days. If the project has a `max_key_lifetime_days` quota, the expiry is capped automatically. |
+| `--environment` | No | Bind the key to a specific environment ID. |
+| `--rotation-interval-days` | No | Set an automatic rotation reminder interval. |
+| `--output` | No | Output format: `table` (default) or `json`. |
+
+<Warning>
+The raw key is returned **only once** at creation time. Store it in a secret manager immediately. Strait stores only the SHA-256 hash.
+</Warning>
+
+### REST equivalent
+
+```http
+POST /v1/api-keys
+```
+
+```json
+{
+  "project_id": "proj_abc123",
+  "name": "ci-deploy-key",
+  "scopes": ["jobs:write", "runs:read", "workflows:trigger"],
+  "expires_in_days": 90,
+  "environment_id": "",
+  "rotation_interval_days": 0
+}
+```
+
+The response includes `id`, `key`, `key_prefix`, `scopes`, `expires_at`, and `created_at`. The `key` field is the only time the plaintext is available.
+
+---
+
+## List keys
+
+```bash
+strait api-keys list --project proj_abc123
+```
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--project` | Yes | Project to list keys for. |
+| `--org` | No | List keys across an entire organization instead of a single project. |
+| `--limit` | No | Maximum results per page (default 20). |
+| `--cursor` | No | Pagination cursor from a previous response. |
+| `--output` | No | `table` or `json`. |
+
+### REST equivalent
+
+```http
+GET /v1/api-keys?limit=20&cursor=
+```
+
+Pass `org_id` as a query parameter to list across the organization.
+
+---
+
+## List expiring keys
+
+Find keys that will expire within a given window so you can rotate proactively.
+
+```bash
+strait api-keys expiring --project proj_abc123 --within-days 14
+```
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--project` | Yes | Project to check. |
+| `--within-days` | No | Lookahead window in days (default 30, max 365). |
+| `--output` | No | `table` or `json`. |
+
+### REST equivalent
+
+```http
+GET /v1/api-keys/expiring-soon?within_days=14
+```
+
+Each result includes `days_left` and `no_expiry` fields so you can sort or filter programmatically.
+
+---
+
+## Rotate a key
+
+Rotation creates a new key and marks the old one as replaced. A grace period keeps both keys valid to allow zero-downtime rollover.
+
+```bash
+strait api-keys rotate key-abc123 --grace-period-minutes 60
+```
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--grace-period-minutes` | No | How long the old key stays valid alongside the new one. Default 60, max 10080 (7 days). |
+| `--output` | No | `table` or `json`. |
+
+<Info>
+The new key inherits the old key's name (with a ` (rotated)` suffix), scopes, expiry, environment binding, and rotation interval. If `rotation_interval_days` was set, the next rotation reminder is recalculated automatically.
+</Info>
+
+### REST equivalent
+
+```http
+POST /v1/api-keys/{keyID}/rotate
+```
+
+```json
+{
+  "grace_period_minutes": 60
+}
+```
+
+The response returns both `old_key_id` and `new_key_id`, plus `grace_expires_at` so your automation knows when to stop using the old credential.
+
+### Recommended rotation flow
+
+<Steps>
+  <Step title="Rotate">
+    Run `strait api-keys rotate` with a grace window large enough to redeploy your services.
+  </Step>
+  <Step title="Deploy">
+    Roll out the new key to all consumers.
+  </Step>
+  <Step title="Verify">
+    Confirm traffic is using the new key (check audit logs or the `key_prefix` in request headers).
+  </Step>
+  <Step title="Expire or revoke">
+    Let the grace period expire naturally, or revoke the old key explicitly if all consumers have migrated.
+  </Step>
+</Steps>
+
+For the full flow, see [API Key Rotation](/guides/authentication#api-key-rotation).
+
+---
+
+## Revoke a key
+
+Revocation is immediate and permanent. Any request using the revoked key will receive a `401`.
+
+```bash
+strait api-keys revoke key-abc123
+```
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--output` | No | `table` or `json`. |
+
+### REST equivalent
+
+```http
+DELETE /v1/api-keys/{keyID}
+```
+
+Returns `{"status": "revoked"}` on success, or `404` if the key does not exist or was already revoked.
+
+---
+
+## Scopes reference
+
+Scopes restrict what an API key is allowed to do. Assign only the scopes your integration needs.
+
+| Scope | Description |
+|-------|-------------|
+| `*` | Wildcard: full access. Use sparingly. |
+| `jobs:read` | Read job definitions. |
+| `jobs:write` | Create and update jobs. |
+| `jobs:trigger` | Trigger job runs. |
+| `runs:read` | Read run history and status. |
+| `runs:write` | Create and modify runs. |
+| `workflows:read` | Read workflow definitions. |
+| `workflows:write` | Create and update workflows. |
+| `workflows:trigger` | Trigger workflow runs. |
+| `secrets:read` | Read secret metadata (not values). |
+| `secrets:write` | Create, update, and delete secrets. |
+| `webhooks:read` | Read webhook configurations. |
+| `webhooks:write` | Create and update webhooks. |
+| `api-keys:manage` | Create, list, rotate, and revoke API keys. |
+| `rbac:manage` | Manage roles and permissions. |
+| `stats:read` | Read analytics and performance data. |
+| `projects:read` | Read project metadata. |
+| `projects:write` | Update project settings. |
+| `projects:manage` | Full project administration. |
+| `dlq:read` | Read `dead_letter` runs. |
+| `dlq:replay` | Replay `dead_letter` runs. |
+| `dlq:purge` | Purge `dead_letter` runs. |
+<Tip>
+Keys created via CLI device-code authentication (`strait login`) receive the `CLIDefaultScopes` set, which includes standard operational scopes but excludes `api-keys:manage`, `rbac:manage`, and `projects:manage` to limit blast radius.
+</Tip>
+
+---
+
+## Output formats
+
+All `api-keys` subcommands accept `--output` (`-o`) to switch between formats:
+
+- **`table`** (default): human-readable columns, suitable for terminal use.
+- **`json`**: machine-readable JSON, suitable for piping into `jq` or automation scripts.
+
+```bash
+# Pipe key creation into jq to extract just the raw key
+strait api-keys create --project proj_abc123 --name "ephemeral" -o json | jq -r '.key'
+```
+
+---
+
+## Examples
+
+### CI/CD: create a scoped, time-limited key
+
+```bash
+strait api-keys create \
+  --project proj_abc123 \
+  --name "github-actions-$(date +%Y%m%d)" \
+  --scopes "jobs:trigger,runs:read" \
+  --expires-in-days 7
+```
+
+### Audit expiring keys weekly
+
+```bash
+strait api-keys expiring --project proj_abc123 --within-days 7 -o json \
+  | jq '.[] | select(.days_left != null and .days_left <= 3)'
+```
+
+### Rotate and capture the new key in one step
+
+```bash
+NEW_KEY=$(strait api-keys rotate key-abc123 --grace-period-minutes 120 -o json | jq -r '.key')
+vault kv put secret/strait-key value="$NEW_KEY"
+```
+
+### Revoke all keys matching a prefix
+
+```bash
+strait api-keys list --project proj_abc123 -o json \
+  | jq -r '.[] | select(.name | startswith("temp-")) | .id' \
+  | xargs -I{} strait api-keys revoke {}
+```

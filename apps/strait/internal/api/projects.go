@@ -82,6 +82,9 @@ func (s *Server) handleCreateProject(ctx context.Context, input *CreateProjectIn
 			if errors.As(txErr, &le) {
 				return nil, le
 			}
+			if errors.Is(txErr, store.ErrProjectOrgMismatch) {
+				return nil, huma.Error409Conflict("project already exists in a different organization")
+			}
 			slog.Error("failed to create project", "error", txErr)
 			return nil, huma.Error500InternalServerError("failed to create project")
 		}
@@ -103,6 +106,9 @@ func (s *Server) handleCreateProject(ctx context.Context, input *CreateProjectIn
 		}
 
 		if err := s.store.CreateProject(ctx, project); err != nil {
+			if errors.Is(err, store.ErrProjectOrgMismatch) {
+				return nil, huma.Error409Conflict("project already exists in a different organization")
+			}
 			slog.Error("failed to create project", "error", err)
 			return nil, huma.Error500InternalServerError("failed to create project")
 		}

@@ -366,6 +366,7 @@ const TeamMembers = ({ organizationId, currentUserId }: TeamMembersProps) => {
                                         onClick={() =>
                                           handleRemoveMember(member.id)
                                         }
+                                        variant="destructive"
                                       >
                                         Remove
                                       </AlertDialogAction>

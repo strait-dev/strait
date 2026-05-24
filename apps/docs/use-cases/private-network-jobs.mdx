@@ -1,0 +1,40 @@
+---
+title: "Run Jobs in a Private Network"
+description: "Process work without exposing public job endpoints."
+icon: "server"
+---
+
+Use worker mode when Strait should not call your service over public HTTP.
+
+Your worker connects out to Strait, registers the queues it can handle, and receives matching runs over that connection.
+
+## When to Use It
+
+Worker mode fits when:
+
+- The code runs in a private VPC or on-prem network.
+- The job needs private databases, files, or model weights.
+- You do not want to expose a public endpoint.
+- The process benefits from shared local state, caches, or connection pools.
+
+## Recommended Setup
+
+Create jobs with `execution_mode: "worker"` and a queue name:
+
+```json
+{
+  "name": "Train Model",
+  "slug": "train-model",
+  "execution_mode": "worker",
+  "queue_name": "ml"
+}
+```
+
+Run workers close to the systems they call. Add more workers for the same queue when you need more throughput.
+
+## Read Next
+
+- [Run Private Workers](/guides/private-workers)
+- [Execution Modes](/concepts/execution-modes)
+- [SDK Integration](/guides/sdk-integration)
+- [Deployment](/guides/deployment)

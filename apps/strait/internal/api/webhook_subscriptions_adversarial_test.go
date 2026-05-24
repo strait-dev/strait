@@ -10,6 +10,108 @@ import (
 	"strait/internal/domain"
 )
 
+func TestWebhookSubscriptions_RunsWriteScopeCannotCreateSubscription(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
+			return &domain.APIKey{ID: "key-runs", ProjectID: "proj-1", Scopes: []string{domain.ScopeRunsWrite}}, nil
+		},
+		CreateWebhookSubscriptionFunc: func(_ context.Context, _ *domain.WebhookSubscription) error {
+			t.Fatal("runs:write must not authorize webhook subscription creation")
+			return nil
+		},
+	}
+	srv := newTestServerWithEncryptor(t, ms, &mockQueue{}, &mockEncryptor{})
+
+	body := `{"project_id":"proj-1","webhook_url":"https://example.com/hook","event_types":["run.completed"],"secret":"secret"}`
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/v1/webhooks/subscriptions", strings.NewReader(body))
+	r.Header.Set("Authorization", "Bearer strait_runs_write")
+	r.Header.Set("Content-Type", "application/json")
+
+	srv.ServeHTTP(w, r)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestWebhookSubscriptions_WebhooksWriteScopeCanCreateSubscription(t *testing.T) {
+	t.Parallel()
+
+	called := false
+	ms := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
+			return &domain.APIKey{ID: "key-webhooks", ProjectID: "proj-1", Scopes: []string{domain.ScopeWebhooksWrite}}, nil
+		},
+		CreateWebhookSubscriptionFunc: func(_ context.Context, sub *domain.WebhookSubscription) error {
+			called = true
+			sub.ID = "sub-1"
+			return nil
+		},
+	}
+	srv := newTestServerWithEncryptor(t, ms, &mockQueue{}, &mockEncryptor{})
+
+	body := `{"project_id":"proj-1","webhook_url":"https://example.com/hook","event_types":["run.completed"],"secret":"secret"}`
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/v1/webhooks/subscriptions", strings.NewReader(body))
+	r.Header.Set("Authorization", "Bearer strait_webhooks_write")
+	r.Header.Set("Content-Type", "application/json")
+
+	srv.ServeHTTP(w, r)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if !called {
+		t.Fatal("CreateWebhookSubscription was not called")
+	}
+}
+
+func TestWebhookTest_RunsWriteScopeCannotTestWebhook(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
+			return &domain.APIKey{ID: "key-runs", ProjectID: "proj-1", Scopes: []string{domain.ScopeRunsWrite}}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/v1/webhooks/test", strings.NewReader(`{}`))
+	r.Header.Set("Authorization", "Bearer strait_runs_write")
+	r.Header.Set("Content-Type", "application/json")
+
+	srv.ServeHTTP(w, r)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestWebhookTest_WebhooksWriteScopeReachesValidation(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
+			return &domain.APIKey{ID: "key-webhooks", ProjectID: "proj-1", Scopes: []string{domain.ScopeWebhooksWrite}}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/v1/webhooks/test", strings.NewReader(`{}`))
+	r.Header.Set("Authorization", "Bearer strait_webhooks_write")
+	r.Header.Set("Content-Type", "application/json")
+
+	srv.ServeHTTP(w, r)
+	if w.Code == http.StatusForbidden {
+		t.Fatalf("webhooks:write should authorize webhook test endpoint: %s", w.Body.String())
+	}
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected authorized request to reach body validation, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 // webhookSubStore returns an APIStoreMock suitable for webhook subscription
 // creation tests. It records the created subscription.
 func webhookSubStore() *APIStoreMock {
@@ -25,7 +127,7 @@ func webhookSubStore() *APIStoreMock {
 // subscriptions endpoint and returns the recorder.
 func postWebhookSub(t *testing.T, body string) *httptest.ResponseRecorder {
 	t.Helper()
-	srv := newTestServer(t, webhookSubStore(), &mockQueue{}, nil)
+	srv := newTestServerWithEncryptor(t, webhookSubStore(), &mockQueue{}, &mockEncryptor{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/webhooks/subscriptions", body))
 	return w
@@ -87,6 +189,36 @@ func TestWebhookSub_MetadataURL(t *testing.T) {
 
 	if w.Code < 400 {
 		t.Fatalf("expected 4xx for metadata URL, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestWebhookSub_DNSPrivateURL(t *testing.T) {
+	t.Parallel()
+
+	w := postWebhookSub(t, `{
+		"project_id": "proj-1",
+		"webhook_url": "https://internal.example.com/hook",
+		"event_types": ["run.completed"],
+		"secret": "s3cret"
+	}`)
+
+	if w.Code < 400 {
+		t.Fatalf("expected 4xx for hostname resolving to private IP, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestWebhookSub_RequireTLSRejectsHTTP(t *testing.T) {
+	t.Parallel()
+
+	store := webhookSubStore()
+	srv := newTestServer(t, store, &mockQueue{}, nil)
+	srv.config.WebhookRequireTLS = true
+	w := httptest.NewRecorder()
+	body := `{"project_id":"proj-1","webhook_url":"http://example.com/hook","event_types":["run.completed"],"secret":"s3cret"}`
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/webhooks/subscriptions", body))
+
+	if w.Code < 400 {
+		t.Fatalf("expected 4xx when WEBHOOK_REQUIRE_TLS rejects HTTP subscription, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -160,9 +292,10 @@ func TestWebhookSub_InvalidEventType(t *testing.T) {
 	}
 }
 
-// TestWebhookSub_EmptySecret verifies that an empty secret is rejected by
-// validation (the field has a "required" tag).
-func TestWebhookSub_EmptySecret(t *testing.T) {
+// TestWebhookSub_ClientSecretIgnored verifies that a client-supplied secret
+// is ignored: the server always generates the signing secret. Any value the
+// caller sends — empty, weak, strong — is dropped on the floor.
+func TestWebhookSub_ClientSecretIgnored(t *testing.T) {
 	t.Parallel()
 
 	w := postWebhookSub(t, `{
@@ -172,8 +305,8 @@ func TestWebhookSub_EmptySecret(t *testing.T) {
 		"secret": ""
 	}`)
 
-	if w.Code < 400 {
-		t.Fatalf("expected 4xx for empty secret, got %d: %s", w.Code, w.Body.String())
+	if w.Code != 201 && w.Code != 200 {
+		t.Fatalf("expected 201/200 (server generates secret), got %d: %s", w.Code, w.Body.String())
 	}
 }
 

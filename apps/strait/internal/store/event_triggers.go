@@ -23,13 +23,13 @@ func (q *Queries) CreateEventTrigger(ctx context.Context, trigger *domain.EventT
 
 	query := `
 		INSERT INTO event_triggers (
-			id, event_key, project_id, source_type,
+			id, event_key, project_id, environment_id, source_type,
 			workflow_run_id, workflow_step_run_id, job_run_id,
 			status, request_payload, response_payload,
 			timeout_secs, requested_at, received_at, expires_at, error,
 		       notify_url, notify_status, trigger_type, sent_by
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`
 
 	if _, err := q.db.Exec(
 		ctx,
@@ -37,6 +37,7 @@ func (q *Queries) CreateEventTrigger(ctx context.Context, trigger *domain.EventT
 		trigger.ID,
 		trigger.EventKey,
 		trigger.ProjectID,
+		dbscan.NilIfEmptyString(trigger.EnvironmentID),
 		trigger.SourceType,
 		dbscan.NilIfEmptyString(trigger.WorkflowRunID),
 		dbscan.NilIfEmptyString(trigger.WorkflowStepRunID),
@@ -56,7 +57,7 @@ func (q *Queries) CreateEventTrigger(ctx context.Context, trigger *domain.EventT
 	); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return fmt.Errorf("event key %q already exists: %w", trigger.EventKey, ErrEventKeyConflict)
+			return fmt.Errorf("event key already exists in project: %w", ErrEventKeyConflict)
 		}
 		return fmt.Errorf("create event trigger: %w", err)
 	}
@@ -70,7 +71,7 @@ func (q *Queries) GetEventTriggerByEventKey(ctx context.Context, eventKey string
 	defer span.End()
 
 	query := `
-		SELECT id, event_key, project_id, source_type,
+		SELECT id, event_key, project_id, environment_id, source_type,
 		       workflow_run_id, workflow_step_run_id, job_run_id,
 		       status, request_payload, response_payload,
 		       timeout_secs, requested_at, received_at, expires_at, error,
@@ -89,13 +90,39 @@ func (q *Queries) GetEventTriggerByEventKey(ctx context.Context, eventKey string
 	return trigger, nil
 }
 
+// GetEventTriggerByEventKeyForProject retrieves an event trigger by event key
+// only when it belongs to the supplied project.
+func (q *Queries) GetEventTriggerByEventKeyForProject(ctx context.Context, eventKey, projectID string) (*domain.EventTrigger, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetEventTriggerByEventKeyForProject")
+	defer span.End()
+
+	query := `
+		SELECT id, event_key, project_id, environment_id, source_type,
+		       workflow_run_id, workflow_step_run_id, job_run_id,
+		       status, request_payload, response_payload,
+		       timeout_secs, requested_at, received_at, expires_at, error,
+		       notify_url, notify_status, trigger_type, sent_by
+		FROM event_triggers
+		WHERE event_key = $1 AND project_id = $2`
+
+	trigger, err := scanEventTrigger(q.db.QueryRow(ctx, query, eventKey, projectID))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get event trigger by event key for project: %w", err)
+	}
+
+	return trigger, nil
+}
+
 // GetEventTriggerByStepRunID retrieves an event trigger by its workflow step run ID.
 func (q *Queries) GetEventTriggerByStepRunID(ctx context.Context, stepRunID string) (*domain.EventTrigger, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetEventTriggerByStepRunID")
 	defer span.End()
 
 	query := `
-		SELECT id, event_key, project_id, source_type,
+		SELECT id, event_key, project_id, environment_id, source_type,
 		       workflow_run_id, workflow_step_run_id, job_run_id,
 		       status, request_payload, response_payload,
 		       timeout_secs, requested_at, received_at, expires_at, error,
@@ -120,7 +147,7 @@ func (q *Queries) GetEventTriggerByJobRunID(ctx context.Context, jobRunID string
 	defer span.End()
 
 	query := `
-		SELECT id, event_key, project_id, source_type,
+		SELECT id, event_key, project_id, environment_id, source_type,
 		       workflow_run_id, workflow_step_run_id, job_run_id,
 		       status, request_payload, response_payload,
 		       timeout_secs, requested_at, received_at, expires_at, error,
@@ -178,6 +205,57 @@ func (q *Queries) UpdateEventTriggerStatus(
 	return nil
 }
 
+// UpdateEventTriggerStatusFrom updates an event trigger only when its current
+// status still matches from. This protects API send/cancel paths from stale
+// read-then-update races.
+func (q *Queries) UpdateEventTriggerStatusFrom(
+	ctx context.Context,
+	id string,
+	from string,
+	status string,
+	responsePayload json.RawMessage,
+	receivedAt *time.Time,
+	errMsg string,
+) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateEventTriggerStatusFrom")
+	defer span.End()
+
+	query := `
+		UPDATE event_triggers
+		SET status = $1,
+		    response_payload = $2,
+		    received_at = $3,
+		    error = $4
+		WHERE id = $5
+		  AND status = $6`
+
+	tag, err := q.db.Exec(
+		ctx,
+		query,
+		status,
+		dbscan.NilIfEmptyRawMessage(responsePayload),
+		receivedAt,
+		dbscan.NilIfEmptyString(errMsg),
+		id,
+		from,
+	)
+	if err != nil {
+		return fmt.Errorf("update event trigger status from %s: %w", from, err)
+	}
+	if tag.RowsAffected() > 0 {
+		return nil
+	}
+
+	var actual string
+	if err := q.db.QueryRow(ctx, `SELECT status FROM event_triggers WHERE id = $1`, id).Scan(&actual); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("event trigger not found: %s", id)
+		}
+		return fmt.Errorf("read event trigger status after conflict: %w", err)
+	}
+	return fmt.Errorf("%w: event trigger %s from %s actual %s", ErrEventTriggerConflict, id, from, actual)
+}
+
 // SetEventTriggerSentBy records who resolved an event trigger (audit trail).
 func (q *Queries) SetEventTriggerSentBy(ctx context.Context, id, sentBy string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.SetEventTriggerSentBy")
@@ -196,7 +274,7 @@ func (q *Queries) ListExpiredEventTriggers(ctx context.Context) ([]domain.EventT
 	defer span.End()
 
 	query := `
-		SELECT id, event_key, project_id, source_type,
+		SELECT id, event_key, project_id, environment_id, source_type,
 		       workflow_run_id, workflow_step_run_id, job_run_id,
 		       status, request_payload, response_payload,
 		       timeout_secs, requested_at, received_at, expires_at, error,
@@ -230,12 +308,12 @@ func (q *Queries) ListExpiredEventTriggers(ctx context.Context) ([]domain.EventT
 
 // ListEventTriggersByProject returns event triggers for a project, optionally filtered by status,
 // workflow run ID, and/or source type.
-func (q *Queries) ListEventTriggersByProject(ctx context.Context, projectID, status, workflowRunID, sourceType string, limit int, cursor *time.Time) ([]domain.EventTrigger, error) {
+func (q *Queries) ListEventTriggersByProject(ctx context.Context, projectID, environmentID, status, workflowRunID, sourceType string, limit int, cursor *time.Time) ([]domain.EventTrigger, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListEventTriggersByProject")
 	defer span.End()
 
 	query := `
-		SELECT id, event_key, project_id, source_type,
+		SELECT id, event_key, project_id, environment_id, source_type,
 		       workflow_run_id, workflow_step_run_id, job_run_id,
 		       status, request_payload, response_payload,
 		       timeout_secs, requested_at, received_at, expires_at, error,
@@ -245,6 +323,12 @@ func (q *Queries) ListEventTriggersByProject(ctx context.Context, projectID, sta
 
 	args := []any{projectID}
 	argIdx := 2
+
+	if environmentID != "" {
+		query += fmt.Sprintf(" AND environment_id = $%d", argIdx)
+		args = append(args, environmentID)
+		argIdx++
+	}
 
 	if status != "" {
 		query += fmt.Sprintf(" AND status = $%d", argIdx)
@@ -319,7 +403,7 @@ func (q *Queries) ListEventTriggersByKeyPrefix(ctx context.Context, prefix strin
 
 	if projectID != "" {
 		query = `
-			SELECT id, event_key, project_id, source_type,
+			SELECT id, event_key, project_id, environment_id, source_type,
 			       workflow_run_id, workflow_step_run_id, job_run_id,
 			       status, request_payload, response_payload,
 			       timeout_secs, requested_at, received_at, expires_at, error,
@@ -333,7 +417,7 @@ func (q *Queries) ListEventTriggersByKeyPrefix(ctx context.Context, prefix strin
 		args = []any{escapedPrefix, projectID}
 	} else {
 		query = `
-			SELECT id, event_key, project_id, source_type,
+			SELECT id, event_key, project_id, environment_id, source_type,
 			       workflow_run_id, workflow_step_run_id, job_run_id,
 			       status, request_payload, response_payload,
 			       timeout_secs, requested_at, received_at, expires_at, error,
@@ -376,7 +460,7 @@ func (q *Queries) ListReceivedEventTriggersWithStaleSteps(ctx context.Context) (
 	defer span.End()
 
 	query := `
-		(SELECT et.id, et.event_key, et.project_id, et.source_type,
+		(SELECT et.id, et.event_key, et.project_id, et.environment_id, et.source_type,
 		       et.workflow_run_id, et.workflow_step_run_id, et.job_run_id,
 		       et.status, et.request_payload, et.response_payload,
 		       et.timeout_secs, et.requested_at, et.received_at, et.expires_at, et.error,
@@ -391,7 +475,7 @@ func (q *Queries) ListReceivedEventTriggersWithStaleSteps(ctx context.Context) (
 
 		UNION ALL
 
-		(SELECT et.id, et.event_key, et.project_id, et.source_type,
+		(SELECT et.id, et.event_key, et.project_id, et.environment_id, et.source_type,
 		       et.workflow_run_id, et.workflow_step_run_id, et.job_run_id,
 		       et.status, et.request_payload, et.response_payload,
 		       et.timeout_secs, et.requested_at, et.received_at, et.expires_at, et.error,
@@ -518,8 +602,50 @@ func (q *Queries) DeleteEventTriggersFinishedBefore(ctx context.Context, before 
 	return tag.RowsAffected(), nil
 }
 
+func (q *Queries) CountEventTriggersFinishedBeforeForProject(ctx context.Context, projectID, environmentID string, before time.Time) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountEventTriggersFinishedBeforeForProject")
+	defer span.End()
+
+	query := `
+		SELECT COUNT(*) FROM event_triggers
+		WHERE project_id = $1
+		  AND ($2 = '' OR environment_id = $2)
+		  AND status IN ('received', 'timed_out', 'canceled')
+		  AND COALESCE(received_at, expires_at) < $3`
+
+	var count int64
+	if err := q.db.QueryRow(ctx, query, projectID, environmentID, before).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count old project event triggers: %w", err)
+	}
+	return count, nil
+}
+
+func (q *Queries) DeleteEventTriggersFinishedBeforeForProject(ctx context.Context, projectID, environmentID string, before time.Time, limit int) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteEventTriggersFinishedBeforeForProject")
+	defer span.End()
+
+	query := `
+		DELETE FROM event_triggers
+		WHERE id IN (
+			SELECT id FROM event_triggers
+			WHERE project_id = $1
+			  AND ($2 = '' OR environment_id = $2)
+			  AND status IN ('received', 'timed_out', 'canceled')
+			  AND COALESCE(received_at, expires_at) < $3
+			LIMIT $4
+		)`
+
+	tag, err := q.db.Exec(ctx, query, projectID, environmentID, before, limit)
+	if err != nil {
+		return 0, fmt.Errorf("delete old project event triggers: %w", err)
+	}
+
+	return tag.RowsAffected(), nil
+}
+
 func scanEventTrigger(scanner scanTarget) (*domain.EventTrigger, error) {
 	var trigger domain.EventTrigger
+	var environmentID *string
 	var workflowRunID *string
 	var workflowStepRunID *string
 	var jobRunID *string
@@ -535,6 +661,7 @@ func scanEventTrigger(scanner scanTarget) (*domain.EventTrigger, error) {
 		&trigger.ID,
 		&trigger.EventKey,
 		&trigger.ProjectID,
+		&environmentID,
 		&trigger.SourceType,
 		&workflowRunID,
 		&workflowStepRunID,
@@ -556,6 +683,9 @@ func scanEventTrigger(scanner scanTarget) (*domain.EventTrigger, error) {
 		return nil, err
 	}
 
+	if environmentID != nil {
+		trigger.EnvironmentID = *environmentID
+	}
 	if workflowRunID != nil {
 		trigger.WorkflowRunID = *workflowRunID
 	}
@@ -611,10 +741,19 @@ func (q *Queries) ReceiveEventAndRequeueRun(ctx context.Context, triggerID strin
 		if tag.RowsAffected() == 0 {
 			return fmt.Errorf("%w: id %s from %s", ErrRunConflict, jobRunID, domain.StatusWaiting)
 		}
+		if len(payload) > 0 {
+			if err := txQ.CreateRunCheckpoint(ctx, &domain.RunCheckpoint{
+				RunID:  jobRunID,
+				Source: "event_trigger",
+				State:  payload,
+			}); err != nil {
+				return fmt.Errorf("create event checkpoint: %w", err)
+			}
+		}
 		return nil
 	}
 
-	txb, ok := q.db.(TxBeginner)
+	_, ok := q.db.(TxBeginner)
 	if !ok {
 		// Non-atomic fallback is unsafe: marking the trigger as received and
 		// requeuing the run must happen atomically. Return an error instead
@@ -623,8 +762,8 @@ func (q *Queries) ReceiveEventAndRequeueRun(ctx context.Context, triggerID strin
 		return fmt.Errorf("receive event and requeue run requires transaction support")
 	}
 
-	return WithTx(ctx, txb, func(txQ *Queries) error {
-		if err := txQ.UpdateEventTriggerStatus(ctx, triggerID, domain.EventTriggerStatusReceived, payload, &receivedAt, ""); err != nil {
+	return q.withTx(ctx, func(txQ *Queries) error {
+		if err := txQ.UpdateEventTriggerStatusFrom(ctx, triggerID, domain.EventTriggerStatusWaiting, domain.EventTriggerStatusReceived, payload, &receivedAt, ""); err != nil {
 			return fmt.Errorf("update trigger status: %w", err)
 		}
 		return requeueRun(txQ)
@@ -646,7 +785,10 @@ func (q *Queries) BatchReceiveEventTriggers(ctx context.Context, triggerIDs []st
 	do := func(txQ *Queries) ([]string, error) {
 		var resolved []string
 		for _, id := range triggerIDs {
-			if err := txQ.UpdateEventTriggerStatus(ctx, id, domain.EventTriggerStatusReceived, payload, &receivedAt, ""); err != nil {
+			if err := txQ.UpdateEventTriggerStatusFrom(ctx, id, domain.EventTriggerStatusWaiting, domain.EventTriggerStatusReceived, payload, &receivedAt, ""); err != nil {
+				if errors.Is(err, ErrEventTriggerConflict) {
+					continue
+				}
 				return resolved, fmt.Errorf("update trigger %s: %w", id, err)
 			}
 			if sentBy != "" {
@@ -657,13 +799,13 @@ func (q *Queries) BatchReceiveEventTriggers(ctx context.Context, triggerIDs []st
 		return resolved, nil
 	}
 
-	txb, ok := q.db.(TxBeginner)
+	_, ok := q.db.(TxBeginner)
 	if !ok {
 		return do(q)
 	}
 
 	var resolved []string
-	err := WithTx(ctx, txb, func(txQ *Queries) error {
+	err := q.withTx(ctx, func(txQ *Queries) error {
 		var txErr error
 		resolved, txErr = do(txQ)
 		return txErr

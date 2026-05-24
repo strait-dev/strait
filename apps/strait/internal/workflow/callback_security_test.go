@@ -221,6 +221,62 @@ func TestCallback_TerminalWorkflowCallback(t *testing.T) {
 	}
 }
 
+func TestEmitEventIfConfigured_DoesNotResolveForeignProjectEventKey(t *testing.T) {
+	t.Parallel()
+
+	var scopedLookupProject string
+	var updateCalled atomic.Bool
+	ms := &mockCallbackStore{
+		getEventTriggerByEventKeyFn: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+			return &domain.EventTrigger{
+				ID:         "evt-foreign",
+				EventKey:   "shared-key",
+				ProjectID:  "proj-foreign",
+				Status:     domain.EventTriggerStatusWaiting,
+				SourceType: domain.EventSourceJobRun,
+				JobRunID:   "foreign-run",
+			}, nil
+		},
+		getEventTriggerByEventKeyProjectFn: func(_ context.Context, eventKey, projectID string) (*domain.EventTrigger, error) {
+			scopedLookupProject = projectID
+			if eventKey == "shared-key" && projectID == "proj-foreign" {
+				return &domain.EventTrigger{
+					ID:         "evt-foreign",
+					EventKey:   eventKey,
+					ProjectID:  projectID,
+					Status:     domain.EventTriggerStatusWaiting,
+					SourceType: domain.EventSourceJobRun,
+					JobRunID:   "foreign-run",
+				}, nil
+			}
+			return nil, nil
+		},
+		updateEventTriggerStatusFn: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+			updateCalled.Store(true)
+			return nil
+		},
+		updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
+			updateCalled.Store(true)
+			return nil
+		},
+	}
+
+	cb := newTestCallback(ms)
+	cb.emitEventIfConfigured(
+		context.Background(),
+		&domain.WorkflowStepRun{ID: "sr-1", Output: json.RawMessage(`{"ok":true}`)},
+		&domain.WorkflowStep{StepRef: "emitter", EventEmitKey: "shared-key"},
+		&domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", ProjectID: "proj-1"},
+	)
+
+	if scopedLookupProject != "proj-1" {
+		t.Fatalf("scoped lookup project = %q, want proj-1", scopedLookupProject)
+	}
+	if updateCalled.Load() {
+		t.Fatal("foreign project event trigger was resolved")
+	}
+}
+
 // TestCallback_HugeStepOutput verifies that a 10MB step output is handled
 // without error.
 func TestCallback_HugeStepOutput(t *testing.T) {

@@ -5,12 +5,16 @@ const TRACE_SEGMENTS: {
   label: string;
   color: string;
 }[] = [
-  { key: "queue_wait_ms", label: "Queue Wait", color: "bg-blue-500" },
-  { key: "dequeue_ms", label: "Dequeue", color: "bg-indigo-500" },
-  { key: "dispatch_ms", label: "Dispatch", color: "bg-violet-500" },
-  { key: "connect_ms", label: "Connect", color: "bg-amber-500" },
-  { key: "ttfb_ms", label: "TTFB", color: "bg-emerald-500" },
-  { key: "transfer_ms", label: "Transfer", color: "bg-cyan-500" },
+  {
+    key: "queue_wait_ms",
+    label: "Queue Wait",
+    color: "bg-muted-foreground/50",
+  },
+  { key: "dequeue_ms", label: "Dequeue", color: "bg-chart-1" },
+  { key: "dispatch_ms", label: "Dispatch", color: "bg-info" },
+  { key: "connect_ms", label: "Connect", color: "bg-primary" },
+  { key: "ttfb_ms", label: "TTFB", color: "bg-warning" },
+  { key: "transfer_ms", label: "Transfer", color: "bg-success" },
 ];
 
 const ExecutionTraceBar = ({ trace }: { trace: ExecutionTrace }) => {

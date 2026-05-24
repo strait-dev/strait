@@ -13,6 +13,9 @@ var (
 	// idempotency unique index constraint (idx_runs_idempotency). Callers
 	// should retry by looking up the existing run via GetRunByIdempotencyKey.
 	ErrIdempotencyConflict = errors.New("idempotency key conflict")
+
+	// ErrCanaryNotFound is returned when no active canary deployment exists.
+	ErrCanaryNotFound = errors.New("no active canary deployment found")
 )
 
 // TransitionError is returned when an FSM state transition is invalid.
@@ -41,7 +44,7 @@ type EndpointError struct {
 }
 
 func (e *EndpointError) Error() string {
-	return fmt.Sprintf("endpoint returned %d: %s", e.StatusCode, e.Body)
+	return fmt.Sprintf("endpoint returned %d", e.StatusCode)
 }
 
 // FieldError is returned when an unsupported field is used in an update operation.

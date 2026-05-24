@@ -18,7 +18,7 @@ func TestDequeueNFullyDenormalized_HappyPath(t *testing.T) {
 	job := mustCreateJob(t, ctx, st, "project-fulldn-happy")
 	q := mustQueue(t)
 
-	for i := 0; i < 15; i++ {
+	for range 15 {
 		mustEnqueueRun(t, ctx, q, job)
 	}
 
@@ -52,7 +52,7 @@ func TestFanoutJobConfig_UpdatesQueuedRuns(t *testing.T) {
 	job := mustCreateJob(t, ctx, st, "project-fanout-paused")
 	q := mustQueue(t)
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		mustEnqueueRun(t, ctx, q, job)
 	}
 

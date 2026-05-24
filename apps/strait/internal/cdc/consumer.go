@@ -9,7 +9,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"strait/internal/domain"
 	"strait/internal/pubsub"
+	"strait/internal/telemetry"
 
 	"github.com/getsentry/sentry-go"
 	"go.opentelemetry.io/otel"
@@ -17,17 +19,18 @@ import (
 
 // Consumer polls the Sequin Stream and dispatches messages to registered handlers.
 type Consumer struct {
-	client    *Client
-	config    ConsumerConfig
-	handlers  map[string]Handler
-	publisher EventPublisher
-	logger    *slog.Logger
-	stop      chan struct{}
-	done      chan struct{}
-	stopOnce  sync.Once
-	pollWG    sync.WaitGroup
-	polling   atomic.Int64
-	started   atomic.Bool
+	client             *Client
+	config             ConsumerConfig
+	handlers           map[string]Handler
+	additionalHandlers map[string][]Handler
+	publisher          EventPublisher
+	logger             *slog.Logger
+	stop               chan struct{}
+	done               chan struct{}
+	stopOnce           sync.Once
+	pollWG             sync.WaitGroup
+	polling            atomic.Int64
+	started            atomic.Bool
 }
 
 // NewConsumer creates a new CDC consumer.
@@ -36,19 +39,20 @@ func NewConsumer(client *Client, cfg ConsumerConfig, logger *slog.Logger) *Consu
 		logger = slog.Default()
 	}
 	if cfg.BatchSize <= 0 {
-		cfg.BatchSize = 10
+		cfg.BatchSize = 200
 	}
 	if cfg.WaitTimeMs <= 0 {
 		cfg.WaitTimeMs = 1000
 	}
 
 	return &Consumer{
-		client:   client,
-		config:   cfg,
-		handlers: make(map[string]Handler),
-		logger:   logger,
-		stop:     make(chan struct{}),
-		done:     make(chan struct{}),
+		client:             client,
+		config:             cfg,
+		handlers:           make(map[string]Handler),
+		additionalHandlers: make(map[string][]Handler),
+		logger:             logger,
+		stop:               make(chan struct{}),
+		done:               make(chan struct{}),
 	}
 }
 
@@ -63,6 +67,15 @@ func (c *Consumer) RegisterHandler(h Handler) {
 		return
 	}
 	c.handlers[h.Table()] = h
+}
+
+// RegisterAdditionalHandler adds a secondary handler for a table.
+func (c *Consumer) RegisterAdditionalHandler(h Handler) {
+	if h == nil {
+		return
+	}
+	table := h.Table()
+	c.additionalHandlers[table] = append(c.additionalHandlers[table], h)
 }
 
 // Run starts the consumer loop. It blocks until ctx is canceled.
@@ -145,7 +158,7 @@ func (c *Consumer) poll(ctx context.Context) error {
 
 	ackIDs := make([]string, 0, len(messages))
 	nackIDs := make([]string, 0, len(messages))
-	batchAckIDs := make([]string, 0, len(messages))
+	batchMessages := make([]Message, 0, len(messages))
 	batch := make([]pubsub.PubSubMessage, 0, len(messages))
 
 	for _, msg := range messages {
@@ -175,8 +188,9 @@ func (c *Consumer) poll(ctx context.Context) error {
 			if pubMsg != nil {
 				batch = append(batch, *pubMsg)
 			}
-			// Track separately; only ACK after successful publish.
-			batchAckIDs = append(batchAckIDs, msg.AckID)
+			// Track separately; only ACK after successful publish and
+			// durable side-effect handlers have completed.
+			batchMessages = append(batchMessages, msg)
 			continue
 		}
 
@@ -191,26 +205,58 @@ func (c *Consumer) poll(ctx context.Context) error {
 			continue
 		}
 
+		if err := c.runAdditionalHandlers(ctx, msg); err != nil {
+			c.logger.Error("additional handler failed",
+				"table", msg.Metadata.TableName,
+				"action", msg.Action,
+				"ack_id", msg.AckID,
+				"error", err,
+			)
+			nackIDs = append(nackIDs, msg.AckID)
+			continue
+		}
+
 		ackIDs = append(ackIDs, msg.AckID)
 	}
 
 	// Flush batch in a single Redis pipeline. On failure, NACK the messages
 	// so they are retried instead of being silently lost.
-	if len(batch) > 0 && c.publisher != nil {
+	if len(batchMessages) > 0 && len(batch) > 0 && c.publisher != nil {
 		if err := c.publisher.PublishBatch(ctx, batch); err != nil {
-			sentry.WithScope(func(scope *sentry.Scope) {
-				scope.SetTag("batch_count", fmt.Sprintf("%d", len(batch)))
-				scope.SetLevel(sentry.LevelError)
-				scope.SetFingerprint([]string{"cdc_batch_publish_failed"})
-				sentry.CaptureException(err)
-			})
+			c.captureBatchPublishFailure(ctx, err, len(batch))
 			c.logger.Error("batch publish failed, nacking messages", "count", len(batch), "error", err)
-			nackIDs = append(nackIDs, batchAckIDs...)
+			for _, msg := range batchMessages {
+				nackIDs = append(nackIDs, msg.AckID)
+			}
 		} else {
-			ackIDs = append(ackIDs, batchAckIDs...)
+			for _, msg := range batchMessages {
+				if err := c.runAdditionalHandlers(ctx, msg); err != nil {
+					c.logger.Error("additional handler failed",
+						"table", msg.Metadata.TableName,
+						"action", msg.Action,
+						"ack_id", msg.AckID,
+						"error", err,
+					)
+					nackIDs = append(nackIDs, msg.AckID)
+					continue
+				}
+				ackIDs = append(ackIDs, msg.AckID)
+			}
 		}
 	} else {
-		ackIDs = append(ackIDs, batchAckIDs...)
+		for _, msg := range batchMessages {
+			if err := c.runAdditionalHandlers(ctx, msg); err != nil {
+				c.logger.Error("additional handler failed",
+					"table", msg.Metadata.TableName,
+					"action", msg.Action,
+					"ack_id", msg.AckID,
+					"error", err,
+				)
+				nackIDs = append(nackIDs, msg.AckID)
+				continue
+			}
+			ackIDs = append(ackIDs, msg.AckID)
+		}
 	}
 
 	if len(ackIDs) > 0 {
@@ -230,9 +276,54 @@ func (c *Consumer) poll(ctx context.Context) error {
 	return nil
 }
 
+func (c *Consumer) runAdditionalHandlers(ctx context.Context, msg Message) error {
+	for _, h := range c.additionalHandlers[msg.Metadata.TableName] {
+		if err := h.Handle(ctx, msg); err != nil {
+			return fmt.Errorf("%s additional handler: %w", msg.Metadata.TableName, err)
+		}
+	}
+	return nil
+}
+
+func (c *Consumer) captureBatchPublishFailure(ctx context.Context, err error, batchCount int) {
+	capture := func(hub *sentry.Hub) {
+		hub.WithScope(func(scope *sentry.Scope) {
+			c.applyBatchPublishFailureSentryScope(scope, batchCount)
+			hub.CaptureException(err)
+		})
+	}
+	if hub := sentry.GetHubFromContext(ctx); hub != nil {
+		capture(hub)
+		return
+	}
+	capture(sentry.CurrentHub())
+}
+
+func (c *Consumer) applyBatchPublishFailureSentryScope(scope *sentry.Scope, batchCount int) {
+	telemetry.ApplySentryRuntimeScope(scope, telemetry.SentryRuntime{
+		Edition:   string(domain.BuildEdition()),
+		Subsystem: telemetry.SubsystemCDC,
+	})
+	telemetry.SetSentryTag(scope, telemetry.TagConsumer, c.config.ConsumerName)
+	telemetry.SetSentryTag(scope, telemetry.TagOperation, "publish_batch")
+	scope.SetLevel(sentry.LevelError)
+	scope.SetContext("cdc.batch", sentry.Context{
+		"consumer":    c.config.ConsumerName,
+		"batch_count": batchCount,
+	})
+	scope.SetFingerprint([]string{"cdc_batch_publish_failed"})
+}
+
 func (c *Consumer) registeredTables() []string {
-	tables := make([]string, 0, len(c.handlers))
+	seen := make(map[string]struct{}, len(c.handlers)+len(c.additionalHandlers))
 	for table := range c.handlers {
+		seen[table] = struct{}{}
+	}
+	for table := range c.additionalHandlers {
+		seen[table] = struct{}{}
+	}
+	tables := make([]string, 0, len(seen))
+	for table := range seen {
 		tables = append(tables, table)
 	}
 	sort.Strings(tables)

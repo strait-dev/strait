@@ -164,7 +164,7 @@ func TestThroughputCeiling(t *testing.T) {
 	}
 }
 
-// TestConcurrencyCeiling finds the maximum concurrent connections for HTTP and Managed modes.
+// TestConcurrencyCeiling finds the maximum concurrent connections for HTTP-mode dispatch.
 // Use: go test -tags=loadtest -run TestConcurrencyCeiling -timeout 1h ./internal/loadtest/...
 func TestConcurrencyCeiling(t *testing.T) {
 	h := setupHarness(t)
@@ -203,41 +203,6 @@ func TestConcurrencyCeiling(t *testing.T) {
 			t.Errorf("writing result: %v", err)
 		}
 	})
-
-	// Subtest: Managed (Docker) concurrency ceiling
-	t.Run("Managed", func(t *testing.T) {
-		if os.Getenv("COMPUTE_RUNTIME") != "docker" {
-			t.Skip("set COMPUTE_RUNTIME=docker to test managed concurrency")
-		}
-
-		engine := loadtest.NewRampEngine(loadtest.RampConfig{
-			Mode:         loadtest.RampConcurrency,
-			StartRate:    10,
-			StepSize:     10,
-			StepInterval: 2 * time.Minute,
-			StopCondition: loadtest.StopCondition{
-				MaxErrorRate: 0.05,
-				MaxDuration:  1 * time.Hour,
-			},
-		}, func(ctx context.Context) error {
-			return h.TriggerJob(ctx, loadtestProjectID, resolveJobID("loadtest-managed"), map[string]any{
-				"timestamp": time.Now().UnixMilli(),
-			})
-		})
-
-		result, err := engine.Run(context.Background())
-		if err != nil {
-			t.Fatalf("managed concurrency test failed: %v", err)
-		}
-
-		t.Logf("=== MANAGED CONCURRENCY CEILING ===")
-		t.Logf("max sustained: %d containers | breaks at: %d | bottleneck: %s",
-			result.MaxRate, result.BreakingRate, result.Bottleneck)
-
-		if err := h.WriteResult("concurrency_ceiling_managed.json", result); err != nil {
-			t.Errorf("writing result: %v", err)
-		}
-	})
 }
 
 // TestProductionSimulation runs a multi-tenant production simulation.
@@ -266,8 +231,6 @@ func TestProductionSimulation(t *testing.T) {
 			switch jobType {
 			case "http":
 				jobSlug = "loadtest-fast-echo"
-			case "managed":
-				jobSlug = "loadtest-managed"
 			case "workflow":
 				jobSlug = "loadtest-workflow"
 			}
@@ -279,7 +242,7 @@ func TestProductionSimulation(t *testing.T) {
 		},
 	)
 
-	// Inject error scenarios during simulation (50/min as per STR-197)
+	// Inject error scenarios during simulation at 50/min.
 	errorCtx, errorCancel := context.WithCancel(context.Background())
 	defer errorCancel()
 	errorInjector := loadtest.NewErrorInjector(h, loadtestProjectID, 50)

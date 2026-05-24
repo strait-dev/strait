@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -124,7 +125,7 @@ func TestRuns_CancelRun(t *testing.T) {
 	var idx atomic.Int64
 	tgt := func(tgt *vegeta.Target) error {
 		i := idx.Add(1) - 1
-		i = i % int64(len(runIDs))
+		i %= int64(len(runIDs))
 		tgt.Method = "DELETE"
 		tgt.URL = baseURL + "/v1/runs/" + runIDs[i] + "/"
 		tgt.Header = http.Header{
@@ -161,7 +162,7 @@ func TestRuns_ReplayRun(t *testing.T) {
 	var idx atomic.Int64
 	tgt := func(tgt *vegeta.Target) error {
 		i := idx.Add(1) - 1
-		i = i % int64(len(failedIDs))
+		i %= int64(len(failedIDs))
 		tgt.Method = "POST"
 		tgt.URL = baseURL + "/v1/runs/" + failedIDs[i] + "/replay"
 		tgt.Header = http.Header{
@@ -233,14 +234,14 @@ func TestRuns_BulkCancel(t *testing.T) {
 	tgt := func(tgt *vegeta.Target) error {
 		i := int(idx.Add(1)-1) * 5
 		if i+5 > len(runIDs) {
-			i = i % (len(runIDs) - 4)
+			i %= len(runIDs) - 4
 		}
-		ids := ""
+		var ids strings.Builder
 		for j := range 5 {
 			if j > 0 {
-				ids += ","
+				ids.WriteString(",")
 			}
-			ids += fmt.Sprintf(`"%s"`, runIDs[i+j])
+			_, _ = fmt.Fprintf(&ids, `"%s"`, runIDs[i+j])
 		}
 		tgt.Method = "POST"
 		tgt.URL = baseURL + "/v1/runs/bulk-cancel"
@@ -248,7 +249,7 @@ func TestRuns_BulkCancel(t *testing.T) {
 			"X-Internal-Secret": []string{"test-secret-value"},
 			"Content-Type":      []string{"application/json"},
 		}
-		tgt.Body = []byte(fmt.Sprintf(`{"run_ids":[%s]}`, ids))
+		tgt.Body = fmt.Appendf(nil, `{"run_ids":[%s]}`, ids.String())
 		return nil
 	}
 
@@ -584,14 +585,14 @@ func TestRuns_BulkDLQReplay(t *testing.T) {
 	tgt := func(tgt *vegeta.Target) error {
 		i := int(idx.Add(1)-1) * 5
 		if i+5 > len(deadLetterRunIDs) {
-			i = i % (len(deadLetterRunIDs) - 4)
+			i %= len(deadLetterRunIDs) - 4
 		}
-		runIDsJSON := ""
+		var runIDsJSON strings.Builder
 		for j := range 5 {
 			if j > 0 {
-				runIDsJSON += ","
+				runIDsJSON.WriteString(",")
 			}
-			runIDsJSON += fmt.Sprintf(`"%s"`, deadLetterRunIDs[i+j])
+			_, _ = fmt.Fprintf(&runIDsJSON, `"%s"`, deadLetterRunIDs[i+j])
 		}
 		tgt.Method = "POST"
 		tgt.URL = baseURL + "/v1/runs/bulk-dlq-replay"
@@ -599,7 +600,7 @@ func TestRuns_BulkDLQReplay(t *testing.T) {
 			"X-Internal-Secret": []string{"test-secret-value"},
 			"Content-Type":      []string{"application/json"},
 		}
-		tgt.Body = []byte(fmt.Sprintf(`{"run_ids":[%s]}`, runIDsJSON))
+		tgt.Body = fmt.Appendf(nil, `{"run_ids":[%s]}`, runIDsJSON.String())
 		return nil
 	}
 

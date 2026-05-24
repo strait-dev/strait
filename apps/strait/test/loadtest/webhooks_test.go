@@ -63,10 +63,10 @@ func TestWebhookSubscriptions_Create(t *testing.T) {
 	projectID := "proj-whs-create-" + newID()
 
 	tgt := newTargeter("POST", "/v1/webhooks/subscriptions/", func() []byte {
-		return []byte(fmt.Sprintf(
+		return fmt.Appendf(nil,
 			`{"project_id":"%s","webhook_url":"https://example.com/wh-%s","event_types":["run.completed","run.failed"],"secret":"whsec-%s","active":true}`,
 			projectID, newID(), newID(),
-		))
+		)
 	})
 
 	t.Run("baseline", func(t *testing.T) {

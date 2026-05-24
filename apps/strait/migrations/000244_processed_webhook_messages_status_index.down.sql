@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS idx_processed_webhook_messages_status_ttl;

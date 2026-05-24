@@ -1,17 +1,17 @@
-# Strait — Go Service
+# Strait: Go service
 
-The core backend for Strait. This service handles the REST API, job execution, workflow orchestration, code deployments, and observability. If you're contributing to the Go backend, this is where you work.
+The core backend for Strait. This service handles the REST API, job dispatch, workflow orchestration, the gRPC worker plane, and monitoring. If you are contributing to the Go backend, this is where you work.
 
 ## Table of contents
 
 - [Architecture](#architecture)
 - [Editions](#editions)
 - [Getting started](#getting-started)
-- [Internal packages](#internal-packages)
+- [Packages](#packages)
 - [Configuration](#configuration)
 - [Database and migrations](#database-and-migrations)
 - [Testing](#testing)
-- [Observability](#observability)
+- [Monitoring](#monitoring)
 - [Contributing](#contributing)
 
 ---
@@ -28,29 +28,35 @@ The binary (`strait`) runs in one of three modes, set via `--mode`:
 
 **Request path:**
 
-```
+```text
 Client -> chi router -> Huma middleware (auth, rate limit, idempotency)
     -> handler -> store -> PostgreSQL
                 -> pub/sub -> subscribers
 ```
-**Job execution path:**
+**Job execution path (HTTP mode, default):**
+```text
+POST /v1/jobs/{id}/trigger -> enqueue -> worker/executor
+    -> HTTP POST to job's endpoint_url (customer infra)
+    -> run result -> store -> webhook delivery
 ```
-POST /v1/jobs/{id}/runs -> enqueue -> worker/executor
-    -> compute runtime (Docker / Kubernetes / HTTP)
+**Job execution path (worker mode, gRPC):**
+```text
+POST /v1/jobs/{id}/trigger -> enqueue -> worker/executor
+    -> match a connected worker (registered slugs)
+    -> stream the run over the bidirectional gRPC channel
+    -> worker executes the handler, streams result back
     -> run result -> store -> webhook delivery
 ```
 **Workflow path:**
-```
+```text
 POST /v1/workflows/{id}/trigger -> WorkflowEngine
     -> step execution (worker) -> StepCallback -> next step
-    -> saga compensation on failure
+    -> rollback workflows on failure
 ```
-**Code deployment path:**
-```
-POST /v1/code-deployments -> tarball upload (object store)
-    -> build orchestrator -> BuildKit -> push to registry
-    -> K8s job pods pick up new image
-```
+
+Strait does not build, push, or run customer code itself. It dispatches to
+infrastructure the customer already operates: an HTTP endpoint they expose,
+or a long-lived worker process that connects to the API over gRPC.
 
 All service wiring happens in `cmd/strait/services.go`. Start there to understand how everything connects.
 
@@ -62,8 +68,8 @@ Two editions compile from the same codebase, controlled at compile time by a bui
 
 | Edition | Build command | Description |
 |---|---|---|
-| Community | `go build ./...` | Self-hosted, open-source. Docker and K8s compute, no billing. |
-| Cloud | `go build -tags cloud ./...` | SaaS at strait.dev. Managed execution, multi-region, billing, advanced analytics. |
+| Community | `go build ./...` | Self-hosted, open-source. No billing. |
+| Cloud | `go build -tags cloud ./...` | Hosted orchestrator at strait.dev (API + Postgres + Redis + scheduler + gRPC worker plane). Multi-region, Stripe billing, hosted reporting. Customer code runs on customer infra in both editions. |
 
 `internal/domain/edition_community.go` and `internal/domain/edition_cloud.go` each implement `ParseEdition()` and feature gate constants. Only one compiles per build.
 
@@ -76,14 +82,14 @@ When adding a cloud-only feature: gate it with `domain.CurrentEdition().IsCloud(
 **Prerequisites:** Go 1.26, Docker (testcontainers + local infra), `golangci-lint`.
 
 ```bash
-# Start local infrastructure (Postgres, Redis, Sequin)
+# Start local infrastructure (Postgres, Redis, Sequin).
 docker compose up -d
 
-# Build — community edition
+# Build (community edition).
 cd apps/strait
 go build ./...
 
-# Build — cloud edition
+# Build (cloud edition).
 go build -tags cloud ./...
 
 # Run unit tests
@@ -93,44 +99,40 @@ go test ./...
 go test -tags=integration ./...
 
 # Lint
-golangci-lint run --timeout=5m ./...
+golangci-lint run --timeout=10m ./...
 ```
 
 See `internal/config/config.go` for every supported env var and its default value.
 
 ---
 
-## Internal packages
+## Packages
 
 | Package | Purpose |
 |---|---|
-| `api` | HTTP API layer (Huma v2 + chi). Handlers, middleware, routing. |
+| `api` | HTTP API layer (Huma v2 + chi). Handlers, middleware, routing. The `api/grpc/` subpackage hosts the gRPC worker-plane server (registration, dispatch, heartbeats). |
 | `store` | All database access via `pgx/v5`. Typed methods per table, custom error types. |
-| `domain` | Core types, enums, and status transitions shared across all packages. Zero external dependencies. |
-| `worker` | Dequeues and executes job runs. Manages concurrency, retries, and graceful drain. |
+| `domain` | Core types, enums, execution modes (`http`, `worker`), and status transitions shared across all packages. Zero external dependencies. |
+| `worker` | Claims and dispatches job runs. HTTP-mode dispatch posts to the job's endpoint URL; worker-mode dispatch streams the run to a connected worker over gRPC. Manages concurrency, retries, and graceful drain. |
 | `workflow` | Durable multi-step workflow engine. Sequential, conditional, loop, and compensation steps. |
-| `compute` | Container execution abstraction. Docker, Kubernetes, and HTTP backends. |
-| `build` | Code deployment pipeline: source tarball to Docker image to registry. |
-| `registry` | Container registry abstraction. ECR and generic Docker Registry v2. |
-| `pubsub` | In-process event broadcasting (run status, workflow steps, build logs for SSE). |
-| `webhook` | Durable webhook delivery with retries and dead-lettering. |
+| `pubsub` | In-process event broadcasting (run status, workflow steps for SSE). |
+| `webhook` | Durable webhook delivery with retries. Failed deliveries are sent to a review queue for inspection. |
 | `billing` | Usage-based quota enforcement and Stripe integration (cloud edition only). |
 | `clickhouse` | Optional analytics backend. Batched event export with Postgres fallback. |
 | `telemetry` | Initializes traces, metrics, profiling, and error reporting. |
 | `config` | Single config struct loaded from environment variables via `aconfig`. |
-| `objectstore` | S3-compatible storage (AWS S3 / Cloudflare R2) for tarballs and log archives. |
 | `scheduler` | Cron-style job triggering with timezone support. |
 | `cdc` | Change data capture via Sequin. Propagates Postgres row changes to pub/sub topics. |
 | `cache` | In-memory TTL cache (Otter) for hot-path reads like quota snapshots. |
 | `testutil` | Test helpers: real Postgres containers, in-memory Redis, domain object factories. |
 
-For detailed package documentation, implementation patterns, and contribution recipes, see [AGENTS.md](../../AGENTS.md) and the [architecture docs](../../apps/docs/architecture.mdx).
+For detailed package notes, contribution rules, and architecture context, see [AGENTS.md](../../AGENTS.md) and the [architecture docs](../../apps/docs/architecture.mdx).
 
 ---
 
 ## Configuration
 
-All configuration is via environment variables. `internal/config/config.go` is the single source of truth — every supported variable, its default, and inline documentation live there. For a quick reference of available variables, see the root `.env.example`.
+All configuration is via environment variables. `internal/config/config.go` is the single source of truth. Every supported variable, its default, and its inline documentation live there. For a quick reference, see the root `.env.example`.
 
 ---
 
@@ -141,9 +143,9 @@ Migrations live in `migrations/` as numbered `.up.sql` / `.down.sql` pairs, embe
 **Rules:**
 
 1. Create the next numbered pair: `000NNN_your_change.{up,down}.sql`
-2. Write idempotent SQL — use `IF NOT EXISTS`, `IF EXISTS`
-3. Always write the down migration and verify it cleanly reverts the up
-4. Never modify an existing migration — always add a new one
+2. Write idempotent SQL. Use `IF NOT EXISTS` and `IF EXISTS`.
+3. Always write the down migration and verify it cleanly reverts the up.
+4. Never modify an existing migration. Always add a new one.
 
 ---
 
@@ -151,7 +153,7 @@ Migrations live in `migrations/` as numbered `.up.sql` / `.down.sql` pairs, embe
 
 ```bash
 go test ./...                       # unit tests
-go test -race ./...                 # race detector — run before every PR
+go test -race ./...                 # race detector. Run before every PR.
 go test -tags=integration ./...     # integration tests (real Postgres via testcontainers)
 ```
 
@@ -161,11 +163,11 @@ go test -tags=integration ./...     # integration tests (real Postgres via testc
 | `*_adversarial_test.go` | Security and abuse-case tests: auth bypass, injection, oversized input |
 | `*_fuzz_test.go` | Go fuzz tests for input parsing |
 
-Mocks are generated via `moq` — run `go generate ./...` after interface changes.
+Mocks are generated via `moq`. Run `go generate ./...` after interface changes.
 
 ---
 
-## Observability
+## Monitoring
 
 - **Metrics:** Prometheus, scraped at `/metrics`
 - **Traces:** OTLP export to the OpenTelemetry Collector, forwarded to Grafana Tempo
@@ -178,17 +180,17 @@ Mocks are generated via `moq` — run `go generate ./...` after interface change
 
 ### Code conventions
 
-- Raw SQL with `pgx/v5` — no ORM, no query builders
-- Structured concurrency with `sourcegraph/conc` and `alitto/pond`
-- Wrap errors with `%w` and enough context to trace the call site
-- No global state — everything wired through constructors and functional options (`WithLogger`, `WithMetrics`, `WithStore`, etc.)
-- No emojis in code, comments, logs, or commit messages
+- Raw SQL with `pgx/v5`. No ORM, no query builders.
+- Structured concurrency with `sourcegraph/conc` (safe goroutine lifecycle) and `alitto/pond` (bounded worker pools).
+- Wrap errors with `%w` and enough context to trace the call site.
+- No global state. Wire dependencies through constructors and functional options (`WithLogger`, `WithMetrics`, `WithStore`, ...).
+- No emojis in code, comments, logs, or commit messages.
 
 ### Commit style
 
 Conventional commits are required: `type(scope): summary`
 
-```
+```text
 feat(api): add webhook retry endpoint
 fix(worker): drain in-flight runs on SIGTERM
 test(build): cover orchestrator dispatch paths

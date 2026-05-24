@@ -241,8 +241,8 @@ func TestCreateJob_RejectNegativeBoost(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", body))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for negative boost, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for negative boost, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -262,8 +262,8 @@ func TestCreateJob_RejectBoostOver10(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", body))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for boost > 10, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for boost > 10, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -294,8 +294,8 @@ func TestUpdateJob_RejectNegativeBoost(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-789", body))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for negative boost, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for negative boost, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -326,8 +326,8 @@ func TestUpdateJob_RejectBoostOver10(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-789", body))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for boost > 10, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for boost > 10, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -490,10 +490,10 @@ func TestCreateJob_RetryPriorityBoostBoundaryValues(t *testing.T) {
 		{"valid_one", 1, http.StatusCreated},
 		{"valid_five", 5, http.StatusCreated},
 		{"max_valid_ten", 10, http.StatusCreated},
-		{"over_max_eleven", 11, http.StatusBadRequest},
-		{"negative_one", -1, http.StatusBadRequest},
-		{"large_negative", -100, http.StatusBadRequest},
-		{"large_positive", 100, http.StatusBadRequest},
+		{"over_max_eleven", 11, http.StatusUnprocessableEntity},
+		{"negative_one", -1, http.StatusUnprocessableEntity},
+		{"large_negative", -100, http.StatusUnprocessableEntity},
+		{"large_positive", 100, http.StatusUnprocessableEntity},
 	}
 
 	for _, tc := range tests {

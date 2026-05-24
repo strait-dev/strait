@@ -8,12 +8,16 @@ import (
 )
 
 type fakePartitionStore struct {
-	err   error
-	calls int
+	err      error
+	panicRun bool
+	calls    int
 }
 
 func (f *fakePartitionStore) EnsureJobRunsPartitions(_ context.Context, _ int) error {
 	f.calls++
+	if f.panicRun {
+		panic("partition store panic")
+	}
 	return f.err
 }
 
@@ -55,6 +59,31 @@ func TestPartitionEnsurer_StoreErrorAccumulates(t *testing.T) {
 	_ = p.runOnce(context.Background())
 	if p.Errors() != 2 {
 		t.Errorf("errors = %d", p.Errors())
+	}
+}
+
+func TestPartitionEnsurer_PanicReturnsError(t *testing.T) {
+	s := &fakePartitionStore{panicRun: true}
+	p := NewPartitionEnsurer(s, PartitionEnsurerConfig{})
+	if err := p.runOnce(context.Background()); err == nil {
+		t.Fatal("runOnce error = nil, want recovered panic error")
+	}
+	if p.Errors() != 1 {
+		t.Fatalf("errors = %d, want 1", p.Errors())
+	}
+}
+
+func TestPartitionEnsurer_RunOnceForTestPropagatesRecoveredPanic(t *testing.T) {
+	s := &fakePartitionStore{panicRun: true}
+	p := NewPartitionEnsurer(s, PartitionEnsurerConfig{})
+	if err := p.RunOnceForTest(context.Background()); err == nil {
+		t.Fatal("RunOnceForTest error = nil, want recovered panic error")
+	}
+	if p.Iterations() != 1 {
+		t.Fatalf("iterations = %d, want 1", p.Iterations())
+	}
+	if p.Errors() != 1 {
+		t.Fatalf("errors = %d, want 1", p.Errors())
 	}
 }
 

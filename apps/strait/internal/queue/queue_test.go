@@ -758,7 +758,7 @@ func TestEnqueue_ExplicitExecutionMode_Preserved(t *testing.T) {
 	run := &domain.JobRun{
 		JobID:         "job-1",
 		ProjectID:     "proj-1",
-		ExecutionMode: domain.ExecutionModeManaged,
+		ExecutionMode: domain.ExecutionModeWorker,
 	}
 
 	if err := q.Enqueue(context.Background(), run); err != nil {
@@ -769,8 +769,8 @@ func TestEnqueue_ExplicitExecutionMode_Preserved(t *testing.T) {
 	if !ok {
 		t.Fatalf("arg[28] (execution_mode) type = %T, want string", capturedArgs[28])
 	}
-	if execMode != string(domain.ExecutionModeManaged) {
-		t.Errorf("execution mode = %q, want %q", execMode, domain.ExecutionModeManaged)
+	if execMode != string(domain.ExecutionModeWorker) {
+		t.Errorf("execution mode = %q, want %q", execMode, domain.ExecutionModeWorker)
 	}
 }
 

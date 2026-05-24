@@ -1,55 +1,130 @@
 ---
 title: "Cost Budgets"
-description: "Tracking and limiting AI model usage costs."
+description: "Cap how much a project spends per month and choose what happens when the limit is reached."
 ---
 
-Cost budgets let you cap how much your jobs spend on AI model usage (e.g., OpenAI, Anthropic). Set per-run and daily project limits to prevent runaway costs.
+Cost budgets cap how much a project spends on reported usage over a calendar month. Your job code reports what each run costs; Strait totals that spend per project and, when the budget is reached, either stops new runs or simply records that the limit was crossed.
 
-## Micro-USD Precision
+<Note>
+Cost budgets are enforced only when billing enforcement is enabled (Strait Cloud, or self-hosted with `BILLING_ENFORCEMENT_ENABLED=true`). With enforcement off, the budget endpoints return `501 Not Implemented` and no budget is applied.
+</Note>
 
-All costs are tracked in **micro-USD** (1/1,000,000 of a USD) using integer precision. This avoids floating-point rounding errors while providing the granularity needed for sub-cent token costs.
+## When to Use It
 
-- **Example**: $0.01 (1 cent) is represented as `10,000` micro-USD.
+You run a summarization job that calls GPT-4o on user-uploaded documents. Spend is hard to predict: most months are quiet, but a burst of large documents runs up the bill fast. A monthly budget caps the project's total spend and lets you decide whether to block new runs or just be notified when it is reached.
 
-## Usage Tracking
+## How It Works
 
-Each usage event records:
+1. **Your code reports usage.** After each paid API call, report what it cost through the SDK. Strait records it against the run and rolls it into the project's month-to-date spend.
+
+<CodeGroup>
+```typescript TypeScript
+await ctx.reportUsage({
+  provider: "openai",
+  model: "gpt-4o",
+  prompt_tokens: 500,
+  completion_tokens: 200,
+  cost_microusd: 25000, // $0.025
+});
+```
+
+```python Python
+await ctx.report_usage(
+    provider="openai",
+    model="gpt-4o",
+    prompt_tokens=500,
+    completion_tokens=200,
+    cost_microusd=25000,  # $0.025
+)
+```
+</CodeGroup>
+
+2. **Strait totals project spend.** Reported cost is summed per project over the current billing period (a calendar month). Both compute and AI usage count toward the total.
+
+3. **The budget action decides what happens.** When month-to-date spend reaches the budget, the project's `action` determines the outcome: `reject` and `block` stop new runs from being enqueued; `notify` leaves the budget informational and never blocks.
+
+All costs use **micro-USD** (1/1,000,000 of a dollar) as integers, so there is no floating-point rounding: $0.01 is `10000` micro-USD.
+
+## Setting a Budget
+
+Set the budget and action for a project:
+
+```bash
+curl -X PUT https://api.strait.dev/v1/project-budget \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -d '{
+    "project_id": "my-project",
+    "budget_microusd": 100000000,
+    "action": "reject"
+  }'
+```
+
+This sets a $100/month budget that rejects new runs once it is reached. A negative `budget_microusd` clears the budget (no limit).
+
+| Field | Description |
+| :--- | :--- |
+| `project_id` | The project the budget applies to. |
+| `budget_microusd` | Monthly limit in micro-USD. Negative means no budget. |
+| `action` | `reject` or `block` to stop new runs at the limit; `notify` to track spend without blocking. |
+
+## Checking a Budget
+
+```bash
+curl "https://api.strait.dev/v1/project-budget?project_id=my-project" \
+  -H "Authorization: Bearer $STRAIT_API_KEY"
+```
+
+```json
+{
+  "project_id": "my-project",
+  "monthly_budget_microusd": 100000000,
+  "budget_action": "reject",
+  "current_spend_microusd": 81250000,
+  "percent_used": 81.25
+}
+```
+
+Poll `percent_used` to track spend and warn before runs start being rejected.
+
+## When the Budget Is Reached
+
+With a `reject` or `block` action, once month-to-date spend reaches the budget, new runs are rejected at enqueue with `402 Payment Required`:
+
+```json
+{
+  "code": "quota_exceeded",
+  "kind": "project_budget_reached",
+  "message": "This project has reached its monthly budget of $100.00.",
+  "limit": 100000000,
+  "current": 100000000,
+  "plan": "starter",
+  "upgrade_url": "/settings/billing"
+}
+```
+
+The top-level `code` is always `quota_exceeded`, so clients can branch on a single string; `kind` carries the specific reason (`project_budget_reached`). Other plan limits use the same envelope with a different `kind`. A `notify` budget never returns this error: it only records that the limit was crossed.
+
+## Per-Run and Daily Limits
+
+Strait also enforces two finer-grained caps when they are set on a project: a per-run cost ceiling (`max_cost_per_run_microusd`, checked as usage is reported) and a per-day cost ceiling (`max_daily_cost_microusd`, evaluated in the project's timezone before a run is enqueued). Both reject work with `429 Too Many Requests` when exceeded.
+
+These ceilings are read from project quota settings and have no public API to set them yet, so the monthly budget above is the configurable control today.
+
+## Usage Event Fields
+
+Fields accepted by the usage report (`POST /sdk/v1/runs/{runID}/usage`, which the SDK's `reportUsage` calls):
 
 | Field | Type | Description |
 | :--- | :--- | :--- |
-| `id` | `string` | Unique identifier. |
-| `run_id` | `string` | Reference to the Job Run. |
-| `provider` | `string` | AI provider (e.g., `openai`, `anthropic`). |
-| `model` | `string` | Model name (e.g., `gpt-4o`). |
-| `prompt_tokens` | `int` | Number of input tokens. |
-| `completion_tokens` | `int` | Number of output tokens. |
+| `provider` | `string` | Provider name (e.g., `openai`, `anthropic`). Required. |
+| `model` | `string` | Model name (e.g., `gpt-4o`). Required. |
+| `prompt_tokens` | `int` | Input tokens. |
+| `completion_tokens` | `int` | Output tokens. |
 | `total_tokens` | `int` | Sum of prompt and completion tokens. |
-| `cost_microusd` | `int64` | Calculated cost in micro-USD. |
+| `cost_microusd` | `int64` | Cost in micro-USD. Drives budget tracking. |
 
-## Budget Limits
+## Related
 
-You can set budget limits at two levels:
-
-### 1. Per-Run Budget
-- **Field**: `max_cost_per_run_microusd`
-- **Enforcement**: Checked every time the SDK reports usage via the `/sdk/v1/runs/{runID}/usage` endpoint.
-- **Behavior**: If the reported usage would exceed the per-run limit, the request is rejected, and the run is optionally failed.
-
-### 2. Daily Project Budget
-- **Field**: `max_daily_cost_microusd`
-- **Enforcement**: Checked at **trigger time**.
-- **Behavior**: Before a new run is enqueued, the system aggregates the total cost of all runs for the current day (based on the project's configured timezone). If the limit is reached, the trigger request is rejected.
-
-## How Enforcement Works
-
-Strait checks budget limits **before** recording usage or enqueuing a run, so violating requests never inflate recorded costs.
-
-## Quota Settings
-
-Each project can configure these limits:
-
-| Setting | Default | Meaning |
-| :--- | :--- | :--- |
-| `max_cost_per_run_microusd` | `0` (unlimited) | Maximum cost a single run can accumulate. |
-| `max_daily_cost_microusd` | `0` (unlimited) | Maximum total cost across all runs per day. |
-| `timezone` | `UTC` | Timezone used to define the daily budget window. |
+- [SLOs and Anomaly Detection](/concepts/slos)
+- [Jobs](/concepts/jobs)
+- [Observability](/operations/observability)

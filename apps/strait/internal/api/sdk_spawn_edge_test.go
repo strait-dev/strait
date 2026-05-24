@@ -73,6 +73,50 @@ func TestHandleSDKSpawn_AwaitCompletion_TransitionsParent(t *testing.T) {
 	}
 }
 
+func TestHandleSDKSpawn_AwaitCompletion_RejectsTimeoutAboveMaximum(t *testing.T) {
+	t.Parallel()
+	var enqueued atomic.Bool
+	var statusUpdated atomic.Bool
+	var createdTrigger atomic.Bool
+
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, ProjectID: "proj-1", Status: domain.StatusExecuting}, nil
+		},
+		GetJobBySlugFunc: func(_ context.Context, projectID, _ string) (*domain.Job, error) {
+			return &domain.Job{ID: "job-123", ProjectID: projectID, Slug: "child"}, nil
+		},
+		UpdateRunStatusFunc: func(context.Context, string, domain.RunStatus, domain.RunStatus, map[string]any) error {
+			statusUpdated.Store(true)
+			return nil
+		},
+		CreateEventTriggerFunc: func(context.Context, *domain.EventTrigger) error {
+			createdTrigger.Store(true)
+			return nil
+		},
+	}
+	mq := &mockQueue{
+		enqueueFn: func(context.Context, *domain.JobRun) error {
+			enqueued.Store(true)
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, mq, nil)
+
+	w := httptest.NewRecorder()
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-parent/spawn", "run-parent",
+		`{"job_slug":"child","project_id":"proj-1","await_completion":true,"await_timeout_secs":2592001}`)
+
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if enqueued.Load() || statusUpdated.Load() || createdTrigger.Load() {
+		t.Fatal("invalid await timeout must be rejected before enqueue, parent transition, or trigger creation")
+	}
+}
+
 func TestHandleSDKSpawn_NoAwait_DoesNotTransitionParent(t *testing.T) {
 	t.Parallel()
 	var statusUpdated atomic.Bool
@@ -257,6 +301,71 @@ func TestHandleSDKSpawn_CrossProject_WrongProject(t *testing.T) {
 
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleSDKSpawn_CrossProject_TargetKeyRequiresTriggerScope(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, ProjectID: "proj-source", Status: domain.StatusExecuting}, nil
+		},
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
+			return &domain.APIKey{ID: "key-1", ProjectID: "proj-target", Scopes: []string{domain.ScopeJobsRead}}, nil
+		},
+		GetJobBySlugFunc: func(_ context.Context, _, _ string) (*domain.Job, error) {
+			t.Fatal("job lookup should not run when target key lacks jobs:trigger")
+			return nil, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-parent/spawn", "run-parent",
+		`{"job_slug":"child","project_id":"proj-target","target_api_key":"strait_readonly123"}`)
+
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleSDKSpawn_CrossProject_TargetKeyEnvironmentMustMatchJob(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, ProjectID: "proj-source", Status: domain.StatusExecuting}, nil
+		},
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
+			return &domain.APIKey{
+				ID:            "key-1",
+				ProjectID:     "proj-target",
+				EnvironmentID: "env-prod",
+				Scopes:        []string{domain.ScopeJobsTrigger},
+			}, nil
+		},
+		GetJobBySlugFunc: func(_ context.Context, projectID, _ string) (*domain.Job, error) {
+			return &domain.Job{ID: "job-target", ProjectID: projectID, Slug: "child", EnvironmentID: "env-staging"}, nil
+		},
+	}
+	ms.AreJobDependenciesSatisfiedFunc = func(_ context.Context, _ *domain.JobRun) (bool, error) { return true, nil }
+	mq := &mockQueue{
+		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+			t.Fatal("enqueue should not run for a target-key environment mismatch")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, mq, nil)
+
+	w := httptest.NewRecorder()
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-parent/spawn", "run-parent",
+		`{"job_slug":"child","project_id":"proj-target","target_api_key":"strait_env123"}`)
+
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

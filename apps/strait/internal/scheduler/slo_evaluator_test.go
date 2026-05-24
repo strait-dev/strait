@@ -267,3 +267,37 @@ func TestMetricValue(t *testing.T) {
 		})
 	}
 }
+
+func TestHasSLOData_SkipsIdleWindows(t *testing.T) {
+	t.Parallel()
+	if hasSLOData(domain.SLOMetricSuccessRate, &store.JobHealthStats{}) {
+		t.Fatal("idle success-rate SLO windows must be treated as no-data")
+	}
+	if !hasSLOData(domain.SLOMetricSuccessRate, &store.JobHealthStats{TotalRuns: 1}) {
+		t.Fatal("non-empty success-rate SLO window should be evaluated")
+	}
+	if hasSLOData("unknown", &store.JobHealthStats{TotalRuns: 1}) {
+		t.Fatal("unknown SLO metric should not be evaluated")
+	}
+}
+
+func TestSLOEvaluator_AdvisoryLockerNotAcquiredSkipsEvaluation(t *testing.T) {
+	t.Parallel()
+
+	locker := &testAdvisoryLocker{acquired: false}
+	evaluator := NewSLOEvaluator(nil, nil).WithAdvisoryLocker(locker)
+
+	acquired, err := evaluator.evaluateWithOptionalLeader(context.Background())
+	if err != nil {
+		t.Fatalf("evaluateWithOptionalLeader() error = %v", err)
+	}
+	if acquired {
+		t.Fatal("evaluateWithOptionalLeader() acquired lock, want false")
+	}
+	if locker.tryCalls != 1 {
+		t.Fatalf("tryCalls = %d, want 1", locker.tryCalls)
+	}
+	if locker.releaseCalls != 0 {
+		t.Fatalf("releaseCalls = %d, want 0 for unacquired lock", locker.releaseCalls)
+	}
+}

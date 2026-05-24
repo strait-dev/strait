@@ -1,20 +1,12 @@
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Button } from "@strait/ui/components/button";
 import { Shell } from "@strait/ui/components/shell";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useCallback } from "react";
 import * as z from "zod";
 
 import { GettingStarted } from "@/components/common/getting-started";
-import OverviewMetrics from "@/components/dashboard/overview-metrics";
 import SubscriptionSuccessDialog from "@/components/subscription/subscription-success-dialog";
-import {
-  analyticsQueryOptions,
-  statsQueryOptions,
-} from "@/hooks/api/use-dashboard";
 import { subscriptionQueryOptions } from "@/hooks/subscription/use-subscription";
-import { ArrowRightIcon } from "@/lib/icons";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 const subscriptionSearchSchema = z.object({
@@ -22,30 +14,26 @@ const subscriptionSearchSchema = z.object({
   t: z.string().optional(),
   checkout_id: z.string().optional(),
   checkout_success: z.coerce.string().optional(),
+  quickstart: z.coerce.boolean().optional(),
 });
 
 export const Route = createFileRoute("/app/")({
   validateSearch: zodValidator(subscriptionSearchSchema),
-  loader: async ({ context }) => {
+  loaderDeps: ({ search }) => ({ quickstart: search.quickstart ?? false }),
+  loader: async ({ context, location, deps }) => {
     const { session } = context as AppRouteContext;
-
     const hasProject = !!session.user.activeProjectId;
 
     await context.queryClient.ensureQueryData(subscriptionQueryOptions());
 
-    // Only prefetch data queries if user has a project
-    if (hasProject) {
-      await Promise.all([
-        context.queryClient
-          .ensureQueryData(statsQueryOptions())
-          .catch(() => null),
-        context.queryClient
-          .ensureQueryData(analyticsQueryOptions(24))
-          .catch(() => null),
-      ]);
+    if (hasProject && !deps.quickstart) {
+      throw redirect({
+        to: "/app/dashboard",
+        search: location.search as Record<string, unknown>,
+      });
     }
 
-    return { session, hasProject };
+    return { session };
   },
   component: RouteComponent,
 });
@@ -53,7 +41,7 @@ export const Route = createFileRoute("/app/")({
 function RouteComponent() {
   const navigate = Route.useNavigate();
   const search = Route.useSearch();
-  const { session, hasProject } = Route.useLoaderData();
+  const { session } = Route.useLoaderData();
 
   const handleUrlCleanup = useCallback(() => {
     navigate({
@@ -62,32 +50,9 @@ function RouteComponent() {
     });
   }, [navigate]);
 
-  if (!hasProject) {
-    return (
-      <Shell>
-        <GettingStarted user={session.user} />
-        <SubscriptionSuccessDialog
-          checkoutId={search.checkout_id}
-          isNewSubscription={!!search.checkout_success}
-          isUpgrade={!!search.subscription}
-          onUrlCleanup={handleUrlCleanup}
-          timestamp={search.t}
-        />
-      </Shell>
-    );
-  }
-
   return (
     <Shell>
-      <OverviewMetrics />
-
-      <div className="flex justify-center">
-        <Button render={<Link to="/app/dashboard" />} variant="outline">
-          View dashboard
-          <HugeiconsIcon icon={ArrowRightIcon} size={16} />
-        </Button>
-      </div>
-
+      <GettingStarted user={session.user} />
       <SubscriptionSuccessDialog
         checkoutId={search.checkout_id}
         isNewSubscription={!!search.checkout_success}

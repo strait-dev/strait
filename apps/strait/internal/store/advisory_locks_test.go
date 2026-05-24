@@ -48,12 +48,13 @@ func TestAcquireAdvisoryLock_RejectsEmptyKey(t *testing.T) {
 func TestAdvisoryLockNamespaces_Distinct(t *testing.T) {
 	t.Parallel()
 	namespaces := map[string]struct{}{
-		AdvisoryLockNsAuditChain:  {},
-		AdvisoryLockNsAuditRotate: {},
+		AdvisoryLockNsAuditChain:      {},
+		AdvisoryLockNsAuditChainShard: {},
+		AdvisoryLockNsAuditRotate:     {},
 	}
-	// Both constants must be distinct string literals. Map insertion
-	// deduplicates, so a collision would show up as len < 2.
-	if len(namespaces) != 2 {
+	// All constants must be distinct string literals. Map insertion
+	// deduplicates, so a collision would show up as len < 3.
+	if len(namespaces) != 3 {
 		t.Fatalf("advisory lock namespaces collided: %v", namespaces)
 	}
 	for ns := range namespaces {

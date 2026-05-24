@@ -9,14 +9,8 @@ func TestEditionCapabilities(t *testing.T) {
 		fn      func() bool
 		want    bool
 	}{
-		{EditionCommunity, "AllowsManagedExecution", EditionCommunity.AllowsManagedExecution, false},
-		{EditionCommunity, "AllowsMultiRegion", EditionCommunity.AllowsMultiRegion, false},
 		{EditionCommunity, "AllowsAdvancedAnalytics", EditionCommunity.AllowsAdvancedAnalytics, false},
-		{EditionCommunity, "AllowsWarmPool", EditionCommunity.AllowsWarmPool, false},
-		{EditionCloud, "AllowsManagedExecution", EditionCloud.AllowsManagedExecution, true},
-		{EditionCloud, "AllowsMultiRegion", EditionCloud.AllowsMultiRegion, true},
 		{EditionCloud, "AllowsAdvancedAnalytics", EditionCloud.AllowsAdvancedAnalytics, true},
-		{EditionCloud, "AllowsWarmPool", EditionCloud.AllowsWarmPool, true},
 		{EditionCommunity, "RequiresHTTPModeGating", EditionCommunity.RequiresHTTPModeGating, false},
 		{EditionCloud, "RequiresHTTPModeGating", EditionCloud.RequiresHTTPModeGating, true},
 	}

@@ -1,5 +1,6 @@
 //go:build integration
 
+//nolint:revive // test factory helpers intentionally keep testing.TB first for assertion ergonomics.
 package testutil
 
 import (
@@ -17,9 +18,9 @@ import (
 	"github.com/google/uuid"
 )
 
-var seq int64
+var seq atomic.Int64
 
-func nextSeq() int64 { return atomic.AddInt64(&seq, 1) }
+func nextSeq() int64 { return seq.Add(1) }
 
 type JobOpts struct {
 	ID            *string
@@ -489,4 +490,4 @@ func MustCreateEvent(t testing.TB, ctx context.Context, s store.Store, runID str
 	return event
 }
 
-func Ptr[T any](v T) *T { return &v }
+func Ptr[T any](v T) *T { return new(v) }

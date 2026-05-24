@@ -40,6 +40,7 @@ const WINDOWS: { value: AnalyticsWindow; label: string }[] = [
 ];
 
 export const Route = createFileRoute("/app/analytics")({
+  head: () => ({ meta: [{ title: "Analytics · Strait" }] }),
   errorComponent: ErrorComponent,
   component: AnalyticsPage,
 });

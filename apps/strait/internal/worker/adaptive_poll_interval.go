@@ -32,7 +32,7 @@ type AdaptivePollInterval struct {
 	minInterval time.Duration
 	maxInterval time.Duration
 	emptyCount  int
-	depth       int64
+	depth       atomic.Int64
 	enabled     atomic.Bool
 }
 
@@ -86,7 +86,7 @@ func (a *AdaptivePollInterval) ObserveEmpty() {
 
 // ObserveDepth updates the most recent queue depth estimate.
 func (a *AdaptivePollInterval) ObserveDepth(depth int64) {
-	atomic.StoreInt64(&a.depth, depth)
+	a.depth.Store(depth)
 }
 
 // Next returns the next poll interval. Thread-safe.
@@ -97,7 +97,7 @@ func (a *AdaptivePollInterval) Next() time.Duration {
 	a.mu.Lock()
 	empty := a.emptyCount
 	a.mu.Unlock()
-	depth := atomic.LoadInt64(&a.depth)
+	depth := a.depth.Load()
 
 	// Start from base; extend for emptiness; shrink for depth.
 	d := float64(a.base)

@@ -460,103 +460,83 @@ func TestRequestMetrics_RecordsErrorStatus(t *testing.T) {
 
 func TestNormalizeAPIError_StringInput(t *testing.T) {
 	t.Parallel()
-	result := normalizeAPIError(http.StatusBadRequest, "bad input")
-	s, ok := result.(string)
-	if !ok {
-		t.Fatalf("expected string, got %T", result)
+	got := normalizeAPIError(http.StatusBadRequest, "bad input")
+	if got.Code != ErrorCodeBadRequest {
+		t.Fatalf("code = %q, want %q", got.Code, ErrorCodeBadRequest)
 	}
-	if s != "bad input" {
-		t.Fatalf("expected 'bad input', got %q", s)
+	if got.Message != "bad input" {
+		t.Fatalf("message = %q, want %q", got.Message, "bad input")
 	}
 }
 
 func TestNormalizeAPIError_EmptyString(t *testing.T) {
 	t.Parallel()
-	result := normalizeAPIError(http.StatusNotFound, "")
-	s, ok := result.(string)
-	if !ok {
-		t.Fatalf("expected string, got %T", result)
+	got := normalizeAPIError(http.StatusNotFound, "")
+	if got.Code != ErrorCodeNotFound {
+		t.Fatalf("code = %q, want %q", got.Code, ErrorCodeNotFound)
 	}
-	if s != "Not Found" {
-		t.Fatalf("expected 'Not Found', got %q", s)
+	if got.Message != "Not Found" {
+		t.Fatalf("message = %q, want %q", got.Message, "Not Found")
 	}
 }
 
 func TestNormalizeAPIError_NilError(t *testing.T) {
 	t.Parallel()
 	var err error
-	result := normalizeAPIError(http.StatusInternalServerError, err)
-	s, ok := result.(string)
-	if !ok {
-		t.Fatalf("expected string, got %T", result)
+	got := normalizeAPIError(http.StatusInternalServerError, err)
+	if got.Code != ErrorCodeInternalError {
+		t.Fatalf("code = %q, want %q", got.Code, ErrorCodeInternalError)
 	}
-	if s != "Internal Server Error" {
-		t.Fatalf("expected 'Internal Server Error', got %q", s)
+	if got.Message != "Internal Server Error" {
+		t.Fatalf("message = %q, want %q", got.Message, "Internal Server Error")
 	}
 }
 
 func TestNormalizeAPIError_NonNilError(t *testing.T) {
 	t.Parallel()
-	result := normalizeAPIError(http.StatusBadRequest, errors.New("field missing"))
-	s, ok := result.(string)
-	if !ok {
-		t.Fatalf("expected string, got %T", result)
+	got := normalizeAPIError(http.StatusBadRequest, errors.New("field missing"))
+	if got.Code != ErrorCodeBadRequest {
+		t.Fatalf("code = %q, want %q", got.Code, ErrorCodeBadRequest)
 	}
-	if s != "field missing" {
-		t.Fatalf("expected 'field missing', got %q", s)
+	if got.Message != "field missing" {
+		t.Fatalf("message = %q, want %q", got.Message, "field missing")
 	}
 }
 
 func TestNormalizeAPIError_APIErrorValue(t *testing.T) {
 	t.Parallel()
 	ae := APIError{Code: "custom_code", Message: "custom message"}
-	result := normalizeAPIError(http.StatusBadRequest, ae)
-	got, ok := result.(APIError)
-	if !ok {
-		t.Fatalf("expected APIError, got %T", result)
-	}
+	got := normalizeAPIError(http.StatusBadRequest, ae)
 	if got.Code != "custom_code" {
-		t.Fatalf("expected code=custom_code, got %q", got.Code)
+		t.Fatalf("code = %q, want custom_code", got.Code)
 	}
 	if got.Message != "custom message" {
-		t.Fatalf("expected message=custom message, got %q", got.Message)
+		t.Fatalf("message = %q, want custom message", got.Message)
 	}
 }
 
 func TestNormalizeAPIError_APIErrorEmptyCode(t *testing.T) {
 	t.Parallel()
 	ae := APIError{Message: "some message"}
-	result := normalizeAPIError(http.StatusNotFound, ae)
-	got, ok := result.(APIError)
-	if !ok {
-		t.Fatalf("expected APIError, got %T", result)
-	}
+	got := normalizeAPIError(http.StatusNotFound, ae)
 	if got.Code != ErrorCodeNotFound {
-		t.Fatalf("expected code=%q, got %q", ErrorCodeNotFound, got.Code)
+		t.Fatalf("code = %q, want %q", got.Code, ErrorCodeNotFound)
 	}
 }
 
 func TestNormalizeAPIError_APIErrorEmptyMessage(t *testing.T) {
 	t.Parallel()
 	ae := APIError{Code: "custom"}
-	result := normalizeAPIError(http.StatusForbidden, ae)
-	got, ok := result.(APIError)
-	if !ok {
-		t.Fatalf("expected APIError, got %T", result)
-	}
+	got := normalizeAPIError(http.StatusForbidden, ae)
 	if got.Message != "Forbidden" {
-		t.Fatalf("expected message=Forbidden, got %q", got.Message)
+		t.Fatalf("message = %q, want Forbidden", got.Message)
 	}
 }
 
 func TestNormalizeAPIError_APIErrorPointer(t *testing.T) {
 	t.Parallel()
 	ae := &APIError{Code: "ptr_code", Message: "ptr_msg"}
-	result := normalizeAPIError(http.StatusConflict, ae)
-	got, ok := result.(APIError)
-	if !ok {
-		t.Fatalf("expected APIError, got %T", result)
-	}
+	got := normalizeAPIError(http.StatusConflict, ae)
 	if got.Code != "ptr_code" || got.Message != "ptr_msg" {
 		t.Fatalf("unexpected APIError: %+v", got)
 	}
@@ -565,25 +545,23 @@ func TestNormalizeAPIError_APIErrorPointer(t *testing.T) {
 func TestNormalizeAPIError_NilAPIErrorPointer(t *testing.T) {
 	t.Parallel()
 	var ae *APIError
-	result := normalizeAPIError(http.StatusBadRequest, ae)
-	s, ok := result.(string)
-	if !ok {
-		t.Fatalf("expected string, got %T", result)
+	got := normalizeAPIError(http.StatusBadRequest, ae)
+	if got.Code != ErrorCodeBadRequest {
+		t.Fatalf("code = %q, want %q", got.Code, ErrorCodeBadRequest)
 	}
-	if s != "Bad Request" {
-		t.Fatalf("expected 'Bad Request', got %q", s)
+	if got.Message != "Bad Request" {
+		t.Fatalf("message = %q, want Bad Request", got.Message)
 	}
 }
 
 func TestNormalizeAPIError_UnknownType(t *testing.T) {
 	t.Parallel()
-	result := normalizeAPIError(http.StatusTeapot, 42)
-	s, ok := result.(string)
-	if !ok {
-		t.Fatalf("expected string, got %T", result)
+	got := normalizeAPIError(http.StatusTeapot, 42)
+	if got.Code != ErrorCodeInternalError {
+		t.Fatalf("code = %q, want fallback %q", got.Code, ErrorCodeInternalError)
 	}
-	if s != "I'm a teapot" {
-		t.Fatalf("expected 'I'm a teapot', got %q", s)
+	if got.Message != "I'm a teapot" {
+		t.Fatalf("message = %q, want 'I'm a teapot'", got.Message)
 	}
 }
 
@@ -591,26 +569,18 @@ func TestNormalizeAPIError_WrappedError(t *testing.T) {
 	t.Parallel()
 	inner := errors.New("root cause")
 	wrapped := fmt.Errorf("outer: %w", inner)
-	result := normalizeAPIError(http.StatusInternalServerError, wrapped)
-	s, ok := result.(string)
-	if !ok {
-		t.Fatalf("expected string, got %T", result)
-	}
-	if s != "outer: root cause" {
-		t.Fatalf("expected 'outer: root cause', got %q", s)
+	got := normalizeAPIError(http.StatusInternalServerError, wrapped)
+	if got.Message != "outer: root cause" {
+		t.Fatalf("message = %q, want 'outer: root cause'", got.Message)
 	}
 }
 
 func TestNormalizeAPIError_JoinedErrors(t *testing.T) {
 	t.Parallel()
 	joined := errors.Join(errors.New("err1"), errors.New("err2"))
-	result := normalizeAPIError(http.StatusBadRequest, joined)
-	s, ok := result.(string)
-	if !ok {
-		t.Fatalf("expected string, got %T", result)
-	}
-	if !strings.Contains(s, "err1") || !strings.Contains(s, "err2") {
-		t.Fatalf("expected both errors in output, got %q", s)
+	got := normalizeAPIError(http.StatusBadRequest, joined)
+	if !strings.Contains(got.Message, "err1") || !strings.Contains(got.Message, "err2") {
+		t.Fatalf("expected both errors in message, got %q", got.Message)
 	}
 }
 
@@ -890,25 +860,22 @@ func TestHandleCreateProject_ProjectLimitExceeded_Adversarial(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/projects/", body))
 
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusPaymentRequired {
+		t.Fatalf("expected 402, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var resp map[string]any
+	var resp QuotaExceededBody
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	// The error body should contain the limit error message.
-	errBody, ok := resp["error"]
-	if !ok {
-		t.Fatal("expected 'error' key in response")
+	if resp.Code != "quota_exceeded" {
+		t.Fatalf("expected code 'quota_exceeded', got %q", resp.Code)
 	}
-	errStr, ok := errBody.(string)
-	if !ok {
-		t.Fatalf("expected error to be a string, got %T", errBody)
+	if resp.Kind != "project_limit_exceeded" {
+		t.Fatalf("expected kind 'project_limit_exceeded', got %q", resp.Kind)
 	}
-	if errStr != "project limit reached" {
-		t.Fatalf("expected 'project limit reached', got %q", errStr)
+	if resp.Message != "project limit reached" {
+		t.Fatalf("expected message 'project limit reached', got %q", resp.Message)
 	}
 }
 
@@ -931,8 +898,8 @@ func TestHandleCreateProject_EmptyBody_Adversarial(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/projects/", `{}`))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -1034,14 +1001,15 @@ func TestDefaultErrorCode_AllStatusCodes(t *testing.T) {
 		status int
 		want   string
 	}{
-		{http.StatusBadRequest, ErrorCodeValidationError},
-		{http.StatusUnauthorized, ErrorCodeUnauthorized},
+		{http.StatusBadRequest, ErrorCodeBadRequest},
+		{http.StatusUnauthorized, ErrorCodeAuthenticationRequired},
 		{http.StatusForbidden, ErrorCodeForbidden},
 		{http.StatusNotFound, ErrorCodeNotFound},
 		{http.StatusConflict, ErrorCodeConflict},
+		{http.StatusUnprocessableEntity, ErrorCodeValidationFailed},
 		{http.StatusTooManyRequests, ErrorCodeRateLimited},
 		{http.StatusInternalServerError, ErrorCodeInternalError},
-		{http.StatusServiceUnavailable, ErrorCodeInternalError},
+		{http.StatusServiceUnavailable, ErrorCodeServiceUnavailable},
 	}
 	for _, tc := range cases {
 		t.Run(fmt.Sprintf("status_%d", tc.status), func(t *testing.T) {
@@ -1057,11 +1025,7 @@ func TestDefaultErrorCode_AllStatusCodes(t *testing.T) {
 func TestNormalizeAPIError_APIErrorPointerEmptyCodeAndMessage(t *testing.T) {
 	t.Parallel()
 	ae := &APIError{}
-	result := normalizeAPIError(http.StatusConflict, ae)
-	got, ok := result.(APIError)
-	if !ok {
-		t.Fatalf("expected APIError, got %T", result)
-	}
+	got := normalizeAPIError(http.StatusConflict, ae)
 	if got.Code != ErrorCodeConflict {
 		t.Fatalf("expected code=%q, got %q", ErrorCodeConflict, got.Code)
 	}
@@ -1210,9 +1174,20 @@ func (m *adversarialBillingEnforcer) GetDailyRunCount(_ context.Context, _ strin
 	return 0, nil
 }
 
+func (m *adversarialBillingEnforcer) CheckMaxDispatchPriority(_ context.Context, _ string, _ int) error {
+	return nil
+}
+
 func (m *adversarialBillingEnforcer) EnsureOrgSubscription(ctx context.Context, orgID string) error {
 	if m.ensureOrgSubscriptionFn != nil {
 		return m.ensureOrgSubscriptionFn(ctx, orgID)
 	}
 	return nil
+}
+
+func (m *adversarialBillingEnforcer) CheckDailyAIModelCallLimit(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *adversarialBillingEnforcer) DispatchBilling(_ context.Context, _ string, _ domain.PlanTier, _ string, _ map[string]any) {
 }

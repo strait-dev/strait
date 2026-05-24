@@ -50,7 +50,7 @@ const DetailRow = ({
 }) => (
   <div className="flex items-start justify-between gap-2 text-sm">
     <span className="flex shrink-0 items-center gap-2 text-muted-foreground">
-      <HugeiconsIcon className="shrink-0" icon={icon} size={14} />
+      <HugeiconsIcon className="size-3.5 shrink-0" icon={icon} />
       {label}
     </span>
     <span className="truncate text-right font-mono text-sm">{value}</span>
@@ -123,7 +123,7 @@ const JobDetailSheet = ({ job, open, onOpenChange }: JobDetailSheetProps) => {
           {job.tags && Object.keys(job.tags).length > 0 && (
             <div>
               <h4 className="mb-2 flex items-center gap-1.5 font-medium text-muted-foreground text-xs uppercase">
-                <HugeiconsIcon icon={TagIcon} size={12} />
+                <HugeiconsIcon className="size-3" icon={TagIcon} />
                 Tags
               </h4>
               <div className="flex flex-wrap gap-1.5">
@@ -177,7 +177,7 @@ const JobDetailSheet = ({ job, open, onOpenChange }: JobDetailSheetProps) => {
             disabled={triggerJob.isPending}
             onClick={() => triggerJob.mutate({ id: job.id })}
           >
-            <HugeiconsIcon className="mr-1.5" icon={PlayActionIcon} size={14} />
+            <HugeiconsIcon className="mr-1.5 size-3.5" icon={PlayActionIcon} />
             Trigger
           </Button>
         </SheetFooter>

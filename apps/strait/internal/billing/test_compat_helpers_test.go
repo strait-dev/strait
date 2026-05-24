@@ -13,6 +13,7 @@ import (
 type testSubscriptionData struct {
 	ID                 string            `json:"-"`
 	ProductID          string            `json:"-"`
+	LookupKey          string            `json:"-"`
 	CustomerID         string            `json:"-"`
 	Status             string            `json:"-"`
 	Metadata           map[string]string `json:"-"`
@@ -70,12 +71,13 @@ func (p testSubscriptionData) ToStripe() *stripe.Subscription {
 	if priceID == "" && p.Product != nil {
 		priceID = p.Product.ID
 	}
-	if priceID != "" {
+	if priceID != "" || p.LookupKey != "" {
 		sub.Items = &stripe.SubscriptionItemList{
 			Data: []*stripe.SubscriptionItem{
 				{
 					Price: &stripe.Price{
-						ID: priceID,
+						ID:        priceID,
+						LookupKey: p.LookupKey,
 					},
 				},
 			},

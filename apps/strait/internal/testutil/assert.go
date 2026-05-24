@@ -1,5 +1,6 @@
 //go:build integration
 
+//nolint:revive // test helpers intentionally keep testing.TB first for assertion ergonomics.
 package testutil
 
 import (

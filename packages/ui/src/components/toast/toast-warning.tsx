@@ -8,7 +8,7 @@ export function ToastWarning(props: ToastContentProps) {
     <ToastContent
       {...props}
       icon={<HugeiconsIcon className="size-4" icon={AlertDiamondIcon} />}
-      iconClassName="text-amber-500"
+      iconClassName="text-warning"
     />
   );
 }

@@ -275,6 +275,9 @@ func TestUpdateJob_IncrementsVersion(t *testing.T) {
 func TestListJobVersions_Success(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1"}, nil
+		},
 		ListJobVersionsByJobFunc: func(_ context.Context, jobID string, _ int, _ *time.Time) ([]domain.JobVersion, error) {
 			return []domain.JobVersion{
 				{ID: "v3", JobID: jobID, Version: 3, Name: "name-v3", Slug: "slug-v3", EndpointURL: "https://example.com"},
@@ -307,6 +310,9 @@ func TestListJobVersions_Success(t *testing.T) {
 func TestListJobVersions_Empty(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1"}, nil
+		},
 		ListJobVersionsByJobFunc: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobVersion, error) {
 			return []domain.JobVersion{}, nil
 		},
@@ -330,6 +336,9 @@ func TestListJobVersions_Empty(t *testing.T) {
 func TestListJobVersions_StoreError(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, _ string) (*domain.Job, error) {
+			return &domain.Job{ID: "job-123", ProjectID: "proj-1"}, nil
+		},
 		ListJobVersionsByJobFunc: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobVersion, error) {
 			return nil, errors.New("boom")
 		},
@@ -470,6 +479,9 @@ func TestListRuns_IncludesJobVersion(t *testing.T) {
 func TestListJobVersions_ReturnsExpectedVersionNumbers(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1"}, nil
+		},
 		ListJobVersionsByJobFunc: func(_ context.Context, jobID string, _ int, _ *time.Time) ([]domain.JobVersion, error) {
 			return []domain.JobVersion{
 				{ID: "v3", JobID: jobID, Version: 3, Name: "name-v3", Slug: "slug-v3", EndpointURL: "https://example.com"},

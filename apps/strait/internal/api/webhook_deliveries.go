@@ -2,10 +2,12 @@ package api
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/httputil"
 
 	"github.com/danielgtaylor/huma/v2"
 )
@@ -34,13 +36,57 @@ func (s *Server) handleListWebhookDeliveries(ctx context.Context, input *ListWeb
 	if err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
-	deliveries, err := s.store.ListWebhookDeliveries(ctx, projectID, status, limit+1, cursor)
+	var deliveries []domain.WebhookDelivery
+	if environmentIDFromContext(ctx) != "" {
+		deliveries, err = s.listWebhookDeliveriesForEnvironment(ctx, projectID, status, limit+1, cursor)
+	} else {
+		deliveries, err = s.store.ListWebhookDeliveries(ctx, projectID, status, limit+1, cursor)
+	}
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list webhook deliveries")
 	}
+	deliveries = sanitizeWebhookDeliveryResponses(deliveries)
 	return &ListWebhookDeliveriesOutput{Body: paginatedResult(deliveries, limit, func(d domain.WebhookDelivery) string {
 		return d.CreatedAt.Format(time.RFC3339Nano)
 	})}, nil
+}
+
+func (s *Server) listWebhookDeliveriesForEnvironment(ctx context.Context, projectID, status string, limit int, cursor *time.Time) ([]domain.WebhookDelivery, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+
+	deliveries := make([]domain.WebhookDelivery, 0, limit)
+	fetchLimit := max(limit, 25)
+	nextCursor := cursor
+	for len(deliveries) < limit {
+		batch, err := s.store.ListWebhookDeliveries(ctx, projectID, status, fetchLimit, nextCursor)
+		if err != nil {
+			return nil, err
+		}
+		if len(batch) == 0 {
+			break
+		}
+		for i := range batch {
+			delivery := batch[i]
+			if accessErr := s.verifyDeliveryProjectAccess(ctx, &delivery); accessErr != nil {
+				if errors.Is(accessErr, errProjectMismatch) || errors.Is(accessErr, errEnvironmentMismatch) {
+					continue
+				}
+				return nil, accessErr
+			}
+			deliveries = append(deliveries, delivery)
+			if len(deliveries) >= limit {
+				break
+			}
+		}
+		last := batch[len(batch)-1].CreatedAt
+		nextCursor = &last
+		if len(batch) < fetchLimit {
+			break
+		}
+	}
+	return deliveries, nil
 }
 
 type GetWebhookDeliveryInput struct {
@@ -69,7 +115,7 @@ func (s *Server) handleGetWebhookDelivery(ctx context.Context, input *GetWebhook
 	if err := s.verifyDeliveryProjectAccess(ctx, delivery); err != nil {
 		return nil, huma.Error404NotFound("delivery not found")
 	}
-	return &GetWebhookDeliveryOutput{Body: delivery}, nil
+	return &GetWebhookDeliveryOutput{Body: sanitizeWebhookDeliveryResponsePtr(delivery)}, nil
 }
 
 type RetryWebhookDeliveryInput struct {
@@ -91,6 +137,9 @@ func (s *Server) handleRetryWebhookDelivery(ctx context.Context, input *RetryWeb
 	}
 	d, err := s.store.GetWebhookDelivery(ctx, deliveryID)
 	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			return nil, huma.Error404NotFound("delivery not found")
+		}
 		return nil, huma.Error500InternalServerError("failed to get delivery")
 	}
 	if d == nil {
@@ -104,13 +153,40 @@ func (s *Server) handleRetryWebhookDelivery(ctx context.Context, input *RetryWeb
 	}
 	retried, err := s.store.RetryWebhookDelivery(ctx, deliveryID)
 	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "not found") {
+			return nil, huma.Error404NotFound("delivery not found")
+		}
+		if strings.Contains(errMsg, "not retriable") {
+			return nil, huma.Error409Conflict("only failed or dead deliveries can be retried")
+		}
 		return nil, huma.Error500InternalServerError("failed to retry delivery")
 	}
 	s.emitAuditEvent(ctx, domain.AuditActionWebhookDeliveryRetried, "webhook_delivery", deliveryID, map[string]any{
 		"subscription_id": d.SubscriptionID,
 		"previous_status": d.Status,
 	})
-	return &RetryWebhookDeliveryOutput{Body: retried}, nil
+	return &RetryWebhookDeliveryOutput{Body: sanitizeWebhookDeliveryResponsePtr(retried)}, nil
+}
+
+func sanitizeWebhookDeliveryResponses(deliveries []domain.WebhookDelivery) []domain.WebhookDelivery {
+	for i := range deliveries {
+		deliveries[i] = sanitizeWebhookDeliveryResponse(deliveries[i])
+	}
+	return deliveries
+}
+
+func sanitizeWebhookDeliveryResponsePtr(delivery *domain.WebhookDelivery) *domain.WebhookDelivery {
+	if delivery == nil {
+		return nil
+	}
+	sanitized := sanitizeWebhookDeliveryResponse(*delivery)
+	return &sanitized
+}
+
+func sanitizeWebhookDeliveryResponse(delivery domain.WebhookDelivery) domain.WebhookDelivery {
+	delivery.WebhookURL = httputil.RedactURLForLog(delivery.WebhookURL)
+	return delivery
 }
 
 // verifyDeliveryProjectAccess checks that the webhook delivery belongs to the
@@ -124,11 +200,20 @@ func (s *Server) verifyDeliveryProjectAccess(ctx context.Context, d *domain.Webh
 		return nil // internal caller without project context
 	}
 	if d.JobID == "" {
+		if environmentIDFromContext(ctx) != "" {
+			return errEnvironmentMismatch
+		}
+		if d.ProjectID != "" && d.ProjectID != projectID {
+			return errProjectMismatch
+		}
 		return nil // no job association to verify
 	}
 	job, err := s.store.GetJob(ctx, d.JobID)
 	if err != nil || job == nil {
 		return errProjectMismatch
 	}
-	return requireProjectMatch(ctx, job.ProjectID)
+	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
+		return err
+	}
+	return requireEnvironmentMatch(ctx, job.EnvironmentID)
 }

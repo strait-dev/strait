@@ -1,18 +1,18 @@
 ---
 title: "Security"
-description: "Security features and protections implemented in Strait."
+description: "How Strait protects endpoints, requests, and access."
 icon: "shield"
 ---
 
-This page covers the security measures Strait uses to protect your infrastructure and job executions.
+This page covers the protections Strait uses around endpoint URLs, requests, API keys, roles, and audit trails.
 
 <Info>
-  Related guides: [Authentication & Authorization](/guides/authentication), [OIDC Authentication](/guides/oidc), [RBAC & Policy Authorization](/guides/rbac), [Audit Events](/guides/audit-events), [API Key Rotation](/guides/api-key-rotation).
+  Related guides: [Authentication & Authorization](/guides/authentication), [OIDC Authentication](/guides/authentication#oidc-authentication), [RBAC & Policy Authorization](/guides/rbac), [Audit Events](/guides/audit-events), [API Key Rotation](/guides/authentication#api-key-rotation).
 </Info>
 
 ## SSRF Protection
 
-To prevent SSRF (Server-Side Request Forgery -- where an attacker tricks the server into making requests to internal services), Strait validates all user-provided URLs (e.g., webhook and job endpoint URLs).
+To prevent SSRF, Strait validates user-provided URLs such as webhook and job endpoint URLs.
 
 ### Blocked Hosts
 The following hosts are explicitly blocked:
@@ -21,7 +21,7 @@ The following hosts are explicitly blocked:
 - `169.254.169.254` (Cloud metadata service)
 
 ### Private IP Detection
-Strait resolves DNS for submitted URLs and rejects any that point to private IP ranges. This prevents access to internal network services.
+Strait resolves DNS for submitted URLs and rejects any that point to private IP ranges. This prevents access to private network services.
 
 ### Blocked IP Ranges
 - Private IPv4: `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`
@@ -30,12 +30,14 @@ Strait resolves DNS for submitted URLs and rejects any that point to private IP 
 - CGNAT: `100.64.0.0/10`
 - IPv6 Unique Local: `fc00::/7`
 
-### Defense in Depth
+### URL Checks
+
 Strait validates URLs at two points:
 1. **API layer**: When you create or update a job's `endpoint_url`, `fallback_endpoint_url`, or `webhook_url`
 2. **Worker layer**: At dispatch time, when environment-specific endpoint overrides are resolved
+
 ### Allowed Ports
-To further restrict outbound traffic, Strait only allows webhooks on standard and common development ports:
+To restrict outbound traffic, Strait only allows webhooks on standard and common development ports:
 - `80`, `443` (Standard HTTP/S)
 - `3000`, `4000`, `5000` (Common web frameworks)
 - `8080`, `8443` (Alternative HTTP/S)
@@ -64,21 +66,21 @@ The maximum allowed request body size prevents denial-of-service attacks via lar
 - **Default**: 1MB (`MAX_REQUEST_BODY_SIZE`)
 
 ### Validation
-All incoming JSON requests are validated to ensure required fields are present and data formats (like UUIDs or email addresses) are correct before processing.
+All incoming JSON requests are validated against the expected schema. Missing or malformed fields are rejected with a 422 error.
 
 ## CORS Configuration
 
 CORS (Cross-Origin Resource Sharing) controls which web origins can call the API.
 - **Allowed Origins**: Configurable via `CORS_ALLOWED_ORIGINS`.
 - **Allowed Methods**: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`.
-- **Allowed Headers**: Includes `Authorization`, `X-Internal-Secret`, and idempotency keys.
+- **Allowed Headers**: includes `Authorization`, `X-Internal-Secret`, and idempotency keys.
 
 ## Input Sanitization
 
 Strait takes a strict approach to input:
-- **Disallow Unknown Fields**: The JSON decoder rejects requests that include unrecognized fields.
-- **Type Safety**: Strong typing ensures input data matches expected domain models.
-- **Constant-Time Comparison**: Internal secret validation uses constant-time comparison to prevent timing attacks.
+- **Unknown fields**: requests with unrecognized JSON fields are rejected.
+- **Typed input**: request bodies must match the expected shape.
+- **Secret checks**: server secret validation uses constant-time comparison.
 
 ## API Key Scope Enforcement
 
@@ -92,7 +94,7 @@ Users accessing Strait through the app are authorized via project roles. Each ro
 
 RBAC also supports role inheritance and policy-based grants (resource policies and tag policies) for finer-grained authorization without relying on broad static roles.
 
-See [Authentication & Authorization](/guides/authentication#role-based-access-control-rbac) for details.
+See [Authentication & Authorization](/guides/authentication#rbac) for details.
 
 ## Actor Identity & Audit Trail
 
@@ -104,8 +106,8 @@ These are stored as `created_by` and `updated_by` columns on jobs, workflows, an
 
 ## Impersonation Protection
 
-API key requests **never** honor `X-Actor-Id` headers. This prevents an API key holder from setting `X-Actor-Id: admin_user` to gain that user's RBAC permissions. Actor headers are only trusted on internal secret authentication (service-to-service).
+API key requests **never** honor `X-Actor-Id` headers. This prevents an API key holder from setting `X-Actor-Id: admin_user` to gain that user's RBAC permissions. Actor headers are only trusted when the request uses the server secret.
 
 <Note>
-  Security is a shared responsibility. While Strait provides these protections, ensure your job endpoints also implement proper authentication and input validation.
+  Security is a shared responsibility. While Strait provides these protections, apply authentication and input validation to your job endpoints too.
 </Note>

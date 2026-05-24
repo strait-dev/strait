@@ -8,7 +8,7 @@ export function ToastSuccess(props: ToastContentProps) {
     <ToastContent
       {...props}
       icon={<HugeiconsIcon className="size-4" icon={CheckmarkCircle02Icon} />}
-      iconClassName="text-emerald-500"
+      iconClassName="text-success"
     />
   );
 }

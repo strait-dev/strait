@@ -40,7 +40,9 @@ func (mc *MemoryCleanup) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			mc.cleanup(ctx)
+			runSchedulerCycleCheckIn(ctx, mc.interval, func() {
+				mc.cleanup(ctx)
+			})
 		}
 	}
 }

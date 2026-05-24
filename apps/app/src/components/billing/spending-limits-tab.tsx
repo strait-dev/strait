@@ -98,9 +98,9 @@ const SpendingLimitsTab = () => {
   return (
     <div className="space-y-6">
       {spending.is_hard_capped && (
-        <Card className="border-yellow-200 dark:border-yellow-800">
+        <Card className="border-warning/30">
           <CardContent className="p-4">
-            <p className="text-sm text-yellow-800 dark:text-yellow-200">
+            <p className="text-sm text-warning">
               Hard spending cap is enabled. Services will be paused when the
               limit is reached.
             </p>

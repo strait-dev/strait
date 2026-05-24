@@ -2,6 +2,8 @@ package webhook
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strconv"
 	"strings"
@@ -9,8 +11,25 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 )
+
+func TestHashURL_UsesSHA256Hex(t *testing.T) {
+	t.Parallel()
+
+	raw := "org-1\x00https://hooks.example.com/webhook"
+	wantSum := sha256.Sum256([]byte(raw))
+	want := hex.EncodeToString(wantSum[:])
+
+	got := hashURL(raw)
+	if got != want {
+		t.Fatalf("hashURL() = %q, want sha256 hex %q", got, want)
+	}
+	if len(got) != 64 {
+		t.Fatalf("hashURL() len = %d, want 64", len(got))
+	}
+}
 
 type redisProcessFunc func(ctx context.Context, cmd redis.Cmder) error
 
@@ -716,6 +735,43 @@ func TestRedisWebhookCircuitBreaker_RecordFailure_IntermediateState(t *testing.T
 	state.mu.Unlock()
 	if !isOpen {
 		t.Fatal("expected open key set after exactly threshold failures")
+	}
+}
+
+func TestRedisWebhookCircuitBreaker_RecordFailureCountsSameTimestampFailures(t *testing.T) {
+	t.Parallel()
+
+	mr := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+
+	now := time.Now()
+	breaker := NewRedisWebhookCircuitBreaker(
+		client,
+		true,
+		WithWebhookCircuitBreakerThreshold(2),
+		WithWebhookCircuitBreakerWindow(time.Minute),
+	)
+	breaker.now = func() time.Time { return now }
+
+	url := "https://example.com/same-timestamp"
+	breaker.RecordFailure(t.Context(), url)
+	breaker.RecordFailure(t.Context(), url)
+
+	failures, err := client.ZCard(t.Context(), breaker.failureKey(url)).Result()
+	if err != nil {
+		t.Fatalf("ZCard error = %v", err)
+	}
+	if failures != 2 {
+		t.Fatalf("failures = %d, want 2 distinct entries with the same timestamp", failures)
+	}
+
+	canDeliver, err := breaker.CanDeliver(t.Context(), url)
+	if err != nil {
+		t.Fatalf("CanDeliver error = %v", err)
+	}
+	if canDeliver {
+		t.Fatal("expected delivery blocked after two same-timestamp failures")
 	}
 }
 

@@ -113,7 +113,7 @@ func TestListBatchOperations(t *testing.T) {
 
 	job := mustCreateJob(t, ctx, q, "project-batch-list")
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		op := &domain.BatchOperation{
 			ID:        newID(),
 			ProjectID: job.ProjectID,

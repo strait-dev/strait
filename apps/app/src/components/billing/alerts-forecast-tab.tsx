@@ -18,7 +18,7 @@ import {
 } from "@/hooks/billing/use-anomaly-config";
 import { usageForecastQueryOptions } from "@/hooks/billing/use-usage-forecast";
 import { capitalize } from "@/lib/format";
-import MetricsCard from "./metrics-card";
+import UsageStatCard from "./usage-stat-card";
 
 const SEVERITY_VARIANT: Record<
   string,
@@ -105,21 +105,21 @@ const AlertsForecastTab = () => {
           {forecast ? (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                <MetricsCard
+                <UsageStatCard
                   label="Projected Runs"
                   value={(
                     forecast.projected_monthly_runs ?? 0
                   ).toLocaleString()}
                 />
-                <MetricsCard
+                <UsageStatCard
                   label="Projected Compute"
                   value={`$${(forecast.projected_monthly_compute_usd ?? 0).toFixed(2)}`}
                 />
-                <MetricsCard
+                <UsageStatCard
                   label="Projected AI Cost"
                   value={`$${(forecast.projected_monthly_ai_cost_usd ?? 0).toFixed(2)}`}
                 />
-                <MetricsCard
+                <UsageStatCard
                   label="Days Until Limit"
                   value={
                     forecast.days_until_limit === -1
@@ -130,7 +130,7 @@ const AlertsForecastTab = () => {
               </div>
 
               {forecast.recommended_plan && (
-                <Card className="border-blue-200 dark:border-blue-800">
+                <Card className="border-info/30">
                   <CardContent className="flex items-center justify-between p-4">
                     <p className="text-sm">
                       Based on your projected usage, we recommend the{" "}
@@ -251,7 +251,7 @@ const ThresholdForm = ({
         </div>
       )}
       {mutation.isSuccess && (
-        <p className="mt-2 text-right text-green-600 text-xs">
+        <p className="mt-2 text-right text-success text-xs">
           Thresholds updated successfully.
         </p>
       )}

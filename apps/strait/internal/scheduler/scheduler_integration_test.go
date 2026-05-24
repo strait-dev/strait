@@ -89,7 +89,7 @@ func intCreateJob(t *testing.T, ctx context.Context, st *store.Queries, projectI
 // ---------------------------------------------------------------------------
 // 1. Cron job scheduling with real Postgres: create a cron job, verify
 //    LoadJobs reads it and the scheduler registers the entry.
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestIntegration_CronLoadJobs(t *testing.T) {
 	ctx := context.Background()
@@ -123,7 +123,7 @@ func TestIntegration_CronLoadJobs(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // 2. Cron job triggers enqueue into real DB.
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestIntegration_CronTriggerEnqueuesRun(t *testing.T) {
 	ctx := context.Background()
@@ -185,7 +185,7 @@ done:
 
 // ---------------------------------------------------------------------------
 // 3. Batch flusher with real DB: items are flushed into a run.
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestIntegration_BatchFlusher(t *testing.T) {
 	ctx := context.Background()
@@ -274,7 +274,7 @@ func TestIntegration_BatchFlusher(t *testing.T) {
 // ---------------------------------------------------------------------------
 // 4. Stale run detection with real DB: runs past their heartbeat timeout
 //    are marked as crashed by the reaper.
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestIntegration_ReaperStaleRunDetection(t *testing.T) {
 	ctx := context.Background()
@@ -329,7 +329,7 @@ func TestIntegration_ReaperStaleRunDetection(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // 5. Advisory lock behavior: verify only one scheduler instance processes.
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestIntegration_AdvisoryLockExclusivity(t *testing.T) {
 	ctx := context.Background()
@@ -392,7 +392,7 @@ func TestIntegration_AdvisoryLockExclusivity(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // 6. SLO evaluation with real metrics stored in DB.
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestIntegration_SLOEvaluation(t *testing.T) {
 	ctx := context.Background()

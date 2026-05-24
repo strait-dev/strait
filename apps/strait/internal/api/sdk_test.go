@@ -20,10 +20,14 @@ import (
 
 func generateRunToken(t *testing.T, runID string) string {
 	t.Helper()
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
-		Subject:   runID,
-		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
-		IssuedAt:  jwt.NewNumericDate(time.Now()),
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, runTokenClaims{
+		Attempt: 1,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "strait:run-token",
+			Subject:   runID,
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
 	})
 	signed, err := token.SignedString([]byte(testJWTSigningKey))
 	if err != nil {
@@ -50,10 +54,14 @@ func sdkRequest(t *testing.T, method, path, runID, body string) *http.Request {
 
 func generateExpiredRunToken(t *testing.T, runID string) string {
 	t.Helper()
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
-		Subject:   runID,
-		ExpiresAt: jwt.NewNumericDate(time.Now().Add(-time.Hour)),
-		IssuedAt:  jwt.NewNumericDate(time.Now().Add(-2 * time.Hour)),
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, runTokenClaims{
+		Attempt: 1,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "strait:run-token",
+			Subject:   runID,
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(-time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now().Add(-2 * time.Hour)),
+		},
 	})
 	signed, err := token.SignedString([]byte(testJWTSigningKey))
 	if err != nil {
@@ -110,8 +118,8 @@ func TestHandleSDKLog_MissingMessage(t *testing.T) {
 
 	srv.ServeHTTP(w, r)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", w.Code)
 	}
 }
 
@@ -200,8 +208,8 @@ func TestHandleSDKProgress_InvalidPercent(t *testing.T) {
 
 	srv.ServeHTTP(w, r)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", w.Code)
 	}
 }
 
@@ -266,8 +274,8 @@ func TestHandleSDKAnnotate_InvalidPayload(t *testing.T) {
 
 	srv.ServeHTTP(w, r)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", w.Code)
 	}
 }
 
@@ -486,6 +494,35 @@ func TestHandleSDKHeartbeat_StoreError(t *testing.T) {
 	}
 }
 
+func TestSDKRunToken_RevalidatesAfterDecodeBeforeMutation(t *testing.T) {
+	t.Parallel()
+	var statusCalls atomic.Int32
+	ms := &APIStoreMock{
+		UpdateHeartbeatFunc: func(context.Context, string) error {
+			t.Fatal("heartbeat mutation must not run after post-decode terminal revalidation")
+			return nil
+		},
+	}
+	ms.SetRunTokenStateFunc(func(context.Context, string) (domain.RunStatus, int, string, error) {
+		if statusCalls.Add(1) == 1 {
+			return domain.StatusExecuting, 1, "proj-1", nil
+		}
+		return domain.StatusCompleted, 1, "proj-1", nil
+	})
+	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
+
+	w := httptest.NewRecorder()
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/heartbeat", "run-123", "")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusGone {
+		t.Fatalf("expected 410, got %d: %s", w.Code, w.Body.String())
+	}
+	if statusCalls.Load() != 2 {
+		t.Fatalf("expected pre-auth and post-decode status checks, got %d", statusCalls.Load())
+	}
+}
+
 func TestHandleSDKComplete_Success(t *testing.T) {
 	t.Parallel()
 	getRunCalls := 0
@@ -655,8 +692,8 @@ func TestHandleSDKFail_MissingError(t *testing.T) {
 
 	srv.ServeHTTP(w, r)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", w.Code)
 	}
 }
 
@@ -763,8 +800,8 @@ func TestHandleSDKSpawn_MissingFields(t *testing.T) {
 
 	srv.ServeHTTP(w, r)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", w.Code)
 	}
 }
 

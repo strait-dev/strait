@@ -71,7 +71,9 @@ func (p *DelayedPoller) Run(ctx context.Context) {
 			p.logger.Info("delayed poller stopping")
 			return
 		case <-ticker.C:
-			p.poll(ctx)
+			runSchedulerCycleCheckIn(ctx, p.interval, func() {
+				p.poll(ctx)
+			})
 		}
 	}
 }

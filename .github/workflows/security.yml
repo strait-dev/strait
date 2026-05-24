@@ -4,6 +4,8 @@ on:
   push:
     paths:
       - "apps/strait/**"
+      - ".github/workflows/security.yml"
+      - ".github/actions/setup-go/**"
   workflow_dispatch:
 
 permissions:
@@ -15,76 +17,122 @@ concurrency:
 
 jobs:
   govulncheck:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      GOVULNCHECK_VERSION: v1.1.4
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
-          go-version-file: apps/strait/go.mod
-          cache: true
-          cache-dependency-path: |
-            apps/strait/go.sum
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-go
+
+      - name: Cache govulncheck binary
+        id: cache-govulncheck
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/go/bin/govulncheck
+          key: govulncheck-${{ runner.os }}-${{ env.GOVULNCHECK_VERSION }}
 
       - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+        if: steps.cache-govulncheck.outputs.cache-hit != 'true'
+        run: go install golang.org/x/vuln/cmd/govulncheck@${{ env.GOVULNCHECK_VERSION }}
 
       - name: Run govulncheck
         working-directory: apps/strait
         run: govulncheck ./...
 
   license-check:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      GO_LICENSES_VERSION: v2.0.1
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
-          go-version-file: apps/strait/go.mod
-          cache: true
-          cache-dependency-path: |
-            apps/strait/go.sum
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-go
+
+      - name: Cache go-licenses binary
+        id: cache-go-licenses
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/go/bin/go-licenses
+          key: go-licenses-${{ runner.os }}-${{ env.GO_LICENSES_VERSION }}
 
       - name: Install go-licenses
-        run: go install github.com/google/go-licenses@latest
+        if: steps.cache-go-licenses.outputs.cache-hit != 'true'
+        run: go install github.com/google/go-licenses/v2@${{ env.GO_LICENSES_VERSION }}
 
       - name: Check licenses
         working-directory: apps/strait
-        run: go-licenses check ./... --disallowed_types=restricted,reciprocal --ignore=github.com/hashicorp/go-cleanhttp
+        run: >-
+          go-licenses check ./...
+          --disallowed_types=restricted,reciprocal
+          --ignore=strait
+          --ignore=github.com/hashicorp/go-cleanhttp
+          --ignore=github.com/in-toto/attestation
+          --ignore=github.com/in-toto/in-toto-golang
+          --ignore=github.com/segmentio/asm
 
   gosec:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      GOSEC_VERSION: v2.25.0
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
-          go-version-file: apps/strait/go.mod
-          cache: true
-          cache-dependency-path: |
-            apps/strait/go.sum
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-go
+
+      - name: Cache gosec binary
+        id: cache-gosec
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/go/bin/gosec
+          key: gosec-${{ runner.os }}-${{ env.GOSEC_VERSION }}
 
       - name: Install gosec
-        run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+        if: steps.cache-gosec.outputs.cache-hit != 'true'
+        run: go install github.com/securego/gosec/v2/cmd/gosec@${{ env.GOSEC_VERSION }}
 
       - name: Run gosec
         working-directory: apps/strait
-        run: gosec -exclude=G101,G104,G115,G117,G118,G204,G304,G404,G703,G704,G706 ./...
+        run: gosec -exclude=G101,G104,G115,G117,G118,G204,G304,G404,G703,G704,G706 -exclude-dir=internal/api/grpc/proto ./...
 
   gitleaks:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      GITLEAKS_VERSION: 8.24.3
+      GITLEAKS_SHA256: 9991e0b2903da4c8f6122b5c3186448b927a5da4deef1fe45271c3793f4ee29c
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+          persist-credentials: false
+
+      - name: Cache gitleaks binary
+        id: cache-gitleaks
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.local/bin/gitleaks
+          key: gitleaks-${{ runner.os }}-${{ env.GITLEAKS_VERSION }}
 
       - name: Install gitleaks
+        if: steps.cache-gitleaks.outputs.cache-hit != 'true'
         run: |
-          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.24.3/gitleaks_8.24.3_linux_x64.tar.gz | tar xz -C /usr/local/bin gitleaks
+          mkdir -p "$HOME/.local/bin"
+          curl -sSfL -o /tmp/gitleaks.tar.gz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  /tmp/gitleaks.tar.gz" | sha256sum -c -
+          tar xzf /tmp/gitleaks.tar.gz -C "$HOME/.local/bin" gitleaks
+
+      - name: Add gitleaks to PATH
+        run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Run gitleaks
         run: gitleaks detect --source=. --config=apps/strait/.gitleaks.toml --no-banner --verbose --exit-code=1

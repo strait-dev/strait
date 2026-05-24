@@ -1,50 +1,97 @@
 ---
 title: "Environments"
-description: "Managing project-specific configurations and routing."
+description: "Run the same job against different endpoints: staging vs production, US vs EU, or any configuration your deployment needs."
 ---
 
-Environments let you run the same jobs and workflows against different configurations -- for example, routing to a staging API during development and a production API when you ship.
+Environments let you run the same job against different endpoints (staging vs production, US vs EU, or any variation your deployment needs). Instead of duplicating job definitions, you create environments with different configuration and point jobs at them.
 
-## Environment Model
+## When to Use It
 
-Each environment has the following fields:
+You have an `order-processing` job that calls your API. In development, it should hit `staging.api.myapp.com`. In production, it should hit `api.myapp.com`. Without environments, you'd need two separate job definitions. With environments, you create one job and bind it to different environments.
 
-| Field | Type | Description |
-| :--- | :--- | :--- |
-| `id` | `string` | Unique identifier (UUIDv7). |
-| `project_id` | `string` | The project this environment belongs to. |
-| `name` | `string` | Human-readable name (e.g., "Production"). |
-| `slug` | `string` | URL-friendly identifier (e.g., "prod"). |
-| `parent_id` | `string` | Optional. Links to a parent environment for variable inheritance. |
-| `is_standard` | `bool` | Whether this is a built-in environment. Standard environments cannot be deleted or renamed. |
-| `variables` | `map[string]string` | Key-value configuration. Encrypted at rest when you set `SECRET_ENCRYPTION_KEY`. |
+## How It Works
+
+An environment is a named set of key-value variables attached to a project. When you set `environment_id` on a job, Strait injects that environment's variables at execution time. If the environment defines an `ENDPOINT_URL` variable, Strait routes the job to that URL instead of the job's default `endpoint_url`.
+
+## Example: Staging vs Production
+
+Create two environments:
+
+```bash
+# Create staging environment
+curl -X POST https://api.strait.dev/v1/environments \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_id": "my-project",
+    "name": "Staging",
+    "slug": "staging",
+    "variables": {
+      "ENDPOINT_URL": "https://staging.api.myapp.com/jobs"
+    }
+  }'
+
+# Create production environment
+curl -X POST https://api.strait.dev/v1/environments \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_id": "my-project",
+    "name": "Production",
+    "slug": "production",
+    "variables": {
+      "ENDPOINT_URL": "https://api.myapp.com/jobs"
+    }
+  }'
+```
+
+Then bind a job to an environment:
+
+```bash
+curl -X PATCH https://api.strait.dev/v1/jobs/{jobId} \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "environment_id": "env_staging_id" }'
+```
+
+The job now dispatches to the staging URL. Switch it to production by changing `environment_id`.
+
+## Variable Inheritance
+
+Environments can have parents. A child environment inherits all variables from its parent, and can override specific values.
+
+```text
+Production (parent)
+  ENDPOINT_URL=https://api.myapp.com/jobs
+  API_KEY=prod-key-123
+  TIMEOUT=30
+
+Production-EU (child, parent_id = Production)
+  ENDPOINT_URL=https://eu.api.myapp.com/jobs  ← overrides parent
+  # API_KEY and TIMEOUT inherited from parent
+```
+
+Strait resolves variables by walking up the parent chain and flattening the result. Child values win on conflicts.
 
 ## Standard Environments
 
-Every project is created with three standard environments:
+Every project comes with three built-in environments:
 
 - **Development** (`development`)
 - **Staging** (`staging`)
 - **Production** (`production`)
 
-You cannot delete or rename standard environments. To add more granular configuration, create custom environments as children of standard ones.
+Standard environments cannot be deleted or renamed. Create custom environments as children of standard ones for more granular configuration.
 
-## Variable Inheritance
+## URL Validation
 
-You can nest environments by setting `parent_id`. A child environment inherits all variables from its parent. If the child defines the same key, the child's value wins. Strait resolves variables by walking up the parent chain and flattening the result at execution time.
+When an environment defines `ENDPOINT_URL`, Strait validates the URL to prevent requests to private networks. Private IP ranges (`10.0.0.0/8`, `192.168.0.0/16`) and loopback addresses (`127.0.0.1`) are blocked. Validation runs both when you update the environment and when the job dispatches.
 
-## Endpoint URL Overrides
+Environment variables are encrypted at rest when `SECRET_ENCRYPTION_KEY` is configured.
 
-If an environment defines an `ENDPOINT_URL` variable, Strait uses that URL instead of the job's default `endpoint_url` at dispatch time. This lets you route the same job to different services without editing the job definition.
+## Related
 
-## SSRF Validation
-
-To prevent Server-Side Request Forgery (SSRF) -- where an attacker tricks your system into making requests to private networks -- Strait validates all overridden URLs:
-- **Blocked addresses**: Private IP ranges (`10.0.0.0/8`, `192.168.0.0/16`) and loopback addresses (`127.0.0.1`).
-- **Enforcement points**: Strait validates URLs both in the API layer (when you update an environment or job) and in the worker layer (when resolving the override at dispatch time).
-
-## Use Case: Routing
-
-You can maintain a single job definition (e.g., `process-order`) and route it to different services per environment:
-- **Staging**: `ENDPOINT_URL=https://staging.api.myapp.com/jobs`
-- **Production**: `ENDPOINT_URL=https://api.myapp.com/jobs`
+- [Jobs](/concepts/jobs)
+- [Projects](/concepts/projects)
+- [Security](/guides/security)
+- [Environment Variables](/configuration/environment-variables)

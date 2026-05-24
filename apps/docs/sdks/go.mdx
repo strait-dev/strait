@@ -1,15 +1,385 @@
 ---
-title: "Go SDK"
-description: "The Go SDK has moved to its own repository."
+title: "Go"
+description: "Go SDK with functional options, 19 typed service clients, authoring DSL, and composition helpers."
 icon: "golang"
 ---
 
-The Go SDK now lives in a dedicated repository:
+The Go SDK (`github.com/strait-dev/strait-go`) provides full API coverage with idiomatic Go patterns: functional options for configuration, typed service clients for every domain, a code-first authoring DSL, and composition helpers for retries, polling, and pagination.
 
-**[github.com/strait-dev/strait-go](https://github.com/strait-dev/strait-go)**
+**Repository:** [github.com/strait-dev/strait-go](https://github.com/strait-dev/strait-go)
 
-Refer to the repository README for installation, usage, and API reference.
+## Installation
+
+Requires Go 1.24 or later.
 
 ```bash
 go get github.com/strait-dev/strait-go
 ```
+
+## Quick Start
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+
+    strait "github.com/strait-dev/strait-go"
+    "github.com/strait-dev/strait-go/operations"
+)
+
+func main() {
+    ctx := context.Background()
+
+    // Create a client from strait.json + STRAIT_API_KEY
+    client, err := strait.NewClientFromFile(nil)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Trigger a job
+    jobs := operations.NewJobsService(client)
+    run, err := jobs.Trigger(ctx, "job_sync_inventory", &operations.TriggerJobRequest{
+        Payload: map[string]any{"sku": "ABC-123"},
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    fmt.Printf("Run started: %s (status: %s)\n", run.ID, run.Status)
+}
+```
+
+## Configuration
+
+Three ways to create a client, in order of recommendation.
+
+### From `strait.json` (recommended)
+
+```go
+import strait "github.com/strait-dev/strait-go"
+
+// Auto-discovers strait.json in cwd
+client, err := strait.NewClientFromFile(nil)
+
+// Or specify a directory
+client, err := strait.NewClientFromFile([]strait.ConfigFileOption{
+    strait.WithConfigDir("/path/to/project"),
+})
+
+// Or an explicit path
+client, err := strait.NewClientFromFile([]strait.ConfigFileOption{
+    strait.WithConfigPath("/path/to/custom-config.json"),
+})
+```
+
+See [Configuration](/sdks/configuration) for the `strait.json` schema and options.
+
+### From environment variables
+
+```go
+import strait "github.com/strait-dev/strait-go"
+
+// Reads STRAIT_BASE_URL, STRAIT_API_KEY, STRAIT_AUTH_TYPE, STRAIT_TIMEOUT_MS
+client, err := strait.NewClientFromEnv()
+```
+
+### Inline with functional options
+
+```go
+import strait "github.com/strait-dev/strait-go"
+
+client := strait.NewClient(
+    strait.WithBaseURL("https://api.strait.dev"),
+    strait.WithBearerToken(os.Getenv("STRAIT_API_KEY")),
+    strait.WithTimeout(30 * time.Second),
+)
+```
+
+For SDK endpoints inside job handlers, authenticate with a run token instead:
+
+```go
+runClient := strait.NewClient(
+    strait.WithBaseURL("https://api.strait.dev"),
+    strait.WithRunToken(os.Getenv("RUN_TOKEN")),
+)
+```
+
+## Domain Services
+
+All 186 API operations are organized into 19 typed service clients. Each service is created from a base client:
+
+```go
+import "github.com/strait-dev/strait-go/operations"
+
+jobs := operations.NewJobsService(client)
+runs := operations.NewRunsService(client)
+workflows := operations.NewWorkflowsService(client)
+```
+
+### Available services
+
+| Service | Key operations |
+|---|---|
+| `JobsService` | List, Create, Get, Update, Delete, Trigger, BulkTrigger, Clone |
+| `RunsService` | List, Get, Delete, Replay, BulkCancel, GetReviewQueue |
+| `WorkflowsService` | List, Create, Get, Update, Delete, Trigger, GetDiff, GetPolicy |
+| `WorkflowRunsService` | List, Get, Pause, Resume, ApproveStep, SkipStep |
+| `DeploymentsService` | List, Create, Finalize, Promote, Rollback |
+| `EnvironmentsService` | List, Create, Get, Update, Delete |
+| `SecretsService` | List, Create, Delete |
+| `APIKeysService` | List, Create, Delete, Rotate |
+| `WebhooksService` | ListSubscriptions, CreateSubscription, DeleteSubscription, ListDeliveries, GetDelivery, RetryDelivery |
+| `EventTriggersService` | ListEvents, GetEvent, DeleteEvent, SendEvent, SendPrefix, PurgeEvent, GetStat |
+| `EventSourcesService` | List, Get, Create, Update, Delete |
+| `BatchOperationsService` | List, Get |
+| `StatsService` | List |
+| `AnalyticsService` | GetPerformance |
+| `LogDrainsService` | List, Create, Get, Update, Delete |
+| `SDKRunsService` | Annotate, Checkpoint, Complete, Continue, Fail, Heartbeat, Log, Output, Progress, Spawn, ToolCall, Usage, WaitForEvent |
+| `RBACService` | ListAuditEvents, ListMembers, CreateMember, DeleteMember, BulkMember, ListRoles, CreateRole, GetRole, UpdateRole, DeleteRole, ListResourcePolicies, CreateResourcePolicy, DeleteResourcePolicy, ListTagPolicies, CreateTagPolicy, DeleteTagPolicy, SeedRoles |
+| `JobGroupsService` | List, Create, Get, Update, Delete, ListJobs, PauseAll, ResumeAll, GetStats |
+| `HealthService` | List, GetReady, ListMetrics |
+
+### Raw variants
+
+Every method has a `*Raw` variant that returns the raw `*http.Response` instead of a decoded struct. Use this when you need access to headers, status codes, or want to handle decoding yourself:
+
+```go
+resp, err := jobs.TriggerRaw(ctx, "job_sync_inventory", &operations.TriggerJobRequest{
+    Payload: map[string]any{"sku": "ABC-123"},
+})
+if err != nil {
+    log.Fatal(err)
+}
+defer resp.Body.Close()
+fmt.Println("Status:", resp.StatusCode)
+```
+
+## Authoring DSL
+
+Define jobs and workflows as code, then register and trigger them through the client.
+
+### Defining jobs
+
+```go
+import "github.com/strait-dev/strait-go/authoring"
+
+syncInventory := authoring.DefineJob(authoring.JobConfig{
+    Name:           "Sync Inventory",
+    Slug:           "sync-inventory",
+    EndpointURL:    "https://worker.example/jobs/sync",
+    ProjectID:      "proj_abc123",
+    MaxConcurrency: 5,
+    MaxAttempts:    5,
+    RetryStrategy:  "exponential",
+    TimeoutSecs:    300,
+})
+
+// Register the job definition with Strait
+err := syncInventory.Register(ctx, client)
+
+// Trigger a run
+run, err := syncInventory.Trigger(ctx, client, map[string]any{
+    "sku": "ABC-123",
+})
+
+// Trigger and wait for completion
+result, err := syncInventory.TriggerAndWait(ctx, client, map[string]any{
+    "sku": "ABC-123",
+})
+```
+
+### Defining workflows
+
+Build workflows with typed step constructors. Dependencies are validated at definition time:
+
+```go
+import "github.com/strait-dev/strait-go/authoring"
+
+pipeline := authoring.DefineWorkflow(authoring.WorkflowConfig{
+    Name:      "Order Pipeline",
+    Slug:      "order-pipeline",
+    ProjectID: "proj_abc123",
+    Steps: []authoring.Step{
+        authoring.JobStep("validate", "job_validate", nil),
+        authoring.JobStep("charge", "job_charge", &authoring.StepOpts{
+            DependsOn: []string{"validate"},
+        }),
+        authoring.ApprovalStep("review", &authoring.ApprovalOpts{
+            DependsOn:          []string{"charge"},
+            ApprovalTimeoutSecs: 3600,
+        }),
+        authoring.AIStep("summarize", &authoring.AIStepOpts{
+            DependsOn: []string{"review"},
+            Model:     "gpt-4o",
+            Prompt:    "Summarize the order processing results.",
+        }),
+    },
+})
+```
+
+**Step types:**
+- `JobStep`: runs an existing job definition
+- `ApprovalStep`: pauses for human or programmatic approval
+- `AIStep`: executes any step with cost tracking. Not limited to AI models; use it for any step where you need to track spend.
+
+## Composition Helpers
+
+Utilities for common patterns: retries, polling, and pagination.
+
+### Retry with backoff
+
+```go
+import "github.com/strait-dev/strait-go/helpers"
+
+run, err := helpers.WithRetry(ctx, func() (*operations.Run, error) {
+    return jobs.Trigger(ctx, "job_abc123", &operations.TriggerJobRequest{
+        Payload: map[string]any{"sku": "A"},
+    })
+}, &helpers.RetryConfig{
+    Attempts: 5,
+    DelayMs:  250,
+    Jitter:   helpers.JitterFull,
+})
+```
+
+### Wait for run completion
+
+```go
+import "github.com/strait-dev/strait-go/helpers"
+
+completed, err := helpers.WaitForRun(ctx, runs, run.ID, &helpers.WaitConfig{
+    TimeoutMs:  120_000,
+    IntervalMs: 1_000,
+})
+```
+
+### Paginate results
+
+```go
+import "github.com/strait-dev/strait-go/helpers"
+
+// Iterate page by page
+err := helpers.Paginate(ctx, func(cursor string) (*operations.ListRunsResponse, error) {
+    return runs.List(ctx, &operations.ListRunsQuery{Cursor: cursor})
+}, func(run operations.Run) error {
+    fmt.Println(run.ID, run.Status)
+    return nil
+})
+
+// Or collect all results
+allRuns, err := helpers.CollectAll(ctx, func(cursor string) (*operations.ListRunsResponse, error) {
+    return runs.List(ctx, &operations.ListRunsQuery{Cursor: cursor})
+})
+```
+
+## Error Handling
+
+All API errors are typed. Use `errors.As` to match specific error types:
+
+```go
+import (
+    "errors"
+    "github.com/strait-dev/strait-go/straiterrors"
+)
+
+run, err := jobs.Trigger(ctx, "nonexistent", nil)
+if err != nil {
+    var notFound *straiterrors.NotFoundError
+    var rateLimited *straiterrors.RateLimitedError
+    var unauthorized *straiterrors.UnauthorizedError
+
+    switch {
+    case errors.As(err, &notFound):
+        fmt.Println("Resource not found:", notFound.Message)
+    case errors.As(err, &rateLimited):
+        fmt.Printf("Rate limited, retry after %s\n", rateLimited.RetryAfter)
+    case errors.As(err, &unauthorized):
+        fmt.Println("Auth failed:", unauthorized.Message)
+    default:
+        fmt.Println("Unexpected error:", err)
+    }
+}
+```
+
+### Error types
+
+| Error type | HTTP status | When it occurs |
+|---|---|---|
+| `TransportError` | | Network failure, DNS resolution, connection refused |
+| `UnauthorizedError` | 401, 403 | Invalid or expired API key or run token |
+| `NotFoundError` | 404 | Resource does not exist |
+| `ConflictError` | 409 | Duplicate slug, version conflict |
+| `ValidationError` | 422 | Invalid request payload |
+| `RateLimitedError` | 429 | Rate limit exceeded (includes `RetryAfter`) |
+| `ApiError` | other | Any other HTTP error |
+| `TimeoutError` | | Polling timeout in `WaitForRun` |
+
+## SSE Streaming
+
+Subscribe to real-time run events using server-sent events:
+
+```go
+import "github.com/strait-dev/strait-go/streaming"
+
+stream, err := streaming.NewRunStream(client, run.ID)
+if err != nil {
+    log.Fatal(err)
+}
+defer stream.Close()
+
+for event := range stream.Events() {
+    switch e := event.(type) {
+    case *streaming.ProgressEvent:
+        fmt.Printf("Progress: %.0f%% - %s\n", e.Percent*100, e.Message)
+    case *streaming.LogEvent:
+        fmt.Printf("[%s] %s\n", e.Level, e.Message)
+    case *streaming.CompletedEvent:
+        fmt.Printf("Completed with output: %v\n", e.Output)
+    case *streaming.FailedEvent:
+        fmt.Printf("Failed: %s\n", e.Error)
+    }
+}
+
+if err := stream.Err(); err != nil {
+    log.Fatal(err)
+}
+```
+
+## Middleware
+
+Add request/response hooks for logging, metrics, or header injection:
+
+```go
+client := strait.NewClient(
+    strait.WithBaseURL("https://api.strait.dev"),
+    strait.WithBearerToken("strait_..."),
+    strait.WithMiddleware(strait.Middleware{
+        OnRequest: func(req *strait.Request) {
+            fmt.Printf("-> %s %s\n", req.Method, req.URL)
+        },
+        OnResponse: func(resp *strait.Response) {
+            fmt.Printf("<- %d (%dms)\n", resp.StatusCode, resp.DurationMs)
+        },
+        OnError: func(err error) {
+            fmt.Printf("error: %v\n", err)
+        },
+    }),
+)
+```
+
+You can stack multiple middleware. They execute in order for requests and reverse order for responses.
+
+## Package Paths
+
+| Package | Import path | Purpose |
+|---|---|---|
+| Root | `github.com/strait-dev/strait-go` | Client creation and configuration |
+| Operations | `github.com/strait-dev/strait-go/operations` | 19 typed service clients |
+| Authoring | `github.com/strait-dev/strait-go/authoring` | Job and workflow definition DSL |
+| Helpers | `github.com/strait-dev/strait-go/helpers` | Retry, wait, paginate utilities |
+| Streaming | `github.com/strait-dev/strait-go/streaming` | SSE event streaming |
+| Errors | `github.com/strait-dev/strait-go/straiterrors` | Typed error definitions |

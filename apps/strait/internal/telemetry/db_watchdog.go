@@ -34,16 +34,18 @@ type LongTxnSample struct {
 // logs for long-running transactions that could pin the MVCC horizon. It is
 // safe to stop via Run's context.
 type DBWatchdog struct {
-	pool            DBPool
-	interval        time.Duration
-	alertThreshold  time.Duration
-	logger          *slog.Logger
-	longestTxnGauge metric.Float64Gauge
-	idleInTxnGauge  metric.Int64Gauge
-	oldestXminGauge metric.Int64Gauge
-	sampleCount     atomic.Int64
-	alertCount      atomic.Int64
-	lastSamples     atomic.Pointer[[]LongTxnSample]
+	pool               DBPool
+	interval           time.Duration
+	alertThreshold     time.Duration
+	logger             *slog.Logger
+	longestTxnGauge    metric.Float64Gauge
+	idleInTxnGauge     metric.Int64Gauge
+	oldestXminGauge    metric.Int64Gauge
+	staleSlotGauge     metric.Int64Gauge
+	oldestSlotLagGauge metric.Int64Gauge
+	sampleCount        atomic.Int64
+	alertCount         atomic.Int64
+	lastSamples        atomic.Pointer[[]LongTxnSample]
 }
 
 // NewDBWatchdog creates a watchdog with the given pool and thresholds. The
@@ -65,7 +67,7 @@ func NewDBWatchdog(pool DBPool, interval, alertThreshold time.Duration, logger *
 
 	meter := otel.Meter("strait/db_watchdog")
 	longest, err := meter.Float64Gauge(
-		"strait.db.longest_txn_seconds",
+		"strait_db_longest_txn_seconds",
 		metric.WithDescription("Age of the longest-running transaction in seconds"),
 		metric.WithUnit("s"),
 	)
@@ -73,7 +75,7 @@ func NewDBWatchdog(pool DBPool, interval, alertThreshold time.Duration, logger *
 		return nil, fmt.Errorf("create longest txn gauge: %w", err)
 	}
 	idleInTxn, err := meter.Int64Gauge(
-		"strait.db.idle_in_txn_count",
+		"strait_db_idle_in_txn_count",
 		metric.WithDescription("Number of connections idle in transaction"),
 		metric.WithUnit("1"),
 	)
@@ -81,22 +83,40 @@ func NewDBWatchdog(pool DBPool, interval, alertThreshold time.Duration, logger *
 		return nil, fmt.Errorf("create idle in txn gauge: %w", err)
 	}
 	oldestXmin, err := meter.Int64Gauge(
-		"strait.db.oldest_xmin_age_txids",
+		"strait_db_oldest_xmin_age_txids",
 		metric.WithDescription("Age of the oldest backend xmin in transaction ids"),
 		metric.WithUnit("1"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create oldest xmin gauge: %w", err)
 	}
+	staleSlots, err := meter.Int64Gauge(
+		"strait_db_stale_replication_slots",
+		metric.WithDescription("Number of inactive replication slots that may pin the xmin horizon"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create stale slots gauge: %w", err)
+	}
+	oldestSlotLag, err := meter.Int64Gauge(
+		"strait_db_oldest_slot_lag_bytes",
+		metric.WithDescription("WAL byte lag of the oldest replication slot"),
+		metric.WithUnit("By"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create oldest slot lag gauge: %w", err)
+	}
 
 	return &DBWatchdog{
-		pool:            pool,
-		interval:        interval,
-		alertThreshold:  alertThreshold,
-		logger:          logger,
-		longestTxnGauge: longest,
-		idleInTxnGauge:  idleInTxn,
-		oldestXminGauge: oldestXmin,
+		pool:               pool,
+		interval:           interval,
+		alertThreshold:     alertThreshold,
+		logger:             logger,
+		longestTxnGauge:    longest,
+		idleInTxnGauge:     idleInTxn,
+		oldestXminGauge:    oldestXmin,
+		staleSlotGauge:     staleSlots,
+		oldestSlotLagGauge: oldestSlotLag,
 	}, nil
 }
 
@@ -214,4 +234,56 @@ WHERE backend_type = 'client backend'
 	w.idleInTxnGauge.Record(ctx, idleInTxn)
 	w.oldestXminGauge.Record(ctx, oldestXmin)
 	w.lastSamples.Store(&samples)
+
+	// Sample replication slots for stale/inactive slots that pin the
+	// xmin horizon. A single stale slot can prevent vacuum from
+	// reclaiming dead tuples indefinitely.
+	w.sampleReplicationSlots(ctx)
+}
+
+// sampleReplicationSlots queries pg_replication_slots for inactive or
+// lagging slots and records metrics. A stale slot is the most common
+// silent cause of xmin horizon pinning on managed Postgres.
+func (w *DBWatchdog) sampleReplicationSlots(ctx context.Context) {
+	const q = `
+SELECT
+  COALESCE(slot_name, ''),
+  COALESCE(active, false),
+  COALESCE(pg_wal_lsn_diff(pg_current_wal_lsn(), COALESCE(confirmed_flush_lsn, restart_lsn)), 0)::bigint AS lag_bytes
+FROM pg_replication_slots
+`
+	rows, err := w.pool.Query(ctx, q)
+	if err != nil {
+		w.logger.Debug("db watchdog replication slots query failed", "error", err)
+		return
+	}
+	defer rows.Close()
+
+	var staleCount int64
+	var maxLag int64
+	for rows.Next() {
+		var name string
+		var active bool
+		var lagBytes int64
+		if err := rows.Scan(&name, &active, &lagBytes); err != nil {
+			w.logger.Debug("db watchdog replication slot scan failed", "error", err)
+			continue
+		}
+		if !active {
+			staleCount++
+			w.logger.Warn("inactive replication slot detected",
+				"slot_name", name,
+				"lag_bytes", lagBytes,
+			)
+		}
+		if lagBytes > maxLag {
+			maxLag = lagBytes
+		}
+	}
+	if err := rows.Err(); err != nil {
+		w.logger.Debug("db watchdog replication slots rows error", "error", err)
+	}
+
+	w.staleSlotGauge.Record(ctx, staleCount)
+	w.oldestSlotLagGauge.Record(ctx, maxLag)
 }

@@ -15,7 +15,7 @@ const EntityNotFound = ({ entity, backTo, backLabel }: EntityNotFoundProps) => {
 
   return (
     <div className="flex min-h-[350px] flex-col items-center justify-center gap-4 p-8 text-center">
-      <div className="flex size-14 items-center justify-center rounded-xl bg-muted/70">
+      <div className="flex size-14 items-center justify-center rounded-lg bg-muted/70">
         <HugeiconsIcon
           className="size-6 text-muted-foreground"
           icon={SearchIcon}

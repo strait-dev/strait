@@ -38,17 +38,6 @@ func TestEnforcement_Enterprise_NoMemberLimit(t *testing.T) {
 	}
 }
 
-func TestEnforcement_Enterprise_AllPresetsAllowed(t *testing.T) {
-	t.Parallel()
-	e := GetPlanLimits(domain.PlanEnterprise)
-	presets := []string{"micro", "small-1x", "small-2x", "medium-1x", "medium-2x", "large-1x", "large-2x"}
-	for _, p := range presets {
-		if !e.IsPresetAllowed(p) {
-			t.Errorf("Enterprise.IsPresetAllowed(%q) = false", p)
-		}
-	}
-}
-
 func TestEnforcement_Enterprise_HTTPModeAllowed(t *testing.T) {
 	t.Parallel()
 	e := GetPlanLimits(domain.PlanEnterprise)

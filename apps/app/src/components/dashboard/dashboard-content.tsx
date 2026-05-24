@@ -62,32 +62,31 @@ const DashboardContent = ({
 
   return (
     <Shell>
-      {/* Row 1: Metrics */}
+      <h1 className="sr-only">Dashboard</h1>
+      <h2 className="font-medium text-muted-foreground text-xs uppercase tracking-wider">
+        Overview
+      </h2>
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <MetricsCard
           chartColor={CHART_COLORS.active}
-          chartData={[]}
           icon={ActivityIcon}
           title="Total Runs (24h)"
           value={totalRuns.toLocaleString()}
         />
         <MetricsCard
           chartColor={CHART_COLORS.success}
-          chartData={[]}
           icon={CheckCircleIcon}
           title="Success Rate"
           value={`${successRate.toFixed(1)}%`}
         />
         <MetricsCard
           chartColor={CHART_COLORS.error}
-          chartData={[]}
           icon={AlertIcon}
           title="Failed Runs"
           value={failedRuns.toLocaleString()}
         />
         <MetricsCard
           chartColor={CHART_COLORS.neutral}
-          chartData={[]}
           icon={ClockIcon}
           title="Queued"
           value={totalActive.toLocaleString()}

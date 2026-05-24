@@ -1,30 +1,66 @@
 ---
-title: "TypeScript SDK"
-description: "Effect-first TypeScript SDK with generated operations, authoring DSL, and XState FSMs."
+title: "TypeScript"
+description: "Install, configure, and build jobs, workflows, and durable AI agents with the TypeScript SDK."
 icon: "js"
+og:image: "/images/og.png"
 ---
 
-The TypeScript SDK (`@strait/ts`) is an Effect-first SDK with full API coverage, a code-first authoring DSL, and XState state machines for run lifecycle management.
+The TypeScript SDK (`@strait/ts`) provides full API coverage, a code-first authoring DSL for jobs, workflows, and durable AI agents, typed errors, composition helpers, middleware hooks, and a test harness.
 
 ## Installation
 
-```bash
+<CodeGroup>
+```bash npm
 npm install @strait/ts
-# or
+```
+```bash bun
 bun add @strait/ts
 ```
+```bash yarn
+yarn add @strait/ts
+```
+```bash pnpm
+pnpm add @strait/ts
+```
+</CodeGroup>
 
-## Client Creation
+## Quick Start
+
+```ts
+import { createClientFromConfigFile } from "@strait/ts/node";
+
+const client = await createClientFromConfigFile();
+
+// Trigger a job and get the run back
+const run = await client.triggerJob({
+  pathParams: { jobID: "job_sync" },
+  body: { payload: { sku: "ABC-123" } },
+});
+
+console.log(run.id, run.status);
+```
+
+This assumes a [`strait.json`](/sdks/configuration) config file exists at your project root and `STRAIT_API_KEY` is set.
+
+## Configuration
+
+Three ways to create a client, in order of preference.
 
 ### From `strait.json` (recommended)
 
 ```ts
 import { createClientFromConfigFile } from "@strait/ts/node";
 
+// Auto-discovers strait.json in cwd
 const client = await createClientFromConfigFile();
+
+// Or specify a path
+const client = await createClientFromConfigFile({
+  configPath: "./config/strait.json",
+});
 ```
 
-See [Configuration](/sdks/configuration) for `strait.json` schema and options.
+See [Configuration](/sdks/configuration) for the full `strait.json` schema, env var overrides, and file discovery rules.
 
 ### From environment variables
 
@@ -47,44 +83,9 @@ const client = createClient({
 });
 ```
 
-## Calling Operations
+## Define Jobs
 
-### High-level methods
-
-```ts
-const job = await client.createJob({
-  body: {
-    project_id: "proj_1",
-    name: "Sync inventory",
-    slug: "sync-inventory",
-    endpoint_url: "https://worker.example/jobs/sync",
-  },
-});
-```
-
-### Namespaced methods
-
-```ts
-const jobs = await client.jobs.list({ query: { project_id: "proj_1" } });
-```
-
-### Result variants
-
-Non-GET operations have `*Result` variants that return `{ ok, data, error }` instead of throwing:
-
-```ts
-const result = await client.createJobResult({
-  body: { project_id: "proj_1", name: "...", slug: "...", endpoint_url: "..." },
-});
-
-if (!result.ok) {
-  console.error(result.error);
-}
-```
-
-## Authoring DSL
-
-### Defining jobs
+Use `defineJob` to declare a job, its schema, retry policy, and `run` handler in a single object. The definition can register itself, trigger runs, and wait for completion.
 
 ```ts
 import { defineJob, zodSchema } from "@strait/ts";
@@ -94,13 +95,18 @@ const syncInventory = defineJob({
   name: "Sync Inventory",
   slug: "sync-inventory",
   endpointUrl: "https://worker.dev/jobs/sync",
-  projectId: "proj_1",
+  projectId: "proj_abc123",
+
+  // Schema validation via adapter: Zod, ArkType, or Valibot.
   schema: zodSchema(z.object({ sku: z.string() })),
+
+  // Retry and concurrency
   maxConcurrency: 5,
   maxAttempts: 5,
   retryStrategy: "exponential",
   timeoutSecs: 300,
 
+  // Run handler. Receives validated payload and RunContext.
   run: async (payload, ctx) => {
     ctx.logger.info("Starting sync", { sku: payload.sku });
     await ctx.reportProgress(0.5);
@@ -108,17 +114,46 @@ const syncInventory = defineJob({
     return { synced: true, count: result.items.length };
   },
 
-  onSuccess: async ({ output }) => console.log("Synced", output.count, "items"),
-  onFailure: async ({ error }) => alertOncall(error),
+  // Lifecycle callbacks
+  onSuccess: async ({ output }) => {
+    console.log("Synced", output.count, "items");
+  },
+  onFailure: async ({ error }) => {
+    alertOncall(error);
+  },
 });
-
-// Register, trigger, wait
-await syncInventory.register(client);
-const run = await syncInventory.trigger(client, { payload: { sku: "ABC-123" } });
-const completed = await syncInventory.triggerAndWait(client, { payload: { sku: "ABC-123" } });
 ```
 
-### Defining workflows
+### Schema Adapters
+
+The SDK ships with three schema adapters:
+
+| Adapter | Import | Usage |
+|---|---|---|
+| Zod | `zodSchema` | `zodSchema(z.object({ ... }))` |
+| ArkType | `arkSchema` | `arkSchema(type({ ... }))` |
+| Valibot | `valibotSchema` | `valibotSchema(v.object({ ... }))` |
+
+### Register, Trigger, Wait
+
+```ts
+// Register the job definition with Strait
+await syncInventory.register(client);
+
+// Trigger a run
+const run = await syncInventory.trigger(client, {
+  payload: { sku: "ABC-123" },
+});
+
+// Trigger and block until the run completes or fails
+const completed = await syncInventory.triggerAndWait(client, {
+  payload: { sku: "ABC-123" },
+});
+```
+
+## Define Workflows
+
+Use `defineWorkflow` to declare a multi-step workflow. The SDK validates the dependency graph at definition time, so cycles and missing references are caught before any API call.
 
 ```ts
 import { defineWorkflow, step } from "@strait/ts";
@@ -126,97 +161,411 @@ import { defineWorkflow, step } from "@strait/ts";
 const pipeline = defineWorkflow({
   name: "Order Pipeline",
   slug: "order-pipeline",
-  projectId: "proj_1",
+  projectId: "proj_abc123",
   steps: [
     step.job("validate", "job_validate"),
     step.job("charge", "job_charge", { dependsOn: ["validate"] }),
-    step.approval("review", { dependsOn: ["charge"], approvalTimeoutSecs: 3600 }),
-    step.waitForEvent("shipping", "shipping.confirmed", { dependsOn: ["review"] }),
+    step.approval("review", {
+      dependsOn: ["charge"],
+      approvalTimeoutSecs: 3600,
+    }),
+    step.waitForEvent("shipping", "shipping.confirmed", {
+      dependsOn: ["review"],
+    }),
     step.sleep("cooldown", 60, { dependsOn: ["shipping"] }),
+    step.subWorkflow("notify", "wf_notifications", {
+      dependsOn: ["cooldown"],
+    }),
   ],
 });
-// DAG is validated at definition time
 ```
+
+### Step Types
+
+| Step Type | Factory | Description |
+|---|---|---|
+| Job | `step.job(ref, jobId, opts?)` | Execute a job. The step completes when the job run finishes. |
+| Approval | `step.approval(ref, opts?)` | Pause until a human or system approves. Configurable timeout. |
+| Wait for Event | `step.waitForEvent(ref, eventName, opts?)` | Pause until a matching event is received. |
+| Sleep | `step.sleep(ref, seconds, opts?)` | Pause for a fixed duration. |
+| Sub-workflow | `step.subWorkflow(ref, workflowId, opts?)` | Trigger a child workflow and wait for it to complete. |
+
+All step types accept `dependsOn` to declare dependencies. Steps with no dependencies run immediately when the workflow starts.
+
+## Durable AI Agents
+
+`defineAgent` creates a long-running, durable AI agent with built-in cost tracking, tool calling, and checkpoint persistence. The agent survives restarts and resumes from its last checkpoint automatically.
+
+> `defineAgent` is a convenience wrapper around `defineJob` with built-in cost tracking, tool calling, and checkpoint persistence. You can achieve the same behavior with `defineJob`.
+
+
+```ts
+import { defineAgent } from "@strait/ts";
+
+const researchAgent = defineAgent({
+  name: "Research Agent",
+  slug: "research-agent",
+  projectId: "proj_abc123",
+
+  model: "gpt-4o",
+  systemPrompt: "You are a research assistant. Gather data and produce a report.",
+
+  // Cost guardrails
+  maxTokens: 100_000,
+  maxCostUsd: 5.00,
+
+  // Tools the agent can call
+  tools: [searchTool, fetchPageTool, summarizeTool],
+
+  // Called when the agent completes
+  onComplete: async ({ output, usage }) => {
+    console.log(`Completed. Tokens: ${usage.totalTokens}, Cost: $${usage.totalCostUsd}`);
+  },
+});
+
+await researchAgent.register(client);
+const run = await researchAgent.trigger(client, {
+  payload: { topic: "supply chain optimization" },
+});
+```
+
+### Cost Tracking
+
+Every agent run tracks token usage and cost across all LLM calls. Set `maxCostUsd` to enforce a hard budget: the agent stops when the limit is reached rather than running up unbounded costs.
+
+## AI SDK Integration
+
+The SDK integrates directly with the [Vercel AI SDK](https://sdk.vercel.ai) for building AI jobs and agents.
+
+### Provider and Agent
+
+```ts
+import { createStraitProvider, createStraitAgent } from "@strait/ts/ai";
+
+// Create a provider that routes LLM calls through Strait for tracking
+const provider = createStraitProvider(client, {
+  model: "gpt-4o",
+});
+
+// Create an agent with built-in tools and cost tracking
+const agent = createStraitAgent(client, {
+  model: "gpt-4o",
+  tools: [searchTool, calculatorTool],
+  maxSteps: 10,
+});
+```
+
+### Built-in Tools
+
+The AI SDK integration includes tools that let agents interact with Strait itself:
+
+| Tool | Description |
+|---|---|
+| `triggerJob` | Trigger a Strait job from within an agent |
+| `waitForRun` | Block until a run completes |
+| `sendEvent` | Emit an event to the event bus |
+| `reportProgress` | Report progress back to the parent run |
+| `checkpoint` | Persist agent state for durable execution |
+| `spawnRun` | Spawn a child run |
+
+## Event Definitions
+
+Define typed events that jobs and workflows can emit and listen for:
+
+```ts
+import { defineEvent } from "@strait/ts";
+
+const orderShipped = defineEvent({
+  name: "order.shipped",
+  schema: zodSchema(
+    z.object({
+      orderId: z.string(),
+      carrier: z.string(),
+      trackingNumber: z.string(),
+    })
+  ),
+});
+
+// Emit the event from a job run
+await ctx.sendEvent(orderShipped, {
+  orderId: "ord_123",
+  carrier: "fedex",
+  trackingNumber: "TRACK-456",
+});
+```
+
+## Run Context
+
+The `run` handler receives a `RunContext` (`ctx`) with methods for reporting progress, logging, spawning child runs, and more.
+
+| Method | Description |
+|---|---|
+| `ctx.logger.info(msg, meta?)` | Structured log (also `.warn`, `.error`, `.debug`) |
+| `ctx.reportProgress(fraction)` | Report progress as a number between 0 and 1 |
+| `ctx.checkpoint(state)` | Persist intermediate state for durable execution |
+| `ctx.sendEvent(event, payload)` | Emit a typed event |
+| `ctx.spawnRun(jobOrRef, payload)` | Spawn a child run |
+| `ctx.waitForEvent(eventName, opts?)` | Pause until a matching event arrives |
+| `ctx.toolCall(name, input, output)` | Record a tool call for monitoring |
+| `ctx.usage(tokens)` | Report token usage for cost tracking |
+| `ctx.heartbeat()` | Signal liveness to prevent timeout |
+| `ctx.output(partial)` | Stream partial output back to the caller |
+| `ctx.isCancelled()` | Check if the run has been cancelled |
+
+## Test Harness
+
+`createTestContext` provides a fake `RunContext` for unit testing job handlers without a running Strait server.
+
+```ts
+import { createTestContext } from "@strait/ts/testing";
+import { syncInventory } from "./jobs/sync-inventory";
+
+const ctx = createTestContext();
+
+// Run the handler directly
+const result = await syncInventory.run({ sku: "ABC-123" }, ctx);
+
+// Assert against recorded interactions
+expect(result).toEqual({ synced: true, count: 42 });
+expect(ctx.progress).toEqual([0.5]);
+expect(ctx.logs).toContainEqual(
+  expect.objectContaining({ level: "info", message: "Starting sync" })
+);
+expect(ctx.events).toHaveLength(0);
+expect(ctx.spawnedRuns).toHaveLength(0);
+```
+
+The test context records all calls to `reportProgress`, `logger`, `sendEvent`, `spawnRun`, `checkpoint`, and `toolCall` so you can assert on side effects without mocking.
 
 ## Composition Helpers
 
-```ts
-import { withRetry, waitForRun, paginate, collectAll } from "@strait/ts";
+Utility functions for common patterns. Import from `@strait/ts`.
 
-// Retry with jitter
+### Retry with Backoff
+
+```ts
+import { withRetry } from "@strait/ts";
+
 const run = await withRetry(
-  () => client.triggerJob({ pathParams: { jobID: "job_1" }, body: { payload: { sku: "A" } } }),
+  () => client.triggerJob({
+    pathParams: { jobID: "job_abc123" },
+    body: { payload: { sku: "A" } },
+  }),
   { attempts: 5, delayMs: 250, jitter: "full" }
 );
+```
 
-// Wait for run completion
-await waitForRun(client.getRun, run.id, { timeoutMs: 120_000 });
+### Wait for Run Completion
 
-// Paginate
-for await (const r of paginate((q) => client.listRuns({ query: q }))) {
-  console.log(r.id, r.status);
+```ts
+import { waitForRun } from "@strait/ts";
+
+await waitForRun(client.getRun, run.id, {
+  timeoutMs: 120_000,
+  pollIntervalMs: 2_000,
+});
+```
+
+### Paginate
+
+```ts
+import { paginate, collectAll } from "@strait/ts";
+
+// Async iterator
+for await (const run of paginate((q) => client.listRuns({ query: q }))) {
+  console.log(run.id, run.status);
 }
-const all = await collectAll(paginate((q) => client.listRuns({ query: q })));
+
+// Collect all pages into an array
+const allRuns = await collectAll(
+  paginate((q) => client.listRuns({ query: q }))
+);
 ```
 
-## FSM State Machines
-
-XState v5 machines for run lifecycle validation and UI state management:
+### Trigger and Wait
 
 ```ts
-import { canTransitionRun, isTerminalRunStatus, runMachine } from "@strait/ts";
-import { createActor } from "xstate";
+import { triggerAndWait } from "@strait/ts";
 
-canTransitionRun("executing", "COMPLETE"); // true
-isTerminalRunStatus("completed"); // true
-
-const actor = createActor(runMachine);
-actor.start();
-actor.send({ type: "ENQUEUE" });
-actor.send({ type: "DEQUEUE" });
-actor.send({ type: "EXECUTE" });
-actor.getSnapshot().value; // "executing"
+const completed = await triggerAndWait(client, "job_sync", {
+  payload: { sku: "ABC-123" },
+  timeoutMs: 60_000,
+});
 ```
 
-## Middleware
+### Idempotent Operations
 
 ```ts
-const client = createClient({
-  baseUrl: "https://api.strait.dev",
-  auth: { type: "bearer", token: "..." },
-}, {
-  middleware: [{
-    onRequest: ({ method, url }) => console.log(`-> ${method} ${url}`),
-    onResponse: ({ status, durationMs }) => console.log(`<- ${status} (${durationMs}ms)`),
-    onError: ({ error }) => console.error(error),
-  }],
+import { withIdempotency } from "@strait/ts";
+
+// Wraps a trigger call with an idempotency key. Safe to retry on network errors.
+const run = await withIdempotency(
+  "order-123-sync",
+  () => client.triggerJob({
+    pathParams: { jobID: "job_sync" },
+    body: { payload: { orderId: "order-123" } },
+  })
+);
+```
+
+### Cost Budget
+
+```ts
+import { withCostBudget } from "@strait/ts";
+
+// Abort if accumulated LLM cost exceeds the budget
+const result = await withCostBudget(
+  { maxCostUsd: 10.00 },
+  async (budget) => {
+    const run = await agent.trigger(client, { payload: { topic: "analysis" } });
+    budget.track(run.usage);
+    return run;
+  }
+);
+```
+
+### Checkpoint Resume
+
+```ts
+import { withCheckpointResume } from "@strait/ts";
+
+// Resume from the last checkpoint if the process restarts
+await withCheckpointResume(client, run.id, async (state, save) => {
+  let cursor = state?.cursor ?? 0;
+  while (cursor < items.length) {
+    await processItem(items[cursor]);
+    cursor++;
+    await save({ cursor });
+  }
 });
 ```
 
 ## Error Handling
 
-All errors extend Effect's `Data.TaggedError`:
+All errors extend `Data.TaggedError`, which means you can pattern-match on `_tag` or use `instanceof`.
+
+### Error Types
+
+| Error | HTTP Status | Description |
+|---|---|---|
+| `TransportError` | | Network failure (DNS, connection refused, socket timeout) |
+| `DecodeError` | | Response body could not be parsed as JSON |
+| `ValidationError` | | Configuration or input validation failed before the request was sent |
+| `UnauthorizedError` | 401, 403 | Authentication or authorization failure |
+| `NotFoundError` | 404 | Resource not found |
+| `ConflictError` | 409 | Duplicate resource or version conflict |
+| `RateLimitedError` | 429 | Rate limit exceeded. The error includes `retryAfterMs`. |
+| `ApiError` | other | Any other HTTP error not covered by a specific type |
+| `TimeoutError` | | Polling or wait operation timed out |
+| `DagValidationError` | | Invalid workflow dependency graph (cycles, missing step references) |
+
+### Tagged Errors
 
 ```ts
-import { NotFoundError, UnauthorizedError, RateLimitedError } from "@strait/ts";
+import { NotFoundError, RateLimitedError } from "@strait/ts";
 
 try {
   await client.getJob({ pathParams: { jobID: "nonexistent" } });
 } catch (e) {
-  if (e instanceof NotFoundError) console.log("Not found:", e.message);
-  if (e instanceof RateLimitedError) console.log("Rate limited:", e.message);
+  if (e instanceof NotFoundError) {
+    console.log("Not found:", e.message);
+  }
+  if (e instanceof RateLimitedError) {
+    console.log("Retry after:", e.retryAfterMs, "ms");
+  }
 }
 ```
 
-| Error | HTTP Status | Description |
-|---|---|---|
-| `TransportError` | — | Network failure |
-| `DecodeError` | — | JSON decode failure |
-| `ValidationError` | — | Config/input validation |
-| `UnauthorizedError` | 401, 403 | Auth failure |
-| `NotFoundError` | 404 | Resource not found |
-| `ConflictError` | 409 | Duplicate/conflict |
-| `RateLimitedError` | 429 | Rate limit exceeded |
-| `ApiError` | other | Generic HTTP error |
-| `TimeoutError` | — | Polling timeout |
-| `DagValidationError` | — | Invalid workflow DAG |
+### Result Variants
+
+Non-GET operations have `*Result` variants that return `{ ok, data, error }` instead of throwing:
+
+```ts
+const result = await client.createJobResult({
+  body: {
+    project_id: "proj_abc123",
+    name: "Sync",
+    slug: "sync",
+    endpoint_url: "https://worker.dev/sync",
+  },
+});
+
+if (!result.ok) {
+  // result.error is a typed error. Same types as above.
+  console.error(result.error._tag, result.error.message);
+} else {
+  console.log("Created:", result.data.id);
+}
+```
+
+## Middleware
+
+Attach middleware hooks when creating a client. Each hook fires on every request, response, or error.
+
+```ts
+const client = createClient(
+  {
+    baseUrl: "https://api.strait.dev",
+    auth: { type: "bearer", token: "..." },
+  },
+  {
+    middleware: [
+      {
+        onRequest: ({ method, url, headers }) => {
+          console.log(`-> ${method} ${url}`);
+        },
+        onResponse: ({ status, durationMs, headers }) => {
+          console.log(`<- ${status} (${durationMs}ms)`);
+        },
+        onError: ({ error }) => {
+          console.error("Request failed:", error.message);
+        },
+      },
+    ],
+  }
+);
+```
+
+You can pass multiple middleware objects. They execute in order for requests and in reverse order for responses (onion model).
+
+### Custom Fetch
+
+Replace the default `fetch` implementation for environments that need a custom HTTP client:
+
+```ts
+import { createClient } from "@strait/ts";
+
+const client = createClient({
+  baseUrl: "https://api.strait.dev",
+  auth: { type: "bearer", token: "..." },
+  fetch: customFetchImplementation,
+});
+```
+
+## State Machines
+
+State machines for run and workflow-run lifecycle validation. Useful for building UIs that need to know which transitions are legal.
+
+```ts
+import {
+  canTransitionRun,
+  isTerminalRunStatus,
+} from "@strait/ts";
+
+canTransitionRun("executing", "COMPLETE"); // true
+canTransitionRun("completed", "EXECUTE"); // false
+isTerminalRunStatus("completed"); // true
+isTerminalRunStatus("executing"); // false
+```
+
+## Export Paths
+
+The SDK uses subpath exports to keep your bundle lean. Import from the path that matches your environment:
+
+| Export Path | Contents |
+|---|---|
+| `@strait/ts` | Core client, types, errors, composition helpers, state machines |
+| `@strait/ts/node` | `createClientFromConfigFile`, `createClientFromEnv` (requires Node/Bun APIs) |
+| `@strait/ts/ai` | AI SDK integration: `createStraitProvider`, `createStraitAgent` |
+| `@strait/ts/testing` | Test harness: `createTestContext` |
+| `@strait/ts/schema` | Schema adapters: `zodSchema`, `arkSchema`, `valibotSchema` |

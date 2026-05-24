@@ -17,6 +17,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import { Skeleton } from "@strait/ui/components/skeleton";
 import { toast } from "@strait/ui/components/toast";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
@@ -57,8 +58,9 @@ export function AuthorizedApps() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center justify-center py-8">
-            <div className="size-5 animate-pulse rounded-full bg-muted" />
+          <div className="flex flex-col gap-3">
+            <Skeleton className="h-16 w-full" />
+            <Skeleton className="h-16 w-full" />
           </div>
         </CardContent>
       </Card>

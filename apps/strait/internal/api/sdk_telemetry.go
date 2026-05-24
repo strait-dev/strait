@@ -32,11 +32,14 @@ func (s *Server) handleSDKUsage(ctx context.Context, input *SDKUsageInput) (*SDK
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
 	}
+	if err := s.checkDailyAIModelCallLimit(ctx, runID); err != nil {
+		return nil, err
+	}
 	usage := &domain.RunUsage{ID: uuid.Must(uuid.NewV7()).String(), RunID: runID, Provider: req.Provider, Model: req.Model, PromptTokens: req.PromptTokens, CompletionTokens: req.CompletionTokens, TotalTokens: req.TotalTokens, CostMicrousd: req.CostMicrousd}
 	if req.CostMicrousd > 0 {
 		run, runErr := s.store.GetRun(ctx, runID)
 		if runErr == nil && run != nil {
-			quota, qErr := s.store.GetProjectQuota(ctx, run.ProjectID)
+			quota, qErr := s.quotaCache.Get(ctx, run.ProjectID)
 			if qErr == nil && quota != nil && quota.MaxCostPerRunMicrousd > 0 {
 				totalCost, costErr := s.store.SumRunCostMicrousd(ctx, runID)
 				if costErr == nil && totalCost+req.CostMicrousd >= quota.MaxCostPerRunMicrousd {
@@ -48,7 +51,7 @@ func (s *Server) handleSDKUsage(ctx context.Context, input *SDKUsageInput) (*SDK
 	if req.TotalTokens > 0 { //nolint:nestif
 		run, runErr := s.store.GetRun(ctx, runID)
 		if runErr == nil && run != nil {
-			quota, qErr := s.store.GetProjectQuota(ctx, run.ProjectID)
+			quota, qErr := s.quotaCache.Get(ctx, run.ProjectID)
 			job, jobErr := s.store.GetJob(ctx, run.JobID)
 			var quotaTokens int64
 			if qErr == nil && quota != nil {
@@ -67,7 +70,16 @@ func (s *Server) handleSDKUsage(ctx context.Context, input *SDKUsageInput) (*SDK
 			}
 		}
 	}
-	if err := s.store.CreateRunUsage(ctx, usage); err != nil {
+	var err error
+	if guardedStore, ok := s.store.(activeRunMutationStore); ok {
+		err = guardedStore.CreateRunUsageForActiveRun(ctx, usage, runTokenAttemptFromContext(ctx))
+	} else {
+		err = s.store.CreateRunUsage(ctx, usage)
+	}
+	if err != nil {
+		if sdkErr := s.guardedSDKMutationError(ctx, err); sdkErr != nil {
+			return nil, sdkErr
+		}
 		return nil, huma.Error500InternalServerError("failed to create run usage")
 	}
 	return &SDKUsageOutput{Body: usage}, nil
@@ -102,7 +114,7 @@ func (s *Server) handleSDKToolCall(ctx context.Context, input *SDKToolCallInput)
 			if len(job.BlockedTools) > 0 && slices.Contains(job.BlockedTools, req.ToolName) {
 				return nil, &typedAPIError{status: 403, apiError: APIError{Code: "tool_blocked", Message: "tool_blocked", Details: []string{fmt.Sprintf("tool=%s", req.ToolName)}}}
 			}
-			quota, qErr := s.store.GetProjectQuota(ctx, run.ProjectID)
+			quota, qErr := s.quotaCache.Get(ctx, run.ProjectID)
 			var quotaLimit int
 			if qErr == nil && quota != nil {
 				quotaLimit = quota.MaxToolCallsPerRun
@@ -117,7 +129,16 @@ func (s *Server) handleSDKToolCall(ctx context.Context, input *SDKToolCallInput)
 		}
 	}
 	call := &domain.RunToolCall{ID: uuid.Must(uuid.NewV7()).String(), RunID: runID, ToolName: req.ToolName, Input: req.Input, Output: req.Output, DurationMs: req.DurationMs, Status: req.Status}
-	if err := s.store.CreateRunToolCall(ctx, call); err != nil {
+	var err error
+	if guardedStore, ok := s.store.(activeRunMutationStore); ok {
+		err = guardedStore.CreateRunToolCallForActiveRun(ctx, call, runTokenAttemptFromContext(ctx))
+	} else {
+		err = s.store.CreateRunToolCall(ctx, call)
+	}
+	if err != nil {
+		if sdkErr := s.guardedSDKMutationError(ctx, err); sdkErr != nil {
+			return nil, sdkErr
+		}
 		return nil, huma.Error500InternalServerError("failed to create run tool call")
 	}
 	return &SDKToolCallOutput{Body: call}, nil
@@ -144,7 +165,16 @@ func (s *Server) handleSDKOutput(ctx context.Context, input *SDKOutputInput) (*S
 		return nil, huma.Error400BadRequest("output schema validation failed: " + err.Error())
 	}
 	output := &domain.RunOutput{ID: uuid.Must(uuid.NewV7()).String(), RunID: runID, OutputKey: req.OutputKey, Schema: req.Schema, Value: req.Value}
-	if err := s.store.UpsertRunOutput(ctx, output); err != nil {
+	var err error
+	if guardedStore, ok := s.store.(activeRunMutationStore); ok {
+		err = guardedStore.UpsertRunOutputForActiveRun(ctx, output, runTokenAttemptFromContext(ctx))
+	} else {
+		err = s.store.UpsertRunOutput(ctx, output)
+	}
+	if err != nil {
+		if sdkErr := s.guardedSDKMutationError(ctx, err); sdkErr != nil {
+			return nil, sdkErr
+		}
 		return nil, huma.Error500InternalServerError("failed to upsert run output")
 	}
 	return &SDKOutputOutput{Body: output}, nil

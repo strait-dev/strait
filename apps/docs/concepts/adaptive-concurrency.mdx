@@ -1,39 +1,64 @@
 ---
 title: "Adaptive Concurrency"
-description: "Dynamic worker pool sizing based on system load and throughput."
+description: "Let Strait adjust execution capacity based on current load and failures."
 sidebarTitle: "Adaptive Concurrency"
 ---
 
-Adaptive concurrency automatically adjusts the number of workers between configurable min/max bounds based on observed throughput and error rates. Use it when your workload fluctuates and you want Strait to scale execution capacity without manual tuning.
+Adaptive concurrency lets Strait raise or lower execution capacity between a minimum and maximum value.
 
-## Overview
+Use it when workload changes during the day and a fixed concurrency value is either too low for peaks or too high during quiet periods.
 
-Instead of a fixed worker count, Strait monitors job completion rates, error rates, and queue depth, then adjusts concurrency in real time. This prevents a burst of traffic from overwhelming downstream services while still processing as fast as conditions allow.
+## When to Use It
 
-## How It Works
+Use adaptive concurrency when:
 
-The system monitors job completion rates, error rates, and queue depth to determine the ideal concurrency level for the current environment.
+- Traffic varies by hour, day, or upstream event.
+- A downstream service starts failing when too many requests run at once.
+- You want a guardrail without constantly tuning one fixed worker count.
 
-- **Scaling Up**: When throughput is high and error rates remain low, the system gradually increases the number of concurrent workers to maximize processing speed.
-- **Scaling Down**: When errors spike or throughput drops significantly, the system aggressively reduces concurrency to alleviate pressure on the system.
-- **Algorithm**: Uses AIMD (Additive Increase, Multiplicative Decrease) -- the same approach TCP uses for congestion control. Concurrency rises gradually when things are healthy and drops sharply when errors spike, converging on a stable operating point.
+For simple jobs, start with `max_concurrency` first. Add adaptive concurrency when total workload changes enough that a fixed value becomes hard to manage.
+
+## How It Behaves
+
+Strait re-evaluates capacity on a fixed interval using two signals: how deep the queue is and how busy the current executors are. It does not look at success or failure rates; per-job retries and circuit breakers handle failing endpoints separately.
+
+**Scaling up.** When the queue is backing up (more than twice the current limit) and executors are busy (over 70% utilization), Strait raises the limit. The increase is tiered by how deep the backlog is:
+
+| Queue depth | Increase |
+| :--- | :--- |
+| Over 1000 | Double the current limit |
+| Over 100 | Raise by 50% |
+| Otherwise | Raise by 25% |
+
+**Scaling down.** When the queue is empty and executors are mostly idle (under 20% utilization) for two consecutive checks, Strait lowers the limit by 33%.
+
+Every adjustment is clamped to the configured minimum and maximum, so capacity rises quickly under load and eases back down during quiet periods without ever leaving the bounds you set.
 
 ## Configuration
 
-| Variable | Default | What it controls |
+Set these values on your Strait instance:
+
+| Variable | Default | Purpose |
 | :--- | :--- | :--- |
-| `ADAPTIVE_CONCURRENCY_MIN` | 1 | Floor for the worker count. Strait never scales below this. |
-| `ADAPTIVE_CONCURRENCY_MAX` | `WORKER_CONCURRENCY` | Ceiling for the worker count. Strait never scales above this. |
+| `ADAPTIVE_CONCURRENCY_MIN` | `5` | Lowest execution capacity Strait can use. |
+| `ADAPTIVE_CONCURRENCY_MAX` | `100` | Highest execution capacity Strait can use. |
 
-## When to Use
+Example:
 
-Adaptive concurrency is best suited for workloads with variable load patterns or those that interact with external APIs that have rate limits.
+```bash
+ADAPTIVE_CONCURRENCY_MIN=5
+ADAPTIVE_CONCURRENCY_MAX=50
+```
 
-- **Variable Load**: Automatically scales down during quiet periods to save resources and scales up during spikes.
-- **Downstream Protection**: Prevents overloading downstream services or databases by backing off when error rates increase.
-- **Resource Efficiency**: Allows for more efficient resource usage by only running the necessary number of workers for the current demand.
+Choose the minimum based on your normal quiet-period workload. Choose the maximum based on what your downstream services can safely handle.
 
-## Related Concepts
+## Per-Job Limits Still Apply
 
-- [Circuit Breaker](/concepts/resilience)
+Adaptive concurrency controls overall execution capacity.
+
+Per-job limits such as `max_concurrency` and `rate_limit_max` still apply. If adaptive concurrency allows 50 active runs but a job has `max_concurrency: 5`, that job still runs at most 5 at a time.
+
+## Related
+
+- [Retry Strategies](/concepts/retry-strategies)
 - [Environment Variables](/configuration/environment-variables)

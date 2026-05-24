@@ -86,6 +86,43 @@ func TestSecurityHeaders_StripsServerHeader(t *testing.T) {
 	}
 }
 
+func TestSecurityHeaders_StripsServerHeaderOnImplicitWrite(t *testing.T) {
+	handler := securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Server", "Fly/58128dbb4 (2026-03-25)")
+		_, _ = w.Write([]byte("ok"))
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if got := rec.Header().Get("Server"); got != "" {
+		t.Errorf("Server header should be stripped on implicit write, got %q", got)
+	}
+}
+
+func TestSecurityHeaders_StripsServerHeaderOnFlush(t *testing.T) {
+	handler := securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Server", "Fly/58128dbb4 (2026-03-25)")
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			t.Fatal("response writer does not expose http.Flusher")
+		}
+		flusher.Flush()
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if got := rec.Header().Get("Server"); got != "" {
+		t.Errorf("Server header should be stripped on flush, got %q", got)
+	}
+	if !rec.Flushed {
+		t.Fatal("response was not flushed")
+	}
+}
+
 func TestRequestIsHTTPS(t *testing.T) {
 	tests := []struct {
 		name string

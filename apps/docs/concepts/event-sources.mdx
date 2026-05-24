@@ -3,11 +3,9 @@ title: "Event Sources"
 description: "Named inbound event channels that route external events to jobs and workflows."
 ---
 
-An event source is a named inbound channel. External systems dispatch events to a source by name, and the source routes them to one or more jobs or workflows via **subscriptions**. Each subscription can optionally filter on the event payload, so a single source can fan out (deliver one event to multiple targets simultaneously).
+Event sources define where external events come from, such as third-party services, APIs, or your own services. Each source is a named inbound channel that routes events to one or more jobs or workflows through subscriptions.
 
 ## Event Sources vs Event Triggers
-
-Event Sources and [Event Triggers](/concepts/event-triggers) serve different purposes:
 
 - **Event Sources** are inbound channels for receiving external events and routing them to jobs or workflows. They are always-on endpoints that evaluate subscriptions on every dispatch.
 - **Event Triggers** are durable waits used by workflow steps and runs to pause execution until a matching event arrives. They are created by in-flight runs and consumed once.
@@ -16,47 +14,18 @@ Event Sources and [Event Triggers](/concepts/event-triggers) serve different pur
 Event Sources push events into the system. Event Triggers wait for events from within the system.
 </Note>
 
-## Event Source Fields
-
-Each event source has:
-
-| Field | Type | Description |
-| :--- | :--- | :--- |
-| `id` | `string` | Unique identifier. |
-| `project_id` | `string` | The project this event source belongs to. |
-| `name` | `string` | Human-readable name, used to address the source during dispatch. |
-| `description` | `string` | Optional description of the source's purpose. |
-| `schema` | `json` | Optional JSON Schema for validating inbound event payloads. |
-| `enabled` | `bool` | Whether the source accepts and routes events. Disabled sources reject dispatches. |
-| `created_at` | `time.Time` | Timestamp when the source was created. |
-| `updated_at` | `time.Time` | Timestamp of the last update. |
-
-## Subscription Fields
-
-A subscription binds an event source to a target (a job or workflow). When an event arrives at the source, each enabled subscription is evaluated and, if matched, triggers its target.
-
-| Field | Type | Description |
-| :--- | :--- | :--- |
-| `id` | `string` | Unique identifier. |
-| `source_id` | `string` | Reference to the parent `EventSource`. |
-| `target_type` | `string` | The kind of target: `job` or `workflow`. |
-| `target_id` | `string` | The ID of the target job or workflow. |
-| `filter_expr` | `json` | Optional filter expression evaluated against the event payload. |
-| `enabled` | `bool` | Whether this subscription is active. |
-| `created_at` | `time.Time` | Timestamp when the subscription was created. |
-
 ## Subscriptions
 
 A subscription connects a source to a target. Two target types are supported:
 
-- **`job`** -- When matched, a new job run is enqueued with `triggered_by: "event"` and the dispatched payload.
-- **`workflow`** -- When matched, a new workflow run is triggered with the dispatched payload.
+- **`job`**: when matched, a new job run is enqueued with `triggered_by: "event"` and the dispatched payload.
+- **`workflow`**: when matched, a new workflow run is triggered with the dispatched payload.
 
 A single event source can have multiple subscriptions, each pointing to a different target with its own filter expression. This lets one inbound event trigger several jobs and workflows at once.
 
 ## Filter Expressions
 
-The optional `filter_expr` field on a subscription controls whether a dispatched event triggers that subscription. When present, the expression is evaluated against the event payload using `eventfilter.Eval`:
+The optional `filter_expr` field on a subscription controls whether a dispatched event triggers that subscription:
 
 - If the expression evaluates to `true`, the subscription fires.
 - If it evaluates to `false`, the subscription is skipped for that event.
@@ -66,16 +35,37 @@ The optional `filter_expr` field on a subscription controls whether a dispatched
 Use filter expressions to route different event shapes through a single source. For example, a `webhooks` source could route `"action": "created"` events to one job and `"action": "deleted"` events to another.
 </Tip>
 
+### Examples
+
+Match a specific action:
+```json
+{
+  "filter_expr": "payload.action == 'created'"
+}
+```
+
+Match a numeric threshold:
+```json
+{
+  "filter_expr": "payload.amount > 100"
+}
+```
+
+Combine conditions:
+```json
+{
+  "filter_expr": "payload.event_type == 'order.completed' && payload.total > 0"
+}
+```
+
 ## Event Dispatch
 
-The `POST /v1/events/dispatch` endpoint is the primary entry point for sending events into the system. The dispatch flow works as follows:
+Send events into the system via `POST /v1/events/dispatch`:
 
-1. The source is looked up by `name` from the request body.
+1. The source is looked up by `source` from the request body.
 2. If the source is disabled, the dispatch is rejected.
-3. Each subscription on the source is evaluated:
-   - The `filter_expr` (if present) is evaluated against the event payload.
-   - Matching subscriptions trigger their target (enqueue a job run or start a workflow run).
-4. The response includes the number of subscriptions that fired:
+3. Each enabled subscription is evaluated against the event payload.
+4. Matching subscriptions trigger their target (enqueue a job run or start a workflow run).
 
 ```json
 {
@@ -85,16 +75,58 @@ The `POST /v1/events/dispatch` endpoint is the primary entry point for sending e
 ```
 
 <Warning>
-A disabled event source rejects all dispatches. Subscriptions with `enabled: false` are also skipped during evaluation, even if their filter expression would match.
+A disabled event source rejects all dispatches. Subscriptions with `enabled: false` are also skipped, even if their filter expression would match.
 </Warning>
 
 ## Schema Validation
 
-The optional `schema` field on an event source accepts a JSON Schema definition. When set, inbound event payloads can be validated against this schema before subscriptions are evaluated. This provides a contract between event producers and the source, catching malformed payloads early.
+The optional `schema` field on an event source accepts a JSON Schema definition. When set, inbound event payloads are validated against this schema before subscriptions are evaluated, catching malformed payloads early.
 
-## CRUD Lifecycle
+## End-to-End Example
 
-Event sources and their subscriptions are managed through the following API operations:
+Create a source, subscribe a job to it, then dispatch an event.
+
+Create the source:
+
+```bash
+curl -X POST https://api.strait.dev/v1/event-sources \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_id": "my-project",
+    "name": "github-events"
+  }'
+# { "id": "src_abc123", "name": "github-events", "enabled": true, ... }
+```
+
+Subscribe a job to the source, firing only on `push` events:
+
+```bash
+curl -X POST https://api.strait.dev/v1/event-sources/src_abc123/subscribe \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "target_type": "job",
+    "target_id": "build-site",
+    "filter_expr": "payload.action == \"push\""
+  }'
+```
+
+Dispatch an event into the source. Matching subscriptions enqueue their target:
+
+```bash
+curl -X POST https://api.strait.dev/v1/events/dispatch \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source": "github-events",
+    "project_id": "my-project",
+    "payload": { "action": "push", "ref": "refs/heads/main" }
+  }'
+# { "dispatched": 1, "source": "github-events" }
+```
+
+## API Reference
 
 | Operation | Method | Path |
 | :--- | :--- | :--- |
@@ -103,12 +135,12 @@ Event sources and their subscriptions are managed through the following API oper
 | Get source | `GET` | `/v1/event-sources/{sourceID}` |
 | Update source | `PATCH` | `/v1/event-sources/{sourceID}` |
 | Delete source | `DELETE` | `/v1/event-sources/{sourceID}` |
-| Create subscription | `POST` | `/v1/event-sources/{sourceID}/subscriptions` |
+| Subscribe target | `POST` | `/v1/event-sources/{sourceID}/subscribe` |
 | List subscriptions | `GET` | `/v1/event-sources/{sourceID}/subscriptions` |
-| Delete subscription | `DELETE` | `/v1/event-sources/{sourceID}/subscriptions/{subscriptionID}` |
+| Delete subscription | `DELETE` | `/v1/event-sources/{sourceID}/subscriptions/{subID}` |
 
 ## Related Concepts
 
-- [Event Triggers](/concepts/event-triggers) -- Durable waits for events within workflow steps and runs.
-- [Jobs](/concepts/jobs) -- The unit of work that event subscriptions can target.
-- [Workflows](/concepts/workflows) -- Multi-step orchestrations that event subscriptions can target.
+- [Event Triggers](/concepts/event-triggers): durable waits for events within workflow steps and runs.
+- [Jobs](/concepts/jobs): the unit of work that event subscriptions can target.
+- [Workflows](/concepts/workflows): multi-step orchestrations that event subscriptions can target.

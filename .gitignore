@@ -95,7 +95,7 @@ typings/
 .env.*.local
 .secrets
 .dev.vars
-.doppler.yaml
+.infisical.json
 
 # ==============================================================================
 # BUILD OUTPUT & DISTRIBUTIONS
@@ -300,6 +300,7 @@ __pycache__/
 apps/cli/out/
 .env*.local
 .env.selfhost
+backups/
 
 # ==============================================================================
 # Infrastructure is in a separate private repo (strait-dev/infra).
@@ -311,3 +312,7 @@ apps/cli/out/
 !*.tfvars.example
 backend.hcl
 .terraform.lock.hcl
+.audit/
+
+# Local Claude Code runtime files
+.claude/scheduled_tasks.lock

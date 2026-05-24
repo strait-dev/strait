@@ -28,6 +28,14 @@ func (q *Queries) CreateProjectRole(ctx context.Context, role *domain.ProjectRol
 	if role.ID == "" {
 		role.ID = uuid.Must(uuid.NewV7()).String()
 	}
+	if role.ParentRoleID == role.ID {
+		return fmt.Errorf("parent role cannot reference itself")
+	}
+	if role.ParentRoleID != "" {
+		if err := q.ensureParentRoleInProject(ctx, role.ParentRoleID, role.ProjectID); err != nil {
+			return err
+		}
+	}
 
 	query := `
 		INSERT INTO project_roles (id, project_id, name, description, permissions, parent_role_id, is_system)
@@ -122,10 +130,21 @@ func (q *Queries) UpdateProjectRole(ctx context.Context, role *domain.ProjectRol
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateProjectRole")
 	defer span.End()
 
+	existing, err := q.GetProjectRole(ctx, role.ID)
+	if err != nil {
+		return err
+	}
+	if existing.IsSystem {
+		return ErrRoleNotFound
+	}
+	role.ProjectID = existing.ProjectID
 	if role.ParentRoleID == role.ID {
 		return fmt.Errorf("parent role cannot reference itself")
 	}
 	if role.ParentRoleID != "" {
+		if err := q.ensureParentRoleInProject(ctx, role.ParentRoleID, existing.ProjectID); err != nil {
+			return err
+		}
 		cycle, err := q.wouldCreateRoleCycle(ctx, role.ID, role.ParentRoleID)
 		if err != nil {
 			return err
@@ -141,7 +160,7 @@ func (q *Queries) UpdateProjectRole(ctx context.Context, role *domain.ProjectRol
 		WHERE id = $5 AND is_system = FALSE
 		RETURNING updated_at`
 
-	err := q.db.QueryRow(ctx, query,
+	err = q.db.QueryRow(ctx, query,
 		role.Name, role.Description, role.Permissions, dbscan.NilIfEmptyString(role.ParentRoleID), role.ID,
 	).Scan(&role.UpdatedAt)
 	if err != nil {
@@ -177,6 +196,54 @@ func (q *Queries) AssignMemberRole(ctx context.Context, m *domain.ProjectMemberR
 	}
 
 	return nil
+}
+
+// AssignMemberRoleWithOrgLimit assigns a role while holding an org-scoped
+// transaction lock and checking the distinct org-member cap in the same
+// transaction. Existing org members and same-user reassignments do not consume
+// another member slot.
+func (q *Queries) AssignMemberRoleWithOrgLimit(ctx context.Context, m *domain.ProjectMemberRole, orgID string, maxMembers int) error {
+	if maxMembers < 0 || orgID == "" {
+		return q.AssignMemberRole(ctx, m)
+	}
+	if m == nil {
+		return fmt.Errorf("assign member role with org limit: member is nil")
+	}
+
+	return q.WithTx(ctx, func(txCtx context.Context, tx DBTX) error {
+		if _, err := tx.Exec(txCtx, `SELECT pg_advisory_xact_lock(hashtext($1))`, orgID); err != nil {
+			return fmt.Errorf("lock org member quota: %w", err)
+		}
+
+		var alreadyOrgMember bool
+		if err := tx.QueryRow(txCtx, `
+			SELECT EXISTS (
+				SELECT 1
+				FROM project_member_roles pmr
+				JOIN projects p ON p.id = pmr.project_id
+				WHERE p.org_id = $1
+				  AND pmr.user_id = $2
+			)`, orgID, m.UserID).Scan(&alreadyOrgMember); err != nil {
+			return fmt.Errorf("checking existing org member: %w", err)
+		}
+
+		if !alreadyOrgMember {
+			var count int
+			if err := tx.QueryRow(txCtx, `
+				SELECT COUNT(DISTINCT pmr.user_id)
+				FROM project_member_roles pmr
+				JOIN projects p ON p.id = pmr.project_id
+				WHERE p.org_id = $1
+			`, orgID).Scan(&count); err != nil {
+				return fmt.Errorf("counting org members for assignment: %w", err)
+			}
+			if count >= maxMembers {
+				return ErrMemberLimitReached
+			}
+		}
+
+		return New(tx).AssignMemberRole(txCtx, m)
+	})
 }
 
 func (q *Queries) GetMemberRole(ctx context.Context, projectID, userID string) (*domain.ProjectMemberRole, error) {
@@ -290,14 +357,15 @@ func (q *Queries) GetUserPermissions(ctx context.Context, projectID, userID stri
 
 	query := `
 		WITH RECURSIVE role_tree AS (
-			SELECT pr.id, pr.parent_role_id, pr.permissions
+			SELECT pr.id, pr.project_id, pr.parent_role_id, pr.permissions
 			FROM project_member_roles pmr
 			JOIN project_roles pr ON pr.id = pmr.role_id
 			WHERE pmr.project_id = $1 AND pmr.user_id = $2
 			UNION ALL
-			SELECT parent.id, parent.parent_role_id, parent.permissions
+			SELECT parent.id, parent.project_id, parent.parent_role_id, parent.permissions
 			FROM project_roles parent
 			JOIN role_tree rt ON rt.parent_role_id = parent.id
+			WHERE parent.project_id = rt.project_id
 		)
 		SELECT permissions FROM role_tree`
 
@@ -331,6 +399,22 @@ func (q *Queries) GetUserPermissions(ctx context.Context, projectID, userID stri
 	return permissions, nil
 }
 
+func (q *Queries) ensureParentRoleInProject(ctx context.Context, parentRoleID, projectID string) error {
+	var exists bool
+	if err := q.db.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM project_roles
+			WHERE id = $1 AND project_id = $2
+		)`, parentRoleID, projectID).Scan(&exists); err != nil {
+		return fmt.Errorf("check parent role project: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("parent role must belong to the same project: %w", ErrRoleNotFound)
+	}
+	return nil
+}
+
 func (q *Queries) CreateResourcePolicy(ctx context.Context, p *domain.ResourcePolicy) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateResourcePolicy")
 	defer span.End()
@@ -342,7 +426,7 @@ func (q *Queries) CreateResourcePolicy(ctx context.Context, p *domain.ResourcePo
 	query := `
 		INSERT INTO resource_policies (id, project_id, resource_type, resource_id, user_id, actions)
 		VALUES ($1, $2, $3, $4, $5, $6)
-		ON CONFLICT (resource_type, resource_id, user_id) DO UPDATE SET actions = EXCLUDED.actions
+			ON CONFLICT (project_id, resource_type, resource_id, user_id) DO UPDATE SET actions = EXCLUDED.actions
 		RETURNING created_at`
 
 	err := q.db.QueryRow(ctx, query, p.ID, p.ProjectID, p.ResourceType, p.ResourceID, p.UserID, p.Actions).Scan(&p.CreatedAt)
@@ -353,17 +437,17 @@ func (q *Queries) CreateResourcePolicy(ctx context.Context, p *domain.ResourcePo
 	return nil
 }
 
-func (q *Queries) GetResourcePolicies(ctx context.Context, resourceType, resourceID, userID string) ([]string, error) {
+func (q *Queries) GetResourcePolicies(ctx context.Context, projectID, resourceType, resourceID, userID string) ([]string, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetResourcePolicies")
 	defer span.End()
 
 	query := `
 		SELECT actions
 		FROM resource_policies
-		WHERE resource_type = $1 AND resource_id = $2 AND user_id = $3`
+		WHERE project_id = $1 AND resource_type = $2 AND resource_id = $3 AND user_id = $4`
 
 	var actions []string
-	err := q.db.QueryRow(ctx, query, resourceType, resourceID, userID).Scan(&actions)
+	err := q.db.QueryRow(ctx, query, projectID, resourceType, resourceID, userID).Scan(&actions)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -374,31 +458,31 @@ func (q *Queries) GetResourcePolicies(ctx context.Context, resourceType, resourc
 	return actions, nil
 }
 
-func (q *Queries) DeleteResourcePolicy(ctx context.Context, id string) (projectID, userID string, err error) {
+func (q *Queries) DeleteResourcePolicy(ctx context.Context, projectID, id string) (deletedProjectID, userID string, err error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteResourcePolicy")
 	defer span.End()
 
-	query := `DELETE FROM resource_policies WHERE id = $1 RETURNING project_id, user_id`
-	err = q.db.QueryRow(ctx, query, id).Scan(&projectID, &userID)
+	query := `DELETE FROM resource_policies WHERE project_id = $1 AND id = $2 RETURNING project_id, user_id`
+	err = q.db.QueryRow(ctx, query, projectID, id).Scan(&deletedProjectID, &userID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", "", ErrResourcePolicyNotFound
 		}
 		return "", "", fmt.Errorf("delete resource policy: %w", err)
 	}
-	return projectID, userID, nil
+	return deletedProjectID, userID, nil
 }
 
-func (q *Queries) ListResourcePolicies(ctx context.Context, resourceType, resourceID string, limit int, cursor *time.Time) ([]domain.ResourcePolicy, error) {
+func (q *Queries) ListResourcePolicies(ctx context.Context, projectID, resourceType, resourceID string, limit int, cursor *time.Time) ([]domain.ResourcePolicy, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListResourcePolicies")
 	defer span.End()
 
 	query := `
 		SELECT id, project_id, resource_type, resource_id, user_id, actions, created_at
 		FROM resource_policies
-		WHERE resource_type = $1 AND resource_id = $2`
-	args := []any{resourceType, resourceID}
-	param := 3
+		WHERE project_id = $1 AND resource_type = $2 AND resource_id = $3`
+	args := []any{projectID, resourceType, resourceID}
+	param := 4
 
 	if cursor != nil {
 		query += fmt.Sprintf(" AND created_at < $%d", param)
@@ -495,19 +579,19 @@ func (q *Queries) ListTagPolicies(ctx context.Context, projectID, resourceType, 
 	return policies, rows.Err()
 }
 
-func (q *Queries) DeleteTagPolicy(ctx context.Context, id string) (projectID, userID string, err error) {
+func (q *Queries) DeleteTagPolicy(ctx context.Context, projectID, id string) (deletedProjectID, userID string, err error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteTagPolicy")
 	defer span.End()
 
-	query := `DELETE FROM tag_policies WHERE id = $1 RETURNING project_id, user_id`
-	err = q.db.QueryRow(ctx, query, id).Scan(&projectID, &userID)
+	query := `DELETE FROM tag_policies WHERE project_id = $1 AND id = $2 RETURNING project_id, user_id`
+	err = q.db.QueryRow(ctx, query, projectID, id).Scan(&deletedProjectID, &userID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", "", ErrTagPolicyNotFound
 		}
 		return "", "", fmt.Errorf("delete tag policy: %w", err)
 	}
-	return projectID, userID, nil
+	return deletedProjectID, userID, nil
 }
 
 func (q *Queries) GetTagPolicyActions(ctx context.Context, projectID, resourceType, userID string, tags map[string]string) ([]string, error) {

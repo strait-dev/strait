@@ -264,8 +264,8 @@ func FuzzPoisonPillDifferentErrors(f *testing.F) {
 		calls = st.statusUpdates()
 		last := calls[len(calls)-1]
 
-		hashA := errorHash(endpointA.Error())
-		hashB := errorHash(endpointB.Error())
+		hashA := errorHashForError(endpointA)
+		hashB := errorHashForError(endpointB)
 
 		if hashA == hashB {
 			// Same hash: count should be 2, which hits threshold=2 -> DLQ.

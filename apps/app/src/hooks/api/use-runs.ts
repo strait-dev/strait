@@ -131,10 +131,53 @@ export const useRetryRun = () => {
     mutationKey: ["runs", "retry"],
     mutationFn: (data: { run_id: string }) =>
       replayRunFn({ data: { runId: data.run_id } }),
+    onMutate: async (data) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.runs._def });
+
+      const previousDetail = queryClient.getQueryData<JobRun>(
+        queryKeys.runs.detail(data.run_id).queryKey
+      );
+      const previousLists = queryClient.getQueriesData<
+        PaginatedResponse<JobRun>
+      >({ queryKey: queryKeys.runs.list._def });
+
+      queryClient.setQueryData<JobRun>(
+        queryKeys.runs.detail(data.run_id).queryKey,
+        (old) => (old ? { ...old, status: "queued" as const } : old)
+      );
+
+      queryClient.setQueriesData<PaginatedResponse<JobRun>>(
+        { queryKey: queryKeys.runs.list._def },
+        (old) =>
+          old
+            ? {
+                ...old,
+                data: old.data.map((run) =>
+                  run.id === data.run_id
+                    ? { ...run, status: "queued" as const }
+                    : run
+                ),
+              }
+            : old
+      );
+
+      return { previousDetail, previousLists };
+    },
     onSuccess: (_data, variables) => {
       getPostHog()?.capture("run_retried", { run_id: variables.run_id });
     },
-    onError: (err, variables) => {
+    onError: (err, variables, context) => {
+      if (context?.previousDetail) {
+        queryClient.setQueryData(
+          queryKeys.runs.detail(variables.run_id).queryKey,
+          context.previousDetail
+        );
+      }
+      if (context?.previousLists) {
+        for (const [key, list] of context.previousLists) {
+          queryClient.setQueryData(key, list);
+        }
+      }
       getPostHog()?.capture("mutation_error", {
         action: "run_retried",
         error_message: err instanceof Error ? err.message : "Unknown error",

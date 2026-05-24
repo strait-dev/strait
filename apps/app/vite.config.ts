@@ -7,6 +7,7 @@ import viteReact from "@vitejs/plugin-react";
 import type { Plugin } from "vite";
 import { defineConfig } from "vite";
 import { ngrok } from "vite-plugin-ngrok";
+import { resolveSentryRelease } from "./scripts/sentry-release";
 
 const enableNgrok = !!process.env.NGROK_AUTHTOKEN && !process.env.DISABLE_NGROK;
 
@@ -19,6 +20,16 @@ const enableNgrok = !!process.env.NGROK_AUTHTOKEN && !process.env.DISABLE_NGROK;
  */
 const buildTarget: "cloudflare" | "node" =
   process.env.BUILD_TARGET === "node" ? "node" : "cloudflare";
+
+const sentryRelease = maybeResolveSentryRelease(process.env);
+
+function maybeResolveSentryRelease(env: NodeJS.ProcessEnv): string | undefined {
+  try {
+    return resolveSentryRelease(env);
+  } catch {
+    return;
+  }
+}
 
 /**
  * Virtual-module shim for the `cloudflare:workers` import scheme.
@@ -125,6 +136,16 @@ export default defineConfig({
       org: process.env.SENTRY_ORG,
       project: process.env.SENTRY_PROJECT,
       authToken: process.env.SENTRY_AUTH_TOKEN,
+      ...(sentryRelease
+        ? {
+            release: {
+              name: sentryRelease,
+              inject: true,
+              create: false,
+              finalize: false,
+            },
+          }
+        : {}),
     }),
     ...(enableNgrok ? [ngrok()] : []),
   ],
@@ -134,6 +155,7 @@ export default defineConfig({
     exclude: ["@electric-sql/pglite", "drizzle-orm/pglite"],
   },
   build: {
+    sourcemap: true,
     rollupOptions: {
       // Externalize PGlite and test-only dependencies to prevent bundling
       // PGlite is a 20MB in-memory PostgreSQL used only for API tests

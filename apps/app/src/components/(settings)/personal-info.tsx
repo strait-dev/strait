@@ -23,7 +23,7 @@ import type { AuthUser } from "@/routes/__root";
 
 const userFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
-  email: z.string().email("Invalid email"),
+  email: z.email("Invalid email"),
   phone: z.string().optional(),
 });
 
@@ -96,6 +96,16 @@ const PersonalInfo = ({ user }: Props) => {
                 <Field className="w-full">
                   <FieldLabel htmlFor={field.name}>Full Name</FieldLabel>
                   <Input
+                    aria-describedby={
+                      field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0
+                        ? `${field.name}-error`
+                        : undefined
+                    }
+                    aria-invalid={
+                      field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0
+                    }
                     id={field.name}
                     onBlur={field.handleBlur}
                     onChange={(e) => field.handleChange(e.target.value)}
@@ -103,11 +113,12 @@ const PersonalInfo = ({ user }: Props) => {
                     type="text"
                     value={field.state.value}
                   />
-                  {field.state.meta.errors.length > 0 && (
-                    <FieldError>
-                      {formatFieldErrors(field.state.meta.errors)}
-                    </FieldError>
-                  )}
+                  {field.state.meta.isTouched &&
+                    field.state.meta.errors.length > 0 && (
+                      <FieldError id={`${field.name}-error`}>
+                        {formatFieldErrors(field.state.meta.errors)}
+                      </FieldError>
+                    )}
                 </Field>
               )}
             </form.Field>
@@ -117,6 +128,16 @@ const PersonalInfo = ({ user }: Props) => {
                 <Field className="w-full">
                   <FieldLabel htmlFor={field.name}>Email</FieldLabel>
                   <Input
+                    aria-describedby={
+                      field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0
+                        ? `${field.name}-error`
+                        : undefined
+                    }
+                    aria-invalid={
+                      field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0
+                    }
                     id={field.name}
                     onBlur={field.handleBlur}
                     onChange={(e) => field.handleChange(e.target.value)}
@@ -124,11 +145,12 @@ const PersonalInfo = ({ user }: Props) => {
                     type="email"
                     value={field.state.value}
                   />
-                  {field.state.meta.errors.length > 0 && (
-                    <FieldError>
-                      {formatFieldErrors(field.state.meta.errors)}
-                    </FieldError>
-                  )}
+                  {field.state.meta.isTouched &&
+                    field.state.meta.errors.length > 0 && (
+                      <FieldError id={`${field.name}-error`}>
+                        {formatFieldErrors(field.state.meta.errors)}
+                      </FieldError>
+                    )}
                 </Field>
               )}
             </form.Field>
