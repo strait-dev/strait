@@ -117,7 +117,7 @@ func (q *BatchlogQueue) RunTicker(ctx context.Context) {
 func (q *BatchlogQueue) BackfillDue(ctx context.Context) (int64, error) {
 	tag, err := q.db.Exec(ctx, `
 		INSERT INTO queue_entries (
-			run_id, job_id, project_id, priority, run_created_at, available_at, status
+			run_id, job_id, project_id, priority, run_created_at, available_at, status, concurrency_key
 		)
 		SELECT
 			jr.id,
@@ -130,7 +130,8 @@ func (q *BatchlogQueue) BackfillDue(ctx context.Context) (int64, error) {
 				COALESCE(jr.next_retry_at, '-infinity'::timestamptz),
 				jr.created_at
 			),
-			'ready'
+			'ready',
+			COALESCE(jr.concurrency_key, '')
 		FROM job_runs jr
 		WHERE jr.status = $1
 		  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
@@ -234,6 +235,11 @@ func (q *BatchlogQueue) dequeueN(ctx context.Context, n int, projectID string) (
 			LEFT JOIN job_active_counts jac_key
 			  ON jac_key.job_id = jr.job_id
 			  AND jac_key.concurrency_key = COALESCE(jr.concurrency_key, '')
+			LEFT JOIN job_batchlog_lease_counts jlc_job
+			  ON jlc_job.job_id = jr.job_id AND jlc_job.concurrency_key = ''
+			LEFT JOIN job_batchlog_lease_counts jlc_key
+			  ON jlc_key.job_id = jr.job_id
+			  AND jlc_key.concurrency_key = COALESCE(jr.concurrency_key, '')
 			WHERE qe.status = 'ready'
 			  AND qe.batch_id IS NOT NULL
 			  AND qe.available_at <= NOW()
@@ -242,11 +248,12 @@ func (q *BatchlogQueue) dequeueN(ctx context.Context, n int, projectID string) (
 			  AND COALESCE(jr.job_paused, false) = false
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
 			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
-			  AND (jr.job_max_concurrency IS NULL OR COALESCE(jac_job.count, 0) < jr.job_max_concurrency)
+			  AND (jr.job_max_concurrency IS NULL
+			       OR COALESCE(jac_job.count, 0) + COALESCE(jlc_job.count, 0) < jr.job_max_concurrency)
 			  AND (jr.job_max_concurrency_per_key IS NULL
 			       OR jr.concurrency_key IS NULL
 			       OR jr.concurrency_key = ''
-			       OR COALESCE(jac_key.count, 0) < jr.job_max_concurrency_per_key)
+			       OR COALESCE(jac_key.count, 0) + COALESCE(jlc_key.count, 0) < jr.job_max_concurrency_per_key)
 			  %s
 			ORDER BY qe.batch_id ASC, jr.priority DESC, jr.created_at ASC
 			FOR UPDATE OF qe SKIP LOCKED

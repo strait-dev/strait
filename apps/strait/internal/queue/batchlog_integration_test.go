@@ -360,6 +360,90 @@ func TestBatchlog_DequeueDoesNotSealOrReclaimOnHotPath(t *testing.T) {
 	}
 }
 
+func TestBatchlogLeaseCounts_BlockMaxConcurrencyBeforeStart(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-batchlog-lease-max")
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE jobs SET max_concurrency = 1 WHERE id = $1`, job.ID); err != nil {
+		t.Fatalf("set max_concurrency: %v", err)
+	}
+	q := mustBatchlogQueue(t, time.Second)
+
+	for range 2 {
+		run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+		if err := q.Enqueue(ctx, run); err != nil {
+			t.Fatalf("Enqueue: %v", err)
+		}
+	}
+	if _, err := q.SealDueBatches(ctx); err != nil {
+		t.Fatalf("SealDueBatches: %v", err)
+	}
+	first, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("first DequeueN: %v", err)
+	}
+	if len(first) != 1 {
+		t.Fatalf("first DequeueN len = %d, want 1", len(first))
+	}
+	second, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("second DequeueN: %v", err)
+	}
+	if len(second) != 0 {
+		t.Fatalf("second DequeueN len = %d, want 0 while first run is leased", len(second))
+	}
+
+	var leaseCount int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COALESCE(count, 0)
+		FROM job_batchlog_lease_counts
+		WHERE job_id = $1 AND concurrency_key = ''
+	`, job.ID).Scan(&leaseCount); err != nil {
+		t.Fatalf("lease count query: %v", err)
+	}
+	if leaseCount != 1 {
+		t.Fatalf("lease count = %d, want 1", leaseCount)
+	}
+}
+
+func TestBatchlogLeaseCounts_BlockMaxConcurrencyPerKeyBeforeStart(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-batchlog-lease-key")
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE jobs SET max_concurrency_per_key = 1 WHERE id = $1`, job.ID); err != nil {
+		t.Fatalf("set max_concurrency_per_key: %v", err)
+	}
+	q := mustBatchlogQueue(t, time.Second)
+
+	for _, key := range []string{"tenant-a", "tenant-a", "tenant-b"} {
+		run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID, ConcurrencyKey: key}
+		if err := q.Enqueue(ctx, run); err != nil {
+			t.Fatalf("Enqueue %s: %v", key, err)
+		}
+	}
+	if _, err := q.SealDueBatches(ctx); err != nil {
+		t.Fatalf("SealDueBatches: %v", err)
+	}
+	first, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("first DequeueN: %v", err)
+	}
+	if len(first) != 1 || first[0].ConcurrencyKey != "tenant-a" {
+		t.Fatalf("first = %+v, want tenant-a", first)
+	}
+	second, err := q.DequeueN(ctx, 2)
+	if err != nil {
+		t.Fatalf("second DequeueN: %v", err)
+	}
+	if len(second) != 1 || second[0].ConcurrencyKey != "tenant-b" {
+		t.Fatalf("second = %+v, want only tenant-b while tenant-a is leased", second)
+	}
+}
+
 type errDuplicateClaim struct {
 	runID string
 }
