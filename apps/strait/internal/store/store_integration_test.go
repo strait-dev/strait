@@ -2737,6 +2737,47 @@ func TestWebhookDelivery_CRUD(t *testing.T) {
 	}
 }
 
+// TestWebhookDelivery_ListScopesByJobDerivedProject guards the ListWebhookDeliveries
+// rewrite that dropped the LEFT JOIN jobs / OR predicate in favor of filtering
+// wd.project_id directly. A delivery carrying only a job_id (no run_id) must still
+// be scoped to the job's project, since CreateWebhookDelivery derives project_id
+// from the job_id when no run is present.
+func TestWebhookDelivery_ListScopesByJobDerivedProject(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-webhook-job-scoped")
+
+	delivery := &domain.WebhookDelivery{
+		JobID:       job.ID, // no RunID: project_id must come from the job
+		WebhookURL:  "https://example.com/webhook/job-only",
+		Status:      "failed",
+		Attempts:    1,
+		MaxAttempts: 3,
+	}
+	if err := q.CreateWebhookDelivery(ctx, delivery); err != nil {
+		t.Fatalf("CreateWebhookDelivery() error = %v", err)
+	}
+
+	got, err := q.ListWebhookDeliveries(ctx, job.ProjectID, "", 10, nil)
+	if err != nil {
+		t.Fatalf("ListWebhookDeliveries() error = %v", err)
+	}
+	if len(got) != 1 || got[0].ID != delivery.ID {
+		t.Fatalf("ListWebhookDeliveries() = %+v, want only %q", got, delivery.ID)
+	}
+
+	// A different project must not see this delivery.
+	other, err := q.ListWebhookDeliveries(ctx, "project-some-other", "", 10, nil)
+	if err != nil {
+		t.Fatalf("ListWebhookDeliveries(other) error = %v", err)
+	}
+	if len(other) != 0 {
+		t.Fatalf("ListWebhookDeliveries(other) len = %d, want 0", len(other))
+	}
+}
+
 func TestWebhookDelivery_PendingRetries(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

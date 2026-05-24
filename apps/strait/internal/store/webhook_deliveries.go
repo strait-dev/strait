@@ -360,12 +360,16 @@ func (q *Queries) ListWebhookDeliveries(ctx context.Context, projectID, status s
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListWebhookDeliveries")
 	defer span.End()
 
+	// project_id has been a backfilled NOT NULL column since migration 000183
+	// (sourced from run_id, workflow_run_id, event_trigger_id, subscription_id,
+	// then job_id), so filtering wd.project_id directly is equivalent to the
+	// legacy "join jobs OR fall back to wd.project_id" predicate while letting
+	// idx_webhook_deliveries (project_id, created_at DESC) drive the scan.
 	baseQuery := `SELECT wd.id, wd.run_id, wd.job_id, wd.webhook_url, wd.webhook_retry_policy, wd.status, wd.attempts, wd.max_attempts,
 					 wd.last_status_code, wd.last_error, wd.next_retry_at, wd.delivered_at, wd.created_at, wd.updated_at,
 					 wd.event_trigger_id, wd.subscription_id, wd.payload, wd.webhook_secret, COALESCE(wd.project_id, '')
 				  FROM webhook_deliveries wd
-				  LEFT JOIN jobs j ON wd.job_id = j.id
-				  WHERE (j.project_id = $1 OR wd.project_id = $1)`
+				  WHERE wd.project_id = $1`
 	args := []any{projectID}
 	param := 2
 
