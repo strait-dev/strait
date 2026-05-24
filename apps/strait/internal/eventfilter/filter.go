@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -54,7 +55,7 @@ func Eval(filterExpr json.RawMessage, payload json.RawMessage) (bool, error) {
 	// Evaluate eq conditions.
 	for _, cond := range expr.Eq {
 		val := getField(data, cond[0])
-		if fmt.Sprintf("%v", val) != cond[1] {
+		if !valueEquals(val, cond[1]) {
 			return false, nil
 		}
 	}
@@ -62,7 +63,7 @@ func Eval(filterExpr json.RawMessage, payload json.RawMessage) (bool, error) {
 	// Evaluate ne conditions.
 	for _, cond := range expr.Ne {
 		val := getField(data, cond[0])
-		if fmt.Sprintf("%v", val) == cond[1] {
+		if valueEquals(val, cond[1]) {
 			return false, nil
 		}
 	}
@@ -75,6 +76,31 @@ func Eval(filterExpr json.RawMessage, payload json.RawMessage) (bool, error) {
 	}
 
 	return true, nil
+}
+
+// valueEquals reports whether val's fmt "%v" representation equals target.
+// It avoids the reflection and allocation of fmt.Sprintf for the scalar types
+// json.Unmarshal produces (nil, string, bool, float64), matching that output
+// byte-for-byte, and falls back to fmt.Sprintf only for composite values
+// (objects and arrays) where a filter path resolves to a non-scalar.
+func valueEquals(val any, target string) bool {
+	switch v := val.(type) {
+	case nil:
+		return target == "<nil>"
+	case string:
+		return v == target
+	case bool:
+		if v {
+			return target == "true"
+		}
+		return target == "false"
+	case float64:
+		var buf [32]byte
+		b := strconv.AppendFloat(buf[:0], v, 'g', -1, 64)
+		return string(b) == target
+	default:
+		return fmt.Sprintf("%v", v) == target
+	}
 }
 
 func validateFilterExpr(expr FilterExpr) error {
@@ -106,25 +132,36 @@ func validatePath(path string) error {
 	if len(path) > maxFilterPathLength {
 		return fmt.Errorf("filter path exceeds %d bytes", maxFilterPathLength)
 	}
-	if len(strings.Split(path, ".")) > maxFilterPathDepth {
+	if strings.Count(path, ".")+1 > maxFilterPathDepth {
 		return fmt.Errorf("filter path exceeds %d segments", maxFilterPathDepth)
 	}
 	return nil
 }
 
-// getField traverses a nested map by dot-separated path.
+// getField traverses a nested map by dot-separated path. It walks the path by
+// byte index rather than strings.Split so a lookup allocates nothing.
 func getField(data map[string]any, path string) any {
-	parts := strings.Split(path, ".")
 	var current any = data
-	for _, part := range parts {
+	for start := 0; ; {
+		dot := strings.IndexByte(path[start:], '.')
+		var part string
+		if dot < 0 {
+			part = path[start:]
+		} else {
+			part = path[start : start+dot]
+		}
 		m, ok := current.(map[string]any)
 		if !ok {
 			return nil
 		}
-		current, ok = m[part]
+		next, ok := m[part]
 		if !ok {
 			return nil
 		}
+		if dot < 0 {
+			return next
+		}
+		current = next
+		start += dot + 1
 	}
-	return current
 }
