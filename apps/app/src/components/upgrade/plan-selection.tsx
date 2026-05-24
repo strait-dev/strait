@@ -21,7 +21,13 @@ const CENTS_TO_DOLLARS = 100;
 
 import type { ComparisonFeature, PricingPlan } from "@/hooks/billing/use-plans";
 
-type PlanType = "free" | "starter" | "pro" | "scale" | "enterprise";
+type PlanType =
+  | "free"
+  | "starter"
+  | "pro"
+  | "scale"
+  | "business"
+  | "enterprise";
 
 type PricingFeature = {
   name: string;
@@ -30,14 +36,20 @@ type PricingFeature = {
 };
 
 type UpgradeMode = "new_user" | "upgrade" | "checkout_recovery";
-type PlanSlug = "free" | "starter" | "pro" | "scale" | "enterprise";
+type PlanSlug =
+  | "free"
+  | "starter"
+  | "pro"
+  | "scale"
+  | "business"
+  | "enterprise";
 
 type BillingInterval = "monthly" | "yearly";
 
 type PlanSelectionProps = {
   mode: UpgradeMode;
   isLoading?: boolean;
-  onStartCheckout?: () => void;
+  onStartCheckout?: (planSlug?: PlanType) => void;
   currentPlanSlug?: PlanSlug;
   selectedPlan: PlanType;
   billingInterval: BillingInterval;
@@ -179,7 +191,7 @@ const PricingCard = ({
   billingInterval: "monthly" | "yearly";
   isSelected: boolean;
   onSelect: (planSlug: PlanType) => void;
-  onStartCheckout?: () => void;
+  onStartCheckout?: (planSlug?: PlanType) => void;
   isLoading?: boolean;
   buttonText: string;
   currentPlanSlug?: PlanSlug;
@@ -319,10 +331,10 @@ const PricingCard = ({
               return;
             }
             if (isSelected) {
-              onStartCheckout?.();
+              onStartCheckout?.(plan.slug);
             } else {
               onSelect(plan.slug);
-              onStartCheckout?.();
+              onStartCheckout?.(plan.slug);
             }
           }}
           type="button"
@@ -472,11 +484,20 @@ const FeatureComparisonMatrix = ({
 }: {
   features: ComparisonFeature[];
 }) => {
-  const tiers = ["free", "starter", "pro", "enterprise"] as const;
+  const tiers = [
+    "free",
+    "starter",
+    "pro",
+    "scale",
+    "business",
+    "enterprise",
+  ] as const;
   const tierLabels = {
     free: "Free",
     starter: "Starter",
     pro: "Pro",
+    scale: "Scale",
+    business: "Business",
     enterprise: "Enterprise",
   };
 

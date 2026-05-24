@@ -1,57 +1,29 @@
-import { expect, test } from "../../fixtures";
+import { ApiHelper, expect, test } from "../../fixtures";
+import { selectTab } from "../../support/navigation";
 
-test.describe("Team Members", () => {
-  test("members tab shows current user", async ({ page }) => {
-    await page.goto("/app/dashboard");
-    const orgLink = page.locator("a[href*='/app/org/']").first();
-    if (!(await orgLink.isVisible({ timeout: 5000 }).catch(() => false))) {
-      test.skip();
-      return;
-    }
-    await orgLink.click();
-    const membersTab = page.getByRole("tab", { name: /members/i });
-    if (await membersTab.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await membersTab.click();
-      await page.waitForTimeout(500);
-      await expect(page.locator("main")).toBeVisible();
-    }
-  });
+test.describe("Organization team members", () => {
+  test("shows the signed-in owner and opens the invite dialog", async ({
+    page,
+  }) => {
+    const api = new ApiHelper();
+    const email = process.env.E2E_USER_EMAIL;
 
-  test("current user has owner role", async ({ page }) => {
-    await page.goto("/app/dashboard");
-    const orgLink = page.locator("a[href*='/app/org/']").first();
-    if (!(await orgLink.isVisible({ timeout: 5000 }).catch(() => false))) {
-      test.skip();
-      return;
-    }
-    await orgLink.click();
-    const membersTab = page.getByRole("tab", { name: /members/i });
-    if (await membersTab.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await membersTab.click();
-      await page.waitForTimeout(500);
-      const ownerBadge = page.getByText(/owner/i).first();
-      if (await ownerBadge.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await expect(ownerBadge).toBeVisible();
-      }
-    }
-  });
+    await page.goto(`/app/org/${api.getOrgId()}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await selectTab(page, "Team");
 
-  test("invite member button exists", async ({ page }) => {
-    await page.goto("/app/dashboard");
-    const orgLink = page.locator("a[href*='/app/org/']").first();
-    if (!(await orgLink.isVisible({ timeout: 5000 }).catch(() => false))) {
-      test.skip();
-      return;
+    await expect(page.getByText("Manage who has access")).toBeVisible();
+    if (email) {
+      await expect(page.getByText(email)).toBeVisible();
     }
-    await orgLink.click();
-    const membersTab = page.getByRole("tab", { name: /members/i });
-    if (await membersTab.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await membersTab.click();
-      await page.waitForTimeout(500);
-      const inviteBtn = page.getByText("Invite Member");
-      if (await inviteBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await expect(inviteBtn).toBeVisible();
-      }
-    }
+    await expect(page.getByText(/owner/i).first()).toBeVisible();
+
+    await page.getByRole("button", { name: "Invite Member" }).click();
+    await expect(
+      page.getByRole("dialog").getByRole("heading", {
+        name: "Invite a team member",
+      })
+    ).toBeVisible();
   });
 });

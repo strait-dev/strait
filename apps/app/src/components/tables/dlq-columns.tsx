@@ -18,7 +18,17 @@ export const createDlqColumns = (
     accessorKey: "id",
     header: "Run ID",
     cell: ({ row }) => (
-      <code className="font-mono text-xs">{row.original.id.slice(0, 8)}</code>
+      <button
+        aria-label={`View run ${row.original.id}`}
+        className="font-mono text-xs underline-offset-2 hover:underline"
+        onClick={(event) => {
+          event.stopPropagation();
+          actions.onView?.(row.original);
+        }}
+        type="button"
+      >
+        <code>{row.original.id.slice(0, 8)}</code>
+      </button>
     ),
   },
   {

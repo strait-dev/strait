@@ -21,8 +21,11 @@ import {
   runWithSentryReport,
 } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
+import {
+  requireActiveOrgAccess,
+  requireActiveOrgAdmin,
+} from "@/middlewares/require-access";
 import { SpendingLimitSchema } from "./schemas";
-import { getOrgIdFromSession } from "./session";
 import { type LimitAction, type PlanTierSlug, REFETCH_5M } from "./types";
 
 /** Spending limit and current spend data for the organization. */
@@ -49,13 +52,7 @@ export type SpendingLimitData = {
 const getSpendingLimitServerFn = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async (ctx) => {
-    const orgId = getOrgIdFromSession(
-      ctx.context.session as Record<string, unknown>
-    );
-
-    if (!orgId) {
-      return null;
-    }
+    const orgId = await requireActiveOrgAccess(ctx.context);
 
     return await runWithSentryReport(
       apiEffectWithSchema("/v1/spending-limit", SpendingLimitSchema, {
@@ -97,13 +94,7 @@ const updateSpendingLimitServerFn = createServerFn({ method: "POST" })
   )
   .middleware([authMiddleware])
   .handler(async ({ data, context }) => {
-    const orgId = getOrgIdFromSession(
-      context.session as Record<string, unknown>
-    );
-
-    if (!orgId) {
-      throw new Error("No active organization");
-    }
+    const orgId = await requireActiveOrgAdmin(context);
 
     return await runWithSentryReport(
       apiEffect<{ status: string }>("/v1/spending-limit", {

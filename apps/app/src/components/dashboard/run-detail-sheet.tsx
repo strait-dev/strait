@@ -97,6 +97,7 @@ const RunDetailSheet = ({ run, open, onOpenChange }: RunDetailSheetProps) => {
 
   const isFailed =
     run.status === "failed" ||
+    run.status === "dead_letter" ||
     run.status === "crashed" ||
     run.status === "system_failed";
 
@@ -107,7 +108,10 @@ const RunDetailSheet = ({ run, open, onOpenChange }: RunDetailSheetProps) => {
 
   return (
     <Sheet onOpenChange={onOpenChange} open={open}>
-      <SheetContent className="flex flex-col overflow-y-auto">
+      <SheetContent
+        className="flex flex-col overflow-y-auto"
+        data-testid="run-detail-sheet"
+      >
         <SheetHeader>
           <SheetTitle className="font-mono text-sm">{run.id}</SheetTitle>
         </SheetHeader>

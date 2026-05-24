@@ -13,6 +13,39 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
+// ActiveWorkerRef identifies a live worker stream by its tenant-local worker ID.
+type ActiveWorkerRef struct {
+	WorkerID  string
+	ProjectID string
+}
+
+func activeWorkerRefsFromIDs(workerIDs []string) []ActiveWorkerRef {
+	if len(workerIDs) == 0 {
+		return nil
+	}
+	refs := make([]ActiveWorkerRef, 0, len(workerIDs))
+	for _, workerID := range workerIDs {
+		if workerID == "" {
+			continue
+		}
+		refs = append(refs, ActiveWorkerRef{WorkerID: workerID})
+	}
+	return refs
+}
+
+func activeWorkerRefArrays(activeWorkers []ActiveWorkerRef) ([]string, []string) {
+	workerIDs := make([]string, 0, len(activeWorkers))
+	projectIDs := make([]string, 0, len(activeWorkers))
+	for _, worker := range activeWorkers {
+		if worker.WorkerID == "" || worker.ProjectID == "" {
+			continue
+		}
+		workerIDs = append(workerIDs, worker.WorkerID)
+		projectIDs = append(projectIDs, worker.ProjectID)
+	}
+	return workerIDs, projectIDs
+}
+
 // RegisterWorker upserts a worker record scoped by project_id and worker id,
 // updating last_seen_at and status. Worker IDs are tenant-local identifiers:
 // two projects may use the same worker ID without colliding.
@@ -135,17 +168,21 @@ func (q *Queries) ListWorkers(ctx context.Context, projectID, queueName string, 
 
 // EvictStaleWorkers marks workers offline if they have not sent a heartbeat since cutoff.
 func (q *Queries) EvictStaleWorkers(ctx context.Context, cutoff time.Time) (int64, error) {
-	return q.EvictStaleWorkersExcept(ctx, cutoff, nil)
+	return q.EvictStaleWorkersExceptRefs(ctx, cutoff, nil)
 }
 
 // EvictStaleWorkersExcept marks stale workers offline unless they are known to
 // still be connected on this replica.
 func (q *Queries) EvictStaleWorkersExcept(ctx context.Context, cutoff time.Time, activeWorkerIDs []string) (int64, error) {
+	return q.EvictStaleWorkersExceptRefs(ctx, cutoff, activeWorkerRefsFromIDs(activeWorkerIDs))
+}
+
+// EvictStaleWorkersExceptRefs marks stale workers offline unless the exact
+// (project_id, worker_id) pair is known to still be connected on this replica.
+func (q *Queries) EvictStaleWorkersExceptRefs(ctx context.Context, cutoff time.Time, activeWorkers []ActiveWorkerRef) (int64, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.EvictStaleWorkers")
 	defer span.End()
-	if activeWorkerIDs == nil {
-		activeWorkerIDs = []string{}
-	}
+	activeWorkerIDs, activeProjectIDs := activeWorkerRefArrays(activeWorkers)
 
 	tag, err := q.db.Exec(ctx,
 		`UPDATE workers
@@ -153,8 +190,13 @@ func (q *Queries) EvictStaleWorkersExcept(ctx context.Context, cutoff time.Time,
 		 WHERE last_seen_at < $1
 		   AND (stream_lease_expires_at IS NULL OR stream_lease_expires_at < NOW())
 		   AND status != 'offline'
-		   AND NOT (id = ANY($2::text[]))`,
-		cutoff, activeWorkerIDs,
+		   AND NOT EXISTS (
+		     SELECT 1
+		     FROM unnest($2::text[], $3::text[]) AS active(id, project_id)
+		     WHERE active.id = workers.id
+		       AND active.project_id = workers.project_id
+		   )`,
+		cutoff, activeWorkerIDs, activeProjectIDs,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("evict stale workers: %w", err)
@@ -165,17 +207,21 @@ func (q *Queries) EvictStaleWorkersExcept(ctx context.Context, cutoff time.Time,
 // RecoverStaleWorkerTasks marks stale workers' open assignments failed and
 // requeues still-executing worker-mode runs before the worker row is evicted.
 func (q *Queries) RecoverStaleWorkerTasks(ctx context.Context, cutoff time.Time, reason string) (int64, error) {
-	return q.RecoverStaleWorkerTasksExcept(ctx, cutoff, reason, nil)
+	return q.RecoverStaleWorkerTasksExceptRefs(ctx, cutoff, reason, nil)
 }
 
 // RecoverStaleWorkerTasksExcept requeues open tasks owned by stale workers
 // unless the worker is still connected in the caller's local registry.
 func (q *Queries) RecoverStaleWorkerTasksExcept(ctx context.Context, cutoff time.Time, reason string, activeWorkerIDs []string) (int64, error) {
+	return q.RecoverStaleWorkerTasksExceptRefs(ctx, cutoff, reason, activeWorkerRefsFromIDs(activeWorkerIDs))
+}
+
+// RecoverStaleWorkerTasksExceptRefs requeues open tasks owned by stale workers
+// unless the exact (project_id, worker_id) pair is still connected locally.
+func (q *Queries) RecoverStaleWorkerTasksExceptRefs(ctx context.Context, cutoff time.Time, reason string, activeWorkers []ActiveWorkerRef) (int64, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.RecoverStaleWorkerTasks")
 	defer span.End()
-	if activeWorkerIDs == nil {
-		activeWorkerIDs = []string{}
-	}
+	activeWorkerIDs, activeProjectIDs := activeWorkerRefArrays(activeWorkers)
 
 	_, ok := q.db.(TxBeginner)
 	if !ok {
@@ -190,7 +236,12 @@ func (q *Queries) RecoverStaleWorkerTasksExcept(ctx context.Context, cutoff time
 				FROM workers
 				WHERE last_seen_at < $1
 				  AND (stream_lease_expires_at IS NULL OR stream_lease_expires_at < NOW())
-				  AND NOT (id = ANY($3::text[]))
+				  AND NOT EXISTS (
+				    SELECT 1
+				    FROM unnest($3::text[], $4::text[]) AS active(id, project_id)
+				    WHERE active.id = workers.id
+				      AND active.project_id = workers.project_id
+				  )
 			),
 			open_tasks AS (
 				SELECT wt.id, wt.run_id
@@ -218,7 +269,7 @@ func (q *Queries) RecoverStaleWorkerTasksExcept(ctx context.Context, cutoff time
 			    finished_at = NOW()
 			WHERE id IN (SELECT id FROM open_tasks)`
 
-		tag, err := txQ.db.Exec(ctx, query, cutoff, reason, activeWorkerIDs)
+		tag, err := txQ.db.Exec(ctx, query, cutoff, reason, activeWorkerIDs, activeProjectIDs)
 		if err != nil {
 			return fmt.Errorf("recover stale worker tasks: %w", err)
 		}

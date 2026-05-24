@@ -16,7 +16,10 @@ import z from "zod/v4";
 import { queryKeys } from "@/hooks/query-keys";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
-import { requireProjectAccess } from "@/middlewares/require-access";
+import {
+  requireProjectAccess,
+  requireProjectAdmin,
+} from "@/middlewares/require-access";
 import { type LimitAction, REFETCH_10M } from "./types";
 
 /** Project budget data from the backend. */
@@ -95,7 +98,7 @@ const setProjectBudgetServerFn = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     const activeOrgId = (context as Record<string, unknown>)
       .activeOrganizationId as string | undefined;
-    await requireProjectAccess(context.user.id, data.projectId, activeOrgId);
+    await requireProjectAdmin(context.user.id, data.projectId, activeOrgId);
 
     return await runWithSentryReport(
       apiEffect<{ status: string }>("/v1/project-budget", {

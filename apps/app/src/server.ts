@@ -1,6 +1,7 @@
 import "../instrument.server";
 import { wrapFetchWithSentry } from "@sentry/tanstackstart-react";
 import handler, { createServerEntry } from "@tanstack/react-start/server-entry";
+import { handleWellKnownOAuthRequest } from "@/lib/well-known-oauth.server";
 
 /**
  * One-shot boot log: record which Postgres path the auth layer is using.
@@ -25,8 +26,12 @@ const logAuthDbSource = () => {
 
 export default createServerEntry(
   wrapFetchWithSentry({
-    fetch(request: Request) {
+    async fetch(request: Request) {
       logAuthDbSource();
+      const wellKnownResponse = await handleWellKnownOAuthRequest(request);
+      if (wellKnownResponse) {
+        return wellKnownResponse;
+      }
       return handler.fetch(request);
     },
   })

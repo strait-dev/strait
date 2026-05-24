@@ -162,5 +162,5 @@ func (s *Server) handleReplayWebhookDelivery(ctx context.Context, input *ReplayW
 		"job_id":               original.JobID,
 	})
 
-	return &ReplayWebhookDeliveryOutput{Body: replay}, nil
+	return &ReplayWebhookDeliveryOutput{Body: sanitizeWebhookDeliveryResponsePtr(replay)}, nil
 }

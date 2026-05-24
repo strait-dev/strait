@@ -60,7 +60,7 @@ const AVAILABLE_SCOPES = [
   "workflows:write",
   "webhooks:read",
   "webhooks:write",
-  "api_keys:manage",
+  "api-keys:manage",
 ] as const;
 
 const EXPIRATION_OPTIONS = [

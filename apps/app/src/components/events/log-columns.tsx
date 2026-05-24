@@ -14,7 +14,7 @@ export const logColumns: ColumnDef<EventTrigger>[] = [
     header: "Status",
     cell: ({ row }) => {
       const style =
-        EVENT_STATUS_STYLES[row.original.status] ?? EVENT_STATUS_STYLES.pending;
+        EVENT_STATUS_STYLES[row.original.status] ?? EVENT_STATUS_STYLES.waiting;
       return (
         <div className="flex items-center gap-2">
           <span className={cn("size-2 shrink-0 rounded-full", style.dot)} />

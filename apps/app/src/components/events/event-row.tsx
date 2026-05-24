@@ -7,7 +7,7 @@ import { EVENT_STATUS_STYLES } from "@/lib/status";
 
 const EventRow = ({ event }: { event: EventTrigger }) => {
   const style =
-    EVENT_STATUS_STYLES[event.status] ?? EVENT_STATUS_STYLES.pending;
+    EVENT_STATUS_STYLES[event.status] ?? EVENT_STATUS_STYLES.waiting;
 
   return (
     <div className="relative flex items-start gap-3 py-2.5 pl-0">

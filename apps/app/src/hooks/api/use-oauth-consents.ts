@@ -4,6 +4,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
+import { getRequestHeaders } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
@@ -24,16 +25,21 @@ export type OAuthConsentItem = {
 export const fetchOAuthConsents = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async () => {
-    const consents = (await (await getAuth()).api.getOAuthConsents()) ?? [];
+    const headers = getRequestHeaders();
+    const consents =
+      (await (await getAuth()).api.getOAuthConsents({ headers })) ?? [];
     const items: OAuthConsentItem[] = [];
     for (const consent of consents as any[]) {
       let clientName = "Unknown Application";
       try {
-        const client = await ((await getAuth()).api as any).getOAuthClient({
-          body: { client_id: consent.clientId },
+        const client = await (
+          (await getAuth()).api as any
+        ).getOAuthClientPublic({
+          query: { client_id: consent.clientId },
+          headers,
         });
-        if (client?.name) {
-          clientName = client.name;
+        if (client?.client_name) {
+          clientName = client.client_name;
         }
       } catch (err) {
         captureException(err, {
@@ -60,6 +66,7 @@ export const revokeOAuthConsentFn = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await (await getAuth()).api.deleteOAuthConsent({
       body: { id: data.consentId },
+      headers: getRequestHeaders(),
     });
     return { success: true };
   });

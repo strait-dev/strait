@@ -14,55 +14,92 @@ import type {
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { getPostHog } from "@/lib/analytics";
-import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
+import { apiPath } from "@/lib/api-client.server";
+import {
+  apiEffect,
+  runWithFallback,
+  runWithSentryReport,
+} from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
+import {
+  requireActiveProjectAccess,
+  requireActiveProjectAdmin,
+} from "@/middlewares/require-access";
+
+const emptyWorkflowStepsResponse: PaginatedResponse<WorkflowStep> = {
+  data: [],
+  has_more: false,
+};
+const emptyWorkflowVersionsResponse: PaginatedResponse<WorkflowVersionSummary> =
+  {
+    data: [],
+    has_more: false,
+  };
+
+type WorkflowVersionSummary = {
+  version_id?: string;
+};
+
+/** Normalize Strait API list responses, which may be raw arrays on older handlers. */
+function dataFromPaginatedOrArray<T>(response: PaginatedResponse<T> | T[]) {
+  return Array.isArray(response) ? response : response.data;
+}
 
 export const fetchWorkflows = createServerFn({ method: "GET" })
   .inputValidator(
     (data: { limit?: number; cursor?: string; search?: string }) => data
   )
   .middleware([authMiddleware])
-  .handler(
-    async ({ data }): Promise<PaginatedResponse<Workflow>> =>
-      await runWithSentryReport(
-        apiEffect<PaginatedResponse<Workflow>>("/v1/workflows", {
-          params: {
-            limit: data.limit,
-            cursor: data.cursor,
-            search: data.search,
-          },
-        })
-      )
-  );
+  .handler(async ({ context, data }): Promise<PaginatedResponse<Workflow>> => {
+    await requireActiveProjectAccess(context);
+    return await runWithSentryReport(
+      apiEffect<PaginatedResponse<Workflow>>("/v1/workflows", {
+        params: {
+          limit: data.limit,
+          cursor: data.cursor,
+          search: data.search,
+        },
+      })
+    );
+  });
 
 export const fetchWorkflow = createServerFn({ method: "GET" })
   .inputValidator((data: { id: string }) => data)
   .middleware([authMiddleware])
-  .handler(
-    async ({ data }): Promise<Workflow> =>
-      await runWithSentryReport(apiEffect<Workflow>(`/v1/workflows/${data.id}`))
-  );
+  .handler(async ({ context, data }): Promise<Workflow> => {
+    await requireActiveProjectAccess(context);
+    return await runWithSentryReport(
+      apiEffect<Workflow>(apiPath`/v1/workflows/${data.id}`)
+    );
+  });
 
 export const fetchWorkflowSteps = createServerFn({ method: "GET" })
   .inputValidator((data: { workflowId: string }) => data)
   .middleware([authMiddleware])
   .handler(
     // @ts-expect-error tsgo cannot resolve createServerFn handler generics
-    async ({ data }): Promise<WorkflowStep[]> => {
-      const resp = await runWithSentryReport(
-        apiEffect<PaginatedResponse<WorkflowStep>>(
-          `/v1/workflows/${data.workflowId}/versions`,
+    async ({ context, data }): Promise<WorkflowStep[]> => {
+      await requireActiveProjectAccess(context);
+      const resp = await runWithFallback(
+        apiEffect<PaginatedResponse<WorkflowVersionSummary>>(
+          apiPath`/v1/workflows/${data.workflowId}/versions`,
           { params: { limit: 1 } }
-        )
+        ),
+        emptyWorkflowVersionsResponse
       );
-      if (resp.data.length > 0) {
-        const latestVersion = resp.data[0] as unknown as { id: string };
-        const stepsResp = await runWithSentryReport(
+      const versions = dataFromPaginatedOrArray(resp);
+      if (versions.length > 0) {
+        const latestVersion = versions[0];
+        if (!latestVersion.version_id) {
+          return [] as WorkflowStep[];
+        }
+        const stepsResp = await runWithFallback(
           apiEffect<PaginatedResponse<WorkflowStep>>(
-            `/v1/workflows/${data.workflowId}/versions/${latestVersion.id}/steps`
-          )
+            apiPath`/v1/workflows/${data.workflowId}/versions/${latestVersion.version_id}/steps`
+          ),
+          emptyWorkflowStepsResponse
         );
-        return stepsResp.data;
+        return dataFromPaginatedOrArray(stepsResp);
       }
       return [] as WorkflowStep[];
     }
@@ -75,13 +112,15 @@ export const fetchWorkflowRuns = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(
     // @ts-expect-error tsgo cannot resolve createServerFn handler generics
-    async ({ data }): Promise<PaginatedResponse<WorkflowRun>> =>
-      await runWithSentryReport(
+    async ({ context, data }): Promise<PaginatedResponse<WorkflowRun>> => {
+      await requireActiveProjectAccess(context);
+      return await runWithSentryReport(
         apiEffect<PaginatedResponse<WorkflowRun>>(
-          `/v1/workflows/${data.workflowId}/runs`,
+          apiPath`/v1/workflows/${data.workflowId}/runs`,
           { params: { limit: data.limit, cursor: data.cursor } }
         )
-      )
+      );
+    }
   );
 
 export const triggerWorkflowFn = createServerFn({ method: "POST" })
@@ -95,22 +134,28 @@ export const triggerWorkflowFn = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(
     // @ts-expect-error tsgo cannot resolve createServerFn handler generics
-    async ({ data }): Promise<WorkflowRun> =>
-      await runWithSentryReport(
-        apiEffect<WorkflowRun>(`/v1/workflows/${data.workflowId}/trigger`, {
-          method: "POST",
-          body: { payload: data.payload, tags: data.tags },
-        })
-      )
+    async ({ context, data }): Promise<WorkflowRun> => {
+      await requireActiveProjectAdmin(context);
+      return await runWithSentryReport(
+        apiEffect<WorkflowRun>(
+          apiPath`/v1/workflows/${data.workflowId}/trigger`,
+          {
+            method: "POST",
+            body: { payload: data.payload, tags: data.tags },
+          }
+        )
+      );
+    }
   );
 
 export const updateWorkflowFn = createServerFn({ method: "POST" })
   .inputValidator((data: { id: string; enabled?: boolean }) => data)
   .middleware([authMiddleware])
-  .handler(async ({ data }): Promise<Workflow> => {
+  .handler(async ({ context, data }): Promise<Workflow> => {
+    await requireActiveProjectAdmin(context);
     const { id, ...body } = data;
     return await runWithSentryReport(
-      apiEffect<Workflow>(`/v1/workflows/${id}`, {
+      apiEffect<Workflow>(apiPath`/v1/workflows/${id}`, {
         method: "PATCH",
         body,
       })

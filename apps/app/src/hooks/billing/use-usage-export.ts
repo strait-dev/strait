@@ -9,8 +9,8 @@ import { createServerFn } from "@tanstack/react-start";
 import z from "zod/v4";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
+import { requireActiveOrgAccess } from "@/middlewares/require-access";
 import { periodToDateRange } from "./period-utils";
-import { getOrgIdFromSession } from "./session";
 
 /** Server function to fetch a CSV usage export. */
 const getUsageExportCsvServerFn = createServerFn({ method: "GET" })
@@ -19,12 +19,7 @@ const getUsageExportCsvServerFn = createServerFn({ method: "GET" })
   )
   .middleware([authMiddleware])
   .handler(async ({ data, context }) => {
-    const orgId = getOrgIdFromSession(
-      context.session as Record<string, unknown>
-    );
-    if (!orgId) {
-      return "";
-    }
+    const orgId = await requireActiveOrgAccess(context);
     const { from, to } = periodToDateRange(data.period);
     return await runWithSentryReport(
       apiEffect<string>("/v1/usage/export", {
@@ -41,20 +36,15 @@ const getUsageExportPdfServerFn = createServerFn({ method: "GET" })
   )
   .middleware([authMiddleware])
   .handler(async ({ data, context }) => {
-    const orgId = getOrgIdFromSession(
-      context.session as Record<string, unknown>
-    );
-    if (!orgId) {
-      return null;
-    }
+    const orgId = await requireActiveOrgAccess(context);
     const { from, to } = periodToDateRange(data.period);
     const buffer = await runWithSentryReport(
-      apiEffect<string>("/v1/usage/export", {
+      apiEffect<ArrayBuffer>("/v1/usage/export", {
         params: { org_id: orgId, from, to, format: "pdf" },
-        responseType: "text",
+        responseType: "arraybuffer",
       })
     );
-    return Buffer.from(buffer, "binary").toString("base64");
+    return Buffer.from(buffer).toString("base64");
   });
 
 /**

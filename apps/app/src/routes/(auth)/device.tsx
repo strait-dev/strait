@@ -7,13 +7,14 @@ import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";
 import { apiRequest } from "@/lib/api-client.server";
 import { authMiddleware } from "@/middlewares/auth";
+import { requireActiveProjectAccess } from "@/middlewares/require-access";
 
 const deviceSearchSchema = z.object({
   code: z.string().optional().catch(undefined),
 });
 
 type ApproveResponse = {
-  approved: boolean;
+  status: string;
 };
 
 const approveDeviceCode = createServerFn({ method: "POST" })
@@ -23,15 +24,17 @@ const approveDeviceCode = createServerFn({ method: "POST" })
     })
   )
   .middleware([authMiddleware])
-  .handler(
-    async ({ data }) =>
-      await apiRequest<ApproveResponse>("/v1/cli/auth/approve", {
-        method: "POST",
-        body: {
-          user_code: data.userCode,
-        },
-      })
-  );
+  .handler(async ({ context, data }) => {
+    const projectId = await requireActiveProjectAccess(context);
+    return await apiRequest<ApproveResponse>("/v1/cli/device-codes/approve", {
+      method: "POST",
+      projectId,
+      body: {
+        project_id: projectId,
+        user_code: data.userCode,
+      },
+    });
+  });
 
 export const Route = createFileRoute("/(auth)/device")({
   validateSearch: deviceSearchSchema,

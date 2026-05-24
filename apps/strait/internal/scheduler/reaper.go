@@ -249,8 +249,8 @@ func (r *Reaper) WithMetrics(m *telemetry.Metrics) *Reaper {
 }
 
 // WithRotationSecretDecryptor sets the decryptor used to recover at-rest
-// rotation webhook signing secrets. When unset the reaper still delivers
-// rotation webhooks but cannot sign them.
+// rotation webhook signing secrets. When unset, rotation webhooks fail closed
+// because the new API key can only be delivered over a signed request.
 func (r *Reaper) WithRotationSecretDecryptor(d SecretDecryptor) *Reaper {
 	r.rotationSecretDecryptor = d
 	return r
@@ -1367,6 +1367,19 @@ func (r *Reaper) autoRotateAPIKeys(ctx context.Context) {
 			}
 			continue
 		}
+		if _, err := r.rotationWebhookSigningSecret(oldKey.RotationWebhookSecret, oldKey.ID, oldKey.ProjectID); err != nil {
+			r.logger.Warn("skipping api key auto-rotation without a usable rotation webhook signing secret", "key_id", oldKey.ID, "project_id", oldKey.ProjectID, "error", err)
+			continue
+		}
+		if err := validateRotationWebhookURL(oldKey.RotationWebhookURL, r.allowPrivateEndpoints); err != nil {
+			r.logger.Warn("skipping api key auto-rotation with invalid rotation webhook URL",
+				"key_id", oldKey.ID,
+				"project_id", oldKey.ProjectID,
+				"url", httputil.RedactURLForLog(oldKey.RotationWebhookURL),
+				"error", err,
+			)
+			continue
+		}
 
 		expiresAt, err := autoRotatedAPIKeyExpiry(ctx, rotateStore, oldKey)
 		if err != nil {
@@ -1403,14 +1416,25 @@ func (r *Reaper) autoRotateAPIKeys(ctx context.Context) {
 			newKey.NextRotationAt = &nextRotation
 		}
 
-		if err := r.notifyRotationWebhook(ctx, oldKey.RotationWebhookURL, oldKey.RotationWebhookSecret, oldKey.ID, newKey.ID, rawKey, newKey.KeyPrefix, oldKey.ProjectID); err != nil {
-			r.logger.Warn("rotation webhook notification failed; keeping old key active", "key_id", oldKey.ID, "new_key_id", newKey.ID, "error", err)
+		graceExpiresAt := time.Now().Add(24 * time.Hour) // 24h grace period
+		if err := rotateStore.CreateAPIKey(ctx, newKey); err != nil {
+			r.logger.Error("failed to create auto-rotated api key before webhook delivery", "key_id", oldKey.ID, "new_key_id", newKey.ID, "error", err)
 			continue
 		}
 
-		graceExpiresAt := time.Now().Add(24 * time.Hour) // 24h grace period
-		if err := rotateStore.CreateRotatedAPIKey(ctx, oldKey.ID, newKey, graceExpiresAt); err != nil {
-			r.logger.Error("failed to atomically create rotated api key", "key_id", oldKey.ID, "new_key_id", newKey.ID, "error", err)
+		if err := r.notifyRotationWebhook(ctx, oldKey.RotationWebhookURL, oldKey.RotationWebhookSecret, oldKey.ID, newKey.ID, rawKey, newKey.KeyPrefix, oldKey.ProjectID); err != nil {
+			r.logger.Warn("rotation webhook notification failed; revoking undelivered new key and keeping old key active", "key_id", oldKey.ID, "new_key_id", newKey.ID, "error", err)
+			if revokeErr := rotateStore.RevokeAPIKey(ctx, newKey.ID); revokeErr != nil {
+				r.logger.Error("failed to revoke undelivered auto-rotated api key", "key_id", oldKey.ID, "new_key_id", newKey.ID, "error", revokeErr)
+			}
+			continue
+		}
+
+		if err := rotateStore.MarkAPIKeyRotated(ctx, oldKey.ID, newKey.ID, graceExpiresAt); err != nil {
+			r.logger.Error("failed to mark old api key rotated; revoking delivered replacement", "key_id", oldKey.ID, "new_key_id", newKey.ID, "error", err)
+			if revokeErr := rotateStore.RevokeAPIKey(ctx, newKey.ID); revokeErr != nil {
+				r.logger.Error("failed to revoke auto-rotated api key after mark failure", "key_id", oldKey.ID, "new_key_id", newKey.ID, "error", revokeErr)
+			}
 			continue
 		}
 
@@ -1471,27 +1495,13 @@ func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL string, e
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Strait-Event", "api_key.auto_rotated")
 
-	// Sign the request if we have a decryptable per-key secret. Legacy keys
-	// created before the rotation_webhook_secret column existed will continue
-	// to receive unsigned deliveries until the customer rotates them once.
-	switch {
-	case len(encryptedSecret) == 0:
-		r.logger.Warn("rotation webhook delivered without HMAC signature: api key has no rotation_webhook_secret",
-			"key_id", oldKeyID, "project_id", projectID)
-	case r.rotationSecretDecryptor == nil:
-		r.logger.Warn("rotation webhook delivered without HMAC signature: no decryptor configured",
-			"key_id", oldKeyID, "project_id", projectID)
-	default:
-		plaintext, decErr := r.rotationSecretDecryptor.Decrypt(encryptedSecret)
-		if decErr != nil {
-			r.logger.Warn("rotation webhook secret could not be decrypted; delivering unsigned",
-				"key_id", oldKeyID, "project_id", projectID, "error", decErr)
-		} else {
-			deliveryID := uuid.Must(uuid.NewV7()).String()
-			timestamp := time.Now().UTC().Format(time.RFC3339)
-			straitcrypto.SignWebhookRequest(req, canonicalRotationWebhookSecret(plaintext), payload, deliveryID, timestamp)
-		}
+	signingSecret, err := r.rotationWebhookSigningSecret(encryptedSecret, oldKeyID, projectID)
+	if err != nil {
+		return err
 	}
+	deliveryID := uuid.Must(uuid.NewV7()).String()
+	timestamp := time.Now().UTC().Format(time.RFC3339)
+	straitcrypto.SignWebhookRequest(req, signingSecret, payload, deliveryID, timestamp)
 
 	client := r.rotationWebhookClient
 	if client == nil {
@@ -1518,6 +1528,23 @@ func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL string, e
 	}
 
 	return nil
+}
+
+func (r *Reaper) rotationWebhookSigningSecret(encryptedSecret []byte, oldKeyID, projectID string) ([]byte, error) {
+	switch {
+	case len(encryptedSecret) == 0:
+		return nil, fmt.Errorf("api key %s in project %s has no rotation webhook signing secret", oldKeyID, projectID)
+	case r.rotationSecretDecryptor == nil:
+		return nil, fmt.Errorf("rotation webhook signing secret decryptor is not configured for api key %s in project %s", oldKeyID, projectID)
+	}
+	plaintext, err := r.rotationSecretDecryptor.Decrypt(encryptedSecret)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt rotation webhook signing secret for api key %s in project %s: %w", oldKeyID, projectID, err)
+	}
+	if len(plaintext) == 0 {
+		return nil, fmt.Errorf("rotation webhook signing secret is empty for api key %s in project %s", oldKeyID, projectID)
+	}
+	return canonicalRotationWebhookSecret(plaintext), nil
 }
 
 func canonicalRotationWebhookSecret(plaintext []byte) []byte {

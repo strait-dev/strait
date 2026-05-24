@@ -29,7 +29,7 @@ func ValidateEndpointURL(rawURL string, opts ...func(*endpointValidationOpts)) e
 	// Block private/internal IPs (SSRF protection).
 	host := u.Hostname()
 	ip := net.ParseIP(host)
-	if ip != nil {
+	if ip != nil && !o.allowPrivate {
 		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
 			return fmt.Errorf("URL must not point to private or loopback addresses")
 		}
@@ -48,7 +48,15 @@ func ValidateEndpointURL(rawURL string, opts ...func(*endpointValidationOpts)) e
 type EndpointValidationOpts = endpointValidationOpts
 
 type endpointValidationOpts struct {
-	requireTLS bool
+	allowPrivate bool
+	requireTLS   bool
+}
+
+// WithAllowPrivateEndpoints allows private and loopback IP literals.
+func WithAllowPrivateEndpoints(allow bool) func(*endpointValidationOpts) {
+	return func(o *endpointValidationOpts) {
+		o.allowPrivate = allow
+	}
 }
 
 // WithRequireTLS returns an option that enforces HTTPS scheme.

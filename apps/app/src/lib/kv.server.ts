@@ -48,22 +48,42 @@ function memorySet(key: string, value: string, ttlSeconds: number): void {
   });
 }
 
-/** Whether Redis writes have failed and we're using the memory fallback. */
-let useMemoryFallback = false;
+function memoryDelete(key: string): void {
+  memoryStore.delete(key);
+}
+
+function memorySetIfAbsent(
+  key: string,
+  value: string,
+  ttlSeconds: number
+): boolean {
+  if (memoryGet(key) !== null) {
+    return false;
+  }
+  memorySet(key, value, ttlSeconds);
+  return true;
+}
+
+function memoryIncrementWithTtl(key: string, ttlSeconds: number): number {
+  const current = memoryGet(key);
+  const next = current ? Number.parseInt(current, 10) + 1 : 1;
+  memorySet(key, String(Number.isFinite(next) ? next : 1), ttlSeconds);
+  return Number.isFinite(next) ? next : 1;
+}
 
 /**
  * Get a value from the KV store. Tries Redis first, falls back to memory.
  */
 export async function kvGet(key: string): Promise<string | null> {
   const kv = getKv();
-  if (!useMemoryFallback && kv) {
+  if (kv) {
     try {
       const value = await kv.get(key);
       if (value != null) {
         return value.toString();
       }
     } catch {
-      // Redis read failed, fall through to memory
+      throw new Error("KV read failed");
     }
   }
   return memoryGet(key);
@@ -81,14 +101,84 @@ export async function kvSet(
   const ttl = opts?.ex ?? 300;
   const kv = getKv();
 
-  if (!useMemoryFallback && kv) {
+  if (kv) {
     try {
       await kv.set(key, value, opts);
       return;
     } catch {
-      useMemoryFallback = true;
+      throw new Error("KV write failed");
     }
   }
 
   memorySet(key, value, ttl);
+}
+
+export async function kvDelete(key: string): Promise<void> {
+  const kv = getKv();
+  if (kv) {
+    try {
+      await kv.del(key);
+      return;
+    } catch {
+      throw new Error("KV delete failed");
+    }
+  }
+  memoryDelete(key);
+}
+
+export async function kvGetDelete(key: string): Promise<string | null> {
+  const kv = getKv();
+  if (kv) {
+    try {
+      const value = await kv.getdel(key);
+      return value == null ? null : value.toString();
+    } catch {
+      throw new Error("KV consume failed");
+    }
+  }
+
+  const value = memoryGet(key);
+  memoryDelete(key);
+  return value;
+}
+
+export async function kvSetIfAbsent(
+  key: string,
+  value: string,
+  opts?: { ex: number }
+): Promise<boolean> {
+  const ttl = opts?.ex ?? 300;
+  const kv = getKv();
+  if (kv) {
+    try {
+      const result = opts
+        ? await kv.set(key, value, { ex: opts.ex, nx: true })
+        : await kv.set(key, value, { nx: true });
+      return result === "OK";
+    } catch {
+      throw new Error("KV conditional write failed");
+    }
+  }
+
+  return memorySetIfAbsent(key, value, ttl);
+}
+
+export async function kvIncrementWithTtl(
+  key: string,
+  opts: { ex: number }
+): Promise<number> {
+  const kv = getKv();
+  if (kv) {
+    try {
+      const count = await kv.incr(key);
+      if (count === 1) {
+        await kv.expire(key, opts.ex);
+      }
+      return count;
+    } catch {
+      throw new Error("KV increment failed");
+    }
+  }
+
+  return memoryIncrementWithTtl(key, opts.ex);
 }

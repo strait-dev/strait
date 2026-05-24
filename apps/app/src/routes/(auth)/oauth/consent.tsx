@@ -1,6 +1,7 @@
 import { queryOptions, useQuery } from "@tanstack/react-query";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
+import { getRequestHeaders } from "@tanstack/react-start/server";
 import { useState } from "react";
 import { z } from "zod";
 import AuthLayout from "@/components/(auth)/auth-layout";
@@ -25,13 +26,9 @@ const LEVEL_STYLES: Record<ScopeLevel, { bg: string; text: string }> = {
 
 const HIDDEN_SCOPES = new Set<string>(OIDC_STANDARD_SCOPES);
 
-function buildSearchParams(
-  search: Record<string, string | undefined>,
-  keys: string[]
-): string {
+function buildSearchParams(search: Record<string, string | undefined>): string {
   const params = new URLSearchParams();
-  for (const key of keys) {
-    const value = search[key];
+  for (const [key, value] of Object.entries(search)) {
     if (value) {
       params.set(key, value);
     }
@@ -68,25 +65,27 @@ function parseScopes(scopeString: string | undefined) {
   };
 }
 
-const OAUTH_QUERY_KEYS = [
-  "response_type",
-  "client_id",
-  "redirect_uri",
-  "scope",
-  "state",
-  "code_challenge",
-  "code_challenge_method",
-];
+const optionalSearchParam = z.string().optional().catch(undefined);
 
-const consentSearchSchema = z.object({
-  client_id: z.string().optional().catch(undefined),
-  scope: z.string().optional().catch(undefined),
-  redirect_uri: z.string().optional().catch(undefined),
-  state: z.string().optional().catch(undefined),
-  response_type: z.string().optional().catch(undefined),
-  code_challenge: z.string().optional().catch(undefined),
-  code_challenge_method: z.string().optional().catch(undefined),
-});
+const consentSearchSchema = z
+  .object({
+    client_id: optionalSearchParam,
+    scope: optionalSearchParam,
+    redirect_uri: optionalSearchParam,
+    state: optionalSearchParam,
+    response_type: optionalSearchParam,
+    code_challenge: optionalSearchParam,
+    code_challenge_method: optionalSearchParam,
+    exp: optionalSearchParam,
+    sig: optionalSearchParam,
+    nonce: optionalSearchParam,
+    prompt: optionalSearchParam,
+    request_uri: optionalSearchParam,
+    max_age: optionalSearchParam,
+    login_hint: optionalSearchParam,
+    acr_values: optionalSearchParam,
+  })
+  .catchall(optionalSearchParam);
 
 type ClientInfo = {
   name: string;
@@ -99,16 +98,17 @@ const fetchClientInfo = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
     try {
-      const client = await ((await getAuth()).api as any).getOAuthClient({
-        body: { client_id: data.clientId },
+      const client = await ((await getAuth()).api as any).getOAuthClientPublic({
+        query: { client_id: data.clientId },
+        headers: getRequestHeaders(),
       });
       if (!client) {
         return null;
       }
       return {
-        name: (client as any).name ?? "Unknown Application",
-        clientId: (client as any).clientId ?? data.clientId,
-        redirectUrls: (client as any).redirectURLs ?? [],
+        name: (client as any).client_name ?? "Unknown Application",
+        clientId: (client as any).client_id ?? data.clientId,
+        redirectUrls: (client as any).redirect_uris ?? [],
       } satisfies ClientInfo;
     } catch (err) {
       captureException(err, {
@@ -143,22 +143,19 @@ const submitConsent = createServerFn({ method: "POST" })
         scope: data.scope,
         oauth_query: data.oauthQuery,
       },
+      headers: getRequestHeaders(),
     });
     return result;
   });
 
 export const Route = createFileRoute("/(auth)/oauth/consent")({
   validateSearch: consentSearchSchema,
-  beforeLoad: ({ context, search }) => {
+  beforeLoad: ({ context, location }) => {
     if (!context.isAuthenticated) {
-      const qs = buildSearchParams(
-        search as Record<string, string | undefined>,
-        OAUTH_QUERY_KEYS
-      );
       throw redirect({
         to: OAUTH_LOGIN_PAGE,
         search: {
-          redirect: `/oauth/consent${qs ? `?${qs}` : ""}`,
+          redirect: `/oauth/consent${location.searchStr}`,
         },
       });
     }
@@ -248,10 +245,10 @@ function OAuthConsentPage() {
     parseScopes(search.scope);
 
   // Build the oauth_query string for the consent endpoint
-  const oauthQuery = buildSearchParams(
-    search as Record<string, string | undefined>,
-    OAUTH_QUERY_KEYS
-  );
+  const oauthQuery =
+    typeof window === "undefined"
+      ? buildSearchParams(search as Record<string, string | undefined>)
+      : window.location.search.slice(1);
 
   if (!(search.client_id && search.redirect_uri)) {
     return <ConsentMissingParams />;

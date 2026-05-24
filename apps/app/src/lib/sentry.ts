@@ -1,6 +1,7 @@
 import * as Sentry from "@sentry/tanstackstart-react";
 import type { AnyRouter } from "@tanstack/react-router";
 import type { AuthUser } from "@/routes/__root";
+import { scrubSentryBreadcrumb, scrubSentryEvent } from "./sentry-scrub";
 
 /**
  * Re-exported Sentry APIs for use across the application.
@@ -12,6 +13,19 @@ const ANDROID_WEBOS_IPHONE_IPAD_IPOD_BLACKBERRY_IEMOBILE_OPERA_MINI_REGEX =
   /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i;
 
 const MAX_USER_AGENT_LENGTH = 200;
+
+type BrowserOnlySentry = typeof Sentry & {
+  replayIntegration?: (options: {
+    maskAllText: boolean;
+    blockAllMedia: boolean;
+  }) => ReturnType<typeof Sentry.tanstackRouterBrowserTracingIntegration>;
+  browserProfilingIntegration?: () => ReturnType<
+    typeof Sentry.tanstackRouterBrowserTracingIntegration
+  >;
+  feedbackIntegration?: (options: {
+    colorScheme: "system";
+  }) => ReturnType<typeof Sentry.tanstackRouterBrowserTracingIntegration>;
+};
 
 /**
  * Initialize Sentry for client-side error tracking and performance monitoring.
@@ -30,24 +44,28 @@ export function initializeSentry(router: AnyRouter) {
     const sentryDsn = import.meta.env.VITE_SENTRY_DSN;
     const sentryEnvironment = import.meta.env.VITE_SENTRY_ENVIRONMENT;
     const isProduction = import.meta.env.PROD;
+    const browserSentry = Sentry as BrowserOnlySentry;
 
     Sentry.init({
       dsn: sentryDsn,
       // Use explicit env var if set, otherwise infer from Vite's PROD flag
       environment:
         sentryEnvironment || (isProduction ? "production" : "development"),
-      // Adds request headers and IP for users, for more info visit:
-      // https://docs.sentry.io/platforms/javascript/guides/tanstackstart-react/configuration/options/#sendDefaultPii
-      sendDefaultPii: true,
+      sendDefaultPii: false,
+      beforeSend: scrubSentryEvent,
+      beforeBreadcrumb: scrubSentryBreadcrumb,
       integrations: [
         // performance
         Sentry.tanstackRouterBrowserTracingIntegration(router),
         // performance
         // session-replay
-        Sentry.replayIntegration(),
+        browserSentry.replayIntegration?.({
+          maskAllText: true,
+          blockAllMedia: true,
+        }),
         // session-replay
         // browser profiling
-        Sentry.browserProfilingIntegration(),
+        browserSentry.browserProfilingIntegration?.(),
         // browser profiling
         // logging
         // send console.log, console.warn, and console.error calls as logs to Sentry
@@ -56,12 +74,12 @@ export function initializeSentry(router: AnyRouter) {
         }),
         // logging
         // user-feedback
-        Sentry.feedbackIntegration({
+        browserSentry.feedbackIntegration?.({
           // Additional SDK configuration goes in here, for example:
           colorScheme: "system",
         }),
         // user-feedback
-      ],
+      ].filter((integration) => integration !== undefined),
       // logs
       // Enable logs to be sent to Sentry (enabled for both production and dev test page)
       enableLogs: true,
@@ -108,8 +126,6 @@ export function setSentryUser(session: { user: AuthUser } | null) {
   // Set essential user context for error debugging
   Sentry.setUser({
     id: user.id,
-    email: user.email,
-    username: user.name || user.email,
     // Organization context is critical for multi-tenant error debugging
     ...(user.defaultOrganizationId && {
       organization_id: user.defaultOrganizationId,

@@ -1,5 +1,9 @@
 import { Data, Effect, Schema } from "effect";
-import { apiRequest, type RequestOptions } from "@/lib/api-client.server";
+import {
+  apiClientErrorToError,
+  apiRequestEffect,
+  type RequestOptions,
+} from "@/lib/api-client.server";
 import { captureException } from "@/lib/sentry";
 
 /**
@@ -15,9 +19,22 @@ export class ApiError extends Data.TaggedError("ApiError")<{
   readonly cause: unknown;
 }> {}
 
+function reportableCause(cause: unknown): unknown {
+  if (
+    cause &&
+    typeof cause === "object" &&
+    "_tag" in cause &&
+    cause._tag === "ApiClientError"
+  ) {
+    return apiClientErrorToError(
+      cause as Parameters<typeof apiClientErrorToError>[0]
+    );
+  }
+  return cause;
+}
+
 /**
- * Lifts an `apiRequest` call into an Effect, converting thrown errors
- * into typed `ApiError` values.
+ * Adds call-site context to a typed Go API client Effect.
  *
  * Use this as the building block for all Go API calls inside server
  * functions. Pair with `runWithFallback` (silent fallback) or
@@ -30,11 +47,11 @@ export function apiEffect<T>(
   path: string,
   options: RequestOptions = {}
 ): Effect.Effect<T, ApiError> {
-  return Effect.tryPromise({
-    try: () => apiRequest<T>(path, options),
-    catch: (cause) =>
-      new ApiError({ path, method: options.method ?? "GET", cause }),
-  });
+  return apiRequestEffect<T>(path, options).pipe(
+    Effect.mapError(
+      (cause) => new ApiError({ path, method: options.method ?? "GET", cause })
+    )
+  );
 }
 
 /**
@@ -88,7 +105,7 @@ export function runWithFallback<T>(
     effect.pipe(
       Effect.tapError((error) =>
         Effect.sync(() =>
-          captureException(error.cause, {
+          captureException(reportableCause(error.cause), {
             tags: {
               location: "server_function",
               api_path: error.path,
@@ -118,7 +135,7 @@ export function runWithSentryReport<T>(
     effect.pipe(
       Effect.tapError((error) =>
         Effect.sync(() =>
-          captureException(error.cause, {
+          captureException(reportableCause(error.cause), {
             tags: {
               location: "server_function",
               api_path: error.path,
@@ -127,7 +144,7 @@ export function runWithSentryReport<T>(
           })
         )
       ),
-      Effect.catchAll((error) => Effect.die(error.cause))
+      Effect.catchAll((error) => Effect.die(reportableCause(error.cause)))
     )
   );
 }
