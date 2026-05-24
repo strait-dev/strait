@@ -87,6 +87,53 @@ func TestCronScheduler_LoadJobs_NoJobs(t *testing.T) {
 	}
 }
 
+func TestCronScheduler_LoadJobs_CachesDriftSchedules(t *testing.T) {
+	t.Parallel()
+	store := &mockCronStore{
+		listCronJobsFn: func(context.Context) ([]domain.Job, error) {
+			return []domain.Job{{ID: "job-1", ProjectID: "proj-1", Cron: "*/5 * * * *"}}, nil
+		},
+		listCronWorkflowsFn: func(context.Context) ([]domain.Workflow, error) {
+			return []domain.Workflow{{ID: "workflow-1", ProjectID: "proj-1", Cron: "0 * * * *"}}, nil
+		},
+	}
+
+	cs := NewCronScheduler(context.Background(), store, &mockQueue{}, &mockWorkflowTrigger{})
+	if err := cs.LoadJobs(context.Background()); err != nil {
+		t.Fatalf("LoadJobs() error = %v", err)
+	}
+
+	cs.driftMu.RLock()
+	defer cs.driftMu.RUnlock()
+	if cs.driftSchedules["*/5 * * * *"] == nil {
+		t.Fatal("expected job drift schedule to be cached")
+	}
+	if cs.driftSchedules["0 * * * *"] == nil {
+		t.Fatal("expected workflow drift schedule to be cached")
+	}
+}
+
+func TestCronScheduler_GetDriftSchedule_CachesFallbackParse(t *testing.T) {
+	t.Parallel()
+	cs := NewCronScheduler(context.Background(), &mockCronStore{}, &mockQueue{}, nil)
+
+	if schedule := cs.getDriftSchedule("*/10 * * * *"); schedule == nil {
+		t.Fatal("expected fallback schedule parse")
+	}
+	if schedule := cs.getDriftSchedule("not a cron"); schedule != nil {
+		t.Fatal("expected invalid cron expression to return nil schedule")
+	}
+
+	cs.driftMu.RLock()
+	defer cs.driftMu.RUnlock()
+	if cs.driftSchedules["*/10 * * * *"] == nil {
+		t.Fatal("expected fallback parse to populate cache")
+	}
+	if cs.driftSchedules["not a cron"] != nil {
+		t.Fatal("invalid cron expression should not be cached")
+	}
+}
+
 func TestDeepSecCronScheduler_LoadJobsReplacesStaleEntries(t *testing.T) {
 	t.Parallel()
 

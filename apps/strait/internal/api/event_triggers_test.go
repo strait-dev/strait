@@ -636,6 +636,11 @@ func TestPayloadsMatch(t *testing.T) {
 		{"one nil", json.RawMessage(`{"a":1}`), nil, false},
 		{"nil vs null literal", nil, json.RawMessage(`null`), false},
 		{"null vs null", json.RawMessage(`null`), json.RawMessage(`null`), true},
+		{"key order diff", json.RawMessage(`{"a":1,"b":2}`), json.RawMessage(`{"b":2,"a":1}`), true},
+		{"number equivalent", json.RawMessage(`{"n":1}`), json.RawMessage(`{"n":1.0}`), true},
+		{"invalid json", json.RawMessage(`{"a":`), json.RawMessage(`{"a":`), true},
+		{"invalid json different bytes", json.RawMessage(`{"a":`), json.RawMessage(`{"a":1}`), false},
+		{"array whitespace diff", json.RawMessage(`[1, 2, {"a": true}]`), json.RawMessage(`[1,2,{"a":true}]`), true},
 	}
 
 	for _, tt := range tests {
@@ -650,13 +655,23 @@ func TestPayloadsMatch(t *testing.T) {
 
 func BenchmarkPayloadsMatch(b *testing.B) {
 	identical := json.RawMessage(`{"key":"value","count":42}`)
+	whitespaceA := json.RawMessage(`{ "key" : "value", "count" : 42, "nested" : { "enabled" : true } }`)
+	whitespaceB := json.RawMessage(`{"key":"value","count":42,"nested":{"enabled":true}}`)
 	semanticA := json.RawMessage(`{"key":"value","count":42}`)
 	semanticB := json.RawMessage(`{"count":42,"key":"value"}`)
+	numberA := json.RawMessage(`{"count":1}`)
+	numberB := json.RawMessage(`{"count":1.0}`)
 	different := json.RawMessage(`{"key":"other"}`)
+	invalid := json.RawMessage(`{"key":`)
 
 	b.Run("identical", func(b *testing.B) {
 		for range b.N {
 			payloadsMatch(identical, identical)
+		}
+	})
+	b.Run("whitespace_equal", func(b *testing.B) {
+		for range b.N {
+			payloadsMatch(whitespaceA, whitespaceB)
 		}
 	})
 	b.Run("semantic_equal", func(b *testing.B) {
@@ -664,9 +679,19 @@ func BenchmarkPayloadsMatch(b *testing.B) {
 			payloadsMatch(semanticA, semanticB)
 		}
 	})
+	b.Run("number_equal", func(b *testing.B) {
+		for range b.N {
+			payloadsMatch(numberA, numberB)
+		}
+	})
 	b.Run("different", func(b *testing.B) {
 		for range b.N {
 			payloadsMatch(identical, different)
+		}
+	})
+	b.Run("invalid", func(b *testing.B) {
+		for range b.N {
+			payloadsMatch(invalid, different)
 		}
 	})
 }
