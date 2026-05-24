@@ -92,12 +92,12 @@ Each subsystem check is either critical or non-critical. A failing critical chec
 | Check | Criticality | Failing means |
 |---|---|---|
 | `database` | Critical | PostgreSQL is unreachable. Readiness fails. |
+| `redis` | Critical | Redis is unreachable. Readiness fails. |
+| `sequin_cdc` | Critical | Sequin CDC is unreachable. Readiness fails. |
 | `worker_pool` | Critical | The executor pool is exhausted with no available slots. |
 | `queue_depth` | Critical | Pending work exceeds the configured threshold. |
-| `redis` | Non-critical | Pub/sub, SSE, and worker-plane signalling degrade, but the API stays ready. |
-| `sequin_cdc` | Non-critical | Change data capture is impaired, so real-time updates lag. |
 
-`degraded` is deliberate: losing Redis should not pull every instance out of rotation, because the core job and queue paths still work on PostgreSQL alone.
+`degraded` is reserved for non-core probes such as audit posture. Losing Redis or Sequin removes core runtime capacity, so readiness reports `down`.
 
 ## Wiring probes
 

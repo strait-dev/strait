@@ -15,7 +15,7 @@ curl http://localhost:8080/health/ready -H "X-Internal-Secret: $INTERNAL_SECRET"
 **Check the logs first.** Strait logs the reason it exited on startup.
 
 ```bash
-docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml logs strait
+docker compose --env-file .env.selfhost -f docker-compose.base.yml -f docker-compose.selfhost.yml --profile core logs strait
 ```
 
 Common causes:
@@ -29,7 +29,7 @@ Common causes:
 The dashboard and the API authenticate to each other with a shared `INTERNAL_SECRET`. If they hold different values, internal calls fail. Set the same value on both processes and restart them.
 
 ```bash
-docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml restart
+docker compose --env-file .env.selfhost -f docker-compose.base.yml -f docker-compose.selfhost.yml --profile core restart
 ```
 
 Also confirm the dashboard's `STRAIT_API_URL` (or equivalent) points at a URL the dashboard can actually reach. A Cloudflare-hosted dashboard cannot call `localhost`.
@@ -41,17 +41,17 @@ Migrations run automatically on startup. A failed migration leaves the schema ma
 Find the failing migration in the logs:
 
 ```bash
-docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml logs strait | grep -i migration
+docker compose --env-file .env.selfhost -f docker-compose.base.yml -f docker-compose.selfhost.yml --profile core logs strait | grep -i migration
 ```
 
 Resolve the underlying SQL error, then restart. Do not edit historical migration files; fix the data or environment condition that made the migration fail.
 
 ## Live updates and SSE stopped working
 
-Real-time run updates, SSE streaming, and gRPC worker-plane signalling all depend on Redis. If the internal `/health` view shows `redis` or `sequin_cdc` as `down`, the instance keeps serving core API and queue traffic (those checks are non-critical and the instance reports `degraded`, not `down`), but live features are impaired.
+Real-time run updates, SSE streaming, and gRPC worker-plane signalling depend on Redis and Sequin. If `/health/ready` shows `redis` or `sequin_cdc` as `down`, readiness fails because Strait requires both services at runtime.
 
 - Verify `REDIS_URL` and that Redis is reachable.
-- If you are running without Redis on purpose, this is expected. Run with Redis to restore live updates. See [Real-time updates](/concepts/real-time).
+- Verify `SEQUIN_BASE_URL`, `SEQUIN_CONSUMER_NAME`, and that Sequin can connect to PostgreSQL with logical replication enabled. See [Real-time updates](/concepts/real-time).
 
 ## Runs are stuck or not progressing
 

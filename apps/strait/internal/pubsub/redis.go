@@ -80,7 +80,7 @@ func NewRedisClient(redisURL, sentinelMaster string, sentinelAddrs []string, poo
 	}
 
 	if redisURL == "" {
-		return nil, nil //nolint:nilnil // nil client signals Redis is disabled.
+		return nil, fmt.Errorf("REDIS_URL is required unless REDIS_SENTINEL_MASTER and REDIS_SENTINEL_ADDRS are configured")
 	}
 
 	opts, err := redis.ParseURL(redisURL)

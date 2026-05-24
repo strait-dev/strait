@@ -36,7 +36,7 @@ cd strait
 make selfhost
 ```
 
-`make selfhost` generates secrets with `./packages/scripts/selfhost-init.sh`, then starts the stack with `docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml up -d`.
+`make selfhost` generates secrets with `./packages/scripts/selfhost-init.sh`, then starts the stack with `docker compose --env-file .env.selfhost -f docker-compose.base.yml -f docker-compose.selfhost.yml --profile core --profile dashboard up -d`.
 
 Check the API and open the dashboard:
 
@@ -64,7 +64,7 @@ make selfhost-reset   # stop and wipe data and secrets
 | `strait-redis` | `redis:8-alpine` | 6379 | Pub/sub, SSE, worker-plane signalling |
 | `strait-sequin` | `sequin/sequin` | internal | Change data capture feeding real-time updates |
 
-`docker-compose.selfhost.yml` pins each image to a known-good release tag, so `docker compose up` reproduces the same combination every time. Override `STRAIT_IMAGE` or `STRAIT_APP_IMAGE` to track a different tag.
+`docker-compose.base.yml` defines the required runtime and `docker-compose.selfhost.yml` pins the self-host images to known-good release tags, so `docker compose up` reproduces the same combination every time. Override `STRAIT_IMAGE` or `STRAIT_APP_IMAGE` to track a different tag.
 
 ## Option 2: Cloudflare dashboard
 
@@ -80,8 +80,19 @@ The dashboard still needs a Strait API server. Run the API with Option 1, on a V
 |---|---|
 | PostgreSQL 18+ | Source of truth and queue (`SELECT ... FOR UPDATE SKIP LOCKED`) |
 | Redis 8+ | Pub/sub, SSE streaming, gRPC worker-plane signalling |
+| Sequin v0.14.6 | CDC stream from PostgreSQL to Strait |
 
-PostgreSQL is the only hard requirement. Strait starts without Redis, but live run updates, SSE, and the gRPC worker plane stop working. Run with Redis unless you have a specific reason not to.
+All three are required. Strait fails fast when PostgreSQL, Redis, or Sequin is missing or unreachable. PostgreSQL must run with logical replication enabled (`wal_level=logical`) so Sequin can stream changes.
+
+## Resource sizing
+
+| Install size | Host size | Recommended settings |
+|---|---|---|
+| Laptop / development | 2 CPU, 2-4 GB RAM | `WORKER_CONCURRENCY=10`, `DB_MAX_CONNS=30` |
+| Small self-host | 2 CPU, 4 GB RAM | `WORKER_CONCURRENCY=25`, `DB_MAX_CONNS=50` |
+| Production single node | 4 CPU, 8 GB RAM | `WORKER_CONCURRENCY=50`, `DB_MAX_CONNS=100` |
+
+Keep `DB_MAX_CONNS` greater than or equal to `WORKER_CONCURRENCY`, then add headroom for API requests, migrations, Sequin, and the dashboard. If you scale Strait horizontally, multiply `DB_MAX_CONNS` by the number of Strait containers and make sure PostgreSQL `max_connections` can handle the total.
 
 ## Configuration
 
@@ -91,11 +102,22 @@ Edit `.env.selfhost`, or add entries to the `environment:` block in `docker-comp
 |---|---|---|
 | `WORKER_CONCURRENCY` | `25` | Maximum concurrent job executions |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, or `error` |
+| `SEQUIN_API_TOKEN` | generated | Bearer token shared by Strait and Sequin for CDC management API calls |
 | `RATE_LIMIT_REQUESTS` | `100` | Requests per minute per IP |
 | `DEFAULT_JOB_TIMEOUT_SECS` | `300` | Default job timeout |
 | `DEFAULT_JOB_MAX_ATTEMPTS` | `3` | Default retry attempts |
 
 The full list lives in [Environment Variables](/configuration/environment-variables).
+
+## Compose profiles
+
+| Profile | Included services | Command |
+|---|---|---|
+| `core` | PostgreSQL, Redis, Sequin, migrations, Strait API/worker | `make selfhost-core` |
+| `dashboard` | Dashboard and dashboard migrations | `make selfhost` |
+| `observability` | Prometheus scrape endpoint | `make selfhost-observability` |
+
+The default `make selfhost` command starts `core` and `dashboard`. Use `make selfhost-core` for an API-only host.
 
 ## Your first job
 
@@ -125,8 +147,8 @@ curl -X POST http://localhost:8080/v1/jobs \
 ## Upgrading
 
 ```bash
-docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml pull
-docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml up -d
+docker compose --env-file .env.selfhost -f docker-compose.base.yml -f docker-compose.selfhost.yml --profile core --profile dashboard pull
+docker compose --env-file .env.selfhost -f docker-compose.base.yml -f docker-compose.selfhost.yml --profile core --profile dashboard up -d
 ```
 
 Migrations run automatically on startup.

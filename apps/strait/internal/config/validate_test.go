@@ -28,6 +28,11 @@ func validConfig() *Config {
 		WorkerDisconnectSweepInterval: 30 * time.Second,
 		WorkerDisconnectAckTimeout:    5 * time.Second,
 		GRPCPubsubStartupTimeout:      30 * time.Second,
+		DatabaseURL:                   "postgres://localhost/test",
+		RedisURL:                      "redis://localhost:6379",
+		SequinBaseURL:                 "http://localhost:7376",
+		SequinConsumerName:            "strait-cdc",
+		SequinAPIToken:                "sequin-api-token",
 		DBMaxConns:                    50,
 		DBMinConns:                    10,
 		DLQMaxPerJob:                  1000,
@@ -231,6 +236,10 @@ func FuzzValidateNeverPanics(f *testing.F) {
 func setRequiredAuditEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("REDIS_URL", "redis://localhost:6379")
+	t.Setenv("SEQUIN_BASE_URL", "http://localhost:7376")
+	t.Setenv("SEQUIN_CONSUMER_NAME", "strait-cdc")
+	t.Setenv("SEQUIN_API_TOKEN", "sequin-api-token")
 	t.Setenv("INTERNAL_SECRET", "test-secret-value")
 	t.Setenv("JWT_SIGNING_KEY", "aaaa-test-jwt-signing-key-00000000")
 	t.Setenv("AUDIT_RETENTION_DEFAULT_DAYS", "365")
@@ -410,8 +419,7 @@ func TestValidate_AuditRetentionZero(t *testing.T) {
 }
 
 func TestValidate_JWTSigningKeyExactly32Chars(t *testing.T) {
-	t.Setenv("DATABASE_URL", "postgres://localhost/test")
-	t.Setenv("INTERNAL_SECRET", "test-secret-value")
+	setRequiredAuditEnv(t)
 	t.Setenv("JWT_SIGNING_KEY", "exactly-32-characters-key-value!")
 
 	_, err := Load()
@@ -421,8 +429,7 @@ func TestValidate_JWTSigningKeyExactly32Chars(t *testing.T) {
 }
 
 func TestValidate_JWTSigningKey31Chars(t *testing.T) {
-	t.Setenv("DATABASE_URL", "postgres://localhost/test")
-	t.Setenv("INTERNAL_SECRET", "test-secret-value")
+	setRequiredAuditEnv(t)
 	t.Setenv("JWT_SIGNING_KEY", "exactly-31-characters-key-valu")
 
 	_, err := Load()
