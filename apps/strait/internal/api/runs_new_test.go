@@ -3,17 +3,13 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
-	"strait/internal/compute"
-	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/store"
 )
@@ -111,8 +107,8 @@ func TestHandleRescheduleRun_InvalidBody(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-x/reschedule", ""))
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -187,32 +183,6 @@ func TestHandleListRuns_TriggeredByFilter(t *testing.T) {
 	}
 }
 
-func TestHandleListRuns_ExecutionModeFilter_Managed(t *testing.T) {
-	t.Parallel()
-
-	var capturedMode *domain.ExecutionMode
-	ms := &APIStoreMock{
-		ListRunsByProjectFunc: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, em *domain.ExecutionMode, _ *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
-			capturedMode = em
-			return []domain.JobRun{
-				{ID: "run-managed", ExecutionMode: domain.ExecutionModeManaged, CreatedAt: time.Now()},
-			}, nil
-		},
-	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs?execution_mode=managed", "", "proj-1"))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if capturedMode == nil {
-		t.Fatal("expected execution_mode to be passed to store")
-	}
-	if *capturedMode != domain.ExecutionModeManaged {
-		t.Fatalf("expected managed, got %q", *capturedMode)
-	}
-}
-
 func TestHandleListRuns_ExecutionModeFilter_HTTP(t *testing.T) {
 	t.Parallel()
 
@@ -267,29 +237,84 @@ func TestHandleListRuns_ExecutionModeFilter_NoFilter(t *testing.T) {
 	}
 }
 
-func TestHandleListRuns_ExecutionModeFilter_CombinedWithStatus(t *testing.T) {
+func TestHandleListRuns_StatusesMultiValueFiltersResults_Unit(t *testing.T) {
 	t.Parallel()
 
 	var capturedStatus *domain.RunStatus
-	var capturedMode *domain.ExecutionMode
 	ms := &APIStoreMock{
-		ListRunsByProjectFunc: func(_ context.Context, _ string, status *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, em *domain.ExecutionMode, _ *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
+		ListRunsByProjectFunc: func(_ context.Context, _ string, status *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, _ *domain.ExecutionMode, _ *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			capturedStatus = status
-			capturedMode = em
-			return []domain.JobRun{}, nil
+			return []domain.JobRun{
+				{ID: "run-failed", Status: domain.StatusFailed, CreatedAt: time.Now().Add(-time.Minute)},
+				{ID: "run-timed-out", Status: domain.StatusTimedOut, CreatedAt: time.Now().Add(-2 * time.Minute)},
+				{ID: "run-completed", Status: domain.StatusCompleted, CreatedAt: time.Now().Add(-3 * time.Minute)},
+			}, nil
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs?status=completed&execution_mode=managed", "", "proj-1"))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs?statuses[]=failed&statuses[]=timed_out", "", "proj-1"))
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
-	if capturedStatus == nil || *capturedStatus != domain.StatusCompleted {
-		t.Fatal("expected completed status")
+
+	if capturedStatus != nil {
+		t.Fatalf("expected no single-status store filter for multi-status query, got %v", *capturedStatus)
 	}
-	if capturedMode == nil || *capturedMode != domain.ExecutionModeManaged {
-		t.Fatal("expected managed execution mode")
+	if len(ms.ListRunsByTagCalls()) != 0 {
+		t.Fatalf("expected ListRunsByTag not to be used, got %d calls", len(ms.ListRunsByTagCalls()))
+	}
+
+	var resp struct {
+		Data []domain.JobRun `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(resp.Data) != 2 {
+		t.Fatalf("len(resp.Data) = %d, want 2", len(resp.Data))
+	}
+	if resp.Data[0].ID != "run-failed" || resp.Data[1].ID != "run-timed-out" {
+		t.Fatalf("unexpected filtered runs: %+v", resp.Data)
+	}
+}
+
+func TestHandleListRuns_TagFilterComposesWithExecutionMode(t *testing.T) {
+	t.Parallel()
+
+	var capturedMode *domain.ExecutionMode
+	ms := &APIStoreMock{
+		ListRunsByProjectFunc: func(_ context.Context, _ string, _ *domain.RunStatus, _, _, _, _ *string, _ json.RawMessage, executionMode *domain.ExecutionMode, _ *string, _ int, _ *time.Time) ([]domain.JobRun, error) {
+			capturedMode = executionMode
+			return []domain.JobRun{
+				{ID: "run-infra", Status: domain.StatusFailed, Tags: map[string]string{"team": "infra"}, CreatedAt: time.Now().Add(-time.Minute)},
+				{ID: "run-app", Status: domain.StatusFailed, Tags: map[string]string{"team": "app"}, CreatedAt: time.Now().Add(-2 * time.Minute)},
+			}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs?tag_key=team&tag_value=infra&execution_mode=worker", "", "proj-1"))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if capturedMode == nil || *capturedMode != domain.ExecutionModeWorker {
+		t.Fatalf("expected worker execution mode to be passed through, got %v", capturedMode)
+	}
+	if len(ms.ListRunsByTagCalls()) != 0 {
+		t.Fatalf("expected ListRunsByTag not to be used, got %d calls", len(ms.ListRunsByTagCalls()))
+	}
+
+	var resp struct {
+		Data []domain.JobRun `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(resp.Data) != 1 || resp.Data[0].ID != "run-infra" {
+		t.Fatalf("unexpected filtered runs: %+v", resp.Data)
 	}
 }
 
@@ -449,246 +474,6 @@ func TestHandleCreateJob_MaxConcurrencyPerKey(t *testing.T) {
 	}
 }
 
-// mockContainerRuntime implements compute.ContainerRuntime for API handler tests.
-type mockContainerRuntime struct {
-	runFn     func(ctx context.Context, req compute.RunRequest) (*compute.RunResult, error)
-	createFn  func(ctx context.Context, req compute.RunRequest) (string, error)
-	waitFn    func(ctx context.Context, machineID string, timeoutSecs int) (*compute.RunResult, error)
-	startFn   func(ctx context.Context, machineID string, env map[string]string) error
-	stopFn    func(ctx context.Context, machineID string) error
-	destroyFn func(ctx context.Context, machineID string) error
-	statusFn  func(ctx context.Context, machineID string) (compute.MachineStatus, error)
-	getLogsFn func(ctx context.Context, machineID string, lines int) (string, error)
-}
-
-func (m *mockContainerRuntime) Run(ctx context.Context, req compute.RunRequest) (*compute.RunResult, error) {
-	if m.runFn != nil {
-		return m.runFn(ctx, req)
-	}
-	return &compute.RunResult{ExitCode: 0}, nil
-}
-func (m *mockContainerRuntime) Create(ctx context.Context, req compute.RunRequest) (string, error) {
-	if m.createFn != nil {
-		return m.createFn(ctx, req)
-	}
-	return "mock-machine-id", nil
-}
-func (m *mockContainerRuntime) Wait(ctx context.Context, machineID string, timeoutSecs int) (*compute.RunResult, error) {
-	if m.waitFn != nil {
-		return m.waitFn(ctx, machineID, timeoutSecs)
-	}
-	return &compute.RunResult{MachineID: machineID, ExitCode: 0}, nil
-}
-func (m *mockContainerRuntime) Start(ctx context.Context, machineID string, env map[string]string) error {
-	if m.startFn != nil {
-		return m.startFn(ctx, machineID, env)
-	}
-	return compute.ErrMachineGone
-}
-func (m *mockContainerRuntime) Stop(ctx context.Context, machineID string) error {
-	if m.stopFn != nil {
-		return m.stopFn(ctx, machineID)
-	}
-	return nil
-}
-func (m *mockContainerRuntime) Destroy(ctx context.Context, machineID string) error {
-	if m.destroyFn != nil {
-		return m.destroyFn(ctx, machineID)
-	}
-	return nil
-}
-func (m *mockContainerRuntime) Status(ctx context.Context, machineID string) (compute.MachineStatus, error) {
-	if m.statusFn != nil {
-		return m.statusFn(ctx, machineID)
-	}
-	return compute.MachineStatusStopped, nil
-}
-func (m *mockContainerRuntime) GetLogs(ctx context.Context, machineID string, lines int) (string, error) {
-	if m.getLogsFn != nil {
-		return m.getLogsFn(ctx, machineID, lines)
-	}
-	return "", nil
-}
-
-// newTestServerWithRuntime creates a test server with an optional container runtime.
-func newTestServerWithRuntime(t *testing.T, s APIStore, q *mockQueue, rt compute.ContainerRuntime) *Server {
-	t.Helper()
-	cfg := &config.Config{
-		InternalSecret:      "test-secret-value",
-		MaxBulkTriggerItems: 500,
-		JWTSigningKey:       testJWTSigningKey,
-	}
-	srv := NewServer(ServerDeps{
-		Config:           cfg,
-		Store:            s,
-		Queue:            q,
-		ContainerRuntime: rt,
-	})
-	t.Cleanup(srv.Close)
-	return srv
-}
-
-func TestHandleCancelRun_ManagedStopsContainer(t *testing.T) {
-	t.Parallel()
-
-	var stoppedMachine atomic.Value
-	rt := &mockContainerRuntime{
-		stopFn: func(_ context.Context, machineID string) error {
-			stoppedMachine.Store(machineID)
-			return nil
-		},
-	}
-
-	ms := &APIStoreMock{
-		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
-			return &domain.JobRun{
-				ID:            id,
-				JobID:         "job-1",
-				ProjectID:     "proj-1",
-				Status:        domain.StatusExecuting,
-				ExecutionMode: domain.ExecutionModeManaged,
-				MachineID:     "m-abc-123",
-			}, nil
-		},
-		UpdateRunStatusFunc: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
-			return nil
-		},
-		CancelChildRunsByParentIDsFunc: func(_ context.Context, _ []string, _ time.Time, _ string) (int64, error) {
-			return 0, nil
-		},
-	}
-
-	srv := newTestServerWithRuntime(t, ms, &mockQueue{}, rt)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/runs/run-1", ""))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	got, ok := stoppedMachine.Load().(string)
-	if !ok || got != "m-abc-123" {
-		t.Fatalf("expected Stop(m-abc-123) to be called, got %q", got)
-	}
-}
-
-func TestHandleCancelRun_StopError(t *testing.T) {
-	t.Parallel()
-
-	rt := &mockContainerRuntime{
-		stopFn: func(_ context.Context, _ string) error {
-			return errors.New("fly API down")
-		},
-	}
-
-	ms := &APIStoreMock{
-		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
-			return &domain.JobRun{
-				ID:            id,
-				JobID:         "job-1",
-				ProjectID:     "proj-1",
-				Status:        domain.StatusExecuting,
-				ExecutionMode: domain.ExecutionModeManaged,
-				MachineID:     "m-fail",
-			}, nil
-		},
-		UpdateRunStatusFunc: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
-			return nil
-		},
-		CancelChildRunsByParentIDsFunc: func(_ context.Context, _ []string, _ time.Time, _ string) (int64, error) {
-			return 0, nil
-		},
-	}
-
-	srv := newTestServerWithRuntime(t, ms, &mockQueue{}, rt)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/runs/run-1", ""))
-	// Cancel should still succeed even if Stop fails.
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 even when Stop fails, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestHandleCancelRun_HTTPRun_NoStopCall(t *testing.T) {
-	t.Parallel()
-
-	var stopCalled atomic.Bool
-	rt := &mockContainerRuntime{
-		stopFn: func(_ context.Context, _ string) error {
-			stopCalled.Store(true)
-			return nil
-		},
-	}
-
-	ms := &APIStoreMock{
-		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
-			return &domain.JobRun{
-				ID:            id,
-				JobID:         "job-1",
-				ProjectID:     "proj-1",
-				Status:        domain.StatusExecuting,
-				ExecutionMode: domain.ExecutionModeHTTP,
-				MachineID:     "m-http",
-			}, nil
-		},
-		UpdateRunStatusFunc: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
-			return nil
-		},
-		CancelChildRunsByParentIDsFunc: func(_ context.Context, _ []string, _ time.Time, _ string) (int64, error) {
-			return 0, nil
-		},
-	}
-
-	srv := newTestServerWithRuntime(t, ms, &mockQueue{}, rt)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/runs/run-1", ""))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if stopCalled.Load() {
-		t.Fatal("Stop should not be called for HTTP execution mode runs")
-	}
-}
-
-func TestHandleCancelRun_NoMachineID(t *testing.T) {
-	t.Parallel()
-
-	var stopCalled atomic.Bool
-	rt := &mockContainerRuntime{
-		stopFn: func(_ context.Context, _ string) error {
-			stopCalled.Store(true)
-			return nil
-		},
-	}
-
-	ms := &APIStoreMock{
-		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
-			return &domain.JobRun{
-				ID:            id,
-				JobID:         "job-1",
-				ProjectID:     "proj-1",
-				Status:        domain.StatusExecuting,
-				ExecutionMode: domain.ExecutionModeManaged,
-				MachineID:     "", // Empty machine ID.
-			}, nil
-		},
-		UpdateRunStatusFunc: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
-			return nil
-		},
-		CancelChildRunsByParentIDsFunc: func(_ context.Context, _ []string, _ time.Time, _ string) (int64, error) {
-			return 0, nil
-		},
-	}
-
-	srv := newTestServerWithRuntime(t, ms, &mockQueue{}, rt)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/runs/run-1", ""))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if stopCalled.Load() {
-		t.Fatal("Stop should not be called when MachineID is empty")
-	}
-}
-
 func TestParseBracketParam(t *testing.T) {
 	t.Parallel()
 
@@ -719,55 +504,20 @@ func TestParseBracketParam(t *testing.T) {
 	}
 }
 
-func TestHandlePauseRun_ManagedStopsContainer(t *testing.T) {
+func TestHandlePauseRun_HTTPRun_CanBePaused(t *testing.T) {
 	t.Parallel()
-
-	stopCalled := false
-	rt := &mockContainerRuntime{
-		stopFn: func(_ context.Context, machineID string) error {
-			if machineID != "m-1" {
-				t.Fatalf("expected m-1, got %s", machineID)
-			}
-			stopCalled = true
-			return nil
-		},
-	}
 
 	getCalls := 0
 	ms := &APIStoreMock{
 		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			getCalls++
 			if getCalls == 1 {
-				return &domain.JobRun{ID: id, Status: domain.StatusExecuting, ExecutionMode: domain.ExecutionModeManaged, MachineID: "m-1"}, nil
+				return &domain.JobRun{ID: id, Status: domain.StatusExecuting, ExecutionMode: domain.ExecutionModeHTTP}, nil
 			}
-			return &domain.JobRun{ID: id, Status: domain.StatusPaused, ExecutionMode: domain.ExecutionModeManaged}, nil
+			return &domain.JobRun{ID: id, Status: domain.StatusPaused, ExecutionMode: domain.ExecutionModeHTTP}, nil
 		},
-		UpdateRunStatusFunc: func(_ context.Context, _ string, from, to domain.RunStatus, _ map[string]any) error {
-			if from != domain.StatusExecuting || to != domain.StatusPaused {
-				t.Fatalf("unexpected transition %s -> %s", from, to)
-			}
+		UpdateRunStatusFunc: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
 			return nil
-		},
-	}
-
-	srv := newTestServerWithRuntime(t, ms, &mockQueue{}, rt)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/pause", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !stopCalled {
-		t.Error("expected Stop to be called")
-	}
-}
-
-func TestHandlePauseRun_HTTPRun_Rejected(t *testing.T) {
-	t.Parallel()
-
-	ms := &APIStoreMock{
-		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
-			return &domain.JobRun{ID: id, Status: domain.StatusExecuting, ExecutionMode: domain.ExecutionModeHTTP}, nil
 		},
 	}
 
@@ -775,8 +525,8 @@ func TestHandlePauseRun_HTTPRun_Rejected(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/pause", ""))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for HTTP run pause, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -785,7 +535,7 @@ func TestHandlePauseRun_AlreadyPaused(t *testing.T) {
 
 	ms := &APIStoreMock{
 		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
-			return &domain.JobRun{ID: id, Status: domain.StatusPaused, ExecutionMode: domain.ExecutionModeManaged}, nil
+			return &domain.JobRun{ID: id, Status: domain.StatusPaused, ExecutionMode: domain.ExecutionModeHTTP}, nil
 		},
 	}
 
@@ -803,7 +553,7 @@ func TestHandlePauseRun_TerminalRun(t *testing.T) {
 
 	ms := &APIStoreMock{
 		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
-			return &domain.JobRun{ID: id, Status: domain.StatusCompleted, ExecutionMode: domain.ExecutionModeManaged}, nil
+			return &domain.JobRun{ID: id, Status: domain.StatusCompleted, ExecutionMode: domain.ExecutionModeHTTP}, nil
 		},
 	}
 
@@ -824,9 +574,9 @@ func TestHandleResumeRun_RequeuesRun(t *testing.T) {
 		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
 			getCalls++
 			if getCalls == 1 {
-				return &domain.JobRun{ID: id, Status: domain.StatusPaused, ExecutionMode: domain.ExecutionModeManaged}, nil
+				return &domain.JobRun{ID: id, Status: domain.StatusPaused, ExecutionMode: domain.ExecutionModeHTTP}, nil
 			}
-			return &domain.JobRun{ID: id, Status: domain.StatusQueued, ExecutionMode: domain.ExecutionModeManaged}, nil
+			return &domain.JobRun{ID: id, Status: domain.StatusQueued, ExecutionMode: domain.ExecutionModeHTTP}, nil
 		},
 		UpdateRunStatusFunc: func(_ context.Context, _ string, from, to domain.RunStatus, _ map[string]any) error {
 			if from != domain.StatusPaused || to != domain.StatusQueued {
@@ -850,7 +600,7 @@ func TestHandleResumeRun_NotPaused(t *testing.T) {
 
 	ms := &APIStoreMock{
 		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
-			return &domain.JobRun{ID: id, Status: domain.StatusExecuting, ExecutionMode: domain.ExecutionModeManaged}, nil
+			return &domain.JobRun{ID: id, Status: domain.StatusExecuting, ExecutionMode: domain.ExecutionModeHTTP}, nil
 		},
 	}
 
@@ -863,141 +613,21 @@ func TestHandleResumeRun_NotPaused(t *testing.T) {
 	}
 }
 
-func TestHandleRestartRun_WithPresetOverride(t *testing.T) {
-	t.Parallel()
-
-	var capturedMetadata map[string]any
-	getCalls := 0
-	ms := &APIStoreMock{
-		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
-			getCalls++
-			if getCalls == 1 {
-				return &domain.JobRun{ID: id, Status: domain.StatusExecuting, ExecutionMode: domain.ExecutionModeManaged, MachineID: "m-1"}, nil
-			}
-			return &domain.JobRun{ID: id, Status: domain.StatusQueued, ExecutionMode: domain.ExecutionModeManaged}, nil
-		},
-		UpdateRunStatusFunc: func(_ context.Context, _ string, _, _ domain.RunStatus, fields map[string]any) error {
-			capturedMetadata = fields
-			return nil
-		},
-	}
-
-	rt := &mockContainerRuntime{}
-	srv := newTestServerWithRuntime(t, ms, &mockQueue{}, rt)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/restart", `{"machine_preset":"small-1x"}`))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if capturedMetadata == nil {
-		t.Fatal("expected metadata to be captured")
-	}
-	md, ok := capturedMetadata["metadata"].(map[string]string)
-	if !ok {
-		t.Fatalf("expected metadata to be map[string]string, got %T", capturedMetadata["metadata"])
-	}
-	if md["_preset_override"] != "small-1x" {
-		t.Errorf("expected preset override small-1x, got %q", md["_preset_override"])
-	}
-}
-
-func TestHandleRestartRun_InvalidPreset(t *testing.T) {
+func TestHandleRestartRun_WrongStatus_Rejected(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
 		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
-			return &domain.JobRun{ID: id, Status: domain.StatusExecuting, ExecutionMode: domain.ExecutionModeManaged}, nil
+			return &domain.JobRun{ID: id, Status: domain.StatusCompleted, ExecutionMode: domain.ExecutionModeHTTP}, nil
 		},
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/restart", `{"machine_preset":"invalid_preset"}`))
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/restart", `{}`))
 
 	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-// Resume run tests.
-
-func TestHandleResumeRun_PreservesMachineID(t *testing.T) {
-	t.Parallel()
-
-	var capturedFields map[string]any
-	getCalls := 0
-	ms := &APIStoreMock{
-		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
-			getCalls++
-			if getCalls == 1 {
-				return &domain.JobRun{ID: id, Status: domain.StatusPaused, MachineID: "m-paused", ExecutionMode: domain.ExecutionModeManaged}, nil
-			}
-			return &domain.JobRun{ID: id, Status: domain.StatusQueued, MachineID: "m-paused", ExecutionMode: domain.ExecutionModeManaged}, nil
-		},
-		UpdateRunStatusFunc: func(_ context.Context, _ string, _, _ domain.RunStatus, fields map[string]any) error {
-			capturedFields = fields
-			return nil
-		},
-	}
-
-	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/resume", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if _, hasMachineID := capturedFields["machine_id"]; hasMachineID {
-		t.Error("resume should NOT clear machine_id (preserve for warm start)")
-	}
-}
-
-func TestHandlePauseRun_ThenResume_EndToEnd(t *testing.T) {
-	t.Parallel()
-
-	runState := &domain.JobRun{
-		ID:            "run-1",
-		Status:        domain.StatusExecuting,
-		ExecutionMode: domain.ExecutionModeManaged,
-		MachineID:     "m-1",
-	}
-	ms := &APIStoreMock{
-		GetRunFunc: func(_ context.Context, _ string) (*domain.JobRun, error) {
-			return runState, nil
-		},
-		UpdateRunStatusFunc: func(_ context.Context, _ string, from, to domain.RunStatus, _ map[string]any) error {
-			if from == domain.StatusExecuting && to == domain.StatusPaused {
-				runState.Status = domain.StatusPaused
-			} else if from == domain.StatusPaused && to == domain.StatusQueued {
-				runState.Status = domain.StatusQueued
-			}
-			return nil
-		},
-	}
-	rt := &mockContainerRuntime{}
-
-	srv := newTestServerWithRuntime(t, ms, &mockQueue{}, rt)
-
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/pause", ""))
-	if w.Code != http.StatusOK {
-		t.Fatalf("pause: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if runState.Status != domain.StatusPaused {
-		t.Fatalf("expected paused, got %s", runState.Status)
-	}
-
-	w = httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/resume", ""))
-	if w.Code != http.StatusOK {
-		t.Fatalf("resume: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if runState.Status != domain.StatusQueued {
-		t.Fatalf("expected queued after resume, got %s", runState.Status)
-	}
-	if runState.MachineID != "m-1" {
-		t.Errorf("expected machine_id preserved, got %q", runState.MachineID)
+		t.Fatalf("expected 400 for completed run restart, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -1031,46 +661,6 @@ func TestHandleResumeRun_AlreadyQueued(t *testing.T) {
 	}
 }
 
-// Pause run tests.
-
-func TestHandlePauseRun_ContainerStopFails_StillPauses(t *testing.T) {
-	t.Parallel()
-
-	var paused bool
-	getCalls := 0
-	ms := &APIStoreMock{
-		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
-			getCalls++
-			if getCalls == 1 {
-				return &domain.JobRun{ID: id, Status: domain.StatusExecuting, ExecutionMode: domain.ExecutionModeManaged, MachineID: "m-1"}, nil
-			}
-			return &domain.JobRun{ID: id, Status: domain.StatusPaused, ExecutionMode: domain.ExecutionModeManaged, MachineID: "m-1"}, nil
-		},
-		UpdateRunStatusFunc: func(_ context.Context, _ string, from, to domain.RunStatus, _ map[string]any) error {
-			if from == domain.StatusExecuting && to == domain.StatusPaused {
-				paused = true
-			}
-			return nil
-		},
-	}
-	rt := &mockContainerRuntime{
-		stopFn: func(_ context.Context, _ string) error {
-			return errors.New("stop failed")
-		},
-	}
-
-	srv := newTestServerWithRuntime(t, ms, &mockQueue{}, rt)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/pause", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !paused {
-		t.Error("expected run to be paused even when container stop fails")
-	}
-}
-
 func TestHandlePauseRun_NotFound(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
@@ -1083,78 +673,6 @@ func TestHandlePauseRun_NotFound(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-gone/pause", ""))
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestHandleRestartRun_PausedState_StopsNotCalled(t *testing.T) {
-	t.Parallel()
-
-	var stopCalled atomic.Bool
-	getCalls := 0
-	ms := &APIStoreMock{
-		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
-			getCalls++
-			if getCalls == 1 {
-				return &domain.JobRun{ID: id, Status: domain.StatusPaused, ExecutionMode: domain.ExecutionModeManaged, MachineID: "m-1"}, nil
-			}
-			return &domain.JobRun{ID: id, Status: domain.StatusQueued, ExecutionMode: domain.ExecutionModeManaged}, nil
-		},
-		UpdateRunStatusFunc: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
-			return nil
-		},
-	}
-	rt := &mockContainerRuntime{
-		stopFn: func(_ context.Context, _ string) error {
-			stopCalled.Store(true)
-			return nil
-		},
-	}
-
-	srv := newTestServerWithRuntime(t, ms, &mockQueue{}, rt)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/restart", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if stopCalled.Load() {
-		t.Error("Stop should not be called for paused runs (machine already stopped)")
-	}
-}
-
-func TestHandleRestartRun_ExecutingState_StopsCalled(t *testing.T) {
-	t.Parallel()
-
-	var stopCalled atomic.Bool
-	getCalls := 0
-	ms := &APIStoreMock{
-		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
-			getCalls++
-			if getCalls == 1 {
-				return &domain.JobRun{ID: id, Status: domain.StatusExecuting, ExecutionMode: domain.ExecutionModeManaged, MachineID: "m-1"}, nil
-			}
-			return &domain.JobRun{ID: id, Status: domain.StatusQueued, ExecutionMode: domain.ExecutionModeManaged}, nil
-		},
-		UpdateRunStatusFunc: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
-			return nil
-		},
-	}
-	rt := &mockContainerRuntime{
-		stopFn: func(_ context.Context, _ string) error {
-			stopCalled.Store(true)
-			return nil
-		},
-	}
-
-	srv := newTestServerWithRuntime(t, ms, &mockQueue{}, rt)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/restart", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !stopCalled.Load() {
-		t.Error("Stop should be called for executing runs on restart")
 	}
 }
 

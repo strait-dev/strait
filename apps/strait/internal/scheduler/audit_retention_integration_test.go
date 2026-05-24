@@ -32,17 +32,31 @@ func seedAuditEvent(t *testing.T, ctx context.Context, pool *pgxpool.Pool, proje
 	}
 }
 
-// seedProjectQuotaRetention inserts a project_quotas row with a custom
-// audit_retention_days. 0 means "disable trim" (per plan semantics).
+// seedProjectQuotaRetention inserts an explicit project_quotas retention
+// override. 0 means "disable trim" because the override flag is set.
 func seedProjectQuotaRetention(t *testing.T, ctx context.Context, pool *pgxpool.Pool, projectID string, days int) {
 	t.Helper()
 	_, err := pool.Exec(ctx, `
-		INSERT INTO project_quotas (project_id, audit_retention_days)
-		VALUES ($1, $2)
-		ON CONFLICT (project_id) DO UPDATE SET audit_retention_days = EXCLUDED.audit_retention_days
+		INSERT INTO project_quotas (project_id, audit_retention_days, audit_retention_override_set)
+		VALUES ($1, $2, TRUE)
+		ON CONFLICT (project_id) DO UPDATE SET
+			audit_retention_days = EXCLUDED.audit_retention_days,
+			audit_retention_override_set = TRUE
 	`, projectID, days)
 	if err != nil {
 		t.Fatalf("seed project_quotas: %v", err)
+	}
+}
+
+func seedDefaultQuotaRow(t *testing.T, ctx context.Context, pool *pgxpool.Pool, projectID string) {
+	t.Helper()
+	_, err := pool.Exec(ctx, `
+		INSERT INTO project_quotas (project_id, max_queued_runs)
+		VALUES ($1, 10)
+		ON CONFLICT (project_id) DO UPDATE SET max_queued_runs = EXCLUDED.max_queued_runs
+	`, projectID)
+	if err != nil {
+		t.Fatalf("seed default project_quotas row: %v", err)
 	}
 }
 
@@ -121,6 +135,28 @@ func TestReapAuditEvents_ZeroDaysDisables(t *testing.T) {
 
 	if got := countAuditEvents(t, ctx, pool, projID); got != 1 {
 		t.Errorf("rows after reap with days=0 = %d, want 1 (trim disabled)", got)
+	}
+}
+
+func TestReapAuditEvents_DefaultQuotaRowInheritsDefaultRetention(t *testing.T) {
+	ctx := context.Background()
+	intTestClean(t, ctx)
+
+	q := intTestStore(t)
+	pool := getTestDB(t).Pool
+
+	const projID = "proj-retention-default-row"
+	seedDefaultQuotaRow(t, ctx, pool, projID)
+
+	old := time.Now().UTC().Add(-400 * 24 * time.Hour)
+	seedAuditEvent(t, ctx, pool, projID, old)
+
+	r := scheduler.NewReaper(q, time.Second, time.Minute, 0, 0, false, nil).
+		WithAuditRetention(30)
+	r.ReapOnce(ctx)
+
+	if got := countNonAnchorAuditEvents(t, ctx, pool, projID); got != 0 {
+		t.Errorf("non-anchor rows after reap = %d, want 0 (default quota row inherits global retention)", got)
 	}
 }
 

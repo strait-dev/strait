@@ -276,11 +276,15 @@ func TestSnooze_MaxTimestamp(t *testing.T) {
 		t.Fatalf("expected 1 status update, got %d", len(calls))
 	}
 
-	// The retry_at field should be set to the far-future time.
-	if retryAt, ok := calls[0].fields["next_retry_at"].(*time.Time); ok {
-		if !retryAt.Equal(farFuture) {
-			t.Fatalf("expected retry_at = %v, got %v", farFuture, *retryAt)
-		}
+	if _, ok := calls[0].fields["next_retry_at"]; ok {
+		t.Fatalf("next_retry_at must not be in fields map; retry schedule lives in job_retries")
+	}
+	scheduled := store.scheduleRetries()
+	if len(scheduled) != 1 {
+		t.Fatalf("expected 1 ScheduleRetry call, got %d", len(scheduled))
+	}
+	if !scheduled[0].at.Equal(farFuture) {
+		t.Fatalf("expected ScheduleRetry at = %v, got %v", farFuture, scheduled[0].at)
 	}
 }
 

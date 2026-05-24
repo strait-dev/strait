@@ -70,6 +70,64 @@ func TestHandleCreateSecret_Success(t *testing.T) {
 	}
 }
 
+type countingSecretEncryptor struct {
+	calls int
+}
+
+func (e *countingSecretEncryptor) Encrypt(plaintext []byte) ([]byte, error) {
+	e.calls++
+	return append([]byte("api-encrypted:"), plaintext...), nil
+}
+
+func (e *countingSecretEncryptor) Decrypt(ciphertext []byte) ([]byte, error) {
+	return ciphertext, nil
+}
+
+func TestHandleCreateSecret_LeavesEncryptionToStore(t *testing.T) {
+	t.Parallel()
+
+	apiEncryptor := &countingSecretEncryptor{}
+	var storedValue string
+	ms := &APIStoreMock{
+		CreateJobSecretFunc: func(_ context.Context, secret *domain.JobSecret) error {
+			storedValue = secret.EncryptedValue
+			secret.ID = "sec-plain"
+			secret.KeyVersion = 1
+			secret.CreatedAt = time.Now().UTC()
+			secret.UpdatedAt = secret.CreatedAt
+			return nil
+		},
+	}
+	cfg := &config.Config{
+		InternalSecret:      "test-secret-value",
+		MaxBulkTriggerItems: 500,
+		JWTSigningKey:       testJWTSigningKey,
+		SecretEncryptionKey: "test-encryption-key-32-chars-ok",
+	}
+	srv := NewServer(ServerDeps{
+		Config:    cfg,
+		Store:     ms,
+		Queue:     &mockQueue{},
+		Encryptor: apiEncryptor,
+		Edition:   domain.EditionCloud,
+	})
+	t.Cleanup(srv.Close)
+
+	body := `{"project_id":"proj-1","job_id":"job-1","environment":"production","secret_key":"API_KEY","value":"super-secret"}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/secrets/", body))
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if storedValue != "super-secret" {
+		t.Fatalf("store should receive plaintext exactly once, got %q", storedValue)
+	}
+	if apiEncryptor.calls != 0 {
+		t.Fatalf("api encryptor should not encrypt job secrets; got %d calls", apiEncryptor.calls)
+	}
+}
+
 func TestHandleCreateSecret_MissingFields(t *testing.T) {
 	t.Parallel()
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
@@ -77,8 +135,8 @@ func TestHandleCreateSecret_MissingFields(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/secrets/", `{"project_id":"proj-1"}`))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", w.Code)
 	}
 }
 

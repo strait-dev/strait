@@ -16,21 +16,14 @@ import {
 } from "@strait/ui/components/table";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from "recharts";
 import { projectCostsQueryOptions } from "@/hooks/billing/use-project-costs";
 import { formatMicroUsd } from "@/lib/format";
 import { CHART_COLORS } from "@/lib/status-colors";
 import ChartTooltip from "../dashboard/chart-tooltip";
-import MetricsCard from "./metrics-card";
+import ResponsiveChartContainer from "../dashboard/responsive-chart-container";
 import ProjectBudgetDialog from "./project-budget-dialog";
+import UsageStatCard from "./usage-stat-card";
 
 type BudgetDialogState = {
   projectId: string;
@@ -76,13 +69,19 @@ const ProjectCostsTab = () => {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <MetricsCard label="Total Runs" value={totals.runs.toLocaleString()} />
-        <MetricsCard
+        <UsageStatCard
+          label="Total Runs"
+          value={totals.runs.toLocaleString()}
+        />
+        <UsageStatCard
           label="Compute Cost"
           value={formatMicroUsd(totals.compute)}
         />
-        <MetricsCard label="AI Cost" value={formatMicroUsd(totals.ai)} />
-        <MetricsCard label="Total Cost" value={formatMicroUsd(totals.total)} />
+        <UsageStatCard label="AI Cost" value={formatMicroUsd(totals.ai)} />
+        <UsageStatCard
+          label="Total Cost"
+          value={formatMicroUsd(totals.total)}
+        />
       </div>
 
       <Card>
@@ -95,7 +94,7 @@ const ProjectCostsTab = () => {
               height: `${Math.max(200, costs.length * 36)}px`,
             }}
           >
-            <ResponsiveContainer
+            <ResponsiveChartContainer
               height="100%"
               minHeight={1}
               minWidth={1}
@@ -140,7 +139,7 @@ const ProjectCostsTab = () => {
                   radius={[0, 4, 4, 0]}
                 />
               </BarChart>
-            </ResponsiveContainer>
+            </ResponsiveChartContainer>
           </div>
         </CardContent>
       </Card>

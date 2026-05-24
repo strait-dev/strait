@@ -27,6 +27,9 @@ func newServerWithSIEM(t *testing.T, s APIStore, endpoint string, batchSize int,
 		JWTSigningKey:       testJWTSigningKey,
 	}
 	drain := logdrain.NewAuditSIEMDrain(endpoint, "", batchSize, flushInterval)
+	if drain != nil {
+		drain.SetHTTPClientForTest(&http.Client{Timeout: 30 * time.Second})
+	}
 	srv := NewServer(ServerDeps{
 		Config:    cfg,
 		Store:     s,

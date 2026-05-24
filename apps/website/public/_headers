@@ -1,6 +1,0 @@
-/*
-  Link: <https://assets.basehub.com>; rel=preconnect; crossorigin, <https://basehub.earth>; rel=preconnect; crossorigin
-  X-Robots-Tag: all
-
-/
-  Link: </.well-known/api-catalog>; rel="api-catalog", </llms.txt>; rel="describedby"; type="text/plain", </llms-full.txt>; rel="describedby"; type="text/plain", <https://docs.strait.dev>; rel="service-doc", <https://docs.strait.dev/api-reference>; rel="service-desc"

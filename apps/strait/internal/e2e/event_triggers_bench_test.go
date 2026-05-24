@@ -18,7 +18,7 @@ func BenchmarkListExpiredEventTriggers(b *testing.B) {
 	ctx := context.Background()
 
 	// Seed 1000 expired waiting triggers.
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		trigger := &domain.EventTrigger{
 			ID:          fmt.Sprintf("bench-exp-%d", i),
 			EventKey:    fmt.Sprintf("bench:expired:%d", i),
@@ -36,7 +36,7 @@ func BenchmarkListExpiredEventTriggers(b *testing.B) {
 	}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		triggers, err := testStore.ListExpiredEventTriggers(ctx)
 		if err != nil {
 			b.Fatalf("ListExpiredEventTriggers: %v", err)
@@ -51,7 +51,7 @@ func BenchmarkListByKeyPrefix(b *testing.B) {
 	ctx := context.Background()
 
 	// Seed 1000 waiting triggers with common prefix.
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		trigger := &domain.EventTrigger{
 			ID:          fmt.Sprintf("bench-pfx-%d", i),
 			EventKey:    fmt.Sprintf("bench:prefix:%d", i),
@@ -69,7 +69,7 @@ func BenchmarkListByKeyPrefix(b *testing.B) {
 	}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		triggers, err := testStore.ListEventTriggersByKeyPrefix(ctx, "bench-proj", "bench:prefix:")
 		if err != nil {
 			b.Fatalf("ListEventTriggersByKeyPrefix: %v", err)

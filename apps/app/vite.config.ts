@@ -7,6 +7,7 @@ import viteReact from "@vitejs/plugin-react";
 import type { Plugin } from "vite";
 import { defineConfig } from "vite";
 import { ngrok } from "vite-plugin-ngrok";
+import { resolveSentryRelease } from "./scripts/sentry-release";
 
 const enableNgrok = !!process.env.NGROK_AUTHTOKEN && !process.env.DISABLE_NGROK;
 
@@ -19,6 +20,20 @@ const enableNgrok = !!process.env.NGROK_AUTHTOKEN && !process.env.DISABLE_NGROK;
  */
 const buildTarget: "cloudflare" | "node" =
   process.env.BUILD_TARGET === "node" ? "node" : "cloudflare";
+
+const emitSourcemapsForSentry =
+  buildTarget === "cloudflare" &&
+  process.env.SENTRY_UPLOAD_SOURCEMAPS === "true";
+
+const sentryRelease = maybeResolveSentryRelease(process.env);
+
+function maybeResolveSentryRelease(env: NodeJS.ProcessEnv): string | undefined {
+  try {
+    return resolveSentryRelease(env);
+  } catch {
+    return;
+  }
+}
 
 /**
  * Virtual-module shim for the `cloudflare:workers` import scheme.
@@ -58,33 +73,41 @@ function shimCloudflareWorkers(): Plugin {
 }
 
 /**
- * Vite plugin that serves /.well-known/oauth-authorization-server and
- * /.well-known/openid-configuration by calling the Better Auth API
+ * Vite plugin that serves OAuth well-known metadata by calling the Better Auth API
  * programmatically. TanStack Start's file router ignores dot-prefixed
  * directories, so these must be handled as server middleware.
  */
 function wellKnownOAuthPlugin(): Plugin {
+  const oauthServerConfigPaths = new Set([
+    "/.well-known/oauth-authorization-server",
+    "/.well-known/oauth-authorization-server/api/auth",
+  ]);
+  const openIdConfigPaths = new Set([
+    "/.well-known/openid-configuration",
+    "/api/auth/.well-known/openid-configuration",
+  ]);
+
   return {
     name: "well-known-oauth",
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
+        const path = req.url?.split("?")[0] ?? "";
         if (
-          req.url !== "/.well-known/oauth-authorization-server" &&
-          req.url !== "/.well-known/openid-configuration"
+          !(oauthServerConfigPaths.has(path) || openIdConfigPaths.has(path))
         ) {
           return next();
         }
 
         try {
           // Dynamic import to avoid loading auth.server.ts at Vite config time
-          const { auth } = await server.ssrLoadModule(
+          const { getAuth } = await server.ssrLoadModule(
             "/src/lib/auth.server.ts"
           );
+          const auth = await getAuth();
 
-          const data =
-            req.url === "/.well-known/oauth-authorization-server"
-              ? await auth.api.getOAuthServerConfig()
-              : await auth.api.getOpenIdConfig();
+          const data = oauthServerConfigPaths.has(path)
+            ? await auth.api.getOAuthServerConfig()
+            : await auth.api.getOpenIdConfig();
 
           res.writeHead(200, {
             "Content-Type": "application/json",
@@ -103,7 +126,7 @@ function wellKnownOAuthPlugin(): Plugin {
   };
 }
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   resolve: {
     tsconfigPaths: true,
   },
@@ -112,7 +135,7 @@ export default defineConfig({
       ? [cloudflare({ viteEnvironment: { name: "ssr" } })]
       : [shimCloudflareWorkers()]),
     wellKnownOAuthPlugin(),
-    devtools(),
+    ...(command === "serve" ? [devtools()] : []),
     tailwindcss(),
     tanstackStart({
       router: {
@@ -125,6 +148,16 @@ export default defineConfig({
       org: process.env.SENTRY_ORG,
       project: process.env.SENTRY_PROJECT,
       authToken: process.env.SENTRY_AUTH_TOKEN,
+      ...(sentryRelease
+        ? {
+            release: {
+              name: sentryRelease,
+              inject: true,
+              create: false,
+              finalize: false,
+            },
+          }
+        : {}),
     }),
     ...(enableNgrok ? [ngrok()] : []),
   ],
@@ -134,6 +167,7 @@ export default defineConfig({
     exclude: ["@electric-sql/pglite", "drizzle-orm/pglite"],
   },
   build: {
+    sourcemap: emitSourcemapsForSentry,
     rollupOptions: {
       // Externalize PGlite and test-only dependencies to prevent bundling
       // PGlite is a 20MB in-memory PostgreSQL used only for API tests
@@ -158,4 +192,4 @@ export default defineConfig({
     port: 5173,
     host: true,
   },
-});
+}));

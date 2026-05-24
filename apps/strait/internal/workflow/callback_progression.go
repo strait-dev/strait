@@ -6,14 +6,28 @@ import (
 	"fmt"
 	"hash/fnv"
 	"slices"
+	"strconv"
 	"time"
 
 	"strait/internal/domain"
 
 	"github.com/samber/lo"
+	"go.opentelemetry.io/otel"
 	otelattr "go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
 )
+
+var stepQueueDuration otelmetric.Float64Histogram
+
+func init() {
+	meter := otel.Meter("strait/workflow")
+	stepQueueDuration, _ = meter.Float64Histogram(
+		"strait_workflow_step_queue_seconds",
+		otelmetric.WithDescription("Time between step run creation and scheduling"),
+		otelmetric.WithUnit("s"),
+		otelmetric.WithExplicitBucketBoundaries(0.1, 0.5, 1, 5, 10, 30, 60, 300),
+	)
+}
 
 func (s *StepCallback) fanInAndStartReadyChildren(ctx context.Context, stepRun *domain.WorkflowStepRun, wc *wfCtx) error {
 	lockID := advisoryXactLockIDForStepRun(stepRun.ID)
@@ -74,7 +88,10 @@ func (s *StepCallback) scheduleRunnableSteps(
 			runningByResourceClass[effectiveResourceClass(st.ResourceClass)]++
 		}
 	}
-
+	prefetchedOutputs, err := s.prefetchStepOutputs(ctx, wfRun.ID, runnableStepRuns, stepByRef)
+	if err != nil {
+		return err
+	}
 	for _, sr := range runnableStepRuns {
 		if sr.Status.IsTerminal() || sr.Status == domain.StepRunning {
 			continue
@@ -110,17 +127,21 @@ func (s *StepCallback) scheduleRunnableSteps(
 			if err := s.store.UpdateStepRunStatus(ctx, sr.ID, domain.StepSkipped, map[string]any{"finished_at": now}); err != nil {
 				return fmt.Errorf("skip step %s: %w", stepDef.StepRef, err)
 			}
+			recordWorkflowStepTransition(ctx, string(sr.Status), string(domain.StepSkipped))
+			recordWorkflowStepDuration(ctx, string(stepDef.StepType), workflowStepOutcome(domain.StepSkipped), sr.StartedAt, now)
 			stepStatuses[sr.StepRef] = domain.StepSkipped
 			continue
 		}
 
 		var parentOutputsPayload json.RawMessage
-		if len(stepDef.DependsOn) > 0 {
-			outputs, err := s.store.GetStepOutputs(ctx, sr.WorkflowRunID, stepDef.DependsOn)
-			if err != nil {
-				return fmt.Errorf("get step outputs for %s: %w", stepDef.StepRef, err)
+		if len(stepDef.DependsOn) > 0 && prefetchedOutputs != nil {
+			stepOutputs := make(map[string]json.RawMessage, len(stepDef.DependsOn))
+			for _, dep := range stepDef.DependsOn {
+				if out, ok := prefetchedOutputs[dep]; ok {
+					stepOutputs[dep] = out
+				}
 			}
-			payload, err := json.Marshal(outputs)
+			payload, err := json.Marshal(stepOutputs)
 			if err != nil {
 				return fmt.Errorf("marshal parent outputs for %s: %w", stepDef.StepRef, err)
 			}
@@ -135,6 +156,7 @@ func (s *StepCallback) scheduleRunnableSteps(
 		stepStatuses[sr.StepRef] = srCopy.Status
 		if srCopy.Status == domain.StepRunning {
 			s.recordStepWaitDuration(ctx, wfRun, stepCopy, sr)
+			recordStepQueueDuration(ctx, stepDef.StepRef, sr.CreatedAt)
 			runningStepCount++
 			if stepCopy.ConcurrencyKey != "" {
 				runningByConcurrencyKey[stepCopy.ConcurrencyKey]++
@@ -191,29 +213,21 @@ func (s *StepCallback) checkWorkflowCompletion(ctx context.Context, workflowRunI
 	// Update wc.run so downstream (propagateToParent) sees the latest state.
 	wc.run = wfRun
 
-	policyByRef := lo.Associate(wc.steps, func(step domain.WorkflowStep) (string, domain.FailurePolicy) {
-		return step.StepRef, step.OnFailure
-	})
-
 	failedStepRefs, err := s.store.ListFailedStepRunRefs(ctx, workflowRunID)
 	if err != nil {
 		return fmt.Errorf("list failed step refs: %w", err)
 	}
 
-	hasFailingStep := false
-	for _, stepRef := range failedStepRefs {
-		if policyByRef[stepRef] != domain.Continue {
-			hasFailingStep = true
-			break
-		}
-	}
-
 	now := time.Now()
-	if hasFailingStep {
+	if hasBlockingFailedStep(wc.steps, failedStepRefs) {
+		fromStatus := wfRun.Status
 		if err := s.store.UpdateWorkflowRunStatus(ctx, wfRun.ID, wfRun.Status, domain.WfStatusFailed, map[string]any{"finished_at": now}); err != nil {
 			return fmt.Errorf("mark workflow run failed: %w", err)
 		}
+		recordWorkflowActiveRunDelta(ctx, wfRun.ProjectID, -1)
 		wfRun.Status = domain.WfStatusFailed
+		wfRun.FinishedAt = &now
+		s.publishWorkflowRunStatus(ctx, wfRun, fromStatus, domain.WfStatusFailed, "workflow_completion")
 		if wfRun.ParentWorkflowRunID != "" {
 			stepRuns, listErr := s.store.ListStepRunsByWorkflowRun(ctx, workflowRunID, 10000, nil)
 			if listErr != nil {
@@ -224,10 +238,14 @@ func (s *StepCallback) checkWorkflowCompletion(ctx context.Context, workflowRunI
 		return nil
 	}
 
+	fromStatus := wfRun.Status
 	if err := s.store.UpdateWorkflowRunStatus(ctx, wfRun.ID, wfRun.Status, domain.WfStatusCompleted, map[string]any{"finished_at": now}); err != nil {
 		return fmt.Errorf("mark workflow run completed: %w", err)
 	}
+	recordWorkflowActiveRunDelta(ctx, wfRun.ProjectID, -1)
 	wfRun.Status = domain.WfStatusCompleted
+	wfRun.FinishedAt = &now
+	s.publishWorkflowRunStatus(ctx, wfRun, fromStatus, domain.WfStatusCompleted, "workflow_completion")
 	if wfRun.ParentWorkflowRunID != "" {
 		stepRuns, listErr := s.store.ListStepRunsByWorkflowRun(ctx, workflowRunID, 10000, nil)
 		if listErr != nil {
@@ -238,10 +256,40 @@ func (s *StepCallback) checkWorkflowCompletion(ctx context.Context, workflowRunI
 	return nil
 }
 
+func hasBlockingFailedStep(steps []domain.WorkflowStep, failedStepRefs []string) bool {
+	switch len(failedStepRefs) {
+	case 0:
+		return false
+	case 1:
+		return failurePolicyForStepRef(steps, failedStepRefs[0]) != domain.Continue
+	}
+
+	failedRefs := make(map[string]struct{}, len(failedStepRefs))
+	for _, stepRef := range failedStepRefs {
+		failedRefs[stepRef] = struct{}{}
+	}
+	for _, step := range steps {
+		if _, failed := failedRefs[step.StepRef]; failed {
+			if step.OnFailure != domain.Continue {
+				return true
+			}
+			delete(failedRefs, step.StepRef)
+		}
+	}
+	return len(failedRefs) > 0
+}
+
+func failurePolicyForStepRef(steps []domain.WorkflowStep, stepRef string) domain.FailurePolicy {
+	for _, step := range steps {
+		if step.StepRef == stepRef {
+			return step.OnFailure
+		}
+	}
+	return ""
+}
+
 // propagateToParent propagates the terminal status of a child workflow run
 // back to the parent step run that spawned it via sub_workflow.
-//
-//nolint:cyclop
 func (s *StepCallback) propagateToParent(ctx context.Context, childRun *domain.WorkflowRun, childStepRuns []domain.WorkflowStepRun) error {
 	if childRun.ParentWorkflowRunID == "" {
 		return nil
@@ -305,18 +353,7 @@ func (s *StepCallback) propagateToParent(ctx context.Context, childRun *domain.W
 	switch childRun.Status {
 	case domain.WfStatusCompleted:
 		// Aggregate child step outputs as the parent step's output.
-		var outputPayload json.RawMessage
-		if len(childStepRuns) > 0 {
-			outputs := lo.Associate(
-				lo.Filter(childStepRuns, func(sr domain.WorkflowStepRun, _ int) bool { return len(sr.Output) > 0 }),
-				func(sr domain.WorkflowStepRun) (string, json.RawMessage) { return sr.StepRef, sr.Output },
-			)
-			if len(outputs) > 0 {
-				if raw, marshalErr := json.Marshal(outputs); marshalErr == nil {
-					outputPayload = raw
-				}
-			}
-		}
+		outputPayload := aggregateChildStepOutputs(childStepRuns)
 
 		fields := map[string]any{"finished_at": now}
 		if len(outputPayload) > 0 {
@@ -325,6 +362,7 @@ func (s *StepCallback) propagateToParent(ctx context.Context, childRun *domain.W
 		if err := s.store.UpdateStepRunStatus(ctx, parentStepRun.ID, domain.StepCompleted, fields); err != nil {
 			return fmt.Errorf("complete parent step run for sub-workflow: %w", err)
 		}
+		recordSubWorkflowStepTerminal(ctx, parentStepRun, domain.StepCompleted, now)
 		parentStepRun.Status = domain.StepCompleted
 		if len(outputPayload) > 0 {
 			parentStepRun.Output = outputPayload
@@ -347,6 +385,7 @@ func (s *StepCallback) propagateToParent(ctx context.Context, childRun *domain.W
 		if err := s.store.UpdateStepRunStatus(ctx, parentStepRun.ID, domain.StepFailed, fields); err != nil {
 			return fmt.Errorf("fail parent step run for sub-workflow: %w", err)
 		}
+		recordSubWorkflowStepTerminal(ctx, parentStepRun, domain.StepFailed, now)
 		parentStepRun.Status = domain.StepFailed
 		parentStepRun.Error = fields["error"].(string)
 
@@ -363,6 +402,7 @@ func (s *StepCallback) propagateToParent(ctx context.Context, childRun *domain.W
 		if err := s.store.UpdateStepRunStatus(ctx, parentStepRun.ID, domain.StepFailed, fields); err != nil {
 			return fmt.Errorf("fail parent step run for sub-workflow: %w", err)
 		}
+		recordSubWorkflowStepTerminal(ctx, parentStepRun, domain.StepFailed, now)
 		parentStepRun.Status = domain.StepFailed
 		parentStepRun.Error = errMsg
 
@@ -372,6 +412,32 @@ func (s *StepCallback) propagateToParent(ctx context.Context, childRun *domain.W
 		}
 		return s.handleFailedStep(ctx, parentStepRun, parentWc)
 	}
+}
+
+func aggregateChildStepOutputs(childStepRuns []domain.WorkflowStepRun) json.RawMessage {
+	if len(childStepRuns) == 0 {
+		return nil
+	}
+	var outputPayload []byte
+	for i := range childStepRuns {
+		if len(childStepRuns[i].Output) == 0 {
+			continue
+		}
+		if outputPayload == nil {
+			outputPayload = make([]byte, 0, len(childStepRuns[i].StepRef)+len(childStepRuns[i].Output)+4)
+			outputPayload = append(outputPayload, '{')
+		} else {
+			outputPayload = append(outputPayload, ',')
+		}
+		outputPayload = strconv.AppendQuote(outputPayload, childStepRuns[i].StepRef)
+		outputPayload = append(outputPayload, ':')
+		outputPayload = append(outputPayload, childStepRuns[i].Output...)
+	}
+	if outputPayload == nil {
+		return nil
+	}
+	outputPayload = append(outputPayload, '}')
+	return outputPayload
 }
 
 func (s *StepCallback) ApproveStep(ctx context.Context, workflowRunID, stepRef, approver string) error {
@@ -413,6 +479,8 @@ func (s *StepCallback) ApproveStep(ctx context.Context, workflowRunID, stepRef, 
 	if err := s.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepCompleted, map[string]any{"finished_at": now}); err != nil {
 		return fmt.Errorf("complete approval step run: %w", err)
 	}
+	recordWorkflowStepTransition(ctx, string(stepRun.Status), string(domain.StepCompleted))
+	recordWorkflowDurableWait(ctx, stepRun.StartedAt, now)
 
 	// Sync parallel event trigger (if exists) — non-fatal.
 	if trigger, getErr := s.store.GetEventTriggerByStepRunID(ctx, stepRun.ID); getErr == nil && trigger != nil && trigger.Status == domain.EventTriggerStatusWaiting {
@@ -426,6 +494,7 @@ func (s *StepCallback) ApproveStep(ctx context.Context, workflowRunID, stepRef, 
 	if wcErr != nil {
 		return fmt.Errorf("load workflow context: %w", wcErr)
 	}
+	recordWorkflowStepDuration(ctx, workflowStepKind(wc, stepRun), workflowStepOutcome(domain.StepCompleted), stepRun.StartedAt, now)
 
 	s.emitApprovalAuditEvent(ctx, wc.run, stepRun, approval, approver, "workflow.step.approved", "approved", "")
 
@@ -506,6 +575,8 @@ func (s *StepCallback) SkipStep(ctx context.Context, workflowRunID, stepRef, rea
 	if err := s.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepSkipped, fields); err != nil {
 		return fmt.Errorf("skip step: %w", err)
 	}
+	recordWorkflowStepTransition(ctx, string(stepRun.Status), string(domain.StepSkipped))
+	recordWorkflowStepDuration(ctx, workflowStepKind(wc, stepRun), workflowStepOutcome(domain.StepSkipped), stepRun.StartedAt, now)
 	stepRun.Status = domain.StepSkipped
 
 	if err := s.fanInAndStartReadyChildren(ctx, stepRun, wc); err != nil {
@@ -534,11 +605,13 @@ func (s *StepCallback) ForceCompleteStep(ctx context.Context, workflowRunID, ste
 	if err := s.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepCompleted, fields); err != nil {
 		return fmt.Errorf("force-complete step: %w", err)
 	}
+	recordWorkflowStepTransition(ctx, string(stepRun.Status), string(domain.StepCompleted))
 	stepRun.Status = domain.StepCompleted
 	wc, wcErr := s.loadWfCtx(ctx, workflowRunID)
 	if wcErr != nil {
 		return fmt.Errorf("load workflow context: %w", wcErr)
 	}
+	recordWorkflowStepDuration(ctx, workflowStepKind(wc, stepRun), workflowStepOutcome(domain.StepCompleted), stepRun.StartedAt, now)
 
 	if err := s.fanInAndStartReadyChildren(ctx, stepRun, wc); err != nil {
 		return fmt.Errorf("fan-in after force-complete: %w", err)
@@ -607,12 +680,59 @@ func effectiveResourceClass(v string) string {
 }
 
 func hasResourceClassCapacity(running map[string]int, class string) bool {
-	limits := map[string]int{"small": 50, "medium": 20, "large": 5}
 	resolved := effectiveResourceClass(class)
-	limit, ok := limits[resolved]
-	if !ok {
-		limit = limits["small"]
+	limit := 50
+	switch resolved {
+	case "medium":
+		limit = 20
+	case "large":
+		limit = 5
+	case "small":
+	default:
 		resolved = "small"
 	}
 	return running[resolved] < limit
+}
+
+// prefetchStepOutputs batches all dependency output fetches into one query.
+func (s *StepCallback) prefetchStepOutputs(
+	ctx context.Context,
+	workflowRunID string,
+	runnableStepRuns []domain.WorkflowStepRun,
+	stepByRef map[string]domain.WorkflowStep,
+) (map[string]json.RawMessage, error) {
+	allDeps := make(map[string]struct{})
+	for _, sr := range runnableStepRuns {
+		if sr.Status.IsTerminal() || sr.Status == domain.StepRunning {
+			continue
+		}
+		if stepDef, ok := stepByRef[sr.StepRef]; ok {
+			for _, dep := range stepDef.DependsOn {
+				allDeps[dep] = struct{}{}
+			}
+		}
+	}
+	if len(allDeps) == 0 {
+		return nil, nil
+	}
+	depRefs := make([]string, 0, len(allDeps))
+	for dep := range allDeps {
+		depRefs = append(depRefs, dep)
+	}
+	outputs, err := s.store.GetStepOutputs(ctx, workflowRunID, depRefs)
+	if err != nil {
+		return nil, fmt.Errorf("prefetch step outputs: %w", err)
+	}
+	return outputs, nil
+}
+
+func recordStepQueueDuration(ctx context.Context, stepRef string, createdAt time.Time) {
+	if stepQueueDuration == nil || createdAt.IsZero() {
+		return
+	}
+	if qd := time.Since(createdAt).Seconds(); qd > 0 {
+		stepQueueDuration.Record(ctx, qd, otelmetric.WithAttributes(
+			otelattr.String("step_ref", stepRef),
+		))
+	}
 }

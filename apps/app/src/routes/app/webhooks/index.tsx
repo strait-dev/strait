@@ -24,7 +24,6 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   getCoreRowModel,
   getFilteredRowModel,
-  getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
@@ -39,11 +38,12 @@ import { createWebhookColumns } from "@/components/tables/webhooks-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
-import type { WebhookSubscription } from "@/hooks/api/types";
+import type { PaginatedResponse, WebhookSubscription } from "@/hooks/api/types";
 import {
   useDeleteWebhook,
   webhooksQueryOptions,
 } from "@/hooks/api/use-webhooks";
+import { useCursorPagination } from "@/hooks/use-cursor-pagination";
 import {
   EyeIcon,
   FilterIcon,
@@ -58,16 +58,24 @@ import type { AppRouteContext } from "@/routes/app/layout";
 export const searchSchema = z.object({
   query: z.string().optional(),
   status: z.array(z.string()).optional(),
-  page: z.number().optional().default(1),
+  cursor: z.string().optional(),
+  perPage: z.number().optional(),
 });
 
 export const Route = createFileRoute("/app/webhooks/")({
+  head: () => ({ meta: [{ title: "Webhooks · Strait" }] }),
   validateSearch: zodValidator(searchSchema),
-  loader: async ({ context }) => {
+  loaderDeps: ({ search }) => ({
+    limit: search.perPage ?? 20,
+    cursor: search.cursor,
+  }),
+  loader: async ({ context, deps }) => {
     const { session } = context as AppRouteContext;
     const hasProject = !!session.user.activeProjectId;
     if (hasProject) {
-      await context.queryClient.ensureQueryData(webhooksQueryOptions());
+      await context.queryClient.ensureQueryData(
+        webhooksQueryOptions({ limit: deps.limit, cursor: deps.cursor })
+      );
     }
     return { hasProject, session };
   },
@@ -81,15 +89,24 @@ function WebhooksPage() {
   const { hasProject, session } = Route.useLoaderData();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
+  const pagination = useCursorPagination(
+    { cursor: search.cursor, perPage: search.perPage },
+    navigate
+  );
   const { data } = useQuery({
-    ...webhooksQueryOptions(),
+    ...webhooksQueryOptions({
+      limit: pagination.perPage,
+      cursor: pagination.cursor,
+    }),
     enabled: hasProject,
   });
 
   const selectedStatuses = search.status ?? [];
 
+  const typed = data as PaginatedResponse<WebhookSubscription> | undefined;
+
   const filteredData = useMemo(() => {
-    const webhooks = hasProject ? (data?.data ?? []) : [];
+    const webhooks = hasProject ? (typed?.data ?? []) : [];
     if (selectedStatuses.length === 0) {
       return webhooks;
     }
@@ -102,7 +119,7 @@ function WebhooksPage() {
       }
       return false;
     });
-  }, [data?.data, selectedStatuses, hasProject]);
+  }, [typed, selectedStatuses, hasProject]);
 
   const deleteWebhook = useDeleteWebhook();
   const [deleteTarget, setDeleteTarget] = useState<string[] | null>(null);
@@ -116,13 +133,17 @@ function WebhooksPage() {
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
+    manualPagination: true,
     enableRowSelection: true,
     onRowSelectionChange: setRowSelection,
     state: { globalFilter: search.query ?? "", rowSelection },
     onGlobalFilterChange: (query) =>
       navigate({
-        search: (prev) => ({ ...prev, query: query || undefined, page: 1 }),
+        search: (prev) => ({
+          ...prev,
+          query: query || undefined,
+          cursor: undefined,
+        }),
       }),
     getRowId: (row) => row.id,
   });
@@ -130,6 +151,19 @@ function WebhooksPage() {
   const selectedIds = Object.keys(rowSelection).filter(
     (id) => rowSelection[id]
   );
+
+  const summary = useMemo(() => {
+    let active = 0;
+    let inactive = 0;
+    for (const webhook of filteredData) {
+      if (webhook.active) {
+        active++;
+      } else {
+        inactive++;
+      }
+    }
+    return { active, inactive };
+  }, [filteredData]);
 
   function toggleStatus(status: string) {
     const current = new Set(selectedStatuses);
@@ -143,7 +177,7 @@ function WebhooksPage() {
       search: (prev) => ({
         ...prev,
         status: arr.length > 0 ? arr : undefined,
-        page: 1,
+        cursor: undefined,
       }),
     });
   }
@@ -171,6 +205,26 @@ function WebhooksPage() {
 
   return (
     <Shell>
+      <h1 className="sr-only">Webhooks</h1>
+      {filteredData.length > 0 && (
+        <div className="flex flex-wrap items-center gap-4 pb-3 text-sm">
+          <span className="text-muted-foreground">
+            {filteredData.length} subscription
+            {filteredData.length === 1 ? "" : "s"}
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block size-1.5 rounded-full bg-success" />
+            <span className="tabular-nums">{summary.active}</span>
+            <span className="text-muted-foreground">active</span>
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block size-1.5 rounded-full bg-muted-foreground/40" />
+            <span className="tabular-nums">{summary.inactive}</span>
+            <span className="text-muted-foreground">inactive</span>
+          </span>
+        </div>
+      )}
+
       <div className="flex items-center gap-3 pb-2.5">
         <div className="relative w-full max-w-[500px]">
           <HugeiconsIcon
@@ -186,7 +240,7 @@ function WebhooksPage() {
                 search: (prev) => ({
                   ...prev,
                   query: e.target.value || undefined,
-                  page: 1,
+                  cursor: undefined,
                 }),
               })
             }
@@ -246,6 +300,19 @@ function WebhooksPage() {
         }}
       >
         <DataTable
+          ariaLabel="Webhooks"
+          cursorPagination={{
+            pageSize: pagination.perPage,
+            hasMore: typed?.has_more ?? false,
+            canGoBack: pagination.canGoBack,
+            onNext: () => {
+              if (typed?.next_cursor) {
+                pagination.goNext(typed.next_cursor);
+              }
+            },
+            onPrev: pagination.goPrev,
+            onPageSizeChange: pagination.setPerPage,
+          }}
           emptyState={emptyState}
           floatingBar={
             <DataTableFloatingBar

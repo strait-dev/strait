@@ -120,13 +120,17 @@ func (a *DLQAgeOut) Run(ctx context.Context) {
 	defer a.Close()
 	ticker := time.NewTicker(a.interval)
 	defer ticker.Stop()
-	_ = a.runOnce(ctx)
+	runSchedulerCycleCheckIn(ctx, a.interval, func() {
+		_ = a.runOnce(ctx)
+	})
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			_ = a.runOnce(ctx)
+			runSchedulerCycleCheckIn(ctx, a.interval, func() {
+				_ = a.runOnce(ctx)
+			})
 		}
 	}
 }
@@ -136,29 +140,23 @@ func (a *DLQAgeOut) RunOnceForTest(ctx context.Context) error {
 	return a.runOnce(ctx)
 }
 
-func (a *DLQAgeOut) runOnce(ctx context.Context) error {
+func (a *DLQAgeOut) runOnce(ctx context.Context) (err error) {
 	defer func() {
 		a.iterations.Add(1)
 		if r := recover(); r != nil {
 			a.logger.Warn("dlq age-out panic recovered", "panic", r)
+			err = fmt.Errorf("dlq age-out panic: %v", r)
 		}
 	}()
 
-	if a.advisoryLocker != nil {
-		acquired, err := a.advisoryLocker.TryAdvisoryLock(ctx, dlqAgeOutAdvisoryLockID)
-		if err != nil {
-			return err
-		}
-		if !acquired {
-			return nil
-		}
-		defer func() {
-			if err := a.advisoryLocker.ReleaseAdvisoryLock(ctx, dlqAgeOutAdvisoryLockID); err != nil {
-				a.logger.Debug("dlq age-out lock release failed", "error", err)
-			}
-		}()
+	acquired, err := runWithOptionalAdvisoryLock(ctx, a.advisoryLocker, dlqAgeOutAdvisoryLockID, a.runLocked)
+	if err != nil || !acquired {
+		return err
 	}
+	return nil
+}
 
+func (a *DLQAgeOut) runLocked(ctx context.Context) error {
 	a.scanPartitionsParallel(ctx)
 
 	n, err := a.store.MaskOldDLQRows(ctx, a.retention, a.batchLimit)

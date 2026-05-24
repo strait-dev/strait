@@ -6,7 +6,7 @@
 # Published as: ghcr.io/strait-dev/runtime-typescript:{bun-version}-{strait-version}
 # Latest alias: ghcr.io/strait-dev/runtime-typescript:latest
 
-ARG BUN_VERSION=1.2
+ARG BUN_VERSION=1.3
 
 FROM oven/bun:${BUN_VERSION}-slim
 

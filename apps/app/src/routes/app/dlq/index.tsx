@@ -1,5 +1,16 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Alert, AlertDescription } from "@strait/ui/components/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@strait/ui/components/alert-dialog";
 import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
 import {
@@ -15,7 +26,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   getCoreRowModel,
   getFilteredRowModel,
-  getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
@@ -38,6 +48,7 @@ import {
   useDiscardDlqItem,
   useRetryDlqItem,
 } from "@/hooks/api/use-dlq";
+import { useCursorPagination } from "@/hooks/use-cursor-pagination";
 import {
   AlertIcon,
   FilterIcon,
@@ -51,16 +62,24 @@ import type { AppRouteContext } from "@/routes/app/layout";
 export const searchSchema = z.object({
   query: z.string().optional(),
   errorType: z.array(z.string()).optional(),
-  page: z.number().optional().default(1),
+  cursor: z.string().optional(),
+  perPage: z.number().optional(),
 });
 
 export const Route = createFileRoute("/app/dlq/")({
+  head: () => ({ meta: [{ title: "Dead letter queue · Strait" }] }),
   validateSearch: zodValidator(searchSchema),
-  loader: async ({ context }) => {
+  loaderDeps: ({ search }) => ({
+    limit: search.perPage ?? 20,
+    cursor: search.cursor,
+  }),
+  loader: async ({ context, deps }) => {
     const { session } = context as AppRouteContext;
     const hasProject = !!session.user.activeProjectId;
     if (hasProject) {
-      await context.queryClient.ensureQueryData(dlqQueryOptions());
+      await context.queryClient.ensureQueryData(
+        dlqQueryOptions({ limit: deps.limit, cursor: deps.cursor })
+      );
     }
     return { hasProject, session };
   },
@@ -74,8 +93,15 @@ function DlqPage() {
   const { hasProject, session } = Route.useLoaderData();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
+  const pagination = useCursorPagination(
+    { cursor: search.cursor, perPage: search.perPage },
+    navigate
+  );
   const { data } = useQuery({
-    ...dlqQueryOptions(),
+    ...dlqQueryOptions({
+      limit: pagination.perPage,
+      cursor: pagination.cursor,
+    }),
     enabled: hasProject,
   });
 
@@ -104,7 +130,7 @@ function DlqPage() {
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
+    manualPagination: true,
     enableRowSelection: true,
     onRowSelectionChange: setRowSelection,
     state: { rowSelection },
@@ -130,6 +156,14 @@ function DlqPage() {
     bulkDiscard.mutate({ ids: selectedIds });
   }, [selectedIds, bulkDiscard]);
 
+  const allDlqIds = (typed?.data ?? []).map((r) => r.id);
+  const handleRetryAll = useCallback(() => {
+    if (allDlqIds.length === 0) {
+      return;
+    }
+    bulkRetry.mutate({ ids: allDlqIds });
+  }, [allDlqIds, bulkRetry]);
+
   const selectedErrorTypes = search.errorType ?? [];
 
   function toggleErrorType(errorType: string) {
@@ -144,7 +178,7 @@ function DlqPage() {
       search: (prev) => ({
         ...prev,
         errorType: arr.length > 0 ? arr : undefined,
-        page: 1,
+        cursor: undefined,
       }),
     });
   }
@@ -166,6 +200,7 @@ function DlqPage() {
 
   return (
     <Shell>
+      <h1 className="sr-only">Dead letter queue</h1>
       {/* Alert banner */}
       {totalCount > 0 && (
         <Alert variant="destructive">
@@ -193,7 +228,7 @@ function DlqPage() {
                 search: (prev) => ({
                   ...prev,
                   query: e.target.value || undefined,
-                  page: 1,
+                  cursor: undefined,
                 }),
               })
             }
@@ -223,7 +258,7 @@ function DlqPage() {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {hasSelection && (
+        {hasSelection ? (
           <>
             <Button
               disabled={bulkRetry.isPending}
@@ -233,15 +268,81 @@ function DlqPage() {
               <HugeiconsIcon className="mr-1.5" icon={RefreshIcon} size={14} />
               Retry Selected ({selectedIds.length})
             </Button>
-            <Button
-              disabled={bulkDiscard.isPending}
-              onClick={handleBulkDiscard}
-              variant="destructive"
-            >
-              <HugeiconsIcon className="mr-1.5" icon={TrashIcon} size={14} />
-              Discard Selected ({selectedIds.length})
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger
+                render={
+                  <Button
+                    disabled={bulkDiscard.isPending}
+                    variant="destructive"
+                  >
+                    <HugeiconsIcon
+                      className="mr-1.5"
+                      icon={TrashIcon}
+                      size={14}
+                    />
+                    Discard Selected ({selectedIds.length})
+                  </Button>
+                }
+              />
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    Discard {selectedIds.length} run
+                    {selectedIds.length === 1 ? "" : "s"}?
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Discarded runs are permanently removed from the dead letter
+                    queue. This cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleBulkDiscard}>
+                    Discard
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </>
+        ) : (
+          totalCount > 0 && (
+            <AlertDialog>
+              <AlertDialogTrigger
+                render={
+                  <Button
+                    className="ml-auto"
+                    disabled={bulkRetry.isPending}
+                    variant="outline"
+                  >
+                    <HugeiconsIcon
+                      className="mr-1.5"
+                      icon={RefreshIcon}
+                      size={14}
+                    />
+                    Retry all ({totalCount})
+                  </Button>
+                }
+              />
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    Retry all {totalCount} dead letter run
+                    {totalCount === 1 ? "" : "s"}?
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Every run currently in the DLQ will be re-enqueued.
+                    Long-failing jobs may simply fail again.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleRetryAll}>
+                    Retry all
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )
         )}
       </div>
 
@@ -267,7 +368,23 @@ function DlqPage() {
         }}
       >
         <div className="pt-2">
-          <DataTable emptyState={emptyState} table={table} />
+          <DataTable
+            ariaLabel="Dead letter queue"
+            cursorPagination={{
+              pageSize: pagination.perPage,
+              hasMore: typed?.has_more ?? false,
+              canGoBack: pagination.canGoBack,
+              onNext: () => {
+                if (typed?.next_cursor) {
+                  pagination.goNext(typed.next_cursor);
+                }
+              },
+              onPrev: pagination.goPrev,
+              onPageSizeChange: pagination.setPerPage,
+            }}
+            emptyState={emptyState}
+            table={table}
+          />
         </div>
       </div>
 

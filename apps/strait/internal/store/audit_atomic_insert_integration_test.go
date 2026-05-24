@@ -90,3 +90,75 @@ func TestCreateAuditEvent_CrashBetweenInsertAndSignature_DoesNotBreakChain(t *te
 		t.Errorf("EventsChecked = %d, want 3 (aborted row must not appear)", result.EventsChecked)
 	}
 }
+
+func TestCreateAuditEvent_FailedAttemptDoesNotPinRotationEpoch(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	q := mustStore(t)
+	q.SetSecretEncryptionKey(testEncKey)
+	rootKey, _ := store.DeriveAuditSigningKey("stale-epoch-retry-secret")
+	q.SetAuditSigningKey(rootKey)
+
+	projectID := "proj-stale-epoch-retry"
+	if err := q.CreateAuditEvent(ctx, &domain.AuditEvent{
+		ProjectID:    projectID,
+		ActorID:      "actor",
+		ActorType:    "user",
+		Action:       domain.AuditActionJobCreated,
+		ResourceType: "job",
+		ResourceID:   "seed",
+		Details:      json.RawMessage(`{"seed":true}`),
+	}); err != nil {
+		t.Fatalf("seed CreateAuditEvent: %v", err)
+	}
+	if _, err := q.RotateAuditSigningKey(ctx, projectID, "rotator-1"); err != nil {
+		t.Fatalf("first rotation: %v", err)
+	}
+
+	forced := errors.New("forced failed audit attempt")
+	store.SetAuditEventPostInsertHookForTest(q, func(context.Context) error {
+		return forced
+	})
+	t.Cleanup(func() { store.SetAuditEventPostInsertHookForTest(q, nil) })
+
+	ev := &domain.AuditEvent{
+		ProjectID:    projectID,
+		ActorID:      "actor",
+		ActorType:    "user",
+		Action:       domain.AuditActionJobCreated,
+		ResourceType: "job",
+		ResourceID:   "retry-after-rotation",
+		Details:      json.RawMessage(`{"retry":true}`),
+	}
+	err := q.CreateAuditEvent(ctx, ev)
+	if err == nil {
+		t.Fatal("CreateAuditEvent: expected forced failure, got nil")
+	}
+	if !errors.Is(err, forced) {
+		t.Fatalf("CreateAuditEvent err = %v, want forced failure", err)
+	}
+	if ev.ID != "" || ev.RotationEpoch != 0 || !ev.CreatedAt.IsZero() || ev.PreviousHash != "" || ev.Signature != "" || ev.ShardID != "" {
+		t.Fatalf("failed CreateAuditEvent mutated caller event: %+v", ev)
+	}
+
+	store.SetAuditEventPostInsertHookForTest(q, nil)
+	if _, err := q.RotateAuditSigningKey(ctx, projectID, "rotator-2"); err != nil {
+		t.Fatalf("second rotation: %v", err)
+	}
+
+	if err := q.CreateAuditEvent(ctx, ev); err != nil {
+		t.Fatalf("retry CreateAuditEvent: %v", err)
+	}
+	if ev.RotationEpoch != 2 {
+		t.Fatalf("retry event rotation_epoch = %d, want 2", ev.RotationEpoch)
+	}
+
+	result, err := q.VerifyAuditChain(ctx, projectID)
+	if err != nil {
+		t.Fatalf("VerifyAuditChain: %v", err)
+	}
+	if !result.Valid {
+		t.Fatalf("chain invalid after retry across rotation: %s", result.Error)
+	}
+}

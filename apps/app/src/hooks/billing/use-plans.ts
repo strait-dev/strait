@@ -1,13 +1,11 @@
 /**
  * Plan definitions and formatting utilities.
  *
- * Fetches plan tier data from the Go backend via `GET /v1/plans` and
- * transforms it into UI-friendly structures for the pricing page,
+ * Exposes plan tier data and transforms it into UI-friendly structures for the pricing page,
  * plan comparison table, and upgrade flow.
  */
 
 import { createServerFn } from "@tanstack/react-start";
-import { apiRequest } from "@/lib/api-client.server";
 
 export {
   formatBoolean,
@@ -29,7 +27,7 @@ import {
   formatSupportLevel,
 } from "./plan-formatters";
 
-/** Raw plan data from the `GET /v1/plans` API response. */
+/** Raw plan data for upgrade and billing screens. */
 export type APIPlan = {
   tier: string;
   display_name: string;
@@ -39,13 +37,11 @@ export type APIPlan = {
   max_projects_per_org: number;
   max_members_per_org: number;
   max_runs_per_day: number;
+  max_runs_per_month: number;
   max_concurrent_runs: number;
   compute_credit_microusd: number;
-  free_managed_runs_per_month: number;
-  free_managed_preset: string;
-  free_managed_max_timeout: number;
   retention_days: number;
-  allowed_regions: string[];
+  allowed_regions: string[] | null;
   max_alert_rules_per_project: number;
   max_webhook_subs_per_project: number;
   max_log_drains_per_org: number;
@@ -78,16 +74,175 @@ type PlansResponse = {
   plans: APIPlan[];
 };
 
+const plan = (
+  tier: string,
+  displayName: string,
+  fields: Partial<APIPlan>
+): APIPlan => ({
+  tier,
+  display_name: displayName,
+  price_monthly_usd: 0,
+  price_annual_usd: 0,
+  max_orgs_per_user: -1,
+  max_projects_per_org: -1,
+  max_members_per_org: -1,
+  max_runs_per_day: -1,
+  max_runs_per_month: -1,
+  max_concurrent_runs: -1,
+  compute_credit_microusd: 0,
+  retention_days: -1,
+  allowed_regions: null,
+  max_alert_rules_per_project: -1,
+  max_webhook_subs_per_project: -1,
+  max_log_drains_per_org: -1,
+  max_ai_model_calls_per_day: -1,
+  ai_assistant_byok: true,
+  has_rbac: true,
+  rbac_level: "full",
+  has_audit_logs: true,
+  has_sso: false,
+  has_sla: false,
+  requires_credit_card: true,
+  overage_per_k_runs_microusd: 30_000,
+  support_level: "priority_slack_8h",
+  has_dedicated_compute: false,
+  has_static_ips: false,
+  has_vpc_peering: false,
+  has_scim: false,
+  has_data_residency: false,
+  has_custom_rbac: false,
+  has_reserved_capacity: false,
+  has_priority_queue: false,
+  has_ip_allowlisting: false,
+  has_session_management: false,
+  has_secret_rotation: false,
+  has_siem_export: false,
+  ...fields,
+});
+
+const PLANS_RESPONSE: PlansResponse = {
+  plans: [
+    plan("free", "Free", {
+      max_orgs_per_user: 1,
+      max_projects_per_org: 1,
+      max_members_per_org: 1,
+      max_runs_per_month: 5000,
+      max_concurrent_runs: 3,
+      compute_credit_microusd: 1_000_000,
+      retention_days: 7,
+      allowed_regions: ["iad"],
+      max_alert_rules_per_project: 0,
+      max_webhook_subs_per_project: 0,
+      max_log_drains_per_org: 0,
+      max_ai_model_calls_per_day: 20,
+      ai_assistant_byok: false,
+      has_rbac: false,
+      rbac_level: "",
+      has_audit_logs: false,
+      requires_credit_card: false,
+      overage_per_k_runs_microusd: 500_000,
+      support_level: "community",
+    }),
+    plan("starter", "Starter", {
+      price_monthly_usd: 1900,
+      price_annual_usd: 18_000,
+      max_orgs_per_user: 2,
+      max_projects_per_org: 3,
+      max_members_per_org: 3,
+      max_runs_per_month: 50_000,
+      max_concurrent_runs: 15,
+      compute_credit_microusd: 19_000_000,
+      retention_days: 14,
+      max_alert_rules_per_project: 0,
+      max_webhook_subs_per_project: 3,
+      max_log_drains_per_org: 1,
+      max_ai_model_calls_per_day: 100,
+      ai_assistant_byok: false,
+      rbac_level: "basic",
+      has_audit_logs: false,
+      overage_per_k_runs_microusd: 400_000,
+      support_level: "email_72h",
+    }),
+    plan("pro", "Pro", {
+      price_monthly_usd: 9900,
+      price_annual_usd: 94_800,
+      max_orgs_per_user: 5,
+      max_projects_per_org: 10,
+      max_members_per_org: 10,
+      max_runs_per_month: 1_000_000,
+      max_concurrent_runs: 100,
+      compute_credit_microusd: 99_000_000,
+      retention_days: 30,
+      max_alert_rules_per_project: 50,
+      max_webhook_subs_per_project: 10,
+      max_log_drains_per_org: 5,
+      max_ai_model_calls_per_day: 500,
+      overage_per_k_runs_microusd: 200_000,
+      support_level: "priority_24h",
+    }),
+    plan("scale", "Scale", {
+      price_monthly_usd: 29_900,
+      price_annual_usd: 286_800,
+      max_orgs_per_user: 10,
+      max_projects_per_org: 50,
+      max_members_per_org: 50,
+      max_runs_per_month: 5_000_000,
+      max_concurrent_runs: 300,
+      compute_credit_microusd: 299_000_000,
+      retention_days: 60,
+      max_alert_rules_per_project: 50,
+      max_webhook_subs_per_project: 25,
+      max_log_drains_per_org: 10,
+      max_ai_model_calls_per_day: 1000,
+      has_audit_logs: true,
+      overage_per_k_runs_microusd: 60_000,
+      support_level: "priority_slack_8h",
+    }),
+    plan("business", "Business", {
+      price_monthly_usd: 49_900,
+      price_annual_usd: 478_800,
+      max_runs_per_month: 25_000_000,
+      max_concurrent_runs: 500,
+      compute_credit_microusd: 499_000_000,
+      retention_days: 90,
+      has_sso: true,
+      has_sla: true,
+      rbac_level: "advanced",
+      has_scim: true,
+      has_ip_allowlisting: true,
+      has_session_management: true,
+      has_secret_rotation: true,
+      has_siem_export: true,
+      has_priority_queue: true,
+    }),
+    plan("enterprise", "Enterprise", {
+      requires_credit_card: false,
+      has_dedicated_compute: true,
+      has_static_ips: true,
+      has_vpc_peering: true,
+      has_sso: true,
+      has_sla: true,
+      has_scim: true,
+      has_data_residency: true,
+      has_custom_rbac: true,
+      has_reserved_capacity: true,
+      has_priority_queue: true,
+      has_ip_allowlisting: true,
+      has_session_management: true,
+      has_secret_rotation: true,
+      has_siem_export: true,
+      support_level: "dedicated",
+    }),
+  ],
+};
+
 /**
- * Server function to fetch all plan tier definitions from the Go backend.
+ * Server function to fetch all plan tier definitions.
  *
  * @returns Array of plan definitions ordered by tier rank.
  */
 export const getPlansServerFn = createServerFn({ method: "GET" }).handler(
-  async () => {
-    const data = await apiRequest<PlansResponse>("/v1/plans");
-    return data.plans;
-  }
+  () => PLANS_RESPONSE.plans
 );
 
 /** A single feature listed on a pricing card. */
@@ -105,7 +260,7 @@ export type PricingPlan = {
   /** Display name (e.g. "Pro", "Scale"). */
   name: string;
   /** Plan tier slug. */
-  slug: "free" | "starter" | "pro" | "scale" | "enterprise";
+  slug: "free" | "starter" | "pro" | "scale" | "business" | "enterprise";
   /** Short description of the plan's target audience. */
   description: string;
   /** Plan prices in cents. */
@@ -132,6 +287,8 @@ const PLAN_DESCRIPTIONS: Record<string, string> = {
   starter: "For growing teams with production workloads.",
   pro: "For production workloads at scale.",
   scale: "For high-volume teams that need audit logs and canary deploys.",
+  business:
+    "For companies that need SSO, higher capacity, and security controls.",
   enterprise: "Custom everything for large organizations.",
 };
 
@@ -172,21 +329,21 @@ export const apiPlansToPricingPlans = (plans: APIPlan[]): PricingPlan[] => {
     } else {
       features.push(
         {
-          name: `${formatLimit(p.max_runs_per_day)} runs/day`,
+          name: `${formatLimit(p.max_runs_per_month)} runs/month`,
           included: true,
         },
-        ...(p.free_managed_runs_per_month > 0
-          ? [
-              {
-                name: `${p.free_managed_runs_per_month} managed runs/mo (${p.free_managed_preset}, ${p.free_managed_max_timeout}s)`,
-                included: true,
-              },
-            ]
-          : []),
         ...(p.compute_credit_microusd > 0
           ? [
               {
                 name: `${formatComputeCredit(p.compute_credit_microusd)}/mo compute credit`,
+                included: true,
+              },
+            ]
+          : []),
+        ...(p.overage_per_k_runs_microusd > 0
+          ? [
+              {
+                name: `${formatComputeCredit(p.overage_per_k_runs_microusd)}/1K runs overage`,
                 included: true,
               },
             ]
@@ -216,7 +373,7 @@ export const apiPlansToPricingPlans = (plans: APIPlan[]): PricingPlan[] => {
           included: true,
         },
         {
-          name: `${formatRegionCount(p.allowed_regions)} region${p.allowed_regions.length === 1 ? "" : "s"}`,
+          name: `${formatRegionCount(p.allowed_regions)} region${p.allowed_regions?.length === 1 ? "" : "s"}`,
           included: true,
         },
         ...(p.has_rbac
@@ -263,6 +420,8 @@ export type ComparisonFeature = {
   pro: string;
   /** Value for the scale tier. */
   scale: string;
+  /** Value for the business tier. */
+  business: string;
   /** Value for the enterprise tier. */
   enterprise: string;
 };
@@ -297,11 +456,12 @@ export const apiPlansToComparisonFeatures = (
     starter: val("starter", fn),
     pro: val("pro", fn),
     scale: val("scale", fn),
+    business: val("business", fn),
     enterprise: val("enterprise", fn),
   });
 
   return [
-    row("Runs per day", (p) => formatLimit(p.max_runs_per_day)),
+    row("Runs per month", (p) => formatLimit(p.max_runs_per_month)),
     row("Concurrent runs", (p) => formatLimit(p.max_concurrent_runs)),
     row("Compute credit", (p) =>
       formatComputeCredit(p.compute_credit_microusd)

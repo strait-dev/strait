@@ -83,8 +83,6 @@ func TestAuditSIEMDrain_BufferFullDropsAndCounts(t *testing.T) {
 // TestAuditSIEMDrain_StartStopRacefree checks that Start/Stop do not leak
 // goroutines. Uses a goroutine count sampled before/after.
 func TestAuditSIEMDrain_StartStopRacefree(t *testing.T) {
-	t.Parallel()
-
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -101,7 +99,11 @@ func TestAuditSIEMDrain_StartStopRacefree(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		drain.Stop(ctx)
 		cancel()
+		if transport, ok := drain.client.Transport.(*http.Transport); ok {
+			transport.CloseIdleConnections()
+		}
 	}
+	srv.CloseClientConnections()
 
 	// Give lingering stacks a moment to unwind.
 	deadline := time.Now().Add(1 * time.Second)

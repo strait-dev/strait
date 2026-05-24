@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/store"
 )
@@ -31,7 +32,7 @@ func TestHandleCreateAPIKey_Success(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	body := `{"project_id":"proj-1","name":"CLI key","scopes":["jobs:read"]}`
+	body := `{"project_id":"proj-1","name":"CLI key","scopes":["jobs:read"],"expires_in_days":30}`
 	w := httptest.NewRecorder()
 
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/api-keys/", body))
@@ -56,6 +57,9 @@ func TestHandleCreateAPIKey_Success(t *testing.T) {
 	}
 	if captured.KeyHash == "" {
 		t.Fatal("expected non-empty key hash")
+	}
+	if captured.ExpiresAt == nil {
+		t.Fatal("expected expires_at to be set")
 	}
 	if !strings.HasPrefix(captured.KeyPrefix, "strait_") {
 		t.Fatalf("expected key prefix to start with strait_, got %q", captured.KeyPrefix)
@@ -102,7 +106,7 @@ func TestHandleCreateAPIKey_WithExpiry(t *testing.T) {
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
-	body := `{"project_id":"proj-1","name":"expiring","expires_in_days":30}`
+	body := `{"project_id":"proj-1","name":"expiring","scopes":["jobs:read"],"expires_in_days":30}`
 	now := time.Now()
 
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/api-keys/", body))
@@ -127,8 +131,8 @@ func TestHandleCreateAPIKey_MissingFields(t *testing.T) {
 
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/api-keys/", ""))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", w.Code)
 	}
 }
 
@@ -139,8 +143,8 @@ func TestHandleCreateAPIKey_MissingProjectID(t *testing.T) {
 
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/api-keys/", `{"name":"missing project"}`))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", w.Code)
 	}
 }
 
@@ -154,7 +158,7 @@ func TestHandleCreateAPIKey_StoreError(t *testing.T) {
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
-	body := `{"project_id":"proj-1","name":"failing key"}`
+	body := `{"project_id":"proj-1","name":"failing key","scopes":["jobs:read"],"expires_in_days":30}`
 
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/api-keys/", body))
 
@@ -255,6 +259,136 @@ func TestHandleRevokeAPIKey_Success(t *testing.T) {
 	}
 	if resp["status"] != "revoked" {
 		t.Fatalf("expected status=revoked, got %q", resp["status"])
+	}
+}
+
+func TestHandleRevokeAPIKey_GRPCEnabledRequiresPubSubBeforeRevoking(t *testing.T) {
+	t.Parallel()
+	revoked := false
+	ms := &APIStoreMock{
+		GetAPIKeyByIDFunc: func(_ context.Context, id string) (*domain.APIKey, error) {
+			return &domain.APIKey{ID: id, ProjectID: "proj-1", Name: "test"}, nil
+		},
+		RevokeAPIKeyFunc: func(_ context.Context, _ string) error {
+			revoked = true
+			return nil
+		},
+	}
+
+	srv := NewServer(ServerDeps{
+		Config: &config.Config{
+			InternalSecret:      "test-secret-value",
+			MaxBulkTriggerItems: 500,
+			JWTSigningKey:       testJWTSigningKey,
+			GRPCEnabled:         true,
+		},
+		Store:   ms,
+		Queue:   &mockQueue{},
+		Edition: domain.EditionCloud,
+	})
+	t.Cleanup(srv.Close)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/api-keys/key-123", ""))
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
+	}
+	if revoked {
+		t.Fatal("api key was revoked even though worker-stream revocation broadcast was unavailable")
+	}
+}
+
+func TestHandleRevokeAPIKey_GRPCEnabledPublishFailureReturnsUnavailable(t *testing.T) {
+	t.Parallel()
+	revoked := false
+	ms := &APIStoreMock{
+		GetAPIKeyByIDFunc: func(_ context.Context, id string) (*domain.APIKey, error) {
+			return &domain.APIKey{ID: id, ProjectID: "proj-1", Name: "test"}, nil
+		},
+		RevokeAPIKeyFunc: func(_ context.Context, _ string) error {
+			revoked = true
+			return nil
+		},
+	}
+
+	srv := NewServer(ServerDeps{
+		Config: &config.Config{
+			InternalSecret:      "test-secret-value",
+			MaxBulkTriggerItems: 500,
+			JWTSigningKey:       testJWTSigningKey,
+			GRPCEnabled:         true,
+		},
+		Store: ms,
+		Queue: &mockQueue{},
+		PubSub: &mockPublisher{publishFn: func(context.Context, string, []byte) error {
+			return errors.New("redis down")
+		}},
+		Edition: domain.EditionCloud,
+	})
+	t.Cleanup(srv.Close)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/api-keys/key-123", ""))
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
+	}
+	if !revoked {
+		t.Fatal("api key should be revoked before reporting broadcast failure")
+	}
+}
+
+func TestHandleRevokeAPIKey_AlreadyRevokedRetriesBroadcast(t *testing.T) {
+	t.Parallel()
+
+	revokedAt := time.Now().Add(-time.Minute)
+	revokeCalled := false
+	published := false
+	ms := &APIStoreMock{
+		GetAPIKeyByIDFunc: func(_ context.Context, id string) (*domain.APIKey, error) {
+			return &domain.APIKey{ID: id, ProjectID: "proj-1", Name: "test", RevokedAt: &revokedAt}, nil
+		},
+		RevokeAPIKeyFunc: func(_ context.Context, _ string) error {
+			revokeCalled = true
+			return nil
+		},
+	}
+
+	srv := NewServer(ServerDeps{
+		Config: &config.Config{
+			InternalSecret:      "test-secret-value",
+			MaxBulkTriggerItems: 500,
+			JWTSigningKey:       testJWTSigningKey,
+			GRPCEnabled:         true,
+		},
+		Store: ms,
+		Queue: &mockQueue{},
+		PubSub: &mockPublisher{publishFn: func(_ context.Context, channel string, data []byte) error {
+			published = true
+			if channel != "apikey:revoked:key-123" {
+				t.Fatalf("publish channel = %q, want apikey:revoked:key-123", channel)
+			}
+			if string(data) != "key-123" {
+				t.Fatalf("publish data = %q, want key-123", string(data))
+			}
+			return nil
+		}},
+		Edition: domain.EditionCloud,
+	})
+	t.Cleanup(srv.Close)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/api-keys/key-123", ""))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if revokeCalled {
+		t.Fatal("already revoked key should not be revoked again")
+	}
+	if !published {
+		t.Fatal("already revoked key should retry worker-stream broadcast")
 	}
 }
 
@@ -452,12 +586,12 @@ func TestAPIKeyAuth_ExpiredKey(t *testing.T) {
 		t.Fatalf("expected 401, got %d", w.Code)
 	}
 
-	var resp map[string]string
+	var resp ErrorResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if resp["error"] != "api key has expired" {
-		t.Fatalf("expected expired message, got %q", resp["error"])
+	if resp.Error == nil || resp.Error.Message != "api key has expired" {
+		t.Fatalf("expected expired message, got %+v", resp.Error)
 	}
 }
 
@@ -483,12 +617,12 @@ func TestAPIKeyAuth_RevokedKey(t *testing.T) {
 		t.Fatalf("expected 401, got %d", w.Code)
 	}
 
-	var resp map[string]string
+	var resp ErrorResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if resp["error"] != "api key has been revoked" {
-		t.Fatalf("expected revoked message, got %q", resp["error"])
+	if resp.Error == nil || resp.Error.Message != "api key has been revoked" {
+		t.Fatalf("expected revoked message, got %+v", resp.Error)
 	}
 }
 
@@ -602,7 +736,7 @@ func TestCreateAPIKey_OrgScoped_Success(t *testing.T) {
 	}
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
-	body := `{"project_id":"proj-1","org_id":"org-1","name":"Org key","scopes":["jobs:read"]}`
+	body := `{"project_id":"proj-1","org_id":"org-1","name":"Org key","scopes":["jobs:read"],"expires_in_days":30}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/api-keys/", body))
 
@@ -703,7 +837,21 @@ func TestOrgScopedKey_CannotAccessOtherOrg(t *testing.T) {
 func TestOrgScopedKey_ListReturnsOrgKeys(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()
+	rawKey := "strait_" + strings.Repeat("ee", 32)
+	wantHash := hashAPIKey(rawKey)
 	ms := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(_ context.Context, keyHash string) (*domain.APIKey, error) {
+			if keyHash != wantHash {
+				t.Fatalf("expected hash %q, got %q", wantHash, keyHash)
+			}
+			return &domain.APIKey{
+				ID:        "key-org-1",
+				ProjectID: "proj-anchor",
+				OrgID:     "org-1",
+				Scopes:    []string{domain.ScopeAPIKeysManage},
+			}, nil
+		},
+		TouchAPIKeyLastUsedFunc: func(context.Context, string) error { return nil },
 		ListAPIKeysByOrgFunc: func(_ context.Context, orgID string, _ int, _ *time.Time) ([]domain.APIKey, error) {
 			if orgID != "org-1" {
 				t.Fatalf("expected org-1, got %q", orgID)
@@ -717,8 +865,10 @@ func TestOrgScopedKey_ListReturnsOrgKeys(t *testing.T) {
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/api-keys/?org_id=org-1", nil)
+	req.Header.Set("Authorization", "Bearer "+rawKey)
 
-	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/api-keys/?org_id=org-1", "", "proj-1"))
+	srv.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -731,6 +881,86 @@ func TestOrgScopedKey_ListReturnsOrgKeys(t *testing.T) {
 	}
 	if resp[0].OrgID != "org-1" {
 		t.Fatalf("expected org_id org-1 on key, got %q", resp[0].OrgID)
+	}
+}
+
+func TestOrgScopedKey_ListRejectsProjectScopedCaller(t *testing.T) {
+	t.Parallel()
+	rawKey := "strait_" + strings.Repeat("fa", 32)
+	ms := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(context.Context, string) (*domain.APIKey, error) {
+			return &domain.APIKey{
+				ID:        "key-project-1",
+				ProjectID: "proj-1",
+				Scopes:    []string{domain.ScopeAPIKeysManage},
+			}, nil
+		},
+		TouchAPIKeyLastUsedFunc: func(context.Context, string) error { return nil },
+		ListAPIKeysByOrgFunc: func(context.Context, string, int, *time.Time) ([]domain.APIKey, error) {
+			t.Fatal("project-scoped caller must not reach org-wide key list")
+			return nil, nil
+		},
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/api-keys/?org_id=org-1", nil)
+	req.Header.Set("Authorization", "Bearer "+rawKey)
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+type apiKeyListContextStore struct {
+	APIStore
+	setProjects []string
+	clearCalls  int
+}
+
+func (s *apiKeyListContextStore) SetProjectContext(_ context.Context, projectID string) error {
+	s.setProjects = append(s.setProjects, projectID)
+	return nil
+}
+
+func (s *apiKeyListContextStore) ClearProjectContext(context.Context) error {
+	s.clearCalls++
+	return nil
+}
+
+func TestOrgScopedKey_ListClearsAndRestoresProjectRLSContext(t *testing.T) {
+	rawKey := "strait_" + strings.Repeat("ef", 32)
+	base := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(context.Context, string) (*domain.APIKey, error) {
+			return &domain.APIKey{
+				ID:        "key-org-1",
+				ProjectID: "proj-anchor",
+				OrgID:     "org-1",
+				Scopes:    []string{domain.ScopeAPIKeysManage},
+			}, nil
+		},
+		TouchAPIKeyLastUsedFunc: func(context.Context, string) error { return nil },
+		ListAPIKeysByOrgFunc: func(context.Context, string, int, *time.Time) ([]domain.APIKey, error) {
+			return []domain.APIKey{{ID: "key-1", ProjectID: "proj-other", OrgID: "org-1", CreatedAt: time.Now().UTC()}}, nil
+		},
+	}
+	wrappedStore := &apiKeyListContextStore{APIStore: base}
+	srv := newTestServer(t, wrappedStore, &mockQueue{}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/api-keys/?org_id=org-1", nil)
+	req.Header.Set("Authorization", "Bearer "+rawKey)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if wrappedStore.clearCalls != 2 {
+		t.Fatalf("expected legacy middleware clear plus org-list clear, got %d", wrappedStore.clearCalls)
+	}
+	if len(wrappedStore.setProjects) != 2 || wrappedStore.setProjects[0] != "proj-anchor" || wrappedStore.setProjects[1] != "proj-anchor" {
+		t.Fatalf("expected project context set then restored to anchor project, got %#v", wrappedStore.setProjects)
 	}
 }
 

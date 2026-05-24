@@ -42,6 +42,41 @@ func TestInitLogBridge_WithEndpoint(t *testing.T) {
 	_ = shutdown(ctx)
 }
 
+func TestInitLogBridge_RedactsCredentialedEndpointInStartupLog(t *testing.T) {
+	ctx := context.Background()
+	var buf bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() {
+		slog.SetDefault(previous)
+	})
+
+	logger, shutdown, err := InitLogBridge(ctx, "test-service", "http://user:pass@localhost:4318/v1/logs?token=secret&tenant=prod", "dev")
+	if err != nil {
+		t.Fatalf("InitLogBridge() error = %v", err)
+	}
+	if logger == nil {
+		t.Fatal("expected non-nil logger")
+	}
+	_ = shutdown(ctx)
+
+	out := buf.String()
+	if !strings.Contains(out, "otel log bridge enabled") {
+		t.Fatalf("startup log missing enable message: %s", out)
+	}
+	for _, leaked := range []string{"user", "pass", "secret"} {
+		if strings.Contains(out, leaked) {
+			t.Fatalf("startup log leaked %q: %s", leaked, out)
+		}
+	}
+	if !strings.Contains(out, "token=%5Bredacted%5D") {
+		t.Fatalf("startup log missing redacted token query: %s", out)
+	}
+	if !strings.Contains(out, "tenant=prod") {
+		t.Fatalf("startup log should preserve non-sensitive query params: %s", out)
+	}
+}
+
 func TestInitLogBridge_EmptyEnvironment(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

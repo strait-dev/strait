@@ -134,16 +134,6 @@ func TestHandleGetTopCosts_ExceedsMaxWindow(t *testing.T) {
 	}
 }
 
-func TestHandleGetComputeCostAnalytics_ExceedsMaxWindow(t *testing.T) {
-	t.Parallel()
-	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/analytics/compute?from=2025-01-01T00:00:00Z&to=2025-04-02T00:00:00Z", "", "proj-1"))
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
 func TestHandleGetCostInsights_ExceedsMaxWindow(t *testing.T) {
 	t.Parallel()
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})

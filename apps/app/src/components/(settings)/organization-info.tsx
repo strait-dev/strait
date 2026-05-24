@@ -47,6 +47,17 @@ type OrgMetadata = {
 
 function parseMetadata(metadata: unknown): OrgMetadata {
   if (metadata && typeof metadata === "object") {
+    const value = (metadata as { value?: unknown }).value;
+    if (typeof value === "string") {
+      try {
+        const parsed = JSON.parse(value);
+        return parsed && typeof parsed === "object"
+          ? (parsed as OrgMetadata)
+          : {};
+      } catch {
+        return {};
+      }
+    }
     return metadata as OrgMetadata;
   }
   return {};
@@ -78,12 +89,12 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
     },
     validators: { onChange: orgFormSchema },
     onSubmit: ({ value }) => {
-      const metadata = JSON.stringify({
+      const metadata = {
         ...parseMetadata(organization?.metadata),
         description: value.description || undefined,
         email: value.email || undefined,
         website: value.website || undefined,
-      });
+      };
 
       startTransition(() => {
         try {
@@ -237,6 +248,16 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
                   <Field className="w-full">
                     <FieldLabel htmlFor={field.name}>Name</FieldLabel>
                     <Input
+                      aria-describedby={
+                        field.state.meta.isTouched &&
+                        field.state.meta.errors.length > 0
+                          ? `${field.name}-error`
+                          : undefined
+                      }
+                      aria-invalid={
+                        field.state.meta.isTouched &&
+                        field.state.meta.errors.length > 0
+                      }
                       id={field.name}
                       onBlur={field.handleBlur}
                       onChange={(e) => field.handleChange(e.target.value)}
@@ -244,11 +265,12 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
                       type="text"
                       value={field.state.value}
                     />
-                    {field.state.meta.errors.length > 0 && (
-                      <FieldError>
-                        {formatFieldErrors(field.state.meta.errors)}
-                      </FieldError>
-                    )}
+                    {field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0 && (
+                        <FieldError id={`${field.name}-error`}>
+                          {formatFieldErrors(field.state.meta.errors)}
+                        </FieldError>
+                      )}
                   </Field>
                 )}
               </form.Field>
@@ -258,6 +280,16 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
                   <Field className="w-full">
                     <FieldLabel htmlFor={field.name}>Slug</FieldLabel>
                     <Input
+                      aria-describedby={
+                        field.state.meta.isTouched &&
+                        field.state.meta.errors.length > 0
+                          ? `${field.name}-error`
+                          : undefined
+                      }
+                      aria-invalid={
+                        field.state.meta.isTouched &&
+                        field.state.meta.errors.length > 0
+                      }
                       id={field.name}
                       onBlur={field.handleBlur}
                       onChange={(e) => field.handleChange(e.target.value)}
@@ -265,11 +297,12 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
                       type="text"
                       value={field.state.value ?? ""}
                     />
-                    {field.state.meta.errors.length > 0 && (
-                      <FieldError>
-                        {formatFieldErrors(field.state.meta.errors)}
-                      </FieldError>
-                    )}
+                    {field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0 && (
+                        <FieldError id={`${field.name}-error`}>
+                          {formatFieldErrors(field.state.meta.errors)}
+                        </FieldError>
+                      )}
                   </Field>
                 )}
               </form.Field>
@@ -282,6 +315,16 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
                   <Field className="w-full">
                     <FieldLabel htmlFor={field.name}>Email</FieldLabel>
                     <Input
+                      aria-describedby={
+                        field.state.meta.isTouched &&
+                        field.state.meta.errors.length > 0
+                          ? `${field.name}-error`
+                          : undefined
+                      }
+                      aria-invalid={
+                        field.state.meta.isTouched &&
+                        field.state.meta.errors.length > 0
+                      }
                       id={field.name}
                       onBlur={field.handleBlur}
                       onChange={(e) => field.handleChange(e.target.value)}
@@ -289,11 +332,12 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
                       type="email"
                       value={field.state.value ?? ""}
                     />
-                    {field.state.meta.errors.length > 0 && (
-                      <FieldError>
-                        {formatFieldErrors(field.state.meta.errors)}
-                      </FieldError>
-                    )}
+                    {field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0 && (
+                        <FieldError id={`${field.name}-error`}>
+                          {formatFieldErrors(field.state.meta.errors)}
+                        </FieldError>
+                      )}
                   </Field>
                 )}
               </form.Field>
@@ -303,6 +347,16 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
                   <Field className="w-full">
                     <FieldLabel htmlFor={field.name}>Website</FieldLabel>
                     <Input
+                      aria-describedby={
+                        field.state.meta.isTouched &&
+                        field.state.meta.errors.length > 0
+                          ? `${field.name}-error`
+                          : undefined
+                      }
+                      aria-invalid={
+                        field.state.meta.isTouched &&
+                        field.state.meta.errors.length > 0
+                      }
                       id={field.name}
                       onBlur={field.handleBlur}
                       onChange={(e) => field.handleChange(e.target.value)}
@@ -310,11 +364,12 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
                       type="url"
                       value={field.state.value ?? ""}
                     />
-                    {field.state.meta.errors.length > 0 && (
-                      <FieldError>
-                        {formatFieldErrors(field.state.meta.errors)}
-                      </FieldError>
-                    )}
+                    {field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0 && (
+                        <FieldError id={`${field.name}-error`}>
+                          {formatFieldErrors(field.state.meta.errors)}
+                        </FieldError>
+                      )}
                   </Field>
                 )}
               </form.Field>
@@ -326,17 +381,28 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
                 <Field className="w-full">
                   <FieldLabel htmlFor={field.name}>Description</FieldLabel>
                   <Textarea
+                    aria-describedby={
+                      field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0
+                        ? `${field.name}-error`
+                        : undefined
+                    }
+                    aria-invalid={
+                      field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0
+                    }
                     id={field.name}
                     onBlur={field.handleBlur}
                     onChange={(e) => field.handleChange(e.target.value)}
                     placeholder="A brief description of your organization"
                     value={field.state.value ?? ""}
                   />
-                  {field.state.meta.errors.length > 0 && (
-                    <FieldError>
-                      {formatFieldErrors(field.state.meta.errors)}
-                    </FieldError>
-                  )}
+                  {field.state.meta.isTouched &&
+                    field.state.meta.errors.length > 0 && (
+                      <FieldError id={`${field.name}-error`}>
+                        {formatFieldErrors(field.state.meta.errors)}
+                      </FieldError>
+                    )}
                 </Field>
               )}
             </form.Field>

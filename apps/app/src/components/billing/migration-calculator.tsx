@@ -127,7 +127,7 @@ const MigrationCalculator = () => {
               Runs per month
             </label>
             <input
-              className="mt-1 w-full rounded-custom border border-border bg-background px-3 py-2 text-sm"
+              className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm"
               id="runs"
               onChange={(e) => setRunsPerMonth(Number(e.target.value))}
               type="number"
@@ -139,7 +139,7 @@ const MigrationCalculator = () => {
               Compute hours/month
             </label>
             <input
-              className="mt-1 w-full rounded-custom border border-border bg-background px-3 py-2 text-sm"
+              className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm"
               id="compute"
               onChange={(e) => setComputeHours(Number(e.target.value))}
               type="number"
@@ -151,7 +151,7 @@ const MigrationCalculator = () => {
               Team members
             </label>
             <input
-              className="mt-1 w-full rounded-custom border border-border bg-background px-3 py-2 text-sm"
+              className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm"
               id="members"
               onChange={(e) => setTeamMembers(Number(e.target.value))}
               type="number"
@@ -163,7 +163,7 @@ const MigrationCalculator = () => {
               Current monthly cost ($)
             </label>
             <input
-              className="mt-1 w-full rounded-custom border border-border bg-background px-3 py-2 text-sm"
+              className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm"
               id="cost"
               onChange={(e) => setCurrentCost(Number(e.target.value))}
               type="number"
@@ -179,8 +179,8 @@ const MigrationCalculator = () => {
 
       {/* Results */}
       {result && (
-        <Card className="border-green-200 dark:border-green-800">
-          <CardContent className="space-y-4 p-6">
+        <Card className="border-success/30">
+          <CardContent className="space-y-4 p-4">
             <div className="text-center">
               {selectedProvider && (
                 <p className="text-muted-foreground text-sm">
@@ -208,7 +208,7 @@ const MigrationCalculator = () => {
                 </div>
                 <div>
                   <p className="text-muted-foreground text-xs">You save</p>
-                  <p className="font-medium text-green-600 text-lg dark:text-green-400">
+                  <p className="font-medium text-lg text-success">
                     {formatCurrency(Math.max(result.savings, 0))}
                     <span className="text-muted-foreground text-xs">/mo</span>
                   </p>

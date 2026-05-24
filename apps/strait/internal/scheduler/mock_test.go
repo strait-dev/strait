@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"time"
 
 	"strait/internal/domain"
@@ -55,7 +56,16 @@ type mockCronStore struct {
 	countRunningWfRunsFn        func(ctx context.Context, workflowID string) (int, error)
 	countActiveRunsForJobFn     func(ctx context.Context, jobID string) (int, error)
 	cancelActiveRunsForJobFn    func(ctx context.Context, jobID string, reason string) ([]store.CanceledRun, error)
+	cancelActiveRunsExceptFn    func(ctx context.Context, jobID string, excludeRunID string, reason string) ([]store.CanceledRun, error)
 	cancelChildRunsByParentIDFn func(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error)
+	getProjectQuotaFn           func(ctx context.Context, projectID string) (*store.ProjectQuota, error)
+	countProjectQueuedRunsFn    func(ctx context.Context, projectID string) (int, error)
+	countProjectActiveRunsFn    func(ctx context.Context, projectID string) (int, error)
+	countRunsForJobSinceFn      func(ctx context.Context, jobID string, since time.Time) (int, error)
+	sumProjectDailyCostFn       func(ctx context.Context, projectID string, timezone string) (int64, error)
+	tryAcquireCronFireFn        func(ctx context.Context, projectID string, key string, ttl time.Duration) (bool, error)
+	cronFireMu                  sync.Mutex
+	cronFireKeys                map[string]struct{}
 }
 
 func (m *mockCronStore) ListCronJobs(ctx context.Context) ([]domain.Job, error) {
@@ -93,6 +103,13 @@ func (m *mockCronStore) CancelActiveRunsForJob(ctx context.Context, jobID string
 	return nil, nil
 }
 
+func (m *mockCronStore) CancelActiveRunsForJobExcept(ctx context.Context, jobID string, excludeRunID string, reason string) ([]store.CanceledRun, error) {
+	if m.cancelActiveRunsExceptFn != nil {
+		return m.cancelActiveRunsExceptFn(ctx, jobID, excludeRunID, reason)
+	}
+	return m.CancelActiveRunsForJob(ctx, jobID, reason)
+}
+
 func (m *mockCronStore) CancelChildRunsByParentIDs(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error) {
 	if m.cancelChildRunsByParentIDFn != nil {
 		return m.cancelChildRunsByParentIDFn(ctx, parentIDs, finishedAt, reason)
@@ -100,15 +117,56 @@ func (m *mockCronStore) CancelChildRunsByParentIDs(ctx context.Context, parentID
 	return 0, nil
 }
 
-type mockMachineStopper struct {
-	stopFn func(ctx context.Context, machineID string) error
+func (m *mockCronStore) GetProjectQuota(ctx context.Context, projectID string) (*store.ProjectQuota, error) {
+	if m.getProjectQuotaFn != nil {
+		return m.getProjectQuotaFn(ctx, projectID)
+	}
+	return nil, nil
 }
 
-func (m *mockMachineStopper) Stop(ctx context.Context, machineID string) error {
-	if m.stopFn != nil {
-		return m.stopFn(ctx, machineID)
+func (m *mockCronStore) CountProjectQueuedRuns(ctx context.Context, projectID string) (int, error) {
+	if m.countProjectQueuedRunsFn != nil {
+		return m.countProjectQueuedRunsFn(ctx, projectID)
 	}
-	return nil
+	return 0, nil
+}
+
+func (m *mockCronStore) CountProjectActiveRuns(ctx context.Context, projectID string) (int, error) {
+	if m.countProjectActiveRunsFn != nil {
+		return m.countProjectActiveRunsFn(ctx, projectID)
+	}
+	return 0, nil
+}
+
+func (m *mockCronStore) CountRunsForJobSince(ctx context.Context, jobID string, since time.Time) (int, error) {
+	if m.countRunsForJobSinceFn != nil {
+		return m.countRunsForJobSinceFn(ctx, jobID, since)
+	}
+	return 0, nil
+}
+
+func (m *mockCronStore) SumProjectDailyCostMicrousd(ctx context.Context, projectID string, timezone string) (int64, error) {
+	if m.sumProjectDailyCostFn != nil {
+		return m.sumProjectDailyCostFn(ctx, projectID, timezone)
+	}
+	return 0, nil
+}
+
+func (m *mockCronStore) TryAcquireCronFire(ctx context.Context, projectID string, key string, ttl time.Duration) (bool, error) {
+	if m.tryAcquireCronFireFn != nil {
+		return m.tryAcquireCronFireFn(ctx, projectID, key, ttl)
+	}
+	m.cronFireMu.Lock()
+	defer m.cronFireMu.Unlock()
+	if m.cronFireKeys == nil {
+		m.cronFireKeys = make(map[string]struct{})
+	}
+	scopedKey := projectID + "\x00" + key
+	if _, ok := m.cronFireKeys[scopedKey]; ok {
+		return false, nil
+	}
+	m.cronFireKeys[scopedKey] = struct{}{}
+	return true, nil
 }
 
 type mockQueue struct {
@@ -345,6 +403,9 @@ func (m *mockReaperStore) IncrementAuditDeadletterAttempt(_ context.Context, _ s
 func (m *mockReaperStore) MarkAuditDeadletterReclaimed(_ context.Context, _, _ string) error {
 	return nil
 }
+func (m *mockReaperStore) ReplayAuditEventDeadletter(_ context.Context, _, _, _ string) (*domain.AuditEvent, bool, error) {
+	return nil, false, nil
+}
 func (m *mockReaperStore) DeleteAuditDeadletterOlderThan(_ context.Context, _ time.Time) (map[string]int64, error) {
 	return nil, nil
 }
@@ -371,26 +432,6 @@ func (m *mockReaperStore) PurgeQuarantinedOutboxOlderThan(_ context.Context, _ t
 
 func (m *mockReaperStore) GetRunFromHistory(_ context.Context, _ string) (*domain.JobRun, error) {
 	return nil, nil
-}
-
-// mockMachineDestroyer implements MachineDestroyer for testing.
-type mockMachineDestroyer struct {
-	stopFn    func(ctx context.Context, machineID string) error
-	destroyFn func(ctx context.Context, machineID string) error
-}
-
-func (m *mockMachineDestroyer) Stop(ctx context.Context, machineID string) error {
-	if m.stopFn != nil {
-		return m.stopFn(ctx, machineID)
-	}
-	return nil
-}
-
-func (m *mockMachineDestroyer) Destroy(ctx context.Context, machineID string) error {
-	if m.destroyFn != nil {
-		return m.destroyFn(ctx, machineID)
-	}
-	return nil
 }
 
 // mockWorkflowCallback implements WorkflowCallback for testing.

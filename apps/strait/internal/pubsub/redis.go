@@ -4,12 +4,62 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/sourcegraph/conc"
 )
 
-// NewRedisClient creates a Redis client, using Sentinel failover when configured.
-func NewRedisClient(redisURL, sentinelMaster string, sentinelAddrs []string) (*redis.Client, error) {
+// RedisPoolOptions bounds the go-redis connection pool and per-op timeouts.
+// Zero or negative values fall through to go-redis defaults; in practice
+// callers should always pass explicit values (see config.Config).
+type RedisPoolOptions struct {
+	PoolSize        int
+	MinIdleConns    int
+	ReadTimeout     time.Duration
+	WriteTimeout    time.Duration
+	ConnMaxLifetime time.Duration
+}
+
+func (p RedisPoolOptions) applyToClient(o *redis.Options) {
+	if p.PoolSize > 0 {
+		o.PoolSize = p.PoolSize
+	}
+	if p.MinIdleConns > 0 {
+		o.MinIdleConns = p.MinIdleConns
+	}
+	if p.ReadTimeout > 0 {
+		o.ReadTimeout = p.ReadTimeout
+	}
+	if p.WriteTimeout > 0 {
+		o.WriteTimeout = p.WriteTimeout
+	}
+	if p.ConnMaxLifetime > 0 {
+		o.ConnMaxLifetime = p.ConnMaxLifetime
+	}
+}
+
+func (p RedisPoolOptions) applyToFailover(o *redis.FailoverOptions) {
+	if p.PoolSize > 0 {
+		o.PoolSize = p.PoolSize
+	}
+	if p.MinIdleConns > 0 {
+		o.MinIdleConns = p.MinIdleConns
+	}
+	if p.ReadTimeout > 0 {
+		o.ReadTimeout = p.ReadTimeout
+	}
+	if p.WriteTimeout > 0 {
+		o.WriteTimeout = p.WriteTimeout
+	}
+	if p.ConnMaxLifetime > 0 {
+		o.ConnMaxLifetime = p.ConnMaxLifetime
+	}
+}
+
+// NewRedisClient creates a Redis client, using Sentinel failover when
+// configured. Pool sizing and per-op timeouts are sourced from pool.
+func NewRedisClient(redisURL, sentinelMaster string, sentinelAddrs []string, pool RedisPoolOptions) (*redis.Client, error) {
 	if sentinelMaster != "" && len(sentinelAddrs) > 0 {
 		opts := &redis.FailoverOptions{
 			MasterName:    sentinelMaster,
@@ -17,11 +67,14 @@ func NewRedisClient(redisURL, sentinelMaster string, sentinelAddrs []string) (*r
 		}
 		if redisURL != "" {
 			parsedOpts, err := redis.ParseURL(redisURL)
-			if err == nil {
-				opts.Password = parsedOpts.Password
-				opts.DB = parsedOpts.DB
+			if err != nil {
+				return nil, fmt.Errorf("parse redis sentinel url: %w", err)
 			}
+			opts.Password = parsedOpts.Password
+			opts.DB = parsedOpts.DB
+			opts.TLSConfig = parsedOpts.TLSConfig
 		}
+		pool.applyToFailover(opts)
 
 		return redis.NewFailoverClient(opts), nil
 	}
@@ -34,6 +87,7 @@ func NewRedisClient(redisURL, sentinelMaster string, sentinelAddrs []string) (*r
 	if err != nil {
 		return nil, fmt.Errorf("parse redis url: %w", err)
 	}
+	pool.applyToClient(opts)
 
 	return redis.NewClient(opts), nil
 }
@@ -79,7 +133,8 @@ func (r *RedisPublisher) Subscribe(ctx context.Context, channel string) (*Subscr
 	ctx, cancel := context.WithCancel(ctx)
 	ch := make(chan []byte, 64)
 
-	go func() {
+	var relayWG conc.WaitGroup
+	relayWG.Go(func() {
 		defer close(ch)
 		defer sub.Close()
 		msgCh := sub.Channel()
@@ -98,7 +153,7 @@ func (r *RedisPublisher) Subscribe(ctx context.Context, channel string) (*Subscr
 				}
 			}
 		}
-	}()
+	})
 
 	return &Subscription{Ch: ch, cancel: cancel}, nil
 }

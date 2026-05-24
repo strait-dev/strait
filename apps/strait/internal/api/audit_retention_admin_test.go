@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -197,6 +198,62 @@ func TestPutAuditRetention_RejectsNegative(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), ">= 0") {
 		t.Errorf("expected >=0 error message, got %v", err)
+	}
+}
+
+func TestPutAuditRetention_RejectsOverflowDays(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		SetAuditRetentionDaysFunc: func(_ context.Context, _ string, _ int) error {
+			t.Error("Set must not be called when input exceeds max retention")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	in := &UpdateAuditRetentionInput{ID: "proj-a"}
+	in.Body.Days = domain.MaxAuditRetentionDays + 1
+	_, err := srv.handleSetAuditRetention(adminCtx("proj-a"), in)
+	if err == nil {
+		t.Fatal("expected 400 for overflow days, got nil")
+	}
+	if !strings.Contains(err.Error(), "maximum") {
+		t.Errorf("expected maximum error message, got %v", err)
+	}
+}
+
+func TestPutAuditRetention_AuditFailureFailsRequest(t *testing.T) {
+	t.Parallel()
+
+	var setCalls atomic.Int64
+	ms := &APIStoreMock{
+		GetAuditRetentionDaysFunc: func(_ context.Context, _ string) (int, bool, error) {
+			return 90, true, nil
+		},
+		SetAuditRetentionDaysFunc: func(_ context.Context, projectID string, days int) error {
+			if projectID != "proj-a" || days != 30 {
+				t.Fatalf("SetAuditRetentionDays(%q, %d), want proj-a/30", projectID, days)
+			}
+			setCalls.Add(1)
+			return nil
+		},
+		CreateAuditEventFunc: func(_ context.Context, ev *domain.AuditEvent) error {
+			if ev.Action != domain.AuditActionRetentionUpdated {
+				t.Fatalf("audit action = %q, want %q", ev.Action, domain.AuditActionRetentionUpdated)
+			}
+			return errors.New("audit unavailable")
+		},
+	}
+	srv := newTestServerWithRetentionConfig(t, ms, 365)
+
+	in := &UpdateAuditRetentionInput{ID: "proj-a"}
+	in.Body.Days = 30
+	_, err := srv.handleSetAuditRetention(adminCtx("proj-a"), in)
+	if !isHumaStatusError(err, 500) {
+		t.Fatalf("expected 500 when audit write fails, got %v", err)
+	}
+	if setCalls.Load() != 1 {
+		t.Fatalf("SetAuditRetentionDays calls = %d, want 1 attempted inside transaction", setCalls.Load())
 	}
 }
 

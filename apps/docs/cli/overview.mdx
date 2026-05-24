@@ -1,32 +1,417 @@
 ---
-title: "CLI"
-description: "The Strait CLI has moved to its own repository."
+title: "CLI Overview"
+description: "Install and use the Strait command-line interface"
 icon: "terminal"
 og:image: "/images/og.png"
 ---
 
-The Strait CLI now lives in a dedicated repository:
-
-**[github.com/strait-dev/cli](https://github.com/strait-dev/cli)**
-
-Refer to the repository README for installation, usage, and the full command reference.
+The Strait CLI is a single Go binary covering job management, workflow orchestration, declarative GitOps, local development, and real-time monitoring.
 
 ## Installation
 
-```bash
-# Homebrew
-brew install strait-dev/tap/strait
+<Tabs>
+  <Tab title="Homebrew">
+    ```bash
+    brew install strait-dev/tap/strait
+    ```
+  </Tab>
+  <Tab title="Go Install">
+    ```bash
+    go install github.com/strait-dev/cli/cmd/strait@latest
+    ```
+  </Tab>
+  <Tab title="Binary Download">
+    Download pre-built binaries for macOS, Linux, and Windows from [GitHub Releases](https://github.com/strait-dev/cli/releases).
 
-# Or build from source
-git clone https://github.com/strait-dev/cli.git
-cd cli
-go build -o strait ./cmd/strait
+    ```bash
+    # Example: Linux amd64
+    curl -LO https://github.com/strait-dev/cli/releases/latest/download/strait_linux_amd64.tar.gz
+    tar xzf strait_linux_amd64.tar.gz
+    sudo mv strait /usr/local/bin/
+    ```
+  </Tab>
+</Tabs>
+
+Verify the installation:
+
+```bash
+strait --version
 ```
 
-## Command Groups
+## Quick Start
 
-- `jobs`, `runs`, `workflows`, `workflow-runs`, `events`
-- `build`, `deploy`, `project`, `secrets`
-- `perf`, `team`, `audit`, `status`, `doctor`
+```bash
+# Initialize a new project in the current directory
+strait init
 
-For full documentation, see the [CLI repository](https://github.com/strait-dev/cli).
+# Authenticate with your Strait account (opens browser)
+strait login
+
+# Create a job interactively
+strait create job
+
+# Trigger the job with a payload
+strait trigger my-job --payload '{"id": "123"}'
+
+# Watch the run in real time
+strait runs watch <run-id>
+
+# Open the terminal dashboard
+strait tui
+```
+
+## Command Reference
+
+The CLI organizes commands into categories. Run `strait <command> --help` for details on any command.
+
+### Jobs
+
+Create, inspect, and manage job definitions.
+
+| Command | Description |
+|---|---|
+| `strait create job` | Create a new job interactively or from a file |
+| `strait trigger <job>` | Trigger a job with an optional payload |
+| `strait jobs list` | List all jobs in the current project |
+| `strait jobs get <job>` | Get a job definition |
+| `strait jobs describe <job>` | Show detailed job information including recent runs |
+| `strait jobs edit <job>` | Edit a job definition in your editor |
+| `strait jobs delete <job>` | Delete a job |
+
+### Runs
+
+Monitor, replay, and debug job runs.
+
+| Command | Description |
+|---|---|
+| `strait runs list` | List runs, optionally filtered by job or status |
+| `strait runs get <run-id>` | Get details for a specific run |
+| `strait runs watch <run-id>` | Stream run output in real time |
+| `strait runs cancel <run-id>` | Cancel a running or queued run |
+| `strait runs replay <run-id>` | Replay a completed or failed run |
+| `strait runs diff <id-a> <id-b>` | Compare two runs side by side |
+| `strait wait run <run-id>` | Block until a run completes |
+
+### Workflows
+
+Create and manage multi-step workflows.
+
+| Command | Description |
+|---|---|
+| `strait create workflow` | Create a new workflow |
+| `strait workflows list` | List all workflows |
+| `strait workflows describe <wf>` | Show workflow structure and step dependencies |
+| `strait workflows visualize <wf>` | Render workflow graph in the terminal |
+| `strait workflows trigger <wf>` | Trigger a workflow run |
+
+### Releases
+
+Record and promote customer-owned workflow releases. Strait stores release metadata and traffic state; your own infrastructure builds and runs the code.
+
+| Command | Description |
+|---|---|
+| `strait deploy create` | Create release metadata |
+| `strait deploy finalize` | Finalize a release after validation |
+| `strait deploy promote` | Promote a release to active |
+| `strait deploy rollback` | Roll back to a previous release |
+| `strait deploy list` | List releases |
+| `strait verify` | Verify a release is healthy |
+
+### Logs
+
+Stream and query execution logs.
+
+| Command | Description |
+|---|---|
+| `strait logs` | Stream logs for a job or run |
+| `strait events` | List events in the current project |
+| `strait send` | Send a custom event |
+
+### GitOps
+
+Declarative configuration management for infrastructure-as-code workflows.
+
+| Command | Description |
+|---|---|
+| `strait validate` | Validate configuration files against the schema |
+| `strait check` | Check for configuration drift |
+| `strait diff` | Show the diff between local and remote state |
+| `strait apply` | Apply local configuration to the platform |
+| `strait export` | Export current remote state to local files |
+| `strait validate` | Validate local configuration |
+| `strait project` | Manage project-level settings |
+
+### Secrets
+
+Manage secrets and API keys.
+
+| Command | Description |
+|---|---|
+| `strait secrets list` | List secrets in the current project |
+| `strait secrets create` | Create a new secret |
+| `strait secrets delete` | Delete a secret |
+| `strait api-keys list` | List API keys |
+| `strait api-keys create` | Create a new API key |
+| `strait api-keys rotate` | Rotate an existing API key |
+| `strait api-keys revoke` | Revoke an API key |
+
+### Team
+
+Manage team members and permissions.
+
+| Command | Description |
+|---|---|
+| `strait team list` | List team members |
+| `strait team add` | Add a team member |
+| `strait team remove` | Remove a team member |
+| `strait team roles` | Manage roles and permissions |
+| `strait audit` | View the audit log |
+
+### Triggers
+
+Inspect and manage trigger queues.
+
+| Command | Description |
+|---|---|
+| `strait triggers list` | List triggers for a job |
+| `strait triggers get` | Get trigger details |
+| `strait triggers send` | Send a trigger |
+| `strait triggers purge` | Purge pending triggers |
+
+### Monitoring
+
+Health checks, diagnostics, and real-time metrics.
+
+| Command | Description |
+|---|---|
+| `strait doctor` | Run diagnostic checks on your environment |
+| `strait status` | Show platform and project status |
+| `strait health` | Check health of services |
+| `strait listen` | Listen for events in real time |
+| `strait top` | Real-time view of running jobs and resource usage |
+| `strait trace <run-id>` | Trace execution across workflow steps |
+| `strait perf` | Performance metrics and statistics |
+| `strait stats` | Aggregate statistics for jobs and runs |
+
+### Local Development
+
+Test and debug jobs locally.
+
+| Command | Description |
+|---|---|
+| `strait dev test` | Run a job locally for testing |
+| `strait dev tunnel` | Create a tunnel for local webhook development |
+| `strait dev status` | Show local development server status |
+| `strait run` | Run a job definition locally |
+
+### CI/CD
+
+Integrate Strait into your CI/CD pipeline.
+
+| Command | Description |
+|---|---|
+| `strait ci setup` | Generate CI configuration for your platform |
+| `strait ci check` | Run CI checks (validate, lint, test) |
+
+### Extensions
+
+Install and manage CLI extensions.
+
+| Command | Description |
+|---|---|
+| `strait extension list` | List installed extensions |
+| `strait extension install` | Install an extension |
+| `strait extension run` | Run an extension command |
+| `strait extension create` | Scaffold a new extension |
+| `strait extension remove` | Remove an extension |
+
+### Auth
+
+Authentication and context management.
+
+| Command | Description |
+|---|---|
+| `strait login` | Authenticate with Strait (opens browser) |
+| `strait logout` | Clear stored credentials |
+| `strait whoami` | Show the authenticated user |
+| `strait context` | Switch between project contexts |
+| `strait auth` | Manage authentication settings |
+
+### Config
+
+CLI configuration, aliases, and shell completion.
+
+| Command | Description |
+|---|---|
+| `strait config` | View and set CLI configuration |
+| `strait alias` | Create command aliases |
+| `strait completion` | Generate shell completion scripts |
+
+### Backup
+
+Create and restore project backups.
+
+| Command | Description |
+|---|---|
+| `strait backup create` | Create a backup of the current project |
+| `strait backup restore` | Restore a project from a backup |
+
+### Fixtures
+
+Manage test data.
+
+| Command | Description |
+|---|---|
+| `strait fixtures create` | Create fixture data for testing |
+| `strait fixtures clean` | Clean up fixture data |
+
+### Raw API
+
+Make direct API calls to the Strait platform.
+
+| Command | Description |
+|---|---|
+| `strait api GET <path>` | Make a GET request |
+| `strait api POST <path>` | Make a POST request with a body |
+| `strait api DELETE <path>` | Make a DELETE request |
+
+### Utilities
+
+Additional tools for debugging and maintenance.
+
+| Command | Description |
+|---|---|
+| `strait open` | Open the dashboard in your browser |
+| `strait cleanup` | Clean up stale resources |
+| `strait drain` | Drain a job before maintenance |
+| `strait diagnose` | Collect diagnostic information |
+| `strait debug` | Debug mode for a job or run |
+| `strait profile` | Profile CLI performance |
+| `strait upgrade` | Upgrade the CLI to the latest version |
+
+## Shell Completion
+
+Generate completion scripts for your shell:
+
+<Tabs>
+  <Tab title="Bash">
+    ```bash
+    strait completion bash > /etc/bash_completion.d/strait
+    # Or for the current session
+    source <(strait completion bash)
+    ```
+  </Tab>
+  <Tab title="Zsh">
+    ```bash
+    strait completion zsh > "${fpath[1]}/_strait"
+    # Or for the current session
+    source <(strait completion zsh)
+    ```
+  </Tab>
+  <Tab title="Fish">
+    ```bash
+    strait completion fish > ~/.config/fish/completions/strait.fish
+    ```
+  </Tab>
+  <Tab title="PowerShell">
+    ```powershell
+    strait completion powershell | Out-String | Invoke-Expression
+    ```
+  </Tab>
+</Tabs>
+
+## Configuration
+
+The CLI stores configuration in `~/.config/strait/config.yaml`. Use `strait config` to manage settings.
+
+```bash
+# View current configuration
+strait config
+
+# Set the default output format
+strait config set output json
+
+# Set the default project
+strait config set project my-project
+```
+
+### Contexts
+
+Contexts let you switch between different Strait environments (e.g., staging and production):
+
+```bash
+# List available contexts
+strait context list
+
+# Switch to a different context
+strait context use staging
+
+# Show the active context
+strait context current
+```
+
+## Output Formats
+
+Most commands support multiple output formats via the `--output` flag:
+
+```bash
+# Default table output
+strait jobs list
+
+# JSON output for scripting
+strait jobs list --output json
+
+# YAML output
+strait jobs list --output yaml
+
+# Pipe JSON output to jq
+strait jobs list --output json | jq '.[].name'
+```
+
+## Common Workflows
+
+### Create and trigger a job
+
+```bash
+# Create a job from a file
+strait create job -f job.yaml
+
+# Trigger and wait for completion
+strait trigger my-job --payload '{"key": "value"}' --wait
+```
+
+### Watch a run in real time
+
+```bash
+# Trigger and immediately watch
+RUN_ID=$(strait trigger my-job --output json | jq -r '.id')
+strait runs watch $RUN_ID
+```
+
+### Deploy with validation
+
+```bash
+# Validate configuration before deploying
+strait validate
+strait check
+
+# Deploy and verify
+strait deploy
+strait verify
+```
+
+### Debug a failed run
+
+```bash
+# Get run details
+strait runs get <run-id>
+
+# View the logs
+strait logs --run <run-id>
+
+# Compare with a successful run
+strait runs diff <failed-id> <successful-id>
+
+# Replay with debug mode
+strait debug --run <run-id>
+```

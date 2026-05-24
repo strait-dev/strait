@@ -14,6 +14,8 @@ import (
 	"strait/internal/domain"
 	"strait/internal/pubsub"
 	"strait/internal/store"
+
+	"github.com/go-chi/chi/v5"
 )
 
 func newEventTriggersTestServer(t *testing.T, s APIStore, wfCallback WorkflowCallback) *Server {
@@ -60,7 +62,10 @@ func TestHandleSendEvent_Success(t *testing.T) {
 			}
 			return nil, nil
 		},
-		UpdateEventTriggerStatusFunc: func(_ context.Context, _ string, status string, payload json.RawMessage, _ *time.Time, _ string) error {
+		UpdateEventTriggerStatusFromFunc: func(_ context.Context, _ string, from string, status string, payload json.RawMessage, _ *time.Time, _ string) error {
+			if from != domain.EventTriggerStatusWaiting {
+				t.Fatalf("from = %q, want %q", from, domain.EventTriggerStatusWaiting)
+			}
 			updatedStatus = status
 			updatedPayload = payload
 			return nil
@@ -77,6 +82,7 @@ func TestHandleSendEvent_Success(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/events/aml-check:app-123/send", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Project-Id", "proj-1")
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
@@ -110,6 +116,7 @@ func TestHandleSendEvent_NotFound(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/events/nonexistent/send", nil)
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Project-Id", "proj-1")
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
@@ -127,6 +134,7 @@ func TestHandleSendEvent_AlreadyReceived_DifferentPayload(t *testing.T) {
 			return &domain.EventTrigger{
 				ID:              "evt-1",
 				EventKey:        "some-key",
+				ProjectID:       "proj-1",
 				Status:          domain.EventTriggerStatusReceived,
 				ResponsePayload: json.RawMessage(`{"original":true}`),
 			}, nil
@@ -138,6 +146,7 @@ func TestHandleSendEvent_AlreadyReceived_DifferentPayload(t *testing.T) {
 	// Different payload -> 409.
 	req := httptest.NewRequest(http.MethodPost, "/v1/events/some-key/send", strings.NewReader(`{"payload":{"different":true}}`))
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Project-Id", "proj-1")
 	req.Header.Set("Content-Type", "application/json")
 
 	rr := httptest.NewRecorder()
@@ -161,6 +170,7 @@ func TestHandleSendEvent_StoreError(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/events/some-key/send", nil)
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Project-Id", "proj-1")
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
@@ -191,6 +201,7 @@ func TestHandleGetEventTrigger_SuccessInternalSecret(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/events/aml-check:app-123", nil)
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Project-Id", "proj-1")
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
@@ -221,6 +232,7 @@ func TestHandleGetEventTrigger_NotFound(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/events/nonexistent", nil)
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Project-Id", "proj-1")
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
@@ -235,7 +247,7 @@ func TestHandleListEventTriggers_Success(t *testing.T) {
 
 	now := time.Now()
 	ms := &APIStoreMock{
-		ListEventTriggersByProjectFunc: func(_ context.Context, projectID, _, _, _ string, _ int, _ *time.Time) ([]domain.EventTrigger, error) {
+		ListEventTriggersByProjectFunc: func(_ context.Context, projectID, _, _, _, _ string, _ int, _ *time.Time) ([]domain.EventTrigger, error) {
 			if projectID == "proj-1" {
 				return []domain.EventTrigger{
 					{ID: "evt-1", EventKey: "aml:app-1", ProjectID: "proj-1", Status: domain.EventTriggerStatusWaiting, RequestedAt: now},
@@ -265,6 +277,40 @@ func TestHandleListEventTriggers_Success(t *testing.T) {
 	}
 }
 
+func TestHandleListEventTriggers_EnvironmentScopedCallerPassesEnvironmentFilter(t *testing.T) {
+	t.Parallel()
+
+	var gotProjectID, gotEnvironmentID string
+	ms := &APIStoreMock{
+		ListEventTriggersByProjectFunc: func(_ context.Context, projectID, environmentID, _, _, _ string, _ int, _ *time.Time) ([]domain.EventTrigger, error) {
+			gotProjectID = projectID
+			gotEnvironmentID = environmentID
+			return []domain.EventTrigger{}, nil
+		},
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
+			return &domain.APIKey{ID: "key-1", ProjectID: "proj-1", EnvironmentID: "env-prod", Scopes: []string{domain.ScopeJobsRead}}, nil
+		},
+		TouchAPIKeyLastUsedFunc: func(_ context.Context, _ string) error { return nil },
+	}
+
+	srv := newEventTriggersTestServer(t, ms, nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/events", nil)
+	req.Header.Set("Authorization", "Bearer strait_testapikey123")
+
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if gotProjectID != "proj-1" {
+		t.Fatalf("projectID = %q, want proj-1", gotProjectID)
+	}
+	if gotEnvironmentID != "env-prod" {
+		t.Fatalf("environmentID = %q, want env-prod", gotEnvironmentID)
+	}
+}
+
 func TestHandleSendEvent_EmptyBody(t *testing.T) {
 	t.Parallel()
 
@@ -281,7 +327,10 @@ func TestHandleSendEvent_EmptyBody(t *testing.T) {
 				Status:     domain.EventTriggerStatusWaiting,
 			}, nil
 		},
-		UpdateEventTriggerStatusFunc: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+		UpdateEventTriggerStatusFromFunc: func(_ context.Context, _ string, from string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+			if from != domain.EventTriggerStatusWaiting {
+				t.Fatalf("from = %q, want %q", from, domain.EventTriggerStatusWaiting)
+			}
 			return nil
 		},
 		UpdateRunStatusFunc: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
@@ -300,6 +349,7 @@ func TestHandleSendEvent_EmptyBody(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/events/my-event/send", nil)
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Project-Id", "proj-1")
 	req.ContentLength = 0
 
 	rr := httptest.NewRecorder()
@@ -333,7 +383,10 @@ func TestHandleSendEvent_WorkflowStepCallsCallback(t *testing.T) {
 				Status:            domain.EventTriggerStatusWaiting,
 			}, nil
 		},
-		UpdateEventTriggerStatusFunc: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+		UpdateEventTriggerStatusFromFunc: func(_ context.Context, _ string, from string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+			if from != domain.EventTriggerStatusWaiting {
+				t.Fatalf("from = %q, want %q", from, domain.EventTriggerStatusWaiting)
+			}
 			return nil
 		},
 		UpdateStepRunStatusFunc: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
@@ -354,6 +407,7 @@ func TestHandleSendEvent_WorkflowStepCallsCallback(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/events/my-event/send", strings.NewReader(`{"payload":{"ok":true}}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Project-Id", "proj-1")
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
@@ -368,6 +422,40 @@ func TestHandleSendEvent_WorkflowStepCallsCallback(t *testing.T) {
 	// by the handler (even in pass-through mode without a real TxPool).
 	if !stepRunStatusUpdatedDirectly {
 		t.Fatal("step run status should be updated by handler inside runInTx")
+	}
+}
+
+func TestHandleSendEvent_UpdateStatusConflictReturns409(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+			return &domain.EventTrigger{
+				ID:         "evt-conflict",
+				EventKey:   "race-event",
+				ProjectID:  "proj-1",
+				SourceType: "external",
+				Status:     domain.EventTriggerStatusWaiting,
+			}, nil
+		},
+		UpdateEventTriggerStatusFromFunc: func(_ context.Context, _ string, from string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+			if from != domain.EventTriggerStatusWaiting {
+				t.Fatalf("from = %q, want %q", from, domain.EventTriggerStatusWaiting)
+			}
+			return store.ErrEventTriggerConflict
+		},
+	}
+
+	srv := newEventTriggersTestServer(t, ms, nil)
+	req := httptest.NewRequest(http.MethodPost, "/v1/events/race-event/send", strings.NewReader(`{"payload":{"ok":true}}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Project-Id", "proj-1")
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409; body: %s", rr.Code, rr.Body.String())
 	}
 }
 
@@ -395,6 +483,7 @@ func TestHandleSendEvent_IdempotentResend(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/events/my-event/send", strings.NewReader(`{"payload":{"ok":true}}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Project-Id", "proj-1")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -405,6 +494,7 @@ func TestHandleSendEvent_IdempotentResend(t *testing.T) {
 	req2 := httptest.NewRequest(http.MethodPost, "/v1/events/my-event/send", strings.NewReader(`{"payload":{"ok":false}}`))
 	req2.Header.Set("Content-Type", "application/json")
 	req2.Header.Set("X-Internal-Secret", "test-secret-value")
+	req2.Header.Set("X-Project-Id", "proj-1")
 	w2 := httptest.NewRecorder()
 	srv.ServeHTTP(w2, req2)
 	if w2.Code != http.StatusConflict {
@@ -442,6 +532,7 @@ func TestHandleSendEventByPrefix_ResolvesMultiple(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/events/prefix/order:/send", strings.NewReader(`{"payload":{"batch":true}}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Project-Id", "proj-1")
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
@@ -475,6 +566,7 @@ func TestHandleSendEventByPrefix_NoMatches(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/events/prefix/nonexistent:/send", nil)
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Project-Id", "proj-1")
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
@@ -544,6 +636,11 @@ func TestPayloadsMatch(t *testing.T) {
 		{"one nil", json.RawMessage(`{"a":1}`), nil, false},
 		{"nil vs null literal", nil, json.RawMessage(`null`), false},
 		{"null vs null", json.RawMessage(`null`), json.RawMessage(`null`), true},
+		{"key order diff", json.RawMessage(`{"a":1,"b":2}`), json.RawMessage(`{"b":2,"a":1}`), true},
+		{"number equivalent", json.RawMessage(`{"n":1}`), json.RawMessage(`{"n":1.0}`), true},
+		{"invalid json", json.RawMessage(`{"a":`), json.RawMessage(`{"a":`), true},
+		{"invalid json different bytes", json.RawMessage(`{"a":`), json.RawMessage(`{"a":1}`), false},
+		{"array whitespace diff", json.RawMessage(`[1, 2, {"a": true}]`), json.RawMessage(`[1,2,{"a":true}]`), true},
 	}
 
 	for _, tt := range tests {
@@ -558,13 +655,23 @@ func TestPayloadsMatch(t *testing.T) {
 
 func BenchmarkPayloadsMatch(b *testing.B) {
 	identical := json.RawMessage(`{"key":"value","count":42}`)
+	whitespaceA := json.RawMessage(`{ "key" : "value", "count" : 42, "nested" : { "enabled" : true } }`)
+	whitespaceB := json.RawMessage(`{"key":"value","count":42,"nested":{"enabled":true}}`)
 	semanticA := json.RawMessage(`{"key":"value","count":42}`)
 	semanticB := json.RawMessage(`{"count":42,"key":"value"}`)
+	numberA := json.RawMessage(`{"count":1}`)
+	numberB := json.RawMessage(`{"count":1.0}`)
 	different := json.RawMessage(`{"key":"other"}`)
+	invalid := json.RawMessage(`{"key":`)
 
 	b.Run("identical", func(b *testing.B) {
 		for range b.N {
 			payloadsMatch(identical, identical)
+		}
+	})
+	b.Run("whitespace_equal", func(b *testing.B) {
+		for range b.N {
+			payloadsMatch(whitespaceA, whitespaceB)
 		}
 	})
 	b.Run("semantic_equal", func(b *testing.B) {
@@ -572,9 +679,19 @@ func BenchmarkPayloadsMatch(b *testing.B) {
 			payloadsMatch(semanticA, semanticB)
 		}
 	})
+	b.Run("number_equal", func(b *testing.B) {
+		for range b.N {
+			payloadsMatch(numberA, numberB)
+		}
+	})
 	b.Run("different", func(b *testing.B) {
 		for range b.N {
 			payloadsMatch(identical, different)
+		}
+	})
+	b.Run("invalid", func(b *testing.B) {
+		for range b.N {
+			payloadsMatch(invalid, different)
 		}
 	})
 }
@@ -602,7 +719,10 @@ func TestHandleCancelEventTrigger(t *testing.T) {
 			}
 			return nil, nil
 		},
-		UpdateEventTriggerStatusFunc: func(_ context.Context, _ string, status string, _ json.RawMessage, _ *time.Time, _ string) error {
+		UpdateEventTriggerStatusFromFunc: func(_ context.Context, _ string, from string, status string, _ json.RawMessage, _ *time.Time, _ string) error {
+			if from != domain.EventTriggerStatusWaiting {
+				t.Fatalf("from = %q, want %q", from, domain.EventTriggerStatusWaiting)
+			}
 			canceledTriggerStatus = status
 			return nil
 		},
@@ -621,6 +741,7 @@ func TestHandleCancelEventTrigger(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodDelete, "/v1/events/cancel-me", nil)
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
@@ -656,6 +777,7 @@ func TestHandleCancelEventTrigger_NotWaiting(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodDelete, "/v1/events/already-received", nil)
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
@@ -687,6 +809,7 @@ func TestHandleEventTriggerStream_TerminalState(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/events/done-key/stream", nil)
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
@@ -718,6 +841,7 @@ func TestHandleEventTriggerStream_NotFound(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/events/nonexistent/stream", nil)
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
@@ -786,7 +910,7 @@ func TestHandleGetEventTriggerStats_Success(t *testing.T) {
 		TouchAPIKeyLastUsedFunc: func(_ context.Context, _ string) error {
 			return nil
 		},
-		GetEventTriggerStatsFunc: func(_ context.Context, _ string) (*store.EventTriggerStats, error) {
+		GetEventTriggerStatsFunc: func(_ context.Context, _, _ string) (*store.EventTriggerStats, error) {
 			return &store.EventTriggerStats{TotalCount: 5}, nil
 		},
 	}
@@ -808,6 +932,39 @@ func TestHandleGetEventTriggerStats_Success(t *testing.T) {
 	}
 	if _, ok := resp["total_count"]; !ok {
 		t.Fatal("expected total_count in response")
+	}
+}
+
+func TestHandleGetEventTriggerStats_EnvironmentScopedCallerPassesEnvironmentFilter(t *testing.T) {
+	t.Parallel()
+
+	var gotProjectID, gotEnvironmentID string
+	ms := &APIStoreMock{
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
+			return &domain.APIKey{ID: "key-1", ProjectID: "proj-stats", EnvironmentID: "env-prod", Scopes: []string{domain.ScopeJobsRead}}, nil
+		},
+		TouchAPIKeyLastUsedFunc: func(_ context.Context, _ string) error { return nil },
+		GetEventTriggerStatsFunc: func(_ context.Context, projectID, environmentID string) (*store.EventTriggerStats, error) {
+			gotProjectID = projectID
+			gotEnvironmentID = environmentID
+			return &store.EventTriggerStats{TotalCount: 2}, nil
+		},
+	}
+
+	srv := newEventTriggersTestServer(t, ms, nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/events/stats", nil)
+	req.Header.Set("Authorization", "Bearer strait_testapikey123")
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rr.Code, rr.Body.String())
+	}
+	if gotProjectID != "proj-stats" {
+		t.Fatalf("projectID = %q, want proj-stats", gotProjectID)
+	}
+	if gotEnvironmentID != "env-prod" {
+		t.Fatalf("environmentID = %q, want env-prod", gotEnvironmentID)
 	}
 }
 
@@ -858,7 +1015,7 @@ func TestHandleListEventTriggers_WithFilters(t *testing.T) {
 		TouchAPIKeyLastUsedFunc: func(_ context.Context, _ string) error {
 			return nil
 		},
-		ListEventTriggersByProjectFunc: func(_ context.Context, _, status, wfRunID, sourceType string, _ int, _ *time.Time) ([]domain.EventTrigger, error) {
+		ListEventTriggersByProjectFunc: func(_ context.Context, _, _, status, wfRunID, sourceType string, _ int, _ *time.Time) ([]domain.EventTrigger, error) {
 			calledStatus = status
 			calledWfRunID = wfRunID
 			calledSourceType = sourceType
@@ -905,7 +1062,10 @@ func TestHandleCancelEventTrigger_JobRunSource(t *testing.T) {
 				RequestedAt: time.Now(),
 			}, nil
 		},
-		UpdateEventTriggerStatusFunc: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+		UpdateEventTriggerStatusFromFunc: func(_ context.Context, _ string, from string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+			if from != domain.EventTriggerStatusWaiting {
+				t.Fatalf("from = %q, want %q", from, domain.EventTriggerStatusWaiting)
+			}
 			return nil
 		},
 		UpdateRunStatusFunc: func(_ context.Context, _ string, _ domain.RunStatus, to domain.RunStatus, _ map[string]any) error {
@@ -918,6 +1078,7 @@ func TestHandleCancelEventTrigger_JobRunSource(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodDelete, "/v1/events/cancel-job", nil)
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
@@ -948,7 +1109,10 @@ func TestHandleSendEvent_WorkflowStepResume(t *testing.T) {
 				RequestedAt:       time.Now(),
 			}, nil
 		},
-		UpdateEventTriggerStatusFunc: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+		UpdateEventTriggerStatusFromFunc: func(_ context.Context, _ string, from string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+			if from != domain.EventTriggerStatusWaiting {
+				t.Fatalf("from = %q, want %q", from, domain.EventTriggerStatusWaiting)
+			}
 			return nil
 		},
 	}
@@ -964,6 +1128,7 @@ func TestHandleSendEvent_WorkflowStepResume(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/events/wf-event/send", strings.NewReader(`{"payload":{"approved":true}}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
@@ -998,6 +1163,7 @@ func TestHandleSendEvent_IdempotentResendMatchingPayload(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/events/idem-key/send", strings.NewReader(`{"payload":{"ok":true}}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
@@ -1027,6 +1193,7 @@ func TestHandleSendEvent_ConflictDifferentPayload(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/events/conf-key/send", strings.NewReader(`{"payload":{"ok":false}}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
@@ -1050,6 +1217,7 @@ func TestHandleSendEvent_GetTriggerStoreError(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/events/any-key/send", nil)
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
@@ -1086,10 +1254,11 @@ func TestHandleEventTriggerStream_ReceivesMessage(t *testing.T) {
 	srv := newEventTriggersTestServerWithPubSub(t, ms, nil, pub)
 
 	// Send a terminal message on the channel so the stream reads it and exits.
-	ch <- []byte(`{"id":"evt-stream","status":"received"}`)
+	ch <- []byte(`{"id":"evt-stream","project_id":"proj-1","status":"received"}`)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/events/stream-key/stream", nil)
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Project-Id", "proj-1")
 	// Cancel request after we get the message to avoid hanging.
 	reqCtx, reqCancel := context.WithTimeout(req.Context(), 2*time.Second)
 	defer reqCancel()
@@ -1108,6 +1277,165 @@ func TestHandleEventTriggerStream_ReceivesMessage(t *testing.T) {
 	}
 	if !strings.Contains(body, "event: status") {
 		t.Fatalf("expected SSE event line, got: %s", body)
+	}
+}
+
+func TestHandleEventTriggerStream_IgnoresGenericRequestTimeout(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+			return &domain.EventTrigger{
+				ID:        "evt-no-generic-timeout",
+				EventKey:  "no-generic-timeout",
+				ProjectID: "proj-1",
+				Status:    domain.EventTriggerStatusWaiting,
+			}, nil
+		},
+	}
+
+	ch := make(chan []byte, 1)
+	_, cancel := context.WithCancel(context.Background())
+	sub := pubsub.NewSubscription(ch, cancel)
+	pub := &mockPublisher{
+		subscribeFn: func(_ context.Context, _ string) (*pubsub.Subscription, error) {
+			go func() {
+				time.Sleep(50 * time.Millisecond)
+				ch <- []byte(`{"id":"evt-no-generic-timeout","project_id":"proj-1","status":"received"}`)
+			}()
+			return sub, nil
+		},
+	}
+
+	cfg := &config.Config{
+		InternalSecret:       "test-secret-value",
+		MaxBulkTriggerItems:  500,
+		JWTSigningKey:        testJWTSigningKey,
+		RequestTimeout:       10 * time.Millisecond,
+		SSEMaxConnDuration:   time.Second,
+		SSEKeepaliveInterval: time.Second,
+	}
+	srv := NewServer(ServerDeps{
+		Config: cfg,
+		Store:  ms,
+		Queue:  &mockQueue{},
+		PubSub: pub,
+	})
+	t.Cleanup(srv.Close)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/events/no-generic-timeout/stream", nil)
+	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Project-Id", "proj-1")
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), `"status":"received"`) {
+		t.Fatalf("stream was cut off before terminal event; body: %s", rr.Body.String())
+	}
+}
+
+func TestHandleEventTriggerStream_DropsForeignEnvironmentMessage(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+			return &domain.EventTrigger{
+				ID:            "evt-env-stream",
+				EventKey:      "env-stream-key",
+				ProjectID:     "proj-1",
+				EnvironmentID: "env-prod",
+				Status:        domain.EventTriggerStatusWaiting,
+			}, nil
+		},
+	}
+
+	ch := make(chan []byte, 1)
+	ch <- []byte(`{"id":"evt-env-stream","project_id":"proj-1","environment_id":"env-staging","status":"received"}`)
+	close(ch)
+	_, cancel := context.WithCancel(context.Background())
+	sub := pubsub.NewSubscription(ch, cancel)
+
+	pub := &mockPublisher{
+		subscribeFn: func(_ context.Context, _ string) (*pubsub.Subscription, error) {
+			return sub, nil
+		},
+	}
+
+	srv := newEventTriggersTestServerWithPubSub(t, ms, nil, pub)
+
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("eventKey", "env-stream-key")
+	req := httptest.NewRequest(http.MethodGet, "/v1/events/env-stream-key/stream", nil)
+	ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
+	req = req.WithContext(ctx)
+
+	rr := httptest.NewRecorder()
+	srv.handleEventTriggerStream(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rr.Code, rr.Body.String())
+	}
+	body := rr.Body.String()
+	if strings.Contains(body, `"environment_id":"env-staging"`) || strings.Contains(body, `"status":"received"`) {
+		t.Fatalf("foreign environment message was forwarded: %s", body)
+	}
+	if !strings.Contains(body, `"environment_id":"env-prod"`) || !strings.Contains(body, `"status":"waiting"`) {
+		t.Fatalf("expected only initial scoped trigger state, got: %s", body)
+	}
+}
+
+func TestHandleEventTriggerStream_ForwardsMatchingEnvironmentMessage(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+			return &domain.EventTrigger{
+				ID:            "evt-env-stream-ok",
+				EventKey:      "env-stream-ok-key",
+				ProjectID:     "proj-1",
+				EnvironmentID: "env-prod",
+				Status:        domain.EventTriggerStatusWaiting,
+			}, nil
+		},
+	}
+
+	ch := make(chan []byte, 1)
+	ch <- []byte(`{"id":"evt-env-stream-ok","project_id":"proj-1","environment_id":"env-prod","status":"received"}`)
+	_, cancel := context.WithCancel(context.Background())
+	sub := pubsub.NewSubscription(ch, cancel)
+
+	pub := &mockPublisher{
+		subscribeFn: func(_ context.Context, _ string) (*pubsub.Subscription, error) {
+			return sub, nil
+		},
+	}
+
+	srv := newEventTriggersTestServerWithPubSub(t, ms, nil, pub)
+
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("eventKey", "env-stream-ok-key")
+	req := httptest.NewRequest(http.MethodGet, "/v1/events/env-stream-ok-key/stream", nil)
+	ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
+	req = req.WithContext(ctx)
+
+	rr := httptest.NewRecorder()
+	srv.handleEventTriggerStream(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rr.Code, rr.Body.String())
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, `"id":"evt-env-stream-ok"`) ||
+		!strings.Contains(body, `"environment_id":"env-prod"`) ||
+		!strings.Contains(body, `"status":"received"`) {
+		t.Fatalf("expected matching environment message to be forwarded, got: %s", body)
 	}
 }
 
@@ -1140,6 +1468,7 @@ func TestHandleEventTriggerStream_ContextCancel(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/events/cancel-stream-key/stream", nil)
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Project-Id", "proj-1")
 	// Very short timeout to trigger context.Done branch.
 	reqCtx, reqCancel := context.WithTimeout(req.Context(), 100*time.Millisecond)
 	defer reqCancel()
@@ -1187,6 +1516,7 @@ func TestHandleEventTriggerStream_ClosedChannel(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/events/closed-key/stream", nil)
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
@@ -1214,6 +1544,7 @@ func TestHandleEventTriggerStream_NilPubsub(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/events/nopub-key/stream", nil)
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
@@ -1247,6 +1578,7 @@ func TestHandleEventTriggerStream_SubscribeError(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/events/suberr-key/stream", nil)
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
@@ -1269,6 +1601,7 @@ func TestHandleEventTriggerStream_StoreError(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/events/bad-key/stream", nil)
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
@@ -1286,7 +1619,7 @@ func TestHandleGetEventTriggerStats_StoreError(t *testing.T) {
 			return &domain.APIKey{ID: "key-1", ProjectID: "proj-err"}, nil
 		},
 		TouchAPIKeyLastUsedFunc: func(_ context.Context, _ string) error { return nil },
-		GetEventTriggerStatsFunc: func(_ context.Context, _ string) (*store.EventTriggerStats, error) {
+		GetEventTriggerStatsFunc: func(_ context.Context, _, _ string) (*store.EventTriggerStats, error) {
 			return nil, errors.New("db down")
 		},
 	}
@@ -1317,6 +1650,7 @@ func TestHandleCancelEventTrigger_NotFound(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodDelete, "/v1/events/ghost-key", nil)
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
@@ -1370,7 +1704,7 @@ func TestHandleCancelEventTrigger_UpdateStatusError(t *testing.T) {
 				Status:    domain.EventTriggerStatusWaiting,
 			}, nil
 		},
-		UpdateEventTriggerStatusFunc: func(_ context.Context, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+		UpdateEventTriggerStatusFromFunc: func(_ context.Context, _ string, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
 			return errors.New("update failed")
 		},
 	}
@@ -1379,11 +1713,44 @@ func TestHandleCancelEventTrigger_UpdateStatusError(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodDelete, "/v1/events/upderr-key", nil)
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestHandleCancelEventTrigger_UpdateStatusConflictReturns409(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
+			return &domain.EventTrigger{
+				ID:        "evt-cancel-conflict",
+				EventKey:  "cancel-race",
+				ProjectID: "proj-1",
+				Status:    domain.EventTriggerStatusWaiting,
+			}, nil
+		},
+		UpdateEventTriggerStatusFromFunc: func(_ context.Context, _ string, from string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
+			if from != domain.EventTriggerStatusWaiting {
+				t.Fatalf("from = %q, want %q", from, domain.EventTriggerStatusWaiting)
+			}
+			return store.ErrEventTriggerConflict
+		},
+	}
+
+	srv := newEventTriggersTestServer(t, ms, nil)
+	req := httptest.NewRequest(http.MethodDelete, "/v1/events/cancel-race", nil)
+	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Project-Id", "proj-1")
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409; body: %s", rr.Code, rr.Body.String())
 	}
 }
 
@@ -1401,6 +1768,7 @@ func TestHandleGetEventTrigger_StoreError(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/events/bad-key", nil)
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
@@ -1430,6 +1798,7 @@ func TestHandleGetEventTrigger_ResponseBody(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/events/ok-key", nil)
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
+	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
@@ -1574,10 +1943,12 @@ func TestValidateEventKey(t *testing.T) {
 	}
 }
 
-// SSE stream: query param auth works for browser EventSource clients.
-func TestHandleEventTriggerStream_QueryParamAuth(t *testing.T) {
+// SSE stream: raw API keys in query params are rejected to avoid credential
+// leakage through browser history, logs, and referrers.
+func TestHandleEventTriggerStream_RawQueryParamAuthRejected(t *testing.T) {
 	t.Parallel()
 
+	keyLookupCalled := false
 	ms := &APIStoreMock{
 		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
 			return &domain.EventTrigger{
@@ -1588,6 +1959,7 @@ func TestHandleEventTriggerStream_QueryParamAuth(t *testing.T) {
 			}, nil
 		},
 		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
+			keyLookupCalled = true
 			return &domain.APIKey{ID: "key-1", ProjectID: "proj-1"}, nil
 		},
 		TouchAPIKeyLastUsedFunc: func(_ context.Context, _ string) error { return nil },
@@ -1595,16 +1967,15 @@ func TestHandleEventTriggerStream_QueryParamAuth(t *testing.T) {
 
 	srv := newEventTriggersTestServer(t, ms, nil)
 
-	// No Authorization header — token in query param instead.
 	req := httptest.NewRequest(http.MethodGet, "/v1/events/qp-key/stream?token=strait_testapikey123", nil)
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body: %s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401; body: %s", rr.Code, rr.Body.String())
 	}
-	if !strings.Contains(rr.Body.String(), "event: status") {
-		t.Fatalf("expected SSE event, got: %s", rr.Body.String())
+	if keyLookupCalled {
+		t.Fatal("raw query API key should be rejected before store lookup")
 	}
 }
 
@@ -1617,6 +1988,7 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 		w := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/v1/events/purge", strings.NewReader("{"))
 		req.Header.Set("X-Internal-Secret", "test-secret-value")
+		req.Header.Set("X-Project-Id", "proj-1")
 		req.Header.Set("Content-Type", "application/json")
 		srv.ServeHTTP(w, req)
 
@@ -1632,6 +2004,22 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/v1/events/purge", strings.NewReader(`{"older_than_days":0}`))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-Internal-Secret", "test-secret-value")
+		req.Header.Set("X-Project-Id", "proj-1")
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400", w.Code)
+		}
+	})
+
+	t.Run("older_than_days overflow rejected", func(t *testing.T) {
+		t.Parallel()
+		srv := newEventTriggersTestServer(t, &APIStoreMock{}, nil)
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/v1/events/purge", strings.NewReader(`{"older_than_days":36501}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Internal-Secret", "test-secret-value")
+		req.Header.Set("X-Project-Id", "proj-1")
 		srv.ServeHTTP(w, req)
 
 		if w.Code != http.StatusBadRequest {
@@ -1644,11 +2032,17 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 		countCalled := false
 		deleteCalled := false
 		ms := &APIStoreMock{
-			CountEventTriggersFinishedBeforeFunc: func(_ context.Context, _ time.Time) (int64, error) {
+			CountEventTriggersFinishedBeforeForProjectFunc: func(_ context.Context, projectID, environmentID string, _ time.Time) (int64, error) {
 				countCalled = true
+				if projectID != "proj-1" {
+					t.Fatalf("projectID = %q, want proj-1", projectID)
+				}
+				if environmentID != "" {
+					t.Fatalf("environmentID = %q, want empty", environmentID)
+				}
 				return 7, nil
 			},
-			DeleteEventTriggersFinishedBeforeFunc: func(_ context.Context, _ time.Time, _ int) (int64, error) {
+			DeleteEventTriggersFinishedBeforeForProjectFunc: func(_ context.Context, _, _ string, _ time.Time, _ int) (int64, error) {
 				deleteCalled = true
 				return 0, nil
 			},
@@ -1658,6 +2052,7 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/v1/events/purge", strings.NewReader(`{"older_than_days":30,"dry_run":true}`))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-Internal-Secret", "test-secret-value")
+		req.Header.Set("X-Project-Id", "proj-1")
 		srv.ServeHTTP(w, req)
 
 		if w.Code != http.StatusOK {
@@ -1685,7 +2080,7 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 	t.Run("dry run count error", func(t *testing.T) {
 		t.Parallel()
 		ms := &APIStoreMock{
-			CountEventTriggersFinishedBeforeFunc: func(_ context.Context, _ time.Time) (int64, error) {
+			CountEventTriggersFinishedBeforeForProjectFunc: func(_ context.Context, _, _ string, _ time.Time) (int64, error) {
 				return 0, errors.New("count failed")
 			},
 		}
@@ -1694,6 +2089,7 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/v1/events/purge", strings.NewReader(`{"older_than_days":30,"dry_run":true}`))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-Internal-Secret", "test-secret-value")
+		req.Header.Set("X-Project-Id", "proj-1")
 		srv.ServeHTTP(w, req)
 
 		if w.Code != http.StatusInternalServerError {
@@ -1705,8 +2101,14 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 		t.Parallel()
 		deleteCalled := false
 		ms := &APIStoreMock{
-			DeleteEventTriggersFinishedBeforeFunc: func(_ context.Context, _ time.Time, limit int) (int64, error) {
+			DeleteEventTriggersFinishedBeforeForProjectFunc: func(_ context.Context, projectID, environmentID string, _ time.Time, limit int) (int64, error) {
 				deleteCalled = true
+				if projectID != "proj-1" {
+					t.Fatalf("projectID = %q, want proj-1", projectID)
+				}
+				if environmentID != "" {
+					t.Fatalf("environmentID = %q, want empty", environmentID)
+				}
 				if limit != 10000 {
 					t.Fatalf("limit = %d, want 10000", limit)
 				}
@@ -1718,6 +2120,7 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/v1/events/purge", strings.NewReader(`{"older_than_days":30}`))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-Internal-Secret", "test-secret-value")
+		req.Header.Set("X-Project-Id", "proj-1")
 		srv.ServeHTTP(w, req)
 
 		if w.Code != http.StatusOK {
@@ -1739,7 +2142,7 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 	t.Run("delete error", func(t *testing.T) {
 		t.Parallel()
 		ms := &APIStoreMock{
-			DeleteEventTriggersFinishedBeforeFunc: func(_ context.Context, _ time.Time, _ int) (int64, error) {
+			DeleteEventTriggersFinishedBeforeForProjectFunc: func(_ context.Context, _, _ string, _ time.Time, _ int) (int64, error) {
 				return 0, errors.New("delete failed")
 			},
 		}
@@ -1748,10 +2151,40 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/v1/events/purge", strings.NewReader(`{"older_than_days":30}`))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-Internal-Secret", "test-secret-value")
+		req.Header.Set("X-Project-Id", "proj-1")
 		srv.ServeHTTP(w, req)
 
 		if w.Code != http.StatusInternalServerError {
 			t.Fatalf("status = %d, want 500", w.Code)
+		}
+	})
+
+	t.Run("environment scoped dry run passes environment to store", func(t *testing.T) {
+		t.Parallel()
+		ms := &APIStoreMock{
+			GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
+				return &domain.APIKey{ID: "key-1", ProjectID: "proj-1", EnvironmentID: "env-prod", Scopes: []string{domain.ScopeJobsWrite}}, nil
+			},
+			TouchAPIKeyLastUsedFunc: func(_ context.Context, _ string) error { return nil },
+			CountEventTriggersFinishedBeforeForProjectFunc: func(_ context.Context, projectID, environmentID string, _ time.Time) (int64, error) {
+				if projectID != "proj-1" {
+					t.Fatalf("projectID = %q, want proj-1", projectID)
+				}
+				if environmentID != "env-prod" {
+					t.Fatalf("environmentID = %q, want env-prod", environmentID)
+				}
+				return 3, nil
+			},
+		}
+		srv := newEventTriggersTestServer(t, ms, nil)
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/v1/events/purge", strings.NewReader(`{"older_than_days":30,"dry_run":true}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer strait_testapikey123")
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
 		}
 	})
 }

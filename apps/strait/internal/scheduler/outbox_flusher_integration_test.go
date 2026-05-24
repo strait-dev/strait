@@ -198,6 +198,203 @@ func TestOutboxFlusher_RetryableFailureLeavesRowUnconsumed(t *testing.T) {
 	assertRunsForJob(t, ctx, job.ID, 1)
 }
 
+func TestOutboxFlusher_UnknownEnqueueFailureLeavesRowUnconsumed(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	st := intTestStore(t)
+	intTestClean(t, ctx)
+	job := intCreateJob(t, ctx, st, "proj-outbox-unknown-retry")
+	entries := []queue.OutboxEntry{{
+		ID:        intNewID(),
+		ProjectID: job.ProjectID,
+		JobID:     job.ID,
+		Payload:   json.RawMessage(`{"unknown":true}`),
+	}}
+	intWriteOutboxEntries(t, ctx, entries)
+
+	flusher := scheduler.NewOutboxFlusher(getTestDB(t).Pool, &outboxTestQueue{
+		enqueueInTxFn: func(context.Context, store.DBTX, *domain.JobRun) error {
+			return errors.New("network path disappeared while promoting outbox row")
+		},
+	}, scheduler.OutboxFlusherConfig{BatchSize: 1})
+	if err := flusher.FlushOnceForTest(ctx); err != nil {
+		t.Fatalf("FlushOnceForTest() error = %v", err)
+	}
+
+	assertOutboxState(t, ctx, entries[0].ID, false, false)
+	count, err := st.CountUnconsumedOutbox(ctx)
+	if err != nil {
+		t.Fatalf("CountUnconsumedOutbox() error = %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("CountUnconsumedOutbox() = %d, want 1 after unknown enqueue failure", count)
+	}
+
+	successFlusher := scheduler.NewOutboxFlusher(getTestDB(t).Pool, intTestQueue(t), scheduler.OutboxFlusherConfig{
+		BatchSize: 1,
+	})
+	if err := successFlusher.FlushOnceForTest(ctx); err != nil {
+		t.Fatalf("retry FlushOnceForTest() error = %v", err)
+	}
+
+	assertOutboxState(t, ctx, entries[0].ID, false, true)
+	assertRunsForJob(t, ctx, job.ID, 1)
+}
+
+func TestOutboxFlusher_BackpressureThrottleLeavesRowUnconsumed(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	st := intTestStore(t)
+	intTestClean(t, ctx)
+	job := intCreateJob(t, ctx, st, "proj-outbox-backpressure")
+	entries := []queue.OutboxEntry{{
+		ID:        intNewID(),
+		ProjectID: job.ProjectID,
+		JobID:     job.ID,
+		Payload:   json.RawMessage(`{"throttled":true}`),
+	}}
+	intWriteOutboxEntries(t, ctx, entries)
+
+	flusher := scheduler.NewOutboxFlusher(getTestDB(t).Pool, &outboxTestQueue{
+		enqueueInTxFn: func(context.Context, store.DBTX, *domain.JobRun) error {
+			return queue.ErrEnqueueThrottled
+		},
+	}, scheduler.OutboxFlusherConfig{BatchSize: 1})
+	if err := flusher.FlushOnceForTest(ctx); err != nil {
+		t.Fatalf("FlushOnceForTest() error = %v", err)
+	}
+
+	assertOutboxState(t, ctx, entries[0].ID, false, false)
+	count, err := st.CountUnconsumedOutbox(ctx)
+	if err != nil {
+		t.Fatalf("CountUnconsumedOutbox() error = %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("CountUnconsumedOutbox() = %d, want 1 after throttle", count)
+	}
+
+	successFlusher := scheduler.NewOutboxFlusher(getTestDB(t).Pool, intTestQueue(t), scheduler.OutboxFlusherConfig{BatchSize: 1})
+	if err := successFlusher.FlushOnceForTest(ctx); err != nil {
+		t.Fatalf("retry FlushOnceForTest() error = %v", err)
+	}
+	assertOutboxState(t, ctx, entries[0].ID, false, true)
+	assertRunsForJob(t, ctx, job.ID, 1)
+}
+
+func TestOutboxFlusher_PanicReturnsErrorAndLeavesRowUnconsumed(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	st := intTestStore(t)
+	intTestClean(t, ctx)
+
+	job := intCreateJob(t, ctx, st, "proj-outbox-panic")
+	entry := queue.OutboxEntry{
+		ID:             intNewID(),
+		ProjectID:      job.ProjectID,
+		JobID:          job.ID,
+		IdempotencyKey: "panic-" + intNewID(),
+		Payload:        json.RawMessage(`{"panic":true}`),
+	}
+	intWriteOutboxEntries(t, ctx, []queue.OutboxEntry{entry})
+
+	flusher := scheduler.NewOutboxFlusher(getTestDB(t).Pool, &outboxTestQueue{
+		enqueueInTxFn: func(context.Context, store.DBTX, *domain.JobRun) error {
+			panic("enqueue panic")
+		},
+	}, scheduler.OutboxFlusherConfig{BatchSize: 1})
+
+	err := flusher.FlushOnceForTest(ctx)
+	if err == nil {
+		t.Fatal("FlushOnceForTest() error = nil, want recovered panic error")
+	}
+	if flusher.Errors() != 1 {
+		t.Fatalf("Errors() = %d, want 1", flusher.Errors())
+	}
+	if flusher.Iterations() != 1 {
+		t.Fatalf("Iterations() = %d, want 1", flusher.Iterations())
+	}
+	assertOutboxState(t, ctx, entry.ID, false, false)
+	assertRunCount(t, ctx, job.ID, entry.IdempotencyKey, 0)
+}
+
+func TestOutboxFlusher_PropagatesWorkerExecutionModeAndQueue(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	st := intTestStore(t)
+	intTestClean(t, ctx)
+	job := intCreateJob(t, ctx, st, "proj-outbox-worker-routing", func(j *domain.Job) {
+		j.ExecutionMode = domain.ExecutionModeWorker
+		j.Queue = "priority"
+	})
+	entry := queue.OutboxEntry{
+		ID:        intNewID(),
+		ProjectID: job.ProjectID,
+		JobID:     job.ID,
+		Payload:   json.RawMessage(`{"n":1}`),
+	}
+	intWriteOutboxEntries(t, ctx, []queue.OutboxEntry{entry})
+
+	var captured *domain.JobRun
+	flusher := scheduler.NewOutboxFlusher(getTestDB(t).Pool, &outboxTestQueue{
+		enqueueInTxFn: func(_ context.Context, _ store.DBTX, run *domain.JobRun) error {
+			cp := *run
+			captured = &cp
+			return nil
+		},
+	}, scheduler.OutboxFlusherConfig{BatchSize: 1})
+
+	if err := flusher.FlushOnceForTest(ctx); err != nil {
+		t.Fatalf("FlushOnceForTest() error = %v", err)
+	}
+	if captured == nil {
+		t.Fatal("expected outbox flusher to enqueue a run")
+	}
+	if captured.ExecutionMode != domain.ExecutionModeWorker {
+		t.Fatalf("ExecutionMode = %q, want %q", captured.ExecutionMode, domain.ExecutionModeWorker)
+	}
+	if captured.QueueName != "priority" {
+		t.Fatalf("QueueName = %q, want priority", captured.QueueName)
+	}
+}
+
+func TestOutboxFlusher_InvalidMetadataQuarantinesRow(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	st := intTestStore(t)
+	intTestClean(t, ctx)
+	job := intCreateJob(t, ctx, st, "proj-outbox-invalid-metadata")
+	entry := queue.OutboxEntry{
+		ID:        intNewID(),
+		ProjectID: job.ProjectID,
+		JobID:     job.ID,
+		Payload:   json.RawMessage(`{"n":1}`),
+		Metadata:  map[string]any{"attempt": 1},
+	}
+	intWriteOutboxEntries(t, ctx, []queue.OutboxEntry{entry})
+
+	enqueueCalled := false
+	flusher := scheduler.NewOutboxFlusher(getTestDB(t).Pool, &outboxTestQueue{
+		enqueueInTxFn: func(context.Context, store.DBTX, *domain.JobRun) error {
+			enqueueCalled = true
+			return nil
+		},
+	}, scheduler.OutboxFlusherConfig{BatchSize: 1})
+
+	if err := flusher.FlushOnceForTest(ctx); err != nil {
+		t.Fatalf("FlushOnceForTest() error = %v", err)
+	}
+	if enqueueCalled {
+		t.Fatal("invalid metadata row was enqueued")
+	}
+	assertOutboxState(t, ctx, entry.ID, true, true)
+	assertRunsForJob(t, ctx, job.ID, 0)
+}
+
 func TestOutboxFlusher_MixedBatchContinuesPastRetryableAndTerminalRows(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

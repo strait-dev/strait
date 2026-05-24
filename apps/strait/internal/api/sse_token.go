@@ -15,11 +15,12 @@ const (
 	sseTokenIssuer = "strait:sse"
 )
 
-// SSETokenClaims extends standard JWT claims with the project and scopes.
+// SSETokenClaims extends standard JWT claims with the project, environment, and scopes.
 type SSETokenClaims struct {
 	jwt.RegisteredClaims
-	ProjectID string   `json:"pid"`
-	Scopes    []string `json:"scp,omitempty"`
+	ProjectID     string   `json:"pid"`
+	EnvironmentID string   `json:"eid,omitempty"`
+	Scopes        []string `json:"scp,omitempty"`
 }
 
 type CreateSSETokenInput struct{}
@@ -39,7 +40,10 @@ func (s *Server) handleCreateSSEToken(ctx context.Context, _ *CreateSSETokenInpu
 		return nil, huma.Error400BadRequest("project_id is required")
 	}
 
-	scopes := scopesFromContext(ctx)
+	scopes, err := s.scopesForSSEToken(ctx)
+	if err != nil {
+		return nil, err
+	}
 	now := time.Now()
 	expiresAt := now.Add(sseTokenTTL)
 
@@ -50,8 +54,9 @@ func (s *Server) handleCreateSSEToken(ctx context.Context, _ *CreateSSETokenInpu
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
 			IssuedAt:  jwt.NewNumericDate(now),
 		},
-		ProjectID: projectID,
-		Scopes:    scopes,
+		ProjectID:     projectID,
+		EnvironmentID: environmentIDFromContext(ctx),
+		Scopes:        scopes,
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -61,14 +66,91 @@ func (s *Server) handleCreateSSEToken(ctx context.Context, _ *CreateSSETokenInpu
 	}
 
 	s.emitAuditEvent(ctx, domain.AuditActionSSETokenCreated, "sse_token", projectID, map[string]any{
-		"expires_at":  expiresAt,
-		"scope_count": len(scopes),
+		"expires_at":     expiresAt,
+		"scope_count":    len(scopes),
+		"environment_id": claims.EnvironmentID,
 	})
 
 	out := &CreateSSETokenOutput{}
 	out.Body.Token = tokenString
 	out.Body.ExpiresAt = expiresAt
 	return out, nil
+}
+
+func (s *Server) scopesForSSEToken(ctx context.Context) ([]string, error) {
+	scopes := scopesFromContext(ctx)
+	if actorTypeFromContext(ctx) != "user" {
+		return scopes, nil
+	}
+
+	projectID := projectIDFromContext(ctx)
+	actorID := actorFromContext(ctx)
+	if projectID == "" || actorID == "" {
+		return nil, huma.Error403Forbidden("missing project or actor context")
+	}
+	if s.store == nil {
+		return nil, huma.Error503ServiceUnavailable("service unavailable")
+	}
+
+	perms, cached := s.permCache.Get(projectID, actorID)
+	if !cached {
+		var err error
+		perms, err = s.store.GetUserPermissions(ctx, projectID, actorID)
+		if err != nil {
+			return nil, huma.Error500InternalServerError("failed to load permissions")
+		}
+		if perms != nil {
+			s.permCache.Set(projectID, actorID, perms)
+		}
+	}
+	if ctx.Value(ctxOIDCScopeClaimPresentKey) == true {
+		perms = intersectScopes(perms, scopes)
+	}
+	if len(perms) == 0 {
+		return nil, huma.Error403Forbidden("insufficient permissions")
+	}
+	return perms, nil
+}
+
+func intersectScopes(perms, scopes []string) []string {
+	if domain.HasScopeStrict(perms, domain.ScopeAll) {
+		return dedupeScopes(scopes)
+	}
+	if domain.HasScopeStrict(scopes, domain.ScopeAll) {
+		return dedupeScopes(perms)
+	}
+
+	allowed := make(map[string]struct{}, len(scopes))
+	for _, scope := range scopes {
+		allowed[scope] = struct{}{}
+	}
+
+	out := make([]string, 0, min(len(perms), len(scopes)))
+	seen := make(map[string]struct{}, len(perms))
+	for _, scope := range perms {
+		if _, ok := allowed[scope]; !ok {
+			continue
+		}
+		if _, ok := seen[scope]; ok {
+			continue
+		}
+		seen[scope] = struct{}{}
+		out = append(out, scope)
+	}
+	return out
+}
+
+func dedupeScopes(scopes []string) []string {
+	out := make([]string, 0, len(scopes))
+	seen := make(map[string]struct{}, len(scopes))
+	for _, scope := range scopes {
+		if _, ok := seen[scope]; ok {
+			continue
+		}
+		seen[scope] = struct{}{}
+		out = append(out, scope)
+	}
+	return out
 }
 
 // parseSSEToken validates a short-lived SSE JWT and returns the claims.

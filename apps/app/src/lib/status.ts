@@ -8,25 +8,20 @@ export const EVENT_STATUS_STYLES: Record<
   string,
   { dot: string; label: string; badge: string }
 > = {
-  pending: {
-    dot: "bg-chart-3",
-    label: "Pending",
-    badge: "bg-chart-3/10 text-chart-3 border-chart-3/20",
+  waiting: {
+    dot: "bg-info",
+    label: "Waiting",
+    badge: "bg-info/10 text-info border-info/20",
   },
   received: {
     dot: "bg-info",
     label: "Received",
     badge: "bg-info/10 text-info border-info/20",
   },
-  expired: {
+  timed_out: {
     dot: "bg-warning",
-    label: "Expired",
+    label: "Timed Out",
     badge: "bg-warning/10 text-warning border-warning/20",
-  },
-  failed: {
-    dot: "bg-destructive",
-    label: "Failed",
-    badge: "bg-destructive/10 text-destructive border-destructive/20",
   },
   canceled: {
     dot: "bg-muted-foreground",

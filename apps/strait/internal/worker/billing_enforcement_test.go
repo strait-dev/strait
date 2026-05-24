@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -18,10 +19,17 @@ import (
 // mockBillingEnforcerStore satisfies billing.Store for testing.
 // Returns a free-tier subscription with low limits to trigger enforcement.
 type mockBillingEnforcerStore struct {
-	projectOrgID string
-	sub          *billing.OrgSubscription
+	projectOrgID       string
+	sub                *billing.OrgSubscription
+	periodSpend        int64
+	projectBudget      int64
+	projectAction      string
+	projectPeriodSpend int64
 }
 
+func (m *mockBillingEnforcerStore) UpdateEntitlements(context.Context, string, billing.OrgPlanLimits) error {
+	return nil
+}
 func (m *mockBillingEnforcerStore) EnsureOrgSubscription(_ context.Context, _ string) error {
 	return nil
 }
@@ -31,10 +39,19 @@ func (m *mockBillingEnforcerStore) GetOrgSubscription(_ context.Context, _ strin
 	}
 	return nil, billing.ErrSubscriptionNotFound
 }
+func (m *mockBillingEnforcerStore) GetOrgSubscriptionByStripeCustomerID(context.Context, string) (*billing.OrgSubscription, error) {
+	return nil, billing.ErrSubscriptionNotFound
+}
+func (m *mockBillingEnforcerStore) GetOrgSubscriptionByStripeSubscriptionID(context.Context, string) (*billing.OrgSubscription, error) {
+	return nil, billing.ErrSubscriptionNotFound
+}
 func (m *mockBillingEnforcerStore) UpsertOrgSubscription(_ context.Context, _ *billing.OrgSubscription) error {
 	return nil
 }
 func (m *mockBillingEnforcerStore) UpdateOrgSubscriptionPlan(_ context.Context, _, _, _ string) error {
+	return nil
+}
+func (m *mockBillingEnforcerStore) UpdateOrgSubscriptionStatus(_ context.Context, _, _ string) error {
 	return nil
 }
 func (m *mockBillingEnforcerStore) UpdateOrgSubscriptionFull(_ context.Context, _, _, _ string, _, _ *time.Time) error {
@@ -96,16 +113,19 @@ func (m *mockBillingEnforcerStore) GetOrgDailyUsage(_ context.Context, _ string,
 	return nil, nil
 }
 func (m *mockBillingEnforcerStore) SumOrgPeriodSpend(_ context.Context, _ string, _ time.Time) (int64, error) {
-	return 0, nil
+	return m.periodSpend, nil
 }
 func (m *mockBillingEnforcerStore) GetProjectBudget(_ context.Context, _ string) (int64, string, error) {
-	return 0, "", nil
+	if m.projectAction == "" && m.projectBudget == 0 {
+		return -1, "notify", nil
+	}
+	return m.projectBudget, m.projectAction, nil
 }
 func (m *mockBillingEnforcerStore) SetProjectBudget(_ context.Context, _ string, _ int64, _ string) error {
 	return nil
 }
 func (m *mockBillingEnforcerStore) GetProjectPeriodSpend(_ context.Context, _ string, _ time.Time) (int64, error) {
-	return 0, nil
+	return m.projectPeriodSpend, nil
 }
 func (m *mockBillingEnforcerStore) UpdateAnomalyThresholds(_ context.Context, _ string, _, _ float64) error {
 	return nil
@@ -171,8 +191,11 @@ func (m *mockBillingEnforcerStore) UpsertEnterpriseContract(_ context.Context, _
 func (m *mockBillingEnforcerStore) ListExpiringContracts(_ context.Context, _ int) ([]billing.EnterpriseContract, error) {
 	return nil, nil
 }
-func (m *mockBillingEnforcerStore) PauseHTTPJobsByOrg(context.Context, string, string) (int64, error) {
-	return 0, nil
+func (m *mockBillingEnforcerStore) PauseHTTPJobsByOrg(context.Context, string, string) ([]string, error) {
+	return nil, nil
+}
+func (m *mockBillingEnforcerStore) TryMarkBillingCapEvent(context.Context, string, billing.BillingCapEvent) (bool, error) {
+	return false, nil
 }
 func (m *mockBillingEnforcerStore) UnpauseJobsByPauseReason(context.Context, string, string) (int64, error) {
 	return 0, nil
@@ -205,9 +228,10 @@ func TestBillingEnforcement_ConcurrentLimitFails_RollbackDailyCount(t *testing.T
 	enforcer, mr := newWorkerTestEnforcer(t, bStore)
 
 	// Pre-fill the concurrent counter to simulate max concurrent runs reached.
-	// The free tier has 1 concurrent run. Set the counter to 1 already.
+	// The free tier allows ConcurrentFree concurrent runs. Set the counter at
+	// the cap so the next increment exceeds the limit.
 	concurrentKey := "strait:org_concurrent:org-test"
-	mr.Set(concurrentKey, "1")
+	mr.Set(concurrentKey, strconv.Itoa(billing.ConcurrentFree))
 	mr.SetTTL(concurrentKey, 24*time.Hour)
 
 	// Set up an HTTP server that would handle the job.
@@ -281,37 +305,42 @@ func TestBillingEnforcement_ConcurrentLimitFails_RollbackDailyCount(t *testing.T
 	// may not have been set if the daily limit check passed without incrementing.
 }
 
-func TestBillingEnforcement_DailyLimitExceeded_RunFailed(t *testing.T) {
+// TestBillingEnforcement_ConcurrentLimitFails_RollbackMonthlyCount verifies
+// that when the concurrent run limit is exceeded after CheckMonthlyRunLimit
+// increments the monthly counter, DecrMonthlyRunCount rolls it back so the
+// counter does not drift upward from runs that were never durably enqueued.
+func TestBillingEnforcement_ConcurrentLimitFails_RollbackMonthlyCount(t *testing.T) {
 	t.Parallel()
 
 	sub := &billing.OrgSubscription{
-		OrgID:    "org-limited",
+		OrgID:    "org-monthly-concurrent",
 		PlanTier: string(domain.PlanFree),
 	}
 	bStore := &mockBillingEnforcerStore{
-		projectOrgID: "org-limited",
+		projectOrgID: "org-monthly-concurrent",
 		sub:          sub,
 	}
 
 	enforcer, mr := newWorkerTestEnforcer(t, bStore)
 
-	// Pre-fill the daily counter beyond the free tier limit.
-	dailyKey := "strait:org_runs:org-limited:" + time.Now().UTC().Format("2006-01-02")
-	mr.Set(dailyKey, "10000") // Way over any free tier limit.
-	mr.SetTTL(dailyKey, 48*time.Hour)
+	// Pre-fill the concurrent counter so the next CheckConcurrentRunLimit fails.
+	// Free tier allows ConcurrentFree concurrent runs; set at the cap so the
+	// next increment exceeds it and the check rejects.
+	concurrentKey := "strait:org_concurrent:org-monthly-concurrent"
+	mr.Set(concurrentKey, strconv.Itoa(billing.ConcurrentFree))
+	mr.SetTTL(concurrentKey, 24*time.Hour)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{}`))
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	}))
 	defer srv.Close()
 
 	ms := &mockExecutorStore{
 		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
 			return &domain.Job{
-				ID:          "job-1",
-				ProjectID:   "proj-1",
+				ID:          "job-monthly-concurrent",
+				ProjectID:   "proj-monthly-concurrent",
 				Version:     1,
 				EndpointURL: srv.URL,
 				MaxAttempts: 1,
@@ -329,8 +358,8 @@ func TestBillingEnforcement_DailyLimitExceeded_RunFailed(t *testing.T) {
 	})
 
 	run := &domain.JobRun{
-		ID:         "run-daily-limit",
-		JobID:      "job-1",
+		ID:         "run-monthly-concurrent",
+		JobID:      "job-monthly-concurrent",
 		JobVersion: 1,
 		Status:     domain.StatusDequeued,
 	}
@@ -338,9 +367,9 @@ func TestBillingEnforcement_DailyLimitExceeded_RunFailed(t *testing.T) {
 	ec := &ExecutionContext{Run: run, Start: time.Now()}
 	exec.executeInner(context.Background(), ec)
 
+	// Verify the run was failed due to concurrent limit.
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
-
 	var foundFailure bool
 	for _, call := range ms.statusCalls {
 		if call.to == domain.StatusSystemFailed {
@@ -349,6 +378,98 @@ func TestBillingEnforcement_DailyLimitExceeded_RunFailed(t *testing.T) {
 		}
 	}
 	if !foundFailure {
-		t.Error("expected run to be failed when daily limit exceeded on free tier")
+		t.Error("expected run to be marked as system_failed when concurrent limit exceeded")
+	}
+
+	// Verify the monthly run counter was rolled back (decremented after the
+	// concurrent limit abort).
+	monthlyKey := "strait:org_monthly_runs:org-monthly-concurrent:" + time.Now().UTC().Format("2006-01")
+	val, err := mr.Get(monthlyKey)
+	if err == nil && val != "0" {
+		t.Errorf("monthly run counter should be 0 after concurrent limit abort, got %s", val)
+	}
+}
+
+// TestBillingEnforcement_MonthlyLimitExceeded_RollbackDailyCount verifies
+// that when the monthly run limit is exceeded, the daily counter that was
+// already incremented by CheckDailyRunLimit is rolled back via DecrDailyRunCount.
+func TestBillingEnforcement_MonthlyLimitExceeded_RollbackDailyCount(t *testing.T) {
+	t.Parallel()
+
+	// Free tier: MaxRunsPerDay=100, MaxRunsPerMonth=2000 (use a very low monthly limit).
+	// We pre-fill the monthly counter at the free cap so CheckMonthlyRunLimit rejects.
+	sub := &billing.OrgSubscription{
+		OrgID:    "org-monthly-cap",
+		PlanTier: string(domain.PlanFree),
+	}
+	bStore := &mockBillingEnforcerStore{
+		projectOrgID: "org-monthly-cap",
+		sub:          sub,
+	}
+
+	enforcer, mr := newWorkerTestEnforcer(t, bStore)
+
+	// Pre-fill the monthly counter above the free-tier cap so
+	// CheckMonthlyRunLimit hard-rejects on the next call.
+	monthlyKey := "strait:org_monthly_runs:org-monthly-cap:" + time.Now().UTC().Format("2006-01")
+	mr.Set(monthlyKey, strconv.Itoa(billing.MaxRunsPerMonthFree+1))
+	mr.SetTTL(monthlyKey, 62*24*time.Hour)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer srv.Close()
+
+	ms := &mockExecutorStore{
+		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+			return &domain.Job{
+				ID:          "job-monthly-cap",
+				ProjectID:   "proj-monthly-cap",
+				Version:     1,
+				EndpointURL: srv.URL,
+				MaxAttempts: 1,
+				TimeoutSecs: 30,
+			}, nil
+		},
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:            NewPool(4),
+		Store:           ms,
+		PollInterval:    time.Millisecond,
+		HTTPClient:      srv.Client(),
+		BillingEnforcer: enforcer,
+	})
+
+	run := &domain.JobRun{
+		ID:         "run-monthly-cap",
+		JobID:      "job-monthly-cap",
+		JobVersion: 1,
+		Status:     domain.StatusDequeued,
+	}
+
+	ec := &ExecutionContext{Run: run, Start: time.Now()}
+	exec.executeInner(context.Background(), ec)
+
+	// Verify the run was failed due to monthly limit.
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+	var foundFailure bool
+	for _, call := range ms.statusCalls {
+		if call.to == domain.StatusSystemFailed {
+			foundFailure = true
+			break
+		}
+	}
+	if !foundFailure {
+		t.Error("expected run to be marked as system_failed when monthly limit exceeded")
+	}
+
+	// Verify the daily run counter was rolled back after the monthly-limit abort.
+	dailyKey := "strait:org_runs:org-monthly-cap:" + time.Now().UTC().Format("2006-01-02")
+	val, err := mr.Get(dailyKey)
+	if err == nil && val != "0" {
+		t.Errorf("daily run counter should be 0 after monthly limit abort, got %s", val)
 	}
 }

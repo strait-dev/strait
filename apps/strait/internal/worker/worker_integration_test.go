@@ -375,7 +375,7 @@ func TestConcurrentJobExecution(t *testing.T) {
 		}
 
 		status := domain.StatusCompleted
-		completed, err := st.ListRunsByProject(ctx, job.ProjectID, (*domain.RunStatus)(&status), nil, nil, nil, nil, nil, nil, nil, 20, nil)
+		completed, err := st.ListRunsByProject(ctx, job.ProjectID, &status, nil, nil, nil, nil, nil, nil, nil, 20, nil)
 		if err != nil {
 			t.Fatalf("ListRunsByProject() error = %v", err)
 		}

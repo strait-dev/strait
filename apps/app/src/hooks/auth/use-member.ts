@@ -6,10 +6,13 @@ import {
 } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
+import z from "zod/v4";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { getPostHog } from "@/lib/analytics";
-import { getAuth } from "@/lib/auth.server";
+import { getAuth, getAuthPool } from "@/lib/auth.server";
+import { authMiddleware } from "@/middlewares/auth";
+import { requireOrgAdmin, requireOrgOwner } from "@/middlewares/require-access";
 
 export type MemberData = {
   id: string;
@@ -22,6 +25,8 @@ export type MemberData = {
 };
 
 type MemberRole = "owner" | "admin" | "member";
+
+const MemberRoleSchema = z.enum(["owner", "admin", "member"]);
 
 const toDate = (value: unknown) =>
   value instanceof Date ? value : new Date(String(value));
@@ -61,9 +66,27 @@ const listMembersServerFn = createServerFn({ method: "GET" })
 const updateMemberRoleServerFn = createServerFn({ method: "POST" })
   .inputValidator(
     (data: { memberId: string; role: MemberRole; organizationId: string }) =>
-      data
+      z
+        .object({
+          memberId: z.string().min(1),
+          role: MemberRoleSchema,
+          organizationId: z.string().min(1),
+        })
+        .parse(data)
   )
-  .handler(async ({ data }) => {
+  .middleware([authMiddleware])
+  .handler(async ({ context, data }) => {
+    await requireOrgOwner(context.user.id, data.organizationId);
+    const memberResult = await getAuthPool().query<{ userId: string }>(
+      'SELECT "userId" FROM member WHERE id = $1 AND "organizationId" = $2',
+      [data.memberId, data.organizationId]
+    );
+    if (!memberResult.rows[0]) {
+      throw new Error("Member not found");
+    }
+    if (memberResult.rows[0]?.userId === context.user.id) {
+      throw new Error("Owners cannot change their own role");
+    }
     const headers = getRequestHeaders();
     await (await getAuth()).api.updateMemberRole({
       body: {
@@ -76,14 +99,36 @@ const updateMemberRoleServerFn = createServerFn({ method: "POST" })
   });
 
 const removeMemberServerFn = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: { memberIdOrEmail: string; organizationId: string }) => data
+  .inputValidator((data: { memberIdOrEmail: string; organizationId: string }) =>
+    z
+      .object({
+        memberIdOrEmail: z.string().min(1),
+        organizationId: z.string().min(1),
+      })
+      .parse(data)
   )
-  .handler(async ({ data }) => {
+  .middleware([authMiddleware])
+  .handler(async ({ context, data }) => {
+    await requireOrgAdmin(context.user.id, data.organizationId);
     const headers = getRequestHeaders();
     await (await getAuth()).api.removeMember({
       body: {
         memberIdOrEmail: data.memberIdOrEmail,
+        organizationId: data.organizationId,
+      },
+      headers,
+    });
+  });
+
+const leaveOrganizationServerFn = createServerFn({ method: "POST" })
+  .inputValidator((data: { organizationId: string }) =>
+    z.object({ organizationId: z.string().min(1) }).parse(data)
+  )
+  .middleware([authMiddleware])
+  .handler(async ({ data }) => {
+    const headers = getRequestHeaders();
+    await (await getAuth()).api.leaveOrganization({
+      body: {
         organizationId: data.organizationId,
       },
       headers,
@@ -153,7 +198,9 @@ export const useLeaveOrganization = () => {
   return useMutation({
     mutationKey: ["members", "leave"],
     mutationFn: (data: { memberIdOrEmail: string; organizationId: string }) =>
-      removeMemberServerFn({ data }),
+      leaveOrganizationServerFn({
+        data: { organizationId: data.organizationId },
+      }),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.members.list(variables.organizationId).queryKey,

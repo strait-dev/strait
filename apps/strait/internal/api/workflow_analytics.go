@@ -2,7 +2,10 @@ package api
 
 import (
 	"context"
+	"errors"
 	"time"
+
+	"strait/internal/store"
 
 	"github.com/danielgtaylor/huma/v2"
 	"go.opentelemetry.io/otel"
@@ -23,6 +26,16 @@ func (s *Server) handleWorkflowStepDurations(ctx context.Context, input *Workflo
 	from, to, err := parseCostTimeRangeTyped(input.From, input.To)
 	if err != nil {
 		return nil, err
+	}
+	wf, err := s.store.GetWorkflow(ctx, input.WorkflowID)
+	if err != nil {
+		if errors.Is(err, store.ErrWorkflowNotFound) {
+			return nil, huma.Error404NotFound("workflow not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get workflow")
+	}
+	if err := requireProjectMatch(ctx, wf.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("workflow not found")
 	}
 	span.SetAttributes(attribute.String("workflow_id", input.WorkflowID), attribute.String("from", from.Format(time.RFC3339)), attribute.String("to", to.Format(time.RFC3339)))
 	result, rErr := s.analytics().GetWorkflowStepDurations(ctx, projectID, input.WorkflowID, from, to)

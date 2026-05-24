@@ -43,6 +43,9 @@ import type {
   WorkflowStep,
 } from "@/hooks/api/types";
 import {
+  usePauseWorkflow,
+  useResumeWorkflow,
+  useTriggerWorkflow,
   workflowQueryOptions,
   workflowRunsQueryOptions,
   workflowStepsQueryOptions,
@@ -58,6 +61,7 @@ import {
 } from "@/lib/icons";
 
 export const Route = createFileRoute("/app/workflows/$id")({
+  head: () => ({ meta: [{ title: "Workflow · Strait" }] }),
   loader: async ({ context, params }) => {
     await Promise.all([
       context.queryClient.ensureQueryData(workflowQueryOptions(params.id)),
@@ -125,10 +129,13 @@ function WorkflowDetailPage() {
   };
   const runs = runsData?.data ?? [];
   const [activeTab, setActiveTab] = useState("overview");
+  const triggerWorkflow = useTriggerWorkflow();
+  const pauseWorkflow = usePauseWorkflow();
+  const resumeWorkflow = useResumeWorkflow();
 
   // Map API steps to the shape WorkflowDAGFlow expects
   const dagSteps = (apiSteps ?? []).map((s: WorkflowStep) => ({
-    id: s.id,
+    id: s.step_ref || s.id,
     name: s.step_ref,
     type: s.step_type ?? "job",
     status: "pending" as const,
@@ -180,15 +187,25 @@ function WorkflowDetailPage() {
           )}
         </div>
         <div className="flex gap-2">
-          <Button>
-            <HugeiconsIcon className="mr-1.5" icon={PlayActionIcon} size={14} />
+          <Button
+            disabled={triggerWorkflow.isPending}
+            onClick={() => triggerWorkflow.mutate({ workflowId: workflow.id })}
+          >
+            <HugeiconsIcon className="mr-1.5 size-3.5" icon={PlayActionIcon} />
             Trigger
           </Button>
-          <Button variant="outline">
+          <Button
+            disabled={pauseWorkflow.isPending || resumeWorkflow.isPending}
+            onClick={() =>
+              workflow.enabled
+                ? pauseWorkflow.mutate({ workflowId: workflow.id })
+                : resumeWorkflow.mutate({ workflowId: workflow.id })
+            }
+            variant="outline"
+          >
             <HugeiconsIcon
-              className="mr-1.5"
+              className="mr-1.5 size-3.5"
               icon={workflow.enabled ? PauseActionIcon : PlayActionIcon}
-              size={14}
             />
             {workflow.enabled ? "Pause" : "Resume"}
           </Button>
@@ -216,7 +233,7 @@ function WorkflowDetailPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="font-semibold text-2xl tabular-nums">
+                <p className="font-normal text-2xl tabular-nums">
                   {successRate}%
                 </p>
               </CardContent>
@@ -230,9 +247,7 @@ function WorkflowDetailPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="font-semibold text-2xl tabular-nums">
-                  {totalRuns}
-                </p>
+                <p className="font-normal text-2xl tabular-nums">{totalRuns}</p>
               </CardContent>
             </Card>
 
@@ -244,7 +259,9 @@ function WorkflowDetailPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="font-semibold text-2xl tabular-nums">--</p>
+                <p className="font-normal text-2xl text-muted-foreground tabular-nums">
+                  --
+                </p>
               </CardContent>
             </Card>
           </div>
@@ -263,7 +280,7 @@ function WorkflowDetailPage() {
                 <div className="space-y-3">
                   {recentRuns.map((run) => (
                     <div
-                      className="flex items-center gap-3 text-sm"
+                      className="-mx-2 flex items-center gap-3 rounded-md px-2 py-1 text-sm hover:bg-accent"
                       key={run.id}
                     >
                       <StatusBadge
@@ -312,6 +329,7 @@ function WorkflowDetailPage() {
         {/* Recent Runs Tab */}
         <TabsContent className="mt-6" value="runs">
           <DataTable
+            ariaLabel="Workflow runs"
             emptyState={
               <TableEmptyState
                 description="No runs yet. Trigger this workflow to start an execution."

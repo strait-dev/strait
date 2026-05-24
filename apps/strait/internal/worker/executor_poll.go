@@ -11,49 +11,47 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/queue"
+	"strait/internal/telemetry"
 
 	"github.com/getsentry/sentry-go"
 )
 
-// cursorAwareQueue is the optional interface a *queue.PostgresQueue satisfies
-// so the executor can thread a claim cursor through DequeueN without
-// expanding the base queue.Queue interface (and therefore without breaking
-// every mock in the repository).
-type cursorAwareQueue interface {
-	DequeueNWithCursor(ctx context.Context, n int, cursor *queue.ClaimCursor) ([]domain.JobRun, error)
+// twoPhaseDequeuer claims IDs first, then fetches full rows by PK.
+type twoPhaseDequeuer interface {
+	DequeueNTwoPhase(ctx context.Context, n int) ([]domain.JobRun, error)
 }
 
-// fullyDenormalizedDequeuer is the optional interface for the job_runs-only
-// dequeue path. Same pattern as cursorAwareQueue: opt-in via type assertion
-// to avoid expanding the base Queue interface.
+// fullyDenormalizedDequeuer is the optional interface for the legacy
+// job_runs-only dequeue path.
 type fullyDenormalizedDequeuer interface {
 	DequeueNFullyDenormalized(ctx context.Context, n int) ([]domain.JobRun, error)
 }
 
+// claimTableDequeuer deletes from job_run_queue, then fetches from job_runs.
+type claimTableDequeuer interface {
+	DequeueNClaim(ctx context.Context, n int) ([]domain.JobRun, error)
+}
+
+// workerQueueDequeuer claims worker-mode runs for specific queues.
+type workerQueueDequeuer interface {
+	DequeueNForWorkerQueues(ctx context.Context, n int, queues []domain.WorkerQueueRef) ([]domain.JobRun, error)
+}
+
+// QueueSnapshotter returns the environment-qualified queues that have active
+// workers connected to this replica. Implemented by grpc.ConnectionRegistry via
+// an adapter to avoid a circular import.
+type QueueSnapshotter interface {
+	SnapshotWorkerQueues() []domain.WorkerQueueRef
+}
+
 func (e *Executor) poll(ctx context.Context) {
 	start := time.Now()
-	if e.memoryPressureThreshold > 0 {
-		var memStats runtime.MemStats
-		runtime.ReadMemStats(&memStats)
-		heapPct := float64(memStats.HeapAlloc) / float64(memStats.Sys) * 100
-		if heapPct > e.memoryPressureThreshold {
-			e.logger.Warn("memory pressure: skipping dequeue", "heap_pct", heapPct, "threshold", e.memoryPressureThreshold)
-			return
-		}
-	}
-	available := e.pool.Available()
-	if e.concurrencyLimit != nil {
-		target := max(e.concurrencyLimit.CurrentLimit(), 1)
-		adaptiveAvailable := target - e.pool.ActiveCount()
-		if adaptiveAvailable < available {
-			available = adaptiveAvailable
-		}
-	}
-	if available <= 0 {
+	if e.checkMemoryPressure() {
 		return
 	}
-	if e.maxDequeueBatchSize > 0 && available > e.maxDequeueBatchSize {
-		available = e.maxDequeueBatchSize
+	available := e.computeAvailable()
+	if available <= 0 {
+		return
 	}
 
 	// Short-circuit when the DB circuit breaker is open so
@@ -67,24 +65,7 @@ func (e *Executor) poll(ctx context.Context) {
 	var err error
 
 	dequeueErr := e.dbCircuit.Do(ctx, func(innerCtx context.Context) error {
-		switch {
-		case len(e.partitionCycle) > 0:
-			runs, err = e.dequeueAcrossPartitions(innerCtx, available)
-		case e.dequeueStrategy == "fair_round_robin":
-			runs, err = e.queue.DequeueNFair(innerCtx, available)
-		case e.useDenormalizedDequeue:
-			if dq, ok := e.queue.(fullyDenormalizedDequeuer); ok {
-				runs, err = dq.DequeueNFullyDenormalized(innerCtx, available)
-			} else {
-				runs, err = e.queue.DequeueN(innerCtx, available)
-			}
-		default:
-			if cq, ok := e.queue.(cursorAwareQueue); ok && e.claimCursor != nil {
-				runs, err = cq.DequeueNWithCursor(innerCtx, available, e.claimCursor)
-			} else {
-				runs, err = e.queue.DequeueN(innerCtx, available)
-			}
-		}
+		runs, err = e.dequeueRuns(innerCtx, available)
 		return err
 	})
 	if e.metrics != nil {
@@ -122,30 +103,34 @@ func (e *Executor) poll(ctx context.Context) {
 			"priority", run.Priority,
 		)
 
-		execCtx := context.WithoutCancel(ctx)
+		execCtx := telemetry.EnsureSentryHub(withDispatchCache(context.WithoutCancel(ctx)))
+		addWorkerRunBreadcrumb(execCtx, "queue.claim", "run claimed", &run, nil, map[string]any{
+			"priority": run.Priority,
+		})
 		e.pool.Submit(execCtx, func() {
 			if qm, qmErr := queue.Metrics(); qmErr == nil && qm != nil {
 				qm.ClaimToStart.Record(execCtx, time.Since(claimedAt).Seconds())
 			}
+			addWorkerRunBreadcrumb(execCtx, "worker.dispatch", "run dispatch starting", &run, nil, nil)
 			defer func() {
 				if r := recover(); r != nil {
-					sentry.WithScope(func(scope *sentry.Scope) {
-						scope.SetTag("run_id", run.ID)
-						scope.SetTag("job_id", run.JobID)
-						scope.SetTag("project_id", run.ProjectID)
-						scope.SetTag("attempt", fmt.Sprintf("%d", run.Attempt))
-						scope.SetTag("execution_mode", string(run.ExecutionMode))
-						scope.SetLevel(sentry.LevelFatal)
-						scope.SetContext("run", map[string]any{
-							"run_id":         run.ID,
-							"job_id":         run.JobID,
-							"project_id":     run.ProjectID,
-							"attempt":        run.Attempt,
-							"priority":       run.Priority,
-							"execution_mode": run.ExecutionMode,
-							"status":         run.Status,
+					telemetry.AddSentryBreadcrumb(execCtx, "worker.dispatch", "worker panic", map[string]any{
+						"run_id":         run.ID,
+						"job_id":         run.JobID,
+						"project_id":     run.ProjectID,
+						"attempt":        run.Attempt,
+						"execution_mode": string(run.ExecutionMode),
+					})
+					hub := sentry.GetHubFromContext(execCtx)
+					if hub == nil {
+						hub = sentry.CurrentHub()
+					}
+					hub.WithScope(func(scope *sentry.Scope) {
+						e.applyWorkerSentryScope(scope, &run, map[string]any{
+							"execution_mode": string(run.ExecutionMode),
 						})
-						sentry.CurrentHub().Recover(r)
+						scope.SetLevel(sentry.LevelFatal)
+						hub.Recover(r)
 					})
 					sentry.Flush(2 * time.Second)
 					e.logger.Error("panic in executor goroutine", "run_id", run.ID, "panic", r)
@@ -155,6 +140,101 @@ func (e *Executor) poll(ctx context.Context) {
 			e.execute(execCtx, &run)
 		})
 	}
+}
+
+// checkMemoryPressure returns true (and logs) when heap pressure exceeds the configured threshold.
+func (e *Executor) checkMemoryPressure() bool {
+	if e.memoryPressureThreshold <= 0 {
+		return false
+	}
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+	heapPct := float64(memStats.HeapAlloc) / float64(memStats.Sys) * 100
+	if heapPct > e.memoryPressureThreshold {
+		e.logger.Warn("memory pressure: skipping dequeue", "heap_pct", heapPct, "threshold", e.memoryPressureThreshold)
+		return true
+	}
+	return false
+}
+
+// computeAvailable returns the number of runs that can be dequeued this cycle,
+// bounded by pool availability, the adaptive concurrency limit, and the max batch size.
+func (e *Executor) computeAvailable() int {
+	available := e.pool.Available()
+	if e.concurrencyLimit != nil {
+		target := max(e.concurrencyLimit.CurrentLimit(), 1)
+		adaptiveAvailable := target - e.pool.ActiveCount()
+		if adaptiveAvailable < available {
+			available = adaptiveAvailable
+		}
+	}
+	if e.maxDequeueBatchSize > 0 && available > e.maxDequeueBatchSize {
+		available = e.maxDequeueBatchSize
+	}
+	return available
+}
+
+// dequeueRuns fetches up to capacity runs from the queue.
+// In fair-share mode it round-robins across partitions; otherwise it performs
+// a two-pass dequeue: HTTP-eligible runs first, then worker-eligible runs.
+func (e *Executor) dequeueRuns(ctx context.Context, capacity int) ([]domain.JobRun, error) {
+	if len(e.partitionCycle) > 0 {
+		return e.dequeueAcrossPartitions(ctx, capacity)
+	}
+
+	// Pass 1: HTTP-eligible runs (any replica can dispatch these).
+	// Prefer fully-denormalized legacy dequeue when explicitly requested,
+	// otherwise claim_table > two_phase > DequeueN.
+	var runs []domain.JobRun
+	var err error
+	if e.useDenormalizedDequeue {
+		if dq, ok := e.queue.(fullyDenormalizedDequeuer); ok {
+			runs, err = dq.DequeueNFullyDenormalized(ctx, capacity)
+		} else {
+			runs, err = e.queue.DequeueN(ctx, capacity)
+		}
+	} else if cq, ok := e.queue.(claimTableDequeuer); ok {
+		runs, err = cq.DequeueNClaim(ctx, capacity)
+	} else if tp, ok := e.queue.(twoPhaseDequeuer); ok {
+		runs, err = tp.DequeueNTwoPhase(ctx, capacity)
+	} else {
+		runs, err = e.queue.DequeueN(ctx, capacity)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Pass 2: Worker-eligible runs — only attempt if this replica has
+	// connected workers and capacity remains after the HTTP pass.
+	runs = e.appendWorkerRuns(ctx, runs, capacity)
+	return runs, nil
+}
+
+// appendWorkerRuns dequeues worker-mode runs and appends them to runs when
+// connected workers are available and remaining capacity allows it.
+func (e *Executor) appendWorkerRuns(ctx context.Context, runs []domain.JobRun, capacity int) []domain.JobRun {
+	if e.queueSnapshotter == nil {
+		return runs
+	}
+	workerQueues := e.queueSnapshotter.SnapshotWorkerQueues()
+	if len(workerQueues) == 0 {
+		return runs
+	}
+	remaining := capacity - len(runs)
+	if remaining <= 0 {
+		return runs
+	}
+	wq, ok := e.queue.(workerQueueDequeuer)
+	if !ok {
+		return runs
+	}
+	workerRuns, wErr := wq.DequeueNForWorkerQueues(ctx, remaining, workerQueues)
+	if wErr != nil {
+		// Log but don't block the HTTP pass result.
+		e.logger.Warn("worker dequeue failed", "error", wErr)
+		return runs
+	}
+	return append(runs, workerRuns...)
 }
 
 func (e *Executor) dequeueAcrossPartitions(ctx context.Context, capacity int) ([]domain.JobRun, error) {
@@ -173,11 +253,8 @@ func (e *Executor) dequeueAcrossPartitions(ctx context.Context, capacity int) ([
 		partStart := time.Now()
 		claimed, err := e.queue.DequeueNByProject(ctx, remaining, partition)
 		if qm != nil {
-			// We intentionally do NOT attach the partition/project_id as
-			// a label here: in fair-share mode the partition cycle holds
-			// project ids, which would explode Prometheus cardinality
-			// to O(projects). Aggregate across partitions instead; the
-			// per-tenant breakdown lives in ClickHouse analytics.
+			// Avoid attaching partition/project_id as a label here;
+			// in fair-share mode that would explode Prometheus cardinality.
 			qm.PartitionDequeueLag.Record(ctx, time.Since(partStart).Seconds())
 		}
 		if err != nil {

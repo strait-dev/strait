@@ -203,11 +203,8 @@ func TestScanRun_AllFields(t *testing.T) {
 	batchID := "batch-001"
 	concurrencyKey := "key-001"
 	executionMode := "http"
-	machineID := "machine-001"
+	replayedRunID := "run-orig-001"
 	metadata := []byte(`{"env":"prod","region":"eu"}`)
-	deploymentID := "deploy-001"
-	pinnedImageURI := "123.dkr.ecr.us-east-1.amazonaws.com/strait-jobs/job-001:deploy-001"
-	pinnedImageDigest := "sha256:abc123"
 
 	s := &mockScanner{
 		values: []any{
@@ -244,10 +241,8 @@ func TestScanRun_AllFields(t *testing.T) {
 			&batchID,                 // BatchID
 			&concurrencyKey,          // ConcurrencyKey
 			&executionMode,           // ExecutionMode
-			&machineID,               // MachineID
-			&deploymentID,            // DeploymentID
-			&pinnedImageURI,          // PinnedImageURI
-			&pinnedImageDigest,       // PinnedImageDigest
+			true,                     // IsRollback
+			&replayedRunID,           // ReplayedRunID
 		},
 	}
 
@@ -340,17 +335,11 @@ func TestScanRun_AllFields(t *testing.T) {
 	if run.ExecutionMode != domain.ExecutionModeHTTP {
 		t.Errorf("ExecutionMode = %q, want %q", run.ExecutionMode, domain.ExecutionModeHTTP)
 	}
-	if run.MachineID != "machine-001" {
-		t.Errorf("MachineID = %q, want %q", run.MachineID, "machine-001")
+	if !run.IsRollback {
+		t.Errorf("IsRollback = %v, want true", run.IsRollback)
 	}
-	if run.DeploymentID != "deploy-001" {
-		t.Errorf("DeploymentID = %q, want %q", run.DeploymentID, "deploy-001")
-	}
-	if run.PinnedImageURI != pinnedImageURI {
-		t.Errorf("PinnedImageURI = %q, want %q", run.PinnedImageURI, pinnedImageURI)
-	}
-	if run.PinnedImageDigest != "sha256:abc123" {
-		t.Errorf("PinnedImageDigest = %q, want %q", run.PinnedImageDigest, "sha256:abc123")
+	if run.ReplayedRunID != "run-orig-001" {
+		t.Errorf("ReplayedRunID = %q, want %q", run.ReplayedRunID, "run-orig-001")
 	}
 	if run.ExecutionTrace == nil {
 		t.Error("ExecutionTrace is nil, want non-nil")
@@ -396,10 +385,8 @@ func TestScanRun_NilOptionals(t *testing.T) {
 			(*string)(nil),    // BatchID
 			(*string)(nil),    // ConcurrencyKey
 			(*string)(nil),    // ExecutionMode
-			(*string)(nil),    // MachineID
-			(*string)(nil),    // DeploymentID
-			(*string)(nil),    // PinnedImageURI
-			(*string)(nil),    // PinnedImageDigest
+			false,             // IsRollback
+			(*string)(nil),    // ReplayedRunID
 		},
 	}
 
@@ -465,8 +452,11 @@ func TestScanRun_NilOptionals(t *testing.T) {
 	if run.ExecutionMode != "" {
 		t.Errorf("ExecutionMode = %q, want empty", run.ExecutionMode)
 	}
-	if run.MachineID != "" {
-		t.Errorf("MachineID = %q, want empty", run.MachineID)
+	if run.IsRollback {
+		t.Errorf("IsRollback = %v, want false", run.IsRollback)
+	}
+	if run.ReplayedRunID != "" {
+		t.Errorf("ReplayedRunID = %q, want empty", run.ReplayedRunID)
 	}
 	if run.ExecutionTrace != nil {
 		t.Errorf("ExecutionTrace = %v, want nil", run.ExecutionTrace)
@@ -601,9 +591,7 @@ func scanRunBaseValues(now time.Time, mutate func(*scanRunValues)) []any {
 		(*string)(nil),             // BatchID
 		(*string)(nil),             // ConcurrencyKey
 		(*string)(nil),             // ExecutionMode
-		(*string)(nil),             // MachineID
-		(*string)(nil),             // DeploymentID
-		(*string)(nil),             // PinnedImageURI
-		(*string)(nil),             // PinnedImageDigest
+		false,                      // IsRollback
+		(*string)(nil),             // ReplayedRunID
 	}
 }

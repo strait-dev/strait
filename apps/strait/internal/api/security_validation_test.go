@@ -64,8 +64,8 @@ func TestHandleCreateJob_RejectsLongNameAndSlug(t *testing.T) {
 	nameBody := `{"project_id":"proj-1","name":"` + strings.Repeat("a", 256) + `","slug":"valid-slug","endpoint_url":"https://example.com/callback"}`
 	w1 := httptest.NewRecorder()
 	srv.ServeHTTP(w1, authedRequest(http.MethodPost, "/v1/jobs/", nameBody))
-	if w1.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for long name, got %d: %s", w1.Code, w1.Body.String())
+	if w1.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for long name, got %d: %s", w1.Code, w1.Body.String())
 	}
 
 	slugBody := `{"project_id":"proj-1","name":"valid","slug":"` + strings.Repeat("s", 129) + `","endpoint_url":"https://example.com/callback"}`

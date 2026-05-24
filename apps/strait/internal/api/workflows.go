@@ -123,8 +123,14 @@ func (s *Server) handleCreateWorkflow(ctx context.Context, input *CreateWorkflow
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
 	}
+	if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("workflow not found")
+	}
 
 	if err := validateWorkflowSteps(req.Steps); err != nil {
+		return nil, huma.Error400BadRequest(err.Error())
+	}
+	if err := s.validateWorkflowStepProjectReferences(ctx, req.ProjectID, req.Steps); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
 	if err := s.checkWorkflowStepLimit(ctx, req.ProjectID, len(req.Steps)); err != nil {
@@ -172,6 +178,9 @@ func (s *Server) handleCreateWorkflow(ctx context.Context, input *CreateWorkflow
 	}
 	if err := validateWorkflowConfig(wf.Cron, wf.CronTimezone, wf.MaxParallelSteps); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
+	}
+	if err := s.checkScheduleLimit(ctx, req.ProjectID, wf.Cron); err != nil {
+		return nil, err
 	}
 
 	var steps []domain.WorkflowStep
@@ -290,7 +299,7 @@ type UpdateWorkflowOutput struct {
 	Body updateWorkflowResponseBody
 }
 
-//nolint:gocognit,gocyclo,cyclop
+//nolint:funlen,gocognit,gocyclo,cyclop
 func (s *Server) handleUpdateWorkflow(ctx context.Context, input *UpdateWorkflowInput) (*UpdateWorkflowOutput, error) {
 	wf, err := s.store.GetWorkflow(ctx, input.WorkflowID)
 	if err != nil {
@@ -307,6 +316,7 @@ func (s *Server) handleUpdateWorkflow(ctx context.Context, input *UpdateWorkflow
 	// Capture the pre-update version for breaking change detection later.
 	previousVersionID := wf.VersionID
 	previousVersion := wf.Version
+	previousCron := wf.Cron
 
 	req := input.Body
 	if err := s.validate.Struct(&req); err != nil {
@@ -316,6 +326,9 @@ func (s *Server) handleUpdateWorkflow(ctx context.Context, input *UpdateWorkflow
 	var candidateSteps []domain.WorkflowStep
 	if req.Steps != nil {
 		if err := validateWorkflowSteps(*req.Steps); err != nil {
+			return nil, huma.Error400BadRequest(err.Error())
+		}
+		if err := s.validateWorkflowStepProjectReferences(ctx, wf.ProjectID, *req.Steps); err != nil {
 			return nil, huma.Error400BadRequest(err.Error())
 		}
 		if err := s.checkWorkflowStepLimit(ctx, wf.ProjectID, len(*req.Steps)); err != nil {
@@ -393,6 +406,11 @@ func (s *Server) handleUpdateWorkflow(ctx context.Context, input *UpdateWorkflow
 	}
 	if err := validateWorkflowConfig(wf.Cron, wf.CronTimezone, wf.MaxParallelSteps); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
+	}
+	if previousCron == "" && wf.Cron != "" {
+		if err := s.checkScheduleLimit(ctx, wf.ProjectID, wf.Cron); err != nil {
+			return nil, err
+		}
 	}
 
 	wf.UpdatedBy = actorFromContext(ctx)
@@ -492,6 +510,9 @@ func (s *Server) handleDeleteWorkflow(ctx context.Context, input *DeleteWorkflow
 	}
 
 	if err := s.store.DeleteWorkflow(ctx, input.WorkflowID); err != nil {
+		if errors.Is(err, store.ErrWorkflowHasActiveRuns) {
+			return nil, huma.Error409Conflict("workflow has active run(s) -- cancel them before deleting")
+		}
 		return nil, huma.Error500InternalServerError("failed to delete workflow")
 	}
 
@@ -625,6 +646,39 @@ func workflowStepsFromRequests(stepReqs []workflowStepRequest) []domain.Workflow
 		})
 	}
 	return steps
+}
+
+func (s *Server) validateWorkflowStepProjectReferences(ctx context.Context, projectID string, steps []workflowStepRequest) error {
+	seenJobs := make(map[string]struct{})
+	for _, step := range steps {
+		for _, jobID := range []string{step.JobID, step.CompensationJobID} {
+			if jobID == "" {
+				continue
+			}
+			if _, ok := seenJobs[jobID]; ok {
+				continue
+			}
+			seenJobs[jobID] = struct{}{}
+			job, err := s.store.GetJob(ctx, jobID)
+			if err != nil {
+				return fmt.Errorf("step %s references unknown job %s", step.StepRef, jobID)
+			}
+			if job != nil && job.ProjectID != projectID {
+				return fmt.Errorf("step %s references job outside workflow project", step.StepRef)
+			}
+		}
+		if step.SubWorkflowID == "" {
+			continue
+		}
+		wf, err := s.store.GetWorkflow(ctx, step.SubWorkflowID)
+		if err != nil {
+			return fmt.Errorf("step %s references unknown sub_workflow %s", step.StepRef, step.SubWorkflowID)
+		}
+		if wf != nil && wf.ProjectID != projectID {
+			return fmt.Errorf("step %s references sub_workflow outside workflow project", step.StepRef)
+		}
+	}
+	return nil
 }
 
 //nolint:gocognit
@@ -762,6 +816,9 @@ func validateWorkflowSteps(steps []workflowStepRequest) error {
 		if step.StepType == "" {
 			step.StepType = domain.WorkflowStepTypeJob
 		}
+		if !isValidWorkflowStepType(step.StepType) {
+			return fmt.Errorf("step %s has invalid step_type %q", step.StepRef, step.StepType)
+		}
 		if step.StepType == domain.WorkflowStepTypeJob && step.JobID == "" {
 			return errors.New("job steps require job_id")
 		}
@@ -792,9 +849,17 @@ func validateWorkflowSteps(steps []workflowStepRequest) error {
 				return errors.New("event_key must be at most 512 characters")
 			}
 		}
+		if step.EventNotifyURL != "" {
+			if err := validateURL(step.EventNotifyURL); err != nil {
+				return fmt.Errorf("step %s has invalid event_notify_url: %w", step.StepRef, err)
+			}
+		}
 		if step.StepType == domain.WorkflowStepTypeSleep {
 			if step.SleepDurationSecs <= 0 {
 				return errors.New("sleep steps require sleep_duration_secs > 0")
+			}
+			if step.SleepDurationSecs > domain.MaxSleepDurationSecs {
+				return fmt.Errorf("sleep_duration_secs must be <= %d", domain.MaxSleepDurationSecs)
 			}
 		}
 		if step.TimeoutSecsOverride < 0 {
@@ -856,6 +921,19 @@ func validateWorkflowSteps(steps []workflowStepRequest) error {
 	return nil
 }
 
+func isValidWorkflowStepType(stepType domain.WorkflowStepType) bool {
+	switch stepType {
+	case domain.WorkflowStepTypeJob,
+		domain.WorkflowStepTypeApproval,
+		domain.WorkflowStepTypeSubWorkflow,
+		domain.WorkflowStepTypeWaitForEvent,
+		domain.WorkflowStepTypeSleep:
+		return true
+	default:
+		return false
+	}
+}
+
 type DryRunWorkflowInput struct {
 	WorkflowID string `path:"workflowID"`
 	Body       dryRunWorkflowRequest
@@ -868,6 +946,19 @@ func (s *Server) handleDryRunWorkflow(ctx context.Context, input *DryRunWorkflow
 	req := input.Body
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
+	}
+	wf, err := s.store.GetWorkflow(ctx, input.WorkflowID)
+	if err != nil {
+		if errors.Is(err, store.ErrWorkflowNotFound) {
+			return nil, huma.Error404NotFound("workflow not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get workflow")
+	}
+	if wf == nil {
+		return nil, huma.Error404NotFound("workflow not found")
+	}
+	if err := requireProjectMatch(ctx, wf.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("workflow not found")
 	}
 
 	if len(req.Steps) == 0 {
@@ -1050,6 +1141,20 @@ func (s *Server) handleWorkflowGraph(ctx context.Context, input *WorkflowGraphIn
 	workflowID := input.WorkflowID
 	format := strings.ToLower(input.Format)
 
+	wf, err := s.store.GetWorkflow(ctx, workflowID)
+	if err != nil {
+		if errors.Is(err, store.ErrWorkflowNotFound) {
+			return nil, huma.Error404NotFound("workflow not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get workflow")
+	}
+	if wf == nil {
+		return nil, huma.Error404NotFound("workflow not found")
+	}
+	if err := requireProjectMatch(ctx, wf.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("workflow not found")
+	}
+
 	steps, err := s.store.ListStepsByWorkflow(ctx, workflowID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list workflow steps")
@@ -1163,8 +1268,8 @@ func (s *Server) handleCloneWorkflow(ctx context.Context, input *CloneWorkflowIn
 		newSlug = req.Slug
 	}
 	projectID := sourceWf.ProjectID
-	if req.ProjectID != "" {
-		projectID = req.ProjectID
+	if req.ProjectID != "" && req.ProjectID != sourceWf.ProjectID {
+		return nil, huma.Error404NotFound("workflow not found")
 	}
 
 	newWf := &domain.Workflow{
@@ -1192,6 +1297,9 @@ func (s *Server) handleCloneWorkflow(ctx context.Context, input *CloneWorkflowIn
 
 	// Enforce plan gates on the cloned workflow's step count and types.
 	if err := s.checkWorkflowStepLimit(ctx, projectID, len(sourceSteps)); err != nil {
+		return nil, err
+	}
+	if err := s.checkScheduleLimit(ctx, projectID, newWf.Cron); err != nil {
 		return nil, err
 	}
 	for _, step := range sourceSteps {

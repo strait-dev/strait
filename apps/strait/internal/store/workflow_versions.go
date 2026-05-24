@@ -245,6 +245,37 @@ func (q *Queries) ListWorkflowVersions(ctx context.Context, workflowID string, l
 	return versions, nil
 }
 
+// GetWorkflowVersion retrieves a workflow version snapshot by version number.
+func (q *Queries) GetWorkflowVersion(ctx context.Context, workflowID string, version int) (*domain.WorkflowVersion, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetWorkflowVersion")
+	defer span.End()
+
+	query := `
+		SELECT id, workflow_id, version, project_id, name, slug,
+		       COALESCE(description, ''), enabled,
+		       timeout_secs, max_concurrent_runs, max_parallel_steps,
+		       COALESCE(cron, ''), COALESCE(cron_timezone, ''), skip_if_running,
+		       COALESCE(version_id, ''), COALESCE(created_by, ''), COALESCE(updated_by, ''),
+		       created_at
+		FROM workflow_versions
+		WHERE workflow_id = $1 AND version = $2`
+
+	var v domain.WorkflowVersion
+	err := q.db.QueryRow(ctx, query, workflowID, version).Scan(
+		&v.ID, &v.WorkflowID, &v.Version, &v.ProjectID, &v.Name, &v.Slug,
+		&v.Description, &v.Enabled, &v.TimeoutSecs, &v.MaxConcurrentRuns,
+		&v.MaxParallelSteps, &v.Cron, &v.CronTimezone, &v.SkipIfRunning,
+		&v.VersionID, &v.CreatedBy, &v.UpdatedBy, &v.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrWorkflowNotFound
+		}
+		return nil, fmt.Errorf("get workflow version: %w", err)
+	}
+	return &v, nil
+}
+
 // GetWorkflowVersionByVersionID retrieves a single workflow version by its nanoid version_id.
 func (q *Queries) GetWorkflowVersionByVersionID(ctx context.Context, workflowID, versionID string) (*domain.WorkflowVersion, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetWorkflowVersionByVersionID")

@@ -1,13 +1,68 @@
 package worker
 
 import (
+	"context"
+	"encoding/base64"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"sync"
 	"testing"
 
+	"github.com/getsentry/sentry-go"
+
+	straitcrypto "strait/internal/crypto"
 	"strait/internal/domain"
 )
+
+type dispatchRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f dispatchRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+type fakeEndpointSecretDecryptor struct{}
+
+func (fakeEndpointSecretDecryptor) Decrypt(ciphertext []byte) ([]byte, error) {
+	const prefix = "encrypted:"
+	if !strings.HasPrefix(string(ciphertext), prefix) {
+		return nil, errors.New("unexpected ciphertext")
+	}
+	return ciphertext[len(prefix):], nil
+}
+
+func TestExecutorEndpointSigningSecretDecryptsEncryptedField(t *testing.T) {
+	t.Parallel()
+
+	encrypted := "enc:v1:" + base64.StdEncoding.EncodeToString([]byte("encrypted:plain-endpoint-secret"))
+	exec := &Executor{secretDecryptor: fakeEndpointSecretDecryptor{}}
+
+	got, err := exec.endpointSigningSecret(&domain.Job{EndpointSigningSecret: encrypted})
+	if err != nil {
+		t.Fatalf("endpointSigningSecret: %v", err)
+	}
+	if got != "plain-endpoint-secret" {
+		t.Fatalf("endpointSigningSecret = %q, want plaintext", got)
+	}
+}
+
+func TestExecutorEndpointSigningSecretPreservesLegacyPlaintext(t *testing.T) {
+	t.Parallel()
+
+	exec := &Executor{}
+	got, err := exec.endpointSigningSecret(&domain.Job{EndpointSigningSecret: "legacy-plain-secret"})
+	if err != nil {
+		t.Fatalf("endpointSigningSecret: %v", err)
+	}
+	if got != "legacy-plain-secret" {
+		t.Fatalf("endpointSigningSecret = %q, want legacy plaintext", got)
+	}
+	if straitcrypto.IsEncryptedField(got) {
+		t.Fatal("legacy plaintext should not be treated as encrypted")
+	}
+}
 
 func TestHTTPDispatch_InjectsTraceparentHeader(t *testing.T) {
 	t.Parallel()
@@ -32,7 +87,7 @@ func TestHTTPDispatch_InjectsTraceparentHeader(t *testing.T) {
 		JobID:   "job-1",
 		Attempt: 1,
 		Metadata: map[string]string{
-			"_trace_parent": "00-abcdef1234567890abcdef1234567890-fedcba0987654321-01",
+			domain.RunMetadataTraceParent: "00-abcdef1234567890abcdef1234567890-fedcba0987654321-01",
 		},
 	}
 
@@ -73,8 +128,8 @@ func TestHTTPDispatch_InjectsTracestateHeader(t *testing.T) {
 		JobID:   "job-1",
 		Attempt: 1,
 		Metadata: map[string]string{
-			"_trace_parent": "00-abcdef1234567890abcdef1234567890-fedcba0987654321-01",
-			"_trace_state":  "congo=t61rcWkgMzE",
+			domain.RunMetadataTraceParent: "00-abcdef1234567890abcdef1234567890-fedcba0987654321-01",
+			domain.RunMetadataTraceState:  "congo=t61rcWkgMzE",
 		},
 	}
 
@@ -91,6 +146,50 @@ func TestHTTPDispatch_InjectsTracestateHeader(t *testing.T) {
 	}
 	if ts := capturedHeaders.Get("Tracestate"); ts != "congo=t61rcWkgMzE" {
 		t.Errorf("Tracestate header = %q, want %q", ts, "congo=t61rcWkgMzE")
+	}
+}
+
+func TestHTTPDispatch_InjectsSentryTraceHeaders(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	var capturedHeaders http.Header
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		capturedHeaders = r.Header.Clone()
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("{}"))
+	}))
+	defer srv.Close()
+
+	e := &Executor{httpClient: srv.Client()}
+
+	run := &domain.JobRun{
+		ID:      "run-1",
+		JobID:   "job-1",
+		Attempt: 1,
+		Metadata: map[string]string{
+			domain.RunMetadataSentryTrace:   "0123456789abcdef0123456789abcdef-0123456789abcdef-1",
+			domain.RunMetadataSentryBaggage: "sentry-release=test-release,sentry-public_key=public",
+		},
+	}
+
+	_, err := e.dispatchToEndpoint(t.Context(), srv.URL, run, nil)
+	if err != nil {
+		t.Fatalf("dispatchToEndpoint returned error: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if got := capturedHeaders.Get(sentry.SentryTraceHeader); got != "0123456789abcdef0123456789abcdef-0123456789abcdef-1" {
+		t.Fatalf("sentry-trace header = %q, want Sentry trace metadata", got)
+	}
+	if got := capturedHeaders.Get(sentry.SentryBaggageHeader); got != "sentry-release=test-release,sentry-public_key=public" {
+		t.Fatalf("baggage header = %q, want Sentry baggage metadata", got)
 	}
 }
 
@@ -133,6 +232,12 @@ func TestHTTPDispatch_NoTraceMetadata(t *testing.T) {
 	if ts := capturedHeaders.Get("Tracestate"); ts != "" {
 		t.Errorf("expected no Tracestate header, got %q", ts)
 	}
+	if st := capturedHeaders.Get(sentry.SentryTraceHeader); st != "" {
+		t.Errorf("expected no Sentry trace header, got %q", st)
+	}
+	if baggage := capturedHeaders.Get(sentry.SentryBaggageHeader); baggage != "" {
+		t.Errorf("expected no Sentry baggage header, got %q", baggage)
+	}
 }
 
 func TestHTTPDispatch_EmptyTraceParent(t *testing.T) {
@@ -158,7 +263,7 @@ func TestHTTPDispatch_EmptyTraceParent(t *testing.T) {
 		JobID:   "job-1",
 		Attempt: 1,
 		Metadata: map[string]string{
-			"_trace_parent": "",
+			domain.RunMetadataTraceParent: "",
 		},
 	}
 
@@ -239,7 +344,7 @@ func TestHTTPDispatch_TraceHeadersCoexistWithExtraHeaders(t *testing.T) {
 		JobID:   "job-1",
 		Attempt: 1,
 		Metadata: map[string]string{
-			"_trace_parent": "00-abcdef1234567890abcdef1234567890-fedcba0987654321-01",
+			domain.RunMetadataTraceParent: "00-abcdef1234567890abcdef1234567890-fedcba0987654321-01",
 		},
 	}
 
@@ -286,8 +391,8 @@ func TestHTTPDispatch_NonTraceMetadataNotLeaked(t *testing.T) {
 		JobID:   "job-1",
 		Attempt: 1,
 		Metadata: map[string]string{
-			"secret":        "super-secret-value",
-			"_trace_parent": "00-abcdef1234567890abcdef1234567890-fedcba0987654321-01",
+			"secret":                      "super-secret-value",
+			domain.RunMetadataTraceParent: "00-abcdef1234567890abcdef1234567890-fedcba0987654321-01",
 		},
 	}
 
@@ -307,5 +412,35 @@ func TestHTTPDispatch_NonTraceMetadataNotLeaked(t *testing.T) {
 	}
 	if tp := capturedHeaders.Get("Traceparent"); tp != "00-abcdef1234567890abcdef1234567890-fedcba0987654321-01" {
 		t.Errorf("Traceparent header = %q, want traceparent value", tp)
+	}
+}
+
+func TestHTTPDispatch_RedactsEndpointURLFromClientErrors(t *testing.T) {
+	t.Parallel()
+
+	rawURL := "https://user:pass@hooks.example.com/private/path?token=secret#frag"
+	rootErr := context.DeadlineExceeded
+	client := &http.Client{
+		Transport: dispatchRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return nil, &url.Error{Op: req.Method, URL: rawURL, Err: rootErr}
+		}),
+	}
+	e := &Executor{httpClient: client}
+
+	_, err := e.dispatchToEndpoint(t.Context(), rawURL, &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 1}, nil)
+	if err == nil {
+		t.Fatal("dispatchToEndpoint returned nil error")
+	}
+	if !errors.Is(err, rootErr) {
+		t.Fatalf("dispatchToEndpoint error does not unwrap deadline: %v", err)
+	}
+	got := err.Error()
+	for _, leaked := range []string{"hooks.example.com", "user:pass", "/private/path", "token=secret", "#frag"} {
+		if strings.Contains(got, leaked) {
+			t.Fatalf("dispatchToEndpoint leaked endpoint data %q in error %q", leaked, got)
+		}
+	}
+	if !strings.Contains(got, "http dispatch:") || !strings.Contains(got, "context deadline exceeded") {
+		t.Fatalf("dispatchToEndpoint error = %q, want sanitized dispatch context and root error", got)
 	}
 }

@@ -17,7 +17,7 @@ Or create one manually:
 
 ```json
 {
-  "$schema": "https://strait.dev/schema.json",
+  "$schema": "https://api.strait.dev/schemas/v1/strait.json",
   "project": {
     "id": "proj_abc123",
     "name": "My Project"
@@ -27,12 +27,12 @@ Or create one manually:
     "auth_type": "apiKey",
     "timeout_ms": 30000
   },
-  "src": "src",
-  "runtime": "node",
-  "build": {
-    "out_dir": ".strait"
+  "dirs": ["src"],
+  "worker": {
+    "concurrency": 10,
+    "queue_name": "default"
   },
-  "deploy": {
+  "cli": {
     "default_environment": "production"
   }
 }
@@ -57,7 +57,7 @@ SDK client configuration. These values are read by all five SDKs.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `sdk.base_url` | string | — | API base URL. |
+| `sdk.base_url` | string | | API base URL. |
 | `sdk.auth_type` | `"bearer"` \| `"apiKey"` \| `"runToken"` | `"apiKey"` | Authentication strategy. |
 | `sdk.timeout_ms` | integer | `30000` | Request timeout in milliseconds. |
 
@@ -67,10 +67,11 @@ These fields are read by the CLI only. SDKs ignore them.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `src` | string | `"src"` | Source directory scanned for `*.job.ts` and `*.workflow.ts` definitions. |
-| `runtime` | `"node"` \| `"bun"` | `"node"` | Hosted runtime used by `strait build`. |
-| `build.out_dir` | string | `".strait"` | Compiled build output directory. |
-| `deploy.default_environment` | string | — | Default deployment target environment. |
+| `dirs` | string[] | `["src"]` | Directories scanned for job, workflow, and worker definitions. |
+| `worker.concurrency` | integer | SDK default | Number of runs a local worker process may execute concurrently. |
+| `worker.grpc_url` | string | Derived from `sdk.base_url` | gRPC endpoint used by worker-mode clients. |
+| `worker.queue_name` | string | `default` | Queue drained by the worker process. |
+| `cli.default_environment` | string | | Default environment used by CLI commands. |
 
 ## Environment Variable Overrides
 
@@ -90,7 +91,7 @@ Environment variables **always** take precedence over `strait.json` values. This
 
 ## Config File Discovery
 
-All SDKs and the CLI look for `strait.json` in the current working directory. There is no upward directory traversal — the file must be at the project root where commands are invoked.
+All SDKs and the CLI look for `strait.json` in the current working directory. There is no upward directory traversal. The file must be at the project root where commands are invoked.
 
 ### SDK discovery order
 
@@ -108,7 +109,7 @@ All SDKs and the CLI look for `strait.json` in the current working directory. Th
 
 When the CLI resolves server URL, project ID, and API key, the priority chain is:
 
-```
+```text
 CLI flags  >  env vars  >  CLI profile context  >  strait.json
 ```
 
@@ -170,19 +171,9 @@ For Ruby and Rust SDK configuration examples, see their dedicated repositories:
 
 ## Migrating from `strait.config.ts`
 
-If you're using the deprecated `strait.config.ts`, run:
-
-```bash
-strait init
-```
-
-This creates a `strait.json` file. You can then delete your `strait.config.ts`. The SDKs and CLI will automatically prefer `strait.json` when both files exist.
-
-When a `.ts` config file is loaded, the SDK and CLI emit a deprecation warning:
-
-```
-strait.config.ts is deprecated. Run 'strait init' to migrate to strait.json.
-```
+<Warning>
+The `strait.config.ts` format is deprecated. Run `strait init` to generate a `strait.json` file. The SDKs and CLI prefer `strait.json` when both files exist.
+</Warning>
 
 ## `strait init` Command
 
@@ -195,11 +186,9 @@ strait init
 It prompts for:
 1. Project ID
 2. Project name (optional)
-3. Source directory (default: `src`)
-4. Runtime — Node.js or Bun (default: Node.js)
+3. Source directories (default: `src`)
+4. Worker queue name (optional)
 5. Base URL (optional)
-
-It also checks your `.gitignore` and offers to add `.strait` (the build output directory).
 
 ### Non-interactive mode
 

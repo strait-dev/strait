@@ -9,6 +9,8 @@ import (
 
 	"strait/internal/clickhouse"
 	"strait/internal/domain"
+
+	"github.com/sourcegraph/conc"
 )
 
 func (s *Server) publishWorkflowRunHook(ctx context.Context, run *domain.WorkflowRun, from, to domain.WorkflowRunStatus, reason string) {
@@ -65,8 +67,12 @@ func (s *Server) publishWorkflowRunHook(ctx context.Context, run *domain.Workflo
 
 	// Enqueue webhook deliveries for matching subscriptions (non-fatal).
 	// Use detached context so client disconnect doesn't abort webhook delivery.
-	eventType := "workflow_run." + reason
-	go func() { //nolint:gosec // intentional detached context for webhook delivery
+	eventType, ok := workflowWebhookEventType(to)
+	if !ok {
+		return
+	}
+	var deliveryWG conc.WaitGroup
+	deliveryWG.Go(func() {
 		defer func() {
 			if r := recover(); r != nil {
 				slog.Error("panic in workflow webhook delivery",
@@ -96,17 +102,31 @@ func (s *Server) publishWorkflowRunHook(ctx context.Context, run *domain.Workflo
 				continue
 			}
 			d := &domain.WebhookDelivery{
-				WebhookURL:  sub.WebhookURL,
-				Status:      "pending",
-				Attempts:    0,
-				MaxAttempts: 5,
-				NextRetryAt: &now,
-				LastError:   string(payload),
+				SubscriptionID: sub.ID,
+				ProjectID:      sub.ProjectID,
+				WebhookURL:     sub.WebhookURL,
+				Status:         "pending",
+				Attempts:       0,
+				MaxAttempts:    5,
+				NextRetryAt:    &now,
+				Payload:        payload,
 			}
 			if createErr := s.store.CreateWebhookDelivery(bgCtx, d); createErr != nil {
 				slog.Warn("failed to enqueue workflow webhook delivery",
 					"subscription_id", sub.ID, "event_type", eventType, "error", createErr)
 			}
 		}
-	}()
+	})
+}
+
+func workflowWebhookEventType(status domain.WorkflowRunStatus) (string, bool) {
+	switch status {
+	case domain.WfStatusCompleted:
+		return domain.WebhookEventWorkflowCompleted, true
+	case domain.WfStatusFailed, domain.WfStatusTimedOut, domain.WfStatusCanceled,
+		domain.WfStatusCompensated, domain.WfStatusCompensationFailed:
+		return domain.WebhookEventWorkflowFailed, true
+	default:
+		return "", false
+	}
 }

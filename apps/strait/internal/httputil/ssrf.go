@@ -1,10 +1,15 @@
 package httputil
 
 import (
+	"context"
+	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 // privateRanges contains CIDR blocks that must be blocked to prevent SSRF.
@@ -12,16 +17,30 @@ var privateRanges []*net.IPNet
 
 func init() {
 	cidrs := []string{
-		"127.0.0.0/8",    // loopback
-		"10.0.0.0/8",     // RFC 1918
-		"172.16.0.0/12",  // RFC 1918
-		"192.168.0.0/16", // RFC 1918
-		"169.254.0.0/16", // link-local
-		"100.64.0.0/10",  // CGNAT (RFC 6598)
-		"0.0.0.0/8",      // unspecified
-		"::1/128",        // IPv6 loopback
-		"fc00::/7",       // IPv6 unique local
-		"fe80::/10",      // IPv6 link-local
+		"127.0.0.0/8",        // loopback
+		"10.0.0.0/8",         // RFC 1918
+		"172.16.0.0/12",      // RFC 1918
+		"192.168.0.0/16",     // RFC 1918
+		"169.254.0.0/16",     // link-local
+		"100.64.0.0/10",      // CGNAT (RFC 6598)
+		"0.0.0.0/8",          // unspecified
+		"192.0.0.0/24",       // IETF protocol assignments
+		"192.0.2.0/24",       // documentation
+		"192.88.99.0/24",     // deprecated 6to4 relay anycast
+		"198.18.0.0/15",      // benchmarking
+		"198.51.100.0/24",    // documentation
+		"203.0.113.0/24",     // documentation
+		"224.0.0.0/4",        // multicast
+		"240.0.0.0/4",        // reserved
+		"255.255.255.255/32", // limited broadcast
+		"::1/128",            // IPv6 loopback
+		"fc00::/7",           // IPv6 unique local
+		"fe80::/10",          // IPv6 link-local
+		"fec0::/10",          // deprecated IPv6 site-local
+		"ff00::/8",           // IPv6 multicast
+		"2001:db8::/32",      // documentation
+		"2001:2::/48",        // benchmarking
+		"2001:10::/28",       // deprecated ORCHID
 	}
 	for _, cidr := range cidrs {
 		_, network, err := net.ParseCIDR(cidr)
@@ -50,10 +69,82 @@ func SetLookupHostForTest(fn func(string) ([]string, error)) func() {
 	return func() { lookupHost = orig }
 }
 
+// SafeDialContext returns a DialContext that prevents DNS rebinding SSRF by
+// resolving the target host itself, rejecting every private/internal answer,
+// and dialing the vetted IP literal. When allowPrivate is true, it falls back
+// to the standard net.Dialer behavior for local/self-host deployments.
+func SafeDialContext(allowPrivate bool) func(context.Context, string, string) (net.Conn, error) {
+	dialer := &net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+	if allowPrivate {
+		return dialer.DialContext
+	}
+	return func(ctx context.Context, network, address string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(address)
+		if err != nil {
+			return nil, fmt.Errorf("ssrf: invalid dial address")
+		}
+		if host == "" || port == "" {
+			return nil, fmt.Errorf("ssrf: invalid dial address")
+		}
+		for _, blocked := range blockedHosts {
+			if strings.EqualFold(host, blocked) {
+				return nil, fmt.Errorf("ssrf: blocked internal host")
+			}
+		}
+		if looksLikeNonStandardIP(host) {
+			return nil, fmt.Errorf("ssrf: host uses non-standard IP notation")
+		}
+		if ip := net.ParseIP(host); ip != nil {
+			if isPrivateIP(ip) {
+				return nil, fmt.Errorf("ssrf: blocked private dial address")
+			}
+			return dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+		}
+		addrs, lookupErr := lookupHost(host)
+		if lookupErr != nil {
+			return nil, fmt.Errorf("ssrf: DNS lookup failed")
+		}
+		var firstPublic net.IP
+		for _, addr := range addrs {
+			ip := net.ParseIP(addr)
+			if ip == nil {
+				continue
+			}
+			if isPrivateIP(ip) {
+				return nil, fmt.Errorf("ssrf: host resolves to private address")
+			}
+			if firstPublic == nil {
+				firstPublic = ip
+			}
+		}
+		if firstPublic == nil {
+			return nil, fmt.Errorf("ssrf: DNS lookup returned no usable IP addresses")
+		}
+		return dialer.DialContext(ctx, network, net.JoinHostPort(firstPublic.String(), port))
+	}
+}
+
+// NewExternalTransport returns an HTTP transport for untrusted, user-supplied
+// URLs. It validates resolved addresses at dial time, which closes the gap
+// between registration-time URL validation and delivery-time DNS answers.
+func NewExternalTransport(allowPrivate bool) *http.Transport {
+	return &http.Transport{
+		DialContext:         SafeDialContext(allowPrivate),
+		TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS12},
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 10,
+		IdleConnTimeout:     90 * time.Second,
+		ForceAttemptHTTP2:   true,
+	}
+}
+
 // isPrivateIP reports whether ip belongs to a private, loopback, link-local,
 // CGNAT, or otherwise internal network range.
 func isPrivateIP(ip net.IP) bool {
-	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsMulticast() ||
 		ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
 		return true
 	}
@@ -163,7 +254,7 @@ func ValidateExternalURL(rawURL string) error {
 	// Block well-known internal hostnames.
 	for _, blocked := range blockedHosts {
 		if strings.EqualFold(host, blocked) {
-			return fmt.Errorf("URL must not point to internal host %q", blocked)
+			return fmt.Errorf("URL must not point to internal host")
 		}
 	}
 
@@ -171,13 +262,13 @@ func ValidateExternalURL(rawURL string) error {
 	// handle but OS-level DNS resolvers may interpret: octal-encoded octets
 	// (e.g. 0177.0.0.1 = 127.0.0.1) and other non-standard notations.
 	if looksLikeNonStandardIP(host) {
-		return fmt.Errorf("ssrf: URL host %q uses non-standard IP notation", host)
+		return fmt.Errorf("ssrf: URL host uses non-standard IP notation")
 	}
 
 	// If the host is an IP literal, validate it directly.
 	if ip := net.ParseIP(host); ip != nil {
 		if isPrivateIP(ip) {
-			return fmt.Errorf("URL must not point to private or internal address %s", ip)
+			return fmt.Errorf("URL must not point to private or internal address")
 		}
 		return nil
 	}
@@ -187,14 +278,70 @@ func ValidateExternalURL(rawURL string) error {
 	// attacker controls a DNS server that intermittently fails.
 	addrs, lookupErr := lookupHost(host)
 	if lookupErr != nil {
-		return fmt.Errorf("ssrf: DNS lookup failed for %q: %w", host, lookupErr)
+		return fmt.Errorf("ssrf: DNS lookup failed")
 	}
 	for _, addr := range addrs {
 		ip := net.ParseIP(addr)
 		if ip != nil && isPrivateIP(ip) {
-			return fmt.Errorf("URL host %q resolves to private address %s", host, ip)
+			return fmt.Errorf("URL host resolves to private address")
 		}
 	}
 
 	return nil
+}
+
+// RedactURLForLog returns a URL shape that is useful for operations but does
+// not expose path segments, query strings, userinfo, or fragments. Those often
+// carry tokens in webhook and callback URLs.
+func RedactURLForLog(rawURL string) string {
+	if rawURL == "" {
+		return ""
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "[invalid-url]"
+	}
+	if u.Scheme == "" || u.Host == "" {
+		return "[invalid-url]"
+	}
+	return u.Scheme + "://" + u.Host
+}
+
+// SanitizeHTTPClientError removes request URLs from net/http client errors.
+// url.Error includes the full URL, and webhook/callback URLs often carry query
+// tokens, userinfo, or path secrets.
+func SanitizeHTTPClientError(err error) string {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		if urlErr.Err != nil {
+			var nested *url.Error
+			if errors.As(urlErr.Err, &nested) {
+				return SanitizeHTTPClientError(urlErr.Err)
+			}
+			return fmt.Sprintf("%s: %s", urlErr.Op, sanitizeHTTPClientRootError(urlErr.Err))
+		}
+		return urlErr.Op
+	}
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+func sanitizeHTTPClientRootError(err error) string {
+	if err == nil {
+		return "request failed"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return context.DeadlineExceeded.Error()
+	}
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "invalid header"):
+		return "invalid header"
+	case strings.HasPrefix(msg, "ssrf:"):
+		return msg
+	default:
+		return "request failed"
+	}
 }

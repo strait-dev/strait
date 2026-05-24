@@ -236,8 +236,13 @@ func isMutationHandler(name string) bool {
 	return false
 }
 
-// callsAuditEmit walks a function body looking for a call to
-// s.emitAuditEvent or s.emitAuditEventAsync. Returns true on the first hit.
+// callsAuditEmit walks a function body looking for any of the
+// recognized audit-emission patterns:
+//   - s.emitAuditEvent / s.emitAuditEventAsync (fire-and-forget)
+//   - s.buildAuditEvent (paired with txStore.CreateAuditEvent inside
+//     a runInTx closure for atomic-with-mutation audit inserts)
+//
+// Returns true on the first hit.
 func callsAuditEmit(body *ast.BlockStmt) bool {
 	var found bool
 	ast.Inspect(body, func(n ast.Node) bool {
@@ -252,7 +257,8 @@ func callsAuditEmit(body *ast.BlockStmt) bool {
 		if !ok {
 			return true
 		}
-		if sel.Sel.Name == "emitAuditEvent" || sel.Sel.Name == "emitAuditEventAsync" {
+		switch sel.Sel.Name {
+		case "emitAuditEvent", "emitAuditEventAsync", "buildAuditEvent":
 			found = true
 			return false
 		}

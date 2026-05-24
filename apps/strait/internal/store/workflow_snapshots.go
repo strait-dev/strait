@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,15 +25,6 @@ func (q *Queries) GetOrCreateWorkflowSnapshot(
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetOrCreateWorkflowSnapshot")
 	defer span.End()
 
-	// If the workflow has a versionID, try to find an existing snapshot (dedup).
-	if wf.VersionID != "" {
-		existing, err := q.getWorkflowSnapshotByVersion(ctx, wf.ID, wf.VersionID)
-		if err == nil && existing != nil {
-			return existing, nil
-		}
-		// Not found — create a new one.
-	}
-
 	def := domain.WorkflowSnapshotDefinition{
 		Workflow: domain.WorkflowSnapshotMeta{
 			ID:                wf.ID,
@@ -54,6 +46,18 @@ func (q *Queries) GetOrCreateWorkflowSnapshot(
 	if err != nil {
 		return nil, fmt.Errorf("marshal snapshot definition: %w", err)
 	}
+	hash := workflowSnapshotDefinitionHash(defJSON)
+
+	// If the workflow has a versionID, dedupe only exact definition matches.
+	// Trigger-time step overrides can change the serialized step set while
+	// keeping the workflow version stable, so version_id alone is insufficient.
+	if wf.VersionID != "" {
+		existing, err := q.getWorkflowSnapshotByVersionAndHash(ctx, wf.ID, wf.VersionID, hash)
+		if err == nil && existing != nil {
+			return existing, nil
+		}
+		// Not found — create a new definition variant.
+	}
 
 	snapshot := &domain.WorkflowSnapshot{
 		ID:         uuid.Must(uuid.NewV7()).String(),
@@ -64,9 +68,9 @@ func (q *Queries) GetOrCreateWorkflowSnapshot(
 	}
 
 	query := `
-		INSERT INTO workflow_snapshots (id, workflow_id, version_id, version, definition)
-		VALUES ($1, $2, $3, $4, $5::jsonb)
-		ON CONFLICT (workflow_id, version_id) WHERE version_id != ''
+		INSERT INTO workflow_snapshots (id, workflow_id, version_id, version, definition, definition_hash)
+		VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+		ON CONFLICT (workflow_id, version_id, definition_hash) WHERE version_id != ''
 		DO UPDATE SET id = workflow_snapshots.id
 		RETURNING id, created_at`
 
@@ -77,12 +81,18 @@ func (q *Queries) GetOrCreateWorkflowSnapshot(
 		snapshot.VersionID,
 		snapshot.Version,
 		snapshot.Definition,
+		hash,
 	).Scan(&snapshot.ID, &snapshot.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert workflow snapshot: %w", err)
 	}
 
 	return snapshot, nil
+}
+
+func workflowSnapshotDefinitionHash(definition []byte) string {
+	sum := sha256.Sum256(definition)
+	return fmt.Sprintf("%x", sum[:])
 }
 
 // GetWorkflowSnapshot retrieves a workflow snapshot by ID.
@@ -110,16 +120,17 @@ func (q *Queries) GetWorkflowSnapshot(ctx context.Context, id string) (*domain.W
 	return &s, nil
 }
 
-// getWorkflowSnapshotByVersion retrieves a snapshot by (workflowID, versionID).
-func (q *Queries) getWorkflowSnapshotByVersion(ctx context.Context, workflowID, versionID string) (*domain.WorkflowSnapshot, error) {
+// getWorkflowSnapshotByVersionAndHash retrieves a snapshot by exact definition
+// identity within a workflow version.
+func (q *Queries) getWorkflowSnapshotByVersionAndHash(ctx context.Context, workflowID, versionID, definitionHash string) (*domain.WorkflowSnapshot, error) {
 	query := `
 		SELECT id, workflow_id, version_id, version, definition, created_at
 		FROM workflow_snapshots
-		WHERE workflow_id = $1 AND version_id = $2`
+		WHERE workflow_id = $1 AND version_id = $2 AND definition_hash = $3`
 
 	var s domain.WorkflowSnapshot
 	var defBytes []byte
-	err := q.db.QueryRow(ctx, query, workflowID, versionID).Scan(
+	err := q.db.QueryRow(ctx, query, workflowID, versionID, definitionHash).Scan(
 		&s.ID, &s.WorkflowID, &s.VersionID, &s.Version, &defBytes, &s.CreatedAt,
 	)
 	if err != nil {

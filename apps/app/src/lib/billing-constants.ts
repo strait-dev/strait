@@ -1,45 +1,49 @@
 export const PLAN_LIMITS = {
   free: {
-    runsPerDay: 5000,
-    computeCreditUsd: 5,
-    members: 3,
+    runsPerMonth: 5000,
+    members: 1,
     priceMonthly: 0,
+    overagePer1K: 0.5,
   },
   starter: {
-    runsPerDay: 25_000,
-    computeCreditUsd: 19.99,
-    members: 10,
-    priceMonthly: 19.99,
+    runsPerMonth: 50_000,
+    members: 3,
+    priceMonthly: 19,
+    overagePer1K: 0.4,
   },
   pro: {
-    runsPerDay: 100_000,
-    computeCreditUsd: 49.99,
-    members: 25,
-    priceMonthly: 49.99,
+    runsPerMonth: 1_000_000,
+    members: 10,
+    priceMonthly: 99,
+    overagePer1K: 0.2,
   },
   scale: {
-    runsPerDay: -1,
-    computeCreditUsd: 99,
+    runsPerMonth: 5_000_000,
     members: 50,
-    priceMonthly: 99,
+    priceMonthly: 299,
+    overagePer1K: 0.06,
+  },
+  business: {
+    runsPerMonth: 25_000_000,
+    members: -1,
+    priceMonthly: 499,
+    overagePer1K: 0.03,
   },
   enterprise: {
-    runsPerDay: -1,
-    computeCreditUsd: -1,
+    runsPerMonth: -1,
     members: -1,
     priceMonthly: -1,
+    overagePer1K: 0.03,
   },
 } as const;
 
 export type PlanTier = keyof typeof PLAN_LIMITS;
 
-/** Enterprise sub-tier identifiers (commercial terms, not features). */
 export type EnterpriseTier =
   | "enterprise_starter"
   | "enterprise_growth"
   | "enterprise_large";
 
-/** Enterprise sub-tier display info. */
 export const ENTERPRISE_TIERS: Record<
   EnterpriseTier,
   {

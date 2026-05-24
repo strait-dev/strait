@@ -5,12 +5,18 @@ package loadtest
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -21,13 +27,20 @@ import (
 type ExecutionMode string
 
 const (
-	// ModeHTTP creates only HTTP endpoint jobs.
+	// ModeHTTP creates only HTTP endpoint jobs. The harness configures each
+	// job with an endpoint signing secret, so Strait signs dispatch payloads
+	// and the target server verifies them before accepting the request.
 	ModeHTTP ExecutionMode = "http"
-	// ModeManaged creates only managed container jobs.
-	ModeManaged ExecutionMode = "managed"
-	// ModeMixed creates both HTTP and managed jobs (70% HTTP, 30% managed).
-	ModeMixed ExecutionMode = "mixed"
+
+	// ModeWorker creates worker-mode jobs and drives load via the gRPC
+	// WorkerService streaming RPC rather than outbound HTTP dispatch.
+	// Workers connect to the server, claim runs from the queue, and report
+	// results back over the same bidirectional stream.
+	// See internal/loadtest/worker_scenario.go for the implementation.
+	ModeWorker ExecutionMode = "worker"
 )
+
+const maxStatsResponseBytes = 1 << 20
 
 // Harness is the top-level test orchestrator. It sets up infrastructure,
 // runs scenarios, and collects results.
@@ -39,6 +52,8 @@ type Harness struct {
 	Metrics    *MetricsCollector
 	ResultsDir string
 	httpClient *http.Client
+	jobIDsMu   sync.RWMutex
+	jobIDs     map[string]string
 }
 
 // HarnessConfig configures the test harness.
@@ -64,11 +79,16 @@ type HarnessConfig struct {
 	// MetricsInterval is how often to sample metrics.
 	MetricsInterval time.Duration
 
-	// ExecutionMode controls which job types are created (http, managed, mixed).
+	// ExecutionMode controls which job types are created.
 	ExecutionMode ExecutionMode
 
-	// ManagedImage is the container image for managed jobs.
-	ManagedImage string
+	// WorkerConfig holds gRPC worker scenario parameters for ModeWorker runs.
+	// When nil, DefaultWorkerConfig() is used.
+	WorkerConfig *WorkerConfig
+
+	// EndpointSigningSecret signs HTTP dispatches sent to the load-test
+	// receiver. When empty, NewHarness generates a per-run secret.
+	EndpointSigningSecret string
 }
 
 // NewHarness creates a test harness with the given configuration.
@@ -81,6 +101,9 @@ func NewHarness(cfg HarnessConfig) *Harness {
 	}
 	if cfg.MetricsInterval == 0 {
 		cfg.MetricsInterval = 10 * time.Second
+	}
+	if cfg.EndpointSigningSecret == "" {
+		cfg.EndpointSigningSecret = generateLoadTestSecret()
 	}
 
 	return &Harness{
@@ -97,6 +120,16 @@ func NewHarness(cfg HarnessConfig) *Harness {
 			},
 		},
 	}
+}
+
+var loadtestRandRead = rand.Read
+
+func generateLoadTestSecret() string {
+	var b [32]byte
+	if _, err := loadtestRandRead(b[:]); err != nil {
+		panic("generate loadtest endpoint signing secret: " + err.Error())
+	}
+	return "loadtest_" + hex.EncodeToString(b[:])
 }
 
 // Setup initializes all infrastructure: DB pool, Redis, test server, metrics.
@@ -127,7 +160,7 @@ func (h *Harness) Setup(ctx context.Context) error {
 	}
 
 	// Start test HTTP server
-	h.TestServer = NewTestServer(h.Config.TestServerPort)
+	h.TestServer = NewTestServer(h.Config.TestServerPort, WithTestServerHMACSecret(h.Config.EndpointSigningSecret))
 	if err := h.TestServer.Start(); err != nil {
 		return fmt.Errorf("starting test server: %w", err)
 	}
@@ -223,8 +256,30 @@ func (h *Harness) TriggerJob(ctx context.Context, projectID, jobID string, paylo
 	return nil
 }
 
+// ResolveJobID returns the setup-created job ID for a standard load-test slug.
+// It falls back to the input so ad hoc tests that create jobs independently keep
+// working, but standard scenarios should call SetupLoadTestJobs first.
+func (h *Harness) ResolveJobID(slug string) string {
+	if h == nil {
+		return slug
+	}
+	h.jobIDsMu.RLock()
+	defer h.jobIDsMu.RUnlock()
+	if h.jobIDs == nil {
+		return slug
+	}
+	if id, ok := h.jobIDs[slug]; ok {
+		return id
+	}
+	return slug
+}
+
 // CreateJob creates a job via the Strait API for load testing.
 func (h *Harness) CreateJob(ctx context.Context, projectID string, job JobConfig) (string, error) {
+	if err := validateLoadTestEndpointURL(job.EndpointURL); err != nil {
+		return "", err
+	}
+
 	body, err := json.Marshal(job)
 	if err != nil {
 		return "", fmt.Errorf("marshaling job config: %w", err)
@@ -261,6 +316,30 @@ func (h *Harness) CreateJob(ctx context.Context, projectID string, job JobConfig
 	return result.ID, nil
 }
 
+func validateLoadTestEndpointURL(rawURL string) error {
+	if rawURL == "" {
+		return nil
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid load test endpoint URL: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("invalid load test endpoint URL scheme %q", u.Scheme)
+	}
+	host := u.Hostname()
+	if host == "" {
+		return fmt.Errorf("invalid load test endpoint URL: missing host")
+	}
+	if strings.EqualFold(host, "localhost") {
+		return nil
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsUnspecified() {
+		return fmt.Errorf("load test endpoint URL must not advertise wildcard host %q", host)
+	}
+	return nil
+}
+
 // GetQueueStats fetches current queue statistics from the Strait API.
 func (h *Harness) GetQueueStats(ctx context.Context, projectID string) (*QueueStats, error) {
 	url := fmt.Sprintf("%s/v1/stats", h.Config.StraitURL)
@@ -278,8 +357,25 @@ func (h *Harness) GetQueueStats(ctx context.Context, projectID string) (*QueueSt
 	}
 	defer resp.Body.Close()
 
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxStatsResponseBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("reading stats response: %w", err)
+	}
+	if len(body) > maxStatsResponseBytes {
+		return nil, fmt.Errorf("stats response exceeded %d bytes", maxStatsResponseBytes)
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("stats returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var errorEnvelope struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(body, &errorEnvelope); err == nil && errorEnvelope.Error != "" {
+		return nil, fmt.Errorf("stats returned error payload: %s", errorEnvelope.Error)
+	}
+
 	var stats QueueStats
-	if err := json.NewDecoder(resp.Body).Decode(&stats); err != nil {
+	if err := json.Unmarshal(body, &stats); err != nil {
 		return nil, fmt.Errorf("decoding stats: %w", err)
 	}
 
@@ -298,15 +394,14 @@ func (h *Harness) WriteResult(filename string, result any) error {
 
 // JobConfig defines a job for load testing.
 type JobConfig struct {
-	ProjectID     string `json:"project_id"`
-	Name          string `json:"name"`
-	Slug          string `json:"slug"`
-	EndpointURL   string `json:"endpoint_url,omitempty"`
-	ExecutionMode string `json:"execution_mode"`
-	ImageURI      string `json:"image_uri,omitempty"`
-	MachinePreset string `json:"machine_preset,omitempty"`
-	MaxAttempts   int    `json:"max_attempts,omitempty"`
-	TimeoutSecs   int    `json:"timeout_secs,omitempty"`
+	ProjectID             string `json:"project_id"`
+	Name                  string `json:"name"`
+	Slug                  string `json:"slug"`
+	EndpointURL           string `json:"endpoint_url,omitempty"`
+	EndpointSigningSecret string `json:"endpoint_signing_secret,omitempty"`
+	ExecutionMode         string `json:"execution_mode"`
+	MaxAttempts           int    `json:"max_attempts,omitempty"`
+	TimeoutSecs           int    `json:"timeout_secs,omitempty"`
 }
 
 // QueueStats represents queue statistics from the API.
@@ -323,101 +418,79 @@ func (qs *QueueStats) QueueDepth() int64 {
 	return qs.Queued + qs.Delayed
 }
 
-// SetupLoadTestJobs creates the standard load test jobs and returns their IDs.
-// The test server must be started before calling this. When the harness
-// ExecutionMode is managed or mixed, managed container jobs are also created.
+// SetupLoadTestJobs creates the standard HTTP load test jobs and returns their IDs.
+// The test server must be started before calling this.
 func (h *Harness) SetupLoadTestJobs(ctx context.Context, projectID string) (map[string]string, error) {
 	testServerURL := fmt.Sprintf("http://%s", h.TestServer.Addr())
 	jobs := map[string]string{}
+	signingSecret := h.Config.EndpointSigningSecret
 
-	mode := h.Config.ExecutionMode
-	if mode == "" {
-		mode = ModeHTTP
+	httpConfigs := standardLoadTestJobConfigs(projectID, testServerURL, signingSecret)
+	if err := h.createJobs(ctx, projectID, httpConfigs, jobs); err != nil {
+		return nil, err
 	}
 
-	// HTTP jobs (created for http and mixed modes).
-	if mode == ModeHTTP || mode == ModeMixed {
-		httpConfigs := []JobConfig{
-			{
-				ProjectID:     projectID,
-				Name:          "Load Test Fast Echo",
-				Slug:          "loadtest-fast-echo",
-				EndpointURL:   testServerURL + "/fast-echo",
-				ExecutionMode: "http",
-				MaxAttempts:   1,
-				TimeoutSecs:   30,
-			},
-			{
-				ProjectID:     projectID,
-				Name:          "Load Test Slow Process",
-				Slug:          "loadtest-slow-process",
-				EndpointURL:   testServerURL + "/slow-process",
-				ExecutionMode: "http",
-				MaxAttempts:   1,
-				TimeoutSecs:   60,
-			},
-			{
-				ProjectID:     projectID,
-				Name:          "Load Test Variable Load",
-				Slug:          "loadtest-variable-load",
-				EndpointURL:   testServerURL + "/variable-load",
-				ExecutionMode: "http",
-				MaxAttempts:   1,
-				TimeoutSecs:   30,
-			},
-			{
-				ProjectID:     projectID,
-				Name:          "Load Test Flaky",
-				Slug:          "loadtest-flaky",
-				EndpointURL:   testServerURL + "/flaky",
-				ExecutionMode: "http",
-				MaxAttempts:   3,
-				TimeoutSecs:   30,
-			},
-		}
-
-		if err := h.createJobs(ctx, projectID, httpConfigs, jobs); err != nil {
-			return nil, err
-		}
+	h.jobIDsMu.Lock()
+	h.jobIDs = make(map[string]string, len(jobs))
+	for slug, id := range jobs {
+		h.jobIDs[slug] = id
 	}
-
-	// Managed container jobs (created for managed and mixed modes).
-	if mode == ModeManaged || mode == ModeMixed {
-		managedConfigs := h.managedJobConfigs(projectID)
-		if err := h.createJobs(ctx, projectID, managedConfigs, jobs); err != nil {
-			return nil, err
-		}
-	}
+	h.jobIDsMu.Unlock()
 
 	return jobs, nil
 }
 
-// managedJobConfigs returns the job configurations for managed container jobs.
-// Callers using ModeManaged or ModeMixed must set HarnessConfig.ManagedImage
-// to a pullable container image; there is no default.
-func (h *Harness) managedJobConfigs(projectID string) []JobConfig {
-	image := h.Config.ManagedImage
-
+func standardLoadTestJobConfigs(projectID, testServerURL, signingSecret string) []JobConfig {
 	return []JobConfig{
 		{
-			ProjectID:     projectID,
-			Name:          "Load Test Managed Fast",
-			Slug:          "loadtest-managed-fast",
-			ExecutionMode: "managed",
-			ImageURI:      image,
-			MachinePreset: "micro",
-			MaxAttempts:   1,
-			TimeoutSecs:   30,
+			ProjectID:             projectID,
+			Name:                  "Load Test Fast Echo",
+			Slug:                  "loadtest-fast-echo",
+			EndpointURL:           testServerURL + "/fast-echo",
+			EndpointSigningSecret: signingSecret,
+			ExecutionMode:         "http",
+			MaxAttempts:           1,
+			TimeoutSecs:           30,
 		},
 		{
-			ProjectID:     projectID,
-			Name:          "Load Test Managed Slow",
-			Slug:          "loadtest-managed-slow",
-			ExecutionMode: "managed",
-			ImageURI:      image,
-			MachinePreset: "micro",
-			MaxAttempts:   1,
-			TimeoutSecs:   60,
+			ProjectID:             projectID,
+			Name:                  "Load Test Slow Process",
+			Slug:                  "loadtest-slow-process",
+			EndpointURL:           testServerURL + "/slow-process",
+			EndpointSigningSecret: signingSecret,
+			ExecutionMode:         "http",
+			MaxAttempts:           1,
+			TimeoutSecs:           60,
+		},
+		{
+			ProjectID:             projectID,
+			Name:                  "Load Test Variable Load",
+			Slug:                  "loadtest-variable-load",
+			EndpointURL:           testServerURL + "/variable-load",
+			EndpointSigningSecret: signingSecret,
+			ExecutionMode:         "http",
+			MaxAttempts:           1,
+			TimeoutSecs:           30,
+		},
+		{
+			ProjectID:             projectID,
+			Name:                  "Load Test Flaky",
+			Slug:                  "loadtest-flaky",
+			EndpointURL:           testServerURL + "/flaky",
+			EndpointSigningSecret: signingSecret,
+			ExecutionMode:         "http",
+			MaxAttempts:           3,
+			TimeoutSecs:           30,
+		},
+		{
+			ProjectID:             projectID,
+			Name:                  "Load Test Error Scenarios",
+			Slug:                  "loadtest-errors",
+			EndpointURL:           testServerURL + "/error-scenario",
+			EndpointSigningSecret: signingSecret,
+			ExecutionMode:         "http",
+			MaxAttempts:           1,
+			TimeoutSecs:           30,
 		},
 	}
 }

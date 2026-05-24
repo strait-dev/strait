@@ -1,41 +1,87 @@
 ---
 title: "Durable Workflows"
-description: "Long-running workflows that span days or weeks with expected completion tracking and stage notifications."
+description: "Run workflows that wait for hours or days without losing progress."
 sidebarTitle: "Durable Workflows"
 ---
 
-Durable workflows handle processes that span days or weeks -- waiting for external events, human approvals, or scheduled pauses -- while surviving restarts and infrastructure changes. Use them when your workflow outlives a single request or process lifetime.
+Some workflows take longer than a single request: an order may wait for payment, a deployment may wait for approval, or a pipeline may pause until the next business day.
 
-## Expected Completion Tracking
+Durable workflows keep that progress in Strait until every step finishes or fails.
 
-Each workflow step can declare an `expected_duration_secs` estimate. When a run starts, Strait calculates the expected completion time by finding the critical path -- the longest chain of dependent steps -- through the workflow graph and summing their durations.
+## When to Use Them
+
+Use durable workflows when a process needs to wait:
+
+- **Order fulfillment**: Create an order, wait for payment, reserve inventory, then send confirmation.
+- **Human approval**: Run checks, pause for a reviewer, then continue.
+- **Delayed follow-up**: Run a step, sleep for a period, then check the result later.
+
+## Wait Types
+
+Durable workflows support three wait types:
+
+| Wait type | Use it when |
+|---|---|
+| `sleep` | The workflow should continue after a known duration. |
+| `wait_for_event` | An external system will send a matching event later. |
+| `approval` | A person must approve or reject the step. |
+
+While a workflow waits, it does not keep a worker busy.
+
+## Example
 
 ```json
 {
   "steps": [
-    {"step_ref": "validate", "expected_duration_secs": 5},
-    {"step_ref": "charge", "depends_on": ["validate"], "expected_duration_secs": 10},
-    {"step_ref": "notify", "depends_on": ["charge"], "expected_duration_secs": 3}
+    { "step_ref": "create-order", "job_id": "order-create" },
+    {
+      "step_ref": "wait-for-payment",
+      "type": "wait_for_event",
+      "event_key": "payment.confirmed.{{create-order.order_id}}",
+      "timeout_secs": 86400,
+      "depends_on": ["create-order"]
+    },
+    {
+      "step_ref": "approve-high-value",
+      "type": "approval",
+      "timeout_secs": 3600,
+      "depends_on": ["wait-for-payment"]
+    },
+    {
+      "step_ref": "reserve-inventory",
+      "job_id": "inventory-reserve",
+      "depends_on": ["approve-high-value"]
+    },
+    {
+      "step_ref": "send-confirmation",
+      "job_id": "notifications-send",
+      "depends_on": ["reserve-inventory"]
+    }
   ]
 }
 ```
 
-This workflow has an expected duration of 18 seconds (5 + 10 + 3 along the critical path). The `expected_completion_at` field on the workflow run is set to `started_at + 18s`.
+This workflow waits up to 24 hours for payment, pauses for approval on high-value orders, reserves inventory, and sends a confirmation.
 
-For parallel branches, only the longest branch contributes to the critical path:
+## Completion Estimates
 
+Add `expected_duration_secs` to steps when you want Strait to estimate when a workflow should finish.
+
+```json
+{
+  "steps": [
+    { "step_ref": "validate", "expected_duration_secs": 5 },
+    { "step_ref": "charge", "depends_on": ["validate"], "expected_duration_secs": 10 },
+    { "step_ref": "notify", "depends_on": ["charge"], "expected_duration_secs": 3 }
+  ]
+}
 ```
-A(5s) -> B(10s)
-A(5s) -> C(20s)
-```
 
-Critical path: A + C = 25 seconds (not A + B + C).
+In this example, the expected duration is 18 seconds. If the workflow has parallel branches, Strait uses the branch that takes the longest.
 
-As steps complete, the expected completion is recalculated based on remaining steps and actual progress.
+## Step Notifications
 
-## Stage Notifications
-
-Each workflow step can configure notifications for specific state transitions:
+Steps can notify your team when they complete, fail, or are skipped.
 
 ```json
 {
@@ -48,16 +94,10 @@ Each workflow step can configure notifications for specific state transitions:
 }
 ```
 
-When the step transitions to a matching state, Strait enqueues notification deliveries to all enabled project notification channels (webhook, Slack, email, Discord).
+Use step notifications for approval handoffs, failed payment steps, or any stage where a person needs to know what happened.
 
-The notification payload includes: workflow_id, workflow_run_id, step_ref, step_run_id, status, and timestamp.
+## Related
 
-## Durability Guarantees
-
-Sleep steps, wait-for-event steps, and approval steps all use database-scheduled triggers, not in-memory timers. This means they survive process restarts:
-
-- **Sleep steps**: Strait creates a trigger with an expiration time. When the trigger expires, the step completes automatically.
-- **Wait-for-event steps**: Strait creates a trigger keyed to a specific event. External systems POST events to resolve the trigger.
-- **Approval steps**: Strait creates both an approval record and a trigger for unified tracking.
-
-The stale run reaper distinguishes legitimately waiting workflows from stuck ones by checking whether active triggers exist with future expiration timestamps.
+- [Workflows](/concepts/workflows)
+- [Event Triggers](/concepts/event-triggers)
+- [Workflow Approvals](/guides/workflow-approvals)

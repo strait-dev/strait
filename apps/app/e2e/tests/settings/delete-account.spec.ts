@@ -44,10 +44,21 @@ test.describe("Delete Account", () => {
   });
 
   test("delete button opens confirmation dialog", async ({ page }) => {
+    const confirmation = page.getByRole("checkbox", {
+      name: /confirm that i want to delete my account/i,
+    });
+    if (await confirmation.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await confirmation.click();
+      await expect(confirmation).toHaveAttribute("aria-checked", "true");
+    }
+
     const deleteBtn = page.getByRole("button", {
       name: /delete account|delete my account/i,
     });
-    if (await deleteBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (
+      (await deleteBtn.isVisible({ timeout: 5000 }).catch(() => false)) &&
+      (await deleteBtn.isEnabled().catch(() => false))
+    ) {
       await deleteBtn.click();
       await page.waitForTimeout(500);
       const dialog = page.locator("[role='alertdialog'], [role='dialog']");

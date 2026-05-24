@@ -16,6 +16,7 @@ import {
 import { PasswordInput } from "@strait/ui/components/password-input";
 import { toast } from "@strait/ui/components/toast/index";
 import { useQueryClient } from "@tanstack/react-query";
+import QRCode from "qrcode";
 import { useCallback, useState } from "react";
 import { queryKeys } from "@/hooks/query-keys";
 import { authClient } from "@/lib/auth-client";
@@ -32,7 +33,7 @@ const TwoFactorSetup = ({ enabled }: Props) => {
   const queryClient = useQueryClient();
   const [step, setStep] = useState<SetupStep>("idle");
   const [password, setPassword] = useState("");
-  const [totpUri, setTotpUri] = useState("");
+  const [totpQrDataUrl, setTotpQrDataUrl] = useState("");
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
   const [verifyCode, setVerifyCode] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -57,7 +58,16 @@ const TwoFactorSetup = ({ enabled }: Props) => {
         return;
       }
 
-      setTotpUri(result.data?.totpURI ?? "");
+      const nextTotpUri = result.data?.totpURI ?? "";
+      setTotpQrDataUrl(
+        nextTotpUri
+          ? await QRCode.toDataURL(nextTotpUri, {
+              errorCorrectionLevel: "M",
+              margin: 2,
+              width: 200,
+            })
+          : ""
+      );
       setBackupCodes(result.data?.backupCodes ?? []);
       setStep("qr");
     } catch (err) {
@@ -118,6 +128,7 @@ const TwoFactorSetup = ({ enabled }: Props) => {
       toast.success("Two-factor authentication disabled.");
       setStep("idle");
       setPassword("");
+      setTotpQrDataUrl("");
       queryClient.invalidateQueries({ queryKey: queryKeys.auth._def });
     } catch (err) {
       captureException(err);
@@ -139,12 +150,12 @@ const TwoFactorSetup = ({ enabled }: Props) => {
         </CardHeader>
         <CardContent>
           <div className="flex flex-col items-center gap-6">
-            {totpUri && (
+            {totpQrDataUrl && (
               <div className="rounded-lg border bg-white p-4">
                 <img
                   alt="2FA QR Code"
                   height={200}
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(totpUri)}`}
+                  src={totpQrDataUrl}
                   width={200}
                 />
               </div>

@@ -161,8 +161,8 @@ func TestHandleCreateNotificationChannel_RejectsUnsupportedChannelType(t *testin
 	w := httptest.NewRecorder()
 	body := `{"channel_type":"email","name":"alerts","config":{"address":"test@example.com"}}`
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/notification-channels", body, "proj-1"))
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -357,6 +357,59 @@ func TestGlobalAllowPrivateEndpoints_ResetBetweenServers(t *testing.T) {
 	t.Cleanup(srv2.Close)
 	if globalAllowPrivateEndpoints.Load() {
 		t.Fatal("expected globalAllowPrivateEndpoints to be false after second server")
+	}
+}
+
+// Regression: notification channel config carries webhook URLs that act as
+// bearer secrets (Slack/Discord) and may include explicit secret fields.
+// The API must never echo them back to the caller verbatim.
+
+func TestHandleNotificationChannel_ConfigRedactedOnGet(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetNotificationChannelFunc: func(_ context.Context, id, projectID string) (*domain.NotificationChannel, error) {
+			return &domain.NotificationChannel{
+				ID: id, ProjectID: projectID, Name: "alerts",
+				ChannelType: domain.ChannelTypeSlack,
+				Config:      json.RawMessage(`{"webhook_url":"https://hooks.slack.com/services/T00/B00/SUPER-SECRET-TOKEN"}`),
+				Enabled:     true,
+			}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/notification-channels/ch-1", "", "proj-1"))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "SUPER-SECRET-TOKEN") {
+		t.Fatalf("notification config secret leaked in get response: %s", w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "hooks.slack.com") {
+		t.Fatalf("notification webhook host leaked in get response: %s", w.Body.String())
+	}
+}
+
+func TestHandleNotificationChannel_ConfigRedactedOnList(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		ListNotificationChannelsFunc: func(_ context.Context, projectID string) ([]domain.NotificationChannel, error) {
+			return []domain.NotificationChannel{{
+				ID: "ch-1", ProjectID: projectID, Name: "alerts",
+				ChannelType: domain.ChannelTypeWebhook,
+				Config:      json.RawMessage(`{"url":"https://example.com/hook","secret":"LIST-LEAK-SECRET"}`),
+				Enabled:     true,
+			}}, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/notification-channels", "", "proj-1"))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "LIST-LEAK-SECRET") {
+		t.Fatalf("notification config secret leaked in list response: %s", w.Body.String())
 	}
 }
 

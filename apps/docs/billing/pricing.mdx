@@ -15,6 +15,7 @@ og:image: "/images/og.png"
 | Members per org | 3 | 10 | 25 | Unlimited |
 | Runs per day | 5,000 | 50,000 | 500,000 | Unlimited |
 | Concurrent runs | 5 | 25 | 100 | Custom |
+| Overage behavior | Queued until next day | Queued until next day | Contact for burst pricing | Custom |
 | Retention | 1 day | 7 days | 30 days | Custom |
 | RBAC | None | Basic | Full | Full |
 | Audit logs | No | No | Yes | Yes |
@@ -22,6 +23,18 @@ og:image: "/images/og.png"
 
 All plans include every core feature: jobs, workflows, retries, event triggers, webhooks, and API access.
 
+## What Happens at the Limit
+
+When you reach your daily run limit, new runs are queued and processed the next day. You are never charged overage fees on Free or Starter plans.
+
+On the Pro plan, contact us for burst pricing if you regularly exceed your daily limit.
+
+Concurrent run limits are hard caps. If all slots are occupied, new runs wait in the queue until a slot opens.
+
 ## Self-Hosted
 
-Strait is open-source. You can self-host on your own infrastructure with PostgreSQL at no cost. The managed platform at [app.strait.dev](https://app.strait.dev) provides hosted infrastructure, automatic updates, and support.
+Strait is open-source under the Apache 2.0 license. Self-host on your infrastructure with no license fees, no run limits, and no feature restrictions.
+
+Self-hosting requires PostgreSQL, Redis, and a server to run the Strait binary. You handle updates, backups, monitoring, and scaling, and in return you keep full control over your data and infrastructure. Every feature available in the cloud plans works in self-hosted mode, except billing and the multi-region hosted orchestrator.
+
+See the [Self-Hosting](/guides/self-hosting) guide for setup.

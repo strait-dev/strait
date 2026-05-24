@@ -5,14 +5,17 @@ package loadtest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/sourcegraph/conc"
 )
 
@@ -42,6 +45,7 @@ type ChaosEngine struct {
 	loadRate  int
 	projectID string
 	jobSlug   string
+	trigger   func(ctx context.Context, projectID, jobSlug string, payload map[string]any) error
 
 	// Tracking
 	triggerCount atomic.Int64
@@ -58,19 +62,65 @@ func NewChaosEngine(h *Harness, loadRate int, projectID, jobSlug string) *ChaosE
 	}
 }
 
-// findContainer finds a running Docker container matching the given service name.
-func findContainer(serviceName string) (string, error) {
-	out, err := exec.Command("docker", "ps", "--filter", fmt.Sprintf("name=%s", serviceName), "--format", "{{.Names}}").Output() //nolint:gosec // arguments are not user-controlled
+var listDockerContainerNames = func() ([]string, error) {
+	out, err := exec.Command("docker", "ps", "--format", "{{.Names}}").Output() //nolint:gosec // arguments are fixed
 	if err != nil {
-		return "", fmt.Errorf("docker ps failed: %w", err)
+		return nil, fmt.Errorf("docker ps failed: %w", err)
 	}
-	names := strings.TrimSpace(string(out))
-	if names == "" {
-		return "", fmt.Errorf("no container found matching %q", serviceName)
+	return splitDockerNames(string(out)), nil
+}
+
+func splitDockerNames(out string) []string {
+	var names []string
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		name := strings.TrimSpace(line)
+		if name != "" {
+			names = append(names, name)
+		}
 	}
-	// Take the first match
-	lines := strings.Split(names, "\n")
-	return lines[0], nil
+	return names
+}
+
+func envOrDefault(key, def string) string {
+	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+		return value
+	}
+	return def
+}
+
+func expectedContainerName(serviceName string) (string, error) {
+	switch serviceName {
+	case "postgres":
+		return envOrDefault("LOADTEST_POSTGRES_CONTAINER", "strait-postgres"), nil
+	case "redis":
+		return envOrDefault("LOADTEST_REDIS_CONTAINER", "strait-redis"), nil
+	case "strait":
+		return envOrDefault("LOADTEST_STRAIT_CONTAINER", "strait-api"), nil
+	default:
+		return "", fmt.Errorf("unknown loadtest container service %q", serviceName)
+	}
+}
+
+// findContainer finds the exact running Docker container for a Strait load-test service.
+func findContainer(serviceName string) (string, error) {
+	expected, err := expectedContainerName(serviceName)
+	if err != nil {
+		return "", err
+	}
+	names, err := listDockerContainerNames()
+	if err != nil {
+		return "", err
+	}
+	for _, name := range names {
+		if name == expected {
+			return name, nil
+		}
+	}
+	return "", fmt.Errorf("no running loadtest container %q for service %q", expected, serviceName)
+}
+
+func chaosCleanupContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), 2*time.Minute)
 }
 
 func (ce *ChaosEngine) findPostgresContainer() (string, error) {
@@ -81,13 +131,16 @@ func (ce *ChaosEngine) findRedisContainer() (string, error) {
 	return findContainer("redis")
 }
 
-// AllChaosScenarios returns all 8 defined chaos scenarios.
+func (ce *ChaosEngine) findStraitContainer() (string, error) {
+	return findContainer("strait")
+}
+
+// AllChaosScenarios returns the defined chaos scenarios.
 func AllChaosScenarios() []ChaosScenario {
 	return []ChaosScenario{
 		{Name: "worker_sigkill", Description: "Kill worker process, 30s wait, restart. Expect: 0 lost, all recovered <5min"},
 		{Name: "database_failover", Description: "Drop primary DB connection. Expect: <30s downtime, 0 data loss"},
 		{Name: "redis_total_failure", Description: "SIGKILL Redis, 2 min downtime. Expect: 0 lost jobs, SSE resumes <10s after recovery"},
-		{Name: "docker_daemon_restart", Description: "Restart Docker during managed execution. Expect: failed runs detected, no zombies"},
 		{Name: "connection_pool_exhaustion", Description: "Set max_connections=10. Expect: backpressure, no crash"},
 		{Name: "disk_pressure", Description: "Insert 10M run events. Expect: graceful error, no corruption"},
 		{Name: "clock_skew", Description: "Jump clock 24h forward. Expect: no incorrect cron/budget/retention behavior"},
@@ -183,14 +236,24 @@ func (ce *ChaosEngine) RunScenario(ctx context.Context, scenario ChaosScenario) 
 func (ce *ChaosEngine) generateLoad(ctx context.Context) {
 	ticker := time.NewTicker(time.Second / time.Duration(max(ce.loadRate, 1)))
 	defer ticker.Stop()
+	inFlight := make(chan struct{}, max(ce.loadRate, 1))
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			select {
+			case inFlight <- struct{}{}:
+			default:
+				ce.errorCount.Add(1)
+				continue
+			}
 			go func() {
-				if err := ce.harness.TriggerJob(ctx, ce.projectID, ce.jobSlug, map[string]any{
+				defer func() { <-inFlight }()
+				reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+				defer cancel()
+				if err := ce.triggerJob(reqCtx, map[string]any{
 					"chaos":     true,
 					"timestamp": time.Now().UnixMilli(),
 				}); err != nil {
@@ -201,6 +264,16 @@ func (ce *ChaosEngine) generateLoad(ctx context.Context) {
 			}()
 		}
 	}
+}
+
+func (ce *ChaosEngine) triggerJob(ctx context.Context, payload map[string]any) error {
+	if ce.trigger != nil {
+		return ce.trigger(ctx, ce.projectID, ce.jobSlug, payload)
+	}
+	if ce.harness == nil {
+		return errors.New("loadtest harness is required")
+	}
+	return ce.harness.TriggerJob(ctx, ce.projectID, ce.jobSlug, payload)
 }
 
 func (ce *ChaosEngine) waitForQueueDrain(ctx context.Context, timeout time.Duration) {
@@ -231,24 +304,24 @@ func (ce *ChaosEngine) waitForQueueDrain(ctx context.Context, timeout time.Durat
 // and returns an error only if recovery failed.
 
 func (ce *ChaosEngine) chaosWorkerKill(ctx context.Context) error {
-	// Find and kill the strait worker process
-	cmd := exec.CommandContext(ctx, "pkill", "-9", "-f", "strait.*--mode.*worker")
-	if err := cmd.Run(); err != nil {
-		// Process might not exist separately in "all" mode
-		cmd = exec.CommandContext(ctx, "pkill", "-9", "-f", "strait.*--mode.*all")
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("failed to kill worker: %w", err)
-		}
+	container, err := ce.findStraitContainer()
+	if err != nil {
+		return fmt.Errorf("failed to find strait container: %w", err)
+	}
+
+	kill := exec.CommandContext(ctx, "docker", "kill", container)
+	if err := kill.Run(); err != nil {
+		return fmt.Errorf("failed to kill strait container %s: %w", container, err)
 	}
 
 	// Wait 30 seconds
 	time.Sleep(30 * time.Second)
 
-	// Restart worker (assumes docker-compose or similar)
-	restart := exec.CommandContext(ctx, "docker", "compose", "restart", "strait")
-	if err := restart.Run(); err != nil {
-		// Try direct restart
-		return fmt.Errorf("failed to restart worker: %w", err)
+	cleanupCtx, cleanupCancel := chaosCleanupContext()
+	defer cleanupCancel()
+	start := exec.CommandContext(cleanupCtx, "docker", "start", container)
+	if err := start.Run(); err != nil {
+		return fmt.Errorf("failed to restart strait container %s: %w", container, err)
 	}
 
 	// Wait for recovery
@@ -272,7 +345,9 @@ func (ce *ChaosEngine) chaosDatabaseFailover(ctx context.Context) error {
 	time.Sleep(10 * time.Second)
 
 	// Unpause
-	unpause := exec.CommandContext(ctx, "docker", "unpause", container)
+	cleanupCtx, cleanupCancel := chaosCleanupContext()
+	defer cleanupCancel()
+	unpause := exec.CommandContext(cleanupCtx, "docker", "unpause", container)
 	if err := unpause.Run(); err != nil {
 		return fmt.Errorf("failed to unpause postgres container %s: %w", container, err)
 	}
@@ -298,7 +373,9 @@ func (ce *ChaosEngine) chaosRedisFailure(ctx context.Context) error {
 	time.Sleep(2 * time.Minute)
 
 	// Restart Redis
-	start := exec.CommandContext(ctx, "docker", "start", container)
+	cleanupCtx, cleanupCancel := chaosCleanupContext()
+	defer cleanupCancel()
+	start := exec.CommandContext(cleanupCtx, "docker", "start", container)
 	if err := start.Run(); err != nil {
 		return fmt.Errorf("failed to restart redis container %s: %w", container, err)
 	}
@@ -331,19 +408,72 @@ func (ce *ChaosEngine) chaosDiskPressure(ctx context.Context) error {
 		return fmt.Errorf("no database pool available")
 	}
 
-	// Insert a large number of rows to create disk pressure
-	// Use a batch insert to be efficient
-	_, err := ce.harness.Pool.Exec(ctx,
-		"INSERT INTO run_events (id, run_id, project_id, event_type, created_at) SELECT gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 'loadtest_pressure', NOW() FROM generate_series(1, 100000)")
+	var pressureRunID string
+	err := ce.harness.Pool.QueryRow(ctx, `
+		WITH target_job AS (
+			SELECT id, project_id
+			FROM jobs
+			WHERE project_id = $1 AND (slug = $2 OR id = $2)
+			LIMIT 1
+		),
+		pressure_run AS (
+			INSERT INTO job_runs (id, job_id, project_id, status, payload, triggered_by, created_at)
+			SELECT 'loadtest-pressure-' || gen_random_uuid()::text,
+			       id,
+			       project_id,
+			       'completed',
+			       '{}'::jsonb,
+			       'loadtest',
+			       NOW()
+			FROM target_job
+			RETURNING id
+		),
+		inserted_events AS (
+		INSERT INTO run_events (id, run_id, type, level, message, data, created_at)
+		SELECT gen_random_uuid()::text,
+		       pressure_run.id,
+		       'loadtest_pressure',
+		       'info',
+		       'loadtest disk pressure',
+		       jsonb_build_object('source', 'loadtest', 'scenario', 'disk_pressure'),
+		       NOW()
+			FROM pressure_run, generate_series(1, 100000)
+			RETURNING 1
+		)
+		SELECT id FROM pressure_run`,
+		ce.projectID,
+		ce.jobSlug,
+	).Scan(&pressureRunID)
 	if err != nil {
-		// Table might not exist or have different schema - that's OK for the chaos test
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("no loadtest job found for project %s and job %s", ce.projectID, ce.jobSlug)
+		}
 		return fmt.Errorf("inserting pressure rows: %w", err)
 	}
 
 	time.Sleep(10 * time.Second)
 
 	// Clean up
-	_, _ = ce.harness.Pool.Exec(ctx, "DELETE FROM run_events WHERE event_type = 'loadtest_pressure'")
+	cleanupCtx, cleanupCancel := chaosCleanupContext()
+	defer cleanupCancel()
+	_, _ = ce.harness.Pool.Exec(cleanupCtx, `
+		DELETE FROM run_events re
+		USING job_runs jr
+		WHERE re.run_id = jr.id
+		  AND jr.project_id = $1
+		  AND re.run_id = $2
+		  AND re.type = 'loadtest_pressure'
+		  AND re.data @> '{"source":"loadtest","scenario":"disk_pressure"}'::jsonb`,
+		ce.projectID,
+		pressureRunID,
+	)
+	_, _ = ce.harness.Pool.Exec(cleanupCtx, `
+		DELETE FROM job_runs
+		WHERE id = $2
+		  AND project_id = $1`,
+		ce.projectID,
+		pressureRunID,
+	)
 	return nil
 }
 
@@ -357,13 +487,24 @@ func (ce *ChaosEngine) chaosClockSkew(ctx context.Context) error {
 		return fmt.Errorf("no database pool available for clock skew simulation")
 	}
 
-	// Insert rows with future timestamps to simulate forward clock skew
 	_, err := ce.harness.Pool.Exec(ctx,
-		`INSERT INTO job_runs (id, job_id, project_id, status, created_at, updated_at)
-		 SELECT gen_random_uuid(), gen_random_uuid(), $1, 'pending',
-		        NOW() + INTERVAL '24 hours', NOW() + INTERVAL '24 hours'
-		 FROM generate_series(1, 100)`,
+		`WITH target_job AS (
+			SELECT id, project_id
+			FROM jobs
+			WHERE project_id = $1 AND (slug = $2 OR id = $2)
+			LIMIT 1
+		)
+		INSERT INTO job_runs (id, job_id, project_id, status, payload, triggered_by, created_at)
+		SELECT 'loadtest-clock-skew-' || gen_random_uuid()::text,
+		       id,
+		       project_id,
+		       'pending',
+		       jsonb_build_object('source', 'loadtest', 'scenario', 'clock_skew'),
+		       'loadtest',
+		       NOW() + INTERVAL '24 hours'
+		FROM target_job, generate_series(1, 100)`,
 		ce.projectID,
+		ce.jobSlug,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to insert future-timestamped rows: %w", err)
@@ -385,9 +526,13 @@ func (ce *ChaosEngine) chaosClockSkew(ctx context.Context) error {
 	}
 
 	// Clean up the skewed rows
-	_, _ = ce.harness.Pool.Exec(ctx,
+	cleanupCtx, cleanupCancel := chaosCleanupContext()
+	defer cleanupCancel()
+	_, _ = ce.harness.Pool.Exec(cleanupCtx,
 		`DELETE FROM job_runs
-		 WHERE project_id = $1 AND created_at > NOW() + INTERVAL '23 hours'`,
+		 WHERE project_id = $1
+		   AND id LIKE 'loadtest-clock-skew-%'
+		   AND created_at > NOW() + INTERVAL '23 hours'`,
 		ce.projectID,
 	)
 
@@ -396,48 +541,52 @@ func (ce *ChaosEngine) chaosClockSkew(ctx context.Context) error {
 
 func (ce *ChaosEngine) chaosCascadingFailure(ctx context.Context) error {
 	redisContainer, redisErr := ce.findRedisContainer()
+	straitContainer, straitErr := ce.findStraitContainer()
+	if redisErr != nil {
+		return fmt.Errorf("finding redis container: %w", redisErr)
+	}
+	if straitErr != nil {
+		return fmt.Errorf("finding strait container: %w", straitErr)
+	}
 
-	var cascadeErr atomic.Value
+	var cascadeErr error
+	var cascadeErrOnce sync.Once
+	recordCascadeErr := func(err error) {
+		if err == nil {
+			return
+		}
+		cascadeErrOnce.Do(func() {
+			cascadeErr = err
+		})
+	}
 
 	var wg conc.WaitGroup
 
 	// Simultaneously: kill Redis + spike traffic + kill worker
 	// Kill Redis
 	wg.Go(func() {
-		if redisErr != nil {
-			return
-		}
 		if err := exec.CommandContext(ctx, "docker", "kill", redisContainer).Run(); err != nil {
-			cascadeErr.CompareAndSwap(nil, fmt.Errorf("killing redis: %w", err))
+			recordCascadeErr(fmt.Errorf("killing redis: %w", err))
 		}
 	})
 
 	// 10x traffic spike
 	wg.Go(func() {
-		spikeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		defer cancel()
-
-		ticker := time.NewTicker(time.Millisecond) // Very high rate
-		defer ticker.Stop()
-		for {
-			select {
-			case <-spikeCtx.Done():
-				return
-			case <-ticker.C:
-				go func() {
-					_ = ce.harness.TriggerJob(ctx, ce.projectID, ce.jobSlug, map[string]any{
-						"chaos": "cascading_spike",
-					})
-				}()
-			}
+		attempts, successes, err := ce.runTrafficSpike(ctx, 30*time.Second, time.Millisecond)
+		if err != nil {
+			recordCascadeErr(err)
+			return
+		}
+		if attempts == 0 || successes == 0 {
+			recordCascadeErr(fmt.Errorf("cascading traffic spike false-pass guard: attempts=%d successes=%d", attempts, successes))
 		}
 	})
 
 	// Kill worker after 5s
 	wg.Go(func() {
 		time.Sleep(5 * time.Second)
-		if err := exec.CommandContext(ctx, "pkill", "-9", "-f", "strait").Run(); err != nil {
-			cascadeErr.CompareAndSwap(nil, fmt.Errorf("killing worker: %w", err))
+		if err := exec.CommandContext(ctx, "docker", "kill", straitContainer).Run(); err != nil {
+			recordCascadeErr(fmt.Errorf("killing strait container: %w", err))
 		}
 	})
 
@@ -447,20 +596,83 @@ func (ce *ChaosEngine) chaosCascadingFailure(ctx context.Context) error {
 	time.Sleep(2 * time.Minute)
 
 	// Restart everything
-	if redisErr == nil {
-		if err := exec.CommandContext(ctx, "docker", "start", redisContainer).Run(); err != nil {
-			return fmt.Errorf("restarting redis: %w", err)
-		}
+	cleanupCtx, cleanupCancel := chaosCleanupContext()
+	defer cleanupCancel()
+	if err := exec.CommandContext(cleanupCtx, "docker", "start", redisContainer).Run(); err != nil {
+		return fmt.Errorf("restarting redis: %w", err)
+	}
+	if err := exec.CommandContext(cleanupCtx, "docker", "start", straitContainer).Run(); err != nil {
+		return fmt.Errorf("restarting strait: %w", err)
 	}
 	time.Sleep(10 * time.Second)
 
 	// Wait for recovery
 	time.Sleep(5 * time.Minute)
 
-	if v := cascadeErr.Load(); v != nil {
-		return v.(error)
+	if cascadeErr != nil {
+		return cascadeErr
 	}
 	return nil
+}
+
+func (ce *ChaosEngine) runTrafficSpike(ctx context.Context, duration, interval time.Duration) (int64, int64, error) {
+	if duration <= 0 {
+		return 0, 0, errors.New("traffic spike duration must be positive")
+	}
+	if interval <= 0 {
+		return 0, 0, errors.New("traffic spike interval must be positive")
+	}
+
+	spikeCtx, cancel := context.WithTimeout(ctx, duration)
+	defer cancel()
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	var attempts atomic.Int64
+	var successes atomic.Int64
+	var failures atomic.Int64
+	limit := max(ce.loadRate*10, 1)
+	if limit > 1000 {
+		limit = 1000
+	}
+	inFlight := make(chan struct{}, limit)
+	var wg conc.WaitGroup
+
+	for {
+		select {
+		case <-spikeCtx.Done():
+			wg.Wait()
+			if attempts.Load() == 0 {
+				return 0, 0, errors.New("traffic spike sent no trigger attempts")
+			}
+			if successes.Load() == 0 {
+				return attempts.Load(), 0, fmt.Errorf("traffic spike had no successful triggers (%d failures)", failures.Load())
+			}
+			return attempts.Load(), successes.Load(), nil
+		case <-ticker.C:
+			select {
+			case inFlight <- struct{}{}:
+			default:
+				failures.Add(1)
+				ce.errorCount.Add(1)
+				continue
+			}
+			attempts.Add(1)
+			wg.Go(func() {
+				defer func() { <-inFlight }()
+				reqCtx, cancel := context.WithTimeout(spikeCtx, 10*time.Second)
+				defer cancel()
+				if err := ce.triggerJob(reqCtx, map[string]any{"chaos": "cascading_spike"}); err != nil {
+					failures.Add(1)
+					ce.errorCount.Add(1)
+					return
+				}
+				successes.Add(1)
+				ce.triggerCount.Add(1)
+			})
+		}
+	}
 }
 
 // WriteResults writes chaos results to a JSON file.

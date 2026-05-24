@@ -44,14 +44,16 @@ func (r *ConcurrentReconciler) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := r.enforcer.ReconcileAllConcurrentCounts(ctx, r.counter); err != nil {
-				slog.Warn("concurrent run reconciliation failed", "error", err)
-			}
-			if r.dailyCounter != nil {
-				if err := r.enforcer.ReconcileDailyRunCounts(ctx, r.dailyCounter); err != nil {
-					slog.Warn("daily run counter reconciliation failed", "error", err)
+			runSchedulerCycleCheckIn(ctx, r.interval, func() {
+				if err := r.enforcer.ReconcileAllConcurrentCounts(ctx, r.counter); err != nil {
+					slog.Warn("concurrent run reconciliation failed", "error", err)
 				}
-			}
+				if r.dailyCounter != nil {
+					if err := r.enforcer.ReconcileDailyRunCounts(ctx, r.dailyCounter); err != nil {
+						slog.Warn("daily run counter reconciliation failed", "error", err)
+					}
+				}
+			})
 		}
 	}
 }

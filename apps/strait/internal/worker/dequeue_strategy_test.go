@@ -54,7 +54,10 @@ func (m *mockFullyDenormalizedStrategyQueue) DequeueNFullyDenormalized(
 	return nil, nil
 }
 
-func TestPoll_DefaultStrategy_UsesDequeueN(t *testing.T) {
+// TestPoll_AutoSelect_FallsToDequeueN verifies that when the queue does
+// not implement claimTableDequeuer or twoPhaseDequeuer, the poll loop
+// falls through to DequeueN as the final fallback.
+func TestPoll_AutoSelect_FallsToDequeueN(t *testing.T) {
 	t.Parallel()
 
 	q := &mockStrategyQueue{}
@@ -71,10 +74,7 @@ func TestPoll_DefaultStrategy_UsesDequeueN(t *testing.T) {
 	exec.poll(context.Background())
 
 	if q.dequeueNCalled.Load() != 1 {
-		t.Fatalf("DequeueN called %d times, want 1", q.dequeueNCalled.Load())
-	}
-	if q.dequeueNFairCalled.Load() != 0 {
-		t.Fatalf("DequeueNFair called %d times, want 0", q.dequeueNFairCalled.Load())
+		t.Fatalf("DequeueN called %d times, want 1 (auto-select fallback)", q.dequeueNCalled.Load())
 	}
 }
 
@@ -128,7 +128,9 @@ func TestExecutorPoll_DenormalizedFlagFallsBackToLegacyDequeue(t *testing.T) {
 	}
 }
 
-func TestPoll_FairStrategy_UsesDequeueNFair(t *testing.T) {
+// TestPoll_PartitionsOverrideAutoSelect verifies that partition-based
+// dequeue takes precedence over the auto-select path.
+func TestPoll_PartitionsOverrideAutoSelect(t *testing.T) {
 	t.Parallel()
 
 	q := &mockStrategyQueue{}
@@ -136,68 +138,19 @@ func TestPoll_FairStrategy_UsesDequeueNFair(t *testing.T) {
 	t.Cleanup(func() { _ = p.Shutdown(context.Background()) })
 
 	exec := NewExecutor(ExecutorConfig{
-		Pool:            p,
-		Queue:           q,
-		Store:           &mockExecutorStore{},
-		PollInterval:    time.Hour,
-		DequeueStrategy: "fair_round_robin",
+		Pool:         p,
+		Queue:        q,
+		Store:        &mockExecutorStore{},
+		PollInterval: time.Hour,
+		Partitions:   []string{"proj-1"},
 	})
 
 	exec.poll(context.Background())
 
-	if q.dequeueNFairCalled.Load() != 1 {
-		t.Fatalf("DequeueNFair called %d times, want 1", q.dequeueNFairCalled.Load())
-	}
-	if q.dequeueNCalled.Load() != 0 {
-		t.Fatalf("DequeueN called %d times, want 0", q.dequeueNCalled.Load())
-	}
-}
-
-func TestPoll_PartitionsOverrideFair(t *testing.T) {
-	t.Parallel()
-
-	q := &mockStrategyQueue{}
-	p := NewPool(4)
-	t.Cleanup(func() { _ = p.Shutdown(context.Background()) })
-
-	exec := NewExecutor(ExecutorConfig{
-		Pool:            p,
-		Queue:           q,
-		Store:           &mockExecutorStore{},
-		PollInterval:    time.Hour,
-		DequeueStrategy: "fair_round_robin",
-		Partitions:      []string{"proj-1"},
-	})
-
-	exec.poll(context.Background())
-
-	// Partitions take precedence over fair strategy.
 	if q.dequeueNByProject.Load() != 1 {
 		t.Fatalf("DequeueNByProject called %d times, want 1", q.dequeueNByProject.Load())
 	}
-	if q.dequeueNFairCalled.Load() != 0 {
-		t.Fatalf("DequeueNFair called %d times, want 0 (partitions override)", q.dequeueNFairCalled.Load())
-	}
-}
-
-func TestPoll_UnknownStrategy_FallsBackToDequeueN(t *testing.T) {
-	t.Parallel()
-
-	q := &mockStrategyQueue{}
-	p := NewPool(4)
-	t.Cleanup(func() { _ = p.Shutdown(context.Background()) })
-
-	exec := NewExecutor(ExecutorConfig{
-		Pool:            p,
-		Queue:           q,
-		Store:           &mockExecutorStore{},
-		PollInterval:    time.Hour,
-		DequeueStrategy: "unknown_strategy",
-	})
-
-	exec.poll(context.Background())
-
-	if q.dequeueNCalled.Load() != 1 {
-		t.Fatalf("DequeueN called %d times, want 1 (fallback for unknown strategy)", q.dequeueNCalled.Load())
+	if q.dequeueNCalled.Load() != 0 {
+		t.Fatalf("DequeueN called %d times, want 0 (partitions override)", q.dequeueNCalled.Load())
 	}
 }

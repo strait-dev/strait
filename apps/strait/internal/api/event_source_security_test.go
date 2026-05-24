@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -51,8 +52,8 @@ func TestEventSource_FilterExpressionInjection(t *testing.T) {
 	}
 }
 
-// TestEventSource_FilterExpressionDoS verifies that a filter with a very large number
-// of eq conditions completes without hanging or crashing.
+// TestEventSource_FilterExpressionDoS verifies that oversized filter expressions
+// fail closed instead of consuming unbounded parser work.
 func TestEventSource_FilterExpressionDoS(t *testing.T) {
 	t.Parallel()
 
@@ -68,17 +69,13 @@ func TestEventSource_FilterExpressionDoS(t *testing.T) {
 
 	payload := json.RawMessage(`{"field":"no_match"}`)
 
-	match, err := eventfilter.Eval(filterJSON, payload)
-	if err != nil {
-		t.Fatalf("filter eval should not error: %v", err)
-	}
-	if match {
-		t.Fatal("should not match when value differs from all 100K conditions")
+	if _, err := eventfilter.Eval(filterJSON, payload); err == nil {
+		t.Fatal("expected oversized filter expression to be rejected")
 	}
 }
 
-// TestEventSource_FilterExpressionNestedPaths verifies that deeply nested dot-separated
-// paths in filter expressions are handled without panic or stack overflow.
+// TestEventSource_FilterExpressionNestedPaths verifies that deeply nested
+// dot-separated paths fail closed before recursive evaluation.
 func TestEventSource_FilterExpressionNestedPaths(t *testing.T) {
 	t.Parallel()
 
@@ -91,12 +88,8 @@ func TestEventSource_FilterExpressionNestedPaths(t *testing.T) {
 	filter := json.RawMessage(fmt.Sprintf(`{"has":[%q]}`, path))
 	payload := json.RawMessage(`{"a":{"b":"c"}}`)
 
-	match, err := eventfilter.Eval(filter, payload)
-	if err != nil {
-		t.Fatalf("filter eval should not error on deep path: %v", err)
-	}
-	if match {
-		t.Fatal("deeply nested path should not match shallow payload")
+	if _, err := eventfilter.Eval(filter, payload); err == nil {
+		t.Fatal("expected deeply nested filter path to be rejected")
 	}
 }
 
@@ -129,12 +122,64 @@ func TestEventSource_SchemaValidationBypass(t *testing.T) {
 	}
 }
 
+func TestEventSource_CreateSignatureSecretRequiresEncryptor(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		CreateEventSourceFunc: func(_ context.Context, _ *domain.EventSource) error {
+			t.Fatal("CreateEventSource should not be called when signature secret encryption is unavailable")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	body := `{
+		"project_id": "proj-1",
+		"name": "signed-source",
+		"signature_header": "X-Signature",
+		"signature_algorithm": "hmac-sha256",
+		"signature_secret": "secret"
+	}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/event-sources", body))
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 when signature secret encryption is unavailable, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestEventSource_UpdateSignatureSecretRequiresEncryptor(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		UpdateEventSourceFunc: func(_ context.Context, _, _ string, _ map[string]any) error {
+			t.Fatal("UpdateEventSource should not be called when signature secret encryption is unavailable")
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	secret := "secret"
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	_, err := srv.handleUpdateEventSource(ctx, &UpdateEventSourceInput{
+		SourceID: "src-1",
+		Body: UpdateEventSourceRequest{
+			SignatureSecret: &secret,
+		},
+	})
+	var statusErr interface{ GetStatus() int }
+	if !errors.As(err, &statusErr) || statusErr.GetStatus() != http.StatusInternalServerError {
+		t.Fatalf("expected 500 when signature secret encryption is unavailable, got %v", err)
+	}
+}
+
 // TestEventSource_SignatureVerificationEmpty verifies that when the event source
 // requires signature verification but no encryptor is configured, the server
-// skips verification gracefully without crashing.
+// fails closed before dispatching subscriptions.
 func TestEventSource_SignatureVerificationEmpty(t *testing.T) {
 	t.Parallel()
 
+	subscriptionsCalled := false
 	ms := &APIStoreMock{
 		GetEventSourceByNameFunc: func(_ context.Context, projectID, name string) (*domain.EventSource, error) {
 			return &domain.EventSource{
@@ -144,6 +189,7 @@ func TestEventSource_SignatureVerificationEmpty(t *testing.T) {
 			}, nil
 		},
 		ListEventSubscriptionsBySourceFunc: func(_ context.Context, _ string) ([]domain.EventSubscription, error) {
+			subscriptionsCalled = true
 			return nil, nil
 		},
 	}
@@ -155,9 +201,11 @@ func TestEventSource_SignatureVerificationEmpty(t *testing.T) {
 
 	srv.ServeHTTP(w, req)
 
-	// No encryptor in newTestServer means signature verification is skipped.
-	if w.Code == http.StatusInternalServerError {
-		t.Fatalf("should not get 500, got: %s", w.Body.String())
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 when signature verification is misconfigured, got %d: %s", w.Code, w.Body.String())
+	}
+	if subscriptionsCalled {
+		t.Fatal("subscriptions should not be listed when signature verification is misconfigured")
 	}
 }
 

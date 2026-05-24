@@ -11,7 +11,7 @@ import z from "zod/v4";
 import { queryKeys } from "@/hooks/query-keys";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
-import { getOrgIdFromSession } from "./session";
+import { requireActiveOrgAccess } from "@/middlewares/require-access";
 import type { PlanTierSlug, ResourceAction } from "./types";
 
 /** Impact on a single resource dimension when downgrading. */
@@ -52,19 +52,20 @@ const getDowngradePreviewServerFn = createServerFn({ method: "GET" })
   .inputValidator((data: DowngradePreviewInput) =>
     z
       .object({
-        targetTier: z.enum(["free", "starter", "pro", "scale", "enterprise"]),
+        targetTier: z.enum([
+          "free",
+          "starter",
+          "pro",
+          "scale",
+          "business",
+          "enterprise",
+        ]),
       })
       .parse(data)
   )
   .middleware([authMiddleware])
   .handler(async ({ data, context }) => {
-    const orgId = getOrgIdFromSession(
-      context.session as Record<string, unknown>
-    );
-
-    if (!orgId) {
-      return null;
-    }
+    const orgId = await requireActiveOrgAccess(context);
 
     return await runWithSentryReport(
       apiEffect<DowngradePreview>("/v1/downgrade-preview", {

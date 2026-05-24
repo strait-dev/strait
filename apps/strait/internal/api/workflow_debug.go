@@ -5,6 +5,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"strait/internal/domain"
 	"strait/internal/workflow"
 )
 
@@ -62,6 +63,9 @@ func (s *Server) handleCompareWorkflowRuns(ctx context.Context, input *CompareWo
 	if err := requireProjectMatch(ctx, runA.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("workflow run A not found")
 	}
+	if err := s.requireWorkflowRunReadAccess(ctx, runA.ID); err != nil {
+		return nil, err
+	}
 
 	runB, err := s.store.GetWorkflowRun(ctx, input.OtherRunID)
 	if err != nil {
@@ -70,6 +74,9 @@ func (s *Server) handleCompareWorkflowRuns(ctx context.Context, input *CompareWo
 
 	if err := requireProjectMatch(ctx, runB.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("workflow run B not found")
+	}
+	if err := s.requireWorkflowRunReadAccess(ctx, runB.ID); err != nil {
+		return nil, err
 	}
 
 	stepsA, err := s.store.ListStepRunsByWorkflowRun(ctx, runA.ID, 1000, nil)
@@ -84,4 +91,23 @@ func (s *Server) handleCompareWorkflowRuns(ctx context.Context, input *CompareWo
 
 	comp := workflow.CompareRuns(runA, stepsA, runB, stepsB)
 	return &CompareWorkflowRunsOutput{Body: comp}, nil
+}
+
+func (s *Server) requireWorkflowRunReadAccess(ctx context.Context, workflowRunID string) error {
+	if s.hasProjectPermission(ctx, domain.ScopeRunsRead) {
+		return nil
+	}
+	if actorTypeFromContext(ctx) != "user" {
+		return huma.Error403Forbidden("insufficient permissions: requires " + domain.ScopeRunsRead)
+	}
+	projectID := projectIDFromContext(ctx)
+	actorID := actorFromContext(ctx)
+	if projectID == "" || actorID == "" {
+		return huma.Error403Forbidden("missing project or actor context")
+	}
+	actions, err := s.store.GetResourcePolicies(ctx, projectID, "workflow_run", workflowRunID, actorID)
+	if err != nil || !domain.HasScopeStrict(actions, domain.ScopeRunsRead) {
+		return huma.Error403Forbidden("insufficient permissions: requires " + domain.ScopeRunsRead)
+	}
+	return nil
 }

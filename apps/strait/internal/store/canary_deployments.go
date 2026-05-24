@@ -15,7 +15,7 @@ import (
 )
 
 // ErrCanaryNotFound is returned when no active canary deployment exists for a workflow.
-var ErrCanaryNotFound = errors.New("no active canary deployment found")
+var ErrCanaryNotFound = domain.ErrCanaryNotFound
 
 // ErrCanaryAlreadyActive is returned when attempting to create a canary for a workflow that already has one.
 var ErrCanaryAlreadyActive = errors.New("an active canary deployment already exists for this workflow")

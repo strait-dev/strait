@@ -19,9 +19,11 @@ type fakeTx struct {
 	execCalls     int
 	queryCalls    int
 	queryRowCalls int
+	beginCalls    int
 	execFn        func(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 	queryFn       func(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 	queryRowFn    func(ctx context.Context, sql string, args ...any) pgx.Row
+	beginFn       func(ctx context.Context) (pgx.Tx, error)
 }
 
 func (f *fakeTx) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
@@ -46,6 +48,14 @@ func (f *fakeTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row 
 		return f.queryRowFn(ctx, sql, args...)
 	}
 	return &mockRow{}
+}
+
+func (f *fakeTx) Begin(ctx context.Context) (pgx.Tx, error) {
+	f.beginCalls++
+	if f.beginFn != nil {
+		return f.beginFn(ctx)
+	}
+	return &fakeTx{}, nil
 }
 
 func TestCtxAwareDBTX_NoContext_RoutesToPool(t *testing.T) {
@@ -106,6 +116,46 @@ func TestCtxAwareDBTX_WithContext_RoutesToTx(t *testing.T) {
 	}
 	if poolCalls != 0 {
 		t.Fatalf("pool Exec calls = %d, want 0 (should route to tx)", poolCalls)
+	}
+}
+
+func TestCtxAwareDBTX_BeginWithContextUsesAmbientTxSavepoint(t *testing.T) {
+	t.Parallel()
+
+	poolBeginCalls := 0
+	pool := &mockDBTX{}
+	tx := &fakeTx{
+		beginFn: func(context.Context) (pgx.Tx, error) {
+			return &fakeTx{}, nil
+		},
+	}
+	wrapper := &ctxAwareDBTX{pool: pool}
+	ctx := ContextWithTx(context.Background(), tx)
+
+	nested, err := wrapper.Begin(ctx)
+	if err != nil {
+		t.Fatalf("Begin error = %v", err)
+	}
+	if nested == nil {
+		t.Fatal("Begin returned nil nested transaction")
+	}
+	if tx.beginCalls != 1 {
+		t.Fatalf("ambient tx Begin calls = %d, want 1", tx.beginCalls)
+	}
+	if poolBeginCalls != 0 {
+		t.Fatalf("pool Begin calls = %d, want 0", poolBeginCalls)
+	}
+}
+
+func TestCtxAwareDBTX_BeginTxWithContextRejectsCustomOptions(t *testing.T) {
+	t.Parallel()
+
+	wrapper := &ctxAwareDBTX{pool: &mockDBTX{}}
+	ctx := ContextWithTx(context.Background(), &fakeTx{})
+
+	_, err := wrapper.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err == nil {
+		t.Fatal("expected custom nested transaction options to fail")
 	}
 }
 
@@ -191,5 +241,22 @@ func TestTxFromContext_MissingReturnsFalse(t *testing.T) {
 	_, ok := TxFromContext(context.Background())
 	if ok {
 		t.Fatal("expected no tx in bare context")
+	}
+}
+
+func TestContextWithoutTxMasksTransactionButPreservesValues(t *testing.T) {
+	t.Parallel()
+
+	type valueKey struct{}
+	base := context.WithValue(context.Background(), valueKey{}, "kept")
+	tx := &fakeTx{}
+
+	ctx := ContextWithoutTx(ContextWithTx(base, tx))
+
+	if _, ok := TxFromContext(ctx); ok {
+		t.Fatal("expected transaction to be hidden")
+	}
+	if got := ctx.Value(valueKey{}); got != "kept" {
+		t.Fatalf("preserved value = %v, want kept", got)
 	}
 }

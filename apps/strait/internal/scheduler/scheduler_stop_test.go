@@ -20,7 +20,7 @@ func TestSchedulerStop_ReturnsAfterComponentTimeout(t *testing.T) {
 	s.componentShutdownTimeout = 50 * time.Millisecond
 
 	blocked := make(chan struct{})
-	s.tracker.track(&s.wg, "stuck_component", func() {
+	s.tracker.track(context.Background(), &s.wg, "stuck_component", func(context.Context) {
 		<-blocked
 	})
 
@@ -60,7 +60,7 @@ func TestSchedulerStop_NoTimeoutWhenComponentsExitCleanly(t *testing.T) {
 	defer restore()
 
 	release := make(chan struct{})
-	s.tracker.track(&s.wg, "clean_component", func() {
+	s.tracker.track(context.Background(), &s.wg, "clean_component", func(context.Context) {
 		<-release
 	})
 	time.AfterFunc(35*time.Millisecond, func() {
@@ -97,8 +97,8 @@ func TestSchedulerStop_ReportsTimedOutComponentCount(t *testing.T) {
 	defer restore()
 
 	blocked := make(chan struct{})
-	s.tracker.track(&s.wg, "stuck_a", func() { <-blocked })
-	s.tracker.track(&s.wg, "stuck_b", func() { <-blocked })
+	s.tracker.track(context.Background(), &s.wg, "stuck_a", func(context.Context) { <-blocked })
+	s.tracker.track(context.Background(), &s.wg, "stuck_b", func(context.Context) { <-blocked })
 
 	s.Stop()
 

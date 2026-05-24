@@ -24,6 +24,7 @@ type testInvoiceDataFull struct {
 	SubID              string            `json:"-"`
 	Metadata           map[string]string `json:"-"`
 	AmountDue          int64             `json:"-"`
+	AmountPaid         int64             `json:"-"`
 	DueDate            int64             `json:"-"`
 	NextPaymentAttempt int64             `json:"-"`
 }
@@ -41,6 +42,7 @@ func (d testInvoiceDataFull) MarshalJSON() ([]byte, error) {
 		Customer           *stripe.Customer `json:"customer,omitempty"`
 		Parent             *parent          `json:"parent,omitempty"`
 		AmountDue          int64            `json:"amount_due,omitempty"`
+		AmountPaid         int64            `json:"amount_paid,omitempty"`
 		DueDate            int64            `json:"due_date,omitempty"`
 		NextPaymentAttempt int64            `json:"next_payment_attempt,omitempty"`
 	}
@@ -48,6 +50,7 @@ func (d testInvoiceDataFull) MarshalJSON() ([]byte, error) {
 	inv := invoiceJSON{
 		ID:                 d.ID,
 		AmountDue:          d.AmountDue,
+		AmountPaid:         d.AmountPaid,
 		DueDate:            d.DueDate,
 		NextPaymentAttempt: d.NextPaymentAttempt,
 	}
@@ -186,14 +189,27 @@ func TestWebhookHandler_SubscriptionPaused(t *testing.T) {
 		if rr.Code != http.StatusOK {
 			t.Errorf("expected 200, got %d", rr.Code)
 		}
-		if store.lastPlanUpdate == nil {
-			t.Fatal("expected plan update to be called")
+		if store.lastStatusUpdate == nil {
+			t.Fatal("expected status update to be called")
 		}
-		if store.lastPlanUpdate.status != "paused" {
-			t.Errorf("status = %q, want paused", store.lastPlanUpdate.status)
+		if store.lastStatusUpdate.status != "paused" {
+			t.Errorf("status = %q, want paused", store.lastStatusUpdate.status)
+		}
+		if store.lastPlanUpdate != nil {
+			t.Errorf("expected plan tier NOT to be rewritten on pause, but UpdateOrgSubscriptionPlan was called with %+v", store.lastPlanUpdate)
+		}
+		if sub := store.subscriptions["00000000-0000-0000-0000-100000000001"]; sub.PlanTier != "pro" {
+			t.Errorf("plan_tier wiped on pause: got %q, want pro", sub.PlanTier)
 		}
 		if len(audit.events) == 0 {
-			t.Error("expected audit event to be recorded")
+			t.Fatal("expected audit event to be recorded")
+		}
+		var details map[string]string
+		if err := json.Unmarshal(audit.events[0].Details, &details); err != nil {
+			t.Fatalf("decoding audit details: %v", err)
+		}
+		if details["previous_plan_tier"] != "pro" {
+			t.Errorf("audit previous_plan_tier = %q, want pro", details["previous_plan_tier"])
 		}
 	})
 
@@ -216,8 +232,8 @@ func TestWebhookHandler_SubscriptionPaused(t *testing.T) {
 		if rr.Code != http.StatusOK {
 			t.Errorf("expected 200 when orgID empty, got %d", rr.Code)
 		}
-		if store.lastPlanUpdate != nil {
-			t.Error("expected no plan update when orgID is empty")
+		if store.lastStatusUpdate != nil {
+			t.Error("expected no status update when orgID is empty")
 		}
 	})
 
@@ -276,6 +292,25 @@ func TestWebhookHandler_SubscriptionPaused(t *testing.T) {
 			t.Errorf("duplicate call: expected 200, got %d", rr2.Code)
 		}
 	})
+}
+
+func TestWebhookHandler_SubscriptionPaused_ValidatesMalformed(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{}
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
+	handler := newTestHandler(store, mapping, nil)
+
+	// Subscription with an empty customer object: validateStripeSubscription must reject.
+	body := []byte(`{"id":"sub_pause_invalid","items":{"data":[{"price":{"id":"pro-id"}}]},"customer":{"id":""}}`)
+	rr := fireWebhook(t, handler, "customer.subscription.paused", body)
+
+	if rr.Code == http.StatusOK {
+		t.Errorf("expected non-200 for invalid pause payload, got %d", rr.Code)
+	}
+	if store.lastStatusUpdate != nil {
+		t.Errorf("expected no status update on invalid payload, got %+v", store.lastStatusUpdate)
+	}
 }
 
 // Tests for handleSubscriptionResumed.
@@ -1057,9 +1092,10 @@ func TestWebhookHandler_InvoiceFinalizationFailed(t *testing.T) {
 		if rr.Code != http.StatusOK {
 			t.Errorf("expected 200, got %d", rr.Code)
 		}
-		// The handler still calls logAuditEvent even with empty orgID.
-		if len(audit.events) == 0 {
-			t.Error("expected audit event even without org_id")
+		// Org-less invoices are ignored; metadata is no longer tenant
+		// authority for billing side effects.
+		if len(audit.events) != 0 {
+			t.Error("expected no audit event without a bound org")
 		}
 	})
 
@@ -1089,6 +1125,93 @@ func TestWebhookHandler_InvoiceFinalizationFailed(t *testing.T) {
 	})
 }
 
+// Tests for handleInvoiceFinalized.
+
+func TestWebhookHandler_InvoiceFinalized(t *testing.T) {
+	t.Parallel()
+
+	t.Run("happy_path", func(t *testing.T) {
+		t.Parallel()
+
+		store := &mockBillingStore{}
+		audit := &mockAuditStore{}
+		mapping := NewStripeMapping("starter-id", "", "pro-id", "")
+		handler := newTestHandler(store, mapping, audit)
+
+		data := mustJSON(t, testInvoiceDataFull{
+			ID:         "inv_finalize_ok_1",
+			CustomerID: "cust_finalize_ok_1",
+			SubID:      "sub_finalize_ok_1",
+			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-710000000001"},
+			AmountDue:  4900,
+		})
+
+		rr := fireWebhook(t, handler, "invoice.finalized", data)
+
+		if rr.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d", rr.Code)
+		}
+		if len(audit.events) == 0 {
+			t.Fatal("expected audit event to be recorded")
+		}
+		if audit.events[0].Action != "invoice.finalized" {
+			t.Errorf("audit action = %q, want invoice.finalized", audit.events[0].Action)
+		}
+	})
+
+	t.Run("missing_org_id_no_audit", func(t *testing.T) {
+		t.Parallel()
+
+		store := &mockBillingStore{}
+		audit := &mockAuditStore{}
+		mapping := NewStripeMapping("starter-id", "", "pro-id", "")
+		handler := newTestHandler(store, mapping, audit)
+
+		data := mustJSON(t, testInvoiceDataFull{
+			ID:         "inv_finalize_no_org",
+			CustomerID: "cust_finalize_no_org",
+		})
+
+		rr := fireWebhook(t, handler, "invoice.finalized", data)
+
+		if rr.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d", rr.Code)
+		}
+		if len(audit.events) != 0 {
+			t.Error("expected no audit event without a bound org")
+		}
+	})
+
+	t.Run("idempotent_duplicate_event", func(t *testing.T) {
+		t.Parallel()
+
+		store := &mockBillingStore{}
+		audit := &mockAuditStore{}
+		mapping := NewStripeMapping("starter-id", "", "pro-id", "")
+		handler := newTestHandler(store, mapping, audit)
+
+		data := mustJSON(t, testInvoiceDataFull{
+			ID:         "inv_finalize_idem",
+			CustomerID: "cust_finalize_idem",
+			SubID:      "sub_finalize_idem",
+			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-710000000002"},
+			AmountDue:  4900,
+		})
+
+		rr1 := fireWebhookWithID(t, handler, "evt_finalized_dup_1", "invoice.finalized", data)
+		if rr1.Code != http.StatusOK {
+			t.Errorf("first call: expected 200, got %d", rr1.Code)
+		}
+		rr2 := fireWebhookWithID(t, handler, "evt_finalized_dup_1", "invoice.finalized", data)
+		if rr2.Code != http.StatusOK {
+			t.Errorf("duplicate call: expected 200, got %d", rr2.Code)
+		}
+		if len(audit.events) != 1 {
+			t.Errorf("idempotent replay must yield exactly one audit event, got %d", len(audit.events))
+		}
+	})
+}
+
 // Tests for handleAddonSubscriptionCreated.
 
 func TestWebhookHandler_AddonSubscriptionCreated(t *testing.T) {
@@ -1109,13 +1232,13 @@ func TestWebhookHandler_AddonSubscriptionCreated(t *testing.T) {
 		mapping := NewStripeMappingFromOptions(
 			WithStarterPrices("starter-id", ""),
 			WithProPrices("pro-id", ""),
-			WithAddonPrice("addon-concurrent-runs-id", AddonConcurrentRuns),
 		)
 		handler := newTestHandler(store, mapping, nil)
 
 		data := mustJSON(t, testSubscriptionData{
 			ID:         "sub_addon_create_1",
 			ProductID:  "addon-concurrent-runs-id",
+			LookupKey:  "strait_addon_concurrency_100",
 			CustomerID: "cust_addon_1",
 			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-800000000001"},
 		})
@@ -1134,13 +1257,13 @@ func TestWebhookHandler_AddonSubscriptionCreated(t *testing.T) {
 		mapping := NewStripeMappingFromOptions(
 			WithStarterPrices("starter-id", ""),
 			WithProPrices("pro-id", ""),
-			WithAddonPrice("addon-concurrent-runs-id", AddonConcurrentRuns),
 		)
 		handler := newTestHandler(store, mapping, nil)
 
 		data := mustJSON(t, testSubscriptionData{
 			ID:         "sub_addon_no_org",
 			ProductID:  "addon-concurrent-runs-id",
+			LookupKey:  "strait_addon_concurrency_100",
 			CustomerID: "cust_addon_no_org",
 			Metadata:   map[string]string{},
 		})
@@ -1168,13 +1291,13 @@ func TestWebhookHandler_AddonSubscriptionCreated(t *testing.T) {
 		mapping := NewStripeMappingFromOptions(
 			WithStarterPrices("starter-id", ""),
 			WithProPrices("pro-id", ""),
-			WithAddonPrice("addon-members-id", AddonMembers),
 		)
 		handler := newTestHandler(store, mapping, nil)
 
 		data := mustJSON(t, testSubscriptionData{
 			ID:         "sub_addon_idem",
 			ProductID:  "addon-members-id",
+			LookupKey:  "strait_addon_environments_5",
 			CustomerID: "cust_addon_idem",
 			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-800000000002"},
 		})
@@ -1211,13 +1334,13 @@ func TestWebhookHandler_AddonSubscriptionCanceled(t *testing.T) {
 		mapping := NewStripeMappingFromOptions(
 			WithStarterPrices("starter-id", ""),
 			WithProPrices("pro-id", ""),
-			WithAddonPrice("addon-concurrent-runs-id", AddonConcurrentRuns),
 		)
 		handler := newTestHandler(store, mapping, nil)
 
 		data := mustJSON(t, testSubscriptionData{
 			ID:         "sub_addon_cancel_1",
 			ProductID:  "addon-concurrent-runs-id",
+			LookupKey:  "strait_addon_concurrency_100",
 			CustomerID: "cust_addon_cancel_1",
 			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-900000000001"},
 		})
@@ -1236,13 +1359,13 @@ func TestWebhookHandler_AddonSubscriptionCanceled(t *testing.T) {
 		mapping := NewStripeMappingFromOptions(
 			WithStarterPrices("starter-id", ""),
 			WithProPrices("pro-id", ""),
-			WithAddonPrice("addon-concurrent-runs-id", AddonConcurrentRuns),
 		)
 		handler := newTestHandler(store, mapping, nil)
 
 		data := mustJSON(t, testSubscriptionData{
 			ID:         "sub_addon_cancel_no_org",
 			ProductID:  "addon-concurrent-runs-id",
+			LookupKey:  "strait_addon_concurrency_100",
 			CustomerID: "cust_addon_cancel_no_org",
 			Metadata:   map[string]string{},
 		})
@@ -1269,13 +1392,13 @@ func TestWebhookHandler_AddonSubscriptionCanceled(t *testing.T) {
 		mapping := NewStripeMappingFromOptions(
 			WithStarterPrices("starter-id", ""),
 			WithProPrices("pro-id", ""),
-			WithAddonPrice("addon-members-id", AddonMembers),
 		)
 		handler := newTestHandler(store, mapping, nil)
 
 		data := mustJSON(t, testSubscriptionData{
 			ID:         "sub_addon_cancel_idem",
 			ProductID:  "addon-members-id",
+			LookupKey:  "strait_addon_environments_5",
 			CustomerID: "cust_addon_cancel_idem",
 			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-900000000002"},
 		})
@@ -1443,6 +1566,7 @@ func TestWebhookHandler_MalformedPayloads(t *testing.T) {
 		{"invoice_upcoming_invalid_data", "invoice.upcoming"},
 		{"invoice_uncollectible_invalid_data", "invoice.marked_uncollectible"},
 		{"invoice_finalization_failed_invalid_data", "invoice.finalization_failed"},
+		{"invoice_finalized_invalid_data", "invoice.finalized"},
 	}
 
 	for _, tc := range malformedCases {

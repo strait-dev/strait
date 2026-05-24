@@ -1410,14 +1410,13 @@ func TestWebhook_PaymentSucceeded_ClearsGracePeriod(t *testing.T) {
 	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
 	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
 
-	// Stripe fires customer.subscription.updated with active status when payment recovers.
+	// Stripe fires invoice.paid when payment actually recovers.
 	payload := StripeWebhookPayload{
-		Type: "customer.subscription.updated",
-		Data: mustJSON(t, testSubscriptionData{
+		Type: "invoice.paid",
+		Data: mustJSON(t, testInvoiceData{
 			ID:         "sub_recover",
-			ProductID:  "pro-id",
 			CustomerID: "cust_recover",
-			Status:     "active",
+			SubID:      "sub_recover",
 			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-00000000001a"},
 		}),
 	}
@@ -1441,6 +1440,54 @@ func TestWebhook_PaymentSucceeded_ClearsGracePeriod(t *testing.T) {
 	}
 	if sub.GracePeriodEnd != nil {
 		t.Errorf("expected grace_period_end to be cleared, got %v", sub.GracePeriodEnd)
+	}
+}
+
+func TestWebhook_SubscriptionUpdatedActiveDoesNotClearRestriction(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"00000000-0000-0000-0000-00000000001f": {
+				OrgID:         "00000000-0000-0000-0000-00000000001f",
+				PlanTier:      "pro",
+				Status:        "active",
+				PaymentStatus: "restricted",
+			},
+		},
+	}
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
+
+	payload := StripeWebhookPayload{
+		Type: "customer.subscription.updated",
+		Data: mustJSON(t, testSubscriptionData{
+			ID:         "sub_restricted",
+			ProductID:  "pro-id",
+			CustomerID: "cust_restricted",
+			Status:     "active",
+			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-00000000001f"},
+		}),
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if store.lastPaymentStatusUpdate != nil && store.lastPaymentStatusUpdate.status == "ok" {
+		t.Fatal("active subscription update must not clear restricted payment status")
+	}
+	sub := store.subscriptions["00000000-0000-0000-0000-00000000001f"]
+	if sub.PaymentStatus != "restricted" {
+		t.Fatalf("payment_status = %q, want restricted", sub.PaymentStatus)
 	}
 }
 
@@ -1496,6 +1543,56 @@ func TestWebhook_PaymentFailed_AlreadyInGrace_Extends(t *testing.T) {
 	}
 	if sub.GracePeriodEnd.Before(time.Now().Add(70 * time.Hour)) {
 		t.Errorf("expected grace period to be extended to ~72h, got %v", sub.GracePeriodEnd)
+	}
+}
+
+func TestWebhook_PaymentFailed_DoesNotRestoreRestrictedOrgToGrace(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"00000000-0000-0000-0000-000000000020": {
+				OrgID:         "00000000-0000-0000-0000-000000000020",
+				PlanTier:      "pro",
+				Status:        "active",
+				PaymentStatus: "restricted",
+			},
+		},
+	}
+	mapping := NewStripeMapping("starter-id", "", "pro-id", "")
+	handler := NewWebhookHandler(store, mapping, "", slog.Default(), nil, nil, WithDevBypassSignatureCheck())
+
+	payload := StripeWebhookPayload{
+		Type: "invoice.payment_failed",
+		Data: mustJSON(t, testInvoiceData{
+			ID:         "inv_restricted_failed",
+			CustomerID: "cust_restricted_failed",
+			SubID:      "sub_restricted_failed",
+			Metadata:   map[string]string{"org_id": "00000000-0000-0000-0000-000000000020"},
+		}),
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if store.lastPaymentStatusUpdate != nil && store.lastPaymentStatusUpdate.status == "grace" {
+		t.Fatal("payment failure must not move restricted org back to grace")
+	}
+	sub := store.subscriptions["00000000-0000-0000-0000-000000000020"]
+	if sub.PaymentStatus != "restricted" {
+		t.Fatalf("payment_status = %q, want restricted", sub.PaymentStatus)
+	}
+	if sub.GracePeriodEnd != nil {
+		t.Fatalf("grace_period_end = %v, want nil", sub.GracePeriodEnd)
 	}
 }
 

@@ -278,14 +278,14 @@ function DatePickerWithMonthYear({
             components={calendarComponents}
             data-slot="calendar"
             defaultMonth={selectedDate || new Date()}
+            endMonth={maxValue}
             fixedWeeks
-            fromDate={minValue}
             hideNavigation
             locale={ptBR}
             mode="single"
             onSelect={handleSelect}
             selected={selectedDate}
-            toDate={maxValue}
+            startMonth={minValue}
           />
         </PopoverContent>
       </Popover>

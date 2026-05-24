@@ -5,11 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"maps"
 	"time"
 
-	"strait/internal/crypto"
 	"strait/internal/dbscan"
 	"strait/internal/domain"
 
@@ -26,24 +24,9 @@ func (q *Queries) CreateEnvironment(ctx context.Context, env *domain.Environment
 		env.ID = uuid.Must(uuid.NewV7()).String()
 	}
 
-	variablesJSON, err := marshalEnvironmentVariables(env.Variables)
+	variablesJSON, variablesEncrypted, err := q.prepareEnvironmentVariables(env.ID, env.Variables)
 	if err != nil {
 		return err
-	}
-
-	var variablesEncrypted []byte
-	if q.secretEncryptionKey != "" && len(env.Variables) > 0 {
-		enc, encErr := crypto.NewEncryptor(q.secretEncryptionKey)
-		if encErr != nil {
-			slog.Warn("failed to create encryptor for environment variables", "env_id", env.ID, "error", encErr)
-		} else {
-			encrypted, encryptErr := enc.Encrypt(variablesJSON)
-			if encryptErr != nil {
-				slog.Warn("failed to encrypt environment variables", "env_id", env.ID, "error", encryptErr)
-			} else {
-				variablesEncrypted = encrypted
-			}
-		}
 	}
 
 	query := `
@@ -137,24 +120,9 @@ func (q *Queries) UpdateEnvironment(ctx context.Context, env *domain.Environment
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateEnvironment")
 	defer span.End()
 
-	variablesJSON, err := marshalEnvironmentVariables(env.Variables)
+	variablesJSON, variablesEncrypted, err := q.prepareEnvironmentVariables(env.ID, env.Variables)
 	if err != nil {
 		return err
-	}
-
-	var variablesEncrypted []byte
-	if q.secretEncryptionKey != "" && len(env.Variables) > 0 {
-		enc, encErr := crypto.NewEncryptor(q.secretEncryptionKey)
-		if encErr != nil {
-			slog.Warn("failed to create encryptor for environment variables", "env_id", env.ID, "error", encErr)
-		} else {
-			encrypted, encryptErr := enc.Encrypt(variablesJSON)
-			if encryptErr != nil {
-				slog.Warn("failed to encrypt environment variables", "env_id", env.ID, "error", encryptErr)
-			} else {
-				variablesEncrypted = encrypted
-			}
-		}
 	}
 
 	query := `
@@ -190,6 +158,10 @@ func (q *Queries) UpdateEnvironment(ctx context.Context, env *domain.Environment
 
 // ErrStandardEnvironment is returned when attempting to delete or rename a standard environment.
 var ErrStandardEnvironment = errors.New("cannot modify standard environment")
+
+// ErrEnvironmentVariableEncryptionRequired is returned when callers try to
+// persist environment variables without configuring at-rest secret encryption.
+var ErrEnvironmentVariableEncryptionRequired = errors.New("environment variable encryption key is required")
 
 func (q *Queries) DeleteEnvironment(ctx context.Context, id string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteEnvironment")
@@ -249,17 +221,18 @@ func (q *Queries) GetResolvedEnvironmentVariables(ctx context.Context, id string
 	// The chain is returned root-first so we can overlay child variables on top.
 	query := `
 		WITH RECURSIVE chain AS (
-			SELECT id, parent_id, variables, 1 AS depth
+			SELECT id, project_id, parent_id, variables, variables_encrypted, 1 AS depth
 			FROM environments
 			WHERE id = $1
 			UNION ALL
-			SELECT e.id, e.parent_id, e.variables, c.depth + 1
+			SELECT e.id, e.project_id, e.parent_id, e.variables, e.variables_encrypted, c.depth + 1
 			FROM environments e
 			JOIN chain c ON e.id = c.parent_id
 			WHERE c.depth < $2
+			  AND e.project_id = c.project_id
 		)
-		SELECT id, parent_id, variables, depth FROM chain
-		ORDER BY depth DESC`
+			SELECT id, project_id, parent_id, variables, variables_encrypted, depth FROM chain
+			ORDER BY depth DESC`
 
 	rows, err := q.db.Query(ctx, query, id, maxDepth)
 	if err != nil {
@@ -272,11 +245,17 @@ func (q *Queries) GetResolvedEnvironmentVariables(ctx context.Context, id string
 	var rowCount int
 	for rows.Next() {
 		var envID string
+		var projectID string
 		var parentID *string
 		var variablesRaw []byte
+		var variablesEncrypted []byte
 		var depth int
-		if err := rows.Scan(&envID, &parentID, &variablesRaw, &depth); err != nil {
+		if err := rows.Scan(&envID, &projectID, &parentID, &variablesRaw, &variablesEncrypted, &depth); err != nil {
 			return nil, fmt.Errorf("resolve environment variables scan: %w", err)
+		}
+		variablesRaw, err = q.decryptEnvironmentVariables(envID, variablesRaw, variablesEncrypted)
+		if err != nil {
+			return nil, fmt.Errorf("resolve environment variables decrypt: %w", err)
 		}
 		if len(variablesRaw) > 0 {
 			var vars map[string]string
@@ -329,19 +308,9 @@ func (q *Queries) scanEnvironment(scanner scanTarget) (*domain.Environment, erro
 		env.ParentID = *parentID
 	}
 
-	// Prefer encrypted variables if available and we have a key.
-	if len(variablesEncrypted) > 0 && q.secretEncryptionKey != "" {
-		enc, encErr := crypto.NewEncryptor(q.secretEncryptionKey)
-		if encErr != nil {
-			slog.Warn("failed to create encryptor for decryption, falling back to plaintext", "env_id", env.ID, "error", encErr)
-		} else {
-			decrypted, decErr := enc.Decrypt(variablesEncrypted)
-			if decErr != nil {
-				slog.Warn("failed to decrypt environment variables, falling back to plaintext", "env_id", env.ID, "error", decErr)
-			} else {
-				variablesRaw = decrypted
-			}
-		}
+	variablesRaw, err = q.decryptEnvironmentVariables(env.ID, variablesRaw, variablesEncrypted)
+	if err != nil {
+		return nil, err
 	}
 
 	variables, err := unmarshalEnvironmentVariables(variablesRaw)
@@ -351,6 +320,53 @@ func (q *Queries) scanEnvironment(scanner scanTarget) (*domain.Environment, erro
 	env.Variables = variables
 
 	return &env, nil
+}
+
+func (q *Queries) prepareEnvironmentVariables(envID string, variables map[string]string) ([]byte, []byte, error) {
+	variablesJSON, err := marshalEnvironmentVariables(variables)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(variables) == 0 {
+		return variablesJSON, nil, nil
+	}
+	if q.secretEncryptionKey == "" {
+		return nil, nil, fmt.Errorf("prepare environment variables for %s: %w", envID, ErrEnvironmentVariableEncryptionRequired)
+	}
+	enc, err := q.secretEncryptor()
+	if err != nil {
+		return nil, nil, fmt.Errorf("create environment variable encryptor for %s: %w", envID, err)
+	}
+	variablesEncrypted, err := enc.Encrypt(variablesJSON)
+	if err != nil {
+		return nil, nil, fmt.Errorf("encrypt environment variables for %s: %w", envID, err)
+	}
+	return []byte(`{}`), variablesEncrypted, nil
+}
+
+func (q *Queries) decryptEnvironmentVariables(envID string, variablesRaw, variablesEncrypted []byte) ([]byte, error) {
+	if len(variablesEncrypted) == 0 {
+		variables, err := unmarshalEnvironmentVariables(variablesRaw)
+		if err != nil {
+			return nil, fmt.Errorf("inspect legacy environment variables for %s: %w", envID, err)
+		}
+		if len(variables) > 0 {
+			return nil, fmt.Errorf("decrypt environment variables for %s: legacy plaintext variables are not readable: %w", envID, ErrEnvironmentVariableEncryptionRequired)
+		}
+		return variablesRaw, nil
+	}
+	if q.secretEncryptionKey == "" {
+		return nil, fmt.Errorf("decrypt environment variables for %s: %w", envID, ErrEnvironmentVariableEncryptionRequired)
+	}
+	enc, err := q.secretEncryptor()
+	if err != nil {
+		return nil, fmt.Errorf("create environment variable decryptor for %s: %w", envID, err)
+	}
+	decrypted, err := enc.Decrypt(variablesEncrypted)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt environment variables for %s: %w", envID, err)
+	}
+	return decrypted, nil
 }
 
 func marshalEnvironmentVariables(variables map[string]string) ([]byte, error) {

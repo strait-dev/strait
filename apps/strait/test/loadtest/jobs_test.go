@@ -5,6 +5,7 @@ package loadtest
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -13,7 +14,7 @@ import (
 
 // ---------------------------------------------------------------------------
 // Jobs CRUD load tests
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestJobs_CreateJob(t *testing.T) {
 	mustClean(t)
@@ -21,10 +22,10 @@ func TestJobs_CreateJob(t *testing.T) {
 
 	tgt := newTargeter("POST", "/v1/jobs/", func() []byte {
 		slug := "load-" + newID()
-		return []byte(fmt.Sprintf(
+		return fmt.Appendf(nil,
 			`{"project_id":"%s","name":"load-%s","slug":"%s","endpoint_url":"https://example.com/%s","max_attempts":3,"timeout_secs":60}`,
 			projectID, slug, slug, slug,
-		))
+		)
 	})
 
 	t.Run("baseline", func(t *testing.T) {
@@ -100,7 +101,7 @@ func TestJobs_UpdateJob(t *testing.T) {
 	var counter atomic.Int64
 	tgt := newTargeter("PATCH", "/v1/jobs/"+jobID+"/", func() []byte {
 		n := counter.Add(1)
-		return []byte(fmt.Sprintf(`{"name":"updated-%d"}`, n))
+		return fmt.Appendf(nil, `{"name":"updated-%d"}`, n)
 	})
 
 	t.Run("baseline", func(t *testing.T) {
@@ -129,7 +130,7 @@ func TestJobs_DeleteJob(t *testing.T) {
 	var idx atomic.Int64
 	tgt := func(tgt *vegeta.Target) error {
 		i := idx.Add(1) - 1
-		i = i % int64(len(jobIDs))
+		i %= int64(len(jobIDs))
 		tgt.Method = "DELETE"
 		tgt.URL = baseURL + "/v1/jobs/" + jobIDs[i] + "/"
 		tgt.Header = http.Header{
@@ -159,7 +160,7 @@ func TestJobs_TriggerJob(t *testing.T) {
 	jobID := seedJob(t, projectID)
 
 	tgt := newTargeter("POST", "/v1/jobs/"+jobID+"/trigger", func() []byte {
-		return []byte(fmt.Sprintf(`{"payload":{"id":"%s"}}`, newID()))
+		return fmt.Appendf(nil, `{"payload":{"id":"%s"}}`, newID())
 	})
 
 	t.Run("baseline", func(t *testing.T) {
@@ -185,14 +186,14 @@ func TestJobs_BulkTrigger(t *testing.T) {
 	jobID := seedJob(t, projectID)
 
 	tgt := newTargeter("POST", "/v1/jobs/"+jobID+"/trigger/bulk", func() []byte {
-		items := ""
+		var items strings.Builder
 		for i := range 5 {
 			if i > 0 {
-				items += ","
+				items.WriteString(",")
 			}
-			items += fmt.Sprintf(`{"payload":{"idx":%d},"idempotency_key":"bulk-%s"}`, i, newID())
+			_, _ = fmt.Fprintf(&items, `{"payload":{"idx":%d},"idempotency_key":"bulk-%s"}`, i, newID())
 		}
-		return []byte(fmt.Sprintf(`{"items":[%s]}`, items))
+		return fmt.Appendf(nil, `{"items":[%s]}`, items.String())
 	})
 
 	t.Run("baseline", func(t *testing.T) {
@@ -217,18 +218,18 @@ func TestJobs_BatchCreate(t *testing.T) {
 	projectID := "proj-bc-" + newID()
 
 	tgt := newTargeter("POST", "/v1/jobs/batch", func() []byte {
-		jobs := ""
+		var jobs strings.Builder
 		for i := range 5 {
 			if i > 0 {
-				jobs += ","
+				jobs.WriteString(",")
 			}
 			slug := "batch-" + newID()
-			jobs += fmt.Sprintf(
+			_, _ = fmt.Fprintf(&jobs,
 				`{"project_id":"%s","name":"batch-%s","slug":"%s","endpoint_url":"https://example.com/%s","max_attempts":3,"timeout_secs":60}`,
 				projectID, slug, slug, slug,
 			)
 		}
-		return []byte(fmt.Sprintf(`{"jobs":[%s]}`, jobs))
+		return fmt.Appendf(nil, `{"jobs":[%s]}`, jobs.String())
 	})
 
 	t.Run("baseline", func(t *testing.T) {
@@ -255,7 +256,7 @@ func TestJobs_CloneJob(t *testing.T) {
 
 	tgt := newTargeter("POST", "/v1/jobs/"+jobID+"/clone", func() []byte {
 		slug := "clone-" + newID()
-		return []byte(fmt.Sprintf(`{"slug":"%s","name":"clone-%s"}`, slug, slug))
+		return fmt.Appendf(nil, `{"slug":"%s","name":"clone-%s"}`, slug, slug)
 	})
 
 	t.Run("baseline", func(t *testing.T) {
@@ -373,7 +374,7 @@ func TestJobs_CreateDependency(t *testing.T) {
 			"X-Internal-Secret": []string{"test-secret-value"},
 			"Content-Type":      []string{"application/json"},
 		}
-		tgt.Body = []byte(fmt.Sprintf(`{"depends_on_job_id":"%s"}`, depJobID))
+		tgt.Body = fmt.Appendf(nil, `{"depends_on_job_id":"%s"}`, depJobID)
 		return nil
 	}
 
@@ -429,20 +430,21 @@ func TestJobs_BatchEnableDisable(t *testing.T) {
 	jobIDs := seedManyJobs(t, projectID, 20)
 
 	// Build a JSON array of job IDs.
-	idsJSON := "["
+	var idsJSON strings.Builder
+	idsJSON.WriteString("[")
 	for i, id := range jobIDs {
 		if i > 0 {
-			idsJSON += ","
+			idsJSON.WriteString(",")
 		}
-		idsJSON += fmt.Sprintf(`"%s"`, id)
+		_, _ = fmt.Fprintf(&idsJSON, `"%s"`, id)
 	}
-	idsJSON += "]"
+	idsJSON.WriteString("]")
 
 	disableTgt := newTargeter("POST", "/v1/jobs/batch-disable", func() []byte {
-		return []byte(fmt.Sprintf(`{"ids":%s}`, idsJSON))
+		return fmt.Appendf(nil, `{"ids":%s}`, idsJSON.String())
 	})
 	enableTgt := newTargeter("POST", "/v1/jobs/batch-enable", func() []byte {
-		return []byte(fmt.Sprintf(`{"ids":%s}`, idsJSON))
+		return fmt.Appendf(nil, `{"ids":%s}`, idsJSON.String())
 	})
 
 	t.Run("disable/baseline", func(t *testing.T) {
@@ -485,10 +487,10 @@ func TestJobs_ConcurrentReadWrite(t *testing.T) {
 	// Writes create new jobs.
 	writeTgt := newTargeter("POST", "/v1/jobs/", func() []byte {
 		slug := "rw-" + newID()
-		return []byte(fmt.Sprintf(
+		return fmt.Appendf(nil,
 			`{"project_id":"%s","name":"rw-%s","slug":"%s","endpoint_url":"https://example.com/%s","max_attempts":3,"timeout_secs":60}`,
 			projectID, slug, slug, slug,
-		))
+		)
 	})
 
 	t.Run("reads/stress", func(t *testing.T) {

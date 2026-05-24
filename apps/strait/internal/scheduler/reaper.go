@@ -10,14 +10,18 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
 	"strait/internal/clickhouse"
+	straitcrypto "strait/internal/crypto"
 	"strait/internal/domain"
+	"strait/internal/httputil"
 	"strait/internal/store"
 	"strait/internal/telemetry"
 
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -61,6 +65,7 @@ type ReaperStore interface {
 	ListAuditEventsDeadletterWithAttempts(ctx context.Context, limit int) ([]domain.AuditEvent, []string, []store.AuditDeadletterAttemptInfo, error)
 	IncrementAuditDeadletterAttempt(ctx context.Context, id string) error
 	MarkAuditDeadletterReclaimed(ctx context.Context, dlqID, newEventID string) error
+	ReplayAuditEventDeadletter(ctx context.Context, id, projectID, newEventID string) (*domain.AuditEvent, bool, error)
 	DeleteAuditDeadletterOlderThan(ctx context.Context, cutoff time.Time) (map[string]int64, error)
 	CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error
 	DeleteAuditEventDeadletter(ctx context.Context, id, projectID string) error
@@ -91,8 +96,12 @@ type QueueDepthMonitorStore interface {
 // AutoRotateAPIKeysStore is an optional interface for automatic API key rotation.
 type AutoRotateAPIKeysStore interface {
 	ListAPIKeysDueRotation(ctx context.Context) ([]domain.APIKey, error)
+	GetProjectQuota(ctx context.Context, projectID string) (*store.ProjectQuota, error)
 	CreateAPIKey(ctx context.Context, key *domain.APIKey) error
+	CreateRotatedAPIKey(ctx context.Context, oldKeyID string, newKey *domain.APIKey, graceExpiresAt time.Time) error
 	MarkAPIKeyRotated(ctx context.Context, oldKeyID, newKeyID string, graceExpiresAt time.Time) error
+	RevokeAPIKey(ctx context.Context, id string) error
+	DisableAPIKeyAutoRotation(ctx context.Context, id string) error
 	CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error
 }
 
@@ -125,6 +134,11 @@ type ApprovalNotifierStore interface {
 	GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error)
 }
 
+// ApprovalNotifierBulkChannelStore optionally bulk-lists channels for approval notifications.
+type ApprovalNotifierBulkChannelStore interface {
+	ListEnabledNotificationChannelsByProjectIDs(ctx context.Context, projectIDs []string) (map[string][]domain.NotificationChannel, error)
+}
+
 // AdvisoryLocker attempts to acquire a PostgreSQL advisory lock.
 // Returns true if the lock was acquired (caller should run reaper),
 // false if another instance holds it.
@@ -133,14 +147,12 @@ type AdvisoryLocker interface {
 	ReleaseAdvisoryLock(ctx context.Context, lockID int64) error
 }
 
+type AdvisoryLockRunner interface {
+	RunWithAdvisoryLock(ctx context.Context, lockID int64, fn func(context.Context) error) (bool, error)
+}
+
 // reaperAdvisoryLockID is the pg_advisory_lock key for single-leader reaper.
 const reaperAdvisoryLockID int64 = 0x5374726169745265 // "StraitRe" as int64
-
-// MachineDestroyer can stop and destroy container machines (used for orphan cleanup).
-type MachineDestroyer interface {
-	Stop(ctx context.Context, machineID string) error
-	Destroy(ctx context.Context, machineID string) error
-}
 
 // ApprovalReminderStore is an optional interface for querying approvals past their reminder point.
 type ApprovalReminderStore interface {
@@ -166,7 +178,6 @@ type Reaper struct {
 	longRetention              time.Duration
 	retentionEnabled           bool
 	workflowCallback           WorkflowCallback
-	machineDestroyer           MachineDestroyer
 	chExporter                 *clickhouse.Exporter
 	metrics                    *telemetry.Metrics
 	logger                     *slog.Logger
@@ -180,6 +191,15 @@ type Reaper struct {
 	auditDLQMaxAgeDays         int
 	auditDLQMaxReclaimAttempts int
 	archiveEnabled             bool
+	allowPrivateEndpoints      bool
+	rotationWebhookClient      *http.Client
+	rotationSecretDecryptor    SecretDecryptor
+}
+
+// SecretDecryptor decrypts at-rest secrets such as rotation webhook signing
+// keys. The reaper uses it to sign outbound rotation webhooks.
+type SecretDecryptor interface {
+	Decrypt(ciphertext []byte) ([]byte, error)
 }
 
 func (r *Reaper) recordOperation(ctx context.Context, operation, status string) {
@@ -230,6 +250,22 @@ func NewReaper(s ReaperStore, interval, staleThreshold, shortRetention, longRete
 // WithMetrics sets the telemetry metrics for the reaper.
 func (r *Reaper) WithMetrics(m *telemetry.Metrics) *Reaper {
 	r.metrics = m
+	return r
+}
+
+// WithRotationSecretDecryptor sets the decryptor used to recover at-rest
+// rotation webhook signing secrets. When unset, rotation webhooks fail closed
+// because the new API key can only be delivered over a signed request.
+func (r *Reaper) WithRotationSecretDecryptor(d SecretDecryptor) *Reaper {
+	r.rotationSecretDecryptor = d
+	return r
+}
+
+// WithAllowPrivateEndpoints allows scheduler-originated webhooks to target
+// private addresses. It is intended for explicitly configured self-hosted
+// deployments and tests; production defaults to the SSRF-safe external policy.
+func (r *Reaper) WithAllowPrivateEndpoints(allow bool) *Reaper {
+	r.allowPrivateEndpoints = allow
 	return r
 }
 
@@ -294,12 +330,6 @@ func (r *Reaper) WithAdvisoryLocker(locker AdvisoryLocker) *Reaper {
 	return r
 }
 
-// WithMachineDestroyer sets the container runtime for orphaned machine cleanup.
-func (r *Reaper) WithMachineDestroyer(d MachineDestroyer) *Reaper {
-	r.machineDestroyer = d
-	return r
-}
-
 // WithChExporter attaches the ClickHouse exporter for event trigger timeout analytics.
 func (r *Reaper) WithChExporter(e *clickhouse.Exporter) *Reaper {
 	r.chExporter = e
@@ -323,6 +353,56 @@ func (r *Reaper) notifyWorkflowCallback(ctx context.Context, run *domain.JobRun)
 
 // ReapOnce runs all reaper passes exactly once. Exported for integration tests.
 func (r *Reaper) ReapOnce(ctx context.Context) {
+	r.runMaintenanceCycle(ctx)
+}
+
+func (r *Reaper) Run(ctx context.Context) {
+	r.logger.Info("reaper configured", "interval", r.interval, "stale_threshold", r.staleThreshold)
+	loop := NewMaintenanceLoop("reaper", r.interval, r.logger, func(loopCtx context.Context) {
+		runCycle := func(ctx context.Context) error {
+			r.runMaintenanceCycle(ctx)
+			if r.retentionEnabled {
+				r.reapTerminalRetention(ctx)
+				r.reapPerOrgRetention(ctx)
+			}
+			return nil
+		}
+
+		if r.advisoryLocker != nil {
+			if runner, ok := r.advisoryLocker.(AdvisoryLockRunner); ok {
+				acquired, err := runner.RunWithAdvisoryLock(loopCtx, reaperAdvisoryLockID, runCycle)
+				if err != nil {
+					r.logger.Error("advisory locked reaper cycle failed", "error", err)
+					return
+				}
+				if !acquired {
+					r.logger.Debug("reaper advisory lock held by another instance, skipping cycle")
+				}
+				return
+			}
+
+			acquired, err := r.advisoryLocker.TryAdvisoryLock(loopCtx, reaperAdvisoryLockID)
+			if err != nil {
+				r.logger.Error("advisory lock check failed, skipping cycle", "error", err)
+				return
+			}
+			if !acquired {
+				r.logger.Debug("reaper advisory lock held by another instance, skipping cycle")
+				return
+			}
+			defer func() {
+				if err := r.advisoryLocker.ReleaseAdvisoryLock(loopCtx, reaperAdvisoryLockID); err != nil {
+					r.logger.Warn("failed to release advisory lock", "error", err)
+				}
+			}()
+		}
+
+		_ = runCycle(loopCtx)
+	})
+	loop.Run(ctx)
+}
+
+func (r *Reaper) runMaintenanceCycle(ctx context.Context) {
 	r.reapStaleDequeued(ctx)
 	r.reapStale(ctx)
 	r.reapExpired(ctx)
@@ -342,48 +422,6 @@ func (r *Reaper) ReapOnce(ctx context.Context) {
 	r.reapAuditEvents(ctx)
 	r.reclaimAuditDeadletter(ctx)
 	r.reapDeadletter(ctx)
-}
-
-func (r *Reaper) Run(ctx context.Context) {
-	r.logger.Info("reaper configured", "interval", r.interval, "stale_threshold", r.staleThreshold)
-	loop := NewMaintenanceLoop("reaper", r.interval, r.logger, func(loopCtx context.Context) {
-		if r.advisoryLocker != nil {
-			acquired, err := r.advisoryLocker.TryAdvisoryLock(loopCtx, reaperAdvisoryLockID)
-			if err != nil {
-				r.logger.Error("advisory lock check failed, skipping cycle", "error", err)
-				return
-			}
-			if !acquired {
-				r.logger.Debug("reaper advisory lock held by another instance, skipping cycle")
-				return
-			}
-			defer func() {
-				if err := r.advisoryLocker.ReleaseAdvisoryLock(loopCtx, reaperAdvisoryLockID); err != nil {
-					r.logger.Warn("failed to release advisory lock", "error", err)
-				}
-			}()
-		}
-
-		r.reapStaleDequeued(loopCtx)
-		r.reapStale(loopCtx)
-		r.reapExpired(loopCtx)
-		r.reapTimedOutWorkflows(loopCtx)
-		r.reapExpiredApprovals(loopCtx)
-		r.reapApprovalReminders(loopCtx)
-		r.reapExpiredEventTriggers(loopCtx)
-		r.reapInconsistentEventTriggers(loopCtx)
-		r.reapStalledWorkflows(loopCtx)
-		r.reapOldWorkflowRuns(loopCtx)
-		r.reapOldEventTriggers(loopCtx)
-		if r.retentionEnabled {
-			r.reapTerminalRetention(loopCtx)
-			r.reapPerOrgRetention(loopCtx)
-		}
-		r.reapAuditEvents(loopCtx)
-		r.reclaimAuditDeadletter(loopCtx)
-		r.reapDeadletter(loopCtx)
-	})
-	loop.Run(ctx)
 }
 
 func (r *Reaper) reapOldWorkflowRuns(ctx context.Context) {
@@ -568,15 +606,51 @@ func (r *Reaper) reapApprovalReminders(ctx context.Context) {
 		slog.Warn("failed to list approvals past reminder point", "error", err)
 		return
 	}
+	if len(approvals) == 0 {
+		return
+	}
 
+	workflowRuns := make(map[string]*domain.WorkflowRun)
+	channelsByProject := make(map[string][]domain.NotificationChannel)
+	projectIDs := make([]string, 0, len(approvals))
+	seenProjectIDs := make(map[string]struct{})
 	for _, approval := range approvals {
 		if _, sent := r.reminderSent[approval.ID]; sent {
 			continue
 		}
 
-		wfRun, wfErr := ns.GetWorkflowRun(ctx, approval.WorkflowRunID)
-		if wfErr != nil || wfRun == nil {
-			slog.Warn("failed to get workflow run for approval reminder", "workflow_run_id", approval.WorkflowRunID, "error", wfErr)
+		wfRun, ok := workflowRuns[approval.WorkflowRunID]
+		if !ok {
+			var wfErr error
+			wfRun, wfErr = ns.GetWorkflowRun(ctx, approval.WorkflowRunID)
+			if wfErr != nil || wfRun == nil {
+				slog.Warn("failed to get workflow run for approval reminder", "workflow_run_id", approval.WorkflowRunID, "error", wfErr)
+				continue
+			}
+			workflowRuns[approval.WorkflowRunID] = wfRun
+		}
+
+		if _, seen := seenProjectIDs[wfRun.ProjectID]; !seen {
+			seenProjectIDs[wfRun.ProjectID] = struct{}{}
+			projectIDs = append(projectIDs, wfRun.ProjectID)
+		}
+	}
+
+	if bulkStore, ok := r.store.(ApprovalNotifierBulkChannelStore); ok && len(projectIDs) > 0 {
+		bulkChannels, chBulkErr := bulkStore.ListEnabledNotificationChannelsByProjectIDs(ctx, projectIDs)
+		if chBulkErr != nil {
+			slog.Warn("failed to bulk-list notification channels for approval reminders", "error", chBulkErr)
+		} else {
+			channelsByProject = bulkChannels
+		}
+	}
+
+	for _, approval := range approvals {
+		if _, sent := r.reminderSent[approval.ID]; sent {
+			continue
+		}
+		wfRun := workflowRuns[approval.WorkflowRunID]
+		if wfRun == nil {
 			continue
 		}
 
@@ -585,18 +659,29 @@ func (r *Reaper) reapApprovalReminders(ctx context.Context) {
 			timeRemainingSecs = time.Until(*approval.ExpiresAt).Seconds()
 		}
 
-		channels, chErr := ns.ListEnabledNotificationChannels(ctx, wfRun.ProjectID)
-		if chErr != nil {
-			slog.Warn("failed to list notification channels for approval reminder", "error", chErr)
-			continue
+		channels, ok := channelsByProject[wfRun.ProjectID]
+		if !ok {
+			var chErr error
+			channels, chErr = ns.ListEnabledNotificationChannels(ctx, wfRun.ProjectID)
+			if chErr != nil {
+				slog.Warn("failed to list notification channels for approval reminder", "error", chErr)
+				continue
+			}
+			channelsByProject[wfRun.ProjectID] = channels
 		}
 
-		payload, marshalErr := json.Marshal(map[string]any{
-			"approval_id":         approval.ID,
-			"workflow_run_id":     approval.WorkflowRunID,
-			"workflow_id":         wfRun.WorkflowID,
-			"step_run_id":         approval.WorkflowStepRunID,
-			"time_remaining_secs": timeRemainingSecs,
+		payload, marshalErr := json.Marshal(struct {
+			ApprovalID        string  `json:"approval_id"`
+			WorkflowRunID     string  `json:"workflow_run_id"`
+			WorkflowID        string  `json:"workflow_id"`
+			StepRunID         string  `json:"step_run_id"`
+			TimeRemainingSecs float64 `json:"time_remaining_secs"`
+		}{
+			ApprovalID:        approval.ID,
+			WorkflowRunID:     approval.WorkflowRunID,
+			WorkflowID:        wfRun.WorkflowID,
+			StepRunID:         approval.WorkflowStepRunID,
+			TimeRemainingSecs: timeRemainingSecs,
 		})
 		if marshalErr != nil {
 			continue
@@ -949,22 +1034,6 @@ func (r *Reaper) reapStale(ctx context.Context) {
 		}
 		run.Status = domain.StatusCrashed
 
-		// Clean up orphaned machines for managed runs.
-		if r.machineDestroyer != nil && run.ExecutionMode == domain.ExecutionModeManaged && run.MachineID != "" {
-			cleanCtx, cleanCancel := context.WithTimeout(context.Background(), 15*time.Second)
-			if stopErr := r.machineDestroyer.Stop(cleanCtx, run.MachineID); stopErr != nil {
-				r.logger.Warn("failed to stop orphaned machine, attempting destroy",
-					"run_id", run.ID, "machine_id", run.MachineID, "error", stopErr)
-			}
-			if destroyErr := r.machineDestroyer.Destroy(cleanCtx, run.MachineID); destroyErr != nil {
-				r.logger.Warn("failed to destroy orphaned machine",
-					"run_id", run.ID, "machine_id", run.MachineID, "error", destroyErr)
-			} else {
-				r.logger.Info("destroyed orphaned machine", "run_id", run.ID, "machine_id", run.MachineID)
-			}
-			cleanCancel()
-		}
-
 		r.notifyWorkflowCallback(ctx, &run)
 
 		slog.Warn("stale run marked crashed", "run_id", run.ID, "job_id", run.JobID)
@@ -1201,6 +1270,30 @@ func (r *Reaper) reapPerOrgRetention(ctx context.Context) {
 	}
 }
 
+// alertCooldownPruneTTL is the maximum age of an entry retained in the
+// DLQ / queue-depth alert cooldown maps before it is dropped on the next
+// monitoring pass.
+const alertCooldownPruneTTL = 24 * time.Hour
+
+// pruneAlertCooldowns removes entries from the DLQ and queue-depth alert
+// cooldown maps once they are older than alertCooldownPruneTTL. Without
+// this, a long-lived reaper accumulates one entry per ever-seen job, since
+// job IDs are never removed even when the job is deleted. Called at the
+// start of each monitoring pass so the maps stay bounded by
+// recently-active job IDs.
+func (r *Reaper) pruneAlertCooldowns(now time.Time) {
+	for k, t := range r.dlqAlertCooldown {
+		if now.Sub(t) > alertCooldownPruneTTL {
+			delete(r.dlqAlertCooldown, k)
+		}
+	}
+	for k, t := range r.queueAlertCooldown {
+		if now.Sub(t) > alertCooldownPruneTTL {
+			delete(r.queueAlertCooldown, k)
+		}
+	}
+}
+
 func (r *Reaper) monitorDLQDepth(ctx context.Context) {
 	dlqStore, ok := r.store.(DLQMonitorStore)
 	if !ok {
@@ -1214,6 +1307,7 @@ func (r *Reaper) monitorDLQDepth(ctx context.Context) {
 	}
 
 	now := time.Now()
+	r.pruneAlertCooldowns(now)
 	for _, d := range depths {
 		if r.metrics != nil {
 			r.metrics.DLQDepth.Record(ctx, int64(d.DLQCount), metric.WithAttributes(
@@ -1297,6 +1391,33 @@ func (r *Reaper) autoRotateAPIKeys(ctx context.Context) {
 	}
 
 	for _, oldKey := range keys {
+		if oldKey.RotationWebhookURL == "" {
+			r.logger.Warn("skipping api key auto-rotation without rotation webhook", "key_id", oldKey.ID, "project_id", oldKey.ProjectID)
+			if err := rotateStore.DisableAPIKeyAutoRotation(ctx, oldKey.ID); err != nil {
+				r.logger.Error("failed to disable api key auto-rotation without webhook", "key_id", oldKey.ID, "project_id", oldKey.ProjectID, "error", err)
+			}
+			continue
+		}
+		if _, err := r.rotationWebhookSigningSecret(oldKey.RotationWebhookSecret, oldKey.ID, oldKey.ProjectID); err != nil {
+			r.logger.Warn("skipping api key auto-rotation without a usable rotation webhook signing secret", "key_id", oldKey.ID, "project_id", oldKey.ProjectID, "error", err)
+			continue
+		}
+		if err := validateRotationWebhookURL(oldKey.RotationWebhookURL, r.allowPrivateEndpoints); err != nil {
+			r.logger.Warn("skipping api key auto-rotation with invalid rotation webhook URL",
+				"key_id", oldKey.ID,
+				"project_id", oldKey.ProjectID,
+				"url", httputil.RedactURLForLog(oldKey.RotationWebhookURL),
+				"error", err,
+			)
+			continue
+		}
+
+		expiresAt, err := autoRotatedAPIKeyExpiry(ctx, rotateStore, oldKey)
+		if err != nil {
+			r.logger.Warn("skipping api key auto-rotation that violates lifetime policy", "key_id", oldKey.ID, "project_id", oldKey.ProjectID, "error", err)
+			continue
+		}
+
 		// Generate new key material.
 		rawBytes := make([]byte, 32)
 		if _, err := rand.Read(rawBytes); err != nil {
@@ -1307,15 +1428,18 @@ func (r *Reaper) autoRotateAPIKeys(ctx context.Context) {
 		keyHash := sha256.Sum256([]byte(rawKey))
 
 		newKey := &domain.APIKey{
-			ProjectID:            oldKey.ProjectID,
-			Name:                 oldKey.Name + " (auto-rotated)",
-			KeyHash:              hex.EncodeToString(keyHash[:]),
-			KeyPrefix:            rawKey[:12],
-			Scopes:               oldKey.Scopes,
-			ExpiresAt:            oldKey.ExpiresAt,
-			EnvironmentID:        oldKey.EnvironmentID,
-			RotationIntervalDays: oldKey.RotationIntervalDays,
-			RotationWebhookURL:   oldKey.RotationWebhookURL,
+			ID:                    uuid.Must(uuid.NewV7()).String(),
+			ProjectID:             oldKey.ProjectID,
+			OrgID:                 oldKey.OrgID,
+			Name:                  oldKey.Name + " (auto-rotated)",
+			KeyHash:               hex.EncodeToString(keyHash[:]),
+			KeyPrefix:             rawKey[:domain.APIKeyPrefixLen],
+			Scopes:                oldKey.Scopes,
+			ExpiresAt:             expiresAt,
+			EnvironmentID:         oldKey.EnvironmentID,
+			RotationIntervalDays:  oldKey.RotationIntervalDays,
+			RotationWebhookURL:    oldKey.RotationWebhookURL,
+			RotationWebhookSecret: oldKey.RotationWebhookSecret,
 		}
 		// Set next_rotation_at for the new key.
 		if oldKey.RotationIntervalDays != nil && *oldKey.RotationIntervalDays > 0 {
@@ -1323,14 +1447,25 @@ func (r *Reaper) autoRotateAPIKeys(ctx context.Context) {
 			newKey.NextRotationAt = &nextRotation
 		}
 
+		graceExpiresAt := time.Now().Add(24 * time.Hour) // 24h grace period
 		if err := rotateStore.CreateAPIKey(ctx, newKey); err != nil {
-			r.logger.Error("failed to create rotated api key", "key_id", oldKey.ID, "error", err)
+			r.logger.Error("failed to create auto-rotated api key before webhook delivery", "key_id", oldKey.ID, "new_key_id", newKey.ID, "error", err)
 			continue
 		}
 
-		graceExpiresAt := time.Now().Add(24 * time.Hour) // 24h grace period
+		if err := r.notifyRotationWebhook(ctx, oldKey.RotationWebhookURL, oldKey.RotationWebhookSecret, oldKey.ID, newKey.ID, rawKey, newKey.KeyPrefix, oldKey.ProjectID); err != nil {
+			r.logger.Warn("rotation webhook notification failed; revoking undelivered new key and keeping old key active", "key_id", oldKey.ID, "new_key_id", newKey.ID, "error", err)
+			if revokeErr := rotateStore.RevokeAPIKey(ctx, newKey.ID); revokeErr != nil {
+				r.logger.Error("failed to revoke undelivered auto-rotated api key", "key_id", oldKey.ID, "new_key_id", newKey.ID, "error", revokeErr)
+			}
+			continue
+		}
+
 		if err := rotateStore.MarkAPIKeyRotated(ctx, oldKey.ID, newKey.ID, graceExpiresAt); err != nil {
-			r.logger.Error("failed to mark old key as rotated", "key_id", oldKey.ID, "new_key_id", newKey.ID, "error", err)
+			r.logger.Error("failed to mark old api key rotated; revoking delivered replacement", "key_id", oldKey.ID, "new_key_id", newKey.ID, "error", err)
+			if revokeErr := rotateStore.RevokeAPIKey(ctx, newKey.ID); revokeErr != nil {
+				r.logger.Error("failed to revoke auto-rotated api key after mark failure", "key_id", oldKey.ID, "new_key_id", newKey.ID, "error", revokeErr)
+			}
 			continue
 		}
 
@@ -1351,19 +1486,33 @@ func (r *Reaper) autoRotateAPIKeys(ctx context.Context) {
 			ResourceID:   oldKey.ID,
 			Details:      details,
 		})
-
-		// Notify rotation webhook if configured.
-		if oldKey.RotationWebhookURL != "" {
-			r.notifyRotationWebhook(ctx, oldKey.RotationWebhookURL, oldKey.ID, newKey.ID, newKey.KeyPrefix, oldKey.ProjectID)
-		}
 	}
 }
 
-func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL, oldKeyID, newKeyID, newKeyPrefix, projectID string) {
+func autoRotatedAPIKeyExpiry(ctx context.Context, rotateStore AutoRotateAPIKeysStore, oldKey domain.APIKey) (*time.Time, error) {
+	quota, err := rotateStore.GetProjectQuota(ctx, oldKey.ProjectID)
+	if err != nil {
+		return nil, fmt.Errorf("load project quota: %w", err)
+	}
+	maxLifetimeDays := 0
+	if quota != nil {
+		maxLifetimeDays = quota.MaxKeyLifetimeDays
+	}
+	return domain.ApplyAPIKeyLifetimePolicy(time.Now(), oldKey.ExpiresAt, maxLifetimeDays)
+}
+
+func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL string, encryptedSecret []byte, oldKeyID, newKeyID, newKey, newKeyPrefix, projectID string) error {
+	logURL := httputil.RedactURLForLog(webhookURL)
+	if err := validateRotationWebhookURL(webhookURL, r.allowPrivateEndpoints); err != nil {
+		r.logger.Warn("rotation webhook URL blocked", "url", logURL, "error", err)
+		return err
+	}
+
 	payload, _ := json.Marshal(map[string]any{
 		"event":          "api_key.auto_rotated",
 		"old_key_id":     oldKeyID,
 		"new_key_id":     newKeyID,
+		"new_key":        newKey,
 		"new_key_prefix": newKeyPrefix,
 		"project_id":     projectID,
 		"rotated_at":     time.Now().UTC(),
@@ -1371,23 +1520,86 @@ func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL, oldKeyID
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhookURL, bytes.NewReader(payload))
 	if err != nil {
-		r.logger.Error("failed to create rotation webhook request", "url", webhookURL, "error", err)
-		return
+		r.logger.Error("failed to create rotation webhook request", "url", logURL, "error", err)
+		return fmt.Errorf("create rotation webhook request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Strait-Event", "api_key.auto_rotated")
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	signingSecret, err := r.rotationWebhookSigningSecret(encryptedSecret, oldKeyID, projectID)
 	if err != nil {
-		r.logger.Warn("rotation webhook notification failed", "url", webhookURL, "error", err)
-		return
+		return err
+	}
+	deliveryID := uuid.Must(uuid.NewV7()).String()
+	timestamp := time.Now().UTC().Format(time.RFC3339)
+	straitcrypto.SignWebhookRequest(req, signingSecret, payload, deliveryID, timestamp)
+
+	client := r.rotationWebhookClient
+	if client == nil {
+		client = &http.Client{
+			Timeout:   10 * time.Second,
+			Transport: httputil.NewExternalTransport(r.allowPrivateEndpoints),
+		}
+	}
+	requestClient := *client
+	requestClient.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	resp, err := requestClient.Do(req)
+	if err != nil {
+		safeErr := httputil.SanitizeHTTPClientError(err)
+		r.logger.Warn("rotation webhook notification failed", "url", logURL, "error", safeErr)
+		return fmt.Errorf("send rotation webhook: %s", safeErr)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 {
-		r.logger.Warn("rotation webhook returned non-success", "url", webhookURL, "status", resp.StatusCode)
+		r.logger.Warn("rotation webhook returned non-success", "url", logURL, "status", resp.StatusCode)
+		return fmt.Errorf("rotation webhook returned status %d", resp.StatusCode)
 	}
+
+	return nil
+}
+
+func (r *Reaper) rotationWebhookSigningSecret(encryptedSecret []byte, oldKeyID, projectID string) ([]byte, error) {
+	switch {
+	case len(encryptedSecret) == 0:
+		return nil, fmt.Errorf("api key %s in project %s has no rotation webhook signing secret", oldKeyID, projectID)
+	case r.rotationSecretDecryptor == nil:
+		return nil, fmt.Errorf("rotation webhook signing secret decryptor is not configured for api key %s in project %s", oldKeyID, projectID)
+	}
+	plaintext, err := r.rotationSecretDecryptor.Decrypt(encryptedSecret)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt rotation webhook signing secret for api key %s in project %s: %w", oldKeyID, projectID, err)
+	}
+	if len(plaintext) == 0 {
+		return nil, fmt.Errorf("rotation webhook signing secret is empty for api key %s in project %s", oldKeyID, projectID)
+	}
+	return canonicalRotationWebhookSecret(plaintext), nil
+}
+
+func canonicalRotationWebhookSecret(plaintext []byte) []byte {
+	if bytes.HasPrefix(plaintext, []byte("whsec_")) {
+		return plaintext
+	}
+	out := make([]byte, len("whsec_")+hex.EncodedLen(len(plaintext)))
+	copy(out, "whsec_")
+	hex.Encode(out[len("whsec_"):], plaintext)
+	return out
+}
+
+func validateRotationWebhookURL(rawURL string, allowPrivateEndpoints bool) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("parse rotation webhook url: %w", err)
+	}
+	if parsed.Scheme != "https" {
+		return fmt.Errorf("rotation webhook must use https")
+	}
+	if err := httputil.ValidateExternalURL(rawURL); err != nil && !allowPrivateEndpoints {
+		return fmt.Errorf("ssrf guard rejected rotation webhook url: %w", err)
+	}
+	return nil
 }
 
 func (r *Reaper) monitorQueueDepth(ctx context.Context) {
@@ -1403,6 +1615,7 @@ func (r *Reaper) monitorQueueDepth(ctx context.Context) {
 	}
 
 	now := time.Now()
+	r.pruneAlertCooldowns(now)
 	for _, d := range depths {
 		if r.metrics != nil {
 			r.metrics.QueueDepthPerJob.Record(ctx, int64(d.QueuedCount), metric.WithAttributes(

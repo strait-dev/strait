@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -57,11 +58,18 @@ func (a *SLOWebhookAdapter) NotifySLOBudgetWarning(ctx context.Context, projectI
 			continue
 		}
 
+		now := time.Now().UTC()
 		delivery := &domain.WebhookDelivery{
-			ID:          uuid.Must(uuid.NewV7()).String(),
-			WebhookURL:  sub.WebhookURL,
-			Status:      domain.WebhookStatusPending,
-			MaxAttempts: 3,
+			ID:             uuid.Must(uuid.NewV7()).String(),
+			SubscriptionID: sub.ID,
+			ProjectID:      projectID,
+			WebhookURL:     sub.WebhookURL,
+			Payload:        payload,
+			RetryPolicy:    domain.WebhookRetryPolicyExponential,
+			Status:         domain.WebhookStatusPending,
+			Attempts:       0,
+			MaxAttempts:    3,
+			NextRetryAt:    &now,
 		}
 
 		if err := a.store.CreateWebhookDelivery(ctx, delivery); err != nil {
@@ -79,8 +87,6 @@ func (a *SLOWebhookAdapter) NotifySLOBudgetWarning(ctx context.Context, projectI
 			"delivery_id", delivery.ID,
 		)
 	}
-
-	_ = payload
 
 	return nil
 }

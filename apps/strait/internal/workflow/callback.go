@@ -22,8 +22,13 @@ type StepCallback struct {
 	logger            *slog.Logger
 	metrics           *telemetry.Metrics
 	chExporter        *clickhouse.Exporter
+	statusHook        WorkflowRunStatusHook
 	progressionEngine string
 }
+
+// WorkflowRunStatusHook observes workflow run transitions completed by the
+// callback path. It must be best-effort and must not block workflow progression.
+type WorkflowRunStatusHook func(ctx context.Context, run *domain.WorkflowRun, from, to domain.WorkflowRunStatus, reason string)
 
 type CallbackStore interface {
 	GetStepRunByJobRunID(ctx context.Context, jobRunID string) (*domain.WorkflowStepRun, error)
@@ -51,17 +56,23 @@ type CallbackStore interface {
 	UpdateWorkflowStepApproval(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
 	CreateAuditEvent(ctx context.Context, ev *domain.AuditEvent) error
 	UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	ScheduleRetry(ctx context.Context, runID string, at time.Time, attempt int) error
 	ListDependentsByDependencyJob(ctx context.Context, dependsOnJobID string) ([]domain.JobDependency, error)
 	ListWaitingRunsByJobIDs(ctx context.Context, jobIDs []string, limit int) ([]domain.JobRun, error)
 	AreJobDependenciesSatisfied(ctx context.Context, run *domain.JobRun) (bool, error)
 	GetWorkflowRunsByParent(ctx context.Context, parentWorkflowRunID string) ([]domain.WorkflowRun, error)
 	GetEventTriggerByStepRunID(ctx context.Context, stepRunID string) (*domain.EventTrigger, error)
-	GetEventTriggerByEventKey(ctx context.Context, eventKey string) (*domain.EventTrigger, error)
+	GetEventTriggerByEventKeyForProject(ctx context.Context, eventKey, projectID string) (*domain.EventTrigger, error)
 	UpdateEventTriggerStatus(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
 	AdvisoryXactLock(ctx context.Context, lockID int64) error
 	CreateWorkflowStepDecision(ctx context.Context, d *domain.WorkflowStepDecision) error
 	GetWorkflowSnapshot(ctx context.Context, id string) (*domain.WorkflowSnapshot, error)
 	RequeuePausedJobRuns(ctx context.Context, workflowRunID string) (int64, error)
+}
+
+type compensationCallbackStore interface {
+	MarkCompensationRunTerminalByJobRunID(ctx context.Context, jobRunID string, status string, output json.RawMessage, errMsg string, finishedAt time.Time) (*domain.CompensationRun, error)
+	CountIncompleteCompensationRuns(ctx context.Context, workflowRunID string) (int, error)
 }
 
 type progressionEventCreator interface {
@@ -89,6 +100,7 @@ type wfCtx struct {
 	run       *domain.WorkflowRun
 	steps     []domain.WorkflowStep
 	stepByRef map[string]domain.WorkflowStep
+	stepIndex map[string]int
 }
 
 func (s *StepCallback) loadWfCtx(ctx context.Context, workflowRunID string) (*wfCtx, error) {
@@ -106,10 +118,12 @@ func (s *StepCallback) loadWfCtx(ctx context.Context, workflowRunID string) (*wf
 	}
 
 	stepByRef := make(map[string]domain.WorkflowStep, len(steps))
-	for _, st := range steps {
+	stepIndex := make(map[string]int, len(steps))
+	for i, st := range steps {
 		stepByRef[st.StepRef] = st
+		stepIndex[st.StepRef] = i
 	}
-	return &wfCtx{run: wfRun, steps: steps, stepByRef: stepByRef}, nil
+	return &wfCtx{run: wfRun, steps: steps, stepByRef: stepByRef, stepIndex: stepIndex}, nil
 }
 
 // loadStepDefinitions reads step definitions from the snapshot when available,
@@ -150,12 +164,35 @@ func (s *StepCallback) WithChExporter(e *clickhouse.Exporter) *StepCallback {
 	return s
 }
 
+// WithStatusHook attaches a best-effort observer for workflow run transitions
+// produced by callback-driven progression.
+func (s *StepCallback) WithStatusHook(hook WorkflowRunStatusHook) *StepCallback {
+	s.statusHook = hook
+	return s
+}
+
 func (s *StepCallback) WithProgressionEngine(engine string) *StepCallback {
 	if engine == "" {
 		engine = "legacy"
 	}
 	s.progressionEngine = engine
 	return s
+}
+
+func (s *StepCallback) publishWorkflowRunStatus(ctx context.Context, run *domain.WorkflowRun, from, to domain.WorkflowRunStatus, reason string) {
+	if s.statusHook == nil || run == nil {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			s.logger.Error("panic in workflow status hook",
+				"workflow_run_id", run.ID,
+				"from", from,
+				"to", to,
+				"panic", r)
+		}
+	}()
+	s.statusHook(ctx, run, from, to, reason)
 }
 
 func approvalAuditActor(actor string) (string, string) {
@@ -232,6 +269,10 @@ func (s *StepCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun)
 	}
 	defer s.tryReleaseDependencyRuns(ctx, run)
 
+	if handled, err := s.handleCompensationJobTerminal(ctx, run); handled || err != nil {
+		return err
+	}
+
 	if run.WorkflowStepRunID == "" {
 		return nil
 	}
@@ -268,11 +309,15 @@ func (s *StepCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun)
 		}
 	}
 
-	fields["finished_at"] = time.Now()
+	finishedAt := time.Now()
+	fields["finished_at"] = finishedAt
+	previousStatus := stepRun.Status
 	if err := s.store.UpdateStepRunStatusFrom(ctx, stepRun.ID, stepRun.Status, stepStatus, fields); err != nil {
 		s.logger.Error("failed to update step run terminal status", "step_run_id", stepRun.ID, "from", stepRun.Status, "status", stepStatus, "error", err)
 		return fmt.Errorf("update step run terminal status: %w", err)
 	}
+	recordWorkflowStepTransition(ctx, string(previousStatus), string(stepStatus))
+	recordWorkflowStepDuration(ctx, workflowStepKind(wc, stepRun), workflowStepOutcome(stepStatus), stepRun.StartedAt, finishedAt)
 
 	stepRun.Status = stepStatus
 	if out, ok := fields["output"].(json.RawMessage); ok {
@@ -311,7 +356,7 @@ func (s *StepCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun)
 				return fmt.Errorf("workflow progression batchlog store not available")
 			}
 			if err := creator.CreateWorkflowProgressionEvent(ctx, stepRun.WorkflowRunID, stepRun.ID, stepRun.StepRef, string(stepStatus)); err != nil {
-				return err
+				return fmt.Errorf("create workflow progression event: %w", err)
 			}
 			return nil
 		}
@@ -330,6 +375,54 @@ func (s *StepCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun)
 	default:
 		return s.checkWorkflowCompletion(ctx, stepRun.WorkflowRunID, wc)
 	}
+}
+
+func (s *StepCallback) handleCompensationJobTerminal(ctx context.Context, run *domain.JobRun) (bool, error) {
+	if run == nil || run.Metadata == nil || run.Metadata[domain.RunMetadataCompensationRunID] == "" {
+		return false, nil
+	}
+	compStore, ok := s.store.(compensationCallbackStore)
+	if !ok {
+		return true, fmt.Errorf("workflow compensation store unavailable")
+	}
+
+	status := domain.CompensationCompleted
+	errMsg := run.Error
+	if run.Status != domain.StatusCompleted {
+		status = domain.CompensationFailed
+		if errMsg == "" {
+			errMsg = fmt.Sprintf("compensation job ended with status %s", run.Status)
+		}
+	}
+
+	finishedAt := time.Now()
+	compRun, err := compStore.MarkCompensationRunTerminalByJobRunID(ctx, run.ID, status, run.Result, errMsg, finishedAt)
+	if err != nil {
+		return true, fmt.Errorf("mark compensation run terminal: %w", err)
+	}
+
+	if status == domain.CompensationFailed {
+		if err := s.store.UpdateWorkflowRunStatus(ctx, compRun.WorkflowRunID, domain.WfStatusCompensating, domain.WfStatusCompensationFailed, map[string]any{
+			"error": errMsg,
+		}); err != nil {
+			return true, fmt.Errorf("mark workflow compensation failed: %w", err)
+		}
+		return true, nil
+	}
+
+	remaining, err := compStore.CountIncompleteCompensationRuns(ctx, compRun.WorkflowRunID)
+	if err != nil {
+		return true, fmt.Errorf("count incomplete compensation runs: %w", err)
+	}
+	if remaining == 0 {
+		if err := s.store.UpdateWorkflowRunStatus(ctx, compRun.WorkflowRunID, domain.WfStatusCompensating, domain.WfStatusCompensated, map[string]any{
+			"finished_at": finishedAt,
+		}); err != nil {
+			return true, fmt.Errorf("mark workflow compensated: %w", err)
+		}
+	}
+
+	return true, nil
 }
 
 // OnEventReceived handles progression when an external event is received for a workflow step.
@@ -360,9 +453,12 @@ func (s *StepCallback) OnEventReceived(ctx context.Context, trigger *domain.Even
 		if len(trigger.ResponsePayload) > 0 {
 			fields["output"] = trigger.ResponsePayload
 		}
+		previousStatus := targetStepRun.Status
 		if err := s.store.UpdateStepRunStatusFrom(ctx, targetStepRun.ID, targetStepRun.Status, domain.StepCompleted, fields); err != nil {
 			return fmt.Errorf("update step run status for event trigger: %w", err)
 		}
+		recordWorkflowStepTransition(ctx, string(previousStatus), string(domain.StepCompleted))
+		recordWorkflowDurableWait(ctx, targetStepRun.StartedAt, now)
 		targetStepRun.Status = domain.StepCompleted
 		if len(trigger.ResponsePayload) > 0 {
 			targetStepRun.Output = trigger.ResponsePayload
@@ -376,6 +472,7 @@ func (s *StepCallback) OnEventReceived(ctx context.Context, trigger *domain.Even
 	if wcErr != nil {
 		return fmt.Errorf("load workflow context: %w", wcErr)
 	}
+	recordWorkflowStepDuration(ctx, workflowStepKind(wc, targetStepRun), workflowStepOutcome(targetStepRun.Status), targetStepRun.StartedAt, time.Now())
 
 	// Auto-emit event if step has event_emit_key configured.
 	s.tryEmitEvent(ctx, targetStepRun, wc)
@@ -499,8 +596,12 @@ func (s *StepCallback) emitEventIfConfigured(ctx context.Context, stepRun *domai
 	if emitKey == "" {
 		return
 	}
+	if wfRun == nil || wfRun.ProjectID == "" {
+		s.logger.Error("emit event: missing workflow project scope", "event_key", emitKey)
+		return
+	}
 
-	trigger, err := s.store.GetEventTriggerByEventKey(ctx, emitKey)
+	trigger, err := s.store.GetEventTriggerByEventKeyForProject(ctx, emitKey, wfRun.ProjectID)
 	if err != nil {
 		s.logger.Error("emit event: failed to get trigger", "event_key", emitKey, "error", err)
 		return

@@ -260,8 +260,8 @@ func TestSDKTelemetry_Usage_MissingRequiredFields(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/usage", "run-1", `{}`)
 	srv.ServeHTTP(w, r)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for missing required fields, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for missing required fields, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -576,8 +576,8 @@ func TestSDKTelemetry_ToolCall_MissingToolName(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/tool-call", "run-1", `{}`)
 	srv.ServeHTTP(w, r)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for missing tool_name, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for missing tool_name, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

@@ -24,9 +24,9 @@ func TestHotUpdateIndexes_AreUsable(t *testing.T) {
 	// table propagates them to every partition.
 	indexes := []string{
 		"idx_runs_project_created",
-		"idx_runs_project_executing",
 		"idx_runs_project_dead",
 		"idx_runs_project_delayed",
+		"idx_job_runs_inflight_started",
 	}
 	for _, idx := range indexes {
 		var found bool
@@ -76,9 +76,9 @@ func TestHotUpdateIndexes_HotRatioStaysHighAcrossLifecycle(t *testing.T) {
 
 	// Enqueue -> dequeue -> mark completed for 100 runs, which exercises
 	// every status transition the worker does on the hot path.
-	const N = 100
-	ids := make([]string, 0, N)
-	for i := 0; i < N; i++ {
+	const n = 100
+	ids := make([]string, 0, n)
+	for range n {
 		run := &domain.JobRun{
 			ID:        newID(),
 			JobID:     job.ID,
@@ -91,7 +91,7 @@ func TestHotUpdateIndexes_HotRatioStaysHighAcrossLifecycle(t *testing.T) {
 		ids = append(ids, run.ID)
 	}
 
-	for i := 0; i < N; i++ {
+	for range n {
 		r, err := q.Dequeue(ctx)
 		if err != nil {
 			t.Fatalf("dequeue: %v", err)
@@ -144,23 +144,14 @@ func TestHotUpdateIndexes_HotRatioStaysHighAcrossLifecycle(t *testing.T) {
 	ratio := float64(hotTotal) / float64(updTotal)
 	t.Logf("HOT ratio: %.2f (%d hot / %d total)", ratio, hotTotal, updTotal)
 
-	// Ratio floor documents the current reality: the hot-path indexes
-	// introduced by migration 000197 are HOT-friendly on their own, but
-	// older partial indexes that we cannot drop without breaking reaper
-	// / heartbeat queries (idx_runs_status_dequeued on started_at
-	// WHERE status='dequeued', idx_runs_heartbeat on heartbeat_at
-	// WHERE status='executing') still invalidate HOT whenever the
-	// status column transitions in or out of those predicates. The
-	// 'queued -> dequeued -> completed' lifecycle executed here flips
-	// idx_runs_status_dequeued membership twice (enter on dequeue,
-	// leave on complete), so the lower bound we can reliably assert is
-	// that the aggregate ratio stays nonzero -- i.e. at least one HOT
-	// update happens somewhere in the pipeline (typically the
-	// trigger-driven side-table updates that don't touch the status
-	// partials). The informational log above captures the real ratio
-	// for investigation. Flipping this to a strict assertion requires
-	// retiring idx_runs_status_dequeued / idx_runs_heartbeat, which is
-	// a separate project tracked under the reaper rework.
+	// After migration 000220 retired the status-predicated indexes
+	// idx_job_runs_stale_dequeued (WHERE status='dequeued') and
+	// idx_runs_project_executing (WHERE status='executing'), the
+	// dequeued->executing transition is HOT-eligible. The remaining
+	// non-HOT transition is queued->dequeued (leaves idx_runs_queue
+	// and friends). We expect the aggregate HOT ratio to be nonzero
+	// since at least the dequeued->executing and trigger-maintained
+	// side-table updates produce HOT updates.
 	const minRatio = 0.0
 	if ratio < minRatio {
 		t.Errorf("HOT update ratio %.2f is below threshold %.2f", ratio, minRatio)
@@ -177,7 +168,7 @@ func TestHotUpdateIndexes_ExplainUsesCorrectIndex(t *testing.T) {
 	q := mustQueue(t)
 
 	// Seed some rows in different statuses so the planner prefers an index.
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		mustEnqueueRun(t, ctx, q, job)
 	}
 	// Force some into dead_letter so that partial index has entries.

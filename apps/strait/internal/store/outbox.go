@@ -28,6 +28,8 @@ type OutboxRow struct {
 	Priority        int
 	CreatedAt       time.Time
 	RetryOfOutboxID *string
+	ExecutionMode   string
+	QueueName       string
 }
 
 // QuarantinedOutboxRow is a terminal outbox row kept for operator inspection.
@@ -194,13 +196,16 @@ func claimOutboxOnConn(ctx context.Context, q outboxQuerier, limit int) ([]Outbo
 		limit = 500
 	}
 	rows, err := q.Query(ctx, `
-		SELECT id, project_id, job_id, payload, metadata,
-		       idempotency_key, scheduled_at, priority, created_at, retry_of_outbox_id
-		FROM enqueue_outbox
-		WHERE consumed_at IS NULL
-		ORDER BY created_at ASC
+		SELECT eo.id, eo.project_id, eo.job_id, eo.payload, eo.metadata,
+		       eo.idempotency_key, eo.scheduled_at, eo.priority, eo.created_at, eo.retry_of_outbox_id,
+		       COALESCE(j.execution_mode, 'http'),
+		       COALESCE(NULLIF(j.queue_name, ''), 'default')
+		FROM enqueue_outbox eo
+		LEFT JOIN jobs j ON j.id = eo.job_id
+		WHERE eo.consumed_at IS NULL
+		ORDER BY eo.created_at ASC
 		LIMIT $1
-		FOR UPDATE SKIP LOCKED
+		FOR UPDATE OF eo SKIP LOCKED
 	`, limit)
 	if err != nil {
 		return nil, fmt.Errorf("claim outbox: %w", err)
@@ -213,6 +218,7 @@ func claimOutboxOnConn(ctx context.Context, q outboxQuerier, limit int) ([]Outbo
 		if err := rows.Scan(
 			&r.ID, &r.ProjectID, &r.JobID, &r.Payload, &r.Metadata,
 			&r.IdempotencyKey, &r.ScheduledAt, &r.Priority, &r.CreatedAt, &r.RetryOfOutboxID,
+			&r.ExecutionMode, &r.QueueName,
 		); err != nil {
 			return nil, fmt.Errorf("scan outbox: %w", err)
 		}
@@ -458,13 +464,13 @@ func (q *Queries) RetryQuarantinedOutbox(ctx context.Context, projectID, id stri
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.RetryQuarantinedOutbox")
 	defer span.End()
 
-	beginner, ok := q.db.(TxBeginner)
+	_, ok := q.db.(TxBeginner)
 	if !ok {
 		return nil, fmt.Errorf("retry quarantined outbox: db does not support transactions")
 	}
 
 	var cloned OutboxRow
-	err := WithTx(ctx, beginner, func(txQ *Queries) error {
+	err := q.withTx(ctx, func(txQ *Queries) error {
 		source, err := loadOutboxRowStateForUpdate(ctx, txQ.db, projectID, id)
 		if err != nil {
 			return err

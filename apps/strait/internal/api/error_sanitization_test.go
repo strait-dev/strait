@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/danielgtaylor/huma/v2"
 )
 
 func TestWriteTypedError_SanitizesRawError(t *testing.T) {
@@ -122,6 +124,42 @@ func TestWriteTypedError_WrappedError_NoLeak(t *testing.T) {
 	}
 	if strings.Contains(body, "admin") {
 		t.Errorf("response leaks username: %s", body)
+	}
+}
+
+func TestWriteTypedError_Huma5xxDoesNotLeakMessage(t *testing.T) {
+	t.Parallel()
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/test", nil)
+
+	writeTypedError(w, r, huma.Error500InternalServerError("failed to retry workflow run: pq: relation workflow_runs missing"))
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusInternalServerError)
+	}
+	body := w.Body.String()
+	if strings.Contains(body, "workflow_runs") || strings.Contains(body, "pq:") || strings.Contains(body, "failed to retry") {
+		t.Fatalf("response leaked internal 5xx detail: %s", body)
+	}
+	if !strings.Contains(body, "internal server error") {
+		t.Fatalf("response = %s, want generic internal server error", body)
+	}
+}
+
+func TestWriteTypedError_Huma4xxKeepsPublicMessage(t *testing.T) {
+	t.Parallel()
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/test", nil)
+
+	writeTypedError(w, r, huma.Error404NotFound("job not found"))
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusNotFound)
+	}
+	if !strings.Contains(w.Body.String(), "job not found") {
+		t.Fatalf("response = %s, want public 4xx message", w.Body.String())
 	}
 }
 

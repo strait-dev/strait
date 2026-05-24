@@ -66,12 +66,7 @@ function DatePicker({
           )}
         </PopoverTrigger>
         <PopoverContent className="w-auto p-0">
-          <Calendar
-            initialFocus
-            mode="single"
-            onSelect={onChange}
-            selected={value}
-          />
+          <Calendar mode="single" onSelect={onChange} selected={value} />
         </PopoverContent>
       </Popover>
     </div>

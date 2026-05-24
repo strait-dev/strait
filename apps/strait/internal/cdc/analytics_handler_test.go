@@ -51,6 +51,44 @@ func TestAnalyticsHandler_CompletedRun_Enqueues(t *testing.T) {
 	}
 }
 
+func TestAnalyticsHandler_RedeliveredTerminalUpdateEnqueuesOnce(t *testing.T) {
+	t.Parallel()
+	exp := newTestExporter()
+	h := NewAnalyticsHandler(exp, nil)
+
+	record, _ := json.Marshal(map[string]any{
+		"id":          "run-redelivered",
+		"job_id":      "job-1",
+		"project_id":  "p1",
+		"status":      "completed",
+		"attempt":     1,
+		"started_at":  "2026-03-26T10:00:00Z",
+		"finished_at": "2026-03-26T10:00:05Z",
+		"created_at":  "2026-03-26T09:59:00Z",
+	})
+	msg := Message{
+		AckID:  "ack-original",
+		Action: ActionUpdate,
+		Record: record,
+		Metadata: Metadata{
+			TableName:      "job_runs",
+			IdempotencyKey: "wal:job_runs:run-redelivered:terminal",
+		},
+	}
+
+	if err := h.Handle(context.Background(), msg); err != nil {
+		t.Fatalf("first delivery: %v", err)
+	}
+	msg.AckID = "ack-redelivery"
+	if err := h.Handle(context.Background(), msg); err != nil {
+		t.Fatalf("redelivery: %v", err)
+	}
+
+	if pending := exp.PendingLen(); pending != 1 {
+		t.Fatalf("pending analytics records = %d, want 1", pending)
+	}
+}
+
 func TestAnalyticsHandler_NonTerminal_Skipped(t *testing.T) {
 	t.Parallel()
 	exp := newTestExporter()

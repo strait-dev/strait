@@ -1,122 +1,146 @@
 ---
 title: "Deployment"
-description: "Guide for deploying and scaling Strait in production."
+description: "Run Strait in production with Docker or any long-running service platform."
 icon: "cloud-arrow-up"
 ---
 
-Strait ships as a single Go binary. You can deploy it anywhere from Docker Compose locally to Fly.io or Kubernetes in production.
+Strait runs as a single Go binary. You can run everything in one process or split the API and workers as traffic grows.
 
-## Architecture Overview
+## Required Services
 
-Production deployment consists of the following services:
+| Service | Purpose |
+|---|---|
+| PostgreSQL | Stores projects, jobs, runs, workflows, and queued work. |
+| Redis | Powers live updates and pub/sub notifications. |
 
-| Service | Platform | Region(s) | Purpose |
-| :--- | :--- | :--- | :--- |
-| **Strait** (Go backend) | Fly.io (`strait`) | `iad`, `lhr`, `gru` | API server + worker |
-| **Sequin** (CDC) | Fly.io (`strait-sequin`) | `iad` | Postgres WAL → Redis pub/sub |
-| **PostgreSQL** | PlanetScale | `us-east-1` | Primary data store |
-| **Redis** | Upstash | — | Pub/sub, SSE streaming, CDC events |
-| **Frontend** | — | — | `apps/app` (Vite/React) |
+Use managed PostgreSQL and Redis if you want the lowest operational overhead. Self-host them if your environment requires it.
 
-### Region Strategy
+## Required Secrets
 
-- **Primary region**: `iad` (Ashburn, Virginia) — co-located with the database for lowest latency.
-- **Edge regions**: `lhr` (London), `gru` (São Paulo) — for faster API responses globally.
-- **Sequin**: Single instance in `iad` only. CDC requires a persistent WAL connection and must run next to the database. Multiple instances would cause duplicate event processing.
+Set these through your platform's secret manager.
 
-## Secrets Management
+| Variable | Description |
+|---|---|
+| `DATABASE_URL` | PostgreSQL connection string. |
+| `REDIS_URL` | Redis connection string. |
+| `INTERNAL_SECRET` | Trusted service-to-service secret. |
+| `JWT_SIGNING_KEY` | Signs SDK run tokens. |
+| `ENCRYPTION_KEY` | Encrypts data at rest. |
+| `SECRET_ENCRYPTION_KEY` | Encrypts stored secrets. |
 
-All environment variables are managed via [Doppler](https://doppler.com) under the `strait` project with three configs:
+Generate unique values per environment. Do not reuse production secrets in staging or development.
 
-| Config | Environment | Notes |
-| :--- | :--- | :--- |
-| `dev` | Development | Local defaults, localhost URLs |
-| `stg` | Staging | Shared infra with production |
-| `prd` | Production | Production secrets and URLs |
+## Choose a Mode
 
-### Local Development
+| Mode | Use it when |
+|---|---|
+| `all` | You are running a small deployment or local environment. |
+| `api` | You want separate capacity for API traffic. |
+| `worker` | You want separate capacity for job execution. |
 
-```bash
-# Configure Doppler for this directory (one-time)
-doppler setup  # select project: strait, config: dev
+Most teams start with `all`, then split into `api` and `worker` when queue volume grows.
 
-# Run any command with secrets injected
-doppler run -- go run ./cmd/strait
-doppler run -- bun run dev
+## Docker
 
-# Or generate a local .env file
-doppler secrets download --no-file --format env > .env
-```
-
-### Fly.io Integration
-
-Secrets are synced from Doppler to Fly.io via the Doppler-Fly integration. When you update a secret in Doppler, it automatically propagates to Fly machines.
-
-## Operation Modes
-
-Strait can run in three different modes, controlled by the `--mode` flag or the `MODE` environment variable:
-
-- **`api`**: Runs only the HTTP API server. Stateless and can be scaled horizontally.
-- **`worker`**: Runs only the job execution engine. Scales based on queue depth.
-- **`all`** (Default): Runs both the API and the worker in a single process. Ideal for small deployments or development.
-
-## Infrastructure Requirements
-
-Strait requires the following backing services:
-
-- **PostgreSQL 18**: Primary data store and job queue.
-- **Redis 8**: Pub/sub, SSE streaming, and CDC event publishing.
-- **Sequin**: Change Data Capture (CDC) -- streams database changes from the Postgres write-ahead log to Redis.
-
-### Docker Compose (Development)
-For local development, use `apps/strait/docker-compose.yml`:
-```bash
-docker compose -f apps/strait/docker-compose.yml up -d
-```
-
-## Fly.io Deployment
-
-### Project Structure
-
-```
-apps/strait/
-├── Dockerfile      # Multi-stage Go build
-├── fly.toml        # Fly config for the main app
-├── Makefile        # Build, test, and deploy commands
-└── .dockerignore
-
-packages/deploy/
-└── sequin/
-    └── fly.toml    # Fly config for Sequin CDC
-```
-
-### Deploying the Main App
-
-The Dockerfile uses a multi-stage build: Go compile on Alpine, then copy the binary to a minimal runtime image (~16 MB).
+Build the image:
 
 ```bash
-# From apps/strait/ — runs vet, lint, build, test before deploying
+docker build -t strait apps/strait/
+```
+
+Build with release metadata for `/health` and Sentry release tagging:
+
+```bash
+docker build \
+  --build-arg VERSION=v1.2.3 \
+  --build-arg COMMIT=$(git rev-parse --short HEAD) \
+  --build-arg DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+  -t strait:v1.2.3 apps/strait/
+```
+
+Run a single-process deployment:
+
+```bash
+docker run \
+  -e DATABASE_URL=postgres://... \
+  -e REDIS_URL=redis://... \
+  -e INTERNAL_SECRET=... \
+  -e JWT_SIGNING_KEY=... \
+  -e ENCRYPTION_KEY=... \
+  -e SECRET_ENCRYPTION_KEY=... \
+  strait --mode all
+```
+
+The deploy workflow runs preflight checks (`go vet`, `golangci-lint`, `go build`, `go test`) before pushing. If any check fails, the deploy is aborted.
+
+```bash
+# From apps/strait/. Runs vet, lint, build, test before deploying.
 make deploy
 
 # Or from repo root
 bun run deploy
 ```
 
-The deploy workflow runs preflight checks (`go vet`, `golangci-lint`, `go build`, `go test`) before pushing to Fly. If any check fails, the deploy is aborted.
+## Sentry Releases
 
-### Deploying Sequin
+When `SENTRY_DSN` is configured, Strait tags events with `SENTRY_RELEASE`.
+If that variable is empty, the server derives the release from the binary
+version and commit injected at build time (`VERSION+COMMIT`). Use the same
+value when creating Sentry releases:
 
-Sequin uses the official `sequin/sequin:latest` Docker image — no build step needed.
+```bash
+export STRAIT_VERSION=v1.2.3
+export STRAIT_COMMIT=$(git rev-parse --short HEAD)
+export SENTRY_RELEASE="${STRAIT_VERSION}+${STRAIT_COMMIT}"
+
+sentry-cli releases new "$SENTRY_RELEASE"
+sentry-cli releases set-commits "$SENTRY_RELEASE" --auto
+sentry-cli releases finalize "$SENTRY_RELEASE"
+```
+
+Set `SENTRY_RELEASE` on every deployed API and worker process to keep errors,
+transactions, and breadcrumbs tied to the exact build.
+
+For dashboard deploys, upload sourcemaps after the frontend build and before
+publishing the bundle:
+
+```bash
+cd apps/app
+export STRAIT_VERSION="$STRAIT_VERSION"
+export STRAIT_COMMIT="$STRAIT_COMMIT"
+export SENTRY_ORG=your-org
+export SENTRY_PROJECT=your-dashboard-project
+export SENTRY_AUTH_TOKEN="<sentry-auth-token>"
+
+bun run build
+bun run sentry:upload-sourcemaps
+```
+
+The upload script uses the same release name (`SENTRY_RELEASE`, or
+`STRAIT_VERSION+STRAIT_COMMIT`) as the Go server. It uploads generated `.map`
+files from `.next`, `dist`, or `.output`, then removes `.map` files from public
+output directories so the deployed dashboard bundle does not expose sourcemaps.
+
+Manual smoke check: after deploy, trigger a handled dashboard error in the
+release environment and confirm Sentry shows an un-minified stack trace under
+the same release as the API and worker events.
+
+## Process Deployment
+
+Run Strait as one or more long-lived processes. For small deployments, run a
+single `--mode all` process. For higher throughput, split API and worker
+capacity into separate processes by passing `--mode api` or `--mode worker`.
+
+## Sequin Deployment
+
+Sequin watches your database for changes (new runs, status updates, workflow progress) and streams them through Redis so Strait can deliver real-time updates, SSE events, and webhooks. It runs as a separate container included in Docker Compose, pinned to `sequin/sequin:v0.14.6`. No build step needed.
 
 ```bash
 # From repo root
 bun run deploy:sequin
-
-# Or directly
-cd packages/deploy/sequin && fly deploy -a strait-sequin
 ```
 
-Sequin requires the following secrets set on Fly (managed via `fly secrets set`):
+Sequin requires the following secrets configured in your deployment platform:
 
 | Secret | Description |
 | :--- | :--- |
@@ -130,72 +154,63 @@ Sequin requires the following secrets set on Fly (managed via `fly secrets set`)
 | `SECRET_KEY_BASE` | Sequin internal encryption key |
 | `VAULT_KEY` | Sequin vault encryption key |
 
-### CI/CD
+### Region Strategy
 
-The GitHub Actions workflow (`.github/workflows/deploy.yml`) automatically deploys to Fly when:
+- **Primary region**: Co-locate Strait with your database for lowest latency.
+- **Edge regions**: Deploy additional instances in other regions for faster API responses globally.
+- **Sequin**: Single instance, co-located with the database. Sequin maintains a persistent connection to the database to detect changes, so it must run in the same region. Multiple instances would cause duplicate event processing.
 
-1. Code is pushed to `master`
-2. Changes are in `apps/strait/**`
-3. All required workflows pass (`Test`, `Lint`, `Security`)
+For community self-hosting, see the [Self-Hosting](/guides/self-hosting) guide.
 
-Required GitHub secret: `FLY_API_TOKEN` — generate a deploy token scoped to the app:
-```bash
-fly tokens create deploy -a strait
+## Scaling
+
+Scale API instances for request volume. Scale worker instances for job throughput.
+
+A common production layout:
+
+```text
+Load balancer
+    |
+    +-- strait --mode api
+    +-- strait --mode api
+
+Workers
+    |
+    +-- strait --mode worker
+    +-- strait --mode worker
 ```
 
-## Production Configuration
+All instances share the same PostgreSQL and Redis.
 
-### Required Environment Variables
-| Variable | Description |
-| :--- | :--- |
-| `DATABASE_URL` | Postgres connection string |
-| `REDIS_URL` | Redis connection string |
-| `INTERNAL_SECRET` | Secret for internal API auth (32+ chars, unique per environment) |
-| `JWT_SIGNING_KEY` | Key for signing SDK run tokens (32+ chars, unique per environment) |
-| `ENCRYPTION_KEY` | Data encryption at rest (unique per environment) |
-| `SECRET_ENCRYPTION_KEY` | Secret values encryption (unique per environment) |
+## Placement
 
-See [Environment Variables](/configuration/environment-variables) for the full reference.
+Keep Strait close to PostgreSQL. Database latency affects API calls, scheduling, and worker throughput.
 
-### Scaling Strategy
-To handle higher traffic, separate the API and worker processes:
+Place workers near the services they call. If a worker talks to private databases or private APIs, run it in the same network.
 
-1. **Scale API**: Add more instances in `api` mode to handle more concurrent HTTP requests.
-2. **Scale Workers**: Add more instances in `worker` mode to process more jobs. Workers safely compete for jobs without double-processing.
+## Shutdown
 
-## Graceful Shutdown
+Strait handles `SIGTERM` gracefully:
 
-Strait shuts down gracefully in both modes:
-- **API**: Stops accepting new requests and waits for active requests to finish (up to the configured timeout).
-- **Worker**: Stops dequeuing new jobs and waits for currently executing jobs to complete or reach a checkpoint before exiting.
+- API instances stop accepting new requests and finish in-flight requests.
+- Worker instances stop claiming new work and let active runs finish.
 
-<Tip>
-  Always use a process manager or orchestrator (like Kubernetes or Fly.io) that respects SIGTERM signals to ensure no jobs are abruptly interrupted.
-</Tip>
+Use a process manager or container platform that sends `SIGTERM` and gives the process time to exit.
 
-## Quick Reference
+## Production Checklist
 
-```bash
-# Deploy main app (with preflight checks)
-make deploy                        # from apps/strait/
-bun run deploy                     # from repo root
+- Use managed PostgreSQL backups or your own backup policy.
+- Store secrets in a secret manager.
+- Set `LOG_LEVEL=info` or `warn`.
+- Configure tracing, metrics, or Sentry if your team uses them.
+- Set job-level timeouts and retry limits.
+- Use idempotency keys for important trigger requests.
+- Run at least two API instances when availability matters.
+- Run enough workers for your expected queue volume.
 
-# Deploy Sequin
-bun run deploy:sequin              # from repo root
+## Related
 
-# Check status
-fly status -a strait
-fly status -a strait-sequin
-
-# View logs
-fly logs -a strait
-fly logs -a strait-sequin
-
-# Manage secrets (via Doppler)
-doppler secrets -p strait -c prd   # list production secrets
-doppler secrets set KEY=value -p strait -c prd
-
-# Local dev with Doppler
-doppler run -- go run ./cmd/strait
-doppler run -- bun run dev
-```
+- [Environment Variables](/configuration/environment-variables)
+- [Create a Production Job](/guides/production-job)
+- [Run Private Workers](/guides/private-workers)
+- [Choose Your Path](/choose-your-path)

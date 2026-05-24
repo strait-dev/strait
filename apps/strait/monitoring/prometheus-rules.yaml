@@ -1,0 +1,386 @@
+groups:
+  - name: strait.recording
+    interval: 30s
+    rules:
+      - record: strait:http_request_rate5m
+        expr: sum(rate(strait_http_request_duration_seconds_count[5m]))
+
+      - record: strait:http_request_p95_seconds5m
+        expr: histogram_quantile(0.95, sum(rate(strait_http_request_duration_seconds_bucket[5m])) by (le))
+
+      - record: strait:http_request_p99_seconds5m
+        expr: histogram_quantile(0.99, sum(rate(strait_http_request_duration_seconds_bucket[5m])) by (le))
+
+      - record: strait:http_error_rate5m
+        expr: sum(rate(strait_http_request_duration_seconds_count{status=~"4..|5.."}[5m]))
+
+      - record: strait:queue_depth
+        expr: sum(strait_queue_depth)
+
+      - record: strait:queue_oldest_queued_p95_seconds5m
+        expr: histogram_quantile(0.95, sum(rate(strait_queue_oldest_queued_age_seconds_bucket[5m])) by (le))
+
+      - record: strait:queue_claim_p95_seconds5m
+        expr: histogram_quantile(0.95, sum(rate(strait_queue_claim_duration_seconds_bucket[5m])) by (le))
+
+      - record: strait:worker_dispatch_p95_seconds5m
+        expr: histogram_quantile(0.95, sum(rate(strait_worker_dispatch_duration_seconds_bucket[5m])) by (le))
+
+      - record: strait:worker_retry_rate5m
+        expr: sum(rate(strait_worker_retry_total[5m]))
+
+      - record: strait:workflow_step_p95_seconds5m
+        expr: histogram_quantile(0.95, sum(rate(strait_workflow_step_duration_seconds_bucket[5m])) by (le))
+
+      - record: strait:workflow_compensation_failure_rate5m
+        expr: sum(rate(strait_workflow_compensation_runs_total{outcome="failure"}[5m]))
+
+      - record: strait:scheduler_loop_p95_seconds5m
+        expr: histogram_quantile(0.95, sum(rate(strait_scheduler_loop_duration_seconds_bucket[5m])) by (le))
+
+      - record: strait:scheduler_skew_seconds
+        expr: max(strait_scheduler_skew_seconds)
+
+      - record: strait:auth_failure_rate5m
+        expr: sum(rate(strait_auth_decisions_total{outcome="failure"}[5m]))
+
+      - record: strait:redis_command_p95_seconds5m
+        expr: histogram_quantile(0.95, sum(rate(strait_redis_command_duration_seconds_bucket[5m])) by (le))
+
+      - record: strait:billing_quota_block_rate5m
+        expr: sum(rate(strait_billing_quota_block_total[5m]))
+
+  - name: strait.queue
+    interval: 30s
+    rules:
+      - alert: StraitQueueDepthHigh
+        expr: max(strait_queue_depth) > 10000
+        for: 5m
+        labels:
+          app: strait
+          owner: platform
+          severity: warning
+        annotations:
+          summary: Strait queue depth is high
+          description: |
+            Max queue depth has exceeded 10000 for 5 minutes. The hottest
+            partition is backing up and workers may not be keeping pace
+            with enqueue rate.
+
+      - alert: StraitDLQGrowing
+        # strait_dlq_depth is a gauge, so rate() is ill-defined. Use
+        # the deriv() of a 15m window instead: > 0 means the best-fit
+        # linear slope over the window is positive, i.e. the DLQ is
+        # net-growing rather than bouncing around a stable level.
+        expr: max(deriv(strait_dlq_depth[15m])) > 0
+        for: 15m
+        labels:
+          app: strait
+          owner: platform
+          severity: warning
+        annotations:
+          summary: Strait DLQ depth is growing
+          description: |
+            The dead-letter queue has been monotonically increasing for 15
+            minutes. A recurring failure mode is likely parking runs in
+            the DLQ faster than operators are replaying or purging them.
+
+      - alert: StraitDLQOldestUnmaskedAged
+        expr: max(strait_queue_dlq_oldest_unmasked_age_seconds) > 86400
+        for: 10m
+        labels:
+          app: strait
+          owner: platform
+          severity: warning
+        annotations:
+          summary: Oldest DLQ row has aged past 24h
+          description: |
+            A dead-letter row has been sitting visible (unmasked) for more
+            than 24 hours. Operators should triage and replay, purge, or
+            mask it; lingering DLQ rows indicate stalled triage.
+
+      - alert: StraitCircuitBreakerOpen
+        expr: increase(strait_queue_circuit_state_transitions_total{to="open"}[5m]) > 0
+        for: 1m
+        labels:
+          app: strait
+          owner: platform
+          severity: page
+        annotations:
+          summary: Strait DB circuit breaker opened
+          description: |
+            The database circuit breaker transitioned to open within the
+            last 5 minutes. Queue claim and worker dispatch are likely
+            degraded or halted. Investigate Postgres health immediately.
+
+      - alert: StraitEventChannelDropping
+        expr: sum(rate(strait_worker_event_channel_dropped_total[5m])) > 0
+        for: 5m
+        labels:
+          app: strait
+          owner: platform
+          severity: warning
+        annotations:
+          summary: Worker event channel is dropping events
+          description: |
+            Executor lifecycle events are being dropped because the event
+            channel buffer is full or closed. Downstream consumers
+            (SSE, audit, CDC fan-out) are losing signal.
+
+      - alert: StraitSchedulerShutdownTimeout
+        expr: increase(strait_scheduler_shutdown_timeouts_total[1h]) > 0
+        for: 1m
+        labels:
+          app: strait
+          owner: platform
+          severity: page
+        annotations:
+          summary: Scheduler component exceeded shutdown deadline
+          description: |
+            At least one scheduler component (reaper, retention, pruner,
+            cron, plan-drift monitor, partition tuner) exceeded its
+            configured shutdown deadline in the past hour. Risks in-flight
+            work loss on the next restart.
+
+      - alert: StraitOutboxLagHigh
+        expr: histogram_quantile(0.99, sum(rate(strait_queue_outbox_lag_seconds_bucket[5m])) by (le)) > 60
+        for: 10m
+        labels:
+          app: strait
+          owner: platform
+          severity: warning
+        annotations:
+          summary: Outbox flush lag p99 exceeds 60s
+          description: |
+            The 99th percentile outbox row age at flush time is above 60
+            seconds for 10 minutes. Webhook / CDC / event-trigger
+            propagation is lagging behind run completion.
+
+      - alert: StraitOutboxQuarantinedRowsAppeared
+        expr: increase(strait_queue_outbox_quarantined_total[15m]) > 0
+        for: 5m
+        labels:
+          app: strait
+          owner: platform
+          severity: warning
+        annotations:
+          summary: Outbox rows were quarantined
+          description: |
+            At least one outbox row was terminalized and quarantined in the
+            last 15 minutes. Event promotion for those rows will not retry
+            until an operator inspects the stored error and fixes the
+            underlying cause.
+
+      - alert: StraitCounterDriftHigh
+        expr: max(strait_queue_counter_drift) > 10
+        for: 15m
+        labels:
+          app: strait
+          owner: platform
+          severity: warning
+        annotations:
+          summary: Trigger-maintained counters drifting from ground truth
+          description: |
+            The reconciler observed absolute drift above 10 between
+            trigger-maintained counters (job_active_counts, dlq_counts)
+            and the authoritative row counts. Admission control decisions
+            may be based on stale numbers.
+
+      - alert: StraitHeartbeatReclaimsSurge
+        expr: sum(rate(strait_queue_heartbeat_reclaims_total[5m])) > 1
+        for: 10m
+        labels:
+          app: strait
+          owner: platform
+          severity: page
+        annotations:
+          summary: High rate of stuck-run heartbeat reclaims
+          description: |
+            Runs are being reclaimed after stale heartbeats at a sustained
+            rate above 1/s for 10 minutes. Workers are crashing, stuck,
+            or losing DB connectivity; schema-version mismatch or runtime
+            regressions are likely.
+
+      - alert: StraitNotifyDroppedSurge
+        expr: sum(rate(strait_queue_notify_dropped_total[5m])) > 0
+        for: 10m
+        labels:
+          app: strait
+          owner: platform
+          severity: warning
+        annotations:
+          summary: Queue wake notifications are being dropped
+          description: |
+            LISTEN/NOTIFY wake events are being dropped because the wake
+            channel is saturated. Workers fall back to polling but
+            end-to-end latency degrades.
+
+  - name: strait.workflow
+    interval: 30s
+    rules:
+      - alert: StraitWorkflowStepFailureRateHigh
+        expr: |
+          sum(rate(strait_workflow_step_transitions_total{to="failed"}[5m]))
+          /
+          clamp_min(sum(rate(strait_workflow_step_transitions_total{to=~"completed|failed|skipped|canceled"}[5m])), 1)
+          > 0.05
+        for: 10m
+        labels:
+          app: strait
+          owner: platform
+          severity: warning
+        annotations:
+          summary: Workflow step failure rate is high
+          description: |
+            More than 5% of terminal workflow step transitions are failing
+            over a sustained 10 minute window. Inspect the workflow
+            dashboard by step kind and the worker dispatch dashboard for
+            matching error or timeout spikes.
+
+      - alert: StraitWorkflowStepP99High
+        expr: histogram_quantile(0.99, sum(rate(strait_workflow_step_duration_seconds_bucket[5m])) by (le, step_kind)) > 300
+        for: 15m
+        labels:
+          app: strait
+          owner: platform
+          severity: warning
+        annotations:
+          summary: Workflow step p99 duration exceeds 5m
+          description: |
+            At least one workflow step kind has a 99th percentile runtime
+            above 5 minutes for 15 minutes. Long-running job, approval,
+            sub-workflow, event, or sleep steps may be stalling downstream
+            fan-in and completion.
+
+      - alert: StraitWorkflowDurableWaitP99High
+        expr: histogram_quantile(0.99, sum(rate(strait_workflow_durable_wait_duration_seconds_bucket[5m])) by (le)) > 21600
+        for: 15m
+        labels:
+          app: strait
+          owner: platform
+          severity: warning
+        annotations:
+          summary: Durable workflow waits exceed 6h at p99
+          description: |
+            Durable wait steps or approvals are completing with very long
+            wait durations. Confirm expected business latency versus
+            stuck approvals, missing external events, or scheduler lag.
+
+      - alert: StraitWorkflowCompensationFailure
+        expr: increase(strait_workflow_compensation_runs_total{outcome="failure"}[15m]) > 0
+        for: 1m
+        labels:
+          app: strait
+          owner: platform
+          severity: page
+        annotations:
+          summary: Workflow compensation failed to start
+          description: |
+            At least one manual compensation attempt failed while loading
+            workflow state, building the plan, or transitioning the run.
+            Operators should inspect the failed run before retrying.
+
+      - alert: StraitWorkflowActiveRunsSurge
+        expr: sum(strait_workflow_active_runs) > 1000
+        for: 15m
+        labels:
+          app: strait
+          owner: platform
+          severity: warning
+        annotations:
+          summary: Active workflow runs are unusually high
+          description: |
+            More than 1000 workflow runs are active for a sustained window.
+            This can indicate a trigger burst, dependency fan-in stall,
+            worker dispatch degradation, or long approval/event waits.
+
+      - alert: StraitWorkflowStalledRuns
+        expr: sum(increase(strait_workflow_stalled_runs_total[10m])) > 0
+        for: 1m
+        labels:
+          app: strait
+          owner: platform
+          severity: warning
+        annotations:
+          summary: Workflow stalled-run detector fired
+          description: |
+            The workflow stalled-run detector found at least one run that
+            could not make progress. Use the scheduler/workflow dashboard
+            and workflow debugger to identify blocked dependencies.
+
+  - name: strait.execution
+    interval: 30s
+    rules:
+      - alert: StraitWorkerDispatchErrorRateHigh
+        expr: |
+          sum(rate(strait_worker_dispatch_duration_seconds_count{outcome=~"error|timeout"}[5m]))
+          /
+          clamp_min(sum(rate(strait_worker_dispatch_duration_seconds_count[5m])), 1)
+          > 0.05
+        for: 10m
+        labels:
+          app: strait
+          owner: platform
+          severity: warning
+        annotations:
+          summary: Worker dispatch error rate is high
+          description: |
+            More than 5% of worker dispatch attempts are ending in errors
+            or timeouts. Check HTTP/gRPC split, customer endpoint health,
+            worker stream connectivity, and retry pressure.
+
+      - alert: StraitWorkerPoolSaturated
+        expr: sum(strait_worker_pool_active) / clamp_min(sum(strait_worker_pool_active) + sum(strait_worker_pool_idle), 1) > 0.9
+        for: 10m
+        labels:
+          app: strait
+          owner: platform
+          severity: warning
+        annotations:
+          summary: Worker pools are saturated
+          description: |
+            Active worker pool slots are above 90% of active plus idle
+            capacity for 10 minutes. Queue latency and retry pressure may
+            increase if enqueue rate remains elevated.
+
+      - alert: StraitGRPCWorkerStreamDisconnects
+        expr: sum(increase(strait_grpc_worker_stream_disconnects_total{reason!="graceful"}[10m])) > 0
+        for: 5m
+        labels:
+          app: strait
+          owner: platform
+          severity: warning
+        annotations:
+          summary: gRPC worker streams are disconnecting unexpectedly
+          description: |
+            One or more connected worker streams disconnected for a reason
+            other than graceful shutdown. Investigate worker process
+            health, network stability, and API-side stream errors.
+
+      - alert: StraitSchedulerLoopP99High
+        expr: histogram_quantile(0.99, sum(rate(strait_scheduler_loop_duration_seconds_bucket[5m])) by (le, loop)) > 30
+        for: 10m
+        labels:
+          app: strait
+          owner: platform
+          severity: warning
+        annotations:
+          summary: Scheduler loop p99 duration exceeds 30s
+          description: |
+            At least one scheduler loop is taking more than 30 seconds at
+            p99. Cron, reaper, retention, pool pruning, or workflow
+            maintenance work may be falling behind.
+
+      - alert: StraitEventTriggerTimeouts
+        expr: sum(rate(strait_event_triggers_timed_out_total[5m])) > 0
+        for: 10m
+        labels:
+          app: strait
+          owner: platform
+          severity: warning
+        annotations:
+          summary: Event triggers are timing out
+          description: |
+            Workflow or job event triggers are expiring before matching
+            events arrive. Check producer delivery, event keys, trigger
+            expiration policy, and event wait dashboard panels.

@@ -111,6 +111,75 @@ func TestNewPostgresQueue(t *testing.T) {
 	}
 }
 
+func TestWorkerQueueRefArgs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		refs            []domain.WorkerQueueRef
+		wantProjectIDs  []string
+		wantQueueNames  []string
+		wantEnvironment []string
+	}{
+		{
+			name:            "empty",
+			refs:            nil,
+			wantProjectIDs:  nil,
+			wantQueueNames:  nil,
+			wantEnvironment: nil,
+		},
+		{
+			name: "single valid scope",
+			refs: []domain.WorkerQueueRef{
+				{ProjectID: "project-a", QueueName: "priority", EnvironmentID: "env-prod"},
+			},
+			wantProjectIDs:  []string{"project-a"},
+			wantQueueNames:  []string{"priority"},
+			wantEnvironment: []string{"env-prod"},
+		},
+		{
+			name: "single invalid scope",
+			refs: []domain.WorkerQueueRef{
+				{ProjectID: "project-a"},
+			},
+			wantProjectIDs:  nil,
+			wantQueueNames:  nil,
+			wantEnvironment: nil,
+		},
+		{
+			name: "deduplicates and drops invalid scopes",
+			refs: []domain.WorkerQueueRef{
+				{ProjectID: "project-a", QueueName: "default"},
+				{ProjectID: "project-a", QueueName: "default"},
+				{ProjectID: "project-a", QueueName: "priority", EnvironmentID: "env-prod"},
+				{ProjectID: "project-b", QueueName: "priority", EnvironmentID: "env-staging"},
+				{ProjectID: "", QueueName: "ignored"},
+				{ProjectID: "project-c", QueueName: ""},
+			},
+			wantProjectIDs:  []string{"project-a", "project-a", "project-b"},
+			wantQueueNames:  []string{"default", "priority", "priority"},
+			wantEnvironment: []string{"", "env-prod", "env-staging"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			projectIDs, queueNames, environmentIDs := workerQueueRefArgs(tt.refs)
+			if !slices.Equal(projectIDs, tt.wantProjectIDs) {
+				t.Fatalf("projectIDs = %v, want %v", projectIDs, tt.wantProjectIDs)
+			}
+			if !slices.Equal(queueNames, tt.wantQueueNames) {
+				t.Fatalf("queueNames = %v, want %v", queueNames, tt.wantQueueNames)
+			}
+			if !slices.Equal(environmentIDs, tt.wantEnvironment) {
+				t.Fatalf("environmentIDs = %v, want %v", environmentIDs, tt.wantEnvironment)
+			}
+		})
+	}
+}
+
 func TestEnqueue_SetsDefaults(t *testing.T) {
 	t.Parallel()
 	db := &mockDBTX{
@@ -758,7 +827,7 @@ func TestEnqueue_ExplicitExecutionMode_Preserved(t *testing.T) {
 	run := &domain.JobRun{
 		JobID:         "job-1",
 		ProjectID:     "proj-1",
-		ExecutionMode: domain.ExecutionModeManaged,
+		ExecutionMode: domain.ExecutionModeWorker,
 	}
 
 	if err := q.Enqueue(context.Background(), run); err != nil {
@@ -769,8 +838,8 @@ func TestEnqueue_ExplicitExecutionMode_Preserved(t *testing.T) {
 	if !ok {
 		t.Fatalf("arg[28] (execution_mode) type = %T, want string", capturedArgs[28])
 	}
-	if execMode != string(domain.ExecutionModeManaged) {
-		t.Errorf("execution mode = %q, want %q", execMode, domain.ExecutionModeManaged)
+	if execMode != string(domain.ExecutionModeWorker) {
+		t.Errorf("execution mode = %q, want %q", execMode, domain.ExecutionModeWorker)
 	}
 }
 

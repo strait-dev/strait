@@ -18,13 +18,20 @@ type UsageReportEmailerStore interface {
 	billing.Store
 }
 
+type usageReportClaimStore interface {
+	ClaimUsageReportSend(ctx context.Context, orgID string, periodEnd time.Time) (bool, error)
+	FinalizeUsageReportSend(ctx context.Context, orgID string, periodEnd time.Time) error
+	ReleaseUsageReportSendClaim(ctx context.Context, orgID string, periodEnd time.Time) error
+}
+
 // ResendEmailSender is the subset of the Resend client used for sending emails.
 type ResendEmailSender interface {
 	SendWithContext(ctx context.Context, params *resend.SendEmailRequest) (*resend.SendEmailResponse, error)
 }
 
-// UsageReportEmailer sends monthly PDF usage reports to org admins when their
-// billing period ends. Runs daily and checks for orgs whose period ended yesterday.
+// UsageReportEmailer sends monthly PDF usage reports to org admins after their
+// billing period ends. Runs daily and catches up any ended period that has not
+// been claimed yet.
 type UsageReportEmailer struct {
 	store     UsageReportEmailerStore
 	emailAPI  ResendEmailSender
@@ -62,30 +69,35 @@ func (re *UsageReportEmailer) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			re.checkAndSend(context.WithoutCancel(ctx))
+			runSchedulerCycleCheckIn(ctx, re.interval, func() {
+				re.checkAndSend(context.WithoutCancel(ctx))
+			})
 		}
 	}
 }
 
 func (re *UsageReportEmailer) checkAndSend(ctx context.Context) {
-	today := time.Now().UTC().Format("2006-01-02")
+	now := time.Now().UTC()
+	today := now.Format("2006-01-02")
 	if re.lastRunDate == today {
 		return
 	}
-	re.lastRunDate = today
 
-	// Find orgs whose billing period ended yesterday.
+	// Find orgs whose billing period has ended and whose report has not been
+	// claimed yet. This intentionally catches up missed scheduler days.
 	orgIDs, err := re.store.ListAllSubscribedOrgIDs(ctx)
 	if err != nil {
 		re.logger.Warn("usage report emailer: failed to list subscribed orgs", "error", err)
 		return
 	}
 
-	yesterday := time.Now().UTC().Add(-24 * time.Hour).Truncate(24 * time.Hour)
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	completed := true
 
 	for _, orgID := range orgIDs {
 		sub, subErr := re.store.GetOrgSubscription(ctx, orgID)
 		if subErr != nil {
+			completed = false
 			continue
 		}
 
@@ -100,38 +112,67 @@ func (re *UsageReportEmailer) checkAndSend(ctx context.Context) {
 			continue
 		}
 
-		// Check if the billing period ended yesterday.
+		// Check if the billing period ended before today. Same-day periods are
+		// left for tomorrow so usage aggregation has settled.
 		if sub.CurrentPeriodEnd == nil {
 			continue
 		}
 		periodEnd := sub.CurrentPeriodEnd.UTC().Truncate(24 * time.Hour)
-		if !periodEnd.Equal(yesterday) {
+		if !periodEnd.Before(todayStart) {
 			continue
 		}
 
-		// Dedup: skip if already sent for this period.
-		alreadySent, dedupErr := re.store.HasSentUsageReport(ctx, orgID, periodEnd)
+		claimed, dedupErr := re.claimReportSend(ctx, orgID, periodEnd)
 		if dedupErr != nil {
-			re.logger.Warn("usage report emailer: dedup check failed",
+			re.logger.Warn("usage report emailer: report claim failed",
 				"org_id", orgID, "error", dedupErr)
+			completed = false
 			continue
 		}
-		if alreadySent {
+		if !claimed {
 			continue
 		}
 
-		re.sendReport(ctx, orgID, sub)
+		if !re.sendReport(ctx, orgID, sub) {
+			completed = false
+			re.releaseReportClaim(ctx, orgID, periodEnd)
+		}
+	}
+	if completed {
+		re.lastRunDate = today
 	}
 }
 
-func (re *UsageReportEmailer) sendReport(ctx context.Context, orgID string, sub *billing.OrgSubscription) {
+func (re *UsageReportEmailer) claimReportSend(ctx context.Context, orgID string, periodEnd time.Time) (bool, error) {
+	if claimStore, ok := re.store.(usageReportClaimStore); ok {
+		return claimStore.ClaimUsageReportSend(ctx, orgID, periodEnd)
+	}
+	alreadySent, err := re.store.HasSentUsageReport(ctx, orgID, periodEnd)
+	if err != nil || alreadySent {
+		return false, err
+	}
+	if err := re.store.RecordSentUsageReport(ctx, orgID, periodEnd); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (re *UsageReportEmailer) releaseReportClaim(ctx context.Context, orgID string, periodEnd time.Time) {
+	if claimStore, ok := re.store.(usageReportClaimStore); ok {
+		if err := claimStore.ReleaseUsageReportSendClaim(ctx, orgID, periodEnd); err != nil {
+			re.logger.Warn("usage report emailer: failed to release report claim", "org_id", orgID, "error", err)
+		}
+	}
+}
+
+func (re *UsageReportEmailer) sendReport(ctx context.Context, orgID string, sub *billing.OrgSubscription) bool {
 	// Determine the previous period.
 	var periodStart, periodEnd time.Time
 	if sub.CurrentPeriodStart != nil && sub.CurrentPeriodEnd != nil {
 		periodEnd = *sub.CurrentPeriodEnd
 		periodStart = *sub.CurrentPeriodStart
 	} else {
-		return
+		return false
 	}
 
 	// Generate PDF.
@@ -142,7 +183,7 @@ func (re *UsageReportEmailer) sendReport(ctx context.Context, orgID string, sub 
 	if err != nil {
 		re.logger.Warn("usage report emailer: failed to generate PDF",
 			"org_id", orgID, "error", err)
-		return
+		return false
 	}
 
 	// Get admin emails.
@@ -150,14 +191,14 @@ func (re *UsageReportEmailer) sendReport(ctx context.Context, orgID string, sub 
 	if err != nil {
 		re.logger.Warn("usage report emailer: failed to list admin emails",
 			"org_id", orgID, "error", err)
-		return
+		return false
 	}
 	if len(emails) == 0 {
 		// Record as sent to avoid retrying every day for orgs with no email recipients.
-		_ = re.store.RecordSentUsageReport(ctx, orgID, periodEnd)
+		_ = re.finalizeReportSent(ctx, orgID, periodEnd)
 		re.logger.Debug("usage report emailer: no admin emails for org, skipping",
 			"org_id", orgID)
-		return
+		return true
 	}
 
 	filename := fmt.Sprintf("strait-usage-%s-to-%s.pdf",
@@ -169,18 +210,17 @@ func (re *UsageReportEmailer) sendReport(ctx context.Context, orgID string, sub 
 		periodEnd.Format("Jan 2, 2006"))
 
 	// Get plan details and addon info for the report.
-	limits := billing.GetPlanLimits(domain.PlanTier(sub.PlanTier))
 	var addonCount int
 	if addons, err := re.store.ListActiveAddons(ctx, orgID); err == nil {
 		addonCount = len(addons)
 	}
 	var periodSpend int64
-	if spend, err := re.store.SumOrgPeriodSpend(ctx, orgID, periodStart); err == nil {
-		periodSpend = spend
+	if usage, err := re.store.GetOrgUsageForPeriod(ctx, orgID, periodStart, periodEnd); err == nil {
+		periodSpend = sumUsageRecordSpend(usage)
 	}
-	overage := max(periodSpend-limits.ComputeCreditMicrousd, 0)
+	overage := max(periodSpend, 0)
 
-	htmlBody := buildUsageReportHTML(orgID, sub.PlanTier, periodStart, periodEnd, limits.ComputeCreditMicrousd, addonCount, overage)
+	htmlBody := buildUsageReportHTML(orgID, sub.PlanTier, periodStart, periodEnd, 0, addonCount, overage)
 
 	req := &resend.SendEmailRequest{
 		From:    re.fromEmail,
@@ -198,11 +238,11 @@ func (re *UsageReportEmailer) sendReport(ctx context.Context, orgID string, sub 
 	if _, err := re.emailAPI.SendWithContext(ctx, req); err != nil {
 		re.logger.Warn("usage report emailer: failed to send email",
 			"org_id", orgID, "error", err)
-		return
+		return false
 	}
 
 	// Record successful send for deduplication.
-	if err := re.store.RecordSentUsageReport(ctx, orgID, periodEnd); err != nil {
+	if err := re.finalizeReportSent(ctx, orgID, periodEnd); err != nil {
 		re.logger.Warn("usage report emailer: failed to record sent report",
 			"org_id", orgID, "error", err)
 	}
@@ -212,6 +252,22 @@ func (re *UsageReportEmailer) sendReport(ctx context.Context, orgID string, sub 
 		"recipients", len(emails),
 		"period", fmt.Sprintf("%s to %s", periodStart.Format("2006-01-02"), periodEnd.Format("2006-01-02")),
 	)
+	return true
+}
+
+func (re *UsageReportEmailer) finalizeReportSent(ctx context.Context, orgID string, periodEnd time.Time) error {
+	if claimStore, ok := re.store.(usageReportClaimStore); ok {
+		return claimStore.FinalizeUsageReportSend(ctx, orgID, periodEnd)
+	}
+	return re.store.RecordSentUsageReport(ctx, orgID, periodEnd)
+}
+
+func sumUsageRecordSpend(records []billing.UsageRecord) int64 {
+	var total int64
+	for _, record := range records {
+		total += record.ComputeCostMicro + record.AICostMicro
+	}
+	return total
 }
 
 func buildUsageReportHTML(orgID, planTier string, periodStart, periodEnd time.Time, creditMicro int64, addonCount int, overageMicro int64) string {

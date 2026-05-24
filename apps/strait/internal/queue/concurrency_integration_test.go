@@ -33,9 +33,7 @@ func TestConcurrency_50WorkersMaxConcurrency5(t *testing.T) {
 	var claimed atomic.Int64
 	var wg sync.WaitGroup
 	for range 50 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for range 10 {
 				batch, err := q.DequeueN(ctx, 1)
 				if err != nil || len(batch) == 0 {
@@ -43,7 +41,7 @@ func TestConcurrency_50WorkersMaxConcurrency5(t *testing.T) {
 				}
 				claimed.Add(1)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	// max_concurrency is enforced softly under Postgres' default
@@ -78,14 +76,12 @@ func TestConcurrency_ThunderingHerdAfterNotify(t *testing.T) {
 	var claimed atomic.Int64
 	var wg sync.WaitGroup
 	for range 20 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			r, err := q.Dequeue(ctx)
 			if err == nil && r != nil {
 				claimed.Add(1)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	if claimed.Load() != 1 {
@@ -108,9 +104,7 @@ func TestConcurrency_NoDuplicateClaimsUnder100Workers(t *testing.T) {
 	var dupes atomic.Int64
 	var wg sync.WaitGroup
 	for range 100 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for {
 				batch, err := q.DequeueN(ctx, 5)
 				if err != nil || len(batch) == 0 {
@@ -122,7 +116,7 @@ func TestConcurrency_NoDuplicateClaimsUnder100Workers(t *testing.T) {
 					}
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	if dupes.Load() > 0 {
@@ -160,14 +154,12 @@ func TestConcurrency_CursorAdvanceUnder20Goroutines(t *testing.T) {
 	var wg sync.WaitGroup
 	base := time.Now()
 	for g := range 20 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for i := range 500 {
 				ts := base.Add(time.Duration(g*500+i) * time.Microsecond)
 				c.Advance(ts, newID())
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	_, _, ok := c.Snapshot()
@@ -192,9 +184,7 @@ func TestConcurrency_CounterInvariantUnderStorm(t *testing.T) {
 	// 10 workers claim, complete, and fail runs in parallel.
 	var wg sync.WaitGroup
 	for range 10 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for range 20 {
 				batch, err := q.DequeueN(ctx, 1)
 				if err != nil || len(batch) == 0 {
@@ -209,7 +199,7 @@ func TestConcurrency_CounterInvariantUnderStorm(t *testing.T) {
 					}
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -230,9 +220,7 @@ func TestConcurrency_EnqueueAndDequeueSimultaneously(t *testing.T) {
 	var wg sync.WaitGroup
 	// Enqueue goroutines.
 	for range 5 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for range 20 {
 				r := &domain.JobRun{
 					ID: newID(), JobID: job.ID, ProjectID: job.ProjectID,
@@ -241,20 +229,18 @@ func TestConcurrency_EnqueueAndDequeueSimultaneously(t *testing.T) {
 					enqueued.Add(1)
 				}
 			}
-		}()
+		})
 	}
 	// Dequeue goroutines.
 	for range 5 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for range 20 {
 				batch, err := q.DequeueN(ctx, 2)
 				if err == nil {
 					dequeued.Add(int64(len(batch)))
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	t.Logf("enqueued=%d dequeued=%d", enqueued.Load(), dequeued.Load())
@@ -277,16 +263,14 @@ func TestConcurrency_BackpressureConcurrentConsume(t *testing.T) {
 	var allowed, throttled atomic.Int64
 	var wg sync.WaitGroup
 	for range 50 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			err := bp.TryConsume(ctx, project)
 			if err == nil {
 				allowed.Add(1)
 			} else if _, ok := queue.AsThrottled(err); ok {
 				throttled.Add(1)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	total := allowed.Load() + throttled.Load()

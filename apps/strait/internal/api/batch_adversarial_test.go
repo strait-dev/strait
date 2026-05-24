@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -163,6 +164,22 @@ func FuzzBatchTriggerPayload(f *testing.F) {
 		// validatePayloadAgainstSchema should never panic.
 		_ = validatePayloadAgainstSchema(json.RawMessage(payload), json.RawMessage(`{"type":"object"}`))
 	})
+}
+
+func TestCanonicalizePayload_PreservesLargeJSONIntegers(t *testing.T) {
+	t.Parallel()
+
+	payload := json.RawMessage(`{"id":9007199254740993123456789,"nested":{"value":123456789012345678901234567890}}`)
+	canonical, _, err := canonicalizePayload(payload)
+	if err != nil {
+		t.Fatalf("canonicalizePayload returned error: %v", err)
+	}
+	if !bytes.Contains(canonical, []byte(`9007199254740993123456789`)) {
+		t.Fatalf("canonical payload lost large id precision: %s", canonical)
+	}
+	if !bytes.Contains(canonical, []byte(`123456789012345678901234567890`)) {
+		t.Fatalf("canonical payload lost nested value precision: %s", canonical)
+	}
 }
 
 func TestBulkCancel_NonExistentIDs(t *testing.T) {

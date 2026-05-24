@@ -18,6 +18,9 @@ func (q *Queries) CreateWorkflow(ctx context.Context, w *domain.Workflow) error 
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateWorkflow")
 	defer span.End()
 
+	if err := q.requireCurrentProjectContext(ctx, w.ProjectID); err != nil {
+		return fmt.Errorf("create workflow: %w", err)
+	}
 	if w.ID == "" {
 		w.ID = uuid.Must(uuid.NewV7()).String()
 	}
@@ -70,6 +73,17 @@ func (q *Queries) CreateWorkflow(ctx context.Context, w *domain.Workflow) error 
 		return fmt.Errorf("create workflow: %w", err)
 	}
 
+	return nil
+}
+
+func (q *Queries) requireCurrentProjectContext(ctx context.Context, projectID string) error {
+	var currentProjectID string
+	if err := q.db.QueryRow(ctx, `SELECT COALESCE(current_setting('app.current_project_id', true), '')`).Scan(&currentProjectID); err != nil {
+		return fmt.Errorf("read project context: %w", err)
+	}
+	if currentProjectID != "" && currentProjectID != projectID {
+		return ErrProjectContextMismatch
+	}
 	return nil
 }
 
@@ -241,10 +255,60 @@ func (q *Queries) DeleteWorkflow(ctx context.Context, id string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteWorkflow")
 	defer span.End()
 
-	query := `DELETE FROM workflows WHERE id = $1`
+	if _, ok := q.db.(TxBeginner); ok {
+		return q.withTx(ctx, func(tx *Queries) error {
+			return tx.deleteWorkflowTx(ctx, id)
+		})
+	}
 
-	if _, err := q.db.Exec(ctx, query, id); err != nil {
+	return q.deleteWorkflowTx(ctx, id)
+}
+
+// ErrWorkflowHasActiveRuns is returned when deleting a workflow that still has
+// non-terminal runs.
+var ErrWorkflowHasActiveRuns = errors.New("workflow has active runs")
+
+func (q *Queries) deleteWorkflowTx(ctx context.Context, id string) error {
+	var exists bool
+	if err := q.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM workflows WHERE id = $1 FOR UPDATE)`, id).Scan(&exists); err != nil {
+		return fmt.Errorf("delete workflow lock: %w", err)
+	}
+	if !exists {
+		return ErrWorkflowNotFound
+	}
+
+	var activeCount int
+	err := q.db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM workflow_runs
+		WHERE workflow_id = $1
+		  AND status NOT IN ('completed', 'failed', 'timed_out', 'canceled', 'compensated', 'compensation_failed')`,
+		id,
+	).Scan(&activeCount)
+	if err != nil {
+		return fmt.Errorf("delete workflow check active runs: %w", err)
+	}
+	if activeCount > 0 {
+		return ErrWorkflowHasActiveRuns
+	}
+
+	if _, err := q.db.Exec(ctx, `
+		DELETE FROM event_triggers
+		WHERE workflow_run_id IN (SELECT id FROM workflow_runs WHERE workflow_id = $1)`,
+		id,
+	); err != nil {
+		return fmt.Errorf("delete workflow event triggers: %w", err)
+	}
+	if _, err := q.db.Exec(ctx, `DELETE FROM workflow_runs WHERE workflow_id = $1`, id); err != nil {
+		return fmt.Errorf("delete workflow runs: %w", err)
+	}
+
+	tag, err := q.db.Exec(ctx, `DELETE FROM workflows WHERE id = $1`, id)
+	if err != nil {
 		return fmt.Errorf("delete workflow: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrWorkflowNotFound
 	}
 
 	return nil
@@ -325,11 +389,16 @@ func (q *Queries) ListCronWorkflows(ctx context.Context) ([]domain.Workflow, err
 	defer span.End()
 
 	query := `
-		SELECT id, project_id, name, slug, description, enabled, version, timeout_secs, max_concurrent_runs,
-		       max_parallel_steps, cron, cron_timezone, skip_if_running, tags, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at
-		FROM workflows
-		WHERE enabled = TRUE AND cron IS NOT NULL AND cron <> ''
-		ORDER BY created_at DESC`
+		SELECT w.id, w.project_id, w.name, w.slug, w.description, w.enabled, w.version, w.timeout_secs, w.max_concurrent_runs,
+		       w.max_parallel_steps, w.cron, w.cron_timezone, w.skip_if_running, w.tags, w.version_id, w.version_policy, w.backwards_compatible, w.created_by, w.updated_by, w.created_at, w.updated_at
+		FROM workflows w
+		JOIN projects p ON p.id = w.project_id
+		WHERE w.enabled = TRUE
+		  AND w.cron IS NOT NULL
+		  AND w.cron <> ''
+		  AND p.deleted_at IS NULL
+		  AND COALESCE(p.suspended, false) = false
+		ORDER BY w.created_at DESC`
 
 	rows, err := q.db.Query(ctx, query)
 	if err != nil {

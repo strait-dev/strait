@@ -1,25 +1,20 @@
 import { createServerFn } from "@tanstack/react-start";
-import { getRequestHeaders } from "@tanstack/react-start/server";
 import z from "zod/v4";
 import type { Project } from "@/hooks/api/types";
-import { getAuth, getAuthPool } from "@/lib/auth.server";
-import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
-import {
-  requireOrgAccess,
-  requireProjectAccess,
-} from "@/middlewares/require-access";
 
 /**
  * Ensures the project table exists in the auth database.
  * Called lazily on first project operation.
  */
 let tableEnsured = false;
-async function ensureProjectTable() {
+export async function ensureProjectTable(pool: {
+  query: (sql: string) => Promise<unknown>;
+}) {
   if (tableEnsured) {
     return;
   }
-  await getAuthPool().query(`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS project (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
       organization_id TEXT NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
@@ -49,15 +44,25 @@ export const createProjectServerFn = createServerFn({ method: "POST" })
   )
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
+    const [
+      { getAuthPool },
+      { requireOrgAccess },
+      { apiEffect, runWithFallback },
+    ] = await Promise.all([
+      import("@/lib/auth.server"),
+      import("@/middlewares/require-access"),
+      import("@/lib/effect-api.server"),
+    ]);
     await requireOrgAccess(context.user.id, data.organizationId);
-    await ensureProjectTable();
+    const authPool = getAuthPool();
+    await ensureProjectTable(authPool);
 
     const slug = data.name
       .toLowerCase()
       .replace(/\s+/g, "-")
       .replace(/[^a-z0-9-]/g, "");
 
-    const result = await getAuthPool().query<Project>(
+    const result = await authPool.query<Project>(
       `INSERT INTO project (organization_id, name, slug, description, created_by)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING id, organization_id, name, slug, description, created_by, created_at::text, updated_at::text`,
@@ -95,10 +100,13 @@ export const listProjectsServerFn = createServerFn({ method: "GET" })
   )
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
+    const { getAuthPool } = await import("@/lib/auth.server");
+    const { requireOrgAccess } = await import("@/middlewares/require-access");
     await requireOrgAccess(context.user.id, data.organizationId);
-    await ensureProjectTable();
+    const authPool = getAuthPool();
+    await ensureProjectTable(authPool);
 
-    const result = await getAuthPool().query<Project>(
+    const result = await authPool.query<Project>(
       `SELECT id, organization_id, name, slug, description, created_by, created_at::text, updated_at::text
        FROM project
        WHERE organization_id = $1
@@ -116,7 +124,9 @@ export const getProjectServerFn = createServerFn({ method: "GET" })
   )
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
-    await ensureProjectTable();
+    const { getAuthPool } = await import("@/lib/auth.server");
+    const authPool = getAuthPool();
+    await ensureProjectTable(authPool);
 
     const activeOrgId = (context as Record<string, unknown>)
       .activeOrganizationId as string | undefined;
@@ -125,7 +135,7 @@ export const getProjectServerFn = createServerFn({ method: "GET" })
       return null;
     }
 
-    const result = await getAuthPool().query<Project>(
+    const result = await authPool.query<Project>(
       `SELECT id, organization_id, name, slug, description, created_by, created_at::text, updated_at::text
        FROM project
        WHERE id = $1 AND organization_id = $2`,
@@ -141,27 +151,56 @@ export const deleteProjectServerFn = createServerFn({ method: "POST" })
   )
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
+    const [
+      { apiPath },
+      { getAuthPool },
+      { apiEffect, runWithSentryReport },
+      { requireProjectAdmin },
+    ] = await Promise.all([
+      import("@/lib/api-client.server"),
+      import("@/lib/auth.server"),
+      import("@/lib/effect-api.server"),
+      import("@/middlewares/require-access"),
+    ]);
     const activeOrgId = (context as Record<string, unknown>)
       .activeOrganizationId as string | undefined;
     if (!activeOrgId) {
       throw new Error("Forbidden");
     }
-    await requireOrgAccess(context.user.id, activeOrgId);
-    await ensureProjectTable();
+    const authPool = getAuthPool();
+    await ensureProjectTable(authPool);
+    await requireProjectAdmin(context.user.id, data.id, activeOrgId);
 
-    const result = await getAuthPool().query(
-      "DELETE FROM project WHERE id = $1 AND created_by = $2 RETURNING id",
-      [data.id, context.user.id]
+    const projectResult = await authPool.query<{ id: string }>(
+      "SELECT id FROM project WHERE id = $1 AND organization_id = $2",
+      [data.id, activeOrgId]
+    );
+
+    if (projectResult.rowCount === 0) {
+      throw new Error("Project not found or permission denied");
+    }
+
+    await runWithSentryReport(
+      apiEffect(apiPath`/v1/projects/${data.id}`, {
+        method: "DELETE",
+        projectId: data.id,
+      })
+    );
+
+    const result = await authPool.query(
+      "DELETE FROM project WHERE id = $1 AND organization_id = $2 RETURNING id",
+      [data.id, activeOrgId]
     );
 
     if (result.rowCount === 0) {
       throw new Error("Project not found or permission denied");
     }
 
-    // Sync deletion to Go service (best-effort).
-    await runWithFallback(
-      apiEffect(`/v1/projects/${data.id}`, { method: "DELETE" }),
-      undefined
+    await authPool.query(
+      `UPDATE "user"
+       SET "activeProjectId" = NULL
+       WHERE "activeProjectId" = $1`,
+      [data.id]
     );
 
     return { success: true };
@@ -174,14 +213,17 @@ export const setActiveProjectServerFn = createServerFn({ method: "POST" })
   )
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
+    const [{ getAuthPool }, { requireProjectAccess }] = await Promise.all([
+      import("@/lib/auth.server"),
+      import("@/middlewares/require-access"),
+    ]);
     const activeOrgId = (context as Record<string, unknown>)
       .activeOrganizationId as string | undefined;
     await requireProjectAccess(context.user.id, data.projectId, activeOrgId);
 
-    const headers = getRequestHeaders();
-    await (await getAuth()).api.updateUser({
-      body: { activeProjectId: data.projectId },
-      headers,
-    });
+    await getAuthPool().query(
+      `UPDATE "user" SET "activeProjectId" = $1 WHERE id = $2`,
+      [data.projectId, context.user.id]
+    );
     return { success: true };
   });

@@ -42,7 +42,7 @@ export function ToastConfirm({
     <div className="flex w-full max-w-[400px] flex-col gap-3 rounded-md border border-border bg-background p-3 shadow-black/5 shadow-lg">
       <div className="flex items-start gap-3">
         <div
-          className={`mt-0.5 shrink-0 ${variant === "destructive" ? "text-destructive" : "text-amber-500"}`}
+          className={`mt-0.5 shrink-0 ${variant === "destructive" ? "text-destructive" : "text-warning"}`}
         >
           <HugeiconsIcon className="size-4" icon={AlertDiamondIcon} />
         </div>

@@ -69,7 +69,7 @@ func newFuzzIsolationStore() *APIStoreMock {
 	return ms
 }
 
-// 1. FuzzCrossProjectJobAccess (STR-327)
+// 1. FuzzCrossProjectJobAccess
 // Fuzz job IDs to ensure cross-project access always returns 404, never 200
 // with data from a different project.
 
@@ -95,7 +95,7 @@ func FuzzCrossProjectJobAccess(f *testing.F) {
 	})
 }
 
-// 2. FuzzCrossProjectRunAccess (STR-327)
+// 2. FuzzCrossProjectRunAccess
 // Fuzz run IDs to ensure cross-project access always returns 404.
 
 func FuzzCrossProjectRunAccess(f *testing.F) {
@@ -119,7 +119,7 @@ func FuzzCrossProjectRunAccess(f *testing.F) {
 	})
 }
 
-// 3. FuzzCrossProjectWorkflowAccess (STR-327)
+// 3. FuzzCrossProjectWorkflowAccess
 // Fuzz workflow IDs to ensure cross-project access always returns 404.
 
 func FuzzCrossProjectWorkflowAccess(f *testing.F) {
@@ -143,7 +143,7 @@ func FuzzCrossProjectWorkflowAccess(f *testing.F) {
 	})
 }
 
-// 4. FuzzCrossProjectEnvironmentAccess (STR-327)
+// 4. FuzzCrossProjectEnvironmentAccess
 // Fuzz environment IDs to ensure cross-project access always returns 404.
 
 func FuzzCrossProjectEnvironmentAccess(f *testing.F) {
@@ -167,7 +167,7 @@ func FuzzCrossProjectEnvironmentAccess(f *testing.F) {
 	})
 }
 
-// 5. FuzzSDKTokenRunIDMismatch (STR-328)
+// 5. FuzzSDKTokenRunIDMismatch
 // Generate valid JWTs with random run IDs, then try to use them against a
 // different run ID endpoint. Should always get 403.
 
@@ -208,7 +208,7 @@ func FuzzSDKTokenRunIDMismatch(f *testing.F) {
 	})
 }
 
-// 6. FuzzURLValidationErrorCasing (STR-323)
+// 6. FuzzURLValidationErrorCasing
 // Fuzz validateURL with various URLs and verify the error message never
 // contains the malformed "uRL" casing.
 
@@ -234,7 +234,7 @@ func FuzzURLValidationErrorCasing(f *testing.F) {
 	})
 }
 
-// 7. FuzzNullByteStripping (STR-330)
+// 7. FuzzNullByteStripping
 // Fuzz stripNullBytesFromStruct with structs containing strings with
 // embedded null bytes. Verify output never contains \x00.
 
@@ -264,7 +264,7 @@ func FuzzNullByteStripping(f *testing.F) {
 	})
 }
 
-// 8. FuzzCronFieldCount (STR-333)
+// 8. FuzzCronFieldCount
 // Fuzz validateCronFieldCount with random strings. Verify it only accepts
 // exactly 5 field expressions (the parser does not support seconds).
 
@@ -297,7 +297,7 @@ func FuzzCronFieldCount(f *testing.F) {
 	})
 }
 
-// 9. FuzzWebhookEventTypes (STR-335)
+// 9. FuzzWebhookEventTypes
 // Fuzz webhook event type validation with random strings. Ensure invalid
 // types are always rejected.
 
@@ -319,14 +319,13 @@ func FuzzWebhookEventTypes(f *testing.F) {
 		isValid := validWebhookEventTypes[eventType]
 
 		knownTypes := map[string]bool{
-			domain.WebhookEventRunCompleted:         true,
-			domain.WebhookEventRunFailed:            true,
-			domain.WebhookEventRunTimedOut:          true,
-			domain.WebhookEventRunCanceled:          true,
-			domain.WebhookEventWorkflowCompleted:    true,
-			domain.WebhookEventWorkflowFailed:       true,
-			domain.WebhookEventComputeBudgetWarning: true,
-			domain.WebhookEventSLOBudgetWarning:     true,
+			domain.WebhookEventRunCompleted:      true,
+			domain.WebhookEventRunFailed:         true,
+			domain.WebhookEventRunTimedOut:       true,
+			domain.WebhookEventRunCanceled:       true,
+			domain.WebhookEventWorkflowCompleted: true,
+			domain.WebhookEventWorkflowFailed:    true,
+			domain.WebhookEventSLOBudgetWarning:  true,
 		}
 
 		if isValid && !knownTypes[eventType] {
@@ -338,7 +337,7 @@ func FuzzWebhookEventTypes(f *testing.F) {
 	})
 }
 
-// 10. FuzzTriggerScheduledAt (STR-325)
+// 10. FuzzTriggerScheduledAt
 // Fuzz the scheduled_at validation with random time strings. Ensure past
 // dates and dates >30 days out are rejected.
 
@@ -396,7 +395,7 @@ func FuzzTriggerScheduledAt(f *testing.F) {
 	})
 }
 
-// 11. FuzzProjectMatchHelper (STR-327)
+// 11. FuzzProjectMatchHelper
 // Fuzz requireProjectMatch with random project IDs. Ensure it never returns
 // nil when IDs differ and context has a project.
 
@@ -429,7 +428,7 @@ func FuzzProjectMatchHelper(f *testing.F) {
 	})
 }
 
-// 12. FuzzNullByteReader (STR-330)
+// 12. FuzzNullByteReader
 // Fuzz the nullByteStrippingReader with random byte sequences. Ensure
 // output never contains \x00.
 

@@ -12,15 +12,10 @@ import (
 	"strait/internal/queue"
 )
 
-// maxBackpressureSampleN is a hard cap on the number of per-project
-// backpressure samples recorded per tick. Each sample becomes a unique
-// (project_id) label combination on the
-// strait.queue.backpressure_tokens_available histogram. Without this
-// cap a tenant with 100k projects would materialise 100k histogram
-// series over time and blow up metrics cardinality / memory in the
-// exporter. 1000 projects-per-tick is a pragmatic ceiling that keeps
-// cardinality bounded while still surfacing the most-starved projects,
-// which are the ones operators care about on a backpressure dashboard.
+// maxBackpressureSampleN is a hard cap on the number of token-balance samples
+// recorded per tick. Samples are recorded without project_id labels; the cap
+// bounds work per cycle while keeping metrics cardinality independent of
+// tenant/project creation.
 const maxBackpressureSampleN = 1000
 
 // BackpressureTokenSampler is the minimal surface of *queue.Backpressure
@@ -100,9 +95,12 @@ func (s *BackpressureSampler) sampleOnce(ctx context.Context) {
 		samples = samples[:s.sampleN]
 	}
 	for _, sample := range samples {
-		s.metrics.BackpressureTokensAvailable.Record(ctx, sample.Tokens,
-			metric.WithAttributes(attribute.String("project_id", sample.ProjectID)))
+		s.metrics.BackpressureTokensAvailable.Record(ctx, sample.Tokens, metric.WithAttributes(backpressureMetricAttributes()...))
 	}
+}
+
+func backpressureMetricAttributes() []attribute.KeyValue {
+	return nil
 }
 
 // Tick runs a single sampling pass. Exposed for deterministic unit

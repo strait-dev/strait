@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -58,6 +59,15 @@ type EngineStore interface {
 
 type EngineQueue interface {
 	Enqueue(ctx context.Context, run *domain.JobRun) error
+}
+
+type workflowCanaryStore interface {
+	GetActiveCanaryDeployment(ctx context.Context, workflowID string) (*domain.CanaryDeployment, error)
+	GetWorkflowVersion(ctx context.Context, workflowID string, version int) (*domain.WorkflowVersion, error)
+}
+
+type projectExecutionStateStore interface {
+	IsProjectRunnable(ctx context.Context, projectID string) (bool, error)
 }
 
 // NewWorkflowEngine creates a new workflow engine for triggering and managing workflow runs.
@@ -147,6 +157,13 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 ) (*domain.WorkflowRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "workflow.TriggerWorkflow")
 	defer span.End()
+	telemetry.AddSentryBreadcrumb(ctx, "workflow.state", "workflow trigger requested", map[string]any{
+		"workflow_id":            workflowID,
+		"project_id":             projectID,
+		"triggered_by":           triggeredBy,
+		"parent_workflow_run_id": parentWorkflowRunID,
+		"parent_step_run_id":     parentStepRunID,
+	})
 	triggerStatus := "success"
 	defer func() {
 		e.recordTrigger(ctx, triggerStatus)
@@ -171,6 +188,21 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 	if wf.ProjectID != "" && projectID != wf.ProjectID {
 		triggerStatus = "error"
 		return nil, fmt.Errorf("workflow %s does not belong to project %s", workflowID, projectID)
+	}
+	if projectChecker, ok := e.store.(projectExecutionStateStore); ok {
+		runnable, checkErr := projectChecker.IsProjectRunnable(ctx, projectID)
+		if checkErr != nil {
+			triggerStatus = "error"
+			return nil, fmt.Errorf("check workflow project execution state: %w", checkErr)
+		}
+		if !runnable {
+			triggerStatus = "error"
+			return nil, fmt.Errorf("project %s is not active for workflow execution", projectID)
+		}
+	}
+	if err := e.applyCanaryRouting(ctx, wf); err != nil {
+		triggerStatus = "error"
+		return nil, err
 	}
 
 	steps, err := e.store.ListStepsByWorkflowVersion(ctx, workflowID, wf.Version)
@@ -322,6 +354,15 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 	}
 	wfRun.Status = domain.WfStatusRunning
 	wfRun.StartedAt = &now
+	recordWorkflowActiveRunDelta(ctx, wfRun.ProjectID, 1)
+	telemetry.AddSentryBreadcrumb(ctx, "workflow.state", "workflow run started", map[string]any{
+		"workflow_id":     wfRun.WorkflowID,
+		"workflow_run_id": wfRun.ID,
+		"project_id":      wfRun.ProjectID,
+		"version":         wfRun.WorkflowVersion,
+		"step_count":      len(stepRuns),
+		"root_count":      len(roots),
+	})
 
 	for i := range steps {
 		step := &steps[i]
@@ -363,4 +404,53 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 	}
 
 	return wfRun, nil
+}
+
+func (e *WorkflowEngine) applyCanaryRouting(ctx context.Context, wf *domain.Workflow) error {
+	canaryStore, ok := e.store.(workflowCanaryStore)
+	if !ok {
+		return nil
+	}
+	canary, err := canaryStore.GetActiveCanaryDeployment(ctx, wf.ID)
+	if err != nil {
+		if errors.Is(err, domain.ErrCanaryNotFound) {
+			return nil
+		}
+		return fmt.Errorf("load active workflow canary: %w", err)
+	}
+	if canary == nil || canary.ProjectID != wf.ProjectID {
+		return nil
+	}
+	resolved := NewCanaryRouter().ResolveVersion(&CanaryDeployment{
+		WorkflowID:    canary.WorkflowID,
+		ProjectID:     canary.ProjectID,
+		SourceVersion: canary.SourceVersion,
+		TargetVersion: canary.TargetVersion,
+		TrafficPct:    canary.TrafficPct,
+		Status:        CanaryStatus(canary.Status),
+	})
+	if resolved == 0 || resolved == wf.Version {
+		return nil
+	}
+	version, err := canaryStore.GetWorkflowVersion(ctx, wf.ID, resolved)
+	if err != nil {
+		return fmt.Errorf("load canary workflow version %d: %w", resolved, err)
+	}
+	applyWorkflowVersion(wf, version)
+	return nil
+}
+
+func applyWorkflowVersion(wf *domain.Workflow, version *domain.WorkflowVersion) {
+	wf.Version = version.Version
+	wf.VersionID = version.VersionID
+	wf.Name = version.Name
+	wf.Slug = version.Slug
+	wf.Description = version.Description
+	wf.Enabled = version.Enabled
+	wf.TimeoutSecs = version.TimeoutSecs
+	wf.MaxConcurrentRuns = version.MaxConcurrentRuns
+	wf.MaxParallelSteps = version.MaxParallelSteps
+	wf.Cron = version.Cron
+	wf.CronTimezone = version.CronTimezone
+	wf.SkipIfRunning = version.SkipIfRunning
 }

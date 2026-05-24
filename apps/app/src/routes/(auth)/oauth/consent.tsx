@@ -1,6 +1,7 @@
 import { queryOptions, useQuery } from "@tanstack/react-query";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
+import { getRequestHeaders } from "@tanstack/react-start/server";
 import { useState } from "react";
 import { z } from "zod";
 import AuthLayout from "@/components/(auth)/auth-layout";
@@ -18,20 +19,16 @@ import { authMiddleware } from "@/middlewares/auth";
 type ScopeLevel = "read" | "write" | "admin";
 
 const LEVEL_STYLES: Record<ScopeLevel, { bg: string; text: string }> = {
-  read: { bg: "bg-blue-500/10", text: "text-blue-500" },
-  write: { bg: "bg-amber-500/10", text: "text-amber-500" },
-  admin: { bg: "bg-red-500/10", text: "text-red-500" },
+  read: { bg: "bg-info/10", text: "text-info" },
+  write: { bg: "bg-warning/10", text: "text-warning" },
+  admin: { bg: "bg-destructive/10", text: "text-destructive" },
 };
 
 const HIDDEN_SCOPES = new Set<string>(OIDC_STANDARD_SCOPES);
 
-function buildSearchParams(
-  search: Record<string, string | undefined>,
-  keys: string[]
-): string {
+function buildSearchParams(search: Record<string, string | undefined>): string {
   const params = new URLSearchParams();
-  for (const key of keys) {
-    const value = search[key];
+  for (const [key, value] of Object.entries(search)) {
     if (value) {
       params.set(key, value);
     }
@@ -68,25 +65,27 @@ function parseScopes(scopeString: string | undefined) {
   };
 }
 
-const OAUTH_QUERY_KEYS = [
-  "response_type",
-  "client_id",
-  "redirect_uri",
-  "scope",
-  "state",
-  "code_challenge",
-  "code_challenge_method",
-];
+const optionalSearchParam = z.string().optional().catch(undefined);
 
-const consentSearchSchema = z.object({
-  client_id: z.string().optional().catch(undefined),
-  scope: z.string().optional().catch(undefined),
-  redirect_uri: z.string().optional().catch(undefined),
-  state: z.string().optional().catch(undefined),
-  response_type: z.string().optional().catch(undefined),
-  code_challenge: z.string().optional().catch(undefined),
-  code_challenge_method: z.string().optional().catch(undefined),
-});
+const consentSearchSchema = z
+  .object({
+    client_id: optionalSearchParam,
+    scope: optionalSearchParam,
+    redirect_uri: optionalSearchParam,
+    state: optionalSearchParam,
+    response_type: optionalSearchParam,
+    code_challenge: optionalSearchParam,
+    code_challenge_method: optionalSearchParam,
+    exp: optionalSearchParam,
+    sig: optionalSearchParam,
+    nonce: optionalSearchParam,
+    prompt: optionalSearchParam,
+    request_uri: optionalSearchParam,
+    max_age: optionalSearchParam,
+    login_hint: optionalSearchParam,
+    acr_values: optionalSearchParam,
+  })
+  .catchall(optionalSearchParam);
 
 type ClientInfo = {
   name: string;
@@ -99,16 +98,17 @@ const fetchClientInfo = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ data }) => {
     try {
-      const client = await ((await getAuth()).api as any).getOAuthClient({
-        body: { client_id: data.clientId },
+      const client = await ((await getAuth()).api as any).getOAuthClientPublic({
+        query: { client_id: data.clientId },
+        headers: getRequestHeaders(),
       });
       if (!client) {
         return null;
       }
       return {
-        name: (client as any).name ?? "Unknown Application",
-        clientId: (client as any).clientId ?? data.clientId,
-        redirectUrls: (client as any).redirectURLs ?? [],
+        name: (client as any).client_name ?? "Unknown Application",
+        clientId: (client as any).client_id ?? data.clientId,
+        redirectUrls: (client as any).redirect_uris ?? [],
       } satisfies ClientInfo;
     } catch (err) {
       captureException(err, {
@@ -143,22 +143,19 @@ const submitConsent = createServerFn({ method: "POST" })
         scope: data.scope,
         oauth_query: data.oauthQuery,
       },
+      headers: getRequestHeaders(),
     });
     return result;
   });
 
 export const Route = createFileRoute("/(auth)/oauth/consent")({
   validateSearch: consentSearchSchema,
-  beforeLoad: ({ context, search }) => {
+  beforeLoad: ({ context, location }) => {
     if (!context.isAuthenticated) {
-      const qs = buildSearchParams(
-        search as Record<string, string | undefined>,
-        OAUTH_QUERY_KEYS
-      );
       throw redirect({
         to: OAUTH_LOGIN_PAGE,
         search: {
-          redirect: `/oauth/consent${qs ? `?${qs}` : ""}`,
+          redirect: `/oauth/consent${location.searchStr}`,
         },
       });
     }
@@ -248,10 +245,10 @@ function OAuthConsentPage() {
     parseScopes(search.scope);
 
   // Build the oauth_query string for the consent endpoint
-  const oauthQuery = buildSearchParams(
-    search as Record<string, string | undefined>,
-    OAUTH_QUERY_KEYS
-  );
+  const oauthQuery =
+    typeof window === "undefined"
+      ? buildSearchParams(search as Record<string, string | undefined>)
+      : window.location.search.slice(1);
 
   if (!(search.client_id && search.redirect_uri)) {
     return <ConsentMissingParams />;
@@ -289,7 +286,7 @@ function OAuthConsentPage() {
         {/* Client warning for unrecognized clients */}
         {clientError || !clientInfo ? (
           <div
-            className="rounded-md bg-amber-500/10 p-3 text-amber-600 text-sm dark:text-amber-400"
+            className="rounded-md bg-warning/10 p-3 text-sm text-warning"
             role="alert"
           >
             Unable to verify this application. Proceed with caution.
@@ -344,7 +341,7 @@ function OAuthConsentPage() {
         {/* Action buttons */}
         <div className="flex w-full gap-3">
           <button
-            className="flex-1 rounded-custom border border-border bg-background px-4 py-2.5 font-medium text-foreground text-sm transition-colors hover:bg-muted disabled:opacity-50"
+            className="flex-1 rounded border border-border bg-background px-4 py-2.5 font-medium text-foreground text-sm transition-colors hover:bg-muted disabled:opacity-50"
             disabled={status === "authorizing" || status === "denying"}
             onClick={() => handleConsent(false)}
             type="button"
@@ -352,7 +349,7 @@ function OAuthConsentPage() {
             {status === "denying" ? "Denying..." : "Deny"}
           </button>
           <button
-            className="flex-1 rounded-custom bg-primary px-4 py-2.5 font-medium text-primary-foreground text-sm transition-colors hover:bg-primary/90 disabled:opacity-50"
+            className="flex-1 rounded bg-primary px-4 py-2.5 font-medium text-primary-foreground text-sm transition-colors hover:bg-primary/90 disabled:opacity-50"
             disabled={status === "authorizing" || status === "denying"}
             onClick={() => handleConsent(true)}
             type="button"

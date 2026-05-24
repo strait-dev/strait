@@ -232,14 +232,6 @@ type CostByTrigger struct {
 	Pct      float64 `json:"pct"`
 }
 
-// CostByMachine groups cost by machine preset.
-type CostByMachine struct {
-	Preset       string  `json:"preset"`
-	Cost         int64   `json:"cost"`
-	DurationSecs float64 `json:"duration_secs"`
-	RunCount     int     `json:"run_count"`
-}
-
 // Postgres fallback stubs.
 // These return empty results since ClickHouse is the primary data source for new analytics.
 
@@ -337,8 +329,4 @@ func (q *Queries) GetCostForecast(_ context.Context, _ string, _, _ time.Time) (
 
 func (q *Queries) GetCostByTrigger(_ context.Context, _ string, _, _ time.Time) ([]CostByTrigger, error) {
 	return []CostByTrigger{}, nil
-}
-
-func (q *Queries) GetCostByMachine(_ context.Context, _ string, _, _ time.Time) ([]CostByMachine, error) {
-	return []CostByMachine{}, nil
 }

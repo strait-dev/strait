@@ -8,15 +8,10 @@ import {
 } from "@strait/ui/components/tabs";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { Suspense } from "react";
-import AddonsTab from "@/components/billing/addons-tab";
-import AlertsForecastTab from "@/components/billing/alerts-forecast-tab";
+import { lazy, Suspense } from "react";
 import { EnterpriseOverview } from "@/components/billing/enterprise-overview";
-import ProjectCostsTab from "@/components/billing/project-costs-tab";
 import SpendingLimitSetupBanner from "@/components/billing/spending-limit-setup-banner";
-import SpendingLimitsTab from "@/components/billing/spending-limits-tab";
 import UsageDashboard from "@/components/billing/usage-dashboard";
-import UsageHistoryTab from "@/components/billing/usage-history-tab";
 import DefaultCatchBoundary from "@/components/common/default-catch-boundary";
 import InlineError from "@/components/common/inline-error";
 import NotFound from "@/components/common/not-found";
@@ -40,7 +35,22 @@ import {
 } from "@/lib/icons";
 import type { AppRouteContext } from "@/routes/app/layout";
 
+const AddonsTab = lazy(() => import("@/components/billing/addons-tab"));
+const AlertsForecastTab = lazy(
+  () => import("@/components/billing/alerts-forecast-tab")
+);
+const ProjectCostsTab = lazy(
+  () => import("@/components/billing/project-costs-tab")
+);
+const SpendingLimitsTab = lazy(
+  () => import("@/components/billing/spending-limits-tab")
+);
+const UsageHistoryTab = lazy(
+  () => import("@/components/billing/usage-history-tab")
+);
+
 export const Route = createFileRoute("/app/billing/")({
+  head: () => ({ meta: [{ title: "Billing · Strait" }] }),
   // Cloud-only: Billing, usage history, spending limits, and Stripe
   // addon purchases are not available in the community edition.
   // See `src/lib/edition.ts` for the gate.
@@ -75,7 +85,7 @@ function RouteComponent() {
     <Shell>
       <div className="flex w-full flex-col gap-6">
         <div>
-          <h1 className="text-balance font-normal text-foreground text-xl tracking-tight">
+          <h1 className="text-balance font-normal text-xl tracking-tight">
             Billing
           </h1>
           <p className="text-muted-foreground text-sm">

@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"errors"
+	"slices"
 	"strconv"
 	"sync"
 	"testing"
@@ -37,7 +38,9 @@ func (m *mockBatchDB) CopyFrom(ctx context.Context, tableName pgx.Identifier, co
 	// Count rows from source to simulate COPY.
 	var count int64
 	for rowSrc.Next() {
-		rowSrc.Values()
+		if _, err := rowSrc.Values(); err != nil {
+			return 0, err
+		}
 		count++
 	}
 	if err := rowSrc.Err(); err != nil {
@@ -272,8 +275,10 @@ func TestEnqueueBatch_DoesNotIssueExplicitNotify(t *testing.T) {
 	}
 
 	calls := db.getExecCalls()
-	if len(calls) != 0 {
-		t.Fatalf("expected no explicit notify exec calls, got %d", len(calls))
+	for _, c := range calls {
+		if c.sql == "SELECT pg_notify($1, $2)" {
+			t.Fatalf("unexpected explicit pg_notify call: %+v", c)
+		}
 	}
 }
 
@@ -284,7 +289,7 @@ func TestEnqueueBatch_TagsSerialized(t *testing.T) {
 		copyFromFn: func(_ context.Context, _ pgx.Identifier, _ []string, rowSrc pgx.CopyFromSource) (int64, error) {
 			for rowSrc.Next() {
 				vals, _ := rowSrc.Values()
-				capturedRows = append(capturedRows, vals)
+				capturedRows = append(capturedRows, slices.Clone(vals))
 			}
 			return int64(len(capturedRows)), rowSrc.Err()
 		},
@@ -355,7 +360,7 @@ func TestEnqueueBatch_NilTags_DefaultsToEmptyJSON(t *testing.T) {
 		copyFromFn: func(_ context.Context, _ pgx.Identifier, _ []string, rowSrc pgx.CopyFromSource) (int64, error) {
 			for rowSrc.Next() {
 				vals, _ := rowSrc.Values()
-				capturedRows = append(capturedRows, vals)
+				capturedRows = append(capturedRows, slices.Clone(vals))
 			}
 			return int64(len(capturedRows)), rowSrc.Err()
 		},

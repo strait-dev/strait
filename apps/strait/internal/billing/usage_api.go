@@ -160,7 +160,8 @@ func (s *UsageService) GetCurrentUsage(ctx context.Context, orgID string) (*Curr
 	}
 
 	computeUsed := periodSpend
-	computeLimit := limits.ComputeCreditMicrousd
+	// Included compute credit is zero in orchestration-only mode; all spend is overage.
+	var computeLimit int64
 
 	// For enterprise plans, load contract for credit pool and discount.
 	var enterpriseContract *EnterpriseContract
@@ -375,19 +376,22 @@ func (s *UsageService) GetUsageForecast(ctx context.Context, orgID string) (*Usa
 	projectedCompute := float64(avgDailyCompute*int64(daysInMonth)) / 1000000
 	projectedAI := float64(avgDailyAI*int64(daysInMonth)) / 1000000
 
-	limits, _ := s.enforcer.GetOrgPlanLimits(ctx, orgID)
+	limits, err := s.enforcer.GetOrgPlanLimits(ctx, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("getting org plan limits for forecast: %w", err)
+	}
 	recommended := recommendPlan(projectedRuns, avgDailyCompute*int64(daysInMonth))
 
 	daysUntilLimit := 0
 	if limits.MaxRunsPerDay > 0 && avgDailyRuns > 0 {
 		remaining := limits.MaxRunsPerDay - avgDailyRuns
-		if remaining > 0 {
-			daysUntilLimit = min(int(float64(limits.ComputeCreditMicrousd)/float64(avgDailyCompute)), 30)
+		if remaining > 0 && avgDailyCompute > 0 {
+			daysUntilLimit = min(30, int(remaining))
 		}
 	}
 
 	projectedComputeMicro := avgDailyCompute * int64(daysInMonth)
-	projectedOverage := computeOverageSpend(projectedComputeMicro, limits.ComputeCreditMicrousd)
+	projectedOverage := computeOverageSpend(projectedComputeMicro, 0)
 
 	// Sum active addon monthly costs (cents -> micro-USD: multiply by 10000).
 	var addonSpendMicro int64
@@ -448,53 +452,52 @@ func (s *UsageService) GetSpendingLimit(ctx context.Context, orgID string) (*Spe
 			return nil, fmt.Errorf("getting org subscription: %w", err)
 		}
 
-		limits := GetPlanLimits(domain.PlanFree)
 		periodStart, _ := usagePeriodWindow(time.Now().UTC(), domain.PlanFree, nil)
 		periodSpend, spendErr := s.store.SumOrgPeriodSpend(ctx, orgID, periodStart)
 		if spendErr != nil {
 			return nil, fmt.Errorf("summing free-tier spend: %w", spendErr)
 		}
-		overageSpend := computeOverageSpend(periodSpend, limits.ComputeCreditMicrousd)
+		overageSpend := computeOverageSpend(periodSpend, 0)
 
 		return &SpendingLimitResponse{
-			OrgID:             orgID,
-			PlanTier:          string(domain.PlanFree),
-			SpendingLimitUsd:  0,
-			LimitAction:       "reject",
-			CurrentSpendUsd:   float64(periodSpend) / 1000000,
-			IncludedCreditUsd: float64(limits.ComputeCreditMicrousd) / 1000000,
-			OverageSpendUsd:   float64(overageSpend) / 1000000,
-			IsHardCapped:      true,
+			OrgID:            orgID,
+			PlanTier:         string(domain.PlanFree),
+			SpendingLimitUsd: 0,
+			LimitAction:      "reject",
+			CurrentSpendUsd:  float64(periodSpend) / 1000000,
+			OverageSpendUsd:  float64(overageSpend) / 1000000,
+			IsHardCapped:     true,
 		}, nil
 	}
 
 	limits := GetPlanLimits(domain.PlanTier(sub.PlanTier))
 	periodStart, _ := usagePeriodWindow(time.Now().UTC(), limits.PlanTier, sub)
-	periodSpend, _ := s.store.SumOrgPeriodSpend(ctx, orgID, periodStart)
-	overageSpend := computeOverageSpend(periodSpend, limits.ComputeCreditMicrousd)
+	periodSpend, err := s.store.SumOrgPeriodSpend(ctx, orgID, periodStart)
+	if err != nil {
+		return nil, fmt.Errorf("summing org period spend: %w", err)
+	}
+	overageSpend := computeOverageSpend(periodSpend, 0)
 
 	if limits.PlanTier == domain.PlanFree {
 		return &SpendingLimitResponse{
-			OrgID:             orgID,
-			PlanTier:          string(domain.PlanFree),
-			SpendingLimitUsd:  0,
-			LimitAction:       "reject",
-			CurrentSpendUsd:   float64(periodSpend) / 1000000,
-			IncludedCreditUsd: float64(limits.ComputeCreditMicrousd) / 1000000,
-			OverageSpendUsd:   float64(overageSpend) / 1000000,
-			IsHardCapped:      true,
+			OrgID:            orgID,
+			PlanTier:         string(domain.PlanFree),
+			SpendingLimitUsd: 0,
+			LimitAction:      "reject",
+			CurrentSpendUsd:  float64(periodSpend) / 1000000,
+			OverageSpendUsd:  float64(overageSpend) / 1000000,
+			IsHardCapped:     true,
 		}, nil
 	}
 
 	return &SpendingLimitResponse{
-		OrgID:             orgID,
-		PlanTier:          sub.PlanTier,
-		SpendingLimitUsd:  float64(sub.SpendingLimitMicrousd) / 1000000,
-		LimitAction:       sub.LimitAction,
-		CurrentSpendUsd:   float64(periodSpend) / 1000000,
-		IncludedCreditUsd: float64(limits.ComputeCreditMicrousd) / 1000000,
-		OverageSpendUsd:   float64(overageSpend) / 1000000,
-		IsHardCapped:      sub.SpendingLimitMicrousd == 0,
+		OrgID:            orgID,
+		PlanTier:         sub.PlanTier,
+		SpendingLimitUsd: float64(sub.SpendingLimitMicrousd) / 1000000,
+		LimitAction:      sub.LimitAction,
+		CurrentSpendUsd:  float64(periodSpend) / 1000000,
+		OverageSpendUsd:  float64(overageSpend) / 1000000,
+		IsHardCapped:     sub.SpendingLimitMicrousd == 0,
 	}, nil
 }
 
@@ -604,8 +607,8 @@ func (s *UsageService) GetProjectBudget(ctx context.Context, projectID string) (
 
 // SetProjectBudget validates and stores a project budget.
 func (s *UsageService) SetProjectBudget(ctx context.Context, projectID string, budgetMicro int64, action string) error {
-	if action != "reject" && action != "notify" {
-		return fmt.Errorf("budget_action must be 'reject' or 'notify'")
+	if action != "reject" && action != "block" && action != "notify" {
+		return fmt.Errorf("budget_action must be 'reject', 'block', or 'notify'")
 	}
 	if budgetMicro < 0 {
 		budgetMicro = -1 // normalize to "no budget"
@@ -770,6 +773,9 @@ func recommendPlan(_ int64, monthlyComputeMicro int64) string {
 	}
 	if monthlyComputeMicro <= CreditScaleMicrousd {
 		return string(domain.PlanScale)
+	}
+	if monthlyComputeMicro <= CreditBusinessMicrousd {
+		return string(domain.PlanBusiness)
 	}
 	return string(domain.PlanEnterprise)
 }

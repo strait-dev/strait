@@ -9,6 +9,7 @@ import (
 
 	"time"
 
+	"strait/internal/billing"
 	"strait/internal/clickhouse"
 	"strait/internal/config"
 	"strait/internal/queue"
@@ -23,11 +24,9 @@ type SchedulerStore interface {
 	ReaperStore
 	IndexMaintenanceStore
 	StatsAggregatorStore
-	CostEstimateRefresherStore
 	MemoryCleanupStore
 	store.DebounceStore
 	store.BatchStore
-	store.RunComputeUsageStore
 }
 
 type Scheduler struct {
@@ -43,25 +42,33 @@ type Scheduler struct {
 	usageFlusher             *UsageFlusher
 	concurrentReconciler     *ConcurrentReconciler
 	downgradeApplier         *DowngradeApplier
-	costEstimateRefresher    *CostEstimateRefresher
 	memoryCleanup            *MemoryCleanup
 	gracePeriodEnforcer      *GracePeriodEnforcer
+	quotaResumeEnforcer      *QuotaResumeEnforcer
 	staleSubscriptionChecker *StaleSubscriptionChecker
 	webhookMessageCleanup    *WebhookMessageCleanup
 	contractExpiryChecker    *ContractExpiryChecker
+	usageReportEmailer       *UsageReportEmailer
 	priorityPromoter         *PriorityPromoter
+	dunner                   DunnerRunner
+	slaCalculator            SLACalculatorRunner
 	counterReconciler        *CounterReconciler
+	claimReconciler          *ClaimReconciler
 	partitionEnsurer         *PartitionEnsurer
 	partitionTuner           *PartitionTuner
 	partitionReclaimer       *PartitionReclaimer
 	dlqAgeOut                *DLQAgeOut
 	outboxFlusher            *OutboxFlusher
 	outboxArchiver           *OutboxArchiver
+	sloEvaluator             *SLOEvaluator
 	planDriftMonitor         *PlanDriftMonitor
 	backpressureSampler      *BackpressureSampler
+	idempotencyGC            *IdempotencyGC
+	heartbeatGC              *HeartbeatGC
 	wg                       conc.WaitGroup
 	tracker                  componentTracker
 	componentShutdownTimeout time.Duration
+	cronReloadInterval       time.Duration
 }
 
 // New creates a new scheduler that runs the cron, poller, and reaper.
@@ -81,15 +88,22 @@ func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queu
 			WithAuditDLQReclaimBatch(cfg.AuditDLQReclaimBatch).
 			WithAuditDLQMaxAgeDays(cfg.AuditDLQMaxAgeDays).
 			WithAuditDLQMaxReclaimAttempts(cfg.AuditDLQMaxReclaimAttempts).
-			WithArchiveEnabled(cfg.TerminalArchiveEnabled),
-		indexMaintainer:          NewIndexMaintainer(s, cfg.IndexMaintenanceInterval),
-		debouncePoller:           NewDebouncePoller(s, q, cfg.DebouncePollerInterval),
-		batchFlusher:             NewBatchFlusher(s, q, cfg.BatchFlushInterval),
-		statsAggregator:          NewStatsAggregator(s),
-		budgetMonitor:            NewBudgetMonitor(s, nil, 5*time.Minute),
-		costEstimateRefresher:    NewCostEstimateRefresher(s, time.Hour),
-		memoryCleanup:            NewMemoryCleanup(s, 5*time.Minute),
+			WithArchiveEnabled(cfg.TerminalArchiveEnabled).
+			WithAllowPrivateEndpoints(cfg.AllowPrivateEndpoints),
+		indexMaintainer: NewIndexMaintainer(s, cfg.IndexMaintenanceInterval),
+		debouncePoller:  NewDebouncePoller(s, q, cfg.DebouncePollerInterval),
+		batchFlusher:    NewBatchFlusher(s, q, cfg.BatchFlushInterval),
+		statsAggregator: NewStatsAggregator(s),
+		budgetMonitor:   NewBudgetMonitor(s, nil, 5*time.Minute),
+		memoryCleanup:   NewMemoryCleanup(s, 5*time.Minute),
+		tracker: componentTracker{sentry: sentrySchedulerMetadata{
+			mode:                 cfg.Mode,
+			region:               cfg.DefaultRegion,
+			checkInsEnabled:      cfg.SentrySchedulerCheckIns,
+			checkInMonitorPrefix: cfg.SentrySchedulerCheckInPrefix,
+		}},
 		componentShutdownTimeout: cfg.SchedulerComponentShutdownTimeout,
+		cronReloadInterval:       time.Minute,
 	}
 	for _, opt := range opts {
 		opt(sched)
@@ -100,6 +114,23 @@ func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queu
 // SchedulerOption configures a Scheduler.
 type SchedulerOption func(*Scheduler)
 
+// WithSentryRuntime attaches low-cardinality runtime tags to scheduler panic events.
+func WithSentryRuntime(mode, region, version string) SchedulerOption {
+	return func(s *Scheduler) {
+		s.tracker.sentry.mode = mode
+		s.tracker.sentry.region = region
+		s.tracker.sentry.version = version
+	}
+}
+
+// WithSentryCheckIns enables Sentry monitor check-ins for tracked scheduler components.
+func WithSentryCheckIns(enabled bool, monitorPrefix string) SchedulerOption {
+	return func(s *Scheduler) {
+		s.tracker.sentry.checkInsEnabled = enabled
+		s.tracker.sentry.checkInMonitorPrefix = monitorPrefix
+	}
+}
+
 // WithSchedulerMetrics attaches telemetry metrics to the reaper.
 func WithSchedulerMetrics(m *telemetry.Metrics) SchedulerOption {
 	return func(s *Scheduler) {
@@ -107,11 +138,9 @@ func WithSchedulerMetrics(m *telemetry.Metrics) SchedulerOption {
 	}
 }
 
-// WithMachineStopper attaches a container runtime to the cron scheduler
-// for stopping managed containers on cancel_running overlap policy.
-func WithMachineStopper(ms MachineStopper) SchedulerOption {
+func WithCronReloadInterval(interval time.Duration) SchedulerOption {
 	return func(s *Scheduler) {
-		s.cron.machineStopper = ms
+		s.cronReloadInterval = interval
 	}
 }
 
@@ -122,10 +151,32 @@ func WithChExporter(e *clickhouse.Exporter) SchedulerOption {
 	}
 }
 
+// WithRotationSecretDecryptor wires the at-rest secret decryptor used by the
+// reaper to recover plaintext HMAC keys for outbound api-key rotation webhooks.
+func WithRotationSecretDecryptor(d SecretDecryptor) SchedulerOption {
+	return func(s *Scheduler) {
+		s.reaper.WithRotationSecretDecryptor(d)
+	}
+}
+
 // WithBudgetWebhookEnqueuer sets the webhook enqueuer for the budget monitor.
 func WithBudgetWebhookEnqueuer(enqueuer BudgetMonitorWebhookEnqueuer) SchedulerOption {
 	return func(s *Scheduler) {
 		s.budgetMonitor.enqueuer = enqueuer
+	}
+}
+
+// WithBudgetMonitoringStores wires the concrete billing stores into the
+// always-running budget monitor. Without this option the monitor loop runs but
+// has no spending/run-limit producers to evaluate.
+func WithBudgetMonitoringStores(spending SpendingLimitStore, runLimits RunLimitStore, enforcer *billing.Enforcer) SchedulerOption {
+	return func(s *Scheduler) {
+		if spending != nil {
+			s.budgetMonitor.WithSpendingLimitStore(spending)
+		}
+		if runLimits != nil && enforcer != nil {
+			s.budgetMonitor.WithRunLimitNotifications(runLimits, enforcer)
+		}
 	}
 }
 
@@ -148,6 +199,13 @@ func WithPriorityPromoter(p *PriorityPromoter) SchedulerOption {
 func WithCounterReconciler(r *CounterReconciler) SchedulerOption {
 	return func(s *Scheduler) {
 		s.counterReconciler = r
+	}
+}
+
+// WithClaimReconciler enables periodic claim table drift reconciliation.
+func WithClaimReconciler(r *ClaimReconciler) SchedulerOption {
+	return func(s *Scheduler) {
+		s.claimReconciler = r
 	}
 }
 
@@ -198,6 +256,21 @@ func WithPlanDriftMonitor(m *PlanDriftMonitor) SchedulerOption {
 	}
 }
 
+// WithIdempotencyGC enables periodic deletion of expired
+// job_run_idempotency rows.
+func WithIdempotencyGC(g *IdempotencyGC) SchedulerOption {
+	return func(s *Scheduler) {
+		s.idempotencyGC = g
+	}
+}
+
+// WithHeartbeatGC enables periodic deletion of orphaned heartbeat rows.
+func WithHeartbeatGC(g *HeartbeatGC) SchedulerOption {
+	return func(s *Scheduler) {
+		s.heartbeatGC = g
+	}
+}
+
 // WithBackpressureSampler enables the periodic sampler that populates
 // the strait.queue.backpressure_tokens_available gauge from the
 // project_rate_limits table. Pass nil (or a nil sampler built by
@@ -222,6 +295,37 @@ func WithAnomalyMonitor(monitor *AnomalyMonitor) SchedulerOption {
 	}
 }
 
+// DunnerRunner is the narrow interface the scheduler needs from a Dunner
+// (defined in internal/billing). Kept here so the scheduler does not have to
+// import the billing package just for a concrete type.
+type DunnerRunner interface {
+	Run(ctx context.Context)
+}
+
+// WithDunner registers a dunning-state-machine driver. The dunner is woken
+// on its own internal cadence; the scheduler only owns its lifecycle.
+func WithDunner(d DunnerRunner) SchedulerOption {
+	return func(s *Scheduler) {
+		s.dunner = d
+	}
+}
+
+// SLACalculatorRunner is the narrow interface the scheduler needs from the
+// SLA credit calculator (defined in internal/billing). Kept here so the
+// scheduler does not have to import the billing package.
+type SLACalculatorRunner interface {
+	Run(ctx context.Context)
+}
+
+// WithSLACalculator registers the SLA-credit calculator. Each tick reads
+// the previous month's per-org uptime, issues credit notes for breached
+// SLAs, and dispatches sla.credit_issued. Lifecycle owned by the scheduler.
+func WithSLACalculator(c SLACalculatorRunner) SchedulerOption {
+	return func(s *Scheduler) {
+		s.slaCalculator = c
+	}
+}
+
 // WithUsageFlusher sets a usage flusher for periodic usage record materialization.
 func WithUsageFlusher(flusher *UsageFlusher) SchedulerOption {
 	return func(s *Scheduler) {
@@ -229,10 +333,25 @@ func WithUsageFlusher(flusher *UsageFlusher) SchedulerOption {
 	}
 }
 
+// WithSLOEvaluator enables periodic SLO evaluation and alert delivery.
+func WithSLOEvaluator(evaluator *SLOEvaluator) SchedulerOption {
+	return func(s *Scheduler) {
+		s.sloEvaluator = evaluator
+	}
+}
+
 // WithGracePeriodEnforcer enables periodic enforcement of expired payment grace periods.
 func WithGracePeriodEnforcer(enforcer *GracePeriodEnforcer) SchedulerOption {
 	return func(s *Scheduler) {
 		s.gracePeriodEnforcer = enforcer
+	}
+}
+
+// WithQuotaResumeEnforcer enables periodic resumption of jobs paused due to quota
+// exhaustion at the billing-period boundary.
+func WithQuotaResumeEnforcer(enforcer *QuotaResumeEnforcer) SchedulerOption {
+	return func(s *Scheduler) {
+		s.quotaResumeEnforcer = enforcer
 	}
 }
 
@@ -264,6 +383,13 @@ func WithContractExpiryChecker(checker *ContractExpiryChecker) SchedulerOption {
 	}
 }
 
+// WithUsageReportEmailer enables monthly usage report emails for opted-in paid orgs.
+func WithUsageReportEmailer(emailer *UsageReportEmailer) SchedulerOption {
+	return func(s *Scheduler) {
+		s.usageReportEmailer = emailer
+	}
+}
+
 // WithIndexMaintainerAdvisoryLocker enables single-leader execution of the
 // periodic REINDEX loop across multiple worker instances sharing a database.
 // Without this, every worker runs REINDEX independently, which is safe (the
@@ -275,78 +401,127 @@ func WithIndexMaintainerAdvisoryLocker(locker AdvisoryLocker) SchedulerOption {
 	}
 }
 
+// WithReaperAdvisoryLocker enables single-leader execution of side-effectful
+// reaper maintenance across scheduler replicas.
+func WithReaperAdvisoryLocker(locker AdvisoryLocker) SchedulerOption {
+	return func(s *Scheduler) {
+		s.reaper.WithAdvisoryLocker(locker)
+	}
+}
+
 func (s *Scheduler) Start(ctx context.Context) error {
 	if err := s.cron.LoadJobs(ctx); err != nil {
 		return fmt.Errorf("load cron jobs: %w", err)
 	}
 
 	s.cron.Start()
-	s.tracker.track(&s.wg, "poller", func() { s.poller.Run(ctx) })
-	s.tracker.track(&s.wg, "reaper", func() { s.reaper.Run(ctx) })
-	s.tracker.track(&s.wg, "index_maintainer", func() { s.indexMaintainer.Run(ctx) })
-	s.tracker.track(&s.wg, "debounce_poller", func() { s.debouncePoller.Run(ctx) })
-	s.tracker.track(&s.wg, "batch_flusher", func() { s.batchFlusher.Run(ctx) })
-	s.tracker.track(&s.wg, "stats_aggregator", func() { s.statsAggregator.Run(ctx) })
-	s.tracker.track(&s.wg, "budget_monitor", func() { s.budgetMonitor.Run(ctx) })
-	s.tracker.track(&s.wg, "cost_estimate_refresher", func() { s.costEstimateRefresher.Run(ctx) })
-	s.tracker.track(&s.wg, "memory_cleanup", func() { s.memoryCleanup.Run(ctx) })
+	if s.cronReloadInterval > 0 {
+		s.tracker.track(ctx, &s.wg, "cron_reloader", func(componentCtx context.Context) { s.runCronReloader(componentCtx) })
+	}
+	s.tracker.track(ctx, &s.wg, "poller", func(componentCtx context.Context) { s.poller.Run(componentCtx) })
+	s.tracker.track(ctx, &s.wg, "reaper", func(componentCtx context.Context) { s.reaper.Run(componentCtx) })
+	s.tracker.track(ctx, &s.wg, "index_maintainer", func(componentCtx context.Context) { s.indexMaintainer.Run(componentCtx) })
+	s.tracker.track(ctx, &s.wg, "debounce_poller", func(componentCtx context.Context) { s.debouncePoller.Run(componentCtx) })
+	s.tracker.track(ctx, &s.wg, "batch_flusher", func(componentCtx context.Context) { s.batchFlusher.Run(componentCtx) })
+	s.tracker.track(ctx, &s.wg, "stats_aggregator", func(componentCtx context.Context) { s.statsAggregator.Run(componentCtx) })
+	s.tracker.track(ctx, &s.wg, "budget_monitor", func(componentCtx context.Context) { s.budgetMonitor.Run(componentCtx) })
+	s.tracker.track(ctx, &s.wg, "memory_cleanup", func(componentCtx context.Context) { s.memoryCleanup.Run(componentCtx) })
 	if s.usageFlusher != nil {
-		s.tracker.track(&s.wg, "usage_flusher", func() { s.usageFlusher.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "usage_flusher", func(componentCtx context.Context) { s.usageFlusher.Run(componentCtx) })
+	}
+	if s.sloEvaluator != nil {
+		s.tracker.track(ctx, &s.wg, "slo_evaluator", func(componentCtx context.Context) { s.sloEvaluator.Run(componentCtx, 5*time.Minute) })
 	}
 	if s.concurrentReconciler != nil {
-		s.tracker.track(&s.wg, "concurrent_reconciler", func() { s.concurrentReconciler.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "concurrent_reconciler", func(componentCtx context.Context) { s.concurrentReconciler.Run(componentCtx) })
 	}
 	if s.downgradeApplier != nil {
-		s.tracker.track(&s.wg, "downgrade_applier", func() { s.downgradeApplier.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "downgrade_applier", func(componentCtx context.Context) { s.downgradeApplier.Run(componentCtx) })
 	}
 	if s.anomalyMonitor != nil {
-		s.tracker.track(&s.wg, "anomaly_monitor", func() { s.anomalyMonitor.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "anomaly_monitor", func(componentCtx context.Context) { s.anomalyMonitor.Run(componentCtx) })
+	}
+	if s.dunner != nil {
+		s.tracker.track(ctx, &s.wg, "dunner", func(componentCtx context.Context) { s.dunner.Run(componentCtx) })
+	}
+	if s.slaCalculator != nil {
+		s.tracker.track(ctx, &s.wg, "sla_calculator", func(componentCtx context.Context) { s.slaCalculator.Run(componentCtx) })
 	}
 	if s.gracePeriodEnforcer != nil {
-		s.tracker.track(&s.wg, "grace_period_enforcer", func() { s.gracePeriodEnforcer.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "grace_period_enforcer", func(componentCtx context.Context) { s.gracePeriodEnforcer.Run(componentCtx) })
+	}
+	if s.quotaResumeEnforcer != nil {
+		s.tracker.track(ctx, &s.wg, "quota_resume_enforcer", func(componentCtx context.Context) { s.quotaResumeEnforcer.Run(componentCtx) })
 	}
 	if s.staleSubscriptionChecker != nil {
-		s.tracker.track(&s.wg, "stale_subscription_checker", func() { s.staleSubscriptionChecker.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "stale_subscription_checker", func(componentCtx context.Context) { s.staleSubscriptionChecker.Run(componentCtx) })
 	}
 	if s.webhookMessageCleanup != nil {
-		s.tracker.track(&s.wg, "webhook_message_cleanup", func() { s.webhookMessageCleanup.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "webhook_message_cleanup", func(componentCtx context.Context) { s.webhookMessageCleanup.Run(componentCtx) })
 	}
 	if s.contractExpiryChecker != nil {
-		s.tracker.track(&s.wg, "contract_expiry_checker", func() { s.contractExpiryChecker.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "contract_expiry_checker", func(componentCtx context.Context) { s.contractExpiryChecker.Run(componentCtx) })
+	}
+	if s.usageReportEmailer != nil {
+		s.tracker.track(ctx, &s.wg, "usage_report_emailer", func(componentCtx context.Context) { s.usageReportEmailer.Run(componentCtx) })
 	}
 	if s.priorityPromoter != nil {
-		s.tracker.track(&s.wg, "priority_promoter", func() { s.priorityPromoter.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "priority_promoter", func(componentCtx context.Context) { s.priorityPromoter.Run(componentCtx) })
 	}
 	if s.counterReconciler != nil {
-		s.tracker.track(&s.wg, "counter_reconciler", func() { s.counterReconciler.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "counter_reconciler", func(componentCtx context.Context) { s.counterReconciler.Run(componentCtx) })
+	}
+	if s.claimReconciler != nil {
+		s.tracker.track(ctx, &s.wg, "claim_reconciler", func(componentCtx context.Context) { s.claimReconciler.Run(componentCtx) })
 	}
 	if s.partitionEnsurer != nil {
-		s.tracker.track(&s.wg, "partition_ensurer", func() { s.partitionEnsurer.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "partition_ensurer", func(componentCtx context.Context) { s.partitionEnsurer.Run(componentCtx) })
 	}
 	if s.partitionTuner != nil {
-		s.tracker.track(&s.wg, "partition_tuner", func() { s.partitionTuner.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "partition_tuner", func(componentCtx context.Context) { s.partitionTuner.Run(componentCtx) })
 	}
 	if s.partitionReclaimer != nil {
-		s.tracker.track(&s.wg, "partition_reclaimer", func() { s.partitionReclaimer.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "partition_reclaimer", func(componentCtx context.Context) { s.partitionReclaimer.Run(componentCtx) })
 	}
 	if s.dlqAgeOut != nil {
-		s.tracker.track(&s.wg, "dlq_age_out", func() { s.dlqAgeOut.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "dlq_age_out", func(componentCtx context.Context) { s.dlqAgeOut.Run(componentCtx) })
 	}
 	if s.outboxFlusher != nil {
-		s.tracker.track(&s.wg, "outbox_flusher", func() { s.outboxFlusher.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "outbox_flusher", func(componentCtx context.Context) { s.outboxFlusher.Run(componentCtx) })
 	}
 	if s.outboxArchiver != nil {
-		s.tracker.track(&s.wg, "outbox_archiver", func() { s.outboxArchiver.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "outbox_archiver", func(componentCtx context.Context) { s.outboxArchiver.Run(componentCtx) })
 	}
 	if s.planDriftMonitor != nil {
-		s.tracker.track(&s.wg, "plan_drift_monitor", func() { s.planDriftMonitor.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "plan_drift_monitor", func(componentCtx context.Context) { s.planDriftMonitor.Run(componentCtx) })
 	}
 	if s.backpressureSampler != nil {
-		s.tracker.track(&s.wg, "backpressure_sampler", func() { s.backpressureSampler.Run(ctx) })
+		s.tracker.track(ctx, &s.wg, "backpressure_sampler", func(componentCtx context.Context) { s.backpressureSampler.Run(componentCtx) })
+	}
+	if s.idempotencyGC != nil {
+		s.tracker.track(ctx, &s.wg, "idempotency_gc", func(componentCtx context.Context) { s.idempotencyGC.Run(componentCtx) })
+	}
+	if s.heartbeatGC != nil {
+		s.tracker.track(ctx, &s.wg, "heartbeat_gc", func(componentCtx context.Context) { s.heartbeatGC.Run(componentCtx) })
 	}
 
 	slog.Info("scheduler started")
 	return nil
+}
+
+func (s *Scheduler) runCronReloader(ctx context.Context) {
+	ticker := time.NewTicker(s.cronReloadInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := s.cron.LoadJobs(ctx); err != nil {
+				slog.Warn("cron reload failed", "error", err)
+			}
+		}
+	}
 }
 
 func (s *Scheduler) Stop() {

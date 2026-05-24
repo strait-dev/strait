@@ -16,11 +16,12 @@ import (
 func TestListOrgRuns_ReturnsRunsFromAllProjects(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()
+	const orgUUID = "00000000-0000-4000-8000-000000000001"
 
 	ms := &APIStoreMock{
 		ListRunsByOrgFunc: func(_ context.Context, orgID string, _ int, _ *time.Time) ([]domain.JobRun, error) {
-			if orgID != "org-1" {
-				t.Fatalf("expected org-1, got %q", orgID)
+			if orgID != orgUUID {
+				t.Fatalf("expected %s, got %q", orgUUID, orgID)
 			}
 			return []domain.JobRun{
 				{ID: "run-1", ProjectID: "proj-1", JobID: "job-1", CreatedAt: now},
@@ -33,7 +34,7 @@ func TestListOrgRuns_ReturnsRunsFromAllProjects(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/organizations/org-1/runs", ""))
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/organizations/"+orgUUID+"/runs", ""))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -77,12 +78,12 @@ func TestListOrgRuns_CrossOrg_Forbidden(t *testing.T) {
 		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var resp map[string]string
+	var resp ErrorResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if resp["error"] != "api key does not belong to this organization" {
-		t.Fatalf("expected org mismatch error, got %q", resp["error"])
+	if resp.Error == nil || resp.Error.Message != "api key does not belong to this organization" {
+		t.Fatalf("expected org mismatch error, got %+v", resp.Error)
 	}
 }
 
@@ -102,11 +103,12 @@ func TestListOrgRuns_RequiresAuth(t *testing.T) {
 func TestListOrgJobs_ReturnsJobsFromAllProjects(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()
+	const orgUUID = "00000000-0000-4000-8000-000000000001"
 
 	ms := &APIStoreMock{
 		ListJobsByOrgFunc: func(_ context.Context, orgID string, _ int, _ *time.Time) ([]domain.Job, error) {
-			if orgID != "org-1" {
-				t.Fatalf("expected org-1, got %q", orgID)
+			if orgID != orgUUID {
+				t.Fatalf("expected %s, got %q", orgUUID, orgID)
 			}
 			return []domain.Job{
 				{ID: "job-1", ProjectID: "proj-1", Name: "Job One", CreatedAt: now},
@@ -118,7 +120,7 @@ func TestListOrgJobs_ReturnsJobsFromAllProjects(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/organizations/org-1/jobs", ""))
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/organizations/"+orgUUID+"/jobs", ""))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -138,6 +140,7 @@ func TestListOrgRuns_Pagination_Works(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()
 	callCount := 0
+	const orgUUID = "00000000-0000-4000-8000-000000000001"
 
 	ms := &APIStoreMock{
 		ListRunsByOrgFunc: func(_ context.Context, _ string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
@@ -161,7 +164,7 @@ func TestListOrgRuns_Pagination_Works(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/organizations/org-1/runs?limit=2", ""))
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/organizations/"+orgUUID+"/runs?limit=2", ""))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -187,6 +190,7 @@ func TestListOrgRuns_Pagination_Works(t *testing.T) {
 
 func TestListOrgRuns_EmptyOrg_ReturnsEmpty(t *testing.T) {
 	t.Parallel()
+	const orgUUID = "00000000-0000-4000-8000-0000000000ee"
 
 	ms := &APIStoreMock{
 		ListRunsByOrgFunc: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
@@ -197,7 +201,7 @@ func TestListOrgRuns_EmptyOrg_ReturnsEmpty(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/organizations/org-empty/runs", ""))
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/organizations/"+orgUUID+"/runs", ""))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())

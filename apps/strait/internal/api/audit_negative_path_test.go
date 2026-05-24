@@ -64,7 +64,7 @@ func TestAuditNegativePath_NoEmitOnStoreFailure(t *testing.T) {
 			name:   "handleCreateAPIKey_StoreError",
 			method: http.MethodPost,
 			path:   "/v1/api-keys",
-			body:   `{"project_id":"proj-1","name":"k"}`,
+			body:   `{"project_id":"proj-1","name":"k","scopes":["jobs:read"],"expires_in_days":30}`,
 			setup: func(ms *APIStoreMock) {
 				ms.CreateAPIKeyFunc = func(_ context.Context, _ *domain.APIKey) error {
 					return forcedErr

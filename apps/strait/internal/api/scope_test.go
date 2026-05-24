@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/go-chi/chi/v5"
 )
 
 // API Key tests.
@@ -148,8 +150,8 @@ func TestRequirePermission_InternalSecret_AllowsAll(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	// No scopes in context = internal secret auth
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r = r.WithContext(context.WithValue(r.Context(), ctxInternalCallerKey, true))
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
@@ -172,7 +174,7 @@ func TestRequirePermission_InternalSecret_WithActorHeaders(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	ctx := context.WithValue(r.Context(), ctxActorTypeKey, "user")
 	ctx = context.WithValue(ctx, ctxActorIDKey, "user-1")
-	// No scopes — this is the signal for internal secret auth
+	ctx = context.WithValue(ctx, ctxInternalCallerKey, true)
 	r = r.WithContext(ctx)
 
 	w := httptest.NewRecorder()
@@ -238,6 +240,60 @@ func TestRequirePermission_User_WithMatchingPermission(t *testing.T) {
 	}
 }
 
+func TestRequirePermission_User_OIDCScopesDoNotBypassProjectRBAC(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{}
+	ms.GetUserPermissionsFunc = func(_ context.Context, _, _ string) ([]string, error) {
+		return []string{domain.ScopeJobsRead}, nil
+	}
+	srv := newTestServer(t, ms, nil, nil)
+	handler := srv.requirePermission(domain.ScopeJobsWrite)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	ctx := context.WithValue(r.Context(), ctxScopesKey, []string{domain.ScopeJobsWrite})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
+	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "user-1")
+	r = r.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusForbidden)
+	}
+}
+
+func TestRequirePermission_User_OIDCScopesAndProjectRBACBothRequired(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{}
+	ms.GetUserPermissionsFunc = func(_ context.Context, _, _ string) ([]string, error) {
+		return []string{domain.ScopeJobsWrite}, nil
+	}
+	srv := newTestServer(t, ms, nil, nil)
+	handler := srv.requirePermission(domain.ScopeJobsWrite)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	ctx := context.WithValue(r.Context(), ctxScopesKey, []string{domain.ScopeJobsWrite})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
+	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "user-1")
+	r = r.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
 func TestRequirePermission_User_MissingPermission(t *testing.T) {
 	t.Parallel()
 
@@ -256,6 +312,68 @@ func TestRequirePermission_User_MissingPermission(t *testing.T) {
 
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusForbidden)
+	}
+}
+
+func TestRequirePermission_User_MissingResourcePolicyDoesNotGrantAccess(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{}
+	ms.GetUserPermissionsFunc = func(_ context.Context, _, _ string) ([]string, error) {
+		return []string{domain.ScopeJobsRead}, nil
+	}
+	ms.GetResourcePoliciesFunc = func(_ context.Context, projectID, resourceType, resourceID, userID string) ([]string, error) {
+		if projectID != "proj-1" || resourceType != "job" || resourceID != "job-1" || userID != "user-1" {
+			t.Fatalf("unexpected resource policy lookup: project=%s type=%s id=%s user=%s", projectID, resourceType, resourceID, userID)
+		}
+		return nil, nil
+	}
+	srv := newTestServer(t, ms, nil, nil)
+	handler := srv.requirePermission(domain.ScopeJobsWrite)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := userCtx(httptest.NewRequest(http.MethodPatch, "/v1/jobs/job-1", nil), "proj-1", "user-1")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("jobID", "job-1")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusForbidden)
+	}
+	if len(ms.GetResourcePoliciesCalls()) != 1 {
+		t.Fatalf("resource policy lookups = %d, want 1", len(ms.GetResourcePoliciesCalls()))
+	}
+}
+
+func TestRequirePermission_User_ExplicitResourcePolicyGrantsAccess(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{}
+	ms.GetUserPermissionsFunc = func(_ context.Context, _, _ string) ([]string, error) {
+		return []string{domain.ScopeJobsRead}, nil
+	}
+	ms.GetResourcePoliciesFunc = func(context.Context, string, string, string, string) ([]string, error) {
+		return []string{domain.ScopeJobsWrite}, nil
+	}
+	srv := newTestServer(t, ms, nil, nil)
+	handler := srv.requirePermission(domain.ScopeJobsWrite)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := userCtx(httptest.NewRequest(http.MethodPatch, "/v1/jobs/job-1", nil), "proj-1", "user-1")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("jobID", "job-1")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
 	}
 }
 
@@ -506,11 +624,48 @@ func TestRequirePermission_User_TokenScopesEnforced(t *testing.T) {
 	}
 }
 
+func TestRequirePermission_User_EmptyTokenScopesDenyEvenWithProjectRBAC(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{}
+	ms.GetUserPermissionsFunc = func(_ context.Context, _, _ string) ([]string, error) {
+		return []string{domain.ScopeJobsRead}, nil
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	handler := srv.requirePermission(domain.ScopeJobsRead)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	ctx := context.WithValue(req.Context(), ctxScopesKey, []string{})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
+	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "user-1")
+	ctx = context.WithValue(ctx, ctxOIDCScopeClaimPresentKey, true)
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusForbidden)
+	}
+	if len(ms.GetUserPermissionsCalls()) != 0 {
+		t.Fatal("explicit empty OIDC scopes must deny before project RBAC lookup")
+	}
+}
+
 func TestRequirePermission_User_TokenScopesAllow(t *testing.T) {
 	t.Parallel()
 
-	// When the token scope includes the required permission, allow through.
-	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
+	// When the token scope and the project role both include the required
+	// permission, allow through.
+	ms := &APIStoreMock{}
+	ms.GetUserPermissionsFunc = func(_ context.Context, _, _ string) ([]string, error) {
+		return []string{domain.ScopeJobsRead}, nil
+	}
+	srv := newTestServer(t, ms, nil, nil)
 
 	handler := srv.requirePermission(domain.ScopeJobsRead)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

@@ -7,13 +7,14 @@ import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";
 import { apiRequest } from "@/lib/api-client.server";
 import { authMiddleware } from "@/middlewares/auth";
+import { requireActiveProjectAccess } from "@/middlewares/require-access";
 
 const deviceSearchSchema = z.object({
   code: z.string().optional().catch(undefined),
 });
 
 type ApproveResponse = {
-  approved: boolean;
+  status: string;
 };
 
 const approveDeviceCode = createServerFn({ method: "POST" })
@@ -23,15 +24,17 @@ const approveDeviceCode = createServerFn({ method: "POST" })
     })
   )
   .middleware([authMiddleware])
-  .handler(
-    async ({ data }) =>
-      await apiRequest<ApproveResponse>("/v1/cli/auth/approve", {
-        method: "POST",
-        body: {
-          user_code: data.userCode,
-        },
-      })
-  );
+  .handler(async ({ context, data }) => {
+    const projectId = await requireActiveProjectAccess(context);
+    return await apiRequest<ApproveResponse>("/v1/cli/device-codes/approve", {
+      method: "POST",
+      projectId,
+      body: {
+        project_id: projectId,
+        user_code: data.userCode,
+      },
+    });
+  });
 
 export const Route = createFileRoute("/(auth)/device")({
   validateSearch: deviceSearchSchema,
@@ -99,9 +102,9 @@ function DeviceAuthPage() {
         title="Device Authorized"
       >
         <div className="flex flex-col items-center gap-3">
-          <div className="flex size-12 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30">
+          <div className="flex size-12 items-center justify-center rounded-full bg-success/10">
             <svg
-              className="size-6 text-green-600 dark:text-green-400"
+              className="size-6 text-success"
               fill="none"
               stroke="currentColor"
               strokeWidth={2}
@@ -152,14 +155,14 @@ function DeviceAuthPage() {
 
         <div className="flex w-full gap-3">
           <button
-            className="flex-1 rounded-custom border border-border bg-background px-4 py-2.5 font-medium text-foreground text-sm transition-colors hover:bg-muted"
+            className="flex-1 rounded border border-border bg-background px-4 py-2.5 font-medium text-foreground text-sm transition-colors hover:bg-muted"
             onClick={() => window.close()}
             type="button"
           >
             Deny
           </button>
           <button
-            className="flex-1 rounded-custom bg-primary px-4 py-2.5 font-medium text-primary-foreground text-sm transition-colors hover:bg-primary/90 disabled:opacity-50"
+            className="flex-1 rounded bg-primary px-4 py-2.5 font-medium text-primary-foreground text-sm transition-colors hover:bg-primary/90 disabled:opacity-50"
             disabled={status === "approving"}
             onClick={handleApprove}
             type="button"

@@ -3,6 +3,7 @@ package httputil
 import (
 	"fmt"
 	"net"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -120,6 +121,97 @@ func TestValidateExternalURL(t *testing.T) {
 	}
 }
 
+func TestRedactURLForLog(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "drops path query and fragment",
+			in:   "https://hooks.example.com/services/T00/B00/token?secret=value#frag",
+			want: "https://hooks.example.com",
+		},
+		{
+			name: "drops userinfo",
+			in:   "https://user:pass@example.com:8443/path?token=abc",
+			want: "https://example.com:8443",
+		},
+		{
+			name: "invalid",
+			in:   "/relative/path?token=abc",
+			want: "[invalid-url]",
+		},
+		{
+			name: "empty",
+			in:   "",
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := RedactURLForLog(tt.in); got != tt.want {
+				t.Fatalf("RedactURLForLog(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSanitizeHTTPClientError_RemovesURLSecrets(t *testing.T) {
+	t.Parallel()
+
+	err := &url.Error{
+		Op:  "Post",
+		URL: "https://user:pass@hooks.example.com/private/path?token=secret#frag",
+		Err: fmt.Errorf("dial tcp: lookup failed"),
+	}
+
+	got := SanitizeHTTPClientError(err)
+	if strings.Contains(got, "token=secret") ||
+		strings.Contains(got, "user:pass") ||
+		strings.Contains(got, "/private/path") ||
+		strings.Contains(got, "hooks.example.com") {
+		t.Fatalf("SanitizeHTTPClientError leaked URL data: %q", got)
+	}
+	if !strings.Contains(got, "Post") || !strings.Contains(got, "request failed") {
+		t.Fatalf("SanitizeHTTPClientError() = %q, want operation and generic error", got)
+	}
+	if strings.Contains(got, "lookup failed") {
+		t.Fatalf("SanitizeHTTPClientError leaked transport detail: %q", got)
+	}
+}
+
+func TestSanitizeHTTPClientError_RemovesNestedURLSecrets(t *testing.T) {
+	t.Parallel()
+
+	err := &url.Error{
+		Op:  "Post",
+		URL: "https://safe.example.com/hook?outer=secret",
+		Err: &url.Error{
+			Op:  "Get",
+			URL: "https://user:pass@internal.example.com/redirect?inner=secret",
+			Err: fmt.Errorf("redirect blocked"),
+		},
+	}
+
+	got := SanitizeHTTPClientError(err)
+	if strings.Contains(got, "outer=secret") ||
+		strings.Contains(got, "inner=secret") ||
+		strings.Contains(got, "user:pass") ||
+		strings.Contains(got, "internal.example.com") {
+		t.Fatalf("SanitizeHTTPClientError leaked nested URL data: %q", got)
+	}
+	if !strings.Contains(got, "Get") || !strings.Contains(got, "request failed") {
+		t.Fatalf("SanitizeHTTPClientError() = %q, want nested operation and generic error", got)
+	}
+	if strings.Contains(got, "redirect blocked") {
+		t.Fatalf("SanitizeHTTPClientError leaked nested transport detail: %q", got)
+	}
+}
+
 func TestValidateExternalURL_DNSResolvesToPrivate(t *testing.T) {
 	// Not parallel: modifies package-level lookupHost.
 	origLookup := lookupHost
@@ -172,6 +264,41 @@ func TestValidateExternalURL_DNSLookupFailure(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "DNS lookup failed") {
 		t.Fatalf("error %q does not mention DNS lookup failure", err)
+	}
+	if strings.Contains(err.Error(), "unknown.example.com") {
+		t.Fatalf("error leaked hostname: %q", err)
+	}
+}
+
+func TestSafeDialContext_BlocksPrivateResolvedAddresses(t *testing.T) {
+	// Not parallel: modifies package-level lookupHost.
+	origLookup := lookupHost
+	t.Cleanup(func() { lookupHost = origLookup })
+	lookupHost = mockLookupHost
+
+	dial := SafeDialContext(false)
+	_, err := dial(t.Context(), "tcp", "internal.example.com:80")
+	if err == nil {
+		t.Fatal("SafeDialContext resolved private DNS address without error")
+	}
+	if !strings.Contains(err.Error(), "resolves to private") {
+		t.Fatalf("error %q does not mention private DNS answer", err)
+	}
+	if strings.Contains(err.Error(), "internal.example.com") || strings.Contains(err.Error(), "10.0.0.5") {
+		t.Fatalf("error leaked resolved host detail: %q", err)
+	}
+}
+
+func TestSafeDialContext_BlocksPrivateLiteralAddresses(t *testing.T) {
+	t.Parallel()
+
+	dial := SafeDialContext(false)
+	_, err := dial(t.Context(), "tcp", "169.254.169.254:80")
+	if err == nil {
+		t.Fatal("SafeDialContext dialed private IP literal without error")
+	}
+	if !strings.Contains(err.Error(), "blocked private") {
+		t.Fatalf("error %q does not mention blocked private address", err)
 	}
 }
 

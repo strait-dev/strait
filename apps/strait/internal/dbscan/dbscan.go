@@ -31,10 +31,6 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 	var batchID *string
 	var concurrencyKey *string
 	var executionMode *string
-	var machineID *string
-	var deploymentID *string
-	var pinnedImageURI *string
-	var pinnedImageDigest *string
 	var isRollback bool
 	var replayedRunID *string
 
@@ -72,10 +68,6 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 		&batchID,
 		&concurrencyKey,
 		&executionMode,
-		&machineID,
-		&deploymentID,
-		&pinnedImageURI,
-		&pinnedImageDigest,
 		&isRollback,
 		&replayedRunID,
 	)
@@ -138,18 +130,6 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 	}
 	if executionMode != nil {
 		run.ExecutionMode = domain.ExecutionMode(*executionMode)
-	}
-	if machineID != nil {
-		run.MachineID = *machineID
-	}
-	if deploymentID != nil {
-		run.DeploymentID = *deploymentID
-	}
-	if pinnedImageURI != nil {
-		run.PinnedImageURI = *pinnedImageURI
-	}
-	if pinnedImageDigest != nil {
-		run.PinnedImageDigest = *pinnedImageDigest
 	}
 	run.IsRollback = isRollback
 	if replayedRunID != nil {

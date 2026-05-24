@@ -1,17 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@strait/ui/components/alert-dialog";
 import { Badge } from "@strait/ui/components/badge";
-import { Button } from "@strait/ui/components/button";
+import { Button, buttonVariants } from "@strait/ui/components/button";
 import {
   Card,
   CardContent,
@@ -26,7 +15,7 @@ import {
   TabsTrigger,
 } from "@strait/ui/components/tabs";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import {
   getCoreRowModel,
   getPaginationRowModel,
@@ -60,13 +49,9 @@ import {
 } from "@/lib/icons";
 
 export const Route = createFileRoute("/app/webhooks/$id")({
+  head: () => ({ meta: [{ title: "Webhook · Strait" }] }),
   loader: async ({ context, params }) => {
-    await Promise.all([
-      context.queryClient.ensureQueryData(webhookQueryOptions(params.id)),
-      context.queryClient.ensureQueryData(
-        webhookDeliveriesQueryOptions(params.id)
-      ),
-    ]);
+    await context.queryClient.ensureQueryData(webhookQueryOptions(params.id));
   },
   pendingComponent: DetailPageSkeleton,
   errorComponent: ErrorComponent,
@@ -81,7 +66,10 @@ const deliveryColumns = [
       let mapped: "completed" | "failed" | "pending" = "pending";
       if (row.original.status === "delivered") {
         mapped = "completed";
-      } else if (row.original.status === "failed") {
+      } else if (
+        row.original.status === "failed" ||
+        row.original.status === "dead"
+      ) {
         mapped = "failed";
       }
       return <StatusBadge status={mapped} />;
@@ -126,16 +114,28 @@ const deliveryColumns = [
 
 function WebhookDetailPage() {
   const { id } = Route.useParams();
+  const navigate = useNavigate();
   usePageEvent("webhook_detail_viewed", { webhook_id: id });
 
   const { data: webhook } = useSuspenseQuery(webhookQueryOptions(id));
-  const { data: deliveriesData } = useQuery(webhookDeliveriesQueryOptions(id));
+  const [activeTab, setActiveTab] = useState("settings");
+  const {
+    data: deliveriesData,
+    isError: deliveriesError,
+    isLoading: deliveriesLoading,
+  } = useQuery({
+    ...webhookDeliveriesQueryOptions(id),
+    enabled: activeTab === "deliveries",
+    throwOnError: false,
+  });
 
-  const [activeTab, setActiveTab] = useState("deliveries");
   const deleteWebhook = useDeleteWebhook();
   const testWebhook = useTestWebhook();
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
-  const deliveries = deliveriesData?.data ?? [];
+  const deliveries = (deliveriesData?.data ?? []).filter(
+    (delivery) => delivery.subscription_id === id
+  );
 
   const table = useReactTable({
     data: deliveries,
@@ -177,29 +177,66 @@ function WebhookDetailPage() {
             <HugeiconsIcon className="mr-1.5" icon={PlayActionIcon} size={14} />
             Send test
           </Button>
-          <AlertDialog>
-            <AlertDialogTrigger render={<Button variant="destructive" />}>
-              <HugeiconsIcon className="mr-1.5" icon={TrashIcon} size={14} />
-              Delete
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Delete webhook?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This will permanently delete this webhook subscription.
-                  Deliveries in progress will not be affected.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={() => deleteWebhook.mutate(webhook.id)}
-                >
-                  Delete
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+          <button
+            aria-label="Delete webhook"
+            className={buttonVariants({ variant: "destructive" })}
+            onClick={() => setDeleteDialogOpen(true)}
+            onPointerDown={() => setDeleteDialogOpen(true)}
+            type="button"
+          >
+            <HugeiconsIcon className="mr-1.5" icon={TrashIcon} size={14} />
+            Delete
+          </button>
+          {deleteDialogOpen && (
+            <div
+              className="fixed inset-0 z-50 grid place-items-center bg-black/10 p-4"
+              role="presentation"
+            >
+              <div
+                aria-labelledby="delete-webhook-title"
+                aria-modal="true"
+                className="grid w-full max-w-sm gap-4 rounded-lg bg-background p-4 shadow-lg ring-1 ring-foreground/10"
+                role="alertdialog"
+              >
+                <div className="grid gap-1.5">
+                  <h2
+                    className="font-medium text-base"
+                    id="delete-webhook-title"
+                  >
+                    Delete webhook?
+                  </h2>
+                  <p className="text-muted-foreground text-sm">
+                    This will permanently delete this webhook subscription.
+                    Deliveries in progress will not be affected.
+                  </p>
+                </div>
+                <div className="-mx-4 -mb-4 flex justify-end gap-2 border-t bg-muted/50 p-4">
+                  <Button
+                    onClick={() => setDeleteDialogOpen(false)}
+                    type="button"
+                    variant="outline"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    disabled={deleteWebhook.isPending}
+                    onClick={() => {
+                      deleteWebhook.mutate(webhook.id, {
+                        onSuccess: () => {
+                          setDeleteDialogOpen(false);
+                          navigate({ to: "/app/webhooks" });
+                        },
+                      });
+                    }}
+                    type="button"
+                    variant="destructive"
+                  >
+                    Delete
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -210,23 +247,39 @@ function WebhookDetailPage() {
         </TabsList>
 
         <TabsContent value="deliveries">
-          <DataTable
-            emptyState={
-              <TableEmptyState
-                description="No deliveries have been sent to this webhook yet."
-                hideButton
-                icon={
-                  <HugeiconsIcon
-                    className="text-muted-foreground"
-                    icon={WebhookIcon}
-                    size={24}
-                  />
-                }
-                title="No deliveries"
-              />
-            }
-            table={table}
-          />
+          {deliveriesError ? (
+            <div
+              className="rounded-lg border border-dashed p-8 text-center text-muted-foreground text-sm"
+              role="status"
+            >
+              Webhook deliveries are unavailable right now.
+            </div>
+          ) : (
+            <DataTable
+              ariaLabel="Webhook deliveries"
+              emptyState={
+                <TableEmptyState
+                  description={
+                    deliveriesLoading
+                      ? "Loading deliveries..."
+                      : "No deliveries have been sent to this webhook yet."
+                  }
+                  hideButton
+                  icon={
+                    <HugeiconsIcon
+                      className="text-muted-foreground"
+                      icon={WebhookIcon}
+                      size={24}
+                    />
+                  }
+                  title={
+                    deliveriesLoading ? "Loading deliveries" : "No deliveries"
+                  }
+                />
+              }
+              table={table}
+            />
+          )}
         </TabsContent>
 
         <TabsContent value="settings">

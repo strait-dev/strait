@@ -20,7 +20,6 @@ import {
   CartesianGrid,
   ComposedChart,
   Line,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
@@ -36,6 +35,7 @@ import { ActivityIcon } from "@/lib/icons";
 import { CHART_COLORS } from "@/lib/status-colors";
 import ChartEmptyState from "../dashboard/chart-empty-state";
 import ChartTooltip from "../dashboard/chart-tooltip";
+import ResponsiveChartContainer from "../dashboard/responsive-chart-container";
 
 function triggerDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -164,7 +164,7 @@ const UsageHistoryTab = () => {
                 message="No usage data yet for this billing period."
               />
             ) : (
-              <ResponsiveContainer
+              <ResponsiveChartContainer
                 height="100%"
                 minHeight={1}
                 minWidth={1}
@@ -221,7 +221,7 @@ const UsageHistoryTab = () => {
                     yAxisId="runs"
                   />
                 </ComposedChart>
-              </ResponsiveContainer>
+              </ResponsiveChartContainer>
             )}
           </div>
         </CardContent>

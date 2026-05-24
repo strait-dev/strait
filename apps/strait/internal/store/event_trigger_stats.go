@@ -18,7 +18,8 @@ type EventTriggerStats struct {
 }
 
 // GetEventTriggerStats returns aggregate statistics for a project's event triggers.
-func (q *Queries) GetEventTriggerStats(ctx context.Context, projectID string) (*EventTriggerStats, error) {
+// When environmentID is non-empty, only triggers in that environment are included.
+func (q *Queries) GetEventTriggerStats(ctx context.Context, projectID, environmentID string) (*EventTriggerStats, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetEventTriggerStats")
 	defer span.End()
 
@@ -31,10 +32,11 @@ func (q *Queries) GetEventTriggerStats(ctx context.Context, projectID string) (*
 			COUNT(*) FILTER (WHERE status = 'received') AS received,
 			COUNT(*) FILTER (WHERE status = 'timed_out') AS timed_out,
 			COUNT(*) FILTER (WHERE status = 'canceled') AS canceled
-		FROM event_triggers
-		WHERE project_id = $1`
+			FROM event_triggers
+			WHERE project_id = $1
+			  AND ($2 = '' OR environment_id = $2)`
 
-	err := q.db.QueryRow(ctx, countQuery, projectID).Scan(
+	err := q.db.QueryRow(ctx, countQuery, projectID, environmentID).Scan(
 		&stats.TotalCount,
 		&stats.WaitingCount,
 		&stats.ReceivedCount,
@@ -48,9 +50,12 @@ func (q *Queries) GetEventTriggerStats(ctx context.Context, projectID string) (*
 	avgQuery := `
 		SELECT COALESCE(AVG(EXTRACT(EPOCH FROM (received_at - requested_at))), 0)
 		FROM event_triggers
-		WHERE project_id = $1 AND status = 'received' AND received_at IS NOT NULL`
+		WHERE project_id = $1
+		  AND ($2 = '' OR environment_id = $2)
+		  AND status = 'received'
+		  AND received_at IS NOT NULL`
 
-	err = q.db.QueryRow(ctx, avgQuery, projectID).Scan(&stats.AvgWaitDuration)
+	err = q.db.QueryRow(ctx, avgQuery, projectID, environmentID).Scan(&stats.AvgWaitDuration)
 	if err != nil {
 		return nil, fmt.Errorf("avg wait duration: %w", err)
 	}

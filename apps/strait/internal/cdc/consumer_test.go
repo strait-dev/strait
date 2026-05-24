@@ -8,11 +8,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/getsentry/sentry-go"
 
 	"strait/internal/pubsub"
 )
@@ -39,6 +42,28 @@ func TestConsumerRegisterMultipleHandlers(t *testing.T) {
 
 	if len(consumer.handlers) != 2 {
 		t.Fatalf("len(handlers) = %d, want 2", len(consumer.handlers))
+	}
+}
+
+func TestConsumerBatchPublishFailureSentryScope(t *testing.T) {
+	t.Parallel()
+
+	consumer := NewConsumer(NewClient("http://example.com", "cdc-consumer", ""), ConsumerConfig{ConsumerName: "cdc-consumer"}, slog.Default())
+	scope := sentry.NewScope()
+	consumer.applyBatchPublishFailureSentryScope(scope, 3)
+
+	event := scope.ApplyToEvent(&sentry.Event{}, nil, nil)
+	if event.Tags["subsystem"] != "cdc" {
+		t.Fatalf("subsystem tag = %q, want cdc", event.Tags["subsystem"])
+	}
+	if event.Tags["consumer"] != "cdc-consumer" {
+		t.Fatalf("consumer tag = %q, want cdc-consumer", event.Tags["consumer"])
+	}
+	if event.Tags["operation"] != "publish_batch" {
+		t.Fatalf("operation tag = %q, want publish_batch", event.Tags["operation"])
+	}
+	if event.Contexts["cdc.batch"]["batch_count"] != 3 {
+		t.Fatalf("batch_count context = %v, want 3", event.Contexts["cdc.batch"]["batch_count"])
 	}
 }
 
@@ -540,8 +565,91 @@ func TestConsumerDefaultWaitTimeMs(t *testing.T) {
 func TestConsumerDefaultBatchSize(t *testing.T) {
 	t.Parallel()
 	consumer := NewConsumer(NewClient("http://localhost", "c1", "token"), ConsumerConfig{ConsumerName: "c1"}, nil)
-	if consumer.config.BatchSize != 10 {
-		t.Fatalf("default BatchSize = %d, want 10", consumer.config.BatchSize)
+	if consumer.config.BatchSize != 200 {
+		t.Fatalf("default BatchSize = %d, want 200", consumer.config.BatchSize)
+	}
+}
+
+func TestConsumerPoll_LargeBatchSize_HonoredAndRoutedInOnePoll(t *testing.T) {
+	t.Parallel()
+
+	const wantBatchSize = 200
+	const messageCount = 200
+
+	var (
+		handled     atomic.Int32
+		seenBatchSz atomic.Int32
+		ackedIDs    sync.Map
+	)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/http_pull_consumers/c-bs/receive":
+			var req struct {
+				BatchSize int `json:"batch_size"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Errorf("decode receive body: %v", err)
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			seenBatchSz.Store(int32(req.BatchSize))
+
+			// Return exactly batch_size messages in one response.
+			var sb strings.Builder
+			sb.WriteString(`{"data":[`)
+			for i := range messageCount {
+				if i > 0 {
+					sb.WriteString(",")
+				}
+				sb.WriteString(`{"ack_id":"a`)
+				sb.WriteString(strconv.Itoa(i))
+				sb.WriteString(`","record":{"id":`)
+				sb.WriteString(strconv.Itoa(i))
+				sb.WriteString(`},"action":"insert","metadata":{"table_name":"job_runs"}}`)
+			}
+			sb.WriteString(`]}`)
+			_, _ = w.Write([]byte(sb.String()))
+		case "/api/http_pull_consumers/c-bs/ack":
+			ids := decodeAckIDs(t, r)
+			for _, id := range ids {
+				ackedIDs.Store(id, struct{}{})
+			}
+		case "/api/http_pull_consumers/c-bs/nack":
+			t.Errorf("unexpected nack call")
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer ts.Close()
+
+	consumer := NewConsumer(
+		NewClient(ts.URL, "c-bs", "token"),
+		ConsumerConfig{ConsumerName: "c-bs", BatchSize: wantBatchSize, WaitTimeMs: 1},
+		slog.Default(),
+	)
+	consumer.RegisterHandler(HandlerFunc{
+		TableName: "job_runs",
+		Fn: func(_ context.Context, _ Message) error {
+			handled.Add(1)
+			return nil
+		},
+	})
+
+	if err := consumer.poll(context.Background()); err != nil {
+		t.Fatalf("poll returned error: %v", err)
+	}
+
+	if got := int(seenBatchSz.Load()); got != wantBatchSize {
+		t.Fatalf("server saw batch_size = %d, want %d", got, wantBatchSize)
+	}
+	if got := int(handled.Load()); got != messageCount {
+		t.Fatalf("handled = %d, want %d (all messages in one poll)", got, messageCount)
+	}
+	ackedCount := 0
+	ackedIDs.Range(func(_, _ any) bool { ackedCount++; return true })
+	if ackedCount != messageCount {
+		t.Fatalf("acked = %d, want %d", ackedCount, messageCount)
 	}
 }
 

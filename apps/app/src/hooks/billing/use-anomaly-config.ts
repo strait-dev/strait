@@ -15,7 +15,10 @@ import z from "zod/v4";
 import { queryKeys } from "@/hooks/query-keys";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
-import { getOrgIdFromSession } from "./session";
+import {
+  requireActiveOrgAccess,
+  requireActiveOrgAdmin,
+} from "@/middlewares/require-access";
 import { REFETCH_10M } from "./types";
 
 /** Anomaly detection threshold configuration for the organization. */
@@ -30,13 +33,7 @@ export type AnomalyConfigData = {
 const getAnomalyConfigServerFn = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async (ctx) => {
-    const orgId = getOrgIdFromSession(
-      ctx.context.session as Record<string, unknown>
-    );
-
-    if (!orgId) {
-      return null;
-    }
+    const orgId = await requireActiveOrgAccess(ctx.context);
 
     return await runWithSentryReport(
       apiEffect<AnomalyConfigData>("/v1/anomaly-config", {
@@ -81,13 +78,7 @@ const setAnomalyConfigServerFn = createServerFn({ method: "POST" })
   )
   .middleware([authMiddleware])
   .handler(async ({ data, context }) => {
-    const orgId = getOrgIdFromSession(
-      context.session as Record<string, unknown>
-    );
-
-    if (!orgId) {
-      throw new Error("No organization found");
-    }
+    const orgId = await requireActiveOrgAdmin(context);
 
     return await runWithSentryReport(
       apiEffect<{ status: string }>("/v1/anomaly-config", {

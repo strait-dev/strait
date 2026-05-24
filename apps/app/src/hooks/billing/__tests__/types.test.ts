@@ -11,12 +11,13 @@ import {
 } from "../types";
 
 describe("PlanTierSlug", () => {
-  it("ALL_PLAN_TIERS contains all 5 tiers in order", () => {
+  it("ALL_PLAN_TIERS contains all 6 tiers in order", () => {
     expect(ALL_PLAN_TIERS).toEqual([
       "free",
       "starter",
       "pro",
       "scale",
+      "business",
       "enterprise",
     ]);
   });
@@ -27,9 +28,10 @@ describe("PlanTierSlug", () => {
       "starter",
       "pro",
       "scale",
+      "business",
       "enterprise",
     ];
-    expect(tiers).toHaveLength(5);
+    expect(tiers).toHaveLength(6);
   });
 });
 

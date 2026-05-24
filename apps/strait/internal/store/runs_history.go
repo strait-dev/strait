@@ -18,12 +18,11 @@ const historyArchiveColumns = `id, job_id, project_id, status, attempt, payload,
 	heartbeat_at, next_retry_at, expires_at, parent_run_id, priority,
 	idempotency_key, job_version, workflow_step_run_id, execution_trace,
 	debug_mode, continuation_of, lineage_depth, tags, job_version_id,
-	created_by, concurrency_key, batch_id, execution_mode, machine_id,
-	deployment_id, pinned_image_uri, pinned_image_digest, is_rollback,
-	replayed_run_id, max_attempts_override, timeout_secs_override,
+	created_by, concurrency_key, batch_id, execution_mode,
+	is_rollback, replayed_run_id, max_attempts_override, timeout_secs_override,
 	retry_backoff, retry_initial_delay_secs, retry_max_delay_secs,
 	visible_until, job_enabled, job_paused, job_max_concurrency, job_max_concurrency_per_key,
-	created_at`
+	queue_name, created_at`
 
 func (q *Queries) ArchiveTerminalRun(ctx context.Context, tx DBTX, id string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ArchiveTerminalRun")
@@ -54,7 +53,6 @@ func (q *Queries) GetRunFromHistory(ctx context.Context, id string) (*domain.Job
 		idempotency_key, job_version, created_at, workflow_step_run_id,
 		execution_trace, debug_mode, continuation_of, lineage_depth, tags,
 		job_version_id, created_by, batch_id, concurrency_key, execution_mode,
-		machine_id, deployment_id, pinned_image_uri, pinned_image_digest,
 		is_rollback, replayed_run_id
 		FROM job_runs_history WHERE id = $1`
 
@@ -98,10 +96,19 @@ func (q *Queries) ArchiveTerminalRunsPastRetention(
 	shortCutoff := time.Now().Add(-shortRetention)
 	longCutoff := time.Now().Add(-longRetention)
 
+	// Exclude the current month's partition to avoid creating dead tuples
+	// in the hot partition that the dequeue hot path scans. The DELETE
+	// + INSERT INTO history CTE is particularly expensive: it creates
+	// dead tuples on both the source table and generates WAL for the
+	// history insert. By skipping the hot partition, we let pg_partman
+	// handle cleanup when the entire partition ages out.
+	hotBoundary := beginningOfMonth(time.Now())
+
 	query := `
 		WITH to_archive AS (
 			SELECT id, created_at FROM job_runs
 			WHERE finished_at IS NOT NULL
+			  AND created_at < $4
 			  AND (
 				(status IN ('completed', 'failed', 'canceled', 'expired') AND finished_at <= $1)
 				OR
@@ -121,7 +128,7 @@ func (q *Queries) ArchiveTerminalRunsPastRetention(
 		)
 		DELETE FROM job_runs WHERE id IN (SELECT id FROM archived)`
 
-	tag, err := q.db.Exec(ctx, query, shortCutoff, longCutoff, batchSize)
+	tag, err := q.db.Exec(ctx, query, shortCutoff, longCutoff, batchSize, hotBoundary)
 	if err != nil {
 		return 0, fmt.Errorf("archive terminal runs: %w", err)
 	}

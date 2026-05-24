@@ -30,3 +30,66 @@
 # Reassess on or before the expiration date. If the distroless rebuild
 # has landed by then, remove this line.
 CVE-2026-28390 exp:2026-05-15
+
+# CVE-2026-28387 / CVE-2026-28388 / CVE-2026-28389 / CVE-2026-31789 —
+# additional libssl3 vulnerabilities in the same Debian 12 source
+# package as CVE-2026-28390 above. All four are fixed upstream in
+# libssl3 3.0.19-1~deb12u2 and ship together once Google rebuilds the
+# distroless nodejs22-debian12 image.
+#
+# Affects: strait-app runtime image (gcr.io/distroless/nodejs22-debian12).
+#
+# Exploitability mirrors CVE-2026-28390: the Node runtime only links
+# libssl for outbound TLS to trusted endpoints (Strait API, Resend,
+# Stripe) and the built-in `fetch` healthcheck. None of those code paths
+# parse CMS / PKCS#7 structures or accept attacker-controlled X.509
+# inputs. CVE-2026-31789 is additionally a 32-bit-only heap overflow;
+# our runner and image are 64-bit. The Go strait images are unaffected
+# (distroless/static-debian12 ships no libssl).
+#
+# Reassess on or before the expiration date and remove these once the
+# distroless rebuild lands.
+CVE-2026-28387 exp:2026-06-10
+CVE-2026-28388 exp:2026-06-10
+CVE-2026-28389 exp:2026-06-10
+CVE-2026-31789 exp:2026-06-10
+
+# CVE-2026-29181 — OpenTelemetry-Go multi-value `baggage` header
+# extraction triggers excessive allocations (DoS amplification).
+# Fixed upstream in go.opentelemetry.io/otel 1.41.0.
+#
+# Affects: the bundled `soci` binary (awslabs/soci-snapshotter v0.13.0,
+# the current latest release as of this pin) inside the community and
+# cloud strait images. The strait binary itself ships otel >=1.41 and
+# is clean.
+#
+# Not exploitable in our context: the soci binary is shipped for use by
+# the host containerd snapshotter on nodes that pull strait images; it
+# is never invoked from inside the running strait container (ENTRYPOINT
+# is `strait`). Even when run on a node, soci's OTel exporter consumes
+# spans it generates itself, never untrusted remote `baggage` headers.
+#
+# Reassess once awslabs/soci-snapshotter cuts a release newer than
+# v0.13.0 that bumps go.opentelemetry.io/otel.
+CVE-2026-29181 exp:2026-08-10
+
+# CVE-2026-32280 / CVE-2026-32281 / CVE-2026-32283 — Go standard
+# library TLS / x509 denial-of-service vulnerabilities. Fixed upstream
+# in Go 1.25.9 and 1.26.2.
+#
+# Affects: the bundled `soci` binary (awslabs/soci-snapshotter v0.13.0)
+# inside the community and cloud strait images. Soci v0.13.0 was built
+# with Go 1.25.8; no newer soci release exists yet.
+#
+# Not exploitable in our context: the strait container never executes
+# soci (ENTRYPOINT is `strait`, the strait binary itself is built with
+# Go 1.26.x and is clean). When soci runs on a node it talks TLS only
+# to ECR endpoints under AWS's control, not to attacker-supplied hosts,
+# so the DoS path requires an attacker who already controls the
+# registry the node is configured to pull from.
+#
+# Reassess once awslabs/soci-snapshotter cuts a release newer than
+# v0.13.0 built with Go >=1.26.2.
+CVE-2026-32280 exp:2026-08-10
+CVE-2026-32281 exp:2026-08-10
+CVE-2026-32283 exp:2026-08-10

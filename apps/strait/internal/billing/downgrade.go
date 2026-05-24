@@ -48,9 +48,9 @@ func PreviewDowngrade(ctx context.Context, store Store, orgID string, targetTier
 	currentLimits := GetPlanLimits(domain.PlanTier(sub.PlanTier))
 
 	// Get current project count.
-	projects, err := store.ListProjectsByOrg(ctx, orgID)
+	projectCount, err := store.CountProjectsByOrg(ctx, orgID)
 	if err != nil {
-		return nil, fmt.Errorf("listing projects for downgrade preview: %w", err)
+		return nil, fmt.Errorf("counting projects for downgrade preview: %w", err)
 	}
 
 	// Determine effective date from subscription period end.
@@ -58,6 +58,24 @@ func PreviewDowngrade(ctx context.Context, store Store, orgID string, targetTier
 	effectiveDate := time.Date(now.Year(), now.Month()+1, 0, 0, 0, 0, 0, time.UTC)
 	if sub.CurrentPeriodEnd != nil {
 		effectiveDate = *sub.CurrentPeriodEnd
+	}
+
+	memberCount, err := store.CountMembersByOrg(ctx, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("counting members for downgrade preview: %w", err)
+	}
+	executingRuns, err := store.CountExecutingRunsByOrg(ctx, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("counting executing runs for downgrade preview: %w", err)
+	}
+	periodStart, periodEnd := usagePeriodWindow(now, domain.PlanTier(sub.PlanTier), sub)
+	usage, err := store.GetOrgUsageForPeriod(ctx, orgID, periodStart, periodEnd)
+	if err != nil {
+		return nil, fmt.Errorf("getting usage for downgrade preview: %w", err)
+	}
+	var runsThisPeriod int64
+	for _, rec := range usage {
+		runsThisPeriod += rec.RunsCount
 	}
 
 	impact := &DowngradeImpact{
@@ -68,36 +86,29 @@ func PreviewDowngrade(ctx context.Context, store Store, orgID string, targetTier
 	// Projects
 	impact.Impacts = append(impact.Impacts, buildImpact(
 		"projects",
-		int64(len(projects)),
+		int64(projectCount),
 		int64(targetLimits.MaxProjectsPerOrg),
 	))
 
 	// Members per org
 	impact.Impacts = append(impact.Impacts, buildImpact(
 		"members_per_org",
-		int64(currentLimits.MaxMembersPerOrg),
+		int64(memberCount),
 		int64(targetLimits.MaxMembersPerOrg),
 	))
 
-	// Runs per day
+	// Runs per month
 	impact.Impacts = append(impact.Impacts, buildImpact(
-		"runs_per_day",
-		currentLimits.MaxRunsPerDay,
-		targetLimits.MaxRunsPerDay,
+		"runs_per_month",
+		runsThisPeriod,
+		int64(targetLimits.MaxRunsPerMonth),
 	))
 
 	// Concurrent runs
 	impact.Impacts = append(impact.Impacts, buildImpact(
 		"concurrent_runs",
-		int64(currentLimits.MaxConcurrentRuns),
+		int64(executingRuns),
 		int64(targetLimits.MaxConcurrentRuns),
-	))
-
-	// Compute credit
-	impact.Impacts = append(impact.Impacts, buildImpact(
-		"compute_credit",
-		currentLimits.ComputeCreditMicrousd,
-		targetLimits.ComputeCreditMicrousd,
 	))
 
 	// Retention days
@@ -110,11 +121,11 @@ func PreviewDowngrade(ctx context.Context, store Store, orgID string, targetTier
 	// Regions
 	currentRegions := len(currentLimits.AllowedRegions)
 	if currentRegions == 0 {
-		currentRegions = 25 // nil means all
+		currentRegions = TotalRegions // nil means all
 	}
 	targetRegions := len(targetLimits.AllowedRegions)
 	if targetRegions == 0 {
-		targetRegions = 25
+		targetRegions = TotalRegions
 	}
 	impact.Impacts = append(impact.Impacts, buildImpact(
 		"regions",
@@ -124,7 +135,10 @@ func PreviewDowngrade(ctx context.Context, store Store, orgID string, targetTier
 
 	// HTTP-mode jobs (losing HTTP mode on downgrade = jobs auto-paused).
 	if currentLimits.AllowsHTTPMode && !targetLimits.AllowsHTTPMode {
-		httpJobs, _ := store.CountHTTPJobsByOrg(ctx, orgID)
+		httpJobs, err := store.CountHTTPJobsByOrg(ctx, orgID)
+		if err != nil {
+			return nil, fmt.Errorf("counting HTTP jobs for downgrade preview: %w", err)
+		}
 		if httpJobs > 0 {
 			impact.Impacts = append(impact.Impacts, ResourceImpact{
 				Resource: "http_mode_jobs",

@@ -19,7 +19,7 @@ func TestTriggers_BasicTrigger(t *testing.T) {
 	jobID := seedJob(t, projectID)
 
 	tgt := newTargeter("POST", "/v1/jobs/"+jobID+"/trigger", func() []byte {
-		return []byte(fmt.Sprintf(`{"payload":{"id":"%s"}}`, newID()))
+		return fmt.Appendf(nil, `{"payload":{"id":"%s"}}`, newID())
 	})
 
 	t.Run("baseline", func(t *testing.T) {
@@ -113,7 +113,7 @@ func TestTriggers_DelayedScheduling(t *testing.T) {
 
 	tgt := newTargeter("POST", "/v1/jobs/"+jobID+"/trigger", func() []byte {
 		future := time.Now().UTC().Add(1 * time.Hour).Format(time.RFC3339)
-		return []byte(fmt.Sprintf(`{"payload":{"delayed":true},"scheduled_at":"%s"}`, future))
+		return fmt.Appendf(nil, `{"payload":{"delayed":true},"scheduled_at":"%s"}`, future)
 	})
 
 	t.Run("baseline", func(t *testing.T) {
@@ -142,7 +142,7 @@ func TestTriggers_WithPriority(t *testing.T) {
 	tgt := newTargeter("POST", "/v1/jobs/"+jobID+"/trigger", func() []byte {
 		n := counter.Add(1)
 		priority := n % 11
-		return []byte(fmt.Sprintf(`{"payload":{"n":%d},"priority":%d}`, n, priority))
+		return fmt.Appendf(nil, `{"payload":{"n":%d},"priority":%d}`, n, priority)
 	})
 
 	t.Run("baseline", func(t *testing.T) {
@@ -168,14 +168,14 @@ func TestTriggers_BulkTrigger(t *testing.T) {
 	jobID := seedJob(t, projectID)
 
 	tgt := newTargeter("POST", "/v1/jobs/"+jobID+"/trigger/bulk", func() []byte {
-		items := ""
+		var items strings.Builder
 		for i := range 10 {
 			if i > 0 {
-				items += ","
+				items.WriteString(",")
 			}
-			items += fmt.Sprintf(`{"payload":{"i":%d},"idempotency_key":"blk-%s"}`, i, newID())
+			_, _ = fmt.Fprintf(&items, `{"payload":{"i":%d},"idempotency_key":"blk-%s"}`, i, newID())
 		}
-		return []byte(fmt.Sprintf(`{"items":[%s]}`, items))
+		return fmt.Appendf(nil, `{"items":[%s]}`, items.String())
 	})
 
 	t.Run("baseline", func(t *testing.T) {
@@ -201,7 +201,7 @@ func TestTriggers_ConcurrentSameJob(t *testing.T) {
 	jobID := seedJob(t, projectID)
 
 	tgt := newTargeter("POST", "/v1/jobs/"+jobID+"/trigger", func() []byte {
-		return []byte(fmt.Sprintf(`{"payload":{"ts":%d}}`, time.Now().UnixNano()))
+		return fmt.Appendf(nil, `{"payload":{"ts":%d}}`, time.Now().UnixNano())
 	})
 
 	t.Run("stress", func(t *testing.T) {
@@ -225,7 +225,7 @@ func TestTriggers_ConcurrentDifferentJobs(t *testing.T) {
 			"X-Internal-Secret": []string{"test-secret-value"},
 			"Content-Type":      []string{"application/json"},
 		}
-		tgt.Body = []byte(fmt.Sprintf(`{"payload":{"n":%d}}`, counter.Load()))
+		tgt.Body = fmt.Appendf(nil, `{"payload":{"n":%d}}`, counter.Load())
 		return nil
 	}
 
@@ -254,7 +254,7 @@ func TestTriggers_AfterJobUpdate(t *testing.T) {
 	httpDo(t, "PATCH", "/v1/jobs/"+jobID+"/", `{"name":"updated-v2","max_attempts":5}`, nil)
 
 	tgt := newTargeter("POST", "/v1/jobs/"+jobID+"/trigger", func() []byte {
-		return []byte(fmt.Sprintf(`{"payload":{"ver":"v2","id":"%s"}}`, newID()))
+		return fmt.Appendf(nil, `{"payload":{"ver":"v2","id":"%s"}}`, newID())
 	})
 
 	t.Run("baseline", func(t *testing.T) {
@@ -281,7 +281,7 @@ func TestTriggers_LargePayload(t *testing.T) {
 
 	largeValue := strings.Repeat("x", 10000)
 	tgt := newTargeter("POST", "/v1/jobs/"+jobID+"/trigger", func() []byte {
-		return []byte(fmt.Sprintf(`{"payload":{"id":"%s","data":"%s"}}`, newID(), largeValue))
+		return fmt.Appendf(nil, `{"payload":{"id":"%s","data":"%s"}}`, newID(), largeValue)
 	})
 
 	t.Run("baseline", func(t *testing.T) {
@@ -307,7 +307,7 @@ func TestTriggers_RapidFire(t *testing.T) {
 	jobID := seedJob(t, projectID)
 
 	tgt := newTargeter("POST", "/v1/jobs/"+jobID+"/trigger", func() []byte {
-		return []byte(fmt.Sprintf(`{"payload":{"ts":%d}}`, time.Now().UnixNano()))
+		return fmt.Appendf(nil, `{"payload":{"ts":%d}}`, time.Now().UnixNano())
 	})
 
 	t.Run("rapid-baseline", func(t *testing.T) {

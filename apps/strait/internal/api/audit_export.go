@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+	"unicode"
 
 	"strait/internal/billing"
 	"strait/internal/domain"
@@ -74,6 +75,9 @@ func (s *Server) handleExportAuditEvents(ctx context.Context, input *ExportAudit
 	if projectID == "" {
 		return nil, huma.Error400BadRequest("project_id is required")
 	}
+	if environmentIDFromContext(ctx) != "" {
+		return nil, huma.Error403Forbidden("audit export requires a project-wide key")
+	}
 
 	if err := s.checkFeatureAllowed(ctx, projectID, billing.FeatureAuditLogs, "Audit logs"); err != nil {
 		return nil, err
@@ -124,7 +128,6 @@ func (s *Server) handleExportAuditEvents(ctx context.Context, input *ExportAudit
 		return nil, huma.Error400BadRequest("format must be one of: json, csv, ndjson")
 	}
 
-	// Retrieve the raw response writer for streaming output.
 	w := responseWriterFromContext(ctx)
 	r := requestFromContext(ctx)
 	if w == nil || r == nil {
@@ -133,6 +136,21 @@ func (s *Server) handleExportAuditEvents(ctx context.Context, input *ExportAudit
 
 	actorID := input.ActorID
 	resourceType := input.ResourceType
+	auditDetails := map[string]any{
+		"from":                 input.From,
+		"to":                   input.To,
+		"format":               format,
+		"filter_actor":         input.ActorID,
+		"filter_resource_type": input.ResourceType,
+	}
+	if err := s.createRequiredAuditEvent(ctx, domain.AuditActionAuditExported, "audit", projectID, auditDetails); err != nil {
+		slog.Warn("failed to create required audit export event", "project_id", projectID, "error", err)
+		if s.metrics != nil && s.metrics.AuditEventsDropped != nil {
+			s.metrics.AuditEventsDropped.Add(ctx, 1,
+				metric.WithAttributes(attribute.String("reason", "required_write_failed")))
+		}
+		return nil, huma.Error500InternalServerError("failed to record audit export")
+	}
 
 	// Derive HMAC signing key if configured. InternalSecret (INTERNAL_SECRET)
 	// is the correct source key: it is the platform auth key, which is the
@@ -156,7 +174,6 @@ func (s *Server) handleExportAuditEvents(ctx context.Context, input *ExportAudit
 
 	setExportFormatHeaders(w, format)
 
-	// Wrap writer to tee into HMAC hash.
 	var out io.Writer = w
 	if mac != nil {
 		out = io.MultiWriter(w, mac)
@@ -189,18 +206,8 @@ func (s *Server) handleExportAuditEvents(ctx context.Context, input *ExportAudit
 		w.Header().Set("X-Audit-Signature", fmt.Sprintf("sha256=%s", sig))
 	}
 
-	s.emitAuditEvent(ctx, domain.AuditActionAuditExported, "audit", projectID, map[string]any{
-		"from":                 input.From,
-		"to":                   input.To,
-		"format":               format,
-		"filter_actor":         input.ActorID,
-		"filter_resource_type": input.ResourceType,
-		"exported":             exported,
-		"capped":               capped,
-	})
-
 	if capped {
-		s.emitAuditEvent(ctx, domain.AuditActionAuditExportCapped, "audit", projectID, map[string]any{
+		s.emitAuditEvent(context.WithoutCancel(ctx), domain.AuditActionAuditExportCapped, "audit", projectID, map[string]any{
 			"exported": exported,
 			"cap":      rowCap,
 		})
@@ -271,19 +278,19 @@ func (s *Server) streamAuditCSV(ctx context.Context, w io.Writer, flusher http.F
 			return errExportCapReached
 		}
 		record := []string{
-			ev.ID,
-			ev.ProjectID,
-			ev.ActorID,
-			ev.ActorType,
-			ev.Action,
-			ev.ResourceType,
-			ev.ResourceID,
-			string(ev.Details),
+			sanitizeCSVCell(ev.ID),
+			sanitizeCSVCell(ev.ProjectID),
+			sanitizeCSVCell(ev.ActorID),
+			sanitizeCSVCell(ev.ActorType),
+			sanitizeCSVCell(ev.Action),
+			sanitizeCSVCell(ev.ResourceType),
+			sanitizeCSVCell(ev.ResourceID),
+			sanitizeCSVCell(string(ev.Details)),
 			ev.CreatedAt.Format(time.RFC3339Nano),
-			ev.RemoteIP,
-			ev.UserAgent,
-			ev.RequestID,
-			ev.TraceID,
+			sanitizeCSVCell(ev.RemoteIP),
+			sanitizeCSVCell(ev.UserAgent),
+			sanitizeCSVCell(ev.RequestID),
+			sanitizeCSVCell(ev.TraceID),
 			fmt.Sprintf("%d", ev.SchemaVersion),
 		}
 		if err := cw.Write(record); err != nil {
@@ -336,6 +343,36 @@ func (s *Server) streamAuditNDJSON(ctx context.Context, w io.Writer, flusher htt
 		flusher.Flush()
 	}
 	return exported, capped, nil
+}
+
+func sanitizeCSVCell(value string) string {
+	if value == "" {
+		return value
+	}
+	// A literal control rune at index 0 (\t \r \n \x00) hides formula
+	// triggers further down the cell from a human reviewer but still
+	// lets spreadsheets parse the rest. Quote unconditionally; the
+	// invisibles-skip pass below would otherwise drop these and miss the
+	// danger when no =/+/-/@ follows.
+	switch value[0] {
+	case '\t', '\r', '\n', '\x00':
+		return "'" + value
+	}
+	// Walk past leading invisible runes \u2014 format chars (Cf: BOM, ZWSP,
+	// LRM, RLM, ZWJ, soft hyphen), combining marks, whitespace, and
+	// other controls \u2014 and decide based on the first printable rune.
+	for _, r := range value {
+		if unicode.Is(unicode.Cf, r) || unicode.IsMark(r) ||
+			unicode.IsSpace(r) || unicode.IsControl(r) {
+			continue
+		}
+		switch r {
+		case '=', '+', '-', '@':
+			return "'" + value
+		}
+		return value
+	}
+	return value
 }
 
 func (s *Server) streamAuditJSON(ctx context.Context, w io.Writer, flusher http.Flusher, canFlush bool, projectID, actorID, resourceType string, from, to time.Time, rowCap int64) (int, bool, error) {

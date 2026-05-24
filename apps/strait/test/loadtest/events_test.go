@@ -92,7 +92,7 @@ func TestEvents_SendEvent(t *testing.T) {
 	_, eventKey := seedEventTrigger(t, projectID)
 
 	tgt := newProjectTargeter("POST", "/v1/events/"+eventKey+"/send", projectID, func() []byte {
-		return []byte(fmt.Sprintf(`{"payload":{"data":"%s"}}`, newID()))
+		return fmt.Appendf(nil, `{"payload":{"data":"%s"}}`, newID())
 	})
 
 	t.Run("baseline", func(t *testing.T) {
@@ -114,7 +114,7 @@ func TestEvents_SendEventByPrefix(t *testing.T) {
 	}
 
 	tgt := newProjectTargeter("POST", "/v1/events/prefix/load/send", projectID, func() []byte {
-		return []byte(fmt.Sprintf(`{"payload":{"data":"%s"}}`, newID()))
+		return fmt.Appendf(nil, `{"payload":{"data":"%s"}}`, newID())
 	})
 
 	t.Run("baseline", func(t *testing.T) {
@@ -166,7 +166,7 @@ func TestEvents_PurgeEventTriggers(t *testing.T) {
 	}
 
 	tgt := newProjectTargeter("POST", "/v1/events/purge", projectID, func() []byte {
-		return []byte(fmt.Sprintf(`{"project_id":"%s","older_than_hours":0}`, projectID))
+		return fmt.Appendf(nil, `{"project_id":"%s","older_than_hours":0}`, projectID)
 	})
 
 	t.Run("baseline", func(t *testing.T) {

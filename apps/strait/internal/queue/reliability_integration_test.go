@@ -167,9 +167,7 @@ func TestQueueReliability_BackpressureConcurrentConsumers(t *testing.T) {
 	var throttled atomic.Int32
 	var wg sync.WaitGroup
 	for range goroutines {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			if err := bp.TryConsume(ctx, project); err != nil {
 				if _, ok := queue.AsThrottled(err); ok {
 					throttled.Add(1)
@@ -177,7 +175,7 @@ func TestQueueReliability_BackpressureConcurrentConsumers(t *testing.T) {
 			} else {
 				succeeded.Add(1)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -289,9 +287,7 @@ func TestQueueReliability_NotifierDegradedConcurrency(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range readers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for range iterations {
 				ch := n.Degraded()
 				select {
@@ -299,17 +295,15 @@ func TestQueueReliability_NotifierDegradedConcurrency(t *testing.T) {
 				default:
 				}
 			}
-		}()
+		})
 	}
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		for range iterations {
 			n.MarkDegradedForTest()
 			n.DegradedReset()
 		}
-	}()
+	})
 
 	wg.Wait()
 }

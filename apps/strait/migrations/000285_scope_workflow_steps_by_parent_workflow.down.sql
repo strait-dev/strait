@@ -1,0 +1,4 @@
+DROP POLICY IF EXISTS tenant_isolation ON workflow_steps;
+
+ALTER TABLE workflow_steps NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE workflow_steps DISABLE ROW LEVEL SECURITY;

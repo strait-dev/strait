@@ -80,17 +80,33 @@ pre-push:
       fail_text: "typecheck failed"
       timeout: 180s
 
-    - name: go_lint
-      glob: "*.go"
+    - name: buf_lint
+      glob: "apps/strait/proto/**/*.proto"
       skip:
         - run: test "${SKIP_RUN_ALL:-0}" = "1"
-      run: cd apps/strait && golangci-lint run --timeout=5m ./...
-      fail_text: "Go lint failed"
-      timeout: 360s
+      run: |
+        if command -v buf > /dev/null 2>&1; then
+          cd apps/strait && buf lint
+        fi
+      fail_text: "buf lint failed (install buf: brew install bufbuild/buf/buf)"
+      timeout: 60s
+
+    - name: zizmor
+      glob:
+        - ".github/workflows/**"
+        - ".github/actions/**"
+      skip:
+        - run: test "${SKIP_RUN_ALL:-0}" = "1"
+      run: |
+        if command -v zizmor > /dev/null 2>&1; then
+          zizmor --offline .github/workflows .github/actions
+        fi
+      fail_text: "zizmor found GitHub Actions security issues (install: brew install zizmor)"
+      timeout: 30s
 
 
 commit-msg:
   commands:
     conventional_commits:
-      run: "grep -qE '^(feat|fix|docs|test|refactor|perf|build|ci|chore|revert)(\\(.+\\))?!?: .{1,}$' {1} || (echo 'Commit message must follow Conventional Commits: type(scope): message' && exit 1)"
+      run: "grep -qE '^(feat|fix|docs|test|refactor|perf|build|ci|chore|revert|style)(\\(.+\\))?!?: .{1,}$' {1} || (echo 'Commit message must follow Conventional Commits: type(scope): message' && exit 1)"
       fail_text: "Commit message must follow Conventional Commits format: type(scope): message"

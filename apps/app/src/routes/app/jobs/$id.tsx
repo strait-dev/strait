@@ -29,7 +29,6 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
@@ -40,7 +39,7 @@ import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
 import TableEmptyState from "@/components/common/table-empty-state";
-
+import ResponsiveChartContainer from "@/components/dashboard/responsive-chart-container";
 import RunDetailSheet from "@/components/dashboard/run-detail-sheet";
 import StatusBadge from "@/components/dashboard/status-badge";
 import { createRunColumns } from "@/components/tables/runs-columns";
@@ -74,6 +73,7 @@ import {
 import { CHART_COLORS } from "@/lib/status-colors";
 
 export const Route = createFileRoute("/app/jobs/$id")({
+  head: () => ({ meta: [{ title: "Job · Strait" }] }),
   loader: async ({ context, params }) => {
     await Promise.all([
       context.queryClient.ensureQueryData(jobQueryOptions(params.id)),
@@ -279,7 +279,6 @@ function JobDetailPage() {
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="runs">Recent Runs</TabsTrigger>
-          <TabsTrigger value="settings">Settings</TabsTrigger>
         </TabsList>
 
         <TabsContent className="mt-6 space-y-6" value="overview">
@@ -314,7 +313,7 @@ function JobDetailPage() {
             <CardContent>
               {chartData.length > 0 ? (
                 <div className="h-[240px]">
-                  <ResponsiveContainer
+                  <ResponsiveChartContainer
                     height="100%"
                     minHeight={1}
                     minWidth={1}
@@ -344,7 +343,7 @@ function JobDetailPage() {
                         ))}
                       </Bar>
                     </BarChart>
-                  </ResponsiveContainer>
+                  </ResponsiveChartContainer>
                 </div>
               ) : (
                 <p className="py-8 text-center text-muted-foreground text-sm">
@@ -500,21 +499,6 @@ function JobDetailPage() {
             open={sheetOpen}
             run={selectedRun}
           />
-        </TabsContent>
-
-        <TabsContent className="mt-6" value="settings">
-          <Card>
-            <CardHeader>
-              <CardTitle className="font-medium text-sm">
-                Job Settings
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-muted-foreground text-sm">
-                Job configuration management coming soon.
-              </p>
-            </CardContent>
-          </Card>
         </TabsContent>
       </Tabs>
     </Shell>

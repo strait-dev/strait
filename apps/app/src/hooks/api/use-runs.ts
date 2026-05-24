@@ -14,8 +14,20 @@ import type {
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, HIGH_CHURN_STALE_TIME } from "@/hooks/utils";
 import { getPostHog } from "@/lib/analytics";
+import { apiPath } from "@/lib/api-client.server";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
+import {
+  requireActiveProjectAccess,
+  requireActiveProjectAdmin,
+} from "@/middlewares/require-access";
+
+const RUN_DETAIL_RETRY_COUNT = 2;
+const RUN_DETAIL_RETRY_BASE_MS = 1000;
+const RUN_DETAIL_RETRY_MAX_MS = 3000;
+
+const runDetailRetryDelay = (attempt: number) =>
+  Math.min(RUN_DETAIL_RETRY_BASE_MS * attempt, RUN_DETAIL_RETRY_MAX_MS);
 
 export const fetchRuns = createServerFn({ method: "GET" })
   .inputValidator(
@@ -30,8 +42,9 @@ export const fetchRuns = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(
     // @ts-expect-error tsgo cannot resolve createServerFn handler generics
-    async ({ data }): Promise<PaginatedResponse<JobRun>> =>
-      await runWithSentryReport(
+    async ({ context, data }): Promise<PaginatedResponse<JobRun>> => {
+      await requireActiveProjectAccess(context);
+      return await runWithSentryReport(
         apiEffect<PaginatedResponse<JobRun>>("/v1/runs", {
           params: {
             limit: data.limit,
@@ -41,7 +54,8 @@ export const fetchRuns = createServerFn({ method: "GET" })
             search: data.search,
           },
         })
-      )
+      );
+    }
   );
 
 export const fetchRun = createServerFn({ method: "GET" })
@@ -49,8 +63,12 @@ export const fetchRun = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(
     // @ts-expect-error tsgo cannot resolve createServerFn handler generics
-    async ({ data }): Promise<JobRun> =>
-      await runWithSentryReport(apiEffect<JobRun>(`/v1/runs/${data.id}`))
+    async ({ context, data }): Promise<JobRun> => {
+      await requireActiveProjectAccess(context);
+      return await runWithSentryReport(
+        apiEffect<JobRun>(apiPath`/v1/runs/${data.id}`)
+      );
+    }
   );
 
 export const fetchRunEvents = createServerFn({ method: "GET" })
@@ -60,15 +78,17 @@ export const fetchRunEvents = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(
     // @ts-expect-error tsgo cannot resolve createServerFn handler generics
-    async ({ data }): Promise<PaginatedResponse<RunEvent>> =>
-      await runWithSentryReport(
+    async ({ context, data }): Promise<PaginatedResponse<RunEvent>> => {
+      await requireActiveProjectAccess(context);
+      return await runWithSentryReport(
         apiEffect<PaginatedResponse<RunEvent>>(
-          `/v1/runs/${data.runId}/events`,
+          apiPath`/v1/runs/${data.runId}/events`,
           {
             params: { limit: data.limit, cursor: data.cursor },
           }
         )
-      )
+      );
+    }
   );
 
 export const replayRunFn = createServerFn({ method: "POST" })
@@ -76,23 +96,25 @@ export const replayRunFn = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(
     // @ts-expect-error tsgo cannot resolve createServerFn handler generics
-    async ({ data }): Promise<JobRun> =>
-      await runWithSentryReport(
-        apiEffect<JobRun>(`/v1/runs/${data.runId}/replay`, {
+    async ({ context, data }): Promise<JobRun> => {
+      await requireActiveProjectAdmin(context);
+      return await runWithSentryReport(
+        apiEffect<JobRun>(apiPath`/v1/runs/${data.runId}/replay`, {
           method: "POST",
         })
-      )
+      );
+    }
   );
 
 export const cancelRunFn = createServerFn({ method: "POST" })
   .inputValidator((data: { runId: string }) => data)
   .middleware([authMiddleware])
-  .handler(
-    async ({ data }): Promise<void> =>
-      await runWithSentryReport(
-        apiEffect<void>(`/v1/runs/${data.runId}`, { method: "DELETE" })
-      )
-  );
+  .handler(async ({ context, data }): Promise<void> => {
+    await requireActiveProjectAdmin(context);
+    return await runWithSentryReport(
+      apiEffect<void>(apiPath`/v1/runs/${data.runId}`, { method: "DELETE" })
+    );
+  });
 
 type RunsSearchParams = ListParams & {
   status?: string;
@@ -115,6 +137,8 @@ export const runQueryOptions = (id: string) =>
     queryFn: () => fetchRun({ data: { id } }),
     staleTime: HIGH_CHURN_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
+    retry: RUN_DETAIL_RETRY_COUNT,
+    retryDelay: runDetailRetryDelay,
   });
 
 export const runEventsQueryOptions = (runId: string) =>
@@ -123,6 +147,8 @@ export const runEventsQueryOptions = (runId: string) =>
     queryFn: () => fetchRunEvents({ data: { runId } }),
     staleTime: HIGH_CHURN_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
+    retry: RUN_DETAIL_RETRY_COUNT,
+    retryDelay: runDetailRetryDelay,
   });
 
 export const useRetryRun = () => {
@@ -131,10 +157,53 @@ export const useRetryRun = () => {
     mutationKey: ["runs", "retry"],
     mutationFn: (data: { run_id: string }) =>
       replayRunFn({ data: { runId: data.run_id } }),
+    onMutate: async (data) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.runs._def });
+
+      const previousDetail = queryClient.getQueryData<JobRun>(
+        queryKeys.runs.detail(data.run_id).queryKey
+      );
+      const previousLists = queryClient.getQueriesData<
+        PaginatedResponse<JobRun>
+      >({ queryKey: queryKeys.runs.list._def });
+
+      queryClient.setQueryData<JobRun>(
+        queryKeys.runs.detail(data.run_id).queryKey,
+        (old) => (old ? { ...old, status: "queued" as const } : old)
+      );
+
+      queryClient.setQueriesData<PaginatedResponse<JobRun>>(
+        { queryKey: queryKeys.runs.list._def },
+        (old) =>
+          old
+            ? {
+                ...old,
+                data: old.data.map((run) =>
+                  run.id === data.run_id
+                    ? { ...run, status: "queued" as const }
+                    : run
+                ),
+              }
+            : old
+      );
+
+      return { previousDetail, previousLists };
+    },
     onSuccess: (_data, variables) => {
       getPostHog()?.capture("run_retried", { run_id: variables.run_id });
     },
-    onError: (err, variables) => {
+    onError: (err, variables, context) => {
+      if (context?.previousDetail) {
+        queryClient.setQueryData(
+          queryKeys.runs.detail(variables.run_id).queryKey,
+          context.previousDetail
+        );
+      }
+      if (context?.previousLists) {
+        for (const [key, list] of context.previousLists) {
+          queryClient.setQueryData(key, list);
+        }
+      }
       getPostHog()?.capture("mutation_error", {
         action: "run_retried",
         error_message: err instanceof Error ? err.message : "Unknown error",

@@ -46,7 +46,7 @@ import {
   STRAIT_API_SCOPES,
 } from "@/lib/oauth-scopes";
 import { getResend } from "@/lib/resend.server";
-import { findCustomerByEmail, getStripeClient } from "@/lib/stripe.server";
+import { findOrCreateCustomerForOrg } from "@/lib/stripe.server";
 
 /**
  * Resolve the auth database connection string.
@@ -153,19 +153,82 @@ const createStripeCustomer = async (
     return;
   }
   try {
-    const existing = await findCustomerByEmail(user.email);
-    if (existing) {
-      return; // Customer already exists
-    }
-
-    const stripe = getStripeClient();
-    await stripe.customers.create({
+    await findOrCreateCustomerForOrg({
       email: user.email,
       name: user.name || undefined,
-      metadata: { org_id: orgId, user_id: user.id },
+      orgId,
+      userId: user.id,
     });
   } catch (err) {
     console.error("Failed to create Stripe customer for user", user.id, err);
+  }
+};
+
+const createDefaultProject = async (
+  pool: Pool,
+  user: { id: string },
+  orgId: string
+): Promise<void> => {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS project (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      organization_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      slug TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      created_by TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(organization_id, slug)
+    )
+  `);
+
+  const projectId = crypto.randomUUID();
+  const projectSlug = `project-${projectId.slice(0, 8)}`;
+
+  await pool.query(
+    `INSERT INTO project (id, organization_id, name, slug, created_by)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT DO NOTHING`,
+    [projectId, orgId, "Default Project", projectSlug, user.id]
+  );
+
+  const apiUrl = process.env.STRAIT_API_URL || "http://localhost:8080";
+  const secret = process.env.INTERNAL_SECRET;
+  if (!secret) {
+    return;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch(`${apiUrl}/v1/projects`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Internal-Secret": secret,
+      },
+      body: JSON.stringify({
+        id: projectId,
+        org_id: orgId,
+        name: "Default Project",
+      }),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `default project sync failed with status ${response.status}`
+      );
+    }
+    await pool.query(`UPDATE "user" SET "activeProjectId" = $1 WHERE id = $2`, [
+      projectId,
+      user.id,
+    ]);
+  } catch (syncErr) {
+    await pool.query("DELETE FROM project WHERE id = $1", [projectId]);
+    throw syncErr;
+  } finally {
+    clearTimeout(timeout);
   }
 };
 
@@ -241,7 +304,6 @@ const createAuth = () => {
       },
     },
     plugins: [
-      tanstackStartCookies(),
       organization({
         allowUserToCreateOrganization: true,
         sendInvitationEmail: async (data) => {
@@ -333,12 +395,17 @@ const createAuth = () => {
           userinfo: { window: 60, max: 60 },
           introspect: { window: 60, max: 100 },
         },
+        silenceWarnings: {
+          oauthAuthServerConfig: true,
+          openidConfig: true,
+        },
       }),
       // SSO disabled: @better-auth/sso has a known ESM incompatibility
       // (samlify requires camelcase@9 ESM-only from CJS). Re-enable when
       // https://github.com/better-auth/better-auth/issues/8620 is fixed.
       // Stripe billing is handled via standalone server functions (checkout,
       // portal) and a Go backend webhook handler, not through Better Auth plugins.
+      tanstackStartCookies(),
     ],
     databaseHooks: {
       user: {
@@ -370,56 +437,7 @@ const createAuth = () => {
                 // Auto-create a default project so the user lands on a
                 // ready-to-use dashboard instead of an empty "Create project" screen.
                 try {
-                  await pool.query(`
-                  CREATE TABLE IF NOT EXISTS project (
-                    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
-                    organization_id TEXT NOT NULL,
-                    name TEXT NOT NULL,
-                    slug TEXT NOT NULL,
-                    description TEXT DEFAULT '',
-                    created_by TEXT NOT NULL,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    UNIQUE(organization_id, slug)
-                  )
-                `);
-
-                  const projectId = crypto.randomUUID();
-                  const projectSlug = `project-${projectId.slice(0, 8)}`;
-
-                  await pool.query(
-                    `INSERT INTO project (id, organization_id, name, slug, created_by)
-                   VALUES ($1, $2, $3, $4, $5)
-                   ON CONFLICT DO NOTHING`,
-                    [projectId, org.id, "Default Project", projectSlug, user.id]
-                  );
-
-                  // Set as the user's active project.
-                  await pool.query(
-                    `UPDATE "user" SET "activeProjectId" = $1 WHERE id = $2`,
-                    [projectId, user.id]
-                  );
-
-                  // Sync to Go API (best-effort, don't fail signup).
-                  const apiUrl =
-                    process.env.STRAIT_API_URL || "http://localhost:8080";
-                  const secret = process.env.INTERNAL_SECRET;
-                  if (secret) {
-                    fetch(`${apiUrl}/v1/projects`, {
-                      method: "POST",
-                      headers: {
-                        "Content-Type": "application/json",
-                        "X-Internal-Secret": secret,
-                      },
-                      body: JSON.stringify({
-                        id: projectId,
-                        org_id: org.id,
-                        name: "Default Project",
-                      }),
-                    }).catch(() => {
-                      // Best-effort sync; don't fail signup if Go API is down.
-                    });
-                  }
+                  await createDefaultProject(pool, user, org.id);
                 } catch (projectErr) {
                   console.error(
                     "Failed to auto-create default project for user",
@@ -463,14 +481,19 @@ const createAuth = () => {
       },
     },
     user: {
+      changeEmail: {
+        enabled: true,
+      },
       additionalFields: {
         defaultOrganizationId: {
           type: "string",
           required: false,
+          input: false,
         },
         activeProjectId: {
           type: "string",
           required: false,
+          input: false,
         },
       },
     },

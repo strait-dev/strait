@@ -47,23 +47,20 @@ func (s *Server) handleCreateSecret(ctx context.Context, input *CreateSecretInpu
 	if req.Environment == "" {
 		req.Environment = "production"
 	}
-
-	encryptedValue := req.Value
-	if s.encryptor != nil {
-		enc, encErr := s.encryptor.Encrypt([]byte(req.Value))
-		if encErr != nil {
-			slog.Error("failed to encrypt secret value", "error", encErr)
-			return nil, huma.Error500InternalServerError("failed to encrypt secret")
-		}
-		encryptedValue = string(enc)
+	environmentID, err := s.resolveSecretEnvironment(ctx, req.ProjectID, req.Environment)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.verifySecretJobEnvironment(ctx, req.ProjectID, req.JobID, environmentID); err != nil {
+		return nil, err
 	}
 
 	secret := &domain.JobSecret{
 		ProjectID:      req.ProjectID,
 		JobID:          req.JobID,
-		Environment:    req.Environment,
+		Environment:    environmentID,
 		SecretKey:      req.SecretKey,
-		EncryptedValue: encryptedValue,
+		EncryptedValue: req.Value,
 	}
 
 	if err := s.store.CreateJobSecret(ctx, secret); err != nil {
@@ -74,10 +71,36 @@ func (s *Server) handleCreateSecret(ctx context.Context, input *CreateSecretInpu
 	s.emitAuditEvent(ctx, domain.AuditActionSecretCreated, "secret", secret.ID, map[string]any{
 		"secret_key":  req.SecretKey,
 		"job_id":      req.JobID,
-		"environment": req.Environment,
+		"environment": environmentID,
 	})
 
 	return &CreateSecretOutput{Body: secret}, nil
+}
+
+func (s *Server) verifySecretJobEnvironment(ctx context.Context, projectID, jobID, environmentID string) error {
+	if jobID == "" {
+		return nil
+	}
+	job, err := s.store.GetJob(ctx, jobID)
+	if err != nil {
+		if errors.Is(err, store.ErrJobNotFound) {
+			return huma.Error404NotFound("job not found")
+		}
+		return huma.Error500InternalServerError("failed to verify job")
+	}
+	if job == nil {
+		return nil
+	}
+	if job.ProjectID != projectID {
+		return huma.Error404NotFound("job not found")
+	}
+	if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
+		return huma.Error404NotFound("job not found")
+	}
+	if job.EnvironmentID != "" && environmentID != job.EnvironmentID {
+		return huma.Error403Forbidden("secret environment does not match job environment")
+	}
+	return nil
 }
 
 // ListSecretsInput is the typed input for listing secrets.
@@ -104,7 +127,15 @@ func (s *Server) handleListSecrets(ctx context.Context, input *ListSecretsInput)
 		return nil, huma.Error400BadRequest(err.Error())
 	}
 
-	secrets, err := s.store.ListJobSecrets(ctx, projectID, input.JobID, input.Environment, limit+1, cursor)
+	environment := input.Environment
+	if environmentIDFromContext(ctx) != "" || environment != "" {
+		environment, err = s.resolveSecretEnvironment(ctx, projectID, environment)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	secrets, err := s.store.ListJobSecrets(ctx, projectID, input.JobID, environment, limit+1, cursor)
 	if err != nil {
 		slog.Error("failed to list secrets", "error", err)
 		return nil, huma.Error500InternalServerError("failed to list secrets")
@@ -113,7 +144,7 @@ func (s *Server) handleListSecrets(ctx context.Context, input *ListSecretsInput)
 	s.emitAuditEvent(ctx, domain.AuditActionSecretListRead, "secret", "", map[string]any{
 		"count":       len(secrets),
 		"job_id":      input.JobID,
-		"environment": input.Environment,
+		"environment": environment,
 	})
 
 	return &ListSecretsOutput{Body: paginatedResult(secrets, limit, func(s domain.JobSecret) string {
@@ -147,6 +178,9 @@ func (s *Server) handleGetSecret(ctx context.Context, input *GetSecretInput) (*G
 	if err := requireProjectMatch(ctx, secret.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("secret not found")
 	}
+	if err := requireEnvironmentMatch(ctx, secret.Environment); err != nil {
+		return nil, huma.Error404NotFound("secret not found")
+	}
 
 	s.emitAuditEvent(ctx, domain.AuditActionSecretRead, "secret", secret.ID, map[string]any{
 		"secret_id":   secret.ID,
@@ -176,6 +210,9 @@ func (s *Server) handleDeleteSecret(ctx context.Context, input *DeleteSecretInpu
 	if err := requireProjectMatch(ctx, secret.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("secret not found")
 	}
+	if err := requireEnvironmentMatch(ctx, secret.Environment); err != nil {
+		return nil, huma.Error404NotFound("secret not found")
+	}
 
 	if err := s.store.DeleteJobSecret(ctx, input.SecretID); err != nil {
 		if errors.Is(err, store.ErrJobSecretNotFound) {
@@ -192,4 +229,35 @@ func (s *Server) handleDeleteSecret(ctx context.Context, input *DeleteSecretInpu
 	})
 
 	return nil, nil
+}
+
+func (s *Server) resolveSecretEnvironment(ctx context.Context, projectID, requested string) (string, error) {
+	callerEnv := environmentIDFromContext(ctx)
+	if requested == "" && callerEnv != "" {
+		return callerEnv, nil
+	}
+	if requested == "" {
+		requested = "production"
+	}
+
+	envs, err := s.store.ListEnvironments(ctx, projectID, 1000, nil)
+	if err != nil {
+		return "", huma.Error500InternalServerError("failed to verify environment")
+	}
+	if len(envs) == 0 {
+		if callerEnv != "" && requested != callerEnv {
+			return "", huma.Error404NotFound("environment not found")
+		}
+		return requested, nil
+	}
+
+	for _, env := range envs {
+		if env.ID == requested || env.Slug == requested || env.Name == requested {
+			if err := requireEnvironmentMatch(ctx, env.ID); err != nil {
+				return "", huma.Error404NotFound("environment not found")
+			}
+			return env.ID, nil
+		}
+	}
+	return "", huma.Error404NotFound("environment not found")
 }

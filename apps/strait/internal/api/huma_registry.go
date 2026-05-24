@@ -67,19 +67,12 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Tags: []string{"Secrets"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
 	}, s.handleDeleteSecret)
 
-	// -- Plans --
-	RegisterTypedOp(api, OpMeta{
-		ID: "list-plans", Method: http.MethodGet, Path: "/v1/plans",
-		Summary: "List plan tiers", Description: "Returns all available plan tiers with their limits and pricing.",
-		Tags: []string{"Plans"}, Security: bearerSecurity, Errors: []int{401, 500},
-	}, s.handleGetPlans)
-
 	// -- Regions --
 	RegisterTypedOp(api, OpMeta{
 		ID: "list-regions", Method: http.MethodGet, Path: "/v1/regions",
-		Summary: "List available regions", Description: "Returns all available execution regions.",
-		Tags: []string{"Regions"}, Security: bearerSecurity, Errors: []int{401, 404, 500},
-	}, s.handleListRegions)
+		Summary: "List available regions", Description: "Returns all supported execution regions with display metadata.",
+		Tags: []string{"Regions"}, Security: bearerSecurity, Errors: []int{401, 500},
+	}, s.handleGetRegions)
 
 	// -- Billing --
 	RegisterTypedOp(api, OpMeta{
@@ -129,12 +122,6 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Summary: "Update spending limit", Description: "Sets or updates the spending limit for the current project.",
 		Tags: []string{"Billing"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500, 501},
 	}, s.handleUpdateSpendingLimit)
-
-	RegisterTypedOp(api, OpMeta{
-		ID: "get-cost-estimate", Method: http.MethodGet, Path: "/v1/cost-estimate",
-		Summary: "Get cost estimate", Description: "Returns a cost estimate based on current usage patterns.",
-		Tags: []string{"Billing"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500},
-	}, s.handleGetCostEstimate)
 
 	RegisterTypedOp(api, OpMeta{
 		ID: "get-downgrade-preview", Method: http.MethodGet, Path: "/v1/downgrade-preview",
@@ -335,6 +322,18 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Summary: "Resume a job", Description: "Resumes a paused job, allowing queued runs to be dequeued immediately.",
 		Tags: []string{"Jobs"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
 	}, s.handleResumeJob)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "set-job-endpoint", Method: http.MethodPost, Path: "/v1/jobs/{jobID}/endpoint",
+		Summary: "Set job endpoint", Description: "Sets the HTTP endpoint URL for a job and generates a fresh HMAC signing secret. SSRF-safe: private/loopback addresses are rejected at registration time.",
+		Tags: []string{"Jobs"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleSetJobEndpoint)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "verify-job-endpoint", Method: http.MethodPost, Path: "/v1/jobs/{jobID}/endpoint/verify",
+		Summary: "Verify job endpoint", Description: "Sends a signed HMAC test ping to the job's configured endpoint URL and returns the outcome.",
+		Tags: []string{"Jobs"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 429, 500},
+	}, s.handleVerifyJobEndpoint)
 
 	// -- Job Groups --
 	RegisterTypedOp(api, OpMeta{
@@ -653,6 +652,31 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Tags: []string{"Batch Operations"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
 	}, s.handleGetBatchOperation)
 
+	// -- Workers --
+	RegisterTypedOp(api, OpMeta{
+		ID: "list-workers", Method: http.MethodGet, Path: "/v1/workers",
+		Summary: "List workers", Description: "Returns a paginated list of connected and recently-seen workers for the current project.",
+		Tags: []string{"Workers"}, Security: bearerSecurity, Errors: []int{400, 401, 500},
+	}, s.handleListWorkers)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "get-worker", Method: http.MethodGet, Path: "/v1/workers/{workerID}",
+		Summary: "Get a worker", Description: "Returns details of a specific worker. Returns 404 for workers in other projects to avoid existence leaks.",
+		Tags: []string{"Workers"}, Security: bearerSecurity, Errors: []int{401, 404, 500},
+	}, s.handleGetWorker)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "force-disconnect-worker", Method: http.MethodDelete, Path: "/v1/workers/{workerID}",
+		Summary: "Force-disconnect a worker", Description: "Publishes a disconnect signal to the owning replica and waits for worker-plane acknowledgement. Returns 503 with Retry-After if the disconnect is still pending. Returns 404 for workers in other projects.",
+		Tags: []string{"Workers"}, Security: bearerSecurity, Errors: []int{401, 404, 500, 503},
+	}, s.handleDeleteWorker)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "list-worker-tasks", Method: http.MethodGet, Path: "/v1/workers/{workerID}/tasks",
+		Summary: "List worker tasks", Description: "Returns a paginated list of run tasks assigned to a specific worker.",
+		Tags: []string{"Workers"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleListWorkerTasks)
+
 	// -- Webhooks (legacy top-level routes) --
 	RegisterTypedOp(api, OpMeta{
 		ID: "list-webhook-deliveries-legacy", Method: http.MethodGet, Path: "/v1/webhook-deliveries",
@@ -891,12 +915,6 @@ func registerAllTypedOps(api huma.API, s *Server) {
 	}, s.handleGetTopCosts)
 
 	RegisterTypedOp(api, OpMeta{
-		ID: "get-compute-cost-analytics", Method: http.MethodGet, Path: "/v1/analytics/compute",
-		Summary: "Get compute cost analytics", Description: "Returns compute resource utilization and cost breakdown.",
-		Tags: []string{"Analytics"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
-	}, s.handleGetComputeCostAnalytics)
-
-	RegisterTypedOp(api, OpMeta{
 		ID: "get-approval-stats", Method: http.MethodGet, Path: "/v1/analytics/approvals",
 		Summary: "Get approval statistics", Description: "Returns statistics about workflow approval steps including wait times.",
 		Tags: []string{"Analytics"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
@@ -1052,12 +1070,6 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Summary: "Get cost by trigger type", Description: "Returns cost breakdown grouped by trigger type.",
 		Tags: []string{"Analytics"}, Security: bearerSecurity, Errors: []int{401, 404, 500},
 	}, s.handleCostByTrigger)
-
-	RegisterTypedOp(api, OpMeta{
-		ID: "get-cost-by-machine", Method: http.MethodGet, Path: "/v1/analytics/costs/by-machine",
-		Summary: "Get cost by machine type", Description: "Returns cost breakdown grouped by machine/compute type.",
-		Tags: []string{"Analytics"}, Security: bearerSecurity, Errors: []int{401, 404, 500},
-	}, s.handleCostByMachine)
 
 	// -- RBAC: Roles --
 	RegisterTypedOp(api, OpMeta{
@@ -1831,35 +1843,4 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Summary: "Delete a memory value", Description: "Removes a key-value pair from persistent memory.",
 		Tags: []string{"SDK"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
 	}, s.handleSDKDeleteMemory)
-
-	// -- Code Deployments --
-	RegisterTypedOp(api, OpMeta{
-		ID: "create-code-deployment", Method: http.MethodPost, Path: "/v1/jobs/{jobID}/deployments",
-		Summary: "Create a code deployment", Description: "Creates a deployment record and returns a presigned URL for uploading the source tarball.",
-		Tags: []string{"Deployments"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 422, 500, 503},
-	}, s.handleCreateCodeDeployment)
-
-	RegisterTypedOp(api, OpMeta{
-		ID: "confirm-code-deployment", Method: http.MethodPost, Path: "/v1/jobs/{jobID}/deployments/{deploymentID}/confirm",
-		Summary: "Confirm a code deployment", Description: "Verifies the tarball upload and triggers the container image build.",
-		Tags: []string{"Deployments"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 409, 422, 500},
-	}, s.handleConfirmCodeDeployment)
-
-	RegisterTypedOp(api, OpMeta{
-		ID: "get-code-deployment", Method: http.MethodGet, Path: "/v1/jobs/{jobID}/deployments/{deploymentID}",
-		Summary: "Get a code deployment", Description: "Returns the current state of a code deployment, including build status and logs.",
-		Tags: []string{"Deployments"}, Security: bearerSecurity, Errors: []int{401, 403, 404, 500},
-	}, s.handleGetCodeDeployment)
-
-	RegisterTypedOp(api, OpMeta{
-		ID: "list-code-deployments", Method: http.MethodGet, Path: "/v1/jobs/{jobID}/deployments",
-		Summary: "List code deployments", Description: "Returns deployments for a job in descending creation order.",
-		Tags: []string{"Deployments"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 500},
-	}, s.handleListCodeDeployments)
-
-	RegisterTypedOp(api, OpMeta{
-		ID: "rollback-code-deployment", Method: http.MethodPost, Path: "/v1/jobs/{jobID}/deployments/{deploymentID}/rollback",
-		Summary: "Roll back to a deployment", Description: "Sets an earlier ready deployment as the active one for the job.",
-		Tags: []string{"Deployments"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 409, 500},
-	}, s.handleRollbackCodeDeployment)
 }

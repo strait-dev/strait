@@ -23,45 +23,34 @@ import { useForm } from "@tanstack/react-form";
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { useMemo } from "react";
-import { z } from "zod/v4";
 import ErrorComponent from "@/components/common/error-component";
+import {
+  enterpriseContactSchema,
+  MONTHLY_SPEND_RANGES,
+  TEAM_SIZES,
+  USE_CASES,
+} from "@/lib/enterprise-contact-schema";
 import { formatFieldErrors } from "@/lib/form-errors";
 import { ChevronLeftIcon, LoadingIcon } from "@/lib/icons";
+import { enforceRateLimit } from "@/lib/rate-limit.server";
 import { getResend } from "@/lib/resend.server";
 import { authMiddleware } from "@/middlewares/auth";
-
-const TEAM_SIZES = ["1-10", "11-50", "51-200", "201-500", "500+"] as const;
-
-const USE_CASES = [
-  "SSO / compliance requirements",
-  "High volume workloads",
-  "Dedicated infrastructure",
-  "Data residency",
-  "Other",
-] as const;
-
-const MONTHLY_SPEND_RANGES = [
-  "Under $500/mo",
-  "$500 - $1,500/mo",
-  "$1,500 - $4,000/mo",
-  "$4,000 - $8,000/mo",
-  "Over $8,000/mo",
-] as const;
-
-const enterpriseContactSchema = z.object({
-  name: z.string().min(1, "Name is required"),
-  email: z.email("Must be a valid email address"),
-  company: z.string().min(1, "Company name is required"),
-  teamSize: z.string().min(1, "Team size is required"),
-  useCase: z.string(),
-  expectedSpend: z.string(),
-  message: z.string().min(10, "Message must be at least 10 characters"),
-});
 
 const submitEnterpriseContact = createServerFn({ method: "POST" })
   .inputValidator(enterpriseContactSchema)
   .middleware([authMiddleware])
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    await enforceRateLimit({
+      key: `enterprise-contact:${context.user.id}`,
+      limit: 5,
+      windowSeconds: 86_400,
+    });
+
+    const email = context.user.email;
+    if (!email) {
+      throw new Error("Authenticated email is required");
+    }
+
     const resend = getResend();
     await resend.emails.send({
       from: "Enterprise <hello@usestrait.com>",
@@ -69,7 +58,7 @@ const submitEnterpriseContact = createServerFn({ method: "POST" })
       subject: `Enterprise inquiry from ${data.company}`,
       text: [
         `Name: ${data.name}`,
-        `Email: ${data.email}`,
+        `Account Email: ${email}`,
         `Company: ${data.company}`,
         `Team Size: ${data.teamSize}`,
         ...(data.useCase ? [`Use Case: ${data.useCase}`] : []),
@@ -83,6 +72,7 @@ const submitEnterpriseContact = createServerFn({ method: "POST" })
   });
 
 export const Route = createFileRoute("/app/enterprise-contact")({
+  head: () => ({ meta: [{ title: "Contact sales · Strait" }] }),
   errorComponent: ErrorComponent,
   component: EnterpriseContactPage,
 });
@@ -156,17 +146,28 @@ function EnterpriseContactPage() {
                 <Field>
                   <FieldLabel htmlFor={field.name}>Name</FieldLabel>
                   <Input
+                    aria-describedby={
+                      field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0
+                        ? `${field.name}-error`
+                        : undefined
+                    }
+                    aria-invalid={
+                      field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0
+                    }
                     id={field.name}
                     onBlur={field.handleBlur}
                     onChange={(e) => field.handleChange(e.target.value)}
                     placeholder="Jane Smith"
                     value={field.state.value}
                   />
-                  {field.state.meta.errors.length > 0 && (
-                    <FieldError>
-                      {formatFieldErrors(field.state.meta.errors)}
-                    </FieldError>
-                  )}
+                  {field.state.meta.isTouched &&
+                    field.state.meta.errors.length > 0 && (
+                      <FieldError id={`${field.name}-error`}>
+                        {formatFieldErrors(field.state.meta.errors)}
+                      </FieldError>
+                    )}
                 </Field>
               )}
             </form.Field>
@@ -176,6 +177,16 @@ function EnterpriseContactPage() {
                 <Field>
                   <FieldLabel htmlFor={field.name}>Email</FieldLabel>
                   <Input
+                    aria-describedby={
+                      field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0
+                        ? `${field.name}-error`
+                        : undefined
+                    }
+                    aria-invalid={
+                      field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0
+                    }
                     id={field.name}
                     onBlur={field.handleBlur}
                     onChange={(e) => field.handleChange(e.target.value)}
@@ -183,11 +194,12 @@ function EnterpriseContactPage() {
                     type="email"
                     value={field.state.value}
                   />
-                  {field.state.meta.errors.length > 0 && (
-                    <FieldError>
-                      {formatFieldErrors(field.state.meta.errors)}
-                    </FieldError>
-                  )}
+                  {field.state.meta.isTouched &&
+                    field.state.meta.errors.length > 0 && (
+                      <FieldError id={`${field.name}-error`}>
+                        {formatFieldErrors(field.state.meta.errors)}
+                      </FieldError>
+                    )}
                 </Field>
               )}
             </form.Field>
@@ -197,17 +209,28 @@ function EnterpriseContactPage() {
                 <Field>
                   <FieldLabel htmlFor={field.name}>Company</FieldLabel>
                   <Input
+                    aria-describedby={
+                      field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0
+                        ? `${field.name}-error`
+                        : undefined
+                    }
+                    aria-invalid={
+                      field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0
+                    }
                     id={field.name}
                     onBlur={field.handleBlur}
                     onChange={(e) => field.handleChange(e.target.value)}
                     placeholder="Acme Inc."
                     value={field.state.value}
                   />
-                  {field.state.meta.errors.length > 0 && (
-                    <FieldError>
-                      {formatFieldErrors(field.state.meta.errors)}
-                    </FieldError>
-                  )}
+                  {field.state.meta.isTouched &&
+                    field.state.meta.errors.length > 0 && (
+                      <FieldError id={`${field.name}-error`}>
+                        {formatFieldErrors(field.state.meta.errors)}
+                      </FieldError>
+                    )}
                 </Field>
               )}
             </form.Field>
@@ -220,7 +243,20 @@ function EnterpriseContactPage() {
                     onValueChange={(val) => field.handleChange(val as string)}
                     value={field.state.value}
                   >
-                    <SelectTrigger className="w-full">
+                    <SelectTrigger
+                      aria-describedby={
+                        field.state.meta.isTouched &&
+                        field.state.meta.errors.length > 0
+                          ? `${field.name}-error`
+                          : undefined
+                      }
+                      aria-invalid={
+                        field.state.meta.isTouched &&
+                        field.state.meta.errors.length > 0
+                      }
+                      className="w-full"
+                      id={field.name}
+                    >
                       <SelectValue placeholder="Select team size" />
                     </SelectTrigger>
                     <SelectContent>
@@ -231,11 +267,12 @@ function EnterpriseContactPage() {
                       ))}
                     </SelectContent>
                   </Select>
-                  {field.state.meta.errors.length > 0 && (
-                    <FieldError>
-                      {formatFieldErrors(field.state.meta.errors)}
-                    </FieldError>
-                  )}
+                  {field.state.meta.isTouched &&
+                    field.state.meta.errors.length > 0 && (
+                      <FieldError id={`${field.name}-error`}>
+                        {formatFieldErrors(field.state.meta.errors)}
+                      </FieldError>
+                    )}
                 </Field>
               )}
             </form.Field>
@@ -249,7 +286,7 @@ function EnterpriseContactPage() {
                     onValueChange={(val) => field.handleChange(val as string)}
                     value={field.state.value}
                   >
-                    <SelectTrigger className="w-full">
+                    <SelectTrigger className="w-full" id={field.name}>
                       <SelectValue placeholder="Select use case" />
                     </SelectTrigger>
                     <SelectContent>
@@ -274,7 +311,7 @@ function EnterpriseContactPage() {
                     onValueChange={(val) => field.handleChange(val as string)}
                     value={field.state.value}
                   >
-                    <SelectTrigger className="w-full">
+                    <SelectTrigger className="w-full" id={field.name}>
                       <SelectValue placeholder="Select range" />
                     </SelectTrigger>
                     <SelectContent>
@@ -305,6 +342,16 @@ function EnterpriseContactPage() {
                 <Field>
                   <FieldLabel htmlFor={field.name}>Message</FieldLabel>
                   <Textarea
+                    aria-describedby={
+                      field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0
+                        ? `${field.name}-error`
+                        : undefined
+                    }
+                    aria-invalid={
+                      field.state.meta.isTouched &&
+                      field.state.meta.errors.length > 0
+                    }
                     id={field.name}
                     onBlur={field.handleBlur}
                     onChange={(e) => field.handleChange(e.target.value)}
@@ -312,11 +359,12 @@ function EnterpriseContactPage() {
                     rows={5}
                     value={field.state.value}
                   />
-                  {field.state.meta.errors.length > 0 && (
-                    <FieldError>
-                      {formatFieldErrors(field.state.meta.errors)}
-                    </FieldError>
-                  )}
+                  {field.state.meta.isTouched &&
+                    field.state.meta.errors.length > 0 && (
+                      <FieldError id={`${field.name}-error`}>
+                        {formatFieldErrors(field.state.meta.errors)}
+                      </FieldError>
+                    )}
                 </Field>
               )}
             </form.Field>

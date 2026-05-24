@@ -1,6 +1,7 @@
 package api
 
 import (
+	"maps"
 	"regexp"
 	"sort"
 )
@@ -52,10 +53,10 @@ var auditSecretShapes = []secretShapePattern{
 // The function never panics on arbitrary input — verified by the
 // package's fuzzer.
 func scanAndRedact(value any) (redacted any, matches []string) {
-	seen := map[string]struct{}{}
-	red := walkAndRedact(value, seen)
-	if len(seen) == 0 {
-		return red, nil
+	var seen map[string]struct{}
+	red, changed := walkAndRedact(value, &seen)
+	if !changed {
+		return value, nil
 	}
 	out := make([]string, 0, len(seen))
 	for name := range seen {
@@ -65,30 +66,61 @@ func scanAndRedact(value any) (redacted any, matches []string) {
 	return red, out
 }
 
-func walkAndRedact(v any, seen map[string]struct{}) any {
+func walkAndRedact(v any, seen *map[string]struct{}) (any, bool) {
 	switch x := v.(type) {
 	case string:
 		redacted := x
+		changed := false
 		for _, shape := range auditSecretShapes {
 			if shape.pattern.MatchString(redacted) {
-				seen[shape.name] = struct{}{}
+				if *seen == nil {
+					*seen = make(map[string]struct{})
+				}
+				(*seen)[shape.name] = struct{}{}
 				redacted = shape.pattern.ReplaceAllString(redacted, "[redacted:"+shape.name+"]")
+				changed = true
 			}
 		}
-		return redacted
+		return redacted, changed
 	case map[string]any:
-		out := make(map[string]any, len(x))
+		var out map[string]any
+		changed := false
 		for k, vv := range x {
-			out[k] = walkAndRedact(vv, seen)
+			redacted, childChanged := walkAndRedact(vv, seen)
+			if !childChanged {
+				continue
+			}
+			if out == nil {
+				out = make(map[string]any, len(x))
+				maps.Copy(out, x)
+			}
+			out[k] = redacted
+			changed = true
 		}
-		return out
+		if !changed {
+			return x, false
+		}
+		return out, true
 	case []any:
-		out := make([]any, len(x))
+		var out []any
+		changed := false
 		for i, vv := range x {
-			out[i] = walkAndRedact(vv, seen)
+			redacted, childChanged := walkAndRedact(vv, seen)
+			if !childChanged {
+				continue
+			}
+			if out == nil {
+				out = make([]any, len(x))
+				copy(out, x)
+			}
+			out[i] = redacted
+			changed = true
 		}
-		return out
+		if !changed {
+			return x, false
+		}
+		return out, true
 	default:
-		return v
+		return v, false
 	}
 }

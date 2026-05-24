@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -91,6 +92,171 @@ func TestUsage_CrossProjectUsage(t *testing.T) {
 
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestUsage_ProjectScopedAPIKeyCannotReadOrgBillingState(t *testing.T) {
+	t.Parallel()
+
+	enforcer := &mockBillingEnforcer{
+		activeProjectOrgMap: map[string]string{"proj-A": "org-A"},
+	}
+	srv := newUsageTestServer(t, enforcer, &mockUsageService{})
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-A")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{"*"})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
+
+	_, err := srv.handleGetCurrentUsage(ctx, &GetCurrentUsageInput{OrgID: "org-A"})
+	if !isHumaStatusError(err, http.StatusForbidden) {
+		t.Fatalf("current usage error = %v, want 403", err)
+	}
+	_, err = srv.handleGetProjectCosts(ctx, &GetProjectCostsInput{OrgID: "org-A", From: "2026-01-01", To: "2026-01-02"})
+	if !isHumaStatusError(err, http.StatusForbidden) {
+		t.Fatalf("project costs error = %v, want 403", err)
+	}
+}
+
+func TestUsage_OrgScopedAPIKeyCanReadOrgBillingState(t *testing.T) {
+	t.Parallel()
+
+	enforcer := &mockBillingEnforcer{
+		activeProjectOrgMap: map[string]string{"proj-A": "org-A"},
+	}
+	srv := newUsageTestServer(t, enforcer, &mockUsageService{})
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-A")
+	ctx = context.WithValue(ctx, ctxOrgIDKey, "org-A")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{"*"})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
+
+	if _, err := srv.handleGetCurrentUsage(ctx, &GetCurrentUsageInput{OrgID: "org-A"}); err != nil {
+		t.Fatalf("current usage error = %v, want nil", err)
+	}
+	if _, err := srv.handleGetProjectCosts(ctx, &GetProjectCostsInput{OrgID: "org-A", From: "2026-01-01", To: "2026-01-02"}); err != nil {
+		t.Fatalf("project costs error = %v, want nil", err)
+	}
+}
+
+func TestUsage_ProjectScopedUserCannotReadOrgBillingControls(t *testing.T) {
+	t.Parallel()
+
+	enforcer := &mockBillingEnforcer{
+		activeProjectOrgMap: map[string]string{"proj-A": "org-A"},
+	}
+	srv := newUsageTestServer(t, enforcer, &mockUsageService{})
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-A")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{"*"})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "user-project-scoped")
+
+	_, err := srv.handleGetCurrentUsage(ctx, &GetCurrentUsageInput{OrgID: "org-A"})
+	if !isHumaStatusError(err, http.StatusForbidden) {
+		t.Fatalf("current usage error = %v, want 403", err)
+	}
+	_, err = srv.handleGetDowngradePreview(ctx, &GetDowngradePreviewInput{OrgID: "org-A", TargetTier: string(domain.PlanFree)})
+	if !isHumaStatusError(err, http.StatusForbidden) {
+		t.Fatalf("downgrade preview error = %v, want 403", err)
+	}
+}
+
+func TestUsage_ProjectScopedUserCannotMutateOrgBillingControls(t *testing.T) {
+	t.Parallel()
+
+	enforcer := &mockBillingEnforcer{
+		activeProjectOrgMap: map[string]string{"proj-A": "org-A"},
+	}
+	srv := newUsageTestServer(t, enforcer, &mockUsageService{})
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-A")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{"*"})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "user-project-scoped")
+
+	_, err := srv.handleUpdateSpendingLimit(ctx, &UpdateSpendingLimitInput{
+		OrgID: "org-A",
+		Body:  updateSpendingLimitRequest{LimitMicrousd: 1000, Action: "notify"},
+	})
+	if !isHumaStatusError(err, http.StatusForbidden) {
+		t.Fatalf("spending limit update error = %v, want 403", err)
+	}
+	_, err = srv.handleUpdateEmailPreferences(ctx, &UpdateEmailPreferencesInput{
+		OrgID: "org-A",
+		Body:  updateEmailPreferencesRequest{MonthlyUsageEmail: false},
+	})
+	if !isHumaStatusError(err, http.StatusForbidden) {
+		t.Fatalf("email preferences update error = %v, want 403", err)
+	}
+}
+
+func TestUsage_ProjectScopedAPIKeyCannotMutateSiblingProjectBudget(t *testing.T) {
+	t.Parallel()
+
+	enforcer := &mockBillingEnforcer{
+		activeProjectOrgMap: map[string]string{
+			"proj-A": "org-A",
+			"proj-B": "org-A",
+		},
+	}
+	srv := newUsageTestServer(t, enforcer, &mockUsageService{})
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-A")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{"*"})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
+
+	_, err := srv.handleUpdateProjectBudget(ctx, &UpdateProjectBudgetInput{Body: updateProjectBudgetRequest{
+		ProjectID:   "proj-B",
+		BudgetMicro: 100,
+		Action:      "notify",
+	}})
+	if !isHumaStatusError(err, http.StatusForbidden) {
+		t.Fatalf("update sibling project budget error = %v, want 403", err)
+	}
+}
+
+func TestUsage_ProjectScopedUserCannotMutateSiblingProjectBudget(t *testing.T) {
+	t.Parallel()
+
+	enforcer := &mockBillingEnforcer{
+		activeProjectOrgMap: map[string]string{
+			"proj-A": "org-A",
+			"proj-B": "org-A",
+		},
+	}
+	srv := newUsageTestServer(t, enforcer, &mockUsageService{})
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-A")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{"*"})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "user-project-scoped")
+
+	_, err := srv.handleUpdateProjectBudget(ctx, &UpdateProjectBudgetInput{Body: updateProjectBudgetRequest{
+		ProjectID:   "proj-B",
+		BudgetMicro: 100,
+		Action:      "notify",
+	}})
+	if !isHumaStatusError(err, http.StatusForbidden) {
+		t.Fatalf("update sibling project budget error = %v, want 403", err)
+	}
+}
+
+func TestUsage_OrgScopedUserCanMutateSiblingProjectBudget(t *testing.T) {
+	t.Parallel()
+
+	enforcer := &mockBillingEnforcer{
+		activeProjectOrgMap: map[string]string{
+			"proj-A": "org-A",
+			"proj-B": "org-A",
+		},
+	}
+	srv := newUsageTestServer(t, enforcer, &mockUsageService{})
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-A")
+	ctx = context.WithValue(ctx, ctxOrgIDKey, "org-A")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{"*"})
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "user-org-scoped")
+
+	if _, err := srv.handleUpdateProjectBudget(ctx, &UpdateProjectBudgetInput{Body: updateProjectBudgetRequest{
+		ProjectID:   "proj-B",
+		BudgetMicro: 100,
+		Action:      "notify",
+	}}); err != nil {
+		t.Fatalf("update sibling project budget error = %v, want nil", err)
 	}
 }
 

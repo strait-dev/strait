@@ -8,7 +8,7 @@ type AuthLayoutProps = {
 
 const AuthLayout = ({ children, title, description }: AuthLayoutProps) => (
   <div className="flex min-h-dvh w-full items-center justify-center bg-background">
-    <div className="w-full max-w-[450px] overflow-hidden rounded-custom border border-border/50 bg-background shadow-sm">
+    <div className="w-full max-w-[450px] overflow-hidden rounded border border-border/50 bg-background shadow-sm">
       <div className="flex flex-col gap-4 p-8">
         <div className="flex flex-col items-center gap-2">
           <div className="mb-1">

@@ -47,6 +47,33 @@ func TestHandleListRunResources_CrossProjectBlocked(t *testing.T) {
 	}
 }
 
+func TestHandleListRunResources_EnvironmentScopedCallerBlockedBeforeSnapshots(t *testing.T) {
+	t.Parallel()
+	snapshotsCalled := false
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, JobID: "job-staging", ProjectID: "proj-1"}, nil
+		},
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-1", EnvironmentID: "env-staging"}, nil
+		},
+		ListRunResourceSnapshotsFunc: func(_ context.Context, _ string, _, _ *time.Time, _ int) ([]domain.RunResourceSnapshot, error) {
+			snapshotsCalled = true
+			return nil, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
+	_, err := srv.handleListRunResources(ctx, &ListRunResourcesInput{RunID: "run-1"})
+	if !isNotFound(err) {
+		t.Fatalf("expected not found for cross-environment run, got %v", err)
+	}
+	if snapshotsCalled {
+		t.Fatal("expected environment check to run before listing snapshots")
+	}
+}
+
 func TestHandleListRunResources_RunNotFound(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{

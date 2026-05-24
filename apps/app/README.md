@@ -43,11 +43,11 @@ Clicking the button forks `strait-dev/strait` to your GitHub account and takes y
 | `VITE_SENTRY_DSN` | optional | Client-side Sentry DSN. |
 | `VITE_POSTHOG_KEY` | optional | Client-side PostHog key. |
 
-Then redeploy once so the Worker picks up the new secrets — either push any commit, or hit **Deployments → Retry** in the Cloudflare dashboard.
+Then redeploy once so the Worker picks up the new secrets: either push any commit, or hit **Deployments → Retry** in the Cloudflare dashboard.
 
 **Your Strait API must be reachable from the Worker.** If you are running the Strait API locally via `docker compose -f docker-compose.selfhost.yml up`, expose it with a tunnel (for example `cloudflared tunnel`) so the deployed Worker can call it, and set `STRAIT_API_URL` accordingly. If you are running the API on a public host, just point `STRAIT_API_URL` at it.
 
-For the fully containerized alternative — running the dashboard itself in Docker alongside the API — see [SELFHOST.md](../../SELFHOST.md).
+For the fully containerized alternative (running the dashboard itself in Docker alongside the API), see [SELFHOST.md](../../SELFHOST.md).
 
 ## Tech Stack
 
@@ -65,13 +65,13 @@ For the fully containerized alternative — running the dashboard itself in Dock
 
 ## Project Structure
 
-```
+```text
 src/
   routes/            File-based routing (TanStack Router)
     (auth)/           Unauthenticated routes (login, signup, 2FA, etc.)
     app/              Authenticated app shell
       billing/        Billing overview
-      dlq/            Dead-letter queue
+      dlq/            Failed run review
       events/         Event stream
       jobs/            Job list + detail
       logs/            Log viewer
@@ -128,9 +128,9 @@ src/
 
 ## Environment Variables
 
-Secrets are managed via Doppler (project: `strait`, configs: `dev`/`stg`/`prd`).
+Secrets are managed via Infisical (project: `strait`, environments: `dev`/`stg`/`prd`).
 
-For local development: `doppler run -- bun dev`
+For local development: `infisical run --env=dev -- bun dev`
 
 | Variable | Purpose |
 |---|---|
@@ -157,8 +157,8 @@ For local development: `doppler run -- bun dev`
 
 The app connects to two separate PostgreSQL databases:
 
-- **Auth DB** (`AUTH_DATABASE_URL`) — managed by Better Auth, stores users, sessions, organizations, members, projects
-- **Go Service DB** — managed by the Go backend (`apps/strait/`), stores jobs, runs, events, workflows
+- **Auth DB** (`AUTH_DATABASE_URL`): managed by Better Auth, stores users, sessions, organizations, members, projects
+- **Go Service DB**: managed by the Go backend (`apps/strait/`), stores jobs, runs, events, workflows
 
 The app never writes to the Go service DB directly. All mutations go through server functions that call the Go API via `STRAIT_API_URL`.
 

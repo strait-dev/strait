@@ -5,6 +5,8 @@ package store_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -79,7 +81,6 @@ func TestAuditDeadletter_RoundTrip(t *testing.T) {
 	if vc.EventsChecked != 0 {
 		t.Errorf("events_checked = %d, want 0 (deadletter is separate)", vc.EventsChecked)
 	}
-
 }
 
 // TestAuditDeadletter_AttemptCountIncrement asserts the per-row attempt
@@ -91,13 +92,13 @@ func TestAuditDeadletter_AttemptCountIncrement(t *testing.T) {
 	q := mustStore(t)
 
 	ev := &domain.AuditEvent{
-		ID:           "dlq-attempt-1",
-		ProjectID:    "proj-attempt",
-		ActorID:      "a", ActorType: "user",
+		ID:        "dlq-attempt-1",
+		ProjectID: "proj-attempt",
+		ActorID:   "a", ActorType: "user",
 		Action:       domain.AuditActionJobTriggered,
 		ResourceType: "job", ResourceID: "j1",
-		Details:      json.RawMessage(`{"run_id":"r1"}`),
-		CreatedAt:    time.Now().UTC(),
+		Details:   json.RawMessage(`{"run_id":"r1"}`),
+		CreatedAt: time.Now().UTC(),
 	}
 	if err := q.CreateAuditEventDeadletter(ctx, ev, "down", 3); err != nil {
 		t.Fatalf("CreateAuditEventDeadletter: %v", err)
@@ -136,19 +137,26 @@ func TestAuditDeadletter_MarkReclaimed_PersistsMarker(t *testing.T) {
 	q := mustStore(t)
 
 	ev := &domain.AuditEvent{
-		ID:           "dlq-marker-1",
-		ProjectID:    "proj-marker",
-		ActorID:      "a", ActorType: "user",
+		ID:        "dlq-marker-1",
+		ProjectID: "proj-marker",
+		ActorID:   "a", ActorType: "user",
 		Action:       domain.AuditActionJobTriggered,
 		ResourceType: "job", ResourceID: "j1",
-		Details:      json.RawMessage(`{"run_id":"r1"}`),
-		CreatedAt:    time.Now().UTC(),
+		Details:   json.RawMessage(`{"run_id":"r1"}`),
+		CreatedAt: time.Now().UTC(),
 	}
 	if err := q.CreateAuditEventDeadletter(ctx, ev, "down", 1); err != nil {
 		t.Fatalf("CreateAuditEventDeadletter: %v", err)
 	}
 	if err := q.MarkAuditDeadletterReclaimed(ctx, "dlq-marker-1", "ev-new-1"); err != nil {
 		t.Fatalf("Mark: %v", err)
+	}
+	got, err := q.GetAuditEventDeadletter(ctx, "dlq-marker-1", "proj-marker")
+	if err != nil {
+		t.Fatalf("GetAuditEventDeadletter after reclaim marker: %v", err)
+	}
+	if got != nil {
+		t.Fatalf("GetAuditEventDeadletter returned reclaimed row %+v; replay fetch must hide it", got)
 	}
 
 	_, _, infos, err := q.ListAuditEventsDeadletterWithAttempts(ctx, 100)
@@ -157,6 +165,257 @@ func TestAuditDeadletter_MarkReclaimed_PersistsMarker(t *testing.T) {
 	}
 	if len(infos) != 1 || infos[0].ReclaimedEventID == nil || *infos[0].ReclaimedEventID != "ev-new-1" {
 		t.Fatalf("reclaimed_event_id = %+v, want ptr to ev-new-1", infos[0].ReclaimedEventID)
+	}
+}
+
+func TestReplayAuditEventDeadletter_ConcurrentReplayInsertsOnce(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	q := mustStore(t)
+	signingKey, err := store.DeriveAuditSigningKey("dlq-atomic-replay-secret")
+	if err != nil {
+		t.Fatalf("derive signing key: %v", err)
+	}
+	q.SetAuditSigningKey(signingKey)
+
+	ev := &domain.AuditEvent{
+		ID:           "dlq-atomic-1",
+		ProjectID:    "proj-dlq-atomic",
+		ActorID:      "actor",
+		ActorType:    "user",
+		Action:       domain.AuditActionJobTriggered,
+		ResourceType: "job",
+		ResourceID:   "job-1",
+		Details:      json.RawMessage(`{"run_id":"r1"}`),
+		CreatedAt:    time.Now().UTC(),
+	}
+	if err := q.CreateAuditEventDeadletter(ctx, ev, "down", 1); err != nil {
+		t.Fatalf("CreateAuditEventDeadletter: %v", err)
+	}
+
+	type outcome struct {
+		replayed bool
+		err      error
+	}
+	start := make(chan struct{})
+	results := make(chan outcome, 2)
+	var wg sync.WaitGroup
+	for _, newID := range []string{"audit-replayed-1", "audit-replayed-2"} {
+		wg.Add(1)
+		go func(newID string) {
+			defer wg.Done()
+			<-start
+			_, replayed, replayErr := q.ReplayAuditEventDeadletter(ctx, ev.ID, ev.ProjectID, newID)
+			results <- outcome{replayed: replayed, err: replayErr}
+		}(newID)
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+
+	var replayed, skipped int
+	for result := range results {
+		if result.err != nil {
+			t.Fatalf("ReplayAuditEventDeadletter concurrent error: %v", result.err)
+		}
+		if result.replayed {
+			replayed++
+		} else {
+			skipped++
+		}
+	}
+	if replayed != 1 || skipped != 1 {
+		t.Fatalf("replayed/skipped = %d/%d, want 1/1", replayed, skipped)
+	}
+
+	var chainRows, dlqRows int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT
+			(SELECT COUNT(*) FROM audit_events WHERE project_id = $1 AND action = $2),
+			(SELECT COUNT(*) FROM audit_events_deadletter WHERE project_id = $1)
+	`, ev.ProjectID, ev.Action).Scan(&chainRows, &dlqRows); err != nil {
+		t.Fatalf("count replay results: %v", err)
+	}
+	if chainRows != 1 {
+		t.Fatalf("audit_events replayed rows = %d, want 1", chainRows)
+	}
+	if dlqRows != 0 {
+		t.Fatalf("audit_events_deadletter rows = %d, want 0", dlqRows)
+	}
+
+	vc, err := q.VerifyAuditChain(ctx, ev.ProjectID)
+	if err != nil {
+		t.Fatalf("VerifyAuditChain: %v", err)
+	}
+	if !vc.Valid {
+		t.Fatalf("chain invalid after atomic replay: %s", vc.Error)
+	}
+}
+
+func TestReplayAuditEventDeadletter_ContextRoutedStoreUsesAmbientTx(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	q := store.NewWithContextRouting(testDB.Pool)
+	signingKey, err := store.DeriveAuditSigningKey("dlq-context-routed-secret")
+	if err != nil {
+		t.Fatalf("derive signing key: %v", err)
+	}
+	q.SetAuditSigningKey(signingKey)
+
+	ev := &domain.AuditEvent{
+		ID:           "dlq-context-routed-1",
+		ProjectID:    "proj-dlq-context",
+		ActorID:      "actor",
+		ActorType:    "user",
+		Action:       domain.AuditActionJobTriggered,
+		ResourceType: "job",
+		ResourceID:   "job-1",
+		Details:      json.RawMessage(`{"run_id":"r1"}`),
+		CreatedAt:    time.Now().UTC(),
+	}
+	if err := q.CreateAuditEventDeadletter(ctx, ev, "down", 1); err != nil {
+		t.Fatalf("CreateAuditEventDeadletter: %v", err)
+	}
+
+	tx, err := testDB.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin ambient tx: %v", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	txCtx := store.ContextWithTx(ctx, tx)
+
+	replayedEvent, replayed, err := q.ReplayAuditEventDeadletter(txCtx, ev.ID, ev.ProjectID, "audit-context-routed-1")
+	if err != nil {
+		t.Fatalf("ReplayAuditEventDeadletter: %v", err)
+	}
+	if !replayed || replayedEvent == nil || replayedEvent.ID != "audit-context-routed-1" {
+		t.Fatalf("replayedEvent=%+v replayed=%v, want replay into ambient tx", replayedEvent, replayed)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit ambient tx: %v", err)
+	}
+
+	var chainRows, dlqRows int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT
+			(SELECT COUNT(*) FROM audit_events WHERE id = $1 AND project_id = $2),
+			(SELECT COUNT(*) FROM audit_events_deadletter WHERE id = $3 AND project_id = $2)
+	`, "audit-context-routed-1", ev.ProjectID, ev.ID).Scan(&chainRows, &dlqRows); err != nil {
+		t.Fatalf("count replay results: %v", err)
+	}
+	if chainRows != 1 || dlqRows != 0 {
+		t.Fatalf("chain/deadletter rows = %d/%d, want 1/0", chainRows, dlqRows)
+	}
+}
+
+func TestListAuditEventsDeadletterByProject_PaginatesSameQueuedAtRows(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	q := mustStore(t)
+
+	projectID := "proj-dlq-page-tie"
+	queuedAt := time.Now().UTC().Truncate(time.Microsecond)
+	ids := []string{"dlq-page-tie-1", "dlq-page-tie-2", "dlq-page-tie-3"}
+	for _, id := range ids {
+		ev := &domain.AuditEvent{
+			ID:           id,
+			ProjectID:    projectID,
+			ActorID:      "actor",
+			ActorType:    "user",
+			Action:       domain.AuditActionJobTriggered,
+			ResourceType: "job",
+			ResourceID:   "job-1",
+			Details:      json.RawMessage(`{}`),
+			CreatedAt:    time.Now().UTC(),
+		}
+		if err := q.CreateAuditEventDeadletter(ctx, ev, "down", 0); err != nil {
+			t.Fatalf("CreateAuditEventDeadletter(%s): %v", id, err)
+		}
+		if _, err := testDB.Pool.Exec(ctx, `UPDATE audit_events_deadletter SET queued_at = $2 WHERE id = $1`, id, queuedAt); err != nil {
+			t.Fatalf("pin queued_at(%s): %v", id, err)
+		}
+	}
+
+	page1, _, cursors, err := q.ListAuditEventsDeadletterByProject(ctx, projectID, 2, "")
+	if err != nil {
+		t.Fatalf("ListAuditEventsDeadletterByProject page1: %v", err)
+	}
+	if len(page1) != 2 {
+		t.Fatalf("page1 len = %d, want 2", len(page1))
+	}
+	page2, _, _, err := q.ListAuditEventsDeadletterByProject(ctx, projectID, 2, cursors[len(cursors)-1])
+	if err != nil {
+		t.Fatalf("ListAuditEventsDeadletterByProject page2: %v", err)
+	}
+	if len(page2) != 1 {
+		t.Fatalf("page2 len = %d, want 1; queued_at-only cursor skipped tied rows", len(page2))
+	}
+
+	got := []string{page1[0].ID, page1[1].ID, page2[0].ID}
+	for i, want := range ids {
+		if got[i] != want {
+			t.Fatalf("paged ids = %v, want %v", got, ids)
+		}
+	}
+}
+
+func TestDropAuditEventDeadletterWithAudit_InsertsAuditAndDeletesRow(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	q := mustStore(t)
+	signingKey, err := store.DeriveAuditSigningKey("dlq-atomic-drop-secret")
+	if err != nil {
+		t.Fatalf("derive signing key: %v", err)
+	}
+	q.SetAuditSigningKey(signingKey)
+
+	projectID := "proj-dlq-atomic-drop"
+	dlqID := "dlq-atomic-drop-1"
+	ev := &domain.AuditEvent{
+		ID:           dlqID,
+		ProjectID:    projectID,
+		ActorID:      "actor",
+		ActorType:    "user",
+		Action:       domain.AuditActionJobTriggered,
+		ResourceType: "job",
+		ResourceID:   "job-1",
+		Details:      json.RawMessage(`{}`),
+		CreatedAt:    time.Now().UTC(),
+	}
+	if err := q.CreateAuditEventDeadletter(ctx, ev, "down", 0); err != nil {
+		t.Fatalf("CreateAuditEventDeadletter: %v", err)
+	}
+
+	auditEvent := &domain.AuditEvent{
+		ID:           "audit-dlq-drop-1",
+		ProjectID:    projectID,
+		ActorID:      "internal:admin",
+		ActorType:    "internal",
+		Action:       domain.AuditActionDeadletterDropped,
+		ResourceType: "audit_deadletter",
+		ResourceID:   dlqID,
+		Details:      json.RawMessage(`{"deadletter_id":"dlq-atomic-drop-1","reason":"corrupt_payload"}`),
+		CreatedAt:    time.Now().UTC(),
+	}
+	dropped, err := q.DropAuditEventDeadletterWithAudit(ctx, dlqID, projectID, auditEvent)
+	if err != nil {
+		t.Fatalf("DropAuditEventDeadletterWithAudit: %v", err)
+	}
+	if !dropped {
+		t.Fatal("DropAuditEventDeadletterWithAudit dropped=false, want true")
+	}
+
+	var dlqRows, auditRows int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT
+			(SELECT COUNT(*) FROM audit_events_deadletter WHERE id = $1 AND project_id = $2),
+			(SELECT COUNT(*) FROM audit_events WHERE id = $3 AND project_id = $2 AND action = $4 AND resource_id = $1)
+	`, dlqID, projectID, auditEvent.ID, domain.AuditActionDeadletterDropped).Scan(&dlqRows, &auditRows); err != nil {
+		t.Fatalf("count drop results: %v", err)
+	}
+	if dlqRows != 0 || auditRows != 1 {
+		t.Fatalf("dlq/audit rows = %d/%d, want 0/1", dlqRows, auditRows)
 	}
 }
 
@@ -206,5 +465,210 @@ func TestAuditDeadletter_DeleteOlderThan_PerProjectCounts(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("remaining = %d, want 1 (young row should survive)", count)
+	}
+}
+
+func TestAuditDeadletter_DeleteOlderThanWithAudit_WritesMarkersBeforeDeleting(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	q := mustStore(t)
+	signingKey, err := store.DeriveAuditSigningKey("dlq-retention-with-audit-secret")
+	if err != nil {
+		t.Fatalf("derive signing key: %v", err)
+	}
+	q.SetAuditSigningKey(signingKey)
+
+	old := time.Now().UTC().Add(-90 * 24 * time.Hour)
+	young := time.Now().UTC().Add(-1 * 24 * time.Hour)
+
+	mk := func(id, project string, when time.Time) {
+		ev := &domain.AuditEvent{
+			ID:           id,
+			ProjectID:    project,
+			ActorID:      "a",
+			ActorType:    "user",
+			Action:       domain.AuditActionJobTriggered,
+			ResourceType: "job",
+			ResourceID:   "j",
+			Details:      json.RawMessage(`{}`),
+			CreatedAt:    when,
+		}
+		if err := q.CreateAuditEventDeadletter(ctx, ev, "x", 0); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+	mk("old-a-with-audit-1", "proj-retention-a", old)
+	mk("old-a-with-audit-2", "proj-retention-a", old)
+	mk("young-a-with-audit-1", "proj-retention-a", young)
+	mk("old-b-with-audit-1", "proj-retention-b", old)
+
+	cutoff := time.Now().UTC().Add(-30 * 24 * time.Hour)
+	dropped, err := q.DeleteAuditDeadletterOlderThanWithAudit(ctx, cutoff, 30)
+	if err != nil {
+		t.Fatalf("DeleteAuditDeadletterOlderThanWithAudit: %v", err)
+	}
+	if got, want := dropped["proj-retention-a"], int64(2); got != want {
+		t.Errorf("proj-retention-a dropped = %d, want %d", got, want)
+	}
+	if got, want := dropped["proj-retention-b"], int64(1); got != want {
+		t.Errorf("proj-retention-b dropped = %d, want %d", got, want)
+	}
+
+	count, err := q.CountAuditEventsDeadletter(ctx)
+	if err != nil {
+		t.Fatalf("CountAuditEventsDeadletter: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("remaining DLQ rows = %d, want 1", count)
+	}
+
+	rows, err := testDB.Pool.Query(ctx, `
+		SELECT project_id, details
+		FROM audit_events
+		WHERE action = $1
+		  AND resource_type = 'audit_events_deadletter'
+		  AND resource_id = 'retention'
+		ORDER BY project_id
+	`, domain.AuditActionDeadletterAged)
+	if err != nil {
+		t.Fatalf("query retention audit markers: %v", err)
+	}
+	defer rows.Close()
+
+	markers := map[string]struct {
+		droppedCount float64
+		maxAgeDays   float64
+		reason       string
+	}{}
+	for rows.Next() {
+		var projectID string
+		var raw json.RawMessage
+		if err := rows.Scan(&projectID, &raw); err != nil {
+			t.Fatalf("scan retention marker: %v", err)
+		}
+		var details map[string]any
+		if err := json.Unmarshal(raw, &details); err != nil {
+			t.Fatalf("unmarshal retention marker: %v", err)
+		}
+		markers[projectID] = struct {
+			droppedCount float64
+			maxAgeDays   float64
+			reason       string
+		}{
+			droppedCount: details["dropped_count"].(float64),
+			maxAgeDays:   details["max_age_days"].(float64),
+			reason:       details["reason"].(string),
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate retention markers: %v", err)
+	}
+
+	if got, want := len(markers), 2; got != want {
+		t.Fatalf("marker count = %d, want %d", got, want)
+	}
+	if got, want := markers["proj-retention-a"].droppedCount, float64(2); got != want {
+		t.Errorf("proj-retention-a marker dropped_count = %v, want %v", got, want)
+	}
+	if got, want := markers["proj-retention-b"].droppedCount, float64(1); got != want {
+		t.Errorf("proj-retention-b marker dropped_count = %v, want %v", got, want)
+	}
+	for projectID, marker := range markers {
+		if marker.maxAgeDays != 30 {
+			t.Errorf("%s marker max_age_days = %v, want 30", projectID, marker.maxAgeDays)
+		}
+		if marker.reason != "max_age_exceeded" {
+			t.Errorf("%s marker reason = %q, want max_age_exceeded", projectID, marker.reason)
+		}
+	}
+}
+
+func TestAuditDeadletter_DeleteOlderThanWithAudit_RollsBackWhenMarkerFails(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	q := mustStore(t)
+	signingKey, err := store.DeriveAuditSigningKey("dlq-retention-rollback-secret")
+	if err != nil {
+		t.Fatalf("derive signing key: %v", err)
+	}
+	q.SetAuditSigningKey(signingKey)
+
+	ev := &domain.AuditEvent{
+		ID:           "old-rollback-with-audit-1",
+		ProjectID:    "proj-retention-rollback",
+		ActorID:      "a",
+		ActorType:    "user",
+		Action:       domain.AuditActionJobTriggered,
+		ResourceType: "job",
+		ResourceID:   "j",
+		Details:      json.RawMessage(`{}`),
+		CreatedAt:    time.Now().UTC().Add(-90 * 24 * time.Hour),
+	}
+	if err := q.CreateAuditEventDeadletter(ctx, ev, "x", 0); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	forced := errors.New("forced audit marker failure")
+	store.SetAuditEventPostInsertHookForTest(q, func(context.Context) error {
+		return forced
+	})
+	t.Cleanup(func() { store.SetAuditEventPostInsertHookForTest(q, nil) })
+
+	_, err = q.DeleteAuditDeadletterOlderThanWithAudit(ctx, time.Now().UTC().Add(-30*24*time.Hour), 30)
+	if err == nil {
+		t.Fatal("DeleteAuditDeadletterOlderThanWithAudit: expected forced marker error, got nil")
+	}
+	if !errors.Is(err, forced) {
+		t.Fatalf("DeleteAuditDeadletterOlderThanWithAudit err = %v, want forced marker failure", err)
+	}
+
+	var dlqRows, markerRows int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT
+			(SELECT COUNT(*) FROM audit_events_deadletter WHERE id = $1),
+			(SELECT COUNT(*) FROM audit_events WHERE project_id = $2 AND action = $3)
+	`, ev.ID, ev.ProjectID, domain.AuditActionDeadletterAged).Scan(&dlqRows, &markerRows); err != nil {
+		t.Fatalf("count rollback rows: %v", err)
+	}
+	if dlqRows != 1 {
+		t.Fatalf("DLQ rows after marker failure = %d, want 1", dlqRows)
+	}
+	if markerRows != 0 {
+		t.Fatalf("marker rows after marker failure = %d, want 0", markerRows)
+	}
+}
+
+func TestAuditDeadletter_DeleteOlderThan_SkipsZeroCreatedAtRows(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	q := mustStore(t)
+
+	ev := &domain.AuditEvent{
+		ID: "zero-created-at-dlq", ProjectID: "proj-zero-created", ActorID: "a", ActorType: "user",
+		Action:       domain.AuditActionJobTriggered,
+		ResourceType: "job", ResourceID: "j",
+		Details: json.RawMessage(`{}`),
+	}
+	if err := q.CreateAuditEventDeadletter(ctx, ev, "x", 0); err != nil {
+		t.Fatalf("CreateAuditEventDeadletter: %v", err)
+	}
+
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE audit_events_deadletter SET created_at = TIMESTAMPTZ '0001-01-01 00:00:00+00' WHERE id = $1`, ev.ID); err != nil {
+		t.Fatalf("force zero created_at: %v", err)
+	}
+
+	dropped, err := q.DeleteAuditDeadletterOlderThan(ctx, time.Now().UTC().Add(-30*24*time.Hour))
+	if err != nil {
+		t.Fatalf("DeleteAuditDeadletterOlderThan: %v", err)
+	}
+	if len(dropped) != 0 {
+		t.Fatalf("zero created_at row should not be aged out, dropped=%v", dropped)
+	}
+	count, err := q.CountAuditEventsDeadletter(ctx)
+	if err != nil {
+		t.Fatalf("CountAuditEventsDeadletter: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("remaining = %d, want 1", count)
 	}
 }

@@ -27,6 +27,9 @@ type CreateJobGroupInput struct{ Body CreateJobGroupRequest }
 type CreateJobGroupOutput struct{ Body *domain.JobGroup }
 
 func (s *Server) handleCreateJobGroup(ctx context.Context, input *CreateJobGroupInput) (*CreateJobGroupOutput, error) {
+	if err := requireProjectWideScope(ctx, "job groups"); err != nil {
+		return nil, err
+	}
 	req := input.Body
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
@@ -51,6 +54,9 @@ type GetJobGroupInput struct {
 type GetJobGroupOutput struct{ Body *domain.JobGroup }
 
 func (s *Server) handleGetJobGroup(ctx context.Context, input *GetJobGroupInput) (*GetJobGroupOutput, error) {
+	if err := requireProjectWideScope(ctx, "job groups"); err != nil {
+		return nil, err
+	}
 	group, err := s.store.GetJobGroup(ctx, input.GroupID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobGroupNotFound) {
@@ -71,6 +77,9 @@ type ListJobGroupsInput struct {
 type ListJobGroupsOutput struct{ Body PaginatedResponse }
 
 func (s *Server) handleListJobGroups(ctx context.Context, input *ListJobGroupsInput) (*ListJobGroupsOutput, error) {
+	if err := requireProjectWideScope(ctx, "job groups"); err != nil {
+		return nil, err
+	}
 	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
@@ -89,6 +98,9 @@ type UpdateJobGroupInput struct {
 type UpdateJobGroupOutput struct{ Body *domain.JobGroup }
 
 func (s *Server) handleUpdateJobGroup(ctx context.Context, input *UpdateJobGroupInput) (*UpdateJobGroupOutput, error) {
+	if err := requireProjectWideScope(ctx, "job groups"); err != nil {
+		return nil, err
+	}
 	group, err := s.store.GetJobGroup(ctx, input.GroupID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobGroupNotFound) {
@@ -127,6 +139,9 @@ type DeleteJobGroupInput struct {
 }
 
 func (s *Server) handleDeleteJobGroup(ctx context.Context, input *DeleteJobGroupInput) (*struct{}, error) {
+	if err := requireProjectWideScope(ctx, "job groups"); err != nil {
+		return nil, err
+	}
 	group, err := s.store.GetJobGroup(ctx, input.GroupID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobGroupNotFound) {
@@ -158,6 +173,9 @@ type ListJobsByGroupInput struct {
 type ListJobsByGroupOutput struct{ Body PaginatedResponse }
 
 func (s *Server) handleListJobsByGroup(ctx context.Context, input *ListJobsByGroupInput) (*ListJobsByGroupOutput, error) {
+	if err := requireProjectWideScope(ctx, "job groups"); err != nil {
+		return nil, err
+	}
 	group, groupErr := s.store.GetJobGroup(ctx, input.GroupID)
 	if groupErr != nil && !errors.Is(groupErr, store.ErrJobGroupNotFound) {
 		return nil, huma.Error500InternalServerError("failed to get job group")
@@ -186,6 +204,9 @@ type PauseAllJobsByGroupInput struct {
 type PauseAllJobsByGroupOutput struct{ Body map[string]string }
 
 func (s *Server) handlePauseAllJobsByGroup(ctx context.Context, input *PauseAllJobsByGroupInput) (*PauseAllJobsByGroupOutput, error) {
+	if err := requireProjectWideScope(ctx, "job groups"); err != nil {
+		return nil, err
+	}
 	group, err := s.store.GetJobGroup(ctx, input.GroupID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobGroupNotFound) {
@@ -214,6 +235,9 @@ type ResumeAllJobsByGroupInput struct {
 type ResumeAllJobsByGroupOutput struct{ Body map[string]string }
 
 func (s *Server) handleResumeAllJobsByGroup(ctx context.Context, input *ResumeAllJobsByGroupInput) (*ResumeAllJobsByGroupOutput, error) {
+	if err := requireProjectWideScope(ctx, "job groups"); err != nil {
+		return nil, err
+	}
 	group, err := s.store.GetJobGroup(ctx, input.GroupID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobGroupNotFound) {
@@ -242,6 +266,9 @@ type GetJobGroupStatsInput struct {
 type GetJobGroupStatsOutput struct{ Body any }
 
 func (s *Server) handleGetJobGroupStats(ctx context.Context, input *GetJobGroupStatsInput) (*GetJobGroupStatsOutput, error) {
+	if err := requireProjectWideScope(ctx, "job groups"); err != nil {
+		return nil, err
+	}
 	group, err := s.store.GetJobGroup(ctx, input.GroupID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobGroupNotFound) {

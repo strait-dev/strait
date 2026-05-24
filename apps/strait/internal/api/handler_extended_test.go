@@ -503,8 +503,8 @@ func TestHandleSDKToolCall_MissingToolName(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-42/tool-call", "run-42", `{"status":"ok"}`))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

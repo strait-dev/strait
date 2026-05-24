@@ -29,26 +29,26 @@ func newAuditMetricsHarness(t *testing.T) *auditMetricsHarness {
 	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	meter := provider.Meter("audit-metrics-harness")
 
-	exportCapped, err := meter.Int64Counter("strait.audit.events_export_capped_total")
+	exportCapped, err := meter.Int64Counter("strait_audit_events_export_capped_total")
 	if err != nil {
 		t.Fatalf("create export_capped counter: %v", err)
 	}
-	verifyTotal, err := meter.Int64Counter("strait.audit.chain_verify_total")
+	verifyTotal, err := meter.Int64Counter("strait_audit_chain_verify_total")
 	if err != nil {
 		t.Fatalf("create chain_verify_total counter: %v", err)
 	}
-	verifyFailed, err := meter.Int64Counter("strait.audit.chain_verify_failed_total")
+	verifyFailed, err := meter.Int64Counter("strait_audit_chain_verify_failed_total")
 	if err != nil {
 		t.Fatalf("create chain_verify_failed_total counter: %v", err)
 	}
 	// The HTTP-layer middleware blindly dereferences its instruments
 	// whenever metrics is non-nil, so tests that route a request
 	// through chi must populate those too or accept a nil panic.
-	httpDuration, err := meter.Float64Histogram("strait.http.request_duration")
+	httpDuration, err := meter.Float64Histogram("strait_http_request_duration_seconds")
 	if err != nil {
 		t.Fatalf("create http duration histogram: %v", err)
 	}
-	httpInflight, err := meter.Int64UpDownCounter("strait.http.inflight_requests")
+	httpInflight, err := meter.Int64UpDownCounter("strait_http_inflight_requests")
 	if err != nil {
 		t.Fatalf("create http inflight counter: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestAuditExport_CapHit_IncrementsExportCappedCounter(t *testing.T) {
 		t.Fatalf("status = %d; body: %s", w.Code, w.Body.String())
 	}
 
-	got := h.sumCounter(t, "strait.audit.events_export_capped_total")
+	got := h.sumCounter(t, "strait_audit_events_export_capped_total")
 	if got != 1 {
 		t.Errorf("export_capped counter = %d, want 1", got)
 	}
@@ -181,7 +181,7 @@ func TestAuditExport_NoCap_DoesNotIncrementExportCappedCounter(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d; body: %s", w.Code, w.Body.String())
 	}
-	if got := h.sumCounter(t, "strait.audit.events_export_capped_total"); got != 0 {
+	if got := h.sumCounter(t, "strait_audit_events_export_capped_total"); got != 0 {
 		t.Errorf("export_capped counter = %d, want 0 (not capped)", got)
 	}
 }

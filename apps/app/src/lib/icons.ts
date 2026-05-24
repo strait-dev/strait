@@ -9,7 +9,6 @@
 import {
   AlarmClockIcon as _AlarmClockIcon,
   AlertCircleIcon as _AlertCircleIcon,
-  BarChartIcon as _BarChartIcon,
   CreditCardIcon as _CreditCardIcon,
   FilterIcon as _FilterIcon,
   HelpCircleIcon as _HelpCircleIcon,
@@ -25,9 +24,7 @@ import {
   ArrowDown01Icon,
   ArrowDownRight01Icon,
   ArrowLeft01Icon,
-  ArrowLeftDoubleIcon,
   ArrowRight01Icon,
-  ArrowRightDoubleIcon,
   ArrowUpRight01Icon,
   Briefcase01Icon,
   BubbleChatIcon,
@@ -38,9 +35,9 @@ import {
   CheckmarkCircle01Icon,
   CheckmarkCircle02Icon,
   Clock01Icon,
+  Copy01Icon,
   Delete02Icon,
   File01Icon,
-  FlashIcon,
   GitBranchIcon,
   Globe02Icon,
   Home07Icon,
@@ -80,6 +77,7 @@ export const FilterIcon = _FilterIcon;
 export const RefreshIcon = Refresh01Icon;
 export const SearchIcon = Search01Icon;
 export const PencilEditIcon = PencilEdit02Icon;
+export const CopyIcon = Copy01Icon;
 
 // Status / feedback
 export const AlertIcon = Alert02Icon;
@@ -96,11 +94,8 @@ export const ChatIcon = BubbleChatIcon;
 export const ChevronDownIcon = ArrowDown01Icon;
 export const ChevronLeftIcon = ArrowLeft01Icon;
 export const ChevronRightIcon = ArrowRight01Icon;
-export const ArrowRightIcon = ArrowRight01Icon;
 export const ArrowUpRightIcon = ArrowUpRight01Icon;
 export const ArrowDownRightIcon = ArrowDownRight01Icon;
-export const ChevronsLeftIcon = ArrowLeftDoubleIcon;
-export const ChevronsRightIcon = ArrowRightDoubleIcon;
 
 // Content / files
 export const FileTextIcon = File01Icon;
@@ -135,7 +130,6 @@ export const StoreIcon = Store01Icon;
 
 // Misc
 export const MoreVerticalIcon = _MoreVerticalIcon;
-export const ZapIcon = FlashIcon;
 export const TrendingUpIcon = ChartIncreaseIcon;
 export const AlarmClockIcon = _AlarmClockIcon;
 export const AlertCircleIcon = _AlertCircleIcon;
@@ -144,4 +138,3 @@ export const SparklesIcon = _SparklesIcon;
 export const LoadingIcon = Loading03Icon;
 export const UnfoldMoreIcon = _UnfoldMoreIcon;
 export const UsersAltIcon = UserMultipleIcon;
-export const AnalyticsIcon = _BarChartIcon;

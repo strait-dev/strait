@@ -2,95 +2,84 @@ package store
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"time"
 
 	"strait/internal/domain"
 
-	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel"
 )
 
-// GetJobCostEstimate returns the cached cost estimate for a job.
+// costHistoryLimit is the number of recent completed runs used to compute the
+// rolling average in GetJobCostEstimate.
+const costHistoryLimit = 30
+
+// flatRateCostMicrousd is the fallback per-run cost when no ClickHouse history
+// exists for a job. Mirrors billing.WorkerCostPerRunMicrousd (20 micro-USD =
+// $0.00002/run). Keep in sync with internal/billing/plans.go.
+const flatRateCostMicrousd int64 = 20
+
+// GetJobCostEstimate returns the rolling average compute cost for the given
+// job derived from the last 30 completed runs stored in ClickHouse
+// run_analytics. When ClickHouse is unavailable or no history exists for the
+// job, the function falls back to the plan-tier flat rate
+// (flatRateCostMicrousd, currently 20 micro-USD).
 func (q *Queries) GetJobCostEstimate(ctx context.Context, jobID string) (*domain.JobCostEstimate, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetJobCostEstimate")
 	defer span.End()
 
-	query := `
-		SELECT job_id, avg_cost_microusd, sample_count, updated_at
-		FROM job_cost_estimates
-		WHERE job_id = $1`
-
-	var est domain.JobCostEstimate
-	err := q.db.QueryRow(ctx, query, jobID).Scan(
-		&est.JobID,
-		&est.AvgCostMicrousd,
-		&est.SampleCount,
-		&est.UpdatedAt,
-	)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
+	if q.chDB != nil {
+		est, err := q.jobCostEstimateFromClickHouse(ctx, jobID)
+		if err != nil {
+			// ClickHouse is optional; fall through to the flat-rate fallback.
+			_ = err
+		} else if est != nil {
+			return est, nil
 		}
-		return nil, fmt.Errorf("get job cost estimate: %w", err)
 	}
 
-	return &est, nil
+	// Flat-rate fallback: no ClickHouse or no history for this job.
+	return &domain.JobCostEstimate{
+		JobID:           jobID,
+		AvgCostMicrousd: flatRateCostMicrousd,
+		SampleCount:     0,
+		UpdatedAt:       time.Now(),
+	}, nil
 }
 
-// UpsertJobCostEstimate recomputes and upserts the average cost for a job
-// based on completed runs from the last 30 days.
-func (q *Queries) UpsertJobCostEstimate(ctx context.Context, jobID string) error {
-	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpsertJobCostEstimate")
-	defer span.End()
+// jobCostEstimateFromClickHouse queries run_analytics for the rolling average
+// compute_cost_microusd over the last costHistoryLimit completed runs of the
+// job. Returns nil (no error) when the job has no history yet.
+func (q *Queries) jobCostEstimateFromClickHouse(ctx context.Context, jobID string) (*domain.JobCostEstimate, error) {
+	// TODO: use a named sub-query once ClickHouse driver is fully integrated.
+	// For now the LIMIT is embedded so the average is over the most-recent
+	// 30 rows rather than a window across all history.
+	const chQuery = `
+		SELECT avg(compute_cost_microusd), count()
+		FROM (
+			SELECT compute_cost_microusd
+			FROM run_analytics
+			WHERE job_id = ?
+			  AND status = 'completed'
+			ORDER BY finished_at DESC
+			LIMIT ?
+		)`
 
-	query := `
-		INSERT INTO job_cost_estimates (job_id, avg_cost_microusd, sample_count, updated_at)
-		SELECT
-			$1,
-			COALESCE(AVG(ru.cost_microusd), 0)::BIGINT,
-			COUNT(*)::INT,
-			NOW()
-		FROM run_usage ru
-		JOIN job_runs jr ON jr.id = ru.run_id
-		WHERE jr.job_id = $1
-		  AND jr.status = 'completed'
-		  AND jr.finished_at >= NOW() - INTERVAL '30 days'
-		ON CONFLICT (job_id) DO UPDATE
-		SET avg_cost_microusd = EXCLUDED.avg_cost_microusd,
-		    sample_count      = EXCLUDED.sample_count,
-		    updated_at        = EXCLUDED.updated_at`
+	row := q.chDB.QueryRowContext(ctx, chQuery, jobID, costHistoryLimit)
 
-	if _, err := q.db.Exec(ctx, query, jobID); err != nil {
-		return fmt.Errorf("upsert job cost estimate: %w", err)
+	var avgCost float64
+	var sampleCount int
+	if err := row.Scan(&avgCost, &sampleCount); err != nil {
+		return nil, fmt.Errorf("clickhouse job cost estimate scan: %w", err)
+	}
+	if sampleCount == 0 {
+		return nil, nil
 	}
 
-	return nil
+	return &domain.JobCostEstimate{
+		JobID:           jobID,
+		AvgCostMicrousd: int64(avgCost),
+		SampleCount:     sampleCount,
+		UpdatedAt:       time.Now(),
+	}, nil
 }
-
-// ListActiveJobIDs returns the IDs of all enabled jobs.
-func (q *Queries) ListActiveJobIDs(ctx context.Context) ([]string, error) {
-	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListActiveJobIDs")
-	defer span.End()
-
-	query := `SELECT id FROM jobs WHERE enabled = true ORDER BY id`
-
-	rows, err := q.db.Query(ctx, query)
-	if err != nil {
-		return nil, fmt.Errorf("list active job ids: %w", err)
-	}
-	defer rows.Close()
-
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, fmt.Errorf("scan active job id: %w", err)
-		}
-		ids = append(ids, id)
-	}
-
-	return ids, rows.Err()
-}
-
-var _ CostEstimateStore = (*Queries)(nil)

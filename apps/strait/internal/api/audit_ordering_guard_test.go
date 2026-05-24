@@ -44,6 +44,11 @@ var orderingExempt = map[string]string{
 	// Idempotency / deduplication handlers may emit from a different branch.
 	"handleTriggerJob": "async emit path; ordered via Enqueue",
 
+	// Audit DLQ replay prefers an atomic store method when available; that
+	// method performs the chain insert and DLQ delete before the emit, but the
+	// fallback branch's explicit store calls appear later in the function body.
+	"handleReplayDeadletter": "atomic replay branch mutates inside store method before emit",
+
 	// workflow_runs.go: several handlers load-then-mutate-then-reload, which
 	// confuses the AST ordering check because the Get call textually precedes
 	// the mutation. These are audited by the negative-path test instead.
@@ -84,11 +89,6 @@ var orderingExempt = map[string]string{
 	"handleDeleteEnvironment":         "GetEnvironment before DeleteEnvironment",
 	"handleUpdateNotificationChannel": "GetNotificationChannel before UpdateNotificationChannel",
 	"handleDeleteEventSubscription":   "GetEventSubscription before DeleteEventSubscription",
-
-	// Confirm code deployment: ConfirmCodeDeployment is the mutation but
-	// several reads come before.
-	"handleConfirmCodeDeployment":  "Get/HeadObject checks before Confirm",
-	"handleRollbackCodeDeployment": "Get check before RollbackToDeployment",
 
 	// Canary, workflow policy: Get before mutation.
 	"handleUpdateCanaryDeployment":   "Get before UpdateCanaryDeploymentTraffic",

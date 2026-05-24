@@ -36,36 +36,50 @@ import { useForm } from "react-hook-form";
 import type z from "zod/v4";
 import { getPostHog } from "@/lib/analytics";
 import { ChatIcon, LoadingIcon } from "@/lib/icons";
+import { enforceRateLimit } from "@/lib/rate-limit.server";
 import { getResend } from "@/lib/resend.server";
 import { FeedbackFormSchema } from "@/lib/schema";
 import { authMiddleware } from "@/middlewares/auth";
 import type { AuthUser } from "@/routes/__root";
 import { MILLISECONDS_PER_SECOND, TIMER_INTERVAL_MS } from "@/utils/constants";
 
+const FEEDBACK_COOLDOWN_SECONDS = 60;
+
 const feedbackAction = createServerFn({ method: "POST" })
   .inputValidator(FeedbackFormSchema)
   .middleware([authMiddleware])
-  .handler(
-    async ({ data, context }) =>
-      await getResend().emails.send({
-        from: "Feedback <hello@usestrait.com>",
-        to: "leo@strait.dev",
-        subject: `Feedback — ${data.email}`,
-        react: Feedback({
-          ...data,
-          name: context.user.name,
-          date: format(new Date(), "MMMM dd, yyyy"),
-          createdAt: format(
-            new Date(context.user.createdAt as unknown as string),
-            "MMMM dd, yyyy"
-          ),
-          lastLogin: format(
-            new Date(context.user.updatedAt as unknown as string),
-            "MMMM dd, yyyy"
-          ),
-        }),
-      })
-  );
+  .handler(async ({ data, context }) => {
+    await enforceRateLimit({
+      key: `feedback:${context.user.id}`,
+      limit: 5,
+      windowSeconds: 3600,
+    });
+
+    const email = context.user.email;
+    if (!email) {
+      throw new Error("Authenticated email is required");
+    }
+
+    return await getResend().emails.send({
+      from: "Feedback <hello@usestrait.com>",
+      to: "leo@strait.dev",
+      subject: `Feedback — ${email}`,
+      react: Feedback({
+        ...data,
+        email,
+        name: context.user.name,
+        date: format(new Date(), "MMMM dd, yyyy"),
+        createdAt: format(
+          new Date(context.user.createdAt as unknown as string),
+          "MMMM dd, yyyy"
+        ),
+        lastLogin: format(
+          new Date(context.user.updatedAt as unknown as string),
+          "MMMM dd, yyyy"
+        ),
+      }),
+    });
+  });
 
 type Props = {
   user: AuthUser;
@@ -133,12 +147,19 @@ const FeedbackDialog = ({ user }: Props) => {
     }
 
     startTransition(() => {
-      toast.promise(feedbackAction({ data: values }), {
+      const promise = feedbackAction({ data: values }).then((result) => {
+        const cooldownEnd =
+          Date.now() + FEEDBACK_COOLDOWN_SECONDS * MILLISECONDS_PER_SECOND;
+        localStorage.setItem(STORAGE_KEY, String(cooldownEnd));
+        setCooldownTime(FEEDBACK_COOLDOWN_SECONDS);
+        getPostHog()?.capture("feedback_submitted");
+        return result;
+      });
+      toast.promise(promise, {
         loading: "Sending feedback...",
         success: "Feedback sent successfully",
         error: "Error sending feedback",
       });
-      getPostHog()?.capture("feedback_submitted");
     });
   };
 
@@ -151,11 +172,13 @@ const FeedbackDialog = ({ user }: Props) => {
             className="text-muted-foreground/65 group-data-[active=true]/menu-button:text-primary"
             disabled={cooldownTime > 0}
             size="icon"
+            type="button"
             variant="outline"
           />
         }
       >
         <HugeiconsIcon aria-hidden="true" className="size-4" icon={ChatIcon} />
+        <span className="sr-only">Send feedback</span>
       </CredenzaTrigger>
 
       <CredenzaContent>
@@ -248,7 +271,7 @@ const FeedbackDialog = ({ user }: Props) => {
               </div>
 
               <Button
-                className="inline-flex w-full justify-center rounded-custom px-3 py-2 font-normal"
+                className="inline-flex w-full justify-center rounded px-3 py-2 font-normal"
                 disabled={
                   form.formState.isSubmitting || isPending || cooldownTime > 0
                 }

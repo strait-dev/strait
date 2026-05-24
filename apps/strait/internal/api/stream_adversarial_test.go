@@ -52,7 +52,7 @@ func TestSSE_NewlineInMessage(t *testing.T) {
 	srv := newTestServer(t, streamTestStore(), &mockQueue{}, streamTestPublisher(msg))
 
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/stream", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/stream", "", "proj-1"))
 
 	body := w.Body.String()
 	// The raw format is "data: line1\nline2\n\n". Because the SSE spec says
@@ -74,7 +74,7 @@ func TestSSE_DoubleNewlineInjection(t *testing.T) {
 	srv := newTestServer(t, streamTestStore(), &mockQueue{}, streamTestPublisher(msg))
 
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/stream", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/stream", "", "proj-1"))
 
 	body := w.Body.String()
 	// Both halves of the payload must appear somewhere in the response.
@@ -95,7 +95,7 @@ func TestSSE_NullBytesInMessage(t *testing.T) {
 	srv := newTestServer(t, streamTestStore(), &mockQueue{}, streamTestPublisher(msg))
 
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/stream", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/stream", "", "proj-1"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -118,7 +118,7 @@ func TestSSE_HugeMessage(t *testing.T) {
 	srv := newTestServer(t, streamTestStore(), &mockQueue{}, streamTestPublisher(huge))
 
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/stream", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/stream", "", "proj-1"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -137,7 +137,7 @@ func TestSSE_EmptyMessage(t *testing.T) {
 	srv := newTestServer(t, streamTestStore(), &mockQueue{}, streamTestPublisher([]byte("")))
 
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/stream", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/stream", "", "proj-1"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -158,7 +158,7 @@ func TestSSE_ControlCharsInMessage(t *testing.T) {
 	srv := newTestServer(t, streamTestStore(), &mockQueue{}, streamTestPublisher(msg))
 
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/stream", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/stream", "", "proj-1"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -178,7 +178,7 @@ func TestSSE_UnicodeInMessage(t *testing.T) {
 	srv := newTestServer(t, streamTestStore(), &mockQueue{}, streamTestPublisher(msg))
 
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/stream", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/stream", "", "proj-1"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -254,7 +254,7 @@ func TestSSE_RapidMessages(t *testing.T) {
 	srv := newTestServer(t, streamTestStore(), &mockQueue{}, streamTestPublisher(messages...))
 
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/stream", ""))
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/stream", "", "proj-1"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)

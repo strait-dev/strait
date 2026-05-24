@@ -2,6 +2,7 @@ package billing
 
 import (
 	"errors"
+	"math"
 	"sync"
 	"time"
 )
@@ -259,9 +260,8 @@ type SLACreditTier struct {
 // SLACreditTiers defines the credit remedies from the pricing doc.
 var SLACreditTiers = []SLACreditTier{
 	{MinUptimePct: 99.0, MaxUptimePct: 99.9, CreditPct: 10},
-	{MinUptimePct: 95.0, MaxUptimePct: 99.0, CreditPct: 20},
-	{MinUptimePct: 90.0, MaxUptimePct: 95.0, CreditPct: 30},
-	{MinUptimePct: 0.0, MaxUptimePct: 90.0, CreditPct: 50},
+	{MinUptimePct: 95.0, MaxUptimePct: 99.0, CreditPct: 25},
+	{MinUptimePct: 0.0, MaxUptimePct: 95.0, CreditPct: 50},
 }
 
 // CalculateSLACredit returns the credit percentage for a given monthly uptime.
@@ -270,6 +270,9 @@ var SLACreditTiers = []SLACreditTier{
 // For tiers with a higher SLA target, uptimes between the highest credit tier
 // boundary and the target receive the lightest credit (10%).
 func CalculateSLACredit(uptimePct float64, slaTarget float64) int {
+	if math.IsNaN(uptimePct) || math.IsNaN(slaTarget) || slaTarget <= 0 {
+		return 0
+	}
 	if uptimePct >= slaTarget {
 		return 0
 	}
@@ -283,5 +286,5 @@ func CalculateSLACredit(uptimePct float64, slaTarget float64) int {
 			return tier.CreditPct
 		}
 	}
-	return 50 // below 90%
+	return 50 // below 95%
 }

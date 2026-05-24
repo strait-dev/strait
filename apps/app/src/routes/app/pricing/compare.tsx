@@ -7,6 +7,7 @@ import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import { isCommunityEdition } from "@/lib/edition";
 
 export const Route = createFileRoute("/app/pricing/compare")({
+  head: () => ({ meta: [{ title: "Compare plans · Strait" }] }),
   // Cloud-only: pricing comparison against competitors is not
   // relevant for the community edition.
   beforeLoad: () => {

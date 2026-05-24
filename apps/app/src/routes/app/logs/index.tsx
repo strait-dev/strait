@@ -15,7 +15,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   getCoreRowModel,
   getFilteredRowModel,
-  getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
@@ -32,6 +31,7 @@ import { DataTable } from "@/components/ui/data-table/data-table";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { EventTrigger, PaginatedResponse } from "@/hooks/api/types";
 import { eventsQueryOptions } from "@/hooks/api/use-events";
+import { useCursorPagination } from "@/hooks/use-cursor-pagination";
 import { FileTextIcon, FilterIcon, SearchIcon } from "@/lib/icons";
 import { EVENT_STATUS_STYLES, EVENT_STATUSES } from "@/lib/status";
 import type { AppRouteContext } from "@/routes/app/layout";
@@ -39,17 +39,24 @@ import type { AppRouteContext } from "@/routes/app/layout";
 export const searchSchema = z.object({
   query: z.string().optional(),
   statuses: z.array(z.string()).optional(),
-  page: z.number().optional().default(1),
-  perPage: z.number().optional().default(50),
+  cursor: z.string().optional(),
+  perPage: z.number().optional(),
 });
 
 export const Route = createFileRoute("/app/logs/")({
+  head: () => ({ meta: [{ title: "Logs · Strait" }] }),
   validateSearch: zodValidator(searchSchema),
-  loader: async ({ context }) => {
+  loaderDeps: ({ search }) => ({
+    limit: search.perPage ?? 50,
+    cursor: search.cursor,
+  }),
+  loader: async ({ context, deps }) => {
     const { session } = context as AppRouteContext;
     const hasProject = !!session.user.activeProjectId;
     if (hasProject) {
-      await context.queryClient.ensureQueryData(eventsQueryOptions());
+      await context.queryClient.ensureQueryData(
+        eventsQueryOptions({ limit: deps.limit, cursor: deps.cursor })
+      );
     }
     return { hasProject, session };
   },
@@ -63,8 +70,16 @@ function LogsPage() {
   const { hasProject, session } = Route.useLoaderData();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
+  const pagination = useCursorPagination(
+    { cursor: search.cursor, perPage: search.perPage },
+    navigate,
+    { defaultPerPage: 50 }
+  );
   const { data } = useQuery({
-    ...eventsQueryOptions(),
+    ...eventsQueryOptions({
+      limit: pagination.perPage,
+      cursor: pagination.cursor,
+    }),
     enabled: hasProject,
   });
 
@@ -72,8 +87,9 @@ function LogsPage() {
 
   const selectedStatuses = (search.statuses ?? []) as string[];
 
+  const typed = data as PaginatedResponse<EventTrigger> | undefined;
+
   const allLogs = useMemo(() => {
-    const typed = data as PaginatedResponse<EventTrigger> | undefined;
     let items = hasProject ? (typed?.data ?? []) : [];
     if (selectedStatuses.length > 0) {
       items = items.filter((e: EventTrigger) =>
@@ -81,7 +97,7 @@ function LogsPage() {
       );
     }
     return items;
-  }, [data, selectedStatuses, hasProject]);
+  }, [typed, selectedStatuses, hasProject]);
 
   const table = useReactTable({
     data: allLogs,
@@ -89,11 +105,15 @@ function LogsPage() {
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
+    manualPagination: true,
     state: { globalFilter: search.query ?? "" },
     onGlobalFilterChange: (query) =>
       navigate({
-        search: (prev) => ({ ...prev, query: query || undefined, page: 1 }),
+        search: (prev) => ({
+          ...prev,
+          query: query || undefined,
+          cursor: undefined,
+        }),
       }),
     getRowId: (row) => row.id,
   });
@@ -110,7 +130,7 @@ function LogsPage() {
       search: (prev) => ({
         ...prev,
         statuses: arr.length > 0 ? arr : undefined,
-        page: 1,
+        cursor: undefined,
       }),
     });
   }
@@ -124,7 +144,10 @@ function LogsPage() {
       description="No log entries yet. Logs will appear as your jobs execute."
       hideButton
       icon={
-        <HugeiconsIcon className="size-6 text-primary" icon={FileTextIcon} />
+        <HugeiconsIcon
+          className="size-6 text-muted-foreground"
+          icon={FileTextIcon}
+        />
       }
       title="No events found"
     />
@@ -134,6 +157,7 @@ function LogsPage() {
 
   return (
     <Shell>
+      <h1 className="sr-only">Logs</h1>
       <div className="flex items-center gap-3 pb-2.5">
         <div className="relative w-full max-w-[500px]">
           <HugeiconsIcon
@@ -149,7 +173,7 @@ function LogsPage() {
                 search: (prev) => ({
                   ...prev,
                   query: e.target.value || undefined,
-                  page: 1,
+                  cursor: undefined,
                 }),
               })
             }
@@ -169,7 +193,7 @@ function LogsPage() {
           <DropdownMenuContent align="end" className="w-36">
             {EVENT_STATUSES.map((status) => {
               const style =
-                EVENT_STATUS_STYLES[status] ?? EVENT_STATUS_STYLES.pending;
+                EVENT_STATUS_STYLES[status] ?? EVENT_STATUS_STYLES.waiting;
               return (
                 <DropdownMenuCheckboxItem
                   checked={selectedStatuses.includes(status)}
@@ -208,7 +232,23 @@ function LogsPage() {
           }
         }}
       >
-        <DataTable emptyState={emptyState} table={table} />
+        <DataTable
+          ariaLabel="Logs"
+          cursorPagination={{
+            pageSize: pagination.perPage,
+            hasMore: typed?.has_more ?? false,
+            canGoBack: pagination.canGoBack,
+            onNext: () => {
+              if (typed?.next_cursor) {
+                pagination.goNext(typed.next_cursor);
+              }
+            },
+            onPrev: pagination.goPrev,
+            onPageSizeChange: pagination.setPerPage,
+          }}
+          emptyState={emptyState}
+          table={table}
+        />
       </div>
 
       {/* Expanded detail */}

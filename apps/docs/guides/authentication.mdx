@@ -1,274 +1,219 @@
 ---
 title: "Authentication & Authorization"
-description: "Authentication schemes, API key scopes, actor identity, and role-based access control."
+description: "Choose the right auth method for apps, users, and trusted backend services."
 icon: "key"
 ---
 
-Strait supports multiple authentication methods: API key scopes control machine access, and role-based access control (RBAC) controls user access.
+Strait supports three authentication methods: a server secret for trusted backend access, API keys for applications, and OIDC tokens for user-facing requests.
 
-<Info>
-  See also: [OIDC Authentication](/guides/oidc), [RBAC & Policy Authorization](/guides/rbac), [API Key Rotation](/guides/api-key-rotation), [Audit Events](/guides/audit-events), [Security](/guides/security).
-</Info>
+## Quick Decision
 
-## Authentication Schemes
-
-### 1. Internal Secret
-
-A global shared secret for administrative tasks and internal service-to-service communication.
-
-<Info>
-  Configure via the `INTERNAL_SECRET` environment variable.
-</Info>
-
-```bash
-# Header-based
-curl -H "X-Internal-Secret: your-secret-here" https://strait.dev/v1/jobs
-
-# Bearer token (alternative)
-curl -H "Authorization: Bearer your-secret-here" https://strait.dev/v1/jobs
-```
-
-Internal secret auth grants full access to all endpoints — no scope or role checks are applied. This is the path used by the app to communicate with Strait.
-
-### 2. API Keys
-
-Per-project API keys with scoped permissions. Recommended for external integrations.
-
-```bash
-curl -H "Authorization: Bearer strait_your_api_key_here" https://strait.dev/v1/jobs
-```
-
-API keys:
-- Start with `strait_` prefix
-- Track `last_used_at` timestamps
-- Support `expires_at` for time-limited access
-- Can be revoked at any time
-- Support rotation with grace periods
-- Are scoped to a project and a set of permissions
-
-### 3. JWT Run Tokens (SDK)
-
-Short-lived JWTs scoped to a specific run, used by the SDK for `/sdk/v1` endpoints.
-
-- **Algorithm:** HS256
-- **Subject:** The `runID`
-- **Signing Key:** `JWT_SIGNING_KEY` environment variable
-
-### 4. OIDC Bearer Tokens (Optional)
-
-For user-facing API calls, non-`strait_` bearer tokens can be validated via OIDC when configured.
-
-- Configure issuer/audience/public-key verifier settings in server config
-- Valid tokens are mapped to actor identity and project context
-- OIDC and internal-secret header-based identity can coexist during rollout
+| Method | Use when | Example |
+|---|---|---|
+| Server Secret | Trusted backend calls | `Authorization: Bearer YOUR_SECRET` |
+| API Key | Applications and integrations | `Authorization: Bearer strait_sk_...` |
+| OIDC | User requests from your identity provider | `Authorization: Bearer eyJ...` |
 
 ---
 
-## API Key Scopes
+## Server Secret
 
-Every API key has a list of scopes that control what it can do. Scopes are enforced on every request.
-
-### Available Scopes
-
-| Scope | Description |
-|-------|-------------|
-| `*` | Full access (wildcard) |
-| `jobs:read` | List and get jobs, job groups, environments, dependencies, versions, health |
-| `jobs:write` | Create, update, delete jobs, groups, environments, dependencies |
-| `jobs:trigger` | Trigger job runs (single and bulk) |
-| `runs:read` | List and get runs, events, checkpoints, outputs, debug bundles |
-| `runs:write` | Cancel runs, replay, update metadata, set debug mode |
-| `workflows:read` | List and get workflows, steps, runs, labels, dry-run, graph |
-| `workflows:write` | Create, update, delete workflows, pause/resume, approve/skip steps |
-| `workflows:trigger` | Trigger workflow runs, retry workflow runs |
-| `secrets:read` | List job secrets |
-| `secrets:write` | Create and delete job secrets |
-| `api-keys:manage` | Create, list, and revoke API keys |
-| `rbac:manage` | Create/update/delete roles, assign/remove members |
-| `stats:read` | View queue statistics |
-
-### Backwards Compatibility
-
-API keys with **empty scopes** (`[]`) retain full access. This preserves compatibility with keys created before scope enforcement.
-
-### Scope Validation
-
-Unknown scopes are rejected at API key creation time:
+Use the server secret for trusted backend calls. Set it with the `INTERNAL_SECRET` environment variable.
 
 ```bash
-# This will return 400
-curl -X POST https://strait.dev/v1/api-keys \
-  -d '{"project_id":"proj_1","name":"bad-key","scopes":["invalid:scope"]}'
+curl -H "Authorization: Bearer $INTERNAL_SECRET" \
+  https://your-strait-instance/v1/jobs
 ```
 
----
+The server secret grants full access to all endpoints. Do not use it from browsers or mobile apps.
 
-## Actor Identity
-
-Every request is attributed to an actor for audit logging.
-
-### How Actor Identity Works
-
-**API key requests:** The actor is always `apikey:<key-id>` with type `api_key`. Actor headers (`X-Actor-Id`) are **ignored** on API key requests to prevent impersonation.
-
-**Internal secret requests:** The app can pass user identity via headers:
+Your application uses this path to pass user identity to Strait via headers:
 
 ```bash
-curl -H "X-Internal-Secret: your-secret" \
-     -H "X-Project-Id: proj_123" \
+curl -H "Authorization: Bearer $INTERNAL_SECRET" \
+     -H "X-Project-Id: proj_abc123" \
      -H "X-Actor-Id: user_abc123" \
      -H "X-Actor-Email: alice@example.com" \
-     -H "X-Actor-Name: Alice" \
-     https://strait.dev/v1/jobs
+     https://your-strait-instance/v1/jobs
 ```
 
-When these headers are present, Strait:
-1. Sets `actor_type = "user"` and `actor_id = "user_abc123"` in the request context
-2. Applies `X-Project-Id` for project-scoped authorization
-3. Syncs the actor profile for future reference
-4. Records the actor as `created_by` or `updated_by` on mutations
-
-### Audit Columns
-
-The following tables have audit columns:
-- `jobs` — `created_by`, `updated_by`
-- `workflows` — `created_by`, `updated_by`
-- `job_runs` — `created_by`
-- `workflow_runs` — `created_by`
-
-Strait populates these automatically from the request actor context.
+When these headers are present, Strait records the actor for audit logging and applies RBAC checks for that user.
 
 <Warning>
-  **Security:** API key auth never honors `X-Actor-Id` headers. This prevents API key holders from impersonating users to gain RBAC permissions. Only the internal secret auth path trusts actor headers.
+  The server secret grants unrestricted access. In production, keep it in backend services and secret managers only.
 </Warning>
 
 ---
 
-## Role-Based Access Control (RBAC)
+## API Keys
 
-RBAC gives you fine-grained access control for users (as opposed to API keys, which use scopes).
+Per-project keys with scoped permissions. Use API keys for external integrations, CI/CD pipelines, and third-party access.
 
-### How It Works
-
-1. **Roles** define a set of permissions (same scope strings as API keys)
-2. **Members** link a user (from your external auth provider) to a role within a project
-3. When a user makes a request (via internal secret + `X-Actor-Id`), Strait loads their role and checks permissions
-
-### System Roles
-
-Four built-in system roles are available:
-
-| Role | Permissions |
-|------|------------|
-| **admin** | `*` (full access) |
-| **operator** | `jobs:read`, `jobs:write`, `jobs:trigger`, `runs:read`, `runs:write`, `workflows:read`, `workflows:write`, `workflows:trigger`, `secrets:read`, `stats:read`, `rbac:manage` |
-| **viewer** | `jobs:read`, `runs:read`, `workflows:read`, `stats:read` |
-| **triggerer** | `jobs:read`, `jobs:trigger`, `runs:read`, `workflows:read`, `workflows:trigger` |
-
-System roles cannot be modified or deleted.
-
-### Custom Roles
-
-Create project-specific roles with any combination of permissions:
+### Creating a Key
 
 ```bash
-curl -X POST https://strait.dev/v1/roles \
-  -H "X-Internal-Secret: your-secret" \
+curl -X POST https://your-strait-instance/v1/api-keys \
+  -H "Authorization: Bearer $INTERNAL_SECRET" \
   -d '{
-    "name": "deployer",
-    "description": "Can manage and trigger jobs, but not manage keys or roles",
-    "permissions": ["jobs:read", "jobs:write", "jobs:trigger", "runs:read", "runs:write"]
-  }'
-```
-
-### Managing Members
-
-Assign a user to a role:
-
-```bash
-curl -X POST https://strait.dev/v1/members \
-  -H "X-Internal-Secret: your-secret" \
-  -d '{"user_id": "user_abc123", "role_id": "role_xyz"}'
-```
-
-List project members:
-
-```bash
-curl https://strait.dev/v1/members -H "X-Internal-Secret: your-secret"
-```
-
-Remove a member:
-
-```bash
-curl -X DELETE https://strait.dev/v1/members/user_abc123 \
-  -H "X-Internal-Secret: your-secret"
-```
-
-### Permission Resolution
-
-Strait resolves authorization in this order:
-
-1. **Internal secret** (no scopes in context) -> **allow** immediately
-2. **API key** -> check if the key's scopes include the required permission
-3. **User** -> load role permissions (cached for 30s), check if the role includes the required permission
-
-If none of these match, the request gets a 403.
-
-### Permission Cache
-
-Strait caches user permissions for 30 seconds to reduce database lookups. The cache is automatically invalidated when you:
-- Change a member's role (`POST /v1/members`)
-- Remove a member (`DELETE /v1/members/{userID}`)
----
-
-## Managing API Keys
-
-### Create
-
-```bash
-curl -X POST https://strait.dev/v1/api-keys \
-  -H "X-Internal-Secret: your-secret" \
-  -d '{
-    "project_id": "proj_123",
+    "project_id": "proj_abc123",
     "name": "ci-deploy-key",
-    "scopes": ["jobs:read", "jobs:write", "jobs:trigger"]
+    "scopes": ["jobs:read", "jobs:write", "jobs:trigger"],
+    "expires_in_days": 90
   }'
 ```
 
-The response includes the raw key (shown only once):
+API keys must expire. If the project has a `max_key_lifetime_days` policy, omitted expirations are auto-capped to that policy; otherwise provide a positive `expires_in_days` value. The response includes the raw key once. Store it in your secret manager immediately.
 
 ```json
 {
-  "id": "key_abc",
+  "id": "key_abc123",
   "key": "strait_abc123...",
-  "project_id": "proj_123",
-  "name": "ci-deploy-key",
   "scopes": ["jobs:read", "jobs:write", "jobs:trigger"]
 }
 ```
 
-### List
+### Using a Key
 
 ```bash
-curl https://strait.dev/v1/api-keys?project_id=proj_123 \
-  -H "X-Internal-Secret: your-secret"
+curl -H "Authorization: Bearer strait_abc123..." \
+  https://your-strait-instance/v1/jobs
 ```
 
-### Revoke
+### Scope Categories
+
+| Category | Scopes | Controls |
+|---|---|---|
+| Jobs | `jobs:read`, `jobs:write`, `jobs:trigger` | View, manage, and trigger jobs |
+| Runs | `runs:read`, `runs:write` | View and manage runs |
+| Workflows | `workflows:read`, `workflows:write`, `workflows:trigger` | View, manage, and trigger workflows |
+| Secrets | `secrets:read`, `secrets:write` | View and manage job secrets |
+| Webhooks | `webhooks:read`, `webhooks:write` | View and manage webhook subscriptions |
+| Projects | `projects:read`, `projects:write`, `projects:manage` | View, update, and administer projects |
+| Workers | `workers:connect` | Connect a worker process over gRPC |
+| Dead-letter runs | `dlq:read`, `dlq:replay`, `dlq:purge` | Inspect, replay, and purge dead-lettered runs |
+| Outbox | `outbox:read`, `outbox:retry`, `outbox:purge` | Inspect, retry, and purge outbox events |
+| Admin | `api-keys:manage`, `rbac:manage`, `stats:read` | Manage keys, roles, and view stats |
+| Wildcard | `*` | Full access |
+
+Keys with empty scopes (`[]`) retain full access for backwards compatibility with keys created before scope enforcement.
+
+### Revoking a Key
 
 ```bash
-curl -X DELETE https://strait.dev/v1/api-keys/key_abc \
-  -H "X-Internal-Secret: your-secret"
+curl -X DELETE https://your-strait-instance/v1/api-keys/key_abc123 \
+  -H "Authorization: Bearer $INTERNAL_SECRET"
 ```
 
 Revoked keys immediately return 401 on subsequent requests.
 
-### Rotate (with Grace Period)
+---
+
+## API Key Rotation
+
+Rotate keys with a grace period for zero-downtime credential rollovers.
+
+### Endpoint
+
+`POST /v1/api-keys/{keyID}/rotate`
 
 ```bash
-curl -X POST https://strait.dev/v1/api-keys/key_abc/rotate \
-  -H "X-Internal-Secret: your-secret" \
-  -d '{"name":"ci-deploy-key-rotated","grace_period_seconds":3600}'
+curl -X POST https://your-strait-instance/v1/api-keys/key_abc123/rotate \
+  -H "Authorization: Bearer $INTERNAL_SECRET" \
+  -d '{"name": "ci-key-2026-05", "grace_period_seconds": 3600}'
 ```
 
-Rotation issues a new key and marks the previous key as replaced. The old key can remain valid until `grace_expires_at` to support zero-downtime credential rollouts.
+### Grace Period Behavior
+
+- A new key is created and returned (shown only once).
+- The old key is marked with `replaced_by_key_id` and `grace_expires_at`.
+- The old key remains valid until `grace_expires_at`.
+- After grace expiry, the old key returns 401.
+
+### Recommended Flow
+
+1. Rotate the key with a grace window.
+2. Deploy the new key to all clients.
+3. Verify traffic uses the new key (check `last_used_at`).
+4. Let the grace period expire, or revoke the old key early.
+
+Keep grace windows short. Never log raw keys.
+
+See [CLI API Keys](/cli/api-keys) for CLI rotation commands.
+
+---
+
+## OIDC Authentication
+
+When your users authenticate through an identity provider (Clerk, Auth0, Okta), Strait can validate their tokens directly instead of routing through your backend.
+
+### When to Use
+
+Use OIDC when user requests should carry their own IdP tokens. Backend services can continue using the server secret.
+
+### Token Routing
+
+Strait resolves bearer tokens in this order:
+
+1. Token starts with `strait_`: API key auth path.
+2. Other bearer token: OIDC verifier (if configured).
+3. Server secret header: trusted backend auth path.
+
+### Configuration
+
+Turn on OIDC by configuring your server with:
+
+- **Issuer**: your IdP's issuer URL (e.g., `https://clerk.example.com`)
+- **Audience**: expected audience claim
+- **Public key**: verification key settings
+
+### Context Mapping
+
+On successful verification, Strait maps token claims into:
+
+- **Actor identity**: the authenticated user (used for audit and RBAC)
+- **Project context**: when provided by claim or header mapping
+
+Authorization still flows through RBAC policies and permission checks.
+
+<Tip>
+  Run OIDC and server-secret user identity in parallel during migration. Once user traffic carries OIDC tokens, stop sending actor headers for those requests.
+</Tip>
+
+---
+
+## SDK Run Tokens
+
+When Strait triggers a job, it issues a short-lived JWT scoped to that specific run.
+
+- **Algorithm:** HS256, signed with `JWT_SIGNING_KEY`
+- **Subject:** The run ID
+- **Expiry:** 60 seconds (refreshed automatically by SDKs)
+
+You do not need to manage these tokens. The SDK receives and uses them automatically when your job handler is called.
+
+---
+
+## RBAC
+
+Role-based access control gives fine-grained permissions for users (as opposed to API keys, which use scopes).
+
+1. **Roles** define a set of permissions (same scope strings as API keys).
+2. **Members** link a user to a role within a project.
+3. When a user makes a request, Strait loads their role and checks permissions.
+
+Four built-in roles are available: **admin** (full access), **operator** (manage and trigger jobs/workflows), **viewer** (read-only), and **triggerer** (read and trigger only). You can also create custom roles with any combination of scopes.
+
+For full details on managing roles, members, and custom permissions, see [RBAC & Policy Authorization](/guides/rbac).
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="RBAC Guide" icon="shield" href="/guides/rbac">
+    Managing roles, members, and custom permissions.
+  </Card>
+  <Card title="Security" icon="lock" href="/guides/security">
+    Security model, SSRF protection, and secret management.
+  </Card>
+</CardGroup>

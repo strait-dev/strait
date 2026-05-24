@@ -60,6 +60,125 @@ func newID() string {
 	return uuid.Must(uuid.NewV7()).String()
 }
 
+func createPendingWebhookDelivery(t *testing.T, ctx context.Context, st *store.Queries, webhookURL string) *domain.WebhookDelivery {
+	t.Helper()
+	now := time.Now()
+	d := &domain.WebhookDelivery{
+		WebhookURL:  webhookURL,
+		RetryPolicy: domain.WebhookRetryPolicyExponential,
+		Status:      domain.WebhookStatusPending,
+		Attempts:    0,
+		MaxAttempts: 3,
+		NextRetryAt: &now,
+		LastError:   `{"integration":"private-endpoint"}`,
+	}
+	if err := st.CreateWebhookDelivery(ctx, d); err != nil {
+		t.Fatalf("CreateWebhookDelivery() error = %v", err)
+	}
+	return d
+}
+
+func runWebhookWorkerUntilDelivered(t *testing.T, ctx context.Context, worker *webhook.DeliveryWorker, st *store.Queries, deliveryID string) {
+	t.Helper()
+	workerCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func() {
+		_ = worker.RunWorker(workerCtx, 50*time.Millisecond)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		_ = worker.Shutdown(context.Background())
+	})
+
+	deadline := time.After(5 * time.Second)
+	for {
+		got, err := st.GetWebhookDelivery(ctx, deliveryID)
+		if err != nil {
+			t.Fatalf("GetWebhookDelivery() error = %v", err)
+		}
+		if got.Status == domain.WebhookStatusDelivered {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for delivery %s, status = %q, last_error = %q", deliveryID, got.Status, got.LastError)
+		default:
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+}
+
+func TestDeliveryWorker_AllowPrivateEndpointsWorksWithoutHTTPTransportOption(t *testing.T) {
+	ctx := context.Background()
+	st := mustStore(t)
+	mustClean(t, ctx)
+
+	var received atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		received.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	d := createPendingWebhookDelivery(t, ctx, st, srv.URL)
+	worker := webhook.NewDeliveryWorker(st, slog.Default(),
+		webhook.WithAllowPrivateEndpoints(true),
+		webhook.WithConcurrency(1),
+	)
+	runWebhookWorkerUntilDelivered(t, ctx, worker, st, d.ID)
+
+	if received.Load() != 1 {
+		t.Fatalf("received deliveries = %d, want 1", received.Load())
+	}
+}
+
+func TestDeliveryWorker_AllowPrivateEndpointsOrderInsensitiveWithHTTPTransport(t *testing.T) {
+	tests := []struct {
+		name string
+		opts []webhook.DeliveryWorkerOption
+	}{
+		{
+			name: "allow before transport",
+			opts: []webhook.DeliveryWorkerOption{
+				webhook.WithAllowPrivateEndpoints(true),
+				webhook.WithHTTPTransport(2*time.Second, time.Second, 2, 2),
+				webhook.WithConcurrency(1),
+			},
+		},
+		{
+			name: "allow after transport",
+			opts: []webhook.DeliveryWorkerOption{
+				webhook.WithHTTPTransport(2*time.Second, time.Second, 2, 2),
+				webhook.WithAllowPrivateEndpoints(true),
+				webhook.WithConcurrency(1),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			st := mustStore(t)
+			mustClean(t, ctx)
+
+			var received atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				received.Add(1)
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer srv.Close()
+
+			d := createPendingWebhookDelivery(t, ctx, st, srv.URL)
+			worker := webhook.NewDeliveryWorker(st, slog.Default(), tt.opts...)
+			runWebhookWorkerUntilDelivered(t, ctx, worker, st, d.ID)
+
+			if received.Load() != 1 {
+				t.Fatalf("received deliveries = %d, want 1", received.Load())
+			}
+		})
+	}
+}
+
 // TestEndToEndWebhookDelivery creates a delivery in Postgres, runs the worker,
 // and verifies the HTTP request arrives at an httptest.Server with correct headers and payload.
 func TestEndToEndWebhookDelivery(t *testing.T) {
@@ -221,7 +340,7 @@ func TestRetryFlowWithRealPersistence(t *testing.T) {
 
 	// Manually poll so we can control timing and update next_retry_at
 	// to bypass the backoff delay.
-	for attempt := 0; attempt < 5; attempt++ {
+	for range 5 {
 		workerCtx, cancel := context.WithCancel(ctx)
 		go func() {
 			_ = worker.RunWorker(workerCtx, 100*time.Millisecond)
@@ -300,7 +419,7 @@ func TestDeadLetterAfterMaxRetries(t *testing.T) {
 	}
 
 	// Run the worker repeatedly, resetting next_retry_at each time.
-	for attempt := 0; attempt < maxAttempts+1; attempt++ {
+	for range maxAttempts + 1 {
 		worker := webhook.NewDeliveryWorker(st, slog.Default(),
 			webhook.WithConcurrency(1),
 			webhook.WithRetryPolicy(domain.WebhookRetryPolicyFixed),
@@ -394,10 +513,7 @@ func TestConcurrentWebhookDeliveries(t *testing.T) {
 	}()
 
 	deadline := time.After(30 * time.Second)
-	for {
-		if int(totalRequests.Load()) >= deliveryCount {
-			break
-		}
+	for int(totalRequests.Load()) < deliveryCount {
 		select {
 		case <-deadline:
 			t.Fatalf("timed out: received %d/%d deliveries", totalRequests.Load(), deliveryCount)

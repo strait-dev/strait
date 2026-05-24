@@ -9,6 +9,7 @@ import {
 } from "@strait/ui/components/card";
 import { toast } from "@strait/ui/components/toast/index";
 import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import {
   sessionsQueryOptions,
   useRevokeAllSessions,
@@ -18,17 +19,17 @@ import {
 import { GlobeIcon, LoadingIcon, LogOutIcon } from "@/lib/icons";
 
 const SessionManagement = () => {
+  const navigate = useNavigate();
   const { data, isLoading } = useQuery(sessionsQueryOptions());
   const revokeSession = useRevokeSession();
   const revokeOtherSessions = useRevokeOtherSessions();
   const revokeAllSessions = useRevokeAllSessions();
 
   const sessions = data?.sessions ?? [];
-  const currentToken = data?.currentToken ?? null;
 
-  const handleRevoke = async (token: string) => {
+  const handleRevoke = async (sessionId: string) => {
     try {
-      await revokeSession.mutateAsync(token);
+      await revokeSession.mutateAsync(sessionId);
       toast.success("Session revoked.");
     } catch (error) {
       toast.error(
@@ -53,7 +54,7 @@ const SessionManagement = () => {
   const handleSignOutEverywhere = async () => {
     try {
       await revokeAllSessions.mutateAsync();
-      window.location.href = "/login";
+      await navigate({ to: "/login", replace: true });
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -148,10 +149,10 @@ const SessionManagement = () => {
         {!isLoading && sessions.length > 0 && (
           <div className="flex flex-col gap-3">
             {sessions.map((session) => {
-              const isCurrent = session.token === currentToken;
+              const isCurrent = session.isCurrent;
               const isRevoking =
                 revokeSession.isPending &&
-                revokeSession.variables === session.token;
+                revokeSession.variables === session.id;
 
               return (
                 <div
@@ -181,7 +182,7 @@ const SessionManagement = () => {
                   {!isCurrent && (
                     <Button
                       disabled={isRevoking}
-                      onClick={() => handleRevoke(session.token)}
+                      onClick={() => handleRevoke(session.id)}
                       variant="outline"
                     >
                       {isRevoking ? (

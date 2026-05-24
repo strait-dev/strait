@@ -1,0 +1,219 @@
+---
+title: "Build a Data Pipeline"
+description: "Create a multi-step ETL workflow with parallel steps, error handling, and automatic cleanup on failure."
+icon: "diagram-project"
+---
+
+Build a four-step ETL pipeline that extracts data from an API, transforms it, loads it into a database, and sends a summary notification. Extract and transform run in parallel. Load waits for both to finish. If load fails after retries, a compensation step cleans up partial data.
+
+## Prerequisites
+
+- Strait running locally or on Strait Cloud
+- A project created (you'll need the project ID)
+- TypeScript SDK installed: `npm install @strait/ts`
+- An API key from Settings > API Keys
+
+## What you'll build
+
+```text
+extract ──┐
+          ├──► load ──► notify
+transform ┘     │
+                ▼ (on failure)
+             cleanup
+```
+
+Extract and transform have no dependency on each other, so Strait runs them in parallel. Load depends on both and waits until both complete before starting. Notify runs after a successful load. If load fails after all retry attempts, the cleanup compensation job runs automatically.
+
+## Step 1: Define the jobs
+
+Each pipeline stage is a separate job. Here is the extract job in full; the others follow the same pattern.
+
+```typescript
+import { defineJob, createClient } from "@strait/ts";
+
+const client = createClient({
+  baseUrl: "https://api.strait.dev",
+  auth: { type: "bearer", token: process.env.STRAIT_API_KEY! },
+});
+
+const extractJob = defineJob({
+  name: "Extract Data",
+  slug: "extract-data",
+  projectId: "proj_abc123",
+  maxAttempts: 3,
+  retryStrategy: "exponential",
+  timeoutSecs: 120,
+  run: async (payload, ctx) => {
+    ctx.logger.info("Extracting data", { source: payload.source });
+    const response = await fetch(`https://data-source.example.com/api/records?date=${payload.date}`);
+    const records = await response.json();
+
+    await ctx.reportProgress(100, `Extracted ${records.length} records`);
+    return { records, extractedAt: new Date().toISOString() };
+  },
+});
+```
+
+<Info>
+The `run` function is your job's handler. When Strait dispatches this job, the SDK routes the HTTP callback to your `run` function automatically. You don't need to write a separate Express endpoint.
+</Info>
+
+Define the remaining jobs with the same structure. Each needs a slug, timeout, and retry configuration:
+
+```typescript
+const transformJob = defineJob({
+  name: "Transform Data",
+  slug: "transform-data",
+  projectId: "proj_abc123",
+  maxAttempts: 3,
+  retryStrategy: "exponential",
+  timeoutSecs: 180,
+  run: async (payload, ctx) => {
+    // Validate, normalize, deduplicate records
+    return { schemaVersion: "v2", recordCount: 150 };
+  },
+});
+
+const loadJob = defineJob({
+  name: "Load Data",
+  slug: "load-data",
+  projectId: "proj_abc123",
+  maxAttempts: 3,
+  retryStrategy: "exponential",
+  timeoutSecs: 300,
+  run: async (payload, ctx) => {
+    // Insert records into database
+    return { loadedCount: payload.recordCount, batchId: "batch_20260315" };
+  },
+});
+
+const summaryJob = defineJob({
+  name: "Send Summary",
+  slug: "send-summary",
+  projectId: "proj_abc123",
+  maxAttempts: 2,
+  retryStrategy: "fixed",
+  timeoutSecs: 30,
+  run: async (payload, ctx) => {
+    // Post to Slack, send email, etc.
+    return { notified: true };
+  },
+});
+```
+
+For the full handler pattern (receiving the webhook, verifying the signature, and returning results), see the [SDK integration guide](/guides/sdk-integration).
+
+## Step 2: Define the workflow
+
+Wire the jobs into a workflow using `defineWorkflow`. The `dependsOn` array controls execution order. Steps with no shared dependencies run in parallel.
+
+```typescript
+import { defineWorkflow, step } from "@strait/ts";
+
+const pipeline = defineWorkflow({
+  name: "Daily ETL Pipeline",
+  slug: "daily-etl",
+  projectId: "proj_abc123",
+  cron: "0 2 * * *",
+  steps: [
+    step.job({ ref: "extract", jobId: extractJob.id }),
+    step.job({ ref: "transform", jobId: transformJob.id }),
+    step.job({
+      ref: "load",
+      jobId: loadJob.id,
+      dependsOn: ["extract", "transform"],
+      onFailure: "compensate",
+      compensationJobId: cleanupJob.id,
+    }),
+    step.job({
+      ref: "notify",
+      jobId: summaryJob.id,
+      dependsOn: ["load"],
+    }),
+  ],
+});
+```
+
+`extract` and `transform` have no `dependsOn`, so Strait schedules them simultaneously. `load` lists both as dependencies and starts only after both complete. `notify` depends on `load`, so it runs last. The `cron` field schedules the pipeline to run daily at 2:00 AM UTC.
+
+## Step 3: Handle data flow between steps
+
+Step outputs flow into downstream steps via template variables. Configure the load step's input to reference outputs from extract and transform:
+
+```json
+{
+  "payload": {
+    "records": "{{parent_outputs.extract.records}}",
+    "schema_version": "{{parent_outputs.transform.schemaVersion}}"
+  }
+}
+```
+
+Strait resolves these templates at runtime. When `load` starts, it receives the actual records array from `extract` and the schema version string from `transform` in its payload. Each step only sees the outputs it declares as dependencies.
+
+## Step 4: Add compensation
+
+If `load` fails after exhausting all 3 retry attempts, the compensation job runs to clean up any partial data that was written before the failure.
+
+```typescript
+const cleanupJob = defineJob({
+  name: "Cleanup Partial Load",
+  slug: "cleanup-partial-load",
+  projectId: "proj_abc123",
+  maxAttempts: 3,
+  retryStrategy: "exponential",
+  timeoutSecs: 120,
+  run: async (payload, ctx) => {
+    ctx.logger.info("Cleaning up partial data", { batchId: payload.batchId });
+    // DELETE FROM records WHERE batch_id = ? AND status = 'partial'
+    return { cleaned: true };
+  },
+});
+```
+
+The compensation job receives the same payload context as the failed step. It runs exactly once per failure (with its own retry policy). Each step that changes data can define an undo operation that runs if the step fails permanently. See [Compensating Transactions](/concepts/compensating-transactions) for the full pattern.
+
+## Step 5: Register, trigger, and monitor
+
+Register all jobs and the workflow, then trigger a run:
+
+```typescript
+// Register jobs
+await extractJob.register(client, { projectId: "proj_abc123" });
+await transformJob.register(client, { projectId: "proj_abc123" });
+await loadJob.register(client, { projectId: "proj_abc123" });
+await summaryJob.register(client, { projectId: "proj_abc123" });
+await cleanupJob.register(client, { projectId: "proj_abc123" });
+
+// Register and trigger the workflow
+await pipeline.register(client, { projectId: "proj_abc123" });
+const run = await pipeline.trigger(client, {
+  payload: { source: "external-api", date: "2026-03-15" },
+});
+console.log("Pipeline started:", run.id);
+```
+
+Check workflow run status with the API:
+
+```bash
+curl -s https://api.strait.dev/v1/workflow-runs/{run_id} \
+  -H "Authorization: Bearer $STRAIT_API_KEY" | jq '.status, .steps'
+```
+
+The response includes the overall workflow status and per-step status, so you can see which steps completed, which are running, and which are pending.
+
+## What you get
+
+- **Parallel execution**: extract and transform run simultaneously, cutting total pipeline time.
+- **Automatic fan-in**: load waits for all upstream steps without polling or manual coordination.
+- **Per-step retries**: each job has its own retry policy; a transient failure in load does not re-run extract.
+- **Compensation on failure**: if load fails permanently, cleanup runs automatically to undo partial writes.
+- **Scheduled execution**: the `cron` field runs the pipeline on a schedule without external triggers.
+
+## Next steps
+
+- [Workflows](/concepts/workflows): workflow configuration and lifecycle
+- [Workflows](/concepts/workflows): how parallel steps, fan-out, and fan-in work
+- [Compensating Transactions](/concepts/compensating-transactions): saga-pattern rollback across steps
+- [Scheduling](/concepts/scheduling): cron expressions and timezone handling

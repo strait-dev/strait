@@ -51,32 +51,26 @@ func (c *StaleSubscriptionChecker) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			c.check(context.WithoutCancel(ctx))
+			runSchedulerCycleCheckIn(ctx, c.interval, func() {
+				c.check(context.WithoutCancel(ctx))
+			})
 		}
 	}
 }
 
 func (c *StaleSubscriptionChecker) check(ctx context.Context) {
-	if c.advisoryLocker != nil {
-		acquired, err := c.advisoryLocker.TryAdvisoryLock(ctx, staleSubscriptionCheckerLockID)
-		if err != nil {
-			slog.Warn("stale subscription checker: failed to acquire advisory lock", "error", err)
-			return
-		}
-		if !acquired {
-			return
-		}
-		defer func() {
-			if relErr := c.advisoryLocker.ReleaseAdvisoryLock(ctx, staleSubscriptionCheckerLockID); relErr != nil {
-				slog.Warn("stale subscription checker: failed to release advisory lock", "error", relErr)
-			}
-		}()
+	_, err := runWithOptionalAdvisoryLock(ctx, c.advisoryLocker, staleSubscriptionCheckerLockID, c.checkLocked)
+	if err != nil {
+		slog.Warn("stale subscription checker: advisory lock cycle failed", "error", err)
+		return
 	}
+}
 
+func (c *StaleSubscriptionChecker) checkLocked(ctx context.Context) error {
 	subs, err := c.store.ListStaleSubscriptions(ctx)
 	if err != nil {
 		slog.Warn("failed to list stale subscriptions", "error", err)
-		return
+		return nil
 	}
 
 	for _, sub := range subs {
@@ -95,4 +89,5 @@ func (c *StaleSubscriptionChecker) check(ctx context.Context) {
 			"stale_count", len(subs),
 		)
 	}
+	return nil
 }

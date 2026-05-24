@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync/atomic"
 	"time"
@@ -78,13 +79,17 @@ func (p *PartitionEnsurer) Errors() int64 { return p.errors.Load() }
 func (p *PartitionEnsurer) Run(ctx context.Context) {
 	ticker := time.NewTicker(p.interval)
 	defer ticker.Stop()
-	_ = p.runOnce(ctx)
+	runSchedulerCycleCheckIn(ctx, p.interval, func() {
+		_ = p.runOnce(ctx)
+	})
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			_ = p.runOnce(ctx)
+			runSchedulerCycleCheckIn(ctx, p.interval, func() {
+				_ = p.runOnce(ctx)
+			})
 		}
 	}
 }
@@ -94,31 +99,27 @@ func (p *PartitionEnsurer) RunOnceForTest(ctx context.Context) error {
 	return p.runOnce(ctx)
 }
 
-func (p *PartitionEnsurer) runOnce(ctx context.Context) error {
+func (p *PartitionEnsurer) runOnce(ctx context.Context) (err error) {
 	defer func() {
 		p.iterations.Add(1)
 		if r := recover(); r != nil {
 			p.logger.Warn("partition ensurer panic recovered", "panic", r)
 			p.errors.Add(1)
+			err = fmt.Errorf("partition ensurer panic: %v", r)
 		}
 	}()
 
-	if p.advisoryLocker != nil {
-		acquired, err := p.advisoryLocker.TryAdvisoryLock(ctx, partitionEnsurerAdvisoryLockID)
-		if err != nil {
-			p.errors.Add(1)
-			return err
-		}
-		if !acquired {
-			return nil
-		}
-		defer func() {
-			if err := p.advisoryLocker.ReleaseAdvisoryLock(ctx, partitionEnsurerAdvisoryLockID); err != nil {
-				p.logger.Debug("partition ensurer lock release failed", "error", err)
-			}
-		}()
+	acquired, err := runWithOptionalAdvisoryLock(ctx, p.advisoryLocker, partitionEnsurerAdvisoryLockID, p.runLocked)
+	if err != nil {
+		return err
 	}
+	if !acquired {
+		return nil
+	}
+	return nil
+}
 
+func (p *PartitionEnsurer) runLocked(ctx context.Context) error {
 	if err := p.store.EnsureJobRunsPartitions(ctx, p.monthsAhead); err != nil {
 		p.logger.Warn("ensure partitions failed", "error", err)
 		p.errors.Add(1)

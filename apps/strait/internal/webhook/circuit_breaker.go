@@ -2,11 +2,13 @@ package webhook
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
-	"hash/fnv"
 	"strconv"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -126,7 +128,7 @@ func (cb *RedisWebhookCircuitBreaker) RecordFailure(ctx context.Context, url str
 
 	_ = cb.client.ZAdd(ctx, failureKey, redis.Z{
 		Score:  float64(now.UnixMilli()),
-		Member: strconv.FormatInt(now.UnixNano(), 10),
+		Member: strconv.FormatInt(now.UnixNano(), 10) + ":" + uuid.Must(uuid.NewV7()).String(),
 	}).Err()
 	_ = cb.client.Expire(ctx, failureKey, cb.failureWindow).Err()
 
@@ -145,7 +147,6 @@ func (cb *RedisWebhookCircuitBreaker) openKey(url string) string {
 }
 
 func hashURL(url string) string {
-	h := fnv.New64a()
-	_, _ = h.Write([]byte(url))
-	return strconv.FormatUint(h.Sum64(), 10)
+	sum := sha256.Sum256([]byte(url))
+	return hex.EncodeToString(sum[:])
 }

@@ -30,10 +30,10 @@ type permissionCache struct {
 
 func newPermissionCache(ttl time.Duration) *permissionCache {
 	meter := otel.Meter("strait")
-	hits, _ := meter.Int64Counter("strait.permission_cache.hits_total")
-	misses, _ := meter.Int64Counter("strait.permission_cache.misses_total")
-	evictions, _ := meter.Int64Counter("strait.permission_cache.evictions_total")
-	entriesUp, _ := meter.Int64UpDownCounter("strait.permission_cache.entries")
+	hits, _ := meter.Int64Counter("strait_permission_cache_hits_total")
+	misses, _ := meter.Int64Counter("strait_permission_cache_misses_total")
+	evictions, _ := meter.Int64Counter("strait_permission_cache_evictions_total")
+	entriesUp, _ := meter.Int64UpDownCounter("strait_permission_cache_entries")
 
 	c := &permissionCache{
 		ttl:       ttl,
@@ -52,6 +52,7 @@ func newPermissionCache(ttl time.Duration) *permissionCache {
 	store := otterstore.New(otterstore.Config{
 		DefaultTTL:  cacheTTL,
 		MaxCapacity: 10_000,
+		TTLJitter:   0.1,
 		OnEviction: func(_ string, _ any, _ otter.DeletionCause) {
 			c.evictions.Add(metricsCtx, 1)
 			c.entriesUp.Add(metricsCtx, -1)

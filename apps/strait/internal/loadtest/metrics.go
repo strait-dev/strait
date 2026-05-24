@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -46,6 +47,9 @@ type MetricsCollector struct {
 
 	cancel context.CancelFunc
 	done   chan struct{}
+
+	errMu      sync.Mutex
+	collectErr error
 }
 
 // MetricsSnapshot is a single point-in-time measurement.
@@ -162,15 +166,21 @@ func (mc *MetricsCollector) Stop() error {
 	mc.fileMu.Lock()
 	defer mc.fileMu.Unlock()
 
+	var stopErr error
+	if err := mc.collectionError(); err != nil {
+		stopErr = errors.Join(stopErr, err)
+	}
 	if mc.writer != nil {
 		if err := mc.writer.Flush(); err != nil {
-			return fmt.Errorf("flushing metrics writer: %w", err)
+			stopErr = errors.Join(stopErr, fmt.Errorf("flushing metrics writer: %w", err))
 		}
 	}
 	if mc.file != nil {
-		return mc.file.Close()
+		if err := mc.file.Close(); err != nil {
+			stopErr = errors.Join(stopErr, err)
+		}
 	}
-	return nil
+	return stopErr
 }
 
 // Snapshots returns all collected snapshots.
@@ -262,17 +272,52 @@ func (mc *MetricsCollector) collect(ctx context.Context) {
 
 	if mc.writer != nil {
 		data, err := json.Marshal(snap)
-		if err == nil {
-			n, _ := mc.writer.Write(data)
-			_, _ = mc.writer.Write([]byte("\n"))
-			mc.bytesWritten += int64(n) + 1
+		if err != nil {
+			mc.recordCollectError(fmt.Errorf("marshaling metrics snapshot: %w", err))
+			return
+		}
+		n, err := mc.writer.Write(data)
+		if err != nil {
+			mc.recordCollectError(fmt.Errorf("writing metrics snapshot: %w", err))
+			return
+		}
+		if n != len(data) {
+			mc.recordCollectError(fmt.Errorf("writing metrics snapshot: short write %d/%d", n, len(data)))
+			return
+		}
+		if _, err := mc.writer.Write([]byte("\n")); err != nil {
+			mc.recordCollectError(fmt.Errorf("writing metrics newline: %w", err))
+			return
+		}
+		mc.bytesWritten += int64(n) + 1
 
-			// Check if rotation is needed
-			if mc.bytesWritten >= mc.maxFileSize {
-				_ = mc.rotateFile()
+		// Check if rotation is needed
+		if mc.bytesWritten >= mc.maxFileSize {
+			if err := mc.rotateFile(); err != nil {
+				mc.recordCollectError(fmt.Errorf("rotating metrics file: %w", err))
 			}
 		}
 	}
+}
+
+func (mc *MetricsCollector) recordCollectError(err error) {
+	if err == nil {
+		return
+	}
+	mc.errMu.Lock()
+	if mc.collectErr == nil {
+		mc.collectErr = err
+	}
+	mc.errMu.Unlock()
+	if mc.cancel != nil {
+		mc.cancel()
+	}
+}
+
+func (mc *MetricsCollector) collectionError() error {
+	mc.errMu.Lock()
+	defer mc.errMu.Unlock()
+	return mc.collectErr
 }
 
 func (mc *MetricsCollector) collectAppMetrics(ctx context.Context, now time.Time) *AppMetrics {

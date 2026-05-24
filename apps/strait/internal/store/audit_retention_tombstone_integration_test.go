@@ -21,7 +21,7 @@ import (
 func seedDatedChain(ctx context.Context, t *testing.T, q *store.Queries, projectID string, n int, base time.Time, signingKey []byte) []string {
 	t.Helper()
 	ids := make([]string, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		ev := &domain.AuditEvent{
 			ProjectID:    projectID,
 			ActorID:      "actor",
@@ -117,6 +117,14 @@ func TestDeleteAuditEventsBefore_WritesTombstone(t *testing.T) {
 	if prevHash == "" {
 		t.Error("previous_hash missing from tombstone details")
 	}
+	chainStart, _ := details["chain_start"].(string)
+	if chainStart == "" {
+		t.Error("chain_start missing from tombstone details")
+	}
+	firstSurvivingID, _ := details["first_surviving_event_id"].(string)
+	if firstSurvivingID == "" {
+		t.Error("first_surviving_event_id missing from tombstone details")
+	}
 
 	// The tombstone's own previous_hash must match the surviving tail
 	// (i.e. the signature of the last pre-tombstone event).
@@ -133,6 +141,24 @@ func TestDeleteAuditEventsBefore_WritesTombstone(t *testing.T) {
 	}
 	if prevHash != tailSig {
 		t.Errorf("tombstone details.previous_hash = %q, want surviving tail %q", prevHash, tailSig)
+	}
+
+	var survivingHead struct {
+		id           string
+		previousHash string
+	}
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT id, previous_hash FROM audit_events
+		WHERE project_id = $1 AND action = $2
+		ORDER BY rotation_epoch ASC, created_at ASC, id ASC LIMIT 1
+	`, projectID, domain.AuditActionJobCreated).Scan(&survivingHead.id, &survivingHead.previousHash); err != nil {
+		t.Fatalf("query surviving head: %v", err)
+	}
+	if firstSurvivingID != survivingHead.id {
+		t.Errorf("first_surviving_event_id = %q, want %q", firstSurvivingID, survivingHead.id)
+	}
+	if chainStart != survivingHead.previousHash {
+		t.Errorf("chain_start = %q, want first surviving previous_hash %q", chainStart, survivingHead.previousHash)
 	}
 }
 
@@ -193,7 +219,7 @@ func TestVerifyAuditChain_AcceptsTombstoneAnchor(t *testing.T) {
 
 	// Add a few post-trim events to ensure the chain continues past the
 	// tombstone cleanly.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		ev := &domain.AuditEvent{
 			ProjectID:    projectID,
 			ActorID:      "actor",
@@ -218,6 +244,84 @@ func TestVerifyAuditChain_AcceptsTombstoneAnchor(t *testing.T) {
 	// 4 surviving + 1 tombstone + 3 post = 8.
 	if result.EventsChecked != 8 {
 		t.Errorf("EventsChecked = %d, want 8", result.EventsChecked)
+	}
+}
+
+// TestVerifyAuditChain_RejectsDeletedPrefixWithoutTombstone asserts that an
+// attacker cannot delete the oldest rows and have the verifier silently accept
+// the first surviving row as a new chain head. Legitimate retention trims must
+// leave a signed audit.retention_trimmed anchor.
+func TestVerifyAuditChain_RejectsDeletedPrefixWithoutTombstone(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	q := mustStore(t)
+	key, _ := store.DeriveAuditSigningKey("tombstone-prefix-secret")
+	q.SetAuditSigningKey(key)
+
+	projectID := "proj-prefix-delete"
+	base := time.Now().UTC().Add(-24 * time.Hour).Truncate(time.Hour)
+	ids := seedDatedChain(ctx, t, q, projectID, 5, base, key)
+
+	if _, err := testDB.Pool.Exec(ctx, `
+		DELETE FROM audit_events
+		WHERE id = ANY($1::text[])
+	`, ids[:2]); err != nil {
+		t.Fatalf("delete prefix rows: %v", err)
+	}
+
+	result, err := q.VerifyAuditChain(ctx, projectID)
+	if err != nil {
+		t.Fatalf("VerifyAuditChain: %v", err)
+	}
+	if result.Valid {
+		t.Fatal("expected deleted prefix without tombstone to invalidate chain")
+	}
+	if result.BrokenAtID != ids[2] {
+		t.Fatalf("BrokenAtID = %q, want first surviving event %q", result.BrokenAtID, ids[2])
+	}
+	if result.ChainStart == store.ZeroHash {
+		t.Fatal("expected first surviving row to retain non-zero previous_hash")
+	}
+}
+
+func TestVerifyAuditChain_RejectsAdditionalPrefixDeleteAfterTombstone(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	q := mustStore(t)
+	key, _ := store.DeriveAuditSigningKey("tombstone-bound-prefix-secret")
+	q.SetAuditSigningKey(key)
+
+	projectID := "proj-prefix-delete-after-tombstone"
+	base := time.Now().UTC().Add(-24 * time.Hour).Truncate(time.Hour)
+	ids := seedDatedChain(ctx, t, q, projectID, 8, base, key)
+
+	cutoff := base.Add(3 * time.Hour)
+	if _, err := q.DeleteAuditEventsBefore(ctx, projectID, cutoff); err != nil {
+		t.Fatalf("DeleteAuditEventsBefore: %v", err)
+	}
+	valid, err := q.VerifyAuditChain(ctx, projectID)
+	if err != nil {
+		t.Fatalf("VerifyAuditChain(after legitimate trim): %v", err)
+	}
+	if !valid.Valid {
+		t.Fatalf("legitimate trim invalid: %s", valid.Error)
+	}
+
+	if _, err := testDB.Pool.Exec(ctx, `DELETE FROM audit_events WHERE id = $1`, ids[3]); err != nil {
+		t.Fatalf("delete first surviving row after tombstone: %v", err)
+	}
+
+	result, err := q.VerifyAuditChain(ctx, projectID)
+	if err != nil {
+		t.Fatalf("VerifyAuditChain(after unauthorized prefix delete): %v", err)
+	}
+	if result.Valid {
+		t.Fatal("expected additional prefix delete after tombstone to invalidate chain")
+	}
+	if result.BrokenAtID != ids[4] {
+		t.Fatalf("BrokenAtID = %q, want new first surviving event %q", result.BrokenAtID, ids[4])
 	}
 }
 
@@ -546,7 +650,7 @@ func TestTombstoneDoesNotRaceWithRotation(t *testing.T) {
 	}()
 	close(start)
 
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		o := <-results
 		if o.err != nil {
 			t.Fatalf("%s: %v", o.who, o.err)

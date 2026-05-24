@@ -23,7 +23,7 @@ import (
 
 // ---------------------------------------------------------------------------
 // Helpers local to this file
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func stID() string {
 	return uuid.Must(uuid.NewV7()).String()
@@ -58,7 +58,7 @@ func stClean(t *testing.T, ctx context.Context) {
 	}
 }
 
-func stPtr[T any](v T) *T { return &v }
+func stPtr[T any](v T) *T { return new(v) }
 
 func stCreateStepWithJob(t *testing.T, ctx context.Context, q *store.Queries, wf *domain.Workflow, projectID string, opts *testutil.WorkflowStepOpts) *domain.WorkflowStep {
 	t.Helper()
@@ -98,7 +98,7 @@ func stCreateJob(t *testing.T, ctx context.Context, q *store.Queries, projectID 
 
 // ---------------------------------------------------------------------------
 // 1. Workflow run status transitions
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestWorkflowRunStatus_ValidTransition_PendingToRunningToCompleted(t *testing.T) {
 	ctx := context.Background()
@@ -107,13 +107,13 @@ func TestWorkflowRunStatus_ValidTransition_PendingToRunningToCompleted(t *testin
 
 	projectID := "proj-wf-valid-transition-" + stID()
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: stPtr(projectID),
-		Name:      stPtr("wf-valid-transition"),
-		Slug:      stPtr("wf-valid-" + stID()),
+		ProjectID: new(projectID),
+		Name:      new("wf-valid-transition"),
+		Slug:      new("wf-valid-" + stID()),
 	})
 
 	run := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
-		ProjectID: stPtr(projectID),
+		ProjectID: new(projectID),
 	})
 
 	// pending -> running
@@ -157,13 +157,13 @@ func TestWorkflowRunStatus_ValidTransition_PendingToRunningToFailed(t *testing.T
 
 	projectID := "proj-wf-fail-transition-" + stID()
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: stPtr(projectID),
-		Name:      stPtr("wf-fail-transition"),
-		Slug:      stPtr("wf-fail-" + stID()),
+		ProjectID: new(projectID),
+		Name:      new("wf-fail-transition"),
+		Slug:      new("wf-fail-" + stID()),
 	})
 
 	run := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
-		ProjectID: stPtr(projectID),
+		ProjectID: new(projectID),
 	})
 
 	// pending -> running
@@ -202,13 +202,13 @@ func TestWorkflowRunStatus_InvalidTransition_CompletedToRunning(t *testing.T) {
 
 	projectID := "proj-wf-invalid-completed-" + stID()
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: stPtr(projectID),
-		Name:      stPtr("wf-invalid-completed"),
-		Slug:      stPtr("wf-invalid-c-" + stID()),
+		ProjectID: new(projectID),
+		Name:      new("wf-invalid-completed"),
+		Slug:      new("wf-invalid-c-" + stID()),
 	})
 
 	run := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
-		ProjectID: stPtr(projectID),
+		ProjectID: new(projectID),
 		Status:    stPtr(domain.WfStatusCompleted),
 	})
 
@@ -230,13 +230,13 @@ func TestWorkflowRunStatus_InvalidTransition_FailedToPending(t *testing.T) {
 
 	projectID := "proj-wf-invalid-failed-" + stID()
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: stPtr(projectID),
-		Name:      stPtr("wf-invalid-failed"),
-		Slug:      stPtr("wf-invalid-f-" + stID()),
+		ProjectID: new(projectID),
+		Name:      new("wf-invalid-failed"),
+		Slug:      new("wf-invalid-f-" + stID()),
 	})
 
 	run := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
-		ProjectID: stPtr(projectID),
+		ProjectID: new(projectID),
 		Status:    stPtr(domain.WfStatusFailed),
 	})
 
@@ -258,13 +258,13 @@ func TestWorkflowRunStatus_ConcurrentUpdates(t *testing.T) {
 
 	projectID := "proj-wf-concurrent-" + stID()
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: stPtr(projectID),
-		Name:      stPtr("wf-concurrent"),
-		Slug:      stPtr("wf-concurrent-" + stID()),
+		ProjectID: new(projectID),
+		Name:      new("wf-concurrent"),
+		Slug:      new("wf-concurrent-" + stID()),
 	})
 
 	run := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
-		ProjectID: stPtr(projectID),
+		ProjectID: new(projectID),
 	})
 
 	// Move to running first.
@@ -331,13 +331,13 @@ func TestWorkflowRunStatus_IdempotentTransition(t *testing.T) {
 
 	projectID := "proj-wf-idempotent-" + stID()
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: stPtr(projectID),
-		Name:      stPtr("wf-idempotent"),
-		Slug:      stPtr("wf-idempotent-" + stID()),
+		ProjectID: new(projectID),
+		Name:      new("wf-idempotent"),
+		Slug:      new("wf-idempotent-" + stID()),
 	})
 
 	run := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
-		ProjectID: stPtr(projectID),
+		ProjectID: new(projectID),
 	})
 
 	// pending -> running
@@ -361,7 +361,7 @@ func TestWorkflowRunStatus_IdempotentTransition(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // 2. Step run status transitions
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestStepRunStatus_WaitingToRunningToCompleted(t *testing.T) {
 	ctx := context.Background()
@@ -370,13 +370,13 @@ func TestStepRunStatus_WaitingToRunningToCompleted(t *testing.T) {
 
 	projectID := "proj-step-lifecycle-" + stID()
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: stPtr(projectID),
-		Name:      stPtr("wf-step-lifecycle"),
-		Slug:      stPtr("wf-step-lc-" + stID()),
+		ProjectID: new(projectID),
+		Name:      new("wf-step-lifecycle"),
+		Slug:      new("wf-step-lc-" + stID()),
 	})
 	step := stCreateStepWithJob(t, ctx, q, wf, projectID, nil)
 	run := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
-		ProjectID: stPtr(projectID),
+		ProjectID: new(projectID),
 	})
 	sr := testutil.MustCreateWorkflowStepRun(t, ctx, q, run.ID, step.ID, &testutil.WorkflowStepRunOpts{
 		Status: stPtr(domain.StepWaiting),
@@ -423,13 +423,13 @@ func TestStepRunStatus_WaitingToRunningToFailed(t *testing.T) {
 
 	projectID := "proj-step-failure-" + stID()
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: stPtr(projectID),
-		Name:      stPtr("wf-step-failure"),
-		Slug:      stPtr("wf-step-fail-" + stID()),
+		ProjectID: new(projectID),
+		Name:      new("wf-step-failure"),
+		Slug:      new("wf-step-fail-" + stID()),
 	})
 	step := stCreateStepWithJob(t, ctx, q, wf, projectID, nil)
 	run := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
-		ProjectID: stPtr(projectID),
+		ProjectID: new(projectID),
 	})
 	sr := testutil.MustCreateWorkflowStepRun(t, ctx, q, run.ID, step.ID, &testutil.WorkflowStepRunOpts{
 		Status: stPtr(domain.StepWaiting),
@@ -471,29 +471,29 @@ func TestStepRunStatus_ConcurrentUpdatesWithinSameWorkflow(t *testing.T) {
 
 	projectID := "proj-step-concurrent-" + stID()
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: stPtr(projectID),
-		Name:      stPtr("wf-step-concurrent"),
-		Slug:      stPtr("wf-step-conc-" + stID()),
+		ProjectID: new(projectID),
+		Name:      new("wf-step-concurrent"),
+		Slug:      new("wf-step-conc-" + stID()),
 	})
 
 	stepA := stCreateStepWithJob(t, ctx, q, wf, projectID, &testutil.WorkflowStepOpts{
-		StepRef: stPtr("step-a"),
+		StepRef: new("step-a"),
 	})
 	stepB := stCreateStepWithJob(t, ctx, q, wf, projectID, &testutil.WorkflowStepOpts{
-		StepRef: stPtr("step-b"),
+		StepRef: new("step-b"),
 	})
 
 	run := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
-		ProjectID: stPtr(projectID),
+		ProjectID: new(projectID),
 	})
 
 	srA := testutil.MustCreateWorkflowStepRun(t, ctx, q, run.ID, stepA.ID, &testutil.WorkflowStepRunOpts{
 		Status:  stPtr(domain.StepRunning),
-		StepRef: stPtr("step-a"),
+		StepRef: new("step-a"),
 	})
 	srB := testutil.MustCreateWorkflowStepRun(t, ctx, q, run.ID, stepB.ID, &testutil.WorkflowStepRunOpts{
 		Status:  stPtr(domain.StepRunning),
-		StepRef: stPtr("step-b"),
+		StepRef: new("step-b"),
 	})
 
 	// Concurrently complete both step runs.
@@ -548,13 +548,13 @@ func TestStepRunStatus_ConflictOnSameStepRun(t *testing.T) {
 
 	projectID := "proj-step-conflict-" + stID()
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: stPtr(projectID),
-		Name:      stPtr("wf-step-conflict"),
-		Slug:      stPtr("wf-step-conflict-" + stID()),
+		ProjectID: new(projectID),
+		Name:      new("wf-step-conflict"),
+		Slug:      new("wf-step-conflict-" + stID()),
 	})
 	step := stCreateStepWithJob(t, ctx, q, wf, projectID, nil)
 	run := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
-		ProjectID: stPtr(projectID),
+		ProjectID: new(projectID),
 	})
 	sr := testutil.MustCreateWorkflowStepRun(t, ctx, q, run.ID, step.ID, &testutil.WorkflowStepRunOpts{
 		Status: stPtr(domain.StepRunning),
@@ -614,13 +614,13 @@ func TestStepRunStatus_UpdateStepRunStatus_SetsFields(t *testing.T) {
 
 	projectID := "proj-step-fields-" + stID()
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: stPtr(projectID),
-		Name:      stPtr("wf-step-fields"),
-		Slug:      stPtr("wf-step-fields-" + stID()),
+		ProjectID: new(projectID),
+		Name:      new("wf-step-fields"),
+		Slug:      new("wf-step-fields-" + stID()),
 	})
 	step := stCreateStepWithJob(t, ctx, q, wf, projectID, nil)
 	run := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
-		ProjectID: stPtr(projectID),
+		ProjectID: new(projectID),
 	})
 	sr := testutil.MustCreateWorkflowStepRun(t, ctx, q, run.ID, step.ID, nil)
 
@@ -649,13 +649,13 @@ func TestStepRunStatus_RejectsDisallowedField(t *testing.T) {
 
 	projectID := "proj-step-bad-field-" + stID()
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
-		ProjectID: stPtr(projectID),
-		Name:      stPtr("wf-step-bad-field"),
-		Slug:      stPtr("wf-step-bad-" + stID()),
+		ProjectID: new(projectID),
+		Name:      new("wf-step-bad-field"),
+		Slug:      new("wf-step-bad-" + stID()),
 	})
 	step := stCreateStepWithJob(t, ctx, q, wf, projectID, nil)
 	run := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
-		ProjectID: stPtr(projectID),
+		ProjectID: new(projectID),
 	})
 	sr := testutil.MustCreateWorkflowStepRun(t, ctx, q, run.ID, step.ID, nil)
 
@@ -673,7 +673,7 @@ func TestStepRunStatus_RejectsDisallowedField(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // 3. Dequeue race conditions
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestDequeue_ConcurrentDequeuesNoDuplicates(t *testing.T) {
 	ctx := context.Background()
@@ -894,7 +894,7 @@ func TestDequeue_RespectsPriorityOrdering(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // 4. Audit event creation
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestAuditEvent_CreateAndList(t *testing.T) {
 	ctx := context.Background()

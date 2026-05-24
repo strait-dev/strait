@@ -16,8 +16,7 @@ test.describe("Signup", () => {
   test("duplicate email stays on signup page", async ({ page }) => {
     const email = process.env.E2E_USER_EMAIL;
     if (!email) {
-      test.skip();
-      return;
+      throw new Error("E2E_USER_EMAIL is required");
     }
 
     await page.goto("/signup");
@@ -58,7 +57,6 @@ test.describe("Signup", () => {
     await passInput.click();
     await passInput.fill("123");
     await passInput.blur();
-    await page.waitForTimeout(500);
     // Validation error text should appear (separate from the placeholder)
     const errorText = page.locator(
       "[data-slot='field-error'], .text-destructive"

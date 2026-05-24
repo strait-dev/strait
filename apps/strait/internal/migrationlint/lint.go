@@ -36,6 +36,7 @@ const (
 	RuleCluster                   Rule = "cluster"
 	RuleRenameColumn              Rule = "rename-column"
 	RuleRenameTable               Rule = "rename-table"
+	RuleUnpairedMigration         Rule = "unpaired-migration"
 )
 
 // Violation is a single lint finding.
@@ -172,6 +173,64 @@ func LintDir(dir string) ([]Violation, error) {
 		}
 		out = append(out, LintFile(path, content)...)
 	}
+	return out, nil
+}
+
+// LintPairs walks `dir` and returns one violation per orphaned migration:
+// any `.up.sql` lacking a matching `.down.sql` (or vice versa). Migrations
+// must always be added or removed as a pair so an operator can roll forward
+// and roll back symmetrically. Deleting a migration is allowed only when
+// both halves of the pair are removed in the same change.
+func LintPairs(dir string) ([]Violation, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("read dir %s: %w", dir, err)
+	}
+	ups := map[string]string{}
+	downs := map[string]string{}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		switch {
+		case strings.HasSuffix(name, ".up.sql"):
+			stem := strings.TrimSuffix(name, ".up.sql")
+			ups[stem] = name
+		case strings.HasSuffix(name, ".down.sql"):
+			stem := strings.TrimSuffix(name, ".down.sql")
+			downs[stem] = name
+		}
+	}
+	var out []Violation
+	for stem, upName := range ups {
+		if _, ok := downs[stem]; !ok {
+			out = append(out, Violation{
+				File:    filepath.Join(dir, upName),
+				Line:    1,
+				Rule:    RuleUnpairedMigration,
+				Message: fmt.Sprintf("migration %q has no matching .down.sql; every .up.sql must ship with a .down.sql so the migration can be rolled back", stem+".up.sql"),
+				Snippet: stem + ".up.sql",
+			})
+		}
+	}
+	for stem, downName := range downs {
+		if _, ok := ups[stem]; !ok {
+			out = append(out, Violation{
+				File:    filepath.Join(dir, downName),
+				Line:    1,
+				Rule:    RuleUnpairedMigration,
+				Message: fmt.Sprintf("migration %q has no matching .up.sql; orphan .down.sql files must be removed together with their .up.sql counterpart", stem+".down.sql"),
+				Snippet: stem + ".down.sql",
+			})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].File != out[j].File {
+			return out[i].File < out[j].File
+		}
+		return out[i].Snippet < out[j].Snippet
+	})
 	return out, nil
 }
 

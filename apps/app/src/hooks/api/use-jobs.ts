@@ -15,8 +15,13 @@ import type {
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { getPostHog } from "@/lib/analytics";
+import { apiPath } from "@/lib/api-client.server";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
+import {
+  requireActiveProjectAccess,
+  requireActiveProjectAdmin,
+} from "@/middlewares/require-access";
 
 export const fetchJobs = createServerFn({ method: "GET" })
   .inputValidator(
@@ -25,8 +30,9 @@ export const fetchJobs = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(
     // @ts-expect-error tsgo cannot resolve createServerFn handler generics
-    async ({ data }): Promise<PaginatedResponse<Job>> =>
-      await runWithSentryReport(
+    async ({ context, data }): Promise<PaginatedResponse<Job>> => {
+      await requireActiveProjectAccess(context);
+      return await runWithSentryReport(
         apiEffect<PaginatedResponse<Job>>("/v1/jobs", {
           params: {
             limit: data.limit,
@@ -35,7 +41,8 @@ export const fetchJobs = createServerFn({ method: "GET" })
             search: data.search,
           },
         })
-      )
+      );
+    }
   );
 
 export const fetchJob = createServerFn({ method: "GET" })
@@ -43,8 +50,12 @@ export const fetchJob = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(
     // @ts-expect-error tsgo cannot resolve createServerFn handler generics
-    async ({ data }): Promise<Job> =>
-      await runWithSentryReport(apiEffect<Job>(`/v1/jobs/${data.id}`))
+    async ({ context, data }): Promise<Job> => {
+      await requireActiveProjectAccess(context);
+      return await runWithSentryReport(
+        apiEffect<Job>(apiPath`/v1/jobs/${data.id}`)
+      );
+    }
   );
 
 export const triggerJobFn = createServerFn({ method: "POST" })
@@ -54,13 +65,15 @@ export const triggerJobFn = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(
     // @ts-expect-error tsgo cannot resolve createServerFn handler generics
-    async ({ data }): Promise<JobRun> =>
-      await runWithSentryReport(
-        apiEffect<JobRun>(`/v1/jobs/${data.id}/trigger`, {
+    async ({ context, data }): Promise<JobRun> => {
+      await requireActiveProjectAdmin(context);
+      return await runWithSentryReport(
+        apiEffect<JobRun>(apiPath`/v1/jobs/${data.id}/trigger`, {
           method: "POST",
           body: { payload: data.payload, priority: data.priority },
         })
-      )
+      );
+    }
   );
 
 export const updateJobFn = createServerFn({ method: "POST" })
@@ -68,10 +81,11 @@ export const updateJobFn = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(
     // @ts-expect-error tsgo cannot resolve createServerFn handler generics
-    async ({ data }): Promise<Job> => {
+    async ({ context, data }): Promise<Job> => {
+      await requireActiveProjectAdmin(context);
       const { id, ...body } = data;
       return await runWithSentryReport(
-        apiEffect<Job>(`/v1/jobs/${id}`, { method: "PATCH", body })
+        apiEffect<Job>(apiPath`/v1/jobs/${id}`, { method: "PATCH", body })
       );
     }
   );
@@ -79,37 +93,39 @@ export const updateJobFn = createServerFn({ method: "POST" })
 export const fetchJobHealth = createServerFn({ method: "GET" })
   .inputValidator((data: { id: string; window?: string }) => data)
   .middleware([authMiddleware])
-  .handler(
-    async ({ data }): Promise<JobHealthResponse> =>
-      await runWithSentryReport(
-        apiEffect<JobHealthResponse>(`/v1/jobs/${data.id}/health`, {
-          params: { window: data.window },
-        })
-      )
-  );
+  .handler(async ({ context, data }): Promise<JobHealthResponse> => {
+    await requireActiveProjectAccess(context);
+    return await runWithSentryReport(
+      apiEffect<JobHealthResponse>(apiPath`/v1/jobs/${data.id}/health`, {
+        params: { window: data.window },
+      })
+    );
+  });
 
 export const deleteJobFn = createServerFn({ method: "POST" })
   .inputValidator((data: { id: string }) => data)
   .middleware([authMiddleware])
-  .handler(
-    async ({ data }): Promise<void> =>
-      await runWithSentryReport(
-        apiEffect<void>(`/v1/jobs/${data.id}`, { method: "DELETE" })
-      )
-  );
+  .handler(async ({ context, data }): Promise<void> => {
+    await requireActiveProjectAdmin(context);
+    return await runWithSentryReport(
+      apiEffect<void>(apiPath`/v1/jobs/${data.id}`, { method: "DELETE" })
+    );
+  });
 
 export const pauseJobFn = createServerFn({ method: "POST" })
   .inputValidator((data: { id: string; reason?: string }) => data)
   .middleware([authMiddleware])
   .handler(
     // @ts-expect-error tsgo cannot resolve createServerFn handler generics
-    async ({ data }): Promise<Job> =>
-      await runWithSentryReport(
-        apiEffect<Job>(`/v1/jobs/${data.id}/pause`, {
+    async ({ context, data }): Promise<Job> => {
+      await requireActiveProjectAdmin(context);
+      return await runWithSentryReport(
+        apiEffect<Job>(apiPath`/v1/jobs/${data.id}/pause`, {
           method: "POST",
           body: { reason: data.reason },
         })
-      )
+      );
+    }
   );
 
 export const resumeJobFn = createServerFn({ method: "POST" })
@@ -117,10 +133,12 @@ export const resumeJobFn = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(
     // @ts-expect-error tsgo cannot resolve createServerFn handler generics
-    async ({ data }): Promise<Job> =>
-      await runWithSentryReport(
-        apiEffect<Job>(`/v1/jobs/${data.id}/resume`, { method: "POST" })
-      )
+    async ({ context, data }): Promise<Job> => {
+      await requireActiveProjectAdmin(context);
+      return await runWithSentryReport(
+        apiEffect<Job>(apiPath`/v1/jobs/${data.id}/resume`, { method: "POST" })
+      );
+    }
   );
 
 type ListJobsInput = ListParams & { status?: string; search?: string };

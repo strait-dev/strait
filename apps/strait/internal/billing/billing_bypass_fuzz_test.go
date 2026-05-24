@@ -2,7 +2,6 @@ package billing
 
 import (
 	"context"
-	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -15,44 +14,6 @@ import (
 // ============================================================.
 // Fuzz tests: exercise thousands of inputs for panic/crash safety
 // ============================================================.
-
-func FuzzCronRunsPerDay(f *testing.F) {
-	f.Add("* * * * *")
-	f.Add("0 * * * *")
-	f.Add("0 0 * * *")
-	f.Add("*/5 * * * *")
-	f.Add("")
-	f.Add("invalid")
-	f.Add("0 0 30 2 *") // Feb 30 doesn't exist
-	f.Add("@hourly")
-
-	f.Fuzz(func(t *testing.T, expr string) {
-		result, err := CronRunsPerDay(expr)
-		if err == nil && result < 0 {
-			t.Errorf("CronRunsPerDay(%q) = %f, want >= 0", expr, result)
-		}
-	})
-}
-
-func FuzzEstimateWhatIf(f *testing.F) {
-	f.Add("micro", 60, "0 * * * *", 1)
-	f.Add("micro", 1, "", 1)
-	f.Add("large", 3600, "*/5 * * * *", 10)
-	f.Add("", 0, "", 0)
-	f.Add("nonexistent", -1, "bad cron", -5)
-
-	f.Fuzz(func(t *testing.T, preset string, timeout int, cron string, count int) {
-		result, err := EstimateWhatIf(preset, timeout, cron, count)
-		if err == nil && result != nil {
-			if result.MonthlyCostUsd < 0 {
-				t.Errorf("MonthlyCostUsd = %f, want >= 0", result.MonthlyCostUsd)
-			}
-			if result.RunsPerDay < 0 {
-				t.Errorf("RunsPerDay = %f, want >= 0", result.RunsPerDay)
-			}
-		}
-	})
-}
 
 func FuzzStddev(f *testing.F) {
 	f.Add([]byte{})
@@ -150,9 +111,9 @@ func TestBypass_AllPlansHaveBoundedLimits(t *testing.T) {
 			t.Errorf("plan %q has empty DisplayName", tier)
 		}
 
-		// Retention must be positive.
-		if limits.RetentionDays <= 0 {
-			t.Errorf("plan %q has non-positive RetentionDays: %d", tier, limits.RetentionDays)
+		// Retention must be positive or -1 (unlimited).
+		if limits.RetentionDays == 0 || limits.RetentionDays < -1 {
+			t.Errorf("plan %q has invalid RetentionDays: %d", tier, limits.RetentionDays)
 		}
 	}
 }
@@ -199,7 +160,8 @@ func TestBypass_RequiredPlanNeverReturnsLowerTier(t *testing.T) {
 		domain.PlanStarter:    1,
 		domain.PlanPro:        2,
 		domain.PlanScale:      3,
-		domain.PlanEnterprise: 4,
+		domain.PlanBusiness:   4,
+		domain.PlanEnterprise: 5,
 	}
 
 	for _, f := range features {
@@ -223,13 +185,15 @@ func TestBypass_FreeTierCannotAccessPaidFeatures(t *testing.T) {
 	t.Parallel()
 	reg := NewStaticRegistry()
 
+	// HTTP mode is available on all tiers; only features that are genuinely
+	// paid-tier-gated are listed here.
 	paidFeatures := []Feature{
-		FeatureHTTPMode, FeatureApprovalGates, FeatureSubWorkflows,
+		FeatureApprovalGates, FeatureSubWorkflows,
 		FeatureJobChaining, FeatureCompensatingTxns, FeatureCanaryDeployments,
 		FeatureAuditLogs, FeatureSSO, FeatureSLA,
 		FeatureDedicatedCompute, FeatureStaticIPs, FeatureVPCPeering,
 		FeatureSCIM, FeatureDataResidency, FeatureCustomRBAC,
-		FeatureReservedCapacity, FeaturePriorityQueue, FeatureIPAllowlisting,
+		FeaturePriorityQueue, FeatureIPAllowlisting,
 		FeatureSessionManagement, FeatureSecretRotation, FeatureSIEMExport,
 	}
 
@@ -250,7 +214,7 @@ func TestBypass_EnterpriseHasAllFeatures(t *testing.T) {
 		FeatureAuditLogs, FeatureSSO, FeatureSLA, FeatureRBAC,
 		FeatureDedicatedCompute, FeatureStaticIPs, FeatureVPCPeering,
 		FeatureSCIM, FeatureDataResidency, FeatureCustomRBAC,
-		FeatureReservedCapacity, FeaturePriorityQueue, FeatureIPAllowlisting,
+		FeaturePriorityQueue, FeatureIPAllowlisting,
 		FeatureSessionManagement, FeatureSecretRotation, FeatureSIEMExport,
 		FeatureAllCronOverlap, FeatureAIAssistantBYOK,
 	}
@@ -281,15 +245,10 @@ func TestBypass_DowngradeAlwaysLosesFeatures(t *testing.T) {
 func TestBypass_SpendingLimitCannotGoNegative(t *testing.T) {
 	t.Parallel()
 
-	limits := GetPlanLimits(domain.PlanFree)
-	if limits.ComputeCreditMicrousd < 0 {
-		t.Errorf("Free plan has negative credit: %d", limits.ComputeCreditMicrousd)
-	}
-
 	for _, tier := range domain.AllPlanTiers() {
 		l := GetPlanLimits(tier)
-		if l.OveragePerKRunsMicrousd < 0 {
-			t.Errorf("plan %q has negative overage rate: %d", tier, l.OveragePerKRunsMicrousd)
+		if l.OveragePerKMicrousd < 0 {
+			t.Errorf("plan %q has negative overage rate: %d", tier, l.OveragePerKMicrousd)
 		}
 	}
 }
@@ -360,58 +319,6 @@ func TestBypass_PlanLimitsImmutable(t *testing.T) {
 	}
 	if reread.RetentionDays != origRetention {
 		t.Error("plan RetentionDays was mutated via returned struct")
-	}
-}
-
-// ============================================================.
-// Adversarial: CronRunsPerDay edge cases
-// ============================================================.
-
-func TestCronRunsPerDay_KnownValues(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		expr string
-		want float64
-	}{
-		{"* * * * *", 1440},
-		{"0 * * * *", 24},
-		{"0 0 * * *", 1},
-		{"*/5 * * * *", 288},
-		{"*/15 * * * *", 96},
-		{"0 0 * * 1", 1}, // only Mondays -- ref window is Monday
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.expr, func(t *testing.T) {
-			t.Parallel()
-			got, err := CronRunsPerDay(tt.expr)
-			if err != nil {
-				t.Fatalf("CronRunsPerDay(%q) error: %v", tt.expr, err)
-			}
-			if got != tt.want {
-				t.Errorf("CronRunsPerDay(%q) = %f, want %f", tt.expr, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestCronRunsPerDay_EmptyReturnsZero(t *testing.T) {
-	t.Parallel()
-	got, err := CronRunsPerDay("")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != 0 {
-		t.Errorf("CronRunsPerDay('') = %f, want 0", got)
-	}
-}
-
-func TestCronRunsPerDay_InvalidReturnsError(t *testing.T) {
-	t.Parallel()
-	_, err := CronRunsPerDay("not a cron expression")
-	if err == nil {
-		t.Error("expected error for invalid cron expression")
 	}
 }
 
@@ -526,10 +433,10 @@ func TestBypass_PricingMonotonicallyIncreases(t *testing.T) {
 		prev := GetPlanLimits(paidTiers[i-1])
 		curr := GetPlanLimits(paidTiers[i])
 
-		if curr.ComputeCreditMicrousd < prev.ComputeCreditMicrousd {
-			t.Errorf("plan %q credit (%d) < plan %q credit (%d)",
-				paidTiers[i], curr.ComputeCreditMicrousd,
-				paidTiers[i-1], prev.ComputeCreditMicrousd)
+		if curr.PriceMonthlyUsd < prev.PriceMonthlyUsd {
+			t.Errorf("plan %q price (%d) < plan %q price (%d)",
+				paidTiers[i], curr.PriceMonthlyUsd,
+				paidTiers[i-1], prev.PriceMonthlyUsd)
 		}
 	}
 }
@@ -537,10 +444,10 @@ func TestBypass_PricingMonotonicallyIncreases(t *testing.T) {
 func TestBypass_AllPlanTiersInAllPlanTiersSlice(t *testing.T) {
 	t.Parallel()
 
-	// Verify AllPlanTiers() includes all 5 tiers.
+	// Verify AllPlanTiers() includes all 6 tiers.
 	tiers := domain.AllPlanTiers()
-	if len(tiers) != 5 {
-		t.Fatalf("AllPlanTiers() returned %d tiers, want 5", len(tiers))
+	if len(tiers) != 6 {
+		t.Fatalf("AllPlanTiers() returned %d tiers, want 6", len(tiers))
 	}
 
 	expected := map[domain.PlanTier]bool{
@@ -548,6 +455,7 @@ func TestBypass_AllPlanTiersInAllPlanTiersSlice(t *testing.T) {
 		domain.PlanStarter:    false,
 		domain.PlanPro:        false,
 		domain.PlanScale:      false,
+		domain.PlanBusiness:   false,
 		domain.PlanEnterprise: false,
 	}
 	for _, tier := range tiers {
@@ -596,8 +504,9 @@ func TestBypass_UnknownTierGetsFreeEnforcement(t *testing.T) {
 	if limits.MaxProjectsPerOrg != freeLimits.MaxProjectsPerOrg {
 		t.Errorf("unknown tier projects=%d, free=%d", limits.MaxProjectsPerOrg, freeLimits.MaxProjectsPerOrg)
 	}
-	if limits.AllowsHTTPMode {
-		t.Error("unknown tier should not allow HTTP mode")
+	// HTTP mode is available on all tiers including free (the fallback).
+	if !limits.AllowsHTTPMode {
+		t.Error("unknown tier (falls back to free) should allow HTTP mode")
 	}
 	if limits.HasAuditLogs {
 		t.Error("unknown tier should not have audit logs")
@@ -633,53 +542,4 @@ func TestBypass_SQLInjectionInTier(t *testing.T) {
 	if limits.PlanTier != domain.PlanFree {
 		t.Errorf("SQL injection tier should fall back to free, got %q", limits.PlanTier)
 	}
-}
-
-// ============================================================.
-// Adversarial: WhatIf calculator edge cases
-// ============================================================.
-
-func TestWhatIf_ZeroTimeout(t *testing.T) {
-	t.Parallel()
-	_, err := EstimateWhatIf("micro", 0, "", 1)
-	// Zero timeout should still work (estimate 0 cost)
-	if err != nil {
-		t.Logf("zero timeout returned error (acceptable): %v", err)
-	}
-}
-
-func TestWhatIf_NegativeCount(t *testing.T) {
-	t.Parallel()
-	result, err := EstimateWhatIf("micro", 60, "", -5)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Negative count should be clamped to 1.
-	if result.RunsPerDay < 0 {
-		t.Errorf("negative count produced negative runs: %f", result.RunsPerDay)
-	}
-}
-
-func TestWhatIf_MaxTimeout(t *testing.T) {
-	t.Parallel()
-	result, err := EstimateWhatIf("micro", math.MaxInt32, "", 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.MonthlyCostUsd < 0 {
-		t.Errorf("max timeout produced negative cost: %f", result.MonthlyCostUsd)
-	}
-}
-
-func TestWhatIf_VeryHighFrequency(t *testing.T) {
-	t.Parallel()
-	result, err := EstimateWhatIf("micro", 10, "* * * * *", 100)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// 1440 runs/day * 100 = 144000 runs/day
-	if result.RunsPerDay < 100000 {
-		t.Errorf("expected high runs/day for every-minute * 100, got %f", result.RunsPerDay)
-	}
-	fmt.Printf("high-frequency what-if: %f/day, $%.2f/month\n", result.RunsPerDay, result.MonthlyCostUsd)
 }

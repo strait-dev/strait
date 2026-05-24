@@ -47,6 +47,27 @@ func WithScalePrices(monthlyID, yearlyID string) StripeMappingOption {
 	}
 }
 
+// WithBusinessPrices registers Business plan Price IDs.
+func WithBusinessPrices(monthlyID, yearlyID string) StripeMappingOption {
+	return func(m *StripeMapping) {
+		if monthlyID != "" {
+			m.priceToTier[monthlyID] = domain.PlanBusiness
+		}
+		if yearlyID != "" {
+			m.priceToTier[yearlyID] = domain.PlanBusiness
+		}
+	}
+}
+
+// WithBusinessFlatPrice registers the orchestration-only Business flat price ID.
+func WithBusinessFlatPrice(priceID string) StripeMappingOption {
+	return func(m *StripeMapping) {
+		if priceID != "" {
+			m.priceToTier[priceID] = domain.PlanBusiness
+		}
+	}
+}
+
 // WithEnterpriseStarterPrice registers the Enterprise Starter plan yearly Price ID.
 func WithEnterpriseStarterPrice(yearlyID string) StripeMappingOption {
 	return func(m *StripeMapping) {
@@ -100,8 +121,9 @@ func NewStripeMappingFromOptions(opts ...StripeMappingOption) *StripeMapping {
 }
 
 // NewStripeMapping creates a mapping from Stripe Price IDs to plan tiers
-// using the provided env var values. Supports Starter and Pro.
-// Use NewStripeMappingFromOptions for Scale support.
+// using the provided env var values. Registers only Starter and Pro;
+// use NewStripeMappingFromOptions with WithScalePrices, WithBusinessPrices,
+// and WithEnterprise*Price for higher tiers.
 func NewStripeMapping(
 	starterMonthlyID, starterYearlyID string,
 	proMonthlyID, proYearlyID string,
@@ -110,6 +132,42 @@ func NewStripeMapping(
 		WithStarterPrices(starterMonthlyID, starterYearlyID),
 		WithProPrices(proMonthlyID, proYearlyID),
 	)
+}
+
+// WithStarterFlatPrice registers the orchestration-only Starter flat price ID.
+func WithStarterFlatPrice(priceID string) StripeMappingOption {
+	return func(m *StripeMapping) {
+		if priceID != "" {
+			m.priceToTier[priceID] = domain.PlanStarter
+		}
+	}
+}
+
+// WithProFlatPrice registers the orchestration-only Pro flat price ID.
+func WithProFlatPrice(priceID string) StripeMappingOption {
+	return func(m *StripeMapping) {
+		if priceID != "" {
+			m.priceToTier[priceID] = domain.PlanPro
+		}
+	}
+}
+
+// WithScaleFlatPrice registers the orchestration-only Scale flat price ID.
+func WithScaleFlatPrice(priceID string) StripeMappingOption {
+	return func(m *StripeMapping) {
+		if priceID != "" {
+			m.priceToTier[priceID] = domain.PlanScale
+		}
+	}
+}
+
+// WithEnterpriseFlatPrice registers the orchestration-only Enterprise flat price ID.
+func WithEnterpriseFlatPrice(priceID string) StripeMappingOption {
+	return func(m *StripeMapping) {
+		if priceID != "" {
+			m.priceToTier[priceID] = domain.PlanEnterprise
+		}
+	}
 }
 
 // TierForPrice returns the plan tier for a Stripe Price ID.

@@ -2,8 +2,6 @@ package scheduler
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"math"
 	"testing"
 	"time"
@@ -11,40 +9,11 @@ import (
 
 	"strait/internal/billing"
 	"strait/internal/domain"
-	"strait/internal/store"
 )
 
 // Section separator.
 // Fuzz tests: verify no panics or NaN/Inf results with random inputs.
 // Section separator.
-
-func FuzzBudgetMonitor_CheckBudgets(f *testing.F) {
-	f.Add("org-1", "proj-1", int64(100_000), int64(80_000), "UTC")
-	f.Add("", "", int64(0), int64(0), "")
-	f.Add("org'; DROP TABLE--", "proj-sql", int64(1), int64(1), "America/New_York")
-	f.Add("org-unicode-\u00e9\u00e8\u00ea", "proj-\u4e16\u754c", int64(math.MaxInt64), int64(math.MaxInt64), "Asia/Tokyo")
-	f.Add("org-neg", "proj-neg", int64(-1), int64(-1), "")
-	f.Add("org-zero", "proj-zero", int64(0), int64(100_000), "UTC")
-
-	f.Fuzz(func(t *testing.T, orgID, projectID string, limit, spend int64, tz string) {
-		enqueuer := &mockEnqueuer{}
-		s := &mockBudgetStore{
-			listProjectsFn: func(context.Context) ([]store.ProjectComputeQuota, error) {
-				return []store.ProjectComputeQuota{
-					{ProjectID: projectID, Timezone: tz, ComputeDailyCostLimitMicrousd: limit},
-				}, nil
-			},
-			sumDailyCostFn: func(_ context.Context, _ string, _ string) (int64, error) {
-				return spend, nil
-			},
-		}
-
-		bm := NewBudgetMonitor(s, enqueuer, time.Minute)
-		// Must not panic.
-		bm.check(context.Background())
-		_ = orgID // used as seed dimension
-	})
-}
 
 func FuzzSLOEvaluator_ErrorBudget(f *testing.F) {
 	f.Add(0.99, 0.999, "success_rate")
@@ -168,35 +137,6 @@ func FuzzUsageReportEmailer_HTML(f *testing.F) {
 	})
 }
 
-func FuzzBudgetWebhookPayload(f *testing.F) {
-	f.Add("proj-1", int64(80_000), int64(100_000), 80)
-	f.Add("", int64(0), int64(0), 0)
-	f.Add("proj'; DROP TABLE--", int64(-1), int64(-1), -1)
-	f.Add("\u4e16\u754c", int64(math.MaxInt64), int64(math.MaxInt64), 100)
-
-	f.Fuzz(func(t *testing.T, projectID string, dailyCost, limitMicrousd int64, thresholdPct int) {
-		// Construct the payload map exactly as the budget monitor does.
-		payload, err := json.Marshal(map[string]any{
-			"event":               domain.WebhookEventComputeBudgetWarning,
-			"project_id":          projectID,
-			"daily_cost_microusd": dailyCost,
-			"limit_microusd":      limitMicrousd,
-			"threshold_pct":       thresholdPct,
-			"timestamp":           time.Now().UTC(),
-		})
-		// Must not panic. Marshaling should always succeed for these types.
-		if err != nil {
-			t.Fatalf("json.Marshal failed: %v", err)
-		}
-
-		// Verify it round-trips.
-		var decoded map[string]any
-		if err := json.Unmarshal(payload, &decoded); err != nil {
-			t.Fatalf("json.Unmarshal failed: %v", err)
-		}
-	})
-}
-
 func FuzzStaleSubscription_DateComparison(f *testing.F) {
 	f.Add(int64(0))
 	f.Add(time.Now().Unix())
@@ -232,9 +172,3 @@ func FuzzStaleSubscription_DateComparison(f *testing.F) {
 		checker.check(context.Background())
 	})
 }
-
-// Ensure imports are used.
-var (
-	_ = fmt.Sprintf
-	_ = store.ProjectComputeQuota{}
-)

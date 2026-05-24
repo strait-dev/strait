@@ -46,9 +46,15 @@ func (s *serverHeaderStripper) WriteHeader(code int) {
 	s.ResponseWriter.WriteHeader(code)
 }
 
+func (s *serverHeaderStripper) Write(b []byte) (int, error) {
+	s.Header().Del("Server")
+	return s.ResponseWriter.Write(b)
+}
+
 // Flush delegates to the underlying ResponseWriter if it supports http.Flusher.
 // This is required for SSE streaming to work correctly.
 func (s *serverHeaderStripper) Flush() {
+	s.Header().Del("Server")
 	if f, ok := s.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}

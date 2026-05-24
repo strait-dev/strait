@@ -291,6 +291,75 @@ func TestTenantIsolation_CompareWorkflowRuns_CrossProject_RunB(t *testing.T) {
 	}
 }
 
+func TestTenantIsolation_CompareWorkflowRuns_ResourceScopedUserRequiresOtherRun(t *testing.T) {
+	t.Parallel()
+
+	ms := newWorkflowIsolationStore()
+	ms.GetUserPermissionsFunc = func(context.Context, string, string) ([]string, error) {
+		return nil, nil
+	}
+	ms.GetResourcePoliciesFunc = func(_ context.Context, projectID, resourceType, resourceID, userID string) ([]string, error) {
+		if projectID != projectA || resourceType != "workflow_run" || userID != "user-1" {
+			t.Fatalf("unexpected resource policy lookup: project=%q type=%q id=%q user=%q", projectID, resourceType, resourceID, userID)
+		}
+		if resourceID == "wfr-a" {
+			return []string{domain.ScopeRunsRead}, nil
+		}
+		return nil, nil
+	}
+	ms.ListStepRunsByWorkflowRunFunc = func(context.Context, string, int, *time.Time) ([]domain.WorkflowStepRun, error) {
+		t.Fatal("ListStepRunsByWorkflowRun must not run when otherRunID lacks resource access")
+		return nil, nil
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, projectA)
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "user-1")
+
+	_, err := srv.handleCompareWorkflowRuns(ctx, &CompareWorkflowRunsInput{
+		WorkflowRunID: "wfr-a",
+		OtherRunID:    "wfr-a2",
+	})
+	if !isHumaStatusError(err, http.StatusForbidden) {
+		t.Fatalf("expected 403 when user has only first run resource policy, got %v", err)
+	}
+}
+
+func TestTenantIsolation_CompareWorkflowRuns_ResourceScopedUserWithBothRunsAllowed(t *testing.T) {
+	t.Parallel()
+
+	ms := newWorkflowIsolationStore()
+	ms.GetUserPermissionsFunc = func(context.Context, string, string) ([]string, error) {
+		return nil, nil
+	}
+	ms.GetResourcePoliciesFunc = func(_ context.Context, projectID, resourceType, resourceID, userID string) ([]string, error) {
+		if projectID != projectA || resourceType != "workflow_run" || userID != "user-1" {
+			t.Fatalf("unexpected resource policy lookup: project=%q type=%q id=%q user=%q", projectID, resourceType, resourceID, userID)
+		}
+		switch resourceID {
+		case "wfr-a", "wfr-a2":
+			return []string{domain.ScopeRunsRead}, nil
+		default:
+			return nil, nil
+		}
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, projectA)
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "user-1")
+
+	out, err := srv.handleCompareWorkflowRuns(ctx, &CompareWorkflowRunsInput{
+		WorkflowRunID: "wfr-a",
+		OtherRunID:    "wfr-a2",
+	})
+	if err != nil {
+		t.Fatalf("handleCompareWorkflowRuns: %v", err)
+	}
+	if out == nil || out.Body == nil {
+		t.Fatal("expected comparison output")
+	}
+}
+
 // B4: Simulate workflow.
 
 func TestTenantIsolation_SimulateWorkflow_OwnProject(t *testing.T) {

@@ -9,11 +9,13 @@ import (
 	"log/slog"
 	"maps"
 	"slices"
+	"strconv"
 	"time"
 
 	"strait/internal/domain"
 	"strait/internal/queue"
 	"strait/internal/store"
+	"strait/internal/telemetry"
 
 	"go.opentelemetry.io/otel"
 )
@@ -27,12 +29,23 @@ func (e *WorkflowEngine) startStep(
 ) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "workflow.startStep")
 	defer span.End()
+	telemetry.AddSentryBreadcrumb(ctx, "workflow.step", "workflow step starting", map[string]any{
+		"workflow_id":      wfRun.WorkflowID,
+		"workflow_run_id":  wfRun.ID,
+		"workflow_step_id": step.ID,
+		"step_run_id":      stepRun.ID,
+		"step_ref":         step.StepRef,
+		"step_type":        string(step.StepType),
+		"project_id":       wfRun.ProjectID,
+		"job_id":           step.JobID,
+	})
 
 	now := time.Now()
 	if step.StepType == domain.WorkflowStepTypeApproval {
 		if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepWaiting, map[string]any{"started_at": now}); err != nil {
 			return fmt.Errorf("set approval step waiting: %w", err)
 		}
+		recordWorkflowStepTransition(ctx, string(stepRun.Status), string(domain.StepWaiting))
 
 		approval := &domain.WorkflowStepApproval{
 			ID:                fmt.Sprintf("approval:%s", stepRun.ID),
@@ -56,6 +69,9 @@ func (e *WorkflowEngine) startStep(
 		if timeoutSecs <= 0 {
 			timeoutSecs = domain.DefaultEventTimeoutSecs
 		}
+		if timeoutSecs > domain.MaxEventTimeoutSecs {
+			timeoutSecs = domain.MaxEventTimeoutSecs
+		}
 		expiresAt := now.Add(time.Duration(timeoutSecs) * time.Second)
 		trigger := &domain.EventTrigger{
 			ID:                fmt.Sprintf("evt:approval:%s", stepRun.ID),
@@ -75,6 +91,13 @@ func (e *WorkflowEngine) startStep(
 
 		stepRun.Status = domain.StepWaiting
 		stepRun.StartedAt = &now
+		telemetry.AddSentryBreadcrumb(ctx, "workflow.step", "workflow step waiting", map[string]any{
+			"workflow_run_id": wfRun.ID,
+			"step_run_id":     stepRun.ID,
+			"step_ref":        step.StepRef,
+			"step_type":       string(step.StepType),
+			"project_id":      wfRun.ProjectID,
+		})
 
 		e.enqueueApprovalNotifications(ctx, wfRun.ProjectID, approval, stepRun, wfRun)
 		return nil
@@ -100,10 +123,14 @@ func (e *WorkflowEngine) startStep(
 			if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepWaiting, map[string]any{"started_at": now}); err != nil {
 				return fmt.Errorf("set cost gate step waiting: %w", err)
 			}
+			recordWorkflowStepTransition(ctx, string(stepRun.Status), string(domain.StepWaiting))
 
 			timeoutSecs := step.CostGateTimeoutSecs
 			if timeoutSecs <= 0 {
 				timeoutSecs = domain.DefaultEventTimeoutSecs
+			}
+			if timeoutSecs > domain.MaxEventTimeoutSecs {
+				timeoutSecs = domain.MaxEventTimeoutSecs
 			}
 			expiresAt := now.Add(time.Duration(timeoutSecs) * time.Second)
 
@@ -122,6 +149,13 @@ func (e *WorkflowEngine) startStep(
 
 			stepRun.Status = domain.StepWaiting
 			stepRun.StartedAt = &now
+			telemetry.AddSentryBreadcrumb(ctx, "workflow.step", "workflow step waiting", map[string]any{
+				"workflow_run_id": wfRun.ID,
+				"step_run_id":     stepRun.ID,
+				"step_ref":        step.StepRef,
+				"step_type":       string(step.StepType),
+				"project_id":      wfRun.ProjectID,
+			})
 
 			e.enqueueApprovalNotifications(ctx, wfRun.ProjectID, approval, stepRun, wfRun)
 
@@ -157,10 +191,10 @@ func (e *WorkflowEngine) startStep(
 			jobRun.Metadata = make(map[string]string, 2)
 		}
 		if tp, ok := wfRun.TraceContext["traceparent"]; ok {
-			jobRun.Metadata["_trace_parent"] = tp
+			jobRun.Metadata[domain.RunMetadataTraceParent] = tp
 		}
 		if ts, ok := wfRun.TraceContext["tracestate"]; ok {
-			jobRun.Metadata["_trace_state"] = ts
+			jobRun.Metadata[domain.RunMetadataTraceState] = ts
 		}
 	}
 	if err := queue.EnqueueWithRetry(ctx, e.queue, jobRun, queue.DefaultInternalEnqueueRetryConfig()); err != nil {
@@ -171,11 +205,26 @@ func (e *WorkflowEngine) startStep(
 		"started_at": now,
 		"job_run_id": jobRun.ID,
 	}); err != nil {
-		return fmt.Errorf("set step run running: %w", err)
+		e.logger.Error("step run status update failed after job enqueued",
+			"step_run_id", stepRun.ID,
+			"job_run_id", jobRun.ID,
+			"step_ref", step.StepRef,
+			"error", err,
+		)
+		return fmt.Errorf("set step run running (job %s already enqueued): %w", jobRun.ID, err)
 	}
+	recordWorkflowStepTransition(ctx, string(stepRun.Status), string(domain.StepRunning))
 	stepRun.Status = domain.StepRunning
 	stepRun.StartedAt = &now
 	stepRun.JobRunID = jobRun.ID
+	telemetry.AddSentryBreadcrumb(ctx, "workflow.step", "workflow step enqueued", map[string]any{
+		"workflow_run_id": wfRun.ID,
+		"step_run_id":     stepRun.ID,
+		"step_ref":        step.StepRef,
+		"project_id":      wfRun.ProjectID,
+		"job_id":          step.JobID,
+		"job_run_id":      jobRun.ID,
+	})
 
 	return nil
 }
@@ -204,8 +253,17 @@ func (e *WorkflowEngine) startSubWorkflowStep(
 	if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepRunning, map[string]any{"started_at": now}); err != nil {
 		return fmt.Errorf("set sub-workflow step running: %w", err)
 	}
+	recordWorkflowStepTransition(ctx, string(stepRun.Status), string(domain.StepRunning))
 	stepRun.Status = domain.StepRunning
 	stepRun.StartedAt = &now
+	telemetry.AddSentryBreadcrumb(ctx, "workflow.step", "workflow subworkflow step running", map[string]any{
+		"workflow_run_id":   wfRun.ID,
+		"step_run_id":       stepRun.ID,
+		"step_ref":          step.StepRef,
+		"project_id":        wfRun.ProjectID,
+		"sub_workflow_id":   step.SubWorkflowID,
+		"max_nesting_depth": maxDepth,
+	})
 
 	renderedStepPayload := renderTemplateVars(step.Payload, wfRun.Payload)
 	payload := mergePayloads(wfRun.Payload, renderedStepPayload, mergedPayload)
@@ -222,6 +280,14 @@ func (e *WorkflowEngine) startSubWorkflowStep(
 		"sub_workflow_id", step.SubWorkflowID,
 		"nesting_depth", currentDepth+1,
 	)
+	telemetry.AddSentryBreadcrumb(ctx, "workflow.state", "subworkflow triggered", map[string]any{
+		"parent_workflow_run_id": wfRun.ID,
+		"child_workflow_run_id":  childRun.ID,
+		"step_run_id":            stepRun.ID,
+		"step_ref":               step.StepRef,
+		"project_id":             wfRun.ProjectID,
+		"nesting_depth":          currentDepth + 1,
+	})
 
 	return nil
 }
@@ -254,6 +320,9 @@ func (e *WorkflowEngine) startWaitForEventStep(
 	if timeoutSecs <= 0 {
 		timeoutSecs = domain.DefaultEventTimeoutSecs
 	}
+	if timeoutSecs > domain.MaxEventTimeoutSecs {
+		timeoutSecs = domain.MaxEventTimeoutSecs
+	}
 	expiresAt := now.Add(time.Duration(timeoutSecs) * time.Second)
 
 	trigger := &domain.EventTrigger{
@@ -283,6 +352,7 @@ func (e *WorkflowEngine) startWaitForEventStep(
 	if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepWaiting, map[string]any{"started_at": now}); err != nil {
 		return fmt.Errorf("set wait_for_event step waiting: %w", err)
 	}
+	recordWorkflowStepTransition(ctx, string(stepRun.Status), string(domain.StepWaiting))
 
 	if e.onTriggerCreate != nil {
 		e.onTriggerCreate(trigger)
@@ -290,6 +360,15 @@ func (e *WorkflowEngine) startWaitForEventStep(
 
 	stepRun.Status = domain.StepWaiting
 	stepRun.StartedAt = &now
+	telemetry.AddSentryBreadcrumb(ctx, "workflow.step", "workflow step waiting", map[string]any{
+		"workflow_run_id": wfRun.ID,
+		"step_run_id":     stepRun.ID,
+		"step_ref":        step.StepRef,
+		"step_type":       string(step.StepType),
+		"project_id":      wfRun.ProjectID,
+		"timeout_secs":    timeoutSecs,
+		"expires_at":      expiresAt.Format(time.RFC3339),
+	})
 
 	e.logger.Info("wait_for_event step started",
 		"workflow_run_id", wfRun.ID,
@@ -312,7 +391,10 @@ func (e *WorkflowEngine) startSleepStep(
 ) error {
 	durationSecs := step.SleepDurationSecs
 	if durationSecs <= 0 {
-		durationSecs = 60 // default 1 minute
+		durationSecs = domain.DefaultSleepDurationSecs
+	}
+	if durationSecs > domain.MaxSleepDurationSecs {
+		return fmt.Errorf("sleep duration %d exceeds maximum %d", durationSecs, domain.MaxSleepDurationSecs)
 	}
 	expiresAt := now.Add(time.Duration(durationSecs) * time.Second)
 
@@ -340,6 +422,7 @@ func (e *WorkflowEngine) startSleepStep(
 	if err := e.store.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepWaiting, map[string]any{"started_at": now}); err != nil {
 		return fmt.Errorf("set sleep step waiting: %w", err)
 	}
+	recordWorkflowStepTransition(ctx, string(stepRun.Status), string(domain.StepWaiting))
 
 	if e.onTriggerCreate != nil {
 		e.onTriggerCreate(trigger)
@@ -347,6 +430,15 @@ func (e *WorkflowEngine) startSleepStep(
 
 	stepRun.Status = domain.StepWaiting
 	stepRun.StartedAt = &now
+	telemetry.AddSentryBreadcrumb(ctx, "workflow.step", "workflow step waiting", map[string]any{
+		"workflow_run_id": wfRun.ID,
+		"step_run_id":     stepRun.ID,
+		"step_ref":        step.StepRef,
+		"step_type":       string(step.StepType),
+		"project_id":      wfRun.ProjectID,
+		"duration_secs":   durationSecs,
+		"expires_at":      expiresAt.Format(time.RFC3339),
+	})
 
 	e.logger.Info("sleep step started",
 		"workflow_run_id", wfRun.ID,
@@ -385,11 +477,43 @@ func (e *WorkflowEngine) getNestingDepth(ctx context.Context, wfRun *domain.Work
 }
 
 func mergePayloads(triggerPayload, stepPayload, parentOutputs json.RawMessage) json.RawMessage {
+	triggerKind := firstNonSpaceByte(triggerPayload)
+	stepKind := firstNonSpaceByte(stepPayload)
+	parentBlank := firstNonSpaceByte(parentOutputs) == 0
+	triggerBlank := triggerKind == 0
+	stepBlank := stepKind == 0
+	if parentBlank {
+		switch {
+		case stepBlank:
+			return cloneRaw(triggerPayload)
+		case triggerBlank || triggerKind != '{' || stepKind != '{':
+			return cloneRaw(stepPayload)
+		}
+	}
+
+	return mergeObjectPayloads(triggerPayload, stepPayload, parentOutputs, triggerKind, stepKind, parentBlank, stepBlank)
+}
+
+func mergeObjectPayloads(
+	triggerPayload,
+	stepPayload,
+	parentOutputs json.RawMessage,
+	triggerKind,
+	stepKind byte,
+	parentBlank,
+	stepBlank bool,
+) json.RawMessage {
+	if triggerKind == '{' && stepKind == '{' {
+		if out, ok := mergeJSONObjectPayloads(triggerPayload, stepPayload, parentOutputs, !parentBlank); ok {
+			return out
+		}
+	}
+
 	triggerObj, triggerIsObject := decodeJSONObject(triggerPayload)
 	stepObj, stepIsObject := decodeJSONObject(stepPayload)
 
 	if !triggerIsObject || !stepIsObject {
-		if len(bytes.TrimSpace(stepPayload)) > 0 {
+		if !stepBlank {
 			return cloneRaw(stepPayload)
 		}
 		return cloneRaw(triggerPayload)
@@ -399,7 +523,7 @@ func mergePayloads(triggerPayload, stepPayload, parentOutputs json.RawMessage) j
 	maps.Copy(merged, triggerObj)
 	maps.Copy(merged, stepObj)
 
-	if len(bytes.TrimSpace(parentOutputs)) > 0 {
+	if !parentBlank {
 		var parentValue any
 		if err := json.Unmarshal(parentOutputs, &parentValue); err == nil {
 			merged["parent_outputs"] = parentValue
@@ -411,7 +535,7 @@ func mergePayloads(triggerPayload, stepPayload, parentOutputs json.RawMessage) j
 	out, err := json.Marshal(merged)
 	if err != nil {
 		slog.Warn("mergePayloads: failed to marshal merged payload, falling back", "error", err)
-		if len(bytes.TrimSpace(stepPayload)) > 0 {
+		if !stepBlank {
 			return cloneRaw(stepPayload)
 		}
 		return cloneRaw(triggerPayload)
@@ -420,8 +544,253 @@ func mergePayloads(triggerPayload, stepPayload, parentOutputs json.RawMessage) j
 	return out
 }
 
+type jsonObjectField struct {
+	key string
+	raw []byte
+}
+
+func mergeJSONObjectPayloads(triggerPayload, stepPayload, parentOutputs json.RawMessage, includeParent bool) (json.RawMessage, bool) {
+	triggerFields, triggerHasDuplicates, ok := splitTopLevelJSONObjectFields(triggerPayload)
+	if !ok {
+		return nil, false
+	}
+	stepFields, stepHasDuplicates, ok := splitTopLevelJSONObjectFields(stepPayload)
+	if !ok {
+		return nil, false
+	}
+
+	var parentValue []byte
+	if includeParent {
+		parentValue = bytes.TrimSpace(parentOutputs)
+		if !json.Valid(parentValue) {
+			return nil, false
+		}
+	}
+
+	var lastTriggerField map[string]int
+	if triggerHasDuplicates {
+		lastTriggerField = lastJSONFieldIndexes(triggerFields)
+	}
+	lastStepField := lastJSONFieldIndexes(stepFields)
+
+	outCap := len(triggerPayload) + len(stepPayload) + len(parentValue) + len(`,"parent_outputs":`)
+	out := make([]byte, 0, outCap)
+	out = append(out, '{')
+	hasField := false
+	appendField := func(raw []byte) {
+		if hasField {
+			out = append(out, ',')
+		}
+		out = append(out, raw...)
+		hasField = true
+	}
+
+	for i, field := range triggerFields {
+		if triggerHasDuplicates && lastTriggerField[field.key] != i {
+			continue
+		}
+		if _, overwritten := lastStepField[field.key]; overwritten {
+			continue
+		}
+		if includeParent && field.key == "parent_outputs" {
+			continue
+		}
+		appendField(field.raw)
+	}
+	for i, field := range stepFields {
+		if stepHasDuplicates && lastStepField[field.key] != i {
+			continue
+		}
+		if includeParent && field.key == "parent_outputs" {
+			continue
+		}
+		appendField(field.raw)
+	}
+	if includeParent {
+		if hasField {
+			out = append(out, ',')
+		}
+		out = append(out, `"parent_outputs":`...)
+		out = append(out, parentValue...)
+	}
+	out = append(out, '}')
+
+	return out, true
+}
+
+func lastJSONFieldIndexes(fields []jsonObjectField) map[string]int {
+	indexes := make(map[string]int, len(fields))
+	for i := range fields {
+		indexes[fields[i].key] = i
+	}
+	return indexes
+}
+
+func splitTopLevelJSONObjectFields(payload json.RawMessage) ([]jsonObjectField, bool, bool) {
+	trimmed := bytes.TrimSpace(payload)
+	if len(trimmed) < 2 || trimmed[0] != '{' || trimmed[len(trimmed)-1] != '}' || !json.Valid(trimmed) {
+		return nil, false, false
+	}
+	if len(trimmed) == 2 {
+		return nil, false, true
+	}
+
+	fields := make([]jsonObjectField, 0, 8)
+	hasDuplicates := false
+	i := 1
+	for {
+		i = skipJSONSpaces(trimmed, i)
+		if i >= len(trimmed)-1 {
+			return fields, hasDuplicates, true
+		}
+
+		fieldStart := i
+		if trimmed[i] != '"' {
+			return nil, false, false
+		}
+		keyStart := i
+		keyEnd, escapedKey, ok := scanJSONString(trimmed, i)
+		if !ok {
+			return nil, false, false
+		}
+		var key string
+		if escapedKey {
+			var err error
+			key, err = strconv.Unquote(string(trimmed[keyStart:keyEnd]))
+			if err != nil {
+				return nil, false, false
+			}
+		} else {
+			key = string(trimmed[keyStart+1 : keyEnd-1])
+		}
+		i = skipJSONSpaces(trimmed, keyEnd)
+		if i >= len(trimmed) || trimmed[i] != ':' {
+			return nil, false, false
+		}
+		i++
+
+		valueEnd, delimiter, ok := scanJSONObjectValue(trimmed, i)
+		if !ok {
+			return nil, false, false
+		}
+		fieldEnd := trimJSONRightSpaces(trimmed, fieldStart, valueEnd)
+		for i := range fields {
+			if fields[i].key == key {
+				hasDuplicates = true
+				break
+			}
+		}
+		fields = append(fields, jsonObjectField{
+			key: key,
+			raw: bytes.TrimSpace(trimmed[fieldStart:fieldEnd]),
+		})
+
+		if delimiter == '}' {
+			return fields, hasDuplicates, true
+		}
+		i = valueEnd + 1
+	}
+}
+
+func skipJSONSpaces(in []byte, i int) int {
+	for i < len(in) {
+		switch in[i] {
+		case ' ', '\n', '\r', '\t':
+			i++
+		default:
+			return i
+		}
+	}
+	return i
+}
+
+func trimJSONRightSpaces(in []byte, start, end int) int {
+	for end > start {
+		switch in[end-1] {
+		case ' ', '\n', '\r', '\t':
+			end--
+		default:
+			return end
+		}
+	}
+	return end
+}
+
+func scanJSONString(in []byte, start int) (int, bool, bool) {
+	escaped := false
+	hasEscapedByte := false
+	for i := start + 1; i < len(in); i++ {
+		switch {
+		case escaped:
+			escaped = false
+		case in[i] == '\\':
+			hasEscapedByte = true
+			escaped = true
+		case in[i] == '"':
+			return i + 1, hasEscapedByte, true
+		}
+	}
+	return 0, false, false
+}
+
+func scanJSONObjectValue(in []byte, start int) (end int, delimiter byte, ok bool) {
+	depth := 0
+	inString := false
+	escaped := false
+	for i := start; i < len(in); i++ {
+		c := in[i]
+		if inString {
+			switch {
+			case escaped:
+				escaped = false
+			case c == '\\':
+				escaped = true
+			case c == '"':
+				inString = false
+			}
+			continue
+		}
+
+		switch c {
+		case '"':
+			inString = true
+		case '{', '[':
+			depth++
+		case '}', ']':
+			if depth == 0 {
+				if c != '}' {
+					return 0, 0, false
+				}
+				return i, c, true
+			}
+			depth--
+		case ',':
+			if depth == 0 {
+				return i, c, true
+			}
+		}
+	}
+	return 0, 0, false
+}
+
+func isBlankRaw(in json.RawMessage) bool {
+	return firstNonSpaceByte(in) == 0
+}
+
+func firstNonSpaceByte(in json.RawMessage) byte {
+	for _, b := range in {
+		switch b {
+		case ' ', '\n', '\r', '\t':
+			continue
+		default:
+			return b
+		}
+	}
+	return 0
+}
+
 func decodeJSONObject(payload json.RawMessage) (map[string]any, bool) {
-	if len(bytes.TrimSpace(payload)) == 0 {
+	if isBlankRaw(payload) {
 		return map[string]any{}, true
 	}
 

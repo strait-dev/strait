@@ -4,8 +4,24 @@
 .git
 .github
 .agents
+.context
+.deepsec
 .goreleaser.yaml
 .changeset
+
+# Local secrets and credentials.
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+.infisical.json
+.sentryclirc
+*.pem
+*.key
+*.p8
+*.p12
+*.crt
 
 # Go service test artifacts.
 apps/strait/test

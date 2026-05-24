@@ -19,7 +19,6 @@ import {
   LineChart,
   Pie,
   PieChart,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
@@ -31,6 +30,7 @@ import { capitalize, formatMicroUsd } from "@/lib/format";
 import { CHART_COLORS } from "@/lib/status-colors";
 import { getCustomerPortalUrlServerFn } from "@/lib/subscription";
 import ChartTooltip from "../dashboard/chart-tooltip";
+import ResponsiveChartContainer from "../dashboard/responsive-chart-container";
 import OverageWarningBanner from "./overage-warning-banner";
 import RadialUsageGauge from "./radial-usage-gauge";
 
@@ -249,7 +249,7 @@ const UsageDashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="h-[200px]">
-              <ResponsiveContainer
+              <ResponsiveChartContainer
                 height="100%"
                 minHeight={1}
                 minWidth={1}
@@ -283,7 +283,7 @@ const UsageDashboard = () => {
                     type="monotone"
                   />
                 </LineChart>
-              </ResponsiveContainer>
+              </ResponsiveChartContainer>
             </div>
           </CardContent>
         </Card>
@@ -301,7 +301,7 @@ const UsageDashboard = () => {
             </CardHeader>
             <CardContent>
               <div className="relative h-[200px]">
-                <ResponsiveContainer
+                <ResponsiveChartContainer
                   height="100%"
                   minHeight={1}
                   minWidth={1}
@@ -322,7 +322,7 @@ const UsageDashboard = () => {
                       content={<ChartTooltip labelMap={COST_DONUT_LABEL_MAP} />}
                     />
                   </PieChart>
-                </ResponsiveContainer>
+                </ResponsiveChartContainer>
                 <div className="absolute inset-0 flex flex-col items-center justify-center">
                   <span className="font-medium text-foreground text-lg tabular-nums">
                     {formatMicroUsd(totalCost)}
@@ -371,7 +371,7 @@ const UsageDashboard = () => {
                   height: `${Math.max(200, topProjects.length * 36)}px`,
                 }}
               >
-                <ResponsiveContainer
+                <ResponsiveChartContainer
                   height="100%"
                   minHeight={1}
                   minWidth={1}
@@ -407,7 +407,7 @@ const UsageDashboard = () => {
                       radius={[0, 4, 4, 0]}
                     />
                   </BarChart>
-                </ResponsiveContainer>
+                </ResponsiveChartContainer>
               </div>
             </CardContent>
           </Card>
@@ -452,10 +452,10 @@ const UsageDashboard = () => {
 
       {/* Overage Warning */}
       {usage.overage_microusd > 0 && usage.plan !== "free" && (
-        <Card className="border-yellow-200 dark:border-yellow-800">
+        <Card className="border-warning/30">
           <CardContent className="flex items-center justify-between py-3">
             <div className="flex flex-col gap-0.5">
-              <span className="font-medium text-sm text-yellow-800 dark:text-yellow-200">
+              <span className="font-medium text-sm text-warning">
                 You are in overage
               </span>
               <span className="text-muted-foreground text-xs">
@@ -477,7 +477,7 @@ const UsageDashboard = () => {
 
       {/* Alerts */}
       {usage.alerts.length > 0 && (
-        <Card className="border-yellow-200 dark:border-yellow-800">
+        <Card className="border-warning/30">
           <CardHeader>
             <CardTitle className="text-sm">Alerts</CardTitle>
           </CardHeader>
@@ -485,12 +485,10 @@ const UsageDashboard = () => {
             <div className="space-y-2">
               {usage.alerts.map((alert) => (
                 <div
-                  className="flex items-center justify-between rounded-custom bg-yellow-50 p-2 dark:bg-yellow-950"
+                  className="flex items-center justify-between rounded bg-warning/5 p-2"
                   key={alert.dimension}
                 >
-                  <span className="text-sm text-yellow-800 dark:text-yellow-200">
-                    {alert.message}
-                  </span>
+                  <span className="text-sm text-warning">{alert.message}</span>
                   <Button
                     onClick={() => navigate({ to: "/app/upgrade" })}
                     variant="outline"

@@ -25,10 +25,13 @@ import (
 
 type mockEngineStore struct {
 	getWorkflowFn                     func(ctx context.Context, id string) (*domain.Workflow, error)
+	getActiveCanaryDeploymentFn       func(ctx context.Context, workflowID string) (*domain.CanaryDeployment, error)
+	getWorkflowVersionFn              func(ctx context.Context, workflowID string, version int) (*domain.WorkflowVersion, error)
 	listStepsByWorkflowVerFn          func(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
 	countRunningWorkflowRunsFn        func(ctx context.Context, workflowID string) (int, error)
 	createWorkflowRunFn               func(ctx context.Context, run *domain.WorkflowRun) error
 	createWorkflowRunBootstrapFn      func(ctx context.Context, run *domain.WorkflowRun, stepRuns []domain.WorkflowStepRun, startedAt time.Time) error
+	isProjectRunnableFn               func(ctx context.Context, projectID string) (bool, error)
 	createWorkflowStepRunFn           func(ctx context.Context, sr *domain.WorkflowStepRun) error
 	createWorkflowStepApprovalFn      func(ctx context.Context, approval *domain.WorkflowStepApproval) error
 	createEventTriggerFn              func(ctx context.Context, trigger *domain.EventTrigger) error
@@ -47,6 +50,27 @@ func (m *mockEngineStore) GetWorkflow(ctx context.Context, id string) (*domain.W
 		return m.getWorkflowFn(ctx, id)
 	}
 	return nil, nil
+}
+
+func (m *mockEngineStore) GetActiveCanaryDeployment(ctx context.Context, workflowID string) (*domain.CanaryDeployment, error) {
+	if m.getActiveCanaryDeploymentFn != nil {
+		return m.getActiveCanaryDeploymentFn(ctx, workflowID)
+	}
+	return nil, domain.ErrCanaryNotFound
+}
+
+func (m *mockEngineStore) GetWorkflowVersion(ctx context.Context, workflowID string, version int) (*domain.WorkflowVersion, error) {
+	if m.getWorkflowVersionFn != nil {
+		return m.getWorkflowVersionFn(ctx, workflowID, version)
+	}
+	return nil, nil
+}
+
+func (m *mockEngineStore) IsProjectRunnable(ctx context.Context, projectID string) (bool, error) {
+	if m.isProjectRunnableFn != nil {
+		return m.isProjectRunnableFn(ctx, projectID)
+	}
+	return true, nil
 }
 
 func (m *mockEngineStore) ListStepsByWorkflowVersion(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error) {
@@ -202,10 +226,12 @@ func (m *mockEngineQueue) DequeueNByProject(context.Context, int, string) ([]dom
 
 func buildWfCtx(run *domain.WorkflowRun, steps []domain.WorkflowStep) *wfCtx {
 	byRef := make(map[string]domain.WorkflowStep, len(steps))
-	for _, s := range steps {
+	stepIndex := make(map[string]int, len(steps))
+	for i, s := range steps {
 		byRef[s.StepRef] = s
+		stepIndex[s.StepRef] = i
 	}
-	return &wfCtx{run: run, steps: steps, stepByRef: byRef}
+	return &wfCtx{run: run, steps: steps, stepByRef: byRef, stepIndex: stepIndex}
 }
 
 func TestTriggerWorkflow(t *testing.T) {
@@ -366,6 +392,34 @@ func TestTriggerWorkflow(t *testing.T) {
 		}
 	})
 
+	t.Run("inactive project", func(t *testing.T) {
+		t.Parallel()
+		var listedSteps bool
+		ms := &mockEngineStore{
+			getWorkflowFn: func(_ context.Context, _ string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: "wf", ProjectID: "proj-1", Enabled: true}, nil
+			},
+			isProjectRunnableFn: func(_ context.Context, projectID string) (bool, error) {
+				if projectID != "proj-1" {
+					t.Fatalf("projectID = %q, want proj-1", projectID)
+				}
+				return false, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				listedSteps = true
+				return nil, nil
+			},
+		}
+		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+		_, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-1", nil, "", nil, nil)
+		if err == nil || !strings.Contains(err.Error(), "not active") {
+			t.Fatalf("expected inactive project error, got %v", err)
+		}
+		if listedSteps {
+			t.Fatal("inactive project should fail before loading workflow steps")
+		}
+	})
+
 	t.Run("GetWorkflow error", func(t *testing.T) {
 		t.Parallel()
 		ms := &mockEngineStore{
@@ -481,6 +535,84 @@ func TestTriggerWorkflow(t *testing.T) {
 			t.Fatalf("captured step runs = %d, want 2", len(capturedStepRuns))
 		}
 	})
+}
+
+func TestTriggerWorkflow_AppliesActiveCanaryRouting(t *testing.T) {
+	var listedVersion int
+	var createdVersion int
+	var createdVersionID string
+	ms := &mockEngineStore{
+		getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{
+				ID:        id,
+				ProjectID: "proj-1",
+				Enabled:   true,
+				Version:   1,
+				VersionID: "wf-v1",
+			}, nil
+		},
+		getActiveCanaryDeploymentFn: func(_ context.Context, workflowID string) (*domain.CanaryDeployment, error) {
+			if workflowID != "wf-1" {
+				t.Fatalf("canary workflowID = %q, want wf-1", workflowID)
+			}
+			return &domain.CanaryDeployment{
+				WorkflowID:    "wf-1",
+				ProjectID:     "proj-1",
+				SourceVersion: 1,
+				TargetVersion: 2,
+				TrafficPct:    100,
+				Status:        "active",
+			}, nil
+		},
+		getWorkflowVersionFn: func(_ context.Context, workflowID string, version int) (*domain.WorkflowVersion, error) {
+			if workflowID != "wf-1" || version != 2 {
+				t.Fatalf("GetWorkflowVersion(%q, %d), want wf-1,2", workflowID, version)
+			}
+			return &domain.WorkflowVersion{
+				WorkflowID:        "wf-1",
+				ProjectID:         "proj-1",
+				Version:           2,
+				VersionID:         "wf-v2",
+				Name:              "Workflow v2",
+				Slug:              "workflow",
+				Enabled:           true,
+				MaxConcurrentRuns: 4,
+				MaxParallelSteps:  3,
+			}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, workflowID string, version int) ([]domain.WorkflowStep, error) {
+			if workflowID != "wf-1" {
+				t.Fatalf("workflowID = %q, want wf-1", workflowID)
+			}
+			listedVersion = version
+			return []domain.WorkflowStep{{ID: "step-v2", JobID: "job-v2", StepRef: "root"}}, nil
+		},
+		createWorkflowRunFn: func(_ context.Context, run *domain.WorkflowRun) error {
+			run.ID = "wr-canary"
+			createdVersion = run.WorkflowVersion
+			createdVersionID = run.WorkflowVersionID
+			return nil
+		},
+	}
+	mq := &mockEngineQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+		run.ID = "run-v2"
+		return nil
+	}}
+
+	engine := NewWorkflowEngine(ms, mq, slog.Default())
+	wfRun, err := engine.TriggerWorkflow(context.Background(), "wf-1", "proj-1", nil, "manual", nil, nil)
+	if err != nil {
+		t.Fatalf("TriggerWorkflow() error = %v", err)
+	}
+	if listedVersion != 2 {
+		t.Fatalf("listedVersion = %d, want canary target version 2", listedVersion)
+	}
+	if createdVersion != 2 || createdVersionID != "wf-v2" {
+		t.Fatalf("created workflow run version = %d/%q, want 2/wf-v2", createdVersion, createdVersionID)
+	}
+	if wfRun.WorkflowVersion != 2 || wfRun.WorkflowVersionID != "wf-v2" {
+		t.Fatalf("returned workflow run version = %d/%q, want 2/wf-v2", wfRun.WorkflowVersion, wfRun.WorkflowVersionID)
+	}
 }
 
 func TestTriggerWorkflow_SnapshotIDPopulated(t *testing.T) {
@@ -682,6 +814,113 @@ func TestMergePayloads(t *testing.T) {
 			t.Fatalf("got %s, want trigger payload", string(out))
 		}
 	})
+
+	t.Run("empty trigger payload keeps step payload", func(t *testing.T) {
+		t.Parallel()
+		out := mergePayloads(nil, json.RawMessage(`{"step":true}`), nil)
+		if string(out) != `{"step":true}` {
+			t.Fatalf("got %s, want step payload", string(out))
+		}
+	})
+
+	t.Run("parent outputs added when trigger has payload and step is empty", func(t *testing.T) {
+		t.Parallel()
+		out := mergePayloads(json.RawMessage(`{"a":1}`), nil, json.RawMessage(`{"p":true}`))
+
+		var got map[string]any
+		if err := json.Unmarshal(out, &got); err != nil {
+			t.Fatalf("unmarshal output: %v", err)
+		}
+		if got["a"] != float64(1) {
+			t.Fatalf("a = %v, want 1", got["a"])
+		}
+		if _, ok := got["parent_outputs"]; !ok {
+			t.Fatalf("missing parent_outputs: %+v", got)
+		}
+	})
+
+	t.Run("duplicate keys keep step payload value", func(t *testing.T) {
+		t.Parallel()
+		out := mergePayloads(json.RawMessage(`{"a":1,"keep":true}`), json.RawMessage(`{"a":2}`), nil)
+
+		var got map[string]any
+		if err := json.Unmarshal(out, &got); err != nil {
+			t.Fatalf("unmarshal output: %v", err)
+		}
+		if got["a"] != float64(2) {
+			t.Fatalf("a = %v, want 2", got["a"])
+		}
+		if got["keep"] != true {
+			t.Fatalf("keep = %v, want true", got["keep"])
+		}
+	})
+
+	t.Run("duplicate keys keep last value within each payload", func(t *testing.T) {
+		t.Parallel()
+		out := mergePayloads(json.RawMessage(`{"a":1,"a":2}`), json.RawMessage(`{"b":1,"b":2}`), nil)
+
+		var got map[string]any
+		if err := json.Unmarshal(out, &got); err != nil {
+			t.Fatalf("unmarshal output: %v", err)
+		}
+		if got["a"] != float64(2) {
+			t.Fatalf("a = %v, want 2", got["a"])
+		}
+		if got["b"] != float64(2) {
+			t.Fatalf("b = %v, want 2", got["b"])
+		}
+	})
+
+	t.Run("escaped keys still merge", func(t *testing.T) {
+		t.Parallel()
+		out := mergePayloads(json.RawMessage(`{"tenant\u002did":"trigger"}`), json.RawMessage(`{"tenant\u002did":"step"}`), nil)
+
+		var got map[string]any
+		if err := json.Unmarshal(out, &got); err != nil {
+			t.Fatalf("unmarshal output: %v", err)
+		}
+		if got["tenant-id"] != "step" {
+			t.Fatalf("tenant-id = %v, want step", got["tenant-id"])
+		}
+	})
+}
+
+func BenchmarkMergePayloads(b *testing.B) {
+	triggerPayload := json.RawMessage(`{"account_id":"acct-123","region":"us-east-1","attempt":1,"flags":{"dry_run":false}}`)
+	stepPayload := json.RawMessage(`{"step":"validate","attempt":2,"limits":{"cpu":"500m","memory":"512Mi"}}`)
+	parentOutputs := json.RawMessage(`{"extract":{"rows":1000},"normalize":{"status":"completed"}}`)
+	nonObjectStepPayload := json.RawMessage(`"step"`)
+
+	b.Run("trigger_only", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = mergePayloads(triggerPayload, nil, nil)
+		}
+	})
+	b.Run("step_only", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = mergePayloads(nil, stepPayload, nil)
+		}
+	})
+	b.Run("object_merge", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = mergePayloads(triggerPayload, stepPayload, nil)
+		}
+	})
+	b.Run("object_merge_with_parent_outputs", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = mergePayloads(triggerPayload, stepPayload, parentOutputs)
+		}
+	})
+	b.Run("non_object_step_fallback", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = mergePayloads(triggerPayload, nonObjectStepPayload, nil)
+		}
+	})
 }
 
 type mockCallbackStore struct {
@@ -715,9 +954,12 @@ type mockCallbackStore struct {
 	getWorkflowRunsByParentFn           func(ctx context.Context, parentWorkflowRunID string) ([]domain.WorkflowRun, error)
 	getEventTriggerByStepRunIDFn        func(ctx context.Context, stepRunID string) (*domain.EventTrigger, error)
 	getEventTriggerByEventKeyFn         func(ctx context.Context, eventKey string) (*domain.EventTrigger, error)
+	getEventTriggerByEventKeyProjectFn  func(ctx context.Context, eventKey, projectID string) (*domain.EventTrigger, error)
 	updateEventTriggerStatusFn          func(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
 	advisoryXactLockFn                  func(ctx context.Context, lockID int64) error
 	createWorkflowStepDecisionFn        func(ctx context.Context, d *domain.WorkflowStepDecision) error
+	markCompensationRunTerminalFn       func(ctx context.Context, jobRunID string, status string, output json.RawMessage, errMsg string, finishedAt time.Time) (*domain.CompensationRun, error)
+	countIncompleteCompensationRunsFn   func(ctx context.Context, workflowRunID string) (int, error)
 }
 
 func (m *mockCallbackStore) GetEventTriggerByStepRunID(ctx context.Context, stepRunID string) (*domain.EventTrigger, error) {
@@ -728,6 +970,16 @@ func (m *mockCallbackStore) GetEventTriggerByStepRunID(ctx context.Context, step
 }
 
 func (m *mockCallbackStore) GetEventTriggerByEventKey(ctx context.Context, eventKey string) (*domain.EventTrigger, error) {
+	if m.getEventTriggerByEventKeyFn != nil {
+		return m.getEventTriggerByEventKeyFn(ctx, eventKey)
+	}
+	return nil, nil
+}
+
+func (m *mockCallbackStore) GetEventTriggerByEventKeyForProject(ctx context.Context, eventKey, projectID string) (*domain.EventTrigger, error) {
+	if m.getEventTriggerByEventKeyProjectFn != nil {
+		return m.getEventTriggerByEventKeyProjectFn(ctx, eventKey, projectID)
+	}
 	if m.getEventTriggerByEventKeyFn != nil {
 		return m.getEventTriggerByEventKeyFn(ctx, eventKey)
 	}
@@ -753,6 +1005,20 @@ func (m *mockCallbackStore) CreateWorkflowStepDecision(ctx context.Context, d *d
 		return m.createWorkflowStepDecisionFn(ctx, d)
 	}
 	return nil
+}
+
+func (m *mockCallbackStore) MarkCompensationRunTerminalByJobRunID(ctx context.Context, jobRunID string, status string, output json.RawMessage, errMsg string, finishedAt time.Time) (*domain.CompensationRun, error) {
+	if m.markCompensationRunTerminalFn != nil {
+		return m.markCompensationRunTerminalFn(ctx, jobRunID, status, output, errMsg, finishedAt)
+	}
+	return nil, nil
+}
+
+func (m *mockCallbackStore) CountIncompleteCompensationRuns(ctx context.Context, workflowRunID string) (int, error) {
+	if m.countIncompleteCompensationRunsFn != nil {
+		return m.countIncompleteCompensationRunsFn(ctx, workflowRunID)
+	}
+	return 0, nil
 }
 
 func (m *mockCallbackStore) GetStepRunByJobRunID(ctx context.Context, jobRunID string) (*domain.WorkflowStepRun, error) {
@@ -1082,6 +1348,10 @@ func (m *mockCallbackStore) GetWorkflowSnapshot(_ context.Context, _ string) (*d
 
 func (m *mockCallbackStore) RequeuePausedJobRuns(_ context.Context, _ string) (int64, error) {
 	return 0, nil
+}
+
+func (m *mockCallbackStore) ScheduleRetry(_ context.Context, _ string, _ time.Time, _ int) error {
+	return nil
 }
 
 func (m *mockCallbackStore) GetWorkflowRunsByParent(ctx context.Context, parentWorkflowRunID string) ([]domain.WorkflowRun, error) {
@@ -2013,8 +2283,8 @@ func TestStepCallback_scheduleStepRetry(t *testing.T) {
 					if fields["attempt"] != 2 {
 						t.Fatalf("expected attempt=2, got %+v", fields)
 					}
-					if _, ok := fields["next_retry_at"].(time.Time); !ok {
-						t.Fatalf("expected next_retry_at time.Time, got %+v", fields["next_retry_at"])
+					if _, ok := fields["next_retry_at"]; ok {
+						t.Fatalf("next_retry_at must not be in UpdateRunStatus fields (side-table only), got %+v", fields)
 					}
 					return tt.updateRunStatusErr
 				},
@@ -2101,8 +2371,8 @@ func TestStepCallback_OnJobRunTerminal_RetryIntegration(t *testing.T) {
 				if fields["attempt"] != 2 {
 					t.Fatalf("expected attempt=2, got %+v", fields)
 				}
-				if _, ok := fields["next_retry_at"].(time.Time); !ok {
-					t.Fatalf("missing/invalid next_retry_at: %+v", fields)
+				if _, ok := fields["next_retry_at"]; ok {
+					t.Fatalf("next_retry_at must not be in UpdateRunStatus fields (side-table only), got %+v", fields)
 				}
 				return nil
 			},
@@ -5505,6 +5775,18 @@ func TestApplyStepOverrides(t *testing.T) {
 		}
 	})
 
+	t.Run("unknown enabled step_ref returns error", func(t *testing.T) {
+		t.Parallel()
+		steps := []domain.WorkflowStep{
+			{ID: "step-a", JobID: "job-a", StepRef: "a"},
+		}
+
+		_, err := applyStepOverrides(steps, []domain.StepOverride{{StepRef: "nonexistent", Enabled: true}})
+		if err == nil || !strings.Contains(err.Error(), "unknown step_ref") {
+			t.Fatalf("expected unknown step_ref error, got %v", err)
+		}
+	})
+
 	t.Run("all steps disabled returns error", func(t *testing.T) {
 		t.Parallel()
 		steps := []domain.WorkflowStep{
@@ -5543,6 +5825,101 @@ func TestApplyStepOverrides(t *testing.T) {
 			t.Fatalf("expected c depends_on to be [a], got %+v", got[1].DependsOn)
 		}
 	})
+}
+
+func BenchmarkApplyStepOverrides(b *testing.B) {
+	steps := make([]domain.WorkflowStep, 100)
+	for i := range steps {
+		steps[i] = domain.WorkflowStep{
+			ID:      fmt.Sprintf("step-%03d", i),
+			JobID:   fmt.Sprintf("job-%03d", i),
+			StepRef: fmt.Sprintf("step-%03d", i),
+		}
+		if i > 0 {
+			steps[i].DependsOn = []string{steps[i-1].StepRef}
+		}
+	}
+
+	b.Run("none", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			got, err := applyStepOverrides(steps, nil)
+			if err != nil {
+				b.Fatal(err)
+			}
+			if len(got) != len(steps) {
+				b.Fatalf("len(got) = %d", len(got))
+			}
+		}
+	})
+	b.Run("all_enabled", func(b *testing.B) {
+		overrides := []domain.StepOverride{{StepRef: "step-050", Enabled: true}}
+		b.ReportAllocs()
+		for b.Loop() {
+			got, err := applyStepOverrides(steps, overrides)
+			if err != nil {
+				b.Fatal(err)
+			}
+			if len(got) != len(steps) {
+				b.Fatalf("len(got) = %d", len(got))
+			}
+		}
+	})
+	b.Run("disable_middle", func(b *testing.B) {
+		overrides := []domain.StepOverride{{StepRef: "step-050", Enabled: false}}
+		b.ReportAllocs()
+		for b.Loop() {
+			got, err := applyStepOverrides(steps, overrides)
+			if err != nil {
+				b.Fatal(err)
+			}
+			if len(got) != len(steps)-1 {
+				b.Fatalf("len(got) = %d", len(got))
+			}
+		}
+	})
+	b.Run("disable_many", func(b *testing.B) {
+		overrides := []domain.StepOverride{
+			{StepRef: "step-020", Enabled: false},
+			{StepRef: "step-040", Enabled: false},
+			{StepRef: "step-060", Enabled: false},
+			{StepRef: "step-080", Enabled: false},
+		}
+		b.ReportAllocs()
+		for b.Loop() {
+			got, err := applyStepOverrides(steps, overrides)
+			if err != nil {
+				b.Fatal(err)
+			}
+			if len(got) != len(steps)-4 {
+				b.Fatalf("len(got) = %d", len(got))
+			}
+		}
+	})
+}
+
+func TestApplyStepOverrides_DoesNotMutateInputDependsOn(t *testing.T) {
+	t.Parallel()
+
+	steps := []domain.WorkflowStep{
+		{ID: "step-a", JobID: "job-a", StepRef: "a"},
+		{ID: "step-b", JobID: "job-b", StepRef: "b", DependsOn: []string{"a"}},
+		{ID: "step-c", JobID: "job-c", StepRef: "c", DependsOn: []string{"a", "b"}},
+	}
+
+	got, err := applyStepOverrides(steps, []domain.StepOverride{{StepRef: "b", Enabled: false}})
+	if err != nil {
+		t.Fatalf("applyStepOverrides() error = %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("len(got) = %d, want 2", len(got))
+	}
+	if len(got[1].DependsOn) != 1 || got[1].DependsOn[0] != "a" {
+		t.Fatalf("filtered c depends_on = %+v, want [a]", got[1].DependsOn)
+	}
+	if len(steps[2].DependsOn) != 2 || steps[2].DependsOn[0] != "a" || steps[2].DependsOn[1] != "b" {
+		t.Fatalf("input c depends_on mutated: %+v", steps[2].DependsOn)
+	}
 }
 
 func TestTriggerWorkflowWithStepOverrides(t *testing.T) {
@@ -6239,6 +6616,38 @@ func TestStartStep_Sleep_CreatesTrigger(t *testing.T) {
 	}
 }
 
+func TestStartStep_Sleep_RejectsDurationAboveCap(t *testing.T) {
+	t.Parallel()
+
+	ms := &mockEngineStore{
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			t.Fatal("oversized sleep step must not update step status")
+			return nil
+		},
+		createEventTriggerFn: func(_ context.Context, _ *domain.EventTrigger) error {
+			t.Fatal("oversized sleep step must not create an event trigger")
+			return nil
+		},
+	}
+	engine := NewWorkflowEngine(ms, nil, slog.Default())
+
+	step := &domain.WorkflowStep{
+		StepRef:           "sleep-too-long",
+		StepType:          domain.WorkflowStepTypeSleep,
+		SleepDurationSecs: domain.MaxSleepDurationSecs + 1,
+	}
+	stepRun := &domain.WorkflowStepRun{ID: "sr-sleep-too-long", StepRef: "sleep-too-long"}
+	wfRun := &domain.WorkflowRun{ID: "wr-1", ProjectID: "proj-1"}
+
+	err := engine.startStep(context.Background(), stepRun, step, wfRun, nil)
+	if err == nil {
+		t.Fatal("expected oversized sleep duration error")
+	}
+	if !strings.Contains(err.Error(), "exceeds maximum") {
+		t.Fatalf("expected sleep duration cap error, got %v", err)
+	}
+}
+
 // Scheduling semantics regression tests.
 
 func TestEffectiveResourceClass(t *testing.T) {
@@ -6328,6 +6737,39 @@ func TestHasResourceClassCapacity(t *testing.T) {
 		}
 		if !hasResourceClassCapacity(running, "large") {
 			t.Error("large should NOT be blocked by full small")
+		}
+	})
+}
+
+func BenchmarkHasResourceClassCapacity(b *testing.B) {
+	running := map[string]int{
+		"small":  12,
+		"medium": 8,
+		"large":  2,
+	}
+
+	b.Run("empty_class", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if !hasResourceClassCapacity(running, "") {
+				b.Fatal("expected capacity")
+			}
+		}
+	})
+	b.Run("known_class", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if !hasResourceClassCapacity(running, "medium") {
+				b.Fatal("expected capacity")
+			}
+		}
+	})
+	b.Run("unknown_class", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if !hasResourceClassCapacity(running, "gpu") {
+				b.Fatal("expected fallback capacity")
+			}
 		}
 	})
 }
