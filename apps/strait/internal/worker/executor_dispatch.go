@@ -371,12 +371,16 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 		adaptiveStats  *store.JobHealthStats
 	)
 
+	// endpointStateKey hashes the endpoint URL; compute it once and share it across
+	// the circuit-breaker and health-check lookups instead of hashing twice.
+	stateKey := endpointStateKey(job.ProjectID, job.EndpointURL)
+
 	var prefetchWG conc.WaitGroup
 	prefetchWG.Go(func() {
-		circuitAllowed, circuitRetryAt, circuitErr = e.store.CanDispatchEndpoint(ctx, endpointStateKey(job.ProjectID, job.EndpointURL), time.Now().UTC())
+		circuitAllowed, circuitRetryAt, circuitErr = e.store.CanDispatchEndpoint(ctx, stateKey, time.Now().UTC())
 	})
 	prefetchWG.Go(func() {
-		healthScore, healthAllowed, healthErr = e.healthScorer.CheckHealth(ctx, endpointStateKey(job.ProjectID, job.EndpointURL))
+		healthScore, healthAllowed, healthErr = e.healthScorer.CheckHealth(ctx, stateKey)
 	})
 	if policy.timeoutSecs > 0 {
 		prefetchWG.Go(func() {

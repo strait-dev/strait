@@ -682,12 +682,16 @@ func effectiveResourceClass(v string) string {
 	return v
 }
 
+// resourceClassLimits caps concurrent step runs per resource class. Hoisted to
+// a package var so the per-step capacity check does not allocate a map on every
+// call during fan-out scheduling.
+var resourceClassLimits = map[string]int{"small": 50, "medium": 20, "large": 5}
+
 func hasResourceClassCapacity(running map[string]int, class string) bool {
-	limits := map[string]int{"small": 50, "medium": 20, "large": 5}
 	resolved := effectiveResourceClass(class)
-	limit, ok := limits[resolved]
+	limit, ok := resourceClassLimits[resolved]
 	if !ok {
-		limit = limits["small"]
+		limit = resourceClassLimits["small"]
 		resolved = "small"
 	}
 	return running[resolved] < limit

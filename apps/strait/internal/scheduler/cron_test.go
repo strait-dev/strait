@@ -1106,3 +1106,30 @@ func BenchmarkCronParse(b *testing.B) {
 		_, _ = cs.cron.AddFunc("*/5 * * * *", func() {})
 	}
 }
+
+func TestDriftSchedule_MemoizesAndRejectsInvalid(t *testing.T) {
+	t.Parallel()
+	cs := NewCronScheduler(context.Background(), nil, nil, nil)
+
+	first, err := cs.driftSchedule("*/5 * * * *")
+	if err != nil {
+		t.Fatalf("driftSchedule() error = %v", err)
+	}
+	if first == nil {
+		t.Fatal("driftSchedule() returned nil schedule")
+	}
+
+	// The second call for the same expression must return the cached schedule,
+	// not a freshly parsed one.
+	second, err := cs.driftSchedule("*/5 * * * *")
+	if err != nil {
+		t.Fatalf("driftSchedule() second call error = %v", err)
+	}
+	if first != second {
+		t.Fatal("driftSchedule() did not return the memoized schedule on repeat call")
+	}
+
+	if _, err := cs.driftSchedule("not a cron expr"); err == nil {
+		t.Fatal("driftSchedule() expected error for invalid expression")
+	}
+}

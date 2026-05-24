@@ -153,31 +153,37 @@ type Executor struct {
 	// cache is cold.
 	jobResolveGroup         singleflight.Group
 	memoryPressureThreshold float64
-	maxSnoozeCount          int
-	jwtSigningKey           string
-	externalAPIURL          string
-	defaultRegion           string
-	mode                    string
-	version                 string
-	billingEnforcer         *billing.Enforcer
-	stripeUsageReporter     *billing.StripeUsageReporter
-	stripeUsageWG           conc.WaitGroup // tracks in-flight Stripe usage event goroutines
-	runCostRecorder         *billing.RunCostRecorder
-	secretDecryptor         SecretDecryptor
-	stop                    chan struct{}
-	done                    chan struct{}
-	stopOnce                sync.Once
-	pollWG                  sync.WaitGroup
-	bgWG                    conc.WaitGroup
-	callbackWG              conc.WaitGroup
-	pollInFlight            atomic.Int64
-	runStarted              atomic.Bool
-	degradedPollInterval    time.Duration
-	degraded                queue.DegradedNotifier
-	dbCircuit               *queue.DBCircuit
-	eventChannelSize        int
-	saturationWarnMu        sync.Mutex
-	saturationLastWarn      map[string]time.Time
+	// memStatsLastSample / memStatsPressure throttle runtime.ReadMemStats on
+	// the dequeue hot path. ReadMemStats stops the world, so heap pressure is
+	// sampled at most once per memStatsSampleInterval and the cached verdict is
+	// reused between samples.
+	memStatsLastSample   atomic.Int64 // unix nanos of the last ReadMemStats
+	memStatsPressure     atomic.Bool  // cached verdict of the last sample
+	maxSnoozeCount       int
+	jwtSigningKey        string
+	externalAPIURL       string
+	defaultRegion        string
+	mode                 string
+	version              string
+	billingEnforcer      *billing.Enforcer
+	stripeUsageReporter  *billing.StripeUsageReporter
+	stripeUsageWG        conc.WaitGroup // tracks in-flight Stripe usage event goroutines
+	runCostRecorder      *billing.RunCostRecorder
+	secretDecryptor      SecretDecryptor
+	stop                 chan struct{}
+	done                 chan struct{}
+	stopOnce             sync.Once
+	pollWG               sync.WaitGroup
+	bgWG                 conc.WaitGroup
+	callbackWG           conc.WaitGroup
+	pollInFlight         atomic.Int64
+	runStarted           atomic.Bool
+	degradedPollInterval time.Duration
+	degraded             queue.DegradedNotifier
+	dbCircuit            *queue.DBCircuit
+	eventChannelSize     int
+	saturationWarnMu     sync.Mutex
+	saturationLastWarn   map[string]time.Time
 	// queueSnapshotter returns the set of queue names with active workers on
 	// this replica. When non-nil, poll performs a second dequeue pass for
 	// worker-mode runs filtered to those queues. Injected from the gRPC
