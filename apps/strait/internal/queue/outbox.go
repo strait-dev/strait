@@ -13,7 +13,7 @@ import (
 
 func uniqueJobIDs(entries []OutboxEntry) []string {
 	seen := make(map[string]struct{}, len(entries))
-	var out []string
+	out := make([]string, 0, len(entries))
 	for _, e := range entries {
 		if _, ok := seen[e.JobID]; ok {
 			continue
@@ -98,6 +98,7 @@ func WriteOutboxInTx(ctx context.Context, tx pgx.Tx, entries []OutboxEntry) erro
 			$1, $2, $3, $4, $5::jsonb, $6, $7, $8, NOW()
 		)
 		ON CONFLICT (id) DO NOTHING`
+	var batch pgx.Batch
 	for _, e := range entries {
 		metaBytes, err := json.Marshal(e.Metadata)
 		if err != nil {
@@ -106,13 +107,21 @@ func WriteOutboxInTx(ctx context.Context, tx pgx.Tx, entries []OutboxEntry) erro
 		if len(e.Metadata) == 0 {
 			metaBytes = []byte("{}")
 		}
-		_, err = tx.Exec(ctx, sql,
+		batch.Queue(sql,
 			e.ID, e.ProjectID, e.JobID, jsonBytes(e.Payload), metaBytes,
 			nullableString(e.IdempotencyKey), e.ScheduledAt, e.Priority,
 		)
+	}
+	results := tx.SendBatch(ctx, &batch)
+	for i := range entries {
+		_, err := results.Exec()
 		if err != nil {
-			return fmt.Errorf("write outbox entry %s: %w", e.ID, err)
+			_ = results.Close()
+			return fmt.Errorf("write outbox entry %s: %w", entries[i].ID, err)
 		}
+	}
+	if err := results.Close(); err != nil {
+		return fmt.Errorf("write outbox batch: %w", err)
 	}
 	return nil
 }
