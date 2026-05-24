@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"sort"
 	"testing"
 	"time"
@@ -243,6 +244,50 @@ func TestBuildWorkflowRunTimeline_CriticalRefsDenseOverlap(t *testing.T) {
 	}
 }
 
+func TestEstimateWorkflowCriticalPath_DeterministicWideReadyQueue(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	steps := []domain.WorkflowStep{
+		{StepRef: "root-c", StepType: domain.WorkflowStepTypeJob, TimeoutSecsOverride: 1},
+		{StepRef: "root-a", StepType: domain.WorkflowStepTypeJob, TimeoutSecsOverride: 1},
+		{StepRef: "root-b", StepType: domain.WorkflowStepTypeJob, TimeoutSecsOverride: 1},
+		{StepRef: "join", StepType: domain.WorkflowStepTypeJob, DependsOn: []string{"root-b", "root-a", "root-c"}, TimeoutSecsOverride: 5},
+	}
+
+	path, estimateMS, remainingMS := estimateWorkflowCriticalPath(steps, nil, now)
+
+	if !slices.Equal(path, []string{"root-b", "join"}) {
+		t.Fatalf("path = %v, want [root-b join]", path)
+	}
+	if estimateMS != 6_000 {
+		t.Fatalf("estimateMS = %d, want 6000", estimateMS)
+	}
+	if remainingMS != 6_000 {
+		t.Fatalf("remainingMS = %d, want 6000", remainingMS)
+	}
+}
+
+func TestEstimateWorkflowCriticalPath_IgnoresUnknownDependencies(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	steps := []domain.WorkflowStep{
+		{StepRef: "a", StepType: domain.WorkflowStepTypeJob, DependsOn: []string{"external"}, TimeoutSecsOverride: 2},
+		{StepRef: "b", StepType: domain.WorkflowStepTypeJob, DependsOn: []string{"a"}, TimeoutSecsOverride: 3},
+	}
+
+	path, estimateMS, remainingMS := estimateWorkflowCriticalPath(steps, nil, now)
+
+	if !slices.Equal(path, []string{"a", "b"}) {
+		t.Fatalf("path = %v, want [a b]", path)
+	}
+	if estimateMS != 5_000 {
+		t.Fatalf("estimateMS = %d, want 5000", estimateMS)
+	}
+	if remainingMS != 5_000 {
+		t.Fatalf("remainingMS = %d, want 5000", remainingMS)
+	}
+}
+
 func timelineStepByRef(t *testing.T, steps []domain.TimelineStep, ref string) domain.TimelineStep {
 	t.Helper()
 	for _, step := range steps {
@@ -255,6 +300,40 @@ func timelineStepByRef(t *testing.T, steps []domain.TimelineStep, ref string) do
 }
 
 var timelineResponseSink domain.TimelineResponse
+var criticalPathSink []string
+var criticalPathEstimateSink int64
+var criticalPathRemainingSink int64
+
+func BenchmarkEstimateWorkflowCriticalPath_WideReadyQueue(b *testing.B) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	for _, size := range []int{128, 512} {
+		b.Run(fmt.Sprintf("roots=%d", size), func(b *testing.B) {
+			steps := make([]domain.WorkflowStep, 0, size+1)
+			deps := make([]string, 0, size)
+			for i := range size {
+				ref := fmt.Sprintf("root-%04d", i)
+				steps = append(steps, domain.WorkflowStep{
+					StepRef:             ref,
+					StepType:            domain.WorkflowStepTypeJob,
+					TimeoutSecsOverride: 1,
+				})
+				deps = append(deps, ref)
+			}
+			steps = append(steps, domain.WorkflowStep{
+				StepRef:             "join",
+				StepType:            domain.WorkflowStepTypeJob,
+				DependsOn:           deps,
+				TimeoutSecsOverride: 10,
+			})
+
+			b.ReportAllocs()
+			for b.Loop() {
+				criticalPathSink, criticalPathEstimateSink, criticalPathRemainingSink = estimateWorkflowCriticalPath(steps, nil, now)
+			}
+		})
+	}
+}
 
 func BenchmarkBuildWorkflowRunTimeline_DenseOverlap(b *testing.B) {
 	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)

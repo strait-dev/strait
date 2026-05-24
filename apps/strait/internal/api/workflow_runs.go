@@ -18,6 +18,61 @@ import (
 	"github.com/samber/lo"
 )
 
+type workflowStepRefHeap []string
+
+func (h *workflowStepRefHeap) init() {
+	for i := len(*h)/2 - 1; i >= 0; i-- {
+		h.siftDown(i)
+	}
+}
+
+func (h *workflowStepRefHeap) push(ref string) {
+	*h = append(*h, ref)
+	h.siftUp(len(*h) - 1)
+}
+
+func (h *workflowStepRefHeap) pop() string {
+	old := *h
+	n := len(old)
+	ref := old[0]
+	old[0] = old[n-1]
+	old[n-1] = ""
+	*h = old[:n-1]
+	h.siftDown(0)
+	return ref
+}
+
+func (h *workflowStepRefHeap) siftUp(i int) {
+	refs := *h
+	for i > 0 {
+		parent := (i - 1) / 2
+		if refs[parent] <= refs[i] {
+			return
+		}
+		refs[parent], refs[i] = refs[i], refs[parent]
+		i = parent
+	}
+}
+
+func (h *workflowStepRefHeap) siftDown(i int) {
+	refs := *h
+	for {
+		left := 2*i + 1
+		if left >= len(refs) {
+			return
+		}
+		child := left
+		if right := left + 1; right < len(refs) && refs[right] < refs[left] {
+			child = right
+		}
+		if refs[i] <= refs[child] {
+			return
+		}
+		refs[i], refs[child] = refs[child], refs[i]
+		i = child
+	}
+}
+
 type approveWorkflowStepRequest struct {
 	Approver string `json:"approver,omitempty"` // deprecated: ignored, approver is taken from auth context
 }
@@ -643,21 +698,20 @@ func estimateWorkflowCriticalPath(steps []domain.WorkflowStep, runByRef map[stri
 		}
 	}
 
-	queue := make([]string, 0, len(steps))
+	queue := make(workflowStepRefHeap, 0, len(steps))
 	for ref, degree := range indegree {
 		if degree == 0 {
 			queue = append(queue, ref)
 		}
 	}
-	sort.Strings(queue)
+	queue.init()
 
 	prev := make(map[string]string, len(steps))
 	longestByRef := make(map[string]int64, len(steps))
 	totalEstimateByRef := make(map[string]int64, len(steps))
 	remainingByRef := make(map[string]int64, len(steps))
 	for len(queue) > 0 {
-		ref := queue[0]
-		queue = queue[1:]
+		ref := queue.pop()
 
 		step := stepByRef[ref]
 		stepRun := runByRef[ref]
@@ -683,10 +737,9 @@ func estimateWorkflowCriticalPath(steps []domain.WorkflowStep, runByRef map[stri
 		for _, child := range children[ref] {
 			indegree[child]--
 			if indegree[child] == 0 {
-				queue = append(queue, child)
+				queue.push(child)
 			}
 		}
-		sort.Strings(queue)
 	}
 
 	pathEnd := ""
