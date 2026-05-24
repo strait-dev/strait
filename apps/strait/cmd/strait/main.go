@@ -537,7 +537,7 @@ func publishWorkflowRunStatusHook(
 	}
 
 	eventType, ok := workflowWebhookEventType(to)
-	if !(ok && queries != nil && eventNotifier != nil) {
+	if !ok || queries == nil || eventNotifier == nil {
 		return
 	}
 	deliveryCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
