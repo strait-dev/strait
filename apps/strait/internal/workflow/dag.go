@@ -20,49 +20,95 @@ func ValidateDAG(steps []domain.WorkflowStep) error {
 		return fmt.Errorf("workflow must have at least one step")
 	}
 
-	adjacency := make(map[string]map[string]struct{}, len(steps))
-	inDegree := make(map[string]int, len(steps))
+	stepIndex := make(map[string]int, len(steps))
+	needsDepDedup := false
 
-	for _, s := range steps {
-		if _, exists := inDegree[s.StepRef]; exists {
+	for i, s := range steps {
+		if _, exists := stepIndex[s.StepRef]; exists {
 			return fmt.Errorf("duplicate step_ref: %q", s.StepRef)
 		}
-		inDegree[s.StepRef] = 0
-		adjacency[s.StepRef] = make(map[string]struct{})
+		stepIndex[s.StepRef] = i
+		needsDepDedup = needsDepDedup || len(s.DependsOn) > 1
 	}
 
-	for _, s := range steps {
+	alreadyOrdered, err := validateDAGDependenciesAreOrdered(steps, stepIndex)
+	if err != nil {
+		return err
+	}
+	if alreadyOrdered {
+		return nil
+	}
+
+	inDegree := make([]int, len(steps))
+	childCounts := make([]int, len(steps))
+	var depSeen []int
+	if needsDepDedup {
+		depSeen = make([]int, len(steps))
+	}
+	totalEdges := 0
+
+	for stepIdx, s := range steps {
+		seenMarker := stepIdx + 1
 		for _, dep := range s.DependsOn {
-			if _, exists := inDegree[dep]; !exists {
+			depIdx, exists := stepIndex[dep]
+			if !exists {
 				return fmt.Errorf("step %q depends on unknown step %q", s.StepRef, dep)
 			}
-			if dep == s.StepRef {
+			if depIdx == stepIdx {
 				return fmt.Errorf("step %q depends on itself", s.StepRef)
 			}
-
-			if _, exists := adjacency[dep][s.StepRef]; !exists {
-				adjacency[dep][s.StepRef] = struct{}{}
-				inDegree[s.StepRef]++
+			if depSeen != nil {
+				if depSeen[depIdx] == seenMarker {
+					continue
+				}
+				depSeen[depIdx] = seenMarker
 			}
+
+			childCounts[depIdx]++
+			inDegree[stepIdx]++
+			totalEdges++
 		}
 	}
 
-	queue := make([]string, 0, len(steps))
-	for ref, degree := range inDegree {
+	if totalEdges == 0 {
+		return nil
+	}
+
+	children := make([][]int, len(steps))
+	edgeStorage := make([]int, totalEdges)
+	offset := 0
+	for i, count := range childCounts {
+		children[i] = edgeStorage[offset : offset : offset+count]
+		offset += count
+	}
+	for stepIdx, s := range steps {
+		seenMarker := len(steps) + stepIdx + 1
+		for _, dep := range s.DependsOn {
+			depIdx := stepIndex[dep]
+			if depSeen != nil {
+				if depSeen[depIdx] == seenMarker {
+					continue
+				}
+				depSeen[depIdx] = seenMarker
+			}
+			children[depIdx] = append(children[depIdx], stepIdx)
+		}
+	}
+
+	queue := childCounts[:0]
+	for i, degree := range inDegree {
 		if degree == 0 {
-			queue = append(queue, ref)
+			queue = append(queue, i)
 		}
 	}
 	initialRoots := len(queue)
 
 	visitedCount := 0
-	visited := make(map[string]struct{}, len(steps))
 	for i := 0; i < len(queue); i++ {
-		ref := queue[i]
+		stepIdx := queue[i]
 		visitedCount++
-		visited[ref] = struct{}{}
 
-		for dependent := range adjacency[ref] {
+		for _, dependent := range children[stepIdx] {
 			inDegree[dependent]--
 			if inDegree[dependent] == 0 {
 				queue = append(queue, dependent)
@@ -72,9 +118,9 @@ func ValidateDAG(steps []domain.WorkflowStep) error {
 
 	if visitedCount != len(steps) {
 		unvisited := make([]string, 0, len(steps)-visitedCount)
-		for ref := range inDegree {
-			if _, ok := visited[ref]; !ok {
-				unvisited = append(unvisited, ref)
+		for i := range steps {
+			if inDegree[i] > 0 {
+				unvisited = append(unvisited, steps[i].StepRef)
 			}
 		}
 		sort.Strings(unvisited)
@@ -86,4 +132,23 @@ func ValidateDAG(steps []domain.WorkflowStep) error {
 	}
 
 	return nil
+}
+
+func validateDAGDependenciesAreOrdered(steps []domain.WorkflowStep, stepIndex map[string]int) (bool, error) {
+	alreadyOrdered := true
+	for stepIdx, s := range steps {
+		for _, dep := range s.DependsOn {
+			depIdx, exists := stepIndex[dep]
+			if !exists {
+				return false, fmt.Errorf("step %q depends on unknown step %q", s.StepRef, dep)
+			}
+			if depIdx == stepIdx {
+				return false, fmt.Errorf("step %q depends on itself", s.StepRef)
+			}
+			if depIdx > stepIdx {
+				alreadyOrdered = false
+			}
+		}
+	}
+	return alreadyOrdered, nil
 }

@@ -89,6 +89,7 @@ type wfCtx struct {
 	run       *domain.WorkflowRun
 	steps     []domain.WorkflowStep
 	stepByRef map[string]domain.WorkflowStep
+	stepIndex map[string]int
 }
 
 func (s *StepCallback) loadWfCtx(ctx context.Context, workflowRunID string) (*wfCtx, error) {
@@ -106,10 +107,12 @@ func (s *StepCallback) loadWfCtx(ctx context.Context, workflowRunID string) (*wf
 	}
 
 	stepByRef := make(map[string]domain.WorkflowStep, len(steps))
-	for _, st := range steps {
+	stepIndex := make(map[string]int, len(steps))
+	for i, st := range steps {
 		stepByRef[st.StepRef] = st
+		stepIndex[st.StepRef] = i
 	}
-	return &wfCtx{run: wfRun, steps: steps, stepByRef: stepByRef}, nil
+	return &wfCtx{run: wfRun, steps: steps, stepByRef: stepByRef, stepIndex: stepIndex}, nil
 }
 
 // loadStepDefinitions reads step definitions from the snapshot when available,

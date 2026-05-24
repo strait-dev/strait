@@ -365,6 +365,8 @@ var copyFromColumns = []string{
 	"is_rollback",
 }
 
+var emptyJSONB = []byte("{}")
+
 // EnqueueBatch inserts multiple runs using pgx.CopyFrom (COPY protocol) for
 // high throughput. Requires the underlying db to implement CopyFromer (e.g.
 // pgxpool.Pool). Sends pg_notify after insert to wake workers.
@@ -408,63 +410,7 @@ func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun)
 		}
 	}
 
-	rows := make([][]any, len(runs))
-	for i, run := range runs {
-		tagsJSON := []byte("{}")
-		if len(run.Tags) > 0 {
-			var err error
-			tagsJSON, err = json.Marshal(run.Tags)
-			if err != nil {
-				return 0, fmt.Errorf("enqueue batch: marshal tags for run %d: %w", i, err)
-			}
-		}
-
-		metadataJSON := []byte("{}")
-		if len(run.Metadata) > 0 {
-			var err error
-			metadataJSON, err = json.Marshal(run.Metadata)
-			if err != nil {
-				return 0, fmt.Errorf("enqueue batch: marshal metadata for run %d: %w", i, err)
-			}
-		}
-
-		rows[i] = []any{
-			run.ID,
-			run.JobID,
-			run.ProjectID,
-			run.Status,
-			run.Attempt,
-			dbscan.NilIfEmptyRawMessage(run.Payload),
-			dbscan.NilIfEmptyRawMessage(run.Result),
-			dbscan.NilIfEmptyString(run.Error),
-			run.TriggeredBy,
-			run.ScheduledAt,
-			run.StartedAt,
-			run.FinishedAt,
-			run.HeartbeatAt,
-			run.NextRetryAt,
-			run.ExpiresAt,
-			dbscan.NilIfEmptyString(run.ParentRunID),
-			run.Priority,
-			dbscan.NilIfEmptyString(run.IdempotencyKey),
-			run.JobVersion,
-			dbscan.NilIfEmptyString(run.WorkflowStepRunID),
-			run.DebugMode,
-			dbscan.NilIfEmptyString(run.ContinuationOf),
-			run.LineageDepth,
-			tagsJSON,
-			dbscan.NilIfEmptyString(run.JobVersionID),
-			dbscan.NilIfEmptyString(run.CreatedBy),
-			dbscan.NilIfEmptyString(run.ConcurrencyKey),
-			dbscan.NilIfEmptyString(run.BatchID),
-			string(run.ExecutionMode),
-			runQueueName(run.QueueName),
-			metadataJSON,
-			run.IsRollback,
-		}
-	}
-
-	n, err := copier.CopyFrom(ctx, pgx.Identifier{"job_runs"}, copyFromColumns, pgx.CopyFromRows(rows))
+	n, err := copier.CopyFrom(ctx, pgx.Identifier{"job_runs"}, copyFromColumns, newJobRunCopyFromSource(runs))
 	if err != nil {
 		return 0, fmt.Errorf("enqueue batch: copy from: %w", err)
 	}
@@ -481,6 +427,86 @@ func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun)
 	}
 
 	return n, nil
+}
+
+type jobRunCopyFromSource struct {
+	runs   []*domain.JobRun
+	idx    int
+	values []any
+}
+
+func newJobRunCopyFromSource(runs []*domain.JobRun) *jobRunCopyFromSource {
+	return &jobRunCopyFromSource{
+		runs:   runs,
+		idx:    -1,
+		values: make([]any, len(copyFromColumns)),
+	}
+}
+
+func (s *jobRunCopyFromSource) Next() bool {
+	s.idx++
+	return s.idx < len(s.runs)
+}
+
+func (s *jobRunCopyFromSource) Values() ([]any, error) {
+	run := s.runs[s.idx]
+
+	tagsJSON := emptyJSONB
+	if len(run.Tags) > 0 {
+		var err error
+		tagsJSON, err = json.Marshal(run.Tags)
+		if err != nil {
+			return nil, fmt.Errorf("marshal tags for run %d: %w", s.idx, err)
+		}
+	}
+
+	metadataJSON := emptyJSONB
+	if len(run.Metadata) > 0 {
+		var err error
+		metadataJSON, err = json.Marshal(run.Metadata)
+		if err != nil {
+			return nil, fmt.Errorf("marshal metadata for run %d: %w", s.idx, err)
+		}
+	}
+
+	values := s.values
+	values[0] = run.ID
+	values[1] = run.JobID
+	values[2] = run.ProjectID
+	values[3] = run.Status
+	values[4] = run.Attempt
+	values[5] = dbscan.NilIfEmptyRawMessage(run.Payload)
+	values[6] = dbscan.NilIfEmptyRawMessage(run.Result)
+	values[7] = dbscan.NilIfEmptyString(run.Error)
+	values[8] = run.TriggeredBy
+	values[9] = run.ScheduledAt
+	values[10] = run.StartedAt
+	values[11] = run.FinishedAt
+	values[12] = run.HeartbeatAt
+	values[13] = run.NextRetryAt
+	values[14] = run.ExpiresAt
+	values[15] = dbscan.NilIfEmptyString(run.ParentRunID)
+	values[16] = run.Priority
+	values[17] = dbscan.NilIfEmptyString(run.IdempotencyKey)
+	values[18] = run.JobVersion
+	values[19] = dbscan.NilIfEmptyString(run.WorkflowStepRunID)
+	values[20] = run.DebugMode
+	values[21] = dbscan.NilIfEmptyString(run.ContinuationOf)
+	values[22] = run.LineageDepth
+	values[23] = tagsJSON
+	values[24] = dbscan.NilIfEmptyString(run.JobVersionID)
+	values[25] = dbscan.NilIfEmptyString(run.CreatedBy)
+	values[26] = dbscan.NilIfEmptyString(run.ConcurrencyKey)
+	values[27] = dbscan.NilIfEmptyString(run.BatchID)
+	values[28] = string(run.ExecutionMode)
+	values[29] = runQueueName(run.QueueName)
+	values[30] = metadataJSON
+	values[31] = run.IsRollback
+	return values, nil
+}
+
+func (s *jobRunCopyFromSource) Err() error {
+	return nil
 }
 
 func runQueueName(queueName string) string {
@@ -1040,7 +1066,10 @@ func (q *PostgresQueue) DequeueNForWorkerQueues(ctx context.Context, n int, queu
 		return nil, fmt.Errorf("dequeue worker claim: delete: %w", err)
 	}
 
-	ids := make([]string, 0, n)
+	var ids []string
+	if n > 1 {
+		ids = make([]string, 0, n)
+	}
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
@@ -1090,6 +1119,13 @@ func (q *PostgresQueue) DequeueNForWorkerQueues(ctx context.Context, n int, queu
 func workerQueueRefArgs(refs []domain.WorkerQueueRef) ([]string, []string, []string) {
 	if len(refs) == 0 {
 		return nil, nil, nil
+	}
+	if len(refs) == 1 {
+		ref := refs[0]
+		if ref.ProjectID == "" || ref.QueueName == "" {
+			return nil, nil, nil
+		}
+		return []string{ref.ProjectID}, []string{ref.QueueName}, []string{ref.EnvironmentID}
 	}
 	seen := make(map[domain.WorkerQueueRef]struct{}, len(refs))
 	projectIDs := make([]string, 0, len(refs))
@@ -1189,7 +1225,10 @@ func (q *PostgresQueue) DequeueNClaim(ctx context.Context, n int) ([]domain.JobR
 		return nil, fmt.Errorf("dequeue claim: delete: %w", err)
 	}
 
-	ids := make([]string, 0, n)
+	var ids []string
+	if n > 1 {
+		ids = make([]string, 0, n)
+	}
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {

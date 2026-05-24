@@ -3,7 +3,6 @@ package workflow
 import (
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"strait/internal/domain"
 )
@@ -86,31 +85,27 @@ func SimulateWorkflow(
 	}
 
 	// Build topological order.
-	order := buildTopologicalOrder(steps)
-	stepByRef := make(map[string]*domain.WorkflowStep, len(steps))
-	for i := range steps {
-		stepByRef[steps[i].StepRef] = &steps[i]
-	}
+	stepIndex := buildStepIndex(steps)
+	order := buildTopologicalOrderIndexesWithStepIndex(steps, stepIndex)
 
-	// Assign parallel groups.
-	groups := assignParallelGroups(steps, order)
+	// Assign parallel groups and calculate critical-path duration in one
+	// dependency pass over the topological order.
+	groups, totalDuration := calculateSimulationTimings(steps, order, stepIndex)
 
 	// Build execution plan.
 	plan := make([]SimulatedStep, 0, len(order))
-	failurePaths := make([]SimulatedStep, 0)
-	conditionResults := make(map[string]bool)
+	var failurePaths []SimulatedStep
+	var conditionResults map[string]bool
+	var totalCost int64
 
-	for i, ref := range order {
-		step := stepByRef[ref]
-		if step == nil {
-			continue
-		}
+	for i, stepIdx := range order {
+		step := &steps[stepIdx]
 
 		simStep := SimulatedStep{
-			StepRef:           ref,
+			StepRef:           step.StepRef,
 			StepType:          string(step.StepType),
 			Order:             i + 1,
-			ParallelGroup:     groups[ref],
+			ParallelGroup:     groups[stepIdx],
 			DependsOn:         step.DependsOn,
 			EstimatedDuration: step.ExpectedDurationSecs,
 		}
@@ -122,13 +117,17 @@ func SimulateWorkflow(
 		// Cost estimate.
 		if step.JobID != "" && costEstimates != nil {
 			simStep.EstimatedCost = costEstimates[step.JobID]
+			totalCost += simStep.EstimatedCost
 		}
 
 		// Condition evaluation (simplified: mark as present).
 		if len(step.Condition) > 0 {
 			met := true // dry-run assumes conditions pass.
 			simStep.ConditionMet = &met
-			conditionResults[ref] = met
+			if conditionResults == nil {
+				conditionResults = make(map[string]bool)
+			}
+			conditionResults[step.StepRef] = met
 		}
 
 		// Compensation info.
@@ -139,24 +138,13 @@ func SimulateWorkflow(
 
 		// Failure injection.
 		if req.FailureInjection != nil {
-			if errMsg, injected := req.FailureInjection[ref]; injected {
+			if errMsg, injected := req.FailureInjection[step.StepRef]; injected {
 				simStep.InjectedFailure = errMsg
 				failurePaths = append(failurePaths, simStep)
 			}
 		}
 
 		plan = append(plan, simStep)
-	}
-
-	// Calculate totals.
-	totalDuration := 0
-	var totalCost int64
-	epoch := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
-	if expectedTime := CalculateExpectedCompletion(steps, epoch); expectedTime != nil {
-		totalDuration = int(expectedTime.Sub(epoch).Seconds())
-	}
-	for _, s := range plan {
-		totalCost += s.EstimatedCost
 	}
 
 	// Build DAG.
@@ -173,38 +161,49 @@ func SimulateWorkflow(
 	}, nil
 }
 
-func assignParallelGroups(steps []domain.WorkflowStep, order []string) map[string]int {
-	groups := make(map[string]int, len(steps))
-	depDepth := make(map[string]int, len(steps))
-
-	stepByRef := make(map[string]*domain.WorkflowStep, len(steps))
-	for i := range steps {
-		stepByRef[steps[i].StepRef] = &steps[i]
-	}
-
-	for _, ref := range order {
-		step := stepByRef[ref]
-		if step == nil {
-			continue
-		}
+func calculateSimulationTimings(
+	steps []domain.WorkflowStep,
+	order []int,
+	stepIndex map[string]int,
+) ([]int, int) {
+	groups := make([]int, len(steps))
+	durationByStep := make([]int, len(steps))
+	maxDuration := 0
+	for _, stepIdx := range order {
+		step := &steps[stepIdx]
 		maxParentDepth := -1
+		parentDuration := 0
 		for _, dep := range step.DependsOn {
-			if d, ok := depDepth[dep]; ok && d > maxParentDepth {
-				maxParentDepth = d
+			depIdx, ok := stepIndex[dep]
+			if !ok {
+				continue
+			}
+			if groups[depIdx] > maxParentDepth {
+				maxParentDepth = groups[depIdx]
+			}
+			if durationByStep[depIdx] > parentDuration {
+				parentDuration = durationByStep[depIdx]
 			}
 		}
-		depth := maxParentDepth + 1
-		depDepth[ref] = depth
-		groups[ref] = depth
+
+		groups[stepIdx] = maxParentDepth + 1
+		durationByStep[stepIdx] = parentDuration + step.ExpectedDurationSecs
+		if durationByStep[stepIdx] > maxDuration {
+			maxDuration = durationByStep[stepIdx]
+		}
 	}
 
-	return groups
+	return groups, maxDuration
 }
 
-func buildSimulationDAG(steps []domain.WorkflowStep, groups map[string]int) SimulationDAG {
+func buildSimulationDAG(steps []domain.WorkflowStep, groups []int) SimulationDAG {
+	edgeCount := 0
+	for _, s := range steps {
+		edgeCount += len(s.DependsOn)
+	}
 	dag := SimulationDAG{
 		Nodes: make([]DAGNode, len(steps)),
-		Edges: make([]DAGEdge, 0),
+		Edges: make([]DAGEdge, 0, edgeCount),
 	}
 
 	for i, s := range steps {
@@ -216,7 +215,7 @@ func buildSimulationDAG(steps []domain.WorkflowStep, groups map[string]int) Simu
 			ID:       s.StepRef,
 			StepRef:  s.StepRef,
 			StepType: stepType,
-			Group:    groups[s.StepRef],
+			Group:    groups[i],
 		}
 		for _, dep := range s.DependsOn {
 			dag.Edges = append(dag.Edges, DAGEdge{From: dep, To: s.StepRef})
@@ -232,25 +231,34 @@ func ValidateSimulateRequest(req *SimulateRequest, steps []domain.WorkflowStep) 
 		return fmt.Errorf("request is nil")
 	}
 
-	validModes := map[SimulationMode]bool{
-		SimModeDryRun:           true,
-		SimModeSandbox:          true,
-		SimModeFailureInjection: true,
-	}
-	if !validModes[req.Mode] {
+	switch req.Mode {
+	case SimModeDryRun, SimModeSandbox, SimModeFailureInjection:
+	default:
 		return fmt.Errorf("invalid simulation mode: %s", req.Mode)
 	}
 
 	// Validate failure injection step refs exist.
-	if req.FailureInjection != nil {
-		stepRefs := make(map[string]bool, len(steps))
-		for _, s := range steps {
-			stepRefs[s.StepRef] = true
-		}
+	if len(req.FailureInjection) == 0 {
+		return nil
+	}
+	if len(req.FailureInjection) == 1 {
 		for ref := range req.FailureInjection {
-			if !stepRefs[ref] {
-				return fmt.Errorf("failure injection references unknown step: %s", ref)
+			for _, s := range steps {
+				if s.StepRef == ref {
+					return nil
+				}
 			}
+			return fmt.Errorf("failure injection references unknown step: %s", ref)
+		}
+	}
+
+	stepRefs := make(map[string]struct{}, len(steps))
+	for _, s := range steps {
+		stepRefs[s.StepRef] = struct{}{}
+	}
+	for ref := range req.FailureInjection {
+		if _, ok := stepRefs[ref]; !ok {
+			return fmt.Errorf("failure injection references unknown step: %s", ref)
 		}
 	}
 

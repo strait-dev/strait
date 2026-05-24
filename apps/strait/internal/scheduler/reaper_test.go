@@ -2158,6 +2158,13 @@ func TestReaper_ReapApprovalReminders_SendsReminder(t *testing.T) {
 	if deliveries[0].EventType != domain.NotificationEventApprovalReminder {
 		t.Errorf("expected event type %s, got %s", domain.NotificationEventApprovalReminder, deliveries[0].EventType)
 	}
+	var payload map[string]any
+	if err := json.Unmarshal(deliveries[0].Payload, &payload); err != nil {
+		t.Fatalf("unmarshal reminder payload: %v", err)
+	}
+	if payload["approval_id"] != "appr-1" || payload["workflow_run_id"] != "wr-1" || payload["workflow_id"] != "wf-1" || payload["step_run_id"] != "sr-1" {
+		t.Fatalf("unexpected reminder payload: %v", payload)
+	}
 }
 
 // TestReaper_ReapApprovalReminders_MemoizesChannelsPerProject verifies that
@@ -2387,6 +2394,55 @@ func TestReaper_ReapApprovalReminders_Dedup(t *testing.T) {
 
 	if deliveryCount != 1 {
 		t.Fatalf("expected 1 delivery (dedup), got %d", deliveryCount)
+	}
+}
+
+func TestReaper_ReapApprovalReminders_CachesWorkflowAndChannelsPerPoll(t *testing.T) {
+	t.Parallel()
+	expires := time.Now().Add(10 * time.Minute)
+	approvals := []domain.WorkflowStepApproval{
+		{ID: "appr-1", WorkflowRunID: "wr-1", WorkflowStepRunID: "sr-1", Status: domain.ApprovalStatusPending, ExpiresAt: &expires},
+		{ID: "appr-2", WorkflowRunID: "wr-1", WorkflowStepRunID: "sr-2", Status: domain.ApprovalStatusPending, ExpiresAt: &expires},
+		{ID: "appr-3", WorkflowRunID: "wr-1", WorkflowStepRunID: "sr-3", Status: domain.ApprovalStatusPending, ExpiresAt: &expires},
+	}
+	var workflowLookups atomic.Int32
+	var channelLookups atomic.Int32
+	var deliveries atomic.Int32
+	ms := &mockNotifierReaperStore{
+		listApprovalsPastReminderPointFn: func(_ context.Context) ([]domain.WorkflowStepApproval, error) {
+			return approvals, nil
+		},
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			if id != "wr-1" {
+				t.Fatalf("unexpected workflow run lookup for %q", id)
+			}
+			workflowLookups.Add(1)
+			return &domain.WorkflowRun{ID: "wr-1", ProjectID: "proj-1", WorkflowID: "wf-1"}, nil
+		},
+		listEnabledNotificationChannelsFn: func(_ context.Context, projectID string) ([]domain.NotificationChannel, error) {
+			if projectID != "proj-1" {
+				t.Fatalf("unexpected channel lookup for project %q", projectID)
+			}
+			channelLookups.Add(1)
+			return []domain.NotificationChannel{{ID: "ch-1", ProjectID: "proj-1"}}, nil
+		},
+		createNotificationDeliveryFn: func(_ context.Context, _ *domain.NotificationDelivery) error {
+			deliveries.Add(1)
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.reapApprovalReminders(context.Background())
+
+	if deliveries.Load() != int32(len(approvals)) {
+		t.Fatalf("expected %d deliveries, got %d", len(approvals), deliveries.Load())
+	}
+	if workflowLookups.Load() != 1 {
+		t.Fatalf("expected 1 workflow lookup, got %d", workflowLookups.Load())
+	}
+	if channelLookups.Load() != 1 {
+		t.Fatalf("expected 1 channel lookup, got %d", channelLookups.Load())
 	}
 }
 

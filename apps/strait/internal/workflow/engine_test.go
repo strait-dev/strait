@@ -226,10 +226,12 @@ func (m *mockEngineQueue) DequeueNByProject(context.Context, int, string) ([]dom
 
 func buildWfCtx(run *domain.WorkflowRun, steps []domain.WorkflowStep) *wfCtx {
 	byRef := make(map[string]domain.WorkflowStep, len(steps))
-	for _, s := range steps {
+	stepIndex := make(map[string]int, len(steps))
+	for i, s := range steps {
 		byRef[s.StepRef] = s
+		stepIndex[s.StepRef] = i
 	}
-	return &wfCtx{run: run, steps: steps, stepByRef: byRef}
+	return &wfCtx{run: run, steps: steps, stepByRef: byRef, stepIndex: stepIndex}
 }
 
 func TestTriggerWorkflow(t *testing.T) {
@@ -810,6 +812,113 @@ func TestMergePayloads(t *testing.T) {
 		out := mergePayloads(json.RawMessage(`{"a":1}`), nil, nil)
 		if string(out) != `{"a":1}` {
 			t.Fatalf("got %s, want trigger payload", string(out))
+		}
+	})
+
+	t.Run("empty trigger payload keeps step payload", func(t *testing.T) {
+		t.Parallel()
+		out := mergePayloads(nil, json.RawMessage(`{"step":true}`), nil)
+		if string(out) != `{"step":true}` {
+			t.Fatalf("got %s, want step payload", string(out))
+		}
+	})
+
+	t.Run("parent outputs added when trigger has payload and step is empty", func(t *testing.T) {
+		t.Parallel()
+		out := mergePayloads(json.RawMessage(`{"a":1}`), nil, json.RawMessage(`{"p":true}`))
+
+		var got map[string]any
+		if err := json.Unmarshal(out, &got); err != nil {
+			t.Fatalf("unmarshal output: %v", err)
+		}
+		if got["a"] != float64(1) {
+			t.Fatalf("a = %v, want 1", got["a"])
+		}
+		if _, ok := got["parent_outputs"]; !ok {
+			t.Fatalf("missing parent_outputs: %+v", got)
+		}
+	})
+
+	t.Run("duplicate keys keep step payload value", func(t *testing.T) {
+		t.Parallel()
+		out := mergePayloads(json.RawMessage(`{"a":1,"keep":true}`), json.RawMessage(`{"a":2}`), nil)
+
+		var got map[string]any
+		if err := json.Unmarshal(out, &got); err != nil {
+			t.Fatalf("unmarshal output: %v", err)
+		}
+		if got["a"] != float64(2) {
+			t.Fatalf("a = %v, want 2", got["a"])
+		}
+		if got["keep"] != true {
+			t.Fatalf("keep = %v, want true", got["keep"])
+		}
+	})
+
+	t.Run("duplicate keys keep last value within each payload", func(t *testing.T) {
+		t.Parallel()
+		out := mergePayloads(json.RawMessage(`{"a":1,"a":2}`), json.RawMessage(`{"b":1,"b":2}`), nil)
+
+		var got map[string]any
+		if err := json.Unmarshal(out, &got); err != nil {
+			t.Fatalf("unmarshal output: %v", err)
+		}
+		if got["a"] != float64(2) {
+			t.Fatalf("a = %v, want 2", got["a"])
+		}
+		if got["b"] != float64(2) {
+			t.Fatalf("b = %v, want 2", got["b"])
+		}
+	})
+
+	t.Run("escaped keys still merge", func(t *testing.T) {
+		t.Parallel()
+		out := mergePayloads(json.RawMessage(`{"tenant\u002did":"trigger"}`), json.RawMessage(`{"tenant\u002did":"step"}`), nil)
+
+		var got map[string]any
+		if err := json.Unmarshal(out, &got); err != nil {
+			t.Fatalf("unmarshal output: %v", err)
+		}
+		if got["tenant-id"] != "step" {
+			t.Fatalf("tenant-id = %v, want step", got["tenant-id"])
+		}
+	})
+}
+
+func BenchmarkMergePayloads(b *testing.B) {
+	triggerPayload := json.RawMessage(`{"account_id":"acct-123","region":"us-east-1","attempt":1,"flags":{"dry_run":false}}`)
+	stepPayload := json.RawMessage(`{"step":"validate","attempt":2,"limits":{"cpu":"500m","memory":"512Mi"}}`)
+	parentOutputs := json.RawMessage(`{"extract":{"rows":1000},"normalize":{"status":"completed"}}`)
+	nonObjectStepPayload := json.RawMessage(`"step"`)
+
+	b.Run("trigger_only", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = mergePayloads(triggerPayload, nil, nil)
+		}
+	})
+	b.Run("step_only", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = mergePayloads(nil, stepPayload, nil)
+		}
+	})
+	b.Run("object_merge", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = mergePayloads(triggerPayload, stepPayload, nil)
+		}
+	})
+	b.Run("object_merge_with_parent_outputs", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = mergePayloads(triggerPayload, stepPayload, parentOutputs)
+		}
+	})
+	b.Run("non_object_step_fallback", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = mergePayloads(triggerPayload, nonObjectStepPayload, nil)
 		}
 	})
 }
@@ -5677,6 +5786,18 @@ func TestApplyStepOverrides(t *testing.T) {
 		}
 	})
 
+	t.Run("unknown enabled step_ref returns error", func(t *testing.T) {
+		t.Parallel()
+		steps := []domain.WorkflowStep{
+			{ID: "step-a", JobID: "job-a", StepRef: "a"},
+		}
+
+		_, err := applyStepOverrides(steps, []domain.StepOverride{{StepRef: "nonexistent", Enabled: true}})
+		if err == nil || !strings.Contains(err.Error(), "unknown step_ref") {
+			t.Fatalf("expected unknown step_ref error, got %v", err)
+		}
+	})
+
 	t.Run("all steps disabled returns error", func(t *testing.T) {
 		t.Parallel()
 		steps := []domain.WorkflowStep{
@@ -5715,6 +5836,101 @@ func TestApplyStepOverrides(t *testing.T) {
 			t.Fatalf("expected c depends_on to be [a], got %+v", got[1].DependsOn)
 		}
 	})
+}
+
+func BenchmarkApplyStepOverrides(b *testing.B) {
+	steps := make([]domain.WorkflowStep, 100)
+	for i := range steps {
+		steps[i] = domain.WorkflowStep{
+			ID:      fmt.Sprintf("step-%03d", i),
+			JobID:   fmt.Sprintf("job-%03d", i),
+			StepRef: fmt.Sprintf("step-%03d", i),
+		}
+		if i > 0 {
+			steps[i].DependsOn = []string{steps[i-1].StepRef}
+		}
+	}
+
+	b.Run("none", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			got, err := applyStepOverrides(steps, nil)
+			if err != nil {
+				b.Fatal(err)
+			}
+			if len(got) != len(steps) {
+				b.Fatalf("len(got) = %d", len(got))
+			}
+		}
+	})
+	b.Run("all_enabled", func(b *testing.B) {
+		overrides := []domain.StepOverride{{StepRef: "step-050", Enabled: true}}
+		b.ReportAllocs()
+		for b.Loop() {
+			got, err := applyStepOverrides(steps, overrides)
+			if err != nil {
+				b.Fatal(err)
+			}
+			if len(got) != len(steps) {
+				b.Fatalf("len(got) = %d", len(got))
+			}
+		}
+	})
+	b.Run("disable_middle", func(b *testing.B) {
+		overrides := []domain.StepOverride{{StepRef: "step-050", Enabled: false}}
+		b.ReportAllocs()
+		for b.Loop() {
+			got, err := applyStepOverrides(steps, overrides)
+			if err != nil {
+				b.Fatal(err)
+			}
+			if len(got) != len(steps)-1 {
+				b.Fatalf("len(got) = %d", len(got))
+			}
+		}
+	})
+	b.Run("disable_many", func(b *testing.B) {
+		overrides := []domain.StepOverride{
+			{StepRef: "step-020", Enabled: false},
+			{StepRef: "step-040", Enabled: false},
+			{StepRef: "step-060", Enabled: false},
+			{StepRef: "step-080", Enabled: false},
+		}
+		b.ReportAllocs()
+		for b.Loop() {
+			got, err := applyStepOverrides(steps, overrides)
+			if err != nil {
+				b.Fatal(err)
+			}
+			if len(got) != len(steps)-4 {
+				b.Fatalf("len(got) = %d", len(got))
+			}
+		}
+	})
+}
+
+func TestApplyStepOverrides_DoesNotMutateInputDependsOn(t *testing.T) {
+	t.Parallel()
+
+	steps := []domain.WorkflowStep{
+		{ID: "step-a", JobID: "job-a", StepRef: "a"},
+		{ID: "step-b", JobID: "job-b", StepRef: "b", DependsOn: []string{"a"}},
+		{ID: "step-c", JobID: "job-c", StepRef: "c", DependsOn: []string{"a", "b"}},
+	}
+
+	got, err := applyStepOverrides(steps, []domain.StepOverride{{StepRef: "b", Enabled: false}})
+	if err != nil {
+		t.Fatalf("applyStepOverrides() error = %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("len(got) = %d, want 2", len(got))
+	}
+	if len(got[1].DependsOn) != 1 || got[1].DependsOn[0] != "a" {
+		t.Fatalf("filtered c depends_on = %+v, want [a]", got[1].DependsOn)
+	}
+	if len(steps[2].DependsOn) != 2 || steps[2].DependsOn[0] != "a" || steps[2].DependsOn[1] != "b" {
+		t.Fatalf("input c depends_on mutated: %+v", steps[2].DependsOn)
+	}
 }
 
 func TestTriggerWorkflowWithStepOverrides(t *testing.T) {
@@ -6532,6 +6748,39 @@ func TestHasResourceClassCapacity(t *testing.T) {
 		}
 		if !hasResourceClassCapacity(running, "large") {
 			t.Error("large should NOT be blocked by full small")
+		}
+	})
+}
+
+func BenchmarkHasResourceClassCapacity(b *testing.B) {
+	running := map[string]int{
+		"small":  12,
+		"medium": 8,
+		"large":  2,
+	}
+
+	b.Run("empty_class", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if !hasResourceClassCapacity(running, "") {
+				b.Fatal("expected capacity")
+			}
+		}
+	})
+	b.Run("known_class", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if !hasResourceClassCapacity(running, "medium") {
+				b.Fatal("expected capacity")
+			}
+		}
+	})
+	b.Run("unknown_class", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if !hasResourceClassCapacity(running, "gpu") {
+				b.Fatal("expected fallback capacity")
+			}
 		}
 	})
 }
