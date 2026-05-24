@@ -2708,6 +2708,31 @@ func TestMetrics_Authenticated_Returns200(t *testing.T) {
 	}
 }
 
+func TestMetrics_AuthorizationBearerInternalSecret_Returns200(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		InternalSecret: "test-secret-value",
+		JWTSigningKey:  testJWTSigningKey,
+	}
+	srv := NewServer(ServerDeps{
+		Config:         cfg,
+		Store:          &APIStoreMock{},
+		Queue:          &mockQueue{},
+		Edition:        domain.EditionCloud,
+		MetricsHandler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) }),
+	})
+	t.Cleanup(srv.Close)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	r.Header.Set("Authorization", "Bearer test-secret-value")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for bearer internal secret /metrics, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestNullByteStrippingReader(t *testing.T) {
 	t.Parallel()
 	input := []byte("hello\x00world")

@@ -139,6 +139,16 @@ Use these when running connected workers.
 | `GRPC_PUBSUB_STARTUP_TIMEOUT` | `30s` | Maximum time gRPC startup waits for pubsub readiness before refusing to serve worker streams. |
 | `EXTERNAL_API_URL` | - | Base URL workers use to call back to the Strait API. |
 
+## Sizing
+
+| Variable | Default | Description |
+|---|---|---|
+| `DB_MAX_CONNS` | `50` | Maximum PostgreSQL pool size per Strait process. Keep this above `WORKER_CONCURRENCY` and multiply by replicas when sizing PostgreSQL. |
+| `DB_MIN_CONNS` | `10` | Minimum warm PostgreSQL connections per Strait process. |
+| `REDIS_POOL_SIZE` | `30` | Maximum Redis connections per Strait process. |
+| `REDIS_MIN_IDLE_CONNS` | `5` | Minimum warm Redis connections per Strait process. |
+| `WORKER_CONCURRENCY` | `25` | Maximum concurrent job executions per worker process. |
+
 ## Related
 
 - [Deployment](/guides/deployment)

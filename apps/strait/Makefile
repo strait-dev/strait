@@ -5,6 +5,8 @@
 .PHONY: loadtest-all loadtest-report loadtest-unit loadtest-flush
 .PHONY: proto
 
+DEV_COMPOSE = docker compose -f ../../docker-compose.base.yml -f docker-compose.yml
+
 proto: ## Regenerate gRPC Go code from .proto sources (requires buf, protoc-gen-go, protoc-gen-go-grpc)
 	buf generate
 	cp internal/api/grpc/proto/worker/v1/worker.pb.go internal/api/grpc/proto/workerv1/worker.pb.go
@@ -73,7 +75,7 @@ dev: dev-up
 
 dev-up:
 	@echo "Starting Strait stack..."
-	@docker compose up --build --wait -d
+	@$(DEV_COMPOSE) --profile core up --build --wait -d
 	@echo ""
 	@echo "Strait stack ready:"
 	@echo "  API:      http://localhost:8080"
@@ -82,18 +84,18 @@ dev-up:
 	@echo "  Sequin:   http://localhost:7376"
 
 dev-down:
-	@docker compose down
+	@$(DEV_COMPOSE) --profile core down
 	@echo "All infrastructure stopped."
 
 dev-status:
 	@echo "=== Docker Compose ==="
-	@docker compose ps 2>/dev/null || echo "Not running. Run: make dev-up"
+	@$(DEV_COMPOSE) --profile core ps 2>/dev/null || echo "Not running. Run: make dev-up"
 
 dev-logs:
-	@docker compose logs --tail=200
+	@$(DEV_COMPOSE) --profile core logs --tail=200
 
 dev-clean:
-	@docker compose down -v
+	@$(DEV_COMPOSE) --profile core --profile debug --profile observability down -v
 	@echo "Local development infrastructure cleaned up."
 
 # ──────────────────────────────────────────────

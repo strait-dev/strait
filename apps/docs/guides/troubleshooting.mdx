@@ -15,7 +15,7 @@ curl http://localhost:8080/health/ready -H "X-Internal-Secret: $INTERNAL_SECRET"
 **Check the logs first.** Strait logs the reason it exited on startup.
 
 ```bash
-docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml logs strait
+docker compose --env-file .env.selfhost -f docker-compose.base.yml -f docker-compose.selfhost.yml --profile core logs strait
 ```
 
 Common causes:
@@ -29,7 +29,7 @@ Common causes:
 The dashboard and the API authenticate to each other with a shared `INTERNAL_SECRET`. If they hold different values, internal calls fail. Set the same value on both processes and restart them.
 
 ```bash
-docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml restart
+docker compose --env-file .env.selfhost -f docker-compose.base.yml -f docker-compose.selfhost.yml --profile core restart
 ```
 
 Also confirm the dashboard's `STRAIT_API_URL` (or equivalent) points at a URL the dashboard can actually reach. A Cloudflare-hosted dashboard cannot call `localhost`.
@@ -41,7 +41,7 @@ Migrations run automatically on startup. A failed migration leaves the schema ma
 Find the failing migration in the logs:
 
 ```bash
-docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml logs strait | grep -i migration
+docker compose --env-file .env.selfhost -f docker-compose.base.yml -f docker-compose.selfhost.yml --profile core logs strait | grep -i migration
 ```
 
 Resolve the underlying SQL error, then restart. Do not edit historical migration files; fix the data or environment condition that made the migration fail.

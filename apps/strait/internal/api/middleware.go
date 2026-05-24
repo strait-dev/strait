@@ -656,7 +656,7 @@ func (s *Server) internalSecretAuth(next http.Handler) http.Handler {
 			return
 		}
 
-		secret := r.Header.Get("X-Internal-Secret")
+		secret := internalSecretFromRequest(r)
 		if secret == "" || subtle.ConstantTimeCompare([]byte(secret), []byte(s.config.InternalSecret)) != 1 {
 			s.authLimiter.RecordFailureScoped(r.Context(), clientIP, ratelimit.AuthScopeInternalSecret)
 			recordAuthDecision(r.Context(), "internal_secret", "failure")
@@ -704,6 +704,21 @@ func (s *Server) internalSecretAuth(next http.Handler) http.Handler {
 
 		s.serveWithSentryScope(next, w, r.WithContext(ctx))
 	})
+}
+
+func internalSecretFromRequest(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	if secret := r.Header.Get("X-Internal-Secret"); secret != "" {
+		return secret
+	}
+	auth := strings.TrimSpace(r.Header.Get("Authorization"))
+	const bearerPrefix = "Bearer "
+	if len(auth) > len(bearerPrefix) && strings.EqualFold(auth[:len(bearerPrefix)], bearerPrefix) {
+		return strings.TrimSpace(auth[len(bearerPrefix):])
+	}
+	return ""
 }
 
 // requestLogger logs structured request/response information including

@@ -21,7 +21,7 @@ Strait runs your background jobs and orchestrates multi-step workflows from a si
 - **Failure recovery.** Inspect a failed run, fix the cause, and replay it. Dead-letter runs are kept for review instead of silently dropped.
 - **Observability built in.** OpenTelemetry traces, Prometheus metrics, structured logs, and real-time SSE streaming, with optional ClickHouse analytics, audit logs, and log drains.
 - **SDKs and tooling.** Official SDKs for [TypeScript](https://github.com/strait-dev/strait-ts), [Python](https://github.com/strait-dev/strait-python), [Go](https://github.com/strait-dev/strait-go), [Ruby](https://github.com/strait-dev/strait-ruby), and [Rust](https://github.com/strait-dev/strait-rust) with the same feature set on each, plus a [CLI](https://github.com/strait-dev/cli) and an [MCP server](https://github.com/strait-dev/mcp).
-- **One binary, self-host ready.** Strait ships as a single Go binary, and self-hosting uses `docker-compose.selfhost.yml` to run the required PostgreSQL, Redis, and Sequin stack.
+- **One binary, self-host ready.** Strait ships as a single Go binary, and self-hosting uses the shared Compose stack to run the required PostgreSQL, Redis, and Sequin services.
 
 ---
 
@@ -106,7 +106,8 @@ apps/
   app/      TanStack Start dashboard (React 19, Vite).
   docs/     Mintlify docs.
 packages/   Shared TS packages (ui, billing, config, transactional, ...).
-docker-compose.selfhost.yml   One-command self-host stack.
+docker-compose.base.yml       Shared runtime stack.
+docker-compose.selfhost.yml   Self-host overrides and dashboard profile.
 SELFHOST.md                   Self-host walkthrough.
 AGENTS.md                     Contributor operating guide.
 ```

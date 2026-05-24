@@ -187,6 +187,16 @@ Workers
 
 All instances share the same PostgreSQL, Redis, and Sequin runtime contract.
 
+## Baseline sizing
+
+| Deployment | Starting point | Notes |
+|---|---|---|
+| Development | 2 CPU, 2-4 GB RAM | Use `make dev`; the Compose stack exposes Postgres on `15432`, Redis on `16379`, Sequin on `7376`, and Strait on `8080`. |
+| Small self-host | 2 CPU, 4 GB RAM | Keep `WORKER_CONCURRENCY=25` and `DB_MAX_CONNS=50` until load data says otherwise. |
+| Production single node | 4 CPU, 8 GB RAM | Start with `WORKER_CONCURRENCY=50` and `DB_MAX_CONNS=100`, then tune from queue depth, DB pool, and Redis latency metrics. |
+
+The Docker Compose defaults are intentionally conservative. Raise worker concurrency and Redis/Postgres connection pools together, and keep Sequin in the same region as PostgreSQL.
+
 ## Placement
 
 Keep Strait close to PostgreSQL. Database latency affects API calls, scheduling, and worker throughput.

@@ -11,7 +11,13 @@ END
 $$;
 
 -- Create publication for all tables (Sequin will filter).
-CREATE PUBLICATION sequin_strait_pub FOR ALL TABLES;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'sequin_strait_pub') THEN
+        CREATE PUBLICATION sequin_strait_pub FOR ALL TABLES;
+    END IF;
+END
+$$;
 
 -- Set replica identity to full for CDC tables so Sequin includes
 -- the changes field in message payloads (shows which columns changed).
@@ -19,6 +25,9 @@ CREATE PUBLICATION sequin_strait_pub FOR ALL TABLES;
 -- idempotent and safe to re-run.
 DO $$
 BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'job_runs') THEN
+        ALTER TABLE public.job_runs REPLICA IDENTITY FULL;
+    END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'event_triggers') THEN
         ALTER TABLE public.event_triggers REPLICA IDENTITY FULL;
     END IF;

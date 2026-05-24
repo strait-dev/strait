@@ -1,4 +1,7 @@
-.PHONY: help setup dev dev-stripe app app-migrate selfhost selfhost-down selfhost-reset build test test-race test-int test-load lint vet bench migrate-up migrate-down migrate-status migrate-create clean check
+.PHONY: help setup dev dev-debug dev-observability dev-status dev-logs dev-reset dev-stripe app app-migrate selfhost selfhost-core selfhost-observability selfhost-down selfhost-reset build test test-race test-int test-load lint vet bench migrate-up migrate-down migrate-status migrate-create clean check
+
+DEV_COMPOSE = docker compose -f docker-compose.base.yml -f apps/strait/docker-compose.yml
+SELFHOST_COMPOSE = docker compose --env-file .env.selfhost -f docker-compose.base.yml -f docker-compose.selfhost.yml
 
 help:
 	@echo "Strait Development Commands"
@@ -7,11 +10,18 @@ help:
 	@echo "  make setup              Download dependencies, tidy modules, install git hooks"
 	@echo ""
 	@echo "Development:"
-	@echo "  make dev                Start Docker dependencies and run API server (community edition)"
+	@echo "  make dev                Start the shared local Strait stack"
+	@echo "  make dev-debug          Start local stack with Adminer and Redis Insight"
+	@echo "  make dev-observability  Start local stack with Prometheus"
+	@echo "  make dev-status         Show local stack status"
+	@echo "  make dev-logs           Tail local stack logs"
+	@echo "  make dev-reset          Stop local stack and remove volumes"
 	@echo "  make dev-stripe         Start Docker, Stripe webhook forwarding, and run API server with Doppler"
 	@echo "  make app                Start the frontend dashboard (Vite dev server)"
 	@echo "  make app-migrate        Run Better Auth database migrations"
 	@echo "  make selfhost           Generate self-host secrets and start the self-host stack"
+	@echo "  make selfhost-core      Start API-only self-host stack without dashboard"
+	@echo "  make selfhost-observability Start self-host stack with Prometheus"
 	@echo "  make selfhost-down      Stop the self-host stack"
 	@echo "  make selfhost-reset     Tear down the self-host stack and regenerate secrets on next start"
 	@echo "  make build              Build all packages"
@@ -45,11 +55,31 @@ setup:
 	lefthook install
 
 dev:
-	docker compose -f apps/strait/docker-compose.yml up --build --wait -d
+	$(DEV_COMPOSE) --profile core up --build --wait -d
 	@echo "Strait stack is running at http://localhost:8080"
 
+dev-debug:
+	$(DEV_COMPOSE) --profile core --profile debug up --build --wait -d
+	@echo "Strait stack is running at http://localhost:8080"
+	@echo "Adminer is running at http://localhost:18080"
+	@echo "Redis Insight is running at http://localhost:15540"
+
+dev-observability:
+	$(DEV_COMPOSE) --profile core --profile observability up --build --wait -d
+	@echo "Strait stack is running at http://localhost:8080"
+	@echo "Prometheus is running at http://localhost:9090"
+
+dev-status:
+	$(DEV_COMPOSE) --profile core ps
+
+dev-logs:
+	$(DEV_COMPOSE) --profile core logs -f --tail=200
+
+dev-reset:
+	$(DEV_COMPOSE) --profile core --profile debug --profile observability down -v
+
 dev-stripe:
-	docker compose -f apps/strait/docker-compose.yml up --build --wait -d
+	$(DEV_COMPOSE) --profile core up --build --wait -d
 	@echo "Running Better Auth migrations..."
 	@doppler run --project strait --config dev -- sh -c 'cd apps/app && bun run db:migrate'
 	@echo ""
@@ -63,7 +93,7 @@ dev-stripe:
 	@echo "Logs at /tmp/stripe-listen.log"
 	@echo ""
 	@echo "Strait stack is running at http://localhost:8080"
-	docker compose -f apps/strait/docker-compose.yml logs -f strait
+	$(DEV_COMPOSE) --profile core logs -f strait
 	@-kill $$(cat /tmp/stripe-listen.pid) 2>/dev/null; rm -f /tmp/stripe-listen.pid
 
 app:
@@ -77,10 +107,18 @@ app-migrate:
 
 selfhost:
 	@./packages/scripts/selfhost-init.sh
-	docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml up -d
+	$(SELFHOST_COMPOSE) --profile core --profile dashboard up -d
+
+selfhost-core:
+	@./packages/scripts/selfhost-init.sh
+	$(SELFHOST_COMPOSE) --profile core up -d
+
+selfhost-observability:
+	@./packages/scripts/selfhost-init.sh
+	$(SELFHOST_COMPOSE) --profile core --profile dashboard --profile observability up -d
 
 selfhost-down:
-	docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml down
+	$(SELFHOST_COMPOSE) --profile core --profile dashboard --profile observability down
 
 selfhost-reset:
 	@./packages/scripts/selfhost-init.sh --reset
@@ -123,7 +161,7 @@ migrate-create:
 
 clean:
 	cd apps/strait && go clean -testcache
-	docker compose -f apps/strait/docker-compose.yml down -v
+	$(DEV_COMPOSE) --profile core --profile debug --profile observability down -v
 	@-kill $$(cat /tmp/stripe-listen.pid) 2>/dev/null; rm -f /tmp/stripe-listen.pid
 
 check: build vet test lint

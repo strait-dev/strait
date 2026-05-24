@@ -8,7 +8,7 @@ cd strait
 make selfhost
 ```
 
-`make selfhost` generates secrets and starts the API, dashboard, PostgreSQL, Redis, and Sequin via `docker-compose.selfhost.yml`. Then check the API and open the dashboard:
+`make selfhost` generates secrets and starts the API, dashboard, PostgreSQL, Redis, and Sequin via `docker-compose.base.yml` plus `docker-compose.selfhost.yml`. Then check the API and open the dashboard:
 
 ```bash
 curl http://localhost:8080/health

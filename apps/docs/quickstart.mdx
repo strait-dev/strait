@@ -31,8 +31,8 @@ You need:
 git clone https://github.com/strait-dev/strait.git
 cd strait
 
-docker compose -f apps/strait/docker-compose.yml up --build --wait -d
-docker compose -f apps/strait/docker-compose.yml ps
+make dev
+make dev-status
 ```
 
 PostgreSQL, Redis, Sequin, and Strait should report healthy.
@@ -53,7 +53,7 @@ For local development, `INTERNAL_SECRET` is the bearer token for API calls.
 ## 3. Run the Server From Source
 
 ```bash
-docker compose -f apps/strait/docker-compose.yml stop strait
+docker compose -f docker-compose.base.yml -f apps/strait/docker-compose.yml --profile core stop strait
 cd apps/strait
 go build -o strait ./cmd/strait
 ./strait --mode all
