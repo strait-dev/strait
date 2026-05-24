@@ -222,11 +222,11 @@ func OutboxBurst() Scenario {
 
 // DenormalizedDequeueDelta runs ThroughputCeiling twice — with
 // QUEUE_USE_DENORMALIZED_DEQUEUE true and false — and emits a delta
-// report so the denormalized path's lift is measurable.
+// report so the fully denormalized path's lift is measurable.
 func DenormalizedDequeueDelta() Scenario {
 	return Scenario{
 		Name:        "denormalized_dequeue_delta",
-		Description: "ThroughputCeiling with QUEUE_USE_DENORMALIZED_DEQUEUE true vs false; emit delta report.",
+		Description: "ThroughputCeiling with fully denormalized dequeue enabled vs disabled; emit delta report.",
 		Tier:        1,
 		Duration:    4 * time.Hour,
 	}

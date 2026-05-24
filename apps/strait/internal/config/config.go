@@ -79,8 +79,9 @@ type Config struct {
 	DBWatchdogInterval         time.Duration `env:"DB_WATCHDOG_INTERVAL" default:"15s"`
 	DBWatchdogEnabled          bool          `env:"DB_WATCHDOG_ENABLED" default:"true"`
 
-	// Toggle the denormalized dequeue path (uses job_active_counts
-	// lookup table instead of COUNT-over-active-rows CTE).
+	// Toggle the fully denormalized dequeue path (uses job_runs fan-out
+	// columns plus job_active_counts instead of joining jobs and scanning
+	// active rows).
 	QueueUseDenormalizedDequeue bool `env:"QUEUE_USE_DENORMALIZED_DEQUEUE" default:"false"`
 
 	// DLQ caps and overflow policy.

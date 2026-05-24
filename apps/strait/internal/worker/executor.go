@@ -206,8 +206,9 @@ type ExecutorConfig struct {
 	// obtain the fresh channel, avoiding stale-channel re-arm. Nil means no
 	// degraded-mode support.
 	Degraded queue.DegradedNotifier
-	// UseDenormalizedDequeue opts into the job_active_counts-backed
-	// dequeue path. Defaults to false so existing deployments are unaffected.
+	// UseDenormalizedDequeue opts into the fully denormalized dequeue path
+	// backed by job_runs fan-out columns and job_active_counts. Defaults to
+	// false so existing deployments are unaffected.
 	UseDenormalizedDequeue bool
 	// DBCircuitConfig configures the circuit breaker for the
 	// dequeue hot path. Zero values fall back to defaults.

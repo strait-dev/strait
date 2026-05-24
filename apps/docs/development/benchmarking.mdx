@@ -25,7 +25,7 @@ The process writes a Markdown summary to `apps/strait/internal/loadtest/reports/
 | `BackpressureCeiling` | Ramps enqueue across N projects past the per-project token bucket; measures rejection rate and steady-state dequeue throughput. |
 | `CircuitBreakerChaos` | Uses `internal/testutil/pgxslow` to inject DB latency; asserts the circuit opens within threshold, dequeue short-circuits, and recovery completes after backoff. |
 | `OutboxBurst` | Bulk enqueues via the outbox with the flusher paused, then releases the flusher; measures throughput and the `outbox_lag_seconds` histogram. |
-| `DenormalizedDequeueDelta` | Runs `ThroughputCeiling` with `QUEUE_USE_DENORMALIZED_DEQUEUE` true and false; emits a delta report. |
+| `DenormalizedDequeueDelta` | Runs `ThroughputCeiling` with `QUEUE_USE_DENORMALIZED_DEQUEUE` true and false; the flag selects the fully denormalized dequeue path. |
 | `PartitionCycleMatrix` | Varies `partitionCycle` (1, 4, 12) at fixed enqueue rate; reports per-partition P99 dequeue latency via `partition_dequeue_lag_seconds`. |
 
 ## Metrics to watch
@@ -52,7 +52,7 @@ These numbers are informational — captured on a 16-core workstation against a 
 | `ThroughputCeiling` | Sustained jobs/sec at P99 < 5s | ~1.8k |
 | `BackpressureCeiling` | Rejection rate at 2x bucket | ~48% |
 | `OutboxBurst` | Flusher drain rate | ~6k rows/sec |
-| `DenormalizedDequeueDelta` | Dequeue P99 delta | 35-45% lower with denormalized on |
+| `DenormalizedDequeueDelta` | Dequeue P99 delta | 35-45% lower with fully denormalized dequeue on |
 | `PartitionCycleMatrix` | Per-partition P99 spread | < 30% across cycles |
 
 Capture your own numbers before a performance-sensitive change and again after. The Markdown report is designed to be diffed across runs.

@@ -23,11 +23,11 @@ type cursorAwareQueue interface {
 	DequeueNWithCursor(ctx context.Context, n int, cursor *queue.ClaimCursor) ([]domain.JobRun, error)
 }
 
-// denormalizedDequeuer is the optional interface for the
-// job_active_counts-backed dequeue path. Same pattern as cursorAwareQueue:
-// opt-in via type assertion to avoid expanding the base Queue interface.
-type denormalizedDequeuer interface {
-	DequeueNDenormalized(ctx context.Context, n int) ([]domain.JobRun, error)
+// fullyDenormalizedDequeuer is the optional interface for the job_runs-only
+// dequeue path. Same pattern as cursorAwareQueue: opt-in via type assertion
+// to avoid expanding the base Queue interface.
+type fullyDenormalizedDequeuer interface {
+	DequeueNFullyDenormalized(ctx context.Context, n int) ([]domain.JobRun, error)
 }
 
 func (e *Executor) poll(ctx context.Context) {
@@ -73,8 +73,8 @@ func (e *Executor) poll(ctx context.Context) {
 		case e.dequeueStrategy == "fair_round_robin":
 			runs, err = e.queue.DequeueNFair(innerCtx, available)
 		case e.useDenormalizedDequeue:
-			if dq, ok := e.queue.(denormalizedDequeuer); ok {
-				runs, err = dq.DequeueNDenormalized(innerCtx, available)
+			if dq, ok := e.queue.(fullyDenormalizedDequeuer); ok {
+				runs, err = dq.DequeueNFullyDenormalized(innerCtx, available)
 			} else {
 				runs, err = e.queue.DequeueN(innerCtx, available)
 			}

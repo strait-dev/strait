@@ -41,6 +41,19 @@ func (m *mockStrategyQueue) DequeueNByProject(_ context.Context, _ int, _ string
 	return nil, nil
 }
 
+type mockFullyDenormalizedStrategyQueue struct {
+	mockStrategyQueue
+	dequeueNFullyDenormalizedCalled atomic.Int32
+}
+
+func (m *mockFullyDenormalizedStrategyQueue) DequeueNFullyDenormalized(
+	_ context.Context,
+	_ int,
+) ([]domain.JobRun, error) {
+	m.dequeueNFullyDenormalizedCalled.Add(1)
+	return nil, nil
+}
+
 func TestPoll_DefaultStrategy_UsesDequeueN(t *testing.T) {
 	t.Parallel()
 
@@ -62,6 +75,56 @@ func TestPoll_DefaultStrategy_UsesDequeueN(t *testing.T) {
 	}
 	if q.dequeueNFairCalled.Load() != 0 {
 		t.Fatalf("DequeueNFair called %d times, want 0", q.dequeueNFairCalled.Load())
+	}
+}
+
+func TestExecutorPoll_DenormalizedFlagUsesFullyDenormalizedDequeue(t *testing.T) {
+	t.Parallel()
+
+	q := &mockFullyDenormalizedStrategyQueue{}
+	p := NewPool(4)
+	t.Cleanup(func() { _ = p.Shutdown(context.Background()) })
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:                     p,
+		Queue:                    q,
+		Store:                    &mockExecutorStore{},
+		PollInterval:             time.Hour,
+		UseDenormalizedDequeue:   true,
+		MaxDequeueBatchSize:      1,
+		DefaultJobMaxConcurrency: 1,
+	})
+
+	exec.poll(context.Background())
+
+	if q.dequeueNFullyDenormalizedCalled.Load() != 1 {
+		t.Fatalf("DequeueNFullyDenormalized called %d times, want 1", q.dequeueNFullyDenormalizedCalled.Load())
+	}
+	if q.dequeueNCalled.Load() != 0 {
+		t.Fatalf("DequeueN called %d times, want 0", q.dequeueNCalled.Load())
+	}
+}
+
+func TestExecutorPoll_DenormalizedFlagFallsBackToLegacyDequeue(t *testing.T) {
+	t.Parallel()
+
+	q := &mockStrategyQueue{}
+	p := NewPool(4)
+	t.Cleanup(func() { _ = p.Shutdown(context.Background()) })
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:                   p,
+		Queue:                  q,
+		Store:                  &mockExecutorStore{},
+		PollInterval:           time.Hour,
+		UseDenormalizedDequeue: true,
+		MaxDequeueBatchSize:    1,
+	})
+
+	exec.poll(context.Background())
+
+	if q.dequeueNCalled.Load() != 1 {
+		t.Fatalf("DequeueN called %d times, want 1", q.dequeueNCalled.Load())
 	}
 }
 
