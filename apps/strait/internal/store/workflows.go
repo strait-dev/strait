@@ -136,6 +136,46 @@ func (q *Queries) GetWorkflowBySlug(ctx context.Context, projectID, slug string)
 	return w, nil
 }
 
+// GetWorkflowsByIDs fetches multiple workflows in a single query, keyed by
+// workflow id. Ids with no matching row are absent from the result map (no
+// error), so callers can treat a missing key the same as a not-found
+// GetWorkflow. The empty input is a no-op.
+func (q *Queries) GetWorkflowsByIDs(ctx context.Context, ids []string) (map[string]*domain.Workflow, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetWorkflowsByIDs")
+	defer span.End()
+
+	result := make(map[string]*domain.Workflow, len(ids))
+	if len(ids) == 0 {
+		return result, nil
+	}
+
+	query := `
+		SELECT id, project_id, name, slug, description, enabled, version, timeout_secs, max_concurrent_runs,
+		       max_parallel_steps, cron, cron_timezone, skip_if_running, tags, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
+		       singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth
+		FROM workflows
+		WHERE id = ANY($1)`
+
+	rows, err := q.db.Query(ctx, query, ids)
+	if err != nil {
+		return nil, fmt.Errorf("get workflows by ids: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		w, scanErr := scanWorkflow(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("get workflows by ids scan: %w", scanErr)
+		}
+		result[w.ID] = w
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get workflows by ids rows: %w", err)
+	}
+
+	return result, nil
+}
+
 func (q *Queries) ListWorkflows(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Workflow, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListWorkflows")
 	defer span.End()

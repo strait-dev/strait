@@ -270,8 +270,12 @@ func TestEventSource_DispatchWithNullPayload(t *testing.T) {
 				{ID: "sub-1", SourceID: "src-null", TargetType: "job", TargetID: "job-1", Enabled: true},
 			}, nil
 		},
-		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
-			return &domain.Job{ID: id, Enabled: true, Version: 1, VersionID: "jv-1", ProjectID: "proj-1"}, nil
+		GetJobsByIDsFunc: func(_ context.Context, ids []string) (map[string]*domain.Job, error) {
+			out := make(map[string]*domain.Job, len(ids))
+			for _, id := range ids {
+				out[id] = &domain.Job{ID: id, Enabled: true, Version: 1, VersionID: "jv-1", ProjectID: "proj-1"}
+			}
+			return out, nil
 		},
 	}
 	mq := &mockQueue{
@@ -336,8 +340,12 @@ func TestEventSource_SubscriptionFilterBypass(t *testing.T) {
 				},
 			}, nil
 		},
-		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
-			return &domain.Job{ID: id, Enabled: true, Version: 1, VersionID: "jv-1", ProjectID: "proj-1"}, nil
+		GetJobsByIDsFunc: func(_ context.Context, ids []string) (map[string]*domain.Job, error) {
+			out := make(map[string]*domain.Job, len(ids))
+			for _, id := range ids {
+				out[id] = &domain.Job{ID: id, Enabled: true, Version: 1, VersionID: "jv-1", ProjectID: "proj-1"}
+			}
+			return out, nil
 		},
 	}
 	mq := &mockQueue{
@@ -387,8 +395,12 @@ func TestEventSource_ConcurrentDispatch(t *testing.T) {
 				{ID: "sub-conc", SourceID: "src-conc", TargetType: "job", TargetID: "job-1", Enabled: true},
 			}, nil
 		},
-		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
-			return &domain.Job{ID: id, Enabled: true, Version: 1, VersionID: "jv-1", ProjectID: "proj-1"}, nil
+		GetJobsByIDsFunc: func(_ context.Context, ids []string) (map[string]*domain.Job, error) {
+			out := make(map[string]*domain.Job, len(ids))
+			for _, id := range ids {
+				out[id] = &domain.Job{ID: id, Enabled: true, Version: 1, VersionID: "jv-1", ProjectID: "proj-1"}
+			}
+			return out, nil
 		},
 	}
 	mq := &mockQueue{

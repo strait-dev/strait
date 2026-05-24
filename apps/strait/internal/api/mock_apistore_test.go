@@ -1263,6 +1263,9 @@ type APIStoreMock struct {
 	// GetJobFunc mocks the GetJob method.
 	GetJobFunc func(ctx context.Context, id string) (*domain.Job, error)
 
+	// GetJobsByIDsFunc mocks the GetJobsByIDs method.
+	GetJobsByIDsFunc func(ctx context.Context, ids []string) (map[string]*domain.Job, error)
+
 	// GetJobBySlugFunc mocks the GetJobBySlug method.
 	GetJobBySlugFunc func(ctx context.Context, projectID string, slug string) (*domain.Job, error)
 
@@ -1355,6 +1358,9 @@ type APIStoreMock struct {
 
 	// GetWorkflowFunc mocks the GetWorkflow method.
 	GetWorkflowFunc func(ctx context.Context, id string) (*domain.Workflow, error)
+
+	// GetWorkflowsByIDsFunc mocks the GetWorkflowsByIDs method.
+	GetWorkflowsByIDsFunc func(ctx context.Context, ids []string) (map[string]*domain.Workflow, error)
 
 	// GetWorkflowBySlugFunc mocks the GetWorkflowBySlug method.
 	GetWorkflowBySlugFunc func(ctx context.Context, projectID string, slug string) (*domain.Workflow, error)
@@ -2781,6 +2787,13 @@ type APIStoreMock struct {
 			// ID is the id argument value.
 			ID string
 		}
+		// GetJobsByIDs holds details about calls to the GetJobsByIDs method.
+		GetJobsByIDs []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// IDs is the ids argument value.
+			IDs []string
+		}
 		// GetJobBySlug holds details about calls to the GetJobBySlug method.
 		GetJobBySlug []struct {
 			// Ctx is the ctx argument value.
@@ -3039,6 +3052,13 @@ type APIStoreMock struct {
 			Ctx context.Context
 			// ID is the id argument value.
 			ID string
+		}
+		// GetWorkflowsByIDs holds details about calls to the GetWorkflowsByIDs method.
+		GetWorkflowsByIDs []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// IDs is the ids argument value.
+			IDs []string
 		}
 		// GetWorkflowBySlug holds details about calls to the GetWorkflowBySlug method.
 		GetWorkflowBySlug []struct {
@@ -4562,6 +4582,7 @@ type APIStoreMock struct {
 	lockGetEventTriggerByEventKey                   sync.RWMutex
 	lockGetEventTriggerStats                        sync.RWMutex
 	lockGetJob                                      sync.RWMutex
+	lockGetJobsByIDs                                sync.RWMutex
 	lockGetJobBySlug                                sync.RWMutex
 	lockGetJobDependency                            sync.RWMutex
 	lockGetJobGroup                                 sync.RWMutex
@@ -4593,6 +4614,7 @@ type APIStoreMock struct {
 	lockGetWebhookSubscriptionSecrets               sync.RWMutex
 	lockGetWorker                                   sync.RWMutex
 	lockGetWorkflow                                 sync.RWMutex
+	lockGetWorkflowsByIDs                           sync.RWMutex
 	lockGetWorkflowBySlug                           sync.RWMutex
 	lockGetWorkflowPolicyByProject                  sync.RWMutex
 	lockGetWorkflowRun                              sync.RWMutex
@@ -9842,6 +9864,46 @@ func (mock *APIStoreMock) GetJobCalls() []struct {
 	return calls
 }
 
+// GetJobsByIDs calls GetJobsByIDsFunc.
+func (mock *APIStoreMock) GetJobsByIDs(ctx context.Context, ids []string) (map[string]*domain.Job, error) {
+	callInfo := struct {
+		Ctx context.Context
+		IDs []string
+	}{
+		Ctx: ctx,
+		IDs: ids,
+	}
+	mock.lockGetJobsByIDs.Lock()
+	mock.calls.GetJobsByIDs = append(mock.calls.GetJobsByIDs, callInfo)
+	mock.lockGetJobsByIDs.Unlock()
+	if mock.GetJobsByIDsFunc == nil {
+		var (
+			jobsOut map[string]*domain.Job
+			errOut  error
+		)
+		return jobsOut, errOut
+	}
+	return mock.GetJobsByIDsFunc(ctx, ids)
+}
+
+// GetJobsByIDsCalls gets all the calls that were made to GetJobsByIDs.
+// Check the length with:
+//
+//	len(mockedAPIStore.GetJobsByIDsCalls())
+func (mock *APIStoreMock) GetJobsByIDsCalls() []struct {
+	Ctx context.Context
+	IDs []string
+} {
+	var calls []struct {
+		Ctx context.Context
+		IDs []string
+	}
+	mock.lockGetJobsByIDs.RLock()
+	calls = mock.calls.GetJobsByIDs
+	mock.lockGetJobsByIDs.RUnlock()
+	return calls
+}
+
 // GetJobBySlug calls GetJobBySlugFunc.
 func (mock *APIStoreMock) GetJobBySlug(ctx context.Context, projectID string, slug string) (*domain.Job, error) {
 	callInfo := struct {
@@ -11165,6 +11227,46 @@ func (mock *APIStoreMock) GetWorkflowCalls() []struct {
 	mock.lockGetWorkflow.RLock()
 	calls = mock.calls.GetWorkflow
 	mock.lockGetWorkflow.RUnlock()
+	return calls
+}
+
+// GetWorkflowsByIDs calls GetWorkflowsByIDsFunc.
+func (mock *APIStoreMock) GetWorkflowsByIDs(ctx context.Context, ids []string) (map[string]*domain.Workflow, error) {
+	callInfo := struct {
+		Ctx context.Context
+		IDs []string
+	}{
+		Ctx: ctx,
+		IDs: ids,
+	}
+	mock.lockGetWorkflowsByIDs.Lock()
+	mock.calls.GetWorkflowsByIDs = append(mock.calls.GetWorkflowsByIDs, callInfo)
+	mock.lockGetWorkflowsByIDs.Unlock()
+	if mock.GetWorkflowsByIDsFunc == nil {
+		var (
+			workflowsOut map[string]*domain.Workflow
+			errOut       error
+		)
+		return workflowsOut, errOut
+	}
+	return mock.GetWorkflowsByIDsFunc(ctx, ids)
+}
+
+// GetWorkflowsByIDsCalls gets all the calls that were made to GetWorkflowsByIDs.
+// Check the length with:
+//
+//	len(mockedAPIStore.GetWorkflowsByIDsCalls())
+func (mock *APIStoreMock) GetWorkflowsByIDsCalls() []struct {
+	Ctx context.Context
+	IDs []string
+} {
+	var calls []struct {
+		Ctx context.Context
+		IDs []string
+	}
+	mock.lockGetWorkflowsByIDs.RLock()
+	calls = mock.calls.GetWorkflowsByIDs
+	mock.lockGetWorkflowsByIDs.RUnlock()
 	return calls
 }
 

@@ -132,6 +132,30 @@ func newIsolationStore() *APIStoreMock {
 			}
 			return nil, nil
 		},
+		GetJobsByIDsFunc: func(_ context.Context, ids []string) (map[string]*domain.Job, error) {
+			out := make(map[string]*domain.Job, len(ids))
+			for _, id := range ids {
+				switch id {
+				case "job-a":
+					out[id] = &domain.Job{ID: "job-a", ProjectID: projectA, Name: "Job A", Slug: "job-a", Enabled: true, CreatedAt: now, UpdatedAt: now}
+				case "job-b":
+					out[id] = &domain.Job{ID: "job-b", ProjectID: projectB, Name: "Job B", Slug: "job-b", Enabled: true, CreatedAt: now, UpdatedAt: now}
+				}
+			}
+			return out, nil
+		},
+		GetWorkflowsByIDsFunc: func(_ context.Context, ids []string) (map[string]*domain.Workflow, error) {
+			out := make(map[string]*domain.Workflow, len(ids))
+			for _, id := range ids {
+				switch id {
+				case "wf-a":
+					out[id] = &domain.Workflow{ID: "wf-a", ProjectID: projectA, Name: "Workflow A", Slug: "wf-a", CreatedAt: now, UpdatedAt: now}
+				case "wf-b":
+					out[id] = &domain.Workflow{ID: "wf-b", ProjectID: projectB, Name: "Workflow B", Slug: "wf-b", CreatedAt: now, UpdatedAt: now}
+				}
+			}
+			return out, nil
+		},
 		GetEnvironmentFunc: func(_ context.Context, id string) (*domain.Environment, error) {
 			if id == "env-a" {
 				return &domain.Environment{ID: "env-a", ProjectID: projectA, Name: "production", Slug: "production", CreatedAt: now, UpdatedAt: now}, nil
@@ -1018,11 +1042,13 @@ func TestTenantIsolation_DispatchEvent_SkipsStaleCrossProjectJobSubscription(t *
 			{ID: "sub-cross-job", SourceID: sourceID, TargetType: "job", TargetID: "job-b", FilterExpr: json.RawMessage(`{"eq":[["type","deploy"]]}`), Enabled: true},
 		}, nil
 	}
-	ms.GetJobFunc = func(_ context.Context, id string) (*domain.Job, error) {
-		if id != "job-b" {
-			t.Fatalf("id = %q, want job-b", id)
+	ms.GetJobsByIDsFunc = func(_ context.Context, ids []string) (map[string]*domain.Job, error) {
+		for _, id := range ids {
+			if id != "job-b" {
+				t.Fatalf("id = %q, want job-b", id)
+			}
 		}
-		return &domain.Job{ID: "job-b", ProjectID: projectB, Enabled: true}, nil
+		return map[string]*domain.Job{"job-b": {ID: "job-b", ProjectID: projectB, Enabled: true}}, nil
 	}
 	srv := newTestServer(t, ms, &mockQueue{
 		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
@@ -1059,11 +1085,13 @@ func TestTenantIsolation_DispatchEvent_SkipsNilJobSubscription(t *testing.T) {
 			{ID: "sub-missing-job", SourceID: sourceID, TargetType: "job", TargetID: "job-missing", FilterExpr: json.RawMessage(`{"eq":[["type","deploy"]]}`), Enabled: true},
 		}, nil
 	}
-	ms.GetJobFunc = func(_ context.Context, id string) (*domain.Job, error) {
-		if id != "job-missing" {
-			t.Fatalf("id = %q, want job-missing", id)
+	ms.GetJobsByIDsFunc = func(_ context.Context, ids []string) (map[string]*domain.Job, error) {
+		for _, id := range ids {
+			if id != "job-missing" {
+				t.Fatalf("id = %q, want job-missing", id)
+			}
 		}
-		return nil, nil
+		return map[string]*domain.Job{}, nil
 	}
 	srv := newTestServer(t, ms, &mockQueue{
 		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
@@ -1100,11 +1128,13 @@ func TestTenantIsolation_DispatchEvent_SkipsStaleCrossProjectWorkflowSubscriptio
 			{ID: "sub-cross-wf", SourceID: sourceID, TargetType: "workflow", TargetID: "wf-b", FilterExpr: json.RawMessage(`{"eq":[["type","deploy"]]}`), Enabled: true},
 		}, nil
 	}
-	ms.GetWorkflowFunc = func(_ context.Context, id string) (*domain.Workflow, error) {
-		if id != "wf-b" {
-			t.Fatalf("id = %q, want wf-b", id)
+	ms.GetWorkflowsByIDsFunc = func(_ context.Context, ids []string) (map[string]*domain.Workflow, error) {
+		for _, id := range ids {
+			if id != "wf-b" {
+				t.Fatalf("id = %q, want wf-b", id)
+			}
 		}
-		return &domain.Workflow{ID: "wf-b", ProjectID: projectB, Enabled: true}, nil
+		return map[string]*domain.Workflow{"wf-b": {ID: "wf-b", ProjectID: projectB, Enabled: true}}, nil
 	}
 	wfEngine := &mockWorkflowTrigger{
 		triggerWorkflowFn: func(context.Context, string, string, json.RawMessage, string, []domain.StepOverride) (*domain.WorkflowRun, error) {

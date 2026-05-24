@@ -1055,11 +1055,15 @@ func TestEventDispatch_SkipsPausedJob(t *testing.T) {
 				},
 			}, nil
 		},
-		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
-			return &domain.Job{
-				ID: id, ProjectID: "proj-1", Enabled: true, Paused: true,
-				Version: 1, VersionID: "jv-1",
-			}, nil
+		GetJobsByIDsFunc: func(_ context.Context, ids []string) (map[string]*domain.Job, error) {
+			out := make(map[string]*domain.Job, len(ids))
+			for _, id := range ids {
+				out[id] = &domain.Job{
+					ID: id, ProjectID: "proj-1", Enabled: true, Paused: true,
+					Version: 1, VersionID: "jv-1",
+				}
+			}
+			return out, nil
 		},
 	}
 	mq := &mockQueue{
@@ -1105,11 +1109,15 @@ func TestEventDispatch_EnqueuesWhenNotPaused(t *testing.T) {
 				},
 			}, nil
 		},
-		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
-			return &domain.Job{
-				ID: id, ProjectID: "proj-1", Enabled: true, Paused: false,
-				Version: 1, VersionID: "jv-1",
-			}, nil
+		GetJobsByIDsFunc: func(_ context.Context, ids []string) (map[string]*domain.Job, error) {
+			out := make(map[string]*domain.Job, len(ids))
+			for _, id := range ids {
+				out[id] = &domain.Job{
+					ID: id, ProjectID: "proj-1", Enabled: true, Paused: false,
+					Version: 1, VersionID: "jv-1",
+				}
+			}
+			return out, nil
 		},
 	}
 	mq := &mockQueue{

@@ -411,7 +411,15 @@ func (s *Server) handleDispatchEvent(ctx context.Context, input *DispatchEventIn
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list subscriptions")
 	}
-	dispatched := 0
+	// First pass: evaluate each filter once and collect the matched, authorized
+	// subscriptions plus the distinct target ids. The permission check is
+	// invariant for the request, so it is applied here to avoid fetching
+	// targets the caller may not trigger. The targets are then fetched with a
+	// single batched query per type, instead of one GetJob/GetWorkflow round
+	// trip per matched subscription.
+	matched := make([]domain.EventSubscription, 0, len(subs))
+	jobIDs := make([]string, 0, len(subs))
+	workflowIDs := make([]string, 0, len(subs))
 	for _, sub := range subs {
 		if !sub.Enabled {
 			continue
@@ -430,8 +438,35 @@ func (s *Server) handleDispatchEvent(ctx context.Context, input *DispatchEventIn
 				slog.Warn("event dispatch: caller lacks job trigger permission", "subscription_id", sub.ID, "project_id", source.ProjectID)
 				continue
 			}
-			job, jobErr := s.store.GetJob(ctx, sub.TargetID)
-			if jobErr != nil || job == nil || !job.Enabled {
+			jobIDs = append(jobIDs, sub.TargetID)
+			matched = append(matched, sub)
+		case "workflow":
+			if !s.hasProjectPermission(ctx, domain.ScopeWorkflowsTrigger) {
+				slog.Warn("event dispatch: caller lacks workflow trigger permission", "subscription_id", sub.ID, "project_id", source.ProjectID)
+				continue
+			}
+			workflowIDs = append(workflowIDs, sub.TargetID)
+			matched = append(matched, sub)
+		}
+	}
+
+	jobsByID, err := s.store.GetJobsByIDs(ctx, jobIDs)
+	if err != nil {
+		slog.Error("event dispatch: batch job load failed", "source_id", source.ID, "project_id", source.ProjectID, "error", err)
+		return nil, huma.Error500InternalServerError("failed to load target jobs")
+	}
+	workflowsByID, err := s.store.GetWorkflowsByIDs(ctx, workflowIDs)
+	if err != nil {
+		slog.Error("event dispatch: batch workflow load failed", "source_id", source.ID, "project_id", source.ProjectID, "error", err)
+		return nil, huma.Error500InternalServerError("failed to load target workflows")
+	}
+
+	dispatched := 0
+	for _, sub := range matched {
+		switch sub.TargetType {
+		case "job":
+			job := jobsByID[sub.TargetID]
+			if job == nil || !job.Enabled {
 				slog.Error("event dispatch: target job not found or disabled", "target_id", sub.TargetID, "subscription_id", sub.ID, "project_id", source.ProjectID)
 				continue
 			}
@@ -469,21 +504,13 @@ func (s *Server) handleDispatchEvent(ctx context.Context, input *DispatchEventIn
 			}
 			dispatched++
 		case "workflow":
-			if !s.hasProjectPermission(ctx, domain.ScopeWorkflowsTrigger) {
-				slog.Warn("event dispatch: caller lacks workflow trigger permission", "subscription_id", sub.ID, "project_id", source.ProjectID)
+			wf := workflowsByID[sub.TargetID]
+			if wf == nil {
+				slog.Error("event dispatch: target workflow not found", "target_id", sub.TargetID, "subscription_id", sub.ID, "project_id", source.ProjectID)
 				continue
 			}
-			wf, wfErr := s.store.GetWorkflow(ctx, sub.TargetID)
-			if wfErr != nil {
-				slog.Error("event dispatch: target workflow not found", "target_id", sub.TargetID, "subscription_id", sub.ID, "project_id", source.ProjectID, "error", wfErr)
-				continue
-			}
-			if wf == nil || wf.ProjectID != source.ProjectID {
-				targetProjectID := ""
-				if wf != nil {
-					targetProjectID = wf.ProjectID
-				}
-				slog.Warn("event dispatch: target workflow project mismatch", "target_id", sub.TargetID, "subscription_id", sub.ID, "source_project_id", source.ProjectID, "target_project_id", targetProjectID)
+			if wf.ProjectID != source.ProjectID {
+				slog.Warn("event dispatch: target workflow project mismatch", "target_id", sub.TargetID, "subscription_id", sub.ID, "source_project_id", source.ProjectID, "target_project_id", wf.ProjectID)
 				continue
 			}
 			if s.workflowEngine != nil {

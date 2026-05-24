@@ -91,6 +91,7 @@ type ProjectStore interface {
 type JobStore interface {
 	CreateJob(ctx context.Context, job *domain.Job) error
 	GetJob(ctx context.Context, id string) (*domain.Job, error)
+	GetJobsByIDs(ctx context.Context, ids []string) (map[string]*domain.Job, error)
 	GetJobBySlug(ctx context.Context, projectID, slug string) (*domain.Job, error)
 	ListJobs(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Job, error)
 	UpdateJob(ctx context.Context, job *domain.Job) error
@@ -261,6 +262,7 @@ type EventSourceStore interface {
 type WorkflowStore interface {
 	CreateWorkflow(ctx context.Context, w *domain.Workflow) error
 	GetWorkflow(ctx context.Context, id string) (*domain.Workflow, error)
+	GetWorkflowsByIDs(ctx context.Context, ids []string) (map[string]*domain.Workflow, error)
 	GetWorkflowBySlug(ctx context.Context, projectID, slug string) (*domain.Workflow, error)
 	ListWorkflows(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Workflow, error)
 	ListWorkflowsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.Workflow, error)
