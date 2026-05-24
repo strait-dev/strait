@@ -427,11 +427,10 @@ func BenchmarkHasBlockingFailedStep(b *testing.B) {
 }
 
 func BenchmarkAggregateChildStepOutputs(b *testing.B) {
-	stepRuns := make([]domain.WorkflowStepRun, 1000)
+	stepRuns := make([]domain.StepRunOutput, 1000)
 	for i := range stepRuns {
 		ref := fmt.Sprintf("step-%04d", i)
-		stepRuns[i] = domain.WorkflowStepRun{
-			ID:      "sr-" + ref,
+		stepRuns[i] = domain.StepRunOutput{
 			StepRef: ref,
 		}
 		if i%2 == 0 {
@@ -450,7 +449,7 @@ func BenchmarkAggregateChildStepOutputs(b *testing.B) {
 
 func TestAggregateChildStepOutputs(t *testing.T) {
 	t.Parallel()
-	output := aggregateChildStepOutputs([]domain.WorkflowStepRun{
+	output := aggregateChildStepOutputs([]domain.StepRunOutput{
 		{StepRef: `step-"a"`, Output: json.RawMessage(`{"a":1}`)},
 		{StepRef: "empty"},
 		{StepRef: "step-b", Output: json.RawMessage(`{"b":2}`)},
@@ -475,7 +474,7 @@ func TestAggregateChildStepOutputs(t *testing.T) {
 
 func TestAggregateChildStepOutputs_NoOutputs(t *testing.T) {
 	t.Parallel()
-	output := aggregateChildStepOutputs([]domain.WorkflowStepRun{
+	output := aggregateChildStepOutputs([]domain.StepRunOutput{
 		{StepRef: "a"},
 		{StepRef: "b"},
 	})

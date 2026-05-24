@@ -226,11 +226,11 @@ func (s *StepCallback) checkWorkflowCompletion(ctx context.Context, workflowRunI
 		recordWorkflowActiveRunDelta(ctx, wfRun.ProjectID, -1)
 		wfRun.Status = domain.WfStatusFailed
 		if wfRun.ParentWorkflowRunID != "" {
-			stepRuns, listErr := s.store.ListStepRunsByWorkflowRun(ctx, workflowRunID, 10000, nil)
+			stepOutputs, listErr := s.store.ListStepRunOutputsByWorkflowRun(ctx, workflowRunID)
 			if listErr != nil {
-				return fmt.Errorf("list step runs: %w", listErr)
+				return fmt.Errorf("list step run outputs: %w", listErr)
 			}
-			return s.propagateToParent(ctx, wfRun, stepRuns)
+			return s.propagateToParent(ctx, wfRun, stepOutputs)
 		}
 		return nil
 	}
@@ -241,11 +241,11 @@ func (s *StepCallback) checkWorkflowCompletion(ctx context.Context, workflowRunI
 	recordWorkflowActiveRunDelta(ctx, wfRun.ProjectID, -1)
 	wfRun.Status = domain.WfStatusCompleted
 	if wfRun.ParentWorkflowRunID != "" {
-		stepRuns, listErr := s.store.ListStepRunsByWorkflowRun(ctx, workflowRunID, 10000, nil)
+		stepOutputs, listErr := s.store.ListStepRunOutputsByWorkflowRun(ctx, workflowRunID)
 		if listErr != nil {
-			return fmt.Errorf("list step runs: %w", listErr)
+			return fmt.Errorf("list step run outputs: %w", listErr)
 		}
-		return s.propagateToParent(ctx, wfRun, stepRuns)
+		return s.propagateToParent(ctx, wfRun, stepOutputs)
 	}
 	return nil
 }
@@ -284,7 +284,7 @@ func failurePolicyForStepRef(steps []domain.WorkflowStep, stepRef string) domain
 
 // propagateToParent propagates the terminal status of a child workflow run
 // back to the parent step run that spawned it via sub_workflow.
-func (s *StepCallback) propagateToParent(ctx context.Context, childRun *domain.WorkflowRun, childStepRuns []domain.WorkflowStepRun) error {
+func (s *StepCallback) propagateToParent(ctx context.Context, childRun *domain.WorkflowRun, childStepRuns []domain.StepRunOutput) error {
 	if childRun.ParentWorkflowRunID == "" {
 		return nil
 	}
@@ -408,7 +408,7 @@ func (s *StepCallback) propagateToParent(ctx context.Context, childRun *domain.W
 	}
 }
 
-func aggregateChildStepOutputs(childStepRuns []domain.WorkflowStepRun) json.RawMessage {
+func aggregateChildStepOutputs(childStepRuns []domain.StepRunOutput) json.RawMessage {
 	// Pre-scan once to size the buffer so the append loop below never grows it,
 	// turning the old geometric-growth reallocations into a single allocation.
 	// Per non-empty entry the loop writes: a quoted step ref, a ':' colon, the

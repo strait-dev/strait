@@ -140,6 +140,82 @@ func stepRunIDs(stepRuns []domain.WorkflowStepRun) []string {
 	return ids
 }
 
+func TestListStepRunOutputsByWorkflowRun(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	// Fixture creates one output-less step run; it must be excluded.
+	wf, wfRun, _ := mustCreateWorkflowStepFixture(t, ctx, q, "project-step-run-outputs-"+newID(), domain.StepPending)
+	stepJob := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(wf.ProjectID)})
+
+	// Three more step runs: two with output, one without, with explicit
+	// creation order first -> noOutput -> second.
+	firstStep := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, &testutil.WorkflowStepOpts{
+		JobID:   new(stepJob.ID),
+		StepRef: new("out-first-" + newID()),
+	})
+	first := testutil.MustCreateWorkflowStepRun(t, ctx, q, wfRun.ID, firstStep.ID, &testutil.WorkflowStepRunOpts{
+		Status:  new(domain.StepCompleted),
+		StepRef: new(firstStep.StepRef),
+		Output:  json.RawMessage(`{"a":1}`),
+	})
+	noOutputStep := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, &testutil.WorkflowStepOpts{
+		JobID:   new(stepJob.ID),
+		StepRef: new("out-none-" + newID()),
+	})
+	noOutput := testutil.MustCreateWorkflowStepRun(t, ctx, q, wfRun.ID, noOutputStep.ID, &testutil.WorkflowStepRunOpts{
+		Status:  new(domain.StepCompleted),
+		StepRef: new(noOutputStep.StepRef),
+	})
+	secondStep := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, &testutil.WorkflowStepOpts{
+		JobID:   new(stepJob.ID),
+		StepRef: new("out-second-" + newID()),
+	})
+	second := testutil.MustCreateWorkflowStepRun(t, ctx, q, wfRun.ID, secondStep.ID, &testutil.WorkflowStepRunOpts{
+		Status:  new(domain.StepCompleted),
+		StepRef: new(secondStep.StepRef),
+		Output:  json.RawMessage(`{"b":2}`),
+	})
+
+	baseTime := time.Date(2026, 5, 21, 12, 0, 0, 0, time.UTC)
+	for i, stepRunID := range []string{first.ID, noOutput.ID, second.ID} {
+		if _, err := testDB.Pool.Exec(ctx, `
+			UPDATE workflow_step_runs
+			SET created_at = $2
+			WHERE id = $1
+		`, stepRunID, baseTime.Add(time.Duration(i)*time.Minute)); err != nil {
+			t.Fatalf("set step run created_at(%d): %v", i, err)
+		}
+	}
+
+	outputs, err := q.ListStepRunOutputsByWorkflowRun(ctx, wfRun.ID)
+	if err != nil {
+		t.Fatalf("ListStepRunOutputsByWorkflowRun() error = %v", err)
+	}
+	if len(outputs) != 2 {
+		t.Fatalf("ListStepRunOutputsByWorkflowRun() len = %d, want 2 (output-bearing only)", len(outputs))
+	}
+	if outputs[0].StepRef != firstStep.StepRef || outputs[1].StepRef != secondStep.StepRef {
+		t.Fatalf("ordering = [%q %q], want [%q %q]", outputs[0].StepRef, outputs[1].StepRef, firstStep.StepRef, secondStep.StepRef)
+	}
+	if !jsonEqual(outputs[0].Output, []byte(`{"a":1}`)) {
+		t.Fatalf("outputs[0].Output = %s, want {\"a\":1}", outputs[0].Output)
+	}
+	if !jsonEqual(outputs[1].Output, []byte(`{"b":2}`)) {
+		t.Fatalf("outputs[1].Output = %s, want {\"b\":2}", outputs[1].Output)
+	}
+
+	// Empty case.
+	empty, err := q.ListStepRunOutputsByWorkflowRun(ctx, newID())
+	if err != nil {
+		t.Fatalf("ListStepRunOutputsByWorkflowRun(empty) error = %v", err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("ListStepRunOutputsByWorkflowRun(empty) len = %d, want 0", len(empty))
+	}
+}
+
 func TestUpdateStepRunStatusFrom(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

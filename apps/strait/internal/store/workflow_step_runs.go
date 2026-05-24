@@ -150,6 +150,46 @@ func (q *Queries) ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID s
 	return stepRuns, nil
 }
 
+// ListStepRunOutputsByWorkflowRun returns only the step_ref and output of step
+// runs that produced output, ordered by creation time. It is a narrow
+// projection used when aggregating a sub-workflow's child outputs into the
+// parent step: scanning two columns for output-bearing rows avoids
+// materializing every column of every step run.
+func (q *Queries) ListStepRunOutputsByWorkflowRun(ctx context.Context, workflowRunID string) ([]domain.StepRunOutput, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListStepRunOutputsByWorkflowRun")
+	defer span.End()
+
+	query := `
+		SELECT step_ref, output
+		FROM workflow_step_runs
+		WHERE workflow_run_id = $1 AND output IS NOT NULL
+		ORDER BY created_at ASC`
+
+	rows, err := q.db.Query(ctx, query, workflowRunID)
+	if err != nil {
+		return nil, fmt.Errorf("list step run outputs by workflow run: %w", err)
+	}
+	defer rows.Close()
+
+	outputs := make([]domain.StepRunOutput, 0, 16)
+	for rows.Next() {
+		var (
+			stepRef string
+			output  []byte
+		)
+		if scanErr := rows.Scan(&stepRef, &output); scanErr != nil {
+			return nil, fmt.Errorf("list step run outputs by workflow run scan: %w", scanErr)
+		}
+		outputs = append(outputs, domain.StepRunOutput{StepRef: stepRef, Output: json.RawMessage(output)})
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list step run outputs by workflow run rows: %w", err)
+	}
+
+	return outputs, nil
+}
+
 func (q *Queries) ListRunnableStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int) ([]domain.WorkflowStepRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListRunnableStepRunsByWorkflowRun")
 	defer span.End()

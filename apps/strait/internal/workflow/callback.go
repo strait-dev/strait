@@ -34,6 +34,7 @@ type CallbackStore interface {
 	GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error)
 	UpdateWorkflowRunStatus(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error)
+	ListStepRunOutputsByWorkflowRun(ctx context.Context, workflowRunID string) ([]domain.StepRunOutput, error)
 	ListRunnableStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int) ([]domain.WorkflowStepRun, error)
 	ListRunningStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int) ([]domain.WorkflowStepRun, error)
 	ListStepRunStatusesByWorkflowRun(ctx context.Context, workflowRunID string) (map[string]domain.StepRunStatus, error)

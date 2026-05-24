@@ -1107,6 +1107,24 @@ func (m *mockCallbackStore) ListStepRunsByWorkflowRun(ctx context.Context, workf
 	return nil, nil
 }
 
+func (m *mockCallbackStore) ListStepRunOutputsByWorkflowRun(ctx context.Context, workflowRunID string) ([]domain.StepRunOutput, error) {
+	if m.listStepRunsByWorkflowRun == nil {
+		return nil, nil
+	}
+	runs, err := m.listStepRunsByWorkflowRun(ctx, workflowRunID, 10000, nil)
+	if err != nil {
+		return nil, err
+	}
+	outputs := make([]domain.StepRunOutput, 0, len(runs))
+	for i := range runs {
+		if len(runs[i].Output) == 0 {
+			continue
+		}
+		outputs = append(outputs, domain.StepRunOutput{StepRef: runs[i].StepRef, Output: runs[i].Output})
+	}
+	return outputs, nil
+}
+
 func (m *mockCallbackStore) ListRunnableStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int) ([]domain.WorkflowStepRun, error) {
 	if m.listRunnableStepRunsByWorkflowRunFn != nil {
 		return m.listRunnableStepRunsByWorkflowRunFn(ctx, workflowRunID, limit)

@@ -1900,9 +1900,9 @@ func TestPropagateToParent_CompletedWithOutputs(t *testing.T) {
 		ParentStepRunID:     "parent-sr",
 		Status:              domain.WfStatusCompleted,
 	}
-	childStepRuns := []domain.WorkflowStepRun{
-		{ID: "csr-1", StepRef: "step-a", Output: json.RawMessage(`{"a":"out"}`)},
-		{ID: "csr-2", StepRef: "step-b", Output: json.RawMessage(`{"b":"out"}`)},
+	childStepRuns := []domain.StepRunOutput{
+		{StepRef: "step-a", Output: json.RawMessage(`{"a":"out"}`)},
+		{StepRef: "step-b", Output: json.RawMessage(`{"b":"out"}`)},
 	}
 	err := cb.propagateToParent(context.Background(), childRun, childStepRuns)
 	if err != nil {
@@ -1985,8 +1985,8 @@ func TestPropagateToParent_CompletedNoOutputs(t *testing.T) {
 		ParentStepRunID:     "parent-sr",
 		Status:              domain.WfStatusCompleted,
 	}
-	childStepRuns := []domain.WorkflowStepRun{
-		{ID: "csr-1", StepRef: "step-a", Output: nil},
+	childStepRuns := []domain.StepRunOutput{
+		{StepRef: "step-a", Output: nil},
 	}
 	err := cb.propagateToParent(context.Background(), childRun, childStepRuns)
 	if err != nil {

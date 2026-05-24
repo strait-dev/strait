@@ -1414,6 +1414,15 @@ type WorkflowStepRun struct {
 	CreatedAt      time.Time       `json:"created_at"`
 }
 
+// StepRunOutput is a projection of a workflow step run carrying only the fields
+// needed to aggregate child step outputs into a parent step. Fetching just
+// step_ref and output (and only for rows that produced output) avoids
+// materializing full step-run rows when completing a sub-workflow's parent step.
+type StepRunOutput struct {
+	StepRef string          `json:"step_ref"`
+	Output  json.RawMessage `json:"output,omitempty"`
+}
+
 type WorkflowStepApproval struct {
 	ID                string     `json:"id"`
 	WorkflowRunID     string     `json:"workflow_run_id"`
