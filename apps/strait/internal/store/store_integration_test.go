@@ -11549,6 +11549,33 @@ func TestAdvisoryLockXactLockWithinTransaction(t *testing.T) {
 	}
 }
 
+// TestPerfIndexes_ExistAfterMigration guards the partial indexes added in
+// migrations 000292-000294 against accidental removal. Each backs a hot
+// scheduler/reaper/version query (ListCronJobs, ListOrphanedStepRuns,
+// CountActiveWorkflowRunsByVersion/ListActiveWorkflowVersions) and must be
+// present once the migration set has applied.
+func TestPerfIndexes_ExistAfterMigration(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	want := []string{
+		"idx_jobs_cron_enabled",
+		"idx_workflow_step_runs_running",
+		"idx_workflow_runs_workflow_version",
+	}
+	for _, name := range want {
+		var exists bool
+		if err := testDB.Pool.QueryRow(ctx,
+			`SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = $1)`, name,
+		).Scan(&exists); err != nil {
+			t.Fatalf("query pg_indexes for %s: %v", name, err)
+		}
+		if !exists {
+			t.Errorf("expected index %s to exist after migrations", name)
+		}
+	}
+}
+
 func mustCreateJobRunWithBuildFactory(t *testing.T, ctx context.Context, q *store.Queries, projectID string, status domain.RunStatus) (*domain.Job, *domain.JobRun) {
 	t.Helper()
 
