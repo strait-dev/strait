@@ -48,6 +48,43 @@ type QuarantinedOutboxRow struct {
 	RetryOfOutboxID *string
 }
 
+const claimOutboxBatchlogSQL = `
+	WITH candidates AS (
+		SELECT oc.outbox_id
+		FROM outbox_claims oc
+		WHERE oc.status = 'ready'
+		  AND EXISTS (
+		      SELECT 1
+		      FROM enqueue_outbox eo
+		      WHERE eo.id = oc.outbox_id
+		        AND eo.consumed_at IS NULL
+		  )
+		ORDER BY oc.created_at ASC, oc.outbox_id ASC
+		FOR UPDATE OF oc SKIP LOCKED
+		LIMIT $1
+	),
+	leased AS (
+		UPDATE outbox_claims oc
+		SET status = 'leased',
+		    lease_owner = $2,
+		    lease_expires_at = NOW() + $3,
+		    claimed_at = NOW(),
+		    attempts = attempts + 1,
+		    updated_at = NOW()
+		FROM candidates c
+		WHERE oc.outbox_id = c.outbox_id
+		RETURNING oc.outbox_id
+	)
+	SELECT eo.id, eo.project_id, eo.job_id, eo.payload, eo.metadata,
+	       eo.idempotency_key, eo.scheduled_at, eo.priority, eo.created_at, eo.retry_of_outbox_id,
+	       COALESCE(j.execution_mode, 'http'),
+	       COALESCE(NULLIF(j.queue_name, ''), 'default')
+	FROM enqueue_outbox eo
+	JOIN leased l ON l.outbox_id = eo.id
+	LEFT JOIN jobs j ON j.id = eo.job_id
+	ORDER BY eo.created_at ASC
+`
+
 // ClaimUnconsumedOutbox fetches up to `limit` unconsumed outbox rows on
 // the pool without a holding transaction. The caller must be aware that
 // SKIP LOCKED releases locks as soon as the statement returns, so this
@@ -83,57 +120,7 @@ func ClaimOutboxBatchlogInTx(ctx context.Context, tx pgx.Tx, limit int, leaseOwn
 		leaseOwner = "outbox-flusher"
 	}
 
-	if _, err := tx.Exec(ctx, `
-		UPDATE outbox_claims
-		SET status = 'ready',
-		    lease_owner = NULL,
-		    lease_expires_at = NULL,
-		    updated_at = NOW()
-		WHERE status = 'leased'
-		  AND lease_expires_at <= NOW()
-	`); err != nil {
-		return nil, fmt.Errorf("reclaim outbox claims: %w", err)
-	}
-	rows, err := tx.Query(ctx, `
-		WITH candidates AS (
-			SELECT oc.outbox_id
-			FROM outbox_claims oc
-			WHERE oc.status = 'ready'
-			  AND EXISTS (
-			      SELECT 1
-			      FROM enqueue_outbox eo
-			      WHERE eo.id = oc.outbox_id
-			        AND eo.consumed_at IS NULL
-			  )
-			ORDER BY oc.created_at ASC, oc.outbox_id ASC
-			FOR UPDATE OF oc SKIP LOCKED
-			LIMIT $1
-		),
-		created_batch AS (
-			INSERT INTO outbox_batches (sealed_at)
-			SELECT NOW()
-			WHERE EXISTS (SELECT 1 FROM candidates)
-			RETURNING id
-		),
-		leased AS (
-			UPDATE outbox_claims oc
-			SET status = 'leased',
-			    batch_id = cb.id,
-			    lease_owner = $2,
-			    lease_expires_at = NOW() + $3,
-			    claimed_at = NOW(),
-			    attempts = attempts + 1,
-			    updated_at = NOW()
-			FROM candidates c, created_batch cb
-			WHERE oc.outbox_id = c.outbox_id
-			RETURNING oc.outbox_id
-		)
-		SELECT eo.id, eo.project_id, eo.job_id, eo.payload, eo.metadata,
-		       eo.idempotency_key, eo.scheduled_at, eo.priority, eo.created_at, eo.retry_of_outbox_id
-		FROM enqueue_outbox eo
-		JOIN leased l ON l.outbox_id = eo.id
-		ORDER BY eo.created_at ASC
-	`, limit, leaseOwner, leaseDuration)
+	rows, err := tx.Query(ctx, claimOutboxBatchlogSQL, limit, leaseOwner, leaseDuration)
 	if err != nil {
 		return nil, fmt.Errorf("claim batchlog outbox: %w", err)
 	}
@@ -145,12 +132,34 @@ func ClaimOutboxBatchlogInTx(ctx context.Context, tx pgx.Tx, limit int, leaseOwn
 		if err := rows.Scan(
 			&r.ID, &r.ProjectID, &r.JobID, &r.Payload, &r.Metadata,
 			&r.IdempotencyKey, &r.ScheduledAt, &r.Priority, &r.CreatedAt, &r.RetryOfOutboxID,
+			&r.ExecutionMode, &r.QueueName,
 		); err != nil {
 			return nil, fmt.Errorf("scan batchlog outbox: %w", err)
 		}
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+func ReclaimExpiredOutboxBatchlogClaimsInTx(ctx context.Context, tx pgx.Tx) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ReclaimExpiredOutboxBatchlogClaimsInTx")
+	defer span.End()
+
+	tag, err := tx.Exec(ctx, `
+		UPDATE outbox_claims
+		SET status = 'ready',
+		    batch_id = NULL,
+		    lease_owner = NULL,
+		    lease_expires_at = NULL,
+		    claimed_at = NULL,
+		    updated_at = NOW()
+		WHERE status = 'leased'
+		  AND lease_expires_at <= NOW()
+	`)
+	if err != nil {
+		return 0, fmt.Errorf("reclaim outbox claims: %w", err)
+	}
+	return tag.RowsAffected(), nil
 }
 
 func MarkOutboxClaimsReadyInTx(ctx context.Context, tx pgx.Tx, ids []string) error {
@@ -160,8 +169,10 @@ func MarkOutboxClaimsReadyInTx(ctx context.Context, tx pgx.Tx, ids []string) err
 	_, err := tx.Exec(ctx, `
 		UPDATE outbox_claims
 		SET status = 'ready',
+		    batch_id = NULL,
 		    lease_owner = NULL,
 		    lease_expires_at = NULL,
+		    claimed_at = NULL,
 		    updated_at = NOW()
 		WHERE outbox_id = ANY($1)
 	`, ids)
@@ -178,6 +189,7 @@ func MarkOutboxClaimsAckedInTx(ctx context.Context, tx pgx.Tx, ids []string) err
 	_, err := tx.Exec(ctx, `
 		UPDATE outbox_claims
 		SET status = 'acked',
+		    batch_id = NULL,
 		    lease_owner = NULL,
 		    lease_expires_at = NULL,
 		    updated_at = NOW()

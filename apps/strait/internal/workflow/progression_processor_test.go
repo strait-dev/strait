@@ -46,7 +46,7 @@ func BenchmarkWorkflowProgression(b *testing.B) {
 		events[i] = store.WorkflowProgressionEvent{WorkflowRunID: "wf"}
 	}
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		_ = groupProgressionEventsByWorkflow(events)
 	}
 }

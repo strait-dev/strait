@@ -15,9 +15,6 @@ import (
 const (
 	EngineLegacy   = "legacy"
 	EngineBatchlog = "batchlog"
-
-	batchlogStatusReady  = "ready"
-	batchlogStatusLeased = "leased"
 )
 
 type BatchlogConfig struct {

@@ -35,34 +35,42 @@ const (
 
 // OutboxFlusher promotes outbox entries into job_runs.
 type OutboxFlusher struct {
-	pool       *pgxpool.Pool
-	queue      queue.Queue
-	interval   time.Duration
-	batchSize  int
-	engine     string
-	logger     *slog.Logger
-	iterations atomic.Int64
-	flushed    atomic.Int64
-	errors     atomic.Int64
+	pool                  *pgxpool.Pool
+	queue                 queue.Queue
+	interval              time.Duration
+	batchSize             int
+	engine                string
+	leaseDuration         time.Duration
+	reclaimInterval       time.Duration
+	logger                *slog.Logger
+	iterations            atomic.Int64
+	flushed               atomic.Int64
+	errors                atomic.Int64
+	lastReclaimUnixNano   atomic.Int64
+	reclaimedExpiredLease atomic.Int64
 }
 
 // OutboxFlusherConfig configures the flusher.
 type OutboxFlusherConfig struct {
-	Interval  time.Duration
-	BatchSize int
-	Engine    string
-	Logger    *slog.Logger
+	Interval        time.Duration
+	BatchSize       int
+	Engine          string
+	LeaseDuration   time.Duration
+	ReclaimInterval time.Duration
+	Logger          *slog.Logger
 }
 
 // NewOutboxFlusher builds a flusher. Zero values fall back to defaults.
 func NewOutboxFlusher(pool *pgxpool.Pool, q queue.Queue, cfg OutboxFlusherConfig) *OutboxFlusher {
 	f := &OutboxFlusher{
-		pool:      pool,
-		queue:     q,
-		interval:  cfg.Interval,
-		batchSize: cfg.BatchSize,
-		engine:    cfg.Engine,
-		logger:    cfg.Logger,
+		pool:            pool,
+		queue:           q,
+		interval:        cfg.Interval,
+		batchSize:       cfg.BatchSize,
+		engine:          cfg.Engine,
+		leaseDuration:   cfg.LeaseDuration,
+		reclaimInterval: cfg.ReclaimInterval,
+		logger:          cfg.Logger,
 	}
 	if f.interval <= 0 {
 		f.interval = time.Second
@@ -76,12 +84,21 @@ func NewOutboxFlusher(pool *pgxpool.Pool, q queue.Queue, cfg OutboxFlusherConfig
 	if f.engine == "" {
 		f.engine = "legacy"
 	}
+	if f.leaseDuration <= 0 {
+		f.leaseDuration = 30 * time.Second
+	}
+	if f.reclaimInterval <= 0 {
+		f.reclaimInterval = f.leaseDuration
+	}
 	return f
 }
 
 func (f *OutboxFlusher) Iterations() int64 { return f.iterations.Load() }
 func (f *OutboxFlusher) Flushed() int64    { return f.flushed.Load() }
 func (f *OutboxFlusher) Errors() int64     { return f.errors.Load() }
+func (f *OutboxFlusher) ReclaimedExpiredLeases() int64 {
+	return f.reclaimedExpiredLease.Load()
+}
 
 // Run blocks until ctx is cancelled.
 func (f *OutboxFlusher) Run(ctx context.Context) {
@@ -170,9 +187,7 @@ func (f *OutboxFlusher) flushOnce(ctx context.Context) (err error) {
 				return fmt.Errorf("outbox flusher: rollback failed row %s: %w", row.ID, rollbackErr)
 			}
 			if classifyOutboxEnqueueError(err) == outboxEnqueueRetryable {
-				if f.engine == "batchlog" {
-					_ = store.MarkOutboxClaimsReadyInTx(ctx, tx, []string{row.ID})
-				}
+				f.releaseRetryableClaim(ctx, tx, row.ID)
 				f.logger.Warn("outbox flusher: enqueue failed, will retry",
 					"outbox_id", row.ID, "job_id", row.JobID, "error", err,
 				)
@@ -182,10 +197,8 @@ func (f *OutboxFlusher) flushOnce(ctx context.Context) (err error) {
 			if markErr := store.MarkOutboxErroredInTx(ctx, tx, row.ID, msg); markErr != nil {
 				return fmt.Errorf("outbox flusher: quarantine row %s: %w", row.ID, markErr)
 			}
-			if f.engine == "batchlog" {
-				if markErr := store.MarkOutboxClaimsAckedInTx(ctx, tx, []string{row.ID}); markErr != nil {
-					return fmt.Errorf("outbox flusher: ack quarantined row %s: %w", row.ID, markErr)
-				}
+			if markErr := f.ackClaim(ctx, tx, row.ID); markErr != nil {
+				return fmt.Errorf("outbox flusher: ack quarantined row %s: %w", row.ID, markErr)
 			}
 			if qm != nil && qm.OutboxQuarantinedTotal != nil {
 				qm.OutboxQuarantinedTotal.Add(ctx, 1)
@@ -209,11 +222,9 @@ func (f *OutboxFlusher) flushOnce(ctx context.Context) (err error) {
 			f.errors.Add(1)
 			return err
 		}
-		if f.engine == "batchlog" {
-			if err := store.MarkOutboxClaimsAckedInTx(ctx, tx, promoted); err != nil {
-				f.errors.Add(1)
-				return err
-			}
+		if err := f.ackClaims(ctx, tx, promoted); err != nil {
+			f.errors.Add(1)
+			return err
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -228,10 +239,58 @@ func (f *OutboxFlusher) flushOnce(ctx context.Context) (err error) {
 }
 
 func (f *OutboxFlusher) claimRows(ctx context.Context, tx pgx.Tx) ([]store.OutboxRow, error) {
-	if f.engine == "batchlog" {
-		return store.ClaimOutboxBatchlogInTx(ctx, tx, f.batchSize, "outbox-flusher", 30*time.Second)
+	if f.engine == queue.EngineBatchlog {
+		if err := f.reclaimExpiredClaimsIfDue(ctx, tx); err != nil {
+			return nil, err
+		}
+		return store.ClaimOutboxBatchlogInTx(ctx, tx, f.batchSize, "outbox-flusher", f.leaseDuration)
 	}
 	return store.ClaimUnconsumedOutboxInTx(ctx, tx, f.batchSize)
+}
+
+func (f *OutboxFlusher) releaseRetryableClaim(ctx context.Context, tx pgx.Tx, id string) {
+	if f.engine == queue.EngineBatchlog {
+		_ = store.MarkOutboxClaimsReadyInTx(ctx, tx, []string{id})
+	}
+}
+
+func (f *OutboxFlusher) ackClaim(ctx context.Context, tx pgx.Tx, id string) error {
+	if f.engine != queue.EngineBatchlog {
+		return nil
+	}
+	return store.MarkOutboxClaimsAckedInTx(ctx, tx, []string{id})
+}
+
+func (f *OutboxFlusher) ackClaims(ctx context.Context, tx pgx.Tx, ids []string) error {
+	if f.engine != queue.EngineBatchlog {
+		return nil
+	}
+	return store.MarkOutboxClaimsAckedInTx(ctx, tx, ids)
+}
+
+func (f *OutboxFlusher) reclaimExpiredClaimsIfDue(ctx context.Context, tx pgx.Tx) error {
+	if f.reclaimInterval <= 0 {
+		return nil
+	}
+	now := time.Now()
+	nowNano := now.UnixNano()
+	for {
+		last := f.lastReclaimUnixNano.Load()
+		if last > 0 && now.Sub(time.Unix(0, last)) < f.reclaimInterval {
+			return nil
+		}
+		if !f.lastReclaimUnixNano.CompareAndSwap(last, nowNano) {
+			continue
+		}
+		reclaimed, err := store.ReclaimExpiredOutboxBatchlogClaimsInTx(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if reclaimed > 0 {
+			f.reclaimedExpiredLease.Add(reclaimed)
+		}
+		return nil
+	}
 }
 
 func classifyOutboxEnqueueError(err error) outboxEnqueueDisposition {

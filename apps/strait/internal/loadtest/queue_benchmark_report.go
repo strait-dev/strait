@@ -2,7 +2,7 @@ package loadtest
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 )
@@ -49,7 +49,7 @@ func SummarizeLatencies(samples []time.Duration) LatencySummary {
 		return LatencySummary{}
 	}
 	sorted := append([]time.Duration(nil), samples...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+	slices.Sort(sorted)
 	return LatencySummary{
 		Count: len(sorted),
 		Min:   sorted[0],
@@ -71,12 +71,7 @@ func percentile(sorted []time.Duration, p float64) time.Duration {
 		return sorted[len(sorted)-1]
 	}
 	idx := int(float64(len(sorted)-1)*p + 0.5)
-	if idx < 0 {
-		idx = 0
-	}
-	if idx >= len(sorted) {
-		idx = len(sorted) - 1
-	}
+	idx = min(max(idx, 0), len(sorted)-1)
 	return sorted[idx]
 }
 
@@ -187,7 +182,7 @@ func CompareRelationBloatSamples(baseline, candidate []RelationBloatSample, comp
 			names = append(names, sample.Name)
 		}
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 
 	out := make([]RelationBloatDelta, 0, len(names))
 	for _, name := range names {
