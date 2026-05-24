@@ -369,6 +369,158 @@ func TestBatchlogDequeueByProject_LeasedKeyCountsBlockAdditionalClaims(t *testin
 	}
 }
 
+func TestBatchlogDequeue_HTTPPassSkipsWorkerRuns(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	httpJob := mustCreateJob(t, ctx, st, "project-batchlog-routing")
+	workerJob := mustCreateJob(t, ctx, st, "project-batchlog-routing")
+	markWorkerJobQueue(t, ctx, workerJob, "priority")
+	q := mustBatchlogQueue(t, time.Second)
+
+	httpRun := &domain.JobRun{ID: newID(), JobID: httpJob.ID, ProjectID: httpJob.ProjectID}
+	workerRun := &domain.JobRun{
+		ID:            newID(),
+		JobID:         workerJob.ID,
+		ProjectID:     workerJob.ProjectID,
+		Priority:      100,
+		ExecutionMode: domain.ExecutionModeWorker,
+		QueueName:     "priority",
+	}
+	if err := q.Enqueue(ctx, workerRun); err != nil {
+		t.Fatalf("Enqueue worker run: %v", err)
+	}
+	if err := q.Enqueue(ctx, httpRun); err != nil {
+		t.Fatalf("Enqueue http run: %v", err)
+	}
+	if _, err := q.SealDueBatches(ctx); err != nil {
+		t.Fatalf("SealDueBatches: %v", err)
+	}
+
+	httpBatch, err := q.DequeueN(ctx, 10)
+	if err != nil {
+		t.Fatalf("DequeueN http: %v", err)
+	}
+	if len(httpBatch) != 1 || httpBatch[0].ID != httpRun.ID {
+		t.Fatalf("http batch = %+v, want only %s", httpBatch, httpRun.ID)
+	}
+
+	workerBatch, err := q.DequeueNForWorkerQueues(ctx, 10, []domain.WorkerQueueRef{{ProjectID: workerJob.ProjectID, QueueName: "priority"}})
+	if err != nil {
+		t.Fatalf("DequeueNForWorkerQueues: %v", err)
+	}
+	if len(workerBatch) != 1 || workerBatch[0].ID != workerRun.ID {
+		t.Fatalf("worker batch = %+v, want only %s", workerBatch, workerRun.ID)
+	}
+}
+
+func TestBatchlogDequeueNForWorkerQueues_FiltersByEnvironment(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	q := mustBatchlogQueue(t, time.Second)
+	projectID := "project-batchlog-worker-env"
+	prodEnvID := mustCreateEnvironment(t, ctx, st, projectID, "production")
+	stagingEnvID := mustCreateEnvironment(t, ctx, st, projectID, "staging")
+
+	prodJob := mustCreateJob(t, ctx, st, projectID)
+	markWorkerJobQueueEnvironment(t, ctx, prodJob, "priority", prodEnvID)
+	prodRun := &domain.JobRun{
+		ID:            newID(),
+		JobID:         prodJob.ID,
+		ProjectID:     prodJob.ProjectID,
+		Priority:      100,
+		ExecutionMode: domain.ExecutionModeWorker,
+		QueueName:     "priority",
+	}
+	if err := q.Enqueue(ctx, prodRun); err != nil {
+		t.Fatalf("Enqueue prod worker run: %v", err)
+	}
+
+	stagingJob := mustCreateJob(t, ctx, st, projectID)
+	markWorkerJobQueueEnvironment(t, ctx, stagingJob, "priority", stagingEnvID)
+	stagingRun := &domain.JobRun{
+		ID:            newID(),
+		JobID:         stagingJob.ID,
+		ProjectID:     stagingJob.ProjectID,
+		Priority:      1,
+		ExecutionMode: domain.ExecutionModeWorker,
+		QueueName:     "priority",
+	}
+	if err := q.Enqueue(ctx, stagingRun); err != nil {
+		t.Fatalf("Enqueue staging worker run: %v", err)
+	}
+	if _, err := q.SealDueBatches(ctx); err != nil {
+		t.Fatalf("SealDueBatches: %v", err)
+	}
+
+	stagingBatch, err := q.DequeueNForWorkerQueues(ctx, 1, []domain.WorkerQueueRef{{ProjectID: projectID, QueueName: "priority", EnvironmentID: stagingEnvID}})
+	if err != nil {
+		t.Fatalf("DequeueNForWorkerQueues(staging): %v", err)
+	}
+	if len(stagingBatch) != 1 || stagingBatch[0].ID != stagingRun.ID {
+		t.Fatalf("staging batch = %+v, want only %s", stagingBatch, stagingRun.ID)
+	}
+
+	prodBatch, err := q.DequeueNForWorkerQueues(ctx, 1, []domain.WorkerQueueRef{{ProjectID: projectID, QueueName: "priority", EnvironmentID: prodEnvID}})
+	if err != nil {
+		t.Fatalf("DequeueNForWorkerQueues(prod): %v", err)
+	}
+	if len(prodBatch) != 1 || prodBatch[0].ID != prodRun.ID {
+		t.Fatalf("prod batch = %+v, want only %s", prodBatch, prodRun.ID)
+	}
+}
+
+func TestBatchlogDeleteAckedEntries_AllowsRequeueToCreateFreshEntry(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-batchlog-cleanup")
+	q := mustBatchlogQueue(t, time.Second)
+
+	run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	if _, err := q.SealDueBatches(ctx); err != nil {
+		t.Fatalf("SealDueBatches: %v", err)
+	}
+	claimed, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("DequeueN: %v", err)
+	}
+	if len(claimed) != 1 {
+		t.Fatalf("claimed len = %d, want 1", len(claimed))
+	}
+	if err := st.UpdateRunStatus(ctx, run.ID, domain.StatusQueued, domain.StatusExecuting, map[string]any{"started_at": time.Now()}); err != nil {
+		t.Fatalf("queued->executing: %v", err)
+	}
+
+	deleted, err := q.DeleteAckedEntries(ctx, 0, 10)
+	if err != nil {
+		t.Fatalf("DeleteAckedEntries: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("deleted = %d, want 1", deleted)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE job_runs SET status = 'queued', started_at = NULL WHERE id = $1`, run.ID); err != nil {
+		t.Fatalf("requeue run: %v", err)
+	}
+	if _, err := q.SealDueBatches(ctx); err != nil {
+		t.Fatalf("SealDueBatches requeue: %v", err)
+	}
+	reclaimed, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("DequeueN requeue: %v", err)
+	}
+	if len(reclaimed) != 1 || reclaimed[0].ID != run.ID {
+		t.Fatalf("reclaimed = %+v, want run %s", reclaimed, run.ID)
+	}
+}
+
 func TestQueueEntryBatchlog_RunStatusBlocksDelayedEntry(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

@@ -54,6 +54,18 @@ func (m *mockFullyDenormalizedStrategyQueue) DequeueNFullyDenormalized(
 	return nil, nil
 }
 
+type mockPartitionedStrategyQueue struct {
+	mockStrategyQueue
+	dequeueNPartitionedCalled atomic.Int32
+	projects                  []string
+}
+
+func (m *mockPartitionedStrategyQueue) DequeueNPartitioned(_ context.Context, _ int, projects []string) ([]domain.JobRun, error) {
+	m.dequeueNPartitionedCalled.Add(1)
+	m.projects = append([]string(nil), projects...)
+	return nil, nil
+}
+
 // TestPoll_AutoSelect_FallsToDequeueN verifies that when the queue does
 // not implement claimTableDequeuer or twoPhaseDequeuer, the poll loop
 // falls through to DequeueN as the final fallback.
@@ -152,5 +164,33 @@ func TestPoll_PartitionsOverrideAutoSelect(t *testing.T) {
 	}
 	if q.dequeueNCalled.Load() != 0 {
 		t.Fatalf("DequeueN called %d times, want 0 (partitions override)", q.dequeueNCalled.Load())
+	}
+}
+
+func TestPoll_PartitionsUseBatchClaimWhenAvailable(t *testing.T) {
+	t.Parallel()
+
+	q := &mockPartitionedStrategyQueue{}
+	p := NewPool(4)
+	t.Cleanup(func() { _ = p.Shutdown(context.Background()) })
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         p,
+		Queue:        q,
+		Store:        &mockExecutorStore{},
+		PollInterval: time.Hour,
+		Partitions:   []string{"proj-1", "proj-2"},
+	})
+
+	exec.poll(context.Background())
+
+	if q.dequeueNPartitionedCalled.Load() != 1 {
+		t.Fatalf("DequeueNPartitioned called %d times, want 1", q.dequeueNPartitionedCalled.Load())
+	}
+	if q.dequeueNByProject.Load() != 0 {
+		t.Fatalf("DequeueNByProject called %d times, want 0 when batch partitioned dequeue is available", q.dequeueNByProject.Load())
+	}
+	if len(q.projects) != 2 || q.projects[0] != "proj-1" || q.projects[1] != "proj-2" {
+		t.Fatalf("projects = %#v, want [proj-1 proj-2]", q.projects)
 	}
 }

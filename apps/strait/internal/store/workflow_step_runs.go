@@ -85,6 +85,38 @@ func (q *Queries) GetWorkflowStepRun(ctx context.Context, id string) (*domain.Wo
 	return sr, nil
 }
 
+func (q *Queries) ListWorkflowStepRunsByIDs(ctx context.Context, ids []string) ([]domain.WorkflowStepRun, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListWorkflowStepRunsByIDs")
+	defer span.End()
+
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	rows, err := q.db.Query(ctx, `
+		SELECT id, workflow_run_id, workflow_step_id, step_ref, job_run_id, status,
+		       deps_completed, deps_required, output, error, started_at, finished_at, attempt, created_at
+		FROM workflow_step_runs
+		WHERE id = ANY($1)
+	`, ids)
+	if err != nil {
+		return nil, fmt.Errorf("list workflow step runs by ids: %w", err)
+	}
+	defer rows.Close()
+
+	stepRuns := make([]domain.WorkflowStepRun, 0, len(ids))
+	for rows.Next() {
+		sr, scanErr := scanWorkflowStepRun(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("list workflow step runs by ids scan: %w", scanErr)
+		}
+		stepRuns = append(stepRuns, *sr)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list workflow step runs by ids rows: %w", err)
+	}
+	return stepRuns, nil
+}
+
 func (q *Queries) GetStepRunByJobRunID(ctx context.Context, jobRunID string) (*domain.WorkflowStepRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetStepRunByJobRunID")
 	defer span.End()
@@ -452,6 +484,96 @@ func (q *Queries) IncrementStepDeps(ctx context.Context, workflowRunID string, c
 	return results, nil
 }
 
+func (q *Queries) IncrementStepDepsBatch(ctx context.Context, workflowRunID string, completedStepRefs []string) ([]StepDepResult, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.IncrementStepDepsBatch")
+	defer span.End()
+
+	if len(completedStepRefs) == 0 {
+		return nil, nil
+	}
+	query := `
+		WITH completed_refs AS (
+			SELECT DISTINCT unnest($2::text[]) AS step_ref
+		),
+		candidates AS (
+			SELECT DISTINCT
+				wsr.id,
+				wsr.workflow_run_id,
+				wsr.step_ref,
+				wvs.job_id,
+				wvs.condition,
+				wvs.payload,
+				wvs.depends_on
+			FROM workflow_step_runs wsr
+			JOIN workflow_runs wr ON wr.id = wsr.workflow_run_id
+			JOIN workflow_version_steps wvs
+			  ON wvs.workflow_version_id = wr.workflow_id || ':v' || wr.workflow_version
+			 AND wvs.step_ref = wsr.step_ref
+			JOIN completed_refs cr ON cr.step_ref = ANY(wvs.depends_on)
+			WHERE wsr.workflow_run_id = $1
+			  AND wsr.status = 'waiting'
+			  AND EXISTS (
+				SELECT 1
+				FROM workflow_step_runs completed
+				WHERE completed.workflow_run_id = wsr.workflow_run_id
+				  AND completed.step_ref = cr.step_ref
+				  AND completed.status IN ('completed', 'skipped')
+			  )
+		),
+		dependency_counts AS (
+			SELECT c.id, COUNT(DISTINCT dep.step_ref)::int AS deps_completed
+			FROM candidates c
+			JOIN workflow_step_runs dep
+			  ON dep.workflow_run_id = c.workflow_run_id
+			 AND dep.step_ref = ANY(c.depends_on)
+			 AND dep.status IN ('completed', 'skipped')
+			GROUP BY c.id
+		)
+		UPDATE workflow_step_runs wsr
+		SET deps_completed = LEAST(wsr.deps_required, dc.deps_completed)
+		FROM candidates c
+		JOIN dependency_counts dc ON dc.id = c.id
+		WHERE wsr.id = c.id
+		  AND dc.deps_completed > wsr.deps_completed
+		RETURNING wsr.id, wsr.step_ref, wsr.deps_completed, wsr.deps_required, c.job_id, c.condition, c.payload, wsr.workflow_run_id`
+
+	rows, err := q.db.Query(ctx, query, workflowRunID, completedStepRefs)
+	if err != nil {
+		return nil, fmt.Errorf("increment step deps batch: %w", err)
+	}
+	defer rows.Close()
+
+	results := make([]StepDepResult, 0, 4)
+	for rows.Next() {
+		var r StepDepResult
+		var condition []byte
+		var payload []byte
+		if scanErr := rows.Scan(
+			&r.StepRunID,
+			&r.StepRef,
+			&r.DepsCompleted,
+			&r.DepsRequired,
+			&r.JobID,
+			&condition,
+			&payload,
+			&r.WorkflowRunID,
+		); scanErr != nil {
+			return nil, fmt.Errorf("increment step deps batch scan: %w", scanErr)
+		}
+		if condition != nil {
+			r.Condition = json.RawMessage(condition)
+		}
+		if payload != nil {
+			r.Payload = json.RawMessage(payload)
+		}
+		results = append(results, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("increment step deps batch rows: %w", err)
+	}
+	return results, nil
+}
+
 func (q *Queries) IncrementStepRunAttempt(ctx context.Context, id string, newAttempt int) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.IncrementStepRunAttempt")
 	defer span.End()
@@ -545,6 +667,31 @@ func (q *Queries) ListFailedStepRunRefs(ctx context.Context, workflowRunID strin
 		return nil, fmt.Errorf("list failed step refs rows: %w", err)
 	}
 	return refs, nil
+}
+
+type WorkflowStepCompletionSummary struct {
+	NonTerminalCount int
+	FailedStepRefs   []string
+}
+
+func (q *Queries) GetWorkflowStepCompletionSummary(ctx context.Context, workflowRunID string) (WorkflowStepCompletionSummary, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetWorkflowStepCompletionSummary")
+	defer span.End()
+
+	var summary WorkflowStepCompletionSummary
+	var failedRefs []string
+	err := q.db.QueryRow(ctx, `
+		SELECT
+			COUNT(*) FILTER (WHERE status NOT IN ('completed', 'failed', 'skipped', 'canceled'))::int,
+			COALESCE(array_agg(step_ref ORDER BY step_ref) FILTER (WHERE status = 'failed'), ARRAY[]::text[])
+		FROM workflow_step_runs
+		WHERE workflow_run_id = $1
+	`, workflowRunID).Scan(&summary.NonTerminalCount, &failedRefs)
+	if err != nil {
+		return summary, fmt.Errorf("get workflow step completion summary: %w", err)
+	}
+	summary.FailedStepRefs = failedRefs
+	return summary, nil
 }
 
 func (q *Queries) CancelNonTerminalStepRuns(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error) {

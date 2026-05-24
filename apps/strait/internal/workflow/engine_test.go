@@ -926,8 +926,10 @@ func BenchmarkMergePayloads(b *testing.B) {
 type mockCallbackStore struct {
 	getStepRunByJobRunIDFn              func(ctx context.Context, jobRunID string) (*domain.WorkflowStepRun, error)
 	getWorkflowStepRunFn                func(ctx context.Context, id string) (*domain.WorkflowStepRun, error)
+	listWorkflowStepRunsByIDsFn         func(ctx context.Context, ids []string) ([]domain.WorkflowStepRun, error)
 	updateStepRunStatusFn               func(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
 	incrementStepDepsFn                 func(ctx context.Context, workflowRunID string, completedStepRef string) ([]store.StepDepResult, error)
+	incrementStepDepsBatchFn            func(ctx context.Context, workflowRunID string, completedStepRefs []string) ([]store.StepDepResult, error)
 	incrementStepRunAttemptFn           func(ctx context.Context, id string, newAttempt int) error
 	getWorkflowRunFn                    func(ctx context.Context, id string) (*domain.WorkflowRun, error)
 	updateWorkflowRunStatusFn           func(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
@@ -937,6 +939,7 @@ type mockCallbackStore struct {
 	listStepRunStatusesByWorkflowRunFn  func(ctx context.Context, workflowRunID string) (map[string]domain.StepRunStatus, error)
 	countNonTerminalStepRunsFn          func(ctx context.Context, workflowRunID string) (int, error)
 	listFailedStepRunRefsFn             func(ctx context.Context, workflowRunID string) ([]string, error)
+	getWorkflowStepCompletionSummaryFn  func(ctx context.Context, workflowRunID string) (store.WorkflowStepCompletionSummary, error)
 	cancelNonTerminalStepRunsFn         func(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
 	skipStepRunsByRefsFn                func(ctx context.Context, workflowRunID string, refs []string, finishedAt time.Time) (int64, error)
 	getStepOutputsFn                    func(ctx context.Context, workflowRunID string, stepRefs []string) (map[string]json.RawMessage, error)
@@ -1046,6 +1049,23 @@ func (m *mockCallbackStore) GetWorkflowStepRun(ctx context.Context, id string) (
 	return nil, nil
 }
 
+func (m *mockCallbackStore) ListWorkflowStepRunsByIDs(ctx context.Context, ids []string) ([]domain.WorkflowStepRun, error) {
+	if m.listWorkflowStepRunsByIDsFn != nil {
+		return m.listWorkflowStepRunsByIDsFn(ctx, ids)
+	}
+	out := make([]domain.WorkflowStepRun, 0, len(ids))
+	for _, id := range ids {
+		sr, err := m.GetWorkflowStepRun(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if sr != nil {
+			out = append(out, *sr)
+		}
+	}
+	return out, nil
+}
+
 func (m *mockCallbackStore) UpdateStepRunStatus(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error {
 	if m.updateStepRunStatusFn != nil {
 		return m.updateStepRunStatusFn(ctx, id, status, fields)
@@ -1065,6 +1085,21 @@ func (m *mockCallbackStore) IncrementStepDeps(ctx context.Context, workflowRunID
 		return m.incrementStepDepsFn(ctx, workflowRunID, completedStepRef)
 	}
 	return nil, nil
+}
+
+func (m *mockCallbackStore) IncrementStepDepsBatch(ctx context.Context, workflowRunID string, completedStepRefs []string) ([]store.StepDepResult, error) {
+	if m.incrementStepDepsBatchFn != nil {
+		return m.incrementStepDepsBatchFn(ctx, workflowRunID, completedStepRefs)
+	}
+	var out []store.StepDepResult
+	for _, ref := range completedStepRefs {
+		results, err := m.IncrementStepDeps(ctx, workflowRunID, ref)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, results...)
+	}
+	return out, nil
 }
 
 func (m *mockCallbackStore) GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error) {
@@ -1187,6 +1222,21 @@ func (m *mockCallbackStore) ListFailedStepRunRefs(ctx context.Context, workflowR
 		return refs, nil
 	}
 	return nil, nil
+}
+
+func (m *mockCallbackStore) GetWorkflowStepCompletionSummary(ctx context.Context, workflowRunID string) (store.WorkflowStepCompletionSummary, error) {
+	if m.getWorkflowStepCompletionSummaryFn != nil {
+		return m.getWorkflowStepCompletionSummaryFn(ctx, workflowRunID)
+	}
+	count, err := m.CountNonTerminalStepRuns(ctx, workflowRunID)
+	if err != nil {
+		return store.WorkflowStepCompletionSummary{}, err
+	}
+	refs, err := m.ListFailedStepRunRefs(ctx, workflowRunID)
+	if err != nil {
+		return store.WorkflowStepCompletionSummary{}, err
+	}
+	return store.WorkflowStepCompletionSummary{NonTerminalCount: count, FailedStepRefs: refs}, nil
 }
 
 func (m *mockCallbackStore) CancelNonTerminalStepRuns(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error) {

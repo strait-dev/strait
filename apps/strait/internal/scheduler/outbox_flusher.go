@@ -138,6 +138,17 @@ func (f *OutboxFlusher) flushOnce(ctx context.Context) (err error) {
 		}
 	}()
 
+	if f.engine == queue.EngineBatchlog {
+		if err := f.flushOnceBatchlogFast(ctx); err == nil {
+			return nil
+		}
+		f.logger.Debug("outbox flusher fast path fell back to savepoint isolation", "error", err)
+	}
+
+	return f.flushOnceWithSavepoints(ctx)
+}
+
+func (f *OutboxFlusher) flushOnceWithSavepoints(ctx context.Context) error {
 	tx, err := f.pool.Begin(ctx)
 	if err != nil {
 		f.errors.Add(1)
@@ -233,6 +244,66 @@ func (f *OutboxFlusher) flushOnce(ctx context.Context) (err error) {
 	f.flushed.Add(int64(len(promoted)))
 	if len(promoted) > 0 {
 		f.logger.Debug("outbox flusher promoted", "count", len(promoted))
+	}
+	return nil
+}
+
+func (f *OutboxFlusher) flushOnceBatchlogFast(ctx context.Context) error {
+	tx, err := f.pool.Begin(ctx)
+	if err != nil {
+		f.errors.Add(1)
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	rows, err := f.claimRows(ctx, tx)
+	if err != nil {
+		f.errors.Add(1)
+		return err
+	}
+	if len(rows) == 0 {
+		if err := tx.Commit(ctx); err != nil {
+			f.errors.Add(1)
+			return err
+		}
+		committed = true
+		return nil
+	}
+
+	promoted := make([]string, 0, len(rows))
+	qm, _ := queue.Metrics()
+	for _, row := range rows {
+		run, err := f.toJobRun(row)
+		if err != nil {
+			return fmt.Errorf("outbox flusher fast path invalid row %s: %w", row.ID, err)
+		}
+		if err := f.queue.EnqueueInTx(ctx, tx, run); err != nil {
+			return fmt.Errorf("outbox flusher fast path enqueue row %s: %w", row.ID, err)
+		}
+		if qm != nil && qm.OutboxLag != nil && !row.CreatedAt.IsZero() {
+			qm.OutboxLag.Record(ctx, time.Since(row.CreatedAt).Seconds())
+		}
+		promoted = append(promoted, row.ID)
+	}
+	if len(promoted) > 0 {
+		if err := f.markPromoted(ctx, tx, promoted); err != nil {
+			f.errors.Add(1)
+			return err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		f.errors.Add(1)
+		return err
+	}
+	committed = true
+	f.flushed.Add(int64(len(promoted)))
+	if len(promoted) > 0 {
+		f.logger.Debug("outbox flusher promoted on fast path", "count", len(promoted))
 	}
 	return nil
 }

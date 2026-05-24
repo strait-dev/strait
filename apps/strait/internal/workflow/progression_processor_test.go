@@ -38,8 +38,18 @@ func (s *fakeProgressionEventStore) MarkWorkflowProgressionEventProcessed(_ cont
 	return nil
 }
 
+func (s *fakeProgressionEventStore) MarkWorkflowProgressionEventsProcessed(_ context.Context, ids []int64) error {
+	s.processed = append(s.processed, ids...)
+	return nil
+}
+
 func (s *fakeProgressionEventStore) ReleaseWorkflowProgressionEvent(_ context.Context, id int64) error {
 	s.released = append(s.released, id)
+	return nil
+}
+
+func (s *fakeProgressionEventStore) ReleaseWorkflowProgressionEvents(_ context.Context, ids []int64) error {
+	s.released = append(s.released, ids...)
 	return nil
 }
 
@@ -56,7 +66,17 @@ func TestWorkflowProgression_ProcessOnceBatchesWorkflowContextLoad(t *testing.T)
 	}
 
 	var listStepsCalls int
+	var batchLoadCalls int
+	var incrementBatchCalls int
 	callbackStore := &mockCallbackStore{
+		listWorkflowStepRunsByIDsFn: func(_ context.Context, ids []string) ([]domain.WorkflowStepRun, error) {
+			batchLoadCalls++
+			out := make([]domain.WorkflowStepRun, 0, len(ids))
+			for _, id := range ids {
+				out = append(out, *stepRuns[id])
+			}
+			return out, nil
+		},
 		getWorkflowStepRunFn: func(_ context.Context, id string) (*domain.WorkflowStepRun, error) {
 			return stepRuns[id], nil
 		},
@@ -72,7 +92,8 @@ func TestWorkflowProgression_ProcessOnceBatchesWorkflowContextLoad(t *testing.T)
 			listStepsCalls++
 			return []domain.WorkflowStep{{StepRef: "a"}, {StepRef: "b"}}, nil
 		},
-		incrementStepDepsFn: func(context.Context, string, string) ([]store.StepDepResult, error) {
+		incrementStepDepsBatchFn: func(context.Context, string, []string) ([]store.StepDepResult, error) {
+			incrementBatchCalls++
 			return nil, nil
 		},
 		listStepRunStatusesByWorkflowRunFn: func(context.Context, string) (map[string]domain.StepRunStatus, error) {
@@ -84,8 +105,8 @@ func TestWorkflowProgression_ProcessOnceBatchesWorkflowContextLoad(t *testing.T)
 		listRunnableStepRunsByWorkflowRunFn: func(context.Context, string, int) ([]domain.WorkflowStepRun, error) {
 			return nil, nil
 		},
-		countNonTerminalStepRunsFn: func(context.Context, string) (int, error) {
-			return 1, nil
+		getWorkflowStepCompletionSummaryFn: func(context.Context, string) (store.WorkflowStepCompletionSummary, error) {
+			return store.WorkflowStepCompletionSummary{NonTerminalCount: 1}, nil
 		},
 	}
 	callback := NewStepCallback(callbackStore, &WorkflowEngine{}, nil)
@@ -96,6 +117,12 @@ func TestWorkflowProgression_ProcessOnceBatchesWorkflowContextLoad(t *testing.T)
 	}
 	if listStepsCalls != 1 {
 		t.Fatalf("step definition loads = %d, want 1 for workflow batch", listStepsCalls)
+	}
+	if batchLoadCalls != 1 {
+		t.Fatalf("step batch loads = %d, want 1", batchLoadCalls)
+	}
+	if incrementBatchCalls != 1 {
+		t.Fatalf("batch dependency increments = %d, want 1", incrementBatchCalls)
 	}
 	if got := eventStore.processed; len(got) != 2 || got[0] != 1 || got[1] != 2 {
 		t.Fatalf("processed events = %v, want [1 2]", got)

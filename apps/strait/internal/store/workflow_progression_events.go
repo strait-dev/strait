@@ -94,6 +94,24 @@ func (q *Queries) MarkWorkflowProgressionEventProcessed(ctx context.Context, id 
 	return nil
 }
 
+func (q *Queries) MarkWorkflowProgressionEventsProcessed(ctx context.Context, ids []int64) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.MarkWorkflowProgressionEventsProcessed")
+	defer span.End()
+
+	if len(ids) == 0 {
+		return nil
+	}
+	_, err := q.db.Exec(ctx, `
+		UPDATE workflow_progression_events
+		SET processed_at = NOW(), updated_at = NOW()
+		WHERE id = ANY($1)
+	`, ids)
+	if err != nil {
+		return fmt.Errorf("mark workflow progression events processed: %w", err)
+	}
+	return nil
+}
+
 func (q *Queries) ReleaseWorkflowProgressionEvent(ctx context.Context, id int64) error {
 	_, err := q.db.Exec(ctx, `
 		UPDATE workflow_progression_events
@@ -104,4 +122,46 @@ func (q *Queries) ReleaseWorkflowProgressionEvent(ctx context.Context, id int64)
 		return fmt.Errorf("release workflow progression event: %w", err)
 	}
 	return nil
+}
+
+func (q *Queries) ReleaseWorkflowProgressionEvents(ctx context.Context, ids []int64) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	_, err := q.db.Exec(ctx, `
+		UPDATE workflow_progression_events
+		SET locked_at = NULL, updated_at = NOW()
+		WHERE id = ANY($1) AND processed_at IS NULL
+	`, ids)
+	if err != nil {
+		return fmt.Errorf("release workflow progression events: %w", err)
+	}
+	return nil
+}
+
+func (q *Queries) DeleteProcessedWorkflowProgressionEvents(ctx context.Context, olderThan time.Duration, limit int) (int64, error) {
+	if olderThan < 0 {
+		olderThan = 0
+	}
+	if limit <= 0 {
+		limit = 1000
+	}
+	tag, err := q.db.Exec(ctx, `
+		WITH doomed AS (
+			SELECT id
+			FROM workflow_progression_events
+			WHERE processed_at IS NOT NULL
+			  AND processed_at <= NOW() - $1::interval
+			ORDER BY processed_at ASC, id ASC
+			LIMIT $2
+			FOR UPDATE SKIP LOCKED
+		)
+		DELETE FROM workflow_progression_events wpe
+		USING doomed
+		WHERE wpe.id = doomed.id
+	`, olderThan, limit)
+	if err != nil {
+		return 0, fmt.Errorf("delete processed workflow progression events: %w", err)
+	}
+	return tag.RowsAffected(), nil
 }

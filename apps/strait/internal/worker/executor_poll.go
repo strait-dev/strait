@@ -37,6 +37,10 @@ type workerQueueDequeuer interface {
 	DequeueNForWorkerQueues(ctx context.Context, n int, queues []domain.WorkerQueueRef) ([]domain.JobRun, error)
 }
 
+type partitionedDequeuer interface {
+	DequeueNPartitioned(ctx context.Context, n int, projectIDs []string) ([]domain.JobRun, error)
+}
+
 // QueueSnapshotter returns the environment-qualified queues that have active
 // workers connected to this replica. Implemented by grpc.ConnectionRegistry via
 // an adapter to avoid a circular import.
@@ -241,6 +245,16 @@ func (e *Executor) dequeueAcrossPartitions(ctx context.Context, capacity int) ([
 	out := make([]domain.JobRun, 0, capacity)
 	if capacity <= 0 || len(e.partitionCycle) == 0 {
 		return out, nil
+	}
+
+	if dq, ok := e.queue.(partitionedDequeuer); ok {
+		qm, _ := queue.Metrics()
+		partStart := time.Now()
+		runs, err := dq.DequeueNPartitioned(ctx, capacity, e.partitionCycle)
+		if qm != nil {
+			qm.PartitionDequeueLag.Record(ctx, time.Since(partStart).Seconds())
+		}
+		return runs, err
 	}
 
 	remaining := capacity
