@@ -117,7 +117,21 @@ func (q *BatchlogQueue) RunTicker(ctx context.Context) {
 func (q *BatchlogQueue) BackfillDue(ctx context.Context) (int64, error) {
 	tag, err := q.db.Exec(ctx, `
 		INSERT INTO queue_entries (
-			run_id, job_id, project_id, priority, run_created_at, available_at, status, concurrency_key
+			run_id,
+			job_id,
+			project_id,
+			priority,
+			run_created_at,
+			available_at,
+			status,
+			concurrency_key,
+			run_status,
+			job_enabled,
+			job_paused,
+			job_max_concurrency,
+			job_max_concurrency_per_key,
+			scheduled_at,
+			next_retry_at
 		)
 		SELECT
 			jr.id,
@@ -131,7 +145,14 @@ func (q *BatchlogQueue) BackfillDue(ctx context.Context) (int64, error) {
 				jr.created_at
 			),
 			'ready',
-			COALESCE(jr.concurrency_key, '')
+			COALESCE(jr.concurrency_key, ''),
+			jr.status,
+			jr.job_enabled,
+			jr.job_paused,
+			jr.job_max_concurrency,
+			jr.job_max_concurrency_per_key,
+			jr.scheduled_at,
+			jr.next_retry_at
 		FROM job_runs jr
 		WHERE jr.status = $1
 		  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
@@ -151,13 +172,12 @@ func (q *BatchlogQueue) SealDueBatches(ctx context.Context) (int64, error) {
 		WITH due AS (
 			SELECT qe.run_id
 			FROM queue_entries qe
-			JOIN job_runs jr ON jr.id = qe.run_id
 			WHERE qe.status = 'ready'
 			  AND qe.batch_id IS NULL
 			  AND qe.available_at <= NOW()
-			  AND jr.status = $1
-			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
-			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
+			  AND qe.run_status = $1
+			  AND (qe.scheduled_at IS NULL OR qe.scheduled_at <= NOW())
+			  AND (qe.next_retry_at IS NULL OR qe.next_retry_at <= NOW())
 			LIMIT 10000
 		),
 		created_batch AS (
@@ -201,11 +221,9 @@ func (q *BatchlogQueue) ReclaimExpiredLeases(ctx context.Context) (int64, error)
 		    lease_owner = NULL,
 		    lease_expires_at = NULL,
 		    updated_at = NOW()
-		FROM job_runs jr
-		WHERE qe.run_id = jr.id
-		  AND qe.status = 'leased'
+		WHERE qe.status = 'leased'
 		  AND qe.lease_expires_at <= NOW()
-		  AND jr.status = $1
+		  AND qe.run_status = $1
 	`, domain.StatusQueued)
 	if err != nil {
 		return 0, fmt.Errorf("batchlog reclaim expired leases: %w", err)
@@ -221,7 +239,7 @@ func (q *BatchlogQueue) dequeueN(ctx context.Context, n int, projectID string) (
 	projectClause := ""
 	args := []any{n, q.cfg.LeaseOwner, q.cfg.LeaseDuration}
 	if projectID != "" {
-		projectClause = "AND jr.project_id = $4"
+		projectClause = "AND qe.project_id = $4"
 		args = append(args, projectID)
 	}
 
@@ -229,33 +247,31 @@ func (q *BatchlogQueue) dequeueN(ctx context.Context, n int, projectID string) (
 		WITH claimed AS (
 			SELECT qe.run_id
 			FROM queue_entries qe
-			JOIN job_runs jr ON jr.id = qe.run_id
 			LEFT JOIN job_active_counts jac_job
-			  ON jac_job.job_id = jr.job_id AND jac_job.concurrency_key = ''
+			  ON jac_job.job_id = qe.job_id AND jac_job.concurrency_key = ''
 			LEFT JOIN job_active_counts jac_key
-			  ON jac_key.job_id = jr.job_id
-			  AND jac_key.concurrency_key = COALESCE(jr.concurrency_key, '')
+			  ON jac_key.job_id = qe.job_id
+			  AND jac_key.concurrency_key = qe.concurrency_key
 			LEFT JOIN job_batchlog_lease_counts jlc_job
-			  ON jlc_job.job_id = jr.job_id AND jlc_job.concurrency_key = ''
+			  ON jlc_job.job_id = qe.job_id AND jlc_job.concurrency_key = ''
 			LEFT JOIN job_batchlog_lease_counts jlc_key
-			  ON jlc_key.job_id = jr.job_id
-			  AND jlc_key.concurrency_key = COALESCE(jr.concurrency_key, '')
+			  ON jlc_key.job_id = qe.job_id
+			  AND jlc_key.concurrency_key = qe.concurrency_key
 			WHERE qe.status = 'ready'
 			  AND qe.batch_id IS NOT NULL
 			  AND qe.available_at <= NOW()
-			  AND jr.status = '%s'
-			  AND COALESCE(jr.job_enabled, true) = true
-			  AND COALESCE(jr.job_paused, false) = false
-			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
-			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
-			  AND (jr.job_max_concurrency IS NULL
-			       OR COALESCE(jac_job.count, 0) + COALESCE(jlc_job.count, 0) < jr.job_max_concurrency)
-			  AND (jr.job_max_concurrency_per_key IS NULL
-			       OR jr.concurrency_key IS NULL
-			       OR jr.concurrency_key = ''
-			       OR COALESCE(jac_key.count, 0) + COALESCE(jlc_key.count, 0) < jr.job_max_concurrency_per_key)
+			  AND qe.run_status = '%s'
+			  AND COALESCE(qe.job_enabled, true) = true
+			  AND COALESCE(qe.job_paused, false) = false
+			  AND (qe.scheduled_at IS NULL OR qe.scheduled_at <= NOW())
+			  AND (qe.next_retry_at IS NULL OR qe.next_retry_at <= NOW())
+			  AND (qe.job_max_concurrency IS NULL
+			       OR COALESCE(jac_job.count, 0) + COALESCE(jlc_job.count, 0) < qe.job_max_concurrency)
+			  AND (qe.job_max_concurrency_per_key IS NULL
+			       OR qe.concurrency_key = ''
+			       OR COALESCE(jac_key.count, 0) + COALESCE(jlc_key.count, 0) < qe.job_max_concurrency_per_key)
 			  %s
-			ORDER BY qe.batch_id ASC, jr.priority DESC, jr.created_at ASC
+			ORDER BY qe.batch_id ASC, qe.priority DESC, qe.run_created_at ASC
 			FOR UPDATE OF qe SKIP LOCKED
 			LIMIT $1
 		),

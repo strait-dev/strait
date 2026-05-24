@@ -519,32 +519,30 @@ func sampleBatchlogDequeuePlans(tb baselineTB, ctx context.Context) []loadtest.S
 			EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
 			SELECT qe.run_id
 			FROM queue_entries qe
-			JOIN job_runs jr ON jr.id = qe.run_id
 			LEFT JOIN job_active_counts jac_job
-			  ON jac_job.job_id = jr.job_id AND jac_job.concurrency_key = ''
+			  ON jac_job.job_id = qe.job_id AND jac_job.concurrency_key = ''
 			LEFT JOIN job_active_counts jac_key
-			  ON jac_key.job_id = jr.job_id
-			  AND jac_key.concurrency_key = COALESCE(jr.concurrency_key, '')
+			  ON jac_key.job_id = qe.job_id
+			  AND jac_key.concurrency_key = qe.concurrency_key
 			LEFT JOIN job_batchlog_lease_counts jlc_job
-			  ON jlc_job.job_id = jr.job_id AND jlc_job.concurrency_key = ''
+			  ON jlc_job.job_id = qe.job_id AND jlc_job.concurrency_key = ''
 			LEFT JOIN job_batchlog_lease_counts jlc_key
-			  ON jlc_key.job_id = jr.job_id
-			  AND jlc_key.concurrency_key = COALESCE(jr.concurrency_key, '')
+			  ON jlc_key.job_id = qe.job_id
+			  AND jlc_key.concurrency_key = qe.concurrency_key
 			WHERE qe.status = 'ready'
 			  AND qe.batch_id IS NOT NULL
 			  AND qe.available_at <= NOW()
-			  AND jr.status = 'queued'
-			  AND COALESCE(jr.job_enabled, true) = true
-			  AND COALESCE(jr.job_paused, false) = false
-			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
-			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
-			  AND (jr.job_max_concurrency IS NULL
-			       OR COALESCE(jac_job.count, 0) + COALESCE(jlc_job.count, 0) < jr.job_max_concurrency)
-			  AND (jr.job_max_concurrency_per_key IS NULL
-			       OR jr.concurrency_key IS NULL
-			       OR jr.concurrency_key = ''
-			       OR COALESCE(jac_key.count, 0) + COALESCE(jlc_key.count, 0) < jr.job_max_concurrency_per_key)
-			ORDER BY qe.batch_id ASC, jr.priority DESC, jr.created_at ASC
+			  AND qe.run_status = 'queued'
+			  AND COALESCE(qe.job_enabled, true) = true
+			  AND COALESCE(qe.job_paused, false) = false
+			  AND (qe.scheduled_at IS NULL OR qe.scheduled_at <= NOW())
+			  AND (qe.next_retry_at IS NULL OR qe.next_retry_at <= NOW())
+			  AND (qe.job_max_concurrency IS NULL
+			       OR COALESCE(jac_job.count, 0) + COALESCE(jlc_job.count, 0) < qe.job_max_concurrency)
+			  AND (qe.job_max_concurrency_per_key IS NULL
+			       OR qe.concurrency_key = ''
+			       OR COALESCE(jac_key.count, 0) + COALESCE(jlc_key.count, 0) < qe.job_max_concurrency_per_key)
+			ORDER BY qe.batch_id ASC, qe.priority DESC, qe.run_created_at ASC
 			LIMIT 50
 		`),
 	}}

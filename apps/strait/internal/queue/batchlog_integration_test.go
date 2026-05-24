@@ -214,6 +214,159 @@ func TestQueueEntryBatchlog_CreatedAtWriteTimeForLegacyEnqueue(t *testing.T) {
 	}
 }
 
+func TestQueueEntryBatchlog_DenormalizedClaimFieldsFollowJobConfig(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-batchlog-denorm-config")
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE jobs
+		SET paused = true,
+		    max_concurrency = 3,
+		    max_concurrency_per_key = 2
+		WHERE id = $1
+	`, job.ID); err != nil {
+		t.Fatalf("pause job: %v", err)
+	}
+	q := mustBatchlogQueue(t, time.Second)
+
+	run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID, ConcurrencyKey: "tenant-a"}
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+
+	var paused bool
+	var maxConcurrency, maxConcurrencyPerKey int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COALESCE(job_paused, false),
+		       COALESCE(job_max_concurrency, 0),
+		       COALESCE(job_max_concurrency_per_key, 0)
+		FROM queue_entries
+		WHERE run_id = $1
+	`, run.ID).Scan(&paused, &maxConcurrency, &maxConcurrencyPerKey); err != nil {
+		t.Fatalf("queue entry config fields: %v", err)
+	}
+	if !paused {
+		t.Fatal("queue entry job_paused = false, want true")
+	}
+	if maxConcurrency != 3 || maxConcurrencyPerKey != 2 {
+		t.Fatalf("queue entry concurrency = (%d, %d), want (3, 2)", maxConcurrency, maxConcurrencyPerKey)
+	}
+
+	if _, err := q.SealDueBatches(ctx); err != nil {
+		t.Fatalf("SealDueBatches paused: %v", err)
+	}
+	pausedRuns, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("DequeueN paused: %v", err)
+	}
+	if len(pausedRuns) != 0 {
+		t.Fatalf("DequeueN paused len = %d, want 0", len(pausedRuns))
+	}
+
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE jobs SET paused = false WHERE id = $1`, job.ID); err != nil {
+		t.Fatalf("unpause job: %v", err)
+	}
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COALESCE(job_paused, true)
+		FROM queue_entries
+		WHERE run_id = $1
+	`, run.ID).Scan(&paused); err != nil {
+		t.Fatalf("queue entry unpaused field: %v", err)
+	}
+	if paused {
+		t.Fatal("queue entry job_paused = true after unpause, want false")
+	}
+
+	if _, err := q.SealDueBatches(ctx); err != nil {
+		t.Fatalf("SealDueBatches unpaused: %v", err)
+	}
+	claimed, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("DequeueN unpaused: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].ID != run.ID {
+		t.Fatalf("claimed = %+v, want run %s", claimed, run.ID)
+	}
+}
+
+func TestQueueEntryBatchlog_RunStatusBlocksDelayedEntry(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-batchlog-denorm-status")
+	q := mustBatchlogQueue(t, time.Second)
+
+	run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+
+	future := time.Now().Add(time.Hour)
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE job_runs
+		SET status = 'delayed',
+		    scheduled_at = $2
+		WHERE id = $1
+	`, run.ID, future); err != nil {
+		t.Fatalf("delay run: %v", err)
+	}
+	var runStatus string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT run_status
+		FROM queue_entries
+		WHERE run_id = $1
+	`, run.ID).Scan(&runStatus); err != nil {
+		t.Fatalf("queue entry run status delayed: %v", err)
+	}
+	if runStatus != string(domain.StatusDelayed) {
+		t.Fatalf("queue entry run_status = %q, want delayed", runStatus)
+	}
+
+	if _, err := q.SealDueBatches(ctx); err != nil {
+		t.Fatalf("SealDueBatches delayed: %v", err)
+	}
+	delayed, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("DequeueN delayed: %v", err)
+	}
+	if len(delayed) != 0 {
+		t.Fatalf("DequeueN delayed len = %d, want 0", len(delayed))
+	}
+
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE job_runs
+		SET status = 'queued',
+		    scheduled_at = NULL
+		WHERE id = $1
+	`, run.ID); err != nil {
+		t.Fatalf("promote delayed run: %v", err)
+	}
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT run_status
+		FROM queue_entries
+		WHERE run_id = $1
+	`, run.ID).Scan(&runStatus); err != nil {
+		t.Fatalf("queue entry run status queued: %v", err)
+	}
+	if runStatus != string(domain.StatusQueued) {
+		t.Fatalf("queue entry run_status = %q, want queued", runStatus)
+	}
+
+	if _, err := q.SealDueBatches(ctx); err != nil {
+		t.Fatalf("SealDueBatches queued: %v", err)
+	}
+	claimed, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("DequeueN queued: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].ID != run.ID {
+		t.Fatalf("claimed = %+v, want run %s", claimed, run.ID)
+	}
+}
+
 func TestQueueEntryBatchlog_CreatedWhenDelayedRunPromotesToQueued(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
