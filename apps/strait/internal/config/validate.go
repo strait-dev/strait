@@ -26,6 +26,19 @@ import (
 func (c *Config) Validate() error {
 	var errs []error
 
+	if c.DatabaseURL == "" {
+		errs = append(errs, fmt.Errorf("DATABASE_URL is required"))
+	}
+	if c.RedisURL == "" && (c.RedisSentinelMaster == "" || len(c.RedisSentinelAddrs) == 0) {
+		errs = append(errs, fmt.Errorf("REDIS_URL is required unless REDIS_SENTINEL_MASTER and REDIS_SENTINEL_ADDRS are configured"))
+	}
+	if c.SequinBaseURL == "" {
+		errs = append(errs, fmt.Errorf("SEQUIN_BASE_URL is required"))
+	}
+	if c.SequinConsumerName == "" {
+		errs = append(errs, fmt.Errorf("SEQUIN_CONSUMER_NAME is required"))
+	}
+
 	// Positive-required durations.
 	requirePositive := map[string]time.Duration{
 		"HEARTBEAT_INTERVAL":               c.HeartbeatInterval,

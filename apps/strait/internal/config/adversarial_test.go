@@ -10,6 +10,13 @@ import (
 	"strait/internal/domain"
 )
 
+func setAdversarialRuntimeEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("REDIS_URL", "redis://localhost:6379")
+	t.Setenv("SEQUIN_BASE_URL", "http://localhost:7376")
+	t.Setenv("SEQUIN_CONSUMER_NAME", "strait-cdc")
+}
+
 // TestConfig_IntOverflowPort verifies that an overflowing port value does not
 // silently succeed. The aconfig parser should reject or wrap the value.
 // Note: t.Setenv is incompatible with t.Parallel.
@@ -18,6 +25,7 @@ func TestConfig_IntOverflowPort(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://localhost/test")
 	t.Setenv("INTERNAL_SECRET", "test-secret-value")
 	t.Setenv("JWT_SIGNING_KEY", "this-is-a-very-long-key-for-jwt-signing-1234")
+	setAdversarialRuntimeEnv(t)
 
 	_, err := Load()
 	// An overflow value for int on most platforms should cause a parse error.
@@ -38,6 +46,7 @@ func TestConfig_NegativePort(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://localhost/test")
 	t.Setenv("INTERNAL_SECRET", "test-secret-value")
 	t.Setenv("JWT_SIGNING_KEY", "this-is-a-very-long-key-for-jwt-signing-1234")
+	setAdversarialRuntimeEnv(t)
 
 	cfg, err := Load()
 	if err != nil {
@@ -75,6 +84,7 @@ func TestConfig_MalformedDatabaseURL(t *testing.T) {
 	t.Setenv("DATABASE_URL", "://not-a-valid-url")
 	t.Setenv("INTERNAL_SECRET", "test-secret-value")
 	t.Setenv("JWT_SIGNING_KEY", "this-is-a-very-long-key-for-jwt-signing-1234")
+	setAdversarialRuntimeEnv(t)
 
 	// The config loader does not validate DATABASE_URL format beyond
 	// checking it is non-empty. A malformed URL should not cause a panic.
@@ -96,6 +106,7 @@ func TestConfig_ExtremeWorkerConcurrency(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://localhost/test")
 	t.Setenv("INTERNAL_SECRET", "test-secret-value")
 	t.Setenv("JWT_SIGNING_KEY", "this-is-a-very-long-key-for-jwt-signing-1234")
+	setAdversarialRuntimeEnv(t)
 
 	cfg, err := Load()
 	if err != nil {
@@ -125,6 +136,9 @@ func FuzzConfigParsing(f *testing.F) {
 		t.Setenv("DATABASE_URL", dbURL)
 		t.Setenv("INTERNAL_SECRET", internalSecret)
 		t.Setenv("JWT_SIGNING_KEY", jwtKey)
+		t.Setenv("REDIS_URL", "redis://localhost:6379")
+		t.Setenv("SEQUIN_BASE_URL", "http://localhost:7376")
+		t.Setenv("SEQUIN_CONSUMER_NAME", "strait-cdc")
 
 		// We only care that Load does not panic.
 		_, _ = Load()

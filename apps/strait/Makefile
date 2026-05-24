@@ -51,8 +51,8 @@ deploy: preflight ## Deploy using the infra repo
 # worker-mode clients.
 #
 # Commands:
-#   make dev          Start dependencies and run Strait in all mode
-#   make dev-up       Start Postgres, Redis, and Sequin
+#   make dev          Start the full Strait stack
+#   make dev-up       Start Postgres, Redis, Sequin, and Strait
 #   make dev-status   Show Docker Compose service status
 #   make dev-logs     Show Docker Compose service logs
 #   make dev-clean    Stop dependencies and remove local volumes
@@ -61,6 +61,8 @@ deploy: preflight ## Deploy using the infra repo
 DEV_ENV = \
 	DATABASE_URL="postgres://strait:strait@localhost:15432/strait?sslmode=disable" \
 	REDIS_URL="redis://localhost:16379" \
+	SEQUIN_BASE_URL="http://localhost:7376" \
+	SEQUIN_CONSUMER_NAME="strait-cdc" \
 	INTERNAL_SECRET="local-dev-internal-secret-change-me" \
 	JWT_SIGNING_KEY="local-dev-jwt-signing-key-change-me-32chars" \
 	ALLOW_PRIVATE_ENDPOINTS=true \
@@ -68,19 +70,16 @@ DEV_ENV = \
 	PORT=8080
 
 dev: dev-up
-	$(DEV_ENV) go run ./cmd/strait --mode all
 
 dev-up:
-	@echo "Starting Strait infrastructure..."
-	@docker compose up -d
+	@echo "Starting Strait stack..."
+	@docker compose up --build --wait -d
 	@echo ""
-	@echo "Infrastructure ready:"
-	@echo "  Postgres:    localhost:15432 (strait/strait)"
-	@echo "  Redis:       localhost:16379"
-	@echo "  Sequin:      localhost:7376"
-	@echo ""
-	@echo "Run Strait:"
-	@echo "  make dev"
+	@echo "Strait stack ready:"
+	@echo "  API:      http://localhost:8080"
+	@echo "  Postgres: localhost:15432 (strait/strait)"
+	@echo "  Redis:    localhost:16379"
+	@echo "  Sequin:   http://localhost:7376"
 
 dev-down:
 	@docker compose down
@@ -106,6 +105,8 @@ LOADTEST_PORT ?= 7676
 LOADTEST_ENV = \
 	DATABASE_URL="postgres://strait:strait@localhost:15432/strait?sslmode=disable" \
 	REDIS_URL="redis://localhost:16379" \
+	SEQUIN_BASE_URL="http://localhost:7376" \
+	SEQUIN_CONSUMER_NAME="strait-cdc" \
 	INTERNAL_SECRET="loadtest-secret-that-is-long-enough" \
 	JWT_SIGNING_KEY="loadtest-jwt-signing-key-at-least-32-chars" \
 	ALLOW_PRIVATE_ENDPOINTS=true \
@@ -117,7 +118,9 @@ LOADTEST_RUN = \
 	LOADTEST_STRAIT_URL=http://localhost:$(LOADTEST_PORT) \
 	INTERNAL_SECRET="loadtest-secret-that-is-long-enough" \
 	DATABASE_URL="postgres://strait:strait@localhost:15432/strait?sslmode=disable" \
-	REDIS_URL="redis://localhost:16379"
+	REDIS_URL="redis://localhost:16379" \
+	SEQUIN_BASE_URL="http://localhost:7376" \
+	SEQUIN_CONSUMER_NAME="strait-cdc"
 
 loadtest-server:
 	$(LOADTEST_ENV) go run ./cmd/strait

@@ -25,38 +25,41 @@ You need:
 - Docker with Compose v2
 - `curl`
 
-## 1. Start Dependencies
+## 1. Start Strait
 
 ```bash
 git clone https://github.com/strait-dev/strait.git
 cd strait
 
-docker compose -f apps/strait/docker-compose.yml up -d
+docker compose -f apps/strait/docker-compose.yml up --build --wait -d
 docker compose -f apps/strait/docker-compose.yml ps
 ```
 
-The services should report healthy.
+PostgreSQL, Redis, Sequin, and Strait should report healthy.
 
 ## 2. Configure Strait
 
 ```bash
 export DATABASE_URL=postgres://strait:strait@localhost:15432/strait?sslmode=disable
 export REDIS_URL=redis://localhost:16379
+export SEQUIN_BASE_URL=http://localhost:7376
+export SEQUIN_CONSUMER_NAME=strait-cdc
 export INTERNAL_SECRET=my-dev-secret-change-in-production-min-32-chars
 export JWT_SIGNING_KEY=my-jwt-key-change-in-production-min-32-chars
 ```
 
 For local development, `INTERNAL_SECRET` is the bearer token for API calls.
 
-## 3. Run the Server
+## 3. Run the Server From Source
 
 ```bash
+docker compose -f apps/strait/docker-compose.yml stop strait
 cd apps/strait
 go build -o strait ./cmd/strait
 ./strait --mode all
 ```
 
-Mode `all` runs the API, scheduler, and worker in one process.
+The Compose stack already runs Strait. Stop the Compose `strait` container only when you want to run the local binary against the same PostgreSQL, Redis, and Sequin services. Mode `all` runs the API, scheduler, and worker in one process.
 
 ## 4. Create a Project
 

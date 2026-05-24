@@ -1,11 +1,9 @@
 # Local development infrastructure for Strait.
 #
-# This starts only the dependencies (Postgres, Redis, Sequin).
-# Run the API separately: go run ./cmd/strait --mode all
-# Or use: make dev (starts these containers + runs the API).
+# This starts the required Strait runtime: Postgres, Redis, Sequin, and Strait.
 #
 # Ports use non-standard host mappings (15432, 16379) to avoid
-# clashing with Postgres/Redis already running on the host.
+name: strait
 
 services:
   postgres:
@@ -83,12 +81,79 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      strait-migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:7376/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+
+  strait-migrate:
+    container_name: strait-migrate
+    build:
+      context: .
+    restart: "no"
+    command: ["migrate", "up"]
+    environment:
+      DATABASE_URL: postgres://strait:strait@postgres:5432/strait?sslmode=disable
+      REDIS_URL: redis://redis:6379
+      SEQUIN_BASE_URL: http://sequin:7376
+      SEQUIN_CONSUMER_NAME: strait-cdc
+      INTERNAL_SECRET: local-dev-internal-secret-change-me
+      JWT_SIGNING_KEY: local-dev-jwt-signing-key-change-me-32chars
+      LOG_LEVEL: info
+      LOG_FORMAT: json
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  strait:
+    container_name: strait
+    build:
+      context: .
+    restart: unless-stopped
+    command: ["serve", "--mode", "all"]
+    ports:
+      - "8080:8080"
+      - "50051:50051"
+    environment:
+      DATABASE_URL: postgres://strait:strait@postgres:5432/strait?sslmode=disable
+      REDIS_URL: redis://redis:6379
+      SEQUIN_BASE_URL: http://sequin:7376
+      SEQUIN_CONSUMER_NAME: strait-cdc
+      INTERNAL_SECRET: local-dev-internal-secret-change-me
+      JWT_SIGNING_KEY: local-dev-jwt-signing-key-change-me-32chars
+      MODE: all
+      PORT: "8080"
+      LOG_LEVEL: info
+      LOG_FORMAT: json
+      MIGRATION_MODE: validate
+      GRPC_BIND_ADDR: 0.0.0.0
+      ALLOW_PRIVATE_ENDPOINTS: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      sequin:
+        condition: service_healthy
+      strait-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "strait", "health", "--quiet"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     deploy:
       resources:
         limits:

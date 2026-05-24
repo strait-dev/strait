@@ -23,6 +23,9 @@ func skipIfCommunity(t *testing.T) {
 func setRequiredEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("REDIS_URL", "redis://localhost:6379")
+	t.Setenv("SEQUIN_BASE_URL", "http://localhost:7376")
+	t.Setenv("SEQUIN_CONSUMER_NAME", "strait-cdc")
 	t.Setenv("INTERNAL_SECRET", "test-secret-value")
 	t.Setenv("JWT_SIGNING_KEY", "aaaa-test-jwt-signing-key-00000000")
 }
@@ -793,12 +796,35 @@ func TestLoad_SequinBaseURLValidation(t *testing.T) {
 		}
 	})
 
-	t.Run("empty URL is allowed", func(t *testing.T) {
+	t.Run("empty URL is rejected", func(t *testing.T) {
 		setRequiredEnv(t)
+		t.Setenv("SEQUIN_BASE_URL", "")
 
 		_, err := Load()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+		if err == nil {
+			t.Fatal("expected error for empty SEQUIN_BASE_URL, got nil")
+		}
+	})
+}
+
+func TestLoad_RequiredRuntimeDependencies(t *testing.T) {
+	t.Run("missing Redis URL", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("REDIS_URL", "")
+
+		_, err := Load()
+		if err == nil || !strings.Contains(err.Error(), "REDIS_URL") {
+			t.Fatalf("error = %v, want REDIS_URL requirement", err)
+		}
+	})
+
+	t.Run("missing Sequin consumer", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("SEQUIN_CONSUMER_NAME", "")
+
+		_, err := Load()
+		if err == nil || !strings.Contains(err.Error(), "SEQUIN_CONSUMER_NAME") {
+			t.Fatalf("error = %v, want SEQUIN_CONSUMER_NAME requirement", err)
 		}
 	})
 }

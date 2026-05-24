@@ -1,6 +1,6 @@
 # Self-hosting Strait
 
-Strait runs as a single Go binary alongside PostgreSQL and Redis. The fastest way to stand up the full community stack on one host:
+Strait runs as a single Go binary alongside required PostgreSQL, Redis, and Sequin services. The fastest way to stand up the full community stack on one host:
 
 ```bash
 git clone https://github.com/strait-dev/strait.git
@@ -23,6 +23,8 @@ Stop or reset:
 make selfhost-down    # stop containers, keep data
 make selfhost-reset   # stop and wipe data and secrets
 ```
+
+Strait fails fast when PostgreSQL, Redis, or Sequin is missing or unreachable. Self-hosted PostgreSQL must run with logical replication enabled (`wal_level=logical`) so Sequin can stream changes instead of forcing Strait into polling behavior.
 
 ## Full guide
 

@@ -48,10 +48,10 @@ Resolve the underlying SQL error, then restart. Do not edit historical migration
 
 ## Live updates and SSE stopped working
 
-Real-time run updates, SSE streaming, and gRPC worker-plane signalling all depend on Redis. If the internal `/health` view shows `redis` or `sequin_cdc` as `down`, the instance keeps serving core API and queue traffic (those checks are non-critical and the instance reports `degraded`, not `down`), but live features are impaired.
+Real-time run updates, SSE streaming, and gRPC worker-plane signalling depend on Redis and Sequin. If `/health/ready` shows `redis` or `sequin_cdc` as `down`, readiness fails because Strait requires both services at runtime.
 
 - Verify `REDIS_URL` and that Redis is reachable.
-- If you are running without Redis on purpose, this is expected. Run with Redis to restore live updates. See [Real-time updates](/concepts/real-time).
+- Verify `SEQUIN_BASE_URL`, `SEQUIN_CONSUMER_NAME`, and that Sequin can connect to PostgreSQL with logical replication enabled. See [Real-time updates](/concepts/real-time).
 
 ## Runs are stuck or not progressing
 

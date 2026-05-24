@@ -80,8 +80,9 @@ The dashboard still needs a Strait API server. Run the API with Option 1, on a V
 |---|---|
 | PostgreSQL 18+ | Source of truth and queue (`SELECT ... FOR UPDATE SKIP LOCKED`) |
 | Redis 8+ | Pub/sub, SSE streaming, gRPC worker-plane signalling |
+| Sequin v0.14.6 | CDC stream from PostgreSQL to Strait |
 
-PostgreSQL is the only hard requirement. Strait starts without Redis, but live run updates, SSE, and the gRPC worker plane stop working. Run with Redis unless you have a specific reason not to.
+All three are required. Strait fails fast when PostgreSQL, Redis, or Sequin is missing or unreachable. PostgreSQL must run with logical replication enabled (`wal_level=logical`) so Sequin can stream changes.
 
 ## Configuration
 

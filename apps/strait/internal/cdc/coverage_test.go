@@ -177,6 +177,9 @@ func TestEnsureConsumer_CreatesOnFailedProbe(t *testing.T) {
 			if body["name"] != "test-consumer" {
 				t.Fatalf("sink name = %v, want test-consumer", body["name"])
 			}
+			if body["database"] != "strait-db" {
+				t.Fatalf("database = %v, want strait-db", body["database"])
+			}
 			if r.Header.Get("Authorization") != "Bearer token" {
 				t.Fatalf("auth = %q, want Bearer token", r.Header.Get("Authorization"))
 			}

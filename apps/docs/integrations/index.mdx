@@ -1,10 +1,10 @@
 ---
 title: "Integrations"
-description: "Connect Strait to your database, Redis, and monitoring tools."
+description: "Connect Strait to your database, Redis, Sequin, and monitoring tools."
 icon: "puzzle-piece"
 ---
 
-Strait connects to PostgreSQL, Redis, and optional monitoring tools.
+Strait connects to PostgreSQL, Redis, Sequin, and optional monitoring tools.
 
 ## Core Infrastructure
 
@@ -13,7 +13,10 @@ Strait connects to PostgreSQL, Redis, and optional monitoring tools.
     Required. Strait stores all state in Postgres and uses `SELECT ... FOR UPDATE SKIP LOCKED` plus `LISTEN`/`NOTIFY` for queue semantics and worker wake-ups.
   </Card>
   <Card title="Redis" icon="bolt">
-    Strongly recommended. Powers pub/sub, SSE streaming for the dashboard, live run updates, and gRPC worker-plane signalling. Strait will start without it, but those features will not work.
+    Required. Powers rate limiting, pub/sub, SSE streaming for the dashboard, live run updates, and gRPC worker-plane signalling.
+  </Card>
+  <Card title="Sequin" icon="bolt">
+    Required. Streams PostgreSQL changes through CDC so Strait can push real-time updates without polling the database.
   </Card>
 </CardGroup>
 

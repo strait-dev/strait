@@ -11,6 +11,9 @@ This page lists the settings most deployments need. The full runtime has additio
 | Variable | Description |
 |---|---|
 | `DATABASE_URL` | PostgreSQL connection string. |
+| `REDIS_URL` | Redis connection string. Required unless `REDIS_SENTINEL_MASTER` and `REDIS_SENTINEL_ADDRS` are configured. |
+| `SEQUIN_BASE_URL` | Sequin API base URL. |
+| `SEQUIN_CONSUMER_NAME` | Sequin HTTP pull consumer name. |
 | `INTERNAL_SECRET` | Secret for trusted service-to-service access. Minimum 16 characters; 32 or more recommended. |
 | `JWT_SIGNING_KEY` | Secret used to sign run tokens for SDK calls. 32 or more characters recommended. |
 | `ENCRYPTION_KEY` | Key used for encrypted data at rest. |
@@ -20,6 +23,9 @@ Example:
 
 ```bash
 export DATABASE_URL="postgres://strait:strait@localhost:15432/strait?sslmode=disable"
+export REDIS_URL="redis://localhost:16379"
+export SEQUIN_BASE_URL="http://localhost:7376"
+export SEQUIN_CONSUMER_NAME="strait-cdc"
 export INTERNAL_SECRET="$(openssl rand -base64 32)"
 export JWT_SIGNING_KEY="$(openssl rand -base64 32)"
 export ENCRYPTION_KEY="$(openssl rand -base64 32)"
@@ -30,7 +36,6 @@ export SECRET_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 
 | Variable | Default | Description |
 |---|---|---|
-| `REDIS_URL` | - | Redis connection string for live updates and pub/sub. |
 | `MODE` | `all` | `all`, `api`, or `worker`. |
 | `PORT` | `8080` | HTTP API port. |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, or `error`. |
@@ -101,8 +106,9 @@ export SECRET_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 
 | Variable | Default | Description |
 |---|---|---|
-| `SEQUIN_BASE_URL` | - | Sequin API base URL. When set, Strait starts the CDC pull consumer and exposes the optional push receiver. |
-| `SEQUIN_CONSUMER_NAME` | - | Sequin HTTP pull consumer name. |
+| `SEQUIN_BASE_URL` | - | Required Sequin API base URL. Strait starts the CDC pull consumer and exposes the push receiver during startup. |
+| `SEQUIN_CONSUMER_NAME` | - | Required Sequin HTTP pull consumer name. |
+| `SEQUIN_DATABASE_NAME` | `strait-db` | Sequin database name from the mounted Sequin config. |
 | `SEQUIN_API_TOKEN` | - | Bearer token used for Sequin API calls. |
 | `SEQUIN_WEBHOOK_SECRET` | - | HMAC-SHA256 secret used to verify Sequin push webhook request bodies. Set this when using `/internal/cdc/webhook`. |
 | `SEQUIN_BATCH_SIZE` | `200` | Max CDC messages fetched per pull request. `CDC_BATCH_SIZE` is accepted as an alias. |

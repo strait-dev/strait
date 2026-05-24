@@ -45,11 +45,11 @@ setup:
 	lefthook install
 
 dev:
-	docker compose -f apps/strait/docker-compose.yml up -d
-	cd apps/strait && go run ./cmd/strait --mode all
+	docker compose -f apps/strait/docker-compose.yml up --build --wait -d
+	@echo "Strait stack is running at http://localhost:8080"
 
 dev-stripe:
-	docker compose -f apps/strait/docker-compose.yml up -d
+	docker compose -f apps/strait/docker-compose.yml up --build --wait -d
 	@echo "Running Better Auth migrations..."
 	@doppler run --project strait --config dev -- sh -c 'cd apps/app && bun run db:migrate'
 	@echo ""
@@ -62,7 +62,8 @@ dev-stripe:
 	@echo "Stripe webhooks forwarding to localhost:8080/webhooks/stripe (PID: $$(cat /tmp/stripe-listen.pid))"
 	@echo "Logs at /tmp/stripe-listen.log"
 	@echo ""
-	doppler run --project strait --config dev -- sh -c 'cd apps/strait && go run ./cmd/strait --mode all'
+	@echo "Strait stack is running at http://localhost:8080"
+	docker compose -f apps/strait/docker-compose.yml logs -f strait
 	@-kill $$(cat /tmp/stripe-listen.pid) 2>/dev/null; rm -f /tmp/stripe-listen.pid
 
 app:
