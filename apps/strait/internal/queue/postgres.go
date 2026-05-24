@@ -390,6 +390,7 @@ func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun)
 		return 0, fmt.Errorf("enqueue batch: underlying db does not support CopyFrom")
 	}
 
+	now := time.Now()
 	for _, run := range runs {
 		if run.ID == "" {
 			run.ID = uuid.Must(uuid.NewV7()).String()
@@ -404,7 +405,7 @@ func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun)
 			run.ExecutionMode = domain.ExecutionModeHTTP
 		}
 		run.Status = domain.StatusQueued
-		if run.ScheduledAt != nil && run.ScheduledAt.After(time.Now()) {
+		if run.ScheduledAt != nil && run.ScheduledAt.After(now) {
 			run.Status = domain.StatusDelayed
 		}
 	}

@@ -100,6 +100,130 @@ func (q *BatchlogQueue) DequeueNByProject(ctx context.Context, n int, projectID 
 	return q.dequeueN(ctx, n, projectID)
 }
 
+var batchlogDequeueSQL = "/* action=batchlog_dequeue */ " + `
+	WITH claimed AS (
+		SELECT qe.run_id
+		FROM queue_entries qe
+		LEFT JOIN job_active_counts jac_job
+		  ON jac_job.job_id = qe.job_id AND jac_job.concurrency_key = ''
+		LEFT JOIN job_active_counts jac_key
+		  ON jac_key.job_id = qe.job_id
+		  AND jac_key.concurrency_key = qe.concurrency_key
+		LEFT JOIN LATERAL (
+			SELECT COUNT(*)::int AS count
+			FROM queue_entries leased
+			WHERE leased.job_id = qe.job_id
+			  AND leased.status = 'leased'
+			  AND leased.run_status = $4
+		) leased_job ON true
+		LEFT JOIN LATERAL (
+			SELECT COUNT(*)::int AS count
+			FROM queue_entries leased
+			WHERE leased.job_id = qe.job_id
+			  AND leased.concurrency_key = qe.concurrency_key
+			  AND leased.status = 'leased'
+			  AND leased.run_status = $4
+		) leased_key ON qe.concurrency_key <> ''
+		WHERE qe.status = 'ready'
+		  AND qe.batch_id IS NOT NULL
+		  AND qe.available_at <= NOW()
+		  AND qe.run_status = $4
+		  AND COALESCE(qe.job_enabled, true) = true
+		  AND COALESCE(qe.job_paused, false) = false
+		  AND (qe.scheduled_at IS NULL OR qe.scheduled_at <= NOW())
+		  AND (qe.next_retry_at IS NULL OR qe.next_retry_at <= NOW())
+		  AND (qe.job_max_concurrency IS NULL
+		       OR COALESCE(jac_job.count, 0) + COALESCE(leased_job.count, 0) < qe.job_max_concurrency)
+		  AND (qe.job_max_concurrency_per_key IS NULL
+		       OR qe.concurrency_key = ''
+		       OR COALESCE(jac_key.count, 0) + COALESCE(leased_key.count, 0) < qe.job_max_concurrency_per_key)
+		ORDER BY qe.batch_id ASC, qe.priority DESC, qe.run_created_at ASC
+		FOR UPDATE OF qe SKIP LOCKED
+		LIMIT $1
+	),
+	leased AS (
+		UPDATE queue_entries qe
+		SET status = 'leased',
+		    lease_owner = $2,
+		    lease_expires_at = NOW() + $3,
+		    claimed_at = NOW(),
+		    attempts = attempts + 1,
+		    updated_at = NOW()
+		FROM claimed
+		WHERE qe.run_id = claimed.run_id
+		RETURNING qe.run_id
+	)
+	SELECT ` + dequeueColumns + `
+	FROM job_runs jr
+	JOIN leased l ON l.run_id = jr.id
+	ORDER BY jr.created_at ASC`
+
+var batchlogDequeueByProjectSQL = "/* action=batchlog_dequeue_by_project */ " + `
+	WITH claimed AS (
+		SELECT qe.run_id
+		FROM queue_entries qe
+		LEFT JOIN job_active_counts jac_job
+		  ON jac_job.job_id = qe.job_id AND jac_job.concurrency_key = ''
+		LEFT JOIN job_active_counts jac_key
+		  ON jac_key.job_id = qe.job_id
+		  AND jac_key.concurrency_key = qe.concurrency_key
+		LEFT JOIN LATERAL (
+			SELECT COUNT(*)::int AS count
+			FROM queue_entries leased
+			WHERE leased.job_id = qe.job_id
+			  AND leased.status = 'leased'
+			  AND leased.run_status = $4
+		) leased_job ON true
+		LEFT JOIN LATERAL (
+			SELECT COUNT(*)::int AS count
+			FROM queue_entries leased
+			WHERE leased.job_id = qe.job_id
+			  AND leased.concurrency_key = qe.concurrency_key
+			  AND leased.status = 'leased'
+			  AND leased.run_status = $4
+		) leased_key ON qe.concurrency_key <> ''
+		WHERE qe.status = 'ready'
+		  AND qe.batch_id IS NOT NULL
+		  AND qe.available_at <= NOW()
+		  AND qe.run_status = $4
+		  AND COALESCE(qe.job_enabled, true) = true
+		  AND COALESCE(qe.job_paused, false) = false
+		  AND (qe.scheduled_at IS NULL OR qe.scheduled_at <= NOW())
+		  AND (qe.next_retry_at IS NULL OR qe.next_retry_at <= NOW())
+		  AND (qe.job_max_concurrency IS NULL
+		       OR COALESCE(jac_job.count, 0) + COALESCE(leased_job.count, 0) < qe.job_max_concurrency)
+		  AND (qe.job_max_concurrency_per_key IS NULL
+		       OR qe.concurrency_key = ''
+		       OR COALESCE(jac_key.count, 0) + COALESCE(leased_key.count, 0) < qe.job_max_concurrency_per_key)
+		  AND qe.project_id = $5
+		ORDER BY qe.batch_id ASC, qe.priority DESC, qe.run_created_at ASC
+		FOR UPDATE OF qe SKIP LOCKED
+		LIMIT $1
+	),
+	leased AS (
+		UPDATE queue_entries qe
+		SET status = 'leased',
+		    lease_owner = $2,
+		    lease_expires_at = NOW() + $3,
+		    claimed_at = NOW(),
+		    attempts = attempts + 1,
+		    updated_at = NOW()
+		FROM claimed
+		WHERE qe.run_id = claimed.run_id
+		RETURNING qe.run_id
+	)
+	SELECT ` + dequeueColumns + `
+	FROM job_runs jr
+	JOIN leased l ON l.run_id = jr.id
+	ORDER BY jr.created_at ASC`
+
+func batchlogDequeueQuery(projectID string) string {
+	if projectID != "" {
+		return batchlogDequeueByProjectSQL
+	}
+	return batchlogDequeueSQL
+}
+
 func (q *BatchlogQueue) RunTicker(ctx context.Context) {
 	ticker := time.NewTicker(q.cfg.TickInterval)
 	defer ticker.Stop()
@@ -222,72 +346,11 @@ func (q *BatchlogQueue) dequeueN(ctx context.Context, n int, projectID string) (
 		return nil, nil
 	}
 
-	projectClause := ""
-	args := []any{n, q.cfg.LeaseOwner, q.cfg.LeaseDuration}
+	query := batchlogDequeueQuery(projectID)
+	args := []any{n, q.cfg.LeaseOwner, q.cfg.LeaseDuration, domain.StatusQueued}
 	if projectID != "" {
-		projectClause = "AND qe.project_id = $4"
 		args = append(args, projectID)
 	}
-
-	query := fmt.Sprintf(`
-		WITH claimed AS (
-			SELECT qe.run_id
-			FROM queue_entries qe
-			LEFT JOIN job_active_counts jac_job
-			  ON jac_job.job_id = qe.job_id AND jac_job.concurrency_key = ''
-			LEFT JOIN job_active_counts jac_key
-			  ON jac_key.job_id = qe.job_id
-			  AND jac_key.concurrency_key = qe.concurrency_key
-			LEFT JOIN LATERAL (
-				SELECT COUNT(*)::int AS count
-				FROM queue_entries leased
-				WHERE leased.job_id = qe.job_id
-				  AND leased.status = 'leased'
-				  AND leased.run_status = 'queued'
-			) leased_job ON true
-			LEFT JOIN LATERAL (
-				SELECT COUNT(*)::int AS count
-				FROM queue_entries leased
-				WHERE leased.job_id = qe.job_id
-				  AND leased.concurrency_key = qe.concurrency_key
-				  AND leased.status = 'leased'
-				  AND leased.run_status = 'queued'
-			) leased_key ON qe.concurrency_key <> ''
-			WHERE qe.status = 'ready'
-			  AND qe.batch_id IS NOT NULL
-			  AND qe.available_at <= NOW()
-			  AND qe.run_status = '%s'
-			  AND COALESCE(qe.job_enabled, true) = true
-			  AND COALESCE(qe.job_paused, false) = false
-			  AND (qe.scheduled_at IS NULL OR qe.scheduled_at <= NOW())
-			  AND (qe.next_retry_at IS NULL OR qe.next_retry_at <= NOW())
-			  AND (qe.job_max_concurrency IS NULL
-			       OR COALESCE(jac_job.count, 0) + COALESCE(leased_job.count, 0) < qe.job_max_concurrency)
-			  AND (qe.job_max_concurrency_per_key IS NULL
-			       OR qe.concurrency_key = ''
-			       OR COALESCE(jac_key.count, 0) + COALESCE(leased_key.count, 0) < qe.job_max_concurrency_per_key)
-			  %s
-			ORDER BY qe.batch_id ASC, qe.priority DESC, qe.run_created_at ASC
-			FOR UPDATE OF qe SKIP LOCKED
-			LIMIT $1
-		),
-		leased AS (
-			UPDATE queue_entries qe
-			SET status = 'leased',
-			    lease_owner = $2,
-			    lease_expires_at = NOW() + $3,
-			    claimed_at = NOW(),
-			    attempts = attempts + 1,
-			    updated_at = NOW()
-			FROM claimed
-			WHERE qe.run_id = claimed.run_id
-			RETURNING qe.run_id
-		)
-		SELECT %s
-		FROM job_runs jr
-		JOIN leased l ON l.run_id = jr.id
-		ORDER BY jr.created_at ASC
-	`, domain.StatusQueued, projectClause, dequeueColumns)
 
 	rows, err := q.db.Query(ctx, query, args...)
 	if err != nil {

@@ -4,7 +4,8 @@ CREATE TABLE IF NOT EXISTS queue_batch_seal_state (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_queue_entries_claimable_batch_order
+-- safety-ok: queue_entries is a narrow queue-side table; golang-migrate runs this migration in a transaction, so CONCURRENTLY cannot be used here.
+CREATE INDEX IF NOT EXISTS idx_queue_entries_claimable_batch_order
     ON queue_entries(batch_id ASC, priority DESC, run_created_at ASC, run_id ASC)
     WHERE status = 'ready';
 

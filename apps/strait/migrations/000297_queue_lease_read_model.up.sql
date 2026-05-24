@@ -1,4 +1,5 @@
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_queue_entries_leased_key_denorm
+-- safety-ok: queue_entries is a narrow queue-side table; golang-migrate runs this migration in a transaction, so CONCURRENTLY cannot be used here.
+CREATE INDEX IF NOT EXISTS idx_queue_entries_leased_key_denorm
     ON queue_entries(job_id, concurrency_key, run_id)
     WHERE status = 'leased' AND run_status = 'queued';
 

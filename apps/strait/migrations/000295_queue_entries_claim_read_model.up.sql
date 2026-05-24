@@ -19,15 +19,18 @@ SET run_status = jr.status,
 FROM job_runs jr
 WHERE jr.id = qe.run_id;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_queue_entries_claimable_denorm
+-- safety-ok: queue_entries is a narrow queue-side table; golang-migrate runs this migration in a transaction, so CONCURRENTLY cannot be used here.
+CREATE INDEX IF NOT EXISTS idx_queue_entries_claimable_denorm
     ON queue_entries(batch_id ASC, priority DESC, run_created_at ASC, run_id ASC)
     WHERE status = 'ready' AND run_status = 'queued';
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_queue_entries_unbatched_denorm
+-- safety-ok: queue_entries is a narrow queue-side table; golang-migrate runs this migration in a transaction, so CONCURRENTLY cannot be used here.
+CREATE INDEX IF NOT EXISTS idx_queue_entries_unbatched_denorm
     ON queue_entries(available_at ASC, run_created_at ASC, run_id ASC)
     WHERE status = 'ready' AND run_status = 'queued' AND batch_id IS NULL;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_queue_entries_lease_expiry_denorm
+-- safety-ok: queue_entries is a narrow queue-side table; golang-migrate runs this migration in a transaction, so CONCURRENTLY cannot be used here.
+CREATE INDEX IF NOT EXISTS idx_queue_entries_lease_expiry_denorm
     ON queue_entries(lease_expires_at ASC)
     WHERE status = 'leased' AND run_status = 'queued';
 

@@ -1,4 +1,5 @@
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_outbox_claims_ready_created
+-- safety-ok: outbox_claims is a narrow queue-side claim table; golang-migrate runs this migration in a transaction, so CONCURRENTLY cannot be used here.
+CREATE INDEX IF NOT EXISTS idx_outbox_claims_ready_created
     ON outbox_claims(created_at ASC, outbox_id ASC)
     WHERE status = 'ready';
 
