@@ -86,9 +86,10 @@ type Config struct {
 	// QueueEngine selects the queue storage engine. legacy keeps the
 	// job_runs-as-queue path; batchlog claims from narrow queue_entries while
 	// preserving job_runs as the ledger.
-	QueueEngine            string        `env:"QUEUE_ENGINE" default:"legacy"`
-	QueueBatchTickInterval time.Duration `env:"QUEUE_BATCH_TICK_INTERVAL" default:"100ms"`
-	OutboxEngine           string        `env:"OUTBOX_ENGINE" default:"legacy"`
+	QueueEngine               string        `env:"QUEUE_ENGINE" default:"legacy"`
+	QueueBatchTickInterval    time.Duration `env:"QUEUE_BATCH_TICK_INTERVAL" default:"100ms"`
+	OutboxEngine              string        `env:"OUTBOX_ENGINE" default:"legacy"`
+	WorkflowProgressionEngine string        `env:"WORKFLOW_PROGRESSION_ENGINE" default:"legacy"`
 
 	// DLQ caps and overflow policy.
 	DLQMaxPerProject  int    `env:"DLQ_MAX_PER_PROJECT" default:"10000"`

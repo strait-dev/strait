@@ -17,11 +17,12 @@ import (
 )
 
 type StepCallback struct {
-	store      CallbackStore
-	engine     *WorkflowEngine
-	logger     *slog.Logger
-	metrics    *telemetry.Metrics
-	chExporter *clickhouse.Exporter
+	store             CallbackStore
+	engine            *WorkflowEngine
+	logger            *slog.Logger
+	metrics           *telemetry.Metrics
+	chExporter        *clickhouse.Exporter
+	progressionEngine string
 }
 
 type CallbackStore interface {
@@ -63,6 +64,10 @@ type CallbackStore interface {
 	RequeuePausedJobRuns(ctx context.Context, workflowRunID string) (int64, error)
 }
 
+type progressionEventCreator interface {
+	CreateWorkflowProgressionEvent(ctx context.Context, workflowRunID, stepRunID, stepRef, status string) error
+}
+
 // NewStepCallback creates a new step callback handler for workflow progression.
 func NewStepCallback(store CallbackStore, engine *WorkflowEngine, logger *slog.Logger) *StepCallback {
 	if logger == nil {
@@ -70,9 +75,10 @@ func NewStepCallback(store CallbackStore, engine *WorkflowEngine, logger *slog.L
 	}
 
 	return &StepCallback{
-		store:  store,
-		engine: engine,
-		logger: logger,
+		store:             store,
+		engine:            engine,
+		logger:            logger,
+		progressionEngine: "legacy",
 	}
 }
 
@@ -141,6 +147,14 @@ func (s *StepCallback) WithMetrics(m *telemetry.Metrics) *StepCallback {
 // WithChExporter attaches the ClickHouse exporter for step analytics.
 func (s *StepCallback) WithChExporter(e *clickhouse.Exporter) *StepCallback {
 	s.chExporter = e
+	return s
+}
+
+func (s *StepCallback) WithProgressionEngine(engine string) *StepCallback {
+	if engine == "" {
+		engine = "legacy"
+	}
+	s.progressionEngine = engine
 	return s
 }
 
@@ -290,6 +304,17 @@ func (s *StepCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun)
 	case domain.StepCompleted:
 		// Auto-emit event if step has event_emit_key configured.
 		s.tryEmitEvent(ctx, stepRun, wc)
+
+		if s.progressionEngine == "batchlog" {
+			creator, ok := s.store.(progressionEventCreator)
+			if !ok {
+				return fmt.Errorf("workflow progression batchlog store not available")
+			}
+			if err := creator.CreateWorkflowProgressionEvent(ctx, stepRun.WorkflowRunID, stepRun.ID, stepRun.StepRef, string(stepStatus)); err != nil {
+				return err
+			}
+			return nil
+		}
 
 		if err := s.fanInAndStartReadyChildren(ctx, stepRun, wc); err != nil {
 			s.logger.Error("failed to process completed step", "step_ref", stepRun.StepRef, "error", err)

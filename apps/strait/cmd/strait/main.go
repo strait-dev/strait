@@ -389,7 +389,21 @@ func runServe(ctx context.Context, modeOverride string) error {
 		WithMaxNestingDepth(cfg.MaxWorkflowNestingDepth).
 		WithMetrics(metrics).
 		WithOnTriggerCreate(onTriggerCreate)
-	stepCallback := workflow.NewStepCallback(queries, workflowEngine, slog.Default()).WithMetrics(metrics).WithChExporter(chExporter)
+	stepCallback := workflow.NewStepCallback(queries, workflowEngine, slog.Default()).
+		WithMetrics(metrics).
+		WithChExporter(chExporter).
+		WithProgressionEngine(cfg.WorkflowProgressionEngine)
+	if cfg.WorkflowProgressionEngine == "batchlog" {
+		processor := workflow.NewProgressionProcessor(queries, stepCallback, workflow.ProgressionProcessorConfig{
+			Interval: 100 * time.Millisecond,
+			Limit:    100,
+			Logger:   slog.Default(),
+		})
+		g.Go(func(ctx context.Context) error {
+			processor.Run(ctx)
+			return nil
+		})
+	}
 
 	healthReg := health.NewRegistry()
 	healthReg.Register(health.NewChecker("database", func(ctx context.Context) error {
