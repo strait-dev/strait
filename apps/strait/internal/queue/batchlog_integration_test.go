@@ -172,6 +172,80 @@ func TestBatchlog_BackfillDoesNotDuplicateExistingQueuedRuns(t *testing.T) {
 	}
 }
 
+func TestQueueEntryBatchlog_CreatedAtWriteTimeForLegacyEnqueue(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-batchlog-write-time")
+	legacy := queue.NewPostgresQueue(testDB.Pool)
+	q := mustBatchlogQueue(t, time.Second)
+
+	run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID, Priority: 9}
+	if err := legacy.Enqueue(ctx, run); err != nil {
+		t.Fatalf("legacy Enqueue: %v", err)
+	}
+
+	var status string
+	var batchID *int64
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT status, batch_id
+		FROM queue_entries
+		WHERE run_id = $1
+	`, run.ID).Scan(&status, &batchID); err != nil {
+		t.Fatalf("queue entry from trigger: %v", err)
+	}
+	if status != "ready" {
+		t.Fatalf("queue entry status = %q, want ready", status)
+	}
+	if batchID != nil {
+		t.Fatalf("queue entry batch_id = %v, want nil before seal", *batchID)
+	}
+
+	if _, err := q.SealDueBatches(ctx); err != nil {
+		t.Fatalf("SealDueBatches: %v", err)
+	}
+	claimed, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("DequeueN: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].ID != run.ID {
+		t.Fatalf("claimed = %+v, want run %s", claimed, run.ID)
+	}
+}
+
+func TestQueueEntryBatchlog_CreatedWhenDelayedRunPromotesToQueued(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-batchlog-delay-trigger")
+	legacy := queue.NewPostgresQueue(testDB.Pool)
+
+	future := time.Now().Add(time.Hour)
+	run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID, ScheduledAt: &future}
+	if err := legacy.Enqueue(ctx, run); err != nil {
+		t.Fatalf("legacy delayed Enqueue: %v", err)
+	}
+	var count int
+	if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM queue_entries WHERE run_id = $1`, run.ID).Scan(&count); err != nil {
+		t.Fatalf("count pre-promotion queue entries: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("pre-promotion queue entry count = %d, want 0", count)
+	}
+
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE job_runs SET status = 'queued', scheduled_at = NULL WHERE id = $1`, run.ID); err != nil {
+		t.Fatalf("promote delayed run: %v", err)
+	}
+	if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM queue_entries WHERE run_id = $1`, run.ID).Scan(&count); err != nil {
+		t.Fatalf("count post-promotion queue entries: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("post-promotion queue entry count = %d, want 1", count)
+	}
+}
+
 func TestDelayedBatchlog_RunBecomesClaimableAtRightTime(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

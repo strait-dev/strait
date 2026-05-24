@@ -69,65 +69,15 @@ func NewQueueEngine(db store.DBTX, engine string, cfg BatchlogConfig, opts ...Po
 }
 
 func (q *BatchlogQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
-	beginner, ok := q.db.(store.TxBeginner)
-	if !ok {
-		if err := q.legacy.Enqueue(ctx, run); err != nil {
-			return err
-		}
-		return q.insertEntry(ctx, q.db, run)
-	}
-
-	tx, err := beginner.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("batchlog enqueue: begin: %w", err)
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck
-	if err := q.EnqueueInTx(ctx, tx, run); err != nil {
-		return err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("batchlog enqueue: commit: %w", err)
-	}
-	return nil
+	return q.legacy.Enqueue(ctx, run)
 }
 
 func (q *BatchlogQueue) EnqueueInTx(ctx context.Context, tx store.DBTX, run *domain.JobRun) error {
-	if err := q.legacy.EnqueueInTx(ctx, tx, run); err != nil {
-		return err
-	}
-	return q.insertEntry(ctx, tx, run)
+	return q.legacy.EnqueueInTx(ctx, tx, run)
 }
 
 func (q *BatchlogQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun) (int64, error) {
-	if len(runs) == 0 {
-		return 0, nil
-	}
-	beginner, ok := q.db.(store.TxBeginner)
-	if !ok {
-		var inserted int64
-		for _, run := range runs {
-			if err := q.Enqueue(ctx, run); err != nil {
-				return inserted, err
-			}
-			inserted++
-		}
-		return inserted, nil
-	}
-
-	tx, err := beginner.Begin(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("batchlog enqueue batch: begin: %w", err)
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck
-	for i, run := range runs {
-		if err := q.EnqueueInTx(ctx, tx, run); err != nil {
-			return int64(i), err
-		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return 0, fmt.Errorf("batchlog enqueue batch: commit: %w", err)
-	}
-	return int64(len(runs)), nil
+	return q.legacy.EnqueueBatch(ctx, runs)
 }
 
 func (q *BatchlogQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
@@ -194,9 +144,6 @@ func (q *BatchlogQueue) BackfillDue(ctx context.Context) (int64, error) {
 }
 
 func (q *BatchlogQueue) SealDueBatches(ctx context.Context) (int64, error) {
-	if _, err := q.BackfillDue(ctx); err != nil {
-		return 0, err
-	}
 	var batchID int64
 	var sealed int64
 	err := q.db.QueryRow(ctx, `
@@ -228,6 +175,14 @@ func (q *BatchlogQueue) SealDueBatches(ctx context.Context) (int64, error) {
 		tick AS (
 			INSERT INTO queue_batch_ticks (sealed_until, batch_id)
 			SELECT NOW(), id FROM created_batch
+		),
+		updated_state AS (
+			INSERT INTO queue_batch_seal_state (id, last_sealed_until, updated_at)
+			SELECT true, NOW(), NOW()
+			WHERE EXISTS (SELECT 1 FROM updated)
+			ON CONFLICT (id) DO UPDATE
+			SET last_sealed_until = EXCLUDED.last_sealed_until,
+			    updated_at = EXCLUDED.updated_at
 		)
 		SELECT COALESCE(MAX(id), 0), COUNT(*) FROM updated
 	`, domain.StatusQueued).Scan(&batchID, &sealed)
@@ -255,45 +210,6 @@ func (q *BatchlogQueue) ReclaimExpiredLeases(ctx context.Context) (int64, error)
 		return 0, fmt.Errorf("batchlog reclaim expired leases: %w", err)
 	}
 	return tag.RowsAffected(), nil
-}
-
-func (q *BatchlogQueue) insertEntry(ctx context.Context, db store.DBTX, run *domain.JobRun) error {
-	availableAt := run.CreatedAt
-	if availableAt.IsZero() {
-		availableAt = time.Now()
-	}
-	if run.ScheduledAt != nil && run.ScheduledAt.After(availableAt) {
-		availableAt = *run.ScheduledAt
-	}
-	if run.NextRetryAt != nil && run.NextRetryAt.After(availableAt) {
-		availableAt = *run.NextRetryAt
-	}
-	var runCreatedAt any
-	if !run.CreatedAt.IsZero() {
-		runCreatedAt = run.CreatedAt
-	}
-	_, err := db.Exec(ctx, `
-		INSERT INTO queue_entries (
-			run_id, job_id, project_id, priority, run_created_at, available_at, status
-		)
-		VALUES ($1, $2, $3, $4, COALESCE($5::timestamptz, NOW()), $6, 'ready')
-		ON CONFLICT (run_id) DO UPDATE
-		SET job_id = EXCLUDED.job_id,
-		    project_id = EXCLUDED.project_id,
-		    priority = EXCLUDED.priority,
-		    run_created_at = EXCLUDED.run_created_at,
-		    available_at = EXCLUDED.available_at,
-		    status = 'ready',
-		    batch_id = NULL,
-		    lease_owner = NULL,
-		    lease_expires_at = NULL,
-		    acked_at = NULL,
-		    updated_at = NOW()
-	`, run.ID, run.JobID, run.ProjectID, run.Priority, runCreatedAt, availableAt)
-	if err != nil {
-		return fmt.Errorf("batchlog insert queue entry: %w", err)
-	}
-	return nil
 }
 
 func (q *BatchlogQueue) dequeueN(ctx context.Context, n int, projectID string) ([]domain.JobRun, error) {
