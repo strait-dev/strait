@@ -28,8 +28,10 @@
 # all), which Node cannot do because Node links libssl dynamically.
 #
 # Reassess on or before the expiration date. If the distroless rebuild
-# has landed by then, remove this line.
-CVE-2026-28390 exp:2026-05-15
+# has landed by then, remove this line. Expiry is aligned with the four
+# sibling libssl3 CVEs below, since all five ship together in the same
+# Debian 12 source-package rebuild.
+CVE-2026-28390 exp:2026-06-10
 
 # CVE-2026-28387 / CVE-2026-28388 / CVE-2026-28389 / CVE-2026-31789 —
 # additional libssl3 vulnerabilities in the same Debian 12 source
@@ -93,3 +95,24 @@ CVE-2026-29181 exp:2026-08-10
 CVE-2026-32280 exp:2026-08-10
 CVE-2026-32281 exp:2026-08-10
 CVE-2026-32283 exp:2026-08-10
+
+# CVE-2026-46680 — containerd user-ID handling bypass that can defeat a
+# `runAsNonRoot` security-context constraint. Fixed upstream in
+# containerd 1.7.32.
+#
+# Affects: the bundled `soci` binary (awslabs/soci-snapshotter v0.13.0,
+# still the latest release at this pin) inside the community and cloud
+# strait images. Soci v0.13.0 statically links containerd v1.7.30; the
+# strait binary itself does not link containerd and is clean.
+#
+# Not exploitable in our context: the strait container never executes
+# soci (ENTRYPOINT is `strait`). The vulnerable containerd code path is
+# the snapshotter/runtime user-ID resolution that runs on a node when
+# containerd itself launches a container — it is not reachable by running
+# the soci CLI, and nothing inside the strait container invokes it. Image
+# `runAsNonRoot` enforcement is performed by the host kubelet/containerd,
+# not by the copy of containerd vendored into soci.
+#
+# Reassess once awslabs/soci-snapshotter cuts a release newer than
+# v0.13.0 that bumps containerd to >=1.7.32.
+CVE-2026-46680 exp:2026-08-10
