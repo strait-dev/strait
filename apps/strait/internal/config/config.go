@@ -83,6 +83,11 @@ type Config struct {
 	// columns plus job_active_counts instead of joining jobs and scanning
 	// active rows).
 	QueueUseDenormalizedDequeue bool `env:"QUEUE_USE_DENORMALIZED_DEQUEUE" default:"false"`
+	// QueueEngine selects the queue storage engine. legacy keeps the
+	// job_runs-as-queue path; batchlog claims from narrow queue_entries while
+	// preserving job_runs as the ledger.
+	QueueEngine            string        `env:"QUEUE_ENGINE" default:"legacy"`
+	QueueBatchTickInterval time.Duration `env:"QUEUE_BATCH_TICK_INTERVAL" default:"100ms"`
 
 	// DLQ caps and overflow policy.
 	DLQMaxPerProject  int    `env:"DLQ_MAX_PER_PROJECT" default:"10000"`

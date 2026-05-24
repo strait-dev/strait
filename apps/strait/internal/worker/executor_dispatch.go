@@ -300,7 +300,11 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 	}
 	defer e.releaseBulkheadSlot(job.ID, job.MaxConcurrency)
 
-	err = e.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
+	startFrom := run.Status
+	if startFrom == "" {
+		startFrom = domain.StatusDequeued
+	}
+	err = e.store.UpdateRunStatus(ctx, run.ID, startFrom, domain.StatusExecuting, map[string]any{
 		"started_at": time.Now(),
 	})
 	if err != nil {
@@ -313,7 +317,7 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 		return
 	}
 	run.Status = domain.StatusExecuting
-	e.publishEvent(ctx, run, map[string]any{"from": "dequeued", "to": "executing"})
+	e.publishEvent(ctx, run, map[string]any{"from": string(startFrom), "to": "executing"})
 
 	e.heartbeat.Register(run.ID)
 	defer e.heartbeat.Deregister(run.ID)
@@ -535,7 +539,11 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 	}
 
 	// 5. Transition: dequeued → executing.
-	err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
+	startFrom := run.Status
+	if startFrom == "" {
+		startFrom = domain.StatusDequeued
+	}
+	err := e.store.UpdateRunStatus(ctx, run.ID, startFrom, domain.StatusExecuting, map[string]any{
 		"started_at": time.Now(),
 	})
 	if err != nil {
@@ -543,7 +551,7 @@ func (e *Executor) managedDispatch(ctx context.Context, run *domain.JobRun, job 
 		return
 	}
 	run.Status = domain.StatusExecuting
-	e.publishEvent(ctx, run, map[string]any{"from": "dequeued", "to": "executing"})
+	e.publishEvent(ctx, run, map[string]any{"from": string(startFrom), "to": "executing"})
 
 	// 6. Register heartbeat.
 	e.heartbeat.Register(run.ID)

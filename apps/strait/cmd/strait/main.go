@@ -312,11 +312,21 @@ func runServe(ctx context.Context, modeOverride string) error {
 		queries.SetAuditSigningKey(auditKey)
 	}
 	bp := queue.NewBackpressure(dbPool, queue.BackpressureConfig{}, true)
-	q := queue.NewPostgresQueue(
+	q, err := queue.NewQueueEngine(
 		dbPool,
+		cfg.QueueEngine,
+		queue.BatchlogConfig{TickInterval: cfg.QueueBatchTickInterval},
 		queue.WithPriorityAging(true),
 		queue.WithBackpressureController(bp),
 	)
+	if err != nil {
+		return err
+	}
+	if bq, ok := q.(*queue.BatchlogQueue); ok {
+		if _, err := bq.BackfillDue(ctx); err != nil {
+			return fmt.Errorf("backfill batchlog queue: %w", err)
+		}
+	}
 
 	pub, rdb, err := connectRedis(ctx, cfg)
 	if err != nil {
@@ -330,6 +340,12 @@ func runServe(ctx context.Context, modeOverride string) error {
 	g.Go(func(ctx context.Context) error {
 		return poolTuner.Run(ctx)
 	})
+	if bq, ok := q.(*queue.BatchlogQueue); ok {
+		g.Go(func(ctx context.Context) error {
+			bq.RunTicker(ctx)
+			return nil
+		})
+	}
 
 	webhookOptions := []webhook.DeliveryWorkerOption{}
 	if rdb != nil {

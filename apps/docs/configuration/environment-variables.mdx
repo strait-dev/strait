@@ -50,6 +50,9 @@ This page documents all environment variables available for configuring Strait.
 | `WORKER_QUEUE_SIZE` | Integer | `0` | Bounded task queue size for the worker pool. When the queue is full, task submission blocks until a slot opens, providing backpressure. `0` means unbounded. |
 | `WEBHOOK_CONCURRENCY` | Integer | `50` | Maximum concurrent webhook deliveries. Increase for high-throughput webhook workloads. |
 | `WEBHOOK_DISPATCH_TIMEOUT` | Duration | `15s` | Timeout for webhook dispatch requests. |
+| `QUEUE_ENGINE` | String | `legacy` | Queue storage engine: `legacy` uses `job_runs` as the claim table; `batchlog` claims from narrow queue log entries and keeps `job_runs` as the ledger. |
+| `QUEUE_BATCH_TICK_INTERVAL` | Duration | `100ms` | Batch seal interval for `QUEUE_ENGINE=batchlog`. Higher values reduce queue table churn at the cost of dispatch latency. |
+| `QUEUE_USE_DENORMALIZED_DEQUEUE` | Boolean | `false` | Use the fully denormalized dequeue path for the legacy engine. |
 
 ## Scheduler Configuration
 
@@ -224,4 +227,3 @@ This page documents all environment variables available for configuring Strait.
 | `CLICKHOUSE_BATCH_SIZE` | Integer | `1000` | Maximum records per batch insert. |
 | `CLICKHOUSE_FLUSH_INTERVAL` | Duration | `5s` | Maximum time between exporter flushes. |
 | `CLICKHOUSE_EXPORT_ENABLED` | Boolean | `false` | Enable the async exporter that sends run analytics to ClickHouse on run completion. |
-
