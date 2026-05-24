@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"strait/internal/dbscan"
@@ -363,7 +362,7 @@ var copyFromColumns = []string{
 
 // EnqueueBatch inserts multiple runs using pgx.CopyFrom (COPY protocol) for
 // high throughput. Requires the underlying db to implement CopyFromer (e.g.
-// pgxpool.Pool). Sends pg_notify after insert to wake workers.
+// pgxpool.Pool). Queue wake notifications are emitted by database triggers.
 func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun) (int64, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "queue.EnqueueBatch")
 	defer span.End()
@@ -463,14 +462,6 @@ func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun)
 	n, err := copier.CopyFrom(ctx, pgx.Identifier{"job_runs"}, copyFromColumns, pgx.CopyFromRows(rows))
 	if err != nil {
 		return 0, fmt.Errorf("enqueue batch: copy from: %w", err)
-	}
-
-	// Wake workers via pg_notify.
-	if n > 0 {
-		if _, notifyErr := q.db.Exec(ctx, "SELECT pg_notify($1, $2)", QueueWakeChannel, fmt.Sprintf("%d", n)); notifyErr != nil {
-			// Non-fatal: workers will pick up via polling.
-			slog.Warn("enqueue batch: pg_notify failed", "error", notifyErr)
-		}
 	}
 
 	return n, nil
