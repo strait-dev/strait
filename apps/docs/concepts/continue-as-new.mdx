@@ -63,8 +63,8 @@ The response is cursor-paginated so a long chain is never loaded in full:
 ```json
 {
   "data": [
-    { "id": "wr_root", "lineage_depth": 0, "status": "continued", "triggered_by": "schedule", "created_at": "..." },
-    { "id": "wr_next", "lineage_depth": 1, "status": "running",   "triggered_by": "continue",  "created_at": "..." }
+    { "id": "wr_root", "lineage_depth": 0, "status": "continued", "triggered_by": "cron",         "created_at": "..." },
+    { "id": "wr_next", "lineage_depth": 1, "status": "running",   "triggered_by": "continuation", "created_at": "..." }
   ],
   "next_cursor": "wr_next",
   "has_more": true
