@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	otelTrace "go.opentelemetry.io/otel/trace"
 )
 
 // continueTestSteps returns a standard 2-step DAG (a -> b) used by the
@@ -556,6 +558,120 @@ func TestContinueWorkflowRunAsNew_ConcurrentSingleWinner(t *testing.T) {
 	}
 	if enqueued != 1 {
 		t.Fatalf("enqueued = %d, want exactly 1 (only the winner starts a successor)", enqueued)
+	}
+}
+
+// TestContinueWorkflowRunAsNew_PropagatesTraceContext verifies that an inbound
+// caller trace is propagated onto the successor as a W3C traceparent (with any
+// tracestate forwarded), so a continuation chain is traceable end to end. A
+// valid span context is seeded into the request context to stand in for an
+// upstream trace; the engine carries it onto the new run.
+func TestContinueWorkflowRunAsNew_PropagatesTraceContext(t *testing.T) {
+	t.Parallel()
+	var bootstrapped *domain.WorkflowRun
+	ms := &mockEngineStore{
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusRunning}, nil
+		},
+		getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, ProjectID: "proj-1", Enabled: true, Version: 1}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			return []domain.WorkflowStep{{ID: "s1", JobID: "job-1", StepRef: "a"}}, nil
+		},
+		continueWorkflowRunBootstrapFn: func(_ context.Context, _ string, _ domain.WorkflowRunStatus, successor *domain.WorkflowRun, _ []domain.WorkflowStepRun, _ time.Time) error {
+			bootstrapped = successor
+			return nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+	}
+	mq := &mockEngineQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error { run.ID = "jr"; return nil }}
+	engine := NewWorkflowEngine(ms, mq, slog.Default())
+
+	const traceHex = "0123456789abcdef0123456789abcdef"
+	traceID, err := otelTrace.TraceIDFromHex(traceHex)
+	if err != nil {
+		t.Fatalf("TraceIDFromHex: %v", err)
+	}
+	spanID, err := otelTrace.SpanIDFromHex("0123456789abcdef")
+	if err != nil {
+		t.Fatalf("SpanIDFromHex: %v", err)
+	}
+	traceState, err := otelTrace.ParseTraceState("vendor=carry")
+	if err != nil {
+		t.Fatalf("ParseTraceState: %v", err)
+	}
+	sc := otelTrace.NewSpanContext(otelTrace.SpanContextConfig{
+		TraceID:    traceID,
+		SpanID:     spanID,
+		TraceFlags: otelTrace.FlagsSampled,
+		TraceState: traceState,
+		Remote:     true,
+	})
+	ctx := otelTrace.ContextWithSpanContext(context.Background(), sc)
+
+	successor, err := engine.ContinueWorkflowRunAsNew(ctx, "pred-run-1", nil)
+	if err != nil {
+		t.Fatalf("ContinueWorkflowRunAsNew() error = %v", err)
+	}
+	// The trace context is set on the run handed to the store, before commit.
+	if bootstrapped == nil || bootstrapped != successor {
+		t.Fatal("bootstrapped run should be the returned successor")
+	}
+	tp, ok := successor.TraceContext["traceparent"]
+	if !ok {
+		t.Fatalf("successor TraceContext = %v, want a traceparent", successor.TraceContext)
+	}
+	// W3C traceparent format: version-traceid-spanid-flags, carrying the inbound trace.
+	parts := strings.Split(tp, "-")
+	if len(parts) != 4 || parts[0] != "00" {
+		t.Fatalf("traceparent = %q, want W3C 00-<trace>-<span>-<flags> form", tp)
+	}
+	if parts[1] != traceHex {
+		t.Fatalf("traceparent trace id = %q, want inbound %q", parts[1], traceHex)
+	}
+	if got := successor.TraceContext["tracestate"]; got != "vendor=carry" {
+		t.Fatalf("successor tracestate = %q, want forwarded inbound vendor=carry", got)
+	}
+}
+
+// TestContinueWorkflowRunAsNew_InvalidDAGRejected verifies that when the latest
+// re-resolved version has a broken DAG (a step depending on itself), the engine
+// rejects the continuation before any handoff: the predecessor is never touched
+// and no successor is started. This guards a mid-chain deploy that ships a cycle.
+func TestContinueWorkflowRunAsNew_InvalidDAGRejected(t *testing.T) {
+	t.Parallel()
+	enqueued := 0
+	ms := &mockEngineStore{
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusRunning}, nil
+		},
+		getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, ProjectID: "proj-1", Enabled: true, Version: 1}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+			// A self-dependency makes the re-resolved DAG invalid.
+			return []domain.WorkflowStep{{ID: "s1", JobID: "job-1", StepRef: "a", DependsOn: []string{"a"}}}, nil
+		},
+		continueWorkflowRunBootstrapFn: func(_ context.Context, _ string, _ domain.WorkflowRunStatus, _ *domain.WorkflowRun, _ []domain.WorkflowStepRun, _ time.Time) error {
+			t.Fatal("bootstrap must not run when the re-resolved DAG is invalid")
+			return nil
+		},
+	}
+	mq := &mockEngineQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
+		enqueued++
+		return nil
+	}}
+	engine := NewWorkflowEngine(ms, mq, slog.Default())
+
+	_, err := engine.ContinueWorkflowRunAsNew(context.Background(), "pred-run-1", nil)
+	if err == nil || !strings.Contains(err.Error(), "validate workflow dag") {
+		t.Fatalf("expected DAG validation error, got %v", err)
+	}
+	if enqueued != 0 {
+		t.Fatalf("enqueued = %d, want 0 (no successor on invalid DAG)", enqueued)
 	}
 }
 
