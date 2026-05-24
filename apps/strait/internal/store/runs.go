@@ -2290,21 +2290,30 @@ func (q *Queries) ListRunLineage(ctx context.Context, runID string, limit int, _
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListRunLineage")
 	defer span.End()
 
-	// Walk backward to find the root of the lineage chain.
+	// Walk backward to the root of the lineage chain in a single recursive CTE
+	// instead of issuing one SELECT per hop. The depth < 20 guard preserves the
+	// previous 20-hop safety bound against pathological or cyclic chains; the
+	// deepest reached row (highest depth) is the root.
 	rootID := runID
-	for range 20 { // safety bound
-		var continuationOf *string
-		err := q.db.QueryRow(ctx, "SELECT continuation_of FROM job_runs WHERE id = $1", rootID).Scan(&continuationOf)
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				break
-			}
+	const rootWalkQuery = `
+		WITH RECURSIVE ancestry AS (
+			SELECT id, continuation_of, 0 AS depth
+			FROM job_runs
+			WHERE id = $1
+			UNION ALL
+			SELECT jr.id, jr.continuation_of, a.depth + 1
+			FROM job_runs jr
+			JOIN ancestry a ON jr.id = a.continuation_of
+			WHERE a.continuation_of IS NOT NULL AND a.continuation_of <> '' AND a.depth < 20
+		)
+		SELECT id FROM ancestry ORDER BY depth DESC LIMIT 1`
+	var resolvedRoot *string
+	if err := q.db.QueryRow(ctx, rootWalkQuery, runID).Scan(&resolvedRoot); err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("list run lineage walk: %w", err)
 		}
-		if continuationOf == nil || *continuationOf == "" {
-			break
-		}
-		rootID = *continuationOf
+	} else if resolvedRoot != nil && *resolvedRoot != "" {
+		rootID = *resolvedRoot
 	}
 
 	// Walk forward from root via recursive CTE.

@@ -80,6 +80,13 @@ func (q *Queries) GetAuditSigningKey(ctx context.Context, projectID string, epoc
 		return nil, fmt.Errorf("get audit signing key: %w", err)
 	}
 
+	return q.decryptAuditKeyMaterial(ciphertext, projectID, epoch)
+}
+
+// decryptAuditKeyMaterial decrypts a stored audit signing-key ciphertext,
+// trying each secret-encryption-key candidate so a key rotated since the row
+// was written still decrypts. Shared by the single-key and batched lookups.
+func (q *Queries) decryptAuditKeyMaterial(ciphertext []byte, projectID string, epoch int) ([]byte, error) {
 	var firstErr error
 	for i, candidate := range q.secretEncryptionKeyCandidates() {
 		envelopeKey, keyErr := deriveSecretKey(candidate)
