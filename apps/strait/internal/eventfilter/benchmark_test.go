@@ -77,3 +77,48 @@ func BenchmarkEval(b *testing.B) {
 		})
 	}
 }
+
+// BenchmarkEvalFanout models one event delivered to a source with many
+// subscriptions: a single payload evaluated against N distinct filters. The
+// per_call_eval variant re-parses the payload for every subscription (the
+// original behavior); the shared_parsed variant parses it once via a reused
+// ParsedPayload (the event-dispatch path).
+func BenchmarkEvalFanout(b *testing.B) {
+	const numSubs = 32
+	filters := make([]json.RawMessage, numSubs)
+	for i := range numSubs {
+		filters[i] = json.RawMessage(fmt.Sprintf(`{"eq":[["field_%d","value_%d"]]}`, i, i))
+	}
+
+	payloads := []struct {
+		name    string
+		payload json.RawMessage
+	}{
+		{"small_payload", json.RawMessage(`{"type":"deploy","env":"prod","user":{"name":"alice","role":"admin"},"count":42,"active":true}`)},
+		{"large_payload", buildLargePayload(100)},
+	}
+
+	for _, p := range payloads {
+		b.Run(p.name+"/per_call_eval", func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				for _, f := range filters {
+					if _, err := Eval(f, p.payload); err != nil {
+						b.Fatal(err)
+					}
+				}
+			}
+		})
+		b.Run(p.name+"/shared_parsed", func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				pp := NewParsedPayload(p.payload)
+				for _, f := range filters {
+					if _, err := EvalParsed(f, pp); err != nil {
+						b.Fatal(err)
+					}
+				}
+			}
+		})
+	}
+}

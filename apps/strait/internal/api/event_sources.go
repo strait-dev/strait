@@ -412,11 +412,14 @@ func (s *Server) handleDispatchEvent(ctx context.Context, input *DispatchEventIn
 		return nil, huma.Error500InternalServerError("failed to list subscriptions")
 	}
 	dispatched := 0
+	// Parse the payload once and reuse it across every subscription's filter
+	// instead of re-unmarshaling it per subscription in eventfilter.Eval.
+	parsedPayload := eventfilter.NewParsedPayload(req.Payload)
 	for _, sub := range subs {
 		if !sub.Enabled {
 			continue
 		}
-		match, filterErr := eventfilter.Eval(sub.FilterExpr, req.Payload)
+		match, filterErr := eventfilter.EvalParsed(sub.FilterExpr, parsedPayload)
 		if filterErr != nil {
 			slog.Error("filter eval failed", "subscription_id", sub.ID, "source_id", source.ID, "project_id", source.ProjectID, "error", filterErr)
 			continue

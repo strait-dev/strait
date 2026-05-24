@@ -27,13 +27,50 @@ type FilterExpr struct {
 // Returns true when all conditions pass (AND semantics).
 // Empty/nil filter expression matches everything.
 func Eval(filterExpr json.RawMessage, payload json.RawMessage) (bool, error) {
+	return EvalParsed(filterExpr, NewParsedPayload(payload))
+}
+
+// ParsedPayload holds an event payload so it can be evaluated against many
+// filter expressions while parsing it at most once. It decodes lazily on first
+// use and caches the result (and any decode error), so a payload is never
+// parsed for an expression that matches everything (empty filter). Reusing one
+// ParsedPayload across a source's subscriptions turns N payload parses per
+// event into one. A ParsedPayload is not safe for concurrent use.
+type ParsedPayload struct {
+	raw    json.RawMessage
+	data   map[string]any
+	err    error
+	parsed bool
+}
+
+// NewParsedPayload wraps a raw event payload for evaluation. The payload is not
+// decoded until the first non-empty filter expression needs it.
+func NewParsedPayload(payload json.RawMessage) *ParsedPayload {
+	return &ParsedPayload{raw: payload}
+}
+
+// decode unmarshals the payload on first call and caches the outcome. The
+// payload size limit is enforced by EvalParsed to preserve the original check
+// ordering, so this performs only the unmarshal.
+func (p *ParsedPayload) decode() (map[string]any, error) {
+	if !p.parsed {
+		p.parsed = true
+		p.err = json.Unmarshal(p.raw, &p.data)
+	}
+	return p.data, p.err
+}
+
+// EvalParsed evaluates a filter expression against an already-wrapped payload.
+// Behavior matches Eval; passing the same ParsedPayload to repeated calls
+// avoids re-parsing the payload for each filter expression.
+func EvalParsed(filterExpr json.RawMessage, payload *ParsedPayload) (bool, error) {
 	if len(filterExpr) == 0 || string(filterExpr) == "null" {
 		return true, nil
 	}
 	if len(filterExpr) > maxFilterBytes {
 		return false, fmt.Errorf("filter expression exceeds %d bytes", maxFilterBytes)
 	}
-	if len(payload) > maxPayloadBytes {
+	if len(payload.raw) > maxPayloadBytes {
 		return false, fmt.Errorf("payload exceeds %d bytes", maxPayloadBytes)
 	}
 
@@ -47,8 +84,8 @@ func Eval(filterExpr json.RawMessage, payload json.RawMessage) (bool, error) {
 		return false, err
 	}
 
-	var data map[string]any
-	if err := json.Unmarshal(payload, &data); err != nil {
+	data, err := payload.decode()
+	if err != nil {
 		return false, fmt.Errorf("invalid payload: %w", err)
 	}
 
