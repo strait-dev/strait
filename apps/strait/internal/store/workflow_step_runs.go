@@ -255,6 +255,45 @@ func (q *Queries) ListStepRunStatusesByWorkflowRun(ctx context.Context, workflow
 	return statuses, nil
 }
 
+// ListStepRunsForScheduling returns every step run for a workflow run in a
+// single deterministic-ordered query. The fan-in scheduler derives the status
+// map, the running set, and the runnable set from this slice in memory,
+// collapsing what were three separate round trips over the same
+// workflow_step_runs partition (statuses, running, runnable) into one read on
+// the per-step-completion hot path.
+func (q *Queries) ListStepRunsForScheduling(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListStepRunsForScheduling")
+	defer span.End()
+
+	query := `
+		SELECT id, workflow_run_id, workflow_step_id, step_ref, job_run_id, status,
+		       deps_completed, deps_required, output, error, started_at, finished_at, attempt, created_at
+		FROM workflow_step_runs
+		WHERE workflow_run_id = $1
+		ORDER BY created_at ASC, step_ref ASC`
+
+	rows, err := q.db.Query(ctx, query, workflowRunID)
+	if err != nil {
+		return nil, fmt.Errorf("list step runs for scheduling: %w", err)
+	}
+	defer rows.Close()
+
+	stepRuns := make([]domain.WorkflowStepRun, 0, 16)
+	for rows.Next() {
+		sr, scanErr := scanWorkflowStepRun(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("list step runs for scheduling scan: %w", scanErr)
+		}
+		stepRuns = append(stepRuns, *sr)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list step runs for scheduling rows: %w", err)
+	}
+
+	return stepRuns, nil
+}
+
 func (q *Queries) UpdateStepRunStatus(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateStepRunStatus")
 	defer span.End()

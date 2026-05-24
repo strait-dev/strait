@@ -826,6 +826,7 @@ type mockCallbackStore struct {
 	listRunnableStepRunsByWorkflowRunFn func(ctx context.Context, workflowRunID string, limit int) ([]domain.WorkflowStepRun, error)
 	listRunningStepRunsByWorkflowRunFn  func(ctx context.Context, workflowRunID string, limit int) ([]domain.WorkflowStepRun, error)
 	listStepRunStatusesByWorkflowRunFn  func(ctx context.Context, workflowRunID string) (map[string]domain.StepRunStatus, error)
+	listStepRunsForSchedulingFn         func(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error)
 	countNonTerminalStepRunsFn          func(ctx context.Context, workflowRunID string) (int, error)
 	listFailedStepRunRefsFn             func(ctx context.Context, workflowRunID string) ([]string, error)
 	cancelNonTerminalStepRunsFn         func(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
@@ -1038,6 +1039,16 @@ func (m *mockCallbackStore) ListStepRunStatusesByWorkflowRun(ctx context.Context
 		statuses[sr.StepRef] = sr.Status
 	}
 	return statuses, nil
+}
+
+func (m *mockCallbackStore) ListStepRunsForScheduling(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error) {
+	if m.listStepRunsForSchedulingFn != nil {
+		return m.listStepRunsForSchedulingFn(ctx, workflowRunID)
+	}
+	if m.listStepRunsByWorkflowRun == nil {
+		return nil, nil
+	}
+	return m.listStepRunsByWorkflowRun(ctx, workflowRunID, 10000, nil)
 }
 
 func (m *mockCallbackStore) CountNonTerminalStepRuns(ctx context.Context, workflowRunID string) (int, error) {

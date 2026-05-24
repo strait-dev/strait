@@ -109,7 +109,7 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 	// Latency anomaly detection: compare duration to job's P95.
 	if run.StartedAt != nil {
 		duration := now.Sub(*run.StartedAt)
-		stats, statsErr := e.store.GetJobHealthStats(ctx, job.ID, time.Now().Add(-24*time.Hour))
+		stats, statsErr := e.cachedJobHealthStats(ctx, job.ID, time.Now().Add(-24*time.Hour))
 		if statsErr == nil && stats != nil && stats.P95DurationSecs > 0 {
 			p95 := time.Duration(stats.P95DurationSecs * float64(time.Second))
 			if duration > 2*p95 {

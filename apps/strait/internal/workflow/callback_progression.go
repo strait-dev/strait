@@ -48,17 +48,9 @@ func (s *StepCallback) fanInAndStartReadyChildren(ctx context.Context, stepRun *
 		return nil
 	}
 
-	stepStatuses, err := s.store.ListStepRunStatusesByWorkflowRun(ctx, stepRun.WorkflowRunID)
+	stepStatuses, runningStepRuns, runnableStepRuns, err := s.loadSchedulingState(ctx, stepRun.WorkflowRunID)
 	if err != nil {
-		return fmt.Errorf("list step run statuses by workflow run: %w", err)
-	}
-	runningStepRuns, err := s.store.ListRunningStepRunsByWorkflowRun(ctx, stepRun.WorkflowRunID, 10000)
-	if err != nil {
-		return fmt.Errorf("list running step runs by workflow run: %w", err)
-	}
-	runnableStepRuns, err := s.store.ListRunnableStepRunsByWorkflowRun(ctx, stepRun.WorkflowRunID, 10000)
-	if err != nil {
-		return fmt.Errorf("list runnable step runs by workflow run: %w", err)
+		return err
 	}
 
 	return s.scheduleRunnableSteps(ctx, wc.run, wc.steps, stepStatuses, runningStepRuns, runnableStepRuns)
@@ -639,17 +631,9 @@ func (s *StepCallback) ResumeWorkflowRun(ctx context.Context, workflowRunID stri
 		return fmt.Errorf("load step definitions: %w", err)
 	}
 
-	stepStatuses, err := s.store.ListStepRunStatusesByWorkflowRun(ctx, workflowRunID)
+	stepStatuses, runningStepRuns, runnableStepRuns, err := s.loadSchedulingState(ctx, workflowRunID)
 	if err != nil {
-		return fmt.Errorf("list step run statuses by workflow run: %w", err)
-	}
-	runningStepRuns, err := s.store.ListRunningStepRunsByWorkflowRun(ctx, workflowRunID, 10000)
-	if err != nil {
-		return fmt.Errorf("list running step runs by workflow run: %w", err)
-	}
-	runnableStepRuns, err := s.store.ListRunnableStepRunsByWorkflowRun(ctx, workflowRunID, 10000)
-	if err != nil {
-		return fmt.Errorf("list runnable step runs by workflow run: %w", err)
+		return err
 	}
 
 	if err := s.scheduleRunnableSteps(ctx, wfRun, steps, stepStatuses, runningStepRuns, runnableStepRuns); err != nil {
@@ -657,6 +641,38 @@ func (s *StepCallback) ResumeWorkflowRun(ctx context.Context, workflowRunID stri
 	}
 
 	return nil
+}
+
+// loadSchedulingState fetches every step run for a workflow run in one query and
+// derives the status map, the running set, and the runnable set in memory. It
+// replaces three separate round trips (statuses, running, runnable) over the
+// same workflow_step_runs partition with a single read on the fan-in hot path.
+// The runnable predicate mirrors the store query it subsumes: pending or waiting
+// steps whose dependencies are all complete.
+func (s *StepCallback) loadSchedulingState(ctx context.Context, workflowRunID string) (
+	map[string]domain.StepRunStatus,
+	[]domain.WorkflowStepRun,
+	[]domain.WorkflowStepRun,
+	error,
+) {
+	stepRuns, err := s.store.ListStepRunsForScheduling(ctx, workflowRunID)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("list step runs for scheduling: %w", err)
+	}
+
+	stepStatuses := make(map[string]domain.StepRunStatus, len(stepRuns))
+	running := make([]domain.WorkflowStepRun, 0, len(stepRuns))
+	runnable := make([]domain.WorkflowStepRun, 0, len(stepRuns))
+	for _, sr := range stepRuns {
+		stepStatuses[sr.StepRef] = sr.Status
+		switch {
+		case sr.Status == domain.StepRunning:
+			running = append(running, sr)
+		case (sr.Status == domain.StepPending || sr.Status == domain.StepWaiting) && sr.DepsCompleted == sr.DepsRequired:
+			runnable = append(runnable, sr)
+		}
+	}
+	return stepStatuses, running, runnable, nil
 }
 
 func effectiveResourceClass(v string) string {

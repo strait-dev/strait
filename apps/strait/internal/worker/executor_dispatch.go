@@ -380,7 +380,7 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 	})
 	if policy.timeoutSecs > 0 {
 		prefetchWG.Go(func() {
-			adaptiveStats, _ = e.store.GetJobHealthStats(ctx, job.ID, time.Now().Add(-24*time.Hour))
+			adaptiveStats, _ = e.cachedJobHealthStats(ctx, job.ID, time.Now().Add(-24*time.Hour))
 		})
 	}
 	prefetchWG.Wait()

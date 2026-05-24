@@ -141,6 +141,13 @@ type Executor struct {
 	defaultJobMaxConcurrency int
 	jobCache                 *cache.Cache[*domain.Job]
 	jobCacheStore            *otterstore.OtterStore
+	// healthStatsCache memoizes GetJobHealthStats per job on the worker hot
+	// path (latency-anomaly detection on completion, adaptive timeout on
+	// dispatch). The underlying aggregate is expensive and moves slowly over a
+	// 24h window, so a short-TTL cache is a safe approximation. Shares the
+	// JobCacheTTL>0 enable signal with jobCache but uses its own short TTL.
+	healthStatsCache      *cache.Cache[*store.JobHealthStats]
+	healthStatsCacheStore *otterstore.OtterStore
 	// jobResolveGroup coalesces concurrent resolveJobForRun calls for the
 	// same job ID so a burst of runs does not stampede the DB while the
 	// cache is cold.
@@ -319,6 +326,17 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		jobCache = cache.New[*domain.Job](jobCacheStore)
 	}
 
+	var healthStatsCache *cache.Cache[*store.JobHealthStats]
+	var healthStatsCacheStore *otterstore.OtterStore
+	if cfg.JobCacheTTL > 0 {
+		healthStatsCacheStore = otterstore.New(otterstore.Config{
+			DefaultTTL:  healthStatsCacheTTL,
+			MaxCapacity: 10_000,
+			TTLJitter:   0.1,
+		})
+		healthStatsCache = cache.New[*store.JobHealthStats](healthStatsCacheStore)
+	}
+
 	return &Executor{
 		pool:                     cfg.Pool,
 		concurrencyLimit:         cfg.ConcurrencyLimit,
@@ -345,6 +363,8 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		defaultJobMaxConcurrency: cfg.DefaultJobMaxConcurrency,
 		jobCache:                 jobCache,
 		jobCacheStore:            jobCacheStore,
+		healthStatsCache:         healthStatsCache,
+		healthStatsCacheStore:    healthStatsCacheStore,
 		memoryPressureThreshold:  cfg.MemoryPressureThresholdPct,
 		maxSnoozeCount:           cfg.MaxSnoozeCount,
 		jwtSigningKey:            cfg.JWTSigningKey,
@@ -381,11 +401,41 @@ func resolveQueueMetrics() *queue.QueueMetrics {
 	return qm
 }
 
-// CloseCache shuts down the otter cache if one was created.
+// CloseCache shuts down the otter caches if any were created.
 func (e *Executor) CloseCache() {
 	if e.jobCacheStore != nil {
 		e.jobCacheStore.Close()
 	}
+	if e.healthStatsCacheStore != nil {
+		e.healthStatsCacheStore.Close()
+	}
+}
+
+// healthStatsCacheTTL bounds how long a memoized job health-stats aggregate
+// lives. The aggregate spans a 24h window, so a few seconds of staleness is
+// immaterial to anomaly detection and adaptive timeouts.
+const healthStatsCacheTTL = 30 * time.Second
+
+// healthStatsCacheCtx decouples cache reads/writes from a run's (cancelable)
+// context so a canceled run never aborts populating the cache.
+var healthStatsCacheCtx = context.Background()
+
+// cachedJobHealthStats returns job health stats through a short-TTL per-job
+// cache, falling back to a direct store read when caching is disabled. Both
+// hot-path callers pass a fixed ~24h window, so the cache keys on jobID alone.
+func (e *Executor) cachedJobHealthStats(ctx context.Context, jobID string, since time.Time) (*store.JobHealthStats, error) {
+	if e.healthStatsCache == nil {
+		return e.store.GetJobHealthStats(ctx, jobID, since)
+	}
+	if cached, err := e.healthStatsCache.Get(healthStatsCacheCtx, jobID); err == nil {
+		return cached, nil
+	}
+	stats, err := e.store.GetJobHealthStats(ctx, jobID, since)
+	if err != nil {
+		return nil, err
+	}
+	_ = e.healthStatsCache.Set(healthStatsCacheCtx, jobID, stats)
+	return stats, nil
 }
 
 func (e *Executor) tryAcquireBulkheadSlot(jobID string, maxConcurrency int) bool {

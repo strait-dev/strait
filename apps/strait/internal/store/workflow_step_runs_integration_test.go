@@ -373,6 +373,80 @@ func TestListRunnableStepRunsByWorkflowRun(t *testing.T) {
 	}
 }
 
+func TestListStepRunsForScheduling(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-step-runs-scheduling-" + newID()
+	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{ProjectID: new(projectID)})
+	stepJob := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(projectID)})
+	wfRun := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID)})
+
+	// One workflow_step per step run; the single scheduling read must return every
+	// step run of the run regardless of status, so callers can derive the running,
+	// runnable, and status sets in memory.
+	type spec struct {
+		ref           string
+		status        domain.StepRunStatus
+		depsCompleted int
+		depsRequired  int
+	}
+	specs := []spec{
+		{ref: "running", status: domain.StepRunning, depsCompleted: 1, depsRequired: 1},
+		{ref: "ready", status: domain.StepPending, depsCompleted: 2, depsRequired: 2},
+		{ref: "waiting-ready", status: domain.StepWaiting, depsCompleted: 1, depsRequired: 1},
+		{ref: "blocked", status: domain.StepPending, depsCompleted: 0, depsRequired: 1},
+		{ref: "done", status: domain.StepCompleted, depsCompleted: 1, depsRequired: 1},
+	}
+
+	wantRefs := map[string]domain.StepRunStatus{}
+	for _, sp := range specs {
+		step := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, &testutil.WorkflowStepOpts{
+			JobID:   new(stepJob.ID),
+			StepRef: new(sp.ref),
+		})
+		sr := &domain.WorkflowStepRun{
+			WorkflowRunID:  wfRun.ID,
+			WorkflowStepID: step.ID,
+			StepRef:        sp.ref,
+			Status:         sp.status,
+			DepsCompleted:  sp.depsCompleted,
+			DepsRequired:   sp.depsRequired,
+		}
+		if err := q.CreateWorkflowStepRun(ctx, sr); err != nil {
+			t.Fatalf("CreateWorkflowStepRun(%s) error = %v", sp.ref, err)
+		}
+		wantRefs[sp.ref] = sp.status
+	}
+
+	got, err := q.ListStepRunsForScheduling(ctx, wfRun.ID)
+	if err != nil {
+		t.Fatalf("ListStepRunsForScheduling() error = %v", err)
+	}
+	if len(got) != len(specs) {
+		t.Fatalf("ListStepRunsForScheduling() len = %d, want %d", len(got), len(specs))
+	}
+	for _, sr := range got {
+		wantStatus, ok := wantRefs[sr.StepRef]
+		if !ok {
+			t.Fatalf("ListStepRunsForScheduling() unexpected step ref %q", sr.StepRef)
+		}
+		if sr.Status != wantStatus {
+			t.Fatalf("step %q status = %q, want %q", sr.StepRef, sr.Status, wantStatus)
+		}
+	}
+
+	// Empty case.
+	empty, err := q.ListStepRunsForScheduling(ctx, newID())
+	if err != nil {
+		t.Fatalf("ListStepRunsForScheduling(empty) error = %v", err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("ListStepRunsForScheduling(empty) len = %d, want 0", len(empty))
+	}
+}
+
 func TestGetCostGateDefaultAction(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
