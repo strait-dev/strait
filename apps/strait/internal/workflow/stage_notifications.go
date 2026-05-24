@@ -42,6 +42,18 @@ func (n *StageNotifier) NotifyStepTransition(
 		return
 	}
 
+	var eventType string
+	switch newStatus {
+	case domain.StepCompleted:
+		eventType = "step.completed"
+	case domain.StepFailed:
+		eventType = "step.failed"
+	case domain.StepSkipped:
+		eventType = "step.skipped"
+	default:
+		return
+	}
+
 	var cfg domain.StageNotificationConfig
 	if err := json.Unmarshal(step.StageNotifications, &cfg); err != nil {
 		n.logger.Warn("invalid stage_notifications config",
@@ -52,17 +64,13 @@ func (n *StageNotifier) NotifyStepTransition(
 	}
 
 	shouldNotify := false
-	var eventType string
 	switch newStatus { //nolint:exhaustive // only terminal states trigger notifications.
 	case domain.StepCompleted:
 		shouldNotify = cfg.OnComplete
-		eventType = "step.completed"
 	case domain.StepFailed:
 		shouldNotify = cfg.OnFailure
-		eventType = "step.failed"
 	case domain.StepSkipped:
 		shouldNotify = cfg.OnSkipped
-		eventType = "step.skipped"
 	}
 
 	if !shouldNotify {
