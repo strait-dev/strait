@@ -173,6 +173,9 @@ func (f *OutboxFlusher) flushOnce(ctx context.Context) (err error) {
 			if markErr := store.MarkOutboxErroredInTx(ctx, tx, row.ID, msg); markErr != nil {
 				return fmt.Errorf("outbox flusher: quarantine row %s: %w", row.ID, markErr)
 			}
+			if markErr := f.ackClaim(ctx, tx, row.ID); markErr != nil {
+				return fmt.Errorf("outbox flusher: ack quarantined row %s: %w", row.ID, markErr)
+			}
 			if qm != nil && qm.OutboxQuarantinedTotal != nil {
 				qm.OutboxQuarantinedTotal.Add(ctx, 1)
 			}
@@ -218,11 +221,7 @@ func (f *OutboxFlusher) flushOnce(ctx context.Context) (err error) {
 		promoted = append(promoted, row.ID)
 	}
 	if len(promoted) > 0 {
-		if err := store.MarkOutboxConsumedInTx(ctx, tx, promoted); err != nil {
-			f.errors.Add(1)
-			return err
-		}
-		if err := f.ackClaims(ctx, tx, promoted); err != nil {
+		if err := f.markPromoted(ctx, tx, promoted); err != nil {
 			f.errors.Add(1)
 			return err
 		}
@@ -261,11 +260,11 @@ func (f *OutboxFlusher) ackClaim(ctx context.Context, tx pgx.Tx, id string) erro
 	return store.MarkOutboxClaimsAckedInTx(ctx, tx, []string{id})
 }
 
-func (f *OutboxFlusher) ackClaims(ctx context.Context, tx pgx.Tx, ids []string) error {
-	if f.engine != queue.EngineBatchlog {
-		return nil
+func (f *OutboxFlusher) markPromoted(ctx context.Context, tx pgx.Tx, ids []string) error {
+	if f.engine == queue.EngineBatchlog {
+		return store.MarkOutboxClaimsAckedInTx(ctx, tx, ids)
 	}
-	return store.MarkOutboxClaimsAckedInTx(ctx, tx, ids)
+	return store.MarkOutboxConsumedInTx(ctx, tx, ids)
 }
 
 func (f *OutboxFlusher) reclaimExpiredClaimsIfDue(ctx context.Context, tx pgx.Tx) error {

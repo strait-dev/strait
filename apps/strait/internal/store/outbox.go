@@ -329,6 +329,18 @@ func (q *Queries) CountUnconsumedOutbox(ctx context.Context) (int, error) {
 	return count, nil
 }
 
+func (q *Queries) CountClaimableOutboxBatchlog(ctx context.Context) (int, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountClaimableOutboxBatchlog")
+	defer span.End()
+
+	var count int
+	err := q.db.QueryRow(ctx, `SELECT COUNT(*) FROM outbox_claims WHERE status = 'ready'`).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count claimable batchlog outbox: %w", err)
+	}
+	return count, nil
+}
+
 // OldestUnconsumedOutboxAge returns the age of the oldest unconsumed
 // outbox row, or 0 if the table is empty. Used by the flusher metric.
 func (q *Queries) OldestUnconsumedOutboxAge(ctx context.Context) (time.Duration, error) {
@@ -342,6 +354,22 @@ func (q *Queries) OldestUnconsumedOutboxAge(ctx context.Context) (time.Duration,
 	`).Scan(&age)
 	if err != nil {
 		return 0, fmt.Errorf("oldest outbox age: %w", err)
+	}
+	return time.Duration(age * float64(time.Second)), nil
+}
+
+func (q *Queries) OldestClaimableOutboxBatchlogAge(ctx context.Context) (time.Duration, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.OldestClaimableOutboxBatchlogAge")
+	defer span.End()
+
+	var age float64
+	err := q.db.QueryRow(ctx, `
+		SELECT COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(created_at))), 0)
+		FROM outbox_claims
+		WHERE status = 'ready'
+	`).Scan(&age)
+	if err != nil {
+		return 0, fmt.Errorf("oldest claimable batchlog outbox age: %w", err)
 	}
 	return time.Duration(age * float64(time.Second)), nil
 }

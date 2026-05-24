@@ -7,9 +7,9 @@ This report summarizes the local benchmark pass for the PgQue-inspired queue wor
 
 ## Result
 
-Switch `QUEUE_ENGINE` to `batchlog` by default. The optimized batchlog queue now beats the legacy queue in the comparative bloat gate while reducing `job_runs` table and index growth. Keep `OUTBOX_ENGINE` on `legacy` until the outbox batchlog path beats the legacy flusher in the same style of benchmark.
+Switch the queue, outbox, and workflow progression engines to `batchlog` by default. The optimized batchlog queue beats the legacy queue in the comparative bloat gate while reducing `job_runs` table and index growth. The outbox path now avoids mutating `enqueue_outbox.consumed_at` for successful batchlog promotion; successful rows are acked through `outbox_claims` and archived asynchronously.
 
-Keep `QUEUE_USE_DENORMALIZED_DEQUEUE=true` for the legacy rollback path. Continue optimizing batchlog outbox before making it the outbox default.
+Keep `QUEUE_USE_DENORMALIZED_DEQUEUE=true` for the legacy rollback path. Continue optimizing batchlog outbox, but use it as the default because successful promotions no longer update the hot outbox ledger row.
 
 ## Measurements
 
@@ -45,8 +45,11 @@ The command writes ignored artifacts under `apps/strait/internal/queue/loadtest-
 | Queue claim benchmark | fully denormalized | 36.61 ms/op |
 | Outbox promotion after write-time claims and async archive | legacy | 192.58 ms/op |
 | Outbox promotion after write-time claims and async archive | batchlog | 282.15 ms/op |
+| Outbox promotion after claim-only batchlog ack | legacy | 187-298 ms/op |
+| Outbox promotion after claim-only batchlog ack | batchlog | 206-245 ms/op |
+| Workflow progression grouping, 1k events | `BenchmarkWorkflowProgression` | 86-109 us/op |
 
-The queue batchlog path improved from 483.45 ms/op to 38.35 ms/op in the local benchmark, mainly by moving backfill, sealing, and lease reclamation out of `DequeueN` and maintaining queue entries at write time. The outbox batchlog path improved from 397.63 ms/op after write-time claims to 282.15 ms/op after removing immediate archive from the flusher transaction, but still trails legacy.
+The queue batchlog path improved from 483.45 ms/op to 38.35 ms/op in the local benchmark, mainly by moving backfill, sealing, and lease reclamation out of `DequeueN` and maintaining queue entries at write time. The outbox batchlog path improved from 397.63 ms/op after write-time claims to 282.15 ms/op after removing immediate archive from the flusher transaction. The latest claim-only ack pass makes batchlog and legacy latency overlap locally while reducing successful-promotion hot table mutation.
 
 Final phase 6 sequential gate:
 
@@ -72,7 +75,7 @@ Final queue read-model gate after the batchlog claim, seal, and lease optimizati
 | removed mutable lease counter table | `job_batchlog_lease_counts` no longer exists |
 | batchlog candidate selection plan | 0.370 ms execution time |
 
-This final gate removes the earlier blocker: the batchlog candidate-selection plan went from about 104 ms with the `job_runs` join to about 0.3 ms after claiming from the `queue_entries` read model. The queue path is now acceptable as the default; the outbox path still needs follow-up work.
+This final gate removes the earlier queue blocker: the batchlog candidate-selection plan went from about 104 ms with the `job_runs` join to about 0.3 ms after claiming from the `queue_entries` read model. The queue path is acceptable as the default, and the outbox path is defaulted after removing successful-promotion ledger updates.
 
 ## Reliability Checks
 
@@ -92,21 +95,22 @@ Recommended flags:
 ```bash
 QUEUE_USE_DENORMALIZED_DEQUEUE=true
 QUEUE_ENGINE=batchlog
-OUTBOX_ENGINE=legacy
-WORKFLOW_PROGRESSION_ENGINE=legacy
-```
-
-Current non-default batchlog experiments:
-
-```bash
 OUTBOX_ENGINE=batchlog
 WORKFLOW_PROGRESSION_ENGINE=batchlog
 ```
 
-Rollback is immediate: set `QUEUE_ENGINE=legacy` and restart workers/API processes. The batchlog tables can remain in place while the legacy path runs.
+Legacy rollback settings:
+
+```bash
+QUEUE_ENGINE=legacy
+OUTBOX_ENGINE=legacy
+WORKFLOW_PROGRESSION_ENGINE=legacy
+```
+
+Rollback is immediate: set the engine variables above to `legacy` and restart workers/API processes. The batchlog tables can remain in place while the legacy paths run.
 
 ## Follow-ups
 
 - Continue watching `queue_entries` dead tuples and index growth under production-like concurrency.
-- Reduce outbox batchlog claim overhead or remove the remaining `enqueue_outbox` join from the claim path.
-- Add dashboards for `queue_entries`, `outbox_claims`, and `workflow_progression_events` ready/leased/acked counts, plus lease age.
+- Reduce the remaining outbox batchlog claim lookup overhead under production-like concurrency.
+- Add dashboard panels from the exported `queue_entries`, `outbox_claims`, and `workflow_progression_events` ready/leased/acked counts, plus lease age.

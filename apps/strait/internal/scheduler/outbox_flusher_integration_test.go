@@ -940,6 +940,7 @@ func TestOutboxArchiver_PromotedBatchlogRowsArchivedHistoryVisible(t *testing.T)
 	}
 
 	var hotCount, historyCount int
+	var consumedAt *time.Time
 	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT COUNT(*) FROM enqueue_outbox WHERE id = $1`, entry.ID).Scan(&hotCount); err != nil {
 		t.Fatalf("hot count: %v", err)
 	}
@@ -948,6 +949,26 @@ func TestOutboxArchiver_PromotedBatchlogRowsArchivedHistoryVisible(t *testing.T)
 	}
 	if hotCount != 1 || historyCount != 0 {
 		t.Fatalf("hot/history counts after flush = %d/%d, want 1/0", hotCount, historyCount)
+	}
+	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT consumed_at FROM enqueue_outbox WHERE id = $1`, entry.ID).Scan(&consumedAt); err != nil {
+		t.Fatalf("consumed_at after flush: %v", err)
+	}
+	if consumedAt != nil {
+		t.Fatalf("consumed_at after batchlog flush = %v, want nil until archive", *consumedAt)
+	}
+	var claimStatus string
+	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT status FROM outbox_claims WHERE outbox_id = $1`, entry.ID).Scan(&claimStatus); err != nil {
+		t.Fatalf("claim status after flush: %v", err)
+	}
+	if claimStatus != "acked" {
+		t.Fatalf("claim status after flush = %q, want acked", claimStatus)
+	}
+	claimable, err := st.CountClaimableOutboxBatchlog(ctx)
+	if err != nil {
+		t.Fatalf("CountClaimableOutboxBatchlog() error = %v", err)
+	}
+	if claimable != 0 {
+		t.Fatalf("claimable batchlog outbox = %d, want 0 after ack", claimable)
 	}
 
 	archiver := scheduler.NewOutboxArchiver(store.New(getTestDB(t).Pool), scheduler.OutboxArchiverConfig{
@@ -964,6 +985,13 @@ func TestOutboxArchiver_PromotedBatchlogRowsArchivedHistoryVisible(t *testing.T)
 	}
 	if hotCount != 0 || historyCount != 1 {
 		t.Fatalf("hot/history counts after archive = %d/%d, want 0/1", hotCount, historyCount)
+	}
+	var claimCount int
+	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT COUNT(*) FROM outbox_claims WHERE outbox_id = $1`, entry.ID).Scan(&claimCount); err != nil {
+		t.Fatalf("claim count after archive: %v", err)
+	}
+	if claimCount != 0 {
+		t.Fatalf("claim count after archive = %d, want 0", claimCount)
 	}
 }
 

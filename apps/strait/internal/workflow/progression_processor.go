@@ -69,41 +69,59 @@ func (p *ProgressionProcessor) ProcessOnce(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	for _, ev := range events {
-		if err := p.processEvent(ctx, ev); err != nil {
-			p.logger.Warn("workflow progression event failed", "event_id", ev.ID, "step_run_id", ev.StepRunID, "error", err)
-			_ = p.store.ReleaseWorkflowProgressionEvent(ctx, ev.ID)
+	grouped := groupProgressionEventsByWorkflow(events)
+	for _, workflowEvents := range grouped {
+		if err := p.processWorkflowEvents(ctx, workflowEvents); err != nil {
+			for _, ev := range workflowEvents {
+				p.logger.Warn("workflow progression event failed", "event_id", ev.ID, "step_run_id", ev.StepRunID, "error", err)
+				_ = p.store.ReleaseWorkflowProgressionEvent(ctx, ev.ID)
+			}
 			continue
 		}
-		if err := p.store.MarkWorkflowProgressionEventProcessed(ctx, ev.ID); err != nil {
-			return err
+		for _, ev := range workflowEvents {
+			if err := p.store.MarkWorkflowProgressionEventProcessed(ctx, ev.ID); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
 }
 
-func (p *ProgressionProcessor) processEvent(ctx context.Context, ev store.WorkflowProgressionEvent) error {
+func (p *ProgressionProcessor) processWorkflowEvents(ctx context.Context, events []store.WorkflowProgressionEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
 	if p.callback == nil {
 		return fmt.Errorf("nil progression callback")
 	}
-	stepRun, err := p.callback.store.GetWorkflowStepRun(ctx, ev.StepRunID)
-	if err != nil {
-		return fmt.Errorf("get workflow step run: %w", err)
+
+	completed := make([]*domain.WorkflowStepRun, 0, len(events))
+	for _, ev := range events {
+		stepRun, err := p.callback.store.GetWorkflowStepRun(ctx, ev.StepRunID)
+		if err != nil {
+			return fmt.Errorf("get workflow step run: %w", err)
+		}
+		if stepRun == nil {
+			return fmt.Errorf("workflow step run not found: %s", ev.StepRunID)
+		}
+		if stepRun.Status == domain.StepCompleted {
+			completed = append(completed, stepRun)
+		}
 	}
-	if stepRun == nil {
-		return fmt.Errorf("workflow step run not found: %s", ev.StepRunID)
-	}
-	if stepRun.Status != domain.StepCompleted {
+	if len(completed) == 0 {
 		return nil
 	}
-	wc, err := p.callback.loadWfCtx(ctx, stepRun.WorkflowRunID)
+
+	wc, err := p.callback.loadWfCtx(ctx, events[0].WorkflowRunID)
 	if err != nil {
 		return err
 	}
-	if err := p.callback.fanInAndStartReadyChildren(ctx, stepRun, wc); err != nil {
-		return err
+	for _, stepRun := range completed {
+		if err := p.callback.fanInAndStartReadyChildren(ctx, stepRun, wc); err != nil {
+			return err
+		}
 	}
-	return p.callback.checkWorkflowCompletion(ctx, stepRun.WorkflowRunID, wc)
+	return p.callback.checkWorkflowCompletion(ctx, events[0].WorkflowRunID, wc)
 }
 
 func groupProgressionEventsByWorkflow(events []store.WorkflowProgressionEvent) map[string][]store.WorkflowProgressionEvent {

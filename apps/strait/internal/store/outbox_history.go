@@ -16,12 +16,22 @@ func (q *Queries) ArchiveConsumedOutboxBatch(ctx context.Context, olderThan time
 
 	query := `
 		WITH to_archive AS (
-			SELECT id FROM enqueue_outbox
-			WHERE consumed_at IS NOT NULL
-			  AND consumed_at < $1
-			  AND (error IS NULL OR error = '')
+			SELECT eo.id,
+			       COALESCE(eo.consumed_at, oc.updated_at, NOW()) AS archive_consumed_at
+			FROM enqueue_outbox eo
+			LEFT JOIN outbox_claims oc ON oc.outbox_id = eo.id
+			WHERE (eo.error IS NULL OR eo.error = '')
+			  AND (
+			      (eo.consumed_at IS NOT NULL AND eo.consumed_at < $1)
+			      OR (
+			          eo.consumed_at IS NULL
+			          AND oc.status = 'acked'
+			          AND oc.updated_at <= $1
+			      )
+			  )
+			ORDER BY COALESCE(eo.consumed_at, oc.updated_at, eo.created_at) ASC, eo.id ASC
 			LIMIT $2
-			FOR UPDATE SKIP LOCKED
+			FOR UPDATE OF eo SKIP LOCKED
 		),
 		archived AS (
 			INSERT INTO enqueue_outbox_history (
@@ -30,21 +40,32 @@ func (q *Queries) ArchiveConsumedOutboxBatch(ctx context.Context, olderThan time
 				retry_of_outbox_id
 			)
 			SELECT
-				id, project_id, job_id, payload, metadata, idempotency_key,
-				scheduled_at, priority, created_at, consumed_at, error,
-				retry_of_outbox_id
-			FROM enqueue_outbox
-			WHERE id IN (SELECT id FROM to_archive)
+				eo.id, eo.project_id, eo.job_id, eo.payload, eo.metadata, eo.idempotency_key,
+				eo.scheduled_at, eo.priority, eo.created_at, ta.archive_consumed_at, eo.error,
+				eo.retry_of_outbox_id
+			FROM enqueue_outbox eo
+			JOIN to_archive ta ON ta.id = eo.id
 			ON CONFLICT (id, consumed_at) DO NOTHING
 			RETURNING id
+		),
+		deleted AS (
+			DELETE FROM enqueue_outbox
+			WHERE id IN (SELECT id FROM archived)
+			RETURNING id
+		),
+		deleted_claims AS (
+			DELETE FROM outbox_claims
+			WHERE outbox_id IN (SELECT id FROM deleted)
+			RETURNING outbox_id
 		)
-		DELETE FROM enqueue_outbox WHERE id IN (SELECT id FROM archived)`
+		SELECT COUNT(*), COALESCE((SELECT COUNT(*) FROM deleted_claims), 0) FROM deleted`
 
-	tag, err := q.db.Exec(ctx, query, cutoff, batchSize)
-	if err != nil {
+	var archived int64
+	var deletedClaims int64
+	if err := q.db.QueryRow(ctx, query, cutoff, batchSize).Scan(&archived, &deletedClaims); err != nil {
 		return 0, fmt.Errorf("archive consumed outbox batch: %w", err)
 	}
-	return tag.RowsAffected(), nil
+	return archived, nil
 }
 
 func (q *Queries) DeleteOutboxHistoryPastRetention(ctx context.Context, cutoff time.Time, limit int) (int64, error) {
