@@ -52,7 +52,7 @@ This page documents all environment variables available for configuring Strait.
 | `WEBHOOK_DISPATCH_TIMEOUT` | Duration | `15s` | Timeout for webhook dispatch requests. |
 | `QUEUE_ENGINE` | String | `legacy` | Queue storage engine: `legacy` uses `job_runs` as the claim table; `batchlog` claims from narrow queue log entries and keeps `job_runs` as the ledger. |
 | `QUEUE_BATCH_TICK_INTERVAL` | Duration | `100ms` | Batch seal interval for `QUEUE_ENGINE=batchlog`. Higher values reduce queue table churn at the cost of dispatch latency. |
-| `QUEUE_USE_DENORMALIZED_DEQUEUE` | Boolean | `false` | Use the fully denormalized dequeue path for the legacy engine. |
+| `QUEUE_USE_DENORMALIZED_DEQUEUE` | Boolean | `true` | Use the fully denormalized dequeue path for the legacy engine. |
 | `OUTBOX_ENGINE` | String | `legacy` | Outbox promotion engine: `legacy` claims by locking `enqueue_outbox`; `batchlog` uses narrow claim rows and only mutates outbox rows on final disposition. |
 | `WORKFLOW_PROGRESSION_ENGINE` | String | `legacy` | Workflow progression engine: `legacy` processes fan-in synchronously in the terminal callback; `batchlog` records progression events and drains them in batches. |
 

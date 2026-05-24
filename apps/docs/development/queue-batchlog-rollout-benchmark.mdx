@@ -1,0 +1,66 @@
+---
+title: "Queue Batchlog Rollout Benchmark"
+description: "PgQue-inspired queue rewrite benchmark summary and rollout guidance."
+---
+
+This report summarizes the local benchmark pass for the PgQue-inspired queue work. The run was captured on May 24, 2026 on an Apple M1 Pro with testcontainer Postgres.
+
+## Result
+
+Keep `QUEUE_ENGINE`, `OUTBOX_ENGINE`, and `WORKFLOW_PROGRESSION_ENGINE` staged behind flags. Enable only `QUEUE_USE_DENORMALIZED_DEQUEUE=true` by default.
+
+The fully denormalized dequeue path was materially faster than the legacy dequeue query in direct comparison. The first batchlog queue and outbox engines preserved the reliability properties covered by integration tests, but did not beat the current hot path in local benchmarks.
+
+## Measurements
+
+| Area | Variant | Result |
+|---|---:|---:|
+| Queue notifications, 64-run baseline | before coalescing | 67 notify/op |
+| Queue notifications, 64-run baseline | after coalescing | 35 notify/op |
+| Queue notifications, 256-run baseline | before coalescing | 259 notify/op |
+| Queue notifications, 256-run baseline | after coalescing | 131 notify/op |
+| Dequeue variant | legacy | 14.80 ms/op |
+| Dequeue variant | denormalized | 4.92 ms/op |
+| Dequeue variant | fully denormalized | 4.38 ms/op |
+| Batchlog queue | `BenchmarkBatchlog` | 483.45 ms/op |
+| Outbox promotion | legacy | 178.71 ms/op |
+| Outbox promotion | batchlog | 186.57 ms/op |
+| Workflow progression grouping | `BenchmarkWorkflowProgression` | 576.62 us/op |
+
+## Reliability Checks
+
+Passed targeted checks covered:
+
+- no duplicate claims under concurrent batchlog queue workers.
+- batchlog lease expiry redelivery before worker start.
+- direct `queued -> executing` transition for batchlog queue starts.
+- outbox batchlog retryable release, terminal quarantine, concurrent flusher ownership, and promoted-row archive.
+- workflow progression event claim, dedupe, ack, and fuzzed grouping behavior.
+
+## Rollout
+
+Recommended flags:
+
+```bash
+QUEUE_USE_DENORMALIZED_DEQUEUE=true
+QUEUE_ENGINE=legacy
+OUTBOX_ENGINE=legacy
+WORKFLOW_PROGRESSION_ENGINE=legacy
+```
+
+Staged experiments:
+
+```bash
+QUEUE_ENGINE=batchlog
+OUTBOX_ENGINE=batchlog
+WORKFLOW_PROGRESSION_ENGINE=batchlog
+```
+
+Rollback is immediate: set each engine flag back to `legacy` and restart workers/API processes. The batchlog tables are additive and can remain in place while the legacy paths run.
+
+## Follow-ups
+
+- Optimize `BatchlogQueue.DequeueN` to avoid per-claim sealing/backfill work on the hot path.
+- Add lease-count enforcement so batchlog claims account for work leased but not yet executing.
+- Move outbox batch creation to a ticker and avoid creating empty `outbox_batches`.
+- Add dashboards for `queue_entries`, `outbox_claims`, and `workflow_progression_events` ready/leased/acked counts, plus lease age.

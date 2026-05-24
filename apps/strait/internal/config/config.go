@@ -82,7 +82,7 @@ type Config struct {
 	// Toggle the fully denormalized dequeue path (uses job_runs fan-out
 	// columns plus job_active_counts instead of joining jobs and scanning
 	// active rows).
-	QueueUseDenormalizedDequeue bool `env:"QUEUE_USE_DENORMALIZED_DEQUEUE" default:"false"`
+	QueueUseDenormalizedDequeue bool `env:"QUEUE_USE_DENORMALIZED_DEQUEUE" default:"true"`
 	// QueueEngine selects the queue storage engine. legacy keeps the
 	// job_runs-as-queue path; batchlog claims from narrow queue_entries while
 	// preserving job_runs as the ledger.
