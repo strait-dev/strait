@@ -516,6 +516,21 @@ func sampleBatchlogDequeuePlans(tb baselineTB, ctx context.Context) []loadtest.S
 		Name: "batchlog candidate selection",
 		Lines: explainText(tb, ctx, `
 			EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
+			WITH leased_job_counts AS (
+				SELECT leased.job_id, COUNT(*)::int AS count
+				FROM queue_entries leased
+				WHERE leased.status = 'leased'
+				  AND leased.run_status = 'queued'
+				GROUP BY leased.job_id
+			),
+			leased_key_counts AS (
+				SELECT leased.job_id, leased.concurrency_key, COUNT(*)::int AS count
+				FROM queue_entries leased
+				WHERE leased.status = 'leased'
+				  AND leased.run_status = 'queued'
+				  AND leased.concurrency_key <> ''
+				GROUP BY leased.job_id, leased.concurrency_key
+			)
 			SELECT qe.run_id
 			FROM queue_entries qe
 			LEFT JOIN job_active_counts jac_job
@@ -523,21 +538,11 @@ func sampleBatchlogDequeuePlans(tb baselineTB, ctx context.Context) []loadtest.S
 			LEFT JOIN job_active_counts jac_key
 			  ON jac_key.job_id = qe.job_id
 			  AND jac_key.concurrency_key = qe.concurrency_key
-			LEFT JOIN LATERAL (
-				SELECT COUNT(*)::int AS count
-				FROM queue_entries leased
-				WHERE leased.job_id = qe.job_id
-				  AND leased.status = 'leased'
-				  AND leased.run_status = 'queued'
-			) leased_job ON true
-			LEFT JOIN LATERAL (
-				SELECT COUNT(*)::int AS count
-				FROM queue_entries leased
-				WHERE leased.job_id = qe.job_id
-				  AND leased.concurrency_key = qe.concurrency_key
-				  AND leased.status = 'leased'
-				  AND leased.run_status = 'queued'
-			) leased_key ON qe.concurrency_key <> ''
+			LEFT JOIN leased_job_counts leased_job
+			  ON leased_job.job_id = qe.job_id
+			LEFT JOIN leased_key_counts leased_key
+			  ON leased_key.job_id = qe.job_id
+			  AND leased_key.concurrency_key = qe.concurrency_key
 			WHERE qe.status = 'ready'
 			  AND qe.batch_id IS NOT NULL
 			  AND qe.available_at <= NOW()

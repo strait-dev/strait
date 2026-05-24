@@ -98,7 +98,22 @@ func (q *BatchlogQueue) DequeueNByProject(ctx context.Context, n int, projectID 
 }
 
 var batchlogDequeueSQL = "/* action=batchlog_dequeue */ " + `
-	WITH claimed AS (
+	WITH leased_job_counts AS (
+		SELECT leased.job_id, COUNT(*)::int AS count
+		FROM queue_entries leased
+		WHERE leased.status = 'leased'
+		  AND leased.run_status = $4
+		GROUP BY leased.job_id
+	),
+	leased_key_counts AS (
+		SELECT leased.job_id, leased.concurrency_key, COUNT(*)::int AS count
+		FROM queue_entries leased
+		WHERE leased.status = 'leased'
+		  AND leased.run_status = $4
+		  AND leased.concurrency_key <> ''
+		GROUP BY leased.job_id, leased.concurrency_key
+	),
+	claimed AS (
 		SELECT qe.run_id
 		FROM queue_entries qe
 		LEFT JOIN job_active_counts jac_job
@@ -106,21 +121,11 @@ var batchlogDequeueSQL = "/* action=batchlog_dequeue */ " + `
 		LEFT JOIN job_active_counts jac_key
 		  ON jac_key.job_id = qe.job_id
 		  AND jac_key.concurrency_key = qe.concurrency_key
-		LEFT JOIN LATERAL (
-			SELECT COUNT(*)::int AS count
-			FROM queue_entries leased
-			WHERE leased.job_id = qe.job_id
-			  AND leased.status = 'leased'
-			  AND leased.run_status = $4
-		) leased_job ON true
-		LEFT JOIN LATERAL (
-			SELECT COUNT(*)::int AS count
-			FROM queue_entries leased
-			WHERE leased.job_id = qe.job_id
-			  AND leased.concurrency_key = qe.concurrency_key
-			  AND leased.status = 'leased'
-			  AND leased.run_status = $4
-		) leased_key ON qe.concurrency_key <> ''
+		LEFT JOIN leased_job_counts leased_job
+		  ON leased_job.job_id = qe.job_id
+		LEFT JOIN leased_key_counts leased_key
+		  ON leased_key.job_id = qe.job_id
+		  AND leased_key.concurrency_key = qe.concurrency_key
 		WHERE qe.status = 'ready'
 		  AND qe.batch_id IS NOT NULL
 		  AND qe.available_at <= NOW()
@@ -156,7 +161,22 @@ var batchlogDequeueSQL = "/* action=batchlog_dequeue */ " + `
 	ORDER BY jr.created_at ASC`
 
 var batchlogDequeueByProjectSQL = "/* action=batchlog_dequeue_by_project */ " + `
-	WITH claimed AS (
+	WITH leased_job_counts AS (
+		SELECT leased.job_id, COUNT(*)::int AS count
+		FROM queue_entries leased
+		WHERE leased.status = 'leased'
+		  AND leased.run_status = $4
+		GROUP BY leased.job_id
+	),
+	leased_key_counts AS (
+		SELECT leased.job_id, leased.concurrency_key, COUNT(*)::int AS count
+		FROM queue_entries leased
+		WHERE leased.status = 'leased'
+		  AND leased.run_status = $4
+		  AND leased.concurrency_key <> ''
+		GROUP BY leased.job_id, leased.concurrency_key
+	),
+	claimed AS (
 		SELECT qe.run_id
 		FROM queue_entries qe
 		LEFT JOIN job_active_counts jac_job
@@ -164,21 +184,11 @@ var batchlogDequeueByProjectSQL = "/* action=batchlog_dequeue_by_project */ " + 
 		LEFT JOIN job_active_counts jac_key
 		  ON jac_key.job_id = qe.job_id
 		  AND jac_key.concurrency_key = qe.concurrency_key
-		LEFT JOIN LATERAL (
-			SELECT COUNT(*)::int AS count
-			FROM queue_entries leased
-			WHERE leased.job_id = qe.job_id
-			  AND leased.status = 'leased'
-			  AND leased.run_status = $4
-		) leased_job ON true
-		LEFT JOIN LATERAL (
-			SELECT COUNT(*)::int AS count
-			FROM queue_entries leased
-			WHERE leased.job_id = qe.job_id
-			  AND leased.concurrency_key = qe.concurrency_key
-			  AND leased.status = 'leased'
-			  AND leased.run_status = $4
-		) leased_key ON qe.concurrency_key <> ''
+		LEFT JOIN leased_job_counts leased_job
+		  ON leased_job.job_id = qe.job_id
+		LEFT JOIN leased_key_counts leased_key
+		  ON leased_key.job_id = qe.job_id
+		  AND leased_key.concurrency_key = qe.concurrency_key
 		WHERE qe.status = 'ready'
 		  AND qe.batch_id IS NOT NULL
 		  AND qe.available_at <= NOW()

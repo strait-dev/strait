@@ -94,10 +94,13 @@ func TestBatchlogDequeueUsesStaticParameterizedQuery(t *testing.T) {
 			} else if strings.Contains(capturedSQL, "qe.project_id = $5") {
 				t.Fatalf("global query contains project predicate:\n%s", capturedSQL)
 			}
-			for _, want := range []string{"FOR UPDATE OF qe SKIP LOCKED", "LIMIT $1", "qe.run_status = $4", "leased.run_status = $4"} {
+			for _, want := range []string{"FOR UPDATE OF qe SKIP LOCKED", "LIMIT $1", "qe.run_status = $4", "leased_job_counts", "leased_key_counts"} {
 				if !strings.Contains(capturedSQL, want) {
 					t.Fatalf("query missing %q:\n%s", want, capturedSQL)
 				}
+			}
+			if strings.Contains(capturedSQL, "LEFT JOIN LATERAL") {
+				t.Fatalf("query should aggregate leased counts once instead of per-candidate lateral scans:\n%s", capturedSQL)
 			}
 			if strings.Contains(capturedSQL, "run_status = 'queued'") {
 				t.Fatalf("query should parameterize queued status:\n%s", capturedSQL)
