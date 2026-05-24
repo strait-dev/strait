@@ -78,10 +78,13 @@ func validateStripeV1(secret string, body []byte, headerValue string) error {
 		return fmt.Errorf("stripe-v1 timestamp too old: %ds", int(age))
 	}
 
-	// Compute expected signature: HMAC-SHA256(secret, timestamp.body)
-	payload := append([]byte(ts+"."), body...)
+	// Compute expected signature: HMAC-SHA256(secret, timestamp.body).
+	// Write the timestamp prefix and body as two passes instead of copying the
+	// whole body into a throwaway buffer; HMAC over the concatenated stream is
+	// identical to hashing the concatenation (matches ComputeTimestampedHMACSHA256).
 	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write(payload)
+	mac.Write([]byte(ts + "."))
+	mac.Write(body)
 	computed := hex.EncodeToString(mac.Sum(nil))
 
 	for _, sig := range signatures {
