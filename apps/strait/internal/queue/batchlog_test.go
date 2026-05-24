@@ -50,8 +50,8 @@ func TestBatchlogDequeueUsesStaticParameterizedQuery(t *testing.T) {
 		wantArgs    int
 		wantProject bool
 	}{
-		{name: "global", wantArgs: 5},
-		{name: "project", projectID: "project-1", wantArgs: 6, wantProject: true},
+		{name: "global", wantArgs: 4},
+		{name: "project", projectID: "project-1", wantArgs: 5, wantProject: true},
 	}
 
 	for _, tt := range tests {
@@ -84,23 +84,23 @@ func TestBatchlogDequeueUsesStaticParameterizedQuery(t *testing.T) {
 			if capturedArgs[0] != 10 || capturedArgs[1] != "worker-1" || capturedArgs[2] != 5*time.Second || capturedArgs[3] != domain.StatusQueued {
 				t.Fatalf("unexpected args: %#v", capturedArgs)
 			}
-			if windowLimit, ok := capturedArgs[4].(int); !ok || windowLimit < 64 {
-				t.Fatalf("window limit arg = %#v, want int >= 64", capturedArgs[4])
-			}
 			if tt.wantProject {
-				if capturedArgs[5] != tt.projectID {
-					t.Fatalf("project arg = %#v, want %q", capturedArgs[5], tt.projectID)
+				if capturedArgs[4] != tt.projectID {
+					t.Fatalf("project arg = %#v, want %q", capturedArgs[4], tt.projectID)
 				}
-				if !strings.Contains(capturedSQL, "qe.project_id = $6") {
+				if !strings.Contains(capturedSQL, "qe.project_id = $5") {
 					t.Fatalf("project query missing project predicate:\n%s", capturedSQL)
 				}
-			} else if strings.Contains(capturedSQL, "qe.project_id = $6") {
+			} else if strings.Contains(capturedSQL, "qe.project_id = $5") {
 				t.Fatalf("global query contains project predicate:\n%s", capturedSQL)
 			}
-			for _, want := range []string{"FOR UPDATE OF qe SKIP LOCKED", "LIMIT $1", "LIMIT $5", "qe.run_status = $4", "qe.execution_mode = 'http'", "candidate_window", "leased_job_counts", "leased_key_counts"} {
+			for _, want := range []string{"FOR UPDATE OF qe SKIP LOCKED", "LIMIT $1", "qe.run_status = $4", "qe.execution_mode = 'http'", "job_max_concurrency"} {
 				if !strings.Contains(capturedSQL, want) {
 					t.Fatalf("query missing %q:\n%s", want, capturedSQL)
 				}
+			}
+			if strings.Contains(capturedSQL, "leased_job_counts") || strings.Contains(capturedSQL, "leased_key_counts") {
+				t.Fatalf("unconstrained fast path should not aggregate leases:\n%s", capturedSQL)
 			}
 			if strings.Contains(capturedSQL, "LEFT JOIN LATERAL") {
 				t.Fatalf("query should aggregate leased counts once instead of per-candidate lateral scans:\n%s", capturedSQL)

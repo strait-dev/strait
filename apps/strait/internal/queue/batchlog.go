@@ -94,22 +94,22 @@ func (q *BatchlogQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 }
 
 func (q *BatchlogQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, error) {
-	return q.dequeueHTTP(ctx, n, batchlogDequeueHTTPSQL, nil)
+	return q.dequeueHTTPFastPath(ctx, n, batchlogDequeueHTTPUnconstrainedSQL, batchlogDequeueHTTPSQL, nil)
 }
 
 func (q *BatchlogQueue) DequeueNFair(ctx context.Context, n int) ([]domain.JobRun, error) {
-	return q.dequeueHTTP(ctx, n, batchlogDequeueFairSQL, nil)
+	return q.dequeueWindowRows(ctx, batchlogDequeueFairSQL, n, nil)
 }
 
 func (q *BatchlogQueue) DequeueNByProject(ctx context.Context, n int, projectID string) ([]domain.JobRun, error) {
-	return q.dequeueHTTP(ctx, n, batchlogDequeueByProjectSQL, []any{projectID})
+	return q.dequeueHTTPFastPath(ctx, n, batchlogDequeueByProjectUnconstrainedSQL, batchlogDequeueByProjectSQL, []any{projectID})
 }
 
 func (q *BatchlogQueue) DequeueNPartitioned(ctx context.Context, n int, projectIDs []string) ([]domain.JobRun, error) {
 	if len(projectIDs) == 0 {
 		return nil, nil
 	}
-	return q.dequeueHTTP(ctx, n, batchlogDequeuePartitionedSQL, []any{projectIDs})
+	return q.dequeueWindowRows(ctx, batchlogDequeuePartitionedSQL, n, []any{projectIDs})
 }
 
 func (q *BatchlogQueue) DequeueNForWorkerQueues(ctx context.Context, n int, queues []domain.WorkerQueueRef) ([]domain.JobRun, error) {
@@ -117,77 +117,44 @@ func (q *BatchlogQueue) DequeueNForWorkerQueues(ctx context.Context, n int, queu
 	if n <= 0 || len(queueNames) == 0 {
 		return nil, nil
 	}
-	return q.dequeueRows(ctx, batchlogDequeueWorkerSQL, n, []any{projectIDs, queueNames, environmentIDs})
+	return q.dequeueWindowRows(ctx, batchlogDequeueWorkerSQL, n, []any{projectIDs, queueNames, environmentIDs})
 }
 
-var batchlogDequeueHTTPSQL = "/* action=batchlog_dequeue_http */ " + `
-		WITH candidate_window AS (
-			SELECT qe.run_id, qe.job_id, qe.concurrency_key, qe.batch_id, qe.priority, qe.run_created_at
-			FROM queue_entries qe
-			WHERE qe.status = 'ready'
-			  AND qe.batch_id IS NOT NULL
-			  AND qe.available_at <= NOW()
-			  AND qe.run_status = $4
-			  AND qe.execution_mode = 'http'
-			  AND COALESCE(qe.job_enabled, true) = true
-			  AND COALESCE(qe.job_paused, false) = false
-			  AND (qe.scheduled_at IS NULL OR qe.scheduled_at <= NOW())
-			  AND (qe.next_retry_at IS NULL OR qe.next_retry_at <= NOW())
-			ORDER BY qe.batch_id ASC, qe.priority DESC, qe.run_created_at ASC
-			FOR UPDATE OF qe SKIP LOCKED
-			LIMIT $5
-		),
-		candidate_jobs AS (
-			SELECT DISTINCT job_id FROM candidate_window
-		),
-		candidate_keys AS (
-			SELECT DISTINCT job_id, concurrency_key
-			FROM candidate_window
-			WHERE concurrency_key <> ''
-		),
-		leased_job_counts AS (
-			SELECT leased.job_id, COUNT(*)::int AS count
-			FROM queue_entries leased
-			JOIN candidate_jobs cj ON cj.job_id = leased.job_id
-			WHERE leased.status = 'leased'
-			  AND leased.run_status = $4
-			  AND leased.lease_expires_at > NOW()
-			GROUP BY leased.job_id
-		),
-		leased_key_counts AS (
-			SELECT leased.job_id, leased.concurrency_key, COUNT(*)::int AS count
-			FROM queue_entries leased
-			JOIN candidate_keys ck
-			  ON ck.job_id = leased.job_id
-			 AND ck.concurrency_key = leased.concurrency_key
-			WHERE leased.status = 'leased'
-			  AND leased.run_status = $4
-			  AND leased.lease_expires_at > NOW()
-			  AND leased.concurrency_key <> ''
-			GROUP BY leased.job_id, leased.concurrency_key
-		),
-		claimed AS (
-			SELECT qe.run_id
-			FROM candidate_window cw
-			JOIN queue_entries qe ON qe.run_id = cw.run_id
-			LEFT JOIN job_active_counts jac_job
-			  ON jac_job.job_id = qe.job_id AND jac_job.concurrency_key = ''
-		LEFT JOIN job_active_counts jac_key
-		  ON jac_key.job_id = qe.job_id
-		  AND jac_key.concurrency_key = qe.concurrency_key
-		LEFT JOIN leased_job_counts leased_job
-		  ON leased_job.job_id = qe.job_id
-		LEFT JOIN leased_key_counts leased_key
-		  ON leased_key.job_id = qe.job_id
-		  AND leased_key.concurrency_key = qe.concurrency_key
-			WHERE (qe.job_max_concurrency IS NULL
-			       OR COALESCE(jac_job.count, 0) + COALESCE(leased_job.count, 0) < qe.job_max_concurrency)
-			  AND (qe.job_max_concurrency_per_key IS NULL
-			       OR qe.concurrency_key = ''
-			       OR COALESCE(jac_key.count, 0) + COALESCE(leased_key.count, 0) < qe.job_max_concurrency_per_key)
-			ORDER BY cw.batch_id ASC, cw.priority DESC, cw.run_created_at ASC
-			LIMIT $1
-		),
+var batchlogDequeueHTTPUnconstrainedSQL = "/* action=batchlog_dequeue_http_unconstrained */ " + `
+	WITH candidate_window AS (
+		SELECT qe.run_id,
+		       qe.job_max_concurrency,
+		       qe.job_max_concurrency_per_key,
+		       qe.concurrency_key,
+		       qe.batch_id,
+		       qe.priority,
+		       qe.run_created_at
+		FROM queue_entries qe
+		WHERE qe.status = 'ready'
+		  AND qe.batch_id IS NOT NULL
+		  AND qe.available_at <= NOW()
+		  AND qe.run_status = $4
+		  AND qe.execution_mode = 'http'
+		  AND COALESCE(qe.job_enabled, true) = true
+		  AND COALESCE(qe.job_paused, false) = false
+		  AND (qe.scheduled_at IS NULL OR qe.scheduled_at <= NOW())
+		  AND (qe.next_retry_at IS NULL OR qe.next_retry_at <= NOW())
+		ORDER BY qe.batch_id ASC, qe.priority DESC, qe.run_created_at ASC
+		FOR UPDATE OF qe SKIP LOCKED
+		LIMIT $1
+	),
+	claimed AS (
+		SELECT cw.run_id
+		FROM candidate_window cw
+		WHERE NOT EXISTS (
+			SELECT 1
+			FROM candidate_window constrained
+			WHERE COALESCE(constrained.job_max_concurrency, 0) > 0
+			   OR (constrained.concurrency_key <> '' AND COALESCE(constrained.job_max_concurrency_per_key, 0) > 0)
+		)
+		ORDER BY cw.batch_id ASC, cw.priority DESC, cw.run_created_at ASC
+		LIMIT $1
+	),
 	leased AS (
 		UPDATE queue_entries qe
 		SET status = 'leased',
@@ -201,79 +168,88 @@ var batchlogDequeueHTTPSQL = "/* action=batchlog_dequeue_http */ " + `
 		RETURNING qe.run_id
 	)
 	SELECT ` + dequeueColumns + `
-		FROM job_runs jr
-		JOIN leased l ON l.run_id = jr.id
-		ORDER BY jr.created_at ASC`
+	FROM job_runs jr
+	JOIN leased l ON l.run_id = jr.id
+	ORDER BY jr.created_at ASC`
 
-var batchlogDequeueByProjectSQL = "/* action=batchlog_dequeue_by_project */ " + `
-		WITH candidate_window AS (
-			SELECT qe.run_id, qe.job_id, qe.concurrency_key, qe.batch_id, qe.priority, qe.run_created_at
-			FROM queue_entries qe
-			WHERE qe.status = 'ready'
-			  AND qe.batch_id IS NOT NULL
-			  AND qe.available_at <= NOW()
-			  AND qe.run_status = $4
-			  AND qe.execution_mode = 'http'
-			  AND qe.project_id = $6
-			  AND COALESCE(qe.job_enabled, true) = true
-			  AND COALESCE(qe.job_paused, false) = false
-			  AND (qe.scheduled_at IS NULL OR qe.scheduled_at <= NOW())
-			  AND (qe.next_retry_at IS NULL OR qe.next_retry_at <= NOW())
-			ORDER BY qe.batch_id ASC, qe.priority DESC, qe.run_created_at ASC
-			FOR UPDATE OF qe SKIP LOCKED
-			LIMIT $5
-		),
-		candidate_jobs AS (
-			SELECT DISTINCT job_id FROM candidate_window
-		),
-		candidate_keys AS (
-			SELECT DISTINCT job_id, concurrency_key
-			FROM candidate_window
-			WHERE concurrency_key <> ''
-		),
-		leased_job_counts AS (
-			SELECT leased.job_id, COUNT(*)::int AS count
-			FROM queue_entries leased
-			JOIN candidate_jobs cj ON cj.job_id = leased.job_id
-			WHERE leased.status = 'leased'
-			  AND leased.run_status = $4
-			  AND leased.lease_expires_at > NOW()
-			GROUP BY leased.job_id
-		),
-		leased_key_counts AS (
-			SELECT leased.job_id, leased.concurrency_key, COUNT(*)::int AS count
-			FROM queue_entries leased
-			JOIN candidate_keys ck
-			  ON ck.job_id = leased.job_id
-			 AND ck.concurrency_key = leased.concurrency_key
-			WHERE leased.status = 'leased'
-			  AND leased.run_status = $4
-			  AND leased.lease_expires_at > NOW()
-			  AND leased.concurrency_key <> ''
-			GROUP BY leased.job_id, leased.concurrency_key
-		),
-		claimed AS (
-			SELECT qe.run_id
-			FROM candidate_window cw
-			JOIN queue_entries qe ON qe.run_id = cw.run_id
-			LEFT JOIN job_active_counts jac_job
-			  ON jac_job.job_id = qe.job_id AND jac_job.concurrency_key = ''
+var batchlogDequeueHTTPSQL = "/* action=batchlog_dequeue_http_constrained */ " + `
+	WITH candidate_window AS (
+		SELECT qe.run_id,
+		       qe.job_id,
+		       qe.concurrency_key,
+		       qe.batch_id,
+		       qe.priority,
+		       qe.run_created_at,
+		       qe.job_max_concurrency,
+		       qe.job_max_concurrency_per_key
+		FROM queue_entries qe
+		WHERE qe.status = 'ready'
+		  AND qe.batch_id IS NOT NULL
+		  AND qe.available_at <= NOW()
+		  AND qe.run_status = $4
+		  AND qe.execution_mode = 'http'
+		  AND COALESCE(qe.job_enabled, true) = true
+		  AND COALESCE(qe.job_paused, false) = false
+		  AND (qe.scheduled_at IS NULL OR qe.scheduled_at <= NOW())
+		  AND (qe.next_retry_at IS NULL OR qe.next_retry_at <= NOW())
+		ORDER BY qe.batch_id ASC, qe.priority DESC, qe.run_created_at ASC
+		FOR UPDATE OF qe SKIP LOCKED
+		LIMIT $5
+	),
+	candidate_jobs AS (
+		SELECT DISTINCT job_id
+		FROM candidate_window
+		WHERE COALESCE(job_max_concurrency, 0) > 0
+		   OR (concurrency_key <> '' AND COALESCE(job_max_concurrency_per_key, 0) > 0)
+	),
+	candidate_keys AS (
+		SELECT DISTINCT job_id, concurrency_key
+		FROM candidate_window
+		WHERE concurrency_key <> ''
+		  AND COALESCE(job_max_concurrency_per_key, 0) > 0
+	),
+	leased_job_counts AS (
+		SELECT leased.job_id, COUNT(*)::int AS count
+		FROM queue_entries leased
+		JOIN candidate_jobs cj ON cj.job_id = leased.job_id
+		WHERE leased.status = 'leased'
+		  AND leased.run_status = $4
+		  AND leased.lease_expires_at > NOW()
+		GROUP BY leased.job_id
+	),
+	leased_key_counts AS (
+		SELECT leased.job_id, leased.concurrency_key, COUNT(*)::int AS count
+		FROM queue_entries leased
+		JOIN candidate_keys ck
+		  ON ck.job_id = leased.job_id
+		 AND ck.concurrency_key = leased.concurrency_key
+		WHERE leased.status = 'leased'
+		  AND leased.run_status = $4
+		  AND leased.lease_expires_at > NOW()
+		  AND leased.concurrency_key <> ''
+		GROUP BY leased.job_id, leased.concurrency_key
+	),
+	claimed AS (
+		SELECT cw.run_id
+		FROM candidate_window cw
+		LEFT JOIN job_active_counts jac_job
+		  ON jac_job.job_id = cw.job_id AND jac_job.concurrency_key = ''
 		LEFT JOIN job_active_counts jac_key
-		  ON jac_key.job_id = qe.job_id
-		  AND jac_key.concurrency_key = qe.concurrency_key
+		  ON jac_key.job_id = cw.job_id
+		  AND jac_key.concurrency_key = cw.concurrency_key
 		LEFT JOIN leased_job_counts leased_job
-		  ON leased_job.job_id = qe.job_id
+		  ON leased_job.job_id = cw.job_id
 		LEFT JOIN leased_key_counts leased_key
-		  ON leased_key.job_id = qe.job_id
-		  AND leased_key.concurrency_key = qe.concurrency_key
-			WHERE (qe.job_max_concurrency IS NULL
-			       OR COALESCE(jac_job.count, 0) + COALESCE(leased_job.count, 0) < qe.job_max_concurrency)
-			  AND (qe.job_max_concurrency_per_key IS NULL
-			       OR qe.concurrency_key = ''
-			       OR COALESCE(jac_key.count, 0) + COALESCE(leased_key.count, 0) < qe.job_max_concurrency_per_key)
-			ORDER BY cw.batch_id ASC, cw.priority DESC, cw.run_created_at ASC
-			LIMIT $1
-		),
+		  ON leased_key.job_id = cw.job_id
+		  AND leased_key.concurrency_key = cw.concurrency_key
+		WHERE (COALESCE(cw.job_max_concurrency, 0) <= 0
+		       OR COALESCE(jac_job.count, 0) + COALESCE(leased_job.count, 0) < cw.job_max_concurrency)
+		  AND (COALESCE(cw.job_max_concurrency_per_key, 0) <= 0
+		       OR cw.concurrency_key = ''
+		       OR COALESCE(jac_key.count, 0) + COALESCE(leased_key.count, 0) < cw.job_max_concurrency_per_key)
+		ORDER BY cw.batch_id ASC, cw.priority DESC, cw.run_created_at ASC
+		LIMIT $1
+	),
 	leased AS (
 		UPDATE queue_entries qe
 		SET status = 'leased',
@@ -287,9 +263,158 @@ var batchlogDequeueByProjectSQL = "/* action=batchlog_dequeue_by_project */ " + 
 		RETURNING qe.run_id
 	)
 	SELECT ` + dequeueColumns + `
-		FROM job_runs jr
-		JOIN leased l ON l.run_id = jr.id
-		ORDER BY jr.created_at ASC`
+	FROM job_runs jr
+	JOIN leased l ON l.run_id = jr.id
+	ORDER BY jr.created_at ASC`
+
+var batchlogDequeueByProjectUnconstrainedSQL = "/* action=batchlog_dequeue_by_project_unconstrained */ " + `
+	WITH candidate_window AS (
+		SELECT qe.run_id,
+		       qe.job_max_concurrency,
+		       qe.job_max_concurrency_per_key,
+		       qe.concurrency_key,
+		       qe.batch_id,
+		       qe.priority,
+		       qe.run_created_at
+		FROM queue_entries qe
+		WHERE qe.status = 'ready'
+		  AND qe.batch_id IS NOT NULL
+		  AND qe.available_at <= NOW()
+		  AND qe.run_status = $4
+		  AND qe.execution_mode = 'http'
+		  AND qe.project_id = $5
+		  AND COALESCE(qe.job_enabled, true) = true
+		  AND COALESCE(qe.job_paused, false) = false
+		  AND (qe.scheduled_at IS NULL OR qe.scheduled_at <= NOW())
+		  AND (qe.next_retry_at IS NULL OR qe.next_retry_at <= NOW())
+		ORDER BY qe.batch_id ASC, qe.priority DESC, qe.run_created_at ASC
+		FOR UPDATE OF qe SKIP LOCKED
+		LIMIT $1
+	),
+	claimed AS (
+		SELECT cw.run_id
+		FROM candidate_window cw
+		WHERE NOT EXISTS (
+			SELECT 1
+			FROM candidate_window constrained
+			WHERE COALESCE(constrained.job_max_concurrency, 0) > 0
+			   OR (constrained.concurrency_key <> '' AND COALESCE(constrained.job_max_concurrency_per_key, 0) > 0)
+		)
+		ORDER BY cw.batch_id ASC, cw.priority DESC, cw.run_created_at ASC
+		LIMIT $1
+	),
+	leased AS (
+		UPDATE queue_entries qe
+		SET status = 'leased',
+		    lease_owner = $2,
+		    lease_expires_at = NOW() + $3,
+		    claimed_at = NOW(),
+		    attempts = attempts + 1,
+		    updated_at = NOW()
+		FROM claimed
+		WHERE qe.run_id = claimed.run_id
+		RETURNING qe.run_id
+	)
+	SELECT ` + dequeueColumns + `
+	FROM job_runs jr
+	JOIN leased l ON l.run_id = jr.id
+	ORDER BY jr.created_at ASC`
+
+var batchlogDequeueByProjectSQL = "/* action=batchlog_dequeue_by_project_constrained */ " + `
+	WITH candidate_window AS (
+		SELECT qe.run_id,
+		       qe.job_id,
+		       qe.concurrency_key,
+		       qe.batch_id,
+		       qe.priority,
+		       qe.run_created_at,
+		       qe.job_max_concurrency,
+		       qe.job_max_concurrency_per_key
+		FROM queue_entries qe
+		WHERE qe.status = 'ready'
+		  AND qe.batch_id IS NOT NULL
+		  AND qe.available_at <= NOW()
+		  AND qe.run_status = $4
+		  AND qe.execution_mode = 'http'
+		  AND qe.project_id = $6
+		  AND COALESCE(qe.job_enabled, true) = true
+		  AND COALESCE(qe.job_paused, false) = false
+		  AND (qe.scheduled_at IS NULL OR qe.scheduled_at <= NOW())
+		  AND (qe.next_retry_at IS NULL OR qe.next_retry_at <= NOW())
+		ORDER BY qe.batch_id ASC, qe.priority DESC, qe.run_created_at ASC
+		FOR UPDATE OF qe SKIP LOCKED
+		LIMIT $5
+	),
+	candidate_jobs AS (
+		SELECT DISTINCT job_id
+		FROM candidate_window
+		WHERE COALESCE(job_max_concurrency, 0) > 0
+		   OR (concurrency_key <> '' AND COALESCE(job_max_concurrency_per_key, 0) > 0)
+	),
+	candidate_keys AS (
+		SELECT DISTINCT job_id, concurrency_key
+		FROM candidate_window
+		WHERE concurrency_key <> ''
+		  AND COALESCE(job_max_concurrency_per_key, 0) > 0
+	),
+	leased_job_counts AS (
+		SELECT leased.job_id, COUNT(*)::int AS count
+		FROM queue_entries leased
+		JOIN candidate_jobs cj ON cj.job_id = leased.job_id
+		WHERE leased.status = 'leased'
+		  AND leased.run_status = $4
+		  AND leased.lease_expires_at > NOW()
+		GROUP BY leased.job_id
+	),
+	leased_key_counts AS (
+		SELECT leased.job_id, leased.concurrency_key, COUNT(*)::int AS count
+		FROM queue_entries leased
+		JOIN candidate_keys ck
+		  ON ck.job_id = leased.job_id
+		 AND ck.concurrency_key = leased.concurrency_key
+		WHERE leased.status = 'leased'
+		  AND leased.run_status = $4
+		  AND leased.lease_expires_at > NOW()
+		  AND leased.concurrency_key <> ''
+		GROUP BY leased.job_id, leased.concurrency_key
+	),
+	claimed AS (
+		SELECT cw.run_id
+		FROM candidate_window cw
+		LEFT JOIN job_active_counts jac_job
+		  ON jac_job.job_id = cw.job_id AND jac_job.concurrency_key = ''
+		LEFT JOIN job_active_counts jac_key
+		  ON jac_key.job_id = cw.job_id
+		  AND jac_key.concurrency_key = cw.concurrency_key
+		LEFT JOIN leased_job_counts leased_job
+		  ON leased_job.job_id = cw.job_id
+		LEFT JOIN leased_key_counts leased_key
+		  ON leased_key.job_id = cw.job_id
+		  AND leased_key.concurrency_key = cw.concurrency_key
+		WHERE (COALESCE(cw.job_max_concurrency, 0) <= 0
+		       OR COALESCE(jac_job.count, 0) + COALESCE(leased_job.count, 0) < cw.job_max_concurrency)
+		  AND (COALESCE(cw.job_max_concurrency_per_key, 0) <= 0
+		       OR cw.concurrency_key = ''
+		       OR COALESCE(jac_key.count, 0) + COALESCE(leased_key.count, 0) < cw.job_max_concurrency_per_key)
+		ORDER BY cw.batch_id ASC, cw.priority DESC, cw.run_created_at ASC
+		LIMIT $1
+	),
+	leased AS (
+		UPDATE queue_entries qe
+		SET status = 'leased',
+		    lease_owner = $2,
+		    lease_expires_at = NOW() + $3,
+		    claimed_at = NOW(),
+		    attempts = attempts + 1,
+		    updated_at = NOW()
+		FROM claimed
+		WHERE qe.run_id = claimed.run_id
+		RETURNING qe.run_id
+	)
+	SELECT ` + dequeueColumns + `
+	FROM job_runs jr
+	JOIN leased l ON l.run_id = jr.id
+	ORDER BY jr.created_at ASC`
 
 var batchlogDequeuePartitionedSQL = "/* action=batchlog_dequeue_partitioned */ " + `
 		WITH candidate_window AS (
@@ -714,11 +839,29 @@ func (q *BatchlogQueue) DeleteAckedEntries(ctx context.Context, olderThan time.D
 	return tag.RowsAffected(), nil
 }
 
-func (q *BatchlogQueue) dequeueHTTP(ctx context.Context, n int, query string, extraArgs []any) ([]domain.JobRun, error) {
-	return q.dequeueRows(ctx, query, n, extraArgs)
+func (q *BatchlogQueue) dequeueHTTPFastPath(ctx context.Context, n int, fastQuery string, constrainedQuery string, extraArgs []any) ([]domain.JobRun, error) {
+	runs, err := q.dequeueRows(ctx, fastQuery, n, extraArgs)
+	if err != nil || len(runs) >= n {
+		return runs, err
+	}
+	constrained, err := q.dequeueWindowRows(ctx, constrainedQuery, n-len(runs), extraArgs)
+	if err != nil {
+		return runs, err
+	}
+	return append(runs, constrained...), nil
 }
 
 func (q *BatchlogQueue) dequeueRows(ctx context.Context, query string, n int, extraArgs []any) ([]domain.JobRun, error) {
+	if n <= 0 {
+		return nil, nil
+	}
+
+	args := []any{n, q.cfg.LeaseOwner, q.cfg.LeaseDuration, domain.StatusQueued}
+	args = append(args, extraArgs...)
+	return q.scanDequeueRows(ctx, query, n, args)
+}
+
+func (q *BatchlogQueue) dequeueWindowRows(ctx context.Context, query string, n int, extraArgs []any) ([]domain.JobRun, error) {
 	if n <= 0 {
 		return nil, nil
 	}
@@ -727,7 +870,10 @@ func (q *BatchlogQueue) dequeueRows(ctx context.Context, query string, n int, ex
 	windowLimit = max(windowLimit, 64)
 	args := []any{n, q.cfg.LeaseOwner, q.cfg.LeaseDuration, domain.StatusQueued, windowLimit}
 	args = append(args, extraArgs...)
+	return q.scanDequeueRows(ctx, query, n, args)
+}
 
+func (q *BatchlogQueue) scanDequeueRows(ctx context.Context, query string, n int, args []any) ([]domain.JobRun, error) {
 	rows, err := q.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("batchlog dequeue: %w", err)

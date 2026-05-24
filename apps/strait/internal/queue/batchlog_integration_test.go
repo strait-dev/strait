@@ -862,6 +862,46 @@ func TestBatchlogLeases_BlockMaxConcurrencyBeforeStart(t *testing.T) {
 	}
 }
 
+func TestBatchlogDequeue_MixedWindowPreservesConstrainedOrdering(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	constrainedJob := mustCreateJob(t, ctx, st, "project-batchlog-mixed-window")
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE jobs SET max_concurrency = 1 WHERE id = $1`, constrainedJob.ID); err != nil {
+		t.Fatalf("set max_concurrency: %v", err)
+	}
+	unconstrainedJob := mustCreateJob(t, ctx, st, constrainedJob.ProjectID)
+	q := mustBatchlogQueue(t, time.Second)
+
+	constrainedA := &domain.JobRun{ID: newID(), JobID: constrainedJob.ID, ProjectID: constrainedJob.ProjectID}
+	constrainedB := &domain.JobRun{ID: newID(), JobID: constrainedJob.ID, ProjectID: constrainedJob.ProjectID}
+	unconstrained := &domain.JobRun{ID: newID(), JobID: unconstrainedJob.ID, ProjectID: unconstrainedJob.ProjectID}
+	for _, run := range []*domain.JobRun{constrainedA, constrainedB, unconstrained} {
+		if err := q.Enqueue(ctx, run); err != nil {
+			t.Fatalf("Enqueue %s: %v", run.ID, err)
+		}
+	}
+	if _, err := q.SealDueBatches(ctx); err != nil {
+		t.Fatalf("SealDueBatches: %v", err)
+	}
+
+	first, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("first DequeueN: %v", err)
+	}
+	if len(first) != 1 || first[0].ID != constrainedA.ID {
+		t.Fatalf("first claim = %+v, want constrained run %s", first, constrainedA.ID)
+	}
+	second, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("second DequeueN: %v", err)
+	}
+	if len(second) != 1 || second[0].ID != unconstrained.ID {
+		t.Fatalf("second claim = %+v, want unconstrained run %s while constrained job is leased", second, unconstrained.ID)
+	}
+}
+
 func TestBatchlogLeases_BlockMaxConcurrencyAcrossKeysBeforeStart(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
