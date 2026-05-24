@@ -11,9 +11,10 @@ Strait runs as a single Go binary. You can run everything in one process or spli
 | Service | Purpose |
 |---|---|
 | PostgreSQL | Stores projects, jobs, runs, workflows, and queued work. |
-| Redis | Powers live updates and pub/sub notifications. |
+| Redis | Powers the worker transport plane, rate limiting, and pub/sub notifications. |
+| Sequin | Streams PostgreSQL changes through CDC for real-time state propagation without database polling. |
 
-Use managed PostgreSQL and Redis if you want the lowest operational overhead. Self-host them if your environment requires it.
+Use managed PostgreSQL and Redis if you want the lowest operational overhead. Sequin must run alongside the database, and PostgreSQL must enable logical replication (`wal_level=logical`). Strait fails fast when PostgreSQL, Redis, or Sequin is missing or unreachable.
 
 ## Required Secrets
 
@@ -23,6 +24,8 @@ Set these through your platform's secret manager.
 |---|---|
 | `DATABASE_URL` | PostgreSQL connection string. |
 | `REDIS_URL` | Redis connection string. |
+| `SEQUIN_BASE_URL` | Sequin API base URL. |
+| `SEQUIN_CONSUMER_NAME` | Sequin HTTP pull consumer name. |
 | `INTERNAL_SECRET` | Trusted service-to-service secret. |
 | `JWT_SIGNING_KEY` | Signs SDK run tokens. |
 | `ENCRYPTION_KEY` | Encrypts data at rest. |
@@ -64,6 +67,8 @@ Run a single-process deployment:
 docker run \
   -e DATABASE_URL=postgres://... \
   -e REDIS_URL=redis://... \
+  -e SEQUIN_BASE_URL=http://sequin:7376 \
+  -e SEQUIN_CONSUMER_NAME=strait-cdc \
   -e INTERNAL_SECRET=... \
   -e JWT_SIGNING_KEY=... \
   -e ENCRYPTION_KEY=... \
@@ -180,7 +185,17 @@ Workers
     +-- strait --mode worker
 ```
 
-All instances share the same PostgreSQL and Redis.
+All instances share the same PostgreSQL, Redis, and Sequin runtime contract.
+
+## Baseline sizing
+
+| Deployment | Starting point | Notes |
+|---|---|---|
+| Development | 2 CPU, 2-4 GB RAM | Use `make dev`; the Compose stack exposes Postgres on `15432`, Redis on `16379`, Sequin on `7376`, and Strait on `8080`. |
+| Small self-host | 2 CPU, 4 GB RAM | Keep `WORKER_CONCURRENCY=25` and `DB_MAX_CONNS=50` until load data says otherwise. |
+| Production single node | 4 CPU, 8 GB RAM | Start with `WORKER_CONCURRENCY=50` and `DB_MAX_CONNS=100`, then tune from queue depth, DB pool, and Redis latency metrics. |
+
+The Docker Compose defaults are intentionally conservative. Raise worker concurrency and Redis/Postgres connection pools together, and keep Sequin in the same region as PostgreSQL.
 
 ## Placement
 

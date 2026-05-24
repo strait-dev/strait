@@ -33,6 +33,19 @@ func (q *Queries) CreateWorkflowRun(ctx context.Context, run *domain.WorkflowRun
 	if run.WorkflowVersion == 0 {
 		run.WorkflowVersion = 1
 	}
+	if run.WorkflowSnapshotID != "" {
+		var snapshotExists bool
+		if err := q.db.QueryRow(
+			ctx,
+			`SELECT EXISTS (SELECT 1 FROM workflow_snapshots WHERE id = $1)`,
+			run.WorkflowSnapshotID,
+		).Scan(&snapshotExists); err != nil {
+			return fmt.Errorf("create workflow run: verify workflow snapshot %q: %w", run.WorkflowSnapshotID, err)
+		}
+		if !snapshotExists {
+			return fmt.Errorf("create workflow run: workflow snapshot %q not found", run.WorkflowSnapshotID)
+		}
+	}
 
 	tagsJSON := []byte("{}")
 	if len(run.Tags) > 0 {
@@ -91,7 +104,7 @@ func (q *Queries) CreateWorkflowRun(ctx context.Context, run *domain.WorkflowRun
 		dbscan.NilIfEmptyString(run.SingletonKey),
 	).Scan(&run.CreatedAt)
 	if err != nil {
-		return fmt.Errorf("create workflow run: %w", err)
+		return fmt.Errorf("create workflow run snapshot_id=%q: %w", run.WorkflowSnapshotID, err)
 	}
 
 	return nil

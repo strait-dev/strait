@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -548,7 +549,16 @@ func (ce *ChaosEngine) chaosCascadingFailure(ctx context.Context) error {
 		return fmt.Errorf("finding strait container: %w", straitErr)
 	}
 
-	var cascadeErr atomic.Value
+	var cascadeErr error
+	var cascadeErrOnce sync.Once
+	recordCascadeErr := func(err error) {
+		if err == nil {
+			return
+		}
+		cascadeErrOnce.Do(func() {
+			cascadeErr = err
+		})
+	}
 
 	var wg conc.WaitGroup
 
@@ -556,7 +566,7 @@ func (ce *ChaosEngine) chaosCascadingFailure(ctx context.Context) error {
 	// Kill Redis
 	wg.Go(func() {
 		if err := exec.CommandContext(ctx, "docker", "kill", redisContainer).Run(); err != nil {
-			cascadeErr.CompareAndSwap(nil, fmt.Errorf("killing redis: %w", err))
+			recordCascadeErr(fmt.Errorf("killing redis: %w", err))
 		}
 	})
 
@@ -564,11 +574,11 @@ func (ce *ChaosEngine) chaosCascadingFailure(ctx context.Context) error {
 	wg.Go(func() {
 		attempts, successes, err := ce.runTrafficSpike(ctx, 30*time.Second, time.Millisecond)
 		if err != nil {
-			cascadeErr.CompareAndSwap(nil, err)
+			recordCascadeErr(err)
 			return
 		}
 		if attempts == 0 || successes == 0 {
-			cascadeErr.CompareAndSwap(nil, fmt.Errorf("cascading traffic spike false-pass guard: attempts=%d successes=%d", attempts, successes))
+			recordCascadeErr(fmt.Errorf("cascading traffic spike false-pass guard: attempts=%d successes=%d", attempts, successes))
 		}
 	})
 
@@ -576,7 +586,7 @@ func (ce *ChaosEngine) chaosCascadingFailure(ctx context.Context) error {
 	wg.Go(func() {
 		time.Sleep(5 * time.Second)
 		if err := exec.CommandContext(ctx, "docker", "kill", straitContainer).Run(); err != nil {
-			cascadeErr.CompareAndSwap(nil, fmt.Errorf("killing strait container: %w", err))
+			recordCascadeErr(fmt.Errorf("killing strait container: %w", err))
 		}
 	})
 
@@ -599,8 +609,8 @@ func (ce *ChaosEngine) chaosCascadingFailure(ctx context.Context) error {
 	// Wait for recovery
 	time.Sleep(5 * time.Minute)
 
-	if v := cascadeErr.Load(); v != nil {
-		return v.(error)
+	if cascadeErr != nil {
+		return cascadeErr
 	}
 	return nil
 }

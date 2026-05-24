@@ -17,7 +17,9 @@ import { Effect } from "effect";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { getAuth } from "@/lib/auth.server";
 import { apiEffect, runWithFallback } from "@/lib/effect-api.server";
-import { findCustomerByEmail, getStripeClient } from "@/lib/stripe.server";
+import { enforceRateLimit } from "@/lib/rate-limit.server";
+import { findCustomerByOrg, getStripeClient } from "@/lib/stripe.server";
+import { requireOrgAccess } from "@/middlewares/require-access";
 import { selectBestSubscription } from "./subscription-helpers";
 import {
   deriveSubscriptionState,
@@ -34,17 +36,34 @@ import {
  * Each plan tier has two prices (monthly + yearly) that both resolve
  * to the same slug. Populated from env vars set via Infisical.
  */
-const PRICE_TO_PLAN = new Map<string, PlanSlug>([
-  [process.env.STRIPE_STARTER_MONTHLY_PRICE_ID ?? "", "starter"],
-  [process.env.STRIPE_STARTER_YEARLY_PRICE_ID ?? "", "starter"],
-  [process.env.STRIPE_PRO_MONTHLY_PRICE_ID ?? "", "pro"],
-  [process.env.STRIPE_PRO_YEARLY_PRICE_ID ?? "", "pro"],
-  [process.env.STRIPE_SCALE_MONTHLY_PRICE_ID ?? "", "scale"],
-  [process.env.STRIPE_SCALE_YEARLY_PRICE_ID ?? "", "scale"],
-  [process.env.STRIPE_ENTERPRISE_STARTER_YEARLY_PRICE_ID ?? "", "enterprise"],
-  [process.env.STRIPE_ENTERPRISE_GROWTH_YEARLY_PRICE_ID ?? "", "enterprise"],
-  [process.env.STRIPE_ENTERPRISE_LARGE_YEARLY_PRICE_ID ?? "", "enterprise"],
-]);
+function getPriceToPlan(): Map<string, PlanSlug> {
+  return new Map(
+    [
+      [process.env.STRIPE_STARTER_MONTHLY_PRICE_ID, "starter"],
+      [process.env.STRIPE_STARTER_YEARLY_PRICE_ID, "starter"],
+      [process.env.STRIPE_PRO_MONTHLY_PRICE_ID, "pro"],
+      [process.env.STRIPE_PRO_YEARLY_PRICE_ID, "pro"],
+      [process.env.STRIPE_SCALE_MONTHLY_PRICE_ID, "scale"],
+      [process.env.STRIPE_SCALE_YEARLY_PRICE_ID, "scale"],
+      [process.env.STRIPE_BUSINESS_MONTHLY_PRICE_ID, "business"],
+      [process.env.STRIPE_BUSINESS_YEARLY_PRICE_ID, "business"],
+      [process.env.STRIPE_ENTERPRISE_STARTER_YEARLY_PRICE_ID, "enterprise"],
+      [process.env.STRIPE_ENTERPRISE_GROWTH_YEARLY_PRICE_ID, "enterprise"],
+      [process.env.STRIPE_ENTERPRISE_LARGE_YEARLY_PRICE_ID, "enterprise"],
+    ].filter((entry): entry is [string, PlanSlug] => Boolean(entry[0]))
+  );
+}
+
+const subscriptionCache = new Map<
+  string,
+  { value: NormalizedSubscription | null; expiresAt: number }
+>();
+const subscriptionInflight = new Map<
+  string,
+  Promise<NormalizedSubscription | null>
+>();
+
+const SUBSCRIPTION_CACHE_MS = 60_000;
 
 /**
  * Fetch the most relevant subscription for a customer by email.
@@ -55,41 +74,104 @@ const PRICE_TO_PLAN = new Map<string, PlanSlug>([
  * @returns The normalized subscription, or `null` if the customer has none.
  */
 const getSubscriptionByEmail = async (
-  email: string
+  email: string,
+  orgId: string
 ): Promise<NormalizedSubscription | null> => {
   if (!process.env.STRIPE_SECRET_KEY) {
     return null;
   }
 
-  const customerId = await findCustomerByEmail(email);
-  if (!customerId) {
-    return null;
+  const cacheKey = `${orgId}:${email}`;
+  const cached = subscriptionCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.value;
   }
 
-  const stripe = getStripeClient();
-  const { data: subscriptions } = await stripe.subscriptions.list({
-    customer: customerId,
-    limit: 20,
-    expand: ["data.items.data.price"],
+  const inflight = subscriptionInflight.get(cacheKey);
+  if (inflight) {
+    return await inflight;
+  }
+
+  const request = (async () => {
+    const customerId = await findCustomerByOrg(email, orgId);
+    if (!customerId) {
+      subscriptionCache.set(cacheKey, {
+        value: null,
+        expiresAt: Date.now() + SUBSCRIPTION_CACHE_MS,
+      });
+      return null;
+    }
+
+    const stripe = getStripeClient();
+    const { data: subscriptions } = await stripe.subscriptions.list({
+      customer: customerId,
+      limit: 20,
+      expand: ["data.items.data.price"],
+    });
+
+    const value = selectBestSubscription(subscriptions);
+    subscriptionCache.set(cacheKey, {
+      value,
+      expiresAt: Date.now() + SUBSCRIPTION_CACHE_MS,
+    });
+    return value;
+  })().finally(() => {
+    subscriptionInflight.delete(cacheKey);
   });
 
-  return selectBestSubscription(subscriptions);
+  subscriptionInflight.set(cacheKey, request);
+  return await request;
 };
+
+type SessionWithActiveOrg = {
+  user: { id: string; email?: string | null };
+  session: { activeOrganizationId?: string | null };
+};
+
+async function requireBillingSession(): Promise<{
+  session: SessionWithActiveOrg;
+  email: string;
+  orgId: string;
+}> {
+  const headers = getRequestHeaders();
+  const session = (await (
+    await getAuth()
+  ).api.getSession({
+    headers,
+  })) as SessionWithActiveOrg | null;
+  const email = session?.user?.email;
+  const orgId = session?.session?.activeOrganizationId;
+
+  if (!(session && email && orgId)) {
+    throw new Error("Unauthorized");
+  }
+
+  await requireOrgAccess(session.user.id, orgId);
+  return { session, email, orgId };
+}
 
 /**
  * Server function: fetch the current user's raw subscription data from Stripe.
  */
 const getSubscriptionServerFn = createServerFn({ method: "GET" }).handler(
   async (): Promise<SubscriptionData | null> => {
-    const headers = getRequestHeaders();
-    const session = await (await getAuth()).api.getSession({ headers });
-    const email = session?.user?.email;
-
-    if (!email) {
+    let billingSession: Awaited<ReturnType<typeof requireBillingSession>>;
+    try {
+      billingSession = await requireBillingSession();
+    } catch {
       return null;
     }
 
-    const subscription = await getSubscriptionByEmail(email);
+    await enforceRateLimit({
+      key: `subscription:${billingSession.orgId}:${billingSession.session.user.id}`,
+      limit: 30,
+      windowSeconds: 60,
+    });
+
+    const subscription = await getSubscriptionByEmail(
+      billingSession.email,
+      billingSession.orgId
+    );
     if (!subscription) {
       return null;
     }
@@ -111,7 +193,7 @@ const getSubscriptionServerFn = createServerFn({ method: "GET" }).handler(
  * (e.g. enterprise plans with custom pricing not in {@link PRICE_TO_PLAN}).
  */
 const getBackendPlanTier = async (
-  session: { session: { activeOrganizationId?: string | null } } | null
+  session: SessionWithActiveOrg | null
 ): Promise<PlanSlug | null> => {
   const orgId = session?.session?.activeOrganizationId;
   if (!orgId) {
@@ -133,11 +215,10 @@ const getBackendPlanTier = async (
  */
 const getSubscriptionStateServerFn = createServerFn({ method: "GET" }).handler(
   async (): Promise<SubscriptionStateData> => {
-    const headers = getRequestHeaders();
-    const session = await (await getAuth()).api.getSession({ headers });
-    const email = session?.user?.email;
-
-    if (!email) {
+    let billingSession: Awaited<ReturnType<typeof requireBillingSession>>;
+    try {
+      billingSession = await requireBillingSession();
+    } catch {
       return deriveSubscriptionState({
         subscription: null,
         planFromProduct: null,
@@ -145,12 +226,15 @@ const getSubscriptionStateServerFn = createServerFn({ method: "GET" }).handler(
       });
     }
 
-    const subscription = await getSubscriptionByEmail(email);
-    const backendPlan = await getBackendPlanTier(session);
+    const subscription = await getSubscriptionByEmail(
+      billingSession.email,
+      billingSession.orgId
+    );
+    const backendPlan = await getBackendPlanTier(billingSession.session);
 
     const planFromProduct = normalizePlanSlug(
       subscription?.productId
-        ? (PRICE_TO_PLAN.get(subscription.productId) ?? null)
+        ? (getPriceToPlan().get(subscription.productId) ?? null)
         : null
     );
 

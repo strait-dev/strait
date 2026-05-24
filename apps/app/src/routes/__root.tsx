@@ -35,7 +35,6 @@ export type Session = {
   session: {
     id: string;
     userId: string;
-    token: string;
     expiresAt: Date;
   };
 } | null;
@@ -124,18 +123,9 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 
 function RootComponent() {
   return (
-    <ThemeProvider
-      attribute="class"
-      defaultTheme="dark"
-      disableTransitionOnChange
-      enableColorScheme={false}
-      enableSystem={false}
-      themes={["light", "dark"]}
-    >
-      <RootDocument>
-        <Outlet />
-      </RootDocument>
-    </ThemeProvider>
+    <RootDocument>
+      <Outlet />
+    </RootDocument>
   );
 }
 
@@ -152,41 +142,39 @@ function RootDocument({ children }: { children: React.ReactNode }) {
           content="width=device-width, height=device-height, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no"
           name="viewport"
         />
-        <script
-          // biome-ignore lint: dangerouslySetInnerHTML needed for theme initialization
-          dangerouslySetInnerHTML={{
-            __html: `
-              try {
-                const theme = localStorage.getItem('theme') || 'dark';
-                const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-                const effectiveTheme = theme === 'system' ? systemTheme : theme;
-                document.documentElement.classList.add(effectiveTheme);
-              } catch (e) {}
-            `,
-          }}
-        />
       </head>
       <body
         className="h-full bg-background text-foreground selection:bg-foreground selection:text-background"
         suppressHydrationWarning
       >
-        {children}
-        <Toaster position="bottom-right" />
-        {import.meta.env.DEV && (
-          <TanStackDevtools
-            config={{ defaultOpen: false }}
-            plugins={[
-              {
-                name: "Tanstack Query",
-                render: <ReactQueryDevtoolsPanel />,
-              },
-              {
-                name: "Tanstack Router",
-                render: <TanStackRouterDevtoolsPanel />,
-              },
-            ]}
-          />
-        )}
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="dark"
+          disableTransitionOnChange
+          enableColorScheme={false}
+          enableSystem={false}
+          scriptProps={{ async: true }}
+          themes={["light", "dark"]}
+        >
+          {children}
+          <Toaster position="bottom-right" />
+          {import.meta.env.DEV &&
+            import.meta.env.VITE_DISABLE_DEVTOOLS !== "1" && (
+              <TanStackDevtools
+                config={{ defaultOpen: false }}
+                plugins={[
+                  {
+                    name: "Tanstack Query",
+                    render: <ReactQueryDevtoolsPanel />,
+                  },
+                  {
+                    name: "Tanstack Router",
+                    render: <TanStackRouterDevtoolsPanel />,
+                  },
+                ]}
+              />
+            )}
+        </ThemeProvider>
         <Scripts />
       </body>
     </html>

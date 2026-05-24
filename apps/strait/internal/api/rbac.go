@@ -107,6 +107,51 @@ func (s *Server) usersAffectedByRoleMutation(ctx context.Context, projectID, rol
 		return nil, err
 	}
 	affectedRoles := map[string]struct{}{roleID: {}}
+	if len(roles) <= 128 {
+		markAffectedRolesByScan(roles, affectedRoles)
+		return usersWithAffectedRoles(ctx, s, projectID, affectedRoles)
+	}
+
+	roleIndex := make(map[string]int, len(roles))
+	for i := range roles {
+		roleIndex[roles[i].ID] = i
+	}
+	firstChild := make([]int, len(roles))
+	nextSibling := make([]int, len(roles))
+	for i := range roles {
+		firstChild[i] = -1
+		nextSibling[i] = -1
+	}
+	for i := range roles {
+		parentIdx, ok := roleIndex[roles[i].ParentRoleID]
+		if !ok {
+			continue
+		}
+		nextSibling[i] = firstChild[parentIdx]
+		firstChild[parentIdx] = i
+	}
+	startIdx, ok := roleIndex[roleID]
+	if !ok {
+		return usersWithAffectedRoles(ctx, s, projectID, affectedRoles)
+	}
+	queue := []int{startIdx}
+	for len(queue) > 0 {
+		parentIdx := queue[0]
+		queue = queue[1:]
+		for childIdx := firstChild[parentIdx]; childIdx >= 0; childIdx = nextSibling[childIdx] {
+			childID := roles[childIdx].ID
+			if _, alreadyAffected := affectedRoles[childID]; alreadyAffected {
+				continue
+			}
+			affectedRoles[childID] = struct{}{}
+			queue = append(queue, childIdx)
+		}
+	}
+
+	return usersWithAffectedRoles(ctx, s, projectID, affectedRoles)
+}
+
+func markAffectedRolesByScan(roles []domain.ProjectRole, affectedRoles map[string]struct{}) {
 	for changed := true; changed; {
 		changed = false
 		for i := range roles {
@@ -123,7 +168,9 @@ func (s *Server) usersAffectedByRoleMutation(ctx context.Context, projectID, rol
 			changed = true
 		}
 	}
+}
 
+func usersWithAffectedRoles(ctx context.Context, s *Server, projectID string, affectedRoles map[string]struct{}) ([]string, error) {
 	members, err := s.listAllProjectMembersForInvalidation(ctx, projectID)
 	if err != nil {
 		return nil, err

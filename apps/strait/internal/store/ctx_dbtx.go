@@ -86,6 +86,9 @@ func (c *ctxAwareDBTX) QueryRow(ctx context.Context, sql string, args ...any) pg
 }
 
 func (c *ctxAwareDBTX) Begin(ctx context.Context) (pgx.Tx, error) {
+	if tx, ok := TxFromContext(ctx); ok {
+		return tx.Begin(ctx)
+	}
 	beginner, ok := c.pool.(TxBeginner)
 	if !ok {
 		return nil, fmt.Errorf("underlying db does not support transactions")
@@ -94,6 +97,12 @@ func (c *ctxAwareDBTX) Begin(ctx context.Context) (pgx.Tx, error) {
 }
 
 func (c *ctxAwareDBTX) BeginTx(ctx context.Context, opts pgx.TxOptions) (pgx.Tx, error) {
+	if tx, ok := TxFromContext(ctx); ok {
+		if opts != (pgx.TxOptions{}) {
+			return nil, fmt.Errorf("nested transactions do not support custom transaction options")
+		}
+		return tx.Begin(ctx)
+	}
 	beginner, ok := c.pool.(TxBeginnerOptions)
 	if !ok {
 		return nil, fmt.Errorf("underlying db does not support transaction options")

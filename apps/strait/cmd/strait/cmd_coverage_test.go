@@ -36,7 +36,7 @@ func TestNewRootCommand_Structure(t *testing.T) {
 	for _, sub := range cmd.Commands() {
 		subs[sub.Name()] = true
 	}
-	for _, name := range []string{"serve", "server", "migrate", "version"} {
+	for _, name := range []string{"serve", "server", "migrate", "version", "health"} {
 		if !subs[name] {
 			t.Fatalf("expected subcommand %q to be registered", name)
 		}
@@ -167,7 +167,7 @@ func TestNormalizeLegacyArgs_Empty(t *testing.T) {
 func TestNormalizeLegacyArgs_AllSubcommands(t *testing.T) {
 	t.Parallel()
 
-	for _, sub := range []string{"serve", "server", "migrate", "version", "help"} {
+	for _, sub := range []string{"serve", "server", "migrate", "version", "health", "help"} {
 		args := []string{sub, "--verbose"}
 		got := normalizeLegacyArgs(args)
 		if got[0] != sub {

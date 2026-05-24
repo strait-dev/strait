@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -301,20 +302,15 @@ func runServe(ctx context.Context, modeOverride string) error {
 	if err := validateBillingRedisDependency(cfg, rdb); err != nil {
 		return err
 	}
-	if rdb != nil {
-		defer rdb.Close()
-	}
+	defer rdb.Close()
 
 	g := concpool.New().WithContext(ctx).WithFailFast()
 	g.Go(func(ctx context.Context) error {
 		return poolTuner.Run(ctx)
 	})
 
-	webhookOptions := []webhook.DeliveryWorkerOption{}
-	if rdb != nil {
-		webhookOptions = append(webhookOptions, webhook.WithCircuitBreaker(webhook.NewRedisWebhookCircuitBreaker(rdb, true)))
-	}
-	webhookOptions = append(webhookOptions,
+	webhookOptions := []webhook.DeliveryWorkerOption{
+		webhook.WithCircuitBreaker(webhook.NewRedisWebhookCircuitBreaker(rdb, true)),
 		webhook.WithMetrics(metrics),
 		webhook.WithMaxPayloadBytes(cfg.WebhookMaxPayloadBytes),
 		webhook.WithConcurrency(cfg.WebhookConcurrency),
@@ -323,7 +319,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 		webhook.WithHTTPTransport(cfg.WebhookTimeout, cfg.WebhookIdleConnTimeout, cfg.WebhookMaxIdleConns, cfg.WebhookMaxIdleConnsPerHost),
 		webhook.WithBatchByURL(cfg.WebhookBatchEnabled),
 		webhook.WithMaxBatchSize(cfg.WebhookMaxBatchSize),
-	)
+	}
 	// Webhook signing secrets are stored encrypted at rest when an
 	// encryption key is configured, so the delivery worker must decrypt
 	// before computing the outbound HMAC. Without this the signature is
@@ -363,16 +359,21 @@ func runServe(ctx context.Context, modeOverride string) error {
 		WithMaxNestingDepth(cfg.MaxWorkflowNestingDepth).
 		WithMetrics(metrics).
 		WithOnTriggerCreate(onTriggerCreate)
-	stepCallback := workflow.NewStepCallback(queries, workflowEngine, slog.Default()).WithMetrics(metrics).WithChExporter(chExporter)
+	onWorkflowRunStatus := func(hookCtx context.Context, run *domain.WorkflowRun, from, to domain.WorkflowRunStatus, reason string) {
+		publishWorkflowRunStatusHook(hookCtx, run, from, to, reason, pub, chExporter, queries, eventNotifier)
+	}
+	stepCallback := workflow.NewStepCallback(queries, workflowEngine, slog.Default()).
+		WithMetrics(metrics).
+		WithChExporter(chExporter).
+		WithStatusHook(onWorkflowRunStatus)
 
 	healthReg := health.NewRegistry()
 	healthReg.Register(health.NewChecker("database", func(ctx context.Context) error {
 		_, err := queries.QueueStats(ctx)
 		return err
 	}))
-	if rdb != nil {
-		healthReg.Register(health.NewRedisChecker(redisPingerAdapter{rdb}))
-	}
+	healthReg.Register(health.NewRedisChecker(redisPingerAdapter{rdb}))
+	healthReg.Register(health.NewSequinChecker(cfg.SequinBaseURL))
 	healthReg.Register(health.NewAuditProbe(queries))
 	healthReg.Register(health.NewAuditDMLGuardProbe(queries))
 	logAuditDMLGuardStartup(ctx, queries, metrics)
@@ -391,7 +392,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 	// Only created when billing enforcement is enabled or Stripe webhook secret is set.
 	var billingEnforcer *billing.Enforcer
 	var billingDispatcher *webhook.BillingDispatcher
-	if rdb != nil && (cfg.BillingEnforcementEnabled || cfg.StripeWebhookSecret != "") {
+	if cfg.BillingEnforcementEnabled || cfg.StripeWebhookSecret != "" {
 		billingStore := billing.NewPgStore(dbPool)
 
 		// The dispatcher fans org-scoped billing events out to project-level
@@ -430,7 +431,10 @@ func runServe(ctx context.Context, modeOverride string) error {
 		return fmt.Errorf("schema version: %w", err)
 	}
 
-	cdcWebhookReceiver := startCDCConsumer(g, cfg, pub, queries, chExporter)
+	cdcWebhookReceiver, err := startCDCConsumer(ctx, g, cfg, pub, queries, chExporter)
+	if err != nil {
+		return err
+	}
 	startWebhookWorker(g, cfg, eventNotifier)
 	startNotificationWorker(g, cfg, queries, metrics)
 	startLogDrainWorker(g, cfg, queries, metrics)
@@ -459,9 +463,99 @@ func runServe(ctx context.Context, modeOverride string) error {
 
 func validateBillingRedisDependency(cfg *config.Config, rdb *redis.Client) error {
 	if cfg != nil && cfg.BillingEnforcementEnabled && rdb == nil {
-		return fmt.Errorf("billing enforcement requires Redis; set REDIS_URL or disable BILLING_ENFORCEMENT_ENABLED")
+		return fmt.Errorf("billing enforcement requires Redis; configure REDIS_URL or Redis Sentinel")
 	}
 	return nil
+}
+
+type workflowRunPublisher interface {
+	Publish(ctx context.Context, channel string, payload []byte) error
+}
+
+func publishWorkflowRunStatusHook(
+	ctx context.Context,
+	run *domain.WorkflowRun,
+	from,
+	to domain.WorkflowRunStatus,
+	reason string,
+	pub workflowRunPublisher,
+	chExporter *clickhouse.Exporter,
+	queries *store.Queries,
+	eventNotifier *webhook.DeliveryWorker,
+) {
+	if run == nil {
+		return
+	}
+
+	payload, err := json.Marshal(map[string]any{
+		"type":            "workflow_status_change",
+		"workflow_run_id": run.ID,
+		"workflow_id":     run.WorkflowID,
+		"project_id":      run.ProjectID,
+		"from":            string(from),
+		"to":              string(to),
+		"reason":          reason,
+		"timestamp":       time.Now().UTC(),
+	})
+	if err != nil {
+		slog.Warn("failed to marshal workflow run hook payload", "workflow_run_id", run.ID, "error", err)
+		return
+	}
+
+	if err := pub.Publish(ctx, fmt.Sprintf("workflow-run:%s", run.ID), payload); err != nil {
+		slog.Warn("failed to publish workflow run hook", "workflow_run_id", run.ID, "error", err)
+	}
+	if err := pub.Publish(ctx, fmt.Sprintf("workflow:%s:runs", run.WorkflowID), payload); err != nil {
+		slog.Warn("failed to publish workflow hook", "workflow_id", run.WorkflowID, "error", err)
+	}
+
+	if to.IsTerminal() && chExporter != nil {
+		var durationMs uint64
+		if run.StartedAt != nil {
+			finishedAt := time.Now()
+			if run.FinishedAt != nil {
+				finishedAt = *run.FinishedAt
+			}
+			durationMs = uint64(max(finishedAt.Sub(*run.StartedAt).Milliseconds(), 0))
+		}
+		chExporter.Enqueue(clickhouse.WorkflowRunAnalyticsRecord{
+			WorkflowRunID: run.ID,
+			WorkflowID:    run.WorkflowID,
+			ProjectID:     run.ProjectID,
+			Status:        string(to),
+			TriggeredBy:   run.TriggeredBy,
+			StepCount:     0,
+			DurationMs:    durationMs,
+			CreatedAt:     run.CreatedAt,
+			StartedAt:     run.StartedAt,
+			FinishedAt:    run.FinishedAt,
+		})
+	}
+
+	eventType, ok := workflowWebhookEventType(to)
+	if !ok || queries == nil || eventNotifier == nil {
+		return
+	}
+	deliveryCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	subs, err := queries.ListWebhookSubscriptions(deliveryCtx, run.ProjectID)
+	if err != nil {
+		slog.Warn("failed to list webhook subscriptions for workflow hook", "project_id", run.ProjectID, "error", err)
+		return
+	}
+	eventNotifier.EnqueueSubscriptionWebhooks(deliveryCtx, subs, eventType, payload)
+}
+
+func workflowWebhookEventType(status domain.WorkflowRunStatus) (string, bool) {
+	switch status {
+	case domain.WfStatusCompleted:
+		return domain.WebhookEventWorkflowCompleted, true
+	case domain.WfStatusFailed, domain.WfStatusTimedOut, domain.WfStatusCanceled,
+		domain.WfStatusCompensated, domain.WfStatusCompensationFailed:
+		return domain.WebhookEventWorkflowFailed, true
+	default:
+		return "", false
+	}
 }
 
 // redisPingerAdapter wraps *redis.Client to satisfy health.RedisPinger.

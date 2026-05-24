@@ -35,27 +35,34 @@ import { getPostHog } from "@/lib/analytics";
 import { assertCloudEdition, isCommunityEdition } from "@/lib/edition";
 import { AlertCircleIcon, LinkSquareIcon } from "@/lib/icons";
 import { isDowngrade as checkIsDowngrade } from "@/lib/plan-tiers";
-import { findOrCreateCustomer, getStripeClient } from "@/lib/stripe.server";
+import { enforceRateLimit } from "@/lib/rate-limit.server";
+import {
+  findOrCreateCustomerForOrg,
+  getStripeClient,
+} from "@/lib/stripe.server";
 import { getCustomerPortalUrlServerFn } from "@/lib/subscription";
 import { authMiddleware } from "@/middlewares/auth";
+import { requireActiveOrgAdmin } from "@/middlewares/require-access";
 import type { AppRouteContext } from "@/routes/app/layout";
 
-const PLAN_PRICE_MAP: Record<string, string | undefined> = {
+const getPlanPriceMap = (): Record<string, string | undefined> => ({
   "starter-monthly": process.env.STRIPE_STARTER_MONTHLY_PRICE_ID,
   "starter-yearly": process.env.STRIPE_STARTER_YEARLY_PRICE_ID,
   "pro-monthly": process.env.STRIPE_PRO_MONTHLY_PRICE_ID,
   "pro-yearly": process.env.STRIPE_PRO_YEARLY_PRICE_ID,
   "scale-monthly": process.env.STRIPE_SCALE_MONTHLY_PRICE_ID,
   "scale-yearly": process.env.STRIPE_SCALE_YEARLY_PRICE_ID,
-};
+  "business-monthly": process.env.STRIPE_BUSINESS_MONTHLY_PRICE_ID,
+  "business-yearly": process.env.STRIPE_BUSINESS_YEARLY_PRICE_ID,
+});
 
 type StartCheckoutInput = {
-  planSlug: "starter" | "pro" | "scale" | "enterprise";
+  planSlug: "starter" | "pro" | "scale" | "business" | "enterprise";
   billingInterval: "monthly" | "yearly";
 };
 
 const startCheckoutInputSchema = z.object({
-  planSlug: z.enum(["starter", "pro", "scale", "enterprise"]),
+  planSlug: z.enum(["starter", "pro", "scale", "business", "enterprise"]),
   billingInterval: z.enum(["monthly", "yearly"]),
 });
 
@@ -74,9 +81,10 @@ const startCheckoutServerFn = createServerFn({ method: "POST" })
     // even if a caller bypasses the route guard below.
     assertCloudEdition("Plan checkout");
     const stripe = getStripeClient();
+    const orgId = await requireActiveOrgAdmin(context);
 
     const slug = `${data.planSlug}-${data.billingInterval}`;
-    const priceId = PLAN_PRICE_MAP[slug];
+    const priceId = getPlanPriceMap()[slug];
 
     if (!priceId) {
       throw new Error(`Invalid plan: ${slug}`);
@@ -87,26 +95,30 @@ const startCheckoutServerFn = createServerFn({ method: "POST" })
       process.env.VITE_BASE_URL ??
       "http://localhost:5173";
 
-    const ctx = context as unknown as {
-      session?: {
-        user: { email: string };
-        session: { activeOrganizationId?: string };
-      };
-    };
-    const email = ctx?.session?.user?.email;
-    const orgId = ctx?.session?.session?.activeOrganizationId;
+    const email = context.user.email;
+    if (!email) {
+      throw new Error("Email is required for checkout");
+    }
 
-    // Reuse existing Stripe customer to avoid duplicates.
-    const customerId = email
-      ? await findOrCreateCustomer(email, orgId ? { org_id: orgId } : undefined)
-      : undefined;
+    await enforceRateLimit({
+      key: `checkout:${orgId}:${context.user.id}`,
+      limit: 5,
+      windowSeconds: 300,
+    });
+
+    const customerId = await findOrCreateCustomerForOrg({
+      email,
+      orgId,
+      userId: context.user.id,
+      name: context.user.name,
+    });
 
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       line_items: [{ price: priceId, quantity: 1 }],
       success_url: `${baseUrl}/app?checkout_success=true`,
       cancel_url: `${baseUrl}/app/upgrade?canceled=true`,
-      ...(customerId ? { customer: customerId } : { customer_email: email }),
+      customer: customerId,
       allow_promotion_codes: true,
       automatic_tax: { enabled: true },
       subscription_data: {
@@ -163,6 +175,7 @@ function RouteComponent() {
     | "starter"
     | "pro"
     | "scale"
+    | "business"
     | "enterprise";
   const [selectedPlan, setSelectedPlan] = useState<PlanType>(
     currentPlan || "starter"
@@ -185,22 +198,21 @@ function RouteComponent() {
   }, [trackSubscription, currentPlan, isTrialing]);
 
   const startCheckout = useMutation({
-    mutationFn: () => {
-      if (selectedPlan === "free") {
-        return Promise.resolve({ checkoutUrl: "/app" });
-      }
-      return startCheckoutServerFn({
+    mutationFn: (params: {
+      planSlug: "starter" | "pro" | "scale" | "business";
+      billingInterval: BillingInterval;
+    }) =>
+      startCheckoutServerFn({
         data: {
-          planSlug: selectedPlan as "starter" | "pro" | "scale" | "enterprise",
-          billingInterval,
+          planSlug: params.planSlug,
+          billingInterval: params.billingInterval,
         },
-      });
-    },
-    onSuccess: (data) => {
+      }),
+    onSuccess: (data, variables) => {
       getPostHog()?.capture("subscription_checkout_started", {
-        plan: selectedPlan,
-        billing_interval: billingInterval,
-        $set: { plan: selectedPlan },
+        plan: variables.planSlug,
+        billing_interval: variables.billingInterval,
+        $set: { plan: variables.planSlug },
       });
       if (data.checkoutUrl) {
         window.location.assign(data.checkoutUrl);
@@ -213,34 +225,47 @@ function RouteComponent() {
     },
   });
 
-  const isDowngrade = checkIsDowngrade(currentPlan, selectedPlan);
+  const handleStartCheckout = useCallback(
+    (targetPlan: PlanType = selectedPlan) => {
+      if (targetPlan === "free") {
+        window.location.assign("/app");
+        return;
+      }
+      if (targetPlan === "enterprise") {
+        window.location.assign("/app/enterprise-contact");
+        return;
+      }
+      if (checkIsDowngrade(currentPlan, targetPlan)) {
+        setDowngradeTarget(targetPlan);
+        return;
+      }
+      trackSubscription("CHECKOUT_STARTED", {
+        plan: targetPlan,
+        billing_interval: billingInterval,
+      });
+      startCheckout.mutate({ planSlug: targetPlan, billingInterval });
+    },
+    [
+      startCheckout,
+      trackSubscription,
+      selectedPlan,
+      billingInterval,
+      currentPlan,
+    ]
+  );
 
-  const handleStartCheckout = useCallback(() => {
-    if (isDowngrade) {
-      setDowngradeTarget(selectedPlan);
+  const handleConfirmDowngrade = useCallback(() => {
+    const targetPlan = downgradeTarget as Exclude<PlanType, "free"> | null;
+    setDowngradeTarget(null);
+    if (!targetPlan || targetPlan === "enterprise") {
       return;
     }
     trackSubscription("CHECKOUT_STARTED", {
-      plan: selectedPlan,
+      plan: targetPlan,
       billing_interval: billingInterval,
     });
-    startCheckout.mutate();
-  }, [
-    startCheckout,
-    trackSubscription,
-    selectedPlan,
-    billingInterval,
-    isDowngrade,
-  ]);
-
-  const handleConfirmDowngrade = useCallback(() => {
-    setDowngradeTarget(null);
-    trackSubscription("CHECKOUT_STARTED", {
-      plan: selectedPlan,
-      billing_interval: billingInterval,
-    });
-    startCheckout.mutate();
-  }, [startCheckout, trackSubscription, selectedPlan, billingInterval]);
+    startCheckout.mutate({ planSlug: targetPlan, billingInterval });
+  }, [startCheckout, trackSubscription, downgradeTarget, billingInterval]);
 
   const handleOpenPortal = useCallback(async () => {
     trackSubscription("PORTAL_OPENED");

@@ -1,99 +1,54 @@
-# Local development infrastructure for Strait.
-#
-# This starts only the dependencies (Postgres, Redis, Sequin).
-# Run the API separately: go run ./cmd/strait --mode all
-# Or use: make dev (starts these containers + runs the API).
-#
-# Ports use non-standard host mappings (15432, 16379) to avoid
-# clashing with Postgres/Redis already running on the host.
+# Local development overrides for the shared Strait runtime.
+# Run from the repo root:
+#   docker compose -f docker-compose.base.yml -f apps/strait/docker-compose.yml --profile core up --build --wait -d
 
 services:
   postgres:
-    container_name: strait-postgres
-    image: postgres:18-alpine
-    restart: unless-stopped
     ports:
       - "15432:5432"
-    environment:
-      POSTGRES_USER: strait
-      POSTGRES_PASSWORD: strait
-      POSTGRES_DB: strait
-    volumes:
-      # Postgres 18+ stores data under a major-version subdirectory
-      # (e.g. /var/lib/postgresql/18/docker), so the volume mounts at
-      # /var/lib/postgresql rather than /var/lib/postgresql/data. See
-      # https://github.com/docker-library/postgres/pull/1259.
-      - pgdata:/var/lib/postgresql
-      - ../../packages/configs/postgres-init.sql:/docker-entrypoint-initdb.d/01-sequin.sql:ro
-    command: >
-      postgres
-      -c wal_level=logical
-      -c max_replication_slots=10
-      -c max_wal_senders=10
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U strait -d strait"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    deploy:
-      resources:
-        limits:
-          memory: 1024M
-          cpus: "2.0"
 
   redis:
-    container_name: strait-redis
-    image: redis:8-alpine
-    restart: unless-stopped
     ports:
       - "16379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-          cpus: "1.0"
 
   sequin:
-    container_name: strait-sequin
-    image: sequin/sequin:v0.14.6
-    restart: unless-stopped
     ports:
       - "7376:7376"
+
+  strait-migrate:
+    build:
+      context: ./apps/strait
+    image: strait-dev-local:latest
+
+  strait:
+    build:
+      context: ./apps/strait
+    image: strait-dev-local:latest
+    ports:
+      - "8080:8080"
+      - "50051:50051"
     environment:
-      PG_HOSTNAME: postgres
-      PG_PORT: "5432"
-      PG_USERNAME: strait
-      PG_PASSWORD: strait
-      PG_DATABASE: strait
-      REDIS_URL: redis://redis:6379
-      # Dev-only hardcoded secrets. Do NOT use in production.
-      # Self-host generates random values via selfhost-init.sh.
-      SECRET_KEY_BASE: "tONJRnB3NMPNPSbvLsKzE/r6lklVO+04MfFNWPBzBtBt2G5H0rrn8bwdHcRXiSQ3"
-      VAULT_KEY: "Gw1VfMPCshBaUeXrOvIPFTVtW/d5xlv93F7BPfVo7Ys="
-      CONFIG_FILE_PATH: /etc/sequin/config.yml
-    volumes:
-      - ../../packages/configs/sequin.yml:/etc/sequin/config.yml:ro
+      ALLOW_PRIVATE_ENDPOINTS: "true"
+      LOG_FORMAT: text
+
+  postgres-debug:
+    profiles: ["debug"]
+    container_name: strait-postgres-debug
+    image: adminer:4
+    restart: unless-stopped
+    ports:
+      - "18080:8080"
     depends_on:
       postgres:
         condition: service_healthy
+
+  redis-debug:
+    profiles: ["debug"]
+    container_name: strait-redis-debug
+    image: redis/redisinsight:latest
+    restart: unless-stopped
+    ports:
+      - "15540:5540"
+    depends_on:
       redis:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:7376/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: "1.0"
-
-volumes:
-  pgdata:

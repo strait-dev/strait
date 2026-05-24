@@ -14,8 +14,8 @@ import {
   runWithSentryReport,
 } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
+import { requireActiveOrgAccess } from "@/middlewares/require-access";
 import { UsageForecastSchema } from "./schemas";
-import { getOrgIdFromSession } from "./session";
 import { type PlanTierSlug, REFETCH_10M } from "./types";
 
 /** Projected usage and cost forecast for the current billing period. */
@@ -42,13 +42,7 @@ export type UsageForecastData = {
 const getUsageForecastServerFn = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async (ctx) => {
-    const orgId = getOrgIdFromSession(
-      ctx.context.session as Record<string, unknown>
-    );
-
-    if (!orgId) {
-      return null;
-    }
+    const orgId = await requireActiveOrgAccess(ctx.context);
 
     return await runWithSentryReport(
       apiEffectWithSchema("/v1/usage/forecast", UsageForecastSchema, {

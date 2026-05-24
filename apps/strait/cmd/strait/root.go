@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -25,6 +27,7 @@ func newRootCommand() *cobra.Command {
 	cmd.AddCommand(newServerCommand())
 	cmd.AddCommand(newMigrateCommand())
 	cmd.AddCommand(newVersionCommand())
+	cmd.AddCommand(newHealthCommand())
 	cmd.AddCommand(newBackfillHistoryCommand())
 	cmd.AddCommand(newBackfillEntitlementsCommand())
 	cmd.AddCommand(newSeedPentestCommand())
@@ -46,6 +49,7 @@ func normalizeLegacyArgs(args []string) []string {
 		"server":                {},
 		"migrate":               {},
 		"version":               {},
+		"health":                {},
 		"help":                  {},
 		"backfill-history":      {},
 		"backfill-entitlements": {},
@@ -88,6 +92,42 @@ func newServeCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&mode, "mode", "", "run mode: api, worker, or all (overrides MODE env)")
+
+	return cmd
+}
+
+func newHealthCommand() *cobra.Command {
+	var quiet bool
+	var healthURL string
+
+	cmd := &cobra.Command{
+		Use:   "health",
+		Short: "Check strait readiness",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			req, err := http.NewRequestWithContext(cmd.Context(), http.MethodGet, healthURL, nil)
+			if err != nil {
+				return fmt.Errorf("create health request: %w", err)
+			}
+
+			client := &http.Client{Timeout: 5 * time.Second}
+			resp, err := client.Do(req)
+			if err != nil {
+				return fmt.Errorf("readiness check failed: %w", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+				return fmt.Errorf("readiness check returned HTTP %d", resp.StatusCode)
+			}
+			if !quiet {
+				fmt.Fprintln(cmd.OutOrStdout(), "ok")
+			}
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVar(&quiet, "quiet", false, "suppress success output")
+	cmd.Flags().StringVar(&healthURL, "url", "http://localhost:8080/health/ready", "readiness URL")
 
 	return cmd
 }

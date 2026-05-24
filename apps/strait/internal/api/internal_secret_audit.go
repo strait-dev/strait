@@ -33,6 +33,16 @@ func (s *Server) emitInternalSecretBypassAudit(ctx context.Context, gate, handle
 	})
 }
 
+// emitInternalSecretBypassAuditIfProjectless records successful authorization
+// fallthroughs where the internal secret reached a project-owned resource
+// without an API-key project context.
+func (s *Server) emitInternalSecretBypassAuditIfProjectless(ctx context.Context, gate, handler, resourceType, resourceID string) {
+	if projectIDFromContext(ctx) != "" || !isInternalCaller(ctx) {
+		return
+	}
+	s.emitInternalSecretBypassAudit(ctx, gate, handler, resourceType, resourceID)
+}
+
 // bypassCallerLabel returns the most specific identity available for an
 // internal-secret bypass. Order of preference:
 //  1. The authenticated actor id (user or api-key) when present.

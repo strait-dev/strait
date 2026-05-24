@@ -235,12 +235,20 @@ func renderStringTemplate(template string, variables json.RawMessage) string {
 		return template
 	}
 
+	useCache := len(template) > 128
+	var cache stringTemplateVarCache
 	var buf strings.Builder
 	buf.Grow(len(template))
 	prev := 0
 	for {
 		buf.WriteString(template[prev:open])
-		if val := gjson.GetBytes(variables, varName); val.Exists() {
+		if useCache {
+			if val, ok := cache.resolve(variables, varName); ok {
+				buf.WriteString(val)
+			} else {
+				buf.WriteString(template[open:end])
+			}
+		} else if val := gjson.GetBytes(variables, varName); val.Exists() {
 			buf.WriteString(stringifyJSONResult(val))
 		} else {
 			buf.WriteString(template[open:end])
@@ -254,6 +262,44 @@ func renderStringTemplate(template string, variables json.RawMessage) string {
 	}
 	buf.WriteString(template[prev:])
 	return buf.String()
+}
+
+type stringTemplateVarCache struct {
+	names        [8]string
+	values       [8]string
+	missingNames [8]string
+	valueCount   int
+	missingCount int
+}
+
+func (c *stringTemplateVarCache) resolve(variables []byte, name string) (string, bool) {
+	for i := range c.valueCount {
+		if c.names[i] == name {
+			return c.values[i], true
+		}
+	}
+	for i := range c.missingCount {
+		if c.missingNames[i] == name {
+			return "", false
+		}
+	}
+
+	val := gjson.GetBytes(variables, name)
+	if !val.Exists() {
+		if c.missingCount < len(c.missingNames) {
+			c.missingNames[c.missingCount] = name
+			c.missingCount++
+		}
+		return "", false
+	}
+
+	str := stringifyJSONResult(val)
+	if c.valueCount < len(c.names) {
+		c.names[c.valueCount] = name
+		c.values[c.valueCount] = str
+		c.valueCount++
+	}
+	return str, true
 }
 
 func stringifyJSONResult(v gjson.Result) string {

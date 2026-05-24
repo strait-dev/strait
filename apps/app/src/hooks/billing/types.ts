@@ -9,7 +9,13 @@
 export type LimitAction = "reject" | "notify";
 
 /** Plan tier slugs matching the Go backend `domain.PlanTier` constants. */
-export type PlanTierSlug = "free" | "starter" | "pro" | "scale" | "enterprise";
+export type PlanTierSlug =
+  | "free"
+  | "starter"
+  | "pro"
+  | "scale"
+  | "business"
+  | "enterprise";
 
 /** Addon type identifiers matching the Go backend `billing.AddonType` constants. */
 export type AddonTypeSlug =
@@ -60,6 +66,7 @@ export const ALL_PLAN_TIERS: readonly PlanTierSlug[] = [
   "starter",
   "pro",
   "scale",
+  "business",
   "enterprise",
 ] as const;
 

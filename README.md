@@ -10,7 +10,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License: Apache 2.0" /></a>
 </p>
 
-Strait runs your background jobs and orchestrates multi-step workflows from a single service backed by PostgreSQL and Redis, with no separate message broker to operate.
+Strait runs your background jobs and orchestrates multi-step workflows from a single service backed by PostgreSQL, Redis, and Sequin CDC, with no separate message broker to operate.
 
 - **Jobs and runs.** Trigger work over HTTP or a connected worker, then watch each run move from `queued` to `completed`, or to `dead_letter` when its retries run out, in a live dashboard.
 - **Your code, your infrastructure.** Strait never runs your code itself. It reaches the endpoint you expose over HTTP, or a long-lived worker you connect over gRPC, and streams the results back.
@@ -21,7 +21,7 @@ Strait runs your background jobs and orchestrates multi-step workflows from a si
 - **Failure recovery.** Inspect a failed run, fix the cause, and replay it. Dead-letter runs are kept for review instead of silently dropped.
 - **Observability built in.** OpenTelemetry traces, Prometheus metrics, structured logs, and real-time SSE streaming, with optional ClickHouse analytics, audit logs, and log drains.
 - **SDKs and tooling.** Official SDKs for [TypeScript](https://github.com/strait-dev/strait-ts), [Python](https://github.com/strait-dev/strait-python), [Go](https://github.com/strait-dev/strait-go), [Ruby](https://github.com/strait-dev/strait-ruby), and [Rust](https://github.com/strait-dev/strait-rust) with the same feature set on each, plus a [CLI](https://github.com/strait-dev/cli) and an [MCP server](https://github.com/strait-dev/mcp).
-- **One binary, self-host ready.** Strait ships as a single Go binary, and self-hosting needs nothing beyond `docker-compose.selfhost.yml`.
+- **One binary, self-host ready.** Strait ships as a single Go binary, and self-hosting uses the shared Compose stack to run the required PostgreSQL, Redis, and Sequin services.
 
 ---
 
@@ -35,7 +35,7 @@ cd strait
 make selfhost
 ```
 
-That starts the Strait API, dashboard, database, and supporting services on your machine. Open http://localhost:3000, sign up, and create your first job. Everything runs locally, with no Stripe, billing, or third-party accounts involved.
+That starts the Strait API, dashboard, PostgreSQL, Redis, and Sequin on your machine. Open http://localhost:3000, sign up, and create your first job. Everything runs locally, with no Stripe, billing, or third-party accounts involved.
 
 Full walkthrough and hardening guide: [`SELFHOST.md`](SELFHOST.md).
 
@@ -106,7 +106,8 @@ apps/
   app/      TanStack Start dashboard (React 19, Vite).
   docs/     Mintlify docs.
 packages/   Shared TS packages (ui, billing, config, transactional, ...).
-docker-compose.selfhost.yml   One-command self-host stack.
+docker-compose.base.yml       Shared runtime stack.
+docker-compose.selfhost.yml   Self-host overrides and dashboard profile.
 SELFHOST.md                   Self-host walkthrough.
 AGENTS.md                     Contributor operating guide.
 ```

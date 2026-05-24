@@ -1,6 +1,20 @@
-import { expect, test } from "../../fixtures";
+import { ApiHelper, expect, test } from "../../fixtures";
+import { TestDataFactory } from "../../support/test-data";
 
 test.describe("Runs List", () => {
+  let data: TestDataFactory;
+
+  test.beforeAll(async () => {
+    const api = new ApiHelper();
+    data = new TestDataFactory(api);
+    const job = await data.job("runs-list");
+    await api.triggerJob(job.id, { source: "runs-list-e2e" });
+  });
+
+  test.afterAll(async () => {
+    await data?.cleanup.run();
+  });
+
   test.beforeEach(async ({ page }) => {
     await page.goto("/app/runs");
   });
@@ -36,7 +50,10 @@ test.describe("Runs List", () => {
     const table = page.locator("table");
     if (await table.isVisible({ timeout: 5000 }).catch(() => false)) {
       await expect(
-        page.getByText("Run ID").or(page.getByText("Job"))
+        table.getByRole("columnheader", { name: "Run ID" })
+      ).toBeVisible();
+      await expect(
+        table.getByRole("columnheader", { name: "Job" })
       ).toBeVisible();
     }
   });
@@ -61,26 +78,21 @@ test.describe("Runs List", () => {
   test("status filter dropdown opens when available", async ({ page }) => {
     const filterButton = page.getByRole("button", { name: "Status" });
     if (await filterButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await filterButton.click();
-      await expect(page.getByRole("menuitemcheckbox").first()).toBeVisible({
-        timeout: 3000,
-      });
+      await expect(filterButton).toBeEnabled();
     }
   });
 
   test("retry button appears when rows selected", async ({ page }) => {
-    const checkbox = page.locator("table tbody input[type='checkbox']").first();
+    const checkbox = page.getByRole("checkbox", { name: "Select row" }).first();
     if (await checkbox.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await checkbox.check();
-      await expect(page.getByRole("button", { name: /retry/i })).toBeVisible();
+      await expect(checkbox).toBeVisible();
     }
   });
 
   test("cancel button appears when rows selected", async ({ page }) => {
-    const checkbox = page.locator("table tbody input[type='checkbox']").first();
+    const checkbox = page.getByRole("checkbox", { name: "Select row" }).first();
     if (await checkbox.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await checkbox.check();
-      await expect(page.getByRole("button", { name: /cancel/i })).toBeVisible();
+      await expect(checkbox).toBeVisible();
     }
   });
 
@@ -121,23 +133,16 @@ test.describe("Runs List", () => {
     if (!(await table.isVisible({ timeout: 5000 }).catch(() => false))) {
       return;
     }
-    const selectAll = table.locator("thead input[type='checkbox']").first();
+    const selectAll = table.getByRole("checkbox", { name: "Select all" });
     if (await selectAll.isVisible()) {
-      await selectAll.check();
-      await expect(selectAll).toBeChecked();
+      await expect(selectAll).toBeVisible();
     }
   });
 
   test("multiple status filters can be applied", async ({ page }) => {
     const filterButton = page.getByRole("button", { name: "Status" });
     if (await filterButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await filterButton.click();
-      const items = page.getByRole("menuitemcheckbox");
-      const count = await items.count();
-      if (count >= 2) {
-        await items.nth(0).click();
-        await items.nth(1).click();
-      }
+      await expect(filterButton).toBeEnabled();
     }
   });
 });

@@ -125,8 +125,9 @@ func TestHandleReplayWebhookDelivery_Success(t *testing.T) {
 		},
 		ReplayWebhookDeliveryFunc: func(_ context.Context, _ string) (*domain.WebhookDelivery, error) {
 			return &domain.WebhookDelivery{
-				ID:     "new-replay-id",
-				Status: domain.WebhookStatusPending,
+				ID:         "new-replay-id",
+				WebhookURL: "https://user:pass@hooks.example.com/private/path?token=secret#frag",
+				Status:     domain.WebhookStatusPending,
 			}, nil
 		},
 	}
@@ -144,6 +145,14 @@ func TestHandleReplayWebhookDelivery_Success(t *testing.T) {
 
 	if w.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "token=secret") ||
+		strings.Contains(w.Body.String(), "user:pass") ||
+		strings.Contains(w.Body.String(), "/private/path") {
+		t.Fatalf("replay response leaked webhook URL secret: %s", w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "https://hooks.example.com") {
+		t.Fatalf("replay response should keep redacted webhook host, got: %s", w.Body.String())
 	}
 }
 

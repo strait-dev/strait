@@ -311,10 +311,60 @@ func (q *Queries) DeleteWorkflow(ctx context.Context, id string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteWorkflow")
 	defer span.End()
 
-	query := `DELETE FROM workflows WHERE id = $1`
+	if _, ok := q.db.(TxBeginner); ok {
+		return q.withTx(ctx, func(tx *Queries) error {
+			return tx.deleteWorkflowTx(ctx, id)
+		})
+	}
 
-	if _, err := q.db.Exec(ctx, query, id); err != nil {
+	return q.deleteWorkflowTx(ctx, id)
+}
+
+// ErrWorkflowHasActiveRuns is returned when deleting a workflow that still has
+// non-terminal runs.
+var ErrWorkflowHasActiveRuns = errors.New("workflow has active runs")
+
+func (q *Queries) deleteWorkflowTx(ctx context.Context, id string) error {
+	var exists bool
+	if err := q.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM workflows WHERE id = $1 FOR UPDATE)`, id).Scan(&exists); err != nil {
+		return fmt.Errorf("delete workflow lock: %w", err)
+	}
+	if !exists {
+		return ErrWorkflowNotFound
+	}
+
+	var activeCount int
+	err := q.db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM workflow_runs
+		WHERE workflow_id = $1
+		  AND status NOT IN ('completed', 'failed', 'timed_out', 'canceled', 'compensated', 'compensation_failed')`,
+		id,
+	).Scan(&activeCount)
+	if err != nil {
+		return fmt.Errorf("delete workflow check active runs: %w", err)
+	}
+	if activeCount > 0 {
+		return ErrWorkflowHasActiveRuns
+	}
+
+	if _, err := q.db.Exec(ctx, `
+		DELETE FROM event_triggers
+		WHERE workflow_run_id IN (SELECT id FROM workflow_runs WHERE workflow_id = $1)`,
+		id,
+	); err != nil {
+		return fmt.Errorf("delete workflow event triggers: %w", err)
+	}
+	if _, err := q.db.Exec(ctx, `DELETE FROM workflow_runs WHERE workflow_id = $1`, id); err != nil {
+		return fmt.Errorf("delete workflow runs: %w", err)
+	}
+
+	tag, err := q.db.Exec(ctx, `DELETE FROM workflows WHERE id = $1`, id)
+	if err != nil {
 		return fmt.Errorf("delete workflow: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrWorkflowNotFound
 	}
 
 	return nil

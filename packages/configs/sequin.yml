@@ -9,6 +9,10 @@ users:
   - email: "admin@localhost"
     password: "straitadmin"
 
+api_tokens:
+  - name: "strait"
+    token: "${SEQUIN_API_TOKEN}"
+
 databases:
   - name: "strait-db"
     hostname: "postgres"

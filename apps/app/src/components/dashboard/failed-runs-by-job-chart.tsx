@@ -5,20 +5,13 @@ import {
   CardTitle,
 } from "@strait/ui/components/card";
 import { useQuery } from "@tanstack/react-query";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from "recharts";
 import { analyticsQueryOptions } from "@/hooks/api/use-dashboard";
 import { AlertIcon } from "@/lib/icons";
 import { CHART_COLORS } from "@/lib/status-colors";
 import ChartEmptyState from "./chart-empty-state";
 import ChartTooltip from "./chart-tooltip";
+import ResponsiveChartContainer from "./responsive-chart-container";
 
 const LABEL_MAP = {
   failures: { label: "Failures", color: CHART_COLORS.error },
@@ -63,7 +56,7 @@ const FailedRunsByJobChart = ({
               }
             />
           ) : (
-            <ResponsiveContainer
+            <ResponsiveChartContainer
               height="100%"
               minHeight={1}
               minWidth={1}
@@ -93,7 +86,7 @@ const FailedRunsByJobChart = ({
                   radius={[4, 4, 0, 0]}
                 />
               </BarChart>
-            </ResponsiveContainer>
+            </ResponsiveChartContainer>
           )}
         </div>
       </CardContent>

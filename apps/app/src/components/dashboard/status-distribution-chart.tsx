@@ -5,19 +5,13 @@ import {
   CardTitle,
 } from "@strait/ui/components/card";
 import { useQuery } from "@tanstack/react-query";
-import {
-  Bar,
-  BarChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { Bar, BarChart, Tooltip, XAxis, YAxis } from "recharts";
 import { analyticsQueryOptions } from "@/hooks/api/use-dashboard";
 import { CheckCircleIcon } from "@/lib/icons";
 import { CHART_COLORS } from "@/lib/status-colors";
 import ChartEmptyState from "./chart-empty-state";
 import ChartTooltip from "./chart-tooltip";
+import ResponsiveChartContainer from "./responsive-chart-container";
 
 const LABEL_MAP = {
   value: { label: "Runs", color: CHART_COLORS.success },
@@ -80,7 +74,7 @@ const StatusDistributionChart = ({
         ) : (
           <div className="flex items-center gap-6">
             <div className="h-[180px] flex-1">
-              <ResponsiveContainer
+              <ResponsiveChartContainer
                 height="100%"
                 minHeight={1}
                 minWidth={1}
@@ -105,7 +99,7 @@ const StatusDistributionChart = ({
                   />
                   <Bar dataKey="value" radius={[0, 4, 4, 0]} />
                 </BarChart>
-              </ResponsiveContainer>
+              </ResponsiveChartContainer>
             </div>
             <div className="flex flex-col gap-2">
               {chartData.map((entry) => {

@@ -61,6 +61,33 @@ func TestFormatBudgetAlertKey(t *testing.T) {
 	}
 }
 
+func TestBudgetMonitor_PruneAlertedForDate_DropsOldKeys(t *testing.T) {
+	t.Parallel()
+
+	bm := NewBudgetMonitor(struct{}{}, nil, time.Minute)
+	bm.alerted = map[string]bool{
+		"spending:org-1:80:2026-04-14":  true,
+		"spending:org-1:100:2026-04-15": true,
+		"run-limit:org-2:2026-04-15":    true,
+		"malformed":                     true,
+	}
+	bm.alertedDate = "2026-04-14"
+
+	bm.pruneAlertedForDate("2026-04-15")
+
+	if bm.alertedDate != "2026-04-15" {
+		t.Fatalf("alertedDate = %q, want 2026-04-15", bm.alertedDate)
+	}
+	if len(bm.alerted) != 2 {
+		t.Fatalf("alerted keys = %v, want 2 current-day keys", bm.alerted)
+	}
+	for _, key := range []string{"spending:org-1:100:2026-04-15", "run-limit:org-2:2026-04-15"} {
+		if !bm.alerted[key] {
+			t.Fatalf("expected key %q to remain after prune", key)
+		}
+	}
+}
+
 // mockSpendingLimitStore implements SpendingLimitStore for testing.
 type mockSpendingLimitStore struct {
 	listAllSubscribedOrgIDsFn         func(ctx context.Context) ([]string, error)

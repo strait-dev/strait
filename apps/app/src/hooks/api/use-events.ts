@@ -7,8 +7,10 @@ import type {
 } from "@/hooks/api/types";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
+import { apiPath } from "@/lib/api-client.server";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
+import { requireActiveProjectAccess } from "@/middlewares/require-access";
 
 export const fetchEvents = createServerFn({ method: "GET" })
   .inputValidator(
@@ -23,8 +25,9 @@ export const fetchEvents = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(
     // @ts-expect-error tsgo cannot resolve createServerFn handler generics
-    async ({ data }): Promise<PaginatedResponse<EventTrigger>> =>
-      await runWithSentryReport(
+    async ({ context, data }): Promise<PaginatedResponse<EventTrigger>> => {
+      await requireActiveProjectAccess(context);
+      return await runWithSentryReport(
         apiEffect<PaginatedResponse<EventTrigger>>("/v1/events", {
           params: {
             limit: data.limit,
@@ -34,7 +37,8 @@ export const fetchEvents = createServerFn({ method: "GET" })
             source_type: data.source_type,
           },
         })
-      )
+      );
+    }
   );
 
 export const fetchEvent = createServerFn({ method: "GET" })
@@ -42,10 +46,12 @@ export const fetchEvent = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(
     // @ts-expect-error tsgo cannot resolve createServerFn handler generics
-    async ({ data }): Promise<EventTrigger> =>
-      await runWithSentryReport(
-        apiEffect<EventTrigger>(`/v1/events/${data.eventKey}`)
-      )
+    async ({ context, data }): Promise<EventTrigger> => {
+      await requireActiveProjectAccess(context);
+      return await runWithSentryReport(
+        apiEffect<EventTrigger>(apiPath`/v1/events/${data.eventKey}`)
+      );
+    }
   );
 
 export const eventsQueryOptions = (
