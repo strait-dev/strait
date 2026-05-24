@@ -1,5 +1,12 @@
+import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { apiPath, apiPathSegment, apiRequest } from "@/lib/api-client.server";
+import {
+  ApiClientError,
+  apiPath,
+  apiPathSegment,
+  apiRequest,
+  apiRequestEffect,
+} from "@/lib/api-client.server";
 
 vi.mock("@tanstack/react-start/server", () => ({
   getRequestHeaders: () => new Headers(),
@@ -62,6 +69,40 @@ describe("apiRequest path validation", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("returns typed Effect failures before fetching invalid paths", async () => {
+    vi.stubEnv("INTERNAL_SECRET", "test-secret");
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const result = await Effect.runPromiseExit(apiRequestEffect("/v1/jobs#x"));
+
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure") {
+      const error = result.cause as { _tag: string; error: ApiClientError };
+      expect(error.error).toBeInstanceOf(ApiClientError);
+      expect(error.error.reason).toBe("invalid_path");
+      expect(error.error.message).toContain("query or fragment");
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("returns typed Effect failures when the internal secret is missing", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const result = await Effect.runPromiseExit(apiRequestEffect("/v1/jobs"));
+
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure") {
+      const error = result.cause as { _tag: string; error: ApiClientError };
+      expect(error.error).toBeInstanceOf(ApiClientError);
+      expect(error.error.reason).toBe("missing_secret");
+      expect(error.error.path).toBe("/v1/jobs");
+      expect(error.error.method).toBe("GET");
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("rejects dot segments and protocol-relative paths before fetching", async () => {
     vi.stubEnv("INTERNAL_SECRET", "test-secret");
     const fetchSpy = vi.fn();
@@ -118,6 +159,22 @@ describe("apiRequest path validation", () => {
           "X-Project-Id": "project-2",
         }),
       })
+    );
+  });
+
+  it("preserves legacy Promise error messages for failed API responses", async () => {
+    vi.stubEnv("INTERNAL_SECRET", "test-secret");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 409,
+        text: async () => JSON.stringify({ message: "job is in use" }),
+      })
+    );
+
+    await expect(apiRequest("/v1/jobs/job-1")).rejects.toThrow(
+      "API GET /v1/jobs/job-1 failed (409): job is in use"
     );
   });
 });
