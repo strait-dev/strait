@@ -101,6 +101,146 @@ type QueueBenchmarkReport struct {
 	Relations      []RelationBloatSample  `json:"relations"`
 }
 
+// RelationBloatDelta compares a relation sample to a baseline sample.
+type RelationBloatDelta struct {
+	Name                    string  `json:"name"`
+	LiveTuplesDelta         int64   `json:"live_tuples_delta"`
+	DeadTuplesDelta         int64   `json:"dead_tuples_delta"`
+	DeadTupleRatioDelta     float64 `json:"dead_tuple_ratio_delta"`
+	TotalUpdatesDelta       int64   `json:"total_updates_delta"`
+	HOTUpdatesDelta         int64   `json:"hot_updates_delta"`
+	RelationSizeDelta       int64   `json:"relation_size_bytes_delta"`
+	TotalIndexSizeDelta     int64   `json:"total_index_size_bytes_delta"`
+	TotalTableSizeDelta     int64   `json:"total_table_size_bytes_delta"`
+	DeadTuplesPerKCompleted float64 `json:"dead_tuples_per_1000_completed"`
+	TableBytesPerKCompleted float64 `json:"table_bytes_per_1000_completed"`
+	IndexBytesPerKCompleted float64 `json:"index_bytes_per_1000_completed"`
+}
+
+// QueueBenchmarkComparison captures the before/after signal used to decide
+// whether a queue implementation reduces bloat enough to justify latency cost.
+type QueueBenchmarkComparison struct {
+	Name             string                 `json:"name"`
+	BaselineEngine   string                 `json:"baseline_engine"`
+	CandidateEngine  string                 `json:"candidate_engine"`
+	Baseline         QueueBenchmarkReport   `json:"baseline"`
+	Candidate        QueueBenchmarkReport   `json:"candidate"`
+	CounterDelta     QueueBenchmarkCounters `json:"counter_delta"`
+	RelationDeltas   []RelationBloatDelta   `json:"relation_deltas"`
+	P99LatencyDelta  time.Duration          `json:"p99_latency_delta"`
+	ThroughputDelta  float64                `json:"throughput_delta_runs_per_second"`
+	WALBytesDelta    int64                  `json:"wal_bytes_delta"`
+	ImprovementHints []ImprovementHint      `json:"improvement_hints"`
+}
+
+type ImprovementHint struct {
+	Area   string `json:"area"`
+	Metric string `json:"metric"`
+	Detail string `json:"detail"`
+}
+
+func CompareQueueBenchmarkReports(name string, baseline, candidate QueueBenchmarkReport) QueueBenchmarkComparison {
+	comparison := QueueBenchmarkComparison{
+		Name:            name,
+		BaselineEngine:  baseline.Engine,
+		CandidateEngine: candidate.Engine,
+		Baseline:        baseline,
+		Candidate:       candidate,
+		CounterDelta: QueueBenchmarkCounters{
+			Enqueued:        candidate.Counters.Enqueued - baseline.Counters.Enqueued,
+			Dequeued:        candidate.Counters.Dequeued - baseline.Counters.Dequeued,
+			Completed:       candidate.Counters.Completed - baseline.Counters.Completed,
+			RetryRedelivery: candidate.Counters.RetryRedelivery - baseline.Counters.RetryRedelivery,
+			DuplicateClaims: candidate.Counters.DuplicateClaims - baseline.Counters.DuplicateClaims,
+			LostClaims:      candidate.Counters.LostClaims - baseline.Counters.LostClaims,
+			NotifyCount:     candidate.Counters.NotifyCount - baseline.Counters.NotifyCount,
+			WALBytes:        candidate.Counters.WALBytes - baseline.Counters.WALBytes,
+		},
+		P99LatencyDelta: candidate.DequeueLatency.P99 - baseline.DequeueLatency.P99,
+		ThroughputDelta: throughput(candidate) - throughput(baseline),
+		WALBytesDelta:   candidate.Counters.WALBytes - baseline.Counters.WALBytes,
+		RelationDeltas:  CompareRelationBloatSamples(baseline.Relations, candidate.Relations, candidate.Counters.Completed),
+	}
+	comparison.ImprovementHints = BuildImprovementHints(comparison)
+	return comparison
+}
+
+func CompareRelationBloatSamples(baseline, candidate []RelationBloatSample, completed int64) []RelationBloatDelta {
+	byName := make(map[string]RelationBloatSample, len(baseline))
+	for _, sample := range baseline {
+		byName[sample.Name] = sample
+	}
+	names := make([]string, 0, len(candidate))
+	candidateByName := make(map[string]RelationBloatSample, len(candidate))
+	for _, sample := range candidate {
+		candidateByName[sample.Name] = sample
+		names = append(names, sample.Name)
+	}
+	for _, sample := range baseline {
+		if _, ok := candidateByName[sample.Name]; !ok {
+			names = append(names, sample.Name)
+		}
+	}
+	sort.Strings(names)
+
+	out := make([]RelationBloatDelta, 0, len(names))
+	for _, name := range names {
+		base := byName[name]
+		cand := candidateByName[name]
+		delta := RelationBloatDelta{
+			Name:                    name,
+			LiveTuplesDelta:         cand.LiveTuples - base.LiveTuples,
+			DeadTuplesDelta:         cand.DeadTuples - base.DeadTuples,
+			DeadTupleRatioDelta:     cand.DeadTupleRatio() - base.DeadTupleRatio(),
+			TotalUpdatesDelta:       cand.TotalUpdates - base.TotalUpdates,
+			HOTUpdatesDelta:         cand.HOTUpdates - base.HOTUpdates,
+			RelationSizeDelta:       cand.RelationSize - base.RelationSize,
+			TotalIndexSizeDelta:     cand.TotalIndexSize - base.TotalIndexSize,
+			TotalTableSizeDelta:     cand.TotalTableSize - base.TotalTableSize,
+			DeadTuplesPerKCompleted: perK(cand.DeadTuples-base.DeadTuples, completed),
+			TableBytesPerKCompleted: perK(cand.TotalTableSize-base.TotalTableSize, completed),
+			IndexBytesPerKCompleted: perK(cand.TotalIndexSize-base.TotalIndexSize, completed),
+		}
+		out = append(out, delta)
+	}
+	return out
+}
+
+func BuildImprovementHints(comparison QueueBenchmarkComparison) []ImprovementHint {
+	hints := make([]ImprovementHint, 0, 4)
+	if comparison.P99LatencyDelta > 0 {
+		hints = append(hints, ImprovementHint{
+			Area:   "dequeue_latency",
+			Metric: "p99_latency_delta",
+			Detail: fmt.Sprintf("candidate p99 is %s slower than baseline", comparison.P99LatencyDelta),
+		})
+	}
+	if comparison.ThroughputDelta < 0 {
+		hints = append(hints, ImprovementHint{
+			Area:   "throughput",
+			Metric: "runs_per_second_delta",
+			Detail: fmt.Sprintf("candidate throughput is %.2f runs/s lower than baseline", -comparison.ThroughputDelta),
+		})
+	}
+	if comparison.WALBytesDelta > 0 {
+		hints = append(hints, ImprovementHint{
+			Area:   "wal",
+			Metric: "wal_bytes_delta",
+			Detail: fmt.Sprintf("candidate wrote %d more WAL bytes than baseline", comparison.WALBytesDelta),
+		})
+	}
+	for _, delta := range comparison.RelationDeltas {
+		if delta.DeadTuplesDelta > 0 || delta.TotalIndexSizeDelta > 0 {
+			hints = append(hints, ImprovementHint{
+				Area:   delta.Name,
+				Metric: "relation_bloat_delta",
+				Detail: fmt.Sprintf("dead tuples %+d, index bytes %+d", delta.DeadTuplesDelta, delta.TotalIndexSizeDelta),
+			})
+		}
+	}
+	return hints
+}
+
 func (r QueueBenchmarkReport) Markdown() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# %s\n\n", r.Name)
@@ -140,4 +280,71 @@ func (r QueueBenchmarkReport) Markdown() string {
 		)
 	}
 	return b.String()
+}
+
+func (c QueueBenchmarkComparison) Markdown() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# %s\n\n", c.Name)
+	fmt.Fprintf(&b, "- Baseline: `%s`\n", c.BaselineEngine)
+	fmt.Fprintf(&b, "- Candidate: `%s`\n", c.CandidateEngine)
+	fmt.Fprintf(&b, "- P99 latency delta: `%s`\n", c.P99LatencyDelta)
+	fmt.Fprintf(&b, "- Throughput delta: `%.2f runs/s`\n", c.ThroughputDelta)
+	fmt.Fprintf(&b, "- WAL bytes delta: `%d`\n\n", c.WALBytesDelta)
+
+	fmt.Fprintf(&b, "## Counters\n\n")
+	fmt.Fprintf(&b, "| Metric | Baseline | Candidate | Delta |\n")
+	fmt.Fprintf(&b, "|---|---:|---:|---:|\n")
+	counterRows := []struct {
+		name      string
+		baseline  int64
+		candidate int64
+		delta     int64
+	}{
+		{"enqueued", c.Baseline.Counters.Enqueued, c.Candidate.Counters.Enqueued, c.CounterDelta.Enqueued},
+		{"dequeued", c.Baseline.Counters.Dequeued, c.Candidate.Counters.Dequeued, c.CounterDelta.Dequeued},
+		{"completed", c.Baseline.Counters.Completed, c.Candidate.Counters.Completed, c.CounterDelta.Completed},
+		{"retry_redelivery", c.Baseline.Counters.RetryRedelivery, c.Candidate.Counters.RetryRedelivery, c.CounterDelta.RetryRedelivery},
+		{"duplicate_claims", c.Baseline.Counters.DuplicateClaims, c.Candidate.Counters.DuplicateClaims, c.CounterDelta.DuplicateClaims},
+		{"lost_claims", c.Baseline.Counters.LostClaims, c.Candidate.Counters.LostClaims, c.CounterDelta.LostClaims},
+		{"notify_count", c.Baseline.Counters.NotifyCount, c.Candidate.Counters.NotifyCount, c.CounterDelta.NotifyCount},
+		{"wal_bytes", c.Baseline.Counters.WALBytes, c.Candidate.Counters.WALBytes, c.CounterDelta.WALBytes},
+	}
+	for _, row := range counterRows {
+		fmt.Fprintf(&b, "| `%s` | %d | %d | %+d |\n", row.name, row.baseline, row.candidate, row.delta)
+	}
+
+	fmt.Fprintf(&b, "\n## Relation Deltas\n\n")
+	fmt.Fprintf(&b, "| Relation | Dead tuples | Dead / 1k completed | Table bytes | Index bytes |\n")
+	fmt.Fprintf(&b, "|---|---:|---:|---:|---:|\n")
+	for _, delta := range c.RelationDeltas {
+		fmt.Fprintf(&b, "| `%s` | %+d | %.2f | %+d | %+d |\n",
+			delta.Name,
+			delta.DeadTuplesDelta,
+			delta.DeadTuplesPerKCompleted,
+			delta.TotalTableSizeDelta,
+			delta.TotalIndexSizeDelta,
+		)
+	}
+
+	if len(c.ImprovementHints) > 0 {
+		fmt.Fprintf(&b, "\n## Improvement Hints\n\n")
+		for _, hint := range c.ImprovementHints {
+			fmt.Fprintf(&b, "- `%s` / `%s`: %s\n", hint.Area, hint.Metric, hint.Detail)
+		}
+	}
+	return b.String()
+}
+
+func throughput(report QueueBenchmarkReport) float64 {
+	if report.Duration <= 0 {
+		return 0
+	}
+	return float64(report.Counters.Dequeued) / report.Duration.Seconds()
+}
+
+func perK(value, completed int64) float64 {
+	if completed <= 0 {
+		return 0
+	}
+	return float64(value) * 1000 / float64(completed)
 }

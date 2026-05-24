@@ -46,6 +46,33 @@ func TestQueueBloatBaseline(t *testing.T) {
 	t.Logf("queue baseline:\n%s", report.Markdown())
 }
 
+func TestQueueBloatComparison(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	cfg := baselineConfig{
+		Name:        "queue_bloat_comparison",
+		ProjectID:   "project-queue-comparison",
+		SingleRuns:  30,
+		BatchRuns:   30,
+		DequeueSize: 10,
+	}
+	legacy := runLegacyQueueBaseline(t, ctx, cfg.withName("legacy_queue_comparison"))
+	batchlog := runBatchlogQueueBaseline(t, ctx, cfg.withName("batchlog_queue_comparison"))
+	comparison := loadtest.CompareQueueBenchmarkReports("queue_bloat_comparison", legacy, batchlog)
+
+	if comparison.Candidate.Counters.DuplicateClaims != 0 {
+		t.Fatalf("candidate duplicate claims = %d, want 0", comparison.Candidate.Counters.DuplicateClaims)
+	}
+	if comparison.Candidate.Counters.LostClaims != 0 {
+		t.Fatalf("candidate lost claims = %d, want 0", comparison.Candidate.Counters.LostClaims)
+	}
+	writeQueueBaselineReport(t, legacy)
+	writeQueueBaselineReport(t, batchlog)
+	writeQueueComparisonReport(t, comparison)
+	t.Logf("queue bloat comparison:\n%s", comparison.Markdown())
+}
+
 func BenchmarkQueueBaseline(b *testing.B) {
 	for _, size := range []int{64, 256} {
 		b.Run(fmt.Sprintf("runs=%d", size), func(b *testing.B) {
@@ -80,18 +107,75 @@ type baselineConfig struct {
 	DequeueSize int
 }
 
+func (c baselineConfig) withName(name string) baselineConfig {
+	c.Name = name
+	c.ProjectID = c.ProjectID + "-" + name
+	return c
+}
+
 type baselineTB interface {
 	Helper()
 	Fatalf(format string, args ...any)
 	Logf(format string, args ...any)
 }
 
+type benchmarkQueue interface {
+	Enqueue(context.Context, *domain.JobRun) error
+	EnqueueBatch(context.Context, []*domain.JobRun) (int64, error)
+	Dequeue(context.Context) (*domain.JobRun, error)
+	DequeueN(context.Context, int) ([]domain.JobRun, error)
+}
+
+type queueBaselineHooks struct {
+	afterEnqueue  func(context.Context)
+	beforeDequeue func(context.Context)
+	exerciseExtra func(baselineTB, context.Context, *store.Queries, *domain.Job) int64
+}
+
 func runLegacyQueueBaseline(tb baselineTB, ctx context.Context, cfg baselineConfig) loadtest.QueueBenchmarkReport {
+	tb.Helper()
+	q := mustQueueTB(tb)
+	return runQueueBaseline(tb, ctx, cfg, "legacy", q, queueBaselineHooks{
+		exerciseExtra: func(tb baselineTB, ctx context.Context, st *store.Queries, job *domain.Job) int64 {
+			return exerciseRetryAndStalePaths(tb, ctx, q, st, job)
+		},
+	})
+}
+
+func runBatchlogQueueBaseline(tb baselineTB, ctx context.Context, cfg baselineConfig) loadtest.QueueBenchmarkReport {
+	tb.Helper()
+	if testDB == nil || testDB.Pool == nil {
+		tb.Fatalf("testDB is not initialized")
+	}
+	q := queue.NewBatchlogQueue(testDB.Pool, queue.NewPostgresQueue(testDB.Pool), queue.BatchlogConfig{
+		TickInterval:  10 * time.Millisecond,
+		LeaseDuration: 15 * time.Millisecond,
+		LeaseOwner:    "bloat-comparison-" + newID(),
+	})
+	return runQueueBaseline(tb, ctx, cfg, "batchlog", q, queueBaselineHooks{
+		afterEnqueue: func(ctx context.Context) {
+			if _, err := q.SealDueBatches(ctx); err != nil {
+				tb.Fatalf("batchlog seal due batches: %v", err)
+			}
+		},
+		exerciseExtra: func(tb baselineTB, ctx context.Context, _ *store.Queries, job *domain.Job) int64 {
+			return exerciseBatchlogLeaseRedelivery(tb, ctx, q, job)
+		},
+	})
+}
+
+func runQueueBaseline(
+	tb baselineTB,
+	ctx context.Context,
+	cfg baselineConfig,
+	engine string,
+	q benchmarkQueue,
+	hooks queueBaselineHooks,
+) loadtest.QueueBenchmarkReport {
 	tb.Helper()
 
 	started := time.Now()
 	mustCleanTB(tb, ctx)
-	q := mustQueueTB(tb)
 	st := mustStoreTB(tb)
 	job := mustCreateJobTB(tb, ctx, st, cfg.ProjectID)
 
@@ -132,6 +216,9 @@ func runLegacyQueueBaseline(tb baselineTB, ctx context.Context, cfg baselineConf
 	if inserted != int64(len(batchRuns)) {
 		tb.Fatalf("EnqueueBatch inserted = %d, want %d", inserted, len(batchRuns))
 	}
+	if hooks.afterEnqueue != nil {
+		hooks.afterEnqueue(ctx)
+	}
 
 	totalRuns := cfg.SingleRuns + cfg.BatchRuns
 	claimed := sync.Map{}
@@ -139,6 +226,9 @@ func runLegacyQueueBaseline(tb baselineTB, ctx context.Context, cfg baselineConf
 	var duplicates atomic.Int64
 	var dequeued int64
 	for dequeued < int64(totalRuns) {
+		if hooks.beforeDequeue != nil {
+			hooks.beforeDequeue(ctx)
+		}
 		start := time.Now()
 		runs, err := q.DequeueN(ctx, cfg.DequeueSize)
 		latencies = append(latencies, time.Since(start))
@@ -152,10 +242,14 @@ func runLegacyQueueBaseline(tb baselineTB, ctx context.Context, cfg baselineConf
 			if _, loaded := claimed.LoadOrStore(run.ID, true); loaded {
 				duplicates.Add(1)
 			}
-			if err := st.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
+			fromStatus := run.Status
+			if fromStatus == "" {
+				fromStatus = domain.StatusDequeued
+			}
+			if err := st.UpdateRunStatus(ctx, run.ID, fromStatus, domain.StatusExecuting, map[string]any{
 				"started_at": time.Now(),
 			}); err != nil {
-				tb.Fatalf("UpdateRunStatus dequeued->executing: %v", err)
+				tb.Fatalf("UpdateRunStatus %s->executing: %v", fromStatus, err)
 			}
 			if err := st.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{
 				"finished_at": time.Now(),
@@ -167,7 +261,10 @@ func runLegacyQueueBaseline(tb baselineTB, ctx context.Context, cfg baselineConf
 		}
 	}
 
-	retryRedelivery := exerciseRetryAndStalePaths(tb, ctx, q, st, job)
+	var retryRedelivery int64
+	if hooks.exerciseExtra != nil {
+		retryRedelivery = hooks.exerciseExtra(tb, ctx, st, job)
+	}
 	time.Sleep(250 * time.Millisecond)
 	stopNotify()
 
@@ -179,7 +276,7 @@ func runLegacyQueueBaseline(tb baselineTB, ctx context.Context, cfg baselineConf
 	}
 	return loadtest.QueueBenchmarkReport{
 		Name:      cfg.Name,
-		Engine:    "legacy",
+		Engine:    engine,
 		StartedAt: started,
 		Duration:  time.Since(started),
 		Counters: loadtest.QueueBenchmarkCounters{
@@ -241,6 +338,36 @@ func exerciseRetryAndStalePaths(tb baselineTB, ctx context.Context, q interface 
 	return 1
 }
 
+func exerciseBatchlogLeaseRedelivery(tb baselineTB, ctx context.Context, q *queue.BatchlogQueue, job *domain.Job) int64 {
+	tb.Helper()
+	run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+	if err := q.Enqueue(ctx, run); err != nil {
+		tb.Fatalf("batchlog redelivery enqueue: %v", err)
+	}
+	if _, err := q.SealDueBatches(ctx); err != nil {
+		tb.Fatalf("batchlog redelivery seal: %v", err)
+	}
+	claimed, err := q.Dequeue(ctx)
+	if err != nil {
+		tb.Fatalf("batchlog redelivery dequeue: %v", err)
+	}
+	if claimed == nil {
+		tb.Fatalf("batchlog redelivery dequeue returned nil")
+	}
+	time.Sleep(30 * time.Millisecond)
+	if _, err := q.ReclaimExpiredLeases(ctx); err != nil {
+		tb.Fatalf("batchlog redelivery reclaim: %v", err)
+	}
+	redelivered, err := q.Dequeue(ctx)
+	if err != nil {
+		tb.Fatalf("batchlog redelivery second dequeue: %v", err)
+	}
+	if redelivered == nil || redelivered.ID != claimed.ID {
+		tb.Fatalf("batchlog redelivered = %+v, want %s", redelivered, claimed.ID)
+	}
+	return 1
+}
+
 func startNotifyCounter(tb baselineTB, ctx context.Context) *atomic.Int64 {
 	tb.Helper()
 	count := &atomic.Int64{}
@@ -280,9 +407,26 @@ func sampleRelationBloat(tb baselineTB, ctx context.Context) []loadtest.Relation
 			pg_total_relation_size(c.oid)
 		FROM pg_stat_user_tables s
 		JOIN pg_class c ON c.relname = s.relname
-		WHERE s.relname IN ('job_runs', 'enqueue_outbox', 'workflow_step_runs', 'event_triggers')
+		WHERE s.relname IN (
+			'job_runs',
+			'job_active_counts',
+			'job_batchlog_lease_counts',
+			'job_retries',
+			'queue_entries',
+			'queue_batches',
+			'queue_batch_ticks',
+			'queue_batch_seal_state',
+			'enqueue_outbox',
+			'enqueue_outbox_history',
+			'outbox_claims',
+			'outbox_batches',
+			'workflow_step_runs',
+			'workflow_progression_events',
+			'event_triggers'
+		)
 		   OR s.relname LIKE 'job_runs_%'
 		   OR s.relname LIKE 'enqueue_outbox_%'
+		   OR s.relname LIKE 'enqueue_outbox_history_%'
 		ORDER BY s.relname ASC
 	`)
 	if err != nil {
@@ -336,6 +480,26 @@ func writeQueueBaselineReport(tb baselineTB, report loadtest.QueueBenchmarkRepor
 	}
 	if err := os.WriteFile(markdownPath, []byte(report.Markdown()), 0o600); err != nil {
 		tb.Fatalf("write report markdown: %v", err)
+	}
+}
+
+func writeQueueComparisonReport(tb baselineTB, comparison loadtest.QueueBenchmarkComparison) {
+	tb.Helper()
+	dir := filepath.Join("loadtest-results", "queue-baseline")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		tb.Fatalf("create report dir: %v", err)
+	}
+	jsonPath := filepath.Join(dir, comparison.Name+".json")
+	markdownPath := filepath.Join(dir, comparison.Name+".md")
+	data, err := json.MarshalIndent(comparison, "", "  ")
+	if err != nil {
+		tb.Fatalf("marshal comparison report: %v", err)
+	}
+	if err := os.WriteFile(jsonPath, data, 0o600); err != nil {
+		tb.Fatalf("write comparison report json: %v", err)
+	}
+	if err := os.WriteFile(markdownPath, []byte(comparison.Markdown()), 0o600); err != nil {
+		tb.Fatalf("write comparison report markdown: %v", err)
 	}
 }
 

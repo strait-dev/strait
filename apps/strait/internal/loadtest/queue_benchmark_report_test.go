@@ -73,3 +73,78 @@ func TestQueueBenchmarkReportMarkdown(t *testing.T) {
 		}
 	}
 }
+
+func TestCompareQueueBenchmarkReports(t *testing.T) {
+	baseline := QueueBenchmarkReport{
+		Name:      "legacy",
+		Engine:    "legacy",
+		Duration:  2 * time.Second,
+		Counters:  QueueBenchmarkCounters{Dequeued: 100, Completed: 100, NotifyCount: 10, WALBytes: 1000},
+		Relations: []RelationBloatSample{{Name: "job_runs", LiveTuples: 100, DeadTuples: 20, TotalIndexSize: 1000, TotalTableSize: 2000}},
+		DequeueLatency: LatencySummary{
+			P99: 10 * time.Millisecond,
+		},
+	}
+	candidate := QueueBenchmarkReport{
+		Name:      "batchlog",
+		Engine:    "batchlog",
+		Duration:  4 * time.Second,
+		Counters:  QueueBenchmarkCounters{Dequeued: 100, Completed: 100, NotifyCount: 5, WALBytes: 1200},
+		Relations: []RelationBloatSample{{Name: "job_runs", LiveTuples: 100, DeadTuples: 5, TotalIndexSize: 700, TotalTableSize: 1500}},
+		DequeueLatency: LatencySummary{
+			P99: 25 * time.Millisecond,
+		},
+	}
+
+	comparison := CompareQueueBenchmarkReports("comparison", baseline, candidate)
+	if comparison.BaselineEngine != "legacy" || comparison.CandidateEngine != "batchlog" {
+		t.Fatalf("engines = %s/%s, want legacy/batchlog", comparison.BaselineEngine, comparison.CandidateEngine)
+	}
+	if comparison.CounterDelta.NotifyCount != -5 {
+		t.Fatalf("NotifyCount delta = %d, want -5", comparison.CounterDelta.NotifyCount)
+	}
+	if comparison.P99LatencyDelta != 15*time.Millisecond {
+		t.Fatalf("P99LatencyDelta = %s, want 15ms", comparison.P99LatencyDelta)
+	}
+	if comparison.ThroughputDelta != -25 {
+		t.Fatalf("ThroughputDelta = %f, want -25", comparison.ThroughputDelta)
+	}
+	if len(comparison.RelationDeltas) != 1 {
+		t.Fatalf("RelationDeltas len = %d, want 1", len(comparison.RelationDeltas))
+	}
+	delta := comparison.RelationDeltas[0]
+	if delta.DeadTuplesDelta != -15 {
+		t.Fatalf("DeadTuplesDelta = %d, want -15", delta.DeadTuplesDelta)
+	}
+	if delta.DeadTuplesPerKCompleted != -150 {
+		t.Fatalf("DeadTuplesPerKCompleted = %f, want -150", delta.DeadTuplesPerKCompleted)
+	}
+	if len(comparison.ImprovementHints) == 0 {
+		t.Fatal("expected improvement hints for slower candidate and higher WAL")
+	}
+}
+
+func TestQueueBenchmarkComparisonMarkdown(t *testing.T) {
+	comparison := CompareQueueBenchmarkReports("comparison", QueueBenchmarkReport{
+		Engine:   "legacy",
+		Duration: time.Second,
+		Counters: QueueBenchmarkCounters{Dequeued: 10, Completed: 10},
+		Relations: []RelationBloatSample{{
+			Name: "job_runs",
+		}},
+	}, QueueBenchmarkReport{
+		Engine:   "batchlog",
+		Duration: 2 * time.Second,
+		Counters: QueueBenchmarkCounters{Dequeued: 10, Completed: 10},
+		Relations: []RelationBloatSample{{
+			Name: "queue_entries",
+		}},
+	})
+
+	md := comparison.Markdown()
+	for _, want := range []string{"# comparison", "Baseline: `legacy`", "Candidate: `batchlog`", "Relation Deltas"} {
+		if !strings.Contains(md, want) {
+			t.Fatalf("Markdown missing %q:\n%s", want, md)
+		}
+	}
+}

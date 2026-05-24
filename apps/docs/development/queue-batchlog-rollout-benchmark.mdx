@@ -29,6 +29,14 @@ Keep `QUEUE_USE_DENORMALIZED_DEQUEUE=true` as the production default. Continue o
 
 ## Optimized Follow-up Measurements
 
+Generate the local comparative bloat report with:
+
+```bash
+cd apps/strait && GOTOOLCHAIN=go1.26.2 go test -tags=integration,longtest -run TestQueueBloatComparison ./internal/queue/...
+```
+
+The command writes ignored artifacts under `apps/strait/internal/queue/loadtest-results/queue-baseline/`, including `queue_bloat_comparison.json` and `queue_bloat_comparison.md`.
+
 | Area | Variant | Result |
 |---|---:|---:|
 | Queue claim benchmark | batchlog after hot-path maintenance removal | 38.35 ms/op |
