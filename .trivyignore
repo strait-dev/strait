@@ -75,26 +75,40 @@ CVE-2026-31789 exp:2026-06-10
 # v0.13.0 that bumps go.opentelemetry.io/otel.
 CVE-2026-29181 exp:2026-08-10
 
-# CVE-2026-32280 / CVE-2026-32281 / CVE-2026-32283 — Go standard
-# library TLS / x509 denial-of-service vulnerabilities. Fixed upstream
-# in Go 1.25.9 and 1.26.2.
+# Go standard-library denial-of-service / panic vulnerabilities. Two
+# upstream fix waves:
+#   - CVE-2026-32280 / CVE-2026-32281 / CVE-2026-32283: TLS / x509 DoS,
+#     fixed in Go 1.25.9 and 1.26.2.
+#   - CVE-2026-33811 (net LookupCNAME via cgo resolver),
+#     CVE-2026-33814 (net/http HTTP/2 SETTINGS-frame DoS),
+#     CVE-2026-39820 / CVE-2026-42499 (net/mail address parsing DoS),
+#     CVE-2026-39836 (net Dial/LookupPort NUL-byte panic): fixed in
+#     Go 1.25.10 and 1.26.3.
 #
 # Affects: the bundled `soci` binary (awslabs/soci-snapshotter v0.13.0)
 # inside the community and cloud strait images. Soci v0.13.0 was built
-# with Go 1.25.8; no newer soci release exists yet.
+# with Go 1.25.8; no newer soci release exists yet, so the bundled
+# binary cannot be rebuilt against a patched toolchain until upstream
+# ships one.
 #
 # Not exploitable in our context: the strait container never executes
 # soci (ENTRYPOINT is `strait`, the strait binary itself is built with
-# Go 1.26.x and is clean). When soci runs on a node it talks TLS only
-# to ECR endpoints under AWS's control, not to attacker-supplied hosts,
-# so the DoS path requires an attacker who already controls the
-# registry the node is configured to pull from.
+# Go 1.26.x and is clean). When soci runs on a node it talks only to
+# the container registry the node is configured to pull from (e.g. ECR),
+# not to attacker-supplied hosts or untrusted mail/DNS input, so every
+# DoS/panic path requires an attacker who already controls that trusted
+# registry.
 #
 # Reassess once awslabs/soci-snapshotter cuts a release newer than
-# v0.13.0 built with Go >=1.26.2.
+# v0.13.0 built with Go >=1.26.3.
 CVE-2026-32280 exp:2026-08-10
 CVE-2026-32281 exp:2026-08-10
 CVE-2026-32283 exp:2026-08-10
+CVE-2026-33811 exp:2026-08-10
+CVE-2026-33814 exp:2026-08-10
+CVE-2026-39820 exp:2026-08-10
+CVE-2026-39836 exp:2026-08-10
+CVE-2026-42499 exp:2026-08-10
 
 # CVE-2026-46680 — containerd user-ID handling bypass that can defeat a
 # `runAsNonRoot` security-context constraint. Fixed upstream in
