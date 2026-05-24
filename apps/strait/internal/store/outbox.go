@@ -92,29 +92,25 @@ func ClaimOutboxBatchlogInTx(ctx context.Context, tx pgx.Tx, limit int, leaseOwn
 	`); err != nil {
 		return nil, fmt.Errorf("reclaim outbox claims: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO outbox_claims (outbox_id, status)
-		SELECT id, 'ready'
-		FROM enqueue_outbox
-		WHERE consumed_at IS NULL
-		ON CONFLICT (outbox_id) DO NOTHING
-	`); err != nil {
-		return nil, fmt.Errorf("backfill outbox claims: %w", err)
-	}
-
 	rows, err := tx.Query(ctx, `
 		WITH candidates AS (
 			SELECT oc.outbox_id
 			FROM outbox_claims oc
-			JOIN enqueue_outbox eo ON eo.id = oc.outbox_id
 			WHERE oc.status = 'ready'
-			  AND eo.consumed_at IS NULL
-			ORDER BY eo.created_at ASC
+			  AND EXISTS (
+			      SELECT 1
+			      FROM enqueue_outbox eo
+			      WHERE eo.id = oc.outbox_id
+			        AND eo.consumed_at IS NULL
+			  )
+			ORDER BY oc.created_at ASC, oc.outbox_id ASC
 			FOR UPDATE OF oc SKIP LOCKED
 			LIMIT $1
 		),
 		created_batch AS (
-			INSERT INTO outbox_batches DEFAULT VALUES
+			INSERT INTO outbox_batches (sealed_at)
+			SELECT NOW()
+			WHERE EXISTS (SELECT 1 FROM candidates)
 			RETURNING id
 		),
 		leased AS (

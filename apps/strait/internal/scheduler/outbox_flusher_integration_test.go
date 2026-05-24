@@ -463,6 +463,65 @@ func TestOutboxBatchlog_RetryableFailureStaysClaimable(t *testing.T) {
 	assertRunsForJob(t, ctx, job.ID, 1)
 }
 
+func TestOutboxBatchlog_WriteCreatesClaimBeforeFlush(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	st := intTestStore(t)
+	intTestClean(t, ctx)
+	job := intCreateJob(t, ctx, st, "proj-outbox-batchlog-write-claim")
+	entry := queue.OutboxEntry{
+		ID:        intNewID(),
+		ProjectID: job.ProjectID,
+		JobID:     job.ID,
+		Payload:   json.RawMessage(`{"claim":true}`),
+	}
+	intWriteOutboxEntries(t, ctx, []queue.OutboxEntry{entry})
+
+	var status string
+	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT status FROM outbox_claims WHERE outbox_id = $1`, entry.ID).Scan(&status); err != nil {
+		t.Fatalf("claim status: %v", err)
+	}
+	if status != "ready" {
+		t.Fatalf("claim status = %q, want ready", status)
+	}
+}
+
+func TestOutboxBatchlog_EmptyClaimDoesNotCreateBatch(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	intTestClean(t, ctx)
+	var before int
+	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT COUNT(*) FROM outbox_batches`).Scan(&before); err != nil {
+		t.Fatalf("count outbox batches before: %v", err)
+	}
+	tx, err := getTestDB(t).Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	rows, err := store.ClaimOutboxBatchlogInTx(ctx, tx, 10, "test-flusher", time.Second)
+	if err != nil {
+		t.Fatalf("ClaimOutboxBatchlogInTx: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("claimed rows = %d, want 0", len(rows))
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit tx: %v", err)
+	}
+
+	var batches int
+	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT COUNT(*) FROM outbox_batches`).Scan(&batches); err != nil {
+		t.Fatalf("count outbox batches: %v", err)
+	}
+	if batches != before {
+		t.Fatalf("outbox_batches count = %d, want unchanged %d", batches, before)
+	}
+}
+
 func TestOutboxBatchlog_TerminalFailureQuarantinesOnce(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
