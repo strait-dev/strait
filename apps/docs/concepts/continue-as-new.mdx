@@ -51,14 +51,27 @@ Each run records where it came from and where it went:
 | `continued_to_workflow_run_id` | The successor this run continued into. |
 | `lineage_depth` | How many continuations precede this run. The root is 0. |
 
-To walk the whole chain root-first, call:
+To walk the chain root-first from any run in it, call:
 
 ```bash
-curl https://api.strait.dev/v1/workflow-runs/{workflowRunID}/chain \
+curl "https://api.strait.dev/v1/workflow-runs/{workflowRunID}/chain?limit=50" \
   -H "Authorization: Bearer $STRAIT_API_KEY"
 ```
 
-The response lists every run in the chain in order, so you can jump to the first or latest run from any run in the chain.
+The response is cursor-paginated so a long chain is never loaded in full:
+
+```json
+{
+  "data": [
+    { "id": "wr_root", "lineage_depth": 0, "status": "continued", "triggered_by": "schedule", "created_at": "..." },
+    { "id": "wr_next", "lineage_depth": 1, "status": "running",   "triggered_by": "continue",  "created_at": "..." }
+  ],
+  "next_cursor": "wr_next",
+  "has_more": true
+}
+```
+
+Each entry is a lightweight projection (`id`, `lineage_depth`, `status`, `triggered_by`, `started_at`, `finished_at`, `created_at`); fetch full detail for a run on demand from the run-detail endpoint. `limit` defaults to 50 and is capped at 100. When `has_more` is true, pass `next_cursor` back as the `cursor` query parameter to fetch the next page. The page is always ordered root-first, so you can jump to the first or latest run in the chain.
 
 ### Depth Guard
 
