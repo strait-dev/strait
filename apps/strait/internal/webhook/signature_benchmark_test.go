@@ -33,7 +33,7 @@ func BenchmarkValidateStripeV1(b *testing.B) {
 		header := signedStripeHeader(secret, body)
 		b.Run(fmt.Sprintf("body_%dB", size), func(b *testing.B) {
 			b.ReportAllocs()
-			for i := 0; i < b.N; i++ {
+			for b.Loop() {
 				if err := validateStripeV1(secret, body, header); err != nil {
 					b.Fatal(err)
 				}
