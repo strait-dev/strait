@@ -126,7 +126,7 @@ function wellKnownOAuthPlugin(): Plugin {
   };
 }
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   resolve: {
     tsconfigPaths: true,
   },
@@ -135,7 +135,7 @@ export default defineConfig({
       ? [cloudflare({ viteEnvironment: { name: "ssr" } })]
       : [shimCloudflareWorkers()]),
     wellKnownOAuthPlugin(),
-    devtools(),
+    ...(command === "serve" ? [devtools()] : []),
     tailwindcss(),
     tanstackStart({
       router: {
@@ -192,4 +192,4 @@ export default defineConfig({
     port: 5173,
     host: true,
   },
-});
+}));
