@@ -950,13 +950,13 @@ func (q *PostgresQueue) InsertClaimRowFromEnqueue(ctx context.Context, db store.
 	return nil
 }
 
-// workerClaimDeleteSQL returns a parameterised DELETE FROM job_run_queue that
+// workerClaimDeleteSQL is a parameterised DELETE FROM job_run_queue that
 // additionally restricts candidate rows to execution_mode='worker' and the
-// queue/environment scopes represented by parallel pgx text-array args.
+// queue/environment scopes represented by parallel pgx text-array args. The
+// statement is fully static, so it is built once at init rather than per call.
 //
 // $1 = LIMIT n  |  $2 = project ids  |  $3 = queue names  |  $4 = environment ids.
-func workerClaimDeleteSQL() string {
-	return "/* action=dequeue */ " + `
+var workerClaimDeleteSQL = "/* action=dequeue */ " + `
 	DELETE FROM job_run_queue
 	WHERE run_id IN (
 		SELECT q.run_id
@@ -990,7 +990,6 @@ func workerClaimDeleteSQL() string {
 		LIMIT $1
 	)
 	RETURNING run_id`
-}
 
 // DequeueNForWorker is retained for compatibility with older callers. It
 // cannot express project scope, so it fails closed; production worker dispatch
@@ -1030,7 +1029,7 @@ func (q *PostgresQueue) DequeueNForWorkerQueues(ctx context.Context, n int, queu
 		}
 	}
 
-	rows, err := tx.Query(ctx, workerClaimDeleteSQL(), n, projectIDs, queueNames, environmentIDs)
+	rows, err := tx.Query(ctx, workerClaimDeleteSQL, n, projectIDs, queueNames, environmentIDs)
 	if err != nil {
 		// Undefined table = pre-migration; fall back to simple filter variant.
 		var pgErr *pgconn.PgError
@@ -1041,7 +1040,7 @@ func (q *PostgresQueue) DequeueNForWorkerQueues(ctx context.Context, n int, queu
 		return nil, fmt.Errorf("dequeue worker claim: delete: %w", err)
 	}
 
-	var ids []string
+	ids := make([]string, 0, n)
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
@@ -1190,7 +1189,7 @@ func (q *PostgresQueue) DequeueNClaim(ctx context.Context, n int) ([]domain.JobR
 		return nil, fmt.Errorf("dequeue claim: delete: %w", err)
 	}
 
-	var ids []string
+	ids := make([]string, 0, n)
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {

@@ -231,7 +231,7 @@ func executeDequeueTwoPhase(ctx context.Context, q *PostgresQueue, n int, spec d
 		return nil, fmt.Errorf("%s claim: %w", spec.spanName, err)
 	}
 
-	var ids []string
+	ids := make([]string, 0, n)
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
