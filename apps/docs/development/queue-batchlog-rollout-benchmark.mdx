@@ -3,13 +3,13 @@ title: "Queue Batchlog Rollout Benchmark"
 description: "PgQue-inspired queue rewrite benchmark summary and rollout guidance."
 ---
 
-This report summarizes the local benchmark pass for the PgQue-inspired queue work. The run was captured on May 24, 2026 on an Apple M1 Pro with testcontainer Postgres.
+This report summarizes the local benchmark pass for the PgQue-inspired queue work. The latest run was captured on May 24, 2026 on an Apple M1 Pro with testcontainer Postgres.
 
 ## Result
 
-Keep `QUEUE_ENGINE`, `OUTBOX_ENGINE`, and `WORKFLOW_PROGRESSION_ENGINE` staged behind flags. Enable only `QUEUE_USE_DENORMALIZED_DEQUEUE=true` by default.
+Do not switch `QUEUE_ENGINE` or `OUTBOX_ENGINE` to `batchlog` by default yet. The optimized batchlog queue is now close to the fully denormalized dequeue path in this local benchmark, and it should generate less `job_runs` churn, but it did not beat the current fastest dequeue path. The optimized batchlog outbox improved substantially after moving archival off the promotion path, but it is still slower than the legacy flusher benchmark.
 
-The fully denormalized dequeue path was materially faster than the legacy dequeue query in direct comparison. The first batchlog queue and outbox engines preserved the reliability properties covered by integration tests, but did not beat the current hot path in local benchmarks.
+Keep `QUEUE_USE_DENORMALIZED_DEQUEUE=true` as the production default. Continue optimizing batchlog before removing the remaining engine selection knobs.
 
 ## Measurements
 
@@ -27,6 +27,31 @@ The fully denormalized dequeue path was materially faster than the legacy dequeu
 | Outbox promotion | batchlog | 186.57 ms/op |
 | Workflow progression grouping | `BenchmarkWorkflowProgression` | 576.62 us/op |
 
+## Optimized Follow-up Measurements
+
+| Area | Variant | Result |
+|---|---:|---:|
+| Queue claim benchmark | batchlog after hot-path maintenance removal | 38.35 ms/op |
+| Queue claim benchmark | legacy `DequeueN` | 10.01 ms/op |
+| Queue claim benchmark | denormalized | 4.22 ms/op |
+| Queue claim benchmark | fully denormalized | 36.61 ms/op |
+| Outbox promotion after write-time claims and async archive | legacy | 192.58 ms/op |
+| Outbox promotion after write-time claims and async archive | batchlog | 282.15 ms/op |
+
+The queue batchlog path improved from 483.45 ms/op to 38.35 ms/op in the local benchmark, mainly by moving backfill, sealing, and lease reclamation out of `DequeueN` and maintaining queue entries at write time. The outbox batchlog path improved from 397.63 ms/op after write-time claims to 282.15 ms/op after removing immediate archive from the flusher transaction, but still trails legacy.
+
+Final phase 6 sequential gate:
+
+| Area | Variant | Result |
+|---|---:|---:|
+| Batchlog queue | `BenchmarkBatchlog` | 85.07 ms/op |
+| Queue baseline, 64 runs | coalesced notify path | 1.26 s/op, 35 notify/op, 50.79 runs/s |
+| Queue baseline, 256 runs | coalesced notify path | 2.59 s/op, 131 notify/op, 98.79 runs/s |
+| Outbox promotion | legacy | 340.90 ms/op |
+| Outbox promotion | batchlog | 680.34 ms/op |
+
+The phase 6 gate was run with packages serialized to avoid local testcontainer contention. Results were noisier than the shorter package-level runs, but the conclusion is unchanged: batchlog queue/outbox should not become the default until the remaining claim overhead is removed.
+
 ## Reliability Checks
 
 Passed targeted checks covered:
@@ -34,7 +59,8 @@ Passed targeted checks covered:
 - no duplicate claims under concurrent batchlog queue workers.
 - batchlog lease expiry redelivery before worker start.
 - direct `queued -> executing` transition for batchlog queue starts.
-- outbox batchlog retryable release, terminal quarantine, concurrent flusher ownership, and promoted-row archive.
+- batchlog lease counts blocking additional claims while a run is leased but not yet executing.
+- outbox batchlog retryable release, terminal quarantine, concurrent flusher ownership, write-time claims, empty-batch avoidance, and async promoted-row archive.
 - workflow progression event claim, dedupe, ack, and fuzzed grouping behavior.
 
 ## Rollout
@@ -48,7 +74,7 @@ OUTBOX_ENGINE=legacy
 WORKFLOW_PROGRESSION_ENGINE=legacy
 ```
 
-Staged experiments:
+Current batchlog experiments:
 
 ```bash
 QUEUE_ENGINE=batchlog
@@ -56,11 +82,10 @@ OUTBOX_ENGINE=batchlog
 WORKFLOW_PROGRESSION_ENGINE=batchlog
 ```
 
-Rollback is immediate: set each engine flag back to `legacy` and restart workers/API processes. The batchlog tables are additive and can remain in place while the legacy paths run.
+Rollback is immediate: set each engine value back to `legacy` and restart workers/API processes. The batchlog tables are additive and can remain in place while the legacy paths run.
 
 ## Follow-ups
 
-- Optimize `BatchlogQueue.DequeueN` to avoid per-claim sealing/backfill work on the hot path.
-- Add lease-count enforcement so batchlog claims account for work leased but not yet executing.
-- Move outbox batch creation to a ticker and avoid creating empty `outbox_batches`.
+- Reduce batchlog queue claim latency further, especially around batch ordering and lease-count joins.
+- Reduce outbox batchlog claim overhead or remove the remaining `enqueue_outbox` join from the claim path.
 - Add dashboards for `queue_entries`, `outbox_claims`, and `workflow_progression_events` ready/leased/acked counts, plus lease age.
