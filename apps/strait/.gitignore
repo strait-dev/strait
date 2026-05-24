@@ -2,3 +2,4 @@
 .strait/
 docs/openapi.json
 internal/loadtest/reports/
+internal/queue/loadtest-results/
