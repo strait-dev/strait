@@ -427,7 +427,6 @@ func sampleRelationBloat(tb baselineTB, ctx context.Context) []loadtest.Relation
 		WHERE s.relname IN (
 			'job_runs',
 			'job_active_counts',
-			'job_batchlog_lease_counts',
 			'job_retries',
 			'queue_entries',
 			'queue_batches',
@@ -524,11 +523,21 @@ func sampleBatchlogDequeuePlans(tb baselineTB, ctx context.Context) []loadtest.S
 			LEFT JOIN job_active_counts jac_key
 			  ON jac_key.job_id = qe.job_id
 			  AND jac_key.concurrency_key = qe.concurrency_key
-			LEFT JOIN job_batchlog_lease_counts jlc_job
-			  ON jlc_job.job_id = qe.job_id AND jlc_job.concurrency_key = ''
-			LEFT JOIN job_batchlog_lease_counts jlc_key
-			  ON jlc_key.job_id = qe.job_id
-			  AND jlc_key.concurrency_key = qe.concurrency_key
+			LEFT JOIN LATERAL (
+				SELECT COUNT(*)::int AS count
+				FROM queue_entries leased
+				WHERE leased.job_id = qe.job_id
+				  AND leased.status = 'leased'
+				  AND leased.run_status = 'queued'
+			) leased_job ON true
+			LEFT JOIN LATERAL (
+				SELECT COUNT(*)::int AS count
+				FROM queue_entries leased
+				WHERE leased.job_id = qe.job_id
+				  AND leased.concurrency_key = qe.concurrency_key
+				  AND leased.status = 'leased'
+				  AND leased.run_status = 'queued'
+			) leased_key ON qe.concurrency_key <> ''
 			WHERE qe.status = 'ready'
 			  AND qe.batch_id IS NOT NULL
 			  AND qe.available_at <= NOW()
@@ -538,10 +547,10 @@ func sampleBatchlogDequeuePlans(tb baselineTB, ctx context.Context) []loadtest.S
 			  AND (qe.scheduled_at IS NULL OR qe.scheduled_at <= NOW())
 			  AND (qe.next_retry_at IS NULL OR qe.next_retry_at <= NOW())
 			  AND (qe.job_max_concurrency IS NULL
-			       OR COALESCE(jac_job.count, 0) + COALESCE(jlc_job.count, 0) < qe.job_max_concurrency)
+			       OR COALESCE(jac_job.count, 0) + COALESCE(leased_job.count, 0) < qe.job_max_concurrency)
 			  AND (qe.job_max_concurrency_per_key IS NULL
 			       OR qe.concurrency_key = ''
-			       OR COALESCE(jac_key.count, 0) + COALESCE(jlc_key.count, 0) < qe.job_max_concurrency_per_key)
+			       OR COALESCE(jac_key.count, 0) + COALESCE(leased_key.count, 0) < qe.job_max_concurrency_per_key)
 			ORDER BY qe.batch_id ASC, qe.priority DESC, qe.run_created_at ASC
 			LIMIT 50
 		`),

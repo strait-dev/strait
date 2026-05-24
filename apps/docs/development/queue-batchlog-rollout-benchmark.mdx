@@ -67,7 +67,7 @@ Passed targeted checks covered:
 - no duplicate claims under concurrent batchlog queue workers.
 - batchlog lease expiry redelivery before worker start.
 - direct `queued -> executing` transition for batchlog queue starts.
-- batchlog lease counts blocking additional claims while a run is leased but not yet executing.
+- batchlog lease read model blocking additional claims while a run is leased but not yet executing.
 - outbox batchlog retryable release, terminal quarantine, concurrent flusher ownership, write-time claims, empty-batch avoidance, and async promoted-row archive.
 - workflow progression event claim, dedupe, ack, and fuzzed grouping behavior.
 

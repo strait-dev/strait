@@ -27,8 +27,7 @@ import (
 
 const reconcilerAdvisoryLockID int64 = 0x537452636E636C72 // "StRcnclr"
 
-// CounterReconciler periodically re-syncs job_active_counts, batchlog lease
-// counts, and dlq_counts.
+// CounterReconciler periodically re-syncs job_active_counts and dlq_counts.
 type CounterReconciler struct {
 	db             store.DBTX
 	advisoryLocker AdvisoryLocker
@@ -128,16 +127,12 @@ func (r *CounterReconciler) runOnce(ctx context.Context) error {
 	if err != nil {
 		r.logger.Warn("active counts reconcile failed", "error", err)
 	}
-	leaseDrift, err := r.reconcileBatchlogLeaseCounts(ctx)
-	if err != nil {
-		r.logger.Warn("batchlog lease counts reconcile failed", "error", err)
-	}
 	dlqDrift, err := r.reconcileDLQCounts(ctx)
 	if err != nil {
 		r.logger.Warn("dlq counts reconcile failed", "error", err)
 	}
 
-	drift := activeDrift + leaseDrift + dlqDrift
+	drift := activeDrift + dlqDrift
 	r.totalDrift.Add(drift)
 	if r.metrics != nil {
 		r.metrics.CounterDrift.Record(ctx, drift)
@@ -145,7 +140,6 @@ func (r *CounterReconciler) runOnce(ctx context.Context) error {
 	if drift > 0 {
 		r.logger.Info("counter drift detected and corrected",
 			"active_drift", activeDrift,
-			"batchlog_lease_drift", leaseDrift,
 			"dlq_drift", dlqDrift,
 		)
 	}
@@ -204,57 +198,6 @@ SELECT delta FROM drift_total
 	var delta int64
 	if err := r.db.QueryRow(ctx, q).Scan(&delta); err != nil {
 		return 0, fmt.Errorf("reconcile active counts: %w", err)
-	}
-	return delta, nil
-}
-
-func (r *CounterReconciler) reconcileBatchlogLeaseCounts(ctx context.Context) (int64, error) {
-	const q = `
-WITH truth AS (
-    SELECT qe.job_id, COALESCE(qe.concurrency_key, '') AS concurrency_key, COUNT(*)::int AS count
-    FROM queue_entries qe
-    JOIN job_runs jr ON jr.id = qe.run_id
-    WHERE qe.status = 'leased'
-      AND jr.status = 'queued'
-    GROUP BY qe.job_id, COALESCE(qe.concurrency_key, '')
-),
-current AS (
-    SELECT job_id, concurrency_key, count FROM job_batchlog_lease_counts
-),
-corrections AS (
-    SELECT COALESCE(t.job_id, c.job_id)                   AS job_id,
-           COALESCE(t.concurrency_key, c.concurrency_key) AS concurrency_key,
-           COALESCE(t.count, 0)                           AS truth_count,
-           COALESCE(c.count, 0)                           AS current_count
-    FROM truth t
-    FULL OUTER JOIN current c
-      ON c.job_id = t.job_id AND c.concurrency_key = t.concurrency_key
-    WHERE COALESCE(t.count, 0) <> COALESCE(c.count, 0)
-),
-drift_total AS (
-    SELECT COALESCE(SUM(ABS(truth_count - current_count)), 0)::bigint AS delta FROM corrections
-),
-apply AS (
-    INSERT INTO job_batchlog_lease_counts (job_id, concurrency_key, count, updated_at)
-    SELECT job_id, concurrency_key, truth_count, NOW() FROM corrections
-    ON CONFLICT (job_id, concurrency_key)
-    DO UPDATE SET count = EXCLUDED.count, updated_at = NOW()
-    RETURNING 1
-),
-zeroed AS (
-    UPDATE job_batchlog_lease_counts lc
-    SET count = 0, updated_at = NOW()
-    WHERE NOT EXISTS (
-        SELECT 1 FROM truth t
-        WHERE t.job_id = lc.job_id AND t.concurrency_key = lc.concurrency_key
-    ) AND lc.count <> 0
-    RETURNING 1
-)
-SELECT delta FROM drift_total
-`
-	var delta int64
-	if err := r.db.QueryRow(ctx, q).Scan(&delta); err != nil {
-		return 0, fmt.Errorf("reconcile batchlog lease counts: %w", err)
 	}
 	return delta, nil
 }

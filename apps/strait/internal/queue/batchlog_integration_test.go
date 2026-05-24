@@ -582,7 +582,7 @@ func TestBatchlogSeal_UsesSequenceCursorWithoutMetadataRows(t *testing.T) {
 	}
 }
 
-func TestBatchlogLeaseCounts_BlockMaxConcurrencyBeforeStart(t *testing.T) {
+func TestBatchlogLeases_BlockMaxConcurrencyBeforeStart(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
@@ -619,9 +619,11 @@ func TestBatchlogLeaseCounts_BlockMaxConcurrencyBeforeStart(t *testing.T) {
 
 	var leaseCount int
 	if err := testDB.Pool.QueryRow(ctx, `
-		SELECT COALESCE(count, 0)
-		FROM job_batchlog_lease_counts
-		WHERE job_id = $1 AND concurrency_key = ''
+		SELECT COUNT(*)
+		FROM queue_entries
+		WHERE job_id = $1
+		  AND status = 'leased'
+		  AND run_status = 'queued'
 	`, job.ID).Scan(&leaseCount); err != nil {
 		t.Fatalf("lease count query: %v", err)
 	}
@@ -630,7 +632,43 @@ func TestBatchlogLeaseCounts_BlockMaxConcurrencyBeforeStart(t *testing.T) {
 	}
 }
 
-func TestBatchlogLeaseCounts_BlockMaxConcurrencyPerKeyBeforeStart(t *testing.T) {
+func TestBatchlogLeases_BlockMaxConcurrencyAcrossKeysBeforeStart(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-batchlog-lease-max-keyed")
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE jobs SET max_concurrency = 1 WHERE id = $1`, job.ID); err != nil {
+		t.Fatalf("set max_concurrency: %v", err)
+	}
+	q := mustBatchlogQueue(t, time.Second)
+
+	for _, key := range []string{"tenant-a", "tenant-b"} {
+		run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID, ConcurrencyKey: key}
+		if err := q.Enqueue(ctx, run); err != nil {
+			t.Fatalf("Enqueue %s: %v", key, err)
+		}
+	}
+	if _, err := q.SealDueBatches(ctx); err != nil {
+		t.Fatalf("SealDueBatches: %v", err)
+	}
+	first, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("first DequeueN: %v", err)
+	}
+	if len(first) != 1 {
+		t.Fatalf("first DequeueN len = %d, want 1", len(first))
+	}
+	second, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("second DequeueN: %v", err)
+	}
+	if len(second) != 0 {
+		t.Fatalf("second DequeueN len = %d, want 0 while keyed run is leased", len(second))
+	}
+}
+
+func TestBatchlogLeases_BlockMaxConcurrencyPerKeyBeforeStart(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	mustClean(t, ctx)

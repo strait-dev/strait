@@ -135,7 +135,7 @@ func (tdb *TestDB) CleanTables(ctx context.Context) error {
 		organization_addons, sent_usage_reports, processed_webhook_messages,
 		enterprise_contracts,
 		queue_entries, queue_batch_ticks, queue_batches, queue_batch_seal_state,
-		job_batchlog_lease_counts, job_active_counts, dlq_counts, job_run_heartbeats,
+		job_active_counts, dlq_counts, job_run_heartbeats,
 		job_retries, outbox_claims, outbox_batches, enqueue_outbox,
 		enqueue_outbox_history, project_rate_limits,
 		query_plan_baselines
