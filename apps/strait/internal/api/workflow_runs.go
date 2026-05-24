@@ -924,7 +924,6 @@ type workflowTimelineWindow struct {
 	ref   string
 }
 
-//nolint:gocognit,gocyclo,cyclop
 func (s *Server) handleGetWorkflowRunTimeline(ctx context.Context, input *GetWorkflowRunTimelineInput) (*GetWorkflowRunTimelineOutput, error) {
 	run, err := s.store.GetWorkflowRun(ctx, input.WorkflowRunID)
 	if err != nil {
