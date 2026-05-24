@@ -43,6 +43,14 @@ type WorkflowRun = {
   created_at?: string;
 };
 
+type WorkflowStepRun = {
+  id: string;
+  step_ref: string;
+  status: string;
+  job_run_id?: string;
+  error?: string;
+};
+
 type RawApiResponse<T = unknown> = {
   ok: boolean;
   status: number;
@@ -214,6 +222,8 @@ export class ApiHelper {
     description?: string;
     max_attempts?: number;
     timeout_secs?: number;
+    retry_strategy?: string;
+    retry_delays_secs?: number[];
     cron?: string;
     enabled?: boolean;
   }) {
@@ -277,6 +287,8 @@ export class ApiHelper {
       job_id: string;
       status: string;
       trigger: string;
+      attempt?: number;
+      error?: string;
     }>("GET", `/v1/runs/${id}`);
   }
 
@@ -299,10 +311,9 @@ export class ApiHelper {
       query.set("status", params.status);
     }
     const qs = query.toString();
-    return this.request<{ data: Array<{ id: string; status: string }> }>(
-      "GET",
-      `/v1/runs${qs ? `?${qs}` : ""}`
-    );
+    return this.request<{
+      data: Array<{ id: string; job_id?: string; status: string }>;
+    }>("GET", `/v1/runs${qs ? `?${qs}` : ""}`);
   }
 
   getStats() {
@@ -710,6 +721,22 @@ export class ApiHelper {
 
   getWorkflowRun(id: string) {
     return this.request<WorkflowRun>("GET", `/v1/workflow-runs/${id}`);
+  }
+
+  cancelWorkflowRun(id: string) {
+    return this.request("DELETE", `/v1/workflow-runs/${id}`);
+  }
+
+  listWorkflowStepRuns(workflowRunId: string, params?: { limit?: number }) {
+    const query = new URLSearchParams();
+    if (params?.limit) {
+      query.set("limit", String(params.limit));
+    }
+    const qs = query.toString();
+    return this.request<{ data: WorkflowStepRun[] }>(
+      "GET",
+      `/v1/workflow-runs/${workflowRunId}/steps${qs ? `?${qs}` : ""}`
+    );
   }
 
   /** Poll until a workflow run reaches one of the expected statuses. */

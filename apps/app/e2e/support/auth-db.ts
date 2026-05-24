@@ -90,6 +90,24 @@ export async function removeE2EUserMembership(orgId: string) {
   });
 }
 
+/** Temporarily set the e2e user's organization role for RBAC browser checks. */
+export async function setE2EUserOrganizationRole(
+  orgId: string,
+  role: "owner" | "admin" | "member"
+) {
+  const userId = readRunContext()?.userId;
+  if (!userId) {
+    throw new Error("e2e user context is required");
+  }
+
+  await withAuthPool(async (pool) => {
+    await pool.query(
+      `UPDATE "member" SET "role" = $1 WHERE "organizationId" = $2 AND "userId" = $3`,
+      [role, orgId, userId]
+    );
+  });
+}
+
 /** Create an isolated auth org/project pair and sync it to the Go API. */
 export async function createIsolatedOrgProject(
   api: ApiHelper,
