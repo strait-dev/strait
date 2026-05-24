@@ -43,7 +43,10 @@ func (c *ClaimCursor) Snapshot() (time.Time, string, bool) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if time.Now().After(c.resetAt) || c.id == "" {
+	if c.id == "" {
+		return time.Time{}, "", false
+	}
+	if time.Now().After(c.resetAt) {
 		return time.Time{}, "", false
 	}
 	return c.createdAt, c.id, true
