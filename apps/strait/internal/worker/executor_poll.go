@@ -102,7 +102,7 @@ func (e *Executor) poll(ctx context.Context) {
 			"priority": run.Priority,
 		})
 		e.pool.Submit(execCtx, func() {
-			if qm, qmErr := queue.Metrics(); qmErr == nil && qm != nil {
+			if qm := e.queueMetrics; qm != nil && qm.ClaimToStart != nil {
 				qm.ClaimToStart.Record(execCtx, time.Since(claimedAt).Seconds())
 			}
 			addWorkerRunBreadcrumb(execCtx, "worker.dispatch", "run dispatch starting", &run, nil, nil)

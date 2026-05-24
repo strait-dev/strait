@@ -621,7 +621,7 @@ func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *dom
 
 	extraHeaders := make(map[string]string)
 	for _, secret := range secrets {
-		extraHeaders[fmt.Sprintf("X-Secret-%s", secret.SecretKey)] = secret.EncryptedValue
+		extraHeaders["X-Secret-"+secret.SecretKey] = secret.EncryptedValue
 	}
 
 	// Generate a JWT run token so the endpoint's SDK can call back to Strait.
@@ -710,7 +710,7 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 		return err
 	}
 	for _, secret := range secrets {
-		extraHeaders[fmt.Sprintf("X-Secret-%s", secret.SecretKey)] = secret.EncryptedValue
+		extraHeaders["X-Secret-"+secret.SecretKey] = secret.EncryptedValue
 	}
 
 	// Generate a JWT run token so the endpoint's SDK can call back to Strait.
@@ -784,7 +784,7 @@ func (e *Executor) dispatchToEndpoint(ctx context.Context, endpointURL string, r
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Run-ID", run.ID)
 	req.Header.Set("X-Job-ID", run.JobID)
-	req.Header.Set("X-Attempt", fmt.Sprintf("%d", run.Attempt))
+	req.Header.Set("X-Attempt", strconv.Itoa(run.Attempt))
 
 	// Inject W3C trace context headers from run metadata.
 	if tp, ok := run.Metadata[domain.RunMetadataTraceParent]; ok && tp != "" {

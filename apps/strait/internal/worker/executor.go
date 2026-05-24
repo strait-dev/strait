@@ -3,7 +3,6 @@ package worker
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -660,7 +659,7 @@ func (e *Executor) publishEvent(ctx context.Context, run *domain.JobRun, data ma
 		return
 	}
 
-	channel := fmt.Sprintf("run:%s", run.ID)
+	channel := "run:" + run.ID
 	if err := e.publisher.Publish(ctx, channel, payload); err != nil {
 		e.logger.Error("failed to publish event", "run_id", run.ID, "error", err)
 	}
