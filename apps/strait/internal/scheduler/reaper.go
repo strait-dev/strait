@@ -615,6 +615,10 @@ func (r *Reaper) reapApprovalReminders(ctx context.Context) {
 		return
 	}
 
+	// Reminders frequently cluster by project, so memoize the enabled channel
+	// list per project within this pass instead of re-querying it per approval.
+	channelsByProject := make(map[string][]domain.NotificationChannel)
+
 	for _, approval := range approvals {
 		if _, sent := r.reminderSent[approval.ID]; sent {
 			continue
@@ -631,10 +635,15 @@ func (r *Reaper) reapApprovalReminders(ctx context.Context) {
 			timeRemainingSecs = time.Until(*approval.ExpiresAt).Seconds()
 		}
 
-		channels, chErr := ns.ListEnabledNotificationChannels(ctx, wfRun.ProjectID)
-		if chErr != nil {
-			slog.Warn("failed to list notification channels for approval reminder", "error", chErr)
-			continue
+		channels, cached := channelsByProject[wfRun.ProjectID]
+		if !cached {
+			fetched, chErr := ns.ListEnabledNotificationChannels(ctx, wfRun.ProjectID)
+			if chErr != nil {
+				slog.Warn("failed to list notification channels for approval reminder", "error", chErr)
+				continue
+			}
+			channels = fetched
+			channelsByProject[wfRun.ProjectID] = channels
 		}
 
 		payload, marshalErr := json.Marshal(map[string]any{
