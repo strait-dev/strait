@@ -909,6 +909,13 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 					Logger:    slog.Default(),
 				}),
 			),
+			scheduler.WithOutboxArchiver(
+				scheduler.NewOutboxArchiver(queries, scheduler.OutboxArchiverConfig{
+					Interval:  time.Second,
+					BatchSize: 500,
+					Logger:    slog.Default(),
+				}),
+			),
 			scheduler.WithPlanDriftMonitor(
 				scheduler.NewPlanDriftMonitor(queries, scheduler.PlanDriftMonitorConfig{
 					Queries:  scheduler.DefaultWatchedQueries(),

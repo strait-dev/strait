@@ -557,7 +557,7 @@ func TestOutboxBatchlog_TerminalFailureQuarantinesOnce(t *testing.T) {
 	}
 }
 
-func TestOutboxBatchlog_PromotedRowsArchivedHistoryVisible(t *testing.T) {
+func TestOutboxArchiver_PromotedBatchlogRowsArchivedHistoryVisible(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -584,8 +584,24 @@ func TestOutboxBatchlog_PromotedRowsArchivedHistoryVisible(t *testing.T) {
 	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT COUNT(*) FROM enqueue_outbox_history WHERE id = $1`, entry.ID).Scan(&historyCount); err != nil {
 		t.Fatalf("history count: %v", err)
 	}
+	if hotCount != 1 || historyCount != 0 {
+		t.Fatalf("hot/history counts after flush = %d/%d, want 1/0", hotCount, historyCount)
+	}
+
+	archiver := scheduler.NewOutboxArchiver(store.New(getTestDB(t).Pool), scheduler.OutboxArchiverConfig{
+		BatchSize: 10,
+	})
+	if err := archiver.ArchiveOnceForTest(ctx); err != nil {
+		t.Fatalf("ArchiveOnceForTest() error = %v", err)
+	}
+	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT COUNT(*) FROM enqueue_outbox WHERE id = $1`, entry.ID).Scan(&hotCount); err != nil {
+		t.Fatalf("hot count after archive: %v", err)
+	}
+	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT COUNT(*) FROM enqueue_outbox_history WHERE id = $1`, entry.ID).Scan(&historyCount); err != nil {
+		t.Fatalf("history count after archive: %v", err)
+	}
 	if hotCount != 0 || historyCount != 1 {
-		t.Fatalf("hot/history counts = %d/%d, want 0/1", hotCount, historyCount)
+		t.Fatalf("hot/history counts after archive = %d/%d, want 0/1", hotCount, historyCount)
 	}
 }
 

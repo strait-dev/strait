@@ -197,9 +197,6 @@ func (f *OutboxFlusher) flushOnce(ctx context.Context) error {
 	if len(promoted) > 0 {
 		f.logger.Debug("outbox flusher promoted", "count", len(promoted))
 	}
-	if f.engine == "batchlog" && len(promoted) > 0 {
-		_, _ = store.New(f.pool).ArchiveConsumedOutboxBatch(ctx, 0, len(promoted))
-	}
 	return nil
 }
 
