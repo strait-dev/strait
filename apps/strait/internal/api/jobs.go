@@ -56,6 +56,7 @@ type CreateJobRequest struct {
 	BatchWindowSecs           int               `json:"batch_window_secs,omitempty" validate:"omitempty,min=0"`
 	BatchMaxSize              int               `json:"batch_max_size,omitempty" validate:"omitempty,min=0"`
 	ExecutionMode             string            `json:"execution_mode,omitempty" validate:"omitempty,oneof=http worker"`
+	Enabled                   *bool             `json:"enabled,omitempty"`
 	QueueName                 string            `json:"queue_name,omitempty"`
 	PreferredRegions          []string          `json:"preferred_regions,omitempty"`
 	PoisonPillThreshold       *int              `json:"poison_pill_threshold,omitempty" validate:"omitempty,min=1" doc:"Consecutive identical errors before auto-quarantine to DLQ. NULL or 0 disables."`
@@ -211,6 +212,9 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 		VersionPolicy:             domain.VersionPolicyPin,
 		CreatedBy:                 actorFromContext(ctx),
 		UpdatedBy:                 actorFromContext(ctx),
+	}
+	if req.Enabled != nil {
+		job.Enabled = *req.Enabled
 	}
 
 	if req.VersionPolicy != "" {

@@ -15,7 +15,6 @@ import { getAuth } from "@/lib/auth.server";
 import {
   deleteLastOrganizationWithTokenServerFn,
   deleteOrganizationWithTokenServerFn,
-  purgeOrganizationWithTokenServerFn,
   requestOrganizationDeletionServerFn,
   resendOrganizationDeletionCodeServerFn,
   setActiveOrganizationAuth,
@@ -24,7 +23,6 @@ import {
 import type {
   DeleteLastOrganizationWithTokenSchema,
   DeleteOrganizationWithTokenSchema,
-  PurgeOrganizationWithTokenSchema,
   RequestOrganizationDeletionSchema,
   ResendOrganizationDeletionCodeResponseSchema,
   ResendOrganizationDeletionCodeSchema,
@@ -97,7 +95,7 @@ interface UpdateOrganizationParams {
   id?: string;
   language?: string | null;
   logo?: string | null;
-  metadata?: string | null;
+  metadata?: Record<string, unknown> | string | null;
   name?: string | null;
   organizationId?: string;
   phone?: string | null;
@@ -191,7 +189,9 @@ const updateOrganizationServerFn = createServerFn({ method: "POST" })
           ...(metadata
             ? {
                 metadata:
-                  typeof metadata === "string" ? { value: metadata } : metadata,
+                  typeof metadata === "string"
+                    ? JSON.parse(metadata)
+                    : metadata,
               }
             : {}),
         },
@@ -401,23 +401,6 @@ export const useDeleteOrganizationWithToken = () =>
   >({
     mutationKey: ["organizations", "deleteWithToken"],
     mutationFn: (data) => deleteOrganizationWithTokenServerFn({ data }),
-  });
-
-/**
- * Hook to purge organization with token.
- */
-export const usePurgeOrganizationWithToken = () =>
-  useMutation<
-    {
-      success: boolean;
-      message?: string;
-      organizationId?: string;
-    },
-    Error,
-    z.infer<typeof PurgeOrganizationWithTokenSchema>
-  >({
-    mutationKey: ["organizations", "purge"],
-    mutationFn: (data) => purgeOrganizationWithTokenServerFn({ data }),
   });
 
 /**

@@ -105,14 +105,15 @@ func TestAutoRotateAPIKeys_RotatesExpiredKey(t *testing.T) {
 		listDueRotationFn: func(context.Context) ([]domain.APIKey, error) {
 			return []domain.APIKey{
 				{
-					ID:                   "old-key-1",
-					ProjectID:            "proj-1",
-					OrgID:                "org-1",
-					Name:                 "My Key",
-					Scopes:               []string{"jobs:read", "jobs:write"},
-					EnvironmentID:        "env-prod",
-					RotationIntervalDays: &rotationDays30,
-					RotationWebhookURL:   webhookServer.URL,
+					ID:                    "old-key-1",
+					ProjectID:             "proj-1",
+					OrgID:                 "org-1",
+					Name:                  "My Key",
+					Scopes:                []string{"jobs:read", "jobs:write"},
+					EnvironmentID:         "env-prod",
+					RotationIntervalDays:  &rotationDays30,
+					RotationWebhookURL:    webhookServer.URL,
+					RotationWebhookSecret: rotationWebhookSecretForTest(),
 				},
 			}, nil
 		},
@@ -132,7 +133,7 @@ func TestAutoRotateAPIKeys_RotatesExpiredKey(t *testing.T) {
 		},
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil).WithAllowPrivateEndpoints(true)
+	r := newSignedAutoRotateReaper(ms)
 	r.rotationWebhookClient = webhookServer.Client()
 	r.autoRotateAPIKeys(context.Background())
 
@@ -220,7 +221,7 @@ func TestAutoRotateAPIKeys_SkipsKeyWithoutWebhook(t *testing.T) {
 	}
 }
 
-func TestAutoRotateAPIKeys_SkipsNoExpiryWhenNoLifetimePolicy(t *testing.T) {
+func TestAutoRotateAPIKeys_SkipsKeyWithoutSigningSecret(t *testing.T) {
 	t.Parallel()
 
 	var created atomic.Int32
@@ -231,9 +232,41 @@ func TestAutoRotateAPIKeys_SkipsNoExpiryWhenNoLifetimePolicy(t *testing.T) {
 			return []domain.APIKey{{
 				ID:                   "old-key-1",
 				ProjectID:            "proj-1",
-				Name:                 "legacy-no-expiry",
+				Name:                 "legacy-unsigned",
 				RotationIntervalDays: &rotationDays,
 				RotationWebhookURL:   webhookURL,
+			}}, nil
+		},
+		createAPIKeyFn: func(context.Context, *domain.APIKey) error {
+			created.Add(1)
+			return nil
+		},
+	}
+
+	r := newSignedAutoRotateReaper(ms)
+	r.rotationWebhookClient = successfulRotationWebhookClient()
+	r.autoRotateAPIKeys(context.Background())
+
+	if created.Load() != 0 {
+		t.Fatalf("created keys = %d, want 0 without rotation webhook signing secret", created.Load())
+	}
+}
+
+func TestAutoRotateAPIKeys_SkipsNoExpiryWhenNoLifetimePolicy(t *testing.T) {
+	t.Parallel()
+
+	var created atomic.Int32
+	rotationDays := 30
+	webhookURL := rotationWebhookURLForTest(t)
+	ms := &mockAutoRotateStore{
+		listDueRotationFn: func(context.Context) ([]domain.APIKey, error) {
+			return []domain.APIKey{{
+				ID:                    "old-key-1",
+				ProjectID:             "proj-1",
+				Name:                  "legacy-no-expiry",
+				RotationIntervalDays:  &rotationDays,
+				RotationWebhookURL:    webhookURL,
+				RotationWebhookSecret: rotationWebhookSecretForTest(),
 			}}, nil
 		},
 		getProjectQuotaFn: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
@@ -245,7 +278,7 @@ func TestAutoRotateAPIKeys_SkipsNoExpiryWhenNoLifetimePolicy(t *testing.T) {
 		},
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil).WithAllowPrivateEndpoints(true)
+	r := newSignedAutoRotateReaper(ms)
 	r.rotationWebhookClient = successfulRotationWebhookClient()
 	r.autoRotateAPIKeys(context.Background())
 
@@ -264,12 +297,13 @@ func TestAutoRotateAPIKeys_SkipsOverlongExpiry(t *testing.T) {
 	ms := &mockAutoRotateStore{
 		listDueRotationFn: func(context.Context) ([]domain.APIKey, error) {
 			return []domain.APIKey{{
-				ID:                   "old-key-1",
-				ProjectID:            "proj-1",
-				Name:                 "overlong-expiry",
-				ExpiresAt:            &overlong,
-				RotationIntervalDays: &rotationDays,
-				RotationWebhookURL:   webhookURL,
+				ID:                    "old-key-1",
+				ProjectID:             "proj-1",
+				Name:                  "overlong-expiry",
+				ExpiresAt:             &overlong,
+				RotationIntervalDays:  &rotationDays,
+				RotationWebhookURL:    webhookURL,
+				RotationWebhookSecret: rotationWebhookSecretForTest(),
 			}}, nil
 		},
 		getProjectQuotaFn: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
@@ -281,7 +315,7 @@ func TestAutoRotateAPIKeys_SkipsOverlongExpiry(t *testing.T) {
 		},
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil).WithAllowPrivateEndpoints(true)
+	r := newSignedAutoRotateReaper(ms)
 	r.rotationWebhookClient = successfulRotationWebhookClient()
 	r.autoRotateAPIKeys(context.Background())
 
@@ -338,7 +372,7 @@ func TestAutoRotateAPIKeys_CreateFails_SkipsKey(t *testing.T) {
 	ms := &mockAutoRotateStore{
 		listDueRotationFn: func(context.Context) ([]domain.APIKey, error) {
 			return []domain.APIKey{
-				{ID: "key-1", ProjectID: "proj-1", RotationIntervalDays: &rotationDays7, RotationWebhookURL: webhookURL},
+				{ID: "key-1", ProjectID: "proj-1", RotationIntervalDays: &rotationDays7, RotationWebhookURL: webhookURL, RotationWebhookSecret: rotationWebhookSecretForTest()},
 			}, nil
 		},
 		createAPIKeyFn: func(context.Context, *domain.APIKey) error {
@@ -350,7 +384,7 @@ func TestAutoRotateAPIKeys_CreateFails_SkipsKey(t *testing.T) {
 		},
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r := newSignedAutoRotateReaper(ms)
 	r.autoRotateAPIKeys(context.Background())
 
 	if markCalled.Load() != 0 {
@@ -358,26 +392,30 @@ func TestAutoRotateAPIKeys_CreateFails_SkipsKey(t *testing.T) {
 	}
 }
 
-func TestAutoRotateAPIKeys_CreateRotatedFailsDoesNotLeaveStandaloneKey(t *testing.T) {
+func TestAutoRotateAPIKeys_MarkRotatedFailsRevokesStandaloneKey(t *testing.T) {
 	t.Parallel()
 
 	rotationDays := 30
 	webhookURL := rotationWebhookURLForTest(t)
-	var createRotatedCalled atomic.Int32
+	var created atomic.Int32
 	var revokeCalled atomic.Int32
 	var auditCalled atomic.Int32
 	ms := &mockAutoRotateStore{
 		listDueRotationFn: func(context.Context) ([]domain.APIKey, error) {
 			return []domain.APIKey{{
-				ID:                   "old-key-1",
-				ProjectID:            "proj-1",
-				Name:                 "My Key",
-				RotationIntervalDays: &rotationDays,
-				RotationWebhookURL:   webhookURL,
+				ID:                    "old-key-1",
+				ProjectID:             "proj-1",
+				Name:                  "My Key",
+				RotationIntervalDays:  &rotationDays,
+				RotationWebhookURL:    webhookURL,
+				RotationWebhookSecret: rotationWebhookSecretForTest(),
 			}}, nil
 		},
-		createRotatedFn: func(context.Context, string, *domain.APIKey, time.Time) error {
-			createRotatedCalled.Add(1)
+		createAPIKeyFn: func(context.Context, *domain.APIKey) error {
+			created.Add(1)
+			return nil
+		},
+		markRotatedFn: func(context.Context, string, string, time.Time) error {
 			return context.Canceled
 		},
 		revokeAPIKeyFn: func(_ context.Context, id string) error {
@@ -390,15 +428,15 @@ func TestAutoRotateAPIKeys_CreateRotatedFailsDoesNotLeaveStandaloneKey(t *testin
 		},
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil).WithAllowPrivateEndpoints(true)
+	r := newSignedAutoRotateReaper(ms)
 	r.rotationWebhookClient = successfulRotationWebhookClient()
 	r.autoRotateAPIKeys(context.Background())
 
-	if createRotatedCalled.Load() != 1 {
-		t.Fatalf("CreateRotatedAPIKey calls = %d, want 1", createRotatedCalled.Load())
+	if created.Load() != 1 {
+		t.Fatalf("CreateAPIKey calls = %d, want 1", created.Load())
 	}
-	if revokeCalled.Load() != 0 {
-		t.Fatalf("RevokeAPIKey calls = %d, want 0 because no standalone key was inserted", revokeCalled.Load())
+	if revokeCalled.Load() != 1 {
+		t.Fatalf("RevokeAPIKey calls = %d, want 1 for the standalone new key", revokeCalled.Load())
 	}
 	if auditCalled.Load() != 0 {
 		t.Fatal("audit event emitted despite failed rotation link")
@@ -414,9 +452,9 @@ func TestAutoRotateAPIKeys_MultipleKeys(t *testing.T) {
 	ms := &mockAutoRotateStore{
 		listDueRotationFn: func(context.Context) ([]domain.APIKey, error) {
 			return []domain.APIKey{
-				{ID: "key-1", ProjectID: "proj-1", RotationIntervalDays: &days7, RotationWebhookURL: webhookURL},
-				{ID: "key-2", ProjectID: "proj-2", RotationIntervalDays: &days14, RotationWebhookURL: webhookURL},
-				{ID: "key-3", ProjectID: "proj-1", RotationIntervalDays: &days30, RotationWebhookURL: webhookURL},
+				{ID: "key-1", ProjectID: "proj-1", RotationIntervalDays: &days7, RotationWebhookURL: webhookURL, RotationWebhookSecret: rotationWebhookSecretForTest()},
+				{ID: "key-2", ProjectID: "proj-2", RotationIntervalDays: &days14, RotationWebhookURL: webhookURL, RotationWebhookSecret: rotationWebhookSecretForTest()},
+				{ID: "key-3", ProjectID: "proj-1", RotationIntervalDays: &days30, RotationWebhookURL: webhookURL, RotationWebhookSecret: rotationWebhookSecretForTest()},
 			}, nil
 		},
 		createAPIKeyFn: func(_ context.Context, key *domain.APIKey) error {
@@ -431,7 +469,7 @@ func TestAutoRotateAPIKeys_MultipleKeys(t *testing.T) {
 		createAuditEventFn: func(context.Context, *domain.AuditEvent) error { return nil },
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil).WithAllowPrivateEndpoints(true)
+	r := newSignedAutoRotateReaper(ms)
 	r.rotationWebhookClient = successfulRotationWebhookClient()
 	r.autoRotateAPIKeys(context.Background())
 
@@ -450,7 +488,7 @@ func TestAutoRotateAPIKeys_NilRotationDays_NoNextRotation(t *testing.T) {
 	ms := &mockAutoRotateStore{
 		listDueRotationFn: func(context.Context) ([]domain.APIKey, error) {
 			return []domain.APIKey{
-				{ID: "key-1", ProjectID: "proj-1", RotationIntervalDays: nil, RotationWebhookURL: webhookURL},
+				{ID: "key-1", ProjectID: "proj-1", RotationIntervalDays: nil, RotationWebhookURL: webhookURL, RotationWebhookSecret: rotationWebhookSecretForTest()},
 			}, nil
 		},
 		createAPIKeyFn: func(_ context.Context, key *domain.APIKey) error {
@@ -462,7 +500,7 @@ func TestAutoRotateAPIKeys_NilRotationDays_NoNextRotation(t *testing.T) {
 		createAuditEventFn: func(context.Context, *domain.AuditEvent) error { return nil },
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil).WithAllowPrivateEndpoints(true)
+	r := newSignedAutoRotateReaper(ms)
 	r.rotationWebhookClient = successfulRotationWebhookClient()
 	r.autoRotateAPIKeys(context.Background())
 
@@ -474,6 +512,16 @@ func TestAutoRotateAPIKeys_NilRotationDays_NoNextRotation(t *testing.T) {
 func rotationWebhookURLForTest(t *testing.T) string {
 	t.Helper()
 	return "https://rotation.example.test/hook"
+}
+
+func rotationWebhookSecretForTest() []byte {
+	return []byte("ciphertext")
+}
+
+func newSignedAutoRotateReaper(s ReaperStore) *Reaper {
+	return NewReaper(s, time.Second, 30*time.Second, 0, 0, false, nil).
+		WithAllowPrivateEndpoints(true).
+		WithRotationSecretDecryptor(stubSecretDecryptor{plaintext: []byte("rotation-secret")})
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -541,8 +589,13 @@ func TestNotifyRotationWebhook_BlocksPlaintextEvenWithPrivateEndpoints(t *testin
 	}
 }
 
-func TestAutoRotateAPIKeys_WebhookFailureKeepsOldKeyActive(t *testing.T) {
+func TestAutoRotateAPIKeys_WebhookFailureRevokesNewKeyKeepsOldActive(t *testing.T) {
 	t.Parallel()
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
 
 	rotationDays := 30
 	var marked atomic.Int32
@@ -551,15 +604,16 @@ func TestAutoRotateAPIKeys_WebhookFailureKeepsOldKeyActive(t *testing.T) {
 	ms := &mockAutoRotateStore{
 		listDueRotationFn: func(context.Context) ([]domain.APIKey, error) {
 			return []domain.APIKey{{
-				ID:                   "old-key-1",
-				ProjectID:            "proj-1",
-				OrgID:                "org-1",
-				Name:                 "My Key",
-				RotationIntervalDays: &rotationDays,
-				RotationWebhookURL:   "http://rotation.example.test/hook",
+				ID:                    "old-key-1",
+				ProjectID:             "proj-1",
+				OrgID:                 "org-1",
+				Name:                  "My Key",
+				RotationIntervalDays:  &rotationDays,
+				RotationWebhookURL:    server.URL,
+				RotationWebhookSecret: rotationWebhookSecretForTest(),
 			}}, nil
 		},
-		createRotatedFn: func(_ context.Context, _ string, key *domain.APIKey, _ time.Time) error {
+		createAPIKeyFn: func(_ context.Context, key *domain.APIKey) error {
 			if key.OrgID != "org-1" {
 				t.Fatalf("new key org = %q, want org-1", key.OrgID)
 			}
@@ -576,17 +630,18 @@ func TestAutoRotateAPIKeys_WebhookFailureKeepsOldKeyActive(t *testing.T) {
 		},
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r := newSignedAutoRotateReaper(ms)
+	r.rotationWebhookClient = server.Client()
 	r.autoRotateAPIKeys(context.Background())
 
 	if marked.Load() != 0 {
 		t.Fatalf("marked old key rotated %d times, want 0 when delivery fails", marked.Load())
 	}
-	if created.Load() != 0 {
-		t.Fatalf("created rotated keys = %d, want 0 when delivery fails", created.Load())
+	if created.Load() != 1 {
+		t.Fatalf("created rotated keys = %d, want 1 because the key is persisted before webhook delivery", created.Load())
 	}
-	if revoked.Load() != 0 {
-		t.Fatalf("revoked rotated keys = %d, want 0 because no key was inserted", revoked.Load())
+	if revoked.Load() != 1 {
+		t.Fatalf("revoked rotated keys = %d, want 1 because delivery failed after persistence", revoked.Load())
 	}
 }
 
@@ -605,11 +660,12 @@ func TestAutoRotateAPIKeys_MarksOldKeyOnlyAfterWebhookDelivery(t *testing.T) {
 	ms := &mockAutoRotateStore{
 		listDueRotationFn: func(context.Context) ([]domain.APIKey, error) {
 			return []domain.APIKey{{
-				ID:                   "old-key-1",
-				ProjectID:            "proj-1",
-				Name:                 "My Key",
-				RotationIntervalDays: &rotationDays,
-				RotationWebhookURL:   server.URL,
+				ID:                    "old-key-1",
+				ProjectID:             "proj-1",
+				Name:                  "My Key",
+				RotationIntervalDays:  &rotationDays,
+				RotationWebhookURL:    server.URL,
+				RotationWebhookSecret: rotationWebhookSecretForTest(),
 			}}, nil
 		},
 		createAPIKeyFn: func(_ context.Context, key *domain.APIKey) error {
@@ -626,7 +682,7 @@ func TestAutoRotateAPIKeys_MarksOldKeyOnlyAfterWebhookDelivery(t *testing.T) {
 		createAuditEventFn: func(context.Context, *domain.AuditEvent) error { return nil },
 	}
 
-	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil).WithAllowPrivateEndpoints(true)
+	r := newSignedAutoRotateReaper(ms)
 	r.rotationWebhookClient = server.Client()
 	r.autoRotateAPIKeys(context.Background())
 

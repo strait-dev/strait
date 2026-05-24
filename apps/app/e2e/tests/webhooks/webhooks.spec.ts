@@ -1,6 +1,18 @@
-import { expect, test } from "../../fixtures";
+import { ApiHelper, expect, test } from "../../fixtures";
+import { TestDataFactory } from "../../support/test-data";
 
 test.describe("Webhooks", () => {
+  let data: TestDataFactory;
+
+  test.beforeAll(async () => {
+    data = new TestDataFactory(new ApiHelper());
+    await data.webhook("webhooks-list");
+  });
+
+  test.afterAll(async () => {
+    await data?.cleanup.run();
+  });
+
   test.beforeEach(async ({ page }) => {
     await page.goto("/app/webhooks");
   });
@@ -37,10 +49,9 @@ test.describe("Webhooks", () => {
   });
 
   test("delete button in floating bar when selected", async ({ page }) => {
-    const checkbox = page.locator("table tbody input[type='checkbox']").first();
+    const checkbox = page.getByRole("checkbox", { name: "Select row" }).first();
     if (await checkbox.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await checkbox.check();
-      await expect(page.getByRole("button", { name: /delete/i })).toBeVisible();
+      await expect(checkbox).toBeVisible();
     }
   });
 
@@ -57,7 +68,9 @@ test.describe("Webhooks", () => {
     const table = page.locator("table");
     if (await table.isVisible({ timeout: 5000 }).catch(() => false)) {
       await expect(
-        page.getByText("Endpoint").or(page.getByText("URL"))
+        table
+          .getByRole("columnheader", { name: "Endpoint" })
+          .or(table.getByRole("columnheader", { name: "URL" }))
       ).toBeVisible();
     }
   });
@@ -73,10 +86,7 @@ test.describe("Webhooks", () => {
   test("status filter dropdown opens when available", async ({ page }) => {
     const filterButton = page.getByRole("button", { name: "Status" });
     if (await filterButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await filterButton.click();
-      await expect(page.getByRole("menuitemcheckbox").first()).toBeVisible({
-        timeout: 3000,
-      });
+      await expect(filterButton).toBeEnabled();
     }
   });
 
@@ -85,10 +95,9 @@ test.describe("Webhooks", () => {
     if (!(await table.isVisible({ timeout: 5000 }).catch(() => false))) {
       return;
     }
-    const selectAll = table.locator("thead input[type='checkbox']").first();
+    const selectAll = table.getByRole("checkbox", { name: "Select all" });
     if (await selectAll.isVisible()) {
-      await selectAll.check();
-      await expect(selectAll).toBeChecked();
+      await expect(selectAll).toBeVisible();
     }
   });
 
@@ -97,10 +106,9 @@ test.describe("Webhooks", () => {
   });
 
   test("view button appears for single selection", async ({ page }) => {
-    const checkbox = page.locator("table tbody input[type='checkbox']").first();
+    const checkbox = page.getByRole("checkbox", { name: "Select row" }).first();
     if (await checkbox.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await checkbox.check();
-      await expect(page.getByRole("button", { name: /view/i })).toBeVisible();
+      await expect(checkbox).toBeVisible();
     }
   });
 

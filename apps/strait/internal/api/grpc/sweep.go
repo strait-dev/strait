@@ -38,8 +38,8 @@ func runSweep(
 		case <-t.C:
 			cutoff := time.Now().Add(-heartbeatTimeout)
 			recoverDurableResultHandoffs(ctx, q, finalizer, cutoff)
-			connectedIDs := connectedWorkerIDs(registry)
-			recovered, err := q.RecoverStaleWorkerTasksExcept(ctx, cutoff, "worker heartbeat expired before reporting result", connectedIDs)
+			connectedWorkers := connectedWorkerRefs(registry)
+			recovered, err := q.RecoverStaleWorkerTasksExceptRefs(ctx, cutoff, "worker heartbeat expired before reporting result", connectedWorkers)
 			if err != nil {
 				slog.Warn("grpc sweep: recover stale worker tasks failed", "error", err)
 				continue
@@ -47,7 +47,7 @@ func runSweep(
 			if recovered > 0 {
 				slog.Info("grpc sweep: recovered stale worker tasks", "count", recovered)
 			}
-			n, err := q.EvictStaleWorkersExcept(ctx, cutoff, connectedIDs)
+			n, err := q.EvictStaleWorkersExceptRefs(ctx, cutoff, connectedWorkers)
 			if err != nil {
 				slog.Warn("grpc sweep: evict stale workers failed", "error", err)
 				continue
@@ -116,16 +116,19 @@ func recoverDurableResultHandoffs(
 	}
 }
 
-func connectedWorkerIDs(registry *ConnectionRegistry) []string {
+func connectedWorkerRefs(registry *ConnectionRegistry) []store.ActiveWorkerRef {
 	if registry == nil {
 		return nil
 	}
 	workers := registry.Snapshot()
-	ids := make([]string, 0, len(workers))
+	refs := make([]store.ActiveWorkerRef, 0, len(workers))
 	for _, worker := range workers {
-		if worker.WorkerID != "" {
-			ids = append(ids, worker.WorkerID)
+		if worker.WorkerID != "" && worker.ProjectID != "" {
+			refs = append(refs, store.ActiveWorkerRef{
+				WorkerID:  worker.WorkerID,
+				ProjectID: worker.ProjectID,
+			})
 		}
 	}
-	return ids
+	return refs
 }

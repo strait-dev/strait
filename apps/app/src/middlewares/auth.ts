@@ -23,10 +23,14 @@ export const authMiddleware = createMiddleware().server(async ({ next }) => {
         email: session.user.email,
         createdAt: session.user.createdAt,
         updatedAt: session.user.updatedAt,
+        activeProjectId: (session.user as Record<string, unknown>)
+          .activeProjectId as string | undefined,
       },
       session: session.session,
       activeOrganizationId: (session.session as Record<string, unknown>)
         .activeOrganizationId as string | undefined,
+      activeProjectId: (session.user as Record<string, unknown>)
+        .activeProjectId as string | undefined,
     },
   });
 });

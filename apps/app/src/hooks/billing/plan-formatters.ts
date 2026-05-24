@@ -44,8 +44,8 @@ export const formatComputeCredit = (microusd: number): string => {
  * @param regions - Array of allowed region codes. Empty means all regions.
  * @returns "All" for empty array, otherwise the count as a string.
  */
-export const formatRegionCount = (regions: string[]): string => {
-  if (regions.length === 0) {
+export const formatRegionCount = (regions: string[] | null): string => {
+  if (!regions || regions.length === 0) {
     return "All";
   }
   return String(regions.length);

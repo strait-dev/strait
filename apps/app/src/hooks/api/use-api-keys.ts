@@ -14,68 +14,98 @@ import type {
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { getPostHog } from "@/lib/analytics";
+import { apiPath } from "@/lib/api-client.server";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
+import { requireActiveProjectAdmin } from "@/middlewares/require-access";
+
+const allowedApiKeyScopes = new Set([
+  "jobs:read",
+  "jobs:write",
+  "jobs:trigger",
+  "runs:read",
+  "workflows:read",
+  "workflows:write",
+  "webhooks:read",
+  "webhooks:write",
+  "api-keys:manage",
+]);
+
+function validateApiKeyScopes(scopes: string[]): void {
+  if (scopes.length === 0) {
+    throw new Error("At least one scope is required");
+  }
+  for (const scope of scopes) {
+    if (!allowedApiKeyScopes.has(scope)) {
+      throw new Error("Unsupported API key scope");
+    }
+  }
+}
 
 export const fetchApiKeys = createServerFn({ method: "GET" })
   .inputValidator((data: ListParams) => data)
   .middleware([authMiddleware])
-  .handler(
-    async ({ data }) =>
-      await runWithSentryReport(
-        apiEffect<PaginatedResponse<APIKey>>("/v1/api-keys", {
-          params: { limit: data.limit, cursor: data.cursor },
-        })
-      )
-  );
+  .handler(async ({ context, data }) => {
+    await requireActiveProjectAdmin(context);
+    return await runWithSentryReport(
+      apiEffect<PaginatedResponse<APIKey>>("/v1/api-keys", {
+        params: { limit: data.limit, cursor: data.cursor },
+      })
+    );
+  });
 
 export const createApiKeyFn = createServerFn({ method: "POST" })
   .inputValidator(
     (data: { name: string; scopes: string[]; expiresInDays?: number }) => data
   )
   .middleware([authMiddleware])
-  .handler(
-    async ({ data }) =>
-      await runWithSentryReport(
-        apiEffect<APIKey & { key: string }>("/v1/api-keys", {
-          method: "POST",
-          body: {
-            name: data.name,
-            scopes: data.scopes,
-            expires_in_days: data.expiresInDays,
-          },
-        })
-      )
-  );
+  .handler(async ({ context, data }) => {
+    const projectId = await requireActiveProjectAdmin(context);
+    validateApiKeyScopes(data.scopes);
+    return await runWithSentryReport(
+      apiEffect<APIKey & { key: string }>("/v1/api-keys", {
+        method: "POST",
+        body: {
+          name: data.name,
+          project_id: projectId,
+          scopes: data.scopes,
+          expires_in_days: data.expiresInDays,
+        },
+      })
+    );
+  });
 
 export const revokeApiKeyFn = createServerFn({ method: "POST" })
   .inputValidator((data: { keyId: string }) => data)
   .middleware([authMiddleware])
-  .handler(
-    async ({ data }) =>
-      await runWithSentryReport(
-        apiEffect<void>(`/v1/api-keys/${data.keyId}`, {
-          method: "DELETE",
-        })
-      )
-  );
+  .handler(async ({ context, data }) => {
+    await requireActiveProjectAdmin(context);
+    return await runWithSentryReport(
+      apiEffect<void>(apiPath`/v1/api-keys/${data.keyId}`, {
+        method: "DELETE",
+      })
+    );
+  });
 
 export const rotateApiKeyFn = createServerFn({ method: "POST" })
   .inputValidator(
     (data: { keyId: string; gracePeriodMinutes?: number }) => data
   )
   .middleware([authMiddleware])
-  .handler(
-    async ({ data }) =>
-      await runWithSentryReport(
-        apiEffect<RotateAPIKeyResponse>(`/v1/api-keys/${data.keyId}/rotate`, {
+  .handler(async ({ context, data }) => {
+    await requireActiveProjectAdmin(context);
+    return await runWithSentryReport(
+      apiEffect<RotateAPIKeyResponse>(
+        apiPath`/v1/api-keys/${data.keyId}/rotate`,
+        {
           method: "POST",
           body: data.gracePeriodMinutes
             ? { grace_period_minutes: data.gracePeriodMinutes }
             : undefined,
-        })
+        }
       )
-  );
+    );
+  });
 
 export const apiKeysQueryOptions = (search?: ListParams) =>
   queryOptions({

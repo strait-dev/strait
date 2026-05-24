@@ -1,35 +1,38 @@
-import { expect, test } from "../../fixtures";
+import { ApiHelper, expect, test } from "../../fixtures";
+import { selectTab } from "../../support/navigation";
+import { TestDataFactory } from "../../support/test-data";
 
-test.describe("Clipboard", () => {
-  test("copy button exists on API key creation dialog", async ({ page }) => {
-    await page.goto("/app/dashboard");
-    const orgLink = page.locator("a[href*='/app/org/']").first();
-    if (!(await orgLink.isVisible({ timeout: 5000 }).catch(() => false))) {
-      test.skip();
-      return;
-    }
-    await orgLink.click();
-    const keysTab = page.getByRole("tab", { name: /api key/i });
-    if (await keysTab.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await keysTab.click();
-      await page.waitForTimeout(500);
-      // Verify the API keys section loaded
-      await expect(page.locator("main")).toBeVisible();
-    }
-  });
+test.describe("Clipboard interactions", () => {
+  test("copies a newly created API key from the organization settings dialog", async ({
+    page,
+  }) => {
+    const api = new ApiHelper();
+    const data = new TestDataFactory(api);
+    const keyName = data.name("clipboard-key");
 
-  test("clipboard API is available", async ({ page }) => {
-    await page.goto("/app/dashboard");
-    const hasClipboard = await page.evaluate(() => !!navigator.clipboard);
-    expect(hasClipboard).toBeTruthy();
-  });
+    await page
+      .context()
+      .grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.goto(`/app/org/${api.getOrgId()}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await selectTab(page, "API Keys");
+    await expect(page.getByText("Manage API keys")).toBeVisible();
+    await page.getByRole("button", { name: "Create Key" }).click();
 
-  test("copy buttons have click handlers", async ({ page }) => {
-    await page.goto("/app/dashboard");
-    // Any copy button on the page should be interactive
-    const copyBtn = page.locator("button").filter({ hasText: /copy/i }).first();
-    if (await copyBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await expect(copyBtn).toBeEnabled();
-    }
+    const dialog = page.getByRole("dialog");
+    await dialog.getByLabel("Key Name").fill(keyName);
+    await dialog.getByRole("combobox").click();
+    await page.getByRole("option", { name: "30 days" }).click();
+    await dialog.getByRole("button", { name: "Create Key" }).click();
+    await expect(
+      dialog.getByRole("heading", { name: "API Key Created" })
+    ).toBeVisible({ timeout: 15_000 });
+
+    await expect(
+      dialog.getByRole("button", { name: "Copy to Clipboard" })
+    ).toBeEnabled();
+    await dialog.getByRole("button", { name: "Copy to Clipboard" }).click();
+    await dialog.getByRole("button", { name: "Done" }).click();
   });
 });

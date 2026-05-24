@@ -6,9 +6,10 @@ import {
   CardTitle,
 } from "@strait/ui/components/card";
 import { cn } from "@strait/ui/utils/index";
-import { Bar, BarChart, ResponsiveContainer, Tooltip } from "recharts";
+import { Bar, BarChart, Tooltip } from "recharts";
 import { ArrowDownRightIcon, ArrowUpRightIcon } from "@/lib/icons";
 import ChartTooltip from "./chart-tooltip";
+import ResponsiveChartContainer from "./responsive-chart-container";
 
 type MetricsCardProps = {
   title: string;
@@ -71,7 +72,7 @@ const MetricsCard = ({
         )}
         {barData && barData.length > 0 && (
           <div className="relative z-10 mt-3 h-[32px]">
-            <ResponsiveContainer
+            <ResponsiveChartContainer
               height="100%"
               minHeight={1}
               minWidth={1}
@@ -85,7 +86,7 @@ const MetricsCard = ({
                 />
                 <Bar dataKey="value" fill={chartColor} radius={[2, 2, 0, 0]} />
               </BarChart>
-            </ResponsiveContainer>
+            </ResponsiveChartContainer>
           </div>
         )}
       </CardContent>

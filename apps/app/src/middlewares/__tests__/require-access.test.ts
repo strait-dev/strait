@@ -5,7 +5,18 @@ vi.mock("@/lib/auth.server", () => ({
   getAuthPool: () => ({ query: mockQuery }),
 }));
 
-import { requireOrgAccess, requireProjectAccess } from "../require-access";
+import {
+  getOrganizationRole,
+  requireActiveOrgAccess,
+  requireActiveOrgAdmin,
+  requireActiveProjectAccess,
+  requireActiveProjectAdmin,
+  requireOrgAccess,
+  requireOrgAdmin,
+  requireOrgOwner,
+  requireProjectAccess,
+  requireProjectAdmin,
+} from "../require-access";
 
 describe("requireOrgAccess", () => {
   beforeEach(() => {
@@ -104,5 +115,105 @@ describe("requireProjectAccess", () => {
     await expect(
       requireProjectAccess("user-1", "proj-1", "org-1")
     ).rejects.toThrow("connection refused");
+  });
+});
+
+describe("role-gated access helpers", () => {
+  beforeEach(() => {
+    mockQuery.mockReset();
+  });
+
+  it("rejects comma-separated stored roles", async () => {
+    mockQuery.mockResolvedValue({ rows: [{ role: "admin,owner" }] });
+
+    await expect(getOrganizationRole("user-1", "org-1")).resolves.toBe(null);
+  });
+
+  it("allows admins for admin-gated organization operations", async () => {
+    mockQuery.mockResolvedValue({ rows: [{ role: "admin" }] });
+
+    await expect(requireOrgAdmin("user-1", "org-1")).resolves.toBeUndefined();
+  });
+
+  it("rejects members for admin-gated organization operations", async () => {
+    mockQuery.mockResolvedValue({ rows: [{ role: "member" }] });
+
+    await expect(requireOrgAdmin("user-1", "org-1")).rejects.toThrow(
+      "Forbidden"
+    );
+  });
+
+  it("requires owner for owner-gated operations", async () => {
+    mockQuery.mockResolvedValue({ rows: [{ role: "admin" }] });
+
+    await expect(requireOrgOwner("user-1", "org-1")).rejects.toThrow(
+      "Forbidden"
+    );
+  });
+
+  it("checks project membership before project admin role", async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ role: "owner" }] });
+
+    await expect(
+      requireProjectAdmin("user-1", "project-1", "org-1")
+    ).resolves.toBeUndefined();
+  });
+
+  it("rejects project admin access when the project is outside the org", async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rowCount: 0 });
+
+    await expect(
+      requireProjectAdmin("user-1", "project-1", "org-1")
+    ).rejects.toThrow("Forbidden");
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns the active project after live membership checks", async () => {
+    mockQuery.mockResolvedValue({ rowCount: 1 });
+
+    await expect(
+      requireActiveProjectAccess({
+        user: { id: "user-1" },
+        activeOrganizationId: "org-1",
+        activeProjectId: "project-1",
+      })
+    ).resolves.toBe("project-1");
+  });
+
+  it("returns the active org after live membership checks", async () => {
+    mockQuery.mockResolvedValue({ rowCount: 1 });
+
+    await expect(
+      requireActiveOrgAccess({
+        user: { id: "user-1" },
+        activeOrganizationId: "org-1",
+      })
+    ).resolves.toBe("org-1");
+  });
+
+  it("requires admin role for active org admin checks", async () => {
+    mockQuery.mockResolvedValue({ rows: [{ role: "member" }] });
+
+    await expect(
+      requireActiveOrgAdmin({
+        user: { id: "user-1" },
+        activeOrganizationId: "org-1",
+      })
+    ).rejects.toThrow("Forbidden");
+  });
+
+  it("rejects active project admin checks when the session has no project", async () => {
+    await expect(
+      requireActiveProjectAdmin({
+        user: { id: "user-1" },
+        activeOrganizationId: "org-1",
+      })
+    ).rejects.toThrow("Forbidden");
+    expect(mockQuery).not.toHaveBeenCalled();
   });
 });

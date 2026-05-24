@@ -17,8 +17,8 @@ import {
   runWithSentryReport,
 } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
+import { requireActiveOrgAccess } from "@/middlewares/require-access";
 import { OrgUsageResponseSchema } from "./schemas";
-import { getOrgIdFromSession } from "./session";
 import { REFETCH_5M } from "./types";
 
 /**
@@ -30,13 +30,7 @@ import { REFETCH_5M } from "./types";
 const getOrgUsageServerFn = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async (ctx) => {
-    const orgId = getOrgIdFromSession(
-      ctx.context.session as Record<string, unknown>
-    );
-
-    if (!orgId) {
-      return EMPTY_ORG_USAGE;
-    }
+    const orgId = await requireActiveOrgAccess(ctx.context);
 
     const usage = await runWithSentryReport(
       apiEffectWithSchema("/v1/usage/current", OrgUsageResponseSchema, {

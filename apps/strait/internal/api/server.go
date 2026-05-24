@@ -1094,7 +1094,8 @@ func (s *Server) decodeJSON(r *http.Request, v any) error {
 }
 
 func validateURL(rawURL string) error {
-	if err := worker.ValidateEndpointURL(rawURL); err != nil {
+	allowPrivate := globalAllowPrivateEndpoints.Load()
+	if err := worker.ValidateEndpointURL(rawURL, worker.WithAllowPrivateEndpoints(allowPrivate)); err != nil {
 		msg := err.Error()
 		if strings.HasPrefix(msg, "URL") {
 			msg = "url" + msg[3:]
@@ -1107,7 +1108,7 @@ func validateURL(rawURL string) error {
 	// from handlers that have no server reference), we skip the network
 	// checks only when the global was set by the last NewServer call.
 	// This is safe because in production there is exactly one Server instance.
-	if globalAllowPrivateEndpoints.Load() {
+	if allowPrivate {
 		return nil
 	}
 
@@ -1138,7 +1139,12 @@ func validateURL(rawURL string) error {
 }
 
 func validateURLWithTLS(rawURL string, requireTLS bool) error {
-	if err := worker.ValidateEndpointURLWithTLS(rawURL, requireTLS); err != nil {
+	allowPrivate := globalAllowPrivateEndpoints.Load()
+	if err := worker.ValidateEndpointURL(
+		rawURL,
+		worker.WithRequireTLS(requireTLS),
+		worker.WithAllowPrivateEndpoints(allowPrivate),
+	); err != nil {
 		msg := err.Error()
 		if strings.HasPrefix(msg, "URL") {
 			msg = "url" + msg[3:]
@@ -1146,7 +1152,7 @@ func validateURLWithTLS(rawURL string, requireTLS bool) error {
 		return errors.New(msg)
 	}
 
-	if !globalAllowPrivateEndpoints.Load() {
+	if !allowPrivate {
 		if err := httputil.ValidateExternalURL(rawURL); err != nil {
 			return fmt.Errorf("url rejected: %w", err)
 		}

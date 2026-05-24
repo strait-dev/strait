@@ -682,8 +682,7 @@ func (n *DeliveryWorker) checkBatchCircuitBreaker(ctx context.Context, webhookUR
 	if !canDeliver {
 		n.recordCircuitBreakerState(ctx, webhookURL, "open")
 		for i := range deliveries {
-			deliveries[i].Attempts++
-			n.recordFailure(ctx, &deliveries[i], now, true, "circuit breaker is open")
+			n.deferCircuitBreakerRetry(ctx, &deliveries[i], now)
 		}
 		span.SetStatus(codes.Error, "circuit breaker is open")
 		return true
@@ -890,17 +889,12 @@ func (n *DeliveryWorker) enqueueDeliveryEvent(d *domain.WebhookDelivery, duratio
 func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookDelivery) {
 	start := time.Now()
 	now := time.Now()
-	d.Attempts++
 	retryPolicy := n.retryPolicyForDelivery(d)
-
-	if n.metrics != nil {
-		n.metrics.WebhookDeliveryAttempts.Add(ctx, 1, metric.WithAttributes(attribute.String("retry_policy", retryPolicy)))
-	}
 
 	ctx, span := otel.Tracer("strait").Start(ctx, "webhook.AttemptDelivery", trace.WithAttributes(
 		attribute.String("delivery.id", d.ID),
 		attribute.String("webhook.host", extractDomain(d.WebhookURL)),
-		attribute.Int("attempt", d.Attempts),
+		attribute.Int("attempt", d.Attempts+1),
 		attribute.Int("max_attempts", d.MaxAttempts),
 		attribute.Int("status_code", 0),
 	))
@@ -929,12 +923,17 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 			n.logger.Warn("webhook circuit breaker check failed", "delivery_id", d.ID, "url_host", extractDomain(d.WebhookURL), "error", err)
 		} else if !canDeliver {
 			n.recordCircuitBreakerState(ctx, d.WebhookURL, "open")
-			n.recordFailure(ctx, d, now, true, "circuit breaker is open")
+			n.deferCircuitBreakerRetry(ctx, d, now)
 			span.SetStatus(codes.Error, "circuit breaker is open")
 			return
 		} else {
 			n.recordCircuitBreakerState(ctx, d.WebhookURL, "closed")
 		}
+	}
+
+	d.Attempts++
+	if n.metrics != nil {
+		n.metrics.WebhookDeliveryAttempts.Add(ctx, 1, metric.WithAttributes(attribute.String("retry_policy", retryPolicy)))
 	}
 
 	// Reconstruct payload from last_error (where we stashed it on creation)
@@ -1188,6 +1187,30 @@ func (n *DeliveryWorker) recordFailure(ctx context.Context, d *domain.WebhookDel
 		"next_attempt", nextAttempt, "error", errMsg)
 }
 
+func (n *DeliveryWorker) deferCircuitBreakerRetry(ctx context.Context, d *domain.WebhookDelivery, now time.Time) {
+	d.LastError = "circuit breaker is open"
+	nextAttempt := now.Add(backoffForRetryPolicy(n.retryPolicyForDelivery(d), d.Attempts))
+	d.NextRetryAt = &nextAttempt
+	d.Status = domain.WebhookStatusPending
+
+	updated, err := n.updateWebhookDelivery(ctx, d)
+	if err != nil {
+		n.logger.Error("failed to defer webhook delivery for open circuit breaker", "delivery_id", d.ID, "error", err)
+		return
+	}
+	if !updated {
+		n.logger.Warn("skipped webhook circuit-breaker deferral after lost claim", "delivery_id", d.ID)
+		return
+	}
+	n.logger.Warn("webhook delivery deferred because circuit breaker is open",
+		"delivery_id", d.ID,
+		"url_host", extractDomain(d.WebhookURL),
+		"attempts", d.Attempts,
+		"max_attempts", d.MaxAttempts,
+		"next_attempt", nextAttempt,
+	)
+}
+
 func captureWebhookDeadLetter(ctx context.Context, d *domain.WebhookDelivery, retryable bool, errMsg string) {
 	if d == nil {
 		return
@@ -1284,15 +1307,6 @@ func sanitizeHTTPClientError(err error) string {
 	return err.Error()
 }
 
-// pow computes base^exp for small positive integers.
-func pow(base, exp int) int {
-	result := 1
-	for range exp {
-		result *= base
-	}
-	return result
-}
-
 func (n *DeliveryWorker) retryPolicyForDelivery(d *domain.WebhookDelivery) string {
 	switch d.RetryPolicy {
 	case domain.WebhookRetryPolicyExponential, domain.WebhookRetryPolicyLinear, domain.WebhookRetryPolicyFixed:
@@ -1302,6 +1316,8 @@ func (n *DeliveryWorker) retryPolicyForDelivery(d *domain.WebhookDelivery) strin
 	}
 }
 
+const maxWebhookBackoff = 30 * time.Minute
+
 func backoffForRetryPolicy(policy string, attempts int) time.Duration {
 	if attempts < 1 {
 		attempts = 1
@@ -1310,15 +1326,15 @@ func backoffForRetryPolicy(policy string, attempts int) time.Duration {
 	var backoff time.Duration
 	switch policy {
 	case domain.WebhookRetryPolicyLinear:
-		backoff = time.Duration(5*attempts) * time.Second
+		backoff = linearWebhookBackoff(attempts)
 	case domain.WebhookRetryPolicyFixed:
 		backoff = 5 * time.Second
 	default:
-		backoff = time.Duration(pow(5, attempts)) * time.Second
+		backoff = exponentialWebhookBackoff(attempts)
 	}
 
-	if backoff > 30*time.Minute {
-		backoff = 30 * time.Minute
+	if backoff > maxWebhookBackoff {
+		backoff = maxWebhookBackoff
 	}
 
 	// Decorrelated jitter (+/- 20%) prevents thundering-herd retries when a
@@ -1326,6 +1342,34 @@ func backoffForRetryPolicy(policy string, attempts int) time.Duration {
 	// poll cycle reschedules at identical timestamps and DDoSes the
 	// recovering endpoint in synchronized waves.
 	return jitterBackoff(backoff)
+}
+
+func linearWebhookBackoff(attempts int) time.Duration {
+	maxSeconds := int64(maxWebhookBackoff / time.Second)
+	if attempts > int(maxSeconds/5) {
+		return maxWebhookBackoff
+	}
+	return cappedBackoffSeconds(int64(attempts) * 5)
+}
+
+func exponentialWebhookBackoff(attempts int) time.Duration {
+	maxSeconds := int64(maxWebhookBackoff / time.Second)
+	seconds := int64(1)
+	for range attempts {
+		if seconds > maxSeconds/5 {
+			return maxWebhookBackoff
+		}
+		seconds *= 5
+	}
+	return cappedBackoffSeconds(seconds)
+}
+
+func cappedBackoffSeconds(seconds int64) time.Duration {
+	maxSeconds := int64(maxWebhookBackoff / time.Second)
+	if seconds > maxSeconds {
+		seconds = maxSeconds
+	}
+	return time.Duration(seconds) * time.Second
 }
 
 // jitterBackoff applies a uniform +/- 20% jitter to a backoff duration. The

@@ -15,7 +15,7 @@ import {
   TabsTrigger,
 } from "@strait/ui/components/tabs";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import {
   type ColumnDef,
   getCoreRowModel,
@@ -79,13 +79,7 @@ const workflowRunColumns: ColumnDef<WorkflowRun>[] = [
     accessorKey: "id",
     header: "Run ID",
     cell: ({ row }) => (
-      <Link
-        className="font-mono text-xs hover:underline"
-        params={{ id: row.original.id }}
-        to="/app/runs/$id"
-      >
-        {row.original.id.slice(0, 8)}
-      </Link>
+      <span className="font-mono text-xs">{row.original.id.slice(0, 8)}</span>
     ),
   },
   {
@@ -141,7 +135,7 @@ function WorkflowDetailPage() {
 
   // Map API steps to the shape WorkflowDAGFlow expects
   const dagSteps = (apiSteps ?? []).map((s: WorkflowStep) => ({
-    id: s.id,
+    id: s.step_ref || s.id,
     name: s.step_ref,
     type: s.step_type ?? "job",
     status: "pending" as const,
@@ -285,11 +279,9 @@ function WorkflowDetailPage() {
               ) : (
                 <div className="space-y-3">
                   {recentRuns.map((run) => (
-                    <Link
+                    <div
                       className="-mx-2 flex items-center gap-3 rounded-md px-2 py-1 text-sm hover:bg-accent"
                       key={run.id}
-                      params={{ id: run.id }}
-                      to="/app/runs/$id"
                     >
                       <StatusBadge
                         showDot
@@ -307,7 +299,7 @@ function WorkflowDetailPage() {
                           addSuffix: true,
                         })}
                       </span>
-                    </Link>
+                    </div>
                   ))}
                 </div>
               )}
@@ -337,6 +329,7 @@ function WorkflowDetailPage() {
         {/* Recent Runs Tab */}
         <TabsContent className="mt-6" value="runs">
           <DataTable
+            ariaLabel="Workflow runs"
             emptyState={
               <TableEmptyState
                 description="No runs yet. Trigger this workflow to start an execution."

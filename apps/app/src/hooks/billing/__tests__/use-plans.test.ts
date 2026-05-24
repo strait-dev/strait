@@ -8,6 +8,11 @@ import {
   formatRetention,
   formatSupportLevel,
 } from "../plan-formatters";
+import {
+  type APIPlan,
+  apiPlansToComparisonFeatures,
+  apiPlansToPricingPlans,
+} from "../use-plans";
 
 describe("formatLimit", () => {
   it("returns 'Unlimited' for -1", () => {
@@ -47,6 +52,10 @@ describe("formatComputeCredit", () => {
 });
 
 describe("formatRegionCount", () => {
+  it("returns 'All' for null regions", () => {
+    expect(formatRegionCount(null)).toBe("All");
+  });
+
   it("returns 'All' for empty array", () => {
     expect(formatRegionCount([])).toBe("All");
   });
@@ -104,5 +113,72 @@ describe("formatSupportLevel", () => {
   it("returns raw level for unknown values", () => {
     expect(formatSupportLevel("unknown")).toBe("unknown");
     expect(formatSupportLevel("")).toBe("");
+  });
+});
+
+const basePlan = {
+  tier: "business",
+  display_name: "Business",
+  price_monthly_usd: 49_900,
+  price_annual_usd: 478_800,
+  max_orgs_per_user: -1,
+  max_projects_per_org: -1,
+  max_members_per_org: -1,
+  max_runs_per_day: -1,
+  max_runs_per_month: 25_000_000,
+  max_concurrent_runs: 500,
+  compute_credit_microusd: 499_000_000,
+  retention_days: 90,
+  allowed_regions: null,
+  max_alert_rules_per_project: -1,
+  max_webhook_subs_per_project: -1,
+  max_log_drains_per_org: -1,
+  max_ai_model_calls_per_day: -1,
+  ai_assistant_byok: true,
+  has_rbac: true,
+  rbac_level: "advanced",
+  has_audit_logs: true,
+  has_sso: true,
+  has_sla: true,
+  requires_credit_card: true,
+  overage_per_k_runs_microusd: 30_000,
+  support_level: "priority_slack_8h",
+  has_dedicated_compute: false,
+  has_static_ips: false,
+  has_vpc_peering: false,
+  has_scim: true,
+  has_data_residency: false,
+  has_custom_rbac: false,
+  has_reserved_capacity: false,
+  has_priority_queue: true,
+  has_ip_allowlisting: true,
+  has_session_management: true,
+  has_secret_rotation: true,
+  has_siem_export: true,
+} satisfies APIPlan;
+
+describe("apiPlansToPricingPlans", () => {
+  it("models business plans and monthly run caps", () => {
+    const [pricingPlan] = apiPlansToPricingPlans([basePlan]);
+
+    expect(pricingPlan.slug).toBe("business");
+    expect(pricingPlan.description).not.toBe("");
+    expect(pricingPlan.features.map((feature) => feature.name)).toContain(
+      "25,000,000 runs/month"
+    );
+    expect(pricingPlan.features.map((feature) => feature.name)).toContain(
+      "All regions"
+    );
+  });
+});
+
+describe("apiPlansToComparisonFeatures", () => {
+  it("includes the business column and monthly runs row", () => {
+    const rows = apiPlansToComparisonFeatures([basePlan]);
+
+    expect(rows[0]).toMatchObject({
+      name: "Runs per month",
+      business: "25,000,000",
+    });
   });
 });

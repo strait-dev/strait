@@ -9,7 +9,13 @@
  */
 
 /** The five plan tiers in Strait, ordered by feature level. */
-export type PlanSlug = "free" | "starter" | "pro" | "scale" | "enterprise";
+export type PlanSlug =
+  | "free"
+  | "starter"
+  | "pro"
+  | "scale"
+  | "business"
+  | "enterprise";
 
 /**
  * Stripe subscription status values.
@@ -117,6 +123,7 @@ const PLAN_DISPLAY_NAMES: Record<PlanSlug, string> = {
   starter: "Starter",
   pro: "Pro",
   scale: "Scale",
+  business: "Business",
   enterprise: "Enterprise",
 };
 
@@ -133,6 +140,7 @@ export const normalizePlanSlug = (
     case "starter":
     case "pro":
     case "scale":
+    case "business":
     case "enterprise":
       return value;
     default:
@@ -156,6 +164,8 @@ export const nextPlanFor = (
     case "pro":
       return { plan: "scale", name: PLAN_DISPLAY_NAMES.scale };
     case "scale":
+      return { plan: "business", name: PLAN_DISPLAY_NAMES.business };
+    case "business":
       return { plan: "enterprise", name: PLAN_DISPLAY_NAMES.enterprise };
     case "enterprise":
       return null;

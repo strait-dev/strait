@@ -26,11 +26,10 @@ const SessionManagement = () => {
   const revokeAllSessions = useRevokeAllSessions();
 
   const sessions = data?.sessions ?? [];
-  const currentToken = data?.currentToken ?? null;
 
-  const handleRevoke = async (token: string) => {
+  const handleRevoke = async (sessionId: string) => {
     try {
-      await revokeSession.mutateAsync(token);
+      await revokeSession.mutateAsync(sessionId);
       toast.success("Session revoked.");
     } catch (error) {
       toast.error(
@@ -150,10 +149,10 @@ const SessionManagement = () => {
         {!isLoading && sessions.length > 0 && (
           <div className="flex flex-col gap-3">
             {sessions.map((session) => {
-              const isCurrent = session.token === currentToken;
+              const isCurrent = session.isCurrent;
               const isRevoking =
                 revokeSession.isPending &&
-                revokeSession.variables === session.token;
+                revokeSession.variables === session.id;
 
               return (
                 <div
@@ -183,7 +182,7 @@ const SessionManagement = () => {
                   {!isCurrent && (
                     <Button
                       disabled={isRevoking}
-                      onClick={() => handleRevoke(session.token)}
+                      onClick={() => handleRevoke(session.id)}
                       variant="outline"
                     >
                       {isRevoking ? (

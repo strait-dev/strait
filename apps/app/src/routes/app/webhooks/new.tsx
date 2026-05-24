@@ -16,13 +16,22 @@ import { toast } from "@strait/ui/components/toast/index";
 import { cn } from "@strait/ui/utils/index";
 import { useForm } from "@tanstack/react-form";
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { z } from "zod/v4";
 import ErrorComponent from "@/components/common/error-component";
-import { useCreateWebhook } from "@/hooks/api/use-webhooks";
+import {
+  type CreateWebhookResult,
+  useCreateWebhook,
+} from "@/hooks/api/use-webhooks";
 import { useCurrentPlan } from "@/hooks/billing/use-current-plan";
 import { formatFieldErrors } from "@/lib/form-errors";
-import { ChevronLeftIcon, LoadingIcon, PlusIcon } from "@/lib/icons";
+import {
+  CheckIcon,
+  ChevronLeftIcon,
+  CopyIcon,
+  LoadingIcon,
+  PlusIcon,
+} from "@/lib/icons";
 import { tierAtLeast } from "@/lib/plan-tiers";
 
 const BASIC_EVENTS = [
@@ -87,6 +96,8 @@ function CreateWebhookPage() {
   const currentPlan = useCurrentPlan();
   const hasProEvents = tierAtLeast(currentPlan, "pro");
   const router = useRouter();
+  const [createdWebhook, setCreatedWebhook] =
+    useState<CreateWebhookResult | null>(null);
 
   const defaultValues = useMemo(
     () => ({
@@ -104,19 +115,13 @@ function CreateWebhookPage() {
 
       toast.promise(
         (async () => {
-          const webhook = await createWebhook.mutateAsync(parsed);
-          if (webhook) {
-            router.navigate({
-              to: "/app/webhooks/$id",
-              params: { id: webhook.id },
-            });
-          } else {
-            router.navigate({ to: "/app/webhooks" });
-          }
+          const result = await createWebhook.mutateAsync(parsed);
+          setCreatedWebhook(result);
+          form.reset();
         })(),
         {
           loading: "Creating webhook...",
-          success: "Webhook created successfully!",
+          success: "Webhook created. Copy the signing secret now.",
           error: "Failed to create webhook. Please try again.",
         }
       );
@@ -145,6 +150,50 @@ function CreateWebhookPage() {
           Create webhook
         </h1>
       </div>
+
+      {createdWebhook && (
+        <div className="mx-auto mb-6 max-w-2xl rounded-md border bg-muted/40 p-4">
+          <div className="mb-3 flex items-start gap-3">
+            <HugeiconsIcon
+              className="mt-0.5 size-4 text-emerald-600"
+              icon={CheckIcon}
+            />
+            <div className="min-w-0 flex-1">
+              <h2 className="font-medium text-sm">Webhook created</h2>
+              <p className="mt-1 text-muted-foreground text-sm">
+                Copy this signing secret now. It will not be shown again.
+              </p>
+            </div>
+          </div>
+          <div className="rounded-md border bg-background p-3">
+            <code className="break-all text-sm">
+              {createdWebhook.signing_secret}
+            </code>
+          </div>
+          <div className="mt-4 flex flex-wrap justify-end gap-3">
+            <Button
+              onClick={() => {
+                navigator.clipboard.writeText(createdWebhook.signing_secret);
+                toast.success("Signing secret copied to clipboard.");
+              }}
+              variant="outline"
+            >
+              <HugeiconsIcon className="size-4" icon={CopyIcon} />
+              Copy secret
+            </Button>
+            <Button
+              onClick={() =>
+                router.navigate({
+                  to: "/app/webhooks/$id",
+                  params: { id: createdWebhook.subscription.id },
+                })
+              }
+            >
+              View webhook
+            </Button>
+          </div>
+        </div>
+      )}
 
       <form
         className="mx-auto max-w-2xl space-y-6"

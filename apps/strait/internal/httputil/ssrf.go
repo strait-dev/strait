@@ -84,28 +84,28 @@ func SafeDialContext(allowPrivate bool) func(context.Context, string, string) (n
 	return func(ctx context.Context, network, address string) (net.Conn, error) {
 		host, port, err := net.SplitHostPort(address)
 		if err != nil {
-			return nil, fmt.Errorf("ssrf: invalid dial address %q: %w", address, err)
+			return nil, fmt.Errorf("ssrf: invalid dial address")
 		}
 		if host == "" || port == "" {
-			return nil, fmt.Errorf("ssrf: invalid dial address %q", address)
+			return nil, fmt.Errorf("ssrf: invalid dial address")
 		}
 		for _, blocked := range blockedHosts {
 			if strings.EqualFold(host, blocked) {
-				return nil, fmt.Errorf("ssrf: blocked internal host %q", blocked)
+				return nil, fmt.Errorf("ssrf: blocked internal host")
 			}
 		}
 		if looksLikeNonStandardIP(host) {
-			return nil, fmt.Errorf("ssrf: host %q uses non-standard IP notation", host)
+			return nil, fmt.Errorf("ssrf: host uses non-standard IP notation")
 		}
 		if ip := net.ParseIP(host); ip != nil {
 			if isPrivateIP(ip) {
-				return nil, fmt.Errorf("ssrf: blocked private dial address %s", ip)
+				return nil, fmt.Errorf("ssrf: blocked private dial address")
 			}
 			return dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
 		}
 		addrs, lookupErr := lookupHost(host)
 		if lookupErr != nil {
-			return nil, fmt.Errorf("ssrf: DNS lookup failed for %q: %w", host, lookupErr)
+			return nil, fmt.Errorf("ssrf: DNS lookup failed")
 		}
 		var firstPublic net.IP
 		for _, addr := range addrs {
@@ -114,14 +114,14 @@ func SafeDialContext(allowPrivate bool) func(context.Context, string, string) (n
 				continue
 			}
 			if isPrivateIP(ip) {
-				return nil, fmt.Errorf("ssrf: host %q resolves to private address %s", host, ip)
+				return nil, fmt.Errorf("ssrf: host resolves to private address")
 			}
 			if firstPublic == nil {
 				firstPublic = ip
 			}
 		}
 		if firstPublic == nil {
-			return nil, fmt.Errorf("ssrf: DNS lookup for %q returned no usable IP addresses", host)
+			return nil, fmt.Errorf("ssrf: DNS lookup returned no usable IP addresses")
 		}
 		return dialer.DialContext(ctx, network, net.JoinHostPort(firstPublic.String(), port))
 	}
@@ -254,7 +254,7 @@ func ValidateExternalURL(rawURL string) error {
 	// Block well-known internal hostnames.
 	for _, blocked := range blockedHosts {
 		if strings.EqualFold(host, blocked) {
-			return fmt.Errorf("URL must not point to internal host %q", blocked)
+			return fmt.Errorf("URL must not point to internal host")
 		}
 	}
 
@@ -262,13 +262,13 @@ func ValidateExternalURL(rawURL string) error {
 	// handle but OS-level DNS resolvers may interpret: octal-encoded octets
 	// (e.g. 0177.0.0.1 = 127.0.0.1) and other non-standard notations.
 	if looksLikeNonStandardIP(host) {
-		return fmt.Errorf("ssrf: URL host %q uses non-standard IP notation", host)
+		return fmt.Errorf("ssrf: URL host uses non-standard IP notation")
 	}
 
 	// If the host is an IP literal, validate it directly.
 	if ip := net.ParseIP(host); ip != nil {
 		if isPrivateIP(ip) {
-			return fmt.Errorf("URL must not point to private or internal address %s", ip)
+			return fmt.Errorf("URL must not point to private or internal address")
 		}
 		return nil
 	}
@@ -278,12 +278,12 @@ func ValidateExternalURL(rawURL string) error {
 	// attacker controls a DNS server that intermittently fails.
 	addrs, lookupErr := lookupHost(host)
 	if lookupErr != nil {
-		return fmt.Errorf("ssrf: DNS lookup failed for %q: %w", host, lookupErr)
+		return fmt.Errorf("ssrf: DNS lookup failed")
 	}
 	for _, addr := range addrs {
 		ip := net.ParseIP(addr)
 		if ip != nil && isPrivateIP(ip) {
-			return fmt.Errorf("URL host %q resolves to private address %s", host, ip)
+			return fmt.Errorf("URL host resolves to private address")
 		}
 	}
 
@@ -318,7 +318,7 @@ func SanitizeHTTPClientError(err error) string {
 			if errors.As(urlErr.Err, &nested) {
 				return SanitizeHTTPClientError(urlErr.Err)
 			}
-			return fmt.Sprintf("%s: %v", urlErr.Op, urlErr.Err)
+			return fmt.Sprintf("%s: %s", urlErr.Op, sanitizeHTTPClientRootError(urlErr.Err))
 		}
 		return urlErr.Op
 	}
@@ -326,4 +326,22 @@ func SanitizeHTTPClientError(err error) string {
 		return ""
 	}
 	return err.Error()
+}
+
+func sanitizeHTTPClientRootError(err error) string {
+	if err == nil {
+		return "request failed"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return context.DeadlineExceeded.Error()
+	}
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "invalid header"):
+		return "invalid header"
+	case strings.HasPrefix(msg, "ssrf:"):
+		return msg
+	default:
+		return "request failed"
+	}
 }

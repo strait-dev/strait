@@ -33,6 +33,7 @@ describe("normalizePlanSlug", () => {
     ["starter", "starter"],
     ["pro", "pro"],
     ["scale", "scale"],
+    ["business", "business"],
     ["enterprise", "enterprise"],
   ])('accepts "%s"', (input, expected) => {
     expect(normalizePlanSlug(input)).toBe(expected);
@@ -74,8 +75,15 @@ describe("nextPlanFor", () => {
     expect(nextPlanFor("pro")).toEqual({ plan: "scale", name: "Scale" });
   });
 
-  it("scale -> enterprise", () => {
+  it("scale -> business", () => {
     expect(nextPlanFor("scale")).toEqual({
+      plan: "business",
+      name: "Business",
+    });
+  });
+
+  it("business -> enterprise", () => {
+    expect(nextPlanFor("business")).toEqual({
       plan: "enterprise",
       name: "Enterprise",
     });

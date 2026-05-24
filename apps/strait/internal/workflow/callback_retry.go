@@ -100,6 +100,8 @@ func (s *StepCallback) failWorkflowAndCancel(ctx context.Context, wfRun *domain.
 		}
 		recordWorkflowActiveRunDelta(ctx, wfRun.ProjectID, -1)
 		wfRun.Status = domain.WfStatusFailed
+		wfRun.FinishedAt = &now
+		s.publishWorkflowRunStatus(ctx, wfRun, domain.WfStatusRunning, domain.WfStatusFailed, "step_failed")
 	}
 	if err := s.cancelRemainingSteps(ctx, stepRun.WorkflowRunID); err != nil {
 		return fmt.Errorf("cancel remaining steps: %w", err)

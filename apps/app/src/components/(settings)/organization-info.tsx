@@ -47,6 +47,17 @@ type OrgMetadata = {
 
 function parseMetadata(metadata: unknown): OrgMetadata {
   if (metadata && typeof metadata === "object") {
+    const value = (metadata as { value?: unknown }).value;
+    if (typeof value === "string") {
+      try {
+        const parsed = JSON.parse(value);
+        return parsed && typeof parsed === "object"
+          ? (parsed as OrgMetadata)
+          : {};
+      } catch {
+        return {};
+      }
+    }
     return metadata as OrgMetadata;
   }
   return {};
@@ -78,12 +89,12 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
     },
     validators: { onChange: orgFormSchema },
     onSubmit: ({ value }) => {
-      const metadata = JSON.stringify({
+      const metadata = {
         ...parseMetadata(organization?.metadata),
         description: value.description || undefined,
         email: value.email || undefined,
         website: value.website || undefined,
-      });
+      };
 
       startTransition(() => {
         try {

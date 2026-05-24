@@ -28,13 +28,18 @@ export const Route = createFileRoute("/app/events/")({
   loaderDeps: ({ search }) => ({
     limit: search.perPage ?? 20,
     cursor: search.cursor,
+    status: search.status,
   }),
   loader: async ({ context, deps }) => {
     const { session } = context as AppRouteContext;
     const hasProject = !!session.user.activeProjectId;
     if (hasProject) {
       await context.queryClient.ensureQueryData(
-        eventsQueryOptions({ limit: deps.limit, cursor: deps.cursor })
+        eventsQueryOptions({
+          limit: deps.limit,
+          cursor: deps.cursor,
+          status: deps.status,
+        })
       );
     }
     return { hasProject, session };
@@ -57,6 +62,7 @@ function EventsPage() {
     ...eventsQueryOptions({
       limit: pagination.perPage,
       cursor: pagination.cursor,
+      status: search.status,
     }),
     enabled: hasProject,
   });

@@ -1,76 +1,56 @@
 import { ApiHelper, expect, test } from "../../fixtures";
+import { gotoAndExpect, selectTab } from "../../support/navigation";
+import { TestDataFactory } from "../../support/test-data";
 
-const api = new ApiHelper();
-const testJobName = `e2e-crosspage-${Date.now()}`;
+let data: TestDataFactory;
 let jobId: string;
+let jobName: string;
 let runId: string;
 
-test.describe("Cross-Page State", () => {
-  test.describe.configure({ mode: "serial" });
+test.describe("Cross-page backend state", () => {
+  test.describe.configure({ timeout: 90_000 });
+  test.setTimeout(90_000);
 
   test.beforeAll(async () => {
-    try {
-      const result = await api.createJobAndTrigger(testJobName);
-      jobId = result.jobId;
-      runId = result.runId;
-    } catch {
-      // API may not be available
-    }
+    const api = new ApiHelper();
+    data = new TestDataFactory(api);
+    const job = await data.job("crosspage");
+    const run = await api.triggerJob(job.id, { source: "cross-page-e2e" });
+    jobId = job.id;
+    jobName = job.name;
+    runId = run.id;
   });
 
   test.afterAll(async () => {
-    if (jobId) {
-      await api.deleteJob(jobId).catch(() => {
-        /* cleanup */
-      });
-    }
+    await data?.cleanup.run();
   });
 
-  test("triggered run shows in global runs list", async ({ page }) => {
-    if (!runId) {
-      test.skip();
-      return;
-    }
-    await page.goto("/app/runs");
-    const table = page.locator("table");
-    if (await table.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await expect(page.getByText(testJobName).first()).toBeVisible({
-        timeout: 10_000,
-      });
-    }
-  });
+  test("same seeded run is visible across dashboard, jobs, runs, and detail pages", async ({
+    page,
+  }) => {
+    await page.goto("/app/dashboard", { waitUntil: "domcontentloaded" });
+    await expect(page.getByText(runId.slice(0, 8))).toBeVisible({
+      timeout: 15_000,
+    });
 
-  test("job detail page shows the run", async ({ page }) => {
-    if (!jobId) {
-      test.skip();
-      return;
-    }
-    await page.goto(`/app/jobs/${jobId}`);
-    await page.waitForTimeout(500);
-    const runsTab = page.getByText("Recent Runs").or(page.getByText("Runs"));
-    if (await runsTab.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await runsTab.click();
-      await page.waitForTimeout(500);
-    }
-  });
+    await page.goto(`/app/jobs/${jobId}`, { waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("heading", { name: jobName })).toBeVisible();
+    await selectTab(page, "Recent Runs");
+    await expect(
+      page.getByRole("link", { name: runId.slice(0, 8) }).first()
+    ).toBeVisible();
 
-  test("run detail page accessible from runs list", async ({ page }) => {
-    if (!runId) {
-      test.skip();
-      return;
-    }
-    await page.goto(`/app/runs/${runId}`);
-    const content = page.getByText(testJobName).or(page.locator("main"));
-    await expect(content).toBeVisible({ timeout: 10_000 });
-  });
+    await page.goto("/app/runs", { waitUntil: "domcontentloaded" });
+    await page.getByLabel("Search").fill(runId.slice(0, 8));
+    await expect(
+      page.getByRole("link", { name: runId.slice(0, 8) }).first()
+    ).toBeVisible();
 
-  test("dashboard reflects seeded data", async ({ page }) => {
-    if (!jobId) {
-      test.skip();
-      return;
-    }
-    await page.goto("/app/dashboard");
-    // Dashboard should show at least 1 total run
-    await expect(page.locator("main")).toBeVisible();
+    await gotoAndExpect(
+      page,
+      `/app/runs/${runId}`,
+      page.getByRole("heading", { name: runId })
+    );
+    await expect(page.getByRole("heading", { name: runId })).toBeVisible();
   });
 });

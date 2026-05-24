@@ -51,10 +51,15 @@ const PersonalInfo = ({ user }: Props) => {
           toast.promise(
             updateCurrentUser.mutateAsync(values).then(async () => {
               if (emailChanged) {
-                await authClient.sendVerificationEmail({
-                  email: values.email,
+                const result = await authClient.changeEmail({
+                  newEmail: values.email,
                   callbackURL: "/verify-email",
                 });
+                if (result.error) {
+                  throw new Error(
+                    result.error.message ?? "Failed to change email"
+                  );
+                }
               }
             }),
             {

@@ -107,7 +107,15 @@ function WorkflowsPage() {
   const typed = data as PaginatedResponse<Workflow> | undefined;
 
   const filteredData = useMemo(() => {
-    const workflows = hasProject ? (typed?.data ?? []) : [];
+    let workflows = hasProject ? (typed?.data ?? []) : [];
+    const query = search.query?.trim().toLowerCase();
+    if (query) {
+      workflows = workflows.filter((workflow) =>
+        [workflow.name, workflow.slug, workflow.description]
+          .filter(Boolean)
+          .some((value) => value?.toLowerCase().includes(query))
+      );
+    }
     if (selectedStatuses.length === 0) {
       return workflows;
     }
@@ -120,7 +128,7 @@ function WorkflowsPage() {
       }
       return false;
     });
-  }, [typed, hasProject, selectedStatuses]);
+  }, [typed, hasProject, selectedStatuses, search.query]);
 
   const table = useReactTable({
     data: filteredData,
