@@ -95,6 +95,7 @@ type workerService struct {
 	resultChannels  *ResultChannelRegistry
 	runFinalizer    *atomic.Value
 	authLimiter     grpcAuthLimiter
+	apiKeyResolver  apiKeyResolver
 	billingEnforcer planLimitEnforcer
 }
 
@@ -111,7 +112,7 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	ctx := stream.Context()
 
 	// Authenticate the connecting worker via the Bearer API key in gRPC metadata.
-	apiKey, err := resolveAPIKeyFromContextWithLimit(ctx, s.queries, s.authLimiter)
+	apiKey, err := resolveAPIKeyFromContextWithLimitAndResolver(ctx, s.apiKeyResolver, s.authLimiter)
 	if err != nil {
 		return err
 	}
@@ -164,7 +165,7 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 		}
 		return status.Errorf(codes.Internal, "recv registration: %v", err)
 	}
-	apiKey, err = resolveAPIKeyFromContext(ctx, s.queries)
+	apiKey, err = resolveAPIKeyFromContextWithResolver(ctx, s.apiKeyResolver)
 	if err != nil {
 		return err
 	}

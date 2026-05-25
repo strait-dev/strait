@@ -698,6 +698,7 @@ func startGRPCServer(g *pool.ContextPool, cfg *config.Config, queries *store.Que
 
 	opts := []grpcserver.ServerOption{
 		grpcserver.WithAuthLimiter(ratelimit.NewAuthLimiter(rdb, true)),
+		grpcserver.WithAPIKeyCache(rdb, cfg.APIKeyCacheTTL),
 		grpcserver.WithVersion(version),
 		grpcserver.WithSecretDecryptor(decryptor),
 	}

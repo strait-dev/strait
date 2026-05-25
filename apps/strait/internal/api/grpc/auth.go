@@ -41,9 +41,33 @@ type grpcAuthLimiter interface {
 	ResetScoped(ctx context.Context, ip, scope string)
 }
 
+type apiKeyResolver interface {
+	LookupAPIKeyByHash(context.Context, string) (*domain.APIKey, error)
+}
+
+type apiKeyResolverFunc func(context.Context, string) (*domain.APIKey, error)
+
+func (f apiKeyResolverFunc) LookupAPIKeyByHash(ctx context.Context, keyHash string) (*domain.APIKey, error) {
+	if f == nil {
+		return nil, store.ErrAPIKeyNotFound
+	}
+	return f(ctx, keyHash)
+}
+
+func queryAPIKeyResolver(q *store.Queries) apiKeyResolver {
+	if q == nil {
+		return nil
+	}
+	return apiKeyResolverFunc(q.GetAPIKeyByHash)
+}
+
 func resolveAPIKeyFromContextWithLimit(ctx context.Context, q *store.Queries, limiter grpcAuthLimiter) (*domain.APIKey, error) {
+	return resolveAPIKeyFromContextWithLimitAndResolver(ctx, queryAPIKeyResolver(q), limiter)
+}
+
+func resolveAPIKeyFromContextWithLimitAndResolver(ctx context.Context, resolver apiKeyResolver, limiter grpcAuthLimiter) (*domain.APIKey, error) {
 	if limiter == nil {
-		return resolveAPIKeyFromContext(ctx, q)
+		return resolveAPIKeyFromContextWithResolver(ctx, resolver)
 	}
 
 	ip := grpcPeerIP(ctx)
@@ -51,7 +75,7 @@ func resolveAPIKeyFromContextWithLimit(ctx context.Context, q *store.Queries, li
 		return nil, status.Errorf(codes.ResourceExhausted, "too many failed authentication attempts; retry after %s", retryAfter.Truncate(time.Second))
 	}
 
-	apiKey, err := resolveAPIKeyFromContext(ctx, q)
+	apiKey, err := resolveAPIKeyFromContextWithResolver(ctx, resolver)
 	if err != nil {
 		limiter.RecordFailureScoped(ctx, ip, ratelimit.AuthScopeGRPCWorker)
 		return nil, err
@@ -81,6 +105,10 @@ func grpcPeerIP(ctx context.Context) string {
 // lifecycle (revoked, expired), and returns the key. On any failure it
 // returns a gRPC status error suitable for returning directly from a handler.
 func resolveAPIKeyFromContext(ctx context.Context, q *store.Queries) (*domain.APIKey, error) {
+	return resolveAPIKeyFromContextWithResolver(ctx, queryAPIKeyResolver(q))
+}
+
+func resolveAPIKeyFromContextWithResolver(ctx context.Context, resolver apiKeyResolver) (*domain.APIKey, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
 		return nil, status.Error(codes.Unauthenticated, "missing metadata")
@@ -102,7 +130,10 @@ func resolveAPIKeyFromContext(ctx context.Context, q *store.Queries) (*domain.AP
 	}
 	keyHash := hashGRPCAPIKey(rawKey)
 
-	apiKey, err := q.GetAPIKeyByHash(ctx, keyHash)
+	if resolver == nil {
+		return nil, status.Error(codes.Unauthenticated, "invalid api key")
+	}
+	apiKey, err := resolver.LookupAPIKeyByHash(ctx, keyHash)
 	if err != nil || apiKey == nil {
 		return nil, status.Error(codes.Unauthenticated, "invalid api key")
 	}
