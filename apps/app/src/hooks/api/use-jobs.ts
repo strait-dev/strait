@@ -11,9 +11,14 @@ import type {
   JobRun,
   ListParams,
   PaginatedResponse,
+  SingletonHolder,
 } from "@/hooks/api/types";
 import { queryKeys } from "@/hooks/query-keys";
-import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
+import {
+  DEFAULT_GC_TIME,
+  DEFAULT_STALE_TIME,
+  HIGH_CHURN_STALE_TIME,
+} from "@/hooks/utils";
 import { getPostHog } from "@/lib/analytics";
 import { apiPath } from "@/lib/api-client.server";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
@@ -54,6 +59,23 @@ export const fetchJob = createServerFn({ method: "GET" })
       await requireActiveProjectAccess(context);
       return await runWithSentryReport(
         apiEffect<Job>(apiPath`/v1/jobs/${data.id}`)
+      );
+    }
+  );
+
+export const fetchJobSingletons = createServerFn({ method: "GET" })
+  .inputValidator(
+    (data: { id: string; limit?: number; cursor?: string }) => data
+  )
+  .middleware([authMiddleware])
+  .handler(
+    async ({ context, data }): Promise<PaginatedResponse<SingletonHolder>> => {
+      await requireActiveProjectAccess(context);
+      return await runWithSentryReport(
+        apiEffect<PaginatedResponse<SingletonHolder>>(
+          apiPath`/v1/jobs/${data.id}/singletons`,
+          { params: { limit: data.limit, cursor: data.cursor } }
+        )
       );
     }
   );
@@ -165,6 +187,14 @@ export const jobHealthQueryOptions = (id: string, window = "7d") =>
     queryKey: [...queryKeys.jobs.detail(id).queryKey, "health", window],
     queryFn: () => fetchJobHealth({ data: { id, window } }),
     staleTime: DEFAULT_STALE_TIME,
+    gcTime: DEFAULT_GC_TIME,
+  });
+
+export const jobSingletonsQueryOptions = (id: string) =>
+  queryOptions({
+    queryKey: queryKeys.jobs.singletons(id).queryKey,
+    queryFn: () => fetchJobSingletons({ data: { id } }),
+    staleTime: HIGH_CHURN_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
   });
 
