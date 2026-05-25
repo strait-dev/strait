@@ -95,6 +95,7 @@ func TestLoad_Defaults(t *testing.T) {
 		{"PermissionCacheTTL", cfg.PermissionCacheTTL, 5 * time.Minute},
 		{"LogDrainWorkerInterval", cfg.LogDrainWorkerInterval, time.Minute},
 		{"JobCacheTTL", cfg.JobCacheTTL, 5 * time.Minute},
+		{"VersionCacheTTL", cfg.VersionCacheTTL, 30 * time.Minute},
 		{"MaxResultSize", cfg.MaxResultSize, int64(1 << 20)},
 		{"MigrationMode", cfg.MigrationMode, "auto"},
 		{"MigrationLockTimeout", cfg.MigrationLockTimeout, 30 * time.Second},

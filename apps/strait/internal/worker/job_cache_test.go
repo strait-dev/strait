@@ -6,22 +6,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/eko/gocache/lib/v4/cache"
 	"github.com/sourcegraph/conc"
 
 	"strait/internal/domain"
-
-	"strait/internal/cache/otterstore"
 )
 
-func newTestJobCache(t *testing.T, ttl time.Duration) *cache.Cache[*domain.Job] {
+func newTestJobCache(t *testing.T, ttl time.Duration) executorJobCache {
 	t.Helper()
-	store := otterstore.New(otterstore.Config{
-		DefaultTTL:  ttl,
-		MaxCapacity: 1_000,
-	})
-	t.Cleanup(store.Close)
-	return cache.New[*domain.Job](store)
+	return newTierJobCache(ttl)
 }
 
 func TestJobCache_HitAvoidsDatabaseLookup(t *testing.T) {
@@ -219,6 +211,74 @@ func TestJobCache_NilCacheDisablesLookup(t *testing.T) {
 	_, _ = e.resolveJobForRun(ctx, run)
 	if dbCalls.Load() != 2 {
 		t.Fatalf("DB calls = %d, want 2 (no cache)", dbCalls.Load())
+	}
+}
+
+func TestWorkerCache_ConstructedFromExecutorConfig(t *testing.T) {
+	t.Parallel()
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:                     NewPool(1),
+		Queue:                    &mockExecQueue{},
+		Store:                    &mockExecutorStore{},
+		JobCacheTTL:              5 * time.Minute,
+		VersionCacheTTL:          30 * time.Minute,
+		MaxDequeueBatchSize:      7,
+		DefaultJobMaxConcurrency: 3,
+	})
+
+	if exec.jobCache == nil {
+		t.Fatal("jobCache = nil, want constructed when JobCacheTTL > 0")
+	}
+	if exec.jobVersionCache == nil {
+		t.Fatal("jobVersionCache = nil, want constructed when VersionCacheTTL > 0")
+	}
+	if exec.maxDequeueBatchSize != 7 {
+		t.Fatalf("maxDequeueBatchSize = %d, want 7", exec.maxDequeueBatchSize)
+	}
+	if exec.defaultJobMaxConcurrency != 3 {
+		t.Fatalf("defaultJobMaxConcurrency = %d, want 3", exec.defaultJobMaxConcurrency)
+	}
+}
+
+func TestResolveJobForRun_CachesPinnedVersion(t *testing.T) {
+	t.Parallel()
+
+	var getJobCalls atomic.Int64
+	var getVersionCalls atomic.Int64
+	store := &mockExecutorStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			getJobCalls.Add(1)
+			return &domain.Job{ID: id, Version: 2, VersionPolicy: domain.VersionPolicyPin}, nil
+		},
+		getJobAtVersionFn: func(_ context.Context, jobID string, version int) (*domain.Job, error) {
+			getVersionCalls.Add(1)
+			return &domain.Job{ID: jobID, Version: version, VersionPolicy: domain.VersionPolicyPin}, nil
+		},
+	}
+	exec := NewExecutor(ExecutorConfig{
+		Pool:            NewPool(1),
+		Queue:           &mockExecQueue{},
+		Store:           store,
+		JobCacheTTL:     5 * time.Minute,
+		VersionCacheTTL: 30 * time.Minute,
+	})
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 1}
+
+	for range 2 {
+		job, err := exec.resolveJobForRun(context.Background(), run)
+		if err != nil {
+			t.Fatalf("resolveJobForRun() error = %v", err)
+		}
+		if job.Version != 1 {
+			t.Fatalf("resolved version = %d, want 1", job.Version)
+		}
+	}
+	if getJobCalls.Load() != 1 {
+		t.Fatalf("GetJob calls = %d, want 1", getJobCalls.Load())
+	}
+	if getVersionCalls.Load() != 1 {
+		t.Fatalf("GetJobAtVersion calls = %d, want 1", getVersionCalls.Load())
 	}
 }
 

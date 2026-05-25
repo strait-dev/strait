@@ -12,13 +12,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	straitcache "strait/internal/cache"
 	"strait/internal/clickhouse"
 	"strait/internal/domain"
 	"strait/internal/telemetry"
 
-	"strait/internal/cache/otterstore"
-
-	"github.com/eko/gocache/lib/v4/cache"
 	"github.com/getsentry/sentry-go"
 	"github.com/redis/go-redis/v9"
 	"github.com/sourcegraph/conc"
@@ -59,7 +57,7 @@ type Enforcer struct {
 	rdb             redis.Cmdable
 	logger          *slog.Logger
 	metrics         *telemetry.Metrics
-	orgCache        *cache.Cache[*cachedOrgLimits]
+	orgCache        *straitcache.Tier[string, *cachedOrgLimits]
 	limitsGroup     singleflight.Group
 	cacheTTL        time.Duration
 	suspendedCache  sync.Map // projectID -> *suspendedCacheEntry
@@ -192,12 +190,28 @@ func NewEnforcer(store Store, rdb redis.Cmdable, logger *slog.Logger, opts ...En
 		logger = slog.Default()
 	}
 	cacheTTL := 5 * time.Minute
-	cacheStore := otterstore.New(otterstore.Config{
-		DefaultTTL:  cacheTTL,
-		MaxCapacity: 1_000,
+	orgCache := straitcache.NewTier[string, *cachedOrgLimits](straitcache.TierConfig[string, *cachedOrgLimits]{
+		Name:        "billing_org_limits",
+		Consistency: straitcache.Strong,
+		MaximumSize: 1_000,
+		TTL:         cacheTTL,
 		TTLJitter:   0.1,
+		DisableL2:   true,
+		Clone: func(limits *cachedOrgLimits) *cachedOrgLimits {
+			if limits == nil {
+				return nil
+			}
+			clone := *limits
+			clone.limits.AllowedRegions = append([]string(nil), limits.limits.AllowedRegions...)
+			if limits.limits.MaxAddonPacks != nil {
+				clone.limits.MaxAddonPacks = make(map[AddonType]int, len(limits.limits.MaxAddonPacks))
+				for k, v := range limits.limits.MaxAddonPacks {
+					clone.limits.MaxAddonPacks[k] = v
+				}
+			}
+			return &clone
+		},
 	})
-	orgCache := cache.New[*cachedOrgLimits](cacheStore)
 
 	e := &Enforcer{
 		store:                     store,
@@ -339,13 +353,19 @@ func (e *Enforcer) tryDispatchCapEvent(
 
 // InvalidateOrgCache removes cached plan limits for an org (call on plan change).
 func (e *Enforcer) InvalidateOrgCache(orgID string) {
-	_ = e.orgCache.Delete(context.Background(), orgID)
+	if e == nil || e.orgCache == nil {
+		return
+	}
+	e.orgCache.Invalidate(context.Background(), orgID)
 }
 
 // getEnforcementMode returns the enforcement mode for an org from cache.
 // Falls back to "enforce" if not cached.
 func (e *Enforcer) getEnforcementMode(orgID string) string {
-	if cached, err := e.orgCache.Get(context.Background(), orgID); err == nil {
+	if e == nil || e.orgCache == nil {
+		return "enforce"
+	}
+	if cached, ok := e.orgCache.GetIfPresent(orgID); ok && cached != nil {
 		if cached.enforcementMode != "" {
 			return cached.enforcementMode
 		}
@@ -414,7 +434,7 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 		return GetPlanLimits(domain.PlanFree), nil
 	}
 
-	if cached, err := e.orgCache.Get(ctx, orgID); err == nil {
+	if cached, ok := e.orgCache.GetIfPresent(orgID); ok && cached != nil {
 		addBillingSentryBreadcrumb(ctx, "plan_limits", "billing plan limits cache hit", map[string]any{
 			"org_id": orgID,
 			"plan":   string(cached.limits.PlanTier),
@@ -426,7 +446,7 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 	// thundering herd on the DB when cache expires under load.
 	result, err, _ := e.limitsGroup.Do(orgID, func() (any, error) {
 		// Double-check cache inside singleflight (another goroutine may have populated it).
-		if cached, err := e.orgCache.Get(ctx, orgID); err == nil {
+		if cached, ok := e.orgCache.GetIfPresent(orgID); ok && cached != nil {
 			return cached.limits, nil
 		}
 
@@ -438,7 +458,7 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 					tier:            domain.PlanFree,
 					limits:          limits,
 					enforcementMode: "enforce",
-				})
+				}, 1)
 				return limits, nil
 			}
 			return OrgPlanLimits{}, fmt.Errorf("getting org subscription: %w", err)
@@ -519,7 +539,7 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 		tier:            tier,
 		limits:          limits,
 		enforcementMode: sub.EnforcementMode,
-	})
+	}, 1)
 	return limits, nil
 }
 

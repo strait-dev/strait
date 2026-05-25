@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"strait/internal/billing"
+	straitcache "strait/internal/cache"
 	"strait/internal/domain"
 	"strait/internal/httputil"
 	"strait/internal/pubsub"
@@ -22,14 +23,10 @@ import (
 	"strait/internal/store"
 	"strait/internal/telemetry"
 
-	"strait/internal/cache/otterstore"
-
-	"github.com/eko/gocache/lib/v4/cache"
 	"github.com/getsentry/sentry-go"
 	"github.com/sourcegraph/conc"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
-	"golang.org/x/sync/singleflight"
 )
 
 // ExecutorStore is the subset of store operations needed by Executor.
@@ -72,6 +69,100 @@ type executionPolicy struct {
 	retryBackoff     domain.RetryBackoffPolicy
 	retryInitialSecs int
 	retryMaxSecs     int
+}
+
+type jobVersionKey struct {
+	JobID   string
+	Version int
+}
+
+type executorJobCache interface {
+	Get(context.Context, string) (*domain.Job, error)
+	Load(context.Context, string, straitcache.LoadFunc[string, *domain.Job]) (*domain.Job, error)
+	Set(context.Context, string, *domain.Job) error
+	Delete(context.Context, string) error
+}
+
+type executorVersionedJobCache interface {
+	Load(context.Context, jobVersionKey, straitcache.LoadFunc[jobVersionKey, *domain.Job]) (*domain.Job, error)
+}
+
+type tierJobCache struct {
+	tier *straitcache.Tier[string, *domain.Job]
+}
+
+func newTierJobCache(ttl time.Duration) *tierJobCache {
+	if ttl <= 0 {
+		return nil
+	}
+	return &tierJobCache{tier: straitcache.NewTier[string, *domain.Job](straitcache.TierConfig[string, *domain.Job]{
+		Name:        "worker_job",
+		Consistency: straitcache.BoundedStaleness,
+		MaximumSize: 10_000,
+		TTL:         ttl,
+		TTLJitter:   0.1,
+		DisableL2:   true,
+		Clone:       cloneJob,
+	})}
+}
+
+func (c *tierJobCache) Get(ctx context.Context, key string) (*domain.Job, error) {
+	if c == nil || c.tier == nil {
+		return nil, straitcache.ErrCacheMiss
+	}
+	return c.tier.Get(ctx, key, nil)
+}
+
+func (c *tierJobCache) Load(ctx context.Context, key string, loader straitcache.LoadFunc[string, *domain.Job]) (*domain.Job, error) {
+	if c == nil || c.tier == nil {
+		return loader(ctx, key)
+	}
+	return c.tier.Get(ctx, key, loader)
+}
+
+func (c *tierJobCache) Set(ctx context.Context, key string, job *domain.Job) error {
+	if c == nil || c.tier == nil {
+		return nil
+	}
+	version := int64(0)
+	if job != nil {
+		version = int64(job.Version)
+	}
+	return c.tier.Set(ctx, key, job, version)
+}
+
+func (c *tierJobCache) Delete(ctx context.Context, key string) error {
+	if c == nil || c.tier == nil {
+		return nil
+	}
+	c.tier.Invalidate(ctx, key)
+	return nil
+}
+
+type tierVersionedJobCache struct {
+	tier *straitcache.Tier[jobVersionKey, *domain.Job]
+}
+
+func newTierVersionedJobCache(ttl time.Duration) *tierVersionedJobCache {
+	if ttl <= 0 {
+		return nil
+	}
+	return &tierVersionedJobCache{tier: straitcache.NewTier[jobVersionKey, *domain.Job](straitcache.TierConfig[jobVersionKey, *domain.Job]{
+		Name:        "worker_job_version",
+		Consistency: straitcache.Immutable,
+		MaximumSize: 10_000,
+		TTL:         ttl,
+		TTLJitter:   0.1,
+		DisableL2:   true,
+		Clone:       cloneJob,
+	})}
+}
+
+func (c *tierVersionedJobCache) Load(ctx context.Context, key jobVersionKey, loader straitcache.LoadFunc[jobVersionKey, *domain.Job]) (*domain.Job, error) {
+	if c == nil || c.tier == nil {
+		return loader(ctx, key)
+	}
+	return c.tier.Get(ctx, key, loader)
 }
 
 // WorkflowCallback is called after a job run reaches a terminal state.
@@ -139,39 +230,35 @@ type Executor struct {
 	eventCh                  chan runEventEnvelope
 	maxDequeueBatchSize      int
 	defaultJobMaxConcurrency int
-	jobCache                 *cache.Cache[*domain.Job]
-	jobCacheStore            *otterstore.OtterStore
-	// jobResolveGroup coalesces concurrent resolveJobForRun calls for the
-	// same job ID so a burst of runs does not stampede the DB while the
-	// cache is cold.
-	jobResolveGroup         singleflight.Group
-	memoryPressureThreshold float64
-	maxSnoozeCount          int
-	jwtSigningKey           string
-	externalAPIURL          string
-	defaultRegion           string
-	mode                    string
-	version                 string
-	billingEnforcer         *billing.Enforcer
-	stripeUsageReporter     *billing.StripeUsageReporter
-	stripeUsageWG           conc.WaitGroup // tracks in-flight Stripe usage event goroutines
-	runCostRecorder         *billing.RunCostRecorder
-	secretDecryptor         SecretDecryptor
-	stop                    chan struct{}
-	done                    chan struct{}
-	stopOnce                sync.Once
-	pollWG                  sync.WaitGroup
-	bgWG                    conc.WaitGroup
-	callbackWG              conc.WaitGroup
-	pollInFlight            atomic.Int64
-	runStarted              atomic.Bool
-	degradedPollInterval    time.Duration
-	degraded                queue.DegradedNotifier
-	useDenormalizedDequeue  bool
-	dbCircuit               *queue.DBCircuit
-	eventChannelSize        int
-	saturationWarnMu        sync.Mutex
-	saturationLastWarn      map[string]time.Time
+	jobCache                 executorJobCache
+	jobVersionCache          executorVersionedJobCache
+	memoryPressureThreshold  float64
+	maxSnoozeCount           int
+	jwtSigningKey            string
+	externalAPIURL           string
+	defaultRegion            string
+	mode                     string
+	version                  string
+	billingEnforcer          *billing.Enforcer
+	stripeUsageReporter      *billing.StripeUsageReporter
+	stripeUsageWG            conc.WaitGroup // tracks in-flight Stripe usage event goroutines
+	runCostRecorder          *billing.RunCostRecorder
+	secretDecryptor          SecretDecryptor
+	stop                     chan struct{}
+	done                     chan struct{}
+	stopOnce                 sync.Once
+	pollWG                   sync.WaitGroup
+	bgWG                     conc.WaitGroup
+	callbackWG               conc.WaitGroup
+	pollInFlight             atomic.Int64
+	runStarted               atomic.Bool
+	degradedPollInterval     time.Duration
+	degraded                 queue.DegradedNotifier
+	useDenormalizedDequeue   bool
+	dbCircuit                *queue.DBCircuit
+	eventChannelSize         int
+	saturationWarnMu         sync.Mutex
+	saturationLastWarn       map[string]time.Time
 	// queueSnapshotter returns the set of queue names with active workers on
 	// this replica. When non-nil, poll performs a second dequeue pass for
 	// worker-mode runs filtered to those queues. Injected from the gRPC
@@ -220,6 +307,7 @@ type ExecutorConfig struct {
 	DefaultJobMaxConcurrency   int
 	MemoryPressureThresholdPct float64
 	JobCacheTTL                time.Duration
+	VersionCacheTTL            time.Duration
 	MaxSnoozeCount             int
 	JWTSigningKey              string
 	ExternalAPIURL             string
@@ -313,16 +401,8 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		whMaxAttempts = 3
 	}
 
-	var jobCache *cache.Cache[*domain.Job]
-	var jobCacheStore *otterstore.OtterStore
-	if cfg.JobCacheTTL > 0 {
-		jobCacheStore = otterstore.New(otterstore.Config{
-			DefaultTTL:  cfg.JobCacheTTL,
-			MaxCapacity: 10_000,
-			TTLJitter:   0.1,
-		})
-		jobCache = cache.New[*domain.Job](jobCacheStore)
-	}
+	jobCache := newTierJobCache(cfg.JobCacheTTL)
+	jobVersionCache := newTierVersionedJobCache(cfg.VersionCacheTTL)
 
 	return &Executor{
 		pool:                     cfg.Pool,
@@ -350,7 +430,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		maxDequeueBatchSize:      cfg.MaxDequeueBatchSize,
 		defaultJobMaxConcurrency: cfg.DefaultJobMaxConcurrency,
 		jobCache:                 jobCache,
-		jobCacheStore:            jobCacheStore,
+		jobVersionCache:          jobVersionCache,
 		memoryPressureThreshold:  cfg.MemoryPressureThresholdPct,
 		maxSnoozeCount:           cfg.MaxSnoozeCount,
 		jwtSigningKey:            cfg.JWTSigningKey,
@@ -388,12 +468,7 @@ func resolveQueueMetrics() *queue.QueueMetrics {
 	return qm
 }
 
-// CloseCache shuts down the otter cache if one was created.
-func (e *Executor) CloseCache() {
-	if e.jobCacheStore != nil {
-		e.jobCacheStore.Close()
-	}
-}
+func (e *Executor) CloseCache() {}
 
 func (e *Executor) tryAcquireBulkheadSlot(jobID string, maxConcurrency int) bool {
 	return e.bulkhead.TryAcquire(jobID, maxConcurrency)

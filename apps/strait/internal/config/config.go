@@ -236,6 +236,7 @@ type Config struct {
 	LogDrainWorkerInterval     time.Duration `env:"LOG_DRAIN_WORKER_INTERVAL" default:"1m"`
 	MemoryPressureThresholdPct float64       `env:"MEMORY_PRESSURE_THRESHOLD_PCT" default:"0"`
 	JobCacheTTL                time.Duration `env:"JOB_CACHE_TTL" default:"5m"`
+	VersionCacheTTL            time.Duration `env:"VERSION_CACHE_TTL" default:"30m"`
 	DefaultRunTTLSecs          int           `env:"DEFAULT_RUN_TTL_SECS" default:"0"`
 	MaxResultSize              int64         `env:"MAX_RESULT_SIZE" default:"1048576"`
 	MigrationMode              string        `env:"MIGRATION_MODE" default:"auto"`

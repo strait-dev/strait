@@ -100,27 +100,26 @@ func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*d
 	}
 
 	if current == nil {
-		// Coalesce concurrent cache misses for the same job so a fan-out of
-		// runs does not stampede the DB. Mirrors billing.Enforcer.GetOrgLimits.
-		result, err, _ := e.jobResolveGroup.Do(run.JobID, func() (any, error) {
-			if e.jobCache != nil && !bypassCache {
-				if cached, gerr := e.jobCache.Get(ctx, run.JobID); gerr == nil {
-					return cached, nil
-				}
-			}
-			job, gerr := e.store.GetJob(ctx, run.JobID)
+		loadCurrent := func(loadCtx context.Context, jobID string) (*domain.Job, error) {
+			job, gerr := e.store.GetJob(loadCtx, jobID)
 			if gerr != nil {
 				return nil, gerr
 			}
-			if e.jobCache != nil {
-				_ = e.jobCache.Set(ctx, run.JobID, cloneJob(job))
-			}
 			return cloneJob(job), nil
-		})
+		}
+		var err error
+		if e.jobCache != nil && !bypassCache {
+			current, err = e.jobCache.Load(ctx, run.JobID, loadCurrent)
+		} else {
+			current, err = loadCurrent(ctx, run.JobID)
+			if err == nil && e.jobCache != nil {
+				_ = e.jobCache.Set(ctx, run.JobID, current)
+			}
+		}
 		if err != nil {
 			return nil, fmt.Errorf("load current job: %w", err)
 		}
-		current = cloneJob(result.(*domain.Job))
+		current = cloneJob(current)
 	}
 
 	if current.Version == run.JobVersion {
@@ -161,7 +160,17 @@ func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*d
 	case domain.VersionPolicyPin, "":
 	}
 
-	return e.store.GetJobAtVersion(ctx, run.JobID, run.JobVersion)
+	loadVersion := func(loadCtx context.Context, key jobVersionKey) (*domain.Job, error) {
+		job, err := e.store.GetJobAtVersion(loadCtx, key.JobID, key.Version)
+		if err != nil {
+			return nil, err
+		}
+		return cloneJob(job), nil
+	}
+	if e.jobVersionCache != nil {
+		return e.jobVersionCache.Load(ctx, jobVersionKey{JobID: run.JobID, Version: run.JobVersion}, loadVersion)
+	}
+	return loadVersion(ctx, jobVersionKey{JobID: run.JobID, Version: run.JobVersion})
 }
 
 func cloneJob(job *domain.Job) *domain.Job {
