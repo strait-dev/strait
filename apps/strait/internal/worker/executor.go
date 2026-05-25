@@ -165,21 +165,24 @@ func (c *tierJobCache) Load(ctx context.Context, key string, loader straitcache.
 	if c == nil || c.tier == nil {
 		return loader(ctx, key)
 	}
-	return c.tier.Get(ctx, key, loader)
+	got, err := c.tier.GetConsistentVersioned(ctx, key, 0, func(loadCtx context.Context, loadKey string) (straitcache.Versioned[*domain.Job], error) {
+		job, err := loader(loadCtx, loadKey)
+		if err != nil {
+			return straitcache.Versioned[*domain.Job]{}, err
+		}
+		return straitcache.Versioned[*domain.Job]{Value: job, Version: jobCacheVersion(job)}, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return got.Value, nil
 }
 
 func (c *tierJobCache) Set(ctx context.Context, key string, job *domain.Job) error {
 	if c == nil || c.tier == nil {
 		return nil
 	}
-	version := int64(0)
-	if job != nil {
-		version = int64(job.Version)
-	}
-	if version <= 0 {
-		version = time.Now().UnixNano()
-	}
-	_, err := c.tier.WriteThrough(ctx, key, job, version, c.bus, workerJobCacheNamespace, key)
+	_, err := c.tier.WriteThrough(ctx, key, job, jobCacheVersion(job), c.bus, workerJobCacheNamespace, key)
 	return err
 }
 
@@ -188,6 +191,19 @@ func (c *tierJobCache) Delete(ctx context.Context, key string) error {
 		return nil
 	}
 	return c.tier.InvalidateThrough(ctx, key, c.bus, workerJobCacheNamespace, key, time.Now().UnixNano())
+}
+
+func jobCacheVersion(job *domain.Job) int64 {
+	if job == nil {
+		return 0
+	}
+	if !job.UpdatedAt.IsZero() {
+		return job.UpdatedAt.UnixNano()
+	}
+	if job.Version > 0 {
+		return int64(job.Version)
+	}
+	return 1
 }
 
 type tierVersionedJobCache struct {

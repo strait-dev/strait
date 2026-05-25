@@ -184,6 +184,73 @@ func TestWorkerJobCache_RedisL2BackfillAndCachebusInvalidate(t *testing.T) {
 	}
 }
 
+func TestWorkerJobCache_UsesUpdatedAtVersionForRedisCAS(t *testing.T) {
+	t.Parallel()
+
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	updatedAt := time.Unix(1700000000, 123).UTC()
+	cache := newTierJobCache(time.Minute, workerCacheDeps{Redis: rdb})
+	if err := cache.Set(context.Background(), "job-versioned", &domain.Job{
+		ID:        "job-versioned",
+		Version:   3,
+		Name:      "cached",
+		UpdatedAt: updatedAt,
+	}); err != nil {
+		t.Fatalf("Set() error = %v", err)
+	}
+
+	raw, err := rdb.Get(context.Background(), "strait:cache:"+workerJobCacheNamespace+":job-versioned").Bytes()
+	if err != nil {
+		t.Fatalf("read redis entry: %v", err)
+	}
+	var envelope struct {
+		Version int64 `json:"version"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatalf("decode redis entry: %v", err)
+	}
+	if envelope.Version != updatedAt.UnixNano() {
+		t.Fatalf("redis version = %d, want %d", envelope.Version, updatedAt.UnixNano())
+	}
+}
+
+func TestWorkerJobCache_LoadPreservesUpdatedAtVersionInRedis(t *testing.T) {
+	t.Parallel()
+
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	updatedAt := time.Unix(1700000100, 456).UTC()
+	cache := newTierJobCache(time.Minute, workerCacheDeps{Redis: rdb})
+	got, err := cache.Load(context.Background(), "job-loaded", func(context.Context, string) (*domain.Job, error) {
+		return &domain.Job{ID: "job-loaded", Version: 2, Name: "loaded", UpdatedAt: updatedAt}, nil
+	})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got == nil || got.UpdatedAt != updatedAt {
+		t.Fatalf("Load() = %+v, want UpdatedAt %v", got, updatedAt)
+	}
+
+	raw, err := rdb.Get(context.Background(), "strait:cache:"+workerJobCacheNamespace+":job-loaded").Bytes()
+	if err != nil {
+		t.Fatalf("read redis entry: %v", err)
+	}
+	var envelope struct {
+		Version int64 `json:"version"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatalf("decode redis entry: %v", err)
+	}
+	if envelope.Version != updatedAt.UnixNano() {
+		t.Fatalf("redis version = %d, want %d", envelope.Version, updatedAt.UnixNano())
+	}
+}
+
 func TestJobCache_MultipleKeys(t *testing.T) {
 	t.Parallel()
 
