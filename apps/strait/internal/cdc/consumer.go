@@ -223,29 +223,28 @@ func (c *Consumer) poll(ctx context.Context) error {
 		ackIDs = append(ackIDs, msg.AckID)
 	}
 
-	// Flush batch in a single Redis pipeline. On failure, NACK the messages
-	// so they are retried instead of being silently lost.
+	// Flush projection fan-out in one Redis pipeline. Projection delivery is
+	// best-effort; durable additional handlers below decide ACK/NACK so a
+	// transient Redis miss does not redeliver side effects.
 	if len(batchMessages) > 0 && len(batch) > 0 && c.publisher != nil {
 		if err := c.publisher.PublishBatch(ctx, batch); err != nil {
 			c.captureBatchPublishFailure(ctx, err, len(batch))
-			c.logger.Error("batch publish failed, nacking messages", "count", len(batch), "error", err)
-			for _, msg := range batchMessages {
-				nackIDs = append(nackIDs, msg.AckID)
-			}
+			c.logger.Error("batch publish failed, continuing with durable handlers", "count", len(batch), "error", err)
 		} else {
-			for _, msg := range batchMessages {
-				if err := c.runAdditionalHandlers(ctx, msg); err != nil {
-					c.logger.Error("additional handler failed",
-						"table", msg.Metadata.TableName,
-						"action", msg.Action,
-						"ack_id", msg.AckID,
-						"error", err,
-					)
-					nackIDs = append(nackIDs, msg.AckID)
-					continue
-				}
-				ackIDs = append(ackIDs, msg.AckID)
+			c.logger.Debug("batch publish succeeded", "count", len(batch))
+		}
+		for _, msg := range batchMessages {
+			if err := c.runAdditionalHandlers(ctx, msg); err != nil {
+				c.logger.Error("additional handler failed",
+					"table", msg.Metadata.TableName,
+					"action", msg.Action,
+					"ack_id", msg.AckID,
+					"error", err,
+				)
+				nackIDs = append(nackIDs, msg.AckID)
+				continue
 			}
+			ackIDs = append(ackIDs, msg.AckID)
 		}
 	} else {
 		for _, msg := range batchMessages {

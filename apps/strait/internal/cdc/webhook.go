@@ -145,8 +145,6 @@ func (wr *WebhookReceiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if pubMsg != nil {
 			if pubErr := wr.publisher.Publish(r.Context(), pubMsg.Channel, pubMsg.Data); pubErr != nil {
 				wr.logger.Error("cdc webhook: publish failed", "table", tableName, "channel", pubMsg.Channel, "error", pubErr)
-				http.Error(w, "publish error", http.StatusInternalServerError)
-				return
 			}
 		}
 	} else {

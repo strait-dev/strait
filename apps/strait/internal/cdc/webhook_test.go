@@ -178,6 +178,69 @@ func TestWebhookReceiver_CollectAndPublish(t *testing.T) {
 	}
 }
 
+func TestWebhookReceiver_PublishFailureStillAcksProjection(t *testing.T) {
+	t.Parallel()
+	pub := &mockPublisher{publishFn: func(context.Context, string, []byte) error {
+		return errors.New("redis down")
+	}}
+	h := &webhookMockCollectHandler{
+		webhookMockHandler: webhookMockHandler{table: "job_runs"},
+		pubMsg:             &pubsub.PubSubMessage{Channel: "cdc:project:p1:job_runs", Data: []byte(`{"test":true}`)},
+	}
+	wr := NewWebhookReceiver(pub, nil)
+	wr.RegisterHandler(h)
+
+	msg := Message{
+		Record:   json.RawMessage(`{"id":"run-1","project_id":"p1"}`),
+		Action:   ActionUpdate,
+		Metadata: Metadata{TableName: "job_runs"},
+	}
+
+	rr := httptest.NewRecorder()
+	wr.ServeHTTP(rr, makeWebhookRequest(msg))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 despite projection publish failure, got %d", rr.Code)
+	}
+	if len(h.collected) != 1 {
+		t.Fatalf("expected 1 collected message, got %d", len(h.collected))
+	}
+	if len(pub.calls) != 1 {
+		t.Fatalf("expected 1 publish attempt, got %d", len(pub.calls))
+	}
+}
+
+func TestWebhookReceiver_PublishFailureStillRetriesAdditionalHandlerFailure(t *testing.T) {
+	t.Parallel()
+	pub := &mockPublisher{publishFn: func(context.Context, string, []byte) error {
+		return errors.New("redis down")
+	}}
+	primary := &webhookMockCollectHandler{
+		webhookMockHandler: webhookMockHandler{table: "job_runs"},
+		pubMsg:             &pubsub.PubSubMessage{Channel: "cdc:project:p1:job_runs", Data: []byte(`{"test":true}`)},
+	}
+	sideEffect := &webhookMockHandler{table: "job_runs", err: errors.New("durable side effect failed")}
+	wr := NewWebhookReceiver(pub, nil)
+	wr.RegisterHandler(primary)
+	wr.RegisterAdditionalHandler(sideEffect)
+
+	msg := Message{
+		Record:   json.RawMessage(`{"id":"run-1","project_id":"p1"}`),
+		Action:   ActionUpdate,
+		Metadata: Metadata{TableName: "job_runs"},
+	}
+
+	rr := httptest.NewRecorder()
+	wr.ServeHTTP(rr, makeWebhookRequest(msg))
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 for durable side-effect failure, got %d", rr.Code)
+	}
+	if len(sideEffect.handled) != 1 {
+		t.Fatalf("expected side-effect handler to run once, got %d", len(sideEffect.handled))
+	}
+}
+
 func TestDeepSecWebhookReceiver_RejectsNonPost(t *testing.T) {
 	t.Parallel()
 	wr := NewWebhookReceiver(nil, nil)
