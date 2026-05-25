@@ -97,6 +97,27 @@ func TestPermissionCache_RedisL2BackfillAndCachebusInvalidate(t *testing.T) {
 	}
 }
 
+func TestPermissionCache_ProjectInvalidationClearsRedisL2(t *testing.T) {
+	t.Parallel()
+
+	registry := straitcache.NewRegistry(straitcache.RegistryConfig{Origin: "node-a"})
+	deps, cleanup := newTestRedisCacheDeps(t, registry)
+	defer cleanup()
+	cache := newPermissionCache(time.Minute, deps)
+	cache.Set("proj", "user-a", []string{"jobs:read"})
+	cache.Set("proj", "user-b", []string{"jobs:write"})
+
+	cache.InvalidateProject(context.Background(), "proj", time.Now().UnixNano())
+
+	fresh := newPermissionCache(time.Minute, deps)
+	if _, ok := fresh.Get("proj", "user-a"); ok {
+		t.Fatal("user-a permission survived project invalidation")
+	}
+	if _, ok := fresh.Get("proj", "user-b"); ok {
+		t.Fatal("user-b permission survived project invalidation")
+	}
+}
+
 func TestPermissionCache_IsolatesProjects(t *testing.T) {
 	t.Parallel()
 

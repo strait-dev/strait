@@ -53,11 +53,12 @@ func TestCacheInvalidationHandler_PublishesTargetedInvalidations(t *testing.T) {
 		key       string
 	}{
 		{table: "api_keys", record: `{"key_hash":"hash-1","cache_version":8}`, namespace: cacheNamespaceAPIKeyAuth, key: "hash-1"},
-		{table: "project_member_roles", record: `{"project_id":"proj-1","user_id":"user-1","cache_version":9}`, namespace: cacheNamespacePermission, key: permissionCacheKey("proj-1", "user-1")},
-		{table: "project_quotas", record: `{"project_id":"proj-1","cache_version":10}`, namespace: cacheNamespaceQuota, key: "proj-1"},
-		{table: "organization_subscriptions", record: `{"org_id":"org-1","cache_version":11}`, namespace: cacheNamespaceBillingOrg, key: "org-1"},
-		{table: "jobs", record: `{"id":"job-1","cache_version":12}`, namespace: cacheNamespaceWorkerJob, key: "job-1"},
-		{table: "job_dependencies", record: `{"job_id":"job-1","cache_version":13}`, namespace: cacheNamespaceJobDependency, key: jobDependencyCacheKey("job-1", defaultJobDependencyListSize)},
+		{table: "project_roles", record: `{"project_id":"proj-1","cache_version":9}`, namespace: cacheNamespacePermissionProj, key: "proj-1"},
+		{table: "project_member_roles", record: `{"project_id":"proj-1","user_id":"user-1","cache_version":10}`, namespace: cacheNamespacePermission, key: permissionCacheKey("proj-1", "user-1")},
+		{table: "project_quotas", record: `{"project_id":"proj-1","cache_version":11}`, namespace: cacheNamespaceQuota, key: "proj-1"},
+		{table: "organization_subscriptions", record: `{"org_id":"org-1","cache_version":12}`, namespace: cacheNamespaceBillingOrg, key: "org-1"},
+		{table: "jobs", record: `{"id":"job-1","cache_version":13}`, namespace: cacheNamespaceWorkerJob, key: "job-1"},
+		{table: "job_dependencies", record: `{"job_id":"job-1","cache_version":14}`, namespace: cacheNamespaceJobDependency, key: jobDependencyCacheKey("job-1", defaultJobDependencyListSize)},
 	}
 
 	for _, tc := range cases {

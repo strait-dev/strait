@@ -14,6 +14,7 @@ import (
 const (
 	cacheNamespaceAPIKeyAuth     = "api_key_auth"
 	cacheNamespacePermission     = "permission"
+	cacheNamespacePermissionProj = "permission_project"
 	cacheNamespaceQuota          = "quota"
 	cacheNamespaceBillingOrg     = "billing_org_limits"
 	cacheNamespaceWorkerJob      = "worker_job"
@@ -30,6 +31,7 @@ func NewCacheInvalidationHandlers(bus *straitcache.Bus, logger *slog.Logger) []H
 	}
 	return []Handler{
 		newCacheInvalidationHandler("api_keys", bus, logger, invalidateAPIKeyCache),
+		newCacheInvalidationHandler("project_roles", bus, logger, invalidatePermissionProjectCache),
 		newCacheInvalidationHandler("project_member_roles", bus, logger, invalidatePermissionCache),
 		newCacheInvalidationHandler("resource_policies", bus, logger, invalidatePermissionCache),
 		newCacheInvalidationHandler("tag_policies", bus, logger, invalidatePermissionCache),
@@ -69,6 +71,14 @@ func (h *cacheInvalidationHandler) Handle(ctx context.Context, msg Message) erro
 		h.logger.Warn("cdc cache invalidation skipped", "table", h.table, "error", err)
 	}
 	return nil
+}
+
+func invalidatePermissionProjectCache(ctx context.Context, bus *straitcache.Bus, record map[string]any, version int64) error {
+	projectID := stringField(record, "project_id")
+	if projectID == "" {
+		return nil
+	}
+	return bus.PublishInvalidate(ctx, cacheNamespacePermissionProj, projectID, version)
 }
 
 func invalidateAPIKeyCache(ctx context.Context, bus *straitcache.Bus, record map[string]any, version int64) error {

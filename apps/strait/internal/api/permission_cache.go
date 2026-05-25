@@ -2,10 +2,12 @@ package api
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	straitcache "strait/internal/cache"
 
+	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
 )
@@ -13,11 +15,15 @@ import (
 var metricsCtx = context.Background()
 
 const permissionCacheNamespace = "permission"
+const permissionProjectCacheNamespace = "permission_project"
 
 type permissionCache struct {
-	inner    *straitcache.Tier[string, []string]
-	disabled bool
-	bus      *straitcache.Bus
+	inner     *straitcache.Tier[string, []string]
+	disabled  bool
+	bus       *straitcache.Bus
+	redis     redis.Cmdable
+	mu        sync.Mutex
+	byProject map[string]map[string]struct{}
 
 	hits      metric.Int64Counter
 	misses    metric.Int64Counter
@@ -46,6 +52,8 @@ func newPermissionCache(ttl time.Duration, deps ...apiCacheDeps) *permissionCach
 	c := &permissionCache{
 		disabled:  ttl <= 0,
 		bus:       dep.Bus,
+		redis:     dep.Redis,
+		byProject: make(map[string]map[string]struct{}),
 		hits:      hits,
 		misses:    misses,
 		evictions: evictions,
@@ -76,6 +84,11 @@ func newPermissionCache(ttl time.Duration, deps ...apiCacheDeps) *permissionCach
 		})
 		if dep.Registry != nil {
 			dep.Registry.Register(permissionCacheNamespace, straitcache.UpdatingStringTierHandler[[]string]{Tier: c.inner})
+			dep.Registry.Register(permissionProjectCacheNamespace, straitcache.NamespaceHandlerFuncs{
+				Invalidate: func(ctx context.Context, projectID string, version int64) {
+					c.invalidateProjectLocal(ctx, projectID)
+				},
+			})
 		}
 	}
 	return c
@@ -110,6 +123,7 @@ func (c *permissionCache) Set(projectID, userID string, permissions []string) {
 	key := c.key(projectID, userID)
 	_, existed := c.inner.GetIfPresent(key)
 	_, _ = c.inner.WriteThrough(metricsCtx, key, permissions, time.Now().UnixNano(), c.bus, permissionCacheNamespace, key)
+	c.trackProjectKey(projectID, key)
 	if !existed {
 		c.entriesUp.Add(metricsCtx, 1)
 	}
@@ -121,4 +135,95 @@ func (c *permissionCache) Invalidate(projectID, userID string) {
 	}
 	key := c.key(projectID, userID)
 	_ = c.inner.InvalidateThrough(metricsCtx, key, c.bus, permissionCacheNamespace, key, time.Now().UnixNano())
+	c.untrackProjectKey(projectID, key)
+}
+
+func (c *permissionCache) InvalidateProject(ctx context.Context, projectID string, version int64) {
+	if c == nil || c.disabled || c.inner == nil || projectID == "" {
+		return
+	}
+	if ctx == nil {
+		ctx = metricsCtx
+	}
+	c.invalidateProjectLocal(ctx, projectID)
+	if c.bus != nil {
+		_ = c.bus.PublishInvalidate(ctx, permissionProjectCacheNamespace, projectID, version)
+	}
+}
+
+func (c *permissionCache) invalidateProjectLocal(ctx context.Context, projectID string) {
+	keys := c.projectKeys(projectID)
+	for _, key := range keys {
+		c.inner.Invalidate(ctx, key)
+	}
+	c.deleteRedisProjectKeys(ctx, projectID)
+	c.clearProjectKeys(projectID)
+}
+
+func (c *permissionCache) trackProjectKey(projectID, key string) {
+	if c == nil || projectID == "" || key == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	keys := c.byProject[projectID]
+	if keys == nil {
+		keys = make(map[string]struct{})
+		c.byProject[projectID] = keys
+	}
+	keys[key] = struct{}{}
+}
+
+func (c *permissionCache) untrackProjectKey(projectID, key string) {
+	if c == nil || projectID == "" || key == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	keys := c.byProject[projectID]
+	if keys == nil {
+		return
+	}
+	delete(keys, key)
+	if len(keys) == 0 {
+		delete(c.byProject, projectID)
+	}
+}
+
+func (c *permissionCache) clearProjectKeys(projectID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.byProject, projectID)
+}
+
+func (c *permissionCache) projectKeys(projectID string) []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	keys := c.byProject[projectID]
+	out := make([]string, 0, len(keys))
+	for key := range keys {
+		out = append(out, key)
+	}
+	return out
+}
+
+func (c *permissionCache) deleteRedisProjectKeys(ctx context.Context, projectID string) {
+	if c == nil || c.redis == nil || projectID == "" {
+		return
+	}
+	pattern := "strait:cache:" + permissionCacheNamespace + ":" + projectID + "\x00*"
+	var cursor uint64
+	for {
+		keys, next, err := c.redis.Scan(ctx, cursor, pattern, 100).Result()
+		if err != nil {
+			return
+		}
+		if len(keys) > 0 {
+			_ = c.redis.Del(ctx, keys...).Err()
+		}
+		cursor = next
+		if cursor == 0 {
+			return
+		}
+	}
 }
