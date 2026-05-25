@@ -27,7 +27,7 @@ func TestMigrationDrill_UpDownUp(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	tdb, err := testutil.SetupTestDB(ctx, "../../migrations")
+	tdb, err := testutil.SetupSharedTestDB(ctx, "../../migrations", "migrationlint-drill")
 	if err != nil {
 		t.Fatalf("setup: %v", err)
 	}

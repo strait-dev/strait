@@ -20,11 +20,8 @@ import (
 func setupForPromoter(t *testing.T) (*testutil.TestDB, *store.Queries, *queue.PostgresQueue) {
 	t.Helper()
 	ctx := context.Background()
-	tdb, err := testutil.SetupTestDB(ctx, "../../migrations")
-	if err != nil {
-		t.Fatalf("setup db: %v", err)
-	}
-	t.Cleanup(func() { tdb.Cleanup(ctx) })
+	tdb := getTestDB(t)
+	intTestClean(t, ctx)
 	st := store.New(tdb.Pool)
 	q := queue.NewPostgresQueue(tdb.Pool)
 	return tdb, st, q

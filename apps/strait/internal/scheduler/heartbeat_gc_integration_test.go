@@ -18,11 +18,19 @@ import (
 func setupHeartbeatGC(t *testing.T) (*testutil.TestDB, *store.Queries) {
 	t.Helper()
 	ctx := context.Background()
+	tdb := getTestDB(t)
+	intTestClean(t, ctx)
+	return tdb, store.New(tdb.Pool)
+}
+
+func setupHeartbeatGCIsolated(t *testing.T) (*testutil.TestDB, *store.Queries) {
+	t.Helper()
+	ctx := context.Background()
 	tdb, err := testutil.SetupTestDB(ctx, "../../migrations")
 	if err != nil {
-		t.Fatalf("setup: %v", err)
+		t.Fatalf("setup isolated test db: %v", err)
 	}
-	t.Cleanup(func() { tdb.Cleanup(ctx) })
+	t.Cleanup(func() { tdb.Cleanup(context.Background()) })
 	return tdb, store.New(tdb.Pool)
 }
 
@@ -136,14 +144,14 @@ func TestHeartbeatGC_BatchLimitRespected(t *testing.T) {
 }
 
 func TestEnsureQueueTriggersPresent_Happy(t *testing.T) {
-	tdb, _ := setupHeartbeatGC(t)
+	tdb, _ := setupHeartbeatGCIsolated(t)
 	if err := scheduler.EnsureQueueTriggersPresent(context.Background(), tdb.Pool); err != nil {
 		t.Errorf("expected triggers present, got %v", err)
 	}
 }
 
 func TestEnsureQueueTriggersPresent_MissingFailsLoud(t *testing.T) {
-	tdb, _ := setupHeartbeatGC(t)
+	tdb, _ := setupHeartbeatGCIsolated(t)
 	ctx := context.Background()
 	// Drop one trigger and assert the check fails.
 	_, err := tdb.Pool.Exec(ctx, `DROP TRIGGER IF EXISTS trg_job_runs_queue_wake_insert_notify ON job_runs`)
@@ -157,7 +165,7 @@ func TestEnsureQueueTriggersPresent_MissingFailsLoud(t *testing.T) {
 }
 
 func TestEnsureQueueTriggersPresent_DisabledFailsLoud(t *testing.T) {
-	tdb, _ := setupHeartbeatGC(t)
+	tdb, _ := setupHeartbeatGCIsolated(t)
 	ctx := context.Background()
 	_, err := tdb.Pool.Exec(ctx, `ALTER TABLE job_runs DISABLE TRIGGER job_runs_active_counts_trg`)
 	if err != nil {
@@ -170,7 +178,7 @@ func TestEnsureQueueTriggersPresent_DisabledFailsLoud(t *testing.T) {
 }
 
 func TestEnsureQueueTriggersPresent_MissingClaimQueueTriggerFailsLoud(t *testing.T) {
-	tdb, _ := setupHeartbeatGC(t)
+	tdb, _ := setupHeartbeatGCIsolated(t)
 	ctx := context.Background()
 	_, err := tdb.Pool.Exec(ctx, `DROP TRIGGER IF EXISTS trg_job_runs_claim_queue_sync_update ON job_runs`)
 	if err != nil {
@@ -183,7 +191,7 @@ func TestEnsureQueueTriggersPresent_MissingClaimQueueTriggerFailsLoud(t *testing
 }
 
 func TestEnsureQueueTriggersPresent_MissingJobFanoutTriggerFailsLoud(t *testing.T) {
-	tdb, _ := setupHeartbeatGC(t)
+	tdb, _ := setupHeartbeatGCIsolated(t)
 	ctx := context.Background()
 	_, err := tdb.Pool.Exec(ctx, `DROP TRIGGER IF EXISTS trg_jobs_fanout_queue ON jobs`)
 	if err != nil {
@@ -196,7 +204,7 @@ func TestEnsureQueueTriggersPresent_MissingJobFanoutTriggerFailsLoud(t *testing.
 }
 
 func TestEnsureQueueTriggersPresent_DecoyTriggerDoesNotPass(t *testing.T) {
-	tdb, _ := setupHeartbeatGC(t)
+	tdb, _ := setupHeartbeatGCIsolated(t)
 	ctx := context.Background()
 	_, err := tdb.Pool.Exec(ctx, `
 		DROP TRIGGER IF EXISTS trg_job_runs_queue_wake_insert_notify ON job_runs;

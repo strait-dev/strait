@@ -22,7 +22,7 @@ var testRedis *testutil.TestRedis
 func TestMain(m *testing.M) {
 	ctx := context.Background()
 	var err error
-	testRedis, err = testutil.SetupTestRedis(ctx)
+	testRedis, err = testutil.SetupSharedTestRedis(ctx, "ratelimit")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "setup redis: %v\n", err)
 		os.Exit(1)
@@ -34,14 +34,14 @@ func TestMain(m *testing.M) {
 
 func newRateLimiter(t *testing.T) *ratelimit.RedisRateLimiter {
 	t.Helper()
-	client := redis.NewClient(&redis.Options{Addr: testRedis.Addr})
+	client := redis.NewClient(testRedis.Options())
 	t.Cleanup(func() { _ = client.Close() })
 	return ratelimit.NewRedisRateLimiter(client, true)
 }
 
 func newConcurrencyLimiter(t *testing.T) *ratelimit.RedisConcurrencyLimiter {
 	t.Helper()
-	client := redis.NewClient(&redis.Options{Addr: testRedis.Addr})
+	client := redis.NewClient(testRedis.Options())
 	t.Cleanup(func() { _ = client.Close() })
 	return ratelimit.NewRedisConcurrencyLimiter(client, true)
 }
@@ -294,7 +294,7 @@ func TestAllow_MultipleClients(t *testing.T) {
 // --- Disabled limiter ---.
 
 func TestAllow_DisabledLimiter(t *testing.T) {
-	client := redis.NewClient(&redis.Options{Addr: testRedis.Addr})
+	client := redis.NewClient(testRedis.Options())
 	t.Cleanup(func() { _ = client.Close() })
 
 	rl := ratelimit.NewRedisRateLimiter(client, false)
@@ -502,7 +502,7 @@ func TestConcurrency_IndependentKeys(t *testing.T) {
 // --- Disabled concurrency limiter ---.
 
 func TestConcurrency_DisabledLimiter(t *testing.T) {
-	client := redis.NewClient(&redis.Options{Addr: testRedis.Addr})
+	client := redis.NewClient(testRedis.Options())
 	t.Cleanup(func() { _ = client.Close() })
 
 	cl := ratelimit.NewRedisConcurrencyLimiter(client, false)
