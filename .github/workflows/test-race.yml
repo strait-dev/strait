@@ -43,18 +43,35 @@ jobs:
   integration-race:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      GOMAXPROCS: "2"
+      STRAIT_TEST_DB_MAX_CONNS: "4"
+      STRAIT_TEST_PERSIST_CONTAINERS: "1"
+      STRAIT_TEST_TIMING: "1"
     strategy:
       fail-fast: false
       matrix:
         shard:
+          - name: smoke
+            packages: ./internal/testutil/... ./internal/pubsub/...
+            timeout: 15m
           - name: queue
             packages: ./internal/queue/...
             timeout: 20m
           - name: store
             packages: ./internal/store/...
             timeout: 25m
-          - name: other
-            packages: ./internal/scheduler/... ./internal/workflow/... ./internal/worker/... ./internal/webhook/... ./internal/cdc/... ./internal/pubsub/... ./internal/e2e/...
+          - name: scheduler
+            packages: ./internal/scheduler/... ./internal/workflow/...
+            timeout: 20m
+          - name: api
+            packages: ./internal/api/...
+            timeout: 20m
+          - name: services
+            packages: ./internal/worker/... ./internal/webhook/... ./internal/logdrain/... ./internal/notification/... ./internal/ratelimit/... ./internal/cdc/...
+            timeout: 20m
+          - name: e2e
+            packages: ./internal/e2e/...
             timeout: 20m
     name: integration-race (${{ matrix.shard.name }})
     steps:
@@ -64,11 +81,18 @@ jobs:
 
       - uses: ./.github/actions/setup-go
 
-      - name: Pull Postgres image
-        run: docker pull postgres:18-alpine
+      - name: Pull Docker images
+        run: |
+          docker pull postgres:18-alpine
+          docker pull redis:8-alpine
 
       - name: Run integration tests with race detector
         working-directory: apps/strait
         run: |
-          go test -race -tags=integration -timeout=${{ matrix.shard.timeout }} \
+          go test -p 2 -race -tags=integration -timeout=${{ matrix.shard.timeout }} \
             ${{ matrix.shard.packages }}
+
+      - name: Cleanup integration testcontainers
+        if: always()
+        run: |
+          docker ps -aq --filter 'name=strait-test-' | xargs -r docker rm -f

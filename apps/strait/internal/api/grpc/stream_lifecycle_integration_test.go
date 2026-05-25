@@ -18,7 +18,6 @@ import (
 	"strait/internal/domain"
 	"strait/internal/pubsub"
 	"strait/internal/store"
-	"strait/internal/testutil"
 
 	"github.com/sourcegraph/conc"
 )
@@ -165,14 +164,7 @@ func seedGRPCAPIKeyWithExpiry(t *testing.T, ctx context.Context, q *store.Querie
 
 func TestIntegration_StreamTasks_SubscribeFailureRejectsWorker(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	const (
@@ -192,7 +184,7 @@ func TestIntegration_StreamTasks_SubscribeFailureRejectsWorker(t *testing.T) {
 		resultChannels: NewResultChannelRegistry(),
 	}
 
-	err = svc.StreamTasks(stream)
+	err := svc.StreamTasks(stream)
 	if status.Code(err) != codes.Unavailable {
 		t.Fatalf("StreamTasks error = %v, want Unavailable", err)
 	}
@@ -205,14 +197,7 @@ func TestIntegration_StreamTasks_APIKeyRevokeReturnsWithoutClientRecv(t *testing
 	var concWG conc.WaitGroup
 	defer concWG.Wait()
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	const (
@@ -286,14 +271,7 @@ func TestIntegration_StreamTasks_RevokeBeforeRegistrationRejectsWorker(t *testin
 	var concWG conc.WaitGroup
 	defer concWG.Wait()
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	const (
@@ -373,14 +351,7 @@ func TestIntegration_StreamTasks_APIKeyExpiryClosesRegisteredStream(t *testing.T
 	var concWG conc.WaitGroup
 	defer concWG.Wait()
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	const (
@@ -456,14 +427,7 @@ func TestIntegration_StreamTasks_APIKeyRotationGraceSignalClosesRegisteredStream
 	var concWG conc.WaitGroup
 	defer concWG.Wait()
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	const (
@@ -543,14 +507,7 @@ func TestIntegration_StreamTasks_APIKeyExpiryBeforeRegistrationRejectsWorker(t *
 	var concWG conc.WaitGroup
 	defer concWG.Wait()
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	const (
@@ -606,14 +563,7 @@ func TestIntegration_StreamTasks_RevalidatesAPIKeyAfterDelayedRegistration(t *te
 	var concWG conc.WaitGroup
 	defer concWG.Wait()
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	const (
@@ -682,14 +632,7 @@ func TestIntegration_StreamTasks_PreRegistrationStreamsCountTowardAPIKeyQuota(t 
 	var concWG conc.WaitGroup
 	defer concWG.Wait()
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	const (
@@ -725,7 +668,7 @@ func TestIntegration_StreamTasks_PreRegistrationStreamsCountTowardAPIKeyQuota(t 
 	}
 
 	secondStream := newBlockingWorkerStream(ctx, rawKey)
-	err = svc.StreamTasks(secondStream)
+	err := svc.StreamTasks(secondStream)
 	if status.Code(err) != codes.ResourceExhausted {
 		t.Fatalf("second StreamTasks error = %v, want ResourceExhausted", err)
 	}

@@ -167,18 +167,35 @@ jobs:
   integration:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      GOMAXPROCS: "2"
+      STRAIT_TEST_DB_MAX_CONNS: "4"
+      STRAIT_TEST_PERSIST_CONTAINERS: "1"
+      STRAIT_TEST_TIMING: "1"
     strategy:
       fail-fast: false
       matrix:
         shard:
+          - name: smoke
+            packages: ./internal/testutil/... ./internal/pubsub/...
+            timeout: 8m
           - name: queue
             packages: ./internal/queue/...
             timeout: 10m
           - name: store
             packages: ./internal/store/...
             timeout: 12m
-          - name: other
-            packages: ./internal/scheduler/... ./internal/workflow/... ./internal/worker/... ./internal/webhook/... ./internal/cdc/... ./internal/pubsub/... ./internal/e2e/...
+          - name: scheduler
+            packages: ./internal/scheduler/... ./internal/workflow/...
+            timeout: 10m
+          - name: api
+            packages: ./internal/api/...
+            timeout: 10m
+          - name: services
+            packages: ./internal/worker/... ./internal/webhook/... ./internal/logdrain/... ./internal/notification/... ./internal/ratelimit/... ./internal/cdc/...
+            timeout: 10m
+          - name: e2e
+            packages: ./internal/e2e/...
             timeout: 10m
     name: integration (${{ matrix.shard.name }})
     steps:
@@ -188,30 +205,32 @@ jobs:
 
       - uses: ./.github/actions/setup-go
 
-      - name: Cache Postgres image
-        id: cache-postgres-image
+      - name: Cache Docker images
+        id: cache-docker-images
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: ~/.cache/docker-images/postgres-18-alpine.tar
-          key: docker-postgres-18-alpine-v1
+          path: ~/.cache/docker-images
+          key: docker-test-images-postgres-18-redis-8-v1
 
-      - name: Load or pull Postgres image
+      - name: Load or pull Docker images
         run: |
           set -euo pipefail
-          tarball="$HOME/.cache/docker-images/postgres-18-alpine.tar"
-          if [ -f "$tarball" ]; then
-            docker load -i "$tarball"
-          else
-            docker pull postgres:18-alpine
-            mkdir -p "$(dirname "$tarball")"
-            docker save postgres:18-alpine -o "$tarball"
-          fi
+          mkdir -p "$HOME/.cache/docker-images"
+          for image in postgres:18-alpine redis:8-alpine; do
+            tarball="$HOME/.cache/docker-images/${image//[:\/]/-}.tar"
+            if [ -f "$tarball" ]; then
+              docker load -i "$tarball"
+            else
+              docker pull "$image"
+              docker save "$image" -o "$tarball"
+            fi
+          done
 
       - name: Run integration tests (${{ matrix.shard.name }})
         working-directory: apps/strait
         run: |
           set -o pipefail
-          go test -json -cover -tags=integration -timeout=${{ matrix.shard.timeout }} \
+          go test -p 2 -json -tags=integration -timeout=${{ matrix.shard.timeout }} \
             -failfast \
             ${{ matrix.shard.packages }} \
             | tee integration-test-${{ matrix.shard.name }}.jsonl
@@ -222,7 +241,6 @@ jobs:
         run: |
           python3 - <<'PY'
           import json
-          import re
           from pathlib import Path
 
           shard = "${{ matrix.shard.name }}"
@@ -232,8 +250,6 @@ jobs:
           seen_tests = set()
           test_status = {}
           package_status = {}
-          package_cov = []
-          cov_re = re.compile(r"coverage:\s+([0-9.]+)% of statements")
 
           if test_file.exists():
               for raw in test_file.read_text(encoding="utf-8", errors="ignore").splitlines():
@@ -248,7 +264,6 @@ jobs:
                   pkg = event.get("Package", "")
                   action = event.get("Action", "")
                   test = event.get("Test", "")
-                  output = event.get("Output", "")
 
                   if test and action == "run":
                       seen_tests.add((pkg, test))
@@ -256,20 +271,11 @@ jobs:
                       test_status[(pkg, test)] = action
                   if pkg and not test and action in {"pass", "fail", "skip"}:
                       package_status[pkg] = action
-                  if action == "output" and "coverage:" in output:
-                      m = cov_re.search(output)
-                      if m and "/internal/" in pkg:
-                          package_cov.append((pkg, float(m.group(1))))
 
           passed = sum(1 for v in test_status.values() if v == "pass")
           failed = sum(1 for v in test_status.values() if v == "fail")
           skipped = sum(1 for v in test_status.values() if v == "skip")
           total_tests = len(seen_tests)
-
-          package_cov.sort(key=lambda item: item[0])
-
-          MIN_COVERAGE = 50
-          below = [(p, c) for p, c in package_cov if c < MIN_COVERAGE]
 
           lines = []
           lines.append(f"## Integration Test Metrics ({shard})")
@@ -279,20 +285,6 @@ jobs:
           lines.append(f"- Failed: **{failed}**")
           lines.append(f"- Skipped: **{skipped}**")
           lines.append(f"- Packages: **{len(package_status)}**")
-          lines.append("")
-          if below:
-              lines.append(f"> **{len(below)}** package(s) below {MIN_COVERAGE}% coverage threshold")
-              lines.append("")
-          lines.append("### Coverage by internal package")
-          lines.append("")
-          if package_cov:
-              lines.append("| Package | Coverage |")
-              lines.append("| --- | ---: |")
-              for pkg, cov in package_cov:
-                  flag = " :warning:" if cov < MIN_COVERAGE else ""
-                  lines.append(f"| `{pkg}` | {cov:.1f}%{flag} |")
-          else:
-              lines.append("No per-package coverage data found.")
 
           summary_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
           print(summary_file.read_text(encoding="utf-8"))
@@ -307,3 +299,8 @@ jobs:
           if-no-files-found: ignore
           path: |
             apps/strait/integration-test-${{ matrix.shard.name }}.jsonl
+
+      - name: Cleanup integration testcontainers
+        if: always()
+        run: |
+          docker ps -aq --filter 'name=strait-test-' | xargs -r docker rm -f

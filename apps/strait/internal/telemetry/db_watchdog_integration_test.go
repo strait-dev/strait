@@ -26,7 +26,7 @@ var (
 func getTestDB(t *testing.T) *testutil.TestDB {
 	t.Helper()
 	testDBOnce.Do(func() {
-		testDB, testDBErr = testutil.SetupTestDB(context.Background(), "../../migrations")
+		testDB, testDBErr = testutil.SetupSharedTestDB(context.Background(), "../../migrations", "telemetry-db-watchdog")
 	})
 	if testDBErr != nil {
 		t.Fatalf("setup test db: %v", testDBErr)

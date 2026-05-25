@@ -157,14 +157,7 @@ func fallbackServiceWithFinalizer(q *store.Queries, finalizer WorkerRunResultFin
 // "assigned".
 func TestIntegration_HandleTaskResult_Fallback_SuccessUpdatesWorkerTask(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
@@ -200,14 +193,7 @@ func TestIntegration_HandleTaskResult_Fallback_SuccessUpdatesWorkerTask(t *testi
 
 func TestIntegration_HandleTaskResult_Fallback_DoesNotCompleteTaskWhenRunUpdateFails(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
@@ -237,14 +223,7 @@ func TestIntegration_HandleTaskResult_Fallback_DoesNotCompleteTaskWhenRunUpdateF
 
 func TestIntegration_HandleTaskResult_Fallback_UsesRunFinalizerForSuccess(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
@@ -282,14 +261,7 @@ func TestIntegration_HandleTaskResult_Fallback_UsesRunFinalizerForSuccess(t *tes
 
 func TestIntegration_HandleTaskResult_Fallback_InvalidSuccessOutputRoutesFailure(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
@@ -320,14 +292,7 @@ func TestIntegration_HandleTaskResult_Fallback_InvalidSuccessOutputRoutesFailure
 
 func TestIntegration_HandleTaskResult_Fallback_FinalizerErrorLeavesTaskOpen(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
@@ -349,14 +314,7 @@ func TestIntegration_HandleTaskResult_Fallback_FinalizerErrorLeavesTaskOpen(t *t
 
 func TestIntegration_HandleAck_MarksOpenWorkerTaskAccepted(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
@@ -388,14 +346,7 @@ func TestIntegration_HandleAck_MarksOpenWorkerTaskAccepted(t *testing.T) {
 // "failed".
 func TestIntegration_HandleTaskResult_Fallback_FailedUpdatesWorkerTask(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
@@ -421,14 +372,7 @@ func TestIntegration_HandleTaskResult_Fallback_FailedUpdatesWorkerTask(t *testin
 // touch the run or worker_tasks row.
 func TestIntegration_HandleTaskResult_Fallback_ProjectMismatchRejects(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	_, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
@@ -456,14 +400,7 @@ func TestIntegration_HandleTaskResult_Fallback_ProjectMismatchRejects(t *testing
 // touch the run row.
 func TestIntegration_HandleTaskResult_Fallback_OwnershipMismatchRejects(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	projectID, _, runID, taskID := seedRunWithTask(t, ctx, q, env)
@@ -503,14 +440,7 @@ func TestIntegration_HandleTaskResult_Fallback_OwnershipMismatchRejects(t *testi
 // live assignment.
 func TestIntegration_HandleTaskResult_Fallback_ClosedAssignmentRejects(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
@@ -547,14 +477,7 @@ func TestIntegration_HandleTaskResult_Fallback_ClosedAssignmentRejects(t *testin
 // inconsistent state.
 func TestIntegration_HandleTaskResult_Fallback_IdempotentOnRepeat(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)

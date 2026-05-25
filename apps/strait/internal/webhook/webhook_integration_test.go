@@ -32,7 +32,7 @@ func TestMain(m *testing.M) {
 	ctx := context.Background()
 
 	var err error
-	testDB, err = testutil.SetupTestDB(ctx, "../../migrations")
+	testDB, err = testutil.SetupSharedTestDB(ctx, "../../migrations", "webhook")
 	if err != nil {
 		log.Fatalf("setup test db: %v", err)
 	}

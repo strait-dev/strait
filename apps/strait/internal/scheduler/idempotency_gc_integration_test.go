@@ -16,11 +16,8 @@ import (
 func setupIdempotencyGC(t *testing.T) (*testutil.TestDB, *store.Queries) {
 	t.Helper()
 	ctx := context.Background()
-	tdb, err := testutil.SetupTestDB(ctx, "../../migrations")
-	if err != nil {
-		t.Fatalf("setup: %v", err)
-	}
-	t.Cleanup(func() { tdb.Cleanup(ctx) })
+	tdb := getTestDB(t)
+	intTestClean(t, ctx)
 	return tdb, store.New(tdb.Pool)
 }
 
