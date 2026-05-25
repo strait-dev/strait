@@ -33,6 +33,11 @@ test.describe("Singletons dashboard", () => {
     jobId = job.id;
     jobName = job.name;
 
+    // The holder run stays in-flight for HOLDER_DELAY_MS; a job cannot be
+    // deleted while it has active runs. Cancel them before the job delete that
+    // data.job() registered (cleanup runs LIFO, so this is added afterward).
+    data.cleanup.add(() => api.cancelJobRuns(jobId));
+
     // Fire two runs at once: one acquires the lock and stays in-flight while
     // the other parks behind it, producing a holder with a waiter.
     await Promise.all([api.triggerJob(jobId), api.triggerJob(jobId)]);
