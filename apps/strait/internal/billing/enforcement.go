@@ -58,6 +58,8 @@ type Enforcer struct {
 	logger          *slog.Logger
 	metrics         *telemetry.Metrics
 	orgCache        *straitcache.Tier[string, *cachedOrgLimits]
+	cacheBus        *straitcache.Bus
+	cacheRegistry   *straitcache.Registry
 	limitsGroup     singleflight.Group
 	cacheTTL        time.Duration
 	suspendedCache  sync.Map // projectID -> *suspendedCacheEntry
@@ -181,6 +183,33 @@ type cachedOrgLimits struct {
 	enforcementMode string
 }
 
+type cachedOrgLimitsJSON struct {
+	Tier            domain.PlanTier `json:"tier"`
+	Limits          OrgPlanLimits   `json:"limits"`
+	EnforcementMode string          `json:"enforcement_mode"`
+}
+
+func (c cachedOrgLimits) MarshalJSON() ([]byte, error) {
+	return json.Marshal(cachedOrgLimitsJSON{
+		Tier:            c.tier,
+		Limits:          c.limits,
+		EnforcementMode: c.enforcementMode,
+	})
+}
+
+func (c *cachedOrgLimits) UnmarshalJSON(data []byte) error {
+	var wire cachedOrgLimitsJSON
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	c.tier = wire.Tier
+	c.limits = wire.Limits
+	c.enforcementMode = wire.EnforcementMode
+	return nil
+}
+
+const orgLimitsCacheNamespace = "billing_org_limits"
+
 // NewEnforcer creates a billing enforcer. Panics if store is nil.
 func NewEnforcer(store Store, rdb redis.Cmdable, logger *slog.Logger, opts ...EnforcerOption) *Enforcer {
 	if store == nil {
@@ -190,13 +219,31 @@ func NewEnforcer(store Store, rdb redis.Cmdable, logger *slog.Logger, opts ...En
 		logger = slog.Default()
 	}
 	cacheTTL := 5 * time.Minute
+	e := &Enforcer{
+		store:                     store,
+		rdb:                       rdb,
+		logger:                    logger,
+		cacheTTL:                  cacheTTL,
+		entitlementsAuthoritative: true,
+	}
+	for _, opt := range opts {
+		opt(e)
+	}
+	var l2 straitcache.L2[string, *cachedOrgLimits]
+	if rdb != nil {
+		l2 = straitcache.NewRedisL2[string, *cachedOrgLimits](straitcache.RedisL2Config[string, *cachedOrgLimits]{
+			Client:    rdb,
+			Namespace: orgLimitsCacheNamespace,
+		})
+	}
 	orgCache := straitcache.NewTier[string, *cachedOrgLimits](straitcache.TierConfig[string, *cachedOrgLimits]{
-		Name:        "billing_org_limits",
+		Name:        orgLimitsCacheNamespace,
+		L2:          l2,
 		Consistency: straitcache.Strong,
 		MaximumSize: 1_000,
 		TTL:         cacheTTL,
 		TTLJitter:   0.1,
-		DisableL2:   true,
+		DisableL2:   l2 == nil,
 		Clone: func(limits *cachedOrgLimits) *cachedOrgLimits {
 			if limits == nil {
 				return nil
@@ -212,17 +259,9 @@ func NewEnforcer(store Store, rdb redis.Cmdable, logger *slog.Logger, opts ...En
 			return &clone
 		},
 	})
-
-	e := &Enforcer{
-		store:                     store,
-		rdb:                       rdb,
-		logger:                    logger,
-		orgCache:                  orgCache,
-		cacheTTL:                  cacheTTL,
-		entitlementsAuthoritative: true,
-	}
-	for _, opt := range opts {
-		opt(e)
+	e.orgCache = orgCache
+	if e.cacheRegistry != nil {
+		e.cacheRegistry.Register(orgLimitsCacheNamespace, straitcache.UpdatingStringTierHandler[*cachedOrgLimits]{Tier: orgCache})
 	}
 	return e
 }
@@ -234,6 +273,13 @@ type EnforcerOption func(*Enforcer)
 func WithMetrics(m *telemetry.Metrics) EnforcerOption {
 	return func(e *Enforcer) {
 		e.metrics = m
+	}
+}
+
+func WithCacheBus(bus *straitcache.Bus, registry *straitcache.Registry) EnforcerOption {
+	return func(e *Enforcer) {
+		e.cacheBus = bus
+		e.cacheRegistry = registry
 	}
 }
 
@@ -356,7 +402,7 @@ func (e *Enforcer) InvalidateOrgCache(orgID string) {
 	if e == nil || e.orgCache == nil {
 		return
 	}
-	e.orgCache.Invalidate(context.Background(), orgID)
+	_ = e.orgCache.InvalidateThrough(context.Background(), orgID, e.cacheBus, orgLimitsCacheNamespace, orgID, time.Now().UnixNano())
 }
 
 // getEnforcementMode returns the enforcement mode for an org from cache.
@@ -434,7 +480,7 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 		return GetPlanLimits(domain.PlanFree), nil
 	}
 
-	if cached, ok := e.orgCache.GetIfPresent(orgID); ok && cached != nil {
+	if cached, err := e.orgCache.Get(ctx, orgID, nil); err == nil && cached != nil {
 		addBillingSentryBreadcrumb(ctx, "plan_limits", "billing plan limits cache hit", map[string]any{
 			"org_id": orgID,
 			"plan":   string(cached.limits.PlanTier),
@@ -446,7 +492,7 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 	// thundering herd on the DB when cache expires under load.
 	result, err, _ := e.limitsGroup.Do(orgID, func() (any, error) {
 		// Double-check cache inside singleflight (another goroutine may have populated it).
-		if cached, ok := e.orgCache.GetIfPresent(orgID); ok && cached != nil {
+		if cached, err := e.orgCache.Get(ctx, orgID, nil); err == nil && cached != nil {
 			return cached.limits, nil
 		}
 
@@ -454,11 +500,11 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 		if err != nil {
 			if errors.Is(err, ErrSubscriptionNotFound) {
 				limits := GetPlanLimits(domain.PlanFree)
-				_ = e.orgCache.Set(ctx, orgID, &cachedOrgLimits{
+				_, _ = e.orgCache.WriteThrough(ctx, orgID, &cachedOrgLimits{
 					tier:            domain.PlanFree,
 					limits:          limits,
 					enforcementMode: "enforce",
-				}, 1)
+				}, time.Now().UnixNano(), e.cacheBus, orgLimitsCacheNamespace, orgID)
 				return limits, nil
 			}
 			return OrgPlanLimits{}, fmt.Errorf("getting org subscription: %w", err)
@@ -535,11 +581,11 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 		limits.MaxConcurrentRuns = *sub.OverrideConcurrentRunLimit
 	}
 
-	_ = e.orgCache.Set(ctx, orgID, &cachedOrgLimits{
+	_, _ = e.orgCache.WriteThrough(ctx, orgID, &cachedOrgLimits{
 		tier:            tier,
 		limits:          limits,
 		enforcementMode: sub.EnforcementMode,
-	}, 1)
+	}, time.Now().UnixNano(), e.cacheBus, orgLimitsCacheNamespace, orgID)
 	return limits, nil
 }
 

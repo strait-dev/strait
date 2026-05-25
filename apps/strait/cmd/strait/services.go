@@ -474,7 +474,7 @@ func startLogDrainWorker(g *pool.ContextPool, cfg *config.Config, queries *store
 }
 
 // startAPIServer starts the HTTP API server and its graceful shutdown goroutine.
-func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, dbPool *pgxpool.Pool, q queue.Queue, pub pubsub.Publisher, metricsHandler http.Handler, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, rdb *redis.Client, encryptor api.Encryptor, billingEnforcer *billing.Enforcer, analyticsStore api.AnalyticsStore, chExporter *clickhouse.Exporter, cdcWebhookReceiver *cdc.WebhookReceiver) {
+func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, dbPool *pgxpool.Pool, q queue.Queue, pub pubsub.Publisher, cacheRegistry *straitcache.Registry, cacheBus *straitcache.Bus, metricsHandler http.Handler, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, rdb *redis.Client, encryptor api.Encryptor, billingEnforcer *billing.Enforcer, analyticsStore api.AnalyticsStore, chExporter *clickhouse.Exporter, cdcWebhookReceiver *cdc.WebhookReceiver) {
 	if cfg.Mode != "api" && cfg.Mode != "all" {
 		return
 	}
@@ -560,6 +560,8 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		WorkflowEngine:     workflowEngine,
 		TxPool:             txPool,
 		RedisClient:        rdb,
+		CacheBus:           cacheBus,
+		CacheRegistry:      cacheRegistry,
 		Encryptor:          encryptor,
 		StripeWebhook:      stripeWebhook,
 		BillingEnforcer:    nilSafeBillingEnforcer(billingEnforcer),
@@ -741,7 +743,7 @@ func waitForPubsubReady(ctx context.Context, pub pubsub.Publisher, budget time.D
 	}
 }
 
-func startCacheBus(g *pool.ContextPool, pub pubsub.Publisher) *straitcache.Registry {
+func startCacheBus(g *pool.ContextPool, pub pubsub.Publisher) (*straitcache.Registry, *straitcache.Bus) {
 	registry := straitcache.NewRegistry(straitcache.RegistryConfig{})
 	bus := straitcache.NewBus(pub, straitcache.BusConfig{Origin: registry.Origin()})
 	g.Go(func(ctx context.Context) error {
@@ -751,11 +753,11 @@ func startCacheBus(g *pool.ContextPool, pub pubsub.Publisher) *straitcache.Regis
 		"channel", bus.Channel(),
 		"origin", registry.Origin(),
 	)
-	return registry
+	return registry, bus
 }
 
 // startWorker starts the job executor, worker pool, and scheduler goroutines.
-func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, dbPool *pgxpool.Pool, q queue.Queue, bp *queue.Backpressure, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, billingEnforcer *billing.Enforcer, billingDispatcher *webhook.BillingDispatcher, chExporter *clickhouse.Exporter, workerPlane *grpcserver.Server, encryptor api.Encryptor) {
+func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, dbPool *pgxpool.Pool, q queue.Queue, bp *queue.Backpressure, pub pubsub.Publisher, cacheRegistry *straitcache.Registry, cacheBus *straitcache.Bus, rdb *redis.Client, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, billingEnforcer *billing.Enforcer, billingDispatcher *webhook.BillingDispatcher, chExporter *clickhouse.Exporter, workerPlane *grpcserver.Server, encryptor api.Encryptor) {
 	if cfg.Mode != "worker" && cfg.Mode != "all" {
 		return
 	}
@@ -814,6 +816,9 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		VersionCacheTTL:          cfg.VersionCacheTTL,
 		RunVersionCacheTTL:       cfg.RunVersionCacheTTL,
 		JobHealthCacheTTL:        cfg.JobHealthCacheTTL,
+		RedisClient:              rdb,
+		CacheRegistry:            cacheRegistry,
+		CacheBus:                 cacheBus,
 		MaxDequeueBatchSize:      cfg.MaxDequeueBatchSize,
 		DefaultJobMaxConcurrency: cfg.DefaultJobMaxConcurrency,
 		MaxSnoozeCount:           cfg.MaxSnoozeCount,

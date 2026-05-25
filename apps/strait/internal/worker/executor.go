@@ -24,6 +24,7 @@ import (
 	"strait/internal/telemetry"
 
 	"github.com/getsentry/sentry-go"
+	"github.com/redis/go-redis/v9"
 	"github.com/sourcegraph/conc"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -91,6 +92,12 @@ type jobHealthKey struct {
 	Bucket int64
 }
 
+type workerCacheDeps struct {
+	Redis    redis.Cmdable
+	Bus      *straitcache.Bus
+	Registry *straitcache.Registry
+}
+
 type executorJobCache interface {
 	Get(context.Context, string) (*domain.Job, error)
 	Load(context.Context, string, straitcache.LoadFunc[string, *domain.Job]) (*domain.Job, error)
@@ -104,21 +111,47 @@ type executorVersionedJobCache interface {
 
 type tierJobCache struct {
 	tier *straitcache.Tier[string, *domain.Job]
+	bus  *straitcache.Bus
 }
 
-func newTierJobCache(ttl time.Duration) *tierJobCache {
+const (
+	workerJobCacheNamespace                = "worker_job"
+	workerJobVersionCacheNamespace         = "worker_job_version"
+	workerWorkflowRunVersionCacheNamespace = "worker_workflow_run_version"
+	workerWorkflowStepsCacheNamespace      = "worker_workflow_steps_version"
+	workerJobHealthCacheNamespace          = "worker_job_health"
+)
+
+func newTierJobCache(ttl time.Duration, depsOpt ...workerCacheDeps) *tierJobCache {
 	if ttl <= 0 {
 		return nil
 	}
-	return &tierJobCache{tier: straitcache.NewTier[string, *domain.Job](straitcache.TierConfig[string, *domain.Job]{
-		Name:        "worker_job",
+	var deps workerCacheDeps
+	if len(depsOpt) > 0 {
+		deps = depsOpt[0]
+	}
+	var l2 straitcache.L2[string, *domain.Job]
+	if deps.Redis != nil {
+		l2 = straitcache.NewRedisL2[string, *domain.Job](straitcache.RedisL2Config[string, *domain.Job]{
+			Client:    deps.Redis,
+			Namespace: workerJobCacheNamespace,
+		})
+	}
+	c := &tierJobCache{bus: deps.Bus}
+	c.tier = straitcache.NewTier[string, *domain.Job](straitcache.TierConfig[string, *domain.Job]{
+		Name:        workerJobCacheNamespace,
+		L2:          l2,
 		Consistency: straitcache.BoundedStaleness,
 		MaximumSize: 10_000,
 		TTL:         ttl,
 		TTLJitter:   0.1,
-		DisableL2:   true,
+		DisableL2:   l2 == nil,
 		Clone:       cloneJob,
-	})}
+	})
+	if deps.Registry != nil {
+		deps.Registry.Register(workerJobCacheNamespace, straitcache.UpdatingStringTierHandler[*domain.Job]{Tier: c.tier})
+	}
+	return c
 }
 
 func (c *tierJobCache) Get(ctx context.Context, key string) (*domain.Job, error) {
@@ -143,32 +176,50 @@ func (c *tierJobCache) Set(ctx context.Context, key string, job *domain.Job) err
 	if job != nil {
 		version = int64(job.Version)
 	}
-	return c.tier.Set(ctx, key, job, version)
+	if version <= 0 {
+		version = time.Now().UnixNano()
+	}
+	_, err := c.tier.WriteThrough(ctx, key, job, version, c.bus, workerJobCacheNamespace, key)
+	return err
 }
 
 func (c *tierJobCache) Delete(ctx context.Context, key string) error {
 	if c == nil || c.tier == nil {
 		return nil
 	}
-	c.tier.Invalidate(ctx, key)
-	return nil
+	return c.tier.InvalidateThrough(ctx, key, c.bus, workerJobCacheNamespace, key, time.Now().UnixNano())
 }
 
 type tierVersionedJobCache struct {
 	tier *straitcache.Tier[jobVersionKey, *domain.Job]
 }
 
-func newTierVersionedJobCache(ttl time.Duration) *tierVersionedJobCache {
+func newTierVersionedJobCache(ttl time.Duration, depsOpt ...workerCacheDeps) *tierVersionedJobCache {
 	if ttl <= 0 {
 		return nil
 	}
+	var deps workerCacheDeps
+	if len(depsOpt) > 0 {
+		deps = depsOpt[0]
+	}
+	var l2 straitcache.L2[jobVersionKey, *domain.Job]
+	if deps.Redis != nil {
+		l2 = straitcache.NewRedisL2[jobVersionKey, *domain.Job](straitcache.RedisL2Config[jobVersionKey, *domain.Job]{
+			Client:    deps.Redis,
+			Namespace: workerJobVersionCacheNamespace,
+			Key: func(key jobVersionKey) string {
+				return fmt.Sprintf("%s\x00%d", key.JobID, key.Version)
+			},
+		})
+	}
 	return &tierVersionedJobCache{tier: straitcache.NewTier[jobVersionKey, *domain.Job](straitcache.TierConfig[jobVersionKey, *domain.Job]{
-		Name:        "worker_job_version",
+		Name:        workerJobVersionCacheNamespace,
+		L2:          l2,
 		Consistency: straitcache.Immutable,
 		MaximumSize: 10_000,
 		TTL:         ttl,
 		TTLJitter:   0.1,
-		DisableL2:   true,
+		DisableL2:   l2 == nil,
 		Clone:       cloneJob,
 	})}
 }
@@ -184,17 +235,29 @@ type tierWorkflowRunVersionCache struct {
 	tier *straitcache.Tier[string, workflowRunVersion]
 }
 
-func newTierWorkflowRunVersionCache(ttl time.Duration) *tierWorkflowRunVersionCache {
+func newTierWorkflowRunVersionCache(ttl time.Duration, depsOpt ...workerCacheDeps) *tierWorkflowRunVersionCache {
 	if ttl <= 0 {
 		return nil
 	}
+	var deps workerCacheDeps
+	if len(depsOpt) > 0 {
+		deps = depsOpt[0]
+	}
+	var l2 straitcache.L2[string, workflowRunVersion]
+	if deps.Redis != nil {
+		l2 = straitcache.NewRedisL2[string, workflowRunVersion](straitcache.RedisL2Config[string, workflowRunVersion]{
+			Client:    deps.Redis,
+			Namespace: workerWorkflowRunVersionCacheNamespace,
+		})
+	}
 	return &tierWorkflowRunVersionCache{tier: straitcache.NewTier[string, workflowRunVersion](straitcache.TierConfig[string, workflowRunVersion]{
-		Name:        "worker_workflow_run_version",
+		Name:        workerWorkflowRunVersionCacheNamespace,
+		L2:          l2,
 		Consistency: straitcache.Immutable,
 		MaximumSize: 100_000,
 		TTL:         ttl,
 		TTLJitter:   0.1,
-		DisableL2:   true,
+		DisableL2:   l2 == nil,
 	})}
 }
 
@@ -209,12 +272,27 @@ type tierWorkflowStepsVersionCache struct {
 	tier *straitcache.Tier[workflowStepsVersionKey, []domain.WorkflowStep]
 }
 
-func newTierWorkflowStepsVersionCache(ttl time.Duration) *tierWorkflowStepsVersionCache {
+func newTierWorkflowStepsVersionCache(ttl time.Duration, depsOpt ...workerCacheDeps) *tierWorkflowStepsVersionCache {
 	if ttl <= 0 {
 		return nil
 	}
+	var deps workerCacheDeps
+	if len(depsOpt) > 0 {
+		deps = depsOpt[0]
+	}
+	var l2 straitcache.L2[workflowStepsVersionKey, []domain.WorkflowStep]
+	if deps.Redis != nil {
+		l2 = straitcache.NewRedisL2[workflowStepsVersionKey, []domain.WorkflowStep](straitcache.RedisL2Config[workflowStepsVersionKey, []domain.WorkflowStep]{
+			Client:    deps.Redis,
+			Namespace: workerWorkflowStepsCacheNamespace,
+			Key: func(key workflowStepsVersionKey) string {
+				return fmt.Sprintf("%s\x00%d", key.WorkflowID, key.Version)
+			},
+		})
+	}
 	return &tierWorkflowStepsVersionCache{tier: straitcache.NewTier[workflowStepsVersionKey, []domain.WorkflowStep](straitcache.TierConfig[workflowStepsVersionKey, []domain.WorkflowStep]{
-		Name:          "worker_workflow_steps_version",
+		Name:          workerWorkflowStepsCacheNamespace,
+		L2:            l2,
 		Consistency:   straitcache.Immutable,
 		MaximumWeight: 100_000,
 		Weigher: func(_ workflowStepsVersionKey, steps []domain.WorkflowStep) uint32 {
@@ -225,7 +303,7 @@ func newTierWorkflowStepsVersionCache(ttl time.Duration) *tierWorkflowStepsVersi
 		},
 		TTL:       ttl,
 		TTLJitter: 0.1,
-		DisableL2: true,
+		DisableL2: l2 == nil,
 		Clone:     cloneWorkflowSteps,
 	})}
 }
@@ -242,19 +320,34 @@ type tierJobHealthCache struct {
 	ttl  time.Duration
 }
 
-func newTierJobHealthCache(ttl time.Duration) *tierJobHealthCache {
+func newTierJobHealthCache(ttl time.Duration, depsOpt ...workerCacheDeps) *tierJobHealthCache {
 	if ttl <= 0 {
 		return nil
+	}
+	var deps workerCacheDeps
+	if len(depsOpt) > 0 {
+		deps = depsOpt[0]
+	}
+	var l2 straitcache.L2[jobHealthKey, *store.JobHealthStats]
+	if deps.Redis != nil {
+		l2 = straitcache.NewRedisL2[jobHealthKey, *store.JobHealthStats](straitcache.RedisL2Config[jobHealthKey, *store.JobHealthStats]{
+			Client:    deps.Redis,
+			Namespace: workerJobHealthCacheNamespace,
+			Key: func(key jobHealthKey) string {
+				return fmt.Sprintf("%s\x00%d", key.JobID, key.Bucket)
+			},
+		})
 	}
 	return &tierJobHealthCache{
 		ttl: ttl,
 		tier: straitcache.NewTier[jobHealthKey, *store.JobHealthStats](straitcache.TierConfig[jobHealthKey, *store.JobHealthStats]{
-			Name:        "worker_job_health",
+			Name:        workerJobHealthCacheNamespace,
+			L2:          l2,
 			Consistency: straitcache.BoundedStaleness,
 			MaximumSize: 20_000,
 			TTL:         ttl,
 			TTLJitter:   0.05,
-			DisableL2:   true,
+			DisableL2:   l2 == nil,
 			Clone: func(v *store.JobHealthStats) *store.JobHealthStats {
 				if v == nil {
 					return nil
@@ -445,6 +538,9 @@ type ExecutorConfig struct {
 	VersionCacheTTL            time.Duration
 	RunVersionCacheTTL         time.Duration
 	JobHealthCacheTTL          time.Duration
+	RedisClient                redis.Cmdable
+	CacheBus                   *straitcache.Bus
+	CacheRegistry              *straitcache.Registry
 	MaxSnoozeCount             int
 	JWTSigningKey              string
 	ExternalAPIURL             string
@@ -538,11 +634,16 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		whMaxAttempts = 3
 	}
 
-	jobCache := newTierJobCache(cfg.JobCacheTTL)
-	jobVersionCache := newTierVersionedJobCache(cfg.VersionCacheTTL)
-	runVersionCache := newTierWorkflowRunVersionCache(cfg.RunVersionCacheTTL)
-	stepsVersionCache := newTierWorkflowStepsVersionCache(cfg.VersionCacheTTL)
-	jobHealthCache := newTierJobHealthCache(cfg.JobHealthCacheTTL)
+	cacheDeps := workerCacheDeps{
+		Redis:    cfg.RedisClient,
+		Bus:      cfg.CacheBus,
+		Registry: cfg.CacheRegistry,
+	}
+	jobCache := newTierJobCache(cfg.JobCacheTTL, cacheDeps)
+	jobVersionCache := newTierVersionedJobCache(cfg.VersionCacheTTL, cacheDeps)
+	runVersionCache := newTierWorkflowRunVersionCache(cfg.RunVersionCacheTTL, cacheDeps)
+	stepsVersionCache := newTierWorkflowStepsVersionCache(cfg.VersionCacheTTL, cacheDeps)
+	jobHealthCache := newTierJobHealthCache(cfg.JobHealthCacheTTL, cacheDeps)
 
 	return &Executor{
 		pool:                     cfg.Pool,

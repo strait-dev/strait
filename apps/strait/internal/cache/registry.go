@@ -160,6 +160,59 @@ func (h StringTierHandler[V]) InvalidateCacheKey(ctx context.Context, key string
 func (h StringTierHandler[V]) ApplyCacheUpdate(_ context.Context, _ string, _ int64, _ json.RawMessage) {
 }
 
+type UpdatingStringTierHandler[V any] struct {
+	Tier *Tier[string, V]
+}
+
+func (h UpdatingStringTierHandler[V]) InvalidateCacheKey(ctx context.Context, key string, _ int64) {
+	if h.Tier != nil {
+		h.Tier.Invalidate(ctx, key)
+	}
+}
+
+func (h UpdatingStringTierHandler[V]) ApplyCacheUpdate(ctx context.Context, key string, _ int64, payload json.RawMessage) {
+	if h.Tier == nil || len(payload) == 0 {
+		return
+	}
+	var entry cacheEntry[V]
+	if err := json.Unmarshal(payload, &entry); err != nil {
+		recordCacheFailOpen(ctx, h.Tier.name, "cachebus_update_decode")
+		return
+	}
+	h.Tier.applyUpdate(ctx, key, entry)
+}
+
+type TierHandler[K comparable, V any] struct {
+	Tier  *Tier[K, V]
+	Parse func(string) (K, bool)
+}
+
+func (h TierHandler[K, V]) InvalidateCacheKey(ctx context.Context, key string, _ int64) {
+	if h.Tier == nil || h.Parse == nil {
+		return
+	}
+	parsed, ok := h.Parse(key)
+	if ok {
+		h.Tier.Invalidate(ctx, parsed)
+	}
+}
+
+func (h TierHandler[K, V]) ApplyCacheUpdate(ctx context.Context, key string, _ int64, payload json.RawMessage) {
+	if h.Tier == nil || h.Parse == nil || len(payload) == 0 {
+		return
+	}
+	parsed, ok := h.Parse(key)
+	if !ok {
+		return
+	}
+	var entry cacheEntry[V]
+	if err := json.Unmarshal(payload, &entry); err != nil {
+		recordCacheFailOpen(ctx, h.Tier.name, "cachebus_update_decode")
+		return
+	}
+	h.Tier.applyUpdate(ctx, parsed, entry)
+}
+
 func newOriginID() string {
 	return uuid.NewString()
 }

@@ -213,6 +213,45 @@ func (t *Tier[K, V]) Invalidate(ctx context.Context, key K) {
 	}
 }
 
+func (t *Tier[K, V]) applyUpdate(ctx context.Context, key K, entry cacheEntry[V]) {
+	if t == nil {
+		return
+	}
+	if !t.disableL1 && t.l1 != nil {
+		if current, ok := t.l1.GetIfPresent(key); ok && current.Version > entry.Version {
+			recordCacheCASReject(ctx, t.name)
+			if t.cfg.OnCASRejected != nil {
+				t.cfg.OnCASRejected()
+			}
+			return
+		}
+	}
+	if !t.disableL2 && t.l2 != nil {
+		ok, err := t.l2.CompareAndSet(ctx, key, entry, t.ttl)
+		if err != nil {
+			t.failOpen("bus_update_cas", err)
+			return
+		}
+		if !ok {
+			recordCacheCASReject(ctx, t.name)
+			if t.cfg.OnCASRejected != nil {
+				t.cfg.OnCASRejected()
+			}
+			newer, getErr := t.l2.Get(ctx, key)
+			if getErr != nil {
+				t.failOpen("bus_update_get", getErr)
+				return
+			}
+			if newer.Version > entry.Version {
+				entry = newer
+			}
+		}
+	}
+	if !t.disableL1 && t.l1 != nil {
+		t.l1.Set(key, entry)
+	}
+}
+
 func (t *Tier[K, V]) GetIfPresent(key K) (V, bool) {
 	if t == nil || t.disableL1 || t.l1 == nil {
 		var zero V

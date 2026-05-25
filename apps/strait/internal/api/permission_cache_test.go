@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	straitcache "strait/internal/cache"
+
 	"github.com/sourcegraph/conc"
 )
 
@@ -68,6 +70,30 @@ func TestPermissionCache_Invalidate(t *testing.T) {
 	_, ok := c.Get("proj", "user")
 	if ok {
 		t.Fatal("expected cache miss after invalidate")
+	}
+}
+
+func TestPermissionCache_RedisL2BackfillAndCachebusInvalidate(t *testing.T) {
+	t.Parallel()
+
+	registryA := straitcache.NewRegistry(straitcache.RegistryConfig{Origin: "node-a"})
+	depsA, cleanupA := newTestRedisCacheDeps(t, registryA)
+	defer cleanupA()
+	cacheA := newPermissionCache(time.Minute, depsA)
+	cacheA.Set("proj", "user", []string{"jobs:read"})
+
+	registryB := straitcache.NewRegistry(straitcache.RegistryConfig{Origin: "node-b"})
+	depsB := depsA
+	depsB.Registry = registryB
+	cacheB := newPermissionCache(time.Minute, depsB)
+	perms, ok := cacheB.Get("proj", "user")
+	if !ok || len(perms) != 1 || perms[0] != "jobs:read" {
+		t.Fatalf("permissions from L2 = %v, %v; want [jobs:read],true", perms, ok)
+	}
+
+	publishTestInvalidate(t, registryB, permissionCacheNamespace, cacheB.key("proj", "user"))
+	if _, ok := cacheB.Get("proj", "user"); ok {
+		t.Fatal("expected peer cache miss after cachebus invalidation")
 	}
 }
 

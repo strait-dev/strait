@@ -2,13 +2,44 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	straitcache "strait/internal/cache"
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 )
+
+func newTestRedisCacheDeps(t *testing.T, registry *straitcache.Registry) (apiCacheDeps, func()) {
+	t.Helper()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	return apiCacheDeps{Redis: rdb, Registry: registry}, func() {
+		_ = rdb.Close()
+		mr.Close()
+	}
+}
+
+func publishTestInvalidate(t *testing.T, registry *straitcache.Registry, namespace, key string) {
+	t.Helper()
+	data, err := json.Marshal(straitcache.BusMessage{
+		Action:    straitcache.BusActionInvalidate,
+		Namespace: namespace,
+		Key:       key,
+		Version:   time.Now().UnixNano(),
+		Origin:    "peer",
+		SentAt:    time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("marshal invalidate: %v", err)
+	}
+	registry.Handle(t.Context(), data)
+}
 
 func TestAPIKeyCache_ServesValidKeyAndSanitizesSecrets(t *testing.T) {
 	t.Parallel()
@@ -92,5 +123,54 @@ func TestAPIKeyCache_InvalidateForcesReload(t *testing.T) {
 	}
 	if loads.Load() != 2 {
 		t.Fatalf("loader calls = %d, want 2", loads.Load())
+	}
+}
+
+func TestAPIKeyCache_RedisL2BackfillAndCachebusInvalidate(t *testing.T) {
+	t.Parallel()
+
+	registryA := straitcache.NewRegistry(straitcache.RegistryConfig{Origin: "node-a"})
+	depsA, cleanupA := newTestRedisCacheDeps(t, registryA)
+	defer cleanupA()
+	cacheA := newAPIKeyCache(time.Minute, depsA)
+	cacheA.Set(context.Background(), &domain.APIKey{
+		ID:        "key-1",
+		ProjectID: "proj-1",
+		KeyHash:   "hash-1",
+		Scopes:    []string{domain.ScopeRunsRead},
+	})
+
+	registryB := straitcache.NewRegistry(straitcache.RegistryConfig{Origin: "node-b"})
+	depsB := depsA
+	depsB.Registry = registryB
+	cacheB := newAPIKeyCache(time.Minute, depsB)
+	var loads atomic.Int64
+	got, err := cacheB.Get(context.Background(), "hash-1", func(context.Context, string) (*domain.APIKey, error) {
+		loads.Add(1)
+		return nil, store.ErrAPIKeyNotFound
+	})
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if got == nil || got.ID != "key-1" {
+		t.Fatalf("Get() = %+v, want key-1 from Redis L2", got)
+	}
+	if loads.Load() != 0 {
+		t.Fatalf("loader calls = %d, want 0 on L2 hit", loads.Load())
+	}
+
+	publishTestInvalidate(t, registryB, apiKeyAuthCacheNamespace, "hash-1")
+	got, err = cacheB.Get(context.Background(), "hash-1", func(context.Context, string) (*domain.APIKey, error) {
+		loads.Add(1)
+		return nil, store.ErrAPIKeyNotFound
+	})
+	if err != nil {
+		t.Fatalf("Get() after invalidate error = %v", err)
+	}
+	if got != nil {
+		t.Fatalf("Get() after invalidate = %+v, want nil from DB loader", got)
+	}
+	if loads.Load() != 1 {
+		t.Fatalf("loader calls after invalidate = %d, want 1", loads.Load())
 	}
 }

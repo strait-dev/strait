@@ -738,6 +738,8 @@ type ServerDeps struct {
 	ActorSyncer          ActorSyncer
 	PoolStatter          PoolStatter              // Optional: enables DB pool backpressure middleware.
 	RedisClient          *redis.Client            // Required in production startup; enables rate limiting.
+	CacheBus             *straitcache.Bus         // Optional: enables cross-replica cache update/invalidation publishing.
+	CacheRegistry        *straitcache.Registry    // Optional: registers API cache namespaces for cachebus fanout.
 	Encryptor            Encryptor                // Optional: enables event source signature encryption.
 	StripeWebhook        http.Handler             // Optional: Stripe billing webhook handler.
 	BillingEnforcer      BillingEnforcer          // Optional: enables billing limit checks on project create.
@@ -778,6 +780,11 @@ func NewServer(deps ServerDeps) *Server {
 		verifier = &oidcVerifier{enabled: false}
 	}
 	statusModels := newStatusReadModels(deps.RedisClient, statusReadModelTTL(deps.Config))
+	cacheDeps := apiCacheDeps{
+		Redis:    deps.RedisClient,
+		Bus:      deps.CacheBus,
+		Registry: deps.CacheRegistry,
+	}
 
 	srv := &Server{
 		store:              deps.Store,
@@ -797,12 +804,12 @@ func NewServer(deps ServerDeps) *Server {
 		validate:           validator.New(validator.WithRequiredStructEnabled()),
 		maxRequestBodySize: maxBody,
 		poolStatter:        deps.PoolStatter,
-		permCache:          newPermissionCache(permCacheTTL(deps.Config)),
+		permCache:          newPermissionCache(permCacheTTL(deps.Config), cacheDeps),
 		quotaCache: newQuotaCache(quotaCacheTTL(deps.Config), func(ctx context.Context, projectID string) (*store.ProjectQuota, error) {
 			return deps.Store.GetProjectQuota(ctx, projectID)
-		}),
-		apiKeyCache:                newAPIKeyCache(apiKeyCacheTTL(deps.Config)),
-		jobDependencyCache:         newJobDependencyCache(jobDepsCacheTTL(deps.Config)),
+		}, cacheDeps),
+		apiKeyCache:                newAPIKeyCache(apiKeyCacheTTL(deps.Config), cacheDeps),
+		jobDependencyCache:         newJobDependencyCache(jobDepsCacheTTL(deps.Config), cacheDeps),
 		runStatusReadModel:         statusModels.run,
 		workflowRunStatusReadModel: statusModels.workflowRun,
 		oidcVerifier:               verifier,

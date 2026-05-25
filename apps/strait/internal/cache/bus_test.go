@@ -201,6 +201,45 @@ func TestBus_DuplicateInvalidationMessagesAreIdempotent(t *testing.T) {
 	}
 }
 
+func TestBus_UpdateMessageAppliesOnlyMonotonicVersion(t *testing.T) {
+	t.Parallel()
+
+	tier := NewTier[string, string](TierConfig[string, string]{
+		Name:        "bus_update_monotonic",
+		L2:          newFakeL2[string, string](),
+		MaximumSize: 10,
+		TTL:         time.Minute,
+	})
+	registry := NewRegistry(RegistryConfig{Origin: "node-b"})
+	registry.Register("job", UpdatingStringTierHandler[string]{Tier: tier})
+
+	registry.Handle(t.Context(), mustMarshalBusMessage(t, BusMessage{
+		Action:    BusActionUpdate,
+		Namespace: "job",
+		Key:       "k",
+		Version:   10,
+		Origin:    "node-a",
+		Payload:   mustMarshalRaw(t, cacheEntry[string]{Version: 10, Value: "new"}),
+	}))
+	got, ok := tier.GetIfPresent("k")
+	if !ok || got != "new" {
+		t.Fatalf("updated entry = %q, %v; want new,true", got, ok)
+	}
+
+	registry.Handle(t.Context(), mustMarshalBusMessage(t, BusMessage{
+		Action:    BusActionUpdate,
+		Namespace: "job",
+		Key:       "k",
+		Version:   9,
+		Origin:    "node-a",
+		Payload:   mustMarshalRaw(t, cacheEntry[string]{Version: 9, Value: "stale"}),
+	}))
+	got, ok = tier.GetIfPresent("k")
+	if !ok || got != "new" {
+		t.Fatalf("stale update moved cache backward: %q, %v", got, ok)
+	}
+}
+
 func TestRegistry_BadNamespaceAndPayloadAreIgnoredAndCounted(t *testing.T) {
 	t.Parallel()
 
@@ -281,6 +320,15 @@ func (c *closedSubPublisher) Close() error {
 func mustMarshalBusMessage(t *testing.T, msg BusMessage) []byte {
 	t.Helper()
 	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	return data
+}
+
+func mustMarshalRaw(t *testing.T, value any) json.RawMessage {
+	t.Helper()
+	data, err := json.Marshal(value)
 	if err != nil {
 		t.Fatalf("Marshal() error = %v", err)
 	}

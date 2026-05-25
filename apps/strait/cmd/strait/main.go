@@ -321,7 +321,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 	g.Go(func(ctx context.Context) error {
 		return poolTuner.Run(ctx)
 	})
-	_ = startCacheBus(g, pub)
+	cacheRegistry, cacheBus := startCacheBus(g, pub)
 	if bq, ok := q.(*queue.BatchlogQueue); ok {
 		g.Go(func(ctx context.Context) error {
 			bq.RunTicker(ctx)
@@ -441,6 +441,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 		enforcerOpts = append(enforcerOpts, billing.WithSentryRuntime(cfg.Mode, cfg.DefaultRegion, version))
 		enforcerOpts = append(enforcerOpts, billing.WithEntitlementsAuthoritative(cfg.BillingEntitlementsAuthoritative))
 		enforcerOpts = append(enforcerOpts, billing.WithBillingDispatcher(billingDispatcher))
+		enforcerOpts = append(enforcerOpts, billing.WithCacheBus(cacheBus, cacheRegistry))
 		billingEnforcer = billing.NewEnforcer(billingStore, rdb, slog.Default(), enforcerOpts...)
 		billingEnforcer.StartCleanup(ctx)
 
@@ -482,8 +483,8 @@ func runServe(ctx context.Context, modeOverride string) error {
 	if err != nil {
 		return fmt.Errorf("starting grpc server: %w", err)
 	}
-	startAPIServer(g, cfg, queries, dbPool, dbPool, q, pub, metricsHandler, metrics, stepCallback, workflowEngine, healthReg, rdb, apiEncryptor, billingEnforcer, chAnalytics, chExporter, cdcWebhookReceiver)
-	startWorker(g, cfg, queries, dbPool, dbPool, q, bp, pub, metrics, stepCallback, workflowEngine, healthReg, billingEnforcer, billingDispatcher, chExporter, workerPlane, apiEncryptor)
+	startAPIServer(g, cfg, queries, dbPool, dbPool, q, pub, cacheRegistry, cacheBus, metricsHandler, metrics, stepCallback, workflowEngine, healthReg, rdb, apiEncryptor, billingEnforcer, chAnalytics, chExporter, cdcWebhookReceiver)
+	startWorker(g, cfg, queries, dbPool, dbPool, q, bp, pub, cacheRegistry, cacheBus, rdb, metrics, stepCallback, workflowEngine, healthReg, billingEnforcer, billingDispatcher, chExporter, workerPlane, apiEncryptor)
 	startProfilingServer(g, cfg, rdb, metrics, version)
 
 	if err := g.Wait(); err != nil {
