@@ -184,6 +184,7 @@ func (t *Tier[K, V]) CompareAndSet(ctx context.Context, key K, value V, version 
 		return false, nil
 	}
 	if !ok {
+		recordCacheCASReject(ctx, t.name)
 		if t.cfg.OnCASRejected != nil {
 			t.cfg.OnCASRejected()
 		}
@@ -237,6 +238,7 @@ func (t *Tier[K, V]) loadThroughL2(ctx context.Context, key K, minVersion int64,
 		entry, err := t.l2.Get(ctx, key)
 		switch {
 		case err == nil && entry.Version >= minVersion:
+			recordCacheOperation(ctx, t.name, "l2", "hit")
 			if !t.disableL1 && t.l1 != nil {
 				t.l1.Set(key, entry)
 			}
@@ -245,10 +247,12 @@ func (t *Tier[K, V]) loadThroughL2(ctx context.Context, key K, minVersion int64,
 			}
 			return entry, nil
 		case err == nil:
+			recordCacheOperation(ctx, t.name, "l2", "stale")
 			if t.cfg.OnL2Miss != nil {
 				t.cfg.OnL2Miss()
 			}
 		case errors.Is(err, ErrCacheMiss):
+			recordCacheOperation(ctx, t.name, "l2", "miss")
 			if t.cfg.OnL2Miss != nil {
 				t.cfg.OnL2Miss()
 			}
@@ -272,8 +276,11 @@ func (t *Tier[K, V]) loadThroughL2(ctx context.Context, key K, minVersion int64,
 			entry.Version = minVersion
 			if ok, err := t.l2.CompareAndSet(ctx, key, entry, t.ttl); err != nil {
 				t.failOpen("cas_fill", err)
-			} else if !ok && t.cfg.OnCASRejected != nil {
-				t.cfg.OnCASRejected()
+			} else if !ok {
+				recordCacheCASReject(ctx, t.name)
+				if t.cfg.OnCASRejected != nil {
+					t.cfg.OnCASRejected()
+				}
 			}
 		} else if err := t.l2.Set(ctx, key, entry, t.ttl); err != nil {
 			t.failOpen("set_fill", err)
@@ -325,6 +332,9 @@ func (t *Tier[K, V]) isNegative(v V) bool {
 }
 
 func (t *Tier[K, V]) failOpen(operation string, err error) {
+	if err != nil {
+		recordCacheFailOpen(context.Background(), t.name, operation)
+	}
 	if t != nil && t.cfg.OnFailOpen != nil && err != nil {
 		t.cfg.OnFailOpen(operation, err)
 	}

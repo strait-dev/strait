@@ -113,8 +113,10 @@ func (b *Bus) publish(ctx context.Context, msg BusMessage) error {
 			"action", msg.Action,
 			"error", err,
 		)
+		recordCacheFailOpen(ctx, msg.Namespace, "cachebus_publish")
 		return nil
 	}
+	recordCacheBusEvent(ctx, string(msg.Action), msg.Namespace, "publish", msg.SentAt)
 	return nil
 }
 
@@ -143,6 +145,10 @@ func (b *Bus) Run(ctx context.Context, registry *Registry) error {
 		case data, ok := <-sub.Ch:
 			if !ok {
 				return nil
+			}
+			var msg BusMessage
+			if err := json.Unmarshal(data, &msg); err == nil {
+				recordCacheBusEvent(ctx, string(msg.Action), msg.Namespace, "receive", msg.SentAt)
 			}
 			registry.Handle(ctx, data)
 		}

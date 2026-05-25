@@ -47,8 +47,48 @@ groups:
       - record: strait:redis_command_p95_seconds5m
         expr: histogram_quantile(0.95, sum(rate(strait_redis_command_duration_seconds_bucket[5m])) by (le))
 
+      - record: strait:cache_fail_open_rate5m
+        expr: sum(rate(strait_cache_fail_open_total[5m]))
+
+      - record: strait:cache_cas_reject_rate5m
+        expr: sum(rate(strait_cache_cas_rejects_total[5m]))
+
+      - record: strait:cachebus_p95_lag_ms5m
+        expr: histogram_quantile(0.95, sum(rate(strait_cachebus_lag_ms_bucket[5m])) by (le))
+
       - record: strait:billing_quota_block_rate5m
         expr: sum(rate(strait_billing_quota_block_total[5m]))
+
+  - name: strait.cache
+    interval: 30s
+    rules:
+      - alert: StraitCacheFailOpen
+        expr: strait:cache_fail_open_rate5m > 0
+        for: 5m
+        labels:
+          app: strait
+          owner: platform
+          severity: warning
+        annotations:
+          summary: Strait cache is failing open
+          description: |
+            Cache operations have been falling back to local cache or
+            PostgreSQL for 5 minutes. Check Redis health, cachebus
+            subscriptions, and recent deploys before raising cache TTLs.
+
+      - alert: StraitCacheBusLagHigh
+        expr: strait:cachebus_p95_lag_ms5m > 1000
+        for: 10m
+        labels:
+          app: strait
+          owner: platform
+          severity: warning
+        annotations:
+          summary: Strait cachebus lag is high
+          description: |
+            Cachebus receive lag p95 is above 1 second. Cross-replica L1
+            invalidation may be delayed, although versioned Redis CAS still
+            prevents monotonic status read models from moving backward.
 
   - name: strait.queue
     interval: 30s

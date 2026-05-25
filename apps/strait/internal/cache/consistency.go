@@ -82,6 +82,7 @@ func (t *Tier[K, V]) loadVersionedThroughL2(ctx context.Context, key K, minVersi
 		entry, err := t.l2.Get(ctx, key)
 		switch {
 		case err == nil && entry.Version >= minVersion:
+			recordCacheOperation(ctx, t.name, "l2", "hit")
 			if !t.disableL1 && t.l1 != nil {
 				t.l1.Set(key, entry)
 			}
@@ -90,10 +91,12 @@ func (t *Tier[K, V]) loadVersionedThroughL2(ctx context.Context, key K, minVersi
 			}
 			return entry, nil
 		case err == nil:
+			recordCacheOperation(ctx, t.name, "l2", "stale")
 			if t.cfg.OnL2Miss != nil {
 				t.cfg.OnL2Miss()
 			}
 		case errors.Is(err, ErrCacheMiss):
+			recordCacheOperation(ctx, t.name, "l2", "miss")
 			if t.cfg.OnL2Miss != nil {
 				t.cfg.OnL2Miss()
 			}
@@ -120,6 +123,7 @@ func (t *Tier[K, V]) loadVersionedThroughL2(ctx context.Context, key K, minVersi
 		if casErr != nil {
 			t.failOpen("cas_fill", casErr)
 		} else if !ok {
+			recordCacheCASReject(ctx, t.name)
 			if t.cfg.OnCASRejected != nil {
 				t.cfg.OnCASRejected()
 			}
