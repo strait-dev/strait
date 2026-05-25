@@ -115,10 +115,12 @@ func connectDatabase(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, er
 	if cfg.DBHealthCheckPeriod > 0 {
 		poolConfig.HealthCheckPeriod = cfg.DBHealthCheckPeriod
 	}
-	poolConfig.ConnConfig.Tracer = multitracer.New(
-		otelpgx.NewTracer(otelpgx.WithTrimSQLInSpanName()),
-		telemetry.SentryPGXTracer{},
-	)
+	if cfg.DBTraceStatements {
+		poolConfig.ConnConfig.Tracer = multitracer.New(
+			otelpgx.NewTracer(otelpgx.WithTrimSQLInSpanName()),
+			telemetry.SentryPGXTracer{},
+		)
+	}
 
 	// Apply MVCC horizon guardrails and timeouts (Phase 1).
 	// These runtime params are applied to every connection in the pool via pgx's

@@ -94,6 +94,7 @@ export SECRET_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 | `OTEL_LOGS_EXPORTER` | `none` recommended locally | Set to `none` for local development when no OTLP logs endpoint is available, otherwise the collector may emit repeated `/v1/logs` errors. |
 | `OTLP_METRIC_ENDPOINT` | - | OpenTelemetry endpoint for metrics, if different. |
 | `OTLP_METRIC_ENABLED` | `false` | Enable OTLP metric export. |
+| `DB_TRACE_STATEMENTS` | `false` | Enable per-SQL-statement pgx tracing and Sentry breadcrumbs. Keep disabled on hot production paths unless diagnosing database behavior. |
 | `SENTRY_DSN` | - | Sentry DSN for error reporting. |
 | `SENTRY_ENVIRONMENT` | - | Environment tag for Sentry and OTel resources, such as `production` or `staging`. |
 | `SENTRY_TRACES_SAMPLE_RATE` | `0.1` | Sentry trace sample rate from `0.0` to `1.0`. Tracing is enabled when this is greater than zero, and high-volume stream transactions are dropped by the Sentry sampler before send. |
