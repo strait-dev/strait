@@ -105,7 +105,7 @@ func connectDatabase(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, er
 	if err != nil {
 		return nil, fmt.Errorf("parse postgres config: %w", err)
 	}
-	if cfg.DBPgBouncerMode {
+	if cfg.DBPgBouncerMode && !cfg.DBPgBouncerPrepared {
 		poolConfig.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 	}
 	poolConfig.MaxConns = cfg.DBMaxConns

@@ -144,6 +144,7 @@ func TestLoad_DefaultBooleans(t *testing.T) {
 		{"OIDCEnabled", cfg.OIDCEnabled},
 		{"CORSAllowCredentials", cfg.CORSAllowCredentials},
 		{"DBPgBouncerMode", cfg.DBPgBouncerMode},
+		{"DBPgBouncerPrepared", cfg.DBPgBouncerPrepared},
 		{"DBTraceStatements", cfg.DBTraceStatements},
 		{"WebhookRequireTLS", cfg.WebhookRequireTLS},
 		{"AllowPrivateEndpoints", cfg.AllowPrivateEndpoints},
@@ -459,6 +460,7 @@ func TestLoad_Int32AndInt64Overrides(t *testing.T) {
 func TestLoad_BoolOverrides(t *testing.T) {
 	setRequiredEnv(t)
 	t.Setenv("DB_PGBOUNCER_MODE", "true")
+	t.Setenv("DB_PGBOUNCER_PREPARED_STATEMENTS", "true")
 	t.Setenv("DB_TRACE_STATEMENTS", "true")
 	t.Setenv("WEBHOOK_REQUIRE_TLS", "true")
 	t.Setenv("ALLOW_PRIVATE_ENDPOINTS", "true")
@@ -474,6 +476,9 @@ func TestLoad_BoolOverrides(t *testing.T) {
 
 	if !cfg.DBPgBouncerMode {
 		t.Fatal("DBPgBouncerMode = false, want true")
+	}
+	if !cfg.DBPgBouncerPrepared {
+		t.Fatal("DBPgBouncerPrepared = false, want true")
 	}
 	if !cfg.DBTraceStatements {
 		t.Fatal("DBTraceStatements = false, want true")

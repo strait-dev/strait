@@ -167,6 +167,8 @@ Use these when running connected workers.
 |---|---|---|
 | `DB_MAX_CONNS` | `50` | Maximum PostgreSQL pool size per Strait process. Keep this above `WORKER_CONCURRENCY` and multiply by replicas when sizing PostgreSQL. |
 | `DB_MIN_CONNS` | `10` | Minimum warm PostgreSQL connections per Strait process. |
+| `DB_PGBOUNCER_MODE` | `false` | Use simple protocol for PgBouncer transaction pooling when prepared statements are not available. |
+| `DB_PGBOUNCER_PREPARED_STATEMENTS` | `false` | Keep pgx prepared statement caching on when PgBouncer 1.21 or newer has `max_prepared_statements` configured. |
 | `REDIS_POOL_SIZE` | `30` | Maximum Redis connections per Strait process. |
 | `REDIS_MIN_IDLE_CONNS` | `5` | Minimum warm Redis connections per Strait process. |
 | `WORKER_CONCURRENCY` | `25` | Maximum concurrent job executions per worker process. |

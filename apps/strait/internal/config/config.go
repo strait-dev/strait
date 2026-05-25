@@ -138,6 +138,7 @@ type Config struct {
 	AdaptiveConcurrencyMin int      `env:"ADAPTIVE_CONCURRENCY_MIN" default:"5"`
 	AdaptiveConcurrencyMax int      `env:"ADAPTIVE_CONCURRENCY_MAX" default:"100"`
 	DBPgBouncerMode        bool     `env:"DB_PGBOUNCER_MODE" default:"false"`
+	DBPgBouncerPrepared    bool     `env:"DB_PGBOUNCER_PREPARED_STATEMENTS" default:"false"`
 	DBTraceStatements      bool     `env:"DB_TRACE_STATEMENTS" default:"false"`
 
 	WorkerDrainTimeout time.Duration `env:"WORKER_DRAIN_TIMEOUT" default:"30s"`
