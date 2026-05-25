@@ -201,7 +201,7 @@ func (s *Server) handleSDKSpawn(ctx context.Context, input *SDKSpawnInput) (*SDK
 			return nil, huma.Error400BadRequest("target_api_key is required for cross-project spawn")
 		}
 		keyHash := hashAPIKey(req.TargetAPIKey)
-		apiKey, keyErr := s.store.GetAPIKeyByHash(ctx, keyHash)
+		apiKey, keyErr := s.lookupAPIKeyForAuth(ctx, keyHash)
 		if keyErr != nil {
 			return nil, huma.Error401Unauthorized("invalid target api key")
 		}

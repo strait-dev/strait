@@ -407,6 +407,46 @@ func TestHandleSDKSpawn_CrossProject_ValidKey(t *testing.T) {
 	}
 }
 
+func TestHandleSDKSpawn_CrossProject_TargetKeyUsesAuthCache(t *testing.T) {
+	t.Parallel()
+
+	var keyLookups atomic.Int64
+	ms := &APIStoreMock{
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			return &domain.JobRun{ID: id, ProjectID: "proj-source", Status: domain.StatusExecuting}, nil
+		},
+		GetAPIKeyByHashFunc: func(_ context.Context, _ string) (*domain.APIKey, error) {
+			keyLookups.Add(1)
+			return &domain.APIKey{
+				ID:           "key-1",
+				ProjectID:    "proj-target",
+				Scopes:       []string{domain.ScopeJobsTrigger},
+				CacheVersion: 6,
+			}, nil
+		},
+		GetJobBySlugFunc: func(_ context.Context, projectID, _ string) (*domain.Job, error) {
+			return &domain.Job{ID: "job-target", ProjectID: projectID, Slug: "child"}, nil
+		},
+	}
+	ms.AreJobDependenciesSatisfiedFunc = func(_ context.Context, _ *domain.JobRun) (bool, error) { return true, nil }
+	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error { return nil }}
+	srv := newTestServer(t, ms, mq, nil)
+	srv.apiKeyCache = newAPIKeyCache(time.Minute)
+
+	for range 2 {
+		w := httptest.NewRecorder()
+		r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-parent/spawn", "run-parent",
+			`{"job_slug":"child","project_id":"proj-target","target_api_key":"strait_cached123"}`)
+		srv.ServeHTTP(w, r)
+		if w.Code != http.StatusCreated {
+			t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+		}
+	}
+	if keyLookups.Load() != 1 {
+		t.Fatalf("GetAPIKeyByHash calls = %d, want 1", keyLookups.Load())
+	}
+}
+
 func TestHandleSDKSpawn_SameProject_NoKeyNeeded(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
