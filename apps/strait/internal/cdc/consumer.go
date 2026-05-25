@@ -164,10 +164,14 @@ func (c *Consumer) poll(ctx context.Context) error {
 	for _, msg := range messages {
 		handler, ok := c.handlers[msg.Metadata.TableName]
 		if !ok {
-			c.logger.Warn("no handler for table, acking",
-				"table", msg.Metadata.TableName,
-				"ack_id", msg.AckID,
-			)
+			if msg.Metadata.TableName == "" {
+				c.logger.Debug("cdc message has empty table, acking", "ack_id", msg.AckID)
+			} else {
+				c.logger.Warn("no handler for table, acking",
+					"table", msg.Metadata.TableName,
+					"ack_id", msg.AckID,
+				)
+			}
 			ackIDs = append(ackIDs, msg.AckID)
 			continue
 		}

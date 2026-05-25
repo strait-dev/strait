@@ -1875,6 +1875,45 @@ func TestReaper_ReapStalledWorkflows_Reconcile(t *testing.T) {
 	}
 }
 
+func TestReaper_ReapStalledWorkflows_DefaultReconciles(t *testing.T) {
+	t.Parallel()
+
+	var resumed atomic.Int32
+	ms := &mockReaperStore{
+		listStalledWorkflowRunsFn: func(_ context.Context, _ time.Duration) ([]domain.WorkflowRun, error) {
+			return []domain.WorkflowRun{{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning}}, nil
+		},
+	}
+	cb := &mockWorkflowCallback{
+		resumeWorkflowFn: func(_ context.Context, workflowRunID string) error {
+			if workflowRunID != "wr-1" {
+				t.Fatalf("workflowRunID = %s, want wr-1", workflowRunID)
+			}
+			resumed.Add(1)
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, cb)
+	if r.stalledAction != "reconcile" {
+		t.Fatalf("default stalledAction = %q, want reconcile", r.stalledAction)
+	}
+	r.reapStalledWorkflows(context.Background())
+
+	if resumed.Load() != 1 {
+		t.Fatalf("resumed count = %d, want 1", resumed.Load())
+	}
+}
+
+func TestReaper_WithStalledActionEmptyUsesReconcile(t *testing.T) {
+	t.Parallel()
+
+	r := NewReaper(&mockReaperStore{}, time.Second, 30*time.Second, 0, 0, false, nil).WithStalledAction("")
+	if r.stalledAction != "reconcile" {
+		t.Fatalf("stalledAction after empty override = %q, want reconcile", r.stalledAction)
+	}
+}
+
 func TestReaper_ReapStalledWorkflows_FailWorkflow(t *testing.T) {
 	t.Parallel()
 

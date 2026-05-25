@@ -1688,6 +1688,60 @@ func TestEnqueueInTx_IdempotencyKeyGuard(t *testing.T) {
 	}
 }
 
+func TestEnqueueManagedTx_IdempotencyKeyGuard(t *testing.T) {
+	t.Parallel()
+
+	var execSQLs []string
+	tx := &mockTx{
+		mockDBTX: mockDBTX{
+			execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+				execSQLs = append(execSQLs, sql)
+				return pgconn.NewCommandTag("SELECT 1"), nil
+			},
+			queryRowFn: func(_ context.Context, _ string, _ ...any) pgx.Row {
+				return &mockRow{scanFn: func(dest ...any) error {
+					if tp, ok := dest[0].(*time.Time); ok {
+						*tp = time.Now()
+					}
+					return nil
+				}}
+			},
+		},
+	}
+	db := &mockTxDBTX{
+		beginFn: func(context.Context) (pgx.Tx, error) {
+			return tx, nil
+		},
+	}
+	q := NewPostgresQueue(db, WithBackpressureController(NewBackpressure(db, BackpressureConfig{}, false)))
+
+	execSQLs = nil
+	emptyKeyRun := &domain.JobRun{JobID: "j1", ProjectID: "p1"}
+	if err := q.Enqueue(context.Background(), emptyKeyRun); err != nil {
+		t.Fatalf("Enqueue empty key through managed tx: %v", err)
+	}
+	for _, sql := range execSQLs {
+		if strings.HasPrefix(sql, "SELECT pg_advisory_x") {
+			t.Fatalf("managed tx took advisory lock for empty idempotency key: %s", sql)
+		}
+	}
+
+	execSQLs = nil
+	keyedRun := &domain.JobRun{JobID: "j2", ProjectID: "p1", IdempotencyKey: "key-abc"}
+	if err := q.Enqueue(context.Background(), keyedRun); err != nil {
+		t.Fatalf("Enqueue keyed run through managed tx: %v", err)
+	}
+	foundLock := false
+	for _, sql := range execSQLs {
+		if strings.HasPrefix(sql, "SELECT pg_advisory_x") {
+			foundLock = true
+		}
+	}
+	if !foundLock {
+		t.Fatal("managed tx must take advisory lock for non-empty idempotency key")
+	}
+}
+
 // Kill: postgres.go:382 CONDITIONALS_NEGATION (q.backpressure != nil).
 // With backpressure that rejects, EnqueueBatch must return a throttle error.
 // This kills the mutant because flipping the guard would skip the check.

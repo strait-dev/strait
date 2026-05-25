@@ -84,7 +84,7 @@ func TestLoad_Defaults(t *testing.T) {
 		{"WorkflowRetention", cfg.WorkflowRetention, 720 * time.Hour},
 		{"ReaperDeleteBatchSize", cfg.ReaperDeleteBatchSize, 5000},
 		{"StalledWorkflowThreshold", cfg.StalledWorkflowThreshold, 15 * time.Minute},
-		{"StalledWorkflowAction", cfg.StalledWorkflowAction, "log_only"},
+		{"StalledWorkflowAction", cfg.StalledWorkflowAction, "reconcile"},
 		{"DependencyStatusCacheTTL", cfg.DependencyStatusCacheTTL, 5 * time.Second},
 		{"MaxWorkflowNestingDepth", cfg.MaxWorkflowNestingDepth, 10},
 		{"CDCBatchSize", cfg.CDCBatchSize, 200},

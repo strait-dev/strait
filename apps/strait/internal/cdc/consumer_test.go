@@ -20,6 +20,29 @@ import (
 	"strait/internal/pubsub"
 )
 
+type countingLogHandler struct {
+	warnCount atomic.Int32
+}
+
+func (h *countingLogHandler) Enabled(context.Context, slog.Level) bool {
+	return true
+}
+
+func (h *countingLogHandler) Handle(_ context.Context, record slog.Record) error {
+	if record.Level >= slog.LevelWarn {
+		h.warnCount.Add(1)
+	}
+	return nil
+}
+
+func (h *countingLogHandler) WithAttrs([]slog.Attr) slog.Handler {
+	return h
+}
+
+func (h *countingLogHandler) WithGroup(string) slog.Handler {
+	return h
+}
+
 func TestConsumerRegisterHandler(t *testing.T) {
 	t.Parallel()
 	consumer := NewConsumer(NewClient("http://example.com", "consumer", ""), ConsumerConfig{ConsumerName: "consumer"}, slog.Default())
@@ -198,6 +221,52 @@ func TestConsumerPollUnknownTableAcks(t *testing.T) {
 	}
 	if nackCalls != 0 {
 		t.Fatalf("nackCalls = %d, want 0", nackCalls)
+	}
+}
+
+func TestConsumerPollEmptyTableAcksWithoutWarn(t *testing.T) {
+	t.Parallel()
+	var mu sync.Mutex
+	var ackIDs [][]string
+	var nackCalls int
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/http_pull_consumers/c-empty/receive":
+			_, _ = w.Write([]byte(`{"data":[{"ack_id":"a-empty","record":{"id":1},"action":"insert","metadata":{"table_name":""}}]}`))
+		case "/api/http_pull_consumers/c-empty/ack":
+			ids := decodeAckIDs(t, r)
+			mu.Lock()
+			ackIDs = append(ackIDs, ids)
+			mu.Unlock()
+		case "/api/http_pull_consumers/c-empty/nack":
+			nackCalls++
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer ts.Close()
+
+	logs := &countingLogHandler{}
+	consumer := NewConsumer(
+		NewClient(ts.URL, "c-empty", "token"),
+		ConsumerConfig{ConsumerName: "c-empty", BatchSize: 10, WaitTimeMs: 1},
+		slog.New(logs),
+	)
+	if err := consumer.poll(context.Background()); err != nil {
+		t.Fatalf("poll returned error: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(ackIDs) != 1 || len(ackIDs[0]) != 1 || ackIDs[0][0] != "a-empty" {
+		t.Fatalf("ackIDs = %#v, want [[\"a-empty\"]]", ackIDs)
+	}
+	if nackCalls != 0 {
+		t.Fatalf("nackCalls = %d, want 0", nackCalls)
+	}
+	if logs.warnCount.Load() != 0 {
+		t.Fatalf("warn count = %d, want 0 for empty table event", logs.warnCount.Load())
 	}
 }
 

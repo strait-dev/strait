@@ -240,7 +240,7 @@ func NewReaper(s ReaperStore, interval, staleThreshold, shortRetention, longRete
 		retentionEnabled:      retentionEnabled,
 		workflowCallback:      workflowCallback,
 		logger:                slog.Default(),
-		stalledAction:         "log_only",
+		stalledAction:         "reconcile",
 		dlqAlertCooldown:      make(map[string]time.Time),
 		queueAlertCooldown:    make(map[string]time.Time),
 		reminderSent:          make(map[string]time.Time),
@@ -313,13 +313,13 @@ func (r *Reaper) WithStalledAction(action string) *Reaper {
 	switch action {
 	case "", "log_only", "reconcile", "fail_workflow":
 		if action == "" {
-			r.stalledAction = "log_only"
+			r.stalledAction = "reconcile"
 		} else {
 			r.stalledAction = action
 		}
 	default:
-		r.logger.Warn("invalid stalled action, using log_only", "action", action)
-		r.stalledAction = "log_only"
+		r.logger.Warn("invalid stalled action, using reconcile", "action", action)
+		r.stalledAction = "reconcile"
 	}
 	return r
 }

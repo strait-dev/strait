@@ -135,6 +135,13 @@ export SECRET_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 | `WORKFLOW_RUN_RETENTION_DAYS` | `30` | Retention for workflow run data. |
 | `AUDIT_RETENTION_DEFAULT_DAYS` | `365` | Default audit event retention. |
 
+## Workflow Recovery
+
+| Variable | Default | Description |
+|---|---|---|
+| `WF_STALL_THRESHOLD` | `15m` | How long a running workflow can make no progress before the reaper treats it as stalled. |
+| `WF_STALL_ACTION` | `reconcile` | Action for stalled workflows. `reconcile` resumes persisted workflow state, `log_only` only logs, and `fail_workflow` marks the workflow failed. |
+
 ## Worker Mode
 
 Use these when running connected workers.

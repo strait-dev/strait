@@ -241,8 +241,10 @@ func (q *PostgresQueue) enqueueInManagedTx(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := q.acquireIdempotencyXactLock(ctx, tx, run.JobID, run.IdempotencyKey, "enqueue run"); err != nil {
-		return err
+	if run.IdempotencyKey != "" {
+		if err := q.acquireIdempotencyXactLock(ctx, tx, run.JobID, run.IdempotencyKey, "enqueue run"); err != nil {
+			return err
+		}
 	}
 
 	if err := q.consumeBackpressure(ctx, tx, run, "enqueue run"); err != nil {
