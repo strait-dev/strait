@@ -505,7 +505,7 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 					tier:            domain.PlanFree,
 					limits:          limits,
 					enforcementMode: "enforce",
-				}, time.Now().UnixNano(), e.cacheBus, orgLimitsCacheNamespace, orgID)
+				}, 0, e.cacheBus, orgLimitsCacheNamespace, orgID)
 				return limits, nil
 			}
 			return OrgPlanLimits{}, fmt.Errorf("getting org subscription: %w", err)
@@ -568,6 +568,8 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 			if err := e.store.UpdateEntitlements(ctx, orgID, limits); err != nil {
 				e.logger.Warn("failed to opportunistically populate entitlements",
 					"org_id", orgID, "error", err)
+			} else {
+				sub.CacheVersion++
 			}
 		}
 	}
@@ -586,8 +588,15 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 		tier:            tier,
 		limits:          limits,
 		enforcementMode: sub.EnforcementMode,
-	}, time.Now().UnixNano(), e.cacheBus, orgLimitsCacheNamespace, orgID)
+	}, orgSubscriptionCacheVersion(sub), e.cacheBus, orgLimitsCacheNamespace, orgID)
 	return limits, nil
+}
+
+func orgSubscriptionCacheVersion(sub *OrgSubscription) int64 {
+	if sub == nil || sub.CacheVersion <= 0 {
+		return 1
+	}
+	return sub.CacheVersion
 }
 
 // hasPersistedEntitlements reports whether the raw JSONB bytes contain

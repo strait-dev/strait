@@ -92,7 +92,7 @@ func (s *PgStore) getOrgSubscriptionWhere(ctx context.Context, q querier, where 
 			COALESCE(monthly_usage_email, false),
 			COALESCE(add_ons, '{}'::jsonb),
 			COALESCE(entitlements, '{}'::jsonb),
-			created_at, updated_at
+			created_at, updated_at, cache_version
 		FROM organization_subscriptions
 		WHERE ` + where
 	err := q.QueryRow(ctx, query, arg).Scan(
@@ -108,7 +108,7 @@ func (s *PgStore) getOrgSubscriptionWhere(ctx context.Context, q querier, where 
 		&sub.MonthlyUsageEmail,
 		&addOnsJSON,
 		&sub.Entitlements,
-		&sub.CreatedAt, &sub.UpdatedAt,
+		&sub.CreatedAt, &sub.UpdatedAt, &sub.CacheVersion,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrSubscriptionNotFound
