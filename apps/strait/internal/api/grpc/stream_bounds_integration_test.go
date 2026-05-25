@@ -14,7 +14,6 @@ import (
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
 	"strait/internal/domain"
 	"strait/internal/store"
-	"strait/internal/testutil"
 )
 
 // TestIntegration_HandleTaskResult_OversizedRunIDRejected ensures a malicious
@@ -23,14 +22,7 @@ import (
 // store call.
 func TestIntegration_HandleTaskResult_OversizedRunIDRejected(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	projectID, workerID, _, taskID := seedRunWithTask(t, ctx, q, env)
@@ -57,14 +49,7 @@ func TestIntegration_HandleTaskResult_OversizedRunIDRejected(t *testing.T) {
 // truncated to maxErrorMsgBytes before the run is updated.
 func TestIntegration_HandleTaskResult_OversizedErrorTruncated(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
@@ -95,14 +80,7 @@ func TestIntegration_HandleTaskResult_OversizedErrorTruncated(t *testing.T) {
 // registry, audit payloads, and DB sync path.
 func TestIntegration_StreamTasks_InvalidRegistrationBoundsRejectedBeforeRegistry(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	const projectID = "proj-registration-bounds"

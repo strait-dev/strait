@@ -30,7 +30,7 @@ func getRunsFilterTestDB(t *testing.T) *testutil.TestDB {
 	runsFilterTestDBOnce.Do(func() {
 		ctx := context.Background()
 		var err error
-		runsFilterTestDB, err = testutil.SetupTestDB(ctx, "../../migrations")
+		runsFilterTestDB, err = testutil.SetupSharedTestDB(ctx, "../../migrations", "api-runs-filter")
 		if err != nil {
 			t.Fatalf("SetupTestDB() error = %v", err)
 		}

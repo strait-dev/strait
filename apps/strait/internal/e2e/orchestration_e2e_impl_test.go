@@ -273,7 +273,7 @@ func TestEndToEndWorkerMode(t *testing.T) {
 	// Build a WorkerDispatcher wired to the same registry and result channels.
 	dispatcher := grpcpkg.NewWorkerDispatcher(registry, store.New(testEnv.DB.Pool), "test-jwt-key", resultChannels)
 	billingStore := billing.NewPgStore(testEnv.DB.Pool)
-	rdb := redis.NewClient(&redis.Options{Addr: testEnv.Redis.Addr})
+	rdb := redis.NewClient(testEnv.Redis.Options())
 	t.Cleanup(func() { _ = rdb.Close() })
 	costRecorder := billing.NewRunCostRecorder(billingStore, rdb, nil, nil)
 
@@ -478,7 +478,7 @@ func TestEndToEndHTTPMode(t *testing.T) {
 	t.Cleanup(sdkServer.Close)
 
 	billingStore := billing.NewPgStore(testEnv.DB.Pool)
-	rdb := redis.NewClient(&redis.Options{Addr: testEnv.Redis.Addr})
+	rdb := redis.NewClient(testEnv.Redis.Options())
 	t.Cleanup(func() { _ = rdb.Close() })
 	costRecorder := billing.NewRunCostRecorder(billingStore, rdb, nil, nil)
 	runStore := store.New(testEnv.DB.Pool)
@@ -619,7 +619,7 @@ func TestEndToEndCapEnforcement(t *testing.T) {
 	}
 
 	// Set up billing enforcer + Redis.
-	rdb := redis.NewClient(&redis.Options{Addr: testEnv.Redis.Addr})
+	rdb := redis.NewClient(testEnv.Redis.Options())
 	t.Cleanup(func() { _ = rdb.Close() })
 
 	billingStore := billing.NewPgStore(testEnv.DB.Pool)

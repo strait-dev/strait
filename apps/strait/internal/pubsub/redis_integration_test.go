@@ -157,7 +157,7 @@ func TestRedisPublisher_PublishBatch_MultipleChannels(t *testing.T) {
 }
 
 func TestRedisPublisher_CloseWhileSubscribed(t *testing.T) {
-	client := redis.NewClient(&redis.Options{Addr: testRedis.Addr})
+	client := redis.NewClient(testRedis.Options())
 	pub := pubsub.NewRedisPublisher(client)
 
 	ctx := context.Background()
@@ -195,7 +195,7 @@ func TestRedisPublisher_CloseWhileSubscribed(t *testing.T) {
 }
 
 func TestRedisPublisher_PublishToClosedPublisher(t *testing.T) {
-	client := redis.NewClient(&redis.Options{Addr: testRedis.Addr})
+	client := redis.NewClient(testRedis.Options())
 	pub := pubsub.NewRedisPublisher(client)
 
 	if err := pub.Close(); err != nil {
@@ -210,7 +210,7 @@ func TestRedisPublisher_PublishToClosedPublisher(t *testing.T) {
 }
 
 func TestRedisPublisher_PublishBatchToClosedPublisher(t *testing.T) {
-	client := redis.NewClient(&redis.Options{Addr: testRedis.Addr})
+	client := redis.NewClient(testRedis.Options())
 	pub := pubsub.NewRedisPublisher(client)
 
 	if err := pub.Close(); err != nil {
@@ -237,7 +237,7 @@ func TestRedisPublisher_Ping(t *testing.T) {
 }
 
 func TestRedisPublisher_PingAfterClose(t *testing.T) {
-	client := redis.NewClient(&redis.Options{Addr: testRedis.Addr})
+	client := redis.NewClient(testRedis.Options())
 	pub := pubsub.NewRedisPublisher(client)
 
 	if err := pub.Close(); err != nil {
@@ -251,7 +251,7 @@ func TestRedisPublisher_PingAfterClose(t *testing.T) {
 }
 
 func TestRedisPublisher_SubscribeAfterClose(t *testing.T) {
-	client := redis.NewClient(&redis.Options{Addr: testRedis.Addr})
+	client := redis.NewClient(testRedis.Options())
 	pub := pubsub.NewRedisPublisher(client)
 
 	if err := pub.Close(); err != nil {

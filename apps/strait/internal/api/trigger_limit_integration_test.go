@@ -32,7 +32,7 @@ func getTriggerLimitTestDB(t *testing.T) *testutil.TestDB {
 	t.Helper()
 	triggerLimitTestDBOnce.Do(func() {
 		var err error
-		triggerLimitTestDB, err = testutil.SetupTestDB(context.Background(), "../../migrations")
+		triggerLimitTestDB, err = testutil.SetupSharedTestDB(context.Background(), "../../migrations", "api-trigger-limit")
 		if err != nil {
 			t.Fatalf("SetupTestDB() error = %v", err)
 		}

@@ -37,7 +37,7 @@ func mustEnv(t *testing.T) *testutil.TestEnv {
 	t.Helper()
 	testEnvOnce.Do(func() {
 		ctx := context.Background()
-		testEnv, testEnvErr = testutil.SetupTestEnv(ctx, "../../migrations")
+		testEnv, testEnvErr = testutil.SetupSharedTestEnv(ctx, "../../migrations", "worker")
 		if testEnvErr != nil {
 			log.Fatalf("setup test env: %v", testEnvErr)
 		}
