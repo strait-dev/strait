@@ -321,6 +321,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 	g.Go(func(ctx context.Context) error {
 		return poolTuner.Run(ctx)
 	})
+	_ = startCacheBus(g, pub)
 	if bq, ok := q.(*queue.BatchlogQueue); ok {
 		g.Go(func(ctx context.Context) error {
 			bq.RunTicker(ctx)

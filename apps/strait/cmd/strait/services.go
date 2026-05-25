@@ -15,6 +15,7 @@ import (
 	"strait/internal/api"
 	grpcserver "strait/internal/api/grpc"
 	"strait/internal/billing"
+	straitcache "strait/internal/cache"
 	"strait/internal/cdc"
 	"strait/internal/clickhouse"
 	"strait/internal/config"
@@ -722,6 +723,19 @@ func waitForPubsubReady(ctx context.Context, pub pubsub.Publisher, budget time.D
 		case <-timer.C:
 		}
 	}
+}
+
+func startCacheBus(g *pool.ContextPool, pub pubsub.Publisher) *straitcache.Registry {
+	registry := straitcache.NewRegistry(straitcache.RegistryConfig{})
+	bus := straitcache.NewBus(pub, straitcache.BusConfig{Origin: registry.Origin()})
+	g.Go(func(ctx context.Context) error {
+		return bus.Run(ctx, registry)
+	})
+	slog.Info("cachebus subscriber enabled",
+		"channel", bus.Channel(),
+		"origin", registry.Origin(),
+	)
+	return registry
 }
 
 // startWorker starts the job executor, worker pool, and scheduler goroutines.
