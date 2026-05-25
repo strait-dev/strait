@@ -10,7 +10,6 @@ import (
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
 	"strait/internal/domain"
 	"strait/internal/store"
-	"strait/internal/testutil"
 )
 
 // TestIntegration_Reconcile_CompletedUpdatesWorkerTask asserts that
@@ -19,14 +18,7 @@ import (
 // fallback path.
 func TestIntegration_Reconcile_CompletedUpdatesWorkerTask(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
@@ -63,14 +55,7 @@ func TestIntegration_Reconcile_CompletedUpdatesWorkerTask(t *testing.T) {
 // "assigned" after the run is requeued or dead-lettered.
 func TestIntegration_Reconcile_FailedUpdatesWorkerTask(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
@@ -90,14 +75,7 @@ func TestIntegration_Reconcile_FailedUpdatesWorkerTask(t *testing.T) {
 
 func TestIntegration_Reconcile_CompletedUsesRunFinalizer(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
@@ -132,14 +110,7 @@ func TestIntegration_Reconcile_CompletedUsesRunFinalizer(t *testing.T) {
 
 func TestIntegration_Reconcile_InvalidCompletedOutputRoutesFailure(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
@@ -167,14 +138,7 @@ func TestIntegration_Reconcile_InvalidCompletedOutputRoutesFailure(t *testing.T)
 
 func TestIntegration_Reconcile_FailedUsesRunFinalizer(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
@@ -212,14 +176,7 @@ func TestIntegration_Reconcile_FailedUsesRunFinalizer(t *testing.T) {
 // row) must NOT touch either the run or any worker_tasks row.
 func TestIntegration_Reconcile_OwnershipMismatchSkips(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	projectID, _, runID, taskID := seedRunWithTask(t, ctx, q, env)
@@ -247,14 +204,7 @@ func TestIntegration_Reconcile_OwnershipMismatchSkips(t *testing.T) {
 
 func TestIntegration_Reconcile_StaleAssignmentReplaySkipsCurrentTask(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	projectID, workerID, runID, staleTaskID := seedRunWithTask(t, ctx, q, env)
@@ -304,14 +254,7 @@ func TestIntegration_Reconcile_StaleAssignmentReplaySkipsCurrentTask(t *testing.
 // or a partial state transition.
 func TestIntegration_Reconcile_UnknownStatusIgnored(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
@@ -333,14 +276,7 @@ func TestIntegration_Reconcile_UnknownStatusIgnored(t *testing.T) {
 // nil entries and empty RunId values without panicking or affecting state.
 func TestIntegration_Reconcile_NilAndEmptyEntries(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	projectID, workerID, _, taskID := seedRunWithTask(t, ctx, q, env)

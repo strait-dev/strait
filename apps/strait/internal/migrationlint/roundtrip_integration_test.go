@@ -192,7 +192,7 @@ func runRoundtrip(t *testing.T, targetVersion uint, extraChecks func(t *testing.
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 
-	tdb, err := testutil.SetupTestDB(ctx, migrationsRelPath)
+	tdb, err := testutil.SetupSharedTestDB(ctx, migrationsRelPath, "migrationlint-roundtrip")
 	if err != nil {
 		t.Fatalf("setup test db: %v", err)
 	}
@@ -428,7 +428,7 @@ func TestMigrationRoundtrip_All(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	tdb, err := testutil.SetupTestDB(ctx, migrationsRelPath)
+	tdb, err := testutil.SetupSharedTestDB(ctx, migrationsRelPath, "migrationlint-roundtrip")
 	if err != nil {
 		t.Fatalf("setup test db: %v", err)
 	}

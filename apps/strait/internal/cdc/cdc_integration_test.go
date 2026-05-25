@@ -31,7 +31,7 @@ var (
 func mustRedis(t *testing.T) *testutil.TestRedis {
 	t.Helper()
 	redisOnce.Do(func() {
-		testRedis, redisErr = testutil.SetupTestRedis(context.Background())
+		testRedis, redisErr = testutil.SetupSharedTestRedis(context.Background(), "cdc")
 	})
 	if redisErr != nil {
 		t.Fatalf("setup redis: %v", redisErr)
@@ -47,7 +47,7 @@ func mustRedis(t *testing.T) *testutil.TestRedis {
 func newRedisPublisher(t *testing.T) *pubsub.RedisPublisher {
 	t.Helper()
 	tr := mustRedis(t)
-	client := redis.NewClient(&redis.Options{Addr: tr.Addr})
+	client := redis.NewClient(tr.Options())
 	t.Cleanup(func() { _ = client.Close() })
 	return pubsub.NewRedisPublisher(client)
 }

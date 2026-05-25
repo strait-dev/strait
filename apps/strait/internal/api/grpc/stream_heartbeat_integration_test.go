@@ -9,7 +9,6 @@ import (
 
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
 	"strait/internal/store"
-	"strait/internal/testutil"
 )
 
 // TestIntegration_Heartbeat_RenewsStreamLeaseWithoutTouchingLastSeen pins the
@@ -20,14 +19,7 @@ import (
 // assert the timestamp is unchanged.
 func TestIntegration_Heartbeat_RenewsStreamLeaseWithoutTouchingLastSeen(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 
@@ -36,7 +28,7 @@ func TestIntegration_Heartbeat_RenewsStreamLeaseWithoutTouchingLastSeen(t *testi
 
 	// Seed a row with last_seen_at far in the past — far enough that any
 	// heartbeat-time DB write would jump the timestamp by minutes.
-	_, err = env.DB.Pool.Exec(ctx, `
+	_, err := env.DB.Pool.Exec(ctx, `
 		INSERT INTO workers (id, project_id, queue_name, hostname, version, status, last_seen_at, registered_at)
 		VALUES ($1, $2, 'q', 'host1', '1.0', 'active', NOW() - INTERVAL '1 hour', NOW() - INTERVAL '1 hour')
 	`, workerID, projectID)
@@ -86,14 +78,7 @@ func TestIntegration_Heartbeat_RenewsStreamLeaseWithoutTouchingLastSeen(t *testi
 // which is the post-Phase-D source of truth for liveness.
 func TestIntegration_Heartbeat_DBSyncRefreshesLastSeen(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 

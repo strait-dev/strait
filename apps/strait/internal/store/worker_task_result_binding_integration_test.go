@@ -17,14 +17,7 @@ import (
 
 func TestIntegration_MarkWorkerTaskResultReceivedByAssignment_BindsAndPersistsResult(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := mustEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	projectID, workerID, runID, taskID := seedWorkerTaskForBinding(t, ctx, q, 3)
@@ -113,14 +106,7 @@ func TestIntegration_MarkWorkerTaskResultReceivedByAssignment_BindsAndPersistsRe
 
 func TestIntegration_ClaimRecoverableWorkerTaskResults_ClaimsOnlyOldExecutingHandoffs(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := mustEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	projectID, workerID, runID, taskID := seedWorkerTaskForBinding(t, ctx, q, 1)

@@ -22,15 +22,7 @@ import (
 func TestIntegration_DBSync_WorkerVisible(t *testing.T) {
 	ctx := context.Background()
 
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean tables: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	reg := NewConnectionRegistry()
@@ -44,7 +36,7 @@ func TestIntegration_DBSync_WorkerVisible(t *testing.T) {
 
 	// Verify the worker row exists in the workers table.
 	var id string
-	err = env.DB.Pool.QueryRow(ctx,
+	err := env.DB.Pool.QueryRow(ctx,
 		`SELECT id FROM workers WHERE id = $1 AND project_id = $2`,
 		"sync-worker", "proj-1",
 	).Scan(&id)
@@ -60,20 +52,12 @@ func TestIntegration_DBSync_WorkerVisible(t *testing.T) {
 func TestIntegration_Sweep_EvictsStaleWorkers(t *testing.T) {
 	ctx := context.Background()
 
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean tables: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 
 	// Insert a worker with a very old last_seen_at directly (workers table has no FK to projects).
-	_, err = env.DB.Pool.Exec(ctx, `
+	_, err := env.DB.Pool.Exec(ctx, `
 		INSERT INTO workers (id, project_id, queue_name, hostname, version, status, last_seen_at, registered_at)
 		VALUES ('stale-worker', 'proj-stale', 'q1', 'host1', '1.0', 'active', NOW() - INTERVAL '1 hour', NOW() - INTERVAL '1 hour')
 		ON CONFLICT (project_id, id) DO UPDATE SET last_seen_at = NOW() - INTERVAL '1 hour', status = 'active'
@@ -112,11 +96,7 @@ func TestIntegration_Sweep_EvictsStaleWorkers(t *testing.T) {
 func TestIntegration_CloseByAPIKey_ViaRevokeCh(t *testing.T) {
 	ctx := context.Background()
 
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
+	_ = cleanIntegrationEnv(t, ctx)
 
 	reg := NewConnectionRegistry()
 
@@ -150,15 +130,7 @@ func TestIntegration_CloseByAPIKey_ViaRevokeCh(t *testing.T) {
 func TestIntegration_Registry_DBSync_Roundtrip(t *testing.T) {
 	ctx := context.Background()
 
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean tables: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	reg := NewConnectionRegistry()
@@ -182,7 +154,7 @@ func TestIntegration_Registry_DBSync_Roundtrip(t *testing.T) {
 
 	// All 3 workers should be in the DB.
 	var count int
-	err = env.DB.Pool.QueryRow(ctx,
+	err := env.DB.Pool.QueryRow(ctx,
 		`SELECT COUNT(*) FROM workers WHERE project_id = 'proj-rt'`,
 	).Scan(&count)
 	if err != nil {
@@ -239,14 +211,14 @@ func TestIntegration_CrossReplica_WorkerDisconnect(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	r, err := testutil.SetupTestRedis(ctx)
+	r, err := testutil.SetupSharedTestRedis(ctx, "api-grpc-redis")
 	if err != nil {
 		t.Fatalf("setup redis: %v", err)
 	}
 	t.Cleanup(func() { r.Cleanup(context.Background()) })
 
 	// Build a publisher and subscriber backed by the same Redis container.
-	client := redis.NewClient(&redis.Options{Addr: r.Addr})
+	client := redis.NewClient(r.Options())
 	t.Cleanup(func() { _ = client.Close() })
 	pub := pubsub.NewRedisPublisher(client)
 
@@ -285,13 +257,13 @@ func TestIntegration_CrossReplica_APIKeyRevoke(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	r, err := testutil.SetupTestRedis(ctx)
+	r, err := testutil.SetupSharedTestRedis(ctx, "api-grpc-redis")
 	if err != nil {
 		t.Fatalf("setup redis: %v", err)
 	}
 	t.Cleanup(func() { r.Cleanup(context.Background()) })
 
-	client := redis.NewClient(&redis.Options{Addr: r.Addr})
+	client := redis.NewClient(r.Options())
 	t.Cleanup(func() { _ = client.Close() })
 	pub := pubsub.NewRedisPublisher(client)
 
@@ -328,13 +300,13 @@ func TestIntegration_CrossReplica_APIKeyRevoke_RegistryCloseByAPIKey(t *testing.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	r, err := testutil.SetupTestRedis(ctx)
+	r, err := testutil.SetupSharedTestRedis(ctx, "api-grpc-redis")
 	if err != nil {
 		t.Fatalf("setup redis: %v", err)
 	}
 	t.Cleanup(func() { r.Cleanup(context.Background()) })
 
-	client := redis.NewClient(&redis.Options{Addr: r.Addr})
+	client := redis.NewClient(r.Options())
 	t.Cleanup(func() { _ = client.Close() })
 	pub := pubsub.NewRedisPublisher(client)
 

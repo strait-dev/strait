@@ -11,7 +11,6 @@ import (
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
 	"strait/internal/domain"
 	"strait/internal/store"
-	"strait/internal/testutil"
 )
 
 // TestIntegration_FinalizeDisconnect_MarksOfflineAndAudits pins the Phase G
@@ -24,14 +23,7 @@ import (
 // detached context with a 5s timeout.
 func TestIntegration_FinalizeDisconnect_MarksOfflineAndAudits(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 
@@ -91,14 +83,7 @@ func TestIntegration_FinalizeDisconnect_MarksOfflineAndAudits(t *testing.T) {
 // worker_tasks rows instead of waiting for the generic stale-run reaper.
 func TestIntegration_FinalizeDisconnect_RequeuesOpenWorkerRuns(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
@@ -149,14 +134,7 @@ func TestIntegration_FinalizeDisconnect_RequeuesOpenWorkerRuns(t *testing.T) {
 // received the worker result but before executor finalization has completed.
 func TestIntegration_FinalizeDisconnect_SkipsResultReceivedWorkerRuns(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
@@ -204,14 +182,7 @@ func TestIntegration_FinalizeDisconnect_SkipsResultReceivedWorkerRuns(t *testing
 // disconnect immediately after sending a result could requeue completed work.
 func TestIntegration_TaskResultHandoffPrecedesDisconnectRequeue(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
@@ -276,14 +247,7 @@ func TestIntegration_TaskResultHandoffPrecedesDisconnectRequeue(t *testing.T) {
 
 func TestIntegration_TaskResultHandoffRejectsStaleAssignmentIdentity(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
@@ -345,14 +309,7 @@ func TestIntegration_TaskResultHandoffRejectsStaleAssignmentIdentity(t *testing.
 // for the replacement connection.
 func TestIntegration_CleanupRegistration_StaleReconnectDoesNotRequeue(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)

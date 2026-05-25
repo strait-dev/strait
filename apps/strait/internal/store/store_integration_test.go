@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,20 +26,43 @@ import (
 	"strait/internal/testutil"
 )
 
-var testDB *testutil.TestDB
+var (
+	testDB        *testutil.TestDB
+	testRedis     *testutil.TestRedis
+	testRedisErr  error
+	testRedisOnce sync.Once
+)
 
 func TestMain(m *testing.M) {
 	ctx := context.Background()
 
 	var err error
-	testDB, err = testutil.SetupTestDB(ctx, "../../migrations")
+	testDB, err = testutil.SetupSharedTestDB(ctx, "../../migrations", "store")
 	if err != nil {
 		log.Fatalf("setup test db: %v", err)
 	}
 
 	code := m.Run()
+	if testRedis != nil {
+		testRedis.Cleanup(ctx)
+	}
 	testDB.Cleanup(ctx)
 	os.Exit(code)
+}
+
+func mustEnv(t *testing.T, ctx context.Context) *testutil.TestEnv {
+	t.Helper()
+	testRedisOnce.Do(func() {
+		testRedis, testRedisErr = testutil.SetupSharedTestRedis(ctx, "store")
+	})
+	if testRedisErr != nil {
+		t.Fatalf("setup test redis: %v", testRedisErr)
+	}
+	env := &testutil.TestEnv{DB: testDB, Redis: testRedis}
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean test env: %v", err)
+	}
+	return env
 }
 
 func TestWithTx_CommitsOnSuccess(t *testing.T) {

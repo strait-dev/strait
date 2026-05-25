@@ -1,4 +1,4 @@
-.PHONY: help setup dev dev-debug dev-observability dev-status dev-logs dev-reset dev-stripe app app-migrate selfhost selfhost-core selfhost-observability selfhost-down selfhost-reset build test test-race test-int test-load lint vet bench migrate-up migrate-down migrate-status migrate-create clean check
+.PHONY: help setup dev dev-debug dev-observability dev-status dev-logs dev-reset dev-stripe app app-migrate selfhost selfhost-core selfhost-observability selfhost-down selfhost-reset build test test-race test-int test-int-fast test-int-clean test-load lint vet bench migrate-up migrate-down migrate-status migrate-create clean check
 
 DEV_COMPOSE = docker compose -f docker-compose.base.yml -f apps/strait/docker-compose.yml
 SELFHOST_COMPOSE = docker compose --env-file .env.selfhost -f docker-compose.base.yml -f docker-compose.selfhost.yml
@@ -30,6 +30,8 @@ help:
 	@echo "  make test               Run all tests"
 	@echo "  make test-race          Run tests with race detector"
 	@echo "  make test-int           Run integration tests"
+	@echo "  make test-int-fast      Run sharded local integration tests with shared containers"
+	@echo "  make test-int-clean     Remove Strait integration testcontainers resources"
 	@echo "  make test-load          Run load tests (30m timeout)"
 	@echo ""
 	@echo "Code Quality:"
@@ -134,6 +136,12 @@ test-race:
 
 test-int:
 	cd apps/strait && go test -tags integration ./...
+
+test-int-fast:
+	cd apps/strait && ./scripts/test-integration-fast.sh --all
+
+test-int-clean:
+	cd apps/strait && ./scripts/test-integration-clean.sh
 
 test-load:
 	cd apps/strait && go test -tags loadtest,integration -v -timeout=30m ./test/loadtest/...

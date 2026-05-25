@@ -8,7 +8,6 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
-	"strait/internal/testutil"
 )
 
 // TestIntegration_RegisterWorker_SameIDAcrossProjectsCreatesSeparateRows
@@ -17,14 +16,7 @@ import (
 // project from registering the same name.
 func TestIntegration_RegisterWorker_SameIDAcrossProjectsCreatesSeparateRows(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 
@@ -102,14 +94,7 @@ func TestIntegration_RegisterWorker_SameIDAcrossProjectsCreatesSeparateRows(t *t
 // project-equal happy path still updates queue/hostname/version/status.
 func TestIntegration_RegisterWorker_SameProjectStillUpserts(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	const workerID = "stable-id"
@@ -140,7 +125,7 @@ func TestIntegration_RegisterWorker_SameProjectStillUpserts(t *testing.T) {
 	var (
 		gotQueue, gotHostname, gotVersion, gotStatus string
 	)
-	err = env.DB.Pool.QueryRow(ctx,
+	err := env.DB.Pool.QueryRow(ctx,
 		`SELECT queue_name, hostname, version, status FROM workers WHERE id = $1 AND project_id = $2`,
 		workerID, projectID,
 	).Scan(&gotQueue, &gotHostname, &gotVersion, &gotStatus)
@@ -158,14 +143,7 @@ func TestIntegration_RegisterWorker_SameProjectStillUpserts(t *testing.T) {
 
 func TestIntegration_WorkerTasksReferenceProjectScopedWorker(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	const workerID = "shared-id"
@@ -178,7 +156,7 @@ func TestIntegration_WorkerTasksReferenceProjectScopedWorker(t *testing.T) {
 		t.Fatalf("register worker: %v", err)
 	}
 
-	err = q.CreateWorkerTask(ctx, &domain.WorkerTask{
+	err := q.CreateWorkerTask(ctx, &domain.WorkerTask{
 		ID:        "task-cross-project",
 		WorkerID:  workerID,
 		ProjectID: "proj-b",
@@ -196,14 +174,7 @@ func TestIntegration_WorkerTasksReferenceProjectScopedWorker(t *testing.T) {
 // not an error.
 func TestIntegration_GetWorkerProjectByID_NotFoundIsClean(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	proj, ok, err := q.GetWorkerProjectByID(ctx, "does-not-exist")

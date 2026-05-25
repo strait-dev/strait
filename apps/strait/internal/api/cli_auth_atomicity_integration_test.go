@@ -30,7 +30,7 @@ func TestApproveDeviceCodeRaceNoOrphans(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	tdb, err := testutil.SetupTestDB(ctx, "../../migrations")
+	tdb, err := testutil.SetupSharedTestDB(ctx, "../../migrations", "api-cli-auth")
 	if err != nil {
 		t.Fatalf("SetupTestDB() error = %v", err)
 	}

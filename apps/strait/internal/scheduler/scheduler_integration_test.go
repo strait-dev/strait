@@ -30,7 +30,7 @@ func getTestDB(t *testing.T) *testutil.TestDB {
 	testDBOnce.Do(func() {
 		ctx := context.Background()
 		var err error
-		testDB, err = testutil.SetupTestDB(ctx, "../../migrations")
+		testDB, err = testutil.SetupSharedTestDB(ctx, "../../migrations", "scheduler-external")
 		if err != nil {
 			log.Fatalf("setup test db: %v", err)
 		}
