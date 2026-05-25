@@ -14,6 +14,7 @@ import (
 const (
 	defaultPoolTunerInterval       = 5 * time.Minute
 	poolAdviceSampleConsistencyMin = 3
+	poolAdviceWaitDurationMin      = 50 * time.Millisecond
 )
 
 type poolProvider interface {
@@ -24,13 +25,15 @@ type poolTuningState struct {
 	acquiredAtMaxStreak int
 	idleAtMaxStreak     int
 	lastWaitCount       int64
+	lastWaitDuration    time.Duration
 }
 
 type poolSnapshot struct {
-	Acquired  int32
-	Idle      int32
-	Total     int32
-	WaitCount int64
+	Acquired     int32
+	Idle         int32
+	Total        int32
+	WaitCount    int64
+	WaitDuration time.Duration
 }
 
 type PoolTuner struct {
@@ -126,10 +129,11 @@ func (t *PoolTuner) Run(ctx context.Context) error {
 func (t *PoolTuner) sample(ctx context.Context) {
 	stat := t.pool.Stat()
 	snapshot := poolSnapshot{
-		Acquired:  stat.AcquiredConns(),
-		Idle:      stat.IdleConns(),
-		Total:     stat.TotalConns(),
-		WaitCount: stat.EmptyAcquireCount(),
+		Acquired:     stat.AcquiredConns(),
+		Idle:         stat.IdleConns(),
+		Total:        stat.TotalConns(),
+		WaitCount:    stat.EmptyAcquireCount(),
+		WaitDuration: stat.EmptyAcquireWaitTime(),
 	}
 
 	t.acquiredGauge.Record(ctx, int64(snapshot.Acquired))
@@ -152,9 +156,14 @@ func (t *PoolTuner) sample(ctx context.Context) {
 }
 
 func evaluatePoolRecommendations(snapshot poolSnapshot, maxConns, minConns int32, state *poolTuningState) []string {
-	recommendations := make([]string, 0, 3)
+	var recommendations []string
 
-	if maxConns > 0 && snapshot.Acquired >= maxConns {
+	waitCountIncreased := state.lastWaitCount >= 0 && snapshot.WaitCount > state.lastWaitCount
+	waitDurationDelta := snapshot.WaitDuration - state.lastWaitDuration
+	poolAtMax := maxConns > 0 && snapshot.Acquired >= maxConns
+	poolPressure := waitCountIncreased && (poolAtMax || waitDurationDelta >= poolAdviceWaitDurationMin)
+
+	if poolAtMax {
 		state.acquiredAtMaxStreak++
 		if state.acquiredAtMaxStreak == poolAdviceSampleConsistencyMin {
 			recommendations = append(recommendations, "Consider increasing DB_MAX_CONNS")
@@ -163,7 +172,7 @@ func evaluatePoolRecommendations(snapshot poolSnapshot, maxConns, minConns int32
 		state.acquiredAtMaxStreak = 0
 	}
 
-	if minConns > 0 && snapshot.Idle >= minConns {
+	if minConns > 0 && snapshot.Idle >= minConns && !poolPressure {
 		state.idleAtMaxStreak++
 		if state.idleAtMaxStreak == poolAdviceSampleConsistencyMin {
 			recommendations = append(recommendations, "Consider decreasing DB_MIN_CONNS")
@@ -172,10 +181,11 @@ func evaluatePoolRecommendations(snapshot poolSnapshot, maxConns, minConns int32
 		state.idleAtMaxStreak = 0
 	}
 
-	if state.lastWaitCount >= 0 && snapshot.WaitCount > state.lastWaitCount {
+	if poolPressure {
 		recommendations = append(recommendations, "Connection pool under pressure, check query performance")
 	}
 	state.lastWaitCount = snapshot.WaitCount
+	state.lastWaitDuration = snapshot.WaitDuration
 
 	return recommendations
 }

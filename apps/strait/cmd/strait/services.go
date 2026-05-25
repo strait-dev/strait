@@ -279,7 +279,7 @@ func startCDCConsumer(ctx context.Context, g *pool.ContextPool, cfg *config.Conf
 	// Auto-provision the Sequin consumer if it does not exist.
 	cdcTables := []string{
 		"public.job_runs", "public.workflow_runs",
-		"public.workflow_step_runs", "public.event_triggers",
+		"public.event_triggers",
 	}
 	if err := cdcClient.EnsureConsumer(ctx, cdcTables); err != nil {
 		return nil, fmt.Errorf("ensure sequin consumer %q: %w", cfg.SequinConsumerName, err)
@@ -295,7 +295,6 @@ func startCDCConsumer(ctx context.Context, g *pool.ContextPool, cfg *config.Conf
 
 	cdcConsumer.RegisterHandler(cdc.NewJobRunHandler(pub, slog.Default()))
 	cdcConsumer.RegisterHandler(cdc.NewWorkflowRunHandler(pub, slog.Default()))
-	cdcConsumer.RegisterHandler(cdc.NewWorkflowStepRunHandler(pub, slog.Default()))
 	cdcConsumer.RegisterHandler(cdc.NewEventTriggerHandler(pub, slog.Default()))
 	cdcConsumer.RegisterAdditionalHandler(cdc.NewNotificationTriggerHandler(queries, slog.Default()))
 	cdcConsumer.RegisterAdditionalHandler(cdc.NewSLOHandler(queries, slog.Default()))
@@ -330,7 +329,6 @@ func startCDCConsumer(ctx context.Context, g *pool.ContextPool, cfg *config.Conf
 	webhookReceiver := cdc.NewWebhookReceiver(pub, slog.Default(), receiverOpts...)
 	webhookReceiver.RegisterHandler(cdc.NewJobRunHandler(pub, slog.Default()))
 	webhookReceiver.RegisterHandler(cdc.NewWorkflowRunHandler(pub, slog.Default()))
-	webhookReceiver.RegisterHandler(cdc.NewWorkflowStepRunHandler(pub, slog.Default()))
 	webhookReceiver.RegisterHandler(cdc.NewEventTriggerHandler(pub, slog.Default()))
 
 	// CDC-driven observers: execution-critical side effects are written through

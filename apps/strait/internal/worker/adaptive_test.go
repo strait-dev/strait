@@ -70,6 +70,18 @@ func TestAdaptiveConcurrency_FasterScaleDown(t *testing.T) {
 	}
 }
 
+func TestAdaptiveConcurrency_DoesNotShedAtColdIdle(t *testing.T) {
+	t.Parallel()
+
+	a := NewAdaptiveConcurrency(5, 40, 30)
+	for range 10 {
+		next := a.Observe(0, 0)
+		if next != 30 {
+			t.Fatalf("Observe() at cold idle = %d, want 30", next)
+		}
+	}
+}
+
 func TestAdaptiveConcurrency_ScaleDownRespectsMin(t *testing.T) {
 	t.Parallel()
 
@@ -187,5 +199,16 @@ func TestAdaptiveConcurrency_IdleCheckResetOnActivity(t *testing.T) {
 	// 20 * 0.33 = 6.6 -> ceil = 7; 20 - 7 = 13
 	if next != 13 {
 		t.Fatalf("Observe() after reset = %d, want 13", next)
+	}
+}
+
+func BenchmarkAdaptiveConcurrencyObserveIdle(b *testing.B) {
+	a := NewAdaptiveConcurrency(5, 200, 50)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		if got := a.Observe(0, 0); got != 50 {
+			b.Fatalf("Observe() = %d, want 50", got)
+		}
 	}
 }
