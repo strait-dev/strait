@@ -547,6 +547,7 @@ type Server struct {
 	validate           *validator.Validate
 	maxRequestBodySize int64
 	poolStatter        PoolStatter
+	poolBackpressure   poolBackpressureState
 	permCache          *permissionCache
 	quotaCache         *quotaCache
 	oidcVerifier       *oidcVerifier
@@ -743,6 +744,15 @@ type ServerDeps struct {
 type PoolStatter interface {
 	AcquiredConns() int32
 	MaxConns() int32
+	EmptyAcquireCount() int64
+	EmptyAcquireWaitTime() time.Duration
+}
+
+type poolBackpressureState struct {
+	mu                sync.Mutex
+	initialized       bool
+	emptyAcquireCount int64
+	emptyAcquireWait  time.Duration
 }
 
 // NewServer creates a new HTTP API server with the given dependencies.
@@ -849,15 +859,47 @@ func NewServer(deps ServerDeps) *Server {
 
 func (s *Server) dbBackpressure(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		acquired := s.poolStatter.AcquiredConns()
-		maxConns := s.poolStatter.MaxConns()
-		if maxConns > 0 && acquired > int32(float64(maxConns)*0.9) {
+		if s.shouldApplyDBBackpressure() {
 			w.Header().Set("Retry-After", "1")
 			http.Error(w, "service temporarily unavailable", http.StatusServiceUnavailable)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+const dbBackpressureAcquireWaitThreshold = 50 * time.Millisecond
+
+func (s *Server) shouldApplyDBBackpressure() bool {
+	acquired := s.poolStatter.AcquiredConns()
+	maxConns := s.poolStatter.MaxConns()
+	if maxConns > 0 && acquired > int32(float64(maxConns)*0.9) {
+		return true
+	}
+
+	waitCount := s.poolStatter.EmptyAcquireCount()
+	waitDuration := s.poolStatter.EmptyAcquireWaitTime()
+
+	s.poolBackpressure.mu.Lock()
+	defer s.poolBackpressure.mu.Unlock()
+
+	if !s.poolBackpressure.initialized {
+		s.poolBackpressure.initialized = true
+		s.poolBackpressure.emptyAcquireCount = waitCount
+		s.poolBackpressure.emptyAcquireWait = waitDuration
+		return false
+	}
+
+	deltaCount := waitCount - s.poolBackpressure.emptyAcquireCount
+	deltaDuration := waitDuration - s.poolBackpressure.emptyAcquireWait
+	s.poolBackpressure.emptyAcquireCount = waitCount
+	s.poolBackpressure.emptyAcquireWait = waitDuration
+
+	if deltaCount <= 0 || deltaDuration <= 0 {
+		return false
+	}
+	avgWait := deltaDuration / time.Duration(deltaCount)
+	return avgWait >= dbBackpressureAcquireWaitThreshold
 }
 
 func permCacheTTL(cfg *config.Config) time.Duration {

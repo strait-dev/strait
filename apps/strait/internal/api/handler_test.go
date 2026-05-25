@@ -2552,12 +2552,16 @@ func TestHandleListRunLineage_StoreError(t *testing.T) {
 }
 
 type mockPoolStatter struct {
-	acquired int32
-	max      int32
+	acquired         int32
+	max              int32
+	emptyAcquire     int64
+	emptyAcquireWait time.Duration
 }
 
-func (m *mockPoolStatter) AcquiredConns() int32 { return m.acquired }
-func (m *mockPoolStatter) MaxConns() int32      { return m.max }
+func (m *mockPoolStatter) AcquiredConns() int32                { return m.acquired }
+func (m *mockPoolStatter) MaxConns() int32                     { return m.max }
+func (m *mockPoolStatter) EmptyAcquireCount() int64            { return m.emptyAcquire }
+func (m *mockPoolStatter) EmptyAcquireWaitTime() time.Duration { return m.emptyAcquireWait }
 
 func TestDBBackpressure_Returns503WhenPoolExhausted(t *testing.T) {
 	t.Parallel()
@@ -2607,6 +2611,75 @@ func TestDBBackpressure_AllowsRequestsWhenPoolHealthy(t *testing.T) {
 
 	if w.Code == http.StatusServiceUnavailable {
 		t.Fatal("expected request to pass through when pool is healthy")
+	}
+}
+
+func TestDBBackpressure_Returns503WhenAcquireWaitSpikes(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		InternalSecret:      "test-secret-value",
+		MaxBulkTriggerItems: 500,
+		JWTSigningKey:       testJWTSigningKey,
+	}
+	statter := &mockPoolStatter{acquired: 2, max: 25}
+	srv := NewServer(ServerDeps{
+		Config:      cfg,
+		Store:       &APIStoreMock{},
+		Queue:       &mockQueue{},
+		PoolStatter: statter,
+	})
+	t.Cleanup(srv.Close)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/health", nil))
+	if w.Code == http.StatusServiceUnavailable {
+		t.Fatalf("first request should establish wait baseline, got %d: %s", w.Code, w.Body.String())
+	}
+
+	statter.emptyAcquire = 10
+	statter.emptyAcquireWait = time.Second
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/health", ""))
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 after acquire wait spike, got %d: %s", w.Code, w.Body.String())
+	}
+	if w.Header().Get("Retry-After") != "1" {
+		t.Fatalf("expected Retry-After=1, got %s", w.Header().Get("Retry-After"))
+	}
+}
+
+func TestDBBackpressure_AllowsSmallAcquireWait(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		InternalSecret:      "test-secret-value",
+		MaxBulkTriggerItems: 500,
+		JWTSigningKey:       testJWTSigningKey,
+	}
+	statter := &mockPoolStatter{acquired: 2, max: 25}
+	srv := NewServer(ServerDeps{
+		Config:      cfg,
+		Store:       &APIStoreMock{},
+		Queue:       &mockQueue{},
+		PoolStatter: statter,
+	})
+	t.Cleanup(srv.Close)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/health", nil))
+	if w.Code == http.StatusServiceUnavailable {
+		t.Fatalf("first request should establish wait baseline, got %d: %s", w.Code, w.Body.String())
+	}
+
+	statter.emptyAcquire = 10
+	statter.emptyAcquireWait = 100 * time.Millisecond
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/health", nil))
+
+	if w.Code == http.StatusServiceUnavailable {
+		t.Fatal("expected request to pass through when average acquire wait is below threshold")
 	}
 }
 
