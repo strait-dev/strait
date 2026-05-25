@@ -12,9 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sourcegraph/conc"
 	"strait/internal/domain"
 	"strait/internal/webhook"
+
+	"github.com/sourcegraph/conc"
 )
 
 func TestE2E_WebhookDeliveryWorker_ProcessesPendingDeliveries(t *testing.T) {

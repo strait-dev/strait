@@ -8,9 +8,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/sourcegraph/conc"
 	"strait/internal/billing"
 	"strait/internal/domain"
+
+	"github.com/sourcegraph/conc"
 )
 
 // TestPgStore_UpdateEntitlements_RoundTrip writes a known OrgPlanLimits

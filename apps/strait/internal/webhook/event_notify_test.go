@@ -24,11 +24,12 @@ import (
 
 	"github.com/getsentry/sentry-go"
 
-	"github.com/sourcegraph/conc"
 	"strait/internal/clickhouse"
 	"strait/internal/domain"
 	"strait/internal/httputil"
 	"strait/internal/telemetry"
+
+	"github.com/sourcegraph/conc"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

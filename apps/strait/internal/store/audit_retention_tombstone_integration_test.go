@@ -9,9 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sourcegraph/conc"
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/sourcegraph/conc"
 )
 
 // seedDatedChain inserts n events into projectID spaced 1 hour apart, with

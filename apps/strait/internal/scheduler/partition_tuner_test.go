@@ -3,12 +3,13 @@ package scheduler
 import (
 	"context"
 	"errors"
-	"github.com/sourcegraph/conc"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 type fakeTunerStore struct {

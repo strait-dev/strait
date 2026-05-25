@@ -9,9 +9,10 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/sourcegraph/conc"
 	"strait/internal/billing"
 	"strait/internal/domain"
+
+	"github.com/sourcegraph/conc"
 )
 
 // TestCreateLogDrain_UpdateBypass_NotPossible confirms that the update path

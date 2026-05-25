@@ -7,9 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sourcegraph/conc"
 	"strait/internal/domain"
 	"strait/internal/queue"
+
+	"github.com/sourcegraph/conc"
 )
 
 // mustEnqueueRun is a tiny helper used by the health sampler tests. The

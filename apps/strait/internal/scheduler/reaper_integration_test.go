@@ -9,10 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sourcegraph/conc"
 	"strait/internal/domain"
 	"strait/internal/scheduler"
 	"strait/internal/store"
+
+	"github.com/sourcegraph/conc"
 )
 
 // ---------------------------------------------------------------------------

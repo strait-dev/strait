@@ -7,9 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sourcegraph/conc"
 	"strait/internal/domain"
 	"strait/internal/queue"
+
+	"github.com/sourcegraph/conc"
 )
 
 func TestDequeueNWithCursor_HappyPath(t *testing.T) {

@@ -8,9 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sourcegraph/conc"
 	"strait/internal/queue"
 	"strait/internal/store"
+
+	"github.com/sourcegraph/conc"
 )
 
 func TestOutbox_WriteInTxHappyPath(t *testing.T) {

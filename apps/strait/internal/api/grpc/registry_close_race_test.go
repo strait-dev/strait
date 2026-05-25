@@ -1,9 +1,10 @@
 package grpc
 
 import (
-	"github.com/sourcegraph/conc"
 	"sync"
 	"testing"
+
+	"github.com/sourcegraph/conc"
 )
 
 // TestCloseByAPIKey_NoDoubleClosePanic verifies the Phase I contract: the

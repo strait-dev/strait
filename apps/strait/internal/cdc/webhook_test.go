@@ -15,8 +15,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sourcegraph/conc"
 	"strait/internal/pubsub"
+
+	"github.com/sourcegraph/conc"
 )
 
 type webhookMockHandler struct {

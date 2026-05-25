@@ -6,8 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sourcegraph/conc"
 	"strait/internal/store"
+
+	"github.com/sourcegraph/conc"
 )
 
 type fakePlanStore struct {

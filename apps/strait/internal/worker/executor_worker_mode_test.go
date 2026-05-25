@@ -9,9 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sourcegraph/conc"
 	workergrpc "strait/internal/api/grpc"
 	"strait/internal/domain"
+
+	"github.com/sourcegraph/conc"
 )
 
 // fakeWorkerDispatcher is a test double for WorkerRunDispatcher. It returns

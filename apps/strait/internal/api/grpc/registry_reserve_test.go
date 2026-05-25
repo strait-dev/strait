@@ -1,10 +1,11 @@
 package grpc
 
 import (
-	"github.com/sourcegraph/conc"
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/sourcegraph/conc"
 )
 
 // TestReserveWorkerForQueue_AtomicDecrement verifies that picking + slot

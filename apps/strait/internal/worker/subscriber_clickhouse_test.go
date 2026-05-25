@@ -8,9 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sourcegraph/conc"
 	"strait/internal/clickhouse"
 	"strait/internal/domain"
+
+	"github.com/sourcegraph/conc"
 )
 
 // mockEventLister implements EventLister for testing.

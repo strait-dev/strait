@@ -2,10 +2,11 @@ package clickhouse
 
 import (
 	"context"
-	"github.com/sourcegraph/conc"
 	"log/slog"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 func TestExporter_Start_PanicRecovery(t *testing.T) {

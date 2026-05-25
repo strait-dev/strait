@@ -8,10 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sourcegraph/conc"
 	"strait/internal/domain"
 	"strait/internal/scheduler"
 	"strait/internal/store"
+
+	"github.com/sourcegraph/conc"
 )
 
 func intCreateDelayedRun(t *testing.T, ctx context.Context, st *store.Queries, job *domain.Job, scheduledAt time.Time) *domain.JobRun {

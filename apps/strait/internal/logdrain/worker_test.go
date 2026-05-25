@@ -11,8 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sourcegraph/conc"
 	"strait/internal/domain"
+
+	"github.com/sourcegraph/conc"
 )
 
 // mockDrainStore implements DrainStore for testing.

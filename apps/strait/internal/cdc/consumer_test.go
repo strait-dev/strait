@@ -17,8 +17,9 @@ import (
 
 	"github.com/getsentry/sentry-go"
 
-	"github.com/sourcegraph/conc"
 	"strait/internal/pubsub"
+
+	"github.com/sourcegraph/conc"
 )
 
 type countingLogHandler struct {

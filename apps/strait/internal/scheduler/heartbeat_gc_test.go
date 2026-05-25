@@ -3,9 +3,10 @@ package scheduler
 import (
 	"context"
 	"errors"
-	"github.com/sourcegraph/conc"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 type fakeGCStore struct {

@@ -3,11 +3,12 @@ package scheduler
 import (
 	"bytes"
 	"context"
-	"github.com/sourcegraph/conc"
 	"log/slog"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 func TestSchedulerStop_ReturnsAfterComponentTimeout(t *testing.T) {

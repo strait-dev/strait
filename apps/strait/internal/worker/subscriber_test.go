@@ -9,10 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sourcegraph/conc"
 	"strait/internal/domain"
 	"strait/internal/pubsub"
 	"strait/internal/telemetry"
+
+	"github.com/sourcegraph/conc"
 )
 
 // emit() tests.

@@ -7,8 +7,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/sourcegraph/conc"
 	"strait/internal/domain"
+
+	"github.com/sourcegraph/conc"
 )
 
 // 10 MB synthetic detail blob: helper must reject before queuing the

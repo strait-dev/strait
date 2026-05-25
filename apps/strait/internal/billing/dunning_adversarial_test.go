@@ -7,8 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sourcegraph/conc"
 	"strait/internal/domain"
+
+	"github.com/sourcegraph/conc"
 )
 
 // Two Tick goroutines running against the same batch must advance each row

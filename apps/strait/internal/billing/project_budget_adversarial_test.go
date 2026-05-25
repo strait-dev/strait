@@ -8,8 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sourcegraph/conc"
 	"strait/internal/domain"
+
+	"github.com/sourcegraph/conc"
 )
 
 // TestProjectBudget_RaceUnderConcurrency drives 50 concurrent

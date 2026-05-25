@@ -3,11 +3,12 @@ package scheduler
 import (
 	"context"
 	"errors"
-	"github.com/sourcegraph/conc"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 type fakeDLQAgeOutStore struct {

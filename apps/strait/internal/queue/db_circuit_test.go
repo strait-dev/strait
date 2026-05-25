@@ -3,11 +3,12 @@ package queue
 import (
 	"context"
 	"errors"
-	"github.com/sourcegraph/conc"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 // Unit tests for the DB circuit breaker.

@@ -2,9 +2,10 @@ package scheduler
 
 import (
 	"context"
-	"github.com/sourcegraph/conc"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 func TestWithReaperAdvisoryLocker_WiresReaper(t *testing.T) {

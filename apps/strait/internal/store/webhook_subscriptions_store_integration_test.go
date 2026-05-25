@@ -10,9 +10,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/sourcegraph/conc"
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/sourcegraph/conc"
 )
 
 func TestCreateWebhookSubscription(t *testing.T) {

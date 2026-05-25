@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sourcegraph/conc"
 	grpcpkg "strait/internal/api/grpc"
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
 	straitcrypto "strait/internal/crypto"
@@ -20,6 +19,8 @@ import (
 	"strait/internal/queue"
 	"strait/internal/store"
 	"strait/internal/worker"
+
+	"github.com/sourcegraph/conc"
 )
 
 func TestSTR526CreateJobWebhookSecretPersistsEncryptedSigningSecret(t *testing.T) {

@@ -7,8 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sourcegraph/conc"
 	"strait/internal/queue"
+
+	"github.com/sourcegraph/conc"
 )
 
 type fakeBPSampler struct {

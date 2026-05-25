@@ -4,11 +4,12 @@ package loadtest
 
 import (
 	"context"
-	"github.com/sourcegraph/conc"
 	"math"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 func TestTenantSimulator_TimeOfDayMultiplierUsesConfiguredTrough(t *testing.T) {

@@ -14,12 +14,13 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	"github.com/sourcegraph/conc"
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
 	"strait/internal/domain"
 	"strait/internal/pubsub"
 	"strait/internal/store"
 	"strait/internal/testutil"
+
+	"github.com/sourcegraph/conc"
 )
 
 type blockingWorkerStream struct {

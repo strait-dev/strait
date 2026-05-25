@@ -3,10 +3,11 @@ package worker
 import (
 	"context"
 	"errors"
-	"github.com/sourcegraph/conc"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 func TestNewPool_MinimumConcurrency(t *testing.T) {

@@ -7,8 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sourcegraph/conc"
 	"strait/internal/domain"
+
+	"github.com/sourcegraph/conc"
 )
 
 // 100 concurrent CheckSpendingLimit calls at 85% spend must dispatch the

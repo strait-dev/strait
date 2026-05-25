@@ -6,9 +6,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/sourcegraph/conc"
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
 	"strait/internal/domain"
+
+	"github.com/sourcegraph/conc"
 )
 
 // makeWorker builds a ConnectedWorker for test use.

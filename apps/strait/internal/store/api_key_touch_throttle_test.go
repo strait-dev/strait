@@ -2,12 +2,13 @@ package store
 
 import (
 	"fmt"
-	"github.com/sourcegraph/conc"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 // SetAPIKeyTouchCooldownForTest overrides the throttle window for a single

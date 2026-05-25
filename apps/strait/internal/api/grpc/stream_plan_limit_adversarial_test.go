@@ -3,10 +3,11 @@ package grpc
 import (
 	"context"
 	"fmt"
-	"github.com/sourcegraph/conc"
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/sourcegraph/conc"
 )
 
 // TestStreamGating_RaceAtCap simulates many simultaneous connect attempts

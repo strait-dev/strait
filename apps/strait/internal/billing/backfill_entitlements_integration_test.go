@@ -8,9 +8,10 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/sourcegraph/conc"
 	"strait/internal/billing"
 	"strait/internal/domain"
+
+	"github.com/sourcegraph/conc"
 )
 
 // seedSubsForBackfill creates n org_subscriptions rows with mixed tiers and

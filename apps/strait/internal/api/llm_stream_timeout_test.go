@@ -8,10 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sourcegraph/conc"
 	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/pubsub"
+
+	"github.com/sourcegraph/conc"
 )
 
 func newLLMStreamServerWithDuration(t *testing.T, ms *APIStoreMock, pub *mockPublisher, maxDuration time.Duration) *Server {

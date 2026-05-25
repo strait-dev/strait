@@ -10,10 +10,11 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/sourcegraph/conc"
 	"strait/internal/pubsub"
 	"strait/internal/store"
 	"strait/internal/testutil"
+
+	"github.com/sourcegraph/conc"
 )
 
 // TestIntegration_DBSync_WorkerVisible verifies that after the DB sync interval fires,

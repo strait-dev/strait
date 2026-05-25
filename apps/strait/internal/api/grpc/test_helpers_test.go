@@ -3,8 +3,9 @@ package grpc
 import (
 	"context"
 
-	"github.com/sourcegraph/conc"
 	"strait/internal/pubsub"
+
+	"github.com/sourcegraph/conc"
 )
 
 // noopPub is a non-nil pubsub.Publisher used by unit tests that need to

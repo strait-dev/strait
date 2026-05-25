@@ -2,11 +2,12 @@ package grpc
 
 import (
 	"fmt"
-	"github.com/sourcegraph/conc"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 // TestRegistry_StaleDeregisterIsNoop is the direct regression for the
