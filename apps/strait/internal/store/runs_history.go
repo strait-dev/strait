@@ -63,6 +63,9 @@ func (q *Queries) GetRunFromHistory(ctx context.Context, id string) (*domain.Job
 		}
 		return nil, fmt.Errorf("get run from history: %w", err)
 	}
+
+	run.SingletonKey = q.runSingletonKey(ctx, "SELECT singleton_key FROM job_runs_history WHERE id = $1", id)
+
 	return run, nil
 }
 

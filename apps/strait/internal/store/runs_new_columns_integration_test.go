@@ -6,9 +6,92 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"strait/internal/domain"
 )
+
+func TestGetRun_ReturnsSingletonKey(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	q := mustStore(t)
+	job := mustCreateJob(t, ctx, q, "project-run-singleton-key")
+
+	run := baseRun(job, newID())
+	run.SingletonKey = "tenant-42"
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+
+	got, err := q.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if got.SingletonKey != "tenant-42" {
+		t.Fatalf("SingletonKey = %q, want %q", got.SingletonKey, "tenant-42")
+	}
+}
+
+func TestGetRun_NonSingletonHasEmptyKey(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	q := mustStore(t)
+	job := mustCreateJob(t, ctx, q, "project-run-no-singleton-key")
+
+	run := baseRun(job, newID())
+	// Leave SingletonKey at its zero value.
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+
+	got, err := q.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if got.SingletonKey != "" {
+		t.Fatalf("SingletonKey = %q, want empty", got.SingletonKey)
+	}
+}
+
+func TestGetRun_SingletonKeyViaHistoryFallback(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	q := mustStore(t)
+	job := mustCreateJob(t, ctx, q, "project-run-singleton-history")
+
+	run := baseRun(job, newID())
+	run.SingletonKey = "tenant-history"
+	run.Status = domain.StatusCompleted
+	now := time.Now().UTC()
+	run.FinishedAt = &now
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+
+	tx, err := testDB.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("Begin() error = %v", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if err := q.ArchiveTerminalRun(ctx, tx, run.ID); err != nil {
+		t.Fatalf("ArchiveTerminalRun() error = %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("Commit() error = %v", err)
+	}
+
+	// GetRun falls back to history; the persisted key must survive archival.
+	got, err := q.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if got.SingletonKey != "tenant-history" {
+		t.Fatalf("SingletonKey = %q, want %q", got.SingletonKey, "tenant-history")
+	}
+}
 
 func TestCreateRun_WithBatchIDAndConcurrencyKey(t *testing.T) {
 	ctx := context.Background()

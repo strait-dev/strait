@@ -227,7 +227,22 @@ func (q *Queries) GetRun(ctx context.Context, id string) (*domain.JobRun, error)
 		return nil, fmt.Errorf("get run: %w", err)
 	}
 
+	run.SingletonKey = q.runSingletonKey(ctx, "SELECT singleton_key FROM job_runs WHERE id = $1", id)
+
 	return run, nil
+}
+
+// runSingletonKey loads the persisted singleton key for a single run. The shared
+// ScanRun used by every run query deliberately does not read this column: only
+// the run-detail endpoint surfaces it, so fetching it here keeps the hot read
+// paths (dequeue, listing) untouched. Returns "" when the run is not a singleton
+// or the row has already moved between the live and history tables.
+func (q *Queries) runSingletonKey(ctx context.Context, query, id string) string {
+	var key *string
+	if err := q.db.QueryRow(ctx, query, id).Scan(&key); err != nil || key == nil {
+		return ""
+	}
+	return *key
 }
 
 func (q *Queries) GetRunByIdempotencyKey(ctx context.Context, jobID, idempotencyKey string) (*domain.JobRun, error) {
