@@ -4,10 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"strait/internal/billing"
 	"strait/internal/domain"
+	"strait/internal/store"
 )
 
 func TestValidateSingletonConfig(t *testing.T) {
@@ -223,5 +227,144 @@ func TestHandleCreateJob_SingletonValidationErrors(t *testing.T) {
 				t.Errorf("status = %d, want %d", humaErr.GetStatus(), tt.wantStatus)
 			}
 		})
+	}
+}
+
+// TestSingletonEndpointsReachability guards against the failure mode that
+// shipped once already: the singleton inspection operations were registered
+// with Huma (so they appeared in the OpenAPI spec) but never mounted on the
+// chi router that serves requests, so every call returned chi's default
+// "404 page not found". Each path is hit with an authenticated request; the
+// test only requires that the response is NOT that chi default 404, proving
+// the endpoint is wired. Any 4xx/5xx from the handler itself is acceptable.
+func TestSingletonEndpointsReachability(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, _ string) (*domain.Job, error) {
+			return nil, store.ErrJobNotFound
+		},
+		GetWorkflowFunc: func(_ context.Context, _ string) (*domain.Workflow, error) {
+			return nil, store.ErrWorkflowNotFound
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	cases := []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{"list-job-singletons", http.MethodGet, "/v1/jobs/job-1/singletons"},
+		{"list-workflow-singletons", http.MethodGet, "/v1/workflows/wf-1/singletons"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := authedProjectRequest(tc.method, tc.path, "", "proj-a")
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, r)
+
+			if w.Code == http.StatusNotFound && strings.Contains(w.Body.String(), "404 page not found") {
+				t.Fatalf("%s %s is unreachable: chi returned default 404\nbody: %s",
+					tc.method, tc.path, w.Body.String())
+			}
+		})
+	}
+}
+
+// TestHandleListJobSingletons_ReturnsHolders exercises the wired job endpoint
+// end to end: a held lock plus its waiter count must surface in the JSON body.
+func TestHandleListJobSingletons_ReturnsHolders(t *testing.T) {
+	t.Parallel()
+
+	acquired := time.Now().Add(-2 * time.Minute).UTC()
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return &domain.Job{ID: id, ProjectID: "proj-a"}, nil
+		},
+		ListSingletonLocksPageFunc: func(_ context.Context, _ string, kind domain.SingletonKind, ownerID string, _ int, _ *time.Time) ([]domain.SingletonLock, error) {
+			if kind != domain.SingletonKindJob {
+				t.Errorf("kind = %q, want job", kind)
+			}
+			if ownerID != "job-1" {
+				t.Errorf("ownerID = %q, want job-1", ownerID)
+			}
+			return []domain.SingletonLock{{
+				ProjectID:   "proj-a",
+				Kind:        domain.SingletonKindJob,
+				OwnerID:     "job-1",
+				LockKey:     "tenant-42",
+				HolderRunID: "run-holder",
+				AcquiredAt:  acquired,
+			}}, nil
+		},
+		CountSingletonWaitersFunc: func(_ context.Context, kind domain.SingletonKind, _ string, lockKey string) (int, error) {
+			if kind != domain.SingletonKindJob || lockKey != "tenant-42" {
+				t.Errorf("CountSingletonWaiters(kind=%q, key=%q) unexpected", kind, lockKey)
+			}
+			return 3, nil
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	r := authedProjectRequest(http.MethodGet, "/v1/jobs/job-1/singletons", "", "proj-a")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200\nbody: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	for _, want := range []string{`"lock_key":"tenant-42"`, `"holder_run_id":"run-holder"`, `"waiters":3`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body missing %s\nbody: %s", want, body)
+		}
+	}
+}
+
+// TestHandleListWorkflowSingletons_ReturnsHolders is the workflow-side parity
+// check for the wired endpoint.
+func TestHandleListWorkflowSingletons_ReturnsHolders(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, ProjectID: "proj-a"}, nil
+		},
+		ListSingletonLocksPageFunc: func(_ context.Context, _ string, kind domain.SingletonKind, ownerID string, _ int, _ *time.Time) ([]domain.SingletonLock, error) {
+			if kind != domain.SingletonKindWorkflow {
+				t.Errorf("kind = %q, want workflow", kind)
+			}
+			if ownerID != "wf-1" {
+				t.Errorf("ownerID = %q, want wf-1", ownerID)
+			}
+			return []domain.SingletonLock{{
+				ProjectID:   "proj-a",
+				Kind:        domain.SingletonKindWorkflow,
+				OwnerID:     "wf-1",
+				LockKey:     "region-eu",
+				HolderRunID: "wfrun-holder",
+				AcquiredAt:  time.Now().UTC(),
+			}}, nil
+		},
+		CountSingletonWaitersFunc: func(_ context.Context, _ domain.SingletonKind, _ string, _ string) (int, error) {
+			return 1, nil
+		},
+	}
+	srv := newTestServer(t, ms, nil, nil)
+
+	r := authedProjectRequest(http.MethodGet, "/v1/workflows/wf-1/singletons", "", "proj-a")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200\nbody: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	for _, want := range []string{`"lock_key":"region-eu"`, `"holder_run_id":"wfrun-holder"`, `"waiters":1`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body missing %s\nbody: %s", want, body)
+		}
 	}
 }
