@@ -116,6 +116,40 @@ func TestCacheVersion_DefaultsBumpsAndRollback(t *testing.T) {
 	assertCacheVersion(t, ctx, "jobs", job.ID, 2)
 }
 
+func TestCacheVersion_RunStatusReadReturnsCacheVersion(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := baseJob(newID(), "project-cache-version-status-read")
+	if err := q.CreateJob(ctx, job); err != nil {
+		t.Fatalf("CreateJob() error = %v", err)
+	}
+	run := &domain.JobRun{
+		ID:        newID(),
+		JobID:     job.ID,
+		ProjectID: job.ProjectID,
+		Status:    domain.StatusQueued,
+	}
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+	if err := q.UpdateRunStatus(ctx, run.ID, domain.StatusQueued, domain.StatusExecuting, map[string]any{}); err != nil {
+		t.Fatalf("UpdateRunStatus() error = %v", err)
+	}
+
+	got, version, err := q.GetRunWithCacheVersion(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRunWithCacheVersion() error = %v", err)
+	}
+	if got.CacheVersion != 2 || version != 2 {
+		t.Fatalf("GetRunWithCacheVersion() version = %d/%d, want 2/2", got.CacheVersion, version)
+	}
+	if got.Status != domain.StatusExecuting {
+		t.Fatalf("GetRunWithCacheVersion() status = %s, want executing", got.Status)
+	}
+}
+
 func TestCacheVersion_ProjectQuotaRoundTripAndBump(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

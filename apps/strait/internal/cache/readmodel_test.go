@@ -70,3 +70,35 @@ func TestStatusReadModel_SetIfColdDoesNotOverwriteNewerCDCValue(t *testing.T) {
 		t.Fatalf("Get() = %+v, want version 9 completed", got)
 	}
 }
+
+func TestStatusReadModel_SetIfColdVersionRejectsOlderCDCOverwrite(t *testing.T) {
+	t.Parallel()
+
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	model := NewReadModel[string](ReadModelConfig[string]{
+		Client:    rdb,
+		Namespace: "status_fill_version_test",
+		TTL:       time.Minute,
+	})
+
+	if err := model.SetIfColdVersion(context.Background(), "run-1", "executing", 10); err != nil {
+		t.Fatalf("SetIfColdVersion() error = %v", err)
+	}
+	ok, err := model.CompareAndSet(context.Background(), "run-1", "queued", 7)
+	if err != nil {
+		t.Fatalf("CompareAndSet(v7) error = %v", err)
+	}
+	if ok {
+		t.Fatal("CompareAndSet(v7) = true, want false")
+	}
+
+	got, err := model.Get(context.Background(), "run-1")
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if got.Version != 10 || got.Value != "executing" {
+		t.Fatalf("Get() = %+v, want version 10 executing", got)
+	}
+}

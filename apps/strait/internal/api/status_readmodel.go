@@ -10,6 +10,14 @@ import (
 	"strait/internal/domain"
 )
 
+type runStatusVersionStore interface {
+	GetRunWithCacheVersion(context.Context, string) (*domain.JobRun, int64, error)
+}
+
+type workflowRunStatusVersionStore interface {
+	GetWorkflowRunWithCacheVersion(context.Context, string) (*domain.WorkflowRun, int64, error)
+}
+
 func cloneJobRunForStatusCache(run *domain.JobRun) *domain.JobRun {
 	if run == nil {
 		return nil
@@ -70,12 +78,12 @@ func (s *Server) getRunWithStatusReadModel(ctx context.Context, id string) (*dom
 	if run, ok := s.getRunFromStatusReadModel(ctx, id); ok {
 		return run, nil
 	}
-	run, err := s.store.GetRun(ctx, id)
+	run, version, err := s.loadRunForStatusReadModel(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 	if s.runStatusReadModel != nil {
-		_ = s.runStatusReadModel.SetIfCold(ctx, id, run)
+		_ = s.runStatusReadModel.SetIfColdVersion(ctx, id, run, version)
 	}
 	return run, nil
 }
@@ -84,14 +92,57 @@ func (s *Server) getWorkflowRunWithStatusReadModel(ctx context.Context, id strin
 	if run, ok := s.getWorkflowRunFromStatusReadModel(ctx, id); ok {
 		return run, nil
 	}
-	run, err := s.store.GetWorkflowRun(ctx, id)
+	run, version, err := s.loadWorkflowRunForStatusReadModel(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 	if s.workflowRunStatusReadModel != nil {
-		_ = s.workflowRunStatusReadModel.SetIfCold(ctx, id, run)
+		_ = s.workflowRunStatusReadModel.SetIfColdVersion(ctx, id, run, version)
 	}
 	return run, nil
+}
+
+func (s *Server) loadRunForStatusReadModel(ctx context.Context, id string) (*domain.JobRun, int64, error) {
+	if store, ok := s.store.(runStatusVersionStore); ok {
+		run, version, err := store.GetRunWithCacheVersion(ctx, id)
+		if err != nil {
+			return nil, 0, err
+		}
+		return run, statusReadModelVersion(version), nil
+	}
+	run, err := s.store.GetRun(ctx, id)
+	if err != nil {
+		return nil, 0, err
+	}
+	if run == nil {
+		return nil, 1, nil
+	}
+	return run, statusReadModelVersion(run.CacheVersion), nil
+}
+
+func (s *Server) loadWorkflowRunForStatusReadModel(ctx context.Context, id string) (*domain.WorkflowRun, int64, error) {
+	if store, ok := s.store.(workflowRunStatusVersionStore); ok {
+		run, version, err := store.GetWorkflowRunWithCacheVersion(ctx, id)
+		if err != nil {
+			return nil, 0, err
+		}
+		return run, statusReadModelVersion(version), nil
+	}
+	run, err := s.store.GetWorkflowRun(ctx, id)
+	if err != nil {
+		return nil, 0, err
+	}
+	if run == nil {
+		return nil, 1, nil
+	}
+	return run, statusReadModelVersion(run.CacheVersion), nil
+}
+
+func statusReadModelVersion(version int64) int64 {
+	if version <= 0 {
+		return 1
+	}
+	return version
 }
 
 type statusReadModels struct {
