@@ -368,6 +368,72 @@ func TestEndpointCircuitState_OpensAndBlocksDispatch(t *testing.T) {
 	}
 }
 
+func TestEndpointCircuitState_NewEndpointDoesNotCreateCircuitRow(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	endpoint := "https://example.com/circuit-fast-path-" + newID()
+	allowed, retryAt, err := q.CanDispatchEndpoint(ctx, endpoint, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("CanDispatchEndpoint() error = %v", err)
+	}
+	if !allowed {
+		t.Fatal("CanDispatchEndpoint() = false, want true")
+	}
+	if retryAt != nil {
+		t.Fatalf("retryAt = %v, want nil", retryAt)
+	}
+
+	state, err := q.GetEndpointCircuitState(ctx, endpoint)
+	if err != nil {
+		t.Fatalf("GetEndpointCircuitState() error = %v", err)
+	}
+	if state != nil {
+		t.Fatalf("GetEndpointCircuitState() = %#v, want nil", state)
+	}
+}
+
+func TestEndpointCircuitState_ExpiredOpenCircuitResetsOnDispatch(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	endpoint := "https://example.com/circuit-expired-" + newID()
+	now := time.Now().UTC()
+	if err := q.RecordEndpointCircuitFailure(ctx, endpoint, now.Add(-time.Minute), 1, time.Second); err != nil {
+		t.Fatalf("RecordEndpointCircuitFailure() error = %v", err)
+	}
+
+	allowed, retryAt, err := q.CanDispatchEndpoint(ctx, endpoint, now.Add(2*time.Second))
+	if err != nil {
+		t.Fatalf("CanDispatchEndpoint() error = %v", err)
+	}
+	if !allowed {
+		t.Fatal("CanDispatchEndpoint() = false, want true after expired open circuit")
+	}
+	if retryAt != nil {
+		t.Fatalf("retryAt = %v, want nil", retryAt)
+	}
+
+	state, err := q.GetEndpointCircuitState(ctx, endpoint)
+	if err != nil {
+		t.Fatalf("GetEndpointCircuitState() error = %v", err)
+	}
+	if state == nil {
+		t.Fatal("GetEndpointCircuitState() = nil, want reset state")
+	}
+	if state.State != domain.CircuitStateClosed {
+		t.Fatalf("state = %s, want %s", state.State, domain.CircuitStateClosed)
+	}
+	if state.ConsecutiveFailures != 0 {
+		t.Fatalf("consecutive_failures = %d, want 0", state.ConsecutiveFailures)
+	}
+	if state.HalfOpenUntil != nil {
+		t.Fatalf("half_open_until = %v, want nil", state.HalfOpenUntil)
+	}
+}
+
 func TestEndpointCircuitState_ClosesAfterSuccess(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

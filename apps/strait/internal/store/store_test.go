@@ -655,7 +655,7 @@ func TestDeleteExpiredJobMemory_MultipleBatches(t *testing.T) {
 	}
 }
 
-func TestCanDispatchEndpoint_QueryContainsFORUPDATE(t *testing.T) {
+func TestCanDispatchEndpoint_ClosedFastPathAvoidsFORUPDATE(t *testing.T) {
 	t.Parallel()
 	var capturedSQL string
 	db := &mockDBTX{
@@ -676,8 +676,86 @@ func TestCanDispatchEndpoint_QueryContainsFORUPDATE(t *testing.T) {
 	if !ok {
 		t.Error("expected dispatch allowed for new endpoint")
 	}
-	if !strings.Contains(capturedSQL, "FOR UPDATE") {
-		t.Errorf("CanDispatchEndpoint query missing FOR UPDATE, got: %s", capturedSQL)
+	if strings.Contains(capturedSQL, "FOR UPDATE") {
+		t.Errorf("CanDispatchEndpoint fast path should not lock, got: %s", capturedSQL)
+	}
+}
+
+func TestCanDispatchEndpoint_OpenExpiredSlowPathUsesFORUPDATE(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	var queries []string
+	db := &mockDBTX{
+		queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
+			queries = append(queries, sql)
+			switch len(queries) {
+			case 1:
+				return &mockRow{scanFn: scanEndpointCircuitState("https://example.com", domain.CircuitStateOpen, now.Add(-time.Minute))}
+			default:
+				return &mockRow{scanFn: scanEndpointCircuitState("https://example.com", domain.CircuitStateClosed, time.Time{})}
+			}
+		},
+	}
+	q := New(db)
+	ok, retryAt, err := q.CanDispatchEndpoint(context.Background(), "https://example.com", now)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !ok {
+		t.Error("expected dispatch allowed after expired open circuit reset")
+	}
+	if retryAt != nil {
+		t.Fatalf("retryAt = %v, want nil", retryAt)
+	}
+	if len(queries) != 2 {
+		t.Fatalf("query count = %d, want fast read plus locked slow path", len(queries))
+	}
+	if !strings.Contains(queries[1], "FOR UPDATE") {
+		t.Errorf("CanDispatchEndpoint slow path missing FOR UPDATE, got: %s", queries[1])
+	}
+}
+
+func BenchmarkCanDispatchEndpoint_ClosedFastPath(b *testing.B) {
+	db := &mockDBTX{
+		queryRowFn: func(_ context.Context, _ string, _ ...any) pgx.Row {
+			return &mockRow{scanFn: scanEndpointCircuitState("https://example.com", domain.CircuitStateClosed, time.Time{})}
+		},
+	}
+	q := New(db)
+	ctx := context.Background()
+	now := time.Now()
+
+	b.ReportAllocs()
+	for b.Loop() {
+		ok, retryAt, err := q.CanDispatchEndpoint(ctx, "https://example.com", now)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if !ok || retryAt != nil {
+			b.Fatalf("CanDispatchEndpoint() = %v, %v; want allowed nil retry", ok, retryAt)
+		}
+	}
+}
+
+func scanEndpointCircuitState(endpointURL string, state domain.CircuitState, halfOpenUntil time.Time) func(...any) error {
+	return func(dest ...any) error {
+		if len(dest) != 7 {
+			return fmt.Errorf("dest len = %d, want 7", len(dest))
+		}
+		now := time.Now()
+		*(dest[0].(*string)) = endpointURL
+		*(dest[1].(*domain.CircuitState)) = state
+		*(dest[2].(*int)) = 0
+		*(dest[3].(**time.Time)) = nil
+		if halfOpenUntil.IsZero() {
+			*(dest[4].(**time.Time)) = nil
+		} else {
+			*(dest[4].(**time.Time)) = &halfOpenUntil
+		}
+		*(dest[5].(*time.Time)) = now
+		*(dest[6].(*time.Time)) = now
+		return nil
 	}
 }
 
