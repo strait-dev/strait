@@ -7,8 +7,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 	"github.com/sourcegraph/conc"
 
+	straitcache "strait/internal/cache"
 	"strait/internal/domain"
 	orcstore "strait/internal/store"
 )
@@ -153,6 +156,34 @@ func TestJobCache_Delete(t *testing.T) {
 	}
 }
 
+func TestWorkerJobCache_RedisL2BackfillAndCachebusInvalidate(t *testing.T) {
+	t.Parallel()
+
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	cacheA := newTierJobCache(time.Minute, workerCacheDeps{Redis: rdb})
+	if err := cacheA.Set(context.Background(), "job-redis", &domain.Job{ID: "job-redis", Version: 3, Name: "cached"}); err != nil {
+		t.Fatalf("Set() error = %v", err)
+	}
+
+	registryB := straitcache.NewRegistry(straitcache.RegistryConfig{Origin: "node-b"})
+	cacheB := newTierJobCache(time.Minute, workerCacheDeps{Redis: rdb, Registry: registryB})
+	got, err := cacheB.Get(context.Background(), "job-redis")
+	if err != nil {
+		t.Fatalf("Get() L2 hit error = %v", err)
+	}
+	if got.Name != "cached" || got.Version != 3 {
+		t.Fatalf("Get() = %+v, want cached version 3", got)
+	}
+
+	publishTestWorkerInvalidate(t, registryB, workerJobCacheNamespace, "job-redis")
+	if _, err := cacheB.Get(context.Background(), "job-redis"); err == nil {
+		t.Fatal("expected cache miss after cachebus invalidation")
+	}
+}
+
 func TestJobCache_MultipleKeys(t *testing.T) {
 	t.Parallel()
 
@@ -175,6 +206,22 @@ func TestJobCache_MultipleKeys(t *testing.T) {
 			t.Fatalf("Version for key %s = %d, want %d", key, cached.Version, i)
 		}
 	}
+}
+
+func publishTestWorkerInvalidate(t *testing.T, registry *straitcache.Registry, namespace, key string) {
+	t.Helper()
+	data, err := json.Marshal(straitcache.BusMessage{
+		Action:    straitcache.BusActionInvalidate,
+		Namespace: namespace,
+		Key:       key,
+		Version:   time.Now().UnixNano(),
+		Origin:    "peer",
+		SentAt:    time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("marshal invalidate: %v", err)
+	}
+	registry.Handle(t.Context(), data)
 }
 
 func TestJobCache_NilCacheDisablesLookup(t *testing.T) {
