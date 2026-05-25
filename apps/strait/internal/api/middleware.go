@@ -395,7 +395,7 @@ func requireProjectWideScope(ctx context.Context, resource string) error {
 // context skip the check.
 func (s *Server) getRunForAccess(ctx context.Context, runID string) (*domain.JobRun, error) {
 	if projectIDFromContext(ctx) == "" {
-		run, err := s.store.GetRun(ctx, runID)
+		run, err := s.getRunWithStatusReadModel(ctx, runID)
 		if err != nil {
 			if errors.Is(err, store.ErrRunNotFound) {
 				return nil, huma.Error404NotFound("run not found")
@@ -404,7 +404,7 @@ func (s *Server) getRunForAccess(ctx context.Context, runID string) (*domain.Job
 		}
 		return run, nil
 	}
-	run, err := s.store.GetRun(ctx, runID)
+	run, err := s.getRunWithStatusReadModel(ctx, runID)
 	if err != nil {
 		if errors.Is(err, store.ErrRunNotFound) {
 			return nil, huma.Error404NotFound("run not found")

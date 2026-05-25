@@ -463,7 +463,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 		return fmt.Errorf("schema version: %w", err)
 	}
 
-	cdcWebhookReceiver, err := startCDCConsumer(ctx, g, cfg, pub, queries, chExporter)
+	cdcWebhookReceiver, err := startCDCConsumer(ctx, g, cfg, pub, queries, chExporter, rdb)
 	if err != nil {
 		return err
 	}

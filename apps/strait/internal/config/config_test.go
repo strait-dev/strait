@@ -100,6 +100,7 @@ func TestLoad_Defaults(t *testing.T) {
 		{"APIKeyCacheTTL", cfg.APIKeyCacheTTL, time.Minute},
 		{"JobHealthCacheTTL", cfg.JobHealthCacheTTL, 2 * time.Second},
 		{"JobDepsCacheTTL", cfg.JobDepsCacheTTL, 5 * time.Minute},
+		{"StatusReadModelTTL", cfg.StatusReadModelTTL, 5 * time.Minute},
 		{"MaxResultSize", cfg.MaxResultSize, int64(1 << 20)},
 		{"MigrationMode", cfg.MigrationMode, "auto"},
 		{"MigrationLockTimeout", cfg.MigrationLockTimeout, 30 * time.Second},

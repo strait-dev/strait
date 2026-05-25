@@ -295,7 +295,7 @@ func retrySleep(ctx context.Context, attempt int) error {
 }
 
 // startCDCConsumer registers and starts the required Sequin CDC consumer.
-func startCDCConsumer(ctx context.Context, g *pool.ContextPool, cfg *config.Config, pub pubsub.Publisher, queries *store.Queries, chExporter *clickhouse.Exporter) (*cdc.WebhookReceiver, error) {
+func startCDCConsumer(ctx context.Context, g *pool.ContextPool, cfg *config.Config, pub pubsub.Publisher, queries *store.Queries, chExporter *clickhouse.Exporter, rdb *redis.Client) (*cdc.WebhookReceiver, error) {
 	cdcClient := cdc.NewClient(
 		cfg.SequinBaseURL,
 		cfg.SequinConsumerName,
@@ -308,7 +308,10 @@ func startCDCConsumer(ctx context.Context, g *pool.ContextPool, cfg *config.Conf
 
 	// Auto-provision the Sequin consumer if it does not exist.
 	cdcTables := []string{
-		"public.job_runs", "public.workflow_runs",
+		"public.api_keys", "public.project_roles", "public.project_member_roles",
+		"public.resource_policies", "public.tag_policies", "public.project_quotas",
+		"public.organization_subscriptions", "public.jobs", "public.job_dependencies",
+		"public.job_runs", "public.workflow_runs", "public.workflow_step_runs",
 		"public.event_triggers",
 	}
 	if err := cdcClient.EnsureConsumer(ctx, cdcTables); err != nil {
@@ -330,6 +333,12 @@ func startCDCConsumer(ctx context.Context, g *pool.ContextPool, cfg *config.Conf
 	cdcConsumer.RegisterAdditionalHandler(cdc.NewSLOHandler(queries, slog.Default()))
 	if chExporter != nil {
 		cdcConsumer.RegisterAdditionalHandler(cdc.NewAnalyticsHandler(chExporter, slog.Default()))
+	}
+	cacheHandlers := cdc.NewCacheReadModelHandlers(rdb, cfg.StatusReadModelTTL, slog.Default())
+	if cacheHandlers.JobRuns != nil {
+		cdcConsumer.RegisterAdditionalHandler(cacheHandlers.JobRuns)
+		cdcConsumer.RegisterAdditionalHandler(cacheHandlers.WorkflowRuns)
+		cdcConsumer.RegisterAdditionalHandler(cacheHandlers.WorkflowStepRuns)
 	}
 
 	g.Go(func(ctx context.Context) error {
@@ -367,6 +376,11 @@ func startCDCConsumer(ctx context.Context, g *pool.ContextPool, cfg *config.Conf
 	webhookReceiver.RegisterAdditionalHandler(cdc.NewSLOHandler(queries, slog.Default()))
 	if chExporter != nil {
 		webhookReceiver.RegisterAdditionalHandler(cdc.NewAnalyticsHandler(chExporter, slog.Default()))
+	}
+	if cacheHandlers.JobRuns != nil {
+		webhookReceiver.RegisterAdditionalHandler(cacheHandlers.JobRuns)
+		webhookReceiver.RegisterAdditionalHandler(cacheHandlers.WorkflowRuns)
+		webhookReceiver.RegisterAdditionalHandler(cacheHandlers.WorkflowStepRuns)
 	}
 
 	slog.Info("cdc consumer enabled",
