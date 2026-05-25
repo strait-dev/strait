@@ -51,6 +51,14 @@ type WorkflowStepRun = {
   error?: string;
 };
 
+type SingletonHolderRow = {
+  lock_key: string;
+  holder_run_id: string;
+  acquired_at: string;
+  lease_until?: string;
+  waiters: number;
+};
+
 type RawApiResponse<T = unknown> = {
   ok: boolean;
   status: number;
@@ -226,6 +234,9 @@ export class ApiHelper {
     retry_delays_secs?: number[];
     cron?: string;
     enabled?: boolean;
+    singleton_key_expr?: { template: string };
+    singleton_on_conflict?: "queue" | "drop" | "replace";
+    singleton_max_queue_depth?: number;
   }) {
     return this.request<{ id: string; name: string }>("POST", "/v1/jobs", {
       project_id: this.getProjectId(),
@@ -260,6 +271,34 @@ export class ApiHelper {
 
   deleteJob(id: string) {
     return this.request("DELETE", `/v1/jobs/${id}`);
+  }
+
+  /** Held singleton keys for a job, mirroring the dashboard Singletons tab. */
+  listJobSingletons(id: string) {
+    return this.request<{ data: SingletonHolderRow[] }>(
+      "GET",
+      `/v1/jobs/${id}/singletons`
+    );
+  }
+
+  /** Poll until a job holds a singleton key with at least `minWaiters` queued. */
+  async waitForJobSingletonHolder(
+    jobId: string,
+    minWaiters: number,
+    timeoutMs = 30_000
+  ): Promise<SingletonHolderRow> {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const { data } = await this.listJobSingletons(jobId);
+      const holder = data.find((row) => row.waiters >= minWaiters);
+      if (holder) {
+        return holder;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+    throw new Error(
+      `Job ${jobId} had no singleton holder with >= ${minWaiters} waiters within ${timeoutMs}ms`
+    );
   }
 
   pauseJob(id: string) {
