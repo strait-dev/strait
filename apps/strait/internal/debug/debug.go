@@ -10,7 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-const maxPprofProfileSeconds = 30
+const MaxPprofProfileSeconds = 30
 
 // newStatsvizServer is the constructor for a statsviz server.
 // It is a package-level variable so tests can replace it to simulate errors.
@@ -44,7 +44,7 @@ func cappedProfile(w http.ResponseWriter, r *http.Request) {
 	if rejectDebugOutput(w, r) {
 		return
 	}
-	pprof.Profile(w, capSeconds(r, maxPprofProfileSeconds))
+	pprof.Profile(w, capSeconds(r, MaxPprofProfileSeconds))
 }
 
 func binaryProfile(name string) http.HandlerFunc {

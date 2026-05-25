@@ -107,6 +107,12 @@ export SECRET_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 | `SENTRY_SCHEDULER_CHECKINS` | `false` | Emit Sentry monitor check-ins for scheduler components when enabled. |
 | `SENTRY_SCHEDULER_CHECKIN_PREFIX` | `strait-scheduler` | Prefix used for scheduler component monitor slugs. |
 | `STRAIT_PROFILING_ENABLED` | `false` | Expose internal-secret-protected Go pprof endpoints under `/debug/pprof`. |
+| `STRAIT_PROFILING_API_ENABLED` | `true` | Expose pprof on the API listener when profiling is enabled. |
+| `STRAIT_PROFILING_MANAGEMENT_ENABLED` | `false` | Start a separate listener that serves only pprof routes. |
+| `STRAIT_PROFILING_MANAGEMENT_BIND_ADDR` | `127.0.0.1` | Bind address for the pprof management listener. |
+| `STRAIT_PROFILING_MANAGEMENT_PORT` | `18080` | Port for the pprof management listener. |
+| `STRAIT_PROFILING_MUTEX_FRACTION` | `100` | Go runtime mutex profile sampling fraction. `0` disables mutex profiling after restart. |
+| `STRAIT_PROFILING_BLOCK_RATE` | `100000` | Go runtime block profile sampling rate. `0` disables block profiling after restart. |
 | `STRAIT_PROFILING_SECRET` | - | Optional pprof-specific secret. When set, pprof requires this secret instead of `INTERNAL_SECRET`. |
 | `STRAIT_PROFILING_ALLOWED_CIDRS` | - | Optional comma-separated CIDR/IP allowlist for pprof callers. |
 | `PYROSCOPE_ENDPOINT` | - | Pyroscope endpoint for profiling. |

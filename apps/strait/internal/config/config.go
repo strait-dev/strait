@@ -337,10 +337,16 @@ type Config struct {
 	PyroscopeAuthToken string `env:"PYROSCOPE_AUTH_TOKEN"`
 
 	// Debug tools
-	ProfilingEnabled      bool     `env:"STRAIT_PROFILING_ENABLED" default:"false"`
-	ProfilingSecret       string   `env:"STRAIT_PROFILING_SECRET"`
-	ProfilingAllowedCIDRs []string `env:"STRAIT_PROFILING_ALLOWED_CIDRS"`
-	DebugStatsviz         bool     `env:"DEBUG_STATSVIZ" default:"false"`
+	ProfilingEnabled            bool     `env:"STRAIT_PROFILING_ENABLED" default:"false"`
+	ProfilingAPIEnabled         bool     `env:"STRAIT_PROFILING_API_ENABLED" default:"true"`
+	ProfilingManagementEnabled  bool     `env:"STRAIT_PROFILING_MANAGEMENT_ENABLED" default:"false"`
+	ProfilingManagementBindAddr string   `env:"STRAIT_PROFILING_MANAGEMENT_BIND_ADDR" default:"127.0.0.1"`
+	ProfilingManagementPort     int      `env:"STRAIT_PROFILING_MANAGEMENT_PORT" default:"18080"`
+	ProfilingMutexFraction      int      `env:"STRAIT_PROFILING_MUTEX_FRACTION" default:"100"`
+	ProfilingBlockRate          int      `env:"STRAIT_PROFILING_BLOCK_RATE" default:"100000"`
+	ProfilingSecret             string   `env:"STRAIT_PROFILING_SECRET"`
+	ProfilingAllowedCIDRs       []string `env:"STRAIT_PROFILING_ALLOWED_CIDRS"`
+	DebugStatsviz               bool     `env:"DEBUG_STATSVIZ" default:"false"`
 
 	// Edition is determined at compile time via build tags (community vs cloud).
 	// This field exists for config logging but is ignored by domain.ParseEdition.
@@ -435,11 +441,8 @@ func validateLoaded(cfg *Config) error {
 	if len(cfg.InternalSecret) < 16 {
 		return &domain.ConfigError{Field: "INTERNAL_SECRET", Message: "must be at least 16 characters"}
 	}
-	if cfg.ProfilingSecret != "" && len(cfg.ProfilingSecret) < 16 {
-		return &domain.ConfigError{Field: "STRAIT_PROFILING_SECRET", Message: "must be at least 16 characters"}
-	}
-	if bad := firstInvalidCIDREntry(cfg.ProfilingAllowedCIDRs); bad != "" {
-		return &domain.ConfigError{Field: "STRAIT_PROFILING_ALLOWED_CIDRS", Message: fmt.Sprintf("contains invalid CIDR/IP entry %q", bad)}
+	if err := validateProfilingConfig(cfg); err != nil {
+		return err
 	}
 	if len(cfg.JWTSigningKey) < 32 {
 		return &domain.ConfigError{Field: "JWT_SIGNING_KEY", Message: "must be at least 32 characters"}
@@ -581,6 +584,28 @@ func validateLoaded(cfg *Config) error {
 		return &domain.ConfigError{Field: "GRPC_PUBSUB_STARTUP_TIMEOUT", Message: "must be > 0"}
 	}
 
+	return nil
+}
+
+func validateProfilingConfig(cfg *Config) error {
+	if cfg.ProfilingSecret != "" && len(cfg.ProfilingSecret) < 16 {
+		return &domain.ConfigError{Field: "STRAIT_PROFILING_SECRET", Message: "must be at least 16 characters"}
+	}
+	if bad := firstInvalidCIDREntry(cfg.ProfilingAllowedCIDRs); bad != "" {
+		return &domain.ConfigError{Field: "STRAIT_PROFILING_ALLOWED_CIDRS", Message: fmt.Sprintf("contains invalid CIDR/IP entry %q", bad)}
+	}
+	if cfg.ProfilingEnabled && !cfg.ProfilingAPIEnabled && !cfg.ProfilingManagementEnabled {
+		return &domain.ConfigError{Field: "STRAIT_PROFILING_ENABLED", Message: "requires at least one profiling listener"}
+	}
+	if cfg.ProfilingManagementEnabled && (cfg.ProfilingManagementPort <= 0 || cfg.ProfilingManagementPort > 65535) {
+		return &domain.ConfigError{Field: "STRAIT_PROFILING_MANAGEMENT_PORT", Message: "must be between 1 and 65535"}
+	}
+	if cfg.ProfilingMutexFraction < 0 {
+		return &domain.ConfigError{Field: "STRAIT_PROFILING_MUTEX_FRACTION", Message: "must be >= 0"}
+	}
+	if cfg.ProfilingBlockRate < 0 {
+		return &domain.ConfigError{Field: "STRAIT_PROFILING_BLOCK_RATE", Message: "must be >= 0"}
+	}
 	return nil
 }
 

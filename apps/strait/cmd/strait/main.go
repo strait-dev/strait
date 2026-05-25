@@ -149,6 +149,10 @@ func runServe(ctx context.Context, modeOverride string) error {
 	} else {
 		defer profilingShutdown()
 	}
+	logProfilingStartup(slog.Default(), cfg)
+	if cfg.ProfilingEnabled {
+		telemetry.EnableRuntimeProfiling(cfg.ProfilingMutexFraction, cfg.ProfilingBlockRate)
+	}
 
 	// Initialize OTel log bridge to export structured logs via OTLP.
 	otelLogger, shutdownLogBridge, err := telemetry.InitLogBridge(ctx, "strait", cfg.OTELEndpoint, cfg.SentryEnvironment)
@@ -479,6 +483,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 	}
 	startAPIServer(g, cfg, queries, dbPool, dbPool, q, pub, metricsHandler, metrics, stepCallback, workflowEngine, healthReg, rdb, apiEncryptor, billingEnforcer, chAnalytics, chExporter, cdcWebhookReceiver)
 	startWorker(g, cfg, queries, dbPool, dbPool, q, bp, pub, metrics, stepCallback, workflowEngine, healthReg, billingEnforcer, billingDispatcher, chExporter, workerPlane, apiEncryptor)
+	startProfilingServer(g, cfg, rdb, metrics, version)
 
 	if err := g.Wait(); err != nil {
 		return fmt.Errorf("services: %w", err)

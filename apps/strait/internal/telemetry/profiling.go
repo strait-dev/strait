@@ -7,6 +7,11 @@ import (
 	"github.com/grafana/pyroscope-go"
 )
 
+const (
+	DefaultMutexProfileFraction = 100
+	DefaultBlockProfileRate     = 100000
+)
+
 // ProfilingConfig holds settings for continuous profiling via Pyroscope.
 type ProfilingConfig struct {
 	Endpoint    string
@@ -22,7 +27,7 @@ func InitProfiling(cfg ProfilingConfig) (shutdown func(), err error) {
 		return func() {}, nil
 	}
 
-	EnableRuntimeProfiling()
+	EnableRuntimeProfiling(DefaultMutexProfileFraction, DefaultBlockProfileRate)
 
 	profiler, err := pyroscope.Start(pyroscope.Config{
 		ApplicationName: cfg.ServiceName,
@@ -51,10 +56,11 @@ func InitProfiling(cfg ProfilingConfig) (shutdown func(), err error) {
 	}, nil
 }
 
-// EnableRuntimeProfiling enables mutex and block profiling for pprof consumers.
-func EnableRuntimeProfiling() {
+// EnableRuntimeProfiling configures process-wide mutex and block profiling
+// rates for pprof consumers. Passing 0 disables the corresponding profile.
+func EnableRuntimeProfiling(mutexFraction, blockRate int) {
 	// Use moderate sampling rates to limit production overhead (~0.5% CPU).
 	// Rate of 5 would record nearly every event; 100000 samples ~1 in 100k ns events.
-	runtime.SetMutexProfileFraction(100)
-	runtime.SetBlockProfileRate(100000)
+	runtime.SetMutexProfileFraction(mutexFraction)
+	runtime.SetBlockProfileRate(blockRate)
 }

@@ -10,7 +10,6 @@ import (
 
 	"strait/internal/debug"
 	"strait/internal/domain"
-	"strait/internal/telemetry"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
@@ -153,14 +152,9 @@ func (s *Server) routes() chi.Router {
 		})
 	}
 
-	if s.config.ProfilingEnabled {
-		telemetry.EnableRuntimeProfiling()
-		slog.Warn("pprof debug endpoints enabled at /debug/pprof/ -- disable in production")
+	if profilingAPIEnabled(s.config) {
 		r.Group(func(r chi.Router) {
-			r.Use(s.pprofAccessLogger)
-			r.Use(s.profilingAuth)
-			r.Use(s.profilingCIDRAllowlist)
-			debug.MountPprofRoutes(r)
+			s.mountProfilingRoutes(r)
 		})
 	}
 

@@ -44,16 +44,48 @@ Set `PYROSCOPE_ENDPOINT` to push CPU and allocation profiles continuously. Usefu
 export PYROSCOPE_ENDPOINT=http://pyroscope.internal:4040
 ```
 
-For pull-based profiling, set `STRAIT_PROFILING_ENABLED=true` to expose a limited set of Go pprof handlers under `/debug/pprof`. These endpoints are protected by the same internal-secret middleware as `/metrics`, so scrapers must send either `X-Internal-Secret` or `Authorization: Bearer <internal-secret>`.
+For pull-based profiling, set `STRAIT_PROFILING_ENABLED=true` to expose a limited set of Go pprof handlers under `/debug/pprof`. These endpoints use a dedicated profiling auth limiter and require either `X-Internal-Secret` or `Authorization: Bearer <secret>`.
 
 ```bash
 curl "http://localhost:8080/debug/pprof/goroutine" \
   -H "X-Internal-Secret: $INTERNAL_SECRET"
 ```
 
-Set `STRAIT_PROFILING_SECRET` to require a profiling-specific secret instead of `INTERNAL_SECRET`. Set `STRAIT_PROFILING_ALLOWED_CIDRS` to restrict profiling access to specific scraper networks.
+Set `STRAIT_PROFILING_SECRET` to require a profiling-specific secret instead of `INTERNAL_SECRET`. Set `STRAIT_PROFILING_ALLOWED_CIDRS` to restrict profiling access to specific scraper networks. The startup log reports whether a separate secret and CIDR allowlist are configured, but it does not log secret or CIDR values.
+
+By default, pprof is exposed on the API listener when `STRAIT_PROFILING_ENABLED=true`. To move pprof to a local management listener, set:
+
+```bash
+STRAIT_PROFILING_ENABLED=true
+STRAIT_PROFILING_API_ENABLED=false
+STRAIT_PROFILING_MANAGEMENT_ENABLED=true
+STRAIT_PROFILING_MANAGEMENT_BIND_ADDR=127.0.0.1
+STRAIT_PROFILING_MANAGEMENT_PORT=18080
+```
+
+The management listener exposes only the pprof routes and returns `404` for API, health, metrics, and unsupported pprof paths.
 
 Only `/debug/pprof/profile`, `/debug/pprof/allocs`, `/debug/pprof/goroutine`, `/debug/pprof/mutex`, and `/debug/pprof/block` are exposed. Text debug output is rejected, and CPU profile duration is capped at 30 seconds. Keep pprof disabled outside controlled performance runs unless your network and scrape access are trusted.
+
+`STRAIT_PROFILING_MUTEX_FRACTION` defaults to `100`, and `STRAIT_PROFILING_BLOCK_RATE` defaults to `100000`. These are process-wide Go runtime settings that apply when pprof is enabled. Set either value to `0` to disable that profile, then restart the process.
+
+Smoke test Pyroscope scrape compatibility with the same header your scraper will use:
+
+```bash
+curl "http://localhost:8080/debug/pprof/goroutine" \
+  -H "X-Internal-Secret: $INTERNAL_SECRET" \
+  -o goroutine.pprof
+
+curl "http://localhost:8080/debug/pprof/profile?seconds=5" \
+  -H "X-Internal-Secret: $INTERNAL_SECRET" \
+  -o cpu.pprof
+```
+
+Strait increments `strait_pprof_requests_total{endpoint,status}` for every pprof request. Alert on unexpected successful access, for example:
+
+```promql
+sum(rate(strait_pprof_requests_total{status=~"2.."}[5m])) > 0
+```
 
 ## Sentry error reporting
 

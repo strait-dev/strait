@@ -156,13 +156,13 @@ func TestCapSeconds_ClampsLongProfiles(t *testing.T) {
 	t.Parallel()
 
 	req := httptest.NewRequest(http.MethodGet, "/debug/pprof/profile?seconds=120", nil)
-	got := capSeconds(req, maxPprofProfileSeconds)
+	got := capSeconds(req, MaxPprofProfileSeconds)
 
 	seconds, err := strconv.Atoi(got.URL.Query().Get("seconds"))
 	if err != nil {
 		t.Fatalf("seconds not an integer: %v", err)
 	}
-	if seconds != maxPprofProfileSeconds {
-		t.Fatalf("seconds = %d, want %d", seconds, maxPprofProfileSeconds)
+	if seconds != MaxPprofProfileSeconds {
+		t.Fatalf("seconds = %d, want %d", seconds, MaxPprofProfileSeconds)
 	}
 }
