@@ -160,6 +160,11 @@ export const RUN_STATUS_CONFIG: Record<string, RunStatusConfig> = {
     variant: "warning-light",
     dotClassName: "bg-warning",
   },
+  continued: {
+    label: "Continued",
+    variant: "secondary-light",
+    dotClassName: "bg-muted-foreground",
+  },
   skipped: {
     label: "Skipped",
     variant: "secondary-light",

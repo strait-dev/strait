@@ -29,7 +29,9 @@ export type WorkflowRunStatus =
   | "completed"
   | "failed"
   | "timed_out"
-  | "canceled";
+  | "canceled"
+  // Terminal state for a run handed off to a successor via continue-as-new.
+  | "continued";
 
 /** Matches Go domain.WorkflowStepType constants. */
 export type WorkflowStepType =
@@ -66,6 +68,22 @@ export type WorkflowStep = Schema["WorkflowStep"];
 
 /** Workflow run. */
 export type WorkflowRun = Schema["WorkflowRun"];
+
+/**
+ * One entry in a continue-as-new lineage, returned by
+ * GET /v1/workflow-runs/{id}/chain. Hand-written because the chain endpoint
+ * wraps a generic paginated envelope whose `data` is untyped in the OpenAPI
+ * spec; the shape mirrors Go `domain.WorkflowRunChainEntry`.
+ */
+export type WorkflowRunChainEntry = {
+  id: string;
+  lineage_depth: number;
+  status: WorkflowRunStatus;
+  triggered_by: string;
+  started_at?: string;
+  finished_at?: string;
+  created_at: string;
+};
 
 /** Webhook subscription. */
 export type WebhookSubscription = Schema["WebhookSubscription"];

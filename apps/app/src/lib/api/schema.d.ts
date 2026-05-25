@@ -2876,26 +2876,6 @@ export type paths = {
     patch?: never;
     trace?: never;
   };
-  "/v1/plans": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /**
-     * List plan tiers
-     * @description Returns all available plan tiers with their limits and pricing.
-     */
-    get: operations["list-plans"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
   "/v1/project-budget": {
     parameters: {
       query?: never;
@@ -4316,7 +4296,7 @@ export type paths = {
     post?: never;
     /**
      * Force-disconnect a worker
-     * @description Publishes a disconnect signal to the owning replica; the worker stream is closed within milliseconds. Returns 404 for workers in other projects.
+     * @description Publishes a disconnect signal to the owning replica and waits for worker-plane acknowledgement. Returns 503 with Retry-After if the disconnect is still pending. Returns 404 for workers in other projects.
      */
     delete: operations["force-disconnect-worker"];
     options?: never;
@@ -4452,6 +4432,26 @@ export type paths = {
     patch?: never;
     trace?: never;
   };
+  "/v1/workflow-runs/{workflowRunID}/chain": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Get workflow run continuation chain
+     * @description Returns the continue-as-new lineage the run belongs to as a cursor-paginated, root-first list of lightweight run projections, so callers can jump to the first or latest run in the chain. Use limit and cursor to page; fetch full run detail via the run-detail endpoint.
+     */
+    get: operations["get-workflow-run-chain"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/workflow-runs/{workflowRunID}/compare/{otherRunID}": {
     parameters: {
       query?: never;
@@ -4506,6 +4506,26 @@ export type paths = {
     get: operations["get-compensation-plan"];
     put?: never;
     post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/workflow-runs/{workflowRunID}/continue-as-new": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Continue a workflow run as new
+     * @description Atomically completes a running or paused workflow run and starts a fresh successor run of the same workflow with the provided carry-over input. The successor re-resolves the latest published version, starts with empty step history, and links bidirectionally to its predecessor.
+     */
+    post: operations["continue-workflow-run-as-new"];
     delete?: never;
     options?: never;
     head?: never;
@@ -5269,8 +5289,8 @@ export type components = {
        * @example https://api.strait.dev/schemas/ApproveDeviceCodeRequest.json
        */
       readonly $schema?: string;
-      device_code: string;
       project_id: string;
+      user_code: string;
     };
     ApproveWorkflowStepRequest: {
       /**
@@ -5340,6 +5360,7 @@ export type components = {
        * @description Signature schema version (1=original, 2=with forensic fields)
        */
       schema_version?: number;
+      shard_id?: string;
       /** @description HMAC-SHA256 signature for tamper detection */
       signature?: string;
       /** @description OpenTelemetry trace ID when available */
@@ -5615,6 +5636,21 @@ export type components = {
       /** Format: int64 */
       TimeoutSecs: number;
     };
+    ContinueWorkflowRunAsNewInputBody: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://api.strait.dev/schemas/ContinueWorkflowRunAsNewInputBody.json
+       */
+      readonly $schema?: string;
+      /** @description Carry-over input for the successor run. Opaque JSON forwarded as the successor's payload. */
+      input?: unknown;
+      /**
+       * @description Which workflow version the successor runs. 'repin' (default) reuses the predecessor's pinned version and snapshot for deterministic chains; 'latest' adopts the newest published version and canary routing.
+       * @enum {string}
+       */
+      versionStrategy?: "repin" | "latest";
+    };
     CreateAPIKeyRequest: {
       /**
        * Format: uri
@@ -5630,6 +5666,7 @@ export type components = {
       project_id: string;
       /** Format: int64 */
       rotation_interval_days?: number;
+      rotation_webhook_url?: string;
       scopes?: string[] | null;
     };
     CreateAPIKeyResponse: {
@@ -5648,6 +5685,7 @@ export type components = {
       key_prefix: string;
       name: string;
       project_id: string;
+      rotation_webhook_secret?: string;
       scopes: string[] | null;
     };
     CreateCanaryDeploymentRequest: {
@@ -5758,6 +5796,7 @@ export type components = {
         [key: string]: string;
       };
       description?: string;
+      enabled?: boolean;
       endpoint_signing_secret?: string;
       endpoint_url: string;
       environment_id?: string;
@@ -5806,6 +5845,8 @@ export type components = {
       timeout_secs: number;
       timezone?: string;
       version_policy?: string;
+      /** @description Alias of endpoint_signing_secret used by the Go SDK. When both are set, webhook_secret wins and a warning is logged. */
+      webhook_secret?: string;
     };
     CreateLogDrainRequest: {
       /**
@@ -5921,8 +5962,17 @@ export type components = {
       active?: boolean;
       event_types: string[] | null;
       project_id: string;
-      secret: string;
       webhook_url: string;
+    };
+    CreateWebhookSubscriptionResponse: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://api.strait.dev/schemas/CreateWebhookSubscriptionResponse.json
+       */
+      readonly $schema?: string;
+      signing_secret: string;
+      subscription: components["schemas"]["WebhookSubscription"];
     };
     CreateWorkflowRequest: {
       /**
@@ -6126,27 +6176,6 @@ export type components = {
       readonly $schema?: string;
       steps: components["schemas"]["WorkflowStepRequest"][] | null;
     };
-    Environment: {
-      /**
-       * Format: uri
-       * @description A URL to the JSON Schema for this object.
-       * @example https://api.strait.dev/schemas/Environment.json
-       */
-      readonly $schema?: string;
-      /** Format: date-time */
-      created_at: string;
-      id: string;
-      is_standard: boolean;
-      name: string;
-      parent_id?: string;
-      project_id: string;
-      slug: string;
-      /** Format: date-time */
-      updated_at: string;
-      variables?: {
-        [key: string]: string;
-      };
-    };
     EnvironmentResponse: {
       /**
        * Format: uri
@@ -6161,15 +6190,11 @@ export type components = {
       name: string;
       parent_id?: string;
       project_id: string;
-      resolved_variables?: {
-        [key: string]: string;
-      };
+      resolved_variable_keys?: string[] | null;
       slug: string;
       /** Format: date-time */
       updated_at: string;
-      variables?: {
-        [key: string]: string;
-      };
+      variable_keys?: string[] | null;
     };
     ErrorResponse: {
       /**
@@ -6226,6 +6251,7 @@ export type components = {
        * @example https://api.strait.dev/schemas/EventTrigger.json
        */
       readonly $schema?: string;
+      environment_id?: string;
       error?: string;
       event_key: string;
       /** Format: date-time */
@@ -6298,15 +6324,6 @@ export type components = {
       days: number;
       inherited_from_default: boolean;
       project_id: string;
-    };
-    GetPlansOutputBody: {
-      /**
-       * Format: uri
-       * @description A URL to the JSON Schema for this object.
-       * @example https://api.strait.dev/schemas/GetPlansOutputBody.json
-       */
-      readonly $schema?: string;
-      plans: components["schemas"]["PlanResponse"][] | null;
     };
     GetRegionsOutputBody: {
       /**
@@ -6754,58 +6771,6 @@ export type components = {
        */
       readonly $schema?: string;
       reason?: string;
-    };
-    PlanResponse: {
-      ai_assistant_byok: boolean;
-      allowed_regions: string[] | null;
-      display_name: string;
-      has_audit_logs: boolean;
-      has_custom_rbac: boolean;
-      has_data_residency: boolean;
-      has_dedicated_compute: boolean;
-      has_ip_allowlisting: boolean;
-      has_priority_queue: boolean;
-      has_rbac: boolean;
-      has_scim: boolean;
-      has_secret_rotation: boolean;
-      has_session_management: boolean;
-      has_siem_export: boolean;
-      has_sla: boolean;
-      has_sso: boolean;
-      has_static_ips: boolean;
-      has_vpc_peering: boolean;
-      /** Format: int64 */
-      max_ai_model_calls_per_day: number;
-      /** Format: int64 */
-      max_alert_rules_per_project: number;
-      /** Format: int64 */
-      max_concurrent_runs: number;
-      /** Format: int64 */
-      max_log_drains_per_org: number;
-      /** Format: int64 */
-      max_members_per_org: number;
-      /** Format: int64 */
-      max_orgs_per_user: number;
-      /** Format: int64 */
-      max_projects_per_org: number;
-      /** Format: int64 */
-      max_runs_per_day: number;
-      /** Format: int64 */
-      max_runs_per_month: number;
-      /** Format: int64 */
-      max_webhook_subs_per_project: number;
-      /** Format: int64 */
-      overage_per_k_runs_microusd: number;
-      /** Format: int64 */
-      price_annual_usd: number;
-      /** Format: int64 */
-      price_monthly_usd: number;
-      rbac_level?: string;
-      requires_credit_card: boolean;
-      /** Format: int64 */
-      retention_days: number;
-      support_level: string;
-      tier: string;
     };
     Project: {
       /**
@@ -7377,6 +7342,17 @@ export type components = {
       readonly $schema?: string;
       endpoint_url: string;
       fallback_endpoint_url?: string;
+      rotate_signing_secret?: boolean;
+    };
+    SetJobEndpointResponse: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://api.strait.dev/schemas/SetJobEndpointResponse.json
+       */
+      readonly $schema?: string;
+      job: components["schemas"]["Job"];
+      signing_secret?: string;
     };
     SkipStepRequest: {
       /**
@@ -7652,6 +7628,7 @@ export type components = {
       };
       description?: string;
       enabled?: boolean;
+      endpoint_signing_secret?: string;
       endpoint_url?: string;
       environment_id?: string;
       execution_mode?: string;
@@ -7698,6 +7675,8 @@ export type components = {
       timeout_secs?: number;
       timezone?: string;
       version_policy?: string;
+      /** @description Alias of endpoint_signing_secret used by the Go SDK. When both are set, webhook_secret wins and a warning is logged. */
+      webhook_secret?: string;
     };
     UpdateLogDrainRequest: {
       /**
@@ -7904,12 +7883,6 @@ export type components = {
       webhook_url: string;
     };
     WebhookSubscription: {
-      /**
-       * Format: uri
-       * @description A URL to the JSON Schema for this object.
-       * @example https://api.strait.dev/schemas/WebhookSubscription.json
-       */
-      readonly $schema?: string;
       active: boolean;
       /** Format: date-time */
       created_at: string;
@@ -7941,13 +7914,25 @@ export type components = {
       accepted_at?: string;
       /** Format: date-time */
       assigned_at: string;
+      /** Format: int64 */
+      attempt: number;
       /** Format: date-time */
       finished_at?: string;
       id: string;
       project_id: string;
+      result?: components["schemas"]["WorkerTaskResult"];
       run_id: string;
       status: string;
       worker_id: string;
+    };
+    WorkerTaskResult: {
+      /** Format: int64 */
+      duration_ms?: number;
+      error?: string;
+      output?: unknown;
+      /** Format: date-time */
+      received_at?: string;
+      status: string;
     };
     WorkflowGraphResponse: {
       /**
@@ -8037,6 +8022,8 @@ export type components = {
        * @example https://api.strait.dev/schemas/WorkflowRun.json
        */
       readonly $schema?: string;
+      continued_from_workflow_run_id?: string;
+      continued_to_workflow_run_id?: string;
       /** Format: date-time */
       created_at: string;
       created_by?: string;
@@ -8048,6 +8035,8 @@ export type components = {
       /** Format: date-time */
       finished_at?: string;
       id: string;
+      /** Format: int64 */
+      lineage_depth: number;
       /** Format: int64 */
       max_parallel_steps?: number;
       parent_step_run_id?: string;
@@ -10596,6 +10585,95 @@ export interface operations {
       };
     };
   };
+  "continue-workflow-run-as-new": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workflowRunID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ContinueWorkflowRunAsNewInputBody"];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["WorkflowRun"];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
   "create-api-key": {
     parameters: {
       query?: never;
@@ -10849,7 +10927,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          "application/json": components["schemas"]["Environment"];
+          "application/json": components["schemas"]["EnvironmentResponse"];
         };
       };
       /** @description Bad Request */
@@ -11861,7 +11939,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          "application/json": components["schemas"]["WebhookSubscription"];
+          "application/json": components["schemas"]["CreateWebhookSubscriptionResponse"];
         };
       };
       /** @description Bad Request */
@@ -13842,6 +13920,15 @@ export interface operations {
       };
       /** @description Internal Server Error */
       500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
         headers: {
           [name: string]: unknown;
         };
@@ -18620,6 +18707,67 @@ export interface operations {
       };
     };
   };
+  "get-workflow-run-chain": {
+    parameters: {
+      query?: {
+        limit?: string;
+        cursor?: string;
+      };
+      header?: never;
+      path: {
+        workflowRunID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["PaginatedResponse"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
   "get-workflow-run-debug": {
     parameters: {
       query?: never;
@@ -20740,44 +20888,6 @@ export interface operations {
       };
       /** @description Unprocessable Entity */
       422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Internal Server Error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-    };
-  };
-  "list-plans": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["GetPlansOutputBody"];
-        };
-      };
-      /** @description Unauthorized */
-      401: {
         headers: {
           [name: string]: unknown;
         };
@@ -27207,7 +27317,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          "application/json": components["schemas"]["Job"];
+          "application/json": components["schemas"]["SetJobEndpointResponse"];
         };
       };
       /** @description Bad Request */
@@ -27773,6 +27883,8 @@ export interface operations {
         "Idempotency-Key"?: string;
         Traceparent?: string;
         Tracestate?: string;
+        "Sentry-Trace"?: string;
+        Baggage?: string;
       };
       path: {
         jobID: string;
@@ -28275,7 +28387,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          "application/json": components["schemas"]["Environment"];
+          "application/json": components["schemas"]["EnvironmentResponse"];
         };
       };
       /** @description Bad Request */
