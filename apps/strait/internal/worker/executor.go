@@ -133,6 +133,7 @@ type Executor struct {
 	onCompleteTrigger        *OnCompleteTrigger
 	logger                   *slog.Logger
 	webhookMaxRetry          int
+	executionTraceMode       executionTraceMode
 	middlewares              []ExecutionMiddleware
 	subscribers              []RunEventSubscriber
 	eventCh                  chan runEventEnvelope
@@ -214,6 +215,7 @@ type ExecutorConfig struct {
 	ExecutorIdleConnTimeout    time.Duration
 	AllowPrivateEndpoints      bool
 	WebhookMaxAttempts         int
+	ExecutionTraceMode         string
 	MaxDequeueBatchSize        int
 	DefaultJobMaxConcurrency   int
 	MemoryPressureThresholdPct float64
@@ -341,6 +343,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		circuitOpenFor:           defaultCircuitOpenDuration,
 		logger:                   slog.Default(),
 		webhookMaxRetry:          whMaxAttempts,
+		executionTraceMode:       normalizeExecutionTraceMode(cfg.ExecutionTraceMode),
 		eventCh:                  make(chan runEventEnvelope, resolveEventChannelSize(cfg.EventChannelSize)),
 		eventChannelSize:         resolveEventChannelSize(cfg.EventChannelSize),
 		saturationLastWarn:       make(map[string]time.Time),

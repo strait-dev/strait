@@ -497,7 +497,7 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 					addHMACHeaders(fallbackHeaders, signingSecret, run.Payload)
 					fallbackResult, fallbackErr := e.dispatchToEndpoint(execCtx, job.FallbackEndpointURL, run, fallbackHeaders)
 					if fallbackErr == nil {
-						e.handleSuccess(ctx, run, job, fallbackResult, execTrace)
+						e.handleSuccessWithStats(ctx, run, job, fallbackResult, execTrace, adaptiveStats)
 						return
 					}
 					err = errors.Join(
@@ -539,7 +539,7 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 		}
 	}
 
-	e.handleSuccess(ctx, run, job, result, execTrace)
+	e.handleSuccessWithStats(ctx, run, job, result, execTrace, adaptiveStats)
 }
 
 func defaultExecutionPolicy(job *domain.Job) executionPolicy {
@@ -1155,7 +1155,7 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 	e.recordWorkerModeCost(ctx, run, job)
 
 	runResult := e.workerDispatcher.ResultOutput(result)
-	if e.handleSuccess(ctx, run, job, runResult, nil) {
+	if e.handleSuccess(ctx, run, job, runResult) {
 		e.completeWorkerTask(ctx, result, domain.WorkerTaskStatusCompleted)
 	}
 }
@@ -1195,7 +1195,7 @@ func (e *Executor) FinalizeWorkerRunResult(ctx context.Context, runID, status, e
 	}
 
 	e.recordWorkerModeCost(ctx, run, job)
-	if !e.handleSuccess(ctx, run, job, output, nil) {
+	if !e.handleSuccess(ctx, run, job, output) {
 		return "", fmt.Errorf("worker success finalization did not transition run")
 	}
 	return domain.WorkerTaskStatusCompleted, nil

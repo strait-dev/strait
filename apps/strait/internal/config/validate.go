@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -109,6 +110,11 @@ func (c *Config) Validate() error {
 	}
 	if c.DBMaxConns < 1 {
 		errs = append(errs, fmt.Errorf("DB_MAX_CONNS must be >= 1, got %d", c.DBMaxConns))
+	}
+	switch strings.ToLower(strings.TrimSpace(c.ExecutionTraceMode)) {
+	case "off", "errors", "full":
+	default:
+		errs = append(errs, fmt.Errorf("EXECUTION_TRACE_MODE must be off, errors, or full, got %q", c.ExecutionTraceMode))
 	}
 
 	// DLQ invariants.

@@ -698,6 +698,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		PartitionWeights:        partitionWeights,
 		ExecutorHTTPTimeout:     cfg.ExecutorHTTPTimeout,
 		ExecutorIdleConnTimeout: cfg.ExecutorIdleConnTimeout,
+		ExecutionTraceMode:      cfg.ExecutionTraceMode,
 		AllowPrivateEndpoints:   cfg.AllowPrivateEndpoints,
 		WebhookMaxAttempts:      cfg.WebhookMaxAttempts,
 		MaxSnoozeCount:          cfg.MaxSnoozeCount,
