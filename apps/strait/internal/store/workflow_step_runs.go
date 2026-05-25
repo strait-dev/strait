@@ -64,6 +64,90 @@ func (q *Queries) CreateWorkflowStepRun(ctx context.Context, sr *domain.Workflow
 	return nil
 }
 
+// batchSender is the subset of the pgx connection surface needed to pipeline a
+// batch of statements over a single round-trip. It is satisfied by *pgxpool.Pool
+// and pgx.Tx (the concrete handles behind Queries.db); test doubles that only
+// implement the narrow DBTX interface do not, and fall back to per-row inserts.
+type batchSender interface {
+	SendBatch(ctx context.Context, b *pgx.Batch) pgx.BatchResults
+}
+
+// CreateWorkflowStepRuns inserts a set of workflow step runs, applying the same
+// per-row defaulting as CreateWorkflowStepRun and writing each row's
+// database-assigned created_at back into srs. When the underlying handle
+// supports batching, all inserts are pipelined in a single round-trip instead of
+// one round-trip per row; otherwise it falls back to sequential inserts. An
+// empty slice is a no-op. Used by the workflow bootstrap paths, which create a
+// run's full set of initial step runs at once.
+func (q *Queries) CreateWorkflowStepRuns(ctx context.Context, srs []domain.WorkflowStepRun) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateWorkflowStepRuns")
+	defer span.End()
+
+	if len(srs) == 0 {
+		return nil
+	}
+
+	const query = `
+		INSERT INTO workflow_step_runs (
+			id, workflow_run_id, workflow_step_id, step_ref, job_run_id, status,
+			deps_completed, deps_required, output, error, started_at, finished_at, attempt
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		RETURNING created_at`
+
+	sender, ok := q.db.(batchSender)
+	if !ok {
+		// No batch support (e.g. a test double): insert one row at a time.
+		for i := range srs {
+			if err := q.CreateWorkflowStepRun(ctx, &srs[i]); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	var batch pgx.Batch
+	for i := range srs {
+		sr := &srs[i]
+		if sr.ID == "" {
+			sr.ID = uuid.Must(uuid.NewV7()).String()
+		}
+		if sr.Status == "" {
+			sr.Status = domain.StepPending
+		}
+		if sr.Attempt == 0 {
+			sr.Attempt = 1
+		}
+		batch.Queue(query,
+			sr.ID,
+			sr.WorkflowRunID,
+			sr.WorkflowStepID,
+			sr.StepRef,
+			dbscan.NilIfEmptyString(sr.JobRunID),
+			sr.Status,
+			sr.DepsCompleted,
+			sr.DepsRequired,
+			dbscan.NilIfEmptyRawMessage(sr.Output),
+			dbscan.NilIfEmptyString(sr.Error),
+			sr.StartedAt,
+			sr.FinishedAt,
+			sr.Attempt,
+		)
+	}
+
+	results := sender.SendBatch(ctx, &batch)
+	for i := range srs {
+		if err := results.QueryRow().Scan(&srs[i].CreatedAt); err != nil {
+			_ = results.Close()
+			return fmt.Errorf("create workflow step run %s: %w", srs[i].StepRef, err)
+		}
+	}
+	if err := results.Close(); err != nil {
+		return fmt.Errorf("create workflow step runs batch: %w", err)
+	}
+	return nil
+}
+
 func (q *Queries) GetWorkflowStepRun(ctx context.Context, id string) (*domain.WorkflowStepRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetWorkflowStepRun")
 	defer span.End()

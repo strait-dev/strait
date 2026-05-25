@@ -489,13 +489,7 @@ func (q *Queries) CreateWorkflowRunBootstrap(ctx context.Context, run *domain.Wo
 		if err := q.UpdateWorkflowRunStatus(ctx, run.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{"started_at": startedAt}); err != nil {
 			return err
 		}
-		for i := range stepRuns {
-			sr := stepRuns[i]
-			if err := q.CreateWorkflowStepRun(ctx, &sr); err != nil {
-				return err
-			}
-		}
-		return nil
+		return q.CreateWorkflowStepRuns(ctx, stepRuns)
 	}
 
 	return q.withTx(ctx, func(txQ *Queries) error {
@@ -505,11 +499,8 @@ func (q *Queries) CreateWorkflowRunBootstrap(ctx context.Context, run *domain.Wo
 		if err := txQ.UpdateWorkflowRunStatus(ctx, run.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{"started_at": startedAt}); err != nil {
 			return fmt.Errorf("mark workflow running bootstrap: %w", err)
 		}
-		for i := range stepRuns {
-			sr := stepRuns[i]
-			if err := txQ.CreateWorkflowStepRun(ctx, &sr); err != nil {
-				return fmt.Errorf("create workflow step run bootstrap %s: %w", sr.StepRef, err)
-			}
+		if err := txQ.CreateWorkflowStepRuns(ctx, stepRuns); err != nil {
+			return fmt.Errorf("create workflow step runs bootstrap: %w", err)
 		}
 		return nil
 	})
@@ -568,11 +559,8 @@ func (q *Queries) ContinueWorkflowRunBootstrap(ctx context.Context, predecessorI
 		if err := txQ.UpdateWorkflowRunStatus(ctx, successor.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{"started_at": now}); err != nil {
 			return fmt.Errorf("mark successor running: %w", err)
 		}
-		for i := range stepRuns {
-			sr := stepRuns[i]
-			if err := txQ.CreateWorkflowStepRun(ctx, &sr); err != nil {
-				return fmt.Errorf("create successor step run %s: %w", sr.StepRef, err)
-			}
+		if err := txQ.CreateWorkflowStepRuns(ctx, stepRuns); err != nil {
+			return fmt.Errorf("create successor step runs: %w", err)
 		}
 
 		// 3. Link the predecessor forward to the now-existing successor.

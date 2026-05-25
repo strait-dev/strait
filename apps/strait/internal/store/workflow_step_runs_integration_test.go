@@ -15,6 +15,53 @@ import (
 	"strait/internal/testutil"
 )
 
+func TestCreateWorkflowStepRuns_BatchInsert(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	_, wfRun, seedStep := mustCreateWorkflowStepFixture(t, ctx, q, "project-batch-step-runs", domain.StepPending)
+	stepID := seedStep.WorkflowStepID
+
+	// Build a batch of fresh step runs for the run. BuildWorkflowStepRun assigns
+	// unique step_refs (satisfying the (workflow_run_id, step_ref) constraint) and
+	// leaves attempt at 0, so the insert's defaulting to 1 is exercised.
+	const batchSize = 5
+	stepRuns := make([]domain.WorkflowStepRun, 0, batchSize)
+	for range batchSize {
+		stepRuns = append(stepRuns, *testutil.BuildWorkflowStepRun(wfRun.ID, stepID, nil))
+	}
+
+	if err := q.CreateWorkflowStepRuns(ctx, stepRuns); err != nil {
+		t.Fatalf("CreateWorkflowStepRuns() error = %v", err)
+	}
+
+	// Every row gets its database-assigned created_at written back and its
+	// attempt defaulted to 1.
+	for i := range stepRuns {
+		if stepRuns[i].CreatedAt.IsZero() {
+			t.Errorf("step run %d: created_at not written back", i)
+		}
+		if stepRuns[i].Attempt != 1 {
+			t.Errorf("step run %d: attempt = %d, want 1 (defaulted)", i, stepRuns[i].Attempt)
+		}
+	}
+
+	// All batch rows persisted alongside the fixture's seed step run.
+	got, err := q.ListStepRunsByWorkflowRun(ctx, wfRun.ID, 100, nil)
+	if err != nil {
+		t.Fatalf("ListStepRunsByWorkflowRun() error = %v", err)
+	}
+	if len(got) != batchSize+1 {
+		t.Fatalf("persisted step runs = %d, want %d", len(got), batchSize+1)
+	}
+
+	// An empty batch is a no-op rather than an error.
+	if err := q.CreateWorkflowStepRuns(ctx, nil); err != nil {
+		t.Fatalf("CreateWorkflowStepRuns(nil) error = %v", err)
+	}
+}
+
 func TestListRunningStepRunsByWorkflowRun(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
