@@ -157,7 +157,9 @@ func (s *Server) routes() chi.Router {
 		telemetry.EnableRuntimeProfiling()
 		slog.Warn("pprof debug endpoints enabled at /debug/pprof/ -- disable in production")
 		r.Group(func(r chi.Router) {
-			r.Use(s.internalSecretAuth)
+			r.Use(s.pprofAccessLogger)
+			r.Use(s.profilingAuth)
+			r.Use(s.profilingCIDRAllowlist)
 			debug.MountPprofRoutes(r)
 		})
 	}

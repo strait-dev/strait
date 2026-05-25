@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"log/slog"
+	"net"
 	"net/url"
 	"os"
 	"slices"
@@ -336,8 +337,10 @@ type Config struct {
 	PyroscopeAuthToken string `env:"PYROSCOPE_AUTH_TOKEN"`
 
 	// Debug tools
-	ProfilingEnabled bool `env:"STRAIT_PROFILING_ENABLED" default:"false"`
-	DebugStatsviz    bool `env:"DEBUG_STATSVIZ" default:"false"`
+	ProfilingEnabled      bool     `env:"STRAIT_PROFILING_ENABLED" default:"false"`
+	ProfilingSecret       string   `env:"STRAIT_PROFILING_SECRET"`
+	ProfilingAllowedCIDRs []string `env:"STRAIT_PROFILING_ALLOWED_CIDRS"`
+	DebugStatsviz         bool     `env:"DEBUG_STATSVIZ" default:"false"`
 
 	// Edition is determined at compile time via build tags (community vs cloud).
 	// This field exists for config logging but is ignored by domain.ParseEdition.
@@ -431,6 +434,12 @@ func validateLoaded(cfg *Config) error {
 	}
 	if len(cfg.InternalSecret) < 16 {
 		return &domain.ConfigError{Field: "INTERNAL_SECRET", Message: "must be at least 16 characters"}
+	}
+	if cfg.ProfilingSecret != "" && len(cfg.ProfilingSecret) < 16 {
+		return &domain.ConfigError{Field: "STRAIT_PROFILING_SECRET", Message: "must be at least 16 characters"}
+	}
+	if bad := firstInvalidCIDREntry(cfg.ProfilingAllowedCIDRs); bad != "" {
+		return &domain.ConfigError{Field: "STRAIT_PROFILING_ALLOWED_CIDRS", Message: fmt.Sprintf("contains invalid CIDR/IP entry %q", bad)}
 	}
 	if len(cfg.JWTSigningKey) < 32 {
 		return &domain.ConfigError{Field: "JWT_SIGNING_KEY", Message: "must be at least 32 characters"}
@@ -592,6 +601,7 @@ func (c *Config) Redacted() map[string]any {
 		"DatabaseURL":            "[REDACTED]",
 		"RedisURL":               "[REDACTED]",
 		"InternalSecret":         "[REDACTED]",
+		"ProfilingSecret":        "[REDACTED]",
 		"JWTSigningKey":          "[REDACTED]",
 		"EncryptionKey":          "[REDACTED]",
 		"StripeSecretKey":        "[REDACTED]",
@@ -637,4 +647,21 @@ func parseCSVEnv(key string) []string {
 	}
 
 	return values
+}
+
+func firstInvalidCIDREntry(entries []string) string {
+	for _, raw := range entries {
+		entry := strings.TrimSpace(raw)
+		if entry == "" {
+			continue
+		}
+		if _, _, err := net.ParseCIDR(entry); err == nil {
+			continue
+		}
+		if net.ParseIP(entry) != nil {
+			continue
+		}
+		return entry
+	}
+	return ""
 }

@@ -44,14 +44,16 @@ Set `PYROSCOPE_ENDPOINT` to push CPU and allocation profiles continuously. Usefu
 export PYROSCOPE_ENDPOINT=http://pyroscope.internal:4040
 ```
 
-For pull-based profiling, set `STRAIT_PROFILING_ENABLED=true` to expose the standard Go pprof handlers under `/debug/pprof`. These endpoints are protected by the same internal-secret middleware as `/metrics`, so scrapers must send either `X-Internal-Secret` or `Authorization: Bearer <internal-secret>`.
+For pull-based profiling, set `STRAIT_PROFILING_ENABLED=true` to expose a limited set of Go pprof handlers under `/debug/pprof`. These endpoints are protected by the same internal-secret middleware as `/metrics`, so scrapers must send either `X-Internal-Secret` or `Authorization: Bearer <internal-secret>`.
 
 ```bash
-curl "http://localhost:8080/debug/pprof/goroutine?debug=1" \
+curl "http://localhost:8080/debug/pprof/goroutine" \
   -H "X-Internal-Secret: $INTERNAL_SECRET"
 ```
 
-Pyroscope can scrape endpoints such as `/debug/pprof/profile`, `/debug/pprof/allocs`, `/debug/pprof/goroutine`, `/debug/pprof/mutex`, and `/debug/pprof/block` when the flag is enabled. Keep it disabled outside controlled performance runs unless your network and scrape access are trusted.
+Set `STRAIT_PROFILING_SECRET` to require a profiling-specific secret instead of `INTERNAL_SECRET`. Set `STRAIT_PROFILING_ALLOWED_CIDRS` to restrict profiling access to specific scraper networks.
+
+Only `/debug/pprof/profile`, `/debug/pprof/allocs`, `/debug/pprof/goroutine`, `/debug/pprof/mutex`, and `/debug/pprof/block` are exposed. Text debug output is rejected, and CPU profile duration is capped at 30 seconds. Keep pprof disabled outside controlled performance runs unless your network and scrape access are trusted.
 
 ## Sentry error reporting
 

@@ -4,10 +4,13 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/pprof"
+	"strconv"
 
 	"github.com/arl/statsviz"
 	"github.com/go-chi/chi/v5"
 )
+
+const maxPprofProfileSeconds = 30
 
 // newStatsvizServer is the constructor for a statsviz server.
 // It is a package-level variable so tests can replace it to simulate errors.
@@ -30,18 +33,50 @@ func MountDebugRoutes(r chi.Router) {
 
 // MountPprofRoutes registers the standard library pprof endpoints.
 func MountPprofRoutes(r chi.Router) {
-	r.Get("/debug/pprof", func(w http.ResponseWriter, req *http.Request) {
-		http.Redirect(w, req, "/debug/pprof/", http.StatusMovedPermanently)
-	})
-	r.Get("/debug/pprof/", pprof.Index)
-	r.Get("/debug/pprof/cmdline", pprof.Cmdline)
-	r.Get("/debug/pprof/profile", pprof.Profile)
-	r.Post("/debug/pprof/symbol", pprof.Symbol)
-	r.Get("/debug/pprof/symbol", pprof.Symbol)
-	r.Get("/debug/pprof/trace", pprof.Trace)
+	r.Get("/debug/pprof/profile", cappedProfile)
 
-	for _, name := range []string{"allocs", "block", "goroutine", "heap", "mutex", "threadcreate"} {
-		handler := pprof.Handler(name)
-		r.Get("/debug/pprof/"+name, handler.ServeHTTP)
+	for _, name := range []string{"allocs", "block", "goroutine", "mutex"} {
+		r.Get("/debug/pprof/"+name, binaryProfile(name))
 	}
+}
+
+func cappedProfile(w http.ResponseWriter, r *http.Request) {
+	if rejectDebugOutput(w, r) {
+		return
+	}
+	pprof.Profile(w, capSeconds(r, maxPprofProfileSeconds))
+}
+
+func binaryProfile(name string) http.HandlerFunc {
+	handler := pprof.Handler(name)
+	return func(w http.ResponseWriter, r *http.Request) {
+		if rejectDebugOutput(w, r) {
+			return
+		}
+		handler.ServeHTTP(w, r)
+	}
+}
+
+func rejectDebugOutput(w http.ResponseWriter, r *http.Request) bool {
+	for _, raw := range r.URL.Query()["debug"] {
+		if raw != "" && raw != "0" {
+			http.Error(w, "pprof text debug output is disabled", http.StatusBadRequest)
+			return true
+		}
+	}
+	return false
+}
+
+func capSeconds(r *http.Request, maxSeconds int) *http.Request {
+	raw := r.URL.Query().Get("seconds")
+	seconds, err := strconv.Atoi(raw)
+	if err != nil || seconds <= maxSeconds {
+		return r
+	}
+
+	cloned := r.Clone(r.Context())
+	query := cloned.URL.Query()
+	query.Set("seconds", strconv.Itoa(maxSeconds))
+	cloned.URL.RawQuery = query.Encode()
+	return cloned
 }

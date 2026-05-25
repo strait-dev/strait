@@ -470,6 +470,7 @@ func TestLoad_BoolOverrides(t *testing.T) {
 	t.Setenv("OTLP_METRIC_ENABLED", "true")
 	t.Setenv("CORS_ALLOW_CREDENTIALS", "true")
 	t.Setenv("STRAIT_PROFILING_ENABLED", "true")
+	t.Setenv("STRAIT_PROFILING_SECRET", "pprof-secret-value")
 
 	cfg, err := Load()
 	if err != nil {
@@ -505,6 +506,9 @@ func TestLoad_BoolOverrides(t *testing.T) {
 	}
 	if !cfg.ProfilingEnabled {
 		t.Fatal("ProfilingEnabled = false, want true")
+	}
+	if cfg.ProfilingSecret != "pprof-secret-value" {
+		t.Fatalf("ProfilingSecret = %q, want pprof-secret-value", cfg.ProfilingSecret)
 	}
 }
 
@@ -564,6 +568,44 @@ func TestLoad_SliceFields(t *testing.T) {
 		}
 		if cfg.WorkerPartitions[0] != "critical" {
 			t.Fatalf("WorkerPartitions[0] = %q, want critical", cfg.WorkerPartitions[0])
+		}
+	})
+
+	t.Run("profiling allowed CIDRs", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("STRAIT_PROFILING_ALLOWED_CIDRS", "127.0.0.1/32,10.0.0.0/8")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(cfg.ProfilingAllowedCIDRs) != 2 {
+			t.Fatalf("len(ProfilingAllowedCIDRs) = %d, want 2", len(cfg.ProfilingAllowedCIDRs))
+		}
+		if cfg.ProfilingAllowedCIDRs[0] != "127.0.0.1/32" {
+			t.Fatalf("ProfilingAllowedCIDRs[0] = %q, want 127.0.0.1/32", cfg.ProfilingAllowedCIDRs[0])
+		}
+	})
+}
+
+func TestLoad_ProfilingSecurityValidation(t *testing.T) {
+	t.Run("short profiling secret rejected", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("STRAIT_PROFILING_SECRET", "short")
+
+		_, err := Load()
+		if err == nil || !strings.Contains(err.Error(), "STRAIT_PROFILING_SECRET") {
+			t.Fatalf("error = %v, want STRAIT_PROFILING_SECRET", err)
+		}
+	})
+
+	t.Run("invalid profiling CIDR rejected", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("STRAIT_PROFILING_ALLOWED_CIDRS", "127.0.0.1/32,not-a-cidr")
+
+		_, err := Load()
+		if err == nil || !strings.Contains(err.Error(), "STRAIT_PROFILING_ALLOWED_CIDRS") {
+			t.Fatalf("error = %v, want STRAIT_PROFILING_ALLOWED_CIDRS", err)
 		}
 	})
 }

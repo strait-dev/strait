@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/arl/statsviz"
@@ -92,14 +93,10 @@ func TestMountPprofRoutes_RegistersEndpoints(t *testing.T) {
 		name string
 		path string
 	}{
-		{name: "index", path: "/debug/pprof/"},
-		{name: "cmdline", path: "/debug/pprof/cmdline"},
-		{name: "allocs", path: "/debug/pprof/allocs?debug=1"},
-		{name: "block", path: "/debug/pprof/block?debug=1"},
-		{name: "goroutine", path: "/debug/pprof/goroutine?debug=1"},
-		{name: "heap", path: "/debug/pprof/heap?debug=1"},
-		{name: "mutex", path: "/debug/pprof/mutex?debug=1"},
-		{name: "threadcreate", path: "/debug/pprof/threadcreate?debug=1"},
+		{name: "allocs", path: "/debug/pprof/allocs"},
+		{name: "block", path: "/debug/pprof/block"},
+		{name: "goroutine", path: "/debug/pprof/goroutine"},
+		{name: "mutex", path: "/debug/pprof/mutex"},
 	}
 
 	for _, tt := range tests {
@@ -115,20 +112,57 @@ func TestMountPprofRoutes_RegistersEndpoints(t *testing.T) {
 	}
 }
 
-func TestMountPprofRoutes_RootRedirects(t *testing.T) {
+func TestMountPprofRoutes_DoesNotExposeExploratoryEndpoints(t *testing.T) {
 	t.Parallel()
 
 	r := chi.NewRouter()
 	MountPprofRoutes(r)
 
-	req := httptest.NewRequest(http.MethodGet, "/debug/pprof", nil)
+	for _, path := range []string{
+		"/debug/pprof",
+		"/debug/pprof/",
+		"/debug/pprof/cmdline",
+		"/debug/pprof/heap",
+		"/debug/pprof/symbol",
+		"/debug/pprof/threadcreate",
+		"/debug/pprof/trace",
+	} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("GET %s status = %d, want %d", path, w.Code, http.StatusNotFound)
+		}
+	}
+}
+
+func TestMountPprofRoutes_RejectsTextDebugOutput(t *testing.T) {
+	t.Parallel()
+
+	r := chi.NewRouter()
+	MountPprofRoutes(r)
+
+	req := httptest.NewRequest(http.MethodGet, "/debug/pprof/goroutine?debug=1", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusMovedPermanently {
-		t.Fatalf("GET /debug/pprof status = %d, want %d", w.Code, http.StatusMovedPermanently)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("GET /debug/pprof/goroutine?debug=1 status = %d, want %d", w.Code, http.StatusBadRequest)
 	}
-	if got := w.Header().Get("Location"); got != "/debug/pprof/" {
-		t.Fatalf("Location = %q, want /debug/pprof/", got)
+}
+
+func TestCapSeconds_ClampsLongProfiles(t *testing.T) {
+	t.Parallel()
+
+	req := httptest.NewRequest(http.MethodGet, "/debug/pprof/profile?seconds=120", nil)
+	got := capSeconds(req, maxPprofProfileSeconds)
+
+	seconds, err := strconv.Atoi(got.URL.Query().Get("seconds"))
+	if err != nil {
+		t.Fatalf("seconds not an integer: %v", err)
+	}
+	if seconds != maxPprofProfileSeconds {
+		t.Fatalf("seconds = %d, want %d", seconds, maxPprofProfileSeconds)
 	}
 }
