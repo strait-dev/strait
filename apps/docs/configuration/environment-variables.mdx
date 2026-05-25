@@ -106,6 +106,7 @@ export SECRET_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 | `SENTRY_STRICT_TRACE_CONTINUATION` | `false` | Require incoming Sentry baggage org IDs to match before continuing third-party traces. |
 | `SENTRY_SCHEDULER_CHECKINS` | `false` | Emit Sentry monitor check-ins for scheduler components when enabled. |
 | `SENTRY_SCHEDULER_CHECKIN_PREFIX` | `strait-scheduler` | Prefix used for scheduler component monitor slugs. |
+| `STRAIT_PROFILING_ENABLED` | `false` | Expose internal-secret-protected Go pprof endpoints under `/debug/pprof`. |
 | `PYROSCOPE_ENDPOINT` | - | Pyroscope endpoint for profiling. |
 
 ## Notifications

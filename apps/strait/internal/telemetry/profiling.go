@@ -22,10 +22,7 @@ func InitProfiling(cfg ProfilingConfig) (shutdown func(), err error) {
 		return func() {}, nil
 	}
 
-	// Use moderate sampling rates to limit production overhead (~0.5% CPU).
-	// Rate of 5 would record nearly every event; 100000 samples ~1 in 100k ns events.
-	runtime.SetMutexProfileFraction(100)
-	runtime.SetBlockProfileRate(100000)
+	EnableRuntimeProfiling()
 
 	profiler, err := pyroscope.Start(pyroscope.Config{
 		ApplicationName: cfg.ServiceName,
@@ -52,4 +49,12 @@ func InitProfiling(cfg ProfilingConfig) (shutdown func(), err error) {
 	return func() {
 		_ = profiler.Stop()
 	}, nil
+}
+
+// EnableRuntimeProfiling enables mutex and block profiling for pprof consumers.
+func EnableRuntimeProfiling() {
+	// Use moderate sampling rates to limit production overhead (~0.5% CPU).
+	// Rate of 5 would record nearly every event; 100000 samples ~1 in 100k ns events.
+	runtime.SetMutexProfileFraction(100)
+	runtime.SetBlockProfileRate(100000)
 }

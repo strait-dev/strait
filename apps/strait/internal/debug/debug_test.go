@@ -81,3 +81,54 @@ func TestMountDebugRoutes_OtherRoutesUnaffected(t *testing.T) {
 		t.Fatalf("GET /api/v1/health status = %d, want %d", w.Code, http.StatusOK)
 	}
 }
+
+func TestMountPprofRoutes_RegistersEndpoints(t *testing.T) {
+	t.Parallel()
+
+	r := chi.NewRouter()
+	MountPprofRoutes(r)
+
+	tests := []struct {
+		name string
+		path string
+	}{
+		{name: "index", path: "/debug/pprof/"},
+		{name: "cmdline", path: "/debug/pprof/cmdline"},
+		{name: "allocs", path: "/debug/pprof/allocs?debug=1"},
+		{name: "block", path: "/debug/pprof/block?debug=1"},
+		{name: "goroutine", path: "/debug/pprof/goroutine?debug=1"},
+		{name: "heap", path: "/debug/pprof/heap?debug=1"},
+		{name: "mutex", path: "/debug/pprof/mutex?debug=1"},
+		{name: "threadcreate", path: "/debug/pprof/threadcreate?debug=1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if w.Code == http.StatusNotFound {
+				t.Fatalf("GET %s returned 404, route should be registered", tt.path)
+			}
+		})
+	}
+}
+
+func TestMountPprofRoutes_RootRedirects(t *testing.T) {
+	t.Parallel()
+
+	r := chi.NewRouter()
+	MountPprofRoutes(r)
+
+	req := httptest.NewRequest(http.MethodGet, "/debug/pprof", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusMovedPermanently {
+		t.Fatalf("GET /debug/pprof status = %d, want %d", w.Code, http.StatusMovedPermanently)
+	}
+	if got := w.Header().Get("Location"); got != "/debug/pprof/" {
+		t.Fatalf("Location = %q, want /debug/pprof/", got)
+	}
+}

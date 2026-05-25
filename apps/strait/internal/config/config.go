@@ -336,7 +336,8 @@ type Config struct {
 	PyroscopeAuthToken string `env:"PYROSCOPE_AUTH_TOKEN"`
 
 	// Debug tools
-	DebugStatsviz bool `env:"DEBUG_STATSVIZ" default:"false"`
+	ProfilingEnabled bool `env:"STRAIT_PROFILING_ENABLED" default:"false"`
+	DebugStatsviz    bool `env:"DEBUG_STATSVIZ" default:"false"`
 
 	// Edition is determined at compile time via build tags (community vs cloud).
 	// This field exists for config logging but is ignored by domain.ParseEdition.

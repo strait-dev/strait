@@ -154,6 +154,7 @@ func TestLoad_DefaultBooleans(t *testing.T) {
 		{"ClickHouseExportEnabled", cfg.ClickHouseExportEnabled},
 		{"OTLPMetricEnabled", cfg.OTLPMetricEnabled},
 		{"BillingEnforcementEnabled", cfg.BillingEnforcementEnabled},
+		{"ProfilingEnabled", cfg.ProfilingEnabled},
 	}
 
 	for _, tt := range falseFields {
@@ -468,6 +469,7 @@ func TestLoad_BoolOverrides(t *testing.T) {
 	t.Setenv("ENFORCE_REGION_GATING", "true")
 	t.Setenv("OTLP_METRIC_ENABLED", "true")
 	t.Setenv("CORS_ALLOW_CREDENTIALS", "true")
+	t.Setenv("STRAIT_PROFILING_ENABLED", "true")
 
 	cfg, err := Load()
 	if err != nil {
@@ -500,6 +502,9 @@ func TestLoad_BoolOverrides(t *testing.T) {
 	}
 	if !cfg.CORSAllowCredentials {
 		t.Fatal("CORSAllowCredentials = false, want true")
+	}
+	if !cfg.ProfilingEnabled {
+		t.Fatal("ProfilingEnabled = false, want true")
 	}
 }
 
