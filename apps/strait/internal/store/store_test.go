@@ -759,6 +759,107 @@ func scanEndpointCircuitState(endpointURL string, state domain.CircuitState, hal
 	}
 }
 
+func TestGetJobHealthCounts_QueryExcludesPercentiles(t *testing.T) {
+	t.Parallel()
+
+	var capturedSQL string
+	db := &mockDBTX{
+		queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
+			capturedSQL = sql
+			return &mockRow{scanFn: scanJobHealthCounts(10, 8, 1, 1, 0, 0, 0)}
+		},
+	}
+	q := New(db)
+	stats, err := q.GetJobHealthCounts(context.Background(), "job-1", time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("GetJobHealthCounts() error = %v", err)
+	}
+	if strings.Contains(capturedSQL, "PERCENTILE_CONT") {
+		t.Fatalf("GetJobHealthCounts query contains percentile aggregate: %s", capturedSQL)
+	}
+	if strings.Contains(capturedSQL, "AVG(") {
+		t.Fatalf("GetJobHealthCounts query contains duration average: %s", capturedSQL)
+	}
+	if stats.SuccessRate != 80 {
+		t.Fatalf("SuccessRate = %f, want 80", stats.SuccessRate)
+	}
+	if stats.HealthScore != 56 {
+		t.Fatalf("HealthScore = %f, want 56", stats.HealthScore)
+	}
+}
+
+func TestGetJobHealthStats_QueryIncludesPercentiles(t *testing.T) {
+	t.Parallel()
+
+	var capturedSQL string
+	db := &mockDBTX{
+		queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
+			capturedSQL = sql
+			return &mockRow{scanFn: scanJobHealthStats(10, 8, 1, 1, 0, 0, 0, 2.0, 3.0, 4.0)}
+		},
+	}
+	q := New(db)
+	if _, err := q.GetJobHealthStats(context.Background(), "job-1", time.Now().Add(-time.Hour)); err != nil {
+		t.Fatalf("GetJobHealthStats() error = %v", err)
+	}
+	if !strings.Contains(capturedSQL, "PERCENTILE_CONT") {
+		t.Fatalf("GetJobHealthStats query missing percentile aggregate: %s", capturedSQL)
+	}
+}
+
+func BenchmarkGetJobHealthCounts(b *testing.B) {
+	db := &mockDBTX{
+		queryRowFn: func(_ context.Context, _ string, _ ...any) pgx.Row {
+			return &mockRow{scanFn: scanJobHealthCounts(100, 95, 2, 1, 1, 1, 0)}
+		},
+	}
+	q := New(db)
+	ctx := context.Background()
+	since := time.Now().Add(-24 * time.Hour)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		stats, err := q.GetJobHealthCounts(ctx, "job-1", since)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if stats.SuccessRate != 95 {
+			b.Fatalf("SuccessRate = %f, want 95", stats.SuccessRate)
+		}
+	}
+}
+
+func scanJobHealthCounts(total, completed, failed, timedOut, crashed, canceled, expired int) func(...any) error {
+	return func(dest ...any) error {
+		if len(dest) != 7 {
+			return fmt.Errorf("dest len = %d, want 7", len(dest))
+		}
+		*(dest[0].(*int)) = total
+		*(dest[1].(*int)) = completed
+		*(dest[2].(*int)) = failed
+		*(dest[3].(*int)) = timedOut
+		*(dest[4].(*int)) = crashed
+		*(dest[5].(*int)) = canceled
+		*(dest[6].(*int)) = expired
+		return nil
+	}
+}
+
+func scanJobHealthStats(total, completed, failed, timedOut, crashed, canceled, expired int, avg, p95, p99 float64) func(...any) error {
+	return func(dest ...any) error {
+		if len(dest) != 10 {
+			return fmt.Errorf("dest len = %d, want 10", len(dest))
+		}
+		if err := scanJobHealthCounts(total, completed, failed, timedOut, crashed, canceled, expired)(dest[:7]...); err != nil {
+			return err
+		}
+		*(dest[7].(*float64)) = avg
+		*(dest[8].(*float64)) = p95
+		*(dest[9].(*float64)) = p99
+		return nil
+	}
+}
+
 func TestSetProjectBudget_QueryIsUpsert(t *testing.T) {
 	t.Parallel()
 	// This tests the pg_store.go SetProjectBudget at the SQL level.

@@ -3567,6 +3567,23 @@ func TestGetJobHealthStats(t *testing.T) {
 		t.Fatalf("P95DurationSecs = %f, want 48", stats.P95DurationSecs)
 	}
 
+	counts, err := q.GetJobHealthCounts(ctx, job.ID, since)
+	if err != nil {
+		t.Fatalf("GetJobHealthCounts() error = %v", err)
+	}
+	if counts.TotalRuns != stats.TotalRuns ||
+		counts.CompletedRuns != stats.CompletedRuns ||
+		counts.FailedRuns != stats.FailedRuns ||
+		counts.TimedOutRuns != stats.TimedOutRuns ||
+		counts.CrashedRuns != stats.CrashedRuns ||
+		counts.CanceledRuns != stats.CanceledRuns ||
+		counts.ExpiredRuns != stats.ExpiredRuns {
+		t.Fatalf("GetJobHealthCounts() = %+v, want count fields from %+v", *counts, *stats)
+	}
+	if counts.AvgDurationSecs != 0 || counts.P95DurationSecs != 0 || counts.P99DurationSecs != 0 {
+		t.Fatalf("GetJobHealthCounts() duration fields = avg:%f p95:%f p99:%f, want zeros", counts.AvgDurationSecs, counts.P95DurationSecs, counts.P99DurationSecs)
+	}
+
 	emptyJob := mustCreateJob(t, ctx, q, "project-health-stats-empty")
 	emptyStats, err := q.GetJobHealthStats(ctx, emptyJob.ID, since)
 	if err != nil {
