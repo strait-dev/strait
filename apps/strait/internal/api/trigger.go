@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"hash/fnv"
 	"io"
 	"log/slog"
 	"maps"
@@ -21,6 +20,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/robfig/cron/v3"
 	otelattr "go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
@@ -34,11 +34,15 @@ var (
 	errTriggerProjectQueuedQuotaExceeded    = errors.New("project queued quota exceeded")
 	errTriggerProjectExecutingQuotaExceeded = errors.New("project executing quota exceeded")
 	errTriggerJobRateLimitExceeded          = errors.New("job rate limit exceeded")
+	errTriggerAdmissionContended            = errors.New("trigger admission contended")
 )
 
 type triggerLimitTransactioner interface {
 	WithTx(ctx context.Context, fn func(context.Context, store.DBTX) error) error
 }
+
+const triggerAdmissionLockTimeout = "2500ms"
+const setTriggerAdmissionLockTimeoutSQL = "SET LOCAL lock_timeout = '" + triggerAdmissionLockTimeout + "'"
 
 type TriggerRequest struct {
 	Payload        json.RawMessage   `json:"payload,omitempty"`
@@ -614,10 +618,10 @@ func hashIdempotencyKey(key string) string {
 func (s *Server) withTriggerLimitGuard(ctx context.Context, job *domain.Job, quota *store.ProjectQuota, fn func(context.Context, store.DBTX) error) error {
 	if txer, ok := s.store.(triggerLimitTransactioner); ok {
 		return txer.WithTx(ctx, func(txCtx context.Context, tx store.DBTX) error {
-			if _, err := tx.Exec(txCtx, "SELECT pg_advisory_xact_lock($1)", triggerLimitAdvisoryLockID(job.ProjectID)); err != nil {
-				return fmt.Errorf("acquire trigger limit lock: %w", err)
+			if err := acquireTriggerAdmissionLocks(txCtx, tx, job, quota); err != nil {
+				return err
 			}
-			if err := s.checkTriggerLimits(txCtx, job, quota); err != nil {
+			if err := s.checkTriggerLimitsInTx(txCtx, tx, job, quota); err != nil {
 				return err
 			}
 			return fn(txCtx, tx)
@@ -627,6 +631,65 @@ func (s *Server) withTriggerLimitGuard(ctx context.Context, job *domain.Job, quo
 		return err
 	}
 	return fn(ctx, nil)
+}
+
+func acquireTriggerAdmissionLocks(ctx context.Context, tx store.DBTX, job *domain.Job, quota *store.ProjectQuota) error {
+	if tx == nil || job == nil {
+		return nil
+	}
+	needsProjectLock := quota != nil && (quota.MaxQueuedRuns > 0 || quota.MaxExecutingRuns > 0)
+	needsJobLock := job.RateLimitMax > 0 && job.RateLimitWindowSecs > 0
+	if !needsProjectLock && !needsJobLock {
+		return nil
+	}
+
+	if _, err := tx.Exec(ctx, setTriggerAdmissionLockTimeoutSQL); err != nil {
+		return fmt.Errorf("set trigger admission lock timeout: %w", err)
+	}
+	if needsProjectLock {
+		var projectID string
+		if err := tx.QueryRow(ctx, `
+			SELECT project_id
+			FROM project_quotas
+			WHERE project_id = $1
+			FOR UPDATE`, job.ProjectID).Scan(&projectID); err != nil {
+			return classifyTriggerAdmissionLockError(err)
+		}
+	}
+	if needsJobLock {
+		var jobID string
+		if err := tx.QueryRow(ctx, `
+			SELECT id
+			FROM jobs
+			WHERE id = $1
+			FOR UPDATE`, job.ID).Scan(&jobID); err != nil {
+			return classifyTriggerAdmissionLockError(err)
+		}
+	}
+	return nil
+}
+
+func classifyTriggerAdmissionLockError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if isTriggerAdmissionContention(err) {
+		return errTriggerAdmissionContended
+	}
+	return fmt.Errorf("acquire trigger admission lock: %w", err)
+}
+
+func isTriggerAdmissionContention(err error) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return false
+	}
+	switch pgErr.Code {
+	case "40P01", "55P03":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Server) checkTriggerLimits(ctx context.Context, job *domain.Job, quota *store.ProjectQuota) error {
@@ -669,6 +732,96 @@ func (s *Server) checkJobRateLimit(ctx context.Context, job *domain.Job) error {
 	return nil
 }
 
+func (s *Server) checkTriggerLimitsInTx(ctx context.Context, tx store.DBTX, job *domain.Job, quota *store.ProjectQuota) error {
+	if tx == nil {
+		return s.checkTriggerLimits(ctx, job, quota)
+	}
+	if err := checkProjectQuotaInTx(ctx, tx, job, quota); err != nil {
+		return err
+	}
+	return checkJobRateLimitInTx(ctx, tx, job)
+}
+
+func checkProjectQuotaInTx(ctx context.Context, tx store.DBTX, job *domain.Job, quota *store.ProjectQuota) error {
+	if quota == nil {
+		return nil
+	}
+	if quota.MaxQueuedRuns > 0 {
+		queuedRuns, countErr := countProjectQueuedRuns(ctx, tx, job.ProjectID)
+		if countErr != nil {
+			return fmt.Errorf("evaluate project queued quota: %w", countErr)
+		}
+		if queuedRuns >= quota.MaxQueuedRuns {
+			return errTriggerProjectQueuedQuotaExceeded
+		}
+	}
+	if quota.MaxExecutingRuns > 0 {
+		activeRuns, countErr := countProjectActiveRuns(ctx, tx, job.ProjectID)
+		if countErr != nil {
+			return fmt.Errorf("evaluate project active quota: %w", countErr)
+		}
+		if activeRuns >= quota.MaxExecutingRuns {
+			return errTriggerProjectExecutingQuotaExceeded
+		}
+	}
+	return nil
+}
+
+func checkJobRateLimitInTx(ctx context.Context, tx store.DBTX, job *domain.Job) error {
+	if job.RateLimitMax <= 0 || job.RateLimitWindowSecs <= 0 {
+		return nil
+	}
+	since := time.Now().Add(-time.Duration(job.RateLimitWindowSecs) * time.Second)
+	runCount, countErr := countRunsForJobSince(ctx, tx, job.ID, since)
+	if countErr != nil {
+		return fmt.Errorf("evaluate job rate limit: %w", countErr)
+	}
+	if runCount >= job.RateLimitMax {
+		return errTriggerJobRateLimitExceeded
+	}
+	return nil
+}
+
+func countProjectQueuedRuns(ctx context.Context, tx store.DBTX, projectID string) (int, error) {
+	const query = `
+		SELECT COUNT(*)
+		FROM job_runs
+		WHERE project_id = $1 AND status IN ('queued', 'delayed')`
+
+	var count int
+	if err := tx.QueryRow(ctx, query, projectID).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count project queued runs: %w", err)
+	}
+	return count, nil
+}
+
+func countProjectActiveRuns(ctx context.Context, tx store.DBTX, projectID string) (int, error) {
+	const query = `
+		SELECT COUNT(*)
+		FROM job_runs
+		WHERE project_id = $1 AND status IN ('dequeued', 'executing')`
+
+	var count int
+	if err := tx.QueryRow(ctx, query, projectID).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count project active runs: %w", err)
+	}
+	return count, nil
+}
+
+func countRunsForJobSince(ctx context.Context, tx store.DBTX, jobID string, since time.Time) (int, error) {
+	const query = `
+		SELECT COUNT(*)
+		FROM job_runs
+		WHERE job_id = $1
+		  AND created_at >= $2`
+
+	var count int
+	if err := tx.QueryRow(ctx, query, jobID, since).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count runs for job since: %w", err)
+	}
+	return count, nil
+}
+
 func (s *Server) enqueueTriggerRun(ctx context.Context, tx store.DBTX, run *domain.JobRun) error {
 	if tx != nil {
 		return s.queue.EnqueueInTx(ctx, tx, run)
@@ -703,6 +856,8 @@ func triggerLimitAPIError(err error, fallback string) error {
 		return newTriggerLimit429("project executing quota exceeded")
 	case errors.Is(err, errTriggerJobRateLimitExceeded):
 		return newTriggerLimit429("job rate limit exceeded")
+	case errors.Is(err, errTriggerAdmissionContended):
+		return newTriggerLimit429("trigger admission busy")
 	default:
 		return huma.Error500InternalServerError(fallback)
 	}
@@ -721,13 +876,6 @@ func newTriggerLimit429(msg string) error {
 			"Retry-After": retryAfter,
 		},
 	}
-}
-
-func triggerLimitAdvisoryLockID(projectID string) int64 {
-	h := fnv.New64a()
-	_, _ = h.Write([]byte("trigger-limit:"))
-	_, _ = h.Write([]byte(projectID))
-	return int64(h.Sum64()) //nolint:gosec // advisory lock IDs can wrap
 }
 
 // tagKeys returns the sorted tag keys of a tag map. Values are never included
