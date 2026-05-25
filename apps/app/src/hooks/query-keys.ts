@@ -112,6 +112,7 @@ export const queryKeys = createQueryKeyStore({
     detail: (id: string) => [id],
     steps: (workflowId: string) => [workflowId],
     runs: (workflowId: string) => [workflowId],
+    chain: (workflowRunId: string) => [workflowRunId],
   },
 
   webhooks: {

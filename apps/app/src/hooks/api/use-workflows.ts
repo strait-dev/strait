@@ -9,6 +9,7 @@ import type {
   PaginatedResponse,
   Workflow,
   WorkflowRun,
+  WorkflowRunChainEntry,
   WorkflowStep,
 } from "@/hooks/api/types";
 import { queryKeys } from "@/hooks/query-keys";
@@ -20,6 +21,7 @@ import {
   runWithFallback,
   runWithSentryReport,
 } from "@/lib/effect-api.server";
+import type { ContinueVersionStrategy } from "@/lib/workflow-continue";
 import { authMiddleware } from "@/middlewares/auth";
 import {
   requireActiveProjectAccess,
@@ -148,6 +150,54 @@ export const triggerWorkflowFn = createServerFn({ method: "POST" })
     }
   );
 
+export const continueWorkflowRunAsNewFn = createServerFn({ method: "POST" })
+  .inputValidator(
+    (data: {
+      workflowRunId: string;
+      input?: unknown;
+      versionStrategy?: ContinueVersionStrategy;
+    }) => data
+  )
+  .middleware([authMiddleware])
+  .handler(
+    // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+    async ({ context, data }): Promise<WorkflowRun> => {
+      await requireActiveProjectAdmin(context);
+      return await runWithSentryReport(
+        apiEffect<WorkflowRun>(
+          apiPath`/v1/workflow-runs/${data.workflowRunId}/continue-as-new`,
+          {
+            method: "POST",
+            body: {
+              input: data.input,
+              versionStrategy: data.versionStrategy,
+            },
+          }
+        )
+      );
+    }
+  );
+
+export const fetchWorkflowRunChain = createServerFn({ method: "GET" })
+  .inputValidator(
+    (data: { workflowRunId: string; limit?: number; cursor?: string }) => data
+  )
+  .middleware([authMiddleware])
+  .handler(
+    async ({
+      context,
+      data,
+    }): Promise<PaginatedResponse<WorkflowRunChainEntry>> => {
+      await requireActiveProjectAccess(context);
+      return await runWithSentryReport(
+        apiEffect<PaginatedResponse<WorkflowRunChainEntry>>(
+          apiPath`/v1/workflow-runs/${data.workflowRunId}/chain`,
+          { params: { limit: data.limit, cursor: data.cursor } }
+        )
+      );
+    }
+  );
+
 export const updateWorkflowFn = createServerFn({ method: "POST" })
   .inputValidator((data: { id: string; enabled?: boolean }) => data)
   .middleware([authMiddleware])
@@ -200,6 +250,14 @@ export const workflowRunsQueryOptions = (workflowId: string) =>
     gcTime: DEFAULT_GC_TIME,
   });
 
+export const workflowRunChainQueryOptions = (workflowRunId: string) =>
+  queryOptions({
+    queryKey: queryKeys.workflows.chain(workflowRunId).queryKey,
+    queryFn: () => fetchWorkflowRunChain({ data: { workflowRunId } }),
+    staleTime: DEFAULT_STALE_TIME,
+    gcTime: DEFAULT_GC_TIME,
+  });
+
 export const useTriggerWorkflow = () => {
   const queryClient = useQueryClient();
   return useMutation({
@@ -216,6 +274,44 @@ export const useTriggerWorkflow = () => {
         action: "workflow_triggered",
         error_message: err instanceof Error ? err.message : "Unknown error",
         workflow_id: variables.workflowId,
+      });
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.workflows._def });
+      queryClient.invalidateQueries({ queryKey: queryKeys.runs._def });
+    },
+  });
+};
+
+export const useContinueWorkflowRunAsNew = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationKey: ["workflows", "continue-as-new"],
+    mutationFn: (params: {
+      workflowRunId: string;
+      workflowId: string;
+      input?: unknown;
+      versionStrategy?: ContinueVersionStrategy;
+    }) =>
+      continueWorkflowRunAsNewFn({
+        data: {
+          workflowRunId: params.workflowRunId,
+          input: params.input,
+          versionStrategy: params.versionStrategy,
+        },
+      }),
+    onSuccess: (_data, variables) => {
+      getPostHog()?.capture("workflow_run_continued_as_new", {
+        workflow_id: variables.workflowId,
+        workflow_run_id: variables.workflowRunId,
+        version_strategy: variables.versionStrategy ?? "repin",
+      });
+    },
+    onError: (err, variables) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "workflow_run_continued_as_new",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+        workflow_run_id: variables.workflowRunId,
       });
     },
     onSettled: () => {
