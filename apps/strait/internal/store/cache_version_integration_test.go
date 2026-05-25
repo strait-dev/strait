@@ -116,6 +116,48 @@ func TestCacheVersion_DefaultsBumpsAndRollback(t *testing.T) {
 	assertCacheVersion(t, ctx, "jobs", job.ID, 2)
 }
 
+func TestCacheVersion_ProjectQuotaRoundTripAndBump(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-cache-version-quota-" + newID()
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO project_quotas (project_id, max_queued_runs)
+		VALUES ($1, $2)
+	`, projectID, 10); err != nil {
+		t.Fatalf("insert project quota: %v", err)
+	}
+
+	quota, err := q.GetProjectQuota(ctx, projectID)
+	if err != nil {
+		t.Fatalf("GetProjectQuota() error = %v", err)
+	}
+	if quota == nil {
+		t.Fatal("GetProjectQuota() = nil, want quota")
+	}
+	if quota.CacheVersion != 1 {
+		t.Fatalf("initial quota CacheVersion = %d, want 1", quota.CacheVersion)
+	}
+
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE project_quotas SET max_queued_runs = $2 WHERE project_id = $1
+	`, projectID, 20); err != nil {
+		t.Fatalf("update project quota: %v", err)
+	}
+
+	quota, err = q.GetProjectQuota(ctx, projectID)
+	if err != nil {
+		t.Fatalf("GetProjectQuota(after update) error = %v", err)
+	}
+	if quota == nil {
+		t.Fatal("GetProjectQuota(after update) = nil, want quota")
+	}
+	if quota.CacheVersion != 2 {
+		t.Fatalf("updated quota CacheVersion = %d, want 2", quota.CacheVersion)
+	}
+}
+
 func TestCacheVersion_ConcurrentUpdatesProduceMonotonicVersion(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

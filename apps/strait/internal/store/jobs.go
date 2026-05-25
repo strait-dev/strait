@@ -577,7 +577,7 @@ func (q *Queries) GetProjectQuota(ctx context.Context, projectID string) (*Proje
 		SELECT project_id, max_queued_runs, max_executing_runs, max_jobs, timezone, max_cost_per_run_microusd, max_daily_cost_microusd,
 		       rate_limit_requests, rate_limit_window_secs, default_region, plan_tier,
 		       max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run,
-		       max_memory_per_key_bytes, max_memory_per_job_bytes, max_key_lifetime_days
+		       max_memory_per_key_bytes, max_memory_per_job_bytes, max_key_lifetime_days, cache_version
 		FROM project_quotas
 		WHERE project_id = $1`
 
@@ -616,6 +616,7 @@ func (q *Queries) GetProjectQuota(ctx context.Context, projectID string) (*Proje
 		&maxMemoryPerKeyBytes,
 		&maxMemoryPerJobBytes,
 		&maxKeyLifetimeDays,
+		&quota.CacheVersion,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

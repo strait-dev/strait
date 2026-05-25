@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/sourcegraph/conc"
 
+	straitcache "strait/internal/cache"
 	"strait/internal/store"
 )
 
@@ -195,6 +197,45 @@ func TestQuotaCache_NilQuotaIsCached(t *testing.T) {
 	_, _ = c.Get(ctx, "p1")
 	if calls.Load() != 1 {
 		t.Fatalf("DB calls = %d, want 1 (nil quota cached)", calls.Load())
+	}
+}
+
+func TestQuotaCache_PreservesStoreCacheVersionInRedis(t *testing.T) {
+	t.Parallel()
+
+	registry := straitcache.NewRegistry(straitcache.RegistryConfig{Origin: "node-a"})
+	deps, cleanup := newTestRedisCacheDeps(t, registry)
+	defer cleanup()
+
+	var calls atomic.Int64
+	c := newQuotaCache(5*time.Second, func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
+		calls.Add(1)
+		return &store.ProjectQuota{ProjectID: projectID, MaxQueuedRuns: 11, CacheVersion: 9}, nil
+	}, deps)
+
+	got, err := c.Get(context.Background(), "project-versioned")
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if got == nil || got.CacheVersion != 9 {
+		t.Fatalf("Get() CacheVersion = %v, want 9", got)
+	}
+
+	raw, err := deps.Redis.Get(context.Background(), "strait:cache:"+quotaCacheNamespace+":project-versioned").Bytes()
+	if err != nil {
+		t.Fatalf("read redis entry: %v", err)
+	}
+	var envelope struct {
+		Version int64 `json:"version"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatalf("decode redis entry: %v", err)
+	}
+	if envelope.Version != 9 {
+		t.Fatalf("redis version = %d, want 9", envelope.Version)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("loader calls = %d, want 1", calls.Load())
 	}
 }
 

@@ -99,12 +99,21 @@ func (c *quotaCache) Get(ctx context.Context, projectID string) (*store.ProjectQ
 		return c.inner.Get(ctx, projectID, nil)
 	}
 	c.misses.Add(metricsCtx, 1)
-	got, err := c.inner.Get(ctx, projectID, c.loadFn)
+	got, err := c.inner.GetConsistentVersioned(ctx, projectID, 0, func(loadCtx context.Context, key string) (straitcache.Versioned[*store.ProjectQuota], error) {
+		quota, err := c.loadFn(loadCtx, key)
+		if err != nil {
+			return straitcache.Versioned[*store.ProjectQuota]{}, err
+		}
+		if quota == nil {
+			return straitcache.Versioned[*store.ProjectQuota]{Value: nil, Version: 0}, nil
+		}
+		return straitcache.Versioned[*store.ProjectQuota]{Value: quota, Version: projectQuotaCacheVersion(quota)}, nil
+	})
 	if err != nil {
 		return nil, err
 	}
 	c.entriesUp.Add(metricsCtx, 1)
-	return got, nil
+	return got.Value, nil
 }
 
 func (c *quotaCache) Invalidate(projectID string) {
@@ -112,4 +121,11 @@ func (c *quotaCache) Invalidate(projectID string) {
 		return
 	}
 	_ = c.inner.InvalidateThrough(metricsCtx, projectID, c.bus, quotaCacheNamespace, projectID, time.Now().UnixNano())
+}
+
+func projectQuotaCacheVersion(quota *store.ProjectQuota) int64 {
+	if quota == nil || quota.CacheVersion <= 0 {
+		return 1
+	}
+	return quota.CacheVersion
 }
