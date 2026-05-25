@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/sourcegraph/conc"
 
 	"strait/internal/domain"
+	orcstore "strait/internal/store"
 )
 
 func newTestJobCache(t *testing.T, ttl time.Duration) executorJobCache {
@@ -223,6 +225,8 @@ func TestWorkerCache_ConstructedFromExecutorConfig(t *testing.T) {
 		Store:                    &mockExecutorStore{},
 		JobCacheTTL:              5 * time.Minute,
 		VersionCacheTTL:          30 * time.Minute,
+		RunVersionCacheTTL:       10 * time.Minute,
+		JobHealthCacheTTL:        2 * time.Second,
 		MaxDequeueBatchSize:      7,
 		DefaultJobMaxConcurrency: 3,
 	})
@@ -232,6 +236,15 @@ func TestWorkerCache_ConstructedFromExecutorConfig(t *testing.T) {
 	}
 	if exec.jobVersionCache == nil {
 		t.Fatal("jobVersionCache = nil, want constructed when VersionCacheTTL > 0")
+	}
+	if exec.runVersionCache == nil {
+		t.Fatal("runVersionCache = nil, want constructed when RunVersionCacheTTL > 0")
+	}
+	if exec.stepsVersionCache == nil {
+		t.Fatal("stepsVersionCache = nil, want constructed when VersionCacheTTL > 0")
+	}
+	if exec.jobHealthCache == nil {
+		t.Fatal("jobHealthCache = nil, want constructed when JobHealthCacheTTL > 0")
 	}
 	if exec.maxDequeueBatchSize != 7 {
 		t.Fatalf("maxDequeueBatchSize = %d, want 7", exec.maxDequeueBatchSize)
@@ -279,6 +292,148 @@ func TestResolveJobForRun_CachesPinnedVersion(t *testing.T) {
 	}
 	if getVersionCalls.Load() != 1 {
 		t.Fatalf("GetJobAtVersion calls = %d, want 1", getVersionCalls.Load())
+	}
+}
+
+func TestResolveExecutionPolicy_WarmPathUsesCachedRunVersionAndSteps(t *testing.T) {
+	t.Parallel()
+
+	var stepRunCalls atomic.Int64
+	var workflowRunCalls atomic.Int64
+	var listStepsCalls atomic.Int64
+	store := &mockExecutorStore{
+		getWorkflowStepRunFn: func(_ context.Context, id string) (*domain.WorkflowStepRun, error) {
+			stepRunCalls.Add(1)
+			return &domain.WorkflowStepRun{ID: id, WorkflowRunID: "wfr-1", StepRef: "step-a"}, nil
+		},
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			workflowRunCalls.Add(1)
+			return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", WorkflowVersion: 4}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, workflowID string, version int) ([]domain.WorkflowStep, error) {
+			listStepsCalls.Add(1)
+			return []domain.WorkflowStep{{
+				WorkflowID:            workflowID,
+				StepRef:               "step-a",
+				RetryMaxAttempts:      8,
+				TimeoutSecsOverride:   42,
+				RetryInitialDelaySecs: version,
+			}}, nil
+		},
+	}
+	exec := NewExecutor(ExecutorConfig{
+		Pool:               NewPool(1),
+		Queue:              &mockExecQueue{},
+		Store:              store,
+		VersionCacheTTL:    30 * time.Minute,
+		RunVersionCacheTTL: 10 * time.Minute,
+	})
+	run := &domain.JobRun{ID: "run-1", WorkflowStepRunID: "wsr-1"}
+	fallback := executionPolicy{maxAttempts: 3, timeoutSecs: 30}
+
+	for range 2 {
+		got, err := exec.resolveExecutionPolicy(context.Background(), run, fallback)
+		if err != nil {
+			t.Fatalf("resolveExecutionPolicy() error = %v", err)
+		}
+		if got.maxAttempts != 8 || got.timeoutSecs != 42 || got.retryInitialSecs != 4 {
+			t.Fatalf("resolved policy = %+v, want step overrides", got)
+		}
+	}
+
+	if stepRunCalls.Load() != 2 {
+		t.Fatalf("GetWorkflowStepRun calls = %d, want 2 live reads", stepRunCalls.Load())
+	}
+	if workflowRunCalls.Load() != 1 {
+		t.Fatalf("GetWorkflowRun calls = %d, want 1 cached after cold read", workflowRunCalls.Load())
+	}
+	if listStepsCalls.Load() != 1 {
+		t.Fatalf("ListStepsByWorkflowVersion calls = %d, want 1 cached after cold read", listStepsCalls.Load())
+	}
+}
+
+func TestWorkflowStepsVersionCache_ReturnsClones(t *testing.T) {
+	t.Parallel()
+
+	var listStepsCalls atomic.Int64
+	store := &mockExecutorStore{
+		listStepsByWorkflowVerFn: func(_ context.Context, workflowID string, version int) ([]domain.WorkflowStep, error) {
+			listStepsCalls.Add(1)
+			return []domain.WorkflowStep{{
+				WorkflowID:         workflowID,
+				StepRef:            "step-a",
+				DependsOn:          []string{"root"},
+				Condition:          json.RawMessage(`{"ok":true}`),
+				ApprovalApprovers:  []string{"ops"},
+				StageNotifications: json.RawMessage(`{"start":true}`),
+				RetryMaxAttempts:   version,
+			}}, nil
+		},
+	}
+	exec := NewExecutor(ExecutorConfig{
+		Pool:            NewPool(1),
+		Queue:           &mockExecQueue{},
+		Store:           store,
+		VersionCacheTTL: 30 * time.Minute,
+	})
+
+	first, err := exec.getWorkflowStepsForVersion(context.Background(), "wf-1", 3)
+	if err != nil {
+		t.Fatalf("getWorkflowStepsForVersion() first error = %v", err)
+	}
+	first[0].StepRef = "mutated"
+	first[0].DependsOn[0] = "mutated"
+	first[0].Condition[0] = '{'
+	first[0].ApprovalApprovers[0] = "mutated"
+	first[0].StageNotifications[0] = '{'
+
+	second, err := exec.getWorkflowStepsForVersion(context.Background(), "wf-1", 3)
+	if err != nil {
+		t.Fatalf("getWorkflowStepsForVersion() second error = %v", err)
+	}
+	if listStepsCalls.Load() != 1 {
+		t.Fatalf("ListStepsByWorkflowVersion calls = %d, want 1", listStepsCalls.Load())
+	}
+	if second[0].StepRef != "step-a" || second[0].DependsOn[0] != "root" || second[0].ApprovalApprovers[0] != "ops" {
+		t.Fatalf("cached step was mutated: %+v", second[0])
+	}
+	if string(second[0].Condition) != `{"ok":true}` || string(second[0].StageNotifications) != `{"start":true}` {
+		t.Fatalf("cached raw JSON was mutated: condition=%s notifications=%s", second[0].Condition, second[0].StageNotifications)
+	}
+}
+
+func TestJobHealthCache_BucketHitAvoidsStore(t *testing.T) {
+	t.Parallel()
+
+	var healthCalls atomic.Int64
+	store := &mockExecutorStore{
+		getJobHealthStatsFn: func(_ context.Context, jobID string, _ time.Time) (*orcstore.JobHealthStats, error) {
+			healthCalls.Add(1)
+			return &orcstore.JobHealthStats{TotalRuns: 10, HealthScore: 99}, nil
+		},
+	}
+	exec := NewExecutor(ExecutorConfig{
+		Pool:              NewPool(1),
+		Queue:             &mockExecQueue{},
+		Store:             store,
+		JobHealthCacheTTL: time.Minute,
+	})
+	now := time.Unix(1_700_000_000, 0)
+
+	first, err := exec.getJobHealthStats(context.Background(), "job-1", now)
+	if err != nil {
+		t.Fatalf("getJobHealthStats() first error = %v", err)
+	}
+	first.TotalRuns = 999
+	second, err := exec.getJobHealthStats(context.Background(), "job-1", now.Add(10*time.Second))
+	if err != nil {
+		t.Fatalf("getJobHealthStats() second error = %v", err)
+	}
+	if healthCalls.Load() != 1 {
+		t.Fatalf("GetJobHealthStats calls = %d, want 1", healthCalls.Load())
+	}
+	if second.TotalRuns != 10 {
+		t.Fatalf("cached stats were mutated: %+v", second)
 	}
 }
 

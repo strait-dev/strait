@@ -67,6 +67,7 @@ func (s *Server) handleCreateJobDependency(ctx context.Context, input *CreateJob
 	if err := s.store.CreateJobDependency(ctx, dep); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create job dependency")
 	}
+	s.jobDependencyCache.InvalidateJob(ctx, jobID)
 	s.emitAuditEvent(ctx, domain.AuditActionJobDependencyCreated, "job_dependency", dep.ID, map[string]any{
 		"job_id":            jobID,
 		"depends_on_job_id": req.DependsOnJobID,
@@ -107,6 +108,17 @@ func (s *Server) handleListJobDependencies(ctx context.Context, input *ListJobDe
 	return &ListJobDependenciesOutput{Body: paginatedResult(deps, limit, func(d domain.JobDependency) string { return d.CreatedAt.Format(time.RFC3339Nano) })}, nil
 }
 
+func (s *Server) listCachedJobDependencies(ctx context.Context, jobID string, limit int) ([]domain.JobDependency, error) {
+	key := jobDepsCacheKey{JobID: jobID, Limit: limit}
+	loader := func(loadCtx context.Context, loadKey jobDepsCacheKey) ([]domain.JobDependency, error) {
+		return s.store.ListJobDependencies(loadCtx, loadKey.JobID, loadKey.Limit, nil)
+	}
+	if s.jobDependencyCache == nil {
+		return loader(ctx, key)
+	}
+	return s.jobDependencyCache.List(ctx, key, loader)
+}
+
 type DeleteJobDependencyInput struct {
 	JobID string `path:"jobID"`
 	DepID string `path:"depID"`
@@ -139,6 +151,7 @@ func (s *Server) handleDeleteJobDependency(ctx context.Context, input *DeleteJob
 	if err := s.store.DeleteJobDependency(ctx, input.DepID); err != nil {
 		return nil, huma.Error500InternalServerError("failed to delete job dependency")
 	}
+	s.jobDependencyCache.InvalidateJob(ctx, input.JobID)
 	s.emitAuditEvent(ctx, domain.AuditActionJobDependencyDeleted, "job_dependency", input.DepID, map[string]any{
 		"job_id":            input.JobID,
 		"depends_on_job_id": dep.DependsOnJobID,

@@ -76,6 +76,21 @@ type jobVersionKey struct {
 	Version int
 }
 
+type workflowStepsVersionKey struct {
+	WorkflowID string
+	Version    int
+}
+
+type workflowRunVersion struct {
+	WorkflowID string
+	Version    int
+}
+
+type jobHealthKey struct {
+	JobID  string
+	Bucket int64
+}
+
 type executorJobCache interface {
 	Get(context.Context, string) (*domain.Job, error)
 	Load(context.Context, string, straitcache.LoadFunc[string, *domain.Job]) (*domain.Job, error)
@@ -165,6 +180,123 @@ func (c *tierVersionedJobCache) Load(ctx context.Context, key jobVersionKey, loa
 	return c.tier.Get(ctx, key, loader)
 }
 
+type tierWorkflowRunVersionCache struct {
+	tier *straitcache.Tier[string, workflowRunVersion]
+}
+
+func newTierWorkflowRunVersionCache(ttl time.Duration) *tierWorkflowRunVersionCache {
+	if ttl <= 0 {
+		return nil
+	}
+	return &tierWorkflowRunVersionCache{tier: straitcache.NewTier[string, workflowRunVersion](straitcache.TierConfig[string, workflowRunVersion]{
+		Name:        "worker_workflow_run_version",
+		Consistency: straitcache.Immutable,
+		MaximumSize: 100_000,
+		TTL:         ttl,
+		TTLJitter:   0.1,
+		DisableL2:   true,
+	})}
+}
+
+func (c *tierWorkflowRunVersionCache) Load(ctx context.Context, key string, loader straitcache.LoadFunc[string, workflowRunVersion]) (workflowRunVersion, error) {
+	if c == nil || c.tier == nil {
+		return loader(ctx, key)
+	}
+	return c.tier.Get(ctx, key, loader)
+}
+
+type tierWorkflowStepsVersionCache struct {
+	tier *straitcache.Tier[workflowStepsVersionKey, []domain.WorkflowStep]
+}
+
+func newTierWorkflowStepsVersionCache(ttl time.Duration) *tierWorkflowStepsVersionCache {
+	if ttl <= 0 {
+		return nil
+	}
+	return &tierWorkflowStepsVersionCache{tier: straitcache.NewTier[workflowStepsVersionKey, []domain.WorkflowStep](straitcache.TierConfig[workflowStepsVersionKey, []domain.WorkflowStep]{
+		Name:          "worker_workflow_steps_version",
+		Consistency:   straitcache.Immutable,
+		MaximumWeight: 100_000,
+		Weigher: func(_ workflowStepsVersionKey, steps []domain.WorkflowStep) uint32 {
+			if len(steps) == 0 {
+				return 1
+			}
+			return uint32(len(steps))
+		},
+		TTL:       ttl,
+		TTLJitter: 0.1,
+		DisableL2: true,
+		Clone:     cloneWorkflowSteps,
+	})}
+}
+
+func (c *tierWorkflowStepsVersionCache) Load(ctx context.Context, key workflowStepsVersionKey, loader straitcache.LoadFunc[workflowStepsVersionKey, []domain.WorkflowStep]) ([]domain.WorkflowStep, error) {
+	if c == nil || c.tier == nil {
+		return loader(ctx, key)
+	}
+	return c.tier.Get(ctx, key, loader)
+}
+
+type tierJobHealthCache struct {
+	tier *straitcache.Tier[jobHealthKey, *store.JobHealthStats]
+	ttl  time.Duration
+}
+
+func newTierJobHealthCache(ttl time.Duration) *tierJobHealthCache {
+	if ttl <= 0 {
+		return nil
+	}
+	return &tierJobHealthCache{
+		ttl: ttl,
+		tier: straitcache.NewTier[jobHealthKey, *store.JobHealthStats](straitcache.TierConfig[jobHealthKey, *store.JobHealthStats]{
+			Name:        "worker_job_health",
+			Consistency: straitcache.BoundedStaleness,
+			MaximumSize: 20_000,
+			TTL:         ttl,
+			TTLJitter:   0.05,
+			DisableL2:   true,
+			Clone: func(v *store.JobHealthStats) *store.JobHealthStats {
+				if v == nil {
+					return nil
+				}
+				cp := *v
+				return &cp
+			},
+		}),
+	}
+}
+
+func (c *tierJobHealthCache) Key(jobID string, now time.Time) jobHealthKey {
+	bucketSecs := int64(c.ttl.Seconds())
+	if bucketSecs <= 0 {
+		bucketSecs = 1
+	}
+	return jobHealthKey{JobID: jobID, Bucket: now.Unix() / bucketSecs}
+}
+
+func (c *tierJobHealthCache) Load(ctx context.Context, key jobHealthKey, loader straitcache.LoadFunc[jobHealthKey, *store.JobHealthStats]) (*store.JobHealthStats, error) {
+	if c == nil || c.tier == nil {
+		return loader(ctx, key)
+	}
+	return c.tier.Get(ctx, key, loader)
+}
+
+func cloneWorkflowSteps(steps []domain.WorkflowStep) []domain.WorkflowStep {
+	if steps == nil {
+		return nil
+	}
+	out := make([]domain.WorkflowStep, len(steps))
+	for i := range steps {
+		out[i] = steps[i]
+		out[i].DependsOn = append([]string(nil), steps[i].DependsOn...)
+		out[i].Condition = append([]byte(nil), steps[i].Condition...)
+		out[i].Payload = append([]byte(nil), steps[i].Payload...)
+		out[i].ApprovalApprovers = append([]string(nil), steps[i].ApprovalApprovers...)
+		out[i].StageNotifications = append([]byte(nil), steps[i].StageNotifications...)
+	}
+	return out
+}
+
 // WorkflowCallback is called after a job run reaches a terminal state.
 // Nil-safe: if nil, no callback is invoked.
 type WorkflowCallback interface {
@@ -232,6 +364,9 @@ type Executor struct {
 	defaultJobMaxConcurrency int
 	jobCache                 executorJobCache
 	jobVersionCache          executorVersionedJobCache
+	runVersionCache          *tierWorkflowRunVersionCache
+	stepsVersionCache        *tierWorkflowStepsVersionCache
+	jobHealthCache           *tierJobHealthCache
 	memoryPressureThreshold  float64
 	maxSnoozeCount           int
 	jwtSigningKey            string
@@ -308,6 +443,8 @@ type ExecutorConfig struct {
 	MemoryPressureThresholdPct float64
 	JobCacheTTL                time.Duration
 	VersionCacheTTL            time.Duration
+	RunVersionCacheTTL         time.Duration
+	JobHealthCacheTTL          time.Duration
 	MaxSnoozeCount             int
 	JWTSigningKey              string
 	ExternalAPIURL             string
@@ -403,6 +540,9 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 
 	jobCache := newTierJobCache(cfg.JobCacheTTL)
 	jobVersionCache := newTierVersionedJobCache(cfg.VersionCacheTTL)
+	runVersionCache := newTierWorkflowRunVersionCache(cfg.RunVersionCacheTTL)
+	stepsVersionCache := newTierWorkflowStepsVersionCache(cfg.VersionCacheTTL)
+	jobHealthCache := newTierJobHealthCache(cfg.JobHealthCacheTTL)
 
 	return &Executor{
 		pool:                     cfg.Pool,
@@ -431,6 +571,9 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		defaultJobMaxConcurrency: cfg.DefaultJobMaxConcurrency,
 		jobCache:                 jobCache,
 		jobVersionCache:          jobVersionCache,
+		runVersionCache:          runVersionCache,
+		stepsVersionCache:        stepsVersionCache,
+		jobHealthCache:           jobHealthCache,
 		memoryPressureThreshold:  cfg.MemoryPressureThresholdPct,
 		maxSnoozeCount:           cfg.MaxSnoozeCount,
 		jwtSigningKey:            cfg.JWTSigningKey,

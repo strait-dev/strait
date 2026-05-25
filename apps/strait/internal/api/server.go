@@ -550,6 +550,8 @@ type Server struct {
 	poolBackpressure      poolBackpressureState
 	permCache             *permissionCache
 	quotaCache            *quotaCache
+	apiKeyCache           *apiKeyCache
+	jobDependencyCache    *jobDependencyCache
 	oidcVerifier          *oidcVerifier
 	bgPool                pond.Pool // bounded pool for fire-and-forget background tasks (API key touch, actor sync)
 	runInTx               func(ctx context.Context, fn func(s APIStore) error) error
@@ -795,6 +797,8 @@ func NewServer(deps ServerDeps) *Server {
 		quotaCache: newQuotaCache(quotaCacheTTL(deps.Config), func(ctx context.Context, projectID string) (*store.ProjectQuota, error) {
 			return deps.Store.GetProjectQuota(ctx, projectID)
 		}),
+		apiKeyCache:        newAPIKeyCache(apiKeyCacheTTL(deps.Config)),
+		jobDependencyCache: newJobDependencyCache(jobDepsCacheTTL(deps.Config)),
 		oidcVerifier:       verifier,
 		bgPool:             pond.NewPool(4),
 		rateLimiter:        ratelimit.NewRedisRateLimiter(deps.RedisClient, deps.RedisClient != nil),
@@ -923,6 +927,20 @@ func quotaCacheTTL(cfg *config.Config) time.Duration {
 		return cfg.ProjectQuotaCacheTTL
 	}
 	return 60 * time.Second
+}
+
+func apiKeyCacheTTL(cfg *config.Config) time.Duration {
+	if cfg != nil {
+		return cfg.APIKeyCacheTTL
+	}
+	return time.Minute
+}
+
+func jobDepsCacheTTL(cfg *config.Config) time.Duration {
+	if cfg != nil {
+		return cfg.JobDepsCacheTTL
+	}
+	return 5 * time.Minute
 }
 
 // Close releases resources held by the server (e.g. background goroutines).

@@ -467,7 +467,7 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 		rawKey := strings.TrimPrefix(authHeader, "Bearer ")
 		keyHash := hashAPIKey(rawKey)
 
-		apiKey, err := s.store.GetAPIKeyByHash(r.Context(), keyHash)
+		apiKey, err := s.lookupAPIKeyForAuth(r.Context(), keyHash)
 		if err != nil || apiKey == nil {
 			s.authLimiter.RecordFailureScoped(r.Context(), clientIP, ratelimit.AuthScopeAPIKey)
 			recordAuthDecision(r.Context(), "api_key", "failure")
@@ -538,6 +538,16 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 
 		s.serveWithSentryScope(next, w, r.WithContext(ctx))
 	})
+}
+
+func (s *Server) lookupAPIKeyForAuth(ctx context.Context, keyHash string) (*domain.APIKey, error) {
+	loader := func(loadCtx context.Context, hash string) (*domain.APIKey, error) {
+		return s.store.GetAPIKeyByHash(loadCtx, hash)
+	}
+	if s.apiKeyCache == nil {
+		return loader(ctx, keyHash)
+	}
+	return s.apiKeyCache.Get(ctx, keyHash, loader)
 }
 
 func (s *Server) apiKeyOrSecretAuth(next http.Handler) http.Handler {

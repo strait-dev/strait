@@ -796,6 +796,8 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		WebhookMaxAttempts:       cfg.WebhookMaxAttempts,
 		JobCacheTTL:              cfg.JobCacheTTL,
 		VersionCacheTTL:          cfg.VersionCacheTTL,
+		RunVersionCacheTTL:       cfg.RunVersionCacheTTL,
+		JobHealthCacheTTL:        cfg.JobHealthCacheTTL,
 		MaxDequeueBatchSize:      cfg.MaxDequeueBatchSize,
 		DefaultJobMaxConcurrency: cfg.DefaultJobMaxConcurrency,
 		MaxSnoozeCount:           cfg.MaxSnoozeCount,
