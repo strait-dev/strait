@@ -295,7 +295,7 @@ func retrySleep(ctx context.Context, attempt int) error {
 }
 
 // startCDCConsumer registers and starts the required Sequin CDC consumer.
-func startCDCConsumer(ctx context.Context, g *pool.ContextPool, cfg *config.Config, pub pubsub.Publisher, queries *store.Queries, chExporter *clickhouse.Exporter, rdb *redis.Client) (*cdc.WebhookReceiver, error) {
+func startCDCConsumer(ctx context.Context, g *pool.ContextPool, cfg *config.Config, pub pubsub.Publisher, queries *store.Queries, chExporter *clickhouse.Exporter, rdb *redis.Client, cacheBus *straitcache.Bus) (*cdc.WebhookReceiver, error) {
 	cdcClient := cdc.NewClient(
 		cfg.SequinBaseURL,
 		cfg.SequinConsumerName,
@@ -341,6 +341,9 @@ func startCDCConsumer(ctx context.Context, g *pool.ContextPool, cfg *config.Conf
 		cdcConsumer.RegisterAdditionalHandler(cacheHandlers.WorkflowRuns)
 		cdcConsumer.RegisterAdditionalHandler(cacheHandlers.WorkflowStepRuns)
 	}
+	for _, h := range cdc.NewCacheInvalidationHandlers(cacheBus, slog.Default()) {
+		cdcConsumer.RegisterAdditionalHandler(h)
+	}
 
 	g.Go(func(ctx context.Context) error {
 		cdcConsumer.Run(ctx)
@@ -383,6 +386,9 @@ func startCDCConsumer(ctx context.Context, g *pool.ContextPool, cfg *config.Conf
 		webhookReceiver.RegisterAdditionalHandler(cacheHandlers.JobRuns)
 		webhookReceiver.RegisterAdditionalHandler(cacheHandlers.WorkflowRuns)
 		webhookReceiver.RegisterAdditionalHandler(cacheHandlers.WorkflowStepRuns)
+	}
+	for _, h := range cdc.NewCacheInvalidationHandlers(cacheBus, slog.Default()) {
+		webhookReceiver.RegisterAdditionalHandler(h)
 	}
 
 	slog.Info("cdc consumer enabled",
