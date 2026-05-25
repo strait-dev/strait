@@ -115,7 +115,7 @@ This lets you round-trip a bundle through export and import without leaking or e
 
 ## Singletons
 
-Job and workflow singleton settings travel in the bundle. `singleton_key`, `singleton_on_conflict`, and `singleton_max_queue_depth` are validated on import exactly as they are on the create and update endpoints. The `replace` conflict policy is gated by plan on Strait Cloud; an import that sets it without the required plan is rejected. See [Adaptive Concurrency](/concepts/adaptive-concurrency) for how concurrency settings behave at run time.
+Job and workflow singleton settings travel in the bundle. `singleton_key`, `singleton_on_conflict`, and `singleton_max_queue_depth` are validated on import exactly as they are on the create and update endpoints. The `replace` conflict policy is gated by plan on Strait Cloud; an import that sets it without the required plan is rejected. See [Singletons](/concepts/singletons) for the full semantics and [Adaptive Concurrency](/concepts/adaptive-concurrency) for how concurrency settings behave at run time.
 
 ## Scope
 

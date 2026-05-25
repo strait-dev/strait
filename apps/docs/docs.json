@@ -96,6 +96,7 @@
                   "concepts/durable-workflows",
                   "concepts/compensating-transactions",
                   "concepts/adaptive-concurrency",
+                  "concepts/singletons",
                   "concepts/canary-deployments",
                   "concepts/cost-budgets",
                   "concepts/slos"

@@ -1,0 +1,172 @@
+---
+title: "Singletons"
+description: "Run at most one job or workflow at a time per key, with explicit queue, drop, or replace semantics."
+sidebarTitle: "Singletons"
+---
+
+A singleton job or workflow runs at most once at a time for a given key. When a second trigger arrives while the key is held, you decide what happens: it waits, it is dropped, or it cancels and replaces the holder.
+
+Use singletons when overlap is incorrect rather than merely inefficient: per-account migrations, cache rebuilds, sequential ledger updates, and "debounce to one" maintenance work.
+
+## Singletons vs Concurrency Limits
+
+These solve different problems.
+
+- A concurrency limit (`max_concurrency`, or [Adaptive Concurrency](/concepts/adaptive-concurrency)) caps how many runs execute at once and lets the rest proceed. It answers "how many in parallel".
+- A singleton allows exactly one active run per key and gives the second arrival explicit semantics. It answers "what happens to the run that cannot start".
+
+Reach for a singleton when a second concurrent run would corrupt state or duplicate work, not just add load.
+
+## How It Works
+
+A singleton is defined by two things: a key and an on-conflict policy.
+
+When a run is triggered, Strait resolves the key and tries to acquire a lock for it inside the same transaction that creates the run. The lock is the source of truth for "who holds this key". At most one run holds a key at a time.
+
+Locks are namespaced per owner. A job and a workflow that happen to share an id can never collide on the same key, and two different jobs never share a lock.
+
+### Keys
+
+A key is a template string. `${dot.path}` tokens are replaced with scalar values read from the trigger payload. Text outside a token passes through unchanged.
+
+| Template | Payload | Resolved key |
+| :--- | :--- | :--- |
+| `rebuild:${tenant_id}` | `{ "tenant_id": "acme" }` | `rebuild:acme` |
+| `ledger:${account.id}` | `{ "account": { "id": 4012 } }` | `ledger:4012` |
+| `nightly-rollup` | any | `nightly-rollup` |
+
+A template with no tokens is a constant key, which makes the whole job or workflow a single global mutex.
+
+Resolution rules:
+
+- A token whose path is missing, or resolves to an object, array, or null, rejects the trigger with `400`. Keys must be deterministic and scalar.
+- Numeric values keep full precision, so a large integer id is interpolated exactly rather than rounded through a float.
+- A template is limited to 1024 bytes and a resolved key to 2048 bytes.
+
+### Conflict Policies
+
+The on-conflict policy decides what happens to a trigger that arrives while the key is held.
+
+| Policy | Behavior | Second arrival |
+| :--- | :--- | :--- |
+| `queue` | Park the newcomer behind the holder and promote it when the key frees. | Waits, then runs in order. |
+| `drop` | Discard the newcomer; the holder keeps running. | Never created. Not billed. |
+| `replace` | Cancel the holder and run the newcomer in its place. | Runs; the previous holder is canceled. |
+
+With `queue`, waiters are promoted in best-effort FIFO order as each holder reaches a terminal state. Strait does not guarantee strict ordering or fairness beyond this.
+
+## Trigger Outcomes
+
+When a singleton is configured, the trigger response reports what happened so the caller knows the result immediately.
+
+| Outcome | Meaning |
+| :--- | :--- |
+| `dispatched` | The run acquired the key and was enqueued. |
+| `queued_behind` | The run was parked behind the current holder (`queue` policy). |
+| `dropped` | No run was created (`drop` policy, or `queue` at its depth cap). |
+| `replaced` | The holder was canceled and the newcomer took the key (`replace` policy). |
+
+The response also carries `singleton_holder_run_id` when the trigger queued behind, was dropped by, or replaced another run, so you can correlate it with the run it contended with.
+
+```json
+{
+  "id": "run_01H...",
+  "status": "waiting",
+  "singleton_outcome": "queued_behind",
+  "singleton_holder_run_id": "run_01HG..."
+}
+```
+
+A queued-behind job run sits in the `waiting` state until promotion; a queued-behind workflow run sits in the `queued` state. See [Runs](/concepts/runs) for the full lifecycle.
+
+### Capping the Queue
+
+The `queue` policy accepts an optional depth cap, `singleton_max_queue_depth`. When the number of runs already waiting on a key reaches the cap, further arrivals are dropped (outcome `dropped`, no run created). Omit the cap, or set it to null, for an unbounded queue.
+
+## Crash Safety
+
+A holder that crashes must not deadlock its key forever. Strait reclaims abandoned locks two ways.
+
+- **Fast path.** When a holder run reaches a terminal state, it releases its lock and promotes the next waiter in the same transition.
+- **Reaper net.** A background sweep releases locks whose holder is terminal or missing and promotes the next waiter. This is the authoritative net behind the fast path.
+
+Leasing differs by owner kind:
+
+- **Job holders** carry a lease that the worker heartbeat extends while the run is alive. If a holder stops heartbeating past the stale threshold, the reaper reclaims the key. The lease reuses the existing staleness window, so there is no separate setting to tune.
+- **Workflow holders** carry no lease. They are reclaimed only when the holder run is terminal or missing, so a long [durable wait](/concepts/durable-workflows) is never mistaken for a crash.
+
+## Inspecting Holders
+
+List the keys a job or workflow currently holds, each with its holding run and the number of runs queued behind it.
+
+```http
+GET /v1/jobs/{jobID}/singletons
+GET /v1/workflows/{workflowID}/singletons
+```
+
+Each entry reports the resolved `lock_key`, the `holder_run_id`, when it was `acquired_at`, the `lease_until` time for job holders, and the `waiters` count. Results are paginated by acquisition time.
+
+```json
+{
+  "data": [
+    {
+      "lock_key": "rebuild:acme",
+      "holder_run_id": "run_01HG...",
+      "acquired_at": "2026-05-25T12:00:00Z",
+      "lease_until": "2026-05-25T12:00:30Z",
+      "waiters": 2
+    }
+  ]
+}
+```
+
+## Configuration
+
+Set singleton fields when you create or update a job or workflow. The key is supplied as an envelope with a `template` field.
+
+```json
+{
+  "singleton_key_expr": { "template": "rebuild:${tenant_id}" },
+  "singleton_on_conflict": "queue",
+  "singleton_max_queue_depth": 5
+}
+```
+
+Validation matches the create and update endpoints: the policy must be one of `queue`, `drop`, or `replace`; a key is required when a policy is set; and the depth cap must be zero or greater.
+
+### Config as Code
+
+Singleton settings travel in a [config-as-code](/configuration/config-as-code) bundle using flattened fields.
+
+```json
+{
+  "slug": "rebuild-cache",
+  "name": "Rebuild cache",
+  "endpoint_url": "https://app.internal/jobs/rebuild-cache",
+  "singleton_key": "${tenant_id}",
+  "singleton_on_conflict": "queue",
+  "singleton_max_queue_depth": 5
+}
+```
+
+## Plans
+
+The `queue` and `drop` policies are available on every plan and on self-hosted instances. The `replace` policy is gated by plan on Strait Cloud, because canceling an in-flight holder has a cost profile worth opting into. Self-hosted community builds have all three policies.
+
+## Billing
+
+A dropped arrival creates no run and is never billed. This is consistent with run-counting rules: a run that does not start is not a run.
+
+## Limitations
+
+- Locks are per project. Cross-project or global locks are not supported.
+- Locks are exclusive only. There are no reader and writer (shared) locks.
+- Waiters under `queue` are promoted in best-effort FIFO order. There is no priority preemption within the waiting set.
+
+## Related
+
+- [Runs](/concepts/runs)
+- [Workflows](/concepts/workflows)
+- [Adaptive Concurrency](/concepts/adaptive-concurrency)
+- [Idempotency](/guides/idempotency)
+- [Config as Code](/configuration/config-as-code)
