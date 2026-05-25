@@ -292,14 +292,14 @@ export const useContinueWorkflowRunAsNew = () => {
       workflowId: string;
       input?: unknown;
       versionStrategy?: ContinueVersionStrategy;
-    }) =>
+    }): Promise<WorkflowRun> =>
       continueWorkflowRunAsNewFn({
         data: {
           workflowRunId: params.workflowRunId,
           input: params.input,
           versionStrategy: params.versionStrategy,
         },
-      }),
+      }) as Promise<WorkflowRun>,
     onSuccess: (_data, variables) => {
       getPostHog()?.capture("workflow_run_continued_as_new", {
         workflow_id: variables.workflowId,

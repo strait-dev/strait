@@ -33,6 +33,7 @@ import ErrorComponent from "@/components/common/error-component";
 import TableEmptyState from "@/components/common/table-empty-state";
 import StatusBadge from "@/components/dashboard/status-badge";
 import WorkflowDAGFlow from "@/components/dashboard/workflow-dag-flow";
+import WorkflowRunActions from "@/components/dashboard/workflow-run-actions";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type {
@@ -54,11 +55,13 @@ import {
   ActivityIcon,
   CheckCircleIcon,
   ClockIcon,
+  LinkSquareIcon,
   PauseActionIcon,
   PlayActionIcon,
   RefreshIcon,
   TagIcon,
 } from "@/lib/icons";
+import { isPartOfChain } from "@/lib/workflow-continue";
 
 export const Route = createFileRoute("/app/workflows/$id")({
   head: () => ({ meta: [{ title: "Workflow · Strait" }] }),
@@ -79,7 +82,16 @@ const workflowRunColumns: ColumnDef<WorkflowRun>[] = [
     accessorKey: "id",
     header: "Run ID",
     cell: ({ row }) => (
-      <span className="font-mono text-xs">{row.original.id.slice(0, 8)}</span>
+      <span className="flex items-center gap-1.5 font-mono text-xs">
+        {row.original.id.slice(0, 8)}
+        {isPartOfChain(row.original) && (
+          <HugeiconsIcon
+            aria-label="Part of a continuation chain"
+            className="size-3 text-muted-foreground"
+            icon={LinkSquareIcon}
+          />
+        )}
+      </span>
     ),
   },
   {
@@ -112,6 +124,12 @@ const workflowRunColumns: ColumnDef<WorkflowRun>[] = [
       formatDistanceToNow(new Date(row.original.created_at), {
         addSuffix: true,
       }),
+  },
+  {
+    id: "actions",
+    header: "",
+    cell: ({ row }) => <WorkflowRunActions run={row.original} />,
+    enableSorting: false,
   },
 ];
 
