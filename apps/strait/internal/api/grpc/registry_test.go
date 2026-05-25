@@ -8,6 +8,8 @@ import (
 
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
 	"strait/internal/domain"
+
+	"github.com/sourcegraph/conc"
 )
 
 // makeWorker builds a ConnectedWorker for test use.
@@ -432,6 +434,8 @@ func TestRegistry_CloseByAPIKey_IdempotentDoubleClose(t *testing.T) {
 // TestRegistry_Concurrent_RegisterDeregister verifies that concurrent Register/Deregister
 // operations do not race, panic, or corrupt invariants.
 func TestRegistry_Concurrent_RegisterDeregister(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	r := NewConnectionRegistry()
 
 	const goroutines = 50
@@ -447,18 +451,18 @@ func TestRegistry_Concurrent_RegisterDeregister(t *testing.T) {
 	}
 
 	for i := range goroutines {
-		go func() {
+		concWG.Go(func() {
 			defer wg.Done()
 			wid := fmt.Sprintf("w-%d", i)
 			w := makeWorker(wid, "proj-a", fmt.Sprintf("key-%d", i), []string{"q"}, 4)
 			_ = r.Register(w)
 			tokenChs[i] <- w.regToken
-		}()
-		go func() {
+		})
+		concWG.Go(func() {
 			defer wg.Done()
 			tok := <-tokenChs[i]
 			r.Deregister(fmt.Sprintf("w-%d", i), tok)
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -478,6 +482,8 @@ func TestRegistry_Concurrent_RegisterDeregister(t *testing.T) {
 // TestRegistry_Concurrent_SlotOperations verifies that concurrent increment/decrement
 // operations keep slots within [0, SlotsTotal].
 func TestRegistry_Concurrent_SlotOperations(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	r := NewConnectionRegistry()
 	w := makeWorker("w1", "proj-a", "key-1", []string{"q"}, 10)
 
@@ -490,14 +496,14 @@ func TestRegistry_Concurrent_SlotOperations(t *testing.T) {
 	wg.Add(ops * 2)
 
 	for range ops {
-		go func() {
+		concWG.Go(func() {
 			defer wg.Done()
 			r.IncrementSlots("w1")
-		}()
-		go func() {
+		})
+		concWG.Go(func() {
 			defer wg.Done()
 			r.DecrementSlots("w1")
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -519,6 +525,8 @@ func TestRegistry_Concurrent_SlotOperations(t *testing.T) {
 // TestRegistry_Concurrent_ReconnectStorm verifies that 1000 parallel reconnects for
 // the same worker_id and same api_key do not cause panics or leave the registry inconsistent.
 func TestRegistry_Concurrent_ReconnectStorm(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	r := NewConnectionRegistry()
 
 	const n = 100 // reduced from 1000 to keep test duration short while still exercising concurrency
@@ -526,11 +534,11 @@ func TestRegistry_Concurrent_ReconnectStorm(t *testing.T) {
 	wg.Add(n)
 
 	for i := range n {
-		go func() {
+		concWG.Go(func() {
 			defer wg.Done()
 			w := makeWorker("storm-worker", "proj-a", "key-1", []string{fmt.Sprintf("q%d", i)}, 4)
 			_ = r.Register(w)
-		}()
+		})
 	}
 
 	wg.Wait()

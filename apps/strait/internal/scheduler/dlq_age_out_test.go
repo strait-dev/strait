@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 type fakeDLQAgeOutStore struct {
@@ -183,14 +185,16 @@ func TestDLQAgeOut_ParallelPartitionScan(t *testing.T) {
 }
 
 func TestDLQAgeOut_RunExitsOnCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	s := &fakeDLQAgeOutStore{}
 	a := NewDLQAgeOut(s, DLQAgeOutConfig{Interval: 5 * time.Millisecond})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		a.Run(ctx)
 		close(done)
-	}()
+	})
 	time.Sleep(30 * time.Millisecond)
 	cancel()
 	select {

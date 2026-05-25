@@ -154,6 +154,8 @@ func TestHeartbeatManager_RegisterDeregister(t *testing.T) {
 }
 
 func TestHeartbeatManager_Run_Batching(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	tests := []struct {
@@ -186,16 +188,18 @@ func TestHeartbeatManager_Run_Batching(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			var concWG conc.WaitGroup
+			defer concWG.Wait()
 			store := &mockHeartbeatStore{}
 			h := NewHeartbeatManager(store, 5*time.Millisecond)
 			tt.setup(h)
 
 			ctx, cancel := context.WithCancel(context.Background())
 			done := make(chan struct{})
-			go func() {
+			concWG.Go(func() {
 				h.Run(ctx)
 				close(done)
-			}()
+			})
 
 			if tt.waitForCalls > 0 {
 				waitForHeartbeatCalls(t, store, tt.waitForCalls, 300*time.Millisecond)

@@ -13,6 +13,8 @@ import (
 	"strait/internal/pubsub"
 	"strait/internal/store"
 	"strait/internal/testutil"
+
+	"github.com/sourcegraph/conc"
 )
 
 // TestIntegration_DBSync_WorkerVisible verifies that after the DB sync interval fires,
@@ -321,6 +323,8 @@ func TestIntegration_CrossReplica_APIKeyRevoke(t *testing.T) {
 // revocation flow: publish to Redis, receive in subscriber, call CloseByAPIKey,
 // observe all matching streams' revokeCh closed.
 func TestIntegration_CrossReplica_APIKeyRevoke_RegistryCloseByAPIKey(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -356,7 +360,7 @@ func TestIntegration_CrossReplica_APIKeyRevoke_RegistryCloseByAPIKey(t *testing.
 
 	// Start a goroutine that simulates the stream goroutine's select on the revokeCh.
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		defer close(done)
 		select {
 		case <-sub.Ch:
@@ -364,7 +368,7 @@ func TestIntegration_CrossReplica_APIKeyRevoke_RegistryCloseByAPIKey(t *testing.
 			reg.CloseByAPIKey(apiKeyID)
 		case <-ctx.Done():
 		}
-	}()
+	})
 
 	// Publish revocation (simulating POST /v1/api-keys/:id/revoke).
 	if err := pub.Publish(ctx, channel, []byte(apiKeyID)); err != nil {
@@ -399,12 +403,16 @@ func (n *noopPublisher) PublishBatch(_ context.Context, _ []pubsub.PubSubMessage
 	return nil
 }
 func (n *noopPublisher) Subscribe(ctx context.Context, _ string) (*pubsub.Subscription, error) {
+	var concWG conc.WaitGroup
 	ch := make(chan []byte)
 	ctx2, cancel := context.WithCancel(ctx)
-	go func() {
+	concWG.Go(func() {
 		<-ctx2.Done()
 		close(ch)
-	}()
-	return pubsub.NewSubscription(ch, cancel), nil
+	})
+	return pubsub.NewSubscription(ch, func() {
+		cancel()
+		concWG.Wait()
+	}), nil
 }
 func (n *noopPublisher) Close() error { return nil }

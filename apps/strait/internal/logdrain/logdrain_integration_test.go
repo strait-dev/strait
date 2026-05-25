@@ -20,6 +20,7 @@ import (
 	"strait/internal/testutil"
 
 	"github.com/google/uuid"
+	"github.com/sourcegraph/conc"
 )
 
 var testDB *testutil.TestDB
@@ -169,6 +170,8 @@ func seedLogDrain(t *testing.T, ctx context.Context, st *store.Queries, projectI
 // TestWorker_ProcessDrain_WithRealStore verifies that the worker processes finished
 // runs from a real Postgres database and delivers events to an HTTP endpoint.
 func TestWorker_ProcessDrain_WithRealStore(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	st := mustStore(t)
 	mustClean(t, ctx)
@@ -204,10 +207,10 @@ func TestWorker_ProcessDrain_WithRealStore(t *testing.T) {
 
 	workerCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		w.Run(workerCtx)
 		close(done)
-	}()
+	})
 
 	// Wait for at least one tick to process.
 	time.Sleep(300 * time.Millisecond)
@@ -229,6 +232,8 @@ func TestWorker_ProcessDrain_WithRealStore(t *testing.T) {
 // TestWorker_HTTPDelivery_BearerAuth verifies that the worker sends the
 // Authorization header with the bearer token from the log drain config.
 func TestWorker_HTTPDelivery_BearerAuth(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	st := mustStore(t)
 	mustClean(t, ctx)
@@ -258,10 +263,10 @@ func TestWorker_HTTPDelivery_BearerAuth(t *testing.T) {
 
 	workerCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		w.Run(workerCtx)
 		close(done)
-	}()
+	})
 
 	time.Sleep(300 * time.Millisecond)
 	cancel()
@@ -277,6 +282,8 @@ func TestWorker_HTTPDelivery_BearerAuth(t *testing.T) {
 // TestWorker_BatchProcessing_MultipleRuns verifies that a single tick
 // processes all finished runs and delivers events for each run separately.
 func TestWorker_BatchProcessing_MultipleRuns(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	st := mustStore(t)
 	mustClean(t, ctx)
@@ -322,10 +329,10 @@ func TestWorker_BatchProcessing_MultipleRuns(t *testing.T) {
 
 	workerCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		w.Run(workerCtx)
 		close(done)
-	}()
+	})
 
 	time.Sleep(300 * time.Millisecond)
 	cancel()
@@ -344,6 +351,8 @@ func TestWorker_BatchProcessing_MultipleRuns(t *testing.T) {
 // TestWorker_FailedDelivery_RetryAndPoisonSkip verifies that a failing endpoint
 // causes retries and that after maxRunRetries the run is skipped as a poison run.
 func TestWorker_FailedDelivery_RetryAndPoisonSkip(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	st := mustStore(t)
 	mustClean(t, ctx)
@@ -375,10 +384,10 @@ func TestWorker_FailedDelivery_RetryAndPoisonSkip(t *testing.T) {
 
 	workerCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		w.Run(workerCtx)
 		close(done)
-	}()
+	})
 
 	// Allow enough ticks for maxRunRetries (3) failures + 1 skip tick.
 	time.Sleep(500 * time.Millisecond)
@@ -396,6 +405,8 @@ func TestWorker_FailedDelivery_RetryAndPoisonSkip(t *testing.T) {
 // TestWorker_FailedDelivery_SuccessAfterRetry verifies that a temporarily
 // failing endpoint is retried and succeeds on subsequent ticks.
 func TestWorker_FailedDelivery_SuccessAfterRetry(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	st := mustStore(t)
 	mustClean(t, ctx)
@@ -440,10 +451,10 @@ func TestWorker_FailedDelivery_SuccessAfterRetry(t *testing.T) {
 
 	workerCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		w.Run(workerCtx)
 		close(done)
-	}()
+	})
 
 	time.Sleep(400 * time.Millisecond)
 	cancel()
@@ -462,6 +473,8 @@ func TestWorker_FailedDelivery_SuccessAfterRetry(t *testing.T) {
 // TestWorker_ConcurrentDrains verifies that the worker processes multiple
 // log drains for different projects concurrently without data corruption.
 func TestWorker_ConcurrentDrains(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	st := mustStore(t)
 	mustClean(t, ctx)
@@ -511,10 +524,10 @@ func TestWorker_ConcurrentDrains(t *testing.T) {
 
 	workerCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		w.Run(workerCtx)
 		close(done)
-	}()
+	})
 
 	time.Sleep(400 * time.Millisecond)
 	cancel()
@@ -533,6 +546,8 @@ func TestWorker_ConcurrentDrains(t *testing.T) {
 // TestWorker_LogDrainConfig_StoredInDB verifies that log drains created in
 // the database are picked up by the worker and used for delivery.
 func TestWorker_LogDrainConfig_StoredInDB(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	st := mustStore(t)
 	mustClean(t, ctx)
@@ -588,10 +603,10 @@ func TestWorker_LogDrainConfig_StoredInDB(t *testing.T) {
 
 	workerCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		w.Run(workerCtx)
 		close(done)
-	}()
+	})
 
 	time.Sleep(300 * time.Millisecond)
 	cancel()
@@ -610,6 +625,8 @@ func TestWorker_LogDrainConfig_StoredInDB(t *testing.T) {
 // TestWorker_NoFinishedRuns_NoDeliveries verifies the worker does not make
 // any HTTP requests when there are no finished runs.
 func TestWorker_NoFinishedRuns_NoDeliveries(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	st := mustStore(t)
 	mustClean(t, ctx)
@@ -634,10 +651,10 @@ func TestWorker_NoFinishedRuns_NoDeliveries(t *testing.T) {
 
 	workerCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		w.Run(workerCtx)
 		close(done)
-	}()
+	})
 
 	time.Sleep(200 * time.Millisecond)
 	cancel()
@@ -653,6 +670,8 @@ func TestWorker_NoFinishedRuns_NoDeliveries(t *testing.T) {
 // TestWorker_ManyEvents_Pagination verifies that the worker correctly
 // paginates through a large number of events for a single run.
 func TestWorker_ManyEvents_Pagination(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	st := mustStore(t)
 	mustClean(t, ctx)
@@ -692,10 +711,10 @@ func TestWorker_ManyEvents_Pagination(t *testing.T) {
 
 	workerCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		w.Run(workerCtx)
 		close(done)
-	}()
+	})
 
 	time.Sleep(400 * time.Millisecond)
 	cancel()
@@ -711,6 +730,8 @@ func TestWorker_ManyEvents_Pagination(t *testing.T) {
 // TestWorker_IdempotentRedelivery verifies that the worker does not re-deliver
 // events for runs that have already been processed (checkpoint advancement).
 func TestWorker_IdempotentRedelivery(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	st := mustStore(t)
 	mustClean(t, ctx)
@@ -740,10 +761,10 @@ func TestWorker_IdempotentRedelivery(t *testing.T) {
 
 	workerCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		w.Run(workerCtx)
 		close(done)
-	}()
+	})
 
 	// Let multiple ticks fire.
 	time.Sleep(300 * time.Millisecond)

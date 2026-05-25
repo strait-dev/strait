@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/sourcegraph/conc"
 )
 
 // Unit tests for the priority promoter. Integration tests live in
@@ -215,16 +216,18 @@ func contains(haystack, needle string) bool {
 }
 
 func TestPriorityPromoter_RunExitsOnContextCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	db := &fakeDB{rows: 0}
 	p := NewPriorityPromoter(db, PriorityPromoterConfig{
 		Interval: 5 * time.Millisecond,
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		p.Run(ctx)
 		close(done)
-	}()
+	})
 	time.Sleep(30 * time.Millisecond)
 	cancel()
 	select {

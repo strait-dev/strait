@@ -237,10 +237,12 @@ func (ce *ChaosEngine) generateLoad(ctx context.Context) {
 	ticker := time.NewTicker(time.Second / time.Duration(max(ce.loadRate, 1)))
 	defer ticker.Stop()
 	inFlight := make(chan struct{}, max(ce.loadRate, 1))
+	var wg conc.WaitGroup
 
 	for {
 		select {
 		case <-ctx.Done():
+			wg.Wait()
 			return
 		case <-ticker.C:
 			select {
@@ -249,7 +251,7 @@ func (ce *ChaosEngine) generateLoad(ctx context.Context) {
 				ce.errorCount.Add(1)
 				continue
 			}
-			go func() {
+			wg.Go(func() {
 				defer func() { <-inFlight }()
 				reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 				defer cancel()
@@ -261,7 +263,7 @@ func (ce *ChaosEngine) generateLoad(ctx context.Context) {
 					return
 				}
 				ce.triggerCount.Add(1)
-			}()
+			})
 		}
 	}
 }

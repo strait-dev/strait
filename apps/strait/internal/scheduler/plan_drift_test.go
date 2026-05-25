@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"strait/internal/store"
+
+	"github.com/sourcegraph/conc"
 )
 
 type fakePlanStore struct {
@@ -199,6 +201,8 @@ func TestPlanDriftMonitor_LockNotAcquired(t *testing.T) {
 }
 
 func TestPlanDriftMonitor_RunExitsOnCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	s := newFakePlanStore()
 	s.nextExplain = indexScanPlan
 	m := NewPlanDriftMonitor(s, PlanDriftMonitorConfig{
@@ -207,10 +211,10 @@ func TestPlanDriftMonitor_RunExitsOnCancel(t *testing.T) {
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		m.Run(ctx)
 		close(done)
-	}()
+	})
 	time.Sleep(30 * time.Millisecond)
 	cancel()
 	select {

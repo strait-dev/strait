@@ -69,6 +69,7 @@ type Enforcer struct {
 	sentryMode      string
 	sentryRegion    string
 	sentryVersion   string
+	bgWG            conc.WaitGroup
 	// entitlementsAuthoritative controls the Phase 3.5 reader switch:
 	// when true (default), GetOrgPlanLimits reads the persisted snapshot
 	// directly when present. When false, it always recomputes from the
@@ -1240,14 +1241,14 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 		spendPct := float64(overageSpend) / float64(sub.SpendingLimitMicrousd)
 		if e.billingEmails != nil && spendPct >= 0.8 && spendPct < 1.0 && e.shouldSendBillingEmail(ctx, orgID, "spending_80pct") {
 			adminEmails, _ := e.store.ListOrgAdminEmails(ctx, orgID)
-			go func() { //nolint:gosec // async email with own timeout
+			e.bgWG.Go(func() {
 				emailCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 				defer cancel()
 				e.billingEmails.SendSpendingLimitWarning(emailCtx, adminEmails, sub.PlanTier,
 					fmt.Sprintf("$%.2f", float64(periodSpend)/1e6),
 					fmt.Sprintf("$%.2f", float64(sub.SpendingLimitMicrousd)/1e6),
 					fmt.Sprintf("%.0f%%", spendPct*100))
-			}()
+			})
 		}
 		if spendPct >= 0.8 && spendPct < 1.0 {
 			e.tryDispatchCapEvent(ctx, orgID, limits.PlanTier,
@@ -1265,13 +1266,13 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 	// Send overage alert when org first enters overage.
 	if overageSpend > 0 && e.billingEmails != nil && e.shouldSendBillingEmail(ctx, orgID, "overage_entered") {
 		adminEmails, _ := e.store.ListOrgAdminEmails(ctx, orgID)
-		go func() { //nolint:gosec // async email with own timeout
+		e.bgWG.Go(func() {
 			emailCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			e.billingEmails.SendOverageAlert(emailCtx, adminEmails, sub.PlanTier,
 				fmt.Sprintf("$%.2f", float64(overageSpend)/1e6),
 				"$0.00")
-		}()
+		})
 	}
 
 	if isOverageLimitReached(sub.SpendingLimitMicrousd, overageSpend) {

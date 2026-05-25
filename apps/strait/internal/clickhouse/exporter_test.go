@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 func TestExporter_Start_PanicRecovery(t *testing.T) {
@@ -63,6 +65,8 @@ func TestExporter_Stop_Cleanly(t *testing.T) {
 }
 
 func TestExporter_StopWithoutStart_DoesNotDeadlock(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	exporter := NewExporter(&Client{}, ExporterConfig{
@@ -73,10 +77,10 @@ func TestExporter_StopWithoutStart_DoesNotDeadlock(t *testing.T) {
 
 	// Stop() without ever calling Start() must return promptly, not deadlock.
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		exporter.Stop()
 		close(done)
-	}()
+	})
 
 	select {
 	case <-done:

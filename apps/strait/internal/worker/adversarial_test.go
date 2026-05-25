@@ -445,6 +445,8 @@ func TestChain_HandlerPanic_PropagatesThroughMiddleware(t *testing.T) {
 // Adversarial event loop tests.
 
 func TestRunEventLoop_SubscriberPanic_CrashesLoop(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 	ch2 := make(chan RunLifecycleEvent, 1)
 
@@ -457,13 +459,13 @@ func TestRunEventLoop_SubscriberPanic_CrashesLoop(t *testing.T) {
 	}
 
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		defer func() {
 			recover() // catch the panic from runEventLoop
 			close(done)
 		}()
 		exec.runEventLoop()
-	}()
+	})
 
 	exec.eventCh <- runEventEnvelope{
 		ctx:   context.Background(),

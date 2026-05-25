@@ -15,6 +15,8 @@ import (
 )
 
 func TestStartTrackedLoadtestTriggerBoundsAndDrains(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	var wg conc.WaitGroup
 	slots := make(chan struct{}, 1)
 	release := make(chan struct{})
@@ -31,13 +33,13 @@ func TestStartTrackedLoadtestTriggerBoundsAndDrains(t *testing.T) {
 	<-started
 
 	secondReturned := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		_ = startTrackedLoadtestTrigger(context.Background(), &wg, slots, func(context.Context) error {
 			started <- struct{}{}
 			return nil
 		}, nil, nil)
 		close(secondReturned)
-	}()
+	})
 
 	select {
 	case <-secondReturned:

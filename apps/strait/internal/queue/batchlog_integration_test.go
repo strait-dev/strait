@@ -11,6 +11,8 @@ import (
 	"strait/internal/domain"
 	"strait/internal/queue"
 	"strait/internal/store"
+
+	"github.com/sourcegraph/conc"
 )
 
 func mustBatchlogQueue(t *testing.T, lease time.Duration) *queue.BatchlogQueue {
@@ -40,12 +42,10 @@ func TestBatchlog_NoDuplicateClaimsUnderConcurrentWorkers(t *testing.T) {
 	}
 
 	seen := sync.Map{}
-	var wg sync.WaitGroup
+	var concWG conc.WaitGroup
 	errCh := make(chan error, 5)
 	for range 5 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		concWG.Go(func() {
 			runs, err := q.DequeueN(ctx, 10)
 			if err != nil {
 				errCh <- err
@@ -57,9 +57,9 @@ func TestBatchlog_NoDuplicateClaimsUnderConcurrentWorkers(t *testing.T) {
 					return
 				}
 			}
-		}()
+		})
 	}
-	wg.Wait()
+	concWG.Wait()
 	close(errCh)
 	for err := range errCh {
 		t.Fatalf("concurrent dequeue: %v", err)

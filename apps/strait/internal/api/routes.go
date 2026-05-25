@@ -152,6 +152,12 @@ func (s *Server) routes() chi.Router {
 		})
 	}
 
+	if profilingAPIEnabled(s.config) {
+		r.Group(func(r chi.Router) {
+			s.mountProfilingRoutes(r)
+		})
+	}
+
 	if s.config.DebugStatsviz {
 		slog.Warn("statsviz debug endpoints enabled at /debug/statsviz/ -- disable in production")
 		r.Group(func(r chi.Router) {

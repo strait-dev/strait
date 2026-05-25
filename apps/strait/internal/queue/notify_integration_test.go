@@ -79,6 +79,8 @@ func TestQueueNotifier_WakeReceivesNotification(t *testing.T) {
 }
 
 func TestQueueNotifier_RunStopsOnContextCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	if testDB == nil || testDB.ConnStr == "" {
 		t.Fatal("testDB is not initialized")
 	}
@@ -87,10 +89,10 @@ func TestQueueNotifier_RunStopsOnContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		notifier.Run(ctx)
 		close(done)
-	}()
+	})
 
 	// Give the listener time to start.
 	time.Sleep(500 * time.Millisecond)
@@ -160,16 +162,19 @@ func TestQueueNotifier_MultipleWakesCoalesced(t *testing.T) {
 }
 
 func TestQueueNotifier_RunReconnectsAfterBadURL(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
+
 	// Use an invalid database URL to trigger reconnect logic.
 	notifier := queue.NewQueueNotifier("postgres://invalid:5432/nope", slog.Default())
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		notifier.Run(ctx)
 		close(done)
-	}()
+	})
 
 	// Run should eventually exit when context is canceled, even though
 	// it keeps failing to connect.

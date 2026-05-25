@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 type fakeTunerStore struct {
@@ -176,14 +178,16 @@ func TestPartitionTuner_LockNotAcquired(t *testing.T) {
 }
 
 func TestPartitionTuner_RunExitsOnCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	s := &fakeTunerStore{}
 	tu := NewPartitionTuner(s, PartitionTunerConfig{Interval: 5 * time.Millisecond})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		tu.Run(ctx)
 		close(done)
-	}()
+	})
 	time.Sleep(30 * time.Millisecond)
 	cancel()
 	select {

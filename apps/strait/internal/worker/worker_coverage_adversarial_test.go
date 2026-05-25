@@ -22,15 +22,17 @@ import (
 // ---------------------------------------------------------------------------.
 
 func TestAdaptiveRun_NilProbe_ReturnsImmediately(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	a := NewAdaptiveConcurrency(1, 10, 5)
 
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		a.Run(t.Context(), time.Millisecond, nil, slog.Default())
 		close(done)
-	}()
+	})
 
 	select {
 	case <-done:
@@ -41,6 +43,8 @@ func TestAdaptiveRun_NilProbe_ReturnsImmediately(t *testing.T) {
 }
 
 func TestAdaptiveRun_ContextCancellation(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	a := NewAdaptiveConcurrency(1, 100, 10)
@@ -53,10 +57,10 @@ func TestAdaptiveRun_ContextCancellation(t *testing.T) {
 	}
 
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		a.Run(ctx, time.Millisecond, probe, slog.Default())
 		close(done)
-	}()
+	})
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
@@ -78,6 +82,8 @@ func TestAdaptiveRun_ContextCancellation(t *testing.T) {
 }
 
 func TestAdaptiveRun_ProbeError_ContinuesPolling(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	a := NewAdaptiveConcurrency(1, 100, 10)
@@ -95,10 +101,10 @@ func TestAdaptiveRun_ProbeError_ContinuesPolling(t *testing.T) {
 	}
 
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		a.Run(ctx, time.Millisecond, probe, slog.Default())
 		close(done)
-	}()
+	})
 
 	// Wait until the probe has been called enough times for the scale-up.
 	deadline := time.Now().Add(2 * time.Second)
@@ -122,6 +128,8 @@ func TestAdaptiveRun_ProbeError_ContinuesPolling(t *testing.T) {
 }
 
 func TestAdaptiveRun_ZeroInterval_DefaultsTo10s(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	a := NewAdaptiveConcurrency(1, 100, 10)
@@ -132,10 +140,9 @@ func TestAdaptiveRun_ZeroInterval_DefaultsTo10s(t *testing.T) {
 		probeCalls.Add(1)
 		return 0, 0.0, nil
 	}
-
-	go func() {
+	concWG.Go(func() {
 		a.Run(ctx, 0, probe, nil) // zero interval, nil logger
-	}()
+	})
 
 	// With a 10s default interval, no probe should fire in 50ms.
 	time.Sleep(50 * time.Millisecond)
@@ -147,6 +154,8 @@ func TestAdaptiveRun_ZeroInterval_DefaultsTo10s(t *testing.T) {
 }
 
 func TestAdaptiveRun_NilLogger_DoesNotPanic(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	a := NewAdaptiveConcurrency(1, 100, 10)
@@ -159,10 +168,10 @@ func TestAdaptiveRun_NilLogger_DoesNotPanic(t *testing.T) {
 	}
 
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		a.Run(ctx, time.Millisecond, probe, nil)
 		close(done)
-	}()
+	})
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
@@ -182,6 +191,8 @@ func TestAdaptiveRun_NilLogger_DoesNotPanic(t *testing.T) {
 }
 
 func TestAdaptiveRun_UpdatesLimit_WhenProbeSignalsLoad(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	a := NewAdaptiveConcurrency(1, 200, 10)
@@ -192,10 +203,10 @@ func TestAdaptiveRun_UpdatesLimit_WhenProbeSignalsLoad(t *testing.T) {
 	}
 
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		a.Run(ctx, time.Millisecond, probe, slog.Default())
 		close(done)
-	}()
+	})
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
@@ -276,6 +287,8 @@ func TestAdaptiveConcurrency_RapidFluctuations(t *testing.T) {
 }
 
 func TestAdaptiveConcurrency_NegativeInterval_DefaultsGracefully(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	a := NewAdaptiveConcurrency(1, 10, 5)
@@ -284,10 +297,9 @@ func TestAdaptiveConcurrency_NegativeInterval_DefaultsGracefully(t *testing.T) {
 	probe := func(_ context.Context) (int, float64, error) {
 		return 0, 0.0, nil
 	}
-
-	go func() {
+	concWG.Go(func() {
 		a.Run(ctx, -1*time.Second, probe, slog.Default())
-	}()
+	})
 
 	// Negative interval should be treated as 10s default.
 	time.Sleep(50 * time.Millisecond)

@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"sync/atomic"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 // TestServer provides HTTP endpoints that simulate real job targets.
@@ -24,6 +26,7 @@ type TestServer struct {
 	maxBodyBytes int64
 	stats        ServerStats
 	started      time.Time
+	wg           conc.WaitGroup
 }
 
 type TestServerOption func(*TestServer)
@@ -105,16 +108,18 @@ func (ts *TestServer) Start() error {
 	actualAddr := ln.Addr().String()
 	ts.addr = actualAddr
 
-	go func() {
+	ts.wg.Go(func() {
 		_ = ts.srv.Serve(ln)
-	}()
+	})
 
 	return nil
 }
 
 // Close shuts down the test server.
 func (ts *TestServer) Close() error {
-	return ts.srv.Close()
+	err := ts.srv.Close()
+	ts.wg.Wait()
+	return err
 }
 
 // Addr returns the server listen address.

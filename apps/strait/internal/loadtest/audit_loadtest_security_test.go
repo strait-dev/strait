@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/sourcegraph/conc"
 )
 
 type blockingAuditStore struct {
@@ -69,6 +71,8 @@ func TestAuditEmitHarness_WaitDrainWaitsForInFlightEvent(t *testing.T) {
 }
 
 func TestAuditEmitHarness_ConcurrentEmitAndStopDoesNotPanic(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	store := NewMemoryAuditStore()
@@ -79,15 +83,18 @@ func TestAuditEmitHarness_ConcurrentEmitAndStopDoesNotPanic(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := range 32 {
 		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			defer func() {
-				if r := recover(); r != nil {
-					panicCh <- r
-				}
-			}()
-			h.Emit(testAuditEvent(i))
-		}(i)
+		{
+			i := i
+			concWG.Go(func() {
+				defer wg.Done()
+				defer func() {
+					if r := recover(); r != nil {
+						panicCh <- r
+					}
+				}()
+				h.Emit(testAuditEvent(i))
+			})
+		}
 	}
 	h.Stop()
 	wg.Wait()

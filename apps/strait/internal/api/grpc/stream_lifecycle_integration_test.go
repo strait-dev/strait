@@ -19,6 +19,8 @@ import (
 	"strait/internal/pubsub"
 	"strait/internal/store"
 	"strait/internal/testutil"
+
+	"github.com/sourcegraph/conc"
 )
 
 type blockingWorkerStream struct {
@@ -200,6 +202,8 @@ func TestIntegration_StreamTasks_SubscribeFailureRejectsWorker(t *testing.T) {
 }
 
 func TestIntegration_StreamTasks_APIKeyRevokeReturnsWithoutClientRecv(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
 	if err != nil {
@@ -244,9 +248,9 @@ func TestIntegration_StreamTasks_APIKeyRevokeReturnsWithoutClientRecv(t *testing
 	}
 
 	done := make(chan error, 1)
-	go func() {
+	concWG.Go(func() {
 		done <- svc.StreamTasks(stream)
-	}()
+	})
 
 	select {
 	case msg := <-stream.sentCh:
@@ -279,6 +283,8 @@ func TestIntegration_StreamTasks_APIKeyRevokeReturnsWithoutClientRecv(t *testing
 }
 
 func TestIntegration_StreamTasks_RevokeBeforeRegistrationRejectsWorker(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
 	if err != nil {
@@ -310,9 +316,9 @@ func TestIntegration_StreamTasks_RevokeBeforeRegistrationRejectsWorker(t *testin
 	}
 
 	done := make(chan error, 1)
-	go func() {
+	concWG.Go(func() {
 		done <- svc.StreamTasks(stream)
-	}()
+	})
 
 	select {
 	case <-stream.recvWait:
@@ -364,6 +370,8 @@ func TestIntegration_StreamTasks_RevokeBeforeRegistrationRejectsWorker(t *testin
 }
 
 func TestIntegration_StreamTasks_APIKeyExpiryClosesRegisteredStream(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
 	if err != nil {
@@ -409,9 +417,9 @@ func TestIntegration_StreamTasks_APIKeyExpiryClosesRegisteredStream(t *testing.T
 	}
 
 	done := make(chan error, 1)
-	go func() {
+	concWG.Go(func() {
 		done <- svc.StreamTasks(stream)
-	}()
+	})
 
 	select {
 	case msg := <-stream.sentCh:
@@ -445,6 +453,8 @@ func TestIntegration_StreamTasks_APIKeyExpiryClosesRegisteredStream(t *testing.T
 }
 
 func TestIntegration_StreamTasks_APIKeyRotationGraceSignalClosesRegisteredStream(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
 	if err != nil {
@@ -490,9 +500,9 @@ func TestIntegration_StreamTasks_APIKeyRotationGraceSignalClosesRegisteredStream
 	}
 
 	done := make(chan error, 1)
-	go func() {
+	concWG.Go(func() {
 		done <- svc.StreamTasks(stream)
-	}()
+	})
 
 	select {
 	case msg := <-stream.sentCh:
@@ -530,6 +540,8 @@ func TestIntegration_StreamTasks_APIKeyRotationGraceSignalClosesRegisteredStream
 }
 
 func TestIntegration_StreamTasks_APIKeyExpiryBeforeRegistrationRejectsWorker(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
 	if err != nil {
@@ -560,9 +572,9 @@ func TestIntegration_StreamTasks_APIKeyExpiryBeforeRegistrationRejectsWorker(t *
 	}
 
 	done := make(chan error, 1)
-	go func() {
+	concWG.Go(func() {
 		done <- svc.StreamTasks(stream)
-	}()
+	})
 
 	select {
 	case <-stream.recvWait:
@@ -591,6 +603,8 @@ func TestIntegration_StreamTasks_APIKeyExpiryBeforeRegistrationRejectsWorker(t *
 }
 
 func TestIntegration_StreamTasks_RevalidatesAPIKeyAfterDelayedRegistration(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
 	if err != nil {
@@ -621,9 +635,9 @@ func TestIntegration_StreamTasks_RevalidatesAPIKeyAfterDelayedRegistration(t *te
 	}
 
 	done := make(chan error, 1)
-	go func() {
+	concWG.Go(func() {
 		done <- svc.StreamTasks(stream)
-	}()
+	})
 
 	select {
 	case <-stream.recvWait:
@@ -665,6 +679,8 @@ func TestIntegration_StreamTasks_RevalidatesAPIKeyAfterDelayedRegistration(t *te
 }
 
 func TestIntegration_StreamTasks_PreRegistrationStreamsCountTowardAPIKeyQuota(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
 	if err != nil {
@@ -697,9 +713,9 @@ func TestIntegration_StreamTasks_PreRegistrationStreamsCountTowardAPIKeyQuota(t 
 	defer firstCancel()
 	firstStream := newBlockingWorkerStream(firstCtx, rawKey)
 	firstDone := make(chan error, 1)
-	go func() {
+	concWG.Go(func() {
 		firstDone <- svc.StreamTasks(firstStream)
-	}()
+	})
 	select {
 	case <-firstStream.recvWait:
 	case err := <-firstDone:

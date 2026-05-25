@@ -9,6 +9,7 @@ func TestConfig_Redacted_MasksSecrets(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{
 		InternalSecret:      "super-secret-key",
+		ProfilingSecret:     "pprof-secret-key",
 		JWTSigningKey:       "jwt-key",
 		StripeSecretKey:     "sk_test_123",
 		StripeWebhookSecret: "whsec_test",
@@ -22,7 +23,7 @@ func TestConfig_Redacted_MasksSecrets(t *testing.T) {
 		if !ok {
 			continue
 		}
-		if str == "super-secret-key" || str == "jwt-key" || str == "sk_test_123" || str == "whsec_test" || str == "re_test" || str == "phc_test" {
+		if str == "super-secret-key" || str == "pprof-secret-key" || str == "jwt-key" || str == "sk_test_123" || str == "whsec_test" || str == "re_test" || str == "phc_test" {
 			t.Errorf("secret leaked in Redacted() for key %q: %v", key, val)
 		}
 	}
@@ -54,6 +55,7 @@ func TestConfig_String_NoSecrets(t *testing.T) {
 		Mode:                "all",
 		Port:                8080,
 		InternalSecret:      "my-secret-value",
+		ProfilingSecret:     "pprof-secret-value",
 		JWTSigningKey:       "jwt-secret-123",
 		StripeSecretKey:     "sk_test_secret456",
 		StripeWebhookSecret: "whsec_secret789",
@@ -61,7 +63,7 @@ func TestConfig_String_NoSecrets(t *testing.T) {
 	}
 
 	str := cfg.String()
-	secrets := []string{"my-secret-value", "jwt-secret-123", "sk_test_secret456", "whsec_secret789", "re_secret"}
+	secrets := []string{"my-secret-value", "pprof-secret-value", "jwt-secret-123", "sk_test_secret456", "whsec_secret789", "re_secret"}
 	for _, secret := range secrets {
 		if strings.Contains(str, secret) {
 			t.Errorf("Config.String() contains secret: %q", secret)

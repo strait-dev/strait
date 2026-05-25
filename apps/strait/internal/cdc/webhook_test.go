@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"strait/internal/pubsub"
+
+	"github.com/sourcegraph/conc"
 )
 
 type webhookMockHandler struct {
@@ -378,6 +380,8 @@ func TestDeepSecWebhookReceiver_SuppressesDuplicateIdempotencyKey(t *testing.T) 
 }
 
 func TestDeepSecWebhookReceiver_SuppressesConcurrentDuplicateIdempotencyKey(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	h := &blockingWebhookHandler{
 		table:   "job_runs",
 		entered: make(chan struct{}, 1),
@@ -394,11 +398,11 @@ func TestDeepSecWebhookReceiver_SuppressesConcurrentDuplicateIdempotencyKey(t *t
 	}
 
 	firstDone := make(chan int, 1)
-	go func() {
+	concWG.Go(func() {
 		rr := httptest.NewRecorder()
 		wr.ServeHTTP(rr, makeWebhookRequest(msg))
 		firstDone <- rr.Code
-	}()
+	})
 
 	select {
 	case <-h.entered:

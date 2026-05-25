@@ -322,6 +322,8 @@ func TestSubscription_BufferOverflow_DoesNotBlock(t *testing.T) {
 }
 
 func TestSubscription_ZeroBufferChannel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	ch := make(chan []byte) // Unbuffered channel.
@@ -329,11 +331,12 @@ func TestSubscription_ZeroBufferChannel(t *testing.T) {
 	defer cancel()
 
 	sub := NewSubscription(ch, cancel)
+	concWG.
 
-	// Write and read must synchronize.
-	go func() {
-		ch <- []byte("sync-msg")
-	}()
+		// Write and read must synchronize.
+		Go(func() {
+			ch <- []byte("sync-msg")
+		})
 
 	msg := <-sub.Ch
 	if string(msg) != "sync-msg" {

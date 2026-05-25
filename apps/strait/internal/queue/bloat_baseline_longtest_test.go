@@ -19,6 +19,7 @@ import (
 	"strait/internal/store"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/sourcegraph/conc"
 )
 
 func TestQueueBloatBaseline(t *testing.T) {
@@ -195,7 +196,8 @@ func runQueueBaseline(
 	job := mustCreateJobTB(tb, ctx, st, cfg.ProjectID)
 
 	notifyCtx, stopNotify := context.WithCancel(ctx)
-	notifyCount := startNotifyCounter(tb, notifyCtx)
+	notifyCount, waitNotify := startNotifyCounter(tb, notifyCtx)
+	defer waitNotify()
 	defer stopNotify()
 
 	beforeWAL := sampleWALBytes(ctx)
@@ -385,7 +387,7 @@ func exerciseBatchlogLeaseRedelivery(tb baselineTB, ctx context.Context, q *queu
 	return 1
 }
 
-func startNotifyCounter(tb baselineTB, ctx context.Context) *atomic.Int64 {
+func startNotifyCounter(tb baselineTB, ctx context.Context) (*atomic.Int64, func()) {
 	tb.Helper()
 	count := &atomic.Int64{}
 	conn, err := pgx.Connect(ctx, testDB.ConnStr)
@@ -396,7 +398,8 @@ func startNotifyCounter(tb baselineTB, ctx context.Context) *atomic.Int64 {
 		_ = conn.Close(context.Background())
 		tb.Fatalf("listen queue wake: %v", err)
 	}
-	go func() {
+	var concWG conc.WaitGroup
+	concWG.Go(func() {
 		defer conn.Close(context.Background()) //nolint:errcheck
 		for {
 			_, err := conn.WaitForNotification(ctx)
@@ -405,9 +408,9 @@ func startNotifyCounter(tb baselineTB, ctx context.Context) *atomic.Int64 {
 			}
 			count.Add(1)
 		}
-	}()
+	})
 	time.Sleep(100 * time.Millisecond)
-	return count
+	return count, concWG.Wait
 }
 
 func sampleRelationBloat(tb baselineTB, ctx context.Context) []loadtest.RelationBloatSample {

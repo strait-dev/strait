@@ -1645,6 +1645,8 @@ func TestDecrMonthlyRunCount_NilRedis(t *testing.T) {
 // TestDecrMonthlyRunCount_Parallel verifies that parallel incr/decr operations
 // leave the counter consistent (no race condition, no negative value).
 func TestDecrMonthlyRunCount_Parallel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 	enforcer, store, mr := setupEnforcer(t)
 	ctx := context.Background()
@@ -1655,17 +1657,17 @@ func TestDecrMonthlyRunCount_Parallel(t *testing.T) {
 
 	const ops = 50
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		for range ops {
 			_ = enforcer.CheckMonthlyRunLimit(ctx, "org-parallel")
 		}
 		close(done)
-	}()
-	go func() {
+	})
+	concWG.Go(func() {
 		for range ops {
 			enforcer.DecrMonthlyRunCount(ctx, "org-parallel")
 		}
-	}()
+	})
 	<-done
 
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})

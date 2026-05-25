@@ -745,6 +745,8 @@ func TestBatchFlusher_AdvisoryLockError(t *testing.T) {
 }
 
 func TestBatchFlusher_RunStopsOnCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	bs := &mockBatchStore{}
@@ -753,10 +755,10 @@ func TestBatchFlusher_RunStopsOnCancel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		flusher.Run(ctx)
 		close(done)
-	}()
+	})
 
 	cancel()
 	select {
@@ -1344,16 +1346,18 @@ func TestStaleSubscriptionChecker_Check_LockerNotAcquired(t *testing.T) {
 }
 
 func TestStaleSubscriptionChecker_Run_StopsOnCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 	s := &advMockStaleSubStore{}
 	c := NewStaleSubscriptionChecker(s, 50*time.Millisecond)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		c.Run(ctx)
 		close(done)
-	}()
+	})
 
 	cancel()
 	select {

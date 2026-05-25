@@ -154,6 +154,8 @@ func TestLoad_DefaultBooleans(t *testing.T) {
 		{"ClickHouseExportEnabled", cfg.ClickHouseExportEnabled},
 		{"OTLPMetricEnabled", cfg.OTLPMetricEnabled},
 		{"BillingEnforcementEnabled", cfg.BillingEnforcementEnabled},
+		{"ProfilingEnabled", cfg.ProfilingEnabled},
+		{"ProfilingManagementEnabled", cfg.ProfilingManagementEnabled},
 	}
 
 	for _, tt := range falseFields {
@@ -162,6 +164,22 @@ func TestLoad_DefaultBooleans(t *testing.T) {
 				t.Fatalf("%s = true, want false", tt.name)
 			}
 		})
+	}
+
+	if !cfg.ProfilingAPIEnabled {
+		t.Fatal("ProfilingAPIEnabled = false, want true")
+	}
+	if cfg.ProfilingManagementBindAddr != "127.0.0.1" {
+		t.Fatalf("ProfilingManagementBindAddr = %q, want 127.0.0.1", cfg.ProfilingManagementBindAddr)
+	}
+	if cfg.ProfilingManagementPort != 18080 {
+		t.Fatalf("ProfilingManagementPort = %d, want 18080", cfg.ProfilingManagementPort)
+	}
+	if cfg.ProfilingMutexFraction != 100 {
+		t.Fatalf("ProfilingMutexFraction = %d, want 100", cfg.ProfilingMutexFraction)
+	}
+	if cfg.ProfilingBlockRate != 100000 {
+		t.Fatalf("ProfilingBlockRate = %d, want 100000", cfg.ProfilingBlockRate)
 	}
 }
 
@@ -468,6 +486,14 @@ func TestLoad_BoolOverrides(t *testing.T) {
 	t.Setenv("ENFORCE_REGION_GATING", "true")
 	t.Setenv("OTLP_METRIC_ENABLED", "true")
 	t.Setenv("CORS_ALLOW_CREDENTIALS", "true")
+	t.Setenv("STRAIT_PROFILING_ENABLED", "true")
+	t.Setenv("STRAIT_PROFILING_API_ENABLED", "false")
+	t.Setenv("STRAIT_PROFILING_MANAGEMENT_ENABLED", "true")
+	t.Setenv("STRAIT_PROFILING_MANAGEMENT_BIND_ADDR", "127.0.0.2")
+	t.Setenv("STRAIT_PROFILING_MANAGEMENT_PORT", "28080")
+	t.Setenv("STRAIT_PROFILING_MUTEX_FRACTION", "50")
+	t.Setenv("STRAIT_PROFILING_BLOCK_RATE", "250000")
+	t.Setenv("STRAIT_PROFILING_SECRET", "pprof-secret-value")
 
 	cfg, err := Load()
 	if err != nil {
@@ -500,6 +526,30 @@ func TestLoad_BoolOverrides(t *testing.T) {
 	}
 	if !cfg.CORSAllowCredentials {
 		t.Fatal("CORSAllowCredentials = false, want true")
+	}
+	if !cfg.ProfilingEnabled {
+		t.Fatal("ProfilingEnabled = false, want true")
+	}
+	if cfg.ProfilingAPIEnabled {
+		t.Fatal("ProfilingAPIEnabled = true, want false")
+	}
+	if !cfg.ProfilingManagementEnabled {
+		t.Fatal("ProfilingManagementEnabled = false, want true")
+	}
+	if cfg.ProfilingManagementBindAddr != "127.0.0.2" {
+		t.Fatalf("ProfilingManagementBindAddr = %q, want 127.0.0.2", cfg.ProfilingManagementBindAddr)
+	}
+	if cfg.ProfilingManagementPort != 28080 {
+		t.Fatalf("ProfilingManagementPort = %d, want 28080", cfg.ProfilingManagementPort)
+	}
+	if cfg.ProfilingMutexFraction != 50 {
+		t.Fatalf("ProfilingMutexFraction = %d, want 50", cfg.ProfilingMutexFraction)
+	}
+	if cfg.ProfilingBlockRate != 250000 {
+		t.Fatalf("ProfilingBlockRate = %d, want 250000", cfg.ProfilingBlockRate)
+	}
+	if cfg.ProfilingSecret != "pprof-secret-value" {
+		t.Fatalf("ProfilingSecret = %q, want pprof-secret-value", cfg.ProfilingSecret)
 	}
 }
 
@@ -559,6 +609,87 @@ func TestLoad_SliceFields(t *testing.T) {
 		}
 		if cfg.WorkerPartitions[0] != "critical" {
 			t.Fatalf("WorkerPartitions[0] = %q, want critical", cfg.WorkerPartitions[0])
+		}
+	})
+
+	t.Run("profiling allowed CIDRs", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("STRAIT_PROFILING_ALLOWED_CIDRS", "127.0.0.1/32,10.0.0.0/8")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(cfg.ProfilingAllowedCIDRs) != 2 {
+			t.Fatalf("len(ProfilingAllowedCIDRs) = %d, want 2", len(cfg.ProfilingAllowedCIDRs))
+		}
+		if cfg.ProfilingAllowedCIDRs[0] != "127.0.0.1/32" {
+			t.Fatalf("ProfilingAllowedCIDRs[0] = %q, want 127.0.0.1/32", cfg.ProfilingAllowedCIDRs[0])
+		}
+	})
+}
+
+func TestLoad_ProfilingSecurityValidation(t *testing.T) {
+	t.Run("short profiling secret rejected", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("STRAIT_PROFILING_SECRET", "short")
+
+		_, err := Load()
+		if err == nil || !strings.Contains(err.Error(), "STRAIT_PROFILING_SECRET") {
+			t.Fatalf("error = %v, want STRAIT_PROFILING_SECRET", err)
+		}
+	})
+
+	t.Run("invalid profiling CIDR rejected", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("STRAIT_PROFILING_ALLOWED_CIDRS", "127.0.0.1/32,not-a-cidr")
+
+		_, err := Load()
+		if err == nil || !strings.Contains(err.Error(), "STRAIT_PROFILING_ALLOWED_CIDRS") {
+			t.Fatalf("error = %v, want STRAIT_PROFILING_ALLOWED_CIDRS", err)
+		}
+	})
+
+	t.Run("enabled profiling requires listener", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("STRAIT_PROFILING_ENABLED", "true")
+		t.Setenv("STRAIT_PROFILING_API_ENABLED", "false")
+		t.Setenv("STRAIT_PROFILING_MANAGEMENT_ENABLED", "false")
+
+		_, err := Load()
+		if err == nil || !strings.Contains(err.Error(), "STRAIT_PROFILING_ENABLED") {
+			t.Fatalf("error = %v, want STRAIT_PROFILING_ENABLED", err)
+		}
+	})
+
+	t.Run("invalid management port rejected", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("STRAIT_PROFILING_MANAGEMENT_ENABLED", "true")
+		t.Setenv("STRAIT_PROFILING_MANAGEMENT_PORT", "70000")
+
+		_, err := Load()
+		if err == nil || !strings.Contains(err.Error(), "STRAIT_PROFILING_MANAGEMENT_PORT") {
+			t.Fatalf("error = %v, want STRAIT_PROFILING_MANAGEMENT_PORT", err)
+		}
+	})
+
+	t.Run("negative mutex profiling fraction rejected", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("STRAIT_PROFILING_MUTEX_FRACTION", "-1")
+
+		_, err := Load()
+		if err == nil || !strings.Contains(err.Error(), "STRAIT_PROFILING_MUTEX_FRACTION") {
+			t.Fatalf("error = %v, want STRAIT_PROFILING_MUTEX_FRACTION", err)
+		}
+	})
+
+	t.Run("negative block profiling rate rejected", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("STRAIT_PROFILING_BLOCK_RATE", "-1")
+
+		_, err := Load()
+		if err == nil || !strings.Contains(err.Error(), "STRAIT_PROFILING_BLOCK_RATE") {
+			t.Fatalf("error = %v, want STRAIT_PROFILING_BLOCK_RATE", err)
 		}
 	})
 }

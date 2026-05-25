@@ -572,6 +572,10 @@ type Server struct {
 	// means XFF is ignored entirely (fail-safe default).
 	trustedProxies []net.IPNet
 
+	// profilingAllowedCIDRs is an optional allowlist for /debug/pprof.
+	// Empty means any authenticated caller may access pprof.
+	profilingAllowedCIDRs []net.IPNet
+
 	// SSE connection limiters to prevent goroutine/connection exhaustion.
 	sseGlobalConns  atomic.Int64
 	sseProjectConns sync.Map // map[string]*atomic.Int64
@@ -822,6 +826,10 @@ func NewServer(deps ServerDeps) *Server {
 		srv.trustedProxies = parseTrustedProxies(deps.Config.TrustedProxies)
 		if len(deps.Config.TrustedProxies) > 0 && len(srv.trustedProxies) == 0 {
 			slog.Warn("TRUSTED_PROXIES configured but no valid CIDR/IP entries parsed; X-Forwarded-For will be ignored")
+		}
+		srv.profilingAllowedCIDRs = parseTrustedProxies(deps.Config.ProfilingAllowedCIDRs)
+		if len(deps.Config.ProfilingAllowedCIDRs) > 0 && len(srv.profilingAllowedCIDRs) == 0 {
+			slog.Warn("STRAIT_PROFILING_ALLOWED_CIDRS configured but no valid CIDR/IP entries parsed; pprof CIDR allowlist disabled")
 		}
 	}
 

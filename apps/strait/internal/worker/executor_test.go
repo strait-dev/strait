@@ -1144,6 +1144,8 @@ func TestExecutor_Poll_EmptyQueue(t *testing.T) {
 }
 
 func TestExecutor_GracefulShutdown(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 	jobStarted := make(chan struct{})
 	jobCanProceed := make(chan struct{})
@@ -1204,10 +1206,10 @@ func TestExecutor_GracefulShutdown(t *testing.T) {
 	})
 
 	runDone := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		exec.Run(ctx)
 		close(runDone)
-	}()
+	})
 
 	select {
 	case <-jobStarted:
@@ -1226,10 +1228,10 @@ func TestExecutor_GracefulShutdown(t *testing.T) {
 	close(jobCanProceed)
 
 	shutdownDone := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		_ = pool.Shutdown(context.Background())
 		close(shutdownDone)
-	}()
+	})
 
 	select {
 	case <-shutdownDone:
@@ -1253,6 +1255,8 @@ func TestExecutor_GracefulShutdown(t *testing.T) {
 }
 
 func TestExecutor_Run_PollsOnWakeSignal(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	wake := make(chan struct{}, 1)
@@ -1282,10 +1286,10 @@ func TestExecutor_Run_PollsOnWakeSignal(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		exec.Run(ctx)
 		close(done)
-	}()
+	})
 
 	wake <- struct{}{}
 
@@ -1304,6 +1308,8 @@ func TestExecutor_Run_PollsOnWakeSignal(t *testing.T) {
 }
 
 func TestExecutor_Run_DegradedModeShortensPollInterval(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	wake := make(chan struct{}, 1)
@@ -1336,10 +1342,10 @@ func TestExecutor_Run_DegradedModeShortensPollInterval(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		exec.Run(ctx)
 		close(done)
-	}()
+	})
 
 	// Close the degraded channel to simulate notifier entering degraded mode.
 	close(degradedCh)
@@ -1382,6 +1388,8 @@ func (r *rearmDegradedNotifier) Degraded() <-chan struct{} {
 }
 
 func TestExecutor_DegradedRecoveryDoesNotReenterOnStaleChannel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	wake := make(chan struct{}, 1)
@@ -1418,10 +1426,10 @@ func TestExecutor_DegradedRecoveryDoesNotReenterOnStaleChannel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		exec.Run(ctx)
 		close(done)
-	}()
+	})
 
 	// The first Degraded() call returns closedCh, so the executor should
 	// enter degraded mode and start fast polling.
@@ -1453,6 +1461,8 @@ func TestExecutor_DegradedRecoveryDoesNotReenterOnStaleChannel(t *testing.T) {
 }
 
 func TestExecutor_Shutdown_NoInFlight(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	exec := newTestExecutor(t, &mockExecutorStore{}, &mockExecQueue{}, time.Hour, nil)
@@ -1460,10 +1470,10 @@ func TestExecutor_Shutdown_NoInFlight(t *testing.T) {
 	t.Cleanup(cancel)
 
 	runDone := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		exec.Run(ctx)
 		close(runDone)
-	}()
+	})
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), time.Second)
 	defer shutdownCancel()
@@ -1480,6 +1490,8 @@ func TestExecutor_Shutdown_NoInFlight(t *testing.T) {
 }
 
 func TestExecutor_Shutdown_WaitsForInFlight(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	pollStarted := make(chan struct{})
@@ -1517,20 +1529,20 @@ func TestExecutor_Shutdown_WaitsForInFlight(t *testing.T) {
 	runCtx, runCancel := context.WithCancel(context.Background())
 	t.Cleanup(runCancel)
 	runDone := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		exec.Run(runCtx)
 		close(runDone)
-	}()
+	})
 
 	wake <- struct{}{}
 	waitForSignal(t, pollStarted, "poll did not start")
 
 	shutdownDone := make(chan error, 1)
-	go func() {
+	concWG.Go(func() {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer shutdownCancel()
 		shutdownDone <- exec.Shutdown(shutdownCtx)
-	}()
+	})
 
 	select {
 	case err := <-shutdownDone:
@@ -1557,6 +1569,8 @@ func TestExecutor_Shutdown_WaitsForInFlight(t *testing.T) {
 }
 
 func TestExecutor_Shutdown_Timeout(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	pollStarted := make(chan struct{})
@@ -1593,10 +1607,10 @@ func TestExecutor_Shutdown_Timeout(t *testing.T) {
 
 	runCtx, runCancel := context.WithCancel(context.Background())
 	runDone := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		exec.Run(runCtx)
 		close(runDone)
-	}()
+	})
 
 	wake <- struct{}{}
 	waitForSignal(t, pollStarted, "poll did not start")
@@ -1692,6 +1706,8 @@ func TestExecutor_Execute_StatusTransitionFails(t *testing.T) {
 }
 
 func TestHeartbeatSender_Run(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 	beats := make(chan struct{}, 10)
 	store := &mockExecutorStore{}
@@ -1706,10 +1722,10 @@ func TestHeartbeatSender_Run(t *testing.T) {
 	hb := NewHeartbeatSender(store, 10*time.Millisecond)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		hb.Run(ctx, "run-1")
 		close(done)
-	}()
+	})
 
 	for i := range 2 {
 		select {
@@ -2009,6 +2025,8 @@ func TestSendWebhookWithRetry_DefaultMaxAttempts(t *testing.T) {
 }
 
 func TestSendWebhookWithRetry_ContextCanceled(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 	var attempts atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -2021,8 +2039,7 @@ func TestSendWebhookWithRetry_ContextCanceled(t *testing.T) {
 
 	job := &domain.Job{WebhookURL: srv.URL}
 	run := &domain.JobRun{ID: "run-1", Status: domain.StatusFailed}
-
-	go func() {
+	concWG.Go(func() {
 		deadline := time.Now().Add(2 * time.Second)
 		for time.Now().Before(deadline) {
 			if attempts.Load() >= 1 {
@@ -2031,7 +2048,7 @@ func TestSendWebhookWithRetry_ContextCanceled(t *testing.T) {
 			time.Sleep(time.Millisecond)
 		}
 		cancel()
-	}()
+	})
 
 	result := SendWebhookWithRetry(ctx, job, run, 3)
 	if result.Delivered {

@@ -4,6 +4,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/sourcegraph/conc"
 )
 
 // TestReserveWorkerForQueue_AtomicDecrement verifies that picking + slot
@@ -13,6 +15,8 @@ import (
 // multiple reservers see SlotsAvailable=1 and all decrement, driving the
 // counter negative (or to 0 with N tasks routed to a 1-slot worker).
 func TestReserveWorkerForQueue_AtomicDecrement(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 	const racers = 100
 	r := NewConnectionRegistry()
@@ -26,7 +30,7 @@ func TestReserveWorkerForQueue_AtomicDecrement(t *testing.T) {
 	wg.Add(racers)
 	start := make(chan struct{})
 	for range racers {
-		go func() {
+		concWG.Go(func() {
 			defer wg.Done()
 			<-start
 			id, sendCh, ok := r.ReserveWorkerForQueue("proj-a", "q", "")
@@ -39,7 +43,7 @@ func TestReserveWorkerForQueue_AtomicDecrement(t *testing.T) {
 					t.Error("sendCh nil for ok reservation")
 				}
 			}
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()

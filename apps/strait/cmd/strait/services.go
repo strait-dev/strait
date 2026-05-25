@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"net"
 	"net/http"
+	"strconv"
 	"time"
 
 	"strait/internal/api"
@@ -16,6 +18,7 @@ import (
 	"strait/internal/cdc"
 	"strait/internal/clickhouse"
 	"strait/internal/config"
+	"strait/internal/debug"
 	"strait/internal/domain"
 	"strait/internal/health"
 	"strait/internal/httputil"
@@ -96,6 +99,30 @@ func logWorkerShutdownComplete(logger *slog.Logger, metrics *telemetry.Metrics, 
 	if metrics != nil {
 		metrics.ShutdownTotal.Add(context.Background(), 1, metric.WithAttributes(attribute.String("reason", reason)))
 	}
+}
+
+func logProfilingStartup(logger *slog.Logger, cfg *config.Config) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	if cfg == nil || !cfg.ProfilingEnabled {
+		logger.Info("pprof profiling disabled")
+		return
+	}
+
+	args := []any{
+		"profiling_secret_configured", cfg.ProfilingSecret != "",
+		"cidr_allowlist_configured", len(cfg.ProfilingAllowedCIDRs) > 0,
+		"api_listener", profilingAPIListenerEnabled(cfg),
+		"management_listener", profilingManagementListenerEnabled(cfg),
+		"mutex_fraction", cfg.ProfilingMutexFraction,
+		"block_rate", cfg.ProfilingBlockRate,
+		"cpu_profile_max_seconds", debug.MaxPprofProfileSeconds,
+	}
+	if profilingManagementListenerEnabled(cfg) {
+		args = append(args, "management_bind_addr", profilingManagementAddr(cfg))
+	}
+	logger.Warn("pprof profiling enabled", args...)
 }
 
 // connectDatabase creates and verifies a Postgres connection pool.
@@ -562,6 +589,62 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		defer shutdownCancel()
 		return httpServer.Shutdown(shutdownCtx)
 	})
+}
+
+func startProfilingServer(g *pool.ContextPool, cfg *config.Config, rdb *redis.Client, metrics *telemetry.Metrics, version string) {
+	if !profilingManagementListenerEnabled(cfg) {
+		return
+	}
+
+	handler := api.NewProfilingHandler(api.ProfilingHandlerDeps{
+		Config:      cfg,
+		RedisClient: rdb,
+		Metrics:     metrics,
+		Edition:     domain.ParseEdition(cfg.Edition),
+		Version:     version,
+	})
+	httpServer := &http.Server{
+		Addr:              profilingManagementAddr(cfg),
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      90 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+
+	g.Go(func(context.Context) error {
+		slog.Info("profiling management server listening", "addr", httpServer.Addr)
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			return fmt.Errorf("profiling management server: %w", err)
+		}
+		return nil
+	})
+
+	g.Go(func(ctx context.Context) error {
+		<-ctx.Done()
+		slog.Info("shutting down profiling management server")
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer shutdownCancel()
+		return httpServer.Shutdown(shutdownCtx)
+	})
+}
+
+func profilingManagementListenerEnabled(cfg *config.Config) bool {
+	return cfg != nil && cfg.ProfilingEnabled && cfg.ProfilingManagementEnabled
+}
+
+func profilingAPIListenerEnabled(cfg *config.Config) bool {
+	if cfg == nil || !cfg.ProfilingEnabled {
+		return false
+	}
+	if cfg.ProfilingManagementEnabled && !cfg.ProfilingAPIEnabled {
+		return false
+	}
+	return cfg.ProfilingAPIEnabled || !cfg.ProfilingManagementEnabled
+}
+
+func profilingManagementAddr(cfg *config.Config) string {
+	return net.JoinHostPort(cfg.ProfilingManagementBindAddr, strconv.Itoa(cfg.ProfilingManagementPort))
 }
 
 // startGRPCServer starts the gRPC server for the Worker streaming API.

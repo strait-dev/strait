@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"strait/internal/queue"
+
+	"github.com/sourcegraph/conc"
 )
 
 type fakeBPSampler struct {
@@ -80,6 +82,8 @@ func TestBackpressureSampler_TickSwallowsError(t *testing.T) {
 }
 
 func TestBackpressureSampler_RunHonoursContext(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 	m, err := queue.Metrics()
 	if err != nil {
@@ -89,10 +93,10 @@ func TestBackpressureSampler_RunHonoursContext(t *testing.T) {
 	s := NewBackpressureSampler(fake, m, 5*time.Millisecond, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		s.Run(ctx)
 		close(done)
-	}()
+	})
 	time.Sleep(25 * time.Millisecond)
 	cancel()
 	select {

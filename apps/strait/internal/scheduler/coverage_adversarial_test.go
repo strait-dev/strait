@@ -23,6 +23,8 @@ import (
 // ---------------------------------------------------------------------------.
 
 func TestGraceEnforcer_Run_StopsOnCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	pastGrace := time.Now().Add(-1 * time.Hour)
@@ -35,10 +37,10 @@ func TestGraceEnforcer_Run_StopsOnCancel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		g.Run(ctx)
 		close(done)
-	}()
+	})
 
 	cancel()
 	select {
@@ -279,6 +281,8 @@ func TestGraceEnforcer_WithEnforcer(t *testing.T) {
 // ---------------------------------------------------------------------------.
 
 func TestUsageFlusher_Run_StopsOnCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	s := &mockUsageFlusherStore{}
@@ -286,10 +290,10 @@ func TestUsageFlusher_Run_StopsOnCancel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		uf.Run(ctx)
 		close(done)
-	}()
+	})
 
 	cancel()
 	select {
@@ -436,6 +440,8 @@ func TestUsageFlusher_UpsertError_ContinuesOtherRecords(t *testing.T) {
 // ---------------------------------------------------------------------------.
 
 func TestDowngradeApplier_Run_StopsOnCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	store := &advMockDowngradeStore{
@@ -447,10 +453,10 @@ func TestDowngradeApplier_Run_StopsOnCancel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		d.Run(ctx)
 		close(done)
-	}()
+	})
 
 	cancel()
 	select {
@@ -707,6 +713,8 @@ func TestBudgetMonitor_CheckRunLimitWarnings_Dedup(t *testing.T) {
 // ---------------------------------------------------------------------------.
 
 func TestConcurrentReconciler_Run_StopsOnCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	enforcer := newTestEnforcer(t)
@@ -714,10 +722,10 @@ func TestConcurrentReconciler_Run_StopsOnCancel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		r.Run(ctx)
 		close(done)
-	}()
+	})
 
 	cancel()
 	select {
@@ -1211,6 +1219,8 @@ func TestDebouncePoller_WithTags(t *testing.T) {
 }
 
 func TestDebouncePoller_Run_StopsOnCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	ds := &mockDebounceStore{}
@@ -1219,10 +1229,10 @@ func TestDebouncePoller_Run_StopsOnCancel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		poller.Run(ctx)
 		close(done)
-	}()
+	})
 
 	cancel()
 	select {
@@ -1324,6 +1334,8 @@ func TestAnomalyMonitor_AdvisoryLockerReleaseError(t *testing.T) {
 }
 
 func TestAnomalyMonitor_Run_StopsOnCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	s := &mockAnomalyMonitorStore{
@@ -1335,10 +1347,10 @@ func TestAnomalyMonitor_Run_StopsOnCancel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		am.Run(ctx)
 		close(done)
-	}()
+	})
 
 	cancel()
 	select {
@@ -1524,6 +1536,8 @@ func TestSafeGo_RecoversPanic(t *testing.T) {
 // ---------------------------------------------------------------------------.
 
 func TestMemoryCleanup_Run_StopsOnCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	s := &advMockMemoryStore{}
@@ -1531,10 +1545,10 @@ func TestMemoryCleanup_Run_StopsOnCancel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		mc.Run(ctx)
 		close(done)
-	}()
+	})
 
 	cancel()
 	select {

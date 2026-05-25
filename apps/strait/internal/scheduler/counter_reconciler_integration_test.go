@@ -15,6 +15,7 @@ import (
 	"strait/internal/testutil"
 
 	"github.com/google/uuid"
+	"github.com/sourcegraph/conc"
 )
 
 func setupReconciler(t *testing.T) (*testutil.TestDB, *store.Queries, *queue.PostgresQueue, *domain.Job) {
@@ -45,6 +46,8 @@ func setupReconciler(t *testing.T) (*testutil.TestDB, *store.Queries, *queue.Pos
 }
 
 func TestCounterReconciler_HappyPath_ZeroDrift(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	tdb, _, q, job := setupReconciler(t)
 	ctx := context.Background()
 
@@ -66,10 +69,10 @@ func TestCounterReconciler_HappyPath_ZeroDrift(t *testing.T) {
 	r := scheduler.NewCounterReconciler(tdb.Pool, scheduler.CounterReconcilerConfig{})
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		r.Run(runCtx)
 		close(done)
-	}()
+	})
 	time.Sleep(100 * time.Millisecond)
 	cancel()
 	<-done
