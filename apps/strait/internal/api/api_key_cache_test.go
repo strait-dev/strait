@@ -174,3 +174,38 @@ func TestAPIKeyCache_RedisL2BackfillAndCachebusInvalidate(t *testing.T) {
 		t.Fatalf("loader calls after invalidate = %d, want 1", loads.Load())
 	}
 }
+
+func TestAPIKeyCache_StrongModeFallsBackToDBWhenRedisEntryMissing(t *testing.T) {
+	t.Parallel()
+
+	registry := straitcache.NewRegistry(straitcache.RegistryConfig{Origin: "node-a"})
+	deps, cleanup := newTestRedisCacheDeps(t, registry)
+	defer cleanup()
+	cache := newAPIKeyCache(time.Minute, deps)
+	cache.Set(context.Background(), &domain.APIKey{ID: "key-1", ProjectID: "proj-1", KeyHash: "hash-1"})
+
+	if _, err := cache.Get(context.Background(), "hash-1", func(context.Context, string) (*domain.APIKey, error) {
+		t.Fatal("loader should not run while Redis L2 is warm")
+		return nil, nil
+	}); err != nil {
+		t.Fatalf("Get() warm error = %v", err)
+	}
+
+	if err := deps.Redis.Del(context.Background(), "strait:cache:"+apiKeyAuthCacheNamespace+":hash-1").Err(); err != nil {
+		t.Fatalf("delete redis cache entry: %v", err)
+	}
+	var loads atomic.Int64
+	got, err := cache.Get(context.Background(), "hash-1", func(context.Context, string) (*domain.APIKey, error) {
+		loads.Add(1)
+		return nil, store.ErrAPIKeyNotFound
+	})
+	if err != nil {
+		t.Fatalf("Get() after Redis delete error = %v", err)
+	}
+	if got != nil {
+		t.Fatalf("Get() after Redis delete = %+v, want DB-confirmed nil", got)
+	}
+	if loads.Load() != 1 {
+		t.Fatalf("loader calls = %d, want 1", loads.Load())
+	}
+}

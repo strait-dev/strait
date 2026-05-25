@@ -59,6 +59,7 @@ func newPermissionCache(ttl time.Duration, deps ...apiCacheDeps) *permissionCach
 			MaximumSize: 10_000,
 			TTL:         ttl,
 			TTLJitter:   0.1,
+			DisableL1:   l2 != nil,
 			DisableL2:   l2 == nil,
 			Clone: func(perms []string) []string {
 				if perms == nil {

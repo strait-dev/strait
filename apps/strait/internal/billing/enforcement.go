@@ -243,6 +243,7 @@ func NewEnforcer(store Store, rdb redis.Cmdable, logger *slog.Logger, opts ...En
 		MaximumSize: 1_000,
 		TTL:         cacheTTL,
 		TTLJitter:   0.1,
+		DisableL1:   l2 != nil,
 		DisableL2:   l2 == nil,
 		Clone: func(limits *cachedOrgLimits) *cachedOrgLimits {
 			if limits == nil {
@@ -411,7 +412,7 @@ func (e *Enforcer) getEnforcementMode(orgID string) string {
 	if e == nil || e.orgCache == nil {
 		return "enforce"
 	}
-	if cached, ok := e.orgCache.GetIfPresent(orgID); ok && cached != nil {
+	if cached, err := e.orgCache.Get(context.Background(), orgID, nil); err == nil && cached != nil {
 		if cached.enforcementMode != "" {
 			return cached.enforcementMode
 		}

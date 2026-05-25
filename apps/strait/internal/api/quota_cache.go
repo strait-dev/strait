@@ -64,6 +64,7 @@ func newQuotaCache(
 			MaximumSize:    10_000,
 			TTL:            ttl,
 			TTLJitter:      0.1,
+			DisableL1:      l2 != nil,
 			DisableL2:      l2 == nil,
 			EnableNegative: true,
 			Clone: func(quota *store.ProjectQuota) *store.ProjectQuota {

@@ -54,6 +54,7 @@ func newAPIKeyCache(ttl time.Duration, deps ...apiCacheDeps) *apiKeyCache {
 		TTLJitter:      0.1,
 		RefreshAfter:   refreshAfter,
 		EnableNegative: true,
+		DisableL1:      l2 != nil,
 		DisableL2:      l2 == nil,
 		Clone:          cloneAPIKeyForAuthCache,
 		Sanitize:       sanitizeAPIKeyForAuthCache,
