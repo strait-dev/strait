@@ -22,6 +22,31 @@ func TestNewTransactionMetric(t *testing.T) {
 	}
 }
 
+func TestNewRuntimeMetric(t *testing.T) {
+	metric := NewRuntimeMetric("trigger", 10, 50, 4096, 20, 10, 5)
+
+	if metric.AllocsPerOp != 5 {
+		t.Fatalf("AllocsPerOp = %f, want 5", metric.AllocsPerOp)
+	}
+	if metric.BytesPerOp != 409.6 {
+		t.Fatalf("BytesPerOp = %f, want 409.6", metric.BytesPerOp)
+	}
+	if metric.SpansPerOp != 2 {
+		t.Fatalf("SpansPerOp = %f, want 2", metric.SpansPerOp)
+	}
+	if metric.RedisOpsPerOp != 1 {
+		t.Fatalf("RedisOpsPerOp = %f, want 1", metric.RedisOpsPerOp)
+	}
+	if metric.LogLinesPerOp != 0.5 {
+		t.Fatalf("LogLinesPerOp = %f, want 0.5", metric.LogLinesPerOp)
+	}
+
+	zero := NewRuntimeMetric("empty", 0, 50, 4096, 20, 10, 5)
+	if zero.AllocsPerOp != 0 || zero.BytesPerOp != 0 || zero.SpansPerOp != 0 {
+		t.Fatalf("zero operations metric = %+v, want zero ratios", zero)
+	}
+}
+
 func TestPerformanceBaselineReportMarkdown(t *testing.T) {
 	report := PerformanceBaselineReport{
 		Name:     "phase-1",
@@ -46,6 +71,9 @@ func TestPerformanceBaselineReportMarkdown(t *testing.T) {
 			P95Time:    500 * time.Millisecond,
 			WALBytes:   1024,
 		}},
+		Runtime: []RuntimeMetric{
+			NewRuntimeMetric("trigger", 10, 50, 4096, 20, 10, 5),
+		},
 		Complexity: []ComplexityLedgerEntry{{
 			Area:     "trigger admission",
 			Current:  ComplexityJobHistory,
@@ -59,6 +87,8 @@ func TestPerformanceBaselineReportMarkdown(t *testing.T) {
 		"# phase-1",
 		"core-api",
 		"trigger advisory lock",
+		"Runtime",
+		"Redis ops/op",
 		"Complexity Ledger",
 		"O(job_history)",
 	} {
@@ -70,8 +100,8 @@ func TestPerformanceBaselineReportMarkdown(t *testing.T) {
 
 func TestDefaultPerformanceComplexityLedger(t *testing.T) {
 	ledger := DefaultPerformanceComplexityLedger()
-	if len(ledger) < 7 {
-		t.Fatalf("ledger len = %d, want at least 7 hot paths", len(ledger))
+	if len(ledger) < 17 {
+		t.Fatalf("ledger len = %d, want at least 17 hot paths", len(ledger))
 	}
 
 	byArea := make(map[string]ComplexityLedgerEntry, len(ledger))
@@ -97,6 +127,9 @@ func TestDefaultPerformanceComplexityLedger(t *testing.T) {
 		{area: "enqueue idempotency", current: ComplexityProjectActive, target: ComplexityConstant},
 		{area: "job health stats", current: ComplexityJobHistory, target: ComplexityConstant},
 		{area: "workflow progression", current: ComplexityWorkflowSteps, target: ComplexityBatch},
+		{area: "endpoint circuit check", current: ComplexityStatement, target: ComplexityConstant},
+		{area: "health percentiles", current: ComplexityJobHistory, target: ComplexityConstant},
+		{area: "rate limit checks", current: ComplexityRequest, target: ComplexityConstant},
 	}
 	for _, tt := range tests {
 		t.Run(tt.area, func(t *testing.T) {
@@ -143,6 +176,9 @@ func TestComparePerformanceBaselineReports(t *testing.T) {
 		Transactions: []TransactionMetric{
 			NewTransactionMetric("trigger", 10, 60, 250),
 		},
+		Runtime: []RuntimeMetric{
+			NewRuntimeMetric("trigger", 10, 50, 4096, 20, 10, 5),
+		},
 		Bloat: []RelationBloatSample{{
 			Name:           "job_runs",
 			LiveTuples:     100,
@@ -184,6 +220,9 @@ func TestComparePerformanceBaselineReports(t *testing.T) {
 		Transactions: []TransactionMetric{
 			NewTransactionMetric("trigger", 10, 10, 90),
 		},
+		Runtime: []RuntimeMetric{
+			NewRuntimeMetric("trigger", 10, 10, 1024, 3, 0, 1),
+		},
 		Bloat: []RelationBloatSample{{
 			Name:           "job_runs",
 			LiveTuples:     100,
@@ -216,6 +255,12 @@ func TestComparePerformanceBaselineReports(t *testing.T) {
 	}
 	if comparison.TransactionDeltas[0].StatementsPerOpDelta != -16 {
 		t.Fatalf("StatementsPerOpDelta = %f, want -16", comparison.TransactionDeltas[0].StatementsPerOpDelta)
+	}
+	if comparison.RuntimeDeltas[0].AllocsPerOpDelta != -4 {
+		t.Fatalf("AllocsPerOpDelta = %f, want -4", comparison.RuntimeDeltas[0].AllocsPerOpDelta)
+	}
+	if comparison.RuntimeDeltas[0].RedisOpsPerOpDelta != -1 {
+		t.Fatalf("RedisOpsPerOpDelta = %f, want -1", comparison.RuntimeDeltas[0].RedisOpsPerOpDelta)
 	}
 	if len(comparison.ComplexityRegressions) != 0 {
 		t.Fatalf("ComplexityRegressions = %+v, want none", comparison.ComplexityRegressions)

@@ -16,6 +16,9 @@ const (
 	ComplexityProjectActive ComplexityClass = "O(project_active)"
 	ComplexityJobHistory    ComplexityClass = "O(job_history)"
 	ComplexityWorkflowSteps ComplexityClass = "O(workflow_steps)"
+	ComplexityRequest       ComplexityClass = "O(request)"
+	ComplexityStatement     ComplexityClass = "O(statement)"
+	ComplexityPayload       ComplexityClass = "O(payload)"
 )
 
 // ScenarioMetric captures the user-visible shape of one load scenario.
@@ -59,6 +62,28 @@ type TransactionMetric struct {
 	Statements        int64   `json:"statements"`
 	TransactionsPerOp float64 `json:"transactions_per_op"`
 	StatementsPerOp   float64 `json:"statements_per_op"`
+}
+
+// RuntimeMetric captures per-operation Go runtime and adjacent service costs.
+// These are the signals Volume II uses to rank serialization, allocation,
+// logging, tracing, Redis, and compression work after DB lock contention is gone.
+type RuntimeMetric struct {
+	Name              string        `json:"name"`
+	Operations        int64         `json:"operations"`
+	Allocs            int64         `json:"allocs"`
+	Bytes             int64         `json:"bytes"`
+	GCCount           int64         `json:"gc_count"`
+	GCPause           time.Duration `json:"gc_pause"`
+	Spans             int64         `json:"spans"`
+	RedisOps          int64         `json:"redis_ops"`
+	LogLines          int64         `json:"log_lines"`
+	CompressedBytes   int64         `json:"compressed_bytes"`
+	UncompressedBytes int64         `json:"uncompressed_bytes"`
+	AllocsPerOp       float64       `json:"allocs_per_op"`
+	BytesPerOp        float64       `json:"bytes_per_op"`
+	SpansPerOp        float64       `json:"spans_per_op"`
+	RedisOpsPerOp     float64       `json:"redis_ops_per_op"`
+	LogLinesPerOp     float64       `json:"log_lines_per_op"`
 }
 
 // ProfileArtifact records a profile generated during a benchmark run.
@@ -131,6 +156,76 @@ func DefaultPerformanceComplexityLedger() []ComplexityLedgerEntry {
 			Evidence:          "durable side effects should claim bounded batches with indexed ready rows",
 			ImprovementReason: "bounded leases keep flush cost proportional to claimed work",
 		},
+		{
+			Area:              "json envelopes",
+			Current:           ComplexityPayload,
+			Target:            ComplexityPayload,
+			Evidence:          "hot request and CDC envelopes use reflection-backed encoding/json until pprof proves exact cost",
+			ImprovementReason: "fast compatible encoders and generated marshaling reduce CPU/alloc per payload",
+		},
+		{
+			Area:              "request buffers",
+			Current:           ComplexityRequest,
+			Target:            ComplexityRequest,
+			Evidence:          "request decode/encode paths allocate fresh buffers except for logdrain NDJSON",
+			ImprovementReason: "pooled scratch buffers reduce GC churn without changing semantics",
+		},
+		{
+			Area:              "endpoint circuit check",
+			Current:           ComplexityStatement,
+			Target:            ComplexityConstant,
+			Evidence:          "CanDispatchEndpoint uses row-locking upsert/update CTE for a mostly read-shaped healthy check",
+			ImprovementReason: "read-first dispatch avoids writes and locks when the circuit is already closed",
+		},
+		{
+			Area:              "health percentiles",
+			Current:           ComplexityJobHistory,
+			Target:            ComplexityConstant,
+			Evidence:          "PERCENTILE_CONT sorts matching job_runs in synchronous health calls",
+			ImprovementReason: "hot paths need cheap counts; full percentiles can be async or observability-only",
+		},
+		{
+			Area:              "trigger read fanout",
+			Current:           ComplexityRequest,
+			Target:            ComplexityBatch,
+			Evidence:          "trigger path performs many independent reads as sequential Postgres round trips",
+			ImprovementReason: "pgx.Batch pipelines independent reads into one round trip",
+		},
+		{
+			Area:              "store spans",
+			Current:           ComplexityStatement,
+			Target:            ComplexityRequest,
+			Evidence:          "store and driver layers can both emit per-statement telemetry",
+			ImprovementReason: "request-level spans plus sampled DB detail reduce allocation/export tax",
+		},
+		{
+			Area:              "admission pressure",
+			Current:           ComplexityRequest,
+			Target:            ComplexityRequest,
+			Evidence:          "API backpressure reads occupancy, not acquire wait pressure",
+			ImprovementReason: "wait-time based shedding catches pool and lock contention before timeout cascades",
+		},
+		{
+			Area:              "rate limit checks",
+			Current:           ComplexityRequest,
+			Target:            ComplexityConstant,
+			Evidence:          "projectRateLimit uses one Redis Lua Eval per limited request",
+			ImprovementReason: "local-first and unlimited short-circuiting remove avoidable Redis round trips",
+		},
+		{
+			Area:              "access logging",
+			Current:           ComplexityRequest,
+			Target:            ComplexityConstant,
+			Evidence:          "requestLogger builds attrs and logs every 2xx request synchronously",
+			ImprovementReason: "sampled success logs preserve failures while reducing hot-path allocation and IO",
+		},
+		{
+			Area:              "openapi response",
+			Current:           ComplexityPayload,
+			Target:            ComplexityConstant,
+			Evidence:          "cached OpenAPI bytes are served uncompressed on every request",
+			ImprovementReason: "pre-compressed static bytes avoid per-request CPU and reduce response size",
+		},
 	}
 }
 
@@ -144,6 +239,7 @@ type PerformanceBaselineReport struct {
 	SQL          []SQLStatementMetric    `json:"sql"`
 	Waits        []WaitMetric            `json:"waits"`
 	Transactions []TransactionMetric     `json:"transactions"`
+	Runtime      []RuntimeMetric         `json:"runtime"`
 	Bloat        []RelationBloatSample   `json:"bloat"`
 	Profiles     []ProfileArtifact       `json:"profiles"`
 	Complexity   []ComplexityLedgerEntry `json:"complexity"`
@@ -159,6 +255,7 @@ type PerformanceBaselineComparison struct {
 	SQLDeltas             []SQLStatementDelta       `json:"sql_deltas"`
 	WaitDeltas            []WaitDelta               `json:"wait_deltas"`
 	TransactionDeltas     []TransactionDelta        `json:"transaction_deltas"`
+	RuntimeDeltas         []RuntimeDelta            `json:"runtime_deltas"`
 	BloatDeltas           []RelationBloatDelta      `json:"bloat_deltas"`
 	ComplexityRegressions []ComplexityLedgerEntry   `json:"complexity_regressions,omitempty"`
 }
@@ -192,6 +289,15 @@ type TransactionDelta struct {
 	StatementsPerOpDelta   float64 `json:"statements_per_op_delta"`
 }
 
+type RuntimeDelta struct {
+	Name               string  `json:"name"`
+	AllocsPerOpDelta   float64 `json:"allocs_per_op_delta"`
+	BytesPerOpDelta    float64 `json:"bytes_per_op_delta"`
+	SpansPerOpDelta    float64 `json:"spans_per_op_delta"`
+	RedisOpsPerOpDelta float64 `json:"redis_ops_per_op_delta"`
+	LogLinesPerOpDelta float64 `json:"log_lines_per_op_delta"`
+}
+
 func NewTransactionMetric(name string, operations, transactions, statements int64) TransactionMetric {
 	metric := TransactionMetric{
 		Name:         name,
@@ -206,6 +312,27 @@ func NewTransactionMetric(name string, operations, transactions, statements int6
 	return metric
 }
 
+func NewRuntimeMetric(name string, operations, allocs, bytes, spans, redisOps, logLines int64) RuntimeMetric {
+	metric := RuntimeMetric{
+		Name:       name,
+		Operations: operations,
+		Allocs:     allocs,
+		Bytes:      bytes,
+		Spans:      spans,
+		RedisOps:   redisOps,
+		LogLines:   logLines,
+	}
+	if operations > 0 {
+		ops := float64(operations)
+		metric.AllocsPerOp = float64(allocs) / ops
+		metric.BytesPerOp = float64(bytes) / ops
+		metric.SpansPerOp = float64(spans) / ops
+		metric.RedisOpsPerOp = float64(redisOps) / ops
+		metric.LogLinesPerOp = float64(logLines) / ops
+	}
+	return metric
+}
+
 func ComparePerformanceBaselineReports(name string, baseline, candidate PerformanceBaselineReport) PerformanceBaselineComparison {
 	return PerformanceBaselineComparison{
 		Name:                  name,
@@ -215,6 +342,7 @@ func ComparePerformanceBaselineReports(name string, baseline, candidate Performa
 		SQLDeltas:             compareSQLStatements(baseline.SQL, candidate.SQL),
 		WaitDeltas:            compareWaits(baseline.Waits, candidate.Waits),
 		TransactionDeltas:     compareTransactions(baseline.Transactions, candidate.Transactions),
+		RuntimeDeltas:         compareRuntime(baseline.Runtime, candidate.Runtime),
 		BloatDeltas:           CompareRelationBloatSamples(baseline.Bloat, candidate.Bloat, completedFromScenarios(candidate.Scenarios)),
 		ComplexityRegressions: complexityRegressions(baseline.Complexity, candidate.Complexity),
 	}
@@ -226,6 +354,7 @@ func (r PerformanceBaselineReport) Markdown() string {
 	fmt.Fprintf(&b, "- Duration: `%s`\n", r.Duration)
 	fmt.Fprintf(&b, "- Scenarios: `%d`\n", len(r.Scenarios))
 	fmt.Fprintf(&b, "- SQL families: `%d`\n", len(r.SQL))
+	fmt.Fprintf(&b, "- Runtime metrics: `%d`\n", len(r.Runtime))
 	fmt.Fprintf(&b, "- Complexity entries: `%d`\n\n", len(r.Complexity))
 
 	if len(r.Scenarios) > 0 {
@@ -257,6 +386,23 @@ func (r PerformanceBaselineReport) Markdown() string {
 				stmt.MeanTime,
 				stmt.P95Time,
 				stmt.WALBytes,
+			)
+		}
+		fmt.Fprintf(&b, "\n")
+	}
+
+	if len(r.Runtime) > 0 {
+		fmt.Fprintf(&b, "## Runtime\n\n")
+		fmt.Fprintf(&b, "| Path | Allocs/op | Bytes/op | Spans/op | Redis ops/op | Log lines/op |\n")
+		fmt.Fprintf(&b, "|---|---:|---:|---:|---:|---:|\n")
+		for _, metric := range sortedRuntime(r.Runtime) {
+			fmt.Fprintf(&b, "| `%s` | %.2f | %.2f | %.2f | %.2f | %.2f |\n",
+				metric.Name,
+				metric.AllocsPerOp,
+				metric.BytesPerOp,
+				metric.SpansPerOp,
+				metric.RedisOpsPerOp,
+				metric.LogLinesPerOp,
 			)
 		}
 		fmt.Fprintf(&b, "\n")
@@ -325,6 +471,23 @@ func (c PerformanceBaselineComparison) Markdown() string {
 				delta.Name,
 				delta.TransactionsPerOpDelta,
 				delta.StatementsPerOpDelta,
+			)
+		}
+		fmt.Fprintf(&b, "\n")
+	}
+
+	if len(c.RuntimeDeltas) > 0 {
+		fmt.Fprintf(&b, "## Runtime Deltas\n\n")
+		fmt.Fprintf(&b, "| Path | Allocs/op | Bytes/op | Spans/op | Redis ops/op | Log lines/op |\n")
+		fmt.Fprintf(&b, "|---|---:|---:|---:|---:|---:|\n")
+		for _, delta := range c.RuntimeDeltas {
+			fmt.Fprintf(&b, "| `%s` | %+.2f | %+.2f | %+.2f | %+.2f | %+.2f |\n",
+				delta.Name,
+				delta.AllocsPerOpDelta,
+				delta.BytesPerOpDelta,
+				delta.SpansPerOpDelta,
+				delta.RedisOpsPerOpDelta,
+				delta.LogLinesPerOpDelta,
 			)
 		}
 		fmt.Fprintf(&b, "\n")
@@ -412,6 +575,26 @@ func compareTransactions(baseline, candidate []TransactionMetric) []TransactionD
 	return out
 }
 
+func compareRuntime(baseline, candidate []RuntimeMetric) []RuntimeDelta {
+	base := runtimeMap(baseline)
+	cand := runtimeMap(candidate)
+	names := runtimeNames(baseline, candidate)
+	out := make([]RuntimeDelta, 0, len(names))
+	for _, name := range names {
+		a := base[name]
+		b := cand[name]
+		out = append(out, RuntimeDelta{
+			Name:               name,
+			AllocsPerOpDelta:   b.AllocsPerOp - a.AllocsPerOp,
+			BytesPerOpDelta:    b.BytesPerOp - a.BytesPerOp,
+			SpansPerOpDelta:    b.SpansPerOp - a.SpansPerOp,
+			RedisOpsPerOpDelta: b.RedisOpsPerOp - a.RedisOpsPerOp,
+			LogLinesPerOpDelta: b.LogLinesPerOp - a.LogLinesPerOp,
+		})
+	}
+	return out
+}
+
 func complexityRegressions(baseline, candidate []ComplexityLedgerEntry) []ComplexityLedgerEntry {
 	targets := make(map[string]ComplexityClass, len(baseline))
 	for _, entry := range baseline {
@@ -481,6 +664,14 @@ func waitMap(values []WaitMetric) map[string]WaitMetric {
 
 func transactionMap(values []TransactionMetric) map[string]TransactionMetric {
 	out := make(map[string]TransactionMetric, len(values))
+	for _, value := range values {
+		out[value.Name] = value
+	}
+	return out
+}
+
+func runtimeMap(values []RuntimeMetric) map[string]RuntimeMetric {
+	out := make(map[string]RuntimeMetric, len(values))
 	for _, value := range values {
 		out[value.Name] = value
 	}
@@ -563,6 +754,25 @@ func transactionNames(a, b []TransactionMetric) []string {
 	return names
 }
 
+func runtimeNames(a, b []RuntimeMetric) []string {
+	names := make([]string, 0, len(a)+len(b))
+	seen := make(map[string]bool, len(a)+len(b))
+	for _, value := range a {
+		if !seen[value.Name] {
+			names = append(names, value.Name)
+			seen[value.Name] = true
+		}
+	}
+	for _, value := range b {
+		if !seen[value.Name] {
+			names = append(names, value.Name)
+			seen[value.Name] = true
+		}
+	}
+	slices.Sort(names)
+	return names
+}
+
 func sortedScenarios(values []ScenarioMetric) []ScenarioMetric {
 	out := append([]ScenarioMetric(nil), values...)
 	slices.SortFunc(out, func(a, b ScenarioMetric) int {
@@ -574,6 +784,14 @@ func sortedScenarios(values []ScenarioMetric) []ScenarioMetric {
 func sortedSQL(values []SQLStatementMetric) []SQLStatementMetric {
 	out := append([]SQLStatementMetric(nil), values...)
 	slices.SortFunc(out, func(a, b SQLStatementMetric) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+	return out
+}
+
+func sortedRuntime(values []RuntimeMetric) []RuntimeMetric {
+	out := append([]RuntimeMetric(nil), values...)
+	slices.SortFunc(out, func(a, b RuntimeMetric) int {
 		return strings.Compare(a.Name, b.Name)
 	})
 	return out
