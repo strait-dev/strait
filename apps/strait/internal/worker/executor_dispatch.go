@@ -34,6 +34,8 @@ type redactedHTTPDispatchError struct {
 	err     error
 }
 
+const workflowStepVisibilityRetryDelay = 250 * time.Millisecond
+
 func (e *redactedHTTPDispatchError) Error() string {
 	return e.message
 }
@@ -236,6 +238,16 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 	policy := defaultExecutionPolicy(job)
 	resolved, policyErr := e.resolveExecutionPolicy(ctx, run, policy)
 	if policyErr != nil {
+		if errors.Is(policyErr, store.ErrWorkflowStepRunNotFound) {
+			retryAt := time.Now().Add(workflowStepVisibilityRetryDelay)
+			e.logger.Warn("workflow step run not visible yet; requeueing run",
+				"run_id", run.ID,
+				"workflow_step_run_id", run.WorkflowStepRunID,
+				"retry_at", retryAt,
+			)
+			e.snoozeRun(ctx, run, "workflow step run not visible yet", &retryAt)
+			return
+		}
 		e.logger.Error("failed to resolve execution policy", "run_id", run.ID, "error", policyErr)
 		e.handleSystemFailureWithJob(ctx, run, job, "resolve execution policy")
 		return
@@ -991,7 +1003,7 @@ func (e *Executor) resolveExecutionPolicy(ctx context.Context, run *domain.JobRu
 		if err != nil {
 			return fallback, err
 		}
-		return fallback, nil
+		return fallback, fmt.Errorf("%w: %s", store.ErrWorkflowStepRunNotFound, run.WorkflowStepRunID)
 	}
 
 	wfRun, err := e.store.GetWorkflowRun(ctx, stepRun.WorkflowRunID)

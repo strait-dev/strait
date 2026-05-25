@@ -12,15 +12,29 @@ import (
 	"strait/internal/domain"
 )
 
-func TestReaper_ReapStale(t *testing.T) {
+func TestReaper_ReapStale_RetriesWhenAttemptsRemain(t *testing.T) {
 	t.Parallel()
 	var transitioned atomic.Int32
+	var scheduled atomic.Int32
 	ms := &mockReaperStore{
 		listStaleRunsFn: func(_ context.Context, _ time.Duration) ([]domain.JobRun, error) {
 			return []domain.JobRun{
-				{ID: "run-1", JobID: "job-1", Status: domain.StatusExecuting},
-				{ID: "run-2", JobID: "job-2", Status: domain.StatusExecuting},
+				{ID: "run-1", JobID: "job-1", Status: domain.StatusExecuting, Attempt: 1},
+				{ID: "run-2", JobID: "job-2", Status: domain.StatusExecuting, Attempt: 1},
 			}, nil
+		},
+		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+			return &domain.Job{MaxAttempts: 3}, nil
+		},
+		scheduleRetryFn: func(_ context.Context, _ string, at time.Time, attempt int) error {
+			if at.Before(time.Now()) {
+				t.Errorf("expected future retry time, got %s", at)
+			}
+			if attempt != 2 {
+				t.Errorf("expected retry attempt=2, got %d", attempt)
+			}
+			scheduled.Add(1)
+			return nil
 		},
 		listExpiredRunsFn: func(_ context.Context) ([]domain.JobRun, error) {
 			return nil, nil
@@ -28,12 +42,15 @@ func TestReaper_ReapStale(t *testing.T) {
 		listStaleDequeuedFn: func(_ context.Context, _ time.Duration) ([]domain.JobRun, error) {
 			return nil, nil
 		},
-		updateRunStatusFn: func(_ context.Context, _ string, from, to domain.RunStatus, _ map[string]any) error {
+		updateRunStatusFn: func(_ context.Context, _ string, from, to domain.RunStatus, fields map[string]any) error {
 			if from != domain.StatusExecuting {
 				t.Errorf("expected from=executing, got %s", from)
 			}
-			if to != domain.StatusCrashed {
-				t.Errorf("expected to=crashed, got %s", to)
+			if to != domain.StatusQueued {
+				t.Errorf("expected to=queued, got %s", to)
+			}
+			if fields["attempt"] != 2 {
+				t.Errorf("expected attempt field=2, got %v", fields["attempt"])
 			}
 			transitioned.Add(1)
 			return nil
@@ -46,15 +63,20 @@ func TestReaper_ReapStale(t *testing.T) {
 	if transitioned.Load() != 2 {
 		t.Fatalf("expected 2 status transitions, got %d", transitioned.Load())
 	}
+	if scheduled.Load() != 2 {
+		t.Fatalf("expected 2 scheduled retries, got %d", scheduled.Load())
+	}
 }
 
-func TestReaper_ReapStale_RespectsLimit(t *testing.T) {
+func TestReaper_ReapStale_CrashesWhenAttemptsExhausted(t *testing.T) {
 	t.Parallel()
 	runs := make([]domain.JobRun, 1000)
 	for i := range runs {
 		runs[i] = domain.JobRun{
-			ID:     fmt.Sprintf("run-%03d", i),
-			Status: domain.StatusExecuting,
+			ID:      fmt.Sprintf("run-%03d", i),
+			JobID:   "job-1",
+			Status:  domain.StatusExecuting,
+			Attempt: 3,
 		}
 	}
 
@@ -62,6 +84,9 @@ func TestReaper_ReapStale_RespectsLimit(t *testing.T) {
 	ms := &mockReaperStore{
 		listStaleRunsFn: func(_ context.Context, _ time.Duration) ([]domain.JobRun, error) {
 			return runs, nil
+		},
+		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+			return &domain.Job{MaxAttempts: 3}, nil
 		},
 		listExpiredRunsFn: func(_ context.Context) ([]domain.JobRun, error) {
 			return nil, nil

@@ -104,6 +104,10 @@ func (m *mockSchedulerStore) UpdateRunStatus(ctx context.Context, id string, fro
 	return m.reaper.UpdateRunStatus(ctx, id, from, to, fields)
 }
 
+func (m *mockSchedulerStore) ScheduleRetry(_ context.Context, _ string, _ time.Time, _ int) error {
+	return nil
+}
+
 func (m *mockSchedulerStore) DeleteTerminalRunsPastRetention(ctx context.Context, shortRetention, longRetention time.Duration) (int64, error) {
 	return m.reaper.DeleteTerminalRunsPastRetention(ctx, shortRetention, longRetention)
 }
