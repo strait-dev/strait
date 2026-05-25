@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync/atomic"
 	"testing"
@@ -94,6 +95,31 @@ func TestPermissionCache_RedisL2BackfillAndCachebusInvalidate(t *testing.T) {
 	publishTestInvalidate(t, registryB, permissionCacheNamespace, cacheB.key("proj", "user"))
 	if _, ok := cacheB.Get("proj", "user"); ok {
 		t.Fatal("expected peer cache miss after cachebus invalidation")
+	}
+}
+
+func TestPermissionCache_SetWithVersionPreservesVersionInRedis(t *testing.T) {
+	t.Parallel()
+
+	registry := straitcache.NewRegistry(straitcache.RegistryConfig{Origin: "node-a"})
+	deps, cleanup := newTestRedisCacheDeps(t, registry)
+	defer cleanup()
+	cache := newPermissionCache(time.Minute, deps)
+
+	cache.SetWithVersion("proj", "user", []string{"jobs:read"}, 14)
+
+	raw, err := deps.Redis.Get(context.Background(), "strait:cache:"+permissionCacheNamespace+":"+cache.key("proj", "user")).Bytes()
+	if err != nil {
+		t.Fatalf("read redis entry: %v", err)
+	}
+	var envelope struct {
+		Version int64 `json:"version"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatalf("decode redis entry: %v", err)
+	}
+	if envelope.Version != 14 {
+		t.Fatalf("redis version = %d, want 14", envelope.Version)
 	}
 }
 

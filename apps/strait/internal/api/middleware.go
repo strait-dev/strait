@@ -935,14 +935,15 @@ func (s *Server) requirePermission(permission string) func(http.Handler) http.Ha
 
 				perms, cached := s.permCache.Get(projectID, actorID)
 				if !cached {
+					var version int64
 					var err error
-					perms, err = s.store.GetUserPermissions(ctx, projectID, actorID)
+					perms, version, err = s.loadUserPermissionsForCache(ctx, projectID, actorID)
 					if err != nil {
 						respondError(w, r, http.StatusInternalServerError, "failed to load permissions")
 						return
 					}
 					if perms != nil {
-						s.permCache.Set(projectID, actorID, perms)
+						s.permCache.SetWithVersion(projectID, actorID, perms, version)
 					}
 				}
 
@@ -1022,19 +1023,35 @@ func (s *Server) hasProjectPermission(ctx context.Context, permission string) bo
 		}
 		perms, cached := s.permCache.Get(projectID, actorID)
 		if !cached {
+			var version int64
 			var err error
-			perms, err = s.store.GetUserPermissions(ctx, projectID, actorID)
+			perms, version, err = s.loadUserPermissionsForCache(ctx, projectID, actorID)
 			if err != nil {
 				return false
 			}
 			if perms != nil {
-				s.permCache.Set(projectID, actorID, perms)
+				s.permCache.SetWithVersion(projectID, actorID, perms, version)
 			}
 		}
 		return domain.HasScopeStrict(perms, permission)
 	default:
 		return false
 	}
+}
+
+type versionedUserPermissionStore interface {
+	GetUserPermissionsWithVersion(ctx context.Context, projectID, userID string) ([]string, int64, error)
+}
+
+func (s *Server) loadUserPermissionsForCache(ctx context.Context, projectID, actorID string) ([]string, int64, error) {
+	if versioned, ok := s.store.(versionedUserPermissionStore); ok {
+		return versioned.GetUserPermissionsWithVersion(ctx, projectID, actorID)
+	}
+	perms, err := s.store.GetUserPermissions(ctx, projectID, actorID)
+	if err != nil {
+		return nil, 0, err
+	}
+	return perms, time.Now().UnixNano(), nil
 }
 
 // resourceFromRequest extracts the resource type and ID from the chi route context.

@@ -117,12 +117,19 @@ func (c *permissionCache) Get(projectID, userID string) ([]string, bool) {
 }
 
 func (c *permissionCache) Set(projectID, userID string, permissions []string) {
+	c.SetWithVersion(projectID, userID, permissions, time.Now().UnixNano())
+}
+
+func (c *permissionCache) SetWithVersion(projectID, userID string, permissions []string, version int64) {
 	if c == nil || c.disabled || c.inner == nil {
 		return
 	}
+	if version <= 0 {
+		version = 1
+	}
 	key := c.key(projectID, userID)
 	_, existed := c.inner.GetIfPresent(key)
-	_, _ = c.inner.WriteThrough(metricsCtx, key, permissions, time.Now().UnixNano(), c.bus, permissionCacheNamespace, key)
+	_, _ = c.inner.WriteThrough(metricsCtx, key, permissions, version, c.bus, permissionCacheNamespace, key)
 	c.trackProjectKey(projectID, key)
 	if !existed {
 		c.entriesUp.Add(metricsCtx, 1)
