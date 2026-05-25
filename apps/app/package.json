@@ -5,12 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev",
-    "build": "vite build",
-    "build:node": "BUILD_TARGET=node vite build",
-    "start": "wrangler dev",
-    "start:node": "node ./scripts/node-server.mjs",
+    "build": "bun run build:node",
+    "build:node": "STRAIT_APP_TARGET=node vite build",
+    "build:vercel": "STRAIT_APP_TARGET=vercel vite build",
+    "build:migrate": "bun build ./scripts/migrate-image.ts --target node --format esm --outfile .output/migrate.mjs",
+    "start": "node .output/server/index.mjs",
+    "start:node": "bun run start",
     "preview": "vite preview",
-    "deploy": "SENTRY_UPLOAD_SOURCEMAPS=true vite build && bun run sentry:upload-sourcemaps && wrangler deploy",
+    "deploy": "SENTRY_UPLOAD_SOURCEMAPS=true bun run build:vercel && bun run sentry:upload-sourcemaps",
     "sentry:upload-sourcemaps": "tsx scripts/sentry-sourcemaps.ts",
     "biome:lint": "biome lint ./src ./e2e",
     "biome:format": "biome format --write ./src ./e2e",
@@ -32,15 +34,14 @@
     "knip": "knip",
     "knip:fix": "knip --fix",
     "run-all": "bun run biome:fix:unsafe && bun run biome:format && bun run biome:write && bun run biome:lint && bun run typecheck",
-    "db:migrate": "node --import tsx --loader ./scripts/cloudflare-shim.mjs scripts/migrate.ts",
-    "db:migrate:dry": "node --import tsx --loader ./scripts/cloudflare-shim.mjs scripts/migrate.ts --dry",
-    "db:migrate:bun": "bun --preload ./scripts/cloudflare-shim-bun.mjs scripts/migrate.ts",
-    "clean": "git clean -xdf dist .turbo node_modules"
+    "db:migrate": "tsx scripts/migrate.ts",
+    "db:migrate:dry": "tsx scripts/migrate.ts --dry",
+    "db:migrate:bun": "bun scripts/migrate.ts",
+    "clean": "git clean -xdf .output .vercel dist .turbo node_modules"
   },
   "dependencies": {
     "@better-auth/oauth-provider": "^1.6.11",
     "@better-auth/passkey": "^1.6.11",
-    "@cloudflare/vite-plugin": "^1.37.1",
     "@hookform/resolvers": "^5.2.2",
     "@hugeicons/core-free-icons": "^4.1.4",
     "@hugeicons/react": "^1.1.6",
@@ -82,7 +83,6 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260518.1",
     "@playwright/test": "^1.60.0",
     "@rsbuild/core": "^2.0.6",
     "@sentry/cli": "3.4.2",
@@ -98,10 +98,10 @@
     "babel-plugin-react-compiler": "^1.0.0",
     "jsdom": "^29.1.1",
     "knip": "^6.14.1",
+    "nitro": "3.0.260429-beta",
     "tsx": "^4.22.1",
     "vite": "8.0.13",
     "vite-plugin-ngrok": "^2.0.1",
-    "vitest": "^4.1.6",
-    "wrangler": "^4.92.0"
+    "vitest": "^4.1.6"
   }
 }

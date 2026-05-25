@@ -38,7 +38,7 @@
   },
   "overrides": {
     "@tanstack/query-core": "5.100.10",
-    "h3": "1.15.9",
+    "h3": "2.0.1-rc.22",
     "smol-toml": ">=1.6.1",
     "kysely": ">=0.28.14",
     "socket.io-parser": ">=4.2.6",

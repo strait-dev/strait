@@ -4,12 +4,11 @@
 #
 # Two stages:
 #   1. builder: Bun image installs the full workspace and runs the Vite
-#      build with BUILD_TARGET=node, producing a self-contained SSR
-#      bundle at apps/app/dist/server/server.js and static assets at
-#      apps/app/dist/client/.
-#   2. runtime: gcr.io/distroless/nodejs22-debian12:nonroot serves the
-#      built bundle via the Node HTTP adapter at
-#      apps/app/scripts/node-server.mjs. Distroless ships only Node,
+#      build with the Nitro node-server preset, producing
+#      apps/app/.output/server/index.mjs and static assets under
+#      apps/app/.output/public/.
+#   2. runtime: gcr.io/distroless/nodejs22-debian12:nonroot runs the
+#      Nitro Node server. Distroless ships only Node,
 #      its dynamic deps, ca-certificates, tzdata, and /etc/passwd with
 #      a nonroot user — no shell, no package manager, no npm (which
 #      previously dragged in a vulnerable picomatch), no Alpine apk
@@ -42,7 +41,7 @@ COPY packages/ui/package.json packages/ui/
 RUN bun install --frozen-lockfile
 
 # Source. Keep this explicit so ignored local secrets never enter the build stage.
-COPY apps/app/instrument.server.ts apps/app/knip.json apps/app/tsconfig.json apps/app/vite.config.ts apps/app/vitest.config.ts apps/app/wrangler.jsonc apps/app/
+COPY apps/app/instrument.server.ts apps/app/knip.json apps/app/tsconfig.json apps/app/vite.config.ts apps/app/vitest.config.ts apps/app/
 COPY apps/app/public apps/app/public
 COPY apps/app/scripts apps/app/scripts
 COPY apps/app/server apps/app/server
@@ -57,15 +56,14 @@ ENV VITE_APP_VERSION=$VERSION \
     VITE_APP_DATE=$DATE \
     VITE_STRAIT_EDITION=community
 
-RUN cd apps/app && BUILD_TARGET=node bun run build && find dist -name '*.map' -type f -delete
+RUN cd apps/app && bun run build:node && bun run build:migrate && find .output -name '*.map' -type f -delete
 
 FROM gcr.io/distroless/nodejs22-debian12:nonroot@sha256:13593b7570658e8477de39e2f4a1dd25db2f836d68a0ba771251572d23bb4f8e AS runtime
 WORKDIR /app
 
 # `nonroot` (UID 65532) is provided by the distroless image — no
 # addgroup/adduser needed. COPY --chown references the name directly.
-COPY --from=builder --chown=nonroot:nonroot /repo/apps/app/dist ./dist
-COPY --from=builder --chown=nonroot:nonroot /repo/apps/app/scripts/node-server.mjs ./scripts/node-server.mjs
+COPY --from=builder --chown=nonroot:nonroot /repo/apps/app/.output ./.output
 
 USER nonroot:nonroot
 
@@ -83,4 +81,4 @@ HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
     CMD ["/nodejs/bin/node", "-e", "fetch('http://127.0.0.1:3000/login').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
 
 # Distroless sets ENTRYPOINT to the node binary, so CMD is the argv.
-CMD ["./scripts/node-server.mjs"]
+CMD [".output/server/index.mjs"]
