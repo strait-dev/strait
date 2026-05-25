@@ -51,6 +51,39 @@ const MaxJobChainDepth = 10
 // limit; it is configurable via STRAIT_WORKFLOW_MAX_CONTINUE_DEPTH.
 const DefaultMaxWorkflowContinueDepth = 100000
 
+// ContinueVersionStrategy selects which workflow version a continue-as-new
+// successor runs.
+type ContinueVersionStrategy string
+
+const (
+	// ContinueVersionRepin re-pins the predecessor's exact version and snapshot
+	// onto the successor. It is the default: chains stay deterministic and a
+	// version shipped mid-chain does not silently change running behavior.
+	ContinueVersionRepin ContinueVersionStrategy = "repin"
+	// ContinueVersionLatest adopts the latest published version (and canary
+	// routing) at each roll-over, so a long-lived chain picks up new logic.
+	ContinueVersionLatest ContinueVersionStrategy = "latest"
+)
+
+// Normalize maps the empty value to the default strategy (repin).
+func (s ContinueVersionStrategy) Normalize() ContinueVersionStrategy {
+	if s == "" {
+		return ContinueVersionRepin
+	}
+	return s
+}
+
+// IsValid reports whether s is a recognized strategy. The empty string is valid
+// and resolves to the default via Normalize.
+func (s ContinueVersionStrategy) IsValid() bool {
+	switch s {
+	case "", ContinueVersionRepin, ContinueVersionLatest:
+		return true
+	default:
+		return false
+	}
+}
+
 const (
 	WebhookEventRunCompleted      = "run.completed"
 	WebhookEventRunFailed         = "run.failed"

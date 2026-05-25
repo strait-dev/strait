@@ -38,12 +38,16 @@ func TestHandleContinueWorkflowRunAsNew(t *testing.T) {
 			},
 		}
 		trigger := &mockWorkflowTrigger{
-			continueAsNewFn: func(_ context.Context, runID string, input json.RawMessage) (*domain.WorkflowRun, error) {
+			continueAsNewFn: func(_ context.Context, runID string, input json.RawMessage, strategy domain.ContinueVersionStrategy) (*domain.WorkflowRun, error) {
 				if runID != "wfr-1" {
 					t.Fatalf("runID = %q, want wfr-1", runID)
 				}
 				if string(input) != `{"cursor":7}` {
 					t.Fatalf("input = %q, want carry-over", string(input))
+				}
+				// No versionStrategy in the body resolves to the default at the engine.
+				if strategy != "" {
+					t.Fatalf("strategy = %q, want empty (default) when body omits versionStrategy", strategy)
 				}
 				return &domain.WorkflowRun{
 					ID:                         "wfr-2",
@@ -83,6 +87,64 @@ func TestHandleContinueWorkflowRunAsNew(t *testing.T) {
 		if auditDetails["successor_run_id"] != "wfr-2" {
 			t.Fatalf("audit successor_run_id = %v, want wfr-2", auditDetails["successor_run_id"])
 		}
+		if auditDetails["version_strategy"] != "repin" {
+			t.Fatalf("audit version_strategy = %v, want normalized default repin", auditDetails["version_strategy"])
+		}
+	})
+
+	t.Run("latest versionStrategy threads through to the engine", func(t *testing.T) {
+		t.Parallel()
+		var gotStrategy domain.ContinueVersionStrategy
+		var auditDetails map[string]any
+		ms := &APIStoreMock{
+			GetWorkflowRunFunc: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusRunning}, nil
+			},
+			CreateAuditEventFunc: func(_ context.Context, ev *domain.AuditEvent) error {
+				return json.Unmarshal(ev.Details, &auditDetails)
+			},
+		}
+		trigger := &mockWorkflowTrigger{
+			continueAsNewFn: func(_ context.Context, _ string, _ json.RawMessage, strategy domain.ContinueVersionStrategy) (*domain.WorkflowRun, error) {
+				gotStrategy = strategy
+				return &domain.WorkflowRun{ID: "wfr-2", WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusRunning}, nil
+			},
+		}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, trigger)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wfr-1/continue-as-new", `{"input":{},"versionStrategy":"latest"}`))
+		if w.Code != http.StatusCreated {
+			t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+		}
+		if gotStrategy != domain.ContinueVersionLatest {
+			t.Fatalf("engine strategy = %q, want latest", gotStrategy)
+		}
+		if auditDetails["version_strategy"] != "latest" {
+			t.Fatalf("audit version_strategy = %v, want latest", auditDetails["version_strategy"])
+		}
+	})
+
+	t.Run("invalid versionStrategy is rejected before engine call", func(t *testing.T) {
+		t.Parallel()
+		ms := &APIStoreMock{
+			GetWorkflowRunFunc: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusRunning}, nil
+			},
+		}
+		trigger := &mockWorkflowTrigger{
+			continueAsNewFn: func(_ context.Context, _ string, _ json.RawMessage, _ domain.ContinueVersionStrategy) (*domain.WorkflowRun, error) {
+				t.Fatal("engine must not be called for an invalid versionStrategy")
+				return nil, nil
+			},
+		}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, trigger)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wfr-1/continue-as-new", `{"versionStrategy":"bogus"}`))
+		// The handler validates versionStrategy via IsValid() and rejects an
+		// unknown value with 400 Bad Request before the engine is called.
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+		}
 	})
 
 	t.Run("terminal run returns 400 before engine call", func(t *testing.T) {
@@ -93,7 +155,7 @@ func TestHandleContinueWorkflowRunAsNew(t *testing.T) {
 			},
 		}
 		trigger := &mockWorkflowTrigger{
-			continueAsNewFn: func(_ context.Context, _ string, _ json.RawMessage) (*domain.WorkflowRun, error) {
+			continueAsNewFn: func(_ context.Context, _ string, _ json.RawMessage, _ domain.ContinueVersionStrategy) (*domain.WorkflowRun, error) {
 				t.Fatal("engine must not be called for a terminal run")
 				return nil, nil
 			},
@@ -140,7 +202,7 @@ func TestHandleContinueWorkflowRunAsNew(t *testing.T) {
 			},
 		}
 		trigger := &mockWorkflowTrigger{
-			continueAsNewFn: func(_ context.Context, _ string, _ json.RawMessage) (*domain.WorkflowRun, error) {
+			continueAsNewFn: func(_ context.Context, _ string, _ json.RawMessage, _ domain.ContinueVersionStrategy) (*domain.WorkflowRun, error) {
 				return nil, workflow.ErrContinueDepthExceeded
 			},
 		}
@@ -160,7 +222,7 @@ func TestHandleContinueWorkflowRunAsNew(t *testing.T) {
 			},
 		}
 		trigger := &mockWorkflowTrigger{
-			continueAsNewFn: func(_ context.Context, _ string, _ json.RawMessage) (*domain.WorkflowRun, error) {
+			continueAsNewFn: func(_ context.Context, _ string, _ json.RawMessage, _ domain.ContinueVersionStrategy) (*domain.WorkflowRun, error) {
 				return nil, workflow.ErrWorkflowRunNotContinuable
 			},
 		}
@@ -180,7 +242,7 @@ func TestHandleContinueWorkflowRunAsNew(t *testing.T) {
 			},
 		}
 		trigger := &mockWorkflowTrigger{
-			continueAsNewFn: func(_ context.Context, _ string, _ json.RawMessage) (*domain.WorkflowRun, error) {
+			continueAsNewFn: func(_ context.Context, _ string, _ json.RawMessage, _ domain.ContinueVersionStrategy) (*domain.WorkflowRun, error) {
 				return nil, store.ErrWorkflowRunContinueConflict
 			},
 		}
@@ -202,7 +264,7 @@ func TestHandleContinueWorkflowRunAsNew(t *testing.T) {
 			},
 		}
 		trigger := &mockWorkflowTrigger{
-			continueAsNewFn: func(_ context.Context, _ string, _ json.RawMessage) (*domain.WorkflowRun, error) {
+			continueAsNewFn: func(_ context.Context, _ string, _ json.RawMessage, _ domain.ContinueVersionStrategy) (*domain.WorkflowRun, error) {
 				return nil, fmt.Errorf("dial failed: %s", leaked)
 			},
 		}
@@ -231,7 +293,7 @@ func TestHandleContinueWorkflowRunAsNew(t *testing.T) {
 			},
 		}
 		trigger := &mockWorkflowTrigger{
-			continueAsNewFn: func(_ context.Context, _ string, _ json.RawMessage) (*domain.WorkflowRun, error) {
+			continueAsNewFn: func(_ context.Context, _ string, _ json.RawMessage, _ domain.ContinueVersionStrategy) (*domain.WorkflowRun, error) {
 				t.Fatal("engine must not be called across project boundary")
 				return nil, nil
 			},
@@ -253,7 +315,7 @@ func TestHandleContinueWorkflowRunAsNew(t *testing.T) {
 			},
 		}
 		trigger := &mockWorkflowTrigger{
-			continueAsNewFn: func(_ context.Context, _ string, input json.RawMessage) (*domain.WorkflowRun, error) {
+			continueAsNewFn: func(_ context.Context, _ string, input json.RawMessage, _ domain.ContinueVersionStrategy) (*domain.WorkflowRun, error) {
 				gotInput = input
 				return &domain.WorkflowRun{ID: "wfr-2", WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusRunning}, nil
 			},
@@ -277,7 +339,7 @@ func TestHandleContinueWorkflowRunAsNew(t *testing.T) {
 			},
 		}
 		trigger := &mockWorkflowTrigger{
-			continueAsNewFn: func(_ context.Context, _ string, _ json.RawMessage) (*domain.WorkflowRun, error) {
+			continueAsNewFn: func(_ context.Context, _ string, _ json.RawMessage, _ domain.ContinueVersionStrategy) (*domain.WorkflowRun, error) {
 				t.Fatal("engine must not be called for a malformed body")
 				return nil, nil
 			},
@@ -457,7 +519,7 @@ func FuzzContinueWorkflowRunAsNewHandlerBody(f *testing.F) {
 		},
 	}
 	trigger := &mockWorkflowTrigger{
-		continueAsNewFn: func(_ context.Context, _ string, _ json.RawMessage) (*domain.WorkflowRun, error) {
+		continueAsNewFn: func(_ context.Context, _ string, _ json.RawMessage, _ domain.ContinueVersionStrategy) (*domain.WorkflowRun, error) {
 			return &domain.WorkflowRun{ID: "wfr-2", WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusRunning}, nil
 		},
 	}

@@ -592,16 +592,19 @@ func (s *Server) handleRetryWorkflowRun(ctx context.Context, input *RetryWorkflo
 type ContinueWorkflowRunAsNewInput struct {
 	WorkflowRunID string `path:"workflowRunID"`
 	Body          struct {
-		Input json.RawMessage `json:"input,omitempty" doc:"Carry-over input for the successor run. Opaque JSON forwarded as the successor's payload."`
+		Input           json.RawMessage `json:"input,omitempty" doc:"Carry-over input for the successor run. Opaque JSON forwarded as the successor's payload."`
+		VersionStrategy string          `json:"versionStrategy,omitempty" enum:"repin,latest" doc:"Which workflow version the successor runs. 'repin' (default) reuses the predecessor's pinned version and snapshot for deterministic chains; 'latest' adopts the newest published version and canary routing."`
 	}
 }
 type ContinueWorkflowRunAsNewOutput struct{ Body *domain.WorkflowRun }
 
 // handleContinueWorkflowRunAsNew atomically completes a running or paused
 // workflow run and starts a fresh successor run of the same workflow with the
-// caller-provided carry-over input, re-resolving the latest published version.
-// The predecessor is marked continued and linked bidirectionally to the
-// successor. This is the workflow-level continue-as-new primitive.
+// caller-provided carry-over input. The successor's version is chosen by
+// versionStrategy: repin (the default) reuses the predecessor's pinned version
+// and snapshot, while latest re-resolves the newest published version. The
+// predecessor is marked continued and linked bidirectionally to the successor.
+// This is the workflow-level continue-as-new primitive.
 func (s *Server) handleContinueWorkflowRunAsNew(ctx context.Context, input *ContinueWorkflowRunAsNewInput) (*ContinueWorkflowRunAsNewOutput, error) {
 	if s.workflowEngine == nil {
 		return nil, huma.Error503ServiceUnavailable("workflow engine unavailable")
@@ -622,7 +625,12 @@ func (s *Server) handleContinueWorkflowRunAsNew(ctx context.Context, input *Cont
 		return nil, huma.Error400BadRequest("can only continue a running or paused workflow run")
 	}
 
-	successor, err := s.workflowEngine.ContinueWorkflowRunAsNew(ctx, input.WorkflowRunID, input.Body.Input)
+	strategy := domain.ContinueVersionStrategy(input.Body.VersionStrategy)
+	if !strategy.IsValid() {
+		return nil, huma.Error400BadRequest("versionStrategy must be \"repin\" or \"latest\"")
+	}
+
+	successor, err := s.workflowEngine.ContinueWorkflowRunAsNew(ctx, input.WorkflowRunID, input.Body.Input, strategy)
 	if err != nil {
 		switch {
 		case errors.Is(err, workflow.ErrWorkflowRunNotContinuable):
@@ -643,6 +651,7 @@ func (s *Server) handleContinueWorkflowRunAsNew(ctx context.Context, input *Cont
 		"workflow_id":      run.WorkflowID,
 		"successor_run_id": successor.ID,
 		"lineage_depth":    successor.LineageDepth,
+		"version_strategy": string(strategy.Normalize()),
 	})
 
 	return &ContinueWorkflowRunAsNewOutput{Body: successor}, nil

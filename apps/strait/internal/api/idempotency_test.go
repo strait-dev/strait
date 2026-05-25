@@ -2484,7 +2484,7 @@ func (m *mockWorkflowEngineForIdem) RetryWorkflowRun(_ context.Context, _ string
 	return nil, nil
 }
 
-func (m *mockWorkflowEngineForIdem) ContinueWorkflowRunAsNew(_ context.Context, _ string, _ json.RawMessage) (*domain.WorkflowRun, error) {
+func (m *mockWorkflowEngineForIdem) ContinueWorkflowRunAsNew(_ context.Context, _ string, _ json.RawMessage, _ domain.ContinueVersionStrategy) (*domain.WorkflowRun, error) {
 	return nil, nil
 }
 

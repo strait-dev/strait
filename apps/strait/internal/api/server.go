@@ -440,7 +440,7 @@ type WorkflowCallback interface {
 type WorkflowTrigger interface {
 	TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride, extraTags map[string]string) (*domain.WorkflowRun, error)
 	RetryWorkflowRun(ctx context.Context, originalRunID string) (*domain.WorkflowRun, error)
-	ContinueWorkflowRunAsNew(ctx context.Context, runID string, input json.RawMessage) (*domain.WorkflowRun, error)
+	ContinueWorkflowRunAsNew(ctx context.Context, runID string, input json.RawMessage, strategy domain.ContinueVersionStrategy) (*domain.WorkflowRun, error)
 }
 
 const (

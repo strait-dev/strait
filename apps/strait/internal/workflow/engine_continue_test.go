@@ -93,7 +93,8 @@ func TestContinueWorkflowRunAsNew(t *testing.T) {
 		}}
 
 		engine := NewWorkflowEngine(ms, mq, slog.Default())
-		successor, err := engine.ContinueWorkflowRunAsNew(context.Background(), "pred-run-1", json.RawMessage(`{"cursor":42}`))
+		// Empty strategy exercises the default-normalization path (repin).
+		successor, err := engine.ContinueWorkflowRunAsNew(context.Background(), "pred-run-1", json.RawMessage(`{"cursor":42}`), "")
 		if err != nil {
 			t.Fatalf("ContinueWorkflowRunAsNew() error = %v", err)
 		}
@@ -139,7 +140,7 @@ func TestContinueWorkflowRunAsNew(t *testing.T) {
 		}
 	})
 
-	t.Run("re-resolves a newer published version via canary routing", func(t *testing.T) {
+	t.Run("latest strategy re-resolves a newer published version via canary routing", func(t *testing.T) {
 		t.Parallel()
 
 		var listedVersion int
@@ -196,7 +197,7 @@ func TestContinueWorkflowRunAsNew(t *testing.T) {
 		}}
 
 		engine := NewWorkflowEngine(ms, mq, slog.Default())
-		successor, err := engine.ContinueWorkflowRunAsNew(context.Background(), "pred-run-1", nil)
+		successor, err := engine.ContinueWorkflowRunAsNew(context.Background(), "pred-run-1", nil, domain.ContinueVersionLatest)
 		if err != nil {
 			t.Fatalf("ContinueWorkflowRunAsNew() error = %v", err)
 		}
@@ -222,7 +223,7 @@ func TestContinueWorkflowRunAsNew(t *testing.T) {
 			},
 		}
 		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default()).WithMaxContinueDepth(5)
-		_, err := engine.ContinueWorkflowRunAsNew(context.Background(), "pred-run-1", nil)
+		_, err := engine.ContinueWorkflowRunAsNew(context.Background(), "pred-run-1", nil, domain.ContinueVersionRepin)
 		if err == nil || !strings.Contains(err.Error(), "exceeds max") {
 			t.Fatalf("expected depth-cap error, got %v", err)
 		}
@@ -255,7 +256,7 @@ func TestContinueWorkflowRunAsNew(t *testing.T) {
 			return nil
 		}}
 		engine := NewWorkflowEngine(ms, mq, slog.Default()).WithMaxContinueDepth(5)
-		successor, err := engine.ContinueWorkflowRunAsNew(context.Background(), "pred-run-1", nil)
+		successor, err := engine.ContinueWorkflowRunAsNew(context.Background(), "pred-run-1", nil, domain.ContinueVersionRepin)
 		if err != nil {
 			t.Fatalf("ContinueWorkflowRunAsNew() error = %v", err)
 		}
@@ -278,7 +279,7 @@ func TestContinueWorkflowRunAsNew(t *testing.T) {
 				},
 			}
 			engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
-			_, err := engine.ContinueWorkflowRunAsNew(context.Background(), "pred-run-1", nil)
+			_, err := engine.ContinueWorkflowRunAsNew(context.Background(), "pred-run-1", nil, domain.ContinueVersionRepin)
 			if err == nil || !strings.Contains(err.Error(), "must be running or paused") {
 				t.Fatalf("status %s: expected non-terminal precondition error, got %v", st, err)
 			}
@@ -309,7 +310,7 @@ func TestContinueWorkflowRunAsNew(t *testing.T) {
 		}
 		mq := &mockEngineQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error { run.ID = "jr"; return nil }}
 		engine := NewWorkflowEngine(ms, mq, slog.Default())
-		if _, err := engine.ContinueWorkflowRunAsNew(context.Background(), "pred-run-1", nil); err != nil {
+		if _, err := engine.ContinueWorkflowRunAsNew(context.Background(), "pred-run-1", nil, domain.ContinueVersionRepin); err != nil {
 			t.Fatalf("ContinueWorkflowRunAsNew() error = %v", err)
 		}
 	})
@@ -322,7 +323,7 @@ func TestContinueWorkflowRunAsNew(t *testing.T) {
 			},
 		}
 		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
-		_, err := engine.ContinueWorkflowRunAsNew(context.Background(), "missing", nil)
+		_, err := engine.ContinueWorkflowRunAsNew(context.Background(), "missing", nil, domain.ContinueVersionRepin)
 		if err == nil || !strings.Contains(err.Error(), "not found") {
 			t.Fatalf("expected not-found error, got %v", err)
 		}
@@ -339,7 +340,7 @@ func TestContinueWorkflowRunAsNew(t *testing.T) {
 			},
 		}
 		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
-		_, err := engine.ContinueWorkflowRunAsNew(context.Background(), "pred-run-1", nil)
+		_, err := engine.ContinueWorkflowRunAsNew(context.Background(), "pred-run-1", nil, domain.ContinueVersionRepin)
 		if err == nil || !strings.Contains(err.Error(), "disabled") {
 			t.Fatalf("expected disabled error, got %v", err)
 		}
@@ -359,11 +360,85 @@ func TestContinueWorkflowRunAsNew(t *testing.T) {
 			},
 		}
 		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
-		_, err := engine.ContinueWorkflowRunAsNew(context.Background(), "pred-run-1", nil)
+		_, err := engine.ContinueWorkflowRunAsNew(context.Background(), "pred-run-1", nil, domain.ContinueVersionRepin)
 		if err == nil || !strings.Contains(err.Error(), "not active") {
 			t.Fatalf("expected inactive project error, got %v", err)
 		}
 	})
+}
+
+// repinSnapshotGuardStore records whether GetOrCreateWorkflowSnapshot was called,
+// so the repin strategy can be proven to reuse the predecessor's pinned snapshot
+// rather than minting a fresh one.
+type repinSnapshotGuardStore struct {
+	*mockEngineStore
+	snapshotCalled bool
+}
+
+func (s *repinSnapshotGuardStore) GetOrCreateWorkflowSnapshot(ctx context.Context, wf *domain.Workflow, steps []domain.WorkflowStep) (*domain.WorkflowSnapshot, error) {
+	s.snapshotCalled = true
+	return s.mockEngineStore.GetOrCreateWorkflowSnapshot(ctx, wf, steps)
+}
+
+// TestContinueWorkflowRunAsNew_RepinReusesPinnedVersionAndSnapshot verifies the
+// default (repin) strategy pins the successor to the predecessor's exact version,
+// version id, snapshot, and parallelism, even when a newer version has since been
+// published: canary routing is never consulted and no new snapshot is minted.
+func TestContinueWorkflowRunAsNew_RepinReusesPinnedVersionAndSnapshot(t *testing.T) {
+	t.Parallel()
+	var listedVersion int
+	base := &mockEngineStore{
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{
+				ID:                 id,
+				WorkflowID:         "wf-1",
+				ProjectID:          "proj-1",
+				Status:             domain.WfStatusRunning,
+				WorkflowVersion:    1,
+				WorkflowVersionID:  "wf-v1",
+				WorkflowSnapshotID: "snap-pred",
+				MaxParallelSteps:   7,
+			}, nil
+		},
+		getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+			// A newer version (2) has since been published; repin must ignore it.
+			return &domain.Workflow{ID: id, ProjectID: "proj-1", Enabled: true, Version: 2, VersionID: "wf-v2", MaxParallelSteps: 99}, nil
+		},
+		getActiveCanaryDeploymentFn: func(_ context.Context, _ string) (*domain.CanaryDeployment, error) {
+			t.Fatal("repin must not consult canary routing")
+			return nil, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, _ string, version int) ([]domain.WorkflowStep, error) {
+			listedVersion = version
+			return []domain.WorkflowStep{{ID: "s1", JobID: "job-1", StepRef: "a"}}, nil
+		},
+		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+			return nil
+		},
+	}
+	ms := &repinSnapshotGuardStore{mockEngineStore: base}
+	mq := &mockEngineQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error { run.ID = "jr"; return nil }}
+	engine := NewWorkflowEngine(ms, mq, slog.Default())
+
+	successor, err := engine.ContinueWorkflowRunAsNew(context.Background(), "pred-run-1", nil, domain.ContinueVersionRepin)
+	if err != nil {
+		t.Fatalf("ContinueWorkflowRunAsNew() error = %v", err)
+	}
+	if listedVersion != 1 {
+		t.Fatalf("listed steps for version %d, want predecessor's pinned version 1", listedVersion)
+	}
+	if successor.WorkflowVersion != 1 || successor.WorkflowVersionID != "wf-v1" {
+		t.Fatalf("successor version = %d/%q, want pinned 1/wf-v1 (newer published v2 ignored)", successor.WorkflowVersion, successor.WorkflowVersionID)
+	}
+	if successor.WorkflowSnapshotID != "snap-pred" {
+		t.Fatalf("successor snapshot = %q, want reused predecessor snapshot snap-pred", successor.WorkflowSnapshotID)
+	}
+	if successor.MaxParallelSteps != 7 {
+		t.Fatalf("successor MaxParallelSteps = %d, want reused predecessor 7", successor.MaxParallelSteps)
+	}
+	if ms.snapshotCalled {
+		t.Fatal("repin must reuse the predecessor snapshot, not mint a new one")
+	}
 }
 
 // TestContinueWorkflowRunAsNew_BootstrapError verifies that an error from the
@@ -392,7 +467,7 @@ func TestContinueWorkflowRunAsNew_BootstrapError(t *testing.T) {
 		return nil
 	}}
 	engine := NewWorkflowEngine(ms, mq, slog.Default())
-	_, err := engine.ContinueWorkflowRunAsNew(context.Background(), "pred-run-1", nil)
+	_, err := engine.ContinueWorkflowRunAsNew(context.Background(), "pred-run-1", nil, domain.ContinueVersionRepin)
 	if err == nil || !strings.Contains(err.Error(), "continue workflow run bootstrap") {
 		t.Fatalf("expected bootstrap error, got %v", err)
 	}
@@ -430,7 +505,7 @@ func TestContinueWorkflowRunAsNew_ExpiryAnchoredToStart(t *testing.T) {
 		return nil
 	}}
 	engine := NewWorkflowEngine(ms, mq, slog.Default())
-	successor, err := engine.ContinueWorkflowRunAsNew(context.Background(), "pred-run-1", nil)
+	successor, err := engine.ContinueWorkflowRunAsNew(context.Background(), "pred-run-1", nil, domain.ContinueVersionRepin)
 	if err != nil {
 		t.Fatalf("ContinueWorkflowRunAsNew() error = %v", err)
 	}
@@ -476,7 +551,7 @@ func TestContinueWorkflowRunAsNew_StartRootStepsFailsAfterCommit(t *testing.T) {
 	}}
 	engine := NewWorkflowEngine(ms, mq, logger)
 
-	if _, err := engine.ContinueWorkflowRunAsNew(context.Background(), "pred-run-1", nil); err == nil {
+	if _, err := engine.ContinueWorkflowRunAsNew(context.Background(), "pred-run-1", nil, domain.ContinueVersionRepin); err == nil {
 		t.Fatal("expected error when root step start fails after commit")
 	}
 
@@ -540,7 +615,7 @@ func TestContinueWorkflowRunAsNew_ConcurrentSingleWinner(t *testing.T) {
 	for i := range racers {
 		go func(idx int) {
 			defer wg.Done()
-			_, results[idx] = engine.ContinueWorkflowRunAsNew(context.Background(), "pred-run-1", nil)
+			_, results[idx] = engine.ContinueWorkflowRunAsNew(context.Background(), "pred-run-1", nil, domain.ContinueVersionRepin)
 		}(i)
 	}
 	wg.Wait()
@@ -612,7 +687,7 @@ func TestContinueWorkflowRunAsNew_PropagatesTraceContext(t *testing.T) {
 	})
 	ctx := otelTrace.ContextWithSpanContext(context.Background(), sc)
 
-	successor, err := engine.ContinueWorkflowRunAsNew(ctx, "pred-run-1", nil)
+	successor, err := engine.ContinueWorkflowRunAsNew(ctx, "pred-run-1", nil, domain.ContinueVersionRepin)
 	if err != nil {
 		t.Fatalf("ContinueWorkflowRunAsNew() error = %v", err)
 	}
@@ -637,10 +712,10 @@ func TestContinueWorkflowRunAsNew_PropagatesTraceContext(t *testing.T) {
 	}
 }
 
-// TestContinueWorkflowRunAsNew_InvalidDAGRejected verifies that when the latest
-// re-resolved version has a broken DAG (a step depending on itself), the engine
-// rejects the continuation before any handoff: the predecessor is never touched
-// and no successor is started. This guards a mid-chain deploy that ships a cycle.
+// TestContinueWorkflowRunAsNew_InvalidDAGRejected verifies that when the resolved
+// version has a broken DAG (a step depending on itself), the engine rejects the
+// continuation before any handoff: the predecessor is never touched and no
+// successor is started. The DAG is validated under both version strategies.
 func TestContinueWorkflowRunAsNew_InvalidDAGRejected(t *testing.T) {
 	t.Parallel()
 	enqueued := 0
@@ -666,7 +741,7 @@ func TestContinueWorkflowRunAsNew_InvalidDAGRejected(t *testing.T) {
 	}}
 	engine := NewWorkflowEngine(ms, mq, slog.Default())
 
-	_, err := engine.ContinueWorkflowRunAsNew(context.Background(), "pred-run-1", nil)
+	_, err := engine.ContinueWorkflowRunAsNew(context.Background(), "pred-run-1", nil, domain.ContinueVersionRepin)
 	if err == nil || !strings.Contains(err.Error(), "validate workflow dag") {
 		t.Fatalf("expected DAG validation error, got %v", err)
 	}
@@ -750,6 +825,6 @@ func FuzzContinueWorkflowRunAsNew(f *testing.F) {
 		mq := &mockEngineQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error { run.ID = "jr"; return nil }}
 		engine := NewWorkflowEngine(ms, mq, slog.Default())
 		// Must not panic regardless of payload bytes.
-		_, _ = engine.ContinueWorkflowRunAsNew(context.Background(), "pred-run-1", json.RawMessage(input))
+		_, _ = engine.ContinueWorkflowRunAsNew(context.Background(), "pred-run-1", json.RawMessage(input), domain.ContinueVersionRepin)
 	})
 }
