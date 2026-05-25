@@ -14,7 +14,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@strait/ui/components/tabs";
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   type ColumnDef,
@@ -31,6 +31,8 @@ import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
 import TableEmptyState from "@/components/common/table-empty-state";
+import SingletonConfigRows from "@/components/dashboard/singleton-config-rows";
+import SingletonHoldersTable from "@/components/dashboard/singleton-holders-table";
 import StatusBadge from "@/components/dashboard/status-badge";
 import WorkflowDAGFlow from "@/components/dashboard/workflow-dag-flow";
 import { DataTable } from "@/components/ui/data-table/data-table";
@@ -48,6 +50,7 @@ import {
   useTriggerWorkflow,
   workflowQueryOptions,
   workflowRunsQueryOptions,
+  workflowSingletonsQueryOptions,
   workflowStepsQueryOptions,
 } from "@/hooks/api/use-workflows";
 import {
@@ -59,6 +62,7 @@ import {
   RefreshIcon,
   TagIcon,
 } from "@/lib/icons";
+import { isSingletonConfigured } from "@/lib/singleton";
 
 export const Route = createFileRoute("/app/workflows/$id")({
   head: () => ({ meta: [{ title: "Workflow · Strait" }] }),
@@ -132,6 +136,12 @@ function WorkflowDetailPage() {
   const triggerWorkflow = useTriggerWorkflow();
   const pauseWorkflow = usePauseWorkflow();
   const resumeWorkflow = useResumeWorkflow();
+
+  const isSingleton = isSingletonConfigured(workflow);
+  const { data: singletonsData, isLoading: singletonsLoading } = useQuery({
+    ...workflowSingletonsQueryOptions(id),
+    enabled: isSingleton,
+  });
 
   // Map API steps to the shape WorkflowDAGFlow expects
   const dagSteps = (apiSteps ?? []).map((s: WorkflowStep) => ({
@@ -218,6 +228,9 @@ function WorkflowDetailPage() {
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="dag">DAG</TabsTrigger>
           <TabsTrigger value="runs">Recent Runs</TabsTrigger>
+          {isSingleton && (
+            <TabsTrigger value="singletons">Singletons</TabsTrigger>
+          )}
           <TabsTrigger value="settings">Settings</TabsTrigger>
         </TabsList>
 
@@ -347,72 +360,103 @@ function WorkflowDetailPage() {
           />
         </TabsContent>
 
+        {/* Singletons Tab */}
+        {isSingleton && (
+          <TabsContent className="mt-6" value="singletons">
+            <SingletonHoldersTable
+              holders={singletonsData?.data ?? []}
+              isLoading={singletonsLoading}
+            />
+          </TabsContent>
+        )}
+
         {/* Settings Tab */}
         <TabsContent className="mt-6 space-y-6" value="settings">
-          {/* Configuration */}
-          <div className="space-y-3 rounded-md border p-4">
-            <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wider">
-              Configuration
-            </h4>
-            <div className="space-y-2.5">
-              <ConfigRow
-                icon={ClockIcon}
-                label="Timeout"
-                value={`${workflow.timeout_secs}s`}
-              />
-              <ConfigRow
-                icon={RefreshIcon}
-                label="Max Concurrent Runs"
-                value={String(workflow.max_concurrent_runs)}
-              />
-              <ConfigRow
-                icon={RefreshIcon}
-                label="Max Parallel Steps"
-                value={String(workflow.max_parallel_steps)}
-              />
-              <ConfigRow
-                icon={ClockIcon}
-                label="Schedule"
-                value={workflow.cron || "Manual"}
-              />
-              {workflow.cron_timezone && (
-                <ConfigRow
-                  icon={ClockIcon}
-                  label="Timezone"
-                  value={workflow.cron_timezone}
-                />
-              )}
-              <ConfigRow
-                icon={RefreshIcon}
-                label="Skip If Running"
-                value={workflow.skip_if_running ? "Yes" : "No"}
-              />
-              <ConfigRow
-                icon={RefreshIcon}
-                label="Version Policy"
-                value={workflow.version_policy}
-              />
-            </div>
-          </div>
-
-          {/* Tags */}
-          {workflow.tags && Object.keys(workflow.tags).length > 0 && (
-            <div className="rounded-md border p-4">
-              <h4 className="mb-3 flex items-center gap-1.5 font-medium text-muted-foreground text-xs uppercase tracking-wider">
-                <HugeiconsIcon icon={TagIcon} size={12} />
-                Tags
-              </h4>
-              <div className="flex flex-wrap gap-1.5">
-                {Object.entries(workflow.tags).map(([key, val]) => (
-                  <Badge key={key} variant="secondary">
-                    {key}: {val}
-                  </Badge>
-                ))}
-              </div>
-            </div>
-          )}
+          <WorkflowSettingsTab isSingleton={isSingleton} workflow={workflow} />
         </TabsContent>
       </Tabs>
     </Shell>
+  );
+}
+
+function WorkflowSettingsTab({
+  workflow,
+  isSingleton,
+}: {
+  workflow: Workflow;
+  isSingleton: boolean;
+}) {
+  return (
+    <>
+      {/* Configuration */}
+      <div className="space-y-3 rounded-md border p-4">
+        <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wider">
+          Configuration
+        </h4>
+        <div className="space-y-2.5">
+          <ConfigRow
+            icon={ClockIcon}
+            label="Timeout"
+            value={`${workflow.timeout_secs}s`}
+          />
+          <ConfigRow
+            icon={RefreshIcon}
+            label="Max Concurrent Runs"
+            value={String(workflow.max_concurrent_runs)}
+          />
+          <ConfigRow
+            icon={RefreshIcon}
+            label="Max Parallel Steps"
+            value={String(workflow.max_parallel_steps)}
+          />
+          <ConfigRow
+            icon={ClockIcon}
+            label="Schedule"
+            value={workflow.cron || "Manual"}
+          />
+          {workflow.cron_timezone && (
+            <ConfigRow
+              icon={ClockIcon}
+              label="Timezone"
+              value={workflow.cron_timezone}
+            />
+          )}
+          <ConfigRow
+            icon={RefreshIcon}
+            label="Skip If Running"
+            value={workflow.skip_if_running ? "Yes" : "No"}
+          />
+          <ConfigRow
+            icon={RefreshIcon}
+            label="Version Policy"
+            value={workflow.version_policy}
+          />
+          {isSingleton && (
+            <SingletonConfigRows
+              keyExpr={workflow.singleton_key_expr}
+              maxQueueDepth={workflow.singleton_max_queue_depth}
+              onConflict={workflow.singleton_on_conflict}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* Tags */}
+      {workflow.tags && Object.keys(workflow.tags).length > 0 && (
+        <div className="rounded-md border p-4">
+          <h4 className="mb-3 flex items-center gap-1.5 font-medium text-muted-foreground text-xs uppercase tracking-wider">
+            <HugeiconsIcon icon={TagIcon} size={12} />
+            Tags
+          </h4>
+          <div className="flex flex-wrap gap-1.5">
+            {Object.entries(workflow.tags).map(([key, val]) => (
+              <Badge key={key} variant="secondary">
+                {key}: {val}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
   );
 }

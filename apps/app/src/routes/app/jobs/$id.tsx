@@ -41,6 +41,8 @@ import ErrorComponent from "@/components/common/error-component";
 import TableEmptyState from "@/components/common/table-empty-state";
 import ResponsiveChartContainer from "@/components/dashboard/responsive-chart-container";
 import RunDetailSheet from "@/components/dashboard/run-detail-sheet";
+import SingletonConfigRows from "@/components/dashboard/singleton-config-rows";
+import SingletonHoldersTable from "@/components/dashboard/singleton-holders-table";
 import StatusBadge from "@/components/dashboard/status-badge";
 import { createRunColumns } from "@/components/tables/runs-columns";
 import { DataTable } from "@/components/ui/data-table/data-table";
@@ -50,6 +52,7 @@ import type { Job, JobRun, PaginatedResponse } from "@/hooks/api/types";
 import {
   jobHealthQueryOptions,
   jobQueryOptions,
+  jobSingletonsQueryOptions,
   usePauseJob,
   useResumeJob,
   useTriggerJob,
@@ -70,6 +73,7 @@ import {
   TagIcon,
   XCircleIcon,
 } from "@/lib/icons";
+import { isSingletonConfigured } from "@/lib/singleton";
 import { CHART_COLORS } from "@/lib/status-colors";
 
 export const Route = createFileRoute("/app/jobs/$id")({
@@ -145,6 +149,12 @@ function JobDetailPage() {
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
 
   const { data: health } = useQuery(jobHealthQueryOptions(id, healthWindow));
+
+  const isSingleton = isSingletonConfigured(job);
+  const { data: singletonsData, isLoading: singletonsLoading } = useQuery({
+    ...jobSingletonsQueryOptions(id),
+    enabled: isSingleton,
+  });
 
   const triggerJob = useTriggerJob();
   const pauseJob = usePauseJob();
@@ -279,6 +289,9 @@ function JobDetailPage() {
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="runs">Recent Runs</TabsTrigger>
+          {isSingleton && (
+            <TabsTrigger value="singletons">Singletons</TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent className="mt-6 space-y-6" value="overview">
@@ -381,6 +394,13 @@ function JobDetailPage() {
                 label="Timeout"
                 value={`${job.timeout_secs}s`}
               />
+              {isSingleton && (
+                <SingletonConfigRows
+                  keyExpr={job.singleton_key_expr}
+                  maxQueueDepth={job.singleton_max_queue_depth}
+                  onConflict={job.singleton_on_conflict}
+                />
+              )}
             </CardContent>
           </Card>
 
@@ -500,6 +520,15 @@ function JobDetailPage() {
             run={selectedRun}
           />
         </TabsContent>
+
+        {isSingleton && (
+          <TabsContent className="mt-6" value="singletons">
+            <SingletonHoldersTable
+              holders={singletonsData?.data ?? []}
+              isLoading={singletonsLoading}
+            />
+          </TabsContent>
+        )}
       </Tabs>
     </Shell>
   );
