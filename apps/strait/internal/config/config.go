@@ -242,6 +242,7 @@ type Config struct {
 	JobHealthCacheTTL          time.Duration `env:"JOB_HEALTH_CACHE_TTL" default:"2s"`
 	JobDepsCacheTTL            time.Duration `env:"JOB_DEPS_CACHE_TTL" default:"5m"`
 	StatusReadModelTTL         time.Duration `env:"CACHE_STATUS_READMODEL_TTL" default:"5m"`
+	SharedDedupeTTL            time.Duration `env:"CACHE_SHARED_DEDUPE_TTL" default:"10m"`
 	DefaultRunTTLSecs          int           `env:"DEFAULT_RUN_TTL_SECS" default:"0"`
 	MaxResultSize              int64         `env:"MAX_RESULT_SIZE" default:"1048576"`
 	MigrationMode              string        `env:"MIGRATION_MODE" default:"auto"`

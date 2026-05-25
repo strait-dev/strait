@@ -325,14 +325,15 @@ func startCDCConsumer(ctx context.Context, g *pool.ContextPool, cfg *config.Conf
 		BatchSize:    cfg.CDCBatchSize,
 		WaitTimeMs:   cfg.CDCWaitTimeMs,
 	}, slog.Default())
+	sharedDedupe := cdc.NewSharedDedupeStore(rdb, cfg.SharedDedupeTTL)
 
 	cdcConsumer.RegisterHandler(cdc.NewJobRunHandler(pub, slog.Default()))
 	cdcConsumer.RegisterHandler(cdc.NewWorkflowRunHandler(pub, slog.Default()))
 	cdcConsumer.RegisterHandler(cdc.NewEventTriggerHandler(pub, slog.Default()))
 	cdcConsumer.RegisterAdditionalHandler(cdc.NewNotificationTriggerHandler(queries, slog.Default()))
-	cdcConsumer.RegisterAdditionalHandler(cdc.NewSLOHandler(queries, slog.Default()))
+	cdcConsumer.RegisterAdditionalHandler(cdc.NewSLOHandler(queries, slog.Default()).WithSharedDedupe(sharedDedupe))
 	if chExporter != nil {
-		cdcConsumer.RegisterAdditionalHandler(cdc.NewAnalyticsHandler(chExporter, slog.Default()))
+		cdcConsumer.RegisterAdditionalHandler(cdc.NewAnalyticsHandler(chExporter, slog.Default()).WithSharedDedupe(sharedDedupe))
 	}
 	cacheHandlers := cdc.NewCacheReadModelHandlers(rdb, cfg.StatusReadModelTTL, slog.Default())
 	if cacheHandlers.JobRuns != nil {
@@ -365,6 +366,7 @@ func startCDCConsumer(ctx context.Context, g *pool.ContextPool, cfg *config.Conf
 	} else {
 		slog.Warn("cdc webhook signature verification disabled: SEQUIN_WEBHOOK_SECRET is not set")
 	}
+	receiverOpts = append(receiverOpts, cdc.WithWebhookSharedDedupe(sharedDedupe))
 	webhookReceiver := cdc.NewWebhookReceiver(pub, slog.Default(), receiverOpts...)
 	webhookReceiver.RegisterHandler(cdc.NewJobRunHandler(pub, slog.Default()))
 	webhookReceiver.RegisterHandler(cdc.NewWorkflowRunHandler(pub, slog.Default()))
@@ -373,9 +375,9 @@ func startCDCConsumer(ctx context.Context, g *pool.ContextPool, cfg *config.Conf
 	// CDC-driven observers: execution-critical side effects are written through
 	// transactional stores, not CDC redelivery.
 	webhookReceiver.RegisterAdditionalHandler(cdc.NewNotificationTriggerHandler(queries, slog.Default()))
-	webhookReceiver.RegisterAdditionalHandler(cdc.NewSLOHandler(queries, slog.Default()))
+	webhookReceiver.RegisterAdditionalHandler(cdc.NewSLOHandler(queries, slog.Default()).WithSharedDedupe(sharedDedupe))
 	if chExporter != nil {
-		webhookReceiver.RegisterAdditionalHandler(cdc.NewAnalyticsHandler(chExporter, slog.Default()))
+		webhookReceiver.RegisterAdditionalHandler(cdc.NewAnalyticsHandler(chExporter, slog.Default()).WithSharedDedupe(sharedDedupe))
 	}
 	if cacheHandlers.JobRuns != nil {
 		webhookReceiver.RegisterAdditionalHandler(cacheHandlers.JobRuns)

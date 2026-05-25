@@ -36,6 +36,15 @@ func NewSLOHandler(store SLOStore, logger *slog.Logger) *SLOHandler {
 	return &SLOHandler{store: store, logger: logger, dedupe: newRecentDedupe(16_384)}
 }
 
+func (h *SLOHandler) WithSharedDedupe(store *SharedDedupeStore) *SLOHandler {
+	if h != nil {
+		h.dedupe.WithShared(store, func(err error) {
+			h.logger.Warn("cdc slo dedupe: redis unavailable, falling back to local dedupe", "error", err)
+		})
+	}
+	return h
+}
+
 // Table returns the table this handler watches.
 func (h *SLOHandler) Table() string { return "job_runs" }
 
