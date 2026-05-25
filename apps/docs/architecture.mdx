@@ -44,9 +44,10 @@ You can start with `all` and split API and worker processes later as traffic gro
 | Service | Purpose |
 |---|---|
 | PostgreSQL | Stores projects, jobs, runs, workflows, and queued work. |
-| Redis | Powers live updates and pub/sub notifications. |
+| Redis | Powers the worker transport plane, rate limiting, and pub/sub notifications. |
+| Sequin | Streams PostgreSQL changes through CDC so Strait components do not poll the database for real-time state. |
 
-Self-hosted Docker Compose includes the supporting services Strait needs. For setup instructions, see [Quick Start](/quickstart) and [Deployment](/guides/deployment).
+Strait refuses to boot when any required service is missing or unreachable. Self-hosted Docker Compose includes the full stack Strait needs. For setup instructions, see [Quick Start](/quickstart) and [Deployment](/guides/deployment).
 
 ## Execution Modes
 

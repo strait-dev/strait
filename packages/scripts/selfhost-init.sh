@@ -6,7 +6,7 @@ ENV_FILE=".env.selfhost"
 # --reset: wipe everything and start fresh.
 if [ "$1" = "--reset" ]; then
     echo "Resetting self-hosted deployment..."
-    docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml down -v 2>/dev/null || true
+    docker compose --env-file .env.selfhost -f docker-compose.base.yml -f docker-compose.selfhost.yml --profile core --profile dashboard --profile observability down -v 2>/dev/null || true
     rm -f "$ENV_FILE"
     echo "Reset complete. Run this script again to generate new secrets."
     exit 0
@@ -29,7 +29,7 @@ if [ -f "$ENV_FILE" ]; then
     echo "Secrets already exist at $ENV_FILE (use --reset to regenerate)."
     echo ""
     echo "Start Strait:"
-    echo "  docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml up -d"
+    echo "  docker compose --env-file .env.selfhost -f docker-compose.base.yml -f docker-compose.selfhost.yml --profile core --profile dashboard up -d"
     echo ""
     echo "  Dashboard: http://localhost:3000"
     echo "  API:       http://localhost:8080/health"
@@ -49,6 +49,7 @@ SECRET_ENCRYPTION_KEY=$(gen_base64)
 BETTER_AUTH_SECRET=$(gen_hex)
 SEQUIN_SECRET_KEY_BASE=$(gen_hex)$(gen_hex)
 SEQUIN_VAULT_KEY=$(gen_base64)
+SEQUIN_API_TOKEN=$(gen_hex)
 
 cat > "$ENV_FILE" <<EOF
 # Auto-generated secrets for Strait self-hosted deployment.
@@ -60,18 +61,26 @@ JWT_SIGNING_KEY=${JWT_SIGNING_KEY}
 ENCRYPTION_KEY=${ENCRYPTION_KEY}
 SECRET_ENCRYPTION_KEY=${SECRET_ENCRYPTION_KEY}
 
+# Runtime sizing. These defaults fit a small single-host install.
+WORKER_CONCURRENCY=25
+DB_MAX_CONNS=50
+DB_MIN_CONNS=10
+REDIS_POOL_SIZE=30
+REDIS_MIN_IDLE_CONNS=5
+
 # Dashboard (Better Auth) secrets
 BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET}
 
 # Sequin secrets
 SEQUIN_SECRET_KEY_BASE=${SEQUIN_SECRET_KEY_BASE}
 SEQUIN_VAULT_KEY=${SEQUIN_VAULT_KEY}
+SEQUIN_API_TOKEN=${SEQUIN_API_TOKEN}
 EOF
 
 echo "Secrets written to $ENV_FILE"
 echo ""
 echo "Next steps:"
-echo "  docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml up -d"
+echo "  docker compose --env-file .env.selfhost -f docker-compose.base.yml -f docker-compose.selfhost.yml --profile core --profile dashboard up -d"
 echo ""
 echo "  Dashboard: http://localhost:3000"
 echo "  API:       http://localhost:8080/health"

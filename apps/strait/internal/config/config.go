@@ -116,6 +116,7 @@ type Config struct {
 	// Sequin CDC settings
 	SequinBaseURL       string `env:"SEQUIN_BASE_URL"`
 	SequinConsumerName  string `env:"SEQUIN_CONSUMER_NAME"`
+	SequinDatabaseName  string `env:"SEQUIN_DATABASE_NAME" default:"strait-db"`
 	SequinAPIToken      string `env:"SEQUIN_API_TOKEN"`
 	SequinWebhookSecret string `env:"SEQUIN_WEBHOOK_SECRET"`
 	SequinBatchSize     int    `env:"SEQUIN_BATCH_SIZE" default:"200"`
@@ -447,6 +448,9 @@ func validateLoaded(cfg *Config) error {
 			return &domain.ConfigError{Field: "REDIS_URL", Message: fmt.Sprintf("invalid URL: %v", err)}
 		}
 	}
+	if cfg.RedisURL == "" && (cfg.RedisSentinelMaster == "" || len(cfg.RedisSentinelAddrs) == 0) {
+		return &domain.ConfigError{Field: "REDIS_URL", Message: "is required unless REDIS_SENTINEL_MASTER and REDIS_SENTINEL_ADDRS are configured"}
+	}
 
 	switch cfg.MigrationMode {
 	case "auto", "manual", "validate":
@@ -462,10 +466,17 @@ func validateLoaded(cfg *Config) error {
 		slog.Warn("DATABASE_URL has sslmode=disable; connections are not encrypted")
 	}
 
-	if cfg.SequinBaseURL != "" {
-		if u, err := url.Parse(cfg.SequinBaseURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") {
-			return &domain.ConfigError{Field: "SEQUIN_BASE_URL", Message: "must be a valid HTTP(S) URL"}
-		}
+	if cfg.SequinBaseURL == "" {
+		return &domain.ConfigError{Field: "SEQUIN_BASE_URL", Message: "is required"}
+	}
+	if u, err := url.Parse(cfg.SequinBaseURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return &domain.ConfigError{Field: "SEQUIN_BASE_URL", Message: "must be a valid HTTP(S) URL"}
+	}
+	if cfg.SequinConsumerName == "" {
+		return &domain.ConfigError{Field: "SEQUIN_CONSUMER_NAME", Message: "is required"}
+	}
+	if cfg.SequinAPIToken == "" {
+		return &domain.ConfigError{Field: "SEQUIN_API_TOKEN", Message: "is required"}
 	}
 
 	if cfg.ClickHouseEnabled && cfg.ClickHouseURL == "" {

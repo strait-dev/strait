@@ -22,6 +22,7 @@ type Client struct {
 	httpClient     *http.Client
 	baseURL        *url.URL
 	consumerName   string
+	databaseName   string
 	apiToken       string
 	retryPolicy    failsafe.Policy[*http.Response]
 	circuitBreaker failsafe.Policy[*http.Response]
@@ -38,6 +39,14 @@ func WithRetryPolicy(p failsafe.Policy[*http.Response]) ClientOption {
 // WithCircuitBreaker sets a custom circuit breaker for the client.
 func WithCircuitBreaker(p failsafe.Policy[*http.Response]) ClientOption {
 	return func(c *Client) { c.circuitBreaker = p }
+}
+
+func WithDatabaseName(name string) ClientOption {
+	return func(c *Client) {
+		if name != "" {
+			c.databaseName = name
+		}
+	}
 }
 
 // isServerErrorOrNetworkFailure returns true for 5xx status codes or network errors.
@@ -61,6 +70,7 @@ func NewClient(baseURL, consumerName, apiToken string, opts ...ClientOption) *Cl
 		},
 		baseURL:      parsedBaseURL,
 		consumerName: consumerName,
+		databaseName: "strait-db",
 		apiToken:     apiToken,
 		retryPolicy: retrypolicy.NewBuilder[*http.Response]().
 			WithMaxRetries(2).
@@ -171,6 +181,29 @@ func (c *Client) Nack(ctx context.Context, ackIDs []string) error {
 	return nil
 }
 
+// Health verifies the Sequin service is reachable.
+func (c *Client) Health(ctx context.Context) error {
+	endpoint := *c.baseURL
+	endpoint.Path = stdpath.Join(endpoint.Path, "/health")
+	if endpoint.Scheme == "" || endpoint.Host == "" {
+		return fmt.Errorf("invalid base url")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return fmt.Errorf("create health request: %w", err)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("sequin health request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("sequin health returned HTTP %d", resp.StatusCode)
+	}
+	return nil
+}
+
 // doRequest sends an HTTP request to the Sequin Stream API.
 func (c *Client) doRequest(ctx context.Context, method, endpointPath string, body any) (*http.Response, error) {
 	var bodyData []byte
@@ -244,8 +277,9 @@ func (c *Client) readError(resp *http.Response) error {
 // EnsureConsumer checks if the named consumer exists and creates it if not.
 // Idempotent and safe to call on every startup.
 func (c *Client) EnsureConsumer(ctx context.Context, tables []string) error {
-	// Probe: try an empty receive to check if consumer exists.
-	_, err := c.Receive(ctx, 0, 0)
+	// Probe: try a non-blocking receive to check if the consumer exists.
+	// Sequin rejects batch_size=0, so use the smallest valid batch.
+	_, err := c.Receive(ctx, 1, 0)
 	if err == nil {
 		return nil
 	}
@@ -256,7 +290,7 @@ func (c *Client) EnsureConsumer(ctx context.Context, tables []string) error {
 
 	sinkBody := map[string]any{
 		"name":        c.consumerName,
-		"database":    "default",
+		"database":    c.databaseName,
 		"source":      map[string]any{"include_tables": tables},
 		"destination": map[string]any{"type": "sequin_stream"},
 	}
@@ -279,7 +313,32 @@ func (c *Client) EnsureConsumer(ctx context.Context, tables []string) error {
 
 	if resp.StatusCode >= 400 {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if (resp.StatusCode == http.StatusConflict || resp.StatusCode == http.StatusUnprocessableEntity) &&
+			bytes.Contains(respBody, []byte("has already been taken")) {
+			return c.waitForConsumerReady(ctx)
+		}
 		return fmt.Errorf("create sequin sink (status %d): %s", resp.StatusCode, respBody)
 	}
-	return nil
+	return c.waitForConsumerReady(ctx)
+}
+
+func (c *Client) waitForConsumerReady(ctx context.Context) error {
+	var lastErr error
+	for attempt := range 30 {
+		_, err := c.Receive(ctx, 1, 0)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+
+		delay := min(time.Duration(attempt+1)*250*time.Millisecond, time.Second)
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return fmt.Errorf("wait for sequin consumer: %w", ctx.Err())
+		case <-timer.C:
+		}
+	}
+	return fmt.Errorf("wait for sequin consumer: %w", lastErr)
 }

@@ -1,0 +1,12 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: strait
+    metrics_path: /metrics
+    authorization:
+      credentials_file: /tmp/strait_internal_secret
+    static_configs:
+      - targets:
+          - strait:8080

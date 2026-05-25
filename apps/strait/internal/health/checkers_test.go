@@ -3,6 +3,8 @@ package health
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -159,9 +161,8 @@ func TestNewRedisChecker(t *testing.T) {
 				if tt.wantErrPart != "" && !strings.Contains(err.Error(), tt.wantErrPart) {
 					t.Fatalf("error = %q, want to contain %q", err.Error(), tt.wantErrPart)
 				}
-				// Redis checker should be non-critical.
-				if IsCritical(checker) {
-					t.Fatal("expected redis checker to be non-critical")
+				if !IsCritical(checker) {
+					t.Fatal("expected redis checker to be critical")
 				}
 				return
 			}
@@ -170,6 +171,46 @@ func TestNewRedisChecker(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNewSequinChecker(t *testing.T) {
+	t.Parallel()
+
+	t.Run("healthy sequin", func(t *testing.T) {
+		t.Parallel()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/health" {
+				t.Fatalf("path = %q, want /health", r.URL.Path)
+			}
+			w.WriteHeader(http.StatusOK)
+		}))
+		t.Cleanup(srv.Close)
+
+		checker := NewSequinChecker(srv.URL)
+		if err := checker.Check(context.Background()); err != nil {
+			t.Fatalf("expected healthy Sequin, got %v", err)
+		}
+		if !IsCritical(checker) {
+			t.Fatal("expected Sequin checker to be critical")
+		}
+	})
+
+	t.Run("unhealthy sequin", func(t *testing.T) {
+		t.Parallel()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}))
+		t.Cleanup(srv.Close)
+
+		checker := NewSequinChecker(srv.URL)
+		err := checker.Check(context.Background())
+		if err == nil || !strings.Contains(err.Error(), "sequin unhealthy") {
+			t.Fatalf("error = %v, want sequin unhealthy", err)
+		}
+		if !IsCritical(checker) {
+			t.Fatal("expected Sequin checker to be critical")
+		}
+	})
 }
 
 func TestNewQueueDepthChecker(t *testing.T) {

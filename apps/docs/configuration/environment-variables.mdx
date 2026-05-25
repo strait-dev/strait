@@ -11,6 +11,10 @@ This page lists the settings most deployments need. The full runtime has additio
 | Variable | Description |
 |---|---|
 | `DATABASE_URL` | PostgreSQL connection string. |
+| `REDIS_URL` | Redis connection string. Required unless `REDIS_SENTINEL_MASTER` and `REDIS_SENTINEL_ADDRS` are configured. |
+| `SEQUIN_BASE_URL` | Sequin API base URL. |
+| `SEQUIN_CONSUMER_NAME` | Sequin HTTP pull consumer name. |
+| `SEQUIN_API_TOKEN` | Sequin API token provisioned in the Sequin config. |
 | `INTERNAL_SECRET` | Secret for trusted service-to-service access. Minimum 16 characters; 32 or more recommended. |
 | `JWT_SIGNING_KEY` | Secret used to sign run tokens for SDK calls. 32 or more characters recommended. |
 | `ENCRYPTION_KEY` | Key used for encrypted data at rest. |
@@ -20,6 +24,10 @@ Example:
 
 ```bash
 export DATABASE_URL="postgres://strait:strait@localhost:15432/strait?sslmode=disable"
+export REDIS_URL="redis://localhost:16379"
+export SEQUIN_BASE_URL="http://localhost:7376"
+export SEQUIN_CONSUMER_NAME="strait-cdc"
+export SEQUIN_API_TOKEN="$(openssl rand -hex 32)"
 export INTERNAL_SECRET="$(openssl rand -base64 32)"
 export JWT_SIGNING_KEY="$(openssl rand -base64 32)"
 export ENCRYPTION_KEY="$(openssl rand -base64 32)"
@@ -30,7 +38,6 @@ export SECRET_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 
 | Variable | Default | Description |
 |---|---|---|
-| `REDIS_URL` | - | Redis connection string for live updates and pub/sub. |
 | `MODE` | `all` | `all`, `api`, or `worker`. |
 | `PORT` | `8080` | HTTP API port. |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, or `error`. |
@@ -111,8 +118,9 @@ export SECRET_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 
 | Variable | Default | Description |
 |---|---|---|
-| `SEQUIN_BASE_URL` | - | Sequin API base URL. When set, Strait starts the CDC pull consumer and exposes the optional push receiver. |
-| `SEQUIN_CONSUMER_NAME` | - | Sequin HTTP pull consumer name. |
+| `SEQUIN_BASE_URL` | - | Required Sequin API base URL. Strait starts the CDC pull consumer and exposes the push receiver during startup. |
+| `SEQUIN_CONSUMER_NAME` | - | Required Sequin HTTP pull consumer name. |
+| `SEQUIN_DATABASE_NAME` | `strait-db` | Sequin database name from the mounted Sequin config. |
 | `SEQUIN_API_TOKEN` | - | Bearer token used for Sequin API calls. |
 | `SEQUIN_WEBHOOK_SECRET` | - | HMAC-SHA256 secret used to verify Sequin push webhook request bodies. Set this when using `/internal/cdc/webhook`. |
 | `SEQUIN_BATCH_SIZE` | `200` | Max CDC messages fetched per pull request. `CDC_BATCH_SIZE` is accepted as an alias. |
@@ -142,6 +150,16 @@ Use these when running connected workers.
 | `WORKER_DISCONNECT_ACK_TIMEOUT` | `5s` | Maximum time `DELETE /workers/{id}` waits for worker-plane disconnect acknowledgement before returning `503` with `Retry-After`. |
 | `GRPC_PUBSUB_STARTUP_TIMEOUT` | `30s` | Maximum time gRPC startup waits for pubsub readiness before refusing to serve worker streams. |
 | `EXTERNAL_API_URL` | - | Base URL workers use to call back to the Strait API. |
+
+## Sizing
+
+| Variable | Default | Description |
+|---|---|---|
+| `DB_MAX_CONNS` | `50` | Maximum PostgreSQL pool size per Strait process. Keep this above `WORKER_CONCURRENCY` and multiply by replicas when sizing PostgreSQL. |
+| `DB_MIN_CONNS` | `10` | Minimum warm PostgreSQL connections per Strait process. |
+| `REDIS_POOL_SIZE` | `30` | Maximum Redis connections per Strait process. |
+| `REDIS_MIN_IDLE_CONNS` | `5` | Minimum warm Redis connections per Strait process. |
+| `WORKER_CONCURRENCY` | `25` | Maximum concurrent job executions per worker process. |
 
 ## Related
 

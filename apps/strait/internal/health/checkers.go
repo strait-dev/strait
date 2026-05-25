@@ -3,6 +3,7 @@ package health
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 )
 
@@ -77,11 +78,30 @@ type RedisPinger interface {
 	Ping(ctx context.Context) error
 }
 
-// NewRedisChecker creates a non-critical health checker that pings Redis.
+// NewRedisChecker creates a critical health checker that pings Redis.
 func NewRedisChecker(pinger RedisPinger) Checker {
-	return NewCriticalChecker("redis", false, func(ctx context.Context) error {
+	return NewCriticalChecker("redis", true, func(ctx context.Context) error {
 		if err := pinger.Ping(ctx); err != nil {
 			return fmt.Errorf("redis ping failed: %w", err)
+		}
+		return nil
+	})
+}
+
+func NewSequinChecker(baseURL string) Checker {
+	return NewCriticalChecker("sequin_cdc", true, func(ctx context.Context) error {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/health", nil)
+		if err != nil {
+			return fmt.Errorf("sequin health request: %w", err)
+		}
+		client := &http.Client{Timeout: 5 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			return fmt.Errorf("sequin unreachable: %w", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+			return fmt.Errorf("sequin unhealthy: HTTP %d", resp.StatusCode)
 		}
 		return nil
 	})
