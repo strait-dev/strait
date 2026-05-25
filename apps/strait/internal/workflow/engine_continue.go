@@ -91,30 +91,43 @@ func (e *WorkflowEngine) ContinueWorkflowRunAsNew(
 			return nil, fmt.Errorf("project %s is not active for workflow execution", pred.ProjectID)
 		}
 	}
-	// Resolve the successor's definition per the chosen version strategy.
+	// Resolve which version and snapshot the successor pins, per the chosen
+	// strategy. The switch settles only that choice; listing and validating the
+	// step DAG is shared below because it is identical once the version is known.
 	strategy = strategy.Normalize()
 	var (
-		steps       []domain.WorkflowStep
 		version     int
 		versionID   string
 		snapshotID  string
 		maxParallel int
-		timeoutSecs int
 	)
 	switch strategy {
 	case domain.ContinueVersionLatest:
 		// Adopt the latest published version (+ canary routing), exactly as a
-		// fresh trigger would, so the successor reflects mid-chain deploys.
+		// fresh trigger would, so the successor reflects mid-chain deploys. The
+		// resolved definition is snapshotted below so it is immune to live edits.
 		if err := e.applyCanaryRouting(ctx, wf); err != nil {
 			return nil, err
 		}
-		steps, err = e.store.ListStepsByWorkflowVersion(ctx, wf.ID, wf.Version)
-		if err != nil {
-			return nil, fmt.Errorf("list workflow steps by version: %w", err)
-		}
-		if err := ValidateDAG(steps); err != nil {
-			return nil, fmt.Errorf("validate workflow dag: %w", err)
-		}
+		version, versionID, maxParallel = wf.Version, wf.VersionID, wf.MaxParallelSteps
+	case domain.ContinueVersionRepin:
+		// Reuse the predecessor's exact pinned version and snapshot: no canary
+		// routing, immune to mid-chain deploys and in-place edits.
+		version, versionID = pred.WorkflowVersion, pred.WorkflowVersionID
+		snapshotID, maxParallel = pred.WorkflowSnapshotID, pred.MaxParallelSteps
+	default:
+		return nil, fmt.Errorf("unknown continue-as-new version strategy: %q", strategy)
+	}
+	timeoutSecs := wf.TimeoutSecs
+
+	steps, err := e.store.ListStepsByWorkflowVersion(ctx, wf.ID, version)
+	if err != nil {
+		return nil, fmt.Errorf("list workflow steps by version: %w", err)
+	}
+	if err := ValidateDAG(steps); err != nil {
+		return nil, fmt.Errorf("validate workflow dag: %w", err)
+	}
+	if strategy == domain.ContinueVersionLatest {
 		// Snapshot the resolved definition so the successor is immune to live edits.
 		snapshot, snapshotErr := e.store.GetOrCreateWorkflowSnapshot(ctx, wf, steps)
 		if snapshotErr != nil {
@@ -123,21 +136,6 @@ func (e *WorkflowEngine) ContinueWorkflowRunAsNew(
 		if snapshot != nil {
 			snapshotID = snapshot.ID
 		}
-		version, versionID, maxParallel, timeoutSecs = wf.Version, wf.VersionID, wf.MaxParallelSteps, wf.TimeoutSecs
-	case domain.ContinueVersionRepin:
-		// Reuse the predecessor's exact pinned version and snapshot: no canary
-		// routing, immune to mid-chain deploys and in-place edits.
-		steps, err = e.store.ListStepsByWorkflowVersion(ctx, wf.ID, pred.WorkflowVersion)
-		if err != nil {
-			return nil, fmt.Errorf("list workflow steps by version: %w", err)
-		}
-		if err := ValidateDAG(steps); err != nil {
-			return nil, fmt.Errorf("validate workflow dag: %w", err)
-		}
-		version, versionID, snapshotID = pred.WorkflowVersion, pred.WorkflowVersionID, pred.WorkflowSnapshotID
-		maxParallel, timeoutSecs = pred.MaxParallelSteps, wf.TimeoutSecs
-	default:
-		return nil, fmt.Errorf("unknown continue-as-new version strategy: %q", strategy)
 	}
 
 	// 4. Build the successor run and its fresh step runs. Tags carry across the
