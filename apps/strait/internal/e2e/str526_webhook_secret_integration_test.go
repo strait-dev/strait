@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
 	grpcpkg "strait/internal/api/grpc"
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
 	straitcrypto "strait/internal/crypto"
@@ -230,6 +231,8 @@ func TestSTR526HTTPExecutorSignsDispatchCreatedWithWebhookSecret(t *testing.T) {
 }
 
 func TestSTR526WorkerAssignmentSignsPayloadCreatedWithWebhookSecret(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	mustClean(t)
 
 	ctx := context.Background()
@@ -291,7 +294,7 @@ func TestSTR526WorkerAssignmentSignsPayloadCreatedWithWebhookSecret(t *testing.T
 
 	var dispatchWG sync.WaitGroup
 	dispatchWG.Add(1)
-	go func() {
+	concWG.Go(func() {
 		defer dispatchWG.Done()
 		run, err := testStore.GetRun(ctx, runID)
 		if err != nil {
@@ -311,7 +314,7 @@ func TestSTR526WorkerAssignmentSignsPayloadCreatedWithWebhookSecret(t *testing.T
 		if err := dispatcher.CompleteWorkerTask(ctx, result, domain.WorkerTaskStatusCompleted); err != nil {
 			t.Errorf("complete worker task: %v", err)
 		}
-	}()
+	})
 
 	select {
 	case msg := <-sendCh:

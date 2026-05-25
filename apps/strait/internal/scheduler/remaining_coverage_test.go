@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
 	"strait/internal/domain"
 	"strait/internal/store"
 )
@@ -15,6 +16,8 @@ import (
 // Section separator.
 
 func TestWebhookMessageCleanup_Run_StopsOnCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	s := &rcMockWebhookCleanupStore{}
@@ -22,10 +25,10 @@ func TestWebhookMessageCleanup_Run_StopsOnCancel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		c.Run(ctx)
 		close(done)
-	}()
+	})
 
 	cancel()
 
@@ -46,6 +49,8 @@ func TestWebhookMessageCleanup_DefaultInterval(t *testing.T) {
 }
 
 func TestMemoryCleanup_Run_StopsOnCancel_RC(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	s := &rcMockMemoryCleanupStore{}
@@ -53,10 +58,10 @@ func TestMemoryCleanup_Run_StopsOnCancel_RC(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		mc.Run(ctx)
 		close(done)
-	}()
+	})
 
 	cancel()
 
@@ -82,6 +87,8 @@ func TestMemoryCleanup_CleanupError_Continues(t *testing.T) {
 }
 
 func TestIndexMaintainer_Run_StopsOnCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	s := &mockIndexMaintenanceStore{}
@@ -89,10 +96,10 @@ func TestIndexMaintainer_Run_StopsOnCancel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		m.Run(ctx)
 		close(done)
-	}()
+	})
 
 	cancel()
 
@@ -104,6 +111,8 @@ func TestIndexMaintainer_Run_StopsOnCancel(t *testing.T) {
 }
 
 func TestDebouncePoller_Run_StopsOnCancel_RC(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	s := &mockDebounceStore{
@@ -116,10 +125,10 @@ func TestDebouncePoller_Run_StopsOnCancel_RC(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		p.Run(ctx)
 		close(done)
-	}()
+	})
 
 	cancel()
 
@@ -131,6 +140,8 @@ func TestDebouncePoller_Run_StopsOnCancel_RC(t *testing.T) {
 }
 
 func TestBatchFlusher_Run_StopsOnCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	s := &mockBatchStore{
@@ -143,10 +154,10 @@ func TestBatchFlusher_Run_StopsOnCancel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		f.Run(ctx)
 		close(done)
-	}()
+	})
 
 	cancel()
 

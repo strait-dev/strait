@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
 	workergrpc "strait/internal/api/grpc"
 	"strait/internal/domain"
 )
@@ -269,6 +270,8 @@ func TestExecuteWorkerMode_SuccessRoutesToHandleSuccess(t *testing.T) {
 }
 
 func TestExecuteWorkerMode_TimesOutWorkerDispatchUsingExecutionPolicy(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	dispatcher := &contextDeadlineWorkerDispatcher{started: make(chan struct{})}
@@ -286,10 +289,10 @@ func TestExecuteWorkerMode_TimesOutWorkerDispatchUsingExecutionPolicy(t *testing
 
 	done := make(chan struct{})
 	start := time.Now()
-	go func() {
+	concWG.Go(func() {
 		exec.executeWorkerMode(context.Background(), run, job, policy)
 		close(done)
-	}()
+	})
 
 	select {
 	case <-dispatcher.started:
@@ -329,6 +332,8 @@ func TestExecuteWorkerMode_TimesOutWorkerDispatchUsingExecutionPolicy(t *testing
 }
 
 func TestExecuteWorkerMode_ParentCancellationRequeuesWithoutTimeout(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	dispatcher := &contextDeadlineWorkerDispatcher{started: make(chan struct{})}
@@ -352,10 +357,10 @@ func TestExecuteWorkerMode_ParentCancellationRequeuesWithoutTimeout(t *testing.T
 	ctx, cancel := context.WithCancel(context.Background())
 
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		exec.executeWorkerMode(ctx, run, job, policy)
 		close(done)
-	}()
+	})
 
 	select {
 	case <-dispatcher.started:
@@ -705,6 +710,8 @@ func TestExecuteWorkerMode_DispatchErrorRequeuesOnNoWorker(t *testing.T) {
 // duration of the remote task. Without this, long-running worker-mode runs
 // appear stale to the reaper and get crashed mid-execution.
 func TestExecuteWorkerMode_RegistersHeartbeatWhileDispatchInFlight(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	dispatcher := &blockingWorkerDispatcher{
@@ -717,10 +724,10 @@ func TestExecuteWorkerMode_RegistersHeartbeatWhileDispatchInFlight(t *testing.T)
 	run := testRun(1)
 
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		defer close(done)
 		exec.executeWorkerMode(context.Background(), run, workerModeJob(3))
-	}()
+	})
 
 	select {
 	case <-dispatcher.started:

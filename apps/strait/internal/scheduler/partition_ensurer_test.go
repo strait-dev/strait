@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"github.com/sourcegraph/conc"
 	"testing"
 	"time"
 )
@@ -108,14 +109,16 @@ func TestPartitionEnsurer_LockAcquiredAndReleased(t *testing.T) {
 }
 
 func TestPartitionEnsurer_RunExitsOnCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	s := &fakePartitionStore{}
 	p := NewPartitionEnsurer(s, PartitionEnsurerConfig{Interval: 5 * time.Millisecond})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		p.Run(ctx)
 		close(done)
-	}()
+	})
 	time.Sleep(30 * time.Millisecond)
 	cancel()
 	select {

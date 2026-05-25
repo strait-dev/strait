@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
 	"strait/internal/billing"
 	"strait/internal/domain"
 )
@@ -73,6 +74,8 @@ func TestAdversarialWriter_DuplicateAddonReplay(t *testing.T) {
 // The final persisted entitlements must equal a valid serialization of one
 // of the inputs — never a torn write blending tiers.
 func TestAdversarialWriter_ConcurrentFullUpdates(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	mustClean(t, ctx)
 	pgStore := billing.NewPgStore(testDB.Pool)
@@ -94,10 +97,13 @@ func TestAdversarialWriter_ConcurrentFullUpdates(t *testing.T) {
 	var wg sync.WaitGroup
 	for _, tier := range tiers {
 		wg.Add(1)
-		go func(tier domain.PlanTier) {
-			defer wg.Done()
-			_ = pgStore.UpdateOrgSubscriptionFull(ctx, orgID, string(tier), "active", &now, &pe)
-		}(tier)
+		{
+			tier := tier
+			concWG.Go(func() {
+				defer wg.Done()
+				_ = pgStore.UpdateOrgSubscriptionFull(ctx, orgID, string(tier), "active", &now, &pe)
+			})
+		}
 	}
 	wg.Wait()
 

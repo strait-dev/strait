@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
 	"strait/internal/domain"
 )
 
@@ -18,6 +19,8 @@ import (
 // it's to confirm we do not panic, deadlock, or trip the race
 // detector on the shared enforcer + mock store.
 func TestProjectBudget_RaceUnderConcurrency(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 	enforcer, store, _ := setupEnforcer(t)
 
@@ -39,11 +42,11 @@ func TestProjectBudget_RaceUnderConcurrency(t *testing.T) {
 	wg.Add(n)
 	var calls atomic.Int32
 	for range n {
-		go func() {
+		concWG.Go(func() {
 			defer wg.Done()
 			_ = enforcer.CheckProjectBudgetLimit(context.Background(), "proj-pb")
 			calls.Add(1)
-		}()
+		})
 	}
 	wg.Wait()
 

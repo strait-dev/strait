@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
 	"strait/internal/queue"
 	"strait/internal/store"
 )
@@ -204,6 +205,8 @@ func TestOutbox_EmptyWriteNoOp(t *testing.T) {
 }
 
 func TestOutbox_ConcurrentFlushersDoNotDuplicate(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
@@ -230,7 +233,7 @@ func TestOutbox_ConcurrentFlushersDoNotDuplicate(t *testing.T) {
 	}
 	ch := make(chan result, 2)
 	for range 2 {
-		go func() {
+		concWG.Go(func() {
 			ftx, _ := testDB.Pool.Begin(ctx)
 			defer ftx.Rollback(ctx)
 			rows, err := store.ClaimUnconsumedOutboxInTx(ctx, ftx, 20)
@@ -245,7 +248,7 @@ func TestOutbox_ConcurrentFlushersDoNotDuplicate(t *testing.T) {
 			_ = store.MarkOutboxConsumedInTx(ctx, ftx, ids)
 			_ = ftx.Commit(ctx)
 			ch <- result{ids: ids}
-		}()
+		})
 	}
 
 	seen := map[string]bool{}

@@ -10,6 +10,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/sourcegraph/conc"
 	"strait/internal/domain"
 	"strait/internal/store"
 )
@@ -68,6 +69,8 @@ func TestCreateWebhookSubscription(t *testing.T) {
 }
 
 func TestCreateWebhookSubscriptionWithOrgLimit_ConcurrentCreatesCannotExceedLimit(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
@@ -86,22 +89,25 @@ func TestCreateWebhookSubscriptionWithOrgLimit_ConcurrentCreatesCannotExceedLimi
 	var wg sync.WaitGroup
 	for i := range attempts {
 		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			<-start
-			sub := &domain.WebhookSubscription{
-				ID:         "sub-webhook-limit-" + newID(),
-				ProjectID:  projectID,
-				WebhookURL: "https://example.com/hook/" + newID(),
-				EventTypes: []string{"run.completed"},
-				Secret:     "whsec_test",
-				Active:     true,
-			}
-			if i%2 == 0 {
-				sub.EventTypes = []string{"run.failed"}
-			}
-			errs <- q.CreateWebhookSubscriptionWithOrgLimit(ctx, sub, orgID, maxEndpoints)
-		}(i)
+		{
+			i := i
+			concWG.Go(func() {
+				defer wg.Done()
+				<-start
+				sub := &domain.WebhookSubscription{
+					ID:         "sub-webhook-limit-" + newID(),
+					ProjectID:  projectID,
+					WebhookURL: "https://example.com/hook/" + newID(),
+					EventTypes: []string{"run.completed"},
+					Secret:     "whsec_test",
+					Active:     true,
+				}
+				if i%2 == 0 {
+					sub.EventTypes = []string{"run.failed"}
+				}
+				errs <- q.CreateWebhookSubscriptionWithOrgLimit(ctx, sub, orgID, maxEndpoints)
+			})
+		}
 	}
 	close(start)
 	wg.Wait()

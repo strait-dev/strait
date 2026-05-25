@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"errors"
+	"github.com/sourcegraph/conc"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -72,6 +73,8 @@ func TestPool_ConcurrencyLimit(t *testing.T) {
 }
 
 func TestPool_Shutdown_WaitsForInFlight(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 	p := NewPool(1)
 	started := make(chan struct{})
@@ -89,10 +92,10 @@ func TestPool_Shutdown_WaitsForInFlight(t *testing.T) {
 	}
 
 	shutdownReturned := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		_ = p.Shutdown(context.Background())
 		close(shutdownReturned)
-	}()
+	})
 
 	select {
 	case <-shutdownReturned:

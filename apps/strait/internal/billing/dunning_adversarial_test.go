@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
 	"strait/internal/domain"
 )
 
@@ -15,6 +16,8 @@ import (
 // a per-row claim guard so this test exercises the policy/dispatch path
 // under contention.
 func TestDunner_ConcurrentTicksAdvanceEachRowOnce(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 	entered := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
 	clock := entered.Add(4 * 24 * time.Hour)
@@ -38,10 +41,10 @@ func TestDunner_ConcurrentTicksAdvanceEachRowOnce(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 	for range 2 {
-		go func() {
+		concWG.Go(func() {
 			defer wg.Done()
 			_ = d.Tick(context.Background())
-		}()
+		})
 	}
 	wg.Wait()
 

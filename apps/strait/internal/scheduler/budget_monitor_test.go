@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
 	"strait/internal/billing"
 	"strait/internal/domain"
 )
@@ -30,16 +31,18 @@ func (m *mockEnqueuer) EnqueueBudgetAlert(ctx context.Context, projectID string,
 }
 
 func TestBudgetMonitor_Run_StopsOnContextCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	bm := NewBudgetMonitor(struct{}{}, nil, 10*time.Millisecond)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		bm.Run(ctx)
 		close(done)
-	}()
+	})
 
 	cancel()
 

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
 	"strait/internal/billing"
 	"strait/internal/domain"
 )
@@ -598,16 +599,18 @@ func TestUsageFlusher_DefaultInterval(t *testing.T) {
 }
 
 func TestUsageFlusher_Run_StopsOnContextCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	uf := NewUsageFlusher(&mockUsageFlusherStore{}, 10*time.Millisecond)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		uf.Run(ctx)
 		close(done)
-	}()
+	})
 
 	cancel()
 
@@ -623,16 +626,18 @@ func TestUsageFlusher_Run_StopsOnContextCancel(t *testing.T) {
 // Section separator.
 
 func TestUsageReportEmailer_Run_StopsOnContextCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	emailer := NewUsageReportEmailer(nil, nil, "", 10*time.Millisecond)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		emailer.Run(ctx)
 		close(done)
-	}()
+	})
 
 	cancel()
 

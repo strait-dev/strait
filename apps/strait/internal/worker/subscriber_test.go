@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
 	"strait/internal/domain"
 	"strait/internal/pubsub"
 	"strait/internal/telemetry"
@@ -38,8 +39,12 @@ func TestEmit_NoSubscribers_NoOp(t *testing.T) {
 }
 
 func TestEmit_NonBlocking_ChannelFull(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
-	bufSize := 4 // Small buffer for test speed.
+
+	// Small buffer for test speed.
+	bufSize := 4
 	exec := &Executor{
 		eventCh:     make(chan runEventEnvelope, bufSize),
 		logger:      slog.Default(),
@@ -54,10 +59,10 @@ func TestEmit_NonBlocking_ChannelFull(t *testing.T) {
 
 	// This emit should not block.
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		exec.emit(context.Background(), RunLifecycleEvent{Type: EventCompleted, Run: run})
 		close(done)
-	}()
+	})
 
 	select {
 	case <-done:
@@ -144,6 +149,8 @@ func TestRunEventLoop_FansOutToAll(t *testing.T) {
 }
 
 func TestRunEventLoop_ExitsOnClose(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 	exec := &Executor{
 		eventCh:     make(chan runEventEnvelope, 256),
@@ -151,10 +158,10 @@ func TestRunEventLoop_ExitsOnClose(t *testing.T) {
 	}
 
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		exec.runEventLoop()
 		close(done)
-	}()
+	})
 
 	close(exec.eventCh)
 
@@ -507,6 +514,8 @@ func TestIsTerminalStatus_AllCases(t *testing.T) {
 // channel is saturated, emit returns promptly (no deadlock) and the drop
 // counter hook is exercised without panicking.
 func TestEmit_ChannelFull_DropCounterNoDeadlock(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 	exec := &Executor{
 		eventCh:     make(chan runEventEnvelope, 1),
@@ -521,12 +530,12 @@ func TestEmit_ChannelFull_DropCounterNoDeadlock(t *testing.T) {
 	// Further emits must not block and must not panic even with no OTEL
 	// meter provider installed (queue metrics noop to a noop meter).
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		for range 32 {
 			exec.emit(context.Background(), RunLifecycleEvent{Type: EventCompleted, Run: run})
 		}
 		close(done)
-	}()
+	})
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):

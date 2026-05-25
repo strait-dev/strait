@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
 	"strait/internal/domain"
 	"strait/internal/store"
 )
@@ -169,6 +170,8 @@ func TestAuditDeadletter_MarkReclaimed_PersistsMarker(t *testing.T) {
 }
 
 func TestReplayAuditEventDeadletter_ConcurrentReplayInsertsOnce(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	mustClean(t, ctx)
 	q := mustStore(t)
@@ -202,12 +205,15 @@ func TestReplayAuditEventDeadletter_ConcurrentReplayInsertsOnce(t *testing.T) {
 	var wg sync.WaitGroup
 	for _, newID := range []string{"audit-replayed-1", "audit-replayed-2"} {
 		wg.Add(1)
-		go func(newID string) {
-			defer wg.Done()
-			<-start
-			_, replayed, replayErr := q.ReplayAuditEventDeadletter(ctx, ev.ID, ev.ProjectID, newID)
-			results <- outcome{replayed: replayed, err: replayErr}
-		}(newID)
+		{
+			newID := newID
+			concWG.Go(func() {
+				defer wg.Done()
+				<-start
+				_, replayed, replayErr := q.ReplayAuditEventDeadletter(ctx, ev.ID, ev.ProjectID, newID)
+				results <- outcome{replayed: replayed, err: replayErr}
+			})
+		}
 	}
 	close(start)
 	wg.Wait()

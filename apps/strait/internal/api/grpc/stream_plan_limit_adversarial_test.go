@@ -3,6 +3,7 @@ package grpc
 import (
 	"context"
 	"fmt"
+	"github.com/sourcegraph/conc"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -20,6 +21,8 @@ import (
 // proves the explicit plan gate rejects concurrent attempts when the count is
 // already at limit.
 func TestStreamGating_RaceAtCap(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	enforcer := &stubPlanLimitEnforcer{
@@ -43,14 +46,14 @@ func TestStreamGating_RaceAtCap(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(attempts)
 	for range attempts {
-		go func() {
+		concWG.Go(func() {
 			defer wg.Done()
 			if _, b := gatingResult(context.Background(), enforcer, r, "proj-a"); b {
 				blocked.Add(1)
 			} else {
 				allowed.Add(1)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -68,6 +71,8 @@ func TestStreamGating_RaceAtCap(t *testing.T) {
 // + register cycle, gatingResult for a new worker on a saturated org must
 // still reject.
 func TestStreamGating_ReconnectStorm(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	enforcer := &stubPlanLimitEnforcer{
@@ -93,13 +98,16 @@ func TestStreamGating_ReconnectStorm(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(5)
 	for i := range 5 {
-		go func(i int) {
-			defer wg.Done()
-			r.Deregister(fmt.Sprintf("w-%d", i), tokens[i])
-			w := makeWorker(fmt.Sprintf("w-%d", i), "proj-a", fmt.Sprintf("k-%d", i), []string{"q"}, 1)
-			w.OrgID = "org-1"
-			_ = r.Register(w)
-		}(i)
+		{
+			i := i
+			concWG.Go(func() {
+				defer wg.Done()
+				r.Deregister(fmt.Sprintf("w-%d", i), tokens[i])
+				w := makeWorker(fmt.Sprintf("w-%d", i), "proj-a", fmt.Sprintf("k-%d", i), []string{"q"}, 1)
+				w.OrgID = "org-1"
+				_ = r.Register(w)
+			})
+		}
 	}
 
 	// While the storm is in flight, an attacker connect attempt: must reject

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
 	"strait/internal/domain"
 )
 
@@ -51,6 +52,8 @@ func TestNewExecutor_DefaultEventChannelSize(t *testing.T) {
 // to trigger drops. It asserts that emit never blocks (no deadlock) and that
 // the warning throttle does not panic or leak state.
 func TestEmit_SaturationDropsAndNoDeadlock(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 	exec := &Executor{
 		eventCh:            make(chan runEventEnvelope, 4),
@@ -62,12 +65,12 @@ func TestEmit_SaturationDropsAndNoDeadlock(t *testing.T) {
 	run := &domain.JobRun{ID: "r1"}
 
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		for range 128 {
 			exec.emit(context.Background(), RunLifecycleEvent{Type: EventCompleted, Run: run})
 		}
 		close(done)
-	}()
+	})
 
 	select {
 	case <-done:

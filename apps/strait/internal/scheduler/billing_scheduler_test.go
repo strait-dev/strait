@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
 	"strait/internal/billing"
 	"strait/internal/domain"
 )
@@ -332,6 +333,8 @@ func TestDowngradeApplier_NilPendingTier_SkipsEnforcement(t *testing.T) {
 }
 
 func TestDowngradeApplier_Run_StopsOnContextCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	s := &mockDowngradeStore{}
@@ -339,10 +342,10 @@ func TestDowngradeApplier_Run_StopsOnContextCancel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		applier.Run(ctx)
 		close(done)
-	}()
+	})
 
 	cancel()
 
@@ -505,6 +508,8 @@ func TestGraceEnforcer_ConcurrentWebhookResolvesGrace(t *testing.T) {
 }
 
 func TestGraceEnforcer_Run_StopsOnContextCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	s := &mockGraceEnforcerStore{}
@@ -512,10 +517,10 @@ func TestGraceEnforcer_Run_StopsOnContextCancel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		g.Run(ctx)
 		close(done)
-	}()
+	})
 
 	cancel()
 
@@ -686,6 +691,8 @@ func TestStaleSubscriptionChecker_WithAdvisoryLock_NotAcquired(t *testing.T) {
 }
 
 func TestStaleSubscriptionChecker_Run_StopsOnContextCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	s := &mockStaleSubStore{}
@@ -693,10 +700,10 @@ func TestStaleSubscriptionChecker_Run_StopsOnContextCancel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		checker.Run(ctx)
 		close(done)
-	}()
+	})
 
 	cancel()
 

@@ -14,6 +14,7 @@ import (
 	"strait/internal/testutil"
 
 	"github.com/google/uuid"
+	"github.com/sourcegraph/conc"
 )
 
 func setupForPromoter(t *testing.T) (*testutil.TestDB, *store.Queries, *queue.PostgresQueue) {
@@ -63,6 +64,8 @@ func createJobAndQueuedRuns(t *testing.T, st *store.Queries, q *queue.PostgresQu
 }
 
 func TestPriorityPromoter_PromotesAgedRuns(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	tdb, st, q := setupForPromoter(t)
 	ctx := context.Background()
 
@@ -87,10 +90,10 @@ func TestPriorityPromoter_PromotesAgedRuns(t *testing.T) {
 	// then cancel.
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		p.Run(runCtx)
 		close(done)
-	}()
+	})
 	time.Sleep(100 * time.Millisecond)
 	cancel()
 	<-done
@@ -106,6 +109,8 @@ func TestPriorityPromoter_PromotesAgedRuns(t *testing.T) {
 }
 
 func TestPriorityPromoter_RespectsCeiling(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	tdb, st, q := setupForPromoter(t)
 	ctx := context.Background()
 
@@ -125,10 +130,10 @@ func TestPriorityPromoter_RespectsCeiling(t *testing.T) {
 	})
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		p.Run(runCtx)
 		close(done)
-	}()
+	})
 	time.Sleep(100 * time.Millisecond)
 	cancel()
 	<-done
@@ -144,6 +149,8 @@ func TestPriorityPromoter_RespectsCeiling(t *testing.T) {
 }
 
 func TestPriorityPromoter_DoesNotTouchFresh(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	tdb, st, q := setupForPromoter(t)
 	ctx := context.Background()
 
@@ -156,10 +163,10 @@ func TestPriorityPromoter_DoesNotTouchFresh(t *testing.T) {
 	})
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		p.Run(runCtx)
 		close(done)
-	}()
+	})
 	time.Sleep(100 * time.Millisecond)
 	cancel()
 	<-done
@@ -174,6 +181,8 @@ func TestPriorityPromoter_DoesNotTouchFresh(t *testing.T) {
 }
 
 func TestPriorityPromoter_StarvedLowPriorityEventuallyDequeued(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	tdb, st, q := setupForPromoter(t)
 	ctx := context.Background()
 
@@ -201,10 +210,10 @@ func TestPriorityPromoter_StarvedLowPriorityEventuallyDequeued(t *testing.T) {
 	runCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		p.Run(runCtx)
 		close(done)
-	}()
+	})
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {

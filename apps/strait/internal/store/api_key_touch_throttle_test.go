@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"github.com/sourcegraph/conc"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -103,6 +104,8 @@ func TestAPIKeyTouchThrottle_DefaultCooldownIs60s(t *testing.T) {
 }
 
 func TestRecordAPIKeyTouch_SizeMatchesUniqueKeys(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ClearAPIKeyTouchCacheForTest(t)
 	SetAPIKeyTouchCooldownForTest(t, time.Hour)
 
@@ -112,11 +115,14 @@ func TestRecordAPIKeyTouch_SizeMatchesUniqueKeys(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
 	for i := range goroutines {
-		go func(i int) {
-			defer wg.Done()
-			id := fmt.Sprintf("key-%d", i%uniqueIDs)
-			recordAPIKeyTouch(id, time.Now().UnixNano())
-		}(i)
+		{
+			i := i
+			concWG.Go(func() {
+				defer wg.Done()
+				id := fmt.Sprintf("key-%d", i%uniqueIDs)
+				recordAPIKeyTouch(id, time.Now().UnixNano())
+			})
+		}
 	}
 	wg.Wait()
 
@@ -202,6 +208,8 @@ func TestSweepAPIKeyTouchCache_EvictsStalePreservesFresh(t *testing.T) {
 }
 
 func TestSweepAPIKeyTouchCache_SingleSweeperWins(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ClearAPIKeyTouchCacheForTest(t)
 	SetAPIKeyTouchCooldownForTest(t, time.Millisecond)
 
@@ -219,7 +227,7 @@ func TestSweepAPIKeyTouchCache_SingleSweeperWins(t *testing.T) {
 	wg.Add(sweepers)
 	gate := make(chan struct{})
 	for range sweepers {
-		go func() {
+		concWG.Go(func() {
 			defer wg.Done()
 			<-gate
 			before := apiKeyTouchSweeping.Load()
@@ -230,7 +238,7 @@ func TestSweepAPIKeyTouchCache_SingleSweeperWins(t *testing.T) {
 				// have actually executed the eviction Range (the CAS winner).
 				observed.Add(1)
 			}
-		}()
+		})
 	}
 	close(gate)
 	wg.Wait()
@@ -264,6 +272,8 @@ func TestSweepAPIKeyTouchCache_RefreshedEntryNotEvicted(t *testing.T) {
 }
 
 func TestAPIKeyTouchThrottle_ConcurrentAccessRaceFree(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ClearAPIKeyTouchCacheForTest(t)
 	SetAPIKeyTouchCooldownForTest(t, time.Hour)
 
@@ -273,13 +283,16 @@ func TestAPIKeyTouchThrottle_ConcurrentAccessRaceFree(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := range goroutines {
 		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			id := []byte{byte('a' + i%ids)}
-			now := time.Now().UnixNano()
-			apiKeyTouchCache.Store(string(id), now)
-			_, _ = apiKeyTouchCache.Load(string(id))
-		}(i)
+		{
+			i := i
+			concWG.Go(func() {
+				defer wg.Done()
+				id := []byte{byte('a' + i%ids)}
+				now := time.Now().UnixNano()
+				apiKeyTouchCache.Store(string(id), now)
+				_, _ = apiKeyTouchCache.Load(string(id))
+			})
+		}
 	}
 	wg.Wait()
 

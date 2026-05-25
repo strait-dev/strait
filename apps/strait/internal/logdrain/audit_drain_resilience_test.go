@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
 	"strait/internal/domain"
 )
 
@@ -275,6 +276,8 @@ func TestAuditSIEMDrain_JitterBackoffBounded(t *testing.T) {
 // flip the circuit breaker. Only one upstream call is made, the
 // breaker stays closed, and the batch lands in the sub-DLQ once.
 func TestAuditSIEMDrain_ContextCanceled_NoRetry(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	shrinkBackoffForTest(t, 30*time.Second)
 
 	var calls atomic.Int32
@@ -296,13 +299,13 @@ func TestAuditSIEMDrain_ContextCanceled_NoRetry(t *testing.T) {
 
 	drain := NewAuditSIEMDrain(srv.URL, "", 0, 0)
 	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
+	concWG.Go(func() {
 		select {
 		case <-requestArrived:
 		case <-time.After(2 * time.Second):
 		}
 		cancel()
-	}()
+	})
 
 	err := drain.ForwardBatch(ctx, []domain.AuditEvent{sampleEvent("cancel-ev")})
 	if err == nil {

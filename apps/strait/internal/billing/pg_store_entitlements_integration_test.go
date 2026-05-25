@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/sourcegraph/conc"
 	"strait/internal/billing"
 	"strait/internal/domain"
 )
@@ -90,6 +91,8 @@ func TestPgStore_UpdateEntitlements_UnknownOrgIsNoop(t *testing.T) {
 // state must equal one of the two payloads byte-for-byte — not a partial
 // blend, not a torn write.
 func TestPgStore_UpdateEntitlements_ConcurrentWritersConverge(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	mustClean(t, ctx)
 	pgStore := billing.NewPgStore(testDB.Pool)
@@ -104,18 +107,18 @@ func TestPgStore_UpdateEntitlements_ConcurrentWritersConverge(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(2)
-	go func() {
+	concWG.Go(func() {
 		defer wg.Done()
 		for range 25 {
 			_ = pgStore.UpdateEntitlements(ctx, orgID, a)
 		}
-	}()
-	go func() {
+	})
+	concWG.Go(func() {
 		defer wg.Done()
 		for range 25 {
 			_ = pgStore.UpdateEntitlements(ctx, orgID, b)
 		}
-	}()
+	})
 	wg.Wait()
 
 	var raw []byte

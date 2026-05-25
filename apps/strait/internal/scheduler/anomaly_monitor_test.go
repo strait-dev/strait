@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
 	"strait/internal/billing"
 	"strait/internal/domain"
 )
@@ -738,6 +739,8 @@ func TestAnomalyMonitor_MultipleOrgs_IndependentAlerts(t *testing.T) {
 }
 
 func TestAnomalyMonitor_Run_StopsOnContextCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	s := &mockAnomalyMonitorStore{}
@@ -745,10 +748,10 @@ func TestAnomalyMonitor_Run_StopsOnContextCancel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		am.Run(ctx)
 		close(done)
-	}()
+	})
 
 	cancel()
 

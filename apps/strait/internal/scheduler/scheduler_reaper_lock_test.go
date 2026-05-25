@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"github.com/sourcegraph/conc"
 	"testing"
 	"time"
 )
@@ -21,6 +22,8 @@ func TestWithReaperAdvisoryLocker_WiresReaper(t *testing.T) {
 }
 
 func TestReaperRun_UsesPinnedAdvisoryLockRunner(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	store := &mockReaperStore{}
 	runner := &mockAdvisoryLockRunner{
 		acquired: true,
@@ -33,10 +36,10 @@ func TestReaperRun_UsesPinnedAdvisoryLockRunner(t *testing.T) {
 	runner.cancel = cancel
 
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		r.Run(ctx)
 		close(done)
-	}()
+	})
 
 	select {
 	case <-runner.called:
@@ -59,6 +62,8 @@ func TestReaperRun_UsesPinnedAdvisoryLockRunner(t *testing.T) {
 }
 
 func TestReaperRun_SkipsWhenPinnedRunnerDoesNotAcquire(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	store := &mockReaperStore{}
 	runner := &mockAdvisoryLockRunner{
 		acquired: false,
@@ -71,10 +76,10 @@ func TestReaperRun_SkipsWhenPinnedRunnerDoesNotAcquire(t *testing.T) {
 	runner.cancel = cancel
 
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		r.Run(ctx)
 		close(done)
-	}()
+	})
 
 	select {
 	case <-runner.called:

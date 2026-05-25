@@ -3,6 +3,7 @@ package grpc
 import (
 	"context"
 
+	"github.com/sourcegraph/conc"
 	"strait/internal/pubsub"
 )
 
@@ -18,12 +19,16 @@ func (noopPub) PublishBatch(_ context.Context, _ []pubsub.PubSubMessage) error {
 	return nil
 }
 func (noopPub) Subscribe(ctx context.Context, _ string) (*pubsub.Subscription, error) {
+	var concWG conc.WaitGroup
 	ch := make(chan []byte)
 	ctx2, cancel := context.WithCancel(ctx)
-	go func() {
+	concWG.Go(func() {
 		<-ctx2.Done()
 		close(ch)
-	}()
-	return pubsub.NewSubscription(ch, cancel), nil
+	})
+	return pubsub.NewSubscription(ch, func() {
+		cancel()
+		concWG.Wait()
+	}), nil
 }
 func (noopPub) Close() error { return nil }

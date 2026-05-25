@@ -17,6 +17,7 @@ import (
 
 	"github.com/getsentry/sentry-go"
 
+	"github.com/sourcegraph/conc"
 	"strait/internal/pubsub"
 )
 
@@ -357,6 +358,8 @@ func TestConsumerPollEmptyBatchNoAckNack(t *testing.T) {
 }
 
 func TestConsumerRunStopsOnContextCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 	var receiveCalls atomic.Int32
 
@@ -374,10 +377,10 @@ func TestConsumerRunStopsOnContextCancel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		consumer.Run(ctx)
 		close(done)
-	}()
+	})
 
 	deadline := time.After(2 * time.Second)
 	for receiveCalls.Load() < 1 {
@@ -414,6 +417,8 @@ func TestConsumer_Shutdown_Idle(t *testing.T) {
 }
 
 func TestConsumer_Shutdown_WaitsForPoll(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	pollStarted := make(chan struct{})
@@ -448,10 +453,10 @@ func TestConsumer_Shutdown_WaitsForPoll(t *testing.T) {
 	runCtx, runCancel := context.WithCancel(context.Background())
 	t.Cleanup(runCancel)
 	runDone := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		consumer.Run(runCtx)
 		close(runDone)
-	}()
+	})
 
 	select {
 	case <-pollStarted:
@@ -460,11 +465,11 @@ func TestConsumer_Shutdown_WaitsForPoll(t *testing.T) {
 	}
 
 	shutdownDone := make(chan error, 1)
-	go func() {
+	concWG.Go(func() {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer shutdownCancel()
 		shutdownDone <- consumer.Shutdown(shutdownCtx)
-	}()
+	})
 
 	select {
 	case err := <-shutdownDone:
@@ -723,6 +728,8 @@ func TestConsumerPoll_LargeBatchSize_HonoredAndRoutedInOnePoll(t *testing.T) {
 }
 
 func TestConsumer_ShutdownDuringErrorBackoff(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	var receiveCalls atomic.Int32
@@ -746,10 +753,10 @@ func TestConsumer_ShutdownDuringErrorBackoff(t *testing.T) {
 	runDone := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	go func() {
+	concWG.Go(func() {
 		consumer.Run(ctx)
 		close(runDone)
-	}()
+	})
 
 	// Wait until at least one poll error occurs (consumer enters the 5s backoff select).
 	deadline := time.After(2 * time.Second)

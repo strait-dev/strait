@@ -16,6 +16,7 @@ import (
 	"strait/internal/scheduler"
 	"strait/internal/worker"
 
+	"github.com/sourcegraph/conc"
 	"github.com/sourcegraph/conc/pool"
 )
 
@@ -270,13 +271,17 @@ func (noopServicePub) PublishBatch(context.Context, []pubsub.PubSubMessage) erro
 }
 
 func (noopServicePub) Subscribe(ctx context.Context, _ string) (*pubsub.Subscription, error) {
+	var concWG conc.WaitGroup
 	ch := make(chan []byte)
 	subCtx, cancel := context.WithCancel(ctx)
-	go func() {
+	concWG.Go(func() {
 		<-subCtx.Done()
 		close(ch)
-	}()
-	return pubsub.NewSubscription(ch, cancel), nil
+	})
+	return pubsub.NewSubscription(ch, func() {
+		cancel()
+		concWG.Wait()
+	}), nil
 }
 
 func (noopServicePub) Close() error {

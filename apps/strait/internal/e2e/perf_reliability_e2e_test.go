@@ -12,11 +12,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
 	"strait/internal/domain"
 	"strait/internal/webhook"
 )
 
 func TestE2E_WebhookDeliveryWorker_ProcessesPendingDeliveries(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	mustClean(t)
 
 	projectID := "proj-webhook-worker-" + newID()
@@ -56,10 +59,9 @@ func TestE2E_WebhookDeliveryWorker_ProcessesPendingDeliveries(t *testing.T) {
 	)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-
-	go func() {
+	concWG.Go(func() {
 		_ = worker.RunWorker(ctx, 50*time.Millisecond)
-	}()
+	})
 
 	deadline := time.After(2 * time.Second)
 	for requests.Load() == 0 {
@@ -89,6 +91,8 @@ func TestE2E_PriorityAgingAffectsDequeueOrder(t *testing.T) {
 }
 
 func TestE2E_WebhookCircuitBreakerBlocksDelivery(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	store := &mockDeliveryStoreE2E{deliveries: []domain.WebhookDelivery{newPendingDelivery("blocked", "http://example.com/hook")}}
@@ -99,10 +103,10 @@ func TestE2E_WebhookCircuitBreakerBlocksDelivery(t *testing.T) {
 	defer cancel()
 
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		defer close(done)
 		_ = worker.RunWorker(ctx, 20*time.Millisecond)
-	}()
+	})
 
 	<-done
 	if breaker.calls.Load() == 0 {

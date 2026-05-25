@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
 	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -429,6 +430,8 @@ func TestScheduler_Stop(t *testing.T) {
 }
 
 func TestScheduler_Stop_CompletesWithinTimeout(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 	store := &mockSchedulerStore{
 		cron: &mockCronStore{
@@ -448,10 +451,10 @@ func TestScheduler_Stop_CompletesWithinTimeout(t *testing.T) {
 	cancel()
 
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		s.Stop()
 		close(done)
-	}()
+	})
 
 	select {
 	case <-done:

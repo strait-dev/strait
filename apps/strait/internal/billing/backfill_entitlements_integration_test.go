@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/sourcegraph/conc"
 	"strait/internal/billing"
 	"strait/internal/domain"
 )
@@ -213,6 +214,8 @@ func TestUpdateEntitlementsIfUnchanged_SkipsStaleBackfillWrite(t *testing.T) {
 // flipping plan tiers on the same orgs. Final state must equal
 // ComputeEntitlements over whatever state landed last — no torn writes.
 func TestBackfillEntitlements_AdversarialConcurrentWebhookWriter(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -223,7 +226,7 @@ func TestBackfillEntitlements_AdversarialConcurrentWebhookWriter(t *testing.T) {
 	var stop atomic.Bool
 	var wg sync.WaitGroup
 	wg.Add(1)
-	go func() {
+	concWG.Go(func() {
 		defer wg.Done()
 		tiers := []domain.PlanTier{domain.PlanStarter, domain.PlanPro, domain.PlanScale}
 		i := 0
@@ -233,7 +236,7 @@ func TestBackfillEntitlements_AdversarialConcurrentWebhookWriter(t *testing.T) {
 			_ = pgStore.UpdateOrgSubscriptionPlan(ctx, id, string(tier), "active")
 			i++
 		}
-	}()
+	})
 
 	// Run the backfill while writers churn.
 	if _, err := billing.BackfillEntitlements(ctx, testDB.Pool, pgStore, 5, false, "", nil); err != nil {

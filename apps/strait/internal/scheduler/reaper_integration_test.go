@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
 	"strait/internal/domain"
 	"strait/internal/scheduler"
 	"strait/internal/store"
@@ -442,15 +443,17 @@ func (s *intMockStatsStore) AggregateCostStatsHourly(_ context.Context, _ time.T
 }
 
 func TestIntegration_StatsAggregator_ContextCancellation(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ms := &intMockStatsStore{}
 	agg := scheduler.NewStatsAggregator(ms)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		agg.Run(ctx)
 		close(done)
-	}()
+	})
 
 	// Cancel immediately -- the aggregator should exit without crashing.
 	cancel()

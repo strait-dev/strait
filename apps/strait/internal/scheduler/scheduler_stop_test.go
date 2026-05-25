@@ -3,6 +3,7 @@ package scheduler
 import (
 	"bytes"
 	"context"
+	"github.com/sourcegraph/conc"
 	"log/slog"
 	"strings"
 	"testing"
@@ -10,6 +11,8 @@ import (
 )
 
 func TestSchedulerStop_ReturnsAfterComponentTimeout(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	store := &mockSchedulerStore{
 		cron:   &mockCronStore{},
 		poller: &mockPollerStore{},
@@ -26,10 +29,10 @@ func TestSchedulerStop_ReturnsAfterComponentTimeout(t *testing.T) {
 
 	start := time.Now()
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		s.Stop()
 		close(done)
-	}()
+	})
 
 	select {
 	case <-done:

@@ -11437,6 +11437,8 @@ func TestAdvisoryLockConcurrentAcrossConnections(t *testing.T) {
 }
 
 func TestRunWithAdvisoryLockPinsAndReleasesConnection(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
@@ -11445,15 +11447,14 @@ func TestRunWithAdvisoryLockPinsAndReleasesConnection(t *testing.T) {
 	fnStarted := make(chan struct{})
 	releaseFn := make(chan struct{})
 	fnDone := make(chan error, 1)
-
-	go func() {
+	concWG.Go(func() {
 		_, err := q.RunWithAdvisoryLock(ctx, lockID, func(context.Context) error {
 			close(fnStarted)
 			<-releaseFn
 			return nil
 		})
 		fnDone <- err
-	}()
+	})
 
 	select {
 	case <-fnStarted:

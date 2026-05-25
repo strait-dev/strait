@@ -170,10 +170,11 @@ func (re *RampEngine) runStep(ctx context.Context, rate int) RampStepResult {
 
 	// Give in-flight operations a brief window to finish naturally
 	done := make(chan struct{})
-	go func() {
+	var waitWG conc.WaitGroup
+	waitWG.Go(func() {
 		wg.Wait()
 		close(done)
-	}()
+	})
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
@@ -181,6 +182,7 @@ func (re *RampEngine) runStep(ctx context.Context, rate int) RampStepResult {
 		opsCancel()
 		<-done
 	}
+	waitWG.Wait()
 	opsCancel() // no-op if already cancelled, but ensures cleanup
 
 	totalOps := ops.Load()

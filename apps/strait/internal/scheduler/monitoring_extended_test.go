@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
 	"strait/internal/billing"
 	"strait/internal/domain"
 )
@@ -351,6 +352,8 @@ func TestStatsAggregator_HourTruncation(t *testing.T) {
 // Section separator.
 
 func TestConcurrentReconciler_Run_StopsOnContextCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	enforcer := newTestEnforcer(t)
@@ -359,10 +362,10 @@ func TestConcurrentReconciler_Run_StopsOnContextCancel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		r.Run(ctx)
 		close(done)
-	}()
+	})
 
 	cancel()
 

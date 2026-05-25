@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
 	"strait/internal/domain"
 	"strait/internal/queue"
 	"strait/internal/scheduler"
@@ -53,6 +54,8 @@ func (q *outboxTestQueue) DequeueNByProject(_ context.Context, _ int, _ string) 
 }
 
 func TestOutboxFlusher_ConcurrentFlushersSameIdempotencyKeyNoDuplicateRuns(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -84,14 +87,14 @@ func TestOutboxFlusher_ConcurrentFlushersSameIdempotencyKeyNoDuplicateRuns(t *te
 
 	start := make(chan struct{})
 	errCh := make(chan error, 2)
-	go func() {
+	concWG.Go(func() {
 		<-start
 		errCh <- flusherA.FlushOnceForTest(ctx)
-	}()
-	go func() {
+	})
+	concWG.Go(func() {
 		<-start
 		errCh <- flusherB.FlushOnceForTest(ctx)
-	}()
+	})
 	close(start)
 
 	for range 2 {
@@ -603,15 +606,17 @@ func TestOutboxBatchlog_ConcurrentFlushersDoNotDoublePromote(t *testing.T) {
 	flusherB := scheduler.NewOutboxFlusher(getTestDB(t).Pool, q, cfg)
 	errCh := make(chan error, 2)
 	start := make(chan struct{})
-	go func() {
+	var concWG conc.WaitGroup
+	concWG.Go(func() {
 		<-start
 		errCh <- flusherA.FlushOnceForTest(ctx)
-	}()
-	go func() {
+	})
+	concWG.Go(func() {
 		<-start
 		errCh <- flusherB.FlushOnceForTest(ctx)
-	}()
+	})
 	close(start)
+	concWG.Wait()
 	for range 2 {
 		if err := <-errCh; err != nil {
 			t.Fatalf("FlushOnceForTest() error = %v", err)

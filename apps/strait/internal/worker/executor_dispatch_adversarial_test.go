@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
 	"strait/internal/billing"
 	"strait/internal/domain"
 )
@@ -20,6 +21,8 @@ import (
 // reports over-limit). The shape of the rejection split is not what
 // matters here; absence of corruption is.
 func TestDispatchSpendingLimit_RaceUnderConcurrency(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	sub := &billing.OrgSubscription{
@@ -34,7 +37,7 @@ func TestDispatchSpendingLimit_RaceUnderConcurrency(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(n)
 	for i := range n {
-		go func() {
+		concWG.Go(func() {
 			defer wg.Done()
 			run := &domain.JobRun{
 				ID:         "run-spend-race-" + itoa(i),
@@ -44,7 +47,7 @@ func TestDispatchSpendingLimit_RaceUnderConcurrency(t *testing.T) {
 			}
 			ec := &ExecutionContext{Run: run, Start: time.Now()}
 			h.exec.executeInner(context.Background(), ec)
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -91,6 +94,8 @@ func TestDispatchSpendingLimit_StaleCacheFailsClosed(t *testing.T) {
 // ordering "spending check first, daily check second" — if a future
 // refactor flips the order, this test should make that surface.
 func TestDispatchSpendingLimit_NotInfluencedByDailyCounter(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	sub := &billing.OrgSubscription{
@@ -107,7 +112,7 @@ func TestDispatchSpendingLimit_NotInfluencedByDailyCounter(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(n)
 	for i := range n {
-		go func() {
+		concWG.Go(func() {
 			defer wg.Done()
 			run := &domain.JobRun{
 				ID:         "run-order-" + itoa(i),
@@ -118,7 +123,7 @@ func TestDispatchSpendingLimit_NotInfluencedByDailyCounter(t *testing.T) {
 			ec := &ExecutionContext{Run: run, Start: time.Now()}
 			h.exec.executeInner(context.Background(), ec)
 			hits.Add(1)
-		}()
+		})
 	}
 	wg.Wait()
 

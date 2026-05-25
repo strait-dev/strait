@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
 	"strait/internal/domain"
 	"strait/internal/queue"
 )
@@ -65,6 +66,8 @@ func TestHealthSampler_HappyPath(t *testing.T) {
 }
 
 func TestHealthSampler_SurvivesDroppedPartition(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -84,10 +87,10 @@ func TestHealthSampler_SurvivesDroppedPartition(t *testing.T) {
 	}
 
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		sampler.Run(ctx)
 		close(done)
-	}()
+	})
 
 	time.Sleep(200 * time.Millisecond)
 	cancel()

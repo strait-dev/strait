@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
 	"strait/internal/domain"
 )
 
@@ -236,6 +237,8 @@ func TestTriggerAlgebra_MaskDoesNotDoubleCountDLQ(t *testing.T) {
 // two goroutines attempt compatible status transitions on different rows of
 // the same job. The trigger must converge to the correct aggregate.
 func TestTriggerAlgebra_ConcurrentSameJobTransitions(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
@@ -250,7 +253,7 @@ func TestTriggerAlgebra_ConcurrentSameJobTransitions(t *testing.T) {
 	// 4 concurrent workers claim and complete runs.
 	errCh := make(chan error, 4)
 	for range 4 {
-		go func() {
+		concWG.Go(func() {
 			for range 10 {
 				batch, err := q.DequeueN(ctx, 2)
 				if err != nil {
@@ -267,7 +270,7 @@ func TestTriggerAlgebra_ConcurrentSameJobTransitions(t *testing.T) {
 				}
 			}
 			errCh <- nil
-		}()
+		})
 	}
 	for range 4 {
 		if err := <-errCh; err != nil {

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
 	"strait/internal/domain"
 	"strait/internal/scheduler"
 	"strait/internal/store"
@@ -60,6 +61,8 @@ func intWaitForRunStatusCount(t *testing.T, ctx context.Context, st *store.Queri
 }
 
 func TestIntegration_DelayedPoller_ImmediateActivation(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	st := intTestStore(t)
 	intTestClean(t, ctx)
@@ -69,10 +72,10 @@ func TestIntegration_DelayedPoller_ImmediateActivation(t *testing.T) {
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		scheduler.NewDelayedPoller(st, slog.Default(), time.Hour).Run(runCtx)
 		close(done)
-	}()
+	})
 
 	intWaitForRunStatusCount(t, ctx, st, job.ID, domain.StatusQueued, 1)
 	cancel()
@@ -80,6 +83,8 @@ func TestIntegration_DelayedPoller_ImmediateActivation(t *testing.T) {
 }
 
 func TestIntegration_DelayedPoller_DrainsMultipleBatchesPerTick(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	st := intTestStore(t)
 	intTestClean(t, ctx)
@@ -91,13 +96,13 @@ func TestIntegration_DelayedPoller_DrainsMultipleBatchesPerTick(t *testing.T) {
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		scheduler.NewDelayedPoller(st, slog.Default(), time.Hour).
 			WithBatchLimit(3).
 			WithMaxBatchesPerTick(3).
 			Run(runCtx)
 		close(done)
-	}()
+	})
 
 	intWaitForRunStatusCount(t, ctx, st, job.ID, domain.StatusQueued, 7)
 	cancel()
@@ -105,6 +110,8 @@ func TestIntegration_DelayedPoller_DrainsMultipleBatchesPerTick(t *testing.T) {
 }
 
 func TestIntegration_DelayedPoller_RespectsPerTickBound(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	st := intTestStore(t)
 	intTestClean(t, ctx)
@@ -115,13 +122,13 @@ func TestIntegration_DelayedPoller_RespectsPerTickBound(t *testing.T) {
 
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		scheduler.NewDelayedPoller(st, slog.Default(), time.Hour).
 			WithBatchLimit(3).
 			WithMaxBatchesPerTick(2).
 			Run(runCtx)
 		close(done)
-	}()
+	})
 
 	intWaitForRunStatusCount(t, ctx, st, job.ID, domain.StatusQueued, 6)
 	if got := intCountRunsByStatus(t, ctx, st, job.ID, domain.StatusDelayed); got != 2 {
@@ -132,6 +139,8 @@ func TestIntegration_DelayedPoller_RespectsPerTickBound(t *testing.T) {
 }
 
 func TestIntegration_DelayedPoller_KeepsFutureRunsDelayed(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	st := intTestStore(t)
 	intTestClean(t, ctx)
@@ -146,12 +155,12 @@ func TestIntegration_DelayedPoller_KeepsFutureRunsDelayed(t *testing.T) {
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		scheduler.NewDelayedPoller(st, slog.Default(), time.Hour).
 			WithBatchLimit(10).
 			Run(runCtx)
 		close(done)
-	}()
+	})
 
 	intWaitForRunStatusCount(t, ctx, st, job.ID, domain.StatusQueued, 2)
 	if got := intCountRunsByStatus(t, ctx, st, job.ID, domain.StatusDelayed); got != 3 {
@@ -162,6 +171,8 @@ func TestIntegration_DelayedPoller_KeepsFutureRunsDelayed(t *testing.T) {
 }
 
 func TestIntegration_DelayedPoller_ConcurrentPollersShareBacklog(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	st := intTestStore(t)
 	intTestClean(t, ctx)
@@ -174,20 +185,20 @@ func TestIntegration_DelayedPoller_ConcurrentPollersShareBacklog(t *testing.T) {
 	defer cancel()
 	doneA := make(chan struct{})
 	doneB := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		scheduler.NewDelayedPoller(st, slog.Default(), time.Hour).
 			WithBatchLimit(3).
 			WithMaxBatchesPerTick(2).
 			Run(runCtx)
 		close(doneA)
-	}()
-	go func() {
+	})
+	concWG.Go(func() {
 		scheduler.NewDelayedPoller(st, slog.Default(), time.Hour).
 			WithBatchLimit(3).
 			WithMaxBatchesPerTick(2).
 			Run(runCtx)
 		close(doneB)
-	}()
+	})
 
 	intWaitForRunStatusCount(t, ctx, st, job.ID, domain.StatusQueued, 10)
 	cancel()

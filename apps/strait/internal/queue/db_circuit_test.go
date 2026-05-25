@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"errors"
+	"github.com/sourcegraph/conc"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -115,6 +116,8 @@ func TestCircuit_HalfOpenCanceledProbeAllowsRetry(t *testing.T) {
 }
 
 func TestCircuit_HalfOpenAllowsOnlyOneProbe(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	now := time.Now()
 	c := NewDBCircuit(DBCircuitConfig{
 		FailureThreshold: 1,
@@ -130,13 +133,13 @@ func TestCircuit_HalfOpenAllowsOnlyOneProbe(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	done := make(chan error, 1)
-	go func() {
+	concWG.Go(func() {
 		done <- c.Do(context.Background(), func(_ context.Context) error {
 			close(started)
 			<-release
 			return nil
 		})
-	}()
+	})
 	<-started
 
 	var blocked atomic.Int64

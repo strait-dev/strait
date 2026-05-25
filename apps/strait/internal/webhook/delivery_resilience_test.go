@@ -19,6 +19,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/sourcegraph/conc"
 )
 
 // TestWebhookResilience_ExactTimeoutBoundary verifies that a webhook endpoint
@@ -290,24 +292,29 @@ func TestWebhookResilience_ConnectionCloseMidTransfer(t *testing.T) {
 // TestWebhookResilience_ValidHTTPThenGarbage verifies that the worker handles
 // an endpoint that writes valid HTTP headers followed by garbage bytes.
 func TestWebhookResilience_ValidHTTPThenGarbage(t *testing.T) {
-	t.Parallel()
+	var concWG conc.WaitGroup
 
 	// Use a raw TCP listener to send garbage after valid headers.
+	defer concWG.Wait()
+	t.Parallel()
+
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
 	defer ln.Close()
-
-	go func() {
+	concWG.Go(func() {
+		var concWG conc.WaitGroup
+		defer concWG.Wait()
 		for {
 			conn, err := ln.Accept()
 			if err != nil {
 				return
 			}
-			go func(c net.Conn) {
+			c := conn
+			concWG.Go(func() {
 				defer c.Close()
-				// Read the request.
+
 				reader := bufio.NewReader(c)
 				for {
 					line, err := reader.ReadString('\n')
@@ -315,13 +322,13 @@ func TestWebhookResilience_ValidHTTPThenGarbage(t *testing.T) {
 						break
 					}
 				}
-				// Write valid headers then garbage.
+
 				_, _ = c.Write([]byte("HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n"))
 				_, _ = c.Write([]byte{0xFF, 0xFE, 0xFD, 0x00, 0x01, 0x02})
 				_ = c.(*net.TCPConn).CloseWrite()
-			}(conn)
+			})
 		}
-	}()
+	})
 
 	store := &mockDeliveryStore{}
 	worker := NewDeliveryWorker(store, slog.Default(),

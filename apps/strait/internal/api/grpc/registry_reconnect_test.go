@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"fmt"
+	"github.com/sourcegraph/conc"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -131,6 +132,8 @@ func TestRegistry_DeregisterZeroTokenIsNoop(t *testing.T) {
 // reconnects. Final state must contain exactly one entry and have no
 // goroutine leak via stale revokeCh listeners.
 func TestRegistry_ReconnectStorm(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 	r := NewConnectionRegistry()
 
@@ -140,14 +143,14 @@ func TestRegistry_ReconnectStorm(t *testing.T) {
 
 	tokens := make(chan uint64, reconnects)
 	for range reconnects {
-		go func() {
+		concWG.Go(func() {
 			defer wg.Done()
 			w := makeWorker("w1", "proj-a", "key-1", []string{"default"}, 4)
 			if err := r.Register(w); err != nil {
 				return
 			}
 			tokens <- w.regToken
-		}()
+		})
 	}
 	wg.Wait()
 	close(tokens)
