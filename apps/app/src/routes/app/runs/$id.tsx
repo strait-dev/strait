@@ -422,6 +422,14 @@ function Timeline({ run }: { run: JobRun }) {
             </span>
           </span>
         )}
+        {run.singleton_key && (
+          <span className="text-muted-foreground">
+            Key{" "}
+            <span className="ml-1 font-mono text-foreground">
+              {run.singleton_key}
+            </span>
+          </span>
+        )}
       </div>
     </div>
   );
