@@ -29,13 +29,13 @@ func (q *Queries) CreateJobDependency(ctx context.Context, dep *domain.JobDepend
 	query := `
 		INSERT INTO job_dependencies (id, job_id, depends_on_job_id, condition)
 		VALUES ($1, $2, $3, $4)
-		RETURNING created_at`
+		RETURNING created_at, cache_version`
 
 	if dep.Condition == "" {
 		dep.Condition = "completed"
 	}
 
-	err := q.db.QueryRow(ctx, query, dep.ID, dep.JobID, dep.DependsOnJobID, dep.Condition).Scan(&dep.CreatedAt)
+	err := q.db.QueryRow(ctx, query, dep.ID, dep.JobID, dep.DependsOnJobID, dep.Condition).Scan(&dep.CreatedAt, &dep.CacheVersion)
 	if err != nil {
 		return fmt.Errorf("create job dependency: %w", err)
 	}
@@ -48,7 +48,7 @@ func (q *Queries) ListJobDependencies(ctx context.Context, jobID string, limit i
 	defer span.End()
 
 	query := `
-		SELECT id, job_id, depends_on_job_id, condition, created_at
+		SELECT id, job_id, depends_on_job_id, condition, created_at, cache_version
 		FROM job_dependencies
 		WHERE job_id = $1`
 
@@ -73,7 +73,7 @@ func (q *Queries) ListJobDependencies(ctx context.Context, jobID string, limit i
 	deps := make([]domain.JobDependency, 0, limit)
 	for rows.Next() {
 		var dep domain.JobDependency
-		if err := rows.Scan(&dep.ID, &dep.JobID, &dep.DependsOnJobID, &dep.Condition, &dep.CreatedAt); err != nil {
+		if err := rows.Scan(&dep.ID, &dep.JobID, &dep.DependsOnJobID, &dep.Condition, &dep.CreatedAt, &dep.CacheVersion); err != nil {
 			return nil, fmt.Errorf("list job dependencies scan: %w", err)
 		}
 		deps = append(deps, dep)
@@ -94,9 +94,9 @@ func (q *Queries) GetJobDependency(ctx context.Context, id string) (*domain.JobD
 
 	var dep domain.JobDependency
 	err := q.db.QueryRow(ctx, `
-		SELECT id, job_id, depends_on_job_id, condition, created_at
+		SELECT id, job_id, depends_on_job_id, condition, created_at, cache_version
 		FROM job_dependencies WHERE id = $1`, id).Scan(
-		&dep.ID, &dep.JobID, &dep.DependsOnJobID, &dep.Condition, &dep.CreatedAt)
+		&dep.ID, &dep.JobID, &dep.DependsOnJobID, &dep.Condition, &dep.CreatedAt, &dep.CacheVersion)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrJobDependencyNotFound
@@ -123,7 +123,7 @@ func (q *Queries) ListDependentsByDependencyJob(ctx context.Context, dependsOnJo
 	defer span.End()
 
 	rows, err := q.db.Query(ctx, `
-		SELECT id, job_id, depends_on_job_id, condition, created_at
+		SELECT id, job_id, depends_on_job_id, condition, created_at, cache_version
 		FROM job_dependencies
 		WHERE depends_on_job_id = $1
 		ORDER BY created_at DESC`, dependsOnJobID)
@@ -135,7 +135,7 @@ func (q *Queries) ListDependentsByDependencyJob(ctx context.Context, dependsOnJo
 	deps := make([]domain.JobDependency, 0, 8)
 	for rows.Next() {
 		var dep domain.JobDependency
-		if scanErr := rows.Scan(&dep.ID, &dep.JobID, &dep.DependsOnJobID, &dep.Condition, &dep.CreatedAt); scanErr != nil {
+		if scanErr := rows.Scan(&dep.ID, &dep.JobID, &dep.DependsOnJobID, &dep.Condition, &dep.CreatedAt, &dep.CacheVersion); scanErr != nil {
 			return nil, fmt.Errorf("list dependents by dependency job scan: %w", scanErr)
 		}
 		deps = append(deps, dep)

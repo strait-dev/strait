@@ -72,7 +72,20 @@ func (c *jobDependencyCache) List(ctx context.Context, key jobDepsCacheKey, load
 	if c == nil || c.tier == nil {
 		return loader(ctx, key)
 	}
-	return c.tier.Get(ctx, key, loader)
+	loaded, err := c.tier.GetConsistentVersioned(ctx, key, 0, func(loadCtx context.Context, loadKey jobDepsCacheKey) (straitcache.Versioned[[]domain.JobDependency], error) {
+		deps, err := loader(loadCtx, loadKey)
+		if err != nil {
+			return straitcache.Versioned[[]domain.JobDependency]{}, err
+		}
+		return straitcache.Versioned[[]domain.JobDependency]{
+			Value:   deps,
+			Version: jobDependenciesCacheVersion(deps),
+		}, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return loaded.Value, nil
 }
 
 func (c *jobDependencyCache) InvalidateJob(ctx context.Context, jobID string) {
@@ -97,4 +110,14 @@ func parseJobDepsCacheKey(raw string) (jobDepsCacheKey, bool) {
 		return jobDepsCacheKey{}, false
 	}
 	return jobDepsCacheKey{JobID: parts[0], Limit: limit, Cursor: parts[2]}, true
+}
+
+func jobDependenciesCacheVersion(deps []domain.JobDependency) int64 {
+	var version int64
+	for _, dep := range deps {
+		if dep.CacheVersion > version {
+			version = dep.CacheVersion
+		}
+	}
+	return version
 }

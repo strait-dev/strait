@@ -158,6 +158,76 @@ func TestCacheVersion_ProjectQuotaRoundTripAndBump(t *testing.T) {
 	}
 }
 
+func TestCacheVersion_JobDependencyRoundTripAndBump(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := baseJob(newID(), "project-cache-version-job-deps")
+	if err := q.CreateJob(ctx, job); err != nil {
+		t.Fatalf("CreateJob() error = %v", err)
+	}
+	dependencyJob := baseJob(newID(), job.ProjectID)
+	if err := q.CreateJob(ctx, dependencyJob); err != nil {
+		t.Fatalf("CreateJob(dependency) error = %v", err)
+	}
+
+	dep := &domain.JobDependency{
+		JobID:          job.ID,
+		DependsOnJobID: dependencyJob.ID,
+		Condition:      "completed",
+	}
+	if err := q.CreateJobDependency(ctx, dep); err != nil {
+		t.Fatalf("CreateJobDependency() error = %v", err)
+	}
+	if dep.CacheVersion != 1 {
+		t.Fatalf("created dependency CacheVersion = %d, want 1", dep.CacheVersion)
+	}
+
+	got, err := q.GetJobDependency(ctx, dep.ID)
+	if err != nil {
+		t.Fatalf("GetJobDependency() error = %v", err)
+	}
+	if got.CacheVersion != 1 {
+		t.Fatalf("GetJobDependency() CacheVersion = %d, want 1", got.CacheVersion)
+	}
+
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE job_dependencies SET condition = 'failed' WHERE id = $1
+	`, dep.ID); err != nil {
+		t.Fatalf("update job dependency: %v", err)
+	}
+
+	got, err = q.GetJobDependency(ctx, dep.ID)
+	if err != nil {
+		t.Fatalf("GetJobDependency(after update) error = %v", err)
+	}
+	if got.CacheVersion != 2 {
+		t.Fatalf("updated GetJobDependency() CacheVersion = %d, want 2", got.CacheVersion)
+	}
+	deps, err := q.ListJobDependencies(ctx, job.ID, 100, nil)
+	if err != nil {
+		t.Fatalf("ListJobDependencies() error = %v", err)
+	}
+	if len(deps) != 1 {
+		t.Fatalf("ListJobDependencies() len = %d, want 1", len(deps))
+	}
+	if deps[0].CacheVersion != 2 {
+		t.Fatalf("ListJobDependencies()[0] CacheVersion = %d, want 2", deps[0].CacheVersion)
+	}
+
+	dependents, err := q.ListDependentsByDependencyJob(ctx, dependencyJob.ID)
+	if err != nil {
+		t.Fatalf("ListDependentsByDependencyJob() error = %v", err)
+	}
+	if len(dependents) != 1 {
+		t.Fatalf("ListDependentsByDependencyJob() len = %d, want 1", len(dependents))
+	}
+	if dependents[0].CacheVersion != 2 {
+		t.Fatalf("ListDependentsByDependencyJob()[0] CacheVersion = %d, want 2", dependents[0].CacheVersion)
+	}
+}
+
 func TestCacheVersion_ConcurrentUpdatesProduceMonotonicVersion(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

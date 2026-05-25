@@ -471,6 +471,7 @@ type JobDependency struct {
 	DependsOnJobID string    `json:"depends_on_job_id"`
 	Condition      string    `json:"condition"`
 	CreatedAt      time.Time `json:"created_at"`
+	CacheVersion   int64     `json:"-"`
 }
 
 type JobSecret struct {
