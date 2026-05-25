@@ -241,8 +241,10 @@ func (q *PostgresQueue) enqueueInManagedTx(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := q.acquireIdempotencyXactLock(ctx, tx, run.JobID, run.IdempotencyKey, "enqueue run"); err != nil {
-		return err
+	if run.IdempotencyKey != "" {
+		if err := q.acquireIdempotencyXactLock(ctx, tx, run.JobID, run.IdempotencyKey, "enqueue run"); err != nil {
+			return err
+		}
 	}
 
 	if err := q.consumeBackpressure(ctx, tx, run, "enqueue run"); err != nil {
@@ -368,7 +370,7 @@ var emptyJSONB = []byte("{}")
 
 // EnqueueBatch inserts multiple runs using pgx.CopyFrom (COPY protocol) for
 // high throughput. Requires the underlying db to implement CopyFromer (e.g.
-// pgxpool.Pool). Sends pg_notify after insert to wake workers.
+// pgxpool.Pool). Queue wake notifications are emitted by database triggers.
 func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun) (int64, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "queue.EnqueueBatch")
 	defer span.End()
@@ -390,6 +392,7 @@ func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun)
 		return 0, fmt.Errorf("enqueue batch: underlying db does not support CopyFrom")
 	}
 
+	now := time.Now()
 	for _, run := range runs {
 		if run.ID == "" {
 			run.ID = uuid.Must(uuid.NewV7()).String()
@@ -404,7 +407,7 @@ func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun)
 			run.ExecutionMode = domain.ExecutionModeHTTP
 		}
 		run.Status = domain.StatusQueued
-		if run.ScheduledAt != nil && run.ScheduledAt.After(time.Now()) {
+		if run.ScheduledAt != nil && run.ScheduledAt.After(now) {
 			run.Status = domain.StatusDelayed
 		}
 	}
@@ -415,15 +418,8 @@ func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun)
 	}
 
 	// Claim rows for the dequeue hot path are created by the
-	// trg_job_runs_claim_queue_sync trigger (migration 000224), which fires
-	// on the COPY INSERT above. No application-level dual-write needed.
-	// Wake workers via pg_notify.
-	if n > 0 {
-		if _, notifyErr := q.db.Exec(ctx, "SELECT pg_notify($1, $2)", QueueWakeChannel, fmt.Sprintf("%d", n)); notifyErr != nil {
-			// Non-fatal: workers will pick up via polling.
-			slog.Warn("enqueue batch: pg_notify failed", "error", notifyErr)
-		}
-	}
+	// trg_job_runs_claim_queue_sync trigger, which fires on the COPY INSERT
+	// above. Queue wake notifications are emitted by statement-level triggers.
 
 	return n, nil
 }
@@ -597,6 +593,7 @@ func (q *PostgresQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 			  AND j.enabled = true
 			  AND NOT j.paused
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
+			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
 			  AND NOT EXISTS (SELECT 1 FROM job_retries rt WHERE rt.run_id = jr.id AND rt.next_retry_at > NOW())
 			  %s
 			ORDER BY %s
@@ -665,6 +662,7 @@ func (q *PostgresQueue) DequeueNFullyDenormalized(ctx context.Context, n int) ([
 			  AND COALESCE(jr.job_enabled, true) = true
 			  AND COALESCE(jr.job_paused, false) = false
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
+			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
 			  AND NOT EXISTS (SELECT 1 FROM job_retries rt WHERE rt.run_id = jr.id AND rt.next_retry_at > NOW())
 			  AND (jr.job_max_concurrency IS NULL OR COALESCE(jac_job.count, 0) < jr.job_max_concurrency)
 			  AND (jr.job_max_concurrency_per_key IS NULL
@@ -698,6 +696,7 @@ func (q *PostgresQueue) DequeueNTwoPhase(ctx context.Context, n int) ([]domain.J
 			  AND COALESCE(jr.job_enabled, true) = true
 			  AND COALESCE(jr.job_paused, false) = false
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
+			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
 			  AND NOT EXISTS (SELECT 1 FROM job_retries rt WHERE rt.run_id = jr.id AND rt.next_retry_at > NOW())
 			  AND (jr.job_max_concurrency IS NULL OR COALESCE(jac_job.count, 0) < jr.job_max_concurrency)
 			  AND (jr.job_max_concurrency_per_key IS NULL
@@ -735,6 +734,7 @@ func (q *PostgresQueue) DequeueNDenormalized(ctx context.Context, n int) ([]doma
 			  AND j.enabled = true
 			  AND NOT j.paused
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
+			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
 			  AND NOT EXISTS (SELECT 1 FROM job_retries rt WHERE rt.run_id = jr.id AND rt.next_retry_at > NOW())
 			  AND (j.max_concurrency IS NULL OR COALESCE(jac_job.count, 0) < j.max_concurrency)
 			  AND (j.max_concurrency_per_key IS NULL
@@ -779,6 +779,7 @@ func (q *PostgresQueue) DequeueNWithCursor(ctx context.Context, n int, cursor *C
 			  AND j.enabled = true
 			  AND NOT j.paused
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
+			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
 			  AND NOT EXISTS (SELECT 1 FROM job_retries rt WHERE rt.run_id = jr.id AND rt.next_retry_at > NOW())
 			  %s
 			  %s
@@ -819,6 +820,7 @@ func (q *PostgresQueue) DequeueNFair(ctx context.Context, n int) ([]domain.JobRu
 			  AND j.enabled = true
 			  AND NOT j.paused
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
+			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
 			  AND NOT EXISTS (SELECT 1 FROM job_retries rt WHERE rt.run_id = jr.id AND rt.next_retry_at > NOW())
 			  %s
 			ORDER BY jr.job_id, %s`, concurrencyJoins, domain.StatusQueued, concurrencyWhere, orderBy),
@@ -849,6 +851,7 @@ func (q *PostgresQueue) DequeueNPartitioned(ctx context.Context, n int, projectI
 			  AND jr.project_id = ANY($2)
 			  AND COALESCE(jr.execution_mode, j.execution_mode, 'http') = 'http'
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
+			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
 			  AND NOT EXISTS (SELECT 1 FROM job_retries rt WHERE rt.run_id = jr.id AND rt.next_retry_at > NOW())
 			  %s
 			ORDER BY %s
@@ -874,6 +877,7 @@ func (q *PostgresQueue) DequeueNByProject(ctx context.Context, n int, projectID 
 			  AND jr.project_id = $2
 			  AND COALESCE(jr.execution_mode, j.execution_mode, 'http') = 'http'
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
+			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
 			  AND NOT EXISTS (SELECT 1 FROM job_retries rt WHERE rt.run_id = jr.id AND rt.next_retry_at > NOW())
 			  %s
 			ORDER BY %s
@@ -899,14 +903,15 @@ var claimDeleteSQL = "/* action=dequeue */ " + `
 		WHERE COALESCE(q.job_enabled, true) = true
 		  AND COALESCE(q.job_paused, false) = false
 		  AND (q.scheduled_at IS NULL OR q.scheduled_at <= NOW())
-	  AND NOT EXISTS (SELECT 1 FROM job_retries rt WHERE rt.run_id = q.run_id AND rt.next_retry_at > NOW())
-	  AND (q.job_max_concurrency IS NULL OR q.job_max_concurrency = 0
-	       OR COALESCE(jac_job.count, 0) < q.job_max_concurrency)
-	  AND (q.job_max_concurrency_per_key IS NULL OR q.job_max_concurrency_per_key = 0
-	       OR q.concurrency_key IS NULL
-	       OR q.concurrency_key = ''
-	       OR COALESCE(jac_key.count, 0) < q.job_max_concurrency_per_key)
-	  AND COALESCE(q.execution_mode, 'http') = 'http'
+		  AND (q.next_retry_at IS NULL OR q.next_retry_at <= NOW())
+		  AND NOT EXISTS (SELECT 1 FROM job_retries rt WHERE rt.run_id = q.run_id AND rt.next_retry_at > NOW())
+		  AND (q.job_max_concurrency IS NULL OR q.job_max_concurrency = 0
+		       OR COALESCE(jac_job.count, 0) < q.job_max_concurrency)
+		  AND (q.job_max_concurrency_per_key IS NULL OR q.job_max_concurrency_per_key = 0
+		       OR q.concurrency_key IS NULL
+		       OR q.concurrency_key = ''
+		       OR COALESCE(jac_key.count, 0) < q.job_max_concurrency_per_key)
+		  AND COALESCE(q.execution_mode, 'http') = 'http'
 	ORDER BY q.priority DESC, q.created_at ASC
 	FOR UPDATE OF q SKIP LOCKED
 	LIMIT $1
@@ -995,6 +1000,7 @@ func workerClaimDeleteSQL() string {
 		WHERE COALESCE(q.job_enabled, true) = true
 		  AND COALESCE(q.job_paused, false) = false
 		  AND (q.scheduled_at IS NULL OR q.scheduled_at <= NOW())
+		  AND (q.next_retry_at IS NULL OR q.next_retry_at <= NOW())
 		  AND NOT EXISTS (SELECT 1 FROM job_retries rt WHERE rt.run_id = q.run_id AND rt.next_retry_at > NOW())
 		  AND (q.job_max_concurrency IS NULL OR q.job_max_concurrency = 0
 		       OR COALESCE(jac_job.count, 0) < q.job_max_concurrency)
@@ -1166,6 +1172,7 @@ func (q *PostgresQueue) dequeueNForWorkerFallback(ctx context.Context, n int, pr
 			  AND COALESCE(jr.job_enabled, true) = true
 			  AND COALESCE(jr.job_paused, false) = false
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
+			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
 			  AND NOT EXISTS (SELECT 1 FROM job_retries rt WHERE rt.run_id = jr.id AND rt.next_retry_at > NOW())
 			  AND (jr.job_max_concurrency IS NULL OR COALESCE(jac_job.count, 0) < jr.job_max_concurrency)
 			  AND (jr.job_max_concurrency_per_key IS NULL

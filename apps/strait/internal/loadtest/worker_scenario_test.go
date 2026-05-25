@@ -20,6 +20,7 @@ import (
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
 	"strait/internal/loadtest"
 
+	"github.com/sourcegraph/conc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -41,6 +42,7 @@ type echoWorkerServer struct {
 }
 
 func (s *echoWorkerServer) StreamTasks(stream workerv1.WorkerService_StreamTasksServer) error {
+	var concWG conc.WaitGroup
 	ctx := stream.Context()
 
 	// 1. Receive registration.
@@ -63,7 +65,7 @@ func (s *echoWorkerServer) StreamTasks(stream workerv1.WorkerService_StreamTasks
 
 	// 3. Drain results in a background goroutine so we can send more assignments.
 	resultCount := make(chan struct{}, 512)
-	go func() {
+	concWG.Go(func() {
 		for {
 			msg, err := stream.Recv()
 			if err != nil {
@@ -77,7 +79,9 @@ func (s *echoWorkerServer) StreamTasks(stream workerv1.WorkerService_StreamTasks
 				}
 			}
 		}
-	}()
+	})
+	// Do not wait here: returning from StreamTasks closes the stream and
+	// unblocks the receive loop.
 
 	// 4. Dispatch as many tasks as the shared quota allows, then close.
 	var localSent int
@@ -116,6 +120,7 @@ func (s *echoWorkerServer) StreamTasks(stream workerv1.WorkerService_StreamTasks
 
 // startTestGRPCServer starts an in-process gRPC server and returns its address.
 func startTestGRPCServer(t *testing.T, srv *echoWorkerServer) string {
+	var concWG conc.WaitGroup
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -123,10 +128,13 @@ func startTestGRPCServer(t *testing.T, srv *echoWorkerServer) string {
 	}
 	gs := grpc.NewServer()
 	workerv1.RegisterWorkerServiceServer(gs, srv)
-	go func() {
+	concWG.Go(func() {
 		_ = gs.Serve(ln)
-	}()
-	t.Cleanup(gs.GracefulStop)
+	})
+	t.Cleanup(func() {
+		gs.GracefulStop()
+		concWG.Wait()
+	})
 	return ln.Addr().String()
 }
 

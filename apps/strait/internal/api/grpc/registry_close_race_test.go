@@ -3,6 +3,8 @@ package grpc
 import (
 	"sync"
 	"testing"
+
+	"github.com/sourcegraph/conc"
 )
 
 // TestCloseByAPIKey_NoDoubleClosePanic verifies the Phase I contract: the
@@ -15,6 +17,8 @@ import (
 // and try to close again, panicking. With sync.Once, only the first closer
 // runs the close.
 func TestCloseByAPIKey_NoDoubleClosePanic(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 	const racers = 50
 	const workers = 5
@@ -31,11 +35,11 @@ func TestCloseByAPIKey_NoDoubleClosePanic(t *testing.T) {
 	wg.Add(racers)
 	start := make(chan struct{})
 	for range racers {
-		go func() {
+		concWG.Go(func() {
 			defer wg.Done()
 			<-start
 			r.CloseByAPIKey("shared-key")
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()
@@ -61,6 +65,8 @@ func TestCloseByAPIKey_NoDoubleClosePanic(t *testing.T) {
 // closes the existing entry's revokeCh; CloseByAPIKey closes the same
 // channel. Both must go through the once.
 func TestRegister_SameKeyReconnect_RacesCloseByAPIKey(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 	const racers = 50
 	r := NewConnectionRegistry()
@@ -76,20 +82,20 @@ func TestRegister_SameKeyReconnect_RacesCloseByAPIKey(t *testing.T) {
 
 	// Half the racers reconnect with the same WorkerID/APIKeyID.
 	for range racers {
-		go func() {
+		concWG.Go(func() {
 			defer wg.Done()
 			<-start
 			rw := makeWorker("w-race", "proj-a", "key-race", []string{"q"}, 4)
 			_ = r.Register(rw)
-		}()
+		})
 	}
 	// Other half close by api key.
 	for range racers {
-		go func() {
+		concWG.Go(func() {
 			defer wg.Done()
 			<-start
 			r.CloseByAPIKey("key-race")
-		}()
+		})
 	}
 	close(start)
 	wg.Wait() // must not panic

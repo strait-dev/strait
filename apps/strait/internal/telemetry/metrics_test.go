@@ -57,6 +57,9 @@ func TestInitMetrics(t *testing.T) {
 	if metrics.WebhookPayloadBytes == nil {
 		t.Error("WebhookPayloadBytes is nil")
 	}
+	if metrics.PprofRequests == nil {
+		t.Error("PprofRequests is nil")
+	}
 }
 
 func TestInitMetrics_EmptyEnvironment(t *testing.T) {

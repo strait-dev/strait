@@ -8,6 +8,8 @@ import (
 	"time"
 
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
+
+	"github.com/sourcegraph/conc"
 )
 
 // TestAdversarial_WorkerIDHijackSameProject verifies that a second worker
@@ -184,8 +186,11 @@ func TestAdversarial_SlotInflation(t *testing.T) {
 // TestAdversarial_SendChannelDeadlock verifies that a full (blocked) SendCh does not
 // cause the registry or dispatch path to deadlock. The slot must be recoverable.
 func TestAdversarial_SendChannelDeadlock(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	r := NewConnectionRegistry()
-	// A full channel — nothing draining from the other end.
+
+	// A full channel - nothing draining from the other end.
 	ch := make(chan *workerv1.ServerMessage, 1)
 	ch <- &workerv1.ServerMessage{} // fill it
 
@@ -207,10 +212,10 @@ func TestAdversarial_SendChannelDeadlock(t *testing.T) {
 	// sendCancel uses select with default, so it must not block even on a full channel.
 	d := &WorkerDispatcher{registry: r}
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		defer close(done)
 		d.sendCancel(ch, "run-blocked")
-	}()
+	})
 
 	select {
 	case <-done:
@@ -223,6 +228,8 @@ func TestAdversarial_SendChannelDeadlock(t *testing.T) {
 // TestAdversarial_ReconnectStorm_ByAPIKeyConsistency verifies that after 100 parallel
 // reconnects for the same worker_id+api_key pair, the byAPIKey index has at most 1 entry.
 func TestAdversarial_ReconnectStorm_ByAPIKeyConsistency(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	r := NewConnectionRegistry()
 	const n = 100
 
@@ -230,7 +237,7 @@ func TestAdversarial_ReconnectStorm_ByAPIKeyConsistency(t *testing.T) {
 	wg.Add(n)
 
 	for i := range n {
-		go func() {
+		concWG.Go(func() {
 			defer wg.Done()
 			w := &ConnectedWorker{
 				WorkerID:       "storm",
@@ -244,7 +251,7 @@ func TestAdversarial_ReconnectStorm_ByAPIKeyConsistency(t *testing.T) {
 				revokeCh:       make(chan struct{}),
 			}
 			_ = r.Register(w)
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -264,6 +271,8 @@ func TestAdversarial_ReconnectStorm_ByAPIKeyConsistency(t *testing.T) {
 // TestAdversarial_SnapshotDuringDrain verifies that SnapshotQueues handles a worker
 // that transitions to draining mid-iteration without panicking.
 func TestAdversarial_SnapshotDuringDrain(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	r := NewConnectionRegistry()
 
 	for i := range 10 {
@@ -275,20 +284,21 @@ func TestAdversarial_SnapshotDuringDrain(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(2)
+	concWG.
 
-	// Concurrently drain workers while snapshotting queues.
-	go func() {
-		defer wg.Done()
-		for i := range 10 {
-			r.MarkDraining(fmt.Sprintf("w%d", i))
-		}
-	}()
-	go func() {
+		// Concurrently drain workers while snapshotting queues.
+		Go(func() {
+			defer wg.Done()
+			for i := range 10 {
+				r.MarkDraining(fmt.Sprintf("w%d", i))
+			}
+		})
+	concWG.Go(func() {
 		defer wg.Done()
 		for range 20 {
 			_ = r.SnapshotQueues()
 		}
-	}()
+	})
 
 	wg.Wait() // must not panic or race
 }

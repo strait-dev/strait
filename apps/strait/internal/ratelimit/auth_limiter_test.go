@@ -348,6 +348,46 @@ func TestAuthLimiter_ScopedResetDoesNotClearOtherAuthSchemes(t *testing.T) {
 	}
 }
 
+func TestAuthLimiter_ProfilingScopeIsIsolatedFromInternalSecret(t *testing.T) {
+	t.Parallel()
+	limiter, _ := newTestAuthLimiter(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ip := "1.2.3.4"
+
+	for range 10 {
+		limiter.RecordFailureScoped(ctx, ip, AuthScopeProfiling)
+	}
+	limiter.ResetScoped(ctx, ip, AuthScopeInternalSecret)
+
+	profilingBlocked, retryAfter := limiter.IsBlockedScoped(ctx, ip, AuthScopeProfiling)
+	if !profilingBlocked {
+		t.Fatal("profiling failures should survive an unrelated internal-secret success reset")
+	}
+	if retryAfter != time.Minute {
+		t.Fatalf("retryAfter = %v, want 1m", retryAfter)
+	}
+
+	internalBlocked, _ := limiter.IsBlockedScoped(ctx, ip, AuthScopeInternalSecret)
+	if internalBlocked {
+		t.Fatal("internal-secret scope should not be blocked")
+	}
+
+	limiter.ResetScoped(ctx, ip, AuthScopeProfiling)
+	for range 10 {
+		limiter.RecordFailureScoped(ctx, ip, AuthScopeInternalSecret)
+	}
+
+	profilingBlocked, _ = limiter.IsBlockedScoped(ctx, ip, AuthScopeProfiling)
+	if profilingBlocked {
+		t.Fatal("profiling scope should not be blocked by internal-secret failures")
+	}
+	internalBlocked, _ = limiter.IsBlockedScoped(ctx, ip, AuthScopeInternalSecret)
+	if !internalBlocked {
+		t.Fatal("internal-secret scope should be blocked")
+	}
+}
+
 func TestAuthLimiter_HigherTierReachableAfterShortLockoutExpires(t *testing.T) {
 	t.Parallel()
 	limiter, mr := newTestAuthLimiter(t)

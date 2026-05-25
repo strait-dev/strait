@@ -343,7 +343,7 @@ func TestHandleSuccess_CircuitBreakerFailure_StillCompletes(t *testing.T) {
 	run.Status = domain.StatusExecuting
 	job := testJob("http://localhost", 3, 30)
 
-	exec.handleSuccess(context.Background(), run, job, nil, nil)
+	exec.handleSuccess(context.Background(), run, job, nil)
 
 	calls := store.statusUpdates()
 	found := false
@@ -376,7 +376,7 @@ func TestHandleSuccess_CompleteRunFails_NoEvent(t *testing.T) {
 	run.Status = domain.StatusExecuting
 	job := testJob("http://localhost", 3, 30)
 
-	exec.handleSuccess(context.Background(), run, job, nil, nil)
+	exec.handleSuccess(context.Background(), run, job, nil)
 
 	events := getEvents()
 	// When completeRunWithWebhook fails, handleSuccess returns early before emitting.
@@ -445,6 +445,8 @@ func TestChain_HandlerPanic_PropagatesThroughMiddleware(t *testing.T) {
 // Adversarial event loop tests.
 
 func TestRunEventLoop_SubscriberPanic_CrashesLoop(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 	ch2 := make(chan RunLifecycleEvent, 1)
 
@@ -457,13 +459,13 @@ func TestRunEventLoop_SubscriberPanic_CrashesLoop(t *testing.T) {
 	}
 
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		defer func() {
 			recover() // catch the panic from runEventLoop
 			close(done)
 		}()
 		exec.runEventLoop()
-	}()
+	})
 
 	exec.eventCh <- runEventEnvelope{
 		ctx:   context.Background(),

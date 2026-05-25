@@ -130,7 +130,7 @@ func (e *SLOEvaluator) evaluateWithOptionalLeader(ctx context.Context) (bool, er
 func (e *SLOEvaluator) evaluateSLO(ctx context.Context, slo domain.JobSLO, now time.Time) error {
 	since := now.Add(-time.Duration(slo.WindowHours) * time.Hour)
 
-	stats, err := e.store.GetJobHealthStats(ctx, slo.JobID, since)
+	stats, err := e.getStatsForSLOMetric(ctx, slo.Metric, slo.JobID, since)
 	if err != nil {
 		return fmt.Errorf("get health stats: %w", err)
 	}
@@ -188,6 +188,13 @@ func (e *SLOEvaluator) evaluateSLO(ctx context.Context, slo domain.JobSLO, now t
 	}
 
 	return nil
+}
+
+func (e *SLOEvaluator) getStatsForSLOMetric(ctx context.Context, metric, jobID string, since time.Time) (*store.JobHealthStats, error) {
+	if metric == domain.SLOMetricSuccessRate {
+		return e.store.GetJobHealthCounts(ctx, jobID, since)
+	}
+	return e.store.GetJobHealthStats(ctx, jobID, since)
 }
 
 func hasSLOData(metric string, stats *store.JobHealthStats) bool {

@@ -108,6 +108,8 @@ func (s *panicNotificationStore) ClaimPendingNotificationDeliveries(_ context.Co
 }
 
 func TestWorker_PanicRecovery(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 	store := &panicNotificationStore{called: make(chan struct{})}
 	w := NewWorker(store, &http.Client{})
@@ -123,10 +125,10 @@ func TestWorker_PanicRecovery(t *testing.T) {
 
 	cancel()
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		w.Stop()
 		close(done)
-	}()
+	})
 
 	select {
 	case <-done:
@@ -136,16 +138,18 @@ func TestWorker_PanicRecovery(t *testing.T) {
 }
 
 func TestWorker_StopAfterContextCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 	w := NewWorker(&stubNotificationStore{}, &http.Client{})
 	ctx, cancel := context.WithCancel(context.Background())
 	w.Start(ctx)
 	cancel()
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		w.Stop()
 		close(done)
-	}()
+	})
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):

@@ -15,6 +15,7 @@ const (
 	AuthScopeAPIKey         = "api_key"
 	AuthScopeOIDC           = "oidc"
 	AuthScopeInternalSecret = "internal_secret"
+	AuthScopeProfiling      = "profiling"
 	AuthScopeGRPCWorker     = "grpc_worker"
 )
 

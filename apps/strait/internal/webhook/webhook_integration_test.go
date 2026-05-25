@@ -23,6 +23,7 @@ import (
 	"strait/internal/webhook"
 
 	"github.com/google/uuid"
+	"github.com/sourcegraph/conc"
 )
 
 var testDB *testutil.TestDB
@@ -31,7 +32,7 @@ func TestMain(m *testing.M) {
 	ctx := context.Background()
 
 	var err error
-	testDB, err = testutil.SetupTestDB(ctx, "../../migrations")
+	testDB, err = testutil.SetupSharedTestDB(ctx, "../../migrations", "webhook")
 	if err != nil {
 		log.Fatalf("setup test db: %v", err)
 	}
@@ -79,12 +80,14 @@ func createPendingWebhookDelivery(t *testing.T, ctx context.Context, st *store.Q
 }
 
 func runWebhookWorkerUntilDelivered(t *testing.T, ctx context.Context, worker *webhook.DeliveryWorker, st *store.Queries, deliveryID string) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Helper()
 	workerCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	go func() {
+	concWG.Go(func() {
 		_ = worker.RunWorker(workerCtx, 50*time.Millisecond)
-	}()
+	})
 	t.Cleanup(func() {
 		cancel()
 		_ = worker.Shutdown(context.Background())
@@ -182,6 +185,8 @@ func TestDeliveryWorker_AllowPrivateEndpointsOrderInsensitiveWithHTTPTransport(t
 // TestEndToEndWebhookDelivery creates a delivery in Postgres, runs the worker,
 // and verifies the HTTP request arrives at an httptest.Server with correct headers and payload.
 func TestEndToEndWebhookDelivery(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	st := mustStore(t)
 	mustClean(t, ctx)
@@ -224,10 +229,9 @@ func TestEndToEndWebhookDelivery(t *testing.T) {
 	worker := webhook.NewDeliveryWorker(st, slog.Default(), webhook.WithConcurrency(2))
 	workerCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-
-	go func() {
+	concWG.Go(func() {
 		_ = worker.RunWorker(workerCtx, 100*time.Millisecond)
-	}()
+	})
 
 	deadline := time.After(5 * time.Second)
 	for received.Load() == 0 {
@@ -301,6 +305,8 @@ func TestEndToEndWebhookDelivery(t *testing.T) {
 // TestRetryFlowWithRealPersistence verifies that a failed delivery is retried
 // and eventually succeeds, with state persisted across polls.
 func TestRetryFlowWithRealPersistence(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	st := mustStore(t)
 	mustClean(t, ctx)
@@ -342,9 +348,9 @@ func TestRetryFlowWithRealPersistence(t *testing.T) {
 	// to bypass the backoff delay.
 	for range 5 {
 		workerCtx, cancel := context.WithCancel(ctx)
-		go func() {
+		concWG.Go(func() {
 			_ = worker.RunWorker(workerCtx, 100*time.Millisecond)
-		}()
+		})
 		time.Sleep(300 * time.Millisecond)
 		cancel()
 		_ = worker.Shutdown(context.Background())
@@ -392,6 +398,8 @@ func TestRetryFlowWithRealPersistence(t *testing.T) {
 // TestDeadLetterAfterMaxRetries verifies that a delivery is moved to "dead"
 // after exhausting all retry attempts, with the final state persisted.
 func TestDeadLetterAfterMaxRetries(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	st := mustStore(t)
 	mustClean(t, ctx)
@@ -426,9 +434,9 @@ func TestDeadLetterAfterMaxRetries(t *testing.T) {
 		)
 
 		workerCtx, cancel := context.WithCancel(ctx)
-		go func() {
+		concWG.Go(func() {
 			_ = worker.RunWorker(workerCtx, 100*time.Millisecond)
-		}()
+		})
 		time.Sleep(300 * time.Millisecond)
 		cancel()
 		_ = worker.Shutdown(context.Background())
@@ -468,6 +476,8 @@ func TestDeadLetterAfterMaxRetries(t *testing.T) {
 // TestConcurrentWebhookDeliveries verifies that multiple pending deliveries
 // are processed concurrently without duplicate sends.
 func TestConcurrentWebhookDeliveries(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	st := mustStore(t)
 	mustClean(t, ctx)
@@ -507,10 +517,9 @@ func TestConcurrentWebhookDeliveries(t *testing.T) {
 	worker := webhook.NewDeliveryWorker(st, slog.Default(), webhook.WithConcurrency(5))
 	workerCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-
-	go func() {
+	concWG.Go(func() {
 		_ = worker.RunWorker(workerCtx, 100*time.Millisecond)
-	}()
+	})
 
 	deadline := time.After(30 * time.Second)
 	for int(totalRequests.Load()) < deliveryCount {
@@ -666,6 +675,8 @@ func TestWebhookSubscriptionCRUD(t *testing.T) {
 // TestDeliveryStatusTracking verifies that the full lifecycle of a delivery
 // (pending -> attempts -> delivered) is correctly tracked in the database.
 func TestDeliveryStatusTracking(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	st := mustStore(t)
 	mustClean(t, ctx)
@@ -724,10 +735,9 @@ func TestDeliveryStatusTracking(t *testing.T) {
 	// Run the worker to deliver it.
 	worker := webhook.NewDeliveryWorker(st, slog.Default(), webhook.WithConcurrency(1))
 	workerCtx, cancel := context.WithCancel(ctx)
-
-	go func() {
+	concWG.Go(func() {
 		_ = worker.RunWorker(workerCtx, 100*time.Millisecond)
-	}()
+	})
 
 	deadline := time.After(5 * time.Second)
 	for {
@@ -777,6 +787,8 @@ func TestDeliveryStatusTracking(t *testing.T) {
 // TestTimeoutHandlingWithSlowServer verifies that the worker correctly handles
 // webhook endpoints that exceed the request timeout.
 func TestTimeoutHandlingWithSlowServer(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	st := mustStore(t)
 	mustClean(t, ctx)
@@ -810,9 +822,9 @@ func TestTimeoutHandlingWithSlowServer(t *testing.T) {
 	)
 
 	workerCtx, cancel := context.WithCancel(ctx)
-	go func() {
+	concWG.Go(func() {
 		_ = worker.RunWorker(workerCtx, 200*time.Millisecond)
-	}()
+	})
 
 	// Wait for the first attempt (which will timeout).
 	deadline := time.After(30 * time.Second)
@@ -856,6 +868,8 @@ func TestTimeoutHandlingWithSlowServer(t *testing.T) {
 // TestClientErrorDeadLetters verifies that a 4xx response (non-retryable)
 // immediately dead-letters the delivery without retrying.
 func TestClientErrorDeadLetters(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	st := mustStore(t)
 	mustClean(t, ctx)
@@ -884,10 +898,9 @@ func TestClientErrorDeadLetters(t *testing.T) {
 
 	worker := webhook.NewDeliveryWorker(st, slog.Default(), webhook.WithConcurrency(1))
 	workerCtx, cancel := context.WithCancel(ctx)
-
-	go func() {
+	concWG.Go(func() {
 		_ = worker.RunWorker(workerCtx, 100*time.Millisecond)
-	}()
+	})
 
 	deadline := time.After(5 * time.Second)
 	for {
@@ -931,6 +944,8 @@ func TestClientErrorDeadLetters(t *testing.T) {
 // TestEnqueueSubscriptionWebhooksIntegration verifies that subscription-based
 // webhooks are correctly enqueued and delivered for matching event types.
 func TestEnqueueSubscriptionWebhooksIntegration(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	st := mustStore(t)
 	mustClean(t, ctx)
@@ -997,9 +1012,9 @@ func TestEnqueueSubscriptionWebhooksIntegration(t *testing.T) {
 
 	// Run the worker to deliver it.
 	workerCtx, cancel := context.WithCancel(ctx)
-	go func() {
+	concWG.Go(func() {
 		_ = worker.RunWorker(workerCtx, 100*time.Millisecond)
-	}()
+	})
 
 	deadline := time.After(5 * time.Second)
 	for received.Load() == 0 {

@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/sourcegraph/conc"
 )
 
 // ---------------------------------------------------------------------------
@@ -450,6 +452,8 @@ func TestClaimTable_ConcurrentEnqueueDequeue(t *testing.T) {
 }
 
 func TestClaimTable_TriggerRaceCondition(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
@@ -476,32 +480,34 @@ func TestClaimTable_TriggerRaceCondition(t *testing.T) {
 
 	// Concurrently: (a) pause the job, (b) dequeue.
 	wg.Add(2)
+	concWG.
 
-	// (a) Pause the job by updating both the jobs table and the claim rows.
-	go func() {
-		defer wg.Done()
-		_, err := testDB.Pool.Exec(ctx,
-			`UPDATE jobs SET paused = true, paused_at = NOW() WHERE id = $1`, job.ID,
-		)
-		if err != nil {
-			pauseErr = err
-			return
-		}
-		_, err = testDB.Pool.Exec(ctx,
-			`UPDATE job_run_queue SET job_paused = true WHERE job_id = $1`, job.ID,
-		)
-		if err != nil {
-			pauseErr = err
-		}
-	}()
+		// (a) Pause the job by updating both the jobs table and the claim rows.
+		Go(func() {
+			defer wg.Done()
+			_, err := testDB.Pool.Exec(ctx,
+				`UPDATE jobs SET paused = true, paused_at = NOW() WHERE id = $1`, job.ID,
+			)
+			if err != nil {
+				pauseErr = err
+				return
+			}
+			_, err = testDB.Pool.Exec(ctx,
+				`UPDATE job_run_queue SET job_paused = true WHERE job_id = $1`, job.ID,
+			)
+			if err != nil {
+				pauseErr = err
+			}
+		})
+	concWG.
 
-	// (b) DequeueNClaim.
-	go func() {
-		defer wg.Done()
-		batch, err := q.DequeueNClaim(ctx, 10)
-		dequeueErr = err
-		dequeuedRuns = batch
-	}()
+		// (b) DequeueNClaim.
+		Go(func() {
+			defer wg.Done()
+			batch, err := q.DequeueNClaim(ctx, 10)
+			dequeueErr = err
+			dequeuedRuns = batch
+		})
 
 	wg.Wait()
 

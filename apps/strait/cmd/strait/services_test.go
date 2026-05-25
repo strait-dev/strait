@@ -16,6 +16,7 @@ import (
 	"strait/internal/scheduler"
 	"strait/internal/worker"
 
+	"github.com/sourcegraph/conc"
 	"github.com/sourcegraph/conc/pool"
 )
 
@@ -40,6 +41,57 @@ func TestWorkerShutdownTelemetryLogsContainExpectedFields(t *testing.T) {
 		if !strings.Contains(logs, field) {
 			t.Fatalf("expected logs to contain field %q, got: %s", field, logs)
 		}
+	}
+}
+
+func TestProfilingStartupLogDoesNotLeakSecrets(t *testing.T) {
+	t.Helper()
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, nil))
+	cfg := &config.Config{
+		ProfilingEnabled:            true,
+		ProfilingAPIEnabled:         false,
+		ProfilingManagementEnabled:  true,
+		ProfilingManagementBindAddr: "127.0.0.1",
+		ProfilingManagementPort:     18080,
+		ProfilingMutexFraction:      50,
+		ProfilingBlockRate:          250000,
+		ProfilingSecret:             "pprof-secret-value",
+		ProfilingAllowedCIDRs:       []string{"127.0.0.1/32"},
+	}
+
+	logProfilingStartup(logger, cfg)
+
+	logs := buf.String()
+	for _, field := range []string{
+		"profiling_secret_configured",
+		"cidr_allowlist_configured",
+		"api_listener",
+		"management_listener",
+		"mutex_fraction",
+		"block_rate",
+		"cpu_profile_max_seconds",
+		"management_bind_addr",
+	} {
+		if !strings.Contains(logs, field) {
+			t.Fatalf("expected profiling log to contain field %q, got: %s", field, logs)
+		}
+	}
+	if strings.Contains(logs, "pprof-secret-value") {
+		t.Fatalf("profiling secret leaked in startup log: %s", logs)
+	}
+}
+
+func TestProfilingManagementAddr(t *testing.T) {
+	t.Helper()
+
+	cfg := &config.Config{
+		ProfilingManagementBindAddr: "::1",
+		ProfilingManagementPort:     18080,
+	}
+	if got := profilingManagementAddr(cfg); got != "[::1]:18080" {
+		t.Fatalf("profilingManagementAddr() = %q, want [::1]:18080", got)
 	}
 }
 
@@ -219,13 +271,17 @@ func (noopServicePub) PublishBatch(context.Context, []pubsub.PubSubMessage) erro
 }
 
 func (noopServicePub) Subscribe(ctx context.Context, _ string) (*pubsub.Subscription, error) {
+	var concWG conc.WaitGroup
 	ch := make(chan []byte)
 	subCtx, cancel := context.WithCancel(ctx)
-	go func() {
+	concWG.Go(func() {
 		<-subCtx.Done()
 		close(ch)
-	}()
-	return pubsub.NewSubscription(ch, cancel), nil
+	})
+	return pubsub.NewSubscription(ch, func() {
+		cancel()
+		concWG.Wait()
+	}), nil
 }
 
 func (noopServicePub) Close() error {

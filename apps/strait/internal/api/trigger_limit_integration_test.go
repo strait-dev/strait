@@ -20,6 +20,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/google/uuid"
+	"github.com/sourcegraph/conc"
 )
 
 var (
@@ -31,7 +32,7 @@ func getTriggerLimitTestDB(t *testing.T) *testutil.TestDB {
 	t.Helper()
 	triggerLimitTestDBOnce.Do(func() {
 		var err error
-		triggerLimitTestDB, err = testutil.SetupTestDB(context.Background(), "../../migrations")
+		triggerLimitTestDB, err = testutil.SetupSharedTestDB(context.Background(), "../../migrations", "api-trigger-limit")
 		if err != nil {
 			t.Fatalf("SetupTestDB() error = %v", err)
 		}
@@ -43,6 +44,8 @@ func getTriggerLimitTestDB(t *testing.T) *testutil.TestDB {
 }
 
 func TestIntegration_TriggerLimitGuard_SerializesQueuedQuota(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	db := getTriggerLimitTestDB(t)
 	if err := db.CleanTables(ctx); err != nil {
@@ -81,7 +84,7 @@ func TestIntegration_TriggerLimitGuard_SerializesQueuedQuota(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {
 		wg.Add(1)
-		go func() {
+		concWG.Go(func() {
 			defer wg.Done()
 			_, err := srv.handleTriggerJob(reqCtx, &TriggerJobInput{
 				JobID: job.ID,
@@ -98,7 +101,7 @@ func TestIntegration_TriggerLimitGuard_SerializesQueuedQuota(t *testing.T) {
 				return
 			}
 			t.Errorf("handleTriggerJob unexpected error: %v", err)
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -119,6 +122,8 @@ func TestIntegration_TriggerLimitGuard_SerializesQueuedQuota(t *testing.T) {
 }
 
 func TestIntegration_TriggerLimitGuard_SerializesJobRateLimit(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	db := getTriggerLimitTestDB(t)
 	if err := db.CleanTables(ctx); err != nil {
@@ -159,7 +164,7 @@ func TestIntegration_TriggerLimitGuard_SerializesJobRateLimit(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {
 		wg.Add(1)
-		go func() {
+		concWG.Go(func() {
 			defer wg.Done()
 			_, err := srv.handleTriggerJob(reqCtx, &TriggerJobInput{
 				JobID: job.ID,
@@ -176,7 +181,7 @@ func TestIntegration_TriggerLimitGuard_SerializesJobRateLimit(t *testing.T) {
 				return
 			}
 			t.Errorf("handleTriggerJob unexpected error: %v", err)
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -189,6 +194,8 @@ func TestIntegration_TriggerLimitGuard_SerializesJobRateLimit(t *testing.T) {
 }
 
 func TestIntegration_TriggerLimitGuard_SerializesProjectQuotaAcrossJobs(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	db := getTriggerLimitTestDB(t)
 	if err := db.CleanTables(ctx); err != nil {
@@ -224,21 +231,24 @@ func TestIntegration_TriggerLimitGuard_SerializesProjectQuotaAcrossJobs(t *testi
 	var wg sync.WaitGroup
 	for _, job := range []*domain.Job{jobA, jobB} {
 		wg.Add(1)
-		go func(jobID string) {
-			defer wg.Done()
-			_, err := srv.handleTriggerJob(reqCtx, &TriggerJobInput{JobID: jobID, Body: TriggerRequest{Payload: []byte(`{"ok":true}`)}})
-			if err == nil {
-				successes.Add(1)
-				return
-			}
-			var statusErr huma.StatusError
-			if errors.As(err, &statusErr) && statusErr.GetStatus() == http.StatusTooManyRequests &&
-				strings.Contains(err.Error(), "project queued quota exceeded") {
-				quotaFailures.Add(1)
-				return
-			}
-			t.Errorf("handleTriggerJob unexpected error: %v", err)
-		}(job.ID)
+		{
+			jobID := job.ID
+			concWG.Go(func() {
+				defer wg.Done()
+				_, err := srv.handleTriggerJob(reqCtx, &TriggerJobInput{JobID: jobID, Body: TriggerRequest{Payload: []byte(`{"ok":true}`)}})
+				if err == nil {
+					successes.Add(1)
+					return
+				}
+				var statusErr huma.StatusError
+				if errors.As(err, &statusErr) && statusErr.GetStatus() == http.StatusTooManyRequests &&
+					strings.Contains(err.Error(), "project queued quota exceeded") {
+					quotaFailures.Add(1)
+					return
+				}
+				t.Errorf("handleTriggerJob unexpected error: %v", err)
+			})
+		}
 	}
 	wg.Wait()
 

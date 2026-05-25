@@ -8,6 +8,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 // failableHeartbeatStore implements HeartbeatStore with a configurable batch function.
@@ -124,6 +126,8 @@ func TestHeartbeat_FlushWithEmptyActiveSet(t *testing.T) {
 }
 
 func TestHeartbeat_CollectActiveIDs_ConcurrentSafety(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	store := &failableHeartbeatStore{}
 	hm := NewHeartbeatManager(store, 30*time.Second)
 
@@ -135,23 +139,27 @@ func TestHeartbeat_CollectActiveIDs_ConcurrentSafety(t *testing.T) {
 
 	// 10 goroutines registering and deregistering.
 	for g := range goroutines {
-		go func(id int) {
-			defer wg.Done()
-			for i := range ops {
-				runID := fmt.Sprintf("run-%d-%d", id, i)
-				hm.Register(runID)
-				hm.Deregister(runID)
-			}
-		}(g)
-	}
-
-	// 1 goroutine continuously calling collectActiveIDs.
-	go func() {
-		defer wg.Done()
-		for range ops * goroutines {
-			_ = hm.collectActiveIDs()
+		{
+			id := g
+			concWG.Go(func() {
+				defer wg.Done()
+				for i := range ops {
+					runID := fmt.Sprintf("run-%d-%d", id, i)
+					hm.Register(runID)
+					hm.Deregister(runID)
+				}
+			})
 		}
-	}()
+	}
+	concWG.
+
+		// 1 goroutine continuously calling collectActiveIDs.
+		Go(func() {
+			defer wg.Done()
+			for range ops * goroutines {
+				_ = hm.collectActiveIDs()
+			}
+		})
 
 	// If we reach here without panic, the test passes.
 	wg.Wait()

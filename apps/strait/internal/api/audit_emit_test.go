@@ -128,6 +128,8 @@ func TestEmitAuditEventAsync_ShutdownFlush(t *testing.T) {
 // never panics. The mock store returns immediately so the sync fallback
 // completes without delay; the test only cares about non-blocking semantics.
 func TestEmitAuditEventAsync_BufferFullDropsEvents(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	release := make(chan struct{})
@@ -155,12 +157,12 @@ func TestEmitAuditEventAsync_BufferFullDropsEvents(t *testing.T) {
 
 	total := auditAsyncBufferSize + 500
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		for range total {
 			srv.emitAuditEventAsync(ctx, "job.triggered", "job", "job-1", nil)
 		}
 		close(done)
-	}()
+	})
 
 	select {
 	case <-done:

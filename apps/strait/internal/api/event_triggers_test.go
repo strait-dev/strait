@@ -16,6 +16,7 @@ import (
 	"strait/internal/store"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/sourcegraph/conc"
 )
 
 func newEventTriggersTestServer(t *testing.T, s APIStore, wfCallback WorkflowCallback) *Server {
@@ -1281,6 +1282,8 @@ func TestHandleEventTriggerStream_ReceivesMessage(t *testing.T) {
 }
 
 func TestHandleEventTriggerStream_IgnoresGenericRequestTimeout(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	ms := &APIStoreMock{
@@ -1299,10 +1302,12 @@ func TestHandleEventTriggerStream_IgnoresGenericRequestTimeout(t *testing.T) {
 	sub := pubsub.NewSubscription(ch, cancel)
 	pub := &mockPublisher{
 		subscribeFn: func(_ context.Context, _ string) (*pubsub.Subscription, error) {
-			go func() {
+			var concWG conc.WaitGroup
+			defer concWG.Wait()
+			concWG.Go(func() {
 				time.Sleep(50 * time.Millisecond)
 				ch <- []byte(`{"id":"evt-no-generic-timeout","project_id":"proj-1","status":"received"}`)
-			}()
+			})
 			return sub, nil
 		},
 	}

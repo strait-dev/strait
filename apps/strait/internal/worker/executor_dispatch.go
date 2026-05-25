@@ -34,6 +34,8 @@ type redactedHTTPDispatchError struct {
 	err     error
 }
 
+const workflowStepVisibilityRetryDelay = 250 * time.Millisecond
+
 func (e *redactedHTTPDispatchError) Error() string {
 	return e.message
 }
@@ -236,6 +238,16 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 	policy := defaultExecutionPolicy(job)
 	resolved, policyErr := e.resolveExecutionPolicy(ctx, run, policy)
 	if policyErr != nil {
+		if errors.Is(policyErr, store.ErrWorkflowStepRunNotFound) {
+			retryAt := time.Now().Add(workflowStepVisibilityRetryDelay)
+			e.logger.Warn("workflow step run not visible yet; requeueing run",
+				"run_id", run.ID,
+				"workflow_step_run_id", run.WorkflowStepRunID,
+				"retry_at", retryAt,
+			)
+			e.snoozeRun(ctx, run, "workflow step run not visible yet", &retryAt)
+			return
+		}
 		e.logger.Error("failed to resolve execution policy", "run_id", run.ID, "error", policyErr)
 		e.handleSystemFailureWithJob(ctx, run, job, "resolve execution policy")
 		return
@@ -436,9 +448,14 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 	}
 	defer e.releaseBulkheadSlot(job.ID, job.MaxConcurrency)
 
+	startFrom := run.Status
+	if startFrom == "" {
+		startFrom = domain.StatusDequeued
+	}
+	publishFrom := startFrom
 	// Claim-table dequeue already set status=executing; skip redundant transition.
 	if run.Status != domain.StatusExecuting {
-		err = e.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
+		err = e.store.UpdateRunStatus(ctx, run.ID, startFrom, domain.StatusExecuting, map[string]any{
 			"started_at": time.Now(),
 		})
 		if err != nil {
@@ -451,8 +468,10 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 			return
 		}
 		run.Status = domain.StatusExecuting
+	} else {
+		publishFrom = domain.StatusDequeued
 	}
-	e.publishEvent(ctx, run, map[string]any{"from": "dequeued", "to": "executing"})
+	e.publishEvent(ctx, run, map[string]any{"from": string(publishFrom), "to": "executing"})
 
 	e.heartbeat.Register(run.ID)
 	defer e.heartbeat.Deregister(run.ID)
@@ -490,7 +509,7 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 					addHMACHeaders(fallbackHeaders, signingSecret, run.Payload)
 					fallbackResult, fallbackErr := e.dispatchToEndpoint(execCtx, job.FallbackEndpointURL, run, fallbackHeaders)
 					if fallbackErr == nil {
-						e.handleSuccess(ctx, run, job, fallbackResult, execTrace)
+						e.handleSuccessWithStats(ctx, run, job, fallbackResult, execTrace, adaptiveStats)
 						return
 					}
 					err = errors.Join(
@@ -532,7 +551,7 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 		}
 	}
 
-	e.handleSuccess(ctx, run, job, result, execTrace)
+	e.handleSuccessWithStats(ctx, run, job, result, execTrace, adaptiveStats)
 }
 
 func defaultExecutionPolicy(job *domain.Job) executionPolicy {
@@ -984,7 +1003,7 @@ func (e *Executor) resolveExecutionPolicy(ctx context.Context, run *domain.JobRu
 		if err != nil {
 			return fallback, err
 		}
-		return fallback, nil
+		return fallback, fmt.Errorf("%w: %s", store.ErrWorkflowStepRunNotFound, run.WorkflowStepRunID)
 	}
 
 	wfRun, err := e.store.GetWorkflowRun(ctx, stepRun.WorkflowRunID)
@@ -1148,7 +1167,7 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 	e.recordWorkerModeCost(ctx, run, job)
 
 	runResult := e.workerDispatcher.ResultOutput(result)
-	if e.handleSuccess(ctx, run, job, runResult, nil) {
+	if e.handleSuccess(ctx, run, job, runResult) {
 		e.completeWorkerTask(ctx, result, domain.WorkerTaskStatusCompleted)
 	}
 }
@@ -1188,7 +1207,7 @@ func (e *Executor) FinalizeWorkerRunResult(ctx context.Context, runID, status, e
 	}
 
 	e.recordWorkerModeCost(ctx, run, job)
-	if !e.handleSuccess(ctx, run, job, output, nil) {
+	if !e.handleSuccess(ctx, run, job, output) {
 		return "", fmt.Errorf("worker success finalization did not transition run")
 	}
 	return domain.WorkerTaskStatusCompleted, nil

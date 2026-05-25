@@ -59,6 +59,7 @@ type Scheduler struct {
 	partitionReclaimer       *PartitionReclaimer
 	dlqAgeOut                *DLQAgeOut
 	outboxFlusher            *OutboxFlusher
+	outboxArchiver           *OutboxArchiver
 	sloEvaluator             *SLOEvaluator
 	planDriftMonitor         *PlanDriftMonitor
 	backpressureSampler      *BackpressureSampler
@@ -239,6 +240,12 @@ func WithDLQAgeOut(a *DLQAgeOut) SchedulerOption {
 func WithOutboxFlusher(f *OutboxFlusher) SchedulerOption {
 	return func(s *Scheduler) {
 		s.outboxFlusher = f
+	}
+}
+
+func WithOutboxArchiver(a *OutboxArchiver) SchedulerOption {
+	return func(s *Scheduler) {
+		s.outboxArchiver = a
 	}
 }
 
@@ -481,6 +488,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 	if s.outboxFlusher != nil {
 		s.tracker.track(ctx, &s.wg, "outbox_flusher", func(componentCtx context.Context) { s.outboxFlusher.Run(componentCtx) })
+	}
+	if s.outboxArchiver != nil {
+		s.tracker.track(ctx, &s.wg, "outbox_archiver", func(componentCtx context.Context) { s.outboxArchiver.Run(componentCtx) })
 	}
 	if s.planDriftMonitor != nil {
 		s.tracker.track(ctx, &s.wg, "plan_drift_monitor", func(componentCtx context.Context) { s.planDriftMonitor.Run(componentCtx) })

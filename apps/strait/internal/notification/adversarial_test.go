@@ -1168,6 +1168,8 @@ func TestWorker_ClaimsBatches(t *testing.T) {
 }
 
 func TestWorker_DispatchesClaimedDeliveriesConcurrently(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	slowStarted := make(chan struct{})
@@ -1222,14 +1224,13 @@ func TestWorker_DispatchesClaimedDeliveriesConcurrently(t *testing.T) {
 		}
 		return nil
 	}))
-
-	go func() {
+	concWG.Go(func() {
 		defer close(done)
 		w.dispatchBatch(context.Background(), []domain.NotificationDelivery{
 			{ID: "del-slow", ChannelID: "ch-1", ProjectID: "proj-slow", MaxAttempts: 3},
 			{ID: "del-fast", ChannelID: "ch-1", ProjectID: "proj-fast", MaxAttempts: 3},
 		})
-	}()
+	})
 
 	select {
 	case <-slowStarted:

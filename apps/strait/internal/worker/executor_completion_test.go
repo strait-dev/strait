@@ -179,7 +179,7 @@ func TestHandleSuccess_EmitsCompletedEvent(t *testing.T) {
 	run.Status = domain.StatusExecuting
 	job := testJob("http://localhost", 3, 30)
 
-	exec.handleSuccess(context.Background(), run, job, nil, nil)
+	exec.handleSuccess(context.Background(), run, job, nil)
 
 	calls := store.statusUpdates()
 	if len(calls) == 0 {

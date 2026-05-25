@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/sourcegraph/conc"
 )
 
 // Soak, bloat, and scale benchmarks. Behind //go:build
@@ -37,6 +39,8 @@ func soakDuration(def time.Duration) time.Duration {
 //   - Final memory usage does not drift up beyond a threshold.
 //   - Dequeue P99 (approximated via a rolling max) stays under 1s.
 func TestSoak_WorkersSteadyState(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	duration := soakDuration(2 * time.Minute)
 	if testing.Short() {
 		t.Skip("short mode")
@@ -53,7 +57,7 @@ func TestSoak_WorkersSteadyState(t *testing.T) {
 	// Continuously enqueue while workers drain.
 	stopEnq := make(chan struct{})
 	var enqueued atomic.Int64
-	go func() {
+	concWG.Go(func() {
 		ticker := time.NewTicker(100 * time.Millisecond)
 		defer ticker.Stop()
 		for {
@@ -73,7 +77,7 @@ func TestSoak_WorkersSteadyState(t *testing.T) {
 				}
 			}
 		}
-	}()
+	})
 
 	// 20 workers pulling 5 at a time.
 	var wg sync.WaitGroup
@@ -84,7 +88,7 @@ func TestSoak_WorkersSteadyState(t *testing.T) {
 	end := time.Now().Add(duration)
 	for w := 0; w < 20; w++ {
 		wg.Add(1)
-		go func() {
+		concWG.Go(func() {
 			defer wg.Done()
 			for time.Now().Before(end) {
 				start := time.Now()
@@ -112,7 +116,7 @@ func TestSoak_WorkersSteadyState(t *testing.T) {
 					time.Sleep(5 * time.Millisecond)
 				}
 			}
-		}()
+		})
 	}
 
 	var memBefore runtime.MemStats

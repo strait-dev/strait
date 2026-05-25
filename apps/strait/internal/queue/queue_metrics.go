@@ -52,6 +52,11 @@ type QueueMetrics struct {
 	LockSkipped                   metric.Int64Counter
 	VisibilityTimeoutExpirations  metric.Int64Counter
 	ConcurrencyUtilization        metric.Float64Gauge
+	OutboxClaimDepth              metric.Int64Gauge
+	OutboxOldestReadyAge          metric.Float64Gauge
+	OutboxExpiredLeases           metric.Int64Gauge
+	OutboxClaimTableDeadTuples    metric.Int64Gauge
+	OutboxClaimTableLiveTuples    metric.Int64Gauge
 }
 
 var (
@@ -398,6 +403,44 @@ func initArchiveMetrics(meter metric.Meter, m *QueueMetrics) error {
 	)
 	if err != nil {
 		return fmt.Errorf("concurrency utilization gauge: %w", err)
+	}
+	m.OutboxClaimDepth, err = meter.Int64Gauge(
+		"strait_outbox_claim_depth",
+		metric.WithDescription("Outbox batchlog claim depth grouped by claim status"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return fmt.Errorf("outbox claim depth gauge: %w", err)
+	}
+	m.OutboxOldestReadyAge, err = meter.Float64Gauge(
+		"strait_outbox_oldest_ready_age_seconds",
+		metric.WithDescription("Age in seconds of the oldest ready outbox batchlog claim"),
+		metric.WithUnit("s"),
+	)
+	if err != nil {
+		return fmt.Errorf("outbox oldest ready age gauge: %w", err)
+	}
+	m.OutboxExpiredLeases, err = meter.Int64Gauge(
+		"strait_outbox_expired_leases",
+		metric.WithDescription("Outbox batchlog leases past lease_expires_at"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return fmt.Errorf("outbox expired leases gauge: %w", err)
+	}
+	m.OutboxClaimTableDeadTuples, err = meter.Int64Gauge(
+		"strait_outbox_claim_table_dead_tuples",
+		metric.WithDescription("Dead tuple count in outbox_claims"),
+	)
+	if err != nil {
+		return fmt.Errorf("outbox claim table dead tuples gauge: %w", err)
+	}
+	m.OutboxClaimTableLiveTuples, err = meter.Int64Gauge(
+		"strait_outbox_claim_table_live_tuples",
+		metric.WithDescription("Live tuple count in outbox_claims"),
+	)
+	if err != nil {
+		return fmt.Errorf("outbox claim table live tuples gauge: %w", err)
 	}
 	return nil
 }

@@ -10,6 +10,8 @@ import (
 
 	"strait/internal/clickhouse"
 	"strait/internal/domain"
+
+	"github.com/sourcegraph/conc"
 )
 
 // mockEventLister implements EventLister for testing.
@@ -317,6 +319,8 @@ func TestRunEventsFromDomain(t *testing.T) {
 }
 
 func TestClickHouseSubscriber_SemaphoreWaitsBeforeDropping(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 	exporter := clickhouse.NewExporter(&clickhouse.Client{}, clickhouse.ExporterConfig{
 		Enabled:   true,
@@ -356,13 +360,13 @@ func TestClickHouseSubscriber_SemaphoreWaitsBeforeDropping(t *testing.T) {
 	// Next call should block (waiting for semaphore), not return instantly.
 	start := time.Now()
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		sub(context.Background(), RunLifecycleEvent{
 			Type: EventCompleted,
 			Run:  &domain.JobRun{ID: "run-blocked", ProjectID: "proj-1"},
 		})
 		close(done)
-	}()
+	})
 
 	select {
 	case <-done:
@@ -514,6 +518,8 @@ func TestClickHouseSubscriber_NilUsageLister(t *testing.T) {
 }
 
 func TestClickHouseSubscriberHandle_WaitDrainsGoroutines(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 	exporter := clickhouse.NewExporter(&clickhouse.Client{}, clickhouse.ExporterConfig{
 		Enabled:   true,
@@ -537,10 +543,10 @@ func TestClickHouseSubscriberHandle_WaitDrainsGoroutines(t *testing.T) {
 
 	// Wait must return once all background goroutines finish.
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		handle.Wait()
 		close(done)
-	}()
+	})
 
 	select {
 	case <-done:
@@ -556,15 +562,17 @@ func TestClickHouseSubscriberHandle_WaitDrainsGoroutines(t *testing.T) {
 }
 
 func TestClickHouseSubscriberHandle_WaitNoGoroutines(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	handle := NewClickHouseSubscriberHandle(nil, nil)
 	// Wait on a handle with no goroutines launched should return immediately.
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		handle.Wait()
 		close(done)
-	}()
+	})
 
 	select {
 	case <-done:

@@ -311,18 +311,20 @@ func (t *componentTracker) waitWithTimeout(parent context.Context, timeout time.
 	}
 
 	ctx, cancel := context.WithTimeout(parent, timeout)
+	var waiterWG conc.WaitGroup
+	defer waiterWG.Wait()
 	defer cancel()
 
 	finished := make(chan int, len(handles))
 	for i, h := range handles {
-		go func(idx int, h componentHandle) {
+		waiterWG.Go(func() {
 			select {
 			case <-h.done:
-				finished <- idx
+				finished <- i
 			case <-ctx.Done():
 				return
 			}
-		}(i, h)
+		})
 	}
 
 	done := make(map[int]struct{}, len(handles))

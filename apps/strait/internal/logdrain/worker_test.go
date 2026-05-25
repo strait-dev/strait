@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/sourcegraph/conc"
 )
 
 // mockDrainStore implements DrainStore for testing.
@@ -109,16 +111,18 @@ func (m *mockDrainStore) ListFinishedRunsSince(_ context.Context, projectID stri
 }
 
 func TestWorker_StartStop(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 	svc := NewService()
 	w := NewWorker(nil, svc, 50*time.Millisecond)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		w.Run(ctx)
 		close(done)
-	}()
+	})
 
 	cancel()
 
@@ -130,6 +134,8 @@ func TestWorker_StartStop(t *testing.T) {
 }
 
 func TestWorker_StopMethod(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 	svc := NewService()
 	w := NewWorker(nil, svc, 50*time.Millisecond)
@@ -138,10 +144,10 @@ func TestWorker_StopMethod(t *testing.T) {
 	go w.Run(ctx)
 
 	stopped := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		w.Stop()
 		close(stopped)
-	}()
+	})
 
 	select {
 	case <-stopped:

@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"log/slog"
+	"net"
 	"net/url"
 	"os"
 	"slices"
@@ -84,6 +85,17 @@ type Config struct {
 	DBWatchdogInterval         time.Duration `env:"DB_WATCHDOG_INTERVAL" default:"15s"`
 	DBWatchdogEnabled          bool          `env:"DB_WATCHDOG_ENABLED" default:"true"`
 
+	// Toggle the fully denormalized dequeue path (uses job_runs fan-out
+	// columns plus job_active_counts instead of joining jobs and scanning
+	// active rows).
+	QueueUseDenormalizedDequeue bool `env:"QUEUE_USE_DENORMALIZED_DEQUEUE" default:"true"`
+	// QueueEngine selects the queue storage engine. batchlog claims from
+	// narrow queue_entries while preserving job_runs as the ledger.
+	QueueEngine               string        `env:"QUEUE_ENGINE" default:"batchlog"`
+	QueueBatchTickInterval    time.Duration `env:"QUEUE_BATCH_TICK_INTERVAL" default:"100ms"`
+	OutboxEngine              string        `env:"OUTBOX_ENGINE" default:"batchlog"`
+	WorkflowProgressionEngine string        `env:"WORKFLOW_PROGRESSION_ENGINE" default:"batchlog"`
+
 	// DLQ caps and overflow policy.
 	DLQMaxPerProject  int    `env:"DLQ_MAX_PER_PROJECT" default:"10000"`
 	DLQMaxPerJob      int    `env:"DLQ_MAX_PER_JOB" default:"1000"`
@@ -127,6 +139,8 @@ type Config struct {
 	AdaptiveConcurrencyMin int      `env:"ADAPTIVE_CONCURRENCY_MIN" default:"5"`
 	AdaptiveConcurrencyMax int      `env:"ADAPTIVE_CONCURRENCY_MAX" default:"100"`
 	DBPgBouncerMode        bool     `env:"DB_PGBOUNCER_MODE" default:"false"`
+	DBPgBouncerPrepared    bool     `env:"DB_PGBOUNCER_PREPARED_STATEMENTS" default:"false"`
+	DBTraceStatements      bool     `env:"DB_TRACE_STATEMENTS" default:"false"`
 
 	WorkerDrainTimeout time.Duration `env:"WORKER_DRAIN_TIMEOUT" default:"30s"`
 
@@ -167,6 +181,7 @@ type Config struct {
 	WebhookIdleConnTimeout     time.Duration `env:"WEBHOOK_IDLE_CONN_TIMEOUT" default:"1m"`
 	ExecutorHTTPTimeout        time.Duration `env:"EXECUTOR_HTTP_TIMEOUT" default:"5m"`
 	ExecutorIdleConnTimeout    time.Duration `env:"EXECUTOR_IDLE_CONN_TIMEOUT" default:"1m30s"`
+	ExecutionTraceMode         string        `env:"EXECUTION_TRACE_MODE" default:"off"`
 	WebhookDispatchTimeout     time.Duration `env:"WEBHOOK_DISPATCH_TIMEOUT" default:"15s"`
 	WebhookMaxPayloadBytes     int64         `env:"WEBHOOK_MAX_PAYLOAD_BYTES" default:"1048576"`
 	WebhookConcurrency         int           `env:"WEBHOOK_CONCURRENCY" default:"50"`
@@ -193,7 +208,7 @@ type Config struct {
 	PartitionReclaimInterval time.Duration `env:"PARTITION_RECLAIM_INTERVAL" default:"24h"`
 	PartitionReclaimSafety   int           `env:"PARTITION_RECLAIM_SAFETY_MONTHS" default:"2"`
 	StalledWorkflowThreshold time.Duration `env:"WF_STALL_THRESHOLD" default:"15m"`
-	StalledWorkflowAction    string        `env:"WF_STALL_ACTION" default:"log_only"`
+	StalledWorkflowAction    string        `env:"WF_STALL_ACTION" default:"reconcile"`
 	WfMaxStepCap             int           `env:"WF_MAX_STEP_CAP" default:"100"`
 	WfStepConcurrencyLimit   int           `env:"WF_STEP_CONCURRENCY_LIMIT" default:"0"`
 	DependencyStatusCacheTTL time.Duration `env:"DEPENDENCY_STATUS_CACHE_TTL" default:"5s"`
@@ -323,7 +338,16 @@ type Config struct {
 	PyroscopeAuthToken string `env:"PYROSCOPE_AUTH_TOKEN"`
 
 	// Debug tools
-	DebugStatsviz bool `env:"DEBUG_STATSVIZ" default:"false"`
+	ProfilingEnabled            bool     `env:"STRAIT_PROFILING_ENABLED" default:"false"`
+	ProfilingAPIEnabled         bool     `env:"STRAIT_PROFILING_API_ENABLED" default:"true"`
+	ProfilingManagementEnabled  bool     `env:"STRAIT_PROFILING_MANAGEMENT_ENABLED" default:"false"`
+	ProfilingManagementBindAddr string   `env:"STRAIT_PROFILING_MANAGEMENT_BIND_ADDR" default:"127.0.0.1"`
+	ProfilingManagementPort     int      `env:"STRAIT_PROFILING_MANAGEMENT_PORT" default:"18080"`
+	ProfilingMutexFraction      int      `env:"STRAIT_PROFILING_MUTEX_FRACTION" default:"100"`
+	ProfilingBlockRate          int      `env:"STRAIT_PROFILING_BLOCK_RATE" default:"100000"`
+	ProfilingSecret             string   `env:"STRAIT_PROFILING_SECRET"`
+	ProfilingAllowedCIDRs       []string `env:"STRAIT_PROFILING_ALLOWED_CIDRS"`
+	DebugStatsviz               bool     `env:"DEBUG_STATSVIZ" default:"false"`
 
 	// Edition is determined at compile time via build tags (community vs cloud).
 	// This field exists for config logging but is ignored by domain.ParseEdition.
@@ -417,6 +441,9 @@ func validateLoaded(cfg *Config) error {
 	}
 	if len(cfg.InternalSecret) < 16 {
 		return &domain.ConfigError{Field: "INTERNAL_SECRET", Message: "must be at least 16 characters"}
+	}
+	if err := validateProfilingConfig(cfg); err != nil {
+		return err
 	}
 	if len(cfg.JWTSigningKey) < 32 {
 		return &domain.ConfigError{Field: "JWT_SIGNING_KEY", Message: "must be at least 32 characters"}
@@ -561,6 +588,28 @@ func validateLoaded(cfg *Config) error {
 	return nil
 }
 
+func validateProfilingConfig(cfg *Config) error {
+	if cfg.ProfilingSecret != "" && len(cfg.ProfilingSecret) < 16 {
+		return &domain.ConfigError{Field: "STRAIT_PROFILING_SECRET", Message: "must be at least 16 characters"}
+	}
+	if bad := firstInvalidCIDREntry(cfg.ProfilingAllowedCIDRs); bad != "" {
+		return &domain.ConfigError{Field: "STRAIT_PROFILING_ALLOWED_CIDRS", Message: fmt.Sprintf("contains invalid CIDR/IP entry %q", bad)}
+	}
+	if cfg.ProfilingEnabled && !cfg.ProfilingAPIEnabled && !cfg.ProfilingManagementEnabled {
+		return &domain.ConfigError{Field: "STRAIT_PROFILING_ENABLED", Message: "requires at least one profiling listener"}
+	}
+	if cfg.ProfilingManagementEnabled && (cfg.ProfilingManagementPort <= 0 || cfg.ProfilingManagementPort > 65535) {
+		return &domain.ConfigError{Field: "STRAIT_PROFILING_MANAGEMENT_PORT", Message: "must be between 1 and 65535"}
+	}
+	if cfg.ProfilingMutexFraction < 0 {
+		return &domain.ConfigError{Field: "STRAIT_PROFILING_MUTEX_FRACTION", Message: "must be >= 0"}
+	}
+	if cfg.ProfilingBlockRate < 0 {
+		return &domain.ConfigError{Field: "STRAIT_PROFILING_BLOCK_RATE", Message: "must be >= 0"}
+	}
+	return nil
+}
+
 // Redacted returns a map of config field names to values with secrets masked.
 // Includes all operationally useful fields while hiding credentials and keys.
 func (c *Config) Redacted() map[string]any {
@@ -578,6 +627,7 @@ func (c *Config) Redacted() map[string]any {
 		"DatabaseURL":            "[REDACTED]",
 		"RedisURL":               "[REDACTED]",
 		"InternalSecret":         "[REDACTED]",
+		"ProfilingSecret":        "[REDACTED]",
 		"JWTSigningKey":          "[REDACTED]",
 		"EncryptionKey":          "[REDACTED]",
 		"StripeSecretKey":        "[REDACTED]",
@@ -623,4 +673,21 @@ func parseCSVEnv(key string) []string {
 	}
 
 	return values
+}
+
+func firstInvalidCIDREntry(entries []string) string {
+	for _, raw := range entries {
+		entry := strings.TrimSpace(raw)
+		if entry == "" {
+			continue
+		}
+		if _, _, err := net.ParseCIDR(entry); err == nil {
+			continue
+		}
+		if net.ParseIP(entry) != nil {
+			continue
+		}
+		return entry
+	}
+	return ""
 }

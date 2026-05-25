@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/sourcegraph/conc"
 )
 
 // 10 MB synthetic detail blob: helper must reject before queuing the
@@ -70,6 +72,8 @@ func TestDispatchBillingWebhook_EventIDsAreUnique(t *testing.T) {
 // a cheap regression guard against future refactors that introduce
 // shared mutable state.
 func TestDispatchBillingWebhook_ConcurrencySafe(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	d := &fakeDispatcher{}
@@ -84,13 +88,16 @@ func TestDispatchBillingWebhook_ConcurrencySafe(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(n)
 	for i := range n {
-		go func(i int) {
-			defer wg.Done()
-			_ = DispatchBillingWebhook(context.Background(), wrapper,
-				"org", domain.PlanScale, domain.WebhookEventBillingCapWarning,
-				map[string]any{"i": i},
-			)
-		}(i)
+		{
+			i := i
+			concWG.Go(func() {
+				defer wg.Done()
+				_ = DispatchBillingWebhook(context.Background(), wrapper,
+					"org", domain.PlanScale, domain.WebhookEventBillingCapWarning,
+					map[string]any{"i": i},
+				)
+			})
+		}
 	}
 	wg.Wait()
 	if len(d.calls) != n {

@@ -531,46 +531,52 @@ type AnalyticsStore interface {
 }
 
 type Server struct {
-	router             chi.Router
-	store              APIStore
-	outboxAdminStore   outboxAdminStore
-	analyticsStore     AnalyticsStore
-	queue              queue.Queue
-	pubsub             pubsub.Publisher
-	config             *config.Config
-	metrics            *telemetry.Metrics
-	metricsHandler     http.Handler
-	pinger             Pinger
-	healthRegistry     *health.Registry
-	workflowCallback   WorkflowCallback
-	workflowEngine     WorkflowTrigger
-	txPool             store.TxBeginner
-	actorSyncer        ActorSyncer
-	validate           *validator.Validate
-	maxRequestBodySize int64
-	poolStatter        PoolStatter
-	permCache          *permissionCache
-	quotaCache         *quotaCache
-	oidcVerifier       *oidcVerifier
-	bgPool             pond.Pool // bounded pool for fire-and-forget background tasks (API key touch, actor sync)
-	runInTx            func(ctx context.Context, fn func(s APIStore) error) error
-	rateLimiter        *ratelimit.RedisRateLimiter
-	authLimiter        *ratelimit.AuthLimiter
-	encryptor          Encryptor
-	stripeWebhook      http.Handler
-	billingEnforcer    BillingEnforcer
-	usageService       UsageService
-	chExporter         *clickhouse.Exporter
-	edition            domain.Edition
-	version            string
-	startedAt          time.Time
-	cdcWebhookReceiver http.Handler
-	cachedOpenAPISpec  []byte
+	router                chi.Router
+	store                 APIStore
+	outboxAdminStore      outboxAdminStore
+	analyticsStore        AnalyticsStore
+	queue                 queue.Queue
+	pubsub                pubsub.Publisher
+	config                *config.Config
+	metrics               *telemetry.Metrics
+	metricsHandler        http.Handler
+	pinger                Pinger
+	healthRegistry        *health.Registry
+	workflowCallback      WorkflowCallback
+	workflowEngine        WorkflowTrigger
+	txPool                store.TxBeginner
+	actorSyncer           ActorSyncer
+	validate              *validator.Validate
+	maxRequestBodySize    int64
+	poolStatter           PoolStatter
+	poolBackpressure      poolBackpressureState
+	permCache             *permissionCache
+	quotaCache            *quotaCache
+	oidcVerifier          *oidcVerifier
+	bgPool                pond.Pool // bounded pool for fire-and-forget background tasks (API key touch, actor sync)
+	runInTx               func(ctx context.Context, fn func(s APIStore) error) error
+	rateLimiter           *ratelimit.RedisRateLimiter
+	authLimiter           *ratelimit.AuthLimiter
+	encryptor             Encryptor
+	stripeWebhook         http.Handler
+	billingEnforcer       BillingEnforcer
+	usageService          UsageService
+	chExporter            *clickhouse.Exporter
+	edition               domain.Edition
+	version               string
+	startedAt             time.Time
+	cdcWebhookReceiver    http.Handler
+	cachedOpenAPISpec     []byte
+	cachedOpenAPISpecGzip []byte
 
 	// trustedProxies is the parsed CIDR list of reverse proxies whose
 	// X-Forwarded-For header is trusted for client IP attribution. Empty
 	// means XFF is ignored entirely (fail-safe default).
 	trustedProxies []net.IPNet
+
+	// profilingAllowedCIDRs is an optional allowlist for /debug/pprof.
+	// Empty means any authenticated caller may access pprof.
+	profilingAllowedCIDRs []net.IPNet
 
 	// SSE connection limiters to prevent goroutine/connection exhaustion.
 	sseGlobalConns  atomic.Int64
@@ -745,6 +751,15 @@ type ServerDeps struct {
 type PoolStatter interface {
 	AcquiredConns() int32
 	MaxConns() int32
+	EmptyAcquireCount() int64
+	EmptyAcquireWaitTime() time.Duration
+}
+
+type poolBackpressureState struct {
+	mu                sync.Mutex
+	initialized       bool
+	emptyAcquireCount int64
+	emptyAcquireWait  time.Duration
 }
 
 // NewServer creates a new HTTP API server with the given dependencies.
@@ -814,6 +829,10 @@ func NewServer(deps ServerDeps) *Server {
 		if len(deps.Config.TrustedProxies) > 0 && len(srv.trustedProxies) == 0 {
 			slog.Warn("TRUSTED_PROXIES configured but no valid CIDR/IP entries parsed; X-Forwarded-For will be ignored")
 		}
+		srv.profilingAllowedCIDRs = parseTrustedProxies(deps.Config.ProfilingAllowedCIDRs)
+		if len(deps.Config.ProfilingAllowedCIDRs) > 0 && len(srv.profilingAllowedCIDRs) == 0 {
+			slog.Warn("STRAIT_PROFILING_ALLOWED_CIDRS configured but no valid CIDR/IP entries parsed; pprof CIDR allowlist disabled")
+		}
 	}
 
 	if deps.TxPool != nil {
@@ -851,15 +870,47 @@ func NewServer(deps ServerDeps) *Server {
 
 func (s *Server) dbBackpressure(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		acquired := s.poolStatter.AcquiredConns()
-		maxConns := s.poolStatter.MaxConns()
-		if maxConns > 0 && acquired > int32(float64(maxConns)*0.9) {
+		if s.shouldApplyDBBackpressure() {
 			w.Header().Set("Retry-After", "1")
 			http.Error(w, "service temporarily unavailable", http.StatusServiceUnavailable)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+const dbBackpressureAcquireWaitThreshold = 50 * time.Millisecond
+
+func (s *Server) shouldApplyDBBackpressure() bool {
+	acquired := s.poolStatter.AcquiredConns()
+	maxConns := s.poolStatter.MaxConns()
+	if maxConns > 0 && acquired > int32(float64(maxConns)*0.9) {
+		return true
+	}
+
+	waitCount := s.poolStatter.EmptyAcquireCount()
+	waitDuration := s.poolStatter.EmptyAcquireWaitTime()
+
+	s.poolBackpressure.mu.Lock()
+	defer s.poolBackpressure.mu.Unlock()
+
+	if !s.poolBackpressure.initialized {
+		s.poolBackpressure.initialized = true
+		s.poolBackpressure.emptyAcquireCount = waitCount
+		s.poolBackpressure.emptyAcquireWait = waitDuration
+		return false
+	}
+
+	deltaCount := waitCount - s.poolBackpressure.emptyAcquireCount
+	deltaDuration := waitDuration - s.poolBackpressure.emptyAcquireWait
+	s.poolBackpressure.emptyAcquireCount = waitCount
+	s.poolBackpressure.emptyAcquireWait = waitDuration
+
+	if deltaCount <= 0 || deltaDuration <= 0 {
+		return false
+	}
+	avgWait := deltaDuration / time.Duration(deltaCount)
+	return avgWait >= dbBackpressureAcquireWaitThreshold
 }
 
 func permCacheTTL(cfg *config.Config) time.Duration {
@@ -1188,10 +1239,24 @@ func (s *Server) handleAPIReference(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, htmlContent)
 }
 
-func (s *Server) handleOpenAPISpec(w http.ResponseWriter, _ *http.Request) {
-	// Serve the cached OpenAPI spec as JSON.
+func (s *Server) handleOpenAPISpec(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Vary", "Accept-Encoding")
+	if acceptsGzip(r.Header.Get("Accept-Encoding")) && len(s.cachedOpenAPISpecGzip) > 0 {
+		w.Header().Set("Content-Encoding", "gzip")
+		_, _ = w.Write(s.cachedOpenAPISpecGzip)
+		return
+	}
 	_, _ = w.Write(s.cachedOpenAPISpec)
+}
+
+func acceptsGzip(acceptEncoding string) bool {
+	for part := range strings.SplitSeq(acceptEncoding, ",") {
+		if strings.EqualFold(strings.TrimSpace(strings.SplitN(part, ";", 2)[0]), "gzip") {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) handleStraitJSONSchema(w http.ResponseWriter, _ *http.Request) {

@@ -39,7 +39,7 @@ func TestMain(m *testing.M) {
 	ctx := context.Background()
 
 	var err error
-	testEnv, err = testutil.SetupTestEnv(ctx, "../../migrations")
+	testEnv, err = testutil.SetupSharedTestEnv(ctx, "../../migrations", "e2e")
 	if err != nil {
 		log.Fatalf("setup test env: %v", err)
 	}

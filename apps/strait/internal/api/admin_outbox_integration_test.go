@@ -29,7 +29,7 @@ func getAdminOutboxTestDB(t *testing.T) *testutil.TestDB {
 	adminOutboxTestDBOnce.Do(func() {
 		ctx := context.Background()
 		var err error
-		adminOutboxTestDB, err = testutil.SetupTestDB(ctx, "../../migrations")
+		adminOutboxTestDB, err = testutil.SetupSharedTestDB(ctx, "../../migrations", "api-admin-outbox")
 		if err != nil {
 			t.Fatalf("SetupTestDB() error = %v", err)
 		}

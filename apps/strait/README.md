@@ -95,8 +95,8 @@ go build -tags cloud ./...
 # Run unit tests
 go test ./...
 
-# Run integration tests (spins up real Postgres via testcontainers)
-go test -tags=integration ./...
+# Run local integration shards with shared testcontainers
+make test-integration-fast
 
 # Lint
 golangci-lint run --timeout=10m ./...
@@ -156,6 +156,22 @@ go test ./...                       # unit tests
 go test -race ./...                 # race detector. Run before every PR.
 go test -tags=integration ./...     # integration tests (real Postgres via testcontainers)
 ```
+
+For repeated local integration runs, keep shared Postgres and Redis containers
+alive across `go test` package processes during a controlled sharded run:
+
+```bash
+make test-integration-fast              # all local integration shards
+make test-integration-clean             # remove strait-test-* containers
+./scripts/test-integration-fast.sh smoke # one shard
+./scripts/test-integration-fast.sh db api
+```
+
+The fast runner sets `STRAIT_TEST_PERSIST_CONTAINERS=1`, `GOMAXPROCS=2`, and
+`go test -p 1`, then cleans the shared containers at exit. Persistent mode is
+opt-in and continues to give each test an isolated Postgres database or Redis
+logical DB. Use `--keep-containers` when intentionally iterating on a small
+target and you want the next command to reuse already warm containers.
 
 | File pattern | Purpose |
 |---|---|

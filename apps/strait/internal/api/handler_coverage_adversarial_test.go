@@ -18,6 +18,7 @@ import (
 	"strait/internal/store"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/sourcegraph/conc"
 )
 
 // ---------------------------------------------------------------------------.
@@ -158,6 +159,8 @@ func TestHandlerActivityStream_SubscribeError(t *testing.T) {
 }
 
 func TestHandlerActivityStream_ReceivesMessage(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 	ch := make(chan []byte, 1)
 	_, subCancel := context.WithCancel(context.Background())
@@ -179,12 +182,13 @@ func TestHandlerActivityStream_ReceivesMessage(t *testing.T) {
 
 	ch <- []byte(`{"type":"run_completed"}`)
 	close(ch)
-	// The handler will read the message then exit when merged channel is closed.
-	// Cancel context to break the keepalive loop.
-	go func() {
-		time.Sleep(50 * time.Millisecond)
-		cancel()
-	}()
+	concWG.
+		// The handler will read the message then exit when merged channel is closed.
+		// Cancel context to break the keepalive loop.
+		Go(func() {
+			time.Sleep(50 * time.Millisecond)
+			cancel()
+		})
 	srv.handleProjectActivityStream(w, r)
 
 	body := w.Body.String()
@@ -645,6 +649,8 @@ func TestHandlerRunLLMStream_SubscribeError(t *testing.T) {
 }
 
 func TestHandlerRunLLMStream_ReceivesMessage(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 	ms := &APIStoreMock{
 		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
@@ -675,10 +681,10 @@ func TestHandlerRunLLMStream_ReceivesMessage(t *testing.T) {
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("runID", "run-1")
 	r = r.WithContext(context.WithValue(ctx, chi.RouteCtxKey, rctx))
-	go func() {
+	concWG.Go(func() {
 		time.Sleep(50 * time.Millisecond)
 		cancel()
-	}()
+	})
 	srv.handleRunLLMStream(w, r)
 
 	body := w.Body.String()

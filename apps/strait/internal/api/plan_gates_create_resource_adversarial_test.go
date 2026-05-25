@@ -11,6 +11,8 @@ import (
 
 	"strait/internal/billing"
 	"strait/internal/domain"
+
+	"github.com/sourcegraph/conc"
 )
 
 // TestCreateLogDrain_UpdateBypass_NotPossible confirms that the update path
@@ -56,6 +58,8 @@ func TestCreateLogDrain_UpdateBypass_NotPossible(t *testing.T) {
 // real integration test (Phase 4.13 pen-test) verifies the DB constraint
 // catches this.
 func TestCreateLogDrain_RaceAtCap_DocumentsTOCTOU(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	count := atomic.Int64{}
@@ -80,12 +84,12 @@ func TestCreateLogDrain_RaceAtCap_DocumentsTOCTOU(t *testing.T) {
 	wg.Add(attempts)
 	results := make(chan int, attempts)
 	for range attempts {
-		go func() {
+		concWG.Go(func() {
 			defer wg.Done()
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/log-drains", validLogDrainBody()))
 			results <- w.Code
-		}()
+		})
 	}
 	wg.Wait()
 	close(results)
@@ -155,6 +159,8 @@ func TestCreateLogDrain_OrgScopedCount(t *testing.T) {
 // TestCreateNotificationChannel_RaceAtCap_DocumentsTOCTOU mirrors the
 // log-drain TOCTOU test for notification channels (per-project count).
 func TestCreateNotificationChannel_RaceAtCap_DocumentsTOCTOU(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	count := atomic.Int64{}
@@ -178,12 +184,12 @@ func TestCreateNotificationChannel_RaceAtCap_DocumentsTOCTOU(t *testing.T) {
 	wg.Add(attempts)
 	results := make(chan int, attempts)
 	for range attempts {
-		go func() {
+		concWG.Go(func() {
 			defer wg.Done()
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/notification-channels", validChannelBody(), "proj-1"))
 			results <- w.Code
-		}()
+		})
 	}
 	wg.Wait()
 	close(results)

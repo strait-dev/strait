@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/sourcegraph/conc"
 )
 
 func TestTracer_UnconditionalDelay(t *testing.T) {
@@ -50,12 +51,14 @@ func TestTracer_PatternMatch(t *testing.T) {
 }
 
 func TestTracer_ContextCancelShortCircuits(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	tr := New(Rule{Delay: time.Second})
 	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
+	concWG.Go(func() {
 		time.Sleep(10 * time.Millisecond)
 		cancel()
-	}()
+	})
 	start := time.Now()
 	_ = tr.TraceQueryStart(ctx, nil, pgx.TraceQueryStartData{SQL: "x"})
 	if d := time.Since(start); d > 200*time.Millisecond {

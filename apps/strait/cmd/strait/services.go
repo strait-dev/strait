@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"net"
 	"net/http"
+	"strconv"
 	"time"
 
 	"strait/internal/api"
@@ -16,6 +18,7 @@ import (
 	"strait/internal/cdc"
 	"strait/internal/clickhouse"
 	"strait/internal/config"
+	"strait/internal/debug"
 	"strait/internal/domain"
 	"strait/internal/health"
 	"strait/internal/httputil"
@@ -98,6 +101,30 @@ func logWorkerShutdownComplete(logger *slog.Logger, metrics *telemetry.Metrics, 
 	}
 }
 
+func logProfilingStartup(logger *slog.Logger, cfg *config.Config) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	if cfg == nil || !cfg.ProfilingEnabled {
+		logger.Info("pprof profiling disabled")
+		return
+	}
+
+	args := []any{
+		"profiling_secret_configured", cfg.ProfilingSecret != "",
+		"cidr_allowlist_configured", len(cfg.ProfilingAllowedCIDRs) > 0,
+		"api_listener", profilingAPIListenerEnabled(cfg),
+		"management_listener", profilingManagementListenerEnabled(cfg),
+		"mutex_fraction", cfg.ProfilingMutexFraction,
+		"block_rate", cfg.ProfilingBlockRate,
+		"cpu_profile_max_seconds", debug.MaxPprofProfileSeconds,
+	}
+	if profilingManagementListenerEnabled(cfg) {
+		args = append(args, "management_bind_addr", profilingManagementAddr(cfg))
+	}
+	logger.Warn("pprof profiling enabled", args...)
+}
+
 // connectDatabase creates and verifies a Postgres connection pool.
 // It retries with exponential backoff up to 5 times on transient failures.
 func connectDatabase(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, error) {
@@ -105,7 +132,7 @@ func connectDatabase(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, er
 	if err != nil {
 		return nil, fmt.Errorf("parse postgres config: %w", err)
 	}
-	if cfg.DBPgBouncerMode {
+	if cfg.DBPgBouncerMode && !cfg.DBPgBouncerPrepared {
 		poolConfig.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 	}
 	poolConfig.MaxConns = cfg.DBMaxConns
@@ -115,10 +142,12 @@ func connectDatabase(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, er
 	if cfg.DBHealthCheckPeriod > 0 {
 		poolConfig.HealthCheckPeriod = cfg.DBHealthCheckPeriod
 	}
-	poolConfig.ConnConfig.Tracer = multitracer.New(
-		otelpgx.NewTracer(otelpgx.WithTrimSQLInSpanName()),
-		telemetry.SentryPGXTracer{},
-	)
+	if cfg.DBTraceStatements {
+		poolConfig.ConnConfig.Tracer = multitracer.New(
+			otelpgx.NewTracer(otelpgx.WithTrimSQLInSpanName()),
+			telemetry.SentryPGXTracer{},
+		)
+	}
 
 	// Apply MVCC horizon guardrails and timeouts (Phase 1).
 	// These runtime params are applied to every connection in the pool via pgx's
@@ -279,7 +308,7 @@ func startCDCConsumer(ctx context.Context, g *pool.ContextPool, cfg *config.Conf
 	// Auto-provision the Sequin consumer if it does not exist.
 	cdcTables := []string{
 		"public.job_runs", "public.workflow_runs",
-		"public.workflow_step_runs", "public.event_triggers",
+		"public.event_triggers",
 	}
 	if err := cdcClient.EnsureConsumer(ctx, cdcTables); err != nil {
 		return nil, fmt.Errorf("ensure sequin consumer %q: %w", cfg.SequinConsumerName, err)
@@ -295,11 +324,8 @@ func startCDCConsumer(ctx context.Context, g *pool.ContextPool, cfg *config.Conf
 
 	cdcConsumer.RegisterHandler(cdc.NewJobRunHandler(pub, slog.Default()))
 	cdcConsumer.RegisterHandler(cdc.NewWorkflowRunHandler(pub, slog.Default()))
-	cdcConsumer.RegisterHandler(cdc.NewWorkflowStepRunHandler(pub, slog.Default()))
 	cdcConsumer.RegisterHandler(cdc.NewEventTriggerHandler(pub, slog.Default()))
-	cdcConsumer.RegisterAdditionalHandler(cdc.NewWebhookTriggerHandler(queries, slog.Default()))
 	cdcConsumer.RegisterAdditionalHandler(cdc.NewNotificationTriggerHandler(queries, slog.Default()))
-	cdcConsumer.RegisterAdditionalHandler(cdc.NewAuditHandler(queries, slog.Default()))
 	cdcConsumer.RegisterAdditionalHandler(cdc.NewSLOHandler(queries, slog.Default()))
 	if chExporter != nil {
 		cdcConsumer.RegisterAdditionalHandler(cdc.NewAnalyticsHandler(chExporter, slog.Default()))
@@ -332,14 +358,11 @@ func startCDCConsumer(ctx context.Context, g *pool.ContextPool, cfg *config.Conf
 	webhookReceiver := cdc.NewWebhookReceiver(pub, slog.Default(), receiverOpts...)
 	webhookReceiver.RegisterHandler(cdc.NewJobRunHandler(pub, slog.Default()))
 	webhookReceiver.RegisterHandler(cdc.NewWorkflowRunHandler(pub, slog.Default()))
-	webhookReceiver.RegisterHandler(cdc.NewWorkflowStepRunHandler(pub, slog.Default()))
 	webhookReceiver.RegisterHandler(cdc.NewEventTriggerHandler(pub, slog.Default()))
 
-	// CDC-driven side effects: each handler watches job_runs for status
-	// transitions and triggers a downstream action.
-	webhookReceiver.RegisterAdditionalHandler(cdc.NewWebhookTriggerHandler(queries, slog.Default()))
+	// CDC-driven observers: execution-critical side effects are written through
+	// transactional stores, not CDC redelivery.
 	webhookReceiver.RegisterAdditionalHandler(cdc.NewNotificationTriggerHandler(queries, slog.Default()))
-	webhookReceiver.RegisterAdditionalHandler(cdc.NewAuditHandler(queries, slog.Default()))
 	webhookReceiver.RegisterAdditionalHandler(cdc.NewSLOHandler(queries, slog.Default()))
 	if chExporter != nil {
 		webhookReceiver.RegisterAdditionalHandler(cdc.NewAnalyticsHandler(chExporter, slog.Default()))
@@ -434,7 +457,7 @@ func startLogDrainWorker(g *pool.ContextPool, cfg *config.Config, queries *store
 }
 
 // startAPIServer starts the HTTP API server and its graceful shutdown goroutine.
-func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, dbPool *pgxpool.Pool, q *queue.PostgresQueue, pub pubsub.Publisher, metricsHandler http.Handler, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, rdb *redis.Client, encryptor api.Encryptor, billingEnforcer *billing.Enforcer, analyticsStore api.AnalyticsStore, chExporter *clickhouse.Exporter, cdcWebhookReceiver *cdc.WebhookReceiver) {
+func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, dbPool *pgxpool.Pool, q queue.Queue, pub pubsub.Publisher, metricsHandler http.Handler, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, rdb *redis.Client, encryptor api.Encryptor, billingEnforcer *billing.Enforcer, analyticsStore api.AnalyticsStore, chExporter *clickhouse.Exporter, cdcWebhookReceiver *cdc.WebhookReceiver) {
 	if cfg.Mode != "api" && cfg.Mode != "all" {
 		return
 	}
@@ -568,6 +591,62 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 	})
 }
 
+func startProfilingServer(g *pool.ContextPool, cfg *config.Config, rdb *redis.Client, metrics *telemetry.Metrics, version string) {
+	if !profilingManagementListenerEnabled(cfg) {
+		return
+	}
+
+	handler := api.NewProfilingHandler(api.ProfilingHandlerDeps{
+		Config:      cfg,
+		RedisClient: rdb,
+		Metrics:     metrics,
+		Edition:     domain.ParseEdition(cfg.Edition),
+		Version:     version,
+	})
+	httpServer := &http.Server{
+		Addr:              profilingManagementAddr(cfg),
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      90 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+
+	g.Go(func(context.Context) error {
+		slog.Info("profiling management server listening", "addr", httpServer.Addr)
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			return fmt.Errorf("profiling management server: %w", err)
+		}
+		return nil
+	})
+
+	g.Go(func(ctx context.Context) error {
+		<-ctx.Done()
+		slog.Info("shutting down profiling management server")
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer shutdownCancel()
+		return httpServer.Shutdown(shutdownCtx)
+	})
+}
+
+func profilingManagementListenerEnabled(cfg *config.Config) bool {
+	return cfg != nil && cfg.ProfilingEnabled && cfg.ProfilingManagementEnabled
+}
+
+func profilingAPIListenerEnabled(cfg *config.Config) bool {
+	if cfg == nil || !cfg.ProfilingEnabled {
+		return false
+	}
+	if cfg.ProfilingManagementEnabled && !cfg.ProfilingAPIEnabled {
+		return false
+	}
+	return cfg.ProfilingAPIEnabled || !cfg.ProfilingManagementEnabled
+}
+
+func profilingManagementAddr(cfg *config.Config) string {
+	return net.JoinHostPort(cfg.ProfilingManagementBindAddr, strconv.Itoa(cfg.ProfilingManagementPort))
+}
+
 // startGRPCServer starts the gRPC server for the Worker streaming API.
 // It is symmetric to startAPIServer: the server shuts down before the HTTP
 // server on SIGTERM so that connected workers can reconnect to other replicas
@@ -646,7 +725,7 @@ func waitForPubsubReady(ctx context.Context, pub pubsub.Publisher, budget time.D
 }
 
 // startWorker starts the job executor, worker pool, and scheduler goroutines.
-func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, dbPool *pgxpool.Pool, q *queue.PostgresQueue, bp *queue.Backpressure, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, billingEnforcer *billing.Enforcer, billingDispatcher *webhook.BillingDispatcher, chExporter *clickhouse.Exporter, workerPlane *grpcserver.Server, encryptor api.Encryptor) {
+func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, dbPool *pgxpool.Pool, q queue.Queue, bp *queue.Backpressure, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, billingEnforcer *billing.Enforcer, billingDispatcher *webhook.BillingDispatcher, chExporter *clickhouse.Exporter, workerPlane *grpcserver.Server, encryptor api.Encryptor) {
 	if cfg.Mode != "worker" && cfg.Mode != "all" {
 		return
 	}
@@ -698,6 +777,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		PartitionWeights:        partitionWeights,
 		ExecutorHTTPTimeout:     cfg.ExecutorHTTPTimeout,
 		ExecutorIdleConnTimeout: cfg.ExecutorIdleConnTimeout,
+		ExecutionTraceMode:      cfg.ExecutionTraceMode,
 		AllowPrivateEndpoints:   cfg.AllowPrivateEndpoints,
 		WebhookMaxAttempts:      cfg.WebhookMaxAttempts,
 		MaxSnoozeCount:          cfg.MaxSnoozeCount,
@@ -708,6 +788,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		Version:                 version,
 		EventChannelSize:        cfg.WorkerEventChannelSize,
 		SecretDecryptor:         encryptor,
+		UseDenormalizedDequeue:  cfg.QueueUseDenormalizedDequeue,
 	}
 	applyWorkerPlaneToExecutorConfig(&execCfg, workerPlane, cfg.JWTSigningKey)
 
@@ -897,6 +978,14 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 			),
 			scheduler.WithOutboxFlusher(
 				scheduler.NewOutboxFlusher(dbPool, q, scheduler.OutboxFlusherConfig{
+					Interval:  time.Second,
+					BatchSize: 500,
+					Engine:    cfg.OutboxEngine,
+					Logger:    slog.Default(),
+				}),
+			),
+			scheduler.WithOutboxArchiver(
+				scheduler.NewOutboxArchiver(queries, scheduler.OutboxArchiverConfig{
 					Interval:  time.Second,
 					BatchSize: 500,
 					Logger:    slog.Default(),

@@ -49,6 +49,7 @@ import (
 	"strait/internal/store"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/sourcegraph/conc"
 )
 
 // createWorkerJob creates a worker-mode job via the HTTP API and returns the decoded response.
@@ -182,6 +183,8 @@ func verifyHMACSignature(secret string, r *http.Request) bool {
 //     and compute_cost_microusd = 10 * 20 = 200 micro-USD.
 //   - No goroutine leak: goroutine delta before/after is within tolerance.
 func TestEndToEndWorkerMode(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	mustClean(t)
 
 	ctx := context.Background()
@@ -270,7 +273,7 @@ func TestEndToEndWorkerMode(t *testing.T) {
 	// Build a WorkerDispatcher wired to the same registry and result channels.
 	dispatcher := grpcpkg.NewWorkerDispatcher(registry, store.New(testEnv.DB.Pool), "test-jwt-key", resultChannels)
 	billingStore := billing.NewPgStore(testEnv.DB.Pool)
-	rdb := redis.NewClient(&redis.Options{Addr: testEnv.Redis.Addr})
+	rdb := redis.NewClient(testEnv.Redis.Options())
 	t.Cleanup(func() { _ = rdb.Close() })
 	costRecorder := billing.NewRunCostRecorder(billingStore, rdb, nil, nil)
 
@@ -321,31 +324,40 @@ func TestEndToEndWorkerMode(t *testing.T) {
 	var dispatchWG sync.WaitGroup
 	for _, runID := range runIDs {
 		dispatchWG.Add(1)
-		go func(id string) {
-			defer dispatchWG.Done()
-			// Fetch the run and job for dispatch.
-			runStore := store.New(testEnv.DB.Pool)
-			run, err := runStore.GetRun(ctx, id)
-			if err != nil {
-				t.Errorf("get run %s: %v", id, err)
-				return
-			}
-			jobObj, err := runStore.GetJob(ctx, run.JobID)
-			if err != nil {
-				t.Errorf("get job for run %s: %v", id, err)
-				return
-			}
-			// Set Queue on job so dispatcher can pick the worker.
-			jobObj.Queue = queueName
-			result, err := dispatcher.WorkerDispatch(dispatchCtx, run, jobObj)
-			if err != nil {
-				t.Errorf("WorkerDispatch for run %s: %v", id, err)
-				return
-			}
-			if err := dispatcher.CompleteWorkerTask(ctx, result, domain.WorkerTaskStatusCompleted); err != nil {
-				t.Errorf("CompleteWorkerTask for run %s: %v", id, err)
-			}
-		}(runID)
+		{
+			id :=
+
+				// Fetch the run and job for dispatch.
+
+				// Set Queue on job so dispatcher can pick the worker.
+
+				runID
+			concWG.Go(func() {
+				defer dispatchWG.Done()
+
+				runStore := store.New(testEnv.DB.Pool)
+				run, err := runStore.GetRun(ctx, id)
+				if err != nil {
+					t.Errorf("get run %s: %v", id, err)
+					return
+				}
+				jobObj, err := runStore.GetJob(ctx, run.JobID)
+				if err != nil {
+					t.Errorf("get job for run %s: %v", id, err)
+					return
+				}
+
+				jobObj.Queue = queueName
+				result, err := dispatcher.WorkerDispatch(dispatchCtx, run, jobObj)
+				if err != nil {
+					t.Errorf("WorkerDispatch for run %s: %v", id, err)
+					return
+				}
+				if err := dispatcher.CompleteWorkerTask(ctx, result, domain.WorkerTaskStatusCompleted); err != nil {
+					t.Errorf("CompleteWorkerTask for run %s: %v", id, err)
+				}
+			})
+		}
 	}
 
 	dispatchWG.Wait()
@@ -466,7 +478,7 @@ func TestEndToEndHTTPMode(t *testing.T) {
 	t.Cleanup(sdkServer.Close)
 
 	billingStore := billing.NewPgStore(testEnv.DB.Pool)
-	rdb := redis.NewClient(&redis.Options{Addr: testEnv.Redis.Addr})
+	rdb := redis.NewClient(testEnv.Redis.Options())
 	t.Cleanup(func() { _ = rdb.Close() })
 	costRecorder := billing.NewRunCostRecorder(billingStore, rdb, nil, nil)
 	runStore := store.New(testEnv.DB.Pool)
@@ -607,7 +619,7 @@ func TestEndToEndCapEnforcement(t *testing.T) {
 	}
 
 	// Set up billing enforcer + Redis.
-	rdb := redis.NewClient(&redis.Options{Addr: testEnv.Redis.Addr})
+	rdb := redis.NewClient(testEnv.Redis.Options())
 	t.Cleanup(func() { _ = rdb.Close() })
 
 	billingStore := billing.NewPgStore(testEnv.DB.Pool)

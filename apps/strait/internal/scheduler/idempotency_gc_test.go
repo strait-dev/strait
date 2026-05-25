@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 type fakeIdempotencyGCStore struct {
@@ -85,14 +87,16 @@ func TestIdempotencyGC_PanicReturnsError(t *testing.T) {
 }
 
 func TestIdempotencyGC_RunExitsOnCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	s := &fakeIdempotencyGCStore{}
 	g := NewIdempotencyGC(s, IdempotencyGCConfig{Interval: 5 * time.Millisecond})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		g.Run(ctx)
 		close(done)
-	}()
+	})
 	time.Sleep(30 * time.Millisecond)
 	cancel()
 	select {

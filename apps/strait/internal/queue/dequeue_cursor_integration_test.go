@@ -9,6 +9,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/queue"
+
+	"github.com/sourcegraph/conc"
 )
 
 func TestDequeueNWithCursor_HappyPath(t *testing.T) {
@@ -150,6 +152,8 @@ func TestDequeueNWithCursor_NilCursorFallsBackToBaseBehaviour(t *testing.T) {
 }
 
 func TestDequeueNWithCursor_MultipleWorkersShareCursorClass(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -169,7 +173,7 @@ func TestDequeueNWithCursor_MultipleWorkersShareCursorClass(t *testing.T) {
 		err  error
 	}
 	ch := make(chan result, 2)
-	go func() {
+	concWG.Go(func() {
 		c := queue.NewClaimCursor(60 * time.Second)
 		var all []domain.JobRun
 		for {
@@ -180,8 +184,8 @@ func TestDequeueNWithCursor_MultipleWorkersShareCursorClass(t *testing.T) {
 			}
 			all = append(all, batch...)
 		}
-	}()
-	go func() {
+	})
+	concWG.Go(func() {
 		c := queue.NewClaimCursor(60 * time.Second)
 		var all []domain.JobRun
 		for {
@@ -192,7 +196,7 @@ func TestDequeueNWithCursor_MultipleWorkersShareCursorClass(t *testing.T) {
 			}
 			all = append(all, batch...)
 		}
-	}()
+	})
 
 	total := 0
 	seen := make(map[string]bool)

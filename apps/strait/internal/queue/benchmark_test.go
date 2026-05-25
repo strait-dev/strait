@@ -25,6 +25,7 @@ func BenchmarkBuildDequeueQuery(b *testing.B) {
 			WHERE jr.status = '%s'
 			  AND j.enabled = true
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
+			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
 			  AND NOT EXISTS (
 			      SELECT 1 FROM job_retries rt
 			      WHERE rt.run_id = jr.id AND rt.next_retry_at > NOW()

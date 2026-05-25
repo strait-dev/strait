@@ -28,6 +28,12 @@ Durable workflows support three wait types:
 
 While a workflow waits, it does not keep a worker busy.
 
+## Recovery Contract
+
+Strait persists workflow progress at the step boundary. If a worker loses its heartbeat while a job step is running, Strait retries the step when attempts remain and marks it crashed only after attempts are exhausted.
+
+Write job steps so they can run more than once safely. Use idempotency keys with downstream systems, store external operation IDs, and make repeated callbacks or writes converge on the same result.
+
 ## Example
 
 ```json

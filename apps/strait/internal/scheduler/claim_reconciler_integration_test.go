@@ -9,18 +9,13 @@ import (
 	"strait/internal/domain"
 	"strait/internal/queue"
 	"strait/internal/store"
-	"strait/internal/testutil"
 
 	"github.com/google/uuid"
 )
 
 func TestClaimReconciler_RestoresMissingClaimUsingJobQueueName(t *testing.T) {
 	ctx := context.Background()
-	tdb, err := testutil.SetupTestDB(ctx, "../../migrations")
-	if err != nil {
-		t.Fatalf("setup db: %v", err)
-	}
-	t.Cleanup(func() { tdb.Cleanup(ctx) })
+	tdb := cleanSchedulerIntegrationDB(t, ctx)
 
 	st := store.New(tdb.Pool)
 	pq := queue.NewPostgresQueue(tdb.Pool)

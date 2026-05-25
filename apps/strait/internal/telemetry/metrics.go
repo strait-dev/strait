@@ -82,6 +82,9 @@ type Metrics struct {
 	HTTPRequestDuration  metric.Float64Histogram
 	HTTPInflightRequests metric.Int64UpDownCounter
 
+	// Pprof access metrics.
+	PprofRequests metric.Int64Counter
+
 	// Operational depth gauges.
 	WebhookBacklogDepth       metric.Int64Gauge
 	ClickHouseExporterPending metric.Int64Gauge
@@ -620,6 +623,11 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithDescription("Number of HTTP requests currently being handled"),
 		metric.WithUnit("1"),
 	)
+	pprofRequests, _ := meter.Int64Counter(
+		"strait_pprof_requests_total",
+		metric.WithDescription("Total pprof requests by endpoint and HTTP status"),
+		metric.WithUnit("1"),
+	)
 	webhookBacklogDepth, _ := meter.Int64Gauge(
 		"strait_webhook_backlog_depth",
 		metric.WithDescription("Number of pending webhook deliveries"),
@@ -861,6 +869,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		DBPoolMaxConns:               dbPoolMax,
 		HTTPRequestDuration:          httpRequestDuration,
 		HTTPInflightRequests:         httpInflightRequests,
+		PprofRequests:                pprofRequests,
 		WebhookBacklogDepth:          webhookBacklogDepth,
 		ClickHouseExporterPending:    clickhouseExporterPending,
 		RunDuration:                  runDuration,

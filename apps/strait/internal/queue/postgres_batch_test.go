@@ -257,7 +257,7 @@ func TestEnqueueBatch_NoCopyFromSupport(t *testing.T) {
 	}
 }
 
-func TestEnqueueBatch_PgNotifyCalledAfterInsert(t *testing.T) {
+func TestEnqueueBatch_DoesNotIssueExplicitNotify(t *testing.T) {
 	t.Parallel()
 	db := &mockBatchDB{}
 	q := NewPostgresQueue(db)
@@ -275,37 +275,10 @@ func TestEnqueueBatch_PgNotifyCalledAfterInsert(t *testing.T) {
 	}
 
 	calls := db.getExecCalls()
-	// Expect claim-row inserts (one per run) + pg_notify.
-	var notifyCalls []struct {
-		sql  string
-		args []any
-	}
 	for _, c := range calls {
 		if c.sql == "SELECT pg_notify($1, $2)" {
-			notifyCalls = append(notifyCalls, c)
+			t.Fatalf("unexpected explicit pg_notify call: %+v", c)
 		}
-	}
-	if len(notifyCalls) != 1 {
-		t.Fatalf("expected 1 pg_notify call, got %d (total exec calls: %d)", len(notifyCalls), len(calls))
-	}
-}
-
-func TestEnqueueBatch_PgNotifyFailure_NonFatal(t *testing.T) {
-	t.Parallel()
-	db := &mockBatchDB{
-		execFn: func(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
-			return pgconn.NewCommandTag(""), errors.New("pg_notify failed")
-		},
-	}
-	q := NewPostgresQueue(db)
-
-	runs := []*domain.JobRun{{JobID: "job-1", ProjectID: "proj-1"}}
-	n, err := q.EnqueueBatch(context.Background(), runs)
-	if err != nil {
-		t.Fatalf("pg_notify failure should be non-fatal, got error: %v", err)
-	}
-	if n != 1 {
-		t.Fatalf("expected 1, got %d", n)
 	}
 }
 

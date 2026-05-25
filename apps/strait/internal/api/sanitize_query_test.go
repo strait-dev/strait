@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"testing/quick"
@@ -65,6 +66,43 @@ func TestSanitizeQueryRedactsExpandedKeys(t *testing.T) {
 				t.Fatalf("sanitizeQuery output missing redaction marker: %q", out)
 			}
 		})
+	}
+}
+
+func TestShouldLogRequest_AlwaysLogsErrorsAndSamplesSuccess(t *testing.T) {
+	t.Parallel()
+
+	if !shouldLogRequest(500, "") {
+		t.Fatal("5xx request should always be logged")
+	}
+	if !shouldLogRequest(404, "") {
+		t.Fatal("4xx request should always be logged")
+	}
+	if shouldLogRequest(200, "") {
+		t.Fatal("2xx request without request id should not be logged")
+	}
+
+	var sampled string
+	for i := range successRequestLogSampleModulo * 4 {
+		candidate := fmt.Sprintf("req-%d", i)
+		if shouldLogRequest(200, candidate) {
+			sampled = candidate
+			break
+		}
+	}
+	if sampled == "" {
+		t.Fatal("expected to find a sampled request id")
+	}
+	if !shouldLogRequest(200, sampled) {
+		t.Fatal("sampled 2xx request id should be logged")
+	}
+}
+
+func BenchmarkShouldLogRequestSuccess(b *testing.B) {
+	requestID := "req-benchmark"
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = shouldLogRequest(200, requestID)
 	}
 }
 

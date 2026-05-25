@@ -987,8 +987,8 @@ func TestEnqueueBatch_EmptyBatch_NoNotify(t *testing.T) {
 }
 
 // Kill: postgres.go L482-483 CONDITIONALS_NEGATION.
-// Non-empty batch: pg_notify MUST be called.
-func TestEnqueueBatch_NonEmptyBatch_NotifySent(t *testing.T) {
+// Non-empty batch: queue wake notifications are emitted by database triggers, not application pg_notify.
+func TestEnqueueBatch_NonEmptyBatch_NoExplicitNotify(t *testing.T) {
 	t.Parallel()
 	var notifySent bool
 	db := &mockCopyFromDBTX{
@@ -1010,8 +1010,8 @@ func TestEnqueueBatch_NonEmptyBatch_NotifySent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnqueueBatch: %v", err)
 	}
-	if !notifySent {
-		t.Fatal("expected pg_notify to be called for non-empty batch")
+	if notifySent {
+		t.Fatal("expected no explicit pg_notify for non-empty batch")
 	}
 }
 
@@ -1685,6 +1685,60 @@ func TestEnqueueInTx_IdempotencyKeyGuard(t *testing.T) {
 	}
 	if !foundLock {
 		t.Fatal("advisory lock MUST be called with non-empty idempotency key")
+	}
+}
+
+func TestEnqueueManagedTx_IdempotencyKeyGuard(t *testing.T) {
+	t.Parallel()
+
+	var execSQLs []string
+	tx := &mockTx{
+		mockDBTX: mockDBTX{
+			execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+				execSQLs = append(execSQLs, sql)
+				return pgconn.NewCommandTag("SELECT 1"), nil
+			},
+			queryRowFn: func(_ context.Context, _ string, _ ...any) pgx.Row {
+				return &mockRow{scanFn: func(dest ...any) error {
+					if tp, ok := dest[0].(*time.Time); ok {
+						*tp = time.Now()
+					}
+					return nil
+				}}
+			},
+		},
+	}
+	db := &mockTxDBTX{
+		beginFn: func(context.Context) (pgx.Tx, error) {
+			return tx, nil
+		},
+	}
+	q := NewPostgresQueue(db, WithBackpressureController(NewBackpressure(db, BackpressureConfig{}, false)))
+
+	execSQLs = nil
+	emptyKeyRun := &domain.JobRun{JobID: "j1", ProjectID: "p1"}
+	if err := q.Enqueue(context.Background(), emptyKeyRun); err != nil {
+		t.Fatalf("Enqueue empty key through managed tx: %v", err)
+	}
+	for _, sql := range execSQLs {
+		if strings.HasPrefix(sql, "SELECT pg_advisory_x") {
+			t.Fatalf("managed tx took advisory lock for empty idempotency key: %s", sql)
+		}
+	}
+
+	execSQLs = nil
+	keyedRun := &domain.JobRun{JobID: "j2", ProjectID: "p1", IdempotencyKey: "key-abc"}
+	if err := q.Enqueue(context.Background(), keyedRun); err != nil {
+		t.Fatalf("Enqueue keyed run through managed tx: %v", err)
+	}
+	foundLock := false
+	for _, sql := range execSQLs {
+		if strings.HasPrefix(sql, "SELECT pg_advisory_x") {
+			foundLock = true
+		}
+	}
+	if !foundLock {
+		t.Fatal("managed tx must take advisory lock for non-empty idempotency key")
 	}
 }
 
