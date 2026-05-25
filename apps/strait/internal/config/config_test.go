@@ -77,6 +77,7 @@ func TestLoad_Defaults(t *testing.T) {
 		{"WebhookIdleConnTimeout", cfg.WebhookIdleConnTimeout, time.Minute},
 		{"ExecutorHTTPTimeout", cfg.ExecutorHTTPTimeout, 5 * time.Minute},
 		{"ExecutorIdleConnTimeout", cfg.ExecutorIdleConnTimeout, 90 * time.Second},
+		{"ExecutionTraceMode", cfg.ExecutionTraceMode, "off"},
 		{"WebhookDispatchTimeout", cfg.WebhookDispatchTimeout, 15 * time.Second},
 		{"WebhookMaxAttempts", cfg.WebhookMaxAttempts, 3},
 		{"DefaultJobMaxAttempts", cfg.DefaultJobMaxAttempts, 3},
@@ -84,7 +85,7 @@ func TestLoad_Defaults(t *testing.T) {
 		{"WorkflowRetention", cfg.WorkflowRetention, 720 * time.Hour},
 		{"ReaperDeleteBatchSize", cfg.ReaperDeleteBatchSize, 5000},
 		{"StalledWorkflowThreshold", cfg.StalledWorkflowThreshold, 15 * time.Minute},
-		{"StalledWorkflowAction", cfg.StalledWorkflowAction, "log_only"},
+		{"StalledWorkflowAction", cfg.StalledWorkflowAction, "reconcile"},
 		{"DependencyStatusCacheTTL", cfg.DependencyStatusCacheTTL, 5 * time.Second},
 		{"MaxWorkflowNestingDepth", cfg.MaxWorkflowNestingDepth, 10},
 		{"CDCBatchSize", cfg.CDCBatchSize, 200},
@@ -143,6 +144,8 @@ func TestLoad_DefaultBooleans(t *testing.T) {
 		{"OIDCEnabled", cfg.OIDCEnabled},
 		{"CORSAllowCredentials", cfg.CORSAllowCredentials},
 		{"DBPgBouncerMode", cfg.DBPgBouncerMode},
+		{"DBPgBouncerPrepared", cfg.DBPgBouncerPrepared},
+		{"DBTraceStatements", cfg.DBTraceStatements},
 		{"WebhookRequireTLS", cfg.WebhookRequireTLS},
 		{"AllowPrivateEndpoints", cfg.AllowPrivateEndpoints},
 		{"GRPCAllowPlaintext", cfg.GRPCAllowPlaintext},
@@ -457,6 +460,8 @@ func TestLoad_Int32AndInt64Overrides(t *testing.T) {
 func TestLoad_BoolOverrides(t *testing.T) {
 	setRequiredEnv(t)
 	t.Setenv("DB_PGBOUNCER_MODE", "true")
+	t.Setenv("DB_PGBOUNCER_PREPARED_STATEMENTS", "true")
+	t.Setenv("DB_TRACE_STATEMENTS", "true")
 	t.Setenv("WEBHOOK_REQUIRE_TLS", "true")
 	t.Setenv("ALLOW_PRIVATE_ENDPOINTS", "true")
 	t.Setenv("GRPC_ALLOW_PLAINTEXT", "true")
@@ -471,6 +476,12 @@ func TestLoad_BoolOverrides(t *testing.T) {
 
 	if !cfg.DBPgBouncerMode {
 		t.Fatal("DBPgBouncerMode = false, want true")
+	}
+	if !cfg.DBPgBouncerPrepared {
+		t.Fatal("DBPgBouncerPrepared = false, want true")
+	}
+	if !cfg.DBTraceStatements {
+		t.Fatal("DBTraceStatements = false, want true")
 	}
 	if !cfg.WebhookRequireTLS {
 		t.Fatal("WebhookRequireTLS = false, want true")

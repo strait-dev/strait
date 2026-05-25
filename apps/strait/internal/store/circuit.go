@@ -46,17 +46,25 @@ func (q *Queries) CanDispatchEndpoint(ctx context.Context, endpointURL string, n
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CanDispatchEndpoint")
 	defer span.End()
 
-	// Atomic upsert + conditional reset in a single statement to avoid TOCTOU races.
-	// The CTE inserts the row if absent, then the UPDATE atomically resets open/half-open
-	// circuits whose half_open_until has passed, using SELECT FOR UPDATE to serialize
-	// concurrent callers. The final SELECT returns the post-update state.
+	state, err := q.GetEndpointCircuitState(ctx, endpointURL)
+	if err != nil {
+		return false, nil, err
+	}
+	if state == nil || state.State == domain.CircuitStateClosed {
+		return true, nil, nil
+	}
+	if state.State == domain.CircuitStateOpen && state.HalfOpenUntil != nil && state.HalfOpenUntil.After(now) {
+		return false, state.HalfOpenUntil, nil
+	}
+
+	return q.canDispatchEndpointLocked(ctx, endpointURL, now)
+}
+
+func (q *Queries) canDispatchEndpointLocked(ctx context.Context, endpointURL string, now time.Time) (bool, *time.Time, error) {
+	// Slow path: serialize only when the circuit is open/half-open and may need
+	// a reset transition. The healthy closed path above is a plain read.
 	const sql = `
-		WITH ensure_row AS (
-			INSERT INTO endpoint_circuit_state (endpoint_url)
-			VALUES ($1)
-			ON CONFLICT (endpoint_url) DO NOTHING
-		),
-		locked AS (
+		WITH locked AS (
 			SELECT endpoint_url, state, consecutive_failures, opened_at, half_open_until, updated_at, created_at
 			FROM endpoint_circuit_state
 			WHERE endpoint_url = $1
@@ -95,7 +103,8 @@ func (q *Queries) CanDispatchEndpoint(ctx context.Context, endpointURL string, n
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			// Row was just inserted with defaults -- circuit is closed.
+			// The row disappeared between the fast read and locked slow path.
+			// No circuit state is equivalent to a closed circuit.
 			return true, nil, nil
 		}
 		return false, nil, fmt.Errorf("can dispatch endpoint circuit check: %w", err)

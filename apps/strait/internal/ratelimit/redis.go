@@ -18,6 +18,8 @@ end
 return {1, limit - current}
 `
 
+const effectivelyUnlimitedRequests = 1_000_000
+
 // RateLimitResult contains the outcome of a rate limit check.
 type RateLimitResult struct {
 	Allowed   bool
@@ -42,6 +44,9 @@ func (r *RedisRateLimiter) Allow(ctx context.Context, key string, limit int, win
 	if limit <= 0 || window <= 0 {
 		return RateLimitResult{Allowed: true, Remaining: limit}, nil
 	}
+	if isEffectivelyUnlimited(limit, window) {
+		return RateLimitResult{Allowed: true, Remaining: limit}, nil
+	}
 
 	vals, err := r.client.Eval(ctx, redisRateLimitScript, []string{key}, window.Milliseconds(), limit).Int64Slice()
 	if err != nil {
@@ -56,6 +61,10 @@ func (r *RedisRateLimiter) Allow(ctx context.Context, key string, limit int, win
 		Allowed:   vals[0] == 1,
 		Remaining: int(vals[1]),
 	}, nil
+}
+
+func isEffectivelyUnlimited(limit int, window time.Duration) bool {
+	return limit >= effectivelyUnlimitedRequests && window <= time.Hour
 }
 
 // AllowStrict checks whether the request is within the rate limit. Unlike

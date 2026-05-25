@@ -2269,6 +2269,7 @@ func TestExecutor_ExecutionTracing_Enabled_CapturesTrace(t *testing.T) {
 	}
 
 	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	exec.executionTraceMode = executionTraceFull
 	run := testRun(1)
 	run.CreatedAt = time.Now().Add(-50 * time.Millisecond)
 
@@ -2312,6 +2313,7 @@ func TestExecutor_ExecutionTracing_OnFailure_CapturesTrace(t *testing.T) {
 	}
 
 	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	exec.executionTraceMode = executionTraceFull
 	run := testRun(1)
 	run.CreatedAt = time.Now().Add(-50 * time.Millisecond)
 
@@ -2358,6 +2360,7 @@ func TestExecutor_ExecutionTracing_OnTimeout_CapturesTrace(t *testing.T) {
 	}
 
 	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	exec.executionTraceMode = executionTraceFull
 	run := testRun(1)
 	run.CreatedAt = time.Now().Add(-50 * time.Millisecond)
 
@@ -4893,7 +4896,7 @@ func TestHandleSuccess_LatencyAnomalyDetected(t *testing.T) {
 	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com"}
 
 	// Should not panic — just verify no error
-	exec.handleSuccess(context.Background(), run, job, nil, nil)
+	exec.handleSuccess(context.Background(), run, job, nil)
 
 	// Verify the run was completed
 	calls := store.statusUpdates()
@@ -4925,7 +4928,7 @@ func TestHandleSuccess_LatencyNormal(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", StartedAt: &startedAt}
 	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com"}
 
-	exec.handleSuccess(context.Background(), run, job, nil, nil)
+	exec.handleSuccess(context.Background(), run, job, nil)
 
 	calls := store.statusUpdates()
 	if len(calls) == 0 {
@@ -4956,7 +4959,7 @@ func TestHandleSuccess_NoStatsAvailable(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", StartedAt: &startedAt}
 	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com"}
 
-	exec.handleSuccess(context.Background(), run, job, nil, nil)
+	exec.handleSuccess(context.Background(), run, job, nil)
 
 	calls := store.statusUpdates()
 	if len(calls) == 0 {

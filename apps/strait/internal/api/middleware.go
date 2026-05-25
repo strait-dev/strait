@@ -63,6 +63,7 @@ const attrRequestID = "strait.request_id"
 // event. Real-world UAs are typically <200 chars; anything longer is
 // almost certainly probing or pathological.
 const auditUserAgentMaxBytes = 2048
+const successRequestLogSampleModulo = 100
 
 // apiVersion is the current API version returned in response headers.
 const apiVersion = "v1"
@@ -729,6 +730,12 @@ func (s *Server) requestLogger(next http.Handler) http.Handler {
 		ww := chimw.NewWrapResponseWriter(w, r.ProtoMajor)
 		next.ServeHTTP(ww, r)
 
+		status := ww.Status()
+		requestID := chimw.GetReqID(r.Context())
+		if !shouldLogRequest(status, requestID) {
+			return
+		}
+
 		attrs := []any{
 			"method", r.Method,
 			"path", r.URL.Path,
@@ -737,7 +744,7 @@ func (s *Server) requestLogger(next http.Handler) http.Handler {
 			"bytes", ww.BytesWritten(),
 			"remote_addr", r.RemoteAddr,
 			"user_agent", r.UserAgent(),
-			"request_id", chimw.GetReqID(r.Context()),
+			"request_id", requestID,
 		}
 
 		// Include sanitized query parameters (omit auth-related keys).
@@ -751,7 +758,6 @@ func (s *Server) requestLogger(next http.Handler) http.Handler {
 		}
 
 		// Log at appropriate level based on status code.
-		status := ww.Status()
 		switch {
 		case status >= 500:
 			slog.Error("request", attrs...)
@@ -761,6 +767,32 @@ func (s *Server) requestLogger(next http.Handler) http.Handler {
 			slog.Info("request", attrs...)
 		}
 	})
+}
+
+func shouldLogRequest(status int, requestID string) bool {
+	if status >= 400 {
+		return true
+	}
+	if successRequestLogSampleModulo <= 1 {
+		return true
+	}
+	if requestID == "" {
+		return false
+	}
+	return fnv32aString(requestID)%successRequestLogSampleModulo == 0
+}
+
+func fnv32aString(s string) uint32 {
+	const (
+		offset32 = 2166136261
+		prime32  = 16777619
+	)
+	h := uint32(offset32)
+	for i := range len(s) {
+		h ^= uint32(s[i])
+		h *= prime32
+	}
+	return h
 }
 
 func (s *Server) requestMetrics(next http.Handler) http.Handler {

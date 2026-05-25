@@ -46,6 +46,55 @@ func TestRedisRateLimiterAllow_DisabledBypassesRedis(t *testing.T) {
 	}
 }
 
+func TestRedisRateLimiterAllow_EffectivelyUnlimitedBypassesRedis(t *testing.T) {
+	t.Parallel()
+
+	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
+		t.Fatal("redis should not be called for effectively unlimited fail-open limits")
+		return nil
+	})
+	t.Cleanup(func() { _ = client.Close() })
+
+	limiter := NewRedisRateLimiter(client, true)
+	result, err := limiter.Allow(t.Context(), "key", effectivelyUnlimitedRequests, time.Minute)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Allowed {
+		t.Fatal("expected allowed when limit is effectively unlimited")
+	}
+	if result.Remaining != effectivelyUnlimitedRequests {
+		t.Fatalf("Remaining = %d, want %d", result.Remaining, effectivelyUnlimitedRequests)
+	}
+}
+
+func TestRedisRateLimiterAllow_EffectivelyUnlimitedDailyWindowStillUsesRedis(t *testing.T) {
+	t.Parallel()
+
+	calls := 0
+	client := newMockRedisClient(func(_ context.Context, cmd redis.Cmder) error {
+		calls++
+		if c, ok := cmd.(*redis.Cmd); ok {
+			c.SetVal([]any{int64(1), int64(effectivelyUnlimitedRequests - 1)})
+			return nil
+		}
+		return errors.New("unexpected command type")
+	})
+	t.Cleanup(func() { _ = client.Close() })
+
+	limiter := NewRedisRateLimiter(client, true)
+	result, err := limiter.Allow(t.Context(), "key", effectivelyUnlimitedRequests, 24*time.Hour)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Allowed {
+		t.Fatal("expected allowed")
+	}
+	if calls != 1 {
+		t.Fatalf("redis calls = %d, want 1", calls)
+	}
+}
+
 func TestRedisRateLimiterAllow_EnforcesLimit(t *testing.T) {
 	t.Parallel()
 
@@ -273,6 +322,33 @@ func TestRedisRateLimiterAllowStrict_ZeroLimit_Allowed(t *testing.T) {
 	}
 	if !result.Allowed {
 		t.Fatal("expected allowed when limit is zero")
+	}
+}
+
+func TestRedisRateLimiterAllowStrict_EffectivelyUnlimitedStillUsesRedis(t *testing.T) {
+	t.Parallel()
+
+	calls := 0
+	client := newMockRedisClient(func(_ context.Context, cmd redis.Cmder) error {
+		calls++
+		if c, ok := cmd.(*redis.Cmd); ok {
+			c.SetVal([]any{int64(1), int64(effectivelyUnlimitedRequests - 1)})
+			return nil
+		}
+		return errors.New("unexpected command type")
+	})
+	t.Cleanup(func() { _ = client.Close() })
+
+	limiter := NewRedisRateLimiter(client, true)
+	result, err := limiter.AllowStrict(t.Context(), "key", effectivelyUnlimitedRequests, time.Minute)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Allowed {
+		t.Fatal("expected allowed")
+	}
+	if calls != 1 {
+		t.Fatalf("redis calls = %d, want 1", calls)
 	}
 }
 

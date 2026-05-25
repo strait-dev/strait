@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"strait/internal/queue"
 	"strait/internal/scheduler"
 	"strait/internal/store"
+	"strait/internal/testutil"
 )
 
 type outboxTestQueue struct {
@@ -580,6 +582,463 @@ func TestOutboxFlusher_RetryClonePromotesAfterUnderlyingIssueIsFixed(t *testing.
 	}
 }
 
+func TestOutboxBatchlog_ConcurrentFlushersDoNotDoublePromote(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	st := intTestStore(t)
+	intTestClean(t, ctx)
+	job := intCreateJob(t, ctx, st, "proj-outbox-batchlog-concurrent")
+	entry := queue.OutboxEntry{
+		ID:        intNewID(),
+		ProjectID: job.ProjectID,
+		JobID:     job.ID,
+		Payload:   json.RawMessage(`{"batchlog":true}`),
+	}
+	intWriteOutboxEntries(t, ctx, []queue.OutboxEntry{entry})
+
+	q := intTestQueue(t)
+	cfg := scheduler.OutboxFlusherConfig{BatchSize: 1, Engine: "batchlog"}
+	flusherA := scheduler.NewOutboxFlusher(getTestDB(t).Pool, q, cfg)
+	flusherB := scheduler.NewOutboxFlusher(getTestDB(t).Pool, q, cfg)
+	errCh := make(chan error, 2)
+	start := make(chan struct{})
+	go func() {
+		<-start
+		errCh <- flusherA.FlushOnceForTest(ctx)
+	}()
+	go func() {
+		<-start
+		errCh <- flusherB.FlushOnceForTest(ctx)
+	}()
+	close(start)
+	for range 2 {
+		if err := <-errCh; err != nil {
+			t.Fatalf("FlushOnceForTest() error = %v", err)
+		}
+	}
+	assertRunsForJob(t, ctx, job.ID, 1)
+}
+
+func TestOutboxBatchlog_RetryableFailureStaysClaimable(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	st := intTestStore(t)
+	intTestClean(t, ctx)
+	job := intCreateJob(t, ctx, st, "proj-outbox-batchlog-retry")
+	entry := queue.OutboxEntry{
+		ID:        intNewID(),
+		ProjectID: job.ProjectID,
+		JobID:     job.ID,
+		Payload:   json.RawMessage(`{"retry":true}`),
+	}
+	intWriteOutboxEntries(t, ctx, []queue.OutboxEntry{entry})
+
+	failFlusher := scheduler.NewOutboxFlusher(getTestDB(t).Pool, &outboxTestQueue{
+		enqueueInTxFn: func(context.Context, store.DBTX, *domain.JobRun) error {
+			return context.DeadlineExceeded
+		},
+	}, scheduler.OutboxFlusherConfig{BatchSize: 1, Engine: "batchlog"})
+	if err := failFlusher.FlushOnceForTest(ctx); err != nil {
+		t.Fatalf("failed FlushOnceForTest() error = %v", err)
+	}
+	assertOutboxState(t, ctx, entry.ID, false, false)
+
+	var claimStatus string
+	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT status FROM outbox_claims WHERE outbox_id = $1`, entry.ID).Scan(&claimStatus); err != nil {
+		t.Fatalf("claim status: %v", err)
+	}
+	if claimStatus != "ready" {
+		t.Fatalf("claim status = %q, want ready", claimStatus)
+	}
+
+	successFlusher := scheduler.NewOutboxFlusher(getTestDB(t).Pool, intTestQueue(t), scheduler.OutboxFlusherConfig{BatchSize: 1, Engine: "batchlog"})
+	if err := successFlusher.FlushOnceForTest(ctx); err != nil {
+		t.Fatalf("success FlushOnceForTest() error = %v", err)
+	}
+	assertRunsForJob(t, ctx, job.ID, 1)
+}
+
+func TestOutboxBatchlog_WriteCreatesClaimBeforeFlush(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	st := intTestStore(t)
+	intTestClean(t, ctx)
+	job := intCreateJob(t, ctx, st, "proj-outbox-batchlog-write-claim")
+	entry := queue.OutboxEntry{
+		ID:        intNewID(),
+		ProjectID: job.ProjectID,
+		JobID:     job.ID,
+		Payload:   json.RawMessage(`{"claim":true}`),
+	}
+	intWriteOutboxEntries(t, ctx, []queue.OutboxEntry{entry})
+
+	var status string
+	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT status FROM outbox_claims WHERE outbox_id = $1`, entry.ID).Scan(&status); err != nil {
+		t.Fatalf("claim status: %v", err)
+	}
+	if status != "ready" {
+		t.Fatalf("claim status = %q, want ready", status)
+	}
+}
+
+func TestOutboxBatchlog_EmptyClaimDoesNotCreateBatch(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	intTestClean(t, ctx)
+	var before int
+	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT COUNT(*) FROM outbox_batches`).Scan(&before); err != nil {
+		t.Fatalf("count outbox batches before: %v", err)
+	}
+	tx, err := getTestDB(t).Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	rows, err := store.ClaimOutboxBatchlogInTx(ctx, tx, 10, "test-flusher", time.Second)
+	if err != nil {
+		t.Fatalf("ClaimOutboxBatchlogInTx: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("claimed rows = %d, want 0", len(rows))
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit tx: %v", err)
+	}
+
+	var batches int
+	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT COUNT(*) FROM outbox_batches`).Scan(&batches); err != nil {
+		t.Fatalf("count outbox batches: %v", err)
+	}
+	if batches != before {
+		t.Fatalf("outbox_batches count = %d, want unchanged %d", batches, before)
+	}
+}
+
+func TestOutboxBatchlog_ClaimDoesNotCreateBatchMetadataRows(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	st := intTestStore(t)
+	intTestClean(t, ctx)
+	job := intCreateJob(t, ctx, st, "proj-outbox-batchlog-no-claim-batch")
+	entry := queue.OutboxEntry{
+		ID:        intNewID(),
+		ProjectID: job.ProjectID,
+		JobID:     job.ID,
+		Payload:   json.RawMessage(`{"batch":false}`),
+	}
+	intWriteOutboxEntries(t, ctx, []queue.OutboxEntry{entry})
+
+	var before int
+	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT COUNT(*) FROM outbox_batches`).Scan(&before); err != nil {
+		t.Fatalf("count outbox batches before: %v", err)
+	}
+	tx, err := getTestDB(t).Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	rows, err := store.ClaimOutboxBatchlogInTx(ctx, tx, 10, "test-flusher", time.Minute)
+	if err != nil {
+		t.Fatalf("ClaimOutboxBatchlogInTx: %v", err)
+	}
+	if len(rows) != 1 || rows[0].ID != entry.ID {
+		t.Fatalf("claimed rows = %+v, want entry %s", rows, entry.ID)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit tx: %v", err)
+	}
+
+	var batches int
+	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT COUNT(*) FROM outbox_batches`).Scan(&batches); err != nil {
+		t.Fatalf("count outbox batches: %v", err)
+	}
+	if batches != before {
+		t.Fatalf("outbox_batches count = %d, want unchanged %d", batches, before)
+	}
+	var batchID *int64
+	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT batch_id FROM outbox_claims WHERE outbox_id = $1`, entry.ID).Scan(&batchID); err != nil {
+		t.Fatalf("select outbox claim batch_id: %v", err)
+	}
+	if batchID != nil {
+		t.Fatalf("outbox claim batch_id = %d, want nil", *batchID)
+	}
+}
+
+func TestOutboxBatchlog_ReclaimExpiredLeaseRedelivers(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	st := intTestStore(t)
+	intTestClean(t, ctx)
+	job := intCreateJob(t, ctx, st, "proj-outbox-batchlog-reclaim")
+	entry := queue.OutboxEntry{
+		ID:        intNewID(),
+		ProjectID: job.ProjectID,
+		JobID:     job.ID,
+		Payload:   json.RawMessage(`{"reclaim":true}`),
+	}
+	intWriteOutboxEntries(t, ctx, []queue.OutboxEntry{entry})
+
+	tx, err := getTestDB(t).Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin claim tx: %v", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	rows, err := store.ClaimOutboxBatchlogInTx(ctx, tx, 1, "test-flusher", time.Hour)
+	if err != nil {
+		t.Fatalf("initial ClaimOutboxBatchlogInTx: %v", err)
+	}
+	if len(rows) != 1 || rows[0].ID != entry.ID {
+		t.Fatalf("initial claimed rows = %+v, want entry %s", rows, entry.ID)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit initial claim: %v", err)
+	}
+
+	if _, err := getTestDB(t).Pool.Exec(ctx, `
+		UPDATE outbox_claims
+		SET lease_expires_at = NOW() - INTERVAL '1 second'
+		WHERE outbox_id = $1
+	`, entry.ID); err != nil {
+		t.Fatalf("expire lease: %v", err)
+	}
+
+	tx, err = getTestDB(t).Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin reclaim tx: %v", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	reclaimed, err := store.ReclaimExpiredOutboxBatchlogClaimsInTx(ctx, tx)
+	if err != nil {
+		t.Fatalf("ReclaimExpiredOutboxBatchlogClaimsInTx: %v", err)
+	}
+	if reclaimed != 1 {
+		t.Fatalf("reclaimed = %d, want 1", reclaimed)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit reclaim: %v", err)
+	}
+
+	tx, err = getTestDB(t).Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin second claim tx: %v", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	rows, err = store.ClaimOutboxBatchlogInTx(ctx, tx, 1, "test-flusher", time.Hour)
+	if err != nil {
+		t.Fatalf("second ClaimOutboxBatchlogInTx: %v", err)
+	}
+	if len(rows) != 1 || rows[0].ID != entry.ID {
+		t.Fatalf("second claimed rows = %+v, want entry %s", rows, entry.ID)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit second claim: %v", err)
+	}
+}
+
+func TestOutboxBatchlog_PropagatesWorkerExecutionModeAndQueue(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	st := intTestStore(t)
+	intTestClean(t, ctx)
+	job := intCreateJob(t, ctx, st, "proj-outbox-batchlog-worker-routing", func(j *domain.Job) {
+		j.ExecutionMode = domain.ExecutionModeWorker
+		j.Queue = "priority"
+	})
+	entry := queue.OutboxEntry{
+		ID:        intNewID(),
+		ProjectID: job.ProjectID,
+		JobID:     job.ID,
+		Payload:   json.RawMessage(`{"batchlog":true}`),
+	}
+	intWriteOutboxEntries(t, ctx, []queue.OutboxEntry{entry})
+
+	var captured *domain.JobRun
+	flusher := scheduler.NewOutboxFlusher(getTestDB(t).Pool, &outboxTestQueue{
+		enqueueInTxFn: func(_ context.Context, _ store.DBTX, run *domain.JobRun) error {
+			cp := *run
+			captured = &cp
+			return nil
+		},
+	}, scheduler.OutboxFlusherConfig{BatchSize: 1, Engine: "batchlog"})
+
+	if err := flusher.FlushOnceForTest(ctx); err != nil {
+		t.Fatalf("FlushOnceForTest() error = %v", err)
+	}
+	if captured == nil {
+		t.Fatal("expected outbox flusher to enqueue a run")
+	}
+	if captured.ExecutionMode != domain.ExecutionModeWorker {
+		t.Fatalf("ExecutionMode = %q, want %q", captured.ExecutionMode, domain.ExecutionModeWorker)
+	}
+	if captured.QueueName != "priority" {
+		t.Fatalf("QueueName = %q, want priority", captured.QueueName)
+	}
+}
+
+func TestOutboxBatchlog_TerminalFailureQuarantinesOnce(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	st := intTestStore(t)
+	intTestClean(t, ctx)
+	job := intCreateJob(t, ctx, st, "proj-outbox-batchlog-terminal")
+	entry := queue.OutboxEntry{
+		ID:        intNewID(),
+		ProjectID: job.ProjectID,
+		JobID:     job.ID,
+		Payload:   json.RawMessage(`{"terminal":true}`),
+	}
+	intWriteOutboxEntries(t, ctx, []queue.OutboxEntry{entry})
+	if _, err := getTestDB(t).Pool.Exec(ctx, `DELETE FROM jobs WHERE id = $1`, job.ID); err != nil {
+		t.Fatalf("delete job: %v", err)
+	}
+
+	flusher := scheduler.NewOutboxFlusher(getTestDB(t).Pool, intTestQueue(t), scheduler.OutboxFlusherConfig{BatchSize: 1, Engine: "batchlog"})
+	if err := flusher.FlushOnceForTest(ctx); err != nil {
+		t.Fatalf("FlushOnceForTest() error = %v", err)
+	}
+	if err := flusher.FlushOnceForTest(ctx); err != nil {
+		t.Fatalf("second FlushOnceForTest() error = %v", err)
+	}
+	assertOutboxState(t, ctx, entry.ID, true, true)
+	var claimStatus string
+	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT status FROM outbox_claims WHERE outbox_id = $1`, entry.ID).Scan(&claimStatus); err != nil {
+		t.Fatalf("claim status: %v", err)
+	}
+	if claimStatus != "acked" {
+		t.Fatalf("claim status = %q, want acked", claimStatus)
+	}
+}
+
+func TestOutboxArchiver_PromotedBatchlogRowsArchivedHistoryVisible(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	st := intTestStore(t)
+	intTestClean(t, ctx)
+	job := intCreateJob(t, ctx, st, "proj-outbox-batchlog-archive")
+	entry := queue.OutboxEntry{
+		ID:        intNewID(),
+		ProjectID: job.ProjectID,
+		JobID:     job.ID,
+		Payload:   json.RawMessage(`{"archive":true}`),
+	}
+	intWriteOutboxEntries(t, ctx, []queue.OutboxEntry{entry})
+
+	flusher := scheduler.NewOutboxFlusher(getTestDB(t).Pool, intTestQueue(t), scheduler.OutboxFlusherConfig{BatchSize: 1, Engine: "batchlog"})
+	if err := flusher.FlushOnceForTest(ctx); err != nil {
+		t.Fatalf("FlushOnceForTest() error = %v", err)
+	}
+
+	var hotCount, historyCount int
+	var consumedAt *time.Time
+	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT COUNT(*) FROM enqueue_outbox WHERE id = $1`, entry.ID).Scan(&hotCount); err != nil {
+		t.Fatalf("hot count: %v", err)
+	}
+	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT COUNT(*) FROM enqueue_outbox_history WHERE id = $1`, entry.ID).Scan(&historyCount); err != nil {
+		t.Fatalf("history count: %v", err)
+	}
+	if hotCount != 1 || historyCount != 0 {
+		t.Fatalf("hot/history counts after flush = %d/%d, want 1/0", hotCount, historyCount)
+	}
+	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT consumed_at FROM enqueue_outbox WHERE id = $1`, entry.ID).Scan(&consumedAt); err != nil {
+		t.Fatalf("consumed_at after flush: %v", err)
+	}
+	if consumedAt != nil {
+		t.Fatalf("consumed_at after batchlog flush = %v, want nil until archive", *consumedAt)
+	}
+	var claimStatus string
+	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT status FROM outbox_claims WHERE outbox_id = $1`, entry.ID).Scan(&claimStatus); err != nil {
+		t.Fatalf("claim status after flush: %v", err)
+	}
+	if claimStatus != "acked" {
+		t.Fatalf("claim status after flush = %q, want acked", claimStatus)
+	}
+	claimable, err := st.CountClaimableOutboxBatchlog(ctx)
+	if err != nil {
+		t.Fatalf("CountClaimableOutboxBatchlog() error = %v", err)
+	}
+	if claimable != 0 {
+		t.Fatalf("claimable batchlog outbox = %d, want 0 after ack", claimable)
+	}
+
+	archiver := scheduler.NewOutboxArchiver(store.New(getTestDB(t).Pool), scheduler.OutboxArchiverConfig{
+		BatchSize: 10,
+	})
+	if err := archiver.ArchiveOnceForTest(ctx); err != nil {
+		t.Fatalf("ArchiveOnceForTest() error = %v", err)
+	}
+	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT COUNT(*) FROM enqueue_outbox WHERE id = $1`, entry.ID).Scan(&hotCount); err != nil {
+		t.Fatalf("hot count after archive: %v", err)
+	}
+	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT COUNT(*) FROM enqueue_outbox_history WHERE id = $1`, entry.ID).Scan(&historyCount); err != nil {
+		t.Fatalf("history count after archive: %v", err)
+	}
+	if hotCount != 0 || historyCount != 1 {
+		t.Fatalf("hot/history counts after archive = %d/%d, want 0/1", hotCount, historyCount)
+	}
+	var claimCount int
+	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT COUNT(*) FROM outbox_claims WHERE outbox_id = $1`, entry.ID).Scan(&claimCount); err != nil {
+		t.Fatalf("claim count after archive: %v", err)
+	}
+	if claimCount != 0 {
+		t.Fatalf("claim count after archive = %d, want 0", claimCount)
+	}
+}
+
+func BenchmarkOutbox(b *testing.B) {
+	ctx := context.Background()
+	for _, engine := range []string{"legacy", "batchlog"} {
+		b.Run(engine, func(b *testing.B) {
+			tdb := getTestDBTB(b)
+			st := store.New(tdb.Pool)
+			if err := tdb.CleanTables(ctx); err != nil {
+				b.Fatalf("CleanTables() error = %v", err)
+			}
+			job := intCreateJobTB(b, ctx, st, "proj-outbox-bench-"+engine)
+			q := queue.NewPostgresQueue(tdb.Pool)
+			flusher := scheduler.NewOutboxFlusher(tdb.Pool, q, scheduler.OutboxFlusherConfig{
+				BatchSize: 100,
+				Engine:    engine,
+			})
+			seedOutboxBenchmarkEntries(b, ctx, job, 200)
+
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if err := flusher.FlushOnceForTest(ctx); err != nil {
+					b.Fatalf("FlushOnceForTest: %v", err)
+				}
+				b.StopTimer()
+				seedOutboxBenchmarkEntries(b, ctx, job, 100)
+				b.StartTimer()
+			}
+		})
+	}
+}
+
+func seedOutboxBenchmarkEntries(tb testing.TB, ctx context.Context, job *domain.Job, n int) {
+	tb.Helper()
+	entries := make([]queue.OutboxEntry, n)
+	for i := range entries {
+		entries[i] = queue.OutboxEntry{
+			ID:        intNewID(),
+			ProjectID: job.ProjectID,
+			JobID:     job.ID,
+			Payload:   json.RawMessage(`{"bench":true}`),
+		}
+	}
+	intWriteOutboxEntriesTB(tb, ctx, entries)
+}
+
 func TestOutboxCountUnconsumed_ExcludesTerminalErroredRows(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -629,6 +1088,57 @@ func intWriteOutboxEntries(t *testing.T, ctx context.Context, entries []queue.Ou
 	}
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatalf("commit outbox tx: %v", err)
+	}
+}
+
+func getTestDBTB(tb testing.TB) *testutil.TestDB {
+	tb.Helper()
+	testDBOnce.Do(func() {
+		ctx := context.Background()
+		var err error
+		testDB, err = testutil.SetupTestDB(ctx, "../../migrations")
+		if err != nil {
+			log.Fatalf("setup test db: %v", err)
+		}
+	})
+	if testDB == nil || testDB.Pool == nil {
+		tb.Fatalf("testDB is not initialized")
+	}
+	return testDB
+}
+
+func intCreateJobTB(tb testing.TB, ctx context.Context, st *store.Queries, projectID string) *domain.Job {
+	tb.Helper()
+	job := &domain.Job{
+		ID:          intNewID(),
+		ProjectID:   projectID,
+		Name:        "job-" + intNewID(),
+		Slug:        "slug-" + intNewID(),
+		EndpointURL: "https://example.com/integration-test",
+		MaxAttempts: 3,
+		TimeoutSecs: 300,
+		Enabled:     true,
+	}
+	if err := st.CreateJob(ctx, job); err != nil {
+		tb.Fatalf("CreateJob() error = %v", err)
+	}
+	return job
+}
+
+func intWriteOutboxEntriesTB(tb testing.TB, ctx context.Context, entries []queue.OutboxEntry) {
+	tb.Helper()
+
+	tx, err := getTestDBTB(tb).Pool.Begin(ctx)
+	if err != nil {
+		tb.Fatalf("begin outbox tx: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := queue.WriteOutboxInTx(ctx, tx, entries); err != nil {
+		tb.Fatalf("WriteOutboxInTx() error = %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		tb.Fatalf("commit outbox tx: %v", err)
 	}
 }
 

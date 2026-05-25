@@ -120,6 +120,7 @@ func (tdb *TestDB) CleanTables(ctx context.Context) error {
 		resource_policies, project_member_roles, project_roles,
 		known_actors,
 		workflow_run_labels, workflow_step_approvals,
+		workflow_progression_events,
 		workflow_step_runs, workflow_runs, workflow_version_steps,
 		workflow_versions, workflow_steps, workflows,
 		webhook_deliveries, webhook_subscriptions,
@@ -133,8 +134,10 @@ func (tdb *TestDB) CleanTables(ctx context.Context) error {
 		projects, organization_subscriptions, usage_records,
 		organization_addons, sent_usage_reports, processed_webhook_messages,
 		enterprise_contracts,
+		queue_entries, queue_batch_ticks, queue_batches, queue_batch_seal_state,
 		job_active_counts, dlq_counts, job_run_heartbeats, job_run_queue,
-		job_retries, enqueue_outbox, project_rate_limits,
+		job_retries, outbox_claims, outbox_batches, enqueue_outbox,
+		enqueue_outbox_history, project_rate_limits,
 		query_plan_baselines
 		CASCADE`)
 	if err != nil {

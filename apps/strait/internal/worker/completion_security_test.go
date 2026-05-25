@@ -36,7 +36,7 @@ func TestCompletion_HugeResultPayload(t *testing.T) {
 	// Build a ~10MB result payload.
 	bigResult := json.RawMessage(`{"data":"` + strings.Repeat("x", 10*1024*1024) + `"}`)
 
-	exec.handleSuccess(context.Background(), run, job, bigResult, nil)
+	exec.handleSuccess(context.Background(), run, job, bigResult)
 
 	calls := store.statusUpdates()
 	if len(calls) == 0 {
@@ -67,7 +67,7 @@ func TestCompletion_NullResultPayload(t *testing.T) {
 	run.Status = domain.StatusExecuting
 	job := testJob("http://localhost", 3, 30)
 
-	exec.handleSuccess(context.Background(), run, job, nil, nil)
+	exec.handleSuccess(context.Background(), run, job, nil)
 
 	calls := store.statusUpdates()
 	if len(calls) == 0 {
@@ -102,7 +102,7 @@ func TestCompletion_ResultWithNullBytes(t *testing.T) {
 	job := testJob("http://localhost", 3, 30)
 
 	result := json.RawMessage(`{"data":"hello\u0000world"}`)
-	exec.handleSuccess(context.Background(), run, job, result, nil)
+	exec.handleSuccess(context.Background(), run, job, result)
 
 	calls := store.statusUpdates()
 	if len(calls) == 0 {
@@ -138,7 +138,7 @@ func TestCompletion_ConcurrentCompletionAndTimeout(t *testing.T) {
 	wg.Go(func() {
 		run := testRun(1)
 		run.Status = domain.StatusExecuting
-		exec.handleSuccess(context.Background(), run, job, nil, nil)
+		exec.handleSuccess(context.Background(), run, job, nil)
 	})
 
 	wg.Go(func() {
@@ -206,7 +206,7 @@ func TestCompletion_MetricsOverflow(t *testing.T) {
 	run.StartedAt = &old
 	job := testJob("http://localhost", 3, 30)
 
-	exec.handleSuccess(context.Background(), run, job, nil, nil)
+	exec.handleSuccess(context.Background(), run, job, nil)
 
 	events := getEvents()
 	if len(events) == 0 {

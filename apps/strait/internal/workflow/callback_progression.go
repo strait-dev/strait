@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	storepkg "strait/internal/store"
 
 	"github.com/samber/lo"
 	"go.opentelemetry.io/otel"
@@ -63,6 +64,53 @@ func (s *StepCallback) fanInAndStartReadyChildren(ctx context.Context, stepRun *
 	}
 
 	return s.scheduleRunnableSteps(ctx, wc.run, wc.steps, stepStatuses, runningStepRuns, runnableStepRuns)
+}
+
+func (s *StepCallback) fanInBatchAndStartReadyChildren(ctx context.Context, workflowRunID string, completedStepRefs []string, wc *wfCtx) error {
+	if len(completedStepRefs) == 0 {
+		return nil
+	}
+	lockID := advisoryXactLockIDForStepRun("workflow:" + workflowRunID)
+	if err := s.store.AdvisoryXactLock(ctx, lockID); err != nil {
+		return fmt.Errorf("advisory xact lock for workflow %s: %w", workflowRunID, err)
+	}
+
+	if batchStore, ok := s.store.(interface {
+		IncrementStepDepsBatch(context.Context, string, []string) ([]storepkg.StepDepResult, error)
+	}); ok {
+		if _, err := batchStore.IncrementStepDepsBatch(ctx, workflowRunID, completedStepRefs); err != nil {
+			return fmt.Errorf("increment step deps batch: %w", err)
+		}
+	} else {
+		for _, completedRef := range completedStepRefs {
+			if _, err := s.store.IncrementStepDeps(ctx, workflowRunID, completedRef); err != nil {
+				return fmt.Errorf("increment step deps: %w", err)
+			}
+		}
+	}
+
+	freshRun, freshErr := s.store.GetWorkflowRun(ctx, workflowRunID)
+	if freshErr != nil {
+		return fmt.Errorf("re-read workflow run status: %w", freshErr)
+	}
+	if freshRun.Status == domain.WfStatusPaused || freshRun.Status.IsTerminal() {
+		return nil
+	}
+
+	stepStatuses, err := s.store.ListStepRunStatusesByWorkflowRun(ctx, workflowRunID)
+	if err != nil {
+		return fmt.Errorf("list step run statuses by workflow run: %w", err)
+	}
+	runningStepRuns, err := s.store.ListRunningStepRunsByWorkflowRun(ctx, workflowRunID, 10000)
+	if err != nil {
+		return fmt.Errorf("list running step runs by workflow run: %w", err)
+	}
+	runnableStepRuns, err := s.store.ListRunnableStepRunsByWorkflowRun(ctx, workflowRunID, 10000)
+	if err != nil {
+		return fmt.Errorf("list runnable step runs by workflow run: %w", err)
+	}
+
+	return s.scheduleRunnableSteps(ctx, freshRun, wc.steps, stepStatuses, runningStepRuns, runnableStepRuns)
 }
 
 func (s *StepCallback) scheduleRunnableSteps(
@@ -194,9 +242,9 @@ func (s *StepCallback) recordStepWaitDuration(ctx context.Context, wfRun *domain
 }
 
 func (s *StepCallback) checkWorkflowCompletion(ctx context.Context, workflowRunID string, wc *wfCtx) error {
-	nonTerminalCount, err := s.store.CountNonTerminalStepRuns(ctx, workflowRunID)
+	nonTerminalCount, failedStepRefs, err := s.workflowCompletionCounts(ctx, workflowRunID)
 	if err != nil {
-		return fmt.Errorf("count non-terminal step runs: %w", err)
+		return err
 	}
 	if nonTerminalCount > 0 {
 		return nil
@@ -212,11 +260,6 @@ func (s *StepCallback) checkWorkflowCompletion(ctx context.Context, workflowRunI
 	}
 	// Update wc.run so downstream (propagateToParent) sees the latest state.
 	wc.run = wfRun
-
-	failedStepRefs, err := s.store.ListFailedStepRunRefs(ctx, workflowRunID)
-	if err != nil {
-		return fmt.Errorf("list failed step refs: %w", err)
-	}
 
 	now := time.Now()
 	if hasBlockingFailedStep(wc.steps, failedStepRefs) {
@@ -254,6 +297,30 @@ func (s *StepCallback) checkWorkflowCompletion(ctx context.Context, workflowRunI
 		return s.propagateToParent(ctx, wfRun, stepRuns)
 	}
 	return nil
+}
+
+func (s *StepCallback) workflowCompletionCounts(ctx context.Context, workflowRunID string) (int, []string, error) {
+	if summaryStore, ok := s.store.(interface {
+		GetWorkflowStepCompletionSummary(context.Context, string) (storepkg.WorkflowStepCompletionSummary, error)
+	}); ok {
+		summary, err := summaryStore.GetWorkflowStepCompletionSummary(ctx, workflowRunID)
+		if err != nil {
+			return 0, nil, fmt.Errorf("get workflow step completion summary: %w", err)
+		}
+		return summary.NonTerminalCount, summary.FailedStepRefs, nil
+	}
+	nonTerminalCount, err := s.store.CountNonTerminalStepRuns(ctx, workflowRunID)
+	if err != nil {
+		return 0, nil, fmt.Errorf("count non-terminal step runs: %w", err)
+	}
+	if nonTerminalCount > 0 {
+		return nonTerminalCount, nil, nil
+	}
+	failedStepRefs, err := s.store.ListFailedStepRunRefs(ctx, workflowRunID)
+	if err != nil {
+		return 0, nil, fmt.Errorf("list failed step refs: %w", err)
+	}
+	return nonTerminalCount, failedStepRefs, nil
 }
 
 func hasBlockingFailedStep(steps []domain.WorkflowStep, failedStepRefs []string) bool {

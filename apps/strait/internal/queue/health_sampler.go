@@ -83,6 +83,7 @@ func (h *HealthSampler) SampleOnce(ctx context.Context) {
 	h.sampleStrandedTerminal(ctx)
 	h.sampleIndexHealth(ctx)
 	h.sampleClaimTableHealth(ctx)
+	h.sampleOutboxClaimHealth(ctx)
 }
 
 func (h *HealthSampler) samplePartitions(ctx context.Context) {
@@ -213,4 +214,64 @@ func (h *HealthSampler) sampleClaimTableHealth(ctx context.Context) {
 	}
 	h.metrics.ClaimTableLiveTuples.Record(ctx, live)
 	h.metrics.ClaimTableDeadTuples.Record(ctx, dead)
+}
+
+func (h *HealthSampler) sampleOutboxClaimHealth(ctx context.Context) {
+	const depthQ = `
+SELECT status, COUNT(*)
+FROM outbox_claims
+GROUP BY status
+`
+	rows, err := h.db.Query(ctx, depthQ)
+	if err != nil {
+		h.logger.Debug("queue health sample: outbox claim depth failed", "error", err)
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var status string
+		var count int64
+		if err := rows.Scan(&status, &count); err != nil {
+			continue
+		}
+		h.metrics.OutboxClaimDepth.Record(ctx, count,
+			metric.WithAttributes(attribute.String("status", status)))
+	}
+	if err := rows.Err(); err != nil {
+		h.logger.Debug("queue health sample: outbox claim depth rows error", "error", err)
+	}
+
+	const ageQ = `
+SELECT COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(created_at))), 0)
+FROM outbox_claims
+WHERE status = 'ready'
+`
+	var oldestReadyAge float64
+	if err := h.db.QueryRow(ctx, ageQ).Scan(&oldestReadyAge); err != nil {
+		h.logger.Debug("queue health sample: outbox oldest ready age failed", "error", err)
+	} else {
+		h.metrics.OutboxOldestReadyAge.Record(ctx, oldestReadyAge)
+	}
+
+	const expiredQ = `
+SELECT COUNT(*)
+FROM outbox_claims
+WHERE status = 'leased'
+  AND lease_expires_at <= NOW()
+`
+	var expired int64
+	if err := h.db.QueryRow(ctx, expiredQ).Scan(&expired); err != nil {
+		h.logger.Debug("queue health sample: outbox expired leases failed", "error", err)
+	} else {
+		h.metrics.OutboxExpiredLeases.Record(ctx, expired)
+	}
+
+	const tableQ = `SELECT COALESCE(n_live_tup, 0), COALESCE(n_dead_tup, 0) FROM pg_stat_user_tables WHERE relname = 'outbox_claims'`
+	var live, dead int64
+	if err := h.db.QueryRow(ctx, tableQ).Scan(&live, &dead); err != nil {
+		h.logger.Debug("queue health sample: outbox claim table stats failed", "error", err)
+		return
+	}
+	h.metrics.OutboxClaimTableLiveTuples.Record(ctx, live)
+	h.metrics.OutboxClaimTableDeadTuples.Record(ctx, dead)
 }

@@ -288,11 +288,21 @@ func runServe(ctx context.Context, modeOverride string) error {
 		queries.SetAuditSigningKey(auditKey)
 	}
 	bp := queue.NewBackpressure(dbPool, queue.BackpressureConfig{}, true)
-	q := queue.NewPostgresQueue(
+	q, err := queue.NewQueueEngine(
 		dbPool,
+		cfg.QueueEngine,
+		queue.BatchlogConfig{TickInterval: cfg.QueueBatchTickInterval},
 		queue.WithPriorityAging(true),
 		queue.WithBackpressureController(bp),
 	)
+	if err != nil {
+		return fmt.Errorf("queue engine: %w", err)
+	}
+	if bq, ok := q.(*queue.BatchlogQueue); ok {
+		if _, err := bq.BackfillDue(ctx); err != nil {
+			return fmt.Errorf("backfill batchlog queue: %w", err)
+		}
+	}
 
 	pub, rdb, err := connectRedis(ctx, cfg)
 	if err != nil {
@@ -307,6 +317,12 @@ func runServe(ctx context.Context, modeOverride string) error {
 	g.Go(func(ctx context.Context) error {
 		return poolTuner.Run(ctx)
 	})
+	if bq, ok := q.(*queue.BatchlogQueue); ok {
+		g.Go(func(ctx context.Context) error {
+			bq.RunTicker(ctx)
+			return nil
+		})
+	}
 
 	webhookOptions := []webhook.DeliveryWorkerOption{
 		webhook.WithCircuitBreaker(webhook.NewRedisWebhookCircuitBreaker(rdb, true)),
@@ -364,7 +380,19 @@ func runServe(ctx context.Context, modeOverride string) error {
 	stepCallback := workflow.NewStepCallback(queries, workflowEngine, slog.Default()).
 		WithMetrics(metrics).
 		WithChExporter(chExporter).
-		WithStatusHook(onWorkflowRunStatus)
+		WithStatusHook(onWorkflowRunStatus).
+		WithProgressionEngine(cfg.WorkflowProgressionEngine)
+	if cfg.WorkflowProgressionEngine == "batchlog" {
+		processor := workflow.NewProgressionProcessor(queries, stepCallback, workflow.ProgressionProcessorConfig{
+			Interval: 100 * time.Millisecond,
+			Limit:    100,
+			Logger:   slog.Default(),
+		})
+		g.Go(func(ctx context.Context) error {
+			processor.Run(ctx)
+			return nil
+		})
+	}
 
 	healthReg := health.NewRegistry()
 	healthReg.Register(health.NewChecker("database", func(ctx context.Context) error {

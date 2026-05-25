@@ -84,6 +84,17 @@ type Config struct {
 	DBWatchdogInterval         time.Duration `env:"DB_WATCHDOG_INTERVAL" default:"15s"`
 	DBWatchdogEnabled          bool          `env:"DB_WATCHDOG_ENABLED" default:"true"`
 
+	// Toggle the fully denormalized dequeue path (uses job_runs fan-out
+	// columns plus job_active_counts instead of joining jobs and scanning
+	// active rows).
+	QueueUseDenormalizedDequeue bool `env:"QUEUE_USE_DENORMALIZED_DEQUEUE" default:"true"`
+	// QueueEngine selects the queue storage engine. batchlog claims from
+	// narrow queue_entries while preserving job_runs as the ledger.
+	QueueEngine               string        `env:"QUEUE_ENGINE" default:"batchlog"`
+	QueueBatchTickInterval    time.Duration `env:"QUEUE_BATCH_TICK_INTERVAL" default:"100ms"`
+	OutboxEngine              string        `env:"OUTBOX_ENGINE" default:"batchlog"`
+	WorkflowProgressionEngine string        `env:"WORKFLOW_PROGRESSION_ENGINE" default:"batchlog"`
+
 	// DLQ caps and overflow policy.
 	DLQMaxPerProject  int    `env:"DLQ_MAX_PER_PROJECT" default:"10000"`
 	DLQMaxPerJob      int    `env:"DLQ_MAX_PER_JOB" default:"1000"`
@@ -127,6 +138,8 @@ type Config struct {
 	AdaptiveConcurrencyMin int      `env:"ADAPTIVE_CONCURRENCY_MIN" default:"5"`
 	AdaptiveConcurrencyMax int      `env:"ADAPTIVE_CONCURRENCY_MAX" default:"100"`
 	DBPgBouncerMode        bool     `env:"DB_PGBOUNCER_MODE" default:"false"`
+	DBPgBouncerPrepared    bool     `env:"DB_PGBOUNCER_PREPARED_STATEMENTS" default:"false"`
+	DBTraceStatements      bool     `env:"DB_TRACE_STATEMENTS" default:"false"`
 
 	WorkerDrainTimeout time.Duration `env:"WORKER_DRAIN_TIMEOUT" default:"30s"`
 
@@ -167,6 +180,7 @@ type Config struct {
 	WebhookIdleConnTimeout     time.Duration `env:"WEBHOOK_IDLE_CONN_TIMEOUT" default:"1m"`
 	ExecutorHTTPTimeout        time.Duration `env:"EXECUTOR_HTTP_TIMEOUT" default:"5m"`
 	ExecutorIdleConnTimeout    time.Duration `env:"EXECUTOR_IDLE_CONN_TIMEOUT" default:"1m30s"`
+	ExecutionTraceMode         string        `env:"EXECUTION_TRACE_MODE" default:"off"`
 	WebhookDispatchTimeout     time.Duration `env:"WEBHOOK_DISPATCH_TIMEOUT" default:"15s"`
 	WebhookMaxPayloadBytes     int64         `env:"WEBHOOK_MAX_PAYLOAD_BYTES" default:"1048576"`
 	WebhookConcurrency         int           `env:"WEBHOOK_CONCURRENCY" default:"50"`
@@ -193,7 +207,7 @@ type Config struct {
 	PartitionReclaimInterval time.Duration `env:"PARTITION_RECLAIM_INTERVAL" default:"24h"`
 	PartitionReclaimSafety   int           `env:"PARTITION_RECLAIM_SAFETY_MONTHS" default:"2"`
 	StalledWorkflowThreshold time.Duration `env:"WF_STALL_THRESHOLD" default:"15m"`
-	StalledWorkflowAction    string        `env:"WF_STALL_ACTION" default:"log_only"`
+	StalledWorkflowAction    string        `env:"WF_STALL_ACTION" default:"reconcile"`
 	WfMaxStepCap             int           `env:"WF_MAX_STEP_CAP" default:"100"`
 	WfStepConcurrencyLimit   int           `env:"WF_STEP_CONCURRENCY_LIMIT" default:"0"`
 	DependencyStatusCacheTTL time.Duration `env:"DEPENDENCY_STATUS_CACHE_TTL" default:"5s"`

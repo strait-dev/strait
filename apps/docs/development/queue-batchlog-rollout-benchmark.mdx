@@ -1,0 +1,116 @@
+---
+title: "Queue Batchlog Rollout Benchmark"
+description: "PgQue-inspired queue rewrite benchmark summary and rollout guidance."
+---
+
+This report summarizes the local benchmark pass for the PgQue-inspired queue work. The latest run was captured on May 24, 2026 on an Apple M1 Pro with testcontainer Postgres.
+
+## Result
+
+Switch the queue, outbox, and workflow progression engines to `batchlog` by default. The optimized batchlog queue beats the legacy queue in the comparative bloat gate while reducing `job_runs` table and index growth. The outbox path now avoids mutating `enqueue_outbox.consumed_at` for successful batchlog promotion; successful rows are acked through `outbox_claims` and archived asynchronously.
+
+Keep `QUEUE_USE_DENORMALIZED_DEQUEUE=true` for the legacy rollback path. Continue optimizing batchlog outbox, but use it as the default because successful promotions no longer update the hot outbox ledger row.
+
+## Measurements
+
+| Area | Variant | Result |
+|---|---:|---:|
+| Queue notifications, 64-run baseline | before coalescing | 67 notify/op |
+| Queue notifications, 64-run baseline | after coalescing | 35 notify/op |
+| Queue notifications, 256-run baseline | before coalescing | 259 notify/op |
+| Queue notifications, 256-run baseline | after coalescing | 131 notify/op |
+| Dequeue variant | legacy | 14.80 ms/op |
+| Dequeue variant | denormalized | 4.92 ms/op |
+| Dequeue variant | fully denormalized | 4.38 ms/op |
+| Batchlog queue | `BenchmarkBatchlog` | 483.45 ms/op |
+| Outbox promotion | legacy | 178.71 ms/op |
+| Outbox promotion | batchlog | 186.57 ms/op |
+| Workflow progression grouping | `BenchmarkWorkflowProgression` | 576.62 us/op |
+
+## Optimized Follow-up Measurements
+
+Generate the local comparative bloat report with:
+
+```bash
+cd apps/strait && GOTOOLCHAIN=go1.26.2 go test -tags=integration,longtest -run TestQueueBloatComparison ./internal/queue/...
+```
+
+The command writes ignored artifacts under `apps/strait/internal/queue/loadtest-results/queue-baseline/`, including `queue_bloat_comparison.json` and `queue_bloat_comparison.md`.
+
+| Area | Variant | Result |
+|---|---:|---:|
+| Queue claim benchmark | batchlog after hot-path maintenance removal | 38.35 ms/op |
+| Queue claim benchmark | legacy `DequeueN` | 10.01 ms/op |
+| Queue claim benchmark | denormalized | 4.22 ms/op |
+| Queue claim benchmark | fully denormalized | 36.61 ms/op |
+| Outbox promotion after write-time claims and async archive | legacy | 192.58 ms/op |
+| Outbox promotion after write-time claims and async archive | batchlog | 282.15 ms/op |
+| Outbox promotion after claim-only batchlog ack | legacy | 187-298 ms/op |
+| Outbox promotion after claim-only batchlog ack | batchlog | 206-245 ms/op |
+| Workflow progression grouping, 1k events | `BenchmarkWorkflowProgression` | 86-109 us/op |
+
+The queue batchlog path improved from 483.45 ms/op to 38.35 ms/op in the local benchmark, mainly by moving backfill, sealing, and lease reclamation out of `DequeueN` and maintaining queue entries at write time. The outbox batchlog path improved from 397.63 ms/op after write-time claims to 282.15 ms/op after removing immediate archive from the flusher transaction. The latest claim-only ack pass makes batchlog and legacy latency overlap locally while reducing successful-promotion hot table mutation.
+
+Final phase 6 sequential gate:
+
+| Area | Variant | Result |
+|---|---:|---:|
+| Batchlog queue | `BenchmarkBatchlog` | 85.07 ms/op |
+| Queue baseline, 64 runs | coalesced notify path | 1.26 s/op, 35 notify/op, 50.79 runs/s |
+| Queue baseline, 256 runs | coalesced notify path | 2.59 s/op, 131 notify/op, 98.79 runs/s |
+| Outbox promotion | legacy | 340.90 ms/op |
+| Outbox promotion | batchlog | 680.34 ms/op |
+
+The phase 6 gate was run with packages serialized to avoid local testcontainer contention. At that point the batchlog queue and outbox were not ready to become defaults because claim overhead was still too high.
+
+Final queue read-model gate after the batchlog claim, seal, and lease optimizations:
+
+| Area | Result |
+|---|---:|
+| 1k-run comparison P99 latency delta | batchlog 21.01 ms faster |
+| 1k-run comparison throughput delta | batchlog +163.49 runs/s |
+| 1k-run comparison WAL delta | batchlog -445,698 bytes |
+| duplicate claims / lost claims | 0 / 0 |
+| batch metadata table/index delta | 0 bytes |
+| removed mutable lease counter table | `job_batchlog_lease_counts` no longer exists |
+| batchlog candidate selection plan | 0.370 ms execution time |
+
+This final gate removes the earlier queue blocker: the batchlog candidate-selection plan went from about 104 ms with the `job_runs` join to about 0.3 ms after claiming from the `queue_entries` read model. The queue path is acceptable as the default, and the outbox path is defaulted after removing successful-promotion ledger updates.
+
+## Reliability Checks
+
+Passed targeted checks covered:
+
+- no duplicate claims under concurrent batchlog queue workers.
+- batchlog lease expiry redelivery before worker start.
+- direct `queued -> executing` transition for batchlog queue starts.
+- batchlog lease read model blocking additional claims while a run is leased but not yet executing.
+- outbox batchlog retryable release, terminal quarantine, concurrent flusher ownership, write-time claims, empty-batch avoidance, and async promoted-row archive.
+- workflow progression event claim, dedupe, ack, and fuzzed grouping behavior.
+
+## Rollout
+
+Recommended flags:
+
+```bash
+QUEUE_USE_DENORMALIZED_DEQUEUE=true
+QUEUE_ENGINE=batchlog
+OUTBOX_ENGINE=batchlog
+WORKFLOW_PROGRESSION_ENGINE=batchlog
+```
+
+Legacy rollback settings:
+
+```bash
+QUEUE_ENGINE=legacy
+OUTBOX_ENGINE=legacy
+WORKFLOW_PROGRESSION_ENGINE=legacy
+```
+
+Rollback is immediate: set the engine variables above to `legacy` and restart workers/API processes. The batchlog tables can remain in place while the legacy paths run.
+
+## Follow-ups
+
+- Continue watching `queue_entries` dead tuples and index growth under production-like concurrency.
+- Reduce the remaining outbox batchlog claim lookup overhead under production-like concurrency.
+- Add dashboard panels from the exported `queue_entries`, `outbox_claims`, and `workflow_progression_events` ready/leased/acked counts, plus lease age.

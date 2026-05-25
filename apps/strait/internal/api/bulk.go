@@ -131,19 +131,27 @@ func (s *Server) handleBulkTriggerJob(ctx context.Context, input *BulkTriggerJob
 	if err := s.withTriggerLimitGuard(ctx, job, projectQuota, func(guardCtx context.Context, tx store.DBTX) error {
 		ctx := guardCtx
 
-		// Pre-compute project quotas once under the project trigger lock.
+		// Pre-compute project quotas once under the admission row locks.
 		var queuedRuns, activeRuns int
 		if projectQuota != nil {
 			if projectQuota.MaxQueuedRuns > 0 {
 				var countErr error
-				queuedRuns, countErr = s.store.CountProjectQueuedRuns(ctx, job.ProjectID)
+				if tx != nil {
+					queuedRuns, countErr = countProjectQueuedRuns(ctx, tx, job.ProjectID)
+				} else {
+					queuedRuns, countErr = s.store.CountProjectQueuedRuns(ctx, job.ProjectID)
+				}
 				if countErr != nil {
 					return huma.Error500InternalServerError("failed to count project queued runs")
 				}
 			}
 			if projectQuota.MaxExecutingRuns > 0 {
 				var countErr error
-				activeRuns, countErr = s.store.CountProjectActiveRuns(ctx, job.ProjectID)
+				if tx != nil {
+					activeRuns, countErr = countProjectActiveRuns(ctx, tx, job.ProjectID)
+				} else {
+					activeRuns, countErr = s.store.CountProjectActiveRuns(ctx, job.ProjectID)
+				}
 				if countErr != nil {
 					return huma.Error500InternalServerError("failed to count project active runs")
 				}
@@ -241,7 +249,13 @@ func (s *Server) handleBulkTriggerJob(ctx context.Context, input *BulkTriggerJob
 
 			if job.RateLimitMax > 0 && job.RateLimitWindowSecs > 0 {
 				since := time.Now().Add(-time.Duration(job.RateLimitWindowSecs) * time.Second)
-				runCount, countErr := s.store.CountRunsForJobSince(ctx, job.ID, since)
+				var runCount int
+				var countErr error
+				if tx != nil {
+					runCount, countErr = countRunsForJobSince(ctx, tx, job.ID, since)
+				} else {
+					runCount, countErr = s.store.CountRunsForJobSince(ctx, job.ID, since)
+				}
 				if countErr != nil {
 					return huma.Error500InternalServerError("failed to evaluate job rate limit")
 				}

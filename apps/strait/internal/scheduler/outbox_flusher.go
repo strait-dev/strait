@@ -35,31 +35,42 @@ const (
 
 // OutboxFlusher promotes outbox entries into job_runs.
 type OutboxFlusher struct {
-	pool       *pgxpool.Pool
-	queue      queue.Queue
-	interval   time.Duration
-	batchSize  int
-	logger     *slog.Logger
-	iterations atomic.Int64
-	flushed    atomic.Int64
-	errors     atomic.Int64
+	pool                  *pgxpool.Pool
+	queue                 queue.Queue
+	interval              time.Duration
+	batchSize             int
+	engine                string
+	leaseDuration         time.Duration
+	reclaimInterval       time.Duration
+	logger                *slog.Logger
+	iterations            atomic.Int64
+	flushed               atomic.Int64
+	errors                atomic.Int64
+	lastReclaimUnixNano   atomic.Int64
+	reclaimedExpiredLease atomic.Int64
 }
 
 // OutboxFlusherConfig configures the flusher.
 type OutboxFlusherConfig struct {
-	Interval  time.Duration
-	BatchSize int
-	Logger    *slog.Logger
+	Interval        time.Duration
+	BatchSize       int
+	Engine          string
+	LeaseDuration   time.Duration
+	ReclaimInterval time.Duration
+	Logger          *slog.Logger
 }
 
 // NewOutboxFlusher builds a flusher. Zero values fall back to defaults.
 func NewOutboxFlusher(pool *pgxpool.Pool, q queue.Queue, cfg OutboxFlusherConfig) *OutboxFlusher {
 	f := &OutboxFlusher{
-		pool:      pool,
-		queue:     q,
-		interval:  cfg.Interval,
-		batchSize: cfg.BatchSize,
-		logger:    cfg.Logger,
+		pool:            pool,
+		queue:           q,
+		interval:        cfg.Interval,
+		batchSize:       cfg.BatchSize,
+		engine:          cfg.Engine,
+		leaseDuration:   cfg.LeaseDuration,
+		reclaimInterval: cfg.ReclaimInterval,
+		logger:          cfg.Logger,
 	}
 	if f.interval <= 0 {
 		f.interval = time.Second
@@ -70,12 +81,24 @@ func NewOutboxFlusher(pool *pgxpool.Pool, q queue.Queue, cfg OutboxFlusherConfig
 	if f.logger == nil {
 		f.logger = slog.Default()
 	}
+	if f.engine == "" {
+		f.engine = "legacy"
+	}
+	if f.leaseDuration <= 0 {
+		f.leaseDuration = 30 * time.Second
+	}
+	if f.reclaimInterval <= 0 {
+		f.reclaimInterval = f.leaseDuration
+	}
 	return f
 }
 
 func (f *OutboxFlusher) Iterations() int64 { return f.iterations.Load() }
 func (f *OutboxFlusher) Flushed() int64    { return f.flushed.Load() }
 func (f *OutboxFlusher) Errors() int64     { return f.errors.Load() }
+func (f *OutboxFlusher) ReclaimedExpiredLeases() int64 {
+	return f.reclaimedExpiredLease.Load()
+}
 
 // Run blocks until ctx is cancelled.
 func (f *OutboxFlusher) Run(ctx context.Context) {
@@ -115,6 +138,17 @@ func (f *OutboxFlusher) flushOnce(ctx context.Context) (err error) {
 		}
 	}()
 
+	if f.engine == queue.EngineBatchlog {
+		if err := f.flushOnceBatchlogFast(ctx); err == nil {
+			return nil
+		}
+		f.logger.Debug("outbox flusher fast path fell back to savepoint isolation", "error", err)
+	}
+
+	return f.flushOnceWithSavepoints(ctx)
+}
+
+func (f *OutboxFlusher) flushOnceWithSavepoints(ctx context.Context) error {
 	tx, err := f.pool.Begin(ctx)
 	if err != nil {
 		f.errors.Add(1)
@@ -122,7 +156,7 @@ func (f *OutboxFlusher) flushOnce(ctx context.Context) (err error) {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	rows, err := store.ClaimUnconsumedOutboxInTx(ctx, tx, f.batchSize)
+	rows, err := f.claimRows(ctx, tx)
 	if err != nil {
 		f.errors.Add(1)
 		return err
@@ -150,6 +184,9 @@ func (f *OutboxFlusher) flushOnce(ctx context.Context) (err error) {
 			if markErr := store.MarkOutboxErroredInTx(ctx, tx, row.ID, msg); markErr != nil {
 				return fmt.Errorf("outbox flusher: quarantine row %s: %w", row.ID, markErr)
 			}
+			if markErr := f.ackClaim(ctx, tx, row.ID); markErr != nil {
+				return fmt.Errorf("outbox flusher: ack quarantined row %s: %w", row.ID, markErr)
+			}
 			if qm != nil && qm.OutboxQuarantinedTotal != nil {
 				qm.OutboxQuarantinedTotal.Add(ctx, 1)
 			}
@@ -164,6 +201,7 @@ func (f *OutboxFlusher) flushOnce(ctx context.Context) (err error) {
 				return fmt.Errorf("outbox flusher: rollback failed row %s: %w", row.ID, rollbackErr)
 			}
 			if classifyOutboxEnqueueError(err) == outboxEnqueueRetryable {
+				f.releaseRetryableClaim(ctx, tx, row.ID)
 				f.logger.Warn("outbox flusher: enqueue failed, will retry",
 					"outbox_id", row.ID, "job_id", row.JobID, "error", err,
 				)
@@ -172,6 +210,9 @@ func (f *OutboxFlusher) flushOnce(ctx context.Context) (err error) {
 			msg := store.TruncateOutboxError(err.Error())
 			if markErr := store.MarkOutboxErroredInTx(ctx, tx, row.ID, msg); markErr != nil {
 				return fmt.Errorf("outbox flusher: quarantine row %s: %w", row.ID, markErr)
+			}
+			if markErr := f.ackClaim(ctx, tx, row.ID); markErr != nil {
+				return fmt.Errorf("outbox flusher: ack quarantined row %s: %w", row.ID, markErr)
 			}
 			if qm != nil && qm.OutboxQuarantinedTotal != nil {
 				qm.OutboxQuarantinedTotal.Add(ctx, 1)
@@ -191,7 +232,7 @@ func (f *OutboxFlusher) flushOnce(ctx context.Context) (err error) {
 		promoted = append(promoted, row.ID)
 	}
 	if len(promoted) > 0 {
-		if err := store.MarkOutboxConsumedInTx(ctx, tx, promoted); err != nil {
+		if err := f.markPromoted(ctx, tx, promoted); err != nil {
 			f.errors.Add(1)
 			return err
 		}
@@ -205,6 +246,121 @@ func (f *OutboxFlusher) flushOnce(ctx context.Context) (err error) {
 		f.logger.Debug("outbox flusher promoted", "count", len(promoted))
 	}
 	return nil
+}
+
+func (f *OutboxFlusher) flushOnceBatchlogFast(ctx context.Context) error {
+	tx, err := f.pool.Begin(ctx)
+	if err != nil {
+		f.errors.Add(1)
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	rows, err := f.claimRows(ctx, tx)
+	if err != nil {
+		f.errors.Add(1)
+		return err
+	}
+	if len(rows) == 0 {
+		if err := tx.Commit(ctx); err != nil {
+			f.errors.Add(1)
+			return err
+		}
+		committed = true
+		return nil
+	}
+
+	promoted := make([]string, 0, len(rows))
+	qm, _ := queue.Metrics()
+	for _, row := range rows {
+		run, err := f.toJobRun(row)
+		if err != nil {
+			return fmt.Errorf("outbox flusher fast path invalid row %s: %w", row.ID, err)
+		}
+		if err := f.queue.EnqueueInTx(ctx, tx, run); err != nil {
+			return fmt.Errorf("outbox flusher fast path enqueue row %s: %w", row.ID, err)
+		}
+		if qm != nil && qm.OutboxLag != nil && !row.CreatedAt.IsZero() {
+			qm.OutboxLag.Record(ctx, time.Since(row.CreatedAt).Seconds())
+		}
+		promoted = append(promoted, row.ID)
+	}
+	if len(promoted) > 0 {
+		if err := f.markPromoted(ctx, tx, promoted); err != nil {
+			f.errors.Add(1)
+			return err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		f.errors.Add(1)
+		return err
+	}
+	committed = true
+	f.flushed.Add(int64(len(promoted)))
+	if len(promoted) > 0 {
+		f.logger.Debug("outbox flusher promoted on fast path", "count", len(promoted))
+	}
+	return nil
+}
+
+func (f *OutboxFlusher) claimRows(ctx context.Context, tx pgx.Tx) ([]store.OutboxRow, error) {
+	if f.engine == queue.EngineBatchlog {
+		if err := f.reclaimExpiredClaimsIfDue(ctx, tx); err != nil {
+			return nil, err
+		}
+		return store.ClaimOutboxBatchlogInTx(ctx, tx, f.batchSize, "outbox-flusher", f.leaseDuration)
+	}
+	return store.ClaimUnconsumedOutboxInTx(ctx, tx, f.batchSize)
+}
+
+func (f *OutboxFlusher) releaseRetryableClaim(ctx context.Context, tx pgx.Tx, id string) {
+	if f.engine == queue.EngineBatchlog {
+		_ = store.MarkOutboxClaimsReadyInTx(ctx, tx, []string{id})
+	}
+}
+
+func (f *OutboxFlusher) ackClaim(ctx context.Context, tx pgx.Tx, id string) error {
+	if f.engine != queue.EngineBatchlog {
+		return nil
+	}
+	return store.MarkOutboxClaimsAckedInTx(ctx, tx, []string{id})
+}
+
+func (f *OutboxFlusher) markPromoted(ctx context.Context, tx pgx.Tx, ids []string) error {
+	if f.engine == queue.EngineBatchlog {
+		return store.MarkOutboxClaimsAckedInTx(ctx, tx, ids)
+	}
+	return store.MarkOutboxConsumedInTx(ctx, tx, ids)
+}
+
+func (f *OutboxFlusher) reclaimExpiredClaimsIfDue(ctx context.Context, tx pgx.Tx) error {
+	if f.reclaimInterval <= 0 {
+		return nil
+	}
+	now := time.Now()
+	nowNano := now.UnixNano()
+	for {
+		last := f.lastReclaimUnixNano.Load()
+		if last > 0 && now.Sub(time.Unix(0, last)) < f.reclaimInterval {
+			return nil
+		}
+		if !f.lastReclaimUnixNano.CompareAndSwap(last, nowNano) {
+			continue
+		}
+		reclaimed, err := store.ReclaimExpiredOutboxBatchlogClaimsInTx(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if reclaimed > 0 {
+			f.reclaimedExpiredLease.Add(reclaimed)
+		}
+		return nil
+	}
 }
 
 func classifyOutboxEnqueueError(err error) outboxEnqueueDisposition {

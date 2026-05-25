@@ -1,8 +1,10 @@
 package api
 
 import (
+	"compress/gzip"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -574,6 +576,42 @@ func TestHandleOpenAPISpec_ContainsOpenAPI(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "openapi") {
 		t.Fatal("expected response to contain 'openapi'")
+	}
+}
+
+func TestHandleOpenAPISpec_ReturnsPrecompressedGzip(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/reference/openapi.json", nil)
+	r.Header.Set("Accept-Encoding", "gzip")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if got := w.Header().Get("Content-Encoding"); got != "gzip" {
+		t.Fatalf("Content-Encoding = %q, want gzip", got)
+	}
+	if got := w.Header().Get("Vary"); got != "Accept-Encoding" {
+		t.Fatalf("Vary = %q, want Accept-Encoding", got)
+	}
+
+	zr, err := gzip.NewReader(w.Body)
+	if err != nil {
+		t.Fatalf("gzip.NewReader() error = %v", err)
+	}
+	defer zr.Close()
+	body, err := io.ReadAll(zr)
+	if err != nil {
+		t.Fatalf("read gzip body: %v", err)
+	}
+	if !strings.Contains(string(body), "openapi") {
+		t.Fatal("expected decompressed response to contain 'openapi'")
+	}
+	if w.Body.Len() >= len(srv.cachedOpenAPISpec) {
+		t.Fatalf("compressed length = %d, uncompressed = %d, want smaller compressed body", w.Body.Len(), len(srv.cachedOpenAPISpec))
 	}
 }
 

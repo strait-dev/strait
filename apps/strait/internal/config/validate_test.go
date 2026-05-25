@@ -35,6 +35,7 @@ func validConfig() *Config {
 		SequinAPIToken:                "sequin-api-token",
 		DBMaxConns:                    50,
 		DBMinConns:                    10,
+		ExecutionTraceMode:            "off",
 		DLQMaxPerJob:                  1000,
 		DLQMaxPerProject:              10000,
 		DLQOverflowPolicy:             "drop_oldest",
@@ -195,6 +196,15 @@ func TestValidate_ZeroWorkerConcurrency(t *testing.T) {
 	err := c.Validate()
 	if err == nil || !strings.Contains(err.Error(), "WORKER_CONCURRENCY") {
 		t.Errorf("want concurrency error, got %v", err)
+	}
+}
+
+func TestValidate_InvalidExecutionTraceMode(t *testing.T) {
+	c := validConfig()
+	c.ExecutionTraceMode = "always"
+	err := c.Validate()
+	if err == nil || !strings.Contains(err.Error(), "EXECUTION_TRACE_MODE") {
+		t.Errorf("want execution trace mode error, got %v", err)
 	}
 }
 

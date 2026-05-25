@@ -77,6 +77,11 @@ type ReaperStore interface {
 	GetRunFromHistory(ctx context.Context, id string) (*domain.JobRun, error)
 }
 
+type staleRunRetryStore interface {
+	GetJob(ctx context.Context, id string) (*domain.Job, error)
+	ScheduleRetry(ctx context.Context, runID string, at time.Time, attempt int) error
+}
+
 // DLQMonitorStore is an optional interface for DLQ depth monitoring.
 type DLQMonitorStore interface {
 	ListDLQDepthByJob(ctx context.Context) ([]DLQJobDepth, error)
@@ -240,7 +245,7 @@ func NewReaper(s ReaperStore, interval, staleThreshold, shortRetention, longRete
 		retentionEnabled:      retentionEnabled,
 		workflowCallback:      workflowCallback,
 		logger:                slog.Default(),
-		stalledAction:         "log_only",
+		stalledAction:         "reconcile",
 		dlqAlertCooldown:      make(map[string]time.Time),
 		queueAlertCooldown:    make(map[string]time.Time),
 		reminderSent:          make(map[string]time.Time),
@@ -313,13 +318,13 @@ func (r *Reaper) WithStalledAction(action string) *Reaper {
 	switch action {
 	case "", "log_only", "reconcile", "fail_workflow":
 		if action == "" {
-			r.stalledAction = "log_only"
+			r.stalledAction = "reconcile"
 		} else {
 			r.stalledAction = action
 		}
 	default:
-		r.logger.Warn("invalid stalled action, using log_only", "action", action)
-		r.stalledAction = "log_only"
+		r.logger.Warn("invalid stalled action, using reconcile", "action", action)
+		r.stalledAction = "reconcile"
 	}
 	return r
 }
@@ -1024,20 +1029,93 @@ func (r *Reaper) reapStale(ctx context.Context) {
 	r.recordOperation(ctx, operation, "success")
 
 	for _, run := range runs {
-		err := r.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusCrashed, map[string]any{
-			"finished_at": time.Now(),
-			"error":       "heartbeat lost",
-		})
-		if err != nil {
-			slog.Error("failed to crash stale run", "run_id", run.ID, "job_id", run.JobID, "error", err)
+		if r.retryStaleRun(ctx, &run) {
 			continue
 		}
-		run.Status = domain.StatusCrashed
-
-		r.notifyWorkflowCallback(ctx, &run)
-
-		slog.Warn("stale run marked crashed", "run_id", run.ID, "job_id", run.JobID)
+		r.crashStaleRun(ctx, &run)
 	}
+}
+
+func (r *Reaper) retryStaleRun(ctx context.Context, run *domain.JobRun) bool {
+	retryStore, ok := r.store.(staleRunRetryStore)
+	if !ok {
+		return false
+	}
+
+	job, err := retryStore.GetJob(ctx, run.JobID)
+	if err != nil || job == nil {
+		if err != nil {
+			slog.Warn("failed to load job for stale run retry decision", "run_id", run.ID, "job_id", run.JobID, "error", err)
+		}
+		return false
+	}
+
+	maxAttempts := job.MaxAttempts
+	if maxAttempts <= 0 {
+		maxAttempts = 1
+	}
+	if run.Attempt >= maxAttempts {
+		return false
+	}
+
+	nextAttempt := run.Attempt + 1
+	retryAt := nextStaleRunRetryAt(run.Attempt)
+	if err := retryStore.ScheduleRetry(ctx, run.ID, retryAt, nextAttempt); err != nil {
+		slog.Error("failed to schedule stale run retry", "run_id", run.ID, "job_id", run.JobID, "error", err)
+		return false
+	}
+
+	fields := map[string]any{
+		"attempt":      nextAttempt,
+		"started_at":   nil,
+		"finished_at":  nil,
+		"heartbeat_at": nil,
+		"error":        "heartbeat lost; retry scheduled",
+		"error_class":  "transient",
+	}
+	if err := r.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, fields); err != nil {
+		slog.Error("failed to requeue stale run", "run_id", run.ID, "job_id", run.JobID, "error", err)
+		return false
+	}
+
+	run.Attempt = nextAttempt
+	run.Status = domain.StatusQueued
+	slog.Warn("stale run requeued after heartbeat loss", "run_id", run.ID, "job_id", run.JobID, "attempt", nextAttempt, "next_retry_at", retryAt)
+	return true
+}
+
+func (r *Reaper) crashStaleRun(ctx context.Context, run *domain.JobRun) {
+	err := r.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusCrashed, map[string]any{
+		"finished_at": time.Now(),
+		"error":       "heartbeat lost",
+	})
+	if err != nil {
+		slog.Error("failed to crash stale run", "run_id", run.ID, "job_id", run.JobID, "error", err)
+		return
+	}
+	run.Status = domain.StatusCrashed
+
+	r.notifyWorkflowCallback(ctx, run)
+
+	slog.Warn("stale run marked crashed", "run_id", run.ID, "job_id", run.JobID)
+}
+
+func nextStaleRunRetryAt(attempt int) time.Time {
+	if attempt < 1 {
+		attempt = 1
+	}
+	delay := time.Second
+	for range attempt - 1 {
+		if delay >= time.Hour/2 {
+			delay = time.Hour
+			break
+		}
+		delay *= 2
+	}
+	if delay > time.Hour {
+		delay = time.Hour
+	}
+	return time.Now().Add(delay)
 }
 
 func (r *Reaper) reapExpired(ctx context.Context) {

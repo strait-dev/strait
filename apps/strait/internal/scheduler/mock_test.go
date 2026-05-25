@@ -40,6 +40,8 @@ type mockReaperStore struct {
 	getStepRunByRunAndRefFn                   func(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error)
 	updateWorkflowApprovalFn                  func(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
 	updateRunStatusFn                         func(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error
+	getJobFn                                  func(ctx context.Context, id string) (*domain.Job, error)
+	scheduleRetryFn                           func(ctx context.Context, runID string, at time.Time, attempt int) error
 	deleteOldWorkflowRunsFn                   func(ctx context.Context, before time.Time, limit int) (int64, error)
 	deleteRetentionFn                         func(ctx context.Context, shortRetention, longRetention time.Duration) (int64, error)
 	listExpiredEventTriggersFn                func(ctx context.Context) ([]domain.EventTrigger, error)
@@ -240,6 +242,20 @@ func (m *mockReaperStore) ListStaleDequeued(ctx context.Context, threshold time.
 func (m *mockReaperStore) UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error {
 	if m.updateRunStatusFn != nil {
 		return m.updateRunStatusFn(ctx, id, from, to, fields)
+	}
+	return nil
+}
+
+func (m *mockReaperStore) GetJob(ctx context.Context, id string) (*domain.Job, error) {
+	if m.getJobFn != nil {
+		return m.getJobFn(ctx, id)
+	}
+	return nil, nil
+}
+
+func (m *mockReaperStore) ScheduleRetry(ctx context.Context, runID string, at time.Time, attempt int) error {
+	if m.scheduleRetryFn != nil {
+		return m.scheduleRetryFn(ctx, runID, at, attempt)
 	}
 	return nil
 }

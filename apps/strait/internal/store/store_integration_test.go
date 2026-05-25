@@ -368,6 +368,72 @@ func TestEndpointCircuitState_OpensAndBlocksDispatch(t *testing.T) {
 	}
 }
 
+func TestEndpointCircuitState_NewEndpointDoesNotCreateCircuitRow(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	endpoint := "https://example.com/circuit-fast-path-" + newID()
+	allowed, retryAt, err := q.CanDispatchEndpoint(ctx, endpoint, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("CanDispatchEndpoint() error = %v", err)
+	}
+	if !allowed {
+		t.Fatal("CanDispatchEndpoint() = false, want true")
+	}
+	if retryAt != nil {
+		t.Fatalf("retryAt = %v, want nil", retryAt)
+	}
+
+	state, err := q.GetEndpointCircuitState(ctx, endpoint)
+	if err != nil {
+		t.Fatalf("GetEndpointCircuitState() error = %v", err)
+	}
+	if state != nil {
+		t.Fatalf("GetEndpointCircuitState() = %#v, want nil", state)
+	}
+}
+
+func TestEndpointCircuitState_ExpiredOpenCircuitResetsOnDispatch(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	endpoint := "https://example.com/circuit-expired-" + newID()
+	now := time.Now().UTC()
+	if err := q.RecordEndpointCircuitFailure(ctx, endpoint, now.Add(-time.Minute), 1, time.Second); err != nil {
+		t.Fatalf("RecordEndpointCircuitFailure() error = %v", err)
+	}
+
+	allowed, retryAt, err := q.CanDispatchEndpoint(ctx, endpoint, now.Add(2*time.Second))
+	if err != nil {
+		t.Fatalf("CanDispatchEndpoint() error = %v", err)
+	}
+	if !allowed {
+		t.Fatal("CanDispatchEndpoint() = false, want true after expired open circuit")
+	}
+	if retryAt != nil {
+		t.Fatalf("retryAt = %v, want nil", retryAt)
+	}
+
+	state, err := q.GetEndpointCircuitState(ctx, endpoint)
+	if err != nil {
+		t.Fatalf("GetEndpointCircuitState() error = %v", err)
+	}
+	if state == nil {
+		t.Fatal("GetEndpointCircuitState() = nil, want reset state")
+	}
+	if state.State != domain.CircuitStateClosed {
+		t.Fatalf("state = %s, want %s", state.State, domain.CircuitStateClosed)
+	}
+	if state.ConsecutiveFailures != 0 {
+		t.Fatalf("consecutive_failures = %d, want 0", state.ConsecutiveFailures)
+	}
+	if state.HalfOpenUntil != nil {
+		t.Fatalf("half_open_until = %v, want nil", state.HalfOpenUntil)
+	}
+}
+
 func TestEndpointCircuitState_ClosesAfterSuccess(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -3501,6 +3567,23 @@ func TestGetJobHealthStats(t *testing.T) {
 		t.Fatalf("P95DurationSecs = %f, want 48", stats.P95DurationSecs)
 	}
 
+	counts, err := q.GetJobHealthCounts(ctx, job.ID, since)
+	if err != nil {
+		t.Fatalf("GetJobHealthCounts() error = %v", err)
+	}
+	if counts.TotalRuns != stats.TotalRuns ||
+		counts.CompletedRuns != stats.CompletedRuns ||
+		counts.FailedRuns != stats.FailedRuns ||
+		counts.TimedOutRuns != stats.TimedOutRuns ||
+		counts.CrashedRuns != stats.CrashedRuns ||
+		counts.CanceledRuns != stats.CanceledRuns ||
+		counts.ExpiredRuns != stats.ExpiredRuns {
+		t.Fatalf("GetJobHealthCounts() = %+v, want count fields from %+v", *counts, *stats)
+	}
+	if counts.AvgDurationSecs != 0 || counts.P95DurationSecs != 0 || counts.P99DurationSecs != 0 {
+		t.Fatalf("GetJobHealthCounts() duration fields = avg:%f p95:%f p99:%f, want zeros", counts.AvgDurationSecs, counts.P95DurationSecs, counts.P99DurationSecs)
+	}
+
 	emptyJob := mustCreateJob(t, ctx, q, "project-health-stats-empty")
 	emptyStats, err := q.GetJobHealthStats(ctx, emptyJob.ID, since)
 	if err != nil {
@@ -4340,7 +4423,7 @@ func TestWorkflowStepRun_IncrementDeps(t *testing.T) {
 	if len(first) != 1 {
 		t.Fatalf("IncrementStepDeps() first len = %d, want 1", len(first))
 	}
-	if first[0].StepRunID != waiting.ID || first[0].StepRef != waiting.StepRef || first[0].DepsCompleted != 1 || first[0].DepsRequired != 2 || (first[0].JobID != nil && *first[0].JobID != child.JobID) || first[0].WorkflowRunID != run.ID {
+	if first[0].StepRunID != waiting.ID || first[0].StepRef != waiting.StepRef || first[0].DepsCompleted != 1 || first[0].DepsRequired != 2 || first[0].JobID == nil || *first[0].JobID != child.JobID || first[0].WorkflowRunID != run.ID {
 		t.Fatalf("IncrementStepDeps() first result mismatch: got %+v", first[0])
 	}
 	if !jsonEqual(first[0].Condition, child.Condition) {
