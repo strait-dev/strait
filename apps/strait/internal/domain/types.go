@@ -800,6 +800,7 @@ type APIKey struct {
 	NextRotationAt        *time.Time `json:"next_rotation_at,omitempty"`
 	RotationWebhookURL    string     `json:"rotation_webhook_url,omitempty"`
 	RotationWebhookSecret []byte     `json:"-"`
+	CacheVersion          int64      `json:"-"`
 }
 
 type JobVersion struct {

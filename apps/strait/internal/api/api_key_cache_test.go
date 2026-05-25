@@ -175,6 +175,48 @@ func TestAPIKeyCache_RedisL2BackfillAndCachebusInvalidate(t *testing.T) {
 	}
 }
 
+func TestAPIKeyCache_PreservesStoreCacheVersionInRedis(t *testing.T) {
+	t.Parallel()
+
+	registry := straitcache.NewRegistry(straitcache.RegistryConfig{Origin: "node-a"})
+	deps, cleanup := newTestRedisCacheDeps(t, registry)
+	defer cleanup()
+	cache := newAPIKeyCache(time.Minute, deps)
+
+	got, err := cache.Get(context.Background(), "hash-versioned", func(context.Context, string) (*domain.APIKey, error) {
+		return &domain.APIKey{
+			ID:           "key-versioned",
+			ProjectID:    "proj-versioned",
+			KeyHash:      "hash-versioned",
+			Scopes:       []string{domain.ScopeRunsRead},
+			CacheVersion: 7,
+		}, nil
+	})
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if got == nil || got.CacheVersion != 7 {
+		t.Fatalf("Get() CacheVersion = %v, want 7", got)
+	}
+
+	raw, err := deps.Redis.Get(context.Background(), "strait:cache:"+apiKeyAuthCacheNamespace+":hash-versioned").Bytes()
+	if err != nil {
+		t.Fatalf("read redis entry: %v", err)
+	}
+	var envelope struct {
+		Version int64 `json:"version"`
+		Value   struct {
+			RotationWebhookSecret []byte `json:"-"`
+		} `json:"value"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatalf("decode redis entry: %v", err)
+	}
+	if envelope.Version != 7 {
+		t.Fatalf("redis version = %d, want 7", envelope.Version)
+	}
+}
+
 func TestAPIKeyCache_StrongModeFallsBackToDBWhenRedisEntryMissing(t *testing.T) {
 	t.Parallel()
 

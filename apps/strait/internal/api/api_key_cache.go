@@ -69,20 +69,27 @@ func (c *apiKeyCache) Get(ctx context.Context, keyHash string, loader func(conte
 	if c == nil || c.tier == nil {
 		return loader(ctx, keyHash)
 	}
-	return c.tier.Get(ctx, keyHash, func(loadCtx context.Context, hash string) (*domain.APIKey, error) {
+	got, err := c.tier.GetConsistentVersioned(ctx, keyHash, 0, func(loadCtx context.Context, hash string) (straitcache.Versioned[*domain.APIKey], error) {
 		key, err := loader(loadCtx, hash)
 		if errors.Is(err, store.ErrAPIKeyNotFound) {
-			return nil, nil
+			return straitcache.Versioned[*domain.APIKey]{Value: nil, Version: 0}, nil
 		}
-		return key, err
+		if err != nil {
+			return straitcache.Versioned[*domain.APIKey]{}, err
+		}
+		return straitcache.Versioned[*domain.APIKey]{Value: key, Version: apiKeyCacheVersion(key)}, nil
 	})
+	if err != nil {
+		return nil, err
+	}
+	return got.Value, nil
 }
 
 func (c *apiKeyCache) Set(ctx context.Context, key *domain.APIKey) {
 	if c == nil || c.tier == nil || key == nil || key.KeyHash == "" {
 		return
 	}
-	_, _ = c.tier.WriteThrough(ctx, key.KeyHash, key, time.Now().UnixNano(), c.bus, apiKeyAuthCacheNamespace, key.KeyHash)
+	_, _ = c.tier.WriteThrough(ctx, key.KeyHash, key, apiKeyCacheVersion(key), c.bus, apiKeyAuthCacheNamespace, key.KeyHash)
 }
 
 func (c *apiKeyCache) Invalidate(ctx context.Context, keyHash string) {
@@ -109,4 +116,11 @@ func cloneAPIKeyForAuthCache(key *domain.APIKey) *domain.APIKey {
 	cp.Scopes = append([]string(nil), key.Scopes...)
 	cp.RotationWebhookSecret = append([]byte(nil), key.RotationWebhookSecret...)
 	return &cp
+}
+
+func apiKeyCacheVersion(key *domain.APIKey) int64 {
+	if key == nil || key.CacheVersion <= 0 {
+		return 1
+	}
+	return key.CacheVersion
 }
