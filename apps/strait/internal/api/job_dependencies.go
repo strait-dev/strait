@@ -101,7 +101,12 @@ func (s *Server) handleListJobDependencies(ctx context.Context, input *ListJobDe
 	if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
 		return nil, huma.Error404NotFound("job not found")
 	}
-	deps, err := s.store.ListJobDependencies(ctx, input.JobID, limit+1, cursor)
+	var deps []domain.JobDependency
+	if cursor == nil {
+		deps, err = s.listCachedJobDependencies(ctx, input.JobID, limit+1)
+	} else {
+		deps, err = s.store.ListJobDependencies(ctx, input.JobID, limit+1, cursor)
+	}
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list job dependencies")
 	}
