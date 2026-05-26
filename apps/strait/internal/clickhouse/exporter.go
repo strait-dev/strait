@@ -257,7 +257,12 @@ func (e *Exporter) Enqueue(record any) bool {
 	e.pendingBytes += recordBytes
 
 	if dropped := e.trimPendingOldestLocked(); dropped > 0 {
-		e.logger.Warn("clickhouse exporter buffer overflow, dropped oldest records", "dropped", dropped, "pending_bytes", e.pendingBytes, "max_bytes", e.maxBufferBytes())
+		e.logger.Warn(
+			"clickhouse exporter buffer overflow, dropped oldest records",
+			"dropped", dropped,
+			"pending_bytes", e.pendingBytes,
+			"max_bytes", e.maxBufferBytes(),
+		)
 		if e.metrics != nil && e.metrics.DroppedRecords != nil {
 			e.metrics.DroppedRecords.Add(context.Background(), int64(dropped))
 		}
@@ -337,7 +342,13 @@ func (e *Exporter) flush(ctx context.Context) {
 			e.pendingBytes += batchBytes
 			e.pending = combined
 			dropped := e.trimPendingNewestLocked()
-			e.logger.Warn("clickhouse requeued failed batch", "attempt", e.consecutiveFailures, "dropped", dropped, "pending_bytes", e.pendingBytes, "max_bytes", e.maxBufferBytes())
+			e.logger.Warn(
+				"clickhouse requeued failed batch",
+				"attempt", e.consecutiveFailures,
+				"dropped", dropped,
+				"pending_bytes", e.pendingBytes,
+				"max_bytes", e.maxBufferBytes(),
+			)
 			if dropped > 0 && e.metrics != nil && e.metrics.DroppedRecords != nil {
 				e.metrics.DroppedRecords.Add(ctx, int64(dropped))
 			}
@@ -577,7 +588,9 @@ func (e *Exporter) insertRunEvents(ctx context.Context, records []RunEventRecord
 
 func (e *Exporter) insertRunAnalytics(ctx context.Context, records []RunAnalyticsRecord) error {
 	const row = "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-	query := "INSERT INTO run_analytics (run_id, job_id, project_id, status, execution_mode, attempt, duration_ms, queue_wait_ms, cost_microusd, compute_cost_microusd, triggered_by, tags, job_version_id, created_at, started_at, finished_at) VALUES "
+	query := "INSERT INTO run_analytics " +
+		"(run_id, job_id, project_id, status, execution_mode, attempt, duration_ms, queue_wait_ms, " +
+		"cost_microusd, compute_cost_microusd, triggered_by, tags, job_version_id, created_at, started_at, finished_at) VALUES "
 	placeholders := make([]string, len(records))
 	args := make([]any, 0, len(records)*16)
 
@@ -593,7 +606,8 @@ func (e *Exporter) insertRunAnalytics(ctx context.Context, records []RunAnalytic
 
 func (e *Exporter) insertRunUsageEvents(ctx context.Context, records []RunUsageEventRecord) error {
 	const row = "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-	query := "INSERT INTO run_usage_events (run_id, job_id, project_id, provider, model, prompt_tokens, completion_tokens, total_tokens, cost_microusd, created_at) VALUES "
+	query := "INSERT INTO run_usage_events " +
+		"(run_id, job_id, project_id, provider, model, prompt_tokens, completion_tokens, total_tokens, cost_microusd, created_at) VALUES "
 	placeholders := make([]string, len(records))
 	args := make([]any, 0, len(records)*10)
 
@@ -637,7 +651,8 @@ func (e *Exporter) insertJobMetadata(ctx context.Context, records []JobMetadataR
 
 func (e *Exporter) insertEventTriggerEvents(ctx context.Context, records []EventTriggerEventRecord) error {
 	const row = "(?, ?, ?, ?, ?, ?, ?, ?, ?)"
-	query := "INSERT INTO event_trigger_events (trigger_id, event_key, project_id, source_type, status, timeout_secs, wait_duration_ms, created_at, received_at) VALUES "
+	query := "INSERT INTO event_trigger_events " +
+		"(trigger_id, event_key, project_id, source_type, status, timeout_secs, wait_duration_ms, created_at, received_at) VALUES "
 	placeholders := make([]string, len(records))
 	args := make([]any, 0, len(records)*9)
 
@@ -652,7 +667,8 @@ func (e *Exporter) insertEventTriggerEvents(ctx context.Context, records []Event
 
 func (e *Exporter) insertWorkflowRunAnalytics(ctx context.Context, records []WorkflowRunAnalyticsRecord) error {
 	const row = "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-	query := "INSERT INTO workflow_run_analytics (workflow_run_id, workflow_id, project_id, status, triggered_by, step_count, duration_ms, created_at, started_at, finished_at) VALUES "
+	query := "INSERT INTO workflow_run_analytics " +
+		"(workflow_run_id, workflow_id, project_id, status, triggered_by, step_count, duration_ms, created_at, started_at, finished_at) VALUES "
 	placeholders := make([]string, len(records))
 	args := make([]any, 0, len(records)*10)
 
@@ -667,7 +683,8 @@ func (e *Exporter) insertWorkflowRunAnalytics(ctx context.Context, records []Wor
 
 func (e *Exporter) insertWorkflowStepAnalytics(ctx context.Context, records []WorkflowStepAnalyticsRecord) error {
 	const row = "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-	query := "INSERT INTO workflow_step_analytics (step_run_id, workflow_run_id, workflow_id, project_id, step_ref, status, duration_ms, attempt, error, created_at, started_at, finished_at) VALUES "
+	query := "INSERT INTO workflow_step_analytics " +
+		"(step_run_id, workflow_run_id, workflow_id, project_id, step_ref, status, duration_ms, attempt, error, created_at, started_at, finished_at) VALUES "
 	placeholders := make([]string, len(records))
 	args := make([]any, 0, len(records)*12)
 
@@ -682,7 +699,8 @@ func (e *Exporter) insertWorkflowStepAnalytics(ctx context.Context, records []Wo
 
 func (e *Exporter) insertWebhookDeliveryEvents(ctx context.Context, records []WebhookDeliveryEventRecord) error {
 	const row = "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-	query := "INSERT INTO webhook_delivery_events (delivery_id, run_id, job_id, project_id, webhook_host, status, attempts, last_status_code, duration_ms, event_type, created_at, delivered_at) VALUES "
+	query := "INSERT INTO webhook_delivery_events " +
+		"(delivery_id, run_id, job_id, project_id, webhook_host, status, attempts, last_status_code, duration_ms, event_type, created_at, delivered_at) VALUES "
 	placeholders := make([]string, len(records))
 	args := make([]any, 0, len(records)*12)
 

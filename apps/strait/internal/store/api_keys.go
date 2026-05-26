@@ -30,6 +30,8 @@ var ErrAPIKeyNotFound = errors.New("api key not found")
 // operator-facing UIs while flattening 95% of write amplification.
 var apiKeyTouchCooldown atomic.Int64
 
+// init seeds the process-wide touch coalescing interval. The value is kept in
+// an atomic so tests can shorten it without racing hot API-key paths.
 func init() {
 	apiKeyTouchCooldown.Store(int64(60 * time.Second))
 }

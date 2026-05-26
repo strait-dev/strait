@@ -562,6 +562,12 @@ func withTx(ctx context.Context, db TxBeginner, parent *Queries, fn func(q *Quer
 	return nil
 }
 
+func rollbackTx(ctx context.Context, tx pgx.Tx) {
+	if err := tx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+		slog.Warn("failed to rollback transaction", "error", err)
+	}
+}
+
 func (q *Queries) WithTx(ctx context.Context, fn func(context.Context, DBTX) error) error {
 	if q == nil {
 		return fmt.Errorf("with transaction: queries is nil")

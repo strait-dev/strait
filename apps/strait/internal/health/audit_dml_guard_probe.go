@@ -45,7 +45,10 @@ func NewAuditDMLGuardProbe(checker AuditDMLPrivilegeChecker) Checker {
 			return fmt.Errorf("audit DML privilege probe failed: %w", err)
 		}
 		if !restricted {
-			return fmt.Errorf("audit_events UPDATE/DELETE/TRUNCATE or non-signature column UPDATE is not restricted for current role; migration 000187 is a no-op on this install — see SELFHOST.md for the strait_app role prerequisite")
+			return fmt.Errorf(
+				"audit_events UPDATE/DELETE/TRUNCATE or non-signature column UPDATE is not restricted for current role; " +
+					"migration 000187 is a no-op on this install — see SELFHOST.md for the strait_app role prerequisite",
+			)
 		}
 		return nil
 	})

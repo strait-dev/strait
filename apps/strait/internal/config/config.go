@@ -385,7 +385,7 @@ func Load() (*Config, error) {
 		SkipFlags: true,
 	})
 	if err := loader.Load(); err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
+		return nil, fmt.Errorf("load config: %w", err)
 	}
 
 	// Post-load: parse ENCRYPTION_KEY_OLD with whitespace trimming.
@@ -613,7 +613,10 @@ func validateAuditConfig(cfg *Config) error {
 			return &domain.ConfigError{Field: "AUDIT_SIEM_ENDPOINT", Message: fmt.Sprintf("unparseable URL: %v", err)}
 		}
 		if u.User != nil {
-			return &domain.ConfigError{Field: "AUDIT_SIEM_ENDPOINT", Message: "must not contain userinfo (user:password@host) — use AUDIT_SIEM_AUTH_TOKEN for credentials"}
+			return &domain.ConfigError{
+				Field:   "AUDIT_SIEM_ENDPOINT",
+				Message: "must not contain userinfo (user:password@host) — use AUDIT_SIEM_AUTH_TOKEN for credentials",
+			}
 		}
 	}
 	return nil

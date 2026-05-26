@@ -512,18 +512,17 @@ func mergedRunTags(base, overlay map[string]string) map[string]string {
 }
 
 func mergeRunMetadata(metadata, defaults map[string]string) map[string]string {
-	if len(defaults) == 0 {
-		return metadata
-	}
-	if metadata == nil {
-		metadata = make(map[string]string, len(defaults))
-	}
+	merged := make(map[string]string, len(defaults)+len(metadata))
+	maps.Copy(merged, metadata)
 	for key, value := range defaults {
-		if _, exists := metadata[key]; !exists {
-			metadata[key] = value
+		if _, exists := merged[key]; !exists {
+			merged[key] = value
 		}
 	}
-	return metadata
+	if len(merged) == 0 {
+		return nil
+	}
+	return merged
 }
 
 func (s *Server) loadTriggerJob(ctx context.Context, jobID string) (*domain.Job, error) {
@@ -1163,7 +1162,7 @@ func (s *Server) validateTriggerRequest(ctx context.Context, jobID string, req T
 
 	projectQuota, err := s.quotaCache.Get(ctx, job.ProjectID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load project quota: %w", err)
+		return nil, fmt.Errorf("load project quota: %w", err)
 	}
 
 	if err := s.validateDryRunProjectQuota(ctx, job, projectQuota); err != nil {
@@ -1210,7 +1209,7 @@ func (s *Server) validateDryRunProjectQuota(ctx context.Context, job *domain.Job
 	if projectQuota.MaxQueuedRuns > 0 {
 		queuedRuns, err := s.store.CountProjectQueuedRuns(ctx, job.ProjectID)
 		if err != nil {
-			return fmt.Errorf("failed to evaluate project queued quota: %w", err)
+			return fmt.Errorf("evaluate project queued quota: %w", err)
 		}
 		if queuedRuns >= projectQuota.MaxQueuedRuns {
 			return errors.New("project queued quota exceeded")
@@ -1219,7 +1218,7 @@ func (s *Server) validateDryRunProjectQuota(ctx context.Context, job *domain.Job
 	if projectQuota.MaxExecutingRuns > 0 {
 		activeRuns, err := s.store.CountProjectActiveRuns(ctx, job.ProjectID)
 		if err != nil {
-			return fmt.Errorf("failed to evaluate project active quota: %w", err)
+			return fmt.Errorf("evaluate project active quota: %w", err)
 		}
 		if activeRuns >= projectQuota.MaxExecutingRuns {
 			return errors.New("project executing quota exceeded")
@@ -1235,7 +1234,7 @@ func (s *Server) validateDryRunJobRateLimit(ctx context.Context, job *domain.Job
 	since := time.Now().Add(-time.Duration(job.RateLimitWindowSecs) * time.Second)
 	runCount, err := s.store.CountRunsForJobSince(ctx, job.ID, since)
 	if err != nil {
-		return fmt.Errorf("failed to evaluate job rate limit: %w", err)
+		return fmt.Errorf("evaluate job rate limit: %w", err)
 	}
 	if runCount >= job.RateLimitMax {
 		return errors.New("job rate limit exceeded")
@@ -1251,7 +1250,7 @@ func (s *Server) dryRunValidationWarnings(ctx context.Context, job *domain.Job, 
 	since := time.Now().Add(-time.Duration(job.DedupWindowSecs) * time.Second)
 	existingRun, err := s.store.FindRecentRunByPayload(ctx, job.ID, payload, since)
 	if err != nil {
-		return nil, fmt.Errorf("failed to evaluate payload deduplication: %w", err)
+		return nil, fmt.Errorf("evaluate payload deduplication: %w", err)
 	}
 	if existingRun != nil {
 		warnings = append(warnings, fmt.Sprintf("payload deduplication: run %s", existingRun.ID))

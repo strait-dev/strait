@@ -141,7 +141,17 @@ type RunStore interface {
 	GetRunByIdempotencyKey(ctx context.Context, jobID, idempotencyKey string) (*domain.JobRun, error)
 	FindRecentRunByPayload(ctx context.Context, jobID string, payload json.RawMessage, since time.Time) (*domain.JobRun, error)
 	CountRunsForJobSince(ctx context.Context, jobID string, since time.Time) (int, error)
-	ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, executionMode *domain.ExecutionMode, errorClass *string, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	ListRunsByProject(
+		ctx context.Context,
+		projectID string,
+		status *domain.RunStatus,
+		metadataKey, metadataValue, triggeredBy, batchID *string,
+		payloadContains json.RawMessage,
+		executionMode *domain.ExecutionMode,
+		errorClass *string,
+		limit int,
+		cursor *time.Time,
+	) ([]domain.JobRun, error)
 	ListRunsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	ListDeadLetterRuns(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	ListDeadLetterRunsFiltered(ctx context.Context, projectID string, jobID *string, masked *bool, limit int, cursor *time.Time) ([]domain.JobRun, error)
@@ -279,7 +289,12 @@ type WorkflowStore interface {
 	UpdateWorkflowRunStatus(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	UpdateStepRunStatus(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
 	GetStepRunByWorkflowRunAndRef(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error)
-	ListWorkflowStepDecisions(ctx context.Context, workflowRunID, stepRef, decisionType string, limit int, cursor *time.Time) ([]domain.WorkflowStepDecision, error)
+	ListWorkflowStepDecisions(
+		ctx context.Context,
+		workflowRunID, stepRef, decisionType string,
+		limit int,
+		cursor *time.Time,
+	) ([]domain.WorkflowStepDecision, error)
 	GetWorkflowStepApprovalByStepRunID(ctx context.Context, stepRunID string) (*domain.WorkflowStepApproval, error)
 	UpdateWorkflowStepApproval(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
 	ListWorkflowVersions(ctx context.Context, workflowID string, limit int) ([]domain.WorkflowVersion, error)
@@ -317,8 +332,21 @@ type EventTriggerStore interface {
 	CreateEventTrigger(ctx context.Context, trigger *domain.EventTrigger) error
 	GetEventTriggerByEventKey(ctx context.Context, eventKey string) (*domain.EventTrigger, error)
 	UpdateEventTriggerStatus(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
-	UpdateEventTriggerStatusFrom(ctx context.Context, id string, from string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
-	ListEventTriggersByProject(ctx context.Context, projectID, environmentID, status, workflowRunID, sourceType string, limit int, cursor *time.Time) ([]domain.EventTrigger, error)
+	UpdateEventTriggerStatusFrom(
+		ctx context.Context,
+		id string,
+		from string,
+		status string,
+		responsePayload json.RawMessage,
+		receivedAt *time.Time,
+		errMsg string,
+	) error
+	ListEventTriggersByProject(
+		ctx context.Context,
+		projectID, environmentID, status, workflowRunID, sourceType string,
+		limit int,
+		cursor *time.Time,
+	) ([]domain.EventTrigger, error)
 	ListEventTriggersByKeyPrefix(ctx context.Context, prefix string, projectID string) ([]domain.EventTrigger, error)
 	CancelEventTriggersByWorkflowRun(ctx context.Context, workflowRunID string) (int64, error)
 	ReceiveEventAndRequeueRun(ctx context.Context, triggerID string, payload json.RawMessage, receivedAt time.Time, jobRunID string) error
@@ -387,7 +415,13 @@ type RBACStore interface {
 	GetAuditEventDeadletter(ctx context.Context, id, projectID string) (*domain.AuditEvent, error)
 	DeleteAuditEventDeadletter(ctx context.Context, id, projectID string) error
 	MarkAuditDeadletterReclaimed(ctx context.Context, dlqID, newEventID string) error
-	ListAuditEvents(ctx context.Context, projectID, actorID, resourceType, resourceID string, limit int, cursor, from, to *time.Time, ascending bool) ([]domain.AuditEvent, error)
+	ListAuditEvents(
+		ctx context.Context,
+		projectID, actorID, resourceType, resourceID string,
+		limit int,
+		cursor, from, to *time.Time,
+		ascending bool,
+	) ([]domain.AuditEvent, error)
 	GetAuditEvent(ctx context.Context, projectID, id string) (*domain.AuditEvent, error)
 	StreamAuditEvents(ctx context.Context, projectID, actorID, resourceType string, from, to time.Time, fn func(*domain.AuditEvent) error) error
 	VerifyAuditChain(ctx context.Context, projectID string) (*domain.AuditChainVerification, error)
@@ -437,7 +471,14 @@ type WorkflowCallback interface {
 }
 
 type WorkflowTrigger interface {
-	TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride, extraTags map[string]string) (*domain.WorkflowRun, error)
+	TriggerWorkflow(
+		ctx context.Context,
+		workflowID, projectID string,
+		payload json.RawMessage,
+		triggeredBy string,
+		stepOverrides []domain.StepOverride,
+		extraTags map[string]string,
+	) (*domain.WorkflowRun, error)
 	RetryWorkflowRun(ctx context.Context, originalRunID string) (*domain.WorkflowRun, error)
 }
 
@@ -457,7 +498,8 @@ type ErrorResponse struct {
 // APIError describes a single error with a machine-readable code, a
 // human-readable message, and optional supplemental detail strings.
 type APIError struct {
-	Code    string   `json:"code" enum:"bad_request,authentication_required,forbidden,not_found,conflict,validation_failed,rate_limited,enqueue_throttled,internal_error,service_unavailable" doc:"Canonical Strait error code"`
+	Code string `json:"code" enum:"bad_request,authentication_required,forbidden,not_found,conflict,validation_failed,rate_limited,enqueue_throttled,internal_error,service_unavailable" doc:"Canonical Strait error code"`
+
 	Message string   `json:"message" doc:"Human-readable error message"`
 	Details []string `json:"details,omitempty" doc:"Optional supplemental error details (e.g. per-field validation messages)"`
 }
@@ -950,7 +992,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	// RFC 8288 Link headers for agent discovery.
-	w.Header().Set("Link", `</reference/openapi.json>; rel="service-desc", </reference>; rel="service-doc", </.well-known/oauth-protected-resource>; rel="oauth-protected-resource"`)
+	w.Header().Set(
+		"Link",
+		`</reference/openapi.json>; rel="service-desc", </reference>; rel="service-doc", </.well-known/oauth-protected-resource>; rel="oauth-protected-resource"`,
+	)
 
 	resp := map[string]any{
 		"status":    "ok",

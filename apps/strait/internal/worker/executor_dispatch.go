@@ -88,7 +88,7 @@ func (e *Executor) dispatchSecrets(ctx context.Context, job *domain.Job) ([]doma
 
 	secrets, err := e.store.ListJobSecretsByJob(ctx, job.ID, job.EnvironmentID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load secrets for job %s: %w", job.ID, err)
+		return nil, fmt.Errorf("load job %s secrets: %w", job.ID, err)
 	}
 	dispatchCacheSet(ctx, secretsCacheKey, secrets)
 	return secrets, nil
@@ -746,7 +746,7 @@ func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *dom
 	}
 
 	if secretsErr != nil {
-		return nil, nil, fmt.Errorf("failed to load secrets for job %s: %w", job.ID, secretsErr)
+		return nil, nil, fmt.Errorf("load job %s secrets: %w", job.ID, secretsErr)
 	}
 
 	extraHeaders := make(map[string]string)

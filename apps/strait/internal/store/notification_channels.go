@@ -327,7 +327,7 @@ func (q *Queries) ClaimPendingNotificationDeliveries(ctx context.Context, limit 
 	if err != nil {
 		return nil, fmt.Errorf("claim pending notification deliveries: begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer rollbackTx(ctx, tx)
 
 	claimToken := uuid.Must(uuid.NewV7()).String()
 	leaseExpiry := time.Now().UTC().Add(leaseDuration)

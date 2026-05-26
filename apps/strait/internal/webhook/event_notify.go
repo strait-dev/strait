@@ -669,7 +669,13 @@ func (n *DeliveryWorker) attemptBatchDelivery(ctx context.Context, webhookURL st
 
 // checkBatchCircuitBreaker checks the circuit breaker for webhookURL and records failures
 // for all deliveries if the circuit is open. Returns true if the caller should return early.
-func (n *DeliveryWorker) checkBatchCircuitBreaker(ctx context.Context, webhookURL string, deliveries []domain.WebhookDelivery, now time.Time, span trace.Span) bool {
+func (n *DeliveryWorker) checkBatchCircuitBreaker(
+	ctx context.Context,
+	webhookURL string,
+	deliveries []domain.WebhookDelivery,
+	now time.Time,
+	span trace.Span,
+) bool {
 	if n.circuitBreaker == nil {
 		return false
 	}
@@ -693,7 +699,14 @@ func (n *DeliveryWorker) checkBatchCircuitBreaker(ctx context.Context, webhookUR
 
 // handleBatchResponseStatus processes non-2xx HTTP responses for a batch delivery.
 // Returns true if the caller should return early (error path).
-func (n *DeliveryWorker) handleBatchResponseStatus(ctx context.Context, webhookURL string, deliveries []domain.WebhookDelivery, now time.Time, statusCode int, span trace.Span) bool {
+func (n *DeliveryWorker) handleBatchResponseStatus(
+	ctx context.Context,
+	webhookURL string,
+	deliveries []domain.WebhookDelivery,
+	now time.Time,
+	statusCode int,
+	span trace.Span,
+) bool {
 	if statusCode >= 500 {
 		if n.circuitBreaker != nil {
 			n.circuitBreaker.RecordFailure(ctx, breakerKey(batchOrgID(deliveries), webhookURL))
