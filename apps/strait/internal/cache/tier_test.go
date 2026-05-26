@@ -63,7 +63,7 @@ func (f *fakeL2[K, V]) CompareAndSet(_ context.Context, key K, entry cacheEntry[
 		if entry.Version < current.Version {
 			return false, nil
 		}
-		if entry.Version == current.Version && !(current.Barrier && !entry.Barrier) {
+		if entry.Version == current.Version && (!current.Barrier || entry.Barrier) {
 			return false, nil
 		}
 	}

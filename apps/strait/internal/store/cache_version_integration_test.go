@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+	"strait/internal/store"
 )
 
 func TestCacheVersion_SchemaCoversStrongAndStatusTables(t *testing.T) {
@@ -212,7 +213,7 @@ func TestCacheNamespaceVersion_BumpEnsureAndRollback(t *testing.T) {
 		t.Fatalf("bumped version = %d, want 2", version)
 	}
 
-	errRollback := q.WithTxQueries(ctx, func(tx *Queries) error {
+	errRollback := q.WithTxQueries(ctx, func(tx *store.Queries) error {
 		if _, err := tx.BumpCacheNamespaceVersion(ctx, "permission", "project-1\x00user-1"); err != nil {
 			return err
 		}

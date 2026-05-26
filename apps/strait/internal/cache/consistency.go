@@ -101,6 +101,7 @@ func (t *Tier[K, V]) StrongInvalidate(ctx context.Context, policy StrongNamespac
 	return t.InvalidateThrough(ctx, key, bus, policy.Namespace, busKey, barrier.Version)
 }
 
+//nolint:gocyclo,cyclop // The versioned load path keeps the L1, L2, barrier, loader, and CAS decisions together so the consistency ordering is explicit.
 func (t *Tier[K, V]) loadVersionedThroughL2(ctx context.Context, key K, minVersion int64, loader VersionedLoadFunc[K, V]) (cacheEntry[V], error) {
 	if !t.disableL2 && t.l2 != nil {
 		entry, err := t.l2.Get(ctx, key)
