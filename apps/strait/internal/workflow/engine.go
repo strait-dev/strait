@@ -70,6 +70,15 @@ type projectExecutionStateStore interface {
 	IsProjectRunnable(ctx context.Context, projectID string) (bool, error)
 }
 
+type bootstrapStore interface {
+	CreateWorkflowRunBootstrap(ctx context.Context, run *domain.WorkflowRun, stepRuns []domain.WorkflowStepRun, startedAt time.Time) error
+}
+
+type rootStepStart struct {
+	stepRun *domain.WorkflowStepRun
+	step    *domain.WorkflowStep
+}
+
 // NewWorkflowEngine creates a new workflow engine for triggering and managing workflow runs.
 func NewWorkflowEngine(store EngineStore, queue EngineQueue, logger *slog.Logger) *WorkflowEngine {
 	if logger == nil {
@@ -169,38 +178,8 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 		e.recordTrigger(ctx, triggerStatus)
 	}()
 
-	wf, err := e.store.GetWorkflow(ctx, workflowID)
+	wf, projectID, err := e.loadRunnableWorkflow(ctx, workflowID, projectID)
 	if err != nil {
-		triggerStatus = "error"
-		return nil, fmt.Errorf("get workflow: %w", err)
-	}
-	if wf == nil {
-		triggerStatus = "error"
-		return nil, fmt.Errorf("workflow not found: %s", workflowID)
-	}
-	if !wf.Enabled {
-		triggerStatus = "error"
-		return nil, fmt.Errorf("workflow is disabled: %s", workflowID)
-	}
-	if projectID == "" {
-		projectID = wf.ProjectID
-	}
-	if wf.ProjectID != "" && projectID != wf.ProjectID {
-		triggerStatus = "error"
-		return nil, fmt.Errorf("workflow %s does not belong to project %s", workflowID, projectID)
-	}
-	if projectChecker, ok := e.store.(projectExecutionStateStore); ok {
-		runnable, checkErr := projectChecker.IsProjectRunnable(ctx, projectID)
-		if checkErr != nil {
-			triggerStatus = "error"
-			return nil, fmt.Errorf("check workflow project execution state: %w", checkErr)
-		}
-		if !runnable {
-			triggerStatus = "error"
-			return nil, fmt.Errorf("project %s is not active for workflow execution", projectID)
-		}
-	}
-	if err := e.applyCanaryRouting(ctx, wf); err != nil {
 		triggerStatus = "error"
 		return nil, err
 	}
@@ -211,7 +190,6 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 		return nil, fmt.Errorf("list workflow steps by version: %w", err)
 	}
 
-	// Apply step overrides to filter steps at trigger time.
 	if len(stepOverrides) > 0 {
 		steps, err = applyStepOverrides(steps, stepOverrides)
 		if err != nil {
@@ -251,69 +229,146 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 		triggeredBy = domain.TriggerManual
 	}
 
-	// Inherit workflow tags onto the run, then overlay any trigger-time tags.
-	var runTags map[string]string
-	if len(wf.Tags) > 0 || len(extraTags) > 0 {
-		runTags = make(map[string]string, len(wf.Tags)+len(extraTags))
-		maps.Copy(runTags, wf.Tags)
-		maps.Copy(runTags, extraTags)
+	wfRun := newWorkflowRun(ctx, wf, workflowID, projectID, payload, triggeredBy, parentWorkflowRunID, parentStepRunID, snapshot, extraTags)
+	now := time.Now()
+
+	stepRuns := initialWorkflowStepRuns(wfRun.ID, steps)
+	if err := e.bootstrapWorkflowRun(ctx, wfRun, stepRuns, now); err != nil {
+		triggerStatus = "error"
+		return nil, err
 	}
 
-	// Capture W3C trace context from the current OTel span for propagation.
-	var traceCtx map[string]string
-	spanCtx := otelTrace.SpanContextFromContext(ctx)
-	if spanCtx.IsValid() {
-		traceCtx = map[string]string{
-			"traceparent": fmt.Sprintf("00-%s-%s-%s", spanCtx.TraceID(), spanCtx.SpanID(), spanCtx.TraceFlags()),
+	roots := rootWorkflowSteps(steps, stepRuns)
+	wfRun.Status = domain.WfStatusRunning
+	wfRun.StartedAt = &now
+	recordWorkflowActiveRunDelta(ctx, wfRun.ProjectID, 1)
+	telemetry.AddSentryBreadcrumb(ctx, "workflow.state", "workflow run started", map[string]any{
+		"workflow_id":     wfRun.WorkflowID,
+		"workflow_run_id": wfRun.ID,
+		"project_id":      wfRun.ProjectID,
+		"version":         wfRun.WorkflowVersion,
+		"step_count":      len(stepRuns),
+		"root_count":      len(roots),
+	})
+
+	if err := e.startRootWorkflowSteps(ctx, wfRun, roots); err != nil {
+		triggerStatus = "error"
+		return nil, err
+	}
+
+	return wfRun, nil
+}
+
+func (e *WorkflowEngine) loadRunnableWorkflow(ctx context.Context, workflowID, projectID string) (*domain.Workflow, string, error) {
+	wf, err := e.store.GetWorkflow(ctx, workflowID)
+	if err != nil {
+		return nil, "", fmt.Errorf("get workflow: %w", err)
+	}
+	if wf == nil {
+		return nil, "", fmt.Errorf("workflow not found: %s", workflowID)
+	}
+	if !wf.Enabled {
+		return nil, "", fmt.Errorf("workflow is disabled: %s", workflowID)
+	}
+
+	if projectID == "" {
+		projectID = wf.ProjectID
+	}
+	if wf.ProjectID != "" && projectID != wf.ProjectID {
+		return nil, "", fmt.Errorf("workflow %s does not belong to project %s", workflowID, projectID)
+	}
+	if projectChecker, ok := e.store.(projectExecutionStateStore); ok {
+		runnable, err := projectChecker.IsProjectRunnable(ctx, projectID)
+		if err != nil {
+			return nil, "", fmt.Errorf("check workflow project execution state: %w", err)
 		}
-		if spanCtx.TraceState().Len() > 0 {
-			ts := spanCtx.TraceState().String()
-			if len(ts) <= 512 {
-				traceCtx["tracestate"] = ts
-			}
+		if !runnable {
+			return nil, "", fmt.Errorf("project %s is not active for workflow execution", projectID)
 		}
 	}
-
-	var snapshotID string
-	if snapshot != nil {
-		snapshotID = snapshot.ID
+	if err := e.applyCanaryRouting(ctx, wf); err != nil {
+		return nil, "", err
 	}
+	return wf, projectID, nil
+}
 
+func newWorkflowRun(
+	ctx context.Context,
+	wf *domain.Workflow,
+	workflowID string,
+	projectID string,
+	payload json.RawMessage,
+	triggeredBy string,
+	parentWorkflowRunID string,
+	parentStepRunID string,
+	snapshot *domain.WorkflowSnapshot,
+	extraTags map[string]string,
+) *domain.WorkflowRun {
 	wfRun := &domain.WorkflowRun{
+		ID:                  uuid.Must(uuid.NewV7()).String(),
 		WorkflowID:          workflowID,
 		ProjectID:           projectID,
-		Tags:                runTags,
+		Tags:                workflowRunTags(wf.Tags, extraTags),
 		Status:              domain.WfStatusPending,
 		TriggeredBy:         triggeredBy,
 		WorkflowVersion:     wf.Version,
 		WorkflowVersionID:   wf.VersionID,
-		WorkflowSnapshotID:  snapshotID,
+		WorkflowSnapshotID:  workflowSnapshotID(snapshot),
 		MaxParallelSteps:    wf.MaxParallelSteps,
 		Payload:             payload,
 		ParentWorkflowRunID: parentWorkflowRunID,
 		ParentStepRunID:     parentStepRunID,
-		TraceContext:        traceCtx,
-	}
-	if wfRun.ID == "" {
-		wfRun.ID = uuid.Must(uuid.NewV7()).String()
+		TraceContext:        workflowTraceContext(ctx),
 	}
 	if wf.TimeoutSecs > 0 {
 		expiresAt := time.Now().Add(time.Duration(wf.TimeoutSecs) * time.Second)
 		wfRun.ExpiresAt = &expiresAt
 	}
-	now := time.Now()
+	return wfRun
+}
 
-	type rootToStart struct {
-		stepRun *domain.WorkflowStepRun
-		step    *domain.WorkflowStep
+func workflowRunTags(workflowTags, extraTags map[string]string) map[string]string {
+	if len(workflowTags) == 0 && len(extraTags) == 0 {
+		return nil
 	}
-	roots := make([]rootToStart, 0)
+	runTags := make(map[string]string, len(workflowTags)+len(extraTags))
+	maps.Copy(runTags, workflowTags)
+	maps.Copy(runTags, extraTags)
+	return runTags
+}
+
+func workflowTraceContext(ctx context.Context) map[string]string {
+	spanCtx := otelTrace.SpanContextFromContext(ctx)
+	if !spanCtx.IsValid() {
+		return nil
+	}
+
+	traceCtx := map[string]string{
+		"traceparent": fmt.Sprintf("00-%s-%s-%s", spanCtx.TraceID(), spanCtx.SpanID(), spanCtx.TraceFlags()),
+	}
+	if spanCtx.TraceState().Len() > 0 {
+		traceState := spanCtx.TraceState().String()
+		if len(traceState) <= 512 {
+			traceCtx["tracestate"] = traceState
+		}
+	}
+	return traceCtx
+}
+
+func workflowSnapshotID(snapshot *domain.WorkflowSnapshot) string {
+	if snapshot == nil {
+		return ""
+	}
+	return snapshot.ID
+}
+
+func initialWorkflowStepRuns(workflowRunID string, steps []domain.WorkflowStep) []domain.WorkflowStepRun {
 	stepRuns := make([]domain.WorkflowStepRun, 0, len(steps))
 	for i := range steps {
 		step := &steps[i]
 		sr := domain.WorkflowStepRun{
 			ID:             uuid.Must(uuid.NewV7()).String(),
-			WorkflowRunID:  wfRun.ID,
+			WorkflowRunID:  workflowRunID,
 			WorkflowStepID: step.ID,
 			StepRef:        step.StepRef,
 			DepsCompleted:  0,
@@ -327,73 +382,69 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 		}
 		stepRuns = append(stepRuns, sr)
 	}
+	return stepRuns
+}
 
-	type bootstrapStore interface {
-		CreateWorkflowRunBootstrap(ctx context.Context, run *domain.WorkflowRun, stepRuns []domain.WorkflowStepRun, startedAt time.Time) error
-	}
+func (e *WorkflowEngine) bootstrapWorkflowRun(
+	ctx context.Context,
+	wfRun *domain.WorkflowRun,
+	stepRuns []domain.WorkflowStepRun,
+	now time.Time,
+) error {
 	if bs, ok := e.store.(bootstrapStore); ok {
 		if err := bs.CreateWorkflowRunBootstrap(ctx, wfRun, stepRuns, now); err != nil {
-			triggerStatus = "error"
-			return nil, fmt.Errorf("create workflow bootstrap: %w", err)
+			return fmt.Errorf("create workflow bootstrap: %w", err)
 		}
-	} else {
-		if err := e.store.CreateWorkflowRun(ctx, wfRun); err != nil {
-			triggerStatus = "error"
-			return nil, fmt.Errorf("create workflow run: %w", err)
-		}
-		if err := e.store.UpdateWorkflowRunStatus(ctx, wfRun.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{"started_at": now}); err != nil {
-			triggerStatus = "error"
-			return nil, fmt.Errorf("start workflow run: %w", err)
-		}
-		for i := range stepRuns {
-			if err := e.store.CreateWorkflowStepRun(ctx, &stepRuns[i]); err != nil {
-				triggerStatus = "error"
-				return nil, fmt.Errorf("create step run %s: %w", stepRuns[i].StepRef, err)
-			}
+		return nil
+	}
+	if err := e.store.CreateWorkflowRun(ctx, wfRun); err != nil {
+		return fmt.Errorf("create workflow run: %w", err)
+	}
+	if err := e.store.UpdateWorkflowRunStatus(ctx, wfRun.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{"started_at": now}); err != nil {
+		return fmt.Errorf("start workflow run: %w", err)
+	}
+	for i := range stepRuns {
+		if err := e.store.CreateWorkflowStepRun(ctx, &stepRuns[i]); err != nil {
+			return fmt.Errorf("create step run %s: %w", stepRuns[i].StepRef, err)
 		}
 	}
-	wfRun.Status = domain.WfStatusRunning
-	wfRun.StartedAt = &now
-	recordWorkflowActiveRunDelta(ctx, wfRun.ProjectID, 1)
-	telemetry.AddSentryBreadcrumb(ctx, "workflow.state", "workflow run started", map[string]any{
-		"workflow_id":     wfRun.WorkflowID,
-		"workflow_run_id": wfRun.ID,
-		"project_id":      wfRun.ProjectID,
-		"version":         wfRun.WorkflowVersion,
-		"step_count":      len(stepRuns),
-		"root_count":      len(roots),
-	})
+	return nil
+}
 
+func rootWorkflowSteps(steps []domain.WorkflowStep, stepRuns []domain.WorkflowStepRun) []rootStepStart {
+	roots := make([]rootStepStart, 0)
 	for i := range steps {
-		step := &steps[i]
-		sr := &stepRuns[i]
-		if len(step.DependsOn) == 0 {
-			roots = append(roots, rootToStart{stepRun: sr, step: step})
+		if len(steps[i].DependsOn) == 0 {
+			roots = append(roots, rootStepStart{stepRun: &stepRuns[i], step: &steps[i]})
 		}
 	}
+	return roots
+}
 
+func (e *WorkflowEngine) startRootWorkflowSteps(
+	ctx context.Context,
+	wfRun *domain.WorkflowRun,
+	roots []rootStepStart,
+) error {
 	runningStarts := 0
 	runningByConcurrencyKey := make(map[string]int)
 	for _, root := range roots {
 		if wfRun.MaxParallelSteps > 0 && runningStarts >= wfRun.MaxParallelSteps {
 			if err := e.store.UpdateStepRunStatus(ctx, root.stepRun.ID, domain.StepWaiting, nil); err != nil {
-				triggerStatus = "error"
-				return nil, fmt.Errorf("set root step waiting %s: %w", root.step.StepRef, err)
+				return fmt.Errorf("set root step waiting %s: %w", root.step.StepRef, err)
 			}
 			root.stepRun.Status = domain.StepWaiting
 			continue
 		}
 		if root.step.ConcurrencyKey != "" && runningByConcurrencyKey[root.step.ConcurrencyKey] > 0 {
 			if err := e.store.UpdateStepRunStatus(ctx, root.stepRun.ID, domain.StepWaiting, nil); err != nil {
-				triggerStatus = "error"
-				return nil, fmt.Errorf("set root step waiting by concurrency key %s: %w", root.step.StepRef, err)
+				return fmt.Errorf("set root step waiting by concurrency key %s: %w", root.step.StepRef, err)
 			}
 			root.stepRun.Status = domain.StepWaiting
 			continue
 		}
 		if err := e.startStep(ctx, root.stepRun, root.step, wfRun, nil); err != nil {
-			triggerStatus = "error"
-			return nil, fmt.Errorf("start root step %s: %w", root.step.StepRef, err)
+			return fmt.Errorf("start root step %s: %w", root.step.StepRef, err)
 		}
 		if root.stepRun.Status == domain.StepRunning {
 			runningStarts++
@@ -402,8 +453,7 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 			}
 		}
 	}
-
-	return wfRun, nil
+	return nil
 }
 
 func (e *WorkflowEngine) applyCanaryRouting(ctx context.Context, wf *domain.Workflow) error {

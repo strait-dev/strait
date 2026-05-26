@@ -1586,10 +1586,6 @@ func TestRecordPartitionStats_NonZeroUpdates_RecordsRatio(t *testing.T) {
 	// correct division is the only thing that produces a sane ratio.
 }
 
-// ─────────────────────────────────────────────────────────────────────────.
-// Section: wave-2 mutation killers.
-// ─────────────────────────────────────────────────────────────────────────.
-
 // Kill: enqueue_retry.go:86 INCREMENT_DECREMENT (attempt++ → attempt--).
 // Capture each sleep delay through the full retry loop and verify strictly
 // increasing progression. If attempt decrements, delays would shrink.

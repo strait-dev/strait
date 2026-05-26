@@ -3259,39 +3259,38 @@ func TestPgStore_HTTPDowngradeLifecycle_FullCycle(t *testing.T) {
 	createHTTPJob(t, ctx, q, p.ID)
 	createHTTPJob(t, ctx, q, p.ID)
 
-	// Step 1: Pause HTTP jobs (simulate downgrade).
+	// Simulate downgrade enforcement by pausing HTTP jobs.
 	paused, err := pgStore.PauseHTTPJobsByOrg(ctx, orgID, "plan_downgrade")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(paused) != 3 {
-		t.Fatalf("step 1: expected 3 paused, got %d", len(paused))
+		t.Fatalf("expected 3 paused, got %d", len(paused))
 	}
 
 	got, _ := q.GetJob(ctx, h1.ID)
 	if !got.Paused {
-		t.Error("step 1: HTTP job should be paused")
+		t.Error("HTTP job should be paused")
 	}
 	if got.PauseReason != "plan_downgrade" {
-		t.Errorf("step 1: pause_reason = %q, want plan_downgrade", got.PauseReason)
+		t.Errorf("pause_reason = %q, want plan_downgrade", got.PauseReason)
 	}
 
-	// Step 2: Unpause (simulate upgrade back to Pro).
+	// Simulate upgrade enforcement restoring jobs paused for downgrade.
 	unpaused, err := pgStore.UnpauseJobsByPauseReason(ctx, orgID, "plan_downgrade")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if unpaused != 3 {
-		t.Fatalf("step 2: expected 3 unpaused, got %d", unpaused)
+		t.Fatalf("expected 3 unpaused, got %d", unpaused)
 	}
 
-	// Verify HTTP job is unpaused.
 	got2, _ := q.GetJob(ctx, h1.ID)
 	if got2.Paused {
-		t.Error("step 2: HTTP job should be unpaused after upgrade")
+		t.Error("HTTP job should be unpaused after upgrade")
 	}
 	if got2.PauseReason != "" {
-		t.Errorf("step 2: pause_reason should be empty, got %q", got2.PauseReason)
+		t.Errorf("pause_reason should be empty, got %q", got2.PauseReason)
 	}
 }
 

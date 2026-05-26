@@ -247,10 +247,9 @@ func workerExecutorConfigForTest() worker.ExecutorConfig {
 }
 
 // TestAnomalyMonitorStore_SatisfiesInterface fails to build if the wrapper
-// drifts from scheduler.AnomalyMonitorStore. Phase 4.7 promises the runtime
-// scheduler is built with a non-nil anomaly monitor; a compile-time check is
-// the cheapest way to guarantee the wrapper keeps that promise as the
-// interface evolves.
+// drifts from scheduler.AnomalyMonitorStore. The runtime scheduler is built
+// with a non-nil anomaly monitor, and this compile-time check keeps the wrapper
+// aligned as the interface evolves.
 func TestAnomalyMonitorStore_SatisfiesInterface(t *testing.T) {
 	t.Helper()
 	var _ scheduler.AnomalyMonitorStore = (*anomalyMonitorStore)(nil)

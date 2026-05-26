@@ -34,6 +34,18 @@ type redactedHTTPDispatchError struct {
 	err     error
 }
 
+// dispatchPrefetch groups the endpoint guards that must be evaluated after
+// environment endpoint overrides, because every check keys off the final URL.
+type dispatchPrefetch struct {
+	circuitAllowed bool
+	circuitRetryAt *time.Time
+	circuitErr     error
+	healthScore    *domain.EndpointHealthScore
+	healthAllowed  bool
+	healthErr      error
+	adaptiveStats  *store.JobHealthStats
+}
+
 const workflowStepVisibilityRetryDelay = 250 * time.Millisecond
 
 func (e *redactedHTTPDispatchError) Error() string {
@@ -80,6 +92,166 @@ func (e *Executor) dispatchSecrets(ctx context.Context, job *domain.Job) ([]doma
 	}
 	dispatchCacheSet(ctx, secretsCacheKey, secrets)
 	return secrets, nil
+}
+
+// applyEnvironmentEndpointOverride only swaps the URL when the override passes
+// SSRF validation and the dispatch has no job secrets to redirect.
+func (e *Executor) applyEnvironmentEndpointOverride(ctx context.Context, run *domain.JobRun, job *domain.Job) {
+	if job.EnvironmentID == "" {
+		return
+	}
+	envVars, err := e.store.GetResolvedEnvironmentVariables(ctx, job.EnvironmentID)
+	if err != nil {
+		e.logger.Warn("failed to resolve environment variables", "run_id", run.ID, "environment_id", job.EnvironmentID, "error", err)
+		return
+	}
+	override := envVars["ENDPOINT_URL"]
+	if override == "" {
+		return
+	}
+	if err := validateEndpointURL(override); err != nil {
+		e.logger.Warn("environment ENDPOINT_URL failed SSRF validation",
+			"run_id", run.ID,
+			"environment_id", job.EnvironmentID,
+			"error", err,
+		)
+		return
+	}
+	secrets, err := e.dispatchSecrets(ctx, job)
+	if err != nil {
+		e.logger.Warn("environment ENDPOINT_URL ignored because dispatch secrets could not be checked",
+			"run_id", run.ID,
+			"environment_id", job.EnvironmentID,
+			"error", err,
+		)
+		return
+	}
+	if len(secrets) > 0 {
+		e.logger.Warn("environment ENDPOINT_URL ignored because job dispatch includes secrets",
+			"run_id", run.ID,
+			"environment_id", job.EnvironmentID,
+		)
+		return
+	}
+	e.logger.Info("overriding endpoint URL from environment",
+		"run_id", run.ID,
+		"environment_id", job.EnvironmentID,
+	)
+	job.EndpointURL = override
+}
+
+func (e *Executor) prefetchDispatchGuards(
+	ctx context.Context,
+	job *domain.Job,
+	policy executionPolicy,
+) dispatchPrefetch {
+	endpointKey := endpointStateKey(job.ProjectID, job.EndpointURL)
+	var result dispatchPrefetch
+	var prefetchWG conc.WaitGroup
+	prefetchWG.Go(func() {
+		result.circuitAllowed, result.circuitRetryAt, result.circuitErr = e.store.CanDispatchEndpoint(
+			ctx,
+			endpointKey,
+			time.Now().UTC(),
+		)
+	})
+	prefetchWG.Go(func() {
+		result.healthScore, result.healthAllowed, result.healthErr = e.healthScorer.CheckHealth(ctx, endpointKey)
+	})
+	if policy.timeoutSecs > 0 {
+		prefetchWG.Go(func() {
+			result.adaptiveStats, _ = e.getJobHealthStatsCached(ctx, job.ID, time.Now().Add(-24*time.Hour))
+		})
+	}
+	prefetchWG.Wait()
+	return result
+}
+
+func (e *Executor) enforceDispatchBilling(
+	ctx context.Context,
+	run *domain.JobRun,
+	job *domain.Job,
+) (func(), bool) {
+	if e.billingEnforcer == nil {
+		return nil, true
+	}
+	if err := e.billingEnforcer.CheckProjectSuspended(ctx, job.ProjectID); err != nil {
+		e.logger.Warn("project suspended", "run_id", run.ID, "project_id", job.ProjectID, "error", err)
+		e.handleSystemFailureWithJob(ctx, run, job, err.Error())
+		return nil, false
+	}
+
+	orgID, err := e.billingEnforcer.GetProjectOrgID(ctx, job.ProjectID)
+	if err != nil {
+		e.logger.Warn("failed to resolve org for billing check", "run_id", run.ID, "error", err, "fail_open", true)
+	}
+	if orgID == "" {
+		return nil, true
+	}
+	if !e.checkDispatchBillingLimits(ctx, run, job, orgID) {
+		return nil, false
+	}
+	releaseCtx := context.WithoutCancel(ctx)
+	return func() {
+		e.billingEnforcer.DecrConcurrentRunCount(releaseCtx, orgID)
+	}, true
+}
+
+func (e *Executor) checkDispatchBillingLimits(
+	ctx context.Context,
+	run *domain.JobRun,
+	job *domain.Job,
+	orgID string,
+) bool {
+	if err := e.billingEnforcer.CheckSpendingLimit(ctx, orgID); err != nil {
+		e.logger.Warn("org spending limit exceeded", "run_id", run.ID, "org_id", orgID, "error", err)
+		e.handleSystemFailureWithJob(ctx, run, job, err.Error())
+		return false
+	}
+	if err := e.billingEnforcer.CheckProjectBudgetLimit(ctx, job.ProjectID); err != nil {
+		e.logger.Warn("project budget limit exceeded", "run_id", run.ID, "project_id", job.ProjectID, "error", err)
+		e.handleSystemFailureWithJob(ctx, run, job, err.Error())
+		return false
+	}
+	if err := e.billingEnforcer.CheckDailyRunLimit(ctx, orgID); err != nil {
+		e.logger.Warn("org daily run limit exceeded", "run_id", run.ID, "org_id", orgID, "error", err)
+		e.handleSystemFailureWithJob(ctx, run, job, err.Error())
+		return false
+	}
+	if err := e.billingEnforcer.CheckMonthlyRunLimit(ctx, orgID); err != nil {
+		e.logger.Warn("org monthly run limit exceeded", "run_id", run.ID, "org_id", orgID, "error", err)
+		e.billingEnforcer.DecrDailyRunCount(ctx, orgID)
+		e.handleSystemFailureWithJob(ctx, run, job, err.Error())
+		return false
+	}
+	if err := e.billingEnforcer.CheckConcurrentRunLimit(ctx, orgID); err != nil {
+		e.logger.Warn("org concurrent run limit exceeded", "run_id", run.ID, "org_id", orgID, "error", err)
+		e.billingEnforcer.DecrDailyRunCount(ctx, orgID)
+		e.billingEnforcer.DecrMonthlyRunCount(ctx, orgID)
+		e.handleSystemFailureWithJob(ctx, run, job, err.Error())
+		return false
+	}
+	return e.checkDispatchHTTPModeAllowed(ctx, run, job, orgID)
+}
+
+func (e *Executor) checkDispatchHTTPModeAllowed(
+	ctx context.Context,
+	run *domain.JobRun,
+	job *domain.Job,
+	orgID string,
+) bool {
+	if job.ExecutionMode != domain.ExecutionModeHTTP && job.ExecutionMode != "" {
+		return true
+	}
+	limits, err := e.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
+	if err != nil || limits.AllowsHTTPMode {
+		return true
+	}
+	billing.RecordHTTPModeGateRejected(ctx, string(limits.PlanTier), "dispatch")
+	e.billingEnforcer.DecrDailyRunCount(ctx, orgID)
+	e.billingEnforcer.DecrMonthlyRunCount(ctx, orgID)
+	e.handleSystemFailureWithJob(ctx, run, job, "HTTP execution mode requires the Pro plan. Upgrade at /settings/billing")
+	return false
 }
 
 // resolveJobForRun loads the job configuration for a run, applying version
@@ -216,116 +388,22 @@ func (e *Executor) execute(ctx context.Context, run *domain.JobRun) {
 	handler(ctx, ec)
 }
 
-//nolint:gocyclo,cyclop,funlen,gocognit,nestif
 func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 	run := ec.Run
 	executeStart := ec.Start
 
-	job, err := e.resolveJobForRun(ctx, run)
-	if err != nil || job == nil {
-		e.logger.Error(
-			"job lookup failed",
-			"run_id", run.ID,
-			"job_id", run.JobID,
-			"job_version", run.JobVersion,
-			"error", err,
-		)
-		e.handleSystemFailure(ctx, run, "job not found")
+	job, policy, ok := e.resolveDispatchJobAndPolicy(ctx, run)
+	if !ok {
 		return
 	}
 	ec.Job = job
 
-	policy := defaultExecutionPolicy(job)
-	resolved, policyErr := e.resolveExecutionPolicy(ctx, run, policy)
-	if policyErr != nil {
-		if errors.Is(policyErr, store.ErrWorkflowStepRunNotFound) {
-			retryAt := time.Now().Add(workflowStepVisibilityRetryDelay)
-			e.logger.Warn("workflow step run not visible yet; requeueing run",
-				"run_id", run.ID,
-				"workflow_step_run_id", run.WorkflowStepRunID,
-				"retry_at", retryAt,
-			)
-			e.snoozeRun(ctx, run, "workflow step run not visible yet", &retryAt)
-			return
-		}
-		e.logger.Error("failed to resolve execution policy", "run_id", run.ID, "error", policyErr)
-		e.handleSystemFailureWithJob(ctx, run, job, "resolve execution policy")
+	releaseBilling, ok := e.enforceDispatchBilling(ctx, run, job)
+	if !ok {
 		return
 	}
-	policy = resolved
-
-	// Billing enforcement: daily, monthly, and concurrent run limits.
-	if e.billingEnforcer != nil { //nolint:nestif // billing enforcement is inherently nested with multiple sequential checks
-		if err := e.billingEnforcer.CheckProjectSuspended(ctx, job.ProjectID); err != nil {
-			e.logger.Warn("project suspended",
-				"run_id", run.ID, "project_id", job.ProjectID, "error", err)
-			e.handleSystemFailureWithJob(ctx, run, job, err.Error())
-			return
-		}
-
-		orgID, orgErr := e.billingEnforcer.GetProjectOrgID(ctx, job.ProjectID)
-		if orgErr != nil {
-			e.logger.Warn("failed to resolve org for billing check",
-				"run_id", run.ID, "error", orgErr, "fail_open", true)
-		}
-		if orgID != "" {
-			// Spending limit is checked before daily/monthly so a rejection
-			// here does not require rolling back any run-counter increment.
-			if err := e.billingEnforcer.CheckSpendingLimit(ctx, orgID); err != nil {
-				e.logger.Warn("org spending limit exceeded",
-					"run_id", run.ID, "org_id", orgID, "error", err)
-				e.handleSystemFailureWithJob(ctx, run, job, err.Error())
-				return
-			}
-			// Project budget check sits next to the org-level spending check
-			// because it shares the "no counters incremented yet" property:
-			// a budget rejection rolls nothing back. Only enforced when the
-			// project quota row sets budget_action='block'.
-			if err := e.billingEnforcer.CheckProjectBudgetLimit(ctx, job.ProjectID); err != nil {
-				e.logger.Warn("project budget limit exceeded",
-					"run_id", run.ID, "project_id", job.ProjectID, "error", err)
-				e.handleSystemFailureWithJob(ctx, run, job, err.Error())
-				return
-			}
-			if err := e.billingEnforcer.CheckDailyRunLimit(ctx, orgID); err != nil {
-				e.logger.Warn("org daily run limit exceeded",
-					"run_id", run.ID, "org_id", orgID, "error", err)
-				e.handleSystemFailureWithJob(ctx, run, job, err.Error())
-				return
-			}
-			if err := e.billingEnforcer.CheckMonthlyRunLimit(ctx, orgID); err != nil {
-				e.logger.Warn("org monthly run limit exceeded",
-					"run_id", run.ID, "org_id", orgID, "error", err)
-				e.billingEnforcer.DecrDailyRunCount(ctx, orgID)
-				e.handleSystemFailureWithJob(ctx, run, job, err.Error())
-				return
-			}
-			if err := e.billingEnforcer.CheckConcurrentRunLimit(ctx, orgID); err != nil {
-				e.logger.Warn("org concurrent run limit exceeded",
-					"run_id", run.ID, "org_id", orgID, "error", err)
-				e.billingEnforcer.DecrDailyRunCount(ctx, orgID)
-				e.billingEnforcer.DecrMonthlyRunCount(ctx, orgID)
-				e.handleSystemFailureWithJob(ctx, run, job, err.Error())
-				return
-			}
-
-			// HTTP mode plan gating at dispatch time.
-			// Catches jobs created on Pro that continue after downgrade to Starter/Free.
-			if job.ExecutionMode == domain.ExecutionModeHTTP || job.ExecutionMode == "" {
-				limits, limErr := e.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
-				if limErr == nil && !limits.AllowsHTTPMode {
-					billing.RecordHTTPModeGateRejected(ctx, string(limits.PlanTier), "dispatch")
-					e.billingEnforcer.DecrDailyRunCount(ctx, orgID)
-					e.billingEnforcer.DecrMonthlyRunCount(ctx, orgID)
-					e.handleSystemFailureWithJob(ctx, run, job,
-						"HTTP execution mode requires the Pro plan. Upgrade at /settings/billing")
-					return
-				}
-			}
-
-			decrCtx := context.WithoutCancel(ctx)
-			defer e.billingEnforcer.DecrConcurrentRunCount(decrCtx, orgID)
-		}
+	if releaseBilling != nil {
+		defer releaseBilling()
 	}
 
 	switch job.ExecutionMode {
@@ -340,151 +418,20 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 		return
 	}
 
-	if job.EnvironmentID != "" {
-		envVars, envErr := e.store.GetResolvedEnvironmentVariables(ctx, job.EnvironmentID)
-		if envErr != nil {
-			e.logger.Warn("failed to resolve environment variables", "run_id", run.ID, "environment_id", job.EnvironmentID, "error", envErr)
-		} else if override, ok := envVars["ENDPOINT_URL"]; ok && override != "" {
-			if err := validateEndpointURL(override); err != nil {
-				e.logger.Warn("environment ENDPOINT_URL failed SSRF validation",
-					"run_id", run.ID,
-					"environment_id", job.EnvironmentID,
-					"error", err,
-				)
-			} else if secrets, err := e.dispatchSecrets(ctx, job); err != nil {
-				e.logger.Warn("environment ENDPOINT_URL ignored because dispatch secrets could not be checked",
-					"run_id", run.ID,
-					"environment_id", job.EnvironmentID,
-					"error", err,
-				)
-			} else if len(secrets) > 0 {
-				e.logger.Warn("environment ENDPOINT_URL ignored because job dispatch includes secrets",
-					"run_id", run.ID,
-					"environment_id", job.EnvironmentID,
-				)
-			} else {
-				e.logger.Info("overriding endpoint URL from environment",
-					"run_id", run.ID,
-					"environment_id", job.EnvironmentID,
-				)
-				job.EndpointURL = override
-			}
-		}
-	}
-	// Run circuit breaker, health check, and adaptive timeout queries in parallel.
-	// All three depend on job.EndpointURL (which env var resolution may have overridden above).
-	var (
-		circuitAllowed bool
-		circuitRetryAt *time.Time
-		circuitErr     error
-		healthScore    *domain.EndpointHealthScore
-		healthAllowed  bool
-		healthErr      error
-		adaptiveStats  *store.JobHealthStats
-	)
-
-	var prefetchWG conc.WaitGroup
-	prefetchWG.Go(func() {
-		circuitAllowed, circuitRetryAt, circuitErr = e.store.CanDispatchEndpoint(ctx, endpointStateKey(job.ProjectID, job.EndpointURL), time.Now().UTC())
-	})
-	prefetchWG.Go(func() {
-		healthScore, healthAllowed, healthErr = e.healthScorer.CheckHealth(ctx, endpointStateKey(job.ProjectID, job.EndpointURL))
-	})
-	if policy.timeoutSecs > 0 {
-		prefetchWG.Go(func() {
-			adaptiveStats, _ = e.getJobHealthStatsCached(ctx, job.ID, time.Now().Add(-24*time.Hour))
-		})
-	}
-	prefetchWG.Wait()
-
-	if circuitErr != nil {
-		e.logger.Error(
-			"circuit breaker check failed",
-			"run_id", run.ID,
-			"job_id", run.JobID,
-			"endpoint", httputil.RedactURLForLog(job.EndpointURL),
-			"error", circuitErr,
-		)
-		e.handleSystemFailureWithJob(ctx, run, job, "circuit breaker unavailable")
+	readiness := e.prepareHTTPDispatch(ctx, run, job, policy)
+	if !readiness.ok {
 		return
 	}
+	defer readiness.releaseBulkhead()
 
-	if !circuitAllowed {
-		e.snoozeRun(ctx, run, "endpoint circuit breaker open", circuitRetryAt)
+	if !e.transitionRunToExecuting(ctx, run) {
 		return
 	}
-
-	// Health score check: block unhealthy endpoints, throttle degraded ones.
-	if healthErr != nil {
-		e.logger.Warn(
-			"health score check failed, proceeding with dispatch",
-			"run_id", run.ID,
-			"endpoint", httputil.RedactURLForLog(job.EndpointURL),
-			"error", healthErr,
-		)
-	} else if !healthAllowed {
-		healthRetryAt := NextRetryAt(run.Attempt)
-		e.logger.Info(
-			"endpoint unhealthy, snoozing run",
-			"run_id", run.ID,
-			"endpoint", httputil.RedactURLForLog(job.EndpointURL),
-			"health_score", healthScore.HealthScore,
-		)
-		e.snoozeRun(ctx, run, "endpoint health score below threshold", &healthRetryAt)
-		return
-	}
-
-	// Apply health-based concurrency throttling for degraded endpoints.
-	effectiveConcurrency := job.MaxConcurrency
-	if healthScore != nil {
-		effectiveConcurrency = ThrottledConcurrency(healthScore, job.MaxConcurrency)
-	}
-
-	acquired := e.tryAcquireBulkheadSlot(job.ID, effectiveConcurrency)
-	if !acquired {
-		bulkheadRetryAt := NextRetryAt(run.Attempt)
-		e.snoozeRun(ctx, run, "job bulkhead at capacity", &bulkheadRetryAt)
-		return
-	}
-	defer e.releaseBulkheadSlot(job.ID, job.MaxConcurrency)
-
-	startFrom := run.Status
-	if startFrom == "" {
-		startFrom = domain.StatusDequeued
-	}
-	publishFrom := startFrom
-	// Claim-table dequeue already set status=executing; skip redundant transition.
-	if run.Status != domain.StatusExecuting {
-		err = e.store.UpdateRunStatus(ctx, run.ID, startFrom, domain.StatusExecuting, map[string]any{
-			"started_at": time.Now(),
-		})
-		if err != nil {
-			e.logger.Error(
-				"failed to transition to executing",
-				"run_id", run.ID,
-				"job_id", run.JobID,
-				"error", err,
-			)
-			return
-		}
-		run.Status = domain.StatusExecuting
-	} else {
-		publishFrom = domain.StatusDequeued
-	}
-	e.publishEvent(ctx, run, map[string]any{"from": string(publishFrom), "to": "executing"})
 
 	e.heartbeat.Register(run.ID)
 	defer e.heartbeat.Deregister(run.ID)
 
-	timeout := time.Duration(policy.timeoutSecs) * time.Second
-	if adaptiveStats != nil && adaptiveStats.P95DurationSecs > 0 {
-		adaptiveTimeout := time.Duration(adaptiveStats.P95DurationSecs * 1.5 * float64(time.Second))
-		if adaptiveTimeout > timeout {
-			timeout = adaptiveTimeout
-			e.logger.Debug("using adaptive timeout", "job_id", job.ID, "p95_secs", adaptiveStats.P95DurationSecs, "timeout", timeout)
-		}
-	}
-	execCtx, cancel := context.WithTimeout(ctx, timeout)
+	execCtx, cancel := context.WithTimeout(ctx, e.dispatchTimeout(job, policy, readiness.prefetch.adaptiveStats))
 	defer cancel()
 
 	result, execTrace, err := e.tracedDispatch(execCtx, job, run)
@@ -498,26 +445,13 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 		}
 	}
 	if err != nil {
-		if job.FallbackEndpointURL != "" {
-			errClass := classifyError(err)
-			if shouldUseFallbackForClass(errClass) {
-				fallbackHeaders := make(map[string]string)
-				signingSecret, secretErr := e.endpointSigningSecret(job)
-				if secretErr != nil {
-					err = errors.Join(err, secretErr)
-				} else {
-					addHMACHeaders(fallbackHeaders, signingSecret, run.Payload)
-					fallbackResult, fallbackErr := e.dispatchToEndpoint(execCtx, job.FallbackEndpointURL, run, fallbackHeaders)
-					if fallbackErr == nil {
-						e.handleSuccessWithStats(ctx, run, job, fallbackResult, execTrace, adaptiveStats)
-						return
-					}
-					err = errors.Join(
-						fmt.Errorf("primary dispatch failed: %w", err),
-						fmt.Errorf("fallback dispatch failed: %w", fallbackErr),
-					)
-				}
-			}
+		fallbackResult, fallbackErr, fallbackOK := e.tryFallbackDispatch(execCtx, job, run, err)
+		if fallbackOK {
+			e.handleSuccessWithStats(ctx, run, job, fallbackResult, execTrace, readiness.prefetch.adaptiveStats)
+			return
+		}
+		if fallbackErr != nil {
+			err = fallbackErr
 		}
 
 		if execCtx.Err() == context.DeadlineExceeded {
@@ -528,30 +462,211 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 		return
 	}
 
-	// Record HTTP run cost for Stripe billing and usage records (cloud only).
-	if job.ExecutionMode == domain.ExecutionModeHTTP || job.ExecutionMode == "" {
-		billing.RecordHTTPModeRunCompleted(ctx)
-		e.ingestStripeUsageEvent(ctx, job.ProjectID, run.ID, billing.HTTPCostPerRunMicrousd)
-		if e.runCostRecorder != nil && e.billingEnforcer != nil {
-			orgID, orgErr := e.billingEnforcer.GetProjectOrgID(ctx, job.ProjectID)
-			if orgErr == nil && orgID != "" {
-				// Tracked on stripeUsageWG so graceful shutdown waits — without this the
-				// goroutine is torn down mid-write and the run completes without a billing row.
-				costCtx := context.WithoutCancel(ctx)
-				e.stripeUsageWG.Go(func() {
-					if err := e.runCostRecorder.RecordHTTPRunCost(costCtx, orgID, job.ProjectID, run.ID); err != nil {
-						e.logger.Warn("failed to record HTTP run cost",
-							"run_id", run.ID,
-							"org_id", orgID,
-							"error", err,
-						)
-					}
-				})
-			}
-		}
+	e.recordHTTPRunCost(ctx, job, run)
+	e.handleSuccessWithStats(ctx, run, job, result, execTrace, readiness.prefetch.adaptiveStats)
+}
+
+func (e *Executor) resolveDispatchJobAndPolicy(ctx context.Context, run *domain.JobRun) (*domain.Job, executionPolicy, bool) {
+	job, err := e.resolveJobForRun(ctx, run)
+	if err != nil || job == nil {
+		e.logger.Error(
+			"job lookup failed",
+			"run_id", run.ID,
+			"job_id", run.JobID,
+			"job_version", run.JobVersion,
+			"error", err,
+		)
+		e.handleSystemFailure(ctx, run, "job not found")
+		return nil, executionPolicy{}, false
 	}
 
-	e.handleSuccessWithStats(ctx, run, job, result, execTrace, adaptiveStats)
+	policy, err := e.resolveExecutionPolicy(ctx, run, defaultExecutionPolicy(job))
+	if err != nil {
+		if errors.Is(err, store.ErrWorkflowStepRunNotFound) {
+			retryAt := time.Now().Add(workflowStepVisibilityRetryDelay)
+			e.logger.Warn("workflow step run not visible yet; requeueing run",
+				"run_id", run.ID,
+				"workflow_step_run_id", run.WorkflowStepRunID,
+				"retry_at", retryAt,
+			)
+			e.snoozeRun(ctx, run, "workflow step run not visible yet", &retryAt)
+			return nil, executionPolicy{}, false
+		}
+		e.logger.Error("failed to resolve execution policy", "run_id", run.ID, "error", err)
+		e.handleSystemFailureWithJob(ctx, run, job, "resolve execution policy")
+		return nil, executionPolicy{}, false
+	}
+	return job, policy, true
+}
+
+type httpDispatchReadiness struct {
+	prefetch        dispatchPrefetch
+	releaseBulkhead func()
+	ok              bool
+}
+
+func (e *Executor) prepareHTTPDispatch(
+	ctx context.Context,
+	run *domain.JobRun,
+	job *domain.Job,
+	policy executionPolicy,
+) httpDispatchReadiness {
+	e.applyEnvironmentEndpointOverride(ctx, run, job)
+	prefetch := e.prefetchDispatchGuards(ctx, job, policy)
+	if !e.checkEndpointGuards(ctx, run, job, prefetch) {
+		return httpDispatchReadiness{}
+	}
+
+	effectiveConcurrency := job.MaxConcurrency
+	if prefetch.healthScore != nil {
+		effectiveConcurrency = ThrottledConcurrency(prefetch.healthScore, job.MaxConcurrency)
+	}
+	if !e.tryAcquireBulkheadSlot(job.ID, effectiveConcurrency) {
+		bulkheadRetryAt := NextRetryAt(run.Attempt)
+		e.snoozeRun(ctx, run, "job bulkhead at capacity", &bulkheadRetryAt)
+		return httpDispatchReadiness{}
+	}
+	return httpDispatchReadiness{
+		prefetch: prefetch,
+		releaseBulkhead: func() {
+			e.releaseBulkheadSlot(job.ID, job.MaxConcurrency)
+		},
+		ok: true,
+	}
+}
+
+func (e *Executor) checkEndpointGuards(
+	ctx context.Context,
+	run *domain.JobRun,
+	job *domain.Job,
+	prefetch dispatchPrefetch,
+) bool {
+	if prefetch.circuitErr != nil {
+		e.logger.Error(
+			"circuit breaker check failed",
+			"run_id", run.ID,
+			"job_id", run.JobID,
+			"endpoint", httputil.RedactURLForLog(job.EndpointURL),
+			"error", prefetch.circuitErr,
+		)
+		e.handleSystemFailureWithJob(ctx, run, job, "circuit breaker unavailable")
+		return false
+	}
+	if !prefetch.circuitAllowed {
+		e.snoozeRun(ctx, run, "endpoint circuit breaker open", prefetch.circuitRetryAt)
+		return false
+	}
+	if prefetch.healthErr != nil {
+		e.logger.Warn(
+			"health score check failed, proceeding with dispatch",
+			"run_id", run.ID,
+			"endpoint", httputil.RedactURLForLog(job.EndpointURL),
+			"error", prefetch.healthErr,
+		)
+		return true
+	}
+	if prefetch.healthAllowed {
+		return true
+	}
+	healthRetryAt := NextRetryAt(run.Attempt)
+	e.logger.Info(
+		"endpoint unhealthy, snoozing run",
+		"run_id", run.ID,
+		"endpoint", httputil.RedactURLForLog(job.EndpointURL),
+		"health_score", prefetch.healthScore.HealthScore,
+	)
+	e.snoozeRun(ctx, run, "endpoint health score below threshold", &healthRetryAt)
+	return false
+}
+
+func (e *Executor) transitionRunToExecuting(ctx context.Context, run *domain.JobRun) bool {
+	startFrom := run.Status
+	if startFrom == "" {
+		startFrom = domain.StatusDequeued
+	}
+	publishFrom := startFrom
+	if run.Status != domain.StatusExecuting {
+		if err := e.store.UpdateRunStatus(ctx, run.ID, startFrom, domain.StatusExecuting, map[string]any{
+			"started_at": time.Now(),
+		}); err != nil {
+			e.logger.Error(
+				"failed to transition to executing",
+				"run_id", run.ID,
+				"job_id", run.JobID,
+				"error", err,
+			)
+			return false
+		}
+		run.Status = domain.StatusExecuting
+	} else {
+		publishFrom = domain.StatusDequeued
+	}
+	e.publishEvent(ctx, run, map[string]any{"from": string(publishFrom), "to": "executing"})
+	return true
+}
+
+func (e *Executor) dispatchTimeout(job *domain.Job, policy executionPolicy, stats *store.JobHealthStats) time.Duration {
+	timeout := time.Duration(policy.timeoutSecs) * time.Second
+	if stats == nil || stats.P95DurationSecs <= 0 {
+		return timeout
+	}
+	adaptiveTimeout := time.Duration(stats.P95DurationSecs * 1.5 * float64(time.Second))
+	if adaptiveTimeout <= timeout {
+		return timeout
+	}
+	e.logger.Debug("using adaptive timeout", "job_id", job.ID, "p95_secs", stats.P95DurationSecs, "timeout", adaptiveTimeout)
+	return adaptiveTimeout
+}
+
+func (e *Executor) tryFallbackDispatch(
+	ctx context.Context,
+	job *domain.Job,
+	run *domain.JobRun,
+	primaryErr error,
+) (json.RawMessage, error, bool) {
+	if job.FallbackEndpointURL == "" || !shouldUseFallbackForClass(classifyError(primaryErr)) {
+		return nil, nil, false
+	}
+	fallbackHeaders := make(map[string]string)
+	signingSecret, err := e.endpointSigningSecret(job)
+	if err != nil {
+		return nil, errors.Join(primaryErr, err), false
+	}
+	addHMACHeaders(fallbackHeaders, signingSecret, run.Payload)
+	result, err := e.dispatchToEndpoint(ctx, job.FallbackEndpointURL, run, fallbackHeaders)
+	if err == nil {
+		return result, nil, true
+	}
+	return nil, errors.Join(
+		fmt.Errorf("primary dispatch failed: %w", primaryErr),
+		fmt.Errorf("fallback dispatch failed: %w", err),
+	), false
+}
+
+func (e *Executor) recordHTTPRunCost(ctx context.Context, job *domain.Job, run *domain.JobRun) {
+	if job.ExecutionMode != domain.ExecutionModeHTTP && job.ExecutionMode != "" {
+		return
+	}
+	billing.RecordHTTPModeRunCompleted(ctx)
+	e.ingestStripeUsageEvent(ctx, job.ProjectID, run.ID, billing.HTTPCostPerRunMicrousd)
+	if e.runCostRecorder == nil || e.billingEnforcer == nil {
+		return
+	}
+	orgID, err := e.billingEnforcer.GetProjectOrgID(ctx, job.ProjectID)
+	if err != nil || orgID == "" {
+		return
+	}
+	// Tracked on stripeUsageWG so graceful shutdown waits for the billing row.
+	costCtx := context.WithoutCancel(ctx)
+	e.stripeUsageWG.Go(func() {
+		if err := e.runCostRecorder.RecordHTTPRunCost(costCtx, orgID, job.ProjectID, run.ID); err != nil {
+			e.logger.Warn("failed to record HTTP run cost",
+				"run_id", run.ID,
+				"org_id", orgID,
+				"error", err,
+			)
+		}
+	})
 }
 
 func defaultExecutionPolicy(job *domain.Job) executionPolicy {

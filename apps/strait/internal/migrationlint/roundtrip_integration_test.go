@@ -2,9 +2,9 @@
 
 package migrationlint_test
 
-// TestMigrationRoundtrip_PhaseTwo tests the seven phase-2 orchestration-only
-// migrations (000227–000233) each in isolation: up → assert schema → down →
-// assert schema → up → assert schema is restored.
+// The orchestration migration roundtrip tests exercise migrations
+// (000227-000233) each in isolation: up, assert schema, down, assert schema,
+// then up again to confirm the schema is restored.
 //
 // Design notes:
 //
@@ -198,13 +198,13 @@ func runRoundtrip(t *testing.T, targetVersion uint, extraChecks func(t *testing.
 	}
 	defer tdb.Cleanup(ctx)
 
-	// Step 1: Roll back to N-1 to establish baseline.
+	// Establish the pre-migration schema baseline.
 	if targetVersion > 1 {
 		migrateToVersion(t, tdb.ConnStr, targetVersion-1)
 	}
 	baseline := captureSchema(t, ctx, tdb)
 
-	// Step 2: Apply N.
+	// Capture the schema after applying the target migration.
 	migrateToVersion(t, tdb.ConnStr, targetVersion)
 	postUp := captureSchema(t, ctx, tdb)
 
@@ -212,7 +212,7 @@ func runRoundtrip(t *testing.T, targetVersion uint, extraChecks func(t *testing.
 		extraChecks(t, postUp)
 	}
 
-	// Step 3: Roll back to N-1. Assert schema matches baseline.
+	// Rolling back must restore the baseline schema.
 	if targetVersion > 1 {
 		migrateToVersion(t, tdb.ConnStr, targetVersion-1)
 	}
@@ -225,7 +225,7 @@ func runRoundtrip(t *testing.T, targetVersion uint, extraChecks func(t *testing.
 		t.Error(d)
 	}
 
-	// Step 4: Re-apply N. Assert schema matches postUp.
+	// Re-applying must return to the same post-up schema.
 	migrateToVersion(t, tdb.ConnStr, targetVersion)
 	postReUp := captureSchema(t, ctx, tdb)
 
@@ -421,7 +421,7 @@ func TestMigrationRoundtrip_000233_AddEndpointSigningSecret(t *testing.T) {
 	})
 }
 
-// TestMigrationRoundtrip_All runs all seven phase-2 migrations as a group on a
+// TestMigrationRoundtrip_All runs the orchestration migrations as a group on a
 // single shared DB, verifying the combined up→(all-down to 226)→up roundtrip.
 // This catches ordering dependencies across the migration sequence.
 func TestMigrationRoundtrip_All(t *testing.T) {
@@ -438,7 +438,7 @@ func TestMigrationRoundtrip_All(t *testing.T) {
 	// Capture post-all state.
 	postAll := captureSchema(t, ctx, tdb)
 
-	// Verify phase-2 additions.
+	// Verify schema additions.
 	for _, tbl := range []string{"workers", "worker_tasks"} {
 		if !postAll.tables[tbl] {
 			t.Errorf("post-all: table %s missing", tbl)
@@ -454,7 +454,7 @@ func TestMigrationRoundtrip_All(t *testing.T) {
 			t.Errorf("post-all: column %s missing", col)
 		}
 	}
-	// Verify phase-2 removals.
+	// Verify schema removals.
 	for _, tbl := range []string{"run_compute_usage", "job_preset_recommendations", "code_deployments"} {
 		if postAll.tables[tbl] {
 			t.Errorf("post-all: dropped table %s still present", tbl)
@@ -465,13 +465,13 @@ func TestMigrationRoundtrip_All(t *testing.T) {
 	migrateToVersion(t, tdb.ConnStr, 226)
 	postRollback := captureSchema(t, ctx, tdb)
 
-	// Phase-2 tables should be gone.
+	// Added tables should be gone.
 	for _, tbl := range []string{"workers", "worker_tasks"} {
 		if postRollback.tables[tbl] {
 			t.Errorf("post-rollback: table %s should be dropped", tbl)
 		}
 	}
-	// Phase-2 columns should be gone.
+	// Added columns should be gone.
 	for _, col := range []string{
 		"jobs.queue_name",
 		"job_runs.queue_name",

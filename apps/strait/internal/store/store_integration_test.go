@@ -944,10 +944,10 @@ func TestGetRunByIdempotencyKey_AllowsTerminalReplayAndReturnsLatest(t *testing.
 	}
 }
 
-// TestIdempotencyIndex_ConsolidatedShape verifies Wave 2 Phase 2 migration
-// 000255 dropped the partial-on-terminal-status index and replaced it with
-// a non-partial-on-status index keyed only on (job_id, idempotency_key).
-// The new shape prevents write amplification on terminal status flips.
+// TestIdempotencyIndex_ConsolidatedShape verifies migration 000255 dropped the
+// partial-on-terminal-status index and replaced it with a non-partial-on-status
+// index keyed only on (job_id, idempotency_key). The shape prevents write
+// amplification on terminal status flips.
 func TestIdempotencyIndex_ConsolidatedShape(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)

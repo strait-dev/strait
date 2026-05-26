@@ -119,8 +119,8 @@ func TestClaimTable_OrphanClaimRow(t *testing.T) {
 		t.Fatalf("insert orphan claim row: %v", err)
 	}
 
-	// DequeueNClaim: the DELETE phase removes the claim row, the UPDATE
-	// touches 0 job_runs rows, and the fetch returns 0 runs.
+	// DequeueNClaim deletes the claim row, touches 0 job_runs rows, and returns
+	// 0 runs.
 	batch, err := q.DequeueNClaim(ctx, 10)
 	if err != nil {
 		t.Fatalf("DequeueNClaim with orphan: %v", err)

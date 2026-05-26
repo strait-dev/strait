@@ -86,6 +86,36 @@ func subscribeRequiredWorkerControlChannel(ctx context.Context, pub pubsub.Publi
 	return sub, nil
 }
 
+func (s *workerService) ensureAPIKeyControlSubscriptions(
+	ctx context.Context,
+	apiKeyID string,
+	revokeSub *pubsub.Subscription,
+	expireSub *pubsub.Subscription,
+) (*pubsub.Subscription, *pubsub.Subscription, error) {
+	// The API key context is refreshed after the registration receive, so this
+	// helper is safe to call both before and after the first worker message.
+	if apiKeyID == "" {
+		return revokeSub, expireSub, nil
+	}
+	if revokeSub == nil {
+		revokeChannel := fmt.Sprintf("apikey:revoked:%s", apiKeyID)
+		sub, err := subscribeRequiredWorkerControlChannel(ctx, s.pub, revokeChannel, "api key revocation")
+		if err != nil {
+			return nil, expireSub, err
+		}
+		revokeSub = sub
+	}
+	if expireSub == nil {
+		expireChannel := fmt.Sprintf("apikey:expires:%s", apiKeyID)
+		sub, err := subscribeRequiredWorkerControlChannel(ctx, s.pub, expireChannel, "api key expiry")
+		if err != nil {
+			return revokeSub, nil, err
+		}
+		expireSub = sub
+	}
+	return revokeSub, expireSub, nil
+}
+
 // workerService implements workerv1.WorkerServiceServer.
 type workerService struct {
 	queries         *store.Queries
@@ -143,20 +173,11 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 			expireKeySub.Close()
 		}
 	}()
-	if apiKey.ID != "" {
-		revokeChannel := fmt.Sprintf("apikey:revoked:%s", apiKey.ID)
-		revokeKeySub, err = subscribeRequiredWorkerControlChannel(ctx, s.pub, revokeChannel, "api key revocation")
-		if err != nil {
-			return err
-		}
-		expireChannel := fmt.Sprintf("apikey:expires:%s", apiKey.ID)
-		expireKeySub, err = subscribeRequiredWorkerControlChannel(ctx, s.pub, expireChannel, "api key expiry")
-		if err != nil {
-			return err
-		}
+	revokeKeySub, expireKeySub, err = s.ensureAPIKeyControlSubscriptions(ctx, apiKey.ID, revokeKeySub, expireKeySub)
+	if err != nil {
+		return err
 	}
 
-	// Receive and validate the registration message.
 	firstMsg, err := recvWorkerRegistrationMessage(ctx, stream, revokeKeySub, apiKey.ID, apiKeyExpiresAt, apiKeyHasExpiry)
 	if err != nil {
 		if errors.Is(err, errAPIKeyRevoked) || errors.Is(err, errAPIKeyExpired) {
@@ -171,26 +192,14 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	ctx = withAPIKeyContext(ctx, apiKey)
 	projectID = apiKey.ProjectID
 	apiKeyExpiresAt, apiKeyHasExpiry = APIKeyExpiresAtFromContext(ctx)
-	if revokeKeySub == nil && apiKey.ID != "" {
-		revokeChannel := fmt.Sprintf("apikey:revoked:%s", apiKey.ID)
-		revokeKeySub, err = subscribeRequiredWorkerControlChannel(ctx, s.pub, revokeChannel, "api key revocation")
-		if err != nil {
-			return err
-		}
+	revokeKeySub, expireKeySub, err = s.ensureAPIKeyControlSubscriptions(ctx, apiKey.ID, revokeKeySub, expireKeySub)
+	if err != nil {
+		return err
 	}
-	if expireKeySub == nil && apiKey.ID != "" {
-		expireChannel := fmt.Sprintf("apikey:expires:%s", apiKey.ID)
-		expireKeySub, err = subscribeRequiredWorkerControlChannel(ctx, s.pub, expireChannel, "api key expiry")
-		if err != nil {
-			return err
-		}
+	reg, err := workerRegistrationFromFirstMessage(firstMsg)
+	if err != nil {
+		return err
 	}
-	regPayload, ok := firstMsg.Payload.(*workerv1.WorkerMessage_Registration)
-	if !ok || regPayload.Registration == nil {
-		return status.Error(codes.InvalidArgument, "first message must be WorkerRegistration")
-	}
-	reg := regPayload.Registration
-
 	if err := validateRegistration(reg); err != nil {
 		return err
 	}
@@ -314,6 +323,14 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	streamEndErr = firstErr
 	s.cleanupRegistration(projectID, reg.WorkerId, myToken)
 	return firstErr
+}
+
+func workerRegistrationFromFirstMessage(msg *workerv1.WorkerMessage) (*workerv1.WorkerRegistration, error) {
+	regPayload, ok := msg.Payload.(*workerv1.WorkerMessage_Registration)
+	if !ok || regPayload.Registration == nil {
+		return nil, status.Error(codes.InvalidArgument, "first message must be WorkerRegistration")
+	}
+	return regPayload.Registration, nil
 }
 
 func workerStreamGoroutineCount(disconnectSub, revokeKeySub *pubsub.Subscription, hasExpiry, renewsWorkerConnection bool) int {

@@ -91,4 +91,3 @@ func TestAdversarial_UpdateEntitlements_SQLInjectionInOrgID(t *testing.T) {
 		t.Errorf("SQL injection bypass: %d rows promoted to enterprise", count)
 	}
 }
-

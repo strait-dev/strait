@@ -67,9 +67,9 @@ func TestAuditForensic_RoundTrip(t *testing.T) {
 	if got.TraceID != ev.TraceID {
 		t.Errorf("trace_id = %q, want %q", got.TraceID, ev.TraceID)
 	}
-	// Wave 2: CreateAuditEvent auto-derives shard_id from resource_type
-	// for non-anchor events and force-bumps the canonical schema to v4 so
-	// the HMAC binds shard_id. Callers cannot opt out of the bump — it is
+	// CreateAuditEvent auto-derives shard_id from resource_type for
+	// non-anchor events and force-bumps the canonical schema to v4 so
+	// the HMAC binds shard_id. Callers cannot opt out of the bump; it is
 	// the invariant that prevents a shard_id flip from leaving a v3
 	// signature intact. Asserting v4 here pins that contract.
 	if got.SchemaVersion != 4 {

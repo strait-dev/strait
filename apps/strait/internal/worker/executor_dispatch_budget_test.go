@@ -47,9 +47,8 @@ func TestDispatchProjectBudget_BlockUnderBudget_Proceeds(t *testing.T) {
 	}
 }
 
-// TestDispatchProjectBudget_BlockOverBudget_Rejects is the headline
-// check for Phase 4.2: spend over the budget with action='block'
-// must reject the run before any counter increments.
+// TestDispatchProjectBudget_BlockOverBudget_Rejects verifies that spend over
+// the budget with action='block' rejects the run before any counter increments.
 func TestDispatchProjectBudget_BlockOverBudget_Rejects(t *testing.T) {
 	t.Parallel()
 	sub := &billing.OrgSubscription{

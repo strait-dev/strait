@@ -162,7 +162,7 @@ func TestPipeline_PaymentFailedThenInitialDunnerTick_DelinquentExactlyOnce(t *te
 	h := NewWebhookHandler(billingStore, mapping, "", slog.Default(), enf, nil,
 		WithDevBypassSignatureCheck(), WithDunningStore(dunStore))
 
-	// Step 1: Stripe fires invoice.payment_failed.
+	// Stripe marks the account delinquent before the dunning worker runs.
 	data := mustJSON(t, testInvoiceDataFull{
 		ID:         "in_pipeline_1",
 		CustomerID: stripeCustID,
@@ -175,7 +175,7 @@ func TestPipeline_PaymentFailedThenInitialDunnerTick_DelinquentExactlyOnce(t *te
 		t.Fatalf("webhook status = %d, want 200", rr.Code)
 	}
 
-	// Step 2: Dunner.Tick runs immediately afterwards (clock at entered_at + 1s).
+	// The dunning worker runs immediately afterwards at entered_at + 1s.
 	clock := time.Now().Add(1 * time.Second)
 	d := NewDunner(dunStore,
 		WithDunnerDispatcher(disp),

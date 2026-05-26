@@ -1079,9 +1079,9 @@ func (s *Server) resourceTags(ctx context.Context, resourceType, resourceID stri
 // application-level filtering. The main /v1 route group uses
 // rlsTxMiddleware instead, which provides real RLS enforcement.
 //
-// TODO: tighten SSE isolation by making SSE handlers run their initial
-// DB fetch inside store.WithTx + set_config and then release the tx
-// before entering the long-running pub/sub loop.
+// SSE handlers that need database reads should perform their initial fetch
+// inside store.WithTx + set_config and release the transaction before entering
+// the long-running pub/sub loop.
 func (s *Server) projectContextMiddleware(next http.Handler) http.Handler {
 	setter, ok := s.store.(ProjectContextSetter)
 	if !ok {

@@ -389,14 +389,14 @@ func TestBypass_PauseReasonSentinelConsistent(t *testing.T) {
 		},
 	}
 
-	// Step 1: Pause (what downgrade_applier does)
+	// Simulate the downgrade applier pausing HTTP jobs.
 	paused, err := store.PauseHTTPJobsByOrg(context.Background(), "org-1", reason)
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = paused
 
-	// Step 2: Unpause (what webhook upgrade does)
+	// Simulate a webhook upgrade restoring the paused jobs.
 	unpaused, err := store.UnpauseJobsByPauseReason(context.Background(), "org-1", reason)
 	if err != nil {
 		t.Fatal(err)

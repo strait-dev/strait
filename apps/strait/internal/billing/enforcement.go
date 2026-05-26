@@ -70,10 +70,9 @@ type Enforcer struct {
 	sentryRegion    string
 	sentryVersion   string
 	bgWG            conc.WaitGroup
-	// entitlementsAuthoritative controls the Phase 3.5 reader switch:
-	// when true (default), GetOrgPlanLimits reads the persisted snapshot
-	// directly when present. When false, it always recomputes from the
-	// catalog + addons pipeline. Operator escape hatch via
+	// entitlementsAuthoritative controls whether GetOrgPlanLimits reads the
+	// persisted snapshot directly when present. When false, it always recomputes
+	// from the catalog + addons pipeline. Operator escape hatch via
 	// BILLING_ENTITLEMENTS_AUTHORITATIVE.
 	entitlementsAuthoritative bool
 
@@ -460,8 +459,8 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 
 	tier := domain.PlanTier(sub.PlanTier)
 
-	// Phase 3.5: read the persisted entitlements snapshot when present.
-	// Empty (nil) and the literal `{}` default are treated as "no snapshot"
+	// Read the persisted entitlements snapshot when present. Empty (nil) and
+	// the literal `{}` default are treated as "no snapshot"
 	// so the recompute path opportunistically populates the column for
 	// orgs that haven't been touched by a mutator since migration 259.
 	usedSnapshot := false
@@ -2104,7 +2103,7 @@ const prioritySlotPackIncrement = 10
 
 // ApplySubscriptionAddOns extends a base OrgPlanLimits using the subscription-level
 // add-ons stored in the add_ons JSONB column. Enforcement points for limits that
-// don't yet exist are annotated with TODO comments.
+// are not enforced yet are called out at the relevant field branch.
 func ApplySubscriptionAddOns(base OrgPlanLimits, addOns SubscriptionAddOns) OrgPlanLimits {
 	result := base
 

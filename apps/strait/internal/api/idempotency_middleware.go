@@ -350,10 +350,9 @@ func (cw *captureWriter) Write(b []byte) (int, error) {
 
 // Flush forwards to the underlying writer when it implements
 // http.Flusher. Without this method, handlers that call w.(http.Flusher)
-// from under idempotencyMiddleware fail the type assertion exactly the
-// way bufferedResponseWriter did before phase 1, so any future SSE-ish
-// endpoint accepting Idempotency-Key would 500. The captured body is
-// independent of flushes — bytes already streamed remain in cw.body.
+// from under idempotencyMiddleware would fail the type assertion, so any
+// future SSE-style endpoint accepting Idempotency-Key would 500. The captured
+// body is independent of flushes; bytes already streamed remain in cw.body.
 func (cw *captureWriter) Flush() {
 	if f, ok := cw.ResponseWriter.(http.Flusher); ok {
 		f.Flush()

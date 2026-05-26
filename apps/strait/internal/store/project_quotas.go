@@ -67,7 +67,7 @@ func (q *Queries) ListAuditRetentionOverrides(ctx context.Context) ([]AuditReten
 //
 // The distinction matters: an explicit 0 must NOT be confused with absence.
 // An absent row means "inherit the default"; an explicit 0 means "never
-// trim" and the reaper honors that by skipping the project (Phase 2).
+// trim" and the reaper honors that by skipping the project.
 func (q *Queries) GetAuditRetentionDays(ctx context.Context, projectID string) (int, bool, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetAuditRetentionDays")
 	defer span.End()

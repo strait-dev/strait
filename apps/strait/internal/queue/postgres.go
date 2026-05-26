@@ -675,9 +675,9 @@ func (q *PostgresQueue) DequeueNFullyDenormalized(ctx context.Context, n int) ([
 	})
 }
 
-// DequeueNTwoPhase is the two-phase variant that separates the B-tree scan
-// from the fat-row fetch. Phase 1 claims IDs with a thin RETURNING id;
-// phase 2 fetches the full 38-column rows by PK. This eliminates fat-row
+// DequeueNTwoPhase separates the B-tree scan from the fat-row fetch. The first
+// query claims IDs with a thin RETURNING id; the second fetches the full
+// 38-column rows by PK. This eliminates fat-row
 // deserialization during the SKIP LOCKED scan, which is the dominant cost
 // when dead tuples force repeated heap page reads.
 func (q *PostgresQueue) DequeueNTwoPhase(ctx context.Context, n int) ([]domain.JobRun, error) {
