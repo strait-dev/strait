@@ -141,10 +141,11 @@ func newTierJobCache(ttl time.Duration, depsOpt ...workerCacheDeps) *tierJobCach
 	c.tier = straitcache.NewTier[string, *domain.Job](straitcache.TierConfig[string, *domain.Job]{
 		Name:        workerJobCacheNamespace,
 		L2:          l2,
-		Consistency: straitcache.BoundedStaleness,
+		Consistency: straitcache.Strong,
 		MaximumSize: 10_000,
 		TTL:         ttl,
 		TTLJitter:   0.1,
+		DisableL1:   l2 != nil,
 		DisableL2:   l2 == nil,
 		Clone:       cloneJob,
 	})
@@ -182,7 +183,7 @@ func (c *tierJobCache) Set(ctx context.Context, key string, job *domain.Job) err
 	if c == nil || c.tier == nil {
 		return nil
 	}
-	_, err := c.tier.WriteThrough(ctx, key, job, jobCacheVersion(job), c.bus, workerJobCacheNamespace, key)
+	_, err := c.tier.StrongWriteThrough(ctx, straitcache.StrongNamespacePolicy{Namespace: workerJobCacheNamespace}, key, key, job, jobCacheVersion(job), c.bus)
 	return err
 }
 
@@ -190,12 +191,15 @@ func (c *tierJobCache) Delete(ctx context.Context, key string) error {
 	if c == nil || c.tier == nil {
 		return nil
 	}
-	return c.tier.InvalidateThrough(ctx, key, c.bus, workerJobCacheNamespace, key, time.Now().UnixNano())
+	return c.tier.StrongInvalidate(ctx, straitcache.StrongNamespacePolicy{Namespace: workerJobCacheNamespace}, key, key, straitcache.VersionBarrier{Version: time.Now().UnixNano()}, c.bus)
 }
 
 func jobCacheVersion(job *domain.Job) int64 {
 	if job == nil {
 		return 0
+	}
+	if job.CacheVersion > 0 {
+		return job.CacheVersion
 	}
 	if !job.UpdatedAt.IsZero() {
 		return job.UpdatedAt.UnixNano()

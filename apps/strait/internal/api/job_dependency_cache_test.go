@@ -121,6 +121,47 @@ func TestJobDependencyCache_RefreshJobWritesEmptyTombstone(t *testing.T) {
 	}
 }
 
+func TestJobDependencyCache_StrongBarrierRejectsStaleListFill(t *testing.T) {
+	t.Parallel()
+
+	deps, cleanup := newTestRedisCacheDeps(t, nil)
+	defer cleanup()
+	cache := newJobDependencyCache(time.Minute, deps)
+
+	key := jobDepsCacheKey{JobID: "job-stale", Limit: defaultPageLimit + 1}
+	cache.InvalidateJobWithVersion(context.Background(), key.JobID, 10)
+
+	_, err := cache.List(context.Background(), key, func(context.Context, jobDepsCacheKey) (straitcache.Versioned[[]domain.JobDependency], error) {
+		return straitcache.Versioned[[]domain.JobDependency]{
+			Value:   []domain.JobDependency{{ID: "stale", JobID: key.JobID, CacheVersion: 9}},
+			Version: 9,
+		}, nil
+	})
+	if err == nil {
+		t.Fatal("List() error = nil, want stale version rejection")
+	}
+}
+
+func TestJobDependencyCache_StrongBarrierAllowsEqualVersionEmptyList(t *testing.T) {
+	t.Parallel()
+
+	deps, cleanup := newTestRedisCacheDeps(t, nil)
+	defer cleanup()
+	cache := newJobDependencyCache(time.Minute, deps)
+
+	key := jobDepsCacheKey{JobID: "job-empty-equal", Limit: defaultPageLimit + 1}
+	cache.InvalidateJobWithVersion(context.Background(), key.JobID, 12)
+	got, err := cache.List(context.Background(), key, func(context.Context, jobDepsCacheKey) (straitcache.Versioned[[]domain.JobDependency], error) {
+		return straitcache.Versioned[[]domain.JobDependency]{Value: nil, Version: 12}, nil
+	})
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("List() len = %d, want empty", len(got))
+	}
+}
+
 func TestJobDependenciesCacheVersion(t *testing.T) {
 	t.Parallel()
 

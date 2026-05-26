@@ -553,6 +553,8 @@ type Server struct {
 	quotaCache                 *quotaCache
 	apiKeyCache                *apiKeyCache
 	jobDependencyCache         *jobDependencyCache
+	cacheBus                   *straitcache.Bus
+	workerJobBarrier           *straitcache.Tier[string, struct{}]
 	runStatusReadModel         *straitcache.ReadModel[*domain.JobRun]
 	workflowRunStatusReadModel *straitcache.ReadModel[*domain.WorkflowRun]
 	oidcVerifier               *oidcVerifier
@@ -803,6 +805,8 @@ func NewServer(deps ServerDeps) *Server {
 		}, cacheDeps),
 		apiKeyCache:                newAPIKeyCache(apiKeyCacheTTL(deps.Config), cacheDeps),
 		jobDependencyCache:         newJobDependencyCache(jobDepsCacheTTL(deps.Config), cacheDeps),
+		cacheBus:                   deps.CacheBus,
+		workerJobBarrier:           newWorkerJobBarrier(workerJobBarrierTTL(deps.Config), deps.RedisClient),
 		runStatusReadModel:         statusModels.run,
 		workflowRunStatusReadModel: statusModels.workflowRun,
 		oidcVerifier:               verifier,

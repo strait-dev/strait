@@ -379,6 +379,7 @@ type Job struct {
 	UpdatedBy                 string            `json:"updated_by,omitempty"`
 	CreatedAt                 time.Time         `json:"created_at"`
 	UpdatedAt                 time.Time         `json:"updated_at"`
+	CacheVersion              int64             `json:"-"`
 }
 
 // DebouncePending represents a pending debounced trigger waiting to fire.

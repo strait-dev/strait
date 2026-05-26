@@ -117,10 +117,14 @@ func (c *quotaCache) Get(ctx context.Context, projectID string) (*store.ProjectQ
 }
 
 func (c *quotaCache) Invalidate(projectID string) {
+	c.InvalidateWithVersion(projectID, time.Now().UnixNano())
+}
+
+func (c *quotaCache) InvalidateWithVersion(projectID string, version int64) {
 	if c == nil || c.disabled || c.inner == nil {
 		return
 	}
-	_ = c.inner.InvalidateThrough(metricsCtx, projectID, c.bus, quotaCacheNamespace, projectID, time.Now().UnixNano())
+	_ = c.inner.StrongInvalidate(metricsCtx, straitcache.StrongNamespacePolicy{Namespace: quotaCacheNamespace}, projectID, projectID, straitcache.VersionBarrier{Version: version}, c.bus)
 }
 
 func projectQuotaCacheVersion(quota *store.ProjectQuota) int64 {

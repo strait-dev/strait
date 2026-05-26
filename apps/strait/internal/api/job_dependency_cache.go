@@ -46,7 +46,7 @@ func newJobDependencyCache(ttl time.Duration, deps ...apiCacheDeps) *jobDependen
 	c.tier = straitcache.NewTier[jobDepsCacheKey, []domain.JobDependency](straitcache.TierConfig[jobDepsCacheKey, []domain.JobDependency]{
 		Name:          jobDependencyCacheNamespace,
 		L2:            l2,
-		Consistency:   straitcache.BoundedStaleness,
+		Consistency:   straitcache.Strong,
 		MaximumWeight: 100_000,
 		Weigher: func(_ jobDepsCacheKey, deps []domain.JobDependency) uint32 {
 			if len(deps) == 0 {
@@ -59,6 +59,7 @@ func newJobDependencyCache(ttl time.Duration, deps ...apiCacheDeps) *jobDependen
 		},
 		TTL:       ttl,
 		TTLJitter: 0.1,
+		DisableL1: l2 != nil,
 		DisableL2: l2 == nil,
 		Clone: func(deps []domain.JobDependency) []domain.JobDependency {
 			return append([]domain.JobDependency(nil), deps...)
@@ -86,12 +87,16 @@ func (c *jobDependencyCache) List(ctx context.Context, key jobDepsCacheKey, load
 }
 
 func (c *jobDependencyCache) InvalidateJob(ctx context.Context, jobID string) {
+	c.InvalidateJobWithVersion(ctx, jobID, time.Now().UnixNano())
+}
+
+func (c *jobDependencyCache) InvalidateJobWithVersion(ctx context.Context, jobID string, version int64) {
 	if c == nil || c.tier == nil || jobID == "" {
 		return
 	}
 	for _, limit := range jobDependencyCachedPageLimits {
 		key := jobDepsCacheKey{JobID: jobID, Limit: limit}
-		_ = c.tier.InvalidateThrough(ctx, key, c.bus, jobDependencyCacheNamespace, jobDepsCacheKeyString(key), time.Now().UnixNano())
+		_ = c.tier.StrongInvalidate(ctx, straitcache.StrongNamespacePolicy{Namespace: jobDependencyCacheNamespace}, key, jobDepsCacheKeyString(key), straitcache.VersionBarrier{Version: version}, c.bus)
 	}
 }
 
@@ -110,7 +115,7 @@ func (c *jobDependencyCache) RefreshJob(ctx context.Context, jobID string, loade
 		if version <= 0 {
 			version = time.Now().UnixNano()
 		}
-		_, _ = c.tier.WriteThrough(ctx, key, loaded.Value, version, c.bus, jobDependencyCacheNamespace, jobDepsCacheKeyString(key))
+		_, _ = c.tier.StrongWriteThrough(ctx, straitcache.StrongNamespacePolicy{Namespace: jobDependencyCacheNamespace}, key, jobDepsCacheKeyString(key), loaded.Value, version, c.bus)
 	}
 }
 

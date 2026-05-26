@@ -399,10 +399,15 @@ func (e *Enforcer) tryDispatchCapEvent(
 
 // InvalidateOrgCache removes cached plan limits for an org (call on plan change).
 func (e *Enforcer) InvalidateOrgCache(orgID string) {
+	e.InvalidateOrgCacheWithVersion(orgID, time.Now().UnixNano())
+}
+
+// InvalidateOrgCacheWithVersion removes cached plan limits behind a version barrier.
+func (e *Enforcer) InvalidateOrgCacheWithVersion(orgID string, version int64) {
 	if e == nil || e.orgCache == nil {
 		return
 	}
-	_ = e.orgCache.InvalidateThrough(context.Background(), orgID, e.cacheBus, orgLimitsCacheNamespace, orgID, time.Now().UnixNano())
+	_ = e.orgCache.StrongInvalidate(context.Background(), straitcache.StrongNamespacePolicy{Namespace: orgLimitsCacheNamespace}, orgID, orgID, straitcache.VersionBarrier{Version: version}, e.cacheBus)
 }
 
 // getEnforcementMode returns the enforcement mode for an org from cache.
@@ -500,11 +505,11 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 		if err != nil {
 			if errors.Is(err, ErrSubscriptionNotFound) {
 				limits := GetPlanLimits(domain.PlanFree)
-				_, _ = e.orgCache.WriteThrough(ctx, orgID, &cachedOrgLimits{
+				_, _ = e.orgCache.StrongWriteThrough(ctx, straitcache.StrongNamespacePolicy{Namespace: orgLimitsCacheNamespace}, orgID, orgID, &cachedOrgLimits{
 					tier:            domain.PlanFree,
 					limits:          limits,
 					enforcementMode: "enforce",
-				}, 0, e.cacheBus, orgLimitsCacheNamespace, orgID)
+				}, 1, e.cacheBus)
 				return limits, nil
 			}
 			return OrgPlanLimits{}, fmt.Errorf("getting org subscription: %w", err)
@@ -583,11 +588,11 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 		limits.MaxConcurrentRuns = *sub.OverrideConcurrentRunLimit
 	}
 
-	_, _ = e.orgCache.WriteThrough(ctx, orgID, &cachedOrgLimits{
+	_, _ = e.orgCache.StrongWriteThrough(ctx, straitcache.StrongNamespacePolicy{Namespace: orgLimitsCacheNamespace}, orgID, orgID, &cachedOrgLimits{
 		tier:            tier,
 		limits:          limits,
 		enforcementMode: sub.EnforcementMode,
-	}, orgSubscriptionCacheVersion(sub), e.cacheBus, orgLimitsCacheNamespace, orgID)
+	}, orgSubscriptionCacheVersion(sub), e.cacheBus)
 	return limits, nil
 }
 

@@ -217,6 +217,83 @@ func TestWorkerJobCache_UsesUpdatedAtVersionForRedisCAS(t *testing.T) {
 	}
 }
 
+func TestWorkerJobCache_PrefersCacheVersionForRedisCAS(t *testing.T) {
+	t.Parallel()
+
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	updatedAt := time.Unix(1700000000, 123).UTC()
+	cache := newTierJobCache(time.Minute, workerCacheDeps{Redis: rdb})
+	if err := cache.Set(context.Background(), "job-cache-version", &domain.Job{
+		ID:           "job-cache-version",
+		Version:      3,
+		Name:         "cached",
+		UpdatedAt:    updatedAt,
+		CacheVersion: 42,
+	}); err != nil {
+		t.Fatalf("Set() error = %v", err)
+	}
+
+	raw, err := rdb.Get(context.Background(), "strait:cache:"+workerJobCacheNamespace+":job-cache-version").Bytes()
+	if err != nil {
+		t.Fatalf("read redis entry: %v", err)
+	}
+	var envelope struct {
+		Version int64 `json:"version"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatalf("decode redis entry: %v", err)
+	}
+	if envelope.Version != 42 {
+		t.Fatalf("redis version = %d, want 42", envelope.Version)
+	}
+}
+
+func TestWorkerJobCache_StrongBarrierRejectsStaleLoaderFill(t *testing.T) {
+	t.Parallel()
+
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	cache := newTierJobCache(time.Minute, workerCacheDeps{Redis: rdb})
+	if err := cache.Delete(context.Background(), "job-deleted"); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+
+	_, err := cache.Load(context.Background(), "job-deleted", func(context.Context, string) (*domain.Job, error) {
+		return &domain.Job{ID: "job-deleted", Name: "stale", CacheVersion: 1}, nil
+	})
+	if err == nil {
+		t.Fatal("Load() error = nil, want stale version rejection")
+	}
+}
+
+func TestWorkerJobCache_StrongBarrierAllowsEqualVersionReplacement(t *testing.T) {
+	t.Parallel()
+
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	cache := newTierJobCache(time.Minute, workerCacheDeps{Redis: rdb})
+	if err := cache.tier.StrongInvalidate(context.Background(), straitcache.StrongNamespacePolicy{Namespace: workerJobCacheNamespace}, "job-recreated", "job-recreated", straitcache.VersionBarrier{Version: 7}, nil); err != nil {
+		t.Fatalf("StrongInvalidate() error = %v", err)
+	}
+
+	got, err := cache.Load(context.Background(), "job-recreated", func(context.Context, string) (*domain.Job, error) {
+		return &domain.Job{ID: "job-recreated", Name: "fresh", CacheVersion: 7}, nil
+	})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got == nil || got.Name != "fresh" {
+		t.Fatalf("Load() = %+v, want fresh job", got)
+	}
+}
+
 func TestWorkerJobCache_LoadPreservesUpdatedAtVersionInRedis(t *testing.T) {
 	t.Parallel()
 
