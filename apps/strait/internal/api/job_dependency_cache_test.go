@@ -62,6 +62,7 @@ func TestJobDependencyCache_InvalidateJobClearsKnownPageShapes(t *testing.T) {
 	cache := newJobDependencyCache(time.Minute, deps)
 
 	var loads atomic.Int64
+	var versionBase atomic.Int64
 	loader := func(_ context.Context, key jobDepsCacheKey) (straitcache.Versioned[[]domain.JobDependency], error) {
 		loads.Add(1)
 		dependencies := []domain.JobDependency{{
@@ -69,7 +70,7 @@ func TestJobDependencyCache_InvalidateJobClearsKnownPageShapes(t *testing.T) {
 			JobID:          key.JobID,
 			DependsOnJobID: "job-parent",
 			Condition:      "completed",
-			CacheVersion:   int64(key.Limit),
+			CacheVersion:   versionBase.Load() + int64(key.Limit),
 		}}
 		return straitcache.Versioned[[]domain.JobDependency]{Value: dependencies, Version: jobDependenciesCacheVersion(dependencies)}, nil
 	}
@@ -79,7 +80,8 @@ func TestJobDependencyCache_InvalidateJobClearsKnownPageShapes(t *testing.T) {
 		}
 	}
 
-	cache.InvalidateJob(context.Background(), "job-known")
+	cache.InvalidateJobWithVersion(context.Background(), "job-known", 2000)
+	versionBase.Store(3000)
 
 	for _, limit := range jobDependencyCachedPageLimits {
 		if _, err := cache.List(context.Background(), jobDepsCacheKey{JobID: "job-known", Limit: limit}, loader); err != nil {
