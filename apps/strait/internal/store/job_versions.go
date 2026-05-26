@@ -167,7 +167,7 @@ func (q *Queries) GetJobAtVersion(ctx context.Context, jobID string, version int
 		       jv.on_failure_payload_mapping,
 		       jv.max_tokens_per_run, jv.max_tool_calls_per_run, jv.max_iterations_per_run, jv.allowed_tools, jv.blocked_tools,
 		       jv.paused, jv.paused_at, jv.pause_reason,
-		       jv.endpoint_signing_secret
+		       jv.endpoint_signing_secret, jv.version::bigint
 		FROM job_versions jv
 		JOIN jobs j ON j.id = jv.job_id
 		WHERE jv.job_id = $1 AND jv.version = $2`
