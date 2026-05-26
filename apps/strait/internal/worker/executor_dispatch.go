@@ -309,6 +309,15 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 				return
 			}
 
+			// Install the concurrent-counter rollback IMMEDIATELY after
+			// CheckConcurrentRunLimit succeeds (and the INCR inside it has
+			// landed). Any later early-return — including the HTTP-mode plan
+			// gate below — must trigger the defer so the counter does not
+			// leak. Reconciliation only runs every 5 minutes, so leaks
+			// accumulate into spurious org_concurrent_run_limit_exceeded.
+			decrCtx := context.WithoutCancel(ctx)
+			defer e.billingEnforcer.DecrConcurrentRunCount(decrCtx, orgID)
+
 			// HTTP mode plan gating at dispatch time.
 			// Catches jobs created on Pro that continue after downgrade to Starter/Free.
 			if job.ExecutionMode == domain.ExecutionModeHTTP || job.ExecutionMode == "" {
@@ -322,9 +331,6 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 					return
 				}
 			}
-
-			decrCtx := context.WithoutCancel(ctx)
-			defer e.billingEnforcer.DecrConcurrentRunCount(decrCtx, orgID)
 		}
 	}
 
