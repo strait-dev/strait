@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS cache_namespace_versions (
     PRIMARY KEY (namespace, cache_key)
 );
 
+-- safety-ok: SET NOT NULL is preceded by backfill plus validated CHECK constraint in this helper.
 CREATE OR REPLACE FUNCTION ensure_cache_version_not_null(table_name TEXT) RETURNS void AS $$
 BEGIN
     EXECUTE format('UPDATE %I SET cache_version = 1 WHERE cache_version IS NULL', table_name);

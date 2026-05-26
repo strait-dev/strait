@@ -50,6 +50,9 @@ type cacheInvalidationHandler struct {
 }
 
 func newCacheInvalidationHandler(table string, bus *straitcache.Bus, logger *slog.Logger, fn func(context.Context, *straitcache.Bus, map[string]any, int64) error) Handler {
+	if logger == nil {
+		logger = slog.Default()
+	}
 	return &cacheInvalidationHandler{table: table, bus: bus, logger: logger, fn: fn}
 }
 
