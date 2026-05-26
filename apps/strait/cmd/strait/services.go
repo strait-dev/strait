@@ -789,6 +789,7 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		EventChannelSize:        cfg.WorkerEventChannelSize,
 		SecretDecryptor:         encryptor,
 		UseDenormalizedDequeue:  cfg.QueueUseDenormalizedDequeue,
+		JobHealthStatsCacheTTL:  cfg.JobHealthStatsCacheTTL,
 	}
 	applyWorkerPlaneToExecutorConfig(&execCfg, workerPlane, cfg.JWTSigningKey)
 
