@@ -117,12 +117,43 @@ func TestAPIKeyCache_InvalidateForcesReload(t *testing.T) {
 	if _, err := cache.Get(context.Background(), "hash-1", loader); err != nil {
 		t.Fatalf("Get() first error = %v", err)
 	}
-	cache.Invalidate(context.Background(), "hash-1")
+	cache.InvalidateWithVersion(context.Background(), "hash-1", 2)
+	loader = func(_ context.Context, _ string) (*domain.APIKey, error) {
+		loads.Add(1)
+		return &domain.APIKey{ID: "key", KeyHash: "hash-1", CacheVersion: 3}, nil
+	}
 	if _, err := cache.Get(context.Background(), "hash-1", loader); err != nil {
 		t.Fatalf("Get() second error = %v", err)
 	}
 	if loads.Load() != 2 {
 		t.Fatalf("loader calls = %d, want 2", loads.Load())
+	}
+}
+
+func TestStrongAPIKeyCache_BarrierAllowsNegativeDBConfirmation(t *testing.T) {
+	t.Parallel()
+
+	registry := straitcache.NewRegistry(straitcache.RegistryConfig{Origin: "node-a"})
+	deps, cleanup := newTestRedisCacheDeps(t, registry)
+	defer cleanup()
+	cache := newAPIKeyCache(time.Minute, deps)
+
+	cache.Set(context.Background(), &domain.APIKey{ID: "key-1", ProjectID: "proj-1", KeyHash: "hash-1", CacheVersion: 4})
+	cache.InvalidateWithVersion(context.Background(), "hash-1", 5)
+
+	var loads atomic.Int64
+	got, err := cache.Get(context.Background(), "hash-1", func(context.Context, string) (*domain.APIKey, error) {
+		loads.Add(1)
+		return nil, store.ErrAPIKeyNotFound
+	})
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if got != nil {
+		t.Fatalf("Get() = %+v, want nil after DB-confirmed revoke", got)
+	}
+	if loads.Load() != 1 {
+		t.Fatalf("loader calls = %d, want 1", loads.Load())
 	}
 }
 

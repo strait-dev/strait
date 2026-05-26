@@ -143,6 +143,9 @@ func (t *Tier[K, V]) loadVersionedThroughL2(ctx context.Context, key K, minVersi
 	if err != nil {
 		return cacheEntry[V]{}, err
 	}
+	if t.negEnabled && t.isNegative(loaded.Value) && loaded.Version <= 0 && minVersion > 0 {
+		loaded.Version = minVersion
+	}
 	if loaded.Version < minVersion {
 		return cacheEntry[V]{}, fmt.Errorf("%w: got %d want at least %d", ErrStaleVersion, loaded.Version, minVersion)
 	}

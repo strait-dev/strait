@@ -89,14 +89,18 @@ func (c *apiKeyCache) Set(ctx context.Context, key *domain.APIKey) {
 	if c == nil || c.tier == nil || key == nil || key.KeyHash == "" {
 		return
 	}
-	_, _ = c.tier.WriteThrough(ctx, key.KeyHash, key, apiKeyCacheVersion(key), c.bus, apiKeyAuthCacheNamespace, key.KeyHash)
+	_, _ = c.tier.StrongWriteThrough(ctx, straitcache.StrongNamespacePolicy{Namespace: apiKeyAuthCacheNamespace}, key.KeyHash, key.KeyHash, key, apiKeyCacheVersion(key), c.bus)
 }
 
 func (c *apiKeyCache) Invalidate(ctx context.Context, keyHash string) {
+	c.InvalidateWithVersion(ctx, keyHash, time.Now().UnixNano())
+}
+
+func (c *apiKeyCache) InvalidateWithVersion(ctx context.Context, keyHash string, version int64) {
 	if c == nil || c.tier == nil || keyHash == "" {
 		return
 	}
-	_ = c.tier.InvalidateThrough(ctx, keyHash, c.bus, apiKeyAuthCacheNamespace, keyHash, time.Now().UnixNano())
+	_ = c.tier.StrongInvalidate(ctx, straitcache.StrongNamespacePolicy{Namespace: apiKeyAuthCacheNamespace}, keyHash, keyHash, straitcache.VersionBarrier{Version: version}, c.bus)
 }
 
 func sanitizeAPIKeyForAuthCache(key *domain.APIKey) *domain.APIKey {

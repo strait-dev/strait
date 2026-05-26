@@ -130,7 +130,7 @@ func (c *permissionCache) SetWithVersion(projectID, userID string, permissions [
 	}
 	key := c.key(projectID, userID)
 	_, existed := c.inner.GetIfPresent(key)
-	_, _ = c.inner.WriteThrough(metricsCtx, key, permissions, version, c.bus, permissionCacheNamespace, key)
+	_, _ = c.inner.StrongWriteThrough(metricsCtx, straitcache.StrongNamespacePolicy{Namespace: permissionCacheNamespace}, key, key, permissions, version, c.bus)
 	c.trackProjectKey(projectID, key)
 	if !existed {
 		c.entriesUp.Add(metricsCtx, 1)
@@ -138,11 +138,15 @@ func (c *permissionCache) SetWithVersion(projectID, userID string, permissions [
 }
 
 func (c *permissionCache) Invalidate(projectID, userID string) {
+	c.InvalidateWithVersion(projectID, userID, time.Now().UnixNano())
+}
+
+func (c *permissionCache) InvalidateWithVersion(projectID, userID string, version int64) {
 	if c == nil || c.disabled || c.inner == nil {
 		return
 	}
 	key := c.key(projectID, userID)
-	_ = c.inner.InvalidateThrough(metricsCtx, key, c.bus, permissionCacheNamespace, key, time.Now().UnixNano())
+	_ = c.inner.StrongInvalidate(metricsCtx, straitcache.StrongNamespacePolicy{Namespace: permissionCacheNamespace}, key, key, straitcache.VersionBarrier{Version: version}, c.bus)
 	c.untrackProjectKey(projectID, key)
 }
 

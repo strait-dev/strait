@@ -1044,8 +1044,18 @@ type versionedUserPermissionStore interface {
 }
 
 func (s *Server) loadUserPermissionsForCache(ctx context.Context, projectID, actorID string) ([]string, int64, error) {
+	key := projectID + "\x00" + actorID
 	if versioned, ok := s.store.(versionedUserPermissionStore); ok {
-		return versioned.GetUserPermissionsWithVersion(ctx, projectID, actorID)
+		perms, version, err := versioned.GetUserPermissionsWithVersion(ctx, projectID, actorID)
+		if err != nil {
+			return nil, 0, err
+		}
+		if getter, ok := s.store.(cacheNamespaceVersionGetter); ok {
+			if aggregateVersion, getErr := getter.GetCacheNamespaceVersion(ctx, permissionCacheNamespace, key); getErr == nil && aggregateVersion > version {
+				version = aggregateVersion
+			}
+		}
+		return perms, version, nil
 	}
 	perms, err := s.store.GetUserPermissions(ctx, projectID, actorID)
 	if err != nil {

@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	straitcache "strait/internal/cache"
+	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc"
 )
@@ -120,6 +122,28 @@ func TestPermissionCache_SetWithVersionPreservesVersionInRedis(t *testing.T) {
 	}
 	if envelope.Version != 14 {
 		t.Fatalf("redis version = %d, want 14", envelope.Version)
+	}
+}
+
+func TestStrongPermissionCache_BarrierRejectsStaleUpdate(t *testing.T) {
+	t.Parallel()
+
+	registry := straitcache.NewRegistry(straitcache.RegistryConfig{Origin: "node-a"})
+	deps, cleanup := newTestRedisCacheDeps(t, registry)
+	defer cleanup()
+	cache := newPermissionCache(time.Minute, deps)
+
+	cache.SetWithVersion("proj", "user", []string{domain.ScopeJobsRead}, 4)
+	cache.InvalidateWithVersion("proj", "user", 5)
+	cache.SetWithVersion("proj", "user", []string{domain.ScopeJobsWrite}, 4)
+
+	if got, ok := cache.Get("proj", "user"); ok {
+		t.Fatalf("Get() = %v, true; want barrier to reject stale update", got)
+	}
+	cache.SetWithVersion("proj", "user", []string{domain.ScopeJobsWrite}, 5)
+	got, ok := cache.Get("proj", "user")
+	if !ok || !slices.Contains(got, domain.ScopeJobsWrite) {
+		t.Fatalf("Get() = %v, %v; want equal-version replacement", got, ok)
 	}
 }
 
