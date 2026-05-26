@@ -33,7 +33,7 @@ test-integration-clean:
 	./scripts/test-integration-clean.sh
 
 lint:
-	golangci-lint run --timeout=10m ./...
+	./scripts/lint-go.sh
 
 vet:
 	go vet ./...
