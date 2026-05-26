@@ -104,6 +104,7 @@ func (d *recentDedupe) Remember(key string) bool {
 	if shared != nil {
 		ok, err := shared.Claim(context.Background(), key)
 		if err != nil {
+			recordSharedDedupeFallback("handler")
 			if fallback != nil {
 				fallback(err)
 			}

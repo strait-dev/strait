@@ -170,6 +170,7 @@ func TestPrometheusRules_RecordingRulesPresent(t *testing.T) {
 		"strait:scheduler_skew_seconds":               {},
 		"strait:auth_failure_rate5m":                  {},
 		"strait:redis_command_p95_seconds5m":          {},
+		"strait:cdc_shared_dedupe_fallback_rate5m":    {},
 		"strait:billing_quota_block_rate5m":           {},
 	}
 

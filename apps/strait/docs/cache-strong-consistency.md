@@ -15,3 +15,16 @@ fills across replicas. Keep it in sync with `internal/cache/strong_policy.go`.
 Immutable caches such as versioned job definitions and workflow definitions are
 not listed here because the version is part of the key and stale overwrites are
 not possible.
+
+## Validation
+
+Perf validation uses `apps/strait/scripts/cache-perf-validation.sql` before and
+after enabling the cache overhaul under the same workload. The target call
+counts are API key lookup, `GetJob`, job health stats, job dependencies,
+workflow step listing, and workflow run version reads.
+
+Operational dashboards and alerts must include cache hit ratio, Redis L2
+latency, fail-open rate, CAS rejects, cachebus lag, status read-model freshness,
+and shared dedupe fallback. The baseline Grafana dashboard is
+`apps/strait/monitoring/grafana/cache-coherence.json`; Prometheus rules live in
+`apps/strait/monitoring/prometheus-rules.yaml`.

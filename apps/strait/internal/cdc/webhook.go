@@ -252,6 +252,7 @@ func (wr *WebhookReceiver) claimDedupe(ctx context.Context, msg Message) (string
 	if shared != nil {
 		claimed, err := shared.Claim(ctx, "cdc_webhook:"+key)
 		if err != nil {
+			recordSharedDedupeFallback("webhook")
 			wr.logger.Warn("cdc webhook dedupe: redis unavailable, falling back to local dedupe", "error", err)
 			return key, true
 		}

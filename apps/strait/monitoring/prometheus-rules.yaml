@@ -56,6 +56,9 @@ groups:
       - record: strait:cachebus_p95_lag_ms5m
         expr: histogram_quantile(0.95, sum(rate(strait_cachebus_lag_seconds_bucket[5m])) by (le))
 
+      - record: strait:cdc_shared_dedupe_fallback_rate5m
+        expr: sum(rate(strait_cdc_shared_dedupe_fallback_total[5m]))
+
       - record: strait:billing_quota_block_rate5m
         expr: sum(rate(strait_billing_quota_block_total[5m]))
 
@@ -89,6 +92,20 @@ groups:
             Cachebus receive lag p95 is above 1 second. Cross-replica L1
             invalidation may be delayed, although versioned Redis CAS still
             prevents monotonic status read models from moving backward.
+
+      - alert: StraitCDCSharedDedupeFallback
+        expr: strait:cdc_shared_dedupe_fallback_rate5m > 0
+        for: 5m
+        labels:
+          app: strait
+          owner: platform
+          severity: warning
+        annotations:
+          summary: Strait CDC shared dedupe is falling back
+          description: |
+            CDC or CDC webhook duplicate suppression has been falling back to
+            process-local memory because Redis SETNX failed. Cross-replica
+            duplicate suppression is degraded until Redis recovers.
 
   - name: strait.queue
     interval: 30s

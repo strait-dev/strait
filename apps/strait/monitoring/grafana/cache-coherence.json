@@ -86,6 +86,51 @@
         ],
         "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
         "datasource": { "type": "prometheus", "uid": "${datasource}" }
+      },
+      {
+        "title": "Redis command p95",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 0, "y": 16 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "histogram_quantile(0.95, sum by (le, operation) (rate(strait_redis_command_duration_seconds_bucket[$interval])))",
+            "legendFormat": "{{operation}}",
+            "datasource": { "type": "prometheus", "uid": "${datasource}" }
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+        "datasource": { "type": "prometheus", "uid": "${datasource}" }
+      },
+      {
+        "title": "Status read-model freshness",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 8, "y": 16 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (namespace, result) (rate(strait_cache_operations_total{namespace=~\"status_.*\"}[$interval]))",
+            "legendFormat": "{{namespace}} {{result}}",
+            "datasource": { "type": "prometheus", "uid": "${datasource}" }
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+        "datasource": { "type": "prometheus", "uid": "${datasource}" }
+      },
+      {
+        "title": "Shared dedupe fallback",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 16, "y": 16 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (component) (rate(strait_cdc_shared_dedupe_fallback_total[$interval]))",
+            "legendFormat": "{{component}}",
+            "datasource": { "type": "prometheus", "uid": "${datasource}" }
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+        "datasource": { "type": "prometheus", "uid": "${datasource}" }
       }
     ],
     "templating": {
