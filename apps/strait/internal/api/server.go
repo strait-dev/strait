@@ -133,8 +133,24 @@ type JobStore interface {
 	UpdateJobEndpoint(ctx context.Context, jobID, endpointURL, fallbackURL, signingSecret string) error
 }
 
-// RunStore handles job runs, events, checkpoints, and related data.
+// RunStore keeps the existing API store contract while grouping run-related
+// operations by workflow. The smaller embedded interfaces make handler
+// dependencies easier to scan without changing the method set.
 type RunStore interface {
+	RunLifecycleStore
+	RunEventStore
+	RunWebhookStore
+	RunAnalyticsStore
+	RunIdempotencyStore
+	RunBatchStore
+	RunStateStore
+	RunResourceStore
+	RunMemoryStore
+}
+
+// RunLifecycleStore handles run lookup, creation, transitions, replay, and DLQ
+// operations.
+type RunLifecycleStore interface {
 	GetRun(ctx context.Context, id string) (*domain.JobRun, error)
 	GetRunStatus(ctx context.Context, id string) (domain.RunStatus, error)
 	CreateRun(ctx context.Context, run *domain.JobRun) error
@@ -169,6 +185,15 @@ type RunStore interface {
 	AreAllDescendantsTerminal(ctx context.Context, parentRunID string) (bool, error)
 	UpdateHeartbeat(ctx context.Context, id string) error
 	GetDebugBundle(ctx context.Context, runID string) (*domain.DebugBundle, error)
+	RescheduleRun(ctx context.Context, runID string, scheduledAt time.Time, payload json.RawMessage) error
+	GetRunsByIDs(ctx context.Context, ids []string) (map[string]*domain.JobRun, error)
+	BulkCancelRuns(ctx context.Context, ids []string, finishedAt time.Time, reason string) ([]store.BulkCancelResult, error)
+	CancelChildRunsByParentIDs(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error)
+	ResetRunIdempotencyKey(ctx context.Context, runID string) error
+}
+
+// RunEventStore handles event, checkpoint, usage, tool-call, and output data.
+type RunEventStore interface {
 	CreateRunCheckpoint(ctx context.Context, checkpoint *domain.RunCheckpoint) error
 	ListRunCheckpoints(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunCheckpoint, error)
 	CreateRunUsage(ctx context.Context, usage *domain.RunUsage) error
@@ -180,21 +205,31 @@ type RunStore interface {
 	InsertEvent(ctx context.Context, event *domain.RunEvent) error
 	ListEvents(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunEvent, error)
 	ListEventsByRunFiltered(ctx context.Context, runID string, level, eventType string, limit int, cursor *time.Time) ([]domain.RunEvent, error)
+}
+
+// RunWebhookStore handles webhook subscriptions and delivery retries.
+type RunWebhookStore interface {
 	ListWebhookDeliveries(ctx context.Context, projectID, status string, limit int, cursor *time.Time) ([]domain.WebhookDelivery, error)
-	SumRunCostMicrousd(ctx context.Context, runID string) (int64, error)
-	SumProjectDailyCostMicrousd(ctx context.Context, projectID string, timezone string) (int64, error)
-	GetProjectQuota(ctx context.Context, projectID string) (*store.ProjectQuota, error)
-	CountProjectQueuedRuns(ctx context.Context, projectID string) (int, error)
-	CountProjectActiveRuns(ctx context.Context, projectID string) (int, error)
 	GetWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
 	RetryWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
 	UpdateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
+	CreateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
+	ReplayWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
 	CreateWebhookSubscription(ctx context.Context, sub *domain.WebhookSubscription) error
 	ListWebhookSubscriptions(ctx context.Context, projectID string) ([]domain.WebhookSubscription, error)
 	GetWebhookSubscription(ctx context.Context, id string) (*domain.WebhookSubscription, error)
 	DeleteWebhookSubscription(ctx context.Context, id string) error
 	RotateWebhookSecret(ctx context.Context, id, newSecret string, graceExpiresAt time.Time) error
 	GetWebhookSubscriptionSecrets(ctx context.Context, subscriptionID string) (string, string, *time.Time, error)
+}
+
+// RunAnalyticsStore handles run, queue, cost, and approval analytics.
+type RunAnalyticsStore interface {
+	SumRunCostMicrousd(ctx context.Context, runID string) (int64, error)
+	SumProjectDailyCostMicrousd(ctx context.Context, projectID string, timezone string) (int64, error)
+	GetProjectQuota(ctx context.Context, projectID string) (*store.ProjectQuota, error)
+	CountProjectQueuedRuns(ctx context.Context, projectID string) (int, error)
+	CountProjectActiveRuns(ctx context.Context, projectID string) (int, error)
 	QueueStats(ctx context.Context) (*store.QueueStats, error)
 	GetPerformanceAnalytics(ctx context.Context, projectID string, periodHours int) (*store.PerformanceAnalytics, error)
 	GetCostAnalytics(ctx context.Context, projectID string, from, to time.Time) (*store.CostAnalytics, error)
@@ -203,17 +238,18 @@ type RunStore interface {
 	GetApprovalStats(ctx context.Context, projectID string, from, to time.Time) (*store.ApprovalStats, error)
 	GetCostOutliers(ctx context.Context, projectID string, from, to time.Time, threshold float64) ([]store.CostOutlier, error)
 	AggregateCostStatsHourly(ctx context.Context, hour time.Time) error
-	GetRunsByIDs(ctx context.Context, ids []string) (map[string]*domain.JobRun, error)
-	BulkCancelRuns(ctx context.Context, ids []string, finishedAt time.Time, reason string) ([]store.BulkCancelResult, error)
-	CancelChildRunsByParentIDs(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error)
-	ResetRunIdempotencyKey(ctx context.Context, runID string) error
+}
 
-	// General-purpose idempotency keys (not run-specific).
+// RunIdempotencyStore handles general-purpose idempotency keys that are not
+// tied to a specific run row.
+type RunIdempotencyStore interface {
 	TryAcquireIdempotencyKey(ctx context.Context, projectID, key string, ttl time.Duration) (string, int, http.Header, []byte, error)
 	CompleteIdempotencyKey(ctx context.Context, projectID, key string, responseStatus int, responseHeaders http.Header, responseBody []byte) error
 	DeleteIdempotencyKey(ctx context.Context, projectID, key string) (int64, error)
+}
 
-	RescheduleRun(ctx context.Context, runID string, scheduledAt time.Time, payload json.RawMessage) error
+// RunBatchStore handles batch operations, debouncing, and bulk cancellation.
+type RunBatchStore interface {
 	CreateBatchOperation(ctx context.Context, op *domain.BatchOperation) error
 	FinalizeBatchOperation(ctx context.Context, batchID string, createdCount int) error
 	GetBatchOperation(ctx context.Context, batchID, projectID string) (*domain.BatchOperation, error)
@@ -223,18 +259,28 @@ type RunStore interface {
 	InsertBatchBufferItem(ctx context.Context, item *domain.BatchBufferItem) error
 	CountBatchBufferItems(ctx context.Context, jobID, batchKey string) (int, error)
 	DrainBatchBuffer(ctx context.Context, jobID, batchKey string, limit int) ([]domain.BatchBufferItem, error)
-	CreateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
-	ReplayWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
+}
+
+// RunStateStore handles SDK run state documents.
+type RunStateStore interface {
 	UpsertRunState(ctx context.Context, s *domain.RunState) error
 	GetRunState(ctx context.Context, runID, key string) (*domain.RunState, error)
 	ListRunState(ctx context.Context, runID string) ([]domain.RunState, error)
 	DeleteRunState(ctx context.Context, runID, key string) error
+}
+
+// RunResourceStore handles AI resource snapshots, iterations, and counters.
+type RunResourceStore interface {
 	CreateRunResourceSnapshot(ctx context.Context, snapshot *domain.RunResourceSnapshot) error
 	ListRunResourceSnapshots(ctx context.Context, runID string, from, to *time.Time, limit int) ([]domain.RunResourceSnapshot, error)
 	SumRunTotalTokens(ctx context.Context, runID string) (int64, error)
 	CountRunToolCalls(ctx context.Context, runID string) (int, error)
 	CountRunIterations(ctx context.Context, runID string) (int, error)
 	CreateRunIteration(ctx context.Context, iter *domain.RunIteration) error
+}
+
+// RunMemoryStore handles per-job memory records used by SDK AI workflows.
+type RunMemoryStore interface {
 	UpsertJobMemory(ctx context.Context, mem *domain.JobMemory) error
 	UpsertJobMemoryWithQuota(ctx context.Context, mem *domain.JobMemory, maxPerKey, maxPerJob int) error
 	GetJobMemory(ctx context.Context, jobID, key string) (*domain.JobMemory, error)

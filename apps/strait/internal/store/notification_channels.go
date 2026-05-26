@@ -22,7 +22,7 @@ func (q *Queries) CreateNotificationChannel(ctx context.Context, ch *domain.Noti
 		ch.ID = uuid.Must(uuid.NewV7()).String()
 	}
 
-	configBytes := ch.Config
+	configBytes := append([]byte(nil), ch.Config...)
 	if q.secretEncryptionKey != "" && len(configBytes) > 0 {
 		enc, encErr := q.secretEncryptor()
 		if encErr != nil {
@@ -202,7 +202,7 @@ func (q *Queries) UpdateNotificationChannel(ctx context.Context, ch *domain.Noti
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateNotificationChannel")
 	defer span.End()
 
-	configBytes := ch.Config
+	configBytes := append([]byte(nil), ch.Config...)
 	if q.secretEncryptionKey != "" && len(configBytes) > 0 {
 		enc, encErr := q.secretEncryptor()
 		if encErr != nil {
@@ -459,7 +459,7 @@ func (q *Queries) ListNotificationDeliveries(ctx context.Context, projectID stri
 
 func (q *Queries) decryptNotificationConfig(channelID string, config []byte) []byte {
 	if len(config) == 0 || q.secretEncryptionKey == "" {
-		return config
+		return append([]byte(nil), config...)
 	}
 	enc, encErr := q.secretEncryptor()
 	if encErr != nil {
@@ -469,7 +469,7 @@ func (q *Queries) decryptNotificationConfig(channelID string, config []byte) []b
 	decrypted, decErr := enc.Decrypt(config)
 	if decErr != nil {
 		slog.Warn("failed to decrypt notification config, returning raw bytes", "channel_id", channelID, "error", decErr)
-		return config
+		return append([]byte(nil), config...)
 	}
 	return decrypted
 }

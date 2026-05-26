@@ -6560,7 +6560,6 @@ func TestCreateRunUsage_Dedicated(t *testing.T) {
 		t.Fatalf("ListRunUsage() len = %d, want 3", len(usages))
 	}
 
-	// Verify DESC ordering by created_at
 	for i := 1; i < len(usages); i++ {
 		if usages[i].CreatedAt.After(usages[i-1].CreatedAt) {
 			t.Fatalf("usages not DESC at index %d", i)
@@ -6714,7 +6713,6 @@ func TestCreateRunToolCall_Dedicated(t *testing.T) {
 		t.Fatalf("ListRunToolCalls() len = %d, want 3", len(calls))
 	}
 
-	// Verify DESC ordering
 	for i := 1; i < len(calls); i++ {
 		if calls[i].CreatedAt.After(calls[i-1].CreatedAt) {
 			t.Fatalf("calls not DESC at index %d", i)
@@ -6791,7 +6789,6 @@ func TestUpsertRunOutput_Dedicated(t *testing.T) {
 		t.Fatalf("UpsertRunOutput(insert) error = %v", err)
 	}
 
-	// Verify
 	outputs, err := q.ListRunOutputs(ctx, run.ID, 100, nil)
 	if err != nil {
 		t.Fatalf("ListRunOutputs() error = %v", err)
@@ -6861,7 +6858,6 @@ func TestListRunOutputs_Dedicated(t *testing.T) {
 		t.Fatalf("len = %d, want 3", len(outputs))
 	}
 
-	// Verify ASC ordering by output_key
 	if outputs[0].OutputKey != "alpha" {
 		t.Fatalf("outputs[0].OutputKey = %q, want alpha", outputs[0].OutputKey)
 	}

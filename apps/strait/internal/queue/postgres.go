@@ -1052,7 +1052,7 @@ func (q *PostgresQueue) DequeueNForWorkerQueues(ctx context.Context, n int, queu
 	if err != nil {
 		return nil, fmt.Errorf("dequeue worker claim: begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer rollbackDequeueTx(ctx, tx, "queue.DequeueNForWorker")
 
 	if q.statementTimeout > 0 {
 		ms := int(q.statementTimeout.Milliseconds())
@@ -1066,7 +1066,7 @@ func (q *PostgresQueue) DequeueNForWorkerQueues(ctx context.Context, n int, queu
 		// Undefined table = pre-migration; fall back to simple filter variant.
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "42P01" { // undefined_table
-			_ = tx.Rollback(ctx)
+			rollbackDequeueTx(ctx, tx, "queue.DequeueNForWorker")
 			return q.dequeueNForWorkerFallback(ctx, n, projectIDs, queueNames, environmentIDs)
 		}
 		return nil, fmt.Errorf("dequeue worker claim: delete: %w", err)
@@ -1212,7 +1212,7 @@ func (q *PostgresQueue) DequeueNClaim(ctx context.Context, n int) ([]domain.JobR
 	if err != nil {
 		return nil, fmt.Errorf("dequeue claim: begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer rollbackDequeueTx(ctx, tx, "queue.DequeueNClaim")
 
 	if q.statementTimeout > 0 {
 		ms := int(q.statementTimeout.Milliseconds())
@@ -1226,7 +1226,7 @@ func (q *PostgresQueue) DequeueNClaim(ctx context.Context, n int) ([]domain.JobR
 		// Undefined table = pre-migration; fall back to two-phase.
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "42P01" { // undefined_table
-			_ = tx.Rollback(ctx)
+			rollbackDequeueTx(ctx, tx, "queue.DequeueNClaim")
 			return q.DequeueNTwoPhase(ctx, n)
 		}
 		return nil, fmt.Errorf("dequeue claim: delete: %w", err)

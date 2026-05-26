@@ -558,7 +558,6 @@ func TestTestServerEndpoints(t *testing.T) {
 		})
 	}
 
-	// Verify stats
 	snap := srv.Snapshot()
 	if snap.Total == 0 {
 		t.Error("expected total > 0 after requests")

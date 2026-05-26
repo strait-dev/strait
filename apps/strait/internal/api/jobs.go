@@ -1672,12 +1672,12 @@ func (s *Server) checkHTTPModeAllowed(ctx context.Context, mode domain.Execution
 
 	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
 	if err != nil || orgID == "" {
-		return nil //nolint:nilerr // Fail open: billing state is advisory and must not block this request.: billing state is advisory and must not block this request: billing unavailable should not block job creation
+		return nil //nolint:nilerr // fail open: org lookup failures must not block job creation
 	}
 
 	limits, err := s.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
 	if err != nil {
-		return nil //nolint:nilerr // Fail open: billing state is advisory and must not block this request.: billing state is advisory and must not block this request: billing unavailable should not block job creation
+		return nil //nolint:nilerr // fail open: plan lookup failures must not block job creation
 	}
 
 	if !limits.AllowsHTTPMode {

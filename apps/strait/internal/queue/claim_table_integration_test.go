@@ -12,8 +12,6 @@ import (
 	"strait/internal/domain"
 )
 
-// DequeueNTwoPhase
-
 func TestTwoPhaseDequeue_ReturnsCorrectRuns(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

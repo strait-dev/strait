@@ -109,7 +109,6 @@ func TestExportCSV_WithRecords(t *testing.T) {
 		t.Fatalf("expected 3 rows, got %d", len(records))
 	}
 
-	// Verify header columns.
 	expectedHeader := []string{"date", "project", "runs", "compute_cost_usd", "ai_tokens", "ai_cost_usd", "total_usd"}
 	for i, col := range expectedHeader {
 		if records[0][i] != col {
@@ -117,7 +116,6 @@ func TestExportCSV_WithRecords(t *testing.T) {
 		}
 	}
 
-	// Verify first data row.
 	if records[1][0] != "2026-01-15" {
 		t.Errorf("expected date 2026-01-15, got %s", records[1][0])
 	}

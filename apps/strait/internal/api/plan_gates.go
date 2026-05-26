@@ -101,7 +101,7 @@ func (s *Server) getOrgPlanLimits(ctx context.Context, projectID string) *billin
 func (s *Server) checkFeatureAllowed(ctx context.Context, projectID string, feature billing.Feature, featureName string) error {
 	limits := s.getOrgPlanLimits(ctx, projectID)
 	if limits == nil {
-		return nil // Fail open: billing state is advisory and must not block this request.
+		return nil
 	}
 
 	if staticRegistry.AllowsFeature(limits.PlanTier, feature) {
@@ -133,7 +133,7 @@ func (s *Server) checkFeatureAllowed(ctx context.Context, projectID string, feat
 func (s *Server) checkWorkflowStepLimit(ctx context.Context, projectID string, stepCount int) error {
 	limits := s.getOrgPlanLimits(ctx, projectID)
 	if limits == nil {
-		return nil // Fail open: billing state is advisory and must not block this request.
+		return nil
 	}
 
 	if limits.MaxWorkflowDAGSteps == -1 {
@@ -163,7 +163,7 @@ func (s *Server) checkCronMinInterval(ctx context.Context, projectID, cronExpr s
 
 	limits := s.getOrgPlanLimits(ctx, projectID)
 	if limits == nil {
-		return nil // Fail open: billing state is advisory and must not block this request.
+		return nil
 	}
 	if limits.CronMinIntervalSec <= 0 {
 		return nil // sub-second tier, nothing to enforce here
@@ -218,7 +218,7 @@ func (s *Server) checkCronOverlapPolicy(ctx context.Context, projectID, policy s
 
 	limits := s.getOrgPlanLimits(ctx, projectID)
 	if limits == nil {
-		return nil // Fail open: billing state is advisory and must not block this request.
+		return nil
 	}
 
 	if limits.AllCronOverlapPolicies {
@@ -237,7 +237,7 @@ func (s *Server) checkCronOverlapPolicy(ctx context.Context, projectID, policy s
 func (s *Server) checkEnvironmentLimit(ctx context.Context, projectID string) error {
 	limits := s.getOrgPlanLimits(ctx, projectID)
 	if limits == nil {
-		return nil // Fail open: billing state is advisory and must not block this request.
+		return nil
 	}
 
 	if limits.MaxEnvironments <= 0 {
@@ -247,11 +247,11 @@ func (s *Server) checkEnvironmentLimit(ctx context.Context, projectID string) er
 	// Count org-wide to match downgrade enforcement scope.
 	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
 	if err != nil || orgID == "" {
-		return nil //nolint:nilerr // Fail open: billing state is advisory and must not block this request.: billing state is advisory and must not block this request
+		return nil //nolint:nilerr // fail open: org lookup failures must not block environment creation
 	}
 	count, err := s.store.CountEnvironmentsByOrg(ctx, orgID)
 	if err != nil {
-		return nil //nolint:nilerr // Fail open: billing state is advisory and must not block this request.: billing state is advisory and must not block this request: billing unavailable should not block environment creation
+		return nil //nolint:nilerr // fail open: environment count failures must not block creation
 	}
 
 	if count >= limits.MaxEnvironments {
@@ -277,12 +277,12 @@ func (s *Server) checkScheduleLimit(ctx context.Context, projectID string, cronE
 
 	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
 	if err != nil || orgID == "" {
-		return nil //nolint:nilerr // Fail open: billing state is advisory and must not block this request.: billing state is advisory and must not block this request
+		return nil //nolint:nilerr // fail open: org lookup failures must not block schedule creation
 	}
 
 	limits, limErr := s.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
 	if limErr != nil {
-		return nil //nolint:nilerr // Fail open: billing state is advisory and must not block this request.: billing state is advisory and must not block this request
+		return nil //nolint:nilerr // fail open: plan lookup failures must not block schedule creation
 	}
 	if limits.MaxScheduledJobs == -1 {
 		return nil // Unlimited.
@@ -290,7 +290,7 @@ func (s *Server) checkScheduleLimit(ctx context.Context, projectID string, cronE
 
 	count, err := s.store.CountCronJobsByOrg(ctx, orgID)
 	if err != nil {
-		return nil //nolint:nilerr // Fail open: billing state is advisory and must not block this request.: billing state is advisory and must not block this request: billing unavailable should not block schedule creation
+		return nil //nolint:nilerr // fail open: schedule count failures must not block creation
 	}
 
 	if count >= limits.MaxScheduledJobs {
@@ -317,7 +317,7 @@ func (s *Server) checkWebhookEndpointLimit(ctx context.Context, projectID string
 
 	count, err := s.store.CountWebhookSubscriptionsByOrg(ctx, orgID)
 	if err != nil {
-		return nil //nolint:nilerr // Fail open: billing state is advisory and must not block this request.: billing state is advisory and must not block this request: billing unavailable should not block webhook creation
+		return nil //nolint:nilerr // fail open: webhook count failures must not block creation
 	}
 
 	if count >= maxEndpoints {
@@ -333,7 +333,7 @@ func (s *Server) checkWebhookEndpointLimit(ctx context.Context, projectID string
 func (s *Server) resolveWebhookEndpointCreateLimit(ctx context.Context, projectID string) (string, int, string, error) {
 	limits := s.getOrgPlanLimits(ctx, projectID)
 	if limits == nil {
-		return "", -1, "", nil // Fail open: billing state is advisory and must not block this request.
+		return "", -1, "", nil
 	}
 
 	if limits.MaxWebhookEndpoints == -1 {
@@ -348,7 +348,7 @@ func (s *Server) resolveWebhookEndpointCreateLimit(ctx context.Context, projectI
 
 	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
 	if err != nil || orgID == "" {
-		return "", -1, limits.DisplayName, nil //nolint:nilerr // Fail open: billing state is advisory and must not block this request.: billing state is advisory and must not block this request
+		return "", -1, limits.DisplayName, nil //nolint:nilerr // fail open: org lookup failures must not block webhook creation
 	}
 
 	return orgID, limits.MaxWebhookEndpoints, limits.DisplayName, nil
@@ -359,7 +359,7 @@ func (s *Server) resolveWebhookEndpointCreateLimit(ctx context.Context, projectI
 func (s *Server) checkLogDrainLimit(ctx context.Context, projectID string) error {
 	limits := s.getOrgPlanLimits(ctx, projectID)
 	if limits == nil {
-		return nil // Fail open: billing state is advisory and must not block this request.
+		return nil
 	}
 
 	if limits.MaxLogDrainsPerOrg == -1 {
@@ -374,12 +374,12 @@ func (s *Server) checkLogDrainLimit(ctx context.Context, projectID string) error
 
 	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
 	if err != nil || orgID == "" {
-		return nil //nolint:nilerr // Fail open: billing state is advisory and must not block this request.: billing state is advisory and must not block this request: billing unavailable should not block creation
+		return nil //nolint:nilerr // fail open: org lookup failures must not block log-drain creation
 	}
 
 	count, err := s.store.CountLogDrainsByOrg(ctx, orgID)
 	if err != nil {
-		return nil //nolint:nilerr // Fail open: billing state is advisory and must not block this request.: billing state is advisory and must not block this request: count failure should not block creation
+		return nil //nolint:nilerr // fail open: log-drain count failures must not block creation
 	}
 
 	if count >= limits.MaxLogDrainsPerOrg {
@@ -398,7 +398,7 @@ func (s *Server) checkLogDrainLimit(ctx context.Context, projectID string) error
 func (s *Server) checkNotificationChannelLimit(ctx context.Context, projectID string) error {
 	limits := s.getOrgPlanLimits(ctx, projectID)
 	if limits == nil {
-		return nil // Fail open: billing state is advisory and must not block this request.
+		return nil
 	}
 
 	if limits.MaxNotificationChannels == -1 {
@@ -413,7 +413,7 @@ func (s *Server) checkNotificationChannelLimit(ctx context.Context, projectID st
 
 	count, err := s.store.CountNotificationChannelsByProject(ctx, projectID)
 	if err != nil {
-		return nil //nolint:nilerr // Fail open: billing state is advisory and must not block this request.: billing state is advisory and must not block this request: count failure should not block creation
+		return nil //nolint:nilerr // fail open: notification channel count failures must not block creation
 	}
 
 	if count >= limits.MaxNotificationChannels {
@@ -435,7 +435,7 @@ func (s *Server) checkNotificationChannelLimit(ctx context.Context, projectID st
 func (s *Server) checkAlertRuleLimit(ctx context.Context, projectID string, currentCount int) error {
 	limits := s.getOrgPlanLimits(ctx, projectID)
 	if limits == nil {
-		return nil // Fail open: billing state is advisory and must not block this request.
+		return nil
 	}
 
 	if limits.MaxAlertRulesPerProj == -1 {
@@ -465,18 +465,18 @@ func (s *Server) checkAlertRuleLimit(ctx context.Context, projectID string, curr
 // metering, never blocked).
 func (s *Server) checkDailyAIModelCallLimit(ctx context.Context, runID string) error {
 	if s.billingEnforcer == nil {
-		return nil // Fail open: billing state is advisory and must not block this request.: community / unconfigured
+		return nil // Fail open: community and self-hosted deployments may not configure billing.
 	}
 	if !s.edition.RequiresHTTPModeGating() {
 		return nil
 	}
 	run, err := s.store.GetRun(ctx, runID)
 	if err != nil || run == nil {
-		return nil //nolint:nilerr // Fail open: billing state is advisory and must not block this request.: billing state is advisory and must not block this request: run lookup failures shouldn't drop usage telemetry
+		return nil //nolint:nilerr // fail open: run lookup failures must not drop usage telemetry
 	}
 	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, run.ProjectID)
 	if err != nil || orgID == "" {
-		return nil //nolint:nilerr // Fail open: billing state is advisory and must not block this request.: billing state is advisory and must not block this request
+		return nil //nolint:nilerr // fail open: org lookup failures must not drop usage telemetry
 	}
 	if err := s.billingEnforcer.CheckDailyAIModelCallLimit(ctx, orgID); err != nil {
 		var le *billing.LimitError
@@ -504,11 +504,11 @@ func (s *Server) checkRunTTLLimit(ctx context.Context, projectID string, ttlSecs
 	}
 	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
 	if err != nil || orgID == "" {
-		return nil //nolint:nilerr // Fail open: billing state is advisory and must not block this request.: billing state is advisory and must not block this request
+		return nil //nolint:nilerr // fail open: org lookup failures must not block run TTL updates
 	}
 	limits, limErr := s.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
 	if limErr != nil {
-		return nil //nolint:nilerr // Fail open: billing state is advisory and must not block this request.: billing state is advisory and must not block this request
+		return nil //nolint:nilerr // fail open: plan lookup failures must not block run TTL updates
 	}
 	if limits.RetentionDays <= 0 {
 		return nil // Unlimited. or unset
@@ -540,11 +540,11 @@ func (s *Server) checkPerJobConcurrencyLimit(ctx context.Context, projectID stri
 	}
 	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
 	if err != nil || orgID == "" {
-		return nil //nolint:nilerr // Fail open: billing state is advisory and must not block this request.: billing state is advisory and must not block this request
+		return nil //nolint:nilerr // fail open: org lookup failures must not block concurrency updates
 	}
 	limits, limErr := s.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
 	if limErr != nil {
-		return nil //nolint:nilerr // Fail open: billing state is advisory and must not block this request.: billing state is advisory and must not block this request
+		return nil //nolint:nilerr // fail open: plan lookup failures must not block concurrency updates
 	}
 	if limits.MaxConcurrentRuns < 0 {
 		return nil
@@ -577,7 +577,7 @@ var basicWebhookEvents = map[string]bool{
 func (s *Server) checkWebhookEventTypes(ctx context.Context, projectID string, eventTypes []string) error {
 	limits := s.getOrgPlanLimits(ctx, projectID)
 	if limits == nil {
-		return nil // Fail open: billing state is advisory and must not block this request.
+		return nil
 	}
 
 	switch limits.WebhookEventLevel {
@@ -616,7 +616,7 @@ func (s *Server) checkJobChainingAllowed(ctx context.Context, projectID string, 
 func (s *Server) checkWorkflowStepFeatures(ctx context.Context, projectID string, steps []workflowStepRequest) error {
 	limits := s.getOrgPlanLimits(ctx, projectID)
 	if limits == nil {
-		return nil // Fail open: billing state is advisory and must not block this request.
+		return nil
 	}
 
 	for _, step := range steps {

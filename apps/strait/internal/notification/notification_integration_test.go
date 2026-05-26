@@ -516,7 +516,6 @@ func TestDeliveryStatusLifecycle_PendingToDelivered(t *testing.T) {
 		t.Fatalf("CreateNotificationDelivery() error = %v", err)
 	}
 
-	// Verify initial status is pending.
 	deliveries, err := st.ListNotificationDeliveries(ctx, projectID, 10, nil)
 	if err != nil {
 		t.Fatalf("ListNotificationDeliveries() error = %v", err)

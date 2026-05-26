@@ -765,7 +765,6 @@ func TestDeleteRunState(t *testing.T) {
 		t.Fatalf("UpsertRunState() error = %v", err)
 	}
 
-	// Verify it exists.
 	got, err := q.GetRunState(ctx, run.ID, "cursor")
 	if err != nil {
 		t.Fatalf("GetRunState() error = %v", err)
@@ -779,7 +778,6 @@ func TestDeleteRunState(t *testing.T) {
 		t.Fatalf("DeleteRunState() error = %v", err)
 	}
 
-	// Verify it is gone.
 	got, err = q.GetRunState(ctx, run.ID, "cursor")
 	if err != nil {
 		t.Fatalf("GetRunState() after delete error = %v", err)

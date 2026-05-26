@@ -176,7 +176,6 @@ func TestE2E_Debug_SetDebugMode(t *testing.T) {
 		t.Fatalf("set debug mode status = %d, body = %s", w.Code, w.Body.String())
 	}
 
-	// Verify via get run
 	w = doRequest(t, http.MethodGet, fmt.Sprintf("/v1/runs/%s", runID), "")
 	if w.Code != http.StatusOK {
 		t.Fatalf("get run status = %d, body = %s", w.Code, w.Body.String())
@@ -235,7 +234,6 @@ func TestE2E_RunContinuation_SDKContinue(t *testing.T) {
 		t.Fatalf("expected lineage_depth=1, got %d", asInt(t, contRun, "lineage_depth"))
 	}
 
-	// Verify payload is the continued one
 	payload := contRun["payload"]
 	payloadBytes, _ := json.Marshal(payload)
 	if string(payloadBytes) == "" {

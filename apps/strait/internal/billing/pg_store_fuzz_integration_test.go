@@ -90,7 +90,6 @@ func TestFuzz_RecordProcessedWebhook(t *testing.T) {
 			continue
 		}
 
-		// Verify round-trip.
 		processed, err := pgStore.IsWebhookProcessed(ctx, input)
 		if err != nil {
 			t.Logf("IsWebhookProcessed(%q) = %v (acceptable)", input, err)
@@ -194,7 +193,6 @@ func TestFuzz_CreateAddon(t *testing.T) {
 				return
 			}
 
-			// Verify round-trip.
 			addons, err := pgStore.ListActiveAddons(ctx, orgID)
 			if err != nil {
 				t.Logf("ListActiveAddons after %q = %v", tc.name, err)

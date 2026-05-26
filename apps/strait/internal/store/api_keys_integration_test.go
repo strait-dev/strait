@@ -178,7 +178,6 @@ func TestListAPIKeysByProject(t *testing.T) {
 		t.Fatalf("len = %d, want 3", len(keys))
 	}
 
-	// Verify DESC ordering.
 	for i := 1; i < len(keys); i++ {
 		if keys[i-1].CreatedAt.Before(keys[i].CreatedAt) {
 			t.Fatalf("keys not DESC at index %d", i)

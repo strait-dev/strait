@@ -174,7 +174,6 @@ func TestSigning_NullBytesInBody(t *testing.T) {
 	if len(sig) != 64 {
 		t.Fatalf("expected 64 hex chars, got %d", len(sig))
 	}
-	// Verify round-trip.
 	err := ValidateSignature("hmac-sha256", "secret", body, "sha256="+sig)
 	if err != nil {
 		t.Fatalf("signature with null bytes should validate, got %v", err)

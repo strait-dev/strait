@@ -1125,7 +1125,6 @@ func TestE2E_RolesLifecycle(t *testing.T) {
 		t.Fatalf("delete role status = %d, body = %s", dw.Code, dw.Body.String())
 	}
 
-	// Verify gone.
 	gw2 := doRequest(t, http.MethodGet, "/v1/roles/"+roleID, "")
 	if gw2.Code != http.StatusNotFound {
 		t.Fatalf("get deleted role status = %d, want 404", gw2.Code)
