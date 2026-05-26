@@ -217,6 +217,10 @@ func (t *Tier[K, V]) applyUpdate(ctx context.Context, key K, entry cacheEntry[V]
 	if t == nil {
 		return
 	}
+	if entry.Barrier {
+		t.applyBarrier(ctx, key, entry.Version)
+		return
+	}
 	if !t.disableL1 && t.l1 != nil {
 		if current, ok := t.l1.GetIfPresent(key); ok && current.Version > entry.Version {
 			recordCacheCASReject(ctx, t.name)
@@ -258,7 +262,7 @@ func (t *Tier[K, V]) GetIfPresent(key K) (V, bool) {
 		return zero, false
 	}
 	entry, ok := t.l1.GetIfPresent(key)
-	if !ok || entry.Negative {
+	if !ok || entry.Negative || entry.Barrier {
 		var zero V
 		return zero, ok
 	}
@@ -276,6 +280,14 @@ func (t *Tier[K, V]) loadThroughL2(ctx context.Context, key K, minVersion int64,
 	if !t.disableL2 && t.l2 != nil {
 		entry, err := t.l2.Get(ctx, key)
 		switch {
+		case err == nil && entry.Barrier:
+			recordCacheOperation(ctx, t.name, "barrier")
+			if minVersion < entry.Version {
+				minVersion = entry.Version
+			}
+			if t.cfg.OnL2Miss != nil {
+				t.cfg.OnL2Miss()
+			}
 		case err == nil && entry.Version >= minVersion:
 			recordCacheOperation(ctx, t.name, "hit")
 			if !t.disableL1 && t.l1 != nil {
@@ -311,18 +323,21 @@ func (t *Tier[K, V]) loadThroughL2(ctx context.Context, key K, minVersion int64,
 		entry.Negative = true
 	}
 	if !t.disableL2 && t.l2 != nil {
-		if minVersion > 0 {
-			entry.Version = minVersion
-			if ok, err := t.l2.CompareAndSet(ctx, key, entry, t.ttl); err != nil {
-				t.failOpen("cas_fill", err)
-			} else if !ok {
-				recordCacheCASReject(ctx, t.name)
-				if t.cfg.OnCASRejected != nil {
-					t.cfg.OnCASRejected()
-				}
+		entry.Version = minVersion
+		if ok, err := t.l2.CompareAndSet(ctx, key, entry, t.ttl); err != nil {
+			t.failOpen("cas_fill", err)
+		} else if !ok {
+			recordCacheCASReject(ctx, t.name)
+			if t.cfg.OnCASRejected != nil {
+				t.cfg.OnCASRejected()
 			}
-		} else if err := t.l2.Set(ctx, key, entry, t.ttl); err != nil {
-			t.failOpen("set_fill", err)
+			newer, getErr := t.l2.Get(ctx, key)
+			if getErr == nil {
+				if newer.Barrier {
+					return cacheEntry[V]{}, fmt.Errorf("%w: blocked by version barrier %d", ErrStaleVersion, newer.Version)
+				}
+				return newer, nil
+			}
 		}
 	}
 	return entry, nil
@@ -333,11 +348,38 @@ func (t *Tier[K, V]) valueFromEntry(entry cacheEntry[V], err error) (V, error) {
 		var zero V
 		return zero, err
 	}
-	if entry.Negative {
+	if entry.Negative || entry.Barrier {
 		var zero V
 		return zero, nil
 	}
 	return t.clone(entry.Value), nil
+}
+
+func (t *Tier[K, V]) applyBarrier(ctx context.Context, key K, version int64) {
+	if t == nil {
+		return
+	}
+	if version <= 0 {
+		version = time.Now().UnixNano()
+	}
+	entry := cacheEntry[V]{Version: version, Barrier: true}
+	if !t.disableL1 && t.l1 != nil {
+		t.l1.Invalidate(key)
+	}
+	if t.disableL2 || t.l2 == nil {
+		return
+	}
+	ok, err := t.l2.CompareAndSet(ctx, key, entry, t.ttl)
+	if err != nil {
+		t.failOpen("barrier", err)
+		return
+	}
+	if !ok {
+		recordCacheCASReject(ctx, t.name)
+		if t.cfg.OnCASRejected != nil {
+			t.cfg.OnCASRejected()
+		}
+	}
 }
 
 func (t *Tier[K, V]) clone(v V) V {

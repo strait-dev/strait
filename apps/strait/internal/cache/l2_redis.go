@@ -158,7 +158,13 @@ if existing then
   if ok and decoded and decoded["version"] ~= nil then
     local current = tonumber(decoded["version"])
     local incoming = tonumber(ARGV[1])
-    if current ~= nil and incoming ~= nil and incoming <= current then
+    local existing_barrier = decoded["barrier"] == true
+    local incoming_ok, incoming_decoded = pcall(cjson.decode, ARGV[2])
+    local incoming_barrier = incoming_ok and incoming_decoded and incoming_decoded["barrier"] == true
+    if current ~= nil and incoming ~= nil and incoming < current then
+      return 0
+    end
+    if current ~= nil and incoming ~= nil and incoming == current and not (existing_barrier and not incoming_barrier) then
       return 0
     end
   end

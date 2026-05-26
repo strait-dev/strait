@@ -33,6 +33,7 @@ func (JSONCodec[T]) Unmarshal(b []byte, dst *T) error {
 type cacheEntry[V any] struct {
 	Version  int64 `json:"version"`
 	Negative bool  `json:"negative,omitempty"`
+	Barrier  bool  `json:"barrier,omitempty"`
 	Value    V     `json:"value,omitempty"`
 }
 

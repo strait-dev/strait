@@ -164,9 +164,9 @@ type UpdatingStringTierHandler[V any] struct {
 	Tier *Tier[string, V]
 }
 
-func (h UpdatingStringTierHandler[V]) InvalidateCacheKey(ctx context.Context, key string, _ int64) {
+func (h UpdatingStringTierHandler[V]) InvalidateCacheKey(ctx context.Context, key string, version int64) {
 	if h.Tier != nil {
-		h.Tier.Invalidate(ctx, key)
+		h.Tier.applyBarrier(ctx, key, version)
 	}
 }
 
@@ -187,13 +187,13 @@ type TierHandler[K comparable, V any] struct {
 	Parse func(string) (K, bool)
 }
 
-func (h TierHandler[K, V]) InvalidateCacheKey(ctx context.Context, key string, _ int64) {
+func (h TierHandler[K, V]) InvalidateCacheKey(ctx context.Context, key string, version int64) {
 	if h.Tier == nil || h.Parse == nil {
 		return
 	}
 	parsed, ok := h.Parse(key)
 	if ok {
-		h.Tier.Invalidate(ctx, parsed)
+		h.Tier.applyBarrier(ctx, parsed, version)
 	}
 }
 
