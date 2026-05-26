@@ -24,8 +24,6 @@ import (
 	"strait/internal/domain"
 )
 
-// --- Error-injecting mock stores ---.
-
 // errStore wraps mockBillingStore to inject errors on specific calls.
 type errStore struct {
 	mockBillingStore
@@ -116,8 +114,6 @@ func (m *advMockAuditStore) CreateAuditEvent(_ context.Context, ev *domain.Audit
 	m.events = append(m.events, *ev)
 	return nil
 }
-
-// --- Helper to build signed webhook request ---.
 
 func buildSignedWebhookRequest(t *testing.T, secret string, payload []byte) *http.Request {
 	t.Helper()

@@ -12,9 +12,7 @@ import (
 	vegeta "github.com/tsenart/vegeta/v12/lib"
 )
 
-// ---------------------------------------------------------------------------
 // Jobs CRUD load tests
-// ---------------------------------------------------------------------------.
 
 func TestJobs_CreateJob(t *testing.T) {
 	mustClean(t)

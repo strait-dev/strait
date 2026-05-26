@@ -8,8 +8,6 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// --- GenerateTestSecret ---.
-
 func TestGenerateTestSecret_Length(t *testing.T) {
 	t.Parallel()
 	for _, byteLen := range []int{8, 16, 32, 64} {
@@ -62,8 +60,6 @@ func TestGenerateTestSecret_PanicsOnNegative(t *testing.T) {
 	GenerateTestSecret(-1)
 }
 
-// --- GenerateTestWebhookSecret ---.
-
 func TestGenerateTestWebhookSecret_Format(t *testing.T) {
 	t.Parallel()
 	s := GenerateTestWebhookSecret()
@@ -83,8 +79,6 @@ func TestGenerateTestWebhookSecret_Unique(t *testing.T) {
 		t.Error("two calls should produce different secrets")
 	}
 }
-
-// --- GenerateTestJWTKey ---.
 
 func TestGenerateTestJWTKey_Length(t *testing.T) {
 	t.Parallel()
@@ -115,8 +109,6 @@ func TestGenerateTestJWTKey_ValidForHMAC(t *testing.T) {
 	}
 }
 
-// --- GenerateTestInternalSecret ---.
-
 func TestGenerateTestInternalSecret_MinLength(t *testing.T) {
 	t.Parallel()
 	s := GenerateTestInternalSecret()
@@ -124,8 +116,6 @@ func TestGenerateTestInternalSecret_MinLength(t *testing.T) {
 		t.Errorf("internal secret length %d < 16 (minimum required by config)", len(s))
 	}
 }
-
-// --- GenerateTestAPIKey ---.
 
 func TestGenerateTestAPIKey_Format(t *testing.T) {
 	t.Parallel()
@@ -147,8 +137,6 @@ func TestGenerateTestAPIKey_Unique(t *testing.T) {
 	}
 }
 
-// --- GenerateTestEncryptionKey ---.
-
 func TestGenerateTestEncryptionKey_Length(t *testing.T) {
 	t.Parallel()
 	s := GenerateTestEncryptionKey()
@@ -156,8 +144,6 @@ func TestGenerateTestEncryptionKey_Length(t *testing.T) {
 		t.Errorf("len = %d, want 64", len(s))
 	}
 }
-
-// --- GenerateTestDeviceCode ---.
 
 func TestGenerateTestDeviceCode_Length(t *testing.T) {
 	t.Parallel()
@@ -176,8 +162,6 @@ func TestGenerateTestDeviceCode_ValidHex(t *testing.T) {
 		}
 	}
 }
-
-// --- GenerateTestUserCode ---.
 
 func TestGenerateTestUserCode_Length(t *testing.T) {
 	t.Parallel()
@@ -224,8 +208,6 @@ func TestGenerateTestUserCode_Unique(t *testing.T) {
 	}
 }
 
-// --- GenerateTestSignatureSecret ---.
-
 func TestGenerateTestSignatureSecret_ValidBase64(t *testing.T) {
 	t.Parallel()
 	s := GenerateTestSignatureSecret()
@@ -246,8 +228,6 @@ func TestGenerateTestSignatureSecret_Unique(t *testing.T) {
 		t.Error("two calls should produce different secrets")
 	}
 }
-
-// --- GenerateTestRunToken ---.
 
 func TestGenerateTestRunToken_Valid(t *testing.T) {
 	t.Parallel()
@@ -283,8 +263,6 @@ func TestGenerateTestRunToken_WrongKey_Fails(t *testing.T) {
 		t.Fatal("expected verification to fail with wrong key")
 	}
 }
-
-// --- GenerateTestSSEToken ---.
 
 func TestGenerateTestSSEToken_Valid(t *testing.T) {
 	t.Parallel()
@@ -335,8 +313,6 @@ func TestGenerateTestSSEToken_Expires(t *testing.T) {
 	}
 }
 
-// --- GenerateTestClaimToken ---.
-
 func TestGenerateTestClaimToken_Length(t *testing.T) {
 	t.Parallel()
 	s := GenerateTestClaimToken()
@@ -344,8 +320,6 @@ func TestGenerateTestClaimToken_Length(t *testing.T) {
 		t.Errorf("len = %d, want 64", len(s))
 	}
 }
-
-// --- GenerateTestDatabaseURL ---.
 
 func TestGenerateTestDatabaseURL_Format(t *testing.T) {
 	t.Parallel()
@@ -369,8 +343,6 @@ func TestGenerateTestDatabaseURL_Unique(t *testing.T) {
 		t.Error("two calls should produce different URLs")
 	}
 }
-
-// --- GenerateTestRedisURL ---.
 
 func TestGenerateTestRedisURL_Format(t *testing.T) {
 	t.Parallel()

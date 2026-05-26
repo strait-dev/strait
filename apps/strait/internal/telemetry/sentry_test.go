@@ -12,8 +12,6 @@ import (
 	"github.com/getsentry/sentry-go"
 )
 
-// --- NewSentryHandler tests.
-
 func TestNewSentryHandler_ReturnsNonNil(t *testing.T) {
 	t.Parallel()
 	inner := slog.NewTextHandler(&bytes.Buffer{}, nil)
@@ -38,8 +36,6 @@ func TestNewSentryHandler_WrapsInner(t *testing.T) {
 	}
 }
 
-// --- Enabled tests.
-
 func TestSentryHandler_Enabled_RespectsInnerLevel(t *testing.T) {
 	t.Parallel()
 	inner := slog.NewTextHandler(&bytes.Buffer{}, &slog.HandlerOptions{Level: slog.LevelWarn})
@@ -59,8 +55,6 @@ func TestSentryHandler_Enabled_RespectsInnerLevel(t *testing.T) {
 		t.Error("expected Enabled(Error) = true for Warn-level inner handler")
 	}
 }
-
-// --- WithAttrs tests.
 
 func TestSentryHandler_WithAttrs_ReturnsNewHandler(t *testing.T) {
 	t.Parallel()
@@ -104,8 +98,6 @@ func TestSentryHandler_WithAttrs_Empty(t *testing.T) {
 	}
 }
 
-// --- WithGroup tests.
-
 func TestSentryHandler_WithGroup_ReturnsNewHandler(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
@@ -134,8 +126,6 @@ func TestSentryHandler_WithGroup_ReturnsNewHandler(t *testing.T) {
 		t.Errorf("expected grouped key in output: %s", buf.String())
 	}
 }
-
-// --- Handle tests.
 
 func TestSentryHandler_Handle_DelegatesToInner(t *testing.T) {
 	t.Parallel()
@@ -236,8 +226,6 @@ func TestSentryHandler_Handle_ErrorWithMessageOnly(t *testing.T) {
 		t.Errorf("inner handler missing log: %s", buf.String())
 	}
 }
-
-// --- SanitizeValue tests.
 
 func TestSanitizeValue_SensitiveKeys(t *testing.T) {
 	t.Parallel()
@@ -369,8 +357,6 @@ func TestSanitizeBreadcrumbData_RedactsNestedValues(t *testing.T) {
 	}
 }
 
-// --- ScrubSecrets tests.
-
 func TestScrubSecrets_PostgresURL(t *testing.T) {
 	t.Parallel()
 	input := "connection failed: postgres://admin:password@db.host.com:5432/mydb"
@@ -464,8 +450,6 @@ func TestScrubSecrets_EmptyString(t *testing.T) {
 	}
 }
 
-// --- SanitizeQueryString additional tests.
-
 func TestSanitizeQueryString_InvalidInput(t *testing.T) {
 	t.Parallel()
 	got := SanitizeQueryString("%ZZ%YY%invalid")
@@ -496,8 +480,6 @@ func TestSanitizeQueryString_RedactsCredentialAliases(t *testing.T) {
 	}
 }
 
-// --- Sentry tag taxonomy tests.
-
 func TestSentryTagKeys_Contains_KnownKeys(t *testing.T) {
 	t.Parallel()
 	knownKeys := []string{
@@ -524,8 +506,6 @@ func TestSentryTagKeys_DoesNotContain_NonTagKeys(t *testing.T) {
 		}
 	}
 }
-
-// --- Handler interface compliance.
 
 func TestSentryHandler_ImplementsHandlerInterface(t *testing.T) {
 	t.Parallel()

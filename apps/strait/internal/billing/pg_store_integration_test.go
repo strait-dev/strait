@@ -245,8 +245,6 @@ func timeClose(a, b time.Time, d time.Duration) bool {
 	return diff < d
 }
 
-// Test 1: EnsureOrgSubscription
-
 func TestPgStore_EnsureOrgSubscription(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -282,8 +280,6 @@ func TestPgStore_EnsureOrgSubscription(t *testing.T) {
 		t.Errorf("ID changed after second ensure: %q vs %q", sub2.ID, sub.ID)
 	}
 }
-
-// Test 2: GetOrgSubscription - assert all 21 fields
 
 func TestPgStore_GetOrgSubscription(t *testing.T) {
 	ctx := context.Background()
@@ -430,8 +426,6 @@ func TestPgStore_GetOrgSubscription(t *testing.T) {
 	}
 }
 
-// Test 3: GetOrgSubscription not found
-
 func TestPgStore_GetOrgSubscription_NotFound(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -460,8 +454,6 @@ func containsImpl(s, substr string) bool {
 	}
 	return false
 }
-
-// Test 4: UpsertOrgSubscription
 
 func TestPgStore_UpsertOrgSubscription(t *testing.T) {
 	ctx := context.Background()
@@ -515,8 +507,6 @@ func TestPgStore_UpsertOrgSubscription(t *testing.T) {
 		t.Errorf("PlanTier after upsert = %q, want %q", got2.PlanTier, "enterprise")
 	}
 }
-
-// Test 5: UpdateOrgSubscriptionPlan
 
 func TestPgStore_UpdateOrgSubscriptionPlan(t *testing.T) {
 	ctx := context.Background()
@@ -613,8 +603,6 @@ func TestPgStore_StripeBindingsAreGloballyUnique(t *testing.T) {
 	}
 }
 
-// Test 6: UpdateOrgSubscriptionPlan not found
-
 func TestPgStore_UpdateOrgSubscriptionPlan_NotFound(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -625,8 +613,6 @@ func TestPgStore_UpdateOrgSubscriptionPlan_NotFound(t *testing.T) {
 		t.Fatal("expected error for nonexistent org, got nil")
 	}
 }
-
-// Test 7: UpdateOrgSubscriptionFull
 
 func TestPgStore_UpdateOrgSubscriptionFull(t *testing.T) {
 	ctx := context.Background()
@@ -658,8 +644,6 @@ func TestPgStore_UpdateOrgSubscriptionFull(t *testing.T) {
 	}
 }
 
-// Test 8: UpdateOrgSubscriptionFull not found
-
 func TestPgStore_UpdateOrgSubscriptionFull_NotFound(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -672,8 +656,6 @@ func TestPgStore_UpdateOrgSubscriptionFull_NotFound(t *testing.T) {
 		t.Fatal("expected error for nonexistent org, got nil")
 	}
 }
-
-// Test 9: SetPendingPlanTier
 
 func TestPgStore_SetPendingPlanTier(t *testing.T) {
 	ctx := context.Background()
@@ -696,8 +678,6 @@ func TestPgStore_SetPendingPlanTier(t *testing.T) {
 	}
 }
 
-// Test 10: SetPendingPlanTier not found
-
 func TestPgStore_SetPendingPlanTier_NotFound(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -708,8 +688,6 @@ func TestPgStore_SetPendingPlanTier_NotFound(t *testing.T) {
 		t.Fatal("expected error for nonexistent org, got nil")
 	}
 }
-
-// Test 11: SetPendingDowngrade
 
 func TestPgStore_SetPendingDowngrade(t *testing.T) {
 	ctx := context.Background()
@@ -741,8 +719,6 @@ func TestPgStore_SetPendingDowngrade(t *testing.T) {
 	}
 }
 
-// Test 12: ClearPendingPlanTier
-
 func TestPgStore_ClearPendingPlanTier(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -768,8 +744,6 @@ func TestPgStore_ClearPendingPlanTier(t *testing.T) {
 	}
 }
 
-// Test 13: ClearPendingPlanTier not found
-
 func TestPgStore_ClearPendingPlanTier_NotFound(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -780,8 +754,6 @@ func TestPgStore_ClearPendingPlanTier_NotFound(t *testing.T) {
 		t.Fatal("expected error for nonexistent org, got nil")
 	}
 }
-
-// Test 14: ApplyPendingDowngrade
 
 func TestPgStore_ApplyPendingDowngrade(t *testing.T) {
 	ctx := context.Background()
@@ -927,8 +899,6 @@ func TestPgStore_ApplyPendingDowngradeTierIfPending_RetainsPendingUntilCondition
 	}
 }
 
-// Test 15: ApplyPendingDowngrade no pending
-
 func TestPgStore_ApplyPendingDowngrade_NoPending(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -942,8 +912,6 @@ func TestPgStore_ApplyPendingDowngrade_NoPending(t *testing.T) {
 		t.Fatal("expected error when no pending downgrade, got nil")
 	}
 }
-
-// Test 16: ListOrgsWithPendingDowngrade
 
 func TestPgStore_ListOrgsWithPendingDowngrade(t *testing.T) {
 	ctx := context.Background()
@@ -990,8 +958,6 @@ func TestPgStore_ListOrgsWithPendingDowngrade(t *testing.T) {
 	}
 }
 
-// Test 17: UpdateSpendingLimit
-
 func TestPgStore_UpdateSpendingLimit(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -1016,8 +982,6 @@ func TestPgStore_UpdateSpendingLimit(t *testing.T) {
 	}
 }
 
-// Test 18: UpdateSpendingLimit not found
-
 func TestPgStore_UpdateSpendingLimit_NotFound(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -1028,8 +992,6 @@ func TestPgStore_UpdateSpendingLimit_NotFound(t *testing.T) {
 		t.Fatal("expected error for nonexistent org, got nil")
 	}
 }
-
-// Test 19: GetProjectOrgID
 
 func TestPgStore_GetProjectOrgID(t *testing.T) {
 	ctx := context.Background()
@@ -1048,8 +1010,6 @@ func TestPgStore_GetProjectOrgID(t *testing.T) {
 		t.Errorf("GetProjectOrgID = %q, want %q", got, orgID)
 	}
 }
-
-// Test 20: GetActiveProjectOrgID
 
 func TestPgStore_GetActiveProjectOrgID(t *testing.T) {
 	ctx := context.Background()
@@ -1082,8 +1042,6 @@ func TestPgStore_GetActiveProjectOrgID(t *testing.T) {
 	}
 }
 
-// Test 21: ListProjectsByOrg
-
 func TestPgStore_ListProjectsByOrg(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -1113,8 +1071,6 @@ func TestPgStore_ListProjectsByOrg(t *testing.T) {
 	}
 }
 
-// Test 22: CountProjectsByOrg
-
 func TestPgStore_CountProjectsByOrg(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -1135,8 +1091,6 @@ func TestPgStore_CountProjectsByOrg(t *testing.T) {
 		t.Errorf("CountProjectsByOrg = %d, want 2", count)
 	}
 }
-
-// Test 23: CountOrgsByUser
 
 func TestPgStore_CountOrgsByUser(t *testing.T) {
 	ctx := context.Background()
@@ -1161,8 +1115,6 @@ func TestPgStore_CountOrgsByUser(t *testing.T) {
 		t.Errorf("CountOrgsByUser = %d, want 2", count)
 	}
 }
-
-// Test 24: BulkCountExecutingRunsByOrg
 
 func TestPgStore_BulkCountExecutingRunsByOrg(t *testing.T) {
 	ctx := context.Background()
@@ -1202,8 +1154,6 @@ func TestPgStore_BulkCountExecutingRunsByOrg(t *testing.T) {
 	}
 }
 
-// Test 25: BulkCountExecutingRunsByOrg empty
-
 func TestPgStore_BulkCountExecutingRunsByOrg_Empty(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -1217,8 +1167,6 @@ func TestPgStore_BulkCountExecutingRunsByOrg_Empty(t *testing.T) {
 		t.Errorf("BulkCountExecutingRunsByOrg empty len = %d, want 0", len(counts))
 	}
 }
-
-// Test 26: SetProjectOrgID
 
 func TestPgStore_SetProjectOrgID(t *testing.T) {
 	ctx := context.Background()
@@ -1241,8 +1189,6 @@ func TestPgStore_SetProjectOrgID(t *testing.T) {
 		t.Errorf("GetProjectOrgID = %q, want %q", got, newOrg)
 	}
 }
-
-// Test 27: UpsertUsageRecord
 
 func TestPgStore_UpsertUsageRecord(t *testing.T) {
 	ctx := context.Background()
@@ -1569,8 +1515,6 @@ func TestPgStore_GetProjectBudget_NoRow(t *testing.T) {
 	}
 }
 
-// Test 30: SetProjectBudget and GetProjectBudget
-
 func TestPgStore_SetProjectBudget(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -1625,8 +1569,6 @@ func TestPgStore_UpdateAnomalyThresholds(t *testing.T) {
 	}
 }
 
-// Test 33: UpdateAnomalyThresholds not found
-
 func TestPgStore_UpdateAnomalyThresholds_NotFound(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -1637,8 +1579,6 @@ func TestPgStore_UpdateAnomalyThresholds_NotFound(t *testing.T) {
 		t.Fatal("expected error for nonexistent org, got nil")
 	}
 }
-
-// Test 34: ListAllSubscribedOrgIDs
 
 func TestPgStore_ListAllSubscribedOrgIDs(t *testing.T) {
 	ctx := context.Background()
@@ -1689,8 +1629,6 @@ func TestPlanRetentionResolver_MissingSubscriptionDoesNotFallbackToFreeRetention
 	}
 }
 
-// Test 35: UpdatePaymentStatus
-
 func TestPgStore_UpdatePaymentStatus(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -1717,8 +1655,6 @@ func TestPgStore_UpdatePaymentStatus(t *testing.T) {
 		t.Errorf("GracePeriodEnd = %v, want %v", *sub.GracePeriodEnd, graceEnd)
 	}
 }
-
-// Test 36: ListOrgsInGracePeriod
 
 func TestPgStore_ListOrgsInGracePeriod(t *testing.T) {
 	ctx := context.Background()
@@ -1839,8 +1775,6 @@ func TestPgStore_RestrictExpiredGracePeriod_AtomicConditionalUpdate(t *testing.T
 	}
 }
 
-// Test 37: ListStaleSubscriptions
-
 func TestPgStore_ListStaleSubscriptions(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -1892,8 +1826,6 @@ func TestPgStore_ListStaleSubscriptions(t *testing.T) {
 	}
 }
 
-// Test 38: IsProjectSuspended
-
 func TestPgStore_IsProjectSuspended(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -1923,8 +1855,6 @@ func TestPgStore_IsProjectSuspended(t *testing.T) {
 		t.Errorf("IsProjectSuspended = false, want true")
 	}
 }
-
-// Test 39: SuspendExcessProjects
 
 func TestPgStore_SuspendExcessProjects(t *testing.T) {
 	ctx := context.Background()
@@ -1966,8 +1896,6 @@ func TestPgStore_SuspendExcessProjects(t *testing.T) {
 		t.Errorf("p3 should be suspended")
 	}
 }
-
-// Test 40: ListOrgAdminEmails
 
 func TestPgStore_ListOrgAdminEmails(t *testing.T) {
 	ctx := context.Background()
@@ -2023,8 +1951,6 @@ func TestPgStore_ListOrgAdminEmails_ExcludesUnverifiedEmails(t *testing.T) {
 		t.Fatalf("ListOrgAdminEmails = %v, want only verified@example.com", emails)
 	}
 }
-
-// Test 41: HasSentUsageReport and RecordSentUsageReport
 
 func TestPgStore_UsageReportDedup(t *testing.T) {
 	ctx := context.Background()
@@ -2091,8 +2017,6 @@ func TestPgStore_ClaimContractReminderSend_DeduplicatesByOrgDateWindow(t *testin
 	}
 }
 
-// Test 42: UpdateMonthlyUsageEmail
-
 func TestPgStore_UpdateMonthlyUsageEmail(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -2128,8 +2052,6 @@ func TestPgStore_UpdateMonthlyUsageEmail(t *testing.T) {
 		t.Errorf("MonthlyUsageEmail after disable = true, want false")
 	}
 }
-
-// Test 43: ListActiveAddons
 
 func TestPgStore_ListActiveAddons(t *testing.T) {
 	ctx := context.Background()
@@ -2175,8 +2097,6 @@ func TestPgStore_ListActiveAddons(t *testing.T) {
 	}
 }
 
-// Test 44: DeactivateAddon
-
 func TestPgStore_DeactivateAddon(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -2206,8 +2126,6 @@ func TestPgStore_DeactivateAddon(t *testing.T) {
 		t.Errorf("ListActiveAddons after deactivation len = %d, want 0", len(addons))
 	}
 }
-
-// Test 45: CountActiveAddonsByType
 
 func TestPgStore_CountActiveAddonsByType(t *testing.T) {
 	ctx := context.Background()
@@ -2256,8 +2174,6 @@ func TestPgStore_CountActiveAddonsByType(t *testing.T) {
 		t.Errorf("CountActiveAddonsByType environments_5 = %d, want 0", count2)
 	}
 }
-
-// Test 46: RecordProcessedWebhook and IsWebhookProcessed
 
 func TestPgStore_WebhookIdempotency(t *testing.T) {
 	ctx := context.Background()
@@ -2384,8 +2300,6 @@ func TestPgStore_WebhookProcessingClaimIsAtomic(t *testing.T) {
 	}
 }
 
-// Test 47: DeleteOldWebhookMessages
-
 func TestPgStore_DeleteOldWebhookMessages(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -2429,8 +2343,6 @@ func TestPgStore_DeleteOldWebhookMessages(t *testing.T) {
 	}
 }
 
-// Test 48: DeactivateExcessWebhookSubscriptions
-
 func TestPgStore_DeactivateExcessWebhookSubscriptions(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -2465,8 +2377,6 @@ func TestPgStore_DeactivateExcessWebhookSubscriptions(t *testing.T) {
 	}
 }
 
-// Test 49: DeactivateExcessEnvironments
-
 func TestPgStore_DeactivateExcessEnvironments(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -2498,8 +2408,6 @@ func TestPgStore_DeactivateExcessEnvironments(t *testing.T) {
 		t.Errorf("remaining environments = %d, want 2", remaining)
 	}
 }
-
-// Test 50: DeactivateExcessCronJobs
 
 func TestPgStore_DeactivateExcessCronJobs(t *testing.T) {
 	ctx := context.Background()

@@ -7352,8 +7352,6 @@ func TestListTimedOutWorkflowRuns(t *testing.T) {
 	}
 }
 
-// --- RBAC integration tests ---.
-
 func TestCreateProjectRole(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -7766,8 +7764,6 @@ func TestResourcePolicy_CRUD(t *testing.T) {
 	}
 }
 
-// --- Actor integration tests ---.
-
 func TestUpsertKnownActor(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -7832,8 +7828,6 @@ func TestGetKnownActor_NotFound(t *testing.T) {
 	}
 }
 
-// --- Version ID + created_by integration tests ---.
-
 func TestCreateJob_SetsVersionID(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -7888,8 +7882,6 @@ func TestUpdateJob_GeneratesNewVersionID(t *testing.T) {
 		t.Fatal("new VersionID should not be empty")
 	}
 }
-
-// --- Workflow version ID + created_by tests ---.
 
 func TestCreateWorkflow_SetsVersionID(t *testing.T) {
 	ctx := context.Background()
@@ -7977,8 +7969,6 @@ func TestCreateJob_DefaultVersionPolicy(t *testing.T) {
 	}
 }
 
-// --- DeleteResourcePolicy sentinel test ---.
-
 func TestDeleteResourcePolicy_NotFound(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -7990,8 +7980,6 @@ func TestDeleteResourcePolicy_NotFound(t *testing.T) {
 	}
 }
 
-// --- RemoveMemberRole sentinel test ---.
-
 func TestRemoveMemberRole_NotFound(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -8002,8 +7990,6 @@ func TestRemoveMemberRole_NotFound(t *testing.T) {
 		t.Fatalf("RemoveMemberRole() = %v, want ErrMemberNotFound", err)
 	}
 }
-
-// --- UpdateProjectRole integration test ---.
 
 func TestUpdateProjectRole(t *testing.T) {
 	ctx := context.Background()
@@ -8061,8 +8047,6 @@ func TestUpdateProjectRole_SystemRoleBlocked(t *testing.T) {
 	}
 }
 
-// --- ListProjectMembers test ---.
-
 func TestListProjectMembers(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -8096,8 +8080,6 @@ func TestListProjectMembers(t *testing.T) {
 		t.Fatalf("len(members) = %d, want 3", len(members))
 	}
 }
-
-// --- Tags query tests ---.
 
 func TestListJobsByTag_KeyOnly(t *testing.T) {
 	ctx := context.Background()
@@ -9147,8 +9129,6 @@ func TestListWorkflowsByTag_KeyOnly(t *testing.T) {
 		t.Fatalf("expected 1 workflow, got %d", len(workflows))
 	}
 }
-
-// --- Tag query integration tests (runs and workflow runs) ---.
 
 func TestListRunsByTag(t *testing.T) {
 	ctx := context.Background()

@@ -1188,7 +1188,6 @@ func TestRetryExhaustion_TransitionsToDead(t *testing.T) {
 	// Enqueue a run (attempt 0, status=queued).
 	run := mustEnqueueRun(t, ctx, q, job)
 
-	// --- Attempt 1: dequeue and simulate failure ---
 	batch, err := q.DequeueNClaim(ctx, 10)
 	if err != nil {
 		t.Fatalf("dequeue attempt 1: %v", err)
@@ -1234,7 +1233,6 @@ func TestRetryExhaustion_TransitionsToDead(t *testing.T) {
 		t.Fatalf("insert retry claim row: %v", err)
 	}
 
-	// --- Attempt 2: dequeue and simulate failure again ---
 	batch, err = q.DequeueNClaim(ctx, 10)
 	if err != nil {
 		t.Fatalf("dequeue attempt 2: %v", err)
