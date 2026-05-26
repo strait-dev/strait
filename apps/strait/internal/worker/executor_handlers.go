@@ -158,7 +158,7 @@ func (e *Executor) handleSuccessWithStats(
 		duration := now.Sub(*run.StartedAt)
 		if stats == nil {
 			var statsErr error
-			stats, statsErr = e.store.GetJobHealthStats(ctx, job.ID, time.Now().Add(-24*time.Hour))
+			stats, statsErr = e.getJobHealthStatsCached(ctx, job.ID, time.Now().Add(-24*time.Hour))
 			if statsErr != nil {
 				stats = nil
 			}
