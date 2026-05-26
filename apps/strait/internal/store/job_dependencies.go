@@ -27,9 +27,20 @@ func (q *Queries) CreateJobDependency(ctx context.Context, dep *domain.JobDepend
 	}
 
 	query := `
-		INSERT INTO job_dependencies (id, job_id, depends_on_job_id, condition)
-		VALUES ($1, $2, $3, $4)
-		RETURNING created_at, cache_version`
+		WITH inserted AS (
+			INSERT INTO job_dependencies (id, job_id, depends_on_job_id, condition)
+			VALUES ($1, $2, $3, $4)
+			RETURNING created_at
+		),
+		bumped AS (
+			UPDATE jobs
+			SET cache_version = cache_version + 1
+			FROM inserted
+			WHERE jobs.id = $2
+			RETURNING jobs.cache_version
+		)
+		SELECT inserted.created_at, bumped.cache_version
+		FROM inserted, bumped`
 
 	if dep.Condition == "" {
 		dep.Condition = "completed"
@@ -48,20 +59,21 @@ func (q *Queries) ListJobDependencies(ctx context.Context, jobID string, limit i
 	defer span.End()
 
 	query := `
-		SELECT id, job_id, depends_on_job_id, condition, created_at, cache_version
-		FROM job_dependencies
-		WHERE job_id = $1`
+		SELECT jd.id, jd.job_id, jd.depends_on_job_id, jd.condition, jd.created_at, GREATEST(jd.cache_version, j.cache_version)
+		FROM job_dependencies jd
+		JOIN jobs j ON j.id = jd.job_id
+		WHERE jd.job_id = $1`
 
 	args := []any{jobID}
 	param := 2
 
 	if cursor != nil {
-		query += fmt.Sprintf(" AND created_at < $%d", param)
+		query += fmt.Sprintf(" AND jd.created_at < $%d", param)
 		args = append(args, *cursor)
 		param++
 	}
 
-	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d", param)
+	query += fmt.Sprintf(" ORDER BY jd.created_at DESC LIMIT $%d", param)
 	args = append(args, limit)
 
 	rows, err := q.db.Query(ctx, query, args...)
@@ -110,12 +122,36 @@ func (q *Queries) DeleteJobDependency(ctx context.Context, id string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteJobDependency")
 	defer span.End()
 
-	query := `DELETE FROM job_dependencies WHERE id = $1`
+	query := `
+		WITH deleted AS (
+			DELETE FROM job_dependencies
+			WHERE id = $1
+			RETURNING job_id
+		)
+		UPDATE jobs
+		SET cache_version = cache_version + 1
+		FROM deleted
+		WHERE jobs.id = deleted.job_id`
 	if _, err := q.db.Exec(ctx, query, id); err != nil {
 		return fmt.Errorf("delete job dependency: %w", err)
 	}
 
 	return nil
+}
+
+func (q *Queries) GetJobDependencyListVersion(ctx context.Context, jobID string) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetJobDependencyListVersion")
+	defer span.End()
+
+	var version int64
+	err := q.db.QueryRow(ctx, `SELECT cache_version FROM jobs WHERE id = $1`, jobID).Scan(&version)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, ErrJobNotFound
+		}
+		return 0, fmt.Errorf("get job dependency list version: %w", err)
+	}
+	return version, nil
 }
 
 func (q *Queries) ListDependentsByDependencyJob(ctx context.Context, dependsOnJobID string) ([]domain.JobDependency, error) {

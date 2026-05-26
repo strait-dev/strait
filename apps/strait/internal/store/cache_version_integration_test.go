@@ -214,8 +214,15 @@ func TestCacheVersion_JobDependencyRoundTripAndBump(t *testing.T) {
 	if err := q.CreateJobDependency(ctx, dep); err != nil {
 		t.Fatalf("CreateJobDependency() error = %v", err)
 	}
-	if dep.CacheVersion != 1 {
-		t.Fatalf("created dependency CacheVersion = %d, want 1", dep.CacheVersion)
+	if dep.CacheVersion != 2 {
+		t.Fatalf("created dependency list CacheVersion = %d, want 2", dep.CacheVersion)
+	}
+	listVersion, err := q.GetJobDependencyListVersion(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("GetJobDependencyListVersion() error = %v", err)
+	}
+	if listVersion != 2 {
+		t.Fatalf("GetJobDependencyListVersion() = %d, want 2", listVersion)
 	}
 
 	got, err := q.GetJobDependency(ctx, dep.ID)
@@ -259,6 +266,24 @@ func TestCacheVersion_JobDependencyRoundTripAndBump(t *testing.T) {
 	}
 	if dependents[0].CacheVersion != 2 {
 		t.Fatalf("ListDependentsByDependencyJob()[0] CacheVersion = %d, want 2", dependents[0].CacheVersion)
+	}
+
+	if err := q.DeleteJobDependency(ctx, dep.ID); err != nil {
+		t.Fatalf("DeleteJobDependency() error = %v", err)
+	}
+	listVersion, err = q.GetJobDependencyListVersion(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("GetJobDependencyListVersion(after delete) error = %v", err)
+	}
+	if listVersion != 3 {
+		t.Fatalf("GetJobDependencyListVersion(after delete) = %d, want 3", listVersion)
+	}
+	deps, err = q.ListJobDependencies(ctx, job.ID, 100, nil)
+	if err != nil {
+		t.Fatalf("ListJobDependencies(after delete) error = %v", err)
+	}
+	if len(deps) != 0 {
+		t.Fatalf("ListJobDependencies(after delete) len = %d, want 0", len(deps))
 	}
 }
 

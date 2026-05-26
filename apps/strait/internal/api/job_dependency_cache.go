@@ -24,6 +24,8 @@ type jobDependencyCache struct {
 
 const jobDependencyCacheNamespace = "api_job_dependencies"
 
+var jobDependencyCachedPageLimits = [...]int{defaultPageLimit + 1, 1000}
+
 func newJobDependencyCache(ttl time.Duration, deps ...apiCacheDeps) *jobDependencyCache {
 	if ttl <= 0 {
 		return nil
@@ -68,20 +70,12 @@ func newJobDependencyCache(ttl time.Duration, deps ...apiCacheDeps) *jobDependen
 	return c
 }
 
-func (c *jobDependencyCache) List(ctx context.Context, key jobDepsCacheKey, loader func(context.Context, jobDepsCacheKey) ([]domain.JobDependency, error)) ([]domain.JobDependency, error) {
+func (c *jobDependencyCache) List(ctx context.Context, key jobDepsCacheKey, loader func(context.Context, jobDepsCacheKey) (straitcache.Versioned[[]domain.JobDependency], error)) ([]domain.JobDependency, error) {
 	if c == nil || c.tier == nil {
-		return loader(ctx, key)
+		loaded, err := loader(ctx, key)
+		return loaded.Value, err
 	}
-	loaded, err := c.tier.GetConsistentVersioned(ctx, key, 0, func(loadCtx context.Context, loadKey jobDepsCacheKey) (straitcache.Versioned[[]domain.JobDependency], error) {
-		deps, err := loader(loadCtx, loadKey)
-		if err != nil {
-			return straitcache.Versioned[[]domain.JobDependency]{}, err
-		}
-		return straitcache.Versioned[[]domain.JobDependency]{
-			Value:   deps,
-			Version: jobDependenciesCacheVersion(deps),
-		}, nil
-	})
+	loaded, err := c.tier.GetConsistentVersioned(ctx, key, 0, loader)
 	if err != nil {
 		return nil, err
 	}
@@ -92,8 +86,38 @@ func (c *jobDependencyCache) InvalidateJob(ctx context.Context, jobID string) {
 	if c == nil || c.tier == nil || jobID == "" {
 		return
 	}
-	key := jobDepsCacheKey{JobID: jobID, Limit: 1000}
-	_ = c.tier.InvalidateThrough(ctx, key, c.bus, jobDependencyCacheNamespace, jobDepsCacheKeyString(key), time.Now().UnixNano())
+	for _, limit := range jobDependencyCachedPageLimits {
+		key := jobDepsCacheKey{JobID: jobID, Limit: limit}
+		_ = c.tier.InvalidateThrough(ctx, key, c.bus, jobDependencyCacheNamespace, jobDepsCacheKeyString(key), time.Now().UnixNano())
+	}
+}
+
+func (c *jobDependencyCache) RefreshJob(ctx context.Context, jobID string, loader func(context.Context, jobDepsCacheKey) (straitcache.Versioned[[]domain.JobDependency], error)) {
+	if c == nil || c.tier == nil || jobID == "" {
+		return
+	}
+	for _, limit := range jobDependencyCachedPageLimits {
+		key := jobDepsCacheKey{JobID: jobID, Limit: limit}
+		loaded, err := loader(ctx, key)
+		if err != nil {
+			c.InvalidateJob(ctx, jobID)
+			return
+		}
+		version := loaded.Version
+		if version <= 0 {
+			version = time.Now().UnixNano()
+		}
+		_, _ = c.tier.WriteThrough(ctx, key, loaded.Value, version, c.bus, jobDependencyCacheNamespace, jobDepsCacheKeyString(key))
+	}
+}
+
+func jobDependencyCacheableLimit(limit int) bool {
+	for _, cached := range jobDependencyCachedPageLimits {
+		if limit == cached {
+			return true
+		}
+	}
+	return false
 }
 
 func jobDepsCacheKeyString(key jobDepsCacheKey) string {
