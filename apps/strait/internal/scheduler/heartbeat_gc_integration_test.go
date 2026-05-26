@@ -190,6 +190,19 @@ func TestEnsureQueueTriggersPresent_MissingClaimQueueTriggerFailsLoud(t *testing
 	}
 }
 
+func TestEnsureQueueTriggersPresent_MissingQueueEntriesWakeTriggerFailsLoud(t *testing.T) {
+	tdb, _ := setupHeartbeatGCIsolated(t)
+	ctx := context.Background()
+	_, err := tdb.Pool.Exec(ctx, `DROP TRIGGER IF EXISTS trg_queue_entries_claimable_wake_update_notify ON queue_entries`)
+	if err != nil {
+		t.Fatalf("drop queue entries wake trigger: %v", err)
+	}
+	err = scheduler.EnsureQueueTriggersPresent(ctx, tdb.Pool)
+	if err == nil || !strings.Contains(err.Error(), "trg_queue_entries_claimable_wake_update_notify") {
+		t.Errorf("expected missing queue entries wake trigger error, got %v", err)
+	}
+}
+
 func TestEnsureQueueTriggersPresent_MissingJobFanoutTriggerFailsLoud(t *testing.T) {
 	tdb, _ := setupHeartbeatGCIsolated(t)
 	ctx := context.Background()

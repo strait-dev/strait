@@ -2654,17 +2654,31 @@ func TestHandleListRunLineage_StoreError(t *testing.T) {
 	}
 }
 
+// mockPoolStatter is read concurrently by the background backpressure sampler
+// and mutated by the test goroutine, so all fields go through atomics to keep
+// -race happy. Time.Duration is stored as int64 nanoseconds.
 type mockPoolStatter struct {
-	acquired         int32
-	max              int32
-	emptyAcquire     int64
-	emptyAcquireWait time.Duration
+	acquired         atomic.Int32
+	max              atomic.Int32
+	emptyAcquire     atomic.Int64
+	emptyAcquireWait atomic.Int64 // nanoseconds
 }
 
-func (m *mockPoolStatter) AcquiredConns() int32                { return m.acquired }
-func (m *mockPoolStatter) MaxConns() int32                     { return m.max }
-func (m *mockPoolStatter) EmptyAcquireCount() int64            { return m.emptyAcquire }
-func (m *mockPoolStatter) EmptyAcquireWaitTime() time.Duration { return m.emptyAcquireWait }
+func (m *mockPoolStatter) AcquiredConns() int32 { return m.acquired.Load() }
+func (m *mockPoolStatter) MaxConns() int32      { return m.max.Load() }
+func (m *mockPoolStatter) EmptyAcquireCount() int64 {
+	return m.emptyAcquire.Load()
+}
+func (m *mockPoolStatter) EmptyAcquireWaitTime() time.Duration {
+	return time.Duration(m.emptyAcquireWait.Load())
+}
+
+func newMockPoolStatter(acquired, max int32) *mockPoolStatter {
+	m := &mockPoolStatter{}
+	m.acquired.Store(acquired)
+	m.max.Store(max)
+	return m
+}
 
 func TestDBBackpressure_Returns503WhenPoolExhausted(t *testing.T) {
 	t.Parallel()
@@ -2678,7 +2692,7 @@ func TestDBBackpressure_Returns503WhenPoolExhausted(t *testing.T) {
 		Config:      cfg,
 		Store:       &APIStoreMock{},
 		Queue:       &mockQueue{},
-		PoolStatter: &mockPoolStatter{acquired: 24, max: 25}, // 96% > 90%
+		PoolStatter: newMockPoolStatter(24, 25), // 96% > 90%
 	})
 	t.Cleanup(srv.Close)
 
@@ -2705,7 +2719,7 @@ func TestDBBackpressure_AllowsRequestsWhenPoolHealthy(t *testing.T) {
 		Config:      cfg,
 		Store:       &APIStoreMock{},
 		Queue:       &mockQueue{},
-		PoolStatter: &mockPoolStatter{acquired: 10, max: 25}, // 40% < 90%
+		PoolStatter: newMockPoolStatter(10, 25), // 40% < 90%
 	})
 	t.Cleanup(srv.Close)
 
@@ -2725,7 +2739,7 @@ func TestDBBackpressure_Returns503WhenAcquireWaitSpikes(t *testing.T) {
 		MaxBulkTriggerItems: 500,
 		JWTSigningKey:       testJWTSigningKey,
 	}
-	statter := &mockPoolStatter{acquired: 2, max: 25}
+	statter := newMockPoolStatter(2, 25)
 	srv := NewServer(ServerDeps{
 		Config:      cfg,
 		Store:       &APIStoreMock{},
@@ -2734,15 +2748,15 @@ func TestDBBackpressure_Returns503WhenAcquireWaitSpikes(t *testing.T) {
 	})
 	t.Cleanup(srv.Close)
 
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/health", nil))
-	if w.Code == http.StatusServiceUnavailable {
-		t.Fatalf("first request should establish wait baseline, got %d: %s", w.Code, w.Body.String())
-	}
+	// Stop the async sampler so we can drive a single deterministic sample
+	// without racing the ticker; the published shedding atomic is what the
+	// middleware reads, and sampleOnce updates it synchronously.
+	srv.poolBackpressure.Stop()
+	statter.emptyAcquire.Store(10)
+	statter.emptyAcquireWait.Store(int64(time.Second)) // avg = 100ms (above 50ms threshold)
+	srv.poolBackpressure.sampleOnce()
 
-	statter.emptyAcquire = 10
-	statter.emptyAcquireWait = time.Second
-	w = httptest.NewRecorder()
+	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/health", ""))
 
 	if w.Code != http.StatusServiceUnavailable {
@@ -2761,7 +2775,7 @@ func TestDBBackpressure_AllowsSmallAcquireWait(t *testing.T) {
 		MaxBulkTriggerItems: 500,
 		JWTSigningKey:       testJWTSigningKey,
 	}
-	statter := &mockPoolStatter{acquired: 2, max: 25}
+	statter := newMockPoolStatter(2, 25)
 	srv := NewServer(ServerDeps{
 		Config:      cfg,
 		Store:       &APIStoreMock{},
@@ -2770,15 +2784,12 @@ func TestDBBackpressure_AllowsSmallAcquireWait(t *testing.T) {
 	})
 	t.Cleanup(srv.Close)
 
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/health", nil))
-	if w.Code == http.StatusServiceUnavailable {
-		t.Fatalf("first request should establish wait baseline, got %d: %s", w.Code, w.Body.String())
-	}
+	srv.poolBackpressure.Stop()
+	statter.emptyAcquire.Store(10)
+	statter.emptyAcquireWait.Store(int64(100 * time.Millisecond)) // avg = 10ms (below threshold)
+	srv.poolBackpressure.sampleOnce()
 
-	statter.emptyAcquire = 10
-	statter.emptyAcquireWait = 100 * time.Millisecond
-	w = httptest.NewRecorder()
+	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/health", nil))
 
 	if w.Code == http.StatusServiceUnavailable {

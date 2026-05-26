@@ -240,20 +240,24 @@ type Config struct {
 	RunVersionCacheTTL         time.Duration `env:"RUN_VERSION_CACHE_TTL" default:"10m"`
 	APIKeyCacheTTL             time.Duration `env:"API_KEY_CACHE_TTL" default:"60s"`
 	JobHealthCacheTTL          time.Duration `env:"JOB_HEALTH_CACHE_TTL" default:"2s"`
-	JobDepsCacheTTL            time.Duration `env:"JOB_DEPS_CACHE_TTL" default:"5m"`
-	StatusReadModelTTL         time.Duration `env:"CACHE_STATUS_READMODEL_TTL" default:"5m"`
-	SharedDedupeTTL            time.Duration `env:"CACHE_SHARED_DEDUPE_TTL" default:"10m"`
-	DefaultRunTTLSecs          int           `env:"DEFAULT_RUN_TTL_SECS" default:"0"`
-	MaxResultSize              int64         `env:"MAX_RESULT_SIZE" default:"1048576"`
-	MigrationMode              string        `env:"MIGRATION_MODE" default:"auto"`
-	MigrationLockTimeout       time.Duration `env:"MIGRATION_LOCK_TIMEOUT" default:"30s"`
-	MaxSnoozeCount             int           `env:"MAX_SNOOZE_COUNT" default:"50"`
-	DebouncePollerInterval     time.Duration `env:"DEBOUNCE_POLLER_INTERVAL" default:"1s"`
-	BatchFlushInterval         time.Duration `env:"BATCH_FLUSH_INTERVAL" default:"1s"`
-	WebhookRequireTLS          bool          `env:"WEBHOOK_REQUIRE_TLS" default:"false"`
-	AllowPrivateEndpoints      bool          `env:"ALLOW_PRIVATE_ENDPOINTS" default:"false"`
-	DefaultRegion              string        `env:"DEFAULT_REGION" default:"iad"`
-	ExternalAPIURL             string        `env:"EXTERNAL_API_URL"`
+	// JobHealthStatsCacheTTL is kept as a compatibility alias for the
+	// short-TTL job health stats cache added before the generalized worker
+	// cache tiers. The executor uses JobHealthCacheTTL.
+	JobHealthStatsCacheTTL time.Duration `env:"JOB_HEALTH_STATS_CACHE_TTL" default:"30s"`
+	JobDepsCacheTTL        time.Duration `env:"JOB_DEPS_CACHE_TTL" default:"5m"`
+	StatusReadModelTTL     time.Duration `env:"CACHE_STATUS_READMODEL_TTL" default:"5m"`
+	SharedDedupeTTL        time.Duration `env:"CACHE_SHARED_DEDUPE_TTL" default:"10m"`
+	DefaultRunTTLSecs      int           `env:"DEFAULT_RUN_TTL_SECS" default:"0"`
+	MaxResultSize          int64         `env:"MAX_RESULT_SIZE" default:"1048576"`
+	MigrationMode          string        `env:"MIGRATION_MODE" default:"auto"`
+	MigrationLockTimeout   time.Duration `env:"MIGRATION_LOCK_TIMEOUT" default:"30s"`
+	MaxSnoozeCount         int           `env:"MAX_SNOOZE_COUNT" default:"50"`
+	DebouncePollerInterval time.Duration `env:"DEBOUNCE_POLLER_INTERVAL" default:"1s"`
+	BatchFlushInterval     time.Duration `env:"BATCH_FLUSH_INTERVAL" default:"1s"`
+	WebhookRequireTLS      bool          `env:"WEBHOOK_REQUIRE_TLS" default:"false"`
+	AllowPrivateEndpoints  bool          `env:"ALLOW_PRIVATE_ENDPOINTS" default:"false"`
+	DefaultRegion          string        `env:"DEFAULT_REGION" default:"iad"`
+	ExternalAPIURL         string        `env:"EXTERNAL_API_URL"`
 
 	// Region gating
 	EnforceRegionGating bool `env:"ENFORCE_REGION_GATING" default:"false"`

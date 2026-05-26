@@ -548,7 +548,7 @@ type Server struct {
 	validate                   *validator.Validate
 	maxRequestBodySize         int64
 	poolStatter                PoolStatter
-	poolBackpressure           poolBackpressureState
+	poolBackpressure           *poolBackpressureSampler
 	permCache                  *permissionCache
 	quotaCache                 *quotaCache
 	apiKeyCache                *apiKeyCache
@@ -760,13 +760,6 @@ type PoolStatter interface {
 	EmptyAcquireWaitTime() time.Duration
 }
 
-type poolBackpressureState struct {
-	mu                sync.Mutex
-	initialized       bool
-	emptyAcquireCount int64
-	emptyAcquireWait  time.Duration
-}
-
 // NewServer creates a new HTTP API server with the given dependencies.
 func NewServer(deps ServerDeps) *Server {
 	maxBody := deps.Config.MaxRequestBodySize
@@ -875,6 +868,11 @@ func NewServer(deps ServerDeps) *Server {
 		srv.auditAsyncBufferSize = auditAsyncBufferSize // fallback to constant default
 	}
 
+	if srv.poolStatter != nil {
+		srv.poolBackpressure = newPoolBackpressureSampler(srv.poolStatter, 0, 0)
+		srv.poolBackpressure.Start()
+	}
+
 	srv.router = srv.routes()
 	srv.startAuditAsyncDrain()
 	if srv.siemDrain != nil {
@@ -894,38 +892,27 @@ func (s *Server) dbBackpressure(next http.Handler) http.Handler {
 	})
 }
 
-const dbBackpressureAcquireWaitThreshold = 50 * time.Millisecond
-
+// shouldApplyDBBackpressure decides whether to 503 an incoming request because
+// the connection pool can't currently serve it. Two independent signals:
+//
+//  1. Snapshot pool occupancy: if >90% of max connections are checked out
+//     right now, shed. This is a per-request read (cheap, deterministic).
+//  2. Acquire-wait pressure: published by poolBackpressureSampler from a
+//     background goroutine. Decoupled from the request path so concurrent
+//     callers all observe the same verdict — the earlier delta-since-last-call
+//     calculation done in-band was racy under load (all but one concurrent
+//     request would see a near-zero delta against the just-updated baseline
+//     and admit).
 func (s *Server) shouldApplyDBBackpressure() bool {
 	acquired := s.poolStatter.AcquiredConns()
 	maxConns := s.poolStatter.MaxConns()
 	if maxConns > 0 && acquired > int32(float64(maxConns)*0.9) {
 		return true
 	}
-
-	waitCount := s.poolStatter.EmptyAcquireCount()
-	waitDuration := s.poolStatter.EmptyAcquireWaitTime()
-
-	s.poolBackpressure.mu.Lock()
-	defer s.poolBackpressure.mu.Unlock()
-
-	if !s.poolBackpressure.initialized {
-		s.poolBackpressure.initialized = true
-		s.poolBackpressure.emptyAcquireCount = waitCount
-		s.poolBackpressure.emptyAcquireWait = waitDuration
-		return false
+	if s.poolBackpressure != nil && s.poolBackpressure.Shedding() {
+		return true
 	}
-
-	deltaCount := waitCount - s.poolBackpressure.emptyAcquireCount
-	deltaDuration := waitDuration - s.poolBackpressure.emptyAcquireWait
-	s.poolBackpressure.emptyAcquireCount = waitCount
-	s.poolBackpressure.emptyAcquireWait = waitDuration
-
-	if deltaCount <= 0 || deltaDuration <= 0 {
-		return false
-	}
-	avgWait := deltaDuration / time.Duration(deltaCount)
-	return avgWait >= dbBackpressureAcquireWaitThreshold
+	return false
 }
 
 func permCacheTTL(cfg *config.Config) time.Duration {
@@ -975,6 +962,9 @@ func statusReadModelTTL(cfg *config.Config) time.Duration {
 func (s *Server) Close() {
 	if s.permCache != nil {
 		s.permCache.Stop()
+	}
+	if s.poolBackpressure != nil {
+		s.poolBackpressure.Stop()
 	}
 	if s.bgPool != nil {
 		s.bgPool.StopAndWait()

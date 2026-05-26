@@ -172,10 +172,10 @@ func DefaultPerformanceComplexityLedger() []ComplexityLedgerEntry {
 		},
 		{
 			Area:              "endpoint circuit check",
-			Current:           ComplexityStatement,
+			Current:           ComplexityConstant,
 			Target:            ComplexityConstant,
-			Evidence:          "CanDispatchEndpoint uses row-locking upsert/update CTE for a mostly read-shaped healthy check",
-			ImprovementReason: "read-first dispatch avoids writes and locks when the circuit is already closed",
+			Evidence:          "CanDispatchEndpoint short-circuits on a plain GetEndpointCircuitState read when the circuit is closed; FOR UPDATE only runs for open/half-open transitions",
+			ImprovementReason: "healthy dispatch already avoids writes and row locks; remaining cost is one indexed read",
 		},
 		{
 			Area:              "health percentiles",
