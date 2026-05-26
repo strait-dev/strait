@@ -192,6 +192,44 @@ func TestCacheVersion_ProjectQuotaRoundTripAndBump(t *testing.T) {
 	}
 }
 
+func TestCacheNamespaceVersion_BumpEnsureAndRollback(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	version, err := q.EnsureCacheNamespaceVersion(ctx, "permission", "project-1\x00user-1")
+	if err != nil {
+		t.Fatalf("EnsureCacheNamespaceVersion() error = %v", err)
+	}
+	if version != 1 {
+		t.Fatalf("initial version = %d, want 1", version)
+	}
+	version, err = q.BumpCacheNamespaceVersion(ctx, "permission", "project-1\x00user-1")
+	if err != nil {
+		t.Fatalf("BumpCacheNamespaceVersion() error = %v", err)
+	}
+	if version != 2 {
+		t.Fatalf("bumped version = %d, want 2", version)
+	}
+
+	errRollback := q.WithTxQueries(ctx, func(tx *Queries) error {
+		if _, err := tx.BumpCacheNamespaceVersion(ctx, "permission", "project-1\x00user-1"); err != nil {
+			return err
+		}
+		return fmt.Errorf("force rollback")
+	})
+	if errRollback == nil {
+		t.Fatal("WithTxQueries() error = nil, want forced rollback")
+	}
+	version, err = q.GetCacheNamespaceVersion(ctx, "permission", "project-1\x00user-1")
+	if err != nil {
+		t.Fatalf("GetCacheNamespaceVersion() error = %v", err)
+	}
+	if version != 2 {
+		t.Fatalf("version after rollback = %d, want 2", version)
+	}
+}
+
 func TestCacheVersion_JobDependencyRoundTripAndBump(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
