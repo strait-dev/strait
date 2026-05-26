@@ -3,7 +3,6 @@ package cdc
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"time"
 
@@ -72,19 +71,20 @@ func (h *cacheReadModelHandler[V]) Table() string { return h.table }
 func (h *cacheReadModelHandler[V]) Handle(ctx context.Context, msg Message) error {
 	id, value, version, err := h.decode(msg.Record)
 	if err != nil {
-		return fmt.Errorf("decode %s read model: %w", h.table, err)
+		h.logger.Warn("cdc cache read model ignored malformed record", "table", h.table, "error", err)
+		return nil
 	}
 	if id == "" {
 		return nil
 	}
+	if version <= 0 {
+		version = 1
+	}
 	if msg.Action == ActionDelete {
-		if err := h.model.Delete(ctx, id); err != nil {
+		if _, err := h.model.DeleteVersion(ctx, id, version); err != nil {
 			h.logger.Warn("cdc cache read model delete failed", "table", h.table, "id", id, "error", err)
 		}
 		return nil
-	}
-	if version <= 0 {
-		version = 1
 	}
 	ok, err := h.model.CompareAndSet(ctx, id, value, version)
 	if err != nil {

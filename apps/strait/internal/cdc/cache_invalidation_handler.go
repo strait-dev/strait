@@ -61,7 +61,8 @@ func (h *cacheInvalidationHandler) Handle(ctx context.Context, msg Message) erro
 	}
 	var record map[string]any
 	if err := json.Unmarshal(msg.Record, &record); err != nil {
-		return fmt.Errorf("decode %s cache invalidation record: %w", h.table, err)
+		h.logger.Warn("cdc cache invalidation ignored malformed record", "table", h.table, "error", err)
+		return nil
 	}
 	version := cacheVersionFromRecord(record)
 	if version <= 0 {

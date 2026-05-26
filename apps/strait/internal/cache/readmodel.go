@@ -63,6 +63,10 @@ func (r *ReadModel[V]) Get(ctx context.Context, key string) (Versioned[V], error
 		return zero, err
 	}
 	recordCacheOperation(ctx, r.namespace, "hit")
+	if entry.Barrier {
+		var zero Versioned[V]
+		return zero, ErrCacheMiss
+	}
 	if entry.Negative {
 		var zero V
 		return Versioned[V]{Value: zero, Version: entry.Version}, nil
@@ -108,6 +112,24 @@ func (r *ReadModel[V]) Delete(ctx context.Context, key string) error {
 		return nil
 	}
 	return r.l2.Delete(ctx, key)
+}
+
+func (r *ReadModel[V]) DeleteVersion(ctx context.Context, key string, version int64) (bool, error) {
+	if r == nil || r.l2 == nil {
+		return false, nil
+	}
+	if version <= 0 {
+		return false, fmt.Errorf("read model delete version must be positive")
+	}
+	ok, err := r.l2.CompareAndSet(ctx, key, cacheEntry[V]{Version: version, Barrier: true}, r.ttl)
+	if err != nil {
+		recordCacheFailOpen(ctx, r.namespace, "read_model_delete")
+		return false, err
+	}
+	if !ok {
+		recordCacheCASReject(ctx, r.namespace)
+	}
+	return ok, nil
 }
 
 func (r *ReadModel[V]) cloneValue(v V) V {

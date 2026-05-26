@@ -93,3 +93,40 @@ func TestCacheInvalidationHandler_SkipsRowsWithoutAddressableKey(t *testing.T) {
 		t.Fatalf("published %d messages, want 0", len(publisher.calls))
 	}
 }
+
+func TestCacheInvalidationHandler_DeletePublishesVersionedBarrier(t *testing.T) {
+	t.Parallel()
+
+	publisher := &cacheInvalidationPublisher{}
+	bus := straitcache.NewBus(publisher, straitcache.BusConfig{Origin: "cdc-test"})
+	h := newCacheInvalidationHandler("jobs", bus, nil, invalidateWorkerJobCache)
+
+	if err := h.Handle(context.Background(), Message{Action: ActionDelete, Record: []byte(`{"id":"job-1","cache_version":19}`)}); err != nil {
+		t.Fatalf("Handle(delete) error = %v", err)
+	}
+	if len(publisher.calls) != 1 {
+		t.Fatalf("published %d messages, want 1", len(publisher.calls))
+	}
+	var msg straitcache.BusMessage
+	if err := json.Unmarshal(publisher.calls[0].data, &msg); err != nil {
+		t.Fatalf("bus message decode: %v", err)
+	}
+	if msg.Action != straitcache.BusActionInvalidate || msg.Namespace != cacheNamespaceWorkerJob || msg.Key != "job-1" || msg.Version != 19 {
+		t.Fatalf("message = %+v, want worker job invalidation barrier v19", msg)
+	}
+}
+
+func TestCacheInvalidationHandler_BadPayloadIsIgnored(t *testing.T) {
+	t.Parallel()
+
+	publisher := &cacheInvalidationPublisher{}
+	bus := straitcache.NewBus(publisher, straitcache.BusConfig{Origin: "cdc-test"})
+	h := newCacheInvalidationHandler("api_keys", bus, nil, invalidateAPIKeyCache)
+
+	if err := h.Handle(context.Background(), Message{Action: ActionUpdate, Record: []byte(`{"key_hash":`)}); err != nil {
+		t.Fatalf("Handle(malformed) error = %v, want nil", err)
+	}
+	if len(publisher.calls) != 0 {
+		t.Fatalf("published %d messages, want 0", len(publisher.calls))
+	}
+}
