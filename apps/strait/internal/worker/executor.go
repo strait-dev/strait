@@ -144,34 +144,41 @@ type Executor struct {
 	// jobResolveGroup coalesces concurrent resolveJobForRun calls for the
 	// same job ID so a burst of runs does not stampede the DB while the
 	// cache is cold.
-	jobResolveGroup         singleflight.Group
-	memoryPressureThreshold float64
-	maxSnoozeCount          int
-	jwtSigningKey           string
-	externalAPIURL          string
-	defaultRegion           string
-	mode                    string
-	version                 string
-	billingEnforcer         *billing.Enforcer
-	stripeUsageReporter     *billing.StripeUsageReporter
-	stripeUsageWG           conc.WaitGroup // tracks in-flight Stripe usage event goroutines
-	runCostRecorder         *billing.RunCostRecorder
-	secretDecryptor         SecretDecryptor
-	stop                    chan struct{}
-	done                    chan struct{}
-	stopOnce                sync.Once
-	pollWG                  sync.WaitGroup
-	bgWG                    conc.WaitGroup
-	callbackWG              conc.WaitGroup
-	pollInFlight            atomic.Int64
-	runStarted              atomic.Bool
-	degradedPollInterval    time.Duration
-	degraded                queue.DegradedNotifier
-	useDenormalizedDequeue  bool
-	dbCircuit               *queue.DBCircuit
-	eventChannelSize        int
-	saturationWarnMu        sync.Mutex
-	saturationLastWarn      map[string]time.Time
+	jobResolveGroup singleflight.Group
+	// jobHealthStatsCache + jobHealthStatsGroup gate the expensive
+	// GetJobHealthStats (PERCENTILE_CONT) query on the dispatch and
+	// completion hot paths. Same pattern as jobCache: short TTL + a
+	// singleflight to coalesce concurrent misses for the same jobID.
+	jobHealthStatsCache      *cache.Cache[*store.JobHealthStats]
+	jobHealthStatsCacheStore *otterstore.OtterStore
+	jobHealthStatsGroup      singleflight.Group
+	memoryPressureThreshold  float64
+	maxSnoozeCount           int
+	jwtSigningKey            string
+	externalAPIURL           string
+	defaultRegion            string
+	mode                     string
+	version                  string
+	billingEnforcer          *billing.Enforcer
+	stripeUsageReporter      *billing.StripeUsageReporter
+	stripeUsageWG            conc.WaitGroup // tracks in-flight Stripe usage event goroutines
+	runCostRecorder          *billing.RunCostRecorder
+	secretDecryptor          SecretDecryptor
+	stop                     chan struct{}
+	done                     chan struct{}
+	stopOnce                 sync.Once
+	pollWG                   sync.WaitGroup
+	bgWG                     conc.WaitGroup
+	callbackWG               conc.WaitGroup
+	pollInFlight             atomic.Int64
+	runStarted               atomic.Bool
+	degradedPollInterval     time.Duration
+	degraded                 queue.DegradedNotifier
+	useDenormalizedDequeue   bool
+	dbCircuit                *queue.DBCircuit
+	eventChannelSize         int
+	saturationWarnMu         sync.Mutex
+	saturationLastWarn       map[string]time.Time
 	// queueSnapshotter returns the set of queue names with active workers on
 	// this replica. When non-nil, poll performs a second dequeue pass for
 	// worker-mode runs filtered to those queues. Injected from the gRPC
@@ -220,20 +227,27 @@ type ExecutorConfig struct {
 	DefaultJobMaxConcurrency   int
 	MemoryPressureThresholdPct float64
 	JobCacheTTL                time.Duration
-	MaxSnoozeCount             int
-	JWTSigningKey              string
-	ExternalAPIURL             string
-	DefaultRegion              string
-	Mode                       string
-	Version                    string
-	WorkflowLookup             WorkflowLookup
-	WorkflowTriggerer          WorkflowTriggerer
-	JobLookup                  JobLookup
-	JobEnqueuer                JobEnqueuer
-	BillingEnforcer            *billing.Enforcer            // Optional: org-level billing enforcement (cloud only).
-	StripeUsageReporter        *billing.StripeUsageReporter // Optional: Stripe usage event reporting (cloud only).
-	RunCostRecorder            *billing.RunCostRecorder     // Optional: flat per-run cost recording (cloud only).
-	SecretDecryptor            SecretDecryptor              // Optional: decrypts encrypted endpoint signing secrets.
+	// JobHealthStatsCacheTTL is the TTL applied to cached per-job health
+	// statistics (Avg/P95/P99 duration + counts) used by the dispatch
+	// adaptive-timeout path and the post-run latency anomaly check.
+	// The underlying query is a PERCENTILE_CONT ordered-set aggregate over
+	// job_runs and is expensive enough to dominate hot paths under load.
+	// Zero disables the cache (every call hits the store directly).
+	JobHealthStatsCacheTTL time.Duration
+	MaxSnoozeCount         int
+	JWTSigningKey          string
+	ExternalAPIURL         string
+	DefaultRegion          string
+	Mode                   string
+	Version                string
+	WorkflowLookup         WorkflowLookup
+	WorkflowTriggerer      WorkflowTriggerer
+	JobLookup              JobLookup
+	JobEnqueuer            JobEnqueuer
+	BillingEnforcer        *billing.Enforcer            // Optional: org-level billing enforcement (cloud only).
+	StripeUsageReporter    *billing.StripeUsageReporter // Optional: Stripe usage event reporting (cloud only).
+	RunCostRecorder        *billing.RunCostRecorder     // Optional: flat per-run cost recording (cloud only).
+	SecretDecryptor        SecretDecryptor              // Optional: decrypts encrypted endpoint signing secrets.
 	// QueueSnapshotter provides the set of queue names with active workers on
 	// this replica. When set, the poll loop performs a second dequeue pass
 	// for worker-mode runs filtered to those queues.
@@ -324,6 +338,17 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		jobCache = cache.New[*domain.Job](jobCacheStore)
 	}
 
+	var jobHealthStatsCache *cache.Cache[*store.JobHealthStats]
+	var jobHealthStatsCacheStore *otterstore.OtterStore
+	if cfg.JobHealthStatsCacheTTL > 0 {
+		jobHealthStatsCacheStore = otterstore.New(otterstore.Config{
+			DefaultTTL:  cfg.JobHealthStatsCacheTTL,
+			MaxCapacity: 10_000,
+			TTLJitter:   0.1,
+		})
+		jobHealthStatsCache = cache.New[*store.JobHealthStats](jobHealthStatsCacheStore)
+	}
+
 	return &Executor{
 		pool:                     cfg.Pool,
 		concurrencyLimit:         cfg.ConcurrencyLimit,
@@ -351,6 +376,8 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		defaultJobMaxConcurrency: cfg.DefaultJobMaxConcurrency,
 		jobCache:                 jobCache,
 		jobCacheStore:            jobCacheStore,
+		jobHealthStatsCache:      jobHealthStatsCache,
+		jobHealthStatsCacheStore: jobHealthStatsCacheStore,
 		memoryPressureThreshold:  cfg.MemoryPressureThresholdPct,
 		maxSnoozeCount:           cfg.MaxSnoozeCount,
 		jwtSigningKey:            cfg.JWTSigningKey,

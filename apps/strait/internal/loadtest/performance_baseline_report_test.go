@@ -127,7 +127,7 @@ func TestDefaultPerformanceComplexityLedger(t *testing.T) {
 		{area: "enqueue idempotency", current: ComplexityProjectActive, target: ComplexityConstant},
 		{area: "job health stats", current: ComplexityJobHistory, target: ComplexityConstant},
 		{area: "workflow progression", current: ComplexityWorkflowSteps, target: ComplexityBatch},
-		{area: "endpoint circuit check", current: ComplexityStatement, target: ComplexityConstant},
+		{area: "endpoint circuit check", current: ComplexityConstant, target: ComplexityConstant},
 		{area: "health percentiles", current: ComplexityJobHistory, target: ComplexityConstant},
 		{area: "rate limit checks", current: ComplexityRequest, target: ComplexityConstant},
 	}
