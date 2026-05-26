@@ -607,33 +607,43 @@ func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *dom
 	tracedCtx := httptrace.WithClientTrace(ctx, trace)
 
 	// Fetch secrets and checkpoint (with dispatch cache).
+	//
+	// Secrets and checkpoint live in two independent cache entries and must
+	// be resolved independently. The resume-header emission below
+	// (X-Last-Checkpoint / X-Checkpoint-At) depends on `cp` being populated
+	// on every retry attempt, not just retries that also miss the secrets
+	// cache. A job with an ENDPOINT_URL environment override warms the
+	// secrets cache with an empty slice on attempt 1; collapsing the
+	// checkpoint load into the secrets cache-miss branch lets that cache
+	// hit silently swallow the checkpoint on attempt 2 and break durable
+	// resume.
 	var (
 		secrets    []domain.JobSecret
 		secretsErr error
 		cp         *domain.RunCheckpoint
 	)
 
+	var dispatchWG conc.WaitGroup
 	if cached, ok := dispatchCacheGet[[]domain.JobSecret](ctx, dispatchSecretsCacheKey(job)); ok {
 		secrets = cached
 	} else {
-		var dispatchWG conc.WaitGroup
 		dispatchWG.Go(func() {
 			secrets, secretsErr = e.dispatchSecrets(tracedCtx, job)
 		})
-		if run.Attempt > 1 {
-			checkpointCacheKey := "checkpoint:" + run.ID
-			if cached, ok := dispatchCacheGet[*domain.RunCheckpoint](ctx, checkpointCacheKey); ok {
-				cp = cached
-			} else {
-				dispatchWG.Go(func() {
-					cp, _ = e.store.GetLatestCheckpoint(tracedCtx, run.ID)
-				})
-			}
+	}
+	if run.Attempt > 1 {
+		checkpointCacheKey := "checkpoint:" + run.ID
+		if cached, ok := dispatchCacheGet[*domain.RunCheckpoint](ctx, checkpointCacheKey); ok {
+			cp = cached
+		} else {
+			dispatchWG.Go(func() {
+				cp, _ = e.store.GetLatestCheckpoint(tracedCtx, run.ID)
+			})
 		}
-		dispatchWG.Wait()
-		if run.Attempt > 1 && cp != nil {
-			dispatchCacheSet(ctx, "checkpoint:"+run.ID, cp)
-		}
+	}
+	dispatchWG.Wait()
+	if run.Attempt > 1 && cp != nil {
+		dispatchCacheSet(ctx, "checkpoint:"+run.ID, cp)
 	}
 
 	if secretsErr != nil {
