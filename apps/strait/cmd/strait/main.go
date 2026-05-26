@@ -378,12 +378,14 @@ func runServe(ctx context.Context, modeOverride string) error {
 	workflowEngine := workflow.NewWorkflowEngine(queries, q, slog.Default()).
 		WithMaxNestingDepth(cfg.MaxWorkflowNestingDepth).
 		WithMetrics(metrics).
+		WithDefinitionCaches(workflow.WorkflowDefinitionCacheConfig{Redis: rdb, VersionTTL: cfg.VersionCacheTTL}).
 		WithOnTriggerCreate(onTriggerCreate)
 	onWorkflowRunStatus := func(hookCtx context.Context, run *domain.WorkflowRun, from, to domain.WorkflowRunStatus, reason string) {
 		publishWorkflowRunStatusHook(hookCtx, run, from, to, reason, pub, chExporter, queries, eventNotifier)
 	}
 	stepCallback := workflow.NewStepCallback(queries, workflowEngine, slog.Default()).
 		WithMetrics(metrics).
+		WithDefinitionCaches(workflow.WorkflowDefinitionCacheConfig{Redis: rdb, VersionTTL: cfg.VersionCacheTTL}).
 		WithChExporter(chExporter).
 		WithStatusHook(onWorkflowRunStatus).
 		WithProgressionEngine(cfg.WorkflowProgressionEngine)
