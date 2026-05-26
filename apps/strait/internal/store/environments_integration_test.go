@@ -577,3 +577,80 @@ func TestGetResolvedEnvironmentVariables_NotFound(t *testing.T) {
 		t.Fatalf("GetResolvedEnvironmentVariables(missing) error = %v, want ErrEnvironmentNotFound", err)
 	}
 }
+
+// TestGetResolvedEnvironmentVariables_MaxDepthChainResolves builds a chain of
+// exactly the resolver's CTE depth ceiling (10) and confirms it resolves
+// without error. Previously, the truncation guard inspected the leaf's
+// parent_id instead of the deepest returned ancestor's, so any chain whose
+// leaf had a parent — including valid full-length ones — wrongly tripped
+// "exceeded max inheritance depth".
+func TestGetResolvedEnvironmentVariables_MaxDepthChainResolves(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	q.SetSecretEncryptionKey("0123456789abcdef0123456789abcdef")
+	mustClean(t, ctx)
+
+	projectID := "proj-env-maxdepth-ok-" + newID()
+	const chainLen = 10 // matches the maxDepth constant in environments.go
+
+	var parentID string
+	var leafID string
+	for i := range chainLen {
+		env := &domain.Environment{
+			ProjectID: projectID,
+			Name:      "depth-" + strconv.Itoa(i),
+			Slug:      "depth-" + strconv.Itoa(i) + "-" + newID(),
+			ParentID:  parentID,
+			Variables: map[string]string{"LEVEL": strconv.Itoa(i)},
+		}
+		if err := q.CreateEnvironment(ctx, env); err != nil {
+			t.Fatalf("CreateEnvironment(level %d) error = %v", i, err)
+		}
+		parentID = env.ID
+		leafID = env.ID
+	}
+
+	resolved, err := q.GetResolvedEnvironmentVariables(ctx, leafID)
+	if err != nil {
+		t.Fatalf("GetResolvedEnvironmentVariables(leaf) error = %v, want nil for a chain at exactly maxDepth", err)
+	}
+	// The leaf's overlay wins; the variables map should reflect the deepest
+	// child's LEVEL value.
+	if got, want := resolved["LEVEL"], strconv.Itoa(chainLen-1); got != want {
+		t.Fatalf("resolved[LEVEL] = %q, want %q (leaf overlay)", got, want)
+	}
+}
+
+// TestGetResolvedEnvironmentVariables_TruncatedChainErrors builds a chain
+// longer than maxDepth and confirms the resolver detects the truncation by
+// inspecting the deepest returned ancestor (whose parent_id is non-null
+// because the CTE stopped before reaching its parent).
+func TestGetResolvedEnvironmentVariables_TruncatedChainErrors(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-env-maxdepth-overflow-" + newID()
+	const chainLen = 12 // strictly longer than maxDepth=10
+
+	var parentID string
+	var leafID string
+	for i := range chainLen {
+		env := &domain.Environment{
+			ProjectID: projectID,
+			Name:      "depth-" + strconv.Itoa(i),
+			Slug:      "depth-" + strconv.Itoa(i) + "-" + newID(),
+			ParentID:  parentID,
+		}
+		if err := q.CreateEnvironment(ctx, env); err != nil {
+			t.Fatalf("CreateEnvironment(level %d) error = %v", i, err)
+		}
+		parentID = env.ID
+		leafID = env.ID
+	}
+
+	_, err := q.GetResolvedEnvironmentVariables(ctx, leafID)
+	if err == nil {
+		t.Fatal("GetResolvedEnvironmentVariables(overflow) error = nil, want exceeded max inheritance depth")
+	}
+}
