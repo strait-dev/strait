@@ -17,9 +17,7 @@ func endpointErrHash(statusCode int, body string) string {
 	return errorHashForError(&domain.EndpointError{StatusCode: statusCode, Body: body})
 }
 
-// --------------------------------------------------------------------------.
 // errorHash unit tests
-// --------------------------------------------------------------------------.
 
 func TestErrorHash(t *testing.T) {
 	t.Parallel()
@@ -120,9 +118,7 @@ func TestErrorHash(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // Table-driven poison pill detection tests
-// --------------------------------------------------------------------------.
 
 func TestHandleFailure_PoisonPillDetection(t *testing.T) {
 	t.Parallel()
@@ -353,9 +349,7 @@ func TestHandleFailure_PoisonPillDetection(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // Adversarial / edge case tests
-// --------------------------------------------------------------------------.
 
 func TestPoisonPill_DisabledDoesNotWriteMetadata(t *testing.T) {
 	t.Parallel()
@@ -858,9 +852,7 @@ func TestPoisonPill_RetryPriorityBoostPreserved(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // Integration-style tests
-// --------------------------------------------------------------------------.
 
 func TestPoisonPill_Integration_SameErrorDLQ(t *testing.T) {
 	t.Parallel()

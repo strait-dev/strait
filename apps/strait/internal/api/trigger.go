@@ -141,6 +141,9 @@ func (s *Server) prepareTriggerRequest(
 	if err != nil {
 		return nil, nil, err
 	}
+	if idempotencyHit != nil {
+		return nil, idempotencyHit, nil
+	}
 
 	if err := s.checkTriggerDispatchPriority(ctx, job.ProjectID, req.Priority); err != nil {
 		return nil, nil, err
@@ -459,7 +462,7 @@ func (s *Server) enqueueImmediateTriggerRun(
 		}
 		return s.enqueueTriggerRun(guardCtx, tx, run)
 	}); err != nil {
-		if idempotencyErr := s.handleTriggerIdempotencyConflict(ctx, job, state.idempotencyKey, err); idempotencyErr != nil {
+		if idempotencyErr := s.resolveTriggerIdempotencyConflict(ctx, job, state.idempotencyKey, err); idempotencyErr != nil {
 			return nil, idempotencyErr
 		}
 		if apiErr := enqueueAPIError(err); apiErr != nil {
@@ -636,7 +639,7 @@ func (s *Server) triggerIdempotencyHit(ctx context.Context, job *domain.Job, ide
 	}}, nil
 }
 
-func (s *Server) handleTriggerIdempotencyConflict(ctx context.Context, job *domain.Job, idempotencyKey string, err error) error {
+func (s *Server) resolveTriggerIdempotencyConflict(ctx context.Context, job *domain.Job, idempotencyKey string, err error) error {
 	if !errors.Is(err, domain.ErrIdempotencyConflict) || idempotencyKey == "" {
 		return nil
 	}

@@ -5391,8 +5391,6 @@ func TestEvents_ListEventsByRunFiltered(t *testing.T) {
 	}
 }
 
-// ============ Tests for previously untested store methods ============.
-
 func TestWorkflowRunLabels_CRUD(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -6223,9 +6221,7 @@ func TestListRunLineage(t *testing.T) {
 	}
 }
 
-// ============================================================================
 // Store integration tests for untested methods + edge cases
-// ============================================================================.
 
 func TestGetDebugBundle(t *testing.T) {
 	ctx := context.Background()
@@ -8216,9 +8212,7 @@ func TestJobEmptyTags(t *testing.T) {
 	}
 }
 
-// ====================================================================
 // Test hardening: RBAC store
-// ====================================================================.
 
 func TestDeleteProjectRole_CustomRole(t *testing.T) {
 	ctx := context.Background()
@@ -8545,9 +8539,7 @@ func TestUpdateProjectRole_NameChange(t *testing.T) {
 	}
 }
 
-// ====================================================================
 // Test hardening: Actors
-// ====================================================================.
 
 func TestUpsertKnownActor_UpdateEmail(t *testing.T) {
 	ctx := context.Background()
@@ -8660,9 +8652,7 @@ func TestGetKnownActor_AllFields(t *testing.T) {
 	}
 }
 
-// ====================================================================
 // Test hardening: Jobs with new fields
-// ====================================================================.
 
 func TestCreateJob_VersionIDPrefix(t *testing.T) {
 	ctx := context.Background()
@@ -8929,9 +8919,7 @@ func TestGetJobBySlug_IncludesNewFields(t *testing.T) {
 	}
 }
 
-// ====================================================================
 // Test hardening: Workflows with new fields
-// ====================================================================.
 
 func TestCreateWorkflow_TagsPersisted(t *testing.T) {
 	ctx := context.Background()
@@ -9025,9 +9013,7 @@ func TestUpdateWorkflow_SetsUpdatedBy(t *testing.T) {
 	}
 }
 
-// ====================================================================
 // Test hardening: Tags queries
-// ====================================================================.
 
 func TestListJobsByTag_MultipleTagsOnJob(t *testing.T) {
 	ctx := context.Background()

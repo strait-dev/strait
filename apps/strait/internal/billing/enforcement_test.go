@@ -1442,9 +1442,7 @@ func TestEnforcer_Check80PercentDailyRunWarning_EmptyOrgID(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // CheckMaxDispatchPriority -- fail-closed on DB errors.
-// ---------------------------------------------------------------------------.
 
 // TestCheckMaxDispatchPriority_DBError_FailsClosed verifies that a DB error
 // when resolving the org causes CheckMaxDispatchPriority to fail closed
@@ -1568,9 +1566,7 @@ func TestCheckMaxDispatchPriority_ZeroPriority_AlwaysAllowed(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // DecrMonthlyRunCount -- mirrors DecrDailyRunCount behavior for monthly quota.
-// ---------------------------------------------------------------------------.
 
 // TestDecrMonthlyRunCount_DecrAfterIncr verifies that decrementing after an
 // increment returns the counter to the baseline value.

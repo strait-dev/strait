@@ -14,9 +14,7 @@ import (
 	"github.com/sourcegraph/conc"
 )
 
-// ---------------------------------------------------------------------------
 // Adversarial tests
-// ---------------------------------------------------------------------------.
 
 func TestClaimTable_SQLInjection_RunID(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -280,9 +278,7 @@ func TestClaimTable_MaxConcurrencyZero_MeansUnlimited(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Chaos tests
-// ---------------------------------------------------------------------------.
 
 func TestClaimTable_CrashBetweenDeleteAndUpdate(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

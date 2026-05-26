@@ -169,7 +169,6 @@ func TestSIEMDrain_FlushNow_DrainsBufferedEvents(t *testing.T) {
 	defer srv.Close()
 
 	// We need the channel/shutdownCh wired up but no run goroutine consuming
-	// — start, then immediately Stop the run goroutine via shutdownCh so any
 	// subsequent Enqueue piles up in d.ch and FlushNow has work to do.
 	drain := NewAuditSIEMDrain(srv.URL, "", 100, time.Hour)
 	drain.Start(context.Background())

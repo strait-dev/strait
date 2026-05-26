@@ -11,9 +11,7 @@ import (
 	"strait/internal/domain"
 )
 
-// ============================================================.
 // Fuzz tests: exercise thousands of inputs for panic/crash safety
-// ============================================================.
 
 func FuzzStddev(f *testing.F) {
 	f.Add([]byte{})
@@ -75,9 +73,7 @@ func FuzzPauseReasonSQL(f *testing.F) {
 	})
 }
 
-// ============================================================.
 // Adversarial: plan enforcement bypass attempts
-// ============================================================.
 
 func TestBypass_AllPlansHaveBoundedLimits(t *testing.T) {
 	t.Parallel()
@@ -287,9 +283,7 @@ func TestBypass_ConcurrentRegistryLookupSafe(t *testing.T) {
 	wg.Wait()
 }
 
-// ============================================================.
 // Adversarial: webhook handler bypass attempts
-// ============================================================.
 
 func TestBypass_InvalidPlanTierInWebhook(t *testing.T) {
 	t.Parallel()
@@ -322,9 +316,7 @@ func TestBypass_PlanLimitsImmutable(t *testing.T) {
 	}
 }
 
-// ============================================================.
 // Adversarial: stddev edge cases
-// ============================================================.
 
 func TestStddev_KnownValues(t *testing.T) {
 	t.Parallel()
@@ -370,9 +362,7 @@ func TestStddev_LargeValues(t *testing.T) {
 	}
 }
 
-// ============================================================.
 // Adversarial: HTTP job downgrade lifecycle
-// ============================================================.
 
 func TestBypass_PauseReasonSentinelConsistent(t *testing.T) {
 	t.Parallel()
@@ -417,9 +407,7 @@ func TestBypass_HTTPJobCountNonNegative(t *testing.T) {
 	}
 }
 
-// ============================================================.
 // Adversarial: plan pricing consistency
-// ============================================================.
 
 func TestBypass_PricingMonotonicallyIncreases(t *testing.T) {
 	t.Parallel()
@@ -490,9 +478,7 @@ func TestBypass_IsDowngradeSymmetry(t *testing.T) {
 	}
 }
 
-// ============================================================.
 // Adversarial: enforcement mode validation
-// ============================================================.
 
 func TestBypass_UnknownTierGetsFreeEnforcement(t *testing.T) {
 	t.Parallel()

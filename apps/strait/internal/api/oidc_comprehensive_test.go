@@ -25,9 +25,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// --------------------------------------------------------------------------.
 // Unit tests: verifier construction
-// --------------------------------------------------------------------------.
 
 // TestNewOIDCVerifier_WhitespacePEM verifies that leading/trailing whitespace
 // in the PEM is trimmed and the key parses correctly.
@@ -144,9 +142,7 @@ func TestOIDCVerifier_DisabledRejectsAll(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // Unit tests: signing algorithm enforcement
-// --------------------------------------------------------------------------.
 
 // TestOIDCVerify_RejectsHS256Token verifies that HMAC-signed tokens are
 // rejected even if the secret matches (only RSA is allowed).
@@ -253,9 +249,7 @@ func TestOIDCVerify_RejectsAlgNoneToken(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // Unit tests: claim validation edge cases
-// --------------------------------------------------------------------------.
 
 // TestOIDCVerify_MultipleAudiences verifies that a token with multiple
 // audiences is accepted when one matches.
@@ -410,9 +404,7 @@ func TestOIDCVerify_VeryLongSubject(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // Unit tests: JWT structure attacks
-// --------------------------------------------------------------------------.
 
 // TestOIDCVerify_TruncatedJWT verifies that JWTs with missing parts are
 // rejected gracefully.
@@ -516,9 +508,7 @@ func TestOIDCVerify_InvalidJSONInPayload(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // Integration tests: middleware auth routing
-// --------------------------------------------------------------------------.
 
 // TestOIDCAuth_MissingBearerToken verifies that a request with no
 // Authorization header falls through to internal secret auth (not OIDC).
@@ -653,9 +643,7 @@ func TestOIDCAuth_NilStoreReturns503(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // Integration tests: response body validation
-// --------------------------------------------------------------------------.
 
 // TestOIDCAuth_ErrorResponseIsJSON verifies that OIDC auth errors return
 // JSON error bodies (not plain text).
@@ -703,9 +691,7 @@ func TestOIDCAuth_DoesNotLeakTokenDetails(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // Adversarial: token replay and key confusion
-// --------------------------------------------------------------------------.
 
 // TestOIDCVerify_DifferentKeyPairRejected verifies that a token signed with
 // one RSA key pair is rejected by a verifier configured with a different pair.
@@ -756,9 +742,7 @@ func TestOIDCVerify_KeyConfusionAttack(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // Fuzz tests
-// --------------------------------------------------------------------------.
 
 // FuzzOIDCVerify_ClaimsJSON fuzzes the JWT payload with random JSON to ensure
 // claim parsing never panics.

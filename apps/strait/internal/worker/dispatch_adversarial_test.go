@@ -20,9 +20,7 @@ import (
 	orcstore "strait/internal/store"
 )
 
-// ---------------------------------------------------------------------------.
 // dispatch: expired TTL -- job should be marked system_failed
-// ---------------------------------------------------------------------------.
 
 func TestDispatch_ExpiredTTL_StillDispatches(t *testing.T) {
 	t.Parallel()
@@ -62,9 +60,7 @@ func TestDispatch_ExpiredTTL_StillDispatches(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // dispatch: unreachable endpoint URL -- should fail/retry
-// ---------------------------------------------------------------------------.
 
 func TestDispatch_ConnectionRefused_Fails(t *testing.T) {
 	t.Parallel()
@@ -99,9 +95,7 @@ func TestDispatch_ConnectionRefused_Fails(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // dispatch: nil job reference -- should handle gracefully
-// ---------------------------------------------------------------------------.
 
 func TestDispatch_NilJobLookup_PanicsOnNilReturn(t *testing.T) {
 	t.Parallel()
@@ -150,9 +144,7 @@ func TestDispatch_JobLookupError_SystemFails(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // dispatch: zero max_attempts -- should still execute once
-// ---------------------------------------------------------------------------.
 
 func TestDispatch_ZeroMaxAttempts_ExecutesOnce(t *testing.T) {
 	t.Parallel()
@@ -186,9 +178,7 @@ func TestDispatch_ZeroMaxAttempts_ExecutesOnce(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // dispatch: context cancellation during execution
-// ---------------------------------------------------------------------------.
 
 func TestDispatch_ContextCancellation_HandledGracefully(t *testing.T) {
 	t.Parallel()
@@ -232,9 +222,7 @@ func TestDispatch_ContextCancellation_HandledGracefully(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // dispatch: concurrent dispatch of same run ID -- idempotency via status transitions
-// ---------------------------------------------------------------------------.
 
 func TestDispatch_ConcurrentSameRunID_OnlyOneExecutes(t *testing.T) {
 	t.Parallel()
@@ -281,9 +269,7 @@ func TestDispatch_ConcurrentSameRunID_OnlyOneExecutes(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // dispatch: very large payload -- should not crash
-// ---------------------------------------------------------------------------.
 
 func TestDispatch_LargePayload_NoOOMPanic(t *testing.T) {
 	t.Parallel()
@@ -337,9 +323,7 @@ func TestDispatch_LargePayload_NoOOMPanic(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // dispatch: all retry strategies (exponential, fixed)
-// ---------------------------------------------------------------------------.
 
 func TestDispatch_RetryStrategy_Exponential_RetriesOnFailure(t *testing.T) {
 	t.Parallel()
@@ -439,9 +423,7 @@ func TestDispatch_RetryStrategy_Fixed_RetriesOnFailure(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // dispatch: endpoint returns non-JSON response -- should not panic
-// ---------------------------------------------------------------------------.
 
 func TestDispatch_NonJSONResponse_Completes(t *testing.T) {
 	t.Parallel()
@@ -476,9 +458,7 @@ func TestDispatch_NonJSONResponse_Completes(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // dispatch: circuit breaker open -- should snooze
-// ---------------------------------------------------------------------------.
 
 func TestDispatch_CircuitBreakerOpen_Snoozes(t *testing.T) {
 	t.Parallel()
@@ -507,9 +487,7 @@ func TestDispatch_CircuitBreakerOpen_Snoozes(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // dispatch: circuit breaker check error -- system failure
-// ---------------------------------------------------------------------------.
 
 func TestDispatch_CircuitBreakerCheckError_SystemFails(t *testing.T) {
 	t.Parallel()
@@ -536,9 +514,7 @@ func TestDispatch_CircuitBreakerCheckError_SystemFails(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // dispatch: empty endpoint URL -- should fail on HTTP dispatch
-// ---------------------------------------------------------------------------.
 
 func TestDispatch_EmptyEndpointURL_Fails(t *testing.T) {
 	t.Parallel()
@@ -564,9 +540,7 @@ func TestDispatch_EmptyEndpointURL_Fails(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // dispatch: endpoint returns 429 -- should be classified as transient
-// ---------------------------------------------------------------------------.
 
 func TestDispatch_Endpoint429_Retries(t *testing.T) {
 	t.Parallel()
@@ -600,9 +574,7 @@ func TestDispatch_Endpoint429_Retries(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // dispatch: endpoint returns 200 with empty body -- should complete
-// ---------------------------------------------------------------------------.
 
 func TestDispatch_EmptyResponseBody_Completes(t *testing.T) {
 	t.Parallel()
@@ -635,9 +607,7 @@ func TestDispatch_EmptyResponseBody_Completes(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // dispatch: unknown execution mode -- system failure
-// ---------------------------------------------------------------------------.
 
 func TestDispatch_UnknownExecutionMode_SystemFails(t *testing.T) {
 	t.Parallel()
@@ -663,9 +633,7 @@ func TestDispatch_UnknownExecutionMode_SystemFails(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // ingestStripeUsageEvent: with compute usage metadata (realistic data)
-// ---------------------------------------------------------------------------.
 
 func TestIngestStripeUsageEvent_PositiveCost_NoBillingEnforcer_NoOp(t *testing.T) {
 	t.Parallel()
@@ -685,9 +653,7 @@ func TestIngestStripeUsageEvent_PositiveCost_NoBillingEnforcer_NoOp(t *testing.T
 	exec.ingestStripeUsageEvent(context.Background(), "proj-1", "run-1", billing.HTTPCostPerRunMicrousd)
 }
 
-// ---------------------------------------------------------------------------.
 // dispatch: UpdateRunStatus failure during dequeued->executing transition
-// ---------------------------------------------------------------------------.
 
 func TestDispatch_StatusUpdateFails_StopsProcessing(t *testing.T) {
 	t.Parallel()
@@ -720,9 +686,7 @@ func TestDispatch_StatusUpdateFails_StopsProcessing(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // dispatch: bulkhead at capacity -- should snooze
-// ---------------------------------------------------------------------------.
 
 func TestDispatch_BulkheadFull_Snoozes(t *testing.T) {
 	t.Parallel()
@@ -760,9 +724,7 @@ func TestDispatch_BulkheadFull_Snoozes(t *testing.T) {
 	exec.bulkhead.Release("job-1", 1)
 }
 
-// ---------------------------------------------------------------------------.
 // dispatch: endpoint returns various 5xx status codes
-// ---------------------------------------------------------------------------.
 
 func TestDispatch_Endpoint503_RetriesWithAttemptsRemaining(t *testing.T) {
 	t.Parallel()
@@ -796,9 +758,7 @@ func TestDispatch_Endpoint503_RetriesWithAttemptsRemaining(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // dispatch: adaptive timeout with health stats
-// ---------------------------------------------------------------------------.
 
 func TestDispatch_AdaptiveTimeout_CompletesWithP95Stats(t *testing.T) {
 	t.Parallel()
@@ -842,9 +802,7 @@ func TestDispatch_AdaptiveTimeout_CompletesWithP95Stats(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // dispatchToEndpoint: request build error with malformed URL
-// ---------------------------------------------------------------------------.
 
 func TestDispatchToEndpoint_MalformedURL_ReturnsError(t *testing.T) {
 	t.Parallel()
@@ -867,9 +825,7 @@ func TestDispatchToEndpoint_MalformedURL_ReturnsError(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // dispatchToEndpoint: extra headers are injected
-// ---------------------------------------------------------------------------.
 
 func TestDispatchToEndpoint_ExtraHeaders_Injected(t *testing.T) {
 	t.Parallel()
@@ -915,9 +871,7 @@ func TestDispatchToEndpoint_ExtraHeaders_Injected(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // dispatchToEndpoint: response body > 1MB is truncated
-// ---------------------------------------------------------------------------.
 
 func TestDispatchToEndpoint_LargeResponseBody_Truncated(t *testing.T) {
 	t.Parallel()

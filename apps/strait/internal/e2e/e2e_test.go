@@ -890,9 +890,7 @@ func TestE2E_APIKeyLifecycle(t *testing.T) {
 	}
 }
 
-// ====================================================================
 // Test hardening: E2E tests for new features
-// ====================================================================.
 
 func TestE2E_ScopeEnforcement(t *testing.T) {
 	mustClean(t)
@@ -1163,8 +1161,6 @@ func TestE2E_TagFilteringWorkflows(t *testing.T) {
 		t.Fatalf("expected 1 filtered workflow, got %d", len(filtered))
 	}
 }
-
-// ── Idempotency E2E tests ──────────────────────────────────────────────.
 
 func TestE2E_IdempotencyKeyHitReturnsOriginal(t *testing.T) {
 	mustClean(t)

@@ -979,8 +979,6 @@ func applyDeliverySignatureHeaders(
 }
 
 // attemptDelivery makes one HTTP request for a delivery.
-//
-//nolint:funlen,gocyclo,cyclop
 func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookDelivery) {
 	start := time.Now()
 	now := time.Now()
@@ -1020,27 +1018,45 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 		n.metrics.WebhookDeliveryAttempts.Add(ctx, 1, metric.WithAttributes(attribute.String("retry_policy", retryPolicy)))
 	}
 
-	body := webhookDeliveryPayload(d)
-	payloadSize := int64(len(body))
-	if n.metrics != nil {
-		n.metrics.WebhookPayloadBytes.Record(ctx, payloadSize)
-	}
-	if n.maxPayloadBytes > 0 && payloadSize > n.maxPayloadBytes {
-		errMsg := fmt.Sprintf("payload too large: %d bytes exceeds max %d", payloadSize, n.maxPayloadBytes)
-		n.recordFailure(ctx, d, now, false, errMsg)
-		span.SetStatus(codes.Error, errMsg)
+	prepared, ok := n.prepareDeliveryRequest(ctx, d, now, span)
+	if !ok {
 		return
 	}
+	defer prepared.cancel()
 
-	reqCtx, reqCancel := context.WithTimeout(ctx, webhookDeliveryTimeout(d.Attempts))
-	defer reqCancel()
+	resp, ok := n.executeDeliveryRequest(ctx, d, prepared.request, now, span)
+	if !ok {
+		return
+	}
+	defer closeDeliveryResponseBody(resp)
 
+	n.handleDeliveryResponse(ctx, d, now, retryPolicy, resp.StatusCode, span)
+}
+
+type preparedDeliveryRequest struct {
+	request *http.Request
+	cancel  context.CancelFunc
+}
+
+func (n *DeliveryWorker) prepareDeliveryRequest(
+	ctx context.Context,
+	d *domain.WebhookDelivery,
+	now time.Time,
+	span trace.Span,
+) (preparedDeliveryRequest, bool) {
+	body := webhookDeliveryPayload(d)
+	if !n.recordAndValidatePayloadSize(ctx, d, body, now, span) {
+		return preparedDeliveryRequest{}, false
+	}
+
+	reqCtx, cancel := context.WithTimeout(ctx, webhookDeliveryTimeout(d.Attempts))
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, d.WebhookURL, bytes.NewReader(body))
 	if err != nil {
+		cancel()
 		errMsg := "create request: invalid webhook URL"
 		n.recordFailure(ctx, d, now, false, errMsg)
 		span.SetStatus(codes.Error, errMsg)
-		return
+		return preparedDeliveryRequest{}, false
 	}
 	signatureTimestamp := strconv.FormatInt(now.UTC().Unix(), 10)
 	req.Header.Set("X-Strait-Timestamp", signatureTimestamp)
@@ -1048,23 +1064,40 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 
 	secrets, err := n.deliverySigningSecrets(ctx, d)
 	if err != nil {
+		cancel()
 		errMsg := "webhook subscription signing secret unavailable"
 		n.recordFailure(ctx, d, now, true, errMsg)
 		span.SetStatus(codes.Error, errMsg)
-		return
+		return preparedDeliveryRequest{}, false
 	}
 	applyDeliverySignatureHeaders(req, d, body, signatureTimestamp, secrets)
+	return preparedDeliveryRequest{request: req, cancel: cancel}, true
+}
 
-	resp, ok := n.executeDeliveryRequest(ctx, d, req, now, span)
-	if !ok {
-		return
+func (n *DeliveryWorker) recordAndValidatePayloadSize(
+	ctx context.Context,
+	d *domain.WebhookDelivery,
+	body []byte,
+	now time.Time,
+	span trace.Span,
+) bool {
+	payloadSize := int64(len(body))
+	if n.metrics != nil {
+		n.metrics.WebhookPayloadBytes.Record(ctx, payloadSize)
 	}
-	defer func() {
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseBodyDrainBytes))
-		_ = resp.Body.Close()
-	}()
+	if n.maxPayloadBytes <= 0 || payloadSize <= n.maxPayloadBytes {
+		return true
+	}
 
-	n.handleDeliveryResponse(ctx, d, now, retryPolicy, resp.StatusCode, span)
+	errMsg := fmt.Sprintf("payload too large: %d bytes exceeds max %d", payloadSize, n.maxPayloadBytes)
+	n.recordFailure(ctx, d, now, false, errMsg)
+	span.SetStatus(codes.Error, errMsg)
+	return false
+}
+
+func closeDeliveryResponseBody(resp *http.Response) {
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseBodyDrainBytes))
+	_ = resp.Body.Close()
 }
 
 func (n *DeliveryWorker) checkDeliveryCircuit(

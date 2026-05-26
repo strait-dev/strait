@@ -153,9 +153,7 @@ func withTestMetadataFallback() WebhookOption {
 	}
 }
 
-// ============================================================.
 // 1. Double-charge / duplicate webhook events
-// ============================================================.
 
 func TestWebhook_DuplicateSubscriptionCreated(t *testing.T) {
 	t.Parallel()
@@ -278,9 +276,7 @@ func TestWebhook_DuplicateSubscriptionUpdated(t *testing.T) {
 	}
 }
 
-// ============================================================.
 // 2. Budget edge cases
-// ============================================================.
 
 func TestSpendingLimit_OverageComputeEdgeCases(t *testing.T) {
 	t.Parallel()
@@ -400,9 +396,7 @@ func TestUsagePeriodWindow_PaidWithNilPeriodDates(t *testing.T) {
 	}
 }
 
-// ============================================================.
 // 3. State machine violations (invalid plan transitions)
-// ============================================================.
 
 func TestIsDowngrade_SameTier(t *testing.T) {
 	t.Parallel()
@@ -598,9 +592,7 @@ func TestWebhook_RevokeSubscription(t *testing.T) {
 	}
 }
 
-// ============================================================.
 // 4. Nil/zero value paths
-// ============================================================.
 
 func TestGetPlanLimits_UnknownTierFallback(t *testing.T) {
 	t.Parallel()
@@ -1051,9 +1043,7 @@ func TestWebhook_InvoicePaymentFailedUsesCustomerBindingAndRejectsConflict(t *te
 	}
 }
 
-// ============================================================.
 // 5. Concurrent operations on billing state
-// ============================================================.
 
 // syncMockBillingStore wraps mockBillingStore with a mutex for concurrent test safety.
 type syncMockBillingStore struct {
@@ -1235,9 +1225,7 @@ func TestEnforcer_ConcurrentGetOrgPlanLimits(t *testing.T) {
 	wg.Wait()
 }
 
-// ============================================================.
 // 6. Error cascades (DB errors mid-operation)
-// ============================================================.
 
 func TestWebhook_UpsertErrorOnCreate(t *testing.T) {
 	t.Parallel()
@@ -1580,9 +1568,7 @@ func TestEnforcer_CheckOrgCreationLimit(t *testing.T) {
 	}
 }
 
-// ============================================================.
 // Payment status / grace period paths
-// ============================================================.
 
 func TestWebhook_PastDueSetsGracePeriod(t *testing.T) {
 	t.Parallel()
@@ -1754,9 +1740,7 @@ func TestWebhook_PaymentSucceeded_AlreadyOk(t *testing.T) {
 	}
 }
 
-// ============================================================.
 // Signature verification edge cases
-// ============================================================.
 
 func TestWebhook_MultipleSignaturesInHeader(t *testing.T) {
 	t.Parallel()
@@ -1837,9 +1821,7 @@ func TestWebhook_NonNumericTimestamp(t *testing.T) {
 	}
 }
 
-// ============================================================.
 // Downgrade preview and build impact
-// ============================================================.
 
 func TestBuildImpact_UnlimitedToLimited(t *testing.T) {
 	t.Parallel()
@@ -1891,9 +1873,7 @@ func TestAutoDisableResources_Separation(t *testing.T) {
 	}
 }
 
-// ============================================================.
 // LimitError interface compliance
-// ============================================================.
 
 func TestLimitError_ErrorInterface(t *testing.T) {
 	t.Parallel()
@@ -1920,9 +1900,7 @@ func TestLimitError_ErrorInterface(t *testing.T) {
 	}
 }
 
-// ============================================================.
 // Anomaly detection edge cases
-// ============================================================.
 
 func TestAnomalyConfig_HighThresholdAutoComputed(t *testing.T) {
 	t.Parallel()
@@ -1954,9 +1932,7 @@ func TestNewAnomalyDetectorWithConfig_DefaultsOnZero(t *testing.T) {
 	}
 }
 
-// ============================================================.
 // SafePercent edge cases
-// ============================================================.
 
 func TestSafePercent_EdgeCases(t *testing.T) {
 	t.Parallel()
@@ -1985,9 +1961,7 @@ func TestSafePercent_EdgeCases(t *testing.T) {
 	}
 }
 
-// ============================================================.
 // RecommendPlan edge cases
-// ============================================================.
 
 func TestRecommendPlan_AllTiers(t *testing.T) {
 	t.Parallel()
@@ -2023,9 +1997,7 @@ func TestRecommendPlan_AllTiers(t *testing.T) {
 	}
 }
 
-// ============================================================.
 // MicroToUSDString
-// ============================================================.
 
 func TestMicroToUSDString_Adversarial(t *testing.T) {
 	t.Parallel()
@@ -2049,9 +2021,7 @@ func TestMicroToUSDString_Adversarial(t *testing.T) {
 	}
 }
 
-// ============================================================.
 // WelcomeEmail option
-// ============================================================.
 
 func TestWebhook_WelcomeEmailSentOnPaidPlan(t *testing.T) {
 	t.Parallel()
@@ -2142,13 +2112,8 @@ func TestWebhook_WelcomeEmailNotSentForFreePlan(t *testing.T) {
 	}
 }
 
-// ============================================================.
 // NewEnforcer panics on nil store
-// ============================================================.
-
-// ============================================================.
 // UsageService methods with 0% coverage
-// ============================================================.
 
 func TestUsageService_GetProjectCosts(t *testing.T) {
 	t.Parallel()
@@ -2617,9 +2582,7 @@ func TestUsageService_GetEmailPreferences_Adversarial(t *testing.T) {
 	}
 }
 
-// ============================================================.
 // Webhook: subscription.canceled with non-existent org
-// ============================================================.
 
 func TestWebhook_CancelNonExistentOrg(t *testing.T) {
 	t.Parallel()
@@ -2642,9 +2605,7 @@ func TestWebhook_CancelNonExistentOrg(t *testing.T) {
 	}
 }
 
-// ============================================================.
 // Webhook: subscription.revoked with non-existent org
-// ============================================================.
 
 func TestWebhook_RevokeNonExistentOrg(t *testing.T) {
 	t.Parallel()
@@ -2667,9 +2628,7 @@ func TestWebhook_RevokeNonExistentOrg(t *testing.T) {
 	}
 }
 
-// ============================================================.
 // Webhook: payment succeeded with non-existent org
-// ============================================================.
 
 func TestWebhook_PaymentSucceededNonExistentOrg(t *testing.T) {
 	t.Parallel()
@@ -2692,9 +2651,7 @@ func TestWebhook_PaymentSucceededNonExistentOrg(t *testing.T) {
 	}
 }
 
-// ============================================================.
 // Webhook: subscription.updated with unknown product returns OK (logged)
-// ============================================================.
 
 func TestWebhook_UpdatedUnknownProduct(t *testing.T) {
 	t.Parallel()
@@ -2728,9 +2685,7 @@ func TestWebhook_UpdatedUnknownProduct(t *testing.T) {
 	}
 }
 
-// ============================================================.
 // Webhook: subscription.updated with empty status defaults to "active"
-// ============================================================.
 
 func TestWebhook_UpdatedEmptyStatusDefaultsActive(t *testing.T) {
 	t.Parallel()

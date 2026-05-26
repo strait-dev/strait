@@ -14,9 +14,7 @@ import (
 	"strait/internal/domain"
 )
 
-// --------------------------------------------------------------------------.
 // A1: Cross-org data isolation -- usage from org B must not appear in org A
-// --------------------------------------------------------------------------.
 
 func TestAdversarial_CrossOrgIsolation(t *testing.T) {
 	ctx := context.Background()
@@ -80,9 +78,7 @@ func TestAdversarial_CrossOrgIsolation(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // A2: Deleted projects ignored in suspension
-// --------------------------------------------------------------------------.
 
 func TestAdversarial_DeletedProjectsIgnoredInSuspension(t *testing.T) {
 	ctx := context.Background()
@@ -122,9 +118,7 @@ func TestAdversarial_DeletedProjectsIgnoredInSuspension(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // A3: Integer overflow in spending limit
-// --------------------------------------------------------------------------.
 
 func TestAdversarial_SpendingLimitMaxInt64(t *testing.T) {
 	ctx := context.Background()
@@ -148,9 +142,7 @@ func TestAdversarial_SpendingLimitMaxInt64(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // A4: Concurrent upsert race -- 10 goroutines upserting the same org
-// --------------------------------------------------------------------------.
 
 func TestAdversarial_ConcurrentUpsert(t *testing.T) {
 	ctx := context.Background()
@@ -195,9 +187,7 @@ func TestAdversarial_ConcurrentUpsert(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // A5: Double deactivation idempotency
-// --------------------------------------------------------------------------.
 
 func TestAdversarial_DoubleDeactivateAddon(t *testing.T) {
 	ctx := context.Background()
@@ -232,9 +222,7 @@ func TestAdversarial_DoubleDeactivateAddon(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // A6: Duplicate addon ID handling
-// --------------------------------------------------------------------------.
 
 func TestAdversarial_DuplicateAddonID(t *testing.T) {
 	ctx := context.Background()
@@ -261,9 +249,7 @@ func TestAdversarial_DuplicateAddonID(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // A7: Concurrent webhook record -- 50 goroutines
-// --------------------------------------------------------------------------.
 
 func TestAdversarial_ConcurrentWebhookRecord(t *testing.T) {
 	ctx := context.Background()
@@ -297,9 +283,7 @@ func TestAdversarial_ConcurrentWebhookRecord(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // A8: Empty org ID returns nothing (no cross-tenant leak)
-// --------------------------------------------------------------------------.
 
 func TestAdversarial_EmptyOrgIDReturnsNothing(t *testing.T) {
 	ctx := context.Background()
@@ -331,9 +315,7 @@ func TestAdversarial_EmptyOrgIDReturnsNothing(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // A9: Future period pending downgrade not listed
-// --------------------------------------------------------------------------.
 
 func TestAdversarial_FuturePendingDowngradeNotListed(t *testing.T) {
 	ctx := context.Background()
@@ -359,9 +341,7 @@ func TestAdversarial_FuturePendingDowngradeNotListed(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // A10: Member dedup across projects
-// --------------------------------------------------------------------------.
 
 func TestAdversarial_MemberDedupAcrossProjects(t *testing.T) {
 	ctx := context.Background()
@@ -387,9 +367,7 @@ func TestAdversarial_MemberDedupAcrossProjects(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------
 // A11: Concurrent enterprise contract upserts must not lose data
-// --------------------------------------------------------------------------.
 
 func TestAdversarial_ConcurrentContractUpsert(t *testing.T) {
 	ctx := context.Background()
@@ -452,9 +430,7 @@ func TestAdversarial_ConcurrentContractUpsert(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------
 // A12: Enterprise contract UNIQUE(org_id) enforced -- only one per org
-// --------------------------------------------------------------------------.
 
 func TestAdversarial_OneContractPerOrg(t *testing.T) {
 	ctx := context.Background()
@@ -500,9 +476,7 @@ func TestAdversarial_OneContractPerOrg(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------
 // A13: ListExpiringContracts excludes already-expired and far-future
-// --------------------------------------------------------------------------.
 
 func TestAdversarial_ExpiringContractBoundaries(t *testing.T) {
 	ctx := context.Background()
@@ -627,9 +601,7 @@ func TestPgStore_ListEnterpriseContractsOverlappingPeriod_IncludesMidPeriodLapse
 	}
 }
 
-// --------------------------------------------------------------------------
 // A14: Empty org ID returns not-found, not a cross-org leak
-// --------------------------------------------------------------------------.
 
 func TestAdversarial_EmptyOrgIDContract(t *testing.T) {
 	ctx := context.Background()
@@ -642,9 +614,7 @@ func TestAdversarial_EmptyOrgIDContract(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------
 // H5: DeactivateExcessCronJobs keeps the newest by updated_at
-// --------------------------------------------------------------------------.
 
 func TestAdversarial_DeactivateExcessCronJobs_KeepsNewest(t *testing.T) {
 	ctx := context.Background()
@@ -690,9 +660,7 @@ func TestAdversarial_DeactivateExcessCronJobs_KeepsNewest(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------
 // H6: DeactivateExcessEnvironments keeps the newest by created_at
-// --------------------------------------------------------------------------.
 
 func TestAdversarial_DeactivateExcessEnvironments_KeepsNewest(t *testing.T) {
 	ctx := context.Background()
@@ -876,9 +844,7 @@ func TestAdversarial_DeactivateExcessNotificationChannels_KeepsNewest(t *testing
 	}
 }
 
-// --------------------------------------------------------------------------
 // H7: DeactivateExcessWebhookSubscriptions keeps the newest by created_at
-// --------------------------------------------------------------------------.
 
 func TestAdversarial_DeactivateExcessWebhookSubscriptions_KeepsNewest(t *testing.T) {
 	ctx := context.Background()
@@ -923,9 +889,7 @@ func TestAdversarial_DeactivateExcessWebhookSubscriptions_KeepsNewest(t *testing
 	}
 }
 
-// --------------------------------------------------------------------------
 // H4: SuspendExcessProjects determinism with tied created_at
-// --------------------------------------------------------------------------.
 
 func TestAdversarial_SuspendExcessProjects_TiedCreatedAt(t *testing.T) {
 	ctx := context.Background()

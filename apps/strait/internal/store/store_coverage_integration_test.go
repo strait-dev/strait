@@ -16,9 +16,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// ---------------------------------------------------------------------------
 // Helpers local to this file
-// ---------------------------------------------------------------------------.
 
 func covStore(t *testing.T) *store.Queries {
 	t.Helper()
@@ -57,9 +55,7 @@ func ptr[T any](v T) *T {
 	return new(v)
 }
 
-// ---------------------------------------------------------------------------
 // Workflow operations
-// ---------------------------------------------------------------------------.
 
 func TestBulkCancelWorkflowRuns(t *testing.T) {
 	ctx := context.Background()
@@ -467,9 +463,7 @@ func TestListOrphanedStepRuns(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Job operations
-// ---------------------------------------------------------------------------.
 
 func TestDeleteExpiredJobMemory(t *testing.T) {
 	ctx := context.Background()
@@ -519,9 +513,7 @@ func TestDeleteExpiredJobMemory(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Event operations
-// ---------------------------------------------------------------------------.
 
 func TestGetEventTriggerStats(t *testing.T) {
 	ctx := context.Background()
@@ -594,9 +586,7 @@ func TestGetEventTriggerStats(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Audit events: StreamAuditEvents
-// ---------------------------------------------------------------------------.
 
 func TestStreamAuditEvents(t *testing.T) {
 	ctx := context.Background()
@@ -714,9 +704,7 @@ func TestGetAuditEvent(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Store utilities
-// ---------------------------------------------------------------------------.
 
 func TestAdvisoryXactLock(t *testing.T) {
 	ctx := context.Background()
@@ -753,9 +741,7 @@ func TestReindexIndexConcurrently_ValidIndex(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // CRUD: DeleteRunState
-// ---------------------------------------------------------------------------.
 
 func TestDeleteRunState(t *testing.T) {
 	ctx := context.Background()
@@ -808,9 +794,7 @@ func TestDeleteRunState(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Circuit breaker: RecordEndpointCircuitSuccess
-// ---------------------------------------------------------------------------.
 
 func TestRecordEndpointCircuitSuccess(t *testing.T) {
 	ctx := context.Background()
@@ -846,9 +830,7 @@ func TestRecordEndpointCircuitSuccess(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Webhook operations
-// ---------------------------------------------------------------------------.
 
 func TestGetWebhookSubscription(t *testing.T) {
 	ctx := context.Background()
@@ -944,9 +926,7 @@ func TestResetStuckWebhookDeliveries(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Health: AtomicRecordHealthResult
-// ---------------------------------------------------------------------------.
 
 func TestAtomicRecordHealthResult(t *testing.T) {
 	ctx := context.Background()
@@ -998,9 +978,7 @@ func TestAtomicRecordHealthResult(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // SLO: PruneSLOEvaluations
-// ---------------------------------------------------------------------------.
 
 func TestPruneSLOEvaluations(t *testing.T) {
 	ctx := context.Background()
@@ -1055,9 +1033,7 @@ func TestPruneSLOEvaluations(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // GetCostOutliers (requires run_usage + job_runs)
-// ---------------------------------------------------------------------------.
 
 func TestGetCostOutliers_EmptyResult(t *testing.T) {
 	ctx := context.Background()
@@ -1076,9 +1052,7 @@ func TestGetCostOutliers_EmptyResult(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // ScanAll generic helper
-// ---------------------------------------------------------------------------.
 
 func TestScanAll(t *testing.T) {
 	ctx := context.Background()

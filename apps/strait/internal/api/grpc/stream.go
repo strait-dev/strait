@@ -137,7 +137,7 @@ type workerService struct {
 //  4. Client sends TaskResult when a run completes or fails.
 //  5. Client sends LogLine for in-flight run logs.
 //  6. On disconnect: server deregisters the worker and emits an audit event.
-func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksServer) error { //nolint:gocyclo,cyclop,funlen
+func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksServer) error {
 	ctx := stream.Context()
 
 	// Authenticate the connecting worker via the Bearer API key in gRPC metadata.
@@ -205,29 +205,12 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	}
 	configureGRPCSentryWorkerScope(ctx, reg.WorkerId, reg.Name, reg.Hostname, reg.SdkLanguage, reg.SdkVersion)
 
-	workerConnectionReservationID := uuid.Must(uuid.NewV7()).String()
-	orgID, releaseWorkerConnection, err := s.checkPlanConnectionLimit(ctx, projectID, workerConnectionReservationID)
+	registered, releaseWorkerConnection, err := s.registerWorkerStream(ctx, apiKey, projectID, reg, pendingProjectID, pendingAPIKeyID)
 	if err != nil {
 		return err
 	}
 	defer releaseWorkerConnection()
-
-	// Per-stream typed send channel for outbound ServerMessages.
-	// The dispatcher pushes TaskAssignment / CancelTask messages here; the send
-	// loop below drains the channel and writes each message to the gRPC stream.
-	sendCh := make(chan *workerv1.ServerMessage, 32)
-
-	// Register worker in the in-memory registry. SendCh is assigned BEFORE
-	// Register so any concurrent dispatch on this replica sees a usable channel.
-	cw := newConnectedWorkerFromRegistration(reg, apiKey, projectID, orgID, sendCh)
-	s.registry.ReleasePendingStream(pendingProjectID, pendingAPIKeyID)
 	releasePending = nil
-	if err := s.registry.Register(cw); err != nil {
-		if errors.Is(err, ErrWorkerStreamQuotaExceeded) {
-			return status.Errorf(codes.ResourceExhausted, "register worker: %v", err)
-		}
-		return status.Errorf(codes.AlreadyExists, "register worker: %v", err)
-	}
 	recordWorkerStreamsOpen(ctx, reg.Queues, 1)
 
 	// Reconcile in-flight tasks from the registration (reconnect recovery).
@@ -235,7 +218,7 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	s.reconcileInFlightTasks(ctx, reg.WorkerId, projectID, reg.InFlightTasks)
 
 	// Upsert worker into DB immediately (don't wait for the next sync tick).
-	s.dbUpsertWorker(ctx, cw)
+	s.dbUpsertWorker(ctx, registered.worker)
 
 	// Emit audit event.
 	s.emitWorkerAudit(ctx, domain.AuditActionWorkerConnected, projectID, reg.WorkerId, map[string]any{
@@ -257,7 +240,7 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	// Clean up on any exit path. Pass the per-registration token so a stale
 	// goroutine cannot evict a live replacement that registered under the
 	// same WorkerID after a reconnect race.
-	myToken := cw.regToken
+	myToken := registered.worker.regToken
 	var streamEndErr error
 	defer func() {
 		recordWorkerStreamsOpen(context.Background(), reg.Queues, -1)
@@ -265,64 +248,148 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 		s.cleanupRegistration(projectID, reg.WorkerId, myToken)
 	}()
 
-	// Subscribe to the cross-replica force-disconnect channel for this worker.
-	// When DELETE /v1/workers/:id is called on any replica, it publishes to this
-	// channel and the owning replica (which is running this goroutine) closes the stream.
-	disconnectChannel := workerDisconnectChannel(projectID, reg.WorkerId)
-	disconnectSub, subErr := s.pub.Subscribe(ctx, disconnectChannel)
-	if subErr != nil {
-		slog.Warn("grpc: failed to subscribe to disconnect channel",
-			"worker_id", reg.WorkerId,
-			"error", subErr,
-		)
-	}
-
-	var workerConnectionRenewer workerConnectionReservationEnforcer
-	if reserver, ok := s.billingEnforcer.(workerConnectionReservationEnforcer); ok && orgID != "" && workerConnectionReservationID != "" {
-		workerConnectionRenewer = reserver
-	}
-
-	// Run recv and send loops concurrently. If either exits, the stream closes.
-	var wg conc.WaitGroup
-	streamErr := make(chan error, workerStreamGoroutineCount(
-		disconnectSub,
-		revokeKeySub,
-		apiKeyHasExpiry || expireKeySub != nil,
-		workerConnectionRenewer != nil,
-	))
-
-	// Disconnect signal listener: closes the stream when a force-disconnect is published.
-	if disconnectSub != nil {
-		listenForWorkerForceDisconnect(ctx, &wg, streamErr, disconnectSub, reg.WorkerId, projectID)
-	}
-
-	// API key revocation listener: closes the stream when the authenticating key is revoked.
-	if revokeKeySub != nil {
-		closeRevokeSubOnEarlyReturn = false
-		s.listenForAPIKeyRevocation(ctx, &wg, streamErr, revokeKeySub, cw, apiKey.ID, reg.WorkerId, projectID)
-	}
-	if apiKeyHasExpiry || expireKeySub != nil {
-		closeExpireSubOnEarlyReturn = false
-		s.listenForAPIKeyExpiry(ctx, &wg, streamErr, apiKeyExpiresAt, apiKeyHasExpiry, expireKeySub, cw, apiKey.ID, reg.WorkerId, projectID)
-	}
-	if workerConnectionRenewer != nil {
-		s.startWorkerConnectionReservationRenewal(ctx, &wg, streamErr, workerConnectionRenewer, orgID, workerConnectionReservationID, reg.WorkerId)
-	}
-
-	startWorkerSendLoop(ctx, &wg, streamErr, sendCh, stream)
-	s.startWorkerRecvLoop(ctx, &wg, streamErr, stream, reg.WorkerId, projectID, orgID, workerConnectionReservationID)
-
-	// Wait for the first stream-ending signal. We deregister synchronously so
-	// no new ReserveWorkerForQueue call can hand out our sendCh, but we do not
-	// wait for the recv goroutine here: on server-initiated disconnect/revoke it
-	// may be blocked in stream.Recv until this handler returns and gRPC closes
-	// the RPC. We also do not close(sendCh): a concurrent WorkerDispatch that
-	// picked us before Deregister still holds a reference and would panic on
-	// send-to-closed.
-	firstErr := <-streamErr
+	firstErr := s.runWorkerStreamLoops(workerStreamLoopConfig{
+		ctx:                         ctx,
+		stream:                      stream,
+		registered:                  registered,
+		registration:                reg,
+		projectID:                   projectID,
+		apiKeyID:                    apiKey.ID,
+		apiKeyExpiresAt:             apiKeyExpiresAt,
+		apiKeyHasExpiry:             apiKeyHasExpiry,
+		revokeKeySub:                revokeKeySub,
+		expireKeySub:                expireKeySub,
+		closeRevokeSubOnEarlyReturn: &closeRevokeSubOnEarlyReturn,
+		closeExpireSubOnEarlyReturn: &closeExpireSubOnEarlyReturn,
+	})
 	streamEndErr = firstErr
 	s.cleanupRegistration(projectID, reg.WorkerId, myToken)
 	return firstErr
+}
+
+type workerStreamLoopConfig struct {
+	ctx                         context.Context
+	stream                      workerv1.WorkerService_StreamTasksServer
+	registered                  registeredWorkerStream
+	registration                *workerv1.WorkerRegistration
+	projectID                   string
+	apiKeyID                    string
+	apiKeyExpiresAt             time.Time
+	apiKeyHasExpiry             bool
+	revokeKeySub                *pubsub.Subscription
+	expireKeySub                *pubsub.Subscription
+	closeRevokeSubOnEarlyReturn *bool
+	closeExpireSubOnEarlyReturn *bool
+}
+
+func (s *workerService) runWorkerStreamLoops(cfg workerStreamLoopConfig) error {
+	reg := cfg.registration
+	disconnectSub := s.subscribeWorkerDisconnect(cfg.ctx, cfg.projectID, reg.WorkerId)
+	workerConnectionRenewer := s.workerConnectionRenewer(cfg.registered)
+
+	var wg conc.WaitGroup
+	streamErr := make(chan error, workerStreamGoroutineCount(
+		disconnectSub,
+		cfg.revokeKeySub,
+		cfg.apiKeyHasExpiry || cfg.expireKeySub != nil,
+		workerConnectionRenewer != nil,
+	))
+
+	if disconnectSub != nil {
+		listenForWorkerForceDisconnect(cfg.ctx, &wg, streamErr, disconnectSub, reg.WorkerId, cfg.projectID)
+	}
+	if cfg.revokeKeySub != nil {
+		*cfg.closeRevokeSubOnEarlyReturn = false
+		s.listenForAPIKeyRevocation(cfg.ctx, &wg, streamErr, cfg.revokeKeySub, cfg.registered.worker, cfg.apiKeyID, reg.WorkerId, cfg.projectID)
+	}
+	if cfg.apiKeyHasExpiry || cfg.expireKeySub != nil {
+		*cfg.closeExpireSubOnEarlyReturn = false
+		s.listenForAPIKeyExpiry(cfg.ctx, &wg, streamErr, cfg.apiKeyExpiresAt, cfg.apiKeyHasExpiry, cfg.expireKeySub, cfg.registered.worker, cfg.apiKeyID, reg.WorkerId, cfg.projectID)
+	}
+	if workerConnectionRenewer != nil {
+		s.startWorkerConnectionReservationRenewal(
+			cfg.ctx,
+			&wg,
+			streamErr,
+			workerConnectionRenewer,
+			cfg.registered.orgID,
+			cfg.registered.workerConnectionReservationID,
+			reg.WorkerId,
+		)
+	}
+
+	startWorkerSendLoop(cfg.ctx, &wg, streamErr, cfg.registered.sendCh, cfg.stream)
+	s.startWorkerRecvLoop(
+		cfg.ctx,
+		&wg,
+		streamErr,
+		cfg.stream,
+		reg.WorkerId,
+		cfg.projectID,
+		cfg.registered.orgID,
+		cfg.registered.workerConnectionReservationID,
+	)
+	return <-streamErr
+}
+
+func (s *workerService) subscribeWorkerDisconnect(ctx context.Context, projectID, workerID string) *pubsub.Subscription {
+	disconnectSub, err := s.pub.Subscribe(ctx, workerDisconnectChannel(projectID, workerID))
+	if err != nil {
+		slog.Warn("grpc: failed to subscribe to disconnect channel",
+			"worker_id", workerID,
+			"error", err,
+		)
+		return nil
+	}
+	return disconnectSub
+}
+
+func (s *workerService) workerConnectionRenewer(registered registeredWorkerStream) workerConnectionReservationEnforcer {
+	reserver, ok := s.billingEnforcer.(workerConnectionReservationEnforcer)
+	if !ok || registered.orgID == "" || registered.workerConnectionReservationID == "" {
+		return nil
+	}
+	return reserver
+}
+
+type registeredWorkerStream struct {
+	worker                        *ConnectedWorker
+	sendCh                        chan *workerv1.ServerMessage
+	orgID                         string
+	workerConnectionReservationID string
+}
+
+func (s *workerService) registerWorkerStream(
+	ctx context.Context,
+	apiKey *domain.APIKey,
+	projectID string,
+	reg *workerv1.WorkerRegistration,
+	pendingProjectID string,
+	pendingAPIKeyID string,
+) (registeredWorkerStream, func(), error) {
+	workerConnectionReservationID := uuid.Must(uuid.NewV7()).String()
+	orgID, releaseWorkerConnection, err := s.checkPlanConnectionLimit(ctx, projectID, workerConnectionReservationID)
+	if err != nil {
+		return registeredWorkerStream{}, nil, err
+	}
+
+	sendCh := make(chan *workerv1.ServerMessage, 32)
+	cw := newConnectedWorkerFromRegistration(reg, apiKey, projectID, orgID, sendCh)
+	s.registry.ReleasePendingStream(pendingProjectID, pendingAPIKeyID)
+	if err := s.registry.Register(cw); err != nil {
+		releaseWorkerConnection()
+		if errors.Is(err, ErrWorkerStreamQuotaExceeded) {
+			return registeredWorkerStream{}, nil, status.Errorf(codes.ResourceExhausted, "register worker: %v", err)
+		}
+		return registeredWorkerStream{}, nil, status.Errorf(codes.AlreadyExists, "register worker: %v", err)
+	}
+
+	return registeredWorkerStream{
+		worker:                        cw,
+		sendCh:                        sendCh,
+		orgID:                         orgID,
+		workerConnectionReservationID: workerConnectionReservationID,
+	}, releaseWorkerConnection, nil
 }
 
 func workerRegistrationFromFirstMessage(msg *workerv1.WorkerMessage) (*workerv1.WorkerRegistration, error) {

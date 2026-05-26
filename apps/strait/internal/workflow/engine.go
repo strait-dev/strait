@@ -153,7 +153,6 @@ func (e *WorkflowEngine) TriggerSubWorkflow(
 	return e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, parentWorkflowRunID, parentStepRunID, nil, nil)
 }
 
-//nolint:gocognit,gocyclo,cyclop,funlen
 func (e *WorkflowEngine) triggerWorkflowInternal(
 	ctx context.Context,
 	workflowID, projectID string,
@@ -184,61 +183,120 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 		return nil, err
 	}
 
-	steps, err := e.store.ListStepsByWorkflowVersion(ctx, workflowID, wf.Version)
+	prepared, err := e.prepareWorkflowTrigger(ctx, wf, workflowID, stepOverrides)
 	if err != nil {
-		triggerStatus = "error"
-		return nil, fmt.Errorf("list workflow steps by version: %w", err)
-	}
-
-	if len(stepOverrides) > 0 {
-		steps, err = applyStepOverrides(steps, stepOverrides)
-		if err != nil {
-			triggerStatus = "error"
-			return nil, fmt.Errorf("apply step overrides: %w", err)
-		}
-	}
-
-	if err := ValidateDAG(steps); err != nil {
-		triggerStatus = "error"
-		return nil, fmt.Errorf("validate workflow dag: %w", err)
-	}
-
-	// Create an immutable snapshot of the workflow definition (metadata + steps)
-	// so that in-flight runs are immune to live workflow_steps changes.
-	// Snapshot failure is fatal — without it the run would silently read live
-	// definitions, breaking the immutability contract.
-	snapshot, snapshotErr := e.store.GetOrCreateWorkflowSnapshot(ctx, wf, steps)
-	if snapshotErr != nil {
-		triggerStatus = "error"
-		return nil, fmt.Errorf("create workflow snapshot: %w", snapshotErr)
-	}
-
-	if wf.MaxConcurrentRuns > 0 {
-		running, countErr := e.store.CountRunningWorkflowRuns(ctx, workflowID)
-		if countErr != nil {
-			triggerStatus = "error"
-			return nil, fmt.Errorf("count running workflow runs: %w", countErr)
-		}
-		if running >= wf.MaxConcurrentRuns {
-			triggerStatus = "error"
-			return nil, fmt.Errorf("workflow %s: max concurrent runs (%d) reached", workflowID, wf.MaxConcurrentRuns)
-		}
-	}
-
-	if triggeredBy == "" {
-		triggeredBy = domain.TriggerManual
-	}
-
-	wfRun := newWorkflowRun(ctx, wf, workflowID, projectID, payload, triggeredBy, parentWorkflowRunID, parentStepRunID, snapshot, extraTags)
-	now := time.Now()
-
-	stepRuns := initialWorkflowStepRuns(wfRun.ID, steps)
-	if err := e.bootstrapWorkflowRun(ctx, wfRun, stepRuns, now); err != nil {
 		triggerStatus = "error"
 		return nil, err
 	}
 
-	roots := rootWorkflowSteps(steps, stepRuns)
+	wfRun, roots, err := e.createRunnableWorkflowRun(
+		ctx,
+		wf,
+		prepared,
+		workflowID,
+		projectID,
+		payload,
+		triggeredBy,
+		parentWorkflowRunID,
+		parentStepRunID,
+		extraTags,
+	)
+	if err != nil {
+		triggerStatus = "error"
+		return nil, err
+	}
+
+	if err := e.startRootWorkflowSteps(ctx, wfRun, roots); err != nil {
+		triggerStatus = "error"
+		return nil, err
+	}
+
+	return wfRun, nil
+}
+
+type preparedWorkflowTrigger struct {
+	steps    []domain.WorkflowStep
+	snapshot *domain.WorkflowSnapshot
+}
+
+func (e *WorkflowEngine) prepareWorkflowTrigger(
+	ctx context.Context,
+	wf *domain.Workflow,
+	workflowID string,
+	stepOverrides []domain.StepOverride,
+) (preparedWorkflowTrigger, error) {
+	steps, err := e.store.ListStepsByWorkflowVersion(ctx, workflowID, wf.Version)
+	if err != nil {
+		return preparedWorkflowTrigger{}, fmt.Errorf("list workflow steps by version: %w", err)
+	}
+	if len(stepOverrides) > 0 {
+		steps, err = applyStepOverrides(steps, stepOverrides)
+		if err != nil {
+			return preparedWorkflowTrigger{}, fmt.Errorf("apply step overrides: %w", err)
+		}
+	}
+	if err := ValidateDAG(steps); err != nil {
+		return preparedWorkflowTrigger{}, fmt.Errorf("validate workflow dag: %w", err)
+	}
+	if err := e.enforceWorkflowConcurrency(ctx, workflowID, wf.MaxConcurrentRuns); err != nil {
+		return preparedWorkflowTrigger{}, err
+	}
+
+	snapshot, err := e.store.GetOrCreateWorkflowSnapshot(ctx, wf, steps)
+	if err != nil {
+		return preparedWorkflowTrigger{}, fmt.Errorf("create workflow snapshot: %w", err)
+	}
+	return preparedWorkflowTrigger{steps: steps, snapshot: snapshot}, nil
+}
+
+func (e *WorkflowEngine) enforceWorkflowConcurrency(ctx context.Context, workflowID string, maxConcurrentRuns int) error {
+	if maxConcurrentRuns <= 0 {
+		return nil
+	}
+	running, err := e.store.CountRunningWorkflowRuns(ctx, workflowID)
+	if err != nil {
+		return fmt.Errorf("count running workflow runs: %w", err)
+	}
+	if running >= maxConcurrentRuns {
+		return fmt.Errorf("workflow %s: max concurrent runs (%d) reached", workflowID, maxConcurrentRuns)
+	}
+	return nil
+}
+
+func (e *WorkflowEngine) createRunnableWorkflowRun(
+	ctx context.Context,
+	wf *domain.Workflow,
+	prepared preparedWorkflowTrigger,
+	workflowID string,
+	projectID string,
+	payload json.RawMessage,
+	triggeredBy string,
+	parentWorkflowRunID string,
+	parentStepRunID string,
+	extraTags map[string]string,
+) (*domain.WorkflowRun, []rootStepStart, error) {
+	if triggeredBy == "" {
+		triggeredBy = domain.TriggerManual
+	}
+	wfRun := newWorkflowRun(
+		ctx,
+		wf,
+		workflowID,
+		projectID,
+		payload,
+		triggeredBy,
+		parentWorkflowRunID,
+		parentStepRunID,
+		prepared.snapshot,
+		extraTags,
+	)
+	now := time.Now()
+	stepRuns := initialWorkflowStepRuns(wfRun.ID, prepared.steps)
+	if err := e.bootstrapWorkflowRun(ctx, wfRun, stepRuns, now); err != nil {
+		return nil, nil, err
+	}
+
+	roots := rootWorkflowSteps(prepared.steps, stepRuns)
 	wfRun.Status = domain.WfStatusRunning
 	wfRun.StartedAt = &now
 	recordWorkflowActiveRunDelta(ctx, wfRun.ProjectID, 1)
@@ -250,13 +308,7 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 		"step_count":      len(stepRuns),
 		"root_count":      len(roots),
 	})
-
-	if err := e.startRootWorkflowSteps(ctx, wfRun, roots); err != nil {
-		triggerStatus = "error"
-		return nil, err
-	}
-
-	return wfRun, nil
+	return wfRun, roots, nil
 }
 
 func (e *WorkflowEngine) loadRunnableWorkflow(ctx context.Context, workflowID, projectID string) (*domain.Workflow, string, error) {

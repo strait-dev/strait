@@ -18,7 +18,6 @@ import (
 // Pre-fix the query joined only on worker_id, relying entirely on the
 // handler-layer GetWorker(project) check. Layered defense at the SQL boundary
 // prevents any future caller — or any future cross-project worker_id artifact
-// — from leaking tasks across projects.
 func TestIntegration_ListWorkerTasksByWorker_ProjectFilter(t *testing.T) {
 	ctx := context.Background()
 	env := mustEnv(t, ctx)

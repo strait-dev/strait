@@ -34,7 +34,6 @@ func orphanInvoicePayload(t *testing.T, invoiceID, customerID string) json.RawMe
 // newOrphanTestEnforcer wires a real Enforcer so the orphan-delivery hook
 // runs through its full code path. The metric increment itself is exercised
 // at runtime via the package-level recordBillingWebhookOrphanDelivery helper
-// — tests rely on the build-tag no-panic coverage in
 // metrics_build_tags_test.go for that side effect.
 func newOrphanTestEnforcer(t *testing.T) *Enforcer {
 	t.Helper()

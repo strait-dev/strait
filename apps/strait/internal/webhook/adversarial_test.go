@@ -166,8 +166,6 @@ func FuzzStripeSignatureManipulation(f *testing.F) {
 	})
 }
 
-// ─── ComputeHMACSHA256 adversarial tests ──────────────────────────────────────.
-
 // TestSigning_NullBytesInBody verifies that signing works with null bytes.
 func TestSigning_NullBytesInBody(t *testing.T) {
 	t.Parallel()
