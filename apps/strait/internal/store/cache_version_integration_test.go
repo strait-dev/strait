@@ -198,14 +198,16 @@ func TestCacheNamespaceVersion_BumpEnsureAndRollback(t *testing.T) {
 	q := mustStore(t)
 	mustClean(t, ctx)
 
-	version, err := q.EnsureCacheNamespaceVersion(ctx, "permission", "project-1\x00user-1")
+	cacheKey := "project-1:user-1"
+
+	version, err := q.EnsureCacheNamespaceVersion(ctx, "permission", cacheKey)
 	if err != nil {
 		t.Fatalf("EnsureCacheNamespaceVersion() error = %v", err)
 	}
 	if version != 1 {
 		t.Fatalf("initial version = %d, want 1", version)
 	}
-	version, err = q.BumpCacheNamespaceVersion(ctx, "permission", "project-1\x00user-1")
+	version, err = q.BumpCacheNamespaceVersion(ctx, "permission", cacheKey)
 	if err != nil {
 		t.Fatalf("BumpCacheNamespaceVersion() error = %v", err)
 	}
@@ -214,7 +216,7 @@ func TestCacheNamespaceVersion_BumpEnsureAndRollback(t *testing.T) {
 	}
 
 	errRollback := q.WithTxQueries(ctx, func(tx *store.Queries) error {
-		if _, err := tx.BumpCacheNamespaceVersion(ctx, "permission", "project-1\x00user-1"); err != nil {
+		if _, err := tx.BumpCacheNamespaceVersion(ctx, "permission", cacheKey); err != nil {
 			return err
 		}
 		return fmt.Errorf("force rollback")
@@ -222,7 +224,7 @@ func TestCacheNamespaceVersion_BumpEnsureAndRollback(t *testing.T) {
 	if errRollback == nil {
 		t.Fatal("WithTxQueries() error = nil, want forced rollback")
 	}
-	version, err = q.GetCacheNamespaceVersion(ctx, "permission", "project-1\x00user-1")
+	version, err = q.GetCacheNamespaceVersion(ctx, "permission", cacheKey)
 	if err != nil {
 		t.Fatalf("GetCacheNamespaceVersion() error = %v", err)
 	}
