@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -253,9 +254,7 @@ func NewEnforcer(store Store, rdb redis.Cmdable, logger *slog.Logger, opts ...En
 			clone.limits.AllowedRegions = append([]string(nil), limits.limits.AllowedRegions...)
 			if limits.limits.MaxAddonPacks != nil {
 				clone.limits.MaxAddonPacks = make(map[AddonType]int, len(limits.limits.MaxAddonPacks))
-				for k, v := range limits.limits.MaxAddonPacks {
-					clone.limits.MaxAddonPacks[k] = v
-				}
+				maps.Copy(clone.limits.MaxAddonPacks, limits.limits.MaxAddonPacks)
 			}
 			return &clone
 		},

@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	cacheNamespaceAPIKeyAuth     = "api_key_auth"
+	cacheNamespaceAPIKeyAuth     = "authn_keys" // #nosec G101 -- cache namespace, not a credential.
 	cacheNamespacePermission     = "permission"
 	cacheNamespacePermissionProj = "permission_project"
 	cacheNamespaceQuota          = "quota"

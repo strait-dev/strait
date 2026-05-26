@@ -50,7 +50,10 @@ func newWorkflowStepsVersionCache(cfg WorkflowDefinitionCacheConfig) *workflowSt
 			if len(steps) == 0 {
 				return 1
 			}
-			return uint32(len(steps))
+			if len(steps) > 100_000 {
+				return 100_000
+			}
+			return uint32(len(steps)) // #nosec G115 -- bounded above before conversion.
 		},
 		TTL:       cfg.VersionTTL,
 		TTLJitter: 0.1,

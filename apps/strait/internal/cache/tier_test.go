@@ -172,7 +172,7 @@ func TestNewCacheCore_FullMissLoadsAndNegativeCaches(t *testing.T) {
 	}
 	got, err = tier.Get(context.Background(), "missing", func(context.Context, string) (*int, error) {
 		loads.Add(1)
-		return ptr(1), nil
+		return new(int), nil
 	})
 	if err != nil {
 		t.Fatalf("Get() second error = %v", err)
@@ -200,9 +200,7 @@ func TestNewCacheCore_SingleflightCoalescesMisses(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make(chan error, callers)
 	for range callers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			<-start
 			got, err := tier.Get(context.Background(), "k", func(context.Context, string) (string, error) {
 				loads.Add(1)
@@ -216,7 +214,7 @@ func TestNewCacheCore_SingleflightCoalescesMisses(t *testing.T) {
 			if got != "loaded" {
 				errs <- fmt.Errorf("got %q, want loaded", got)
 			}
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()
@@ -380,8 +378,4 @@ func FuzzCacheEnvelopeJSON(f *testing.F) {
 		var entry cacheEntry[string]
 		_ = JSONCodec[cacheEntry[string]]{}.Unmarshal(raw, &entry)
 	})
-}
-
-func ptr[T any](v T) *T {
-	return &v
 }

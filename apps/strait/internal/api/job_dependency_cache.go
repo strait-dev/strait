@@ -52,7 +52,10 @@ func newJobDependencyCache(ttl time.Duration, deps ...apiCacheDeps) *jobDependen
 			if len(deps) == 0 {
 				return 1
 			}
-			return uint32(len(deps))
+			if len(deps) > 100_000 {
+				return 100_000
+			}
+			return uint32(len(deps)) // #nosec G115 -- bounded above before conversion.
 		},
 		TTL:       ttl,
 		TTLJitter: 0.1,

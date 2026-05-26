@@ -20,7 +20,7 @@ type ReadModelConfig[V any] struct {
 
 type ReadModel[V any] struct {
 	namespace string
-	l2        *RedisL2[string, V]
+	l2        L2[string, V]
 	ttl       time.Duration
 	clone     func(V) V
 	sanitize  func(V) V
@@ -30,16 +30,20 @@ func NewReadModel[V any](cfg ReadModelConfig[V]) *ReadModel[V] {
 	if cfg.Client == nil {
 		return nil
 	}
+	l2 := NewRedisL2[string, V](RedisL2Config[string, V]{
+		Client:        cfg.Client,
+		Namespace:     cfg.Namespace,
+		MaxValueBytes: cfg.MaxValueBytes,
+	})
+	if l2 == nil {
+		return nil
+	}
 	return &ReadModel[V]{
 		namespace: cfg.Namespace,
-		l2: NewRedisL2[string, V](RedisL2Config[string, V]{
-			Client:        cfg.Client,
-			Namespace:     cfg.Namespace,
-			MaxValueBytes: cfg.MaxValueBytes,
-		}),
-		ttl:      cfg.TTL,
-		clone:    cfg.Clone,
-		sanitize: cfg.Sanitize,
+		l2:        l2,
+		ttl:       cfg.TTL,
+		clone:     cfg.Clone,
+		sanitize:  cfg.Sanitize,
 	}
 }
 
@@ -51,14 +55,14 @@ func (r *ReadModel[V]) Get(ctx context.Context, key string) (Versioned[V], error
 	entry, err := r.l2.Get(ctx, key)
 	if err != nil {
 		if errors.Is(err, ErrCacheMiss) {
-			recordCacheOperation(ctx, r.namespace, "l2", "miss")
+			recordCacheOperation(ctx, r.namespace, "miss")
 		} else {
 			recordCacheFailOpen(ctx, r.namespace, "read_model_get")
 		}
 		var zero Versioned[V]
 		return zero, err
 	}
-	recordCacheOperation(ctx, r.namespace, "l2", "hit")
+	recordCacheOperation(ctx, r.namespace, "hit")
 	if entry.Negative {
 		var zero V
 		return Versioned[V]{Value: zero, Version: entry.Version}, nil

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -22,7 +23,7 @@ type RedisL2Config[K comparable, V any] struct {
 	MaxValueBytes int
 }
 
-type RedisL2[K comparable, V any] struct {
+type redisL2[K comparable, V any] struct {
 	client        redis.Cmdable
 	namespace     string
 	key           RedisKeyFunc[K]
@@ -30,7 +31,10 @@ type RedisL2[K comparable, V any] struct {
 	maxValueBytes int
 }
 
-func NewRedisL2[K comparable, V any](cfg RedisL2Config[K, V]) *RedisL2[K, V] {
+func NewRedisL2[K comparable, V any](cfg RedisL2Config[K, V]) L2[K, V] {
+	if !redisClientReady(cfg.Client) {
+		return nil
+	}
 	codec := cfg.Codec
 	if codec == nil {
 		codec = JSONCodec[cacheEntry[V]]{}
@@ -43,7 +47,7 @@ func NewRedisL2[K comparable, V any](cfg RedisL2Config[K, V]) *RedisL2[K, V] {
 	if maxBytes <= 0 {
 		maxBytes = defaultMaxRedisValueBytes
 	}
-	return &RedisL2[K, V]{
+	return &redisL2[K, V]{
 		client:        cfg.Client,
 		namespace:     cfg.Namespace,
 		key:           keyFn,
@@ -52,8 +56,8 @@ func NewRedisL2[K comparable, V any](cfg RedisL2Config[K, V]) *RedisL2[K, V] {
 	}
 }
 
-func (r *RedisL2[K, V]) Get(ctx context.Context, key K) (cacheEntry[V], error) {
-	if r == nil || r.client == nil {
+func (r *redisL2[K, V]) Get(ctx context.Context, key K) (cacheEntry[V], error) {
+	if r == nil || !redisClientReady(r.client) {
 		var zero cacheEntry[V]
 		return zero, ErrCacheMiss
 	}
@@ -77,8 +81,8 @@ func (r *RedisL2[K, V]) Get(ctx context.Context, key K) (cacheEntry[V], error) {
 	return entry, nil
 }
 
-func (r *RedisL2[K, V]) Set(ctx context.Context, key K, entry cacheEntry[V], ttl time.Duration) error {
-	if r == nil || r.client == nil {
+func (r *redisL2[K, V]) Set(ctx context.Context, key K, entry cacheEntry[V], ttl time.Duration) error {
+	if r == nil || !redisClientReady(r.client) {
 		return nil
 	}
 	raw, err := r.codec.Marshal(entry)
@@ -94,8 +98,8 @@ func (r *RedisL2[K, V]) Set(ctx context.Context, key K, entry cacheEntry[V], ttl
 	return nil
 }
 
-func (r *RedisL2[K, V]) CompareAndSet(ctx context.Context, key K, entry cacheEntry[V], ttl time.Duration) (bool, error) {
-	if r == nil || r.client == nil {
+func (r *redisL2[K, V]) CompareAndSet(ctx context.Context, key K, entry cacheEntry[V], ttl time.Duration) (bool, error) {
+	if r == nil || !redisClientReady(r.client) {
 		return false, nil
 	}
 	raw, err := r.codec.Marshal(entry)
@@ -116,8 +120,8 @@ func (r *RedisL2[K, V]) CompareAndSet(ctx context.Context, key K, entry cacheEnt
 	return res == 1, nil
 }
 
-func (r *RedisL2[K, V]) Delete(ctx context.Context, key K) error {
-	if r == nil || r.client == nil {
+func (r *redisL2[K, V]) Delete(ctx context.Context, key K) error {
+	if r == nil || !redisClientReady(r.client) {
 		return nil
 	}
 	if err := r.client.Del(ctx, r.redisKey(key)).Err(); err != nil {
@@ -126,12 +130,25 @@ func (r *RedisL2[K, V]) Delete(ctx context.Context, key K) error {
 	return nil
 }
 
-func (r *RedisL2[K, V]) redisKey(key K) string {
+func (r *redisL2[K, V]) redisKey(key K) string {
 	ns := strings.TrimSpace(r.namespace)
 	if ns == "" {
 		ns = "default"
 	}
 	return "strait:cache:" + ns + ":" + r.key(key)
+}
+
+func redisClientReady(client redis.Cmdable) bool {
+	if client == nil {
+		return false
+	}
+	value := reflect.ValueOf(client)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return !value.IsNil()
+	default:
+		return true
+	}
 }
 
 var redisCASScript = redis.NewScript(`

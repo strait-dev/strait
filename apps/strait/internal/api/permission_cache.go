@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"reflect"
 	"sync"
 	"time"
 
@@ -85,7 +86,7 @@ func newPermissionCache(ttl time.Duration, deps ...apiCacheDeps) *permissionCach
 		if dep.Registry != nil {
 			dep.Registry.Register(permissionCacheNamespace, straitcache.UpdatingStringTierHandler[[]string]{Tier: c.inner})
 			dep.Registry.Register(permissionProjectCacheNamespace, straitcache.NamespaceHandlerFuncs{
-				Invalidate: func(ctx context.Context, projectID string, version int64) {
+				Invalidate: func(ctx context.Context, projectID string, _ int64) {
 					c.invalidateProjectLocal(ctx, projectID)
 				},
 			})
@@ -215,7 +216,7 @@ func (c *permissionCache) projectKeys(projectID string) []string {
 }
 
 func (c *permissionCache) deleteRedisProjectKeys(ctx context.Context, projectID string) {
-	if c == nil || c.redis == nil || projectID == "" {
+	if c == nil || !redisCmdableReady(c.redis) || projectID == "" {
 		return
 	}
 	pattern := "strait:cache:" + permissionCacheNamespace + ":" + projectID + "\x00*"
@@ -232,5 +233,18 @@ func (c *permissionCache) deleteRedisProjectKeys(ctx context.Context, projectID 
 		if cursor == 0 {
 			return
 		}
+	}
+}
+
+func redisCmdableReady(client redis.Cmdable) bool {
+	if client == nil {
+		return false
+	}
+	value := reflect.ValueOf(client)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return !value.IsNil()
+	default:
+		return true
 	}
 }

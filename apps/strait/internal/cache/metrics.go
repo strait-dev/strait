@@ -16,7 +16,7 @@ var (
 	cacheFailOpen    metric.Int64Counter
 	cacheCASRejects  metric.Int64Counter
 	cacheBusEvents   metric.Int64Counter
-	cacheBusLagMs    metric.Float64Histogram
+	cacheBusLag      metric.Float64Histogram
 )
 
 func initCacheMetrics() {
@@ -26,18 +26,18 @@ func initCacheMetrics() {
 		cacheFailOpen, _ = meter.Int64Counter("strait_cache_fail_open_total")
 		cacheCASRejects, _ = meter.Int64Counter("strait_cache_cas_rejects_total")
 		cacheBusEvents, _ = meter.Int64Counter("strait_cachebus_events_total")
-		cacheBusLagMs, _ = meter.Float64Histogram("strait_cachebus_lag_ms")
+		cacheBusLag, _ = meter.Float64Histogram("strait_cachebus_lag_seconds")
 	})
 }
 
-func recordCacheOperation(ctx context.Context, namespace, tier, result string) {
+func recordCacheOperation(ctx context.Context, namespace, result string) {
 	initCacheMetrics()
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	cacheOpsTotal.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("namespace", namespace),
-		attribute.String("tier", tier),
+		attribute.String("tier", "l2"),
 		attribute.String("result", result),
 	))
 }
@@ -72,7 +72,7 @@ func recordCacheBusEvent(ctx context.Context, action, namespace, direction strin
 		attribute.String("direction", direction),
 	))
 	if !sentAt.IsZero() && direction == "receive" {
-		cacheBusLagMs.Record(ctx, float64(time.Since(sentAt).Milliseconds()), metric.WithAttributes(
+		cacheBusLag.Record(ctx, time.Since(sentAt).Seconds(), metric.WithAttributes(
 			attribute.String("action", action),
 			attribute.String("namespace", namespace),
 		))

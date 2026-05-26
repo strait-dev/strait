@@ -104,6 +104,8 @@ func grpcPeerIP(ctx context.Context) string {
 // attached to ctx, resolves it against the API key store, validates its
 // lifecycle (revoked, expired), and returns the key. On any failure it
 // returns a gRPC status error suitable for returning directly from a handler.
+//
+//nolint:unparam // q is exercised by integration tests and legacy callers.
 func resolveAPIKeyFromContext(ctx context.Context, q *store.Queries) (*domain.APIKey, error) {
 	return resolveAPIKeyFromContextWithResolver(ctx, queryAPIKeyResolver(q))
 }

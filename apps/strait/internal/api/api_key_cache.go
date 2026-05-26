@@ -12,7 +12,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-const apiKeyAuthCacheNamespace = "api_key_auth"
+const apiKeyAuthCacheNamespace = "authn_keys" // #nosec G101 -- cache namespace, not a credential.
 
 type apiCacheDeps struct {
 	Redis    redis.Cmdable

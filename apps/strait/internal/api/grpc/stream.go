@@ -112,7 +112,7 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	ctx := stream.Context()
 
 	// Authenticate the connecting worker via the Bearer API key in gRPC metadata.
-	apiKey, err := resolveAPIKeyFromContextWithLimitAndResolver(ctx, s.apiKeyResolver, s.authLimiter)
+	apiKey, err := resolveAPIKeyFromContextWithLimitAndResolver(ctx, s.apiKeyLookupResolver(), s.authLimiter)
 	if err != nil {
 		return err
 	}
@@ -165,7 +165,7 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 		}
 		return status.Errorf(codes.Internal, "recv registration: %v", err)
 	}
-	apiKey, err = resolveAPIKeyFromContextWithResolver(ctx, s.apiKeyResolver)
+	apiKey, err = resolveAPIKeyFromContextWithResolver(ctx, s.apiKeyLookupResolver())
 	if err != nil {
 		return err
 	}
@@ -315,6 +315,16 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	streamEndErr = firstErr
 	s.cleanupRegistration(projectID, reg.WorkerId, myToken)
 	return firstErr
+}
+
+func (s *workerService) apiKeyLookupResolver() apiKeyResolver {
+	if s == nil {
+		return nil
+	}
+	if s.apiKeyResolver != nil {
+		return s.apiKeyResolver
+	}
+	return queryAPIKeyResolver(s.queries)
 }
 
 func workerStreamGoroutineCount(disconnectSub, revokeKeySub *pubsub.Subscription, hasExpiry, renewsWorkerConnection bool) int {

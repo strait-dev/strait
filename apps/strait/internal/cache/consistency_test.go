@@ -154,9 +154,7 @@ func TestStrictConsistency_ConcurrentVersionedLoadsCoalesce(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make(chan error, callers)
 	for range callers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			<-start
 			got, err := tier.GetConsistentVersioned(t.Context(), "k", 2, func(context.Context, string) (Versioned[string], error) {
 				loads.Add(1)
@@ -170,7 +168,7 @@ func TestStrictConsistency_ConcurrentVersionedLoadsCoalesce(t *testing.T) {
 			if got.Value != "db" || got.Version != 3 {
 				errs <- errUnexpectedVersioned(got, "db", 3)
 			}
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()

@@ -12,7 +12,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-const grpcAPIKeyAuthCacheNamespace = "api_key_auth"
+const grpcAPIKeyAuthCacheNamespace = "authn_keys" // #nosec G101 -- cache namespace, not a credential.
 
 type cachedAPIKeyResolver struct {
 	tier     *straitcache.Tier[string, *domain.APIKey]

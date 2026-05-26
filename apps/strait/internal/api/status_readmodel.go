@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"maps"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -46,9 +47,7 @@ func cloneStringMap(in map[string]string) map[string]string {
 		return nil
 	}
 	out := make(map[string]string, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
+	maps.Copy(out, in)
 	return out
 }
 

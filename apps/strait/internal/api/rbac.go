@@ -509,7 +509,6 @@ func (s *Server) handleUpdateRole(ctx context.Context, input *UpdateRoleInput) (
 		updated = role
 	}
 	s.invalidatePermissionCacheForUsers(previousRole.ProjectID, affectedUsers)
-	s.permCache.InvalidateProject(ctx, previousRole.ProjectID, time.Now().UnixNano())
 	s.emitAuditEvent(ctx, domain.AuditActionRoleUpdated, "role", roleID, map[string]any{"changes": map[string]any{"before": previousRole, "after": updated}})
 	return &UpdateRoleOutput{Body: updated}, nil
 }
@@ -545,7 +544,6 @@ func (s *Server) handleDeleteRole(ctx context.Context, input *DeleteRoleInput) (
 		return nil, huma.Error500InternalServerError("failed to delete role")
 	}
 	s.invalidatePermissionCacheForUsers(role.ProjectID, affectedUsers)
-	s.permCache.InvalidateProject(ctx, role.ProjectID, time.Now().UnixNano())
 	slog.Info("role deleted", "role_id", input.RoleID, "actor", actorFromContext(ctx), "project_id", projectIDFromContext(ctx))
 	s.emitAuditEvent(ctx, domain.AuditActionRoleDeleted, "role", input.RoleID, nil)
 	return nil, nil
