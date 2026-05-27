@@ -517,7 +517,7 @@ func (b *exportRecordBatch) add(logger *slog.Logger, rec any) {
 	}
 }
 
-func (b exportRecordBatch) insert(ctx context.Context, e *Exporter) error {
+func (b *exportRecordBatch) insert(ctx context.Context, e *Exporter) error {
 	var errs []error
 	errs = appendBatchInsertError(ctx, errs, "run_events", b.events, e.insertRunEvents)
 	errs = appendBatchInsertError(ctx, errs, "run_analytics", b.analytics, e.insertRunAnalytics)
@@ -556,7 +556,7 @@ func appendBatchInsertError[T any](
 	return errs
 }
 
-func (b exportRecordBatch) logFlush(logger *slog.Logger) {
+func (b *exportRecordBatch) logFlush(logger *slog.Logger) {
 	logger.Debug("clickhouse exporter flushed batch",
 		"events", len(b.events),
 		"analytics", len(b.analytics),

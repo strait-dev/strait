@@ -136,7 +136,8 @@ func (s *Server) checkSDKUsageBudgets(ctx context.Context, runID string, req SDK
 		return nil
 	}
 	run, err := s.store.GetRun(ctx, runID)
-	if err != nil || run == nil {
+	guardrailUnavailable := err != nil || run == nil
+	if guardrailUnavailable {
 		return nil
 	}
 	if err := s.checkSDKUsageCostBudget(ctx, runID, run.ProjectID, req.CostMicrousd); err != nil {
@@ -150,7 +151,11 @@ func (s *Server) checkSDKUsageCostBudget(ctx context.Context, runID, projectID s
 		return nil
 	}
 	quota, err := s.quotaCache.Get(ctx, projectID)
-	if err != nil || quota == nil || quota.MaxCostPerRunMicrousd <= 0 {
+	guardrailUnavailable := err != nil || quota == nil
+	if guardrailUnavailable {
+		return nil
+	}
+	if quota.MaxCostPerRunMicrousd <= 0 {
 		return nil
 	}
 	totalCost, err := s.store.SumRunCostMicrousd(ctx, runID)
@@ -185,7 +190,8 @@ func (s *Server) checkSDKUsageTokenBudget(ctx context.Context, runID string, run
 
 func (s *Server) checkSDKToolCallAllowed(ctx context.Context, run *domain.JobRun, req SDKToolCallRequest) error {
 	job, err := s.store.GetJob(ctx, run.JobID)
-	if err != nil || job == nil {
+	guardrailUnavailable := err != nil || job == nil
+	if guardrailUnavailable {
 		return nil
 	}
 	if len(job.AllowedTools) > 0 && !slices.Contains(job.AllowedTools, req.ToolName) {
