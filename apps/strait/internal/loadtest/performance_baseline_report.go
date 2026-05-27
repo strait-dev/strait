@@ -229,8 +229,8 @@ func DefaultPerformanceComplexityLedger() []ComplexityLedgerEntry {
 	}
 }
 
-// PerformanceBaselineReport is the phase-level report used to compare each
-// optimization against the pre-change baseline.
+// PerformanceBaselineReport compares a candidate optimization against the
+// pre-change baseline.
 type PerformanceBaselineReport struct {
 	Name         string                  `json:"name"`
 	StartedAt    time.Time               `json:"started_at"`
@@ -245,8 +245,8 @@ type PerformanceBaselineReport struct {
 	Complexity   []ComplexityLedgerEntry `json:"complexity"`
 }
 
-// PerformanceBaselineComparison captures whether a later phase actually moved
-// the metrics that motivated the work.
+// PerformanceBaselineComparison captures whether a candidate moved the metrics
+// that motivated the work.
 type PerformanceBaselineComparison struct {
 	Name                  string                    `json:"name"`
 	Baseline              PerformanceBaselineReport `json:"baseline"`

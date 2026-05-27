@@ -20,6 +20,9 @@ import (
 
 var stepQueueDuration otelmetric.Float64Histogram
 
+// init registers the workflow step queue metric as a package-level instrument.
+// The metric is emitted from hot callback paths, so callers should not pay a
+// per-callback lookup cost.
 func init() {
 	meter := otel.Meter("strait/workflow")
 	stepQueueDuration, _ = meter.Float64Histogram(

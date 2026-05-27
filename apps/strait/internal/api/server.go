@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"strait/internal/billing"
+	straitcache "strait/internal/cache"
 	"strait/internal/clickhouse"
 	"strait/internal/config"
 	"strait/internal/domain"
@@ -133,15 +134,41 @@ type JobStore interface {
 	UpdateJobEndpoint(ctx context.Context, jobID, endpointURL, fallbackURL, signingSecret string) error
 }
 
-// RunStore handles job runs, events, checkpoints, and related data.
+// RunStore keeps the existing API store contract while grouping run-related
+// operations by workflow. The smaller embedded interfaces make handler
+// dependencies easier to scan without changing the method set.
 type RunStore interface {
+	RunLifecycleStore
+	RunEventStore
+	RunWebhookStore
+	RunAnalyticsStore
+	RunIdempotencyStore
+	RunBatchStore
+	RunStateStore
+	RunResourceStore
+	RunMemoryStore
+}
+
+// RunLifecycleStore handles run lookup, creation, transitions, replay, and DLQ
+// operations.
+type RunLifecycleStore interface {
 	GetRun(ctx context.Context, id string) (*domain.JobRun, error)
 	GetRunStatus(ctx context.Context, id string) (domain.RunStatus, error)
 	CreateRun(ctx context.Context, run *domain.JobRun) error
 	GetRunByIdempotencyKey(ctx context.Context, jobID, idempotencyKey string) (*domain.JobRun, error)
 	FindRecentRunByPayload(ctx context.Context, jobID string, payload json.RawMessage, since time.Time) (*domain.JobRun, error)
 	CountRunsForJobSince(ctx context.Context, jobID string, since time.Time) (int, error)
-	ListRunsByProject(ctx context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, executionMode *domain.ExecutionMode, errorClass *string, limit int, cursor *time.Time) ([]domain.JobRun, error)
+	ListRunsByProject(
+		ctx context.Context,
+		projectID string,
+		status *domain.RunStatus,
+		metadataKey, metadataValue, triggeredBy, batchID *string,
+		payloadContains json.RawMessage,
+		executionMode *domain.ExecutionMode,
+		errorClass *string,
+		limit int,
+		cursor *time.Time,
+	) ([]domain.JobRun, error)
 	ListRunsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	ListDeadLetterRuns(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error)
 	ListDeadLetterRunsFiltered(ctx context.Context, projectID string, jobID *string, masked *bool, limit int, cursor *time.Time) ([]domain.JobRun, error)
@@ -159,6 +186,15 @@ type RunStore interface {
 	AreAllDescendantsTerminal(ctx context.Context, parentRunID string) (bool, error)
 	UpdateHeartbeat(ctx context.Context, id string) error
 	GetDebugBundle(ctx context.Context, runID string) (*domain.DebugBundle, error)
+	RescheduleRun(ctx context.Context, runID string, scheduledAt time.Time, payload json.RawMessage) error
+	GetRunsByIDs(ctx context.Context, ids []string) (map[string]*domain.JobRun, error)
+	BulkCancelRuns(ctx context.Context, ids []string, finishedAt time.Time, reason string) ([]store.BulkCancelResult, error)
+	CancelChildRunsByParentIDs(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error)
+	ResetRunIdempotencyKey(ctx context.Context, runID string) error
+}
+
+// RunEventStore handles event, checkpoint, usage, tool-call, and output data.
+type RunEventStore interface {
 	CreateRunCheckpoint(ctx context.Context, checkpoint *domain.RunCheckpoint) error
 	ListRunCheckpoints(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunCheckpoint, error)
 	CreateRunUsage(ctx context.Context, usage *domain.RunUsage) error
@@ -170,21 +206,31 @@ type RunStore interface {
 	InsertEvent(ctx context.Context, event *domain.RunEvent) error
 	ListEvents(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunEvent, error)
 	ListEventsByRunFiltered(ctx context.Context, runID string, level, eventType string, limit int, cursor *time.Time) ([]domain.RunEvent, error)
+}
+
+// RunWebhookStore handles webhook subscriptions and delivery retries.
+type RunWebhookStore interface {
 	ListWebhookDeliveries(ctx context.Context, projectID, status string, limit int, cursor *time.Time) ([]domain.WebhookDelivery, error)
-	SumRunCostMicrousd(ctx context.Context, runID string) (int64, error)
-	SumProjectDailyCostMicrousd(ctx context.Context, projectID string, timezone string) (int64, error)
-	GetProjectQuota(ctx context.Context, projectID string) (*store.ProjectQuota, error)
-	CountProjectQueuedRuns(ctx context.Context, projectID string) (int, error)
-	CountProjectActiveRuns(ctx context.Context, projectID string) (int, error)
 	GetWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
 	RetryWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
 	UpdateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
+	CreateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
+	ReplayWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
 	CreateWebhookSubscription(ctx context.Context, sub *domain.WebhookSubscription) error
 	ListWebhookSubscriptions(ctx context.Context, projectID string) ([]domain.WebhookSubscription, error)
 	GetWebhookSubscription(ctx context.Context, id string) (*domain.WebhookSubscription, error)
 	DeleteWebhookSubscription(ctx context.Context, id string) error
 	RotateWebhookSecret(ctx context.Context, id, newSecret string, graceExpiresAt time.Time) error
 	GetWebhookSubscriptionSecrets(ctx context.Context, subscriptionID string) (string, string, *time.Time, error)
+}
+
+// RunAnalyticsStore handles run, queue, cost, and approval analytics.
+type RunAnalyticsStore interface {
+	SumRunCostMicrousd(ctx context.Context, runID string) (int64, error)
+	SumProjectDailyCostMicrousd(ctx context.Context, projectID string, timezone string) (int64, error)
+	GetProjectQuota(ctx context.Context, projectID string) (*store.ProjectQuota, error)
+	CountProjectQueuedRuns(ctx context.Context, projectID string) (int, error)
+	CountProjectActiveRuns(ctx context.Context, projectID string) (int, error)
 	QueueStats(ctx context.Context) (*store.QueueStats, error)
 	GetPerformanceAnalytics(ctx context.Context, projectID string, periodHours int) (*store.PerformanceAnalytics, error)
 	GetCostAnalytics(ctx context.Context, projectID string, from, to time.Time) (*store.CostAnalytics, error)
@@ -193,17 +239,18 @@ type RunStore interface {
 	GetApprovalStats(ctx context.Context, projectID string, from, to time.Time) (*store.ApprovalStats, error)
 	GetCostOutliers(ctx context.Context, projectID string, from, to time.Time, threshold float64) ([]store.CostOutlier, error)
 	AggregateCostStatsHourly(ctx context.Context, hour time.Time) error
-	GetRunsByIDs(ctx context.Context, ids []string) (map[string]*domain.JobRun, error)
-	BulkCancelRuns(ctx context.Context, ids []string, finishedAt time.Time, reason string) ([]store.BulkCancelResult, error)
-	CancelChildRunsByParentIDs(ctx context.Context, parentIDs []string, finishedAt time.Time, reason string) (int64, error)
-	ResetRunIdempotencyKey(ctx context.Context, runID string) error
+}
 
-	// General-purpose idempotency keys (not run-specific).
+// RunIdempotencyStore handles general-purpose idempotency keys that are not
+// tied to a specific run row.
+type RunIdempotencyStore interface {
 	TryAcquireIdempotencyKey(ctx context.Context, projectID, key string, ttl time.Duration) (string, int, http.Header, []byte, error)
 	CompleteIdempotencyKey(ctx context.Context, projectID, key string, responseStatus int, responseHeaders http.Header, responseBody []byte) error
 	DeleteIdempotencyKey(ctx context.Context, projectID, key string) (int64, error)
+}
 
-	RescheduleRun(ctx context.Context, runID string, scheduledAt time.Time, payload json.RawMessage) error
+// RunBatchStore handles batch operations, debouncing, and bulk cancellation.
+type RunBatchStore interface {
 	CreateBatchOperation(ctx context.Context, op *domain.BatchOperation) error
 	FinalizeBatchOperation(ctx context.Context, batchID string, createdCount int) error
 	GetBatchOperation(ctx context.Context, batchID, projectID string) (*domain.BatchOperation, error)
@@ -213,18 +260,28 @@ type RunStore interface {
 	InsertBatchBufferItem(ctx context.Context, item *domain.BatchBufferItem) error
 	CountBatchBufferItems(ctx context.Context, jobID, batchKey string) (int, error)
 	DrainBatchBuffer(ctx context.Context, jobID, batchKey string, limit int) ([]domain.BatchBufferItem, error)
-	CreateWebhookDelivery(ctx context.Context, d *domain.WebhookDelivery) error
-	ReplayWebhookDelivery(ctx context.Context, id string) (*domain.WebhookDelivery, error)
+}
+
+// RunStateStore handles SDK run state documents.
+type RunStateStore interface {
 	UpsertRunState(ctx context.Context, s *domain.RunState) error
 	GetRunState(ctx context.Context, runID, key string) (*domain.RunState, error)
 	ListRunState(ctx context.Context, runID string) ([]domain.RunState, error)
 	DeleteRunState(ctx context.Context, runID, key string) error
+}
+
+// RunResourceStore handles AI resource snapshots, iterations, and counters.
+type RunResourceStore interface {
 	CreateRunResourceSnapshot(ctx context.Context, snapshot *domain.RunResourceSnapshot) error
 	ListRunResourceSnapshots(ctx context.Context, runID string, from, to *time.Time, limit int) ([]domain.RunResourceSnapshot, error)
 	SumRunTotalTokens(ctx context.Context, runID string) (int64, error)
 	CountRunToolCalls(ctx context.Context, runID string) (int, error)
 	CountRunIterations(ctx context.Context, runID string) (int, error)
 	CreateRunIteration(ctx context.Context, iter *domain.RunIteration) error
+}
+
+// RunMemoryStore handles per-job memory records used by SDK AI workflows.
+type RunMemoryStore interface {
 	UpsertJobMemory(ctx context.Context, mem *domain.JobMemory) error
 	UpsertJobMemoryWithQuota(ctx context.Context, mem *domain.JobMemory, maxPerKey, maxPerJob int) error
 	GetJobMemory(ctx context.Context, jobID, key string) (*domain.JobMemory, error)
@@ -279,7 +336,12 @@ type WorkflowStore interface {
 	UpdateWorkflowRunStatus(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	UpdateStepRunStatus(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
 	GetStepRunByWorkflowRunAndRef(ctx context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error)
-	ListWorkflowStepDecisions(ctx context.Context, workflowRunID, stepRef, decisionType string, limit int, cursor *time.Time) ([]domain.WorkflowStepDecision, error)
+	ListWorkflowStepDecisions(
+		ctx context.Context,
+		workflowRunID, stepRef, decisionType string,
+		limit int,
+		cursor *time.Time,
+	) ([]domain.WorkflowStepDecision, error)
 	GetWorkflowStepApprovalByStepRunID(ctx context.Context, stepRunID string) (*domain.WorkflowStepApproval, error)
 	UpdateWorkflowStepApproval(ctx context.Context, id string, status string, approvedBy string, approvedAt *time.Time, errMsg string) error
 	ListWorkflowVersions(ctx context.Context, workflowID string, limit int) ([]domain.WorkflowVersion, error)
@@ -317,8 +379,21 @@ type EventTriggerStore interface {
 	CreateEventTrigger(ctx context.Context, trigger *domain.EventTrigger) error
 	GetEventTriggerByEventKey(ctx context.Context, eventKey string) (*domain.EventTrigger, error)
 	UpdateEventTriggerStatus(ctx context.Context, id string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
-	UpdateEventTriggerStatusFrom(ctx context.Context, id string, from string, status string, responsePayload json.RawMessage, receivedAt *time.Time, errMsg string) error
-	ListEventTriggersByProject(ctx context.Context, projectID, environmentID, status, workflowRunID, sourceType string, limit int, cursor *time.Time) ([]domain.EventTrigger, error)
+	UpdateEventTriggerStatusFrom(
+		ctx context.Context,
+		id string,
+		from string,
+		status string,
+		responsePayload json.RawMessage,
+		receivedAt *time.Time,
+		errMsg string,
+	) error
+	ListEventTriggersByProject(
+		ctx context.Context,
+		projectID, environmentID, status, workflowRunID, sourceType string,
+		limit int,
+		cursor *time.Time,
+	) ([]domain.EventTrigger, error)
 	ListEventTriggersByKeyPrefix(ctx context.Context, prefix string, projectID string) ([]domain.EventTrigger, error)
 	CancelEventTriggersByWorkflowRun(ctx context.Context, workflowRunID string) (int64, error)
 	ReceiveEventAndRequeueRun(ctx context.Context, triggerID string, payload json.RawMessage, receivedAt time.Time, jobRunID string) error
@@ -387,7 +462,13 @@ type RBACStore interface {
 	GetAuditEventDeadletter(ctx context.Context, id, projectID string) (*domain.AuditEvent, error)
 	DeleteAuditEventDeadletter(ctx context.Context, id, projectID string) error
 	MarkAuditDeadletterReclaimed(ctx context.Context, dlqID, newEventID string) error
-	ListAuditEvents(ctx context.Context, projectID, actorID, resourceType, resourceID string, limit int, cursor, from, to *time.Time, ascending bool) ([]domain.AuditEvent, error)
+	ListAuditEvents(
+		ctx context.Context,
+		projectID, actorID, resourceType, resourceID string,
+		limit int,
+		cursor, from, to *time.Time,
+		ascending bool,
+	) ([]domain.AuditEvent, error)
 	GetAuditEvent(ctx context.Context, projectID, id string) (*domain.AuditEvent, error)
 	StreamAuditEvents(ctx context.Context, projectID, actorID, resourceType string, from, to time.Time, fn func(*domain.AuditEvent) error) error
 	VerifyAuditChain(ctx context.Context, projectID string) (*domain.AuditChainVerification, error)
@@ -437,7 +518,14 @@ type WorkflowCallback interface {
 }
 
 type WorkflowTrigger interface {
-	TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride, extraTags map[string]string) (*domain.WorkflowRun, error)
+	TriggerWorkflow(
+		ctx context.Context,
+		workflowID, projectID string,
+		payload json.RawMessage,
+		triggeredBy string,
+		stepOverrides []domain.StepOverride,
+		extraTags map[string]string,
+	) (*domain.WorkflowRun, error)
 	RetryWorkflowRun(ctx context.Context, originalRunID string) (*domain.WorkflowRun, error)
 }
 
@@ -457,7 +545,8 @@ type ErrorResponse struct {
 // APIError describes a single error with a machine-readable code, a
 // human-readable message, and optional supplemental detail strings.
 type APIError struct {
-	Code    string   `json:"code" enum:"bad_request,authentication_required,forbidden,not_found,conflict,validation_failed,rate_limited,enqueue_throttled,internal_error,service_unavailable" doc:"Canonical Strait error code"`
+	Code string `json:"code" enum:"bad_request,authentication_required,forbidden,not_found,conflict,validation_failed,rate_limited,enqueue_throttled,internal_error,service_unavailable" doc:"Canonical Strait error code"`
+
 	Message string   `json:"message" doc:"Human-readable error message"`
 	Details []string `json:"details,omitempty" doc:"Optional supplemental error details (e.g. per-field validation messages)"`
 }
@@ -529,43 +618,49 @@ type AnalyticsStore interface {
 }
 
 type Server struct {
-	router                chi.Router
-	store                 APIStore
-	outboxAdminStore      outboxAdminStore
-	analyticsStore        AnalyticsStore
-	queue                 queue.Queue
-	pubsub                pubsub.Publisher
-	config                *config.Config
-	metrics               *telemetry.Metrics
-	metricsHandler        http.Handler
-	pinger                Pinger
-	healthRegistry        *health.Registry
-	workflowCallback      WorkflowCallback
-	workflowEngine        WorkflowTrigger
-	txPool                store.TxBeginner
-	actorSyncer           ActorSyncer
-	validate              *validator.Validate
-	maxRequestBodySize    int64
-	poolStatter           PoolStatter
-	poolBackpressure      *poolBackpressureSampler
-	permCache             *permissionCache
-	quotaCache            *quotaCache
-	oidcVerifier          *oidcVerifier
-	bgPool                pond.Pool // bounded pool for fire-and-forget background tasks (API key touch, actor sync)
-	runInTx               func(ctx context.Context, fn func(s APIStore) error) error
-	rateLimiter           *ratelimit.RedisRateLimiter
-	authLimiter           *ratelimit.AuthLimiter
-	encryptor             Encryptor
-	stripeWebhook         http.Handler
-	billingEnforcer       BillingEnforcer
-	usageService          UsageService
-	chExporter            *clickhouse.Exporter
-	edition               domain.Edition
-	version               string
-	startedAt             time.Time
-	cdcWebhookReceiver    http.Handler
-	cachedOpenAPISpec     []byte
-	cachedOpenAPISpecGzip []byte
+	router                     chi.Router
+	store                      APIStore
+	outboxAdminStore           outboxAdminStore
+	analyticsStore             AnalyticsStore
+	queue                      queue.Queue
+	pubsub                     pubsub.Publisher
+	config                     *config.Config
+	metrics                    *telemetry.Metrics
+	metricsHandler             http.Handler
+	pinger                     Pinger
+	healthRegistry             *health.Registry
+	workflowCallback           WorkflowCallback
+	workflowEngine             WorkflowTrigger
+	txPool                     store.TxBeginner
+	actorSyncer                ActorSyncer
+	validate                   *validator.Validate
+	maxRequestBodySize         int64
+	poolStatter                PoolStatter
+	poolBackpressure           *poolBackpressureSampler
+	permCache                  *permissionCache
+	quotaCache                 *quotaCache
+	apiKeyCache                *apiKeyCache
+	jobDependencyCache         *jobDependencyCache
+	cacheBus                   *straitcache.Bus
+	workerJobBarrier           *straitcache.Tier[string, struct{}]
+	runStatusReadModel         *straitcache.ReadModel[*domain.JobRun]
+	workflowRunStatusReadModel *straitcache.ReadModel[*domain.WorkflowRun]
+	oidcVerifier               *oidcVerifier
+	bgPool                     pond.Pool // bounded pool for fire-and-forget background tasks (API key touch, actor sync)
+	runInTx                    func(ctx context.Context, fn func(s APIStore) error) error
+	rateLimiter                *ratelimit.RedisRateLimiter
+	authLimiter                *ratelimit.AuthLimiter
+	encryptor                  Encryptor
+	stripeWebhook              http.Handler
+	billingEnforcer            BillingEnforcer
+	usageService               UsageService
+	chExporter                 *clickhouse.Exporter
+	edition                    domain.Edition
+	version                    string
+	startedAt                  time.Time
+	cdcWebhookReceiver         http.Handler
+	cachedOpenAPISpec          []byte
+	cachedOpenAPISpecGzip      []byte
 
 	// trustedProxies is the parsed CIDR list of reverse proxies whose
 	// X-Forwarded-For header is trusted for client IP attribution. Empty
@@ -733,6 +828,8 @@ type ServerDeps struct {
 	ActorSyncer          ActorSyncer
 	PoolStatter          PoolStatter              // Optional: enables DB pool backpressure middleware.
 	RedisClient          *redis.Client            // Required in production startup; enables rate limiting.
+	CacheBus             *straitcache.Bus         // Optional: enables cross-replica cache update/invalidation publishing.
+	CacheRegistry        *straitcache.Registry    // Optional: registers API cache namespaces for cachebus fanout.
 	Encryptor            Encryptor                // Optional: enables event source signature encryption.
 	StripeWebhook        http.Handler             // Optional: Stripe billing webhook handler.
 	BillingEnforcer      BillingEnforcer          // Optional: enables billing limit checks on project create.
@@ -765,6 +862,12 @@ func NewServer(deps ServerDeps) *Server {
 		slog.Warn("failed to initialize OIDC verifier; disabling OIDC auth", "error", err)
 		verifier = &oidcVerifier{enabled: false}
 	}
+	statusModels := newStatusReadModels(deps.RedisClient, statusReadModelTTL(deps.Config))
+	cacheDeps := apiCacheDeps{
+		Redis:    deps.RedisClient,
+		Bus:      deps.CacheBus,
+		Registry: deps.CacheRegistry,
+	}
 
 	srv := &Server{
 		store:              deps.Store,
@@ -784,24 +887,30 @@ func NewServer(deps ServerDeps) *Server {
 		validate:           validator.New(validator.WithRequiredStructEnabled()),
 		maxRequestBodySize: maxBody,
 		poolStatter:        deps.PoolStatter,
-		permCache:          newPermissionCache(permCacheTTL(deps.Config)),
+		permCache:          newPermissionCache(permCacheTTL(deps.Config), cacheDeps),
 		quotaCache: newQuotaCache(quotaCacheTTL(deps.Config), func(ctx context.Context, projectID string) (*store.ProjectQuota, error) {
 			return deps.Store.GetProjectQuota(ctx, projectID)
-		}),
-		oidcVerifier:       verifier,
-		bgPool:             pond.NewPool(4),
-		rateLimiter:        ratelimit.NewRedisRateLimiter(deps.RedisClient, deps.RedisClient != nil),
-		authLimiter:        ratelimit.NewAuthLimiter(deps.RedisClient, deps.RedisClient != nil),
-		encryptor:          deps.Encryptor,
-		stripeWebhook:      deps.StripeWebhook,
-		billingEnforcer:    deps.BillingEnforcer,
-		usageService:       deps.UsageService,
-		chExporter:         deps.CHExporter,
-		edition:            deps.Edition,
-		version:            deps.Version,
-		startedAt:          time.Now(),
-		cdcWebhookReceiver: deps.CDCWebhookReceiver,
-		siemDrain:          deps.SIEMDrain,
+		}, cacheDeps),
+		apiKeyCache:                newAPIKeyCache(apiKeyCacheTTL(deps.Config), cacheDeps),
+		jobDependencyCache:         newJobDependencyCache(jobDepsCacheTTL(deps.Config), cacheDeps),
+		cacheBus:                   deps.CacheBus,
+		workerJobBarrier:           newWorkerJobBarrier(workerJobBarrierTTL(deps.Config), deps.RedisClient),
+		runStatusReadModel:         statusModels.run,
+		workflowRunStatusReadModel: statusModels.workflowRun,
+		oidcVerifier:               verifier,
+		bgPool:                     pond.NewPool(4),
+		rateLimiter:                ratelimit.NewRedisRateLimiter(deps.RedisClient, deps.RedisClient != nil),
+		authLimiter:                ratelimit.NewAuthLimiter(deps.RedisClient, deps.RedisClient != nil),
+		encryptor:                  deps.Encryptor,
+		stripeWebhook:              deps.StripeWebhook,
+		billingEnforcer:            deps.BillingEnforcer,
+		usageService:               deps.UsageService,
+		chExporter:                 deps.CHExporter,
+		edition:                    deps.Edition,
+		version:                    deps.Version,
+		startedAt:                  time.Now(),
+		cdcWebhookReceiver:         deps.CDCWebhookReceiver,
+		siemDrain:                  deps.SIEMDrain,
 	}
 	if srv.siemDrain != nil && deps.Metrics != nil {
 		srv.siemDrain.SetDroppedCounter(deps.Metrics.AuditSIEMDropped)
@@ -912,6 +1021,27 @@ func quotaCacheTTL(cfg *config.Config) time.Duration {
 	return 60 * time.Second
 }
 
+func apiKeyCacheTTL(cfg *config.Config) time.Duration {
+	if cfg != nil {
+		return cfg.APIKeyCacheTTL
+	}
+	return time.Minute
+}
+
+func jobDepsCacheTTL(cfg *config.Config) time.Duration {
+	if cfg != nil {
+		return cfg.JobDepsCacheTTL
+	}
+	return 5 * time.Minute
+}
+
+func statusReadModelTTL(cfg *config.Config) time.Duration {
+	if cfg != nil {
+		return cfg.StatusReadModelTTL
+	}
+	return 5 * time.Minute
+}
+
 // Close releases resources held by the server (e.g. background goroutines).
 // Call this when shutting down.
 //
@@ -950,7 +1080,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	// RFC 8288 Link headers for agent discovery.
-	w.Header().Set("Link", `</reference/openapi.json>; rel="service-desc", </reference>; rel="service-doc", </.well-known/oauth-protected-resource>; rel="oauth-protected-resource"`)
+	w.Header().Set(
+		"Link",
+		`</reference/openapi.json>; rel="service-desc", </reference>; rel="service-doc", </.well-known/oauth-protected-resource>; rel="oauth-protected-resource"`,
+	)
 
 	resp := map[string]any{
 		"status":    "ok",

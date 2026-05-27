@@ -679,6 +679,109 @@ func TestHandleListJobDependencies_Success(t *testing.T) {
 	}
 }
 
+func TestHandleListJobDependencies_UsesCacheForFirstPage(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{}
+	ms.GetJobFunc = func(_ context.Context, id string) (*domain.Job, error) {
+		return &domain.Job{ID: id, ProjectID: "proj-1"}, nil
+	}
+	var listCalls atomic.Int64
+	createdAt := time.Now().UTC()
+	ms.ListJobDependenciesFunc = func(_ context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobDependency, error) {
+		listCalls.Add(1)
+		if limit != 51 {
+			t.Fatalf("limit = %d, want 51", limit)
+		}
+		if cursor != nil {
+			t.Fatalf("cursor = %v, want nil for cached first page", cursor)
+		}
+		return []domain.JobDependency{{ID: "dep-1", JobID: jobID, DependsOnJobID: "job-2", Condition: "completed", CreatedAt: createdAt, CacheVersion: 3}}, nil
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.jobDependencyCache = newJobDependencyCache(time.Minute)
+
+	for range 2 {
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/job-1/dependencies", ""))
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+	}
+	if listCalls.Load() != 1 {
+		t.Fatalf("ListJobDependencies calls = %d, want 1", listCalls.Load())
+	}
+}
+
+func TestHandleListJobDependencies_CursorBypassesCache(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{}
+	ms.GetJobFunc = func(_ context.Context, id string) (*domain.Job, error) {
+		return &domain.Job{ID: id, ProjectID: "proj-1"}, nil
+	}
+	var listCalls atomic.Int64
+	createdAt := time.Now().UTC()
+	ms.ListJobDependenciesFunc = func(_ context.Context, jobID string, _ int, cursor *time.Time) ([]domain.JobDependency, error) {
+		listCalls.Add(1)
+		if cursor == nil {
+			t.Fatal("cursor = nil, want cursor for uncached page")
+		}
+		return []domain.JobDependency{{ID: "dep-1", JobID: jobID, DependsOnJobID: "job-2", Condition: "completed", CreatedAt: createdAt}}, nil
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.jobDependencyCache = newJobDependencyCache(time.Minute)
+	url := "/v1/jobs/job-1/dependencies?cursor=" + createdAt.Add(time.Second).Format(time.RFC3339Nano)
+
+	for range 2 {
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodGet, url, ""))
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+	}
+	if listCalls.Load() != 2 {
+		t.Fatalf("ListJobDependencies calls = %d, want 2", listCalls.Load())
+	}
+}
+
+func TestHandleListJobDependencies_CustomLimitBypassesCache(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{}
+	ms.GetJobFunc = func(_ context.Context, id string) (*domain.Job, error) {
+		return &domain.Job{ID: id, ProjectID: "proj-1"}, nil
+	}
+	var listCalls atomic.Int64
+	createdAt := time.Now().UTC()
+	ms.ListJobDependenciesFunc = func(_ context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobDependency, error) {
+		listCalls.Add(1)
+		if limit != 11 {
+			t.Fatalf("limit = %d, want 11", limit)
+		}
+		if cursor != nil {
+			t.Fatalf("cursor = %v, want nil", cursor)
+		}
+		return []domain.JobDependency{{ID: "dep-1", JobID: jobID, DependsOnJobID: "job-2", Condition: "completed", CreatedAt: createdAt, CacheVersion: 3}}, nil
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.jobDependencyCache = newJobDependencyCache(time.Minute)
+
+	for range 2 {
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/job-1/dependencies?limit=10", ""))
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+	}
+	if listCalls.Load() != 2 {
+		t.Fatalf("ListJobDependencies calls = %d, want 2", listCalls.Load())
+	}
+}
+
 func TestHandleDeleteJobDependency_Success(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{}
@@ -2286,8 +2389,6 @@ func TestHandleGetResolvedVariables_Success(t *testing.T) {
 		t.Fatalf("expected API_URL variable, got %v", resp["variables"]["API_URL"])
 	}
 }
-
-// Phase C: Execution Replay/Debug tests.
 
 func TestHandleGetDebugBundle_Success(t *testing.T) {
 	t.Parallel()

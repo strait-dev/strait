@@ -124,9 +124,9 @@ func TestCreateAuditEvent_ShardChainsAreIndependent(t *testing.T) {
 
 // TestCreateAuditEvent_AutoDerivesShardFromResourceType asserts that
 // CreateAuditEvent auto-derives shard_id from resource_type when the caller
-// leaves it blank. This is the production emit path post-Phase-4c: every
-// resource type lands in its own sub-chain without callers having to opt in.
-// Anchor rows are exempt (rotation / retention carry explicit shard_id).
+// leaves it blank. Production emitters rely on this path so every resource
+// type lands in its own sub-chain without callers having to opt in. Anchor
+// rows are exempt because rotation and retention carry an explicit shard_id.
 func TestCreateAuditEvent_AutoDerivesShardFromResourceType(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -211,11 +211,10 @@ func TestCreateAuditEvent_AutoDerivesShardFromResourceType(t *testing.T) {
 	}
 }
 
-// TestCreateAuditEvent_LegacyEmptyShardRowNotPolluted asserts that a
-// pre-Phase-4 legacy row (seeded with shard_id = '' directly, simulating
-// rows that existed before the shard column landed) does not poison the
-// tail read for new auto-sharded writes. The empty shard remains its own
-// sub-chain and the new auto-derived shard chains from ZeroHash.
+// TestCreateAuditEvent_LegacyEmptyShardRowNotPolluted asserts that an
+// old empty-shard row does not poison the tail read for new auto-sharded
+// writes. The empty shard remains its own sub-chain and the new auto-derived
+// shard chains from ZeroHash.
 func TestCreateAuditEvent_LegacyEmptyShardRowNotPolluted(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)

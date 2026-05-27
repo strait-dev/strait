@@ -1,0 +1,154 @@
+{
+  "dashboard": {
+    "uid": "strait-cache-coherence",
+    "title": "Strait - Cache Coherence",
+    "description": "Cache hit rate, Redis L2 health, cachebus lag, CAS rejects, and shared dedupe fallback.",
+    "tags": ["strait", "cache", "redis"],
+    "schemaVersion": 39,
+    "version": 1,
+    "refresh": "30s",
+    "time": {
+      "from": "now-6h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "title": "Cache operations",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (namespace, tier, result) (rate(strait_cache_operations_total[$interval]))",
+            "legendFormat": "{{namespace}} {{tier}} {{result}}",
+            "datasource": { "type": "prometheus", "uid": "${datasource}" }
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+        "datasource": { "type": "prometheus", "uid": "${datasource}" }
+      },
+      {
+        "title": "Fail-open rate",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (namespace, operation) (rate(strait_cache_fail_open_total[$interval]))",
+            "legendFormat": "{{namespace}} {{operation}}",
+            "datasource": { "type": "prometheus", "uid": "${datasource}" }
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+        "datasource": { "type": "prometheus", "uid": "${datasource}" }
+      },
+      {
+        "title": "CAS rejects",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (namespace) (rate(strait_cache_cas_rejects_total[$interval]))",
+            "legendFormat": "{{namespace}}",
+            "datasource": { "type": "prometheus", "uid": "${datasource}" }
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+        "datasource": { "type": "prometheus", "uid": "${datasource}" }
+      },
+      {
+        "title": "Cachebus lag p95",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "histogram_quantile(0.95, sum by (le, namespace) (rate(strait_cachebus_lag_seconds_bucket[$interval])))",
+            "legendFormat": "{{namespace}}",
+            "datasource": { "type": "prometheus", "uid": "${datasource}" }
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+        "datasource": { "type": "prometheus", "uid": "${datasource}" }
+      },
+      {
+        "title": "Cachebus events",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (direction, namespace, action) (rate(strait_cachebus_events_total[$interval]))",
+            "legendFormat": "{{direction}} {{namespace}} {{action}}",
+            "datasource": { "type": "prometheus", "uid": "${datasource}" }
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+        "datasource": { "type": "prometheus", "uid": "${datasource}" }
+      },
+      {
+        "title": "Redis command p95",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 0, "y": 16 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "histogram_quantile(0.95, sum by (le, operation) (rate(strait_redis_command_duration_seconds_bucket[$interval])))",
+            "legendFormat": "{{operation}}",
+            "datasource": { "type": "prometheus", "uid": "${datasource}" }
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+        "datasource": { "type": "prometheus", "uid": "${datasource}" }
+      },
+      {
+        "title": "Status read-model freshness",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 8, "y": 16 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (namespace, result) (rate(strait_cache_operations_total{namespace=~\"status_.*\"}[$interval]))",
+            "legendFormat": "{{namespace}} {{result}}",
+            "datasource": { "type": "prometheus", "uid": "${datasource}" }
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+        "datasource": { "type": "prometheus", "uid": "${datasource}" }
+      },
+      {
+        "title": "Shared dedupe fallback",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 16, "y": 16 },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (component) (rate(strait_cdc_shared_dedupe_fallback_total[$interval]))",
+            "legendFormat": "{{component}}",
+            "datasource": { "type": "prometheus", "uid": "${datasource}" }
+          }
+        ],
+        "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+        "datasource": { "type": "prometheus", "uid": "${datasource}" }
+      }
+    ],
+    "templating": {
+      "list": [
+        {
+          "name": "datasource",
+          "type": "datasource",
+          "query": "prometheus",
+          "current": { "text": "Prometheus", "value": "Prometheus" }
+        },
+        {
+          "name": "interval",
+          "type": "interval",
+          "query": "30s,1m,5m,15m,1h",
+          "current": { "text": "5m", "value": "5m" }
+        }
+      ]
+    }
+  },
+  "overwrite": true
+}

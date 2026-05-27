@@ -171,7 +171,7 @@ type GetWorkflowRunInput struct {
 type GetWorkflowRunOutput struct{ Body *domain.WorkflowRun }
 
 func (s *Server) handleGetWorkflowRun(ctx context.Context, input *GetWorkflowRunInput) (*GetWorkflowRunOutput, error) {
-	run, err := s.store.GetWorkflowRun(ctx, input.WorkflowRunID)
+	run, err := s.getWorkflowRunWithStatusReadModel(ctx, input.WorkflowRunID)
 	if err != nil {
 		if errors.Is(err, store.ErrWorkflowRunNotFound) {
 			return nil, huma.Error404NotFound("workflow run not found")

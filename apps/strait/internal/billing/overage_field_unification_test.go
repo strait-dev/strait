@@ -7,10 +7,10 @@ import (
 	"strait/internal/domain"
 )
 
-// TestOveragePerKMicrousd_SingleField guards the post-Phase-8 invariant that
-// OrgPlanLimits exposes one canonical per-1K overage field. The duplicate
-// OveragePerKRunsMicrousd has been removed; any reintroduction must justify
-// the alias and update this test.
+// TestOveragePerKMicrousd_SingleField guards the invariant that OrgPlanLimits
+// exposes one canonical per-1K overage field. The duplicate
+// OveragePerKRunsMicrousd has been removed; any reintroduction must justify the
+// alias and update this test.
 func TestOveragePerKMicrousd_SingleField(t *testing.T) {
 	t.Parallel()
 

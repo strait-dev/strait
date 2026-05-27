@@ -338,7 +338,7 @@ func (s *Server) handleGetRunDependencyStatus(ctx context.Context, input *GetRun
 		return nil, err
 	}
 
-	deps, err := s.store.ListJobDependencies(ctx, run.JobID, 1000, nil)
+	deps, err := s.listCachedJobDependencies(ctx, run.JobID, 1000)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list job dependencies")
 	}

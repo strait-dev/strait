@@ -229,6 +229,35 @@ func (q *Queries) GetRun(ctx context.Context, id string) (*domain.JobRun, error)
 	return run, nil
 }
 
+func (q *Queries) GetRunWithCacheVersion(ctx context.Context, id string) (*domain.JobRun, int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetRunWithCacheVersion")
+	defer span.End()
+
+	query := `
+		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
+		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
+		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, is_rollback, replayed_run_id, cache_version
+		FROM job_runs
+		WHERE id = $1`
+
+	run, err := dbscan.ScanRunWithCacheVersion(q.db.QueryRow(ctx, query, id))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			historyRun, histVersion, histErr := q.GetRunFromHistoryWithCacheVersion(ctx, id)
+			if histErr != nil {
+				return nil, 0, fmt.Errorf("get run with cache version: history fallback: %w", histErr)
+			}
+			if historyRun != nil {
+				return historyRun, histVersion, nil
+			}
+			return nil, 0, ErrRunNotFound
+		}
+		return nil, 0, fmt.Errorf("get run with cache version: %w", err)
+	}
+
+	return run, run.CacheVersion, nil
+}
+
 func (q *Queries) GetRunByIdempotencyKey(ctx context.Context, jobID, idempotencyKey string) (*domain.JobRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetRunByIdempotencyKey")
 	defer span.End()

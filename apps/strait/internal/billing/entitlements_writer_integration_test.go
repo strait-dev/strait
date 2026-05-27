@@ -205,8 +205,8 @@ func TestEntitlementsWriter_ApplyPendingDowngradeRefreshesSnapshot(t *testing.T)
 // TestEntitlementsWriter_SnapshotEqualsComputeEntitlements is the bedrock
 // invariant: at every step in a longer sequence, the persisted snapshot
 // must equal what ComputeEntitlements would return for the same state.
-// Drift here is the failure mode the consistency guard (Phase 3.6)
-// formalizes — this test catches it for the writer side specifically.
+// Drift here means a writer forgot to refresh entitlements; this test catches
+// it for the writer side specifically.
 func TestEntitlementsWriter_SnapshotEqualsComputeEntitlements(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)

@@ -11,9 +11,8 @@ import (
 
 // TestSpendCheck_ContendedLock_FailsOpen verifies that a sibling goroutine
 // holding the legacy "strait:spend_check:<org>" lock does NOT block the
-// primary CheckSpendingLimit caller. After the Phase 8 cleanup the lock is
-// gone entirely, so the wall-clock cost of the check is unaffected by
-// contention.
+// primary CheckSpendingLimit caller. The lock is gone entirely, so the
+// wall-clock cost of the check is unaffected by contention.
 func TestSpendCheck_ContendedLock_FailsOpen(t *testing.T) {
 	t.Parallel()
 

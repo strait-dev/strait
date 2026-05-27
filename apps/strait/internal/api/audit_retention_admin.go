@@ -21,7 +21,7 @@ import (
 //     returns inherited_from_default = true and the default days value.
 //   - days > 0       = retain for that many days, overriding default.
 //   - days == 0      = explicit "disable trim" — the reaper skips this
-//     project entirely (Phase 2). GET reports this as an explicit
+//     project entirely. GET reports this as an explicit
 //     override (inherited_from_default = false).
 //   - days < 0       = 400 from the PUT handler.
 //
@@ -164,7 +164,7 @@ func (s *Server) handleSetAuditRetention(ctx context.Context, input *UpdateAudit
 	}
 
 	if s.quotaCache != nil {
-		s.quotaCache.Invalidate(projectID)
+		s.quotaCache.InvalidateContext(ctx, projectID)
 	}
 
 	return &UpdateAuditRetentionOutput{Body: UpdateAuditRetentionResponse{

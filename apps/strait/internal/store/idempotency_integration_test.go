@@ -19,10 +19,7 @@ import (
 // integration coverage prior to this commit despite implementing a
 // three-way race (acquire/pending/completed) that's critical for
 // distributed request deduplication.
-
-// -----------------------------------------------------------------------.
 // TryAcquireIdempotencyKey
-// -----------------------------------------------------------------------.
 
 func TestIdempotency_TryAcquire_NewKey_Acquired(t *testing.T) {
 	ctx := context.Background()
@@ -187,9 +184,7 @@ func TestIdempotency_TryAcquire_RaceBetweenGoroutines(t *testing.T) {
 	}
 }
 
-// -----------------------------------------------------------------------.
 // CompleteIdempotencyKey
-// -----------------------------------------------------------------------.
 
 func TestIdempotency_Complete_UpdatesRow(t *testing.T) {
 	ctx := context.Background()
@@ -241,9 +236,7 @@ func TestIdempotency_Complete_NotFound_NoError(t *testing.T) {
 	}
 }
 
-// -----------------------------------------------------------------------.
 // DeleteIdempotencyKey
-// -----------------------------------------------------------------------.
 
 func TestIdempotency_Delete_RemovesRow(t *testing.T) {
 	ctx := context.Background()
@@ -289,9 +282,7 @@ func TestIdempotency_Delete_NotFound_Zero(t *testing.T) {
 	}
 }
 
-// -----------------------------------------------------------------------.
 // CleanExpiredIdempotencyKeys
-// -----------------------------------------------------------------------.
 
 func TestIdempotency_CleanExpired_DeletesOnlyExpired(t *testing.T) {
 	ctx := context.Background()

@@ -105,9 +105,9 @@ func TestChaos_DBTimestampUsedForRetryNotGoTime(t *testing.T) {
 
 	run := mustEnqueueRun(t, ctx, q, job)
 
-	// Schedule a retry 2 seconds in the future using DB time. Retry
-	// scheduling lives in the job_retries side table (Wave 2 Phase 1);
-	// job_runs.next_retry_at is no longer read by the dequeue predicate.
+	// Schedule a retry 2 seconds in the future using DB time. Retry scheduling
+	// lives in the job_retries side table; job_runs.next_retry_at is no longer
+	// read by the dequeue predicate.
 	if _, err := testDB.Pool.Exec(ctx,
 		`UPDATE job_runs SET status='queued' WHERE id=$1`, run.ID,
 	); err != nil {

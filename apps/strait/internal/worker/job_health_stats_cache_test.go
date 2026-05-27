@@ -8,9 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/eko/gocache/lib/v4/cache"
-
-	"strait/internal/cache/otterstore"
 	orcstore "strait/internal/store"
 )
 
@@ -18,19 +15,13 @@ func newExecutorWithHealthStatsCache(t *testing.T, ttl time.Duration, store Exec
 	t.Helper()
 	e := &Executor{store: store}
 	if ttl > 0 {
-		s := otterstore.New(otterstore.Config{
-			DefaultTTL:  ttl,
-			MaxCapacity: 1024,
-			TTLJitter:   0,
-		})
-		e.jobHealthStatsCacheStore = s
-		e.jobHealthStatsCache = cache.New[*orcstore.JobHealthStats](s)
+		e.jobHealthCache = newTierJobHealthCache(ttl)
 	}
 	return e
 }
 
 // Cache disabled (TTL=0) should reach the store on every call.
-func TestGetJobHealthStatsCached_DisabledPassesThrough(t *testing.T) {
+func TestGetJobHealthStats_DisabledPassesThrough(t *testing.T) {
 	var calls atomic.Int32
 	want := &orcstore.JobHealthStats{TotalRuns: 7, P95DurationSecs: 1.5}
 	store := &mockExecutorStore{
@@ -42,11 +33,11 @@ func TestGetJobHealthStatsCached_DisabledPassesThrough(t *testing.T) {
 	e := newExecutorWithHealthStatsCache(t, 0, store)
 
 	for i := range 5 {
-		got, err := e.getJobHealthStatsCached(context.Background(), "job-1", time.Now())
+		got, err := e.getJobHealthStats(t.Context(), "job-1", time.Now())
 		if err != nil {
 			t.Fatalf("call %d: unexpected error: %v", i, err)
 		}
-		if got != want {
+		if !sameJobHealthStats(got, want) {
 			t.Fatalf("call %d: got %#v, want %#v", i, got, want)
 		}
 	}
@@ -56,7 +47,7 @@ func TestGetJobHealthStatsCached_DisabledPassesThrough(t *testing.T) {
 }
 
 // With TTL set, repeated calls for the same jobID should hit the store once.
-func TestGetJobHealthStatsCached_TTLServesFromCache(t *testing.T) {
+func TestGetJobHealthStats_TTLServesFromCache(t *testing.T) {
 	var calls atomic.Int32
 	want := &orcstore.JobHealthStats{TotalRuns: 42, P95DurationSecs: 0.25}
 	store := &mockExecutorStore{
@@ -68,11 +59,11 @@ func TestGetJobHealthStatsCached_TTLServesFromCache(t *testing.T) {
 	e := newExecutorWithHealthStatsCache(t, 5*time.Second, store)
 
 	for i := range 20 {
-		got, err := e.getJobHealthStatsCached(context.Background(), "job-7", time.Now())
+		got, err := e.getJobHealthStats(t.Context(), "job-7", time.Now())
 		if err != nil {
 			t.Fatalf("call %d: unexpected error: %v", i, err)
 		}
-		if got != want {
+		if !sameJobHealthStats(got, want) {
 			t.Fatalf("call %d: got %#v, want %#v", i, got, want)
 		}
 	}
@@ -84,7 +75,7 @@ func TestGetJobHealthStatsCached_TTLServesFromCache(t *testing.T) {
 // Concurrent misses for the same jobID must collapse into a single store call
 // via the singleflight group, since under 1000-VU load every dispatch hits this
 // path simultaneously.
-func TestGetJobHealthStatsCached_SingleflightCoalescesMisses(t *testing.T) {
+func TestGetJobHealthStats_SingleflightCoalescesMisses(t *testing.T) {
 	var calls atomic.Int32
 	release := make(chan struct{})
 	want := &orcstore.JobHealthStats{TotalRuns: 11}
@@ -103,7 +94,7 @@ func TestGetJobHealthStatsCached_SingleflightCoalescesMisses(t *testing.T) {
 	for range fanout {
 		go func() {
 			defer wg.Done()
-			if _, err := e.getJobHealthStatsCached(context.Background(), "job-x", time.Now()); err != nil {
+			if _, err := e.getJobHealthStats(t.Context(), "job-x", time.Now()); err != nil {
 				t.Errorf("unexpected error: %v", err)
 			}
 		}()
@@ -120,7 +111,7 @@ func TestGetJobHealthStatsCached_SingleflightCoalescesMisses(t *testing.T) {
 
 // Errors must propagate (and not poison the cache: a follow-up successful call
 // can re-populate it).
-func TestGetJobHealthStatsCached_ErrorIsNotCached(t *testing.T) {
+func TestGetJobHealthStats_ErrorIsNotCached(t *testing.T) {
 	var calls atomic.Int32
 	storeErr := errors.New("transient")
 	want := &orcstore.JobHealthStats{TotalRuns: 3}
@@ -134,17 +125,27 @@ func TestGetJobHealthStatsCached_ErrorIsNotCached(t *testing.T) {
 	}
 	e := newExecutorWithHealthStatsCache(t, time.Minute, store)
 
-	if _, err := e.getJobHealthStatsCached(context.Background(), "job-err", time.Now()); !errors.Is(err, storeErr) {
+	if _, err := e.getJobHealthStats(t.Context(), "job-err", time.Now()); !errors.Is(err, storeErr) {
 		t.Fatalf("first call: err = %v, want %v", err, storeErr)
 	}
-	got, err := e.getJobHealthStatsCached(context.Background(), "job-err", time.Now())
+	got, err := e.getJobHealthStats(t.Context(), "job-err", time.Now())
 	if err != nil {
 		t.Fatalf("second call: unexpected error: %v", err)
 	}
-	if got != want {
+	if !sameJobHealthStats(got, want) {
 		t.Fatalf("second call: got %#v, want %#v", got, want)
 	}
 	if c := calls.Load(); c != 2 {
 		t.Fatalf("store calls = %d, want 2 (error must not be cached)", c)
 	}
+}
+
+func sameJobHealthStats(got, want *orcstore.JobHealthStats) bool {
+	if got == nil || want == nil {
+		return got == want
+	}
+	return got.TotalRuns == want.TotalRuns &&
+		got.P95DurationSecs == want.P95DurationSecs &&
+		got.P99DurationSecs == want.P99DurationSecs &&
+		got.AvgDurationSecs == want.AvgDurationSecs
 }

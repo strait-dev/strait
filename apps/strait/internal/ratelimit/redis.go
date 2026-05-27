@@ -50,7 +50,7 @@ func (r *RedisRateLimiter) Allow(ctx context.Context, key string, limit int, win
 
 	vals, err := r.client.Eval(ctx, redisRateLimitScript, []string{key}, window.Milliseconds(), limit).Int64Slice()
 	if err != nil {
-		return RateLimitResult{Allowed: true, Remaining: limit}, nil //nolint:nilerr // fail-open: allow traffic when Redis is unavailable.
+		return RateLimitResult{Allowed: true, Remaining: limit}, nil //nolint:nilerr // fail open: Redis rate limiting is advisory on this path
 	}
 
 	if len(vals) < 2 {

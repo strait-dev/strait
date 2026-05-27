@@ -308,12 +308,12 @@ func (ce *ChaosEngine) waitForQueueDrain(ctx context.Context, timeout time.Durat
 func (ce *ChaosEngine) chaosWorkerKill(ctx context.Context) error {
 	container, err := ce.findStraitContainer()
 	if err != nil {
-		return fmt.Errorf("failed to find strait container: %w", err)
+		return fmt.Errorf("find strait container: %w", err)
 	}
 
 	kill := exec.CommandContext(ctx, "docker", "kill", container)
 	if err := kill.Run(); err != nil {
-		return fmt.Errorf("failed to kill strait container %s: %w", container, err)
+		return fmt.Errorf("kill strait container %s: %w", container, err)
 	}
 
 	// Wait 30 seconds
@@ -323,7 +323,7 @@ func (ce *ChaosEngine) chaosWorkerKill(ctx context.Context) error {
 	defer cleanupCancel()
 	start := exec.CommandContext(cleanupCtx, "docker", "start", container)
 	if err := start.Run(); err != nil {
-		return fmt.Errorf("failed to restart strait container %s: %w", container, err)
+		return fmt.Errorf("restart strait container %s: %w", container, err)
 	}
 
 	// Wait for recovery
@@ -334,13 +334,13 @@ func (ce *ChaosEngine) chaosWorkerKill(ctx context.Context) error {
 func (ce *ChaosEngine) chaosDatabaseFailover(ctx context.Context) error {
 	container, err := ce.findPostgresContainer()
 	if err != nil {
-		return fmt.Errorf("failed to find postgres container: %w", err)
+		return fmt.Errorf("find postgres container: %w", err)
 	}
 
 	// Simulate by pausing postgres container
 	pause := exec.CommandContext(ctx, "docker", "pause", container)
 	if err := pause.Run(); err != nil {
-		return fmt.Errorf("failed to pause postgres container %s: %w", container, err)
+		return fmt.Errorf("pause postgres container %s: %w", container, err)
 	}
 
 	// Hold for 10 seconds
@@ -351,7 +351,7 @@ func (ce *ChaosEngine) chaosDatabaseFailover(ctx context.Context) error {
 	defer cleanupCancel()
 	unpause := exec.CommandContext(cleanupCtx, "docker", "unpause", container)
 	if err := unpause.Run(); err != nil {
-		return fmt.Errorf("failed to unpause postgres container %s: %w", container, err)
+		return fmt.Errorf("unpause postgres container %s: %w", container, err)
 	}
 
 	// Wait for connections to recover
@@ -362,13 +362,13 @@ func (ce *ChaosEngine) chaosDatabaseFailover(ctx context.Context) error {
 func (ce *ChaosEngine) chaosRedisFailure(ctx context.Context) error {
 	container, err := ce.findRedisContainer()
 	if err != nil {
-		return fmt.Errorf("failed to find redis container: %w", err)
+		return fmt.Errorf("find redis container: %w", err)
 	}
 
 	// Kill Redis container
 	kill := exec.CommandContext(ctx, "docker", "kill", container)
 	if err := kill.Run(); err != nil {
-		return fmt.Errorf("failed to kill redis container %s: %w", container, err)
+		return fmt.Errorf("kill redis container %s: %w", container, err)
 	}
 
 	// Wait 2 minutes
@@ -379,7 +379,7 @@ func (ce *ChaosEngine) chaosRedisFailure(ctx context.Context) error {
 	defer cleanupCancel()
 	start := exec.CommandContext(cleanupCtx, "docker", "start", container)
 	if err := start.Run(); err != nil {
-		return fmt.Errorf("failed to restart redis container %s: %w", container, err)
+		return fmt.Errorf("restart redis container %s: %w", container, err)
 	}
 
 	// Wait for reconnection
@@ -397,7 +397,7 @@ func (ce *ChaosEngine) chaosPoolExhaustion(ctx context.Context) error {
 	_, err := ce.harness.Pool.Exec(ctx,
 		"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database() AND pid != pg_backend_pid() AND state = 'idle' LIMIT 20")
 	if err != nil {
-		return fmt.Errorf("failed to terminate connections: %w", err)
+		return fmt.Errorf("terminate connections: %w", err)
 	}
 
 	// Hold pressure for 30 seconds
@@ -509,7 +509,7 @@ func (ce *ChaosEngine) chaosClockSkew(ctx context.Context) error {
 		ce.jobSlug,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to insert future-timestamped rows: %w", err)
+		return fmt.Errorf("insert future-timestamped rows: %w", err)
 	}
 
 	// Allow the reaper and other periodic processes to encounter the skewed rows
@@ -524,7 +524,7 @@ func (ce *ChaosEngine) chaosClockSkew(ctx context.Context) error {
 		ce.projectID,
 	).Scan(&remaining)
 	if err != nil {
-		return fmt.Errorf("failed to verify clock skew recovery: %w", err)
+		return fmt.Errorf("verify clock skew recovery: %w", err)
 	}
 
 	// Clean up the skewed rows

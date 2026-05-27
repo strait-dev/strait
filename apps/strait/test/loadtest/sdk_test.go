@@ -15,9 +15,7 @@ import (
 	vegeta "github.com/tsenart/vegeta/v12/lib"
 )
 
-// ---------------------------------------------------------------------------
 // SDK seeding helpers
-// ---------------------------------------------------------------------------.
 
 // seedExecutingRun creates a run and transitions it to executing status,
 // returning (runID, runToken). SDK endpoints typically require executing runs.
@@ -55,9 +53,7 @@ func seedManyExecutingRuns(t *testing.T, jobID string, n int) ([]string, []strin
 	return ids, tokens
 }
 
-// ---------------------------------------------------------------------------
 // SDK Log
-// ---------------------------------------------------------------------------.
 
 func TestSDK_Log(t *testing.T) {
 	mustClean(t)
@@ -86,9 +82,7 @@ func TestSDK_Log(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
 // SDK Progress
-// ---------------------------------------------------------------------------.
 
 func TestSDK_Progress(t *testing.T) {
 	mustClean(t)
@@ -121,9 +115,7 @@ func TestSDK_Progress(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
 // SDK Annotate
-// ---------------------------------------------------------------------------.
 
 func TestSDK_Annotate(t *testing.T) {
 	mustClean(t)
@@ -154,9 +146,7 @@ func TestSDK_Annotate(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
 // SDK Heartbeat
-// ---------------------------------------------------------------------------.
 
 func TestSDK_Heartbeat(t *testing.T) {
 	mustClean(t)
@@ -183,9 +173,7 @@ func TestSDK_Heartbeat(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
 // SDK Checkpoint
-// ---------------------------------------------------------------------------.
 
 func TestSDK_Checkpoint(t *testing.T) {
 	mustClean(t)
@@ -216,9 +204,7 @@ func TestSDK_Checkpoint(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
 // SDK Usage
-// ---------------------------------------------------------------------------.
 
 func TestSDK_Usage(t *testing.T) {
 	mustClean(t)
@@ -252,9 +238,7 @@ func TestSDK_Usage(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
 // SDK Tool Call
-// ---------------------------------------------------------------------------.
 
 func TestSDK_ToolCall(t *testing.T) {
 	mustClean(t)
@@ -288,9 +272,7 @@ func TestSDK_ToolCall(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
 // SDK Output
-// ---------------------------------------------------------------------------.
 
 func TestSDK_Output(t *testing.T) {
 	mustClean(t)
@@ -324,9 +306,7 @@ func TestSDK_Output(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
 // SDK Complete
-// ---------------------------------------------------------------------------.
 
 func TestSDK_Complete(t *testing.T) {
 	mustClean(t)
@@ -361,9 +341,7 @@ func TestSDK_Complete(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
 // SDK Fail
-// ---------------------------------------------------------------------------.
 
 func TestSDK_Fail(t *testing.T) {
 	mustClean(t)
@@ -393,9 +371,7 @@ func TestSDK_Fail(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
 // SDK Spawn
-// ---------------------------------------------------------------------------.
 
 func TestSDK_Spawn(t *testing.T) {
 	mustClean(t)
@@ -429,9 +405,7 @@ func TestSDK_Spawn(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
 // SDK Continue
-// ---------------------------------------------------------------------------.
 
 func TestSDK_Continue(t *testing.T) {
 	mustClean(t)
@@ -463,9 +437,7 @@ func TestSDK_Continue(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
 // SDK WaitForEvent
-// ---------------------------------------------------------------------------.
 
 func TestSDK_WaitForEvent(t *testing.T) {
 	mustClean(t)
@@ -498,9 +470,7 @@ func TestSDK_WaitForEvent(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
 // SDK Concurrent Multi-Endpoint (mixed workload)
-// ---------------------------------------------------------------------------.
 
 func TestSDK_ConcurrentMixedOperations(t *testing.T) {
 	mustClean(t)
@@ -556,9 +526,7 @@ func TestSDK_ConcurrentMixedOperations(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
 // SDK Rapid Heartbeat (high-frequency single-endpoint)
-// ---------------------------------------------------------------------------.
 
 func TestSDK_RapidHeartbeat(t *testing.T) {
 	mustClean(t)
@@ -581,9 +549,7 @@ func TestSDK_RapidHeartbeat(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
 // SDK Multi-Run Log Fan-Out (many runs logging concurrently)
-// ---------------------------------------------------------------------------.
 
 func TestSDK_MultiRunLogFanOut(t *testing.T) {
 	mustClean(t)

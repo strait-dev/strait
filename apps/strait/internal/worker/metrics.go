@@ -15,6 +15,9 @@ import (
 // racing against in-flight Add/Record calls from concurrent tests.
 var workerMetrics atomic.Pointer[workerRuntimeMetrics]
 
+// init seeds the default runtime metric instruments before any worker code can
+// record against them. Tests replace this atomic pointer with a ManualReader
+// backed meter when they need deterministic collection.
 func init() {
 	m := newWorkerMetrics()
 	workerMetrics.Store(&m)

@@ -117,7 +117,13 @@ func startSchedulerLifecycleCheckIn(meta sentrySchedulerMetadata, component stri
 	return *eventID
 }
 
-func finishSchedulerLifecycleCheckIn(meta sentrySchedulerMetadata, component string, checkInID sentry.EventID, status sentry.CheckInStatus, duration time.Duration) {
+func finishSchedulerLifecycleCheckIn(
+	meta sentrySchedulerMetadata,
+	component string,
+	checkInID sentry.EventID,
+	status sentry.CheckInStatus,
+	duration time.Duration,
+) {
 	if !meta.checkInsEnabled {
 		return
 	}
@@ -170,7 +176,14 @@ func startSchedulerCycleCheckIn(meta sentrySchedulerMetadata, component string, 
 	return *eventID
 }
 
-func finishSchedulerCycleCheckIn(meta sentrySchedulerMetadata, component string, checkInID sentry.EventID, status sentry.CheckInStatus, duration time.Duration, monitorConfig *sentry.MonitorConfig) {
+func finishSchedulerCycleCheckIn(
+	meta sentrySchedulerMetadata,
+	component string,
+	checkInID sentry.EventID,
+	status sentry.CheckInStatus,
+	duration time.Duration,
+	monitorConfig *sentry.MonitorConfig,
+) {
 	captureSchedulerCheckIn(&sentry.CheckIn{
 		ID:          checkInID,
 		MonitorSlug: schedulerCheckInSlug(meta, component),

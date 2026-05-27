@@ -108,8 +108,8 @@ func RunWorkerScenario(ctx context.Context, cfg WorkerConfig) (*WorkerScenarioRe
 	return workerScenarioImpl(ctx, cfg)
 }
 
-// workerScenarioImpl replaces the TODO stub in scenarios.go and drives
-// ModeWorker load tests via the bidirectional gRPC WorkerService.StreamTasks RPC.
+// workerScenarioImpl drives ModeWorker load tests via the bidirectional gRPC
+// WorkerService.StreamTasks RPC.
 //
 // Each simulated worker:
 //  1. Dials the gRPC endpoint with a per-worker worker_id and the configured API key.

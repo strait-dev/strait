@@ -29,6 +29,15 @@ func NewAnalyticsHandler(exporter *clickhouse.Exporter, logger *slog.Logger) *An
 	return &AnalyticsHandler{exporter: exporter, logger: logger, dedupe: newRecentDedupe(16_384)}
 }
 
+func (h *AnalyticsHandler) WithSharedDedupe(store *SharedDedupeStore) *AnalyticsHandler {
+	if h != nil {
+		h.dedupe.WithShared(store, func(err error) {
+			h.logger.Warn("cdc analytics dedupe: redis unavailable, falling back to local dedupe", "error", err)
+		})
+	}
+	return h
+}
+
 // Table returns the table this handler watches.
 func (h *AnalyticsHandler) Table() string { return "job_runs" }
 

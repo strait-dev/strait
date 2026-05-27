@@ -16,11 +16,10 @@ import (
 // that touch multiple subsystems simultaneously and surface regressions that
 // the per-component suites miss.
 
-// TestCrossPhase_MaskCountsAgainstDLQCap verifies that visible_until
-// masks are not counted against DLQ caps. With the cap at 1 and a
-// masked row already present, a new failure should proceed because
-// the counter decrements on mask.
-func TestCrossPhase_MaskCountsAgainstDLQCap(t *testing.T) {
+// TestMaskCountsAgainstDLQCap verifies that visible_until masks are not
+// counted against DLQ caps. With the cap at 1 and a masked row already
+// present, a new failure should proceed because the counter decrements on mask.
+func TestMaskCountsAgainstDLQCap(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
@@ -59,10 +58,9 @@ func TestCrossPhase_MaskCountsAgainstDLQCap(t *testing.T) {
 	}
 }
 
-// TestCrossPhase_ReconcilerAndPromoterInteract verifies that the
-// priority promoter and counter reconciler can run concurrently without
-// deadlocking or corrupting state.
-func TestCrossPhase_ReconcilerAndPromoterCoexist(t *testing.T) {
+// TestReconcilerAndPromoterCoexist verifies that the priority promoter and
+// counter reconciler can run concurrently without deadlocking or corrupting state.
+func TestReconcilerAndPromoterCoexist(t *testing.T) {
 	// The two jobs use different advisory locks (0x5374706F6D6F7465 and
 	// 0x537452636E636C72) so they should coexist. This test simply
 	// exercises both paths concurrently to catch any shared-state bugs.
@@ -99,10 +97,9 @@ func TestCrossPhase_ReconcilerAndPromoterCoexist(t *testing.T) {
 	}
 }
 
-// TestCrossPhase_HeartbeatGCDoesntTouchLiveRuns ensures the heartbeat GC
-// leaves live (status='executing') heartbeats alone even when the rest
-// of job_runs is being heavily mutated.
-func TestCrossPhase_HeartbeatGCLiveRunsIntact(t *testing.T) {
+// TestHeartbeatGCLiveRunsIntact ensures the heartbeat GC leaves live
+// (status='executing') heartbeats alone even when job_runs is heavily mutated.
+func TestHeartbeatGCLiveRunsIntact(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
@@ -143,9 +140,9 @@ func TestCrossPhase_HeartbeatGCLiveRunsIntact(t *testing.T) {
 	}
 }
 
-// TestCrossPhase_FanoutPropagatesWhileQueueHot exercises the denormalized
-// fan-out trigger during active dequeue pressure.
-func TestCrossPhase_FanoutDuringActiveDequeue(t *testing.T) {
+// TestFanoutDuringActiveDequeue exercises the denormalized fan-out trigger
+// during active dequeue pressure.
+func TestFanoutDuringActiveDequeue(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
@@ -190,9 +187,9 @@ func TestCrossPhase_FanoutDuringActiveDequeue(t *testing.T) {
 	}
 }
 
-// TestCrossPhase_RetryScheduleDoesNotAffectDLQCounter confirms that the
-// retry side table is invisible to the dlq_counts trigger.
-func TestCrossPhase_RetryScheduleNoDLQSideEffect(t *testing.T) {
+// TestRetryScheduleNoDLQSideEffect confirms that the retry side table is
+// invisible to the dlq_counts trigger.
+func TestRetryScheduleNoDLQSideEffect(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
@@ -216,10 +213,9 @@ func TestCrossPhase_RetryScheduleNoDLQSideEffect(t *testing.T) {
 	}
 }
 
-// TestCrossPhase_EnumRoundTripsThroughDB verifies RunStatus Scan/Value
-// integrates with pgx on real queries -- end-to-end proof that the
-// typed enum does not regress when hitting the DB.
-func TestCrossPhase_EnumRoundTripsThroughDB(t *testing.T) {
+// TestEnumRoundTripsThroughDB verifies RunStatus Scan/Value integrates with pgx
+// on real queries.
+func TestEnumRoundTripsThroughDB(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	mustClean(t, ctx)

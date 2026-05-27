@@ -178,12 +178,28 @@ type Metrics struct {
 }
 
 // InitMetrics registers Prometheus metrics and returns the HTTP handler.
-//
-//nolint:gocyclo,cyclop,funlen
 func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(context.Context) error, error) {
+	provider, err := newPrometheusMeterProvider(serviceName, environment)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	otel.SetMeterProvider(provider)
+
+	meter := otel.Meter(serviceName)
+
+	m, err := initMetricInstruments(meter)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	slog.Info("prometheus metrics enabled")
+	return m, promhttp.Handler(), newMetricsShutdown(provider), nil
+}
+
+func newPrometheusMeterProvider(serviceName, environment string) (*sdkmetric.MeterProvider, error) {
 	exporter, err := prometheus.New()
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create prometheus exporter: %w", err)
+		return nil, fmt.Errorf("create prometheus exporter: %w", err)
 	}
 
 	attrs := []attribute.KeyValue{
@@ -201,24 +217,24 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create resource: %w", err)
+		return nil, fmt.Errorf("create resource: %w", err)
 	}
 
 	provider := sdkmetric.NewMeterProvider(
 		sdkmetric.WithReader(exporter),
 		sdkmetric.WithResource(res),
 	)
-	otel.SetMeterProvider(provider)
+	return provider, nil
+}
 
-	meter := otel.Meter(serviceName)
-
+func initMetricInstruments(meter metric.Meter) (*Metrics, error) {
 	runTransitions, err := meter.Int64Counter(
 		"strait_run_transitions_total",
 		metric.WithDescription("Total run status transitions"),
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create run transitions counter: %w", err)
+		return nil, fmt.Errorf("create run transitions counter: %w", err)
 	}
 
 	dequeueDuration, err := meter.Float64Histogram(
@@ -228,7 +244,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithExplicitBucketBoundaries(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create dequeue duration histogram: %w", err)
+		return nil, fmt.Errorf("create dequeue duration histogram: %w", err)
 	}
 
 	dispatchDuration, err := meter.Float64Histogram(
@@ -238,7 +254,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithExplicitBucketBoundaries(0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create dispatch duration histogram: %w", err)
+		return nil, fmt.Errorf("create dispatch duration histogram: %w", err)
 	}
 
 	dispatchErrors, err := meter.Int64Counter(
@@ -247,7 +263,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create dispatch errors counter: %w", err)
+		return nil, fmt.Errorf("create dispatch errors counter: %w", err)
 	}
 
 	reaperOperations, err := meter.Int64Counter(
@@ -256,7 +272,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create reaper operations counter: %w", err)
+		return nil, fmt.Errorf("create reaper operations counter: %w", err)
 	}
 
 	reaperRecordsDeleted, err := meter.Int64Counter(
@@ -265,7 +281,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create reaper records deleted counter: %w", err)
+		return nil, fmt.Errorf("create reaper records deleted counter: %w", err)
 	}
 
 	cronTriggers, err := meter.Int64Counter(
@@ -274,7 +290,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create cron triggers counter: %w", err)
+		return nil, fmt.Errorf("create cron triggers counter: %w", err)
 	}
 
 	pollerRunsQueued, err := meter.Int64Counter(
@@ -283,7 +299,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create poller runs queued counter: %w", err)
+		return nil, fmt.Errorf("create poller runs queued counter: %w", err)
 	}
 
 	workflowTriggers, err := meter.Int64Counter(
@@ -292,7 +308,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create workflow triggers counter: %w", err)
+		return nil, fmt.Errorf("create workflow triggers counter: %w", err)
 	}
 
 	workflowStepProgressions, err := meter.Int64Counter(
@@ -301,7 +317,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create workflow step progressions counter: %w", err)
+		return nil, fmt.Errorf("create workflow step progressions counter: %w", err)
 	}
 
 	queueDepth, err := meter.Int64ObservableGauge(
@@ -310,7 +326,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create queue depth gauge: %w", err)
+		return nil, fmt.Errorf("create queue depth gauge: %w", err)
 	}
 
 	executionTraceDispatch, err := meter.Float64Histogram(
@@ -320,7 +336,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithExplicitBucketBoundaries(10, 50, 100, 250, 500, 1000, 2500, 5000, 10000),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create execution trace dispatch histogram: %w", err)
+		return nil, fmt.Errorf("create execution trace dispatch histogram: %w", err)
 	}
 
 	executionTraceQueueWait, err := meter.Float64Histogram(
@@ -330,7 +346,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithExplicitBucketBoundaries(10, 50, 100, 250, 500, 1000, 2500, 5000, 10000),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create execution trace queue wait histogram: %w", err)
+		return nil, fmt.Errorf("create execution trace queue wait histogram: %w", err)
 	}
 
 	webhookDeliveriesTotal, err := meter.Int64Counter(
@@ -339,7 +355,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create webhook deliveries counter: %w", err)
+		return nil, fmt.Errorf("create webhook deliveries counter: %w", err)
 	}
 
 	webhookDeliveryDuration, err := meter.Float64Histogram(
@@ -349,7 +365,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithExplicitBucketBoundaries(0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create webhook delivery duration histogram: %w", err)
+		return nil, fmt.Errorf("create webhook delivery duration histogram: %w", err)
 	}
 
 	webhookDeliveryAttempts, err := meter.Int64Counter(
@@ -358,7 +374,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create webhook delivery attempts counter: %w", err)
+		return nil, fmt.Errorf("create webhook delivery attempts counter: %w", err)
 	}
 
 	webhookRetryAttempts, err := meter.Int64Counter(
@@ -367,7 +383,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create webhook retry attempts counter: %w", err)
+		return nil, fmt.Errorf("create webhook retry attempts counter: %w", err)
 	}
 
 	webhookCircuitBreaker, err := meter.Int64Gauge(
@@ -376,7 +392,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create webhook circuit breaker gauge: %w", err)
+		return nil, fmt.Errorf("create webhook circuit breaker gauge: %w", err)
 	}
 
 	endpointHealthScore, err := meter.Float64Gauge(
@@ -385,7 +401,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create endpoint health score gauge: %w", err)
+		return nil, fmt.Errorf("create endpoint health score gauge: %w", err)
 	}
 
 	webhookPayloadBytes, err := meter.Int64Histogram(
@@ -394,7 +410,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("By"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create webhook payload bytes histogram: %w", err)
+		return nil, fmt.Errorf("create webhook payload bytes histogram: %w", err)
 	}
 
 	eventTriggersCreated, err := meter.Int64Counter(
@@ -403,7 +419,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create event triggers created counter: %w", err)
+		return nil, fmt.Errorf("create event triggers created counter: %w", err)
 	}
 
 	eventTriggersReceived, err := meter.Int64Counter(
@@ -412,7 +428,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create event triggers received counter: %w", err)
+		return nil, fmt.Errorf("create event triggers received counter: %w", err)
 	}
 
 	eventTriggersTimedOut, err := meter.Int64Counter(
@@ -421,7 +437,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create event triggers timed out counter: %w", err)
+		return nil, fmt.Errorf("create event triggers timed out counter: %w", err)
 	}
 
 	eventTriggerWaitDuration, err := meter.Float64Histogram(
@@ -430,7 +446,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("s"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create event trigger wait duration histogram: %w", err)
+		return nil, fmt.Errorf("create event trigger wait duration histogram: %w", err)
 	}
 
 	analyticsQueryDuration, err := meter.Float64Histogram(
@@ -440,7 +456,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithExplicitBucketBoundaries(0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create analytics query duration histogram: %w", err)
+		return nil, fmt.Errorf("create analytics query duration histogram: %w", err)
 	}
 
 	bulkOperationsTotal, err := meter.Int64Counter(
@@ -449,7 +465,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create bulk operations total counter: %w", err)
+		return nil, fmt.Errorf("create bulk operations total counter: %w", err)
 	}
 
 	bulkItemsProcessed, err := meter.Int64Counter(
@@ -458,7 +474,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create bulk items processed counter: %w", err)
+		return nil, fmt.Errorf("create bulk items processed counter: %w", err)
 	}
 
 	childCancellationsTotal, err := meter.Int64Counter(
@@ -467,7 +483,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create child cancellations total counter: %w", err)
+		return nil, fmt.Errorf("create child cancellations total counter: %w", err)
 	}
 
 	latencyAnomalies, err := meter.Int64Counter(
@@ -476,7 +492,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create latency anomalies counter: %w", err)
+		return nil, fmt.Errorf("create latency anomalies counter: %w", err)
 	}
 
 	snoozeTotal, err := meter.Int64Counter(
@@ -485,7 +501,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create snooze total counter: %w", err)
+		return nil, fmt.Errorf("create snooze total counter: %w", err)
 	}
 
 	workflowDependencyWaits, err := meter.Int64Counter(
@@ -494,7 +510,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create workflow dependency waits counter: %w", err)
+		return nil, fmt.Errorf("create workflow dependency waits counter: %w", err)
 	}
 
 	workflowStepWaitDuration, err := meter.Float64Histogram(
@@ -503,7 +519,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("s"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create workflow step wait duration histogram: %w", err)
+		return nil, fmt.Errorf("create workflow step wait duration histogram: %w", err)
 	}
 
 	workflowStalledRuns, err := meter.Int64Counter(
@@ -512,7 +528,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create workflow stalled runs counter: %w", err)
+		return nil, fmt.Errorf("create workflow stalled runs counter: %w", err)
 	}
 
 	poolRunning, err := meter.Int64ObservableGauge(
@@ -521,7 +537,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create pool running workers gauge: %w", err)
+		return nil, fmt.Errorf("create pool running workers gauge: %w", err)
 	}
 
 	poolWaiting, err := meter.Int64ObservableGauge(
@@ -530,7 +546,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create pool waiting tasks gauge: %w", err)
+		return nil, fmt.Errorf("create pool waiting tasks gauge: %w", err)
 	}
 
 	poolSubmitted, err := meter.Int64ObservableCounter(
@@ -539,7 +555,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create pool submitted tasks counter: %w", err)
+		return nil, fmt.Errorf("create pool submitted tasks counter: %w", err)
 	}
 
 	poolCompleted, err := meter.Int64ObservableCounter(
@@ -548,7 +564,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create pool completed tasks counter: %w", err)
+		return nil, fmt.Errorf("create pool completed tasks counter: %w", err)
 	}
 
 	poolSuccessful, err := meter.Int64ObservableCounter(
@@ -557,7 +573,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create pool successful tasks counter: %w", err)
+		return nil, fmt.Errorf("create pool successful tasks counter: %w", err)
 	}
 
 	poolFailed, err := meter.Int64ObservableCounter(
@@ -566,7 +582,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create pool failed tasks counter: %w", err)
+		return nil, fmt.Errorf("create pool failed tasks counter: %w", err)
 	}
 
 	poolDropped, err := meter.Int64ObservableCounter(
@@ -575,7 +591,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create pool dropped tasks counter: %w", err)
+		return nil, fmt.Errorf("create pool dropped tasks counter: %w", err)
 	}
 
 	shutdownTotal, err := meter.Int64Counter(
@@ -584,7 +600,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create shutdown total counter: %w", err)
+		return nil, fmt.Errorf("create shutdown total counter: %w", err)
 	}
 
 	dlqDepth, err := meter.Int64Gauge(
@@ -593,7 +609,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create dlq depth gauge: %w", err)
+		return nil, fmt.Errorf("create dlq depth gauge: %w", err)
 	}
 
 	queueDepthPerJob, _ := meter.Int64Gauge("strait_queue_depth_per_job", metric.WithDescription("Queue depth per job"), metric.WithUnit("1"))
@@ -604,7 +620,7 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create notification delivery failures counter: %w", err)
+		return nil, fmt.Errorf("create notification delivery failures counter: %w", err)
 	}
 
 	dbPoolTotal, _ := meter.Int64ObservableGauge("strait_db_pool_total_conns", metric.WithDescription("Total DB pool connections"))
@@ -907,17 +923,18 @@ func InitMetrics(serviceName, environment string) (*Metrics, http.Handler, func(
 		AuditRetryAttempts:           auditRetryAttempts,
 		AuditDMLRestrictionStatus:    auditDMLRestrictionStatus,
 	}
+	return m, nil
+}
 
-	slog.Info("prometheus metrics enabled")
+func newMetricsShutdown(provider *sdkmetric.MeterProvider) func(context.Context) error {
 	var shutdownOnce sync.Once
 	var shutdownErr error
-	shutdown := func(ctx context.Context) error {
+	return func(ctx context.Context) error {
 		shutdownOnce.Do(func() {
 			shutdownErr = provider.Shutdown(ctx)
 		})
 		return shutdownErr
 	}
-	return m, promhttp.Handler(), shutdown, nil
 }
 
 // PoolStatsProvider exposes pool counters for observable metric callbacks.

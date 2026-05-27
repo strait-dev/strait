@@ -2174,7 +2174,7 @@ func TestSkipThenReap_ApprovalNotReaped(t *testing.T) {
 	// After skip, the approval status is "rejected" (was "pending" before skip).
 	approvalStatus := domain.ApprovalStatusRejected
 
-	// Step 2: simulate reaper query — only returns pending approvals.
+	// The reaper query only returns pending approvals.
 	updateCalled := false
 	ms := &mockReaperStore{
 		listExpiredApprovalsFn: func(_ context.Context) ([]domain.WorkflowStepApproval, error) {

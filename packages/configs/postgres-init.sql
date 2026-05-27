@@ -25,6 +25,33 @@ $$;
 -- idempotent and safe to re-run.
 DO $$
 BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'api_keys') THEN
+        ALTER TABLE public.api_keys REPLICA IDENTITY FULL;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'project_roles') THEN
+        ALTER TABLE public.project_roles REPLICA IDENTITY FULL;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'project_member_roles') THEN
+        ALTER TABLE public.project_member_roles REPLICA IDENTITY FULL;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'resource_policies') THEN
+        ALTER TABLE public.resource_policies REPLICA IDENTITY FULL;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'tag_policies') THEN
+        ALTER TABLE public.tag_policies REPLICA IDENTITY FULL;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'project_quotas') THEN
+        ALTER TABLE public.project_quotas REPLICA IDENTITY FULL;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'organization_subscriptions') THEN
+        ALTER TABLE public.organization_subscriptions REPLICA IDENTITY FULL;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'jobs') THEN
+        ALTER TABLE public.jobs REPLICA IDENTITY FULL;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'job_dependencies') THEN
+        ALTER TABLE public.job_dependencies REPLICA IDENTITY FULL;
+    END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'job_runs') THEN
         ALTER TABLE public.job_runs REPLICA IDENTITY FULL;
     END IF;

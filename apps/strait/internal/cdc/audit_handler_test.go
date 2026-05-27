@@ -187,7 +187,7 @@ func TestAuditHandler_ActionMatchesStatus(t *testing.T) {
 	store := &mockAuditStore{}
 	h := NewAuditHandler(store, nil)
 
-	// Only terminal statuses trigger an audit event under the Phase 9 gate.
+	// Only terminal statuses trigger an audit event.
 	statuses := []string{"completed", "failed", "timed_out", "executing", "queued"}
 	for _, status := range statuses {
 		err := h.Handle(context.Background(), cdcUpdateMsg(status, "p1", "run-1", "job-1"))
@@ -306,7 +306,7 @@ func TestAuditHandler_HighHeartbeatVolume_NoWriteAmplification(t *testing.T) {
 
 	// Simulate 1000 non-terminal status updates on a single run (the
 	// shape of a heartbeat-driven CDC stream). The handler must produce
-	// zero audit rows — that is the entire point of the Phase 9 gate.
+	// zero audit rows. This keeps heartbeat traffic from amplifying writes.
 	store := &mockAuditStore{}
 	h := NewAuditHandler(store, nil)
 

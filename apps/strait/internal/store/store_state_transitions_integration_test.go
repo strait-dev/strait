@@ -21,9 +21,7 @@ import (
 	"github.com/sourcegraph/conc"
 )
 
-// ---------------------------------------------------------------------------
 // Helpers local to this file
-// ---------------------------------------------------------------------------.
 
 func stID() string {
 	return uuid.Must(uuid.NewV7()).String()
@@ -96,9 +94,7 @@ func stCreateJob(t *testing.T, ctx context.Context, q *store.Queries, projectID 
 	return job
 }
 
-// ---------------------------------------------------------------------------
 // 1. Workflow run status transitions
-// ---------------------------------------------------------------------------.
 
 func TestWorkflowRunStatus_ValidTransition_PendingToRunningToCompleted(t *testing.T) {
 	ctx := context.Background()
@@ -359,9 +355,7 @@ func TestWorkflowRunStatus_IdempotentTransition(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // 2. Step run status transitions
-// ---------------------------------------------------------------------------.
 
 func TestStepRunStatus_WaitingToRunningToCompleted(t *testing.T) {
 	ctx := context.Background()
@@ -671,9 +665,7 @@ func TestStepRunStatus_RejectsDisallowedField(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // 3. Dequeue race conditions
-// ---------------------------------------------------------------------------.
 
 func TestDequeue_ConcurrentDequeuesNoDuplicates(t *testing.T) {
 	ctx := context.Background()
@@ -892,9 +884,7 @@ func TestDequeue_RespectsPriorityOrdering(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // 4. Audit event creation
-// ---------------------------------------------------------------------------.
 
 func TestAuditEvent_CreateAndList(t *testing.T) {
 	ctx := context.Background()

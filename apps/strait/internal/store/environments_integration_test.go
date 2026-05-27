@@ -139,7 +139,6 @@ func TestListEnvironments(t *testing.T) {
 		t.Fatalf("len = %d, want 3", len(envs))
 	}
 
-	// Verify DESC ordering by created_at.
 	for i := 1; i < len(envs); i++ {
 		if envs[i-1].CreatedAt.Before(envs[i].CreatedAt) {
 			t.Fatalf("envs not DESC at index %d", i)

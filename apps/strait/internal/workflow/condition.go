@@ -66,229 +66,278 @@ type unaryCondition struct {
 // EvaluateCondition evaluates a workflow step condition against current step statuses.
 // Returns true if the condition is met and the step should run.
 // Returns true if cond is nil or empty (unconditional step).
-//
-//nolint:gocognit,gocyclo,cyclop,funlen
 func EvaluateCondition(cond json.RawMessage, stepStatuses map[string]domain.StepRunStatus) (bool, error) {
 	if len(cond) == 0 {
 		return true, nil
 	}
+	condType, err := conditionType(cond)
+	if err != nil {
+		return false, err
+	}
 
+	switch condType {
+	case "step_status":
+		return evaluateStepStatusCondition(cond, stepStatuses)
+	case "step_status_in":
+		return evaluateStepStatusInCondition(cond, stepStatuses)
+	case "not":
+		return evaluateNotCondition(cond, stepStatuses)
+	case "all_of":
+		return evaluateAllOfCondition(cond, stepStatuses)
+	case "any_of":
+		return evaluateAnyOfCondition(cond, stepStatuses)
+	case "eq", "ne", "gt", "gte", "lt", "lte", "contains", "in", "regex":
+		return evaluateBinaryCondition(condType, cond, stepStatuses)
+	case "exists":
+		return evaluateExistsCondition(cond, stepStatuses)
+	default:
+		return false, fmt.Errorf("unknown condition type: %q", condType)
+	}
+}
+
+func conditionType(cond json.RawMessage) (string, error) {
 	if !gjson.ValidBytes(cond) {
 		var envelope conditionEnvelope
 		if err := json.Unmarshal(cond, &envelope); err != nil {
-			return false, fmt.Errorf("unmarshal condition envelope: %w", err)
+			return "", fmt.Errorf("unmarshal condition envelope: %w", err)
 		}
 	}
 
 	condType := gjson.GetBytes(cond, "type").String()
 	if condType == "" {
-		return false, fmt.Errorf("unknown condition type: %q", "")
+		return "", fmt.Errorf("unknown condition type: %q", "")
 	}
+	return condType, nil
+}
+
+func evaluateStepStatusCondition(cond json.RawMessage, stepStatuses map[string]domain.StepRunStatus) (bool, error) {
+	stepRefValue := gjson.GetBytes(cond, "step_ref")
+	statusValue := gjson.GetBytes(cond, "status")
+	invalidShape := stepRefValue.Exists() && stepRefValue.Type != gjson.String
+	invalidShape = invalidShape || (statusValue.Exists() && statusValue.Type != gjson.String)
+	if invalidShape {
+		var c stepStatusCondition
+		if err := json.Unmarshal(cond, &c); err != nil {
+			return false, fmt.Errorf("unmarshal step_status condition: %w", err)
+		}
+	}
+
+	stepRef := stepRefValue.Str
+	if stepRef == "" {
+		return false, fmt.Errorf("step_ref is required for step_status condition")
+	}
+	actualStatus, found := stepStatuses[stepRef]
+	if !found {
+		return false, fmt.Errorf("step %q not found in statuses", stepRef)
+	}
+	return actualStatus == domain.StepRunStatus(statusValue.Str), nil
+}
+
+func evaluateStepStatusInCondition(cond json.RawMessage, stepStatuses map[string]domain.StepRunStatus) (bool, error) {
+	stepRefValue := gjson.GetBytes(cond, "step_ref")
+	allowedStatuses := gjson.GetBytes(cond, "statuses")
+	invalidShape := stepRefValue.Exists() && stepRefValue.Type != gjson.String
+	invalidShape = invalidShape || (allowedStatuses.Exists() && !allowedStatuses.IsArray())
+	if invalidShape {
+		var c stepStatusInCondition
+		if err := json.Unmarshal(cond, &c); err != nil {
+			return false, fmt.Errorf("unmarshal step_status_in condition: %w", err)
+		}
+	}
+
+	stepRef := stepRefValue.Str
+	if stepRef == "" {
+		return false, fmt.Errorf("step_ref is required for step_status_in condition")
+	}
+	actualStatus, found := stepStatuses[stepRef]
+	if !found {
+		return false, fmt.Errorf("step %q not found in statuses", stepRef)
+	}
+
+	var invalidAllowedStatus bool
+	var matched bool
+	allowedStatuses.ForEach(func(_, status gjson.Result) bool {
+		if status.Type != gjson.String {
+			invalidAllowedStatus = true
+			return false
+		}
+		if actualStatus == domain.StepRunStatus(status.Str) {
+			matched = true
+			return false
+		}
+		return true
+	})
+	if invalidAllowedStatus {
+		var c stepStatusInCondition
+		if err := json.Unmarshal(cond, &c); err != nil {
+			return false, fmt.Errorf("unmarshal step_status_in condition: %w", err)
+		}
+	}
+	return matched, nil
+}
+
+func evaluateNotCondition(cond json.RawMessage, stepStatuses map[string]domain.StepRunStatus) (bool, error) {
+	nested := gjson.GetBytes(cond, "condition")
+	if !nested.Exists() {
+		return false, fmt.Errorf("condition is required for not condition")
+	}
+	ok, err := EvaluateCondition(json.RawMessage(nested.Raw), stepStatuses)
+	if err != nil {
+		return false, err
+	}
+	return !ok, nil
+}
+
+func evaluateAllOfCondition(cond json.RawMessage, stepStatuses map[string]domain.StepRunStatus) (bool, error) {
+	conditions, err := compositeConditions(cond, "all_of")
+	if err != nil {
+		return false, err
+	}
+
+	var evalErr error
+	allMet := true
+	conditions.ForEach(func(_, subCondition gjson.Result) bool {
+		var ok bool
+		ok, evalErr = EvaluateCondition(json.RawMessage(subCondition.Raw), stepStatuses)
+		if evalErr != nil {
+			return false
+		}
+		if !ok {
+			allMet = false
+			return false
+		}
+		return true
+	})
+	if evalErr != nil {
+		return false, evalErr
+	}
+	return allMet, nil
+}
+
+func evaluateAnyOfCondition(cond json.RawMessage, stepStatuses map[string]domain.StepRunStatus) (bool, error) {
+	conditions, err := compositeConditions(cond, "any_of")
+	if err != nil {
+		return false, err
+	}
+
+	var evalErr error
+	var anyMet bool
+	conditions.ForEach(func(_, subCondition gjson.Result) bool {
+		var ok bool
+		ok, evalErr = EvaluateCondition(json.RawMessage(subCondition.Raw), stepStatuses)
+		if evalErr != nil {
+			return false
+		}
+		if ok {
+			anyMet = true
+			return false
+		}
+		return true
+	})
+	if evalErr != nil {
+		return false, evalErr
+	}
+	return anyMet, nil
+}
+
+func compositeConditions(cond json.RawMessage, condType string) (gjson.Result, error) {
+	conditions := gjson.GetBytes(cond, "conditions")
+	if conditions.Exists() && !conditions.IsArray() {
+		var c compositeCondition
+		if err := json.Unmarshal(cond, &c); err != nil {
+			return gjson.Result{}, fmt.Errorf("unmarshal %s condition: %w", condType, err)
+		}
+	}
+	return conditions, nil
+}
+
+func evaluateBinaryCondition(
+	condType string,
+	cond json.RawMessage,
+	stepStatuses map[string]domain.StepRunStatus,
+) (bool, error) {
+	if handled, ok, err := evaluateFastStringBinaryCondition(condType, cond, stepStatuses); ok || err != nil {
+		return handled, err
+	}
+
+	var c binaryCondition
+	if err := json.Unmarshal(cond, &c); err != nil {
+		return false, fmt.Errorf("unmarshal %s condition: %w", condType, err)
+	}
+	left := resolveOperand(c.Left, stepStatuses)
+	right := resolveOperand(c.Right, stepStatuses)
 
 	switch condType {
-	case "step_status":
-		stepRefValue := gjson.GetBytes(cond, "step_ref")
-		statusValue := gjson.GetBytes(cond, "status")
-		if (stepRefValue.Exists() && stepRefValue.Type != gjson.String) ||
-			(statusValue.Exists() && statusValue.Type != gjson.String) {
-			var c stepStatusCondition
-			if err := json.Unmarshal(cond, &c); err != nil {
-				return false, fmt.Errorf("unmarshal step_status condition: %w", err)
-			}
-		}
-		stepRef := stepRefValue.Str
-		if stepRef == "" {
-			return false, fmt.Errorf("step_ref is required for step_status condition")
-		}
+	case "eq":
+		return fmt.Sprint(left) == fmt.Sprint(right), nil
+	case "ne":
+		return fmt.Sprint(left) != fmt.Sprint(right), nil
+	case "gt", "gte", "lt", "lte":
+		return evaluateNumericCondition(condType, left, right)
+	case "contains":
+		return strings.Contains(fmt.Sprint(left), fmt.Sprint(right)), nil
+	case "in":
+		return evaluateInCondition(left, right)
+	case "regex":
+		return evaluateRegexCondition(fmt.Sprint(left), fmt.Sprint(right))
+	default:
+		return false, nil
+	}
+}
 
-		actualStatus, found := stepStatuses[stepRef]
-		if !found {
-			return false, fmt.Errorf("step %q not found in statuses", stepRef)
-		}
+func evaluateNumericCondition(condType string, left, right any) (bool, error) {
+	lf, lok := asFloat(left)
+	rf, rok := asFloat(right)
+	if !lok || !rok {
+		return false, fmt.Errorf("numeric comparison requires numeric left/right")
+	}
+	switch condType {
+	case "gt":
+		return lf > rf, nil
+	case "gte":
+		return lf >= rf, nil
+	case "lt":
+		return lf < rf, nil
+	default:
+		return lf <= rf, nil
+	}
+}
 
-		return actualStatus == domain.StepRunStatus(statusValue.Str), nil
-
-	case "step_status_in":
-		stepRefValue := gjson.GetBytes(cond, "step_ref")
-		allowedStatuses := gjson.GetBytes(cond, "statuses")
-		if (stepRefValue.Exists() && stepRefValue.Type != gjson.String) ||
-			(allowedStatuses.Exists() && !allowedStatuses.IsArray()) {
-			var c stepStatusInCondition
-			if err := json.Unmarshal(cond, &c); err != nil {
-				return false, fmt.Errorf("unmarshal step_status_in condition: %w", err)
-			}
-		}
-		stepRef := stepRefValue.Str
-		if stepRef == "" {
-			return false, fmt.Errorf("step_ref is required for step_status_in condition")
-		}
-		actualStatus, found := stepStatuses[stepRef]
-		if !found {
-			return false, fmt.Errorf("step %q not found in statuses", stepRef)
-		}
-		matched := false
-		invalidAllowedStatus := false
-		allowedStatuses.ForEach(func(_, status gjson.Result) bool {
-			if status.Type != gjson.String {
-				invalidAllowedStatus = true
-				return false
-			}
-			if actualStatus == domain.StepRunStatus(status.Str) {
-				matched = true
-				return false
-			}
-			return true
-		})
-		if invalidAllowedStatus {
-			var c stepStatusInCondition
-			if err := json.Unmarshal(cond, &c); err != nil {
-				return false, fmt.Errorf("unmarshal step_status_in condition: %w", err)
-			}
-		}
-		if matched {
+func evaluateInCondition(left, right any) (bool, error) {
+	items, ok := right.([]any)
+	if !ok {
+		return false, fmt.Errorf("in requires right operand array")
+	}
+	needle := fmt.Sprint(left)
+	for _, item := range items {
+		if fmt.Sprint(item) == needle {
 			return true, nil
 		}
-		return false, nil
-
-	case "not":
-		nested := gjson.GetBytes(cond, "condition")
-		if !nested.Exists() {
-			return false, fmt.Errorf("condition is required for not condition")
-		}
-		ok, err := EvaluateCondition(json.RawMessage(nested.Raw), stepStatuses)
-		if err != nil {
-			return false, err
-		}
-		return !ok, nil
-
-	case "all_of":
-		conditions := gjson.GetBytes(cond, "conditions")
-		if conditions.Exists() && !conditions.IsArray() {
-			var c compositeCondition
-			if err := json.Unmarshal(cond, &c); err != nil {
-				return false, fmt.Errorf("unmarshal all_of condition: %w", err)
-			}
-		}
-		var evalErr error
-		allMet := true
-		conditions.ForEach(func(_, subCondition gjson.Result) bool {
-			var ok bool
-			ok, evalErr = EvaluateCondition(json.RawMessage(subCondition.Raw), stepStatuses)
-			if evalErr != nil {
-				return false
-			}
-			if !ok {
-				allMet = false
-				return false
-			}
-			return true
-		})
-		if evalErr != nil {
-			return false, evalErr
-		}
-		return allMet, nil
-
-	case "any_of":
-		conditions := gjson.GetBytes(cond, "conditions")
-		if conditions.Exists() && !conditions.IsArray() {
-			var c compositeCondition
-			if err := json.Unmarshal(cond, &c); err != nil {
-				return false, fmt.Errorf("unmarshal any_of condition: %w", err)
-			}
-		}
-		var evalErr error
-		anyMet := false
-		conditions.ForEach(func(_, subCondition gjson.Result) bool {
-			var ok bool
-			ok, evalErr = EvaluateCondition(json.RawMessage(subCondition.Raw), stepStatuses)
-			if evalErr != nil {
-				return false
-			}
-			if ok {
-				anyMet = true
-				return false
-			}
-			return true
-		})
-		if evalErr != nil {
-			return false, evalErr
-		}
-		return anyMet, nil
-
-	case "eq", "ne", "gt", "gte", "lt", "lte", "contains", "in", "regex":
-		if handled, ok, err := evaluateFastStringBinaryCondition(condType, cond, stepStatuses); ok || err != nil {
-			return handled, err
-		}
-
-		var c binaryCondition
-		if err := json.Unmarshal(cond, &c); err != nil {
-			return false, fmt.Errorf("unmarshal %s condition: %w", condType, err)
-		}
-		left := resolveOperand(c.Left, stepStatuses)
-		right := resolveOperand(c.Right, stepStatuses)
-		switch condType {
-		case "eq":
-			return fmt.Sprint(left) == fmt.Sprint(right), nil
-		case "ne":
-			return fmt.Sprint(left) != fmt.Sprint(right), nil
-		case "gt", "gte", "lt", "lte":
-			lf, lok := asFloat(left)
-			rf, rok := asFloat(right)
-			if !lok || !rok {
-				return false, fmt.Errorf("numeric comparison requires numeric left/right")
-			}
-			switch condType {
-			case "gt":
-				return lf > rf, nil
-			case "gte":
-				return lf >= rf, nil
-			case "lt":
-				return lf < rf, nil
-			default:
-				return lf <= rf, nil
-			}
-		case "contains":
-			return strings.Contains(fmt.Sprint(left), fmt.Sprint(right)), nil
-		case "in":
-			s, ok := right.([]any)
-			if !ok {
-				return false, fmt.Errorf("in requires right operand array")
-			}
-			needle := fmt.Sprint(left)
-			for _, item := range s {
-				if fmt.Sprint(item) == needle {
-					return true, nil
-				}
-			}
-			return false, nil
-		case "regex":
-			pattern := fmt.Sprint(right)
-			if len(pattern) > maxRegexPatternLen {
-				return false, fmt.Errorf("regex pattern exceeds maximum length of %d characters", maxRegexPatternLen)
-			}
-			re, err := cachedConditionRegex(pattern)
-			if err != nil {
-				return false, fmt.Errorf("invalid regex: %w", err)
-			}
-			input := fmt.Sprint(left)
-			if len(input) > maxRegexInputLen {
-				return false, fmt.Errorf("regex input exceeds maximum length of %d characters", maxRegexInputLen)
-			}
-			return re.MatchString(input), nil
-		}
-		return false, nil
-
-	case "exists":
-		var c unaryCondition
-		if err := json.Unmarshal(cond, &c); err != nil {
-			return false, fmt.Errorf("unmarshal exists condition: %w", err)
-		}
-		v := resolveOperand(c.Operand, stepStatuses)
-		return fmt.Sprint(v) != "", nil
-
-	default:
-		return false, fmt.Errorf("unknown condition type: %q", condType)
 	}
+	return false, nil
+}
+
+func evaluateRegexCondition(input, pattern string) (bool, error) {
+	if len(pattern) > maxRegexPatternLen {
+		return false, fmt.Errorf("regex pattern exceeds maximum length of %d characters", maxRegexPatternLen)
+	}
+	if len(input) > maxRegexInputLen {
+		return false, fmt.Errorf("regex input exceeds maximum length of %d characters", maxRegexInputLen)
+	}
+	re, err := cachedConditionRegex(pattern)
+	if err != nil {
+		return false, fmt.Errorf("invalid regex: %w", err)
+	}
+	return re.MatchString(input), nil
+}
+
+func evaluateExistsCondition(cond json.RawMessage, stepStatuses map[string]domain.StepRunStatus) (bool, error) {
+	var c unaryCondition
+	if err := json.Unmarshal(cond, &c); err != nil {
+		return false, fmt.Errorf("unmarshal exists condition: %w", err)
+	}
+	v := resolveOperand(c.Operand, stepStatuses)
+	return fmt.Sprint(v) != "", nil
 }
 
 func evaluateFastStringBinaryCondition(

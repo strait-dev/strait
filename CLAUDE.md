@@ -300,9 +300,10 @@ Once the plan is approved, execute each phase in order. For every phase:
 5. **Tests.** Use `apps/strait/internal/testutil` helpers. Write meaningful assertions, not just "no error".
 6. **Worker and pool consistency.** Reuse existing patterns in `internal/worker`. Don't fork dispatch logic.
 7. **No emojis.** Not in code, comments, logs, docs, commits, or PR text. Anywhere.
-8. **Monitoring is load-bearing.** Preserve traces, metrics, and logs in critical paths (worker, queue, workflow, scheduler).
-9. **Auth boundaries.** Don't weaken SSRF guards, the internal management secret flow, or the SDK JWT run-token flow.
-10. **Graceful shutdown.** Don't alter shutdown behavior in ways that risk in-flight job loss.
+8. **Comments.** Explain invariants, security or operational boundaries, and non-obvious tradeoffs. Do not leave phase/wave/project-plan history, AI/tool attribution, or comments that restate the next line. Test comments should name the regression contract, not implementation chronology.
+9. **Monitoring is load-bearing.** Preserve traces, metrics, and logs in critical paths (worker, queue, workflow, scheduler).
+10. **Auth boundaries.** Don't weaken SSRF guards, the internal management secret flow, or the SDK JWT run-token flow.
+11. **Graceful shutdown.** Don't alter shutdown behavior in ways that risk in-flight job loss.
 
 ---
 

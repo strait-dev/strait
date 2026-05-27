@@ -69,8 +69,7 @@ func NewPrometheusUptimeSource(promURL, query string, logger *slog.Logger) (*Pro
 // metric is service-level, so every org observes the same uptime. The
 // UptimeSource interface still carries orgID so a future per-tenant
 // implementation (Loki / ClickHouse aggregation) can swap in without
-// changing the calculator. TODO(per-tenant uptime): wire orgID into the
-// query when a real-customer ask lands.
+// changing the calculator.
 func (p *PrometheusUptimeSource) MonthlyUptimePct(ctx context.Context, _ string, _, periodEnd time.Time) (float64, error) {
 	timeout := p.queryTimeout
 	if timeout <= 0 {

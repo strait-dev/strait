@@ -1196,8 +1196,6 @@ func BenchmarkEnqueueBatch_500_Integration(b *testing.B) {
 	}
 }
 
-// --- Metadata round-trip integration tests ---.
-
 func TestEnqueue_MetadataRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	q := mustQueue(t)
@@ -1365,8 +1363,6 @@ func TestEnqueueBatch_MetadataRoundTrip(t *testing.T) {
 		t.Fatalf("runs[2] metadata = %v, want empty", got2.Metadata)
 	}
 }
-
-// --- Metadata adversarial integration tests ---.
 
 func TestEnqueue_MetadataLargeValue(t *testing.T) {
 	ctx := context.Background()

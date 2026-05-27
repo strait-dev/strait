@@ -21,10 +21,7 @@ import (
 //
 // All four have existing Create* siblings already tested, so setup
 // reuses the same helpers.
-
-// -----------------------------------------------------------------------.
 // GetEventSubscription
-// -----------------------------------------------------------------------.
 
 func TestGetEventSubscription_FoundAndNotFound(t *testing.T) {
 	ctx := context.Background()
@@ -77,9 +74,7 @@ func TestGetEventSubscription_FoundAndNotFound(t *testing.T) {
 	}
 }
 
-// -----------------------------------------------------------------------.
 // GetJobDependency
-// -----------------------------------------------------------------------.
 
 func TestGetJobDependency_FoundAndNotFound(t *testing.T) {
 	ctx := context.Background()
@@ -119,9 +114,7 @@ func TestGetJobDependency_FoundAndNotFound(t *testing.T) {
 	}
 }
 
-// -----------------------------------------------------------------------.
 // CountEnvironmentsByOrg
-// -----------------------------------------------------------------------.
 
 func TestCountEnvironmentsByOrg_CrossOrgAndSoftDelete(t *testing.T) {
 	ctx := context.Background()
@@ -210,9 +203,7 @@ func TestCountEnvironmentsByOrg_CrossOrgAndSoftDelete(t *testing.T) {
 	}
 }
 
-// -----------------------------------------------------------------------.
 // CountWebhookSubscriptionsByOrg
-// -----------------------------------------------------------------------.
 
 func TestCountWebhookSubscriptionsByOrg_CrossOrgAndActiveFilter(t *testing.T) {
 	ctx := context.Background()

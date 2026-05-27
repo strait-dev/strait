@@ -14,11 +14,9 @@ import (
 	"strait/internal/domain"
 )
 
-// --------------------------------------------------------------------------.
 // Regression guards: column allowlists in dynamic UPDATE builders.
 // Each test verifies that the function rejects an unknown column name with a
 // *domain.FieldError before any SQL is executed (nil db is safe).
-// --------------------------------------------------------------------------.
 
 // assertFieldError is a shared helper for all allowlist regression tests.
 func assertFieldError(t *testing.T, err error, wantField string) {
@@ -162,9 +160,7 @@ func TestRegression_WorkflowRunAllowlist(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // Meta-test: scan store/*.go for potential raw SQL interpolation patterns.
-// --------------------------------------------------------------------------.
 
 // TestRegression_NoRawSQLInterpolation uses go/ast to scan all non-test .go
 // files in the store package for fmt.Sprintf calls containing %s inside

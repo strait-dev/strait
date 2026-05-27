@@ -43,6 +43,15 @@ func NewAuditHandler(store AuditStore, logger *slog.Logger) *AuditHandler {
 	return &AuditHandler{store: store, logger: logger, dedupe: newRecentDedupe(16_384)}
 }
 
+func (h *AuditHandler) WithSharedDedupe(store *SharedDedupeStore) *AuditHandler {
+	if h != nil {
+		h.dedupe.WithShared(store, func(err error) {
+			h.logger.Warn("cdc audit dedupe: redis unavailable, falling back to local dedupe", "error", err)
+		})
+	}
+	return h
+}
+
 // Table returns the table this handler watches.
 func (h *AuditHandler) Table() string { return "job_runs" }
 
