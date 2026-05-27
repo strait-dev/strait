@@ -124,6 +124,45 @@ func TestGetAPIKeyByHash(t *testing.T) {
 	}
 }
 
+func TestAPIKeyCacheVersion_RoundTripAndMutationBump(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	key := &domain.APIKey{
+		ProjectID: "proj-cache-version-" + newID(),
+		Name:      "cache-version",
+		KeyHash:   "hash-" + newID(),
+		KeyPrefix: "sk_cv",
+		Scopes:    []string{"jobs:read"},
+	}
+	if err := q.CreateAPIKey(ctx, key); err != nil {
+		t.Fatalf("CreateAPIKey() error = %v", err)
+	}
+	if key.CacheVersion != 1 {
+		t.Fatalf("created CacheVersion = %d, want 1", key.CacheVersion)
+	}
+
+	byHash, err := q.GetAPIKeyByHash(ctx, key.KeyHash)
+	if err != nil {
+		t.Fatalf("GetAPIKeyByHash() error = %v", err)
+	}
+	if byHash.CacheVersion != 1 {
+		t.Fatalf("GetAPIKeyByHash() CacheVersion = %d, want 1", byHash.CacheVersion)
+	}
+
+	if err := q.RevokeAPIKey(ctx, key.ID); err != nil {
+		t.Fatalf("RevokeAPIKey() error = %v", err)
+	}
+	revoked, err := q.GetAPIKeyByID(ctx, key.ID)
+	if err != nil {
+		t.Fatalf("GetAPIKeyByID(revoked) error = %v", err)
+	}
+	if revoked.CacheVersion != 2 {
+		t.Fatalf("revoked CacheVersion = %d, want 2", revoked.CacheVersion)
+	}
+}
+
 func TestGetAPIKeyByID_NotFound(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

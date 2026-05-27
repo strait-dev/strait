@@ -160,7 +160,7 @@ func (e *Executor) prefetchDispatchGuards(
 	})
 	if policy.timeoutSecs > 0 {
 		prefetchWG.Go(func() {
-			result.adaptiveStats, _ = e.getJobHealthStatsCached(ctx, job.ID, time.Now().Add(-24*time.Hour))
+			result.adaptiveStats, _ = e.getJobHealthStats(ctx, job.ID, time.Now())
 		})
 	}
 	prefetchWG.Wait()
@@ -272,27 +272,26 @@ func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*d
 	}
 
 	if current == nil {
-		// Coalesce concurrent cache misses for the same job so a fan-out of
-		// runs does not stampede the DB. Mirrors billing.Enforcer.GetOrgLimits.
-		result, err, _ := e.jobResolveGroup.Do(run.JobID, func() (any, error) {
-			if e.jobCache != nil && !bypassCache {
-				if cached, gerr := e.jobCache.Get(ctx, run.JobID); gerr == nil {
-					return cached, nil
-				}
-			}
-			job, gerr := e.store.GetJob(ctx, run.JobID)
+		loadCurrent := func(loadCtx context.Context, jobID string) (*domain.Job, error) {
+			job, gerr := e.store.GetJob(loadCtx, jobID)
 			if gerr != nil {
 				return nil, gerr
 			}
-			if e.jobCache != nil {
-				_ = e.jobCache.Set(ctx, run.JobID, cloneJob(job))
-			}
 			return cloneJob(job), nil
-		})
+		}
+		var err error
+		if e.jobCache != nil && !bypassCache {
+			current, err = e.jobCache.Load(ctx, run.JobID, loadCurrent)
+		} else {
+			current, err = loadCurrent(ctx, run.JobID)
+			if err == nil && e.jobCache != nil {
+				_ = e.jobCache.Set(ctx, run.JobID, current)
+			}
+		}
 		if err != nil {
 			return nil, fmt.Errorf("load current job: %w", err)
 		}
-		current = cloneJob(result.(*domain.Job))
+		current = cloneJob(current)
 	}
 
 	if current.Version == run.JobVersion {
@@ -333,7 +332,17 @@ func (e *Executor) resolveJobForRun(ctx context.Context, run *domain.JobRun) (*d
 	case domain.VersionPolicyPin, "":
 	}
 
-	return e.store.GetJobAtVersion(ctx, run.JobID, run.JobVersion)
+	loadVersion := func(loadCtx context.Context, key jobVersionKey) (*domain.Job, error) {
+		job, err := e.store.GetJobAtVersion(loadCtx, key.JobID, key.Version)
+		if err != nil {
+			return nil, err
+		}
+		return cloneJob(job), nil
+	}
+	if e.jobVersionCache != nil {
+		return e.jobVersionCache.Load(ctx, jobVersionKey{JobID: run.JobID, Version: run.JobVersion}, loadVersion)
+	}
+	return loadVersion(ctx, jobVersionKey{JobID: run.JobID, Version: run.JobVersion})
 }
 
 func cloneJob(job *domain.Job) *domain.Job {
@@ -1121,15 +1130,15 @@ func (e *Executor) resolveExecutionPolicy(ctx context.Context, run *domain.JobRu
 		return fallback, fmt.Errorf("%w: %s", store.ErrWorkflowStepRunNotFound, run.WorkflowStepRunID)
 	}
 
-	wfRun, err := e.store.GetWorkflowRun(ctx, stepRun.WorkflowRunID)
-	if err != nil || wfRun == nil {
-		if err != nil {
-			return fallback, err
-		}
+	runVersion, err := e.getWorkflowRunVersion(ctx, stepRun.WorkflowRunID)
+	if err != nil {
+		return fallback, err
+	}
+	if runVersion.WorkflowID == "" {
 		return fallback, nil
 	}
 
-	steps, err := e.store.ListStepsByWorkflowVersion(ctx, wfRun.WorkflowID, wfRun.WorkflowVersion)
+	steps, err := e.getWorkflowStepsForVersion(ctx, runVersion.WorkflowID, runVersion.Version)
 	if err != nil {
 		return fallback, err
 	}
@@ -1158,6 +1167,49 @@ func (e *Executor) resolveExecutionPolicy(ctx context.Context, run *domain.JobRu
 	}
 
 	return fallback, nil
+}
+
+func (e *Executor) getWorkflowRunVersion(ctx context.Context, workflowRunID string) (workflowRunVersion, error) {
+	loader := func(loadCtx context.Context, key string) (workflowRunVersion, error) {
+		wfRun, err := e.store.GetWorkflowRun(loadCtx, key)
+		if err != nil || wfRun == nil {
+			if err != nil {
+				return workflowRunVersion{}, err
+			}
+			return workflowRunVersion{}, nil
+		}
+		return workflowRunVersion{WorkflowID: wfRun.WorkflowID, Version: wfRun.WorkflowVersion}, nil
+	}
+	if e.runVersionCache == nil {
+		return loader(ctx, workflowRunID)
+	}
+	return e.runVersionCache.Load(ctx, workflowRunID, loader)
+}
+
+func (e *Executor) getWorkflowStepsForVersion(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error) {
+	key := workflowStepsVersionKey{WorkflowID: workflowID, Version: version}
+	loader := func(loadCtx context.Context, loadKey workflowStepsVersionKey) ([]domain.WorkflowStep, error) {
+		steps, err := e.store.ListStepsByWorkflowVersion(loadCtx, loadKey.WorkflowID, loadKey.Version)
+		if err != nil {
+			return nil, err
+		}
+		return cloneWorkflowSteps(steps), nil
+	}
+	if e.stepsVersionCache == nil {
+		return loader(ctx, key)
+	}
+	return e.stepsVersionCache.Load(ctx, key, loader)
+}
+
+func (e *Executor) getJobHealthStats(ctx context.Context, jobID string, now time.Time) (*store.JobHealthStats, error) {
+	since := now.Add(-24 * time.Hour)
+	if e.jobHealthCache == nil {
+		return e.store.GetJobHealthStats(ctx, jobID, since)
+	}
+	key := e.jobHealthCache.Key(jobID, now)
+	return e.jobHealthCache.Load(ctx, key, func(loadCtx context.Context, loadKey jobHealthKey) (*store.JobHealthStats, error) {
+		return e.store.GetJobHealthStats(loadCtx, loadKey.JobID, since)
+	})
 }
 
 // executeWorkerMode dispatches a run to a connected gRPC worker. It mirrors

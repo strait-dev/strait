@@ -34,6 +34,7 @@ type WorkflowEngine struct {
 	onTriggerCreate EventTriggerNotifyFunc
 	metrics         *telemetry.Metrics
 	runInTx         func(ctx context.Context, fn func(s EngineStore) error) error
+	stepsCache      *workflowStepsVersionCache
 }
 
 type EngineStore interface {
@@ -108,6 +109,11 @@ func (e *WorkflowEngine) WithMetrics(m *telemetry.Metrics) *WorkflowEngine {
 	return e
 }
 
+func (e *WorkflowEngine) WithDefinitionCaches(cfg WorkflowDefinitionCacheConfig) *WorkflowEngine {
+	e.stepsCache = newWorkflowStepsVersionCache(cfg)
+	return e
+}
+
 func (e *WorkflowEngine) recordTrigger(ctx context.Context, status string) {
 	if e.metrics == nil {
 		return
@@ -151,6 +157,21 @@ func (e *WorkflowEngine) TriggerSubWorkflow(
 	parentStepRunID string,
 ) (*domain.WorkflowRun, error) {
 	return e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, parentWorkflowRunID, parentStepRunID, nil, nil)
+}
+
+func (e *WorkflowEngine) listStepsByWorkflowVersion(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error) {
+	key := workflowStepsVersionKey{WorkflowID: workflowID, Version: version}
+	loader := func(loadCtx context.Context, loadKey workflowStepsVersionKey) ([]domain.WorkflowStep, error) {
+		steps, err := e.store.ListStepsByWorkflowVersion(loadCtx, loadKey.WorkflowID, loadKey.Version)
+		if err != nil {
+			return nil, err
+		}
+		return cloneWorkflowSteps(steps), nil
+	}
+	if e.stepsCache == nil {
+		return loader(ctx, key)
+	}
+	return e.stepsCache.Load(ctx, key, loader)
 }
 
 func (e *WorkflowEngine) triggerWorkflowInternal(
@@ -225,7 +246,7 @@ func (e *WorkflowEngine) prepareWorkflowTrigger(
 	workflowID string,
 	stepOverrides []domain.StepOverride,
 ) (preparedWorkflowTrigger, error) {
-	steps, err := e.store.ListStepsByWorkflowVersion(ctx, workflowID, wf.Version)
+	steps, err := e.listStepsByWorkflowVersion(ctx, workflowID, wf.Version)
 	if err != nil {
 		return preparedWorkflowTrigger{}, fmt.Errorf("list workflow steps by version: %w", err)
 	}

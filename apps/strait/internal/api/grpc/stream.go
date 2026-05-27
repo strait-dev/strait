@@ -125,6 +125,7 @@ type workerService struct {
 	resultChannels  *ResultChannelRegistry
 	runFinalizer    *atomic.Value
 	authLimiter     grpcAuthLimiter
+	apiKeyResolver  apiKeyResolver
 	billingEnforcer planLimitEnforcer
 }
 
@@ -141,7 +142,7 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 	ctx := stream.Context()
 
 	// Authenticate the connecting worker via the Bearer API key in gRPC metadata.
-	apiKey, err := resolveAPIKeyFromContextWithLimit(ctx, s.queries, s.authLimiter)
+	apiKey, err := resolveAPIKeyFromContextWithLimitAndResolver(ctx, s.apiKeyLookupResolver(), s.authLimiter)
 	if err != nil {
 		return err
 	}
@@ -185,7 +186,7 @@ func (s *workerService) StreamTasks(stream workerv1.WorkerService_StreamTasksSer
 		}
 		return status.Errorf(codes.Internal, "recv registration: %v", err)
 	}
-	apiKey, err = resolveAPIKeyFromContext(ctx, s.queries)
+	apiKey, err = resolveAPIKeyFromContextWithResolver(ctx, s.apiKeyLookupResolver())
 	if err != nil {
 		return err
 	}
@@ -398,6 +399,16 @@ func workerRegistrationFromFirstMessage(msg *workerv1.WorkerMessage) (*workerv1.
 		return nil, status.Error(codes.InvalidArgument, "first message must be WorkerRegistration")
 	}
 	return regPayload.Registration, nil
+}
+
+func (s *workerService) apiKeyLookupResolver() apiKeyResolver {
+	if s == nil {
+		return nil
+	}
+	if s.apiKeyResolver != nil {
+		return s.apiKeyResolver
+	}
+	return queryAPIKeyResolver(s.queries)
 }
 
 func workerStreamGoroutineCount(disconnectSub, revokeKeySub *pubsub.Subscription, hasExpiry, renewsWorkerConnection bool) int {

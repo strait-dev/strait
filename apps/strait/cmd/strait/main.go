@@ -321,6 +321,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 	g.Go(func(ctx context.Context) error {
 		return poolTuner.Run(ctx)
 	})
+	cacheRegistry, cacheBus := startCacheBus(g, pub)
 	if bq, ok := q.(*queue.BatchlogQueue); ok {
 		g.Go(func(ctx context.Context) error {
 			bq.RunTicker(ctx)
@@ -377,12 +378,14 @@ func runServe(ctx context.Context, modeOverride string) error {
 	workflowEngine := workflow.NewWorkflowEngine(queries, q, slog.Default()).
 		WithMaxNestingDepth(cfg.MaxWorkflowNestingDepth).
 		WithMetrics(metrics).
+		WithDefinitionCaches(workflow.WorkflowDefinitionCacheConfig{Redis: rdb, VersionTTL: cfg.VersionCacheTTL}).
 		WithOnTriggerCreate(onTriggerCreate)
 	onWorkflowRunStatus := func(hookCtx context.Context, run *domain.WorkflowRun, from, to domain.WorkflowRunStatus, reason string) {
 		publishWorkflowRunStatusHook(hookCtx, run, from, to, reason, pub, chExporter, queries, eventNotifier)
 	}
 	stepCallback := workflow.NewStepCallback(queries, workflowEngine, slog.Default()).
 		WithMetrics(metrics).
+		WithDefinitionCaches(workflow.WorkflowDefinitionCacheConfig{Redis: rdb, VersionTTL: cfg.VersionCacheTTL}).
 		WithChExporter(chExporter).
 		WithStatusHook(onWorkflowRunStatus).
 		WithProgressionEngine(cfg.WorkflowProgressionEngine)
@@ -440,6 +443,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 		enforcerOpts = append(enforcerOpts, billing.WithSentryRuntime(cfg.Mode, cfg.DefaultRegion, version))
 		enforcerOpts = append(enforcerOpts, billing.WithEntitlementsAuthoritative(cfg.BillingEntitlementsAuthoritative))
 		enforcerOpts = append(enforcerOpts, billing.WithBillingDispatcher(billingDispatcher))
+		enforcerOpts = append(enforcerOpts, billing.WithCacheBus(cacheBus, cacheRegistry))
 		billingEnforcer = billing.NewEnforcer(billingStore, rdb, slog.Default(), enforcerOpts...)
 		billingEnforcer.StartCleanup(ctx)
 
@@ -462,7 +466,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 		return fmt.Errorf("schema version: %w", err)
 	}
 
-	cdcWebhookReceiver, err := startCDCConsumer(ctx, g, cfg, pub, queries, chExporter)
+	cdcWebhookReceiver, err := startCDCConsumer(ctx, g, cfg, pub, queries, chExporter, rdb, cacheBus)
 	if err != nil {
 		return err
 	}
@@ -489,6 +493,8 @@ func runServe(ctx context.Context, modeOverride string) error {
 		dbPool:             dbPool,
 		queue:              q,
 		publisher:          pub,
+		cacheRegistry:      cacheRegistry,
+		cacheBus:           cacheBus,
 		metricsHandler:     metricsHandler,
 		metrics:            metrics,
 		stepCallback:       stepCallback,
@@ -510,6 +516,9 @@ func runServe(ctx context.Context, modeOverride string) error {
 		queue:              q,
 		backpressure:       bp,
 		publisher:          pub,
+		cacheRegistry:      cacheRegistry,
+		cacheBus:           cacheBus,
+		redisClient:        rdb,
 		metrics:            metrics,
 		stepCallback:       stepCallback,
 		workflowEngine:     workflowEngine,

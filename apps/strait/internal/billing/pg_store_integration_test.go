@@ -281,6 +281,36 @@ func TestPgStore_EnsureOrgSubscription(t *testing.T) {
 	}
 }
 
+func TestPgStore_OrgSubscriptionCacheVersionRoundTripAndBump(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+	pgStore := billing.NewPgStore(testDB.Pool)
+
+	orgID := "org-cache-version-" + newID()
+	ensureSub(t, ctx, pgStore, orgID)
+
+	sub, err := pgStore.GetOrgSubscription(ctx, orgID)
+	if err != nil {
+		t.Fatalf("GetOrgSubscription() error = %v", err)
+	}
+	if sub.CacheVersion <= 0 {
+		t.Fatalf("initial CacheVersion = %d, want positive", sub.CacheVersion)
+	}
+
+	initial := sub.CacheVersion
+	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgID, string(domain.PlanPro), "active"); err != nil {
+		t.Fatalf("UpdateOrgSubscriptionPlan() error = %v", err)
+	}
+
+	updated, err := pgStore.GetOrgSubscription(ctx, orgID)
+	if err != nil {
+		t.Fatalf("GetOrgSubscription(after update) error = %v", err)
+	}
+	if updated.CacheVersion <= initial {
+		t.Fatalf("updated CacheVersion = %d, want > %d", updated.CacheVersion, initial)
+	}
+}
+
 func TestPgStore_GetOrgSubscription(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)

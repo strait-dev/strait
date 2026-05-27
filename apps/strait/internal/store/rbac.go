@@ -352,35 +352,52 @@ func (q *Queries) UserHasProjectAccess(ctx context.Context, userID, projectID st
 // Returns nil if the user has no role assigned. Resource-level policies are
 // queried separately via GetResourcePolicies.
 func (q *Queries) GetUserPermissions(ctx context.Context, projectID, userID string) ([]string, error) {
+	permissions, _, err := q.GetUserPermissionsWithVersion(ctx, projectID, userID)
+	return permissions, err
+}
+
+// GetUserPermissionsWithVersion returns role-based permissions with a
+// monotonic version derived from the member-role row and inherited roles read
+// by the same SQL statement.
+func (q *Queries) GetUserPermissionsWithVersion(ctx context.Context, projectID, userID string) ([]string, int64, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetUserPermissions")
 	defer span.End()
 
 	query := `
 		WITH RECURSIVE role_tree AS (
-			SELECT pr.id, pr.project_id, pr.parent_role_id, pr.permissions
+			SELECT pr.id, pr.project_id, pr.parent_role_id, pr.permissions, pr.cache_version
 			FROM project_member_roles pmr
 			JOIN project_roles pr ON pr.id = pmr.role_id
 			WHERE pmr.project_id = $1 AND pmr.user_id = $2
 			UNION ALL
-			SELECT parent.id, parent.project_id, parent.parent_role_id, parent.permissions
+			SELECT parent.id, parent.project_id, parent.parent_role_id, parent.permissions, parent.cache_version
 			FROM project_roles parent
 			JOIN role_tree rt ON rt.parent_role_id = parent.id
 			WHERE parent.project_id = rt.project_id
+		),
+		version_source AS (
+			SELECT pmr.cache_version
+			FROM project_member_roles pmr
+			WHERE pmr.project_id = $1 AND pmr.user_id = $2
+			UNION ALL
+			SELECT rt.cache_version FROM role_tree rt
 		)
-		SELECT permissions FROM role_tree`
+		SELECT permissions, COALESCE((SELECT MAX(cache_version) FROM version_source), 0)
+		FROM role_tree`
 
 	rows, err := q.db.Query(ctx, query, projectID, userID)
 	if err != nil {
-		return nil, fmt.Errorf("get user permissions: %w", err)
+		return nil, 0, fmt.Errorf("get user permissions: %w", err)
 	}
 	defer rows.Close()
 
 	seen := make(map[string]struct{}, 16)
 	permissions := make([]string, 0, 16)
+	var version int64
 	for rows.Next() {
 		var perms []string
-		if err := rows.Scan(&perms); err != nil {
-			return nil, fmt.Errorf("get user permissions scan: %w", err)
+		if err := rows.Scan(&perms, &version); err != nil {
+			return nil, 0, fmt.Errorf("get user permissions scan: %w", err)
 		}
 		for _, p := range perms {
 			if _, ok := seen[p]; ok {
@@ -391,12 +408,12 @@ func (q *Queries) GetUserPermissions(ctx context.Context, projectID, userID stri
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("get user permissions rows: %w", err)
+		return nil, 0, fmt.Errorf("get user permissions rows: %w", err)
 	}
 	if len(permissions) == 0 {
-		return nil, nil
+		return nil, version, nil
 	}
-	return permissions, nil
+	return permissions, version, nil
 }
 
 func (q *Queries) ensureParentRoleInProject(ctx context.Context, parentRoleID, projectID string) error {

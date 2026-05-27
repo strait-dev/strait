@@ -238,8 +238,35 @@ func (s *Server) listAllProjectMembersForInvalidation(ctx context.Context, proje
 
 func (s *Server) invalidatePermissionCacheForUsers(projectID string, userIDs []string) {
 	for _, userID := range userIDs {
-		s.permCache.Invalidate(projectID, userID)
+		s.invalidatePermissionCacheForUser(context.Background(), projectID, userID)
 	}
+}
+
+type cacheNamespaceVersionBumper interface {
+	BumpCacheNamespaceVersion(ctx context.Context, namespace, cacheKey string) (int64, error)
+}
+
+type cacheNamespaceVersionGetter interface {
+	GetCacheNamespaceVersion(ctx context.Context, namespace, cacheKey string) (int64, error)
+}
+
+func (s *Server) invalidatePermissionCacheForUser(ctx context.Context, projectID, userID string) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	version := time.Now().UnixNano()
+	key := projectID + "\x00" + userID
+	if bumper, ok := s.store.(cacheNamespaceVersionBumper); ok {
+		if bumped, err := bumper.BumpCacheNamespaceVersion(ctx, permissionCacheNamespace, key); err == nil && bumped > 0 {
+			version = bumped
+		} else if err != nil {
+			slog.Warn("permission cache version bump failed; using time barrier",
+				"project_id", projectID,
+				"user_id", userID,
+				"error", err)
+		}
+	}
+	s.permCache.InvalidateWithVersion(projectID, userID, version)
 }
 
 type createRoleRequest struct {
@@ -606,7 +633,7 @@ func (s *Server) handleAssignMember(ctx context.Context, input *AssignMemberInpu
 		}
 		return nil, huma.Error500InternalServerError("failed to assign role")
 	}
-	s.permCache.Invalidate(m.ProjectID, m.UserID)
+	s.invalidatePermissionCacheForUser(ctx, m.ProjectID, m.UserID)
 	s.emitAuditEvent(ctx, domain.AuditActionPermissionGranted, "role", m.RoleID, map[string]any{"user_id": m.UserID, "project_id": m.ProjectID})
 	return &AssignMemberOutput{Body: m}, nil
 }
@@ -662,7 +689,7 @@ func (s *Server) handleBulkAssignMembers(ctx context.Context, input *BulkAssignM
 			results = append(results, bulkAssignMemberResult{UserID: item.UserID, RoleID: item.RoleID, Status: "error", Error: "failed to assign role"})
 			continue
 		}
-		s.permCache.Invalidate(projectID, item.UserID)
+		s.invalidatePermissionCacheForUser(ctx, projectID, item.UserID)
 		s.emitAuditEvent(ctx, domain.AuditActionPermissionGranted, "role", item.RoleID, map[string]any{"user_id": item.UserID, "project_id": projectID, "bulk": true})
 		results = append(results, bulkAssignMemberResult{UserID: item.UserID, RoleID: item.RoleID, Status: "assigned"})
 	}
@@ -745,7 +772,7 @@ func (s *Server) handleRemoveMember(ctx context.Context, input *RemoveMemberInpu
 		}
 		return nil, huma.Error500InternalServerError("failed to remove member")
 	}
-	s.permCache.Invalidate(projectID, userID)
+	s.invalidatePermissionCacheForUser(ctx, projectID, userID)
 	slog.Info("member removed", "user_id", userID, "actor", actorFromContext(ctx), "project_id", projectID)
 	resourceID := userID
 	roleID := ""
@@ -818,7 +845,7 @@ func (s *Server) handleCreateResourcePolicy(ctx context.Context, input *CreateRe
 	if err := s.store.CreateResourcePolicy(ctx, policy); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create resource policy")
 	}
-	s.permCache.Invalidate(req.ProjectID, req.UserID)
+	s.invalidatePermissionCacheForUser(ctx, req.ProjectID, req.UserID)
 	s.emitAuditEvent(ctx, domain.AuditActionResourcePolicyCreated, "resource_policy", policy.ID, map[string]any{"resource_type": req.ResourceType, "resource_id": req.ResourceID, "user_id": req.UserID, "actions": req.Actions})
 	return &CreateResourcePolicyOutput{Body: policy}, nil
 }
@@ -859,7 +886,7 @@ func (s *Server) handleDeleteResourcePolicy(ctx context.Context, input *DeleteRe
 		return nil, huma.Error500InternalServerError("failed to delete resource policy")
 	}
 	if projectID != "" && userID != "" {
-		s.permCache.Invalidate(projectID, userID)
+		s.invalidatePermissionCacheForUser(ctx, projectID, userID)
 	}
 	slog.Info("resource policy deleted", "policy_id", input.PolicyID, "actor", actorFromContext(ctx), "affected_user", userID, "project_id", projectID)
 	s.emitAuditEvent(ctx, domain.AuditActionResourcePolicyDeleted, "resource_policy", input.PolicyID, map[string]any{"affected_user": userID})
@@ -900,7 +927,7 @@ func (s *Server) handleCreateTagPolicy(ctx context.Context, input *CreateTagPoli
 	if err := s.store.CreateTagPolicy(ctx, policy); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create tag policy")
 	}
-	s.permCache.Invalidate(req.ProjectID, req.UserID)
+	s.invalidatePermissionCacheForUser(ctx, req.ProjectID, req.UserID)
 	s.emitAuditEvent(ctx, domain.AuditActionTagPolicyCreated, "tag_policy", policy.ID, map[string]any{"tag_key": req.TagKey, "tag_value": req.TagValue, "resource_type": req.ResourceType, "user_id": req.UserID, "actions": req.Actions})
 	return &CreateTagPolicyOutput{Body: policy}, nil
 }
@@ -942,7 +969,7 @@ func (s *Server) handleDeleteTagPolicy(ctx context.Context, input *DeleteTagPoli
 		return nil, huma.Error500InternalServerError("failed to delete tag policy")
 	}
 	if projectID != "" && userID != "" {
-		s.permCache.Invalidate(projectID, userID)
+		s.invalidatePermissionCacheForUser(ctx, projectID, userID)
 	}
 	s.emitAuditEvent(ctx, domain.AuditActionTagPolicyDeleted, "tag_policy", input.PolicyID, nil)
 	return nil, nil

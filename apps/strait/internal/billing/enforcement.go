@@ -7,18 +7,17 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	straitcache "strait/internal/cache"
 	"strait/internal/clickhouse"
 	"strait/internal/domain"
 	"strait/internal/telemetry"
 
-	"strait/internal/cache/otterstore"
-
-	"github.com/eko/gocache/lib/v4/cache"
 	"github.com/getsentry/sentry-go"
 	"github.com/redis/go-redis/v9"
 	"github.com/sourcegraph/conc"
@@ -59,7 +58,9 @@ type Enforcer struct {
 	rdb             redis.Cmdable
 	logger          *slog.Logger
 	metrics         *telemetry.Metrics
-	orgCache        *cache.Cache[*cachedOrgLimits]
+	orgCache        *straitcache.Tier[string, *cachedOrgLimits]
+	cacheBus        *straitcache.Bus
+	cacheRegistry   *straitcache.Registry
 	limitsGroup     singleflight.Group
 	cacheTTL        time.Duration
 	suspendedCache  sync.Map // projectID -> *suspendedCacheEntry
@@ -182,6 +183,33 @@ type cachedOrgLimits struct {
 	enforcementMode string
 }
 
+type cachedOrgLimitsJSON struct {
+	Tier            domain.PlanTier `json:"tier"`
+	Limits          OrgPlanLimits   `json:"limits"`
+	EnforcementMode string          `json:"enforcement_mode"`
+}
+
+func (c cachedOrgLimits) MarshalJSON() ([]byte, error) {
+	return json.Marshal(cachedOrgLimitsJSON{
+		Tier:            c.tier,
+		Limits:          c.limits,
+		EnforcementMode: c.enforcementMode,
+	})
+}
+
+func (c *cachedOrgLimits) UnmarshalJSON(data []byte) error {
+	var wire cachedOrgLimitsJSON
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	c.tier = wire.Tier
+	c.limits = wire.Limits
+	c.enforcementMode = wire.EnforcementMode
+	return nil
+}
+
+const orgLimitsCacheNamespace = "billing_org_limits"
+
 // NewEnforcer creates a billing enforcer. Panics if store is nil.
 func NewEnforcer(store Store, rdb redis.Cmdable, logger *slog.Logger, opts ...EnforcerOption) *Enforcer {
 	if store == nil {
@@ -191,23 +219,48 @@ func NewEnforcer(store Store, rdb redis.Cmdable, logger *slog.Logger, opts ...En
 		logger = slog.Default()
 	}
 	cacheTTL := 5 * time.Minute
-	cacheStore := otterstore.New(otterstore.Config{
-		DefaultTTL:  cacheTTL,
-		MaxCapacity: 1_000,
-		TTLJitter:   0.1,
-	})
-	orgCache := cache.New[*cachedOrgLimits](cacheStore)
-
 	e := &Enforcer{
 		store:                     store,
 		rdb:                       rdb,
 		logger:                    logger,
-		orgCache:                  orgCache,
 		cacheTTL:                  cacheTTL,
 		entitlementsAuthoritative: true,
 	}
 	for _, opt := range opts {
 		opt(e)
+	}
+	var l2 straitcache.L2[string, *cachedOrgLimits]
+	if rdb != nil {
+		l2 = straitcache.NewRedisL2[string, *cachedOrgLimits](straitcache.RedisL2Config[string, *cachedOrgLimits]{
+			Client:    rdb,
+			Namespace: orgLimitsCacheNamespace,
+		})
+	}
+	orgCache := straitcache.NewTier[string, *cachedOrgLimits](straitcache.TierConfig[string, *cachedOrgLimits]{
+		Name:        orgLimitsCacheNamespace,
+		L2:          l2,
+		Consistency: straitcache.Strong,
+		MaximumSize: 1_000,
+		TTL:         cacheTTL,
+		TTLJitter:   0.1,
+		DisableL1:   l2 != nil,
+		DisableL2:   l2 == nil,
+		Clone: func(limits *cachedOrgLimits) *cachedOrgLimits {
+			if limits == nil {
+				return nil
+			}
+			clone := *limits
+			clone.limits.AllowedRegions = append([]string(nil), limits.limits.AllowedRegions...)
+			if limits.limits.MaxAddonPacks != nil {
+				clone.limits.MaxAddonPacks = make(map[AddonType]int, len(limits.limits.MaxAddonPacks))
+				maps.Copy(clone.limits.MaxAddonPacks, limits.limits.MaxAddonPacks)
+			}
+			return &clone
+		},
+	})
+	e.orgCache = orgCache
+	if e.cacheRegistry != nil {
+		e.cacheRegistry.Register(orgLimitsCacheNamespace, straitcache.UpdatingStringTierHandler[*cachedOrgLimits]{Tier: orgCache})
 	}
 	return e
 }
@@ -219,6 +272,13 @@ type EnforcerOption func(*Enforcer)
 func WithMetrics(m *telemetry.Metrics) EnforcerOption {
 	return func(e *Enforcer) {
 		e.metrics = m
+	}
+}
+
+func WithCacheBus(bus *straitcache.Bus, registry *straitcache.Registry) EnforcerOption {
+	return func(e *Enforcer) {
+		e.cacheBus = bus
+		e.cacheRegistry = registry
 	}
 }
 
@@ -338,13 +398,24 @@ func (e *Enforcer) tryDispatchCapEvent(
 
 // InvalidateOrgCache removes cached plan limits for an org (call on plan change).
 func (e *Enforcer) InvalidateOrgCache(orgID string) {
-	_ = e.orgCache.Delete(context.Background(), orgID)
+	e.InvalidateOrgCacheWithVersion(orgID, time.Now().UnixNano())
+}
+
+// InvalidateOrgCacheWithVersion removes cached plan limits behind a version barrier.
+func (e *Enforcer) InvalidateOrgCacheWithVersion(orgID string, version int64) {
+	if e == nil || e.orgCache == nil {
+		return
+	}
+	_ = e.orgCache.StrongInvalidate(context.Background(), straitcache.StrongNamespacePolicy{Namespace: orgLimitsCacheNamespace}, orgID, orgID, straitcache.VersionBarrier{Version: version}, e.cacheBus)
 }
 
 // getEnforcementMode returns the enforcement mode for an org from cache.
 // Falls back to "enforce" if not cached.
 func (e *Enforcer) getEnforcementMode(orgID string) string {
-	if cached, err := e.orgCache.Get(context.Background(), orgID); err == nil {
+	if e == nil || e.orgCache == nil {
+		return "enforce"
+	}
+	if cached, err := e.orgCache.Get(context.Background(), orgID, nil); err == nil && cached != nil {
 		if cached.enforcementMode != "" {
 			return cached.enforcementMode
 		}
@@ -413,7 +484,7 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 		return GetPlanLimits(domain.PlanFree), nil
 	}
 
-	if cached, err := e.orgCache.Get(ctx, orgID); err == nil {
+	if cached, err := e.orgCache.Get(ctx, orgID, nil); err == nil && cached != nil {
 		addBillingSentryBreadcrumb(ctx, "plan_limits", "billing plan limits cache hit", map[string]any{
 			"org_id": orgID,
 			"plan":   string(cached.limits.PlanTier),
@@ -425,7 +496,7 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 	// thundering herd on the DB when cache expires under load.
 	result, err, _ := e.limitsGroup.Do(orgID, func() (any, error) {
 		// Double-check cache inside singleflight (another goroutine may have populated it).
-		if cached, err := e.orgCache.Get(ctx, orgID); err == nil {
+		if cached, err := e.orgCache.Get(ctx, orgID, nil); err == nil && cached != nil {
 			return cached.limits, nil
 		}
 
@@ -433,11 +504,11 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 		if err != nil {
 			if errors.Is(err, ErrSubscriptionNotFound) {
 				limits := GetPlanLimits(domain.PlanFree)
-				_ = e.orgCache.Set(ctx, orgID, &cachedOrgLimits{
+				_, _ = e.orgCache.StrongWriteThrough(ctx, straitcache.StrongNamespacePolicy{Namespace: orgLimitsCacheNamespace}, orgID, orgID, &cachedOrgLimits{
 					tier:            domain.PlanFree,
 					limits:          limits,
 					enforcementMode: "enforce",
-				})
+				}, 1, e.cacheBus)
 				return limits, nil
 			}
 			return OrgPlanLimits{}, fmt.Errorf("getting org subscription: %w", err)
@@ -500,6 +571,8 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 			if err := e.store.UpdateEntitlements(ctx, orgID, limits); err != nil {
 				e.logger.Warn("failed to opportunistically populate entitlements",
 					"org_id", orgID, "error", err)
+			} else {
+				sub.CacheVersion++
 			}
 		}
 	}
@@ -514,12 +587,19 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 		limits.MaxConcurrentRuns = *sub.OverrideConcurrentRunLimit
 	}
 
-	_ = e.orgCache.Set(ctx, orgID, &cachedOrgLimits{
+	_, _ = e.orgCache.StrongWriteThrough(ctx, straitcache.StrongNamespacePolicy{Namespace: orgLimitsCacheNamespace}, orgID, orgID, &cachedOrgLimits{
 		tier:            tier,
 		limits:          limits,
 		enforcementMode: sub.EnforcementMode,
-	})
+	}, orgSubscriptionCacheVersion(sub), e.cacheBus)
 	return limits, nil
+}
+
+func orgSubscriptionCacheVersion(sub *OrgSubscription) int64 {
+	if sub == nil || sub.CacheVersion <= 0 {
+		return 1
+	}
+	return sub.CacheVersion
 }
 
 // hasPersistedEntitlements reports whether the raw JSONB bytes contain

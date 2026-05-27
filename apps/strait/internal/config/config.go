@@ -236,12 +236,17 @@ type Config struct {
 	LogDrainWorkerInterval     time.Duration `env:"LOG_DRAIN_WORKER_INTERVAL" default:"1m"`
 	MemoryPressureThresholdPct float64       `env:"MEMORY_PRESSURE_THRESHOLD_PCT" default:"0"`
 	JobCacheTTL                time.Duration `env:"JOB_CACHE_TTL" default:"5m"`
-	// JobHealthStatsCacheTTL caches the result of GetJobHealthStats (a
-	// PERCENTILE_CONT ordered-set aggregate over job_runs) per job so the
-	// dispatch adaptive-timeout path and the post-run latency anomaly check
-	// don't re-run it for every dispatch under load. p95 over a 24h window
-	// barely moves on a 30s horizon. Zero disables the cache.
+	VersionCacheTTL            time.Duration `env:"VERSION_CACHE_TTL" default:"30m"`
+	RunVersionCacheTTL         time.Duration `env:"RUN_VERSION_CACHE_TTL" default:"10m"`
+	APIKeyCacheTTL             time.Duration `env:"API_KEY_CACHE_TTL" default:"60s"`
+	JobHealthCacheTTL          time.Duration `env:"JOB_HEALTH_CACHE_TTL" default:"2s"`
+	// JobHealthStatsCacheTTL is kept as a compatibility alias for the
+	// short-TTL job health stats cache added before the generalized worker
+	// cache tiers. The executor uses JobHealthCacheTTL.
 	JobHealthStatsCacheTTL time.Duration `env:"JOB_HEALTH_STATS_CACHE_TTL" default:"30s"`
+	JobDepsCacheTTL        time.Duration `env:"JOB_DEPS_CACHE_TTL" default:"5m"`
+	StatusReadModelTTL     time.Duration `env:"CACHE_STATUS_READMODEL_TTL" default:"5m"`
+	SharedDedupeTTL        time.Duration `env:"CACHE_SHARED_DEDUPE_TTL" default:"10m"`
 	DefaultRunTTLSecs      int           `env:"DEFAULT_RUN_TTL_SECS" default:"0"`
 	MaxResultSize          int64         `env:"MAX_RESULT_SIZE" default:"1048576"`
 	MigrationMode          string        `env:"MIGRATION_MODE" default:"auto"`

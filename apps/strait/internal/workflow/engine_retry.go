@@ -129,7 +129,7 @@ func (e *WorkflowEngine) RetryWorkflowRun(
 	}
 
 	// 3. Get step definitions for the original version.
-	steps, err := e.store.ListStepsByWorkflowVersion(ctx, origRun.WorkflowID, origRun.WorkflowVersion)
+	steps, err := e.listStepsByWorkflowVersion(ctx, origRun.WorkflowID, origRun.WorkflowVersion)
 	if err != nil {
 		return nil, fmt.Errorf("list workflow steps: %w", err)
 	}
