@@ -44,7 +44,13 @@ type ExecutorStore interface {
 	ScheduleRetry(ctx context.Context, runID string, at time.Time, attempt int) error
 	ClearRetry(ctx context.Context, runID string) error
 	CanDispatchEndpoint(ctx context.Context, endpointURL string, now time.Time) (bool, *time.Time, error)
-	RecordEndpointCircuitFailure(ctx context.Context, endpointURL string, now time.Time, threshold int, openDuration time.Duration) error
+	RecordEndpointCircuitFailure(
+		ctx context.Context,
+		endpointURL string,
+		now time.Time,
+		threshold int,
+		openDuration time.Duration,
+	) error
 	RecordEndpointCircuitSuccess(ctx context.Context, endpointURL string) error
 	GetJobHealthStats(ctx context.Context, jobID string, since time.Time) (*store.JobHealthStats, error)
 	GetResolvedEnvironmentVariables(ctx context.Context, id string) (map[string]string, error)
@@ -162,17 +168,22 @@ func (c *tierJobCache) Get(ctx context.Context, key string) (*domain.Job, error)
 	return c.tier.Get(ctx, key, nil)
 }
 
-func (c *tierJobCache) Load(ctx context.Context, key string, loader straitcache.LoadFunc[string, *domain.Job]) (*domain.Job, error) {
+func (c *tierJobCache) Load(
+	ctx context.Context,
+	key string,
+	loader straitcache.LoadFunc[string, *domain.Job],
+) (*domain.Job, error) {
 	if c == nil || c.tier == nil {
 		return loader(ctx, key)
 	}
-	got, err := c.tier.GetConsistentVersioned(ctx, key, 0, func(loadCtx context.Context, loadKey string) (straitcache.Versioned[*domain.Job], error) {
+	versionedLoader := func(loadCtx context.Context, loadKey string) (straitcache.Versioned[*domain.Job], error) {
 		job, err := loader(loadCtx, loadKey)
 		if err != nil {
 			return straitcache.Versioned[*domain.Job]{}, err
 		}
 		return straitcache.Versioned[*domain.Job]{Value: job, Version: jobCacheVersion(job)}, nil
-	})
+	}
+	got, err := c.tier.GetConsistentVersioned(ctx, key, 0, versionedLoader)
 	if err != nil {
 		return nil, err
 	}
@@ -183,7 +194,15 @@ func (c *tierJobCache) Set(ctx context.Context, key string, job *domain.Job) err
 	if c == nil || c.tier == nil {
 		return nil
 	}
-	_, err := c.tier.StrongWriteThrough(ctx, straitcache.StrongNamespacePolicy{Namespace: workerJobCacheNamespace}, key, key, job, jobCacheVersion(job), c.bus)
+	_, err := c.tier.StrongWriteThrough(
+		ctx,
+		workerCachePolicy(workerJobCacheNamespace),
+		key,
+		key,
+		job,
+		jobCacheVersion(job),
+		c.bus,
+	)
 	return err
 }
 
@@ -191,7 +210,22 @@ func (c *tierJobCache) Delete(ctx context.Context, key string) error {
 	if c == nil || c.tier == nil {
 		return nil
 	}
-	return c.tier.StrongInvalidate(ctx, straitcache.StrongNamespacePolicy{Namespace: workerJobCacheNamespace}, key, key, straitcache.VersionBarrier{Version: time.Now().UnixNano()}, c.bus)
+	return c.tier.StrongInvalidate(
+		ctx,
+		workerCachePolicy(workerJobCacheNamespace),
+		key,
+		key,
+		workerCacheBarrier(time.Now().UnixNano()),
+		c.bus,
+	)
+}
+
+func workerCachePolicy(namespace string) straitcache.StrongNamespacePolicy {
+	return straitcache.StrongNamespacePolicy{Namespace: namespace}
+}
+
+func workerCacheBarrier(version int64) straitcache.VersionBarrier {
+	return straitcache.VersionBarrier{Version: version}
 }
 
 func jobCacheVersion(job *domain.Job) int64 {
@@ -222,17 +256,8 @@ func newTierVersionedJobCache(ttl time.Duration, depsOpt ...workerCacheDeps) *ti
 	if len(depsOpt) > 0 {
 		deps = depsOpt[0]
 	}
-	var l2 straitcache.L2[jobVersionKey, *domain.Job]
-	if deps.Redis != nil {
-		l2 = straitcache.NewRedisL2[jobVersionKey, *domain.Job](straitcache.RedisL2Config[jobVersionKey, *domain.Job]{
-			Client:    deps.Redis,
-			Namespace: workerJobVersionCacheNamespace,
-			Key: func(key jobVersionKey) string {
-				return fmt.Sprintf("%s\x00%d", key.JobID, key.Version)
-			},
-		})
-	}
-	return &tierVersionedJobCache{tier: straitcache.NewTier[jobVersionKey, *domain.Job](straitcache.TierConfig[jobVersionKey, *domain.Job]{
+	l2 := newWorkerJobVersionL2(deps.Redis)
+	tier := straitcache.NewTier[jobVersionKey, *domain.Job](straitcache.TierConfig[jobVersionKey, *domain.Job]{
 		Name:        workerJobVersionCacheNamespace,
 		L2:          l2,
 		Consistency: straitcache.Immutable,
@@ -241,10 +266,32 @@ func newTierVersionedJobCache(ttl time.Duration, depsOpt ...workerCacheDeps) *ti
 		TTLJitter:   0.1,
 		DisableL2:   l2 == nil,
 		Clone:       cloneJob,
-	})}
+	})
+	return &tierVersionedJobCache{tier: tier}
 }
 
-func (c *tierVersionedJobCache) Load(ctx context.Context, key jobVersionKey, loader straitcache.LoadFunc[jobVersionKey, *domain.Job]) (*domain.Job, error) {
+func newWorkerJobVersionL2(redis redis.Cmdable) straitcache.L2[jobVersionKey, *domain.Job] {
+	if redis == nil {
+		return nil
+	}
+	return straitcache.NewRedisL2[jobVersionKey, *domain.Job](
+		straitcache.RedisL2Config[jobVersionKey, *domain.Job]{
+			Client:    redis,
+			Namespace: workerJobVersionCacheNamespace,
+			Key:       workerJobVersionKeyString,
+		},
+	)
+}
+
+func workerJobVersionKeyString(key jobVersionKey) string {
+	return fmt.Sprintf("%s\x00%d", key.JobID, key.Version)
+}
+
+func (c *tierVersionedJobCache) Load(
+	ctx context.Context,
+	key jobVersionKey,
+	loader straitcache.LoadFunc[jobVersionKey, *domain.Job],
+) (*domain.Job, error) {
 	if c == nil || c.tier == nil {
 		return loader(ctx, key)
 	}
@@ -270,7 +317,7 @@ func newTierWorkflowRunVersionCache(ttl time.Duration, depsOpt ...workerCacheDep
 			Namespace: workerWorkflowRunVersionCacheNamespace,
 		})
 	}
-	return &tierWorkflowRunVersionCache{tier: straitcache.NewTier[string, workflowRunVersion](straitcache.TierConfig[string, workflowRunVersion]{
+	tier := straitcache.NewTier[string, workflowRunVersion](straitcache.TierConfig[string, workflowRunVersion]{
 		Name:        workerWorkflowRunVersionCacheNamespace,
 		L2:          l2,
 		Consistency: straitcache.Immutable,
@@ -278,10 +325,15 @@ func newTierWorkflowRunVersionCache(ttl time.Duration, depsOpt ...workerCacheDep
 		TTL:         ttl,
 		TTLJitter:   0.1,
 		DisableL2:   l2 == nil,
-	})}
+	})
+	return &tierWorkflowRunVersionCache{tier: tier}
 }
 
-func (c *tierWorkflowRunVersionCache) Load(ctx context.Context, key string, loader straitcache.LoadFunc[string, workflowRunVersion]) (workflowRunVersion, error) {
+func (c *tierWorkflowRunVersionCache) Load(
+	ctx context.Context,
+	key string,
+	loader straitcache.LoadFunc[string, workflowRunVersion],
+) (workflowRunVersion, error) {
 	if c == nil || c.tier == nil {
 		return loader(ctx, key)
 	}
@@ -300,17 +352,17 @@ func newTierWorkflowStepsVersionCache(ttl time.Duration, depsOpt ...workerCacheD
 	if len(depsOpt) > 0 {
 		deps = depsOpt[0]
 	}
-	var l2 straitcache.L2[workflowStepsVersionKey, []domain.WorkflowStep]
-	if deps.Redis != nil {
-		l2 = straitcache.NewRedisL2[workflowStepsVersionKey, []domain.WorkflowStep](straitcache.RedisL2Config[workflowStepsVersionKey, []domain.WorkflowStep]{
-			Client:    deps.Redis,
-			Namespace: workerWorkflowStepsCacheNamespace,
-			Key: func(key workflowStepsVersionKey) string {
-				return fmt.Sprintf("%s\x00%d", key.WorkflowID, key.Version)
-			},
-		})
-	}
-	return &tierWorkflowStepsVersionCache{tier: straitcache.NewTier[workflowStepsVersionKey, []domain.WorkflowStep](straitcache.TierConfig[workflowStepsVersionKey, []domain.WorkflowStep]{
+	l2 := newWorkerWorkflowStepsL2(deps.Redis)
+	tierConfig := workerWorkflowStepsTierConfig(ttl, l2)
+	tier := straitcache.NewTier[workflowStepsVersionKey, []domain.WorkflowStep](tierConfig)
+	return &tierWorkflowStepsVersionCache{tier: tier}
+}
+
+func workerWorkflowStepsTierConfig(
+	ttl time.Duration,
+	l2 straitcache.L2[workflowStepsVersionKey, []domain.WorkflowStep],
+) straitcache.TierConfig[workflowStepsVersionKey, []domain.WorkflowStep] {
+	return straitcache.TierConfig[workflowStepsVersionKey, []domain.WorkflowStep]{
 		Name:          workerWorkflowStepsCacheNamespace,
 		L2:            l2,
 		Consistency:   straitcache.Immutable,
@@ -328,10 +380,31 @@ func newTierWorkflowStepsVersionCache(ttl time.Duration, depsOpt ...workerCacheD
 		TTLJitter: 0.1,
 		DisableL2: l2 == nil,
 		Clone:     cloneWorkflowSteps,
-	})}
+	}
 }
 
-func (c *tierWorkflowStepsVersionCache) Load(ctx context.Context, key workflowStepsVersionKey, loader straitcache.LoadFunc[workflowStepsVersionKey, []domain.WorkflowStep]) ([]domain.WorkflowStep, error) {
+func newWorkerWorkflowStepsL2(redis redis.Cmdable) straitcache.L2[workflowStepsVersionKey, []domain.WorkflowStep] {
+	if redis == nil {
+		return nil
+	}
+	return straitcache.NewRedisL2[workflowStepsVersionKey, []domain.WorkflowStep](
+		straitcache.RedisL2Config[workflowStepsVersionKey, []domain.WorkflowStep]{
+			Client:    redis,
+			Namespace: workerWorkflowStepsCacheNamespace,
+			Key:       workerWorkflowStepsKeyString,
+		},
+	)
+}
+
+func workerWorkflowStepsKeyString(key workflowStepsVersionKey) string {
+	return fmt.Sprintf("%s\x00%d", key.WorkflowID, key.Version)
+}
+
+func (c *tierWorkflowStepsVersionCache) Load(
+	ctx context.Context,
+	key workflowStepsVersionKey,
+	loader straitcache.LoadFunc[workflowStepsVersionKey, []domain.WorkflowStep],
+) ([]domain.WorkflowStep, error) {
 	if c == nil || c.tier == nil {
 		return loader(ctx, key)
 	}
@@ -351,35 +424,53 @@ func newTierJobHealthCache(ttl time.Duration, depsOpt ...workerCacheDeps) *tierJ
 	if len(depsOpt) > 0 {
 		deps = depsOpt[0]
 	}
-	var l2 straitcache.L2[jobHealthKey, *store.JobHealthStats]
-	if deps.Redis != nil {
-		l2 = straitcache.NewRedisL2[jobHealthKey, *store.JobHealthStats](straitcache.RedisL2Config[jobHealthKey, *store.JobHealthStats]{
-			Client:    deps.Redis,
-			Namespace: workerJobHealthCacheNamespace,
-			Key: func(key jobHealthKey) string {
-				return fmt.Sprintf("%s\x00%d", key.JobID, key.Bucket)
-			},
-		})
-	}
+	l2 := newWorkerJobHealthL2(deps.Redis)
+	tierConfig := workerJobHealthTierConfig(ttl, l2)
 	return &tierJobHealthCache{
-		ttl: ttl,
-		tier: straitcache.NewTier[jobHealthKey, *store.JobHealthStats](straitcache.TierConfig[jobHealthKey, *store.JobHealthStats]{
-			Name:        workerJobHealthCacheNamespace,
-			L2:          l2,
-			Consistency: straitcache.BoundedStaleness,
-			MaximumSize: 20_000,
-			TTL:         ttl,
-			TTLJitter:   0.05,
-			DisableL2:   l2 == nil,
-			Clone: func(v *store.JobHealthStats) *store.JobHealthStats {
-				if v == nil {
-					return nil
-				}
-				cp := *v
-				return &cp
-			},
-		}),
+		ttl:  ttl,
+		tier: straitcache.NewTier[jobHealthKey, *store.JobHealthStats](tierConfig),
 	}
+}
+
+func workerJobHealthTierConfig(
+	ttl time.Duration,
+	l2 straitcache.L2[jobHealthKey, *store.JobHealthStats],
+) straitcache.TierConfig[jobHealthKey, *store.JobHealthStats] {
+	return straitcache.TierConfig[jobHealthKey, *store.JobHealthStats]{
+		Name:        workerJobHealthCacheNamespace,
+		L2:          l2,
+		Consistency: straitcache.BoundedStaleness,
+		MaximumSize: 20_000,
+		TTL:         ttl,
+		TTLJitter:   0.05,
+		DisableL2:   l2 == nil,
+		Clone:       cloneJobHealthStats,
+	}
+}
+
+func cloneJobHealthStats(v *store.JobHealthStats) *store.JobHealthStats {
+	if v == nil {
+		return nil
+	}
+	cp := *v
+	return &cp
+}
+
+func newWorkerJobHealthL2(redis redis.Cmdable) straitcache.L2[jobHealthKey, *store.JobHealthStats] {
+	if redis == nil {
+		return nil
+	}
+	return straitcache.NewRedisL2[jobHealthKey, *store.JobHealthStats](
+		straitcache.RedisL2Config[jobHealthKey, *store.JobHealthStats]{
+			Client:    redis,
+			Namespace: workerJobHealthCacheNamespace,
+			Key:       workerJobHealthKeyString,
+		},
+	)
+}
+
+func workerJobHealthKeyString(key jobHealthKey) string {
+	return fmt.Sprintf("%s\x00%d", key.JobID, key.Bucket)
 }
 
 func (c *tierJobHealthCache) Key(jobID string, now time.Time) jobHealthKey {
@@ -390,7 +481,11 @@ func (c *tierJobHealthCache) Key(jobID string, now time.Time) jobHealthKey {
 	return jobHealthKey{JobID: jobID, Bucket: now.Unix() / bucketSecs}
 }
 
-func (c *tierJobHealthCache) Load(ctx context.Context, key jobHealthKey, loader straitcache.LoadFunc[jobHealthKey, *store.JobHealthStats]) (*store.JobHealthStats, error) {
+func (c *tierJobHealthCache) Load(
+	ctx context.Context,
+	key jobHealthKey,
+	loader straitcache.LoadFunc[jobHealthKey, *store.JobHealthStats],
+) (*store.JobHealthStats, error) {
 	if c == nil || c.tier == nil {
 		return loader(ctx, key)
 	}
@@ -710,16 +805,22 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		runCostRecorder:          cfg.RunCostRecorder,
 		secretDecryptor:          cfg.SecretDecryptor,
 		healthScorer:             NewHealthScorer(cfg.Store),
-		onCompleteTrigger:        NewOnCompleteTrigger(cfg.WorkflowLookup, cfg.WorkflowTriggerer, cfg.JobLookup, cfg.JobEnqueuer, slog.Default()),
-		stop:                     make(chan struct{}),
-		done:                     make(chan struct{}),
-		degradedPollInterval:     resolveDegradedPollInterval(cfg.DegradedPollInterval),
-		degraded:                 cfg.Degraded,
-		useDenormalizedDequeue:   cfg.UseDenormalizedDequeue,
-		dbCircuit:                queue.NewDBCircuit(cfg.DBCircuitConfig),
-		queueSnapshotter:         cfg.QueueSnapshotter,
-		workerDispatcher:         cfg.WorkerDispatcher,
-		queueMetrics:             resolveQueueMetrics(),
+		onCompleteTrigger: NewOnCompleteTrigger(
+			cfg.WorkflowLookup,
+			cfg.WorkflowTriggerer,
+			cfg.JobLookup,
+			cfg.JobEnqueuer,
+			slog.Default(),
+		),
+		stop:                   make(chan struct{}),
+		done:                   make(chan struct{}),
+		degradedPollInterval:   resolveDegradedPollInterval(cfg.DegradedPollInterval),
+		degraded:               cfg.Degraded,
+		useDenormalizedDequeue: cfg.UseDenormalizedDequeue,
+		dbCircuit:              queue.NewDBCircuit(cfg.DBCircuitConfig),
+		queueSnapshotter:       cfg.QueueSnapshotter,
+		workerDispatcher:       cfg.WorkerDispatcher,
+		queueMetrics:           resolveQueueMetrics(),
 	}
 }
 
@@ -942,7 +1043,8 @@ func (e *Executor) Run(ctx context.Context) {
 	// Create a child context that cancels when either the parent context
 	// is canceled or Shutdown closes e.stop, so all background goroutines
 	// (heartbeat, pool pruner) exit promptly in both cases.
-	runCtx, runCancel := context.WithCancel(ctx) //nolint:gosec,nolintlint // G118: runCancel is called inside the defer below; must be before pollWG.Wait to avoid deadlock
+	// runCancel must fire before pollWG.Wait or shutdown can deadlock.
+	runCtx, runCancel := context.WithCancel(ctx) //nolint:gosec,nolintlint
 
 	defer func() {
 		runCancel() // Cancel context first so heartbeat and other goroutines exit.

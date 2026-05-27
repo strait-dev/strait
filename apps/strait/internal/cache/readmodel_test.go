@@ -1,7 +1,6 @@
 package cache
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -21,21 +20,21 @@ func TestStatusReadModel_CASRejectsOutOfOrderUpdate(t *testing.T) {
 		TTL:       time.Minute,
 	})
 
-	ok, err := model.CompareAndSet(context.Background(), "run-1", "running", 5)
+	ok, err := model.CompareAndSet(t.Context(), "run-1", "running", 5)
 	if err != nil {
 		t.Fatalf("CompareAndSet(v5) error = %v", err)
 	}
 	if !ok {
 		t.Fatal("CompareAndSet(v5) = false, want true")
 	}
-	ok, err = model.CompareAndSet(context.Background(), "run-1", "queued", 4)
+	ok, err = model.CompareAndSet(t.Context(), "run-1", "queued", 4)
 	if err != nil {
 		t.Fatalf("CompareAndSet(v4) error = %v", err)
 	}
 	if ok {
 		t.Fatal("CompareAndSet(v4) = true, want false")
 	}
-	got, err := model.Get(context.Background(), "run-1")
+	got, err := model.Get(t.Context(), "run-1")
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
@@ -56,13 +55,13 @@ func TestStatusReadModel_SetIfColdDoesNotOverwriteNewerCDCValue(t *testing.T) {
 		TTL:       time.Minute,
 	})
 
-	if ok, err := model.CompareAndSet(context.Background(), "run-1", "completed", 9); err != nil || !ok {
+	if ok, err := model.CompareAndSet(t.Context(), "run-1", "completed", 9); err != nil || !ok {
 		t.Fatalf("CompareAndSet(v9) = %v, %v; want true, nil", ok, err)
 	}
-	if err := model.SetIfCold(context.Background(), "run-1", "queued"); err != nil {
+	if err := model.SetIfCold(t.Context(), "run-1", "queued"); err != nil {
 		t.Fatalf("SetIfCold() error = %v", err)
 	}
-	got, err := model.Get(context.Background(), "run-1")
+	got, err := model.Get(t.Context(), "run-1")
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
@@ -83,10 +82,10 @@ func TestStatusReadModel_SetIfColdVersionRejectsOlderCDCOverwrite(t *testing.T) 
 		TTL:       time.Minute,
 	})
 
-	if err := model.SetIfColdVersion(context.Background(), "run-1", "executing", 10); err != nil {
+	if err := model.SetIfColdVersion(t.Context(), "run-1", "executing", 10); err != nil {
 		t.Fatalf("SetIfColdVersion() error = %v", err)
 	}
-	ok, err := model.CompareAndSet(context.Background(), "run-1", "queued", 7)
+	ok, err := model.CompareAndSet(t.Context(), "run-1", "queued", 7)
 	if err != nil {
 		t.Fatalf("CompareAndSet(v7) error = %v", err)
 	}
@@ -94,7 +93,7 @@ func TestStatusReadModel_SetIfColdVersionRejectsOlderCDCOverwrite(t *testing.T) 
 		t.Fatal("CompareAndSet(v7) = true, want false")
 	}
 
-	got, err := model.Get(context.Background(), "run-1")
+	got, err := model.Get(t.Context(), "run-1")
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}

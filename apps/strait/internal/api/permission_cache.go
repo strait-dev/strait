@@ -13,8 +13,6 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
-var metricsCtx = context.Background()
-
 const permissionCacheNamespace = "permission"
 const permissionProjectCacheNamespace = "permission_project"
 
@@ -79,8 +77,8 @@ func newPermissionCache(ttl time.Duration, deps ...apiCacheDeps) *permissionCach
 				return clone
 			},
 			OnDelete: func(string) {
-				c.evictions.Add(metricsCtx, 1)
-				c.entriesUp.Add(metricsCtx, -1)
+				c.evictions.Add(cacheMetricsContext, 1)
+				c.entriesUp.Add(cacheMetricsContext, -1)
 			},
 		})
 		if dep.Registry != nil {
@@ -104,16 +102,16 @@ func (c *permissionCache) key(projectID, userID string) string {
 func (c *permissionCache) Get(projectID, userID string) ([]string, bool) {
 	if c == nil || c.disabled || c.inner == nil {
 		if c != nil {
-			c.misses.Add(metricsCtx, 1)
+			c.misses.Add(cacheMetricsContext, 1)
 		}
 		return nil, false
 	}
-	perms, err := c.inner.Get(metricsCtx, c.key(projectID, userID), nil)
+	perms, err := c.inner.Get(cacheMetricsContext, c.key(projectID, userID), nil)
 	if err != nil {
-		c.misses.Add(metricsCtx, 1)
+		c.misses.Add(cacheMetricsContext, 1)
 		return nil, false
 	}
-	c.hits.Add(metricsCtx, 1)
+	c.hits.Add(cacheMetricsContext, 1)
 	return perms, true
 }
 
@@ -130,10 +128,18 @@ func (c *permissionCache) SetWithVersion(projectID, userID string, permissions [
 	}
 	key := c.key(projectID, userID)
 	_, existed := c.inner.GetIfPresent(key)
-	_, _ = c.inner.StrongWriteThrough(metricsCtx, straitcache.StrongNamespacePolicy{Namespace: permissionCacheNamespace}, key, key, permissions, version, c.bus)
+	_, _ = c.inner.StrongWriteThrough(
+		cacheMetricsContext,
+		strongCachePolicy(permissionCacheNamespace),
+		key,
+		key,
+		permissions,
+		version,
+		c.bus,
+	)
 	c.trackProjectKey(projectID, key)
 	if !existed {
-		c.entriesUp.Add(metricsCtx, 1)
+		c.entriesUp.Add(cacheMetricsContext, 1)
 	}
 }
 
@@ -146,7 +152,14 @@ func (c *permissionCache) InvalidateWithVersion(projectID, userID string, versio
 		return
 	}
 	key := c.key(projectID, userID)
-	_ = c.inner.StrongInvalidate(metricsCtx, straitcache.StrongNamespacePolicy{Namespace: permissionCacheNamespace}, key, key, straitcache.VersionBarrier{Version: version}, c.bus)
+	_ = c.inner.StrongInvalidate(
+		cacheMetricsContext,
+		strongCachePolicy(permissionCacheNamespace),
+		key,
+		key,
+		cacheVersionBarrier(version),
+		c.bus,
+	)
 	c.untrackProjectKey(projectID, key)
 }
 
@@ -155,7 +168,7 @@ func (c *permissionCache) InvalidateProject(ctx context.Context, projectID strin
 		return
 	}
 	if ctx == nil {
-		ctx = metricsCtx
+		ctx = cacheMetricsContext
 	}
 	c.invalidateProjectLocal(ctx, projectID)
 	if c.bus != nil {

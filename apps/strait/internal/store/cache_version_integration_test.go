@@ -14,7 +14,7 @@ import (
 )
 
 func TestCacheVersion_SchemaCoversStrongAndStatusTables(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	tables := []string{
 		"api_keys",
@@ -72,7 +72,7 @@ func TestCacheVersion_SchemaCoversStrongAndStatusTables(t *testing.T) {
 }
 
 func TestCacheVersion_DefaultsBumpsAndRollback(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	q := mustStore(t)
 	mustClean(t, ctx)
 
@@ -98,7 +98,11 @@ func TestCacheVersion_DefaultsBumpsAndRollback(t *testing.T) {
 	}
 	assertCacheVersion(t, ctx, "job_runs", run.ID, 2)
 
-	if _, err := testDB.Pool.Exec(ctx, `UPDATE jobs SET description = 'cache-version-bumped' WHERE id = $1`, job.ID); err != nil {
+	if _, err := testDB.Pool.Exec(
+		ctx,
+		`UPDATE jobs SET description = 'cache-version-bumped' WHERE id = $1`,
+		job.ID,
+	); err != nil {
 		t.Fatalf("update job: %v", err)
 	}
 	assertCacheVersion(t, ctx, "jobs", job.ID, 2)
@@ -118,7 +122,7 @@ func TestCacheVersion_DefaultsBumpsAndRollback(t *testing.T) {
 }
 
 func TestCacheVersion_RunStatusReadReturnsCacheVersion(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	q := mustStore(t)
 	mustClean(t, ctx)
 
@@ -152,7 +156,7 @@ func TestCacheVersion_RunStatusReadReturnsCacheVersion(t *testing.T) {
 }
 
 func TestCacheVersion_ProjectQuotaRoundTripAndBump(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	q := mustStore(t)
 	mustClean(t, ctx)
 
@@ -194,7 +198,7 @@ func TestCacheVersion_ProjectQuotaRoundTripAndBump(t *testing.T) {
 }
 
 func TestCacheNamespaceVersion_BumpEnsureAndRollback(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	q := mustStore(t)
 	mustClean(t, ctx)
 
@@ -234,7 +238,7 @@ func TestCacheNamespaceVersion_BumpEnsureAndRollback(t *testing.T) {
 }
 
 func TestCacheVersion_JobDependencyRoundTripAndBump(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	q := mustStore(t)
 	mustClean(t, ctx)
 
@@ -329,7 +333,7 @@ func TestCacheVersion_JobDependencyRoundTripAndBump(t *testing.T) {
 }
 
 func TestCacheVersion_ConcurrentUpdatesProduceMonotonicVersion(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	q := mustStore(t)
 	mustClean(t, ctx)
 

@@ -92,7 +92,7 @@ func TestNewCacheCore_L1HitAvoidsL2AndLoader(t *testing.T) {
 		MaximumSize: 10,
 		TTL:         time.Minute,
 	})
-	if err := tier.Set(context.Background(), "k", "cached", 1); err != nil {
+	if err := tier.Set(t.Context(), "k", "cached", 1); err != nil {
 		t.Fatalf("Set() error = %v", err)
 	}
 	l2.mu.Lock()
@@ -100,7 +100,7 @@ func TestNewCacheCore_L1HitAvoidsL2AndLoader(t *testing.T) {
 	l2.sets = 0
 	l2.mu.Unlock()
 
-	got, err := tier.Get(context.Background(), "k", func(context.Context, string) (string, error) {
+	got, err := tier.Get(t.Context(), "k", func(context.Context, string) (string, error) {
 		t.Fatal("loader should not be called on L1 hit")
 		return "", nil
 	})
@@ -127,7 +127,7 @@ func TestNewCacheCore_L2HitBackfillsL1(t *testing.T) {
 		TTL:         time.Minute,
 	})
 
-	got, err := tier.Get(context.Background(), "k", func(context.Context, string) (string, error) {
+	got, err := tier.Get(t.Context(), "k", func(context.Context, string) (string, error) {
 		t.Fatal("loader should not be called on L2 hit")
 		return "", nil
 	})
@@ -140,7 +140,7 @@ func TestNewCacheCore_L2HitBackfillsL1(t *testing.T) {
 	l2.mu.Lock()
 	l2.gets = 0
 	l2.mu.Unlock()
-	got, err = tier.Get(context.Background(), "k", nil)
+	got, err = tier.Get(t.Context(), "k", nil)
 	if err != nil {
 		t.Fatalf("Get() second error = %v", err)
 	}
@@ -165,7 +165,7 @@ func TestNewCacheCore_FullMissLoadsAndNegativeCaches(t *testing.T) {
 		EnableNegative: true,
 	})
 
-	got, err := tier.Get(context.Background(), "missing", func(context.Context, string) (*int, error) {
+	got, err := tier.Get(t.Context(), "missing", func(context.Context, string) (*int, error) {
 		loads.Add(1)
 		return nil, nil
 	})
@@ -175,7 +175,7 @@ func TestNewCacheCore_FullMissLoadsAndNegativeCaches(t *testing.T) {
 	if got != nil {
 		t.Fatalf("Get() = %v, want nil", got)
 	}
-	got, err = tier.Get(context.Background(), "missing", func(context.Context, string) (*int, error) {
+	got, err = tier.Get(t.Context(), "missing", func(context.Context, string) (*int, error) {
 		loads.Add(1)
 		return new(int), nil
 	})
@@ -207,7 +207,7 @@ func TestNewCacheCore_SingleflightCoalescesMisses(t *testing.T) {
 	for range callers {
 		wg.Go(func() {
 			<-start
-			got, err := tier.Get(context.Background(), "k", func(context.Context, string) (string, error) {
+			got, err := tier.Get(t.Context(), "k", func(context.Context, string) (string, error) {
 				loads.Add(1)
 				time.Sleep(10 * time.Millisecond)
 				return "loaded", nil
@@ -248,7 +248,7 @@ func TestNewCacheCore_FailOpenFallsThroughToLoader(t *testing.T) {
 		},
 	})
 
-	got, err := tier.Get(context.Background(), "k", func(context.Context, string) (string, error) {
+	got, err := tier.Get(t.Context(), "k", func(context.Context, string) (string, error) {
 		return "db", nil
 	})
 	if err != nil {
@@ -284,7 +284,7 @@ func TestNewCacheCore_CloneAndSanitizeBoundaries(t *testing.T) {
 		},
 	})
 
-	got, err := tier.Get(context.Background(), "k", func(context.Context, string) (authDTO, error) {
+	got, err := tier.Get(t.Context(), "k", func(context.Context, string) (authDTO, error) {
 		return authDTO{Scopes: []string{"runs:read"}, Secret: "plaintext"}, nil
 	})
 	if err != nil {
@@ -294,7 +294,7 @@ func TestNewCacheCore_CloneAndSanitizeBoundaries(t *testing.T) {
 		t.Fatalf("cached secret = %q, want empty", got.Secret)
 	}
 	got.Scopes[0] = "mutated"
-	again, err := tier.Get(context.Background(), "k", nil)
+	again, err := tier.Get(t.Context(), "k", nil)
 	if err != nil {
 		t.Fatalf("Get() again error = %v", err)
 	}
@@ -314,16 +314,16 @@ func TestStrict_CASRejectsEqualAndLowerVersions(t *testing.T) {
 		TTL:         time.Minute,
 	})
 
-	if ok, err := tier.CompareAndSet(context.Background(), "k", "v2", 2); err != nil || !ok {
+	if ok, err := tier.CompareAndSet(t.Context(), "k", "v2", 2); err != nil || !ok {
 		t.Fatalf("CompareAndSet(v2) = %v, %v; want true nil", ok, err)
 	}
-	if ok, err := tier.CompareAndSet(context.Background(), "k", "v1", 1); err != nil || ok {
+	if ok, err := tier.CompareAndSet(t.Context(), "k", "v1", 1); err != nil || ok {
 		t.Fatalf("CompareAndSet(v1) = %v, %v; want false nil", ok, err)
 	}
-	if ok, err := tier.CompareAndSet(context.Background(), "k", "v2-equal", 2); err != nil || ok {
+	if ok, err := tier.CompareAndSet(t.Context(), "k", "v2-equal", 2); err != nil || ok {
 		t.Fatalf("CompareAndSet(equal) = %v, %v; want false nil", ok, err)
 	}
-	got, err := tier.GetConsistent(context.Background(), "k", 2, nil)
+	got, err := tier.GetConsistent(t.Context(), "k", 2, nil)
 	if err != nil {
 		t.Fatalf("GetConsistent() error = %v", err)
 	}
@@ -343,11 +343,11 @@ func TestStrict_GetConsistentIgnoresStaleL1AndL2(t *testing.T) {
 		MaximumSize: 10,
 		TTL:         time.Minute,
 	})
-	if err := tier.Set(context.Background(), "k", "stale-l1", 1); err != nil {
+	if err := tier.Set(t.Context(), "k", "stale-l1", 1); err != nil {
 		t.Fatalf("Set() error = %v", err)
 	}
 
-	got, err := tier.GetConsistent(context.Background(), "k", 5, func(context.Context, string) (string, error) {
+	got, err := tier.GetConsistent(t.Context(), "k", 5, func(context.Context, string) (string, error) {
 		return "fresh", nil
 	})
 	if err != nil {

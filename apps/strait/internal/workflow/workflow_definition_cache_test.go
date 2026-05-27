@@ -44,7 +44,7 @@ func TestWorkflowDefinitionCache_EngineCachesAndClonesSteps(t *testing.T) {
 		VersionTTL: time.Minute,
 	})
 
-	got, err := engine.listStepsByWorkflowVersion(context.Background(), "wf-1", 7)
+	got, err := engine.listStepsByWorkflowVersion(t.Context(), "wf-1", 7)
 	if err != nil {
 		t.Fatalf("first listStepsByWorkflowVersion() error = %v", err)
 	}
@@ -54,7 +54,7 @@ func TestWorkflowDefinitionCache_EngineCachesAndClonesSteps(t *testing.T) {
 	got[0].ApprovalApprovers[0] = "poisoned"
 	got[0].StageNotifications[0] = '['
 
-	got, err = engine.listStepsByWorkflowVersion(context.Background(), "wf-1", 7)
+	got, err = engine.listStepsByWorkflowVersion(t.Context(), "wf-1", 7)
 	if err != nil {
 		t.Fatalf("second listStepsByWorkflowVersion() error = %v", err)
 	}
@@ -64,7 +64,10 @@ func TestWorkflowDefinitionCache_EngineCachesAndClonesSteps(t *testing.T) {
 	if got[0].DependsOn[0] != "root" || got[0].ApprovalApprovers[0] != "user-1" {
 		t.Fatalf("cached steps were mutated: %+v", got[0])
 	}
-	if string(got[0].Condition) != `{"if":true}` || string(got[0].Payload) != `{"payload":true}` || string(got[0].StageNotifications) != `{"notify":true}` {
+	byteFieldsWereCloned := string(got[0].Condition) == `{"if":true}` &&
+		string(got[0].Payload) == `{"payload":true}` &&
+		string(got[0].StageNotifications) == `{"notify":true}`
+	if !byteFieldsWereCloned {
 		t.Fatalf("cached byte fields were mutated: %+v", got[0])
 	}
 }
@@ -84,7 +87,7 @@ func TestWorkflowDefinitionCache_CallbackUsesSharedRedisL2(t *testing.T) {
 		Redis:      rdb,
 		VersionTTL: time.Minute,
 	})
-	if _, err := seed.listStepsByWorkflowVersion(context.Background(), "wf-shared", 3); err != nil {
+	if _, err := seed.listStepsByWorkflowVersion(t.Context(), "wf-shared", 3); err != nil {
 		t.Fatalf("seed listStepsByWorkflowVersion() error = %v", err)
 	}
 
@@ -99,7 +102,7 @@ func TestWorkflowDefinitionCache_CallbackUsesSharedRedisL2(t *testing.T) {
 		VersionTTL: time.Minute,
 	})
 
-	got, err := cb.loadStepDefinitions(context.Background(), &domain.WorkflowRun{
+	got, err := cb.loadStepDefinitions(t.Context(), &domain.WorkflowRun{
 		ID:              "run-1",
 		WorkflowID:      "wf-shared",
 		WorkflowVersion: 3,

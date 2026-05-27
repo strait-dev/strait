@@ -56,7 +56,7 @@ func (r *cachedAPIKeyResolver) LookupAPIKeyByHash(ctx context.Context, keyHash s
 		}
 		return r.fallback.LookupAPIKeyByHash(ctx, keyHash)
 	}
-	got, err := r.tier.GetConsistentVersioned(ctx, keyHash, 0, func(loadCtx context.Context, hash string) (straitcache.Versioned[*domain.APIKey], error) {
+	loader := func(loadCtx context.Context, hash string) (straitcache.Versioned[*domain.APIKey], error) {
 		key, err := r.fallback.LookupAPIKeyByHash(loadCtx, hash)
 		if errors.Is(err, store.ErrAPIKeyNotFound) {
 			return straitcache.Versioned[*domain.APIKey]{Value: nil, Version: 0}, nil
@@ -65,7 +65,8 @@ func (r *cachedAPIKeyResolver) LookupAPIKeyByHash(ctx context.Context, keyHash s
 			return straitcache.Versioned[*domain.APIKey]{}, err
 		}
 		return straitcache.Versioned[*domain.APIKey]{Value: key, Version: grpcAPIKeyCacheVersion(key)}, nil
-	})
+	}
+	got, err := r.tier.GetConsistentVersioned(ctx, keyHash, 0, loader)
 	if err != nil {
 		return nil, err
 	}

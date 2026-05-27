@@ -1,7 +1,6 @@
 package cdc
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -20,14 +19,14 @@ func TestStatusReadModelHandler_PopulatesRedisAndRejectsOutOfOrder(t *testing.T)
 	t.Cleanup(func() { _ = rdb.Close() })
 	handlers := NewCacheReadModelHandlers(rdb, time.Minute, nil)
 
-	if err := handlers.JobRuns.Handle(context.Background(), Message{
+	if err := handlers.JobRuns.Handle(t.Context(), Message{
 		Action:   ActionUpdate,
 		Record:   []byte(`{"id":"run-1","job_id":"job-1","project_id":"proj-1","status":"executing","cache_version":7}`),
 		Metadata: Metadata{TableName: "job_runs"},
 	}); err != nil {
 		t.Fatalf("Handle(v7) error = %v", err)
 	}
-	if err := handlers.JobRuns.Handle(context.Background(), Message{
+	if err := handlers.JobRuns.Handle(t.Context(), Message{
 		Action:   ActionUpdate,
 		Record:   []byte(`{"id":"run-1","job_id":"job-1","project_id":"proj-1","status":"queued","cache_version":6}`),
 		Metadata: Metadata{TableName: "job_runs"},
@@ -40,7 +39,7 @@ func TestStatusReadModelHandler_PopulatesRedisAndRejectsOutOfOrder(t *testing.T)
 		Namespace: "status_job_run",
 		TTL:       time.Minute,
 	})
-	got, err := model.Get(context.Background(), "run-1")
+	got, err := model.Get(t.Context(), "run-1")
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
@@ -57,14 +56,14 @@ func TestStatusReadModelHandler_DeleteEvictsRedis(t *testing.T) {
 	t.Cleanup(func() { _ = rdb.Close() })
 	handlers := NewCacheReadModelHandlers(rdb, time.Minute, nil)
 
-	if err := handlers.WorkflowRuns.Handle(context.Background(), Message{
+	if err := handlers.WorkflowRuns.Handle(t.Context(), Message{
 		Action:   ActionUpdate,
 		Record:   []byte(`{"id":"wfr-1","workflow_id":"wf-1","project_id":"proj-1","status":"running","cache_version":3}`),
 		Metadata: Metadata{TableName: "workflow_runs"},
 	}); err != nil {
 		t.Fatalf("Handle(update) error = %v", err)
 	}
-	if err := handlers.WorkflowRuns.Handle(context.Background(), Message{
+	if err := handlers.WorkflowRuns.Handle(t.Context(), Message{
 		Action:   ActionDelete,
 		Record:   []byte(`{"id":"wfr-1","workflow_id":"wf-1","project_id":"proj-1","status":"running","cache_version":4}`),
 		Metadata: Metadata{TableName: "workflow_runs"},
@@ -77,7 +76,7 @@ func TestStatusReadModelHandler_DeleteEvictsRedis(t *testing.T) {
 		Namespace: "status_workflow_run",
 		TTL:       time.Minute,
 	})
-	if _, err := model.Get(context.Background(), "wfr-1"); err == nil {
+	if _, err := model.Get(t.Context(), "wfr-1"); err == nil {
 		t.Fatal("Get() error = nil, want cache miss after delete")
 	}
 }
@@ -90,14 +89,14 @@ func TestStatusReadModelHandler_OutOfOrderDeleteDoesNotRemoveNewerRun(t *testing
 	t.Cleanup(func() { _ = rdb.Close() })
 	handlers := NewCacheReadModelHandlers(rdb, time.Minute, nil)
 
-	if err := handlers.JobRuns.Handle(context.Background(), Message{
+	if err := handlers.JobRuns.Handle(t.Context(), Message{
 		Action:   ActionUpdate,
 		Record:   []byte(`{"id":"run-newer","job_id":"job-1","project_id":"proj-1","status":"executing","cache_version":7}`),
 		Metadata: Metadata{TableName: "job_runs"},
 	}); err != nil {
 		t.Fatalf("Handle(update v7) error = %v", err)
 	}
-	if err := handlers.JobRuns.Handle(context.Background(), Message{
+	if err := handlers.JobRuns.Handle(t.Context(), Message{
 		Action:   ActionDelete,
 		Record:   []byte(`{"id":"run-newer","job_id":"job-1","project_id":"proj-1","status":"queued","cache_version":6}`),
 		Metadata: Metadata{TableName: "job_runs"},
@@ -110,7 +109,7 @@ func TestStatusReadModelHandler_OutOfOrderDeleteDoesNotRemoveNewerRun(t *testing
 		Namespace: "status_job_run",
 		TTL:       time.Minute,
 	})
-	got, err := model.Get(context.Background(), "run-newer")
+	got, err := model.Get(t.Context(), "run-newer")
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
@@ -126,10 +125,13 @@ func TestStatusReadModelHandler_DeleteBarrierSelfHealsOnEqualVersionUpdate(t *te
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { _ = rdb.Close() })
 	handlers := NewCacheReadModelHandlers(rdb, time.Minute, nil)
+	record := []byte(
+		`{"id":"wfr-equal","workflow_id":"wf-1","project_id":"proj-1","status":"running","cache_version":8}`,
+	)
 
-	if err := handlers.WorkflowRuns.Handle(context.Background(), Message{
+	if err := handlers.WorkflowRuns.Handle(t.Context(), Message{
 		Action:   ActionDelete,
-		Record:   []byte(`{"id":"wfr-equal","workflow_id":"wf-1","project_id":"proj-1","status":"running","cache_version":8}`),
+		Record:   record,
 		Metadata: Metadata{TableName: "workflow_runs"},
 	}); err != nil {
 		t.Fatalf("Handle(delete v8) error = %v", err)
@@ -140,18 +142,18 @@ func TestStatusReadModelHandler_DeleteBarrierSelfHealsOnEqualVersionUpdate(t *te
 		Namespace: "status_workflow_run",
 		TTL:       time.Minute,
 	})
-	if _, err := model.Get(context.Background(), "wfr-equal"); err == nil {
+	if _, err := model.Get(t.Context(), "wfr-equal"); err == nil {
 		t.Fatal("Get() error = nil, want miss while delete barrier is present")
 	}
 
-	if err := handlers.WorkflowRuns.Handle(context.Background(), Message{
+	if err := handlers.WorkflowRuns.Handle(t.Context(), Message{
 		Action:   ActionUpdate,
-		Record:   []byte(`{"id":"wfr-equal","workflow_id":"wf-1","project_id":"proj-1","status":"running","cache_version":8}`),
+		Record:   record,
 		Metadata: Metadata{TableName: "workflow_runs"},
 	}); err != nil {
 		t.Fatalf("Handle(update v8) error = %v", err)
 	}
-	got, err := model.Get(context.Background(), "wfr-equal")
+	got, err := model.Get(t.Context(), "wfr-equal")
 	if err != nil {
 		t.Fatalf("Get() after equal update error = %v", err)
 	}
@@ -168,7 +170,7 @@ func TestStatusReadModelHandler_BadPayloadIsIgnored(t *testing.T) {
 	t.Cleanup(func() { _ = rdb.Close() })
 	handlers := NewCacheReadModelHandlers(rdb, time.Minute, nil)
 
-	if err := handlers.JobRuns.Handle(context.Background(), Message{
+	if err := handlers.JobRuns.Handle(t.Context(), Message{
 		Action:   ActionUpdate,
 		Record:   []byte(`{"id":`),
 		Metadata: Metadata{TableName: "job_runs"},

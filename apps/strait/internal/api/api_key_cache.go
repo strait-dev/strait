@@ -65,11 +65,15 @@ func newAPIKeyCache(ttl time.Duration, deps ...apiCacheDeps) *apiKeyCache {
 	return c
 }
 
-func (c *apiKeyCache) Get(ctx context.Context, keyHash string, loader func(context.Context, string) (*domain.APIKey, error)) (*domain.APIKey, error) {
+func (c *apiKeyCache) Get(
+	ctx context.Context,
+	keyHash string,
+	loader func(context.Context, string) (*domain.APIKey, error),
+) (*domain.APIKey, error) {
 	if c == nil || c.tier == nil {
 		return loader(ctx, keyHash)
 	}
-	got, err := c.tier.GetConsistentVersioned(ctx, keyHash, 0, func(loadCtx context.Context, hash string) (straitcache.Versioned[*domain.APIKey], error) {
+	versionedLoader := func(loadCtx context.Context, hash string) (straitcache.Versioned[*domain.APIKey], error) {
 		key, err := loader(loadCtx, hash)
 		if errors.Is(err, store.ErrAPIKeyNotFound) {
 			return straitcache.Versioned[*domain.APIKey]{Value: nil, Version: 0}, nil
@@ -78,7 +82,8 @@ func (c *apiKeyCache) Get(ctx context.Context, keyHash string, loader func(conte
 			return straitcache.Versioned[*domain.APIKey]{}, err
 		}
 		return straitcache.Versioned[*domain.APIKey]{Value: key, Version: apiKeyCacheVersion(key)}, nil
-	})
+	}
+	got, err := c.tier.GetConsistentVersioned(ctx, keyHash, 0, versionedLoader)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +94,15 @@ func (c *apiKeyCache) Set(ctx context.Context, key *domain.APIKey) {
 	if c == nil || c.tier == nil || key == nil || key.KeyHash == "" {
 		return
 	}
-	_, _ = c.tier.StrongWriteThrough(ctx, straitcache.StrongNamespacePolicy{Namespace: apiKeyAuthCacheNamespace}, key.KeyHash, key.KeyHash, key, apiKeyCacheVersion(key), c.bus)
+	_, _ = c.tier.StrongWriteThrough(
+		ctx,
+		strongCachePolicy(apiKeyAuthCacheNamespace),
+		key.KeyHash,
+		key.KeyHash,
+		key,
+		apiKeyCacheVersion(key),
+		c.bus,
+	)
 }
 
 func (c *apiKeyCache) Invalidate(ctx context.Context, keyHash string) {
@@ -100,7 +113,14 @@ func (c *apiKeyCache) InvalidateWithVersion(ctx context.Context, keyHash string,
 	if c == nil || c.tier == nil || keyHash == "" {
 		return
 	}
-	_ = c.tier.StrongInvalidate(ctx, straitcache.StrongNamespacePolicy{Namespace: apiKeyAuthCacheNamespace}, keyHash, keyHash, straitcache.VersionBarrier{Version: version}, c.bus)
+	_ = c.tier.StrongInvalidate(
+		ctx,
+		strongCachePolicy(apiKeyAuthCacheNamespace),
+		keyHash,
+		keyHash,
+		cacheVersionBarrier(version),
+		c.bus,
+	)
 }
 
 func sanitizeAPIKeyForAuthCache(key *domain.APIKey) *domain.APIKey {

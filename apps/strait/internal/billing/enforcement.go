@@ -260,7 +260,8 @@ func NewEnforcer(store Store, rdb redis.Cmdable, logger *slog.Logger, opts ...En
 	})
 	e.orgCache = orgCache
 	if e.cacheRegistry != nil {
-		e.cacheRegistry.Register(orgLimitsCacheNamespace, straitcache.UpdatingStringTierHandler[*cachedOrgLimits]{Tier: orgCache})
+		handler := straitcache.UpdatingStringTierHandler[*cachedOrgLimits]{Tier: orgCache}
+		e.cacheRegistry.Register(orgLimitsCacheNamespace, handler)
 	}
 	return e
 }
@@ -406,7 +407,14 @@ func (e *Enforcer) InvalidateOrgCacheWithVersion(orgID string, version int64) {
 	if e == nil || e.orgCache == nil {
 		return
 	}
-	_ = e.orgCache.StrongInvalidate(context.Background(), straitcache.StrongNamespacePolicy{Namespace: orgLimitsCacheNamespace}, orgID, orgID, straitcache.VersionBarrier{Version: version}, e.cacheBus)
+	_ = e.orgCache.StrongInvalidate(
+		context.Background(),
+		straitcache.StrongNamespacePolicy{Namespace: orgLimitsCacheNamespace},
+		orgID,
+		orgID,
+		straitcache.VersionBarrier{Version: version},
+		e.cacheBus,
+	)
 }
 
 // getEnforcementMode returns the enforcement mode for an org from cache.
@@ -504,11 +512,20 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 		if err != nil {
 			if errors.Is(err, ErrSubscriptionNotFound) {
 				limits := GetPlanLimits(domain.PlanFree)
-				_, _ = e.orgCache.StrongWriteThrough(ctx, straitcache.StrongNamespacePolicy{Namespace: orgLimitsCacheNamespace}, orgID, orgID, &cachedOrgLimits{
+				cached := &cachedOrgLimits{
 					tier:            domain.PlanFree,
 					limits:          limits,
 					enforcementMode: "enforce",
-				}, 1, e.cacheBus)
+				}
+				_, _ = e.orgCache.StrongWriteThrough(
+					ctx,
+					straitcache.StrongNamespacePolicy{Namespace: orgLimitsCacheNamespace},
+					orgID,
+					orgID,
+					cached,
+					1,
+					e.cacheBus,
+				)
 				return limits, nil
 			}
 			return OrgPlanLimits{}, fmt.Errorf("getting org subscription: %w", err)
@@ -587,11 +604,20 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 		limits.MaxConcurrentRuns = *sub.OverrideConcurrentRunLimit
 	}
 
-	_, _ = e.orgCache.StrongWriteThrough(ctx, straitcache.StrongNamespacePolicy{Namespace: orgLimitsCacheNamespace}, orgID, orgID, &cachedOrgLimits{
+	cached := &cachedOrgLimits{
 		tier:            tier,
 		limits:          limits,
 		enforcementMode: sub.EnforcementMode,
-	}, orgSubscriptionCacheVersion(sub), e.cacheBus)
+	}
+	_, _ = e.orgCache.StrongWriteThrough(
+		ctx,
+		straitcache.StrongNamespacePolicy{Namespace: orgLimitsCacheNamespace},
+		orgID,
+		orgID,
+		cached,
+		orgSubscriptionCacheVersion(sub),
+		e.cacheBus,
+	)
 	return limits, nil
 }
 

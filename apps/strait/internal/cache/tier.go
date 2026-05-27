@@ -120,13 +120,22 @@ func (t *Tier[K, V]) Get(ctx context.Context, key K, loader LoadFunc[K, V]) (V, 
 		entry, err := t.loadThroughL2(ctx, key, 0, loader)
 		return t.valueFromEntry(entry, err)
 	}
-	entry, err := t.l1.Get(ctx, key, otter.LoaderFunc[K, cacheEntry[V]](func(loadCtx context.Context, loadKey K) (cacheEntry[V], error) {
+	l1Loader := otter.LoaderFunc[K, cacheEntry[V]](func(
+		loadCtx context.Context,
+		loadKey K,
+	) (cacheEntry[V], error) {
 		return t.loadThroughL2(loadCtx, loadKey, 0, loader)
-	}))
+	})
+	entry, err := t.l1.Get(ctx, key, l1Loader)
 	return t.valueFromEntry(entry, err)
 }
 
-func (t *Tier[K, V]) GetConsistent(ctx context.Context, key K, minVersion int64, loader LoadFunc[K, V]) (V, error) {
+func (t *Tier[K, V]) GetConsistent(
+	ctx context.Context,
+	key K,
+	minVersion int64,
+	loader LoadFunc[K, V],
+) (V, error) {
 	if t == nil {
 		var zero V
 		return zero, fmt.Errorf("cache tier is nil")
@@ -158,7 +167,7 @@ func (t *Tier[K, V]) Set(ctx context.Context, key K, value V, version int64) err
 		return nil
 	}
 	if err := t.l2.Set(ctx, key, entry, t.ttl); err != nil {
-		t.failOpen("set", err)
+		t.failOpen(ctx, "set", err)
 		return nil
 	}
 	if t.cfg.OnL2Set != nil {
@@ -180,7 +189,7 @@ func (t *Tier[K, V]) CompareAndSet(ctx context.Context, key K, value V, version 
 	}
 	ok, err := t.l2.CompareAndSet(ctx, key, entry, t.ttl)
 	if err != nil {
-		t.failOpen("cas", err)
+		t.failOpen(ctx, "cas", err)
 		return false, nil
 	}
 	if !ok {
@@ -208,7 +217,7 @@ func (t *Tier[K, V]) Invalidate(ctx context.Context, key K) {
 	}
 	if !t.disableL2 && t.l2 != nil {
 		if err := t.l2.Delete(ctx, key); err != nil {
-			t.failOpen("delete", err)
+			t.failOpen(ctx, "delete", err)
 		}
 	}
 }
@@ -233,7 +242,7 @@ func (t *Tier[K, V]) applyUpdate(ctx context.Context, key K, entry cacheEntry[V]
 	if !t.disableL2 && t.l2 != nil {
 		ok, err := t.l2.CompareAndSet(ctx, key, entry, t.ttl)
 		if err != nil {
-			t.failOpen("bus_update_cas", err)
+			t.failOpen(ctx, "bus_update_cas", err)
 			return
 		}
 		if !ok {
@@ -243,7 +252,7 @@ func (t *Tier[K, V]) applyUpdate(ctx context.Context, key K, entry cacheEntry[V]
 			}
 			newer, getErr := t.l2.Get(ctx, key)
 			if getErr != nil {
-				t.failOpen("bus_update_get", getErr)
+				t.failOpen(ctx, "bus_update_get", getErr)
 				return
 			}
 			if newer.Version > entry.Version {
@@ -276,7 +285,12 @@ func (t *Tier[K, V]) Stats() stats.Stats {
 	return t.stats.Snapshot()
 }
 
-func (t *Tier[K, V]) loadThroughL2(ctx context.Context, key K, minVersion int64, loader LoadFunc[K, V]) (cacheEntry[V], error) {
+func (t *Tier[K, V]) loadThroughL2(
+	ctx context.Context,
+	key K,
+	minVersion int64,
+	loader LoadFunc[K, V],
+) (cacheEntry[V], error) {
 	if !t.disableL2 && t.l2 != nil {
 		entry, err := t.l2.Get(ctx, key)
 		switch {
@@ -308,7 +322,7 @@ func (t *Tier[K, V]) loadThroughL2(ctx context.Context, key K, minVersion int64,
 				t.cfg.OnL2Miss()
 			}
 		default:
-			t.failOpen("get", err)
+			t.failOpen(ctx, "get", err)
 		}
 	}
 	if loader == nil {
@@ -325,7 +339,7 @@ func (t *Tier[K, V]) loadThroughL2(ctx context.Context, key K, minVersion int64,
 	if !t.disableL2 && t.l2 != nil {
 		entry.Version = minVersion
 		if ok, err := t.l2.CompareAndSet(ctx, key, entry, t.ttl); err != nil {
-			t.failOpen("cas_fill", err)
+			t.failOpen(ctx, "cas_fill", err)
 		} else if !ok {
 			recordCacheCASReject(ctx, t.name)
 			if t.cfg.OnCASRejected != nil {
@@ -371,7 +385,7 @@ func (t *Tier[K, V]) applyBarrier(ctx context.Context, key K, version int64) {
 	}
 	ok, err := t.l2.CompareAndSet(ctx, key, entry, t.ttl)
 	if err != nil {
-		t.failOpen("barrier", err)
+		t.failOpen(ctx, "barrier", err)
 		return
 	}
 	if !ok {
@@ -412,9 +426,9 @@ func (t *Tier[K, V]) isNegative(v V) bool {
 	}
 }
 
-func (t *Tier[K, V]) failOpen(operation string, err error) {
+func (t *Tier[K, V]) failOpen(ctx context.Context, operation string, err error) {
 	if err != nil {
-		recordCacheFailOpen(context.Background(), t.name, operation)
+		recordCacheFailOpen(ctx, t.name, operation)
 	}
 	if t != nil && t.cfg.OnFailOpen != nil && err != nil {
 		t.cfg.OnFailOpen(operation, err)

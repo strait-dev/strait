@@ -31,7 +31,7 @@ func TestQuotaCache_HitAndMiss(t *testing.T) {
 	var calls atomic.Int64
 	q := &store.ProjectQuota{ProjectID: "p1", MaxQueuedRuns: 100}
 	c := newQuotaCacheWithLoader(5*time.Second, &calls, q, nil)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// First call: miss, loads from DB.
 	got, err := c.Get(ctx, "p1")
@@ -63,7 +63,7 @@ func TestQuotaCache_Invalidate(t *testing.T) {
 
 	var calls atomic.Int64
 	c := newQuotaCacheWithLoader(5*time.Second, &calls, &store.ProjectQuota{ProjectID: "p1"}, nil)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, _ = c.Get(ctx, "p1")
 	_, _ = c.Get(ctx, "p1")
@@ -94,7 +94,7 @@ func TestQuotaCache_SingleflightDedupes(t *testing.T) {
 		return &store.ProjectQuota{ProjectID: "p1", MaxQueuedRuns: 42}, nil
 	})
 
-	ctx := context.Background()
+	ctx := t.Context()
 	var ready sync.WaitGroup
 	ready.Add(goroutines)
 	start := make(chan struct{})
@@ -137,7 +137,7 @@ func TestQuotaCache_TTLExpiry(t *testing.T) {
 	// Otter's timer wheel granularity is ~1s, so TTL must be >= 1s.
 	var calls atomic.Int64
 	c := newQuotaCacheWithLoader(1*time.Second, &calls, &store.ProjectQuota{ProjectID: "p1"}, nil)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, _ = c.Get(ctx, "p1")
 	if calls.Load() != 1 {
@@ -158,7 +158,7 @@ func TestQuotaCache_PropagatesError(t *testing.T) {
 	sentinel := errors.New("load failed")
 	var calls atomic.Int64
 	c := newQuotaCacheWithLoader(5*time.Second, &calls, nil, sentinel)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, err := c.Get(ctx, "p1")
 	if !errors.Is(err, sentinel) {
@@ -184,7 +184,7 @@ func TestQuotaCache_NilQuotaIsCached(t *testing.T) {
 	// as "no per-project cap"; we must cache it just as eagerly as a real row.
 	var calls atomic.Int64
 	c := newQuotaCacheWithLoader(5*time.Second, &calls, nil, nil)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	got, err := c.Get(ctx, "p1")
 	if err != nil {
@@ -213,7 +213,7 @@ func TestQuotaCache_PreservesStoreCacheVersionInRedis(t *testing.T) {
 		return &store.ProjectQuota{ProjectID: projectID, MaxQueuedRuns: 11, CacheVersion: 9}, nil
 	}, deps)
 
-	got, err := c.Get(context.Background(), "project-versioned")
+	got, err := c.Get(t.Context(), "project-versioned")
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
@@ -221,7 +221,7 @@ func TestQuotaCache_PreservesStoreCacheVersionInRedis(t *testing.T) {
 		t.Fatalf("Get() CacheVersion = %v, want 9", got)
 	}
 
-	raw, err := deps.Redis.Get(context.Background(), "strait:cache:"+quotaCacheNamespace+":project-versioned").Bytes()
+	raw, err := deps.Redis.Get(t.Context(), "strait:cache:"+quotaCacheNamespace+":project-versioned").Bytes()
 	if err != nil {
 		t.Fatalf("read redis entry: %v", err)
 	}
@@ -252,7 +252,7 @@ func TestQuotaCache_StrongBarrierAllowsDBConfirmedNil(t *testing.T) {
 	}, deps)
 
 	c.InvalidateWithVersion("project-nil", 10)
-	got, err := c.Get(context.Background(), "project-nil")
+	got, err := c.Get(t.Context(), "project-nil")
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
@@ -263,7 +263,7 @@ func TestQuotaCache_StrongBarrierAllowsDBConfirmedNil(t *testing.T) {
 		t.Fatalf("loader calls = %d, want 1", calls.Load())
 	}
 
-	raw, err := deps.Redis.Get(context.Background(), "strait:cache:"+quotaCacheNamespace+":project-nil").Bytes()
+	raw, err := deps.Redis.Get(t.Context(), "strait:cache:"+quotaCacheNamespace+":project-nil").Bytes()
 	if err != nil {
 		t.Fatalf("read redis entry: %v", err)
 	}
@@ -291,7 +291,7 @@ func TestQuotaCache_StrongBarrierRejectsStaleQuotaFill(t *testing.T) {
 	}, deps)
 
 	c.InvalidateWithVersion("project-stale", 10)
-	_, err := c.Get(context.Background(), "project-stale")
+	_, err := c.Get(t.Context(), "project-stale")
 	if err == nil {
 		t.Fatal("Get() error = nil, want stale version rejection")
 	}
@@ -302,7 +302,7 @@ func TestQuotaCache_Disabled(t *testing.T) {
 
 	var calls atomic.Int64
 	c := newQuotaCacheWithLoader(0, &calls, &store.ProjectQuota{ProjectID: "p1"}, nil)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, _ = c.Get(ctx, "p1")
 	_, _ = c.Get(ctx, "p1")

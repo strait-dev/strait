@@ -47,7 +47,14 @@ func (s *Server) invalidateWorkerJobCache(ctx context.Context, jobID string, ver
 		version = time.Now().UnixNano()
 	}
 	if s.workerJobBarrier != nil {
-		_ = s.workerJobBarrier.StrongInvalidate(ctx, straitcache.StrongNamespacePolicy{Namespace: workerJobCacheNamespace}, jobID, jobID, straitcache.VersionBarrier{Version: version}, s.cacheBus)
+		_ = s.workerJobBarrier.StrongInvalidate(
+			ctx,
+			strongCachePolicy(workerJobCacheNamespace),
+			jobID,
+			jobID,
+			cacheVersionBarrier(version),
+			s.cacheBus,
+		)
 		return
 	}
 	if s.cacheBus != nil {

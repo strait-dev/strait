@@ -21,7 +21,7 @@ func TestCachedAPIKeyResolver_UsesRedisL2AndSanitizesSecrets(t *testing.T) {
 	t.Cleanup(func() { _ = rdb.Close() })
 
 	var lookups atomic.Int64
-	resolver := newCachedAPIKeyResolver(rdb, time.Minute, apiKeyResolverFunc(func(context.Context, string) (*domain.APIKey, error) {
+	fallback := apiKeyResolverFunc(func(context.Context, string) (*domain.APIKey, error) {
 		lookups.Add(1)
 		return &domain.APIKey{
 			ID:                    "key-1",
@@ -30,14 +30,15 @@ func TestCachedAPIKeyResolver_UsesRedisL2AndSanitizesSecrets(t *testing.T) {
 			RotationWebhookSecret: []byte("encrypted-secret"),
 			CacheVersion:          8,
 		}, nil
-	}))
+	})
+	resolver := newCachedAPIKeyResolver(rdb, time.Minute, fallback)
 
-	first, err := resolver.LookupAPIKeyByHash(context.Background(), "hash-1")
+	first, err := resolver.LookupAPIKeyByHash(t.Context(), "hash-1")
 	if err != nil {
 		t.Fatalf("LookupAPIKeyByHash(first) error = %v", err)
 	}
 	first.Scopes[0] = domain.ScopeRunsRead
-	second, err := resolver.LookupAPIKeyByHash(context.Background(), "hash-1")
+	second, err := resolver.LookupAPIKeyByHash(t.Context(), "hash-1")
 	if err != nil {
 		t.Fatalf("LookupAPIKeyByHash(second) error = %v", err)
 	}
@@ -51,7 +52,8 @@ func TestCachedAPIKeyResolver_UsesRedisL2AndSanitizesSecrets(t *testing.T) {
 		t.Fatalf("cached key includes rotation webhook secret: %q", second.RotationWebhookSecret)
 	}
 
-	raw, err := rdb.Get(context.Background(), "strait:cache:"+grpcAPIKeyAuthCacheNamespace+":hash-1").Bytes()
+	redisKey := "strait:cache:" + grpcAPIKeyAuthCacheNamespace + ":hash-1"
+	raw, err := rdb.Get(t.Context(), redisKey).Bytes()
 	if err != nil {
 		t.Fatalf("read redis entry: %v", err)
 	}
