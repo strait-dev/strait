@@ -79,9 +79,9 @@ func (s *Server) handleUpdateProjectSettings(ctx context.Context, input *UpdateP
 		}
 		if s.quotaCache != nil {
 			if quota, err := s.store.GetProjectQuota(ctx, projectID); err == nil && quota != nil {
-				s.quotaCache.InvalidateWithVersion(projectID, projectQuotaCacheVersion(quota))
+				s.quotaCache.InvalidateWithVersionContext(ctx, projectID, projectQuotaCacheVersion(quota))
 			} else {
-				s.quotaCache.Invalidate(projectID)
+				s.quotaCache.InvalidateContext(ctx, projectID)
 			}
 		}
 	}

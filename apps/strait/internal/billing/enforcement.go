@@ -399,16 +399,27 @@ func (e *Enforcer) tryDispatchCapEvent(
 
 // InvalidateOrgCache removes cached plan limits for an org (call on plan change).
 func (e *Enforcer) InvalidateOrgCache(orgID string) {
-	e.InvalidateOrgCacheWithVersion(orgID, time.Now().UnixNano())
+	e.InvalidateOrgCacheContext(context.Background(), orgID)
+}
+
+func (e *Enforcer) InvalidateOrgCacheContext(ctx context.Context, orgID string) {
+	e.InvalidateOrgCacheWithVersionContext(ctx, orgID, time.Now().UnixNano())
 }
 
 // InvalidateOrgCacheWithVersion removes cached plan limits behind a version barrier.
 func (e *Enforcer) InvalidateOrgCacheWithVersion(orgID string, version int64) {
+	e.InvalidateOrgCacheWithVersionContext(context.Background(), orgID, version)
+}
+
+func (e *Enforcer) InvalidateOrgCacheWithVersionContext(ctx context.Context, orgID string, version int64) {
 	if e == nil || e.orgCache == nil {
 		return
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	_ = e.orgCache.StrongInvalidate(
-		context.Background(),
+		ctx,
 		straitcache.StrongNamespacePolicy{Namespace: orgLimitsCacheNamespace},
 		orgID,
 		orgID,
@@ -419,11 +430,14 @@ func (e *Enforcer) InvalidateOrgCacheWithVersion(orgID string, version int64) {
 
 // getEnforcementMode returns the enforcement mode for an org from cache.
 // Falls back to "enforce" if not cached.
-func (e *Enforcer) getEnforcementMode(orgID string) string {
+func (e *Enforcer) getEnforcementMode(ctx context.Context, orgID string) string {
 	if e == nil || e.orgCache == nil {
 		return "enforce"
 	}
-	if cached, err := e.orgCache.Get(context.Background(), orgID, nil); err == nil && cached != nil {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if cached, err := e.orgCache.Get(ctx, orgID, nil); err == nil && cached != nil {
 		if cached.enforcementMode != "" {
 			return cached.enforcementMode
 		}
@@ -433,8 +447,8 @@ func (e *Enforcer) getEnforcementMode(orgID string) string {
 
 // checkEnforcementMode returns true if enforcement is disabled or warn-only for
 // the given org. Call this after GetOrgPlanLimits (which populates the cache).
-func (e *Enforcer) checkEnforcementMode(orgID, checkType string) (skip bool) {
-	mode := e.getEnforcementMode(orgID)
+func (e *Enforcer) checkEnforcementMode(ctx context.Context, orgID, checkType string) (skip bool) {
+	mode := e.getEnforcementMode(ctx, orgID)
 	switch mode {
 	case "disabled":
 		return true
@@ -701,7 +715,7 @@ func (e *Enforcer) CheckDailyRunLimit(ctx context.Context, orgID string) error {
 	}
 	e.resetFailOpen(orgID, "daily_run")
 
-	if e.checkEnforcementMode(orgID, "daily_run") {
+	if e.checkEnforcementMode(ctx, orgID, "daily_run") {
 		return nil
 	}
 
@@ -800,7 +814,7 @@ func (e *Enforcer) CheckDailyAIModelCallLimit(ctx context.Context, orgID string)
 	}
 	e.resetFailOpen(orgID, "daily_ai_call")
 
-	if e.checkEnforcementMode(orgID, "daily_ai_call") {
+	if e.checkEnforcementMode(ctx, orgID, "daily_ai_call") {
 		return nil
 	}
 
@@ -906,7 +920,7 @@ func (e *Enforcer) CheckMonthlyRunLimit(ctx context.Context, orgID string) error
 	}
 	e.resetFailOpen(orgID, "monthly_run")
 
-	if e.checkEnforcementMode(orgID, "monthly_run") {
+	if e.checkEnforcementMode(ctx, orgID, "monthly_run") {
 		return nil
 	}
 

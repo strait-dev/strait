@@ -2,9 +2,9 @@ package api
 
 import (
 	"context"
-	"errors"
 	"time"
 
+	"strait/internal/apikeycache"
 	straitcache "strait/internal/cache"
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -12,7 +12,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-const apiKeyAuthCacheNamespace = "authn_keys" // #nosec G101 -- cache namespace, not a credential.
+const apiKeyAuthCacheNamespace = apikeycache.Namespace
 
 type apiCacheDeps struct {
 	Redis    redis.Cmdable
@@ -33,10 +33,6 @@ func newAPIKeyCache(ttl time.Duration, deps ...apiCacheDeps) *apiKeyCache {
 	if len(deps) > 0 {
 		dep = deps[0]
 	}
-	refreshAfter := ttl / 3
-	if refreshAfter <= 0 {
-		refreshAfter = ttl
-	}
 	var l2 straitcache.L2[string, *domain.APIKey]
 	if dep.Redis != nil {
 		l2 = straitcache.NewRedisL2[string, *domain.APIKey](straitcache.RedisL2Config[string, *domain.APIKey]{
@@ -52,12 +48,12 @@ func newAPIKeyCache(ttl time.Duration, deps ...apiCacheDeps) *apiKeyCache {
 		MaximumSize:    50_000,
 		TTL:            ttl,
 		TTLJitter:      0.1,
-		RefreshAfter:   refreshAfter,
+		RefreshAfter:   apikeycache.RefreshAfter(ttl),
 		EnableNegative: true,
 		DisableL1:      l2 != nil,
 		DisableL2:      l2 == nil,
-		Clone:          cloneAPIKeyForAuthCache,
-		Sanitize:       sanitizeAPIKeyForAuthCache,
+		Clone:          apikeycache.Clone,
+		Sanitize:       apikeycache.Sanitize,
 	})
 	if dep.Registry != nil {
 		dep.Registry.Register(apiKeyAuthCacheNamespace, straitcache.UpdatingStringTierHandler[*domain.APIKey]{Tier: c.tier})
@@ -73,17 +69,12 @@ func (c *apiKeyCache) Get(
 	if c == nil || c.tier == nil {
 		return loader(ctx, keyHash)
 	}
-	versionedLoader := func(loadCtx context.Context, hash string) (straitcache.Versioned[*domain.APIKey], error) {
-		key, err := loader(loadCtx, hash)
-		if errors.Is(err, store.ErrAPIKeyNotFound) {
-			return straitcache.Versioned[*domain.APIKey]{Value: nil, Version: 0}, nil
-		}
-		if err != nil {
-			return straitcache.Versioned[*domain.APIKey]{}, err
-		}
-		return straitcache.Versioned[*domain.APIKey]{Value: key, Version: apiKeyCacheVersion(key)}, nil
-	}
-	got, err := c.tier.GetConsistentVersioned(ctx, keyHash, 0, versionedLoader)
+	got, err := c.tier.GetConsistentVersioned(
+		ctx,
+		keyHash,
+		0,
+		apikeycache.VersionedLoader(loader, store.ErrAPIKeyNotFound),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +91,7 @@ func (c *apiKeyCache) Set(ctx context.Context, key *domain.APIKey) {
 		key.KeyHash,
 		key.KeyHash,
 		key,
-		apiKeyCacheVersion(key),
+		apikeycache.Version(key),
 		c.bus,
 	)
 }
@@ -121,30 +112,4 @@ func (c *apiKeyCache) InvalidateWithVersion(ctx context.Context, keyHash string,
 		cacheVersionBarrier(version),
 		c.bus,
 	)
-}
-
-func sanitizeAPIKeyForAuthCache(key *domain.APIKey) *domain.APIKey {
-	if key == nil {
-		return nil
-	}
-	cp := cloneAPIKeyForAuthCache(key)
-	cp.RotationWebhookSecret = nil
-	return cp
-}
-
-func cloneAPIKeyForAuthCache(key *domain.APIKey) *domain.APIKey {
-	if key == nil {
-		return nil
-	}
-	cp := *key
-	cp.Scopes = append([]string(nil), key.Scopes...)
-	cp.RotationWebhookSecret = append([]byte(nil), key.RotationWebhookSecret...)
-	return &cp
-}
-
-func apiKeyCacheVersion(key *domain.APIKey) int64 {
-	if key == nil || key.CacheVersion <= 0 {
-		return 1
-	}
-	return key.CacheVersion
 }

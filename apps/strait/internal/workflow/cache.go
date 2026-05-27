@@ -58,7 +58,7 @@ func workflowStepsVersionTierConfig(
 		TTL:       ttl,
 		TTLJitter: 0.1,
 		DisableL2: l2 == nil,
-		Clone:     cloneWorkflowSteps,
+		Clone:     domain.CloneWorkflowSteps,
 	}
 }
 
@@ -88,20 +88,4 @@ func (c *workflowStepsVersionCache) Load(
 		return loader(ctx, key)
 	}
 	return c.tier.Get(ctx, key, loader)
-}
-
-func cloneWorkflowSteps(steps []domain.WorkflowStep) []domain.WorkflowStep {
-	if steps == nil {
-		return nil
-	}
-	out := make([]domain.WorkflowStep, len(steps))
-	for i := range steps {
-		out[i] = steps[i]
-		out[i].DependsOn = append([]string(nil), steps[i].DependsOn...)
-		out[i].Condition = append([]byte(nil), steps[i].Condition...)
-		out[i].Payload = append([]byte(nil), steps[i].Payload...)
-		out[i].ApprovalApprovers = append([]string(nil), steps[i].ApprovalApprovers...)
-		out[i].StageNotifications = append([]byte(nil), steps[i].StageNotifications...)
-	}
-	return out
 }

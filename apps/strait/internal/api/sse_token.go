@@ -92,7 +92,7 @@ func (s *Server) scopesForSSEToken(ctx context.Context) ([]string, error) {
 		return nil, huma.Error503ServiceUnavailable("service unavailable")
 	}
 
-	perms, cached := s.permCache.Get(projectID, actorID)
+	perms, cached := s.permCache.GetContext(ctx, projectID, actorID)
 	if !cached {
 		var version int64
 		var err error
@@ -101,7 +101,7 @@ func (s *Server) scopesForSSEToken(ctx context.Context) ([]string, error) {
 			return nil, huma.Error500InternalServerError("failed to load permissions")
 		}
 		if perms != nil {
-			s.permCache.SetWithVersion(projectID, actorID, perms, version)
+			s.permCache.SetWithVersionContext(ctx, projectID, actorID, perms, version)
 		}
 	}
 	if ctx.Value(ctxOIDCScopeClaimPresentKey) == true {

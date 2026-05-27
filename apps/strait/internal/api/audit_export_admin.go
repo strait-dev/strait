@@ -80,7 +80,7 @@ func (s *Server) handleUpdateAuditExportCap(ctx context.Context, input *UpdateAu
 		return nil, huma.Error500InternalServerError("failed to update cap")
 	}
 	if s.quotaCache != nil {
-		s.quotaCache.Invalidate(projectID)
+		s.quotaCache.InvalidateContext(ctx, projectID)
 	}
 
 	s.emitAuditEvent(ctx, domain.AuditActionExportCapUpdated, "project_quotas", projectID, map[string]any{

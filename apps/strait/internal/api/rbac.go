@@ -266,7 +266,7 @@ func (s *Server) invalidatePermissionCacheForUser(ctx context.Context, projectID
 				"error", err)
 		}
 	}
-	s.permCache.InvalidateWithVersion(projectID, userID, version)
+	s.permCache.InvalidateWithVersionContext(ctx, projectID, userID, version)
 }
 
 type createRoleRequest struct {

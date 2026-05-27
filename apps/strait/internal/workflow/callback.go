@@ -166,7 +166,7 @@ func (s *StepCallback) listStepsByWorkflowVersion(ctx context.Context, workflowI
 		if err != nil {
 			return nil, err
 		}
-		return cloneWorkflowSteps(steps), nil
+		return domain.CloneWorkflowSteps(steps), nil
 	}
 	if s.stepsCache == nil {
 		return loader(ctx, key)

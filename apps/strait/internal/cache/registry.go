@@ -96,15 +96,27 @@ func (r *Registry) Handle(ctx context.Context, data []byte) {
 	if r == nil {
 		return
 	}
+	msg, ok := r.decodeBusMessage(data)
+	if !ok {
+		return
+	}
+	r.dispatchBusMessage(ctx, msg)
+}
+
+func (r *Registry) decodeBusMessage(data []byte) (BusMessage, bool) {
 	var msg BusMessage
 	if err := json.Unmarshal(data, &msg); err != nil {
 		r.invalid("malformed_json")
-		return
+		return BusMessage{}, false
 	}
 	if msg.Namespace == "" || msg.Key == "" {
 		r.invalid("missing_namespace_or_key")
-		return
+		return BusMessage{}, false
 	}
+	return msg, true
+}
+
+func (r *Registry) dispatchBusMessage(ctx context.Context, msg BusMessage) {
 	if msg.Origin != "" && msg.Origin == r.origin {
 		if r.cfg.OnSuppressed != nil {
 			r.cfg.OnSuppressed()

@@ -118,15 +118,26 @@ func (c *quotaCache) Get(ctx context.Context, projectID string) (*store.ProjectQ
 }
 
 func (c *quotaCache) Invalidate(projectID string) {
-	c.InvalidateWithVersion(projectID, time.Now().UnixNano())
+	c.InvalidateContext(cacheMetricsContext, projectID)
+}
+
+func (c *quotaCache) InvalidateContext(ctx context.Context, projectID string) {
+	c.InvalidateWithVersionContext(ctx, projectID, time.Now().UnixNano())
 }
 
 func (c *quotaCache) InvalidateWithVersion(projectID string, version int64) {
+	c.InvalidateWithVersionContext(cacheMetricsContext, projectID, version)
+}
+
+func (c *quotaCache) InvalidateWithVersionContext(ctx context.Context, projectID string, version int64) {
 	if c == nil || c.disabled || c.inner == nil {
 		return
 	}
+	if ctx == nil {
+		ctx = cacheMetricsContext
+	}
 	_ = c.inner.StrongInvalidate(
-		cacheMetricsContext,
+		ctx,
 		strongCachePolicy(quotaCacheNamespace),
 		projectID,
 		projectID,

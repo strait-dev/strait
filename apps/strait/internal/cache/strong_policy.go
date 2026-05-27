@@ -10,6 +10,7 @@ type StrongNamespacePolicy struct {
 	WriteThroughPath string
 	BusPath          string
 	CDCRepairPath    string
+	CDCTables        []string
 	FailureMode      string
 	TestMarker       string
 }
@@ -30,6 +31,7 @@ var StrongNamespacePolicies = []StrongNamespacePolicy{
 		WriteThroughPath: "apiKeyCache.Set / apiKeyCache.Invalidate via StrongWriteThrough or StrongInvalidate",
 		BusPath:          "cachebus update/invalidate namespace authn_keys",
 		CDCRepairPath:    "cdc.NewCacheInvalidationHandlers(api_keys)",
+		CDCTables:        []string{"api_keys"},
 		FailureMode:      "fail-closed: DB confirmation before allow when freshness is uncertain",
 		TestMarker:       "TestStrongAPIKeyCache",
 	},
@@ -48,6 +50,12 @@ var StrongNamespacePolicies = []StrongNamespacePolicy{
 		BusPath:          "cachebus invalidate namespace permission and permission_project",
 		CDCRepairPath: "cdc.NewCacheInvalidationHandlers(" +
 			"project_roles, project_member_roles, resource_policies, tag_policies)",
+		CDCTables: []string{
+			"project_roles",
+			"project_member_roles",
+			"resource_policies",
+			"tag_policies",
+		},
 		FailureMode: "fail-open to DB",
 		TestMarker:  "TestStrongPermissionCache",
 	},
@@ -59,6 +67,7 @@ var StrongNamespacePolicies = []StrongNamespacePolicy{
 		WriteThroughPath: "quotaCache.SetWithVersion / quotaCache.InvalidateWithVersion",
 		BusPath:          "cachebus update/invalidate namespace quota",
 		CDCRepairPath:    "cdc.NewCacheInvalidationHandlers(project_quotas)",
+		CDCTables:        []string{"project_quotas"},
 		FailureMode:      "fail-open to DB",
 		TestMarker:       "TestStrongQuotaCache",
 	},
@@ -74,6 +83,7 @@ var StrongNamespacePolicies = []StrongNamespacePolicy{
 		WriteThroughPath: "Enforcer.InvalidateOrgCacheWithVersion",
 		BusPath:          "cachebus invalidate namespace billing_org_limits",
 		CDCRepairPath:    "cdc.NewCacheInvalidationHandlers(organization_subscriptions)",
+		CDCTables:        []string{"organization_subscriptions"},
 		FailureMode:      "fail-open to DB except billing fail-closed limit paths already marked fail-closed",
 		TestMarker:       "TestStrongOrgLimitCache",
 	},
@@ -90,6 +100,7 @@ var StrongNamespacePolicies = []StrongNamespacePolicy{
 		WriteThroughPath: "worker job tier StrongWriteThrough / StrongInvalidate",
 		BusPath:          "cachebus update/invalidate namespace worker_job",
 		CDCRepairPath:    "cdc.NewCacheInvalidationHandlers(jobs)",
+		CDCTables:        []string{"jobs"},
 		FailureMode:      "fail-open to DB",
 		TestMarker:       "TestStrongWorkerJobCache",
 	},
@@ -106,6 +117,7 @@ var StrongNamespacePolicies = []StrongNamespacePolicy{
 		WriteThroughPath: "jobDependencyCache.RefreshJob or StrongInvalidate",
 		BusPath:          "cachebus update/invalidate namespace api_job_dependencies",
 		CDCRepairPath:    "cdc.NewCacheInvalidationHandlers(job_dependencies)",
+		CDCTables:        []string{"job_dependencies"},
 		FailureMode:      "fail-open to DB",
 		TestMarker:       "TestStrongJobDependencyCache",
 	},

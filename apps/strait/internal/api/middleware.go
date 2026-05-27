@@ -959,7 +959,7 @@ func authorizeOIDCScopedPermission(ctx context.Context, scopes []string, permiss
 }
 
 func (s *Server) userProjectPermissions(ctx context.Context, projectID, actorID string) ([]string, permissionDecision) {
-	perms, cached := s.permCache.Get(projectID, actorID)
+	perms, cached := s.permCache.GetContext(ctx, projectID, actorID)
 	if !cached {
 		var version int64
 		var err error
@@ -968,7 +968,7 @@ func (s *Server) userProjectPermissions(ctx context.Context, projectID, actorID 
 			return nil, denyPermission(http.StatusInternalServerError, "failed to load permissions")
 		}
 		if perms != nil {
-			s.permCache.SetWithVersion(projectID, actorID, perms, version)
+			s.permCache.SetWithVersionContext(ctx, projectID, actorID, perms, version)
 		}
 	}
 	if perms == nil {
@@ -1032,7 +1032,7 @@ func (s *Server) hasProjectPermission(ctx context.Context, permission string) bo
 		if len(scopes) > 0 && !domain.HasScope(scopes, permission) {
 			return false
 		}
-		perms, cached := s.permCache.Get(projectID, actorID)
+		perms, cached := s.permCache.GetContext(ctx, projectID, actorID)
 		if !cached {
 			var version int64
 			var err error
@@ -1041,7 +1041,7 @@ func (s *Server) hasProjectPermission(ctx context.Context, permission string) bo
 				return false
 			}
 			if perms != nil {
-				s.permCache.SetWithVersion(projectID, actorID, perms, version)
+				s.permCache.SetWithVersionContext(ctx, projectID, actorID, perms, version)
 			}
 		}
 		return domain.HasScopeStrict(perms, permission)

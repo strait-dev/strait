@@ -1193,7 +1193,7 @@ func (e *Executor) getWorkflowStepsForVersion(ctx context.Context, workflowID st
 		if err != nil {
 			return nil, err
 		}
-		return cloneWorkflowSteps(steps), nil
+		return domain.CloneWorkflowSteps(steps), nil
 	}
 	if e.stepsVersionCache == nil {
 		return loader(ctx, key)

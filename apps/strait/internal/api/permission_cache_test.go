@@ -156,6 +156,15 @@ func TestPermissionCache_ProjectInvalidationClearsRedisL2(t *testing.T) {
 	cache := newPermissionCache(time.Minute, deps)
 	cache.Set("proj", "user-a", []string{"jobs:read"})
 	cache.Set("proj", "user-b", []string{"jobs:write"})
+	indexKey := cache.redisProjectIndexKey("proj")
+
+	members, err := deps.Redis.SMembers(t.Context(), indexKey).Result()
+	if err != nil {
+		t.Fatalf("read permission project index: %v", err)
+	}
+	if len(members) != 2 {
+		t.Fatalf("permission project index size = %d, want 2", len(members))
+	}
 
 	cache.InvalidateProject(t.Context(), "proj", time.Now().UnixNano())
 
@@ -165,6 +174,9 @@ func TestPermissionCache_ProjectInvalidationClearsRedisL2(t *testing.T) {
 	}
 	if _, ok := fresh.Get("proj", "user-b"); ok {
 		t.Fatal("user-b permission survived project invalidation")
+	}
+	if exists := deps.Redis.Exists(t.Context(), indexKey).Val(); exists != 0 {
+		t.Fatalf("permission project index exists = %d, want 0", exists)
 	}
 }
 

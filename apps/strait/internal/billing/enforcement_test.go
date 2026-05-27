@@ -1148,7 +1148,7 @@ func TestOrgCache_EnforcementModeFromCache(t *testing.T) {
 	_, _ = enforcer.GetOrgPlanLimits(ctx, "org-mode")
 
 	// getEnforcementMode should read from cache.
-	mode := enforcer.getEnforcementMode("org-mode")
+	mode := enforcer.getEnforcementMode(t.Context(), "org-mode")
 	if mode != "warn" {
 		t.Fatalf("enforcement mode = %q, want warn", mode)
 	}
@@ -1159,7 +1159,7 @@ func TestOrgCache_EnforcementModeFallsBackToEnforce(t *testing.T) {
 	enforcer, _, _ := setupEnforcer(t)
 
 	// No cache entry for this org.
-	mode := enforcer.getEnforcementMode("org-uncached")
+	mode := enforcer.getEnforcementMode(t.Context(), "org-uncached")
 	if mode != "enforce" {
 		t.Fatalf("enforcement mode = %q, want enforce (default)", mode)
 	}

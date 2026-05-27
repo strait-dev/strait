@@ -34,6 +34,9 @@ func TestStrongNamespacePoliciesCoverRequiredNamespaces(t *testing.T) {
 		if policy.CDCRepairPath == "" {
 			t.Fatalf("%s missing CDC repair path", policy.Namespace)
 		}
+		if len(policy.CDCTables) == 0 {
+			t.Fatalf("%s missing CDC table contracts", policy.Namespace)
+		}
 		if policy.FailureMode == "" {
 			t.Fatalf("%s missing failure mode", policy.Namespace)
 		}

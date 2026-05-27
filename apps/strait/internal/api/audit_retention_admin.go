@@ -164,7 +164,7 @@ func (s *Server) handleSetAuditRetention(ctx context.Context, input *UpdateAudit
 	}
 
 	if s.quotaCache != nil {
-		s.quotaCache.Invalidate(projectID)
+		s.quotaCache.InvalidateContext(ctx, projectID)
 	}
 
 	return &UpdateAuditRetentionOutput{Body: UpdateAuditRetentionResponse{
