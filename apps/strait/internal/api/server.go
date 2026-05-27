@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"strait/internal/billing"
+	straitcache "strait/internal/cache"
 	"strait/internal/clickhouse"
 	"strait/internal/config"
 	"strait/internal/domain"
@@ -529,43 +530,49 @@ type AnalyticsStore interface {
 }
 
 type Server struct {
-	router                chi.Router
-	store                 APIStore
-	outboxAdminStore      outboxAdminStore
-	analyticsStore        AnalyticsStore
-	queue                 queue.Queue
-	pubsub                pubsub.Publisher
-	config                *config.Config
-	metrics               *telemetry.Metrics
-	metricsHandler        http.Handler
-	pinger                Pinger
-	healthRegistry        *health.Registry
-	workflowCallback      WorkflowCallback
-	workflowEngine        WorkflowTrigger
-	txPool                store.TxBeginner
-	actorSyncer           ActorSyncer
-	validate              *validator.Validate
-	maxRequestBodySize    int64
-	poolStatter           PoolStatter
-	poolBackpressure      *poolBackpressureSampler
-	permCache             *permissionCache
-	quotaCache            *quotaCache
-	oidcVerifier          *oidcVerifier
-	bgPool                pond.Pool // bounded pool for fire-and-forget background tasks (API key touch, actor sync)
-	runInTx               func(ctx context.Context, fn func(s APIStore) error) error
-	rateLimiter           *ratelimit.RedisRateLimiter
-	authLimiter           *ratelimit.AuthLimiter
-	encryptor             Encryptor
-	stripeWebhook         http.Handler
-	billingEnforcer       BillingEnforcer
-	usageService          UsageService
-	chExporter            *clickhouse.Exporter
-	edition               domain.Edition
-	version               string
-	startedAt             time.Time
-	cdcWebhookReceiver    http.Handler
-	cachedOpenAPISpec     []byte
-	cachedOpenAPISpecGzip []byte
+	router                     chi.Router
+	store                      APIStore
+	outboxAdminStore           outboxAdminStore
+	analyticsStore             AnalyticsStore
+	queue                      queue.Queue
+	pubsub                     pubsub.Publisher
+	config                     *config.Config
+	metrics                    *telemetry.Metrics
+	metricsHandler             http.Handler
+	pinger                     Pinger
+	healthRegistry             *health.Registry
+	workflowCallback           WorkflowCallback
+	workflowEngine             WorkflowTrigger
+	txPool                     store.TxBeginner
+	actorSyncer                ActorSyncer
+	validate                   *validator.Validate
+	maxRequestBodySize         int64
+	poolStatter                PoolStatter
+	poolBackpressure           *poolBackpressureSampler
+	permCache                  *permissionCache
+	quotaCache                 *quotaCache
+	apiKeyCache                *apiKeyCache
+	jobDependencyCache         *jobDependencyCache
+	cacheBus                   *straitcache.Bus
+	workerJobBarrier           *straitcache.Tier[string, struct{}]
+	runStatusReadModel         *straitcache.ReadModel[*domain.JobRun]
+	workflowRunStatusReadModel *straitcache.ReadModel[*domain.WorkflowRun]
+	oidcVerifier               *oidcVerifier
+	bgPool                     pond.Pool // bounded pool for fire-and-forget background tasks (API key touch, actor sync)
+	runInTx                    func(ctx context.Context, fn func(s APIStore) error) error
+	rateLimiter                *ratelimit.RedisRateLimiter
+	authLimiter                *ratelimit.AuthLimiter
+	encryptor                  Encryptor
+	stripeWebhook              http.Handler
+	billingEnforcer            BillingEnforcer
+	usageService               UsageService
+	chExporter                 *clickhouse.Exporter
+	edition                    domain.Edition
+	version                    string
+	startedAt                  time.Time
+	cdcWebhookReceiver         http.Handler
+	cachedOpenAPISpec          []byte
+	cachedOpenAPISpecGzip      []byte
 
 	// trustedProxies is the parsed CIDR list of reverse proxies whose
 	// X-Forwarded-For header is trusted for client IP attribution. Empty
@@ -733,6 +740,8 @@ type ServerDeps struct {
 	ActorSyncer          ActorSyncer
 	PoolStatter          PoolStatter              // Optional: enables DB pool backpressure middleware.
 	RedisClient          *redis.Client            // Required in production startup; enables rate limiting.
+	CacheBus             *straitcache.Bus         // Optional: enables cross-replica cache update/invalidation publishing.
+	CacheRegistry        *straitcache.Registry    // Optional: registers API cache namespaces for cachebus fanout.
 	Encryptor            Encryptor                // Optional: enables event source signature encryption.
 	StripeWebhook        http.Handler             // Optional: Stripe billing webhook handler.
 	BillingEnforcer      BillingEnforcer          // Optional: enables billing limit checks on project create.
@@ -765,6 +774,12 @@ func NewServer(deps ServerDeps) *Server {
 		slog.Warn("failed to initialize OIDC verifier; disabling OIDC auth", "error", err)
 		verifier = &oidcVerifier{enabled: false}
 	}
+	statusModels := newStatusReadModels(deps.RedisClient, statusReadModelTTL(deps.Config))
+	cacheDeps := apiCacheDeps{
+		Redis:    deps.RedisClient,
+		Bus:      deps.CacheBus,
+		Registry: deps.CacheRegistry,
+	}
 
 	srv := &Server{
 		store:              deps.Store,
@@ -784,24 +799,30 @@ func NewServer(deps ServerDeps) *Server {
 		validate:           validator.New(validator.WithRequiredStructEnabled()),
 		maxRequestBodySize: maxBody,
 		poolStatter:        deps.PoolStatter,
-		permCache:          newPermissionCache(permCacheTTL(deps.Config)),
+		permCache:          newPermissionCache(permCacheTTL(deps.Config), cacheDeps),
 		quotaCache: newQuotaCache(quotaCacheTTL(deps.Config), func(ctx context.Context, projectID string) (*store.ProjectQuota, error) {
 			return deps.Store.GetProjectQuota(ctx, projectID)
-		}),
-		oidcVerifier:       verifier,
-		bgPool:             pond.NewPool(4),
-		rateLimiter:        ratelimit.NewRedisRateLimiter(deps.RedisClient, deps.RedisClient != nil),
-		authLimiter:        ratelimit.NewAuthLimiter(deps.RedisClient, deps.RedisClient != nil),
-		encryptor:          deps.Encryptor,
-		stripeWebhook:      deps.StripeWebhook,
-		billingEnforcer:    deps.BillingEnforcer,
-		usageService:       deps.UsageService,
-		chExporter:         deps.CHExporter,
-		edition:            deps.Edition,
-		version:            deps.Version,
-		startedAt:          time.Now(),
-		cdcWebhookReceiver: deps.CDCWebhookReceiver,
-		siemDrain:          deps.SIEMDrain,
+		}, cacheDeps),
+		apiKeyCache:                newAPIKeyCache(apiKeyCacheTTL(deps.Config), cacheDeps),
+		jobDependencyCache:         newJobDependencyCache(jobDepsCacheTTL(deps.Config), cacheDeps),
+		cacheBus:                   deps.CacheBus,
+		workerJobBarrier:           newWorkerJobBarrier(workerJobBarrierTTL(deps.Config), deps.RedisClient),
+		runStatusReadModel:         statusModels.run,
+		workflowRunStatusReadModel: statusModels.workflowRun,
+		oidcVerifier:               verifier,
+		bgPool:                     pond.NewPool(4),
+		rateLimiter:                ratelimit.NewRedisRateLimiter(deps.RedisClient, deps.RedisClient != nil),
+		authLimiter:                ratelimit.NewAuthLimiter(deps.RedisClient, deps.RedisClient != nil),
+		encryptor:                  deps.Encryptor,
+		stripeWebhook:              deps.StripeWebhook,
+		billingEnforcer:            deps.BillingEnforcer,
+		usageService:               deps.UsageService,
+		chExporter:                 deps.CHExporter,
+		edition:                    deps.Edition,
+		version:                    deps.Version,
+		startedAt:                  time.Now(),
+		cdcWebhookReceiver:         deps.CDCWebhookReceiver,
+		siemDrain:                  deps.SIEMDrain,
 	}
 	if srv.siemDrain != nil && deps.Metrics != nil {
 		srv.siemDrain.SetDroppedCounter(deps.Metrics.AuditSIEMDropped)
@@ -910,6 +931,27 @@ func quotaCacheTTL(cfg *config.Config) time.Duration {
 		return cfg.ProjectQuotaCacheTTL
 	}
 	return 60 * time.Second
+}
+
+func apiKeyCacheTTL(cfg *config.Config) time.Duration {
+	if cfg != nil {
+		return cfg.APIKeyCacheTTL
+	}
+	return time.Minute
+}
+
+func jobDepsCacheTTL(cfg *config.Config) time.Duration {
+	if cfg != nil {
+		return cfg.JobDepsCacheTTL
+	}
+	return 5 * time.Minute
+}
+
+func statusReadModelTTL(cfg *config.Config) time.Duration {
+	if cfg != nil {
+		return cfg.StatusReadModelTTL
+	}
+	return 5 * time.Minute
 }
 
 // Close releases resources held by the server (e.g. background goroutines).

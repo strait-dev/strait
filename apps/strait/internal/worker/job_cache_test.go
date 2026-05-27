@@ -2,26 +2,23 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/eko/gocache/lib/v4/cache"
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 	"github.com/sourcegraph/conc"
 
+	straitcache "strait/internal/cache"
 	"strait/internal/domain"
-
-	"strait/internal/cache/otterstore"
+	orcstore "strait/internal/store"
 )
 
-func newTestJobCache(t *testing.T, ttl time.Duration) *cache.Cache[*domain.Job] {
+func newTestJobCache(t *testing.T, ttl time.Duration) executorJobCache {
 	t.Helper()
-	store := otterstore.New(otterstore.Config{
-		DefaultTTL:  ttl,
-		MaxCapacity: 1_000,
-	})
-	t.Cleanup(store.Close)
-	return cache.New[*domain.Job](store)
+	return newTierJobCache(ttl)
 }
 
 func TestJobCache_HitAvoidsDatabaseLookup(t *testing.T) {
@@ -159,6 +156,178 @@ func TestJobCache_Delete(t *testing.T) {
 	}
 }
 
+func TestWorkerJobCache_RedisL2BackfillAndCachebusInvalidate(t *testing.T) {
+	t.Parallel()
+
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	cacheA := newTierJobCache(time.Minute, workerCacheDeps{Redis: rdb})
+	if err := cacheA.Set(context.Background(), "job-redis", &domain.Job{ID: "job-redis", Version: 3, Name: "cached"}); err != nil {
+		t.Fatalf("Set() error = %v", err)
+	}
+
+	registryB := straitcache.NewRegistry(straitcache.RegistryConfig{Origin: "node-b"})
+	cacheB := newTierJobCache(time.Minute, workerCacheDeps{Redis: rdb, Registry: registryB})
+	got, err := cacheB.Get(context.Background(), "job-redis")
+	if err != nil {
+		t.Fatalf("Get() L2 hit error = %v", err)
+	}
+	if got.Name != "cached" || got.Version != 3 {
+		t.Fatalf("Get() = %+v, want cached version 3", got)
+	}
+
+	publishTestWorkerInvalidate(t, registryB, workerJobCacheNamespace, "job-redis")
+	if _, err := cacheB.Get(context.Background(), "job-redis"); err == nil {
+		t.Fatal("expected cache miss after cachebus invalidation")
+	}
+}
+
+func TestWorkerJobCache_UsesUpdatedAtVersionForRedisCAS(t *testing.T) {
+	t.Parallel()
+
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	updatedAt := time.Unix(1700000000, 123).UTC()
+	cache := newTierJobCache(time.Minute, workerCacheDeps{Redis: rdb})
+	if err := cache.Set(context.Background(), "job-versioned", &domain.Job{
+		ID:        "job-versioned",
+		Version:   3,
+		Name:      "cached",
+		UpdatedAt: updatedAt,
+	}); err != nil {
+		t.Fatalf("Set() error = %v", err)
+	}
+
+	raw, err := rdb.Get(context.Background(), "strait:cache:"+workerJobCacheNamespace+":job-versioned").Bytes()
+	if err != nil {
+		t.Fatalf("read redis entry: %v", err)
+	}
+	var envelope struct {
+		Version int64 `json:"version"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatalf("decode redis entry: %v", err)
+	}
+	if envelope.Version != updatedAt.UnixNano() {
+		t.Fatalf("redis version = %d, want %d", envelope.Version, updatedAt.UnixNano())
+	}
+}
+
+func TestWorkerJobCache_PrefersCacheVersionForRedisCAS(t *testing.T) {
+	t.Parallel()
+
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	updatedAt := time.Unix(1700000000, 123).UTC()
+	cache := newTierJobCache(time.Minute, workerCacheDeps{Redis: rdb})
+	if err := cache.Set(context.Background(), "job-cache-version", &domain.Job{
+		ID:           "job-cache-version",
+		Version:      3,
+		Name:         "cached",
+		UpdatedAt:    updatedAt,
+		CacheVersion: 42,
+	}); err != nil {
+		t.Fatalf("Set() error = %v", err)
+	}
+
+	raw, err := rdb.Get(context.Background(), "strait:cache:"+workerJobCacheNamespace+":job-cache-version").Bytes()
+	if err != nil {
+		t.Fatalf("read redis entry: %v", err)
+	}
+	var envelope struct {
+		Version int64 `json:"version"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatalf("decode redis entry: %v", err)
+	}
+	if envelope.Version != 42 {
+		t.Fatalf("redis version = %d, want 42", envelope.Version)
+	}
+}
+
+func TestWorkerJobCache_StrongBarrierRejectsStaleLoaderFill(t *testing.T) {
+	t.Parallel()
+
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	cache := newTierJobCache(time.Minute, workerCacheDeps{Redis: rdb})
+	if err := cache.Delete(context.Background(), "job-deleted"); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+
+	_, err := cache.Load(context.Background(), "job-deleted", func(context.Context, string) (*domain.Job, error) {
+		return &domain.Job{ID: "job-deleted", Name: "stale", CacheVersion: 1}, nil
+	})
+	if err == nil {
+		t.Fatal("Load() error = nil, want stale version rejection")
+	}
+}
+
+func TestWorkerJobCache_StrongBarrierAllowsEqualVersionReplacement(t *testing.T) {
+	t.Parallel()
+
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	cache := newTierJobCache(time.Minute, workerCacheDeps{Redis: rdb})
+	if err := cache.tier.StrongInvalidate(context.Background(), straitcache.StrongNamespacePolicy{Namespace: workerJobCacheNamespace}, "job-recreated", "job-recreated", straitcache.VersionBarrier{Version: 7}, nil); err != nil {
+		t.Fatalf("StrongInvalidate() error = %v", err)
+	}
+
+	got, err := cache.Load(context.Background(), "job-recreated", func(context.Context, string) (*domain.Job, error) {
+		return &domain.Job{ID: "job-recreated", Name: "fresh", CacheVersion: 7}, nil
+	})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got == nil || got.Name != "fresh" {
+		t.Fatalf("Load() = %+v, want fresh job", got)
+	}
+}
+
+func TestWorkerJobCache_LoadPreservesUpdatedAtVersionInRedis(t *testing.T) {
+	t.Parallel()
+
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	updatedAt := time.Unix(1700000100, 456).UTC()
+	cache := newTierJobCache(time.Minute, workerCacheDeps{Redis: rdb})
+	got, err := cache.Load(context.Background(), "job-loaded", func(context.Context, string) (*domain.Job, error) {
+		return &domain.Job{ID: "job-loaded", Version: 2, Name: "loaded", UpdatedAt: updatedAt}, nil
+	})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got == nil || got.UpdatedAt != updatedAt {
+		t.Fatalf("Load() = %+v, want UpdatedAt %v", got, updatedAt)
+	}
+
+	raw, err := rdb.Get(context.Background(), "strait:cache:"+workerJobCacheNamespace+":job-loaded").Bytes()
+	if err != nil {
+		t.Fatalf("read redis entry: %v", err)
+	}
+	var envelope struct {
+		Version int64 `json:"version"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatalf("decode redis entry: %v", err)
+	}
+	if envelope.Version != updatedAt.UnixNano() {
+		t.Fatalf("redis version = %d, want %d", envelope.Version, updatedAt.UnixNano())
+	}
+}
+
 func TestJobCache_MultipleKeys(t *testing.T) {
 	t.Parallel()
 
@@ -181,6 +350,22 @@ func TestJobCache_MultipleKeys(t *testing.T) {
 			t.Fatalf("Version for key %s = %d, want %d", key, cached.Version, i)
 		}
 	}
+}
+
+func publishTestWorkerInvalidate(t *testing.T, registry *straitcache.Registry, namespace, key string) {
+	t.Helper()
+	data, err := json.Marshal(straitcache.BusMessage{
+		Action:    straitcache.BusActionInvalidate,
+		Namespace: namespace,
+		Key:       key,
+		Version:   time.Now().UnixNano(),
+		Origin:    "peer",
+		SentAt:    time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("marshal invalidate: %v", err)
+	}
+	registry.Handle(t.Context(), data)
 }
 
 func TestJobCache_NilCacheDisablesLookup(t *testing.T) {
@@ -219,6 +404,227 @@ func TestJobCache_NilCacheDisablesLookup(t *testing.T) {
 	_, _ = e.resolveJobForRun(ctx, run)
 	if dbCalls.Load() != 2 {
 		t.Fatalf("DB calls = %d, want 2 (no cache)", dbCalls.Load())
+	}
+}
+
+func TestWorkerCache_ConstructedFromExecutorConfig(t *testing.T) {
+	t.Parallel()
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:                     NewPool(1),
+		Queue:                    &mockExecQueue{},
+		Store:                    &mockExecutorStore{},
+		JobCacheTTL:              5 * time.Minute,
+		VersionCacheTTL:          30 * time.Minute,
+		RunVersionCacheTTL:       10 * time.Minute,
+		JobHealthCacheTTL:        2 * time.Second,
+		MaxDequeueBatchSize:      7,
+		DefaultJobMaxConcurrency: 3,
+	})
+
+	if exec.jobCache == nil {
+		t.Fatal("jobCache = nil, want constructed when JobCacheTTL > 0")
+	}
+	if exec.jobVersionCache == nil {
+		t.Fatal("jobVersionCache = nil, want constructed when VersionCacheTTL > 0")
+	}
+	if exec.runVersionCache == nil {
+		t.Fatal("runVersionCache = nil, want constructed when RunVersionCacheTTL > 0")
+	}
+	if exec.stepsVersionCache == nil {
+		t.Fatal("stepsVersionCache = nil, want constructed when VersionCacheTTL > 0")
+	}
+	if exec.jobHealthCache == nil {
+		t.Fatal("jobHealthCache = nil, want constructed when JobHealthCacheTTL > 0")
+	}
+	if exec.maxDequeueBatchSize != 7 {
+		t.Fatalf("maxDequeueBatchSize = %d, want 7", exec.maxDequeueBatchSize)
+	}
+	if exec.defaultJobMaxConcurrency != 3 {
+		t.Fatalf("defaultJobMaxConcurrency = %d, want 3", exec.defaultJobMaxConcurrency)
+	}
+}
+
+func TestResolveJobForRun_CachesPinnedVersion(t *testing.T) {
+	t.Parallel()
+
+	var getJobCalls atomic.Int64
+	var getVersionCalls atomic.Int64
+	store := &mockExecutorStore{
+		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
+			getJobCalls.Add(1)
+			return &domain.Job{ID: id, Version: 2, VersionPolicy: domain.VersionPolicyPin}, nil
+		},
+		getJobAtVersionFn: func(_ context.Context, jobID string, version int) (*domain.Job, error) {
+			getVersionCalls.Add(1)
+			return &domain.Job{ID: jobID, Version: version, VersionPolicy: domain.VersionPolicyPin}, nil
+		},
+	}
+	exec := NewExecutor(ExecutorConfig{
+		Pool:            NewPool(1),
+		Queue:           &mockExecQueue{},
+		Store:           store,
+		JobCacheTTL:     5 * time.Minute,
+		VersionCacheTTL: 30 * time.Minute,
+	})
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 1}
+
+	for range 2 {
+		job, err := exec.resolveJobForRun(context.Background(), run)
+		if err != nil {
+			t.Fatalf("resolveJobForRun() error = %v", err)
+		}
+		if job.Version != 1 {
+			t.Fatalf("resolved version = %d, want 1", job.Version)
+		}
+	}
+	if getJobCalls.Load() != 1 {
+		t.Fatalf("GetJob calls = %d, want 1", getJobCalls.Load())
+	}
+	if getVersionCalls.Load() != 1 {
+		t.Fatalf("GetJobAtVersion calls = %d, want 1", getVersionCalls.Load())
+	}
+}
+
+func TestResolveExecutionPolicy_WarmPathUsesCachedRunVersionAndSteps(t *testing.T) {
+	t.Parallel()
+
+	var stepRunCalls atomic.Int64
+	var workflowRunCalls atomic.Int64
+	var listStepsCalls atomic.Int64
+	store := &mockExecutorStore{
+		getWorkflowStepRunFn: func(_ context.Context, id string) (*domain.WorkflowStepRun, error) {
+			stepRunCalls.Add(1)
+			return &domain.WorkflowStepRun{ID: id, WorkflowRunID: "wfr-1", StepRef: "step-a"}, nil
+		},
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			workflowRunCalls.Add(1)
+			return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", WorkflowVersion: 4}, nil
+		},
+		listStepsByWorkflowVerFn: func(_ context.Context, workflowID string, version int) ([]domain.WorkflowStep, error) {
+			listStepsCalls.Add(1)
+			return []domain.WorkflowStep{{
+				WorkflowID:            workflowID,
+				StepRef:               "step-a",
+				RetryMaxAttempts:      8,
+				TimeoutSecsOverride:   42,
+				RetryInitialDelaySecs: version,
+			}}, nil
+		},
+	}
+	exec := NewExecutor(ExecutorConfig{
+		Pool:               NewPool(1),
+		Queue:              &mockExecQueue{},
+		Store:              store,
+		VersionCacheTTL:    30 * time.Minute,
+		RunVersionCacheTTL: 10 * time.Minute,
+	})
+	run := &domain.JobRun{ID: "run-1", WorkflowStepRunID: "wsr-1"}
+	fallback := executionPolicy{maxAttempts: 3, timeoutSecs: 30}
+
+	for range 2 {
+		got, err := exec.resolveExecutionPolicy(context.Background(), run, fallback)
+		if err != nil {
+			t.Fatalf("resolveExecutionPolicy() error = %v", err)
+		}
+		if got.maxAttempts != 8 || got.timeoutSecs != 42 || got.retryInitialSecs != 4 {
+			t.Fatalf("resolved policy = %+v, want step overrides", got)
+		}
+	}
+
+	if stepRunCalls.Load() != 2 {
+		t.Fatalf("GetWorkflowStepRun calls = %d, want 2 live reads", stepRunCalls.Load())
+	}
+	if workflowRunCalls.Load() != 1 {
+		t.Fatalf("GetWorkflowRun calls = %d, want 1 cached after cold read", workflowRunCalls.Load())
+	}
+	if listStepsCalls.Load() != 1 {
+		t.Fatalf("ListStepsByWorkflowVersion calls = %d, want 1 cached after cold read", listStepsCalls.Load())
+	}
+}
+
+func TestWorkflowStepsVersionCache_ReturnsClones(t *testing.T) {
+	t.Parallel()
+
+	var listStepsCalls atomic.Int64
+	store := &mockExecutorStore{
+		listStepsByWorkflowVerFn: func(_ context.Context, workflowID string, version int) ([]domain.WorkflowStep, error) {
+			listStepsCalls.Add(1)
+			return []domain.WorkflowStep{{
+				WorkflowID:         workflowID,
+				StepRef:            "step-a",
+				DependsOn:          []string{"root"},
+				Condition:          json.RawMessage(`{"ok":true}`),
+				ApprovalApprovers:  []string{"ops"},
+				StageNotifications: json.RawMessage(`{"start":true}`),
+				RetryMaxAttempts:   version,
+			}}, nil
+		},
+	}
+	exec := NewExecutor(ExecutorConfig{
+		Pool:            NewPool(1),
+		Queue:           &mockExecQueue{},
+		Store:           store,
+		VersionCacheTTL: 30 * time.Minute,
+	})
+
+	first, err := exec.getWorkflowStepsForVersion(context.Background(), "wf-1", 3)
+	if err != nil {
+		t.Fatalf("getWorkflowStepsForVersion() first error = %v", err)
+	}
+	first[0].StepRef = "mutated"
+	first[0].DependsOn[0] = "mutated"
+	first[0].Condition[0] = '{'
+	first[0].ApprovalApprovers[0] = "mutated"
+	first[0].StageNotifications[0] = '{'
+
+	second, err := exec.getWorkflowStepsForVersion(context.Background(), "wf-1", 3)
+	if err != nil {
+		t.Fatalf("getWorkflowStepsForVersion() second error = %v", err)
+	}
+	if listStepsCalls.Load() != 1 {
+		t.Fatalf("ListStepsByWorkflowVersion calls = %d, want 1", listStepsCalls.Load())
+	}
+	if second[0].StepRef != "step-a" || second[0].DependsOn[0] != "root" || second[0].ApprovalApprovers[0] != "ops" {
+		t.Fatalf("cached step was mutated: %+v", second[0])
+	}
+	if string(second[0].Condition) != `{"ok":true}` || string(second[0].StageNotifications) != `{"start":true}` {
+		t.Fatalf("cached raw JSON was mutated: condition=%s notifications=%s", second[0].Condition, second[0].StageNotifications)
+	}
+}
+
+func TestJobHealthCache_BucketHitAvoidsStore(t *testing.T) {
+	t.Parallel()
+
+	var healthCalls atomic.Int64
+	store := &mockExecutorStore{
+		getJobHealthStatsFn: func(_ context.Context, jobID string, _ time.Time) (*orcstore.JobHealthStats, error) {
+			healthCalls.Add(1)
+			return &orcstore.JobHealthStats{TotalRuns: 10, HealthScore: 99}, nil
+		},
+	}
+	exec := NewExecutor(ExecutorConfig{
+		Pool:              NewPool(1),
+		Queue:             &mockExecQueue{},
+		Store:             store,
+		JobHealthCacheTTL: time.Minute,
+	})
+	now := time.Unix(1_700_000_000, 0)
+
+	first, err := exec.getJobHealthStats(context.Background(), "job-1", now)
+	if err != nil {
+		t.Fatalf("getJobHealthStats() first error = %v", err)
+	}
+	first.TotalRuns = 999
+	second, err := exec.getJobHealthStats(context.Background(), "job-1", now.Add(10*time.Second))
+	if err != nil {
+		t.Fatalf("getJobHealthStats() second error = %v", err)
+	}
+	if healthCalls.Load() != 1 {
+		t.Fatalf("GetJobHealthStats calls = %d, want 1", healthCalls.Load())
+	}
+	if second.TotalRuns != 10 {
+		t.Fatalf("cached stats were mutated: %+v", second)
 	}
 }
 

@@ -227,6 +227,7 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 		}
 		return nil, huma.Error500InternalServerError("failed to create job")
 	}
+	s.invalidateWorkerJobCache(ctx, job.ID, job.CacheVersion)
 
 	s.enqueueJobMetadata(job)
 
@@ -813,6 +814,7 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 		}
 		return nil, huma.Error500InternalServerError("failed to update job")
 	}
+	s.invalidateWorkerJobCache(ctx, job.ID, job.CacheVersion)
 
 	s.enqueueJobMetadata(job)
 
@@ -867,6 +869,7 @@ func (s *Server) handleDeleteJob(ctx context.Context, input *DeleteJobInput) (*s
 		}
 		return nil, huma.Error500InternalServerError("failed to delete job")
 	}
+	s.invalidateWorkerJobCache(ctx, input.JobID, time.Now().UnixNano())
 
 	slog.Info("job deleted",
 		"job_id", input.JobID,

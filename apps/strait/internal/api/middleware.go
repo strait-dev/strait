@@ -395,7 +395,7 @@ func requireProjectWideScope(ctx context.Context, resource string) error {
 // context skip the check.
 func (s *Server) getRunForAccess(ctx context.Context, runID string) (*domain.JobRun, error) {
 	if projectIDFromContext(ctx) == "" {
-		run, err := s.store.GetRun(ctx, runID)
+		run, err := s.getRunWithStatusReadModel(ctx, runID)
 		if err != nil {
 			if errors.Is(err, store.ErrRunNotFound) {
 				return nil, huma.Error404NotFound("run not found")
@@ -404,7 +404,7 @@ func (s *Server) getRunForAccess(ctx context.Context, runID string) (*domain.Job
 		}
 		return run, nil
 	}
-	run, err := s.store.GetRun(ctx, runID)
+	run, err := s.getRunWithStatusReadModel(ctx, runID)
 	if err != nil {
 		if errors.Is(err, store.ErrRunNotFound) {
 			return nil, huma.Error404NotFound("run not found")
@@ -467,7 +467,7 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 		rawKey := strings.TrimPrefix(authHeader, "Bearer ")
 		keyHash := hashAPIKey(rawKey)
 
-		apiKey, err := s.store.GetAPIKeyByHash(r.Context(), keyHash)
+		apiKey, err := s.lookupAPIKeyForAuth(r.Context(), keyHash)
 		if err != nil || apiKey == nil {
 			s.authLimiter.RecordFailureScoped(r.Context(), clientIP, ratelimit.AuthScopeAPIKey)
 			recordAuthDecision(r.Context(), "api_key", "failure")
@@ -538,6 +538,16 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 
 		s.serveWithSentryScope(next, w, r.WithContext(ctx))
 	})
+}
+
+func (s *Server) lookupAPIKeyForAuth(ctx context.Context, keyHash string) (*domain.APIKey, error) {
+	loader := func(loadCtx context.Context, hash string) (*domain.APIKey, error) {
+		return s.store.GetAPIKeyByHash(loadCtx, hash)
+	}
+	if s.apiKeyCache == nil {
+		return loader(ctx, keyHash)
+	}
+	return s.apiKeyCache.Get(ctx, keyHash, loader)
 }
 
 func (s *Server) apiKeyOrSecretAuth(next http.Handler) http.Handler {
@@ -925,14 +935,15 @@ func (s *Server) requirePermission(permission string) func(http.Handler) http.Ha
 
 				perms, cached := s.permCache.Get(projectID, actorID)
 				if !cached {
+					var version int64
 					var err error
-					perms, err = s.store.GetUserPermissions(ctx, projectID, actorID)
+					perms, version, err = s.loadUserPermissionsForCache(ctx, projectID, actorID)
 					if err != nil {
 						respondError(w, r, http.StatusInternalServerError, "failed to load permissions")
 						return
 					}
 					if perms != nil {
-						s.permCache.Set(projectID, actorID, perms)
+						s.permCache.SetWithVersion(projectID, actorID, perms, version)
 					}
 				}
 
@@ -1012,19 +1023,45 @@ func (s *Server) hasProjectPermission(ctx context.Context, permission string) bo
 		}
 		perms, cached := s.permCache.Get(projectID, actorID)
 		if !cached {
+			var version int64
 			var err error
-			perms, err = s.store.GetUserPermissions(ctx, projectID, actorID)
+			perms, version, err = s.loadUserPermissionsForCache(ctx, projectID, actorID)
 			if err != nil {
 				return false
 			}
 			if perms != nil {
-				s.permCache.Set(projectID, actorID, perms)
+				s.permCache.SetWithVersion(projectID, actorID, perms, version)
 			}
 		}
 		return domain.HasScopeStrict(perms, permission)
 	default:
 		return false
 	}
+}
+
+type versionedUserPermissionStore interface {
+	GetUserPermissionsWithVersion(ctx context.Context, projectID, userID string) ([]string, int64, error)
+}
+
+func (s *Server) loadUserPermissionsForCache(ctx context.Context, projectID, actorID string) ([]string, int64, error) {
+	key := projectID + "\x00" + actorID
+	if versioned, ok := s.store.(versionedUserPermissionStore); ok {
+		perms, version, err := versioned.GetUserPermissionsWithVersion(ctx, projectID, actorID)
+		if err != nil {
+			return nil, 0, err
+		}
+		if getter, ok := s.store.(cacheNamespaceVersionGetter); ok {
+			if aggregateVersion, getErr := getter.GetCacheNamespaceVersion(ctx, permissionCacheNamespace, key); getErr == nil && aggregateVersion > version {
+				version = aggregateVersion
+			}
+		}
+		return perms, version, nil
+	}
+	perms, err := s.store.GetUserPermissions(ctx, projectID, actorID)
+	if err != nil {
+		return nil, 0, err
+	}
+	return perms, time.Now().UnixNano(), nil
 }
 
 // resourceFromRequest extracts the resource type and ID from the chi route context.

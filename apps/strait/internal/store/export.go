@@ -36,7 +36,7 @@ func (q *Queries) StreamJobs(ctx context.Context, projectID string, fn func(*dom
 		       on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping,
 		       max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run,
 		       allowed_tools, blocked_tools,
-		       paused, paused_at, pause_reason, endpoint_signing_secret
+		       paused, paused_at, pause_reason, endpoint_signing_secret, cache_version
 		FROM jobs
 		WHERE project_id = $1
 		ORDER BY created_at ASC

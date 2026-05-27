@@ -7603,6 +7603,56 @@ func TestGetUserPermissions(t *testing.T) {
 	}
 }
 
+func TestGetUserPermissionsWithVersion(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	role := &domain.ProjectRole{
+		ProjectID:   "proj-perms-version",
+		Name:        "operator",
+		Permissions: []string{"jobs:read"},
+	}
+	if err := q.CreateProjectRole(ctx, role); err != nil {
+		t.Fatalf("CreateProjectRole() error = %v", err)
+	}
+
+	m := &domain.ProjectMemberRole{
+		ProjectID: "proj-perms-version",
+		UserID:    "user-perms-version",
+		RoleID:    role.ID,
+	}
+	if err := q.AssignMemberRole(ctx, m); err != nil {
+		t.Fatalf("AssignMemberRole() error = %v", err)
+	}
+
+	perms, version, err := q.GetUserPermissionsWithVersion(ctx, "proj-perms-version", "user-perms-version")
+	if err != nil {
+		t.Fatalf("GetUserPermissionsWithVersion() error = %v", err)
+	}
+	if len(perms) != 1 || perms[0] != "jobs:read" {
+		t.Fatalf("permissions = %v, want [jobs:read]", perms)
+	}
+	if version <= 0 {
+		t.Fatalf("version = %d, want positive", version)
+	}
+
+	role.Permissions = []string{"jobs:read", "jobs:write"}
+	if err := q.UpdateProjectRole(ctx, role); err != nil {
+		t.Fatalf("UpdateProjectRole() error = %v", err)
+	}
+	perms, updatedVersion, err := q.GetUserPermissionsWithVersion(ctx, "proj-perms-version", "user-perms-version")
+	if err != nil {
+		t.Fatalf("GetUserPermissionsWithVersion(after update) error = %v", err)
+	}
+	if len(perms) != 2 {
+		t.Fatalf("updated permissions = %v, want two permissions", perms)
+	}
+	if updatedVersion <= version {
+		t.Fatalf("updated version = %d, want > %d", updatedVersion, version)
+	}
+}
+
 func TestGetUserPermissions_NoRole(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

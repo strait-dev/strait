@@ -65,7 +65,7 @@ func (q *Queries) CreateAPIKey(ctx context.Context, key *domain.APIKey) error {
 		INSERT INTO api_keys (id, project_id, org_id, name, key_hash, key_prefix, scopes, expires_at,
 		                      environment_id, rotation_interval_days, next_rotation_at, rotation_webhook_url, rotation_webhook_secret)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-		RETURNING created_at`
+		RETURNING created_at, cache_version`
 
 	var rotationWebhookSecret any
 	if len(key.RotationWebhookSecret) > 0 {
@@ -76,7 +76,7 @@ func (q *Queries) CreateAPIKey(ctx context.Context, key *domain.APIKey) error {
 		key.ID, key.ProjectID, dbscan.NilIfEmptyString(key.OrgID), key.Name, key.KeyHash, key.KeyPrefix, key.Scopes, key.ExpiresAt,
 		dbscan.NilIfEmptyString(key.EnvironmentID), key.RotationIntervalDays, key.NextRotationAt, dbscan.NilIfEmptyString(key.RotationWebhookURL),
 		rotationWebhookSecret,
-	).Scan(&key.CreatedAt)
+	).Scan(&key.CreatedAt, &key.CacheVersion)
 	if err != nil {
 		return fmt.Errorf("create api key: %w", err)
 	}
@@ -90,7 +90,7 @@ func (q *Queries) GetAPIKeyByHash(ctx context.Context, keyHash string) (*domain.
 
 	query := `SELECT id, project_id, org_id, name, key_hash, key_prefix, scopes, expires_at, last_used_at, created_at, revoked_at, replaced_by_key_id, grace_expires_at,
 	                 rate_limit_requests, rate_limit_window_secs,
-	                 environment_id, rotation_interval_days, next_rotation_at, rotation_webhook_url, rotation_webhook_secret
+	                 environment_id, rotation_interval_days, next_rotation_at, rotation_webhook_url, rotation_webhook_secret, cache_version
 			  FROM api_keys WHERE key_hash = $1`
 
 	key, err := scanAPIKey(q.db.QueryRow(ctx, query, keyHash))
@@ -110,7 +110,7 @@ func (q *Queries) ListAPIKeysByProject(ctx context.Context, projectID string, li
 
 	query := `SELECT id, project_id, org_id, name, key_hash, key_prefix, scopes, expires_at, last_used_at, created_at, revoked_at, replaced_by_key_id, grace_expires_at,
 	                 rate_limit_requests, rate_limit_window_secs,
-	                 environment_id, rotation_interval_days, next_rotation_at, rotation_webhook_url, rotation_webhook_secret
+	                 environment_id, rotation_interval_days, next_rotation_at, rotation_webhook_url, rotation_webhook_secret, cache_version
 			  FROM api_keys WHERE project_id = $1 AND revoked_at IS NULL`
 
 	args := []any{projectID}
@@ -149,7 +149,7 @@ func (q *Queries) ListAPIKeysByOrg(ctx context.Context, orgID string, limit int,
 
 	query := `SELECT id, project_id, org_id, name, key_hash, key_prefix, scopes, expires_at, last_used_at, created_at, revoked_at, replaced_by_key_id, grace_expires_at,
 	                 rate_limit_requests, rate_limit_window_secs,
-	                 environment_id, rotation_interval_days, next_rotation_at, rotation_webhook_url, rotation_webhook_secret
+	                 environment_id, rotation_interval_days, next_rotation_at, rotation_webhook_url, rotation_webhook_secret, cache_version
 			  FROM api_keys WHERE org_id = $1 AND revoked_at IS NULL`
 
 	args := []any{orgID}
@@ -284,7 +284,7 @@ func (q *Queries) GetAPIKeyByID(ctx context.Context, id string) (*domain.APIKey,
 
 	query := `SELECT id, project_id, org_id, name, key_hash, key_prefix, scopes, expires_at, last_used_at, created_at, revoked_at, replaced_by_key_id, grace_expires_at,
 	                 rate_limit_requests, rate_limit_window_secs,
-	                 environment_id, rotation_interval_days, next_rotation_at, rotation_webhook_url, rotation_webhook_secret
+	                 environment_id, rotation_interval_days, next_rotation_at, rotation_webhook_url, rotation_webhook_secret, cache_version
 			  FROM api_keys WHERE id = $1`
 
 	key, err := scanAPIKey(q.db.QueryRow(ctx, query, id))
@@ -310,7 +310,7 @@ func scanAPIKey(scanner scanTarget) (*domain.APIKey, error) {
 		&key.ID, &key.ProjectID, &orgID, &key.Name, &key.KeyHash, &key.KeyPrefix,
 		&key.Scopes, &key.ExpiresAt, &key.LastUsedAt, &key.CreatedAt, &key.RevokedAt, &replacedBy, &key.GraceExpiresAt,
 		&rateLimitRequests, &rateLimitWindowSecs,
-		&environmentID, &key.RotationIntervalDays, &key.NextRotationAt, &rotationWebhookURL, &rotationWebhookSecret,
+		&environmentID, &key.RotationIntervalDays, &key.NextRotationAt, &rotationWebhookURL, &rotationWebhookSecret, &key.CacheVersion,
 	)
 	if err != nil {
 		return nil, err
@@ -343,7 +343,7 @@ func (q *Queries) ListAPIKeysDueRotation(ctx context.Context) ([]domain.APIKey, 
 
 	query := `SELECT id, project_id, org_id, name, key_hash, key_prefix, scopes, expires_at, last_used_at, created_at, revoked_at, replaced_by_key_id, grace_expires_at,
 	                 rate_limit_requests, rate_limit_window_secs,
-	                 environment_id, rotation_interval_days, next_rotation_at, rotation_webhook_url, rotation_webhook_secret
+	                 environment_id, rotation_interval_days, next_rotation_at, rotation_webhook_url, rotation_webhook_secret, cache_version
 			  FROM api_keys
 			  WHERE rotation_interval_days IS NOT NULL
 			    AND next_rotation_at <= NOW()
@@ -397,7 +397,7 @@ func (q *Queries) ListAPIKeysExpiringSoon(ctx context.Context, projectID string,
 
 	query := `SELECT id, project_id, org_id, name, key_hash, key_prefix, scopes, expires_at, last_used_at, created_at, revoked_at, replaced_by_key_id, grace_expires_at,
 	                 rate_limit_requests, rate_limit_window_secs,
-	                 environment_id, rotation_interval_days, next_rotation_at, rotation_webhook_url, rotation_webhook_secret
+	                 environment_id, rotation_interval_days, next_rotation_at, rotation_webhook_url, rotation_webhook_secret, cache_version
 			  FROM api_keys
 			  WHERE project_id = $1
 			    AND revoked_at IS NULL
@@ -475,7 +475,7 @@ func (q *Queries) ListJobsByOrg(ctx context.Context, orgID string, limit int, cu
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
 		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, preferred_regions, queue_name, on_complete_trigger_workflow, on_complete_trigger_job, on_complete_payload_mapping, on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
-		       paused, paused_at, pause_reason, endpoint_signing_secret
+		       paused, paused_at, pause_reason, endpoint_signing_secret, cache_version
 		FROM jobs
 		WHERE project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)`
 

@@ -15,6 +15,7 @@ import (
 	"strait/internal/api"
 	grpcserver "strait/internal/api/grpc"
 	"strait/internal/billing"
+	straitcache "strait/internal/cache"
 	"strait/internal/cdc"
 	"strait/internal/clickhouse"
 	"strait/internal/config"
@@ -294,7 +295,7 @@ func retrySleep(ctx context.Context, attempt int) error {
 }
 
 // startCDCConsumer registers and starts the required Sequin CDC consumer.
-func startCDCConsumer(ctx context.Context, g *pool.ContextPool, cfg *config.Config, pub pubsub.Publisher, queries *store.Queries, chExporter *clickhouse.Exporter) (*cdc.WebhookReceiver, error) {
+func startCDCConsumer(ctx context.Context, g *pool.ContextPool, cfg *config.Config, pub pubsub.Publisher, queries *store.Queries, chExporter *clickhouse.Exporter, rdb *redis.Client, cacheBus *straitcache.Bus) (*cdc.WebhookReceiver, error) {
 	cdcClient := cdc.NewClient(
 		cfg.SequinBaseURL,
 		cfg.SequinConsumerName,
@@ -307,7 +308,10 @@ func startCDCConsumer(ctx context.Context, g *pool.ContextPool, cfg *config.Conf
 
 	// Auto-provision the Sequin consumer if it does not exist.
 	cdcTables := []string{
-		"public.job_runs", "public.workflow_runs",
+		"public.api_keys", "public.project_roles", "public.project_member_roles",
+		"public.resource_policies", "public.tag_policies", "public.project_quotas",
+		"public.organization_subscriptions", "public.jobs", "public.job_dependencies",
+		"public.job_runs", "public.workflow_runs", "public.workflow_step_runs",
 		"public.event_triggers",
 	}
 	if err := cdcClient.EnsureConsumer(ctx, cdcTables); err != nil {
@@ -321,14 +325,24 @@ func startCDCConsumer(ctx context.Context, g *pool.ContextPool, cfg *config.Conf
 		BatchSize:    cfg.CDCBatchSize,
 		WaitTimeMs:   cfg.CDCWaitTimeMs,
 	}, slog.Default())
+	sharedDedupe := cdc.NewSharedDedupeStore(rdb, cfg.SharedDedupeTTL)
 
 	cdcConsumer.RegisterHandler(cdc.NewJobRunHandler(pub, slog.Default()))
 	cdcConsumer.RegisterHandler(cdc.NewWorkflowRunHandler(pub, slog.Default()))
 	cdcConsumer.RegisterHandler(cdc.NewEventTriggerHandler(pub, slog.Default()))
 	cdcConsumer.RegisterAdditionalHandler(cdc.NewNotificationTriggerHandler(queries, slog.Default()))
-	cdcConsumer.RegisterAdditionalHandler(cdc.NewSLOHandler(queries, slog.Default()))
+	cdcConsumer.RegisterAdditionalHandler(cdc.NewSLOHandler(queries, slog.Default()).WithSharedDedupe(sharedDedupe))
 	if chExporter != nil {
-		cdcConsumer.RegisterAdditionalHandler(cdc.NewAnalyticsHandler(chExporter, slog.Default()))
+		cdcConsumer.RegisterAdditionalHandler(cdc.NewAnalyticsHandler(chExporter, slog.Default()).WithSharedDedupe(sharedDedupe))
+	}
+	cacheHandlers := cdc.NewCacheReadModelHandlers(rdb, cfg.StatusReadModelTTL, slog.Default())
+	if cacheHandlers.JobRuns != nil {
+		cdcConsumer.RegisterAdditionalHandler(cacheHandlers.JobRuns)
+		cdcConsumer.RegisterAdditionalHandler(cacheHandlers.WorkflowRuns)
+		cdcConsumer.RegisterAdditionalHandler(cacheHandlers.WorkflowStepRuns)
+	}
+	for _, h := range cdc.NewCacheInvalidationHandlers(cacheBus, slog.Default()) {
+		cdcConsumer.RegisterAdditionalHandler(h)
 	}
 
 	g.Go(func(ctx context.Context) error {
@@ -355,6 +369,7 @@ func startCDCConsumer(ctx context.Context, g *pool.ContextPool, cfg *config.Conf
 	} else {
 		slog.Warn("cdc webhook signature verification disabled: SEQUIN_WEBHOOK_SECRET is not set")
 	}
+	receiverOpts = append(receiverOpts, cdc.WithWebhookSharedDedupe(sharedDedupe))
 	webhookReceiver := cdc.NewWebhookReceiver(pub, slog.Default(), receiverOpts...)
 	webhookReceiver.RegisterHandler(cdc.NewJobRunHandler(pub, slog.Default()))
 	webhookReceiver.RegisterHandler(cdc.NewWorkflowRunHandler(pub, slog.Default()))
@@ -363,9 +378,17 @@ func startCDCConsumer(ctx context.Context, g *pool.ContextPool, cfg *config.Conf
 	// CDC-driven observers: execution-critical side effects are written through
 	// transactional stores, not CDC redelivery.
 	webhookReceiver.RegisterAdditionalHandler(cdc.NewNotificationTriggerHandler(queries, slog.Default()))
-	webhookReceiver.RegisterAdditionalHandler(cdc.NewSLOHandler(queries, slog.Default()))
+	webhookReceiver.RegisterAdditionalHandler(cdc.NewSLOHandler(queries, slog.Default()).WithSharedDedupe(sharedDedupe))
 	if chExporter != nil {
-		webhookReceiver.RegisterAdditionalHandler(cdc.NewAnalyticsHandler(chExporter, slog.Default()))
+		webhookReceiver.RegisterAdditionalHandler(cdc.NewAnalyticsHandler(chExporter, slog.Default()).WithSharedDedupe(sharedDedupe))
+	}
+	if cacheHandlers.JobRuns != nil {
+		webhookReceiver.RegisterAdditionalHandler(cacheHandlers.JobRuns)
+		webhookReceiver.RegisterAdditionalHandler(cacheHandlers.WorkflowRuns)
+		webhookReceiver.RegisterAdditionalHandler(cacheHandlers.WorkflowStepRuns)
+	}
+	for _, h := range cdc.NewCacheInvalidationHandlers(cacheBus, slog.Default()) {
+		webhookReceiver.RegisterAdditionalHandler(h)
 	}
 
 	slog.Info("cdc consumer enabled",
@@ -457,7 +480,7 @@ func startLogDrainWorker(g *pool.ContextPool, cfg *config.Config, queries *store
 }
 
 // startAPIServer starts the HTTP API server and its graceful shutdown goroutine.
-func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, dbPool *pgxpool.Pool, q queue.Queue, pub pubsub.Publisher, metricsHandler http.Handler, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, rdb *redis.Client, encryptor api.Encryptor, billingEnforcer *billing.Enforcer, analyticsStore api.AnalyticsStore, chExporter *clickhouse.Exporter, cdcWebhookReceiver *cdc.WebhookReceiver) {
+func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, dbPool *pgxpool.Pool, q queue.Queue, pub pubsub.Publisher, cacheRegistry *straitcache.Registry, cacheBus *straitcache.Bus, metricsHandler http.Handler, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, rdb *redis.Client, encryptor api.Encryptor, billingEnforcer *billing.Enforcer, analyticsStore api.AnalyticsStore, chExporter *clickhouse.Exporter, cdcWebhookReceiver *cdc.WebhookReceiver) {
 	if cfg.Mode != "api" && cfg.Mode != "all" {
 		return
 	}
@@ -543,6 +566,8 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		WorkflowEngine:     workflowEngine,
 		TxPool:             txPool,
 		RedisClient:        rdb,
+		CacheBus:           cacheBus,
+		CacheRegistry:      cacheRegistry,
 		Encryptor:          encryptor,
 		StripeWebhook:      stripeWebhook,
 		BillingEnforcer:    nilSafeBillingEnforcer(billingEnforcer),
@@ -673,6 +698,7 @@ func startGRPCServer(g *pool.ContextPool, cfg *config.Config, queries *store.Que
 
 	opts := []grpcserver.ServerOption{
 		grpcserver.WithAuthLimiter(ratelimit.NewAuthLimiter(rdb, true)),
+		grpcserver.WithAPIKeyCache(rdb, cfg.APIKeyCacheTTL),
 		grpcserver.WithVersion(version),
 		grpcserver.WithSecretDecryptor(decryptor),
 	}
@@ -724,8 +750,21 @@ func waitForPubsubReady(ctx context.Context, pub pubsub.Publisher, budget time.D
 	}
 }
 
+func startCacheBus(g *pool.ContextPool, pub pubsub.Publisher) (*straitcache.Registry, *straitcache.Bus) {
+	registry := straitcache.NewRegistry(straitcache.RegistryConfig{})
+	bus := straitcache.NewBus(pub, straitcache.BusConfig{Origin: registry.Origin()})
+	g.Go(func(ctx context.Context) error {
+		return bus.Run(ctx, registry)
+	})
+	slog.Info("cachebus subscriber enabled",
+		"channel", bus.Channel(),
+		"origin", registry.Origin(),
+	)
+	return registry, bus
+}
+
 // startWorker starts the job executor, worker pool, and scheduler goroutines.
-func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, dbPool *pgxpool.Pool, q queue.Queue, bp *queue.Backpressure, pub pubsub.Publisher, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, billingEnforcer *billing.Enforcer, billingDispatcher *webhook.BillingDispatcher, chExporter *clickhouse.Exporter, workerPlane *grpcserver.Server, encryptor api.Encryptor) {
+func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, dbPool *pgxpool.Pool, q queue.Queue, bp *queue.Backpressure, pub pubsub.Publisher, cacheRegistry *straitcache.Registry, cacheBus *straitcache.Bus, rdb *redis.Client, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, billingEnforcer *billing.Enforcer, billingDispatcher *webhook.BillingDispatcher, chExporter *clickhouse.Exporter, workerPlane *grpcserver.Server, encryptor api.Encryptor) {
 	if cfg.Mode != "worker" && cfg.Mode != "all" {
 		return
 	}
@@ -761,35 +800,43 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		slog.Info("worker queue partitioning enabled", "partitions", partitions)
 	}
 	execCfg := worker.ExecutorConfig{
-		Pool:                    p,
-		Queue:                   q,
-		Wake:                    wake,
-		Degraded:                notifier,
-		ConcurrencyLimit:        adaptive,
-		Store:                   queries,
-		TxPool:                  txPool,
-		PollInterval:            cfg.PollerInterval,
-		HeartbeatInterval:       cfg.HeartbeatInterval,
-		Publisher:               pub,
-		Metrics:                 metrics,
-		WorkflowCallback:        stepCallback,
-		Partitions:              partitions,
-		PartitionWeights:        partitionWeights,
-		ExecutorHTTPTimeout:     cfg.ExecutorHTTPTimeout,
-		ExecutorIdleConnTimeout: cfg.ExecutorIdleConnTimeout,
-		ExecutionTraceMode:      cfg.ExecutionTraceMode,
-		AllowPrivateEndpoints:   cfg.AllowPrivateEndpoints,
-		WebhookMaxAttempts:      cfg.WebhookMaxAttempts,
-		MaxSnoozeCount:          cfg.MaxSnoozeCount,
-		JWTSigningKey:           cfg.JWTSigningKey,
-		ExternalAPIURL:          cfg.ExternalAPIURL,
-		DefaultRegion:           cfg.DefaultRegion,
-		Mode:                    cfg.Mode,
-		Version:                 version,
-		EventChannelSize:        cfg.WorkerEventChannelSize,
-		SecretDecryptor:         encryptor,
-		UseDenormalizedDequeue:  cfg.QueueUseDenormalizedDequeue,
-		JobHealthStatsCacheTTL:  cfg.JobHealthStatsCacheTTL,
+		Pool:                     p,
+		Queue:                    q,
+		Wake:                     wake,
+		Degraded:                 notifier,
+		ConcurrencyLimit:         adaptive,
+		Store:                    queries,
+		TxPool:                   txPool,
+		PollInterval:             cfg.PollerInterval,
+		HeartbeatInterval:        cfg.HeartbeatInterval,
+		Publisher:                pub,
+		Metrics:                  metrics,
+		WorkflowCallback:         stepCallback,
+		Partitions:               partitions,
+		PartitionWeights:         partitionWeights,
+		ExecutorHTTPTimeout:      cfg.ExecutorHTTPTimeout,
+		ExecutorIdleConnTimeout:  cfg.ExecutorIdleConnTimeout,
+		ExecutionTraceMode:       cfg.ExecutionTraceMode,
+		AllowPrivateEndpoints:    cfg.AllowPrivateEndpoints,
+		WebhookMaxAttempts:       cfg.WebhookMaxAttempts,
+		JobCacheTTL:              cfg.JobCacheTTL,
+		VersionCacheTTL:          cfg.VersionCacheTTL,
+		RunVersionCacheTTL:       cfg.RunVersionCacheTTL,
+		JobHealthCacheTTL:        cfg.JobHealthCacheTTL,
+		RedisClient:              rdb,
+		CacheRegistry:            cacheRegistry,
+		CacheBus:                 cacheBus,
+		MaxDequeueBatchSize:      cfg.MaxDequeueBatchSize,
+		DefaultJobMaxConcurrency: cfg.DefaultJobMaxConcurrency,
+		MaxSnoozeCount:           cfg.MaxSnoozeCount,
+		JWTSigningKey:            cfg.JWTSigningKey,
+		ExternalAPIURL:           cfg.ExternalAPIURL,
+		DefaultRegion:            cfg.DefaultRegion,
+		Mode:                     cfg.Mode,
+		Version:                  version,
+		EventChannelSize:         cfg.WorkerEventChannelSize,
+		SecretDecryptor:          encryptor,
+		UseDenormalizedDequeue:   cfg.QueueUseDenormalizedDequeue,
 	}
 	applyWorkerPlaneToExecutorConfig(&execCfg, workerPlane, cfg.JWTSigningKey)
 

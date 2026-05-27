@@ -94,13 +94,14 @@ func (s *Server) scopesForSSEToken(ctx context.Context) ([]string, error) {
 
 	perms, cached := s.permCache.Get(projectID, actorID)
 	if !cached {
+		var version int64
 		var err error
-		perms, err = s.store.GetUserPermissions(ctx, projectID, actorID)
+		perms, version, err = s.loadUserPermissionsForCache(ctx, projectID, actorID)
 		if err != nil {
 			return nil, huma.Error500InternalServerError("failed to load permissions")
 		}
 		if perms != nil {
-			s.permCache.Set(projectID, actorID, perms)
+			s.permCache.SetWithVersion(projectID, actorID, perms, version)
 		}
 	}
 	if ctx.Value(ctxOIDCScopeClaimPresentKey) == true {

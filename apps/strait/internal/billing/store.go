@@ -47,6 +47,7 @@ type OrgSubscription struct {
 	Entitlements []byte
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
+	CacheVersion int64
 }
 
 // BillingCapEvent identifies a per-period spend-cap webhook event. The string
