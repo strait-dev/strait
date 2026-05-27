@@ -105,7 +105,6 @@ func TestParseSnapshotDefinition_RoundTrip(t *testing.T) {
 		t.Fatalf("parse: %v", err)
 	}
 
-	// Verify workflow metadata
 	if parsed.Workflow.ID != "wf-1" {
 		t.Errorf("workflow ID = %q, want wf-1", parsed.Workflow.ID)
 	}
@@ -119,12 +118,10 @@ func TestParseSnapshotDefinition_RoundTrip(t *testing.T) {
 		t.Errorf("workflow Tags[team] = %q, want platform", parsed.Workflow.Tags["team"])
 	}
 
-	// Verify all steps came back
 	if len(parsed.Steps) != 5 {
 		t.Fatalf("steps count = %d, want 5", len(parsed.Steps))
 	}
 
-	// Verify every step type
 	stepTypes := map[string]domain.WorkflowStepType{
 		"build":      domain.WorkflowStepTypeJob,
 		"deploy":     domain.WorkflowStepTypeApproval,
@@ -143,7 +140,6 @@ func TestParseSnapshotDefinition_RoundTrip(t *testing.T) {
 		}
 	}
 
-	// Verify all fields of step 1 (the most populated)
 	s := parsed.Steps[0]
 	if s.JobID != "job-1" {
 		t.Errorf("step[0].JobID = %q, want job-1", s.JobID)

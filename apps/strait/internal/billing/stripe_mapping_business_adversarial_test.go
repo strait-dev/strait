@@ -8,9 +8,8 @@ import (
 
 // Simulates the Stripe webhook path: when a subscription.created event
 // arrives with a Business price ID, the mapping must resolve to
-// PlanBusiness — regression for the pre-Phase-2 silent fallthrough where
-// Business prices mapped to PlanFree because WithBusinessPrices did not
-// exist.
+// PlanBusiness. This guards against silently falling through to PlanFree
+// when Business prices are configured through WithBusinessPrices.
 func TestWithBusinessPrices_NoSilentFallthroughToFree(t *testing.T) {
 	t.Parallel()
 
@@ -22,7 +21,7 @@ func TestWithBusinessPrices_NoSilentFallthroughToFree(t *testing.T) {
 	)
 	tier, ok := m.TierForPrice("biz-m")
 	if !ok || tier != domain.PlanBusiness {
-		t.Fatalf("Business monthly resolved to (%q, %v); the pre-Phase-2 bug returned Free", tier, ok)
+		t.Fatalf("Business monthly resolved to (%q, %v), want Business", tier, ok)
 	}
 }
 

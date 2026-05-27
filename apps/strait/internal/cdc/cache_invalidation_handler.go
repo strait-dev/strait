@@ -46,10 +46,17 @@ type cacheInvalidationHandler struct {
 	table  string
 	bus    *straitcache.Bus
 	logger *slog.Logger
-	fn     func(context.Context, *straitcache.Bus, map[string]any, int64) error
+	fn     cacheInvalidationFunc
 }
 
-func newCacheInvalidationHandler(table string, bus *straitcache.Bus, logger *slog.Logger, fn func(context.Context, *straitcache.Bus, map[string]any, int64) error) Handler {
+type cacheInvalidationFunc func(context.Context, *straitcache.Bus, map[string]any, int64) error
+
+func newCacheInvalidationHandler(
+	table string,
+	bus *straitcache.Bus,
+	logger *slog.Logger,
+	fn cacheInvalidationFunc,
+) Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -77,7 +84,12 @@ func (h *cacheInvalidationHandler) Handle(ctx context.Context, msg Message) erro
 	return nil
 }
 
-func invalidatePermissionProjectCache(ctx context.Context, bus *straitcache.Bus, record map[string]any, version int64) error {
+func invalidatePermissionProjectCache(
+	ctx context.Context,
+	bus *straitcache.Bus,
+	record map[string]any,
+	version int64,
+) error {
 	projectID := stringField(record, "project_id")
 	if projectID == "" {
 		return nil
@@ -126,12 +138,22 @@ func invalidateWorkerJobCache(ctx context.Context, bus *straitcache.Bus, record 
 	return bus.PublishInvalidate(ctx, cacheNamespaceWorkerJob, jobID, version)
 }
 
-func invalidateJobDependencyCache(ctx context.Context, bus *straitcache.Bus, record map[string]any, version int64) error {
+func invalidateJobDependencyCache(
+	ctx context.Context,
+	bus *straitcache.Bus,
+	record map[string]any,
+	version int64,
+) error {
 	jobID := stringField(record, "job_id")
 	if jobID == "" {
 		return nil
 	}
-	return bus.PublishInvalidate(ctx, cacheNamespaceJobDependency, jobDependencyCacheKey(jobID, defaultJobDependencyListSize), version)
+	return bus.PublishInvalidate(
+		ctx,
+		cacheNamespaceJobDependency,
+		jobDependencyCacheKey(jobID, defaultJobDependencyListSize),
+		version,
+	)
 }
 
 func permissionCacheKey(projectID, userID string) string {

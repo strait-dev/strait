@@ -31,17 +31,17 @@ func newWorkflowStepsVersionCache(cfg WorkflowDefinitionCacheConfig) *workflowSt
 	if cfg.VersionTTL <= 0 {
 		return nil
 	}
-	var l2 straitcache.L2[workflowStepsVersionKey, []domain.WorkflowStep]
-	if cfg.Redis != nil {
-		l2 = straitcache.NewRedisL2[workflowStepsVersionKey, []domain.WorkflowStep](straitcache.RedisL2Config[workflowStepsVersionKey, []domain.WorkflowStep]{
-			Client:    cfg.Redis,
-			Namespace: workflowStepsVersionCacheNamespace,
-			Key: func(key workflowStepsVersionKey) string {
-				return fmt.Sprintf("%s\x00%d", key.WorkflowID, key.Version)
-			},
-		})
-	}
-	return &workflowStepsVersionCache{tier: straitcache.NewTier[workflowStepsVersionKey, []domain.WorkflowStep](straitcache.TierConfig[workflowStepsVersionKey, []domain.WorkflowStep]{
+	l2 := newWorkflowStepsVersionL2(cfg.Redis)
+	tierConfig := workflowStepsVersionTierConfig(cfg.VersionTTL, l2)
+	tier := straitcache.NewTier[workflowStepsVersionKey, []domain.WorkflowStep](tierConfig)
+	return &workflowStepsVersionCache{tier: tier}
+}
+
+func workflowStepsVersionTierConfig(
+	ttl time.Duration,
+	l2 straitcache.L2[workflowStepsVersionKey, []domain.WorkflowStep],
+) straitcache.TierConfig[workflowStepsVersionKey, []domain.WorkflowStep] {
+	return straitcache.TierConfig[workflowStepsVersionKey, []domain.WorkflowStep]{
 		Name:          workflowStepsVersionCacheNamespace,
 		L2:            l2,
 		Consistency:   straitcache.Immutable,
@@ -55,32 +55,37 @@ func newWorkflowStepsVersionCache(cfg WorkflowDefinitionCacheConfig) *workflowSt
 			}
 			return uint32(len(steps)) // #nosec G115 -- bounded above before conversion.
 		},
-		TTL:       cfg.VersionTTL,
+		TTL:       ttl,
 		TTLJitter: 0.1,
 		DisableL2: l2 == nil,
-		Clone:     cloneWorkflowSteps,
-	})}
+		Clone:     domain.CloneWorkflowSteps,
+	}
 }
 
-func (c *workflowStepsVersionCache) Load(ctx context.Context, key workflowStepsVersionKey, loader straitcache.LoadFunc[workflowStepsVersionKey, []domain.WorkflowStep]) ([]domain.WorkflowStep, error) {
+func newWorkflowStepsVersionL2(redis redis.Cmdable) straitcache.L2[workflowStepsVersionKey, []domain.WorkflowStep] {
+	if redis == nil {
+		return nil
+	}
+	return straitcache.NewRedisL2[workflowStepsVersionKey, []domain.WorkflowStep](
+		straitcache.RedisL2Config[workflowStepsVersionKey, []domain.WorkflowStep]{
+			Client:    redis,
+			Namespace: workflowStepsVersionCacheNamespace,
+			Key:       workflowStepsVersionKeyString,
+		},
+	)
+}
+
+func workflowStepsVersionKeyString(key workflowStepsVersionKey) string {
+	return fmt.Sprintf("%s\x00%d", key.WorkflowID, key.Version)
+}
+
+func (c *workflowStepsVersionCache) Load(
+	ctx context.Context,
+	key workflowStepsVersionKey,
+	loader straitcache.LoadFunc[workflowStepsVersionKey, []domain.WorkflowStep],
+) ([]domain.WorkflowStep, error) {
 	if c == nil || c.tier == nil {
 		return loader(ctx, key)
 	}
 	return c.tier.Get(ctx, key, loader)
-}
-
-func cloneWorkflowSteps(steps []domain.WorkflowStep) []domain.WorkflowStep {
-	if steps == nil {
-		return nil
-	}
-	out := make([]domain.WorkflowStep, len(steps))
-	for i := range steps {
-		out[i] = steps[i]
-		out[i].DependsOn = append([]string(nil), steps[i].DependsOn...)
-		out[i].Condition = append([]byte(nil), steps[i].Condition...)
-		out[i].Payload = append([]byte(nil), steps[i].Payload...)
-		out[i].ApprovalApprovers = append([]string(nil), steps[i].ApprovalApprovers...)
-		out[i].StageNotifications = append([]byte(nil), steps[i].StageNotifications...)
-	}
-	return out
 }

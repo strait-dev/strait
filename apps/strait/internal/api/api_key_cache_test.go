@@ -59,13 +59,13 @@ func TestAPIKeyCache_ServesValidKeyAndSanitizesSecrets(t *testing.T) {
 		return key, nil
 	}
 
-	first, err := cache.Get(context.Background(), "hash-1", loader)
+	first, err := cache.Get(t.Context(), "hash-1", loader)
 	if err != nil {
 		t.Fatalf("Get() first error = %v", err)
 	}
 	first.Scopes[0] = domain.ScopeRunsWrite
 
-	second, err := cache.Get(context.Background(), "hash-1", loader)
+	second, err := cache.Get(t.Context(), "hash-1", loader)
 	if err != nil {
 		t.Fatalf("Get() second error = %v", err)
 	}
@@ -91,7 +91,7 @@ func TestAPIKeyCache_NegativeCachesInvalidKey(t *testing.T) {
 	}
 
 	for range 2 {
-		key, err := cache.Get(context.Background(), "missing-hash", loader)
+		key, err := cache.Get(t.Context(), "missing-hash", loader)
 		if err != nil {
 			t.Fatalf("Get() error = %v", err)
 		}
@@ -114,15 +114,15 @@ func TestAPIKeyCache_InvalidateForcesReload(t *testing.T) {
 		return &domain.APIKey{ID: "key", KeyHash: "hash-1"}, nil
 	}
 
-	if _, err := cache.Get(context.Background(), "hash-1", loader); err != nil {
+	if _, err := cache.Get(t.Context(), "hash-1", loader); err != nil {
 		t.Fatalf("Get() first error = %v", err)
 	}
-	cache.InvalidateWithVersion(context.Background(), "hash-1", 2)
+	cache.InvalidateWithVersion(t.Context(), "hash-1", 2)
 	loader = func(_ context.Context, _ string) (*domain.APIKey, error) {
 		loads.Add(1)
 		return &domain.APIKey{ID: "key", KeyHash: "hash-1", CacheVersion: 3}, nil
 	}
-	if _, err := cache.Get(context.Background(), "hash-1", loader); err != nil {
+	if _, err := cache.Get(t.Context(), "hash-1", loader); err != nil {
 		t.Fatalf("Get() second error = %v", err)
 	}
 	if loads.Load() != 2 {
@@ -138,11 +138,11 @@ func TestStrongAPIKeyCache_BarrierAllowsNegativeDBConfirmation(t *testing.T) {
 	defer cleanup()
 	cache := newAPIKeyCache(time.Minute, deps)
 
-	cache.Set(context.Background(), &domain.APIKey{ID: "key-1", ProjectID: "proj-1", KeyHash: "hash-1", CacheVersion: 4})
-	cache.InvalidateWithVersion(context.Background(), "hash-1", 5)
+	cache.Set(t.Context(), &domain.APIKey{ID: "key-1", ProjectID: "proj-1", KeyHash: "hash-1", CacheVersion: 4})
+	cache.InvalidateWithVersion(t.Context(), "hash-1", 5)
 
 	var loads atomic.Int64
-	got, err := cache.Get(context.Background(), "hash-1", func(context.Context, string) (*domain.APIKey, error) {
+	got, err := cache.Get(t.Context(), "hash-1", func(context.Context, string) (*domain.APIKey, error) {
 		loads.Add(1)
 		return nil, store.ErrAPIKeyNotFound
 	})
@@ -164,7 +164,7 @@ func TestAPIKeyCache_RedisL2BackfillAndCachebusInvalidate(t *testing.T) {
 	depsA, cleanupA := newTestRedisCacheDeps(t, registryA)
 	defer cleanupA()
 	cacheA := newAPIKeyCache(time.Minute, depsA)
-	cacheA.Set(context.Background(), &domain.APIKey{
+	cacheA.Set(t.Context(), &domain.APIKey{
 		ID:        "key-1",
 		ProjectID: "proj-1",
 		KeyHash:   "hash-1",
@@ -176,7 +176,7 @@ func TestAPIKeyCache_RedisL2BackfillAndCachebusInvalidate(t *testing.T) {
 	depsB.Registry = registryB
 	cacheB := newAPIKeyCache(time.Minute, depsB)
 	var loads atomic.Int64
-	got, err := cacheB.Get(context.Background(), "hash-1", func(context.Context, string) (*domain.APIKey, error) {
+	got, err := cacheB.Get(t.Context(), "hash-1", func(context.Context, string) (*domain.APIKey, error) {
 		loads.Add(1)
 		return nil, store.ErrAPIKeyNotFound
 	})
@@ -191,7 +191,7 @@ func TestAPIKeyCache_RedisL2BackfillAndCachebusInvalidate(t *testing.T) {
 	}
 
 	publishTestInvalidate(t, registryB, apiKeyAuthCacheNamespace, "hash-1")
-	got, err = cacheB.Get(context.Background(), "hash-1", func(context.Context, string) (*domain.APIKey, error) {
+	got, err = cacheB.Get(t.Context(), "hash-1", func(context.Context, string) (*domain.APIKey, error) {
 		loads.Add(1)
 		return nil, store.ErrAPIKeyNotFound
 	})
@@ -214,7 +214,7 @@ func TestAPIKeyCache_PreservesStoreCacheVersionInRedis(t *testing.T) {
 	defer cleanup()
 	cache := newAPIKeyCache(time.Minute, deps)
 
-	got, err := cache.Get(context.Background(), "hash-versioned", func(context.Context, string) (*domain.APIKey, error) {
+	got, err := cache.Get(t.Context(), "hash-versioned", func(context.Context, string) (*domain.APIKey, error) {
 		return &domain.APIKey{
 			ID:           "key-versioned",
 			ProjectID:    "proj-versioned",
@@ -230,7 +230,7 @@ func TestAPIKeyCache_PreservesStoreCacheVersionInRedis(t *testing.T) {
 		t.Fatalf("Get() CacheVersion = %v, want 7", got)
 	}
 
-	raw, err := deps.Redis.Get(context.Background(), "strait:cache:"+apiKeyAuthCacheNamespace+":hash-versioned").Bytes()
+	raw, err := deps.Redis.Get(t.Context(), "strait:cache:"+apiKeyAuthCacheNamespace+":hash-versioned").Bytes()
 	if err != nil {
 		t.Fatalf("read redis entry: %v", err)
 	}
@@ -255,20 +255,20 @@ func TestAPIKeyCache_StrongModeFallsBackToDBWhenRedisEntryMissing(t *testing.T) 
 	deps, cleanup := newTestRedisCacheDeps(t, registry)
 	defer cleanup()
 	cache := newAPIKeyCache(time.Minute, deps)
-	cache.Set(context.Background(), &domain.APIKey{ID: "key-1", ProjectID: "proj-1", KeyHash: "hash-1"})
+	cache.Set(t.Context(), &domain.APIKey{ID: "key-1", ProjectID: "proj-1", KeyHash: "hash-1"})
 
-	if _, err := cache.Get(context.Background(), "hash-1", func(context.Context, string) (*domain.APIKey, error) {
+	if _, err := cache.Get(t.Context(), "hash-1", func(context.Context, string) (*domain.APIKey, error) {
 		t.Fatal("loader should not run while Redis L2 is warm")
 		return nil, nil
 	}); err != nil {
 		t.Fatalf("Get() warm error = %v", err)
 	}
 
-	if err := deps.Redis.Del(context.Background(), "strait:cache:"+apiKeyAuthCacheNamespace+":hash-1").Err(); err != nil {
+	if err := deps.Redis.Del(t.Context(), "strait:cache:"+apiKeyAuthCacheNamespace+":hash-1").Err(); err != nil {
 		t.Fatalf("delete redis cache entry: %v", err)
 	}
 	var loads atomic.Int64
-	got, err := cache.Get(context.Background(), "hash-1", func(context.Context, string) (*domain.APIKey, error) {
+	got, err := cache.Get(t.Context(), "hash-1", func(context.Context, string) (*domain.APIKey, error) {
 		loads.Add(1)
 		return nil, store.ErrAPIKeyNotFound
 	})

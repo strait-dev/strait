@@ -14,9 +14,7 @@ import (
 	"github.com/sourcegraph/conc"
 )
 
-// ---------------------------------------------------------------------------
 // Adversarial tests
-// ---------------------------------------------------------------------------.
 
 func TestClaimTable_SQLInjection_RunID(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -119,8 +117,8 @@ func TestClaimTable_OrphanClaimRow(t *testing.T) {
 		t.Fatalf("insert orphan claim row: %v", err)
 	}
 
-	// DequeueNClaim: the DELETE phase removes the claim row, the UPDATE
-	// touches 0 job_runs rows, and the fetch returns 0 runs.
+	// DequeueNClaim deletes the claim row, touches 0 job_runs rows, and returns
+	// 0 runs.
 	batch, err := q.DequeueNClaim(ctx, 10)
 	if err != nil {
 		t.Fatalf("DequeueNClaim with orphan: %v", err)
@@ -280,9 +278,7 @@ func TestClaimTable_MaxConcurrencyZero_MeansUnlimited(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Chaos tests
-// ---------------------------------------------------------------------------.
 
 func TestClaimTable_CrashBetweenDeleteAndUpdate(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

@@ -27,10 +27,7 @@ import (
 // escape hatch = '' still matches (see the deferred sentinel
 // tightening); the test is shaped to still be useful once that
 // deferral is addressed.
-
-// -----------------------------------------------------------------------.
 // GetJob / DeleteJob wrong-project guards
-// -----------------------------------------------------------------------.
 
 func TestCrossTenant_GetJob_WrongProjectID_NoLeakThroughStore(t *testing.T) {
 	ctx := context.Background()
@@ -56,9 +53,7 @@ func TestCrossTenant_GetJob_WrongProjectID_NoLeakThroughStore(t *testing.T) {
 	}
 }
 
-// -----------------------------------------------------------------------.
 // ListRunsByProject with a mismatched projectID returns empty
-// -----------------------------------------------------------------------.
 
 func TestCrossTenant_ListRunsByProject_WrongProject_Empty(t *testing.T) {
 	ctx := context.Background()
@@ -97,9 +92,7 @@ func TestCrossTenant_ListRunsByProject_WrongProject_Empty(t *testing.T) {
 	}
 }
 
-// -----------------------------------------------------------------------.
 // DeleteJob cross-tenant guard
-// -----------------------------------------------------------------------.
 
 func TestCrossTenant_DeleteJob_WrongProject_NoOp(t *testing.T) {
 	ctx := context.Background()
@@ -129,9 +122,7 @@ func TestCrossTenant_DeleteJob_WrongProject_NoOp(t *testing.T) {
 	}
 }
 
-// -----------------------------------------------------------------------.
 // CountQueuedRuns / CountActiveRuns tenant scoping
-// -----------------------------------------------------------------------.
 
 func TestCrossTenant_CountProjectQueuedRuns_CrossProjectIsolation(t *testing.T) {
 	ctx := context.Background()
@@ -185,9 +176,7 @@ func TestCrossTenant_CountProjectQueuedRuns_CrossProjectIsolation(t *testing.T) 
 	}
 }
 
-// -----------------------------------------------------------------------.
 // Webhook subscription cross-tenant isolation via RLS
-// -----------------------------------------------------------------------.
 
 // GetWebhookSubscription takes only (ctx, id) — it does not accept a
 // projectID parameter, so tenant isolation depends on RLS enforcing it
@@ -238,9 +227,7 @@ func TestCrossTenant_GetWebhookSubscription_WrongProject_RLSBlocks(t *testing.T)
 	})
 }
 
-// -----------------------------------------------------------------------.
 // DeleteEnvironment cross-tenant guard
-// -----------------------------------------------------------------------.
 
 func TestCrossTenant_DeleteEnvironment_OnlyAcceptsByID(t *testing.T) {
 	ctx := context.Background()
@@ -272,9 +259,7 @@ func TestCrossTenant_DeleteEnvironment_OnlyAcceptsByID(t *testing.T) {
 	}
 }
 
-// -----------------------------------------------------------------------.
 // Empty-string / SQL meta hardening on project filters
-// -----------------------------------------------------------------------.
 
 func TestCrossTenant_EmptyProjectID_ReturnsEmpty(t *testing.T) {
 	ctx := context.Background()

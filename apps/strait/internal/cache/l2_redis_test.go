@@ -1,7 +1,6 @@
 package cache
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -20,21 +19,21 @@ func TestStrict_RedisCompareAndSetRejectsOutOfOrderWrites(t *testing.T) {
 		Namespace: "cas_test",
 	})
 
-	ok, err := l2.CompareAndSet(context.Background(), "k", cacheEntry[string]{Version: 10, Value: "new"}, time.Minute)
+	ok, err := l2.CompareAndSet(t.Context(), "k", cacheEntry[string]{Version: 10, Value: "new"}, time.Minute)
 	if err != nil {
 		t.Fatalf("CompareAndSet(new) error = %v", err)
 	}
 	if !ok {
 		t.Fatal("CompareAndSet(new) = false, want true")
 	}
-	ok, err = l2.CompareAndSet(context.Background(), "k", cacheEntry[string]{Version: 9, Value: "old"}, time.Minute)
+	ok, err = l2.CompareAndSet(t.Context(), "k", cacheEntry[string]{Version: 9, Value: "old"}, time.Minute)
 	if err != nil {
 		t.Fatalf("CompareAndSet(old) error = %v", err)
 	}
 	if ok {
 		t.Fatal("CompareAndSet(old) = true, want false")
 	}
-	entry, err := l2.Get(context.Background(), "k")
+	entry, err := l2.Get(t.Context(), "k")
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
@@ -55,7 +54,7 @@ func TestNewCacheCore_RedisValueSizeCap(t *testing.T) {
 		MaxValueBytes: 16,
 	})
 
-	err := l2.Set(context.Background(), "k", cacheEntry[string]{Value: "this payload is too large"}, time.Minute)
+	err := l2.Set(t.Context(), "k", cacheEntry[string]{Value: "this payload is too large"}, time.Minute)
 	if err == nil {
 		t.Fatal("Set() error = nil, want value-size error")
 	}

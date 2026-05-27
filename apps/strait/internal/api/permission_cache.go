@@ -13,8 +13,6 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
-var metricsCtx = context.Background()
-
 const permissionCacheNamespace = "permission"
 const permissionProjectCacheNamespace = "permission_project"
 
@@ -79,8 +77,8 @@ func newPermissionCache(ttl time.Duration, deps ...apiCacheDeps) *permissionCach
 				return clone
 			},
 			OnDelete: func(string) {
-				c.evictions.Add(metricsCtx, 1)
-				c.entriesUp.Add(metricsCtx, -1)
+				c.evictions.Add(cacheMetricsContext, 1)
+				c.entriesUp.Add(cacheMetricsContext, -1)
 			},
 		})
 		if dep.Registry != nil {
@@ -102,52 +100,102 @@ func (c *permissionCache) key(projectID, userID string) string {
 }
 
 func (c *permissionCache) Get(projectID, userID string) ([]string, bool) {
+	return c.GetContext(cacheMetricsContext, projectID, userID)
+}
+
+func (c *permissionCache) GetContext(ctx context.Context, projectID, userID string) ([]string, bool) {
+	if ctx == nil {
+		ctx = cacheMetricsContext
+	}
 	if c == nil || c.disabled || c.inner == nil {
 		if c != nil {
-			c.misses.Add(metricsCtx, 1)
+			c.misses.Add(ctx, 1)
 		}
 		return nil, false
 	}
-	perms, err := c.inner.Get(metricsCtx, c.key(projectID, userID), nil)
+	perms, err := c.inner.Get(ctx, c.key(projectID, userID), nil)
 	if err != nil {
-		c.misses.Add(metricsCtx, 1)
+		c.misses.Add(ctx, 1)
 		return nil, false
 	}
-	c.hits.Add(metricsCtx, 1)
+	c.hits.Add(ctx, 1)
 	return perms, true
 }
 
 func (c *permissionCache) Set(projectID, userID string, permissions []string) {
-	c.SetWithVersion(projectID, userID, permissions, time.Now().UnixNano())
+	c.SetContext(cacheMetricsContext, projectID, userID, permissions)
+}
+
+func (c *permissionCache) SetContext(ctx context.Context, projectID, userID string, permissions []string) {
+	c.SetWithVersionContext(ctx, projectID, userID, permissions, time.Now().UnixNano())
 }
 
 func (c *permissionCache) SetWithVersion(projectID, userID string, permissions []string, version int64) {
+	c.SetWithVersionContext(cacheMetricsContext, projectID, userID, permissions, version)
+}
+
+func (c *permissionCache) SetWithVersionContext(
+	ctx context.Context,
+	projectID string,
+	userID string,
+	permissions []string,
+	version int64,
+) {
 	if c == nil || c.disabled || c.inner == nil {
 		return
+	}
+	if ctx == nil {
+		ctx = cacheMetricsContext
 	}
 	if version <= 0 {
 		version = 1
 	}
 	key := c.key(projectID, userID)
 	_, existed := c.inner.GetIfPresent(key)
-	_, _ = c.inner.StrongWriteThrough(metricsCtx, straitcache.StrongNamespacePolicy{Namespace: permissionCacheNamespace}, key, key, permissions, version, c.bus)
-	c.trackProjectKey(projectID, key)
+	_, _ = c.inner.StrongWriteThrough(
+		ctx,
+		strongCachePolicy(permissionCacheNamespace),
+		key,
+		key,
+		permissions,
+		version,
+		c.bus,
+	)
+	c.trackProjectKey(ctx, projectID, key)
 	if !existed {
-		c.entriesUp.Add(metricsCtx, 1)
+		c.entriesUp.Add(ctx, 1)
 	}
 }
 
 func (c *permissionCache) Invalidate(projectID, userID string) {
-	c.InvalidateWithVersion(projectID, userID, time.Now().UnixNano())
+	c.InvalidateContext(cacheMetricsContext, projectID, userID)
+}
+
+func (c *permissionCache) InvalidateContext(ctx context.Context, projectID, userID string) {
+	c.InvalidateWithVersionContext(ctx, projectID, userID, time.Now().UnixNano())
 }
 
 func (c *permissionCache) InvalidateWithVersion(projectID, userID string, version int64) {
+	c.InvalidateWithVersionContext(cacheMetricsContext, projectID, userID, version)
+}
+
+func (c *permissionCache) InvalidateWithVersionContext(ctx context.Context, projectID, userID string, version int64) {
 	if c == nil || c.disabled || c.inner == nil {
 		return
 	}
+	if ctx == nil {
+		ctx = cacheMetricsContext
+	}
 	key := c.key(projectID, userID)
-	_ = c.inner.StrongInvalidate(metricsCtx, straitcache.StrongNamespacePolicy{Namespace: permissionCacheNamespace}, key, key, straitcache.VersionBarrier{Version: version}, c.bus)
-	c.untrackProjectKey(projectID, key)
+	_ = c.inner.StrongInvalidate(
+		ctx,
+		strongCachePolicy(permissionCacheNamespace),
+		key,
+		key,
+		cacheVersionBarrier(version),
+		c.bus,
+	)
+	c.untrackProjectKey(ctx, projectID, key)
 }
 
 func (c *permissionCache) InvalidateProject(ctx context.Context, projectID string, version int64) {
@@ -155,7 +203,7 @@ func (c *permissionCache) InvalidateProject(ctx context.Context, projectID strin
 		return
 	}
 	if ctx == nil {
-		ctx = metricsCtx
+		ctx = cacheMetricsContext
 	}
 	c.invalidateProjectLocal(ctx, projectID)
 	if c.bus != nil {
@@ -172,34 +220,39 @@ func (c *permissionCache) invalidateProjectLocal(ctx context.Context, projectID 
 	c.clearProjectKeys(projectID)
 }
 
-func (c *permissionCache) trackProjectKey(projectID, key string) {
+func (c *permissionCache) trackProjectKey(ctx context.Context, projectID, key string) {
 	if c == nil || projectID == "" || key == "" {
 		return
 	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	keys := c.byProject[projectID]
 	if keys == nil {
 		keys = make(map[string]struct{})
 		c.byProject[projectID] = keys
 	}
 	keys[key] = struct{}{}
+	c.mu.Unlock()
+
+	c.addRedisProjectKey(ctx, projectID, key)
 }
 
-func (c *permissionCache) untrackProjectKey(projectID, key string) {
+func (c *permissionCache) untrackProjectKey(ctx context.Context, projectID, key string) {
 	if c == nil || projectID == "" || key == "" {
 		return
 	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	keys := c.byProject[projectID]
 	if keys == nil {
+		c.mu.Unlock()
 		return
 	}
 	delete(keys, key)
 	if len(keys) == 0 {
 		delete(c.byProject, projectID)
 	}
+	c.mu.Unlock()
+
+	c.removeRedisProjectKey(ctx, projectID, key)
 }
 
 func (c *permissionCache) clearProjectKeys(projectID string) {
@@ -223,6 +276,46 @@ func (c *permissionCache) deleteRedisProjectKeys(ctx context.Context, projectID 
 	if c == nil || !redisCmdableReady(c.redis) || projectID == "" {
 		return
 	}
+	indexKey := c.redisProjectIndexKey(projectID)
+	members, err := c.redis.SMembers(ctx, indexKey).Result()
+	if err == nil && len(members) > 0 {
+		keys := make([]string, 0, len(members)+1)
+		for _, key := range members {
+			keys = append(keys, c.redisPermissionKey(key))
+		}
+		keys = append(keys, indexKey)
+		_ = c.redis.Del(ctx, keys...).Err()
+		return
+	}
+	if err == nil {
+		_ = c.redis.Del(ctx, indexKey).Err()
+	}
+	c.scanDeleteRedisProjectKeys(ctx, projectID)
+}
+
+func (c *permissionCache) addRedisProjectKey(ctx context.Context, projectID, key string) {
+	if c == nil || !redisCmdableReady(c.redis) || projectID == "" || key == "" {
+		return
+	}
+	_ = c.redis.SAdd(ctx, c.redisProjectIndexKey(projectID), key).Err()
+}
+
+func (c *permissionCache) removeRedisProjectKey(ctx context.Context, projectID, key string) {
+	if c == nil || !redisCmdableReady(c.redis) || projectID == "" || key == "" {
+		return
+	}
+	_ = c.redis.SRem(ctx, c.redisProjectIndexKey(projectID), key).Err()
+}
+
+func (c *permissionCache) redisProjectIndexKey(projectID string) string {
+	return "strait:cache:index:" + permissionCacheNamespace + ":" + projectID
+}
+
+func (c *permissionCache) redisPermissionKey(key string) string {
+	return "strait:cache:" + permissionCacheNamespace + ":" + key
+}
+
+func (c *permissionCache) scanDeleteRedisProjectKeys(ctx context.Context, projectID string) {
 	pattern := "strait:cache:" + permissionCacheNamespace + ":" + projectID + "\x00*"
 	var cursor uint64
 	for {

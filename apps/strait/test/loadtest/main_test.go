@@ -28,9 +28,7 @@ import (
 	vegeta "github.com/tsenart/vegeta/v12/lib"
 )
 
-// ---------------------------------------------------------------------------
 // Globals
-// ---------------------------------------------------------------------------.
 
 var (
 	testEnv   *testutil.TestEnv
@@ -44,9 +42,7 @@ var (
 // httpClient is used for seeding data via HTTP.
 var httpClient = &http.Client{Timeout: 30 * time.Second}
 
-// ---------------------------------------------------------------------------
 // Configuration (overridable via env vars)
-// ---------------------------------------------------------------------------.
 
 type loadCfg struct {
 	// Baseline mode: fixed-rate SLA validation.
@@ -85,9 +81,7 @@ func loadCfgFromEnv() loadCfg {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // TestMain
-// ---------------------------------------------------------------------------.
 
 func TestMain(m *testing.M) {
 	cfg = loadCfgFromEnv()
@@ -129,9 +123,7 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// ---------------------------------------------------------------------------
 // Attack mode helpers
-// ---------------------------------------------------------------------------.
 
 type attackOption func(*attackSettings)
 
@@ -206,9 +198,7 @@ func doAttack(t *testing.T, name string, tgt vegeta.Targeter, pacer vegeta.Pacer
 	return m
 }
 
-// ---------------------------------------------------------------------------
 // Assertions
-// ---------------------------------------------------------------------------.
 
 // assertLatencySLA checks p95 and p99 against configured SLA thresholds.
 func assertLatencySLA(t *testing.T, m vegeta.Metrics) {
@@ -283,9 +273,7 @@ func logMetrics(t *testing.T, name string, m vegeta.Metrics) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Targeter factories
-// ---------------------------------------------------------------------------.
 
 // newTargeter creates a Vegeta targeter for authenticated API requests.
 func newTargeter(method, path string, bodyFn func() []byte) vegeta.Targeter {
@@ -352,9 +340,7 @@ func newAPIKeyTargeter(method, path, apiKey string, bodyFn func() []byte) vegeta
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Data seeding (via HTTP to test server)
-// ---------------------------------------------------------------------------.
 
 // seedJob creates a job and returns its ID.
 func seedJob(t *testing.T, projectID string) string {
@@ -584,9 +570,7 @@ func seedMember(t *testing.T) (roleID, userID string) {
 	return roleID, userID
 }
 
-// ---------------------------------------------------------------------------
 // HTTP helper
-// ---------------------------------------------------------------------------.
 
 // httpDo performs an authenticated HTTP request and returns the decoded JSON body.
 func httpDo(t *testing.T, method, path, body string, extraHeaders http.Header) map[string]any {
@@ -624,9 +608,7 @@ func httpDo(t *testing.T, method, path, body string, extraHeaders http.Header) m
 	return result
 }
 
-// ---------------------------------------------------------------------------
 // Utilities
-// ---------------------------------------------------------------------------.
 
 func newID() string {
 	return uuid.Must(uuid.NewV7()).String()

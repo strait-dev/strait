@@ -11,6 +11,12 @@ import (
 	"time"
 )
 
+func versionedStringLoader(value string, version int64) VersionedLoadFunc[string, string] {
+	return func(context.Context, string) (Versioned[string], error) {
+		return Versioned[string]{Value: value, Version: version}, nil
+	}
+}
+
 func TestStrictConsistency_VersionedLoaderPreservesDatabaseVersion(t *testing.T) {
 	t.Parallel()
 
@@ -22,9 +28,7 @@ func TestStrictConsistency_VersionedLoaderPreservesDatabaseVersion(t *testing.T)
 		TTL:         time.Minute,
 	})
 
-	got, err := tier.GetConsistentVersioned(t.Context(), "k", 10, func(context.Context, string) (Versioned[string], error) {
-		return Versioned[string]{Value: "db", Version: 12}, nil
-	})
+	got, err := tier.GetConsistentVersioned(t.Context(), "k", 10, versionedStringLoader("db", 12))
 	if err != nil {
 		t.Fatalf("GetConsistentVersioned() error = %v", err)
 	}
@@ -51,12 +55,13 @@ func TestStrictConsistency_RacingStaleReaderCannotOverwriteNewerWriter(t *testin
 	})
 	var rejects atomic.Int64
 	tier.cfg.OnCASRejected = func() { rejects.Add(1) }
-	got, err := tier.GetConsistentVersioned(t.Context(), "k", 10, func(context.Context, string) (Versioned[string], error) {
+	loader := func(context.Context, string) (Versioned[string], error) {
 		l2.mu.Lock()
 		l2.values["k"] = cacheEntry[string]{Version: 20, Value: "writer"}
 		l2.mu.Unlock()
 		return Versioned[string]{Value: "stale-reader", Version: 19}, nil
-	})
+	}
+	got, err := tier.GetConsistentVersioned(t.Context(), "k", 10, loader)
 	if err != nil {
 		t.Fatalf("GetConsistentVersioned() error = %v", err)
 	}
@@ -84,9 +89,7 @@ func TestStrictConsistency_GetConsistentVersionedRejectsLoaderBelowMinVersion(t 
 		TTL:         time.Minute,
 	})
 
-	_, err := tier.GetConsistentVersioned(t.Context(), "k", 20, func(context.Context, string) (Versioned[string], error) {
-		return Versioned[string]{Value: "db", Version: 19}, nil
-	})
+	_, err := tier.GetConsistentVersioned(t.Context(), "k", 20, versionedStringLoader("db", 19))
 	if !errors.Is(err, ErrStaleVersion) {
 		t.Fatalf("GetConsistentVersioned() error = %v, want ErrStaleVersion", err)
 	}
@@ -156,11 +159,12 @@ func TestStrictConsistency_ConcurrentVersionedLoadsCoalesce(t *testing.T) {
 	for range callers {
 		wg.Go(func() {
 			<-start
-			got, err := tier.GetConsistentVersioned(t.Context(), "k", 2, func(context.Context, string) (Versioned[string], error) {
+			loader := func(context.Context, string) (Versioned[string], error) {
 				loads.Add(1)
 				time.Sleep(10 * time.Millisecond)
 				return Versioned[string]{Value: "db", Version: 3}, nil
-			})
+			}
+			got, err := tier.GetConsistentVersioned(t.Context(), "k", 2, loader)
 			if err != nil {
 				errs <- err
 				return

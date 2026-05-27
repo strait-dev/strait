@@ -31,6 +31,10 @@ var auditCoverageExemptHandlers = map[string]string{
 	// CDC webhook receiver is internal-only.
 	"handleCDCWebhook": "internal CDC push, not user-initiated",
 
+	// Job trigger dry-run validates payload, limits, and scheduling without
+	// creating runs, enqueueing work, or mutating control-plane state.
+	"handleTriggerDryRun": "read-only validation path; successful job triggers are audited by the enqueue paths",
+
 	// SDK endpoints: the run reports its own progress via run-token JWT.
 	// These are protected by the SDK auth flow; audit logs would be dominated
 	// by per-heartbeat noise with no security value.
@@ -128,17 +132,14 @@ func TestAuditCoverageGuard(t *testing.T) {
 		line int
 	}
 
-	var missing []handlerInfo
-
+	serverMethods := make(map[string]*ast.FuncDecl)
+	files := make(map[string]*ast.File)
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
 		}
 		name := entry.Name()
-		if !strings.HasSuffix(name, ".go") {
-			continue
-		}
-		if strings.HasSuffix(name, "_test.go") {
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
 
@@ -147,7 +148,18 @@ func TestAuditCoverageGuard(t *testing.T) {
 		if parseErr != nil {
 			t.Fatalf("parse %s: %v", name, parseErr)
 		}
+		files[name] = file
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if ok && fn.Recv != nil && fn.Body != nil && isServerReceiver(fn.Recv) {
+				serverMethods[fn.Name.Name] = fn
+			}
+		}
+	}
 
+	var missing []handlerInfo
+
+	for _, file := range files {
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
 			if !ok || fn.Recv == nil || fn.Body == nil {
@@ -166,7 +178,7 @@ func TestAuditCoverageGuard(t *testing.T) {
 				continue
 			}
 
-			if !callsAuditEmit(fn.Body) {
+			if !callsAuditEmit(fn.Body, serverMethods, map[string]bool{}) {
 				pos := fset.Position(fn.Pos())
 				missing = append(missing, handlerInfo{
 					name: fn.Name.Name,
@@ -236,14 +248,16 @@ func isMutationHandler(name string) bool {
 	return false
 }
 
-// callsAuditEmit walks a function body looking for any of the
-// recognized audit-emission patterns:
+// callsAuditEmit walks a function body looking for recognized audit-emission
+// patterns, following calls into other *Server helper methods. This lets
+// handlers stay small while preserving the guard's invariant that every
+// mutating handler reaches an audit event on its success path.
 //   - s.emitAuditEvent / s.emitAuditEventAsync (fire-and-forget)
 //   - s.buildAuditEvent (paired with txStore.CreateAuditEvent inside
 //     a runInTx closure for atomic-with-mutation audit inserts)
 //
 // Returns true on the first hit.
-func callsAuditEmit(body *ast.BlockStmt) bool {
+func callsAuditEmit(body *ast.BlockStmt, serverMethods map[string]*ast.FuncDecl, seen map[string]bool) bool {
 	var found bool
 	ast.Inspect(body, func(n ast.Node) bool {
 		if found {
@@ -259,6 +273,15 @@ func callsAuditEmit(body *ast.BlockStmt) bool {
 		}
 		switch sel.Sel.Name {
 		case "emitAuditEvent", "emitAuditEventAsync", "buildAuditEvent":
+			found = true
+			return false
+		}
+		fn, ok := serverMethods[sel.Sel.Name]
+		if !ok || seen[sel.Sel.Name] {
+			return true
+		}
+		seen[sel.Sel.Name] = true
+		if callsAuditEmit(fn.Body, serverMethods, seen) {
 			found = true
 			return false
 		}

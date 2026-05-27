@@ -9,18 +9,13 @@ import (
 	"strait/internal/store"
 )
 
-// --------------------------------------------------------------------------.
 // Remaining methods.
-// --------------------------------------------------------------------------.
 
 // promoteDeploymentVersion is private, tested indirectly via higher-level promotion flows.
 // scanEnvironment is private (scanner utility), skip.
 // decryptNotificationConfig is private, tested indirectly.
 // findLatestTerminalDependencyRun is private, tested indirectly.
-
-// --------------------------------------------------------------------------.
 // TryAdvisoryLock / ReleaseAdvisoryLock.
-// --------------------------------------------------------------------------.
 
 func TestStore_TryAdvisoryLock_AcquireAndRelease(t *testing.T) {
 	ctx := context.Background()
@@ -104,9 +99,7 @@ func TestStore_TryAdvisoryLock_DifferentLocks(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // WithTx basic scenarios.
-// --------------------------------------------------------------------------.
 
 func TestStore_WithTx_NestedCreateAndRead(t *testing.T) {
 	ctx := context.Background()
@@ -131,9 +124,7 @@ func TestStore_WithTx_NestedCreateAndRead(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // AdvisoryXactLock.
-// --------------------------------------------------------------------------.
 
 func TestStore_AdvisoryXactLock_InTransaction(t *testing.T) {
 	ctx := context.Background()

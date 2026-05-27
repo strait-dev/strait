@@ -72,7 +72,11 @@ func (r *redisL2[K, V]) Get(ctx context.Context, key K) (cacheEntry[V], error) {
 	}
 	if r.maxValueBytes > 0 && len(raw) > r.maxValueBytes {
 		var zero cacheEntry[V]
-		return zero, fmt.Errorf("redis cache value exceeds cap: %d > %d", len(raw), r.maxValueBytes)
+		return zero, fmt.Errorf(
+			"redis cache value exceeds cap: %d > %d",
+			len(raw),
+			r.maxValueBytes,
+		)
 	}
 	var entry cacheEntry[V]
 	if err := r.codec.Unmarshal(raw, &entry); err != nil {
@@ -90,7 +94,11 @@ func (r *redisL2[K, V]) Set(ctx context.Context, key K, entry cacheEntry[V], ttl
 		return err
 	}
 	if r.maxValueBytes > 0 && len(raw) > r.maxValueBytes {
-		return fmt.Errorf("redis cache value exceeds cap: %d > %d", len(raw), r.maxValueBytes)
+		return fmt.Errorf(
+			"redis cache value exceeds cap: %d > %d",
+			len(raw),
+			r.maxValueBytes,
+		)
 	}
 	if err := r.client.Set(ctx, r.redisKey(key), raw, ttl).Err(); err != nil {
 		return fmt.Errorf("redis cache set: %w", err)
@@ -98,7 +106,12 @@ func (r *redisL2[K, V]) Set(ctx context.Context, key K, entry cacheEntry[V], ttl
 	return nil
 }
 
-func (r *redisL2[K, V]) CompareAndSet(ctx context.Context, key K, entry cacheEntry[V], ttl time.Duration) (bool, error) {
+func (r *redisL2[K, V]) CompareAndSet(
+	ctx context.Context,
+	key K,
+	entry cacheEntry[V],
+	ttl time.Duration,
+) (bool, error) {
 	if r == nil || !redisClientReady(r.client) {
 		return false, nil
 	}
@@ -107,7 +120,11 @@ func (r *redisL2[K, V]) CompareAndSet(ctx context.Context, key K, entry cacheEnt
 		return false, err
 	}
 	if r.maxValueBytes > 0 && len(raw) > r.maxValueBytes {
-		return false, fmt.Errorf("redis cache value exceeds cap: %d > %d", len(raw), r.maxValueBytes)
+		return false, fmt.Errorf(
+			"redis cache value exceeds cap: %d > %d",
+			len(raw),
+			r.maxValueBytes,
+		)
 	}
 	ttlMillis := int64(ttl / time.Millisecond)
 	if ttl > 0 && ttlMillis <= 0 {
@@ -164,7 +181,8 @@ if existing then
     if current ~= nil and incoming ~= nil and incoming < current then
       return 0
     end
-    if current ~= nil and incoming ~= nil and incoming == current and not (existing_barrier and not incoming_barrier) then
+    if current ~= nil and incoming ~= nil and incoming == current and
+      not (existing_barrier and not incoming_barrier) then
       return 0
     end
   end

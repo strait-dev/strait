@@ -14,9 +14,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// ---------------------------------------------------------------------------.
 // CheckDailyRunLimit -- remaining branches
-// ---------------------------------------------------------------------------.
 
 // TestCheckDailyRunLimit_NilRedis_FailsOpen verifies that a nil Redis client
 // causes CheckDailyRunLimit to return nil (fail open) rather than panic.
@@ -178,9 +176,7 @@ func TestCheckDailyRunLimit_PaymentRestricted(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // DecrDailyRunCount -- decrement paths and error handling
-// ---------------------------------------------------------------------------.
 
 // TestDecrDailyRunCount_EmptyOrgID verifies that decrementing with an empty
 // org ID is a no-op (does not panic or error).
@@ -272,9 +268,7 @@ func TestDecrDailyRunCount_RollbackWithUnlimitedRuns(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // WithMetrics -- functional option
-// ---------------------------------------------------------------------------.
 
 // TestWithMetrics_NilMetrics verifies that passing nil metrics does not panic.
 func TestWithMetrics_NilMetrics(t *testing.T) {
@@ -320,9 +314,7 @@ func TestWithMetrics_OverridesExisting(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // NewEnforcer -- remaining constructor paths
-// ---------------------------------------------------------------------------.
 
 // TestNewEnforcer_NilStore_Panics verifies that passing a nil store panics.
 func TestNewEnforcer_NilStore_Panics(t *testing.T) {
@@ -396,9 +388,7 @@ func TestNewEnforcer_CacheInitialized(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // InvalidateOrgCache -- cache invalidation
-// ---------------------------------------------------------------------------.
 
 // TestInvalidateOrgCache_CacheHitThenInvalidate verifies that after populating
 // the cache via GetOrgPlanLimits, InvalidateOrgCache clears it.

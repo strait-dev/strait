@@ -26,9 +26,8 @@ func (mock *APIStoreMock) SetRunTokenStateFunc(fn func(context.Context, string) 
 
 // GetRunTokenState is the manual implementation of the runTokenStateGetter
 // interface on the moq-generated APIStoreMock. The default returns a
-// non-terminal status with attempt=0; this preserves the pre-Phase-4 test
-// behavior where the `attempt > 0` guard at sdk.go silently bypasses
-// staleness when the test does not explicitly configure it.
+// non-terminal status with attempt=0 so tests that do not configure token
+// state keep the same staleness behavior as the SDK guard in sdk.go.
 func (mock *APIStoreMock) GetRunTokenState(ctx context.Context, id string) (domain.RunStatus, int, string, error) {
 	runTokenStateMu.Lock()
 	fn := runTokenStateOverrides[mock]

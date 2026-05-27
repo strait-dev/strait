@@ -1148,7 +1148,7 @@ func TestOrgCache_EnforcementModeFromCache(t *testing.T) {
 	_, _ = enforcer.GetOrgPlanLimits(ctx, "org-mode")
 
 	// getEnforcementMode should read from cache.
-	mode := enforcer.getEnforcementMode("org-mode")
+	mode := enforcer.getEnforcementMode(t.Context(), "org-mode")
 	if mode != "warn" {
 		t.Fatalf("enforcement mode = %q, want warn", mode)
 	}
@@ -1159,7 +1159,7 @@ func TestOrgCache_EnforcementModeFallsBackToEnforce(t *testing.T) {
 	enforcer, _, _ := setupEnforcer(t)
 
 	// No cache entry for this org.
-	mode := enforcer.getEnforcementMode("org-uncached")
+	mode := enforcer.getEnforcementMode(t.Context(), "org-uncached")
 	if mode != "enforce" {
 		t.Fatalf("enforcement mode = %q, want enforce (default)", mode)
 	}
@@ -1442,9 +1442,7 @@ func TestEnforcer_Check80PercentDailyRunWarning_EmptyOrgID(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // CheckMaxDispatchPriority -- fail-closed on DB errors.
-// ---------------------------------------------------------------------------.
 
 // TestCheckMaxDispatchPriority_DBError_FailsClosed verifies that a DB error
 // when resolving the org causes CheckMaxDispatchPriority to fail closed
@@ -1568,9 +1566,7 @@ func TestCheckMaxDispatchPriority_ZeroPriority_AlwaysAllowed(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // DecrMonthlyRunCount -- mirrors DecrDailyRunCount behavior for monthly quota.
-// ---------------------------------------------------------------------------.
 
 // TestDecrMonthlyRunCount_DecrAfterIncr verifies that decrementing after an
 // increment returns the counter to the baseline value.

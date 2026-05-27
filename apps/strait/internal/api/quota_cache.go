@@ -75,8 +75,8 @@ func newQuotaCache(
 				return &clone
 			},
 			OnDelete: func(string) {
-				c.evictions.Add(metricsCtx, 1)
-				c.entriesUp.Add(metricsCtx, -1)
+				c.evictions.Add(cacheMetricsContext, 1)
+				c.entriesUp.Add(cacheMetricsContext, -1)
 			},
 		})
 		if dep.Registry != nil {
@@ -91,15 +91,15 @@ func (c *quotaCache) Get(ctx context.Context, projectID string) (*store.ProjectQ
 		return nil, nil
 	}
 	if c.disabled || c.inner == nil {
-		c.misses.Add(metricsCtx, 1)
+		c.misses.Add(cacheMetricsContext, 1)
 		return c.loadFn(ctx, projectID)
 	}
 	if _, ok := c.inner.GetIfPresent(projectID); ok {
-		c.hits.Add(metricsCtx, 1)
+		c.hits.Add(cacheMetricsContext, 1)
 		return c.inner.Get(ctx, projectID, nil)
 	}
-	c.misses.Add(metricsCtx, 1)
-	got, err := c.inner.GetConsistentVersioned(ctx, projectID, 0, func(loadCtx context.Context, key string) (straitcache.Versioned[*store.ProjectQuota], error) {
+	c.misses.Add(cacheMetricsContext, 1)
+	loader := func(loadCtx context.Context, key string) (straitcache.Versioned[*store.ProjectQuota], error) {
 		quota, err := c.loadFn(loadCtx, key)
 		if err != nil {
 			return straitcache.Versioned[*store.ProjectQuota]{}, err
@@ -108,23 +108,42 @@ func (c *quotaCache) Get(ctx context.Context, projectID string) (*store.ProjectQ
 			return straitcache.Versioned[*store.ProjectQuota]{Value: nil, Version: 0}, nil
 		}
 		return straitcache.Versioned[*store.ProjectQuota]{Value: quota, Version: projectQuotaCacheVersion(quota)}, nil
-	})
+	}
+	got, err := c.inner.GetConsistentVersioned(ctx, projectID, 0, loader)
 	if err != nil {
 		return nil, err
 	}
-	c.entriesUp.Add(metricsCtx, 1)
+	c.entriesUp.Add(cacheMetricsContext, 1)
 	return got.Value, nil
 }
 
 func (c *quotaCache) Invalidate(projectID string) {
-	c.InvalidateWithVersion(projectID, time.Now().UnixNano())
+	c.InvalidateContext(cacheMetricsContext, projectID)
+}
+
+func (c *quotaCache) InvalidateContext(ctx context.Context, projectID string) {
+	c.InvalidateWithVersionContext(ctx, projectID, time.Now().UnixNano())
 }
 
 func (c *quotaCache) InvalidateWithVersion(projectID string, version int64) {
+	c.InvalidateWithVersionContext(cacheMetricsContext, projectID, version)
+}
+
+func (c *quotaCache) InvalidateWithVersionContext(ctx context.Context, projectID string, version int64) {
 	if c == nil || c.disabled || c.inner == nil {
 		return
 	}
-	_ = c.inner.StrongInvalidate(metricsCtx, straitcache.StrongNamespacePolicy{Namespace: quotaCacheNamespace}, projectID, projectID, straitcache.VersionBarrier{Version: version}, c.bus)
+	if ctx == nil {
+		ctx = cacheMetricsContext
+	}
+	_ = c.inner.StrongInvalidate(
+		ctx,
+		strongCachePolicy(quotaCacheNamespace),
+		projectID,
+		projectID,
+		cacheVersionBarrier(version),
+		c.bus,
+	)
 }
 
 func projectQuotaCacheVersion(quota *store.ProjectQuota) int64 {

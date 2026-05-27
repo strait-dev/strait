@@ -11,8 +11,6 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
 
-// --- ObservePool tests ---.
-
 // stubPool implements PoolStatsProvider for testing.
 type stubPool struct {
 	running    int64
@@ -295,8 +293,6 @@ func collectMetricValues(t *testing.T, rm metricdata.ResourceMetrics) map[string
 	return values
 }
 
-// --- SanitizeQueryString tests ---.
-
 func TestSanitizeQueryString_SensitiveParams(t *testing.T) {
 	t.Parallel()
 
@@ -447,8 +443,6 @@ func TestSanitizeQueryString_EdgeCases(t *testing.T) {
 	})
 }
 
-// --- InitProfiling error path tests ---.
-
 func TestInitProfiling_InvalidEndpoint(t *testing.T) {
 	t.Parallel()
 	// Pyroscope will fail to connect to an invalid endpoint.
@@ -492,8 +486,6 @@ func TestInitProfiling_AllFieldsEmpty(t *testing.T) {
 	shutdown()
 	shutdown()
 }
-
-// --- Metric registration and recording ---.
 
 func TestInitMetrics_AllPoolMetricsInitialized(t *testing.T) {
 	t.Parallel()

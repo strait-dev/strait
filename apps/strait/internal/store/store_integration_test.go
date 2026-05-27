@@ -944,10 +944,10 @@ func TestGetRunByIdempotencyKey_AllowsTerminalReplayAndReturnsLatest(t *testing.
 	}
 }
 
-// TestIdempotencyIndex_ConsolidatedShape verifies Wave 2 Phase 2 migration
-// 000255 dropped the partial-on-terminal-status index and replaced it with
-// a non-partial-on-status index keyed only on (job_id, idempotency_key).
-// The new shape prevents write amplification on terminal status flips.
+// TestIdempotencyIndex_ConsolidatedShape verifies migration 000255 dropped the
+// partial-on-terminal-status index and replaced it with a non-partial-on-status
+// index keyed only on (job_id, idempotency_key). The shape prevents write
+// amplification on terminal status flips.
 func TestIdempotencyIndex_ConsolidatedShape(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -5391,8 +5391,6 @@ func TestEvents_ListEventsByRunFiltered(t *testing.T) {
 	}
 }
 
-// ============ Tests for previously untested store methods ============.
-
 func TestWorkflowRunLabels_CRUD(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -6223,9 +6221,7 @@ func TestListRunLineage(t *testing.T) {
 	}
 }
 
-// ============================================================================
 // Store integration tests for untested methods + edge cases
-// ============================================================================.
 
 func TestGetDebugBundle(t *testing.T) {
 	ctx := context.Background()
@@ -6564,7 +6560,6 @@ func TestCreateRunUsage_Dedicated(t *testing.T) {
 		t.Fatalf("ListRunUsage() len = %d, want 3", len(usages))
 	}
 
-	// Verify DESC ordering by created_at
 	for i := 1; i < len(usages); i++ {
 		if usages[i].CreatedAt.After(usages[i-1].CreatedAt) {
 			t.Fatalf("usages not DESC at index %d", i)
@@ -6718,7 +6713,6 @@ func TestCreateRunToolCall_Dedicated(t *testing.T) {
 		t.Fatalf("ListRunToolCalls() len = %d, want 3", len(calls))
 	}
 
-	// Verify DESC ordering
 	for i := 1; i < len(calls); i++ {
 		if calls[i].CreatedAt.After(calls[i-1].CreatedAt) {
 			t.Fatalf("calls not DESC at index %d", i)
@@ -6795,7 +6789,6 @@ func TestUpsertRunOutput_Dedicated(t *testing.T) {
 		t.Fatalf("UpsertRunOutput(insert) error = %v", err)
 	}
 
-	// Verify
 	outputs, err := q.ListRunOutputs(ctx, run.ID, 100, nil)
 	if err != nil {
 		t.Fatalf("ListRunOutputs() error = %v", err)
@@ -6865,7 +6858,6 @@ func TestListRunOutputs_Dedicated(t *testing.T) {
 		t.Fatalf("len = %d, want 3", len(outputs))
 	}
 
-	// Verify ASC ordering by output_key
 	if outputs[0].OutputKey != "alpha" {
 		t.Fatalf("outputs[0].OutputKey = %q, want alpha", outputs[0].OutputKey)
 	}
@@ -7356,8 +7348,6 @@ func TestListTimedOutWorkflowRuns(t *testing.T) {
 	}
 }
 
-// --- RBAC integration tests ---.
-
 func TestCreateProjectRole(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -7820,8 +7810,6 @@ func TestResourcePolicy_CRUD(t *testing.T) {
 	}
 }
 
-// --- Actor integration tests ---.
-
 func TestUpsertKnownActor(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -7886,8 +7874,6 @@ func TestGetKnownActor_NotFound(t *testing.T) {
 	}
 }
 
-// --- Version ID + created_by integration tests ---.
-
 func TestCreateJob_SetsVersionID(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -7942,8 +7928,6 @@ func TestUpdateJob_GeneratesNewVersionID(t *testing.T) {
 		t.Fatal("new VersionID should not be empty")
 	}
 }
-
-// --- Workflow version ID + created_by tests ---.
 
 func TestCreateWorkflow_SetsVersionID(t *testing.T) {
 	ctx := context.Background()
@@ -8031,8 +8015,6 @@ func TestCreateJob_DefaultVersionPolicy(t *testing.T) {
 	}
 }
 
-// --- DeleteResourcePolicy sentinel test ---.
-
 func TestDeleteResourcePolicy_NotFound(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -8044,8 +8026,6 @@ func TestDeleteResourcePolicy_NotFound(t *testing.T) {
 	}
 }
 
-// --- RemoveMemberRole sentinel test ---.
-
 func TestRemoveMemberRole_NotFound(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -8056,8 +8036,6 @@ func TestRemoveMemberRole_NotFound(t *testing.T) {
 		t.Fatalf("RemoveMemberRole() = %v, want ErrMemberNotFound", err)
 	}
 }
-
-// --- UpdateProjectRole integration test ---.
 
 func TestUpdateProjectRole(t *testing.T) {
 	ctx := context.Background()
@@ -8115,8 +8093,6 @@ func TestUpdateProjectRole_SystemRoleBlocked(t *testing.T) {
 	}
 }
 
-// --- ListProjectMembers test ---.
-
 func TestListProjectMembers(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -8150,8 +8126,6 @@ func TestListProjectMembers(t *testing.T) {
 		t.Fatalf("len(members) = %d, want 3", len(members))
 	}
 }
-
-// --- Tags query tests ---.
 
 func TestListJobsByTag_KeyOnly(t *testing.T) {
 	ctx := context.Background()
@@ -8266,9 +8240,7 @@ func TestJobEmptyTags(t *testing.T) {
 	}
 }
 
-// ====================================================================
 // Test hardening: RBAC store
-// ====================================================================.
 
 func TestDeleteProjectRole_CustomRole(t *testing.T) {
 	ctx := context.Background()
@@ -8595,9 +8567,7 @@ func TestUpdateProjectRole_NameChange(t *testing.T) {
 	}
 }
 
-// ====================================================================
 // Test hardening: Actors
-// ====================================================================.
 
 func TestUpsertKnownActor_UpdateEmail(t *testing.T) {
 	ctx := context.Background()
@@ -8710,9 +8680,7 @@ func TestGetKnownActor_AllFields(t *testing.T) {
 	}
 }
 
-// ====================================================================
 // Test hardening: Jobs with new fields
-// ====================================================================.
 
 func TestCreateJob_VersionIDPrefix(t *testing.T) {
 	ctx := context.Background()
@@ -8979,9 +8947,7 @@ func TestGetJobBySlug_IncludesNewFields(t *testing.T) {
 	}
 }
 
-// ====================================================================
 // Test hardening: Workflows with new fields
-// ====================================================================.
 
 func TestCreateWorkflow_TagsPersisted(t *testing.T) {
 	ctx := context.Background()
@@ -9075,9 +9041,7 @@ func TestUpdateWorkflow_SetsUpdatedBy(t *testing.T) {
 	}
 }
 
-// ====================================================================
 // Test hardening: Tags queries
-// ====================================================================.
 
 func TestListJobsByTag_MultipleTagsOnJob(t *testing.T) {
 	ctx := context.Background()
@@ -9211,8 +9175,6 @@ func TestListWorkflowsByTag_KeyOnly(t *testing.T) {
 		t.Fatalf("expected 1 workflow, got %d", len(workflows))
 	}
 }
-
-// --- Tag query integration tests (runs and workflow runs) ---.
 
 func TestListRunsByTag(t *testing.T) {
 	ctx := context.Background()

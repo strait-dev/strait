@@ -33,7 +33,7 @@ func TestGetJobHealthStats_DisabledPassesThrough(t *testing.T) {
 	e := newExecutorWithHealthStatsCache(t, 0, store)
 
 	for i := range 5 {
-		got, err := e.getJobHealthStats(context.Background(), "job-1", time.Now())
+		got, err := e.getJobHealthStats(t.Context(), "job-1", time.Now())
 		if err != nil {
 			t.Fatalf("call %d: unexpected error: %v", i, err)
 		}
@@ -59,7 +59,7 @@ func TestGetJobHealthStats_TTLServesFromCache(t *testing.T) {
 	e := newExecutorWithHealthStatsCache(t, 5*time.Second, store)
 
 	for i := range 20 {
-		got, err := e.getJobHealthStats(context.Background(), "job-7", time.Now())
+		got, err := e.getJobHealthStats(t.Context(), "job-7", time.Now())
 		if err != nil {
 			t.Fatalf("call %d: unexpected error: %v", i, err)
 		}
@@ -94,7 +94,7 @@ func TestGetJobHealthStats_SingleflightCoalescesMisses(t *testing.T) {
 	for range fanout {
 		go func() {
 			defer wg.Done()
-			if _, err := e.getJobHealthStats(context.Background(), "job-x", time.Now()); err != nil {
+			if _, err := e.getJobHealthStats(t.Context(), "job-x", time.Now()); err != nil {
 				t.Errorf("unexpected error: %v", err)
 			}
 		}()
@@ -125,10 +125,10 @@ func TestGetJobHealthStats_ErrorIsNotCached(t *testing.T) {
 	}
 	e := newExecutorWithHealthStatsCache(t, time.Minute, store)
 
-	if _, err := e.getJobHealthStats(context.Background(), "job-err", time.Now()); !errors.Is(err, storeErr) {
+	if _, err := e.getJobHealthStats(t.Context(), "job-err", time.Now()); !errors.Is(err, storeErr) {
 		t.Fatalf("first call: err = %v, want %v", err, storeErr)
 	}
-	got, err := e.getJobHealthStats(context.Background(), "job-err", time.Now())
+	got, err := e.getJobHealthStats(t.Context(), "job-err", time.Now())
 	if err != nil {
 		t.Fatalf("second call: unexpected error: %v", err)
 	}

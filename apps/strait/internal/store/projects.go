@@ -107,7 +107,7 @@ func (q *Queries) DeleteProject(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("delete project begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer rollbackTx(ctx, tx)
 
 	tq := New(tx)
 	if err := tq.deleteProjectRows(ctx, id); err != nil {

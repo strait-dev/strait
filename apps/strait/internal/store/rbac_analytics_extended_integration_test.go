@@ -13,13 +13,11 @@ import (
 	"strait/internal/testutil"
 )
 
-// --------------------------------------------------------------------------.
 // UserHasProjectAccess.
 // wouldCreateRoleCycle is private, tested indirectly.
 // secretKeyLegacy is private, tested indirectly.
 // getPerformanceAnalyticsMaterialized is private, tested indirectly.
 // getCostAnalyticsLive/Materialized, getCostTrendsLive/Materialized are private, tested indirectly.
-// --------------------------------------------------------------------------.
 
 func TestRBAC_UserHasProjectAccess_WithRole(t *testing.T) {
 	ctx := context.Background()
@@ -96,9 +94,7 @@ func TestRBAC_UserHasProjectAccess_NonexistentProject(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // AggregateHourlyStats.
-// --------------------------------------------------------------------------.
 
 func TestAnalytics_AggregateHourlyStats_HappyPath(t *testing.T) {
 	ctx := context.Background()
@@ -158,9 +154,7 @@ func TestAnalytics_AggregateHourlyStats_Idempotent(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // DeleteJobMemory.
-// --------------------------------------------------------------------------.
 
 func TestJobMemory_DeleteJobMemory_HappyPath(t *testing.T) {
 	ctx := context.Background()
@@ -255,9 +249,7 @@ func TestJobMemory_DeleteJobMemory_ReducesSizeBytes(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // SetProjectContext / ClearProjectContext.
-// --------------------------------------------------------------------------.
 
 func TestStore_SetProjectContext_HappyPath(t *testing.T) {
 	ctx := context.Background()
@@ -293,9 +285,7 @@ func TestStore_ClearProjectContext_WithoutSet(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // SetAuditSigningKey.
-// --------------------------------------------------------------------------.
 
 func TestStore_SetAuditSigningKey_HappyPath(t *testing.T) {
 	ctx := context.Background()
@@ -333,9 +323,7 @@ func TestStore_SetAuditSigningKey_HappyPath(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // VerifyAuditChain.
-// --------------------------------------------------------------------------.
 
 func TestAudit_VerifyAuditChain_ValidChain(t *testing.T) {
 	ctx := context.Background()

@@ -17,9 +17,7 @@ func endpointErrHash(statusCode int, body string) string {
 	return errorHashForError(&domain.EndpointError{StatusCode: statusCode, Body: body})
 }
 
-// --------------------------------------------------------------------------.
 // errorHash unit tests
-// --------------------------------------------------------------------------.
 
 func TestErrorHash(t *testing.T) {
 	t.Parallel()
@@ -120,9 +118,7 @@ func TestErrorHash(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // Table-driven poison pill detection tests
-// --------------------------------------------------------------------------.
 
 func TestHandleFailure_PoisonPillDetection(t *testing.T) {
 	t.Parallel()
@@ -353,9 +349,7 @@ func TestHandleFailure_PoisonPillDetection(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // Adversarial / edge case tests
-// --------------------------------------------------------------------------.
 
 func TestPoisonPill_DisabledDoesNotWriteMetadata(t *testing.T) {
 	t.Parallel()
@@ -710,7 +704,6 @@ func TestPoisonPill_DLQFieldsCorrect(t *testing.T) {
 	calls := st.statusUpdates()
 	last := calls[len(calls)-1]
 
-	// Verify status transition
 	if last.from != domain.StatusExecuting {
 		t.Errorf("expected from=executing, got %s", last.from)
 	}
@@ -718,7 +711,6 @@ func TestPoisonPill_DLQFieldsCorrect(t *testing.T) {
 		t.Errorf("expected to=dead_letter, got %s", last.to)
 	}
 
-	// Verify error message
 	errField, _ := last.fields["error"].(string)
 	if !strings.Contains(errField, "poison pill detected (same error 3 times)") {
 		t.Errorf("expected poison pill message with count, got %q", errField)
@@ -730,18 +722,15 @@ func TestPoisonPill_DLQFieldsCorrect(t *testing.T) {
 		t.Errorf("expected endpoint body to be redacted from message, got %q", errField)
 	}
 
-	// Verify error_class
 	errClass, _ := last.fields["error_class"].(string)
 	if errClass != domain.ErrorClassServer {
 		t.Errorf("expected error_class=server, got %q", errClass)
 	}
 
-	// Verify finished_at
 	if _, ok := last.fields["finished_at"]; !ok {
 		t.Error("expected finished_at in DLQ fields")
 	}
 
-	// Verify metadata
 	meta, _ := last.fields["metadata"].(map[string]string)
 	if meta["_error_hash"] == "" {
 		t.Error("expected _error_hash in DLQ metadata")
@@ -858,9 +847,7 @@ func TestPoisonPill_RetryPriorityBoostPreserved(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // Integration-style tests
-// --------------------------------------------------------------------------.
 
 func TestPoisonPill_Integration_SameErrorDLQ(t *testing.T) {
 	t.Parallel()

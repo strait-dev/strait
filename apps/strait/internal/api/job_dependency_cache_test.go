@@ -21,14 +21,18 @@ func TestJobDependencyCache_PreservesMaxDependencyCacheVersionInRedis(t *testing
 
 	key := jobDepsCacheKey{JobID: "job-versioned", Limit: 1000}
 	var loads atomic.Int64
-	got, err := cache.List(context.Background(), key, func(context.Context, jobDepsCacheKey) (straitcache.Versioned[[]domain.JobDependency], error) {
+	loader := func(
+		context.Context,
+		jobDepsCacheKey,
+	) (straitcache.Versioned[[]domain.JobDependency], error) {
 		loads.Add(1)
 		deps := []domain.JobDependency{
 			{ID: "dep-low", JobID: key.JobID, DependsOnJobID: "job-a", Condition: "completed", CacheVersion: 4},
 			{ID: "dep-high", JobID: key.JobID, DependsOnJobID: "job-b", Condition: "failed", CacheVersion: 12},
 		}
 		return straitcache.Versioned[[]domain.JobDependency]{Value: deps, Version: jobDependenciesCacheVersion(deps)}, nil
-	})
+	}
+	got, err := cache.List(t.Context(), key, loader)
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
@@ -36,7 +40,8 @@ func TestJobDependencyCache_PreservesMaxDependencyCacheVersionInRedis(t *testing
 		t.Fatalf("List() len = %d, want 2", len(got))
 	}
 
-	raw, err := deps.Redis.Get(context.Background(), "strait:cache:"+jobDependencyCacheNamespace+":"+jobDepsCacheKeyString(key)).Bytes()
+	redisKey := "strait:cache:" + jobDependencyCacheNamespace + ":" + jobDepsCacheKeyString(key)
+	raw, err := deps.Redis.Get(t.Context(), redisKey).Bytes()
 	if err != nil {
 		t.Fatalf("read redis entry: %v", err)
 	}
@@ -63,7 +68,10 @@ func TestJobDependencyCache_InvalidateJobClearsKnownPageShapes(t *testing.T) {
 
 	var loads atomic.Int64
 	var versionBase atomic.Int64
-	loader := func(_ context.Context, key jobDepsCacheKey) (straitcache.Versioned[[]domain.JobDependency], error) {
+	loader := func(
+		_ context.Context,
+		key jobDepsCacheKey,
+	) (straitcache.Versioned[[]domain.JobDependency], error) {
 		loads.Add(1)
 		dependencies := []domain.JobDependency{{
 			ID:             "dep",
@@ -72,19 +80,22 @@ func TestJobDependencyCache_InvalidateJobClearsKnownPageShapes(t *testing.T) {
 			Condition:      "completed",
 			CacheVersion:   versionBase.Load() + int64(key.Limit),
 		}}
-		return straitcache.Versioned[[]domain.JobDependency]{Value: dependencies, Version: jobDependenciesCacheVersion(dependencies)}, nil
+		return straitcache.Versioned[[]domain.JobDependency]{
+			Value:   dependencies,
+			Version: jobDependenciesCacheVersion(dependencies),
+		}, nil
 	}
 	for _, limit := range jobDependencyCachedPageLimits {
-		if _, err := cache.List(context.Background(), jobDepsCacheKey{JobID: "job-known", Limit: limit}, loader); err != nil {
+		if _, err := cache.List(t.Context(), jobDepsCacheKey{JobID: "job-known", Limit: limit}, loader); err != nil {
 			t.Fatalf("prime limit %d: %v", limit, err)
 		}
 	}
 
-	cache.InvalidateJobWithVersion(context.Background(), "job-known", 2000)
+	cache.InvalidateJobWithVersion(t.Context(), "job-known", 2000)
 	versionBase.Store(3000)
 
 	for _, limit := range jobDependencyCachedPageLimits {
-		if _, err := cache.List(context.Background(), jobDepsCacheKey{JobID: "job-known", Limit: limit}, loader); err != nil {
+		if _, err := cache.List(t.Context(), jobDepsCacheKey{JobID: "job-known", Limit: limit}, loader); err != nil {
 			t.Fatalf("reload limit %d: %v", limit, err)
 		}
 	}
@@ -100,18 +111,26 @@ func TestJobDependencyCache_RefreshJobWritesEmptyTombstone(t *testing.T) {
 	defer cleanup()
 	cache := newJobDependencyCache(time.Minute, deps)
 
-	cache.RefreshJob(context.Background(), "job-empty", func(context.Context, jobDepsCacheKey) (straitcache.Versioned[[]domain.JobDependency], error) {
+	cache.RefreshJob(t.Context(), "job-empty", func(
+		context.Context,
+		jobDepsCacheKey,
+	) (straitcache.Versioned[[]domain.JobDependency], error) {
 		return straitcache.Versioned[[]domain.JobDependency]{Value: nil, Version: 9}, nil
 	})
 
 	var staleLoads atomic.Int64
-	got, err := cache.List(context.Background(), jobDepsCacheKey{JobID: "job-empty", Limit: defaultPageLimit + 1}, func(context.Context, jobDepsCacheKey) (straitcache.Versioned[[]domain.JobDependency], error) {
+	key := jobDepsCacheKey{JobID: "job-empty", Limit: defaultPageLimit + 1}
+	loader := func(
+		context.Context,
+		jobDepsCacheKey,
+	) (straitcache.Versioned[[]domain.JobDependency], error) {
 		staleLoads.Add(1)
 		return straitcache.Versioned[[]domain.JobDependency]{
 			Value:   []domain.JobDependency{{ID: "stale", CacheVersion: 8}},
 			Version: 8,
 		}, nil
-	})
+	}
+	got, err := cache.List(t.Context(), key, loader)
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
@@ -131,14 +150,18 @@ func TestJobDependencyCache_StrongBarrierRejectsStaleListFill(t *testing.T) {
 	cache := newJobDependencyCache(time.Minute, deps)
 
 	key := jobDepsCacheKey{JobID: "job-stale", Limit: defaultPageLimit + 1}
-	cache.InvalidateJobWithVersion(context.Background(), key.JobID, 10)
+	cache.InvalidateJobWithVersion(t.Context(), key.JobID, 10)
 
-	_, err := cache.List(context.Background(), key, func(context.Context, jobDepsCacheKey) (straitcache.Versioned[[]domain.JobDependency], error) {
+	loader := func(
+		context.Context,
+		jobDepsCacheKey,
+	) (straitcache.Versioned[[]domain.JobDependency], error) {
 		return straitcache.Versioned[[]domain.JobDependency]{
 			Value:   []domain.JobDependency{{ID: "stale", JobID: key.JobID, CacheVersion: 9}},
 			Version: 9,
 		}, nil
-	})
+	}
+	_, err := cache.List(t.Context(), key, loader)
 	if err == nil {
 		t.Fatal("List() error = nil, want stale version rejection")
 	}
@@ -152,10 +175,14 @@ func TestJobDependencyCache_StrongBarrierAllowsEqualVersionEmptyList(t *testing.
 	cache := newJobDependencyCache(time.Minute, deps)
 
 	key := jobDepsCacheKey{JobID: "job-empty-equal", Limit: defaultPageLimit + 1}
-	cache.InvalidateJobWithVersion(context.Background(), key.JobID, 12)
-	got, err := cache.List(context.Background(), key, func(context.Context, jobDepsCacheKey) (straitcache.Versioned[[]domain.JobDependency], error) {
+	cache.InvalidateJobWithVersion(t.Context(), key.JobID, 12)
+	loader := func(
+		context.Context,
+		jobDepsCacheKey,
+	) (straitcache.Versioned[[]domain.JobDependency], error) {
 		return straitcache.Versioned[[]domain.JobDependency]{Value: nil, Version: 12}, nil
-	})
+	}
+	got, err := cache.List(t.Context(), key, loader)
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}

@@ -49,73 +49,8 @@ func (s *Server) handleCreateProject(ctx context.Context, input *CreateProjectIn
 		Name:  req.Name,
 	}
 
-	// Serialize project creation per org using an advisory lock inside a
-	// transaction so the limit check and insert are atomic.
-	if s.txPool != nil && s.billingEnforcer != nil { //nolint:nestif
-		txErr := store.WithTx(ctx, s.txPool, func(q *store.Queries) error {
-			// Advisory lock keyed on org_id to serialize concurrent creates.
-			if err := q.AdvisoryXactLock(ctx, orgAdvisoryLockID(req.OrgID)); err != nil {
-				return fmt.Errorf("advisory lock: %w", err)
-			}
-
-			if err := s.billingEnforcer.CheckProjectLimit(ctx, req.OrgID); err != nil {
-				return err
-			}
-
-			// Ensure the org has a subscription row (lazy init for free tier).
-			if subErr := s.billingEnforcer.EnsureOrgSubscription(ctx, req.OrgID); subErr != nil {
-				slog.Warn("failed to ensure org subscription", "org_id", req.OrgID, "error", subErr)
-			}
-
-			if err := q.CreateProject(ctx, project); err != nil {
-				return fmt.Errorf("create project: %w", err)
-			}
-
-			if err := q.SeedProjectSystemRoles(ctx, project.ID); err != nil {
-				slog.Error("failed to seed system roles for project", "project_id", project.ID, "error", err)
-			}
-
-			return nil
-		})
-		if txErr != nil {
-			var le *billing.LimitError
-			if errors.As(txErr, &le) {
-				return nil, le
-			}
-			if errors.Is(txErr, store.ErrProjectOrgMismatch) {
-				return nil, huma.Error409Conflict("project already exists in a different organization")
-			}
-			slog.Error("failed to create project", "error", txErr)
-			return nil, huma.Error500InternalServerError("failed to create project")
-		}
-	} else {
-		// Fallback: no transaction pool available, run without advisory lock.
-		if s.billingEnforcer != nil {
-			if err := s.billingEnforcer.CheckProjectLimit(ctx, req.OrgID); err != nil {
-				var le *billing.LimitError
-				if errors.As(err, &le) {
-					return nil, le
-				}
-				slog.Error("failed to check project limit", "error", err)
-				return nil, huma.Error500InternalServerError("failed to check project limit")
-			}
-
-			if err := s.billingEnforcer.EnsureOrgSubscription(ctx, req.OrgID); err != nil {
-				slog.Warn("failed to ensure org subscription", "org_id", req.OrgID, "error", err)
-			}
-		}
-
-		if err := s.store.CreateProject(ctx, project); err != nil {
-			if errors.Is(err, store.ErrProjectOrgMismatch) {
-				return nil, huma.Error409Conflict("project already exists in a different organization")
-			}
-			slog.Error("failed to create project", "error", err)
-			return nil, huma.Error500InternalServerError("failed to create project")
-		}
-
-		if err := s.store.SeedProjectSystemRoles(ctx, project.ID); err != nil {
-			slog.Error("failed to seed system roles for project", "project_id", project.ID, "error", err)
-		}
+	if err := s.createProjectWithBillingGuard(ctx, project); err != nil {
+		return nil, err
 	}
 
 	s.emitAuditEvent(ctx, domain.AuditActionProjectCreated, "project", project.ID, map[string]any{
@@ -124,6 +59,77 @@ func (s *Server) handleCreateProject(ctx context.Context, input *CreateProjectIn
 	})
 
 	return &CreateProjectOutput{Body: project}, nil
+}
+
+func (s *Server) createProjectWithBillingGuard(ctx context.Context, project *domain.Project) error {
+	if s.txPool != nil && s.billingEnforcer != nil {
+		return s.createProjectWithBillingGuardInTx(ctx, project)
+	}
+	if s.billingEnforcer != nil {
+		if err := s.checkProjectBillingAdmission(ctx, project.OrgID); err != nil {
+			return err
+		}
+	}
+	if err := s.store.CreateProject(ctx, project); err != nil {
+		return projectCreateAPIError(err)
+	}
+	s.seedProjectSystemRoles(ctx, project.ID)
+	return nil
+}
+
+func (s *Server) createProjectWithBillingGuardInTx(ctx context.Context, project *domain.Project) error {
+	err := store.WithTx(ctx, s.txPool, func(q *store.Queries) error {
+		if err := q.AdvisoryXactLock(ctx, orgAdvisoryLockID(project.OrgID)); err != nil {
+			return fmt.Errorf("advisory lock: %w", err)
+		}
+		if err := s.checkProjectBillingAdmission(ctx, project.OrgID); err != nil {
+			return err
+		}
+		if err := q.CreateProject(ctx, project); err != nil {
+			return fmt.Errorf("create project: %w", err)
+		}
+		if err := q.SeedProjectSystemRoles(ctx, project.ID); err != nil {
+			slog.Error("failed to seed system roles for project", "project_id", project.ID, "error", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return projectCreateAPIError(err)
+	}
+	return nil
+}
+
+func (s *Server) checkProjectBillingAdmission(ctx context.Context, orgID string) error {
+	if err := s.billingEnforcer.CheckProjectLimit(ctx, orgID); err != nil {
+		var le *billing.LimitError
+		if errors.As(err, &le) {
+			return le
+		}
+		slog.Error("failed to check project limit", "error", err)
+		return huma.Error500InternalServerError("failed to check project limit")
+	}
+	if err := s.billingEnforcer.EnsureOrgSubscription(ctx, orgID); err != nil {
+		slog.Warn("failed to ensure org subscription", "org_id", orgID, "error", err)
+	}
+	return nil
+}
+
+func (s *Server) seedProjectSystemRoles(ctx context.Context, projectID string) {
+	if err := s.store.SeedProjectSystemRoles(ctx, projectID); err != nil {
+		slog.Error("failed to seed system roles for project", "project_id", projectID, "error", err)
+	}
+}
+
+func projectCreateAPIError(err error) error {
+	var le *billing.LimitError
+	if errors.As(err, &le) {
+		return le
+	}
+	if errors.Is(err, store.ErrProjectOrgMismatch) {
+		return huma.Error409Conflict("project already exists in a different organization")
+	}
+	slog.Error("failed to create project", "error", err)
+	return huma.Error500InternalServerError("failed to create project")
 }
 
 // ListProjectsInput is the typed input for listing projects.

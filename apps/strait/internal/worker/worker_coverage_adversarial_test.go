@@ -17,9 +17,7 @@ import (
 	"github.com/sourcegraph/conc"
 )
 
-// ---------------------------------------------------------------------------.
 // adaptive.go:Run -- context cancellation, error handling, probe updates
-// ---------------------------------------------------------------------------.
 
 func TestAdaptiveRun_NilProbe_ReturnsImmediately(t *testing.T) {
 	var concWG conc.WaitGroup
@@ -306,9 +304,7 @@ func TestAdaptiveConcurrency_NegativeInterval_DefaultsGracefully(t *testing.T) {
 	cancel()
 }
 
-// ---------------------------------------------------------------------------.
 // executor_dispatch.go:ingestStripeUsageEvent -- Stripe usage event ingestion
-// ---------------------------------------------------------------------------.
 
 // mockBillingEnforcerForStripeUsage wraps billing.Enforcer methods needed by ingestStripeUsageEvent.
 // Since billing.Enforcer is a concrete type, we test ingestStripeUsageEvent via the
@@ -368,9 +364,7 @@ func TestIngestStripeUsageEvent_BothNil(t *testing.T) {
 	exec.ingestStripeUsageEvent(context.Background(), "proj-1", "run-1", billing.HTTPCostPerRunMicrousd)
 }
 
-// ---------------------------------------------------------------------------.
 // subscriber_clickhouse.go -- event transformation adversarial cases
-// ---------------------------------------------------------------------------.
 
 func TestRunEventsFromDomain_EmptySlice(t *testing.T) {
 	t.Parallel()

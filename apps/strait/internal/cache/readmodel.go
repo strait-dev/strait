@@ -81,7 +81,11 @@ func (r *ReadModel[V]) CompareAndSet(ctx context.Context, key string, value V, v
 	if version <= 0 {
 		return false, fmt.Errorf("read model version must be positive")
 	}
-	ok, err := r.l2.CompareAndSet(ctx, key, cacheEntry[V]{Version: version, Value: r.sanitizeValue(value)}, r.ttl)
+	entry := cacheEntry[V]{
+		Version: version,
+		Value:   r.sanitizeValue(value),
+	}
+	ok, err := r.l2.CompareAndSet(ctx, key, entry, r.ttl)
 	if err != nil {
 		recordCacheFailOpen(ctx, r.namespace, "read_model_cas")
 		return false, err
@@ -103,7 +107,11 @@ func (r *ReadModel[V]) SetIfColdVersion(ctx context.Context, key string, value V
 	if version <= 0 {
 		return fmt.Errorf("read model cold fill version must be positive")
 	}
-	_, err := r.l2.CompareAndSet(ctx, key, cacheEntry[V]{Version: version, Value: r.sanitizeValue(value)}, r.ttl)
+	entry := cacheEntry[V]{
+		Version: version,
+		Value:   r.sanitizeValue(value),
+	}
+	_, err := r.l2.CompareAndSet(ctx, key, entry, r.ttl)
 	return err
 }
 

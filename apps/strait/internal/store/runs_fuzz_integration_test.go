@@ -11,9 +11,7 @@ import (
 	"strait/internal/domain"
 )
 
-// --------------------------------------------------------------------------.
 // Fuzz tests for run methods.
-// --------------------------------------------------------------------------.
 
 // FuzzCreateRunPayload fuzzes the payload field of CreateRun.
 func FuzzCreateRunPayload(f *testing.F) {

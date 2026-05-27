@@ -2390,8 +2390,6 @@ func TestHandleGetResolvedVariables_Success(t *testing.T) {
 	}
 }
 
-// Phase C: Execution Replay/Debug tests.
-
 func TestHandleGetDebugBundle_Success(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{

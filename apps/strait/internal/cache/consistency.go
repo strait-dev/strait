@@ -20,7 +20,12 @@ type VersionBarrier struct {
 	Version int64
 }
 
-func (t *Tier[K, V]) GetConsistentVersioned(ctx context.Context, key K, minVersion int64, loader VersionedLoadFunc[K, V]) (Versioned[V], error) {
+func (t *Tier[K, V]) GetConsistentVersioned(
+	ctx context.Context,
+	key K,
+	minVersion int64,
+	loader VersionedLoadFunc[K, V],
+) (Versioned[V], error) {
 	if t == nil {
 		var zero Versioned[V]
 		return zero, fmt.Errorf("cache tier is nil")
@@ -46,7 +51,15 @@ func (t *Tier[K, V]) GetConsistentVersioned(ctx context.Context, key K, minVersi
 	return Versioned[V]{Value: t.clone(cacheEntry.Value), Version: cacheEntry.Version}, nil
 }
 
-func (t *Tier[K, V]) WriteThrough(ctx context.Context, key K, value V, version int64, bus *Bus, namespace, busKey string) (bool, error) {
+func (t *Tier[K, V]) WriteThrough(
+	ctx context.Context,
+	key K,
+	value V,
+	version int64,
+	bus *Bus,
+	namespace string,
+	busKey string,
+) (bool, error) {
 	if t == nil {
 		return false, fmt.Errorf("cache tier is nil")
 	}
@@ -70,7 +83,14 @@ func (t *Tier[K, V]) WriteThrough(ctx context.Context, key K, value V, version i
 	return ok, nil
 }
 
-func (t *Tier[K, V]) InvalidateThrough(ctx context.Context, key K, bus *Bus, namespace, busKey string, version int64) error {
+func (t *Tier[K, V]) InvalidateThrough(
+	ctx context.Context,
+	key K,
+	bus *Bus,
+	namespace string,
+	busKey string,
+	version int64,
+) error {
 	if t == nil {
 		return nil
 	}
@@ -81,7 +101,15 @@ func (t *Tier[K, V]) InvalidateThrough(ctx context.Context, key K, bus *Bus, nam
 	return nil
 }
 
-func (t *Tier[K, V]) StrongWriteThrough(ctx context.Context, policy StrongNamespacePolicy, key K, busKey string, value V, version int64, bus *Bus) (bool, error) {
+func (t *Tier[K, V]) StrongWriteThrough(
+	ctx context.Context,
+	policy StrongNamespacePolicy,
+	key K,
+	busKey string,
+	value V,
+	version int64,
+	bus *Bus,
+) (bool, error) {
 	if t == nil {
 		return false, fmt.Errorf("cache tier is nil")
 	}
@@ -91,7 +119,14 @@ func (t *Tier[K, V]) StrongWriteThrough(ctx context.Context, policy StrongNamesp
 	return t.WriteThrough(ctx, key, value, version, bus, policy.Namespace, busKey)
 }
 
-func (t *Tier[K, V]) StrongInvalidate(ctx context.Context, policy StrongNamespacePolicy, key K, busKey string, barrier VersionBarrier, bus *Bus) error {
+func (t *Tier[K, V]) StrongInvalidate(
+	ctx context.Context,
+	policy StrongNamespacePolicy,
+	key K,
+	busKey string,
+	barrier VersionBarrier,
+	bus *Bus,
+) error {
 	if t == nil {
 		return nil
 	}
@@ -101,8 +136,13 @@ func (t *Tier[K, V]) StrongInvalidate(ctx context.Context, policy StrongNamespac
 	return t.InvalidateThrough(ctx, key, bus, policy.Namespace, busKey, barrier.Version)
 }
 
-//nolint:gocyclo,cyclop // The versioned load path keeps the L1, L2, barrier, loader, and CAS decisions together so the consistency ordering is explicit.
-func (t *Tier[K, V]) loadVersionedThroughL2(ctx context.Context, key K, minVersion int64, loader VersionedLoadFunc[K, V]) (cacheEntry[V], error) {
+//nolint:gocyclo,cyclop // Keep the consistency decisions in one ordered path.
+func (t *Tier[K, V]) loadVersionedThroughL2(
+	ctx context.Context,
+	key K,
+	minVersion int64,
+	loader VersionedLoadFunc[K, V],
+) (cacheEntry[V], error) {
 	if !t.disableL2 && t.l2 != nil {
 		entry, err := t.l2.Get(ctx, key)
 		switch {
@@ -134,7 +174,7 @@ func (t *Tier[K, V]) loadVersionedThroughL2(ctx context.Context, key K, minVersi
 				t.cfg.OnL2Miss()
 			}
 		default:
-			t.failOpen("get", err)
+			t.failOpen(ctx, "get", err)
 		}
 	}
 	if loader == nil {
@@ -157,7 +197,7 @@ func (t *Tier[K, V]) loadVersionedThroughL2(ctx context.Context, key K, minVersi
 	if !t.disableL2 && t.l2 != nil {
 		ok, casErr := t.l2.CompareAndSet(ctx, key, entry, t.ttl)
 		if casErr != nil {
-			t.failOpen("cas_fill", casErr)
+			t.failOpen(ctx, "cas_fill", casErr)
 		} else if !ok {
 			recordCacheCASReject(ctx, t.name)
 			if t.cfg.OnCASRejected != nil {

@@ -9,9 +9,7 @@ import (
 	"time"
 )
 
-// ---------------------------------------------------------------------------.
 // Helpers
-// ---------------------------------------------------------------------------.
 
 // canceledCtx returns a context that is already canceled.
 func canceledCtx() context.Context {
@@ -41,9 +39,7 @@ func longRange() (time.Time, time.Time) {
 	return from, to
 }
 
-// ---------------------------------------------------------------------------.
 // GetPerformanceAnalytics
-// ---------------------------------------------------------------------------.
 
 func TestGetPerformanceAnalytics_CanceledCtx(t *testing.T) {
 	t.Parallel()
@@ -85,9 +81,7 @@ func TestGetPerformanceAnalytics_NegativePeriod(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // GetCostAnalytics
-// ---------------------------------------------------------------------------.
 
 func TestGetCostAnalytics_CanceledCtx(t *testing.T) {
 	t.Parallel()
@@ -122,9 +116,7 @@ func TestGetCostAnalytics_InvertedRange(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // GetCostTrends
-// ---------------------------------------------------------------------------.
 
 func TestGetCostTrends_CanceledCtx(t *testing.T) {
 	t.Parallel()
@@ -181,9 +173,7 @@ func TestGetCostTrends_LongPeriodBranch(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // GetTopCosts
-// ---------------------------------------------------------------------------.
 
 func TestGetTopCosts_CanceledCtx(t *testing.T) {
 	t.Parallel()
@@ -229,9 +219,7 @@ func TestGetTopCosts_InvertedRange(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // GetCostOutliers
-// ---------------------------------------------------------------------------.
 
 func TestGetCostOutliers_CanceledCtx(t *testing.T) {
 	t.Parallel()
@@ -288,9 +276,7 @@ func TestGetCostOutliers_InvertedRange(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // GetRunTimeline
-// ---------------------------------------------------------------------------.
 
 func TestGetRunTimeline_CanceledCtx(t *testing.T) {
 	t.Parallel()
@@ -359,9 +345,7 @@ func TestGetRunTimeline_InvertedRange(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // GetRunDurationDistribution
-// ---------------------------------------------------------------------------.
 
 func TestGetRunDurationDistribution_CanceledCtx(t *testing.T) {
 	t.Parallel()
@@ -396,9 +380,7 @@ func TestGetRunDurationDistribution_InvertedRange(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // GetRunFailureReasons
-// ---------------------------------------------------------------------------.
 
 func TestGetRunFailureReasons_CanceledCtx(t *testing.T) {
 	t.Parallel()
@@ -444,9 +426,7 @@ func TestGetRunFailureReasons_InvertedRange(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // GetRunsByTrigger
-// ---------------------------------------------------------------------------.
 
 func TestGetRunsByTrigger_CanceledCtx(t *testing.T) {
 	t.Parallel()
@@ -481,9 +461,7 @@ func TestGetRunsByTrigger_InvertedRange(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // GetJobHistory
-// ---------------------------------------------------------------------------.
 
 func TestGetJobHistory_CanceledCtx(t *testing.T) {
 	t.Parallel()
@@ -551,9 +529,7 @@ func TestGetJobHistory_InvertedRange(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // GetJobComparison
-// ---------------------------------------------------------------------------.
 
 func TestGetJobComparison_CanceledCtx(t *testing.T) {
 	t.Parallel()
@@ -610,9 +586,7 @@ func TestGetJobComparison_InvertedRange(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // GetJobReliability
-// ---------------------------------------------------------------------------.
 
 func TestGetJobReliability_CanceledCtx(t *testing.T) {
 	t.Parallel()
@@ -658,9 +632,7 @@ func TestGetJobReliability_InvertedRange(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // GetRunsByVersion
-// ---------------------------------------------------------------------------.
 
 func TestGetRunsByVersion_CanceledCtx(t *testing.T) {
 	t.Parallel()
@@ -706,9 +678,7 @@ func TestGetRunsByVersion_InvertedRange(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // GetJobCostRanking
-// ---------------------------------------------------------------------------.
 
 func TestGetJobCostRanking_CanceledCtx(t *testing.T) {
 	t.Parallel()
@@ -754,9 +724,7 @@ func TestGetJobCostRanking_InvertedRange(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // GetTopFailingJobs
-// ---------------------------------------------------------------------------.
 
 func TestGetTopFailingJobs_CanceledCtx(t *testing.T) {
 	t.Parallel()
@@ -802,9 +770,7 @@ func TestGetTopFailingJobs_InvertedRange(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // GetTagSummary
-// ---------------------------------------------------------------------------.
 
 func TestGetTagSummary_CanceledCtx(t *testing.T) {
 	t.Parallel()
@@ -850,9 +816,7 @@ func TestGetTagSummary_InvertedRange(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // GetTopFailingTags
-// ---------------------------------------------------------------------------.
 
 func TestGetTopFailingTags_CanceledCtx(t *testing.T) {
 	t.Parallel()
@@ -898,9 +862,7 @@ func TestGetTopFailingTags_InvertedRange(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // GetTagCost
-// ---------------------------------------------------------------------------.
 
 func TestGetTagCost_CanceledCtx(t *testing.T) {
 	t.Parallel()
@@ -946,9 +908,7 @@ func TestGetTagCost_InvertedRange(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // GetWorkflowStepDurations
-// ---------------------------------------------------------------------------.
 
 func TestGetWorkflowStepDurations_CanceledCtx(t *testing.T) {
 	t.Parallel()
@@ -994,9 +954,7 @@ func TestGetWorkflowStepDurations_InvertedRange(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // GetWorkflowCompletionRates
-// ---------------------------------------------------------------------------.
 
 func TestGetWorkflowCompletionRates_CanceledCtx(t *testing.T) {
 	t.Parallel()
@@ -1053,9 +1011,7 @@ func TestGetWorkflowCompletionRates_InvertedRange(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // GetWebhookDeliveryStats
-// ---------------------------------------------------------------------------.
 
 func TestGetWebhookDeliveryStats_CanceledCtx(t *testing.T) {
 	t.Parallel()
@@ -1090,9 +1046,7 @@ func TestGetWebhookDeliveryStats_InvertedRange(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // GetWebhookEndpointHealth
-// ---------------------------------------------------------------------------.
 
 func TestGetWebhookEndpointHealth_CanceledCtx(t *testing.T) {
 	t.Parallel()
@@ -1149,9 +1103,7 @@ func TestGetWebhookEndpointHealth_InvertedRange(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // GetTopFailingWebhooks
-// ---------------------------------------------------------------------------.
 
 func TestGetTopFailingWebhooks_CanceledCtx(t *testing.T) {
 	t.Parallel()
@@ -1197,9 +1149,7 @@ func TestGetTopFailingWebhooks_InvertedRange(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // GetEventVolume
-// ---------------------------------------------------------------------------.
 
 func TestGetEventVolume_CanceledCtx(t *testing.T) {
 	t.Parallel()
@@ -1256,9 +1206,7 @@ func TestGetEventVolume_InvertedRange(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // GetCostByTrigger
-// ---------------------------------------------------------------------------.
 
 func TestGetCostByTrigger_CanceledCtx(t *testing.T) {
 	t.Parallel()
@@ -1293,11 +1241,9 @@ func TestGetCostByTrigger_InvertedRange(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Table-driven: verify every function returns an error containing its
 // expected error substring when called with a closed-db client.
 // This exercises every Query/QueryRow path with real error propagation.
-// ---------------------------------------------------------------------------.
 
 func TestAnalyticsCoverage_ClosedDB_ErrorMessages(t *testing.T) {
 	t.Parallel()
@@ -1452,10 +1398,8 @@ func TestAnalyticsCoverage_ClosedDB_ErrorMessages(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Table-driven: nil client exercises the Query nil-guard path for all
 // Query-first methods (returns "client is nil" error without panic).
-// ---------------------------------------------------------------------------.
 
 func TestAnalyticsCoverage_NilClient_AllQueryMethods(t *testing.T) {
 	t.Parallel()

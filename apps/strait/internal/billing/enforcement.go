@@ -71,10 +71,9 @@ type Enforcer struct {
 	sentryRegion    string
 	sentryVersion   string
 	bgWG            conc.WaitGroup
-	// entitlementsAuthoritative controls the Phase 3.5 reader switch:
-	// when true (default), GetOrgPlanLimits reads the persisted snapshot
-	// directly when present. When false, it always recomputes from the
-	// catalog + addons pipeline. Operator escape hatch via
+	// entitlementsAuthoritative controls whether GetOrgPlanLimits reads the
+	// persisted snapshot directly when present. When false, it always recomputes
+	// from the catalog + addons pipeline. Operator escape hatch via
 	// BILLING_ENTITLEMENTS_AUTHORITATIVE.
 	entitlementsAuthoritative bool
 
@@ -261,7 +260,8 @@ func NewEnforcer(store Store, rdb redis.Cmdable, logger *slog.Logger, opts ...En
 	})
 	e.orgCache = orgCache
 	if e.cacheRegistry != nil {
-		e.cacheRegistry.Register(orgLimitsCacheNamespace, straitcache.UpdatingStringTierHandler[*cachedOrgLimits]{Tier: orgCache})
+		handler := straitcache.UpdatingStringTierHandler[*cachedOrgLimits]{Tier: orgCache}
+		e.cacheRegistry.Register(orgLimitsCacheNamespace, handler)
 	}
 	return e
 }
@@ -399,24 +399,45 @@ func (e *Enforcer) tryDispatchCapEvent(
 
 // InvalidateOrgCache removes cached plan limits for an org (call on plan change).
 func (e *Enforcer) InvalidateOrgCache(orgID string) {
-	e.InvalidateOrgCacheWithVersion(orgID, time.Now().UnixNano())
+	e.InvalidateOrgCacheContext(context.Background(), orgID)
+}
+
+func (e *Enforcer) InvalidateOrgCacheContext(ctx context.Context, orgID string) {
+	e.InvalidateOrgCacheWithVersionContext(ctx, orgID, time.Now().UnixNano())
 }
 
 // InvalidateOrgCacheWithVersion removes cached plan limits behind a version barrier.
 func (e *Enforcer) InvalidateOrgCacheWithVersion(orgID string, version int64) {
+	e.InvalidateOrgCacheWithVersionContext(context.Background(), orgID, version)
+}
+
+func (e *Enforcer) InvalidateOrgCacheWithVersionContext(ctx context.Context, orgID string, version int64) {
 	if e == nil || e.orgCache == nil {
 		return
 	}
-	_ = e.orgCache.StrongInvalidate(context.Background(), straitcache.StrongNamespacePolicy{Namespace: orgLimitsCacheNamespace}, orgID, orgID, straitcache.VersionBarrier{Version: version}, e.cacheBus)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	_ = e.orgCache.StrongInvalidate(
+		ctx,
+		straitcache.StrongNamespacePolicy{Namespace: orgLimitsCacheNamespace},
+		orgID,
+		orgID,
+		straitcache.VersionBarrier{Version: version},
+		e.cacheBus,
+	)
 }
 
 // getEnforcementMode returns the enforcement mode for an org from cache.
 // Falls back to "enforce" if not cached.
-func (e *Enforcer) getEnforcementMode(orgID string) string {
+func (e *Enforcer) getEnforcementMode(ctx context.Context, orgID string) string {
 	if e == nil || e.orgCache == nil {
 		return "enforce"
 	}
-	if cached, err := e.orgCache.Get(context.Background(), orgID, nil); err == nil && cached != nil {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if cached, err := e.orgCache.Get(ctx, orgID, nil); err == nil && cached != nil {
 		if cached.enforcementMode != "" {
 			return cached.enforcementMode
 		}
@@ -426,8 +447,8 @@ func (e *Enforcer) getEnforcementMode(orgID string) string {
 
 // checkEnforcementMode returns true if enforcement is disabled or warn-only for
 // the given org. Call this after GetOrgPlanLimits (which populates the cache).
-func (e *Enforcer) checkEnforcementMode(orgID, checkType string) (skip bool) {
-	mode := e.getEnforcementMode(orgID)
+func (e *Enforcer) checkEnforcementMode(ctx context.Context, orgID, checkType string) (skip bool) {
+	mode := e.getEnforcementMode(ctx, orgID)
 	switch mode {
 	case "disabled":
 		return true
@@ -505,11 +526,20 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 		if err != nil {
 			if errors.Is(err, ErrSubscriptionNotFound) {
 				limits := GetPlanLimits(domain.PlanFree)
-				_, _ = e.orgCache.StrongWriteThrough(ctx, straitcache.StrongNamespacePolicy{Namespace: orgLimitsCacheNamespace}, orgID, orgID, &cachedOrgLimits{
+				cached := &cachedOrgLimits{
 					tier:            domain.PlanFree,
 					limits:          limits,
 					enforcementMode: "enforce",
-				}, 1, e.cacheBus)
+				}
+				_, _ = e.orgCache.StrongWriteThrough(
+					ctx,
+					straitcache.StrongNamespacePolicy{Namespace: orgLimitsCacheNamespace},
+					orgID,
+					orgID,
+					cached,
+					1,
+					e.cacheBus,
+				)
 				return limits, nil
 			}
 			return OrgPlanLimits{}, fmt.Errorf("getting org subscription: %w", err)
@@ -531,8 +561,8 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 
 	tier := domain.PlanTier(sub.PlanTier)
 
-	// Phase 3.5: read the persisted entitlements snapshot when present.
-	// Empty (nil) and the literal `{}` default are treated as "no snapshot"
+	// Read the persisted entitlements snapshot when present. Empty (nil) and
+	// the literal `{}` default are treated as "no snapshot"
 	// so the recompute path opportunistically populates the column for
 	// orgs that haven't been touched by a mutator since migration 259.
 	usedSnapshot := false
@@ -588,11 +618,20 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 		limits.MaxConcurrentRuns = *sub.OverrideConcurrentRunLimit
 	}
 
-	_, _ = e.orgCache.StrongWriteThrough(ctx, straitcache.StrongNamespacePolicy{Namespace: orgLimitsCacheNamespace}, orgID, orgID, &cachedOrgLimits{
+	cached := &cachedOrgLimits{
 		tier:            tier,
 		limits:          limits,
 		enforcementMode: sub.EnforcementMode,
-	}, orgSubscriptionCacheVersion(sub), e.cacheBus)
+	}
+	_, _ = e.orgCache.StrongWriteThrough(
+		ctx,
+		straitcache.StrongNamespacePolicy{Namespace: orgLimitsCacheNamespace},
+		orgID,
+		orgID,
+		cached,
+		orgSubscriptionCacheVersion(sub),
+		e.cacheBus,
+	)
 	return limits, nil
 }
 
@@ -676,7 +715,7 @@ func (e *Enforcer) CheckDailyRunLimit(ctx context.Context, orgID string) error {
 	}
 	e.resetFailOpen(orgID, "daily_run")
 
-	if e.checkEnforcementMode(orgID, "daily_run") {
+	if e.checkEnforcementMode(ctx, orgID, "daily_run") {
 		return nil
 	}
 
@@ -775,7 +814,7 @@ func (e *Enforcer) CheckDailyAIModelCallLimit(ctx context.Context, orgID string)
 	}
 	e.resetFailOpen(orgID, "daily_ai_call")
 
-	if e.checkEnforcementMode(orgID, "daily_ai_call") {
+	if e.checkEnforcementMode(ctx, orgID, "daily_ai_call") {
 		return nil
 	}
 
@@ -881,7 +920,7 @@ func (e *Enforcer) CheckMonthlyRunLimit(ctx context.Context, orgID string) error
 	}
 	e.resetFailOpen(orgID, "monthly_run")
 
-	if e.checkEnforcementMode(orgID, "monthly_run") {
+	if e.checkEnforcementMode(ctx, orgID, "monthly_run") {
 		return nil
 	}
 
@@ -2184,7 +2223,7 @@ const prioritySlotPackIncrement = 10
 
 // ApplySubscriptionAddOns extends a base OrgPlanLimits using the subscription-level
 // add-ons stored in the add_ons JSONB column. Enforcement points for limits that
-// don't yet exist are annotated with TODO comments.
+// are not enforced yet are called out at the relevant field branch.
 func ApplySubscriptionAddOns(base OrgPlanLimits, addOns SubscriptionAddOns) OrgPlanLimits {
 	result := base
 

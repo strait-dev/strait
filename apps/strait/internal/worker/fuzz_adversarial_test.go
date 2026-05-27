@@ -11,9 +11,7 @@ import (
 	"github.com/sourcegraph/conc"
 )
 
-// --------------------------------------------------------------------------.
 // Backoff tests (9).
-// --------------------------------------------------------------------------.
 
 // FuzzNextRetryDelay_ExtremeAttempts fuzzes attempt values and ensures no panic.
 func FuzzNextRetryDelay_ExtremeAttempts(f *testing.F) {
@@ -148,9 +146,7 @@ func TestBackoff_CustomDelaysOverflow(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // Circuit breaker tests (5).
-// --------------------------------------------------------------------------.
 
 // TestCircuitBreaker_ConcurrentTransitions hammers the circuit breaker from 100 goroutines.
 func TestCircuitBreaker_ConcurrentTransitions(t *testing.T) {
@@ -285,9 +281,7 @@ func TestCircuitBreaker_ZeroThreshold(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // Health score tests (5).
-// --------------------------------------------------------------------------.
 
 // TestHealthScore_NaN verifies that NaN latency does not corrupt the score.
 func TestHealthScore_NaN(t *testing.T) {
@@ -379,9 +373,7 @@ func FuzzHealthScoreCalculation(f *testing.F) {
 	})
 }
 
-// --------------------------------------------------------------------------.
 // Bulkhead tests (4).
-// --------------------------------------------------------------------------.
 
 // TestBulkhead_AdversarialJobIDs tests job IDs containing null bytes and unicode.
 func TestBulkhead_AdversarialJobIDs(t *testing.T) {
@@ -478,9 +470,7 @@ func TestBulkhead_ConcurrentAcquireRelease(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // URL validation tests (4).
-// --------------------------------------------------------------------------.
 
 // FuzzValidateEndpointURL_SSRFBypasses fuzzes the URL validator with SSRF bypass patterns.
 func FuzzValidateEndpointURL_SSRFBypasses(f *testing.F) {

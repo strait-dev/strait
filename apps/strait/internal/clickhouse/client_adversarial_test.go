@@ -10,9 +10,7 @@ import (
 	"testing"
 )
 
-// ---------------------------------------------------------------------------.
 // Client construction edge cases
-// ---------------------------------------------------------------------------.
 
 func TestNew_InvalidURL(t *testing.T) {
 	t.Parallel()
@@ -87,9 +85,7 @@ func TestNew_WithDatabase(t *testing.T) {
 	defer c.Close()
 }
 
-// ---------------------------------------------------------------------------.
 // buildConnURL adversarial inputs
-// ---------------------------------------------------------------------------.
 
 func TestBuildConnURL_MalformedURL(t *testing.T) {
 	t.Parallel()
@@ -129,9 +125,7 @@ func TestBuildConnURL_EmptyURL(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Client nil-safety and error paths
-// ---------------------------------------------------------------------------.
 
 func TestClient_HealthyWithNilDB(t *testing.T) {
 	t.Parallel()

@@ -32,7 +32,6 @@ func TestSSRF_AdversarialBypass(t *testing.T) {
 		name string
 		url  string
 	}{
-		// === Standard private IPs ===
 		{"loopback IPv4", "http://127.0.0.1/"},
 		{"loopback IPv4 alt", "http://127.0.0.2/"},
 		{"loopback IPv4 high", "http://127.255.255.255/"},
@@ -56,7 +55,6 @@ func TestSSRF_AdversarialBypass(t *testing.T) {
 		{"reserved", "http://240.0.0.1/"},
 		{"broadcast", "http://255.255.255.255/"},
 
-		// === IPv6 private addresses ===
 		{"ipv6 loopback", "http://[::1]/"},
 		{"ipv6 loopback full", "http://[0:0:0:0:0:0:0:1]/"},
 		{"ipv6 unique local fc", "http://[fc00::1]/"},
@@ -72,7 +70,6 @@ func TestSSRF_AdversarialBypass(t *testing.T) {
 		{"ipv6 compat v4 loopback", "http://[::127.0.0.1]/"},
 		{"ipv6 full zeros loopback", "http://[0000:0000:0000:0000:0000:0000:0000:0001]/"},
 
-		// === Octal IP notation (OS resolver interprets, Go does not) ===
 		{"octal 127.0.0.1", "http://0177.0.0.1/"},
 		{"octal 127.0.0.1 variant", "http://0177.0.0.01/"},
 		{"octal 127.0.0.1 padded", "http://0177.00.00.01/"},
@@ -81,23 +78,19 @@ func TestSSRF_AdversarialBypass(t *testing.T) {
 		{"octal 169.254.169.254", "http://0251.0376.0251.0376/"},
 		{"octal all zeros", "http://00.00.00.00/"},
 
-		// === Hex-per-octet notation ===
 		{"hex 127.0.0.1", "http://0x7f.0.0.1/"},
 		{"hex full 127.0.0.1", "http://0x7f.0x0.0x0.0x1/"},
 		{"hex 10.0.0.1", "http://0xa.0x0.0x0.0x1/"},
 		{"hex 169.254.169.254", "http://0xA9.0xFE.0xA9.0xFE/"},
 		{"hex upper 127.0.0.1", "http://0X7F.0X0.0X0.0X1/"},
 
-		// === Decimal integer notation (single 32-bit int) ===
 		{"decimal 127.0.0.1", "http://2130706433/"},
 		{"decimal 10.0.0.1", "http://167772161/"},
 		{"decimal 169.254.169.254", "http://2852039166/"},
 
-		// === Short-form IPs ===
 		{"short 127.1", "http://127.1/"},
 		{"short 0", "http://0/"},
 
-		// === Blocked hostnames ===
 		{"localhost", "http://localhost/"},
 		{"localhost upper", "http://LOCALHOST/"},
 		{"localhost mixed", "http://LocalHost/"},
@@ -105,7 +98,6 @@ func TestSSRF_AdversarialBypass(t *testing.T) {
 		{"metadata gcp", "http://metadata.google.internal/"},
 		{"metadata gcp upper", "http://METADATA.GOOGLE.INTERNAL/"},
 
-		// === Scheme bypass ===
 		{"file scheme", "file:///etc/passwd"},
 		{"ftp scheme", "ftp://127.0.0.1/"},
 		{"gopher scheme", "gopher://127.0.0.1:6379/_PING"},
@@ -113,23 +105,19 @@ func TestSSRF_AdversarialBypass(t *testing.T) {
 		{"ssh scheme", "ssh://127.0.0.1/"},
 		{"telnet scheme", "telnet://127.0.0.1/"},
 
-		// === URL parsing tricks ===
 		{"userinfo at", "http://attacker@127.0.0.1/"},
 		{"userinfo at with creds", "http://user:pass@127.0.0.1/"},
 		{"fragment bypass", "http://127.0.0.1#@example.com/"},
 		{"backslash", "http://127.0.0.1\\@example.com/"},
 
-		// === Empty / malformed ===
 		{"empty string", ""},
 		{"just scheme", "http://"},
 		{"no host", "http:///path"},
 
-		// === AWS/cloud metadata via hostname ===
 		// These fail DNS in our mock, which correctly rejects them.
 		{"aws metadata dns", "http://instance-data.ec2.internal/"},
 		{"aws metadata ip6", "http://[fd00:ec2::254]/"},
 
-		// === DNS rebinding (fails DNS = rejected) ===
 		{"nip.io loopback", "http://127.0.0.1.nip.io/"},
 		{"xip.io metadata", "http://169.254.169.254.xip.io/"},
 		{"burp collaborator", "http://spoofed.burpcollaborator.net/"},

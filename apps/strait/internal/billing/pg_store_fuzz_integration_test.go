@@ -10,9 +10,7 @@ import (
 	"strait/internal/billing"
 )
 
-// --------------------------------------------------------------------------.
 // F1: Fuzz EnsureOrgSubscription with unusual org IDs
-// --------------------------------------------------------------------------.
 
 func TestFuzz_EnsureOrgSubscription(t *testing.T) {
 	ctx := context.Background()
@@ -42,9 +40,7 @@ func TestFuzz_EnsureOrgSubscription(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // F2: Fuzz GetOrgSubscription with unusual org IDs
-// --------------------------------------------------------------------------.
 
 func TestFuzz_GetOrgSubscription(t *testing.T) {
 	ctx := context.Background()
@@ -69,9 +65,7 @@ func TestFuzz_GetOrgSubscription(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // F3: Fuzz RecordProcessedWebhook with unusual message IDs
-// --------------------------------------------------------------------------.
 
 func TestFuzz_RecordProcessedWebhook(t *testing.T) {
 	ctx := context.Background()
@@ -96,7 +90,6 @@ func TestFuzz_RecordProcessedWebhook(t *testing.T) {
 			continue
 		}
 
-		// Verify round-trip.
 		processed, err := pgStore.IsWebhookProcessed(ctx, input)
 		if err != nil {
 			t.Logf("IsWebhookProcessed(%q) = %v (acceptable)", input, err)
@@ -108,9 +101,7 @@ func TestFuzz_RecordProcessedWebhook(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // F4: Fuzz UpsertOrgSubscription with boundary values
-// --------------------------------------------------------------------------.
 
 func TestFuzz_UpsertOrgSubscription(t *testing.T) {
 	ctx := context.Background()
@@ -166,9 +157,7 @@ func TestFuzz_UpsertOrgSubscription(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // F5: Fuzz CreateAddon with boundary values
-// --------------------------------------------------------------------------.
 
 func TestFuzz_CreateAddon(t *testing.T) {
 	ctx := context.Background()
@@ -204,7 +193,6 @@ func TestFuzz_CreateAddon(t *testing.T) {
 				return
 			}
 
-			// Verify round-trip.
 			addons, err := pgStore.ListActiveAddons(ctx, orgID)
 			if err != nil {
 				t.Logf("ListActiveAddons after %q = %v", tc.name, err)

@@ -318,8 +318,6 @@ func (h *AuditEmitHarness) pollQueueDepth() {
 	}
 }
 
-// --- Test-friendly in-memory store ---.
-
 // MemoryAuditStore is a thread-safe in-memory AuditEmitStore used by
 // the harness tests. It can be toggled between healthy and failing modes
 // to simulate store outages.

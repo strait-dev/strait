@@ -110,7 +110,7 @@ func TestPermissionCache_SetWithVersionPreservesVersionInRedis(t *testing.T) {
 
 	cache.SetWithVersion("proj", "user", []string{"jobs:read"}, 14)
 
-	raw, err := deps.Redis.Get(context.Background(), "strait:cache:"+permissionCacheNamespace+":"+cache.key("proj", "user")).Bytes()
+	raw, err := deps.Redis.Get(t.Context(), "strait:cache:"+permissionCacheNamespace+":"+cache.key("proj", "user")).Bytes()
 	if err != nil {
 		t.Fatalf("read redis entry: %v", err)
 	}
@@ -156,8 +156,17 @@ func TestPermissionCache_ProjectInvalidationClearsRedisL2(t *testing.T) {
 	cache := newPermissionCache(time.Minute, deps)
 	cache.Set("proj", "user-a", []string{"jobs:read"})
 	cache.Set("proj", "user-b", []string{"jobs:write"})
+	indexKey := cache.redisProjectIndexKey("proj")
 
-	cache.InvalidateProject(context.Background(), "proj", time.Now().UnixNano())
+	members, err := deps.Redis.SMembers(t.Context(), indexKey).Result()
+	if err != nil {
+		t.Fatalf("read permission project index: %v", err)
+	}
+	if len(members) != 2 {
+		t.Fatalf("permission project index size = %d, want 2", len(members))
+	}
+
+	cache.InvalidateProject(t.Context(), "proj", time.Now().UnixNano())
 
 	fresh := newPermissionCache(time.Minute, deps)
 	if _, ok := fresh.Get("proj", "user-a"); ok {
@@ -165,6 +174,9 @@ func TestPermissionCache_ProjectInvalidationClearsRedisL2(t *testing.T) {
 	}
 	if _, ok := fresh.Get("proj", "user-b"); ok {
 		t.Fatal("user-b permission survived project invalidation")
+	}
+	if exists := deps.Redis.Exists(t.Context(), indexKey).Val(); exists != 0 {
+		t.Fatalf("permission project index exists = %d, want 0", exists)
 	}
 }
 
@@ -307,7 +319,6 @@ func TestPermissionCache_ConcurrentReadWrite(t *testing.T) {
 	}
 
 	wg.Wait()
-	// If we get here without panics or races, the test passes.
 }
 
 func TestPermissionCache_ManyEntries(t *testing.T) {
@@ -321,7 +332,6 @@ func TestPermissionCache_ManyEntries(t *testing.T) {
 		c.Set("proj", "user-"+string(rune(i)), []string{"*"})
 	}
 
-	// Verify a sample are retrievable.
 	for _, i := range []int{0, 100, 5000, 9999} {
 		_, ok := c.Get("proj", "user-"+string(rune(i)))
 		if !ok {
@@ -337,8 +347,6 @@ func TestPermissionCache_ZeroTTL(t *testing.T) {
 	defer c.Stop()
 	c.Set("proj", "user", []string{"*"})
 
-	// With zero TTL, everything should expire immediately.
-	// time.Since(cachedAt) > 0 should be true.
 	_, ok := c.Get("proj", "user")
 	if ok {
 		t.Fatal("expected cache miss with zero TTL")
@@ -353,7 +361,6 @@ func TestPermissionCache_RLockAllowsConcurrentReads(t *testing.T) {
 
 	c.Set("proj", "user", []string{"read"})
 
-	// 100 concurrent readers should all succeed without blocking each other.
 	var wg conc.WaitGroup
 	const readers = 100
 	results := make([]bool, readers)
@@ -381,7 +388,6 @@ func TestPermissionCache_EvictRaceOnExpiry(t *testing.T) {
 
 	c.Set("proj", "user", []string{"*"})
 
-	// Poll until the entry expires before launching the race.
 	deadline := time.After(10 * time.Second)
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
@@ -397,8 +403,6 @@ func TestPermissionCache_EvictRaceOnExpiry(t *testing.T) {
 	}
 expired:
 
-	// Multiple goroutines race to evict the same expired entry.
-	// This verifies the double-check pattern prevents panics.
 	var wg conc.WaitGroup
 	const goroutines = 50
 	for range goroutines {
@@ -411,7 +415,6 @@ expired:
 	}
 	wg.Wait()
 
-	// Verify the entry was actually removed.
 	_, ok := c.Get("proj", "user")
 	if ok {
 		t.Fatal("expired entry should have been evicted")
@@ -424,11 +427,10 @@ func TestPermissionCache_GetDoesNotBlockSet(t *testing.T) {
 	c := newPermissionCache(5 * time.Second)
 	defer c.Stop()
 
-	// Set initial value.
 	c.Set("proj", "user", []string{"old"})
 
 	firstRead := make(chan struct{})
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 
 	var readCount atomic.Int64

@@ -34,16 +34,36 @@ func newJobDependencyCache(ttl time.Duration, deps ...apiCacheDeps) *jobDependen
 	if len(deps) > 0 {
 		dep = deps[0]
 	}
-	var l2 straitcache.L2[jobDepsCacheKey, []domain.JobDependency]
-	if dep.Redis != nil {
-		l2 = straitcache.NewRedisL2[jobDepsCacheKey, []domain.JobDependency](straitcache.RedisL2Config[jobDepsCacheKey, []domain.JobDependency]{
+	l2 := newJobDependencyCacheL2(dep)
+	c := &jobDependencyCache{bus: dep.Bus}
+	c.tier = straitcache.NewTier[jobDepsCacheKey, []domain.JobDependency](jobDependencyTierConfig(ttl, l2))
+	if dep.Registry != nil {
+		dep.Registry.Register(jobDependencyCacheNamespace, straitcache.TierHandler[jobDepsCacheKey, []domain.JobDependency]{
+			Tier:  c.tier,
+			Parse: parseJobDepsCacheKey,
+		})
+	}
+	return c
+}
+
+func newJobDependencyCacheL2(dep apiCacheDeps) straitcache.L2[jobDepsCacheKey, []domain.JobDependency] {
+	if dep.Redis == nil {
+		return nil
+	}
+	return straitcache.NewRedisL2[jobDepsCacheKey, []domain.JobDependency](
+		straitcache.RedisL2Config[jobDepsCacheKey, []domain.JobDependency]{
 			Client:    dep.Redis,
 			Namespace: jobDependencyCacheNamespace,
 			Key:       jobDepsCacheKeyString,
-		})
-	}
-	c := &jobDependencyCache{bus: dep.Bus}
-	c.tier = straitcache.NewTier[jobDepsCacheKey, []domain.JobDependency](straitcache.TierConfig[jobDepsCacheKey, []domain.JobDependency]{
+		},
+	)
+}
+
+func jobDependencyTierConfig(
+	ttl time.Duration,
+	l2 straitcache.L2[jobDepsCacheKey, []domain.JobDependency],
+) straitcache.TierConfig[jobDepsCacheKey, []domain.JobDependency] {
+	return straitcache.TierConfig[jobDepsCacheKey, []domain.JobDependency]{
 		Name:          jobDependencyCacheNamespace,
 		L2:            l2,
 		Consistency:   straitcache.Strong,
@@ -64,17 +84,14 @@ func newJobDependencyCache(ttl time.Duration, deps ...apiCacheDeps) *jobDependen
 		Clone: func(deps []domain.JobDependency) []domain.JobDependency {
 			return append([]domain.JobDependency(nil), deps...)
 		},
-	})
-	if dep.Registry != nil {
-		dep.Registry.Register(jobDependencyCacheNamespace, straitcache.TierHandler[jobDepsCacheKey, []domain.JobDependency]{
-			Tier:  c.tier,
-			Parse: parseJobDepsCacheKey,
-		})
 	}
-	return c
 }
 
-func (c *jobDependencyCache) List(ctx context.Context, key jobDepsCacheKey, loader func(context.Context, jobDepsCacheKey) (straitcache.Versioned[[]domain.JobDependency], error)) ([]domain.JobDependency, error) {
+func (c *jobDependencyCache) List(
+	ctx context.Context,
+	key jobDepsCacheKey,
+	loader func(context.Context, jobDepsCacheKey) (straitcache.Versioned[[]domain.JobDependency], error),
+) ([]domain.JobDependency, error) {
 	if c == nil || c.tier == nil {
 		loaded, err := loader(ctx, key)
 		return loaded.Value, err
@@ -96,11 +113,22 @@ func (c *jobDependencyCache) InvalidateJobWithVersion(ctx context.Context, jobID
 	}
 	for _, limit := range jobDependencyCachedPageLimits {
 		key := jobDepsCacheKey{JobID: jobID, Limit: limit}
-		_ = c.tier.StrongInvalidate(ctx, straitcache.StrongNamespacePolicy{Namespace: jobDependencyCacheNamespace}, key, jobDepsCacheKeyString(key), straitcache.VersionBarrier{Version: version}, c.bus)
+		_ = c.tier.StrongInvalidate(
+			ctx,
+			strongCachePolicy(jobDependencyCacheNamespace),
+			key,
+			jobDepsCacheKeyString(key),
+			cacheVersionBarrier(version),
+			c.bus,
+		)
 	}
 }
 
-func (c *jobDependencyCache) RefreshJob(ctx context.Context, jobID string, loader func(context.Context, jobDepsCacheKey) (straitcache.Versioned[[]domain.JobDependency], error)) {
+func (c *jobDependencyCache) RefreshJob(
+	ctx context.Context,
+	jobID string,
+	loader func(context.Context, jobDepsCacheKey) (straitcache.Versioned[[]domain.JobDependency], error),
+) {
 	if c == nil || c.tier == nil || jobID == "" {
 		return
 	}
@@ -115,7 +143,15 @@ func (c *jobDependencyCache) RefreshJob(ctx context.Context, jobID string, loade
 		if version <= 0 {
 			version = time.Now().UnixNano()
 		}
-		_, _ = c.tier.StrongWriteThrough(ctx, straitcache.StrongNamespacePolicy{Namespace: jobDependencyCacheNamespace}, key, jobDepsCacheKeyString(key), loaded.Value, version, c.bus)
+		_, _ = c.tier.StrongWriteThrough(
+			ctx,
+			strongCachePolicy(jobDependencyCacheNamespace),
+			key,
+			jobDepsCacheKeyString(key),
+			loaded.Value,
+			version,
+			c.bus,
+		)
 	}
 }
 

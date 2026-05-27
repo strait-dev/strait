@@ -50,8 +50,8 @@ func truncateForLog(s string) string {
 // TestAuditDetails_NoSecretLeakage exercises the emit path with realistic
 // details payloads for every registered audit action and asserts that no
 // captured event contains any string matching a known secret shape. It
-// complements Phase 3's forbidden-key test by catching leaks by shape
-// rather than by key name.
+// complements the forbidden-key test by catching leaks by shape rather than by
+// key name.
 func TestAuditDetails_NoSecretLeakage(t *testing.T) {
 	t.Parallel()
 

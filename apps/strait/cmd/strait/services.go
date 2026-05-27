@@ -150,8 +150,7 @@ func connectDatabase(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, er
 		)
 	}
 
-	// Apply MVCC horizon guardrails and timeouts (Phase 1).
-	// These runtime params are applied to every connection in the pool via pgx's
+	// These MVCC horizon guardrails and timeouts are applied to every connection in the pool via pgx's
 	// StartupMessage. They prevent stray long transactions from pinning pg_xmin
 	// and blocking autovacuum on hot queue tables.
 	if poolConfig.ConnConfig.RuntimeParams == nil {
@@ -479,115 +478,72 @@ func startLogDrainWorker(g *pool.ContextPool, cfg *config.Config, queries *store
 	})
 }
 
+type apiServerDeps struct {
+	group              *pool.ContextPool
+	config             *config.Config
+	queries            *store.Queries
+	txPool             store.TxBeginner
+	dbPool             *pgxpool.Pool
+	queue              queue.Queue
+	publisher          pubsub.Publisher
+	cacheRegistry      *straitcache.Registry
+	cacheBus           *straitcache.Bus
+	metricsHandler     http.Handler
+	metrics            *telemetry.Metrics
+	stepCallback       *workflow.StepCallback
+	workflowEngine     *workflow.WorkflowEngine
+	healthRegistry     *health.Registry
+	redisClient        *redis.Client
+	encryptor          api.Encryptor
+	billingEnforcer    *billing.Enforcer
+	analyticsStore     api.AnalyticsStore
+	clickHouseExporter *clickhouse.Exporter
+	cdcWebhookReceiver *cdc.WebhookReceiver
+}
+
 // startAPIServer starts the HTTP API server and its graceful shutdown goroutine.
-func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, dbPool *pgxpool.Pool, q queue.Queue, pub pubsub.Publisher, cacheRegistry *straitcache.Registry, cacheBus *straitcache.Bus, metricsHandler http.Handler, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, rdb *redis.Client, encryptor api.Encryptor, billingEnforcer *billing.Enforcer, analyticsStore api.AnalyticsStore, chExporter *clickhouse.Exporter, cdcWebhookReceiver *cdc.WebhookReceiver) {
+func startAPIServer(deps apiServerDeps) {
+	g := deps.group
+	cfg := deps.config
+	queries := deps.queries
+	billingEnforcer := deps.billingEnforcer
+
 	if cfg.Mode != "api" && cfg.Mode != "all" {
 		return
 	}
 
-	var pinger api.Pinger
-	if redisPub, ok := pub.(*pubsub.RedisPublisher); ok {
-		pinger = redisPub
-	}
-
-	billingStore := billing.NewPgStore(dbPool)
-
-	posthogClient := billing.NewPostHogClient(cfg.PostHogAPIKey, cfg.PostHogHost, slog.Default())
-
-	var stripeWebhook http.Handler
-	if cfg.StripeWebhookSecret != "" {
-		stripeMapping := billing.NewStripeMappingFromOptions(
-			billing.WithStarterPrices(cfg.StripeStarterMonthlyPriceID, cfg.StripeStarterYearlyPriceID),
-			billing.WithProPrices(cfg.StripeProMonthlyPriceID, cfg.StripeProYearlyPriceID),
-			billing.WithScalePrices(cfg.StripeScaleMonthlyPriceID, cfg.StripeScaleYearlyPriceID),
-			billing.WithBusinessPrices(cfg.StripeBusinessMonthlyPriceID, cfg.StripeBusinessYearlyPriceID),
-			billing.WithEnterpriseStarterPrice(cfg.StripeEnterpriseStarterYearlyPriceID),
-			billing.WithEnterpriseGrowthPrice(cfg.StripeEnterpriseGrowthYearlyPriceID),
-			billing.WithEnterpriseLargePrice(cfg.StripeEnterpriseLargeYearlyPriceID),
-			// Orchestration-only flat tier prices (new billing model).
-			billing.WithStarterFlatPrice(cfg.StripeStarterPriceID),
-			billing.WithProFlatPrice(cfg.StripeProPriceID),
-			billing.WithScaleFlatPrice(cfg.StripeScalePriceID),
-			billing.WithEnterpriseFlatPrice(cfg.StripeEnterprisePriceID),
-		)
-		var webhookOpts []billing.WebhookOption
-		if posthogClient != nil {
-			webhookOpts = append(webhookOpts, billing.WithPostHog(posthogClient))
-		}
-		if cfg.ResendAPIKey != "" {
-			resendClient := billing.NewResendWelcomeEmailFunc(cfg.ResendAPIKey, cfg.ResendFromEmail)
-			webhookOpts = append(webhookOpts, billing.WithWelcomeEmail(resendClient))
-		}
-		billingEmailSender := billing.NewBillingEmailSender(cfg.ResendAPIKey, "billing@strait.dev", slog.Default())
-		if billingEmailSender != nil {
-			webhookOpts = append(webhookOpts, billing.WithBillingEmails(billingEmailSender))
-		}
-		webhookOpts = append(webhookOpts, billing.WithEdition(cfg.Edition))
-		webhookOpts = append(webhookOpts, billing.WithDunningStore(billingStore))
-		wh := billing.NewWebhookHandler(billingStore, stripeMapping, cfg.StripeWebhookSecret, slog.Default(), billingEnforcer, queries, webhookOpts...)
-		g.Go(func(ctx context.Context) error {
-			wh.StartReplayCleanup(ctx)
-			<-ctx.Done()
-			return nil
-		})
-		stripeWebhook = wh
-		slog.Info("stripe webhook handler enabled")
-	}
-
-	var usageSvc *billing.UsageService
-	if billingEnforcer != nil {
-		usageSvc = billing.NewUsageService(billingStore, billingEnforcer)
-	}
-
-	siemDrain := logdrain.NewAuditSIEMDrain(
-		cfg.AuditSIEMEndpoint,
-		cfg.AuditSIEMAuthToken,
-		cfg.AuditSIEMBatchSize,
-		cfg.AuditSIEMFlushInterval,
-	)
-	if siemDrain != nil {
-		slog.Info("audit SIEM drain enabled",
-			"endpoint", httputil.RedactURLForLog(cfg.AuditSIEMEndpoint),
-			"batch_size", cfg.AuditSIEMBatchSize,
-			"flush_interval", cfg.AuditSIEMFlushInterval)
-	}
+	billingStore := billing.NewPgStore(deps.dbPool)
+	stripeWebhook := buildStripeWebhook(g, cfg, queries, billingStore, billingEnforcer)
+	usageSvc := buildUsageService(billingStore, billingEnforcer)
+	siemDrain := buildAuditSIEMDrain(cfg)
 
 	srv := api.NewServer(api.ServerDeps{
 		Config:             cfg,
 		Store:              queries,
-		AnalyticsStore:     analyticsStore,
-		Queue:              q,
-		PubSub:             pub,
-		MetricsHandler:     metricsHandler,
-		Metrics:            metrics,
-		Pinger:             pinger,
-		HealthRegistry:     healthReg,
-		WorkflowCallback:   stepCallback,
-		WorkflowEngine:     workflowEngine,
-		TxPool:             txPool,
-		RedisClient:        rdb,
-		CacheBus:           cacheBus,
-		CacheRegistry:      cacheRegistry,
-		Encryptor:          encryptor,
+		AnalyticsStore:     deps.analyticsStore,
+		Queue:              deps.queue,
+		PubSub:             deps.publisher,
+		MetricsHandler:     deps.metricsHandler,
+		Metrics:            deps.metrics,
+		Pinger:             pingerFromPublisher(deps.publisher),
+		HealthRegistry:     deps.healthRegistry,
+		WorkflowCallback:   deps.stepCallback,
+		WorkflowEngine:     deps.workflowEngine,
+		TxPool:             deps.txPool,
+		RedisClient:        deps.redisClient,
+		CacheBus:           deps.cacheBus,
+		CacheRegistry:      deps.cacheRegistry,
+		Encryptor:          deps.encryptor,
 		StripeWebhook:      stripeWebhook,
 		BillingEnforcer:    nilSafeBillingEnforcer(billingEnforcer),
 		UsageService:       usageSvc,
-		CHExporter:         chExporter,
+		CHExporter:         deps.clickHouseExporter,
 		Edition:            domain.ParseEdition(cfg.Edition),
 		Version:            version,
-		CDCWebhookReceiver: cdcWebhookReceiver,
+		CDCWebhookReceiver: deps.cdcWebhookReceiver,
 		SIEMDrain:          siemDrain,
 	})
-	if metrics != nil {
-		if err := metrics.ObserveAuditDrainer(otel.Meter("strait"), srv); err != nil {
-			slog.Warn("failed to register audit drainer metrics callback", "error", err)
-		}
-		if siemDrain != nil {
-			if err := metrics.ObserveSIEMBreakerState(otel.Meter("strait"), siemDrain); err != nil {
-				slog.Warn("failed to register SIEM breaker state metrics callback", "error", err)
-			}
-		}
-	}
+	registerAPIMetrics(deps.metrics, srv, siemDrain)
 
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
@@ -614,6 +570,111 @@ func startAPIServer(g *pool.ContextPool, cfg *config.Config, queries *store.Quer
 		defer shutdownCancel()
 		return httpServer.Shutdown(shutdownCtx)
 	})
+}
+
+func pingerFromPublisher(pub pubsub.Publisher) api.Pinger {
+	redisPub, ok := pub.(*pubsub.RedisPublisher)
+	if !ok {
+		return nil
+	}
+	return redisPub
+}
+
+func buildStripeWebhook(
+	g *pool.ContextPool,
+	cfg *config.Config,
+	queries *store.Queries,
+	billingStore *billing.PgStore,
+	billingEnforcer *billing.Enforcer,
+) http.Handler {
+	if cfg.StripeWebhookSecret == "" {
+		return nil
+	}
+
+	stripeMapping := billing.NewStripeMappingFromOptions(
+		billing.WithStarterPrices(cfg.StripeStarterMonthlyPriceID, cfg.StripeStarterYearlyPriceID),
+		billing.WithProPrices(cfg.StripeProMonthlyPriceID, cfg.StripeProYearlyPriceID),
+		billing.WithScalePrices(cfg.StripeScaleMonthlyPriceID, cfg.StripeScaleYearlyPriceID),
+		billing.WithBusinessPrices(cfg.StripeBusinessMonthlyPriceID, cfg.StripeBusinessYearlyPriceID),
+		billing.WithEnterpriseStarterPrice(cfg.StripeEnterpriseStarterYearlyPriceID),
+		billing.WithEnterpriseGrowthPrice(cfg.StripeEnterpriseGrowthYearlyPriceID),
+		billing.WithEnterpriseLargePrice(cfg.StripeEnterpriseLargeYearlyPriceID),
+		billing.WithStarterFlatPrice(cfg.StripeStarterPriceID),
+		billing.WithProFlatPrice(cfg.StripeProPriceID),
+		billing.WithScaleFlatPrice(cfg.StripeScalePriceID),
+		billing.WithEnterpriseFlatPrice(cfg.StripeEnterprisePriceID),
+	)
+	wh := billing.NewWebhookHandler(
+		billingStore,
+		stripeMapping,
+		cfg.StripeWebhookSecret,
+		slog.Default(),
+		billingEnforcer,
+		queries,
+		stripeWebhookOptions(cfg, billingStore)...,
+	)
+	g.Go(func(ctx context.Context) error {
+		wh.StartReplayCleanup(ctx)
+		<-ctx.Done()
+		return nil
+	})
+	slog.Info("stripe webhook handler enabled")
+	return wh
+}
+
+func stripeWebhookOptions(cfg *config.Config, billingStore *billing.PgStore) []billing.WebhookOption {
+	opts := []billing.WebhookOption{}
+	if posthogClient := billing.NewPostHogClient(cfg.PostHogAPIKey, cfg.PostHogHost, slog.Default()); posthogClient != nil {
+		opts = append(opts, billing.WithPostHog(posthogClient))
+	}
+	if cfg.ResendAPIKey != "" {
+		resendClient := billing.NewResendWelcomeEmailFunc(cfg.ResendAPIKey, cfg.ResendFromEmail)
+		opts = append(opts, billing.WithWelcomeEmail(resendClient))
+	}
+	if billingEmailSender := billing.NewBillingEmailSender(cfg.ResendAPIKey, "billing@strait.dev", slog.Default()); billingEmailSender != nil {
+		opts = append(opts, billing.WithBillingEmails(billingEmailSender))
+	}
+	opts = append(opts, billing.WithEdition(cfg.Edition))
+	opts = append(opts, billing.WithDunningStore(billingStore))
+	return opts
+}
+
+func buildUsageService(billingStore *billing.PgStore, billingEnforcer *billing.Enforcer) *billing.UsageService {
+	if billingEnforcer == nil {
+		return nil
+	}
+	return billing.NewUsageService(billingStore, billingEnforcer)
+}
+
+func buildAuditSIEMDrain(cfg *config.Config) *logdrain.AuditSIEMDrain {
+	siemDrain := logdrain.NewAuditSIEMDrain(
+		cfg.AuditSIEMEndpoint,
+		cfg.AuditSIEMAuthToken,
+		cfg.AuditSIEMBatchSize,
+		cfg.AuditSIEMFlushInterval,
+	)
+	if siemDrain != nil {
+		slog.Info("audit SIEM drain enabled",
+			"endpoint", httputil.RedactURLForLog(cfg.AuditSIEMEndpoint),
+			"batch_size", cfg.AuditSIEMBatchSize,
+			"flush_interval", cfg.AuditSIEMFlushInterval)
+	}
+	return siemDrain
+}
+
+func registerAPIMetrics(metrics *telemetry.Metrics, srv *api.Server, siemDrain *logdrain.AuditSIEMDrain) {
+	if metrics == nil {
+		return
+	}
+	if err := metrics.ObserveAuditDrainer(otel.Meter("strait"), srv); err != nil {
+		slog.Warn("failed to register audit drainer metrics callback", "error", err)
+	}
+	if siemDrain == nil {
+		return
+	}
+	if err := metrics.ObserveSIEMBreakerState(otel.Meter("strait"), siemDrain); err != nil {
+		slog.Warn("failed to register SIEM breaker state metrics callback", "error", err)
+	}
 }
 
 func startProfilingServer(g *pool.ContextPool, cfg *config.Config, rdb *redis.Client, metrics *telemetry.Metrics, version string) {
@@ -750,6 +811,29 @@ func waitForPubsubReady(ctx context.Context, pub pubsub.Publisher, budget time.D
 	}
 }
 
+type workerRuntimeDeps struct {
+	group              *pool.ContextPool
+	config             *config.Config
+	queries            *store.Queries
+	txPool             store.TxBeginner
+	dbPool             *pgxpool.Pool
+	queue              queue.Queue
+	backpressure       *queue.Backpressure
+	publisher          pubsub.Publisher
+	cacheRegistry      *straitcache.Registry
+	cacheBus           *straitcache.Bus
+	redisClient        *redis.Client
+	metrics            *telemetry.Metrics
+	stepCallback       *workflow.StepCallback
+	workflowEngine     *workflow.WorkflowEngine
+	healthRegistry     *health.Registry
+	billingEnforcer    *billing.Enforcer
+	billingDispatcher  *webhook.BillingDispatcher
+	clickHouseExporter *clickhouse.Exporter
+	workerPlane        *grpcserver.Server
+	encryptor          api.Encryptor
+}
+
 func startCacheBus(g *pool.ContextPool, pub pubsub.Publisher) (*straitcache.Registry, *straitcache.Bus) {
 	registry := straitcache.NewRegistry(straitcache.RegistryConfig{})
 	bus := straitcache.NewBus(pub, straitcache.BusConfig{Origin: registry.Origin()})
@@ -764,7 +848,17 @@ func startCacheBus(g *pool.ContextPool, pub pubsub.Publisher) (*straitcache.Regi
 }
 
 // startWorker starts the job executor, worker pool, and scheduler goroutines.
-func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, txPool store.TxBeginner, dbPool *pgxpool.Pool, q queue.Queue, bp *queue.Backpressure, pub pubsub.Publisher, cacheRegistry *straitcache.Registry, cacheBus *straitcache.Bus, rdb *redis.Client, metrics *telemetry.Metrics, stepCallback *workflow.StepCallback, workflowEngine *workflow.WorkflowEngine, healthReg *health.Registry, billingEnforcer *billing.Enforcer, billingDispatcher *webhook.BillingDispatcher, chExporter *clickhouse.Exporter, workerPlane *grpcserver.Server, encryptor api.Encryptor) {
+func startWorker(deps workerRuntimeDeps) {
+	g := deps.group
+	cfg := deps.config
+	queries := deps.queries
+	pub := deps.publisher
+	metrics := deps.metrics
+	healthReg := deps.healthRegistry
+	billingEnforcer := deps.billingEnforcer
+	chExporter := deps.clickHouseExporter
+	workerPlane := deps.workerPlane
+
 	if cfg.Mode != "worker" && cfg.Mode != "all" {
 		return
 	}
@@ -792,139 +886,17 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 	})
 	slog.Info("worker queue listen/notify enabled", "channel", queue.QueueWakeChannel)
 
-	partitions := []string(nil)
-	partitionWeights := ""
-	if len(cfg.WorkerPartitions) > 0 {
-		partitions = cfg.WorkerPartitions
-		partitionWeights = cfg.WorkerPartitionWeights
-		slog.Info("worker queue partitioning enabled", "partitions", partitions)
-	}
-	execCfg := worker.ExecutorConfig{
-		Pool:                     p,
-		Queue:                    q,
-		Wake:                     wake,
-		Degraded:                 notifier,
-		ConcurrencyLimit:         adaptive,
-		Store:                    queries,
-		TxPool:                   txPool,
-		PollInterval:             cfg.PollerInterval,
-		HeartbeatInterval:        cfg.HeartbeatInterval,
-		Publisher:                pub,
-		Metrics:                  metrics,
-		WorkflowCallback:         stepCallback,
-		Partitions:               partitions,
-		PartitionWeights:         partitionWeights,
-		ExecutorHTTPTimeout:      cfg.ExecutorHTTPTimeout,
-		ExecutorIdleConnTimeout:  cfg.ExecutorIdleConnTimeout,
-		ExecutionTraceMode:       cfg.ExecutionTraceMode,
-		AllowPrivateEndpoints:    cfg.AllowPrivateEndpoints,
-		WebhookMaxAttempts:       cfg.WebhookMaxAttempts,
-		JobCacheTTL:              cfg.JobCacheTTL,
-		VersionCacheTTL:          cfg.VersionCacheTTL,
-		RunVersionCacheTTL:       cfg.RunVersionCacheTTL,
-		JobHealthCacheTTL:        cfg.JobHealthCacheTTL,
-		RedisClient:              rdb,
-		CacheRegistry:            cacheRegistry,
-		CacheBus:                 cacheBus,
-		MaxDequeueBatchSize:      cfg.MaxDequeueBatchSize,
-		DefaultJobMaxConcurrency: cfg.DefaultJobMaxConcurrency,
-		MaxSnoozeCount:           cfg.MaxSnoozeCount,
-		JWTSigningKey:            cfg.JWTSigningKey,
-		ExternalAPIURL:           cfg.ExternalAPIURL,
-		DefaultRegion:            cfg.DefaultRegion,
-		Mode:                     cfg.Mode,
-		Version:                  version,
-		EventChannelSize:         cfg.WorkerEventChannelSize,
-		SecretDecryptor:          encryptor,
-		UseDenormalizedDequeue:   cfg.QueueUseDenormalizedDequeue,
-	}
-	applyWorkerPlaneToExecutorConfig(&execCfg, workerPlane, cfg.JWTSigningKey)
-
-	// Only wire billing enforcement in the executor when explicitly enabled.
-	// The enforcer may exist for webhook cache invalidation without executor enforcement.
-	if cfg.BillingEnforcementEnabled && billingEnforcer != nil {
-		execCfg.BillingEnforcer = billingEnforcer
-		slog.Info("billing enforcement enabled")
-	}
-
-	// Wire Stripe usage event reporting for metered billing (cloud only).
-	if cfg.StripeSecretKey != "" {
-		execCfg.StripeUsageReporter = billing.NewStripeUsageReporter(
-			cfg.StripeSecretKey, slog.Default(),
-			billing.WithUsageReporterMetrics(metrics),
-		)
-		slog.Info("stripe usage reporting enabled")
-	}
+	execCfg := buildExecutorConfig(deps, p, wake, notifier, adaptive)
+	applyWorkerBillingConfig(&execCfg, cfg, billingEnforcer, metrics)
 
 	exec := worker.NewExecutor(execCfg)
 	if workerPlane != nil {
 		workerPlane.SetRunResultFinalizer(exec)
 	}
 
-	exec.Use(worker.TracingMiddleware())
-	if metrics != nil {
-		exec.Subscribe(worker.MetricsSubscriber(metrics))
-	}
-	if metrics != nil {
-		exec.Subscribe(worker.PubSubSubscriber(pub, metrics.PubSubPublishErrors))
-	} else {
-		exec.Subscribe(worker.PubSubSubscriber(pub))
-	}
-	if chExporter != nil {
-		exec.Subscribe(worker.ClickHouseSubscriber(chExporter, queries, worker.ClickHouseSubscriberDeps{
-			UsageLister: queries,
-		}))
-	}
-
-	healthReg.Register(health.NewPoolChecker(p))
-
-	queueDepthThreshold := int64(max(cfg.WorkerConcurrency*100, 1000))
-	healthReg.Register(health.NewQueueDepthChecker(func(checkCtx context.Context) (int64, error) {
-		stats, err := queries.QueueStats(checkCtx)
-		if err != nil {
-			return 0, err
-		}
-		return int64(stats.Queued), nil
-	}, queueDepthThreshold))
-
-	if metrics != nil {
-		meter := otel.Meter("strait")
-		if err := metrics.ObservePool(meter, p); err != nil {
-			slog.Warn("failed to register pool metrics callback", "error", err)
-		}
-		if _, err := meter.RegisterCallback(func(callbackCtx context.Context, observer metric.Observer) error {
-			stats, err := queries.QueueStats(callbackCtx)
-			if err != nil {
-				return fmt.Errorf("load queue stats for queue depth metrics: %w", err)
-			}
-			observer.ObserveInt64(metrics.QueueDepth, int64(stats.Queued), metric.WithAttributes(attribute.String("status", "queued")))
-			observer.ObserveInt64(metrics.QueueDepth, int64(stats.Executing), metric.WithAttributes(attribute.String("status", "executing")))
-			observer.ObserveInt64(metrics.QueueDepth, int64(stats.Delayed), metric.WithAttributes(attribute.String("status", "delayed")))
-			return nil
-		}, metrics.QueueDepth); err != nil {
-			slog.Warn("failed to register queue depth metrics callback", "error", err)
-		}
-
-		// Report webhook backlog and ClickHouse exporter buffer depth.
-		g.Go(func(ctx context.Context) error {
-			ticker := time.NewTicker(15 * time.Second)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return nil
-				case <-ticker.C:
-					if chExporter != nil {
-						metrics.ClickHouseExporterPending.Record(ctx, int64(chExporter.PendingCount()))
-					}
-					count, err := queries.CountPendingWebhookDeliveries(ctx)
-					if err == nil {
-						metrics.WebhookBacklogDepth.Record(ctx, count)
-					}
-				}
-			}
-		})
-	}
+	registerWorkerSubscribers(exec, pub, metrics, chExporter, queries)
+	registerWorkerHealthChecks(healthReg, p, queries, cfg.WorkerConcurrency)
+	registerWorkerMetrics(g, metrics, p, queries, chExporter)
 
 	g.Go(func(ctx context.Context) error {
 		if adaptive != nil {
@@ -978,243 +950,496 @@ func startWorker(g *pool.ContextPool, cfg *config.Config, queries *store.Queries
 		return nil
 	})
 
-	// Start scheduler (cron, delayed poller, reaper)
 	g.Go(func(ctx context.Context) error {
-		schedOpts := []scheduler.SchedulerOption{
-			scheduler.WithSchedulerMetrics(metrics),
-			scheduler.WithChExporter(chExporter),
-			scheduler.WithReaperAdvisoryLocker(queries),
-			scheduler.WithIndexMaintainerAdvisoryLocker(queries),
-			scheduler.WithPriorityPromoter(
-				scheduler.NewPriorityPromoter(dbPool, scheduler.PriorityPromoterConfig{
-					Interval:     60 * time.Second,
-					AgeThreshold: 5 * time.Minute,
-					MaxPriority:  1000,
-					BatchLimit:   500,
-					Logger:       slog.Default(),
-				}).WithAdvisoryLocker(queries),
-			),
-			scheduler.WithCounterReconciler(
-				scheduler.NewCounterReconciler(dbPool, scheduler.CounterReconcilerConfig{
-					Interval: time.Hour,
-					Logger:   slog.Default(),
-				}).WithAdvisoryLocker(queries),
-			),
-			scheduler.WithClaimReconciler(
-				scheduler.NewClaimReconciler(dbPool, 5*time.Minute),
-			),
-			scheduler.WithPartitionEnsurer(
-				scheduler.NewPartitionEnsurer(queries, scheduler.PartitionEnsurerConfig{
-					Interval:    24 * time.Hour,
-					MonthsAhead: 2,
-					Logger:      slog.Default(),
-				}).WithAdvisoryLocker(queries),
-			),
-			scheduler.WithPartitionTuner(
-				scheduler.NewPartitionTuner(queries, scheduler.PartitionTunerConfig{
-					Interval: 7 * 24 * time.Hour,
-					Logger:   slog.Default(),
-				}).WithAdvisoryLocker(queries),
-			),
-			scheduler.WithDLQAgeOut(
-				scheduler.NewDLQAgeOut(queries, scheduler.DLQAgeOutConfig{
-					Interval:   24 * time.Hour,
-					Retention:  30 * 24 * time.Hour,
-					BatchLimit: 1000,
-					Logger:     slog.Default(),
-				}).WithAdvisoryLocker(queries),
-			),
-			scheduler.WithOutboxFlusher(
-				scheduler.NewOutboxFlusher(dbPool, q, scheduler.OutboxFlusherConfig{
-					Interval:  time.Second,
-					BatchSize: 500,
-					Engine:    cfg.OutboxEngine,
-					Logger:    slog.Default(),
-				}),
-			),
-			scheduler.WithOutboxArchiver(
-				scheduler.NewOutboxArchiver(queries, scheduler.OutboxArchiverConfig{
-					Interval:  time.Second,
-					BatchSize: 500,
-					Logger:    slog.Default(),
-				}),
-			),
-			scheduler.WithPlanDriftMonitor(
-				scheduler.NewPlanDriftMonitor(queries, scheduler.PlanDriftMonitorConfig{
-					Queries:  scheduler.DefaultWatchedQueries(),
-					Interval: 24 * time.Hour,
-					Logger:   slog.Default(),
-				}).WithAdvisoryLocker(queries),
-			),
-			scheduler.WithIdempotencyGC(
-				scheduler.NewIdempotencyGC(queries, scheduler.IdempotencyGCConfig{
-					Interval:   time.Hour,
-					BatchLimit: 10000,
-					Logger:     slog.Default(),
-				}).WithAdvisoryLocker(queries),
-			),
-			scheduler.WithHeartbeatGC(
-				scheduler.NewHeartbeatGC(queries, scheduler.HeartbeatGCConfig{
-					Interval:   time.Hour,
-					BatchLimit: 10000,
-					Logger:     slog.Default(),
-				}).WithAdvisoryLocker(queries),
-			),
-			scheduler.WithSLOEvaluator(
-				scheduler.NewSLOEvaluator(queries, slog.Default(),
-					scheduler.WithSLOWebhookNotifier(scheduler.NewSLOWebhookAdapter(queries)),
-					scheduler.WithSLOEvaluatorAdvisoryLocker(queries),
-				),
-			),
-		}
-		if cfg.TerminalArchiveEnabled && cfg.PartitionReclaimEnabled {
-			reclaimer := scheduler.NewPartitionReclaimer(queries, scheduler.PartitionReclaimerConfig{
-				Interval:     cfg.PartitionReclaimInterval,
-				SafetyMonths: cfg.PartitionReclaimSafety,
+		return runWorkerScheduler(ctx, deps)
+	})
+}
+
+func runWorkerScheduler(ctx context.Context, deps workerRuntimeDeps) error {
+	cfg := deps.config
+	queries := deps.queries
+
+	schedOpts := baseSchedulerOptions(deps)
+	schedOpts = appendPartitionReclaimer(schedOpts, cfg, queries)
+	schedOpts = appendBillingSchedulerOptions(schedOpts, deps)
+	schedOpts = appendBackpressureSampler(schedOpts, deps)
+	if deps.encryptor != nil {
+		schedOpts = append(schedOpts, scheduler.WithRotationSecretDecryptor(deps.encryptor))
+	}
+	schedOpts = append(schedOpts, scheduler.WithSentryRuntime(cfg.Mode, cfg.DefaultRegion, version))
+
+	sched := scheduler.New(ctx, cfg, queries, deps.queue, deps.stepCallback, deps.workflowEngine, schedOpts...)
+	if err := sched.Start(ctx); err != nil {
+		return fmt.Errorf("start scheduler: %w", err)
+	}
+	<-ctx.Done()
+	slog.Info("shutting down scheduler")
+	sched.Stop()
+	return nil
+}
+
+func baseSchedulerOptions(deps workerRuntimeDeps) []scheduler.SchedulerOption {
+	cfg := deps.config
+	queries := deps.queries
+	dbPool := deps.dbPool
+
+	return []scheduler.SchedulerOption{
+		scheduler.WithSchedulerMetrics(deps.metrics),
+		scheduler.WithChExporter(deps.clickHouseExporter),
+		scheduler.WithReaperAdvisoryLocker(queries),
+		scheduler.WithIndexMaintainerAdvisoryLocker(queries),
+		scheduler.WithPriorityPromoter(
+			scheduler.NewPriorityPromoter(dbPool, scheduler.PriorityPromoterConfig{
+				Interval:     60 * time.Second,
+				AgeThreshold: 5 * time.Minute,
+				MaxPriority:  1000,
+				BatchLimit:   500,
 				Logger:       slog.Default(),
-			}).WithAdvisoryLocker(queries)
-			schedOpts = append(schedOpts, scheduler.WithPartitionReclaimer(reclaimer))
-			slog.Info("partition reclaimer enabled",
-				"interval", cfg.PartitionReclaimInterval,
-				"safety_months", cfg.PartitionReclaimSafety,
-			)
+			}).WithAdvisoryLocker(queries),
+		),
+		scheduler.WithCounterReconciler(
+			scheduler.NewCounterReconciler(dbPool, scheduler.CounterReconcilerConfig{
+				Interval: time.Hour,
+				Logger:   slog.Default(),
+			}).WithAdvisoryLocker(queries),
+		),
+		scheduler.WithClaimReconciler(
+			scheduler.NewClaimReconciler(dbPool, 5*time.Minute),
+		),
+		scheduler.WithPartitionEnsurer(
+			scheduler.NewPartitionEnsurer(queries, scheduler.PartitionEnsurerConfig{
+				Interval:    24 * time.Hour,
+				MonthsAhead: 2,
+				Logger:      slog.Default(),
+			}).WithAdvisoryLocker(queries),
+		),
+		scheduler.WithPartitionTuner(
+			scheduler.NewPartitionTuner(queries, scheduler.PartitionTunerConfig{
+				Interval: 7 * 24 * time.Hour,
+				Logger:   slog.Default(),
+			}).WithAdvisoryLocker(queries),
+		),
+		scheduler.WithDLQAgeOut(
+			scheduler.NewDLQAgeOut(queries, scheduler.DLQAgeOutConfig{
+				Interval:   24 * time.Hour,
+				Retention:  30 * 24 * time.Hour,
+				BatchLimit: 1000,
+				Logger:     slog.Default(),
+			}).WithAdvisoryLocker(queries),
+		),
+		scheduler.WithOutboxFlusher(
+			scheduler.NewOutboxFlusher(dbPool, deps.queue, scheduler.OutboxFlusherConfig{
+				Interval:  time.Second,
+				BatchSize: 500,
+				Engine:    cfg.OutboxEngine,
+				Logger:    slog.Default(),
+			}),
+		),
+		scheduler.WithOutboxArchiver(
+			scheduler.NewOutboxArchiver(queries, scheduler.OutboxArchiverConfig{
+				Interval:  time.Second,
+				BatchSize: 500,
+				Logger:    slog.Default(),
+			}),
+		),
+		scheduler.WithPlanDriftMonitor(
+			scheduler.NewPlanDriftMonitor(queries, scheduler.PlanDriftMonitorConfig{
+				Queries:  scheduler.DefaultWatchedQueries(),
+				Interval: 24 * time.Hour,
+				Logger:   slog.Default(),
+			}).WithAdvisoryLocker(queries),
+		),
+		scheduler.WithIdempotencyGC(
+			scheduler.NewIdempotencyGC(queries, scheduler.IdempotencyGCConfig{
+				Interval:   time.Hour,
+				BatchLimit: 10000,
+				Logger:     slog.Default(),
+			}).WithAdvisoryLocker(queries),
+		),
+		scheduler.WithHeartbeatGC(
+			scheduler.NewHeartbeatGC(queries, scheduler.HeartbeatGCConfig{
+				Interval:   time.Hour,
+				BatchLimit: 10000,
+				Logger:     slog.Default(),
+			}).WithAdvisoryLocker(queries),
+		),
+		scheduler.WithSLOEvaluator(
+			scheduler.NewSLOEvaluator(queries, slog.Default(),
+				scheduler.WithSLOWebhookNotifier(scheduler.NewSLOWebhookAdapter(queries)),
+				scheduler.WithSLOEvaluatorAdvisoryLocker(queries),
+			),
+		),
+	}
+}
+
+func appendPartitionReclaimer(
+	opts []scheduler.SchedulerOption,
+	cfg *config.Config,
+	queries *store.Queries,
+) []scheduler.SchedulerOption {
+	if !cfg.TerminalArchiveEnabled || !cfg.PartitionReclaimEnabled {
+		return opts
+	}
+	reclaimer := scheduler.NewPartitionReclaimer(queries, scheduler.PartitionReclaimerConfig{
+		Interval:     cfg.PartitionReclaimInterval,
+		SafetyMonths: cfg.PartitionReclaimSafety,
+		Logger:       slog.Default(),
+	}).WithAdvisoryLocker(queries)
+	opts = append(opts, scheduler.WithPartitionReclaimer(reclaimer))
+	slog.Info("partition reclaimer enabled",
+		"interval", cfg.PartitionReclaimInterval,
+		"safety_months", cfg.PartitionReclaimSafety,
+	)
+	return opts
+}
+
+func appendBillingSchedulerOptions(opts []scheduler.SchedulerOption, deps workerRuntimeDeps) []scheduler.SchedulerOption {
+	cfg := deps.config
+	queries := deps.queries
+	billingCostAccountingEnabled := cfg.BillingEnforcementEnabled || cfg.StripeWebhookSecret != ""
+	if !billingCostAccountingEnabled {
+		return opts
+	}
+
+	schedulerBillingStore := billing.NewPgStore(deps.dbPool)
+	if cfg.BillingEnforcementEnabled && deps.billingEnforcer != nil {
+		opts = appendBillingEnforcementSchedulerOptions(opts, deps, schedulerBillingStore)
+	}
+	opts = append(opts,
+		scheduler.WithUsageFlusher(
+			scheduler.NewUsageFlusher(schedulerBillingStore, time.Hour).WithAdvisoryLocker(queries),
+		),
+	)
+	slog.Info("billing usage flusher enabled")
+	return opts
+}
+
+func appendBillingEnforcementSchedulerOptions(
+	opts []scheduler.SchedulerOption,
+	deps workerRuntimeDeps,
+	schedulerBillingStore *billing.PgStore,
+) []scheduler.SchedulerOption {
+	cfg := deps.config
+	queries := deps.queries
+	billingEnforcer := deps.billingEnforcer
+	billingDispatcher := deps.billingDispatcher
+
+	reconciler := scheduler.NewConcurrentReconciler(billingEnforcer, queries, 5*time.Minute)
+	opts = append(opts, scheduler.WithConcurrentReconciler(reconciler))
+	slog.Info("concurrent run reconciler enabled")
+
+	budgetStore := newBudgetMonitorStore(schedulerBillingStore, queries)
+	opts = append(opts, scheduler.WithBudgetMonitoringStores(budgetStore, budgetStore, billingEnforcer))
+	slog.Info("billing budget monitors enabled")
+
+	downgradeApplier := scheduler.NewDowngradeApplier(schedulerBillingStore, billingEnforcer, 5*time.Minute)
+	if billingDispatcher != nil {
+		downgradeApplier.WithBillingDispatcher(billingDispatcher)
+	}
+	opts = append(opts, scheduler.WithDowngradeApplier(downgradeApplier))
+	slog.Info("downgrade applier enabled")
+
+	gracePeriodEnforcer := scheduler.NewGracePeriodEnforcer(schedulerBillingStore, billingEnforcer, time.Hour).
+		WithAdvisoryLocker(queries)
+	opts = append(opts, scheduler.WithGracePeriodEnforcer(gracePeriodEnforcer))
+	slog.Info("grace period enforcer enabled")
+
+	opts = append(opts, scheduler.WithWebhookMessageCleanup(
+		scheduler.NewWebhookMessageCleanup(schedulerBillingStore, slog.Default()),
+	))
+
+	billingEmailSender := billing.NewBillingEmailSender(cfg.ResendAPIKey, "billing@strait.dev", slog.Default())
+	contractExpiryChecker := scheduler.NewContractExpiryChecker(schedulerBillingStore, billingEmailSender, 24*time.Hour).
+		WithOrgCacheInvalidator(billingEnforcer)
+	opts = append(opts, scheduler.WithContractExpiryChecker(contractExpiryChecker))
+	slog.Info("contract expiry checker enabled")
+
+	opts = appendUsageReportEmailer(opts, cfg, schedulerBillingStore)
+	opts = append(opts, scheduler.WithOrgRetentionResolver(billing.NewPlanRetentionResolver(schedulerBillingStore)))
+	slog.Info("per-org plan retention enabled")
+
+	quotaResumeEnforcer := scheduler.NewQuotaResumeEnforcer(schedulerBillingStore, billingEnforcer, time.Hour).
+		WithAdvisoryLocker(queries)
+	opts = append(opts, scheduler.WithQuotaResumeEnforcer(quotaResumeEnforcer))
+	slog.Info("quota resume enforcer enabled")
+
+	anomalyMonitor := scheduler.NewAnomalyMonitor(
+		&anomalyMonitorStore{PgStore: schedulerBillingStore, queries: queries},
+		15*time.Minute,
+	).WithAdvisoryLocker(queries)
+	opts = append(opts, scheduler.WithAnomalyMonitor(anomalyMonitor))
+	slog.Info("anomaly monitor enabled")
+
+	opts = appendDunner(opts, schedulerBillingStore, billingEmailSender, billingDispatcher)
+	opts = appendSLACalculator(opts, deps, schedulerBillingStore)
+	return opts
+}
+
+func appendUsageReportEmailer(
+	opts []scheduler.SchedulerOption,
+	cfg *config.Config,
+	schedulerBillingStore *billing.PgStore,
+) []scheduler.SchedulerOption {
+	if cfg.ResendAPIKey == "" {
+		return opts
+	}
+	usageReportEmailer := scheduler.NewUsageReportEmailer(
+		schedulerBillingStore,
+		resend.NewClient(cfg.ResendAPIKey).Emails,
+		"billing@strait.dev",
+		24*time.Hour,
+	)
+	opts = append(opts, scheduler.WithUsageReportEmailer(usageReportEmailer))
+	slog.Info("usage report emailer enabled")
+	return opts
+}
+
+func appendDunner(
+	opts []scheduler.SchedulerOption,
+	schedulerBillingStore *billing.PgStore,
+	billingEmailSender *billing.BillingEmailSender,
+	billingDispatcher *webhook.BillingDispatcher,
+) []scheduler.SchedulerOption {
+	dunnerOpts := []billing.DunnerOption{
+		billing.WithDunnerEmails(billingEmailSender),
+		billing.WithDunnerAdminLookup(schedulerBillingStore),
+		billing.WithDunnerLogger(slog.Default()),
+	}
+	if billingDispatcher != nil {
+		dunnerOpts = append(dunnerOpts, billing.WithDunnerDispatcher(billingDispatcher))
+	}
+	dunner := billing.NewDunner(schedulerBillingStore, dunnerOpts...)
+	opts = append(opts, scheduler.WithDunner(dunner))
+	slog.Info("dunning state machine enabled")
+	return opts
+}
+
+func appendSLACalculator(
+	opts []scheduler.SchedulerOption,
+	deps workerRuntimeDeps,
+	schedulerBillingStore *billing.PgStore,
+) []scheduler.SchedulerOption {
+	cfg := deps.config
+	slaCreditStore := billing.NewPgSLACreditStore(deps.dbPool)
+	slaCalculator := billing.NewSLACalculator(
+		&slaCalculatorStore{PgStore: schedulerBillingStore, slaCreditStore: slaCreditStore},
+		newUptimeSource(cfg, slog.Default()),
+		24*time.Hour,
+		slog.Default(),
+	)
+	if deps.billingDispatcher != nil {
+		slaCalculator.WithDispatcher(deps.billingDispatcher)
+	}
+	if issuer := newSLAIssuer(cfg, schedulerBillingStore, slog.Default()); issuer != nil {
+		slaCalculator.WithIssuer(issuer)
+		slog.Info("sla credit stripe issuer enabled")
+	}
+	opts = append(opts, scheduler.WithSLACalculator(slaCalculator))
+	slog.Info("sla credit calculator enabled")
+	return opts
+}
+
+func appendBackpressureSampler(opts []scheduler.SchedulerOption, deps workerRuntimeDeps) []scheduler.SchedulerOption {
+	cfg := deps.config
+	if cfg.BackpressureSamplerInterval <= 0 {
+		return opts
+	}
+	qm, err := queue.Metrics()
+	if err != nil || qm == nil {
+		slog.Warn("backpressure sampler disabled: queue metrics unavailable", "err", err)
+		return opts
+	}
+	if deps.backpressure == nil {
+		slog.Warn("backpressure sampler disabled: controller unavailable")
+		return opts
+	}
+	sampler := scheduler.NewBackpressureSampler(
+		deps.backpressure,
+		qm,
+		cfg.BackpressureSamplerInterval,
+		cfg.BackpressureSamplerN,
+	)
+	if sampler == nil {
+		return opts
+	}
+	opts = append(opts, scheduler.WithBackpressureSampler(sampler))
+	slog.Info("backpressure sampler enabled",
+		"interval", cfg.BackpressureSamplerInterval,
+		"sample_n", cfg.BackpressureSamplerN,
+	)
+	return opts
+}
+
+func buildExecutorConfig(
+	deps workerRuntimeDeps,
+	p *worker.Pool,
+	wake <-chan struct{},
+	notifier queue.DegradedNotifier,
+	adaptive *worker.AdaptiveConcurrency,
+) worker.ExecutorConfig {
+	cfg := deps.config
+	partitions := append([]string(nil), cfg.WorkerPartitions...)
+	partitionWeights := cfg.WorkerPartitionWeights
+	if len(partitions) > 0 {
+		slog.Info("worker queue partitioning enabled", "partitions", partitions)
+	}
+
+	execCfg := worker.ExecutorConfig{
+		Pool:                     p,
+		Queue:                    deps.queue,
+		Wake:                     wake,
+		Degraded:                 notifier,
+		ConcurrencyLimit:         adaptive,
+		Store:                    deps.queries,
+		TxPool:                   deps.txPool,
+		PollInterval:             cfg.PollerInterval,
+		HeartbeatInterval:        cfg.HeartbeatInterval,
+		Publisher:                deps.publisher,
+		Metrics:                  deps.metrics,
+		WorkflowCallback:         deps.stepCallback,
+		Partitions:               partitions,
+		PartitionWeights:         partitionWeights,
+		ExecutorHTTPTimeout:      cfg.ExecutorHTTPTimeout,
+		ExecutorIdleConnTimeout:  cfg.ExecutorIdleConnTimeout,
+		ExecutionTraceMode:       cfg.ExecutionTraceMode,
+		AllowPrivateEndpoints:    cfg.AllowPrivateEndpoints,
+		WebhookMaxAttempts:       cfg.WebhookMaxAttempts,
+		JobCacheTTL:              cfg.JobCacheTTL,
+		VersionCacheTTL:          cfg.VersionCacheTTL,
+		RunVersionCacheTTL:       cfg.RunVersionCacheTTL,
+		JobHealthCacheTTL:        cfg.JobHealthCacheTTL,
+		RedisClient:              deps.redisClient,
+		CacheRegistry:            deps.cacheRegistry,
+		CacheBus:                 deps.cacheBus,
+		MaxDequeueBatchSize:      cfg.MaxDequeueBatchSize,
+		DefaultJobMaxConcurrency: cfg.DefaultJobMaxConcurrency,
+		MaxSnoozeCount:           cfg.MaxSnoozeCount,
+		JWTSigningKey:            cfg.JWTSigningKey,
+		ExternalAPIURL:           cfg.ExternalAPIURL,
+		DefaultRegion:            cfg.DefaultRegion,
+		Mode:                     cfg.Mode,
+		Version:                  version,
+		EventChannelSize:         cfg.WorkerEventChannelSize,
+		SecretDecryptor:          deps.encryptor,
+		UseDenormalizedDequeue:   cfg.QueueUseDenormalizedDequeue,
+	}
+	applyWorkerPlaneToExecutorConfig(&execCfg, deps.workerPlane, cfg.JWTSigningKey)
+	return execCfg
+}
+
+func applyWorkerBillingConfig(execCfg *worker.ExecutorConfig, cfg *config.Config, billingEnforcer *billing.Enforcer, metrics *telemetry.Metrics) {
+	if cfg.BillingEnforcementEnabled && billingEnforcer != nil {
+		execCfg.BillingEnforcer = billingEnforcer
+		slog.Info("billing enforcement enabled for worker")
+	}
+
+	if cfg.StripeSecretKey == "" {
+		return
+	}
+
+	execCfg.StripeUsageReporter = billing.NewStripeUsageReporter(
+		cfg.StripeSecretKey,
+		slog.Default(),
+		billing.WithUsageReporterMetrics(metrics),
+	)
+	slog.Info("stripe usage reporting enabled")
+}
+
+func registerWorkerSubscribers(
+	exec *worker.Executor,
+	pub pubsub.Publisher,
+	metrics *telemetry.Metrics,
+	chExporter *clickhouse.Exporter,
+	queries *store.Queries,
+) {
+	exec.Use(worker.TracingMiddleware())
+	if metrics != nil {
+		exec.Subscribe(worker.MetricsSubscriber(metrics))
+		exec.Subscribe(worker.PubSubSubscriber(pub, metrics.PubSubPublishErrors))
+	} else {
+		exec.Subscribe(worker.PubSubSubscriber(pub))
+	}
+	if chExporter != nil {
+		exec.Subscribe(worker.ClickHouseSubscriber(chExporter, queries, worker.ClickHouseSubscriberDeps{
+			UsageLister: queries,
+		}))
+	}
+}
+
+func registerWorkerHealthChecks(
+	healthReg *health.Registry,
+	p *worker.Pool,
+	queries *store.Queries,
+	workerConcurrency int,
+) {
+	healthReg.Register(health.NewPoolChecker(p))
+
+	queueDepthThreshold := int64(max(workerConcurrency*100, 1000))
+	healthReg.Register(health.NewQueueDepthChecker(func(checkCtx context.Context) (int64, error) {
+		stats, err := queries.QueueStats(checkCtx)
+		if err != nil {
+			return 0, err
 		}
-		billingCostAccountingEnabled := cfg.BillingEnforcementEnabled || cfg.StripeWebhookSecret != ""
-		var schedulerBillingStore *billing.PgStore
-		if billingCostAccountingEnabled {
-			schedulerBillingStore = billing.NewPgStore(dbPool)
+		return int64(stats.Queued), nil
+	}, queueDepthThreshold))
+}
+
+func registerWorkerMetrics(
+	g *pool.ContextPool,
+	metrics *telemetry.Metrics,
+	p *worker.Pool,
+	queries *store.Queries,
+	chExporter *clickhouse.Exporter,
+) {
+	if metrics == nil {
+		return
+	}
+
+	meter := otel.Meter("strait")
+	if err := metrics.ObservePool(meter, p); err != nil {
+		slog.Warn("failed to register pool metrics callback", "error", err)
+	}
+	if _, err := meter.RegisterCallback(func(callbackCtx context.Context, observer metric.Observer) error {
+		stats, err := queries.QueueStats(callbackCtx)
+		if err != nil {
+			return fmt.Errorf("load queue stats for queue depth metrics: %w", err)
 		}
-		if cfg.BillingEnforcementEnabled && billingEnforcer != nil {
-			reconciler := scheduler.NewConcurrentReconciler(billingEnforcer, queries, 5*time.Minute)
-			schedOpts = append(schedOpts, scheduler.WithConcurrentReconciler(reconciler))
-			slog.Info("concurrent run reconciler enabled")
+		observer.ObserveInt64(metrics.QueueDepth, int64(stats.Queued), metric.WithAttributes(attribute.String("status", "queued")))
+		observer.ObserveInt64(metrics.QueueDepth, int64(stats.Executing), metric.WithAttributes(attribute.String("status", "executing")))
+		observer.ObserveInt64(metrics.QueueDepth, int64(stats.Delayed), metric.WithAttributes(attribute.String("status", "delayed")))
+		return nil
+	}, metrics.QueueDepth); err != nil {
+		slog.Warn("failed to register queue depth metrics callback", "error", err)
+	}
 
-			budgetStore := newBudgetMonitorStore(schedulerBillingStore, queries)
-			schedOpts = append(schedOpts,
-				scheduler.WithBudgetMonitoringStores(budgetStore, budgetStore, billingEnforcer),
-			)
-			slog.Info("billing budget monitors enabled")
-
-			downgradeApplier := scheduler.NewDowngradeApplier(schedulerBillingStore, billingEnforcer, 5*time.Minute)
-			if billingDispatcher != nil {
-				downgradeApplier.WithBillingDispatcher(billingDispatcher)
-			}
-			schedOpts = append(schedOpts, scheduler.WithDowngradeApplier(downgradeApplier))
-			slog.Info("downgrade applier enabled")
-
-			gracePeriodEnforcer := scheduler.NewGracePeriodEnforcer(schedulerBillingStore, billingEnforcer, time.Hour).
-				WithAdvisoryLocker(queries)
-			schedOpts = append(schedOpts, scheduler.WithGracePeriodEnforcer(gracePeriodEnforcer))
-			slog.Info("grace period enforcer enabled")
-
-			webhookCleanup := scheduler.NewWebhookMessageCleanup(schedulerBillingStore, slog.Default())
-			schedOpts = append(schedOpts, scheduler.WithWebhookMessageCleanup(webhookCleanup))
-
-			billingEmailSender := billing.NewBillingEmailSender(cfg.ResendAPIKey, "billing@strait.dev", slog.Default())
-			contractExpiryChecker := scheduler.NewContractExpiryChecker(schedulerBillingStore, billingEmailSender, 24*time.Hour).
-				WithOrgCacheInvalidator(billingEnforcer)
-			schedOpts = append(schedOpts, scheduler.WithContractExpiryChecker(contractExpiryChecker))
-			slog.Info("contract expiry checker enabled")
-
-			if cfg.ResendAPIKey != "" {
-				usageReportEmailer := scheduler.NewUsageReportEmailer(
-					schedulerBillingStore,
-					resend.NewClient(cfg.ResendAPIKey).Emails,
-					"billing@strait.dev",
-					24*time.Hour,
-				)
-				schedOpts = append(schedOpts, scheduler.WithUsageReportEmailer(usageReportEmailer))
-				slog.Info("usage report emailer enabled")
-			}
-
-			retentionResolver := billing.NewPlanRetentionResolver(schedulerBillingStore)
-			schedOpts = append(schedOpts, scheduler.WithOrgRetentionResolver(retentionResolver))
-			slog.Info("per-org plan retention enabled")
-
-			quotaResumeEnforcer := scheduler.NewQuotaResumeEnforcer(schedulerBillingStore, billingEnforcer, time.Hour).
-				WithAdvisoryLocker(queries)
-			schedOpts = append(schedOpts, scheduler.WithQuotaResumeEnforcer(quotaResumeEnforcer))
-			slog.Info("quota resume enforcer enabled")
-
-			anomalyMonitor := scheduler.NewAnomalyMonitor(
-				&anomalyMonitorStore{PgStore: schedulerBillingStore, queries: queries},
-				15*time.Minute,
-			).WithAdvisoryLocker(queries)
-			schedOpts = append(schedOpts, scheduler.WithAnomalyMonitor(anomalyMonitor))
-			slog.Info("anomaly monitor enabled")
-
-			dunnerOpts := []billing.DunnerOption{
-				billing.WithDunnerEmails(billingEmailSender),
-				billing.WithDunnerAdminLookup(schedulerBillingStore),
-				billing.WithDunnerLogger(slog.Default()),
-			}
-			if billingDispatcher != nil {
-				dunnerOpts = append(dunnerOpts, billing.WithDunnerDispatcher(billingDispatcher))
-			}
-			dunner := billing.NewDunner(schedulerBillingStore, dunnerOpts...)
-			schedOpts = append(schedOpts, scheduler.WithDunner(dunner))
-			slog.Info("dunning state machine enabled")
-
-			slaCreditStore := billing.NewPgSLACreditStore(dbPool)
-			slaCalculator := billing.NewSLACalculator(
-				&slaCalculatorStore{PgStore: schedulerBillingStore, slaCreditStore: slaCreditStore},
-				newUptimeSource(cfg, slog.Default()),
-				24*time.Hour,
-				slog.Default(),
-			)
-			if billingDispatcher != nil {
-				slaCalculator.WithDispatcher(billingDispatcher)
-			}
-			if issuer := newSLAIssuer(cfg, schedulerBillingStore, slog.Default()); issuer != nil {
-				slaCalculator.WithIssuer(issuer)
-				slog.Info("sla credit stripe issuer enabled")
-			}
-			schedOpts = append(schedOpts, scheduler.WithSLACalculator(slaCalculator))
-			slog.Info("sla credit calculator enabled")
-		}
-		if billingCostAccountingEnabled {
-			schedOpts = append(schedOpts,
-				scheduler.WithUsageFlusher(
-					scheduler.NewUsageFlusher(schedulerBillingStore, time.Hour).WithAdvisoryLocker(queries),
-				),
-			)
-			slog.Info("billing usage flusher enabled")
-		}
-		// Backpressure sampler: produces the per-project
-		// strait.queue.backpressure_tokens_available gauge. Without this
-		// loop the gauge has no producer and dashboards render empty.
-		// Gated by interval > 0 so operators can opt out via
-		// BACKPRESSURE_SAMPLER_INTERVAL=0.
-		if cfg.BackpressureSamplerInterval > 0 {
-			qm, qmErr := queue.Metrics()
-			if qmErr != nil || qm == nil {
-				slog.Warn("backpressure sampler disabled: queue metrics unavailable", "err", qmErr)
-			} else if bp == nil {
-				slog.Warn("backpressure sampler disabled: controller unavailable")
-			} else {
-				sampler := scheduler.NewBackpressureSampler(bp, qm, cfg.BackpressureSamplerInterval, cfg.BackpressureSamplerN)
-				if sampler != nil {
-					schedOpts = append(schedOpts, scheduler.WithBackpressureSampler(sampler))
-					slog.Info("backpressure sampler enabled",
-						"interval", cfg.BackpressureSamplerInterval,
-						"sample_n", cfg.BackpressureSamplerN,
-					)
-				}
-			}
-		}
-		if encryptor != nil {
-			schedOpts = append(schedOpts, scheduler.WithRotationSecretDecryptor(encryptor))
-		}
-		schedOpts = append(schedOpts, scheduler.WithSentryRuntime(cfg.Mode, cfg.DefaultRegion, version))
-		sched := scheduler.New(ctx, cfg, queries, q, stepCallback, workflowEngine, schedOpts...)
-		if err := sched.Start(ctx); err != nil {
-			return fmt.Errorf("start scheduler: %w", err)
-		}
-		<-ctx.Done()
-		slog.Info("shutting down scheduler")
-		sched.Stop()
+	g.Go(func(ctx context.Context) error {
+		recordWorkerBacklogMetrics(ctx, metrics, queries, chExporter)
 		return nil
 	})
+}
+
+func recordWorkerBacklogMetrics(
+	ctx context.Context,
+	metrics *telemetry.Metrics,
+	queries *store.Queries,
+	chExporter *clickhouse.Exporter,
+) {
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if chExporter != nil {
+				metrics.ClickHouseExporterPending.Record(ctx, int64(chExporter.PendingCount()))
+			}
+			count, err := queries.CountPendingWebhookDeliveries(ctx)
+			if err == nil {
+				metrics.WebhookBacklogDepth.Record(ctx, count)
+			}
+		}
+	}
 }
 
 // anomalyMonitorStore composes the billing store with the notification-channel
@@ -1361,8 +1586,8 @@ func startMaintenanceWorker(g *pool.ContextPool, queries *store.Queries) {
 	})
 }
 
-// startQueueHealthSampler launches the Phase 2 queue-health sampler. Reads
-// pg_stat_user_tables for job_runs partitions every 30s and publishes live/
+// startQueueHealthSampler reads pg_stat_user_tables for job_runs partitions
+// every 30s and publishes live/
 // dead tuple counts, HOT ratio, and oldest queued age gauges.
 func startQueueHealthSampler(g *pool.ContextPool, dbPool *pgxpool.Pool) {
 	sampler, err := queue.NewHealthSampler(dbPool, 30*time.Second, slog.Default())
@@ -1392,7 +1617,7 @@ func startDBPoolSampler(g *pool.ContextPool, dbPool *pgxpool.Pool) {
 	})
 }
 
-// startDBWatchdog launches the Phase 1 MVCC-horizon watchdog.
+// startDBWatchdog launches the MVCC-horizon watchdog.
 func startDBWatchdog(g *pool.ContextPool, cfg *config.Config, dbPool *pgxpool.Pool) {
 	if !cfg.DBWatchdogEnabled {
 		slog.Info("db watchdog disabled via config")

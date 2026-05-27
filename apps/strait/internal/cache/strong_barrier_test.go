@@ -22,7 +22,14 @@ func TestStrongBarrierRejectsStaleFill(t *testing.T) {
 		TTL:         time.Minute,
 	})
 
-	if err := tier.StrongInvalidate(t.Context(), StrongNamespacePolicy{Namespace: "barrier_reject"}, "k", "k", VersionBarrier{Version: 10}, nil); err != nil {
+	if err := tier.StrongInvalidate(
+		t.Context(),
+		StrongNamespacePolicy{Namespace: "barrier_reject"},
+		"k",
+		"k",
+		VersionBarrier{Version: 10},
+		nil,
+	); err != nil {
 		t.Fatalf("StrongInvalidate() error = %v", err)
 	}
 	_, err := tier.GetConsistentVersioned(t.Context(), "k", 0, func(context.Context, string) (Versioned[string], error) {
@@ -51,20 +58,36 @@ func TestStrongBarrierAllowsEqualVersionValueReplacement(t *testing.T) {
 		TTL:         time.Minute,
 	})
 
-	if err := tier.StrongInvalidate(t.Context(), StrongNamespacePolicy{Namespace: "barrier_replace"}, "k", "k", VersionBarrier{Version: 10}, nil); err != nil {
+	if err := tier.StrongInvalidate(
+		t.Context(),
+		StrongNamespacePolicy{Namespace: "barrier_replace"},
+		"k",
+		"k",
+		VersionBarrier{Version: 10},
+		nil,
+	); err != nil {
 		t.Fatalf("StrongInvalidate() error = %v", err)
 	}
-	ok, err := tier.StrongWriteThrough(t.Context(), StrongNamespacePolicy{Namespace: "barrier_replace"}, "k", "k", "fresh", 10, nil)
+	ok, err := tier.StrongWriteThrough(
+		t.Context(),
+		StrongNamespacePolicy{Namespace: "barrier_replace"},
+		"k",
+		"k",
+		"fresh",
+		10,
+		nil,
+	)
 	if err != nil {
 		t.Fatalf("StrongWriteThrough() error = %v", err)
 	}
 	if !ok {
 		t.Fatal("StrongWriteThrough() ok = false, want true")
 	}
-	got, err := tier.GetConsistentVersioned(t.Context(), "k", 10, func(context.Context, string) (Versioned[string], error) {
+	loader := func(context.Context, string) (Versioned[string], error) {
 		t.Fatal("loader must not run after equal-version replacement")
 		return Versioned[string]{}, nil
-	})
+	}
+	got, err := tier.GetConsistentVersioned(t.Context(), "k", 10, loader)
 	if err != nil {
 		t.Fatalf("GetConsistentVersioned() error = %v", err)
 	}
@@ -113,15 +136,15 @@ func TestStrongBarrierRedisCASAllowsEqualVersionReplacement(t *testing.T) {
 		Namespace: "barrier_redis",
 	})
 
-	ok, err := l2.CompareAndSet(context.Background(), "k", cacheEntry[string]{Version: 10, Barrier: true}, time.Minute)
+	ok, err := l2.CompareAndSet(t.Context(), "k", cacheEntry[string]{Version: 10, Barrier: true}, time.Minute)
 	if err != nil || !ok {
 		t.Fatalf("CompareAndSet(barrier) = %v, %v; want true, nil", ok, err)
 	}
-	ok, err = l2.CompareAndSet(context.Background(), "k", cacheEntry[string]{Version: 10, Value: "fresh"}, time.Minute)
+	ok, err = l2.CompareAndSet(t.Context(), "k", cacheEntry[string]{Version: 10, Value: "fresh"}, time.Minute)
 	if err != nil || !ok {
 		t.Fatalf("CompareAndSet(equal value) = %v, %v; want true, nil", ok, err)
 	}
-	entry, err := l2.Get(context.Background(), "k")
+	entry, err := l2.Get(t.Context(), "k")
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}

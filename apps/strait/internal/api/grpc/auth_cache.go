@@ -2,9 +2,9 @@ package grpc
 
 import (
 	"context"
-	"errors"
 	"time"
 
+	"strait/internal/apikeycache"
 	straitcache "strait/internal/cache"
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -12,7 +12,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-const grpcAPIKeyAuthCacheNamespace = "authn_keys" // #nosec G101 -- cache namespace, not a credential.
+const grpcAPIKeyAuthCacheNamespace = apikeycache.Namespace
 
 type cachedAPIKeyResolver struct {
 	tier     *straitcache.Tier[string, *domain.APIKey]
@@ -27,10 +27,6 @@ func newCachedAPIKeyResolver(client redis.Cmdable, ttl time.Duration, fallback a
 		Client:    client,
 		Namespace: grpcAPIKeyAuthCacheNamespace,
 	})
-	refreshAfter := ttl / 3
-	if refreshAfter <= 0 {
-		refreshAfter = ttl
-	}
 	return &cachedAPIKeyResolver{
 		fallback: fallback,
 		tier: straitcache.NewTier[string, *domain.APIKey](straitcache.TierConfig[string, *domain.APIKey]{
@@ -40,11 +36,11 @@ func newCachedAPIKeyResolver(client redis.Cmdable, ttl time.Duration, fallback a
 			MaximumSize:    50_000,
 			TTL:            ttl,
 			TTLJitter:      0.1,
-			RefreshAfter:   refreshAfter,
+			RefreshAfter:   apikeycache.RefreshAfter(ttl),
 			EnableNegative: true,
 			DisableL1:      true,
-			Clone:          cloneAPIKeyForGRPCAuthCache,
-			Sanitize:       sanitizeAPIKeyForGRPCAuthCache,
+			Clone:          apikeycache.Clone,
+			Sanitize:       apikeycache.Sanitize,
 		}),
 	}
 }
@@ -56,44 +52,13 @@ func (r *cachedAPIKeyResolver) LookupAPIKeyByHash(ctx context.Context, keyHash s
 		}
 		return r.fallback.LookupAPIKeyByHash(ctx, keyHash)
 	}
-	got, err := r.tier.GetConsistentVersioned(ctx, keyHash, 0, func(loadCtx context.Context, hash string) (straitcache.Versioned[*domain.APIKey], error) {
-		key, err := r.fallback.LookupAPIKeyByHash(loadCtx, hash)
-		if errors.Is(err, store.ErrAPIKeyNotFound) {
-			return straitcache.Versioned[*domain.APIKey]{Value: nil, Version: 0}, nil
-		}
-		if err != nil {
-			return straitcache.Versioned[*domain.APIKey]{}, err
-		}
-		return straitcache.Versioned[*domain.APIKey]{Value: key, Version: grpcAPIKeyCacheVersion(key)}, nil
-	})
+	loader := apikeycache.VersionedLoader(
+		r.fallback.LookupAPIKeyByHash,
+		store.ErrAPIKeyNotFound,
+	)
+	got, err := r.tier.GetConsistentVersioned(ctx, keyHash, 0, loader)
 	if err != nil {
 		return nil, err
 	}
 	return got.Value, nil
-}
-
-func grpcAPIKeyCacheVersion(key *domain.APIKey) int64 {
-	if key == nil || key.CacheVersion <= 0 {
-		return 1
-	}
-	return key.CacheVersion
-}
-
-func sanitizeAPIKeyForGRPCAuthCache(key *domain.APIKey) *domain.APIKey {
-	if key == nil {
-		return nil
-	}
-	cp := cloneAPIKeyForGRPCAuthCache(key)
-	cp.RotationWebhookSecret = nil
-	return cp
-}
-
-func cloneAPIKeyForGRPCAuthCache(key *domain.APIKey) *domain.APIKey {
-	if key == nil {
-		return nil
-	}
-	cp := *key
-	cp.Scopes = append([]string(nil), key.Scopes...)
-	cp.RotationWebhookSecret = append([]byte(nil), key.RotationWebhookSecret...)
-	return &cp
 }

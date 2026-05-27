@@ -13,9 +13,7 @@ import (
 	"strait/internal/testutil"
 )
 
-// --------------------------------------------------------------------------.
 // ListJobSLOs.
-// --------------------------------------------------------------------------.
 
 func TestSLO_ListJobSLOs_HappyPath(t *testing.T) {
 	ctx := context.Background()
@@ -102,9 +100,7 @@ func TestSLO_ListJobSLOs_WithEvaluation(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // DeleteJobSLO.
-// --------------------------------------------------------------------------.
 
 func TestSLO_DeleteJobSLO_HappyPath(t *testing.T) {
 	ctx := context.Background()
@@ -175,9 +171,7 @@ func TestSLO_DeleteJobSLO_Idempotent(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // GetJobSLO.
-// --------------------------------------------------------------------------.
 
 func TestSLO_GetJobSLO_HappyPath(t *testing.T) {
 	ctx := context.Background()
@@ -226,9 +220,7 @@ func TestSLO_GetJobSLO_NotFound(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // ListAllJobSLOs.
-// --------------------------------------------------------------------------.
 
 func TestSLO_ListAllJobSLOs_HappyPath(t *testing.T) {
 	ctx := context.Background()
@@ -275,9 +267,7 @@ func TestSLO_ListAllJobSLOs_Empty(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // GetEndpointHealthScore.
-// --------------------------------------------------------------------------.
 
 func TestHealth_GetEndpointHealthScore_HappyPath(t *testing.T) {
 	ctx := context.Background()
@@ -326,9 +316,7 @@ func TestHealth_GetEndpointHealthScore_NotFound(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // UpsertEndpointHealthScore.
-// --------------------------------------------------------------------------.
 
 func TestHealth_UpsertEndpointHealthScore_Insert(t *testing.T) {
 	ctx := context.Background()
@@ -431,9 +419,7 @@ func TestHealth_UpsertEndpointHealthScore_ZeroValues(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // CreateWorkflowRunBootstrap.
-// --------------------------------------------------------------------------.
 
 func TestWorkflowRun_CreateWorkflowRunBootstrap_HappyPath(t *testing.T) {
 	ctx := context.Background()
@@ -540,9 +526,7 @@ func TestWorkflowRun_CreateWorkflowRunBootstrap_NoSteps(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // ListStalledWorkflowRuns.
-// --------------------------------------------------------------------------.
 
 func TestWorkflowRun_ListStalledWorkflowRuns_HappyPath(t *testing.T) {
 	ctx := context.Background()
@@ -624,9 +608,7 @@ func TestWorkflowRun_ListStalledWorkflowRuns_Empty(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // CountActiveWorkflowRunsByVersion.
-// --------------------------------------------------------------------------.
 
 func TestWorkflowRun_CountActiveWorkflowRunsByVersion_HappyPath(t *testing.T) {
 	ctx := context.Background()
@@ -707,9 +689,7 @@ func TestWorkflowRun_CountActiveWorkflowRunsByVersion_Zero(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // ListActiveWorkflowVersions.
-// --------------------------------------------------------------------------.
 
 func TestWorkflowRun_ListActiveWorkflowVersions_HappyPath(t *testing.T) {
 	ctx := context.Background()
@@ -806,10 +786,8 @@ func TestWorkflowRun_ListActiveWorkflowVersions_StatusCounts(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // GetWorkflowSnapshot.
 // getWorkflowSnapshotByVersion is private, tested indirectly via GetOrCreateWorkflowSnapshot.
-// --------------------------------------------------------------------------.
 
 func TestWorkflowSnapshot_GetWorkflowSnapshot_HappyPath(t *testing.T) {
 	ctx := context.Background()
@@ -960,9 +938,7 @@ func TestWorkflowSnapshot_DedupIncludesStepOverrides(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // ReplayWebhookDelivery.
-// --------------------------------------------------------------------------.
 
 func TestWebhookDelivery_ReplayWebhookDelivery_HappyPath(t *testing.T) {
 	ctx := context.Background()
@@ -1025,9 +1001,7 @@ func TestWebhookDelivery_ReplayWebhookDelivery_PreservesJobID(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // CountPendingWebhookDeliveries.
-// --------------------------------------------------------------------------.
 
 func TestWebhookDelivery_CountPendingWebhookDeliveries_HappyPath(t *testing.T) {
 	ctx := context.Background()
