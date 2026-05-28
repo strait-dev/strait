@@ -1,4 +1,5 @@
 import {
+  infiniteQueryOptions,
   keepPreviousData,
   queryOptions,
   useMutation,
@@ -194,6 +195,18 @@ export const jobSingletonsQueryOptions = (id: string) =>
   queryOptions({
     queryKey: queryKeys.jobs.singletons(id).queryKey,
     queryFn: () => fetchJobSingletons({ data: { id } }),
+    staleTime: HIGH_CHURN_STALE_TIME,
+    gcTime: DEFAULT_GC_TIME,
+  });
+
+export const jobSingletonsInfiniteQueryOptions = (id: string) =>
+  infiniteQueryOptions({
+    queryKey: [...queryKeys.jobs.singletons(id).queryKey, "infinite"],
+    queryFn: ({ pageParam }) =>
+      fetchJobSingletons({ data: { id, cursor: pageParam } }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) =>
+      lastPage.has_more ? lastPage.next_cursor : undefined,
     staleTime: HIGH_CHURN_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
   });

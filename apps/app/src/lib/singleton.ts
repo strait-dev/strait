@@ -3,7 +3,7 @@
  * Pure functions only, so they can be unit tested without rendering.
  */
 
-import type { SingletonOnConflict } from "@/hooks/api/types";
+import type { SingletonHolder, SingletonOnConflict } from "@/hooks/api/types";
 
 /** Human-readable label for each on-conflict policy. */
 export const SINGLETON_CONFLICT_LABELS: Record<SingletonOnConflict, string> = {
@@ -41,4 +41,20 @@ export function isSingletonConfigured(
   entity: { singleton_on_conflict?: string | null } | null | undefined
 ): boolean {
   return Boolean(entity?.singleton_on_conflict);
+}
+
+/**
+ * Find the holder currently holding a given lock key, if any. Used to link a
+ * parked run to the run ahead of it. Best-effort: the holder may sit on a later
+ * page of holders, in which case this returns undefined and callers fall back to
+ * showing the key alone.
+ */
+export function findSingletonHolderForKey(
+  holders: readonly SingletonHolder[] | undefined,
+  key: string | null | undefined
+): SingletonHolder | undefined {
+  if (!key) {
+    return;
+  }
+  return holders?.find((holder) => holder.lock_key === key);
 }

@@ -1,4 +1,5 @@
 import {
+  infiniteQueryOptions,
   keepPreviousData,
   queryOptions,
   useMutation,
@@ -226,6 +227,21 @@ export const workflowSingletonsQueryOptions = (workflowId: string) =>
   queryOptions({
     queryKey: queryKeys.workflows.singletons(workflowId).queryKey,
     queryFn: () => fetchWorkflowSingletons({ data: { workflowId } }),
+    staleTime: HIGH_CHURN_STALE_TIME,
+    gcTime: DEFAULT_GC_TIME,
+  });
+
+export const workflowSingletonsInfiniteQueryOptions = (workflowId: string) =>
+  infiniteQueryOptions({
+    queryKey: [
+      ...queryKeys.workflows.singletons(workflowId).queryKey,
+      "infinite",
+    ],
+    queryFn: ({ pageParam }) =>
+      fetchWorkflowSingletons({ data: { workflowId, cursor: pageParam } }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) =>
+      lastPage.has_more ? lastPage.next_cursor : undefined,
     staleTime: HIGH_CHURN_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
   });

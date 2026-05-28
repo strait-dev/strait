@@ -1,10 +1,18 @@
 import { describe, expect, it } from "vitest";
-import type { SingletonOnConflict } from "@/hooks/api/types";
+import type { SingletonHolder, SingletonOnConflict } from "@/hooks/api/types";
 import {
+  findSingletonHolderForKey,
   isSingletonConfigured,
   SINGLETON_CONFLICT_LABELS,
   singletonKeyTemplate,
 } from "../singleton";
+
+const holder = (lock_key: string): SingletonHolder => ({
+  lock_key,
+  holder_run_id: `run-${lock_key}`,
+  acquired_at: "2026-01-01T00:00:00Z",
+  waiters: 0,
+});
 
 describe("singletonKeyTemplate", () => {
   it("returns a bare string expression unchanged", () => {
@@ -59,5 +67,23 @@ describe("SINGLETON_CONFLICT_LABELS", () => {
       drop: "Drop",
       replace: "Replace",
     });
+  });
+});
+
+describe("findSingletonHolderForKey", () => {
+  const holders = [holder("tenant-a"), holder("tenant-b")];
+
+  it("returns the holder whose lock key matches", () => {
+    expect(findSingletonHolderForKey(holders, "tenant-b")).toBe(holders[1]);
+  });
+
+  it("returns undefined when no holder matches the key", () => {
+    expect(findSingletonHolderForKey(holders, "tenant-c")).toBeUndefined();
+  });
+
+  it("returns undefined for a missing key or holder list", () => {
+    expect(findSingletonHolderForKey(holders, undefined)).toBeUndefined();
+    expect(findSingletonHolderForKey(holders, "")).toBeUndefined();
+    expect(findSingletonHolderForKey(undefined, "tenant-a")).toBeUndefined();
   });
 });
