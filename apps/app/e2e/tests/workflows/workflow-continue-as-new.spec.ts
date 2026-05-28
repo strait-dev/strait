@@ -200,4 +200,129 @@ test.describe("Workflow continue-as-new", () => {
     await expect(items.nth(0).getByText("Current")).toBeVisible();
     await expect(items.nth(2).getByText("Current")).toHaveCount(0);
   });
+
+  test("navigates from the runs table to the run detail page and walks the lineage", async ({
+    page,
+  }) => {
+    const workflow = await slowWorkflow("wf-continue-detail");
+
+    const root = await api.triggerWorkflow(workflow.id, { cursor: 0 });
+    await api.waitForWorkflowRunStatus(root.id, ["running"], 30_000);
+    const successor = await api.continueWorkflowRunAsNew(root.id, {
+      input: { cursor: 1 },
+    });
+    await api.waitForWorkflowRunStatus(successor.id, ["running"], 30_000);
+
+    await gotoRecentRuns(page, workflow.id);
+
+    // The run id in the table links to the dedicated run detail page.
+    await runRow(page, successor.id)
+      .getByRole("link", { name: successor.id.slice(0, 8) })
+      .click();
+
+    await expect(page).toHaveURL(
+      new RegExp(`/app/workflow-runs/${successor.id}`)
+    );
+    await expect(
+      page.getByRole("heading", { name: successor.id })
+    ).toBeVisible();
+
+    // The lineage card links back to the predecessor (chain root).
+    await expect(page.getByText("Continuation lineage")).toBeVisible();
+    await page.getByRole("link", { name: root.id.slice(0, 8) }).click();
+
+    await expect(page).toHaveURL(new RegExp(`/app/workflow-runs/${root.id}`));
+    await expect(page.getByRole("heading", { name: root.id })).toBeVisible();
+
+    // From the root, the lineage card links forward to the successor.
+    await expect(
+      page.getByRole("link", { name: successor.id.slice(0, 8) })
+    ).toBeVisible();
+  });
+
+  test("opens a chain entry from the chain dialog and lands on its detail page", async ({
+    page,
+  }) => {
+    const workflow = await slowWorkflow("wf-continue-chain-nav");
+
+    const root = await api.triggerWorkflow(workflow.id, { cursor: 0 });
+    await api.waitForWorkflowRunStatus(root.id, ["running"], 30_000);
+    const latest = await api.continueWorkflowRunAsNew(root.id, {
+      input: { cursor: 1 },
+    });
+    await api.waitForWorkflowRunStatus(latest.id, ["running"], 30_000);
+
+    await gotoRecentRuns(page, workflow.id);
+
+    await runRow(page, root.id)
+      .getByRole("button", { name: "Run actions" })
+      .click();
+    await page.getByRole("menuitem", { name: "View chain" }).click();
+
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByText("Continuation chain")).toBeVisible();
+
+    // Each chain entry links to its run detail page and dismisses the dialog.
+    await dialog.getByRole("link", { name: latest.id.slice(0, 8) }).click();
+
+    await expect(page).toHaveURL(new RegExp(`/app/workflow-runs/${latest.id}`));
+    await expect(dialog).toBeHidden();
+    await expect(page.getByRole("heading", { name: latest.id })).toBeVisible();
+  });
+
+  test("filters the recent runs table by status", async ({ page }) => {
+    const workflow = await slowWorkflow("wf-continue-filter");
+
+    const root = await api.triggerWorkflow(workflow.id, { cursor: 0 });
+    await api.waitForWorkflowRunStatus(root.id, ["running"], 30_000);
+    const latest = await api.continueWorkflowRunAsNew(root.id, {
+      input: { cursor: 1 },
+    });
+    await api.waitForWorkflowRunStatus(latest.id, ["running"], 30_000);
+    // The predecessor is now terminal: root "continued", successor "running".
+    await api.waitForWorkflowRunStatus(root.id, ["continued"], 30_000);
+
+    await gotoRecentRuns(page, workflow.id);
+
+    // Both runs are listed before any filter is applied.
+    await expect(runRow(page, root.id)).toBeVisible();
+    await expect(runRow(page, latest.id)).toBeVisible();
+
+    // Filtering to "continued" keeps the terminal root and drops the running
+    // successor.
+    await page.getByRole("button", { name: "Status" }).click();
+    await page.getByRole("menuitemcheckbox", { name: "Continued" }).click();
+    await page.keyboard.press("Escape");
+
+    await expect(runRow(page, root.id)).toBeVisible();
+    await expect(runRow(page, latest.id)).toHaveCount(0);
+  });
+
+  test("shows run actions and the chain indicator in the overview recent activity", async ({
+    page,
+  }) => {
+    const workflow = await slowWorkflow("wf-continue-overview");
+
+    const root = await api.triggerWorkflow(workflow.id, { cursor: 0 });
+    await api.waitForWorkflowRunStatus(root.id, ["running"], 30_000);
+    const latest = await api.continueWorkflowRunAsNew(root.id, {
+      input: { cursor: 1 },
+    });
+    await api.waitForWorkflowRunStatus(latest.id, ["running"], 30_000);
+
+    // The workflow detail page opens on the Overview tab by default.
+    await gotoAndExpect(
+      page,
+      `/app/workflows/${workflow.id}`,
+      page.getByText("Recent Activity")
+    );
+
+    // Chained runs surface the lineage indicator and per-run actions here too.
+    await expect(
+      page.getByLabel("Part of a continuation chain").first()
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Run actions" }).first()
+    ).toBeVisible();
+  });
 });
