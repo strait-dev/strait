@@ -14,8 +14,8 @@ import (
 	"strait/internal/domain"
 )
 
-// snapshotMatchesCompute is the central equality check for Phase 3.6: at any
-// observable state, the persisted entitlements snapshot for an org must be
+// snapshotMatchesCompute is the central equality check for entitlements: at
+// any observable state, the persisted entitlements snapshot for an org must be
 // exactly what billing.ComputeEntitlements would produce given the same
 // subscription row and active addons. Drift here means a writer somewhere
 // forgot to call refreshEntitlements. Returning the result lets the meta
@@ -189,12 +189,11 @@ func TestEntitlementsConsistency_RandomWalk(t *testing.T) {
 	}
 }
 
-// TestEntitlementsConsistency_GuardCatchesInjectedDrift is the meta-test for
-// Phase 3.6: it deliberately corrupts the persisted snapshot to simulate a
-// future writer that forgot to refresh entitlements, and asserts the
-// consistency check would have flagged it. Without this, the green CI
-// signal from the other consistency tests is meaningless because we never
-// proved the equality check itself can fail.
+// TestEntitlementsConsistency_GuardCatchesInjectedDrift deliberately corrupts
+// the persisted snapshot to simulate a future writer that forgot to refresh
+// entitlements, and asserts the consistency check would have flagged it.
+// Without this, the green CI signal from the other consistency tests is
+// meaningless because we never proved the equality check itself can fail.
 func TestEntitlementsConsistency_GuardCatchesInjectedDrift(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)

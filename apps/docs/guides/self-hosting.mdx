@@ -1,6 +1,6 @@
 ---
 title: "Self-Hosting"
-description: "Run the community edition on your own infrastructure with Docker Compose or a Cloudflare-hosted dashboard."
+description: "Run the community edition on your own infrastructure with Docker Compose or a Vercel-hosted dashboard."
 icon: "server"
 ---
 
@@ -8,13 +8,13 @@ Strait ships as a single Go binary, so self-hosting is mostly a matter of runnin
 
 There are two common setups. Pick the one that matches where you want the dashboard to live.
 
-| | Cloudflare dashboard | Full Docker stack |
+| | Vercel dashboard | Full Docker stack |
 |---|---|---|
-| Setup | One click, then a manual import step | `make selfhost` |
-| Dashboard runs on | Your Cloudflare account | Your hardware |
+| Setup | One click, then environment variables | `make selfhost` |
+| Dashboard runs on | Your Vercel account | Your hardware |
 | API runs on | Any host the dashboard can reach | Docker Compose on the same host |
 | PostgreSQL | Neon, Supabase, or any hosted/self-hosted instance | Bundled `postgres:18-alpine` |
-| Best for | Teams already on Cloudflare | Air-gapped, on-prem, or Docker-first teams |
+| Best for | Teams that want a managed dashboard | On-prem or Docker-first teams |
 
 For production scaling, region strategy, and splitting API and worker capacity, read [Deployment](/guides/deployment) after you have a stack running.
 
@@ -66,13 +66,13 @@ make selfhost-reset   # stop and wipe data and secrets
 
 `docker-compose.base.yml` defines the required runtime and `docker-compose.selfhost.yml` pins the self-host images to known-good release tags, so `docker compose up` reproduces the same combination every time. Override `STRAIT_IMAGE` or `STRAIT_APP_IMAGE` to track a different tag.
 
-## Option 2: Cloudflare dashboard
+## Option 2: Vercel dashboard
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/strait-dev/strait)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fstrait-dev%2Fstrait&project-name=strait-app&repository-name=strait-app&root-directory=apps%2Fapp&install-command=cd+..%2F..+%26%26+bun+install+--frozen-lockfile&build-command=cd+..%2F..+%26%26+cd+apps%2Fapp+%26%26+bun+run+build%3Avercel&env=AUTH_DATABASE_URL%2CBETTER_AUTH_URL%2CBETTER_AUTH_SECRET%2CSTRAIT_API_URL%2COIDC_ISSUER%2COIDC_AUDIENCE%2COIDC_PRIVATE_KEY_PEM)
 
-The button forks the repo and starts a Cloudflare Workers Builds import. Cloudflare does not yet support Bun workspaces in one-click deploys, so during import set the **Root directory** to `apps/app` and provide the custom **Build command** documented in [apps/app/README.md](https://github.com/strait-dev/strait/blob/master/apps/app/README.md).
+The button forks the repo and starts a Vercel import. Keep the root directory set to `apps/app` and use the build command documented in [apps/app/README.md](https://github.com/strait-dev/strait/blob/master/apps/app/README.md).
 
-The dashboard still needs a Strait API server. Run the API with Option 1, on a VPS, or on any host Cloudflare can reach, then point `STRAIT_API_URL` at it in the Worker variables.
+The dashboard still needs a Strait API server. Run the API with Option 1, on a VPS, or on any public host Vercel can reach, then point `STRAIT_API_URL` at it in Vercel environment variables. `AUTH_DATABASE_URL` must point at a PostgreSQL database reachable from Vercel. Set `BETTER_AUTH_URL` to the final dashboard origin so cookies and OAuth callback URLs are scoped correctly.
 
 ## Dependencies
 

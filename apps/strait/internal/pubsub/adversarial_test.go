@@ -13,9 +13,7 @@ import (
 	"github.com/sourcegraph/conc"
 )
 
-// ---------------------------------------------------------------------------.
 // Helpers
-// ---------------------------------------------------------------------------.
 
 // countingPublisher tracks call counts and allows configurable failures.
 type countingPublisher struct {
@@ -60,9 +58,7 @@ func (c *countingPublisher) Ping(_ context.Context) error {
 	return nil
 }
 
-// ---------------------------------------------------------------------------.
 // 1. Message ordering violations (via Subscription channel semantics)
-// ---------------------------------------------------------------------------.
 
 func TestSubscription_MessageOrdering_FIFO(t *testing.T) {
 	t.Parallel()
@@ -136,9 +132,7 @@ func TestSubscription_MessageOrdering_UnderConcurrentWrites(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // 2. Duplicate message delivery (ResilientPublisher deduplication semantics)
-// ---------------------------------------------------------------------------.
 
 func TestResilientPublisher_NoDuplicatePublishOnSuccess(t *testing.T) {
 	t.Parallel()
@@ -186,9 +180,7 @@ func TestResilientPublisher_PublishBatch_NoDuplicateOnFailure(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // 3. Subscriber crash/disconnect during message processing
-// ---------------------------------------------------------------------------.
 
 func TestSubscription_CloseWhileWriting(t *testing.T) {
 	t.Parallel()
@@ -290,9 +282,7 @@ func TestSubscription_MultipleCloseNoPanic(t *testing.T) {
 	wg.Wait()
 }
 
-// ---------------------------------------------------------------------------.
 // 4. Channel buffer overflow
-// ---------------------------------------------------------------------------.
 
 func TestSubscription_BufferOverflow_DoesNotBlock(t *testing.T) {
 	t.Parallel()
@@ -322,6 +312,8 @@ func TestSubscription_BufferOverflow_DoesNotBlock(t *testing.T) {
 }
 
 func TestSubscription_ZeroBufferChannel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	ch := make(chan []byte) // Unbuffered channel.
@@ -329,11 +321,12 @@ func TestSubscription_ZeroBufferChannel(t *testing.T) {
 	defer cancel()
 
 	sub := NewSubscription(ch, cancel)
+	concWG.
 
-	// Write and read must synchronize.
-	go func() {
-		ch <- []byte("sync-msg")
-	}()
+		// Write and read must synchronize.
+		Go(func() {
+			ch <- []byte("sync-msg")
+		})
 
 	msg := <-sub.Ch
 	if string(msg) != "sync-msg" {
@@ -341,9 +334,7 @@ func TestSubscription_ZeroBufferChannel(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // 5. Concurrent subscribe/unsubscribe
-// ---------------------------------------------------------------------------.
 
 func TestResilientPublisher_ConcurrentSubscribeUnsubscribe(t *testing.T) {
 	t.Parallel()
@@ -416,9 +407,7 @@ func TestResilientPublisher_ConcurrentPublishAndSubscribe(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // 6. Malformed messages (nil, empty, oversized)
-// ---------------------------------------------------------------------------.
 
 func TestResilientPublisher_NilData(t *testing.T) {
 	t.Parallel()
@@ -517,9 +506,7 @@ func TestResilientPublisher_PublishBatch_MixedChannelNames(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // ResilientPublisher health transitions under adversarial conditions
-// ---------------------------------------------------------------------------.
 
 func TestResilientPublisher_RapidFailureRecoveryCycles(t *testing.T) {
 	t.Parallel()
@@ -627,9 +614,7 @@ func TestResilientPublisher_DefaultLogger(t *testing.T) {
 	// No panic means success.
 }
 
-// ---------------------------------------------------------------------------.
 // RedisPublisher unit tests (without actual Redis)
-// ---------------------------------------------------------------------------.
 
 func TestRedisPublisher_PublishBatch_NilMessages(t *testing.T) {
 	t.Parallel()

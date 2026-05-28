@@ -71,8 +71,9 @@ func (a *AdaptiveConcurrency) Observe(queueDepth int, utilization float64) int {
 		return a.current
 	}
 
-	// Scale down: 33% decrease after 2 consecutive idle checks.
-	if queueDepth == 0 && utilization < 0.20 {
+	// Scale down only when real work is running at low utilization. A fully idle
+	// pool is cold-start capacity, not evidence that workers should be shed.
+	if queueDepth == 0 && utilization > 0 && utilization < 0.20 {
 		a.idleChecks++
 		if a.idleChecks >= 2 {
 			dec := max(int(math.Ceil(float64(current)*0.33)), 1)

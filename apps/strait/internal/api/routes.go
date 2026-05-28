@@ -1,6 +1,8 @@
 package api
 
 import (
+	"bytes"
+	"compress/gzip"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -26,8 +28,9 @@ import (
 // operations on every NewServer call is pure waste -- especially under the
 // race detector where ~300 test servers amplify the cost.
 var (
-	cachedOpenAPIOnce sync.Once
-	cachedHumaSpec    []byte
+	cachedOpenAPIOnce  sync.Once
+	cachedHumaSpec     []byte
+	cachedHumaSpecGzip []byte
 )
 
 func (s *Server) routes() chi.Router {
@@ -133,8 +136,10 @@ func (s *Server) routes() chi.Router {
 		registerAllTypedOps(api, s)
 		s.registerHumaOperations(api)
 		cachedHumaSpec, _ = api.OpenAPI().MarshalJSON()
+		cachedHumaSpecGzip = gzipBytes(cachedHumaSpec)
 	})
 	s.cachedOpenAPISpec = cachedHumaSpec
+	s.cachedOpenAPISpecGzip = cachedHumaSpecGzip
 
 	r.Get("/health", s.handleHealth)
 	r.Get("/health/ready", s.handleHealthReady)
@@ -142,6 +147,12 @@ func (s *Server) routes() chi.Router {
 		r.Group(func(r chi.Router) {
 			r.Use(s.internalSecretAuth)
 			r.Handle("/metrics", s.metricsHandler)
+		})
+	}
+
+	if profilingAPIEnabled(s.config) {
+		r.Group(func(r chi.Router) {
+			s.mountProfilingRoutes(r)
 		})
 	}
 
@@ -695,4 +706,17 @@ func (s *Server) routes() chi.Router {
 	// Agent discovery (RFC 9728 OAuth Protected Resource Metadata).
 	r.Get("/.well-known/oauth-protected-resource", s.handleOAuthProtectedResource)
 	return r
+}
+
+func gzipBytes(src []byte) []byte {
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	if _, err := zw.Write(src); err != nil {
+		_ = zw.Close()
+		return nil
+	}
+	if err := zw.Close(); err != nil {
+		return nil
+	}
+	return buf.Bytes()
 }

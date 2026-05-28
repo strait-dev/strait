@@ -22,6 +22,7 @@ import (
 	"strait/internal/worker"
 
 	"github.com/google/uuid"
+	"github.com/sourcegraph/conc"
 )
 
 // Lazy init for testcontainers so we do not conflict with the existing
@@ -36,7 +37,7 @@ func mustEnv(t *testing.T) *testutil.TestEnv {
 	t.Helper()
 	testEnvOnce.Do(func() {
 		ctx := context.Background()
-		testEnv, testEnvErr = testutil.SetupTestEnv(ctx, "../../migrations")
+		testEnv, testEnvErr = testutil.SetupSharedTestEnv(ctx, "../../migrations", "worker")
 		if testEnvErr != nil {
 			log.Fatalf("setup test env: %v", testEnvErr)
 		}
@@ -468,6 +469,8 @@ func TestFailedJobHandling(t *testing.T) {
 // TestWorkerGracefulShutdown verifies that in-flight jobs complete before
 // the executor finishes shutting down.
 func TestWorkerGracefulShutdown(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	env := mustEnv(t)
 	mustCleanEnv(t, ctx)
@@ -501,10 +504,10 @@ func TestWorkerGracefulShutdown(t *testing.T) {
 	execCtx, cancel := context.WithCancel(ctx)
 
 	execDone := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		exec.Run(execCtx)
 		close(execDone)
-	}()
+	})
 
 	// Wait for the handler to start processing the request.
 	select {

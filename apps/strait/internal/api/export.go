@@ -81,7 +81,7 @@ func (s *Server) handleExportJobs(ctx context.Context, input *ExportJobsInput) (
 		"project_id": projectID,
 	})
 
-	return nil, nil //nolint:nilnil
+	return nil, nil //nolint:nilnil // response has already been streamed to the Huma response writer
 }
 
 type ExportRunsInput struct {
@@ -190,7 +190,7 @@ func (s *Server) handleExportRuns(ctx context.Context, input *ExportRunsInput) (
 		"project_id": projectID,
 	})
 
-	return nil, nil //nolint:nilnil
+	return nil, nil //nolint:nilnil // response has already been streamed to the Huma response writer
 }
 
 type ExportWorkflowsInput struct {
@@ -250,7 +250,7 @@ func (s *Server) handleExportWorkflows(ctx context.Context, input *ExportWorkflo
 		"project_id": projectID,
 	})
 
-	return nil, nil //nolint:nilnil
+	return nil, nil //nolint:nilnil // response has already been streamed to the Huma response writer
 }
 
 // streamJSON writes a JSON array by streaming individual objects.

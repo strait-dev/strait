@@ -4,7 +4,9 @@
   "scripts": {
     "build": "go build ./...",
     "test": "go test ./...",
-    "lint": "golangci-lint run --timeout=10m ./...",
+    "test:integration:fast": "./scripts/test-integration-fast.sh --all",
+    "test:integration:clean": "./scripts/test-integration-clean.sh",
+    "lint": "./scripts/lint-go.sh",
     "dev": "go run ./cmd/strait",
     "deploy": "make deploy",
     "deploy:staging": "make deploy-staging",

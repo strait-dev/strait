@@ -2,6 +2,7 @@ package cdc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -126,7 +127,7 @@ func TestConsumerPoll_BatchCollection_AcksAfterPublish(t *testing.T) {
 	}
 }
 
-func TestConsumerPoll_BatchPublishFailure_NacksMessages(t *testing.T) {
+func TestConsumerPoll_BatchPublishFailure_AcksProjectionOnlyMessage(t *testing.T) {
 	t.Parallel()
 
 	var mu sync.Mutex
@@ -169,12 +170,70 @@ func TestConsumerPoll_BatchPublishFailure_NacksMessages(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	// When batch publish fails, messages should be NACKed, not ACKed.
+	// Projection publish is best-effort. Without a durable additional handler
+	// failure, the message is ACKed to avoid redelivery amplification.
+	if len(ackIDs) != 1 || ackIDs[0] != "a1" {
+		t.Errorf("ack IDs should contain a1 on publish failure, got %v", ackIDs)
+	}
+	if len(nackIDs) != 0 {
+		t.Errorf("nack IDs should be empty on projection publish failure, got %v", nackIDs)
+	}
+}
+
+func TestConsumerPoll_BatchPublishFailure_NacksAdditionalHandlerFailure(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	var ackIDs []string
+	var nackIDs []string
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/http_pull_consumers/bfail_side/receive":
+			_, _ = w.Write([]byte(`{"data":[
+				{"ack_id":"a1","record":{"id":"r1","project_id":"p1"},"action":"insert","metadata":{"table_name":"job_runs","commit_timestamp":"2026-03-18T00:00:00Z"}}
+			]}`))
+		case "/api/http_pull_consumers/bfail_side/ack":
+			ids := decodeAckIDs(t, r)
+			mu.Lock()
+			ackIDs = append(ackIDs, ids...)
+			mu.Unlock()
+		case "/api/http_pull_consumers/bfail_side/nack":
+			ids := decodeAckIDs(t, r)
+			mu.Lock()
+			nackIDs = append(nackIDs, ids...)
+			mu.Unlock()
+		}
+	}))
+	defer ts.Close()
+
+	pub := &trackingPublisher{publishErr: errors.New("redis down")}
+	consumer := NewConsumer(NewClient(ts.URL, "bfail_side", "token"), ConsumerConfig{ConsumerName: "bfail_side", BatchSize: 10, WaitTimeMs: 1}, slog.Default())
+	consumer.SetPublisher(pub)
+	consumer.RegisterHandler(&collectableHandlerFunc{
+		tableName: "job_runs",
+		collectFn: func(_ context.Context, msg Message) (*pubsub.PubSubMessage, error) {
+			return &pubsub.PubSubMessage{Channel: "ch", Data: msg.Record}, nil
+		},
+	})
+	consumer.RegisterAdditionalHandler(HandlerFunc{
+		TableName: "job_runs",
+		Fn: func(context.Context, Message) error {
+			return errors.New("durable side effect failed")
+		},
+	})
+
+	if err := consumer.poll(context.Background()); err != nil {
+		t.Fatalf("poll error: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
 	if len(ackIDs) != 0 {
-		t.Errorf("ack IDs should be empty on publish failure, got %v", ackIDs)
+		t.Errorf("ack IDs should be empty on durable handler failure, got %v", ackIDs)
 	}
 	if len(nackIDs) != 1 || nackIDs[0] != "a1" {
-		t.Errorf("nack IDs should contain a1 on publish failure, got %v", nackIDs)
+		t.Errorf("nack IDs should contain a1 on durable handler failure, got %v", nackIDs)
 	}
 }
 
@@ -217,6 +276,30 @@ func TestConsumerPoll_CollectError_NacksMessage(t *testing.T) {
 
 	// The receive call will fail to parse, so poll will return error.
 	_ = consumer.poll(context.Background())
+}
+
+func BenchmarkConsumerRunAdditionalHandlers(b *testing.B) {
+	consumer := NewConsumer(nil, ConsumerConfig{ConsumerName: "bench"}, slog.Default())
+	consumer.RegisterAdditionalHandler(HandlerFunc{
+		TableName: "job_runs",
+		Fn: func(context.Context, Message) error {
+			return nil
+		},
+	})
+	msg := Message{
+		AckID:    "a1",
+		Record:   json.RawMessage(`{"id":"r1","project_id":"p1"}`),
+		Action:   ActionUpdate,
+		Metadata: Metadata{TableName: "job_runs"},
+	}
+
+	ctx := context.Background()
+	b.ReportAllocs()
+	for b.Loop() {
+		if err := consumer.runAdditionalHandlers(ctx, msg); err != nil {
+			b.Fatal(err)
+		}
+	}
 }
 
 func TestConsumerPoll_MixedHandlers_BatchAndInline(t *testing.T) {

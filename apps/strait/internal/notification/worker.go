@@ -79,13 +79,14 @@ func (w *Worker) WithDeliveriesCounter(c metric.Int64Counter) *Worker {
 	return w
 }
 
-// Start begins the background polling loop.
+// Start begins the polling loop owned by this worker. The loop exits when the
+// parent context is canceled or Stop closes done.
 func (w *Worker) Start(ctx context.Context) {
 	w.ticker = time.NewTicker(30 * time.Second)
 	go w.run(ctx)
 }
 
-// Stop halts the background polling loop. It is safe to call multiple times.
+// Stop signals the polling loop to exit. It is safe to call multiple times.
 func (w *Worker) Stop() {
 	w.stopOnce.Do(func() {
 		if w.ticker != nil {

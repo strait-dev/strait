@@ -169,7 +169,7 @@ func (q *Queries) ListJobsByGroup(ctx context.Context, groupID string, limit int
 		       execution_mode, preferred_regions, queue_name,
 		       on_complete_trigger_workflow, on_complete_trigger_job, on_complete_payload_mapping, on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
 		       paused, paused_at, pause_reason, endpoint_signing_secret,
-		       singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth
+		       singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth, cache_version
 		FROM jobs
 		WHERE group_id = $1`
 

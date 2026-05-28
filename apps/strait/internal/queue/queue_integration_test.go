@@ -30,7 +30,7 @@ func TestMain(m *testing.M) {
 	ctx := context.Background()
 
 	var err error
-	testDB, err = testutil.SetupTestDB(ctx, "../../migrations")
+	testDB, err = testutil.SetupSharedTestDB(ctx, "../../migrations", "queue")
 	if err != nil {
 		log.Fatalf("setup test db: %v", err)
 	}
@@ -1196,8 +1196,6 @@ func BenchmarkEnqueueBatch_500_Integration(b *testing.B) {
 	}
 }
 
-// --- Metadata round-trip integration tests ---.
-
 func TestEnqueue_MetadataRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	q := mustQueue(t)
@@ -1365,8 +1363,6 @@ func TestEnqueueBatch_MetadataRoundTrip(t *testing.T) {
 		t.Fatalf("runs[2] metadata = %v, want empty", got2.Metadata)
 	}
 }
-
-// --- Metadata adversarial integration tests ---.
 
 func TestEnqueue_MetadataLargeValue(t *testing.T) {
 	ctx := context.Background()

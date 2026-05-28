@@ -481,9 +481,7 @@ func (m *mockEnqueuer) Enqueue(ctx context.Context, run *domain.JobRun) error {
 	return m.fn(ctx, run)
 }
 
-// ---------------------------------------------------------------------------.
 // enqueue_retry.go mutant killers (config defaults + retry delay arithmetic)
-// ---------------------------------------------------------------------------.
 
 // Kill: enqueue_retry.go L52 CONDITIONALS_BOUNDARY (MaxElapsed <= 0 → < 0).
 // If the guard were `< 0`, passing MaxElapsed=0 would skip the default fill
@@ -760,9 +758,7 @@ func TestMinInt_ABoundary(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // postgres.go mutant killers
-// ---------------------------------------------------------------------------.
 
 // Kill: postgres.go L80 CONDITIONALS_NEGATION (q.backpressure != nil → q.backpressure == nil).
 // With nil backpressure and no idempotency key, needsManagedTx is false;
@@ -987,8 +983,8 @@ func TestEnqueueBatch_EmptyBatch_NoNotify(t *testing.T) {
 }
 
 // Kill: postgres.go L482-483 CONDITIONALS_NEGATION.
-// Non-empty batch: pg_notify MUST be called.
-func TestEnqueueBatch_NonEmptyBatch_NotifySent(t *testing.T) {
+// Non-empty batch: queue wake notifications are emitted by database triggers, not application pg_notify.
+func TestEnqueueBatch_NonEmptyBatch_NoExplicitNotify(t *testing.T) {
 	t.Parallel()
 	var notifySent bool
 	db := &mockCopyFromDBTX{
@@ -1010,8 +1006,8 @@ func TestEnqueueBatch_NonEmptyBatch_NotifySent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnqueueBatch: %v", err)
 	}
-	if !notifySent {
-		t.Fatal("expected pg_notify to be called for non-empty batch")
+	if notifySent {
+		t.Fatal("expected no explicit pg_notify for non-empty batch")
 	}
 }
 
@@ -1185,9 +1181,7 @@ func (m *mockCopyFromDBTX) CopyFrom(ctx context.Context, tableName pgx.Identifie
 	return 0, nil
 }
 
-// ─────────────────────────────────────────────────────────────────────────.
 // Category C: db_circuit.go mutants
-// ─────────────────────────────────────────────────────────────────────────.
 
 // Kill: db_circuit.go L123 CONDITIONALS_NEGATION (err != nil || qm == nil || qm.CircuitStateTransitions == nil).
 // If any guard is negated, the counter either skips recording when it should,
@@ -1286,9 +1280,7 @@ func TestDBCircuit_CurrentOpenDuration_ExactProgression(t *testing.T) {
 	}
 }
 
-// ─────────────────────────────────────────────────────────────────────────.
 // Category D: backpressure.go mutants
-// ─────────────────────────────────────────────────────────────────────────.
 
 // Kill: backpressure.go L73 CONDITIONALS_BOUNDARY (< 0 → <= 0).
 // DefaultMaxTokens=0 should trigger the zero-zero default branch, yielding 1000.
@@ -1366,9 +1358,7 @@ func TestBackpressure_TryConsumeN_EachGuardIndependently(t *testing.T) {
 	}
 }
 
-// ─────────────────────────────────────────────────────────────────────────.
 // Category E: claim_cursor.go mutants
-// ─────────────────────────────────────────────────────────────────────────.
 
 // Kill: claim_cursor.go L29 CONDITIONALS_BOUNDARY (resetInterval <= 0 → < 0).
 // Zero interval must use the 60s default, not be treated as positive.
@@ -1425,9 +1415,7 @@ func TestClaimCursor_EqualTimestamp_LargerIDAdvances(t *testing.T) {
 	}
 }
 
-// ─────────────────────────────────────────────────────────────────────────.
 // Category E: notify.go mutants
-// ─────────────────────────────────────────────────────────────────────────.
 
 // Kill: notify.go L58 CONDITIONALS_NEGATION (logger == nil → logger != nil).
 // Passing nil logger must not panic; the notifier falls back to slog.Default().
@@ -1470,9 +1458,7 @@ func TestQueueNotifier_BackoffDelay_ExactBase(t *testing.T) {
 	}
 }
 
-// ─────────────────────────────────────────────────────────────────────────.
 // Category E: outbox.go mutant
-// ─────────────────────────────────────────────────────────────────────────.
 
 // Kill: outbox.go L60 CONDITIONALS_NEGATION (entries[i].ID == "" → ID != "").
 // An entry with an empty ID must get a UUID assigned. If the guard is negated,
@@ -1494,9 +1480,7 @@ func TestOutbox_EmptyID_GetsAssigned(t *testing.T) {
 	}
 }
 
-// ─────────────────────────────────────────────────────────────────────────.
 // Category E: project_metrics.go mutants
-// ─────────────────────────────────────────────────────────────────────────.
 
 // Kill: project_metrics.go L30 CONDITIONALS_BOUNDARY (maxLabels <= 0 → < 0).
 // Zero max should use default 100, not be treated as valid.
@@ -1544,9 +1528,7 @@ func TestRecordClaimLatencyByProject_NilMetrics(t *testing.T) {
 	m.RecordClaimLatencyByProject(context.Background(), nil, "proj-1", 0.5)
 }
 
-// ─────────────────────────────────────────────────────────────────────────.
 // Category E: queue_metrics.go mutants
-// ─────────────────────────────────────────────────────────────────────────.
 
 // Kill: queue_metrics.go L376 CONDITIONALS_BOUNDARY (TotalUpdates > 0 → >= 0).
 // With TotalUpdates=0, HotUpdateRatio must NOT be recorded (division by zero).
@@ -1585,10 +1567,6 @@ func TestRecordPartitionStats_NonZeroUpdates_RecordsRatio(t *testing.T) {
 	// but the mutant is killed because the code path is exercised and the
 	// correct division is the only thing that produces a sane ratio.
 }
-
-// ─────────────────────────────────────────────────────────────────────────.
-// Section: wave-2 mutation killers.
-// ─────────────────────────────────────────────────────────────────────────.
 
 // Kill: enqueue_retry.go:86 INCREMENT_DECREMENT (attempt++ → attempt--).
 // Capture each sleep delay through the full retry loop and verify strictly
@@ -1685,6 +1663,60 @@ func TestEnqueueInTx_IdempotencyKeyGuard(t *testing.T) {
 	}
 	if !foundLock {
 		t.Fatal("advisory lock MUST be called with non-empty idempotency key")
+	}
+}
+
+func TestEnqueueManagedTx_IdempotencyKeyGuard(t *testing.T) {
+	t.Parallel()
+
+	var execSQLs []string
+	tx := &mockTx{
+		mockDBTX: mockDBTX{
+			execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+				execSQLs = append(execSQLs, sql)
+				return pgconn.NewCommandTag("SELECT 1"), nil
+			},
+			queryRowFn: func(_ context.Context, _ string, _ ...any) pgx.Row {
+				return &mockRow{scanFn: func(dest ...any) error {
+					if tp, ok := dest[0].(*time.Time); ok {
+						*tp = time.Now()
+					}
+					return nil
+				}}
+			},
+		},
+	}
+	db := &mockTxDBTX{
+		beginFn: func(context.Context) (pgx.Tx, error) {
+			return tx, nil
+		},
+	}
+	q := NewPostgresQueue(db, WithBackpressureController(NewBackpressure(db, BackpressureConfig{}, false)))
+
+	execSQLs = nil
+	emptyKeyRun := &domain.JobRun{JobID: "j1", ProjectID: "p1"}
+	if err := q.Enqueue(context.Background(), emptyKeyRun); err != nil {
+		t.Fatalf("Enqueue empty key through managed tx: %v", err)
+	}
+	for _, sql := range execSQLs {
+		if strings.HasPrefix(sql, "SELECT pg_advisory_x") {
+			t.Fatalf("managed tx took advisory lock for empty idempotency key: %s", sql)
+		}
+	}
+
+	execSQLs = nil
+	keyedRun := &domain.JobRun{JobID: "j2", ProjectID: "p1", IdempotencyKey: "key-abc"}
+	if err := q.Enqueue(context.Background(), keyedRun); err != nil {
+		t.Fatalf("Enqueue keyed run through managed tx: %v", err)
+	}
+	foundLock := false
+	for _, sql := range execSQLs {
+		if strings.HasPrefix(sql, "SELECT pg_advisory_x") {
+			foundLock = true
+		}
+	}
+	if !foundLock {
+		t.Fatal("managed tx must take advisory lock for non-empty idempotency key")
 	}
 }
 

@@ -13,9 +13,7 @@ import (
 	"github.com/sourcegraph/conc"
 )
 
-// --------------------------------------------------------------------------.
 // Adversarial tests for concurrent and edge-case run operations.
-// --------------------------------------------------------------------------.
 
 // TestAdv_ConcurrentCreateRuns verifies that multiple goroutines can create
 // runs for the same job without conflict.

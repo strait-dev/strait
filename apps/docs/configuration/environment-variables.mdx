@@ -51,8 +51,36 @@ export SECRET_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 | `WORKER_CONCURRENCY` | `25` | Max jobs a worker can execute at the same time. |
 | `WORKER_QUEUE_SIZE` | `0` | Local queue size per worker. `0` means unbounded. |
 | `EXECUTOR_HTTP_TIMEOUT` | `5m` | Max time for HTTP job execution. |
+| `EXECUTION_TRACE_MODE` | `off` | Persist per-run execution trace JSON. Use `off`, `errors`, or `full`. |
 | `DEFAULT_JOB_TIMEOUT_SECS` | `300` | Default timeout for jobs without an explicit timeout. |
 | `DEFAULT_JOB_MAX_ATTEMPTS` | `3` | Default retry attempts for jobs without an explicit value. |
+
+## Cache Settings
+
+Redis is still required at startup. Cache operations fail open to in-process cache or PostgreSQL after startup, except authentication paths confirm with PostgreSQL when freshness is uncertain.
+
+| Variable | Default | Description |
+|---|---|---|
+| `JOB_CACHE_TTL` | `5m` | Current job definition cache TTL for worker dispatch. Set to `0` to disable. |
+| `VERSION_CACHE_TTL` | `30m` | Immutable job and workflow definition cache TTL. |
+| `RUN_VERSION_CACHE_TTL` | `10m` | TTL for immutable workflow run version lookups used by worker execution policy resolution. |
+| `API_KEY_CACHE_TTL` | `60s` | API key auth cache TTL. Revocation and rotation invalidate immediately; cached values exclude secret material. |
+| `JOB_HEALTH_CACHE_TTL` | `2s` | Short TTL for adaptive job health aggregates used on hot worker paths. |
+| `JOB_DEPS_CACHE_TTL` | `5m` | Job dependency list cache TTL. Dependency create and delete invalidate affected entries. |
+| `CACHE_STATUS_READMODEL_TTL` | `5m` | Redis status read-model TTL for job runs and workflow runs. CDC updates use version compare-and-set so status does not move backward. |
+| `CACHE_SHARED_DEDUPE_TTL` | `10m` | Redis duplicate suppression TTL for CDC side effects and Sequin push webhooks. |
+| `PERMISSION_CACHE_TTL` | `5m` | RBAC permission cache TTL. |
+| `PROJECT_QUOTA_CACHE_TTL` | `60s` | Project quota cache TTL. |
+
+## Queue and Workflow Engines
+
+| Variable | Default | Description |
+|---|---|---|
+| `QUEUE_ENGINE` | `batchlog` | Queue storage engine. `batchlog` claims from narrow queue log entries and keeps `job_runs` as the ledger. |
+| `QUEUE_BATCH_TICK_INTERVAL` | `100ms` | Batch seal interval for the batchlog queue. Higher values reduce queue table churn at the cost of dispatch latency. |
+| `QUEUE_USE_DENORMALIZED_DEQUEUE` | `true` | Use the fully denormalized dequeue path when the selected queue engine supports it. |
+| `OUTBOX_ENGINE` | `batchlog` | Outbox promotion engine. `batchlog` promotes through narrow claim rows and archives successful rows asynchronously. |
+| `WORKFLOW_PROGRESSION_ENGINE` | `batchlog` | Workflow progression engine. `batchlog` records progression events and drains workflow batches. |
 
 ## API Limits
 
@@ -80,8 +108,10 @@ export SECRET_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 | Variable | Default | Description |
 |---|---|---|
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | - | OpenTelemetry endpoint for traces and logs. |
+| `OTEL_LOGS_EXPORTER` | `none` recommended locally | Set to `none` for local development when no OTLP logs endpoint is available, otherwise the collector may emit repeated `/v1/logs` errors. |
 | `OTLP_METRIC_ENDPOINT` | - | OpenTelemetry endpoint for metrics, if different. |
 | `OTLP_METRIC_ENABLED` | `false` | Enable OTLP metric export. |
+| `DB_TRACE_STATEMENTS` | `false` | Enable per-SQL-statement pgx tracing and Sentry breadcrumbs. Keep disabled on hot production paths unless diagnosing database behavior. |
 | `SENTRY_DSN` | - | Sentry DSN for error reporting. |
 | `SENTRY_ENVIRONMENT` | - | Environment tag for Sentry and OTel resources, such as `production` or `staging`. |
 | `SENTRY_TRACES_SAMPLE_RATE` | `0.1` | Sentry trace sample rate from `0.0` to `1.0`. Tracing is enabled when this is greater than zero, and high-volume stream transactions are dropped by the Sentry sampler before send. |
@@ -93,6 +123,15 @@ export SECRET_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 | `SENTRY_STRICT_TRACE_CONTINUATION` | `false` | Require incoming Sentry baggage org IDs to match before continuing third-party traces. |
 | `SENTRY_SCHEDULER_CHECKINS` | `false` | Emit Sentry monitor check-ins for scheduler components when enabled. |
 | `SENTRY_SCHEDULER_CHECKIN_PREFIX` | `strait-scheduler` | Prefix used for scheduler component monitor slugs. |
+| `STRAIT_PROFILING_ENABLED` | `false` | Expose internal-secret-protected Go pprof endpoints under `/debug/pprof`. |
+| `STRAIT_PROFILING_API_ENABLED` | `true` | Expose pprof on the API listener when profiling is enabled. |
+| `STRAIT_PROFILING_MANAGEMENT_ENABLED` | `false` | Start a separate listener that serves only pprof routes. |
+| `STRAIT_PROFILING_MANAGEMENT_BIND_ADDR` | `127.0.0.1` | Bind address for the pprof management listener. |
+| `STRAIT_PROFILING_MANAGEMENT_PORT` | `18080` | Port for the pprof management listener. |
+| `STRAIT_PROFILING_MUTEX_FRACTION` | `100` | Go runtime mutex profile sampling fraction. `0` disables mutex profiling after restart. |
+| `STRAIT_PROFILING_BLOCK_RATE` | `100000` | Go runtime block profile sampling rate. `0` disables block profiling after restart. |
+| `STRAIT_PROFILING_SECRET` | - | Optional pprof-specific secret. When set, pprof requires this secret instead of `INTERNAL_SECRET`. |
+| `STRAIT_PROFILING_ALLOWED_CIDRS` | - | Optional comma-separated CIDR/IP allowlist for pprof callers. |
 | `PYROSCOPE_ENDPOINT` | - | Pyroscope endpoint for profiling. |
 
 ## Notifications
@@ -102,6 +141,7 @@ export SECRET_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 | `RESEND_API_KEY` | - | Required for email notifications. |
 | `RESEND_FROM_EMAIL` | `noreply@strait.dev` | From address for email notifications. |
 | `WEBHOOK_REQUIRE_TLS` | `false` | Require HTTPS webhook URLs. |
+| `ENDPOINT_REQUIRE_TLS` | `false` | Require HTTPS for job endpoint and fallback endpoint URLs. Job dispatch injects decrypted secrets and the run-token JWT, so enable this to reject plaintext HTTP endpoints. |
 | `ALLOW_PRIVATE_ENDPOINTS` | `false` | Allow private endpoint URLs. Not recommended unless the network is trusted. |
 
 ## CDC / Sequin
@@ -125,6 +165,13 @@ export SECRET_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 | `WORKFLOW_RUN_RETENTION_DAYS` | `30` | Retention for workflow run data. |
 | `AUDIT_RETENTION_DEFAULT_DAYS` | `365` | Default audit event retention. |
 
+## Workflow Recovery
+
+| Variable | Default | Description |
+|---|---|---|
+| `WF_STALL_THRESHOLD` | `15m` | How long a running workflow can make no progress before the reaper treats it as stalled. |
+| `WF_STALL_ACTION` | `reconcile` | Action for stalled workflows. `reconcile` resumes persisted workflow state, `log_only` only logs, and `fail_workflow` marks the workflow failed. |
+
 ## Worker Mode
 
 Use these when running connected workers.
@@ -147,6 +194,8 @@ Use these when running connected workers.
 |---|---|---|
 | `DB_MAX_CONNS` | `50` | Maximum PostgreSQL pool size per Strait process. Keep this above `WORKER_CONCURRENCY` and multiply by replicas when sizing PostgreSQL. |
 | `DB_MIN_CONNS` | `10` | Minimum warm PostgreSQL connections per Strait process. |
+| `DB_PGBOUNCER_MODE` | `false` | Use simple protocol for PgBouncer transaction pooling when prepared statements are not available. |
+| `DB_PGBOUNCER_PREPARED_STATEMENTS` | `false` | Keep pgx prepared statement caching on when PgBouncer 1.21 or newer has `max_prepared_statements` configured. |
 | `REDIS_POOL_SIZE` | `30` | Maximum Redis connections per Strait process. |
 | `REDIS_MIN_IDLE_CONNS` | `5` | Minimum warm Redis connections per Strait process. |
 | `WORKER_CONCURRENCY` | `25` | Maximum concurrent job executions per worker process. |

@@ -2,6 +2,7 @@ package billing
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"testing"
@@ -13,9 +14,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// ---------------------------------------------------------------------------.
 // CheckDailyRunLimit -- remaining branches
-// ---------------------------------------------------------------------------.
 
 // TestCheckDailyRunLimit_NilRedis_FailsOpen verifies that a nil Redis client
 // causes CheckDailyRunLimit to return nil (fail open) rather than panic.
@@ -177,9 +176,7 @@ func TestCheckDailyRunLimit_PaymentRestricted(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // DecrDailyRunCount -- decrement paths and error handling
-// ---------------------------------------------------------------------------.
 
 // TestDecrDailyRunCount_EmptyOrgID verifies that decrementing with an empty
 // org ID is a no-op (does not panic or error).
@@ -271,9 +268,7 @@ func TestDecrDailyRunCount_RollbackWithUnlimitedRuns(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // WithMetrics -- functional option
-// ---------------------------------------------------------------------------.
 
 // TestWithMetrics_NilMetrics verifies that passing nil metrics does not panic.
 func TestWithMetrics_NilMetrics(t *testing.T) {
@@ -319,9 +314,7 @@ func TestWithMetrics_OverridesExisting(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // NewEnforcer -- remaining constructor paths
-// ---------------------------------------------------------------------------.
 
 // TestNewEnforcer_NilStore_Panics verifies that passing a nil store panics.
 func TestNewEnforcer_NilStore_Panics(t *testing.T) {
@@ -395,9 +388,7 @@ func TestNewEnforcer_CacheInitialized(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // InvalidateOrgCache -- cache invalidation
-// ---------------------------------------------------------------------------.
 
 // TestInvalidateOrgCache_CacheHitThenInvalidate verifies that after populating
 // the cache via GetOrgPlanLimits, InvalidateOrgCache clears it.
@@ -432,5 +423,55 @@ func TestInvalidateOrgCache_CacheHitThenInvalidate(t *testing.T) {
 	_, _ = enforcer.GetOrgPlanLimits(ctx, "org-cache")
 	if callCount <= firstCount {
 		t.Fatal("expected store to be called again after cache invalidation")
+	}
+}
+
+func TestOrgLimitsCache_PreservesSubscriptionCacheVersionInRedis(t *testing.T) {
+	t.Parallel()
+
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	defer rdb.Close()
+
+	limits := GetPlanLimits(domain.PlanPro)
+	raw, err := json.Marshal(limits)
+	if err != nil {
+		t.Fatalf("marshal limits: %v", err)
+	}
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-versioned": {
+				ID:              "sub-versioned",
+				OrgID:           "org-versioned",
+				PlanTier:        string(domain.PlanPro),
+				Status:          "active",
+				EnforcementMode: "enforce",
+				Entitlements:    raw,
+				CacheVersion:    12,
+			},
+		},
+	}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+
+	got, err := enforcer.GetOrgPlanLimits(context.Background(), "org-versioned")
+	if err != nil {
+		t.Fatalf("GetOrgPlanLimits() error = %v", err)
+	}
+	if got.PlanTier != domain.PlanPro {
+		t.Fatalf("PlanTier = %q, want %q", got.PlanTier, domain.PlanPro)
+	}
+
+	cached, err := rdb.Get(context.Background(), "strait:cache:"+orgLimitsCacheNamespace+":org-versioned").Bytes()
+	if err != nil {
+		t.Fatalf("read redis entry: %v", err)
+	}
+	var envelope struct {
+		Version int64 `json:"version"`
+	}
+	if err := json.Unmarshal(cached, &envelope); err != nil {
+		t.Fatalf("decode redis entry: %v", err)
+	}
+	if envelope.Version != 12 {
+		t.Fatalf("redis version = %d, want 12", envelope.Version)
 	}
 }

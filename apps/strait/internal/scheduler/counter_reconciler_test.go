@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/sourcegraph/conc"
 )
 
 // Unit tests for the counter reconciler.
@@ -144,14 +145,16 @@ func TestCounterReconciler_PanicReturnsError(t *testing.T) {
 }
 
 func TestCounterReconciler_RunExitsOnCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	db := &reconFakeDB{}
 	r := NewCounterReconciler(db, CounterReconcilerConfig{Interval: 5 * time.Millisecond})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		r.Run(ctx)
 		close(done)
-	}()
+	})
 	time.Sleep(30 * time.Millisecond)
 	cancel()
 	select {

@@ -22,10 +22,13 @@ import (
 // server — we instead rely on no-hang behavior and that the non-dropped
 // subset never exceeds the buffer + in-flight batch).
 func TestAuditSIEMDrain_BufferFullDropsAndCounts(t *testing.T) {
-	t.Parallel()
+	var concWG conc.WaitGroup
 
 	// Server that hangs until the test ends, to guarantee the forwarder
 	// goroutine is stuck on the HTTP call and the buffer fills.
+	defer concWG.Wait()
+	t.Parallel()
+
 	release := make(chan struct{})
 	requestArrived := make(chan struct{}, 1)
 	var hits atomic.Int32
@@ -62,12 +65,12 @@ func TestAuditSIEMDrain_BufferFullDropsAndCounts(t *testing.T) {
 	// Now flood — forwarder is stuck, buffer fills and drops kick in.
 	const flood = 2000
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		for range flood {
 			drain.Enqueue(domain.AuditEvent{ID: "ev", Action: "a"})
 		}
 		close(done)
-	}()
+	})
 
 	select {
 	case <-done:
@@ -166,7 +169,6 @@ func TestSIEMDrain_FlushNow_DrainsBufferedEvents(t *testing.T) {
 	defer srv.Close()
 
 	// We need the channel/shutdownCh wired up but no run goroutine consuming
-	// — start, then immediately Stop the run goroutine via shutdownCh so any
 	// subsequent Enqueue piles up in d.ch and FlushNow has work to do.
 	drain := NewAuditSIEMDrain(srv.URL, "", 100, time.Hour)
 	drain.Start(context.Background())

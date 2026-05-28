@@ -4,6 +4,7 @@ package queue_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -78,6 +79,8 @@ func TestQueueNotifier_WakeReceivesNotification(t *testing.T) {
 }
 
 func TestQueueNotifier_RunStopsOnContextCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	if testDB == nil || testDB.ConnStr == "" {
 		t.Fatal("testDB is not initialized")
 	}
@@ -86,10 +89,10 @@ func TestQueueNotifier_RunStopsOnContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		notifier.Run(ctx)
 		close(done)
-	}()
+	})
 
 	// Give the listener time to start.
 	time.Sleep(500 * time.Millisecond)
@@ -159,16 +162,19 @@ func TestQueueNotifier_MultipleWakesCoalesced(t *testing.T) {
 }
 
 func TestQueueNotifier_RunReconnectsAfterBadURL(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
+
 	// Use an invalid database URL to trigger reconnect logic.
 	notifier := queue.NewQueueNotifier("postgres://invalid:5432/nope", slog.Default())
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		notifier.Run(ctx)
 		close(done)
-	}()
+	})
 
 	// Run should eventually exit when context is canceled, even though
 	// it keeps failing to connect.
@@ -177,6 +183,257 @@ func TestQueueNotifier_RunReconnectsAfterBadURL(t *testing.T) {
 		// Exited cleanly after context timeout.
 	case <-time.After(5 * time.Second):
 		t.Fatal("Run did not stop after context cancellation with bad URL")
+	}
+}
+
+func TestQueueNotifyTrigger_SingleEnqueueEmitsOneWake(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	q := mustQueue(t)
+	st := mustStore(t)
+	mustClean(t, ctx)
+	job := mustCreateJob(t, ctx, st, "project-notify-single")
+	listener := listenQueueWake(t, ctx)
+	defer listener.Close(context.Background())
+
+	run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	if got := countQueueWakeNotifications(t, ctx, listener); got != 1 {
+		t.Fatalf("queue wake notifications = %d, want 1", got)
+	}
+}
+
+func TestQueueNotifyTrigger_BatchEnqueueEmitsOneWake(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	q := mustQueue(t)
+	st := mustStore(t)
+	mustClean(t, ctx)
+	job := mustCreateJob(t, ctx, st, "project-notify-batch")
+	listener := listenQueueWake(t, ctx)
+	defer listener.Close(context.Background())
+
+	runs := make([]*domain.JobRun, 10)
+	for i := range runs {
+		runs[i] = &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+	}
+	inserted, err := q.EnqueueBatch(ctx, runs)
+	if err != nil {
+		t.Fatalf("EnqueueBatch() error = %v", err)
+	}
+	if inserted != int64(len(runs)) {
+		t.Fatalf("EnqueueBatch inserted = %d, want %d", inserted, len(runs))
+	}
+
+	if got := countQueueWakeNotifications(t, ctx, listener); got != 1 {
+		t.Fatalf("queue wake notifications = %d, want 1", got)
+	}
+}
+
+func TestQueueNotifyTrigger_StatusUpdateQueuedEmitsOneWakePerStatement(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	q := mustQueue(t)
+	st := mustStore(t)
+	mustClean(t, ctx)
+	job := mustCreateJob(t, ctx, st, "project-notify-update-queued")
+
+	future := time.Now().Add(time.Hour)
+	ids := make([]string, 3)
+	for i := range ids {
+		ids[i] = newID()
+		run := &domain.JobRun{
+			ID:          ids[i],
+			JobID:       job.ID,
+			ProjectID:   job.ProjectID,
+			ScheduledAt: &future,
+		}
+		if err := q.Enqueue(ctx, run); err != nil {
+			t.Fatalf("Enqueue delayed run %d: %v", i, err)
+		}
+	}
+
+	listener := listenQueueWake(t, ctx)
+	defer listener.Close(context.Background())
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE job_runs
+		SET status = 'queued', scheduled_at = NULL
+		WHERE id = ANY($1)
+	`, ids); err != nil {
+		t.Fatalf("update delayed runs to queued: %v", err)
+	}
+
+	if got := countQueueWakeNotifications(t, ctx, listener); got != 1 {
+		t.Fatalf("queue wake notifications = %d, want 1", got)
+	}
+}
+
+func TestQueueNotifyTrigger_NonQueuedTransitionEmitsNoWake(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	q := mustQueue(t)
+	st := mustStore(t)
+	mustClean(t, ctx)
+	job := mustCreateJob(t, ctx, st, "project-notify-nonqueued")
+	run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	listener := listenQueueWake(t, ctx)
+	defer listener.Close(context.Background())
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE job_runs
+		SET status = 'executing', started_at = NOW()
+		WHERE id = $1
+	`, run.ID); err != nil {
+		t.Fatalf("update run to executing: %v", err)
+	}
+
+	if got := countQueueWakeNotifications(t, ctx, listener); got != 0 {
+		t.Fatalf("queue wake notifications = %d, want 0", got)
+	}
+}
+
+func TestQueueNotifyTrigger_BatchlogSealEmitsOneWake(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	q := mustBatchlogQueue(t, time.Second)
+	st := mustStore(t)
+	mustClean(t, ctx)
+	job := mustCreateJob(t, ctx, st, "project-notify-batchlog-seal")
+
+	runs := make([]*domain.JobRun, 3)
+	for i := range runs {
+		runs[i] = &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+		if err := q.Enqueue(ctx, runs[i]); err != nil {
+			t.Fatalf("Enqueue %d: %v", i, err)
+		}
+	}
+
+	listener := listenQueueWake(t, ctx)
+	defer listener.Close(context.Background())
+	sealed, err := q.SealDueBatches(ctx)
+	if err != nil {
+		t.Fatalf("SealDueBatches: %v", err)
+	}
+	if sealed != int64(len(runs)) {
+		t.Fatalf("sealed = %d, want %d", sealed, len(runs))
+	}
+
+	if got := countQueueWakeNotifications(t, ctx, listener); got != 1 {
+		t.Fatalf("queue wake notifications = %d, want 1", got)
+	}
+}
+
+func TestQueueNotifyTrigger_BatchlogReclaimEmitsOneWake(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	q := mustBatchlogQueue(t, 15*time.Millisecond)
+	st := mustStore(t)
+	mustClean(t, ctx)
+	job := mustCreateJob(t, ctx, st, "project-notify-batchlog-reclaim")
+	run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	if _, err := q.SealDueBatches(ctx); err != nil {
+		t.Fatalf("SealDueBatches: %v", err)
+	}
+	claimed, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("DequeueN: %v", err)
+	}
+	if len(claimed) != 1 {
+		t.Fatalf("DequeueN len = %d, want 1", len(claimed))
+	}
+
+	time.Sleep(30 * time.Millisecond)
+	listener := listenQueueWake(t, ctx)
+	defer listener.Close(context.Background())
+	reclaimed, err := q.ReclaimExpiredLeases(ctx)
+	if err != nil {
+		t.Fatalf("ReclaimExpiredLeases: %v", err)
+	}
+	if reclaimed != 1 {
+		t.Fatalf("reclaimed = %d, want 1", reclaimed)
+	}
+
+	if got := countQueueWakeNotifications(t, ctx, listener); got != 1 {
+		t.Fatalf("queue wake notifications = %d, want 1", got)
+	}
+}
+
+func TestQueueNotifyTrigger_BatchlogUnsealedEntryEmitsNoExtraWake(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	q := mustBatchlogQueue(t, time.Second)
+	st := mustStore(t)
+	mustClean(t, ctx)
+	job := mustCreateJob(t, ctx, st, "project-notify-batchlog-unclaimable")
+
+	listener := listenQueueWake(t, ctx)
+	defer listener.Close(context.Background())
+	run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+
+	if got := countQueueWakeNotifications(t, ctx, listener); got != 1 {
+		t.Fatalf("queue wake notifications = %d, want 1", got)
+	}
+}
+
+func listenQueueWake(t *testing.T, ctx context.Context) *pgx.Conn {
+	t.Helper()
+	listener, err := pgx.Connect(ctx, testDB.ConnStr)
+	if err != nil {
+		t.Fatalf("listen conn: %v", err)
+	}
+	if _, err := listener.Exec(ctx, "LISTEN "+queue.QueueWakeChannel); err != nil {
+		_ = listener.Close(context.Background())
+		t.Fatalf("listen queue wake: %v", err)
+	}
+	return listener
+}
+
+func countQueueWakeNotifications(t *testing.T, ctx context.Context, listener *pgx.Conn) int {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	count := 0
+	for {
+		wait := 250 * time.Millisecond
+		if count == 0 {
+			wait = 2 * time.Second
+		}
+		if remaining := time.Until(deadline); remaining < wait {
+			wait = remaining
+		}
+		if wait <= 0 {
+			return count
+		}
+		waitCtx, cancel := context.WithTimeout(ctx, wait)
+		note, err := listener.WaitForNotification(waitCtx)
+		cancel()
+		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+				return count
+			}
+			t.Fatalf("wait for queue wake notification: %v", err)
+		}
+		if note != nil && note.Channel == queue.QueueWakeChannel {
+			count++
+		}
 	}
 }
 

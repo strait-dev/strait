@@ -85,6 +85,11 @@ type ReaperStore interface {
 	ListReapableSingletonWorkflowHolders(ctx context.Context, limit int) ([]string, error)
 }
 
+type staleRunRetryStore interface {
+	GetJob(ctx context.Context, id string) (*domain.Job, error)
+	ScheduleRetry(ctx context.Context, runID string, at time.Time, attempt int) error
+}
+
 // DLQMonitorStore is an optional interface for DLQ depth monitoring.
 type DLQMonitorStore interface {
 	ListDLQDepthByJob(ctx context.Context) ([]DLQJobDepth, error)
@@ -232,7 +237,15 @@ func (r *Reaper) recordDeleted(ctx context.Context, recordType string, count int
 }
 
 // NewReaper creates a new stale and expired run reaper.
-func NewReaper(s ReaperStore, interval, staleThreshold, shortRetention, longRetention time.Duration, retentionEnabled bool, workflowCallback WorkflowCallback) *Reaper {
+func NewReaper(
+	s ReaperStore,
+	interval time.Duration,
+	staleThreshold time.Duration,
+	shortRetention time.Duration,
+	longRetention time.Duration,
+	retentionEnabled bool,
+	workflowCallback WorkflowCallback,
+) *Reaper {
 	if shortRetention <= 0 {
 		shortRetention = 30 * 24 * time.Hour
 	}
@@ -252,7 +265,7 @@ func NewReaper(s ReaperStore, interval, staleThreshold, shortRetention, longRete
 		retentionEnabled:      retentionEnabled,
 		workflowCallback:      workflowCallback,
 		logger:                slog.Default(),
-		stalledAction:         "log_only",
+		stalledAction:         "reconcile",
 		dlqAlertCooldown:      make(map[string]time.Time),
 		queueAlertCooldown:    make(map[string]time.Time),
 		reminderSent:          make(map[string]time.Time),
@@ -325,13 +338,13 @@ func (r *Reaper) WithStalledAction(action string) *Reaper {
 	switch action {
 	case "", "log_only", "reconcile", "fail_workflow":
 		if action == "" {
-			r.stalledAction = "log_only"
+			r.stalledAction = "reconcile"
 		} else {
 			r.stalledAction = action
 		}
 	default:
-		r.logger.Warn("invalid stalled action, using log_only", "action", action)
-		r.stalledAction = "log_only"
+		r.logger.Warn("invalid stalled action, using reconcile", "action", action)
+		r.stalledAction = "reconcile"
 	}
 	return r
 }
@@ -985,7 +998,11 @@ func (r *Reaper) reapStalledWorkflows(ctx context.Context) {
 		switch r.stalledAction {
 		case "fail_workflow":
 			now := time.Now()
-			if err := r.store.UpdateWorkflowRunStatus(ctx, run.ID, run.Status, domain.WfStatusFailed, map[string]any{"finished_at": now, "error": "failed by stalled workflow recovery policy"}); err != nil {
+			fields := map[string]any{
+				"finished_at": now,
+				"error":       "failed by stalled workflow recovery policy",
+			}
+			if err := r.store.UpdateWorkflowRunStatus(ctx, run.ID, run.Status, domain.WfStatusFailed, fields); err != nil {
 				slog.Error("failed to fail stalled workflow run", "workflow_run_id", run.ID, "error", err)
 			}
 		case "reconcile":
@@ -1039,19 +1056,10 @@ func (r *Reaper) reapStale(ctx context.Context) {
 	r.recordOperation(ctx, operation, "success")
 
 	for _, run := range runs {
-		err := r.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusCrashed, map[string]any{
-			"finished_at": time.Now(),
-			"error":       "heartbeat lost",
-		})
-		if err != nil {
-			slog.Error("failed to crash stale run", "run_id", run.ID, "job_id", run.JobID, "error", err)
+		if r.retryStaleRun(ctx, &run) {
 			continue
 		}
-		run.Status = domain.StatusCrashed
-
-		r.notifyWorkflowCallback(ctx, &run)
-
-		slog.Warn("stale run marked crashed", "run_id", run.ID, "job_id", run.JobID)
+		r.crashStaleRun(ctx, &run)
 	}
 }
 
@@ -1135,6 +1143,88 @@ func (r *Reaper) recordSingletonAcquisition(ctx context.Context, kind domain.Sin
 		return
 	}
 	r.metrics.SingletonAcquisitions.Add(ctx, 1, metric.WithAttributes(attribute.String("kind", string(kind))))
+}
+
+func (r *Reaper) retryStaleRun(ctx context.Context, run *domain.JobRun) bool {
+	retryStore, ok := r.store.(staleRunRetryStore)
+	if !ok {
+		return false
+	}
+
+	job, err := retryStore.GetJob(ctx, run.JobID)
+	if err != nil || job == nil {
+		if err != nil {
+			slog.Warn("failed to load job for stale run retry decision", "run_id", run.ID, "job_id", run.JobID, "error", err)
+		}
+		return false
+	}
+
+	maxAttempts := job.MaxAttempts
+	if maxAttempts <= 0 {
+		maxAttempts = 1
+	}
+	if run.Attempt >= maxAttempts {
+		return false
+	}
+
+	nextAttempt := run.Attempt + 1
+	retryAt := nextStaleRunRetryAt(run.Attempt)
+	if err := retryStore.ScheduleRetry(ctx, run.ID, retryAt, nextAttempt); err != nil {
+		slog.Error("failed to schedule stale run retry", "run_id", run.ID, "job_id", run.JobID, "error", err)
+		return false
+	}
+
+	fields := map[string]any{
+		"attempt":      nextAttempt,
+		"started_at":   nil,
+		"finished_at":  nil,
+		"heartbeat_at": nil,
+		"error":        "heartbeat lost; retry scheduled",
+		"error_class":  "transient",
+	}
+	if err := r.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, fields); err != nil {
+		slog.Error("failed to requeue stale run", "run_id", run.ID, "job_id", run.JobID, "error", err)
+		return false
+	}
+
+	run.Attempt = nextAttempt
+	run.Status = domain.StatusQueued
+	slog.Warn("stale run requeued after heartbeat loss", "run_id", run.ID, "job_id", run.JobID, "attempt", nextAttempt, "next_retry_at", retryAt)
+	return true
+}
+
+func (r *Reaper) crashStaleRun(ctx context.Context, run *domain.JobRun) {
+	err := r.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusCrashed, map[string]any{
+		"finished_at": time.Now(),
+		"error":       "heartbeat lost",
+	})
+	if err != nil {
+		slog.Error("failed to crash stale run", "run_id", run.ID, "job_id", run.JobID, "error", err)
+		return
+	}
+	run.Status = domain.StatusCrashed
+
+	r.notifyWorkflowCallback(ctx, run)
+
+	slog.Warn("stale run marked crashed", "run_id", run.ID, "job_id", run.JobID)
+}
+
+func nextStaleRunRetryAt(attempt int) time.Time {
+	if attempt < 1 {
+		attempt = 1
+	}
+	delay := time.Second
+	for range attempt - 1 {
+		if delay >= time.Hour/2 {
+			delay = time.Hour
+			break
+		}
+		delay *= 2
+	}
+	if delay > time.Hour {
+		delay = time.Hour
+	}
+	return time.Now().Add(delay)
 }
 
 func (r *Reaper) reapExpired(ctx context.Context) {
@@ -1496,7 +1586,12 @@ func (r *Reaper) autoRotateAPIKeys(ctx context.Context) {
 			continue
 		}
 		if _, err := r.rotationWebhookSigningSecret(oldKey.RotationWebhookSecret, oldKey.ID, oldKey.ProjectID); err != nil {
-			r.logger.Warn("skipping api key auto-rotation without a usable rotation webhook signing secret", "key_id", oldKey.ID, "project_id", oldKey.ProjectID, "error", err)
+			r.logger.Warn(
+				"skipping api key auto-rotation without a usable rotation webhook signing secret",
+				"key_id", oldKey.ID,
+				"project_id", oldKey.ProjectID,
+				"error", err,
+			)
 			continue
 		}
 		if err := validateRotationWebhookURL(oldKey.RotationWebhookURL, r.allowPrivateEndpoints); err != nil {
@@ -1550,8 +1645,22 @@ func (r *Reaper) autoRotateAPIKeys(ctx context.Context) {
 			continue
 		}
 
-		if err := r.notifyRotationWebhook(ctx, oldKey.RotationWebhookURL, oldKey.RotationWebhookSecret, oldKey.ID, newKey.ID, rawKey, newKey.KeyPrefix, oldKey.ProjectID); err != nil {
-			r.logger.Warn("rotation webhook notification failed; revoking undelivered new key and keeping old key active", "key_id", oldKey.ID, "new_key_id", newKey.ID, "error", err)
+		if err := r.notifyRotationWebhook(
+			ctx,
+			oldKey.RotationWebhookURL,
+			oldKey.RotationWebhookSecret,
+			oldKey.ID,
+			newKey.ID,
+			rawKey,
+			newKey.KeyPrefix,
+			oldKey.ProjectID,
+		); err != nil {
+			r.logger.Warn(
+				"rotation webhook notification failed; revoking undelivered new key and keeping old key active",
+				"key_id", oldKey.ID,
+				"new_key_id", newKey.ID,
+				"error", err,
+			)
 			if revokeErr := rotateStore.RevokeAPIKey(ctx, newKey.ID); revokeErr != nil {
 				r.logger.Error("failed to revoke undelivered auto-rotated api key", "key_id", oldKey.ID, "new_key_id", newKey.ID, "error", revokeErr)
 			}
@@ -1598,24 +1707,55 @@ func autoRotatedAPIKeyExpiry(ctx context.Context, rotateStore AutoRotateAPIKeysS
 	return domain.ApplyAPIKeyLifetimePolicy(time.Now(), oldKey.ExpiresAt, maxLifetimeDays)
 }
 
-func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL string, encryptedSecret []byte, oldKeyID, newKeyID, newKey, newKeyPrefix, projectID string) error {
-	logURL := httputil.RedactURLForLog(webhookURL)
-	if err := validateRotationWebhookURL(webhookURL, r.allowPrivateEndpoints); err != nil {
+type apiKeyRotationWebhook struct {
+	URL             string
+	EncryptedSecret []byte
+	OldKeyID        string
+	NewKeyID        string
+	NewKey          string
+	NewKeyPrefix    string
+	ProjectID       string
+}
+
+func (r *Reaper) notifyRotationWebhook(
+	ctx context.Context,
+	webhookURL string,
+	encryptedSecret []byte,
+	oldKeyID string,
+	newKeyID string,
+	newKey string,
+	newKeyPrefix string,
+	projectID string,
+) error {
+	return r.notifyRotationWebhookRequest(ctx, apiKeyRotationWebhook{
+		URL:             webhookURL,
+		EncryptedSecret: encryptedSecret,
+		OldKeyID:        oldKeyID,
+		NewKeyID:        newKeyID,
+		NewKey:          newKey,
+		NewKeyPrefix:    newKeyPrefix,
+		ProjectID:       projectID,
+	})
+}
+
+func (r *Reaper) notifyRotationWebhookRequest(ctx context.Context, webhook apiKeyRotationWebhook) error {
+	logURL := httputil.RedactURLForLog(webhook.URL)
+	if err := validateRotationWebhookURL(webhook.URL, r.allowPrivateEndpoints); err != nil {
 		r.logger.Warn("rotation webhook URL blocked", "url", logURL, "error", err)
 		return err
 	}
 
 	payload, _ := json.Marshal(map[string]any{
 		"event":          "api_key.auto_rotated",
-		"old_key_id":     oldKeyID,
-		"new_key_id":     newKeyID,
-		"new_key":        newKey,
-		"new_key_prefix": newKeyPrefix,
-		"project_id":     projectID,
+		"old_key_id":     webhook.OldKeyID,
+		"new_key_id":     webhook.NewKeyID,
+		"new_key":        webhook.NewKey,
+		"new_key_prefix": webhook.NewKeyPrefix,
+		"project_id":     webhook.ProjectID,
 		"rotated_at":     time.Now().UTC(),
 	})
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhookURL, bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhook.URL, bytes.NewReader(payload))
 	if err != nil {
 		r.logger.Error("failed to create rotation webhook request", "url", logURL, "error", err)
 		return fmt.Errorf("create rotation webhook request: %w", err)
@@ -1623,7 +1763,7 @@ func (r *Reaper) notifyRotationWebhook(ctx context.Context, webhookURL string, e
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Strait-Event", "api_key.auto_rotated")
 
-	signingSecret, err := r.rotationWebhookSigningSecret(encryptedSecret, oldKeyID, projectID)
+	signingSecret, err := r.rotationWebhookSigningSecret(webhook.EncryptedSecret, webhook.OldKeyID, webhook.ProjectID)
 	if err != nil {
 		return err
 	}

@@ -139,7 +139,10 @@ func EnsureQueueTriggersPresent(ctx context.Context, db store.DBTX) error {
 		relation string
 		function string
 	}{
-		{name: "trg_job_runs_queue_wake_notify", relation: "job_runs", function: "notify_queue_wake"},
+		{name: "trg_job_runs_queue_wake_insert_notify", relation: "job_runs", function: "notify_queue_wake_insert_stmt"},
+		{name: "trg_job_runs_queue_wake_update_notify", relation: "job_runs", function: "notify_queue_wake_update_stmt"},
+		{name: "trg_queue_entries_claimable_wake_insert_notify", relation: "queue_entries", function: "notify_queue_entries_claimable_insert_stmt"},
+		{name: "trg_queue_entries_claimable_wake_update_notify", relation: "queue_entries", function: "notify_queue_entries_claimable_update_stmt"},
 		{name: "job_runs_active_counts_trg", relation: "job_runs", function: "job_active_counts_apply"},
 		{name: "job_runs_dlq_counts_trg", relation: "job_runs", function: "dlq_counts_apply"},
 		{name: "job_runs_seed_job_config_trg", relation: "job_runs", function: "seed_job_config_on_insert"},

@@ -12,9 +12,9 @@ import (
 )
 
 // TestCheckWebhookEventTypes_InternalSecretBypass_Blocked is the canonical
-// internal-secret bypass test for Phase 4.9. It confirms that the X-Internal-
-// Secret header — which lets schedulers and workers skip the per-request
-// project context check — does NOT bypass the plan-tier event-type gate.
+// internal-secret bypass test. It confirms that the X-Internal-Secret header -
+// which lets schedulers and workers skip the per-request project context check -
+// does NOT bypass the plan-tier event-type gate.
 // The gate fires on the project_id supplied in the request body, regardless
 // of caller identity.
 //

@@ -20,9 +20,7 @@ import (
 	"github.com/sourcegraph/conc"
 )
 
-// ---------------------------------------------------------------------------.
 // Helpers
-// ---------------------------------------------------------------------------.
 
 // controllableNotificationStore implements store.NotificationStore with
 // configurable behavior for adversarial testing of the Worker.
@@ -85,9 +83,7 @@ func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
 }
 
-// ---------------------------------------------------------------------------.
 // 1. Malformed notification payloads
-// ---------------------------------------------------------------------------.
 
 func TestWebhookSender_MalformedPayloads(t *testing.T) {
 	t.Parallel()
@@ -247,9 +243,7 @@ func TestWebhookSender_SpecialCharacterPayloads(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // 2. Delivery failures (worker errors, timeouts, partial delivery)
-// ---------------------------------------------------------------------------.
 
 func TestWorker_DispatchUnsupportedChannelType(t *testing.T) {
 	t.Parallel()
@@ -760,9 +754,7 @@ func TestWorker_ContextCancelledDuringProcess(t *testing.T) {
 	w.process(ctx)
 }
 
-// ---------------------------------------------------------------------------.
 // 3. Concurrent notification sending
-// ---------------------------------------------------------------------------.
 
 func TestWebhookSender_ConcurrentSends(t *testing.T) {
 	t.Parallel()
@@ -870,9 +862,7 @@ func TestDiscordSender_ConcurrentSends(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // 4. Retry exhaustion and backoff edge cases
-// ---------------------------------------------------------------------------.
 
 func TestWorker_BackoffCalculation(t *testing.T) {
 	t.Parallel()
@@ -1039,9 +1029,7 @@ func TestWorker_ZeroMaxAttempts_FailsImmediately(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // 5. Duplicate notification prevention (delivery deduplication at worker level)
-// ---------------------------------------------------------------------------.
 
 func TestWorker_SuccessfulDelivery_SetsDeliveredAt(t *testing.T) {
 	t.Parallel()
@@ -1168,6 +1156,8 @@ func TestWorker_ClaimsBatches(t *testing.T) {
 }
 
 func TestWorker_DispatchesClaimedDeliveriesConcurrently(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	slowStarted := make(chan struct{})
@@ -1222,14 +1212,13 @@ func TestWorker_DispatchesClaimedDeliveriesConcurrently(t *testing.T) {
 		}
 		return nil
 	}))
-
-	go func() {
+	concWG.Go(func() {
 		defer close(done)
 		w.dispatchBatch(context.Background(), []domain.NotificationDelivery{
 			{ID: "del-slow", ChannelID: "ch-1", ProjectID: "proj-slow", MaxAttempts: 3},
 			{ID: "del-fast", ChannelID: "ch-1", ProjectID: "proj-fast", MaxAttempts: 3},
 		})
-	}()
+	})
 
 	select {
 	case <-slowStarted:
@@ -1249,9 +1238,7 @@ func TestWorker_DispatchesClaimedDeliveriesConcurrently(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Email sender adversarial tests
-// ---------------------------------------------------------------------------.
 
 func TestEmailSender_XSSInPayloadFields(t *testing.T) {
 	t.Parallel()
@@ -1367,9 +1354,7 @@ func TestWebhookSender_InvalidJSON_Config(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Worker with concurrent Start/Stop
-// ---------------------------------------------------------------------------.
 
 func TestWorker_ConcurrentStartStop(t *testing.T) {
 	t.Parallel()

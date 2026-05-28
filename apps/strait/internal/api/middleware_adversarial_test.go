@@ -21,9 +21,7 @@ import (
 	"strait/internal/store"
 )
 
-// ---------------------------------------------------------------------------.
 // 1. projectContextMiddleware
-// ---------------------------------------------------------------------------.
 
 // mockProjectContextSetter implements ProjectContextSetter for testing.
 type mockProjectContextSetter struct {
@@ -170,9 +168,7 @@ func TestProjectContextMiddleware_StoreDoesNotImplementSetter(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // 1b. rlsTxMiddleware
-// ---------------------------------------------------------------------------.
 
 // rlsFakeTx is a minimal pgx.Tx stub for testing rlsTxMiddleware. Only the
 // methods the middleware calls (Exec, Commit, Rollback) are implemented.
@@ -391,9 +387,7 @@ func TestRLSTxMiddleware_NoTxPool_FallsBackToLegacy(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // 2. requestMetrics
-// ---------------------------------------------------------------------------.
 
 func TestRequestMetrics_NilMetrics(t *testing.T) {
 	t.Parallel()
@@ -454,9 +448,7 @@ func TestRequestMetrics_RecordsErrorStatus(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // 3. normalizeAPIError
-// ---------------------------------------------------------------------------.
 
 func TestNormalizeAPIError_StringInput(t *testing.T) {
 	t.Parallel()
@@ -584,9 +576,7 @@ func TestNormalizeAPIError_JoinedErrors(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // 4. validateTriggerRequest (dry-run validation)
-// ---------------------------------------------------------------------------.
 
 func newTriggerTestServer(t *testing.T, ms *APIStoreMock) *Server {
 	t.Helper()
@@ -775,9 +765,7 @@ func TestValidateTriggerRequest_QuotaExceeded(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // 5. handleCreateProject
-// ---------------------------------------------------------------------------.
 
 func TestHandleCreateProject_StoreError_Adversarial(t *testing.T) {
 	t.Parallel()
@@ -924,9 +912,7 @@ func TestHandleCreateProject_ForbiddenForAPIKeyAuth_Adversarial(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // 6. handleDeleteSecret
-// ---------------------------------------------------------------------------.
 
 func TestHandleDeleteSecret_Success_Adversarial(t *testing.T) {
 	t.Parallel()
@@ -991,9 +977,7 @@ func TestHandleDeleteSecret_StoreError_Adversarial(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Additional edge cases for normalizeAPIError / defaultErrorCode
-// ---------------------------------------------------------------------------.
 
 func TestDefaultErrorCode_AllStatusCodes(t *testing.T) {
 	t.Parallel()
@@ -1034,9 +1018,7 @@ func TestNormalizeAPIError_APIErrorPointerEmptyCodeAndMessage(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Cross-org access via requireProjectMatch
-// ---------------------------------------------------------------------------.
 
 func TestRequireProjectMatch_SameProject(t *testing.T) {
 	t.Parallel()
@@ -1065,9 +1047,7 @@ func TestRequireProjectMatch_NoProjectContext(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // ScheduledAt validation via trigger handler
-// ---------------------------------------------------------------------------.
 
 func TestTriggerJob_ScheduledAtInThePast(t *testing.T) {
 	t.Parallel()
@@ -1129,9 +1109,7 @@ func TestTriggerJob_ScheduledAtFarFuture(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Helper: mock billing enforcer
-// ---------------------------------------------------------------------------.
 
 // adversarialBillingEnforcer satisfies the BillingEnforcer interface for tests.
 type adversarialBillingEnforcer struct {

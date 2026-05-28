@@ -1,0 +1,81 @@
+---
+title: "Strait 0.1.6 Performance Report"
+description: "Measured queue, trigger, CDC, workflow recovery, and runtime guardrails for the 0.1.6 performance work."
+---
+
+This report records the May 25, 2026 local validation pass for the 0.1.6 performance and reliability work. The host was an Apple M1 Pro. Integration tests used local Docker testcontainers when available.
+
+## Scope
+
+The 0.1.6 work focused on lock contention, queue bloat, request-path query count, workflow recovery, CDC redelivery, and runtime tuning. The code now defaults to the faster and safer paths instead of keeping legacy feature flags for the main behavior.
+
+## Before and after
+
+| Area | Before | After | Result |
+|---|---:|---:|---|
+| Workflow trigger enqueue with empty idempotency key | blocking advisory lock per same-job enqueue | no idempotency lock unless key is non-empty | removes lock-timeout failure mode |
+| Stalled workflow default action | `log_only` | `reconcile` | stalled runs auto-resume by default |
+| Trigger admission | blocking advisory lock on hot trigger path | row-atomic admission and retryable contention | removes per-job lock serialization |
+| Health stats hot path | repeated history `COUNT` scans | incremental counters and pass-through reads | O(1) stats on hot paths |
+| Execution trace persistence | write JSON trace by default | `EXECUTION_TRACE_MODE=off` by default | removes default trace update cost |
+| Step visibility race | missing step row could system-fail run | transient requeue path | avoids spurious `SystemFailed` |
+| Heartbeat loss | terminal `Crashed` immediately | retry with backoff while attempts remain | crash recovery follows retry policy |
+| CDC projection publish failure | NACK and redeliver all side effects | ACK projection-only messages, NACK durable handler failures | removes fan-out redelivery amplification |
+| Workflow-step CDC channel | published unused `cdc:workflow_run:%s:steps` messages | not subscribed or registered | removes wasted Redis publish work |
+| Adaptive idle behavior | could shed workers at zero utilization | preserves warm capacity at cold idle | improves burst pickup after idle |
+| Pool tuner pressure signal | raw wait-count increase meant pressure | pressure requires full pool or acquire-wait evidence | avoids false pool pressure advice |
+
+## Benchmark samples
+
+These samples are package-level guards from this pass, not a replacement for the k6 quiet-host suite.
+
+| Benchmark | Before | After | Delta |
+|---|---:|---:|---:|
+| Pool recommendation idle wait-count path | 38.92 ns/op, 48 B/op, 1 alloc/op | 7.20 ns/op, 0 B/op, 0 allocs/op | 5.4x faster, allocation removed |
+| Adaptive cold-idle observe path | not separately measured | 19.66 ns/op, 0 B/op, 0 allocs/op | zero-allocation guard added |
+| CDC additional handler path | not separately measured | 27.42 ns/op, 0 B/op, 0 allocs/op | zero-allocation guard added |
+
+Queue batchlog measurements are tracked in [Queue Batchlog Rollout Benchmark](/development/queue-batchlog-rollout-benchmark).
+
+## Validation commands
+
+```bash
+cd apps/strait && go test ./internal/loadtest/... ./internal/api/... ./internal/queue/... ./internal/worker/... ./internal/cdc/...
+cd apps/strait && go test ./internal/queue/... ./internal/scheduler/... ./internal/cdc/...
+cd apps/strait && go test ./internal/api/... ./internal/store/...
+cd apps/strait && go test ./internal/api/... ./internal/worker/... ./internal/store/... ./internal/config/...
+cd apps/strait && go test ./internal/workflow/... ./internal/worker/... ./internal/scheduler/...
+cd apps/strait && go test ./cmd/strait ./internal/cdc/... ./internal/worker/... ./internal/store/...
+cd apps/strait && golangci-lint run --timeout=10m ./cmd/strait/... ./internal/cdc/... ./internal/worker/... ./internal/store/...
+```
+
+Targeted integration selectors were run for the CDC, runtime, workflow recovery, queue, and store phases. One first pass hit a testcontainers reaper startup error before Strait code ran; retry passed.
+
+## Regression guardrails
+
+Run these after changing queue, workflow recovery, CDC, or runtime tuning code:
+
+```bash
+cd apps/strait && go test -tags=integration -run 'Test.*Enqueue.*Lock|Test.*Workflow.*Concurrent|Test.*StalledWorkflow|Test.*CDC.*Empty' ./internal/queue/... ./internal/scheduler/... ./internal/cdc/... ./internal/workflow/...
+cd apps/strait && go test -tags=integration -run 'Test.*Trigger.*Admission|Test.*Trigger.*Concurrency|Test.*Trigger.*Quota|Test.*BulkTrigger|Test.*EventTrigger' ./internal/api/... ./internal/store/...
+cd apps/strait && go test -tags=integration -run 'Test.*Workflow.*Dispatch|Test.*StepVisibility|Test.*Heartbeat.*Retry|Test.*Crash.*Redispatch|Test.*FanIn' ./internal/workflow/... ./internal/worker/... ./internal/scheduler/...
+cd apps/strait && go test -tags=integration -run 'Test.*CDC.*Fanout|Test.*SideEffectOutbox|Test.*Audit.*Outbox|Test.*Webhook.*Outbox|Test.*Quarantine' ./internal/cdc/... ./internal/store/... ./internal/scheduler/... ./internal/webhook/...
+cd apps/strait && go test -tags=integration -run 'Test.*Adaptive|Test.*PoolTuner|Test.*CDC.*WorkflowStep|Test.*ActivityStream|Test.*OTLP' ./internal/worker/... ./internal/store/... ./internal/cdc/... ./internal/api/...
+```
+
+For before and after performance comparison, run the quiet-host k6 suite with `pg_stat_statements` enabled and compare:
+
+```bash
+cd apps/strait && go test -tags=integration,longtest -run 'Test.*Baseline|Test.*Trigger|Test.*Workflow|Test.*Outbox|Test.*CDC|Test.*Adversarial' -bench 'Benchmark.*' -benchmem -count=10 ./internal/api/... ./internal/queue/... ./internal/loadtest/... ./internal/worker/... ./internal/scheduler/... ./internal/cdc/...
+benchstat baseline.txt final.txt
+```
+
+Acceptance gates:
+
+- no lock-timeout HTTP 500s on trigger or workflow trigger contention.
+- exact trigger admission quotas under concurrency.
+- no duplicate queue claims, lost runs, duplicate webhook deliveries, or dropped audit intents.
+- `GetJobHealthStats` does not scan all job history on request hot paths.
+- `execution_trace` update cost is near zero unless trace persistence is explicitly enabled.
+- CDC fan-out failures do not redeliver durable side effects.
+- batchlog queue and outbox bloat stay flat or improve against the baseline report.

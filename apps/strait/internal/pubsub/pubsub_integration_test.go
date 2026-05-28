@@ -20,7 +20,7 @@ var testRedis *testutil.TestRedis
 func TestMain(m *testing.M) {
 	ctx := context.Background()
 	var err error
-	testRedis, err = testutil.SetupTestRedis(ctx)
+	testRedis, err = testutil.SetupSharedTestRedis(ctx, "pubsub")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "setup redis: %v\n", err)
 		os.Exit(1)
@@ -33,7 +33,7 @@ func TestMain(m *testing.M) {
 // newPublisher creates a RedisPublisher with a fresh client for test isolation.
 func newPublisher(t *testing.T) *pubsub.RedisPublisher {
 	t.Helper()
-	client := redis.NewClient(&redis.Options{Addr: testRedis.Addr})
+	client := redis.NewClient(testRedis.Options())
 	t.Cleanup(func() { _ = client.Close() })
 	return pubsub.NewRedisPublisher(client)
 }
@@ -223,7 +223,7 @@ drain:
 }
 
 func TestRedisPublisher_Close(t *testing.T) {
-	client := redis.NewClient(&redis.Options{Addr: testRedis.Addr})
+	client := redis.NewClient(testRedis.Options())
 	pub := pubsub.NewRedisPublisher(client)
 
 	if err := pub.Close(); err != nil {

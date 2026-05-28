@@ -77,6 +77,13 @@ func (s *Server) handleUpdateProjectSettings(ctx context.Context, input *UpdateP
 		if err := s.store.UpdateProjectMaxKeyLifetimeDays(ctx, projectID, days); err != nil {
 			return nil, huma.Error500InternalServerError("failed to update project settings")
 		}
+		if s.quotaCache != nil {
+			if quota, err := s.store.GetProjectQuota(ctx, projectID); err == nil && quota != nil {
+				s.quotaCache.InvalidateWithVersionContext(ctx, projectID, projectQuotaCacheVersion(quota))
+			} else {
+				s.quotaCache.InvalidateContext(ctx, projectID)
+			}
+		}
 	}
 	out, err := s.handleGetProjectSettings(ctx, &GetProjectSettingsInput{ProjectID: projectID})
 	if err != nil {

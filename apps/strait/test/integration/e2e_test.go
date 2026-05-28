@@ -118,6 +118,7 @@ type jobEndpoint struct {
 }
 
 func startJobEndpoint(t *testing.T) *jobEndpoint {
+	var concWG conc.WaitGroup
 	t.Helper()
 	ep := &jobEndpoint{}
 	mux := http.NewServeMux()
@@ -145,9 +146,11 @@ func startJobEndpoint(t *testing.T) *jobEndpoint {
 	hostname, _ := os.Hostname()
 	_, port, _ := net.SplitHostPort(listener.Addr().String())
 	ep.addr = hostname + ":" + port
-
-	go func() { _ = ep.server.Serve(listener) }()
-	t.Cleanup(func() { _ = ep.server.Shutdown(context.Background()) })
+	concWG.Go(func() { _ = ep.server.Serve(listener) })
+	t.Cleanup(func() {
+		_ = ep.server.Shutdown(context.Background())
+		concWG.Wait()
+	})
 	return ep
 }
 

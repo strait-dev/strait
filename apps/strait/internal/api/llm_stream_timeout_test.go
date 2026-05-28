@@ -11,6 +11,8 @@ import (
 	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/pubsub"
+
+	"github.com/sourcegraph/conc"
 )
 
 func newLLMStreamServerWithDuration(t *testing.T, ms *APIStoreMock, pub *mockPublisher, maxDuration time.Duration) *Server {
@@ -44,6 +46,8 @@ func newLLMStreamServerWithDuration(t *testing.T, ms *APIStoreMock, pub *mockPub
 // Without the timeout the goroutine would block indefinitely on a healthy
 // subscription, holding the SSE conn slot.
 func TestLLMStreamClosesAfterMaxDuration(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	dataCh := make(chan []byte) // never closed, never written
@@ -61,10 +65,10 @@ func TestLLMStreamClosesAfterMaxDuration(t *testing.T) {
 
 	done := make(chan struct{})
 	start := time.Now()
-	go func() {
+	concWG.Go(func() {
 		defer close(done)
 		srv.ServeHTTP(w, req)
-	}()
+	})
 
 	select {
 	case <-done:

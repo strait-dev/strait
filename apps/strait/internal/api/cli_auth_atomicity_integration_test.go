@@ -13,6 +13,7 @@ import (
 	"strait/internal/testutil"
 
 	"github.com/google/uuid"
+	"github.com/sourcegraph/conc"
 )
 
 // TestApproveDeviceCodeRaceNoOrphans drives the canonical race the
@@ -24,10 +25,12 @@ import (
 // CreateAPIKey insert. After the race finishes, exactly one api_keys row
 // must remain for the project.
 func TestApproveDeviceCodeRaceNoOrphans(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	tdb, err := testutil.SetupTestDB(ctx, "../../migrations")
+	tdb, err := testutil.SetupSharedTestDB(ctx, "../../migrations", "api-cli-auth")
 	if err != nil {
 		t.Fatalf("SetupTestDB() error = %v", err)
 	}
@@ -81,7 +84,7 @@ func TestApproveDeviceCodeRaceNoOrphans(t *testing.T) {
 	wg.Add(2)
 	for i := range 2 {
 		label := []string{"a", "b"}[i]
-		go func() {
+		concWG.Go(func() {
 			defer wg.Done()
 			err := approveOnce(label)
 			mu.Lock()
@@ -91,7 +94,7 @@ func TestApproveDeviceCodeRaceNoOrphans(t *testing.T) {
 			} else {
 				errsNG++
 			}
-		}()
+		})
 	}
 	wg.Wait()
 

@@ -14,8 +14,6 @@ import (
 	"github.com/sourcegraph/conc"
 )
 
-// --- Entropy and randomness quality tests. ---.
-
 // TestAllGenerators_NeverEmpty verifies no generator returns an empty string.
 func TestAllGenerators_NeverEmpty(t *testing.T) {
 	t.Parallel()
@@ -75,8 +73,6 @@ func TestAllHexGenerators_NoCollisionIn1000(t *testing.T) {
 	}
 }
 
-// --- Concurrent safety tests. ---.
-
 // TestGenerateTestSecret_ConcurrentSafe verifies no races when called from
 // multiple goroutines simultaneously.
 func TestGenerateTestSecret_ConcurrentSafe(t *testing.T) {
@@ -121,8 +117,6 @@ func TestGenerateTestUserCode_ConcurrentSafe(t *testing.T) {
 		}
 	}
 }
-
-// --- Cryptographic validity tests. ---.
 
 // TestGenerateTestEncryptionKey_ValidForAES256 verifies the key can actually
 // be used to create an AES-256 cipher.
@@ -229,8 +223,6 @@ func TestGenerateTestJWTKey_SignVerifyRoundtrip(t *testing.T) {
 	}
 }
 
-// --- Token-specific adversarial tests. ---.
-
 // TestGenerateTestRunToken_EmptyRunID verifies tokens work with edge-case IDs.
 func TestGenerateTestRunToken_EmptyRunID(t *testing.T) {
 	t.Parallel()
@@ -311,8 +303,6 @@ func TestGenerateTestSSEToken_CrossKeyRejection(t *testing.T) {
 	}
 }
 
-// --- User code distribution test. ---.
-
 // TestGenerateTestUserCode_Distribution verifies that all alphabet characters
 // appear at least once in a large sample, confirming no systematic bias.
 func TestGenerateTestUserCode_Distribution(t *testing.T) {
@@ -333,8 +323,6 @@ func TestGenerateTestUserCode_Distribution(t *testing.T) {
 		}
 	}
 }
-
-// --- API key format adversarial tests. ---.
 
 // TestGenerateTestAPIKey_PrefixNotInRandomPart verifies the random hex portion
 // doesn't accidentally contain the "strait_" prefix again.
@@ -360,8 +348,6 @@ func TestGenerateTestAPIKey_HexAfterPrefix(t *testing.T) {
 	}
 }
 
-// --- Webhook secret format tests. ---.
-
 // TestGenerateTestWebhookSecret_HexAfterPrefix verifies the portion after
 // "whsec_" is valid lowercase hex.
 func TestGenerateTestWebhookSecret_HexAfterPrefix(t *testing.T) {
@@ -372,8 +358,6 @@ func TestGenerateTestWebhookSecret_HexAfterPrefix(t *testing.T) {
 		t.Fatalf("portion after whsec_ is not valid hex: %v", err)
 	}
 }
-
-// --- Database URL adversarial tests. ---.
 
 // TestGenerateTestDatabaseURL_ContainsRequiredParts verifies all URL components
 // are present and well-formed.
@@ -402,8 +386,6 @@ func TestGenerateTestDatabaseURL_RandomDBName(t *testing.T) {
 		urls[url] = true
 	}
 }
-
-// --- Fuzz tests. ---.
 
 // FuzzGenerateTestSecret_NoPanic verifies GenerateTestSecret never panics
 // for any positive byte length.

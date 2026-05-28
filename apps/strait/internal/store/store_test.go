@@ -655,7 +655,7 @@ func TestDeleteExpiredJobMemory_MultipleBatches(t *testing.T) {
 	}
 }
 
-func TestCanDispatchEndpoint_QueryContainsFORUPDATE(t *testing.T) {
+func TestCanDispatchEndpoint_ClosedFastPathAvoidsFORUPDATE(t *testing.T) {
 	t.Parallel()
 	var capturedSQL string
 	db := &mockDBTX{
@@ -676,8 +676,187 @@ func TestCanDispatchEndpoint_QueryContainsFORUPDATE(t *testing.T) {
 	if !ok {
 		t.Error("expected dispatch allowed for new endpoint")
 	}
-	if !strings.Contains(capturedSQL, "FOR UPDATE") {
-		t.Errorf("CanDispatchEndpoint query missing FOR UPDATE, got: %s", capturedSQL)
+	if strings.Contains(capturedSQL, "FOR UPDATE") {
+		t.Errorf("CanDispatchEndpoint fast path should not lock, got: %s", capturedSQL)
+	}
+}
+
+func TestCanDispatchEndpoint_OpenExpiredSlowPathUsesFORUPDATE(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	var queries []string
+	db := &mockDBTX{
+		queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
+			queries = append(queries, sql)
+			switch len(queries) {
+			case 1:
+				return &mockRow{scanFn: scanEndpointCircuitState("https://example.com", domain.CircuitStateOpen, now.Add(-time.Minute))}
+			default:
+				return &mockRow{scanFn: scanEndpointCircuitState("https://example.com", domain.CircuitStateClosed, time.Time{})}
+			}
+		},
+	}
+	q := New(db)
+	ok, retryAt, err := q.CanDispatchEndpoint(context.Background(), "https://example.com", now)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !ok {
+		t.Error("expected dispatch allowed after expired open circuit reset")
+	}
+	if retryAt != nil {
+		t.Fatalf("retryAt = %v, want nil", retryAt)
+	}
+	if len(queries) != 2 {
+		t.Fatalf("query count = %d, want fast read plus locked slow path", len(queries))
+	}
+	if !strings.Contains(queries[1], "FOR UPDATE") {
+		t.Errorf("CanDispatchEndpoint slow path missing FOR UPDATE, got: %s", queries[1])
+	}
+}
+
+func BenchmarkCanDispatchEndpoint_ClosedFastPath(b *testing.B) {
+	db := &mockDBTX{
+		queryRowFn: func(_ context.Context, _ string, _ ...any) pgx.Row {
+			return &mockRow{scanFn: scanEndpointCircuitState("https://example.com", domain.CircuitStateClosed, time.Time{})}
+		},
+	}
+	q := New(db)
+	ctx := context.Background()
+	now := time.Now()
+
+	b.ReportAllocs()
+	for b.Loop() {
+		ok, retryAt, err := q.CanDispatchEndpoint(ctx, "https://example.com", now)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if !ok || retryAt != nil {
+			b.Fatalf("CanDispatchEndpoint() = %v, %v; want allowed nil retry", ok, retryAt)
+		}
+	}
+}
+
+func scanEndpointCircuitState(endpointURL string, state domain.CircuitState, halfOpenUntil time.Time) func(...any) error {
+	return func(dest ...any) error {
+		if len(dest) != 7 {
+			return fmt.Errorf("dest len = %d, want 7", len(dest))
+		}
+		now := time.Now()
+		*(dest[0].(*string)) = endpointURL
+		*(dest[1].(*domain.CircuitState)) = state
+		*(dest[2].(*int)) = 0
+		*(dest[3].(**time.Time)) = nil
+		if halfOpenUntil.IsZero() {
+			*(dest[4].(**time.Time)) = nil
+		} else {
+			*(dest[4].(**time.Time)) = &halfOpenUntil
+		}
+		*(dest[5].(*time.Time)) = now
+		*(dest[6].(*time.Time)) = now
+		return nil
+	}
+}
+
+func TestGetJobHealthCounts_QueryExcludesPercentiles(t *testing.T) {
+	t.Parallel()
+
+	var capturedSQL string
+	db := &mockDBTX{
+		queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
+			capturedSQL = sql
+			return &mockRow{scanFn: scanJobHealthCounts(10, 8, 1, 1, 0, 0, 0)}
+		},
+	}
+	q := New(db)
+	stats, err := q.GetJobHealthCounts(context.Background(), "job-1", time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("GetJobHealthCounts() error = %v", err)
+	}
+	if strings.Contains(capturedSQL, "PERCENTILE_CONT") {
+		t.Fatalf("GetJobHealthCounts query contains percentile aggregate: %s", capturedSQL)
+	}
+	if strings.Contains(capturedSQL, "AVG(") {
+		t.Fatalf("GetJobHealthCounts query contains duration average: %s", capturedSQL)
+	}
+	if stats.SuccessRate != 80 {
+		t.Fatalf("SuccessRate = %f, want 80", stats.SuccessRate)
+	}
+	if stats.HealthScore != 56 {
+		t.Fatalf("HealthScore = %f, want 56", stats.HealthScore)
+	}
+}
+
+func TestGetJobHealthStats_QueryIncludesPercentiles(t *testing.T) {
+	t.Parallel()
+
+	var capturedSQL string
+	db := &mockDBTX{
+		queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
+			capturedSQL = sql
+			return &mockRow{scanFn: scanJobHealthStats(10, 8, 1, 1, 0, 0, 0, 2.0, 3.0, 4.0)}
+		},
+	}
+	q := New(db)
+	if _, err := q.GetJobHealthStats(context.Background(), "job-1", time.Now().Add(-time.Hour)); err != nil {
+		t.Fatalf("GetJobHealthStats() error = %v", err)
+	}
+	if !strings.Contains(capturedSQL, "PERCENTILE_CONT") {
+		t.Fatalf("GetJobHealthStats query missing percentile aggregate: %s", capturedSQL)
+	}
+}
+
+func BenchmarkGetJobHealthCounts(b *testing.B) {
+	db := &mockDBTX{
+		queryRowFn: func(_ context.Context, _ string, _ ...any) pgx.Row {
+			return &mockRow{scanFn: scanJobHealthCounts(100, 95, 2, 1, 1, 1, 0)}
+		},
+	}
+	q := New(db)
+	ctx := context.Background()
+	since := time.Now().Add(-24 * time.Hour)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		stats, err := q.GetJobHealthCounts(ctx, "job-1", since)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if stats.SuccessRate != 95 {
+			b.Fatalf("SuccessRate = %f, want 95", stats.SuccessRate)
+		}
+	}
+}
+
+func scanJobHealthCounts(total, completed, failed, timedOut, crashed, canceled, expired int) func(...any) error {
+	return func(dest ...any) error {
+		if len(dest) != 7 {
+			return fmt.Errorf("dest len = %d, want 7", len(dest))
+		}
+		*(dest[0].(*int)) = total
+		*(dest[1].(*int)) = completed
+		*(dest[2].(*int)) = failed
+		*(dest[3].(*int)) = timedOut
+		*(dest[4].(*int)) = crashed
+		*(dest[5].(*int)) = canceled
+		*(dest[6].(*int)) = expired
+		return nil
+	}
+}
+
+func scanJobHealthStats(total, completed, failed, timedOut, crashed, canceled, expired int, avg, p95, p99 float64) func(...any) error {
+	return func(dest ...any) error {
+		if len(dest) != 10 {
+			return fmt.Errorf("dest len = %d, want 10", len(dest))
+		}
+		if err := scanJobHealthCounts(total, completed, failed, timedOut, crashed, canceled, expired)(dest[:7]...); err != nil {
+			return err
+		}
+		*(dest[7].(*float64)) = avg
+		*(dest[8].(*float64)) = p95
+		*(dest[9].(*float64)) = p99
+		return nil
 	}
 }
 

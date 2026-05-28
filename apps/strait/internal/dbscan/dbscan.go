@@ -14,6 +14,16 @@ type Scanner interface {
 
 // ScanRun scans a single job_runs row into a domain.JobRun.
 func ScanRun(scanner Scanner) (*domain.JobRun, error) {
+	return scanRun(scanner, false)
+}
+
+// ScanRunWithCacheVersion scans a job run row with cache_version appended as
+// the final selected column.
+func ScanRunWithCacheVersion(scanner Scanner) (*domain.JobRun, error) {
+	return scanRun(scanner, true)
+}
+
+func scanRun(scanner Scanner, includeCacheVersion bool) (*domain.JobRun, error) {
 	var run domain.JobRun
 	var payload []byte
 	var result []byte
@@ -33,8 +43,7 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 	var executionMode *string
 	var isRollback bool
 	var replayedRunID *string
-
-	err := scanner.Scan(
+	dest := []any{
 		&run.ID,
 		&run.JobID,
 		&run.ProjectID,
@@ -70,7 +79,12 @@ func ScanRun(scanner Scanner) (*domain.JobRun, error) {
 		&executionMode,
 		&isRollback,
 		&replayedRunID,
-	)
+	}
+	if includeCacheVersion {
+		dest = append(dest, &run.CacheVersion)
+	}
+
+	err := scanner.Scan(dest...)
 	if err != nil {
 		return nil, err
 	}

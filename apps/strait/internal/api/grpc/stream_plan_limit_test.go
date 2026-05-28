@@ -7,6 +7,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/sourcegraph/conc"
 )
 
 // stubPlanLimitEnforcer is a hand-rolled implementation of planLimitEnforcer
@@ -104,6 +106,8 @@ func TestRegistry_CountByOrg(t *testing.T) {
 // TestRegistry_CountByOrg_Concurrent exercises CountByOrg under concurrent
 // register / deregister to surface any data race.
 func TestRegistry_CountByOrg_Concurrent(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	r := NewConnectionRegistry()
@@ -114,21 +118,24 @@ func TestRegistry_CountByOrg_Concurrent(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(n)
 	for i := range n {
-		go func(i int) {
-			defer wg.Done()
-			w := makeWorker(fmt.Sprintf("w-%d", i), "proj-a", fmt.Sprintf("key-%d", i), []string{"q"}, 1)
-			w.OrgID = "org-1"
-			_ = r.Register(w)
-		}(i)
+		{
+			i := i
+			concWG.Go(func() {
+				defer wg.Done()
+				w := makeWorker(fmt.Sprintf("w-%d", i), "proj-a", fmt.Sprintf("key-%d", i), []string{"q"}, 1)
+				w.OrgID = "org-1"
+				_ = r.Register(w)
+			})
+		}
 	}
 
 	// Concurrently call CountByOrg.
 	var readDone atomic.Bool
-	go func() {
+	concWG.Go(func() {
 		for !readDone.Load() {
 			_ = r.CountByOrg("org-1")
 		}
-	}()
+	})
 
 	wg.Wait()
 	readDone.Store(true)

@@ -78,7 +78,6 @@ func idempotencyBackoffWithJitter(attempt int) time.Duration {
 //
 // A collision means two unrelated (project, key) pairs serialize on the
 // same pg_advisory_xact_lock, costing one extra microsecond of contention
-// — it does NOT cause an idempotency leak. Correctness is anchored on the
 // (project_id, key) PRIMARY KEY constraint on idempotency_keys; the
 // advisory lock is purely a contention reducer that lets us avoid the
 // row-lock + deadlock-prone INSERT-then-SELECT pattern.

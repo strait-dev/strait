@@ -12,13 +12,13 @@ import (
 	"strait/internal/domain"
 	"strait/internal/scheduler"
 	"strait/internal/store"
+
+	"github.com/sourcegraph/conc"
 )
 
-// ---------------------------------------------------------------------------
 // Mock stores for reaper optional-interface tests.
 // These embed a base mock that satisfies scheduler.ReaperStore, plus
 // optional interfaces that the reaper discovers via type assertions.
-// ---------------------------------------------------------------------------.
 
 // baseReaperStore provides stub implementations for all ReaperStore methods.
 type baseReaperStore struct{}
@@ -153,9 +153,7 @@ func (baseReaperStore) GetRunFromHistory(_ context.Context, _ string) (*domain.J
 	return nil, nil
 }
 
-// ---------------------------------------------------------------------------
 // 1. monitorQueueDepth
-// ---------------------------------------------------------------------------.
 
 // qdStore satisfies ReaperStore + QueueDepthMonitorStore.
 type qdStore struct {
@@ -216,9 +214,7 @@ func TestIntegration_MonitorQueueDepth_StoreError(t *testing.T) {
 	r.ReapOnce(ctx)
 }
 
-// ---------------------------------------------------------------------------
 // 2. monitorDLQDepth
-// ---------------------------------------------------------------------------.
 
 // dlqStore satisfies ReaperStore + DLQMonitorStore.
 type dlqStore struct {
@@ -277,9 +273,7 @@ func TestIntegration_MonitorDLQDepth_StoreError(t *testing.T) {
 	r.ReapOnce(ctx)
 }
 
-// ---------------------------------------------------------------------------
 // 3. reapOrphanedStepRuns
-// ---------------------------------------------------------------------------.
 
 // reconciliationStore satisfies ReaperStore + ReconciliationStore.
 type reconciliationStore struct {
@@ -383,9 +377,7 @@ func TestIntegration_ReapOrphanedStepRuns_NoOrphans(t *testing.T) {
 	r.ReapOnce(ctx)
 }
 
-// ---------------------------------------------------------------------------
 // 4. reapStuckWebhookDeliveries
-// ---------------------------------------------------------------------------.
 
 func TestIntegration_ReapStuckWebhookDeliveries_ResetsStuck(t *testing.T) {
 	ctx := context.Background()
@@ -430,9 +422,7 @@ func TestIntegration_ReapStuckWebhookDeliveries_StoreError(t *testing.T) {
 	r.ReapOnce(ctx)
 }
 
-// ---------------------------------------------------------------------------
 // 5. StatsAggregator.Run
-// ---------------------------------------------------------------------------.
 
 // intMockStatsStore implements scheduler.StatsAggregatorStore.
 type intMockStatsStore struct {
@@ -451,15 +441,17 @@ func (s *intMockStatsStore) AggregateCostStatsHourly(_ context.Context, _ time.T
 }
 
 func TestIntegration_StatsAggregator_ContextCancellation(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ms := &intMockStatsStore{}
 	agg := scheduler.NewStatsAggregator(ms)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		agg.Run(ctx)
 		close(done)
-	}()
+	})
 
 	// Cancel immediately -- the aggregator should exit without crashing.
 	cancel()
@@ -472,9 +464,7 @@ func TestIntegration_StatsAggregator_ContextCancellation(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // 6. recordCronDrift
-// ---------------------------------------------------------------------------.
 
 func TestIntegration_RecordCronDrift_NilMetrics(t *testing.T) {
 	ctx := context.Background()
@@ -513,9 +503,7 @@ func TestIntegration_RecordCronDrift_ValidCronExpr(t *testing.T) {
 	<-stopCtx.Done()
 }
 
-// ---------------------------------------------------------------------------
 // 7. checkRunLimitWarnings
-// ---------------------------------------------------------------------------.
 
 // intMockRunLimitStore implements scheduler.RunLimitStore.
 type intMockRunLimitStore struct {
@@ -585,9 +573,7 @@ func TestIntegration_CheckRunLimitWarnings_NilEnforcer(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Shared helpers and mocks
-// ---------------------------------------------------------------------------.
 
 var errSimulated = errSentinel("simulated store error")
 

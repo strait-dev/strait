@@ -22,7 +22,7 @@ func TestApplyDBRuntimeParams_ActualSession(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	tdb, err := testutil.SetupTestDB(ctx, "../../migrations")
+	tdb, err := testutil.SetupSharedTestDB(ctx, "../../migrations", "config-db-params")
 	if err != nil {
 		t.Fatalf("setup test db: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestApplyDBRuntimeParams_ZeroLeavesDefaults(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	tdb, err := testutil.SetupTestDB(ctx, "../../migrations")
+	tdb, err := testutil.SetupSharedTestDB(ctx, "../../migrations", "config-db-params")
 	if err != nil {
 		t.Fatalf("setup test db: %v", err)
 	}

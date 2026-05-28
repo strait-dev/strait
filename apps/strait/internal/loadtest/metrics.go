@@ -152,7 +152,7 @@ func (mc *MetricsCollector) Start(ctx context.Context) error {
 
 	ctx, mc.cancel = context.WithCancel(ctx)
 
-	go mc.collectLoop(ctx) //nolint:gosec // ctx is already derived from the caller's context
+	go mc.collectLoop(ctx) //nolint:gosec // Stop cancels ctx and waits for mc.done before returning
 	return nil
 }
 

@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"hash/fnv"
 	"io"
 	"log/slog"
 	"maps"
@@ -21,6 +20,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/robfig/cron/v3"
 	otelattr "go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
@@ -34,11 +34,15 @@ var (
 	errTriggerProjectQueuedQuotaExceeded    = errors.New("project queued quota exceeded")
 	errTriggerProjectExecutingQuotaExceeded = errors.New("project executing quota exceeded")
 	errTriggerJobRateLimitExceeded          = errors.New("job rate limit exceeded")
+	errTriggerAdmissionContended            = errors.New("trigger admission contended")
 )
 
 type triggerLimitTransactioner interface {
 	WithTx(ctx context.Context, fn func(context.Context, store.DBTX) error) error
 }
+
+const triggerAdmissionLockTimeout = "2500ms"
+const setTriggerAdmissionLockTimeoutSQL = "SET LOCAL lock_timeout = '" + triggerAdmissionLockTimeout + "'"
 
 type TriggerRequest struct {
 	Payload        json.RawMessage   `json:"payload,omitempty"`
@@ -73,137 +77,123 @@ type TriggerJobOutput struct {
 	Body any
 }
 
-//nolint:gocognit,gocyclo,cyclop,funlen
 func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (*TriggerJobOutput, error) {
-	jobID := input.JobID
-	if err := validateRunCreationJobID(jobID); err != nil {
-		return nil, huma.Error400BadRequest(err.Error())
-	}
-
-	job, err := s.store.GetJob(ctx, jobID)
+	job, err := s.loadTriggerJob(ctx, input.JobID)
 	if err != nil {
-		if errors.Is(err, store.ErrJobNotFound) {
-			return nil, huma.Error404NotFound("job not found")
-		}
-		return nil, huma.Error500InternalServerError("failed to get job")
-	}
-
-	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
-		return nil, huma.Error404NotFound("job not found")
-	}
-	if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
-		return nil, huma.Error404NotFound("job not found")
-	}
-	s.emitInternalSecretBypassAuditIfProjectless(ctx, "trigger_job.project_match", "handleTriggerJob", "job", job.ID)
-
-	if !job.Enabled {
-		return nil, huma.Error400BadRequest("job is disabled")
-	}
-
-	if job.Paused {
-		return nil, huma.Error409Conflict("job is paused -- resume it before triggering new runs")
+		return nil, err
 	}
 
 	req := input.Body
-	if err := s.validate.Struct(&req); err != nil {
-		return nil, newValidationError(err)
-	}
-	if err := validateTriggerTraceHeaders(input); err != nil {
-		return nil, huma.Error400BadRequest(err.Error())
-	}
-	if err := validatePayloadSize(req.Payload); err != nil {
-		return nil, huma.Error400BadRequest(err.Error())
-	}
-	if err := validateTags(req.Tags); err != nil {
-		return nil, huma.Error400BadRequest(err.Error())
-	}
-	if err := validateTriggerScheduledAt(req.ScheduledAt); err != nil {
-		return nil, huma.Error400BadRequest(err.Error())
+	if err := s.validateTriggerJobInput(input, &req); err != nil {
+		return nil, err
 	}
 
-	// Handle dry-run mode
 	if req.DryRun {
-		result, err := s.validateTriggerRequest(ctx, jobID, req)
-		if err != nil {
-			var statusErr huma.StatusError
-			if errors.As(err, &statusErr) {
-				return nil, statusErr
-			}
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-		return nil, &rawStatusError{status: http.StatusOK, body: result}
+		return s.handleTriggerDryRun(ctx, job.ID, req)
 	}
+
+	state, idempotencyHit, err := s.prepareTriggerRequest(ctx, input, job, req)
+	if err != nil {
+		return nil, err
+	}
+	if idempotencyHit != nil {
+		return nil, idempotencyHit
+	}
+
+	if dedupOutput, err := s.triggerDedupOutput(ctx, state); err != nil || dedupOutput != nil {
+		return dedupOutput, err
+	}
+	if debounceOutput, handled, err := s.handleDebounceTrigger(ctx, state); err != nil || handled {
+		return debounceOutput, err
+	}
+	if batchOutput, handled, err := s.handleBatchTrigger(ctx, input, state); err != nil || handled {
+		return batchOutput, err
+	}
+
+	return s.handleImmediateTrigger(ctx, input, state)
+}
+
+type triggerRequestState struct {
+	job            *domain.Job
+	req            TriggerRequest
+	payload        json.RawMessage
+	payloadHash    string
+	idempotencyKey string
+	projectQuota   *store.ProjectQuota
+}
+
+func (s *Server) prepareTriggerRequest(
+	ctx context.Context,
+	input *TriggerJobInput,
+	job *domain.Job,
+	req TriggerRequest,
+) (*triggerRequestState, *rawStatusError, error) {
 	if err := validatePayloadAgainstSchema(req.Payload, job.PayloadSchema); err != nil {
-		return nil, huma.Error400BadRequest("payload validation failed: " + err.Error())
+		return nil, nil, huma.Error400BadRequest("payload validation failed: " + err.Error())
 	}
 
 	payload, payloadHash, err := canonicalizePayload(req.Payload)
 	if err != nil {
-		return nil, huma.Error400BadRequest("invalid payload: " + err.Error())
+		return nil, nil, huma.Error400BadRequest("invalid payload: " + err.Error())
 	}
 
-	// Idempotency check: must happen before quotas, rate limits, and cost
-	// budgets so that retried requests with the same key always get the
-	// cached response regardless of transient limit conditions.
-	idempotencyKey := input.XIdempotencyKey
-	if idempotencyKey == "" {
-		idempotencyKey = input.IdempotencyKeyAlt
+	idempotencyKey, err := triggerIdempotencyKey(input)
+	if err != nil {
+		return nil, nil, err
 	}
-	if idempotencyKey != "" {
-		if len(idempotencyKey) > maxIdempotencyKeyLength {
-			return nil, huma.Error400BadRequest(
-				fmt.Sprintf("idempotency key must be %d characters or fewer", maxIdempotencyKeyLength))
-		}
-
-		existingRun, idempErr := s.store.GetRunByIdempotencyKey(ctx, job.ID, idempotencyKey)
-		if idempErr != nil {
-			return nil, huma.Error500InternalServerError("failed to check idempotency key")
-		}
-		if existingRun != nil {
-			idempotencyKeyHash := hashIdempotencyKey(idempotencyKey)
-			slog.Info("idempotency hit",
-				"job_id", job.ID,
-				"idempotency_key_hash", idempotencyKeyHash,
-				"existing_run_id", existingRun.ID,
-				"existing_run_status", existingRun.Status)
-			return nil, &rawStatusError{status: http.StatusOK, body: map[string]any{
-				"id":              existingRun.ID,
-				"status":          existingRun.Status,
-				"idempotency_hit": true,
-			}}
-		}
+	idempotencyHit, err := s.triggerIdempotencyHit(ctx, job, idempotencyKey)
+	if err != nil {
+		return nil, nil, err
+	}
+	if idempotencyHit != nil {
+		return nil, idempotencyHit, nil
 	}
 
 	if err := s.checkTriggerDispatchPriority(ctx, job.ProjectID, req.Priority); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	var projectQuota *store.ProjectQuota
-	projectQuota, err = s.quotaCache.Get(ctx, job.ProjectID)
+	projectQuota, err := s.quotaCache.Get(ctx, job.ProjectID)
 	if err != nil {
-		return nil, huma.Error500InternalServerError("failed to load project quota")
+		return nil, nil, huma.Error500InternalServerError("failed to load project quota")
 	}
 
 	if err := s.checkTriggerDailyCostBudget(ctx, job.ProjectID, projectQuota); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
+	return &triggerRequestState{
+		job:            job,
+		req:            req,
+		payload:        payload,
+		payloadHash:    payloadHash,
+		idempotencyKey: idempotencyKey,
+		projectQuota:   projectQuota,
+	}, idempotencyHit, nil
+}
+
+func (s *Server) triggerDedupOutput(ctx context.Context, state *triggerRequestState) (*TriggerJobOutput, error) {
+	job := state.job
 	if job.DedupWindowSecs > 0 {
-		existingRun, findErr := s.findRecentDeduplicatedRun(ctx, job, payload)
-		if findErr != nil {
+		existingRun, err := s.findRecentDeduplicatedRun(ctx, job, state.payload)
+		if err != nil {
 			return nil, huma.Error500InternalServerError("failed to evaluate payload deduplication")
 		}
 		if existingRun != nil {
 			return &TriggerJobOutput{Body: map[string]any{
 				"id":              existingRun.ID,
 				"status":          existingRun.Status,
-				"payload_hash":    payloadHash,
+				"payload_hash":    state.payloadHash,
 				"idempotency_hit": false,
 			}}, nil
 		}
 	}
+	return nil, nil
+}
 
-	// Debounce: coalesce rapid triggers into one run after quiet window.
+func (s *Server) handleDebounceTrigger(ctx context.Context, state *triggerRequestState) (*TriggerJobOutput, bool, error) {
+	job := state.job
+	req := state.req
 	if job.DebounceWindowSecs > 0 {
 		fireAt := time.Now().Add(time.Duration(job.DebounceWindowSecs) * time.Second)
 		tagsJSON, _ := json.Marshal(req.Tags)
@@ -211,7 +201,7 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 			JobID:          job.ID,
 			ProjectID:      job.ProjectID,
 			DebounceKey:    req.DebounceKey,
-			Payload:        payload,
+			Payload:        state.payload,
 			Tags:           tagsJSON,
 			Priority:       req.Priority,
 			ConcurrencyKey: req.ConcurrencyKey,
@@ -220,10 +210,10 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 			CreatedBy:      actorFromContext(ctx),
 			FireAt:         fireAt,
 		}
-		if err := s.withTriggerLimitGuard(ctx, job, projectQuota, func(guardCtx context.Context, _ store.DBTX) error {
+		if err := s.withTriggerLimitGuard(ctx, job, state.projectQuota, func(guardCtx context.Context, _ store.DBTX) error {
 			return s.store.UpsertDebouncePending(guardCtx, pending)
 		}); err != nil {
-			return nil, triggerLimitAPIError(err, "failed to upsert debounce pending")
+			return nil, true, triggerLimitAPIError(err, "failed to upsert debounce pending")
 		}
 		s.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", job.ID, map[string]any{
 			"debounced":         true,
@@ -236,17 +226,21 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		return &TriggerJobOutput{Body: map[string]any{
 			"debounced": true,
 			"fire_at":   fireAt,
-		}}, nil
+		}}, true, nil
 	}
+	return nil, false, nil
+}
 
-	// Batch: collect payloads until size or time threshold, then flush as one run.
+func (s *Server) handleBatchTrigger(ctx context.Context, input *TriggerJobInput, state *triggerRequestState) (*TriggerJobOutput, bool, error) {
+	job := state.job
+	req := state.req
 	if job.BatchWindowSecs > 0 {
 		tagsJSON, _ := json.Marshal(req.Tags)
 		item := &domain.BatchBufferItem{
 			JobID:       job.ID,
 			ProjectID:   job.ProjectID,
 			BatchKey:    req.BatchKey,
-			Payload:     payload,
+			Payload:     state.payload,
 			Tags:        tagsJSON,
 			Priority:    req.Priority,
 			TriggeredBy: domain.TriggerManual,
@@ -254,12 +248,11 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		}
 		var batchOutput *TriggerJobOutput
 		var batchRunID string
-		if err := s.withTriggerLimitGuard(ctx, job, projectQuota, func(guardCtx context.Context, tx store.DBTX) error {
+		if err := s.withTriggerLimitGuard(ctx, job, state.projectQuota, func(guardCtx context.Context, tx store.DBTX) error {
 			if err := s.store.InsertBatchBufferItem(guardCtx, item); err != nil {
 				return fmt.Errorf("insert batch buffer item: %w", err)
 			}
 
-			// Check if max size reached -> immediate flush.
 			if job.BatchMaxSize <= 0 {
 				return nil
 			}
@@ -317,9 +310,9 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 			return nil
 		}); err != nil {
 			if apiErr := enqueueAPIError(err); apiErr != nil {
-				return nil, apiErr
+				return nil, true, apiErr
 			}
-			return nil, triggerLimitAPIError(err, "failed to insert batch buffer item")
+			return nil, true, triggerLimitAPIError(err, "failed to insert batch buffer item")
 		}
 		if batchOutput != nil {
 			s.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", job.ID, map[string]any{
@@ -332,7 +325,7 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 				"batch_max_size":   job.BatchMaxSize,
 				"batch_window_sec": job.BatchWindowSecs,
 			})
-			return batchOutput, nil
+			return batchOutput, true, nil
 		}
 
 		s.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", job.ID, map[string]any{
@@ -345,82 +338,112 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		})
 		return &TriggerJobOutput{Body: map[string]any{
 			"buffered": true,
-		}}, nil
+		}}, true, nil
 	}
+	return nil, false, nil
+}
 
-	runID := uuid.Must(uuid.NewV7()).String()
+func (s *Server) handleImmediateTrigger(ctx context.Context, input *TriggerJobInput, state *triggerRequestState) (*TriggerJobOutput, error) {
+	job := state.job
+	req := state.req
 	now := time.Now()
-	scheduledAt := req.ScheduledAt
-	if job.ExecutionWindowCron != "" {
-		timezone := job.Timezone
-		if timezone == "" && projectQuota != nil {
-			timezone = projectQuota.Timezone
+	scheduledAt, err := triggerScheduledAt(job, state.projectQuota, req.ScheduledAt, now)
+	if err != nil {
+		return nil, huma.Error400BadRequest(err.Error())
+	}
+	run := s.newImmediateTriggerRun(ctx, input, state, immediateTriggerRunConfig{
+		scheduledAt: scheduledAt,
+		expiresAt:   s.triggerExpiresAt(job, req, scheduledAt, now),
+		status:      triggerInitialStatus(scheduledAt, now),
+	})
+
+	result, err := s.enqueueImmediateTriggerRun(ctx, state, run)
+	if err != nil {
+		return nil, err
+	}
+	if result.deduplicatedRun != nil {
+		return triggerRunOutput(result.deduplicatedRun, state.payloadHash, false), nil
+	}
+
+	if result.singletonConfigured {
+		s.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", job.ID, map[string]any{
+			"run_id":             run.ID,
+			"priority":           req.Priority,
+			"tag_keys":           tagKeys(run.Tags),
+			"triggered_by":       run.TriggeredBy,
+			"singleton_key_hash": hashIdempotencyKey(run.SingletonKey),
+			"singleton_outcome":  string(result.singletonOutcome),
+		})
+		// drop creates no run: report the outcome and the holder it lost to.
+		if result.singletonOutcome == domain.SingletonOutcomeDropped {
+			body := map[string]any{
+				"singleton_outcome": string(result.singletonOutcome),
+				"idempotency_hit":   false,
+			}
+			if result.singletonHolderRunID != "" {
+				body["singleton_holder_run_id"] = result.singletonHolderRunID
+			}
+			return &TriggerJobOutput{Body: body}, nil
 		}
-		adjustedScheduledAt, adjustErr := alignToExecutionWindow(scheduledAt, now, job.ExecutionWindowCron, timezone)
-		if adjustErr != nil {
-			return nil, huma.Error400BadRequest("execution window validation failed: " + adjustErr.Error())
+		body := map[string]any{
+			"id":                run.ID,
+			"status":            run.Status,
+			"payload_hash":      state.payloadHash,
+			"idempotency_hit":   false,
+			"singleton_outcome": string(result.singletonOutcome),
 		}
-		scheduledAt = adjustedScheduledAt
+		if result.singletonHolderRunID != "" {
+			body["singleton_holder_run_id"] = result.singletonHolderRunID
+		}
+		return &TriggerJobOutput{Body: body}, nil
 	}
 
-	expiresBase := triggerExpiryBase(now, scheduledAt)
-	var expiresAt time.Time
-	if req.TTLSecs != nil && *req.TTLSecs > 0 {
-		expiresAt = expiresBase.Add(time.Duration(*req.TTLSecs) * time.Second)
-	} else if job.RunTTLSecs > 0 {
-		expiresAt = expiresBase.Add(time.Duration(job.RunTTLSecs) * time.Second)
-	} else if s.config.DefaultRunTTLSecs > 0 {
-		expiresAt = expiresBase.Add(time.Duration(s.config.DefaultRunTTLSecs) * time.Second)
-	} else {
-		expiresAt = expiresBase.Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
-	}
+	s.emitImmediateTriggerAudit(ctx, job, run, scheduledAt, state.idempotencyKey, result.waitingRun)
+	return triggerRunOutput(run, state.payloadHash, false), nil
+}
 
-	status := domain.StatusQueued
-	if scheduledAt != nil && scheduledAt.After(now) {
-		status = domain.StatusDelayed
-	}
+type immediateTriggerRunConfig struct {
+	scheduledAt *time.Time
+	expiresAt   time.Time
+	status      domain.RunStatus
+}
 
-	dependencyKey := extractDependencyKey(payload)
+func (s *Server) newImmediateTriggerRun(
+	ctx context.Context,
+	input *TriggerJobInput,
+	state *triggerRequestState,
+	cfg immediateTriggerRunConfig,
+) *domain.JobRun {
+	job := state.job
+	req := state.req
 	metadata := sentryRunMetadata(ctx, "POST /v1/jobs/{jobID}/trigger", nil)
-	if dependencyKey != "" {
+	if dependencyKey := extractDependencyKey(state.payload); dependencyKey != "" {
 		metadata["dependency_key"] = dependencyKey
 	}
 
-	// Inherit job tags, then overlay with trigger-specific tags.
-	runTags := make(map[string]string, len(job.Tags)+len(req.Tags))
-	maps.Copy(runTags, job.Tags)
-	maps.Copy(runTags, req.Tags)
-
+	runTags := mergedRunTags(job.Tags, req.Tags)
 	run := &domain.JobRun{
-		ID:             runID,
+		ID:             uuid.Must(uuid.NewV7()).String(),
 		JobID:          job.ID,
 		ProjectID:      job.ProjectID,
 		Tags:           runTags,
-		Status:         status,
+		Status:         cfg.status,
 		Attempt:        1,
-		Payload:        payload,
+		Payload:        state.payload,
 		TriggeredBy:    domain.TriggerManual,
-		ScheduledAt:    scheduledAt,
+		ScheduledAt:    cfg.scheduledAt,
 		Priority:       req.Priority,
-		IdempotencyKey: idempotencyKey,
+		IdempotencyKey: state.idempotencyKey,
 		JobVersion:     job.Version,
 		JobVersionID:   job.VersionID,
 		CreatedBy:      actorFromContext(ctx),
-		ExpiresAt:      &expiresAt,
+		ExpiresAt:      &cfg.expiresAt,
 		ExecutionMode:  job.ExecutionMode,
 		QueueName:      job.Queue,
 		IsRollback:     false,
 		Metadata:       metadata,
 	}
-
-	// Merge default run metadata from job. Caller metadata wins on conflicts.
-	if len(job.DefaultRunMetadata) > 0 {
-		for k, v := range job.DefaultRunMetadata {
-			if _, exists := run.Metadata[k]; !exists {
-				run.Metadata[k] = v
-			}
-		}
-	}
+	run.Metadata = mergeRunMetadata(run.Metadata, job.DefaultRunMetadata)
 	run.ConcurrencyKey = req.ConcurrencyKey
 	run.Metadata = applyRunTraceHeaderMetadata(
 		run.Metadata,
@@ -429,28 +452,44 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		input.SentryTrace,
 		input.Baggage,
 	)
+	return run
+}
+
+type immediateTriggerResult struct {
+	waitingRun           bool
+	deduplicatedRun      *domain.JobRun
+	singletonConfigured  bool
+	singletonOutcome     domain.SingletonOutcome
+	singletonHolderRunID string
+}
+
+func (s *Server) enqueueImmediateTriggerRun(
+	ctx context.Context,
+	state *triggerRequestState,
+	run *domain.JobRun,
+) (*immediateTriggerResult, error) {
+	job := state.job
+	result := &immediateTriggerResult{}
+	initialStatus := run.Status
 
 	singletonConfigured := job.SingletonOnConflict != ""
+	result.singletonConfigured = singletonConfigured
 	if singletonConfigured {
-		key, keyErr := resolveJobSingletonKey(job, req.SingletonKey, payload)
+		key, keyErr := resolveJobSingletonKey(job, state.req.SingletonKey, state.payload)
 		if keyErr != nil {
 			return nil, keyErr
 		}
 		run.SingletonKey = key
 	}
 
-	waitingRun := false
-	var singletonOutcome domain.SingletonOutcome
-	var singletonHolderRunID string
-	var deduplicatedRun *domain.JobRun
-	if err := s.withTriggerLimitGuard(ctx, job, projectQuota, func(guardCtx context.Context, tx store.DBTX) error {
+	if err := s.withTriggerLimitGuard(ctx, job, state.projectQuota, func(guardCtx context.Context, tx store.DBTX) error {
 		if job.DedupWindowSecs > 0 {
-			existingRun, findErr := s.findRecentDeduplicatedRun(guardCtx, job, payload)
+			existingRun, findErr := s.findRecentDeduplicatedRun(guardCtx, job, state.payload)
 			if findErr != nil {
 				return fmt.Errorf("evaluate payload deduplication: %w", findErr)
 			}
 			if existingRun != nil {
-				deduplicatedRun = existingRun
+				result.deduplicatedRun = existingRun
 				return nil
 			}
 		}
@@ -459,8 +498,8 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 			if serr != nil {
 				return serr
 			}
-			singletonOutcome = outcome
-			singletonHolderRunID = holderID
+			result.singletonOutcome = outcome
+			result.singletonHolderRunID = holderID
 			if !proceed {
 				// drop / queue / replace: applyJobSingletonPolicy already parked or
 				// discarded the run. Nothing left to enqueue.
@@ -469,14 +508,14 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 			// dispatched: the run acquired the key; fall through to the normal
 			// dependency-check and enqueue path holding the lock.
 		}
-		if status == domain.StatusQueued {
+		if initialStatus == domain.StatusQueued {
 			satisfied, depErr := s.store.AreJobDependenciesSatisfied(guardCtx, run)
 			if depErr != nil {
 				return fmt.Errorf("evaluate job dependencies: %w", depErr)
 			}
 			if !satisfied {
 				run.Status = domain.StatusWaiting
-				waitingRun = true
+				result.waitingRun = true
 				if s.metrics != nil {
 					attrs := otelmetric.WithAttributes(
 						otelattr.String("project_id", run.ProjectID),
@@ -493,113 +532,213 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 		}
 		return s.enqueueTriggerRun(guardCtx, tx, run)
 	}); err != nil {
-		// Handle race condition: two concurrent requests with the same
-		// idempotency key both passed the app-level check but the DB
-		// unique index rejected the second INSERT. Retry the lookup.
-		if errors.Is(err, domain.ErrIdempotencyConflict) && idempotencyKey != "" {
-			existingRun, retryErr := s.store.GetRunByIdempotencyKey(ctx, job.ID, idempotencyKey)
-			if retryErr != nil {
-				slog.Error("idempotency conflict retry failed",
-					"job_id", job.ID,
-					"idempotency_key_hash", hashIdempotencyKey(idempotencyKey),
-					"error", retryErr)
-				return nil, huma.Error500InternalServerError("failed to check idempotency key after conflict")
-			}
-			if existingRun != nil {
-				slog.Warn("idempotency conflict resolved",
-					"job_id", job.ID,
-					"idempotency_key_hash", hashIdempotencyKey(idempotencyKey),
-					"winning_run_id", existingRun.ID)
-				return nil, &rawStatusError{status: http.StatusOK, body: map[string]any{
-					"id":              existingRun.ID,
-					"status":          existingRun.Status,
-					"idempotency_hit": true,
-				}}
-			}
-			slog.Error("idempotency conflict retry returned nil",
-				"job_id", job.ID,
-				"idempotency_key_hash", hashIdempotencyKey(idempotencyKey))
+		if idempotencyErr := s.resolveTriggerIdempotencyConflict(ctx, job, state.idempotencyKey, err); idempotencyErr != nil {
+			return nil, idempotencyErr
 		}
 		if apiErr := enqueueAPIError(err); apiErr != nil {
 			return nil, apiErr
 		}
 		return nil, triggerLimitAPIError(err, "failed to enqueue run")
 	}
-	if deduplicatedRun != nil {
-		return &TriggerJobOutput{Body: map[string]any{
-			"id":              deduplicatedRun.ID,
-			"status":          deduplicatedRun.Status,
-			"payload_hash":    payloadHash,
-			"idempotency_hit": false,
-		}}, nil
-	}
+	return result, nil
+}
 
-	if singletonConfigured {
-		s.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", job.ID, map[string]any{
-			"run_id":             run.ID,
-			"priority":           req.Priority,
-			"tag_keys":           tagKeys(runTags),
-			"triggered_by":       run.TriggeredBy,
-			"singleton_key_hash": hashIdempotencyKey(run.SingletonKey),
-			"singleton_outcome":  string(singletonOutcome),
-		})
-		// drop creates no run: report the outcome and the holder it lost to.
-		if singletonOutcome == domain.SingletonOutcomeDropped {
-			body := map[string]any{
-				"singleton_outcome": string(singletonOutcome),
-				"idempotency_hit":   false,
-			}
-			if singletonHolderRunID != "" {
-				body["singleton_holder_run_id"] = singletonHolderRunID
-			}
-			return &TriggerJobOutput{Body: body}, nil
-		}
-		body := map[string]any{
-			"id":                run.ID,
-			"status":            run.Status,
-			"payload_hash":      payloadHash,
-			"idempotency_hit":   false,
-			"singleton_outcome": string(singletonOutcome),
-		}
-		if singletonHolderRunID != "" {
-			body["singleton_holder_run_id"] = singletonHolderRunID
-		}
-		return &TriggerJobOutput{Body: body}, nil
-	}
-
-	if waitingRun {
-		s.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", job.ID, map[string]any{
-			"run_id":               run.ID,
-			"scheduled_at":         scheduledAt,
-			"priority":             req.Priority,
-			"idempotency_key_hash": hashIdempotencyKey(idempotencyKey),
-			"tag_keys":             tagKeys(runTags),
-			"triggered_by":         run.TriggeredBy,
-			"waiting":              true,
-		})
-		return &TriggerJobOutput{Body: map[string]any{
-			"id":              run.ID,
-			"status":          run.Status,
-			"payload_hash":    payloadHash,
-			"idempotency_hit": false,
-		}}, nil
-	}
-
-	s.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", job.ID, map[string]any{
+func (s *Server) emitImmediateTriggerAudit(
+	ctx context.Context,
+	job *domain.Job,
+	run *domain.JobRun,
+	scheduledAt *time.Time,
+	idempotencyKey string,
+	waitingRun bool,
+) {
+	details := map[string]any{
 		"run_id":               run.ID,
 		"scheduled_at":         scheduledAt,
-		"priority":             req.Priority,
+		"priority":             run.Priority,
 		"idempotency_key_hash": hashIdempotencyKey(idempotencyKey),
-		"tag_keys":             tagKeys(runTags),
+		"tag_keys":             tagKeys(run.Tags),
 		"triggered_by":         run.TriggeredBy,
-	})
+	}
+	if waitingRun {
+		details["waiting"] = true
+	}
+	s.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", job.ID, details)
+}
 
+func triggerRunOutput(run *domain.JobRun, payloadHash string, idempotencyHit bool) *TriggerJobOutput {
 	return &TriggerJobOutput{Body: map[string]any{
 		"id":              run.ID,
 		"status":          run.Status,
 		"payload_hash":    payloadHash,
-		"idempotency_hit": false,
+		"idempotency_hit": idempotencyHit,
+	}}
+}
+
+func mergedRunTags(base, overlay map[string]string) map[string]string {
+	runTags := make(map[string]string, len(base)+len(overlay))
+	maps.Copy(runTags, base)
+	maps.Copy(runTags, overlay)
+	return runTags
+}
+
+func mergeRunMetadata(metadata, defaults map[string]string) map[string]string {
+	merged := make(map[string]string, len(defaults)+len(metadata))
+	maps.Copy(merged, metadata)
+	for key, value := range defaults {
+		if _, exists := merged[key]; !exists {
+			merged[key] = value
+		}
+	}
+	if len(merged) == 0 {
+		return nil
+	}
+	return merged
+}
+
+func (s *Server) loadTriggerJob(ctx context.Context, jobID string) (*domain.Job, error) {
+	job, err := s.loadRunCreationJob(ctx, jobID, "trigger_job.project_match", "handleTriggerJob")
+	if err != nil {
+		return nil, err
+	}
+	if err := ensureJobTriggerable(job); err != nil {
+		return nil, err
+	}
+	return job, nil
+}
+
+func (s *Server) loadRunCreationJob(ctx context.Context, jobID, auditAction, handlerName string) (*domain.Job, error) {
+	if err := validateRunCreationJobID(jobID); err != nil {
+		return nil, huma.Error400BadRequest(err.Error())
+	}
+
+	job, err := s.store.GetJob(ctx, jobID)
+	if err != nil {
+		if errors.Is(err, store.ErrJobNotFound) {
+			return nil, huma.Error404NotFound("job not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get job")
+	}
+
+	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
+	if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
+	s.emitInternalSecretBypassAuditIfProjectless(ctx, auditAction, handlerName, "job", job.ID)
+	return job, nil
+}
+
+func ensureJobTriggerable(job *domain.Job) error {
+	if !job.Enabled {
+		return huma.Error400BadRequest("job is disabled")
+	}
+	if job.Paused {
+		return huma.Error409Conflict("job is paused -- resume it before triggering new runs")
+	}
+	return nil
+}
+
+func (s *Server) validateTriggerJobInput(input *TriggerJobInput, req *TriggerRequest) error {
+	if err := s.validate.Struct(req); err != nil {
+		return newValidationError(err)
+	}
+	if err := validateTriggerTraceHeaders(input); err != nil {
+		return huma.Error400BadRequest(err.Error())
+	}
+	if err := validatePayloadSize(req.Payload); err != nil {
+		return huma.Error400BadRequest(err.Error())
+	}
+	if err := validateTags(req.Tags); err != nil {
+		return huma.Error400BadRequest(err.Error())
+	}
+	if err := validateTriggerScheduledAt(req.ScheduledAt); err != nil {
+		return huma.Error400BadRequest(err.Error())
+	}
+	return nil
+}
+
+func (s *Server) handleTriggerDryRun(ctx context.Context, jobID string, req TriggerRequest) (*TriggerJobOutput, error) {
+	result, err := s.validateTriggerRequest(ctx, jobID, req)
+	if err != nil {
+		var statusErr huma.StatusError
+		if errors.As(err, &statusErr) {
+			return nil, statusErr
+		}
+		return nil, huma.Error400BadRequest(err.Error())
+	}
+	return nil, &rawStatusError{status: http.StatusOK, body: result}
+}
+
+func triggerIdempotencyKey(input *TriggerJobInput) (string, error) {
+	idempotencyKey := input.XIdempotencyKey
+	if idempotencyKey == "" {
+		idempotencyKey = input.IdempotencyKeyAlt
+	}
+	if len(idempotencyKey) > maxIdempotencyKeyLength {
+		return "", huma.Error400BadRequest(
+			fmt.Sprintf("idempotency key must be %d characters or fewer", maxIdempotencyKeyLength))
+	}
+	return idempotencyKey, nil
+}
+
+func (s *Server) triggerIdempotencyHit(ctx context.Context, job *domain.Job, idempotencyKey string) (*rawStatusError, error) {
+	if idempotencyKey == "" {
+		return nil, nil
+	}
+
+	existingRun, err := s.store.GetRunByIdempotencyKey(ctx, job.ID, idempotencyKey)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to check idempotency key")
+	}
+	if existingRun == nil {
+		return nil, nil
+	}
+
+	idempotencyKeyHash := hashIdempotencyKey(idempotencyKey)
+	slog.Info("idempotency hit",
+		"job_id", job.ID,
+		"idempotency_key_hash", idempotencyKeyHash,
+		"existing_run_id", existingRun.ID,
+		"existing_run_status", existingRun.Status)
+	return &rawStatusError{status: http.StatusOK, body: map[string]any{
+		"id":              existingRun.ID,
+		"status":          existingRun.Status,
+		"idempotency_hit": true,
 	}}, nil
+}
+
+func (s *Server) resolveTriggerIdempotencyConflict(ctx context.Context, job *domain.Job, idempotencyKey string, err error) error {
+	if !errors.Is(err, domain.ErrIdempotencyConflict) || idempotencyKey == "" {
+		return nil
+	}
+
+	// The unique index is the final idempotency boundary when concurrent
+	// requests pass the app-level lookup at the same time.
+	existingRun, retryErr := s.store.GetRunByIdempotencyKey(ctx, job.ID, idempotencyKey)
+	if retryErr != nil {
+		slog.Error("idempotency conflict retry failed",
+			"job_id", job.ID,
+			"idempotency_key_hash", hashIdempotencyKey(idempotencyKey),
+			"error", retryErr)
+		return huma.Error500InternalServerError("failed to check idempotency key after conflict")
+	}
+	if existingRun == nil {
+		slog.Error("idempotency conflict retry returned nil",
+			"job_id", job.ID,
+			"idempotency_key_hash", hashIdempotencyKey(idempotencyKey))
+		return nil
+	}
+
+	slog.Warn("idempotency conflict resolved",
+		"job_id", job.ID,
+		"idempotency_key_hash", hashIdempotencyKey(idempotencyKey),
+		"winning_run_id", existingRun.ID)
+	return &rawStatusError{status: http.StatusOK, body: map[string]any{
+		"id":              existingRun.ID,
+		"status":          existingRun.Status,
+		"idempotency_hit": true,
+	}}
 }
 
 func (s *Server) checkTriggerDispatchPriority(ctx context.Context, projectID string, priority int) error {
@@ -682,10 +821,10 @@ func hashIdempotencyKey(key string) string {
 func (s *Server) withTriggerLimitGuard(ctx context.Context, job *domain.Job, quota *store.ProjectQuota, fn func(context.Context, store.DBTX) error) error {
 	if txer, ok := s.store.(triggerLimitTransactioner); ok {
 		return txer.WithTx(ctx, func(txCtx context.Context, tx store.DBTX) error {
-			if _, err := tx.Exec(txCtx, "SELECT pg_advisory_xact_lock($1)", triggerLimitAdvisoryLockID(job.ProjectID)); err != nil {
-				return fmt.Errorf("acquire trigger limit lock: %w", err)
+			if err := acquireTriggerAdmissionLocks(txCtx, tx, job, quota); err != nil {
+				return err
 			}
-			if err := s.checkTriggerLimits(txCtx, job, quota); err != nil {
+			if err := s.checkTriggerLimitsInTx(txCtx, tx, job, quota); err != nil {
 				return err
 			}
 			return fn(txCtx, tx)
@@ -695,6 +834,65 @@ func (s *Server) withTriggerLimitGuard(ctx context.Context, job *domain.Job, quo
 		return err
 	}
 	return fn(ctx, nil)
+}
+
+func acquireTriggerAdmissionLocks(ctx context.Context, tx store.DBTX, job *domain.Job, quota *store.ProjectQuota) error {
+	if tx == nil || job == nil {
+		return nil
+	}
+	needsProjectLock := quota != nil && (quota.MaxQueuedRuns > 0 || quota.MaxExecutingRuns > 0)
+	needsJobLock := job.RateLimitMax > 0 && job.RateLimitWindowSecs > 0
+	if !needsProjectLock && !needsJobLock {
+		return nil
+	}
+
+	if _, err := tx.Exec(ctx, setTriggerAdmissionLockTimeoutSQL); err != nil {
+		return fmt.Errorf("set trigger admission lock timeout: %w", err)
+	}
+	if needsProjectLock {
+		var projectID string
+		if err := tx.QueryRow(ctx, `
+			SELECT project_id
+			FROM project_quotas
+			WHERE project_id = $1
+			FOR UPDATE`, job.ProjectID).Scan(&projectID); err != nil {
+			return classifyTriggerAdmissionLockError(err)
+		}
+	}
+	if needsJobLock {
+		var jobID string
+		if err := tx.QueryRow(ctx, `
+			SELECT id
+			FROM jobs
+			WHERE id = $1
+			FOR UPDATE`, job.ID).Scan(&jobID); err != nil {
+			return classifyTriggerAdmissionLockError(err)
+		}
+	}
+	return nil
+}
+
+func classifyTriggerAdmissionLockError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if isTriggerAdmissionContention(err) {
+		return errTriggerAdmissionContended
+	}
+	return fmt.Errorf("acquire trigger admission lock: %w", err)
+}
+
+func isTriggerAdmissionContention(err error) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return false
+	}
+	switch pgErr.Code {
+	case "40P01", "55P03":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Server) checkTriggerLimits(ctx context.Context, job *domain.Job, quota *store.ProjectQuota) error {
@@ -735,6 +933,96 @@ func (s *Server) checkJobRateLimit(ctx context.Context, job *domain.Job) error {
 	}
 
 	return nil
+}
+
+func (s *Server) checkTriggerLimitsInTx(ctx context.Context, tx store.DBTX, job *domain.Job, quota *store.ProjectQuota) error {
+	if tx == nil {
+		return s.checkTriggerLimits(ctx, job, quota)
+	}
+	if err := checkProjectQuotaInTx(ctx, tx, job, quota); err != nil {
+		return err
+	}
+	return checkJobRateLimitInTx(ctx, tx, job)
+}
+
+func checkProjectQuotaInTx(ctx context.Context, tx store.DBTX, job *domain.Job, quota *store.ProjectQuota) error {
+	if quota == nil {
+		return nil
+	}
+	if quota.MaxQueuedRuns > 0 {
+		queuedRuns, countErr := countProjectQueuedRuns(ctx, tx, job.ProjectID)
+		if countErr != nil {
+			return fmt.Errorf("evaluate project queued quota: %w", countErr)
+		}
+		if queuedRuns >= quota.MaxQueuedRuns {
+			return errTriggerProjectQueuedQuotaExceeded
+		}
+	}
+	if quota.MaxExecutingRuns > 0 {
+		activeRuns, countErr := countProjectActiveRuns(ctx, tx, job.ProjectID)
+		if countErr != nil {
+			return fmt.Errorf("evaluate project active quota: %w", countErr)
+		}
+		if activeRuns >= quota.MaxExecutingRuns {
+			return errTriggerProjectExecutingQuotaExceeded
+		}
+	}
+	return nil
+}
+
+func checkJobRateLimitInTx(ctx context.Context, tx store.DBTX, job *domain.Job) error {
+	if job.RateLimitMax <= 0 || job.RateLimitWindowSecs <= 0 {
+		return nil
+	}
+	since := time.Now().Add(-time.Duration(job.RateLimitWindowSecs) * time.Second)
+	runCount, countErr := countRunsForJobSince(ctx, tx, job.ID, since)
+	if countErr != nil {
+		return fmt.Errorf("evaluate job rate limit: %w", countErr)
+	}
+	if runCount >= job.RateLimitMax {
+		return errTriggerJobRateLimitExceeded
+	}
+	return nil
+}
+
+func countProjectQueuedRuns(ctx context.Context, tx store.DBTX, projectID string) (int, error) {
+	const query = `
+		SELECT COUNT(*)
+		FROM job_runs
+		WHERE project_id = $1 AND status IN ('queued', 'delayed')`
+
+	var count int
+	if err := tx.QueryRow(ctx, query, projectID).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count project queued runs: %w", err)
+	}
+	return count, nil
+}
+
+func countProjectActiveRuns(ctx context.Context, tx store.DBTX, projectID string) (int, error) {
+	const query = `
+		SELECT COUNT(*)
+		FROM job_runs
+		WHERE project_id = $1 AND status IN ('dequeued', 'executing')`
+
+	var count int
+	if err := tx.QueryRow(ctx, query, projectID).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count project active runs: %w", err)
+	}
+	return count, nil
+}
+
+func countRunsForJobSince(ctx context.Context, tx store.DBTX, jobID string, since time.Time) (int, error) {
+	const query = `
+		SELECT COUNT(*)
+		FROM job_runs
+		WHERE job_id = $1
+		  AND created_at >= $2`
+
+	var count int
+	if err := tx.QueryRow(ctx, query, jobID, since).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count runs for job since: %w", err)
+	}
+	return count, nil
 }
 
 func (s *Server) enqueueTriggerRun(ctx context.Context, tx store.DBTX, run *domain.JobRun) error {
@@ -942,6 +1230,8 @@ func triggerLimitAPIError(err error, fallback string) error {
 		return newTriggerLimit429("project executing quota exceeded")
 	case errors.Is(err, errTriggerJobRateLimitExceeded):
 		return newTriggerLimit429("job rate limit exceeded")
+	case errors.Is(err, errTriggerAdmissionContended):
+		return newTriggerLimit429("trigger admission busy")
 	default:
 		return huma.Error500InternalServerError(fallback)
 	}
@@ -960,13 +1250,6 @@ func newTriggerLimit429(msg string) error {
 			"Retry-After": retryAfter,
 		},
 	}
-}
-
-func triggerLimitAdvisoryLockID(projectID string) int64 {
-	h := fnv.New64a()
-	_, _ = h.Write([]byte("trigger-limit:"))
-	_, _ = h.Write([]byte(projectID))
-	return int64(h.Sum64()) //nolint:gosec // advisory lock IDs can wrap
 }
 
 // tagKeys returns the sorted tag keys of a tag map. Values are never included
@@ -1084,7 +1367,6 @@ type DryRunJobInfo struct {
 	VersionID     string               `json:"version_id,omitempty"`
 }
 
-//nolint:cyclop,gocyclo,nestif
 func (s *Server) validateTriggerRequest(ctx context.Context, jobID string, req TriggerRequest) (*DryRunValidationResult, error) {
 	if err := validateRunCreationJobID(jobID); err != nil {
 		return nil, err
@@ -1119,90 +1401,34 @@ func (s *Server) validateTriggerRequest(ctx context.Context, jobID string, req T
 		return nil, fmt.Errorf("invalid payload: %w", err)
 	}
 
-	var projectQuota *store.ProjectQuota
-	var warnings []string
-	projectQuota, err = s.quotaCache.Get(ctx, job.ProjectID)
+	projectQuota, err := s.quotaCache.Get(ctx, job.ProjectID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load project quota: %w", err)
+		return nil, fmt.Errorf("load project quota: %w", err)
 	}
 
-	if projectQuota != nil {
-		if err := s.checkTriggerDailyCostBudget(ctx, job.ProjectID, projectQuota); err != nil {
-			return nil, err
-		}
-
-		if projectQuota.MaxQueuedRuns > 0 {
-			queuedRuns, countErr := s.store.CountProjectQueuedRuns(ctx, job.ProjectID)
-			if countErr != nil {
-				return nil, fmt.Errorf("failed to evaluate project queued quota: %w", countErr)
-			}
-			if queuedRuns >= projectQuota.MaxQueuedRuns {
-				return nil, errors.New("project queued quota exceeded")
-			}
-		}
-
-		if projectQuota.MaxExecutingRuns > 0 {
-			activeRuns, countErr := s.store.CountProjectActiveRuns(ctx, job.ProjectID)
-			if countErr != nil {
-				return nil, fmt.Errorf("failed to evaluate project active quota: %w", countErr)
-			}
-			if activeRuns >= projectQuota.MaxExecutingRuns {
-				return nil, errors.New("project executing quota exceeded")
-			}
-		}
+	if err := s.validateDryRunProjectQuota(ctx, job, projectQuota); err != nil {
+		return nil, err
 	}
 
 	if err := s.checkTriggerDispatchPriority(ctx, job.ProjectID, req.Priority); err != nil {
 		return nil, err
 	}
 
-	if job.RateLimitMax > 0 && job.RateLimitWindowSecs > 0 {
-		since := time.Now().Add(-time.Duration(job.RateLimitWindowSecs) * time.Second)
-		runCount, countErr := s.store.CountRunsForJobSince(ctx, job.ID, since)
-		if countErr != nil {
-			return nil, fmt.Errorf("failed to evaluate job rate limit: %w", countErr)
-		}
-		if runCount >= job.RateLimitMax {
-			return nil, errors.New("job rate limit exceeded")
-		}
+	if err := s.validateDryRunJobRateLimit(ctx, job); err != nil {
+		return nil, err
 	}
 
-	if job.DedupWindowSecs > 0 {
-		since := time.Now().Add(-time.Duration(job.DedupWindowSecs) * time.Second)
-		existingRun, findErr := s.store.FindRecentRunByPayload(ctx, job.ID, payload, since)
-		if findErr != nil {
-			return nil, fmt.Errorf("failed to evaluate payload deduplication: %w", findErr)
-		}
-		if existingRun != nil {
-			warnings = append(warnings, fmt.Sprintf("payload deduplication: run %s", existingRun.ID))
-		}
+	warnings, err := s.dryRunValidationWarnings(ctx, job, payload)
+	if err != nil {
+		return nil, err
 	}
 
 	now := time.Now()
-	scheduledAt := req.ScheduledAt
-	if job.ExecutionWindowCron != "" {
-		timezone := job.Timezone
-		if timezone == "" && projectQuota != nil {
-			timezone = projectQuota.Timezone
-		}
-		adjustedScheduledAt, adjustErr := alignToExecutionWindow(scheduledAt, now, job.ExecutionWindowCron, timezone)
-		if adjustErr != nil {
-			return nil, fmt.Errorf("execution window validation failed: %w", adjustErr)
-		}
-		scheduledAt = adjustedScheduledAt
+	scheduledAt, err := triggerScheduledAt(job, projectQuota, req.ScheduledAt, now)
+	if err != nil {
+		return nil, err
 	}
-
-	expiresBase := triggerExpiryBase(now, scheduledAt)
-	var expiresAt time.Time
-	if req.TTLSecs != nil && *req.TTLSecs > 0 {
-		expiresAt = expiresBase.Add(time.Duration(*req.TTLSecs) * time.Second)
-	} else if job.RunTTLSecs > 0 {
-		expiresAt = expiresBase.Add(time.Duration(job.RunTTLSecs) * time.Second)
-	} else if s.config.DefaultRunTTLSecs > 0 {
-		expiresAt = expiresBase.Add(time.Duration(s.config.DefaultRunTTLSecs) * time.Second)
-	} else {
-		expiresAt = expiresBase.Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
-	}
+	expiresAt := s.triggerExpiresAt(job, req, scheduledAt, now)
 
 	return &DryRunValidationResult{
 		Job:                dryRunJobInfo(job),
@@ -1212,6 +1438,106 @@ func (s *Server) validateTriggerRequest(ctx context.Context, jobID string, req T
 		ExpiresAt:          expiresAt,
 		ValidationWarnings: warnings,
 	}, nil
+}
+
+func (s *Server) validateDryRunProjectQuota(ctx context.Context, job *domain.Job, projectQuota *store.ProjectQuota) error {
+	if projectQuota == nil {
+		return nil
+	}
+	if err := s.checkTriggerDailyCostBudget(ctx, job.ProjectID, projectQuota); err != nil {
+		return err
+	}
+	if projectQuota.MaxQueuedRuns > 0 {
+		queuedRuns, err := s.store.CountProjectQueuedRuns(ctx, job.ProjectID)
+		if err != nil {
+			return fmt.Errorf("evaluate project queued quota: %w", err)
+		}
+		if queuedRuns >= projectQuota.MaxQueuedRuns {
+			return errors.New("project queued quota exceeded")
+		}
+	}
+	if projectQuota.MaxExecutingRuns > 0 {
+		activeRuns, err := s.store.CountProjectActiveRuns(ctx, job.ProjectID)
+		if err != nil {
+			return fmt.Errorf("evaluate project active quota: %w", err)
+		}
+		if activeRuns >= projectQuota.MaxExecutingRuns {
+			return errors.New("project executing quota exceeded")
+		}
+	}
+	return nil
+}
+
+func (s *Server) validateDryRunJobRateLimit(ctx context.Context, job *domain.Job) error {
+	if job.RateLimitMax <= 0 || job.RateLimitWindowSecs <= 0 {
+		return nil
+	}
+	since := time.Now().Add(-time.Duration(job.RateLimitWindowSecs) * time.Second)
+	runCount, err := s.store.CountRunsForJobSince(ctx, job.ID, since)
+	if err != nil {
+		return fmt.Errorf("evaluate job rate limit: %w", err)
+	}
+	if runCount >= job.RateLimitMax {
+		return errors.New("job rate limit exceeded")
+	}
+	return nil
+}
+
+func (s *Server) dryRunValidationWarnings(ctx context.Context, job *domain.Job, payload json.RawMessage) ([]string, error) {
+	warnings := []string{}
+	if job.DedupWindowSecs <= 0 {
+		return warnings, nil
+	}
+	since := time.Now().Add(-time.Duration(job.DedupWindowSecs) * time.Second)
+	existingRun, err := s.store.FindRecentRunByPayload(ctx, job.ID, payload, since)
+	if err != nil {
+		return nil, fmt.Errorf("evaluate payload deduplication: %w", err)
+	}
+	if existingRun != nil {
+		warnings = append(warnings, fmt.Sprintf("payload deduplication: run %s", existingRun.ID))
+	}
+	return warnings, nil
+}
+
+func triggerScheduledAt(
+	job *domain.Job,
+	projectQuota *store.ProjectQuota,
+	requested *time.Time,
+	now time.Time,
+) (*time.Time, error) {
+	if job.ExecutionWindowCron == "" {
+		return requested, nil
+	}
+	timezone := job.Timezone
+	if timezone == "" && projectQuota != nil {
+		timezone = projectQuota.Timezone
+	}
+	scheduledAt, err := alignToExecutionWindow(requested, now, job.ExecutionWindowCron, timezone)
+	if err != nil {
+		return nil, fmt.Errorf("execution window validation failed: %w", err)
+	}
+	return scheduledAt, nil
+}
+
+func (s *Server) triggerExpiresAt(job *domain.Job, req TriggerRequest, scheduledAt *time.Time, now time.Time) time.Time {
+	expiresBase := triggerExpiryBase(now, scheduledAt)
+	if req.TTLSecs != nil && *req.TTLSecs > 0 {
+		return expiresBase.Add(time.Duration(*req.TTLSecs) * time.Second)
+	}
+	if job.RunTTLSecs > 0 {
+		return expiresBase.Add(time.Duration(job.RunTTLSecs) * time.Second)
+	}
+	if s.config.DefaultRunTTLSecs > 0 {
+		return expiresBase.Add(time.Duration(s.config.DefaultRunTTLSecs) * time.Second)
+	}
+	return expiresBase.Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
+}
+
+func triggerInitialStatus(scheduledAt *time.Time, now time.Time) domain.RunStatus {
+	if scheduledAt != nil && scheduledAt.After(now) {
+		return domain.StatusDelayed
+	}
+	return domain.StatusQueued
 }
 
 func triggerExpiryBase(now time.Time, scheduledAt *time.Time) time.Time {

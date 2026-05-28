@@ -15,16 +15,14 @@ import (
 	"strait/internal/testutil"
 
 	"github.com/google/uuid"
+	"github.com/sourcegraph/conc"
 )
 
 func setupReconciler(t *testing.T) (*testutil.TestDB, *store.Queries, *queue.PostgresQueue, *domain.Job) {
 	t.Helper()
 	ctx := context.Background()
-	tdb, err := testutil.SetupTestDB(ctx, "../../migrations")
-	if err != nil {
-		t.Fatalf("setup db: %v", err)
-	}
-	t.Cleanup(func() { tdb.Cleanup(ctx) })
+	tdb := getTestDB(t)
+	intTestClean(t, ctx)
 	st := store.New(tdb.Pool)
 	q := queue.NewPostgresQueue(tdb.Pool)
 
@@ -45,6 +43,8 @@ func setupReconciler(t *testing.T) (*testutil.TestDB, *store.Queries, *queue.Pos
 }
 
 func TestCounterReconciler_HappyPath_ZeroDrift(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	tdb, _, q, job := setupReconciler(t)
 	ctx := context.Background()
 
@@ -66,10 +66,10 @@ func TestCounterReconciler_HappyPath_ZeroDrift(t *testing.T) {
 	r := scheduler.NewCounterReconciler(tdb.Pool, scheduler.CounterReconcilerConfig{})
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		r.Run(runCtx)
 		close(done)
-	}()
+	})
 	time.Sleep(100 * time.Millisecond)
 	cancel()
 	<-done

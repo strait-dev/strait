@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 func TestTenantSimulator_TimeOfDayMultiplierUsesConfiguredTrough(t *testing.T) {
@@ -34,6 +36,8 @@ func TestTenantSimulator_TimeOfDayMultiplierUsesConfiguredTrough(t *testing.T) {
 }
 
 func TestTenantSimulator_RunWaitsForInFlightTriggers(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	started := make(chan struct{})
 	release := make(chan struct{})
 	var startedOnce atomic.Bool
@@ -55,14 +59,14 @@ func TestTenantSimulator_RunWaitsForInFlightTriggers(t *testing.T) {
 
 	done := make(chan *TenantSimulatorResult, 1)
 	errs := make(chan error, 1)
-	go func() {
+	concWG.Go(func() {
 		result, err := sim.Run(context.Background())
 		if err != nil {
 			errs <- err
 			return
 		}
 		done <- result
-	}()
+	})
 
 	select {
 	case <-started:

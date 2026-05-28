@@ -6,6 +6,10 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"strait/internal/domain"
+	"strait/internal/queue"
+	"strait/internal/store"
 )
 
 // Integration tests for the fully-denormalized dequeue path.
@@ -165,5 +169,197 @@ func TestFanoutJobConfig_UpdatesMaxConcurrency(t *testing.T) {
 	}
 	if claimed != 2 {
 		t.Errorf("claimed %d, want 2 (max_concurrency)", claimed)
+	}
+}
+
+func TestDequeueNFullyDenormalized_RespectsMaxConcurrencyPerKey(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-fulldn-key")
+	q := mustQueue(t)
+
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE jobs SET max_concurrency_per_key = 1 WHERE id = $1`, job.ID); err != nil {
+		t.Fatalf("set max_concurrency_per_key: %v", err)
+	}
+	active := &domain.JobRun{
+		ID:             newID(),
+		JobID:          job.ID,
+		ProjectID:      job.ProjectID,
+		Status:         domain.StatusExecuting,
+		Attempt:        1,
+		ConcurrencyKey: "tenant-a",
+	}
+	if err := st.CreateRun(ctx, active); err != nil {
+		t.Fatalf("CreateRun active: %v", err)
+	}
+	candidate := &domain.JobRun{
+		ID:             newID(),
+		JobID:          job.ID,
+		ProjectID:      job.ProjectID,
+		ConcurrencyKey: "tenant-a",
+	}
+	if err := q.Enqueue(ctx, candidate); err != nil {
+		t.Fatalf("Enqueue candidate: %v", err)
+	}
+
+	batch, err := q.DequeueNFullyDenormalized(ctx, 1)
+	if err != nil {
+		t.Fatalf("DequeueNFullyDenormalized blocked: %v", err)
+	}
+	if len(batch) != 0 {
+		t.Fatalf("blocked key yielded %d runs, want 0", len(batch))
+	}
+
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE job_runs SET status='completed', finished_at=NOW() WHERE id=$1`, active.ID); err != nil {
+		t.Fatalf("complete active: %v", err)
+	}
+	batch, err = q.DequeueNFullyDenormalized(ctx, 1)
+	if err != nil {
+		t.Fatalf("DequeueNFullyDenormalized unblocked: %v", err)
+	}
+	if len(batch) != 1 || batch[0].ID != candidate.ID {
+		t.Fatalf("unblocked batch = %+v, want candidate %s", batch, candidate.ID)
+	}
+}
+
+func TestDequeueNFullyDenormalized_RespectsDelayedAndRetryTiming(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-fulldn-timing")
+	q := mustQueue(t)
+
+	futureSchedule := time.Now().Add(15 * time.Minute)
+	futureRetry := time.Now().Add(20 * time.Minute)
+	delayed := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID, ScheduledAt: &futureSchedule}
+	retryBlocked := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID, NextRetryAt: &futureRetry}
+	due := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+	for _, run := range []*domain.JobRun{delayed, retryBlocked, due} {
+		if err := q.Enqueue(ctx, run); err != nil {
+			t.Fatalf("Enqueue %s: %v", run.ID, err)
+		}
+	}
+
+	batch, err := q.DequeueNFullyDenormalized(ctx, 10)
+	if err != nil {
+		t.Fatalf("DequeueNFullyDenormalized: %v", err)
+	}
+	if len(batch) != 1 || batch[0].ID != due.ID {
+		t.Fatalf("batch = %+v, want only due run %s", batch, due.ID)
+	}
+
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE job_runs
+		SET status = 'queued', scheduled_at = NULL, next_retry_at = NULL
+		WHERE id = ANY($1)
+	`, []string{delayed.ID, retryBlocked.ID}); err != nil {
+		t.Fatalf("make delayed/retry due: %v", err)
+	}
+	batch, err = q.DequeueNFullyDenormalized(ctx, 10)
+	if err != nil {
+		t.Fatalf("DequeueNFullyDenormalized due: %v", err)
+	}
+	if len(batch) != 2 {
+		t.Fatalf("due delayed/retry batch len = %d, want 2", len(batch))
+	}
+}
+
+func BenchmarkDequeueVariants(b *testing.B) {
+	for _, tc := range []struct {
+		name    string
+		dequeue func(context.Context, *testing.B, queueCompat, int) []domain.JobRun
+	}{
+		{
+			name: "legacy",
+			dequeue: func(ctx context.Context, b *testing.B, q queueCompat, n int) []domain.JobRun {
+				b.Helper()
+				runs, err := q.DequeueN(ctx, n)
+				if err != nil {
+					b.Fatalf("DequeueN: %v", err)
+				}
+				return runs
+			},
+		},
+		{
+			name: "denormalized",
+			dequeue: func(ctx context.Context, b *testing.B, q queueCompat, n int) []domain.JobRun {
+				b.Helper()
+				runs, err := q.DequeueNDenormalized(ctx, n)
+				if err != nil {
+					b.Fatalf("DequeueNDenormalized: %v", err)
+				}
+				return runs
+			},
+		},
+		{
+			name: "fully_denormalized",
+			dequeue: func(ctx context.Context, b *testing.B, q queueCompat, n int) []domain.JobRun {
+				b.Helper()
+				runs, err := q.DequeueNFullyDenormalized(ctx, n)
+				if err != nil {
+					b.Fatalf("DequeueNFullyDenormalized: %v", err)
+				}
+				return runs
+			},
+		},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			ctx := context.Background()
+			if err := testDB.CleanTables(ctx); err != nil {
+				b.Fatalf("CleanTables() error = %v", err)
+			}
+			st := store.New(testDB.Pool)
+			job := createBenchmarkJob(b, ctx, st, "project-bench-"+tc.name)
+			q := queue.NewPostgresQueue(testDB.Pool)
+			preloadQueueBenchmarkRuns(b, ctx, q, job, 512)
+
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				runs := tc.dequeue(ctx, b, q, 32)
+				if len(runs) == 0 {
+					b.StopTimer()
+					preloadQueueBenchmarkRuns(b, ctx, q, job, 256)
+					b.StartTimer()
+				}
+			}
+		})
+	}
+}
+
+type queueCompat interface {
+	DequeueN(context.Context, int) ([]domain.JobRun, error)
+	DequeueNDenormalized(context.Context, int) ([]domain.JobRun, error)
+	DequeueNFullyDenormalized(context.Context, int) ([]domain.JobRun, error)
+	Enqueue(context.Context, *domain.JobRun) error
+}
+
+func createBenchmarkJob(tb testing.TB, ctx context.Context, st *store.Queries, projectID string) *domain.Job {
+	tb.Helper()
+	job := &domain.Job{
+		ID:          newID(),
+		ProjectID:   projectID,
+		Name:        "bench-job-" + newID(),
+		Slug:        "bench-job-" + newID(),
+		EndpointURL: "https://example.com/queue-job",
+		MaxAttempts: 3,
+		TimeoutSecs: 300,
+		Enabled:     true,
+	}
+	if err := st.CreateJob(ctx, job); err != nil {
+		tb.Fatalf("CreateJob() error = %v", err)
+	}
+	return job
+}
+
+func preloadQueueBenchmarkRuns(tb testing.TB, ctx context.Context, q queueCompat, job *domain.Job, n int) {
+	tb.Helper()
+	for i := 0; i < n; i++ {
+		run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID, Priority: i % 10}
+		if err := q.Enqueue(ctx, run); err != nil {
+			tb.Fatalf("Enqueue benchmark run: %v", err)
+		}
 	}
 }

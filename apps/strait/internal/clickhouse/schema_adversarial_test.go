@@ -9,9 +9,7 @@ import (
 	"testing"
 )
 
-// ---------------------------------------------------------------------------.
 // CreateSchema error paths
-// ---------------------------------------------------------------------------.
 
 func TestCreateSchema_FailsOnFirstTable(t *testing.T) {
 	t.Parallel()
@@ -64,9 +62,7 @@ func TestCreateSchema_ErrorMessageContainsTableName(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Schema DDL constants are non-empty
-// ---------------------------------------------------------------------------.
 
 func TestSchemaDDL_NonEmpty(t *testing.T) {
 	t.Parallel()
@@ -103,9 +99,7 @@ func TestSchemaDDL_NonEmpty(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Schema alterations are well-formed
-// ---------------------------------------------------------------------------.
 
 func TestSchemaAlterations_AreIdempotent(t *testing.T) {
 	t.Parallel()

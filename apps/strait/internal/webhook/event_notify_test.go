@@ -28,6 +28,8 @@ import (
 	"strait/internal/domain"
 	"strait/internal/httputil"
 	"strait/internal/telemetry"
+
+	"github.com/sourcegraph/conc"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -316,6 +318,8 @@ func (m *mockDeliveryStore) ListPendingWebhookRetries(ctx context.Context) ([]do
 }
 
 func TestDeliveryWorker_Shutdown_Idle(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	worker := NewDeliveryWorker(&mockDeliveryStore{}, slog.Default())
@@ -323,9 +327,9 @@ func TestDeliveryWorker_Shutdown_Idle(t *testing.T) {
 	t.Cleanup(runCancel)
 
 	runDone := make(chan error, 1)
-	go func() {
+	concWG.Go(func() {
 		runDone <- worker.RunWorker(runCtx, time.Hour)
-	}()
+	})
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), time.Second)
 	defer shutdownCancel()
@@ -344,6 +348,8 @@ func TestDeliveryWorker_Shutdown_Idle(t *testing.T) {
 }
 
 func TestDeliveryWorker_Shutdown_WaitsForBatch(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	batchStarted := make(chan struct{})
@@ -370,9 +376,9 @@ func TestDeliveryWorker_Shutdown_WaitsForBatch(t *testing.T) {
 	t.Cleanup(runCancel)
 
 	runDone := make(chan error, 1)
-	go func() {
+	concWG.Go(func() {
 		runDone <- worker.RunWorker(runCtx, time.Millisecond)
-	}()
+	})
 
 	select {
 	case <-batchStarted:
@@ -381,11 +387,11 @@ func TestDeliveryWorker_Shutdown_WaitsForBatch(t *testing.T) {
 	}
 
 	shutdownDone := make(chan error, 1)
-	go func() {
+	concWG.Go(func() {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer shutdownCancel()
 		shutdownDone <- worker.Shutdown(shutdownCtx)
-	}()
+	})
 
 	select {
 	case err := <-shutdownDone:
@@ -493,6 +499,8 @@ func TestNotifyAsync_NoURL_Skips(t *testing.T) {
 }
 
 func TestWorker_DeliversSuccessfully(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	var receivedPayload map[string]any
@@ -523,10 +531,9 @@ func TestWorker_DeliversSuccessfully(t *testing.T) {
 	// Run worker once.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-
-	go func() {
+	concWG.Go(func() {
 		_ = notifier.RunWorker(ctx, 100*time.Millisecond)
-	}()
+	})
 
 	// Wait for delivery.
 	deadline := time.After(5 * time.Second)
@@ -554,7 +561,6 @@ func TestWorker_DeliversSuccessfully(t *testing.T) {
 	}
 	mu.Unlock()
 
-	// Verify delivery record updated.
 	for _, d := range ms.getDeliveries() {
 		if d.EventTriggerID == "evt-3" && d.Status != domain.WebhookStatusDelivered {
 			t.Fatalf("expected status=delivered, got %s", d.Status)
@@ -563,6 +569,8 @@ func TestWorker_DeliversSuccessfully(t *testing.T) {
 }
 
 func TestWorker_ServerError_RetriesWithBackoff(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	var attempts atomic.Int32
@@ -587,10 +595,9 @@ func TestWorker_ServerError_RetriesWithBackoff(t *testing.T) {
 	// Run worker — first attempt should fail and schedule next_retry_at in the future.
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-
-	go func() {
+	concWG.Go(func() {
 		_ = notifier.RunWorker(ctx, 100*time.Millisecond)
-	}()
+	})
 
 	// Wait for first attempt.
 	deadline := time.After(2 * time.Second)
@@ -635,6 +642,8 @@ func TestWorker_ServerError_RetriesWithBackoff(t *testing.T) {
 }
 
 func TestWorker_ClientError_DeadLetters(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -656,10 +665,9 @@ func TestWorker_ClientError_DeadLetters(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-
-	go func() {
+	concWG.Go(func() {
 		_ = notifier.RunWorker(ctx, 100*time.Millisecond)
-	}()
+	})
 
 	// Poll for processing instead of sleeping.
 	deadline := time.After(5 * time.Second)
@@ -2397,7 +2405,6 @@ func TestAttemptBatchDelivery_PayloadFormat(t *testing.T) {
 	if items[0].DeliveryID != "fmt-1" || items[1].DeliveryID != "fmt-2" {
 		t.Fatalf("unexpected delivery IDs: %s, %s", items[0].DeliveryID, items[1].DeliveryID)
 	}
-	// Verify payload content.
 	var p1 map[string]string
 	if err := json.Unmarshal(items[0].Payload, &p1); err != nil {
 		t.Fatalf("failed to unmarshal item[0] payload: %v", err)
@@ -3567,10 +3574,13 @@ func TestBatchAndIndividual_4xx_SameDeadLetterBehavior(t *testing.T) {
 }
 
 func TestProcessBatch_BatchEnabled_RunWorker_IntegrationTest(t *testing.T) {
-	// Integration test: verify the full RunWorker -> processBatch -> batch path
-	// delivers correctly with batching enabled.
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
+
 	t.Parallel()
 
+	// Integration test: verify the full RunWorker -> processBatch -> batch path
+	// delivers correctly with batching enabled.
 	var mu sync.Mutex
 	receivedBodies := make([][]byte, 0)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -3598,10 +3608,9 @@ func TestProcessBatch_BatchEnabled_RunWorker_IntegrationTest(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-
-	go func() {
+	concWG.Go(func() {
 		_ = worker.RunWorker(ctx, 50*time.Millisecond)
-	}()
+	})
 
 	// Wait for delivery.
 	deadline := time.After(2 * time.Second)
@@ -3782,15 +3791,18 @@ func TestProcessBatch_IndividualAndBatch_SameStoreUpdates(t *testing.T) {
 }
 
 func TestAttemptBatchDelivery_ConnectionError_RetriesAll(t *testing.T) {
-	// Edge case: server immediately closes connection.
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
+
 	t.Parallel()
 
+	// Edge case: server immediately closes connection.
 	// Use a listener that immediately closes connections.
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	go func() {
+	concWG.Go(func() {
 		for {
 			conn, err := listener.Accept()
 			if err != nil {
@@ -3798,7 +3810,7 @@ func TestAttemptBatchDelivery_ConnectionError_RetriesAll(t *testing.T) {
 			}
 			conn.Close()
 		}
-	}()
+	})
 	defer listener.Close()
 
 	deadURL := "http://" + listener.Addr().String()

@@ -25,6 +25,45 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
+type executionTraceMode string
+
+const (
+	executionTraceOff    executionTraceMode = "off"
+	executionTraceErrors executionTraceMode = "errors"
+	executionTraceFull   executionTraceMode = "full"
+)
+
+func normalizeExecutionTraceMode(mode string) executionTraceMode {
+	switch executionTraceMode(strings.ToLower(strings.TrimSpace(mode))) {
+	case executionTraceErrors:
+		return executionTraceErrors
+	case executionTraceFull:
+		return executionTraceFull
+	default:
+		return executionTraceOff
+	}
+}
+
+func (e *Executor) shouldPersistExecutionTrace(status domain.RunStatus, execTrace *domain.ExecutionTrace) bool {
+	if execTrace == nil {
+		return false
+	}
+	switch e.executionTraceMode {
+	case executionTraceFull:
+		return true
+	case executionTraceErrors:
+		return status != domain.StatusCompleted
+	default:
+		return false
+	}
+}
+
+func (e *Executor) addExecutionTraceField(fields map[string]any, status domain.RunStatus, execTrace *domain.ExecutionTrace) {
+	if e.shouldPersistExecutionTrace(status, execTrace) {
+		fields["execution_trace"] = execTrace
+	}
+}
+
 // recordRetryAttempt samples the attempt number each time a run is
 // re-enqueued for retry. No-op if queue metrics were never initialised.
 func recordRetryAttempt(ctx context.Context, attempt int) {
@@ -35,7 +74,18 @@ func recordRetryAttempt(ctx context.Context, attempt int) {
 	qm.RetryAttempts.Record(ctx, float64(attempt))
 }
 
-func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *domain.Job, result json.RawMessage, execTrace *domain.ExecutionTrace) bool {
+func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *domain.Job, result json.RawMessage) bool {
+	return e.handleSuccessWithStats(ctx, run, job, result, nil, nil)
+}
+
+func (e *Executor) handleSuccessWithStats(
+	ctx context.Context,
+	run *domain.JobRun,
+	job *domain.Job,
+	result json.RawMessage,
+	execTrace *domain.ExecutionTrace,
+	stats *store.JobHealthStats,
+) bool {
 	ctx, span := otel.Tracer("strait").Start(ctx, "executor.HandleSuccess")
 	defer span.End()
 	addWorkerRunBreadcrumb(ctx, "worker.dispatch", "run completed", run, job, map[string]any{
@@ -50,9 +100,7 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 	if len(result) > 0 {
 		fields["result"] = result
 	}
-	if execTrace != nil {
-		fields["execution_trace"] = execTrace
-	}
+	e.addExecutionTraceField(fields, domain.StatusCompleted, execTrace)
 
 	run.Status = domain.StatusCompleted
 	err := e.completeRunWithWebhook(ctx, run, job, domain.StatusCompleted, fields)
@@ -109,8 +157,14 @@ func (e *Executor) handleSuccess(ctx context.Context, run *domain.JobRun, job *d
 	// Latency anomaly detection: compare duration to job's P95.
 	if run.StartedAt != nil {
 		duration := now.Sub(*run.StartedAt)
-		stats, statsErr := e.cachedJobHealthStats(ctx, job.ID, time.Now().Add(-24*time.Hour))
-		if statsErr == nil && stats != nil && stats.P95DurationSecs > 0 {
+		if stats == nil {
+			var statsErr error
+			stats, statsErr = e.getJobHealthStats(ctx, job.ID, time.Now())
+			if statsErr != nil {
+				stats = nil
+			}
+		}
+		if stats != nil && stats.P95DurationSecs > 0 {
 			p95 := time.Duration(stats.P95DurationSecs * float64(time.Second))
 			if duration > 2*p95 {
 				e.logger.Warn("latency anomaly detected",
@@ -391,10 +445,8 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 	if metadataModified {
 		fields["metadata"] = run.Metadata
 	}
-	if execTrace != nil {
-		fields["execution_trace"] = execTrace
-	}
 	targetStatus := domain.StatusDeadLetter
+	e.addExecutionTraceField(fields, targetStatus, execTrace)
 	run.Status = targetStatus
 
 	sentry.WithScope(func(scope *sentry.Scope) {
@@ -512,10 +564,8 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 		"error_class": "transient",
 	}
 	run.FinishedAt = &now
-	if execTrace != nil {
-		fields["execution_trace"] = execTrace
-	}
 	run.Status = domain.StatusTimedOut
+	e.addExecutionTraceField(fields, domain.StatusTimedOut, execTrace)
 
 	sentry.WithScope(func(scope *sentry.Scope) {
 		e.applyWorkerSentryScope(scope, run, nil)

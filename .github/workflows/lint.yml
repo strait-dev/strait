@@ -27,11 +27,23 @@ jobs:
 
       - uses: ./.github/actions/setup-go
 
-      - uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0
+      - name: Restore golangci-lint cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          version: v2.11.1
-          working-directory: apps/strait
-          args: --timeout=10m --build-tags=cloud ./...
+          path: apps/strait/.cache/golangci-lint
+          key: golangci-lint-v2.12.2-${{ runner.os }}-${{ hashFiles('apps/strait/.golangci.yml', 'apps/strait/go.sum') }}
+          restore-keys: |
+            golangci-lint-v2.12.2-${{ runner.os }}-
+
+      - name: Install golangci-lint
+        uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0
+        with:
+          version: v2.12.2
+          install-only: true
+
+      - name: Run lint
+        working-directory: apps/strait
+        run: ./scripts/lint-go.sh
 
       - name: Publish lint summary
         if: always()
@@ -42,7 +54,7 @@ jobs:
             echo "## Lint Metrics"
             echo ""
             echo "- Packages linted: **${pkg_count}**"
-            echo "- Build tags: **cloud**"
+            echo "- Build contexts: **community, cloud**"
             echo "- Tests executed in this action: **0**"
             echo "- Notes: test counts and per-package coverage are published by the Test workflow."
           } >> "$GITHUB_STEP_SUMMARY"

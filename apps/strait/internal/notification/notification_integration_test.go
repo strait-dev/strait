@@ -30,7 +30,7 @@ func TestMain(m *testing.M) {
 	ctx := context.Background()
 
 	var err error
-	testDB, err = testutil.SetupTestDB(ctx, "../../migrations")
+	testDB, err = testutil.SetupSharedTestDB(ctx, "../../migrations", "notification")
 	if err != nil {
 		log.Fatalf("setup test db: %v", err)
 	}
@@ -516,7 +516,6 @@ func TestDeliveryStatusLifecycle_PendingToDelivered(t *testing.T) {
 		t.Fatalf("CreateNotificationDelivery() error = %v", err)
 	}
 
-	// Verify initial status is pending.
 	deliveries, err := st.ListNotificationDeliveries(ctx, projectID, 10, nil)
 	if err != nil {
 		t.Fatalf("ListNotificationDeliveries() error = %v", err)

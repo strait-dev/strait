@@ -511,7 +511,6 @@ func TestRotateAuditSigningKey_StoresDistinctKeyPerEpoch(t *testing.T) {
 
 // TestBootstrapKey_PerProjectUniqueness asserts that the per-epoch key
 // persisted on first write for a project is derived per-(project, epoch)
-// — NOT a copy of the global in-memory q.auditSigningKey. Two distinct
 // projects must bootstrap to two distinct key_material blobs even when
 // they share the same global signing key, proving cross-tenant isolation
 // of HMAC signing material.

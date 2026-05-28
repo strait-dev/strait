@@ -117,7 +117,13 @@ func startSchedulerLifecycleCheckIn(meta sentrySchedulerMetadata, component stri
 	return *eventID
 }
 
-func finishSchedulerLifecycleCheckIn(meta sentrySchedulerMetadata, component string, checkInID sentry.EventID, status sentry.CheckInStatus, duration time.Duration) {
+func finishSchedulerLifecycleCheckIn(
+	meta sentrySchedulerMetadata,
+	component string,
+	checkInID sentry.EventID,
+	status sentry.CheckInStatus,
+	duration time.Duration,
+) {
 	if !meta.checkInsEnabled {
 		return
 	}
@@ -170,7 +176,14 @@ func startSchedulerCycleCheckIn(meta sentrySchedulerMetadata, component string, 
 	return *eventID
 }
 
-func finishSchedulerCycleCheckIn(meta sentrySchedulerMetadata, component string, checkInID sentry.EventID, status sentry.CheckInStatus, duration time.Duration, monitorConfig *sentry.MonitorConfig) {
+func finishSchedulerCycleCheckIn(
+	meta sentrySchedulerMetadata,
+	component string,
+	checkInID sentry.EventID,
+	status sentry.CheckInStatus,
+	duration time.Duration,
+	monitorConfig *sentry.MonitorConfig,
+) {
 	captureSchedulerCheckIn(&sentry.CheckIn{
 		ID:          checkInID,
 		MonitorSlug: schedulerCheckInSlug(meta, component),
@@ -311,18 +324,20 @@ func (t *componentTracker) waitWithTimeout(parent context.Context, timeout time.
 	}
 
 	ctx, cancel := context.WithTimeout(parent, timeout)
+	var waiterWG conc.WaitGroup
+	defer waiterWG.Wait()
 	defer cancel()
 
 	finished := make(chan int, len(handles))
 	for i, h := range handles {
-		go func(idx int, h componentHandle) {
+		waiterWG.Go(func() {
 			select {
 			case <-h.done:
-				finished <- idx
+				finished <- i
 			case <-ctx.Done():
 				return
 			}
-		}(i, h)
+		})
 	}
 
 	done := make(map[int]struct{}, len(handles))

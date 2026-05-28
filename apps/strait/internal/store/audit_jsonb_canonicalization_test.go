@@ -369,12 +369,11 @@ func (r *fakeJSONBRows) Scan(dest ...any) error {
 }
 
 // TestCreateAuditEvent_SignAndVerify_SurviveJSONBCanonicalization is the
-// regression test for the sign-vs-verify divergence introduced by Wave 1's
-// atomic-insert refactor. When CreateAuditEvent computed HMAC over the
+// regression test for the sign-vs-verify divergence in the atomic insert path.
+// When CreateAuditEvent computed HMAC over the
 // raw pre-insert bytes while Postgres stored a whitespace-normalized JSONB
 // form, every VerifyAuditChain call that round-tripped through the DB
-// surfaced "signature mismatch at event <uuid>" — the very class of
-// failure that pinned the integration suite red after the HKDF revert.
+// surfaced "signature mismatch at event <uuid>".
 //
 // This test models the JSONB normalization in a fake DB and runs the
 // sign path + verify path in the same Go process. It guarantees the two

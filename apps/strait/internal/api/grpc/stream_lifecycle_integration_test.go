@@ -18,7 +18,8 @@ import (
 	"strait/internal/domain"
 	"strait/internal/pubsub"
 	"strait/internal/store"
-	"strait/internal/testutil"
+
+	"github.com/sourcegraph/conc"
 )
 
 type blockingWorkerStream struct {
@@ -163,14 +164,7 @@ func seedGRPCAPIKeyWithExpiry(t *testing.T, ctx context.Context, q *store.Querie
 
 func TestIntegration_StreamTasks_SubscribeFailureRejectsWorker(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	const (
@@ -190,7 +184,7 @@ func TestIntegration_StreamTasks_SubscribeFailureRejectsWorker(t *testing.T) {
 		resultChannels: NewResultChannelRegistry(),
 	}
 
-	err = svc.StreamTasks(stream)
+	err := svc.StreamTasks(stream)
 	if status.Code(err) != codes.Unavailable {
 		t.Fatalf("StreamTasks error = %v, want Unavailable", err)
 	}
@@ -200,15 +194,10 @@ func TestIntegration_StreamTasks_SubscribeFailureRejectsWorker(t *testing.T) {
 }
 
 func TestIntegration_StreamTasks_APIKeyRevokeReturnsWithoutClientRecv(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	const (
@@ -244,9 +233,9 @@ func TestIntegration_StreamTasks_APIKeyRevokeReturnsWithoutClientRecv(t *testing
 	}
 
 	done := make(chan error, 1)
-	go func() {
+	concWG.Go(func() {
 		done <- svc.StreamTasks(stream)
-	}()
+	})
 
 	select {
 	case msg := <-stream.sentCh:
@@ -279,15 +268,10 @@ func TestIntegration_StreamTasks_APIKeyRevokeReturnsWithoutClientRecv(t *testing
 }
 
 func TestIntegration_StreamTasks_RevokeBeforeRegistrationRejectsWorker(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	const (
@@ -310,9 +294,9 @@ func TestIntegration_StreamTasks_RevokeBeforeRegistrationRejectsWorker(t *testin
 	}
 
 	done := make(chan error, 1)
-	go func() {
+	concWG.Go(func() {
 		done <- svc.StreamTasks(stream)
-	}()
+	})
 
 	select {
 	case <-stream.recvWait:
@@ -364,15 +348,10 @@ func TestIntegration_StreamTasks_RevokeBeforeRegistrationRejectsWorker(t *testin
 }
 
 func TestIntegration_StreamTasks_APIKeyExpiryClosesRegisteredStream(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	const (
@@ -409,9 +388,9 @@ func TestIntegration_StreamTasks_APIKeyExpiryClosesRegisteredStream(t *testing.T
 	}
 
 	done := make(chan error, 1)
-	go func() {
+	concWG.Go(func() {
 		done <- svc.StreamTasks(stream)
-	}()
+	})
 
 	select {
 	case msg := <-stream.sentCh:
@@ -445,15 +424,10 @@ func TestIntegration_StreamTasks_APIKeyExpiryClosesRegisteredStream(t *testing.T
 }
 
 func TestIntegration_StreamTasks_APIKeyRotationGraceSignalClosesRegisteredStream(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	const (
@@ -490,9 +464,9 @@ func TestIntegration_StreamTasks_APIKeyRotationGraceSignalClosesRegisteredStream
 	}
 
 	done := make(chan error, 1)
-	go func() {
+	concWG.Go(func() {
 		done <- svc.StreamTasks(stream)
-	}()
+	})
 
 	select {
 	case msg := <-stream.sentCh:
@@ -530,15 +504,10 @@ func TestIntegration_StreamTasks_APIKeyRotationGraceSignalClosesRegisteredStream
 }
 
 func TestIntegration_StreamTasks_APIKeyExpiryBeforeRegistrationRejectsWorker(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	const (
@@ -560,9 +529,9 @@ func TestIntegration_StreamTasks_APIKeyExpiryBeforeRegistrationRejectsWorker(t *
 	}
 
 	done := make(chan error, 1)
-	go func() {
+	concWG.Go(func() {
 		done <- svc.StreamTasks(stream)
-	}()
+	})
 
 	select {
 	case <-stream.recvWait:
@@ -591,15 +560,10 @@ func TestIntegration_StreamTasks_APIKeyExpiryBeforeRegistrationRejectsWorker(t *
 }
 
 func TestIntegration_StreamTasks_RevalidatesAPIKeyAfterDelayedRegistration(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	const (
@@ -621,9 +585,9 @@ func TestIntegration_StreamTasks_RevalidatesAPIKeyAfterDelayedRegistration(t *te
 	}
 
 	done := make(chan error, 1)
-	go func() {
+	concWG.Go(func() {
 		done <- svc.StreamTasks(stream)
-	}()
+	})
 
 	select {
 	case <-stream.recvWait:
@@ -665,15 +629,10 @@ func TestIntegration_StreamTasks_RevalidatesAPIKeyAfterDelayedRegistration(t *te
 }
 
 func TestIntegration_StreamTasks_PreRegistrationStreamsCountTowardAPIKeyQuota(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	const (
@@ -697,9 +656,9 @@ func TestIntegration_StreamTasks_PreRegistrationStreamsCountTowardAPIKeyQuota(t 
 	defer firstCancel()
 	firstStream := newBlockingWorkerStream(firstCtx, rawKey)
 	firstDone := make(chan error, 1)
-	go func() {
+	concWG.Go(func() {
 		firstDone <- svc.StreamTasks(firstStream)
-	}()
+	})
 	select {
 	case <-firstStream.recvWait:
 	case err := <-firstDone:
@@ -709,7 +668,7 @@ func TestIntegration_StreamTasks_PreRegistrationStreamsCountTowardAPIKeyQuota(t 
 	}
 
 	secondStream := newBlockingWorkerStream(ctx, rawKey)
-	err = svc.StreamTasks(secondStream)
+	err := svc.StreamTasks(secondStream)
 	if status.Code(err) != codes.ResourceExhausted {
 		t.Fatalf("second StreamTasks error = %v, want ResourceExhausted", err)
 	}

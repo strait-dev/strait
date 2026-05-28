@@ -17,13 +17,15 @@ import (
 )
 
 type StepCallback struct {
-	store      CallbackStore
-	engine     *WorkflowEngine
-	logger     *slog.Logger
-	metrics    *telemetry.Metrics
-	chExporter *clickhouse.Exporter
-	stepDefs   *stepDefCache
-	statusHook WorkflowRunStatusHook
+	store             CallbackStore
+	engine            *WorkflowEngine
+	logger            *slog.Logger
+	metrics           *telemetry.Metrics
+	chExporter        *clickhouse.Exporter
+	statusHook        WorkflowRunStatusHook
+	stepDefs          *stepDefCache
+	progressionEngine string
+	stepsCache        *workflowStepsVersionCache
 }
 
 // WorkflowRunStatusHook observes workflow run transitions completed by the
@@ -41,6 +43,9 @@ type CallbackStore interface {
 	UpdateWorkflowRunStatus(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error)
 	ListStepRunsForScheduling(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error)
+	ListStepRunStatusesByWorkflowRun(ctx context.Context, workflowRunID string) (map[string]domain.StepRunStatus, error)
+	ListRunningStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int) ([]domain.WorkflowStepRun, error)
+	ListRunnableStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int) ([]domain.WorkflowStepRun, error)
 	CountNonTerminalStepRuns(ctx context.Context, workflowRunID string) (int, error)
 	ListFailedStepRunRefs(ctx context.Context, workflowRunID string) ([]string, error)
 	CancelNonTerminalStepRuns(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
@@ -73,6 +78,10 @@ type compensationCallbackStore interface {
 	CountIncompleteCompensationRuns(ctx context.Context, workflowRunID string) (int, error)
 }
 
+type progressionEventCreator interface {
+	CreateWorkflowProgressionEvent(ctx context.Context, workflowRunID, stepRunID, stepRef, status string) error
+}
+
 // NewStepCallback creates a new step callback handler for workflow progression.
 func NewStepCallback(store CallbackStore, engine *WorkflowEngine, logger *slog.Logger) *StepCallback {
 	if logger == nil {
@@ -80,10 +89,11 @@ func NewStepCallback(store CallbackStore, engine *WorkflowEngine, logger *slog.L
 	}
 
 	return &StepCallback{
-		store:    store,
-		engine:   engine,
-		logger:   logger,
-		stepDefs: newStepDefCache(stepDefCacheTTL),
+		store:             store,
+		engine:            engine,
+		logger:            logger,
+		stepDefs:          newStepDefCache(stepDefCacheTTL),
+		progressionEngine: "legacy",
 	}
 }
 
@@ -159,11 +169,31 @@ func (s *StepCallback) resolveStepDefinitions(ctx context.Context, wfRun *domain
 	}
 
 	// Fallback: read from live workflow_version_steps table.
-	steps, err := s.store.ListStepsByWorkflowVersion(ctx, wfRun.WorkflowID, wfRun.WorkflowVersion)
+	steps, err := s.listStepsByWorkflowVersion(ctx, wfRun.WorkflowID, wfRun.WorkflowVersion)
 	if err != nil {
 		return nil, fmt.Errorf("list steps by workflow version: %w", err)
 	}
 	return steps, nil
+}
+
+func (s *StepCallback) WithDefinitionCaches(cfg WorkflowDefinitionCacheConfig) *StepCallback {
+	s.stepsCache = newWorkflowStepsVersionCache(cfg)
+	return s
+}
+
+func (s *StepCallback) listStepsByWorkflowVersion(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error) {
+	key := workflowStepsVersionKey{WorkflowID: workflowID, Version: version}
+	loader := func(loadCtx context.Context, loadKey workflowStepsVersionKey) ([]domain.WorkflowStep, error) {
+		steps, err := s.store.ListStepsByWorkflowVersion(loadCtx, loadKey.WorkflowID, loadKey.Version)
+		if err != nil {
+			return nil, err
+		}
+		return domain.CloneWorkflowSteps(steps), nil
+	}
+	if s.stepsCache == nil {
+		return loader(ctx, key)
+	}
+	return s.stepsCache.Load(ctx, key, loader)
 }
 
 func (s *StepCallback) WithMetrics(m *telemetry.Metrics) *StepCallback {
@@ -181,6 +211,14 @@ func (s *StepCallback) WithChExporter(e *clickhouse.Exporter) *StepCallback {
 // produced by callback-driven progression.
 func (s *StepCallback) WithStatusHook(hook WorkflowRunStatusHook) *StepCallback {
 	s.statusHook = hook
+	return s
+}
+
+func (s *StepCallback) WithProgressionEngine(engine string) *StepCallback {
+	if engine == "" {
+		engine = "legacy"
+	}
+	s.progressionEngine = engine
 	return s
 }
 
@@ -354,6 +392,17 @@ func (s *StepCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun)
 	case domain.StepCompleted:
 		// Auto-emit event if step has event_emit_key configured.
 		s.tryEmitEvent(ctx, stepRun, wc)
+
+		if s.progressionEngine == "batchlog" {
+			creator, ok := s.store.(progressionEventCreator)
+			if !ok {
+				return fmt.Errorf("workflow progression batchlog store not available")
+			}
+			if err := creator.CreateWorkflowProgressionEvent(ctx, stepRun.WorkflowRunID, stepRun.ID, stepRun.StepRef, string(stepStatus)); err != nil {
+				return fmt.Errorf("create workflow progression event: %w", err)
+			}
+			return nil
+		}
 
 		if err := s.fanInAndStartReadyChildren(ctx, stepRun, wc); err != nil {
 			s.logger.Error("failed to process completed step", "step_ref", stepRun.StepRef, "error", err)

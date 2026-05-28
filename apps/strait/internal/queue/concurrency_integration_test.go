@@ -11,6 +11,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/queue"
+
+	"github.com/sourcegraph/conc"
 )
 
 // Concurrency and race condition tests.
@@ -125,6 +127,8 @@ func TestConcurrency_NoDuplicateClaimsUnder100Workers(t *testing.T) {
 }
 
 func TestConcurrency_HeartbeatConcurrentRegisterDeregister(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
@@ -136,14 +140,14 @@ func TestConcurrency_HeartbeatConcurrentRegisterDeregister(t *testing.T) {
 		id := newID()
 		_ = i
 		wg.Add(2)
-		go func() {
+		concWG.Go(func() {
 			defer wg.Done()
 			_ = st.UpsertHeartbeatSideTable(ctx, id)
-		}()
-		go func() {
+		})
+		concWG.Go(func() {
 			defer wg.Done()
 			_ = st.DeleteHeartbeatSideTable(ctx, []string{id})
-		}()
+		})
 	}
 	wg.Wait()
 	// No panics, no deadlocks — that's the invariant.

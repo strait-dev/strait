@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,20 +26,43 @@ import (
 	"strait/internal/testutil"
 )
 
-var testDB *testutil.TestDB
+var (
+	testDB        *testutil.TestDB
+	testRedis     *testutil.TestRedis
+	testRedisErr  error
+	testRedisOnce sync.Once
+)
 
 func TestMain(m *testing.M) {
 	ctx := context.Background()
 
 	var err error
-	testDB, err = testutil.SetupTestDB(ctx, "../../migrations")
+	testDB, err = testutil.SetupSharedTestDB(ctx, "../../migrations", "store")
 	if err != nil {
 		log.Fatalf("setup test db: %v", err)
 	}
 
 	code := m.Run()
+	if testRedis != nil {
+		testRedis.Cleanup(ctx)
+	}
 	testDB.Cleanup(ctx)
 	os.Exit(code)
+}
+
+func mustEnv(t *testing.T, ctx context.Context) *testutil.TestEnv {
+	t.Helper()
+	testRedisOnce.Do(func() {
+		testRedis, testRedisErr = testutil.SetupSharedTestRedis(ctx, "store")
+	})
+	if testRedisErr != nil {
+		t.Fatalf("setup test redis: %v", testRedisErr)
+	}
+	env := &testutil.TestEnv{DB: testDB, Redis: testRedis}
+	if err := env.Clean(ctx); err != nil {
+		t.Fatalf("clean test env: %v", err)
+	}
+	return env
 }
 
 func TestWithTx_CommitsOnSuccess(t *testing.T) {
@@ -365,6 +389,72 @@ func TestEndpointCircuitState_OpensAndBlocksDispatch(t *testing.T) {
 	}
 	if state.State != domain.CircuitStateOpen {
 		t.Fatalf("state = %s, want %s", state.State, domain.CircuitStateOpen)
+	}
+}
+
+func TestEndpointCircuitState_NewEndpointDoesNotCreateCircuitRow(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	endpoint := "https://example.com/circuit-fast-path-" + newID()
+	allowed, retryAt, err := q.CanDispatchEndpoint(ctx, endpoint, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("CanDispatchEndpoint() error = %v", err)
+	}
+	if !allowed {
+		t.Fatal("CanDispatchEndpoint() = false, want true")
+	}
+	if retryAt != nil {
+		t.Fatalf("retryAt = %v, want nil", retryAt)
+	}
+
+	state, err := q.GetEndpointCircuitState(ctx, endpoint)
+	if err != nil {
+		t.Fatalf("GetEndpointCircuitState() error = %v", err)
+	}
+	if state != nil {
+		t.Fatalf("GetEndpointCircuitState() = %#v, want nil", state)
+	}
+}
+
+func TestEndpointCircuitState_ExpiredOpenCircuitResetsOnDispatch(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	endpoint := "https://example.com/circuit-expired-" + newID()
+	now := time.Now().UTC()
+	if err := q.RecordEndpointCircuitFailure(ctx, endpoint, now.Add(-time.Minute), 1, time.Second); err != nil {
+		t.Fatalf("RecordEndpointCircuitFailure() error = %v", err)
+	}
+
+	allowed, retryAt, err := q.CanDispatchEndpoint(ctx, endpoint, now.Add(2*time.Second))
+	if err != nil {
+		t.Fatalf("CanDispatchEndpoint() error = %v", err)
+	}
+	if !allowed {
+		t.Fatal("CanDispatchEndpoint() = false, want true after expired open circuit")
+	}
+	if retryAt != nil {
+		t.Fatalf("retryAt = %v, want nil", retryAt)
+	}
+
+	state, err := q.GetEndpointCircuitState(ctx, endpoint)
+	if err != nil {
+		t.Fatalf("GetEndpointCircuitState() error = %v", err)
+	}
+	if state == nil {
+		t.Fatal("GetEndpointCircuitState() = nil, want reset state")
+	}
+	if state.State != domain.CircuitStateClosed {
+		t.Fatalf("state = %s, want %s", state.State, domain.CircuitStateClosed)
+	}
+	if state.ConsecutiveFailures != 0 {
+		t.Fatalf("consecutive_failures = %d, want 0", state.ConsecutiveFailures)
+	}
+	if state.HalfOpenUntil != nil {
+		t.Fatalf("half_open_until = %v, want nil", state.HalfOpenUntil)
 	}
 }
 
@@ -854,10 +944,10 @@ func TestGetRunByIdempotencyKey_AllowsTerminalReplayAndReturnsLatest(t *testing.
 	}
 }
 
-// TestIdempotencyIndex_ConsolidatedShape verifies Wave 2 Phase 2 migration
-// 000255 dropped the partial-on-terminal-status index and replaced it with
-// a non-partial-on-status index keyed only on (job_id, idempotency_key).
-// The new shape prevents write amplification on terminal status flips.
+// TestIdempotencyIndex_ConsolidatedShape verifies migration 000255 dropped the
+// partial-on-terminal-status index and replaced it with a non-partial-on-status
+// index keyed only on (job_id, idempotency_key). The shape prevents write
+// amplification on terminal status flips.
 func TestIdempotencyIndex_ConsolidatedShape(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
@@ -3542,6 +3632,23 @@ func TestGetJobHealthStats(t *testing.T) {
 		t.Fatalf("P95DurationSecs = %f, want 48", stats.P95DurationSecs)
 	}
 
+	counts, err := q.GetJobHealthCounts(ctx, job.ID, since)
+	if err != nil {
+		t.Fatalf("GetJobHealthCounts() error = %v", err)
+	}
+	if counts.TotalRuns != stats.TotalRuns ||
+		counts.CompletedRuns != stats.CompletedRuns ||
+		counts.FailedRuns != stats.FailedRuns ||
+		counts.TimedOutRuns != stats.TimedOutRuns ||
+		counts.CrashedRuns != stats.CrashedRuns ||
+		counts.CanceledRuns != stats.CanceledRuns ||
+		counts.ExpiredRuns != stats.ExpiredRuns {
+		t.Fatalf("GetJobHealthCounts() = %+v, want count fields from %+v", *counts, *stats)
+	}
+	if counts.AvgDurationSecs != 0 || counts.P95DurationSecs != 0 || counts.P99DurationSecs != 0 {
+		t.Fatalf("GetJobHealthCounts() duration fields = avg:%f p95:%f p99:%f, want zeros", counts.AvgDurationSecs, counts.P95DurationSecs, counts.P99DurationSecs)
+	}
+
 	emptyJob := mustCreateJob(t, ctx, q, "project-health-stats-empty")
 	emptyStats, err := q.GetJobHealthStats(ctx, emptyJob.ID, since)
 	if err != nil {
@@ -4381,7 +4488,7 @@ func TestWorkflowStepRun_IncrementDeps(t *testing.T) {
 	if len(first) != 1 {
 		t.Fatalf("IncrementStepDeps() first len = %d, want 1", len(first))
 	}
-	if first[0].StepRunID != waiting.ID || first[0].StepRef != waiting.StepRef || first[0].DepsCompleted != 1 || first[0].DepsRequired != 2 || (first[0].JobID != nil && *first[0].JobID != child.JobID) || first[0].WorkflowRunID != run.ID {
+	if first[0].StepRunID != waiting.ID || first[0].StepRef != waiting.StepRef || first[0].DepsCompleted != 1 || first[0].DepsRequired != 2 || first[0].JobID == nil || *first[0].JobID != child.JobID || first[0].WorkflowRunID != run.ID {
 		t.Fatalf("IncrementStepDeps() first result mismatch: got %+v", first[0])
 	}
 	if !jsonEqual(first[0].Condition, child.Condition) {
@@ -5325,8 +5432,6 @@ func TestEvents_ListEventsByRunFiltered(t *testing.T) {
 	}
 }
 
-// ============ Tests for previously untested store methods ============.
-
 func TestWorkflowRunLabels_CRUD(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -6157,9 +6262,7 @@ func TestListRunLineage(t *testing.T) {
 	}
 }
 
-// ============================================================================
 // Store integration tests for untested methods + edge cases
-// ============================================================================.
 
 func TestGetDebugBundle(t *testing.T) {
 	ctx := context.Background()
@@ -6498,7 +6601,6 @@ func TestCreateRunUsage_Dedicated(t *testing.T) {
 		t.Fatalf("ListRunUsage() len = %d, want 3", len(usages))
 	}
 
-	// Verify DESC ordering by created_at
 	for i := 1; i < len(usages); i++ {
 		if usages[i].CreatedAt.After(usages[i-1].CreatedAt) {
 			t.Fatalf("usages not DESC at index %d", i)
@@ -6652,7 +6754,6 @@ func TestCreateRunToolCall_Dedicated(t *testing.T) {
 		t.Fatalf("ListRunToolCalls() len = %d, want 3", len(calls))
 	}
 
-	// Verify DESC ordering
 	for i := 1; i < len(calls); i++ {
 		if calls[i].CreatedAt.After(calls[i-1].CreatedAt) {
 			t.Fatalf("calls not DESC at index %d", i)
@@ -6729,7 +6830,6 @@ func TestUpsertRunOutput_Dedicated(t *testing.T) {
 		t.Fatalf("UpsertRunOutput(insert) error = %v", err)
 	}
 
-	// Verify
 	outputs, err := q.ListRunOutputs(ctx, run.ID, 100, nil)
 	if err != nil {
 		t.Fatalf("ListRunOutputs() error = %v", err)
@@ -6799,7 +6899,6 @@ func TestListRunOutputs_Dedicated(t *testing.T) {
 		t.Fatalf("len = %d, want 3", len(outputs))
 	}
 
-	// Verify ASC ordering by output_key
 	if outputs[0].OutputKey != "alpha" {
 		t.Fatalf("outputs[0].OutputKey = %q, want alpha", outputs[0].OutputKey)
 	}
@@ -7290,8 +7389,6 @@ func TestListTimedOutWorkflowRuns(t *testing.T) {
 	}
 }
 
-// --- RBAC integration tests ---.
-
 func TestCreateProjectRole(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -7537,6 +7634,56 @@ func TestGetUserPermissions(t *testing.T) {
 	}
 }
 
+func TestGetUserPermissionsWithVersion(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	role := &domain.ProjectRole{
+		ProjectID:   "proj-perms-version",
+		Name:        "operator",
+		Permissions: []string{"jobs:read"},
+	}
+	if err := q.CreateProjectRole(ctx, role); err != nil {
+		t.Fatalf("CreateProjectRole() error = %v", err)
+	}
+
+	m := &domain.ProjectMemberRole{
+		ProjectID: "proj-perms-version",
+		UserID:    "user-perms-version",
+		RoleID:    role.ID,
+	}
+	if err := q.AssignMemberRole(ctx, m); err != nil {
+		t.Fatalf("AssignMemberRole() error = %v", err)
+	}
+
+	perms, version, err := q.GetUserPermissionsWithVersion(ctx, "proj-perms-version", "user-perms-version")
+	if err != nil {
+		t.Fatalf("GetUserPermissionsWithVersion() error = %v", err)
+	}
+	if len(perms) != 1 || perms[0] != "jobs:read" {
+		t.Fatalf("permissions = %v, want [jobs:read]", perms)
+	}
+	if version <= 0 {
+		t.Fatalf("version = %d, want positive", version)
+	}
+
+	role.Permissions = []string{"jobs:read", "jobs:write"}
+	if err := q.UpdateProjectRole(ctx, role); err != nil {
+		t.Fatalf("UpdateProjectRole() error = %v", err)
+	}
+	perms, updatedVersion, err := q.GetUserPermissionsWithVersion(ctx, "proj-perms-version", "user-perms-version")
+	if err != nil {
+		t.Fatalf("GetUserPermissionsWithVersion(after update) error = %v", err)
+	}
+	if len(perms) != 2 {
+		t.Fatalf("updated permissions = %v, want two permissions", perms)
+	}
+	if updatedVersion <= version {
+		t.Fatalf("updated version = %d, want > %d", updatedVersion, version)
+	}
+}
+
 func TestGetUserPermissions_NoRole(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -7704,8 +7851,6 @@ func TestResourcePolicy_CRUD(t *testing.T) {
 	}
 }
 
-// --- Actor integration tests ---.
-
 func TestUpsertKnownActor(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -7770,8 +7915,6 @@ func TestGetKnownActor_NotFound(t *testing.T) {
 	}
 }
 
-// --- Version ID + created_by integration tests ---.
-
 func TestCreateJob_SetsVersionID(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -7826,8 +7969,6 @@ func TestUpdateJob_GeneratesNewVersionID(t *testing.T) {
 		t.Fatal("new VersionID should not be empty")
 	}
 }
-
-// --- Workflow version ID + created_by tests ---.
 
 func TestCreateWorkflow_SetsVersionID(t *testing.T) {
 	ctx := context.Background()
@@ -7915,8 +8056,6 @@ func TestCreateJob_DefaultVersionPolicy(t *testing.T) {
 	}
 }
 
-// --- DeleteResourcePolicy sentinel test ---.
-
 func TestDeleteResourcePolicy_NotFound(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -7928,8 +8067,6 @@ func TestDeleteResourcePolicy_NotFound(t *testing.T) {
 	}
 }
 
-// --- RemoveMemberRole sentinel test ---.
-
 func TestRemoveMemberRole_NotFound(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -7940,8 +8077,6 @@ func TestRemoveMemberRole_NotFound(t *testing.T) {
 		t.Fatalf("RemoveMemberRole() = %v, want ErrMemberNotFound", err)
 	}
 }
-
-// --- UpdateProjectRole integration test ---.
 
 func TestUpdateProjectRole(t *testing.T) {
 	ctx := context.Background()
@@ -7999,8 +8134,6 @@ func TestUpdateProjectRole_SystemRoleBlocked(t *testing.T) {
 	}
 }
 
-// --- ListProjectMembers test ---.
-
 func TestListProjectMembers(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -8034,8 +8167,6 @@ func TestListProjectMembers(t *testing.T) {
 		t.Fatalf("len(members) = %d, want 3", len(members))
 	}
 }
-
-// --- Tags query tests ---.
 
 func TestListJobsByTag_KeyOnly(t *testing.T) {
 	ctx := context.Background()
@@ -8150,9 +8281,7 @@ func TestJobEmptyTags(t *testing.T) {
 	}
 }
 
-// ====================================================================
 // Test hardening: RBAC store
-// ====================================================================.
 
 func TestDeleteProjectRole_CustomRole(t *testing.T) {
 	ctx := context.Background()
@@ -8479,9 +8608,7 @@ func TestUpdateProjectRole_NameChange(t *testing.T) {
 	}
 }
 
-// ====================================================================
 // Test hardening: Actors
-// ====================================================================.
 
 func TestUpsertKnownActor_UpdateEmail(t *testing.T) {
 	ctx := context.Background()
@@ -8594,9 +8721,7 @@ func TestGetKnownActor_AllFields(t *testing.T) {
 	}
 }
 
-// ====================================================================
 // Test hardening: Jobs with new fields
-// ====================================================================.
 
 func TestCreateJob_VersionIDPrefix(t *testing.T) {
 	ctx := context.Background()
@@ -8863,9 +8988,7 @@ func TestGetJobBySlug_IncludesNewFields(t *testing.T) {
 	}
 }
 
-// ====================================================================
 // Test hardening: Workflows with new fields
-// ====================================================================.
 
 func TestCreateWorkflow_TagsPersisted(t *testing.T) {
 	ctx := context.Background()
@@ -8959,9 +9082,7 @@ func TestUpdateWorkflow_SetsUpdatedBy(t *testing.T) {
 	}
 }
 
-// ====================================================================
 // Test hardening: Tags queries
-// ====================================================================.
 
 func TestListJobsByTag_MultipleTagsOnJob(t *testing.T) {
 	ctx := context.Background()
@@ -9095,8 +9216,6 @@ func TestListWorkflowsByTag_KeyOnly(t *testing.T) {
 		t.Fatalf("expected 1 workflow, got %d", len(workflows))
 	}
 }
-
-// --- Tag query integration tests (runs and workflow runs) ---.
 
 func TestListRunsByTag(t *testing.T) {
 	ctx := context.Background()
@@ -11487,6 +11606,8 @@ func TestAdvisoryLockConcurrentAcrossConnections(t *testing.T) {
 }
 
 func TestRunWithAdvisoryLockPinsAndReleasesConnection(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
@@ -11495,15 +11616,14 @@ func TestRunWithAdvisoryLockPinsAndReleasesConnection(t *testing.T) {
 	fnStarted := make(chan struct{})
 	releaseFn := make(chan struct{})
 	fnDone := make(chan error, 1)
-
-	go func() {
+	concWG.Go(func() {
 		_, err := q.RunWithAdvisoryLock(ctx, lockID, func(context.Context) error {
 			close(fnStarted)
 			<-releaseFn
 			return nil
 		})
 		fnDone <- err
-	}()
+	})
 
 	select {
 	case <-fnStarted:

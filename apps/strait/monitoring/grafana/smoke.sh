@@ -27,8 +27,8 @@ require curl
 require jq
 
 expected_count="$(find "$ROOT" -maxdepth 1 -name '*.json' | wc -l | tr -d ' ')"
-if [[ "$expected_count" != "9" ]]; then
-  echo "expected 9 dashboard JSON files, found $expected_count" >&2
+if [[ "$expected_count" != "10" ]]; then
+  echo "expected 10 dashboard JSON files, found $expected_count" >&2
   exit 1
 fi
 

@@ -1163,6 +1163,8 @@ func TestExecutor_Poll_EmptyQueue(t *testing.T) {
 }
 
 func TestExecutor_GracefulShutdown(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 	jobStarted := make(chan struct{})
 	jobCanProceed := make(chan struct{})
@@ -1223,10 +1225,10 @@ func TestExecutor_GracefulShutdown(t *testing.T) {
 	})
 
 	runDone := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		exec.Run(ctx)
 		close(runDone)
-	}()
+	})
 
 	select {
 	case <-jobStarted:
@@ -1245,10 +1247,10 @@ func TestExecutor_GracefulShutdown(t *testing.T) {
 	close(jobCanProceed)
 
 	shutdownDone := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		_ = pool.Shutdown(context.Background())
 		close(shutdownDone)
-	}()
+	})
 
 	select {
 	case <-shutdownDone:
@@ -1272,6 +1274,8 @@ func TestExecutor_GracefulShutdown(t *testing.T) {
 }
 
 func TestExecutor_Run_PollsOnWakeSignal(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	wake := make(chan struct{}, 1)
@@ -1301,10 +1305,10 @@ func TestExecutor_Run_PollsOnWakeSignal(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		exec.Run(ctx)
 		close(done)
-	}()
+	})
 
 	wake <- struct{}{}
 
@@ -1323,6 +1327,8 @@ func TestExecutor_Run_PollsOnWakeSignal(t *testing.T) {
 }
 
 func TestExecutor_Run_DegradedModeShortensPollInterval(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	wake := make(chan struct{}, 1)
@@ -1355,10 +1361,10 @@ func TestExecutor_Run_DegradedModeShortensPollInterval(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		exec.Run(ctx)
 		close(done)
-	}()
+	})
 
 	// Close the degraded channel to simulate notifier entering degraded mode.
 	close(degradedCh)
@@ -1401,6 +1407,8 @@ func (r *rearmDegradedNotifier) Degraded() <-chan struct{} {
 }
 
 func TestExecutor_DegradedRecoveryDoesNotReenterOnStaleChannel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	wake := make(chan struct{}, 1)
@@ -1437,10 +1445,10 @@ func TestExecutor_DegradedRecoveryDoesNotReenterOnStaleChannel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		exec.Run(ctx)
 		close(done)
-	}()
+	})
 
 	// The first Degraded() call returns closedCh, so the executor should
 	// enter degraded mode and start fast polling.
@@ -1472,6 +1480,8 @@ func TestExecutor_DegradedRecoveryDoesNotReenterOnStaleChannel(t *testing.T) {
 }
 
 func TestExecutor_Shutdown_NoInFlight(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	exec := newTestExecutor(t, &mockExecutorStore{}, &mockExecQueue{}, time.Hour, nil)
@@ -1479,10 +1489,10 @@ func TestExecutor_Shutdown_NoInFlight(t *testing.T) {
 	t.Cleanup(cancel)
 
 	runDone := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		exec.Run(ctx)
 		close(runDone)
-	}()
+	})
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), time.Second)
 	defer shutdownCancel()
@@ -1499,6 +1509,8 @@ func TestExecutor_Shutdown_NoInFlight(t *testing.T) {
 }
 
 func TestExecutor_Shutdown_WaitsForInFlight(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	pollStarted := make(chan struct{})
@@ -1536,20 +1548,20 @@ func TestExecutor_Shutdown_WaitsForInFlight(t *testing.T) {
 	runCtx, runCancel := context.WithCancel(context.Background())
 	t.Cleanup(runCancel)
 	runDone := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		exec.Run(runCtx)
 		close(runDone)
-	}()
+	})
 
 	wake <- struct{}{}
 	waitForSignal(t, pollStarted, "poll did not start")
 
 	shutdownDone := make(chan error, 1)
-	go func() {
+	concWG.Go(func() {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer shutdownCancel()
 		shutdownDone <- exec.Shutdown(shutdownCtx)
-	}()
+	})
 
 	select {
 	case err := <-shutdownDone:
@@ -1576,6 +1588,8 @@ func TestExecutor_Shutdown_WaitsForInFlight(t *testing.T) {
 }
 
 func TestExecutor_Shutdown_Timeout(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	pollStarted := make(chan struct{})
@@ -1612,10 +1626,10 @@ func TestExecutor_Shutdown_Timeout(t *testing.T) {
 
 	runCtx, runCancel := context.WithCancel(context.Background())
 	runDone := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		exec.Run(runCtx)
 		close(runDone)
-	}()
+	})
 
 	wake <- struct{}{}
 	waitForSignal(t, pollStarted, "poll did not start")
@@ -1711,6 +1725,8 @@ func TestExecutor_Execute_StatusTransitionFails(t *testing.T) {
 }
 
 func TestHeartbeatSender_Run(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 	beats := make(chan struct{}, 10)
 	store := &mockExecutorStore{}
@@ -1725,10 +1741,10 @@ func TestHeartbeatSender_Run(t *testing.T) {
 	hb := NewHeartbeatSender(store, 10*time.Millisecond)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		hb.Run(ctx, "run-1")
 		close(done)
-	}()
+	})
 
 	for i := range 2 {
 		select {
@@ -2028,6 +2044,8 @@ func TestSendWebhookWithRetry_DefaultMaxAttempts(t *testing.T) {
 }
 
 func TestSendWebhookWithRetry_ContextCanceled(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 	var attempts atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -2040,8 +2058,7 @@ func TestSendWebhookWithRetry_ContextCanceled(t *testing.T) {
 
 	job := &domain.Job{WebhookURL: srv.URL}
 	run := &domain.JobRun{ID: "run-1", Status: domain.StatusFailed}
-
-	go func() {
+	concWG.Go(func() {
 		deadline := time.Now().Add(2 * time.Second)
 		for time.Now().Before(deadline) {
 			if attempts.Load() >= 1 {
@@ -2050,7 +2067,7 @@ func TestSendWebhookWithRetry_ContextCanceled(t *testing.T) {
 			time.Sleep(time.Millisecond)
 		}
 		cancel()
-	}()
+	})
 
 	result := SendWebhookWithRetry(ctx, job, run, 3)
 	if result.Delivered {
@@ -2288,6 +2305,7 @@ func TestExecutor_ExecutionTracing_Enabled_CapturesTrace(t *testing.T) {
 	}
 
 	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	exec.executionTraceMode = executionTraceFull
 	run := testRun(1)
 	run.CreatedAt = time.Now().Add(-50 * time.Millisecond)
 
@@ -2331,6 +2349,7 @@ func TestExecutor_ExecutionTracing_OnFailure_CapturesTrace(t *testing.T) {
 	}
 
 	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	exec.executionTraceMode = executionTraceFull
 	run := testRun(1)
 	run.CreatedAt = time.Now().Add(-50 * time.Millisecond)
 
@@ -2377,6 +2396,7 @@ func TestExecutor_ExecutionTracing_OnTimeout_CapturesTrace(t *testing.T) {
 	}
 
 	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+	exec.executionTraceMode = executionTraceFull
 	run := testRun(1)
 	run.CreatedAt = time.Now().Add(-50 * time.Millisecond)
 
@@ -3242,6 +3262,56 @@ func TestDispatch_NoCheckpointGraceful(t *testing.T) {
 	// Should still have completed successfully
 	if run.Status != domain.StatusCompleted {
 		t.Fatalf("run status = %s, want completed", run.Status)
+	}
+}
+
+// TestTracedDispatch_RetryEmitsCheckpointHeadersWhenSecretsCacheWarm pins the
+// fix for a durable-resume regression: when the dispatch secrets cache is
+// pre-populated (as it is on attempt 1 when an ENDPOINT_URL environment
+// override resolves dispatch secrets to the empty set), attempt 2 used to
+// hit the cached secrets and never load the checkpoint, dropping the
+// X-Last-Checkpoint and X-Checkpoint-At resume headers the endpoint needs
+// to skip already-completed steps.
+func TestTracedDispatch_RetryEmitsCheckpointHeadersWhenSecretsCacheWarm(t *testing.T) {
+	t.Parallel()
+
+	var headers http.Header
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headers = r.Header
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	cpTime := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	store := &mockExecutorStore{}
+	store.getLatestCheckpointFn = func(_ context.Context, _ string) (*domain.RunCheckpoint, error) {
+		return &domain.RunCheckpoint{
+			ID:        "cp-1",
+			RunID:     "run-1",
+			Sequence:  1,
+			State:     json.RawMessage(`{"cursor":42}`),
+			CreatedAt: cpTime,
+		}, nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+
+	// Simulate the ENDPOINT_URL override path: secrets are resolved once on
+	// attempt 1 to an empty slice and cached. Attempt 2 sees the warm cache.
+	ctx := withDispatchCache(context.Background())
+	job := testJob(server.URL, 3, 5)
+	dispatchCacheSet(ctx, dispatchSecretsCacheKey(job), []domain.JobSecret{})
+
+	if _, _, err := exec.tracedDispatch(ctx, job, testRun(2)); err != nil {
+		t.Fatalf("tracedDispatch: %v", err)
+	}
+
+	if got := headers.Get("X-Last-Checkpoint"); got != `{"cursor":42}` {
+		t.Fatalf("X-Last-Checkpoint = %q, want %q (the warm secrets cache must not suppress the checkpoint load)", got, `{"cursor":42}`)
+	}
+	if got := headers.Get("X-Checkpoint-At"); got != cpTime.Format(time.RFC3339) {
+		t.Fatalf("X-Checkpoint-At = %q, want %q", got, cpTime.Format(time.RFC3339))
 	}
 }
 
@@ -4912,7 +4982,7 @@ func TestHandleSuccess_LatencyAnomalyDetected(t *testing.T) {
 	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com"}
 
 	// Should not panic — just verify no error
-	exec.handleSuccess(context.Background(), run, job, nil, nil)
+	exec.handleSuccess(context.Background(), run, job, nil)
 
 	// Verify the run was completed
 	calls := store.statusUpdates()
@@ -4944,7 +5014,7 @@ func TestHandleSuccess_LatencyNormal(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", StartedAt: &startedAt}
 	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com"}
 
-	exec.handleSuccess(context.Background(), run, job, nil, nil)
+	exec.handleSuccess(context.Background(), run, job, nil)
 
 	calls := store.statusUpdates()
 	if len(calls) == 0 {
@@ -4975,7 +5045,7 @@ func TestHandleSuccess_NoStatsAvailable(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", StartedAt: &startedAt}
 	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com"}
 
-	exec.handleSuccess(context.Background(), run, job, nil, nil)
+	exec.handleSuccess(context.Background(), run, job, nil)
 
 	calls := store.statusUpdates()
 	if len(calls) == 0 {

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/sourcegraph/conc"
 )
 
 type fakeGCStore struct {
@@ -85,14 +87,16 @@ func TestHeartbeatGC_PanicReturnsError(t *testing.T) {
 }
 
 func TestHeartbeatGC_RunExitsOnCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	s := &fakeGCStore{}
 	g := NewHeartbeatGC(s, HeartbeatGCConfig{Interval: 5 * time.Millisecond})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		g.Run(ctx)
 		close(done)
-	}()
+	})
 	time.Sleep(30 * time.Millisecond)
 	cancel()
 	select {

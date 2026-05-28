@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/sourcegraph/conc"
 )
 
 func TestEvaluateCondition(t *testing.T) {
@@ -380,18 +382,21 @@ func TestCondition_Regex_InputLengthLimit(t *testing.T) {
 }
 
 func TestCondition_Regex_ReDoS_DoesNotHang(t *testing.T) {
-	t.Parallel()
+	var concWG conc.WaitGroup
 
 	// Note: Go's regexp engine (RE2-based) does not backtrack, so this pattern
 	// won't cause catastrophic backtracking per se. The length limits are the
 	// primary defense against adversarial inputs.
+	defer concWG.Wait()
+	t.Parallel()
+
 	cond := mustJSON(`{"type":"regex","left":"` + strings.Repeat("a", 100) + `","right":"(a+)+b"}`)
 
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		_, _ = EvaluateCondition(cond, map[string]domain.StepRunStatus{})
 		close(done)
-	}()
+	})
 
 	select {
 	case <-done:

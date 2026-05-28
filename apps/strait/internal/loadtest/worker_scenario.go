@@ -22,6 +22,7 @@ import (
 
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
 
+	"github.com/sourcegraph/conc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -107,8 +108,8 @@ func RunWorkerScenario(ctx context.Context, cfg WorkerConfig) (*WorkerScenarioRe
 	return workerScenarioImpl(ctx, cfg)
 }
 
-// workerScenarioImpl replaces the TODO stub in scenarios.go and drives
-// ModeWorker load tests via the bidirectional gRPC WorkerService.StreamTasks RPC.
+// workerScenarioImpl drives ModeWorker load tests via the bidirectional gRPC
+// WorkerService.StreamTasks RPC.
 //
 // Each simulated worker:
 //  1. Dials the gRPC endpoint with a per-worker worker_id and the configured API key.
@@ -240,6 +241,13 @@ func connectAndStream(
 	workerID string,
 	dispatched, succeeded, failed *atomic.Int64,
 ) error {
+	streamCtx, streamCancel := context.WithCancel(ctx)
+	var streamWG conc.WaitGroup
+	var taskWG conc.WaitGroup
+	defer taskWG.Wait()
+	defer streamWG.Wait()
+	defer streamCancel()
+
 	conn, err := grpc.NewClient(
 		cfg.GRPCAddr,
 		grpc.WithTransportCredentials(grpcTransportCredentials(cfg)),
@@ -252,10 +260,10 @@ func connectAndStream(
 	client := workerv1.NewWorkerServiceClient(conn)
 
 	// Attach API key as Bearer token in gRPC metadata.
-	outCtx := ctx
+	outCtx := streamCtx
 	if cfg.APIKey != "" {
 		md := metadata.Pairs("authorization", "Bearer "+cfg.APIKey)
-		outCtx = metadata.NewOutgoingContext(ctx, md)
+		outCtx = metadata.NewOutgoingContext(streamCtx, md)
 	}
 
 	stream, err := client.StreamTasks(outCtx)
@@ -292,7 +300,7 @@ func connectAndStream(
 	recvErr := make(chan error, 1)
 
 	// Recv goroutine — must not call stream.Send().
-	go func() {
+	streamWG.Go(func() {
 		for {
 			msg, err := stream.Recv()
 			if err != nil {
@@ -301,18 +309,18 @@ func connectAndStream(
 			}
 			select {
 			case inbound <- msg:
-			case <-ctx.Done():
+			case <-streamCtx.Done():
 				return
 			}
 		}
-	}()
+	})
 
 	hbTicker := time.NewTicker(cfg.HeartbeatInterval)
 	defer hbTicker.Stop()
 
 	for {
 		select {
-		case <-ctx.Done():
+		case <-streamCtx.Done():
 			_ = stream.CloseSend()
 			return nil
 
@@ -345,7 +353,7 @@ func connectAndStream(
 				ta := p.TaskAssignment
 				dispatched.Add(1)
 
-				go func() {
+				taskWG.Go(func() {
 					result := simulateTask(ctx, cfg, ta)
 					if result.GetTaskResult().GetStatus() == "success" {
 						succeeded.Add(1)
@@ -354,9 +362,9 @@ func connectAndStream(
 					}
 					select {
 					case outbound <- result:
-					case <-ctx.Done():
+					case <-streamCtx.Done():
 					}
-				}()
+				})
 
 			case *workerv1.ServerMessage_CancelTask:
 				// Simulated tasks honour context cancellation; nothing extra needed.

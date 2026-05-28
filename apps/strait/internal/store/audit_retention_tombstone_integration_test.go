@@ -11,6 +11,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/sourcegraph/conc"
 )
 
 // seedDatedChain inserts n events into projectID spaced 1 hour apart, with
@@ -613,6 +615,8 @@ func TestDeleteAuditEventsBefore_RejectsEmptyProjectID(t *testing.T) {
 // Acceptance criteria: both operations complete without error and
 // VerifyAuditChain reports the chain valid afterwards.
 func TestTombstoneDoesNotRaceWithRotation(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx := context.Background()
 	mustClean(t, ctx)
 
@@ -637,17 +641,16 @@ func TestTombstoneDoesNotRaceWithRotation(t *testing.T) {
 	}
 	results := make(chan outcome, 2)
 	start := make(chan struct{})
-
-	go func() {
+	concWG.Go(func() {
 		<-start
 		_, err := q.DeleteAuditEventsBefore(ctx, projectID, cutoff)
 		results <- outcome{who: "tombstone", err: err}
-	}()
-	go func() {
+	})
+	concWG.Go(func() {
 		<-start
 		_, err := q.RotateAuditSigningKey(ctx, projectID, "actor-race")
 		results <- outcome{who: "rotation", err: err}
-	}()
+	})
 	close(start)
 
 	for range 2 {

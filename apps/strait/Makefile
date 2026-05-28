@@ -1,4 +1,5 @@
 .PHONY: build test lint vet preflight deploy deploy-staging
+.PHONY: test-integration-fast test-integration-clean
 .PHONY: dev dev-up dev-down dev-status dev-logs dev-clean
 .PHONY: loadtest-server loadtest-quick loadtest-throughput
 .PHONY: loadtest-concurrency loadtest-endurance loadtest-chaos loadtest-errors
@@ -25,8 +26,14 @@ test-race:
 test-integration:
 	go test -race -tags=integration -timeout=20m ./internal/store ./internal/queue ./internal/pubsub ./internal/e2e
 
+test-integration-fast:
+	./scripts/test-integration-fast.sh --all
+
+test-integration-clean:
+	./scripts/test-integration-clean.sh
+
 lint:
-	golangci-lint run --timeout=10m ./...
+	./scripts/lint-go.sh
 
 vet:
 	go vet ./...

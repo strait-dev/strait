@@ -18,7 +18,32 @@ import (
 	"github.com/getsentry/sentry-go"
 
 	"strait/internal/pubsub"
+
+	"github.com/sourcegraph/conc"
 )
+
+type countingLogHandler struct {
+	warnCount atomic.Int32
+}
+
+func (h *countingLogHandler) Enabled(context.Context, slog.Level) bool {
+	return true
+}
+
+func (h *countingLogHandler) Handle(_ context.Context, record slog.Record) error {
+	if record.Level >= slog.LevelWarn {
+		h.warnCount.Add(1)
+	}
+	return nil
+}
+
+func (h *countingLogHandler) WithAttrs([]slog.Attr) slog.Handler {
+	return h
+}
+
+func (h *countingLogHandler) WithGroup(string) slog.Handler {
+	return h
+}
 
 func TestConsumerRegisterHandler(t *testing.T) {
 	t.Parallel()
@@ -201,6 +226,52 @@ func TestConsumerPollUnknownTableAcks(t *testing.T) {
 	}
 }
 
+func TestConsumerPollEmptyTableAcksWithoutWarn(t *testing.T) {
+	t.Parallel()
+	var mu sync.Mutex
+	var ackIDs [][]string
+	var nackCalls int
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/http_pull_consumers/c-empty/receive":
+			_, _ = w.Write([]byte(`{"data":[{"ack_id":"a-empty","record":{"id":1},"action":"insert","metadata":{"table_name":""}}]}`))
+		case "/api/http_pull_consumers/c-empty/ack":
+			ids := decodeAckIDs(t, r)
+			mu.Lock()
+			ackIDs = append(ackIDs, ids)
+			mu.Unlock()
+		case "/api/http_pull_consumers/c-empty/nack":
+			nackCalls++
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer ts.Close()
+
+	logs := &countingLogHandler{}
+	consumer := NewConsumer(
+		NewClient(ts.URL, "c-empty", "token"),
+		ConsumerConfig{ConsumerName: "c-empty", BatchSize: 10, WaitTimeMs: 1},
+		slog.New(logs),
+	)
+	if err := consumer.poll(context.Background()); err != nil {
+		t.Fatalf("poll returned error: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(ackIDs) != 1 || len(ackIDs[0]) != 1 || ackIDs[0][0] != "a-empty" {
+		t.Fatalf("ackIDs = %#v, want [[\"a-empty\"]]", ackIDs)
+	}
+	if nackCalls != 0 {
+		t.Fatalf("nackCalls = %d, want 0", nackCalls)
+	}
+	if logs.warnCount.Load() != 0 {
+		t.Fatalf("warn count = %d, want 0 for empty table event", logs.warnCount.Load())
+	}
+}
+
 func TestConsumerPollMixedBatchAckNackSplit(t *testing.T) {
 	t.Parallel()
 	var mu sync.Mutex
@@ -288,6 +359,8 @@ func TestConsumerPollEmptyBatchNoAckNack(t *testing.T) {
 }
 
 func TestConsumerRunStopsOnContextCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 	var receiveCalls atomic.Int32
 
@@ -305,10 +378,10 @@ func TestConsumerRunStopsOnContextCancel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		consumer.Run(ctx)
 		close(done)
-	}()
+	})
 
 	deadline := time.After(2 * time.Second)
 	for receiveCalls.Load() < 1 {
@@ -345,6 +418,8 @@ func TestConsumer_Shutdown_Idle(t *testing.T) {
 }
 
 func TestConsumer_Shutdown_WaitsForPoll(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	pollStarted := make(chan struct{})
@@ -379,10 +454,10 @@ func TestConsumer_Shutdown_WaitsForPoll(t *testing.T) {
 	runCtx, runCancel := context.WithCancel(context.Background())
 	t.Cleanup(runCancel)
 	runDone := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		consumer.Run(runCtx)
 		close(runDone)
-	}()
+	})
 
 	select {
 	case <-pollStarted:
@@ -391,11 +466,11 @@ func TestConsumer_Shutdown_WaitsForPoll(t *testing.T) {
 	}
 
 	shutdownDone := make(chan error, 1)
-	go func() {
+	concWG.Go(func() {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer shutdownCancel()
 		shutdownDone <- consumer.Shutdown(shutdownCtx)
-	}()
+	})
 
 	select {
 	case err := <-shutdownDone:
@@ -654,6 +729,8 @@ func TestConsumerPoll_LargeBatchSize_HonoredAndRoutedInOnePoll(t *testing.T) {
 }
 
 func TestConsumer_ShutdownDuringErrorBackoff(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	var receiveCalls atomic.Int32
@@ -677,10 +754,10 @@ func TestConsumer_ShutdownDuringErrorBackoff(t *testing.T) {
 	runDone := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	go func() {
+	concWG.Go(func() {
 		consumer.Run(ctx)
 		close(runDone)
-	}()
+	})
 
 	// Wait until at least one poll error occurs (consumer enters the 5s backoff select).
 	deadline := time.After(2 * time.Second)

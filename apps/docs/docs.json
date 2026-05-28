@@ -170,6 +170,13 @@
               {
                 "group": "Reference",
                 "pages": ["architecture", "glossary", "faq"]
+              },
+              {
+                "group": "Development",
+                "pages": [
+                  "development/queue-batchlog-rollout-benchmark",
+                  "development/performance-reliability-0-1-6"
+                ]
               }
             ]
           },

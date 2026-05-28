@@ -11,6 +11,8 @@ import (
 
 	"strait/internal/billing"
 	"strait/internal/domain"
+
+	"github.com/sourcegraph/conc"
 )
 
 // TestCreateLogDrain_UpdateBypass_NotPossible confirms that the update path
@@ -53,9 +55,10 @@ func TestCreateLogDrain_UpdateBypass_NotPossible(t *testing.T) {
 // fail-open semantics do NOT prevent over-allocation; this test documents
 // the boundary the real Postgres implementation must enforce: the count read
 // is a snapshot, and TOCTOU races can let multiple creates through. The
-// real integration test (Phase 4.13 pen-test) verifies the DB constraint
-// catches this.
+// plan-bypass integration test verifies the DB constraint catches this.
 func TestCreateLogDrain_RaceAtCap_DocumentsTOCTOU(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	count := atomic.Int64{}
@@ -80,12 +83,12 @@ func TestCreateLogDrain_RaceAtCap_DocumentsTOCTOU(t *testing.T) {
 	wg.Add(attempts)
 	results := make(chan int, attempts)
 	for range attempts {
-		go func() {
+		concWG.Go(func() {
 			defer wg.Done()
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/log-drains", validLogDrainBody()))
 			results <- w.Code
-		}()
+		})
 	}
 	wg.Wait()
 	close(results)
@@ -155,6 +158,8 @@ func TestCreateLogDrain_OrgScopedCount(t *testing.T) {
 // TestCreateNotificationChannel_RaceAtCap_DocumentsTOCTOU mirrors the
 // log-drain TOCTOU test for notification channels (per-project count).
 func TestCreateNotificationChannel_RaceAtCap_DocumentsTOCTOU(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	count := atomic.Int64{}
@@ -178,12 +183,12 @@ func TestCreateNotificationChannel_RaceAtCap_DocumentsTOCTOU(t *testing.T) {
 	wg.Add(attempts)
 	results := make(chan int, attempts)
 	for range attempts {
-		go func() {
+		concWG.Go(func() {
 			defer wg.Done()
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/notification-channels", validChannelBody(), "proj-1"))
 			results <- w.Code
-		}()
+		})
 	}
 	wg.Wait()
 	close(results)
@@ -202,15 +207,15 @@ func TestCreateNotificationChannel_RaceAtCap_DocumentsTOCTOU(t *testing.T) {
 		t.Fatal("no responses recorded")
 	}
 	// We don't assert exact counts — the gate's snapshot semantics permit a
-	// TOCTOU window. The pen-test phase verifies the DB enforcement.
+	// TOCTOU window. The DB constraint is the enforcement boundary.
 	_ = saw201
 	_ = saw4xx
 }
 
 // TestPlanGate_TamperedEntitlements_TrustsDB locks in the documented threat
 // model: if entitlements are tampered with directly via SQL to claim a
-// higher tier, the gate trusts the DB. This is intentional — the DB row is
-// authoritative for resolved entitlements (see Wave 3 reader switch). This
+// higher tier, the gate trusts the DB. This is intentional - the DB row is
+// authoritative for resolved entitlements. This
 // test names the boundary so future contributors don't try to "harden" it
 // by re-deriving from PlanTier (which would defeat the snapshot model).
 func TestPlanGate_TamperedEntitlements_TrustsDB(t *testing.T) {

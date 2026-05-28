@@ -1,8 +1,10 @@
 package api
 
 import (
+	"compress/gzip"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,8 +14,6 @@ import (
 	"strait/internal/domain"
 	"strait/internal/store"
 )
-
-// ─── UpdateEnvironment ──────────────────────────────────────────────────────.
 
 func TestHandleUpdateEnvironment_Success(t *testing.T) {
 	t.Parallel()
@@ -111,8 +111,6 @@ func TestHandleUpdateEnvironment_InvalidBody(t *testing.T) {
 	}
 }
 
-// ─── DeleteEnvironment ──────────────────────────────────────────────────────.
-
 func TestHandleDeleteEnvironment_Success(t *testing.T) {
 	t.Parallel()
 	var deletedID string
@@ -157,8 +155,6 @@ func TestHandleDeleteEnvironment_NotFound(t *testing.T) {
 		t.Fatalf("expected 404, got %d", w.Code)
 	}
 }
-
-// ─── UpdateJobGroup ─────────────────────────────────────────────────────────.
 
 func TestHandleUpdateJobGroup_Success(t *testing.T) {
 	t.Parallel()
@@ -244,8 +240,6 @@ func TestHandleUpdateJobGroup_InvalidBody(t *testing.T) {
 	}
 }
 
-// ─── ListRunCheckpoints ─────────────────────────────────────────────────────.
-
 func TestHandleListRunCheckpoints_Success(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
@@ -313,8 +307,6 @@ func TestHandleListRunCheckpoints_StoreError(t *testing.T) {
 	}
 }
 
-// ─── ListRunUsage ───────────────────────────────────────────────────────────.
-
 func TestHandleListRunUsage_Success(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
@@ -367,8 +359,6 @@ func TestHandleListRunUsage_Empty(t *testing.T) {
 	}
 }
 
-// ─── ListRunToolCalls ───────────────────────────────────────────────────────.
-
 func TestHandleListRunToolCalls_Success(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
@@ -416,8 +406,6 @@ func TestHandleListRunToolCalls_Empty(t *testing.T) {
 	}
 }
 
-// ─── ListRunOutputs ─────────────────────────────────────────────────────────.
-
 func TestHandleListRunOutputs_Success(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
@@ -463,8 +451,6 @@ func TestHandleListRunOutputs_Empty(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 }
-
-// ─── SDKToolCall ────────────────────────────────────────────────────────────.
 
 func TestHandleSDKToolCall_Success(t *testing.T) {
 	t.Parallel()
@@ -521,8 +507,6 @@ func TestHandleSDKToolCall_InvalidBody(t *testing.T) {
 	}
 }
 
-// ─── APIReference & OpenAPISpec ─────────────────────────────────────────────.
-
 func TestHandleAPIReference_Returns200(t *testing.T) {
 	t.Parallel()
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
@@ -577,6 +561,42 @@ func TestHandleOpenAPISpec_ContainsOpenAPI(t *testing.T) {
 	}
 }
 
+func TestHandleOpenAPISpec_ReturnsPrecompressedGzip(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/reference/openapi.json", nil)
+	r.Header.Set("Accept-Encoding", "gzip")
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if got := w.Header().Get("Content-Encoding"); got != "gzip" {
+		t.Fatalf("Content-Encoding = %q, want gzip", got)
+	}
+	if got := w.Header().Get("Vary"); got != "Accept-Encoding" {
+		t.Fatalf("Vary = %q, want Accept-Encoding", got)
+	}
+
+	zr, err := gzip.NewReader(w.Body)
+	if err != nil {
+		t.Fatalf("gzip.NewReader() error = %v", err)
+	}
+	defer zr.Close()
+	body, err := io.ReadAll(zr)
+	if err != nil {
+		t.Fatalf("read gzip body: %v", err)
+	}
+	if !strings.Contains(string(body), "openapi") {
+		t.Fatal("expected decompressed response to contain 'openapi'")
+	}
+	if w.Body.Len() >= len(srv.cachedOpenAPISpec) {
+		t.Fatalf("compressed length = %d, uncompressed = %d, want smaller compressed body", w.Body.Len(), len(srv.cachedOpenAPISpec))
+	}
+}
+
 func TestHandleOpenAPISpec_YAMLRedirect(t *testing.T) {
 	t.Parallel()
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
@@ -593,8 +613,6 @@ func TestHandleOpenAPISpec_YAMLRedirect(t *testing.T) {
 		t.Fatalf("expected redirect to /reference/openapi.json, got %q", loc)
 	}
 }
-
-// ─── OpenAPI Path Parameter Validation ────────────────────────────────────────.
 
 // openAPIPathParams returns the names of path parameters declared on a
 // specific operation (method + path) in the OpenAPI spec.

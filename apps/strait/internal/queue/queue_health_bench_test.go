@@ -19,6 +19,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/queue"
+
+	"github.com/sourcegraph/conc"
 )
 
 // Queue Health Benchmark.
@@ -238,6 +240,8 @@ func (c *snapshotCollector) collect() healthSnapshot {
 }
 
 func TestQueueHealthBench(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	cfg := benchConfigFromEnv()
 	if testing.Short() {
 		t.Skip("short mode")
@@ -274,7 +278,7 @@ func TestQueueHealthBench(t *testing.T) {
 	stopEnq := make(chan struct{})
 	var producerWg sync.WaitGroup
 	producerWg.Add(1)
-	go func() {
+	concWG.Go(func() {
 		defer producerWg.Done()
 		ticker := time.NewTicker(time.Second / time.Duration(cfg.EnqueueRateHz))
 		defer ticker.Stop()
@@ -293,7 +297,7 @@ func TestQueueHealthBench(t *testing.T) {
 				}
 			}
 		}
-	}()
+	})
 
 	// Consumer workers.
 	var cursor *queue.ClaimCursor
@@ -305,7 +309,7 @@ func TestQueueHealthBench(t *testing.T) {
 	end := time.Now().Add(cfg.Duration)
 	for w := range cfg.Workers {
 		workerWg.Add(1)
-		go func() {
+		concWG.Go(func() {
 			defer workerWg.Done()
 			for time.Now().Before(end) {
 				start := time.Now()
@@ -341,7 +345,7 @@ func TestQueueHealthBench(t *testing.T) {
 					time.Sleep(5 * time.Millisecond)
 				}
 			}
-		}()
+		})
 	}
 
 	// Snapshot loop.
@@ -351,7 +355,7 @@ func TestQueueHealthBench(t *testing.T) {
 	snapshots = append(snapshots, collector.collect())
 
 	done := make(chan struct{})
-	go func() { workerWg.Wait(); close(done) }()
+	concWG.Go(func() { workerWg.Wait(); close(done) })
 
 	for {
 		select {
@@ -396,6 +400,8 @@ finished:
 // TestQueueHealthBench_WithLongTxn simulates the PlanetScale death spiral:
 // sustained queue load + a long-running transaction that pins the xmin horizon.
 func TestQueueHealthBench_WithLongTxn(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	cfg := benchConfigFromEnv()
 	if testing.Short() {
 		t.Skip("short mode")
@@ -439,7 +445,7 @@ func TestQueueHealthBench_WithLongTxn(t *testing.T) {
 	stopEnq := make(chan struct{})
 	var producerWg sync.WaitGroup
 	producerWg.Add(1)
-	go func() {
+	concWG.Go(func() {
 		defer producerWg.Done()
 		ticker := time.NewTicker(time.Second / time.Duration(cfg.EnqueueRateHz))
 		defer ticker.Stop()
@@ -458,14 +464,14 @@ func TestQueueHealthBench_WithLongTxn(t *testing.T) {
 				}
 			}
 		}
-	}()
+	})
 
 	// Workers.
 	var workerWg sync.WaitGroup
 	end := time.Now().Add(cfg.Duration)
 	for w := range cfg.Workers {
 		workerWg.Add(1)
-		go func() {
+		concWG.Go(func() {
 			defer workerWg.Done()
 			for time.Now().Before(end) {
 				start := time.Now()
@@ -487,7 +493,7 @@ func TestQueueHealthBench_WithLongTxn(t *testing.T) {
 					time.Sleep(5 * time.Millisecond)
 				}
 			}
-		}()
+		})
 	}
 
 	// Snapshot loop with midpoint long-txn release.
@@ -497,7 +503,7 @@ func TestQueueHealthBench_WithLongTxn(t *testing.T) {
 	snapshots = append(snapshots, collector.collect())
 
 	done := make(chan struct{})
-	go func() { workerWg.Wait(); close(done) }()
+	concWG.Go(func() { workerWg.Wait(); close(done) })
 
 	midpoint := time.Now().Add(cfg.Duration / 2)
 	longTxnReleased := false

@@ -18,6 +18,7 @@ import (
 	"strait/internal/pubsub"
 	"strait/internal/store"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/sourcegraph/conc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -35,6 +36,7 @@ type Server struct {
 	resultChannels  *ResultChannelRegistry
 	runFinalizer    atomic.Value
 	authLimiter     grpcAuthLimiter
+	apiKeyResolver  apiKeyResolver
 	secretDecryptor SecretDecryptor
 	billingEnforcer planLimitEnforcer
 	gs              *grpc.Server
@@ -61,6 +63,12 @@ type ServerOption func(*Server)
 func WithAuthLimiter(limiter grpcAuthLimiter) ServerOption {
 	return func(s *Server) {
 		s.authLimiter = limiter
+	}
+}
+
+func WithAPIKeyCache(client redis.Cmdable, ttl time.Duration) ServerOption {
+	return func(s *Server) {
+		s.apiKeyResolver = newCachedAPIKeyResolver(client, ttl, queryAPIKeyResolver(s.queries))
 	}
 }
 
@@ -105,6 +113,7 @@ func NewServer(cfg *config.Config, queries *store.Queries, pub pubsub.Publisher,
 		pub:            pub,
 		registry:       NewConnectionRegistry(),
 		resultChannels: NewResultChannelRegistry(),
+		apiKeyResolver: queryAPIKeyResolver(queries),
 		version:        "unknown",
 	}
 	for _, opt := range opts {
@@ -194,6 +203,7 @@ func (s *Server) buildServer() (*grpc.Server, error) {
 		resultChannels:  s.resultChannels,
 		runFinalizer:    &s.runFinalizer,
 		authLimiter:     s.authLimiter,
+		apiKeyResolver:  s.apiKeyResolver,
 		billingEnforcer: s.billingEnforcer,
 	}
 	workerv1.RegisterWorkerServiceServer(gs, svc)

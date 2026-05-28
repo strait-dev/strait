@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"log/slog"
+	"net"
 	"net/url"
 	"os"
 	"slices"
@@ -84,6 +85,17 @@ type Config struct {
 	DBWatchdogInterval         time.Duration `env:"DB_WATCHDOG_INTERVAL" default:"15s"`
 	DBWatchdogEnabled          bool          `env:"DB_WATCHDOG_ENABLED" default:"true"`
 
+	// Toggle the fully denormalized dequeue path (uses job_runs fan-out
+	// columns plus job_active_counts instead of joining jobs and scanning
+	// active rows).
+	QueueUseDenormalizedDequeue bool `env:"QUEUE_USE_DENORMALIZED_DEQUEUE" default:"true"`
+	// QueueEngine selects the queue storage engine. batchlog claims from
+	// narrow queue_entries while preserving job_runs as the ledger.
+	QueueEngine               string        `env:"QUEUE_ENGINE" default:"batchlog"`
+	QueueBatchTickInterval    time.Duration `env:"QUEUE_BATCH_TICK_INTERVAL" default:"100ms"`
+	OutboxEngine              string        `env:"OUTBOX_ENGINE" default:"batchlog"`
+	WorkflowProgressionEngine string        `env:"WORKFLOW_PROGRESSION_ENGINE" default:"batchlog"`
+
 	// DLQ caps and overflow policy.
 	DLQMaxPerProject  int    `env:"DLQ_MAX_PER_PROJECT" default:"10000"`
 	DLQMaxPerJob      int    `env:"DLQ_MAX_PER_JOB" default:"1000"`
@@ -127,6 +139,8 @@ type Config struct {
 	AdaptiveConcurrencyMin int      `env:"ADAPTIVE_CONCURRENCY_MIN" default:"5"`
 	AdaptiveConcurrencyMax int      `env:"ADAPTIVE_CONCURRENCY_MAX" default:"100"`
 	DBPgBouncerMode        bool     `env:"DB_PGBOUNCER_MODE" default:"false"`
+	DBPgBouncerPrepared    bool     `env:"DB_PGBOUNCER_PREPARED_STATEMENTS" default:"false"`
+	DBTraceStatements      bool     `env:"DB_TRACE_STATEMENTS" default:"false"`
 
 	WorkerDrainTimeout time.Duration `env:"WORKER_DRAIN_TIMEOUT" default:"30s"`
 
@@ -167,6 +181,7 @@ type Config struct {
 	WebhookIdleConnTimeout     time.Duration `env:"WEBHOOK_IDLE_CONN_TIMEOUT" default:"1m"`
 	ExecutorHTTPTimeout        time.Duration `env:"EXECUTOR_HTTP_TIMEOUT" default:"5m"`
 	ExecutorIdleConnTimeout    time.Duration `env:"EXECUTOR_IDLE_CONN_TIMEOUT" default:"1m30s"`
+	ExecutionTraceMode         string        `env:"EXECUTION_TRACE_MODE" default:"off"`
 	WebhookDispatchTimeout     time.Duration `env:"WEBHOOK_DISPATCH_TIMEOUT" default:"15s"`
 	WebhookMaxPayloadBytes     int64         `env:"WEBHOOK_MAX_PAYLOAD_BYTES" default:"1048576"`
 	WebhookConcurrency         int           `env:"WEBHOOK_CONCURRENCY" default:"50"`
@@ -193,7 +208,7 @@ type Config struct {
 	PartitionReclaimInterval time.Duration `env:"PARTITION_RECLAIM_INTERVAL" default:"24h"`
 	PartitionReclaimSafety   int           `env:"PARTITION_RECLAIM_SAFETY_MONTHS" default:"2"`
 	StalledWorkflowThreshold time.Duration `env:"WF_STALL_THRESHOLD" default:"15m"`
-	StalledWorkflowAction    string        `env:"WF_STALL_ACTION" default:"log_only"`
+	StalledWorkflowAction    string        `env:"WF_STALL_ACTION" default:"reconcile"`
 	WfMaxStepCap             int           `env:"WF_MAX_STEP_CAP" default:"100"`
 	WfStepConcurrencyLimit   int           `env:"WF_STEP_CONCURRENCY_LIMIT" default:"0"`
 	DependencyStatusCacheTTL time.Duration `env:"DEPENDENCY_STATUS_CACHE_TTL" default:"5s"`
@@ -221,17 +236,29 @@ type Config struct {
 	LogDrainWorkerInterval     time.Duration `env:"LOG_DRAIN_WORKER_INTERVAL" default:"1m"`
 	MemoryPressureThresholdPct float64       `env:"MEMORY_PRESSURE_THRESHOLD_PCT" default:"0"`
 	JobCacheTTL                time.Duration `env:"JOB_CACHE_TTL" default:"5m"`
-	DefaultRunTTLSecs          int           `env:"DEFAULT_RUN_TTL_SECS" default:"0"`
-	MaxResultSize              int64         `env:"MAX_RESULT_SIZE" default:"1048576"`
-	MigrationMode              string        `env:"MIGRATION_MODE" default:"auto"`
-	MigrationLockTimeout       time.Duration `env:"MIGRATION_LOCK_TIMEOUT" default:"30s"`
-	MaxSnoozeCount             int           `env:"MAX_SNOOZE_COUNT" default:"50"`
-	DebouncePollerInterval     time.Duration `env:"DEBOUNCE_POLLER_INTERVAL" default:"1s"`
-	BatchFlushInterval         time.Duration `env:"BATCH_FLUSH_INTERVAL" default:"1s"`
-	WebhookRequireTLS          bool          `env:"WEBHOOK_REQUIRE_TLS" default:"false"`
-	AllowPrivateEndpoints      bool          `env:"ALLOW_PRIVATE_ENDPOINTS" default:"false"`
-	DefaultRegion              string        `env:"DEFAULT_REGION" default:"iad"`
-	ExternalAPIURL             string        `env:"EXTERNAL_API_URL"`
+	VersionCacheTTL            time.Duration `env:"VERSION_CACHE_TTL" default:"30m"`
+	RunVersionCacheTTL         time.Duration `env:"RUN_VERSION_CACHE_TTL" default:"10m"`
+	APIKeyCacheTTL             time.Duration `env:"API_KEY_CACHE_TTL" default:"60s"`
+	JobHealthCacheTTL          time.Duration `env:"JOB_HEALTH_CACHE_TTL" default:"2s"`
+	// JobHealthStatsCacheTTL is kept as a compatibility alias for the
+	// short-TTL job health stats cache added before the generalized worker
+	// cache tiers. The executor uses JobHealthCacheTTL.
+	JobHealthStatsCacheTTL time.Duration `env:"JOB_HEALTH_STATS_CACHE_TTL" default:"30s"`
+	JobDepsCacheTTL        time.Duration `env:"JOB_DEPS_CACHE_TTL" default:"5m"`
+	StatusReadModelTTL     time.Duration `env:"CACHE_STATUS_READMODEL_TTL" default:"5m"`
+	SharedDedupeTTL        time.Duration `env:"CACHE_SHARED_DEDUPE_TTL" default:"10m"`
+	DefaultRunTTLSecs      int           `env:"DEFAULT_RUN_TTL_SECS" default:"0"`
+	MaxResultSize          int64         `env:"MAX_RESULT_SIZE" default:"1048576"`
+	MigrationMode          string        `env:"MIGRATION_MODE" default:"auto"`
+	MigrationLockTimeout   time.Duration `env:"MIGRATION_LOCK_TIMEOUT" default:"30s"`
+	MaxSnoozeCount         int           `env:"MAX_SNOOZE_COUNT" default:"50"`
+	DebouncePollerInterval time.Duration `env:"DEBOUNCE_POLLER_INTERVAL" default:"1s"`
+	BatchFlushInterval     time.Duration `env:"BATCH_FLUSH_INTERVAL" default:"1s"`
+	WebhookRequireTLS      bool          `env:"WEBHOOK_REQUIRE_TLS" default:"false"`
+	EndpointRequireTLS     bool          `env:"ENDPOINT_REQUIRE_TLS" default:"false"`
+	AllowPrivateEndpoints  bool          `env:"ALLOW_PRIVATE_ENDPOINTS" default:"false"`
+	DefaultRegion          string        `env:"DEFAULT_REGION" default:"iad"`
+	ExternalAPIURL         string        `env:"EXTERNAL_API_URL"`
 
 	// Region gating
 	EnforceRegionGating bool `env:"ENFORCE_REGION_GATING" default:"false"`
@@ -322,7 +349,16 @@ type Config struct {
 	PyroscopeAuthToken string `env:"PYROSCOPE_AUTH_TOKEN"`
 
 	// Debug tools
-	DebugStatsviz bool `env:"DEBUG_STATSVIZ" default:"false"`
+	ProfilingEnabled            bool     `env:"STRAIT_PROFILING_ENABLED" default:"false"`
+	ProfilingAPIEnabled         bool     `env:"STRAIT_PROFILING_API_ENABLED" default:"true"`
+	ProfilingManagementEnabled  bool     `env:"STRAIT_PROFILING_MANAGEMENT_ENABLED" default:"false"`
+	ProfilingManagementBindAddr string   `env:"STRAIT_PROFILING_MANAGEMENT_BIND_ADDR" default:"127.0.0.1"`
+	ProfilingManagementPort     int      `env:"STRAIT_PROFILING_MANAGEMENT_PORT" default:"18080"`
+	ProfilingMutexFraction      int      `env:"STRAIT_PROFILING_MUTEX_FRACTION" default:"100"`
+	ProfilingBlockRate          int      `env:"STRAIT_PROFILING_BLOCK_RATE" default:"100000"`
+	ProfilingSecret             string   `env:"STRAIT_PROFILING_SECRET"`
+	ProfilingAllowedCIDRs       []string `env:"STRAIT_PROFILING_ALLOWED_CIDRS"`
+	DebugStatsviz               bool     `env:"DEBUG_STATSVIZ" default:"false"`
 
 	// Edition is determined at compile time via build tags (community vs cloud).
 	// This field exists for config logging but is ignored by domain.ParseEdition.
@@ -355,7 +391,7 @@ func Load() (*Config, error) {
 		SkipFlags: true,
 	})
 	if err := loader.Load(); err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
+		return nil, fmt.Errorf("load config: %w", err)
 	}
 
 	// Post-load: parse ENCRYPTION_KEY_OLD with whitespace trimming.
@@ -405,9 +441,30 @@ func Load() (*Config, error) {
 // CORS policy, and audit subsystem invariants. It mutates cfg in two
 // well-defined cases to match the pre-refactor behavior of Load. Returns a
 // *domain.ConfigError pinpointing the offending field, or nil on success.
-//
-//nolint:gocognit,gocyclo,cyclop
 func validateLoaded(cfg *Config) error {
+	validators := []func(*Config) error{
+		validateRequiredConfig,
+		validateProfilingConfig,
+		validateAuthConfig,
+		validateRedisConfig,
+		validateMigrationConfig,
+		validateDatabaseConfig,
+		validateSequinConfig,
+		validateClickHouseConfig,
+		validateEncryptionConfig,
+		validateCORSConfig,
+		validateAuditConfig,
+		validateWorkerStreamConfig,
+	}
+	for _, validate := range validators {
+		if err := validate(cfg); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateRequiredConfig(cfg *Config) error {
 	if cfg.DatabaseURL == "" {
 		return &domain.ConfigError{Field: "DATABASE_URL", Message: "is required"}
 	}
@@ -417,6 +474,10 @@ func validateLoaded(cfg *Config) error {
 	if len(cfg.InternalSecret) < 16 {
 		return &domain.ConfigError{Field: "INTERNAL_SECRET", Message: "must be at least 16 characters"}
 	}
+	return nil
+}
+
+func validateAuthConfig(cfg *Config) error {
 	if len(cfg.JWTSigningKey) < 32 {
 		return &domain.ConfigError{Field: "JWT_SIGNING_KEY", Message: "must be at least 32 characters"}
 	}
@@ -431,7 +492,10 @@ func validateLoaded(cfg *Config) error {
 			return &domain.ConfigError{Field: "OIDC_PUBLIC_KEY_PEM", Message: "is required when OIDC is enabled"}
 		}
 	}
+	return nil
+}
 
+func validateRedisConfig(cfg *Config) error {
 	if cfg.RedisURL != "" {
 		if _, err := url.Parse(cfg.RedisURL); err != nil {
 			return &domain.ConfigError{Field: "REDIS_URL", Message: fmt.Sprintf("invalid URL: %v", err)}
@@ -440,21 +504,29 @@ func validateLoaded(cfg *Config) error {
 	if cfg.RedisURL == "" && (cfg.RedisSentinelMaster == "" || len(cfg.RedisSentinelAddrs) == 0) {
 		return &domain.ConfigError{Field: "REDIS_URL", Message: "is required unless REDIS_SENTINEL_MASTER and REDIS_SENTINEL_ADDRS are configured"}
 	}
+	return nil
+}
 
+func validateMigrationConfig(cfg *Config) error {
 	switch cfg.MigrationMode {
 	case "auto", "manual", "validate":
-		// valid
+		return nil
 	default:
 		return &domain.ConfigError{Field: "MIGRATION_MODE", Message: "must be auto, manual, or validate"}
 	}
+}
 
+func validateDatabaseConfig(cfg *Config) error {
 	if strings.Contains(cfg.DatabaseURL, "sslmode=disable") {
 		if cfg.SentryEnvironment != "development" && cfg.SentryEnvironment != "test" {
 			return &domain.ConfigError{Field: "DATABASE_URL", Message: "sslmode=disable is not allowed in non-development environments"}
 		}
 		slog.Warn("DATABASE_URL has sslmode=disable; connections are not encrypted")
 	}
+	return nil
+}
 
+func validateSequinConfig(cfg *Config) error {
 	if cfg.SequinBaseURL == "" {
 		return &domain.ConfigError{Field: "SEQUIN_BASE_URL", Message: "is required"}
 	}
@@ -467,15 +539,24 @@ func validateLoaded(cfg *Config) error {
 	if cfg.SequinAPIToken == "" {
 		return &domain.ConfigError{Field: "SEQUIN_API_TOKEN", Message: "is required"}
 	}
+	return nil
+}
 
+func validateClickHouseConfig(cfg *Config) error {
 	if cfg.ClickHouseEnabled && cfg.ClickHouseURL == "" {
 		return &domain.ConfigError{Field: "CLICKHOUSE_URL", Message: "is required when CLICKHOUSE_ENABLED=true"}
 	}
+	return nil
+}
 
+func validateEncryptionConfig(cfg *Config) error {
 	if cfg.EncryptionKey == "" && cfg.SecretEncryptionKey == "" {
 		slog.Warn("neither ENCRYPTION_KEY nor SECRET_ENCRYPTION_KEY is set; secret encryption will be unavailable")
 	}
+	return nil
+}
 
+func validateCORSConfig(cfg *Config) error {
 	for _, origin := range cfg.CORSAllowedOrigins {
 		if origin == "*" && cfg.CORSAllowCredentials {
 			return &domain.ConfigError{
@@ -493,7 +574,10 @@ func validateLoaded(cfg *Config) error {
 			slog.Warn("CORS_ALLOWED_ORIGINS is set to wildcard (*); consider restricting to specific origins in production")
 		}
 	}
+	return nil
+}
 
+func validateAuditConfig(cfg *Config) error {
 	if cfg.AuditRetentionDefaultDays < 0 {
 		return &domain.ConfigError{Field: "AUDIT_RETENTION_DEFAULT_DAYS", Message: "must be >= 0"}
 	}
@@ -535,9 +619,16 @@ func validateLoaded(cfg *Config) error {
 			return &domain.ConfigError{Field: "AUDIT_SIEM_ENDPOINT", Message: fmt.Sprintf("unparseable URL: %v", err)}
 		}
 		if u.User != nil {
-			return &domain.ConfigError{Field: "AUDIT_SIEM_ENDPOINT", Message: "must not contain userinfo (user:password@host) — use AUDIT_SIEM_AUTH_TOKEN for credentials"}
+			return &domain.ConfigError{
+				Field:   "AUDIT_SIEM_ENDPOINT",
+				Message: "must not contain userinfo (user:password@host) — use AUDIT_SIEM_AUTH_TOKEN for credentials",
+			}
 		}
 	}
+	return nil
+}
+
+func validateWorkerStreamConfig(cfg *Config) error {
 	if cfg.WorkerDBSyncInterval <= cfg.HeartbeatInterval {
 		return &domain.ConfigError{
 			Field:   "WORKER_DB_SYNC_INTERVAL",
@@ -560,6 +651,28 @@ func validateLoaded(cfg *Config) error {
 	return nil
 }
 
+func validateProfilingConfig(cfg *Config) error {
+	if cfg.ProfilingSecret != "" && len(cfg.ProfilingSecret) < 16 {
+		return &domain.ConfigError{Field: "STRAIT_PROFILING_SECRET", Message: "must be at least 16 characters"}
+	}
+	if bad := firstInvalidCIDREntry(cfg.ProfilingAllowedCIDRs); bad != "" {
+		return &domain.ConfigError{Field: "STRAIT_PROFILING_ALLOWED_CIDRS", Message: fmt.Sprintf("contains invalid CIDR/IP entry %q", bad)}
+	}
+	if cfg.ProfilingEnabled && !cfg.ProfilingAPIEnabled && !cfg.ProfilingManagementEnabled {
+		return &domain.ConfigError{Field: "STRAIT_PROFILING_ENABLED", Message: "requires at least one profiling listener"}
+	}
+	if cfg.ProfilingManagementEnabled && (cfg.ProfilingManagementPort <= 0 || cfg.ProfilingManagementPort > 65535) {
+		return &domain.ConfigError{Field: "STRAIT_PROFILING_MANAGEMENT_PORT", Message: "must be between 1 and 65535"}
+	}
+	if cfg.ProfilingMutexFraction < 0 {
+		return &domain.ConfigError{Field: "STRAIT_PROFILING_MUTEX_FRACTION", Message: "must be >= 0"}
+	}
+	if cfg.ProfilingBlockRate < 0 {
+		return &domain.ConfigError{Field: "STRAIT_PROFILING_BLOCK_RATE", Message: "must be >= 0"}
+	}
+	return nil
+}
+
 // Redacted returns a map of config field names to values with secrets masked.
 // Includes all operationally useful fields while hiding credentials and keys.
 func (c *Config) Redacted() map[string]any {
@@ -577,6 +690,7 @@ func (c *Config) Redacted() map[string]any {
 		"DatabaseURL":            "[REDACTED]",
 		"RedisURL":               "[REDACTED]",
 		"InternalSecret":         "[REDACTED]",
+		"ProfilingSecret":        "[REDACTED]",
 		"JWTSigningKey":          "[REDACTED]",
 		"EncryptionKey":          "[REDACTED]",
 		"StripeSecretKey":        "[REDACTED]",
@@ -622,4 +736,21 @@ func parseCSVEnv(key string) []string {
 	}
 
 	return values
+}
+
+func firstInvalidCIDREntry(entries []string) string {
+	for _, raw := range entries {
+		entry := strings.TrimSpace(raw)
+		if entry == "" {
+			continue
+		}
+		if _, _, err := net.ParseCIDR(entry); err == nil {
+			continue
+		}
+		if net.ParseIP(entry) != nil {
+			continue
+		}
+		return entry
+	}
+	return ""
 }

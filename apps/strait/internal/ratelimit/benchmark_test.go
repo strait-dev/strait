@@ -51,3 +51,27 @@ func BenchmarkRedisRateLimiterAllow(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkRedisRateLimiterAllowEffectivelyUnlimited(b *testing.B) {
+	ctx := context.Background()
+	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
+		b.Fatal("redis should not be called for effectively unlimited limits")
+		return nil
+	})
+	b.Cleanup(func() { _ = client.Close() })
+
+	limiter := NewRedisRateLimiter(client, true)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for b.Loop() {
+		result, err := limiter.Allow(ctx, "rate:user:bench", effectivelyUnlimitedRequests, time.Minute)
+		if err != nil {
+			b.Fatalf("Allow() error = %v", err)
+		}
+		if !result.Allowed {
+			b.Fatal("Allow() = false, want true")
+		}
+	}
+}

@@ -18,11 +18,11 @@ import (
 	"github.com/sourcegraph/conc"
 )
 
-// ---------------------------------------------------------------------------.
 // Grace period enforcer: Run loop, WithAdvisoryLocker, deeper enforce paths
-// ---------------------------------------------------------------------------.
 
 func TestGraceEnforcer_Run_StopsOnCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	pastGrace := time.Now().Add(-1 * time.Hour)
@@ -35,10 +35,10 @@ func TestGraceEnforcer_Run_StopsOnCancel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		g.Run(ctx)
 		close(done)
-	}()
+	})
 
 	cancel()
 	select {
@@ -274,11 +274,11 @@ func TestGraceEnforcer_WithEnforcer(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Usage flusher: Run loop, advisory locker paths, upsert errors
-// ---------------------------------------------------------------------------.
 
 func TestUsageFlusher_Run_StopsOnCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	s := &mockUsageFlusherStore{}
@@ -286,10 +286,10 @@ func TestUsageFlusher_Run_StopsOnCancel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		uf.Run(ctx)
 		close(done)
-	}()
+	})
 
 	cancel()
 	select {
@@ -431,11 +431,11 @@ func TestUsageFlusher_UpsertError_ContinuesOtherRecords(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Downgrade applier: Run loop, SuspendExcessProjects path
-// ---------------------------------------------------------------------------.
 
 func TestDowngradeApplier_Run_StopsOnCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	store := &advMockDowngradeStore{
@@ -447,10 +447,10 @@ func TestDowngradeApplier_Run_StopsOnCancel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		d.Run(ctx)
 		close(done)
-	}()
+	})
 
 	cancel()
 	select {
@@ -556,9 +556,7 @@ func TestDowngradeApplier_LockerReleaseError(t *testing.T) {
 	d.apply(context.Background())
 }
 
-// ---------------------------------------------------------------------------.
 // Budget monitor: checkRunLimitWarnings, WithRunLimitNotifications
-// ---------------------------------------------------------------------------.
 
 // mockRunLimitStore implements RunLimitStore for testing.
 type covMockRunLimitStore struct {
@@ -702,11 +700,11 @@ func TestBudgetMonitor_CheckRunLimitWarnings_Dedup(t *testing.T) {
 	// Already alerted, should be skipped without error.
 }
 
-// ---------------------------------------------------------------------------.
 // Concurrent reconciler: Run loop
-// ---------------------------------------------------------------------------.
 
 func TestConcurrentReconciler_Run_StopsOnCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	enforcer := newTestEnforcer(t)
@@ -714,10 +712,10 @@ func TestConcurrentReconciler_Run_StopsOnCancel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		r.Run(ctx)
 		close(done)
-	}()
+	})
 
 	cancel()
 	select {
@@ -727,9 +725,7 @@ func TestConcurrentReconciler_Run_StopsOnCancel(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Cron: recordCronDrift, concurrent trigger races
-// ---------------------------------------------------------------------------.
 
 func TestCronScheduler_RecordCronDrift_EmptyExpr(t *testing.T) {
 	t.Parallel()
@@ -907,9 +903,7 @@ func TestCronScheduler_LoadJobs_ListJobsError(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Batch flusher: GetJob error, enqueue error during flush, advisory lock races
-// ---------------------------------------------------------------------------.
 
 func TestBatchFlusher_GetJobReturnsError(t *testing.T) {
 	t.Parallel()
@@ -1051,9 +1045,7 @@ func TestBatchFlusher_LargeBatch(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Debounce poller: TTL edge cases
-// ---------------------------------------------------------------------------.
 
 func TestDebouncePoller_CustomTTL(t *testing.T) {
 	t.Parallel()
@@ -1211,6 +1203,8 @@ func TestDebouncePoller_WithTags(t *testing.T) {
 }
 
 func TestDebouncePoller_Run_StopsOnCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	ds := &mockDebounceStore{}
@@ -1219,10 +1213,10 @@ func TestDebouncePoller_Run_StopsOnCancel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		poller.Run(ctx)
 		close(done)
-	}()
+	})
 
 	cancel()
 	select {
@@ -1232,9 +1226,7 @@ func TestDebouncePoller_Run_StopsOnCancel(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Stale subscription checker: locker error path
-// ---------------------------------------------------------------------------.
 
 func TestStaleSubscriptionChecker_Check_LockerError(t *testing.T) {
 	t.Parallel()
@@ -1257,9 +1249,7 @@ func TestStaleSubscriptionChecker_Check_LockerError(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // SLO error budget: adversarial float inputs
-// ---------------------------------------------------------------------------.
 
 func TestCalculateErrorBudget_ExtremeValues(t *testing.T) {
 	t.Parallel()
@@ -1298,9 +1288,7 @@ func TestCalculateErrorBudget_ExtremeValues(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Anomaly monitor: release lock error, detection error, notification paths
-// ---------------------------------------------------------------------------.
 
 func TestAnomalyMonitor_AdvisoryLockerReleaseError(t *testing.T) {
 	t.Parallel()
@@ -1324,6 +1312,8 @@ func TestAnomalyMonitor_AdvisoryLockerReleaseError(t *testing.T) {
 }
 
 func TestAnomalyMonitor_Run_StopsOnCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	s := &mockAnomalyMonitorStore{
@@ -1335,10 +1325,10 @@ func TestAnomalyMonitor_Run_StopsOnCancel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		am.Run(ctx)
 		close(done)
-	}()
+	})
 
 	cancel()
 	select {
@@ -1348,9 +1338,7 @@ func TestAnomalyMonitor_Run_StopsOnCancel(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Budget monitor: spending limit edge cases
-// ---------------------------------------------------------------------------.
 
 func TestBudgetMonitor_SpendingLimit_NilPeriodStart_FallbackToNow(t *testing.T) {
 	t.Parallel()
@@ -1489,9 +1477,7 @@ func TestBudgetMonitor_SpendingLimit_ProjectListError(t *testing.T) {
 	bm.check(context.Background())
 }
 
-// ---------------------------------------------------------------------------.
 // safeGo panic recovery
-// ---------------------------------------------------------------------------.
 
 func TestSafeGo_RecoversPanic(t *testing.T) {
 	// Not parallel: mutates package-level exitFunc.
@@ -1519,11 +1505,11 @@ func TestSafeGo_RecoversPanic(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Memory cleanup: Run loop
-// ---------------------------------------------------------------------------.
 
 func TestMemoryCleanup_Run_StopsOnCancel(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	s := &advMockMemoryStore{}
@@ -1531,10 +1517,10 @@ func TestMemoryCleanup_Run_StopsOnCancel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		mc.Run(ctx)
 		close(done)
-	}()
+	})
 
 	cancel()
 	select {
@@ -1544,9 +1530,7 @@ func TestMemoryCleanup_Run_StopsOnCancel(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Spending limit notification: CreateNotificationDelivery error
-// ---------------------------------------------------------------------------.
 
 func TestBudgetMonitor_SpendingNotification_DeliveryError(t *testing.T) {
 	t.Parallel()
@@ -1579,9 +1563,7 @@ func TestBudgetMonitor_SpendingNotification_DeliveryError(t *testing.T) {
 	bm.check(context.Background())
 }
 
-// ---------------------------------------------------------------------------.
 // Spending limit dedup across both 80% and 100%
-// ---------------------------------------------------------------------------.
 
 func TestBudgetMonitor_SpendingLimit_100Then80_DedupCheck(t *testing.T) {
 	t.Parallel()

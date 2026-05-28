@@ -244,8 +244,6 @@ func TestValidateSignature_LargeBody(t *testing.T) {
 	}
 }
 
-// ─── ComputeHMACSHA256 (exported helper for signing) ──────────────────────────.
-
 func TestComputeHMACSHA256_KnownVector(t *testing.T) {
 	t.Parallel()
 	// Pre-computed: HMAC-SHA256("test-secret", "hello world")

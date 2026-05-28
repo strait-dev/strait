@@ -11,6 +11,8 @@ import (
 	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/sourcegraph/conc"
 )
 
 type mockSchedulerStore struct {
@@ -102,6 +104,10 @@ func (m *mockSchedulerStore) UpdateWorkflowStepApproval(ctx context.Context, id 
 
 func (m *mockSchedulerStore) UpdateRunStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any) error {
 	return m.reaper.UpdateRunStatus(ctx, id, from, to, fields)
+}
+
+func (m *mockSchedulerStore) ScheduleRetry(_ context.Context, _ string, _ time.Time, _ int) error {
+	return nil
 }
 
 func (m *mockSchedulerStore) DeleteTerminalRunsPastRetention(ctx context.Context, shortRetention, longRetention time.Duration) (int64, error) {
@@ -437,6 +443,8 @@ func TestScheduler_Stop(t *testing.T) {
 }
 
 func TestScheduler_Stop_CompletesWithinTimeout(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 	store := &mockSchedulerStore{
 		cron: &mockCronStore{
@@ -456,10 +464,10 @@ func TestScheduler_Stop_CompletesWithinTimeout(t *testing.T) {
 	cancel()
 
 	done := make(chan struct{})
-	go func() {
+	concWG.Go(func() {
 		s.Stop()
 		close(done)
-	}()
+	})
 
 	select {
 	case <-done:

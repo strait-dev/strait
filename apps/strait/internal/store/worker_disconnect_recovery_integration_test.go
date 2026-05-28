@@ -14,14 +14,7 @@ import (
 
 func TestIntegration_RequeueOpenWorkerTasks_RequeuesExecutingRuns(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := mustEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	projectID := "proj-disconnect-recovery"
@@ -105,14 +98,7 @@ func TestIntegration_RequeueOpenWorkerTasks_RequeuesExecutingRuns(t *testing.T) 
 
 func TestIntegration_RequeueOpenWorkerTasks_SkipsResultReceivedRuns(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := mustEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	projectID := "proj-disconnect-result-received"
@@ -201,14 +187,7 @@ func TestIntegration_RequeueOpenWorkerTasks_SkipsResultReceivedRuns(t *testing.T
 
 func TestIntegration_DeepSecRecoverStaleWorkerTasks_RequeuesExecutingRuns(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := mustEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	projectID := "proj-stale-worker-recovery"
@@ -272,14 +251,7 @@ func TestIntegration_DeepSecRecoverStaleWorkerTasks_RequeuesExecutingRuns(t *tes
 
 func TestIntegration_DeepSecRecoverStaleWorkerTasksExcept_SkipsConnectedWorker(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := mustEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	projectID := "proj-stale-connected-recovery"
@@ -359,14 +331,7 @@ func TestIntegration_DeepSecRecoverStaleWorkerTasksExcept_SkipsConnectedWorker(t
 
 func TestIntegration_RecoverStaleWorkerTasksExceptRefs_DoesNotCrossTenantByWorkerID(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := mustEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	workerID := "shared-worker-id"
@@ -449,14 +414,7 @@ func TestIntegration_RecoverStaleWorkerTasksExceptRefs_DoesNotCrossTenantByWorke
 
 func TestIntegration_DeepSecRecoverStaleWorkerTasks_SkipsFutureStreamLease(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := mustEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
 	projectID := "proj-stale-leased-recovery"
@@ -523,17 +481,10 @@ func TestIntegration_DeepSecRecoverStaleWorkerTasks_SkipsFutureStreamLease(t *te
 
 func TestIntegration_DeepSecDeleteStaleOfflineWorkers_DoesNotReserveIDsForever(t *testing.T) {
 	ctx := context.Background()
-	env, err := testutil.SetupTestEnv(ctx, "../../migrations")
-	if err != nil {
-		t.Fatalf("setup test env: %v", err)
-	}
-	t.Cleanup(func() { env.Cleanup(ctx) })
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean: %v", err)
-	}
+	env := mustEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
-	_, err = env.DB.Pool.Exec(ctx, `
+	_, err := env.DB.Pool.Exec(ctx, `
 		INSERT INTO workers (id, project_id, queue_name, hostname, version, status, last_seen_at, registered_at)
 		VALUES
 			('offline-old', 'proj-a', 'default', 'host', '1.0', 'offline', NOW() - INTERVAL '48 hours', NOW() - INTERVAL '48 hours'),

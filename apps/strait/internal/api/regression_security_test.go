@@ -8,11 +8,10 @@ import (
 	"time"
 
 	"github.com/robfig/cron/v3"
+	"github.com/sourcegraph/conc"
 )
 
-// --------------------------------------------------------------------------.
 // Regression guards for earlier security hardening work.
-// --------------------------------------------------------------------------.
 
 // TestRegression_PayloadSchemaMaxDepth verifies the maxSchemaDepth constant is
 // 32 and that deeply nested schemas are rejected.
@@ -105,17 +104,18 @@ func TestRegression_IDFormatValidation(t *testing.T) {
 // expressions do not cause the parser to hang. The robfig/cron parser should
 // return an error quickly.
 func TestRegression_CronExpressionLength(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	longCron := strings.Repeat("* ", 10000)
 	done := make(chan struct{})
-
-	go func() {
+	concWG.Go(func() {
 		defer close(done)
 		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 		// We only care that it finishes; the result does not matter.
 		_, _ = parser.Parse(longCron)
-	}()
+	})
 
 	select {
 	case <-done:
@@ -159,18 +159,21 @@ func TestRegression_EndpointURLSSRF(t *testing.T) {
 // TestRegression_EventFilterUnboundedArrays verifies that large filter arrays
 // in validateTags complete in a reasonable time without unbounded allocation.
 func TestRegression_EventFilterUnboundedArrays(t *testing.T) {
-	t.Parallel()
+	var concWG conc.WaitGroup
 
 	// Build a large tags map (just at the limit of 20).
+	defer concWG.Wait()
+	t.Parallel()
+
 	tags := make(map[string]string, 20)
 	for i := range 20 {
 		tags[fmt.Sprintf("key-%d", i)] = fmt.Sprintf("value-%d", i)
 	}
 
 	done := make(chan error, 1)
-	go func() {
+	concWG.Go(func() {
 		done <- validateTags(tags)
-	}()
+	})
 
 	select {
 	case err := <-done:

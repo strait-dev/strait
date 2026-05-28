@@ -8,12 +8,16 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/sourcegraph/conc"
 )
 
 // 100 concurrent CheckSpendingLimit calls at 85% spend must dispatch the
 // cap_warning event exactly once. The mock store's TryMarkBillingCapEvent
 // is mutex-guarded to mirror PgStore's UPDATE ... WHERE col IS NULL atomicity.
 func TestCheckSpendingLimit_ConcurrentWarningDispatchedOnce(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	t.Parallel()
 
 	sub := newPaidSubscription("org_race", string(domain.PlanPro), 1_000_000, "block")
@@ -23,10 +27,10 @@ func TestCheckSpendingLimit_ConcurrentWarningDispatchedOnce(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(n)
 	for range n {
-		go func() {
+		concWG.Go(func() {
 			defer wg.Done()
 			_ = e.CheckSpendingLimit(context.Background(), sub.OrgID)
-		}()
+		})
 	}
 	wg.Wait()
 

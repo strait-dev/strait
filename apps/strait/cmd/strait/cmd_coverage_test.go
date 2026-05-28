@@ -14,9 +14,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// ---------------------------------------------------------------------------.
 // root.go
-// ---------------------------------------------------------------------------.
 
 func TestNewRootCommand_Structure(t *testing.T) {
 	t.Parallel()
@@ -185,9 +183,7 @@ func TestNormalizeLegacyArgs_UnknownNonFlag(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // migrate.go: parsePositiveInt
-// ---------------------------------------------------------------------------.
 
 func TestParsePositiveInt(t *testing.T) {
 	t.Parallel()
@@ -253,9 +249,7 @@ func TestValidateMigrationDatabaseURLAllowsDisableSSLInDevelopment(t *testing.T)
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // migrate.go: sanitizeMigrationName
-// ---------------------------------------------------------------------------.
 
 func TestSanitizeMigrationName(t *testing.T) {
 	t.Parallel()
@@ -289,9 +283,7 @@ func TestSanitizeMigrationName(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // migrate.go: nextMigrationVersion
-// ---------------------------------------------------------------------------.
 
 func TestNextMigrationVersion(t *testing.T) {
 	t.Parallel()
@@ -363,9 +355,7 @@ func TestNextMigrationVersion_NonexistentDir(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // migrate.go: command structure
-// ---------------------------------------------------------------------------.
 
 func TestNewMigrateCommand_Structure(t *testing.T) {
 	t.Parallel()
@@ -404,9 +394,7 @@ func TestNewMigrateDownCommand_YesFlag(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // server.go
-// ---------------------------------------------------------------------------.
 
 func TestNewServerCommand_Structure(t *testing.T) {
 	t.Parallel()
@@ -442,9 +430,7 @@ func TestNewServerStartCommand_ModeFlag(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // services.go: retrySleep
-// ---------------------------------------------------------------------------.
 
 func TestRetrySleep_ReturnsAfterDelay(t *testing.T) {
 	t.Parallel()
@@ -489,9 +475,7 @@ func TestRetrySleep_NegativeAttempt(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // services.go: nilSafeBillingEnforcer
-// ---------------------------------------------------------------------------.
 
 func TestNilSafeBillingEnforcer_NilInput(t *testing.T) {
 	t.Parallel()
@@ -515,9 +499,7 @@ func TestNilSafeBillingEnforcer_NonNilInput(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // services.go: logWorkerShutdownStart / logWorkerShutdownComplete
-// ---------------------------------------------------------------------------.
 
 func TestLogWorkerShutdownStart_NilLogger(t *testing.T) {
 	t.Parallel()
@@ -547,9 +529,7 @@ func TestLogWorkerShutdownComplete_EmptyReasonDerivation(t *testing.T) {
 	logWorkerShutdownComplete(nil, nil, time.Now(), 3, "", nil)
 }
 
-// ---------------------------------------------------------------------------.
 // helpers
-// ---------------------------------------------------------------------------.
 
 func findSubcommand(parent interface{ Commands() []*cobra.Command }, name string) *cobra.Command {
 	for _, sub := range parent.Commands() {

@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"maps"
 
 	"github.com/getsentry/sentry-go"
 	"go.opentelemetry.io/otel/trace"
@@ -11,9 +12,7 @@ import (
 )
 
 func sentryRunMetadata(ctx context.Context, route string, metadata map[string]string) map[string]string {
-	if metadata == nil {
-		metadata = make(map[string]string, 7)
-	}
+	metadata = copyStringMapWithCapacity(metadata, 7)
 	if actorType := actorTypeFromContext(ctx); actorType != "" {
 		metadata[domain.RunMetadataSentryActorType] = actorType
 	}
@@ -60,9 +59,7 @@ func validateTriggerTraceHeaders(input *TriggerJobInput) error {
 }
 
 func applyRunTraceHeaderMetadata(metadata map[string]string, traceparent, tracestate, sentryTrace, baggage string) map[string]string {
-	if metadata == nil {
-		metadata = make(map[string]string, 4)
-	}
+	metadata = copyStringMapWithCapacity(metadata, 4)
 	if traceparent != "" {
 		metadata[domain.RunMetadataTraceParent] = truncateTraceHeader(traceparent, maxTraceparentLen)
 		if tracestate != "" {
@@ -76,6 +73,12 @@ func applyRunTraceHeaderMetadata(metadata map[string]string, traceparent, traces
 		}
 	}
 	return metadata
+}
+
+func copyStringMapWithCapacity(in map[string]string, extra int) map[string]string {
+	out := make(map[string]string, len(in)+extra)
+	maps.Copy(out, in)
+	return out
 }
 
 func applyTraceContextMetadata(ctx context.Context, metadata map[string]string) {

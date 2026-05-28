@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"go.opentelemetry.io/otel"
 )
 
@@ -37,6 +38,14 @@ func (q *Queries) CreateWebhookSubscription(ctx context.Context, sub *domain.Web
 		sub.Active,
 	).Scan(&sub.CreatedAt)
 	if err != nil {
+		// 23505 here can only come from the partial unique index on
+		// (project_id, webhook_url) WHERE active=TRUE (migration 000302).
+		// Surface a typed sentinel so the API handler can return 409 without
+		// replaying the one-shot signing secret in the create response.
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return ErrWebhookSubscriptionDuplicate
+		}
 		return fmt.Errorf("create webhook subscription: %w", err)
 	}
 

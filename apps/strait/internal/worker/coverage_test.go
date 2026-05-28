@@ -16,6 +16,7 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/pubsub"
+	orcstore "strait/internal/store"
 	"strait/internal/testutil"
 )
 
@@ -214,12 +215,9 @@ func TestResolveExecutionPolicy_StepRunNotFound(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", WorkflowStepRunID: "wsr-missing"}
 	fallback := executionPolicy{maxAttempts: 3, timeoutSecs: 30}
 
-	got, err := e.resolveExecutionPolicy(context.Background(), run, fallback)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got.maxAttempts != 3 {
-		t.Fatalf("expected fallback maxAttempts=3, got %d", got.maxAttempts)
+	_, err := e.resolveExecutionPolicy(context.Background(), run, fallback)
+	if !errors.Is(err, orcstore.ErrWorkflowStepRunNotFound) {
+		t.Fatalf("expected ErrWorkflowStepRunNotFound, got %v", err)
 	}
 }
 

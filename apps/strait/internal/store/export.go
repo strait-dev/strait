@@ -37,7 +37,7 @@ func (q *Queries) StreamJobs(ctx context.Context, projectID string, fn func(*dom
 		       max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run,
 		       allowed_tools, blocked_tools,
 		       paused, paused_at, pause_reason, endpoint_signing_secret,
-		       singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth
+		       singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth, cache_version
 		FROM jobs
 		WHERE project_id = $1
 		ORDER BY created_at ASC

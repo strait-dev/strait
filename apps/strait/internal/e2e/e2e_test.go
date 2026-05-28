@@ -39,7 +39,7 @@ func TestMain(m *testing.M) {
 	ctx := context.Background()
 
 	var err error
-	testEnv, err = testutil.SetupTestEnv(ctx, "../../migrations")
+	testEnv, err = testutil.SetupSharedTestEnv(ctx, "../../migrations", "e2e")
 	if err != nil {
 		log.Fatalf("setup test env: %v", err)
 	}
@@ -890,9 +890,7 @@ func TestE2E_APIKeyLifecycle(t *testing.T) {
 	}
 }
 
-// ====================================================================
 // Test hardening: E2E tests for new features
-// ====================================================================.
 
 func TestE2E_ScopeEnforcement(t *testing.T) {
 	mustClean(t)
@@ -1127,7 +1125,6 @@ func TestE2E_RolesLifecycle(t *testing.T) {
 		t.Fatalf("delete role status = %d, body = %s", dw.Code, dw.Body.String())
 	}
 
-	// Verify gone.
 	gw2 := doRequest(t, http.MethodGet, "/v1/roles/"+roleID, "")
 	if gw2.Code != http.StatusNotFound {
 		t.Fatalf("get deleted role status = %d, want 404", gw2.Code)
@@ -1163,8 +1160,6 @@ func TestE2E_TagFilteringWorkflows(t *testing.T) {
 		t.Fatalf("expected 1 filtered workflow, got %d", len(filtered))
 	}
 }
-
-// ── Idempotency E2E tests ──────────────────────────────────────────────.
 
 func TestE2E_IdempotencyKeyHitReturnsOriginal(t *testing.T) {
 	mustClean(t)

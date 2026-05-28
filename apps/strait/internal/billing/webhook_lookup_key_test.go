@@ -12,9 +12,9 @@ import (
 )
 
 // TestWebhookHandler_SubscriptionCreated_BusinessTier_ByLookupKey exercises the
-// Phase 4 lookup-key path end-to-end: a Stripe subscription whose first item
-// price has lookup_key=strait_business_monthly resolves to the Business tier
-// without any per-account price ID being registered in StripeMapping.
+// lookup-key path end-to-end: a Stripe subscription whose first item price has
+// lookup_key=strait_business_monthly resolves to the Business tier without any
+// per-account price ID being registered in StripeMapping.
 func TestWebhookHandler_SubscriptionCreated_BusinessTier_ByLookupKey(t *testing.T) {
 	t.Parallel()
 

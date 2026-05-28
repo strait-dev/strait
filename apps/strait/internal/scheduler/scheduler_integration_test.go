@@ -30,7 +30,7 @@ func getTestDB(t *testing.T) *testutil.TestDB {
 	testDBOnce.Do(func() {
 		ctx := context.Background()
 		var err error
-		testDB, err = testutil.SetupTestDB(ctx, "../../migrations")
+		testDB, err = testutil.SetupSharedTestDB(ctx, "../../migrations", "scheduler-external")
 		if err != nil {
 			log.Fatalf("setup test db: %v", err)
 		}
@@ -86,10 +86,8 @@ func intCreateJob(t *testing.T, ctx context.Context, st *store.Queries, projectI
 	return job
 }
 
-// ---------------------------------------------------------------------------
 // 1. Cron job scheduling with real Postgres: create a cron job, verify
 //    LoadJobs reads it and the scheduler registers the entry.
-// ---------------------------------------------------------------------------.
 
 func TestIntegration_CronLoadJobs(t *testing.T) {
 	ctx := context.Background()
@@ -121,9 +119,7 @@ func TestIntegration_CronLoadJobs(t *testing.T) {
 	<-stopCtx.Done()
 }
 
-// ---------------------------------------------------------------------------
 // 2. Cron job triggers enqueue into real DB.
-// ---------------------------------------------------------------------------.
 
 func TestIntegration_CronTriggerEnqueuesRun(t *testing.T) {
 	ctx := context.Background()
@@ -183,9 +179,7 @@ done:
 	}
 }
 
-// ---------------------------------------------------------------------------
 // 3. Batch flusher with real DB: items are flushed into a run.
-// ---------------------------------------------------------------------------.
 
 func TestIntegration_BatchFlusher(t *testing.T) {
 	ctx := context.Background()
@@ -271,12 +265,10 @@ func TestIntegration_BatchFlusher(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // 4. Stale run detection with real DB: runs past their heartbeat timeout
-//    are marked as crashed by the reaper.
-// ---------------------------------------------------------------------------.
+//    retry while attempts remain, then crash once attempts are exhausted.
 
-func TestIntegration_ReaperStaleRunDetection(t *testing.T) {
+func TestIntegration_ReaperStaleRunDetection_RetriesWhenAttemptsRemain(t *testing.T) {
 	ctx := context.Background()
 	st := intTestStore(t)
 	intTestClean(t, ctx)
@@ -314,7 +306,73 @@ func TestIntegration_ReaperStaleRunDetection(t *testing.T) {
 	reaper := scheduler.NewReaper(st, time.Second, 5*time.Minute, 30*24*time.Hour, 90*24*time.Hour, false, nil)
 	reaper.ReapOnce(ctx)
 
-	// Verify the run was crashed.
+	// Verify the stale execution was requeued instead of terminally crashed.
+	got, err := st.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if got.Status != domain.StatusQueued {
+		t.Fatalf("run status = %q, want %q", got.Status, domain.StatusQueued)
+	}
+	if got.Attempt != 2 {
+		t.Fatalf("run attempt = %d, want 2", got.Attempt)
+	}
+	if got.FinishedAt != nil {
+		t.Fatal("finished_at should remain nil for retryable stale run")
+	}
+
+	var retryAttempt int
+	var nextRetryAt time.Time
+	if err := getTestDB(t).Pool.QueryRow(ctx, `
+		SELECT attempt, next_retry_at
+		FROM job_retries
+		WHERE run_id = $1`, run.ID).Scan(&retryAttempt, &nextRetryAt); err != nil {
+		t.Fatalf("query scheduled retry: %v", err)
+	}
+	if retryAttempt != 2 {
+		t.Fatalf("retry attempt = %d, want 2", retryAttempt)
+	}
+	if !nextRetryAt.After(time.Now().Add(-time.Second)) {
+		t.Fatalf("next_retry_at = %s, want a future retry", nextRetryAt)
+	}
+}
+
+func TestIntegration_ReaperStaleRunDetection_CrashesWhenAttemptsExhausted(t *testing.T) {
+	ctx := context.Background()
+	st := intTestStore(t)
+	intTestClean(t, ctx)
+	q := intTestQueue(t)
+
+	job := intCreateJob(t, ctx, st, "proj-stale-reaper-exhausted", func(j *domain.Job) {
+		j.MaxAttempts = 1
+	})
+
+	run := &domain.JobRun{
+		ID:        intNewID(),
+		JobID:     job.ID,
+		ProjectID: job.ProjectID,
+		Priority:  1,
+	}
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+
+	dequeued, err := q.DequeueN(ctx, 1)
+	if err != nil || len(dequeued) == 0 {
+		t.Fatalf("DequeueN() error = %v, count = %d", err, len(dequeued))
+	}
+
+	staleHeartbeat := time.Now().Add(-10 * time.Minute)
+	if err := st.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
+		"started_at":   time.Now().Add(-15 * time.Minute),
+		"heartbeat_at": staleHeartbeat,
+	}); err != nil {
+		t.Fatalf("UpdateRunStatus() to executing error = %v", err)
+	}
+
+	reaper := scheduler.NewReaper(st, time.Second, 5*time.Minute, 30*24*time.Hour, 90*24*time.Hour, false, nil)
+	reaper.ReapOnce(ctx)
+
 	got, err := st.GetRun(ctx, run.ID)
 	if err != nil {
 		t.Fatalf("GetRun() error = %v", err)
@@ -323,13 +381,11 @@ func TestIntegration_ReaperStaleRunDetection(t *testing.T) {
 		t.Fatalf("run status = %q, want %q", got.Status, domain.StatusCrashed)
 	}
 	if got.FinishedAt == nil {
-		t.Fatal("expected finished_at to be set on crashed run")
+		t.Fatal("expected finished_at to be set on exhausted stale run")
 	}
 }
 
-// ---------------------------------------------------------------------------
 // 5. Advisory lock behavior: verify only one scheduler instance processes.
-// ---------------------------------------------------------------------------.
 
 func TestIntegration_AdvisoryLockExclusivity(t *testing.T) {
 	ctx := context.Background()
@@ -390,9 +446,7 @@ func TestIntegration_AdvisoryLockExclusivity(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // 6. SLO evaluation with real metrics stored in DB.
-// ---------------------------------------------------------------------------.
 
 func TestIntegration_SLOEvaluation(t *testing.T) {
 	ctx := context.Background()

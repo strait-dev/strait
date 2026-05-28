@@ -10,6 +10,8 @@ import (
 
 	"strait/internal/billing"
 	"strait/internal/domain"
+
+	"github.com/sourcegraph/conc"
 )
 
 // writeRawEntitlements sets the entitlements column directly, bypassing
@@ -164,6 +166,8 @@ func TestAdversarialReaderSwitch_MalformedJSONFallsBackAndOverwrites(t *testing.
 // catches any data corruption in the read path; the assertion is just
 // that every read returns a coherent snapshot for some valid tier.
 func TestAdversarialReaderSwitch_ConcurrentReadersAndWriters(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	mustClean(t, ctx)
@@ -199,15 +203,18 @@ func TestAdversarialReaderSwitch_ConcurrentReadersAndWriters(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := range writers {
 		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			tier := tiers[i%len(tiers)]
-			_ = pgStore.UpdateOrgSubscriptionPlan(ctx, orgID, string(tier), "active")
-		}(i)
+		{
+			i := i
+			concWG.Go(func() {
+				defer wg.Done()
+				tier := tiers[i%len(tiers)]
+				_ = pgStore.UpdateOrgSubscriptionPlan(ctx, orgID, string(tier), "active")
+			})
+		}
 	}
 	for range readers {
 		wg.Add(1)
-		go func() {
+		concWG.Go(func() {
 			defer wg.Done()
 			for range reads {
 				got, err := enforcer.GetOrgPlanLimits(ctx, orgID)
@@ -220,7 +227,7 @@ func TestAdversarialReaderSwitch_ConcurrentReadersAndWriters(t *testing.T) {
 					return
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }

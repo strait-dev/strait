@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/sourcegraph/conc"
 
+	straitcache "strait/internal/cache"
 	"strait/internal/store"
 )
 
@@ -29,7 +31,7 @@ func TestQuotaCache_HitAndMiss(t *testing.T) {
 	var calls atomic.Int64
 	q := &store.ProjectQuota{ProjectID: "p1", MaxQueuedRuns: 100}
 	c := newQuotaCacheWithLoader(5*time.Second, &calls, q, nil)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// First call: miss, loads from DB.
 	got, err := c.Get(ctx, "p1")
@@ -61,7 +63,7 @@ func TestQuotaCache_Invalidate(t *testing.T) {
 
 	var calls atomic.Int64
 	c := newQuotaCacheWithLoader(5*time.Second, &calls, &store.ProjectQuota{ProjectID: "p1"}, nil)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, _ = c.Get(ctx, "p1")
 	_, _ = c.Get(ctx, "p1")
@@ -92,7 +94,7 @@ func TestQuotaCache_SingleflightDedupes(t *testing.T) {
 		return &store.ProjectQuota{ProjectID: "p1", MaxQueuedRuns: 42}, nil
 	})
 
-	ctx := context.Background()
+	ctx := t.Context()
 	var ready sync.WaitGroup
 	ready.Add(goroutines)
 	start := make(chan struct{})
@@ -135,7 +137,7 @@ func TestQuotaCache_TTLExpiry(t *testing.T) {
 	// Otter's timer wheel granularity is ~1s, so TTL must be >= 1s.
 	var calls atomic.Int64
 	c := newQuotaCacheWithLoader(1*time.Second, &calls, &store.ProjectQuota{ProjectID: "p1"}, nil)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, _ = c.Get(ctx, "p1")
 	if calls.Load() != 1 {
@@ -156,7 +158,7 @@ func TestQuotaCache_PropagatesError(t *testing.T) {
 	sentinel := errors.New("load failed")
 	var calls atomic.Int64
 	c := newQuotaCacheWithLoader(5*time.Second, &calls, nil, sentinel)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, err := c.Get(ctx, "p1")
 	if !errors.Is(err, sentinel) {
@@ -182,7 +184,7 @@ func TestQuotaCache_NilQuotaIsCached(t *testing.T) {
 	// as "no per-project cap"; we must cache it just as eagerly as a real row.
 	var calls atomic.Int64
 	c := newQuotaCacheWithLoader(5*time.Second, &calls, nil, nil)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	got, err := c.Get(ctx, "p1")
 	if err != nil {
@@ -198,12 +200,109 @@ func TestQuotaCache_NilQuotaIsCached(t *testing.T) {
 	}
 }
 
+func TestQuotaCache_PreservesStoreCacheVersionInRedis(t *testing.T) {
+	t.Parallel()
+
+	registry := straitcache.NewRegistry(straitcache.RegistryConfig{Origin: "node-a"})
+	deps, cleanup := newTestRedisCacheDeps(t, registry)
+	defer cleanup()
+
+	var calls atomic.Int64
+	c := newQuotaCache(5*time.Second, func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
+		calls.Add(1)
+		return &store.ProjectQuota{ProjectID: projectID, MaxQueuedRuns: 11, CacheVersion: 9}, nil
+	}, deps)
+
+	got, err := c.Get(t.Context(), "project-versioned")
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if got == nil || got.CacheVersion != 9 {
+		t.Fatalf("Get() CacheVersion = %v, want 9", got)
+	}
+
+	raw, err := deps.Redis.Get(t.Context(), "strait:cache:"+quotaCacheNamespace+":project-versioned").Bytes()
+	if err != nil {
+		t.Fatalf("read redis entry: %v", err)
+	}
+	var envelope struct {
+		Version int64 `json:"version"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatalf("decode redis entry: %v", err)
+	}
+	if envelope.Version != 9 {
+		t.Fatalf("redis version = %d, want 9", envelope.Version)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("loader calls = %d, want 1", calls.Load())
+	}
+}
+
+func TestQuotaCache_StrongBarrierAllowsDBConfirmedNil(t *testing.T) {
+	t.Parallel()
+
+	deps, cleanup := newTestRedisCacheDeps(t, nil)
+	defer cleanup()
+
+	var calls atomic.Int64
+	c := newQuotaCache(5*time.Second, func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
+		calls.Add(1)
+		return nil, nil
+	}, deps)
+
+	c.InvalidateWithVersion("project-nil", 10)
+	got, err := c.Get(t.Context(), "project-nil")
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if got != nil {
+		t.Fatalf("Get() = %+v, want nil quota", got)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("loader calls = %d, want 1", calls.Load())
+	}
+
+	raw, err := deps.Redis.Get(t.Context(), "strait:cache:"+quotaCacheNamespace+":project-nil").Bytes()
+	if err != nil {
+		t.Fatalf("read redis entry: %v", err)
+	}
+	var envelope struct {
+		Version  int64 `json:"version"`
+		Barrier  bool  `json:"barrier"`
+		Negative bool  `json:"negative"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatalf("decode redis entry: %v", err)
+	}
+	if envelope.Version != 10 || envelope.Barrier || !envelope.Negative {
+		t.Fatalf("redis envelope = %+v, want version 10 negative value", envelope)
+	}
+}
+
+func TestQuotaCache_StrongBarrierRejectsStaleQuotaFill(t *testing.T) {
+	t.Parallel()
+
+	deps, cleanup := newTestRedisCacheDeps(t, nil)
+	defer cleanup()
+
+	c := newQuotaCache(5*time.Second, func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
+		return &store.ProjectQuota{ProjectID: projectID, MaxQueuedRuns: 5, CacheVersion: 9}, nil
+	}, deps)
+
+	c.InvalidateWithVersion("project-stale", 10)
+	_, err := c.Get(t.Context(), "project-stale")
+	if err == nil {
+		t.Fatal("Get() error = nil, want stale version rejection")
+	}
+}
+
 func TestQuotaCache_Disabled(t *testing.T) {
 	t.Parallel()
 
 	var calls atomic.Int64
 	c := newQuotaCacheWithLoader(0, &calls, &store.ProjectQuota{ProjectID: "p1"}, nil)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, _ = c.Get(ctx, "p1")
 	_, _ = c.Get(ctx, "p1")

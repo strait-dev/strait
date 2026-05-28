@@ -16,6 +16,7 @@ import (
 	"strait/internal/store"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/sourcegraph/conc"
 )
 
 // Queue reliability integration tests.
@@ -71,6 +72,8 @@ func TestQueueReliability_EnqueueDequeueComplete(t *testing.T) {
 }
 
 func TestQueueReliability_ConcurrentDequeueSkipLocked(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
@@ -99,10 +102,10 @@ func TestQueueReliability_ConcurrentDequeueSkipLocked(t *testing.T) {
 	ch := make(chan result, workers)
 
 	for range workers {
-		go func() {
+		concWG.Go(func() {
 			runs, err := q.DequeueN(ctx, 10)
 			ch <- result{runs, err}
-		}()
+		})
 	}
 
 	seen := make(map[string]struct{})
@@ -537,6 +540,8 @@ func TestQueueReliability_EnqueueInTxAtomicity(t *testing.T) {
 }
 
 func TestQueueReliability_EnqueueInTx_IdempotencyConflictSerializesSameKey(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
@@ -574,9 +579,9 @@ func TestQueueReliability_EnqueueInTx_IdempotencyConflictSerializesSameKey(t *te
 		IdempotencyKey: "same-key",
 	}
 	errCh := make(chan error, 1)
-	go func() {
+	concWG.Go(func() {
 		errCh <- q.EnqueueInTx(ctx, tx2, run2)
-	}()
+	})
 
 	select {
 	case err := <-errCh:
@@ -608,6 +613,8 @@ func TestQueueReliability_EnqueueInTx_IdempotencyConflictSerializesSameKey(t *te
 }
 
 func TestQueueReliability_EnqueueInTx_DifferentKeysDoNotBlockEachOther(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
@@ -645,9 +652,9 @@ func TestQueueReliability_EnqueueInTx_DifferentKeysDoNotBlockEachOther(t *testin
 		IdempotencyKey: "key-b",
 	}
 	errCh := make(chan error, 1)
-	go func() {
+	concWG.Go(func() {
 		errCh <- q.EnqueueInTx(ctx, tx2, run2)
-	}()
+	})
 
 	select {
 	case err := <-errCh:
@@ -918,6 +925,8 @@ func TestQueueReliability_EnqueueWithRetryReturnsThrottleAfterBudgetExhausted(t 
 }
 
 func TestQueueReliability_EnqueueInTxSameKeyStressCreatesSingleRun(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
@@ -933,38 +942,41 @@ func TestQueueReliability_EnqueueInTxSameKeyStressCreatesSingleRun(t *testing.T)
 	start := make(chan struct{})
 
 	for i := range contenders {
-		go func(i int) {
-			<-start
-			tx, err := testDB.Pool.Begin(ctx)
-			if err != nil {
-				errCh <- err
-				return
-			}
-			defer func() { _ = tx.Rollback(ctx) }()
-
-			run := &domain.JobRun{
-				ID:             newID(),
-				JobID:          job.ID,
-				ProjectID:      job.ProjectID,
-				IdempotencyKey: "stress-key",
-				Priority:       i,
-			}
-			err = q.EnqueueInTx(ctx, tx, run)
-			switch {
-			case err == nil:
-				if commitErr := tx.Commit(ctx); commitErr != nil {
-					errCh <- commitErr
+		{
+			i := i
+			concWG.Go(func() {
+				<-start
+				tx, err := testDB.Pool.Begin(ctx)
+				if err != nil {
+					errCh <- err
 					return
 				}
-				successes.Add(1)
-			case errors.Is(err, domain.ErrIdempotencyConflict):
-				conflicts.Add(1)
-			default:
-				errCh <- err
-				return
-			}
-			errCh <- nil
-		}(i)
+				defer func() { _ = tx.Rollback(ctx) }()
+
+				run := &domain.JobRun{
+					ID:             newID(),
+					JobID:          job.ID,
+					ProjectID:      job.ProjectID,
+					IdempotencyKey: "stress-key",
+					Priority:       i,
+				}
+				err = q.EnqueueInTx(ctx, tx, run)
+				switch {
+				case err == nil:
+					if commitErr := tx.Commit(ctx); commitErr != nil {
+						errCh <- commitErr
+						return
+					}
+					successes.Add(1)
+				case errors.Is(err, domain.ErrIdempotencyConflict):
+					conflicts.Add(1)
+				default:
+					errCh <- err
+					return
+				}
+				errCh <- nil
+			})
+		}
 	}
 
 	close(start)

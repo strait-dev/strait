@@ -6,7 +6,7 @@ import (
 
 var validTransitions = map[RunStatus][]RunStatus{
 	StatusDelayed:      {StatusQueued, StatusCanceled, StatusExpired},
-	StatusQueued:       {StatusDequeued, StatusCanceled, StatusExpired},
+	StatusQueued:       {StatusDequeued, StatusExecuting, StatusCanceled, StatusExpired},
 	StatusDequeued:     {StatusExecuting, StatusQueued, StatusCanceled, StatusSystemFailed},
 	StatusExecuting:    {StatusCompleted, StatusFailed, StatusTimedOut, StatusCrashed, StatusCanceled, StatusWaiting, StatusQueued, StatusSystemFailed, StatusDeadLetter, StatusPaused},
 	StatusWaiting:      {StatusExecuting, StatusQueued, StatusCompleted, StatusFailed, StatusCanceled, StatusTimedOut},
