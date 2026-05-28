@@ -37,6 +37,7 @@ import { Route as AppEventsIndexRouteImport } from './routes/app/events/index'
 import { Route as AppDlqIndexRouteImport } from './routes/app/dlq/index'
 import { Route as AppBillingIndexRouteImport } from './routes/app/billing/index'
 import { Route as AppWorkflowsIdRouteImport } from './routes/app/workflows/$id'
+import { Route as AppWorkflowRunsIdRouteImport } from './routes/app/workflow-runs/$id'
 import { Route as AppWebhooksNewRouteImport } from './routes/app/webhooks/new'
 import { Route as AppWebhooksIdRouteImport } from './routes/app/webhooks/$id'
 import { Route as AppSchedulesIdRouteImport } from './routes/app/schedules/$id'
@@ -189,6 +190,11 @@ const AppWorkflowsIdRoute = AppWorkflowsIdRouteImport.update({
   path: '/workflows/$id',
   getParentRoute: () => AppLayoutRoute,
 } as any)
+const AppWorkflowRunsIdRoute = AppWorkflowRunsIdRouteImport.update({
+  id: '/workflow-runs/$id',
+  path: '/workflow-runs/$id',
+  getParentRoute: () => AppLayoutRoute,
+} as any)
 const AppWebhooksNewRoute = AppWebhooksNewRouteImport.update({
   id: '/webhooks/new',
   path: '/webhooks/new',
@@ -275,6 +281,7 @@ export interface FileRoutesByFullPath {
   '/app/webhooks/$id': typeof AppWebhooksIdRoute
   '/app/webhooks/new': typeof AppWebhooksNewRoute
   '/app/workflows/$id': typeof AppWorkflowsIdRoute
+  '/app/workflow-runs/$id': typeof AppWorkflowRunsIdRoute
   '/app/billing/': typeof AppBillingIndexRoute
   '/app/dlq/': typeof AppDlqIndexRoute
   '/app/events/': typeof AppEventsIndexRoute
@@ -315,6 +322,7 @@ export interface FileRoutesByTo {
   '/app/webhooks/$id': typeof AppWebhooksIdRoute
   '/app/webhooks/new': typeof AppWebhooksNewRoute
   '/app/workflows/$id': typeof AppWorkflowsIdRoute
+  '/app/workflow-runs/$id': typeof AppWorkflowRunsIdRoute
   '/app/billing': typeof AppBillingIndexRoute
   '/app/dlq': typeof AppDlqIndexRoute
   '/app/events': typeof AppEventsIndexRoute
@@ -357,6 +365,7 @@ export interface FileRoutesById {
   '/app/webhooks/$id': typeof AppWebhooksIdRoute
   '/app/webhooks/new': typeof AppWebhooksNewRoute
   '/app/workflows/$id': typeof AppWorkflowsIdRoute
+  '/app/workflow-runs/$id': typeof AppWorkflowRunsIdRoute
   '/app/billing/': typeof AppBillingIndexRoute
   '/app/dlq/': typeof AppDlqIndexRoute
   '/app/events/': typeof AppEventsIndexRoute
@@ -400,6 +409,7 @@ export interface FileRouteTypes {
     | '/app/webhooks/$id'
     | '/app/webhooks/new'
     | '/app/workflows/$id'
+    | '/app/workflow-runs/$id'
     | '/app/billing/'
     | '/app/dlq/'
     | '/app/events/'
@@ -440,6 +450,7 @@ export interface FileRouteTypes {
     | '/app/webhooks/$id'
     | '/app/webhooks/new'
     | '/app/workflows/$id'
+    | '/app/workflow-runs/$id'
     | '/app/billing'
     | '/app/dlq'
     | '/app/events'
@@ -481,6 +492,7 @@ export interface FileRouteTypes {
     | '/app/webhooks/$id'
     | '/app/webhooks/new'
     | '/app/workflows/$id'
+    | '/app/workflow-runs/$id'
     | '/app/billing/'
     | '/app/dlq/'
     | '/app/events/'
@@ -710,6 +722,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppWorkflowsIdRouteImport
       parentRoute: typeof AppLayoutRoute
     }
+    '/app/workflow-runs/$id': {
+      id: '/app/workflow-runs/$id'
+      path: '/workflow-runs/$id'
+      fullPath: '/app/workflow-runs/$id'
+      preLoaderRoute: typeof AppWorkflowRunsIdRouteImport
+      parentRoute: typeof AppLayoutRoute
+    }
     '/app/webhooks/new': {
       id: '/app/webhooks/new'
       path: '/webhooks/new'
@@ -804,6 +823,7 @@ interface AppLayoutRouteChildren {
   AppWebhooksIdRoute: typeof AppWebhooksIdRoute
   AppWebhooksNewRoute: typeof AppWebhooksNewRoute
   AppWorkflowsIdRoute: typeof AppWorkflowsIdRoute
+  AppWorkflowRunsIdRoute: typeof AppWorkflowRunsIdRoute
   AppBillingIndexRoute: typeof AppBillingIndexRoute
   AppDlqIndexRoute: typeof AppDlqIndexRoute
   AppEventsIndexRoute: typeof AppEventsIndexRoute
@@ -831,6 +851,7 @@ const AppLayoutRouteChildren: AppLayoutRouteChildren = {
   AppWebhooksIdRoute: AppWebhooksIdRoute,
   AppWebhooksNewRoute: AppWebhooksNewRoute,
   AppWorkflowsIdRoute: AppWorkflowsIdRoute,
+  AppWorkflowRunsIdRoute: AppWorkflowRunsIdRoute,
   AppBillingIndexRoute: AppBillingIndexRoute,
   AppDlqIndexRoute: AppDlqIndexRoute,
   AppEventsIndexRoute: AppEventsIndexRoute,
