@@ -1,8 +1,10 @@
+import { HugeiconsIcon } from "@hugeicons/react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
 import StatusBadge from "@/components/dashboard/status-badge";
 import type { Workflow } from "@/hooks/api/types";
-import { EyeIcon, PauseActionIcon, PlayActionIcon } from "@/lib/icons";
+import { EyeIcon, KeyIcon, PauseActionIcon, PlayActionIcon } from "@/lib/icons";
+import { isSingletonConfigured } from "@/lib/singleton";
 import { createActionsColumn, createSelectColumn } from "./shared-columns";
 
 type WorkflowColumnActions = {
@@ -20,7 +22,17 @@ export const createWorkflowColumns = (
     header: "Name",
     cell: ({ row }) => (
       <div className="flex flex-col gap-0.5">
-        <span className="font-medium">{row.original.name}</span>
+        <span className="flex items-center gap-1.5 font-medium">
+          {row.original.name}
+          {isSingletonConfigured(row.original) && (
+            <span className="inline-flex" title="Singleton">
+              <HugeiconsIcon
+                className="size-3.5 text-muted-foreground"
+                icon={KeyIcon}
+              />
+            </span>
+          )}
+        </span>
         {row.original.description && (
           <span className="text-muted-foreground text-xs">
             {row.original.description}

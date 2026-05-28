@@ -79,7 +79,9 @@ export const Route = createFileRoute("/app/workflows/$id")({
   component: WorkflowDetailPage,
 });
 
-const workflowRunColumns: ColumnDef<WorkflowRun>[] = [
+const createWorkflowRunColumns = (
+  showSingletonKey: boolean
+): ColumnDef<WorkflowRun>[] => [
   {
     accessorKey: "id",
     header: "Run ID",
@@ -103,6 +105,19 @@ const workflowRunColumns: ColumnDef<WorkflowRun>[] = [
       </Badge>
     ),
   },
+  ...(showSingletonKey
+    ? [
+        {
+          accessorKey: "singleton_key",
+          header: "Key",
+          cell: ({ row }) => (
+            <span className="font-mono text-xs">
+              {row.original.singleton_key || "—"}
+            </span>
+          ),
+        } satisfies ColumnDef<WorkflowRun>,
+      ]
+    : []),
   {
     accessorKey: "workflow_version",
     header: "Version",
@@ -165,9 +180,13 @@ function WorkflowDetailPage() {
     dependencies: s.depends_on ?? [],
   }));
 
+  const runColumns = useMemo(
+    () => createWorkflowRunColumns(isSingleton),
+    [isSingleton]
+  );
   const runsTable = useReactTable({
     data: runs ?? [],
-    columns: workflowRunColumns,
+    columns: runColumns,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
