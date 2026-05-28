@@ -256,6 +256,17 @@ func (wr *WebhookReceiver) claimDedupe(ctx context.Context, msg Message) (string
 			wr.logger.Warn("cdc webhook dedupe: redis unavailable, falling back to local dedupe", "error", err)
 			return key, true
 		}
+		if !claimed {
+			// Another node holds the authoritative claim, so this node will not
+			// process the message and the caller responds 200 before installing
+			// the releaseDedupe defer. Drop the optimistic local entry written
+			// above; otherwise it lingers for the full dedupeTTL and silently
+			// suppresses a later redelivery routed here after the winning node
+			// fails and releases the shared claim.
+			wr.seenMu.Lock()
+			delete(wr.seen, key)
+			wr.seenMu.Unlock()
+		}
 		return key, claimed
 	}
 	return key, true
