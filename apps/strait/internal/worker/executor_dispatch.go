@@ -94,6 +94,83 @@ func (e *Executor) dispatchSecrets(ctx context.Context, job *domain.Job) ([]doma
 	return secrets, nil
 }
 
+// buildDispatchHeaders constructs the headers injected on an HTTP dispatch: the
+// job's decrypted secrets (X-Secret-*), the run-token JWT (X-Run-Token) the
+// endpoint SDK uses to call back to Strait, the HMAC body+timestamp signature,
+// and on retries the durable-resume headers (X-Last-Checkpoint / X-Checkpoint-At
+// / X-Previous-Error). It is shared by the primary and fallback dispatch paths so
+// failover preserves authentication and durable-resume semantics rather than
+// silently dropping them.
+func (e *Executor) buildDispatchHeaders(job *domain.Job, run *domain.JobRun, secrets []domain.JobSecret, cp *domain.RunCheckpoint) (map[string]string, error) {
+	headers := make(map[string]string)
+	for _, secret := range secrets {
+		headers[fmt.Sprintf("X-Secret-%s", secret.SecretKey)] = secret.EncryptedValue
+	}
+
+	// Generate a JWT run token so the endpoint's SDK can call back to Strait.
+	if e.jwtSigningKey != "" {
+		expiresAt := time.Now().Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
+		if run.ExpiresAt != nil {
+			expiresAt = *run.ExpiresAt
+		}
+		claims := struct {
+			Attempt int `json:"attempt,omitempty"`
+			jwt.RegisteredClaims
+		}{
+			Attempt: run.Attempt,
+			RegisteredClaims: jwt.RegisteredClaims{
+				Issuer:    domain.RunTokenIssuer,
+				Subject:   run.ID,
+				ExpiresAt: jwt.NewNumericDate(expiresAt),
+				IssuedAt:  jwt.NewNumericDate(time.Now()),
+			},
+		}
+		tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+		if signed, signErr := tok.SignedString([]byte(e.jwtSigningKey)); signErr == nil {
+			headers["X-Run-Token"] = signed
+		}
+	}
+
+	// Add HMAC body+timestamp signing so the endpoint can verify request authenticity.
+	signingSecret, err := e.endpointSigningSecret(job)
+	if err != nil {
+		return nil, err
+	}
+	addHMACHeaders(headers, signingSecret, run.Payload)
+
+	if run.Attempt > 1 {
+		if cp != nil {
+			data, _ := json.Marshal(cp.State)
+			if len(data) <= 65536 {
+				headers["X-Last-Checkpoint"] = string(data)
+				headers["X-Checkpoint-At"] = cp.CreatedAt.Format(time.RFC3339)
+			}
+		}
+		if run.Error != "" {
+			headers["X-Previous-Error"] = run.Error
+		}
+	}
+	return headers, nil
+}
+
+// dispatchCheckpoint loads the latest run checkpoint for a retry, preferring the
+// per-execution dispatch cache populated by the primary path so the fallback path
+// reuses it instead of re-querying. Returns nil on the first attempt.
+func (e *Executor) dispatchCheckpoint(ctx context.Context, run *domain.JobRun) *domain.RunCheckpoint {
+	if run.Attempt <= 1 {
+		return nil
+	}
+	checkpointCacheKey := "checkpoint:" + run.ID
+	if cached, ok := dispatchCacheGet[*domain.RunCheckpoint](ctx, checkpointCacheKey); ok {
+		return cached
+	}
+	cp, _ := e.store.GetLatestCheckpoint(ctx, run.ID)
+	if cp != nil {
+		dispatchCacheSet(ctx, checkpointCacheKey, cp)
+	}
+	return cp
+}
+
 // applyEnvironmentEndpointOverride only swaps the URL when the override passes
 // SSRF validation and the dispatch has no job secrets to redirect.
 func (e *Executor) applyEnvironmentEndpointOverride(ctx context.Context, run *domain.JobRun, job *domain.Job) {
@@ -641,12 +718,19 @@ func (e *Executor) tryFallbackDispatch(
 	if job.FallbackEndpointURL == "" || !shouldUseFallbackForClass(classifyError(primaryErr)) {
 		return nil, nil, false
 	}
-	fallbackHeaders := make(map[string]string)
-	signingSecret, err := e.endpointSigningSecret(job)
+	// Build the same auth and durable-resume headers the primary path sends so a
+	// secret-dependent or SDK-based fallback endpoint can authenticate callbacks
+	// and resume from the last checkpoint on failover. ctx is the per-execution
+	// context, so secrets and the checkpoint are served from the dispatch cache
+	// the primary attempt already warmed.
+	secrets, err := e.dispatchSecrets(ctx, job)
 	if err != nil {
 		return nil, errors.Join(primaryErr, err), false
 	}
-	addHMACHeaders(fallbackHeaders, signingSecret, run.Payload)
+	fallbackHeaders, err := e.buildDispatchHeaders(job, run, secrets, e.dispatchCheckpoint(ctx, run))
+	if err != nil {
+		return nil, errors.Join(primaryErr, err), false
+	}
 	result, err := e.dispatchToEndpoint(ctx, job.FallbackEndpointURL, run, fallbackHeaders)
 	if err == nil {
 		return result, nil, true
@@ -773,53 +857,9 @@ func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *dom
 		return nil, nil, fmt.Errorf("load job %s secrets: %w", job.ID, secretsErr)
 	}
 
-	extraHeaders := make(map[string]string)
-	for _, secret := range secrets {
-		extraHeaders[fmt.Sprintf("X-Secret-%s", secret.SecretKey)] = secret.EncryptedValue
-	}
-
-	// Generate a JWT run token so the endpoint's SDK can call back to Strait.
-	if e.jwtSigningKey != "" {
-		expiresAt := time.Now().Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
-		if run.ExpiresAt != nil {
-			expiresAt = *run.ExpiresAt
-		}
-		claims := struct {
-			Attempt int `json:"attempt,omitempty"`
-			jwt.RegisteredClaims
-		}{
-			Attempt: run.Attempt,
-			RegisteredClaims: jwt.RegisteredClaims{
-				Issuer:    domain.RunTokenIssuer,
-				Subject:   run.ID,
-				ExpiresAt: jwt.NewNumericDate(expiresAt),
-				IssuedAt:  jwt.NewNumericDate(time.Now()),
-			},
-		}
-		tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-		if signed, signErr := tok.SignedString([]byte(e.jwtSigningKey)); signErr == nil {
-			extraHeaders["X-Run-Token"] = signed
-		}
-	}
-
-	// Add HMAC body+timestamp signing so the endpoint can verify request authenticity.
-	signingSecret, err := e.endpointSigningSecret(job)
+	extraHeaders, err := e.buildDispatchHeaders(job, run, secrets, cp)
 	if err != nil {
 		return nil, nil, err
-	}
-	addHMACHeaders(extraHeaders, signingSecret, run.Payload)
-
-	if run.Attempt > 1 {
-		if cp != nil {
-			data, _ := json.Marshal(cp.State)
-			if len(data) <= 65536 {
-				extraHeaders["X-Last-Checkpoint"] = string(data)
-				extraHeaders["X-Checkpoint-At"] = cp.CreatedAt.Format(time.RFC3339)
-			}
-		}
-		if run.Error != "" {
-			extraHeaders["X-Previous-Error"] = run.Error
-		}
 	}
 
 	result, err := e.dispatchToEndpoint(tracedCtx, job.EndpointURL, run, extraHeaders)
