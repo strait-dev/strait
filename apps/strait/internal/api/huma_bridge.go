@@ -216,8 +216,13 @@ func decodeBody(s *Server, r *http.Request, input any) error {
 	return err
 }
 
-// stripNullBytesFromStruct recursively replaces \x00 bytes in all string
-// fields of a struct with spaces, preventing Postgres null byte errors.
+// stripNullBytesFromStruct recursively removes \x00 bytes from all string values
+// reachable from v, preventing Postgres "invalid byte sequence for encoding UTF8:
+// 0x00" errors. It traverses structs, pointers, slices, arrays, maps, and
+// interfaces so that NUL bytes decoded from JSON \x00 escapes inside collection
+// fields (tags, labels, metadata, nested step structs) are stripped, not just
+// those in top-level string fields. Map values and interface contents are not
+// addressable, so those are rebuilt through addressable copies.
 func stripNullBytesFromStruct(v reflect.Value) {
 	if v.Kind() == reflect.Pointer {
 		if v.IsNil() {
@@ -225,11 +230,26 @@ func stripNullBytesFromStruct(v reflect.Value) {
 		}
 		v = v.Elem()
 	}
-	switch v.Kind() { //nolint:exhaustive // only struct and string need null byte stripping
+	switch v.Kind() { //nolint:exhaustive // remaining kinds carry no string data to sanitize
 	case reflect.Struct:
 		for i := range v.NumField() { //nolint:modernize // Fields() returns StructField not Value
 			stripNullBytesFromStruct(v.Field(i))
 		}
+	case reflect.Slice, reflect.Array:
+		for i := range v.Len() {
+			stripNullBytesFromStruct(v.Index(i))
+		}
+	case reflect.Map:
+		stripNullBytesFromMap(v)
+	case reflect.Interface:
+		if v.IsNil() || !v.CanSet() {
+			return
+		}
+		inner := v.Elem()
+		sanitized := reflect.New(inner.Type()).Elem()
+		sanitized.Set(inner)
+		stripNullBytesFromStruct(sanitized)
+		v.Set(sanitized)
 	case reflect.String:
 		if v.CanSet() {
 			s := v.String()
@@ -237,6 +257,34 @@ func stripNullBytesFromStruct(v reflect.Value) {
 				v.SetString(strings.ReplaceAll(s, "\x00", ""))
 			}
 		}
+	}
+}
+
+// stripNullBytesFromMap rebuilds a map's string-bearing keys and values with NUL
+// bytes removed. Map entries are not addressable, so each key and value is copied
+// into an addressable temporary, sanitized recursively, and written back.
+func stripNullBytesFromMap(v reflect.Value) {
+	// CanInterface is false for values reached through unexported fields; their
+	// keys/values cannot be read or written via reflection, so skip them rather
+	// than panic. Request input structs expose their collection fields, so this
+	// only guards against incidental unexported maps in nested types.
+	if v.IsNil() || !v.CanInterface() {
+		return
+	}
+	for _, k := range v.MapKeys() {
+		val := v.MapIndex(k)
+		sanitizedVal := reflect.New(val.Type()).Elem()
+		sanitizedVal.Set(val)
+		stripNullBytesFromStruct(sanitizedVal)
+
+		sanitizedKey := reflect.New(k.Type()).Elem()
+		sanitizedKey.Set(k)
+		stripNullBytesFromStruct(sanitizedKey)
+
+		if sanitizedKey.Interface() != k.Interface() {
+			v.SetMapIndex(k, reflect.Value{})
+		}
+		v.SetMapIndex(sanitizedKey, sanitizedVal)
 	}
 }
 
