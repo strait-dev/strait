@@ -312,9 +312,20 @@ function WorkflowDetailPage() {
                         size="xs"
                         status={run.status as WorkflowRunStatus}
                       />
-                      <span className="font-mono text-muted-foreground text-xs">
+                      <Link
+                        className="font-mono text-muted-foreground text-xs underline underline-offset-2"
+                        params={{ id: run.id }}
+                        to="/app/workflow-runs/$id"
+                      >
                         {run.id.slice(0, 8)}
-                      </span>
+                      </Link>
+                      {isPartOfChain(run) && (
+                        <HugeiconsIcon
+                          aria-label="Part of a continuation chain"
+                          className="size-3 text-muted-foreground"
+                          icon={LinkSquareIcon}
+                        />
+                      )}
                       <Badge className="capitalize" size="xs" variant="outline">
                         {run.triggered_by}
                       </Badge>
@@ -323,6 +334,7 @@ function WorkflowDetailPage() {
                           addSuffix: true,
                         })}
                       </span>
+                      <WorkflowRunActions run={run} />
                     </div>
                   ))}
                 </div>
