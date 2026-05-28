@@ -255,6 +255,7 @@ type Config struct {
 	DebouncePollerInterval time.Duration `env:"DEBOUNCE_POLLER_INTERVAL" default:"1s"`
 	BatchFlushInterval     time.Duration `env:"BATCH_FLUSH_INTERVAL" default:"1s"`
 	WebhookRequireTLS      bool          `env:"WEBHOOK_REQUIRE_TLS" default:"false"`
+	EndpointRequireTLS     bool          `env:"ENDPOINT_REQUIRE_TLS" default:"false"`
 	AllowPrivateEndpoints  bool          `env:"ALLOW_PRIVATE_ENDPOINTS" default:"false"`
 	DefaultRegion          string        `env:"DEFAULT_REGION" default:"iad"`
 	ExternalAPIURL         string        `env:"EXTERNAL_API_URL"`
