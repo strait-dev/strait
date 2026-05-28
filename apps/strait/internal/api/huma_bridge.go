@@ -67,6 +67,17 @@ func TypedHandler[I any, O any](s *Server, status int, handler func(ctx context.
 			}
 		}
 
+		// Enforce the input struct's validate tags centrally so every typed handler
+		// gets the framework-advertised validation even if it omits an explicit
+		// s.validate.Struct call. Per-handler validation remains as harmless
+		// redundancy. nil validator (test servers) skips this.
+		if s.validate != nil {
+			if err := s.validate.Struct(&input); err != nil {
+				writeTypedError(w, r, newValidationError(err))
+				return
+			}
+		}
+
 		// Store w and r in context for streaming/export handlers that need raw access.
 		ctx := context.WithValue(r.Context(), ctxKeyResponseWriter, w)
 		ctx = context.WithValue(ctx, ctxKeyRequest, r)
