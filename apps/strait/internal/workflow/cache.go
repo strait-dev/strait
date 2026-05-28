@@ -1,0 +1,91 @@
+package workflow
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	straitcache "strait/internal/cache"
+	"strait/internal/domain"
+
+	"github.com/redis/go-redis/v9"
+)
+
+const workflowStepsVersionCacheNamespace = "worker_workflow_steps_version"
+
+type WorkflowDefinitionCacheConfig struct {
+	Redis      redis.Cmdable
+	VersionTTL time.Duration
+}
+
+type workflowStepsVersionKey struct {
+	WorkflowID string
+	Version    int
+}
+
+type workflowStepsVersionCache struct {
+	tier *straitcache.Tier[workflowStepsVersionKey, []domain.WorkflowStep]
+}
+
+func newWorkflowStepsVersionCache(cfg WorkflowDefinitionCacheConfig) *workflowStepsVersionCache {
+	if cfg.VersionTTL <= 0 {
+		return nil
+	}
+	l2 := newWorkflowStepsVersionL2(cfg.Redis)
+	tierConfig := workflowStepsVersionTierConfig(cfg.VersionTTL, l2)
+	tier := straitcache.NewTier[workflowStepsVersionKey, []domain.WorkflowStep](tierConfig)
+	return &workflowStepsVersionCache{tier: tier}
+}
+
+func workflowStepsVersionTierConfig(
+	ttl time.Duration,
+	l2 straitcache.L2[workflowStepsVersionKey, []domain.WorkflowStep],
+) straitcache.TierConfig[workflowStepsVersionKey, []domain.WorkflowStep] {
+	return straitcache.TierConfig[workflowStepsVersionKey, []domain.WorkflowStep]{
+		Name:          workflowStepsVersionCacheNamespace,
+		L2:            l2,
+		Consistency:   straitcache.Immutable,
+		MaximumWeight: 100_000,
+		Weigher: func(_ workflowStepsVersionKey, steps []domain.WorkflowStep) uint32 {
+			if len(steps) == 0 {
+				return 1
+			}
+			if len(steps) > 100_000 {
+				return 100_000
+			}
+			return uint32(len(steps)) // #nosec G115 -- bounded above before conversion.
+		},
+		TTL:       ttl,
+		TTLJitter: 0.1,
+		DisableL2: l2 == nil,
+		Clone:     domain.CloneWorkflowSteps,
+	}
+}
+
+func newWorkflowStepsVersionL2(redis redis.Cmdable) straitcache.L2[workflowStepsVersionKey, []domain.WorkflowStep] {
+	if redis == nil {
+		return nil
+	}
+	return straitcache.NewRedisL2[workflowStepsVersionKey, []domain.WorkflowStep](
+		straitcache.RedisL2Config[workflowStepsVersionKey, []domain.WorkflowStep]{
+			Client:    redis,
+			Namespace: workflowStepsVersionCacheNamespace,
+			Key:       workflowStepsVersionKeyString,
+		},
+	)
+}
+
+func workflowStepsVersionKeyString(key workflowStepsVersionKey) string {
+	return fmt.Sprintf("%s\x00%d", key.WorkflowID, key.Version)
+}
+
+func (c *workflowStepsVersionCache) Load(
+	ctx context.Context,
+	key workflowStepsVersionKey,
+	loader straitcache.LoadFunc[workflowStepsVersionKey, []domain.WorkflowStep],
+) ([]domain.WorkflowStep, error) {
+	if c == nil || c.tier == nil {
+		return loader(ctx, key)
+	}
+	return c.tier.Get(ctx, key, loader)
+}

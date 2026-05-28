@@ -7,10 +7,9 @@ import (
 	"github.com/sourcegraph/conc"
 )
 
-// TestCloseByAPIKey_NoDoubleClosePanic verifies the Phase I contract: the
-// revokeCh close is guarded by sync.Once, so racing CloseByAPIKey calls (or
-// CloseByAPIKey racing with a same-key reconnect) cannot panic with
-// "close of closed channel".
+// TestCloseByAPIKey_NoDoubleClosePanic verifies that revokeCh close is guarded
+// by sync.Once, so racing CloseByAPIKey calls (or CloseByAPIKey racing with a
+// same-key reconnect) cannot panic with "close of closed channel".
 //
 // The previous select-default-close pattern was insufficient: between the
 // select branch and the close, another goroutine could pass the same select

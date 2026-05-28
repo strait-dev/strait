@@ -18,8 +18,8 @@ func TestGrafanaDashboards_JSONValidAndRegisteredMetrics(t *testing.T) {
 	if err != nil {
 		t.Fatalf("glob dashboards: %v", err)
 	}
-	if len(dashboardPaths) != 9 {
-		t.Fatalf("dashboard count = %d, want 9: %v", len(dashboardPaths), dashboardPaths)
+	if len(dashboardPaths) != 10 {
+		t.Fatalf("dashboard count = %d, want 10: %v", len(dashboardPaths), dashboardPaths)
 	}
 
 	registeredMetrics := registeredMetricNames(t)

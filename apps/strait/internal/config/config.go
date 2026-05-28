@@ -236,17 +236,28 @@ type Config struct {
 	LogDrainWorkerInterval     time.Duration `env:"LOG_DRAIN_WORKER_INTERVAL" default:"1m"`
 	MemoryPressureThresholdPct float64       `env:"MEMORY_PRESSURE_THRESHOLD_PCT" default:"0"`
 	JobCacheTTL                time.Duration `env:"JOB_CACHE_TTL" default:"5m"`
-	DefaultRunTTLSecs          int           `env:"DEFAULT_RUN_TTL_SECS" default:"0"`
-	MaxResultSize              int64         `env:"MAX_RESULT_SIZE" default:"1048576"`
-	MigrationMode              string        `env:"MIGRATION_MODE" default:"auto"`
-	MigrationLockTimeout       time.Duration `env:"MIGRATION_LOCK_TIMEOUT" default:"30s"`
-	MaxSnoozeCount             int           `env:"MAX_SNOOZE_COUNT" default:"50"`
-	DebouncePollerInterval     time.Duration `env:"DEBOUNCE_POLLER_INTERVAL" default:"1s"`
-	BatchFlushInterval         time.Duration `env:"BATCH_FLUSH_INTERVAL" default:"1s"`
-	WebhookRequireTLS          bool          `env:"WEBHOOK_REQUIRE_TLS" default:"false"`
-	AllowPrivateEndpoints      bool          `env:"ALLOW_PRIVATE_ENDPOINTS" default:"false"`
-	DefaultRegion              string        `env:"DEFAULT_REGION" default:"iad"`
-	ExternalAPIURL             string        `env:"EXTERNAL_API_URL"`
+	VersionCacheTTL            time.Duration `env:"VERSION_CACHE_TTL" default:"30m"`
+	RunVersionCacheTTL         time.Duration `env:"RUN_VERSION_CACHE_TTL" default:"10m"`
+	APIKeyCacheTTL             time.Duration `env:"API_KEY_CACHE_TTL" default:"60s"`
+	JobHealthCacheTTL          time.Duration `env:"JOB_HEALTH_CACHE_TTL" default:"2s"`
+	// JobHealthStatsCacheTTL is kept as a compatibility alias for the
+	// short-TTL job health stats cache added before the generalized worker
+	// cache tiers. The executor uses JobHealthCacheTTL.
+	JobHealthStatsCacheTTL time.Duration `env:"JOB_HEALTH_STATS_CACHE_TTL" default:"30s"`
+	JobDepsCacheTTL        time.Duration `env:"JOB_DEPS_CACHE_TTL" default:"5m"`
+	StatusReadModelTTL     time.Duration `env:"CACHE_STATUS_READMODEL_TTL" default:"5m"`
+	SharedDedupeTTL        time.Duration `env:"CACHE_SHARED_DEDUPE_TTL" default:"10m"`
+	DefaultRunTTLSecs      int           `env:"DEFAULT_RUN_TTL_SECS" default:"0"`
+	MaxResultSize          int64         `env:"MAX_RESULT_SIZE" default:"1048576"`
+	MigrationMode          string        `env:"MIGRATION_MODE" default:"auto"`
+	MigrationLockTimeout   time.Duration `env:"MIGRATION_LOCK_TIMEOUT" default:"30s"`
+	MaxSnoozeCount         int           `env:"MAX_SNOOZE_COUNT" default:"50"`
+	DebouncePollerInterval time.Duration `env:"DEBOUNCE_POLLER_INTERVAL" default:"1s"`
+	BatchFlushInterval     time.Duration `env:"BATCH_FLUSH_INTERVAL" default:"1s"`
+	WebhookRequireTLS      bool          `env:"WEBHOOK_REQUIRE_TLS" default:"false"`
+	AllowPrivateEndpoints  bool          `env:"ALLOW_PRIVATE_ENDPOINTS" default:"false"`
+	DefaultRegion          string        `env:"DEFAULT_REGION" default:"iad"`
+	ExternalAPIURL         string        `env:"EXTERNAL_API_URL"`
 
 	// Region gating
 	EnforceRegionGating bool `env:"ENFORCE_REGION_GATING" default:"false"`
@@ -379,7 +390,7 @@ func Load() (*Config, error) {
 		SkipFlags: true,
 	})
 	if err := loader.Load(); err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
+		return nil, fmt.Errorf("load config: %w", err)
 	}
 
 	// Post-load: parse ENCRYPTION_KEY_OLD with whitespace trimming.
@@ -429,9 +440,30 @@ func Load() (*Config, error) {
 // CORS policy, and audit subsystem invariants. It mutates cfg in two
 // well-defined cases to match the pre-refactor behavior of Load. Returns a
 // *domain.ConfigError pinpointing the offending field, or nil on success.
-//
-//nolint:gocognit,gocyclo,cyclop
 func validateLoaded(cfg *Config) error {
+	validators := []func(*Config) error{
+		validateRequiredConfig,
+		validateProfilingConfig,
+		validateAuthConfig,
+		validateRedisConfig,
+		validateMigrationConfig,
+		validateDatabaseConfig,
+		validateSequinConfig,
+		validateClickHouseConfig,
+		validateEncryptionConfig,
+		validateCORSConfig,
+		validateAuditConfig,
+		validateWorkerStreamConfig,
+	}
+	for _, validate := range validators {
+		if err := validate(cfg); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateRequiredConfig(cfg *Config) error {
 	if cfg.DatabaseURL == "" {
 		return &domain.ConfigError{Field: "DATABASE_URL", Message: "is required"}
 	}
@@ -441,9 +473,10 @@ func validateLoaded(cfg *Config) error {
 	if len(cfg.InternalSecret) < 16 {
 		return &domain.ConfigError{Field: "INTERNAL_SECRET", Message: "must be at least 16 characters"}
 	}
-	if err := validateProfilingConfig(cfg); err != nil {
-		return err
-	}
+	return nil
+}
+
+func validateAuthConfig(cfg *Config) error {
 	if len(cfg.JWTSigningKey) < 32 {
 		return &domain.ConfigError{Field: "JWT_SIGNING_KEY", Message: "must be at least 32 characters"}
 	}
@@ -458,7 +491,10 @@ func validateLoaded(cfg *Config) error {
 			return &domain.ConfigError{Field: "OIDC_PUBLIC_KEY_PEM", Message: "is required when OIDC is enabled"}
 		}
 	}
+	return nil
+}
 
+func validateRedisConfig(cfg *Config) error {
 	if cfg.RedisURL != "" {
 		if _, err := url.Parse(cfg.RedisURL); err != nil {
 			return &domain.ConfigError{Field: "REDIS_URL", Message: fmt.Sprintf("invalid URL: %v", err)}
@@ -467,21 +503,29 @@ func validateLoaded(cfg *Config) error {
 	if cfg.RedisURL == "" && (cfg.RedisSentinelMaster == "" || len(cfg.RedisSentinelAddrs) == 0) {
 		return &domain.ConfigError{Field: "REDIS_URL", Message: "is required unless REDIS_SENTINEL_MASTER and REDIS_SENTINEL_ADDRS are configured"}
 	}
+	return nil
+}
 
+func validateMigrationConfig(cfg *Config) error {
 	switch cfg.MigrationMode {
 	case "auto", "manual", "validate":
-		// valid
+		return nil
 	default:
 		return &domain.ConfigError{Field: "MIGRATION_MODE", Message: "must be auto, manual, or validate"}
 	}
+}
 
+func validateDatabaseConfig(cfg *Config) error {
 	if strings.Contains(cfg.DatabaseURL, "sslmode=disable") {
 		if cfg.SentryEnvironment != "development" && cfg.SentryEnvironment != "test" {
 			return &domain.ConfigError{Field: "DATABASE_URL", Message: "sslmode=disable is not allowed in non-development environments"}
 		}
 		slog.Warn("DATABASE_URL has sslmode=disable; connections are not encrypted")
 	}
+	return nil
+}
 
+func validateSequinConfig(cfg *Config) error {
 	if cfg.SequinBaseURL == "" {
 		return &domain.ConfigError{Field: "SEQUIN_BASE_URL", Message: "is required"}
 	}
@@ -494,15 +538,24 @@ func validateLoaded(cfg *Config) error {
 	if cfg.SequinAPIToken == "" {
 		return &domain.ConfigError{Field: "SEQUIN_API_TOKEN", Message: "is required"}
 	}
+	return nil
+}
 
+func validateClickHouseConfig(cfg *Config) error {
 	if cfg.ClickHouseEnabled && cfg.ClickHouseURL == "" {
 		return &domain.ConfigError{Field: "CLICKHOUSE_URL", Message: "is required when CLICKHOUSE_ENABLED=true"}
 	}
+	return nil
+}
 
+func validateEncryptionConfig(cfg *Config) error {
 	if cfg.EncryptionKey == "" && cfg.SecretEncryptionKey == "" {
 		slog.Warn("neither ENCRYPTION_KEY nor SECRET_ENCRYPTION_KEY is set; secret encryption will be unavailable")
 	}
+	return nil
+}
 
+func validateCORSConfig(cfg *Config) error {
 	for _, origin := range cfg.CORSAllowedOrigins {
 		if origin == "*" && cfg.CORSAllowCredentials {
 			return &domain.ConfigError{
@@ -520,7 +573,10 @@ func validateLoaded(cfg *Config) error {
 			slog.Warn("CORS_ALLOWED_ORIGINS is set to wildcard (*); consider restricting to specific origins in production")
 		}
 	}
+	return nil
+}
 
+func validateAuditConfig(cfg *Config) error {
 	if cfg.AuditRetentionDefaultDays < 0 {
 		return &domain.ConfigError{Field: "AUDIT_RETENTION_DEFAULT_DAYS", Message: "must be >= 0"}
 	}
@@ -562,9 +618,16 @@ func validateLoaded(cfg *Config) error {
 			return &domain.ConfigError{Field: "AUDIT_SIEM_ENDPOINT", Message: fmt.Sprintf("unparseable URL: %v", err)}
 		}
 		if u.User != nil {
-			return &domain.ConfigError{Field: "AUDIT_SIEM_ENDPOINT", Message: "must not contain userinfo (user:password@host) — use AUDIT_SIEM_AUTH_TOKEN for credentials"}
+			return &domain.ConfigError{
+				Field:   "AUDIT_SIEM_ENDPOINT",
+				Message: "must not contain userinfo (user:password@host) — use AUDIT_SIEM_AUTH_TOKEN for credentials",
+			}
 		}
 	}
+	return nil
+}
+
+func validateWorkerStreamConfig(cfg *Config) error {
 	if cfg.WorkerDBSyncInterval <= cfg.HeartbeatInterval {
 		return &domain.ConfigError{
 			Field:   "WORKER_DB_SYNC_INTERVAL",

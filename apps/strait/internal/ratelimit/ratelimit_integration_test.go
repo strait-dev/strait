@@ -53,8 +53,6 @@ func flushRedis(t *testing.T) {
 	}
 }
 
-// --- Rate limit window enforcement ---.
-
 func TestAllow_WithinLimit(t *testing.T) {
 	flushRedis(t)
 	rl := newRateLimiter(t)
@@ -112,8 +110,6 @@ func TestAllow_ExceedsLimit(t *testing.T) {
 	}
 }
 
-// --- Sliding window behavior across time ---.
-
 func TestAllow_WindowExpiry(t *testing.T) {
 	flushRedis(t)
 	rl := newRateLimiter(t)
@@ -156,8 +152,6 @@ func TestAllow_WindowExpiry(t *testing.T) {
 	}
 }
 
-// --- Concurrent rate limit checks (race condition testing) ---.
-
 func TestAllow_ConcurrentAccess(t *testing.T) {
 	flushRedis(t)
 	rl := newRateLimiter(t)
@@ -197,8 +191,6 @@ func TestAllow_ConcurrentAccess(t *testing.T) {
 		t.Errorf("concurrent denied = %d, want %d", denied, goroutines-limit)
 	}
 }
-
-// --- Multiple keys/clients sharing Redis ---.
 
 func TestAllow_MultipleKeys(t *testing.T) {
 	flushRedis(t)
@@ -291,8 +283,6 @@ func TestAllow_MultipleClients(t *testing.T) {
 	}
 }
 
-// --- Disabled limiter ---.
-
 func TestAllow_DisabledLimiter(t *testing.T) {
 	client := redis.NewClient(testRedis.Options())
 	t.Cleanup(func() { _ = client.Close() })
@@ -308,8 +298,6 @@ func TestAllow_DisabledLimiter(t *testing.T) {
 		t.Error("disabled limiter denied a request, want allowed")
 	}
 }
-
-// --- Concurrency token acquire/release with real Redis ---.
 
 func TestConcurrency_AcquireRelease(t *testing.T) {
 	flushRedis(t)
@@ -371,8 +359,6 @@ func TestConcurrency_AcquireRelease(t *testing.T) {
 	}
 }
 
-// --- Token cleanup/expiration ---.
-
 func TestConcurrency_TokenExpiration(t *testing.T) {
 	flushRedis(t)
 	cl := newConcurrencyLimiter(t)
@@ -412,8 +398,6 @@ func TestConcurrency_TokenExpiration(t *testing.T) {
 		t.Error("Acquire() denied after TTL expiry, want allowed")
 	}
 }
-
-// --- Concurrent concurrency limiter access ---.
 
 func TestConcurrency_ConcurrentAcquire(t *testing.T) {
 	flushRedis(t)
@@ -470,8 +454,6 @@ func TestConcurrency_ConcurrentAcquire(t *testing.T) {
 	}
 }
 
-// --- Multiple keys for concurrency ---.
-
 func TestConcurrency_IndependentKeys(t *testing.T) {
 	flushRedis(t)
 	cl := newConcurrencyLimiter(t)
@@ -498,8 +480,6 @@ func TestConcurrency_IndependentKeys(t *testing.T) {
 		t.Error("Acquire(key-b) denied, want allowed (independent key)")
 	}
 }
-
-// --- Disabled concurrency limiter ---.
 
 func TestConcurrency_DisabledLimiter(t *testing.T) {
 	client := redis.NewClient(testRedis.Options())

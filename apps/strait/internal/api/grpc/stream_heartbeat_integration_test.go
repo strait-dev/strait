@@ -75,7 +75,7 @@ func TestIntegration_Heartbeat_RenewsStreamLeaseWithoutTouchingLastSeen(t *testi
 // TestIntegration_Heartbeat_DBSyncRefreshesLastSeen confirms that with the
 // per-heartbeat write removed, the dbSync loop alone keeps last_seen_at
 // fresh. dbSyncOnce calls RegisterWorker (UPSERT, last_seen_at = NOW()),
-// which is the post-Phase-D source of truth for liveness.
+// which is the authoritative liveness write.
 func TestIntegration_Heartbeat_DBSyncRefreshesLastSeen(t *testing.T) {
 	ctx := context.Background()
 	env := cleanIntegrationEnv(t, ctx)

@@ -45,10 +45,7 @@ func stripPlaceholders(sql string) string {
 //  3. FuzzCreateEventTrigger_EventKeyPassthrough
 //  4. FuzzDecryptSecretWithFallback_CorruptionDeterministic
 //  5. FuzzDomainIsValid_StatusAndModes_NoPanic
-
-// -----------------------------------------------------------------------.
 // Shared test helpers
-// -----------------------------------------------------------------------.
 
 // fuzzCaptureDB is a mockDBTX variant that records the SQL + args passed
 // to Exec / Query / QueryRow and always returns a sentinel error so
@@ -103,9 +100,7 @@ func argsContain(args []any, s string) bool {
 	return false
 }
 
-// -----------------------------------------------------------------------.
 // 1. ListRunsByProject metadata filter
-// -----------------------------------------------------------------------.
 
 // FuzzListRunsByProject_MetadataFilter_NoInjection verifies that the
 // user-controlled metadata key and value in ListRunsByProject are
@@ -195,9 +190,7 @@ func FuzzListRunsByProject_MetadataFilter_NoInjection(f *testing.F) {
 	})
 }
 
-// -----------------------------------------------------------------------.
 // 2. TryAcquireIdempotencyKey: key is passed through unchanged
-// -----------------------------------------------------------------------.
 
 // FuzzTryAcquireIdempotencyKey_KeyPassthrough verifies that the store
 // does not normalize, truncate, or mutate the idempotency key before
@@ -237,9 +230,7 @@ func FuzzTryAcquireIdempotencyKey_KeyPassthrough(f *testing.F) {
 	})
 }
 
-// -----------------------------------------------------------------------.
 // 3. CreateEventTrigger: event_key is parameterized
-// -----------------------------------------------------------------------.
 
 // FuzzCreateEventTrigger_EventKeyPassthrough is the event_triggers
 // analog of the idempotency fuzz. event_key has a UNIQUE constraint and
@@ -282,9 +273,7 @@ func FuzzCreateEventTrigger_EventKeyPassthrough(f *testing.F) {
 	})
 }
 
-// -----------------------------------------------------------------------.
 // 4. decryptSecretWithFallback: corrupted ciphertext fails deterministically
-// -----------------------------------------------------------------------.
 
 // FuzzDecryptSecretWithFallback_CorruptionDeterministic generates a
 // known-good ciphertext, mutates it, and verifies decryption fails
@@ -356,9 +345,7 @@ func FuzzDecryptSecretWithFallback_CorruptionDeterministic(f *testing.F) {
 	})
 }
 
-// -----------------------------------------------------------------------.
 // 5. Domain IsValid methods: never panic, always return bool
-// -----------------------------------------------------------------------.
 
 // FuzzDomainIsValid_StatusAndModes_NoPanic calls every public IsValid /
 // IsTerminal method on every enum-like domain type with an arbitrary

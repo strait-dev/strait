@@ -395,7 +395,7 @@ func requireProjectWideScope(ctx context.Context, resource string) error {
 // context skip the check.
 func (s *Server) getRunForAccess(ctx context.Context, runID string) (*domain.JobRun, error) {
 	if projectIDFromContext(ctx) == "" {
-		run, err := s.store.GetRun(ctx, runID)
+		run, err := s.getRunWithStatusReadModel(ctx, runID)
 		if err != nil {
 			if errors.Is(err, store.ErrRunNotFound) {
 				return nil, huma.Error404NotFound("run not found")
@@ -404,7 +404,7 @@ func (s *Server) getRunForAccess(ctx context.Context, runID string) (*domain.Job
 		}
 		return run, nil
 	}
-	run, err := s.store.GetRun(ctx, runID)
+	run, err := s.getRunWithStatusReadModel(ctx, runID)
 	if err != nil {
 		if errors.Is(err, store.ErrRunNotFound) {
 			return nil, huma.Error404NotFound("run not found")
@@ -467,7 +467,7 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 		rawKey := strings.TrimPrefix(authHeader, "Bearer ")
 		keyHash := hashAPIKey(rawKey)
 
-		apiKey, err := s.store.GetAPIKeyByHash(r.Context(), keyHash)
+		apiKey, err := s.lookupAPIKeyForAuth(r.Context(), keyHash)
 		if err != nil || apiKey == nil {
 			s.authLimiter.RecordFailureScoped(r.Context(), clientIP, ratelimit.AuthScopeAPIKey)
 			recordAuthDecision(r.Context(), "api_key", "failure")
@@ -538,6 +538,16 @@ func (s *Server) apiKeyAuth(next http.Handler) http.Handler {
 
 		s.serveWithSentryScope(next, w, r.WithContext(ctx))
 	})
+}
+
+func (s *Server) lookupAPIKeyForAuth(ctx context.Context, keyHash string) (*domain.APIKey, error) {
+	loader := func(loadCtx context.Context, hash string) (*domain.APIKey, error) {
+		return s.store.GetAPIKeyByHash(loadCtx, hash)
+	}
+	if s.apiKeyCache == nil {
+		return loader(ctx, keyHash)
+	}
+	return s.apiKeyCache.Get(ctx, keyHash, loader)
 }
 
 func (s *Server) apiKeyOrSecretAuth(next http.Handler) http.Handler {
@@ -861,116 +871,128 @@ func (s *Server) requireInternalSecretMiddleware(next http.Handler) http.Handler
 // requirePermission returns a middleware that checks authorization based on
 // the actor type. For API keys, it checks scopes. For users, it loads their
 // role permissions from the database.
-//
-//nolint:gocognit
 func (s *Server) requirePermission(permission string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ctx := r.Context()
-
-			// Check if request came through API key auth (scopes will be set).
-			// Internal secret auth does not set scopes — those requests are
-			// always allowed regardless of actor headers (actor is for audit only).
-			scopes := scopesFromContext(ctx)
-			if scopes == nil && isInternalCaller(ctx) {
-				// Verified internal-secret auth is allowed regardless of scopes.
+			decision := s.authorizePermissionRequest(r, permission)
+			if decision.allowed {
 				next.ServeHTTP(w, r)
 				return
 			}
-
-			actorType, _ := ctx.Value(ctxActorTypeKey).(string)
-
-			switch actorType {
-			case "api_key", "sse_token":
-				// API keys and SSE tokens use scopes directly.
-				hasScope := domain.HasScope(scopes, permission)
-				if actorType == "sse_token" {
-					hasScope = domain.HasScopeStrict(scopes, permission)
-				}
-				if hasScope {
-					next.ServeHTTP(w, r)
-					return
-				}
-				respondError(w, r, http.StatusForbidden, "insufficient permissions: requires "+permission)
-				return
-
-			case "user":
-				// Users always need a project context for permission checks.
-				projectID := projectIDFromContext(ctx)
-				actorID := actorFromContext(ctx)
-				if projectID == "" || actorID == "" {
-					respondError(w, r, http.StatusForbidden, "missing project or actor context")
-					return
-				}
-
-				// OIDC tokens with explicit scopes: enforce the token's
-				// granted scopes directly. This ensures the principle of
-				// least privilege from the OAuth consent screen — the token
-				// scopes restrict what the user can do, even if their
-				// database role would allow more.
-				if ctx.Value(ctxOIDCScopeClaimPresentKey) == true && len(scopes) == 0 {
-					respondError(w, r, http.StatusForbidden, "insufficient permissions: requires "+permission)
-					return
-				}
-				if len(scopes) > 0 {
-					if !domain.HasScope(scopes, permission) {
-						respondError(w, r, http.StatusForbidden, "insufficient permissions: requires "+permission)
-						return
-					}
-					// Token scopes are an upper bound, not a substitute for
-					// project RBAC. Continue into the normal user permission
-					// checks so a scoped OIDC token cannot grant access the
-					// user does not hold in this project.
-				}
-
-				perms, cached := s.permCache.Get(projectID, actorID)
-				if !cached {
-					var err error
-					perms, err = s.store.GetUserPermissions(ctx, projectID, actorID)
-					if err != nil {
-						respondError(w, r, http.StatusInternalServerError, "failed to load permissions")
-						return
-					}
-					if perms != nil {
-						s.permCache.Set(projectID, actorID, perms)
-					}
-				}
-
-				if perms == nil {
-					respondError(w, r, http.StatusForbidden, "no role assigned in this project")
-					return
-				}
-				if domain.HasScopeStrict(perms, permission) {
-					next.ServeHTTP(w, r)
-					return
-				}
-
-				// Fallback: check resource-level policies.
-				if resType, resID := resourceFromRequest(r); resType != "" && resID != "" {
-					actions, rpErr := s.store.GetResourcePolicies(ctx, projectID, resType, resID, actorID)
-					if rpErr == nil && domain.HasScopeStrict(actions, permission) {
-						next.ServeHTTP(w, r)
-						return
-					}
-
-					// Fallback: check tag-based policies for matching resources.
-					if tags, ok := s.resourceTags(ctx, resType, resID); ok {
-						tagActions, tpErr := s.store.GetTagPolicyActions(ctx, projectID, resType, actorID, tags)
-						if tpErr == nil && domain.HasScopeStrict(tagActions, permission) {
-							next.ServeHTTP(w, r)
-							return
-						}
-					}
-				}
-
-				respondError(w, r, http.StatusForbidden, "insufficient permissions: requires "+permission)
-				return
-
-			default:
-				respondError(w, r, http.StatusForbidden, "unknown actor type")
-			}
+			respondError(w, r, decision.status, decision.message)
 		})
 	}
+}
+
+type permissionDecision struct {
+	allowed bool
+	status  int
+	message string
+}
+
+func allowPermission() permissionDecision {
+	return permissionDecision{allowed: true}
+}
+
+func denyPermission(status int, message string) permissionDecision {
+	return permissionDecision{status: status, message: message}
+}
+
+func (s *Server) authorizePermissionRequest(r *http.Request, permission string) permissionDecision {
+	ctx := r.Context()
+	scopes := scopesFromContext(ctx)
+	if scopes == nil && isInternalCaller(ctx) {
+		return allowPermission()
+	}
+
+	actorType, _ := ctx.Value(ctxActorTypeKey).(string)
+	switch actorType {
+	case "api_key", "sse_token":
+		return authorizeAPIKeyPermission(actorType, scopes, permission)
+	case "user":
+		return s.authorizeUserPermission(r, scopes, permission)
+	default:
+		return denyPermission(http.StatusForbidden, "unknown actor type")
+	}
+}
+
+func authorizeAPIKeyPermission(actorType string, scopes []string, permission string) permissionDecision {
+	hasScope := domain.HasScope(scopes, permission)
+	if actorType == "sse_token" {
+		hasScope = domain.HasScopeStrict(scopes, permission)
+	}
+	if hasScope {
+		return allowPermission()
+	}
+	return denyPermission(http.StatusForbidden, "insufficient permissions: requires "+permission)
+}
+
+func (s *Server) authorizeUserPermission(r *http.Request, scopes []string, permission string) permissionDecision {
+	ctx := r.Context()
+	projectID := projectIDFromContext(ctx)
+	actorID := actorFromContext(ctx)
+	if projectID == "" || actorID == "" {
+		return denyPermission(http.StatusForbidden, "missing project or actor context")
+	}
+	if decision := authorizeOIDCScopedPermission(ctx, scopes, permission); !decision.allowed && decision.message != "" {
+		return decision
+	}
+
+	perms, decision := s.userProjectPermissions(ctx, projectID, actorID)
+	if !decision.allowed {
+		return decision
+	}
+	if domain.HasScopeStrict(perms, permission) || s.resourcePolicyAllows(r, projectID, actorID, permission) {
+		return allowPermission()
+	}
+	return denyPermission(http.StatusForbidden, "insufficient permissions: requires "+permission)
+}
+
+func authorizeOIDCScopedPermission(ctx context.Context, scopes []string, permission string) permissionDecision {
+	if ctx.Value(ctxOIDCScopeClaimPresentKey) == true && len(scopes) == 0 {
+		return denyPermission(http.StatusForbidden, "insufficient permissions: requires "+permission)
+	}
+	if len(scopes) > 0 && !domain.HasScope(scopes, permission) {
+		return denyPermission(http.StatusForbidden, "insufficient permissions: requires "+permission)
+	}
+	return allowPermission()
+}
+
+func (s *Server) userProjectPermissions(ctx context.Context, projectID, actorID string) ([]string, permissionDecision) {
+	perms, cached := s.permCache.GetContext(ctx, projectID, actorID)
+	if !cached {
+		var version int64
+		var err error
+		perms, version, err = s.loadUserPermissionsForCache(ctx, projectID, actorID)
+		if err != nil {
+			return nil, denyPermission(http.StatusInternalServerError, "failed to load permissions")
+		}
+		if perms != nil {
+			s.permCache.SetWithVersionContext(ctx, projectID, actorID, perms, version)
+		}
+	}
+	if perms == nil {
+		return nil, denyPermission(http.StatusForbidden, "no role assigned in this project")
+	}
+	return perms, allowPermission()
+}
+
+func (s *Server) resourcePolicyAllows(r *http.Request, projectID, actorID, permission string) bool {
+	resType, resID := resourceFromRequest(r)
+	if resType == "" || resID == "" {
+		return false
+	}
+	ctx := r.Context()
+	actions, err := s.store.GetResourcePolicies(ctx, projectID, resType, resID, actorID)
+	if err == nil && domain.HasScopeStrict(actions, permission) {
+		return true
+	}
+	tags, ok := s.resourceTags(ctx, resType, resID)
+	if !ok {
+		return false
+	}
+	tagActions, err := s.store.GetTagPolicyActions(ctx, projectID, resType, actorID, tags)
+	return err == nil && domain.HasScopeStrict(tagActions, permission)
 }
 
 func (s *Server) requireAnyPermission(permissions ...string) func(http.Handler) http.Handler {
@@ -1010,21 +1032,47 @@ func (s *Server) hasProjectPermission(ctx context.Context, permission string) bo
 		if len(scopes) > 0 && !domain.HasScope(scopes, permission) {
 			return false
 		}
-		perms, cached := s.permCache.Get(projectID, actorID)
+		perms, cached := s.permCache.GetContext(ctx, projectID, actorID)
 		if !cached {
+			var version int64
 			var err error
-			perms, err = s.store.GetUserPermissions(ctx, projectID, actorID)
+			perms, version, err = s.loadUserPermissionsForCache(ctx, projectID, actorID)
 			if err != nil {
 				return false
 			}
 			if perms != nil {
-				s.permCache.Set(projectID, actorID, perms)
+				s.permCache.SetWithVersionContext(ctx, projectID, actorID, perms, version)
 			}
 		}
 		return domain.HasScopeStrict(perms, permission)
 	default:
 		return false
 	}
+}
+
+type versionedUserPermissionStore interface {
+	GetUserPermissionsWithVersion(ctx context.Context, projectID, userID string) ([]string, int64, error)
+}
+
+func (s *Server) loadUserPermissionsForCache(ctx context.Context, projectID, actorID string) ([]string, int64, error) {
+	key := projectID + "\x00" + actorID
+	if versioned, ok := s.store.(versionedUserPermissionStore); ok {
+		perms, version, err := versioned.GetUserPermissionsWithVersion(ctx, projectID, actorID)
+		if err != nil {
+			return nil, 0, err
+		}
+		if getter, ok := s.store.(cacheNamespaceVersionGetter); ok {
+			if aggregateVersion, getErr := getter.GetCacheNamespaceVersion(ctx, permissionCacheNamespace, key); getErr == nil && aggregateVersion > version {
+				version = aggregateVersion
+			}
+		}
+		return perms, version, nil
+	}
+	perms, err := s.store.GetUserPermissions(ctx, projectID, actorID)
+	if err != nil {
+		return nil, 0, err
+	}
+	return perms, time.Now().UnixNano(), nil
 }
 
 // resourceFromRequest extracts the resource type and ID from the chi route context.
@@ -1079,9 +1127,9 @@ func (s *Server) resourceTags(ctx context.Context, resourceType, resourceID stri
 // application-level filtering. The main /v1 route group uses
 // rlsTxMiddleware instead, which provides real RLS enforcement.
 //
-// TODO: tighten SSE isolation by making SSE handlers run their initial
-// DB fetch inside store.WithTx + set_config and then release the tx
-// before entering the long-running pub/sub loop.
+// SSE handlers that need database reads should perform their initial fetch
+// inside store.WithTx + set_config and release the transaction before entering
+// the long-running pub/sub loop.
 func (s *Server) projectContextMiddleware(next http.Handler) http.Handler {
 	setter, ok := s.store.(ProjectContextSetter)
 	if !ok {

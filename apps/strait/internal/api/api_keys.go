@@ -133,6 +133,7 @@ func (s *Server) handleCreateAPIKey(ctx context.Context, input *CreateAPIKeyInpu
 	if err := s.store.CreateAPIKey(ctx, key); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create api key")
 	}
+	s.apiKeyCache.Set(ctx, key)
 	s.emitAuditEvent(ctx, domain.AuditActionAPIKeyCreated, "api_key", key.ID, map[string]any{
 		"name":                      key.Name,
 		"key_prefix":                key.KeyPrefix,
@@ -302,6 +303,11 @@ func (s *Server) handleRevokeAPIKey(ctx context.Context, input *RevokeAPIKeyInpu
 		if err := s.store.RevokeAPIKey(ctx, input.KeyID); err != nil {
 			return nil, huma.Error404NotFound("api key not found or already revoked")
 		}
+		version := key.CacheVersion + 1
+		if revoked, getErr := s.store.GetAPIKeyByID(ctx, input.KeyID); getErr == nil && revoked != nil && revoked.CacheVersion > 0 {
+			version = revoked.CacheVersion
+		}
+		s.apiKeyCache.InvalidateWithVersion(ctx, key.KeyHash, version)
 		slog.Info("api key revoked", "key_id", input.KeyID, "actor", actorFromContext(ctx), "project_id", projectIDFromContext(ctx))
 		s.emitAuditEvent(ctx, domain.AuditActionAPIKeyRevoked, "api_key", input.KeyID, nil)
 	}
@@ -370,6 +376,7 @@ func (s *Server) handleRotateAPIKey(ctx context.Context, input *RotateAPIKeyInpu
 	if err := s.store.CreateAPIKey(ctx, newKey); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create rotated api key")
 	}
+	s.apiKeyCache.Set(ctx, newKey)
 	graceExpiresAt := time.Now().Add(time.Duration(req.GracePeriodMinutes) * time.Minute)
 	if err := s.store.MarkAPIKeyRotated(ctx, oldKey.ID, newKey.ID, graceExpiresAt); err != nil {
 		if newKey.ID != "" {
@@ -381,8 +388,14 @@ func (s *Server) handleRotateAPIKey(ctx context.Context, input *RotateAPIKeyInpu
 				)
 			}
 		}
+		s.apiKeyCache.Invalidate(ctx, newKey.KeyHash)
 		return nil, huma.Error500InternalServerError("failed to mark old key as rotated")
 	}
+	oldKeyVersion := oldKey.CacheVersion + 1
+	if rotatedOldKey, getErr := s.store.GetAPIKeyByID(ctx, oldKey.ID); getErr == nil && rotatedOldKey != nil && rotatedOldKey.CacheVersion > 0 {
+		oldKeyVersion = rotatedOldKey.CacheVersion
+	}
+	s.apiKeyCache.InvalidateWithVersion(ctx, oldKey.KeyHash, oldKeyVersion)
 	if s.pubsub != nil && oldKey.ID != "" {
 		expireChannel := fmt.Sprintf("apikey:expires:%s", oldKey.ID)
 		if pubErr := s.pubsub.Publish(ctx, expireChannel, []byte(graceExpiresAt.UTC().Format(time.RFC3339Nano))); pubErr != nil {

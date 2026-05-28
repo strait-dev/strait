@@ -292,7 +292,7 @@ func (q *Queries) DropPartitionWithTimeout(ctx context.Context, partition string
 	if err != nil {
 		return fmt.Errorf("drop partition begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer rollbackTx(ctx, tx)
 
 	ms := timeout.Milliseconds()
 	if _, err := tx.Exec(ctx, fmt.Sprintf("SET LOCAL lock_timeout = %d", ms)); err != nil {
@@ -328,7 +328,7 @@ func (q *Queries) DropPartitionIfEmptyWithTimeout(ctx context.Context, partition
 	if err != nil {
 		return false, fmt.Errorf("drop empty partition begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer rollbackTx(ctx, tx)
 
 	ms := timeout.Milliseconds()
 	if _, err := tx.Exec(ctx, fmt.Sprintf("SET LOCAL lock_timeout = %d", ms)); err != nil {

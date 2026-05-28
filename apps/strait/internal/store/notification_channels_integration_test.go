@@ -684,7 +684,6 @@ func TestListNotificationDeliveries(t *testing.T) {
 		}
 	}
 
-	// Verify DESC ordering.
 	for i := 1; i < len(deliveries); i++ {
 		if deliveries[i-1].CreatedAt.Before(deliveries[i].CreatedAt) {
 			t.Fatalf("deliveries not DESC at index %d", i)

@@ -100,9 +100,7 @@ func countAsProject(t *testing.T, ctx context.Context, pool *pgxpool.Pool, proje
 	return count
 }
 
-// -----------------------------------------------------------------------.
 // Core mechanism: jobs table (from migration 000097 + FORCE in 000182)
-// -----------------------------------------------------------------------.
 
 func TestRLS_Jobs_CrossTenantIsolation(t *testing.T) {
 	ctx := context.Background()
@@ -201,9 +199,7 @@ func TestRLS_JobRuns_CrossTenantIsolation(t *testing.T) {
 	})
 }
 
-// -----------------------------------------------------------------------.
 // Newly protected tables from migration 000182
-// -----------------------------------------------------------------------.
 
 func TestRLS_AuditEvents_CrossTenantIsolation(t *testing.T) {
 	ctx := context.Background()
@@ -311,9 +307,7 @@ func TestRLS_JobMemory_CrossTenantIsolation(t *testing.T) {
 	}
 }
 
-// -----------------------------------------------------------------------.
 // Transitive policy: job_slo_evaluations isolates via parent job_slos.
-// -----------------------------------------------------------------------.
 
 func TestRLS_JobSLOEvaluations_ViaParentJobSLO(t *testing.T) {
 	ctx := context.Background()
@@ -376,9 +370,7 @@ func TestRLS_JobSLOEvaluations_ViaParentJobSLO(t *testing.T) {
 	}
 }
 
-// -----------------------------------------------------------------------.
 // webhook_deliveries: project_id populated via COALESCE at insert time.
-// -----------------------------------------------------------------------.
 
 func TestRLS_WebhookDeliveries_ProjectIDBackfilledViaFK(t *testing.T) {
 	ctx := context.Background()
@@ -432,12 +424,10 @@ func TestRLS_WebhookDeliveries_ProjectIDBackfilledViaFK(t *testing.T) {
 	}
 }
 
-// -----------------------------------------------------------------------.
 // Multi-query in one request: the fix target. This is the test that
 // would have FAILED against the pre-fix store — set_config's transaction-
 // local setting was lost between each pool.Exec. Now every store call
 // inside the same tx sees the same project context.
-// -----------------------------------------------------------------------.
 
 func TestRLS_MultipleQueriesInOneTx_ShareProjectContext(t *testing.T) {
 	ctx := context.Background()
@@ -487,8 +477,6 @@ func TestRLS_MultipleQueriesInOneTx_ShareProjectContext(t *testing.T) {
 	})
 }
 
-// -----------------------------------------------------------------------.
 // Sanity: pgx.Tx does satisfy store.DBTX so we can use store.New(tx).
-// -----------------------------------------------------------------------.
 
 var _ store.DBTX = (pgx.Tx)(nil)

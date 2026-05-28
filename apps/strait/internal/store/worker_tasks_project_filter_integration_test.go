@@ -10,14 +10,14 @@ import (
 	"strait/internal/store"
 )
 
-// TestIntegration_ListWorkerTasksByWorker_ProjectFilter pins the Phase H
-// contract: ListWorkerTasksByWorker scopes by project_id, so a wrong-project
-// query returns no rows even when the worker_id matches existing task rows.
+// TestIntegration_ListWorkerTasksByWorker_ProjectFilter pins the store-layer
+// project boundary: ListWorkerTasksByWorker scopes by project_id, so a
+// wrong-project query returns no rows even when the worker_id matches existing
+// task rows.
 //
 // Pre-fix the query joined only on worker_id, relying entirely on the
 // handler-layer GetWorker(project) check. Layered defense at the SQL boundary
 // prevents any future caller — or any future cross-project worker_id artifact
-// — from leaking tasks across projects.
 func TestIntegration_ListWorkerTasksByWorker_ProjectFilter(t *testing.T) {
 	ctx := context.Background()
 	env := mustEnv(t, ctx)

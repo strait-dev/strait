@@ -669,7 +669,13 @@ func (n *DeliveryWorker) attemptBatchDelivery(ctx context.Context, webhookURL st
 
 // checkBatchCircuitBreaker checks the circuit breaker for webhookURL and records failures
 // for all deliveries if the circuit is open. Returns true if the caller should return early.
-func (n *DeliveryWorker) checkBatchCircuitBreaker(ctx context.Context, webhookURL string, deliveries []domain.WebhookDelivery, now time.Time, span trace.Span) bool {
+func (n *DeliveryWorker) checkBatchCircuitBreaker(
+	ctx context.Context,
+	webhookURL string,
+	deliveries []domain.WebhookDelivery,
+	now time.Time,
+	span trace.Span,
+) bool {
 	if n.circuitBreaker == nil {
 		return false
 	}
@@ -693,7 +699,14 @@ func (n *DeliveryWorker) checkBatchCircuitBreaker(ctx context.Context, webhookUR
 
 // handleBatchResponseStatus processes non-2xx HTTP responses for a batch delivery.
 // Returns true if the caller should return early (error path).
-func (n *DeliveryWorker) handleBatchResponseStatus(ctx context.Context, webhookURL string, deliveries []domain.WebhookDelivery, now time.Time, statusCode int, span trace.Span) bool {
+func (n *DeliveryWorker) handleBatchResponseStatus(
+	ctx context.Context,
+	webhookURL string,
+	deliveries []domain.WebhookDelivery,
+	now time.Time,
+	statusCode int,
+	span trace.Span,
+) bool {
 	if statusCode >= 500 {
 		if n.circuitBreaker != nil {
 			n.circuitBreaker.RecordFailure(ctx, breakerKey(batchOrgID(deliveries), webhookURL))
@@ -883,9 +896,102 @@ func (n *DeliveryWorker) enqueueDeliveryEvent(d *domain.WebhookDelivery, duratio
 	n.chExporter.Enqueue(rec)
 }
 
+type deliverySigningSecrets struct {
+	current              string
+	previous             string
+	previousGraceExpires *time.Time
+}
+
+func webhookDeliveryPayload(d *domain.WebhookDelivery) []byte {
+	if len(d.Payload) > 0 {
+		return d.Payload
+	}
+	if d.LastError != "" {
+		var js json.RawMessage
+		if json.Unmarshal([]byte(d.LastError), &js) == nil {
+			return []byte(d.LastError)
+		}
+	}
+	body, _ := json.Marshal(map[string]any{
+		"trigger_id":  d.EventTriggerID,
+		"delivery_id": d.ID,
+	})
+	return body
+}
+
+func webhookDeliveryTimeout(attempts int) time.Duration {
+	if attempts > 1 {
+		return 15 * time.Second
+	}
+	return 5 * time.Second
+}
+
+func applyDeliveryMetadataHeaders(req *http.Request, d *domain.WebhookDelivery) {
+	req.Header.Set("Content-Type", "application/json")
+	if d.EventTriggerID != "" {
+		req.Header.Set("X-Strait-Trigger-ID", d.EventTriggerID)
+	}
+	if d.RunID != "" {
+		req.Header.Set("X-Run-ID", d.RunID)
+	}
+	if d.JobID != "" {
+		req.Header.Set("X-Job-ID", d.JobID)
+	}
+	req.Header.Set("X-Strait-Delivery-ID", d.ID)
+	req.Header.Set("X-Strait-Attempt", fmt.Sprintf("%d/%d", d.Attempts, d.MaxAttempts))
+}
+
+func (n *DeliveryWorker) deliverySigningSecrets(ctx context.Context, d *domain.WebhookDelivery) (deliverySigningSecrets, error) {
+	if d.SubscriptionID == "" {
+		if d.WebhookSecret == "" {
+			return deliverySigningSecrets{}, nil
+		}
+		return deliverySigningSecrets{
+			current: n.maybeDecryptSecret(d.ID, "job", d.WebhookSecret),
+		}, nil
+	}
+
+	secret, prevSecret, graceExpires, err := n.store.GetWebhookSubscriptionSecrets(ctx, d.SubscriptionID)
+	if err != nil {
+		n.logger.Warn("failed to look up webhook signing secret", "delivery_id", d.ID, "subscription_id", d.SubscriptionID, "error", err)
+		return deliverySigningSecrets{}, err
+	}
+
+	current := n.maybeDecryptSecret(d.ID, "current", secret)
+	if current == "" {
+		return deliverySigningSecrets{}, errors.New("webhook subscription signing secret unavailable")
+	}
+	return deliverySigningSecrets{
+		current:              current,
+		previous:             n.maybeDecryptSecret(d.ID, "previous", prevSecret),
+		previousGraceExpires: graceExpires,
+	}, nil
+}
+
+func applyDeliverySignatureHeaders(
+	req *http.Request,
+	d *domain.WebhookDelivery,
+	body []byte,
+	signatureTimestamp string,
+	secrets deliverySigningSecrets,
+) {
+	req.Header.Set("X-Strait-Idempotency-Key", ComputeIdempotencyKey([]byte(secrets.current), d.ID, d.Attempts))
+	req.Header.Set("X-Strait-Replay-Key", ComputeReplayKey([]byte(secrets.current), d.ID))
+	if secrets.current == "" {
+		return
+	}
+
+	sig := ComputeTimestampedHMACSHA256(secrets.current, signatureTimestamp, body)
+	req.Header.Set("X-Strait-Signature", "v1="+sig)
+	req.Header.Set("X-Webhook-Signature", "v1="+sig)
+	if secrets.previous != "" && secrets.previousGraceExpires != nil && time.Now().Before(*secrets.previousGraceExpires) {
+		oldSig := ComputeTimestampedHMACSHA256(secrets.previous, signatureTimestamp, body)
+		req.Header.Set("X-Strait-Signature-Old", "v1="+oldSig)
+		req.Header.Set("X-Webhook-Signature-Old", "v1="+oldSig)
+	}
+}
+
 // attemptDelivery makes one HTTP request for a delivery.
-//
-//nolint:funlen,gocyclo,cyclop
 func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookDelivery) {
 	start := time.Now()
 	now := time.Now()
@@ -916,19 +1022,8 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 		n.enqueueDeliveryEvent(d, durationMs, eventType)
 	}()
 
-	if n.circuitBreaker != nil {
-		cbKey := breakerKey(d.OrgID, d.WebhookURL)
-		canDeliver, err := n.circuitBreaker.CanDeliver(ctx, cbKey)
-		if err != nil {
-			n.logger.Warn("webhook circuit breaker check failed", "delivery_id", d.ID, "url_host", extractDomain(d.WebhookURL), "error", err)
-		} else if !canDeliver {
-			n.recordCircuitBreakerState(ctx, d.WebhookURL, "open")
-			n.deferCircuitBreakerRetry(ctx, d, now)
-			span.SetStatus(codes.Error, "circuit breaker is open")
-			return
-		} else {
-			n.recordCircuitBreakerState(ctx, d.WebhookURL, "closed")
-		}
+	if !n.checkDeliveryCircuit(ctx, d, now, span) {
+		return
 	}
 
 	d.Attempts++
@@ -936,133 +1031,141 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 		n.metrics.WebhookDeliveryAttempts.Add(ctx, 1, metric.WithAttributes(attribute.String("retry_policy", retryPolicy)))
 	}
 
-	// Reconstruct payload from last_error (where we stashed it on creation)
-	// or build a minimal payload from what we know.
-	var body []byte
-	if len(d.Payload) > 0 {
-		body = d.Payload
-	} else if d.LastError != "" {
-		// Try to parse as JSON — if it is, it's our stashed payload.
-		var js json.RawMessage
-		if json.Unmarshal([]byte(d.LastError), &js) == nil {
-			body = []byte(d.LastError)
-		}
+	prepared, ok := n.prepareDeliveryRequest(ctx, d, now, span)
+	if !ok {
+		return
 	}
-	if len(body) == 0 {
-		// Fallback: minimal payload.
-		payload := map[string]any{
-			"trigger_id":  d.EventTriggerID,
-			"delivery_id": d.ID,
-		}
-		body, _ = json.Marshal(payload)
+	defer prepared.cancel()
+
+	resp, ok := n.executeDeliveryRequest(ctx, d, prepared.request, now, span)
+	if !ok {
+		return
+	}
+	defer closeDeliveryResponseBody(resp)
+
+	n.handleDeliveryResponse(ctx, d, now, retryPolicy, resp.StatusCode, span)
+}
+
+type preparedDeliveryRequest struct {
+	request *http.Request
+	cancel  context.CancelFunc
+}
+
+func (n *DeliveryWorker) prepareDeliveryRequest(
+	ctx context.Context,
+	d *domain.WebhookDelivery,
+	now time.Time,
+	span trace.Span,
+) (preparedDeliveryRequest, bool) {
+	body := webhookDeliveryPayload(d)
+	if !n.recordAndValidatePayloadSize(ctx, d, body, now, span) {
+		return preparedDeliveryRequest{}, false
 	}
 
+	reqCtx, cancel := context.WithTimeout(ctx, webhookDeliveryTimeout(d.Attempts))
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, d.WebhookURL, bytes.NewReader(body))
+	if err != nil {
+		cancel()
+		errMsg := "create request: invalid webhook URL"
+		n.recordFailure(ctx, d, now, false, errMsg)
+		span.SetStatus(codes.Error, errMsg)
+		return preparedDeliveryRequest{}, false
+	}
+	signatureTimestamp := strconv.FormatInt(now.UTC().Unix(), 10)
+	req.Header.Set("X-Strait-Timestamp", signatureTimestamp)
+	applyDeliveryMetadataHeaders(req, d)
+
+	secrets, err := n.deliverySigningSecrets(ctx, d)
+	if err != nil {
+		cancel()
+		errMsg := "webhook subscription signing secret unavailable"
+		n.recordFailure(ctx, d, now, true, errMsg)
+		span.SetStatus(codes.Error, errMsg)
+		return preparedDeliveryRequest{}, false
+	}
+	applyDeliverySignatureHeaders(req, d, body, signatureTimestamp, secrets)
+	return preparedDeliveryRequest{request: req, cancel: cancel}, true
+}
+
+func (n *DeliveryWorker) recordAndValidatePayloadSize(
+	ctx context.Context,
+	d *domain.WebhookDelivery,
+	body []byte,
+	now time.Time,
+	span trace.Span,
+) bool {
 	payloadSize := int64(len(body))
 	if n.metrics != nil {
 		n.metrics.WebhookPayloadBytes.Record(ctx, payloadSize)
 	}
-	if n.maxPayloadBytes > 0 && payloadSize > n.maxPayloadBytes {
-		errMsg := fmt.Sprintf("payload too large: %d bytes exceeds max %d", payloadSize, n.maxPayloadBytes)
-		n.recordFailure(ctx, d, now, false, errMsg)
-		span.SetStatus(codes.Error, errMsg)
-		return
+	if n.maxPayloadBytes <= 0 || payloadSize <= n.maxPayloadBytes {
+		return true
 	}
 
-	// Tiered timeout: 5s for initial attempts, 15s for retries.
-	reqTimeout := 5 * time.Second
-	if d.Attempts > 1 {
-		reqTimeout = 15 * time.Second
-	}
-	reqCtx, reqCancel := context.WithTimeout(ctx, reqTimeout)
-	defer reqCancel()
+	errMsg := fmt.Sprintf("payload too large: %d bytes exceeds max %d", payloadSize, n.maxPayloadBytes)
+	n.recordFailure(ctx, d, now, false, errMsg)
+	span.SetStatus(codes.Error, errMsg)
+	return false
+}
 
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, d.WebhookURL, bytes.NewReader(body))
+func closeDeliveryResponseBody(resp *http.Response) {
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseBodyDrainBytes))
+	_ = resp.Body.Close()
+}
+
+func (n *DeliveryWorker) checkDeliveryCircuit(
+	ctx context.Context,
+	d *domain.WebhookDelivery,
+	now time.Time,
+	span trace.Span,
+) bool {
+	if n.circuitBreaker == nil {
+		return true
+	}
+	cbKey := breakerKey(d.OrgID, d.WebhookURL)
+	canDeliver, err := n.circuitBreaker.CanDeliver(ctx, cbKey)
 	if err != nil {
-		errMsg := "create request: invalid webhook URL"
-		n.recordFailure(ctx, d, now, false, errMsg)
-		span.SetStatus(codes.Error, errMsg)
-		return
+		n.logger.Warn("webhook circuit breaker check failed", "delivery_id", d.ID, "url_host", extractDomain(d.WebhookURL), "error", err)
+		return true
 	}
-	req.Header.Set("Content-Type", "application/json")
-	if d.EventTriggerID != "" {
-		req.Header.Set("X-Strait-Trigger-ID", d.EventTriggerID)
+	if !canDeliver {
+		n.recordCircuitBreakerState(ctx, d.WebhookURL, "open")
+		n.deferCircuitBreakerRetry(ctx, d, now)
+		span.SetStatus(codes.Error, "circuit breaker is open")
+		return false
 	}
-	if d.RunID != "" {
-		req.Header.Set("X-Run-ID", d.RunID)
-	}
-	if d.JobID != "" {
-		req.Header.Set("X-Job-ID", d.JobID)
-	}
-	req.Header.Set("X-Strait-Delivery-ID", d.ID)
-	req.Header.Set("X-Strait-Attempt", fmt.Sprintf("%d/%d", d.Attempts, d.MaxAttempts))
-	signatureTimestamp := strconv.FormatInt(now.UTC().Unix(), 10)
-	req.Header.Set("X-Strait-Timestamp", signatureTimestamp)
+	n.recordCircuitBreakerState(ctx, d.WebhookURL, "closed")
+	return true
+}
 
-	// Look up or read the delivery's HMAC secret up-front so we can both
-	// sign the payload AND derive an HMAC-bound X-Strait-Replay-Key. The
-	// replay key is stable across retries of the same physical delivery row
-	// so subscribers can dedup independently of the attempt counter-based
-	// idempotency key.
-	var signingSecret, subSecret, subPrevSecret string
-	var subGraceExpires *time.Time
-	if d.SubscriptionID != "" {
-		secret, prevSecret, graceExpires, lookupErr := n.store.GetWebhookSubscriptionSecrets(ctx, d.SubscriptionID)
-		if lookupErr != nil {
-			n.logger.Warn("failed to look up webhook signing secret", "delivery_id", d.ID, "subscription_id", d.SubscriptionID, "error", lookupErr)
-		} else {
-			// Secrets are stored encrypted when STRAIT_ENCRYPTION_KEY is set.
-			// HMAC must be computed over the plaintext that subscribers
-			// share, not the ciphertext. If decryption fails (corrupted
-			// row, key rotation gone wrong) we fall back to the raw value
-			// so signing still produces something non-empty, but log so
-			// an operator can investigate.
-			subSecret = n.maybeDecryptSecret(d.ID, "current", secret)
-			subPrevSecret = n.maybeDecryptSecret(d.ID, "previous", prevSecret)
-			subGraceExpires = graceExpires
-		}
-	} else if d.WebhookSecret != "" {
-		signingSecret = n.maybeDecryptSecret(d.ID, "job", d.WebhookSecret)
-	}
-	if d.SubscriptionID != "" && subSecret == "" {
-		errMsg := "webhook subscription signing secret unavailable"
-		n.recordFailure(ctx, d, now, true, errMsg)
-		span.SetStatus(codes.Error, errMsg)
-		return
-	}
-	if subSecret != "" {
-		signingSecret = subSecret
-	}
-
-	req.Header.Set("X-Strait-Idempotency-Key", ComputeIdempotencyKey([]byte(signingSecret), d.ID, d.Attempts))
-	req.Header.Set("X-Strait-Replay-Key", ComputeReplayKey([]byte(signingSecret), d.ID))
-
-	if signingSecret != "" {
-		sig := ComputeTimestampedHMACSHA256(signingSecret, signatureTimestamp, body)
-		req.Header.Set("X-Strait-Signature", "v1="+sig)
-		req.Header.Set("X-Webhook-Signature", "v1="+sig)
-		if subPrevSecret != "" && subGraceExpires != nil && time.Now().Before(*subGraceExpires) {
-			oldSig := ComputeTimestampedHMACSHA256(subPrevSecret, signatureTimestamp, body)
-			req.Header.Set("X-Strait-Signature-Old", "v1="+oldSig)
-			req.Header.Set("X-Webhook-Signature-Old", "v1="+oldSig)
-		}
-	}
-
+func (n *DeliveryWorker) executeDeliveryRequest(
+	ctx context.Context,
+	d *domain.WebhookDelivery,
+	req *http.Request,
+	now time.Time,
+	span trace.Span,
+) (*http.Response, bool) {
 	resp, err := n.client.Do(req)
-	if err != nil {
-		if n.circuitBreaker != nil {
-			n.circuitBreaker.RecordFailure(ctx, breakerKey(d.OrgID, d.WebhookURL))
-		}
-		errMsg := fmt.Sprintf("http request: %s", sanitizeHTTPClientError(err))
-		n.recordFailure(ctx, d, now, true, errMsg)
-		span.SetStatus(codes.Error, errMsg)
-		return
+	if err == nil {
+		return resp, true
 	}
-	defer func() {
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseBodyDrainBytes))
-		_ = resp.Body.Close()
-	}()
+	if n.circuitBreaker != nil {
+		n.circuitBreaker.RecordFailure(ctx, breakerKey(d.OrgID, d.WebhookURL))
+	}
+	errMsg := fmt.Sprintf("http request: %s", sanitizeHTTPClientError(err))
+	n.recordFailure(ctx, d, now, true, errMsg)
+	span.SetStatus(codes.Error, errMsg)
+	return nil, false
+}
 
-	statusCode := resp.StatusCode
+func (n *DeliveryWorker) handleDeliveryResponse(
+	ctx context.Context,
+	d *domain.WebhookDelivery,
+	now time.Time,
+	retryPolicy string,
+	statusCode int,
+	span trace.Span,
+) {
 	span.SetAttributes(attribute.Int("status_code", statusCode))
 	d.LastStatusCode = &statusCode
 
@@ -1076,23 +1179,28 @@ func (n *DeliveryWorker) attemptDelivery(ctx context.Context, d *domain.WebhookD
 		return
 	}
 	if statusCode >= 400 {
-		// 4xx: client error, not retryable — go straight to dead.
 		errMsg := fmt.Sprintf("client error: status %d", statusCode)
 		n.recordFailure(ctx, d, now, false, errMsg)
 		span.SetStatus(codes.Error, errMsg)
 		return
 	}
 	if statusCode >= 300 {
-		// 3xx: redirect. We deliberately do not follow redirects to defend
-		// against SSRF-via-redirect, so a 3xx is a configuration error on
-		// the receiver side and should not be treated as success.
 		errMsg := fmt.Sprintf("redirect not followed: status %d", statusCode)
 		n.recordFailure(ctx, d, now, false, errMsg)
 		span.SetStatus(codes.Error, errMsg)
 		return
 	}
 
-	// Success.
+	n.markDeliverySucceeded(ctx, d, now, retryPolicy, span)
+}
+
+func (n *DeliveryWorker) markDeliverySucceeded(
+	ctx context.Context,
+	d *domain.WebhookDelivery,
+	now time.Time,
+	retryPolicy string,
+	span trace.Span,
+) {
 	if n.circuitBreaker != nil {
 		n.circuitBreaker.RecordSuccess(ctx, breakerKey(d.OrgID, d.WebhookURL))
 	}

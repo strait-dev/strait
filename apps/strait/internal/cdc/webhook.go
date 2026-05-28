@@ -1,6 +1,7 @@
 package cdc
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -29,6 +30,7 @@ type WebhookReceiver struct {
 	logger             *slog.Logger
 	secret             string
 	dedupeTTL          time.Duration
+	sharedDedupe       *SharedDedupeStore
 	seenMu             sync.Mutex
 	seen               map[string]time.Time
 }
@@ -49,6 +51,12 @@ func WithWebhookSecret(secret string) WebhookReceiverOption {
 func WithWebhookDedupeTTL(ttl time.Duration) WebhookReceiverOption {
 	return func(wr *WebhookReceiver) {
 		wr.dedupeTTL = ttl
+	}
+}
+
+func WithWebhookSharedDedupe(store *SharedDedupeStore) WebhookReceiverOption {
+	return func(wr *WebhookReceiver) {
+		wr.sharedDedupe = store
 	}
 }
 
@@ -114,7 +122,7 @@ func (wr *WebhookReceiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	dedupeKey, claimed := wr.claimDedupe(msg)
+	dedupeKey, claimed := wr.claimDedupe(r.Context(), msg)
 	if !claimed {
 		w.WriteHeader(http.StatusOK)
 		return
@@ -122,7 +130,7 @@ func (wr *WebhookReceiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	processed := false
 	defer func() {
 		if !processed {
-			wr.releaseDedupe(dedupeKey)
+			wr.releaseDedupe(r.Context(), dedupeKey)
 		}
 	}()
 
@@ -225,30 +233,45 @@ func (wr *WebhookReceiver) dedupeKey(msg Message) string {
 	return msg.AckID
 }
 
-func (wr *WebhookReceiver) claimDedupe(msg Message) (string, bool) {
+func (wr *WebhookReceiver) claimDedupe(ctx context.Context, msg Message) (string, bool) {
 	key := wr.dedupeKey(msg)
 	if key == "" || wr.dedupeTTL <= 0 {
 		return "", true
 	}
 	now := time.Now()
 	wr.seenMu.Lock()
-	defer wr.seenMu.Unlock()
 	wr.pruneSeenLocked(now)
 	expiresAt, ok := wr.seen[key]
 	if ok && now.Before(expiresAt) {
+		wr.seenMu.Unlock()
 		return key, false
 	}
 	wr.seen[key] = now.Add(wr.dedupeTTL)
+	shared := wr.sharedDedupe
+	wr.seenMu.Unlock()
+	if shared != nil {
+		claimed, err := shared.Claim(ctx, "cdc_webhook:"+key)
+		if err != nil {
+			recordSharedDedupeFallback("webhook")
+			wr.logger.Warn("cdc webhook dedupe: redis unavailable, falling back to local dedupe", "error", err)
+			return key, true
+		}
+		return key, claimed
+	}
 	return key, true
 }
 
-func (wr *WebhookReceiver) releaseDedupe(key string) {
+func (wr *WebhookReceiver) releaseDedupe(ctx context.Context, key string) {
 	if key == "" || wr.dedupeTTL <= 0 {
 		return
 	}
 	wr.seenMu.Lock()
-	defer wr.seenMu.Unlock()
 	delete(wr.seen, key)
+	shared := wr.sharedDedupe
+	wr.seenMu.Unlock()
+	if shared != nil {
+		shared.Release(ctx, "cdc_webhook:"+key)
+	}
 }
 
 func (wr *WebhookReceiver) pruneSeenLocked(now time.Time) {

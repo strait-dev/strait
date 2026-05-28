@@ -14,9 +14,7 @@ import (
 	"go.opentelemetry.io/otel/metric/noop"
 )
 
-// ---------------------------------------------------------------------------.
 // NewExporter edge cases
-// ---------------------------------------------------------------------------.
 
 func TestNewExporter_ZeroBatchSize(t *testing.T) {
 	t.Parallel()
@@ -78,9 +76,7 @@ func TestNewExporter_NilLogger(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // WithMetrics
-// ---------------------------------------------------------------------------.
 
 func TestExporter_WithMetrics_NilExporter(t *testing.T) {
 	t.Parallel()
@@ -106,9 +102,7 @@ func TestExporter_WithMetrics_AttachesMetrics(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Flush with OTel metrics wired up
-// ---------------------------------------------------------------------------.
 
 func TestExporter_FlushFailure_IncrementsMetrics(t *testing.T) {
 	t.Parallel()
@@ -338,9 +332,7 @@ func TestSanitizeWebhookDeliveryEventRecord_RedactsURLBeforePersistence(t *testi
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // insertBatch: every record type through a failing client
-// ---------------------------------------------------------------------------.
 
 func TestExporter_InsertBatch_AllRecordTypes_FailingClient(t *testing.T) {
 	t.Parallel()
@@ -442,9 +434,7 @@ func TestExporter_InsertBatch_NilSlice(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Backpressure edge cases
-// ---------------------------------------------------------------------------.
 
 func TestExporter_Backpressure_ExactBoundary(t *testing.T) {
 	t.Parallel()
@@ -493,9 +483,7 @@ func TestExporter_Backpressure_DropsOldestKeepsNewest(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Flush requeue with buffer overflow
-// ---------------------------------------------------------------------------.
 
 func TestExporter_FlushRequeue_OverflowTruncates(t *testing.T) {
 	t.Parallel()
@@ -530,9 +518,7 @@ func TestExporter_FlushRequeue_OverflowTruncates(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Concurrent enqueue + flush
-// ---------------------------------------------------------------------------.
 
 func TestExporter_ConcurrentEnqueueAndFlush(t *testing.T) {
 	t.Parallel()
@@ -570,9 +556,7 @@ func TestExporter_ConcurrentEnqueueAndFlush(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Start/Stop lifecycle
-// ---------------------------------------------------------------------------.
 
 func TestExporter_DoubleStart_DoesNotPanic(t *testing.T) {
 	t.Parallel()
@@ -639,9 +623,7 @@ func TestExporter_ContextCancel_FlushesBeforeExit(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // TestExporter helpers
-// ---------------------------------------------------------------------------.
 
 func TestNewTestExporter(t *testing.T) {
 	t.Parallel()
@@ -738,9 +720,7 @@ func TestTestExporter_NilPendingAt(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // insertBatch: partial record types kill CONDITIONALS_BOUNDARY on len guards.
-// ---------------------------------------------------------------------------.
 
 func TestExporter_InsertBatch_OnlyRunEvents_NoOtherTableErrors(t *testing.T) {
 	t.Parallel()
@@ -837,9 +817,7 @@ func TestExporter_InsertBatch_OnlyBillingEvents_NoOtherTableErrors(t *testing.T)
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Client pool defaults kill CONDITIONALS_BOUNDARY on maxOpen/maxIdle.
-// ---------------------------------------------------------------------------.
 
 func TestNewClient_DefaultPoolSettings(t *testing.T) {
 	t.Parallel()
@@ -908,9 +886,7 @@ func TestNewClient_PositivePoolSettings_Preserved(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Helpers
-// ---------------------------------------------------------------------------.
 
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && containsSubstring(s, substr)

@@ -257,7 +257,12 @@ func (e *Exporter) Enqueue(record any) bool {
 	e.pendingBytes += recordBytes
 
 	if dropped := e.trimPendingOldestLocked(); dropped > 0 {
-		e.logger.Warn("clickhouse exporter buffer overflow, dropped oldest records", "dropped", dropped, "pending_bytes", e.pendingBytes, "max_bytes", e.maxBufferBytes())
+		e.logger.Warn(
+			"clickhouse exporter buffer overflow, dropped oldest records",
+			"dropped", dropped,
+			"pending_bytes", e.pendingBytes,
+			"max_bytes", e.maxBufferBytes(),
+		)
 		if e.metrics != nil && e.metrics.DroppedRecords != nil {
 			e.metrics.DroppedRecords.Add(context.Background(), int64(dropped))
 		}
@@ -337,7 +342,13 @@ func (e *Exporter) flush(ctx context.Context) {
 			e.pendingBytes += batchBytes
 			e.pending = combined
 			dropped := e.trimPendingNewestLocked()
-			e.logger.Warn("clickhouse requeued failed batch", "attempt", e.consecutiveFailures, "dropped", dropped, "pending_bytes", e.pendingBytes, "max_bytes", e.maxBufferBytes())
+			e.logger.Warn(
+				"clickhouse requeued failed batch",
+				"attempt", e.consecutiveFailures,
+				"dropped", dropped,
+				"pending_bytes", e.pendingBytes,
+				"max_bytes", e.maxBufferBytes(),
+			)
 			if dropped > 0 && e.metrics != nil && e.metrics.DroppedRecords != nil {
 				e.metrics.DroppedRecords.Add(ctx, int64(dropped))
 			}
@@ -448,103 +459,76 @@ func estimateRecordValueBytes(v reflect.Value) int {
 	}
 }
 
-// insertBatch writes a batch of records to ClickHouse, grouping by record type.
-//
-//nolint:gocyclo,cyclop
+// insertBatch writes a batch of records to ClickHouse, grouped by record type.
 func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 	if len(batch) == 0 || e.client == nil {
 		return nil
 	}
 
-	var events []RunEventRecord
-	var analytics []RunAnalyticsRecord
-	var runUsage []RunUsageEventRecord
-	var approvals []WorkflowApprovalEventRecord
-	var jobMeta []JobMetadataRecord
-	var webhookDeliveries []WebhookDeliveryEventRecord
-	var workflowRuns []WorkflowRunAnalyticsRecord
-	var workflowSteps []WorkflowStepAnalyticsRecord
-	var eventTriggers []EventTriggerEventRecord
-	var billing []BillingEventRecord
-
+	records := exportRecordBatch{}
 	for _, rec := range batch {
-		switch r := rec.(type) {
-		case RunEventRecord:
-			events = append(events, sanitizeRunEventRecord(r))
-		case RunAnalyticsRecord:
-			analytics = append(analytics, r)
-		case RunUsageEventRecord:
-			runUsage = append(runUsage, r)
-		case WorkflowApprovalEventRecord:
-			approvals = append(approvals, r)
-		case JobMetadataRecord:
-			jobMeta = append(jobMeta, r)
-		case WebhookDeliveryEventRecord:
-			webhookDeliveries = append(webhookDeliveries, sanitizeWebhookDeliveryEventRecord(r))
-		case WorkflowRunAnalyticsRecord:
-			workflowRuns = append(workflowRuns, r)
-		case WorkflowStepAnalyticsRecord:
-			workflowSteps = append(workflowSteps, r)
-		case EventTriggerEventRecord:
-			eventTriggers = append(eventTriggers, r)
-		case BillingEventRecord:
-			billing = append(billing, r)
-		default:
-			e.logger.Warn("clickhouse exporter: unknown record type", "type", fmt.Sprintf("%T", rec))
-		}
+		records.add(e.logger, rec)
 	}
 
+	if err := records.insert(ctx, e); err != nil {
+		return err
+	}
+	records.logFlush(e.logger)
+	return nil
+}
+
+type exportRecordBatch struct {
+	events            []RunEventRecord
+	analytics         []RunAnalyticsRecord
+	runUsage          []RunUsageEventRecord
+	approvals         []WorkflowApprovalEventRecord
+	jobMeta           []JobMetadataRecord
+	webhookDeliveries []WebhookDeliveryEventRecord
+	workflowRuns      []WorkflowRunAnalyticsRecord
+	workflowSteps     []WorkflowStepAnalyticsRecord
+	eventTriggers     []EventTriggerEventRecord
+	billing           []BillingEventRecord
+}
+
+func (b *exportRecordBatch) add(logger *slog.Logger, rec any) {
+	switch r := rec.(type) {
+	case RunEventRecord:
+		b.events = append(b.events, sanitizeRunEventRecord(r))
+	case RunAnalyticsRecord:
+		b.analytics = append(b.analytics, r)
+	case RunUsageEventRecord:
+		b.runUsage = append(b.runUsage, r)
+	case WorkflowApprovalEventRecord:
+		b.approvals = append(b.approvals, r)
+	case JobMetadataRecord:
+		b.jobMeta = append(b.jobMeta, r)
+	case WebhookDeliveryEventRecord:
+		b.webhookDeliveries = append(b.webhookDeliveries, sanitizeWebhookDeliveryEventRecord(r))
+	case WorkflowRunAnalyticsRecord:
+		b.workflowRuns = append(b.workflowRuns, r)
+	case WorkflowStepAnalyticsRecord:
+		b.workflowSteps = append(b.workflowSteps, r)
+	case EventTriggerEventRecord:
+		b.eventTriggers = append(b.eventTriggers, r)
+	case BillingEventRecord:
+		b.billing = append(b.billing, r)
+	default:
+		logger.Warn("clickhouse exporter: unknown record type", "type", fmt.Sprintf("%T", rec))
+	}
+}
+
+func (b *exportRecordBatch) insert(ctx context.Context, e *Exporter) error {
 	var errs []error
-	if len(events) > 0 {
-		if err := e.insertRunEvents(ctx, events); err != nil {
-			errs = append(errs, fmt.Errorf("run_events: %w", err))
-		}
-	}
-	if len(analytics) > 0 {
-		if err := e.insertRunAnalytics(ctx, analytics); err != nil {
-			errs = append(errs, fmt.Errorf("run_analytics: %w", err))
-		}
-	}
-	if len(runUsage) > 0 {
-		if err := e.insertRunUsageEvents(ctx, runUsage); err != nil {
-			errs = append(errs, fmt.Errorf("run_usage_events: %w", err))
-		}
-	}
-	if len(approvals) > 0 {
-		if err := e.insertWorkflowApprovalEvents(ctx, approvals); err != nil {
-			errs = append(errs, fmt.Errorf("workflow_approval_events: %w", err))
-		}
-	}
-	if len(jobMeta) > 0 {
-		if err := e.insertJobMetadata(ctx, jobMeta); err != nil {
-			errs = append(errs, fmt.Errorf("job_metadata: %w", err))
-		}
-	}
-	if len(webhookDeliveries) > 0 {
-		if err := e.insertWebhookDeliveryEvents(ctx, webhookDeliveries); err != nil {
-			errs = append(errs, fmt.Errorf("webhook_delivery_events: %w", err))
-		}
-	}
-	if len(workflowRuns) > 0 {
-		if err := e.insertWorkflowRunAnalytics(ctx, workflowRuns); err != nil {
-			errs = append(errs, fmt.Errorf("workflow_run_analytics: %w", err))
-		}
-	}
-	if len(workflowSteps) > 0 {
-		if err := e.insertWorkflowStepAnalytics(ctx, workflowSteps); err != nil {
-			errs = append(errs, fmt.Errorf("workflow_step_analytics: %w", err))
-		}
-	}
-	if len(eventTriggers) > 0 {
-		if err := e.insertEventTriggerEvents(ctx, eventTriggers); err != nil {
-			errs = append(errs, fmt.Errorf("event_trigger_events: %w", err))
-		}
-	}
-	if len(billing) > 0 {
-		if err := e.insertBillingEvents(ctx, billing); err != nil {
-			errs = append(errs, fmt.Errorf("billing_events: %w", err))
-		}
-	}
+	errs = appendBatchInsertError(ctx, errs, "run_events", b.events, e.insertRunEvents)
+	errs = appendBatchInsertError(ctx, errs, "run_analytics", b.analytics, e.insertRunAnalytics)
+	errs = appendBatchInsertError(ctx, errs, "run_usage_events", b.runUsage, e.insertRunUsageEvents)
+	errs = appendBatchInsertError(ctx, errs, "workflow_approval_events", b.approvals, e.insertWorkflowApprovalEvents)
+	errs = appendBatchInsertError(ctx, errs, "job_metadata", b.jobMeta, e.insertJobMetadata)
+	errs = appendBatchInsertError(ctx, errs, "webhook_delivery_events", b.webhookDeliveries, e.insertWebhookDeliveryEvents)
+	errs = appendBatchInsertError(ctx, errs, "workflow_run_analytics", b.workflowRuns, e.insertWorkflowRunAnalytics)
+	errs = appendBatchInsertError(ctx, errs, "workflow_step_analytics", b.workflowSteps, e.insertWorkflowStepAnalytics)
+	errs = appendBatchInsertError(ctx, errs, "event_trigger_events", b.eventTriggers, e.insertEventTriggerEvents)
+	errs = appendBatchInsertError(ctx, errs, "billing_events", b.billing, e.insertBillingEvents)
 
 	if len(errs) > 0 {
 		msgs := make([]string, len(errs))
@@ -553,20 +537,38 @@ func (e *Exporter) insertBatch(ctx context.Context, batch []any) error {
 		}
 		return fmt.Errorf("batch insert errors: %s", strings.Join(msgs, "; "))
 	}
-
-	e.logger.Debug("clickhouse exporter flushed batch",
-		"events", len(events),
-		"analytics", len(analytics),
-		"run_usage", len(runUsage),
-		"approvals", len(approvals),
-		"job_metadata", len(jobMeta),
-		"webhook_deliveries", len(webhookDeliveries),
-		"workflow_runs", len(workflowRuns),
-		"workflow_steps", len(workflowSteps),
-		"event_triggers", len(eventTriggers),
-		"billing_events", len(billing),
-	)
 	return nil
+}
+
+func appendBatchInsertError[T any](
+	ctx context.Context,
+	errs []error,
+	table string,
+	records []T,
+	insert func(context.Context, []T) error,
+) []error {
+	if len(records) == 0 {
+		return errs
+	}
+	if err := insert(ctx, records); err != nil {
+		return append(errs, fmt.Errorf("%s: %w", table, err))
+	}
+	return errs
+}
+
+func (b *exportRecordBatch) logFlush(logger *slog.Logger) {
+	logger.Debug("clickhouse exporter flushed batch",
+		"events", len(b.events),
+		"analytics", len(b.analytics),
+		"run_usage", len(b.runUsage),
+		"approvals", len(b.approvals),
+		"job_metadata", len(b.jobMeta),
+		"webhook_deliveries", len(b.webhookDeliveries),
+		"workflow_runs", len(b.workflowRuns),
+		"workflow_steps", len(b.workflowSteps),
+		"event_triggers", len(b.eventTriggers),
+		"billing_events", len(b.billing),
+	)
 }
 
 func (e *Exporter) insertRunEvents(ctx context.Context, records []RunEventRecord) error {
@@ -586,7 +588,9 @@ func (e *Exporter) insertRunEvents(ctx context.Context, records []RunEventRecord
 
 func (e *Exporter) insertRunAnalytics(ctx context.Context, records []RunAnalyticsRecord) error {
 	const row = "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-	query := "INSERT INTO run_analytics (run_id, job_id, project_id, status, execution_mode, attempt, duration_ms, queue_wait_ms, cost_microusd, compute_cost_microusd, triggered_by, tags, job_version_id, created_at, started_at, finished_at) VALUES "
+	query := "INSERT INTO run_analytics " +
+		"(run_id, job_id, project_id, status, execution_mode, attempt, duration_ms, queue_wait_ms, " +
+		"cost_microusd, compute_cost_microusd, triggered_by, tags, job_version_id, created_at, started_at, finished_at) VALUES "
 	placeholders := make([]string, len(records))
 	args := make([]any, 0, len(records)*16)
 
@@ -602,7 +606,8 @@ func (e *Exporter) insertRunAnalytics(ctx context.Context, records []RunAnalytic
 
 func (e *Exporter) insertRunUsageEvents(ctx context.Context, records []RunUsageEventRecord) error {
 	const row = "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-	query := "INSERT INTO run_usage_events (run_id, job_id, project_id, provider, model, prompt_tokens, completion_tokens, total_tokens, cost_microusd, created_at) VALUES "
+	query := "INSERT INTO run_usage_events " +
+		"(run_id, job_id, project_id, provider, model, prompt_tokens, completion_tokens, total_tokens, cost_microusd, created_at) VALUES "
 	placeholders := make([]string, len(records))
 	args := make([]any, 0, len(records)*10)
 
@@ -646,7 +651,8 @@ func (e *Exporter) insertJobMetadata(ctx context.Context, records []JobMetadataR
 
 func (e *Exporter) insertEventTriggerEvents(ctx context.Context, records []EventTriggerEventRecord) error {
 	const row = "(?, ?, ?, ?, ?, ?, ?, ?, ?)"
-	query := "INSERT INTO event_trigger_events (trigger_id, event_key, project_id, source_type, status, timeout_secs, wait_duration_ms, created_at, received_at) VALUES "
+	query := "INSERT INTO event_trigger_events " +
+		"(trigger_id, event_key, project_id, source_type, status, timeout_secs, wait_duration_ms, created_at, received_at) VALUES "
 	placeholders := make([]string, len(records))
 	args := make([]any, 0, len(records)*9)
 
@@ -661,7 +667,8 @@ func (e *Exporter) insertEventTriggerEvents(ctx context.Context, records []Event
 
 func (e *Exporter) insertWorkflowRunAnalytics(ctx context.Context, records []WorkflowRunAnalyticsRecord) error {
 	const row = "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-	query := "INSERT INTO workflow_run_analytics (workflow_run_id, workflow_id, project_id, status, triggered_by, step_count, duration_ms, created_at, started_at, finished_at) VALUES "
+	query := "INSERT INTO workflow_run_analytics " +
+		"(workflow_run_id, workflow_id, project_id, status, triggered_by, step_count, duration_ms, created_at, started_at, finished_at) VALUES "
 	placeholders := make([]string, len(records))
 	args := make([]any, 0, len(records)*10)
 
@@ -676,7 +683,8 @@ func (e *Exporter) insertWorkflowRunAnalytics(ctx context.Context, records []Wor
 
 func (e *Exporter) insertWorkflowStepAnalytics(ctx context.Context, records []WorkflowStepAnalyticsRecord) error {
 	const row = "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-	query := "INSERT INTO workflow_step_analytics (step_run_id, workflow_run_id, workflow_id, project_id, step_ref, status, duration_ms, attempt, error, created_at, started_at, finished_at) VALUES "
+	query := "INSERT INTO workflow_step_analytics " +
+		"(step_run_id, workflow_run_id, workflow_id, project_id, step_ref, status, duration_ms, attempt, error, created_at, started_at, finished_at) VALUES "
 	placeholders := make([]string, len(records))
 	args := make([]any, 0, len(records)*12)
 
@@ -691,7 +699,8 @@ func (e *Exporter) insertWorkflowStepAnalytics(ctx context.Context, records []Wo
 
 func (e *Exporter) insertWebhookDeliveryEvents(ctx context.Context, records []WebhookDeliveryEventRecord) error {
 	const row = "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-	query := "INSERT INTO webhook_delivery_events (delivery_id, run_id, job_id, project_id, webhook_host, status, attempts, last_status_code, duration_ms, event_type, created_at, delivered_at) VALUES "
+	query := "INSERT INTO webhook_delivery_events " +
+		"(delivery_id, run_id, job_id, project_id, webhook_host, status, attempts, last_status_code, duration_ms, event_type, created_at, delivered_at) VALUES "
 	placeholders := make([]string, len(records))
 	args := make([]any, 0, len(records)*12)
 

@@ -11,9 +11,7 @@ import (
 	"github.com/sourcegraph/conc"
 )
 
-// --------------------------------------------------------------------------.
 // Regression guards for earlier security hardening work.
-// --------------------------------------------------------------------------.
 
 // TestRegression_PayloadSchemaMaxDepth verifies the maxSchemaDepth constant is
 // 32 and that deeply nested schemas are rejected.

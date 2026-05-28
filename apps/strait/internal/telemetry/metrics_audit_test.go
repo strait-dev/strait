@@ -20,11 +20,10 @@ type stubDrainer struct {
 func (s *stubDrainer) AuditDrainerQueueDepth() int64    { return s.depth }
 func (s *stubDrainer) AuditDrainerQueueCapacity() int64 { return s.capacity }
 
-// TestAuditMetrics_Registered asserts the four Phase 11 audit metrics
-// (drainer depth gauge, drainer capacity gauge, export-capped counter,
-// chain-verify total + failed counters) are registered under the
-// expected instrument names and emit values through an SDK manual
-// reader. This is the canonical registration contract test — it fails
+// TestAuditMetrics_Registered asserts the audit metrics (drainer depth gauge,
+// drainer capacity gauge, export-capped counter, chain-verify total + failed
+// counters) are registered under the expected instrument names and emit values
+// through an SDK manual reader. This is the canonical registration contract test - it fails
 // loudly if a metric is renamed, removed, or accidentally dropped from
 // the Metrics struct.
 func TestAuditMetrics_Registered(t *testing.T) {

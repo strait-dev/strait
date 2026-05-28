@@ -106,8 +106,8 @@ func TestBulkTrigger_PriorityCheckedPerItem_ZeroPriorityNotChecked(t *testing.T)
 
 // TestBulkTrigger_PriorityRejectsSmuggled verifies that one over-cap item in a
 // 99-item batch trips the gate and the entire transaction rolls back. This is
-// the regression test for the documented Phase 4.4 vulnerability: smuggle a
-// priority=10 item into a batch of priority=1 items on a Free plan.
+// the regression test for smuggling a priority=10 item into a batch of
+// priority=1 items on a Free plan.
 func TestBulkTrigger_PriorityRejectsSmuggled(t *testing.T) {
 	t.Parallel()
 

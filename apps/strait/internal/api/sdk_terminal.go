@@ -46,7 +46,14 @@ func (s *Server) handleSDKComplete(ctx context.Context, input *SDKCompleteInput)
 		job, jobErr := s.store.GetJob(ctx, run.JobID)
 		if jobErr == nil && job != nil && len(job.ResultSchema) > 0 {
 			if schemaErr := validatePayloadAgainstSchema(req.Result, job.ResultSchema); schemaErr != nil {
-				return nil, &typedAPIError{status: 422, apiError: APIError{Code: "result_schema_validation_failed", Message: "result schema validation failed", Details: []string{schemaErr.Error()}}}
+				return nil, &typedAPIError{
+					status: 422,
+					apiError: APIError{
+						Code:    "result_schema_validation_failed",
+						Message: "result schema validation failed",
+						Details: []string{schemaErr.Error()},
+					},
+				}
 			}
 		}
 	}
@@ -148,7 +155,14 @@ func (s *Server) handleSDKFail(ctx context.Context, input *SDKFailInput) (*SDKFa
 		slog.Error("failed to resume waiting parent", "run_id", runID, "error", err)
 	}
 	if s.pubsub != nil {
-		payload, err := json.Marshal(map[string]any{"type": "status_change", "run_id": runID, "from": string(run.Status), "to": "failed", "error": req.Error, "timestamp": now.UTC()})
+		payload, err := json.Marshal(map[string]any{
+			"type":      "status_change",
+			"run_id":    runID,
+			"from":      string(run.Status),
+			"to":        "failed",
+			"error":     req.Error,
+			"timestamp": now.UTC(),
+		})
 		if err != nil {
 			slog.Warn("failed to marshal status change payload", "run_id", runID, "error", err)
 		} else {
@@ -201,7 +215,7 @@ func (s *Server) handleSDKSpawn(ctx context.Context, input *SDKSpawnInput) (*SDK
 			return nil, huma.Error400BadRequest("target_api_key is required for cross-project spawn")
 		}
 		keyHash := hashAPIKey(req.TargetAPIKey)
-		apiKey, keyErr := s.store.GetAPIKeyByHash(ctx, keyHash)
+		apiKey, keyErr := s.lookupAPIKeyForAuth(ctx, keyHash)
 		if keyErr != nil {
 			return nil, huma.Error401Unauthorized("invalid target api key")
 		}
@@ -268,14 +282,36 @@ func (s *Server) handleSDKSpawn(ctx context.Context, input *SDKSpawnInput) (*SDK
 		eventKey := fmt.Sprintf("spawn-await:%s", run.ID)
 		now := time.Now()
 		expiresAt := now.Add(time.Duration(awaitTimeoutSecs) * time.Second)
-		trigger := &domain.EventTrigger{ID: uuid.Must(uuid.NewV7()).String(), EventKey: eventKey, ProjectID: parentRun.ProjectID, EnvironmentID: environmentIDFromContext(ctx), SourceType: domain.EventSourceJobRun, JobRunID: parentRun.ID, Status: domain.EventTriggerStatusWaiting, TimeoutSecs: awaitTimeoutSecs, RequestedAt: now, ExpiresAt: expiresAt, TriggerType: "event"}
+		trigger := &domain.EventTrigger{
+			ID:            uuid.Must(uuid.NewV7()).String(),
+			EventKey:      eventKey,
+			ProjectID:     parentRun.ProjectID,
+			EnvironmentID: environmentIDFromContext(ctx),
+			SourceType:    domain.EventSourceJobRun,
+			JobRunID:      parentRun.ID,
+			Status:        domain.EventTriggerStatusWaiting,
+			TimeoutSecs:   awaitTimeoutSecs,
+			RequestedAt:   now,
+			ExpiresAt:     expiresAt,
+			TriggerType:   "event",
+		}
 		if err := s.store.CreateEventTrigger(ctx, trigger); err != nil {
 			slog.Warn("failed to create await event trigger", "parent_run_id", parentRun.ID, "child_run_id", run.ID, "event_key", eventKey, "error", err)
 		} else if s.metrics != nil {
-			s.metrics.EventTriggersCreated.Add(ctx, 1, metric.WithAttributes(attribute.String("source_type", trigger.SourceType), attribute.String("project_id", trigger.ProjectID)))
+			s.metrics.EventTriggersCreated.Add(ctx, 1, metric.WithAttributes(
+				attribute.String("source_type", trigger.SourceType),
+				attribute.String("project_id", trigger.ProjectID),
+			))
 		}
 	}
-	resp := map[string]any{"id": run.ID, "job_id": run.JobID, "project_id": run.ProjectID, "status": run.Status, "parent_run_id": run.ParentRunID, "triggered_by": run.TriggeredBy}
+	resp := map[string]any{
+		"id":            run.ID,
+		"job_id":        run.JobID,
+		"project_id":    run.ProjectID,
+		"status":        run.Status,
+		"parent_run_id": run.ParentRunID,
+		"triggered_by":  run.TriggeredBy,
+	}
 	if req.AwaitCompletion {
 		resp["await_completion"] = true
 		resp["await_event_key"] = fmt.Sprintf("spawn-await:%s", run.ID)
@@ -333,7 +369,15 @@ func (s *Server) handleSDKContinue(ctx context.Context, input *SDKContinueInput)
 	if len(payload) == 0 {
 		payload = parentRun.Payload
 	}
-	continuationRun := &domain.JobRun{JobID: job.ID, ProjectID: job.ProjectID, Payload: payload, TriggeredBy: domain.TriggerManual, ContinuationOf: parentRunID, LineageDepth: parentRun.LineageDepth + 1, Priority: parentRun.Priority}
+	continuationRun := &domain.JobRun{
+		JobID:          job.ID,
+		ProjectID:      job.ProjectID,
+		Payload:        payload,
+		TriggeredBy:    domain.TriggerManual,
+		ContinuationOf: parentRunID,
+		LineageDepth:   parentRun.LineageDepth + 1,
+		Priority:       parentRun.Priority,
+	}
 	if err := s.ensureSDKRunActive(ctx, parentRunID); err != nil {
 		return nil, err
 	}
@@ -371,5 +415,9 @@ func (s *Server) resumeWaitingParentIfReady(ctx context.Context, run *domain.Job
 	if parent.Status != domain.StatusWaiting {
 		return nil
 	}
-	return s.store.UpdateRunStatus(ctx, parent.ID, domain.StatusWaiting, domain.StatusQueued, map[string]any{"started_at": nil, "finished_at": nil, "next_retry_at": nil})
+	return s.store.UpdateRunStatus(ctx, parent.ID, domain.StatusWaiting, domain.StatusQueued, map[string]any{
+		"started_at":    nil,
+		"finished_at":   nil,
+		"next_retry_at": nil,
+	})
 }

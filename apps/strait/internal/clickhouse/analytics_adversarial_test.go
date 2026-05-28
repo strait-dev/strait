@@ -12,9 +12,7 @@ import (
 	"time"
 )
 
-// ---------------------------------------------------------------------------.
 // AnalyticsStore construction
-// ---------------------------------------------------------------------------.
 
 func TestNewAnalyticsStore_NilBoth(t *testing.T) {
 	t.Parallel()
@@ -43,12 +41,10 @@ func TestNewPgHealthAdapter(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // AnalyticsStore methods with nil client -- only for methods that call
 // client.Query first (which has nil-safety and returns an error).
 // Methods that call QueryRow first would panic on nil client, so those
 // are tested with a closed-db client below.
-// ---------------------------------------------------------------------------.
 
 func TestAnalyticsStore_NilClient_QueryMethods(t *testing.T) {
 	t.Parallel()
@@ -190,10 +186,8 @@ func TestAnalyticsStore_NilClient_QueryMethods(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // AnalyticsStore methods that use QueryRow first (which has no nil-safety).
 // We use a closed-db client to exercise the error path without panicking.
-// ---------------------------------------------------------------------------.
 
 func TestAnalyticsStore_ClosedDB_QueryRowMethods(t *testing.T) {
 	t.Parallel()
@@ -244,9 +238,7 @@ func TestAnalyticsStore_ClosedDB_QueryRowMethods(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // AnalyticsStore methods with closed-db client (error paths, more detailed)
-// ---------------------------------------------------------------------------.
 
 func TestAnalyticsStore_ClosedDB_GetPerformanceAnalytics(t *testing.T) {
 	t.Parallel()
@@ -274,9 +266,7 @@ func TestAnalyticsStore_ClosedDB_GetCostAnalytics(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // AnalyticsStore with failing pgFallback
-// ---------------------------------------------------------------------------.
 
 type failingPgHealthQuerier struct {
 	countErr error
@@ -306,9 +296,7 @@ func TestAnalyticsStore_PgFallback_CountJobsError(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // isShortPeriod edge cases
-// ---------------------------------------------------------------------------.
 
 func TestIsShortPeriod_Exact24Hours(t *testing.T) {
 	t.Parallel()
@@ -349,9 +337,7 @@ func TestIsShortPeriod_NegativeDuration(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Bucket parameter variations for timeline queries with closed db
-// ---------------------------------------------------------------------------.
 
 func TestAnalyticsStore_CostTrends_ShortPeriod(t *testing.T) {
 	t.Parallel()
@@ -379,9 +365,7 @@ func TestAnalyticsStore_CostTrends_LongPeriod(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Helpers
-// ---------------------------------------------------------------------------.
 
 func newClosedDBClient(t *testing.T) *Client {
 	t.Helper()

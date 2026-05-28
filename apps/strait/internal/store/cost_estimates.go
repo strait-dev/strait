@@ -51,8 +51,7 @@ func (q *Queries) GetJobCostEstimate(ctx context.Context, jobID string) (*domain
 // compute_cost_microusd over the last costHistoryLimit completed runs of the
 // job. Returns nil (no error) when the job has no history yet.
 func (q *Queries) jobCostEstimateFromClickHouse(ctx context.Context, jobID string) (*domain.JobCostEstimate, error) {
-	// TODO: use a named sub-query once ClickHouse driver is fully integrated.
-	// For now the LIMIT is embedded so the average is over the most-recent
+	// The LIMIT is embedded so the average is over the most-recent
 	// 30 rows rather than a window across all history.
 	const chQuery = `
 		SELECT avg(compute_cost_microusd), count()

@@ -13,8 +13,6 @@ import (
 	"strait/internal/domain"
 )
 
-// ========== 2.23 Run DLQ ==========.
-
 func TestE2E_DLQ_ListDeadLetterRuns(t *testing.T) {
 	mustClean(t)
 
@@ -123,8 +121,6 @@ func TestE2E_DLQ_FeatureFlag_Disabled(t *testing.T) {
 	}
 }
 
-// ========== 2.45 Execution Replay/Debug ==========.
-
 func TestE2E_DebugBundle_GetBundle(t *testing.T) {
 	mustClean(t)
 
@@ -180,7 +176,6 @@ func TestE2E_Debug_SetDebugMode(t *testing.T) {
 		t.Fatalf("set debug mode status = %d, body = %s", w.Code, w.Body.String())
 	}
 
-	// Verify via get run
 	w = doRequest(t, http.MethodGet, fmt.Sprintf("/v1/runs/%s", runID), "")
 	if w.Code != http.StatusOK {
 		t.Fatalf("get run status = %d, body = %s", w.Code, w.Body.String())
@@ -203,8 +198,6 @@ func TestE2E_Debug_SetDebugMode(t *testing.T) {
 		t.Fatal("expected debug_mode=false after disabling")
 	}
 }
-
-// ========== 2.11 Run Continuation ==========.
 
 func TestE2E_RunContinuation_SDKContinue(t *testing.T) {
 	mustClean(t)
@@ -241,7 +234,6 @@ func TestE2E_RunContinuation_SDKContinue(t *testing.T) {
 		t.Fatalf("expected lineage_depth=1, got %d", asInt(t, contRun, "lineage_depth"))
 	}
 
-	// Verify payload is the continued one
 	payload := contRun["payload"]
 	payloadBytes, _ := json.Marshal(payload)
 	if string(payloadBytes) == "" {
@@ -347,8 +339,6 @@ func TestE2E_RunContinuation_Lineage(t *testing.T) {
 		t.Fatalf("expected at least 2 runs in lineage, got %d", len(lineage))
 	}
 }
-
-// ========== 2.18 Adaptive Timeout ==========.
 
 func TestE2E_AdaptiveTimeout_FeatureFlagEnabled(t *testing.T) {
 	// Adaptive timeout is a worker-side feature. The E2E test verifies

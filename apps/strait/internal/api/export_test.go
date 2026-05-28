@@ -195,8 +195,6 @@ func TestExportRuns_NDJSON_ReturnsLineDelimited(t *testing.T) {
 	}
 }
 
-// ─── Adversarial tests ───────────────────────────────────────────────────────.
-
 func TestExport_FromAfterTo_Returns400(t *testing.T) {
 	t.Parallel()
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
@@ -266,8 +264,6 @@ func TestExport_NoProjectID_Returns400(t *testing.T) {
 		t.Fatalf("expected 400 for missing project ID, got %d", w.Code)
 	}
 }
-
-// ─── handleExportWorkflows tests ─────────────────────────────────────────────.
 
 func TestHandleExportWorkflows_JSON_ReturnsArray(t *testing.T) {
 	t.Parallel()
@@ -364,8 +360,6 @@ func TestHandleExportWorkflows_NoProjectID_Returns400(t *testing.T) {
 	}
 }
 
-// ─── CSV edge cases ──────────────────────────────────────────────────────────.
-
 func TestExportRuns_CSV_CommaInErrorMessage(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()
@@ -410,8 +404,6 @@ func TestExportRuns_CSV_CommaInErrorMessage(t *testing.T) {
 		t.Fatalf("error field not properly preserved: %s", errorField)
 	}
 }
-
-// ─── WebhookSecret sanitization ──────────────────────────────────────────────.
 
 func TestExportJobs_WebhookSecretSanitized(t *testing.T) {
 	t.Parallel()
@@ -465,8 +457,6 @@ func TestExportJobs_NDJSON_WebhookSecretSanitized(t *testing.T) {
 		t.Fatal("webhook_secret should be sanitized from NDJSON export output")
 	}
 }
-
-// ─── JSON format validation ──────────────────────────────────────────────────.
 
 func TestExportJobs_JSON_ValidStructure(t *testing.T) {
 	t.Parallel()

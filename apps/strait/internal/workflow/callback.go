@@ -24,6 +24,7 @@ type StepCallback struct {
 	chExporter        *clickhouse.Exporter
 	statusHook        WorkflowRunStatusHook
 	progressionEngine string
+	stepsCache        *workflowStepsVersionCache
 }
 
 // WorkflowRunStatusHook observes workflow run transitions completed by the
@@ -146,11 +147,31 @@ func (s *StepCallback) loadStepDefinitions(ctx context.Context, wfRun *domain.Wo
 	}
 
 	// Fallback: read from live workflow_version_steps table.
-	steps, err := s.store.ListStepsByWorkflowVersion(ctx, wfRun.WorkflowID, wfRun.WorkflowVersion)
+	steps, err := s.listStepsByWorkflowVersion(ctx, wfRun.WorkflowID, wfRun.WorkflowVersion)
 	if err != nil {
 		return nil, fmt.Errorf("list steps by workflow version: %w", err)
 	}
 	return steps, nil
+}
+
+func (s *StepCallback) WithDefinitionCaches(cfg WorkflowDefinitionCacheConfig) *StepCallback {
+	s.stepsCache = newWorkflowStepsVersionCache(cfg)
+	return s
+}
+
+func (s *StepCallback) listStepsByWorkflowVersion(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error) {
+	key := workflowStepsVersionKey{WorkflowID: workflowID, Version: version}
+	loader := func(loadCtx context.Context, loadKey workflowStepsVersionKey) ([]domain.WorkflowStep, error) {
+		steps, err := s.store.ListStepsByWorkflowVersion(loadCtx, loadKey.WorkflowID, loadKey.Version)
+		if err != nil {
+			return nil, err
+		}
+		return domain.CloneWorkflowSteps(steps), nil
+	}
+	if s.stepsCache == nil {
+		return loader(ctx, key)
+	}
+	return s.stepsCache.Load(ctx, key, loader)
 }
 
 func (s *StepCallback) WithMetrics(m *telemetry.Metrics) *StepCallback {

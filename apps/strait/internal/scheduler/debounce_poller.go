@@ -196,40 +196,72 @@ func (p *DebouncePoller) checkFireLimits(ctx context.Context, job *domain.Job) e
 	if err != nil {
 		return err
 	}
-	//nolint:nestif
-	if quota != nil {
-		if quota.MaxQueuedRuns > 0 {
-			queued, countErr := p.store.CountProjectQueuedRuns(ctx, job.ProjectID)
-			if countErr != nil {
-				return countErr
-			}
-			if queued >= quota.MaxQueuedRuns {
-				return queue.ErrEnqueueThrottled
-			}
-		}
-		if quota.MaxExecutingRuns > 0 {
-			active, countErr := p.store.CountProjectActiveRuns(ctx, job.ProjectID)
-			if countErr != nil {
-				return countErr
-			}
-			if active >= quota.MaxExecutingRuns {
-				return queue.ErrEnqueueThrottled
-			}
-		}
-		if quota.MaxDailyCostMicrousd > 0 {
-			tz := quota.Timezone
-			if tz == "" {
-				tz = "UTC"
-			}
-			cost, costErr := p.store.SumProjectDailyCostMicrousd(ctx, job.ProjectID, tz)
-			if costErr != nil {
-				return costErr
-			}
-			if cost >= quota.MaxDailyCostMicrousd {
-				return queue.ErrEnqueueThrottled
-			}
-		}
+	if err := p.checkProjectFireQuota(ctx, job, quota); err != nil {
+		return err
 	}
+	return p.checkJobFireRateLimit(ctx, job)
+}
+
+func (p *DebouncePoller) checkProjectFireQuota(ctx context.Context, job *domain.Job, quota *store.ProjectQuota) error {
+	if quota == nil {
+		return nil
+	}
+	if err := p.checkProjectQueuedQuota(ctx, job.ProjectID, quota.MaxQueuedRuns); err != nil {
+		return err
+	}
+	if err := p.checkProjectExecutingQuota(ctx, job.ProjectID, quota.MaxExecutingRuns); err != nil {
+		return err
+	}
+	return p.checkProjectDailyCostQuota(ctx, job.ProjectID, quota)
+}
+
+func (p *DebouncePoller) checkProjectQueuedQuota(ctx context.Context, projectID string, limit int) error {
+	if limit <= 0 {
+		return nil
+	}
+	queued, err := p.store.CountProjectQueuedRuns(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	if queued >= limit {
+		return queue.ErrEnqueueThrottled
+	}
+	return nil
+}
+
+func (p *DebouncePoller) checkProjectExecutingQuota(ctx context.Context, projectID string, limit int) error {
+	if limit <= 0 {
+		return nil
+	}
+	active, err := p.store.CountProjectActiveRuns(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	if active >= limit {
+		return queue.ErrEnqueueThrottled
+	}
+	return nil
+}
+
+func (p *DebouncePoller) checkProjectDailyCostQuota(ctx context.Context, projectID string, quota *store.ProjectQuota) error {
+	if quota.MaxDailyCostMicrousd <= 0 {
+		return nil
+	}
+	tz := quota.Timezone
+	if tz == "" {
+		tz = "UTC"
+	}
+	cost, err := p.store.SumProjectDailyCostMicrousd(ctx, projectID, tz)
+	if err != nil {
+		return err
+	}
+	if cost >= quota.MaxDailyCostMicrousd {
+		return queue.ErrEnqueueThrottled
+	}
+	return nil
+}
+
+func (p *DebouncePoller) checkJobFireRateLimit(ctx context.Context, job *domain.Job) error {
 	if job.RateLimitMax > 0 && job.RateLimitWindowSecs > 0 {
 		since := time.Now().Add(-time.Duration(job.RateLimitWindowSecs) * time.Second)
 		count, countErr := p.store.CountRunsForJobSince(ctx, job.ID, since)

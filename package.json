@@ -29,7 +29,7 @@
     "clean:workspaces": "turbo run clean",
     "go:build": "cd apps/strait && go build ./...",
     "go:vet": "cd apps/strait && go vet ./...",
-    "go:lint": "cd apps/strait && golangci-lint run --timeout=10m ./...",
+    "go:lint": "cd apps/strait && ./scripts/lint-go.sh",
     "go:test": "cd apps/strait && go test ./... -short -count=1 -race -timeout=300s",
     "go:test:integration:fast": "cd apps/strait && ./scripts/test-integration-fast.sh --all",
     "go:test:integration:clean": "cd apps/strait && ./scripts/test-integration-clean.sh",

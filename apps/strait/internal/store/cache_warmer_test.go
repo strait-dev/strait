@@ -41,7 +41,7 @@ func TestCacheWarmer_WarmExecutesQueries(t *testing.T) {
 	fakeDB := &fakeQueryRower{}
 	w := &CacheWarmer{db: fakeDB, logger: slog.New(slog.DiscardHandler)}
 
-	if err := w.Warm(context.Background()); err != nil {
+	if err := w.Warm(t.Context()); err != nil {
 		t.Fatalf("warm cache: %v", err)
 	}
 
@@ -57,7 +57,7 @@ func TestCacheWarmer_WarmIgnoresNoRows(t *testing.T) {
 	fakeDB := &fakeQueryRower{errs: map[string]error{query: pgx.ErrNoRows}}
 	w := &CacheWarmer{db: fakeDB, logger: slog.New(slog.DiscardHandler)}
 
-	if err := w.Warm(context.Background()); err != nil {
+	if err := w.Warm(t.Context()); err != nil {
 		t.Fatalf("warm cache with no rows: %v", err)
 	}
 }
@@ -69,7 +69,7 @@ func TestCacheWarmer_WarmReturnsError(t *testing.T) {
 	fakeDB := &fakeQueryRower{errs: map[string]error{query: errors.New("boom")}}
 	w := &CacheWarmer{db: fakeDB, logger: slog.New(slog.DiscardHandler)}
 
-	err := w.Warm(context.Background())
+	err := w.Warm(t.Context())
 	if err == nil {
 		t.Fatal("expected error")
 	}

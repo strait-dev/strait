@@ -13,10 +13,9 @@ import (
 	"strait/internal/store"
 )
 
-// TestIntegration_FinalizeDisconnect_MarksOfflineAndAudits pins the Phase G
-// contract: the disconnect cleanup path must (a) flip the workers row to
-// `offline` and (b) write a worker.disconnected audit event, even though the
-// stream's request context has been cancelled.
+// TestIntegration_FinalizeDisconnect_MarksOfflineAndAudits pins the disconnect
+// cleanup contract: the worker row must move to `offline` and emit a
+// worker.disconnected audit event, even after the stream context is cancelled.
 //
 // Pre-fix the deferred block reused the cancelled stream ctx, so neither the
 // audit insert nor any status transition reached Postgres. The fix uses a

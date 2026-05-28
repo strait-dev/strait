@@ -15,6 +15,9 @@ var (
 	heartbeatFlushErrors   metric.Int64Counter
 )
 
+// init registers package-level OTel instruments. These instruments are
+// process-global by design; construction has no external side effects beyond
+// registering names with the active meter provider.
 func init() {
 	meter := otel.Meter("strait/worker")
 	heartbeatFlushDuration, _ = meter.Float64Histogram(

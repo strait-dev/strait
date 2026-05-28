@@ -15,8 +15,6 @@ import (
 	"strait/internal/store"
 )
 
-// ─── UpdateEnvironment ──────────────────────────────────────────────────────.
-
 func TestHandleUpdateEnvironment_Success(t *testing.T) {
 	t.Parallel()
 	var updatedName string
@@ -113,8 +111,6 @@ func TestHandleUpdateEnvironment_InvalidBody(t *testing.T) {
 	}
 }
 
-// ─── DeleteEnvironment ──────────────────────────────────────────────────────.
-
 func TestHandleDeleteEnvironment_Success(t *testing.T) {
 	t.Parallel()
 	var deletedID string
@@ -159,8 +155,6 @@ func TestHandleDeleteEnvironment_NotFound(t *testing.T) {
 		t.Fatalf("expected 404, got %d", w.Code)
 	}
 }
-
-// ─── UpdateJobGroup ─────────────────────────────────────────────────────────.
 
 func TestHandleUpdateJobGroup_Success(t *testing.T) {
 	t.Parallel()
@@ -246,8 +240,6 @@ func TestHandleUpdateJobGroup_InvalidBody(t *testing.T) {
 	}
 }
 
-// ─── ListRunCheckpoints ─────────────────────────────────────────────────────.
-
 func TestHandleListRunCheckpoints_Success(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
@@ -315,8 +307,6 @@ func TestHandleListRunCheckpoints_StoreError(t *testing.T) {
 	}
 }
 
-// ─── ListRunUsage ───────────────────────────────────────────────────────────.
-
 func TestHandleListRunUsage_Success(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
@@ -369,8 +359,6 @@ func TestHandleListRunUsage_Empty(t *testing.T) {
 	}
 }
 
-// ─── ListRunToolCalls ───────────────────────────────────────────────────────.
-
 func TestHandleListRunToolCalls_Success(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
@@ -418,8 +406,6 @@ func TestHandleListRunToolCalls_Empty(t *testing.T) {
 	}
 }
 
-// ─── ListRunOutputs ─────────────────────────────────────────────────────────.
-
 func TestHandleListRunOutputs_Success(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
@@ -465,8 +451,6 @@ func TestHandleListRunOutputs_Empty(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 }
-
-// ─── SDKToolCall ────────────────────────────────────────────────────────────.
 
 func TestHandleSDKToolCall_Success(t *testing.T) {
 	t.Parallel()
@@ -522,8 +506,6 @@ func TestHandleSDKToolCall_InvalidBody(t *testing.T) {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }
-
-// ─── APIReference & OpenAPISpec ─────────────────────────────────────────────.
 
 func TestHandleAPIReference_Returns200(t *testing.T) {
 	t.Parallel()
@@ -631,8 +613,6 @@ func TestHandleOpenAPISpec_YAMLRedirect(t *testing.T) {
 		t.Fatalf("expected redirect to /reference/openapi.json, got %q", loc)
 	}
 }
-
-// ─── OpenAPI Path Parameter Validation ────────────────────────────────────────.
 
 // openAPIPathParams returns the names of path parameters declared on a
 // specific operation (method + path) in the OpenAPI spec.

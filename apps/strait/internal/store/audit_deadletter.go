@@ -267,7 +267,7 @@ func (q *Queries) ReplayAuditEventDeadletter(ctx context.Context, id, projectID,
 	if err != nil {
 		return nil, false, fmt.Errorf("replay audit deadletter: begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer rollbackTx(ctx, tx)
 
 	ev, replayed, err := q.replayAuditEventDeadletterTx(ctx, tx, id, projectID, newEventID)
 	if err != nil || !replayed {
@@ -379,7 +379,7 @@ func (q *Queries) DropAuditEventDeadletterWithAudit(ctx context.Context, id, pro
 	if err != nil {
 		return false, fmt.Errorf("drop audit deadletter with audit: begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer rollbackTx(ctx, tx)
 
 	dropped, err := q.dropAuditEventDeadletterWithAuditTx(ctx, tx, id, projectID, auditEvent)
 	if err != nil || !dropped {
@@ -579,7 +579,7 @@ func (q *Queries) DeleteAuditDeadletterOlderThanWithAudit(ctx context.Context, c
 	if err != nil {
 		return nil, fmt.Errorf("delete audit deadletter older than with audit: begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer rollbackTx(ctx, tx)
 
 	dropped, err := q.deleteAuditDeadletterOlderThanWithAuditTx(ctx, tx, cutoff, maxAgeDays)
 	if err != nil {

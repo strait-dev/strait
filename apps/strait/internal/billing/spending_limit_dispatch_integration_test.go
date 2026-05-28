@@ -19,9 +19,9 @@ import (
 // TestSpendingLimitIntegration_AtCapRejects seeds a real Pro-tier org
 // with usage_records summing to the configured cap and asserts the
 // enforcer returns *LimitError for that org. This is the bedrock
-// integration check behind Phase 4.1: the dispatch wiring relies on
-// CheckSpendingLimit reading real Postgres state and producing a typed
-// rejection that worker code can pattern-match.
+// integration check for dispatch wiring that relies on CheckSpendingLimit
+// reading real Postgres state and producing a typed rejection that worker code
+// can pattern-match.
 func TestSpendingLimitIntegration_AtCapRejects(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)

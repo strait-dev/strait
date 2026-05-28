@@ -13,9 +13,9 @@ import (
 )
 
 // privateRanges contains CIDR blocks that must be blocked to prevent SSRF.
-var privateRanges []*net.IPNet
+var privateRanges = mustParsePrivateRanges()
 
-func init() {
+func mustParsePrivateRanges() []*net.IPNet {
 	cidrs := []string{
 		"127.0.0.0/8",        // loopback
 		"10.0.0.0/8",         // RFC 1918
@@ -44,13 +44,17 @@ func init() {
 		"64:ff9b::/96",       // NAT64 well-known prefix (RFC 6052)
 		"2002::/16",          // 6to4 (RFC 3056)
 	}
+	ranges := make([]*net.IPNet, 0, len(cidrs))
 	for _, cidr := range cidrs {
 		_, network, err := net.ParseCIDR(cidr)
 		if err != nil {
+			// This is static package data. A parse failure means the binary was
+			// built with an invalid SSRF guardrail and must not start.
 			panic(fmt.Sprintf("httputil: bad CIDR %q: %v", cidr, err))
 		}
-		privateRanges = append(privateRanges, network)
+		ranges = append(ranges, network)
 	}
+	return ranges
 }
 
 // blockedHosts are hostnames (case-insensitive) that must never be targeted.

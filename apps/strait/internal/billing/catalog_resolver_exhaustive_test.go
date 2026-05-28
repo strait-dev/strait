@@ -58,9 +58,8 @@ func TestCatalogResolver_AddonLookupKeys_RoundTrip(t *testing.T) {
 }
 
 // TestCatalogResolver_OverageLookupKeys_NotResolvedAsTier confirms the
-// graduated metered overage prices (added in Wave 2 Phase 3 and rolled out
-// to live in Phase 4) are NOT mistaken for tier prices. Stripe delivers
-// subscription events whose first item may be the overage price; the
+// graduated metered overage prices are NOT mistaken for tier prices. Stripe
+// delivers subscription events whose first item may be the overage price; the
 // resolver must reject it so the handler logs "unknown price" rather than
 // silently flipping the org's tier.
 func TestCatalogResolver_OverageLookupKeys_NotResolvedAsTier(t *testing.T) {
@@ -85,8 +84,7 @@ func TestCatalogResolver_OverageLookupKeys_NotResolvedAsTier(t *testing.T) {
 
 // TestCatalogResolver_LookupKeys_StraitPrefix confirms every catalog lookup
 // key uses the canonical strait_ prefix. Anything outside this namespace
-// would collide with the legacy non-canonical naming the Wave 2 cleanup
-// retired.
+// would collide with the retired legacy non-canonical naming.
 func TestCatalogResolver_LookupKeys_StraitPrefix(t *testing.T) {
 	t.Parallel()
 
@@ -96,7 +94,7 @@ func TestCatalogResolver_LookupKeys_StraitPrefix(t *testing.T) {
 			t.Errorf("lookup key %q must use canonical strait_ prefix", k)
 		}
 		if strings.Contains(k, "_v2") {
-			t.Errorf("lookup key %q still carries the temporary _v2 suffix from Wave 2 phase 3", k)
+			t.Errorf("lookup key %q still carries the temporary _v2 suffix", k)
 		}
 		if k != strings.ToLower(k) {
 			t.Errorf("lookup key %q must be lowercase", k)

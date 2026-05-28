@@ -227,6 +227,7 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 		}
 		return nil, huma.Error500InternalServerError("failed to create job")
 	}
+	s.invalidateWorkerJobCache(ctx, job.ID, job.CacheVersion)
 
 	s.enqueueJobMetadata(job)
 
@@ -499,90 +500,45 @@ type UpdateJobOutput struct {
 	Body *domain.Job
 }
 
-//nolint:gocognit,gocyclo,cyclop,funlen
 func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*UpdateJobOutput, error) {
 	req := input.Body
 
-	job, err := s.store.GetJob(ctx, input.JobID)
+	job, err := s.loadMutableJob(ctx, input.JobID)
 	if err != nil {
-		if errors.Is(err, store.ErrJobNotFound) {
-			return nil, huma.Error404NotFound("job not found")
-		}
-		return nil, huma.Error500InternalServerError("failed to get job")
+		return nil, err
 	}
 
-	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
-		return nil, huma.Error404NotFound("job not found")
-	}
-	if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
-		return nil, huma.Error404NotFound("job not found")
+	if err := s.validateUpdateJobRequest(req, job); err != nil {
+		return nil, err
 	}
 
-	if err := s.validate.Struct(&req); err != nil {
-		return nil, newValidationError(err)
+	if err := s.applyJobBasicUpdate(ctx, job, req); err != nil {
+		return nil, err
+	}
+	if err := s.applyJobEndpointUpdate(ctx, job, req); err != nil {
+		return nil, err
+	}
+	if err := s.applyJobExecutionUpdate(ctx, job, req); err != nil {
+		return nil, err
+	}
+	if err := s.applyJobMetadataUpdate(ctx, job, req); err != nil {
+		return nil, err
+	}
+	if err := s.applyJobChainingUpdate(ctx, job, req); err != nil {
+		return nil, err
+	}
+	if err := finalizeUpdatedJobFields(job); err != nil {
+		return nil, err
 	}
 
-	if req.Name != nil {
-		if err := validateJobName(*req.Name); err != nil {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-	}
-	if req.Slug != nil {
-		if err := validateJobSlug(*req.Slug); err != nil {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-	}
-	if req.EndpointURL != nil {
-		if err := validateEndpointNotEmpty(*req.EndpointURL); err != nil {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
+	if err := s.persistUpdatedJob(ctx, job, req); err != nil {
+		return nil, err
 	}
 
-	if req.Cron != nil && *req.Cron != "" {
-		if err := validateCronFieldCount(*req.Cron); err != nil {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-		if _, err := parser.Parse(*req.Cron); err != nil {
-			return nil, huma.Error400BadRequest("invalid cron expression")
-		}
-	}
+	return &UpdateJobOutput{Body: job}, nil
+}
 
-	if req.ExecutionWindowCron != nil && *req.ExecutionWindowCron != "" {
-		if err := validateCronFieldCount(*req.ExecutionWindowCron); err != nil {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-		if _, err := parser.Parse(*req.ExecutionWindowCron); err != nil {
-			return nil, huma.Error400BadRequest("invalid execution_window_cron expression")
-		}
-	}
-
-	if req.RetryStrategy != nil {
-		if err := validateRetryConfig(*req.RetryStrategy, nil); err != nil {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-	}
-	if req.RetryDelaysSecs != nil {
-		if err := validateRetryConfig("", *req.RetryDelaysSecs); err != nil {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-	}
-
-	{
-		rlw := job.RateLimitWindowSecs
-		if req.RateLimitWindowSecs != nil {
-			rlw = *req.RateLimitWindowSecs
-		}
-		dw := job.DedupWindowSecs
-		if req.DedupWindowSecs != nil {
-			dw = *req.DedupWindowSecs
-		}
-		if err := s.validateWindowsAgainstRetention(rlw, dw); err != nil {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-	}
-
+func (s *Server) applyJobBasicUpdate(ctx context.Context, job *domain.Job, req UpdateJobRequest) error {
 	if req.Name != nil {
 		job.Name = *req.Name
 	}
@@ -596,15 +552,15 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 		job.Description = *req.Description
 	}
 	if req.Cron != nil {
-		// If adding a cron expression to a previously non-cron job, check schedule limit.
+		// Schedule count is only consumed when a job gains a cron expression.
 		if *req.Cron != "" && job.Cron == "" {
 			if err := s.checkScheduleLimit(ctx, job.ProjectID, *req.Cron); err != nil {
-				return nil, err
+				return err
 			}
 		}
 		if *req.Cron != "" {
 			if err := s.checkCronMinInterval(ctx, job.ProjectID, *req.Cron); err != nil {
-				return nil, err
+				return err
 			}
 		}
 		job.Cron = *req.Cron
@@ -614,10 +570,14 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 	}
 	if req.Tags != nil {
 		if err := validateTags(*req.Tags); err != nil {
-			return nil, huma.Error400BadRequest(err.Error())
+			return huma.Error400BadRequest(err.Error())
 		}
 		job.Tags = *req.Tags
 	}
+	return nil
+}
+
+func (s *Server) applyJobEndpointUpdate(ctx context.Context, job *domain.Job, req UpdateJobRequest) error {
 	nextEndpointURL := job.EndpointURL
 	nextFallbackEndpointURL := job.FallbackEndpointURL
 	if req.EndpointURL != nil {
@@ -627,11 +587,11 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 		nextFallbackEndpointURL = *req.FallbackEndpointURL
 	}
 	if err := s.requireSecretsWriteForSecretBearingEndpointChange(ctx, job, nextEndpointURL, nextFallbackEndpointURL); err != nil {
-		return nil, err
+		return err
 	}
 	if req.EndpointURL != nil {
 		if err := validateURL(*req.EndpointURL); err != nil {
-			return nil, huma.Error400BadRequest("invalid endpoint_url: " + err.Error())
+			return huma.Error400BadRequest("invalid endpoint_url: " + err.Error())
 		}
 		job.EndpointURL = *req.EndpointURL
 	}
@@ -647,21 +607,25 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 		default:
 			signingSecret = *req.EndpointSigningSecret
 		}
-		signingSecret, err = s.encryptEndpointSigningSecret(signingSecret)
+		signingSecret, err := s.encryptEndpointSigningSecret(signingSecret)
 		if err != nil {
-			return nil, huma.Error500InternalServerError("failed to encrypt endpoint signing secret")
+			return huma.Error500InternalServerError("failed to encrypt endpoint signing secret")
 		}
 		job.EndpointSigningSecret = signingSecret
 	}
 	if req.FallbackEndpointURL != nil {
 		job.FallbackEndpointURL = *req.FallbackEndpointURL
 	}
+	return nil
+}
+
+func (s *Server) applyJobExecutionUpdate(ctx context.Context, job *domain.Job, req UpdateJobRequest) error {
 	if req.MaxAttempts != nil {
 		job.MaxAttempts = *req.MaxAttempts
 	}
 	if req.TimeoutSecs != nil {
 		if *req.TimeoutSecs > 86400 {
-			return nil, huma.Error400BadRequest("timeout_secs must not exceed 86400 (24 hours)")
+			return huma.Error400BadRequest("timeout_secs must not exceed 86400 (24 hours)")
 		}
 		job.TimeoutSecs = *req.TimeoutSecs
 	}
@@ -675,7 +639,7 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 			newPerKey = *req.MaxConcurrencyPerKey
 		}
 		if err := s.checkPerJobConcurrencyLimit(ctx, job.ProjectID, newMax, newPerKey); err != nil {
-			return nil, err
+			return err
 		}
 		if req.MaxConcurrency != nil {
 			job.MaxConcurrency = *req.MaxConcurrency
@@ -701,7 +665,7 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 	}
 	if req.RunTTLSecs != nil {
 		if err := s.checkRunTTLLimit(ctx, job.ProjectID, *req.RunTTLSecs); err != nil {
-			return nil, err
+			return err
 		}
 		job.RunTTLSecs = *req.RunTTLSecs
 	}
@@ -716,10 +680,14 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 	}
 	if req.EnvironmentID != nil {
 		if err := requireEnvironmentMatch(ctx, *req.EnvironmentID); err != nil {
-			return nil, huma.Error403Forbidden("environment_id does not match authenticated environment")
+			return huma.Error403Forbidden("environment_id does not match authenticated environment")
 		}
 		job.EnvironmentID = *req.EnvironmentID
 	}
+	return nil
+}
+
+func (s *Server) applyJobMetadataUpdate(ctx context.Context, job *domain.Job, req UpdateJobRequest) error {
 	if req.Enabled != nil {
 		job.Enabled = *req.Enabled
 	}
@@ -737,41 +705,45 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 	}
 	if req.CronOverlapPolicy != nil && *req.CronOverlapPolicy != "" {
 		if err := s.checkCronOverlapPolicy(ctx, job.ProjectID, *req.CronOverlapPolicy); err != nil {
-			return nil, err
+			return err
 		}
 		job.CronOverlapPolicy = domain.CronOverlapPolicy(*req.CronOverlapPolicy)
 	}
 	if req.ExecutionMode != nil {
 		mode := domain.ExecutionMode(*req.ExecutionMode)
 		if err := s.checkHTTPModeAllowed(ctx, mode, job.ProjectID); err != nil {
-			return nil, err
+			return err
 		}
 		job.ExecutionMode = mode
 	}
 	if req.QueueName != nil {
 		if err := validateQueueName(*req.QueueName); err != nil {
-			return nil, huma.Error400BadRequest(err.Error())
+			return huma.Error400BadRequest(err.Error())
 		}
 		job.Queue = normalizeJobQueueName(*req.QueueName)
 	}
 	if req.PreferredRegions != nil {
 		if err := s.checkPreferredRegionsForPlan(ctx, job.ProjectID, *req.PreferredRegions); err != nil {
-			return nil, err
+			return err
 		}
 		job.PreferredRegions = *req.PreferredRegions
 	}
 	if req.PoisonPillThreshold != nil {
 		job.PoisonPillThreshold = req.PoisonPillThreshold
 	}
+	return nil
+}
+
+func (s *Server) applyJobChainingUpdate(ctx context.Context, job *domain.Job, req UpdateJobRequest) error {
 	if req.OnCompleteTriggerWorkflow != nil {
 		if err := s.checkJobChainingAllowed(ctx, job.ProjectID, *req.OnCompleteTriggerWorkflow, ""); err != nil {
-			return nil, err
+			return err
 		}
 		job.OnCompleteTriggerWorkflow = *req.OnCompleteTriggerWorkflow
 	}
 	if req.OnCompleteTriggerJob != nil {
 		if err := s.checkJobChainingAllowed(ctx, job.ProjectID, *req.OnCompleteTriggerJob, ""); err != nil {
-			return nil, err
+			return err
 		}
 		job.OnCompleteTriggerJob = *req.OnCompleteTriggerJob
 	}
@@ -780,39 +752,129 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 	}
 	if req.OnFailureTriggerJob != nil {
 		if err := s.checkJobChainingAllowed(ctx, job.ProjectID, *req.OnFailureTriggerJob, ""); err != nil {
-			return nil, err
+			return err
 		}
 		job.OnFailureTriggerJob = *req.OnFailureTriggerJob
 	}
 	if req.OnFailureTriggerWorkflow != nil {
 		if err := s.checkJobChainingAllowed(ctx, job.ProjectID, "", *req.OnFailureTriggerWorkflow); err != nil {
-			return nil, err
+			return err
 		}
 		job.OnFailureTriggerWorkflow = *req.OnFailureTriggerWorkflow
 	}
 	if req.OnFailurePayloadMapping != nil {
 		job.OnFailurePayloadMapping = *req.OnFailurePayloadMapping
 	}
+	return nil
+}
+
+func finalizeUpdatedJobFields(job *domain.Job) error {
 	if job.FallbackEndpointURL != "" {
 		if err := validateURL(job.FallbackEndpointURL); err != nil {
-			return nil, huma.Error400BadRequest("invalid fallback_endpoint_url: " + err.Error())
+			return huma.Error400BadRequest("invalid fallback_endpoint_url: " + err.Error())
 		}
 	}
 	if job.ExecutionMode == domain.ExecutionModeHTTP {
 		if err := validateEndpointNotEmpty(job.EndpointURL); err != nil {
-			return nil, huma.Error400BadRequest(err.Error())
+			return huma.Error400BadRequest(err.Error())
 		}
 	}
 	job.Queue = normalizeJobQueueName(job.Queue)
+	return nil
+}
 
+func (s *Server) loadMutableJob(ctx context.Context, jobID string) (*domain.Job, error) {
+	job, err := s.store.GetJob(ctx, jobID)
+	if err != nil {
+		if errors.Is(err, store.ErrJobNotFound) {
+			return nil, huma.Error404NotFound("job not found")
+		}
+		return nil, huma.Error500InternalServerError("failed to get job")
+	}
+	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
+	if err := requireEnvironmentMatch(ctx, job.EnvironmentID); err != nil {
+		return nil, huma.Error404NotFound("job not found")
+	}
+	return job, nil
+}
+
+// validateUpdateJobRequest checks request-local and cross-field constraints
+// before handleUpdateJob mutates the loaded job in place.
+func (s *Server) validateUpdateJobRequest(req UpdateJobRequest, current *domain.Job) error {
+	if err := s.validate.Struct(&req); err != nil {
+		return newValidationError(err)
+	}
+	if req.Name != nil {
+		if err := validateJobName(*req.Name); err != nil {
+			return huma.Error400BadRequest(err.Error())
+		}
+	}
+	if req.Slug != nil {
+		if err := validateJobSlug(*req.Slug); err != nil {
+			return huma.Error400BadRequest(err.Error())
+		}
+	}
+	if req.EndpointURL != nil {
+		if err := validateEndpointNotEmpty(*req.EndpointURL); err != nil {
+			return huma.Error400BadRequest(err.Error())
+		}
+	}
+	if err := validateOptionalCron(req.Cron, "invalid cron expression"); err != nil {
+		return err
+	}
+	if err := validateOptionalCron(req.ExecutionWindowCron, "invalid execution_window_cron expression"); err != nil {
+		return err
+	}
+	if req.RetryStrategy != nil {
+		if err := validateRetryConfig(*req.RetryStrategy, nil); err != nil {
+			return huma.Error400BadRequest(err.Error())
+		}
+	}
+	if req.RetryDelaysSecs != nil {
+		if err := validateRetryConfig("", *req.RetryDelaysSecs); err != nil {
+			return huma.Error400BadRequest(err.Error())
+		}
+	}
+	rateLimitWindowSecs := current.RateLimitWindowSecs
+	if req.RateLimitWindowSecs != nil {
+		rateLimitWindowSecs = *req.RateLimitWindowSecs
+	}
+	dedupWindowSecs := current.DedupWindowSecs
+	if req.DedupWindowSecs != nil {
+		dedupWindowSecs = *req.DedupWindowSecs
+	}
+	if err := s.validateWindowsAgainstRetention(rateLimitWindowSecs, dedupWindowSecs); err != nil {
+		return huma.Error400BadRequest(err.Error())
+	}
+	return nil
+}
+
+func validateOptionalCron(expr *string, invalidMessage string) error {
+	if expr == nil || *expr == "" {
+		return nil
+	}
+	if err := validateCronFieldCount(*expr); err != nil {
+		return huma.Error400BadRequest(err.Error())
+	}
+	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+	if _, err := parser.Parse(*expr); err != nil {
+		return huma.Error400BadRequest(invalidMessage)
+	}
+	return nil
+}
+
+func (s *Server) persistUpdatedJob(ctx context.Context, job *domain.Job, req UpdateJobRequest) error {
 	job.UpdatedBy = actorFromContext(ctx)
 
 	if err := s.store.UpdateJob(ctx, job); err != nil {
 		if errors.Is(err, store.ErrJobVersionConflict) {
-			return nil, huma.Error409Conflict("job was modified concurrently -- retry with latest version")
+			return huma.Error409Conflict("job was modified concurrently -- retry with latest version")
 		}
-		return nil, huma.Error500InternalServerError("failed to update job")
+		return huma.Error500InternalServerError("failed to update job")
 	}
+	s.invalidateWorkerJobCache(ctx, job.ID, job.CacheVersion)
 
 	s.enqueueJobMetadata(job)
 
@@ -822,7 +884,7 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 		"slug":    job.Slug,
 	})
 
-	return &UpdateJobOutput{Body: job}, nil
+	return nil
 }
 
 // enqueueJobMetadata sends a job metadata record to the ClickHouse exporter
@@ -867,6 +929,7 @@ func (s *Server) handleDeleteJob(ctx context.Context, input *DeleteJobInput) (*s
 		}
 		return nil, huma.Error500InternalServerError("failed to delete job")
 	}
+	s.invalidateWorkerJobCache(ctx, input.JobID, time.Now().UnixNano())
 
 	slog.Info("job deleted",
 		"job_id", input.JobID,
@@ -1612,12 +1675,12 @@ func (s *Server) checkHTTPModeAllowed(ctx context.Context, mode domain.Execution
 
 	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
 	if err != nil || orgID == "" {
-		return nil //nolint:nilerr // fail open: billing unavailable should not block job creation
+		return nil //nolint:nilerr // fail open: org lookup failures must not block job creation
 	}
 
 	limits, err := s.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
 	if err != nil {
-		return nil //nolint:nilerr // fail open: billing unavailable should not block job creation
+		return nil //nolint:nilerr // fail open: plan lookup failures must not block job creation
 	}
 
 	if !limits.AllowsHTTPMode {

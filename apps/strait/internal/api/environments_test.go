@@ -13,8 +13,6 @@ import (
 	"strait/internal/store"
 )
 
-// ─── handleCreateEnvironment ─────────────────────────────────────────────────.
-
 func TestHandleCreateEnvironment_MissingName(t *testing.T) {
 	t.Parallel()
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
@@ -58,8 +56,6 @@ func TestHandleCreateEnvironment_StoreError(t *testing.T) {
 		t.Fatalf("expected 500 for store error, got %d: %s", w.Code, w.Body.String())
 	}
 }
-
-// ─── handleGetEnvironment ────────────────────────────────────────────────────.
 
 func TestHandleGetEnvironment_NotFound(t *testing.T) {
 	t.Parallel()
@@ -123,8 +119,6 @@ func TestHandleGetEnvironment_EnvironmentScopedCallerCannotReadOtherEnvironment(
 		t.Fatalf("expected 404 for environment mismatch, got %v", err)
 	}
 }
-
-// ─── handleListEnvironments ──────────────────────────────────────────────────.
 
 func TestHandleListEnvironments_EmptyList(t *testing.T) {
 	t.Parallel()
@@ -222,8 +216,6 @@ func TestHandleListEnvironments_EnvironmentScopedCallerOnlySeesOwnEnvironment(t 
 	}
 }
 
-// ─── handleUpdateEnvironment ─────────────────────────────────────────────────.
-
 func TestHandleUpdateEnvironment_SlugOnly(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()
@@ -313,8 +305,6 @@ func TestHandleUpdateEnvironment_EnvironmentScopedCallerCannotMutateOtherEnviron
 	}
 }
 
-// ─── handleDeleteEnvironment ─────────────────────────────────────────────────.
-
 func TestHandleDeleteEnvironment_StandardRejected(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()
@@ -364,8 +354,6 @@ func TestHandleDeleteEnvironment_EnvironmentScopedCallerCannotDeleteOtherEnviron
 		t.Fatalf("expected 404 for environment mismatch, got %v", err)
 	}
 }
-
-// ─── handleGetResolvedVariables ──────────────────────────────────────────────.
 
 func TestHandleGetResolvedVariables_NotFound(t *testing.T) {
 	t.Parallel()

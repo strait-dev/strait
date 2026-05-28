@@ -11,7 +11,7 @@ import (
 
 // Stripe customer.subscription.paused must dispatch billing.suspended via the
 // enforcer's BillingEventDispatcher. The handler already updates status and
-// logs an audit row; this guard ensures Phase 4's outbound webhook follows.
+// logs an audit row; this guard ensures the outbound webhook follows.
 func TestHandleSubscriptionPaused_DispatchesSuspended(t *testing.T) {
 	t.Parallel()
 

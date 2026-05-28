@@ -8,10 +8,8 @@ import (
 	"strait/internal/domain"
 )
 
-// --------------------------------------------------------------------------.
 // Helper: assert that calling UpdateLogDrain with the given patch returns a
 // FieldError for the offending column name.
-// --------------------------------------------------------------------------.
 
 func assertLogDrainFieldError(t *testing.T, patch map[string]any, wantField string) {
 	t.Helper()
@@ -45,9 +43,7 @@ func assertEventSourceFieldError(t *testing.T, patch map[string]any, wantField s
 	}
 }
 
-// --------------------------------------------------------------------------.
 // UpdateLogDrain: SQL injection vectors
-// --------------------------------------------------------------------------.
 
 func TestUpdateLogDrain_RejectsInjectedColumnName(t *testing.T) {
 	t.Parallel()
@@ -124,9 +120,7 @@ func TestUpdateLogDrain_MixedValidInvalid(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // UpdateEventSource: SQL injection vectors
-// --------------------------------------------------------------------------.
 
 func TestUpdateEventSource_RejectsInjectedColumnName(t *testing.T) {
 	t.Parallel()
@@ -175,9 +169,7 @@ func TestUpdateEventSource_RejectsUnknownColumn(t *testing.T) {
 	assertEventSourceFieldError(t, map[string]any{"admin_access": true}, "admin_access")
 }
 
-// --------------------------------------------------------------------------.
 // Verify existing allowlists still work (UpdateRunStatus, step runs, workflow runs)
-// --------------------------------------------------------------------------.
 
 func TestUpdateRunStatus_AllowlistRejectsUnknown(t *testing.T) {
 	t.Parallel()
@@ -259,9 +251,7 @@ func TestUpdateWorkflowRunStatus_AllowlistRejectsUnknown(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // Fuzz: column name strings for UpdateLogDrain
-// --------------------------------------------------------------------------.
 
 func FuzzUpdateLogDrainColumnName(f *testing.F) {
 	f.Add("name")
@@ -310,9 +300,7 @@ func FuzzUpdateLogDrainColumnName(f *testing.F) {
 	})
 }
 
-// --------------------------------------------------------------------------.
 // Fuzz: column name strings for UpdateEventSource
-// --------------------------------------------------------------------------.
 
 func FuzzUpdateEventSourceColumnName(f *testing.F) {
 	f.Add("name")
@@ -358,9 +346,7 @@ func FuzzUpdateEventSourceColumnName(f *testing.F) {
 	})
 }
 
-// --------------------------------------------------------------------------.
 // DynamicUpdate adversarial column name patterns
-// --------------------------------------------------------------------------.
 
 func TestDynamicUpdate_ManyKeys(t *testing.T) {
 	t.Parallel()

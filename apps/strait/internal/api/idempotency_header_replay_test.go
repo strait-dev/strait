@@ -110,11 +110,11 @@ func TestCompleteSnapshotsHeadersAtWriteHeader(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("X-Phase", "before")
+		w.Header().Set("X-Snapshot-State", "before")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 		// Mutate AFTER WriteHeader; must not leak into cache.
-		w.Header().Set("X-Phase", "after")
+		w.Header().Set("X-Snapshot-State", "after")
 		w.Header().Set("X-Late", "leaked")
 	})
 	wrapped := srv.idempotencyMiddleware(handler)
@@ -126,8 +126,8 @@ func TestCompleteSnapshotsHeadersAtWriteHeader(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if got := gotHeaders.Get("X-Phase"); got != "before" {
-		t.Fatalf("X-Phase = %q, want before (snapshot must be taken at WriteHeader)", got)
+	if got := gotHeaders.Get("X-Snapshot-State"); got != "before" {
+		t.Fatalf("X-Snapshot-State = %q, want before (snapshot must be taken at WriteHeader)", got)
 	}
 	if got := gotHeaders.Get("X-Late"); got != "" {
 		t.Fatalf("X-Late = %q, want empty (post-WriteHeader mutation must not leak)", got)
