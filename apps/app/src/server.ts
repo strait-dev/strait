@@ -5,8 +5,6 @@ import { handleWellKnownOAuthRequest } from "@/lib/well-known-oauth.server";
 
 /**
  * One-shot boot log: record which Postgres path the auth layer is using.
- * Helps operators confirm the Hyperdrive → AUTH_DATABASE_URL fallback
- * engaged when running under the self-host Node build.
  */
 let authDbSourceLogged = false;
 const logAuthDbSource = () => {
@@ -14,12 +12,10 @@ const logAuthDbSource = () => {
     return;
   }
   authDbSourceLogged = true;
-  const hasHyperdrive =
-    typeof (globalThis as { HYPERDRIVE?: unknown }).HYPERDRIVE !== "undefined";
   console.log(
     JSON.stringify({
       msg: "auth_db_source",
-      source: hasHyperdrive ? "hyperdrive" : "DATABASE_URL",
+      source: "AUTH_DATABASE_URL",
     })
   );
 };

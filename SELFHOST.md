@@ -32,4 +32,4 @@ The complete self-hosting guide lives in the docs and is the canonical reference
 
 **https://docs.strait.dev/guides/self-hosting**
 
-It covers the Cloudflare-hosted dashboard option, dependencies, configuration, your first job, upgrading, and backups. For production scaling and region strategy, see https://docs.strait.dev/guides/deployment. For local development setup, see [CONTRIBUTING.md](CONTRIBUTING.md).
+It covers the Vercel-hosted dashboard option, dependencies, configuration, your first job, upgrading, and backups. For production scaling and region strategy, see https://docs.strait.dev/guides/deployment. For local development setup, see [CONTRIBUTING.md](CONTRIBUTING.md).

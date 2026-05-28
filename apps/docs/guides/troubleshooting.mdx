@@ -32,7 +32,7 @@ The dashboard and the API authenticate to each other with a shared `INTERNAL_SEC
 docker compose --env-file .env.selfhost -f docker-compose.base.yml -f docker-compose.selfhost.yml --profile core restart
 ```
 
-Also confirm the dashboard's `STRAIT_API_URL` (or equivalent) points at a URL the dashboard can actually reach. A Cloudflare-hosted dashboard cannot call `localhost`.
+Also confirm the dashboard's `STRAIT_API_URL` points at a URL the dashboard can actually reach. A hosted dashboard cannot call `localhost`.
 
 ## Migrations failed
 

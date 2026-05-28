@@ -51,10 +51,8 @@ export function stripeIntegrationErrorToError(
 /**
  * Returns the lazily initialized Stripe SDK singleton.
  *
- * Deferred initialization is required because Cloudflare Workers only
- * populate `process.env` during request handling, not at module load time.
- *
- * @see https://developers.cloudflare.com/workers/runtime-apis/bindings/
+ * Deferred initialization keeps tests and production startup from reading env
+ * before the process has injected deployment variables.
  */
 export const getStripeClient = (): Stripe => {
   if (!_stripeClient) {

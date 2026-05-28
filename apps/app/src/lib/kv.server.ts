@@ -3,8 +3,8 @@ import { Redis } from "@upstash/redis";
 /**
  * Lazily initialized Upstash Redis client singleton.
  *
- * Initialization is deferred because Cloudflare Workers only populate
- * `process.env` during request handling, not at module load time.
+ * Initialization is deferred so tests and deployments can inject env before
+ * the first request.
  * Returns `null` if the Upstash env vars are not configured.
  */
 let _kv: Redis | null | undefined;
