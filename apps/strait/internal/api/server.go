@@ -1276,6 +1276,29 @@ func (s *Server) validateURL(rawURL string) error {
 	return validateURLWithAllowPrivate(rawURL, s.config != nil && s.config.AllowPrivateEndpoints)
 }
 
+// validateEndpointURL validates a job endpoint (or fallback endpoint) URL using
+// the same private/port/SSRF rules as validateURL and, when ENDPOINT_REQUIRE_TLS
+// is enabled, additionally requires an https scheme. Job dispatch injects the
+// job's decrypted secrets (X-Secret-*) and the run-token JWT (X-Run-Token), so
+// operators can mandate TLS for these endpoints the same way WEBHOOK_REQUIRE_TLS
+// does for webhook delivery. The knob defaults off, preserving the historical
+// http-permitting behavior for self-host/dev topologies.
+func (s *Server) validateEndpointURL(rawURL string) error {
+	if err := s.validateURL(rawURL); err != nil {
+		return err
+	}
+	if s.config != nil && s.config.EndpointRequireTLS {
+		u, err := url.Parse(rawURL)
+		if err != nil {
+			return fmt.Errorf("invalid URL: %w", err)
+		}
+		if !strings.EqualFold(u.Scheme, "https") {
+			return errors.New("url must use https when ENDPOINT_REQUIRE_TLS is enabled")
+		}
+	}
+	return nil
+}
+
 func validateURLWithAllowPrivate(rawURL string, allowPrivate bool) error {
 	if err := worker.ValidateEndpointURL(rawURL, worker.WithAllowPrivateEndpoints(allowPrivate)); err != nil {
 		msg := err.Error()

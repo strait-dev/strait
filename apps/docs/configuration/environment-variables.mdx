@@ -141,6 +141,7 @@ Redis is still required at startup. Cache operations fail open to in-process cac
 | `RESEND_API_KEY` | - | Required for email notifications. |
 | `RESEND_FROM_EMAIL` | `noreply@strait.dev` | From address for email notifications. |
 | `WEBHOOK_REQUIRE_TLS` | `false` | Require HTTPS webhook URLs. |
+| `ENDPOINT_REQUIRE_TLS` | `false` | Require HTTPS for job endpoint and fallback endpoint URLs. Job dispatch injects decrypted secrets and the run-token JWT, so enable this to reject plaintext HTTP endpoints. |
 | `ALLOW_PRIVATE_ENDPOINTS` | `false` | Allow private endpoint URLs. Not recommended unless the network is trusted. |
 
 ## CDC / Sequin
