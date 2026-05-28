@@ -377,6 +377,9 @@ var _ APIStore = &APIStoreMock{}
 //			GetEventTriggerByEventKeyFunc: func(ctx context.Context, eventKey string) (*domain.EventTrigger, error) {
 //				panic("mock out the GetEventTriggerByEventKey method")
 //			},
+//			GetEventTriggerByEventKeyForProjectFunc: func(ctx context.Context, eventKey string, projectID string) (*domain.EventTrigger, error) {
+//				panic("mock out the GetEventTriggerByEventKeyForProject method")
+//			},
 //			GetEventTriggerStatsFunc: func(ctx context.Context, projectID string, environmentID string) (*store.EventTriggerStats, error) {
 //				panic("mock out the GetEventTriggerStats method")
 //			},
@@ -1247,6 +1250,9 @@ type APIStoreMock struct {
 
 	// GetEventTriggerByEventKeyFunc mocks the GetEventTriggerByEventKey method.
 	GetEventTriggerByEventKeyFunc func(ctx context.Context, eventKey string) (*domain.EventTrigger, error)
+
+	// GetEventTriggerByEventKeyForProjectFunc mocks the GetEventTriggerByEventKeyForProject method.
+	GetEventTriggerByEventKeyForProjectFunc func(ctx context.Context, eventKey string, projectID string) (*domain.EventTrigger, error)
 
 	// GetEventTriggerStatsFunc mocks the GetEventTriggerStats method.
 	GetEventTriggerStatsFunc func(ctx context.Context, projectID string, environmentID string) (*store.EventTriggerStats, error)
@@ -2741,6 +2747,15 @@ type APIStoreMock struct {
 			Ctx context.Context
 			// EventKey is the eventKey argument value.
 			EventKey string
+		}
+		// GetEventTriggerByEventKeyForProject holds details about calls to the GetEventTriggerByEventKeyForProject method.
+		GetEventTriggerByEventKeyForProject []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// EventKey is the eventKey argument value.
+			EventKey string
+			// ProjectID is the projectID argument value.
+			ProjectID string
 		}
 		// GetEventTriggerStats holds details about calls to the GetEventTriggerStats method.
 		GetEventTriggerStats []struct {
@@ -4521,6 +4536,7 @@ type APIStoreMock struct {
 	lockGetEventSourceByName                        sync.RWMutex
 	lockGetEventSubscription                        sync.RWMutex
 	lockGetEventTriggerByEventKey                   sync.RWMutex
+	lockGetEventTriggerByEventKeyForProject         sync.RWMutex
 	lockGetEventTriggerStats                        sync.RWMutex
 	lockGetJob                                      sync.RWMutex
 	lockGetJobBySlug                                sync.RWMutex
@@ -9667,6 +9683,50 @@ func (mock *APIStoreMock) GetEventTriggerByEventKeyCalls() []struct {
 	mock.lockGetEventTriggerByEventKey.RLock()
 	calls = mock.calls.GetEventTriggerByEventKey
 	mock.lockGetEventTriggerByEventKey.RUnlock()
+	return calls
+}
+
+// GetEventTriggerByEventKeyForProject calls GetEventTriggerByEventKeyForProjectFunc.
+func (mock *APIStoreMock) GetEventTriggerByEventKeyForProject(ctx context.Context, eventKey string, projectID string) (*domain.EventTrigger, error) {
+	callInfo := struct {
+		Ctx       context.Context
+		EventKey  string
+		ProjectID string
+	}{
+		Ctx:       ctx,
+		EventKey:  eventKey,
+		ProjectID: projectID,
+	}
+	mock.lockGetEventTriggerByEventKeyForProject.Lock()
+	mock.calls.GetEventTriggerByEventKeyForProject = append(mock.calls.GetEventTriggerByEventKeyForProject, callInfo)
+	mock.lockGetEventTriggerByEventKeyForProject.Unlock()
+	if mock.GetEventTriggerByEventKeyForProjectFunc == nil {
+		var (
+			eventTriggerOut *domain.EventTrigger
+			errOut          error
+		)
+		return eventTriggerOut, errOut
+	}
+	return mock.GetEventTriggerByEventKeyForProjectFunc(ctx, eventKey, projectID)
+}
+
+// GetEventTriggerByEventKeyForProjectCalls gets all the calls that were made to GetEventTriggerByEventKeyForProject.
+// Check the length with:
+//
+//	len(mockedAPIStore.GetEventTriggerByEventKeyForProjectCalls())
+func (mock *APIStoreMock) GetEventTriggerByEventKeyForProjectCalls() []struct {
+	Ctx       context.Context
+	EventKey  string
+	ProjectID string
+} {
+	var calls []struct {
+		Ctx       context.Context
+		EventKey  string
+		ProjectID string
+	}
+	mock.lockGetEventTriggerByEventKeyForProject.RLock()
+	calls = mock.calls.GetEventTriggerByEventKeyForProject
+	mock.lockGetEventTriggerByEventKeyForProject.RUnlock()
 	return calls
 }
 

@@ -65,7 +65,12 @@ func (q *Queries) CreateEventTrigger(ctx context.Context, trigger *domain.EventT
 	return nil
 }
 
-// GetEventTriggerByEventKey retrieves an event trigger by its unique event key.
+// GetEventTriggerByEventKey retrieves an event trigger by event key without a
+// project predicate. Event keys are unique per project, not globally (migration
+// 000284 replaced the global UNIQUE(event_key) with UNIQUE(project_id,
+// event_key)), so when two projects share a key this returns an arbitrary
+// matching row. Use it only for the projectless internal-caller path; callers
+// that have a project context must use GetEventTriggerByEventKeyForProject.
 func (q *Queries) GetEventTriggerByEventKey(ctx context.Context, eventKey string) (*domain.EventTrigger, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetEventTriggerByEventKey")
 	defer span.End()

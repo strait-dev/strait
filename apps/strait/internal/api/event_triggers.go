@@ -76,6 +76,20 @@ type SendEventOutput struct {
 	Body *domain.EventTrigger
 }
 
+// resolveEventTriggerByKey resolves an event trigger from a user-supplied event
+// key, scoping the lookup to the caller's project whenever a project context is
+// present. Event keys are unique per project (migration 000284 replaced the
+// global UNIQUE(event_key) with UNIQUE(project_id, event_key)), so an unscoped
+// lookup can non-deterministically resolve another tenant's row when two
+// projects share a key. The unscoped lookup is reserved for the explicit
+// projectless internal-caller path (internal management secret).
+func (s *Server) resolveEventTriggerByKey(ctx context.Context, eventKey, projectID string) (*domain.EventTrigger, error) {
+	if projectID != "" {
+		return s.store.GetEventTriggerByEventKeyForProject(ctx, eventKey, projectID)
+	}
+	return s.store.GetEventTriggerByEventKey(ctx, eventKey)
+}
+
 func (s *Server) handleSendEvent(ctx context.Context, input *SendEventInput) (*SendEventOutput, error) {
 	eventKey := input.EventKey
 	if errMsg := validateEventKey(eventKey); errMsg != "" {
@@ -86,14 +100,11 @@ func (s *Server) handleSendEvent(ctx context.Context, input *SendEventInput) (*S
 	if projectID == "" && !isInternalCaller(ctx) {
 		return nil, huma.Error400BadRequest("project context is required -- authenticate with an API key")
 	}
-	trigger, err := s.store.GetEventTriggerByEventKey(ctx, eventKey)
+	trigger, err := s.resolveEventTriggerByKey(ctx, eventKey, projectID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to get event trigger")
 	}
 	if trigger == nil {
-		return nil, huma.Error404NotFound("event trigger not found")
-	}
-	if projectID != "" && trigger.ProjectID != projectID {
 		return nil, huma.Error404NotFound("event trigger not found")
 	}
 	if projectID == "" && isInternalCaller(ctx) {
@@ -278,14 +289,11 @@ func (s *Server) handleGetEventTrigger(ctx context.Context, input *GetEventTrigg
 	if projectID == "" && !isInternalCaller(ctx) {
 		return nil, huma.Error400BadRequest("project context is required -- authenticate with an API key")
 	}
-	trigger, err := s.store.GetEventTriggerByEventKey(ctx, input.EventKey)
+	trigger, err := s.resolveEventTriggerByKey(ctx, input.EventKey, projectID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to get event trigger")
 	}
 	if trigger == nil {
-		return nil, huma.Error404NotFound("event trigger not found")
-	}
-	if projectID != "" && trigger.ProjectID != projectID {
 		return nil, huma.Error404NotFound("event trigger not found")
 	}
 	if projectID == "" && isInternalCaller(ctx) {
@@ -312,14 +320,11 @@ func (s *Server) handleCancelEventTrigger(ctx context.Context, input *CancelEven
 	if projectID == "" && !isInternalCaller(ctx) {
 		return nil, huma.Error400BadRequest("project context is required -- authenticate with an API key")
 	}
-	trigger, err := s.store.GetEventTriggerByEventKey(ctx, input.EventKey)
+	trigger, err := s.resolveEventTriggerByKey(ctx, input.EventKey, projectID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to get event trigger")
 	}
 	if trigger == nil {
-		return nil, huma.Error404NotFound("event trigger not found")
-	}
-	if projectID != "" && trigger.ProjectID != projectID {
 		return nil, huma.Error404NotFound("event trigger not found")
 	}
 	if projectID == "" && isInternalCaller(ctx) {
