@@ -504,9 +504,10 @@ func (ce *ChaosEngine) chaosClockSkew(ctx context.Context) error {
 		       jsonb_build_object('source', 'loadtest', 'scenario', 'clock_skew'),
 		       'loadtest',
 		       NOW() + INTERVAL '24 hours'
-		FROM target_job, generate_series(1, 100)`,
+		FROM target_job, generate_series(1, $3)`,
 		ce.projectID,
 		ce.jobSlug,
+		clockSkewRows,
 	)
 	if err != nil {
 		return fmt.Errorf("insert future-timestamped rows: %w", err)
@@ -527,7 +528,8 @@ func (ce *ChaosEngine) chaosClockSkew(ctx context.Context) error {
 		return fmt.Errorf("verify clock skew recovery: %w", err)
 	}
 
-	// Clean up the skewed rows
+	// Clean up the skewed rows before returning the verdict so a failed
+	// assertion still leaves the table clean for subsequent scenarios.
 	cleanupCtx, cleanupCancel := chaosCleanupContext()
 	defer cleanupCancel()
 	_, _ = ce.harness.Pool.Exec(cleanupCtx,
@@ -538,6 +540,23 @@ func (ce *ChaosEngine) chaosClockSkew(ctx context.Context) error {
 		ce.projectID,
 	)
 
+	// The reaper must not delete future-dated runs: they are not yet due, so all
+	// inserted rows must survive the soak. Fewer means a time-dependent component
+	// incorrectly reaped not-yet-due work under clock skew, which is exactly the
+	// failure this scenario exists to catch.
+	return clockSkewVerdict(remaining, clockSkewRows)
+}
+
+// clockSkewRows is the number of future-dated job_runs the clock-skew scenario
+// inserts and expects to survive the reaper soak.
+const clockSkewRows = 100
+
+// clockSkewVerdict fails the clock-skew scenario when fewer than the inserted
+// future-dated rows survived, signalling the reaper deleted not-yet-due runs.
+func clockSkewVerdict(remaining, inserted int) error {
+	if remaining < inserted {
+		return fmt.Errorf("clock skew: expected %d future-dated rows to survive, found %d (reaper deleted not-yet-due runs)", inserted, remaining)
+	}
 	return nil
 }
 

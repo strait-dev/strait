@@ -31,17 +31,12 @@ func (s *Server) handleEventTriggerStream(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	trigger, err := s.store.GetEventTriggerByEventKey(r.Context(), eventKey)
+	trigger, err := s.resolveEventTriggerByKey(r.Context(), eventKey, projectID)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to get event trigger")
 		return
 	}
 	if trigger == nil {
-		respondError(w, r, http.StatusNotFound, "event trigger not found")
-		return
-	}
-
-	if projectID != "" && trigger.ProjectID != projectID {
 		respondError(w, r, http.StatusNotFound, "event trigger not found")
 		return
 	}

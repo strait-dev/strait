@@ -22,6 +22,11 @@ var (
 	ErrJobGroupNotFound             = errors.New("job group not found")
 	ErrWebhookSubscriptionNotFound  = errors.New("webhook subscription not found")
 	ErrWebhookEndpointLimitExceeded = errors.New("webhook endpoint limit exceeded")
+	// ErrWebhookSubscriptionDuplicate is returned when a CreateWebhookSubscription
+	// would violate the partial unique index on (project_id, webhook_url) where
+	// active=true. Callers must surface a 409 instead of retrying — replaying
+	// the create response would re-expose the one-shot plaintext signing secret.
+	ErrWebhookSubscriptionDuplicate = errors.New("webhook subscription already exists for project and url")
 	ErrEnvironmentNotFound          = errors.New("environment not found")
 	ErrJobSecretNotFound            = errors.New("job secret not found")
 	ErrAuditEventNotFound           = errors.New("audit event not found")

@@ -70,6 +70,24 @@ func TestSSRF_AdversarialBypass(t *testing.T) {
 		{"ipv6 compat v4 loopback", "http://[::127.0.0.1]/"},
 		{"ipv6 full zeros loopback", "http://[0000:0000:0000:0000:0000:0000:0000:0001]/"},
 
+		// === NAT64 well-known prefix (RFC 6052) — embedded IPv4 in low 32 bits ===
+		// In NAT64/DNS64 deployments (AWS IPv6-only subnets, IPv6-mostly
+		// Kubernetes) an attacker hostname can resolve to these and reach
+		// IMDS, loopback, or RFC1918 ranges through the synthesized IPv6.
+		{"nat64 imds", "http://[64:ff9b::a9fe:a9fe]/"},
+		{"nat64 loopback", "http://[64:ff9b::7f00:1]/"},
+		{"nat64 rfc1918 10.x", "http://[64:ff9b::a00:1]/"},
+		{"nat64 rfc1918 192.168", "http://[64:ff9b::c0a8:1]/"},
+		{"nat64 public-but-prefix-blocked", "http://[64:ff9b::8.8.8.8]/"},
+
+		// === 6to4 (RFC 3056) — embedded IPv4 in bytes 2..6 ===
+		{"6to4 loopback", "http://[2002:7f00:1::]/"},
+		{"6to4 rfc1918 10.x", "http://[2002:a00:1::]/"},
+		{"6to4 rfc1918 172.16", "http://[2002:ac10:1::]/"},
+		{"6to4 link-local imds", "http://[2002:a9fe:a9fe::]/"},
+		{"6to4 public-but-prefix-blocked", "http://[2002:808:808::]/"},
+
+		// === Octal IP notation (OS resolver interprets, Go does not) ===
 		{"octal 127.0.0.1", "http://0177.0.0.1/"},
 		{"octal 127.0.0.1 variant", "http://0177.0.0.01/"},
 		{"octal 127.0.0.1 padded", "http://0177.00.00.01/"},

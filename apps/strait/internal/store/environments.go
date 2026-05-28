@@ -241,7 +241,12 @@ func (q *Queries) GetResolvedEnvironmentVariables(ctx context.Context, id string
 	defer rows.Close()
 
 	resolved := make(map[string]string)
-	var lastParentID *string
+	// Rows arrive ORDER BY depth DESC, so the first row is the deepest ancestor
+	// the CTE could reach. Only that row's parent_id tells us whether the chain
+	// was truncated at maxDepth — the leaf's parent_id (the last row iterated)
+	// is irrelevant to truncation and used to wrongly signal "too deep" on
+	// every non-orphan environment with a parent.
+	var deepestAncestorParentID *string
 	var rowCount int
 	for rows.Next() {
 		var envID string
@@ -264,7 +269,9 @@ func (q *Queries) GetResolvedEnvironmentVariables(ctx context.Context, id string
 			}
 			maps.Copy(resolved, vars)
 		}
-		lastParentID = parentID
+		if rowCount == 0 {
+			deepestAncestorParentID = parentID
+		}
 		rowCount++
 	}
 	if err := rows.Err(); err != nil {
@@ -275,7 +282,7 @@ func (q *Queries) GetResolvedEnvironmentVariables(ctx context.Context, id string
 		return nil, fmt.Errorf("resolve environment variables: %w", ErrEnvironmentNotFound)
 	}
 
-	if rowCount >= maxDepth && lastParentID != nil && *lastParentID != "" {
+	if rowCount >= maxDepth && deepestAncestorParentID != nil && *deepestAncestorParentID != "" {
 		return nil, fmt.Errorf("resolve environment variables: exceeded max inheritance depth %d", maxDepth)
 	}
 

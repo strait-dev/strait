@@ -3246,6 +3246,56 @@ func TestDispatch_NoCheckpointGraceful(t *testing.T) {
 	}
 }
 
+// TestTracedDispatch_RetryEmitsCheckpointHeadersWhenSecretsCacheWarm pins the
+// fix for a durable-resume regression: when the dispatch secrets cache is
+// pre-populated (as it is on attempt 1 when an ENDPOINT_URL environment
+// override resolves dispatch secrets to the empty set), attempt 2 used to
+// hit the cached secrets and never load the checkpoint, dropping the
+// X-Last-Checkpoint and X-Checkpoint-At resume headers the endpoint needs
+// to skip already-completed steps.
+func TestTracedDispatch_RetryEmitsCheckpointHeadersWhenSecretsCacheWarm(t *testing.T) {
+	t.Parallel()
+
+	var headers http.Header
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headers = r.Header
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	cpTime := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	store := &mockExecutorStore{}
+	store.getLatestCheckpointFn = func(_ context.Context, _ string) (*domain.RunCheckpoint, error) {
+		return &domain.RunCheckpoint{
+			ID:        "cp-1",
+			RunID:     "run-1",
+			Sequence:  1,
+			State:     json.RawMessage(`{"cursor":42}`),
+			CreatedAt: cpTime,
+		}, nil
+	}
+
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
+
+	// Simulate the ENDPOINT_URL override path: secrets are resolved once on
+	// attempt 1 to an empty slice and cached. Attempt 2 sees the warm cache.
+	ctx := withDispatchCache(context.Background())
+	job := testJob(server.URL, 3, 5)
+	dispatchCacheSet(ctx, dispatchSecretsCacheKey(job), []domain.JobSecret{})
+
+	if _, _, err := exec.tracedDispatch(ctx, job, testRun(2)); err != nil {
+		t.Fatalf("tracedDispatch: %v", err)
+	}
+
+	if got := headers.Get("X-Last-Checkpoint"); got != `{"cursor":42}` {
+		t.Fatalf("X-Last-Checkpoint = %q, want %q (the warm secrets cache must not suppress the checkpoint load)", got, `{"cursor":42}`)
+	}
+	if got := headers.Get("X-Checkpoint-At"); got != cpTime.Format(time.RFC3339) {
+		t.Fatalf("X-Checkpoint-At = %q, want %q", got, cpTime.Format(time.RFC3339))
+	}
+}
+
 func TestDispatch_RetryIncludesPreviousError(t *testing.T) {
 	t.Parallel()
 

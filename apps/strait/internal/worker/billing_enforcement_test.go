@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -471,5 +472,110 @@ func TestBillingEnforcement_MonthlyLimitExceeded_RollbackDailyCount(t *testing.T
 	val, err := mr.Get(dailyKey)
 	if err == nil && val != "0" {
 		t.Errorf("daily run counter should be 0 after monthly limit abort, got %s", val)
+	}
+}
+
+// TestExecuteInner_HTTPModeGateRebalancesConcurrentCounter pins the fix for
+// the per-org concurrent counter leak: when the HTTP-mode plan gate rejects
+// a dispatch, the unconditional INCR inside CheckConcurrentRunLimit must
+// still be balanced by DecrConcurrentRunCount. Before the fix, the
+// `defer DecrConcurrentRunCount` was registered AFTER the gate's early
+// return, so each rejected HTTP-mode dispatch leaked one counter slot.
+// Once the leak accumulated past MaxConcurrentRuns within the 5-minute
+// reconciler window, subsequent runs falsely reported
+// org_concurrent_run_limit_exceeded and went terminally StatusSystemFailed.
+func TestExecuteInner_HTTPModeGateRebalancesConcurrentCounter(t *testing.T) {
+	t.Parallel()
+
+	orgID := "org-http-gate"
+	// The mock store returns this subscription, and entitlementsAuthoritative
+	// defaults to true on NewEnforcer, so we can force AllowsHTTPMode=false
+	// without modifying the catalog plans (which currently set it true for
+	// every tier). This mirrors the live failure mode: a persisted snapshot
+	// that no longer permits HTTP mode after a downgrade.
+	limits := billing.GetPlanLimits(domain.PlanFree)
+	limits.AllowsHTTPMode = false
+	entitlements, err := json.Marshal(limits)
+	if err != nil {
+		t.Fatalf("marshal entitlements: %v", err)
+	}
+
+	sub := &billing.OrgSubscription{
+		OrgID:        orgID,
+		PlanTier:     string(domain.PlanFree),
+		Entitlements: entitlements,
+	}
+	bStore := &mockBillingEnforcerStore{
+		projectOrgID: orgID,
+		sub:          sub,
+	}
+
+	enforcer, mr := newWorkerTestEnforcer(t, bStore)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer srv.Close()
+
+	ms := &mockExecutorStore{
+		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
+			return &domain.Job{
+				ID:            "job-http-gate",
+				ProjectID:     "proj-http-gate",
+				Version:       1,
+				EndpointURL:   srv.URL,
+				MaxAttempts:   1,
+				TimeoutSecs:   30,
+				ExecutionMode: domain.ExecutionModeHTTP,
+			}, nil
+		},
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:            NewPool(4),
+		Store:           ms,
+		PollInterval:    time.Millisecond,
+		HTTPClient:      srv.Client(),
+		BillingEnforcer: enforcer,
+	})
+
+	run := &domain.JobRun{
+		ID:         "run-http-gate",
+		JobID:      "job-http-gate",
+		JobVersion: 1,
+		Status:     domain.StatusDequeued,
+	}
+
+	ec := &ExecutionContext{Run: run, Start: time.Now()}
+	exec.executeInner(context.Background(), ec)
+
+	// The gate must have rejected the run.
+	ms.mu.Lock()
+	var foundFailure bool
+	for _, call := range ms.statusCalls {
+		if call.to == domain.StatusSystemFailed {
+			foundFailure = true
+			break
+		}
+	}
+	ms.mu.Unlock()
+	if !foundFailure {
+		t.Fatal("expected run to be marked as system_failed when HTTP mode is not allowed")
+	}
+
+	// The concurrent counter must be balanced: CheckConcurrentRunLimit INCRed
+	// it from 0 to 1 (script returns count, not -1) and the deferred
+	// DecrConcurrentRunCount must DECR it back to 0 (floor-at-zero).
+	concurrentKey := "strait:org_concurrent:" + orgID
+	val, getErr := mr.Get(concurrentKey)
+	if getErr != nil {
+		// miniredis returns an error when the key is absent; that's also a
+		// valid balanced state (DECR floors at zero, miniredis garbage-
+		// collects zero values).
+		return
+	}
+	if val != "0" {
+		t.Errorf("concurrent counter must be balanced after HTTP-mode gate rejection, got %s (leak indicates the DecrConcurrentRunCount defer was not registered before the gate)", val)
 	}
 }

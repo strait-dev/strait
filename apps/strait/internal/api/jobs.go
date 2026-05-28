@@ -298,12 +298,12 @@ func (s *Server) validateCreateJobFields(ctx context.Context, req *CreateJobRequ
 		return huma.Error400BadRequest(err.Error())
 	}
 	if req.EndpointURL != "" {
-		if err := validateURL(req.EndpointURL); err != nil {
+		if err := s.validateEndpointURL(req.EndpointURL); err != nil {
 			return huma.Error400BadRequest("invalid endpoint_url: " + err.Error())
 		}
 	}
 	if req.FallbackEndpointURL != "" {
-		if err := validateURL(req.FallbackEndpointURL); err != nil {
+		if err := s.validateEndpointURL(req.FallbackEndpointURL); err != nil {
 			return huma.Error400BadRequest("invalid fallback_endpoint_url: " + err.Error())
 		}
 	}
@@ -527,7 +527,7 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 	if err := s.applyJobChainingUpdate(ctx, job, req); err != nil {
 		return nil, err
 	}
-	if err := finalizeUpdatedJobFields(job); err != nil {
+	if err := s.finalizeUpdatedJobFields(job); err != nil {
 		return nil, err
 	}
 
@@ -590,7 +590,7 @@ func (s *Server) applyJobEndpointUpdate(ctx context.Context, job *domain.Job, re
 		return err
 	}
 	if req.EndpointURL != nil {
-		if err := validateURL(*req.EndpointURL); err != nil {
+		if err := s.validateEndpointURL(*req.EndpointURL); err != nil {
 			return huma.Error400BadRequest("invalid endpoint_url: " + err.Error())
 		}
 		job.EndpointURL = *req.EndpointURL
@@ -768,9 +768,9 @@ func (s *Server) applyJobChainingUpdate(ctx context.Context, job *domain.Job, re
 	return nil
 }
 
-func finalizeUpdatedJobFields(job *domain.Job) error {
+func (s *Server) finalizeUpdatedJobFields(job *domain.Job) error {
 	if job.FallbackEndpointURL != "" {
-		if err := validateURL(job.FallbackEndpointURL); err != nil {
+		if err := s.validateEndpointURL(job.FallbackEndpointURL); err != nil {
 			return huma.Error400BadRequest("invalid fallback_endpoint_url: " + err.Error())
 		}
 	}
