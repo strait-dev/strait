@@ -15,7 +15,7 @@ import {
   TabsTrigger,
 } from "@strait/ui/components/tabs";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   type ColumnDef,
   getCoreRowModel,
@@ -83,7 +83,13 @@ const workflowRunColumns: ColumnDef<WorkflowRun>[] = [
     header: "Run ID",
     cell: ({ row }) => (
       <span className="flex items-center gap-1.5 font-mono text-xs">
-        {row.original.id.slice(0, 8)}
+        <Link
+          className="underline underline-offset-2"
+          params={{ id: row.original.id }}
+          to="/app/workflow-runs/$id"
+        >
+          {row.original.id.slice(0, 8)}
+        </Link>
         {isPartOfChain(row.original) && (
           <HugeiconsIcon
             aria-label="Part of a continuation chain"

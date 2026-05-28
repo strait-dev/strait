@@ -26,6 +26,7 @@ import {
 import { Textarea } from "@strait/ui/components/textarea";
 import { toast } from "@strait/ui/components/toast/index";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { formatDistanceToNow } from "date-fns";
 import { useState } from "react";
 import StatusBadge from "@/components/dashboard/status-badge";
@@ -281,6 +282,7 @@ function WorkflowRunChainDialog({ run, open, onOpenChange }: DialogProps) {
                   current={entry.id === run.id}
                   entry={entry}
                   key={entry.id}
+                  onNavigate={() => onOpenChange(false)}
                 />
               ))}
             </ol>
@@ -304,39 +306,46 @@ function WorkflowRunChainDialog({ run, open, onOpenChange }: DialogProps) {
 function ChainEntryRow({
   entry,
   current,
+  onNavigate,
 }: {
   entry: WorkflowRunChainEntry;
   current: boolean;
+  onNavigate: () => void;
 }) {
   const timestamp = entry.finished_at ?? entry.started_at ?? entry.created_at;
   return (
-    <li
-      className={
-        current
-          ? "flex items-center gap-3 rounded-md border border-primary/40 bg-accent px-3 py-2"
-          : "flex items-center gap-3 rounded-md border border-transparent px-3 py-2 hover:bg-accent"
-      }
-    >
-      <span className="w-8 shrink-0 font-mono text-muted-foreground text-xs">
-        #{entry.lineage_depth}
-      </span>
-      <StatusBadge
-        showDot
-        size="xs"
-        status={entry.status as WorkflowRunStatus}
-      />
-      <span className="font-mono text-xs">{entry.id.slice(0, 8)}</span>
-      <Badge className="capitalize" size="xs" variant="outline">
-        {entry.triggered_by}
-      </Badge>
-      {current && (
-        <Badge size="xs" variant="secondary">
-          Current
+    <li>
+      <Link
+        className={
+          current
+            ? "flex items-center gap-3 rounded-md border border-primary/40 bg-accent px-3 py-2"
+            : "flex items-center gap-3 rounded-md border border-transparent px-3 py-2 hover:bg-accent"
+        }
+        onClick={onNavigate}
+        params={{ id: entry.id }}
+        to="/app/workflow-runs/$id"
+      >
+        <span className="w-8 shrink-0 font-mono text-muted-foreground text-xs">
+          #{entry.lineage_depth}
+        </span>
+        <StatusBadge
+          showDot
+          size="xs"
+          status={entry.status as WorkflowRunStatus}
+        />
+        <span className="font-mono text-xs">{entry.id.slice(0, 8)}</span>
+        <Badge className="capitalize" size="xs" variant="outline">
+          {entry.triggered_by}
         </Badge>
-      )}
-      <span className="ml-auto text-muted-foreground text-xs">
-        {formatDistanceToNow(new Date(timestamp), { addSuffix: true })}
-      </span>
+        {current && (
+          <Badge size="xs" variant="secondary">
+            Current
+          </Badge>
+        )}
+        <span className="ml-auto text-muted-foreground text-xs">
+          {formatDistanceToNow(new Date(timestamp), { addSuffix: true })}
+        </span>
+      </Link>
     </li>
   );
 }
