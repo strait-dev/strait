@@ -14,7 +14,11 @@ import {
   TabsList,
   TabsTrigger,
 } from "@strait/ui/components/tabs";
-import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useQuery,
+  useSuspenseQuery,
+} from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   getCoreRowModel,
@@ -52,7 +56,7 @@ import type { Job, JobRun, PaginatedResponse } from "@/hooks/api/types";
 import {
   jobHealthQueryOptions,
   jobQueryOptions,
-  jobSingletonsQueryOptions,
+  jobSingletonsInfiniteQueryOptions,
   usePauseJob,
   useResumeJob,
   useTriggerJob,
@@ -62,6 +66,7 @@ import {
   useCancelRun,
   useRetryRun,
 } from "@/hooks/api/use-runs";
+import { LIVE_REFETCH_INTERVAL } from "@/hooks/utils";
 import {
   ActivityIcon,
   ClockIcon,
@@ -151,10 +156,22 @@ function JobDetailPage() {
   const { data: health } = useQuery(jobHealthQueryOptions(id, healthWindow));
 
   const isSingleton = isSingletonConfigured(job);
-  const { data: singletonsData, isLoading: singletonsLoading } = useQuery({
-    ...jobSingletonsQueryOptions(id),
+  const {
+    data: singletonsData,
+    isLoading: singletonsLoading,
+    hasNextPage: hasMoreSingletons,
+    isFetchingNextPage: isFetchingMoreSingletons,
+    fetchNextPage: fetchMoreSingletons,
+  } = useInfiniteQuery({
+    ...jobSingletonsInfiniteQueryOptions(id),
     enabled: isSingleton,
+    refetchInterval: LIVE_REFETCH_INTERVAL,
+    refetchIntervalInBackground: false,
   });
+  const singletonHolders = useMemo(
+    () => singletonsData?.pages.flatMap((page) => page.data) ?? [],
+    [singletonsData]
+  );
 
   const triggerJob = useTriggerJob();
   const pauseJob = usePauseJob();
@@ -524,8 +541,11 @@ function JobDetailPage() {
         {isSingleton && (
           <TabsContent className="mt-6" value="singletons">
             <SingletonHoldersTable
-              holders={singletonsData?.data ?? []}
+              hasNextPage={hasMoreSingletons}
+              holders={singletonHolders}
+              isFetchingNextPage={isFetchingMoreSingletons}
               isLoading={singletonsLoading}
+              onLoadMore={fetchMoreSingletons}
             />
           </TabsContent>
         )}

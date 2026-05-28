@@ -1,10 +1,10 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Badge } from "@strait/ui/components/badge";
+import { Button } from "@strait/ui/components/button";
 import { Link } from "@tanstack/react-router";
 import {
   type ColumnDef,
   getCoreRowModel,
-  getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
@@ -68,39 +68,61 @@ const columns: ColumnDef<SingletonHolder>[] = [
 type SingletonHoldersTableProps = {
   holders: SingletonHolder[];
   isLoading: boolean;
+  hasNextPage?: boolean;
+  isFetchingNextPage?: boolean;
+  onLoadMore?: () => void;
 };
 
 const SingletonHoldersTable = ({
   holders,
   isLoading,
+  hasNextPage,
+  isFetchingNextPage,
+  onLoadMore,
 }: SingletonHoldersTableProps) => {
   const table = useReactTable({
     data: holders,
     columns,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
   });
 
   return (
-    <DataTable
-      ariaLabel="Singleton holders"
-      emptyState={
-        <TableEmptyState
-          description={
-            isLoading
-              ? "Loading held keys..."
-              : "No keys are currently held. Held keys appear here while runs hold a singleton lock."
-          }
-          hideButton
-          icon={
-            <HugeiconsIcon className="size-6 text-foreground" icon={KeyIcon} />
-          }
-          title={isLoading ? "Loading" : "No keys currently held"}
-        />
-      }
-      table={table}
-    />
+    <div className="flex flex-col gap-3">
+      <DataTable
+        ariaLabel="Singleton holders"
+        emptyState={
+          <TableEmptyState
+            description={
+              isLoading
+                ? "Loading held keys..."
+                : "No keys are currently held. Held keys appear here while runs hold a singleton lock."
+            }
+            hideButton
+            icon={
+              <HugeiconsIcon
+                className="size-6 text-foreground"
+                icon={KeyIcon}
+              />
+            }
+            title={isLoading ? "Loading" : "No keys currently held"}
+          />
+        }
+        table={table}
+      />
+      {hasNextPage ? (
+        <div className="flex justify-center">
+          <Button
+            disabled={isFetchingNextPage}
+            onClick={onLoadMore}
+            size="sm"
+            variant="outline"
+          >
+            {isFetchingNextPage ? "Loading..." : "Load more"}
+          </Button>
+        </div>
+      ) : null}
+    </div>
   );
 };
 

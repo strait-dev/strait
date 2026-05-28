@@ -14,7 +14,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@strait/ui/components/tabs";
-import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   type ColumnDef,
@@ -24,7 +24,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import FeatureLock from "@/components/billing/feature-lock";
 import ConfigRow from "@/components/common/config-row";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
@@ -50,9 +50,10 @@ import {
   useTriggerWorkflow,
   workflowQueryOptions,
   workflowRunsQueryOptions,
-  workflowSingletonsQueryOptions,
+  workflowSingletonsInfiniteQueryOptions,
   workflowStepsQueryOptions,
 } from "@/hooks/api/use-workflows";
+import { LIVE_REFETCH_INTERVAL } from "@/hooks/utils";
 import {
   ActivityIcon,
   CheckCircleIcon,
@@ -138,10 +139,22 @@ function WorkflowDetailPage() {
   const resumeWorkflow = useResumeWorkflow();
 
   const isSingleton = isSingletonConfigured(workflow);
-  const { data: singletonsData, isLoading: singletonsLoading } = useQuery({
-    ...workflowSingletonsQueryOptions(id),
+  const {
+    data: singletonsData,
+    isLoading: singletonsLoading,
+    hasNextPage: hasMoreSingletons,
+    isFetchingNextPage: isFetchingMoreSingletons,
+    fetchNextPage: fetchMoreSingletons,
+  } = useInfiniteQuery({
+    ...workflowSingletonsInfiniteQueryOptions(id),
     enabled: isSingleton,
+    refetchInterval: LIVE_REFETCH_INTERVAL,
+    refetchIntervalInBackground: false,
   });
+  const singletonHolders = useMemo(
+    () => singletonsData?.pages.flatMap((page) => page.data) ?? [],
+    [singletonsData]
+  );
 
   // Map API steps to the shape WorkflowDAGFlow expects
   const dagSteps = (apiSteps ?? []).map((s: WorkflowStep) => ({
@@ -364,8 +377,11 @@ function WorkflowDetailPage() {
         {isSingleton && (
           <TabsContent className="mt-6" value="singletons">
             <SingletonHoldersTable
-              holders={singletonsData?.data ?? []}
+              hasNextPage={hasMoreSingletons}
+              holders={singletonHolders}
+              isFetchingNextPage={isFetchingMoreSingletons}
               isLoading={singletonsLoading}
+              onLoadMore={fetchMoreSingletons}
             />
           </TabsContent>
         )}

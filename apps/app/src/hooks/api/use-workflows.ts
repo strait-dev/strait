@@ -223,14 +223,6 @@ export const workflowRunsQueryOptions = (workflowId: string) =>
     gcTime: DEFAULT_GC_TIME,
   });
 
-export const workflowSingletonsQueryOptions = (workflowId: string) =>
-  queryOptions({
-    queryKey: queryKeys.workflows.singletons(workflowId).queryKey,
-    queryFn: () => fetchWorkflowSingletons({ data: { workflowId } }),
-    staleTime: HIGH_CHURN_STALE_TIME,
-    gcTime: DEFAULT_GC_TIME,
-  });
-
 export const workflowSingletonsInfiniteQueryOptions = (workflowId: string) =>
   infiniteQueryOptions({
     queryKey: [
