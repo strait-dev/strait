@@ -85,6 +85,29 @@ export type WorkflowRunChainEntry = {
   created_at: string;
 };
 
+/**
+ * One step run within a workflow run, returned by
+ * GET /v1/workflow-runs/{id}/steps. Hand-written because the endpoint wraps a
+ * generic paginated envelope whose `data` is untyped in the OpenAPI spec; the
+ * shape mirrors Go `domain.WorkflowStepRun`.
+ */
+export type WorkflowStepRun = {
+  id: string;
+  workflow_run_id: string;
+  workflow_step_id: string;
+  step_ref: string;
+  job_run_id?: string;
+  attempt: number;
+  status: StepRunStatus;
+  deps_completed: number;
+  deps_required: number;
+  output?: unknown;
+  error?: string;
+  started_at?: string;
+  finished_at?: string;
+  created_at: string;
+};
+
 /** Webhook subscription. */
 export type WebhookSubscription = Schema["WebhookSubscription"];
 

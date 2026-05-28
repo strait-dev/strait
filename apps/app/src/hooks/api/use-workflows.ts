@@ -11,6 +11,7 @@ import type {
   WorkflowRun,
   WorkflowRunChainEntry,
   WorkflowStep,
+  WorkflowStepRun,
 } from "@/hooks/api/types";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
@@ -29,6 +30,10 @@ import {
 } from "@/middlewares/require-access";
 
 const emptyWorkflowStepsResponse: PaginatedResponse<WorkflowStep> = {
+  data: [],
+  has_more: false,
+};
+const emptyWorkflowStepRunsResponse: PaginatedResponse<WorkflowStepRun> = {
   data: [],
   has_more: false,
 };
@@ -122,6 +127,36 @@ export const fetchWorkflowRuns = createServerFn({ method: "GET" })
           { params: { limit: data.limit, cursor: data.cursor } }
         )
       );
+    }
+  );
+
+export const fetchWorkflowRun = createServerFn({ method: "GET" })
+  .inputValidator((data: { workflowRunId: string }) => data)
+  .middleware([authMiddleware])
+  .handler(
+    // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+    async ({ context, data }): Promise<WorkflowRun> => {
+      await requireActiveProjectAccess(context);
+      return await runWithSentryReport(
+        apiEffect<WorkflowRun>(apiPath`/v1/workflow-runs/${data.workflowRunId}`)
+      );
+    }
+  );
+
+export const fetchWorkflowRunSteps = createServerFn({ method: "GET" })
+  .inputValidator((data: { workflowRunId: string }) => data)
+  .middleware([authMiddleware])
+  .handler(
+    // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+    async ({ context, data }): Promise<WorkflowStepRun[]> => {
+      await requireActiveProjectAccess(context);
+      const resp = await runWithFallback(
+        apiEffect<PaginatedResponse<WorkflowStepRun>>(
+          apiPath`/v1/workflow-runs/${data.workflowRunId}/steps`
+        ),
+        emptyWorkflowStepRunsResponse
+      );
+      return dataFromPaginatedOrArray(resp);
     }
   );
 
@@ -246,6 +281,22 @@ export const workflowRunsQueryOptions = (workflowId: string) =>
   queryOptions({
     queryKey: queryKeys.workflows.runs(workflowId).queryKey,
     queryFn: () => fetchWorkflowRuns({ data: { workflowId } }),
+    staleTime: DEFAULT_STALE_TIME,
+    gcTime: DEFAULT_GC_TIME,
+  });
+
+export const workflowRunQueryOptions = (workflowRunId: string) =>
+  queryOptions({
+    queryKey: queryKeys.workflows.run(workflowRunId).queryKey,
+    queryFn: () => fetchWorkflowRun({ data: { workflowRunId } }),
+    staleTime: DEFAULT_STALE_TIME,
+    gcTime: DEFAULT_GC_TIME,
+  });
+
+export const workflowRunStepsQueryOptions = (workflowRunId: string) =>
+  queryOptions({
+    queryKey: queryKeys.workflows.runSteps(workflowRunId).queryKey,
+    queryFn: () => fetchWorkflowRunSteps({ data: { workflowRunId } }),
     staleTime: DEFAULT_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
   });
