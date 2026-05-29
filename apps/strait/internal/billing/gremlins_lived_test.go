@@ -844,7 +844,7 @@ func TestEffectiveLimits_ZeroQuantity_Ignored(t *testing.T) {
 
 func TestEffectiveLimits_HistoryAddsAdditively(t *testing.T) {
 	t.Parallel()
-	base := GetPlanLimits(domain.PlanPro)
+	base := GetPlanLimits(domain.PlanScale)
 	pack := AddonPacks[AddonHistory30d]
 	addons := []Addon{
 		{AddonType: AddonHistory30d, Quantity: 3, Active: true},

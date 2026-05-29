@@ -560,6 +560,7 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 	sub := result.(*OrgSubscription)
 
 	tier := domain.PlanTier(sub.PlanTier)
+	cacheVersion := orgSubscriptionCacheVersion(sub)
 
 	// Read the persisted entitlements snapshot when present. Empty (nil) and
 	// the literal `{}` default are treated as "no snapshot"
@@ -603,7 +604,7 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 				e.logger.Warn("failed to opportunistically populate entitlements",
 					"org_id", orgID, "error", err)
 			} else {
-				sub.CacheVersion++
+				cacheVersion++
 			}
 		}
 	}
@@ -629,7 +630,7 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 		orgID,
 		orgID,
 		cached,
-		orgSubscriptionCacheVersion(sub),
+		cacheVersion,
 		e.cacheBus,
 	)
 	return limits, nil

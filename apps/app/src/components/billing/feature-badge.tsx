@@ -1,6 +1,10 @@
 import { Badge } from "@strait/ui/components/badge";
 import { useCurrentPlan } from "@/hooks/billing/use-current-plan";
-import { canUseFeature, type PlanFeature } from "@/lib/plan-tiers";
+import {
+  canUseFeature,
+  isRoadmapFeature,
+  type PlanFeature,
+} from "@/lib/plan-tiers";
 
 const MIN_PLAN_LABEL: Record<PlanFeature, string> = {
   http_mode: "Pro",
@@ -42,7 +46,7 @@ const FeatureBadge = ({ feature }: FeatureBadgeProps) => {
 
   return (
     <Badge className="ml-1.5 text-[10px]" variant="outline">
-      {MIN_PLAN_LABEL[feature]}
+      {isRoadmapFeature(feature) ? "Roadmap" : MIN_PLAN_LABEL[feature]}
     </Badge>
   );
 };

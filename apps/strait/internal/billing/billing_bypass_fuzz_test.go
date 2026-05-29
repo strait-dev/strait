@@ -200,18 +200,14 @@ func TestBypass_FreeTierCannotAccessPaidFeatures(t *testing.T) {
 	}
 }
 
-func TestBypass_EnterpriseHasAllFeatures(t *testing.T) {
+func TestBypass_EnterpriseHasLaunchActiveFeatures(t *testing.T) {
 	t.Parallel()
 	reg := NewStaticRegistry()
 
 	allFeatures := []Feature{
 		FeatureHTTPMode, FeatureApprovalGates, FeatureSubWorkflows,
 		FeatureJobChaining, FeatureCompensatingTxns, FeatureCanaryDeployments,
-		FeatureAuditLogs, FeatureSSO, FeatureSLA, FeatureRBAC,
-		FeatureDedicatedCompute, FeatureStaticIPs, FeatureVPCPeering,
-		FeatureSCIM, FeatureDataResidency, FeatureCustomRBAC,
-		FeaturePriorityQueue, FeatureIPAllowlisting,
-		FeatureSessionManagement, FeatureSecretRotation, FeatureSIEMExport,
+		FeatureAuditLogs, FeatureSLA, FeatureRBAC,
 		FeatureAllCronOverlap, FeatureAIAssistantBYOK,
 	}
 

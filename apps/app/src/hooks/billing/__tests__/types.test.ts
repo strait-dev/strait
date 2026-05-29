@@ -38,21 +38,21 @@ describe("PlanTierSlug", () => {
 describe("AddonTypeSlug", () => {
   it("ALL_ADDON_TYPES contains all 5 addon types", () => {
     expect(ALL_ADDON_TYPES).toEqual([
-      "concurrent_runs",
-      "members",
-      "cron_schedules",
-      "data_retention",
-      "webhook_endpoints",
+      "concurrency_100",
+      "history_30d",
+      "environments_5",
+      "compliance_archive",
+      "dedicated_workers",
     ]);
   });
 
   it("type accepts valid addon type strings", () => {
     const types: AddonTypeSlug[] = [
-      "concurrent_runs",
-      "members",
-      "cron_schedules",
-      "data_retention",
-      "webhook_endpoints",
+      "concurrency_100",
+      "history_30d",
+      "environments_5",
+      "compliance_archive",
+      "dedicated_workers",
     ];
     expect(types).toHaveLength(5);
   });

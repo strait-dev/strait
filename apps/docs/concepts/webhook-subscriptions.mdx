@@ -54,6 +54,12 @@ A `secret` field in the request body is now ignored. Server-side generation guar
 | `run.canceled` | A job run is manually canceled. |
 | `workflow.completed` | A workflow finishes successfully. |
 | `workflow.failed` | A workflow fails. |
+| `billing.cap_warning` | An organization reaches 80 percent of its monthly spending cap. |
+| `billing.cap_reached` | An organization reaches 100 percent of its monthly spending cap. |
+| `billing.cap_disabled` | An organization removes its monthly spending cap. |
+| `billing.overage_disabled` | An organization disables paid-plan overage. |
+| `billing.suspended` | An organization is suspended after failed-payment dunning. |
+| `billing.delinquent` | A suspended organization moves to delinquent state. |
 
 ## Circuit Breaker
 

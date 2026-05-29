@@ -569,7 +569,7 @@ const FAQ_ITEMS = [
   {
     question: "Do you offer enterprise pricing?",
     answer:
-      "Yes. Enterprise plans include custom pricing, unlimited resources, SSO, SLA guarantees, and dedicated support. Contact us to discuss your needs.",
+      "Yes. Enterprise plans include custom pricing, custom resources, SLA targets, and dedicated support. SSO and advanced network controls are roadmap/contact-sales items for launch.",
   },
 ];
 

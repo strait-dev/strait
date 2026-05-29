@@ -84,7 +84,7 @@ function LoginPage() {
       </ButtonLink>
       <ButtonLink to="/sso">
         <HugeiconsIcon className="size-4" icon={BuildingIcon} />
-        Sign in with SSO
+        SSO roadmap
       </ButtonLink>
       <p className="text-center text-muted-foreground text-sm">
         Don't have an account?{" "}

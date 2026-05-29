@@ -76,6 +76,12 @@ func registerAllTypedOps(api huma.API, s *Server) {
 
 	// -- Billing --
 	RegisterTypedOp(api, OpMeta{
+		ID: "list-plans", Method: http.MethodGet, Path: "/v1/plans",
+		Summary: "List plans", Description: "Returns all available plan tiers with their launch limits, pricing, and roadmap metadata.",
+		Tags: []string{"Billing"}, Security: bearerSecurity, Errors: []int{401, 500},
+	}, s.handleGetPlans)
+
+	RegisterTypedOp(api, OpMeta{
 		ID: "get-current-usage", Method: http.MethodGet, Path: "/v1/usage/current",
 		Summary: "Get current usage", Description: "Returns the current billing period's usage metrics.",
 		Tags: []string{"Billing"}, Security: bearerSecurity, Errors: []int{401, 404, 500, 501},

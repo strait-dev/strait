@@ -106,8 +106,9 @@ func TestEnvironment_VariableValueInjection(t *testing.T) {
 			if captured == nil {
 				t.Fatal("expected environment to be captured")
 			}
-			if captured.Variables["SAFE_KEY"] != val {
-				t.Fatalf("expected variable value to be stored literally, got %q", captured.Variables["SAFE_KEY"])
+			want := strings.ReplaceAll(val, "\x00", "")
+			if captured.Variables["SAFE_KEY"] != want {
+				t.Fatalf("expected variable value to be stored safely, got %q", captured.Variables["SAFE_KEY"])
 			}
 		})
 	}

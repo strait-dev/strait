@@ -316,7 +316,7 @@ func TestSelfHostedEnforcement(t *testing.T) {
 		features := []Feature{
 			FeatureHTTPMode, FeatureApprovalGates, FeatureSubWorkflows,
 			FeatureJobChaining, FeatureCompensatingTxns, FeatureCanaryDeployments,
-			FeatureAuditLogs, FeatureSSO, FeatureSLA,
+			FeatureAuditLogs, FeatureSLA,
 		}
 		for _, f := range features {
 			if !reg.AllowsFeature(domain.PlanEnterprise, f) {

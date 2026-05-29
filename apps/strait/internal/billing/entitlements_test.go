@@ -154,7 +154,7 @@ func TestComputeEntitlements_TableAddonsApplyBeforeSubscriptionAddons(t *testing
 	t.Parallel()
 
 	sub := &OrgSubscription{
-		PlanTier: string(domain.PlanPro),
+		PlanTier: string(domain.PlanScale),
 		AddOns:   SubscriptionAddOns{RetentionPack: 1},
 	}
 	addons := []Addon{
@@ -163,9 +163,9 @@ func TestComputeEntitlements_TableAddonsApplyBeforeSubscriptionAddons(t *testing
 
 	got := ComputeEntitlements(sub, addons)
 
-	// Pro retention = 30; +30 from table addon (history_30d), +30 from
-	// subscription pack (retentionPackDays = 30) = 90.
-	wantRetention := RetentionPro + 30 + retentionPackDays
+	// Scale retention = 60; +30 from table addon (history_30d), +30 from
+	// subscription pack (retentionPackDays = 30) = 120.
+	wantRetention := RetentionScale + 30 + retentionPackDays
 	if got.RetentionDays != wantRetention {
 		t.Errorf("retention composition: got %d, want %d", got.RetentionDays, wantRetention)
 	}

@@ -87,7 +87,7 @@ var AddonPacks = map[AddonType]AddonPackDefinition{
 	AddonDedicatedWorkers: {
 		Type:        AddonDedicatedWorkers,
 		DisplayName: "Dedicated Worker Pool",
-		LookupKey:   "strait_addon_dedicated_workers",
+		LookupKey:   "strait_addon_dedicated_pool",
 		PackSize:    1,
 		PriceCents:  20000, // $200/mo
 		MaxTotal:    -1,

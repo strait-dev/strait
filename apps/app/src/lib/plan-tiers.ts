@@ -51,8 +51,8 @@ export type PlanFeature =
   | "secret_rotation"
   | "siem_export";
 
-/** Minimum tier required for each feature. */
-const FEATURE_MIN_TIER: Record<PlanFeature, string> = {
+/** Minimum tier required for launch-active features. */
+const FEATURE_MIN_TIER: Partial<Record<PlanFeature, string>> = {
   http_mode: "pro",
   approval_gates: "pro",
   sub_workflows: "pro",
@@ -60,19 +60,27 @@ const FEATURE_MIN_TIER: Record<PlanFeature, string> = {
   compensating_txns: "pro",
   canary_deployments: "scale",
   audit_logs: "scale",
-  sso: "enterprise",
   sla: "enterprise",
-  dedicated_compute: "enterprise",
-  static_ips: "enterprise",
-  vpc_peering: "enterprise",
-  scim: "enterprise",
-  data_residency: "enterprise",
-  custom_rbac: "enterprise",
-  ip_allowlisting: "enterprise",
-  session_management: "enterprise",
-  secret_rotation: "enterprise",
-  siem_export: "enterprise",
 };
+
+const ROADMAP_FEATURES = new Set<PlanFeature>([
+  "sso",
+  "dedicated_compute",
+  "static_ips",
+  "vpc_peering",
+  "scim",
+  "data_residency",
+  "custom_rbac",
+  "ip_allowlisting",
+  "session_management",
+  "secret_rotation",
+  "siem_export",
+]);
+
+/** Returns true when a feature is shown for roadmap/contact-sales only. */
+export function isRoadmapFeature(feature: PlanFeature): boolean {
+  return ROADMAP_FEATURES.has(feature);
+}
 
 /** Returns true if `tier` has access to the given feature. */
 export function canUseFeature(
@@ -80,6 +88,9 @@ export function canUseFeature(
   feature: PlanFeature
 ): boolean {
   const minTier = FEATURE_MIN_TIER[feature];
+  if (isRoadmapFeature(feature)) {
+    return false;
+  }
   if (!minTier) {
     return true;
   }

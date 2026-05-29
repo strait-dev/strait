@@ -77,12 +77,12 @@ func TestStaticRegistry_AllowsFeature(t *testing.T) {
 		{domain.PlanPro, FeatureAuditLogs, false},
 		{domain.PlanScale, FeatureAuditLogs, true},
 		{domain.PlanEnterprise, FeatureAuditLogs, true},
-		// SSO: Enterprise only.
+		// SSO: roadmap/contact-sales only at launch.
 		{domain.PlanFree, FeatureSSO, false},
 		{domain.PlanStarter, FeatureSSO, false},
 		{domain.PlanPro, FeatureSSO, false},
 		{domain.PlanScale, FeatureSSO, false},
-		{domain.PlanEnterprise, FeatureSSO, true},
+		{domain.PlanEnterprise, FeatureSSO, false},
 		// SLA: Enterprise only.
 		{domain.PlanPro, FeatureSLA, false},
 		{domain.PlanScale, FeatureSLA, false},
@@ -223,7 +223,16 @@ func TestStaticRegistry_FeatureGating_Exhaustive(t *testing.T) {
 		}
 	}
 
-	enterpriseFeatures := []Feature{FeatureSSO, FeatureSLA}
+	roadmapFeatures := []Feature{FeatureSSO}
+	for _, f := range roadmapFeatures {
+		for _, tier := range domain.AllPlanTiers() {
+			if reg.AllowsFeature(tier, f) {
+				t.Errorf("%s should not have launch-roadmap feature %q", tier, f)
+			}
+		}
+	}
+
+	enterpriseFeatures := []Feature{FeatureSLA}
 	for _, f := range enterpriseFeatures {
 		for _, tier := range []domain.PlanTier{domain.PlanFree, domain.PlanStarter, domain.PlanPro, domain.PlanScale} {
 			if reg.AllowsFeature(tier, f) {
@@ -287,11 +296,11 @@ func TestStaticRegistry_RequiredPlanForFeature(t *testing.T) {
 		// Scale features.
 		{FeatureAuditLogs, domain.PlanScale},
 		{FeatureCanaryDeployments, domain.PlanScale},
-		// Business features (Business is the lowest tier with these now).
-		{FeatureSSO, domain.PlanBusiness},
+		// Business features.
 		{FeatureSLA, domain.PlanBusiness},
-		{FeatureSCIM, domain.PlanBusiness},
-		// Enterprise-only features.
+		// Roadmap/contact-sales features default to Enterprise as the upgrade CTA.
+		{FeatureSSO, domain.PlanEnterprise},
+		{FeatureSCIM, domain.PlanEnterprise},
 		{FeatureDedicatedCompute, domain.PlanEnterprise},
 		// Unknown feature defaults to enterprise.
 		{Feature("nonexistent"), domain.PlanEnterprise},

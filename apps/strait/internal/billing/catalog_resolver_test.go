@@ -65,7 +65,7 @@ func TestCatalogResolver_AddonForLookupKey(t *testing.T) {
 		{"strait_addon_log_drain_10gb", AddonLogDrain10GB},
 		{"strait_addon_history_30d", AddonHistory30d},
 		{"strait_addon_compliance_archive", AddonComplianceArchive},
-		{"strait_addon_dedicated_workers", AddonDedicatedWorkers},
+		{"strait_addon_dedicated_pool", AddonDedicatedWorkers},
 		{"strait_addon_environments_5", AddonEnvironments5},
 	}
 

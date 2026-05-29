@@ -9701,6 +9701,9 @@ func (mock *APIStoreMock) GetEventTriggerByEventKeyForProject(ctx context.Contex
 	mock.calls.GetEventTriggerByEventKeyForProject = append(mock.calls.GetEventTriggerByEventKeyForProject, callInfo)
 	mock.lockGetEventTriggerByEventKeyForProject.Unlock()
 	if mock.GetEventTriggerByEventKeyForProjectFunc == nil {
+		if mock.GetEventTriggerByEventKeyFunc != nil {
+			return mock.GetEventTriggerByEventKey(ctx, eventKey)
+		}
 		var (
 			eventTriggerOut *domain.EventTrigger
 			errOut          error

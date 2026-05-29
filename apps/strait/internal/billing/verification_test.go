@@ -149,7 +149,7 @@ func TestSelfHosted_AllFeaturesAvailable(t *testing.T) {
 	enterpriseFeatures := []Feature{
 		FeatureHTTPMode, FeatureApprovalGates, FeatureSubWorkflows,
 		FeatureJobChaining, FeatureCompensatingTxns, FeatureCanaryDeployments,
-		FeatureAuditLogs, FeatureSSO, FeatureSLA,
+		FeatureAuditLogs, FeatureSLA,
 	}
 
 	for _, f := range enterpriseFeatures {

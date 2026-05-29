@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   canUseFeature,
   isDowngrade,
+  isRoadmapFeature,
   type PlanFeature,
   tierAtLeast,
 } from "../plan-tiers";
@@ -132,9 +133,10 @@ describe("canUseFeature", () => {
 
   const scaleFeatures: PlanFeature[] = ["canary_deployments", "audit_logs"];
 
-  const enterpriseFeatures: PlanFeature[] = ["sso", "sla"];
+  const enterpriseFeatures: PlanFeature[] = ["sla"];
 
   const enterpriseOnlyFeatures: PlanFeature[] = [
+    "sso",
     "dedicated_compute",
     "static_ips",
     "vpc_peering",
@@ -201,9 +203,10 @@ describe("canUseFeature", () => {
     }
   });
 
-  it("allows enterprise-only features on enterprise", () => {
+  it("blocks roadmap-only features on enterprise", () => {
     for (const feature of enterpriseOnlyFeatures) {
-      expect(canUseFeature("enterprise", feature)).toBe(true);
+      expect(canUseFeature("enterprise", feature)).toBe(false);
+      expect(isRoadmapFeature(feature)).toBe(true);
     }
   });
 

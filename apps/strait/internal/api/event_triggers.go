@@ -107,6 +107,9 @@ func (s *Server) handleSendEvent(ctx context.Context, input *SendEventInput) (*S
 	if trigger == nil {
 		return nil, huma.Error404NotFound("event trigger not found")
 	}
+	if err := requireProjectMatch(ctx, trigger.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("event trigger not found")
+	}
 	if projectID == "" && isInternalCaller(ctx) {
 		s.emitInternalSecretBypassAudit(ctx, "send_event.project_match", "handleSendEvent", "event_trigger", trigger.ID)
 	}
@@ -296,6 +299,9 @@ func (s *Server) handleGetEventTrigger(ctx context.Context, input *GetEventTrigg
 	if trigger == nil {
 		return nil, huma.Error404NotFound("event trigger not found")
 	}
+	if err := requireProjectMatch(ctx, trigger.ProjectID); err != nil {
+		return nil, huma.Error404NotFound("event trigger not found")
+	}
 	if projectID == "" && isInternalCaller(ctx) {
 		s.emitInternalSecretBypassAudit(ctx, "get_event_trigger.project_match", "handleGetEventTrigger", "event_trigger", trigger.ID)
 	}
@@ -325,6 +331,9 @@ func (s *Server) handleCancelEventTrigger(ctx context.Context, input *CancelEven
 		return nil, huma.Error500InternalServerError("failed to get event trigger")
 	}
 	if trigger == nil {
+		return nil, huma.Error404NotFound("event trigger not found")
+	}
+	if err := requireProjectMatch(ctx, trigger.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("event trigger not found")
 	}
 	if projectID == "" && isInternalCaller(ctx) {

@@ -138,7 +138,12 @@ const basePlan = {
   has_rbac: true,
   rbac_level: "advanced",
   has_audit_logs: true,
-  has_sso: true,
+  has_canary_deployments: true,
+  has_approval_gates: true,
+  has_sub_workflows: true,
+  has_job_chaining: true,
+  has_compensating_txns: true,
+  has_sso: false,
   has_sla: true,
   requires_credit_card: true,
   overage_per_k_runs_microusd: 30_000,
@@ -146,15 +151,23 @@ const basePlan = {
   has_dedicated_compute: false,
   has_static_ips: false,
   has_vpc_peering: false,
-  has_scim: true,
+  has_scim: false,
   has_data_residency: false,
   has_custom_rbac: false,
   has_reserved_capacity: false,
-  has_priority_queue: true,
-  has_ip_allowlisting: true,
-  has_session_management: true,
-  has_secret_rotation: true,
-  has_siem_export: true,
+  has_priority_queue: false,
+  has_ip_allowlisting: false,
+  has_session_management: false,
+  has_secret_rotation: false,
+  has_siem_export: false,
+  max_environments: -1,
+  max_scheduled_jobs: -1,
+  cron_min_interval_sec: 0,
+  max_webhook_endpoints: -1,
+  max_workflow_dag_steps: -1,
+  api_rate_limit: -1,
+  worker_connections: -1,
+  roadmap_features: ["SSO/SAML", "SCIM", "IP allowlisting"],
 } satisfies APIPlan;
 
 describe("apiPlansToPricingPlans", () => {
@@ -164,7 +177,7 @@ describe("apiPlansToPricingPlans", () => {
     expect(pricingPlan.slug).toBe("business");
     expect(pricingPlan.description).not.toBe("");
     expect(pricingPlan.features.map((feature) => feature.name)).toContain(
-      "25,000,000 runs/month"
+      "25,000,000 orchestration runs/mo"
     );
     expect(pricingPlan.features.map((feature) => feature.name)).toContain(
       "All regions"

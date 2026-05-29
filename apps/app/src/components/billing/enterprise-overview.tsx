@@ -24,20 +24,24 @@ type EnterpriseOverviewProps = {
 const formatUsd = (microUsd: number): string =>
   `$${(microUsd / 1_000_000).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-const ENTERPRISE_FEATURES = [
-  "SSO (SAML 2.0 + OIDC)",
+const ENTERPRISE_ACTIVE_FEATURES = [
+  "Custom orchestration run allowance",
+  "Custom concurrency and step caps",
+  "Unlimited history by contract",
+  "Consolidated invoicing",
+  "Dedicated TAM",
+  "Named on-call",
+] as const;
+
+const ENTERPRISE_ROADMAP_FEATURES = [
+  "SSO/SAML",
   "SCIM directory sync",
-  "Dedicated compute",
+  "IP allowlisting",
   "Static egress IPs",
   "VPC peering",
-  "Custom RBAC policies",
-  "IP allowlisting",
-  "Session management",
-  "Secret rotation",
-  "Audit log export (SIEM)",
   "Data residency",
-  "Reserved capacity",
-  "Priority queue",
+  "Single-tenant orchestration",
+  "BYO-cloud",
 ] as const;
 
 export const EnterpriseOverview = ({
@@ -149,17 +153,38 @@ export const EnterpriseOverview = ({
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <HugeiconsIcon className="size-4" icon={CheckCircleIcon} />
-            Enterprise features
+            Enterprise launch features
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {ENTERPRISE_FEATURES.map((feature) => (
+            {ENTERPRISE_ACTIVE_FEATURES.map((feature) => (
               <div className="flex items-center gap-2" key={feature}>
                 <HugeiconsIcon
                   className="size-4 text-primary"
                   icon={CheckIcon}
                 />
+                <span className="text-sm">{feature}</span>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            Enterprise roadmap
+          </CardTitle>
+          <CardDescription>
+            Contact sales for roadmap timing and contract-specific commitments.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {ENTERPRISE_ROADMAP_FEATURES.map((feature) => (
+              <div className="flex items-center gap-2" key={feature}>
+                <Badge variant="outline">Roadmap</Badge>
                 <span className="text-sm">{feature}</span>
               </div>
             ))}

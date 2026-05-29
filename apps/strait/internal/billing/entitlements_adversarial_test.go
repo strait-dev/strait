@@ -49,32 +49,32 @@ func TestComputeEntitlements_DisallowedActiveAddonsDoNotGrantFreePlanBenefits(t 
 func TestComputeEntitlements_ActiveAddonsAreClampedToPlanPackCap(t *testing.T) {
 	t.Parallel()
 
-	base := GetPlanLimits(domain.PlanStarter)
-	cap := base.MaxAddonPacks[AddonConcurrency100]
+	base := GetPlanLimits(domain.PlanScale)
+	cap := base.MaxAddonPacks[AddonHistory30d]
 	if cap <= 0 {
-		t.Fatalf("starter concurrency add-on cap = %d, want positive", cap)
+		t.Fatalf("scale history add-on cap = %d, want positive", cap)
 	}
-	sub := &OrgSubscription{PlanTier: string(domain.PlanStarter)}
+	sub := &OrgSubscription{PlanTier: string(domain.PlanScale)}
 	got := ComputeEntitlements(sub, []Addon{
-		{AddonType: AddonConcurrency100, Quantity: cap + 10, Active: true},
-		{AddonType: AddonConcurrency100, Quantity: cap + 10, Active: true},
+		{AddonType: AddonHistory30d, Quantity: cap + 10, Active: true},
+		{AddonType: AddonHistory30d, Quantity: cap + 10, Active: true},
 	})
 
-	want := base.MaxConcurrentRuns + cap*AddonPacks[AddonConcurrency100].PackSize
-	if got.MaxConcurrentRuns != want {
-		t.Fatalf("clamped concurrency = %d, want %d", got.MaxConcurrentRuns, want)
+	want := base.RetentionDays + cap*AddonPacks[AddonHistory30d].PackSize
+	if got.RetentionDays != want {
+		t.Fatalf("clamped retention = %d, want %d", got.RetentionDays, want)
 	}
 }
 
 func TestReconcileActiveAddonsForPlan_DeactivatesDisallowedAndOverCapRows(t *testing.T) {
 	t.Parallel()
 
-	base := GetPlanLimits(domain.PlanStarter)
-	cap := base.MaxAddonPacks[AddonConcurrency100]
+	base := GetPlanLimits(domain.PlanScale)
+	cap := base.MaxAddonPacks[AddonHistory30d]
 	store := &mockBillingStore{
 		activeAddons: []Addon{
-			{ID: "keep-1", OrgID: "org-addons", AddonType: AddonConcurrency100, Quantity: cap, Active: true},
-			{ID: "over-cap", OrgID: "org-addons", AddonType: AddonConcurrency100, Quantity: 1, Active: true},
+			{ID: "keep-1", OrgID: "org-addons", AddonType: AddonHistory30d, Quantity: cap, Active: true},
+			{ID: "over-cap", OrgID: "org-addons", AddonType: AddonHistory30d, Quantity: 1, Active: true},
 			{ID: "disallowed", OrgID: "org-addons", AddonType: AddonDedicatedWorkers, Quantity: 1, Active: true},
 		},
 	}

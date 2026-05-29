@@ -4,16 +4,19 @@ import { ADDON_CATALOG, getActivePackCount } from "../use-addons";
 
 describe("getActivePackCount", () => {
   it("returns 0 for undefined addons", () => {
-    expect(getActivePackCount(undefined, "members")).toBe(0);
+    expect(getActivePackCount(undefined, "concurrency_100")).toBe(0);
   });
 
   it("returns 0 for empty array", () => {
-    expect(getActivePackCount([], "members")).toBe(0);
+    expect(getActivePackCount([], "concurrency_100")).toBe(0);
   });
 
   it("returns quantity for single matching addon", () => {
     expect(
-      getActivePackCount([{ type: "members", quantity: 2 }], "members")
+      getActivePackCount(
+        [{ type: "concurrency_100", quantity: 2 }],
+        "concurrency_100"
+      )
     ).toBe(2);
   });
 
@@ -21,17 +24,20 @@ describe("getActivePackCount", () => {
     expect(
       getActivePackCount(
         [
-          { type: "members", quantity: 1 },
-          { type: "members", quantity: 3 },
+          { type: "concurrency_100", quantity: 1 },
+          { type: "concurrency_100", quantity: 3 },
         ],
-        "members"
+        "concurrency_100"
       )
     ).toBe(4);
   });
 
   it("returns 0 when no addons match the type", () => {
     expect(
-      getActivePackCount([{ type: "concurrent_runs", quantity: 5 }], "members")
+      getActivePackCount(
+        [{ type: "history_30d", quantity: 5 }],
+        "concurrency_100"
+      )
     ).toBe(0);
   });
 
@@ -39,24 +45,28 @@ describe("getActivePackCount", () => {
     expect(
       getActivePackCount(
         [
-          { type: "concurrent_runs", quantity: 5 },
-          { type: "members", quantity: 2 },
-          { type: "cron_schedules", quantity: 3 },
+          { type: "history_30d", quantity: 5 },
+          { type: "concurrency_100", quantity: 2 },
+          { type: "environments_5", quantity: 3 },
         ],
-        "members"
+        "concurrency_100"
       )
     ).toBe(2);
   });
 });
 
 describe("ADDON_CATALOG", () => {
-  it("has exactly 5 items", () => {
-    expect(ADDON_CATALOG).toHaveLength(5);
+  it("has exactly 3 launch-active items", () => {
+    expect(ADDON_CATALOG).toHaveLength(3);
   });
 
-  it("contains all valid addon types", () => {
+  it("contains only launch-active addon types", () => {
     const catalogTypes = ADDON_CATALOG.map((item) => item.type);
-    for (const addonType of ALL_ADDON_TYPES) {
+    for (const addonType of [
+      "concurrency_100",
+      "history_30d",
+      "environments_5",
+    ]) {
       expect(catalogTypes).toContain(addonType);
     }
   });
@@ -66,7 +76,7 @@ describe("ADDON_CATALOG", () => {
       expect(item.name).toBeTruthy();
       expect(item.description).toBeTruthy();
       expect(item.price).toBeTruthy();
-      expect(item.checkoutSlug).toBeTruthy();
+      expect(item.availableOn.length).toBeGreaterThan(0);
       expect(item.packSize).toBeGreaterThan(0);
       expect(item.packUnit).toBeTruthy();
     }

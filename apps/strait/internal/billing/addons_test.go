@@ -52,7 +52,7 @@ func TestEffectiveLimits_MultiplePacksStack(t *testing.T) {
 
 func TestEffectiveLimits_Environments5Pack(t *testing.T) {
 	t.Parallel()
-	base := GetPlanLimits(domain.PlanStarter)
+	base := GetPlanLimits(domain.PlanPro)
 	addons := []Addon{
 		{AddonType: AddonEnvironments5, Quantity: 1, Active: true},
 	}
@@ -67,28 +67,28 @@ func TestEffectiveLimits_Environments5Pack(t *testing.T) {
 func TestEffectiveLimits_History30dPack(t *testing.T) {
 	t.Parallel()
 
-	// Starter has RetentionStarter days. One pack adds 30 days.
-	starter := GetPlanLimits(domain.PlanStarter)
-	result := EffectiveLimits(starter, []Addon{
+	// Scale has RetentionScale days. One pack adds 30 days.
+	scale := GetPlanLimits(domain.PlanScale)
+	result := EffectiveLimits(scale, []Addon{
 		{AddonType: AddonHistory30d, Quantity: 1, Active: true},
 	})
-	want1Pack := RetentionStarter + 30
+	want1Pack := RetentionScale + 30
 	if result.RetentionDays != want1Pack {
-		t.Errorf("Starter + 1 history pack = %d, want %d", result.RetentionDays, want1Pack)
+		t.Errorf("Scale + 1 history pack = %d, want %d", result.RetentionDays, want1Pack)
 	}
 
 	// Two packs stack additively.
-	pro := GetPlanLimits(domain.PlanPro)
-	result = EffectiveLimits(pro, []Addon{
+	business := GetPlanLimits(domain.PlanBusiness)
+	result = EffectiveLimits(business, []Addon{
 		{AddonType: AddonHistory30d, Quantity: 2, Active: true},
 	})
-	want2Pack := pro.RetentionDays + 60
+	want2Pack := business.RetentionDays + 60
 	if result.RetentionDays != want2Pack {
-		t.Errorf("Pro + 2 history packs = %d, want %d", result.RetentionDays, want2Pack)
+		t.Errorf("Business + 2 history packs = %d, want %d", result.RetentionDays, want2Pack)
 	}
 }
 
-func TestEffectiveLimits_ComplianceArchive_SetsSIEMExport(t *testing.T) {
+func TestEffectiveLimits_ComplianceArchiveLaunchRoadmapNoEffect(t *testing.T) {
 	t.Parallel()
 	base := GetPlanLimits(domain.PlanScale)
 	if base.HasSIEMExport {
@@ -98,14 +98,14 @@ func TestEffectiveLimits_ComplianceArchive_SetsSIEMExport(t *testing.T) {
 	result := EffectiveLimits(base, []Addon{
 		{AddonType: AddonComplianceArchive, Quantity: 1, Active: true},
 	})
-	if !result.HasSIEMExport {
-		t.Error("expected ComplianceArchive addon to enable HasSIEMExport")
+	if result.HasSIEMExport {
+		t.Error("ComplianceArchive is roadmap at launch and must not enable HasSIEMExport")
 	}
 }
 
-func TestEffectiveLimits_DedicatedWorkers_SetsHasDedicatedCompute(t *testing.T) {
+func TestEffectiveLimits_DedicatedWorkersLaunchRoadmapNoEffect(t *testing.T) {
 	t.Parallel()
-	base := GetPlanLimits(domain.PlanPro)
+	base := GetPlanLimits(domain.PlanScale)
 	if base.HasDedicatedCompute {
 		t.Fatalf("precondition: Pro should not have dedicated compute")
 	}
@@ -113,14 +113,14 @@ func TestEffectiveLimits_DedicatedWorkers_SetsHasDedicatedCompute(t *testing.T) 
 	result := EffectiveLimits(base, []Addon{
 		{AddonType: AddonDedicatedWorkers, Quantity: 1, Active: true},
 	})
-	if !result.HasDedicatedCompute {
-		t.Error("expected DedicatedWorkers addon to enable HasDedicatedCompute")
+	if result.HasDedicatedCompute {
+		t.Error("DedicatedWorkers is roadmap at launch and must not enable HasDedicatedCompute")
 	}
 }
 
 func TestEffectiveLimits_MixedAddons(t *testing.T) {
 	t.Parallel()
-	base := GetPlanLimits(domain.PlanPro)
+	base := GetPlanLimits(domain.PlanScale)
 	addons := []Addon{
 		{AddonType: AddonConcurrency100, Quantity: 2, Active: true},
 		{AddonType: AddonEnvironments5, Quantity: 3, Active: true},

@@ -59,25 +59,25 @@ func TestDeepSecGetOrgRetentionDays_AddsActiveHistoryAndSubscriptionPacks(t *tes
 	t.Parallel()
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
-			"org-pro": {
-				OrgID:    "org-pro",
-				PlanTier: "pro",
+			"org-scale": {
+				OrgID:    "org-scale",
+				PlanTier: "scale",
 				Status:   "active",
 				AddOns:   SubscriptionAddOns{RetentionPack: 1},
 			},
 		},
 		activeAddons: []Addon{
-			{OrgID: "org-pro", AddonType: AddonHistory30d, Quantity: 2, Active: true},
-			{OrgID: "org-pro", AddonType: AddonHistory30d, Quantity: 10, Active: false},
+			{OrgID: "org-scale", AddonType: AddonHistory30d, Quantity: 2, Active: true},
+			{OrgID: "org-scale", AddonType: AddonHistory30d, Quantity: 10, Active: false},
 		},
 	}
 	resolver := NewPlanRetentionResolver(store)
 
-	days, err := resolver.GetOrgRetentionDays(context.Background(), "org-pro")
+	days, err := resolver.GetOrgRetentionDays(context.Background(), "org-scale")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	want := GetPlanLimits(domain.PlanPro).RetentionDays + 90
+	want := GetPlanLimits(domain.PlanScale).RetentionDays + 90
 	if days != want {
 		t.Errorf("days = %d, want %d", days, want)
 	}

@@ -19,11 +19,11 @@ export type PlanTierSlug =
 
 /** Addon type identifiers matching the Go backend `billing.AddonType` constants. */
 export type AddonTypeSlug =
-  | "concurrent_runs"
-  | "members"
-  | "cron_schedules"
-  | "data_retention"
-  | "webhook_endpoints";
+  | "concurrency_100"
+  | "history_30d"
+  | "environments_5"
+  | "compliance_archive"
+  | "dedicated_workers";
 
 /** Anomaly severity levels returned by the anomaly detection endpoint. */
 export type AnomalySeverity = "warning" | "high" | "critical";
@@ -72,9 +72,9 @@ export const ALL_PLAN_TIERS: readonly PlanTierSlug[] = [
 
 /** All valid addon type slugs. */
 export const ALL_ADDON_TYPES: readonly AddonTypeSlug[] = [
-  "concurrent_runs",
-  "members",
-  "cron_schedules",
-  "data_retention",
-  "webhook_endpoints",
+  "concurrency_100",
+  "history_30d",
+  "environments_5",
+  "compliance_archive",
+  "dedicated_workers",
 ] as const;

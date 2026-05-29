@@ -12,6 +12,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { useState } from "react";
+import type { PlanTierSlug } from "@/hooks/billing/types";
 import { ADDON_CATALOG, getActivePackCount } from "@/hooks/billing/use-addons";
 import { orgUsageQueryOptions } from "@/hooks/billing/use-org-usage";
 import { apiRequest } from "@/lib/api-client.server";
@@ -25,16 +26,13 @@ import { authMiddleware } from "@/middlewares/auth";
 import { requireActiveOrgAdmin } from "@/middlewares/require-access";
 
 const getAddonPriceMap = (): Record<string, string | undefined> => ({
-  "addon-concurrent-runs": process.env.STRIPE_ADDON_CONCURRENT_RUNS_PRICE_ID,
-  "addon-members": process.env.STRIPE_ADDON_MEMBERS_PRICE_ID,
-  "addon-cron-schedules": process.env.STRIPE_ADDON_CRON_SCHEDULES_PRICE_ID,
-  "addon-data-retention": process.env.STRIPE_ADDON_DATA_RETENTION_PRICE_ID,
-  "addon-webhook-endpoints":
-    process.env.STRIPE_ADDON_WEBHOOK_ENDPOINTS_PRICE_ID,
+  concurrency_100: process.env.STRIPE_ADDON_CONCURRENCY_100_PRICE_ID,
+  history_30d: process.env.STRIPE_ADDON_HISTORY_30D_PRICE_ID,
+  environments_5: process.env.STRIPE_ADDON_ENVIRONMENTS_5_PRICE_ID,
 });
 
 /** Plans that can purchase add-ons. Enterprise has custom terms. */
-const ADDON_ELIGIBLE_PLANS = new Set(["starter", "pro", "scale", "business"]);
+const ADDON_ELIGIBLE_PLANS = new Set(["pro", "scale", "business"]);
 
 const startAddonCheckoutServerFn = createServerFn({ method: "POST" })
   .inputValidator((data: { checkoutSlug: string }) => data)
@@ -113,7 +111,7 @@ const AddonsTab = () => {
     const message =
       plan === "enterprise"
         ? "Enterprise plans have custom limits. Contact your account manager to adjust."
-        : "Add-ons are available on paid plans.";
+        : "Add-ons are available on Pro and above.";
 
     const action =
       plan === "enterprise" ? null : (
@@ -121,7 +119,7 @@ const AddonsTab = () => {
           onClick={() => navigate({ to: "/app/upgrade" })}
           variant="default"
         >
-          Upgrade to Starter
+          Upgrade to Pro
         </Button>
       );
 
@@ -148,7 +146,9 @@ const AddonsTab = () => {
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {ADDON_CATALOG.map((addon) => {
+        {ADDON_CATALOG.filter((addon) =>
+          addon.availableOn.includes(plan as PlanTierSlug)
+        ).map((addon) => {
           const activePacks = getActivePackCount(activeAddons, addon.type);
 
           return (
@@ -179,12 +179,12 @@ const AddonsTab = () => {
                     </p>
                   </div>
                   <Button
-                    disabled={loadingSlug === addon.checkoutSlug}
+                    disabled={loadingSlug === addon.type}
                     onClick={async () => {
-                      setLoadingSlug(addon.checkoutSlug);
+                      setLoadingSlug(addon.type);
                       try {
                         const result = await startAddonCheckoutServerFn({
-                          data: { checkoutSlug: addon.checkoutSlug },
+                          data: { checkoutSlug: addon.type },
                         });
                         if (result.checkoutUrl) {
                           window.location.assign(result.checkoutUrl);
@@ -197,9 +197,7 @@ const AddonsTab = () => {
                     }}
                     variant="outline"
                   >
-                    {loadingSlug === addon.checkoutSlug
-                      ? "Loading..."
-                      : "Add pack"}
+                    {loadingSlug === addon.type ? "Loading..." : "Add pack"}
                   </Button>
                 </div>
               </CardContent>

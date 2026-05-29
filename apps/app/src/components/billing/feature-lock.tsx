@@ -5,7 +5,11 @@ import { useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useCurrentPlan } from "@/hooks/billing/use-current-plan";
 import { KeyIcon } from "@/lib/icons";
-import { canUseFeature, type PlanFeature } from "@/lib/plan-tiers";
+import {
+  canUseFeature,
+  isRoadmapFeature,
+  type PlanFeature,
+} from "@/lib/plan-tiers";
 
 const FEATURE_LABELS: Record<PlanFeature, { name: string; minPlan: string }> = {
   http_mode: { name: "HTTP Execution Mode", minPlan: "Pro" },
@@ -48,6 +52,7 @@ const FeatureLock = ({ feature, children }: FeatureLockProps) => {
   }
 
   const label = FEATURE_LABELS[feature];
+  const roadmap = isRoadmapFeature(feature);
 
   return (
     <div className="relative">
@@ -63,19 +68,41 @@ const FeatureLock = ({ feature, children }: FeatureLockProps) => {
           <div className="text-center">
             <p className="font-medium text-foreground text-sm">{label.name}</p>
             <p className="text-muted-foreground text-xs">
-              Requires the{" "}
-              <Badge className="text-xs" variant="secondary">
-                {label.minPlan}
-              </Badge>{" "}
-              plan or higher
+              {roadmap ? (
+                <>
+                  Roadmap / contact sales{" "}
+                  <Badge className="text-xs" variant="secondary">
+                    Launch hidden
+                  </Badge>
+                </>
+              ) : (
+                <>
+                  Requires the{" "}
+                  <Badge className="text-xs" variant="secondary">
+                    {label.minPlan}
+                  </Badge>{" "}
+                  plan or higher
+                </>
+              )}
             </p>
           </div>
-          <Button
-            onClick={() => navigate({ to: "/app/upgrade" })}
-            variant="default"
-          >
-            Upgrade
-          </Button>
+          {roadmap ? (
+            <Button
+              onClick={() => {
+                window.location.assign("/contact");
+              }}
+              variant="default"
+            >
+              Contact sales
+            </Button>
+          ) : (
+            <Button
+              onClick={() => navigate({ to: "/app/upgrade" })}
+              variant="default"
+            >
+              Upgrade
+            </Button>
+          )}
         </div>
       </div>
     </div>
