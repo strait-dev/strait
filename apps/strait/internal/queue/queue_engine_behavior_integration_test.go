@@ -48,6 +48,27 @@ func queueEngineBehaviorCases() []queueEngineBehaviorCase {
 				}
 			},
 		},
+		{
+			name: "pgque",
+			build: func(t *testing.T) queue.Queue {
+				t.Helper()
+				return queue.NewPgQueQueue(testDB.Pool, queue.NewPostgresQueue(testDB.Pool), queue.PgQueConfig{
+					TickInterval:  10 * time.Millisecond,
+					ConsumerName:  "behavior-" + newID(),
+					ReceiveWindow: 100,
+				})
+			},
+			afterEnqueue: func(t *testing.T, ctx context.Context, q queue.Queue) {
+				t.Helper()
+				pq, ok := q.(*queue.PgQueQueue)
+				if !ok {
+					t.Fatalf("queue = %T, want *PgQueQueue", q)
+				}
+				if err := pq.ForceTick(ctx, "http"); err != nil {
+					t.Fatalf("ForceTick: %v", err)
+				}
+			},
+		},
 	}
 }
 
@@ -80,6 +101,7 @@ func TestQueueEngineBehavior_PriorityAndProjectIsolation(t *testing.T) {
 			}
 
 			mustClean(t, ctx)
+			q = tc.build(t)
 			jobA := mustCreateJob(t, ctx, st, "project-behavior-a-"+tc.name)
 			jobB := mustCreateJob(t, ctx, st, "project-behavior-b-"+tc.name)
 			projectRunA := &domain.JobRun{ID: newID(), JobID: jobA.ID, ProjectID: jobA.ProjectID, Priority: 1}

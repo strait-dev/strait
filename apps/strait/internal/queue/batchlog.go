@@ -15,6 +15,7 @@ import (
 const (
 	EngineLegacy   = "legacy"
 	EngineBatchlog = "batchlog"
+	EnginePgQue    = "pgque"
 )
 
 type BatchlogConfig struct {
@@ -68,6 +69,8 @@ func NewQueueEngine(db store.DBTX, engine string, cfg BatchlogConfig, opts ...Po
 		return legacy, nil
 	case EngineBatchlog:
 		return NewBatchlogQueue(db, legacy, cfg), nil
+	case EnginePgQue:
+		return NewPgQueQueue(db, legacy, PgQueConfig{TickInterval: cfg.TickInterval}), nil
 	default:
 		return nil, fmt.Errorf("unknown queue engine %q", engine)
 	}

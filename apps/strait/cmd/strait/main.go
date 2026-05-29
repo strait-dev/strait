@@ -328,6 +328,12 @@ func runServe(ctx context.Context, modeOverride string) error {
 			return nil
 		})
 	}
+	if pq, ok := q.(*queue.PgQueQueue); ok {
+		g.Go(func(ctx context.Context) error {
+			pq.RunTicker(ctx)
+			return nil
+		})
+	}
 
 	webhookOptions := []webhook.DeliveryWorkerOption{
 		webhook.WithCircuitBreaker(webhook.NewRedisWebhookCircuitBreaker(rdb, true)),
