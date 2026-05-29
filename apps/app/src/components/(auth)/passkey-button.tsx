@@ -51,7 +51,7 @@ const PasskeyButton = ({ disabled }: PasskeyButtonProps) => {
       className="w-full"
       disabled={disabled || isLoading}
       onClick={handlePasskeySignIn}
-      variant="outline"
+      variant="secondary-outline"
     >
       {isLoading ? (
         <HugeiconsIcon className="size-4 animate-spin" icon={LoadingIcon} />

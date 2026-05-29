@@ -206,6 +206,7 @@ const SignUpForm = ({ redirectTo, disabled }: SignUpFormProps) => {
           className="w-full"
           disabled={disabled || form.state.isSubmitting}
           type="submit"
+          variant="brand-solid"
         >
           {form.state.isSubmitting ? (
             <HugeiconsIcon className="size-4 animate-spin" icon={LoadingIcon} />

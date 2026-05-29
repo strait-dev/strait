@@ -203,6 +203,13 @@ const createDefaultProject = async (
 const createAuth = () => {
   const pool = getAuthPool();
   const resend = getResend();
+  const googleClientId = process.env.GOOGLE_CLIENT_ID;
+  const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const githubClientId = process.env.GITHUB_CLIENT_ID;
+  const githubClientSecret = process.env.GITHUB_CLIENT_SECRET;
+  const hasGoogleOAuth = !!(googleClientId && googleClientSecret);
+  const hasGithubOAuth = !!(githubClientId && githubClientSecret);
+
   return betterAuth({
     database: pool,
     baseURL: process.env.BETTER_AUTH_URL,
@@ -243,14 +250,22 @@ const createAuth = () => {
       },
     },
     socialProviders: {
-      google: {
-        clientId: process.env.GOOGLE_CLIENT_ID ?? "",
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
-      },
-      github: {
-        clientId: process.env.GITHUB_CLIENT_ID ?? "",
-        clientSecret: process.env.GITHUB_CLIENT_SECRET ?? "",
-      },
+      ...(hasGoogleOAuth
+        ? {
+            google: {
+              clientId: googleClientId,
+              clientSecret: googleClientSecret,
+            },
+          }
+        : {}),
+      ...(hasGithubOAuth
+        ? {
+            github: {
+              clientId: githubClientId,
+              clientSecret: githubClientSecret,
+            },
+          }
+        : {}),
     },
     plugins: [
       organization({
@@ -289,7 +304,7 @@ const createAuth = () => {
         rpName: "Strait",
         origin: process.env.BETTER_AUTH_URL ?? "http://localhost:5173",
       }),
-      oneTap(),
+      ...(hasGoogleOAuth ? [oneTap()] : []),
       twoFactor(),
       jwt({
         jwks: {

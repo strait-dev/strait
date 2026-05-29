@@ -134,20 +134,20 @@ const SignInForm = ({
         <Button
           disabled={isResending}
           onClick={handleResendVerification}
-          variant="outline"
+          variant="secondary-outline"
         >
           {isResending ? (
             <HugeiconsIcon className="size-4 animate-spin" icon={LoadingIcon} />
           ) : null}
           Resend verification email
         </Button>
-        <button
-          className="text-foreground text-sm underline-offset-4 hover:underline"
+        <Button
           onClick={() => setEmailNotVerified(false)}
           type="button"
+          variant="link"
         >
           Try again
-        </button>
+        </Button>
       </div>
     );
   }
@@ -239,6 +239,7 @@ const SignInForm = ({
           className="w-full"
           disabled={disabled || form.state.isSubmitting}
           type="submit"
+          variant="brand-solid"
         >
           {form.state.isSubmitting ? (
             <HugeiconsIcon className="size-4 animate-spin" icon={LoadingIcon} />

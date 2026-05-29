@@ -1,3 +1,5 @@
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Button } from "@strait/ui/components/button";
 import { queryOptions, useQuery } from "@tanstack/react-query";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
@@ -8,6 +10,7 @@ import AuthLayout from "@/components/(auth)/auth-layout";
 import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";
 import { getAuth } from "@/lib/auth.server";
+import { LoadingIcon } from "@/lib/icons";
 import {
   OAUTH_LOGIN_PAGE,
   OIDC_STANDARD_SCOPES,
@@ -340,29 +343,34 @@ function OAuthConsentPage() {
 
         {/* Action buttons */}
         <div className="flex w-full gap-3">
-          <button
-            className="flex-1 rounded border border-border bg-background px-4 py-2.5 font-medium text-foreground text-sm transition-colors hover:bg-muted disabled:opacity-50"
+          <Button
+            className="flex-1"
             disabled={status === "authorizing" || status === "denying"}
             onClick={() => handleConsent(false)}
             type="button"
+            variant="secondary-outline"
           >
             {status === "denying" ? "Denying..." : "Deny"}
-          </button>
-          <button
-            className="flex-1 rounded bg-primary px-4 py-2.5 font-medium text-primary-foreground text-sm transition-colors hover:bg-primary/90 disabled:opacity-50"
+          </Button>
+          <Button
+            className="flex-1"
             disabled={status === "authorizing" || status === "denying"}
             onClick={() => handleConsent(true)}
             type="button"
+            variant="brand-solid"
           >
             {status === "authorizing" ? (
-              <span className="flex items-center justify-center gap-2">
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground/30 border-t-primary-foreground" />
+              <>
+                <HugeiconsIcon
+                  className="size-4 animate-spin"
+                  icon={LoadingIcon}
+                />
                 Authorizing...
-              </span>
+              </>
             ) : (
               "Authorize"
             )}
-          </button>
+          </Button>
         </div>
 
         {/* Footer notice */}

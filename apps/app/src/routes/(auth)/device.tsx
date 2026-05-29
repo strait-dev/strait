@@ -1,3 +1,4 @@
+import { Button } from "@strait/ui/components/button";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { useState } from "react";
@@ -154,21 +155,23 @@ function DeviceAuthPage() {
         ) : null}
 
         <div className="flex w-full gap-3">
-          <button
-            className="flex-1 rounded border border-border bg-background px-4 py-2.5 font-medium text-foreground text-sm transition-colors hover:bg-muted"
+          <Button
+            className="flex-1"
             onClick={() => window.close()}
             type="button"
+            variant="secondary-outline"
           >
             Deny
-          </button>
-          <button
-            className="flex-1 rounded bg-primary px-4 py-2.5 font-medium text-primary-foreground text-sm transition-colors hover:bg-primary/90 disabled:opacity-50"
+          </Button>
+          <Button
+            className="flex-1"
             disabled={status === "approving"}
             onClick={handleApprove}
             type="button"
+            variant="brand-solid"
           >
             {status === "approving" ? "Authorizing..." : "Authorize"}
-          </button>
+          </Button>
         </div>
 
         <p className="text-center text-muted-foreground text-xs">

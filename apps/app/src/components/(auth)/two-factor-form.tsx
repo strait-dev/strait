@@ -1,5 +1,7 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
+import { Checkbox } from "@strait/ui/components/checkbox";
+import { Field, FieldLabel } from "@strait/ui/components/field";
 import { Input } from "@strait/ui/components/input";
 import {
   InputOTP,
@@ -121,20 +123,25 @@ const TwoFactorForm = ({ redirectTo, disabled }: TwoFactorFormProps) => {
             </InputOTPGroup>
           </InputOTP>
 
-          <label className="flex items-center gap-2 text-muted-foreground text-sm">
-            <input
+          <Field className="w-full justify-center" orientation="horizontal">
+            <Checkbox
               checked={trustDevice}
-              className="size-4 rounded border-input"
-              onChange={(e) => setTrustDevice(e.target.checked)}
-              type="checkbox"
+              id="trust-device"
+              onCheckedChange={(checked) => setTrustDevice(checked === true)}
             />
-            Trust this device for 30 days
-          </label>
+            <FieldLabel
+              className="text-muted-foreground"
+              htmlFor="trust-device"
+            >
+              Trust this device for 30 days
+            </FieldLabel>
+          </Field>
 
           <Button
             className="w-full"
             disabled={disabled || isSubmitting || code.length !== 6}
             onClick={handleVerifyTotp}
+            variant="brand-solid"
           >
             {isSubmitting ? (
               <HugeiconsIcon
@@ -145,16 +152,16 @@ const TwoFactorForm = ({ redirectTo, disabled }: TwoFactorFormProps) => {
             Verify
           </Button>
 
-          <button
-            className="text-foreground text-sm underline-offset-4 hover:underline"
+          <Button
             onClick={() => {
               setMode("backup");
               setCode("");
             }}
             type="button"
+            variant="link"
           >
             Use a backup code instead
-          </button>
+          </Button>
         </>
       )}
 
@@ -176,6 +183,7 @@ const TwoFactorForm = ({ redirectTo, disabled }: TwoFactorFormProps) => {
             className="w-full"
             disabled={disabled || isSubmitting || !backupCode.trim()}
             onClick={handleVerifyBackup}
+            variant="brand-solid"
           >
             {isSubmitting ? (
               <HugeiconsIcon
@@ -186,16 +194,16 @@ const TwoFactorForm = ({ redirectTo, disabled }: TwoFactorFormProps) => {
             Verify backup code
           </Button>
 
-          <button
-            className="text-foreground text-sm underline-offset-4 hover:underline"
+          <Button
             onClick={() => {
               setMode("totp");
               setBackupCode("");
             }}
             type="button"
+            variant="link"
           >
             Use authenticator code instead
-          </button>
+          </Button>
         </>
       )}
     </div>

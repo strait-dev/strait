@@ -132,7 +132,7 @@ function RootComponent() {
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
     <html
-      className="dark min-h-dvh bg-background antialiased"
+      className="light min-h-dvh bg-background antialiased"
       lang="en"
       suppressHydrationWarning
     >
@@ -149,7 +149,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       >
         <ThemeProvider
           attribute="class"
-          defaultTheme="dark"
+          defaultTheme="light"
           disableTransitionOnChange
           enableColorScheme={false}
           enableSystem={false}

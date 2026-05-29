@@ -93,12 +93,9 @@ function ResetPasswordPage() {
           <p className="text-muted-foreground text-sm">
             You can now sign in with your new password.
           </p>
-          <Link
-            className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 font-medium text-primary-foreground text-sm hover:bg-primary/90"
-            to="/login"
-          >
+          <Button render={<Link to="/login" />} variant="brand-solid">
             Back to sign in
-          </Link>
+          </Button>
         </div>
       ) : (
         <>
@@ -179,6 +176,7 @@ function ResetPasswordPage() {
                 className="w-full"
                 disabled={form.state.isSubmitting}
                 type="submit"
+                variant="brand-solid"
               >
                 {form.state.isSubmitting ? (
                   <HugeiconsIcon
