@@ -154,6 +154,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
           enableColorScheme={false}
           enableSystem={false}
           scriptProps={{ async: true }}
+          storageKey="strait-theme"
           themes={["light", "dark"]}
         >
           {children}

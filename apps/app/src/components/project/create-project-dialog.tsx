@@ -14,14 +14,10 @@ import { Input } from "@strait/ui/components/input";
 import { Textarea } from "@strait/ui/components/textarea";
 import { toast } from "@strait/ui/components/toast";
 import { useForm } from "@tanstack/react-form";
-import { useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { z } from "zod/v4";
-import {
-  useCreateProject,
-  useSetActiveProject,
-} from "@/hooks/api/use-projects";
+import type { Project } from "@/hooks/api/types";
+import { useCreateAndActivateProject } from "@/hooks/api/use-projects";
 import { formatFieldErrors } from "@/lib/form-errors";
 import { LoadingIcon, PlusIcon } from "@/lib/icons";
 
@@ -33,15 +29,17 @@ const createProjectSchema = z.object({
 type Props = {
   organizationId: string;
   open: boolean;
+  onCreated?: (project: Project) => void;
   onOpenChange: (open: boolean) => void;
 };
 
-const CreateProjectDialog = ({ organizationId, open, onOpenChange }: Props) => {
-  const createProject = useCreateProject();
-  const setActiveProject = useSetActiveProject();
-  const queryClient = useQueryClient();
-  const router = useRouter();
-  const [isCreating, setIsCreating] = useState(false);
+const CreateProjectDialog = ({
+  organizationId,
+  open,
+  onCreated,
+  onOpenChange,
+}: Props) => {
+  const createProject = useCreateAndActivateProject();
 
   const defaultValues = useMemo(
     () => ({
@@ -57,39 +55,30 @@ const CreateProjectDialog = ({ organizationId, open, onOpenChange }: Props) => {
     onSubmit: async ({ value }) => {
       const parsed = createProjectSchema.parse(value);
 
-      setIsCreating(true);
       try {
-        await toast.promise(
-          (async () => {
-            const project = await createProject.mutateAsync({
-              organizationId,
-              name: parsed.name,
-              description: parsed.description,
-            });
-
-            if (project) {
-              await setActiveProject.mutateAsync({ projectId: project.id });
-              await queryClient.invalidateQueries();
-              await router.invalidate();
-            }
-
-            form.reset();
-            onOpenChange(false);
-          })(),
+        const project = await toast.promise(
+          createProject.mutateAsync({
+            organizationId,
+            name: parsed.name,
+            description: parsed.description,
+          }),
           {
             loading: "Creating project...",
             success: "Project created successfully!",
             error: "Failed to create project. Please try again.",
           }
         );
-      } finally {
-        setIsCreating(false);
+
+        onCreated?.(project);
+        form.reset();
+        onOpenChange(false);
+      } catch {
+        // handled by toast
       }
     },
   });
 
-  const isPending =
-    isCreating || createProject.isPending || setActiveProject.isPending;
+  const isPending = createProject.isPending;
 
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>

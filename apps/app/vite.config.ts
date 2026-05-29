@@ -123,9 +123,18 @@ export default defineConfig(({ command }) => ({
     ...(enableNgrok ? [ngrok()] : []),
   ],
   optimizeDeps: {
-    include: ["@hugeicons/react"],
-    // Exclude PGlite from optimization - it's a test-only dependency
-    exclude: ["@electric-sql/pglite", "drizzle-orm/pglite"],
+    include: [
+      "@hugeicons/react",
+      "use-sync-external-store/shim",
+      "use-sync-external-store/shim/with-selector",
+    ],
+    exclude: [
+      // Keep the design-system package out of Vite's prebundle cache. Its
+      // many subpath exports can otherwise be invalidated mid-reload in dev.
+      "@strait/ui",
+      "@electric-sql/pglite",
+      "drizzle-orm/pglite",
+    ],
   },
   build: {
     sourcemap: emitSourcemapsForSentry,

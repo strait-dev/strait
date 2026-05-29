@@ -9,9 +9,10 @@ import {
 } from "@strait/ui/components/dropdown-menu";
 import { SidebarMenuButton } from "@strait/ui/components/sidebar";
 import { toast } from "@strait/ui/components/toast";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useRouter } from "@tanstack/react-router";
-import { useCallback, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
+import { useCallback, useEffect, useState } from "react";
+import type { Project } from "@/hooks/api/types";
 import {
   projectsQueryOptions,
   useSetActiveProject,
@@ -33,11 +34,13 @@ const ProjectSwitcher = ({ user }: Props) => {
   const [createOpen, setCreateOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const setActiveProject = useSetActiveProject();
-  const queryClient = useQueryClient();
-  const router = useRouter();
 
   const organizationId = user.defaultOrganizationId ?? "";
-  const activeProjectId = user.activeProjectId;
+  const [activeProjectId, setActiveProjectId] = useState(user.activeProjectId);
+
+  useEffect(() => {
+    setActiveProjectId(user.activeProjectId);
+  }, [user.activeProjectId]);
 
   const { data: projects } = useQuery({
     ...projectsQueryOptions(organizationId),
@@ -65,15 +68,18 @@ const ProjectSwitcher = ({ user }: Props) => {
 
       try {
         await switchPromise;
-        await queryClient.invalidateQueries();
-        router.invalidate();
+        setActiveProjectId(projectId);
         setDropdownOpen(false);
       } catch {
         // handled by toast
       }
     },
-    [activeProjectId, setActiveProject, queryClient, router]
+    [activeProjectId, setActiveProject]
   );
+
+  const handleCreated = useCallback((project: Project) => {
+    setActiveProjectId(project.id);
+  }, []);
 
   if (!organizationId) {
     return null;
@@ -96,6 +102,7 @@ const ProjectSwitcher = ({ user }: Props) => {
           </span>
         </SidebarMenuButton>
         <CreateProjectDialog
+          onCreated={handleCreated}
           onOpenChange={setCreateOpen}
           open={createOpen}
           organizationId={organizationId}
@@ -163,6 +170,7 @@ const ProjectSwitcher = ({ user }: Props) => {
       </DropdownMenu>
 
       <CreateProjectDialog
+        onCreated={handleCreated}
         onOpenChange={setCreateOpen}
         open={createOpen}
         organizationId={organizationId}
