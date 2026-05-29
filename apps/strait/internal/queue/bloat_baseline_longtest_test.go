@@ -70,7 +70,9 @@ func TestQueueBloatComparison(t *testing.T) {
 		t.Run(cfg.Name, func(t *testing.T) {
 			legacy := runLegacyQueueBaseline(t, ctx, cfg.withName("legacy_"+cfg.Name))
 			batchlog := runBatchlogQueueBaseline(t, ctx, cfg.withName("batchlog_"+cfg.Name))
+			pgque := runPgQueQueueBaseline(t, ctx, cfg.withName("pgque_"+cfg.Name))
 			comparison := loadtest.CompareQueueBenchmarkReports(cfg.Name, legacy, batchlog)
+			pgqueComparison := loadtest.CompareQueueBenchmarkReports("pgque_"+cfg.Name, legacy, pgque)
 
 			if comparison.Candidate.Counters.DuplicateClaims != 0 {
 				t.Fatalf("candidate duplicate claims = %d, want 0", comparison.Candidate.Counters.DuplicateClaims)
@@ -78,10 +80,19 @@ func TestQueueBloatComparison(t *testing.T) {
 			if comparison.Candidate.Counters.LostClaims != 0 {
 				t.Fatalf("candidate lost claims = %d, want 0", comparison.Candidate.Counters.LostClaims)
 			}
+			if pgqueComparison.Candidate.Counters.DuplicateClaims != 0 {
+				t.Fatalf("pgque duplicate claims = %d, want 0", pgqueComparison.Candidate.Counters.DuplicateClaims)
+			}
+			if pgqueComparison.Candidate.Counters.LostClaims != 0 {
+				t.Fatalf("pgque lost claims = %d, want 0", pgqueComparison.Candidate.Counters.LostClaims)
+			}
 			writeQueueBaselineReport(t, legacy)
 			writeQueueBaselineReport(t, batchlog)
+			writeQueueBaselineReport(t, pgque)
 			writeQueueComparisonReport(t, comparison)
+			writeQueueComparisonReport(t, pgqueComparison)
 			t.Logf("queue bloat comparison:\n%s", comparison.Markdown())
+			t.Logf("pgque bloat comparison:\n%s", pgqueComparison.Markdown())
 		})
 	}
 }
@@ -177,6 +188,32 @@ func runBatchlogQueueBaseline(tb baselineTB, ctx context.Context, cfg baselineCo
 			return exerciseBatchlogLeaseRedelivery(tb, ctx, q, job)
 		},
 		plans: sampleBatchlogDequeuePlans,
+	})
+}
+
+func runPgQueQueueBaseline(tb baselineTB, ctx context.Context, cfg baselineConfig) loadtest.QueueBenchmarkReport {
+	tb.Helper()
+	if testDB == nil || testDB.Pool == nil {
+		tb.Fatalf("testDB is not initialized")
+	}
+	q := queue.NewPgQueQueue(testDB.Pool, queue.NewPostgresQueue(testDB.Pool), queue.PgQueConfig{
+		TickInterval:  10 * time.Millisecond,
+		ConsumerName:  "bloat-comparison-" + newID(),
+		NackDelay:     10 * time.Millisecond,
+		ReceiveWindow: 1000,
+	})
+	return runQueueBaseline(tb, ctx, cfg, "pgque", q, queueBaselineHooks{
+		afterEnqueue: func(ctx context.Context) {
+			if err := q.ForceTick(ctx, "http"); err != nil {
+				tb.Fatalf("pgque force tick: %v", err)
+			}
+		},
+		beforeDequeue: func(ctx context.Context) {
+			if err := q.ForceTick(ctx, "http"); err != nil {
+				tb.Fatalf("pgque force tick: %v", err)
+			}
+		},
+		plans: samplePgQueDequeuePlans,
 	})
 }
 
@@ -444,6 +481,10 @@ func sampleRelationBloat(tb baselineTB, ctx context.Context) []loadtest.Relation
 			'event_triggers'
 		)
 		   OR s.relname LIKE 'job_runs_%'
+		   OR s.relname = 'job_run_state'
+		   OR s.relname = 'job_run_lifecycle_events'
+		   OR s.relname = 'strait_pgque_routes'
+		   OR s.relname LIKE 'event_%'
 		   OR s.relname LIKE 'enqueue_outbox_%'
 		   OR s.relname LIKE 'enqueue_outbox_history_%'
 		ORDER BY s.relname ASC
@@ -560,6 +601,28 @@ func sampleBatchlogDequeuePlans(tb baselineTB, ctx context.Context) []loadtest.S
 			       OR qe.concurrency_key = ''
 			       OR COALESCE(jac_key.count, 0) + COALESCE(leased_key.count, 0) < qe.job_max_concurrency_per_key)
 			ORDER BY qe.batch_id ASC, qe.priority DESC, qe.run_created_at ASC
+			LIMIT 50
+		`),
+	}}
+}
+
+func samplePgQueDequeuePlans(tb baselineTB, ctx context.Context) []loadtest.SQLPlanSample {
+	tb.Helper()
+	return []loadtest.SQLPlanSample{{
+		Name: "pgque state candidate selection",
+		Lines: explainText(tb, ctx, `
+			EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
+			SELECT s.run_id
+			FROM job_run_state s
+			JOIN job_runs jr ON jr.id = s.run_id
+			WHERE s.status = 'queued'
+			  AND s.ready_generation = 0
+			  AND s.execution_mode = 'http'
+			  AND COALESCE(s.job_enabled, true) = true
+			  AND COALESCE(s.job_paused, false) = false
+			  AND (s.scheduled_at IS NULL OR s.scheduled_at <= NOW())
+			  AND (s.next_retry_at IS NULL OR s.next_retry_at <= NOW())
+			ORDER BY s.priority DESC, jr.created_at ASC
 			LIMIT 50
 		`),
 	}}

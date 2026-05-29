@@ -89,8 +89,8 @@ type Config struct {
 	// columns plus job_active_counts instead of joining jobs and scanning
 	// active rows).
 	QueueUseDenormalizedDequeue bool `env:"QUEUE_USE_DENORMALIZED_DEQUEUE" default:"true"`
-	// QueueEngine selects the queue storage engine. batchlog claims from
-	// narrow queue_entries while preserving job_runs as the ledger.
+	// QueueEngine selects the queue storage engine. batchlog remains the
+	// default until pgque clears the bloat and latency benchmark gate.
 	QueueEngine               string        `env:"QUEUE_ENGINE" default:"batchlog"`
 	QueueBatchTickInterval    time.Duration `env:"QUEUE_BATCH_TICK_INTERVAL" default:"100ms"`
 	OutboxEngine              string        `env:"OUTBOX_ENGINE" default:"batchlog"`

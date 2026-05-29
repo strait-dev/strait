@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"strait/internal/dbscan"
@@ -39,9 +40,11 @@ func (c PgQueConfig) normalized() PgQueConfig {
 }
 
 type PgQueQueue struct {
-	db     store.DBTX
-	legacy *PostgresQueue
-	cfg    PgQueConfig
+	db      store.DBTX
+	legacy  *PostgresQueue
+	cfg     PgQueConfig
+	mu      sync.Mutex
+	pending map[string][]domain.JobRun
 }
 
 type pgQueReadyEvent struct {
@@ -78,7 +81,7 @@ func NewPgQueQueue(db store.DBTX, legacy *PostgresQueue, cfg PgQueConfig) *PgQue
 	if legacy == nil {
 		legacy = NewPostgresQueue(db)
 	}
-	return &PgQueQueue{db: db, legacy: legacy, cfg: cfg.normalized()}
+	return &PgQueQueue{db: db, legacy: legacy, cfg: cfg.normalized(), pending: make(map[string][]domain.JobRun)}
 }
 
 func (q *PgQueQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
@@ -407,6 +410,13 @@ func (q *PgQueQueue) dequeueFromRoute(ctx context.Context, n int, routeKey strin
 	}
 	_ = q.ForceTick(ctx, routeKey)
 
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	if runs := q.popPending(routeKey, n); len(runs) > 0 {
+		return runs, nil
+	}
+
 	for attempt := 0; attempt < 3; attempt++ {
 		messages, err := q.receive(ctx, queueName, max(n, q.cfg.ReceiveWindow))
 		if err != nil {
@@ -427,7 +437,7 @@ func (q *PgQueQueue) dequeueFromRoute(ctx context.Context, n int, routeKey strin
 			generations = append(generations, event.Generation)
 		}
 
-		runs, err := q.claimRuns(ctx, ids, generations, n, filter)
+		runs, err := q.claimRuns(ctx, ids, generations, len(ids), filter)
 		if err != nil {
 			return nil, err
 		}
@@ -444,17 +454,39 @@ func (q *PgQueQueue) dequeueFromRoute(ctx context.Context, n int, routeKey strin
 				continue
 			}
 			if _, ok := claimed[event.RunID]; !ok {
-				_ = q.nack(ctx, msg, q.cfg.NackDelay, "not claimable")
+				delay := q.cfg.NackDelay
+				if len(runs) > 0 {
+					delay = 0
+				}
+				_ = q.nack(ctx, msg, delay, "not claimable")
 			}
 		}
 		if err := q.ack(ctx, messages[0].BatchID); err != nil {
 			return runs, err
 		}
 		if len(runs) > 0 {
+			if len(runs) > n {
+				q.pending[routeKey] = append(q.pending[routeKey], runs[n:]...)
+				return runs[:n], nil
+			}
 			return runs, nil
 		}
 	}
 	return nil, nil
+}
+
+func (q *PgQueQueue) popPending(routeKey string, n int) []domain.JobRun {
+	pending := q.pending[routeKey]
+	if len(pending) == 0 {
+		return nil
+	}
+	if len(pending) <= n {
+		delete(q.pending, routeKey)
+		return pending
+	}
+	out := append([]domain.JobRun(nil), pending[:n]...)
+	q.pending[routeKey] = append([]domain.JobRun(nil), pending[n:]...)
+	return out
 }
 
 func (q *PgQueQueue) receive(ctx context.Context, queueName string, maxReturn int) ([]pgQueMessage, error) {

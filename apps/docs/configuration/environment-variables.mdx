@@ -76,8 +76,8 @@ Redis is still required at startup. Cache operations fail open to in-process cac
 
 | Variable | Default | Description |
 |---|---|---|
-| `QUEUE_ENGINE` | `batchlog` | Queue storage engine. `batchlog` claims from narrow queue log entries and keeps `job_runs` as the ledger. |
-| `QUEUE_BATCH_TICK_INTERVAL` | `100ms` | Batch seal interval for the batchlog queue. Higher values reduce queue table churn at the cost of dispatch latency. |
+| `QUEUE_ENGINE` | `batchlog` | Queue storage engine. `batchlog` is the default; `pgque` is available for bloat-first benchmark and soak validation. |
+| `QUEUE_BATCH_TICK_INTERVAL` | `100ms` | Queue maintenance tick interval. Higher values reduce queue table churn at the cost of dispatch latency. |
 | `QUEUE_USE_DENORMALIZED_DEQUEUE` | `true` | Use the fully denormalized dequeue path when the selected queue engine supports it. |
 | `OUTBOX_ENGINE` | `batchlog` | Outbox promotion engine. `batchlog` promotes through narrow claim rows and archives successful rows asynchronously. |
 | `WORKFLOW_PROGRESSION_ENGINE` | `batchlog` | Workflow progression engine. `batchlog` records progression events and drains workflow batches. |
