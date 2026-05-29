@@ -1,6 +1,6 @@
 import { Button } from "@strait/ui/components/button";
 import { Shell } from "@strait/ui/components/shell";
-import { cn } from "@strait/ui/utils/index";
+import { cn } from "@strait/ui/utils";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { zodValidator } from "@tanstack/zod-adapter";

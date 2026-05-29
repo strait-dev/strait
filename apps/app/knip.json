@@ -9,7 +9,6 @@
   ],
   "paths": {
     "@/*": ["./src/*"],
-    "@strait/ui/*": ["../../packages/ui/src/*"],
     "@strait/transactional": ["../../packages/transactional/src/index.ts"]
   },
   "ignoreDependencies": ["@sentry/cli"],

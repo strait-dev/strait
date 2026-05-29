@@ -2,13 +2,28 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
 import {
+  DataGrid,
+  DataGridContainer,
+  DataGridScrollArea,
+  DataGridSelectionBar,
+  DataGridTable,
+} from "@strait/ui/components/data-grid";
+import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@strait/ui/components/dropdown-menu";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@strait/ui/components/empty";
 import { Input } from "@strait/ui/components/input";
 import { Shell } from "@strait/ui/components/shell";
+import { StatusBadge } from "@strait/ui/components/status-badge";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
@@ -20,16 +35,12 @@ import {
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useMemo, useState } from "react";
 import { z } from "zod/v4";
-
+import { CursorPagination } from "@/components/common/cursor-pagination";
 import ErrorComponent from "@/components/common/error-component";
 import NoProjectState from "@/components/common/no-project-state";
-import TableEmptyState from "@/components/common/table-empty-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import RunDetailSheet from "@/components/dashboard/run-detail-sheet";
-import StatusBadge from "@/components/dashboard/status-badge";
 import { createRunColumns } from "@/components/tables/runs-columns";
-import { DataTable } from "@/components/ui/data-table/data-table";
-import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { JobRun, PaginatedResponse, RunStatus } from "@/hooks/api/types";
 import {
@@ -47,6 +58,7 @@ import {
   XCircleIcon,
 } from "@/lib/icons";
 import { RUN_STATUS_OPTIONS } from "@/lib/status";
+import { stopInteractiveRowClick } from "@/lib/table-interactions";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const searchSchema = z.object({
@@ -188,14 +200,20 @@ function RunsPage() {
   }
 
   const emptyState = hasProject ? (
-    <TableEmptyState
-      description="No runs yet. Trigger a job to see run history."
-      hideButton
-      icon={
-        <HugeiconsIcon className="size-6 text-foreground" icon={ActivityIcon} />
-      }
-      title="No runs found"
-    />
+    <Empty className="h-[300px]">
+      <EmptyHeader>
+        <EmptyMedia size="lg" variant="icon">
+          <HugeiconsIcon
+            className="size-6 text-foreground"
+            icon={ActivityIcon}
+          />
+        </EmptyMedia>
+        <EmptyTitle>No runs found</EmptyTitle>
+        <EmptyDescription>
+          No runs yet. Trigger a job to see run history.
+        </EmptyDescription>
+      </EmptyHeader>
+    </Empty>
   ) : (
     <NoProjectState user={session.user} />
   );
@@ -280,87 +298,74 @@ function RunsPage() {
         </DropdownMenu>
       </div>
 
-      {/* biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noNoninteractiveElementInteractions lint/a11y/noStaticElementInteractions: event delegation on table container */}
-      <div
-        className="[&_tbody_tr]:cursor-pointer"
-        onClick={(e) => {
-          const target = e.target as HTMLElement;
-          if (target.closest("a, button")) {
-            return;
-          }
-          const row = target.closest("tr[data-row-index]");
-          if (!row) {
-            return;
-          }
-          const idx = Number(row.getAttribute("data-row-index"));
-          const run = table.getRowModel().rows[idx]?.original;
-          if (run) {
-            handleRowClick(run);
-          }
-        }}
-      >
-        <DataTable
-          ariaLabel="Runs"
-          cursorPagination={{
-            pageSize: pagination.perPage,
-            hasMore: typed?.has_more ?? false,
-            canGoBack: pagination.canGoBack,
-            onNext: () => {
-              if (typed?.next_cursor) {
-                pagination.goNext(typed.next_cursor);
-              }
-            },
-            onPrev: pagination.goPrev,
-            onPageSizeChange: pagination.setPerPage,
-          }}
-          emptyState={emptyState}
-          floatingBar={
-            <DataTableFloatingBar
-              actions={[
-                ...(selectedIds.length === 1
-                  ? [
-                      {
-                        label: "View",
-                        icon: EyeIcon,
-                        onClick: () => {
-                          const run = table
-                            .getRowModel()
-                            .rows.find(
-                              (r) => r.id === selectedIds[0]
-                            )?.original;
-                          if (run) {
-                            handleRowClick(run);
-                          }
-                        },
-                      },
-                    ]
-                  : []),
-                {
-                  label: "Retry",
-                  icon: RefreshIcon,
-                  onClick: () => {
-                    for (const id of selectedIds) {
-                      retryRun.mutate({ run_id: id });
-                    }
-                  },
-                },
-                {
-                  label: "Cancel",
-                  icon: XCircleIcon,
-                  onClick: () => {
-                    for (const id of selectedIds) {
-                      cancelRun.mutate({ run_id: id });
-                    }
-                  },
-                  variant: "destructive" as const,
-                },
-              ]}
-              onClearSelection={() => setRowSelection({})}
-              selectedCount={selectedIds.length}
-            />
-          }
+      <div onClickCapture={stopInteractiveRowClick}>
+        <DataGrid
+          emptyMessage={emptyState}
+          onRowClick={handleRowClick}
+          recordCount={typed?.data.length ?? 0}
           table={table}
-        />
+          tableClassNames={{ base: "min-w-[1200px]" }}
+        >
+          <DataGridContainer>
+            <DataGridScrollArea>
+              <DataGridTable />
+            </DataGridScrollArea>
+          </DataGridContainer>
+          <CursorPagination
+            cursor={{
+              pageSize: pagination.perPage,
+              hasMore: typed?.has_more ?? false,
+              canGoBack: pagination.canGoBack,
+              onNext: () => {
+                if (typed?.next_cursor) {
+                  pagination.goNext(typed.next_cursor);
+                }
+              },
+              onPrev: pagination.goPrev,
+              onPageSizeChange: pagination.setPerPage,
+            }}
+            table={table}
+          />
+          <DataGridSelectionBar
+            actions={[
+              ...(selectedIds.length === 1
+                ? [
+                    {
+                      label: "View",
+                      icon: EyeIcon,
+                      onClick: () => {
+                        const run = table
+                          .getRowModel()
+                          .rows.find((r) => r.id === selectedIds[0])?.original;
+                        if (run) {
+                          handleRowClick(run);
+                        }
+                      },
+                    },
+                  ]
+                : []),
+              {
+                label: "Retry",
+                icon: RefreshIcon,
+                onClick: () => {
+                  for (const id of selectedIds) {
+                    retryRun.mutate({ run_id: id });
+                  }
+                },
+              },
+              {
+                label: "Cancel",
+                icon: XCircleIcon,
+                onClick: () => {
+                  for (const id of selectedIds) {
+                    cancelRun.mutate({ run_id: id });
+                  }
+                },
+                variant: "destructive",
+              },
+            ]}
+          />
+        </DataGrid>
       </div>
 
       <RunDetailSheet

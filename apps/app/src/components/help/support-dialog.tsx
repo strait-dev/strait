@@ -11,14 +11,11 @@ import {
   CredenzaTrigger,
 } from "@strait/ui/components/credenza";
 import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@strait/ui/components/form";
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+} from "@strait/ui/components/field";
 import { Input } from "@strait/ui/components/input";
 import {
   Select,
@@ -28,11 +25,11 @@ import {
   SelectValue,
 } from "@strait/ui/components/select";
 import { Textarea } from "@strait/ui/components/textarea";
-import { toast } from "@strait/ui/components/toast/index";
+import { toast } from "@strait/ui/components/toast";
 import { createServerFn } from "@tanstack/react-start";
 import { format } from "date-fns";
 import { useEffect, useId, useState, useTransition } from "react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import type z from "zod/v4";
 import { getPostHog } from "@/lib/analytics";
 import { HelpCircleIcon, LoadingIcon } from "@/lib/icons";
@@ -206,232 +203,214 @@ const SupportDialog = ({ user }: Props) => {
           </CredenzaDescription>
         </CredenzaHeader>
 
-        <Form {...form}>
-          <form
-            className="-mr-4 flex flex-1 flex-col gap-4 overflow-y-auto pr-4"
-            onSubmit={form.handleSubmit(onSubmit)}
-          >
-            <div className="flex flex-1 flex-col gap-4">
-              {/* Basic Info Section */}
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="flex flex-col gap-2">
-                  <FormField
-                    control={form.control}
-                    name="email"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Email</FormLabel>
-                        <FormControl>
-                          <Input
-                            {...field}
-                            disabled={true}
-                            placeholder="Enter your email"
-                            value={field.value}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-
-                <div className="flex flex-col gap-2">
-                  <FormField
-                    control={form.control}
-                    name="subject"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel htmlFor={subjectSelectId}>Subject</FormLabel>
-                        <Select
-                          onValueChange={field.onChange}
-                          value={field.value}
-                        >
-                          <SelectTrigger id={subjectSelectId}>
-                            <SelectValue placeholder="Select a subject" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="technical">
-                              Technical Issue
-                            </SelectItem>
-                            <SelectItem value="billing">Billing</SelectItem>
-                            <SelectItem value="account">Account</SelectItem>
-                            <SelectItem value="other">Other</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-              </div>
-
-              {/* Priority and Environment Section */}
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="flex flex-col gap-2">
-                  <FormField
-                    control={form.control}
-                    name="priority"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel htmlFor={prioritySelectId}>
-                          Priority
-                        </FormLabel>
-                        <Select
-                          onValueChange={field.onChange}
-                          value={field.value}
-                        >
-                          <SelectTrigger id={prioritySelectId}>
-                            <SelectValue placeholder="Select priority" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="low">Low</SelectItem>
-                            <SelectItem value="medium">Medium</SelectItem>
-                            <SelectItem value="high">High</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-
-                <div className="flex flex-col gap-2">
-                  <FormField
-                    control={form.control}
-                    name="environment"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel htmlFor={environmentSelectId}>
-                          Environment
-                        </FormLabel>
-                        <Select
-                          onValueChange={field.onChange}
-                          value={field.value}
-                        >
-                          <SelectTrigger id={environmentSelectId}>
-                            <SelectValue placeholder="Select environment" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="production">
-                              Production
-                            </SelectItem>
-                            <SelectItem value="development">
-                              Development
-                            </SelectItem>
-                            <SelectItem value="staging">Staging</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-              </div>
-
-              {/* Problem Description Section */}
-              <div className="space-y-4">
-                <div className="flex flex-col gap-2">
-                  <FormField
-                    control={form.control}
-                    name="message"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Problem Description</FormLabel>
-                        <FormControl>
-                          <Textarea
-                            className="min-h-[100px] resize-none"
-                            placeholder="Describe the problem in detail..."
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-
-                <div className="flex flex-col gap-2">
-                  <FormField
-                    control={form.control}
-                    name="steps_to_reproduce"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Steps to Reproduce</FormLabel>
-                        <FormControl>
-                          <Textarea
-                            className="min-h-[100px] resize-none"
-                            placeholder="List the steps needed to reproduce the problem..."
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                        <FormDescription>
-                          Ex: 1. Accessed page X, 2. Clicked button Y, 3. Filled
-                          field Z...
-                        </FormDescription>
-                      </FormItem>
-                    )}
-                  />
-                </div>
-              </div>
-
-              {/* Results Section */}
-              <div className="grid grid-cols-1 gap-4">
-                <FormField
+        <form
+          className="-mr-4 flex flex-1 flex-col gap-4 overflow-y-auto pr-4"
+          onSubmit={form.handleSubmit(onSubmit)}
+        >
+          <div className="flex flex-1 flex-col gap-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="flex flex-col gap-2">
+                <Controller
                   control={form.control}
-                  name="expected_result"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Expected Result</FormLabel>
-                      <FormControl>
-                        <Textarea
-                          className="min-h-[100px] resize-none"
-                          placeholder="What should happen?"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
+                  name="email"
+                  render={({ field, fieldState }) => (
+                    <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel>Email</FieldLabel>
+                      <Input
+                        {...field}
+                        disabled={true}
+                        placeholder="Enter your email"
+                        value={field.value}
+                      />
+                      <FieldError>{fieldState.error?.message}</FieldError>
+                    </Field>
                   )}
                 />
+              </div>
 
-                <FormField
+              <div className="flex flex-col gap-2">
+                <Controller
                   control={form.control}
-                  name="actual_result"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Actual Result</FormLabel>
-                      <FormControl>
-                        <Textarea
-                          className="min-h-[100px] resize-none"
-                          placeholder="What is happening?"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
+                  name="subject"
+                  render={({ field, fieldState }) => (
+                    <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel htmlFor={subjectSelectId}>Subject</FieldLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value}
+                      >
+                        <SelectTrigger id={subjectSelectId}>
+                          <SelectValue placeholder="Select a subject" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="technical">
+                            Technical Issue
+                          </SelectItem>
+                          <SelectItem value="billing">Billing</SelectItem>
+                          <SelectItem value="account">Account</SelectItem>
+                          <SelectItem value="other">Other</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FieldError>{fieldState.error?.message}</FieldError>
+                    </Field>
                   )}
                 />
               </div>
             </div>
 
-            <Button
-              className="mt-2 inline-flex w-full flex-none justify-center rounded px-3 py-2 font-normal"
-              disabled={
-                form.formState.isSubmitting || isPending || cooldownTime > 0
-              }
-              type="submit"
-            >
-              {form.formState.isSubmitting || isPending ? (
-                <HugeiconsIcon
-                  className="size-4 animate-spin"
-                  icon={LoadingIcon}
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="flex flex-col gap-2">
+                <Controller
+                  control={form.control}
+                  name="priority"
+                  render={({ field, fieldState }) => (
+                    <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel htmlFor={prioritySelectId}>
+                        Priority
+                      </FieldLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value}
+                      >
+                        <SelectTrigger id={prioritySelectId}>
+                          <SelectValue placeholder="Select priority" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="low">Low</SelectItem>
+                          <SelectItem value="medium">Medium</SelectItem>
+                          <SelectItem value="high">High</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FieldError>{fieldState.error?.message}</FieldError>
+                    </Field>
+                  )}
                 />
-              ) : null}
-              Send Request {cooldownTime > 0 ? `(${cooldownTime}s)` : ""}
-            </Button>
-          </form>
-        </Form>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Controller
+                  control={form.control}
+                  name="environment"
+                  render={({ field, fieldState }) => (
+                    <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel htmlFor={environmentSelectId}>
+                        Environment
+                      </FieldLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value}
+                      >
+                        <SelectTrigger id={environmentSelectId}>
+                          <SelectValue placeholder="Select environment" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="production">Production</SelectItem>
+                          <SelectItem value="development">
+                            Development
+                          </SelectItem>
+                          <SelectItem value="staging">Staging</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FieldError>{fieldState.error?.message}</FieldError>
+                    </Field>
+                  )}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="flex flex-col gap-2">
+                <Controller
+                  control={form.control}
+                  name="message"
+                  render={({ field, fieldState }) => (
+                    <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel>Problem Description</FieldLabel>
+                      <Textarea
+                        className="min-h-[100px] resize-none"
+                        placeholder="Describe the problem in detail..."
+                        {...field}
+                      />
+                      <FieldError>{fieldState.error?.message}</FieldError>
+                    </Field>
+                  )}
+                />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Controller
+                  control={form.control}
+                  name="steps_to_reproduce"
+                  render={({ field, fieldState }) => (
+                    <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel>Steps to Reproduce</FieldLabel>
+                      <Textarea
+                        className="min-h-[100px] resize-none"
+                        placeholder="List the steps needed to reproduce the problem..."
+                        {...field}
+                      />
+                      <FieldError>{fieldState.error?.message}</FieldError>
+                      <FieldDescription>
+                        Ex: 1. Accessed page X, 2. Clicked button Y, 3. Filled
+                        field Z...
+                      </FieldDescription>
+                    </Field>
+                  )}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4">
+              <Controller
+                control={form.control}
+                name="expected_result"
+                render={({ field, fieldState }) => (
+                  <Field data-invalid={fieldState.invalid}>
+                    <FieldLabel>Expected Result</FieldLabel>
+                    <Textarea
+                      className="min-h-[100px] resize-none"
+                      placeholder="What should happen?"
+                      {...field}
+                    />
+                    <FieldError>{fieldState.error?.message}</FieldError>
+                  </Field>
+                )}
+              />
+
+              <Controller
+                control={form.control}
+                name="actual_result"
+                render={({ field, fieldState }) => (
+                  <Field data-invalid={fieldState.invalid}>
+                    <FieldLabel>Actual Result</FieldLabel>
+                    <Textarea
+                      className="min-h-[100px] resize-none"
+                      placeholder="What is happening?"
+                      {...field}
+                    />
+                    <FieldError>{fieldState.error?.message}</FieldError>
+                  </Field>
+                )}
+              />
+            </div>
+          </div>
+
+          <Button
+            className="mt-2 inline-flex w-full flex-none justify-center rounded px-3 py-2 font-normal"
+            disabled={
+              form.formState.isSubmitting || isPending || cooldownTime > 0
+            }
+            type="submit"
+          >
+            {form.formState.isSubmitting || isPending ? (
+              <HugeiconsIcon
+                className="size-4 animate-spin"
+                icon={LoadingIcon}
+              />
+            ) : null}
+            Send Request {cooldownTime > 0 ? `(${cooldownTime}s)` : ""}
+          </Button>
+        </form>
       </CredenzaContent>
     </Credenza>
   );

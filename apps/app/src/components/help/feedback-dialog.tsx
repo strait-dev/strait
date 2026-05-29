@@ -11,14 +11,11 @@ import {
   CredenzaTrigger,
 } from "@strait/ui/components/credenza";
 import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@strait/ui/components/form";
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+} from "@strait/ui/components/field";
 import { Input } from "@strait/ui/components/input";
 import {
   Select,
@@ -28,11 +25,11 @@ import {
   SelectValue,
 } from "@strait/ui/components/select";
 import { Textarea } from "@strait/ui/components/textarea";
-import { toast } from "@strait/ui/components/toast/index";
+import { toast } from "@strait/ui/components/toast";
 import { createServerFn } from "@tanstack/react-start";
 import { format } from "date-fns";
 import { useEffect, useId, useState, useTransition } from "react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import type z from "zod/v4";
 import { getPostHog } from "@/lib/analytics";
 import { ChatIcon, LoadingIcon } from "@/lib/icons";
@@ -190,104 +187,95 @@ const FeedbackDialog = ({ user }: Props) => {
           </CredenzaDescription>
         </CredenzaHeader>
 
-        <Form {...form}>
-          <form
-            className="flex w-full flex-col gap-1"
-            onSubmit={form.handleSubmit(onSubmit)}
-          >
-            <div className="flex w-full flex-col items-center space-y-5">
-              <div className="flex w-full flex-col gap-2">
-                <FormField
-                  control={form.control}
-                  name="email"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Email</FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          disabled={true}
-                          placeholder="Enter your email"
-                          value={field.value}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-
-              <div className="flex w-full flex-col gap-2">
-                <FormField
-                  control={form.control}
-                  name="subject"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel htmlFor={subjectSelectId}>Subject</FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        value={field.value}
-                      >
-                        <SelectTrigger id={subjectSelectId}>
-                          <SelectValue placeholder="Select a subject" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="bug">Bug</SelectItem>
-                          <SelectItem value="feedback">Feedback</SelectItem>
-                          <SelectItem value="featureRequest">
-                            Feature request
-                          </SelectItem>
-                          <SelectItem value="question">Question</SelectItem>
-                          <SelectItem value="other">Other</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-
-              <div className="flex w-full flex-col gap-2">
-                <FormField
-                  control={form.control}
-                  name="message"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Message</FormLabel>
-                      <FormControl>
-                        <Textarea
-                          className="resize-none"
-                          placeholder="Enter your message..."
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                      <FormDescription>
-                        The message must have at least 10 characters.
-                      </FormDescription>
-                    </FormItem>
-                  )}
-                />
-              </div>
-
-              <Button
-                className="inline-flex w-full justify-center rounded px-3 py-2 font-normal"
-                disabled={
-                  form.formState.isSubmitting || isPending || cooldownTime > 0
-                }
-                type="submit"
-              >
-                {form.formState.isSubmitting || isPending ? (
-                  <HugeiconsIcon
-                    className="size-4 animate-spin"
-                    icon={LoadingIcon}
-                  />
-                ) : null}
-                Send feedback {cooldownTime > 0 ? `(${cooldownTime}s)` : ""}
-              </Button>
+        <form
+          className="flex w-full flex-col gap-1"
+          onSubmit={form.handleSubmit(onSubmit)}
+        >
+          <div className="flex w-full flex-col items-center space-y-5">
+            <div className="flex w-full flex-col gap-2">
+              <Controller
+                control={form.control}
+                name="email"
+                render={({ field, fieldState }) => (
+                  <Field data-invalid={fieldState.invalid}>
+                    <FieldLabel>Email</FieldLabel>
+                    <Input
+                      {...field}
+                      disabled={true}
+                      placeholder="Enter your email"
+                      value={field.value}
+                    />
+                    <FieldError>{fieldState.error?.message}</FieldError>
+                  </Field>
+                )}
+              />
             </div>
-          </form>
-        </Form>
+
+            <div className="flex w-full flex-col gap-2">
+              <Controller
+                control={form.control}
+                name="subject"
+                render={({ field, fieldState }) => (
+                  <Field data-invalid={fieldState.invalid}>
+                    <FieldLabel htmlFor={subjectSelectId}>Subject</FieldLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <SelectTrigger id={subjectSelectId}>
+                        <SelectValue placeholder="Select a subject" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="bug">Bug</SelectItem>
+                        <SelectItem value="feedback">Feedback</SelectItem>
+                        <SelectItem value="featureRequest">
+                          Feature request
+                        </SelectItem>
+                        <SelectItem value="question">Question</SelectItem>
+                        <SelectItem value="other">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FieldError>{fieldState.error?.message}</FieldError>
+                  </Field>
+                )}
+              />
+            </div>
+
+            <div className="flex w-full flex-col gap-2">
+              <Controller
+                control={form.control}
+                name="message"
+                render={({ field, fieldState }) => (
+                  <Field data-invalid={fieldState.invalid}>
+                    <FieldLabel>Message</FieldLabel>
+                    <Textarea
+                      className="resize-none"
+                      placeholder="Enter your message..."
+                      {...field}
+                    />
+                    <FieldError>{fieldState.error?.message}</FieldError>
+                    <FieldDescription>
+                      The message must have at least 10 characters.
+                    </FieldDescription>
+                  </Field>
+                )}
+              />
+            </div>
+
+            <Button
+              className="inline-flex w-full justify-center rounded px-3 py-2 font-normal"
+              disabled={
+                form.formState.isSubmitting || isPending || cooldownTime > 0
+              }
+              type="submit"
+            >
+              {form.formState.isSubmitting || isPending ? (
+                <HugeiconsIcon
+                  className="size-4 animate-spin"
+                  icon={LoadingIcon}
+                />
+              ) : null}
+              Send feedback {cooldownTime > 0 ? `(${cooldownTime}s)` : ""}
+            </Button>
+          </div>
+        </form>
       </CredenzaContent>
     </Credenza>
   );

@@ -1,5 +1,5 @@
 import { Badge } from "@strait/ui/components/badge";
-import { cn } from "@strait/ui/utils/index";
+import { cn } from "@strait/ui/utils";
 import type { ColumnDef } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
 

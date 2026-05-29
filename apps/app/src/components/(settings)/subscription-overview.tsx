@@ -9,7 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
-import { toast } from "@strait/ui/components/toast/index";
+import { toast } from "@strait/ui/components/toast";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useCallback, useMemo, useState } from "react";

@@ -14,7 +14,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@strait/ui/components/dropdown-menu";
-import { toast } from "@strait/ui/components/toast/index";
+import { toast } from "@strait/ui/components/toast";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { useAnalytics } from "@/hooks/analytics/use-analytics";

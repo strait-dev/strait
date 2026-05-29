@@ -18,7 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@strait/ui/components/select";
-import { toast } from "@strait/ui/components/toast/index";
+import { toast } from "@strait/ui/components/toast";
 import { useForm } from "@tanstack/react-form";
 import { useState } from "react";
 import { z } from "zod/v4";

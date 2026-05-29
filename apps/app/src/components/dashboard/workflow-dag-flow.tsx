@@ -1,5 +1,6 @@
 import { Badge } from "@strait/ui/components/badge";
-import { cn } from "@strait/ui/utils/index";
+import { FeatureBadge } from "@strait/ui/components/feature-lock";
+import { cn } from "@strait/ui/utils";
 import {
   Background,
   Controls,
@@ -11,10 +12,15 @@ import {
   useEdgesState,
   useNodesState,
 } from "@xyflow/react";
-import FeatureBadge from "@/components/billing/feature-badge";
 import "@xyflow/react/dist/style.css";
 import { useEffect, useMemo } from "react";
 import type { StepRunStatus, WorkflowStepType } from "@/hooks/api/types";
+import { useCurrentPlan } from "@/hooks/billing/use-current-plan";
+import {
+  canUseFeature,
+  getFeatureMinimumPlanLabel,
+  type PlanFeature,
+} from "@/lib/plan-tiers";
 
 type WorkflowDAGFlowProps = {
   steps: {
@@ -69,8 +75,23 @@ const TYPE_BADGE_VARIANTS: Record<
   sleep: "outline",
 };
 
+function renderFeatureBadge(currentPlan: string, feature: PlanFeature) {
+  if (canUseFeature(currentPlan, feature)) {
+    return null;
+  }
+
+  return (
+    <FeatureBadge
+      className="ml-1.5 text-[10px]"
+      plan={getFeatureMinimumPlanLabel(feature)}
+      size="xs"
+    />
+  );
+}
+
 /** Custom node renderer for workflow steps */
 const WorkflowStepNode = ({ data }: { data: StepNodeData }) => {
+  const currentPlan = useCurrentPlan();
   const borderClass =
     TYPE_BORDER_COLORS[data.stepType] ?? "border-l-muted-foreground";
   const dotColor = STATUS_DOT_COLORS[data.status] ?? "bg-muted-foreground";
@@ -100,12 +121,10 @@ const WorkflowStepNode = ({ data }: { data: StepNodeData }) => {
           <Badge className="text-[10px]" size="xs" variant={badgeVariant}>
             {TYPE_LABELS[data.stepType] ?? data.stepType}
           </Badge>
-          {data.stepType === "approval" && (
-            <FeatureBadge feature="approval_gates" />
-          )}
-          {data.stepType === "sub_workflow" && (
-            <FeatureBadge feature="sub_workflows" />
-          )}
+          {data.stepType === "approval" &&
+            renderFeatureBadge(currentPlan, "approval_gates")}
+          {data.stepType === "sub_workflow" &&
+            renderFeatureBadge(currentPlan, "sub_workflows")}
         </span>
       </div>
       <Handle

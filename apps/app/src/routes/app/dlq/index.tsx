@@ -14,11 +14,24 @@ import {
 import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
 import {
+  DataGrid,
+  DataGridContainer,
+  DataGridScrollArea,
+  DataGridTable,
+} from "@strait/ui/components/data-grid";
+import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@strait/ui/components/dropdown-menu";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@strait/ui/components/empty";
 import { Input } from "@strait/ui/components/input";
 import { Shell } from "@strait/ui/components/shell";
 import { useQuery } from "@tanstack/react-query";
@@ -32,13 +45,12 @@ import {
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useCallback, useState } from "react";
 import { z } from "zod/v4";
+import { CursorPagination } from "@/components/common/cursor-pagination";
 import ErrorComponent from "@/components/common/error-component";
 import NoProjectState from "@/components/common/no-project-state";
-import TableEmptyState from "@/components/common/table-empty-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import RunDetailSheet from "@/components/dashboard/run-detail-sheet";
 import { createDlqColumns } from "@/components/tables/dlq-columns";
-import { DataTable } from "@/components/ui/data-table/data-table";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { JobRun, PaginatedResponse } from "@/hooks/api/types";
 import {
@@ -57,6 +69,7 @@ import {
   TrashIcon,
 } from "@/lib/icons";
 import { DLQ_ERROR_TYPES } from "@/lib/status";
+import { stopInteractiveRowClick } from "@/lib/table-interactions";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const searchSchema = z.object({
@@ -186,14 +199,18 @@ function DlqPage() {
   const totalCount = tableData.length;
 
   const emptyState = hasProject ? (
-    <TableEmptyState
-      description="No dead letter items. Failed runs that exhaust retries will appear here."
-      hideButton
-      icon={
-        <HugeiconsIcon className="size-6 text-foreground" icon={AlertIcon} />
-      }
-      title="No dead letter items"
-    />
+    <Empty className="h-[300px]">
+      <EmptyHeader>
+        <EmptyMedia size="lg" variant="icon">
+          <HugeiconsIcon className="size-6 text-foreground" icon={AlertIcon} />
+        </EmptyMedia>
+        <EmptyTitle>No dead letter items</EmptyTitle>
+        <EmptyDescription>
+          No dead letter items. Failed runs that exhaust retries will appear
+          here.
+        </EmptyDescription>
+      </EmptyHeader>
+    </Empty>
   ) : (
     <NoProjectState user={session.user} />
   );
@@ -347,44 +364,39 @@ function DlqPage() {
       </div>
 
       {/* Table */}
-      {/* biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noNoninteractiveElementInteractions lint/a11y/noStaticElementInteractions: event delegation on table container */}
-      <div
-        className="[&_tbody_tr]:cursor-pointer"
-        onClick={(e) => {
-          const target = e.target as HTMLElement;
-          if (target.closest("a, button, input[type=checkbox]")) {
-            return;
-          }
-          const row = target.closest("tr[data-row-index]");
-          if (!row) {
-            return;
-          }
-          const idx = Number(row.getAttribute("data-row-index"));
-          const run = table.getRowModel().rows[idx]?.original;
-          if (run) {
-            setSelectedRun(run);
-            setSheetOpen(true);
-          }
-        }}
-      >
+      <div onClickCapture={stopInteractiveRowClick}>
         <div className="pt-2">
-          <DataTable
-            ariaLabel="Dead letter queue"
-            cursorPagination={{
-              pageSize: pagination.perPage,
-              hasMore: typed?.has_more ?? false,
-              canGoBack: pagination.canGoBack,
-              onNext: () => {
-                if (typed?.next_cursor) {
-                  pagination.goNext(typed.next_cursor);
-                }
-              },
-              onPrev: pagination.goPrev,
-              onPageSizeChange: pagination.setPerPage,
+          <DataGrid
+            emptyMessage={emptyState}
+            onRowClick={(run) => {
+              setSelectedRun(run);
+              setSheetOpen(true);
             }}
-            emptyState={emptyState}
+            recordCount={typed?.data.length ?? 0}
             table={table}
-          />
+            tableClassNames={{ base: "min-w-[1200px]" }}
+          >
+            <DataGridContainer>
+              <DataGridScrollArea>
+                <DataGridTable />
+              </DataGridScrollArea>
+            </DataGridContainer>
+            <CursorPagination
+              cursor={{
+                pageSize: pagination.perPage,
+                hasMore: typed?.has_more ?? false,
+                canGoBack: pagination.canGoBack,
+                onNext: () => {
+                  if (typed?.next_cursor) {
+                    pagination.goNext(typed.next_cursor);
+                  }
+                },
+                onPrev: pagination.goPrev,
+                onPageSizeChange: pagination.setPerPage,
+              }}
+              table={table}
+            />
+          </DataGrid>
         </div>
       </div>
 

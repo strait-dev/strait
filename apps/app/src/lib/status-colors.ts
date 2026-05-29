@@ -1,6 +1,6 @@
 /**
  * Semantic chart colors mapped to FSM status categories.
- * Must stay in sync with StatusBadge config in status-badge.tsx.
+ * Must stay in sync with @strait/ui StatusBadge config.
  *
  * Categories:
  *  success  (green)  — completed

@@ -7,7 +7,23 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import { ConfigRow } from "@strait/ui/components/config-row";
+import {
+  DataGrid,
+  DataGridContainer,
+  DataGridPagination,
+  DataGridScrollArea,
+  DataGridTable,
+} from "@strait/ui/components/data-grid";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@strait/ui/components/empty";
 import { Shell } from "@strait/ui/components/shell";
+import { StatusBadge } from "@strait/ui/components/status-badge";
 import {
   Tabs,
   TabsContent,
@@ -24,13 +40,9 @@ import {
 } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
 import { useState } from "react";
-import ConfigRow from "@/components/common/config-row";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
-import TableEmptyState from "@/components/common/table-empty-state";
-import StatusBadge from "@/components/dashboard/status-badge";
-import { DataTable } from "@/components/ui/data-table/data-table";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { WebhookDelivery } from "@/hooks/api/types";
 import {
@@ -248,37 +260,45 @@ function WebhookDetailPage() {
 
         <TabsContent value="deliveries">
           {deliveriesError ? (
-            <div
-              className="rounded-lg border border-dashed p-8 text-center text-muted-foreground text-sm"
-              role="status"
-            >
+            <output className="block rounded-lg border border-dashed p-8 text-center text-muted-foreground text-sm">
               Webhook deliveries are unavailable right now.
-            </div>
+            </output>
           ) : (
-            <DataTable
-              ariaLabel="Webhook deliveries"
-              emptyState={
-                <TableEmptyState
-                  description={
-                    deliveriesLoading
-                      ? "Loading deliveries..."
-                      : "No deliveries have been sent to this webhook yet."
-                  }
-                  hideButton
-                  icon={
-                    <HugeiconsIcon
-                      className="text-muted-foreground"
-                      icon={WebhookIcon}
-                      size={24}
-                    />
-                  }
-                  title={
-                    deliveriesLoading ? "Loading deliveries" : "No deliveries"
-                  }
-                />
+            <DataGrid
+              emptyMessage={
+                <Empty className="h-[300px]">
+                  <EmptyHeader>
+                    <EmptyMedia size="lg" variant="icon">
+                      <HugeiconsIcon
+                        className="text-muted-foreground"
+                        icon={WebhookIcon}
+                        size={24}
+                      />
+                    </EmptyMedia>
+                    <EmptyTitle>
+                      {deliveriesLoading
+                        ? "Loading deliveries"
+                        : "No deliveries"}
+                    </EmptyTitle>
+                    <EmptyDescription>
+                      {deliveriesLoading
+                        ? "Loading deliveries..."
+                        : "No deliveries have been sent to this webhook yet."}
+                    </EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
               }
+              recordCount={deliveries.length}
               table={table}
-            />
+              tableClassNames={{ base: "min-w-[1200px]" }}
+            >
+              <DataGridContainer>
+                <DataGridScrollArea>
+                  <DataGridTable />
+                </DataGridScrollArea>
+                <DataGridPagination />
+              </DataGridContainer>
+            </DataGrid>
           )}
         </TabsContent>
 

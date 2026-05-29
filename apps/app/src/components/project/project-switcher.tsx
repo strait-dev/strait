@@ -8,7 +8,7 @@ import {
   DropdownMenuTrigger,
 } from "@strait/ui/components/dropdown-menu";
 import { SidebarMenuButton } from "@strait/ui/components/sidebar";
-import { toast } from "@strait/ui/components/toast/index";
+import { toast } from "@strait/ui/components/toast";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useRouter } from "@tanstack/react-router";
 import { useCallback, useState } from "react";

@@ -5,6 +5,10 @@ import {
   CollapsibleTrigger,
 } from "@strait/ui/components/collapsible";
 import {
+  CommandMenu,
+  type CommandMenuGroup,
+} from "@strait/ui/components/command-menu";
+import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
@@ -18,8 +22,8 @@ import {
   SidebarRail,
 } from "@strait/ui/components/sidebar";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { Link, useRouterState } from "@tanstack/react-router";
-import { Suspense } from "react";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
+import { Suspense, useMemo } from "react";
 import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
 import { isCommunityEdition } from "@/lib/edition";
 import {
@@ -33,8 +37,11 @@ import {
   HelpCircleIcon,
   LayersIcon,
   PlayActionIcon,
+  SearchIcon,
+  SettingsOutlineIcon,
   SparklesIcon,
   TrendingUpIcon,
+  UserIcon,
   WebhookIcon,
   WorkflowIcon,
 } from "@/lib/icons";
@@ -43,7 +50,6 @@ import OrganizationDropdownMenu from "../organization/organization-dropdown-menu
 import ProjectSwitcher from "../project/project-switcher";
 import PaymentPendingCard from "../subscription/payment-pending-card";
 import TrialUpgradeCard from "../subscription/trial-upgrade-card";
-import CommandMenu from "./command-menu";
 
 type NavItem = {
   title: string;
@@ -69,11 +75,28 @@ const observabilityNav: NavItem[] = [
   { title: "Webhooks", url: "/app/webhooks", icon: WebhookIcon },
 ];
 
+const commandRoutes = [
+  { title: "Overview", url: "/app", icon: DashboardIcon, keywords: ["home"] },
+  ...mainNav.map((item) => ({
+    title: item.title,
+    url: item.url,
+    icon: item.icon,
+    keywords: [item.title.toLowerCase()],
+  })),
+  ...observabilityNav.map((item) => ({
+    title: item.title,
+    url: item.url,
+    icon: item.icon,
+    keywords: [item.title.toLowerCase()],
+  })),
+];
+
 type Props = {
   session: NonNullable<Session>;
 };
 
 const AppSidebar = ({ session }: Props) => {
+  const navigate = useNavigate();
   const { data: subscriptionState } = useSuspenseQuery(
     subscriptionStateQueryOptions()
   );
@@ -82,6 +105,59 @@ const AppSidebar = ({ session }: Props) => {
   const pathname = useRouterState({
     select: (s) => s.location.pathname,
   });
+  const orgSettingsRoute = session.user.defaultOrganizationId
+    ? `/app/org/${session.user.defaultOrganizationId}`
+    : "/app/settings";
+
+  const commandGroups = useMemo<CommandMenuGroup[]>(
+    () => [
+      {
+        heading: "Navigation",
+        items: commandRoutes.map((route) => ({
+          label: route.title,
+          icon: route.icon,
+          keywords: route.keywords,
+          onSelect: () => navigate({ to: route.url }),
+        })),
+      },
+      {
+        heading: "Settings",
+        items: [
+          {
+            label: "Account Settings",
+            icon: UserIcon,
+            keywords: ["profile", "password", "email", "account"],
+            onSelect: () => navigate({ to: "/app/settings" }),
+          },
+          {
+            label: "Organization Settings",
+            icon: SettingsOutlineIcon,
+            keywords: ["org", "team", "billing", "subscription", "members"],
+            onSelect: () => navigate({ to: orgSettingsRoute }),
+          },
+        ],
+      },
+      {
+        heading: "Quick Actions",
+        items: [
+          {
+            label: "Create Job",
+            icon: BriefcaseIcon,
+            shortcut: "⌘N",
+            keywords: ["new", "create", "add"],
+            onSelect: () => navigate({ to: "/app/jobs" }),
+          },
+          {
+            label: "Create Workflow",
+            icon: WorkflowIcon,
+            keywords: ["new", "create", "add", "pipeline"],
+            onSelect: () => navigate({ to: "/app/workflows" }),
+          },
+        ],
+      },
+    ],
+    [navigate, orgSettingsRoute]
+  );
 
   /** Check whether a nav item is active based on the current pathname. */
   const isActive = (item: NavItem) => {
@@ -122,7 +198,22 @@ const AppSidebar = ({ session }: Props) => {
 
         {/* Search */}
         <SidebarGroup>
-          <CommandMenu organizationId={session.user.defaultOrganizationId} />
+          <CommandMenu
+            groups={commandGroups}
+            placeholder="Search for pages, jobs, runs..."
+            trigger={
+              <button
+                className="flex h-8 w-full items-center gap-2 rounded-lg border border-sidebar-border bg-sidebar-accent/50 px-2 text-muted-foreground text-sm transition-colors hover:bg-sidebar-accent"
+                type="button"
+              >
+                <HugeiconsIcon className="size-4" icon={SearchIcon} />
+                <span className="flex-1 text-left">Search...</span>
+                <kbd className="pointer-events-none hidden rounded border bg-muted px-1.5 font-mono text-[10px] text-muted-foreground sm:inline-block">
+                  ⌘K
+                </kbd>
+              </button>
+            }
+          />
         </SidebarGroup>
 
         {/* Main navigation */}

@@ -8,7 +8,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
-import { toast } from "@strait/ui/components/toast/index";
+import { toast } from "@strait/ui/components/toast";
 import { useQuery } from "@tanstack/react-query";
 import {
   useAcceptInvitation,

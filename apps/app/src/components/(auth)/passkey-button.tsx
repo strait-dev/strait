@@ -1,6 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
-import { toast } from "@strait/ui/components/toast/index";
+import { toast } from "@strait/ui/components/toast";
 import { useState } from "react";
 import { getPostHog } from "@/lib/analytics";
 import { authClient } from "@/lib/auth-client";

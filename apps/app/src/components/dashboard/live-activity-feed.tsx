@@ -4,15 +4,15 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import { ChartEmptyState } from "@strait/ui/components/chart-empty-state";
 import { ScrollArea } from "@strait/ui/components/scroll-area";
-import { cn } from "@strait/ui/utils/index";
+import { cn } from "@strait/ui/utils";
 import { useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import type { JobRun, PaginatedResponse } from "@/hooks/api/types";
 import { runsQueryOptions } from "@/hooks/api/use-runs";
 import { LIVE_REFETCH_INTERVAL } from "@/hooks/utils";
 import { ActivityIcon } from "@/lib/icons";
-import ChartEmptyState from "./chart-empty-state";
 
 const STATUS_DOT: Record<string, string> = {
   executing: "bg-info",

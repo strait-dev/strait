@@ -14,7 +14,7 @@ import {
   InputOTPSlot,
 } from "@strait/ui/components/input-otp";
 import { PasswordInput } from "@strait/ui/components/password-input";
-import { toast } from "@strait/ui/components/toast/index";
+import { toast } from "@strait/ui/components/toast";
 import { useQueryClient } from "@tanstack/react-query";
 import QRCode from "qrcode";
 import { useCallback, useState } from "react";

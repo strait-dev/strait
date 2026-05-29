@@ -1,8 +1,8 @@
 import { Badge } from "@strait/ui/components/badge";
+import { StatusBadge } from "@strait/ui/components/status-badge";
 import { Link } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
-import StatusBadge from "@/components/dashboard/status-badge";
 import type { DisplayStatus, JobRun } from "@/hooks/api/types";
 import { EyeIcon, RefreshIcon, XCircleIcon } from "@/lib/icons";
 import { createActionsColumn, createSelectColumn } from "./shared-columns";

@@ -2,14 +2,27 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
 import {
+  DataGrid,
+  DataGridContainer,
+  DataGridScrollArea,
+  DataGridTable,
+} from "@strait/ui/components/data-grid";
+import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@strait/ui/components/dropdown-menu";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@strait/ui/components/empty";
 import { Input } from "@strait/ui/components/input";
 import { Shell } from "@strait/ui/components/shell";
-import { cn } from "@strait/ui/utils/index";
+import { cn } from "@strait/ui/utils";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
@@ -21,19 +34,19 @@ import {
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useMemo, useState } from "react";
 import { z } from "zod/v4";
+import { CursorPagination } from "@/components/common/cursor-pagination";
 import ErrorComponent from "@/components/common/error-component";
 import NoProjectState from "@/components/common/no-project-state";
-import TableEmptyState from "@/components/common/table-empty-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import ExpandedEventDetail from "@/components/events/expanded-event-detail";
 import { logColumns } from "@/components/events/log-columns";
-import { DataTable } from "@/components/ui/data-table/data-table";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { EventTrigger, PaginatedResponse } from "@/hooks/api/types";
 import { eventsQueryOptions } from "@/hooks/api/use-events";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
 import { FileTextIcon, FilterIcon, SearchIcon } from "@/lib/icons";
 import { EVENT_STATUS_STYLES, EVENT_STATUSES } from "@/lib/status";
+import { stopInteractiveRowClick } from "@/lib/table-interactions";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const searchSchema = z.object({
@@ -140,17 +153,20 @@ function LogsPage() {
   }
 
   const emptyState = hasProject ? (
-    <TableEmptyState
-      description="No log entries yet. Logs will appear as your jobs execute."
-      hideButton
-      icon={
-        <HugeiconsIcon
-          className="size-6 text-muted-foreground"
-          icon={FileTextIcon}
-        />
-      }
-      title="No events found"
-    />
+    <Empty className="h-[300px]">
+      <EmptyHeader>
+        <EmptyMedia size="lg" variant="icon">
+          <HugeiconsIcon
+            className="size-6 text-muted-foreground"
+            icon={FileTextIcon}
+          />
+        </EmptyMedia>
+        <EmptyTitle>No events found</EmptyTitle>
+        <EmptyDescription>
+          No log entries yet. Logs will appear as your jobs execute.
+        </EmptyDescription>
+      </EmptyHeader>
+    </Empty>
   ) : (
     <NoProjectState user={session.user} />
   );
@@ -213,42 +229,35 @@ function LogsPage() {
         </DropdownMenu>
       </div>
 
-      {/* biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noNoninteractiveElementInteractions lint/a11y/noStaticElementInteractions: event delegation */}
-      <div
-        className="[&_tbody_tr]:cursor-pointer"
-        onClick={(e) => {
-          const target = e.target as HTMLElement;
-          if (target.closest("a, button")) {
-            return;
-          }
-          const row = target.closest("tr[data-row-index]");
-          if (!row) {
-            return;
-          }
-          const idx = Number(row.getAttribute("data-row-index"));
-          const event = table.getRowModel().rows[idx]?.original;
-          if (event) {
-            handleRowClick(event);
-          }
-        }}
-      >
-        <DataTable
-          ariaLabel="Logs"
-          cursorPagination={{
-            pageSize: pagination.perPage,
-            hasMore: typed?.has_more ?? false,
-            canGoBack: pagination.canGoBack,
-            onNext: () => {
-              if (typed?.next_cursor) {
-                pagination.goNext(typed.next_cursor);
-              }
-            },
-            onPrev: pagination.goPrev,
-            onPageSizeChange: pagination.setPerPage,
-          }}
-          emptyState={emptyState}
+      <div onClickCapture={stopInteractiveRowClick}>
+        <DataGrid
+          emptyMessage={emptyState}
+          onRowClick={handleRowClick}
+          recordCount={typed?.data.length ?? 0}
           table={table}
-        />
+          tableClassNames={{ base: "min-w-[1200px]" }}
+        >
+          <DataGridContainer>
+            <DataGridScrollArea>
+              <DataGridTable />
+            </DataGridScrollArea>
+          </DataGridContainer>
+          <CursorPagination
+            cursor={{
+              pageSize: pagination.perPage,
+              hasMore: typed?.has_more ?? false,
+              canGoBack: pagination.canGoBack,
+              onNext: () => {
+                if (typed?.next_cursor) {
+                  pagination.goNext(typed.next_cursor);
+                }
+              },
+              onPrev: pagination.goPrev,
+              onPageSizeChange: pagination.setPerPage,
+            }}
+            table={table}
+          />
+        </DataGrid>
       </div>
 
       {/* Expanded detail */}

@@ -7,7 +7,24 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import { ConfigRow } from "@strait/ui/components/config-row";
+import {
+  DataGrid,
+  DataGridContainer,
+  DataGridPagination,
+  DataGridScrollArea,
+  DataGridTable,
+} from "@strait/ui/components/data-grid";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@strait/ui/components/empty";
+import { FeatureLock } from "@strait/ui/components/feature-lock";
 import { Shell } from "@strait/ui/components/shell";
+import { StatusBadge } from "@strait/ui/components/status-badge";
 import {
   Tabs,
   TabsContent,
@@ -15,7 +32,7 @@ import {
   TabsTrigger,
 } from "@strait/ui/components/tabs";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   type ColumnDef,
   getCoreRowModel,
@@ -25,15 +42,10 @@ import {
 } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
 import { useState } from "react";
-import FeatureLock from "@/components/billing/feature-lock";
-import ConfigRow from "@/components/common/config-row";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
-import TableEmptyState from "@/components/common/table-empty-state";
-import StatusBadge from "@/components/dashboard/status-badge";
 import WorkflowDAGFlow from "@/components/dashboard/workflow-dag-flow";
-import { DataTable } from "@/components/ui/data-table/data-table";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type {
   PaginatedResponse,
@@ -50,6 +62,7 @@ import {
   workflowRunsQueryOptions,
   workflowStepsQueryOptions,
 } from "@/hooks/api/use-workflows";
+import { useCurrentPlan } from "@/hooks/billing/use-current-plan";
 import {
   ActivityIcon,
   CheckCircleIcon,
@@ -59,6 +72,7 @@ import {
   RefreshIcon,
   TagIcon,
 } from "@/lib/icons";
+import { canUseFeature } from "@/lib/plan-tiers";
 
 export const Route = createFileRoute("/app/workflows/$id")({
   head: () => ({ meta: [{ title: "Workflow · Strait" }] }),
@@ -115,8 +129,37 @@ const workflowRunColumns: ColumnDef<WorkflowRun>[] = [
   },
 ];
 
+type LockedDAGFeature = {
+  title: string;
+  description: string;
+};
+
+function getLockedDAGFeature(
+  currentPlan: string,
+  hasApprovalGate: boolean,
+  hasSubWorkflow: boolean
+): LockedDAGFeature | null {
+  if (hasApprovalGate && !canUseFeature(currentPlan, "approval_gates")) {
+    return {
+      title: "Approval Gates",
+      description: "Requires the Pro plan or higher",
+    };
+  }
+
+  if (hasSubWorkflow && !canUseFeature(currentPlan, "sub_workflows")) {
+    return {
+      title: "Sub-Workflows",
+      description: "Requires the Pro plan or higher",
+    };
+  }
+
+  return null;
+}
+
 function WorkflowDetailPage() {
   const { id } = Route.useParams();
+  const navigate = useNavigate();
+  const currentPlan = useCurrentPlan();
   usePageEvent("workflow_detail_viewed", { workflow_id: id });
   const { data: workflow } = useSuspenseQuery(workflowQueryOptions(id)) as {
     data: Workflow | undefined;
@@ -157,6 +200,13 @@ function WorkflowDetailPage() {
   const successRate =
     totalRuns > 0 ? Math.round((successfulRuns / totalRuns) * 100) : 0;
   const recentRuns = (runs ?? []).slice(0, 5);
+  const hasApprovalGate = dagSteps.some((step) => step.type === "approval");
+  const hasSubWorkflow = dagSteps.some((step) => step.type === "sub_workflow");
+  const lockedDAGFeature = getLockedDAGFeature(
+    currentPlan,
+    hasApprovalGate,
+    hasSubWorkflow
+  );
 
   if (!workflow) {
     return (
@@ -309,42 +359,60 @@ function WorkflowDetailPage() {
 
         {/* DAG Tab */}
         <TabsContent className="mt-6 space-y-4" value="dag">
-          {dagSteps.some((s) => s.type === "approval") && (
-            <FeatureLock feature="approval_gates">
-              <div />
-            </FeatureLock>
-          )}
-          {dagSteps.some((s) => s.type === "sub_workflow") && (
-            <FeatureLock feature="sub_workflows">
-              <div />
-            </FeatureLock>
-          )}
-          <Card>
-            <CardContent className="p-0">
-              <WorkflowDAGFlow steps={dagSteps} />
-            </CardContent>
-          </Card>
+          <FeatureLock
+            action={
+              lockedDAGFeature ? (
+                <Button
+                  onClick={() => navigate({ to: "/app/upgrade" })}
+                  variant="default"
+                >
+                  Upgrade
+                </Button>
+              ) : null
+            }
+            description={lockedDAGFeature?.description}
+            locked={Boolean(lockedDAGFeature)}
+            planLabel={lockedDAGFeature ? "Pro" : undefined}
+            title={lockedDAGFeature?.title}
+          >
+            <Card>
+              <CardContent className="p-0">
+                <WorkflowDAGFlow steps={dagSteps} />
+              </CardContent>
+            </Card>
+          </FeatureLock>
         </TabsContent>
 
         {/* Recent Runs Tab */}
         <TabsContent className="mt-6" value="runs">
-          <DataTable
-            ariaLabel="Workflow runs"
-            emptyState={
-              <TableEmptyState
-                description="No runs yet. Trigger this workflow to start an execution."
-                hideButton
-                icon={
-                  <HugeiconsIcon
-                    className="size-6 text-foreground"
-                    icon={ActivityIcon}
-                  />
-                }
-                title="No runs found"
-              />
+          <DataGrid
+            emptyMessage={
+              <Empty className="h-[300px]">
+                <EmptyHeader>
+                  <EmptyMedia size="lg" variant="icon">
+                    <HugeiconsIcon
+                      className="size-6 text-foreground"
+                      icon={ActivityIcon}
+                    />
+                  </EmptyMedia>
+                  <EmptyTitle>No runs found</EmptyTitle>
+                  <EmptyDescription>
+                    No runs yet. Trigger this workflow to start an execution.
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
             }
+            recordCount={runs.length}
             table={runsTable}
-          />
+            tableClassNames={{ base: "min-w-[1200px]" }}
+          >
+            <DataGridContainer>
+              <DataGridScrollArea>
+                <DataGridTable />
+              </DataGridScrollArea>
+              <DataGridPagination />
+            </DataGridContainer>
+          </DataGrid>
         </TabsContent>
 
         {/* Settings Tab */}

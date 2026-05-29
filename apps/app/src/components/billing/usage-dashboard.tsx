@@ -1,3 +1,4 @@
+import { HugeiconsIcon } from "@hugeicons/react";
 import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
 import {
@@ -7,7 +8,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
-import { toast } from "@strait/ui/components/toast/index";
+import { RadialGauge } from "@strait/ui/components/radial-gauge";
+import { toast } from "@strait/ui/components/toast";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
@@ -27,12 +29,12 @@ import { orgUsageQueryOptions } from "@/hooks/billing/use-org-usage";
 import { projectCostsQueryOptions } from "@/hooks/billing/use-project-costs";
 import { usageHistoryQueryOptions } from "@/hooks/billing/use-usage-history";
 import { capitalize, formatMicroUsd } from "@/lib/format";
+import { CheckCircleIcon } from "@/lib/icons";
 import { CHART_COLORS } from "@/lib/status-colors";
 import { getCustomerPortalUrlServerFn } from "@/lib/subscription";
 import ChartTooltip from "../dashboard/chart-tooltip";
 import ResponsiveChartContainer from "../dashboard/responsive-chart-container";
 import OverageWarningBanner from "./overage-warning-banner";
-import RadialUsageGauge from "./radial-usage-gauge";
 
 const RUNS_LABEL_MAP = {
   runs_count: {
@@ -55,6 +57,61 @@ const PROJECT_RUNS_LABEL_MAP = {
     color: CHART_COLORS.active,
   },
 };
+
+type UsageGaugeData = {
+  label: string;
+  used: number;
+  limit: number;
+  percent: number;
+  display?: string;
+};
+
+function getGaugeColor(percent: number): string {
+  if (percent >= 90) {
+    return CHART_COLORS.error;
+  }
+  if (percent >= 70) {
+    return CHART_COLORS.warning;
+  }
+  return CHART_COLORS.active;
+}
+
+function renderUsageGauge({
+  label,
+  used,
+  limit,
+  percent,
+  display,
+}: UsageGaugeData) {
+  const isUnlimited = limit === -1;
+  const displayValue = display || `${used.toLocaleString()}`;
+  const limitDisplay = isUnlimited ? "Unlimited" : limit.toLocaleString();
+
+  return (
+    <Card key={label}>
+      <CardContent className="p-4">
+        <p className="text-muted-foreground text-xs">{label}</p>
+        {isUnlimited ? (
+          <div className="flex h-[120px] items-center justify-center">
+            <HugeiconsIcon
+              className="text-success"
+              icon={CheckCircleIcon}
+              size={32}
+            />
+          </div>
+        ) : (
+          <RadialGauge
+            centerLabel={displayValue}
+            className="h-[120px]"
+            color={getGaugeColor(percent)}
+            label={`/ ${limitDisplay}`}
+            value={percent}
+          />
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 const UsageDashboard = () => {
   const {
@@ -174,32 +231,32 @@ const UsageDashboard = () => {
 
       {/* Radial Gauges */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <RadialUsageGauge
-          display={usage.usage.runs_today.display}
-          label="Runs Today"
-          limit={usage.usage.runs_today.limit}
-          percent={usage.usage.runs_today.percent}
-          used={usage.usage.runs_today.used}
-        />
-        <RadialUsageGauge
-          label="Concurrent Runs"
-          limit={usage.usage.concurrent_runs.limit}
-          percent={usage.usage.concurrent_runs.percent}
-          used={usage.usage.concurrent_runs.used}
-        />
-        <RadialUsageGauge
-          display={usage.usage.compute_credit.display}
-          label="Compute Credit"
-          limit={usage.usage.compute_credit.limit}
-          percent={usage.usage.compute_credit.percent}
-          used={usage.usage.compute_credit.used}
-        />
-        <RadialUsageGauge
-          label="AI Model Calls"
-          limit={usage.usage.ai_model_calls_today.limit}
-          percent={usage.usage.ai_model_calls_today.percent}
-          used={usage.usage.ai_model_calls_today.used}
-        />
+        {renderUsageGauge({
+          display: usage.usage.runs_today.display,
+          label: "Runs Today",
+          limit: usage.usage.runs_today.limit,
+          percent: usage.usage.runs_today.percent,
+          used: usage.usage.runs_today.used,
+        })}
+        {renderUsageGauge({
+          label: "Concurrent Runs",
+          limit: usage.usage.concurrent_runs.limit,
+          percent: usage.usage.concurrent_runs.percent,
+          used: usage.usage.concurrent_runs.used,
+        })}
+        {renderUsageGauge({
+          display: usage.usage.compute_credit.display,
+          label: "Compute Credit",
+          limit: usage.usage.compute_credit.limit,
+          percent: usage.usage.compute_credit.percent,
+          used: usage.usage.compute_credit.used,
+        })}
+        {renderUsageGauge({
+          label: "AI Model Calls",
+          limit: usage.usage.ai_model_calls_today.limit,
+          percent: usage.usage.ai_model_calls_today.percent,
+          used: usage.usage.ai_model_calls_today.used,
+        })}
       </div>
 
       {/* Transitional message when in-flight runs exceed new plan limit */}

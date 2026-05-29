@@ -16,7 +16,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@strait/ui/components/dropdown-menu";
-import { toast } from "@strait/ui/components/toast/index";
+import { toast } from "@strait/ui/components/toast";
 import { useState } from "react";
 import { useUpdateMemberRole } from "@/hooks/auth/use-member";
 import { CheckIcon, LoadingIcon } from "@/lib/icons";

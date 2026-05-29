@@ -5,6 +5,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import { ChartEmptyState } from "@strait/ui/components/chart-empty-state";
 import {
   Table,
   TableBody,
@@ -13,7 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from "@strait/ui/components/table";
-import { toast } from "@strait/ui/components/toast/index";
+import { toast } from "@strait/ui/components/toast";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   Bar,
@@ -33,7 +34,6 @@ import { getPostHog } from "@/lib/analytics";
 import { formatMicroUsd } from "@/lib/format";
 import { ActivityIcon } from "@/lib/icons";
 import { CHART_COLORS } from "@/lib/status-colors";
-import ChartEmptyState from "../dashboard/chart-empty-state";
 import ChartTooltip from "../dashboard/chart-tooltip";
 import ResponsiveChartContainer from "../dashboard/responsive-chart-container";
 

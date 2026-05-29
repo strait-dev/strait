@@ -1,6 +1,7 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
+import { FeatureBadge } from "@strait/ui/components/feature-lock";
 import {
   Sheet,
   SheetContent,
@@ -8,13 +9,18 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@strait/ui/components/sheet";
-import { cn } from "@strait/ui/utils/index";
+import { StatusBadge } from "@strait/ui/components/status-badge";
+import { cn } from "@strait/ui/utils";
 import { Link } from "@tanstack/react-router";
-import FeatureBadge from "@/components/billing/feature-badge";
 import type { Workflow, WorkflowStepType } from "@/hooks/api/types";
 import { useTriggerWorkflow } from "@/hooks/api/use-workflows";
+import { useCurrentPlan } from "@/hooks/billing/use-current-plan";
 import { ClockIcon, PlayActionIcon, TagIcon } from "@/lib/icons";
-import StatusBadge from "./status-badge";
+import {
+  canUseFeature,
+  getFeatureMinimumPlanLabel,
+  type PlanFeature,
+} from "@/lib/plan-tiers";
 
 type WorkflowDetailSheetProps = {
   workflow: Workflow | null;
@@ -43,12 +49,27 @@ const StatCell = ({
   </div>
 );
 
+function renderFeatureBadge(currentPlan: string, feature: PlanFeature) {
+  if (canUseFeature(currentPlan, feature)) {
+    return null;
+  }
+
+  return (
+    <FeatureBadge
+      className="ml-1.5 text-[10px]"
+      plan={getFeatureMinimumPlanLabel(feature)}
+      size="xs"
+    />
+  );
+}
+
 const WorkflowDetailSheet = ({
   workflow,
   open,
   onOpenChange,
 }: WorkflowDetailSheetProps) => {
   const triggerWorkflow = useTriggerWorkflow();
+  const currentPlan = useCurrentPlan();
 
   if (!workflow) {
     return null;
@@ -108,12 +129,10 @@ const WorkflowDetailSheet = ({
                   <span className="text-sm">{step.name}</span>
                   <span className="ml-auto flex items-center text-muted-foreground text-sm">
                     {step.type}
-                    {step.type === "approval" && (
-                      <FeatureBadge feature="approval_gates" />
-                    )}
-                    {step.type === "sub_workflow" && (
-                      <FeatureBadge feature="sub_workflows" />
-                    )}
+                    {step.type === "approval" &&
+                      renderFeatureBadge(currentPlan, "approval_gates")}
+                    {step.type === "sub_workflow" &&
+                      renderFeatureBadge(currentPlan, "sub_workflows")}
                   </span>
                 </div>
               ))}

@@ -22,7 +22,6 @@ import {
   Add01Icon,
   Alert02Icon,
   ArrowDown01Icon,
-  ArrowDownRight01Icon,
   ArrowLeft01Icon,
   ArrowRight01Icon,
   ArrowUpRight01Icon,
@@ -95,7 +94,6 @@ export const ChevronDownIcon = ArrowDown01Icon;
 export const ChevronLeftIcon = ArrowLeft01Icon;
 export const ChevronRightIcon = ArrowRight01Icon;
 export const ArrowUpRightIcon = ArrowUpRight01Icon;
-export const ArrowDownRightIcon = ArrowDownRight01Icon;
 
 // Content / files
 export const FileTextIcon = File01Icon;

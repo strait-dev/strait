@@ -8,8 +8,6 @@ import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { getPostHog } from "@/lib/analytics";
 import {
   createProjectServerFn,
-  deleteProjectServerFn,
-  getProjectServerFn,
   listProjectsServerFn,
   setActiveProjectServerFn,
 } from "@/lib/project-handler";
@@ -21,15 +19,6 @@ export const projectsQueryOptions = (organizationId: string) =>
     staleTime: DEFAULT_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
     enabled: !!organizationId,
-  });
-
-export const projectQueryOptions = (id: string) =>
-  queryOptions({
-    queryKey: queryKeys.projects.detail(id).queryKey,
-    queryFn: () => getProjectServerFn({ data: { id } }),
-    staleTime: DEFAULT_STALE_TIME,
-    gcTime: DEFAULT_GC_TIME,
-    enabled: !!id,
   });
 
 export const useCreateProject = () => {
@@ -49,30 +38,6 @@ export const useCreateProject = () => {
       getPostHog()?.capture("mutation_error", {
         action: "project_created",
         error_message: err instanceof Error ? err.message : "Unknown error",
-      });
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.projects._def,
-      });
-    },
-  });
-};
-
-export const useDeleteProject = () => {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationKey: ["projects", "delete"],
-    mutationFn: (data: { id: string }) => deleteProjectServerFn({ data }),
-    onSuccess: (_data, variables) => {
-      getPostHog()?.capture("project_deleted", { project_id: variables.id });
-    },
-    onError: (err, variables) => {
-      getPostHog()?.capture("mutation_error", {
-        action: "project_deleted",
-        error_message: err instanceof Error ? err.message : "Unknown error",
-        project_id: variables.id,
       });
     },
     onSettled: () => {

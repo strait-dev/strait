@@ -10,7 +10,7 @@ import {
 } from "@strait/ui/components/card";
 import { Field, FieldError, FieldLabel } from "@strait/ui/components/field";
 import { PasswordInput } from "@strait/ui/components/password-input";
-import { toast } from "@strait/ui/components/toast/index";
+import { toast } from "@strait/ui/components/toast";
 import { useForm } from "@tanstack/react-form";
 import { z } from "zod";
 import { authClient } from "@/lib/auth-client";

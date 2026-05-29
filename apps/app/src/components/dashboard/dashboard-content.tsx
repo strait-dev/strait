@@ -1,10 +1,10 @@
+import { MetricCard } from "@strait/ui/components/metric-card";
 import { Shell } from "@strait/ui/components/shell";
 import { useQuery } from "@tanstack/react-query";
 import InlineError from "@/components/common/inline-error";
 import { QueryErrorBoundary } from "@/components/common/query-error-boundary";
 import FailedRunsByJobChart from "@/components/dashboard/failed-runs-by-job-chart";
 import LiveActivityFeed from "@/components/dashboard/live-activity-feed";
-import MetricsCard from "@/components/dashboard/metrics-card";
 import ProjectCostCard from "@/components/dashboard/project-cost-card";
 import QueueHealthChart from "@/components/dashboard/queue-health-chart";
 import RecentRunsTable from "@/components/dashboard/recent-runs-table";
@@ -67,26 +67,26 @@ const DashboardContent = ({
         Overview
       </h2>
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <MetricsCard
-          chartColor={CHART_COLORS.active}
+        <MetricCard
+          color={CHART_COLORS.active}
           icon={ActivityIcon}
           title="Total Runs (24h)"
           value={totalRuns.toLocaleString()}
         />
-        <MetricsCard
-          chartColor={CHART_COLORS.success}
+        <MetricCard
+          color={CHART_COLORS.success}
           icon={CheckCircleIcon}
           title="Success Rate"
           value={`${successRate.toFixed(1)}%`}
         />
-        <MetricsCard
-          chartColor={CHART_COLORS.error}
+        <MetricCard
+          color={CHART_COLORS.error}
           icon={AlertIcon}
           title="Failed Runs"
           value={failedRuns.toLocaleString()}
         />
-        <MetricsCard
-          chartColor={CHART_COLORS.neutral}
+        <MetricCard
+          color={CHART_COLORS.neutral}
           icon={ClockIcon}
           title="Queued"
           value={totalActive.toLocaleString()}

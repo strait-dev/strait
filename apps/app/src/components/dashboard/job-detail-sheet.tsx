@@ -8,6 +8,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@strait/ui/components/sheet";
+import { StatusBadge } from "@strait/ui/components/status-badge";
 import { Link } from "@tanstack/react-router";
 import type { Job } from "@/hooks/api/types";
 import { useTriggerJob } from "@/hooks/api/use-jobs";
@@ -18,7 +19,6 @@ import {
   RefreshIcon,
   TagIcon,
 } from "@/lib/icons";
-import StatusBadge from "./status-badge";
 
 type JobDetailSheetProps = {
   job: Job | null;

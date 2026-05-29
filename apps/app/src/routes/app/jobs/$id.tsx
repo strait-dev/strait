@@ -7,7 +7,24 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import { ConfigRow } from "@strait/ui/components/config-row";
+import {
+  DataGrid,
+  DataGridContainer,
+  DataGridPagination,
+  DataGridScrollArea,
+  DataGridSelectionBar,
+  DataGridTable,
+} from "@strait/ui/components/data-grid";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@strait/ui/components/empty";
 import { Shell } from "@strait/ui/components/shell";
+import { StatusBadge } from "@strait/ui/components/status-badge";
 import {
   Tabs,
   TabsContent,
@@ -34,17 +51,12 @@ import {
   YAxis,
 } from "recharts";
 import CostEstimateCard from "@/components/billing/cost-estimate-card";
-import ConfigRow from "@/components/common/config-row";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
-import TableEmptyState from "@/components/common/table-empty-state";
 import ResponsiveChartContainer from "@/components/dashboard/responsive-chart-container";
 import RunDetailSheet from "@/components/dashboard/run-detail-sheet";
-import StatusBadge from "@/components/dashboard/status-badge";
 import { createRunColumns } from "@/components/tables/runs-columns";
-import { DataTable } from "@/components/ui/data-table/data-table";
-import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { Job, JobRun, PaginatedResponse } from "@/hooks/api/types";
 import {
@@ -71,6 +83,7 @@ import {
   XCircleIcon,
 } from "@/lib/icons";
 import { CHART_COLORS } from "@/lib/status-colors";
+import { stopInteractiveRowClick } from "@/lib/table-interactions";
 
 export const Route = createFileRoute("/app/jobs/$id")({
   head: () => ({ meta: [{ title: "Job · Strait" }] }),
@@ -410,88 +423,77 @@ function JobDetailPage() {
         </TabsContent>
 
         <TabsContent className="mt-6" value="runs">
-          {/* biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noNoninteractiveElementInteractions lint/a11y/noStaticElementInteractions: event delegation on table container */}
-          <div
-            className="[&_tbody_tr]:cursor-pointer"
-            onClick={(e) => {
-              const target = e.target as HTMLElement;
-              if (target.closest("a, button")) {
-                return;
+          <div onClickCapture={stopInteractiveRowClick}>
+            <DataGrid
+              emptyMessage={
+                <Empty className="h-[300px]">
+                  <EmptyHeader>
+                    <EmptyMedia size="lg" variant="icon">
+                      <HugeiconsIcon
+                        className="size-6 text-foreground"
+                        icon={ActivityIcon}
+                      />
+                    </EmptyMedia>
+                    <EmptyTitle>No runs found</EmptyTitle>
+                    <EmptyDescription>
+                      No runs yet. Trigger this job to start an execution.
+                    </EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
               }
-              const row = target.closest("tr[data-row-index]");
-              if (!row) {
-                return;
-              }
-              const idx = Number(row.getAttribute("data-row-index"));
-              const run = table.getRowModel().rows[idx]?.original;
-              if (run) {
-                handleRowClick(run);
-              }
-            }}
-          >
-            <DataTable
-              emptyState={
-                <TableEmptyState
-                  description="No runs yet. Trigger this job to start an execution."
-                  hideButton
-                  icon={
-                    <HugeiconsIcon
-                      className="size-6 text-foreground"
-                      icon={ActivityIcon}
-                    />
-                  }
-                  title="No runs found"
-                />
-              }
-              floatingBar={
-                selectedIds.length > 0 ? (
-                  <DataTableFloatingBar
-                    actions={[
-                      ...(selectedIds.length === 1
-                        ? [
-                            {
-                              label: "View",
-                              icon: EyeIcon,
-                              onClick: () => {
-                                const run = table
-                                  .getRowModel()
-                                  .rows.find(
-                                    (r) => r.id === selectedIds[0]
-                                  )?.original;
-                                if (run) {
-                                  handleRowClick(run);
-                                }
-                              },
-                            },
-                          ]
-                        : []),
-                      {
-                        label: "Retry",
-                        icon: RefreshIcon,
-                        onClick: () => {
-                          for (const id of selectedIds) {
-                            retryRun.mutate({ run_id: id });
-                          }
-                        },
-                      },
-                      {
-                        label: "Cancel",
-                        icon: XCircleIcon,
-                        onClick: () => {
-                          for (const id of selectedIds) {
-                            cancelRun.mutate({ run_id: id });
-                          }
-                        },
-                        variant: "destructive" as const,
-                      },
-                    ]}
-                    onClearSelection={() => setRowSelection({})}
-                    selectedCount={selectedIds.length}
-                  />
-                ) : null
-              }
+              onRowClick={handleRowClick}
+              recordCount={jobRuns.length}
               table={table}
-            />
+              tableClassNames={{ base: "min-w-[1200px]" }}
+            >
+              <DataGridContainer>
+                <DataGridScrollArea>
+                  <DataGridTable />
+                </DataGridScrollArea>
+                <DataGridPagination />
+              </DataGridContainer>
+              <DataGridSelectionBar
+                actions={[
+                  ...(selectedIds.length === 1
+                    ? [
+                        {
+                          label: "View",
+                          icon: EyeIcon,
+                          onClick: () => {
+                            const run = table
+                              .getRowModel()
+                              .rows.find(
+                                (r) => r.id === selectedIds[0]
+                              )?.original;
+                            if (run) {
+                              handleRowClick(run);
+                            }
+                          },
+                        },
+                      ]
+                    : []),
+                  {
+                    label: "Retry",
+                    icon: RefreshIcon,
+                    onClick: () => {
+                      for (const id of selectedIds) {
+                        retryRun.mutate({ run_id: id });
+                      }
+                    },
+                  },
+                  {
+                    label: "Cancel",
+                    icon: XCircleIcon,
+                    onClick: () => {
+                      for (const id of selectedIds) {
+                        cancelRun.mutate({ run_id: id });
+                      }
+                    },
+                    variant: "destructive",
+                  },
+                ]}
+              />
+            </DataGrid>
           </div>
 
           <RunDetailSheet

@@ -23,24 +23,25 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import { ExecutionTraceBar } from "@strait/ui/components/execution-trace-bar";
 import { Shell } from "@strait/ui/components/shell";
+import { StatusBadge } from "@strait/ui/components/status-badge";
 import {
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
 } from "@strait/ui/components/tabs";
-import { cn } from "@strait/ui/utils/index";
+import { cn } from "@strait/ui/utils";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
-import StatusBadge from "@/components/dashboard/status-badge";
-import ExecutionTraceBar from "@/components/runs/execution-trace-bar";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type {
+  ExecutionTrace,
   JobRun,
   PaginatedResponse,
   RunEvent,
@@ -88,6 +89,23 @@ const ACTIVE_STATUSES: ReadonlySet<RunStatus> = new Set([
 
 const LEVEL_FILTERS = ["all", "error", "warn", "info", "debug"] as const;
 type LevelFilter = (typeof LEVEL_FILTERS)[number];
+
+const EXECUTION_TRACE_SEGMENTS: {
+  key: keyof ExecutionTrace;
+  label: string;
+  color: string;
+}[] = [
+  {
+    key: "queue_wait_ms",
+    label: "Queue Wait",
+    color: "var(--muted-foreground)",
+  },
+  { key: "dequeue_ms", label: "Dequeue", color: "var(--chart-1)" },
+  { key: "dispatch_ms", label: "Dispatch", color: "var(--info)" },
+  { key: "connect_ms", label: "Connect", color: "var(--primary)" },
+  { key: "ttfb_ms", label: "TTFB", color: "var(--warning)" },
+  { key: "transfer_ms", label: "Transfer", color: "var(--success)" },
+];
 
 const LEVEL_COLOR: Record<string, string> = {
   error: "text-destructive",
@@ -258,7 +276,15 @@ function RunDetailPage() {
             <CardTitle>Execution trace</CardTitle>
           </CardHeader>
           <CardContent>
-            <ExecutionTraceBar trace={run.execution_trace} />
+            <ExecutionTraceBar
+              formatValue={(value) => `${value}ms`}
+              segments={EXECUTION_TRACE_SEGMENTS.map((segment) => ({
+                label: segment.label,
+                value: run.execution_trace?.[segment.key] ?? 0,
+                color: segment.color,
+              }))}
+              total={run.execution_trace?.total_ms || 1}
+            />
           </CardContent>
         </Card>
       )}
@@ -438,12 +464,9 @@ function LogViewer({
 }) {
   if (isError) {
     return (
-      <div
-        className="rounded-lg bg-muted p-6 text-center text-muted-foreground text-sm"
-        role="status"
-      >
+      <output className="block rounded-lg bg-muted p-6 text-center text-muted-foreground text-sm">
         Log events are unavailable right now.
-      </div>
+      </output>
     );
   }
 

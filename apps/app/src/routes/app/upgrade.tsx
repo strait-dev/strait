@@ -9,7 +9,7 @@ import {
   CardTitle,
 } from "@strait/ui/components/card";
 import { Shell } from "@strait/ui/components/shell";
-import { toast } from "@strait/ui/components/toast/index";
+import { toast } from "@strait/ui/components/toast";
 import { useMutation, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";

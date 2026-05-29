@@ -4,6 +4,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import { ChartEmptyState } from "@strait/ui/components/chart-empty-state";
 import { useQuery } from "@tanstack/react-query";
 import { Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from "recharts";
 import {
@@ -12,7 +13,6 @@ import {
 } from "@/hooks/api/use-dashboard";
 import { ClockIcon } from "@/lib/icons";
 import { CHART_COLORS } from "@/lib/status-colors";
-import ChartEmptyState from "./chart-empty-state";
 import ChartTooltip from "./chart-tooltip";
 import ResponsiveChartContainer from "./responsive-chart-container";
 

@@ -24,7 +24,7 @@ import { Checkbox } from "@strait/ui/components/checkbox";
 import { Field, FieldError, FieldLabel } from "@strait/ui/components/field";
 import { Input } from "@strait/ui/components/input";
 import { InputWithShowHidePassword } from "@strait/ui/components/input-with-show-hide-password";
-import { toast } from "@strait/ui/components/toast/index";
+import { toast } from "@strait/ui/components/toast";
 import { useForm } from "@tanstack/react-form";
 import { useState, useTransition } from "react";
 import * as z from "zod";

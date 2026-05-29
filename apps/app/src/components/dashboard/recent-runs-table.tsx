@@ -4,6 +4,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import { ChartEmptyState } from "@strait/ui/components/chart-empty-state";
+import { StatusBadge } from "@strait/ui/components/status-badge";
 import {
   Table,
   TableBody,
@@ -19,8 +21,6 @@ import type { JobRun, PaginatedResponse, RunStatus } from "@/hooks/api/types";
 import { runsQueryOptions } from "@/hooks/api/use-runs";
 import { LIVE_REFETCH_INTERVAL } from "@/hooks/utils";
 import { ActivityIcon } from "@/lib/icons";
-import ChartEmptyState from "./chart-empty-state";
-import StatusBadge from "./status-badge";
 
 function formatDuration(
   startedAt: string | null,

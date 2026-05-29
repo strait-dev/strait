@@ -2,7 +2,23 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Badge } from "@strait/ui/components/badge";
 
 import { Button } from "@strait/ui/components/button";
+import { ConfigRow } from "@strait/ui/components/config-row";
+import {
+  DataGrid,
+  DataGridContainer,
+  DataGridPagination,
+  DataGridScrollArea,
+  DataGridTable,
+} from "@strait/ui/components/data-grid";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@strait/ui/components/empty";
 import { Shell } from "@strait/ui/components/shell";
+import { StatusBadge } from "@strait/ui/components/status-badge";
 import {
   Tabs,
   TabsContent,
@@ -18,14 +34,10 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { useState } from "react";
-import ConfigRow from "@/components/common/config-row";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
-import TableEmptyState from "@/components/common/table-empty-state";
-import StatusBadge from "@/components/dashboard/status-badge";
 import { createRunColumns } from "@/components/tables/runs-columns";
-import { DataTable } from "@/components/ui/data-table/data-table";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { Job, JobRun, PaginatedResponse } from "@/hooks/api/types";
 import {
@@ -160,22 +172,35 @@ function ScheduleDetailPage() {
         </TabsList>
 
         <TabsContent className="mt-6" value="history">
-          <DataTable
-            emptyState={
-              <TableEmptyState
-                description="No runs yet. Runs will appear here each time the schedule fires."
-                hideButton
-                icon={
-                  <HugeiconsIcon
-                    className="size-6 text-foreground"
-                    icon={ActivityIcon}
-                  />
-                }
-                title="No runs found"
-              />
+          <DataGrid
+            emptyMessage={
+              <Empty className="h-[300px]">
+                <EmptyHeader>
+                  <EmptyMedia size="lg" variant="icon">
+                    <HugeiconsIcon
+                      className="size-6 text-foreground"
+                      icon={ActivityIcon}
+                    />
+                  </EmptyMedia>
+                  <EmptyTitle>No runs found</EmptyTitle>
+                  <EmptyDescription>
+                    No runs yet. Runs will appear here each time the schedule
+                    fires.
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
             }
+            recordCount={runs?.data.length ?? 0}
             table={runsTable}
-          />
+            tableClassNames={{ base: "min-w-[1200px]" }}
+          >
+            <DataGridContainer>
+              <DataGridScrollArea>
+                <DataGridTable />
+              </DataGridScrollArea>
+              <DataGridPagination />
+            </DataGridContainer>
+          </DataGrid>
         </TabsContent>
 
         <TabsContent className="mt-6 space-y-6" value="settings">

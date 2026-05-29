@@ -7,7 +7,6 @@ import type {
 } from "@/hooks/api/types";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
-import { apiPath } from "@/lib/api-client.server";
 import { apiEffect, runWithSentryReport } from "@/lib/effect-api.server";
 import { authMiddleware } from "@/middlewares/auth";
 import { requireActiveProjectAccess } from "@/middlewares/require-access";
@@ -41,19 +40,6 @@ export const fetchEvents = createServerFn({ method: "GET" })
     }
   );
 
-export const fetchEvent = createServerFn({ method: "GET" })
-  .inputValidator((data: { eventKey: string }) => data)
-  .middleware([authMiddleware])
-  .handler(
-    // @ts-expect-error tsgo cannot resolve createServerFn handler generics
-    async ({ context, data }): Promise<EventTrigger> => {
-      await requireActiveProjectAccess(context);
-      return await runWithSentryReport(
-        apiEffect<EventTrigger>(apiPath`/v1/events/${data.eventKey}`)
-      );
-    }
-  );
-
 export const eventsQueryOptions = (
   search?: ListParams & {
     status?: string;
@@ -67,12 +53,4 @@ export const eventsQueryOptions = (
     staleTime: DEFAULT_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
     placeholderData: keepPreviousData,
-  });
-
-export const eventQueryOptions = (eventKey: string) =>
-  queryOptions({
-    queryKey: queryKeys.events.detail(eventKey).queryKey,
-    queryFn: () => fetchEvent({ data: { eventKey } }),
-    staleTime: DEFAULT_STALE_TIME,
-    gcTime: DEFAULT_GC_TIME,
   });

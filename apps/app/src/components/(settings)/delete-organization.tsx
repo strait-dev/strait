@@ -21,7 +21,7 @@ import {
 } from "@strait/ui/components/card";
 import { Field, FieldLabel } from "@strait/ui/components/field";
 import { Input } from "@strait/ui/components/input";
-import { toast } from "@strait/ui/components/toast/index";
+import { toast } from "@strait/ui/components/toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useEffect, useState } from "react";

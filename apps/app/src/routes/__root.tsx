@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-import { Toaster } from "@strait/ui/components/toast/index";
+import { Toaster } from "@strait/ui/components/toast";
 import css from "@strait/ui/globals.css?url";
 import { TanStackDevtools } from "@tanstack/react-devtools";
 import type { QueryClient } from "@tanstack/react-query";

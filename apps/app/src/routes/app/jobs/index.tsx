@@ -2,11 +2,25 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
 import {
+  DataGrid,
+  DataGridContainer,
+  DataGridScrollArea,
+  DataGridSelectionBar,
+  DataGridTable,
+} from "@strait/ui/components/data-grid";
+import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@strait/ui/components/dropdown-menu";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@strait/ui/components/empty";
 import { Input } from "@strait/ui/components/input";
 import { Shell } from "@strait/ui/components/shell";
 import { useQuery } from "@tanstack/react-query";
@@ -20,15 +34,12 @@ import {
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useEffect, useMemo, useState } from "react";
 import { z } from "zod/v4";
-
+import { CursorPagination } from "@/components/common/cursor-pagination";
 import ErrorComponent from "@/components/common/error-component";
 import NoProjectState from "@/components/common/no-project-state";
-import TableEmptyState from "@/components/common/table-empty-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import JobDetailSheet from "@/components/dashboard/job-detail-sheet";
 import { createJobColumns } from "@/components/tables/jobs-columns";
-import { DataTable } from "@/components/ui/data-table/data-table";
-import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { Job, PaginatedResponse } from "@/hooks/api/types";
 import {
@@ -47,6 +58,7 @@ import {
   SearchIcon,
 } from "@/lib/icons";
 import { ENABLED_STATUS_OPTIONS } from "@/lib/status";
+import { stopInteractiveRowClick } from "@/lib/table-interactions";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 const searchArraySchema = z.preprocess(
@@ -214,17 +226,20 @@ function JobsPage() {
   }
 
   const emptyState = hasProject ? (
-    <TableEmptyState
-      description="No jobs yet. Deploy your first job using the Strait SDK."
-      hideButton
-      icon={
-        <HugeiconsIcon
-          className="size-6 text-foreground"
-          icon={BriefcaseIcon}
-        />
-      }
-      title="No jobs found"
-    />
+    <Empty className="h-[300px]">
+      <EmptyHeader>
+        <EmptyMedia size="lg" variant="icon">
+          <HugeiconsIcon
+            className="size-6 text-foreground"
+            icon={BriefcaseIcon}
+          />
+        </EmptyMedia>
+        <EmptyTitle>No jobs found</EmptyTitle>
+        <EmptyDescription>
+          No jobs yet. Deploy your first job using the Strait SDK.
+        </EmptyDescription>
+      </EmptyHeader>
+    </Empty>
   ) : (
     <NoProjectState user={session.user} />
   );
@@ -280,95 +295,82 @@ function JobsPage() {
         </DropdownMenu>
       </div>
 
-      {/* biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noNoninteractiveElementInteractions lint/a11y/noStaticElementInteractions: event delegation on table container */}
-      <div
-        className="[&_tbody_tr]:cursor-pointer"
-        onClick={(e) => {
-          const target = e.target as HTMLElement;
-          if (target.closest("a, button")) {
-            return;
-          }
-          const row = target.closest("tr[data-row-index]");
-          if (!row) {
-            return;
-          }
-          const idx = Number(row.getAttribute("data-row-index"));
-          const job = table.getRowModel().rows[idx]?.original;
-          if (job) {
-            handleRowClick(job);
-          }
-        }}
-      >
-        <DataTable
-          ariaLabel="Jobs"
-          cursorPagination={{
-            pageSize: pagination.perPage,
-            hasMore: typed?.has_more ?? false,
-            canGoBack: pagination.canGoBack,
-            onNext: () => {
-              if (typed?.next_cursor) {
-                pagination.goNext(typed.next_cursor);
-              }
-            },
-            onPrev: pagination.goPrev,
-            onPageSizeChange: pagination.setPerPage,
-          }}
-          emptyState={emptyState}
-          floatingBar={
-            <DataTableFloatingBar
-              actions={[
-                ...(selectedIds.length === 1
-                  ? [
-                      {
-                        label: "View",
-                        icon: EyeIcon,
-                        onClick: () => {
-                          const job = table
-                            .getRowModel()
-                            .rows.find(
-                              (r) => r.id === selectedIds[0]
-                            )?.original;
-                          if (job) {
-                            handleRowClick(job);
-                          }
-                        },
-                      },
-                    ]
-                  : []),
-                {
-                  label: "Trigger",
-                  icon: PlayActionIcon,
-                  onClick: () => {
-                    for (const id of selectedIds) {
-                      triggerJob.mutate({ id });
-                    }
-                  },
-                },
-                {
-                  label: "Pause",
-                  icon: PauseActionIcon,
-                  onClick: () => {
-                    for (const id of selectedIds) {
-                      pauseJob.mutate({ id });
-                    }
-                  },
-                },
-                {
-                  label: "Resume",
-                  icon: PlayActionIcon,
-                  onClick: () => {
-                    for (const id of selectedIds) {
-                      resumeJob.mutate({ id });
-                    }
-                  },
-                },
-              ]}
-              onClearSelection={() => setRowSelection({})}
-              selectedCount={selectedIds.length}
-            />
-          }
+      <div onClickCapture={stopInteractiveRowClick}>
+        <DataGrid
+          emptyMessage={emptyState}
+          onRowClick={handleRowClick}
+          recordCount={typed?.data.length ?? 0}
           table={table}
-        />
+          tableClassNames={{ base: "min-w-[1200px]" }}
+        >
+          <DataGridContainer>
+            <DataGridScrollArea>
+              <DataGridTable />
+            </DataGridScrollArea>
+          </DataGridContainer>
+          <CursorPagination
+            cursor={{
+              pageSize: pagination.perPage,
+              hasMore: typed?.has_more ?? false,
+              canGoBack: pagination.canGoBack,
+              onNext: () => {
+                if (typed?.next_cursor) {
+                  pagination.goNext(typed.next_cursor);
+                }
+              },
+              onPrev: pagination.goPrev,
+              onPageSizeChange: pagination.setPerPage,
+            }}
+            table={table}
+          />
+          <DataGridSelectionBar
+            actions={[
+              ...(selectedIds.length === 1
+                ? [
+                    {
+                      label: "View",
+                      icon: EyeIcon,
+                      onClick: () => {
+                        const job = table
+                          .getRowModel()
+                          .rows.find((r) => r.id === selectedIds[0])?.original;
+                        if (job) {
+                          handleRowClick(job);
+                        }
+                      },
+                    },
+                  ]
+                : []),
+              {
+                label: "Trigger",
+                icon: PlayActionIcon,
+                onClick: () => {
+                  for (const id of selectedIds) {
+                    triggerJob.mutate({ id });
+                  }
+                },
+              },
+              {
+                label: "Pause",
+                icon: PauseActionIcon,
+                onClick: () => {
+                  for (const id of selectedIds) {
+                    pauseJob.mutate({ id });
+                  }
+                },
+              },
+              {
+                label: "Resume",
+                icon: PlayActionIcon,
+                onClick: () => {
+                  for (const id of selectedIds) {
+                    resumeJob.mutate({ id });
+                  }
+                },
+              },
+            ]}
+          />
+        </DataGrid>
       </div>
 
       <JobDetailSheet

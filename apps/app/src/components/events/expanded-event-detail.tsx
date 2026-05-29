@@ -1,6 +1,6 @@
 import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
-import { cn } from "@strait/ui/utils/index";
+import { cn } from "@strait/ui/utils";
 
 import type { EventTrigger } from "@/hooks/api/types";
 import { EVENT_STATUS_STYLES } from "@/lib/status";

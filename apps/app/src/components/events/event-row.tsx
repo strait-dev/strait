@@ -1,5 +1,5 @@
 import { Badge } from "@strait/ui/components/badge";
-import { cn } from "@strait/ui/utils/index";
+import { cn } from "@strait/ui/utils";
 import { formatDistanceToNow } from "date-fns";
 
 import type { EventTrigger } from "@/hooks/api/types";

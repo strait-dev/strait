@@ -7,7 +7,8 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@strait/ui/components/sheet";
-import { cn } from "@strait/ui/utils/index";
+import { StatusBadge } from "@strait/ui/components/status-badge";
+import { cn } from "@strait/ui/utils";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
@@ -30,7 +31,6 @@ import {
   RefreshIcon,
   XCircleIcon,
 } from "@/lib/icons";
-import StatusBadge from "./status-badge";
 
 type RunDetailSheetProps = {
   run: JobRun | null;
