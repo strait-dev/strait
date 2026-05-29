@@ -19,7 +19,7 @@ import type { AppRouteContext } from "@/routes/app/layout";
 export const searchSchema = z.object({
   status: z.string().optional(),
   cursor: z.string().optional(),
-  perPage: z.number().optional(),
+  perPage: z.coerce.number().optional(),
 });
 
 export const Route = createFileRoute("/app/events/")({

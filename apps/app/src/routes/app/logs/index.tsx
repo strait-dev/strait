@@ -49,11 +49,16 @@ import { EVENT_STATUS_STYLES, EVENT_STATUSES } from "@/lib/status";
 import { stopInteractiveRowClick } from "@/lib/table-interactions";
 import type { AppRouteContext } from "@/routes/app/layout";
 
+const searchArraySchema = z.preprocess(
+  (value) => (typeof value === "string" ? [value] : value),
+  z.array(z.string()).optional()
+);
+
 export const searchSchema = z.object({
   query: z.string().optional(),
-  statuses: z.array(z.string()).optional(),
+  statuses: searchArraySchema,
   cursor: z.string().optional(),
-  perPage: z.number().optional(),
+  perPage: z.coerce.number().optional(),
 });
 
 export const Route = createFileRoute("/app/logs/")({

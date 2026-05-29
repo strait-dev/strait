@@ -187,8 +187,19 @@ function buildUrlEffect(
 /** Parse an error response body into a human-readable detail string. */
 function parseErrorDetail(text: string): string {
   try {
-    const parsed = JSON.parse(text);
-    return parsed.error || parsed.message || text;
+    const parsed: unknown = JSON.parse(text);
+    if (parsed && typeof parsed === "object") {
+      const record = parsed as Record<string, unknown>;
+      const detail = record.error ?? record.message ?? record.detail;
+      if (typeof detail === "string") {
+        return detail;
+      }
+      if (detail !== undefined) {
+        return JSON.stringify(detail);
+      }
+      return JSON.stringify(parsed);
+    }
+    return typeof parsed === "string" ? parsed : text;
   } catch {
     return text;
   }

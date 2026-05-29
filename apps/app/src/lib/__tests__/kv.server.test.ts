@@ -129,6 +129,23 @@ describe("one-time and conditional operations", () => {
     expect(mockRedisExpire).toHaveBeenCalledTimes(1);
     expect(mockRedisExpire).toHaveBeenCalledWith("limit", 60);
   });
+
+  it("falls back to memory when Redis INCR fails", async () => {
+    const { kvIncrementWithTtl } = await importKvWithRedis();
+    const consoleWarn = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    mockRedisIncr.mockRejectedValue(new Error("increment unavailable"));
+
+    await expect(kvIncrementWithTtl("limit", { ex: 60 })).resolves.toBe(1);
+    await expect(kvIncrementWithTtl("limit", { ex: 60 })).resolves.toBe(2);
+
+    expect(consoleWarn).toHaveBeenCalledWith(
+      "KV increment failed, using in-memory fallback",
+      expect.objectContaining({ key: "limit" })
+    );
+    consoleWarn.mockRestore();
+  });
 });
 
 describe("memory fallback without Redis configuration", () => {

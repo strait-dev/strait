@@ -70,7 +70,7 @@ export const searchSchema = z.object({
   query: z.string().optional(),
   status: searchArraySchema,
   cursor: z.string().optional(),
-  perPage: z.number().optional(),
+  perPage: z.coerce.number().optional(),
 });
 
 export const Route = createFileRoute("/app/jobs/")({

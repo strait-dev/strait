@@ -16,7 +16,7 @@ import { toast } from "@strait/ui/components/toast";
 import { useForm } from "@tanstack/react-form";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { z } from "zod/v4";
 import {
   useCreateProject,
@@ -41,6 +41,7 @@ const CreateProjectDialog = ({ organizationId, open, onOpenChange }: Props) => {
   const setActiveProject = useSetActiveProject();
   const queryClient = useQueryClient();
   const router = useRouter();
+  const [isCreating, setIsCreating] = useState(false);
 
   const defaultValues = useMemo(
     () => ({
@@ -53,34 +54,42 @@ const CreateProjectDialog = ({ organizationId, open, onOpenChange }: Props) => {
   const form = useForm({
     defaultValues,
     validators: { onChange: createProjectSchema },
-    onSubmit: ({ value }) => {
+    onSubmit: async ({ value }) => {
       const parsed = createProjectSchema.parse(value);
 
-      toast.promise(
-        (async () => {
-          const project = await createProject.mutateAsync({
-            organizationId,
-            name: parsed.name,
-            description: parsed.description,
-          });
+      setIsCreating(true);
+      try {
+        await toast.promise(
+          (async () => {
+            const project = await createProject.mutateAsync({
+              organizationId,
+              name: parsed.name,
+              description: parsed.description,
+            });
 
-          if (project) {
-            await setActiveProject.mutateAsync({ projectId: project.id });
-            await queryClient.invalidateQueries();
-            router.invalidate();
+            if (project) {
+              await setActiveProject.mutateAsync({ projectId: project.id });
+              await queryClient.invalidateQueries();
+              await router.invalidate();
+            }
+
+            form.reset();
+            onOpenChange(false);
+          })(),
+          {
+            loading: "Creating project...",
+            success: "Project created successfully!",
+            error: "Failed to create project. Please try again.",
           }
-
-          form.reset();
-          onOpenChange(false);
-        })(),
-        {
-          loading: "Creating project...",
-          success: "Project created successfully!",
-          error: "Failed to create project. Please try again.",
-        }
-      );
+        );
+      } finally {
+        setIsCreating(false);
+      }
     },
   });
+
+  const isPending =
+    isCreating || createProject.isPending || setActiveProject.isPending;
 
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
@@ -173,12 +182,10 @@ const CreateProjectDialog = ({ organizationId, open, onOpenChange }: Props) => {
             >
               {({ canSubmit, isSubmitting }) => (
                 <Button
-                  disabled={
-                    !canSubmit || isSubmitting || createProject.isPending
-                  }
+                  disabled={!canSubmit || isSubmitting || isPending}
                   type="submit"
                 >
-                  {isSubmitting || createProject.isPending ? (
+                  {isSubmitting || isPending ? (
                     <HugeiconsIcon
                       className="size-4 animate-spin"
                       icon={LoadingIcon}
@@ -186,7 +193,9 @@ const CreateProjectDialog = ({ organizationId, open, onOpenChange }: Props) => {
                   ) : (
                     <HugeiconsIcon className="size-4" icon={PlusIcon} />
                   )}
-                  Create project
+                  {isSubmitting || isPending
+                    ? "Creating project..."
+                    : "Create project"}
                 </Button>
               )}
             </form.Subscribe>

@@ -72,11 +72,16 @@ import { DLQ_ERROR_TYPES } from "@/lib/status";
 import { stopInteractiveRowClick } from "@/lib/table-interactions";
 import type { AppRouteContext } from "@/routes/app/layout";
 
+const searchArraySchema = z.preprocess(
+  (value) => (typeof value === "string" ? [value] : value),
+  z.array(z.string()).optional()
+);
+
 export const searchSchema = z.object({
   query: z.string().optional(),
-  errorType: z.array(z.string()).optional(),
+  errorType: searchArraySchema,
   cursor: z.string().optional(),
-  perPage: z.number().optional(),
+  perPage: z.coerce.number().optional(),
 });
 
 export const Route = createFileRoute("/app/dlq/")({
