@@ -4,7 +4,7 @@
   "sideEffects": false,
   "type": "module",
   "scripts": {
-    "dev": "vite dev",
+    "dev": "PORT=5173 vite dev --host localhost --port 5173 --strictPort",
     "build": "bun run build:node",
     "build:node": "STRAIT_APP_TARGET=node vite build",
     "build:vercel": "STRAIT_APP_TARGET=vercel vite build",

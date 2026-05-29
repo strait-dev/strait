@@ -9,7 +9,8 @@ import { defineConfig } from "vite";
 import { ngrok } from "vite-plugin-ngrok";
 import { resolveSentryRelease } from "./scripts/sentry-release";
 
-const enableNgrok = !!process.env.NGROK_AUTHTOKEN && !process.env.DISABLE_NGROK;
+const enableNgrok =
+  process.env.ENABLE_NGROK === "1" && !process.env.DISABLE_NGROK;
 
 /**
  * Build target selector. Defaults to portable Node output. Vercel is an
@@ -149,6 +150,7 @@ export default defineConfig(({ command }) => ({
   },
   server: {
     port: 5173,
-    host: true,
+    host: "localhost",
+    strictPort: true,
   },
 }));
