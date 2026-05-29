@@ -436,7 +436,7 @@ func indexExists(t *testing.T, ctx context.Context, db *testutil.TestDB, name st
 	return exists
 }
 
-// TestMigrationRoundtrip_000288_WorkflowRunContinuation verifies that:
+// TestMigrationRoundtrip_000301_WorkflowRunContinuation verifies that:
 //   - Up: adds continued_from_workflow_run_id, continued_to_workflow_run_id, and
 //     lineage_depth columns to workflow_runs plus the partial index
 //     idx_workflow_runs_continued_from.
@@ -447,8 +447,8 @@ func indexExists(t *testing.T, ctx context.Context, db *testutil.TestDB, name st
 // indexes. Down-migration data caveat: lineage links and depth values are lost
 // on rollback. Acceptable: the columns are newly introduced with no production
 // data at rollback time, and lineage_depth defaults to 0.
-func TestMigrationRoundtrip_000288_WorkflowRunContinuation(t *testing.T) {
-	runRoundtrip(t, 288, func(t *testing.T, postUp schemaState) {
+func TestMigrationRoundtrip_000301_WorkflowRunContinuation(t *testing.T) {
+	runRoundtrip(t, 301, func(t *testing.T, postUp schemaState) {
 		t.Helper()
 		for _, col := range []string{
 			"workflow_runs.continued_from_workflow_run_id",
@@ -462,7 +462,7 @@ func TestMigrationRoundtrip_000288_WorkflowRunContinuation(t *testing.T) {
 	})
 
 	// Explicit index roundtrip: the partial index must appear after up and be
-	// gone after rolling back to 287.
+	// gone after rolling back to 300.
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 
@@ -474,12 +474,12 @@ func TestMigrationRoundtrip_000288_WorkflowRunContinuation(t *testing.T) {
 
 	const indexName = "idx_workflow_runs_continued_from"
 
-	migrateToVersion(t, tdb.ConnStr, 288)
+	migrateToVersion(t, tdb.ConnStr, 301)
 	if !indexExists(t, ctx, tdb, indexName) {
 		t.Errorf("post-up: index %s should exist", indexName)
 	}
 
-	migrateToVersion(t, tdb.ConnStr, 287)
+	migrateToVersion(t, tdb.ConnStr, 300)
 	if indexExists(t, ctx, tdb, indexName) {
 		t.Errorf("post-down: index %s should be dropped", indexName)
 	}
