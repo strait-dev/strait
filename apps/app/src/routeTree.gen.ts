@@ -280,8 +280,8 @@ export interface FileRoutesByFullPath {
   '/app/schedules/$id': typeof AppSchedulesIdRoute
   '/app/webhooks/$id': typeof AppWebhooksIdRoute
   '/app/webhooks/new': typeof AppWebhooksNewRoute
-  '/app/workflows/$id': typeof AppWorkflowsIdRoute
   '/app/workflow-runs/$id': typeof AppWorkflowRunsIdRoute
+  '/app/workflows/$id': typeof AppWorkflowsIdRoute
   '/app/billing/': typeof AppBillingIndexRoute
   '/app/dlq/': typeof AppDlqIndexRoute
   '/app/events/': typeof AppEventsIndexRoute
@@ -321,8 +321,8 @@ export interface FileRoutesByTo {
   '/app/schedules/$id': typeof AppSchedulesIdRoute
   '/app/webhooks/$id': typeof AppWebhooksIdRoute
   '/app/webhooks/new': typeof AppWebhooksNewRoute
-  '/app/workflows/$id': typeof AppWorkflowsIdRoute
   '/app/workflow-runs/$id': typeof AppWorkflowRunsIdRoute
+  '/app/workflows/$id': typeof AppWorkflowsIdRoute
   '/app/billing': typeof AppBillingIndexRoute
   '/app/dlq': typeof AppDlqIndexRoute
   '/app/events': typeof AppEventsIndexRoute
@@ -364,8 +364,8 @@ export interface FileRoutesById {
   '/app/schedules/$id': typeof AppSchedulesIdRoute
   '/app/webhooks/$id': typeof AppWebhooksIdRoute
   '/app/webhooks/new': typeof AppWebhooksNewRoute
-  '/app/workflows/$id': typeof AppWorkflowsIdRoute
   '/app/workflow-runs/$id': typeof AppWorkflowRunsIdRoute
+  '/app/workflows/$id': typeof AppWorkflowsIdRoute
   '/app/billing/': typeof AppBillingIndexRoute
   '/app/dlq/': typeof AppDlqIndexRoute
   '/app/events/': typeof AppEventsIndexRoute
@@ -408,8 +408,8 @@ export interface FileRouteTypes {
     | '/app/schedules/$id'
     | '/app/webhooks/$id'
     | '/app/webhooks/new'
-    | '/app/workflows/$id'
     | '/app/workflow-runs/$id'
+    | '/app/workflows/$id'
     | '/app/billing/'
     | '/app/dlq/'
     | '/app/events/'
@@ -449,8 +449,8 @@ export interface FileRouteTypes {
     | '/app/schedules/$id'
     | '/app/webhooks/$id'
     | '/app/webhooks/new'
-    | '/app/workflows/$id'
     | '/app/workflow-runs/$id'
+    | '/app/workflows/$id'
     | '/app/billing'
     | '/app/dlq'
     | '/app/events'
@@ -491,8 +491,8 @@ export interface FileRouteTypes {
     | '/app/schedules/$id'
     | '/app/webhooks/$id'
     | '/app/webhooks/new'
-    | '/app/workflows/$id'
     | '/app/workflow-runs/$id'
+    | '/app/workflows/$id'
     | '/app/billing/'
     | '/app/dlq/'
     | '/app/events/'
@@ -822,8 +822,8 @@ interface AppLayoutRouteChildren {
   AppSchedulesIdRoute: typeof AppSchedulesIdRoute
   AppWebhooksIdRoute: typeof AppWebhooksIdRoute
   AppWebhooksNewRoute: typeof AppWebhooksNewRoute
-  AppWorkflowsIdRoute: typeof AppWorkflowsIdRoute
   AppWorkflowRunsIdRoute: typeof AppWorkflowRunsIdRoute
+  AppWorkflowsIdRoute: typeof AppWorkflowsIdRoute
   AppBillingIndexRoute: typeof AppBillingIndexRoute
   AppDlqIndexRoute: typeof AppDlqIndexRoute
   AppEventsIndexRoute: typeof AppEventsIndexRoute
@@ -850,8 +850,8 @@ const AppLayoutRouteChildren: AppLayoutRouteChildren = {
   AppSchedulesIdRoute: AppSchedulesIdRoute,
   AppWebhooksIdRoute: AppWebhooksIdRoute,
   AppWebhooksNewRoute: AppWebhooksNewRoute,
-  AppWorkflowsIdRoute: AppWorkflowsIdRoute,
   AppWorkflowRunsIdRoute: AppWorkflowRunsIdRoute,
+  AppWorkflowsIdRoute: AppWorkflowsIdRoute,
   AppBillingIndexRoute: AppBillingIndexRoute,
   AppDlqIndexRoute: AppDlqIndexRoute,
   AppEventsIndexRoute: AppEventsIndexRoute,
