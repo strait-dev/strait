@@ -1,0 +1,18 @@
+goos: darwin
+goarch: arm64
+pkg: strait/internal/workflow
+cpu: Apple M1 Pro
+BenchmarkWorkflowProgression-10    	   13700	     89830 ns/op	  236896 B/op	      11 allocs/op
+BenchmarkWorkflowProgression-10    	   14691	    144628 ns/op	  236897 B/op	      11 allocs/op
+BenchmarkWorkflowProgression-10    	   12956	     79544 ns/op	  236896 B/op	      11 allocs/op
+BenchmarkWorkflowProgression-10    	   12505	     81774 ns/op	  236897 B/op	      11 allocs/op
+BenchmarkWorkflowProgression-10    	   10000	    130532 ns/op	  236897 B/op	      11 allocs/op
+BenchmarkWorkflowProgression-10    	   12387	     83255 ns/op	  236896 B/op	      11 allocs/op
+BenchmarkWorkflowProgression-10    	   13273	     85571 ns/op	  236896 B/op	      11 allocs/op
+BenchmarkWorkflowProgression-10    	   10000	    263315 ns/op	  236898 B/op	      11 allocs/op
+BenchmarkWorkflowProgression-10    	    5001	    226323 ns/op	  236898 B/op	      11 allocs/op
+BenchmarkWorkflowProgression-10    	   10000	    135002 ns/op	  236897 B/op	      11 allocs/op
+PASS
+ok  	strait/internal/workflow	23.269s
+PASS
+ok  	strait/internal/workflow/testing	0.521s

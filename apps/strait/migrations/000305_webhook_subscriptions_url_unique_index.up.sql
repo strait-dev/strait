@@ -1,5 +1,5 @@
 -- Phase 2 of the (project_id, webhook_url) dedup: install the partial
--- unique index now that 000302 collapsed any pre-existing duplicates.
+-- unique index now that 000304 collapsed any pre-existing duplicates.
 --
 -- Before this migration the create handler had no SQL-level dedup: a
 -- flaky-network retry from a caller could land two rows pointing at the
@@ -20,7 +20,7 @@
 -- build. golang-migrate runs each single-statement migration file
 -- without a transaction wrapper, so CONCURRENTLY is accepted as long as
 -- this is the only statement in the file (hence the split from the
--- 000302 backfill). IF NOT EXISTS keeps the migration idempotent on
+-- 000304 backfill). IF NOT EXISTS keeps the migration idempotent on
 -- retry.
 
 CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_webhook_subscriptions_url_unique_active

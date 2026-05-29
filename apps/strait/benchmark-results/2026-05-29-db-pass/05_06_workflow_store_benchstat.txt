@@ -1,0 +1,37 @@
+goos: darwin
+goarch: arm64
+pkg: strait/internal/store
+cpu: Apple M1 Pro
+                                            │ benchmark-results/2026-05-29-db-pass/06_store_heartbeat_benchmark.txt │
+                                            │                                sec/op                                 │
+HeartbeatWritePath/job_runs_heartbeat_at-10                                                            117.0m ± ∞ ¹
+HeartbeatWritePath/side_table_upsert-10                                                                9.540m ± ∞ ¹
+geomean                                                                                                33.40m
+¹ need >= 6 samples for confidence interval at level 0.95
+
+                                            │ benchmark-results/2026-05-29-db-pass/06_store_heartbeat_benchmark.txt │
+                                            │                                 B/op                                  │
+HeartbeatWritePath/job_runs_heartbeat_at-10                                                           415.0Ki ± ∞ ¹
+HeartbeatWritePath/side_table_upsert-10                                                               207.5Ki ± ∞ ¹
+geomean                                                                                               293.5Ki
+¹ need >= 6 samples for confidence interval at level 0.95
+
+                                            │ benchmark-results/2026-05-29-db-pass/06_store_heartbeat_benchmark.txt │
+                                            │                               allocs/op                               │
+HeartbeatWritePath/job_runs_heartbeat_at-10                                                            2.052k ± ∞ ¹
+HeartbeatWritePath/side_table_upsert-10                                                                1.026k ± ∞ ¹
+geomean                                                                                                1.451k
+¹ need >= 6 samples for confidence interval at level 0.95
+
+pkg: strait/internal/workflow
+                       │ benchmark-results/2026-05-29-db-pass/05_workflow_progression_benchmark.txt │
+                       │                                   sec/op                                   │
+WorkflowProgression-10                                                                110.2µ ± 105%
+
+                       │ benchmark-results/2026-05-29-db-pass/05_workflow_progression_benchmark.txt │
+                       │                                    B/op                                    │
+WorkflowProgression-10                                                                 231.3Ki ± 0%
+
+                       │ benchmark-results/2026-05-29-db-pass/05_workflow_progression_benchmark.txt │
+                       │                                 allocs/op                                  │
+WorkflowProgression-10                                                                   11.00 ± 0%

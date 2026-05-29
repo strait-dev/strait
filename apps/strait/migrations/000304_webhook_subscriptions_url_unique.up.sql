@@ -5,14 +5,14 @@
 -- The freshest row wins because callers who retried into a duplicate
 -- typically discarded the older signing secret on the second response, so
 -- the newer row matches the secret the caller is actually using. This is a
--- one-shot repair: once 000303 installs the partial unique index, the
+-- one-shot repair: once 000305 installs the partial unique index, the
 -- store and handler refuse to let duplicates recur.
 --
--- The CREATE UNIQUE INDEX CONCURRENTLY half is split into 000303 because
+-- The CREATE UNIQUE INDEX CONCURRENTLY half is split into 000305 because
 -- golang-migrate runs a multi-statement file inside a transaction, and
 -- CONCURRENTLY cannot execute inside one. Keeping the backfill alone in
--- 000302 lets the transactional wrap stay safe for the UPDATE while the
--- index ships non-transactionally in 000303.
+-- 000304 lets the transactional wrap stay safe for the UPDATE while the
+-- index ships non-transactionally in 000305.
 
 UPDATE webhook_subscriptions
 SET active = FALSE

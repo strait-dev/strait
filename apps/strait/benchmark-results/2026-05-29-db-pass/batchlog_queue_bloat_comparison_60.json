@@ -1,0 +1,329 @@
+{
+  "name": "batchlog_queue_bloat_comparison_60",
+  "engine": "batchlog",
+  "started_at": "2026-05-29T09:58:22.933063+02:00",
+  "duration": 848286917,
+  "counters": {
+    "enqueued": 60,
+    "dequeued": 60,
+    "completed": 60,
+    "retry_redelivery": 1,
+    "duplicate_claims": 0,
+    "lost_claims": 0,
+    "notify_count": 35,
+    "wal_bytes": 0
+  },
+  "dequeue_latency": {
+    "count": 6,
+    "min": 1944334,
+    "p50": 2351375,
+    "p95": 3973875,
+    "p99": 3973875,
+    "max": 3973875
+  },
+  "relations": [
+    {
+      "name": "enqueue_outbox",
+      "live_tuples": 0,
+      "dead_tuples": 0,
+      "total_updates": 0,
+      "hot_updates": 0,
+      "relation_size_bytes": 0,
+      "total_index_size_bytes": 32768,
+      "total_table_size_bytes": 40960
+    },
+    {
+      "name": "enqueue_outbox_history",
+      "live_tuples": 0,
+      "dead_tuples": 0,
+      "total_updates": 0,
+      "hot_updates": 0,
+      "relation_size_bytes": 0,
+      "total_index_size_bytes": 0,
+      "total_table_size_bytes": 0
+    },
+    {
+      "name": "enqueue_outbox_history_default",
+      "live_tuples": 0,
+      "dead_tuples": 0,
+      "total_updates": 0,
+      "hot_updates": 0,
+      "relation_size_bytes": 0,
+      "total_index_size_bytes": 32768,
+      "total_table_size_bytes": 40960
+    },
+    {
+      "name": "enqueue_outbox_history_p2026_05",
+      "live_tuples": 0,
+      "dead_tuples": 0,
+      "total_updates": 0,
+      "hot_updates": 0,
+      "relation_size_bytes": 0,
+      "total_index_size_bytes": 32768,
+      "total_table_size_bytes": 40960
+    },
+    {
+      "name": "enqueue_outbox_history_p2026_06",
+      "live_tuples": 0,
+      "dead_tuples": 0,
+      "total_updates": 0,
+      "hot_updates": 0,
+      "relation_size_bytes": 0,
+      "total_index_size_bytes": 32768,
+      "total_table_size_bytes": 40960
+    },
+    {
+      "name": "enqueue_outbox_history_p2026_07",
+      "live_tuples": 0,
+      "dead_tuples": 0,
+      "total_updates": 0,
+      "hot_updates": 0,
+      "relation_size_bytes": 0,
+      "total_index_size_bytes": 32768,
+      "total_table_size_bytes": 40960
+    },
+    {
+      "name": "enqueue_outbox_history_p2026_08",
+      "live_tuples": 0,
+      "dead_tuples": 0,
+      "total_updates": 0,
+      "hot_updates": 0,
+      "relation_size_bytes": 0,
+      "total_index_size_bytes": 32768,
+      "total_table_size_bytes": 40960
+    },
+    {
+      "name": "event_triggers",
+      "live_tuples": 0,
+      "dead_tuples": 0,
+      "total_updates": 0,
+      "hot_updates": 0,
+      "relation_size_bytes": 0,
+      "total_index_size_bytes": 81920,
+      "total_table_size_bytes": 90112
+    },
+    {
+      "name": "job_active_counts",
+      "live_tuples": 0,
+      "dead_tuples": 0,
+      "total_updates": 244,
+      "hot_updates": 244,
+      "relation_size_bytes": 8192,
+      "total_index_size_bytes": 16384,
+      "total_table_size_bytes": 32768
+    },
+    {
+      "name": "job_retries",
+      "live_tuples": 0,
+      "dead_tuples": 0,
+      "total_updates": 0,
+      "hot_updates": 0,
+      "relation_size_bytes": 0,
+      "total_index_size_bytes": 16384,
+      "total_table_size_bytes": 24576
+    },
+    {
+      "name": "job_runs",
+      "live_tuples": 0,
+      "dead_tuples": 0,
+      "total_updates": 0,
+      "hot_updates": 0,
+      "relation_size_bytes": 0,
+      "total_index_size_bytes": 0,
+      "total_table_size_bytes": 0
+    },
+    {
+      "name": "job_runs_default",
+      "live_tuples": 0,
+      "dead_tuples": 0,
+      "total_updates": 0,
+      "hot_updates": 0,
+      "relation_size_bytes": 0,
+      "total_index_size_bytes": 229376,
+      "total_table_size_bytes": 237568
+    },
+    {
+      "name": "job_runs_history",
+      "live_tuples": 0,
+      "dead_tuples": 0,
+      "total_updates": 0,
+      "hot_updates": 0,
+      "relation_size_bytes": 0,
+      "total_index_size_bytes": 32768,
+      "total_table_size_bytes": 40960
+    },
+    {
+      "name": "job_runs_p2026_05",
+      "live_tuples": 0,
+      "dead_tuples": 0,
+      "total_updates": 184,
+      "hot_updates": 0,
+      "relation_size_bytes": 24576,
+      "total_index_size_bytes": 393216,
+      "total_table_size_bytes": 450560
+    },
+    {
+      "name": "job_runs_p2026_06",
+      "live_tuples": 0,
+      "dead_tuples": 0,
+      "total_updates": 0,
+      "hot_updates": 0,
+      "relation_size_bytes": 0,
+      "total_index_size_bytes": 229376,
+      "total_table_size_bytes": 237568
+    },
+    {
+      "name": "job_runs_p2026_07",
+      "live_tuples": 0,
+      "dead_tuples": 0,
+      "total_updates": 0,
+      "hot_updates": 0,
+      "relation_size_bytes": 0,
+      "total_index_size_bytes": 229376,
+      "total_table_size_bytes": 237568
+    },
+    {
+      "name": "job_runs_p2026_08",
+      "live_tuples": 0,
+      "dead_tuples": 0,
+      "total_updates": 0,
+      "hot_updates": 0,
+      "relation_size_bytes": 0,
+      "total_index_size_bytes": 229376,
+      "total_table_size_bytes": 237568
+    },
+    {
+      "name": "outbox_batches",
+      "live_tuples": 0,
+      "dead_tuples": 0,
+      "total_updates": 0,
+      "hot_updates": 0,
+      "relation_size_bytes": 0,
+      "total_index_size_bytes": 8192,
+      "total_table_size_bytes": 8192
+    },
+    {
+      "name": "outbox_claims",
+      "live_tuples": 0,
+      "dead_tuples": 0,
+      "total_updates": 0,
+      "hot_updates": 0,
+      "relation_size_bytes": 0,
+      "total_index_size_bytes": 32768,
+      "total_table_size_bytes": 40960
+    },
+    {
+      "name": "queue_batch_seal_state",
+      "live_tuples": 0,
+      "dead_tuples": 0,
+      "total_updates": 0,
+      "hot_updates": 0,
+      "relation_size_bytes": 0,
+      "total_index_size_bytes": 8192,
+      "total_table_size_bytes": 8192
+    },
+    {
+      "name": "queue_batch_ticks",
+      "live_tuples": 0,
+      "dead_tuples": 0,
+      "total_updates": 0,
+      "hot_updates": 0,
+      "relation_size_bytes": 0,
+      "total_index_size_bytes": 8192,
+      "total_table_size_bytes": 8192
+    },
+    {
+      "name": "queue_batches",
+      "live_tuples": 0,
+      "dead_tuples": 0,
+      "total_updates": 0,
+      "hot_updates": 0,
+      "relation_size_bytes": 0,
+      "total_index_size_bytes": 8192,
+      "total_table_size_bytes": 8192
+    },
+    {
+      "name": "queue_entries",
+      "live_tuples": 0,
+      "dead_tuples": 0,
+      "total_updates": 243,
+      "hot_updates": 0,
+      "relation_size_bytes": 40960,
+      "total_index_size_bytes": 262144,
+      "total_table_size_bytes": 335872
+    },
+    {
+      "name": "workflow_progression_events",
+      "live_tuples": 0,
+      "dead_tuples": 0,
+      "total_updates": 0,
+      "hot_updates": 0,
+      "relation_size_bytes": 0,
+      "total_index_size_bytes": 32768,
+      "total_table_size_bytes": 40960
+    },
+    {
+      "name": "workflow_step_runs",
+      "live_tuples": 0,
+      "dead_tuples": 0,
+      "total_updates": 0,
+      "hot_updates": 0,
+      "relation_size_bytes": 0,
+      "total_index_size_bytes": 40960,
+      "total_table_size_bytes": 49152
+    }
+  ],
+  "plans": [
+    {
+      "name": "batchlog candidate selection",
+      "lines": [
+        "Limit  (cost=0.73..40.95 rows=1 width=52) (actual time=0.047..0.213 rows=50.00 loops=1)",
+        "  Buffers: shared hit=331",
+        "  -\u003e  Nested Loop Left Join  (cost=0.73..40.95 rows=1 width=52) (actual time=0.047..0.207 rows=50.00 loops=1)",
+        "        Filter: ((qe.job_max_concurrency_per_key IS NULL) OR (qe.concurrency_key = ''::text) OR ((COALESCE(jac_key.count, 0) + COALESCE(((count(*))::integer), 0)) \u003c qe.job_max_concurrency_per_key))",
+        "        Buffers: shared hit=331",
+        "        -\u003e  Nested Loop Left Join  (cost=0.58..32.77 rows=1 width=124) (actual time=0.035..0.145 rows=50.00 loops=1)",
+        "              Join Filter: ((leased_1.job_id = qe.job_id) AND (leased_1.concurrency_key = qe.concurrency_key))",
+        "              Buffers: shared hit=231",
+        "              -\u003e  Nested Loop Left Join  (cost=0.44..24.56 rows=1 width=120) (actual time=0.027..0.113 rows=50.00 loops=1)",
+        "                    Filter: ((qe.job_max_concurrency IS NULL) OR ((COALESCE(jac_job.count, 0) + COALESCE(((count(*))::integer), 0)) \u003c qe.job_max_concurrency))",
+        "                    Buffers: shared hit=181",
+        "                    -\u003e  Nested Loop Left Join  (cost=0.29..16.38 rows=1 width=128) (actual time=0.019..0.075 rows=50.00 loops=1)",
+        "                          Join Filter: (leased.job_id = qe.job_id)",
+        "                          Buffers: shared hit=81",
+        "                          -\u003e  Index Scan using idx_queue_entries_claimable on queue_entries qe  (cost=0.14..8.18 rows=1 width=124) (actual time=0.012..0.044 rows=50.00 loops=1)",
+        "                                Index Cond: (batch_id IS NOT NULL)",
+        "                                Filter: (COALESCE(job_enabled, true) AND (NOT COALESCE(job_paused, false)) AND (run_status = 'queued'::text) AND (available_at \u003c= now()) AND ((scheduled_at IS NULL) OR (scheduled_at \u003c= now())) AND ((next_retry_at IS NULL) OR (next_retry_at \u003c= now())))",
+        "                                Index Searches: 1",
+        "                                Buffers: shared hit=31",
+        "                          -\u003e  GroupAggregate  (cost=0.14..8.17 rows=1 width=36) (actual time=0.000..0.000 rows=0.00 loops=50)",
+        "                                Group Key: leased.job_id",
+        "                                Buffers: shared hit=50",
+        "                                -\u003e  Index Only Scan using idx_queue_entries_leased_key_denorm on queue_entries leased  (cost=0.14..8.16 rows=1 width=32) (actual time=0.000..0.000 rows=0.00 loops=50)",
+        "                                      Heap Fetches: 0",
+        "                                      Index Searches: 50",
+        "                                      Buffers: shared hit=50",
+        "                    -\u003e  Index Scan using job_active_counts_pkey on job_active_counts jac_job  (cost=0.15..8.17 rows=1 width=36) (actual time=0.000..0.000 rows=0.00 loops=50)",
+        "                          Index Cond: ((job_id = qe.job_id) AND (concurrency_key = ''::text))",
+        "                          Index Searches: 50",
+        "                          Buffers: shared hit=100",
+        "              -\u003e  GroupAggregate  (cost=0.14..8.18 rows=1 width=68) (actual time=0.000..0.000 rows=0.00 loops=50)",
+        "                    Group Key: leased_1.job_id, leased_1.concurrency_key",
+        "                    Buffers: shared hit=50",
+        "                    -\u003e  Index Only Scan using idx_queue_entries_leased_key_denorm on queue_entries leased_1  (cost=0.14..8.16 rows=1 width=64) (actual time=0.000..0.000 rows=0.00 loops=50)",
+        "                          Filter: (concurrency_key \u003c\u003e ''::text)",
+        "                          Heap Fetches: 0",
+        "                          Index Searches: 50",
+        "                          Buffers: shared hit=50",
+        "        -\u003e  Index Scan using job_active_counts_pkey on job_active_counts jac_key  (cost=0.15..8.17 rows=1 width=68) (actual time=0.001..0.001 rows=0.00 loops=50)",
+        "              Index Cond: ((job_id = qe.job_id) AND (concurrency_key = qe.concurrency_key))",
+        "              Index Searches: 50",
+        "              Buffers: shared hit=100",
+        "Planning:",
+        "  Buffers: shared hit=46 read=1",
+        "Planning Time: 0.776 ms",
+        "Execution Time: 0.305 ms"
+      ]
+    }
+  ]
+}

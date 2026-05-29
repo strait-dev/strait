@@ -1,0 +1,235 @@
+2026/05/29 10:07:55 github.com/testcontainers/testcontainers-go - Connected to docker: 
+  Server Version: 29.4.3
+  API Version: 1.54
+  Operating System: Docker Desktop
+  Total Memory: 7836 MB
+  Labels:
+    com.docker.desktop.address=unix:///Users/leonardomaldonado/Library/Containers/com.docker.docker/Data/docker-cli.sock
+  Testcontainers for Go Version: v0.42.0
+  Resolved Docker Host: unix:///var/run/docker.sock
+  Resolved Docker Socket Path: /var/run/docker.sock
+  Test SessionID: 88087967737c76df89b420be537e726172988d815a65da325680a653862cb469
+  Test ProcessID: 341c62fe-94a7-40cc-8d2d-f62863b976a2
+2026/05/29 10:07:55 🐳 Creating container for image postgres:18-alpine
+2026/05/29 10:07:55 🐳 Creating container for image testcontainers/ryuk:0.13.0
+2026/05/29 10:07:55 ✅ Container created: a02834471548
+2026/05/29 10:07:55 🐳 Starting container: a02834471548
+2026/05/29 10:07:55 ✅ Container started: a02834471548
+2026/05/29 10:07:55 ⏳ Waiting for container id a02834471548 image: testcontainers/ryuk:0.13.0. Waiting for: port 8080/tcp to be listening
+2026/05/29 10:07:55 Shell not found in container
+2026/05/29 10:07:55 🔔 Container is ready: a02834471548
+2026/05/29 10:07:55 ✅ Container created: 6c4e670ab2ca
+2026/05/29 10:07:55 🐳 Starting container: 6c4e670ab2ca
+2026/05/29 10:07:55 ✅ Container started: 6c4e670ab2ca
+2026/05/29 10:07:55 ⏳ Waiting for container id 6c4e670ab2ca image: postgres:18-alpine. Waiting for: all of: [port 5432/tcp to be mapped]
+2026/05/29 10:07:55 🔔 Container is ready: 6c4e670ab2ca
+=== RUN   TestQueueHealthBench
+    queue_health_bench_test.go:265: === Queue Health Benchmark ===
+    queue_health_bench_test.go:266: Duration: 2m0s | Workers: 20 | Batch: 5 | Enqueue: 250 runs/sec | Denorm: false | Cursor: false
+    queue_health_bench_test.go:367: [    5s] dead=  1976 live=   995 ratio=0.6651 hot=0.00 enq/s=237 deq/s=237 p50=4782us p95=7278us p99=15620us oldest=0.0s
+    queue_health_bench_test.go:367: [   10s] dead=  4444 live=  2208 ratio=0.6681 hot=0.00 enq/s=246 deq/s=246 p50=4968us p95=6674us p99=9246us oldest=0.0s
+    queue_health_bench_test.go:367: [   15s] dead=  6181 live=  3101 ratio=0.6659 hot=0.00 enq/s=165 deq/s=165 p50=6644us p95=10965us p99=26541us oldest=0.0s
+    queue_health_bench_test.go:367: [   20s] dead=  8223 live=  4121 ratio=0.6662 hot=0.00 enq/s=203 deq/s=203 p50=5830us p95=8167us p99=14668us oldest=0.0s
+    queue_health_bench_test.go:367: [   25s] dead= 10098 live=  5044 ratio=0.6669 hot=0.00 enq/s=188 deq/s=188 p50=6259us p95=8361us p99=14619us oldest=0.0s
+    queue_health_bench_test.go:367: [   30s] dead= 11809 live=  5904 ratio=0.6667 hot=0.00 enq/s=168 deq/s=168 p50=6635us p95=12156us p99=18431us oldest=0.0s
+    queue_health_bench_test.go:367: [   35s] dead= 13510 live=  6756 ratio=0.6666 hot=0.00 enq/s=168 deq/s=168 p50=6807us p95=9871us p99=16605us oldest=0.0s
+    queue_health_bench_test.go:367: [   40s] dead= 14930 live=  7462 ratio=0.6668 hot=0.00 enq/s=141 deq/s=141 p50=7710us p95=12065us p99=21541us oldest=0.0s
+    queue_health_bench_test.go:367: [   45s] dead= 16250 live=  8123 ratio=0.6667 hot=0.00 enq/s=133 deq/s=133 p50=7922us p95=12752us p99=33584us oldest=0.0s
+    queue_health_bench_test.go:367: [   50s] dead= 17593 live=  8793 ratio=0.6668 hot=0.00 enq/s=131 deq/s=131 p50=7840us p95=11065us p99=40286us oldest=0.0s
+    queue_health_bench_test.go:367: [   55s] dead= 18943 live=  9477 ratio=0.6665 hot=0.00 enq/s=135 deq/s=135 p50=7927us p95=11395us p99=20497us oldest=0.0s
+    queue_health_bench_test.go:367: [   60s] dead= 20253 live= 10133 ratio=0.6665 hot=0.00 enq/s=125 deq/s=125 p50=8401us p95=13221us p99=19033us oldest=0.0s
+    queue_health_bench_test.go:367: [   65s] dead= 21423 live= 10703 ratio=0.6668 hot=0.00 enq/s=120 deq/s=120 p50=8927us p95=12984us p99=21155us oldest=0.0s
+    queue_health_bench_test.go:367: [   70s] dead= 22679 live= 11345 ratio=0.6666 hot=0.00 enq/s=125 deq/s=125 p50=8851us p95=11177us p99=14162us oldest=0.0s
+    queue_health_bench_test.go:367: [   75s] dead= 23869 live= 11941 ratio=0.6665 hot=0.00 enq/s=118 deq/s=118 p50=9281us p95=12106us p99=16739us oldest=0.0s
+    queue_health_bench_test.go:367: [   80s] dead= 25046 live= 12531 ratio=0.6665 hot=0.00 enq/s=118 deq/s=118 p50=9465us p95=11760us p99=14063us oldest=0.0s
+    queue_health_bench_test.go:367: [   85s] dead= 26198 live= 13100 ratio=0.6666 hot=0.00 enq/s=114 deq/s=114 p50=9642us p95=11745us p99=16729us oldest=0.0s
+    queue_health_bench_test.go:367: [   90s] dead= 27298 live= 13652 ratio=0.6666 hot=0.00 enq/s=108 deq/s=108 p50=10066us p95=13339us p99=19461us oldest=0.0s
+    queue_health_bench_test.go:367: [   95s] dead= 28224 live= 14116 ratio=0.6666 hot=0.00 enq/s=87 deq/s=87 p50=10567us p95=25708us p99=58826us oldest=0.0s
+    queue_health_bench_test.go:367: [  100s] dead= 28635 live= 14315 ratio=0.6667 hot=0.00 enq/s=36 deq/s=36 p50=26528us p95=81287us p99=130846us oldest=0.0s
+    queue_health_bench_test.go:367: [  105s] dead= 28988 live= 14495 ratio=0.6667 hot=0.00 enq/s=32 deq/s=32 p50=22359us p95=112347us p99=237062us oldest=0.0s
+    queue_health_bench_test.go:367: [  110s] dead= 29309 live= 14655 ratio=0.6667 hot=0.00 enq/s=34 deq/s=34 p50=24592us p95=89884us p99=170866us oldest=0.0s
+    queue_health_bench_test.go:367: [  115s] dead= 29699 live= 14853 ratio=0.6666 hot=0.00 enq/s=42 deq/s=42 p50=22723us p95=63554us p99=93962us oldest=0.0s
+    queue_health_bench_test.go:367: [  120s] dead=   753 live= 15304 ratio=0.0469 hot=0.00 enq/s=105 deq/s=105 p50=8422us p95=29472us p99=90617us oldest=0.0s
+    queue_health_bench_test.go:386: 
+        ====================================================================
+                      QUEUE HEALTH BENCHMARK RESULTS
+        ====================================================================
+          Duration:          2m0s
+          Workers:           20
+          Batch size:        5
+          Target enqueue:    50 ops/sec (250 runs/sec)
+          Denormalized:      false
+          Cursor:            false
+        
+        ---- Throughput ----
+          Total enqueued:    15410
+          Total dequeued:    15401
+          Avg enqueue rate:  124 runs/sec
+          Avg dequeue rate:  123 runs/sec
+        
+        ---- Dequeue Latency (claim batch) ----
+          Final P50:         9566 us
+          Final P95:         9566 us
+          Final P99:         9566 us
+          Max P99:           237062 us
+          Max single:        9566 us
+        
+        ---- Dead Tuples (MVCC Bloat) ----
+          Final dead:        803
+          Final live:        15331
+          Final ratio:       0.0498 (5.0%)
+          Peak dead:         29699
+          Peak ratio:        0.6681 (66.8%)
+          Bloat trend:       shrinking (-11 dead/sec)
+        
+        ---- HOT Updates ----
+          Total updates:     30624
+          HOT updates:       0
+          HOT ratio:         0.0000 (0.0%)
+        
+        ---- Queue Backlog ----
+          Max oldest queued: 1.0 sec
+          Final oldest:      1.0 sec
+        
+        ---- Index Health ----
+          Index dead items:  N/A (pgstattuple extension not available)
+        
+        ---- Snapshot Timeline ----
+          Time(s)  Dead     Live     Ratio    HOT%    Enq/s    Deq/s    P99(us)  Age(s)  
+          0        0        0        0.0000   0.0     0        0        0        0.0     
+          5        1976     995      0.6651   0.0     237      237      15620    0.0     
+          10       4444     2208     0.6681   0.0     246      246      9246     0.0     
+          15       6181     3101     0.6659   0.0     165      165      26541    0.0     
+          20       8223     4121     0.6662   0.0     203      203      14668    0.0     
+          25       10098    5044     0.6669   0.0     188      188      14619    0.0     
+          30       11809    5904     0.6667   0.0     168      168      18431    0.0     
+          35       13510    6756     0.6666   0.0     168      168      16605    0.0     
+          40       14930    7462     0.6668   0.0     141      141      21541    0.0     
+          45       16250    8123     0.6667   0.0     133      133      33584    0.0     
+          50       17593    8793     0.6668   0.0     131      131      40286    0.0     
+          55       18943    9477     0.6665   0.0     135      135      20497    0.0     
+          60       20253    10133    0.6665   0.0     125      125      19033    0.0     
+          65       21423    10703    0.6668   0.0     120      120      21155    0.0     
+          70       22679    11345    0.6666   0.0     125      125      14162    0.0     
+          75       23869    11941    0.6665   0.0     118      118      16739    0.0     
+          80       25046    12531    0.6665   0.0     118      118      14063    0.0     
+          85       26198    13100    0.6666   0.0     114      114      16729    0.0     
+          90       27298    13652    0.6666   0.0     108      108      19461    0.0     
+          95       28224    14116    0.6666   0.0     87       87       58826    0.0     
+          100      28635    14315    0.6667   0.0     36       36       130846   0.0     
+          105      28988    14495    0.6667   0.0     32       32       237062   0.0     
+          110      29309    14655    0.6667   0.0     34       34       170866   0.0     
+          115      29699    14853    0.6666   0.0     42       42       93962    0.0     
+          120      753      15304    0.0469   0.0     105      105      90617    0.0     
+          121      803      15331    0.0498   0.0     10       1        9566     1.0     
+        ====================================================================
+        
+    queue_health_bench_test.go:395: Results written to queue_health_bench_results.json
+--- PASS: TestQueueHealthBench (121.29s)
+=== RUN   TestQueueHealthBench_WithLongTxn
+    queue_health_bench_test.go:422: === Queue Health Benchmark WITH LONG TRANSACTION (PlanetScale scenario) ===
+    queue_health_bench_test.go:423: Duration: 2m0s | Workers: 20 | Enqueue: 250 runs/sec
+    queue_health_bench_test.go:434: Long transaction started (xmin pinned)
+    queue_health_bench_test.go:526: [    5s] dead=   275 live=   142 ratio=0.6595 hot=0.00 enq/s=12 deq/s=12 p99=579175us
+    queue_health_bench_test.go:526: [   10s] dead=   556 live=   282 ratio=0.6635 hot=0.00 enq/s=30 deq/s=30 p99=137627us
+    queue_health_bench_test.go:526: [   15s] dead=  1596 live=   803 ratio=0.6653 hot=0.00 enq/s=108 deq/s=108 p99=57253us
+    queue_health_bench_test.go:526: [   20s] dead=  2978 live=  1494 ratio=0.6659 hot=0.00 enq/s=143 deq/s=143 p99=40444us
+    queue_health_bench_test.go:526: [   25s] dead=  4556 live=  2282 ratio=0.6663 hot=0.00 enq/s=164 deq/s=164 p99=15983us
+    queue_health_bench_test.go:526: [   30s] dead=  5864 live=  2937 ratio=0.6663 hot=0.00 enq/s=127 deq/s=126 p99=27319us
+    queue_health_bench_test.go:526: [   35s] dead=  7048 live=  3528 ratio=0.6664 hot=0.00 enq/s=122 deq/s=122 p99=26855us
+    queue_health_bench_test.go:526: [   40s] dead=  8086 live=  4049 ratio=0.6663 hot=0.00 enq/s=99 deq/s=99 p99=29886us
+    queue_health_bench_test.go:526: [   45s] dead=  9003 live=  4506 ratio=0.6664 hot=0.00 enq/s=92 deq/s=92 p99=58703us
+    queue_health_bench_test.go:526: [   50s] dead=  9892 live=  4951 ratio=0.6664 hot=0.00 enq/s=86 deq/s=86 p99=31072us
+    queue_health_bench_test.go:526: [   55s] dead=    65 live=  5233 ratio=0.0123 hot=0.00 enq/s=69 deq/s=69 p99=62906us
+    queue_health_bench_test.go:526: [   60s] dead=   546 live=  5475 ratio=0.0907 hot=0.00 enq/s=52 deq/s=52 p99=91409us
+    queue_health_bench_test.go:521: [65s] Long transaction RELEASED -- vacuum can now reclaim
+    queue_health_bench_test.go:526: [   65s] dead=     0 live=     0 ratio=0.0000 hot=0.00 enq/s=98 deq/s=98 p99=71978us
+    queue_health_bench_test.go:526: [   70s] dead=  2372 live=  1193 ratio=0.6654 hot=0.00 enq/s=247 deq/s=247 p99=6385us
+    queue_health_bench_test.go:526: [   75s] dead=  4833 live=  2422 ratio=0.6662 hot=0.00 enq/s=247 deq/s=247 p99=4575us
+    queue_health_bench_test.go:526: [   80s] dead=  7337 live=  3666 ratio=0.6668 hot=0.00 enq/s=250 deq/s=250 p99=4175us
+    queue_health_bench_test.go:526: [   85s] dead=  9751 live=  4878 ratio=0.6666 hot=0.00 enq/s=241 deq/s=241 p99=9282us
+    queue_health_bench_test.go:526: [   90s] dead= 12258 live=  6136 ratio=0.6664 hot=0.00 enq/s=250 deq/s=250 p99=4522us
+    queue_health_bench_test.go:526: [   95s] dead= 14674 live=  7342 ratio=0.6665 hot=0.00 enq/s=242 deq/s=242 p99=13073us
+    queue_health_bench_test.go:526: [  100s] dead= 17182 live=  8585 ratio=0.6668 hot=0.00 enq/s=250 deq/s=250 p99=6596us
+    queue_health_bench_test.go:526: [  105s] dead= 19660 live=  9836 ratio=0.6665 hot=0.00 enq/s=248 deq/s=248 p99=8036us
+    queue_health_bench_test.go:526: [  110s] dead= 22100 live= 11056 ratio=0.6665 hot=0.00 enq/s=242 deq/s=242 p99=13552us
+    queue_health_bench_test.go:526: [  115s] dead=    67 live= 18045 ratio=0.0037 hot=0.00 enq/s=218 deq/s=218 p99=22243us
+    queue_health_bench_test.go:526: [  120s] dead=  2401 live= 19209 ratio=0.1111 hot=0.00 enq/s=231 deq/s=231 p99=14305us
+    queue_health_bench_test.go:544: 
+        ====================================================================
+                      QUEUE HEALTH BENCHMARK RESULTS
+        ====================================================================
+          Duration:          2m0s
+          Workers:           20
+          Batch size:        5
+          Target enqueue:    50 ops/sec (250 runs/sec)
+          Denormalized:      false
+          Cursor:            false
+        
+        ---- Throughput ----
+          Total enqueued:    19340
+          Total dequeued:    19335
+          Avg enqueue rate:  155 runs/sec
+          Avg dequeue rate:  155 runs/sec
+        
+        ---- Dequeue Latency (claim batch) ----
+          Final P50:         0 us
+          Final P95:         0 us
+          Final P99:         0 us
+          Max P99:           579175 us
+          Max single:        0 us
+        
+        ---- Dead Tuples (MVCC Bloat) ----
+          Final dead:        2470
+          Final live:        19247
+          Final ratio:       0.1137 (11.4%)
+          Peak dead:         22100
+          Peak ratio:        0.6668 (66.7%)
+          Bloat trend:       GROWING (+18 dead/sec)
+        
+        ---- HOT Updates ----
+          Total updates:     69229
+          HOT updates:       0
+          HOT ratio:         0.0000 (0.0%)
+        
+        ---- Queue Backlog ----
+          Max oldest queued: 1.0 sec
+          Final oldest:      1.0 sec
+        
+        ---- Index Health ----
+          Index dead items:  N/A (pgstattuple extension not available)
+        
+        ---- Snapshot Timeline ----
+          Time(s)  Dead     Live     Ratio    HOT%    Enq/s    Deq/s    P99(us)  Age(s)  
+          0        178      93       0.6568   0.0     0        0        0        0.0     
+          5        275      142      0.6595   0.0     12       12       579175   0.0     
+          10       556      282      0.6635   0.0     30       30       137627   0.0     
+          15       1596     803      0.6653   0.0     108      108      57253    0.0     
+          20       2978     1494     0.6659   0.0     143      143      40444    0.0     
+          25       4556     2282     0.6663   0.0     164      164      15983    0.0     
+          30       5864     2937     0.6663   0.0     127      126      27319    0.0     
+          35       7048     3528     0.6664   0.0     122      122      26855    0.0     
+          40       8086     4049     0.6663   0.0     99       99       29886    0.0     
+          45       9003     4506     0.6664   0.0     92       92       58703    0.0     
+          50       9892     4951     0.6664   0.0     86       86       31072    0.0     
+          55       65       5233     0.0123   0.0     69       69       62906    0.0     
+          60       546      5475     0.0907   0.0     52       52       91409    0.0     
+          65       0        0        0.0000   0.0     98       98       71978    0.0     
+          70       2372     1193     0.6654   0.0     247      247      6385     0.0     
+          75       4833     2422     0.6662   0.0     247      247      4575     -0.0    
+          80       7337     3666     0.6668   0.0     250      250      4175     0.0     
+          85       9751     4878     0.6666   0.0     241      241      9282     -0.0    
+          90       12258    6136     0.6664   0.0     250      250      4522     0.0     
+          95       14674    7342     0.6665   0.0     242      242      13073    0.0     
+          100      17182    8585     0.6668   0.0     250      250      6596     0.0     
+          105      19660    9836     0.6665   0.0     248      248      8036     0.0     
+          110      22100    11056    0.6665   0.0     242      242      13552    0.0     
+          115      67       18045    0.0037   0.0     218      218      22243    0.0     
+          120      2401     19209    0.1111   0.0     231      231      14305    0.0     
+          121      2470     19247    0.1137   0.0     5        0        0        1.0     
+        ====================================================================
+        
+    queue_health_bench_test.go:546: Results written to queue_health_bench_longtxn_results.json
+--- PASS: TestQueueHealthBench_WithLongTxn (121.95s)
+PASS
+ok  	strait/internal/queue	249.645s

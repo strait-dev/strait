@@ -20,6 +20,7 @@ import (
 	"strait/internal/domain"
 	"strait/internal/queue"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/sourcegraph/conc"
 )
 
@@ -66,6 +67,7 @@ type healthSnapshot struct {
 	DequeueP99us    int64
 	DequeueMaxUs    int64
 	IndexDeadItems  int64 // -1 if pgstatindex not available
+	SlotWalLagBytes int64
 }
 
 // benchConfig controls the benchmark parameters.
@@ -235,6 +237,14 @@ func (c *snapshotCollector) collect() healthSnapshot {
 		SELECT COALESCE(dead_items, -1)
 		FROM pgstatindex('idx_runs_queue_covering')
 	`).Scan(&snap.IndexDeadItems)
+
+	_ = testDB.Pool.QueryRow(c.ctx, `
+		SELECT COALESCE(MAX(pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)), 0)::bigint
+		FROM pg_replication_slots
+		WHERE slot_type = 'logical'
+		  AND database = current_database()
+		  AND restart_lsn IS NOT NULL
+	`).Scan(&snap.SlotWalLagBytes)
 
 	return snap
 }
@@ -424,7 +434,10 @@ func TestQueueHealthBench_WithLongTxn(t *testing.T) {
 		cfg.Duration, cfg.Workers, cfg.EnqueueRateHz*cfg.BatchSize)
 
 	// Pin the xmin horizon with a long-running read transaction.
-	longTx, err := testDB.Pool.Begin(ctx)
+	longTx, err := testDB.Pool.BeginTx(ctx, pgx.TxOptions{
+		IsoLevel:   pgx.RepeatableRead,
+		AccessMode: pgx.ReadOnly,
+	})
 	if err != nil {
 		t.Fatalf("begin long txn: %v", err)
 	}
@@ -548,6 +561,164 @@ finished2:
 	})
 }
 
+// TestQueueHealthBench_WithLogicalSlot simulates a stalled logical
+// replication consumer. The slot is created before queue load starts and is
+// intentionally left unconsumed so Postgres must retain WAL from the slot's
+// restart_lsn while the queue churns.
+func TestQueueHealthBench_WithLogicalSlot(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
+	cfg := benchConfigFromEnv()
+	if testing.Short() {
+		t.Skip("short mode")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.Duration+60*time.Second)
+	defer cancel()
+
+	mustClean(t, ctx)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-health-logical-slot")
+	q := mustQueue(t)
+
+	var walLevel string
+	if err := testDB.Pool.QueryRow(ctx, "SHOW wal_level").Scan(&walLevel); err != nil {
+		t.Fatalf("show wal_level: %v", err)
+	}
+	if walLevel != "logical" {
+		t.Fatalf("wal_level = %q, want logical", walLevel)
+	}
+
+	slotName := fmt.Sprintf("strait_bench_%d", time.Now().UnixNano())
+	if _, err := testDB.Pool.Exec(ctx,
+		`SELECT pg_create_logical_replication_slot($1, 'pgoutput')`,
+		slotName,
+	); err != nil {
+		t.Fatalf("create logical replication slot: %v", err)
+	}
+	defer func() {
+		_, _ = testDB.Pool.Exec(context.Background(), `
+			SELECT pg_drop_replication_slot(slot_name)
+			FROM pg_replication_slots
+			WHERE slot_name = $1
+		`, slotName)
+	}()
+
+	if _, err := testDB.Pool.Exec(ctx, "ANALYZE job_runs"); err != nil {
+		t.Fatalf("analyze: %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, "SELECT pg_stat_reset()"); err != nil {
+		t.Logf("pg_stat_reset: %v (non-fatal)", err)
+	}
+
+	t.Logf("=== Queue Health Benchmark WITH STALLED LOGICAL SLOT ===")
+	t.Logf("Duration: %v | Workers: %d | Enqueue: %d runs/sec | Slot: %s",
+		cfg.Duration, cfg.Workers, cfg.EnqueueRateHz*cfg.BatchSize, slotName)
+
+	var enqueued, dequeuedCount atomic.Int64
+	var rec latencyRecorder
+	collector := &snapshotCollector{
+		ctx: ctx, enqueued: &enqueued, dequeued: &dequeuedCount,
+		latencies: &rec, startTime: time.Now(), lastSnapTime: time.Now(),
+	}
+
+	stopEnq := make(chan struct{})
+	var producerWg sync.WaitGroup
+	producerWg.Add(1)
+	concWG.Go(func() {
+		defer producerWg.Done()
+		ticker := time.NewTicker(time.Second / time.Duration(cfg.EnqueueRateHz))
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopEnq:
+				return
+			case <-ticker.C:
+				for range cfg.BatchSize {
+					run := &domain.JobRun{
+						ID: newID(), JobID: job.ID, ProjectID: job.ProjectID, Priority: 1,
+					}
+					if err := q.Enqueue(ctx, run); err == nil {
+						enqueued.Add(1)
+					}
+				}
+			}
+		}
+	})
+
+	var workerWg sync.WaitGroup
+	end := time.Now().Add(cfg.Duration)
+	for w := range cfg.Workers {
+		workerWg.Add(1)
+		concWG.Go(func() {
+			defer workerWg.Done()
+			for time.Now().Before(end) {
+				start := time.Now()
+				batch, err := q.DequeueNClaim(ctx, cfg.BatchSize)
+				elapsed := time.Since(start).Microseconds()
+				if err != nil {
+					time.Sleep(10 * time.Millisecond)
+					continue
+				}
+				if len(batch) > 0 {
+					rec.record(w, elapsed)
+				}
+				for _, r := range batch {
+					dequeuedCount.Add(1)
+					_, _ = testDB.Pool.Exec(ctx,
+						`UPDATE job_runs SET status='completed', finished_at=NOW() WHERE id=$1`, r.ID)
+				}
+				if len(batch) == 0 {
+					time.Sleep(5 * time.Millisecond)
+				}
+			}
+		})
+	}
+
+	var snapshots []healthSnapshot
+	snapTicker := time.NewTicker(cfg.SnapshotEvery)
+	defer snapTicker.Stop()
+	snapshots = append(snapshots, collector.collect())
+
+	done := make(chan struct{})
+	concWG.Go(func() { workerWg.Wait(); close(done) })
+
+	for {
+		select {
+		case <-done:
+			goto finished
+		case <-snapTicker.C:
+			snap := collector.collect()
+			snapshots = append(snapshots, snap)
+			t.Logf("[%5.0fs] dead=%6d live=%6d ratio=%.4f hot=%.2f enq/s=%.0f deq/s=%.0f p99=%dus slot_wal_lag=%d",
+				snap.ElapsedSec, snap.DeadTuples, snap.LiveTuples,
+				snap.DeadTupleRatio, snap.HotUpdateRatio,
+				snap.EnqueueRate, snap.DequeueRate,
+				snap.DequeueP99us, snap.SlotWalLagBytes)
+		}
+	}
+
+finished:
+	close(stopEnq)
+	producerWg.Wait()
+	time.Sleep(1 * time.Second)
+	if _, err := testDB.Pool.Exec(ctx, "SELECT pg_stat_clear_snapshot()"); err != nil {
+		t.Logf("clear snapshot: %v (non-fatal)", err)
+	}
+	final := collector.collect()
+	snapshots = append(snapshots, final)
+
+	printReport(t, cfg, snapshots)
+
+	if final.SlotWalLagBytes <= 0 {
+		t.Errorf("expected stalled logical slot to accumulate WAL lag")
+	}
+
+	writeResults(t, "queue_health_bench_logical_slot_results.json", map[string]any{
+		"config": cfg, "scenario": "logical_slot_wal_retention", "slot_name": slotName, "snapshots": snapshots,
+	})
+}
+
 func printReport(t *testing.T, cfg benchConfig, snapshots []healthSnapshot) {
 	t.Helper()
 	if len(snapshots) == 0 {
@@ -556,7 +727,7 @@ func printReport(t *testing.T, cfg benchConfig, snapshots []healthSnapshot) {
 
 	final := snapshots[len(snapshots)-1]
 
-	var maxDead, maxLive, maxP99 int64
+	var maxDead, maxLive, maxP99, maxSlotWalLag int64
 	var maxDeadRatio, maxOldestAge, sumEnqRate, sumDeqRate float64
 	dataPoints := 0
 
@@ -570,6 +741,7 @@ func printReport(t *testing.T, cfg benchConfig, snapshots []healthSnapshot) {
 			maxOldestAge = s.OldestQueuedAge
 		}
 		maxP99 = max(maxP99, s.DequeueP99us)
+		maxSlotWalLag = max(maxSlotWalLag, s.SlotWalLagBytes)
 		if s.EnqueueRate > 0 || s.DequeueRate > 0 {
 			sumEnqRate += s.EnqueueRate
 			sumDeqRate += s.DequeueRate
@@ -644,6 +816,12 @@ func printReport(t *testing.T, cfg benchConfig, snapshots []healthSnapshot) {
 		fmt.Fprintf(&sb, "  Index dead items:  %d\n", final.IndexDeadItems)
 	} else {
 		sb.WriteString("  Index dead items:  N/A (pgstattuple extension not available)\n")
+	}
+	if maxSlotWalLag > 0 {
+		sb.WriteString("\n")
+		sb.WriteString("---- Logical Slot WAL Retention ----\n")
+		fmt.Fprintf(&sb, "  Final slot lag:    %d bytes\n", final.SlotWalLagBytes)
+		fmt.Fprintf(&sb, "  Peak slot lag:     %d bytes\n", maxSlotWalLag)
 	}
 	sb.WriteString("\n")
 	sb.WriteString("---- Snapshot Timeline ----\n")

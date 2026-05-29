@@ -108,6 +108,13 @@ func SetupFreshTestDB(ctx context.Context, migrationsPath string) (*TestDB, erro
 		postgres.WithDatabase("testdb"),
 		postgres.WithUsername("test"),
 		postgres.WithPassword("test"),
+		testcontainers.WithCmd(
+			"postgres",
+			"-c", "fsync=off",
+			"-c", "wal_level=logical",
+			"-c", "max_replication_slots=10",
+			"-c", "max_wal_senders=10",
+		),
 		testcontainers.WithWaitStrategy(
 			wait.ForMappedPort("5432/tcp").
 				WithStartupTimeout(180*time.Second),
@@ -185,6 +192,13 @@ func getSharedPostgres(ctx context.Context) (*sharedPostgres, error) {
 		postgres.WithDatabase("testdb"),
 		postgres.WithUsername("test"),
 		postgres.WithPassword("test"),
+		testcontainers.WithCmd(
+			"postgres",
+			"-c", "fsync=off",
+			"-c", "wal_level=logical",
+			"-c", "max_replication_slots=10",
+			"-c", "max_wal_senders=10",
+		),
 		testcontainers.WithReuseByName(sharedContainerName("postgres")),
 		testcontainers.WithWaitStrategy(
 			wait.ForMappedPort("5432/tcp").
