@@ -1,0 +1,103 @@
+package cache
+
+import (
+	"testing"
+	"time"
+
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
+)
+
+func TestStatusReadModel_CASRejectsOutOfOrderUpdate(t *testing.T) {
+	t.Parallel()
+
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	model := NewReadModel[string](ReadModelConfig[string]{
+		Client:    rdb,
+		Namespace: "status_test",
+		TTL:       time.Minute,
+	})
+
+	ok, err := model.CompareAndSet(t.Context(), "run-1", "running", 5)
+	if err != nil {
+		t.Fatalf("CompareAndSet(v5) error = %v", err)
+	}
+	if !ok {
+		t.Fatal("CompareAndSet(v5) = false, want true")
+	}
+	ok, err = model.CompareAndSet(t.Context(), "run-1", "queued", 4)
+	if err != nil {
+		t.Fatalf("CompareAndSet(v4) error = %v", err)
+	}
+	if ok {
+		t.Fatal("CompareAndSet(v4) = true, want false")
+	}
+	got, err := model.Get(t.Context(), "run-1")
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if got.Version != 5 || got.Value != "running" {
+		t.Fatalf("Get() = %+v, want version 5 running", got)
+	}
+}
+
+func TestStatusReadModel_SetIfColdDoesNotOverwriteNewerCDCValue(t *testing.T) {
+	t.Parallel()
+
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	model := NewReadModel[string](ReadModelConfig[string]{
+		Client:    rdb,
+		Namespace: "status_fill_test",
+		TTL:       time.Minute,
+	})
+
+	if ok, err := model.CompareAndSet(t.Context(), "run-1", "completed", 9); err != nil || !ok {
+		t.Fatalf("CompareAndSet(v9) = %v, %v; want true, nil", ok, err)
+	}
+	if err := model.SetIfCold(t.Context(), "run-1", "queued"); err != nil {
+		t.Fatalf("SetIfCold() error = %v", err)
+	}
+	got, err := model.Get(t.Context(), "run-1")
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if got.Version != 9 || got.Value != "completed" {
+		t.Fatalf("Get() = %+v, want version 9 completed", got)
+	}
+}
+
+func TestStatusReadModel_SetIfColdVersionRejectsOlderCDCOverwrite(t *testing.T) {
+	t.Parallel()
+
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	model := NewReadModel[string](ReadModelConfig[string]{
+		Client:    rdb,
+		Namespace: "status_fill_version_test",
+		TTL:       time.Minute,
+	})
+
+	if err := model.SetIfColdVersion(t.Context(), "run-1", "executing", 10); err != nil {
+		t.Fatalf("SetIfColdVersion() error = %v", err)
+	}
+	ok, err := model.CompareAndSet(t.Context(), "run-1", "queued", 7)
+	if err != nil {
+		t.Fatalf("CompareAndSet(v7) error = %v", err)
+	}
+	if ok {
+		t.Fatal("CompareAndSet(v7) = true, want false")
+	}
+
+	got, err := model.Get(t.Context(), "run-1")
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if got.Version != 10 || got.Value != "executing" {
+		t.Fatalf("Get() = %+v, want version 10 executing", got)
+	}
+}

@@ -7,8 +7,12 @@ import "testing"
 func requiredEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("REDIS_URL", "redis://localhost:6379")
 	t.Setenv("INTERNAL_SECRET", "test-secret-value")
 	t.Setenv("JWT_SIGNING_KEY", "this-is-a-very-long-key-for-jwt-signing-1234")
+	t.Setenv("SEQUIN_BASE_URL", "http://localhost:7376")
+	t.Setenv("SEQUIN_CONSUMER_NAME", "strait-cdc")
+	t.Setenv("SEQUIN_API_TOKEN", "sequin-api-token")
 }
 
 // TestConfig_MaxWorkflowContinueDepth_Default verifies the continue-as-new depth

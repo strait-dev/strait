@@ -15,39 +15,58 @@ bun dev
 
 The app runs at `http://localhost:5173`.
 
-## Deploy to Cloudflare
+## Deploy
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/strait-dev/strait)
+The dashboard has two supported production targets:
 
-Clicking the button forks `strait-dev/strait` to your GitHub account and takes you through a Cloudflare Workers import. Because this repo is a Bun monorepo (Cloudflare does not yet support Bun workspace resolution in one-click deploys), the flow needs **one manual setting** before the first build:
+| Target | Command | Output | Use case |
+|---|---|---|---|
+| Node / Docker | `bun run build:node` | `.output/server/index.mjs` | Self-hosting, VPS, Fly.io, Cloud Run, k8s |
+| Vercel | `bun run build:vercel` | `.vercel/output` | Managed hosted dashboard |
 
-1. During the Workers Builds import screen, set:
-   - **Root directory**: `apps/app`
-   - **Build command**: `cd ../.. && bun install --frozen-lockfile && cd apps/app && bun run build`
-   - **Deploy command**: `npx wrangler deploy` *(default, leave as-is)*
-2. When Cloudflare detects the `HYPERDRIVE` binding in `apps/app/wrangler.jsonc`, it will prompt you to create a new Hyperdrive config pointing at your Postgres (Neon, Supabase, Fly PG, or any Postgres with a connection string).
-3. Cloudflare will prompt you for the non-secret variables declared in `apps/app/wrangler.jsonc` (`BETTER_AUTH_URL`, `STRAIT_API_URL`, OAuth client IDs, Stripe price IDs, etc.). Fill in the required ones; leave optional fields blank.
-4. Confirm and deploy.
+The canonical portable path is the Docker image:
 
-**After the first deploy**, open the Cloudflare dashboard → Workers → `strait-app` → Settings → Variables and Secrets, and add the following secrets:
+```bash
+docker build -f apps/app/Dockerfile -t strait-app .
+docker run --rm \
+  -e AUTH_DATABASE_URL=postgres://user:pass@host:5432/strait \
+  -e BETTER_AUTH_URL=http://localhost:3000 \
+  -e BETTER_AUTH_SECRET="$(openssl rand -hex 32)" \
+  strait-app .output/migrate.mjs
+docker run --rm -p 3000:3000 \
+  -e AUTH_DATABASE_URL=postgres://user:pass@host:5432/strait \
+  -e BETTER_AUTH_URL=http://localhost:3000 \
+  -e BETTER_AUTH_SECRET="$(openssl rand -hex 32)" \
+  -e STRAIT_API_URL=http://host.docker.internal:8080 \
+  strait-app
+```
 
-| Secret | Required? | Notes |
-|---|---|---|
-| `BETTER_AUTH_SECRET` | yes | 32+ character random string. Generate with `openssl rand -hex 32`. |
-| `OIDC_PRIVATE_KEY_PEM` | yes | PKCS#8 RSA private key used to sign MCP tokens. Must match the Go backend's public key. |
-| `GOOGLE_CLIENT_SECRET` | only if Google OAuth is enabled | Paired with `GOOGLE_CLIENT_ID` above. |
-| `GITHUB_CLIENT_SECRET` | only if GitHub OAuth is enabled | Paired with `GITHUB_CLIENT_ID` above. |
-| `STRIPE_SECRET_KEY` | only if billing is enabled | Live or test Stripe secret key. |
-| `STRIPE_WEBHOOK_SECRET` | only if billing is enabled | Stripe webhook signing secret. |
-| `RESEND_API_KEY` | only if transactional email is enabled | Resend API key for magic links, invites, password resets. |
-| `VITE_SENTRY_DSN` | optional | Client-side Sentry DSN. |
-| `VITE_POSTHOG_KEY` | optional | Client-side PostHog key. |
+For the full self-hosted stack, see [SELFHOST.md](../../SELFHOST.md).
 
-Then redeploy once so the Worker picks up the new secrets: either push any commit, or hit **Deployments → Retry** in the Cloudflare dashboard.
+### Deploy to Vercel
 
-**Your Strait API must be reachable from the Worker.** If you are running the Strait API locally via `docker compose -f docker-compose.selfhost.yml up`, expose it with a tunnel (for example `cloudflared tunnel`) so the deployed Worker can call it, and set `STRAIT_API_URL` accordingly. If you are running the API on a public host, just point `STRAIT_API_URL` at it.
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fstrait-dev%2Fstrait&project-name=strait-app&repository-name=strait-app&root-directory=apps%2Fapp&install-command=cd+..%2F..+%26%26+bun+install+--frozen-lockfile&build-command=cd+..%2F..+%26%26+cd+apps%2Fapp+%26%26+bun+run+build%3Avercel&env=AUTH_DATABASE_URL%2CBETTER_AUTH_URL%2CBETTER_AUTH_SECRET%2CSTRAIT_API_URL%2COIDC_ISSUER%2COIDC_AUDIENCE%2COIDC_PRIVATE_KEY_PEM)
 
-For the fully containerized alternative (running the dashboard itself in Docker alongside the API), see [SELFHOST.md](../../SELFHOST.md).
+Use Vercel as the managed convenience path. Keep these project settings:
+
+| Setting | Value |
+|---|---|
+| Root directory | `apps/app` |
+| Install command | `cd ../.. && bun install --frozen-lockfile` |
+| Build command | `cd ../.. && cd apps/app && bun run build:vercel` |
+| Output | Nitro/Vercel Build Output API (`.vercel/output`) |
+
+Required environment variables:
+
+| Variable | Notes |
+|---|---|
+| `AUTH_DATABASE_URL` | PostgreSQL connection string for Better Auth. |
+| `BETTER_AUTH_URL` | Public dashboard origin, for example `https://dashboard.example.com`. |
+| `BETTER_AUTH_SECRET` | 32+ character random string. Generate with `openssl rand -hex 32`. |
+| `STRAIT_API_URL` | Public Strait API base URL. A Vercel-hosted dashboard cannot call `localhost`. |
+| `OIDC_ISSUER` / `OIDC_AUDIENCE` / `OIDC_PRIVATE_KEY_PEM` | Required for MCP token issuance. Must match the Go backend public key config. |
+
+Optional variables enable OAuth, billing, email, Sentry, and PostHog. OAuth callback URLs must use the deployed dashboard origin from `BETTER_AUTH_URL`.
 
 ## Tech Stack
 
@@ -117,8 +136,10 @@ src/
 | Command | Description |
 |---|---|
 | `bun dev` | Start dev server on port 5173 |
-| `bun build` | Production build (Cloudflare Workers) |
-| `bun start` | Start production server |
+| `bun build` | Production build for the portable Node target |
+| `bun run build:node` | Build Nitro `node-server` output |
+| `bun run build:vercel` | Build Vercel output |
+| `bun start` | Start the built Node server |
 | `bun test` | Run Vitest tests |
 | `bun run test:watch` | Run tests in watch mode |
 | `bun run typecheck` | TypeScript check (tsgo) |

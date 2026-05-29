@@ -321,6 +321,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 	g.Go(func(ctx context.Context) error {
 		return poolTuner.Run(ctx)
 	})
+	cacheRegistry, cacheBus := startCacheBus(g, pub)
 	if bq, ok := q.(*queue.BatchlogQueue); ok {
 		g.Go(func(ctx context.Context) error {
 			bq.RunTicker(ctx)
@@ -378,12 +379,14 @@ func runServe(ctx context.Context, modeOverride string) error {
 		WithMaxNestingDepth(cfg.MaxWorkflowNestingDepth).
 		WithMaxContinueDepth(cfg.MaxWorkflowContinueDepth).
 		WithMetrics(metrics).
+		WithDefinitionCaches(workflow.WorkflowDefinitionCacheConfig{Redis: rdb, VersionTTL: cfg.VersionCacheTTL}).
 		WithOnTriggerCreate(onTriggerCreate)
 	onWorkflowRunStatus := func(hookCtx context.Context, run *domain.WorkflowRun, from, to domain.WorkflowRunStatus, reason string) {
 		publishWorkflowRunStatusHook(hookCtx, run, from, to, reason, pub, chExporter, queries, eventNotifier)
 	}
 	stepCallback := workflow.NewStepCallback(queries, workflowEngine, slog.Default()).
 		WithMetrics(metrics).
+		WithDefinitionCaches(workflow.WorkflowDefinitionCacheConfig{Redis: rdb, VersionTTL: cfg.VersionCacheTTL}).
 		WithChExporter(chExporter).
 		WithStatusHook(onWorkflowRunStatus).
 		WithProgressionEngine(cfg.WorkflowProgressionEngine)
@@ -441,6 +444,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 		enforcerOpts = append(enforcerOpts, billing.WithSentryRuntime(cfg.Mode, cfg.DefaultRegion, version))
 		enforcerOpts = append(enforcerOpts, billing.WithEntitlementsAuthoritative(cfg.BillingEntitlementsAuthoritative))
 		enforcerOpts = append(enforcerOpts, billing.WithBillingDispatcher(billingDispatcher))
+		enforcerOpts = append(enforcerOpts, billing.WithCacheBus(cacheBus, cacheRegistry))
 		billingEnforcer = billing.NewEnforcer(billingStore, rdb, slog.Default(), enforcerOpts...)
 		billingEnforcer.StartCleanup(ctx)
 
@@ -463,7 +467,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 		return fmt.Errorf("schema version: %w", err)
 	}
 
-	cdcWebhookReceiver, err := startCDCConsumer(ctx, g, cfg, pub, queries, chExporter)
+	cdcWebhookReceiver, err := startCDCConsumer(ctx, g, cfg, pub, queries, chExporter, rdb, cacheBus)
 	if err != nil {
 		return err
 	}
@@ -482,8 +486,50 @@ func runServe(ctx context.Context, modeOverride string) error {
 	if err != nil {
 		return fmt.Errorf("starting grpc server: %w", err)
 	}
-	startAPIServer(g, cfg, queries, dbPool, dbPool, q, pub, metricsHandler, metrics, stepCallback, workflowEngine, healthReg, rdb, apiEncryptor, billingEnforcer, chAnalytics, chExporter, cdcWebhookReceiver)
-	startWorker(g, cfg, queries, dbPool, dbPool, q, bp, pub, metrics, stepCallback, workflowEngine, healthReg, billingEnforcer, billingDispatcher, chExporter, workerPlane, apiEncryptor)
+	startAPIServer(apiServerDeps{
+		group:              g,
+		config:             cfg,
+		queries:            queries,
+		txPool:             dbPool,
+		dbPool:             dbPool,
+		queue:              q,
+		publisher:          pub,
+		cacheRegistry:      cacheRegistry,
+		cacheBus:           cacheBus,
+		metricsHandler:     metricsHandler,
+		metrics:            metrics,
+		stepCallback:       stepCallback,
+		workflowEngine:     workflowEngine,
+		healthRegistry:     healthReg,
+		redisClient:        rdb,
+		encryptor:          apiEncryptor,
+		billingEnforcer:    billingEnforcer,
+		analyticsStore:     chAnalytics,
+		clickHouseExporter: chExporter,
+		cdcWebhookReceiver: cdcWebhookReceiver,
+	})
+	startWorker(workerRuntimeDeps{
+		group:              g,
+		config:             cfg,
+		queries:            queries,
+		txPool:             dbPool,
+		dbPool:             dbPool,
+		queue:              q,
+		backpressure:       bp,
+		publisher:          pub,
+		cacheRegistry:      cacheRegistry,
+		cacheBus:           cacheBus,
+		redisClient:        rdb,
+		metrics:            metrics,
+		stepCallback:       stepCallback,
+		workflowEngine:     workflowEngine,
+		healthRegistry:     healthReg,
+		billingEnforcer:    billingEnforcer,
+		billingDispatcher:  billingDispatcher,
+		clickHouseExporter: chExporter,
+		workerPlane:        workerPlane,
+		encryptor:          apiEncryptor,
+	})
 	startProfilingServer(g, cfg, rdb, metrics, version)
 
 	if err := g.Wait(); err != nil {

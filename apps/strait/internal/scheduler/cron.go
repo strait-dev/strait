@@ -322,40 +322,82 @@ func checkCronAdmissionLimits(ctx context.Context, limits CronAdmissionStore, jo
 	if err != nil {
 		return fmt.Errorf("get cron project quota: %w", err)
 	}
-	//nolint:nestif
-	if quota != nil {
-		if quota.MaxQueuedRuns > 0 {
-			queuedRuns, countErr := limits.CountProjectQueuedRuns(ctx, job.ProjectID)
-			if countErr != nil {
-				return fmt.Errorf("evaluate cron project queued quota: %w", countErr)
-			}
-			if queuedRuns >= quota.MaxQueuedRuns {
-				return errCronProjectQueuedQuotaExceeded
-			}
-		}
-		if quota.MaxExecutingRuns > 0 {
-			activeRuns, countErr := limits.CountProjectActiveRuns(ctx, job.ProjectID)
-			if countErr != nil {
-				return fmt.Errorf("evaluate cron project active quota: %w", countErr)
-			}
-			if activeRuns >= quota.MaxExecutingRuns {
-				return errCronProjectExecutingQuotaExceeded
-			}
-		}
-		if quota.MaxDailyCostMicrousd > 0 {
-			tz := quota.Timezone
-			if tz == "" {
-				tz = "UTC"
-			}
-			dailyCost, costErr := limits.SumProjectDailyCostMicrousd(ctx, job.ProjectID, tz)
-			if costErr != nil {
-				return fmt.Errorf("evaluate cron project daily cost quota: %w", costErr)
-			}
-			if dailyCost >= quota.MaxDailyCostMicrousd {
-				return errCronProjectDailyCostQuotaExceeded
-			}
-		}
+	if err := checkCronProjectQuota(ctx, limits, job.ProjectID, quota); err != nil {
+		return err
 	}
+	return checkCronJobRateLimit(ctx, limits, job)
+}
+
+func checkCronProjectQuota(
+	ctx context.Context,
+	limits CronAdmissionStore,
+	projectID string,
+	quota *store.ProjectQuota,
+) error {
+	if quota == nil {
+		return nil
+	}
+	if err := checkCronProjectQueuedQuota(ctx, limits, projectID, quota.MaxQueuedRuns); err != nil {
+		return err
+	}
+	if err := checkCronProjectExecutingQuota(ctx, limits, projectID, quota.MaxExecutingRuns); err != nil {
+		return err
+	}
+	return checkCronProjectDailyCostQuota(ctx, limits, projectID, quota)
+}
+
+func checkCronProjectQueuedQuota(ctx context.Context, limits CronAdmissionStore, projectID string, limit int) error {
+	if limit <= 0 {
+		return nil
+	}
+	queuedRuns, err := limits.CountProjectQueuedRuns(ctx, projectID)
+	if err != nil {
+		return fmt.Errorf("evaluate cron project queued quota: %w", err)
+	}
+	if queuedRuns >= limit {
+		return errCronProjectQueuedQuotaExceeded
+	}
+	return nil
+}
+
+func checkCronProjectExecutingQuota(ctx context.Context, limits CronAdmissionStore, projectID string, limit int) error {
+	if limit <= 0 {
+		return nil
+	}
+	activeRuns, err := limits.CountProjectActiveRuns(ctx, projectID)
+	if err != nil {
+		return fmt.Errorf("evaluate cron project active quota: %w", err)
+	}
+	if activeRuns >= limit {
+		return errCronProjectExecutingQuotaExceeded
+	}
+	return nil
+}
+
+func checkCronProjectDailyCostQuota(
+	ctx context.Context,
+	limits CronAdmissionStore,
+	projectID string,
+	quota *store.ProjectQuota,
+) error {
+	if quota.MaxDailyCostMicrousd <= 0 {
+		return nil
+	}
+	tz := quota.Timezone
+	if tz == "" {
+		tz = "UTC"
+	}
+	dailyCost, err := limits.SumProjectDailyCostMicrousd(ctx, projectID, tz)
+	if err != nil {
+		return fmt.Errorf("evaluate cron project daily cost quota: %w", err)
+	}
+	if dailyCost >= quota.MaxDailyCostMicrousd {
+		return errCronProjectDailyCostQuotaExceeded
+	}
+	return nil
+}
+
+func checkCronJobRateLimit(ctx context.Context, limits CronAdmissionStore, job *domain.Job) error {
 	if job.RateLimitMax > 0 && job.RateLimitWindowSecs > 0 {
 		since := time.Now().Add(-time.Duration(job.RateLimitWindowSecs) * time.Second)
 		runCount, countErr := limits.CountRunsForJobSince(ctx, job.ID, since)

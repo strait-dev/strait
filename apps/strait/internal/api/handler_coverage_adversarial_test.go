@@ -21,9 +21,7 @@ import (
 	"github.com/sourcegraph/conc"
 )
 
-// ---------------------------------------------------------------------------.
 // 1. handleProjectActivityStream (SSE streaming)
-// ---------------------------------------------------------------------------.
 
 func TestHandlerActivityStream_MissingProjectID(t *testing.T) {
 	t.Parallel()
@@ -200,9 +198,7 @@ func TestHandlerActivityStream_ReceivesMessage(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // 2. handleRollbackDeploymentVersion
-// ---------------------------------------------------------------------------.
 
 func TestHandlerRollbackDeploymentVersion_HappyPath(t *testing.T) {
 	t.Parallel()
@@ -309,9 +305,7 @@ func TestHandlerRollbackDeploymentVersion_MalformedJSON(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // 3. handleGetJobVersion
-// ---------------------------------------------------------------------------.
 
 func TestHandlerGetJobVersion_HappyPath(t *testing.T) {
 	t.Parallel()
@@ -397,9 +391,7 @@ func TestHandlerGetJobVersion_StoreError(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // 4. handleListNotificationDeliveries
-// ---------------------------------------------------------------------------.
 
 func TestHandlerListNotificationDeliveries_HappyPath(t *testing.T) {
 	t.Parallel()
@@ -489,9 +481,7 @@ func TestHandlerListNotificationDeliveries_WithLimitAndCursor(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // 6. handleRunLLMStream (SSE streaming)
-// ---------------------------------------------------------------------------.
 
 func llmStreamRequest(runID string) *http.Request {
 	r := httptest.NewRequest(http.MethodGet, "/v1/runs/"+runID+"/stream/chunks", nil)
@@ -693,9 +683,7 @@ func TestHandlerRunLLMStream_ReceivesMessage(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // 7. handleBulkReplayWorkflowRuns
-// ---------------------------------------------------------------------------.
 
 type advMockWorkflowEngine struct {
 	retryFn func(ctx context.Context, originalRunID string) (*domain.WorkflowRun, error)
@@ -854,9 +842,7 @@ func TestHandlerBulkReplayWorkflowRuns_MissingField(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // 8. handleCheckOrgLimit
-// ---------------------------------------------------------------------------.
 
 type advMockBillingEnforcer struct {
 	checkOrgCreationLimitFn func(ctx context.Context, userID string, planTier domain.PlanTier) error
@@ -1037,9 +1023,7 @@ func TestHandlerCheckOrgLimit_StoreError(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // 9. handleListRunState
-// ---------------------------------------------------------------------------.
 
 func TestHandlerListRunState_HappyPath(t *testing.T) {
 	t.Parallel()
@@ -1114,9 +1098,7 @@ func TestHandlerListRunState_EmptyResult(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // 10. handleSDKDeleteMemory
-// ---------------------------------------------------------------------------.
 
 func TestHandlerSDKDeleteMemory_HappyPath(t *testing.T) {
 	t.Parallel()
@@ -1209,9 +1191,7 @@ func TestHandlerSDKDeleteMemory_DeleteStoreError(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // 11. resolveGuardrailInt (pure function)
-// ---------------------------------------------------------------------------.
 
 func TestHandlerResolveGuardrailInt_JobLimitTakesPrecedence(t *testing.T) {
 	t.Parallel()
@@ -1270,9 +1250,7 @@ func TestHandlerResolveGuardrailInt64_BothZero(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // 12. orgAdvisoryLockID (pure function)
-// ---------------------------------------------------------------------------.
 
 func TestHandlerOrgAdvisoryLockID_Deterministic(t *testing.T) {
 	t.Parallel()

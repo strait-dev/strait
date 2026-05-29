@@ -187,7 +187,7 @@ func readPersistedEntitlements(ctx context.Context, pool *pgxpool.Pool, orgID st
 	var got OrgPlanLimits
 	if err := json.Unmarshal(raw, &got); err != nil {
 		// Treat undecodable column as drift so the backfill rewrites it.
-		return OrgPlanLimits{}, nil //nolint:nilerr // intentional fallback to drift
+		return OrgPlanLimits{}, nil //nolint:nilerr // corrupt persisted JSON is drift; backfill should rewrite it
 	}
 	return got, nil
 }

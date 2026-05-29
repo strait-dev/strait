@@ -11,6 +11,7 @@ Dashboards:
 - `scheduler-workflows.json` - scheduler loops, cron drift, workflow progress, durable waits, and compensation
 - `triggers-webhooks.json` - event triggers, webhook delivery health, retry pressure, and breaker state
 - `data-plane.json` - Postgres, replication, ClickHouse exporter, Redis pub/sub, notifications, and log drains
+- `cache-coherence.json` - cache hit/miss mix, fail-open rate, cachebus lag, and CAS rejects
 - `billing-cloud.json` - cloud-edition billing enforcement, Stripe ingestion, usage records, and plan gates
 - `audit-events.json` - audit pipeline, SIEM forwarding, retention, export caps, and chain verification
 
@@ -26,7 +27,7 @@ cd apps/strait/monitoring/grafana
 ```
 
 The script starts a disposable Grafana container, loads the provisioning files,
-checks the Prometheus datasource, and verifies that all nine dashboards are
+checks the Prometheus datasource, and verifies that all ten dashboards are
 available through Grafana's API with datasource and interval variables.
 
 To compare the dashboards and alert rules against a live Strait metrics scrape:

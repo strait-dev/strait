@@ -134,6 +134,29 @@ func (q *Queries) GetWorkflowRun(ctx context.Context, id string) (*domain.Workfl
 	return run, nil
 }
 
+func (q *Queries) GetWorkflowRunWithCacheVersion(ctx context.Context, id string) (*domain.WorkflowRun, int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetWorkflowRunWithCacheVersion")
+	defer span.End()
+
+	query := `
+		SELECT id, workflow_id, project_id, status, triggered_by, payload,
+		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
+		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at,
+		       continued_from_workflow_run_id, continued_to_workflow_run_id, lineage_depth, cache_version
+		FROM workflow_runs
+		WHERE id = $1`
+
+	run, err := scanWorkflowRunWithCacheVersion(q.db.QueryRow(ctx, query, id))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, 0, ErrWorkflowRunNotFound
+		}
+		return nil, 0, fmt.Errorf("get workflow run with cache version: %w", err)
+	}
+
+	return run, run.CacheVersion, nil
+}
+
 func (q *Queries) ListWorkflowRuns(ctx context.Context, workflowID string, limit int, cursor *time.Time) ([]domain.WorkflowRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListWorkflowRuns")
 	defer span.End()
@@ -380,6 +403,14 @@ func (q *Queries) GetWorkflowRunsByParent(ctx context.Context, parentWorkflowRun
 }
 
 func scanWorkflowRun(scanner scanTarget) (*domain.WorkflowRun, error) {
+	return scanWorkflowRunFields(scanner, false)
+}
+
+func scanWorkflowRunWithCacheVersion(scanner scanTarget) (*domain.WorkflowRun, error) {
+	return scanWorkflowRunFields(scanner, true)
+}
+
+func scanWorkflowRunFields(scanner scanTarget, includeCacheVersion bool) (*domain.WorkflowRun, error) {
 	var run domain.WorkflowRun
 	var payload []byte
 	var tagsJSON []byte
@@ -398,7 +429,7 @@ func scanWorkflowRun(scanner scanTarget) (*domain.WorkflowRun, error) {
 	var continuedFromWorkflowRunID *string
 	var continuedToWorkflowRunID *string
 
-	err := scanner.Scan(
+	dest := []any{
 		&run.ID,
 		&run.WorkflowID,
 		&run.ProjectID,
@@ -424,7 +455,12 @@ func scanWorkflowRun(scanner scanTarget) (*domain.WorkflowRun, error) {
 		&continuedFromWorkflowRunID,
 		&continuedToWorkflowRunID,
 		&run.LineageDepth,
-	)
+	}
+	if includeCacheVersion {
+		dest = append(dest, &run.CacheVersion)
+	}
+
+	err := scanner.Scan(dest...)
 	if err != nil {
 		return nil, err
 	}

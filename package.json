@@ -29,7 +29,7 @@
     "clean:workspaces": "turbo run clean",
     "go:build": "cd apps/strait && go build ./...",
     "go:vet": "cd apps/strait && go vet ./...",
-    "go:lint": "cd apps/strait && golangci-lint run --timeout=10m ./...",
+    "go:lint": "cd apps/strait && ./scripts/lint-go.sh",
     "go:test": "cd apps/strait && go test ./... -short -count=1 -race -timeout=300s",
     "go:test:integration:fast": "cd apps/strait && ./scripts/test-integration-fast.sh --all",
     "go:test:integration:clean": "cd apps/strait && ./scripts/test-integration-clean.sh",
@@ -40,7 +40,7 @@
   },
   "overrides": {
     "@tanstack/query-core": "5.100.10",
-    "h3": "1.15.9",
+    "h3": "2.0.1-rc.22",
     "smol-toml": ">=1.6.1",
     "kysely": ">=0.28.14",
     "socket.io-parser": ">=4.2.6",

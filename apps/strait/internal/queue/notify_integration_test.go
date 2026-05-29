@@ -302,6 +302,98 @@ func TestQueueNotifyTrigger_NonQueuedTransitionEmitsNoWake(t *testing.T) {
 	}
 }
 
+func TestQueueNotifyTrigger_BatchlogSealEmitsOneWake(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	q := mustBatchlogQueue(t, time.Second)
+	st := mustStore(t)
+	mustClean(t, ctx)
+	job := mustCreateJob(t, ctx, st, "project-notify-batchlog-seal")
+
+	runs := make([]*domain.JobRun, 3)
+	for i := range runs {
+		runs[i] = &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+		if err := q.Enqueue(ctx, runs[i]); err != nil {
+			t.Fatalf("Enqueue %d: %v", i, err)
+		}
+	}
+
+	listener := listenQueueWake(t, ctx)
+	defer listener.Close(context.Background())
+	sealed, err := q.SealDueBatches(ctx)
+	if err != nil {
+		t.Fatalf("SealDueBatches: %v", err)
+	}
+	if sealed != int64(len(runs)) {
+		t.Fatalf("sealed = %d, want %d", sealed, len(runs))
+	}
+
+	if got := countQueueWakeNotifications(t, ctx, listener); got != 1 {
+		t.Fatalf("queue wake notifications = %d, want 1", got)
+	}
+}
+
+func TestQueueNotifyTrigger_BatchlogReclaimEmitsOneWake(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	q := mustBatchlogQueue(t, 15*time.Millisecond)
+	st := mustStore(t)
+	mustClean(t, ctx)
+	job := mustCreateJob(t, ctx, st, "project-notify-batchlog-reclaim")
+	run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	if _, err := q.SealDueBatches(ctx); err != nil {
+		t.Fatalf("SealDueBatches: %v", err)
+	}
+	claimed, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("DequeueN: %v", err)
+	}
+	if len(claimed) != 1 {
+		t.Fatalf("DequeueN len = %d, want 1", len(claimed))
+	}
+
+	time.Sleep(30 * time.Millisecond)
+	listener := listenQueueWake(t, ctx)
+	defer listener.Close(context.Background())
+	reclaimed, err := q.ReclaimExpiredLeases(ctx)
+	if err != nil {
+		t.Fatalf("ReclaimExpiredLeases: %v", err)
+	}
+	if reclaimed != 1 {
+		t.Fatalf("reclaimed = %d, want 1", reclaimed)
+	}
+
+	if got := countQueueWakeNotifications(t, ctx, listener); got != 1 {
+		t.Fatalf("queue wake notifications = %d, want 1", got)
+	}
+}
+
+func TestQueueNotifyTrigger_BatchlogUnsealedEntryEmitsNoExtraWake(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	q := mustBatchlogQueue(t, time.Second)
+	st := mustStore(t)
+	mustClean(t, ctx)
+	job := mustCreateJob(t, ctx, st, "project-notify-batchlog-unclaimable")
+
+	listener := listenQueueWake(t, ctx)
+	defer listener.Close(context.Background())
+	run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+
+	if got := countQueueWakeNotifications(t, ctx, listener); got != 1 {
+		t.Fatalf("queue wake notifications = %d, want 1", got)
+	}
+}
+
 func listenQueueWake(t *testing.T, ctx context.Context) *pgx.Conn {
 	t.Helper()
 	listener, err := pgx.Connect(ctx, testDB.ConnStr)

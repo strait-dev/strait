@@ -22,6 +22,11 @@ var (
 	ErrJobGroupNotFound             = errors.New("job group not found")
 	ErrWebhookSubscriptionNotFound  = errors.New("webhook subscription not found")
 	ErrWebhookEndpointLimitExceeded = errors.New("webhook endpoint limit exceeded")
+	// ErrWebhookSubscriptionDuplicate is returned when a CreateWebhookSubscription
+	// would violate the partial unique index on (project_id, webhook_url) where
+	// active=true. Callers must surface a 409 instead of retrying — replaying
+	// the create response would re-expose the one-shot plaintext signing secret.
+	ErrWebhookSubscriptionDuplicate = errors.New("webhook subscription already exists for project and url")
 	ErrEnvironmentNotFound          = errors.New("environment not found")
 	ErrJobSecretNotFound            = errors.New("job secret not found")
 	ErrAuditEventNotFound           = errors.New("audit event not found")
@@ -179,6 +184,7 @@ type ProjectQuota struct {
 	MaxMemoryPerKeyBytes   int
 	MaxMemoryPerJobBytes   int
 	MaxKeyLifetimeDays     int
+	CacheVersion           int64
 }
 
 // JobHealthStats contains aggregated health metrics for a job.
@@ -562,6 +568,12 @@ func withTx(ctx context.Context, db TxBeginner, parent *Queries, fn func(q *Quer
 	committed = true
 
 	return nil
+}
+
+func rollbackTx(ctx context.Context, tx pgx.Tx) {
+	if err := tx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+		slog.Warn("failed to rollback transaction", "error", err)
+	}
 }
 
 func (q *Queries) WithTx(ctx context.Context, fn func(context.Context, DBTX) error) error {

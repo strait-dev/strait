@@ -9,10 +9,10 @@ import (
 // secretShapePattern is the compiled regex for a known secret shape and
 // the short label emitted in redaction markers and metric labels.
 //
-// Redaction operates by shape, not by key name: the Phase 3 forbidden-key
-// guard catches leaks whose *key* looks secret-ish ("password", "token"),
-// and this scanner catches leaks whose *value* matches a known real-world
-// secret format regardless of what key it landed under. Both run — a
+// Redaction operates by shape, not by key name: the forbidden-key guard catches
+// leaks whose *key* looks secret-ish ("password", "token"), and this scanner
+// catches leaks whose *value* matches a known real-world secret format
+// regardless of what key it landed under. Both run - a
 // handler that stuffs a Stripe key into a field called "note" still gets
 // scrubbed.
 //

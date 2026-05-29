@@ -2,9 +2,9 @@
 
 package migrationlint_test
 
-// TestMigrationRoundtrip_PhaseTwo tests the seven phase-2 orchestration-only
-// migrations (000227–000233) each in isolation: up → assert schema → down →
-// assert schema → up → assert schema is restored.
+// The orchestration migration roundtrip tests exercise migrations
+// (000227-000233) each in isolation: up, assert schema, down, assert schema,
+// then up again to confirm the schema is restored.
 //
 // Design notes:
 //
@@ -198,13 +198,13 @@ func runRoundtrip(t *testing.T, targetVersion uint, extraChecks func(t *testing.
 	}
 	defer tdb.Cleanup(ctx)
 
-	// Step 1: Roll back to N-1 to establish baseline.
+	// Establish the pre-migration schema baseline.
 	if targetVersion > 1 {
 		migrateToVersion(t, tdb.ConnStr, targetVersion-1)
 	}
 	baseline := captureSchema(t, ctx, tdb)
 
-	// Step 2: Apply N.
+	// Capture the schema after applying the target migration.
 	migrateToVersion(t, tdb.ConnStr, targetVersion)
 	postUp := captureSchema(t, ctx, tdb)
 
@@ -212,7 +212,7 @@ func runRoundtrip(t *testing.T, targetVersion uint, extraChecks func(t *testing.
 		extraChecks(t, postUp)
 	}
 
-	// Step 3: Roll back to N-1. Assert schema matches baseline.
+	// Rolling back must restore the baseline schema.
 	if targetVersion > 1 {
 		migrateToVersion(t, tdb.ConnStr, targetVersion-1)
 	}
@@ -225,7 +225,7 @@ func runRoundtrip(t *testing.T, targetVersion uint, extraChecks func(t *testing.
 		t.Error(d)
 	}
 
-	// Step 4: Re-apply N. Assert schema matches postUp.
+	// Re-applying must return to the same post-up schema.
 	migrateToVersion(t, tdb.ConnStr, targetVersion)
 	postReUp := captureSchema(t, ctx, tdb)
 
@@ -436,7 +436,7 @@ func indexExists(t *testing.T, ctx context.Context, db *testutil.TestDB, name st
 	return exists
 }
 
-// TestMigrationRoundtrip_000301_WorkflowRunContinuation verifies that:
+// TestMigrationRoundtrip_000306_WorkflowRunContinuation verifies that:
 //   - Up: adds continued_from_workflow_run_id, continued_to_workflow_run_id, and
 //     lineage_depth columns to workflow_runs plus the partial index
 //     idx_workflow_runs_continued_from.
@@ -447,8 +447,8 @@ func indexExists(t *testing.T, ctx context.Context, db *testutil.TestDB, name st
 // indexes. Down-migration data caveat: lineage links and depth values are lost
 // on rollback. Acceptable: the columns are newly introduced with no production
 // data at rollback time, and lineage_depth defaults to 0.
-func TestMigrationRoundtrip_000301_WorkflowRunContinuation(t *testing.T) {
-	runRoundtrip(t, 301, func(t *testing.T, postUp schemaState) {
+func TestMigrationRoundtrip_000306_WorkflowRunContinuation(t *testing.T) {
+	runRoundtrip(t, 306, func(t *testing.T, postUp schemaState) {
 		t.Helper()
 		for _, col := range []string{
 			"workflow_runs.continued_from_workflow_run_id",
@@ -462,7 +462,7 @@ func TestMigrationRoundtrip_000301_WorkflowRunContinuation(t *testing.T) {
 	})
 
 	// Explicit index roundtrip: the partial index must appear after up and be
-	// gone after rolling back to 300.
+	// gone after rolling back to 305.
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 
@@ -474,18 +474,18 @@ func TestMigrationRoundtrip_000301_WorkflowRunContinuation(t *testing.T) {
 
 	const indexName = "idx_workflow_runs_continued_from"
 
-	migrateToVersion(t, tdb.ConnStr, 301)
+	migrateToVersion(t, tdb.ConnStr, 306)
 	if !indexExists(t, ctx, tdb, indexName) {
 		t.Errorf("post-up: index %s should exist", indexName)
 	}
 
-	migrateToVersion(t, tdb.ConnStr, 300)
+	migrateToVersion(t, tdb.ConnStr, 305)
 	if indexExists(t, ctx, tdb, indexName) {
 		t.Errorf("post-down: index %s should be dropped", indexName)
 	}
 }
 
-// TestMigrationRoundtrip_All runs all seven phase-2 migrations as a group on a
+// TestMigrationRoundtrip_All runs the orchestration migrations as a group on a
 // single shared DB, verifying the combined up→(all-down to 226)→up roundtrip.
 // This catches ordering dependencies across the migration sequence.
 func TestMigrationRoundtrip_All(t *testing.T) {
@@ -502,7 +502,7 @@ func TestMigrationRoundtrip_All(t *testing.T) {
 	// Capture post-all state.
 	postAll := captureSchema(t, ctx, tdb)
 
-	// Verify phase-2 additions.
+	// Verify schema additions.
 	for _, tbl := range []string{"workers", "worker_tasks"} {
 		if !postAll.tables[tbl] {
 			t.Errorf("post-all: table %s missing", tbl)
@@ -518,7 +518,7 @@ func TestMigrationRoundtrip_All(t *testing.T) {
 			t.Errorf("post-all: column %s missing", col)
 		}
 	}
-	// Verify phase-2 removals.
+	// Verify schema removals.
 	for _, tbl := range []string{"run_compute_usage", "job_preset_recommendations", "code_deployments"} {
 		if postAll.tables[tbl] {
 			t.Errorf("post-all: dropped table %s still present", tbl)
@@ -529,13 +529,13 @@ func TestMigrationRoundtrip_All(t *testing.T) {
 	migrateToVersion(t, tdb.ConnStr, 226)
 	postRollback := captureSchema(t, ctx, tdb)
 
-	// Phase-2 tables should be gone.
+	// Added tables should be gone.
 	for _, tbl := range []string{"workers", "worker_tasks"} {
 		if postRollback.tables[tbl] {
 			t.Errorf("post-rollback: table %s should be dropped", tbl)
 		}
 	}
-	// Phase-2 columns should be gone.
+	// Added columns should be gone.
 	for _, col := range []string{
 		"jobs.queue_name",
 		"job_runs.queue_name",

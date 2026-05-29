@@ -761,7 +761,7 @@ func TestBuildInitialStepRuns_RootsAndDeps(t *testing.T) {
 		{ID: "step-b", JobID: "job-b", StepRef: "b", DependsOn: []string{"a"}},
 		{ID: "step-c", JobID: "job-c", StepRef: "c", DependsOn: []string{"a", "b"}},
 	}
-	stepRuns := buildInitialStepRuns("wr-1", steps)
+	stepRuns := initialWorkflowStepRuns("wr-1", steps)
 	if len(stepRuns) != 3 {
 		t.Fatalf("step runs = %d, want 3", len(stepRuns))
 	}
@@ -792,8 +792,8 @@ func TestBuildInitialStepRuns_RootsAndDeps(t *testing.T) {
 	if byRef["c"].Status != domain.StepWaiting || byRef["c"].DepsRequired != 2 {
 		t.Fatalf("step c = %+v, want waiting/2 deps", byRef["c"])
 	}
-	if got := countRootSteps(steps); got != 1 {
-		t.Fatalf("countRootSteps = %d, want 1", got)
+	if got := len(rootWorkflowSteps(steps, stepRuns)); got != 1 {
+		t.Fatalf("root step count = %d, want 1", got)
 	}
 }
 

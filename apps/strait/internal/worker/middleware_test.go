@@ -171,7 +171,6 @@ func TestChain_ExecutionContextModification(t *testing.T) {
 	}
 }
 
-// --- TracingMiddleware tests ---
 // These tests share a global TracerProvider, so they run sequentially under a
 // single parent test to avoid races on the global OTel state.
 

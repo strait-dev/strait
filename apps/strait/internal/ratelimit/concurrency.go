@@ -50,7 +50,7 @@ func (r *RedisConcurrencyLimiter) Acquire(ctx context.Context, key string, maxCo
 			continue
 		}
 		if err != nil {
-			return "", true, nil //nolint:nilerr // fail-open: allow traffic when Redis is unavailable.
+			return "", true, nil //nolint:nilerr // fail open: Redis concurrency limits are advisory on this path
 		}
 		return fmt.Sprintf("%d:%s", slot, id), true, nil
 	}
@@ -70,7 +70,7 @@ func (r *RedisConcurrencyLimiter) Release(ctx context.Context, key string, token
 
 	slotKey := redisConcurrencySlotKey(key, slot)
 	if _, err := r.client.Eval(ctx, redisReleaseSlotScript, []string{slotKey}, id).Int(); err != nil {
-		return nil //nolint:nilerr // fail-open: best-effort release when Redis is unavailable.
+		return nil //nolint:nilerr // fail open: release is best-effort when Redis is unavailable
 	}
 
 	return nil

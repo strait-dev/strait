@@ -28,8 +28,8 @@ func newDispatchHarness(t *testing.T, sub *billing.OrgSubscription, periodSpend 
 }
 
 // newDispatchHarnessWithBudget extends newDispatchHarness with project
-// budget controls so Phase 4.2 tests can drive budget-block paths
-// without forking the whole executor wiring.
+// budget controls so tests can drive budget-block paths without forking the
+// whole executor wiring.
 func newDispatchHarnessWithBudget(t *testing.T, sub *billing.OrgSubscription, periodSpend int64,
 	projectBudget int64, projectAction string, projectSpend int64,
 ) *dispatchHarness {
@@ -134,10 +134,10 @@ func TestDispatchSpendingLimit_BelowLimit_ProceedsAndIncrementsCounters(t *testi
 	}
 }
 
-// TestDispatchSpendingLimit_OverLimit_RejectsBeforeCounters is the
-// headline check for Phase 4.1: spend over the cap blocks dispatch and
-// runs do NOT leak through to the daily/monthly increment paths.
-// Because CheckSpendingLimit fires first, no rollback is required.
+// TestDispatchSpendingLimit_OverLimit_RejectsBeforeCounters verifies that
+// spend over the cap blocks dispatch and runs do NOT leak through to the
+// daily/monthly increment paths. Because CheckSpendingLimit fires first, no
+// rollback is required.
 func TestDispatchSpendingLimit_OverLimit_RejectsBeforeCounters(t *testing.T) {
 	t.Parallel()
 	sub := &billing.OrgSubscription{

@@ -92,7 +92,7 @@ jobs:
         working-directory: apps/app
         env:
           DISABLE_NGROK: "1"
-          NITRO_PRESET: node-server
+          PORT: "5173"
         run: |
           bun run build
           nohup bun run start > /tmp/strait-app.log 2>&1 &

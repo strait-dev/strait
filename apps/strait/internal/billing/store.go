@@ -42,11 +42,12 @@ type OrgSubscription struct {
 	// organization_subscriptions.entitlements. When non-empty (and != "{}")
 	// it represents the authoritative resolved plan limits as of the most
 	// recent mutator. The Enforcer reads this directly on the hot path
-	// (Phase 3.5); callers that need the typed value should use
+	// when available; callers that need the typed value should use
 	// ComputeEntitlements over (sub, addons) instead.
 	Entitlements []byte
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
+	CacheVersion int64
 }
 
 // BillingCapEvent identifies a per-period spend-cap webhook event. The string

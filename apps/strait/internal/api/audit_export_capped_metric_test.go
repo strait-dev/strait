@@ -91,8 +91,8 @@ func (h *auditMetricsHarness) sumCounter(t *testing.T, name string) int64 {
 // TestAuditExport_CapHit_IncrementsExportCappedCounter drives the full
 // export handler with a 2-row cap, 5 events upstream, and asserts
 // strait_audit_events_export_capped_total fires exactly once (one
-// export that tripped the cap). The counter is the Phase 11 signal
-// that feeds the Grafana 24h increase panel.
+// export that tripped the cap). The counter feeds the Grafana 24h increase
+// panel.
 func TestAuditExport_CapHit_IncrementsExportCappedCounter(t *testing.T) {
 	t.Parallel()
 

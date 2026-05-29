@@ -746,8 +746,6 @@ func extractPeriod(sub *stripe.Subscription) (*time.Time, *time.Time) {
 }
 
 // handleSubscriptionUpdated processes plan changes.
-//
-//nolint:gocyclo,cyclop
 func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data json.RawMessage) error {
 	var sub stripe.Subscription
 	if err := json.Unmarshal(data, &sub); err != nil {
@@ -787,87 +785,37 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data jso
 		return fmt.Errorf("getting existing subscription: %w", existErr)
 	}
 
-	isDowngradeChange := false
-	if existing != nil && existing.PlanTier != string(tier) {
-		isDowngradeChange = IsDowngrade(domain.PlanTier(existing.PlanTier), tier)
-	}
-
-	if isDowngradeChange {
-		// Defer the downgrade atomically: set pending tier and update period dates in one call.
-		if err := h.store.SetPendingDowngrade(ctx, orgID, string(tier), periodStart, periodEnd); err != nil {
-			return fmt.Errorf("setting pending downgrade: %w", err)
-		}
-		h.logAuditEvent(ctx, "subscription.updated", orgID, map[string]string{
-			"plan_tier":              existing.PlanTier,
-			"pending_plan_tier":      string(tier),
-			"previous_tier":          existing.PlanTier,
-			"stripe_subscription_id": sub.ID,
+	if subscriptionUpdateIsDowngrade(existing, tier) {
+		return h.deferSubscriptionDowngrade(ctx, subscriptionDowngrade{
+			orgID:                orgID,
+			existing:             existing,
+			tier:                 tier,
+			stripeSubscriptionID: sub.ID,
+			periodStart:          periodStart,
+			periodEnd:            periodEnd,
 		})
-
-		h.logger.Info("subscription downgrade deferred",
-			"org_id", orgID,
-			"current_tier", existing.PlanTier,
-			"pending_tier", tier,
-		)
-
-		h.maybeSendHTTPJobsDowngradeWarning(ctx, orgID, tier, periodEnd)
-
-		return nil
 	}
 
-	// Capture previous tier before the update mutates the subscription.
 	previousTier := ""
 	if existing != nil {
 		previousTier = existing.PlanTier
 	}
 
-	// Upgrade or same-tier update: apply immediately with period dates.
 	if err := h.store.ClearPendingPlanTier(ctx, orgID); err != nil && !errors.Is(err, ErrSubscriptionNotFound) {
 		return fmt.Errorf("clearing pending plan tier: %w", err)
 	}
 
 	if err := h.store.UpdateOrgSubscriptionFull(ctx, orgID, string(tier), status, periodStart, periodEnd); err != nil {
 		if errors.Is(err, ErrSubscriptionNotFound) {
-			now := time.Now()
-			customerID := sub.Customer.ID
-			var lookupKeyPtr *string
-			if lookupKey != "" {
-				lookupKeyPtr = &lookupKey
-			}
-			orgSub := &OrgSubscription{
-				ID:                    sub.ID,
-				OrgID:                 orgID,
-				PlanTier:              string(tier),
-				StripeSubscriptionID:  &sub.ID,
-				StripeCustomerID:      &customerID,
-				StripeLookupKey:       lookupKeyPtr,
-				Status:                status,
-				CurrentPeriodStart:    periodStart,
-				CurrentPeriodEnd:      periodEnd,
-				SpendingLimitMicrousd: -1,
-				LimitAction:           "reject",
-				CreatedAt:             now,
-				UpdatedAt:             now,
-			}
-			if upsertErr := h.store.UpsertOrgSubscription(ctx, orgSub); upsertErr != nil {
-				return upsertErr
-			}
-			if _, reconcileErr := ReconcileActiveAddonsForPlan(ctx, h.store, orgID, GetPlanLimits(tier)); reconcileErr != nil {
-				return fmt.Errorf("reconciling add-ons after subscription fallback create: %w", reconcileErr)
-			}
-			if h.enforcer != nil {
-				h.enforcer.InvalidateOrgCache(orgID)
-			}
-			h.logAuditEvent(ctx, "subscription.updated", orgID, map[string]string{
-				"plan_tier":              string(tier),
-				"stripe_subscription_id": sub.ID,
+			return h.createSubscriptionFromUpdate(ctx, subscriptionUpdateCreate{
+				orgID:       orgID,
+				sub:         &sub,
+				tier:        tier,
+				lookupKey:   lookupKey,
+				status:      status,
+				periodStart: periodStart,
+				periodEnd:   periodEnd,
 			})
-			h.logger.Info("subscription updated (created via fallback)",
-				"org_id", orgID,
-				"plan_tier", tier,
-				"status", status,
-			)
-			return nil
 		}
 		return fmt.Errorf("updating org subscription: %w", err)
 	}
@@ -879,22 +827,7 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data jso
 		return fmt.Errorf("reconciling add-ons after subscription update: %w", err)
 	}
 
-	// Auto-unpause HTTP jobs that were paused due to a previous plan downgrade.
-	newAllowsHTTP := GetPlanLimits(tier).AllowsHTTPMode
-	oldAllowsHTTP := previousTier != "" && GetPlanLimits(domain.PlanTier(previousTier)).AllowsHTTPMode
-	if newAllowsHTTP && !oldAllowsHTTP {
-		unpaused, unpauseErr := h.store.UnpauseJobsByPauseReason(ctx, orgID, "plan_downgrade")
-		if unpauseErr != nil {
-			h.logger.Warn("failed to unpause HTTP jobs on upgrade", "org_id", orgID, "error", unpauseErr)
-		} else if unpaused > 0 {
-			h.logAuditEvent(ctx, "jobs.auto_unpaused", orgID, map[string]string{
-				"count":  fmt.Sprintf("%d", unpaused),
-				"reason": "plan_upgrade",
-			})
-			h.logger.Info("auto-unpaused HTTP jobs on upgrade",
-				"org_id", orgID, "count", unpaused)
-		}
-	}
+	h.unpauseHTTPJobsAfterUpgrade(ctx, orgID, previousTier, tier)
 
 	auditDetails := map[string]string{
 		"plan_tier":              string(tier),
@@ -905,18 +838,7 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data jso
 	}
 	h.logAuditEvent(ctx, "subscription.updated", orgID, auditDetails)
 
-	// Send plan-changed email when the tier actually changed (async).
-	oldTier := previousTier
-	newTier := string(tier)
-	if h.billingEmails != nil && oldTier != "" && oldTier != newTier {
-		emails, _ := h.store.ListOrgAdminEmails(ctx, orgID)
-		var wg conc.WaitGroup
-		wg.Go(func() {
-			emailCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			h.billingEmails.SendPlanChanged(emailCtx, emails, oldTier, newTier)
-		})
-	}
+	h.sendPlanChangedEmailAsync(ctx, orgID, previousTier, string(tier))
 
 	h.logger.Info("subscription updated",
 		"org_id", orgID,
@@ -924,6 +846,134 @@ func (h *WebhookHandler) handleSubscriptionUpdated(ctx context.Context, data jso
 		"status", status,
 	)
 	return nil
+}
+
+func subscriptionUpdateIsDowngrade(existing *OrgSubscription, tier domain.PlanTier) bool {
+	return existing != nil &&
+		existing.PlanTier != string(tier) &&
+		IsDowngrade(domain.PlanTier(existing.PlanTier), tier)
+}
+
+type subscriptionDowngrade struct {
+	orgID                string
+	existing             *OrgSubscription
+	tier                 domain.PlanTier
+	stripeSubscriptionID string
+	periodStart          *time.Time
+	periodEnd            *time.Time
+}
+
+func (h *WebhookHandler) deferSubscriptionDowngrade(ctx context.Context, downgrade subscriptionDowngrade) error {
+	// Downgrades are deferred as a single store operation so the pending tier
+	// and billing-period dates cannot drift apart.
+	if err := h.store.SetPendingDowngrade(ctx, downgrade.orgID, string(downgrade.tier), downgrade.periodStart, downgrade.periodEnd); err != nil {
+		return fmt.Errorf("setting pending downgrade: %w", err)
+	}
+	h.logAuditEvent(ctx, "subscription.updated", downgrade.orgID, map[string]string{
+		"plan_tier":              downgrade.existing.PlanTier,
+		"pending_plan_tier":      string(downgrade.tier),
+		"previous_tier":          downgrade.existing.PlanTier,
+		"stripe_subscription_id": downgrade.stripeSubscriptionID,
+	})
+
+	h.logger.Info("subscription downgrade deferred",
+		"org_id", downgrade.orgID,
+		"current_tier", downgrade.existing.PlanTier,
+		"pending_tier", downgrade.tier,
+	)
+
+	h.maybeSendHTTPJobsDowngradeWarning(ctx, downgrade.orgID, downgrade.tier, downgrade.periodEnd)
+	return nil
+}
+
+type subscriptionUpdateCreate struct {
+	orgID       string
+	sub         *stripe.Subscription
+	tier        domain.PlanTier
+	lookupKey   string
+	status      string
+	periodStart *time.Time
+	periodEnd   *time.Time
+}
+
+func (h *WebhookHandler) createSubscriptionFromUpdate(ctx context.Context, update subscriptionUpdateCreate) error {
+	now := time.Now()
+	customerID := update.sub.Customer.ID
+	var lookupKeyPtr *string
+	if update.lookupKey != "" {
+		lookupKeyPtr = &update.lookupKey
+	}
+	orgSub := &OrgSubscription{
+		ID:                    update.sub.ID,
+		OrgID:                 update.orgID,
+		PlanTier:              string(update.tier),
+		StripeSubscriptionID:  &update.sub.ID,
+		StripeCustomerID:      &customerID,
+		StripeLookupKey:       lookupKeyPtr,
+		Status:                update.status,
+		CurrentPeriodStart:    update.periodStart,
+		CurrentPeriodEnd:      update.periodEnd,
+		SpendingLimitMicrousd: -1,
+		LimitAction:           "reject",
+		CreatedAt:             now,
+		UpdatedAt:             now,
+	}
+	if err := h.store.UpsertOrgSubscription(ctx, orgSub); err != nil {
+		return err
+	}
+	if _, err := ReconcileActiveAddonsForPlan(ctx, h.store, update.orgID, GetPlanLimits(update.tier)); err != nil {
+		return fmt.Errorf("reconciling add-ons after subscription fallback create: %w", err)
+	}
+	if h.enforcer != nil {
+		h.enforcer.InvalidateOrgCache(update.orgID)
+	}
+	h.logAuditEvent(ctx, "subscription.updated", update.orgID, map[string]string{
+		"plan_tier":              string(update.tier),
+		"stripe_subscription_id": update.sub.ID,
+	})
+	h.logger.Info("subscription updated (created via fallback)",
+		"org_id", update.orgID,
+		"plan_tier", update.tier,
+		"status", update.status,
+	)
+	return nil
+}
+
+func (h *WebhookHandler) unpauseHTTPJobsAfterUpgrade(ctx context.Context, orgID string, previousTier string, tier domain.PlanTier) {
+	newAllowsHTTP := GetPlanLimits(tier).AllowsHTTPMode
+	oldAllowsHTTP := previousTier != "" && GetPlanLimits(domain.PlanTier(previousTier)).AllowsHTTPMode
+	if !newAllowsHTTP || oldAllowsHTTP {
+		return
+	}
+
+	unpaused, err := h.store.UnpauseJobsByPauseReason(ctx, orgID, "plan_downgrade")
+	if err != nil {
+		h.logger.Warn("failed to unpause HTTP jobs on upgrade", "org_id", orgID, "error", err)
+		return
+	}
+	if unpaused == 0 {
+		return
+	}
+	h.logAuditEvent(ctx, "jobs.auto_unpaused", orgID, map[string]string{
+		"count":  fmt.Sprintf("%d", unpaused),
+		"reason": "plan_upgrade",
+	})
+	h.logger.Info("auto-unpaused HTTP jobs on upgrade",
+		"org_id", orgID, "count", unpaused)
+}
+
+func (h *WebhookHandler) sendPlanChangedEmailAsync(ctx context.Context, orgID string, oldTier string, newTier string) {
+	if h.billingEmails == nil || oldTier == "" || oldTier == newTier {
+		return
+	}
+
+	emails, _ := h.store.ListOrgAdminEmails(ctx, orgID)
+	var wg conc.WaitGroup
+	wg.Go(func() {
+		emailCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		h.billingEmails.SendPlanChanged(emailCtx, emails, oldTier, newTier)
+	})
 }
 
 // handleSubscriptionDeleted handles Stripe's customer.subscription.deleted event.

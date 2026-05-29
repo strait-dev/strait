@@ -55,6 +55,23 @@ export SECRET_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 | `DEFAULT_JOB_TIMEOUT_SECS` | `300` | Default timeout for jobs without an explicit timeout. |
 | `DEFAULT_JOB_MAX_ATTEMPTS` | `3` | Default retry attempts for jobs without an explicit value. |
 
+## Cache Settings
+
+Redis is still required at startup. Cache operations fail open to in-process cache or PostgreSQL after startup, except authentication paths confirm with PostgreSQL when freshness is uncertain.
+
+| Variable | Default | Description |
+|---|---|---|
+| `JOB_CACHE_TTL` | `5m` | Current job definition cache TTL for worker dispatch. Set to `0` to disable. |
+| `VERSION_CACHE_TTL` | `30m` | Immutable job and workflow definition cache TTL. |
+| `RUN_VERSION_CACHE_TTL` | `10m` | TTL for immutable workflow run version lookups used by worker execution policy resolution. |
+| `API_KEY_CACHE_TTL` | `60s` | API key auth cache TTL. Revocation and rotation invalidate immediately; cached values exclude secret material. |
+| `JOB_HEALTH_CACHE_TTL` | `2s` | Short TTL for adaptive job health aggregates used on hot worker paths. |
+| `JOB_DEPS_CACHE_TTL` | `5m` | Job dependency list cache TTL. Dependency create and delete invalidate affected entries. |
+| `CACHE_STATUS_READMODEL_TTL` | `5m` | Redis status read-model TTL for job runs and workflow runs. CDC updates use version compare-and-set so status does not move backward. |
+| `CACHE_SHARED_DEDUPE_TTL` | `10m` | Redis duplicate suppression TTL for CDC side effects and Sequin push webhooks. |
+| `PERMISSION_CACHE_TTL` | `5m` | RBAC permission cache TTL. |
+| `PROJECT_QUOTA_CACHE_TTL` | `60s` | Project quota cache TTL. |
+
 ## Queue and Workflow Engines
 
 | Variable | Default | Description |
@@ -124,6 +141,7 @@ export SECRET_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 | `RESEND_API_KEY` | - | Required for email notifications. |
 | `RESEND_FROM_EMAIL` | `noreply@strait.dev` | From address for email notifications. |
 | `WEBHOOK_REQUIRE_TLS` | `false` | Require HTTPS webhook URLs. |
+| `ENDPOINT_REQUIRE_TLS` | `false` | Require HTTPS for job endpoint and fallback endpoint URLs. Job dispatch injects decrypted secrets and the run-token JWT, so enable this to reject plaintext HTTP endpoints. |
 | `ALLOW_PRIVATE_ENDPOINTS` | `false` | Allow private endpoint URLs. Not recommended unless the network is trusted. |
 
 ## CDC / Sequin

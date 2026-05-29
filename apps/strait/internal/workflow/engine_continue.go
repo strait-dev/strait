@@ -171,7 +171,7 @@ func (e *WorkflowEngine) ContinueWorkflowRunAsNew(
 		successor.ExpiresAt = &expiresAt
 	}
 
-	stepRuns := buildInitialStepRuns(successor.ID, steps)
+	stepRuns := initialWorkflowStepRuns(successor.ID, steps)
 
 	// 5. Atomic handoff: complete the predecessor and start the successor.
 	bootstrapper, ok := e.store.(continueBootstrapStore)
@@ -206,7 +206,8 @@ func (e *WorkflowEngine) ContinueWorkflowRunAsNew(
 	//    the successor is running. A failure here only means the root steps were
 	//    not enqueued, so log it loudly with the committed lineage rather than
 	//    letting a bare error imply nothing happened.
-	if err := e.startRootSteps(ctx, successor, steps, stepRuns); err != nil {
+	roots := rootWorkflowSteps(steps, stepRuns)
+	if err := e.startRootWorkflowSteps(ctx, successor, roots); err != nil {
 		e.logger.ErrorContext(ctx, "continue-as-new committed but root step start failed",
 			"predecessor_run_id", pred.ID,
 			"successor_run_id", successor.ID,

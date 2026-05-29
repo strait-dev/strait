@@ -12,8 +12,8 @@ import (
 	"strait/internal/domain"
 )
 
-// TestCheckSpendingLimit_RespectsContextCancellation guards the Phase 8
-// fix: the Redis lock-retry loop previously used a blocking time.Sleep so
+// TestCheckSpendingLimit_RespectsContextCancellation guards against a blocking
+// Redis lock-retry loop. The old path used time.Sleep, so
 // a cancelled context could still wait up to 3 × 200ms. The select-based
 // retry must short-circuit immediately when the caller cancels.
 func TestCheckSpendingLimit_RespectsContextCancellation(t *testing.T) {

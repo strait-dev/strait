@@ -419,6 +419,7 @@ type Job struct {
 	UpdatedBy                 string            `json:"updated_by,omitempty"`
 	CreatedAt                 time.Time         `json:"created_at"`
 	UpdatedAt                 time.Time         `json:"updated_at"`
+	CacheVersion              int64             `json:"-"`
 }
 
 // DebouncePending represents a pending debounced trigger waiting to fire.
@@ -511,6 +512,7 @@ type JobDependency struct {
 	DependsOnJobID string    `json:"depends_on_job_id"`
 	Condition      string    `json:"condition"`
 	CreatedAt      time.Time `json:"created_at"`
+	CacheVersion   int64     `json:"-"`
 }
 
 type JobSecret struct {
@@ -571,6 +573,7 @@ type JobRun struct {
 	// it. NULL for runs that have not been replayed.
 	ReplayedRunID string    `json:"replayed_run_id,omitempty"`
 	CreatedAt     time.Time `json:"created_at"`
+	CacheVersion  int64     `json:"-"`
 }
 
 type BatchOperation struct {
@@ -840,6 +843,7 @@ type APIKey struct {
 	NextRotationAt        *time.Time `json:"next_rotation_at,omitempty"`
 	RotationWebhookURL    string     `json:"rotation_webhook_url,omitempty"`
 	RotationWebhookSecret []byte     `json:"-"`
+	CacheVersion          int64      `json:"-"`
 }
 
 type JobVersion struct {
@@ -1412,6 +1416,7 @@ type WorkflowRun struct {
 	// first run is 0; each successor increments it. Guarded against runaway chains.
 	LineageDepth int       `json:"lineage_depth"`
 	CreatedAt    time.Time `json:"created_at"`
+	CacheVersion int64     `json:"-"`
 }
 
 // WorkflowRunChainEntry is a lightweight projection of a workflow run for

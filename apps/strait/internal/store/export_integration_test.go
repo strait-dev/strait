@@ -15,10 +15,7 @@ import (
 // Integration tests for the Stream* export iterators, which had zero
 // direct coverage prior to this commit despite being the data export /
 // backup / migration code path.
-
-// -----------------------------------------------------------------------.
 // StreamJobs
-// -----------------------------------------------------------------------.
 
 func TestStreamJobs_CallbackPerRow(t *testing.T) {
 	ctx := context.Background()
@@ -123,9 +120,7 @@ func TestStreamJobs_EmptyProject_NoCallback(t *testing.T) {
 	}
 }
 
-// -----------------------------------------------------------------------.
 // StreamRuns: time-window filtering + boundary inclusivity
-// -----------------------------------------------------------------------.
 
 func TestStreamRuns_TimeWindowInclusive(t *testing.T) {
 	ctx := context.Background()
@@ -216,9 +211,7 @@ func TestStreamRuns_CallbackError_StopsIteration(t *testing.T) {
 	}
 }
 
-// -----------------------------------------------------------------------.
 // StreamWorkflows: callback iteration sanity
-// -----------------------------------------------------------------------.
 
 func TestStreamWorkflows_CallbackPerRow(t *testing.T) {
 	ctx := context.Background()
@@ -260,9 +253,7 @@ func TestStreamWorkflows_CallbackPerRow(t *testing.T) {
 	}
 }
 
-// -----------------------------------------------------------------------.
 // Count*ByOrg quota methods: cross-org isolation
-// -----------------------------------------------------------------------.
 
 func TestCountProjectsByOrg_CrossOrgIsolation(t *testing.T) {
 	ctx := context.Background()
@@ -348,9 +339,7 @@ func TestCountProjectsByOrg_SoftDeletedExcluded(t *testing.T) {
 	}
 }
 
-// -----------------------------------------------------------------------.
 // GetLogDrain cross-tenant guard
-// -----------------------------------------------------------------------.
 
 func TestGetLogDrain_WrongProject_NotFound(t *testing.T) {
 	ctx := context.Background()

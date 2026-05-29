@@ -2,19 +2,16 @@
  * Better Auth server configuration and lazy singletons.
  *
  * **Important: Deferred initialization pattern.**
- * Cloudflare Workers only populate `process.env` during request handling,
- * not at module load time. Every constructor that reads an env var must be
- * wrapped in a lazy getter so it runs on the first request, not on import.
+ * Every constructor that reads an env var is wrapped in a lazy getter so test
+ * and production processes can inject environment before the first request.
  *
  * This module exports {@link getAuth} and {@link getAuthPool} as the primary
  * entry points. Both are lazily initialized on first call.
  *
- * @see https://developers.cloudflare.com/workers/runtime-apis/handlers/fetch/
  * @see https://www.better-auth.com/docs/introduction — Better Auth docs
  * @see https://www.better-auth.com/docs/concepts/database — Database adapters
  */
 import "reflect-metadata";
-import { env as cfEnv } from "cloudflare:workers";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { passkey } from "@better-auth/passkey";
 import { render } from "@react-email/render";
@@ -34,7 +31,7 @@ import {
 } from "better-auth/plugins";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { importPKCS8, SignJWT } from "jose";
-import { Client, type Pool } from "pg";
+import { Pool as PgPool, type Pool } from "pg";
 import { isCommunityEdition } from "@/lib/edition";
 import {
   ALL_OAUTH_SCOPES,
@@ -50,67 +47,22 @@ import { findOrCreateCustomerForOrg } from "@/lib/stripe.server";
 
 /**
  * Resolve the auth database connection string.
- *
- * In Cloudflare Workers, uses the Hyperdrive binding which provides a
- * proxied connection string. Without Hyperdrive, `pg` cannot establish
- * raw TCP connections from the Workers runtime and will hang.
- *
- * Falls back to `AUTH_DATABASE_URL` for local development where
- * Hyperdrive provides a local connection string automatically.
  */
-export const getAuthConnectionString = (): string => {
-  const hyperdrive = (cfEnv as Record<string, unknown>).HYPERDRIVE as
-    | { connectionString: string }
-    | undefined;
-  if (hyperdrive?.connectionString) {
-    return hyperdrive.connectionString;
-  }
-  return process.env.AUTH_DATABASE_URL ?? "";
-};
+export const getAuthConnectionString = (): string =>
+  process.env.AUTH_DATABASE_URL ?? "";
 
 /**
  * Lazily initialized PostgreSQL connection pool for the auth database.
- *
- * Uses Hyperdrive in production for proxied TCP connections, falling
- * back to `AUTH_DATABASE_URL` for local development.
  */
-/**
- * Returns a pg-compatible object that creates a fresh Client per query.
- *
- * Cloudflare Hyperdrive docs recommend `new Client()` per request —
- * Pool maintains persistent connections that conflict with Hyperdrive's
- * per-request proxy model and cause queries to hang indefinitely.
- *
- * The returned object implements the `query()` and `connect()` methods
- * that Better Auth's Kysely adapter requires.
- */
+let authPool: Pool | null = null;
+
 export const getAuthPool = (): Pool => {
-  const connectionString = getAuthConnectionString();
-  return {
-    async query(text: string, values?: unknown[]) {
-      const client = new Client({ connectionString });
-      try {
-        await client.connect();
-        return await client.query(text, values);
-      } finally {
-        client.end().catch(() => {
-          // Swallow disconnect errors — the query already completed
-        });
-      }
-    },
-    async connect() {
-      const client = new Client({ connectionString });
-      await client.connect();
-      return {
-        query: client.query.bind(client),
-        release: () => {
-          client.end().catch(() => {
-            // Swallow disconnect errors
-          });
-        },
-      };
-    },
-  } as unknown as Pool;
+  if (!authPool) {
+    authPool = new PgPool({
+      connectionString: getAuthConnectionString(),
+    });
+  }
+  return authPool;
 };
 
 /**
@@ -236,8 +188,7 @@ const createDefaultProject = async (
  * Build the Better Auth configuration.
  *
  * This is called lazily on the first request via {@link getAuth} because
- * the entire config tree reads from `process.env`, which is empty at
- * module load time in Cloudflare Workers.
+ * the config tree reads from deployment env.
  *
  * Handles: authentication, sessions, organizations.
  *
@@ -284,9 +235,7 @@ const createAuth = () => {
     },
     account: {
       // Store OAuth state in an encrypted cookie instead of the database.
-      // This avoids database queries during the OAuth callback, which
-      // is more reliable on Cloudflare Workers where the database
-      // connection may not persist between the sign-in and callback requests.
+      // This avoids an extra database round trip during the OAuth callback.
       storeStateStrategy: "cookie",
       accountLinking: {
         enabled: true,

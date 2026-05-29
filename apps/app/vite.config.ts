@@ -1,9 +1,9 @@
-import { cloudflare } from "@cloudflare/vite-plugin";
 import { sentryTanstackStart } from "@sentry/tanstackstart-react/vite";
 import tailwindcss from "@tailwindcss/vite";
 import { devtools } from "@tanstack/devtools-vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
+import { nitro } from "nitro/vite";
 import type { Plugin } from "vite";
 import { defineConfig } from "vite";
 import { ngrok } from "vite-plugin-ngrok";
@@ -12,18 +12,17 @@ import { resolveSentryRelease } from "./scripts/sentry-release";
 const enableNgrok = !!process.env.NGROK_AUTHTOKEN && !process.env.DISABLE_NGROK;
 
 /**
- * Build target selector. Defaults to `cloudflare` so `vite build` and the
- * strait.dev production deploy remain unchanged. `BUILD_TARGET=node` drops
- * the Cloudflare plugin and produces a self-contained SSR bundle at
- * `dist/server/server.js`, wrapped for HTTP by `scripts/node-server.mjs`
- * and used by the self-host Docker image.
+ * Build target selector. Defaults to portable Node output. Vercel is an
+ * explicit secondary target for the hosted dashboard and one-click deploys.
  */
-const buildTarget: "cloudflare" | "node" =
-  process.env.BUILD_TARGET === "node" ? "node" : "cloudflare";
+const deployTarget: "node" | "vercel" =
+  process.env.STRAIT_APP_TARGET === "vercel" ||
+  process.env.BUILD_TARGET === "vercel"
+    ? "vercel"
+    : "node";
 
-const emitSourcemapsForSentry =
-  buildTarget === "cloudflare" &&
-  process.env.SENTRY_UPLOAD_SOURCEMAPS === "true";
+const nitroPreset = deployTarget === "vercel" ? "vercel" : "node-server";
+const emitSourcemapsForSentry = process.env.SENTRY_UPLOAD_SOURCEMAPS === "true";
 
 const sentryRelease = maybeResolveSentryRelease(process.env);
 
@@ -33,43 +32,6 @@ function maybeResolveSentryRelease(env: NodeJS.ProcessEnv): string | undefined {
   } catch {
     return;
   }
-}
-
-/**
- * Virtual-module shim for the `cloudflare:workers` import scheme.
- *
- * Used only when `BUILD_TARGET=node`. `auth.server.ts` imports `env` from
- * `cloudflare:workers` to access the Hyperdrive binding; in Node that
- * specifier does not exist and would crash the bundle. The resolver
- * catches the specifier and returns an empty-env virtual module, letting
- * `getAuthConnectionString()` fall through to `process.env.AUTH_DATABASE_URL`.
- *
- * Also needed: the Node SSR build externalizes `node_modules` by default,
- * which breaks named imports from CommonJS packages (e.g. `@opentelemetry/
- * semantic-conventions`). The Node branch sets `ssr.noExternal: true` below
- * to force inline bundling, making the output self-contained.
- *
- * Mirrors the runtime loader shim at `apps/app/scripts/cloudflare-shim.mjs`
- * used by the migrate script.
- */
-function shimCloudflareWorkers(): Plugin {
-  const virtualId = "\0virtual:cloudflare-workers";
-  return {
-    name: "shim-cloudflare-workers",
-    enforce: "pre",
-    resolveId(id) {
-      if (id === "cloudflare:workers") {
-        return virtualId;
-      }
-      return null;
-    },
-    load(id) {
-      if (id === virtualId) {
-        return "export const env = {};\nexport default {};\n";
-      }
-      return null;
-    },
-  };
 }
 
 /**
@@ -131,9 +93,6 @@ export default defineConfig(({ command }) => ({
     tsconfigPaths: true,
   },
   plugins: [
-    ...(buildTarget === "cloudflare"
-      ? [cloudflare({ viteEnvironment: { name: "ssr" } })]
-      : [shimCloudflareWorkers()]),
     wellKnownOAuthPlugin(),
     ...(command === "serve" ? [devtools()] : []),
     tailwindcss(),
@@ -143,6 +102,7 @@ export default defineConfig(({ command }) => ({
       },
       srcDirectory: "src",
     }),
+    nitro({ preset: nitroPreset }),
     viteReact(),
     sentryTanstackStart({
       org: process.env.SENTRY_ORG,
@@ -169,6 +129,15 @@ export default defineConfig(({ command }) => ({
   build: {
     sourcemap: emitSourcemapsForSentry,
     rollupOptions: {
+      output: {
+        assetFileNames(assetInfo) {
+          if (assetInfo.names.includes("globals.css")) {
+            return "assets/globals.css";
+          }
+
+          return "assets/[name]-[hash][extname]";
+        },
+      },
       // Externalize PGlite and test-only dependencies to prevent bundling
       // PGlite is a 20MB in-memory PostgreSQL used only for API tests
       external: [
@@ -178,16 +147,6 @@ export default defineConfig(({ command }) => ({
       ],
     },
   },
-  // Node target: inline-bundle all deps so `node dist/server/server.js`
-  // is self-contained. Without this, Vite leaves node_modules as
-  // externals and Node's ESM loader fails on CJS named imports.
-  ...(buildTarget === "node"
-    ? {
-        ssr: {
-          noExternal: true,
-        },
-      }
-    : {}),
   server: {
     port: 5173,
     host: true,

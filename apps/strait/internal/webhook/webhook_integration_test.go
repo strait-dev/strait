@@ -701,7 +701,6 @@ func TestDeliveryStatusTracking(t *testing.T) {
 		t.Fatalf("CreateWebhookDelivery() error = %v", err)
 	}
 
-	// Verify initial state.
 	got, err := st.GetWebhookDelivery(ctx, d.ID)
 	if err != nil {
 		t.Fatalf("GetWebhookDelivery() initial error = %v", err)

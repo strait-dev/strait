@@ -14,9 +14,9 @@ import (
 
 // TestTenantIso_RBAC_UpdateRole_RejectsCrossProject verifies that callers
 // authenticated against proj-A cannot mutate a role owned by proj-B.
-// Before Phase 5 the handler ignored the GetProjectRole error and silently
-// proceeded to UpdateProjectRole, allowing a cross-project write whenever
-// the role id was guessable.
+// The regression path ignored the GetProjectRole error and silently proceeded
+// to UpdateProjectRole, allowing a cross-project write whenever the role id
+// was guessable.
 func TestTenantIso_RBAC_UpdateRole_RejectsCrossProject(t *testing.T) {
 	t.Parallel()
 
@@ -47,9 +47,9 @@ func TestTenantIso_RBAC_UpdateRole_RejectsCrossProject(t *testing.T) {
 
 // TestTenantIso_RBAC_UpdateRole_RejectsStoreError verifies that an
 // unexpected GetProjectRole error surfaces as 500 instead of being
-// swallowed. Before Phase 5 the handler used `_` for the err and proceeded
-// to the unconditional update, so a transient DB error would silently
-// drop the previous-state guard.
+// swallowed. The regression path used `_` for the err and proceeded to the
+// unconditional update, so a transient DB error would silently drop the
+// previous-state guard.
 func TestTenantIso_RBAC_UpdateRole_RejectsStoreError(t *testing.T) {
 	t.Parallel()
 

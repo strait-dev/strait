@@ -15,9 +15,7 @@ import (
 	"strait/internal/testutil"
 )
 
-// --------------------------------------------------------------------------.
 // DeleteJob (exercises private deleteJobTx indirectly).
-// --------------------------------------------------------------------------.
 
 func TestJobs_DeleteJob_HappyPath(t *testing.T) {
 	ctx := context.Background()
@@ -65,9 +63,7 @@ func TestJobs_DeleteJob_BlockedByActiveRuns(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // BulkCountExecutingRunsByOrg.
-// --------------------------------------------------------------------------.
 
 func TestJobs_BulkCountExecutingRunsByOrg_HappyPath(t *testing.T) {
 	ctx := context.Background()
@@ -143,9 +139,7 @@ func TestJobs_BulkCountExecutingRunsByOrg_NoExecuting(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // ListOrgsWithExecutingRuns.
-// --------------------------------------------------------------------------.
 
 func TestJobs_ListOrgsWithExecutingRuns_HappyPath(t *testing.T) {
 	ctx := context.Background()
@@ -230,9 +224,7 @@ func TestJobs_ListOrgsWithExecutingRuns_Distinct(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // UpdateProjectDefaultRegion.
-// --------------------------------------------------------------------------.
 
 func TestJobs_UpdateProjectDefaultRegion_HappyPath(t *testing.T) {
 	ctx := context.Background()
@@ -288,9 +280,7 @@ func TestJobs_UpdateProjectDefaultRegion_Upsert(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // UpdateProjectMaxKeyLifetimeDays.
-// --------------------------------------------------------------------------.
 
 func TestJobs_UpdateProjectMaxKeyLifetimeDays_HappyPath(t *testing.T) {
 	ctx := context.Background()
@@ -346,9 +336,7 @@ func TestJobs_UpdateProjectMaxKeyLifetimeDays_Upsert(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // InsertBatchBufferItem.
-// --------------------------------------------------------------------------.
 
 func TestBatch_InsertBatchBufferItem_HappyPath(t *testing.T) {
 	ctx := context.Background()
@@ -433,9 +421,7 @@ func TestBatch_InsertBatchBufferItem_MultipleItems(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // CountBatchBufferItems.
-// --------------------------------------------------------------------------.
 
 func TestBatch_CountBatchBufferItems_Empty(t *testing.T) {
 	ctx := context.Background()
@@ -488,9 +474,7 @@ func TestBatch_CountBatchBufferItems_FiltersByBatchKey(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // DrainBatchBuffer.
-// --------------------------------------------------------------------------.
 
 func TestBatch_DrainBatchBuffer_HappyPath(t *testing.T) {
 	ctx := context.Background()
@@ -647,9 +631,7 @@ func TestBatch_DrainBatchBuffer_EmptyBuffer(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // ListFlushableBatches.
-// --------------------------------------------------------------------------.
 
 func TestBatch_ListFlushableBatches_ByMaxSize(t *testing.T) {
 	ctx := context.Background()
@@ -732,9 +714,7 @@ func TestBatch_ListFlushableBatches_EmptyWhenNotReady(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // ListEventsAsc.
-// --------------------------------------------------------------------------.
 
 func TestEvents_ListEventsAsc_HappyPath(t *testing.T) {
 	ctx := context.Background()
@@ -816,9 +796,7 @@ func TestEvents_ListEventsAsc_EmptyRun(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // DeleteProject (exercises private deleteProjectRows indirectly).
-// --------------------------------------------------------------------------.
 
 func TestProjects_DeleteProject_HappyPath(t *testing.T) {
 	ctx := context.Background()
@@ -879,9 +857,7 @@ func TestProjects_DeleteProject_DisablesJobs(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // ListJobsByOrg.
-// --------------------------------------------------------------------------.
 
 func TestJobs_ListJobsByOrg_HappyPath(t *testing.T) {
 	ctx := context.Background()
@@ -956,9 +932,7 @@ func TestJobs_ListJobsByOrg_WithCursor(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // ListRunsByOrg.
-// --------------------------------------------------------------------------.
 
 func TestJobs_ListRunsByOrg_HappyPath(t *testing.T) {
 	ctx := context.Background()
@@ -1062,9 +1036,7 @@ func TestJobs_ListRunsByOrg_ExcludesRetentionMaskedRuns(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------.
 // ListEnabledLogDrains.
-// --------------------------------------------------------------------------.
 
 func TestLogDrains_ListEnabledLogDrains_HappyPath(t *testing.T) {
 	ctx := context.Background()

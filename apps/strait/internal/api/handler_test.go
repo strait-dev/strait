@@ -679,6 +679,109 @@ func TestHandleListJobDependencies_Success(t *testing.T) {
 	}
 }
 
+func TestHandleListJobDependencies_UsesCacheForFirstPage(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{}
+	ms.GetJobFunc = func(_ context.Context, id string) (*domain.Job, error) {
+		return &domain.Job{ID: id, ProjectID: "proj-1"}, nil
+	}
+	var listCalls atomic.Int64
+	createdAt := time.Now().UTC()
+	ms.ListJobDependenciesFunc = func(_ context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobDependency, error) {
+		listCalls.Add(1)
+		if limit != 51 {
+			t.Fatalf("limit = %d, want 51", limit)
+		}
+		if cursor != nil {
+			t.Fatalf("cursor = %v, want nil for cached first page", cursor)
+		}
+		return []domain.JobDependency{{ID: "dep-1", JobID: jobID, DependsOnJobID: "job-2", Condition: "completed", CreatedAt: createdAt, CacheVersion: 3}}, nil
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.jobDependencyCache = newJobDependencyCache(time.Minute)
+
+	for range 2 {
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/job-1/dependencies", ""))
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+	}
+	if listCalls.Load() != 1 {
+		t.Fatalf("ListJobDependencies calls = %d, want 1", listCalls.Load())
+	}
+}
+
+func TestHandleListJobDependencies_CursorBypassesCache(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{}
+	ms.GetJobFunc = func(_ context.Context, id string) (*domain.Job, error) {
+		return &domain.Job{ID: id, ProjectID: "proj-1"}, nil
+	}
+	var listCalls atomic.Int64
+	createdAt := time.Now().UTC()
+	ms.ListJobDependenciesFunc = func(_ context.Context, jobID string, _ int, cursor *time.Time) ([]domain.JobDependency, error) {
+		listCalls.Add(1)
+		if cursor == nil {
+			t.Fatal("cursor = nil, want cursor for uncached page")
+		}
+		return []domain.JobDependency{{ID: "dep-1", JobID: jobID, DependsOnJobID: "job-2", Condition: "completed", CreatedAt: createdAt}}, nil
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.jobDependencyCache = newJobDependencyCache(time.Minute)
+	url := "/v1/jobs/job-1/dependencies?cursor=" + createdAt.Add(time.Second).Format(time.RFC3339Nano)
+
+	for range 2 {
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodGet, url, ""))
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+	}
+	if listCalls.Load() != 2 {
+		t.Fatalf("ListJobDependencies calls = %d, want 2", listCalls.Load())
+	}
+}
+
+func TestHandleListJobDependencies_CustomLimitBypassesCache(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{}
+	ms.GetJobFunc = func(_ context.Context, id string) (*domain.Job, error) {
+		return &domain.Job{ID: id, ProjectID: "proj-1"}, nil
+	}
+	var listCalls atomic.Int64
+	createdAt := time.Now().UTC()
+	ms.ListJobDependenciesFunc = func(_ context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobDependency, error) {
+		listCalls.Add(1)
+		if limit != 11 {
+			t.Fatalf("limit = %d, want 11", limit)
+		}
+		if cursor != nil {
+			t.Fatalf("cursor = %v, want nil", cursor)
+		}
+		return []domain.JobDependency{{ID: "dep-1", JobID: jobID, DependsOnJobID: "job-2", Condition: "completed", CreatedAt: createdAt, CacheVersion: 3}}, nil
+	}
+
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.jobDependencyCache = newJobDependencyCache(time.Minute)
+
+	for range 2 {
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/job-1/dependencies?limit=10", ""))
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+	}
+	if listCalls.Load() != 2 {
+		t.Fatalf("ListJobDependencies calls = %d, want 2", listCalls.Load())
+	}
+}
+
 func TestHandleDeleteJobDependency_Success(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{}
@@ -2287,8 +2390,6 @@ func TestHandleGetResolvedVariables_Success(t *testing.T) {
 	}
 }
 
-// Phase C: Execution Replay/Debug tests.
-
 func TestHandleGetDebugBundle_Success(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
@@ -2551,17 +2652,31 @@ func TestHandleListRunLineage_StoreError(t *testing.T) {
 	}
 }
 
+// mockPoolStatter is read concurrently by the background backpressure sampler
+// and mutated by the test goroutine, so all fields go through atomics to keep
+// -race happy. Time.Duration is stored as int64 nanoseconds.
 type mockPoolStatter struct {
-	acquired         int32
-	max              int32
-	emptyAcquire     int64
-	emptyAcquireWait time.Duration
+	acquired         atomic.Int32
+	max              atomic.Int32
+	emptyAcquire     atomic.Int64
+	emptyAcquireWait atomic.Int64 // nanoseconds
 }
 
-func (m *mockPoolStatter) AcquiredConns() int32                { return m.acquired }
-func (m *mockPoolStatter) MaxConns() int32                     { return m.max }
-func (m *mockPoolStatter) EmptyAcquireCount() int64            { return m.emptyAcquire }
-func (m *mockPoolStatter) EmptyAcquireWaitTime() time.Duration { return m.emptyAcquireWait }
+func (m *mockPoolStatter) AcquiredConns() int32 { return m.acquired.Load() }
+func (m *mockPoolStatter) MaxConns() int32      { return m.max.Load() }
+func (m *mockPoolStatter) EmptyAcquireCount() int64 {
+	return m.emptyAcquire.Load()
+}
+func (m *mockPoolStatter) EmptyAcquireWaitTime() time.Duration {
+	return time.Duration(m.emptyAcquireWait.Load())
+}
+
+func newMockPoolStatter(acquired, max int32) *mockPoolStatter {
+	m := &mockPoolStatter{}
+	m.acquired.Store(acquired)
+	m.max.Store(max)
+	return m
+}
 
 func TestDBBackpressure_Returns503WhenPoolExhausted(t *testing.T) {
 	t.Parallel()
@@ -2575,7 +2690,7 @@ func TestDBBackpressure_Returns503WhenPoolExhausted(t *testing.T) {
 		Config:      cfg,
 		Store:       &APIStoreMock{},
 		Queue:       &mockQueue{},
-		PoolStatter: &mockPoolStatter{acquired: 24, max: 25}, // 96% > 90%
+		PoolStatter: newMockPoolStatter(24, 25), // 96% > 90%
 	})
 	t.Cleanup(srv.Close)
 
@@ -2602,7 +2717,7 @@ func TestDBBackpressure_AllowsRequestsWhenPoolHealthy(t *testing.T) {
 		Config:      cfg,
 		Store:       &APIStoreMock{},
 		Queue:       &mockQueue{},
-		PoolStatter: &mockPoolStatter{acquired: 10, max: 25}, // 40% < 90%
+		PoolStatter: newMockPoolStatter(10, 25), // 40% < 90%
 	})
 	t.Cleanup(srv.Close)
 
@@ -2622,7 +2737,7 @@ func TestDBBackpressure_Returns503WhenAcquireWaitSpikes(t *testing.T) {
 		MaxBulkTriggerItems: 500,
 		JWTSigningKey:       testJWTSigningKey,
 	}
-	statter := &mockPoolStatter{acquired: 2, max: 25}
+	statter := newMockPoolStatter(2, 25)
 	srv := NewServer(ServerDeps{
 		Config:      cfg,
 		Store:       &APIStoreMock{},
@@ -2631,15 +2746,15 @@ func TestDBBackpressure_Returns503WhenAcquireWaitSpikes(t *testing.T) {
 	})
 	t.Cleanup(srv.Close)
 
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/health", nil))
-	if w.Code == http.StatusServiceUnavailable {
-		t.Fatalf("first request should establish wait baseline, got %d: %s", w.Code, w.Body.String())
-	}
+	// Stop the async sampler so we can drive a single deterministic sample
+	// without racing the ticker; the published shedding atomic is what the
+	// middleware reads, and sampleOnce updates it synchronously.
+	srv.poolBackpressure.Stop()
+	statter.emptyAcquire.Store(10)
+	statter.emptyAcquireWait.Store(int64(time.Second)) // avg = 100ms (above 50ms threshold)
+	srv.poolBackpressure.sampleOnce()
 
-	statter.emptyAcquire = 10
-	statter.emptyAcquireWait = time.Second
-	w = httptest.NewRecorder()
+	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/health", ""))
 
 	if w.Code != http.StatusServiceUnavailable {
@@ -2658,7 +2773,7 @@ func TestDBBackpressure_AllowsSmallAcquireWait(t *testing.T) {
 		MaxBulkTriggerItems: 500,
 		JWTSigningKey:       testJWTSigningKey,
 	}
-	statter := &mockPoolStatter{acquired: 2, max: 25}
+	statter := newMockPoolStatter(2, 25)
 	srv := NewServer(ServerDeps{
 		Config:      cfg,
 		Store:       &APIStoreMock{},
@@ -2667,15 +2782,12 @@ func TestDBBackpressure_AllowsSmallAcquireWait(t *testing.T) {
 	})
 	t.Cleanup(srv.Close)
 
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/health", nil))
-	if w.Code == http.StatusServiceUnavailable {
-		t.Fatalf("first request should establish wait baseline, got %d: %s", w.Code, w.Body.String())
-	}
+	srv.poolBackpressure.Stop()
+	statter.emptyAcquire.Store(10)
+	statter.emptyAcquireWait.Store(int64(100 * time.Millisecond)) // avg = 10ms (below threshold)
+	srv.poolBackpressure.sampleOnce()
 
-	statter.emptyAcquire = 10
-	statter.emptyAcquireWait = 100 * time.Millisecond
-	w = httptest.NewRecorder()
+	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/health", nil))
 
 	if w.Code == http.StatusServiceUnavailable {

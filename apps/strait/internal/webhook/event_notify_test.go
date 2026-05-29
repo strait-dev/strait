@@ -561,7 +561,6 @@ func TestWorker_DeliversSuccessfully(t *testing.T) {
 	}
 	mu.Unlock()
 
-	// Verify delivery record updated.
 	for _, d := range ms.getDeliveries() {
 		if d.EventTriggerID == "evt-3" && d.Status != domain.WebhookStatusDelivered {
 			t.Fatalf("expected status=delivered, got %s", d.Status)
@@ -2406,7 +2405,6 @@ func TestAttemptBatchDelivery_PayloadFormat(t *testing.T) {
 	if items[0].DeliveryID != "fmt-1" || items[1].DeliveryID != "fmt-2" {
 		t.Fatalf("unexpected delivery IDs: %s, %s", items[0].DeliveryID, items[1].DeliveryID)
 	}
-	// Verify payload content.
 	var p1 map[string]string
 	if err := json.Unmarshal(items[0].Payload, &p1); err != nil {
 		t.Fatalf("failed to unmarshal item[0] payload: %v", err)

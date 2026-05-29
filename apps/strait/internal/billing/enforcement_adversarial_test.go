@@ -17,9 +17,7 @@ import (
 	"github.com/sourcegraph/conc"
 )
 
-// ---------------------------------------------------------------------------.
 // 1. Enforcer nil-receiver adversarial tests
-// ---------------------------------------------------------------------------.
 
 func TestEnforcer_NilReceiver_GetOrgPlanLimits(t *testing.T) {
 	t.Parallel()
@@ -34,9 +32,7 @@ func TestEnforcer_NilReceiver_GetOrgPlanLimits(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // 2. EnsureOrgSubscription adversarial tests
-// ---------------------------------------------------------------------------.
 
 func TestEnsureOrgSubscription_DelegatesCorrectly(t *testing.T) {
 	t.Parallel()
@@ -103,9 +99,7 @@ func TestEnsureOrgSubscription_ConcurrentIdempotent(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // 3. RestrictOrgTx adversarial tests (tx.go)
-// ---------------------------------------------------------------------------.
 // RestrictOrgTx requires a real pgxpool.Pool which is only available in
 // integration tests. We test the wrapper WithBillingTx with a nil pool to
 // verify nil handling returns an error.
@@ -126,9 +120,7 @@ func TestWithBillingTx_NilPool_Panics(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------.
 // 4. Stripe usage event ingestion adversarial tests (stripe_usage.go)
-// ---------------------------------------------------------------------------.
 
 func TestStripeUsageReporter_EmptySecretKey_Noop(t *testing.T) {
 	t.Parallel()
@@ -168,9 +160,7 @@ func TestStripeUsageReporter_NilLogger(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // 5. Billing enforcement edge cases
-// ---------------------------------------------------------------------------.
 
 func TestEnforcer_FreeTier_AllLimitsHit(t *testing.T) {
 	t.Parallel()

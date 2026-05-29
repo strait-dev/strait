@@ -2,7 +2,9 @@ package queue
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 
 	"strait/internal/dbscan"
 	"strait/internal/domain"
@@ -53,7 +55,7 @@ func executeDequeue(ctx context.Context, q *PostgresQueue, n int, spec dequeueSp
 		return nil, err
 	}
 	if tx != nil {
-		defer tx.Rollback(ctx) //nolint:errcheck
+		defer rollbackDequeueTx(ctx, tx, spec.spanName)
 	}
 
 	withClause := concurrencyCTEs + ","
@@ -134,7 +136,7 @@ func executeDequeueFair(ctx context.Context, q *PostgresQueue, n int, spec deque
 		return nil, err
 	}
 	if tx != nil {
-		defer tx.Rollback(ctx) //nolint:errcheck
+		defer rollbackDequeueTx(ctx, tx, spec.spanName)
 	}
 
 	query := "/* action=dequeue */ " + fmt.Sprintf(`
@@ -209,7 +211,7 @@ func executeDequeueTwoPhase(ctx context.Context, q *PostgresQueue, n int, spec d
 	if err != nil {
 		return nil, fmt.Errorf("%s: begin tx: %w", spec.spanName, err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer rollbackDequeueTx(ctx, tx, spec.spanName)
 
 	if q.statementTimeout > 0 {
 		ms := int(q.statementTimeout.Milliseconds())
@@ -289,4 +291,10 @@ func executeDequeueTwoPhase(ctx context.Context, q *PostgresQueue, n int, spec d
 		}
 	}
 	return runs, nil
+}
+
+func rollbackDequeueTx(ctx context.Context, tx pgx.Tx, spanName string) {
+	if err := tx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+		slog.Warn("failed to rollback dequeue transaction", "span", spanName, "error", err)
+	}
 }

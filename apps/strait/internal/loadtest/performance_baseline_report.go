@@ -172,10 +172,10 @@ func DefaultPerformanceComplexityLedger() []ComplexityLedgerEntry {
 		},
 		{
 			Area:              "endpoint circuit check",
-			Current:           ComplexityStatement,
+			Current:           ComplexityConstant,
 			Target:            ComplexityConstant,
-			Evidence:          "CanDispatchEndpoint uses row-locking upsert/update CTE for a mostly read-shaped healthy check",
-			ImprovementReason: "read-first dispatch avoids writes and locks when the circuit is already closed",
+			Evidence:          "CanDispatchEndpoint short-circuits on a plain GetEndpointCircuitState read when the circuit is closed; FOR UPDATE only runs for open/half-open transitions",
+			ImprovementReason: "healthy dispatch already avoids writes and row locks; remaining cost is one indexed read",
 		},
 		{
 			Area:              "health percentiles",
@@ -229,8 +229,8 @@ func DefaultPerformanceComplexityLedger() []ComplexityLedgerEntry {
 	}
 }
 
-// PerformanceBaselineReport is the phase-level report used to compare each
-// optimization against the pre-change baseline.
+// PerformanceBaselineReport compares a candidate optimization against the
+// pre-change baseline.
 type PerformanceBaselineReport struct {
 	Name         string                  `json:"name"`
 	StartedAt    time.Time               `json:"started_at"`
@@ -245,8 +245,8 @@ type PerformanceBaselineReport struct {
 	Complexity   []ComplexityLedgerEntry `json:"complexity"`
 }
 
-// PerformanceBaselineComparison captures whether a later phase actually moved
-// the metrics that motivated the work.
+// PerformanceBaselineComparison captures whether a candidate moved the metrics
+// that motivated the work.
 type PerformanceBaselineComparison struct {
 	Name                  string                    `json:"name"`
 	Baseline              PerformanceBaselineReport `json:"baseline"`

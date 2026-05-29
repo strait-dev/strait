@@ -19,9 +19,7 @@ import (
 	"github.com/sourcegraph/conc"
 )
 
-// ---------------------------------------------------------------------------.
 // Cron parsing edge cases
-// ---------------------------------------------------------------------------.
 
 func TestCron_DSTBoundary_SpringForward(t *testing.T) {
 	t.Parallel()
@@ -123,9 +121,7 @@ func TestCron_EmptyExpression(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // CronScheduler.LoadJobs edge cases
-// ---------------------------------------------------------------------------.
 
 func TestCronScheduler_LoadJobs_InvalidCronExpression(t *testing.T) {
 	t.Parallel()
@@ -186,9 +182,7 @@ func TestCronScheduler_LoadJobs_InvalidWorkflowCron(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Overlapping schedules / cron overlap policies
-// ---------------------------------------------------------------------------.
 
 func TestCronScheduler_TriggerJob_SkipPolicy_ActiveRuns(t *testing.T) {
 	t.Parallel()
@@ -481,9 +475,7 @@ func TestCronScheduler_TriggerJob_TTLFromDefault(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // CronScheduler.triggerWorkflow edge cases
-// ---------------------------------------------------------------------------.
 
 func TestCronScheduler_TriggerWorkflow_CountRunningError(t *testing.T) {
 	t.Parallel()
@@ -561,9 +553,7 @@ func TestCronScheduler_TriggerWorkflow_NoSkipPolicy(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Batch operation abuse
-// ---------------------------------------------------------------------------.
 
 func TestBatchFlusher_ZeroInterval_Clamped(t *testing.T) {
 	t.Parallel()
@@ -768,9 +758,7 @@ func TestBatchFlusher_RunStopsOnCancel(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Anomaly detection edge cases
-// ---------------------------------------------------------------------------.
 
 func TestAnomalyMonitor_AdvisoryLockerNotAcquired(t *testing.T) {
 	t.Parallel()
@@ -870,9 +858,7 @@ func TestAnomalyMonitor_ListOrgsError(t *testing.T) {
 	am.check(context.Background())
 }
 
-// ---------------------------------------------------------------------------.
 // RedisCooldown edge cases
-// ---------------------------------------------------------------------------.
 
 func TestRedisCooldown_ZeroTTL_ClampsToDefault(t *testing.T) {
 	t.Parallel()
@@ -951,9 +937,7 @@ func TestCooldownKey_Format(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Budget monitor concurrency and edge cases
-// ---------------------------------------------------------------------------.
 
 func TestBudgetMonitor_ConcurrentCheckAndCleanup(t *testing.T) {
 	t.Parallel()
@@ -982,9 +966,7 @@ func TestBudgetMonitor_ConcurrentCheckAndCleanup(t *testing.T) {
 	bm.alertedMu.Unlock()
 }
 
-// ---------------------------------------------------------------------------.
 // Budget monitor spending limits edge cases
-// ---------------------------------------------------------------------------.
 
 func TestBudgetMonitor_SpendingLimit_NilPeriodStart(t *testing.T) {
 	t.Parallel()
@@ -1078,9 +1060,7 @@ func TestBudgetMonitor_SpendingLimit_OrgListError(t *testing.T) {
 	bm.check(context.Background())
 }
 
-// ---------------------------------------------------------------------------.
 // SLO evaluator edge cases
-// ---------------------------------------------------------------------------.
 
 func TestCalculateErrorBudget_InfInputs(t *testing.T) {
 	t.Parallel()
@@ -1146,9 +1126,7 @@ func TestCalculateErrorBudget_P99Latency(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Maintenance loop edge cases
-// ---------------------------------------------------------------------------.
 
 func TestMaintenanceLoop_NilTask(t *testing.T) {
 	t.Parallel()
@@ -1177,9 +1155,7 @@ func TestMaintenanceLoop_NegativeInterval_Clamped(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Index maintenance edge cases
-// ---------------------------------------------------------------------------.
 
 func TestIndexMaintainer_ZeroInterval_Clamped(t *testing.T) {
 	t.Parallel()
@@ -1199,9 +1175,7 @@ func TestIndexMaintainer_NegativeInterval_Clamped(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Memory cleanup edge cases
-// ---------------------------------------------------------------------------.
 
 func TestMemoryCleanup_ZeroInterval_Clamped(t *testing.T) {
 	t.Parallel()
@@ -1234,9 +1208,7 @@ func TestMemoryCleanup_DeletesExpired(t *testing.T) {
 	mc.cleanup(context.Background())
 }
 
-// ---------------------------------------------------------------------------.
 // Usage flusher edge cases
-// ---------------------------------------------------------------------------.
 
 func TestUsageFlusher_ZeroInterval_Clamped(t *testing.T) {
 	t.Parallel()
@@ -1264,9 +1236,7 @@ func TestUsageFlusher_WithAdvisoryLocker(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Stale subscription checker edge cases
-// ---------------------------------------------------------------------------.
 
 func TestStaleSubscriptionChecker_BasicConstruction(t *testing.T) {
 	t.Parallel()
@@ -1367,9 +1337,7 @@ func TestStaleSubscriptionChecker_Run_StopsOnCancel(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Concurrent schedule/unschedule of same job
-// ---------------------------------------------------------------------------.
 
 func TestCronScheduler_ConcurrentLoadAndStop(t *testing.T) {
 	t.Parallel()
@@ -1398,9 +1366,7 @@ func TestCronScheduler_ConcurrentLoadAndStop(t *testing.T) {
 	<-stopCtx.Done()
 }
 
-// ---------------------------------------------------------------------------.
 // Downgrade applier edge cases
-// ---------------------------------------------------------------------------.
 
 func TestDowngradeApplier_LockerNotAcquired(t *testing.T) {
 	t.Parallel()
@@ -1488,9 +1454,7 @@ func TestDowngradeApplier_EmptyList(t *testing.T) {
 	d.apply(context.Background())
 }
 
-// ---------------------------------------------------------------------------.
 // Concurrent reconciler edge cases
-// ---------------------------------------------------------------------------.
 
 func TestConcurrentReconciler_Construction(t *testing.T) {
 	t.Parallel()
@@ -1509,9 +1473,7 @@ func TestConcurrentReconciler_WithDailyRunCounter(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // FormatBudgetAlertKey edge cases
-// ---------------------------------------------------------------------------.
 
 func TestFormatBudgetAlertKey_EmptyProject(t *testing.T) {
 	t.Parallel()
@@ -1529,9 +1491,7 @@ func TestFormatBudgetAlertKey_FarFutureDate(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // Mock types used only by adversarial tests (prefixed with "adv" to avoid conflicts)
-// ---------------------------------------------------------------------------.
 
 type advMockRedisClient struct {
 	getFn func(ctx context.Context, key string) (string, error)

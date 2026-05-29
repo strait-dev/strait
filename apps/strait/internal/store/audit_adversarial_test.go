@@ -11,8 +11,6 @@ import (
 	"github.com/sourcegraph/conc"
 )
 
-// --- Signature determinism and sensitivity. ---.
-
 // TestComputeAuditSignature_StrictDeterminism verifies the same event always
 // produces the exact same signature across 1000 calls.
 func TestComputeAuditSignature_StrictDeterminism(t *testing.T) {
@@ -102,8 +100,6 @@ func TestComputeAuditSignature_SingleBitChange(t *testing.T) {
 		})
 	}
 }
-
-// --- Chain integrity verification. ---.
 
 // TestAuditChain_LongChain verifies chain integrity across 100 events.
 func TestAuditChain_LongChain(t *testing.T) {
@@ -252,8 +248,6 @@ func TestAuditChain_Adversarial_InsertForgedEvent(t *testing.T) {
 	}
 }
 
-// --- Key derivation adversarial tests. ---.
-
 // TestDeriveAuditSigningKey_DifferentSecrets produces different keys.
 func TestDeriveAuditSigningKey_DifferentSecrets(t *testing.T) {
 	t.Parallel()
@@ -283,8 +277,6 @@ func TestDeriveAuditSigningKey_SimilarSecrets(t *testing.T) {
 		t.Errorf("similar secrets: only %d/32 bytes differ (poor HKDF avalanche)", diffBytes)
 	}
 }
-
-// --- Edge case tests. ---.
 
 // TestComputeAuditSignature_EmptyFields verifies signature works with all
 // empty string fields.
@@ -344,8 +336,6 @@ func TestComputeAuditSignature_LargeDetails(t *testing.T) {
 		t.Fatalf("signature for large payload: len=%d, want 64", len(sig))
 	}
 }
-
-// --- Fuzz tests. ---.
 
 // FuzzComputeAuditSignature_Deterministic verifies that computing the same
 // event signature twice always produces identical results.

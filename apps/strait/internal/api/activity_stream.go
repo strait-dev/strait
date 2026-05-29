@@ -120,13 +120,14 @@ func (s *Server) handleProjectActivityStream(w http.ResponseWriter, r *http.Requ
 	ticker := time.NewTicker(keepalive)
 	defer ticker.Stop()
 
+loop:
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			break loop
 		case msg, ok := <-merged:
 			if !ok {
-				return
+				break loop
 			}
 			fmt.Fprintf(w, "event: activity\ndata: %s\n\n", msg)
 			flusher.Flush()
@@ -135,4 +136,12 @@ func (s *Server) handleProjectActivityStream(w http.ResponseWriter, r *http.Requ
 			flusher.Flush()
 		}
 	}
+
+	// Cancel the fanout goroutines and wait for them to drain before the deferred
+	// sub.Close()/releaseSSEConn run. conc.WaitGroup only re-raises a recovered
+	// panic from a fanout goroutine on Wait(); without this barrier a panic would
+	// be silently discarded and goroutines could outlive the handler. cancel()
+	// (also deferred, idempotent) is called explicitly so Wait() cannot block.
+	cancel()
+	fanoutWG.Wait()
 }

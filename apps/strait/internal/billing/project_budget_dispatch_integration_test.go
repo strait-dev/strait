@@ -20,8 +20,7 @@ import (
 // with monthly_budget_microusd=$2.50, budget_action='block', and
 // usage_records summing to the cap. The enforcer must surface a
 // *LimitError with code project_budget_reached. This is the bedrock
-// integration check behind Phase 4.2 — without this the dispatch
-// wiring has nothing to pattern-match against.
+// integration check for the dispatch wiring's typed budget rejection.
 func TestProjectBudgetIntegration_BlockAtCapRejects(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)

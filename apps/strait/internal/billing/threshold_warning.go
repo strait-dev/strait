@@ -14,25 +14,26 @@ import (
 // single call records the most actionable signal, not three of them.
 //
 // Declared as an array (not a slice) so callers cannot mutate it at runtime.
-// The init() invariant below also rejects any future edit that breaks the
+// The constructor below also rejects any future edit that breaks the
 // strictly-ascending order the highest-crossed scan depends on.
-var thresholdPercents = [...]int{80, 90, 100}
+var thresholdPercents = mustAscendingThresholdPercents([...]int{80, 90, 100})
 
-func init() {
-	for i := 1; i < len(thresholdPercents); i++ {
-		if thresholdPercents[i] <= thresholdPercents[i-1] {
+func mustAscendingThresholdPercents(percents [3]int) [3]int {
+	for i := 1; i < len(percents); i++ {
+		if percents[i] <= percents[i-1] {
 			panic(fmt.Sprintf(
-				"billing: thresholdPercents must be strictly ascending; got %v",
-				thresholdPercents,
+				"billing: threshold percents must be strictly ascending; got %v",
+				percents,
 			))
 		}
 	}
-	if thresholdPercents[0] <= 0 {
+	if percents[0] <= 0 {
 		panic(fmt.Sprintf(
-			"billing: thresholdPercents must start above 0; got %v",
-			thresholdPercents,
+			"billing: threshold percents must start above 0; got %v",
+			percents,
 		))
 	}
+	return percents
 }
 
 // usageThresholdKey is the Redis SETNX key that dedupes a (org, metric,

@@ -19,9 +19,7 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 )
 
-// ---------------------------------------------------------------------------.
 // 1. asFloat edge cases (condition.go, 37.5% coverage)
-// ---------------------------------------------------------------------------.
 
 func TestAsFloat_Adversarial(t *testing.T) {
 	t.Parallel()
@@ -141,9 +139,7 @@ func TestEvaluateCondition_NumericComparisonNonNumeric(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // 2. tryReleaseDependencyRuns (callback.go, 65.5% coverage)
-// ---------------------------------------------------------------------------.
 
 func TestTryReleaseDependencyRuns_NilRun(t *testing.T) {
 	t.Parallel()
@@ -395,9 +391,7 @@ func TestTryReleaseDependencyRuns_ConcurrentAttempts(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // 3. enqueueStepAnalytics (callback.go, 22.2% coverage)
-// ---------------------------------------------------------------------------.
 
 func TestEnqueueStepAnalytics_NilChExporter(t *testing.T) {
 	t.Parallel()
@@ -541,9 +535,7 @@ func TestEnqueueStepAnalytics_HighAttemptClamped(t *testing.T) {
 	cb.enqueueStepAnalytics(stepRun, wc)
 }
 
-// ---------------------------------------------------------------------------.
 // 4. recordStepWaitDuration (callback_progression.go, 22.2% coverage)
-// ---------------------------------------------------------------------------.
 
 func newTestMetrics(t *testing.T) *telemetry.Metrics {
 	t.Helper()
@@ -605,9 +597,7 @@ func TestRecordStepWaitDuration_NormalWait(t *testing.T) {
 	cb.recordStepWaitDuration(context.Background(), wfRun, step, stepRun)
 }
 
-// ---------------------------------------------------------------------------.
 // 5. skipDependentSteps edge cases (callback_retry.go, 100% nominal)
-// ---------------------------------------------------------------------------.
 
 func TestSkipDependentSteps_NoDependents(t *testing.T) {
 	t.Parallel()
@@ -802,9 +792,7 @@ func TestSkipDependentSteps_StoreError(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // 6. Complex condition edge cases via EvaluateCondition
-// ---------------------------------------------------------------------------.
 
 func TestEvaluateCondition_ConditionalBranch_EdgeValues(t *testing.T) {
 	t.Parallel()
@@ -929,9 +917,7 @@ func TestEvaluateCondition_DeeplyNestedAllOf(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // 7. mapRunStatusToStepStatus edge cases
-// ---------------------------------------------------------------------------.
 
 func TestMapRunStatusToStepStatus_AllTerminalStatuses(t *testing.T) {
 	t.Parallel()
@@ -995,9 +981,7 @@ func TestMapRunStatusToStepStatus_FailedNoError(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // 8. approvalAuditActor edge cases
-// ---------------------------------------------------------------------------.
 
 func TestApprovalAuditActor_EdgeCases(t *testing.T) {
 	t.Parallel()
@@ -1028,9 +1012,7 @@ func TestApprovalAuditActor_EdgeCases(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // 9. effectiveResourceClass and hasResourceClassCapacity
-// ---------------------------------------------------------------------------.
 
 func TestEffectiveResourceClass_Adversarial(t *testing.T) {
 	t.Parallel()
@@ -1089,9 +1071,7 @@ func TestHasResourceClassCapacity_Limits(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // 10. advisoryXactLockIDForStepRun determinism
-// ---------------------------------------------------------------------------.
 
 func TestAdvisoryXactLockIDForStepRun_Deterministic(t *testing.T) {
 	t.Parallel()
@@ -1110,9 +1090,7 @@ func TestAdvisoryXactLockIDForStepRun_Deterministic(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // checkStepRetry boundary tests (callback_retry.go)
-// ---------------------------------------------------------------------------.
 
 func TestCheckStepRetry_MaxAttemptsZero(t *testing.T) {
 	t.Parallel()
@@ -1209,9 +1187,7 @@ func TestCheckStepRetry_StepNotFound(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // OnJobRunTerminal OutputTransform tests
-// ---------------------------------------------------------------------------.
 
 func TestOnJobRunTerminal_OutputTransformApplied(t *testing.T) {
 	t.Parallel()
@@ -1413,9 +1389,7 @@ func TestOnJobRunTerminal_EmptyResult_NoTransform(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // emitEventIfConfigured source type branches
-// ---------------------------------------------------------------------------.
 
 func TestEmitEventIfConfigured_JobRunSourceType(t *testing.T) {
 	t.Parallel()
@@ -1483,9 +1457,7 @@ func TestEmitEventIfConfigured_JobRunSourceType_EmptyJobRunID(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // scheduleRunnableSteps concurrency key tests
-// ---------------------------------------------------------------------------.
 
 func TestScheduleRunnableSteps_ConcurrencyKeyBlocking(t *testing.T) {
 	t.Parallel()
@@ -1571,9 +1543,7 @@ func TestScheduleRunnableSteps_DifferentConcurrencyKeys(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // scheduleRunnableSteps resource class capacity
-// ---------------------------------------------------------------------------.
 
 func TestScheduleRunnableSteps_ResourceClassCapacityExhausted(t *testing.T) {
 	t.Parallel()
@@ -1619,9 +1589,7 @@ func TestScheduleRunnableSteps_ResourceClassCapacityExhausted(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // scheduleRunnableSteps DependsOn parent outputs
-// ---------------------------------------------------------------------------.
 
 func TestScheduleRunnableSteps_NoDependsOn_NoParentOutputs(t *testing.T) {
 	t.Parallel()
@@ -1696,9 +1664,7 @@ func TestScheduleRunnableSteps_WithDependsOn_GetsParentOutputs(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // propagateToParent -- direct lookup vs fallback
-// ---------------------------------------------------------------------------.
 
 func TestPropagateToParent_WithParentStepRunID(t *testing.T) {
 	t.Parallel()
@@ -1836,9 +1802,7 @@ func TestPropagateToParent_WithoutParentStepRunID_FallbackScan(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // propagateToParent output aggregation
-// ---------------------------------------------------------------------------.
 
 func TestPropagateToParent_CompletedWithOutputs(t *testing.T) {
 	t.Parallel()
@@ -1997,9 +1961,7 @@ func TestPropagateToParent_CompletedNoOutputs(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // propagateToParent canceled child
-// ---------------------------------------------------------------------------.
 
 func TestPropagateToParent_CanceledChild(t *testing.T) {
 	t.Parallel()
@@ -2065,9 +2027,7 @@ func TestPropagateToParent_CanceledChild(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
 // OnEventReceived tests
-// ---------------------------------------------------------------------------.
 
 func TestOnEventReceived_NilTrigger(t *testing.T) {
 	t.Parallel()

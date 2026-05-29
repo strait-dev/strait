@@ -24,7 +24,7 @@ concurrency:
 
 # Turbo remote cache. Turbo auto-detects Turbo Cloud when TURBO_TOKEN and
 # TURBO_TEAM are set; TURBO_API lets you point at a self-hosted cache
-# (e.g. ducktors/turborepo-remote-cache on Cloudflare Workers). When none
+# (e.g. ducktors/turborepo-remote-cache). When none
 # are configured, turbo silently falls back to the local filesystem cache.
 env:
   TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
@@ -62,3 +62,95 @@ jobs:
 
       - name: Typecheck
         run: bun run typecheck
+
+  app-build:
+    name: App build targets
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-js
+        with:
+          node: "true"
+
+      - name: Build Node target
+        working-directory: apps/app
+        run: bun run build:node
+
+      - name: Build and smoke Docker image
+        run: |
+          docker build -f apps/app/Dockerfile -t strait-app:ci .
+          docker network rm strait-app-ci-smoke >/dev/null 2>&1 || true
+          docker network create strait-app-ci-smoke
+          docker rm -f strait-app-ci-postgres strait-app-ci-smoke >/dev/null 2>&1 || true
+          trap 'docker rm -f strait-app-ci-postgres strait-app-ci-smoke >/dev/null 2>&1 || true; docker network rm strait-app-ci-smoke >/dev/null 2>&1 || true' EXIT
+
+          docker run -d --name strait-app-ci-postgres --network strait-app-ci-smoke \
+            -e POSTGRES_USER=strait \
+            -e POSTGRES_PASSWORD=strait \
+            -e POSTGRES_DB=strait \
+            postgres:18-alpine
+
+          for i in $(seq 1 30); do
+            if docker exec strait-app-ci-postgres pg_isready -U strait -d strait >/dev/null 2>&1; then
+              break
+            fi
+            if [ "$i" = "30" ]; then
+              docker logs strait-app-ci-postgres || true
+              exit 1
+            fi
+            sleep 1
+          done
+
+          docker run --rm --network strait-app-ci-smoke \
+            -e 'AUTH_DATABASE_URL=postgres://strait:strait@strait-app-ci-postgres:5432/strait?sslmode=disable' \
+            -e 'BETTER_AUTH_URL=http://127.0.0.1:3017' \
+            -e 'BETTER_AUTH_SECRET=ci-better-auth-secret-at-least-32-chars' \
+            strait-app:ci .output/migrate.mjs
+
+          docker rm -f strait-app-ci-smoke >/dev/null 2>&1 || true
+          docker run -d --name strait-app-ci-smoke --network strait-app-ci-smoke -p 3017:3000 \
+            -e 'AUTH_DATABASE_URL=postgres://strait:strait@strait-app-ci-postgres:5432/strait?sslmode=disable' \
+            -e 'BETTER_AUTH_URL=http://127.0.0.1:3017' \
+            -e 'BETTER_AUTH_SECRET=ci-better-auth-secret-at-least-32-chars' \
+            -e 'STRAIT_API_URL=http://127.0.0.1:8080' \
+            strait-app:ci
+
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /tmp/strait-app-login.html -w '%{http_code}' http://127.0.0.1:3017/login || true)
+            if [ "$code" = "200" ]; then
+              break
+            fi
+            if [ "$i" = "30" ]; then
+              docker logs strait-app-ci-smoke || true
+              exit 1
+            fi
+            sleep 1
+          done
+
+          asset=$(sed -n 's/.*href="\([^"]*globals[^"]*\.css\)".*/\1/p' /tmp/strait-app-login.html | head -1)
+          test -n "$asset"
+          test "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:3017${asset}")" = "200"
+
+          for i in $(seq 1 30); do
+            health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' strait-app-ci-smoke)
+            if [ "$health" = "healthy" ]; then
+              exit 0
+            fi
+            if [ "$health" = "unhealthy" ]; then
+              docker logs strait-app-ci-smoke || true
+              exit 1
+            fi
+            sleep 1
+          done
+
+          docker logs strait-app-ci-smoke || true
+          exit 1
+
+      - name: Build Vercel target
+        working-directory: apps/app
+        run: |
+          rm -rf .output .vercel
+          bun run build:vercel

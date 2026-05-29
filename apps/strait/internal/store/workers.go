@@ -603,7 +603,7 @@ func (q *Queries) GetOpenWorkerTaskByAssignment(ctx context.Context, taskID, wor
 	defer span.End()
 
 	if attempt <= 0 {
-		return nil, nil //nolint:nilnil // nil signals "not found"
+		return nil, nil //nolint:nilnil // nil task is the store contract for "no active assignment"
 	}
 	var t domain.WorkerTask
 	var status string
@@ -621,7 +621,7 @@ func (q *Queries) GetOpenWorkerTaskByAssignment(ctx context.Context, taskID, wor
 	).Scan(&t.ID, &t.WorkerID, &t.RunID, &t.ProjectID, &t.Attempt, &status, &t.AssignedAt, &t.AcceptedAt, &t.FinishedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil //nolint:nilnil // nil signals "not found"
+			return nil, nil //nolint:nilnil // nil task is the store contract for "no active assignment"
 		}
 		return nil, fmt.Errorf("get open worker task by assignment: %w", err)
 	}
@@ -652,7 +652,7 @@ func (q *Queries) GetOpenWorkerTaskByRunID(ctx context.Context, workerID, projec
 	).Scan(&t.ID, &t.WorkerID, &t.RunID, &t.ProjectID, &t.Attempt, &status, &t.AssignedAt, &t.AcceptedAt, &t.FinishedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil //nolint:nilnil // nil signals "not found"
+			return nil, nil //nolint:nilnil // nil task is the store contract for "no active assignment"
 		}
 		return nil, fmt.Errorf("get open worker task by run id: %w", err)
 	}

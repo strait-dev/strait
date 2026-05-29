@@ -13,9 +13,9 @@ import (
 )
 
 // privateRanges contains CIDR blocks that must be blocked to prevent SSRF.
-var privateRanges []*net.IPNet
+var privateRanges = mustParsePrivateRanges()
 
-func init() {
+func mustParsePrivateRanges() []*net.IPNet {
 	cidrs := []string{
 		"127.0.0.0/8",        // loopback
 		"10.0.0.0/8",         // RFC 1918
@@ -41,14 +41,20 @@ func init() {
 		"2001:db8::/32",      // documentation
 		"2001:2::/48",        // benchmarking
 		"2001:10::/28",       // deprecated ORCHID
+		"64:ff9b::/96",       // NAT64 well-known prefix (RFC 6052)
+		"2002::/16",          // 6to4 (RFC 3056)
 	}
+	ranges := make([]*net.IPNet, 0, len(cidrs))
 	for _, cidr := range cidrs {
 		_, network, err := net.ParseCIDR(cidr)
 		if err != nil {
+			// This is static package data. A parse failure means the binary was
+			// built with an invalid SSRF guardrail and must not start.
 			panic(fmt.Sprintf("httputil: bad CIDR %q: %v", cidr, err))
 		}
-		privateRanges = append(privateRanges, network)
+		ranges = append(ranges, network)
 	}
+	return ranges
 }
 
 // blockedHosts are hostnames (case-insensitive) that must never be targeted.
@@ -153,29 +159,58 @@ func isPrivateIP(ip net.IP) bool {
 			return true
 		}
 	}
-	// Check IPv6 addresses that embed IPv4:
-	// - ::ffff:127.0.0.1 (IPv4-mapped, caught by To4)
-	// - ::127.0.0.1 (IPv4-compatible, NOT caught by To4)
 	if len(ip) == net.IPv6len {
-		// IPv4-mapped: To4() returns non-nil.
-		if v4 := ip.To4(); v4 != nil && !ip.Equal(v4) {
-			return isPrivateIP(v4)
-		}
-		// IPv4-compatible (deprecated RFC 4291): first 96 bits are zero,
-		// last 32 bits are the IPv4 address. To4() returns nil for these.
-		allZero := true
-		for i := range 12 {
-			if ip[i] != 0 {
-				allZero = false
-				break
-			}
-		}
-		if allZero && (ip[12] != 0 || ip[13] != 0 || ip[14] != 0 || ip[15] != 0) {
-			v4 := net.IPv4(ip[12], ip[13], ip[14], ip[15])
+		if v4 := embeddedIPv4(ip); v4 != nil {
 			return isPrivateIP(v4)
 		}
 	}
 	return false
+}
+
+// embeddedIPv4 returns the IPv4 address embedded inside an IPv6 transition or
+// translation form, or nil if ip does not carry one. Callers re-run the
+// private-IP check against the returned address so that IMDS, loopback, and
+// other IPv4-side ranges still fire when the attacker hands us the IPv6 shape.
+//
+// Forms handled:
+//   - ::ffff:x.x.x.x    IPv4-mapped, caught by net.IP.To4
+//   - ::x.x.x.x         IPv4-compatible (deprecated, RFC 4291)
+//   - 64:ff9b::/96      NAT64 well-known prefix (RFC 6052)
+//   - 2002::/16         6to4 (RFC 3056); embedded IPv4 lives in bytes 2..6
+//
+// In NAT64/DNS64 deployments (AWS IPv6-only subnets, IPv6-mostly Kubernetes)
+// an attacker-controlled hostname can resolve to 64:ff9b::a9fe:a9fe — the
+// NAT64 form of 169.254.169.254 — and slip past a guard that only decoded the
+// IPv4-mapped and IPv4-compatible shapes.
+func embeddedIPv4(ip net.IP) net.IP {
+	// IPv4-mapped: To4() returns non-nil for ::ffff:x.x.x.x.
+	if v4 := ip.To4(); v4 != nil && !ip.Equal(v4) {
+		return v4
+	}
+	// IPv4-compatible: first 96 bits are zero, last 32 bits are the IPv4
+	// address. To4() returns nil for these.
+	allZero := true
+	for i := range 12 {
+		if ip[i] != 0 {
+			allZero = false
+			break
+		}
+	}
+	if allZero && (ip[12] != 0 || ip[13] != 0 || ip[14] != 0 || ip[15] != 0) {
+		return net.IPv4(ip[12], ip[13], ip[14], ip[15])
+	}
+	// NAT64 well-known prefix 64:ff9b:: — embedded IPv4 in the low 32 bits.
+	if ip[0] == 0x00 && ip[1] == 0x64 && ip[2] == 0xff && ip[3] == 0x9b &&
+		ip[4] == 0x00 && ip[5] == 0x00 && ip[6] == 0x00 && ip[7] == 0x00 &&
+		ip[8] == 0x00 && ip[9] == 0x00 && ip[10] == 0x00 && ip[11] == 0x00 {
+		return net.IPv4(ip[12], ip[13], ip[14], ip[15])
+	}
+	// 6to4: 2002:WWXX:YYZZ::/48 — embedded IPv4 in bytes 2..6.
+	// 2002:7f00:0001:: is 6to4 of 127.0.0.1.
+	if ip[0] == 0x20 && ip[1] == 0x02 {
+		return net.IPv4(ip[2], ip[3], ip[4], ip[5])
+	}
+	return nil
 }
 
 // looksLikeNonStandardIP detects IP-like hostnames that use non-standard

@@ -76,6 +76,20 @@ type SendEventOutput struct {
 	Body *domain.EventTrigger
 }
 
+// resolveEventTriggerByKey resolves an event trigger from a user-supplied event
+// key, scoping the lookup to the caller's project whenever a project context is
+// present. Event keys are unique per project (migration 000284 replaced the
+// global UNIQUE(event_key) with UNIQUE(project_id, event_key)), so an unscoped
+// lookup can non-deterministically resolve another tenant's row when two
+// projects share a key. The unscoped lookup is reserved for the explicit
+// projectless internal-caller path (internal management secret).
+func (s *Server) resolveEventTriggerByKey(ctx context.Context, eventKey, projectID string) (*domain.EventTrigger, error) {
+	if projectID != "" {
+		return s.store.GetEventTriggerByEventKeyForProject(ctx, eventKey, projectID)
+	}
+	return s.store.GetEventTriggerByEventKey(ctx, eventKey)
+}
+
 func (s *Server) handleSendEvent(ctx context.Context, input *SendEventInput) (*SendEventOutput, error) {
 	eventKey := input.EventKey
 	if errMsg := validateEventKey(eventKey); errMsg != "" {
@@ -86,14 +100,11 @@ func (s *Server) handleSendEvent(ctx context.Context, input *SendEventInput) (*S
 	if projectID == "" && !isInternalCaller(ctx) {
 		return nil, huma.Error400BadRequest("project context is required -- authenticate with an API key")
 	}
-	trigger, err := s.store.GetEventTriggerByEventKey(ctx, eventKey)
+	trigger, err := s.resolveEventTriggerByKey(ctx, eventKey, projectID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to get event trigger")
 	}
 	if trigger == nil {
-		return nil, huma.Error404NotFound("event trigger not found")
-	}
-	if projectID != "" && trigger.ProjectID != projectID {
 		return nil, huma.Error404NotFound("event trigger not found")
 	}
 	if projectID == "" && isInternalCaller(ctx) {
@@ -111,53 +122,12 @@ func (s *Server) handleSendEvent(ctx context.Context, input *SendEventInput) (*S
 		}
 		return nil, huma.Error409Conflict("event trigger is not in waiting state")
 	}
+
 	now := time.Now()
-	if trigger.SourceType == domain.EventSourceJobRun && trigger.JobRunID != "" { //nolint:nestif
-		if err := s.store.ReceiveEventAndRequeueRun(ctx, trigger.ID, req.Payload, now, trigger.JobRunID); err != nil {
-			if errors.Is(err, store.ErrEventTriggerConflict) {
-				return nil, huma.Error409Conflict("event trigger is not in waiting state")
-			}
-			return nil, huma.Error500InternalServerError("failed to receive event")
-		}
-	} else if trigger.SourceType == domain.EventSourceWorkflowStep && trigger.WorkflowStepRunID != "" {
-		if err := s.runInTx(ctx, func(txStore APIStore) error {
-			if err := txStore.UpdateEventTriggerStatusFrom(ctx, trigger.ID, domain.EventTriggerStatusWaiting, domain.EventTriggerStatusReceived, req.Payload, &now, ""); err != nil {
-				return fmt.Errorf("update event trigger status: %w", err)
-			}
-			return txStore.UpdateStepRunStatus(ctx, trigger.WorkflowStepRunID, domain.StepCompleted, map[string]any{
-				"output": req.Payload, "finished_at": now,
-			})
-		}); err != nil {
-			if errors.Is(err, store.ErrEventTriggerConflict) {
-				return nil, huma.Error409Conflict("event trigger is not in waiting state")
-			}
-			return nil, huma.Error500InternalServerError("failed to receive event")
-		}
-		trigger.Status = domain.EventTriggerStatusReceived
-		trigger.ResponsePayload = req.Payload
-		trigger.ReceivedAt = &now
-		if trigger.WorkflowRunID != "" && s.workflowCallback != nil {
-			if err := s.workflowCallback.OnEventReceived(ctx, trigger); err != nil {
-				slog.Error("event received but failed to resume workflow", "event_key", eventKey, "trigger_id", trigger.ID, "error", err)
-			}
-		}
-	} else {
-		if err := s.store.UpdateEventTriggerStatusFrom(ctx, trigger.ID, domain.EventTriggerStatusWaiting, domain.EventTriggerStatusReceived, req.Payload, &now, ""); err != nil {
-			if errors.Is(err, store.ErrEventTriggerConflict) {
-				return nil, huma.Error409Conflict("event trigger is not in waiting state")
-			}
-			return nil, huma.Error500InternalServerError("failed to update event trigger")
-		}
-		trigger.Status = domain.EventTriggerStatusReceived
-		trigger.ResponsePayload = req.Payload
-		trigger.ReceivedAt = &now
-		if err := s.resumeEventSource(ctx, trigger); err != nil {
-			slog.Error("event received but failed to resume execution", "event_key", eventKey, "trigger_id", trigger.ID, "error", err)
-		}
+	if err := s.receiveEventTrigger(ctx, trigger, req.Payload, now, eventKey); err != nil {
+		return nil, err
 	}
-	trigger.Status = domain.EventTriggerStatusReceived
-	trigger.ResponsePayload = req.Payload
-	trigger.ReceivedAt = &now
+
 	sentBy := senderIdentity(ctx)
 	if err := s.store.SetEventTriggerSentBy(ctx, trigger.ID, sentBy); err != nil {
 		slog.Warn("failed to set sent_by", "trigger_id", trigger.ID, "error", err)
@@ -176,6 +146,113 @@ func (s *Server) handleSendEvent(ctx context.Context, input *SendEventInput) (*S
 		"payload_size": len(req.Payload),
 	})
 	return &SendEventOutput{Body: trigger}, nil
+}
+
+func (s *Server) receiveEventTrigger(
+	ctx context.Context,
+	trigger *domain.EventTrigger,
+	payload json.RawMessage,
+	now time.Time,
+	eventKey string,
+) error {
+	switch {
+	case trigger.SourceType == domain.EventSourceJobRun && trigger.JobRunID != "":
+		return s.receiveJobRunEventTrigger(ctx, trigger, payload, now)
+	case trigger.SourceType == domain.EventSourceWorkflowStep && trigger.WorkflowStepRunID != "":
+		return s.receiveWorkflowStepEventTrigger(ctx, trigger, payload, now, eventKey)
+	default:
+		return s.receiveStandaloneEventTrigger(ctx, trigger, payload, now, eventKey)
+	}
+}
+
+func (s *Server) receiveJobRunEventTrigger(
+	ctx context.Context,
+	trigger *domain.EventTrigger,
+	payload json.RawMessage,
+	now time.Time,
+) error {
+	if err := s.store.ReceiveEventAndRequeueRun(ctx, trigger.ID, payload, now, trigger.JobRunID); err != nil {
+		return receiveEventAPIError(err, "failed to receive event")
+	}
+	markEventTriggerReceived(trigger, payload, now)
+	return nil
+}
+
+func (s *Server) receiveWorkflowStepEventTrigger(
+	ctx context.Context,
+	trigger *domain.EventTrigger,
+	payload json.RawMessage,
+	now time.Time,
+	eventKey string,
+) error {
+	err := s.runInTx(ctx, func(txStore APIStore) error {
+		if err := txStore.UpdateEventTriggerStatusFrom(
+			ctx,
+			trigger.ID,
+			domain.EventTriggerStatusWaiting,
+			domain.EventTriggerStatusReceived,
+			payload,
+			&now,
+			"",
+		); err != nil {
+			return fmt.Errorf("update event trigger status: %w", err)
+		}
+		return txStore.UpdateStepRunStatus(ctx, trigger.WorkflowStepRunID, domain.StepCompleted, map[string]any{
+			"output":      payload,
+			"finished_at": now,
+		})
+	})
+	if err != nil {
+		return receiveEventAPIError(err, "failed to receive event")
+	}
+
+	markEventTriggerReceived(trigger, payload, now)
+	if trigger.WorkflowRunID == "" || s.workflowCallback == nil {
+		return nil
+	}
+	if err := s.workflowCallback.OnEventReceived(ctx, trigger); err != nil {
+		slog.Error("event received but failed to resume workflow", "event_key", eventKey, "trigger_id", trigger.ID, "error", err)
+	}
+	return nil
+}
+
+func (s *Server) receiveStandaloneEventTrigger(
+	ctx context.Context,
+	trigger *domain.EventTrigger,
+	payload json.RawMessage,
+	now time.Time,
+	eventKey string,
+) error {
+	if err := s.store.UpdateEventTriggerStatusFrom(
+		ctx,
+		trigger.ID,
+		domain.EventTriggerStatusWaiting,
+		domain.EventTriggerStatusReceived,
+		payload,
+		&now,
+		"",
+	); err != nil {
+		return receiveEventAPIError(err, "failed to update event trigger")
+	}
+
+	markEventTriggerReceived(trigger, payload, now)
+	if err := s.resumeEventSource(ctx, trigger); err != nil {
+		slog.Error("event received but failed to resume execution", "event_key", eventKey, "trigger_id", trigger.ID, "error", err)
+	}
+	return nil
+}
+
+func markEventTriggerReceived(trigger *domain.EventTrigger, payload json.RawMessage, now time.Time) {
+	trigger.Status = domain.EventTriggerStatusReceived
+	trigger.ResponsePayload = payload
+	trigger.ReceivedAt = &now
+}
+
+func receiveEventAPIError(err error, fallback string) error {
+	if errors.Is(err, store.ErrEventTriggerConflict) {
+		return huma.Error409Conflict("event trigger is not in waiting state")
+	}
+	return huma.Error500InternalServerError(fallback)
 }
 
 func (s *Server) resumeEventSource(ctx context.Context, trigger *domain.EventTrigger) error {
@@ -212,14 +289,11 @@ func (s *Server) handleGetEventTrigger(ctx context.Context, input *GetEventTrigg
 	if projectID == "" && !isInternalCaller(ctx) {
 		return nil, huma.Error400BadRequest("project context is required -- authenticate with an API key")
 	}
-	trigger, err := s.store.GetEventTriggerByEventKey(ctx, input.EventKey)
+	trigger, err := s.resolveEventTriggerByKey(ctx, input.EventKey, projectID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to get event trigger")
 	}
 	if trigger == nil {
-		return nil, huma.Error404NotFound("event trigger not found")
-	}
-	if projectID != "" && trigger.ProjectID != projectID {
 		return nil, huma.Error404NotFound("event trigger not found")
 	}
 	if projectID == "" && isInternalCaller(ctx) {
@@ -246,14 +320,11 @@ func (s *Server) handleCancelEventTrigger(ctx context.Context, input *CancelEven
 	if projectID == "" && !isInternalCaller(ctx) {
 		return nil, huma.Error400BadRequest("project context is required -- authenticate with an API key")
 	}
-	trigger, err := s.store.GetEventTriggerByEventKey(ctx, input.EventKey)
+	trigger, err := s.resolveEventTriggerByKey(ctx, input.EventKey, projectID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to get event trigger")
 	}
 	if trigger == nil {
-		return nil, huma.Error404NotFound("event trigger not found")
-	}
-	if projectID != "" && trigger.ProjectID != projectID {
 		return nil, huma.Error404NotFound("event trigger not found")
 	}
 	if projectID == "" && isInternalCaller(ctx) {

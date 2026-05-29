@@ -128,9 +128,7 @@ func makeMessage(ackID, table string, action cdc.Action, record map[string]any) 
 	}
 }
 
-// --------------------------------------------------------------------------
 // Test: Publishing change events via handlers and verifying Redis delivery
-// --------------------------------------------------------------------------.
 
 func TestIntegration_HandlerPublishesToRedis(t *testing.T) {
 	pub := newRedisPublisher(t)
@@ -175,9 +173,7 @@ func TestIntegration_HandlerPublishesToRedis(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------
 // Test: Consumer connects, receives, and dispatches to handlers
-// --------------------------------------------------------------------------.
 
 func TestIntegration_ConsumerReceivesAndDispatches(t *testing.T) {
 	var handled atomic.Int32
@@ -245,9 +241,7 @@ func TestIntegration_ConsumerReceivesAndDispatches(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------
 // Test: Consumer nacks messages when handler returns an error
-// --------------------------------------------------------------------------.
 
 func TestIntegration_ConsumerNacksOnHandlerError(t *testing.T) {
 	var acked sync.Map
@@ -303,9 +297,7 @@ func TestIntegration_ConsumerNacksOnHandlerError(t *testing.T) {
 	_ = consumer.Shutdown(shutdownCtx)
 }
 
-// --------------------------------------------------------------------------
 // Test: Consumer reconnects after server error (simulated connection drop)
-// --------------------------------------------------------------------------.
 
 func TestIntegration_ConsumerReconnectsAfterError(t *testing.T) {
 	var requestCount atomic.Int32
@@ -399,9 +391,7 @@ func TestIntegration_ConsumerReconnectsAfterError(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------
 // Test: Multiple consumers on the same channel via Redis pub/sub fan-out
-// --------------------------------------------------------------------------.
 
 func TestIntegration_MultipleConsumersOnSameChannel(t *testing.T) {
 	pub := newRedisPublisher(t)
@@ -448,9 +438,7 @@ func TestIntegration_MultipleConsumersOnSameChannel(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------
 // Test: High-volume event processing through consumer
-// --------------------------------------------------------------------------.
 
 func TestIntegration_HighVolumeEventProcessing(t *testing.T) {
 	const totalMessages = 200
@@ -520,9 +508,7 @@ func TestIntegration_HighVolumeEventProcessing(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------
 // Test: Event ordering guarantees within a single batch
-// --------------------------------------------------------------------------.
 
 func TestIntegration_EventOrderingWithinBatch(t *testing.T) {
 	var mu sync.Mutex
@@ -608,9 +594,7 @@ func TestIntegration_EventOrderingWithinBatch(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------
 // Test: Batch collect via Consumer with real Redis publisher
-// --------------------------------------------------------------------------.
 
 func TestIntegration_ConsumerBatchCollectPublish(t *testing.T) {
 	pub := newRedisPublisher(t)
@@ -697,9 +681,7 @@ func TestIntegration_ConsumerBatchCollectPublish(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------
 // Test: WebhookReceiver dispatches to handlers with real Redis
-// --------------------------------------------------------------------------.
 
 func TestIntegration_WebhookReceiverPublishesToRedis(t *testing.T) {
 	pub := newRedisPublisher(t)
@@ -751,9 +733,7 @@ func TestIntegration_WebhookReceiverPublishesToRedis(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------
 // Test: Consumer graceful shutdown waits for in-flight work
-// --------------------------------------------------------------------------.
 
 func TestIntegration_ConsumerGracefulShutdown(t *testing.T) {
 	var handled atomic.Int32
@@ -810,9 +790,7 @@ func TestIntegration_ConsumerGracefulShutdown(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------
 // Test: Messages for unregistered tables are acked silently
-// --------------------------------------------------------------------------.
 
 func TestIntegration_UnregisteredTableAckedSilently(t *testing.T) {
 	var acked sync.Map
@@ -866,9 +844,7 @@ func TestIntegration_UnregisteredTableAckedSilently(t *testing.T) {
 	_ = consumer.Shutdown(shutdownCtx)
 }
 
-// --------------------------------------------------------------------------
 // Test: WebhookReceiver with additional handlers
-// --------------------------------------------------------------------------.
 
 func TestIntegration_WebhookReceiverAdditionalHandlers(t *testing.T) {
 	pub := newRedisPublisher(t)
@@ -910,9 +886,7 @@ func TestIntegration_WebhookReceiverAdditionalHandlers(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------
 // Test: Multiple handler types on the same consumer
-// --------------------------------------------------------------------------.
 
 func TestIntegration_MultipleHandlerTypes(t *testing.T) {
 	pub := newRedisPublisher(t)
