@@ -205,11 +205,12 @@ func (q *Queries) GetRun(ctx context.Context, id string) (*domain.JobRun, error)
 	defer span.End()
 
 	query := `
-		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
-		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, is_rollback, replayed_run_id
-		FROM job_runs
-		WHERE id = $1`
+		SELECT jr.id, jr.job_id, jr.project_id, COALESCE(s.status, jr.status), COALESCE(s.attempt, jr.attempt), jr.payload, jr.result, jr.metadata, jr.error, jr.error_class,
+		       jr.triggered_by, COALESCE(s.scheduled_at, jr.scheduled_at), COALESCE(s.started_at, jr.started_at), COALESCE(s.finished_at, jr.finished_at), COALESCE(s.heartbeat_at, jr.heartbeat_at),
+		       COALESCE(s.next_retry_at, jr.next_retry_at), COALESCE(s.expires_at, jr.expires_at), jr.parent_run_id, COALESCE(s.priority, jr.priority), jr.idempotency_key, jr.job_version, jr.created_at, jr.workflow_step_run_id, jr.execution_trace, jr.debug_mode, jr.continuation_of, jr.lineage_depth, jr.tags, jr.job_version_id, jr.created_by, jr.batch_id, COALESCE(NULLIF(s.concurrency_key, ''), jr.concurrency_key), COALESCE(NULLIF(s.execution_mode, ''), jr.execution_mode), jr.is_rollback, jr.replayed_run_id
+		FROM job_runs jr
+		LEFT JOIN job_run_state s ON s.run_id = jr.id
+		WHERE jr.id = $1`
 
 	run, err := dbscan.ScanRun(q.db.QueryRow(ctx, query, id))
 	if err != nil {
@@ -234,11 +235,12 @@ func (q *Queries) GetRunWithCacheVersion(ctx context.Context, id string) (*domai
 	defer span.End()
 
 	query := `
-		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
-		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, is_rollback, replayed_run_id, cache_version
-		FROM job_runs
-		WHERE id = $1`
+		SELECT jr.id, jr.job_id, jr.project_id, COALESCE(s.status, jr.status), COALESCE(s.attempt, jr.attempt), jr.payload, jr.result, jr.metadata, jr.error, jr.error_class,
+		       jr.triggered_by, COALESCE(s.scheduled_at, jr.scheduled_at), COALESCE(s.started_at, jr.started_at), COALESCE(s.finished_at, jr.finished_at), COALESCE(s.heartbeat_at, jr.heartbeat_at),
+		       COALESCE(s.next_retry_at, jr.next_retry_at), COALESCE(s.expires_at, jr.expires_at), jr.parent_run_id, COALESCE(s.priority, jr.priority), jr.idempotency_key, jr.job_version, jr.created_at, jr.workflow_step_run_id, jr.execution_trace, jr.debug_mode, jr.continuation_of, jr.lineage_depth, jr.tags, jr.job_version_id, jr.created_by, jr.batch_id, COALESCE(NULLIF(s.concurrency_key, ''), jr.concurrency_key), COALESCE(NULLIF(s.execution_mode, ''), jr.execution_mode), jr.is_rollback, jr.replayed_run_id, jr.cache_version
+		FROM job_runs jr
+		LEFT JOIN job_run_state s ON s.run_id = jr.id
+		WHERE jr.id = $1`
 
 	run, err := dbscan.ScanRunWithCacheVersion(q.db.QueryRow(ctx, query, id))
 	if err != nil {
@@ -1719,6 +1721,13 @@ func (q *Queries) UpdateRunStatus(ctx context.Context, id string, from, to domai
 	}
 
 	if tag.RowsAffected() == 0 {
+		updatedState, stateErr := q.tryUpdateRunStateStatus(ctx, id, from, to, fields, nil)
+		if stateErr != nil {
+			return stateErr
+		}
+		if updatedState {
+			return nil
+		}
 		var currentStatus domain.RunStatus
 		err := q.db.QueryRow(ctx, "SELECT status FROM job_runs WHERE id = $1", id).Scan(&currentStatus)
 		if err != nil {
@@ -1730,6 +1739,163 @@ func (q *Queries) UpdateRunStatus(ctx context.Context, id string, from, to domai
 		return fmt.Errorf("%w: id %s from %s", ErrRunConflict, id, from)
 	}
 
+	return nil
+}
+
+func (q *Queries) tryUpdateRunStateStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any, attempt *int) (bool, error) {
+	stateColumns := map[string]struct{}{
+		"attempt":         {},
+		"scheduled_at":    {},
+		"started_at":      {},
+		"finished_at":     {},
+		"heartbeat_at":    {},
+		"next_retry_at":   {},
+		"expires_at":      {},
+		"priority":        {},
+		"concurrency_key": {},
+		"execution_mode":  {},
+	}
+	ledgerColumns := map[string]struct{}{
+		"result":          {},
+		"error":           {},
+		"error_class":     {},
+		"execution_trace": {},
+		"metadata":        {},
+	}
+
+	stateSet := []string{"status = $1", "updated_at = NOW()"}
+	stateArgs := []any{to, id, from}
+	stateParam := 4
+	ledgerFields := make(map[string]any)
+
+	keys := lo.Keys(fields)
+	sort.Strings(keys)
+	for _, key := range keys {
+		value := fields[key]
+		if _, ok := stateColumns[key]; ok {
+			if key == "concurrency_key" || key == "execution_mode" {
+				if text, ok := value.(string); ok {
+					value = dbscan.NilIfEmptyString(text)
+				}
+			}
+			stateSet = append(stateSet, fmt.Sprintf("%s = $%d", key, stateParam))
+			stateArgs = append(stateArgs, value)
+			stateParam++
+			continue
+		}
+		if _, ok := ledgerColumns[key]; ok {
+			ledgerFields[key] = value
+		}
+	}
+
+	var query string
+	if attempt != nil {
+		query = fmt.Sprintf("UPDATE job_run_state SET %s WHERE run_id = $2 AND status = $3 AND attempt = $%d", strings.Join(stateSet, ", "), stateParam)
+		stateArgs = append(stateArgs, *attempt)
+	} else {
+		query = fmt.Sprintf("UPDATE job_run_state SET %s WHERE run_id = $2 AND status = $3", strings.Join(stateSet, ", "))
+	}
+	tag, err := q.db.Exec(ctx, query, stateArgs...)
+	if err != nil {
+		return false, fmt.Errorf("update run state status: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return false, nil
+	}
+
+	if err := q.appendRunLifecycleEvent(ctx, id, from, to, fields, attempt); err != nil {
+		return false, err
+	}
+	if len(ledgerFields) > 0 {
+		if err := q.updateRunLedgerFields(ctx, id, ledgerFields); err != nil {
+			return false, err
+		}
+	}
+	return true, nil
+}
+
+func (q *Queries) appendRunLifecycleEvent(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any, attempt *int) error {
+	eventFields, err := json.Marshal(fields)
+	if err != nil {
+		return fmt.Errorf("marshal run lifecycle fields: %w", err)
+	}
+	attemptValue := 0
+	if attempt != nil {
+		attemptValue = *attempt
+	} else {
+		_ = q.db.QueryRow(ctx, `SELECT attempt FROM job_run_state WHERE run_id = $1`, id).Scan(&attemptValue)
+	}
+	if attemptValue <= 0 {
+		attemptValue = 1
+	}
+	if _, err := q.db.Exec(ctx, `
+		INSERT INTO job_run_lifecycle_events (run_id, from_status, to_status, attempt, fields)
+		VALUES ($1, $2, $3, $4, $5::jsonb)`,
+		id, from, to, attemptValue, eventFields,
+	); err != nil {
+		return fmt.Errorf("append run lifecycle event: %w", err)
+	}
+	return nil
+}
+
+func (q *Queries) updateRunLedgerFields(ctx context.Context, id string, fields map[string]any) error {
+	setClauses := make([]string, 0, len(fields))
+	args := []any{id}
+	param := 2
+	keys := lo.Keys(fields)
+	sort.Strings(keys)
+	for _, key := range keys {
+		value := fields[key]
+		if raw, ok := value.(json.RawMessage); ok {
+			value = dbscan.NilIfEmptyRawMessage(raw)
+		}
+		if key == "metadata" {
+			if m, ok := value.(map[string]string); ok {
+				encoded, err := json.Marshal(m)
+				if err != nil {
+					return fmt.Errorf("marshal metadata: %w", err)
+				}
+				setClauses = append(setClauses, fmt.Sprintf("metadata = COALESCE(metadata, '{}'::jsonb) || $%d::jsonb", param))
+				args = append(args, encoded)
+				param++
+				continue
+			}
+		}
+		if key == "execution_trace" {
+			switch trace := value.(type) {
+			case *domain.ExecutionTrace:
+				if trace == nil {
+					value = nil
+				} else {
+					encoded, err := json.Marshal(trace)
+					if err != nil {
+						return fmt.Errorf("marshal execution trace: %w", err)
+					}
+					value = dbscan.NilIfEmptyRawMessage(encoded)
+				}
+			case domain.ExecutionTrace:
+				encoded, err := json.Marshal(trace)
+				if err != nil {
+					return fmt.Errorf("marshal execution trace: %w", err)
+				}
+				value = dbscan.NilIfEmptyRawMessage(encoded)
+			}
+		}
+		if key == "error" {
+			if text, ok := value.(string); ok {
+				value = dbscan.NilIfEmptyString(text)
+			}
+		}
+		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", key, param))
+		args = append(args, value)
+		param++
+	}
+	if len(setClauses) == 0 {
+		return nil
+	}
+	if _, err := q.db.Exec(ctx, fmt.Sprintf("UPDATE job_runs SET %s WHERE id = $1", strings.Join(setClauses, ", ")), args...); err != nil {
+		return fmt.Errorf("update run ledger fields: %w", err)
+	}
 	return nil
 }
 
@@ -1838,6 +2004,13 @@ func (q *Queries) UpdateRunStatusForActiveRun(ctx context.Context, id string, fr
 	}
 
 	if tag.RowsAffected() == 0 {
+		updatedState, stateErr := q.tryUpdateRunStateStatus(ctx, id, from, to, fields, &attempt)
+		if stateErr != nil {
+			return stateErr
+		}
+		if updatedState {
+			return nil
+		}
 		var currentStatus domain.RunStatus
 		var currentAttempt int
 		err := q.db.QueryRow(ctx, "SELECT status, attempt FROM job_runs WHERE id = $1", id).Scan(&currentStatus, &currentAttempt)

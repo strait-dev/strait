@@ -64,9 +64,9 @@ type pgQueMessage struct {
 	Extra4     *string
 }
 
-const pgQueDequeueColumns = `jr.id, jr.job_id, jr.project_id, jr.status, jr.attempt, jr.payload, jr.result, jr.metadata, jr.error, jr.error_class,
-		          jr.triggered_by, jr.scheduled_at, jr.started_at, jr.finished_at, jr.heartbeat_at,
-		          jr.next_retry_at, jr.expires_at, jr.parent_run_id, jr.priority, jr.idempotency_key, jr.job_version, jr.created_at, jr.workflow_step_run_id, jr.execution_trace, jr.debug_mode, jr.continuation_of, jr.lineage_depth, jr.tags, jr.job_version_id, jr.created_by, jr.batch_id, jr.concurrency_key, jr.execution_mode, jr.is_rollback, jr.replayed_run_id`
+const pgQueClaimDequeueColumns = `jr.id, jr.job_id, jr.project_id, u.status, u.attempt, jr.payload, jr.result, jr.metadata, jr.error, jr.error_class,
+		          jr.triggered_by, u.scheduled_at, u.started_at, u.finished_at, u.heartbeat_at,
+		          u.next_retry_at, u.expires_at, jr.parent_run_id, u.priority, jr.idempotency_key, jr.job_version, jr.created_at, jr.workflow_step_run_id, jr.execution_trace, jr.debug_mode, jr.continuation_of, jr.lineage_depth, jr.tags, jr.job_version_id, jr.created_by, jr.batch_id, u.concurrency_key, u.execution_mode, jr.is_rollback, jr.replayed_run_id`
 
 func NewPgQueQueue(db store.DBTX, legacy *PostgresQueue, cfg PgQueConfig) *PgQueQueue {
 	if legacy == nil {
@@ -362,32 +362,51 @@ func (q *PgQueQueue) claimRuns(ctx context.Context, ids []string, limit int, pro
 			FROM unnest($1::text[]) WITH ORDINALITY AS u(id, ord)
 		),
 		candidates AS (
-			SELECT jr.id,
+			SELECT s.run_id,
 			       input.ord,
-			       jr.priority AS claim_priority,
+			       s.priority AS claim_priority,
 			       jr.created_at AS claim_created_at
 			FROM input
-			JOIN job_runs jr ON jr.id = input.id
-			WHERE jr.status = $3
-			  AND ($4::text = '' OR jr.project_id = $4)
-			  AND COALESCE(jr.job_enabled, true) = true
-			  AND COALESCE(jr.job_paused, false) = false
-			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
-			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
-			ORDER BY jr.priority DESC, jr.created_at ASC, input.ord
-			FOR UPDATE OF jr SKIP LOCKED
+			JOIN job_run_state s ON s.run_id = input.id
+			JOIN job_runs jr ON jr.id = s.run_id
+			WHERE s.status = $3
+			  AND ($4::text = '' OR s.project_id = $4)
+			  AND COALESCE(s.job_enabled, true) = true
+			  AND COALESCE(s.job_paused, false) = false
+			  AND (s.scheduled_at IS NULL OR s.scheduled_at <= NOW())
+			  AND (s.next_retry_at IS NULL OR s.next_retry_at <= NOW())
+			ORDER BY s.priority DESC, jr.created_at ASC, input.ord
+			FOR UPDATE OF s SKIP LOCKED
 			LIMIT $2
 		),
-		updated AS (
-			UPDATE job_runs jr
-			SET status = $5, started_at = NOW()
+		updated_state AS (
+			UPDATE job_run_state s
+			SET status = $5,
+			    started_at = NOW(),
+			    updated_at = NOW()
 			FROM candidates
-			WHERE jr.id = candidates.id
-			RETURNING %s, candidates.claim_priority, candidates.claim_created_at, candidates.ord
+			WHERE s.run_id = candidates.run_id
+			RETURNING s.run_id,
+			          s.status,
+			          s.attempt,
+			          s.scheduled_at,
+			          s.started_at,
+			          s.finished_at,
+			          s.heartbeat_at,
+			          s.next_retry_at,
+			          s.expires_at,
+			          s.priority,
+			          s.concurrency_key,
+			          s.execution_mode,
+			          candidates.claim_priority,
+			          candidates.claim_created_at,
+			          candidates.ord
 		)
-		SELECT %s FROM updated ORDER BY claim_priority DESC, claim_created_at ASC, ord`,
-		pgQueDequeueColumns,
-		dequeueColumns,
+		SELECT %s
+		FROM updated_state u
+		JOIN job_runs jr ON jr.id = u.run_id
+		ORDER BY u.claim_priority DESC, u.claim_created_at ASC, u.ord`,
+		pgQueClaimDequeueColumns,
 	), ids, limit, domain.StatusQueued, projectID, domain.StatusDequeued)
 	if err != nil {
 		return nil, fmt.Errorf("pgque claim runs: %w", err)

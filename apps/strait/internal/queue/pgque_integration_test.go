@@ -94,3 +94,54 @@ func TestPgQue_CreatesRouteIdempotently(t *testing.T) {
 		t.Fatalf("pgque queue rows = %d, want 1", queueRows)
 	}
 }
+
+func TestPgQue_ClaimUsesRunStateNotFatLedger(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-pgque-state-claim")
+	q := mustPgQueQueue(t)
+
+	run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	if err := q.ForceTick(ctx, "http"); err != nil {
+		t.Fatalf("ForceTick: %v", err)
+	}
+	claimed, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("DequeueN: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].Status != domain.StatusDequeued {
+		t.Fatalf("claimed = %+v, want one dequeued run", claimed)
+	}
+
+	var ledgerStatus, stateStatus string
+	if err := testDB.Pool.QueryRow(ctx, `SELECT status FROM job_runs WHERE id = $1`, run.ID).Scan(&ledgerStatus); err != nil {
+		t.Fatalf("ledger status: %v", err)
+	}
+	if err := testDB.Pool.QueryRow(ctx, `SELECT status FROM job_run_state WHERE run_id = $1`, run.ID).Scan(&stateStatus); err != nil {
+		t.Fatalf("state status: %v", err)
+	}
+	if ledgerStatus != string(domain.StatusQueued) {
+		t.Fatalf("ledger status = %q, want queued to avoid fat-row claim churn", ledgerStatus)
+	}
+	if stateStatus != string(domain.StatusDequeued) {
+		t.Fatalf("state status = %q, want dequeued", stateStatus)
+	}
+
+	if err := st.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
+		"started_at": time.Now(),
+	}); err != nil {
+		t.Fatalf("UpdateRunStatus via state: %v", err)
+	}
+	got, err := st.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if got.Status != domain.StatusExecuting {
+		t.Fatalf("GetRun status = %q, want executing from job_run_state", got.Status)
+	}
+}
