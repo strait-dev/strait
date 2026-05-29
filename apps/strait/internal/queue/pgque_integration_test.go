@@ -145,3 +145,97 @@ func TestPgQue_ClaimUsesRunStateNotFatLedger(t *testing.T) {
 		t.Fatalf("GetRun status = %q, want executing from job_run_state", got.Status)
 	}
 }
+
+func TestPgQue_StaleGenerationEventIsIgnored(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-pgque-stale-generation")
+	q := mustPgQueQueue(t)
+
+	run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE job_run_state SET ready_generation = ready_generation + 1 WHERE run_id = $1`, run.ID); err != nil {
+		t.Fatalf("bump ready generation: %v", err)
+	}
+
+	claimed, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("DequeueN: %v", err)
+	}
+	if len(claimed) != 0 {
+		t.Fatalf("claimed stale generation event = %+v, want none", claimed)
+	}
+}
+
+func TestPgQue_DequeueNForWorkerQueuesFiltersByEnvironment(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	projectID := "project-pgque-worker-env"
+	prodEnvID := mustCreateEnvironment(t, ctx, st, projectID, "production")
+	stagingEnvID := mustCreateEnvironment(t, ctx, st, projectID, "staging")
+	prodJob := mustCreateJob(t, ctx, st, projectID)
+	markWorkerJobQueueEnvironment(t, ctx, prodJob, "priority", prodEnvID)
+	stagingJob := mustCreateJob(t, ctx, st, projectID)
+	markWorkerJobQueueEnvironment(t, ctx, stagingJob, "priority", stagingEnvID)
+	q := mustPgQueQueue(t)
+
+	prodRun := &domain.JobRun{ID: newID(), JobID: prodJob.ID, ProjectID: projectID, ExecutionMode: domain.ExecutionModeWorker, QueueName: "priority"}
+	if err := q.Enqueue(ctx, prodRun); err != nil {
+		t.Fatalf("enqueue prod: %v", err)
+	}
+	stagingRun := &domain.JobRun{ID: newID(), JobID: stagingJob.ID, ProjectID: projectID, ExecutionMode: domain.ExecutionModeWorker, QueueName: "priority"}
+	if err := q.Enqueue(ctx, stagingRun); err != nil {
+		t.Fatalf("enqueue staging: %v", err)
+	}
+
+	stagingBatch, err := q.DequeueNForWorkerQueues(ctx, 1, []domain.WorkerQueueRef{{ProjectID: projectID, QueueName: "priority", EnvironmentID: stagingEnvID}})
+	if err != nil {
+		t.Fatalf("DequeueNForWorkerQueues(staging): %v", err)
+	}
+	if len(stagingBatch) != 1 || stagingBatch[0].ID != stagingRun.ID {
+		t.Fatalf("staging batch = %+v, want staging run %s", stagingBatch, stagingRun.ID)
+	}
+	prodBatch, err := q.DequeueNForWorkerQueues(ctx, 1, []domain.WorkerQueueRef{{ProjectID: projectID, QueueName: "priority", EnvironmentID: prodEnvID}})
+	if err != nil {
+		t.Fatalf("DequeueNForWorkerQueues(prod): %v", err)
+	}
+	if len(prodBatch) != 1 || prodBatch[0].ID != prodRun.ID {
+		t.Fatalf("prod batch = %+v, want prod run %s", prodBatch, prodRun.ID)
+	}
+}
+
+func TestPgQue_MaxConcurrencyEnforcedFromRunState(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-pgque-concurrency")
+	q := mustPgQueQueue(t)
+
+	runs := []*domain.JobRun{
+		{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID},
+		{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID},
+	}
+	for _, run := range runs {
+		if err := q.Enqueue(ctx, run); err != nil {
+			t.Fatalf("Enqueue: %v", err)
+		}
+	}
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE job_run_state SET job_max_concurrency = 1 WHERE job_id = $1`, job.ID); err != nil {
+		t.Fatalf("set max concurrency: %v", err)
+	}
+
+	claimed, err := q.DequeueN(ctx, 2)
+	if err != nil {
+		t.Fatalf("DequeueN: %v", err)
+	}
+	if len(claimed) != 1 {
+		t.Fatalf("claimed %d runs, want 1 due to max concurrency: %+v", len(claimed), claimed)
+	}
+}
