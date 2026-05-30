@@ -110,6 +110,60 @@ func (o SingletonOutcome) IsValid() bool {
 	}
 }
 
+// CronSingletonKey is the constant lock key used when a legacy cron overlap
+// policy is expressed as a singleton. The lock owner_id already namespaces per
+// job, so a fixed literal acts as a per-job global mutex (one active cron run at
+// a time), which is exactly the legacy skip / cancel_running semantics.
+const CronSingletonKey = "__cron_overlap__"
+
+// cronSingletonKeyExpr is the resolved key-expression envelope for the constant
+// cron overlap key, derived from CronSingletonKey so the two never drift.
+var cronSingletonKeyExpr = json.RawMessage(fmt.Sprintf(`{"template":%q}`, CronSingletonKey))
+
+// EffectiveCronSingleton is the singleton policy that governs a cron fire for a
+// job after unifying explicit singleton config with the legacy
+// cron_overlap_policy. Configured is false for a plain (allow) enqueue.
+type EffectiveCronSingleton struct {
+	Configured    bool
+	OnConflict    SingletonOnConflict
+	KeyExpr       json.RawMessage
+	MaxQueueDepth *int
+	// LegacyOverridden is true when explicit singleton config supersedes a
+	// non-allow cron_overlap_policy set on the same job, so callers can emit a
+	// one-time deprecation signal.
+	LegacyOverridden bool
+}
+
+// EffectiveJobCronSingleton resolves the unified singleton policy for a cron
+// fire. Explicit singleton config wins; otherwise a non-allow overlap policy is
+// mapped to a constant-key singleton (skip -> drop, cancel_running -> replace).
+// This is what lets cron-fired jobs honor their singleton config and routes the
+// legacy overlap policies through the same lock table as direct triggers.
+func EffectiveJobCronSingleton(job *Job) EffectiveCronSingleton {
+	if job.SingletonOnConflict != "" {
+		eff := EffectiveCronSingleton{
+			Configured:    true,
+			OnConflict:    job.SingletonOnConflict,
+			KeyExpr:       job.SingletonKeyExpr,
+			MaxQueueDepth: job.SingletonMaxQueueDepth,
+			LegacyOverridden: job.CronOverlapPolicy == OverlapPolicySkip ||
+				job.CronOverlapPolicy == OverlapPolicyCancelRunning,
+		}
+		return eff
+	}
+	switch job.CronOverlapPolicy {
+	case OverlapPolicySkip:
+		return EffectiveCronSingleton{Configured: true, OnConflict: SingletonOnConflictDrop, KeyExpr: cronSingletonKeyExpr}
+	case OverlapPolicyCancelRunning:
+		return EffectiveCronSingleton{Configured: true, OnConflict: SingletonOnConflictReplace, KeyExpr: cronSingletonKeyExpr}
+	case OverlapPolicyAllow:
+		return EffectiveCronSingleton{Configured: false}
+	default:
+		// Unknown/empty policy: treat as allow (plain enqueue) for forward compat.
+		return EffectiveCronSingleton{Configured: false}
+	}
+}
+
 // SingletonKeyExpr is the JSONB envelope describing how a run's singleton key is
 // resolved at trigger time. The template supports ${dot.path} interpolation
 // against the trigger payload (resolved by ResolveSingletonKey). A template with

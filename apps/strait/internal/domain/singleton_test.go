@@ -264,3 +264,87 @@ func FuzzSingletonKeyExprUnmarshal(f *testing.F) {
 		}
 	})
 }
+
+func TestEffectiveJobCronSingleton(t *testing.T) {
+	depth := 5
+	keyExpr := json.RawMessage(`{"template":"${tenant}"}`)
+
+	t.Run("explicit config wins and resolves from its own template", func(t *testing.T) {
+		eff := EffectiveJobCronSingleton(&Job{
+			SingletonOnConflict:    SingletonOnConflictQueue,
+			SingletonKeyExpr:       keyExpr,
+			SingletonMaxQueueDepth: &depth,
+		})
+		if !eff.Configured || eff.OnConflict != SingletonOnConflictQueue {
+			t.Fatalf("expected configured queue, got %+v", eff)
+		}
+		if string(eff.KeyExpr) != string(keyExpr) {
+			t.Fatalf("expected explicit key expr, got %s", eff.KeyExpr)
+		}
+		if eff.MaxQueueDepth == nil || *eff.MaxQueueDepth != depth {
+			t.Fatalf("expected max queue depth %d, got %v", depth, eff.MaxQueueDepth)
+		}
+		if eff.LegacyOverridden {
+			t.Fatal("no legacy overlap policy set; LegacyOverridden must be false")
+		}
+	})
+
+	t.Run("explicit config flags LegacyOverridden when overlap policy also set", func(t *testing.T) {
+		for _, policy := range []CronOverlapPolicy{OverlapPolicySkip, OverlapPolicyCancelRunning} {
+			eff := EffectiveJobCronSingleton(&Job{
+				SingletonOnConflict: SingletonOnConflictDrop,
+				SingletonKeyExpr:    keyExpr,
+				CronOverlapPolicy:   policy,
+			})
+			if !eff.LegacyOverridden {
+				t.Fatalf("policy %q with explicit config must flag LegacyOverridden", policy)
+			}
+			if eff.OnConflict != SingletonOnConflictDrop {
+				t.Fatalf("explicit config must win over legacy %q", policy)
+			}
+		}
+	})
+
+	t.Run("skip maps to a constant-key drop singleton", func(t *testing.T) {
+		eff := EffectiveJobCronSingleton(&Job{CronOverlapPolicy: OverlapPolicySkip})
+		if !eff.Configured || eff.OnConflict != SingletonOnConflictDrop {
+			t.Fatalf("skip should map to drop, got %+v", eff)
+		}
+		assertConstantCronKey(t, eff.KeyExpr)
+	})
+
+	t.Run("cancel_running maps to a constant-key replace singleton", func(t *testing.T) {
+		eff := EffectiveJobCronSingleton(&Job{CronOverlapPolicy: OverlapPolicyCancelRunning})
+		if !eff.Configured || eff.OnConflict != SingletonOnConflictReplace {
+			t.Fatalf("cancel_running should map to replace, got %+v", eff)
+		}
+		assertConstantCronKey(t, eff.KeyExpr)
+	})
+
+	t.Run("allow and unset are not singletons", func(t *testing.T) {
+		for _, policy := range []CronOverlapPolicy{OverlapPolicyAllow, ""} {
+			eff := EffectiveJobCronSingleton(&Job{CronOverlapPolicy: policy})
+			if eff.Configured {
+				t.Fatalf("policy %q must not be a singleton", policy)
+			}
+		}
+	})
+}
+
+// assertConstantCronKey verifies the synthesized cron overlap key expression
+// resolves to CronSingletonKey without any payload, which is what makes it a
+// per-job global mutex for scheduled fires.
+func assertConstantCronKey(t *testing.T, keyExpr json.RawMessage) {
+	t.Helper()
+	expr, err := ParseSingletonKeyExpr(keyExpr)
+	if err != nil {
+		t.Fatalf("parse synthesized key expr: %v", err)
+	}
+	key, err := ResolveSingletonKey(expr, nil)
+	if err != nil {
+		t.Fatalf("resolve synthesized key under nil payload: %v", err)
+	}
+	if key != CronSingletonKey {
+		t.Fatalf("synthesized key = %q, want %q", key, CronSingletonKey)
+	}
+}
