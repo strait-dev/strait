@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"time"
 
 	"strait/internal/domain"
@@ -13,7 +12,6 @@ import (
 
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
-	otelTrace "go.opentelemetry.io/otel/trace"
 )
 
 var (
@@ -155,12 +153,7 @@ func (e *WorkflowEngine) ContinueWorkflowRunAsNew(
 
 	// 4. Build the successor run and its fresh step runs. Tags carry across the
 	//    chain: workflow tags first, then predecessor run tags overlaid.
-	var runTags map[string]string
-	if len(wf.Tags) > 0 || len(pred.Tags) > 0 {
-		runTags = make(map[string]string, len(wf.Tags)+len(pred.Tags))
-		maps.Copy(runTags, wf.Tags)
-		maps.Copy(runTags, pred.Tags)
-	}
+	runTags := workflowRunTags(wf.Tags, pred.Tags)
 
 	// A single wall-clock reading anchors the successor's start, its expiry, and
 	// the predecessor's finished_at so expires_at == started_at + timeout exactly.
@@ -179,7 +172,7 @@ func (e *WorkflowEngine) ContinueWorkflowRunAsNew(
 		Payload:                    input,
 		ContinuedFromWorkflowRunID: pred.ID,
 		LineageDepth:               nextDepth,
-		TraceContext:               currentTraceContext(ctx),
+		TraceContext:               workflowTraceContext(ctx),
 	}
 	if timeoutSecs > 0 {
 		expiresAt := now.Add(time.Duration(timeoutSecs) * time.Second)
@@ -240,23 +233,4 @@ func (e *WorkflowEngine) ContinueWorkflowRunAsNew(
 	}
 
 	return successor, nil
-}
-
-// currentTraceContext extracts the W3C trace context from the active OTel span
-// for propagation onto a new workflow run, mirroring the trigger path.
-func currentTraceContext(ctx context.Context) map[string]string {
-	spanCtx := otelTrace.SpanContextFromContext(ctx)
-	if !spanCtx.IsValid() {
-		return nil
-	}
-	traceCtx := map[string]string{
-		"traceparent": fmt.Sprintf("00-%s-%s-%s", spanCtx.TraceID(), spanCtx.SpanID(), spanCtx.TraceFlags()),
-	}
-	if spanCtx.TraceState().Len() > 0 {
-		ts := spanCtx.TraceState().String()
-		if len(ts) <= 512 {
-			traceCtx["tracestate"] = ts
-		}
-	}
-	return traceCtx
 }
