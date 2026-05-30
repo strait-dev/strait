@@ -1,4 +1,4 @@
--- Validate the singleton on-conflict CHECK constraints added NOT VALID in 000288.
+-- Validate the singleton on-conflict CHECK constraints added NOT VALID in 000310.
 -- Running VALIDATE in its own migration (a separate transaction from the ADD)
 -- means it takes only a SHARE UPDATE EXCLUSIVE lock, so the validating scan of
 -- jobs/workflows does not block concurrent reads or writes. Both constraints

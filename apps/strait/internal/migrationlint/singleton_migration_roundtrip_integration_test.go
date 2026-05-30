@@ -15,9 +15,9 @@ import (
 	"strait/internal/testutil"
 )
 
-// Focused down/up round-trip for the singleton migrations (000288 lock table +
-// NOT VALID constraints + job_runs waiter index, 000289 VALIDATE CONSTRAINT,
-// 000290 CONCURRENTLY workflow_runs waiter index).
+// Focused down/up round-trip for the singleton migrations (000310 lock table +
+// NOT VALID constraints + job_runs waiter index, 000311 VALIDATE CONSTRAINT,
+// 000312 CONCURRENTLY workflow_runs waiter index).
 //
 // The full TestMigrationDrill_UpDownUp skips in the isolated integration DB
 // because rolling all the way to zero hits 000176's dependency on the shared
@@ -45,7 +45,7 @@ func TestSingletonMigrations_DownUpRoundTrip(t *testing.T) {
 	}
 	defer func() { _, _ = m.Close() }()
 
-	// Roll back the three singleton migrations (290, 289, 288).
+	// Roll back the three singleton migrations (312, 311, 310).
 	if err := m.Steps(-3); err != nil {
 		t.Fatalf("steps down: %v", err)
 	}
@@ -90,8 +90,8 @@ func assertSingletonObjects(ctx context.Context, t *testing.T, tdb *testutil.Tes
 		}
 	}
 
-	// When the objects exist, the constraint must be VALID (000289), not just
-	// created NOT VALID by 000288.
+	// When the objects exist, the constraint must be VALID (000311), not just
+	// created NOT VALID by 000310.
 	if want {
 		var validated bool
 		if err := tdb.Pool.QueryRow(ctx, `
@@ -100,7 +100,7 @@ func assertSingletonObjects(ctx context.Context, t *testing.T, tdb *testutil.Tes
 			t.Fatalf("constraint validated probe: %v", err)
 		}
 		if !validated {
-			t.Error("jobs_singleton_on_conflict_check is NOT VALID; 000289 VALIDATE did not run")
+			t.Error("jobs_singleton_on_conflict_check is NOT VALID; 000311 VALIDATE did not run")
 		}
 	}
 }

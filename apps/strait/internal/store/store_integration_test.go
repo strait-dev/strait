@@ -11762,7 +11762,7 @@ func TestAdvisoryLockXactLockWithinTransaction(t *testing.T) {
 }
 
 // TestPerfIndexes_ExistAfterMigration guards the partial indexes added in
-// migrations 000292-000294 against accidental removal. Each backs a hot
+// migrations 000305-000307 against accidental removal. Each backs a hot
 // scheduler/reaper/version query (ListCronJobs, ListOrphanedStepRuns,
 // CountActiveWorkflowRunsByVersion/ListActiveWorkflowVersions) and must be
 // present once the migration set has applied.

@@ -31,7 +31,7 @@ ALTER TABLE jobs
 -- NOT VALID skips the validating scan, so ADD CONSTRAINT only holds its brief
 -- ACCESS EXCLUSIVE lock for the catalog change. The constraint is enforced for
 -- all new and updated rows immediately; existing rows are checked separately by
--- VALIDATE CONSTRAINT in 000289 under a weaker SHARE UPDATE EXCLUSIVE lock.
+-- VALIDATE CONSTRAINT in 000311 under a weaker SHARE UPDATE EXCLUSIVE lock.
 ALTER TABLE jobs
     ADD CONSTRAINT jobs_singleton_on_conflict_check
     CHECK (singleton_on_conflict IS NULL OR singleton_on_conflict IN ('queue', 'drop', 'replace'))
@@ -48,7 +48,7 @@ ALTER TABLE workflows
     ADD COLUMN IF NOT EXISTS singleton_on_conflict TEXT,
     ADD COLUMN IF NOT EXISTS singleton_max_queue_depth INT;
 
--- See the jobs constraint above: NOT VALID here, validated in 000289.
+-- See the jobs constraint above: NOT VALID here, validated in 000311.
 ALTER TABLE workflows
     ADD CONSTRAINT workflows_singleton_on_conflict_check
     CHECK (singleton_on_conflict IS NULL OR singleton_on_conflict IN ('queue', 'drop', 'replace'))
