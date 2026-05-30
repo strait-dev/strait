@@ -41,6 +41,19 @@ type WorkflowRun = {
   triggered_by?: string;
   workflow_version?: number;
   created_at?: string;
+  continued_from_workflow_run_id?: string;
+  continued_to_workflow_run_id?: string;
+  lineage_depth?: number;
+};
+
+type WorkflowRunChainEntry = {
+  id: string;
+  lineage_depth: number;
+  status: string;
+  triggered_by?: string;
+  started_at?: string;
+  finished_at?: string;
+  created_at?: string;
 };
 
 type WorkflowStepRun = {
@@ -725,6 +738,35 @@ export class ApiHelper {
 
   cancelWorkflowRun(id: string) {
     return this.request("DELETE", `/v1/workflow-runs/${id}`);
+  }
+
+  continueWorkflowRunAsNew(
+    id: string,
+    data?: { input?: unknown; versionStrategy?: "repin" | "latest" }
+  ) {
+    return this.request<WorkflowRun>(
+      "POST",
+      `/v1/workflow-runs/${id}/continue-as-new`,
+      { input: data?.input, versionStrategy: data?.versionStrategy }
+    );
+  }
+
+  getWorkflowRunChain(
+    id: string,
+    params?: { limit?: number; cursor?: string }
+  ) {
+    const query = new URLSearchParams();
+    if (params?.limit) {
+      query.set("limit", String(params.limit));
+    }
+    if (params?.cursor) {
+      query.set("cursor", params.cursor);
+    }
+    const qs = query.toString();
+    return this.request<{ data: WorkflowRunChainEntry[] }>(
+      "GET",
+      `/v1/workflow-runs/${id}/chain${qs ? `?${qs}` : ""}`
+    );
   }
 
   listWorkflowStepRuns(workflowRunId: string, params?: { limit?: number }) {

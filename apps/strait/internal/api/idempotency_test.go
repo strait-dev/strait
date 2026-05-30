@@ -2484,6 +2484,10 @@ func (m *mockWorkflowEngineForIdem) RetryWorkflowRun(_ context.Context, _ string
 	return nil, nil
 }
 
+func (m *mockWorkflowEngineForIdem) ContinueWorkflowRunAsNew(_ context.Context, _ string, _ json.RawMessage, _ domain.ContinueVersionStrategy) (*domain.WorkflowRun, error) {
+	return nil, nil
+}
+
 func newTestServerWithWorkflowEngine(t *testing.T, s APIStore, q *mockQueue, wf WorkflowTrigger) *Server {
 	t.Helper()
 	cfg := &config.Config{

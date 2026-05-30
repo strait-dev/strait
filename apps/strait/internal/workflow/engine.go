@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/store"
 	"strait/internal/telemetry"
 
 	"github.com/google/uuid"
@@ -27,14 +28,15 @@ const DefaultMaxNestingDepth = 10
 type EventTriggerNotifyFunc func(trigger *domain.EventTrigger)
 
 type WorkflowEngine struct {
-	store           EngineStore
-	queue           EngineQueue
-	logger          *slog.Logger
-	maxNestingDepth int
-	onTriggerCreate EventTriggerNotifyFunc
-	metrics         *telemetry.Metrics
-	runInTx         func(ctx context.Context, fn func(s EngineStore) error) error
-	stepsCache      *workflowStepsVersionCache
+	store            EngineStore
+	queue            EngineQueue
+	logger           *slog.Logger
+	maxNestingDepth  int
+	maxContinueDepth int
+	onTriggerCreate  EventTriggerNotifyFunc
+	metrics          *telemetry.Metrics
+	runInTx          func(ctx context.Context, fn func(s EngineStore) error) error
+	stepsCache       *workflowStepsVersionCache
 }
 
 type EngineStore interface {
@@ -72,7 +74,7 @@ type projectExecutionStateStore interface {
 }
 
 type bootstrapStore interface {
-	CreateWorkflowRunBootstrap(ctx context.Context, run *domain.WorkflowRun, stepRuns []domain.WorkflowStepRun, startedAt time.Time) error
+	CreateWorkflowRunBootstrap(ctx context.Context, p store.CreateWorkflowRunBootstrapParams) error
 }
 
 type rootStepStart struct {
@@ -87,10 +89,11 @@ func NewWorkflowEngine(store EngineStore, queue EngineQueue, logger *slog.Logger
 	}
 
 	e := &WorkflowEngine{
-		store:           store,
-		queue:           queue,
-		logger:          logger,
-		maxNestingDepth: DefaultMaxNestingDepth,
+		store:            store,
+		queue:            queue,
+		logger:           logger,
+		maxNestingDepth:  DefaultMaxNestingDepth,
+		maxContinueDepth: domain.DefaultMaxWorkflowContinueDepth,
 	}
 	e.runInTx = func(_ context.Context, fn func(s EngineStore) error) error {
 		return fn(e.store)
@@ -132,6 +135,14 @@ func (e *WorkflowEngine) WithRunInTx(fn func(ctx context.Context, fn func(s Engi
 func (e *WorkflowEngine) WithMaxNestingDepth(n int) *WorkflowEngine {
 	if n > 0 {
 		e.maxNestingDepth = n
+	}
+	return e
+}
+
+// WithMaxContinueDepth overrides the default continue-as-new lineage depth cap.
+func (e *WorkflowEngine) WithMaxContinueDepth(n int) *WorkflowEngine {
+	if n > 0 {
+		e.maxContinueDepth = n
 	}
 	return e
 }
@@ -465,7 +476,11 @@ func (e *WorkflowEngine) bootstrapWorkflowRun(
 	now time.Time,
 ) error {
 	if bs, ok := e.store.(bootstrapStore); ok {
-		if err := bs.CreateWorkflowRunBootstrap(ctx, wfRun, stepRuns, now); err != nil {
+		if err := bs.CreateWorkflowRunBootstrap(ctx, store.CreateWorkflowRunBootstrapParams{
+			Run:       wfRun,
+			StepRuns:  stepRuns,
+			StartedAt: now,
+		}); err != nil {
 			return fmt.Errorf("create workflow bootstrap: %w", err)
 		}
 		return nil

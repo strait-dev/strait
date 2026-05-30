@@ -38,11 +38,51 @@ const (
 	TriggerJobCompletion = "job_completion"
 	TriggerJobFailure    = "job_failure"
 	TriggerJobChain      = "job_chain"
+	TriggerContinuation  = "continuation"
 )
 
 // MaxJobChainDepth is the maximum allowed lineage depth for job chaining
 // to prevent infinite loops when jobs trigger each other.
 const MaxJobChainDepth = 10
+
+// DefaultMaxWorkflowContinueDepth is the default ceiling on the depth of a
+// workflow continue-as-new chain. Continue-as-new is meant for effectively
+// unbounded chains, so this is a large runaway safety net rather than a tight
+// limit; it is configurable via STRAIT_WORKFLOW_MAX_CONTINUE_DEPTH.
+const DefaultMaxWorkflowContinueDepth = 100000
+
+// ContinueVersionStrategy selects which workflow version a continue-as-new
+// successor runs.
+type ContinueVersionStrategy string
+
+const (
+	// ContinueVersionRepin re-pins the predecessor's exact version and snapshot
+	// onto the successor. It is the default: chains stay deterministic and a
+	// version shipped mid-chain does not silently change running behavior.
+	ContinueVersionRepin ContinueVersionStrategy = "repin"
+	// ContinueVersionLatest adopts the latest published version (and canary
+	// routing) at each roll-over, so a long-lived chain picks up new logic.
+	ContinueVersionLatest ContinueVersionStrategy = "latest"
+)
+
+// Normalize maps the empty value to the default strategy (repin).
+func (s ContinueVersionStrategy) Normalize() ContinueVersionStrategy {
+	if s == "" {
+		return ContinueVersionRepin
+	}
+	return s
+}
+
+// IsValid reports whether s is a recognized strategy. The empty string is valid
+// and resolves to the default via Normalize.
+func (s ContinueVersionStrategy) IsValid() bool {
+	switch s {
+	case "", ContinueVersionRepin, ContinueVersionLatest:
+		return true
+	default:
+		return false
+	}
+}
 
 const (
 	WebhookEventRunCompleted      = "run.completed"
@@ -953,12 +993,17 @@ const (
 	WfStatusCompensating       WorkflowRunStatus = "compensating"
 	WfStatusCompensated        WorkflowRunStatus = "compensated"
 	WfStatusCompensationFailed WorkflowRunStatus = "compensation_failed"
+	// WfStatusContinued is a terminal status applied to a workflow run that was
+	// completed via continue-as-new: its work finished and a fresh successor run
+	// of the same workflow was started with carry-over input. The successor is
+	// reachable via WorkflowRun.ContinuedToWorkflowRunID.
+	WfStatusContinued WorkflowRunStatus = "continued"
 )
 
 func (s WorkflowRunStatus) IsTerminal() bool {
 	switch s {
 	case WfStatusCompleted, WfStatusFailed, WfStatusTimedOut, WfStatusCanceled,
-		WfStatusCompensated, WfStatusCompensationFailed:
+		WfStatusCompensated, WfStatusCompensationFailed, WfStatusContinued:
 		return true
 	default:
 		return false
@@ -968,7 +1013,7 @@ func (s WorkflowRunStatus) IsTerminal() bool {
 func (s WorkflowRunStatus) IsValid() bool {
 	switch s {
 	case WfStatusPending, WfStatusRunning, WfStatusPaused, WfStatusCompleted, WfStatusFailed, WfStatusTimedOut, WfStatusCanceled,
-		WfStatusCompensating, WfStatusCompensated, WfStatusCompensationFailed:
+		WfStatusCompensating, WfStatusCompensated, WfStatusCompensationFailed, WfStatusContinued:
 		return true
 	default:
 		return false
@@ -1361,8 +1406,32 @@ type WorkflowRun struct {
 	CreatedBy            string            `json:"created_by,omitempty"`
 	ExpectedCompletionAt *time.Time        `json:"expected_completion_at,omitempty"`
 	TraceContext         map[string]string `json:"trace_context,omitempty"`
-	CreatedAt            time.Time         `json:"created_at"`
-	CacheVersion         int64             `json:"-"`
+	// ContinuedFromWorkflowRunID points at the predecessor run when this run was
+	// started via continue-as-new. Empty for runs that are not part of a chain.
+	ContinuedFromWorkflowRunID string `json:"continued_from_workflow_run_id,omitempty"`
+	// ContinuedToWorkflowRunID points at the successor run created when this run
+	// was terminated via continue-as-new (status WfStatusContinued).
+	ContinuedToWorkflowRunID string `json:"continued_to_workflow_run_id,omitempty"`
+	// LineageDepth is the position of this run in its continue-as-new chain. The
+	// first run is 0; each successor increments it. Guarded against runaway chains.
+	LineageDepth int       `json:"lineage_depth"`
+	CreatedAt    time.Time `json:"created_at"`
+	CacheVersion int64     `json:"-"`
+}
+
+// WorkflowRunChainEntry is a lightweight projection of a workflow run for
+// continue-as-new chain navigation. It carries only the fields a chain list UI
+// needs to render a row and link to the full run detail, deliberately omitting
+// the heavy columns (payload, tags, trace_context) so a long chain can be paged
+// cheaply rather than materialized in full.
+type WorkflowRunChainEntry struct {
+	ID           string            `json:"id"`
+	LineageDepth int               `json:"lineage_depth"`
+	Status       WorkflowRunStatus `json:"status"`
+	TriggeredBy  string            `json:"triggered_by"`
+	StartedAt    *time.Time        `json:"started_at,omitempty"`
+	FinishedAt   *time.Time        `json:"finished_at,omitempty"`
+	CreatedAt    time.Time         `json:"created_at"`
 }
 
 // WorkflowStepRun represents execution of a single step within a workflow run.
@@ -1381,6 +1450,15 @@ type WorkflowStepRun struct {
 	StartedAt      *time.Time      `json:"started_at,omitempty"`
 	FinishedAt     *time.Time      `json:"finished_at,omitempty"`
 	CreatedAt      time.Time       `json:"created_at"`
+}
+
+// StepRunOutput is a projection of a workflow step run carrying only the fields
+// needed to aggregate child step outputs into a parent step. Fetching just
+// step_ref and output (and only for rows that produced output) avoids
+// materializing full step-run rows when completing a sub-workflow's parent step.
+type StepRunOutput struct {
+	StepRef string          `json:"step_ref"`
+	Output  json.RawMessage `json:"output,omitempty"`
 }
 
 type WorkflowStepApproval struct {

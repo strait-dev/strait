@@ -214,7 +214,8 @@ type Config struct {
 	DependencyStatusCacheTTL time.Duration `env:"DEPENDENCY_STATUS_CACHE_TTL" default:"5s"`
 
 	// Workflow settings
-	MaxWorkflowNestingDepth int `env:"MAX_WORKFLOW_NESTING_DEPTH" default:"10"`
+	MaxWorkflowNestingDepth  int `env:"MAX_WORKFLOW_NESTING_DEPTH" default:"10"`
+	MaxWorkflowContinueDepth int `env:"MAX_WORKFLOW_CONTINUE_DEPTH" default:"100000"`
 
 	CDCBatchSize  int `env:"CDC_BATCH_SIZE" default:"200"`
 	CDCWaitTimeMs int `env:"CDC_WAIT_TIME_MS" default:"5000"`

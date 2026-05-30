@@ -65,7 +65,7 @@ func TestValidateWorkflowTransition_UnknownStatus(t *testing.T) {
 func TestValidateWorkflowTransition_TerminalHaveNoTransitions(t *testing.T) {
 	t.Parallel()
 	// These statuses have zero outbound transitions.
-	fullyTerminal := []WorkflowRunStatus{WfStatusCompleted, WfStatusCanceled, WfStatusCompensated, WfStatusCompensationFailed}
+	fullyTerminal := []WorkflowRunStatus{WfStatusCompleted, WfStatusCanceled, WfStatusCompensated, WfStatusCompensationFailed, WfStatusContinued}
 	for _, status := range fullyTerminal {
 		t.Run(string(status), func(t *testing.T) {
 			transitions, ok := validWorkflowTransitions[status]
@@ -101,6 +101,7 @@ func TestAllWorkflowStatusesCovered(t *testing.T) {
 		WfStatusCompensating,
 		WfStatusCompensated,
 		WfStatusCompensationFailed,
+		WfStatusContinued,
 	}
 
 	for _, status := range allStatuses {
@@ -132,6 +133,7 @@ func TestWorkflowRunStatusIsTerminal_AllStatuses(t *testing.T) {
 		{WfStatusCompensating, false},
 		{WfStatusCompensated, true},
 		{WfStatusCompensationFailed, true},
+		{WfStatusContinued, true},
 	}
 
 	for _, tc := range tests {
@@ -150,6 +152,7 @@ func TestWorkflowRunStatusIsValid(t *testing.T) {
 		WfStatusCompensating,
 		WfStatusCompensated,
 		WfStatusCompensationFailed,
+		WfStatusContinued,
 	}
 	for _, status := range valid {
 		if !status.IsValid() {
@@ -193,6 +196,47 @@ func TestValidateWorkflowTransition_ErrorTypes(t *testing.T) {
 		var te *TransitionError
 		if !errors.As(err, &te) {
 			t.Fatalf("expected *TransitionError for self-transition, got %T: %v", err, err)
+		}
+	})
+}
+
+func TestValidateWorkflowTransition_ContinueAsNew(t *testing.T) {
+	t.Parallel()
+
+	t.Run("running_to_continued_is_valid", func(t *testing.T) {
+		t.Parallel()
+		if err := ValidateWorkflowTransition(WfStatusRunning, WfStatusContinued); err != nil {
+			t.Fatalf("expected running -> continued to be valid, got %v", err)
+		}
+	})
+
+	t.Run("paused_to_continued_is_valid", func(t *testing.T) {
+		t.Parallel()
+		if err := ValidateWorkflowTransition(WfStatusPaused, WfStatusContinued); err != nil {
+			t.Fatalf("expected paused -> continued to be valid, got %v", err)
+		}
+	})
+
+	t.Run("continued_is_terminal_no_outbound", func(t *testing.T) {
+		t.Parallel()
+		// continued must not transition to any other status.
+		for to := range validWorkflowTransitions {
+			if err := ValidateWorkflowTransition(WfStatusContinued, to); err == nil {
+				t.Errorf("expected continued -> %s to be invalid, got nil", to)
+			}
+		}
+	})
+
+	t.Run("non_active_statuses_cannot_continue", func(t *testing.T) {
+		t.Parallel()
+		// Only running and paused may transition to continued.
+		for from := range validWorkflowTransitions {
+			if from == WfStatusRunning || from == WfStatusPaused {
+				continue
+			}
+			if err := ValidateWorkflowTransition(from, WfStatusContinued); err == nil {
+				t.Errorf("expected %s -> continued to be invalid, got nil", from)
+			}
 		}
 	})
 }

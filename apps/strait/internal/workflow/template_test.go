@@ -2,6 +2,8 @@ package workflow
 
 import (
 	"encoding/json"
+	"fmt"
+	"math/rand/v2"
 	"strings"
 	"testing"
 )
@@ -478,6 +480,121 @@ func TestStringify(t *testing.T) {
 			t.Fatalf("got %q, want JSON object", s)
 		}
 	})
+}
+
+// TestRenderTemplateVarsSplice_MatchesTreeWalk locks the in-place splice fast
+// path to the generic tree-walk fallback: for randomized nested payloads the two
+// must produce structurally identical JSON. This guards the optimization against
+// silent divergence in resolution, type preservation, or escaping.
+func TestRenderTemplateVarsSplice_MatchesTreeWalk(t *testing.T) {
+	t.Parallel()
+
+	varNames := []string{"name", "count", "flag", "url", "id", "data", "nested"}
+
+	for range 3000 {
+		// Random variables, marshaled then unmarshaled so numbers normalize to
+		// float64 exactly as the production paths see them.
+		rawVars := make(map[string]any)
+		for range rand.IntN(5) + 1 {
+			key := varNames[rand.IntN(len(varNames))]
+			switch rand.IntN(5) {
+			case 0:
+				rawVars[key] = randomString(rand.IntN(12) + 1)
+			case 1:
+				rawVars[key] = rand.IntN(100000)
+			case 2:
+				rawVars[key] = rand.IntN(2) == 0
+			case 3:
+				rawVars[key] = nil
+			case 4:
+				rawVars[key] = map[string]any{"a": randomString(4), "b": rand.IntN(10)}
+			}
+		}
+		varsJSON, _ := json.Marshal(rawVars)
+		var vars map[string]any
+		if err := json.Unmarshal(varsJSON, &vars); err != nil {
+			t.Fatalf("unmarshal vars: %v", err)
+		}
+
+		payloadJSON := randomTemplatedPayload(varNames, 0)
+
+		spliced, ok := renderTemplateVarsSplice([]byte(payloadJSON), vars)
+		if !ok {
+			continue
+		}
+
+		var data any
+		if err := json.Unmarshal([]byte(payloadJSON), &data); err != nil {
+			t.Fatalf("payload not valid JSON: %s", payloadJSON)
+		}
+		rendered, changed := walkAndRender(data, vars)
+		ref := []byte(payloadJSON)
+		if changed {
+			ref, _ = json.Marshal(rendered)
+		}
+
+		if !jsonStructurallyEqual(t, spliced, ref) {
+			t.Fatalf("splice != tree walk:\n payload: %s\n vars: %s\n splice: %s\n ref:    %s",
+				payloadJSON, varsJSON, spliced, ref)
+		}
+	}
+}
+
+// randomTemplatedPayload builds a random JSON object string mixing template
+// references, embedded templates, static scalars, nested objects, and arrays.
+func randomTemplatedPayload(varNames []string, depth int) string {
+	obj := make(map[string]any)
+	for j := range rand.IntN(4) + 1 {
+		field := fmt.Sprintf("f_%d", j)
+		obj[field] = randomTemplatedValue(varNames, depth)
+	}
+	b, _ := json.Marshal(obj)
+	return string(b)
+}
+
+func randomTemplatedValue(varNames []string, depth int) any {
+	choice := rand.IntN(7)
+	if depth >= 3 && choice >= 5 {
+		choice = rand.IntN(5)
+	}
+	switch choice {
+	case 0:
+		return "{{" + varNames[rand.IntN(len(varNames))] + "}}"
+	case 1:
+		return "prefix-{{" + varNames[rand.IntN(len(varNames))] + "}}-{{" + varNames[rand.IntN(len(varNames))] + "}}-suffix"
+	case 2:
+		return randomString(8)
+	case 3:
+		return rand.IntN(1000)
+	case 4:
+		return rand.IntN(2) == 0
+	case 5:
+		var raw json.RawMessage
+		_ = json.Unmarshal([]byte(randomTemplatedPayload(varNames, depth+1)), &raw)
+		var nested any
+		_ = json.Unmarshal(raw, &nested)
+		return nested
+	default:
+		arr := make([]any, rand.IntN(3)+1)
+		for i := range arr {
+			arr[i] = randomTemplatedValue(varNames, depth+1)
+		}
+		return arr
+	}
+}
+
+func jsonStructurallyEqual(t *testing.T, a, b []byte) bool {
+	t.Helper()
+	var av, bv any
+	if err := json.Unmarshal(a, &av); err != nil {
+		t.Fatalf("unmarshal a (%s): %v", a, err)
+	}
+	if err := json.Unmarshal(b, &bv); err != nil {
+		t.Fatalf("unmarshal b (%s): %v", b, err)
+	}
+	ar, _ := json.Marshal(av)
+	br, _ := json.Marshal(bv)
+	return string(ar) == string(br)
 }
 
 func TestRenderTemplateVars_RepeatedVariablesPreserveBehavior(t *testing.T) {

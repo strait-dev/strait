@@ -20,6 +20,7 @@ import (
 type mockWorkflowTrigger struct {
 	triggerWorkflowFn   func(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride) (*domain.WorkflowRun, error)
 	retryWorkflowRunFn  func(ctx context.Context, originalRunID string) (*domain.WorkflowRun, error)
+	continueAsNewFn     func(ctx context.Context, runID string, input json.RawMessage, strategy domain.ContinueVersionStrategy) (*domain.WorkflowRun, error)
 	approveStepFn       func(ctx context.Context, workflowRunID, stepRef, approver string) error
 	skipStepFn          func(ctx context.Context, workflowRunID, stepRef, reason string) error
 	forceCompleteStepFn func(ctx context.Context, workflowRunID, stepRef string, result json.RawMessage) error
@@ -71,6 +72,13 @@ func (m *mockWorkflowTrigger) RetryWorkflowRun(ctx context.Context, originalRunI
 	return nil, nil
 }
 
+func (m *mockWorkflowTrigger) ContinueWorkflowRunAsNew(ctx context.Context, runID string, input json.RawMessage, strategy domain.ContinueVersionStrategy) (*domain.WorkflowRun, error) {
+	if m.continueAsNewFn != nil {
+		return m.continueAsNewFn(ctx, runID, input, strategy)
+	}
+	return nil, nil
+}
+
 func (m *mockWorkflowTrigger) OnJobRunTerminal(ctx context.Context, run *domain.JobRun) error {
 	if m.onJobRunTerminal != nil {
 		return m.onJobRunTerminal(ctx, run)
@@ -91,7 +99,7 @@ func (m *mockWorkflowTrigger) OnStepFailed(ctx context.Context, workflowRunID st
 	}
 }
 
-func newWorkflowTestServer(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher, trigger WorkflowTrigger) *Server {
+func newWorkflowTestServer(t testing.TB, s APIStore, q *mockQueue, pub *mockPublisher, trigger WorkflowTrigger) *Server {
 	t.Helper()
 	cfg := &config.Config{
 		InternalSecret:      "test-secret-value",

@@ -46,6 +46,20 @@ export const RUN_STATUS_OPTIONS = [
   "system_failed",
 ] as const;
 
+// Workflow run status filter options (used by the workflow detail Recent Runs
+// tab). Mirrors domain.WorkflowRunStatus, including the continue-as-new
+// terminal state "continued".
+export const WORKFLOW_RUN_STATUS_OPTIONS = [
+  "pending",
+  "running",
+  "paused",
+  "completed",
+  "failed",
+  "timed_out",
+  "canceled",
+  "continued",
+] as const;
+
 // Job/Schedule/Workflow enabled/disabled options
 export const ENABLED_STATUS_OPTIONS = ["Enabled", "Disabled"] as const;
 
@@ -159,6 +173,11 @@ export const RUN_STATUS_CONFIG: Record<string, RunStatusConfig> = {
     label: "Paused",
     variant: "warning-light",
     dotClassName: "bg-warning",
+  },
+  continued: {
+    label: "Continued",
+    variant: "secondary-light",
+    dotClassName: "bg-muted-foreground",
   },
   skipped: {
     label: "Skipped",

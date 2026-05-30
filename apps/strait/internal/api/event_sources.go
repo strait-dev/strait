@@ -388,8 +388,11 @@ func (s *Server) handleDispatchEvent(ctx context.Context, input *DispatchEventIn
 	}
 
 	dispatched := 0
+	// Parse the payload once and reuse it across every subscription's filter
+	// instead of re-unmarshaling it per subscription in eventfilter.Eval.
+	parsedPayload := eventfilter.NewParsedPayload(req.Payload)
 	for _, sub := range subs {
-		if s.dispatchEventSubscription(ctx, source, req, sub) {
+		if s.dispatchEventSubscription(ctx, source, req, sub, parsedPayload) {
 			dispatched++
 		}
 	}
@@ -457,11 +460,12 @@ func (s *Server) dispatchEventSubscription(
 	source *domain.EventSource,
 	req DispatchEventRequest,
 	sub domain.EventSubscription,
+	parsedPayload *eventfilter.ParsedPayload,
 ) bool {
 	if !sub.Enabled {
 		return false
 	}
-	match, err := eventfilter.Eval(sub.FilterExpr, req.Payload)
+	match, err := eventfilter.EvalParsed(sub.FilterExpr, parsedPayload)
 	if err != nil {
 		slog.Error("filter eval failed", "subscription_id", sub.ID, "source_id", source.ID, "project_id", source.ProjectID, "error", err)
 		return false

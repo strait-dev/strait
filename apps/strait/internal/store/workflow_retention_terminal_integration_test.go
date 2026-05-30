@@ -28,6 +28,7 @@ func TestDeleteWorkflowRunsFinishedBefore_IncludesAllTerminalStatuses(t *testing
 		domain.WfStatusTimedOut,
 		domain.WfStatusCompensated,
 		domain.WfStatusCompensationFailed,
+		domain.WfStatusContinued,
 	}
 	deletedIDs := make([]string, 0, len(terminalStatuses))
 	for _, status := range terminalStatuses {
@@ -88,6 +89,7 @@ func TestDeleteWorkflowRunsByOrgOlderThan_IncludesAllTerminalStatuses(t *testing
 		domain.WfStatusTimedOut,
 		domain.WfStatusCompensated,
 		domain.WfStatusCompensationFailed,
+		domain.WfStatusContinued,
 	}
 	deletedIDs := make([]string, 0, len(terminalStatuses))
 	for _, status := range terminalStatuses {

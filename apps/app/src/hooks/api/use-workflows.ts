@@ -9,7 +9,9 @@ import type {
   PaginatedResponse,
   Workflow,
   WorkflowRun,
+  WorkflowRunChainEntry,
   WorkflowStep,
+  WorkflowStepRun,
 } from "@/hooks/api/types";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
@@ -20,6 +22,7 @@ import {
   runWithFallback,
   runWithSentryReport,
 } from "@/lib/effect-api.server";
+import type { ContinueVersionStrategy } from "@/lib/workflow-continue";
 import { authMiddleware } from "@/middlewares/auth";
 import {
   requireActiveProjectAccess,
@@ -27,6 +30,10 @@ import {
 } from "@/middlewares/require-access";
 
 const emptyWorkflowStepsResponse: PaginatedResponse<WorkflowStep> = {
+  data: [],
+  has_more: false,
+};
+const emptyWorkflowStepRunsResponse: PaginatedResponse<WorkflowStepRun> = {
   data: [],
   has_more: false,
 };
@@ -123,6 +130,36 @@ export const fetchWorkflowRuns = createServerFn({ method: "GET" })
     }
   );
 
+export const fetchWorkflowRun = createServerFn({ method: "GET" })
+  .inputValidator((data: { workflowRunId: string }) => data)
+  .middleware([authMiddleware])
+  .handler(
+    // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+    async ({ context, data }): Promise<WorkflowRun> => {
+      await requireActiveProjectAccess(context);
+      return await runWithSentryReport(
+        apiEffect<WorkflowRun>(apiPath`/v1/workflow-runs/${data.workflowRunId}`)
+      );
+    }
+  );
+
+export const fetchWorkflowRunSteps = createServerFn({ method: "GET" })
+  .inputValidator((data: { workflowRunId: string }) => data)
+  .middleware([authMiddleware])
+  .handler(
+    // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+    async ({ context, data }): Promise<WorkflowStepRun[]> => {
+      await requireActiveProjectAccess(context);
+      const resp = await runWithFallback(
+        apiEffect<PaginatedResponse<WorkflowStepRun>>(
+          apiPath`/v1/workflow-runs/${data.workflowRunId}/steps`
+        ),
+        emptyWorkflowStepRunsResponse
+      );
+      return dataFromPaginatedOrArray(resp);
+    }
+  );
+
 export const triggerWorkflowFn = createServerFn({ method: "POST" })
   .inputValidator(
     (data: {
@@ -143,6 +180,54 @@ export const triggerWorkflowFn = createServerFn({ method: "POST" })
             method: "POST",
             body: { payload: data.payload, tags: data.tags },
           }
+        )
+      );
+    }
+  );
+
+export const continueWorkflowRunAsNewFn = createServerFn({ method: "POST" })
+  .inputValidator(
+    (data: {
+      workflowRunId: string;
+      input?: unknown;
+      versionStrategy?: ContinueVersionStrategy;
+    }) => data
+  )
+  .middleware([authMiddleware])
+  .handler(
+    // @ts-expect-error tsgo cannot resolve createServerFn handler generics
+    async ({ context, data }): Promise<WorkflowRun> => {
+      await requireActiveProjectAdmin(context);
+      return await runWithSentryReport(
+        apiEffect<WorkflowRun>(
+          apiPath`/v1/workflow-runs/${data.workflowRunId}/continue-as-new`,
+          {
+            method: "POST",
+            body: {
+              input: data.input,
+              versionStrategy: data.versionStrategy,
+            },
+          }
+        )
+      );
+    }
+  );
+
+export const fetchWorkflowRunChain = createServerFn({ method: "GET" })
+  .inputValidator(
+    (data: { workflowRunId: string; limit?: number; cursor?: string }) => data
+  )
+  .middleware([authMiddleware])
+  .handler(
+    async ({
+      context,
+      data,
+    }): Promise<PaginatedResponse<WorkflowRunChainEntry>> => {
+      await requireActiveProjectAccess(context);
+      return await runWithSentryReport(
+        apiEffect<PaginatedResponse<WorkflowRunChainEntry>>(
+          apiPath`/v1/workflow-runs/${data.workflowRunId}/chain`,
+          { params: { limit: data.limit, cursor: data.cursor } }
         )
       );
     }
@@ -200,6 +285,30 @@ export const workflowRunsQueryOptions = (workflowId: string) =>
     gcTime: DEFAULT_GC_TIME,
   });
 
+export const workflowRunQueryOptions = (workflowRunId: string) =>
+  queryOptions({
+    queryKey: queryKeys.workflows.run(workflowRunId).queryKey,
+    queryFn: () => fetchWorkflowRun({ data: { workflowRunId } }),
+    staleTime: DEFAULT_STALE_TIME,
+    gcTime: DEFAULT_GC_TIME,
+  });
+
+export const workflowRunStepsQueryOptions = (workflowRunId: string) =>
+  queryOptions({
+    queryKey: queryKeys.workflows.runSteps(workflowRunId).queryKey,
+    queryFn: () => fetchWorkflowRunSteps({ data: { workflowRunId } }),
+    staleTime: DEFAULT_STALE_TIME,
+    gcTime: DEFAULT_GC_TIME,
+  });
+
+export const workflowRunChainQueryOptions = (workflowRunId: string) =>
+  queryOptions({
+    queryKey: queryKeys.workflows.chain(workflowRunId).queryKey,
+    queryFn: () => fetchWorkflowRunChain({ data: { workflowRunId } }),
+    staleTime: DEFAULT_STALE_TIME,
+    gcTime: DEFAULT_GC_TIME,
+  });
+
 export const useTriggerWorkflow = () => {
   const queryClient = useQueryClient();
   return useMutation({
@@ -216,6 +325,44 @@ export const useTriggerWorkflow = () => {
         action: "workflow_triggered",
         error_message: err instanceof Error ? err.message : "Unknown error",
         workflow_id: variables.workflowId,
+      });
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.workflows._def });
+      queryClient.invalidateQueries({ queryKey: queryKeys.runs._def });
+    },
+  });
+};
+
+export const useContinueWorkflowRunAsNew = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationKey: ["workflows", "continue-as-new"],
+    mutationFn: (params: {
+      workflowRunId: string;
+      workflowId: string;
+      input?: unknown;
+      versionStrategy?: ContinueVersionStrategy;
+    }): Promise<WorkflowRun> =>
+      continueWorkflowRunAsNewFn({
+        data: {
+          workflowRunId: params.workflowRunId,
+          input: params.input,
+          versionStrategy: params.versionStrategy,
+        },
+      }) as Promise<WorkflowRun>,
+    onSuccess: (_data, variables) => {
+      getPostHog()?.capture("workflow_run_continued_as_new", {
+        workflow_id: variables.workflowId,
+        workflow_run_id: variables.workflowRunId,
+        version_strategy: variables.versionStrategy ?? "repin",
+      });
+    },
+    onError: (err, variables) => {
+      getPostHog()?.capture("mutation_error", {
+        action: "workflow_run_continued_as_new",
+        error_message: err instanceof Error ? err.message : "Unknown error",
+        workflow_run_id: variables.workflowRunId,
       });
     },
     onSettled: () => {

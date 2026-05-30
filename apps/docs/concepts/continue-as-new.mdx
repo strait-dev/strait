@@ -1,0 +1,106 @@
+---
+title: "Continue as New"
+description: "Restart a long-running workflow as a fresh run while preserving lineage."
+sidebarTitle: "Continue as New"
+---
+
+A workflow that loops or runs for a long time keeps adding step history to a single run. Over time that run grows large: more step rows, more events, slower queries. Continue-as-new ends the current run and starts a fresh successor run of the same workflow, carrying over only the state you choose.
+
+The successor starts with empty step history and a new run ID, so the chain stays fast no matter how many times it continues.
+
+## When to Use It
+
+Use continue-as-new for workflows that would otherwise run without bound:
+
+- **Polling loops**: Check a resource, carry the cursor forward, then continue.
+- **Per-period aggregation**: Process one day, then continue into the next.
+- **Long-lived entity workflows**: Keep one logical workflow alive across many iterations without a single giant run.
+
+For short, linear hand-offs between jobs, use [job chaining](/concepts/job-chaining) instead. Job chaining links separate jobs after one finishes; continue-as-new restarts the same workflow with new input.
+
+## How It Works
+
+Call the endpoint with the carry-over input for the next run:
+
+```bash
+curl -X POST https://api.strait.dev/v1/workflow-runs/{workflowRunID}/continue-as-new \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "input": { "cursor": 1024 } }'
+```
+
+Strait completes the handoff atomically:
+
+1. The current run is marked `continued`, a terminal status, and stops accepting step progress.
+2. A successor run starts with your `input` as its payload and empty step history.
+3. The two runs are linked in both directions.
+
+The `input` is opaque JSON. Compute it from the finishing run's outputs, either in a final job step or in your own code, and pass the result. Strait does not derive it for you.
+
+### Version Strategy
+
+The successor's workflow version is chosen by the optional `versionStrategy` field:
+
+| Strategy | Behavior |
+|---|---|
+| `repin` (default) | Reuse the predecessor's exact pinned version and snapshot. Canary routing is not consulted and a deploy made mid-chain does not change running behavior. Chains stay deterministic. |
+| `latest` | Re-resolve the latest published version, including canary routing. A deploy made mid-chain takes effect on the next continuation. |
+
+Omit `versionStrategy` to get `repin`. Opt into `latest` when a long-lived chain should converge on current logic:
+
+```bash
+curl -X POST https://api.strait.dev/v1/workflow-runs/{workflowRunID}/continue-as-new \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "input": { "cursor": 1024 }, "versionStrategy": "latest" }'
+```
+
+### Lineage and Navigation
+
+Each run records where it came from and where it went:
+
+| Field | Meaning |
+|---|---|
+| `continued_from_workflow_run_id` | The predecessor that continued into this run. |
+| `continued_to_workflow_run_id` | The successor this run continued into. |
+| `lineage_depth` | How many continuations precede this run. The root is 0. |
+
+To walk the chain root-first from any run in it, call:
+
+```bash
+curl "https://api.strait.dev/v1/workflow-runs/{workflowRunID}/chain?limit=50" \
+  -H "Authorization: Bearer $STRAIT_API_KEY"
+```
+
+The response is cursor-paginated so a long chain is never loaded in full:
+
+```json
+{
+  "data": [
+    { "id": "wr_root", "lineage_depth": 0, "status": "continued", "triggered_by": "cron",         "created_at": "..." },
+    { "id": "wr_next", "lineage_depth": 1, "status": "running",   "triggered_by": "continuation", "created_at": "..." }
+  ],
+  "next_cursor": "wr_next",
+  "has_more": true
+}
+```
+
+Each entry is a lightweight projection (`id`, `lineage_depth`, `status`, `triggered_by`, `started_at`, `finished_at`, `created_at`); fetch full detail for a run on demand from the run-detail endpoint. `limit` defaults to 50 and is capped at 100. When `has_more` is true, pass `next_cursor` back as the `cursor` query parameter to fetch the next page. The page is always ordered root-first, so you can jump to the first or latest run in the chain.
+
+### Depth Guard
+
+Because a chain can continue forever, Strait enforces a maximum lineage depth as a runaway guard. The default is 100000 and is configurable with `MAX_WORKFLOW_CONTINUE_DEPTH`. A continue request past the cap is rejected with a `400`, leaving the current run untouched.
+
+Monitor `strait_workflow_continuations_total` and `strait_workflow_continuation_depth` to track continuation rate and how deep your chains run.
+
+### Restrictions
+
+A run can only be continued while it is `running` or `paused`. Continuing a run in any terminal status is rejected with a `400`.
+
+Sub-workflow runs cannot be continued. A run started as the child of a parent workflow step is bound to that step's completion, so continuing it would mark the child terminal without ever resolving the parent step, leaving the parent stuck. Continue the top-level run instead. The request returns a `400` and the child run is left untouched.
+
+## Related
+
+- [Durable Workflows](/concepts/durable-workflows)
+- [Job Chaining](/concepts/job-chaining)
+- [Workflows](/concepts/workflows)

@@ -636,6 +636,8 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/steps/{stepRef}/retry", TypedHandler(s, http.StatusOK, s.handleRetryWorkflowStep))
 				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/steps/{stepRef}/replay-subtree", TypedHandler(s, http.StatusOK, s.handleReplayWorkflowSubtree))
 				r.With(s.requirePermission(domain.ScopeWorkflowsTrigger)).Post("/retry", TypedHandler(s, http.StatusCreated, s.handleRetryWorkflowRun))
+				r.With(s.requirePermission(domain.ScopeWorkflowsTrigger)).Post("/continue-as-new", TypedHandler(s, http.StatusCreated, s.handleContinueWorkflowRunAsNew))
+				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/chain", TypedHandler(s, http.StatusOK, s.handleGetWorkflowRunChain))
 				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/debug", TypedHandler(s, http.StatusOK, s.handleGetWorkflowRunDebug))
 				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/compare/{otherRunID}", TypedHandler(s, http.StatusOK, s.handleCompareWorkflowRuns))
 				r.With(s.requirePermission(domain.ScopeWorkflowsWrite)).Post("/compensate", TypedHandler(s, http.StatusOK, s.handleCompensateWorkflowRun))

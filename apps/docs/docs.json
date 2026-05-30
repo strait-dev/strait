@@ -94,6 +94,7 @@
                 "pages": [
                   "concepts/retry-strategies",
                   "concepts/durable-workflows",
+                  "concepts/continue-as-new",
                   "concepts/compensating-transactions",
                   "concepts/adaptive-concurrency",
                   "concepts/canary-deployments",

@@ -365,6 +365,37 @@ groups:
             could not make progress. Use the scheduler/workflow dashboard
             and workflow debugger to identify blocked dependencies.
 
+      - alert: StraitWorkflowContinuationDepthHigh
+        expr: max(strait_workflow_continuation_depth) > 1000
+        for: 15m
+        labels:
+          app: strait
+          owner: platform
+          severity: warning
+        annotations:
+          summary: Workflow continue-as-new lineage is unusually deep
+          description: |
+            A continue-as-new chain has exceeded a lineage depth of 1000.
+            This is well below the MAX_WORKFLOW_CONTINUE_DEPTH runaway guard
+            but signals a self-continuing workflow that may be looping
+            faster than expected. Inspect the chain via the run chain
+            endpoint before it approaches the hard cap.
+
+      - alert: StraitWorkflowContinuationRateHigh
+        expr: sum(rate(strait_workflow_continuations_total[5m])) > 10
+        for: 10m
+        labels:
+          app: strait
+          owner: platform
+          severity: warning
+        annotations:
+          summary: Workflow continue-as-new rate is unusually high
+          description: |
+            Workflows are continuing as new more than 10 times per second
+            for a sustained window. This can indicate a tight
+            self-continuation loop. Confirm the carry-over logic terminates
+            and is not re-triggering on every iteration.
+
   - name: strait.execution
     interval: 30s
     rules:

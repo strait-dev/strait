@@ -275,11 +275,11 @@ func (s *StepCallback) checkWorkflowCompletion(ctx context.Context, workflowRunI
 		wfRun.FinishedAt = &now
 		s.publishWorkflowRunStatus(ctx, wfRun, fromStatus, domain.WfStatusFailed, "workflow_completion")
 		if wfRun.ParentWorkflowRunID != "" {
-			stepRuns, listErr := s.store.ListStepRunsByWorkflowRun(ctx, workflowRunID, 10000, nil)
+			stepOutputs, listErr := s.store.ListStepRunOutputsByWorkflowRun(ctx, workflowRunID)
 			if listErr != nil {
-				return fmt.Errorf("list step runs: %w", listErr)
+				return fmt.Errorf("list step run outputs: %w", listErr)
 			}
-			return s.propagateToParent(ctx, wfRun, stepRuns)
+			return s.propagateToParent(ctx, wfRun, stepOutputs)
 		}
 		return nil
 	}
@@ -293,11 +293,11 @@ func (s *StepCallback) checkWorkflowCompletion(ctx context.Context, workflowRunI
 	wfRun.FinishedAt = &now
 	s.publishWorkflowRunStatus(ctx, wfRun, fromStatus, domain.WfStatusCompleted, "workflow_completion")
 	if wfRun.ParentWorkflowRunID != "" {
-		stepRuns, listErr := s.store.ListStepRunsByWorkflowRun(ctx, workflowRunID, 10000, nil)
+		stepOutputs, listErr := s.store.ListStepRunOutputsByWorkflowRun(ctx, workflowRunID)
 		if listErr != nil {
-			return fmt.Errorf("list step runs: %w", listErr)
+			return fmt.Errorf("list step run outputs: %w", listErr)
 		}
-		return s.propagateToParent(ctx, wfRun, stepRuns)
+		return s.propagateToParent(ctx, wfRun, stepOutputs)
 	}
 	return nil
 }
@@ -360,7 +360,7 @@ func failurePolicyForStepRef(steps []domain.WorkflowStep, stepRef string) domain
 
 // propagateToParent propagates the terminal status of a child workflow run
 // back to the parent step run that spawned it via sub_workflow.
-func (s *StepCallback) propagateToParent(ctx context.Context, childRun *domain.WorkflowRun, childStepRuns []domain.WorkflowStepRun) error {
+func (s *StepCallback) propagateToParent(ctx context.Context, childRun *domain.WorkflowRun, childStepRuns []domain.StepRunOutput) error {
 	if childRun.ParentWorkflowRunID == "" {
 		return nil
 	}
@@ -484,27 +484,41 @@ func (s *StepCallback) propagateToParent(ctx context.Context, childRun *domain.W
 	}
 }
 
-func aggregateChildStepOutputs(childStepRuns []domain.WorkflowStepRun) json.RawMessage {
-	if len(childStepRuns) == 0 {
-		return nil
-	}
-	var outputPayload []byte
+func aggregateChildStepOutputs(childStepRuns []domain.StepRunOutput) json.RawMessage {
+	// Pre-scan once to size the buffer so the append loop below never grows it,
+	// turning the old geometric-growth reallocations into a single allocation.
+	// Per non-empty entry the loop writes: a quoted step ref, a ':' colon, the
+	// raw output, and a ',' separator (or the opening '{'). strconv.AppendQuote
+	// expands at most 4 bytes per input byte (\xXX for an invalid byte) plus two
+	// surrounding quotes, so 4*len+2 is a safe upper bound. The outer braces add
+	// two more. Over-budgeting cap is harmless; under-budgeting would reallocate.
+	size := 2
+	withOutput := 0
 	for i := range childStepRuns {
 		if len(childStepRuns[i].Output) == 0 {
 			continue
 		}
-		if outputPayload == nil {
-			outputPayload = make([]byte, 0, len(childStepRuns[i].StepRef)+len(childStepRuns[i].Output)+4)
-			outputPayload = append(outputPayload, '{')
-		} else {
+		withOutput++
+		size += 4*len(childStepRuns[i].StepRef) + 2 + 1 + len(childStepRuns[i].Output) + 1
+	}
+	if withOutput == 0 {
+		return nil
+	}
+
+	outputPayload := make([]byte, 0, size)
+	outputPayload = append(outputPayload, '{')
+	first := true
+	for i := range childStepRuns {
+		if len(childStepRuns[i].Output) == 0 {
+			continue
+		}
+		if !first {
 			outputPayload = append(outputPayload, ',')
 		}
+		first = false
 		outputPayload = strconv.AppendQuote(outputPayload, childStepRuns[i].StepRef)
 		outputPayload = append(outputPayload, ':')
 		outputPayload = append(outputPayload, childStepRuns[i].Output...)
-	}
-	if outputPayload == nil {
-		return nil
 	}
 	outputPayload = append(outputPayload, '}')
 	return outputPayload

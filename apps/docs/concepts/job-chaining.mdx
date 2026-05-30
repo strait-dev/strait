@@ -90,8 +90,11 @@ Every run carries the depth of the chain that produced it, and Strait stops foll
 
 For example, if job A triggers job B and job B triggers job A, the runs climb one level per hop until the tenth, where the next downstream trigger is skipped. A misconfigured cycle cannot run forever.
 
+To keep a single workflow looping across many iterations instead of chaining separate jobs, see [continue as new](/concepts/continue-as-new).
+
 ## Related
 
 - [Jobs](/concepts/jobs)
 - [Workflows](/concepts/workflows)
+- [Continue as New](/concepts/continue-as-new)
 - [Handle Failed Runs](/guides/handle-failed-runs)

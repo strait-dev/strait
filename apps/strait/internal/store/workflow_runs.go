@@ -71,10 +71,10 @@ func (q *Queries) CreateWorkflowRun(ctx context.Context, run *domain.WorkflowRun
 			workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
 			retry_of_run_id, parent_workflow_run_id, parent_step_run_id,
 			tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id,
-			expected_completion_at
+			expected_completion_at, continued_from_workflow_run_id, lineage_depth
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-			$16::jsonb, $17, $18, $19::jsonb, $20, $21)
+			$16::jsonb, $17, $18, $19::jsonb, $20, $21, $22, $23)
 		RETURNING created_at`
 
 	err := q.db.QueryRow(
@@ -101,6 +101,8 @@ func (q *Queries) CreateWorkflowRun(ctx context.Context, run *domain.WorkflowRun
 		traceContextJSON,
 		dbscan.NilIfEmptyString(run.WorkflowSnapshotID),
 		run.ExpectedCompletionAt,
+		dbscan.NilIfEmptyString(run.ContinuedFromWorkflowRunID),
+		run.LineageDepth,
 	).Scan(&run.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("create workflow run snapshot_id=%q: %w", run.WorkflowSnapshotID, err)
@@ -116,7 +118,8 @@ func (q *Queries) GetWorkflowRun(ctx context.Context, id string) (*domain.Workfl
 	query := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at
+		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at,
+		       continued_from_workflow_run_id, continued_to_workflow_run_id, lineage_depth
 		FROM workflow_runs
 		WHERE id = $1`
 
@@ -138,7 +141,8 @@ func (q *Queries) GetWorkflowRunWithCacheVersion(ctx context.Context, id string)
 	query := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at, cache_version
+		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at,
+		       continued_from_workflow_run_id, continued_to_workflow_run_id, lineage_depth, cache_version
 		FROM workflow_runs
 		WHERE id = $1`
 
@@ -164,7 +168,8 @@ func (q *Queries) ListWorkflowRuns(ctx context.Context, workflowID string, limit
 		query := `
 			SELECT id, workflow_id, project_id, status, triggered_by, payload,
 			       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-			       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at
+			       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at,
+			       continued_from_workflow_run_id, continued_to_workflow_run_id, lineage_depth
 			FROM workflow_runs
 			WHERE workflow_id = $1 AND created_at < $3
 			ORDER BY created_at DESC
@@ -174,7 +179,8 @@ func (q *Queries) ListWorkflowRuns(ctx context.Context, workflowID string, limit
 		query := `
 			SELECT id, workflow_id, project_id, status, triggered_by, payload,
 			       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-			       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at
+			       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at,
+			       continued_from_workflow_run_id, continued_to_workflow_run_id, lineage_depth
 			FROM workflow_runs
 			WHERE workflow_id = $1
 			ORDER BY created_at DESC
@@ -210,7 +216,8 @@ func (q *Queries) ListWorkflowRunsByProject(ctx context.Context, projectID strin
 	baseQuery := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at
+		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at,
+		       continued_from_workflow_run_id, continued_to_workflow_run_id, lineage_depth
 		FROM workflow_runs
 		WHERE project_id = $1`
 
@@ -266,7 +273,7 @@ func (q *Queries) DeleteWorkflowRunsFinishedBefore(ctx context.Context, before t
 		WITH doomed AS (
 			SELECT id
 			FROM workflow_runs
-			WHERE status IN ('completed', 'failed', 'timed_out', 'canceled', 'compensated', 'compensation_failed')
+			WHERE status IN ('completed', 'failed', 'timed_out', 'canceled', 'compensated', 'compensation_failed', 'continued')
 			  AND finished_at IS NOT NULL
 			  AND finished_at < $1
 			ORDER BY finished_at ASC
@@ -293,13 +300,14 @@ func (q *Queries) UpdateWorkflowRunStatus(ctx context.Context, id string, from, 
 	}
 
 	allowedColumns := map[string]struct{}{
-		"triggered_by":           {},
-		"payload":                {},
-		"error":                  {},
-		"started_at":             {},
-		"finished_at":            {},
-		"expires_at":             {},
-		"expected_completion_at": {},
+		"triggered_by":                 {},
+		"payload":                      {},
+		"error":                        {},
+		"started_at":                   {},
+		"finished_at":                  {},
+		"expires_at":                   {},
+		"expected_completion_at":       {},
+		"continued_to_workflow_run_id": {},
 	}
 
 	setClauses := []string{"status = $1"}
@@ -365,7 +373,8 @@ func (q *Queries) GetWorkflowRunsByParent(ctx context.Context, parentWorkflowRun
 	query := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at
+		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at,
+		       continued_from_workflow_run_id, continued_to_workflow_run_id, lineage_depth
 		FROM workflow_runs
 		WHERE parent_workflow_run_id = $1
 		ORDER BY created_at ASC
@@ -417,6 +426,9 @@ func scanWorkflowRunFields(scanner scanTarget, includeCacheVersion bool) (*domai
 	var traceContextJSON []byte
 	var workflowSnapshotID *string
 	var expectedCompletionAt *time.Time
+	var continuedFromWorkflowRunID *string
+	var continuedToWorkflowRunID *string
+
 	dest := []any{
 		&run.ID,
 		&run.WorkflowID,
@@ -440,6 +452,9 @@ func scanWorkflowRunFields(scanner scanTarget, includeCacheVersion bool) (*domai
 		&traceContextJSON,
 		&workflowSnapshotID,
 		&expectedCompletionAt,
+		&continuedFromWorkflowRunID,
+		&continuedToWorkflowRunID,
+		&run.LineageDepth,
 	}
 	if includeCacheVersion {
 		dest = append(dest, &run.CacheVersion)
@@ -488,46 +503,275 @@ func scanWorkflowRunFields(scanner scanTarget, includeCacheVersion bool) (*domai
 		run.WorkflowSnapshotID = *workflowSnapshotID
 	}
 	run.ExpectedCompletionAt = expectedCompletionAt
+	if continuedFromWorkflowRunID != nil {
+		run.ContinuedFromWorkflowRunID = *continuedFromWorkflowRunID
+	}
+	if continuedToWorkflowRunID != nil {
+		run.ContinuedToWorkflowRunID = *continuedToWorkflowRunID
+	}
 
 	return &run, nil
 }
 
-func (q *Queries) CreateWorkflowRunBootstrap(ctx context.Context, run *domain.WorkflowRun, stepRuns []domain.WorkflowStepRun, startedAt time.Time) error {
+// CreateWorkflowRunBootstrapParams carries the inputs for atomically creating a
+// workflow run and bringing it to running with its initial step runs.
+type CreateWorkflowRunBootstrapParams struct {
+	Run       *domain.WorkflowRun
+	StepRuns  []domain.WorkflowStepRun
+	StartedAt time.Time
+}
+
+func (q *Queries) CreateWorkflowRunBootstrap(ctx context.Context, p CreateWorkflowRunBootstrapParams) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateWorkflowRunBootstrap")
 	defer span.End()
 
 	_, ok := q.db.(TxBeginner)
 	if !ok {
-		if err := q.CreateWorkflowRun(ctx, run); err != nil {
+		if err := q.CreateWorkflowRun(ctx, p.Run); err != nil {
 			return err
 		}
-		if err := q.UpdateWorkflowRunStatus(ctx, run.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{"started_at": startedAt}); err != nil {
+		if err := q.UpdateWorkflowRunStatus(ctx, p.Run.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{"started_at": p.StartedAt}); err != nil {
 			return err
 		}
-		for i := range stepRuns {
-			sr := stepRuns[i]
-			if err := q.CreateWorkflowStepRun(ctx, &sr); err != nil {
-				return err
-			}
+		return q.CreateWorkflowStepRuns(ctx, p.StepRuns)
+	}
+
+	return q.withTx(ctx, func(txQ *Queries) error {
+		if err := txQ.CreateWorkflowRun(ctx, p.Run); err != nil {
+			return fmt.Errorf("create workflow run bootstrap: %w", err)
+		}
+		if err := txQ.UpdateWorkflowRunStatus(ctx, p.Run.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{"started_at": p.StartedAt}); err != nil {
+			return fmt.Errorf("mark workflow running bootstrap: %w", err)
+		}
+		if err := txQ.CreateWorkflowStepRuns(ctx, p.StepRuns); err != nil {
+			return fmt.Errorf("create workflow step runs bootstrap: %w", err)
+		}
+		return nil
+	})
+}
+
+// ContinueWorkflowRunBootstrap atomically completes a predecessor workflow run
+// via continue-as-new and starts its successor. Within a single transaction it:
+//
+//  1. Claims the predecessor with a guarded status transition to continued
+//     (setting finished_at), so only one of two concurrent continuations wins.
+//     This guard runs first, before any successor work, so the losing racer
+//     bails out immediately without inserting a successor or step runs.
+//  2. Inserts the successor (whose continued_from_workflow_run_id and
+//     lineage_depth are already set on run), flips it pending -> running, and
+//     inserts its initial step runs.
+//  3. Links the predecessor forward to the now-existing successor via
+//     continued_to_workflow_run_id. This is a separate update because that
+//     column is a foreign key onto the successor, which must exist first.
+//  4. Tears down the predecessor's in-flight step runs, job runs, and event
+//     triggers, mirroring a cancel.
+//
+// If the predecessor is no longer in fromStatus, the guard matches no row and
+// ErrWorkflowRunContinueConflict is returned before any successor is created;
+// any later failure rolls the whole transaction back, so no orphan successor
+// or step runs are ever left behind.
+// ContinueWorkflowRunBootstrapParams carries the inputs for the atomic
+// complete-predecessor + start-successor continue-as-new handoff. FromStatus is
+// the predecessor's expected current status, used as the optimistic guard so
+// only one of two concurrent continuations wins.
+type ContinueWorkflowRunBootstrapParams struct {
+	PredecessorID string
+	FromStatus    domain.WorkflowRunStatus
+	Successor     *domain.WorkflowRun
+	StepRuns      []domain.WorkflowStepRun
+	Now           time.Time
+}
+
+func (q *Queries) ContinueWorkflowRunBootstrap(ctx context.Context, p ContinueWorkflowRunBootstrapParams) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ContinueWorkflowRunBootstrap")
+	defer span.End()
+
+	if err := domain.ValidateWorkflowTransition(p.FromStatus, domain.WfStatusContinued); err != nil {
+		return fmt.Errorf("continue workflow run bootstrap: %w", err)
+	}
+
+	bootstrap := func(txQ *Queries) error {
+		// 1. Claim the predecessor first: a guarded status transition so only
+		//    one concurrent continuation wins and the loser bails out before
+		//    doing any successor work. continued_to is set in step 3 once its
+		//    foreign-key target (the successor row) exists.
+		tag, err := txQ.db.Exec(ctx, `
+			UPDATE workflow_runs
+			SET status = $1, finished_at = $2
+			WHERE id = $3 AND status = $4`,
+			domain.WfStatusContinued, p.Now, p.PredecessorID, p.FromStatus,
+		)
+		if err != nil {
+			return fmt.Errorf("mark predecessor continued: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrWorkflowRunContinueConflict
+		}
+
+		// 2. Insert the successor and bring it to running with its step runs.
+		if err := txQ.CreateWorkflowRun(ctx, p.Successor); err != nil {
+			return fmt.Errorf("create successor workflow run: %w", err)
+		}
+		if err := txQ.UpdateWorkflowRunStatus(ctx, p.Successor.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{"started_at": p.Now}); err != nil {
+			return fmt.Errorf("mark successor running: %w", err)
+		}
+		if err := txQ.CreateWorkflowStepRuns(ctx, p.StepRuns); err != nil {
+			return fmt.Errorf("create successor step runs: %w", err)
+		}
+
+		// 3. Link the predecessor forward to the now-existing successor.
+		if _, err := txQ.db.Exec(ctx, `
+			UPDATE workflow_runs
+			SET continued_to_workflow_run_id = $1
+			WHERE id = $2`,
+			p.Successor.ID, p.PredecessorID,
+		); err != nil {
+			return fmt.Errorf("link predecessor to successor: %w", err)
+		}
+
+		// 4. Tear down the predecessor's in-flight work, mirroring a cancel.
+		reason := "workflow continued as new"
+		if _, err := txQ.CancelNonTerminalStepRuns(ctx, p.PredecessorID, p.Now, reason); err != nil {
+			return fmt.Errorf("cancel predecessor step runs: %w", err)
+		}
+		if _, err := txQ.CancelJobRunsByWorkflowRun(ctx, p.PredecessorID, p.Now, reason); err != nil {
+			return fmt.Errorf("cancel predecessor job runs: %w", err)
+		}
+		if _, err := txQ.CancelEventTriggersByWorkflowRun(ctx, p.PredecessorID); err != nil {
+			return fmt.Errorf("cancel predecessor event triggers: %w", err)
 		}
 		return nil
 	}
 
-	return q.withTx(ctx, func(txQ *Queries) error {
-		if err := txQ.CreateWorkflowRun(ctx, run); err != nil {
-			return fmt.Errorf("create workflow run bootstrap: %w", err)
+	if _, ok := q.db.(TxBeginner); !ok {
+		return bootstrap(q)
+	}
+	return q.withTx(ctx, bootstrap)
+}
+
+// GetWorkflowRunChain returns one page of the continue-as-new lineage that
+// anyRunID belongs to, ordered from the chain root (the run with no predecessor)
+// to the latest successor. It returns a lightweight projection
+// (domain.WorkflowRunChainEntry) rather than full runs, and is cursor-paginated
+// so a long chain is never materialized in full: callers fetch full detail for a
+// specific run on demand via GetWorkflowRun.
+//
+// Paging is anchored on run ids:
+//   - cursor == "" requests the first page. The chain root is located by walking
+//     up continued_from_workflow_run_id from anyRunID, then the page is read
+//     forward from the root. Root discovery is the only depth-proportional work
+//     and it walks an indexed single-column FK; everything else is O(limit).
+//   - cursor != "" requests the page that follows the run whose id is cursor.
+//     The forward walk seeds directly at that run's successor
+//     (continued_from_workflow_run_id = cursor, served by
+//     idx_workflow_runs_continued_from), so subsequent pages cost O(limit) with
+//     no root re-discovery.
+//
+// limit bounds the number of rows returned; callers pass page-size+1 to detect
+// whether more pages remain. An empty first page means anyRunID does not exist
+// in projectID (ErrWorkflowRunNotFound); an empty subsequent page simply means
+// the chain ends at the cursor.
+//
+// The walk is scoped to projectID so that a caller-supplied cursor (untrusted
+// input) can never pull runs from another tenant's chain: a continue-as-new
+// chain never crosses projects, so this scoping is both correct and a hard
+// tenant-isolation boundary.
+func (q *Queries) GetWorkflowRunChain(ctx context.Context, anyRunID, projectID string, limit int, cursor string) ([]domain.WorkflowRunChainEntry, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetWorkflowRunChain")
+	defer span.End()
+
+	if limit <= 0 {
+		limit = 1
+	}
+
+	// The recursive chain CTE carries only (id, continued_to, pos) so the walk
+	// stays cheap; the projection columns are joined onto the final page only.
+	const projection = `
+		SELECT wr.id, wr.lineage_depth, wr.status, wr.triggered_by,
+		       wr.started_at, wr.finished_at, wr.created_at
+		FROM chain c
+		JOIN workflow_runs wr ON wr.id = c.id
+		ORDER BY c.pos ASC
+		LIMIT $2`
+
+	var query string
+	seed := anyRunID
+	if cursor == "" {
+		query = `
+			WITH RECURSIVE ancestors AS (
+				SELECT id, continued_from_workflow_run_id, 0 AS up_depth
+				FROM workflow_runs
+				WHERE id = $1 AND project_id = $3
+				UNION ALL
+				SELECT wr.id, wr.continued_from_workflow_run_id, a.up_depth + 1
+				FROM workflow_runs wr
+				JOIN ancestors a ON wr.id = a.continued_from_workflow_run_id
+				WHERE a.up_depth < 1000000 AND wr.project_id = $3
+			),
+			root AS (
+				SELECT id
+				FROM ancestors
+				WHERE continued_from_workflow_run_id IS NULL
+				ORDER BY up_depth DESC
+				LIMIT 1
+			),
+			chain AS (
+				SELECT wr.id, wr.continued_to_workflow_run_id, 0 AS pos
+				FROM workflow_runs wr
+				JOIN root ON wr.id = root.id
+				UNION ALL
+				SELECT wr.id, wr.continued_to_workflow_run_id, c.pos + 1
+				FROM workflow_runs wr
+				JOIN chain c ON wr.id = c.continued_to_workflow_run_id
+				WHERE c.pos < $2 - 1 AND wr.project_id = $3
+			)` + projection
+	} else {
+		seed = cursor
+		query = `
+			WITH RECURSIVE chain AS (
+				SELECT wr.id, wr.continued_to_workflow_run_id, 0 AS pos
+				FROM workflow_runs wr
+				WHERE wr.continued_from_workflow_run_id = $1 AND wr.project_id = $3
+				UNION ALL
+				SELECT wr.id, wr.continued_to_workflow_run_id, c.pos + 1
+				FROM workflow_runs wr
+				JOIN chain c ON wr.id = c.continued_to_workflow_run_id
+				WHERE c.pos < $2 - 1 AND wr.project_id = $3
+			)` + projection
+	}
+
+	rows, err := q.db.Query(ctx, query, seed, limit, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("get workflow run chain: %w", err)
+	}
+	defer rows.Close()
+
+	entries := make([]domain.WorkflowRunChainEntry, 0, limit)
+	for rows.Next() {
+		var entry domain.WorkflowRunChainEntry
+		var startedAt, finishedAt *time.Time
+		if scanErr := rows.Scan(
+			&entry.ID,
+			&entry.LineageDepth,
+			&entry.Status,
+			&entry.TriggeredBy,
+			&startedAt,
+			&finishedAt,
+			&entry.CreatedAt,
+		); scanErr != nil {
+			return nil, fmt.Errorf("get workflow run chain scan: %w", scanErr)
 		}
-		if err := txQ.UpdateWorkflowRunStatus(ctx, run.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{"started_at": startedAt}); err != nil {
-			return fmt.Errorf("mark workflow running bootstrap: %w", err)
-		}
-		for i := range stepRuns {
-			sr := stepRuns[i]
-			if err := txQ.CreateWorkflowStepRun(ctx, &sr); err != nil {
-				return fmt.Errorf("create workflow step run bootstrap %s: %w", sr.StepRef, err)
-			}
-		}
-		return nil
-	})
+		entry.StartedAt = startedAt
+		entry.FinishedAt = finishedAt
+		entries = append(entries, entry)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get workflow run chain rows: %w", err)
+	}
+	if cursor == "" && len(entries) == 0 {
+		return nil, ErrWorkflowRunNotFound
+	}
+	return entries, nil
 }
 
 func (q *Queries) ListStalledWorkflowRuns(ctx context.Context, threshold time.Duration) ([]domain.WorkflowRun, error) {
@@ -537,7 +781,8 @@ func (q *Queries) ListStalledWorkflowRuns(ctx context.Context, threshold time.Du
 	query := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at
+		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at,
+		       continued_from_workflow_run_id, continued_to_workflow_run_id, lineage_depth
 		FROM workflow_runs wr
 		WHERE wr.status = 'running'
 		  AND wr.started_at IS NOT NULL
@@ -578,7 +823,8 @@ func (q *Queries) ListWorkflowRunsByTag(ctx context.Context, projectID, tagKey, 
 	base := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at
+		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at,
+		       continued_from_workflow_run_id, continued_to_workflow_run_id, lineage_depth
 		FROM workflow_runs
 		WHERE project_id = $1`
 
@@ -695,7 +941,7 @@ func (q *Queries) BulkCancelWorkflowRuns(ctx context.Context, projectID string, 
 		UPDATE workflow_runs
 		SET status = 'canceled', finished_at = $2, error = 'canceled by user (bulk)'
 		WHERE id = ANY($1) AND project_id = $3
-		  AND status NOT IN ('completed', 'failed', 'timed_out', 'canceled', 'compensated', 'compensation_failed')
+		  AND status NOT IN ('completed', 'failed', 'timed_out', 'canceled', 'compensated', 'compensation_failed', 'continued')
 		RETURNING id
 	`, ids, now, projectID)
 	if err != nil {

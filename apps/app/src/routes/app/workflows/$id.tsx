@@ -7,6 +7,12 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@strait/ui/components/dropdown-menu";
 import { Shell } from "@strait/ui/components/shell";
 import {
   Tabs,
@@ -15,7 +21,7 @@ import {
   TabsTrigger,
 } from "@strait/ui/components/tabs";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   type ColumnDef,
   getCoreRowModel,
@@ -33,6 +39,7 @@ import ErrorComponent from "@/components/common/error-component";
 import TableEmptyState from "@/components/common/table-empty-state";
 import StatusBadge from "@/components/dashboard/status-badge";
 import WorkflowDAGFlow from "@/components/dashboard/workflow-dag-flow";
+import WorkflowRunActions from "@/components/dashboard/workflow-run-actions";
 import { DataTable } from "@/components/ui/data-table/data-table";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type {
@@ -54,11 +61,15 @@ import {
   ActivityIcon,
   CheckCircleIcon,
   ClockIcon,
+  FilterIcon,
+  LinkSquareIcon,
   PauseActionIcon,
   PlayActionIcon,
   RefreshIcon,
   TagIcon,
 } from "@/lib/icons";
+import { WORKFLOW_RUN_STATUS_OPTIONS } from "@/lib/status";
+import { isPartOfChain } from "@/lib/workflow-continue";
 
 export const Route = createFileRoute("/app/workflows/$id")({
   head: () => ({ meta: [{ title: "Workflow · Strait" }] }),
@@ -79,7 +90,22 @@ const workflowRunColumns: ColumnDef<WorkflowRun>[] = [
     accessorKey: "id",
     header: "Run ID",
     cell: ({ row }) => (
-      <span className="font-mono text-xs">{row.original.id.slice(0, 8)}</span>
+      <span className="flex items-center gap-1.5 font-mono text-xs">
+        <Link
+          className="underline underline-offset-2"
+          params={{ id: row.original.id }}
+          to="/app/workflow-runs/$id"
+        >
+          {row.original.id.slice(0, 8)}
+        </Link>
+        {isPartOfChain(row.original) && (
+          <HugeiconsIcon
+            aria-label="Part of a continuation chain"
+            className="size-3 text-muted-foreground"
+            icon={LinkSquareIcon}
+          />
+        )}
+      </span>
     ),
   },
   {
@@ -113,7 +139,33 @@ const workflowRunColumns: ColumnDef<WorkflowRun>[] = [
         addSuffix: true,
       }),
   },
+  {
+    id: "actions",
+    header: "",
+    cell: ({ row }) => <WorkflowRunActions run={row.original} />,
+    enableSorting: false,
+  },
 ];
+
+/** Client-side multi-select status filter for the Recent Runs table. */
+function useWorkflowRunStatusFilter(runs: WorkflowRun[]) {
+  const [statusFilter, setStatusFilter] = useState<WorkflowRunStatus[]>([]);
+
+  const toggleStatus = (status: WorkflowRunStatus) => {
+    setStatusFilter((prev) =>
+      prev.includes(status)
+        ? prev.filter((s) => s !== status)
+        : [...prev, status]
+    );
+  };
+
+  const filteredRuns =
+    statusFilter.length > 0
+      ? runs.filter((r) => statusFilter.includes(r.status as WorkflowRunStatus))
+      : runs;
+
+  return { statusFilter, toggleStatus, filteredRuns };
+}
 
 function WorkflowDetailPage() {
   const { id } = Route.useParams();
@@ -129,6 +181,8 @@ function WorkflowDetailPage() {
   };
   const runs = runsData?.data ?? [];
   const [activeTab, setActiveTab] = useState("overview");
+  const { statusFilter, toggleStatus, filteredRuns } =
+    useWorkflowRunStatusFilter(runs);
   const triggerWorkflow = useTriggerWorkflow();
   const pauseWorkflow = usePauseWorkflow();
   const resumeWorkflow = useResumeWorkflow();
@@ -143,7 +197,7 @@ function WorkflowDetailPage() {
   }));
 
   const runsTable = useReactTable({
-    data: runs ?? [],
+    data: filteredRuns,
     columns: workflowRunColumns,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -288,9 +342,20 @@ function WorkflowDetailPage() {
                         size="xs"
                         status={run.status as WorkflowRunStatus}
                       />
-                      <span className="font-mono text-muted-foreground text-xs">
+                      <Link
+                        className="font-mono text-muted-foreground text-xs underline underline-offset-2"
+                        params={{ id: run.id }}
+                        to="/app/workflow-runs/$id"
+                      >
                         {run.id.slice(0, 8)}
-                      </span>
+                      </Link>
+                      {isPartOfChain(run) && (
+                        <HugeiconsIcon
+                          aria-label="Part of a continuation chain"
+                          className="size-3 text-muted-foreground"
+                          icon={LinkSquareIcon}
+                        />
+                      )}
                       <Badge className="capitalize" size="xs" variant="outline">
                         {run.triggered_by}
                       </Badge>
@@ -299,6 +364,7 @@ function WorkflowDetailPage() {
                           addSuffix: true,
                         })}
                       </span>
+                      <WorkflowRunActions run={run} />
                     </div>
                   ))}
                 </div>
@@ -327,7 +393,29 @@ function WorkflowDetailPage() {
         </TabsContent>
 
         {/* Recent Runs Tab */}
-        <TabsContent className="mt-6" value="runs">
+        <TabsContent className="mt-6 space-y-4" value="runs">
+          <div className="flex justify-end">
+            <DropdownMenu>
+              <DropdownMenuTrigger render={<Button variant="outline" />}>
+                <HugeiconsIcon className="mr-1.5" icon={FilterIcon} size={14} />
+                Status
+                {statusFilter.length > 0 && (
+                  <Badge variant="default">{statusFilter.length}</Badge>
+                )}
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                {WORKFLOW_RUN_STATUS_OPTIONS.map((status) => (
+                  <DropdownMenuCheckboxItem
+                    checked={statusFilter.includes(status)}
+                    key={status}
+                    onCheckedChange={() => toggleStatus(status)}
+                  >
+                    <StatusBadge status={status} />
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
           <DataTable
             ariaLabel="Workflow runs"
             emptyState={

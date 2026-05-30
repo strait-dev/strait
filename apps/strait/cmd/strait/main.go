@@ -377,6 +377,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 
 	workflowEngine := workflow.NewWorkflowEngine(queries, q, slog.Default()).
 		WithMaxNestingDepth(cfg.MaxWorkflowNestingDepth).
+		WithMaxContinueDepth(cfg.MaxWorkflowContinueDepth).
 		WithMetrics(metrics).
 		WithDefinitionCaches(workflow.WorkflowDefinitionCacheConfig{Redis: rdb, VersionTTL: cfg.VersionCacheTTL}).
 		WithOnTriggerCreate(onTriggerCreate)

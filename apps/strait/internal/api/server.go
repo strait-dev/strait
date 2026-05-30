@@ -327,6 +327,7 @@ type WorkflowStore interface {
 	ListStepsByWorkflowVersion(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error)
 	DeleteStepsByWorkflow(ctx context.Context, workflowID string) error
 	GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error)
+	GetWorkflowRunChain(ctx context.Context, anyRunID, projectID string, limit int, cursor string) ([]domain.WorkflowRunChainEntry, error)
 	ListWorkflowRuns(ctx context.Context, workflowID string, limit int, cursor *time.Time) ([]domain.WorkflowRun, error)
 	ListWorkflowRunsByProject(ctx context.Context, projectID string, status *domain.WorkflowRunStatus, limit int, cursor *time.Time) ([]domain.WorkflowRun, error)
 	ListWorkflowRunsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.WorkflowRun, error)
@@ -528,6 +529,7 @@ type WorkflowTrigger interface {
 		extraTags map[string]string,
 	) (*domain.WorkflowRun, error)
 	RetryWorkflowRun(ctx context.Context, originalRunID string) (*domain.WorkflowRun, error)
+	ContinueWorkflowRunAsNew(ctx context.Context, runID string, input json.RawMessage, strategy domain.ContinueVersionStrategy) (*domain.WorkflowRun, error)
 }
 
 const (

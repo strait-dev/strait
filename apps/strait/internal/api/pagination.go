@@ -1,5 +1,7 @@
 package api
 
+import "strconv"
+
 // PaginatedResponse wraps a list response with cursor-based pagination metadata.
 type PaginatedResponse struct {
 	Data       any     `json:"data"`
@@ -24,6 +26,21 @@ func paginatedResult[T any](items []T, limit int, cursorFn func(T) string) Pagin
 		Data:    items,
 		HasMore: false,
 	}
+}
+
+// parseLimitParam parses a limit query string for endpoints whose cursor is an
+// opaque id rather than a timestamp (so parsePaginationFromStrings does not
+// apply). Invalid or absent values fall back to defaultPageLimit; values above
+// maxPageLimit are clamped.
+func parseLimitParam(limitStr string) int {
+	limit := defaultPageLimit
+	if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 {
+		limit = parsed
+	}
+	if limit > maxPageLimit {
+		limit = maxPageLimit
+	}
+	return limit
 }
 
 type paginationError struct {

@@ -421,6 +421,70 @@ func TestMigrationRoundtrip_000233_AddEndpointSigningSecret(t *testing.T) {
 	})
 }
 
+// indexExists reports whether a named index is present in the public schema.
+func indexExists(t *testing.T, ctx context.Context, db *testutil.TestDB, name string) bool {
+	t.Helper()
+	var exists bool
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM pg_indexes
+			WHERE schemaname = 'public' AND indexname = $1
+		)
+	`, name).Scan(&exists); err != nil {
+		t.Fatalf("check index %s: %v", name, err)
+	}
+	return exists
+}
+
+// TestMigrationRoundtrip_000306_WorkflowRunContinuation verifies that:
+//   - Up: adds continued_from_workflow_run_id, continued_to_workflow_run_id, and
+//     lineage_depth columns to workflow_runs plus the partial index
+//     idx_workflow_runs_continued_from.
+//   - Down: drops all three columns and the index.
+//
+// The runRoundtrip helper asserts the column-level add/down/re-up roundtrip;
+// the index is checked explicitly because the schema snapshot does not capture
+// indexes. Down-migration data caveat: lineage links and depth values are lost
+// on rollback. Acceptable: the columns are newly introduced with no production
+// data at rollback time, and lineage_depth defaults to 0.
+func TestMigrationRoundtrip_000306_WorkflowRunContinuation(t *testing.T) {
+	runRoundtrip(t, 306, func(t *testing.T, postUp schemaState) {
+		t.Helper()
+		for _, col := range []string{
+			"workflow_runs.continued_from_workflow_run_id",
+			"workflow_runs.continued_to_workflow_run_id",
+			"workflow_runs.lineage_depth",
+		} {
+			if !postUp.columns[col] {
+				t.Errorf("post-up: column %s should exist", col)
+			}
+		}
+	})
+
+	// Explicit index roundtrip: the partial index must appear after up and be
+	// gone after rolling back to 305.
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	defer cancel()
+
+	tdb, err := testutil.SetupTestDB(ctx, migrationsRelPath)
+	if err != nil {
+		t.Fatalf("setup test db: %v", err)
+	}
+	defer tdb.Cleanup(ctx)
+
+	const indexName = "idx_workflow_runs_continued_from"
+
+	migrateToVersion(t, tdb.ConnStr, 306)
+	if !indexExists(t, ctx, tdb, indexName) {
+		t.Errorf("post-up: index %s should exist", indexName)
+	}
+
+	migrateToVersion(t, tdb.ConnStr, 305)
+	if indexExists(t, ctx, tdb, indexName) {
+		t.Errorf("post-down: index %s should be dropped", indexName)
+	}
+}
+
 // TestMigrationRoundtrip_All runs the orchestration migrations as a group on a
 // single shared DB, verifying the combined up→(all-down to 226)→up roundtrip.
 // This catches ordering dependencies across the migration sequence.

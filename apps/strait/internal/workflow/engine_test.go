@@ -31,6 +31,7 @@ type mockEngineStore struct {
 	countRunningWorkflowRunsFn        func(ctx context.Context, workflowID string) (int, error)
 	createWorkflowRunFn               func(ctx context.Context, run *domain.WorkflowRun) error
 	createWorkflowRunBootstrapFn      func(ctx context.Context, run *domain.WorkflowRun, stepRuns []domain.WorkflowStepRun, startedAt time.Time) error
+	continueWorkflowRunBootstrapFn    func(ctx context.Context, predecessorID string, fromStatus domain.WorkflowRunStatus, successor *domain.WorkflowRun, stepRuns []domain.WorkflowStepRun, now time.Time) error
 	isProjectRunnableFn               func(ctx context.Context, projectID string) (bool, error)
 	createWorkflowStepRunFn           func(ctx context.Context, sr *domain.WorkflowStepRun) error
 	createWorkflowStepApprovalFn      func(ctx context.Context, approval *domain.WorkflowStepApproval) error
@@ -94,7 +95,8 @@ func (m *mockEngineStore) CreateWorkflowRun(ctx context.Context, run *domain.Wor
 	return nil
 }
 
-func (m *mockEngineStore) CreateWorkflowRunBootstrap(ctx context.Context, run *domain.WorkflowRun, stepRuns []domain.WorkflowStepRun, startedAt time.Time) error {
+func (m *mockEngineStore) CreateWorkflowRunBootstrap(ctx context.Context, p store.CreateWorkflowRunBootstrapParams) error {
+	run, stepRuns, startedAt := p.Run, p.StepRuns, p.StartedAt
 	if m.createWorkflowRunBootstrapFn != nil {
 		return m.createWorkflowRunBootstrapFn(ctx, run, stepRuns, startedAt)
 	}
@@ -110,6 +112,25 @@ func (m *mockEngineStore) CreateWorkflowRunBootstrap(ctx context.Context, run *d
 		}
 	}
 	return nil
+}
+
+func (m *mockEngineStore) ContinueWorkflowRunBootstrap(ctx context.Context, p store.ContinueWorkflowRunBootstrapParams) error {
+	predecessorID, fromStatus, successor, stepRuns, now := p.PredecessorID, p.FromStatus, p.Successor, p.StepRuns, p.Now
+	if m.continueWorkflowRunBootstrapFn != nil {
+		return m.continueWorkflowRunBootstrapFn(ctx, predecessorID, fromStatus, successor, stepRuns, now)
+	}
+	if err := m.CreateWorkflowRun(ctx, successor); err != nil {
+		return err
+	}
+	if err := m.UpdateWorkflowRunStatus(ctx, successor.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{"started_at": now}); err != nil {
+		return err
+	}
+	for i := range stepRuns {
+		if err := m.CreateWorkflowStepRun(ctx, &stepRuns[i]); err != nil {
+			return err
+		}
+	}
+	return m.UpdateWorkflowRunStatus(ctx, predecessorID, fromStatus, domain.WfStatusContinued, map[string]any{"finished_at": now, "continued_to_workflow_run_id": successor.ID})
 }
 
 func (m *mockEngineStore) CreateWorkflowStepRun(ctx context.Context, sr *domain.WorkflowStepRun) error {
@@ -1121,6 +1142,24 @@ func (m *mockCallbackStore) ListStepRunsByWorkflowRun(ctx context.Context, workf
 		return m.listStepRunsByWorkflowRun(ctx, workflowRunID, limit, cursor)
 	}
 	return nil, nil
+}
+
+func (m *mockCallbackStore) ListStepRunOutputsByWorkflowRun(ctx context.Context, workflowRunID string) ([]domain.StepRunOutput, error) {
+	if m.listStepRunsByWorkflowRun == nil {
+		return nil, nil
+	}
+	runs, err := m.listStepRunsByWorkflowRun(ctx, workflowRunID, 10000, nil)
+	if err != nil {
+		return nil, err
+	}
+	outputs := make([]domain.StepRunOutput, 0, len(runs))
+	for i := range runs {
+		if len(runs[i].Output) == 0 {
+			continue
+		}
+		outputs = append(outputs, domain.StepRunOutput{StepRef: runs[i].StepRef, Output: runs[i].Output})
+	}
+	return outputs, nil
 }
 
 func (m *mockCallbackStore) ListRunnableStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int) ([]domain.WorkflowStepRun, error) {

@@ -36,21 +36,149 @@ func renderTemplateVars(payload, variables json.RawMessage) json.RawMessage {
 		return payload
 	}
 
+	// Fast path: rewrite only the templated string leaves in place, splicing the
+	// original bytes around them. This avoids unmarshaling the whole payload into
+	// a generic tree and re-marshaling it. The splice relies on gjson byte
+	// offsets, so it requires a valid payload; it also falls back to the tree
+	// walk for the rare shapes it cannot place (e.g. a non-object top-level value
+	// whose byte offset gjson reports as unknown). The fallback's json.Unmarshal
+	// re-validates, so validating here only gates the fast path.
+	if gjson.ValidBytes(payload) {
+		if out, ok := renderTemplateVarsSplice(payload, vars); ok {
+			return out
+		}
+	}
+
 	var data any
 	if err := json.Unmarshal(payload, &data); err != nil {
 		return payload
 	}
-
 	rendered, changed := walkAndRender(data, vars)
 	if !changed {
 		return payload
 	}
-
 	out, err := json.Marshal(rendered)
 	if err != nil {
 		return payload
 	}
 	return out
+}
+
+// renderTemplateVarsSplice rewrites the templated string values of payload in
+// place, copying every other byte verbatim. It walks the parsed JSON with gjson
+// and uses each value's byte offset to splice in the rendered token, so the
+// substituted values are byte-identical to the tree-walk path while untouched
+// bytes (including key order and whitespace) are preserved. It returns ok=false
+// when a rewritable leaf has an unknown offset (gjson reports Index 0) or the
+// offsets are not ascending, signaling the caller to fall back to the tree walk.
+func renderTemplateVarsSplice(payload []byte, vars map[string]any) ([]byte, bool) {
+	type edit struct {
+		start, end int
+		raw        []byte
+	}
+	var edits []edit
+	ok := true
+
+	var visit func(r gjson.Result)
+	visit = func(r gjson.Result) {
+		r.ForEach(func(_, v gjson.Result) bool {
+			switch {
+			case v.IsObject() || v.IsArray():
+				visit(v)
+			case v.Type == gjson.String && strings.Contains(v.Raw, "{{"):
+				raw, changed := renderLeafString(v.Str, vars)
+				if !changed {
+					return true
+				}
+				if v.Index <= 0 || v.Index+len(v.Raw) > len(payload) {
+					ok = false
+					return false
+				}
+				edits = append(edits, edit{start: v.Index, end: v.Index + len(v.Raw), raw: raw})
+			}
+			return true
+		})
+	}
+	visit(gjson.ParseBytes(payload))
+
+	if !ok {
+		return nil, false
+	}
+	if len(edits) == 0 {
+		return payload, true
+	}
+
+	out := make([]byte, 0, len(payload)+32)
+	prev := 0
+	for _, e := range edits {
+		if e.start < prev {
+			// Offsets out of order or overlapping; let the caller fall back.
+			return nil, false
+		}
+		out = append(out, payload[prev:e.start]...)
+		out = append(out, e.raw...)
+		prev = e.end
+	}
+	out = append(out, payload[prev:]...)
+	return out, true
+}
+
+// renderLeafString renders the template variables in a single JSON string value
+// and returns the replacement as a raw JSON token: a bare literal for a
+// type-preserving whole-string substitution, or a quoted string for mixed
+// content. changed is false when the value is left unchanged, matching the
+// tree-walk semantics in renderStringValue exactly.
+func renderLeafString(s string, vars map[string]any) (raw []byte, changed bool) {
+	open, end, varName, ok := nextTemplateVar(s, 0)
+	if !ok {
+		return nil, false
+	}
+
+	// Entire string is a single "{{var_name}}" — preserve the variable's type.
+	if open == 0 && end == len(s) {
+		val, found := resolveVar(vars, varName)
+		if !found {
+			return nil, false
+		}
+		if str, isStr := val.(string); isStr && str == s {
+			return nil, false
+		}
+		b, err := json.Marshal(val)
+		if err != nil {
+			return nil, false
+		}
+		return b, true
+	}
+
+	// Mixed content: interpolate stringified values, then JSON-encode the result.
+	var buf strings.Builder
+	buf.Grow(len(s))
+	prev := 0
+	for {
+		buf.WriteString(s[prev:open])
+		if val, found := resolveVar(vars, varName); found {
+			buf.WriteString(stringify(val))
+		} else {
+			buf.WriteString(s[open:end])
+		}
+		prev = end
+
+		open, end, varName, ok = nextTemplateVar(s, end)
+		if !ok {
+			break
+		}
+	}
+	buf.WriteString(s[prev:])
+
+	result := buf.String()
+	if result == s {
+		return nil, false
+	}
+	b, err := json.Marshal(result)
+	if err != nil {
+		return nil, false
+	}
+	return b, true
 }
 
 func payloadHasResolvableTemplateJSON(payload, variables []byte) bool {

@@ -448,7 +448,7 @@ func TestWorkflowRun_CreateWorkflowRunBootstrap_HappyPath(t *testing.T) {
 	}
 	now := time.Now().UTC()
 
-	if err := q.CreateWorkflowRunBootstrap(ctx, run, stepRuns, now); err != nil {
+	if err := q.CreateWorkflowRunBootstrap(ctx, store.CreateWorkflowRunBootstrapParams{Run: run, StepRuns: stepRuns, StartedAt: now}); err != nil {
 		t.Fatalf("CreateWorkflowRunBootstrap() error = %v", err)
 	}
 
@@ -489,7 +489,7 @@ func TestWorkflowRun_CreateWorkflowRunBootstrap_MultipleSteps(t *testing.T) {
 		{ID: newID(), WorkflowRunID: run.ID, WorkflowStepID: stepB.ID, StepRef: "step-b", Status: domain.StepPending},
 	}
 
-	if err := q.CreateWorkflowRunBootstrap(ctx, run, stepRuns, time.Now().UTC()); err != nil {
+	if err := q.CreateWorkflowRunBootstrap(ctx, store.CreateWorkflowRunBootstrapParams{Run: run, StepRuns: stepRuns, StartedAt: time.Now().UTC()}); err != nil {
 		t.Fatalf("CreateWorkflowRunBootstrap() error = %v", err)
 	}
 
@@ -513,7 +513,7 @@ func TestWorkflowRun_CreateWorkflowRunBootstrap_NoSteps(t *testing.T) {
 	})
 
 	run := testutil.BuildWorkflowRun(wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID)})
-	if err := q.CreateWorkflowRunBootstrap(ctx, run, nil, time.Now().UTC()); err != nil {
+	if err := q.CreateWorkflowRunBootstrap(ctx, store.CreateWorkflowRunBootstrapParams{Run: run, StepRuns: nil, StartedAt: time.Now().UTC()}); err != nil {
 		t.Fatalf("CreateWorkflowRunBootstrap() error = %v", err)
 	}
 

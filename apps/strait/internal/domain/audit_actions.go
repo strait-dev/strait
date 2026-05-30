@@ -137,6 +137,7 @@ const (
 	AuditActionWorkflowRunBulkCancelled   = "workflow_run.bulk_cancelled"
 	AuditActionWorkflowRunBulkReplayed    = "workflow_run.bulk_replayed"
 	AuditActionWorkflowRunCompensated     = "workflow_run.compensated"
+	AuditActionWorkflowRunContinuedAsNew  = "workflow_run.continued_as_new"
 
 	// Workflow steps.
 	AuditActionWorkflowStepApproved       = "workflow_step.approved"
@@ -311,6 +312,7 @@ var allAuditActions = map[string]struct{}{
 	AuditActionWorkflowRunBulkCancelled:        {},
 	AuditActionWorkflowRunBulkReplayed:         {},
 	AuditActionWorkflowRunCompensated:          {},
+	AuditActionWorkflowRunContinuedAsNew:       {},
 	AuditActionWorkflowStepApproved:            {},
 	AuditActionWorkflowStepSkipped:             {},
 	AuditActionWorkflowStepForceCompleted:      {},
