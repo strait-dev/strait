@@ -37,7 +37,7 @@ func (q *Queries) StreamJobs(ctx context.Context, projectID string, fn func(*dom
 		       max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run,
 		       allowed_tools, blocked_tools,
 		       paused, paused_at, pause_reason, endpoint_signing_secret,
-		       singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth, cache_version
+		       singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth, singleton_preempt_higher_priority, cache_version
 		FROM jobs
 		WHERE project_id = $1
 		ORDER BY created_at ASC
@@ -69,7 +69,7 @@ func (q *Queries) StreamWorkflows(ctx context.Context, projectID string, fn func
 	query := `
 		SELECT id, project_id, name, slug, description, enabled, version, timeout_secs, max_concurrent_runs,
 		       max_parallel_steps, cron, cron_timezone, skip_if_running, tags, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
-		       singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth
+		       singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth, singleton_preempt_higher_priority
 		FROM workflows
 		WHERE project_id = $1
 		ORDER BY created_at ASC

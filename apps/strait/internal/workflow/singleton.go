@@ -24,6 +24,7 @@ type singletonWorkflowStore interface {
 		key string,
 		onConflict domain.SingletonOnConflict,
 		maxQueueDepth *int,
+		preemptHigher bool,
 	) (domain.SingletonOutcome, string, bool, error)
 	ReleaseSingletonWorkflowLockAndPromote(ctx context.Context, holderRunID string) (bool, string, error)
 }
@@ -79,7 +80,7 @@ func (e *WorkflowEngine) bootstrapSingletonWorkflowRun(
 	}
 
 	outcome, holderID, _, serr := ss.CreateWorkflowRunSingletonBootstrap(
-		ctx, wfRun, stepRuns, now, key, eff.OnConflict, eff.MaxQueueDepth,
+		ctx, wfRun, stepRuns, now, key, eff.OnConflict, eff.MaxQueueDepth, eff.Preempt,
 	)
 	if serr != nil {
 		return nil, "", "", true, fmt.Errorf("workflow singleton bootstrap: %w", serr)
@@ -100,7 +101,12 @@ func (e *WorkflowEngine) bootstrapSingletonWorkflowRun(
 		return wfRun, outcome, holderID, true, nil
 
 	case domain.SingletonOutcomeReplaced:
-		e.recordSingletonConflict(ctx, eff.OnConflict)
+		// A replace under the queue policy is a higher-priority preemption.
+		if eff.OnConflict == domain.SingletonOnConflictQueue {
+			e.recordSingletonPreemption(ctx)
+		} else {
+			e.recordSingletonConflict(ctx, eff.OnConflict)
+		}
 		wfRun.Status = domain.WfStatusQueued
 		// The holder was canceled synchronously in the bootstrap tx, so promote
 		// the newcomer now instead of waiting for the reaper.
@@ -231,5 +237,14 @@ func (e *WorkflowEngine) recordSingletonConflict(ctx context.Context, policy dom
 	e.metrics.SingletonConflicts.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("kind", string(domain.SingletonKindWorkflow)),
 		attribute.String("policy", string(policy)),
+	))
+}
+
+func (e *WorkflowEngine) recordSingletonPreemption(ctx context.Context) {
+	if e.metrics == nil || e.metrics.SingletonPreemptions == nil {
+		return
+	}
+	e.metrics.SingletonPreemptions.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("kind", string(domain.SingletonKindWorkflow)),
 	))
 }

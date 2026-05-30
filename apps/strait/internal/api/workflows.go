@@ -70,6 +70,7 @@ type createWorkflowRequest struct {
 	SingletonKeyExpr       json.RawMessage `json:"singleton_key_expr,omitempty" doc:"Singleton key expression envelope ({\"template\":\"...\"}). When set, the workflow runs as a singleton keyed by the resolved template."`
 	SingletonOnConflict    string          `json:"singleton_on_conflict,omitempty" validate:"omitempty,oneof=queue drop replace" doc:"Collision policy when the singleton key is already held: queue, drop, or replace."`
 	SingletonMaxQueueDepth *int            `json:"singleton_max_queue_depth,omitempty" validate:"omitempty,min=0" doc:"Optional per-key cap on queued-behind runs for the queue policy. NULL means unbounded."`
+	SingletonPreemptHigher bool            `json:"singleton_preempt_higher_priority,omitempty" doc:"Under the queue policy, allow a strictly higher-priority newcomer to cancel the running lower-priority holder and take its place."`
 }
 
 type updateWorkflowRequest struct {
@@ -92,6 +93,7 @@ type updateWorkflowRequest struct {
 	SingletonKeyExpr       *json.RawMessage `json:"singleton_key_expr,omitempty" doc:"Singleton key expression envelope ({\"template\":\"...\"}). When set, the workflow runs as a singleton keyed by the resolved template."`
 	SingletonOnConflict    *string          `json:"singleton_on_conflict,omitempty" validate:"omitempty,oneof=queue drop replace" doc:"Collision policy when the singleton key is already held: queue, drop, or replace."`
 	SingletonMaxQueueDepth *int             `json:"singleton_max_queue_depth,omitempty" validate:"omitempty,min=0" doc:"Optional per-key cap on queued-behind runs for the queue policy. NULL means unbounded."`
+	SingletonPreemptHigher *bool            `json:"singleton_preempt_higher_priority,omitempty" doc:"Under the queue policy, allow a strictly higher-priority newcomer to cancel the running lower-priority holder and take its place."`
 }
 
 type dryRunWorkflowRequest struct {
@@ -190,6 +192,7 @@ func (s *Server) handleCreateWorkflow(ctx context.Context, input *CreateWorkflow
 		SingletonKeyExpr:       req.SingletonKeyExpr,
 		SingletonOnConflict:    domain.SingletonOnConflict(req.SingletonOnConflict),
 		SingletonMaxQueueDepth: req.SingletonMaxQueueDepth,
+		SingletonPreemptHigher: req.SingletonPreemptHigher,
 	}
 
 	if req.VersionPolicy != "" {
@@ -476,6 +479,9 @@ func (s *Server) applyWorkflowUpdate(ctx context.Context, state *updateWorkflowS
 	}
 	if req.SingletonMaxQueueDepth != nil {
 		wf.SingletonMaxQueueDepth = req.SingletonMaxQueueDepth
+	}
+	if req.SingletonPreemptHigher != nil {
+		wf.SingletonPreemptHigher = *req.SingletonPreemptHigher
 	}
 	if req.SingletonKeyExpr != nil || req.SingletonOnConflict != nil || req.SingletonMaxQueueDepth != nil {
 		if err := validateSingletonConfig(wf.SingletonKeyExpr, string(wf.SingletonOnConflict), wf.SingletonMaxQueueDepth); err != nil {

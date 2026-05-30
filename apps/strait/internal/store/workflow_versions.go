@@ -26,12 +26,12 @@ func (q *Queries) CreateWorkflowVersionSnapshot(ctx context.Context, workflowID 
 			id, workflow_id, version, project_id, name, slug, description, enabled,
 			timeout_secs, max_concurrent_runs, max_parallel_steps, cron, cron_timezone, skip_if_running,
 			version_id, created_by, updated_by,
-			singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth
+			singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth, singleton_preempt_higher_priority
 		)
 		SELECT $1, id, version, project_id, name, slug, description, enabled,
 		       timeout_secs, max_concurrent_runs, max_parallel_steps, cron, cron_timezone, skip_if_running,
 		       COALESCE(version_id, ''), COALESCE(created_by, ''), COALESCE(updated_by, ''),
-		       singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth
+		       singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth, singleton_preempt_higher_priority
 		FROM workflows
 		WHERE id = $2 AND version = $3
 		ON CONFLICT (workflow_id, version)
@@ -52,7 +52,8 @@ func (q *Queries) CreateWorkflowVersionSnapshot(ctx context.Context, workflowID 
 			updated_by = EXCLUDED.updated_by,
 			singleton_key_expr = EXCLUDED.singleton_key_expr,
 			singleton_on_conflict = EXCLUDED.singleton_on_conflict,
-			singleton_max_queue_depth = EXCLUDED.singleton_max_queue_depth`
+			singleton_max_queue_depth = EXCLUDED.singleton_max_queue_depth,
+			singleton_preempt_higher_priority = EXCLUDED.singleton_preempt_higher_priority`
 
 	tag, err := q.db.Exec(ctx, insertVersion, versionID, workflowID, version)
 	if err != nil {

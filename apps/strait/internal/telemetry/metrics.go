@@ -66,6 +66,9 @@ type Metrics struct {
 	SingletonAcquisitions   metric.Int64Counter
 	SingletonConflicts      metric.Int64Counter
 	SingletonStaleReclaimed metric.Int64Counter
+	// SingletonPreemptions counts higher-priority newcomers that canceled a
+	// lower-priority holder under the queue policy, labeled by kind (job|workflow).
+	SingletonPreemptions metric.Int64Counter
 
 	// Worker pool gauges (reported via ObservePool callback).
 	PoolRunningWorkers metric.Int64ObservableGauge
@@ -569,6 +572,15 @@ func initMetricInstruments(meter metric.Meter) (*Metrics, error) {
 		return nil, fmt.Errorf("create singleton stale reclaimed counter: %w", err)
 	}
 
+	singletonPreemptions, err := meter.Int64Counter(
+		"strait_singleton_preemptions_total",
+		metric.WithDescription("Total singleton holders preempted by a higher-priority newcomer under the queue policy, by kind"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create singleton preemptions counter: %w", err)
+	}
+
 	poolRunning, err := meter.Int64ObservableGauge(
 		"strait_worker_pool_running",
 		metric.WithDescription("Number of goroutines currently executing tasks"),
@@ -909,6 +921,7 @@ func initMetricInstruments(meter metric.Meter) (*Metrics, error) {
 		SingletonAcquisitions:        singletonAcquisitions,
 		SingletonConflicts:           singletonConflicts,
 		SingletonStaleReclaimed:      singletonStaleReclaimed,
+		SingletonPreemptions:         singletonPreemptions,
 		PoolRunningWorkers:           poolRunning,
 		PoolWaitingTasks:             poolWaiting,
 		PoolSubmittedTasks:           poolSubmitted,

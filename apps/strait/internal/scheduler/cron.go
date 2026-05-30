@@ -243,15 +243,18 @@ func (cs *CronScheduler) triggerJobLocked(ctx context.Context, job domain.Job, f
 					"job_id", job.ID, "project_id", job.ProjectID)
 			} else {
 				proceed, oc, hid, serr := store.New(tx).ApplyJobSingletonConflictPolicy(
-					enqueueCtx, &run, job.ProjectID, job.ID, run.SingletonKey, eff.OnConflict, eff.MaxQueueDepth,
+					enqueueCtx, &run, job.ProjectID, job.ID, run.SingletonKey, eff.OnConflict, eff.MaxQueueDepth, eff.Preempt,
 				)
 				if serr != nil {
 					return serr
 				}
 				outcome, holderID = oc, hid
-				if oc == domain.SingletonOutcomeDispatched {
+				switch {
+				case oc == domain.SingletonOutcomeDispatched:
 					cs.recordSingletonAcquisition(enqueueCtx)
-				} else {
+				case oc == domain.SingletonOutcomeReplaced && eff.OnConflict == domain.SingletonOnConflictQueue:
+					cs.recordSingletonPreemption(enqueueCtx)
+				default:
 					cs.recordSingletonConflict(enqueueCtx, eff.OnConflict)
 				}
 				if !proceed {
@@ -379,6 +382,15 @@ func (cs *CronScheduler) recordSingletonConflict(ctx context.Context, policy dom
 	cs.metrics.SingletonConflicts.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("kind", string(domain.SingletonKindJob)),
 		attribute.String("policy", string(policy)),
+	))
+}
+
+func (cs *CronScheduler) recordSingletonPreemption(ctx context.Context) {
+	if cs.metrics == nil || cs.metrics.SingletonPreemptions == nil {
+		return
+	}
+	cs.metrics.SingletonPreemptions.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("kind", string(domain.SingletonKindJob)),
 	))
 }
 

@@ -128,6 +128,10 @@ type EffectiveCronSingleton struct {
 	OnConflict    SingletonOnConflict
 	KeyExpr       json.RawMessage
 	MaxQueueDepth *int
+	// Preempt enables higher-priority holder preemption under the queue policy.
+	// Only carried for explicit singleton config; synthetic cron-overlap
+	// singletons never preempt.
+	Preempt bool
 	// LegacyOverridden is true when explicit singleton config supersedes a
 	// non-allow cron_overlap_policy set on the same job, so callers can emit a
 	// one-time deprecation signal.
@@ -146,6 +150,7 @@ func EffectiveJobCronSingleton(job *Job) EffectiveCronSingleton {
 			OnConflict:    job.SingletonOnConflict,
 			KeyExpr:       job.SingletonKeyExpr,
 			MaxQueueDepth: job.SingletonMaxQueueDepth,
+			Preempt:       job.SingletonPreemptHigher,
 			LegacyOverridden: job.CronOverlapPolicy == OverlapPolicySkip ||
 				job.CronOverlapPolicy == OverlapPolicyCancelRunning,
 		}
@@ -176,6 +181,7 @@ func EffectiveWorkflowCronSingleton(wf *Workflow, triggeredBy string) EffectiveC
 			OnConflict:       wf.SingletonOnConflict,
 			KeyExpr:          wf.SingletonKeyExpr,
 			MaxQueueDepth:    wf.SingletonMaxQueueDepth,
+			Preempt:          wf.SingletonPreemptHigher,
 			LegacyOverridden: wf.SkipIfRunning && triggeredBy == TriggerCron,
 		}
 	}

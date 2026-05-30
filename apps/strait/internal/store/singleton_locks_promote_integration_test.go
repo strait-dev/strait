@@ -168,6 +168,78 @@ func TestReleaseSingletonJobLockAndPromote_PromotesByPriority(t *testing.T) {
 	}
 }
 
+// mkSingletonHolderPriority creates an executing holder run with an explicit
+// priority and acquires the singleton lock for it.
+func mkSingletonHolderPriority(t *testing.T, ctx context.Context, q *store.Queries, job *domain.Job, key string, priority int) *domain.JobRun {
+	t.Helper()
+	st := domain.StatusExecuting
+	run := testutil.BuildRun(job, &testutil.RunOpts{Status: &st})
+	run.SingletonKey = key
+	run.Priority = priority
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun(holder) error = %v", err)
+	}
+	lease := time.Now().Add(time.Minute)
+	acquireFor(t, ctx, q, job, key, run.ID, &lease)
+	return run
+}
+
+// TestApplyJobSingletonConflictPolicy_Preemption verifies that under the queue
+// policy with preemption enabled, a strictly higher-priority newcomer cancels the
+// holder and parks, while an equal/lower-priority newcomer is queued normally.
+func TestApplyJobSingletonConflictPolicy_Preemption(t *testing.T) {
+	ctx := context.Background()
+	q := stStore(t)
+
+	newcomerOutcome := func(t *testing.T, holderPriority, newcomerPriority int, preempt bool) (domain.SingletonOutcome, *domain.JobRun, *domain.Job) {
+		t.Helper()
+		stClean(t, ctx)
+		projectID := "proj-" + uuid.Must(uuid.NewV7()).String()
+		job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: &projectID})
+		const key = "acct-preempt"
+		mkSingletonHolderPriority(t, ctx, q, job, key, holderPriority)
+
+		st := domain.StatusQueued
+		newcomer := testutil.BuildRun(job, &testutil.RunOpts{Status: &st})
+		newcomer.SingletonKey = key
+		newcomer.Priority = newcomerPriority
+
+		var outcome domain.SingletonOutcome
+		if err := q.WithTxQueries(ctx, func(txQ *store.Queries) error {
+			_, oc, _, e := txQ.ApplyJobSingletonConflictPolicy(ctx, newcomer, projectID, job.ID, key, domain.SingletonOnConflictQueue, nil, preempt)
+			outcome = oc
+			return e
+		}); err != nil {
+			t.Fatalf("ApplyJobSingletonConflictPolicy error = %v", err)
+		}
+		return outcome, newcomer, job
+	}
+
+	t.Run("higher priority preempts the holder", func(t *testing.T) {
+		outcome, newcomer, _ := newcomerOutcome(t, 1, 5, true)
+		if outcome != domain.SingletonOutcomeReplaced {
+			t.Fatalf("outcome = %q, want replaced (preempted)", outcome)
+		}
+		if st, _ := q.GetRunStatus(ctx, newcomer.ID); st != domain.StatusWaiting {
+			t.Fatalf("newcomer status = %q, want waiting (parked for promotion)", st)
+		}
+	})
+
+	t.Run("equal priority does not preempt", func(t *testing.T) {
+		outcome, _, _ := newcomerOutcome(t, 5, 5, true)
+		if outcome != domain.SingletonOutcomeQueuedBehind {
+			t.Fatalf("outcome = %q, want queued_behind (no preemption at equal priority)", outcome)
+		}
+	})
+
+	t.Run("preemption disabled queues even when higher priority", func(t *testing.T) {
+		outcome, _, _ := newcomerOutcome(t, 1, 9, false)
+		if outcome != domain.SingletonOutcomeQueuedBehind {
+			t.Fatalf("outcome = %q, want queued_behind when preemption is off", outcome)
+		}
+	})
+}
+
 // TestReleaseSingletonJobLockAndPromote_NoWaiterFreesKey: releasing a holder
 // with no parked waiters frees the key entirely.
 func TestReleaseSingletonJobLockAndPromote_NoWaiterFreesKey(t *testing.T) {

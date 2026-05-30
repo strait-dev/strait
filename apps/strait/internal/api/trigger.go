@@ -1066,14 +1066,18 @@ func resolveJobSingletonKey(job *domain.Job, override string, payload json.RawMe
 // and the relevant holder run id.
 func (s *Server) applyJobSingletonPolicy(ctx context.Context, tx store.DBTX, job *domain.Job, run *domain.JobRun, key string) (bool, domain.SingletonOutcome, string, error) {
 	proceed, outcome, holderID, err := store.New(tx).ApplyJobSingletonConflictPolicy(
-		ctx, run, job.ProjectID, job.ID, key, job.SingletonOnConflict, job.SingletonMaxQueueDepth,
+		ctx, run, job.ProjectID, job.ID, key, job.SingletonOnConflict, job.SingletonMaxQueueDepth, job.SingletonPreemptHigher,
 	)
 	if err != nil {
 		return false, "", "", err
 	}
-	if outcome == domain.SingletonOutcomeDispatched {
+	switch {
+	case outcome == domain.SingletonOutcomeDispatched:
 		s.recordSingletonAcquisition(ctx, domain.SingletonKindJob)
-	} else {
+	case outcome == domain.SingletonOutcomeReplaced && job.SingletonOnConflict == domain.SingletonOnConflictQueue:
+		// A replace under the queue policy is a higher-priority preemption.
+		s.recordSingletonPreemption(ctx, domain.SingletonKindJob)
+	default:
 		s.recordSingletonConflict(ctx, domain.SingletonKindJob, job.SingletonOnConflict)
 	}
 	return proceed, outcome, holderID, nil
@@ -1086,6 +1090,18 @@ func (s *Server) recordSingletonAcquisition(ctx context.Context, kind domain.Sin
 		return
 	}
 	s.metrics.SingletonAcquisitions.Add(ctx, 1, otelmetric.WithAttributes(
+		otelattr.String("kind", string(kind)),
+	))
+}
+
+// recordSingletonPreemption increments the preemptions counter when a
+// higher-priority newcomer cancels a lower-priority holder under the queue
+// policy. Nil-safe for tests/metric-less runs.
+func (s *Server) recordSingletonPreemption(ctx context.Context, kind domain.SingletonKind) {
+	if s.metrics == nil || s.metrics.SingletonPreemptions == nil {
+		return
+	}
+	s.metrics.SingletonPreemptions.Add(ctx, 1, otelmetric.WithAttributes(
 		otelattr.String("kind", string(kind)),
 	))
 }

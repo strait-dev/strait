@@ -40,6 +40,7 @@ func (q *Queries) CreateWorkflowRunSingletonBootstrap(
 	key string,
 	onConflict domain.SingletonOnConflict,
 	maxQueueDepth *int,
+	preemptHigher bool,
 ) (domain.SingletonOutcome, string, bool, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateWorkflowRunSingletonBootstrap")
 	defer span.End()
@@ -93,7 +94,7 @@ func (q *Queries) CreateWorkflowRunSingletonBootstrap(
 			holderRunID = holder.HolderRunID
 
 			var cerr error
-			outcome, runCreated, cerr = txQ.applyWorkflowSingletonConflictTx(ctx, run, stepRuns, key, holderRunID, onConflict, maxQueueDepth)
+			outcome, runCreated, cerr = txQ.applyWorkflowSingletonConflictTx(ctx, run, stepRuns, key, holderRunID, onConflict, maxQueueDepth, preemptHigher)
 			return cerr
 		}
 	})
@@ -115,12 +116,32 @@ func (q *Queries) applyWorkflowSingletonConflictTx(
 	holderRunID string,
 	onConflict domain.SingletonOnConflict,
 	maxQueueDepth *int,
+	preemptHigher bool,
 ) (domain.SingletonOutcome, bool, error) {
 	switch onConflict {
 	case domain.SingletonOnConflictDrop:
 		return domain.SingletonOutcomeDropped, false, nil
 
 	case domain.SingletonOnConflictQueue:
+		// Optional preemption: a strictly higher-priority newcomer cancels the
+		// running lower-priority holder and parks to take the key, without
+		// discarding existing waiters (they compete by priority on release). The
+		// queue-depth cap is bypassed because preemption is a deliberate override.
+		if preemptHigher && holderRunID != "" {
+			holderPriority, found, perr := q.workflowRunPriority(ctx, holderRunID)
+			if perr != nil {
+				return "", false, fmt.Errorf("read workflow holder priority: %w", perr)
+			}
+			if found && run.Priority > holderPriority {
+				if cerr := q.cancelSingletonWorkflowHolderTx(ctx, holderRunID, "canceled by singleton preemption"); cerr != nil {
+					return "", false, fmt.Errorf("cancel preempted workflow holder: %w", cerr)
+				}
+				if err := q.parkWorkflowRunTx(ctx, run, stepRuns); err != nil {
+					return "", false, err
+				}
+				return domain.SingletonOutcomeReplaced, true, nil
+			}
+		}
 		waiters, cerr := q.CountSingletonWaiters(ctx, domain.SingletonKindWorkflow, run.WorkflowID, key)
 		if cerr != nil {
 			return "", false, fmt.Errorf("count workflow singleton waiters: %w", cerr)
@@ -219,6 +240,20 @@ func (q *Queries) cancelSingletonWorkflowWaitersTx(ctx context.Context, workflow
 // cancelSingletonWorkflowHolderTx cancels the current holder workflow run and
 // cascades to its step runs, child job runs, and pending event triggers, mirroring
 // handleCancelWorkflowRun. A missing or already-terminal holder is a no-op.
+// workflowRunPriority reads a workflow run's priority. found is false (no error)
+// when the run no longer exists, so preemption falls through to normal queueing.
+func (q *Queries) workflowRunPriority(ctx context.Context, runID string) (int, bool, error) {
+	var priority int
+	err := q.db.QueryRow(ctx, `SELECT priority FROM workflow_runs WHERE id = $1`, runID).Scan(&priority)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("read workflow run priority: %w", err)
+	}
+	return priority, true, nil
+}
+
 func (q *Queries) cancelSingletonWorkflowHolderTx(ctx context.Context, holderRunID, reason string) error {
 	holder, err := q.GetWorkflowRun(ctx, holderRunID)
 	if err != nil {

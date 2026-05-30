@@ -171,6 +171,7 @@ func (q *Queries) GetJobAtVersion(ctx context.Context, jobID string, version int
 		       COALESCE(jv.singleton_key_expr, j.singleton_key_expr),
 		       COALESCE(jv.singleton_on_conflict, j.singleton_on_conflict),
 		       COALESCE(jv.singleton_max_queue_depth, j.singleton_max_queue_depth),
+		       COALESCE(jv.singleton_preempt_higher_priority, j.singleton_preempt_higher_priority),
 		       jv.version::bigint
 		FROM job_versions jv
 		JOIN jobs j ON j.id = jv.job_id

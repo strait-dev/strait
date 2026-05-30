@@ -56,7 +56,7 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 			on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping,
 			max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
 			paused, paused_at, pause_reason, endpoint_signing_secret,
-			singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth
+			singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth, singleton_preempt_higher_priority
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, 1,
 			$27, $28, $29, $30, $31,
@@ -64,7 +64,7 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 			$40, $41, $42, $43, $44, $45,
 			$46, $47, $48, $49, $50, $51,
 			$52, $53, $54, $55, $56, $57,
-			$58, $59, $60, $61, $62, $63, $64)
+			$58, $59, $60, $61, $62, $63, $64, $65)
 		RETURNING created_at, updated_at, version, cache_version`
 
 	tagsJSON, err := marshalTags(job.Tags)
@@ -144,6 +144,7 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 		dbscan.NilIfEmptyRawMessage(job.SingletonKeyExpr),
 		dbscan.NilIfEmptyString(string(job.SingletonOnConflict)),
 		job.SingletonMaxQueueDepth,
+		job.SingletonPreemptHigher,
 	).Scan(&job.CreatedAt, &job.UpdatedAt, &job.Version, &job.CacheVersion)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -167,7 +168,7 @@ func (q *Queries) GetJob(ctx context.Context, id string) (*domain.Job, error) {
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
 		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, preferred_regions, queue_name, on_complete_trigger_workflow, on_complete_trigger_job, on_complete_payload_mapping, on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
 		       paused, paused_at, pause_reason, endpoint_signing_secret,
-		       singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth, cache_version
+		       singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth, singleton_preempt_higher_priority, cache_version
 		FROM jobs
 		WHERE id = $1`
 
@@ -193,7 +194,7 @@ func (q *Queries) GetJobBySlug(ctx context.Context, projectID, slug string) (*do
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
 		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, preferred_regions, queue_name, on_complete_trigger_workflow, on_complete_trigger_job, on_complete_payload_mapping, on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
 		       paused, paused_at, pause_reason, endpoint_signing_secret,
-		       singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth, cache_version
+		       singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth, singleton_preempt_higher_priority, cache_version
 		FROM jobs
 		WHERE project_id = $1 AND slug = $2`
 
@@ -228,7 +229,7 @@ func (q *Queries) GetJobsByIDs(ctx context.Context, ids []string) (map[string]*d
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
 		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, preferred_regions, queue_name, on_complete_trigger_workflow, on_complete_trigger_job, on_complete_payload_mapping, on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
 		       paused, paused_at, pause_reason, endpoint_signing_secret,
-		       singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth
+		       singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth, singleton_preempt_higher_priority
 		FROM jobs
 		WHERE id = ANY($1)`
 
@@ -263,7 +264,7 @@ func (q *Queries) ListJobs(ctx context.Context, projectID string, limit int, cur
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
 		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, preferred_regions, queue_name, on_complete_trigger_workflow, on_complete_trigger_job, on_complete_payload_mapping, on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
 		       paused, paused_at, pause_reason, endpoint_signing_secret,
-		       singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth, cache_version
+		       singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth, singleton_preempt_higher_priority, cache_version
 		FROM jobs
 		WHERE project_id = $1`
 
@@ -328,7 +329,7 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 				on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping,
 				max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
 				paused, paused_at, pause_reason, endpoint_signing_secret,
-				singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth)
+				singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth, singleton_preempt_higher_priority)
 			SELECT $29, id, version, version_id, name, slug, description, cron, payload_schema,
 				tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 				rate_limit_max, rate_limit_window_secs, dedup_window_secs, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id,
@@ -340,7 +341,7 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 				on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping,
 				max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
 				COALESCE(paused, false), paused_at, pause_reason, COALESCE(endpoint_signing_secret, ''),
-				singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth
+				singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth, singleton_preempt_higher_priority
 			FROM current_job
 		)
 		UPDATE jobs AS j
@@ -403,6 +404,7 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		    singleton_key_expr = $59,
 		    singleton_on_conflict = $60,
 		    singleton_max_queue_depth = $61,
+		    singleton_preempt_higher_priority = $62,
 		    updated_at = NOW()
 		FROM current_job
 		WHERE j.id = current_job.id
@@ -482,6 +484,7 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		dbscan.NilIfEmptyRawMessage(job.SingletonKeyExpr),
 		dbscan.NilIfEmptyString(string(job.SingletonOnConflict)),
 		job.SingletonMaxQueueDepth,
+		job.SingletonPreemptHigher,
 	).Scan(&job.UpdatedAt, &job.Version, &job.VersionID, &job.CacheVersion)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -602,7 +605,7 @@ func (q *Queries) ListCronJobs(ctx context.Context) ([]domain.Job, error) {
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
 		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, preferred_regions, queue_name, on_complete_trigger_workflow, on_complete_trigger_job, on_complete_payload_mapping, on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
 		       paused, paused_at, pause_reason, endpoint_signing_secret,
-		       singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth, cache_version
+		       singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth, singleton_preempt_higher_priority, cache_version
 		FROM jobs
 		WHERE enabled = TRUE AND NOT paused AND cron IS NOT NULL AND cron <> ''
 		ORDER BY created_at DESC`
@@ -941,6 +944,7 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 	var singletonKeyExpr []byte
 	var singletonOnConflict *string
 	var singletonMaxQueueDepth *int
+	var singletonPreemptHigher bool
 
 	err := scanner.Scan(
 		&job.ID,
@@ -1010,6 +1014,7 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 		&singletonKeyExpr,
 		&singletonOnConflict,
 		&singletonMaxQueueDepth,
+		&singletonPreemptHigher,
 		&job.CacheVersion,
 	)
 	if err != nil {
@@ -1046,6 +1051,7 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 		singletonKeyExpr:       singletonKeyExpr,
 		singletonOnConflict:    singletonOnConflict,
 		singletonMaxQueueDepth: singletonMaxQueueDepth,
+		singletonPreemptHigher: singletonPreemptHigher,
 	})
 }
 
@@ -1097,6 +1103,7 @@ type scannedJobNullables struct {
 	singletonKeyExpr          []byte
 	singletonOnConflict       *string
 	singletonMaxQueueDepth    *int
+	singletonPreemptHigher    bool
 }
 
 //nolint:gocyclo,cyclop,funlen // flat nullable-to-field assignments, not meaningfully splittable.
@@ -1262,6 +1269,7 @@ func applyScannedJobSingletonNullables(job *domain.Job, n scannedJobNullables) {
 	if n.singletonMaxQueueDepth != nil {
 		job.SingletonMaxQueueDepth = n.singletonMaxQueueDepth
 	}
+	job.SingletonPreemptHigher = n.singletonPreemptHigher
 }
 
 func (q *Queries) ListJobsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.Job, error) {
@@ -1275,7 +1283,7 @@ func (q *Queries) ListJobsByTag(ctx context.Context, projectID, tagKey, tagValue
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
 		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, preferred_regions, queue_name, on_complete_trigger_workflow, on_complete_trigger_job, on_complete_payload_mapping, on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
 		       paused, paused_at, pause_reason, endpoint_signing_secret,
-		       singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth, cache_version
+		       singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth, singleton_preempt_higher_priority, cache_version
 		FROM jobs
 		WHERE project_id = $1`
 

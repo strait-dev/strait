@@ -69,6 +69,7 @@ type CreateJobRequest struct {
 	SingletonKeyExpr          json.RawMessage   `json:"singleton_key_expr,omitempty" doc:"Singleton key expression envelope ({\"template\":\"...\"}). When set, the job runs as a singleton keyed by the resolved template."`
 	SingletonOnConflict       string            `json:"singleton_on_conflict,omitempty" validate:"omitempty,oneof=queue drop replace" doc:"Collision policy when the singleton key is already held: queue, drop, or replace."`
 	SingletonMaxQueueDepth    *int              `json:"singleton_max_queue_depth,omitempty" validate:"omitempty,min=0" doc:"Optional per-key cap on queued-behind runs for the queue policy. NULL means unbounded."`
+	SingletonPreemptHigher    bool              `json:"singleton_preempt_higher_priority,omitempty" doc:"Under the queue policy, allow a strictly higher-priority newcomer to cancel the running lower-priority holder and take its place."`
 }
 
 const defaultJobQueueName = "default"
@@ -121,6 +122,7 @@ type UpdateJobRequest struct {
 	SingletonKeyExpr          *json.RawMessage   `json:"singleton_key_expr,omitempty" doc:"Singleton key expression envelope ({\"template\":\"...\"}). When set, the job runs as a singleton keyed by the resolved template."`
 	SingletonOnConflict       *string            `json:"singleton_on_conflict,omitempty" validate:"omitempty,oneof=queue drop replace" doc:"Collision policy when the singleton key is already held: queue, drop, or replace."`
 	SingletonMaxQueueDepth    *int               `json:"singleton_max_queue_depth,omitempty" validate:"omitempty,min=0" doc:"Optional per-key cap on queued-behind runs for the queue policy. NULL means unbounded."`
+	SingletonPreemptHigher    *bool              `json:"singleton_preempt_higher_priority,omitempty" doc:"Under the queue policy, allow a strictly higher-priority newcomer to cancel the running lower-priority holder and take its place."`
 }
 
 // CreateJobInput is the typed input for creating a job.
@@ -220,6 +222,7 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 		SingletonKeyExpr:          req.SingletonKeyExpr,
 		SingletonOnConflict:       domain.SingletonOnConflict(req.SingletonOnConflict),
 		SingletonMaxQueueDepth:    req.SingletonMaxQueueDepth,
+		SingletonPreemptHigher:    req.SingletonPreemptHigher,
 		Enabled:                   true,
 		VersionPolicy:             domain.VersionPolicyPin,
 		CreatedBy:                 actorFromContext(ctx),
@@ -757,6 +760,9 @@ func (s *Server) applyJobMetadataUpdate(ctx context.Context, job *domain.Job, re
 	}
 	if req.SingletonMaxQueueDepth != nil {
 		job.SingletonMaxQueueDepth = req.SingletonMaxQueueDepth
+	}
+	if req.SingletonPreemptHigher != nil {
+		job.SingletonPreemptHigher = *req.SingletonPreemptHigher
 	}
 	if req.SingletonKeyExpr != nil || req.SingletonOnConflict != nil || req.SingletonMaxQueueDepth != nil {
 		if err := validateSingletonConfig(job.SingletonKeyExpr, string(job.SingletonOnConflict), job.SingletonMaxQueueDepth); err != nil {

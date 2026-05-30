@@ -53,7 +53,13 @@ The on-conflict policy decides what happens to a trigger that arrives while the 
 | `drop` | Discard the newcomer; the holder keeps running. | Never created. Not billed. |
 | `replace` | Cancel the holder and run the newcomer in its place. | Runs; the previous holder is canceled. |
 
-With `queue`, waiters are promoted in best-effort FIFO order as each holder reaches a terminal state. Strait does not guarantee strict ordering or fairness beyond this.
+With `queue`, waiters are promoted highest-priority first as each holder reaches a terminal state, with the earliest-created run breaking ties. Set a run's priority on the trigger request (`priority`, 0 to 10). Strait does not guarantee strict ordering or fairness beyond this best-effort pick.
+
+### Priority Preemption
+
+By default a higher-priority run still waits behind whichever run holds the key. Set `singleton_preempt_higher_priority` on the job or workflow to let a strictly higher-priority newcomer cancel the running lower-priority holder and take its place, instead of queueing behind it. Existing waiters are kept and still compete by priority when the canceled holder releases.
+
+Preemption applies only under the `queue` policy. Because priority is bounded (0 to 10) and each preemption requires a strictly higher priority, preemption chains are naturally capped, so there is no separate time-based guard.
 
 Cron overlap settings are a shorthand for singletons. A job's `cron_overlap_policy` of `skip` maps to `drop` and `cancel_running` maps to `replace`, both over a fixed per-job key; a workflow's `skip_if_running` maps to `drop` for scheduled fires. An explicit singleton configuration always takes precedence over these legacy settings. See [Scheduling](/concepts/scheduling) for details.
 

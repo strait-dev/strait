@@ -59,7 +59,7 @@ func TestCreateWorkflowRunSingletonBootstrap_Dispatched(t *testing.T) {
 	const key = "acct-1"
 
 	run, srs := wfSingletonInputs(t, wf, step, key)
-	outcome, holder, created, err := q.CreateWorkflowRunSingletonBootstrap(ctx, run, srs, time.Now(), key, domain.SingletonOnConflictDrop, nil)
+	outcome, holder, created, err := q.CreateWorkflowRunSingletonBootstrap(ctx, run, srs, time.Now(), key, domain.SingletonOnConflictDrop, nil, false)
 	if err != nil {
 		t.Fatalf("CreateWorkflowRunSingletonBootstrap() error = %v", err)
 	}
@@ -112,12 +112,12 @@ func TestCreateWorkflowRunSingletonBootstrap_Drop(t *testing.T) {
 	const key = "k-drop"
 
 	holderRun, srs := wfSingletonInputs(t, wf, step, key)
-	if _, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, holderRun, srs, time.Now(), key, domain.SingletonOnConflictDrop, nil); err != nil {
+	if _, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, holderRun, srs, time.Now(), key, domain.SingletonOnConflictDrop, nil, false); err != nil {
 		t.Fatalf("bootstrap holder error = %v", err)
 	}
 
 	newcomer, srs2 := wfSingletonInputs(t, wf, step, key)
-	outcome, holder, created, err := q.CreateWorkflowRunSingletonBootstrap(ctx, newcomer, srs2, time.Now(), key, domain.SingletonOnConflictDrop, nil)
+	outcome, holder, created, err := q.CreateWorkflowRunSingletonBootstrap(ctx, newcomer, srs2, time.Now(), key, domain.SingletonOnConflictDrop, nil, false)
 	if err != nil {
 		t.Fatalf("bootstrap newcomer error = %v", err)
 	}
@@ -150,12 +150,12 @@ func TestCreateWorkflowRunSingletonBootstrap_QueueParks(t *testing.T) {
 	const key = "k-queue"
 
 	holderRun, srs := wfSingletonInputs(t, wf, step, key)
-	if _, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, holderRun, srs, time.Now(), key, domain.SingletonOnConflictQueue, nil); err != nil {
+	if _, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, holderRun, srs, time.Now(), key, domain.SingletonOnConflictQueue, nil, false); err != nil {
 		t.Fatalf("bootstrap holder error = %v", err)
 	}
 
 	waiter, srs2 := wfSingletonInputs(t, wf, step, key)
-	outcome, holder, created, err := q.CreateWorkflowRunSingletonBootstrap(ctx, waiter, srs2, time.Now(), key, domain.SingletonOnConflictQueue, nil)
+	outcome, holder, created, err := q.CreateWorkflowRunSingletonBootstrap(ctx, waiter, srs2, time.Now(), key, domain.SingletonOnConflictQueue, nil, false)
 	if err != nil {
 		t.Fatalf("bootstrap waiter error = %v", err)
 	}
@@ -204,17 +204,17 @@ func TestCreateWorkflowRunSingletonBootstrap_QueueOverflow(t *testing.T) {
 	cap1 := 1
 
 	holderRun, srs := wfSingletonInputs(t, wf, step, key)
-	if _, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, holderRun, srs, time.Now(), key, domain.SingletonOnConflictQueue, &cap1); err != nil {
+	if _, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, holderRun, srs, time.Now(), key, domain.SingletonOnConflictQueue, &cap1, false); err != nil {
 		t.Fatalf("bootstrap holder error = %v", err)
 	}
 
 	w1, s1 := wfSingletonInputs(t, wf, step, key)
-	if outcome, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, w1, s1, time.Now(), key, domain.SingletonOnConflictQueue, &cap1); err != nil || outcome != domain.SingletonOutcomeQueuedBehind {
+	if outcome, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, w1, s1, time.Now(), key, domain.SingletonOnConflictQueue, &cap1, false); err != nil || outcome != domain.SingletonOutcomeQueuedBehind {
 		t.Fatalf("first waiter outcome = %q err = %v, want queued_behind", outcome, err)
 	}
 
 	w2, s2 := wfSingletonInputs(t, wf, step, key)
-	outcome, _, created, err := q.CreateWorkflowRunSingletonBootstrap(ctx, w2, s2, time.Now(), key, domain.SingletonOnConflictQueue, &cap1)
+	outcome, _, created, err := q.CreateWorkflowRunSingletonBootstrap(ctx, w2, s2, time.Now(), key, domain.SingletonOnConflictQueue, &cap1, false)
 	if err != nil {
 		t.Fatalf("second waiter error = %v", err)
 	}
@@ -244,17 +244,17 @@ func TestCreateWorkflowRunSingletonBootstrap_Replace(t *testing.T) {
 	const key = "k-replace"
 
 	holderRun, srs := wfSingletonInputs(t, wf, step, key)
-	if _, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, holderRun, srs, time.Now(), key, domain.SingletonOnConflictReplace, nil); err != nil {
+	if _, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, holderRun, srs, time.Now(), key, domain.SingletonOnConflictReplace, nil, false); err != nil {
 		t.Fatalf("bootstrap holder error = %v", err)
 	}
 	// Park a stale waiter that replace must discard.
 	staleWaiter, sw := wfSingletonInputs(t, wf, step, key)
-	if _, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, staleWaiter, sw, time.Now(), key, domain.SingletonOnConflictQueue, nil); err != nil {
+	if _, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, staleWaiter, sw, time.Now(), key, domain.SingletonOnConflictQueue, nil, false); err != nil {
 		t.Fatalf("park stale waiter error = %v", err)
 	}
 
 	newcomer, ns := wfSingletonInputs(t, wf, step, key)
-	outcome, holder, created, err := q.CreateWorkflowRunSingletonBootstrap(ctx, newcomer, ns, time.Now(), key, domain.SingletonOnConflictReplace, nil)
+	outcome, holder, created, err := q.CreateWorkflowRunSingletonBootstrap(ctx, newcomer, ns, time.Now(), key, domain.SingletonOnConflictReplace, nil, false)
 	if err != nil {
 		t.Fatalf("bootstrap newcomer error = %v", err)
 	}
@@ -320,16 +320,16 @@ func TestReleaseSingletonWorkflowLockAndPromote_PromotesOldestQueued(t *testing.
 	const key = "k-promote"
 
 	holderRun, srs := wfSingletonInputs(t, wf, step, key)
-	if _, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, holderRun, srs, time.Now(), key, domain.SingletonOnConflictQueue, nil); err != nil {
+	if _, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, holderRun, srs, time.Now(), key, domain.SingletonOnConflictQueue, nil, false); err != nil {
 		t.Fatalf("bootstrap holder error = %v", err)
 	}
 	first, fs := wfSingletonInputs(t, wf, step, key)
-	if _, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, first, fs, time.Now(), key, domain.SingletonOnConflictQueue, nil); err != nil {
+	if _, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, first, fs, time.Now(), key, domain.SingletonOnConflictQueue, nil, false); err != nil {
 		t.Fatalf("park first waiter error = %v", err)
 	}
 	time.Sleep(5 * time.Millisecond) // strictly later created_at
 	second, ss := wfSingletonInputs(t, wf, step, key)
-	if _, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, second, ss, time.Now(), key, domain.SingletonOnConflictQueue, nil); err != nil {
+	if _, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, second, ss, time.Now(), key, domain.SingletonOnConflictQueue, nil, false); err != nil {
 		t.Fatalf("park second waiter error = %v", err)
 	}
 
@@ -372,7 +372,7 @@ func TestReleaseSingletonWorkflowLockAndPromote_PromotesByPriority(t *testing.T)
 		t.Helper()
 		run, srs := wfSingletonInputs(t, wf, step, key)
 		run.Priority = priority
-		if _, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, run, srs, time.Now(), key, domain.SingletonOnConflictQueue, nil); err != nil {
+		if _, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, run, srs, time.Now(), key, domain.SingletonOnConflictQueue, nil, false); err != nil {
 			t.Fatalf("bootstrap (priority %d) error = %v", priority, err)
 		}
 		return run
@@ -406,6 +406,54 @@ func TestReleaseSingletonWorkflowLockAndPromote_PromotesByPriority(t *testing.T)
 	}
 }
 
+// TestCreateWorkflowRunSingletonBootstrap_Preemption verifies that under the
+// queue policy with preemption enabled, a strictly higher-priority newcomer
+// cancels the holder and parks; a lower/equal-priority newcomer queues normally.
+func TestCreateWorkflowRunSingletonBootstrap_Preemption(t *testing.T) {
+	ctx := context.Background()
+	q := stStore(t)
+
+	run := func(t *testing.T, holderPriority, newcomerPriority int, preempt bool) (domain.SingletonOutcome, *domain.WorkflowRun, *domain.WorkflowRun) {
+		t.Helper()
+		stClean(t, ctx)
+		projectID := "proj-" + uuid.Must(uuid.NewV7()).String()
+		wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{ProjectID: &projectID})
+		stepJob := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: &projectID})
+		step := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, &testutil.WorkflowStepOpts{JobID: &stepJob.ID})
+		const key = "k-preempt"
+
+		holder, hs := wfSingletonInputs(t, wf, step, key)
+		holder.Priority = holderPriority
+		if _, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, holder, hs, time.Now(), key, domain.SingletonOnConflictQueue, nil, false); err != nil {
+			t.Fatalf("bootstrap holder error = %v", err)
+		}
+		newcomer, ns := wfSingletonInputs(t, wf, step, key)
+		newcomer.Priority = newcomerPriority
+		outcome, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, newcomer, ns, time.Now(), key, domain.SingletonOnConflictQueue, nil, preempt)
+		if err != nil {
+			t.Fatalf("bootstrap newcomer error = %v", err)
+		}
+		return outcome, holder, newcomer
+	}
+
+	t.Run("higher priority preempts the holder", func(t *testing.T) {
+		outcome, holder, _ := run(t, 1, 5, true)
+		if outcome != domain.SingletonOutcomeReplaced {
+			t.Fatalf("outcome = %q, want replaced (preempted)", outcome)
+		}
+		if got, _ := q.GetWorkflowRun(ctx, holder.ID); got.Status != domain.WfStatusCanceled {
+			t.Fatalf("holder status = %q, want canceled", got.Status)
+		}
+	})
+
+	t.Run("equal priority does not preempt", func(t *testing.T) {
+		outcome, _, _ := run(t, 5, 5, true)
+		if outcome != domain.SingletonOutcomeQueuedBehind {
+			t.Fatalf("outcome = %q, want queued_behind", outcome)
+		}
+	})
+}
+
 // TestReleaseSingletonWorkflowLockAndPromote_NoWaiterFreesKey: releasing a holder
 // with no parked waiters frees the key entirely.
 func TestReleaseSingletonWorkflowLockAndPromote_NoWaiterFreesKey(t *testing.T) {
@@ -420,7 +468,7 @@ func TestReleaseSingletonWorkflowLockAndPromote_NoWaiterFreesKey(t *testing.T) {
 	const key = "k-lonely"
 
 	holderRun, srs := wfSingletonInputs(t, wf, step, key)
-	if _, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, holderRun, srs, time.Now(), key, domain.SingletonOnConflictQueue, nil); err != nil {
+	if _, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, holderRun, srs, time.Now(), key, domain.SingletonOnConflictQueue, nil, false); err != nil {
 		t.Fatalf("bootstrap holder error = %v", err)
 	}
 
@@ -453,7 +501,7 @@ func TestReleaseSingletonWorkflowLockAndPromote_Idempotent(t *testing.T) {
 	const key = "k-once"
 
 	holderRun, srs := wfSingletonInputs(t, wf, step, key)
-	if _, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, holderRun, srs, time.Now(), key, domain.SingletonOnConflictQueue, nil); err != nil {
+	if _, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, holderRun, srs, time.Now(), key, domain.SingletonOnConflictQueue, nil, false); err != nil {
 		t.Fatalf("bootstrap holder error = %v", err)
 	}
 
@@ -487,11 +535,11 @@ func TestReleaseSingletonWorkflowLockAndPromote_ConcurrentSinglePromote(t *testi
 	const key = "k-hot"
 
 	holderRun, srs := wfSingletonInputs(t, wf, step, key)
-	if _, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, holderRun, srs, time.Now(), key, domain.SingletonOnConflictQueue, nil); err != nil {
+	if _, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, holderRun, srs, time.Now(), key, domain.SingletonOnConflictQueue, nil, false); err != nil {
 		t.Fatalf("bootstrap holder error = %v", err)
 	}
 	waiter, ws := wfSingletonInputs(t, wf, step, key)
-	if _, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, waiter, ws, time.Now(), key, domain.SingletonOnConflictQueue, nil); err != nil {
+	if _, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, waiter, ws, time.Now(), key, domain.SingletonOnConflictQueue, nil, false); err != nil {
 		t.Fatalf("park waiter error = %v", err)
 	}
 
@@ -544,7 +592,7 @@ func TestListReapableSingletonWorkflowHolders(t *testing.T) {
 
 	// reapable: holder reached a terminal state.
 	terminalRun, ts := wfSingletonInputs(t, wf, step, "k-terminal")
-	if _, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, terminalRun, ts, time.Now(), "k-terminal", domain.SingletonOnConflictQueue, nil); err != nil {
+	if _, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, terminalRun, ts, time.Now(), "k-terminal", domain.SingletonOnConflictQueue, nil, false); err != nil {
 		t.Fatalf("bootstrap terminal holder error = %v", err)
 	}
 	if err := q.UpdateWorkflowRunStatus(ctx, terminalRun.ID, domain.WfStatusRunning, domain.WfStatusCompleted, map[string]any{"finished_at": time.Now()}); err != nil {
@@ -566,7 +614,7 @@ func TestListReapableSingletonWorkflowHolders(t *testing.T) {
 
 	// not reapable: a running holder (e.g. a long durable-wait workflow).
 	runningRun, rs := wfSingletonInputs(t, wf, step, "k-running")
-	if _, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, runningRun, rs, time.Now(), "k-running", domain.SingletonOnConflictQueue, nil); err != nil {
+	if _, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, runningRun, rs, time.Now(), "k-running", domain.SingletonOnConflictQueue, nil, false); err != nil {
 		t.Fatalf("bootstrap running holder error = %v", err)
 	}
 
@@ -609,7 +657,7 @@ func TestCreateWorkflowRunSingletonBootstrap_ConcurrentAcquire(t *testing.T) {
 		wg.Go(func() {
 			cq := store.New(testDB.Pool)
 			run, srs := wfSingletonInputs(t, wf, step, key)
-			outcome, _, _, err := cq.CreateWorkflowRunSingletonBootstrap(ctx, run, srs, time.Now(), key, domain.SingletonOnConflictDrop, nil)
+			outcome, _, _, err := cq.CreateWorkflowRunSingletonBootstrap(ctx, run, srs, time.Now(), key, domain.SingletonOnConflictDrop, nil, false)
 			if err != nil {
 				return
 			}
@@ -652,7 +700,7 @@ func TestCreateWorkflowRunSingletonBootstrap_ConcurrentQueueCap(t *testing.T) {
 
 			// Seed the holder so every concurrent arrival contends for the queue.
 			holderRun, hs := wfSingletonInputs(t, wf, step, key)
-			if _, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, holderRun, hs, time.Now(), key, domain.SingletonOnConflictQueue, &cap); err != nil {
+			if _, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, holderRun, hs, time.Now(), key, domain.SingletonOnConflictQueue, &cap, false); err != nil {
 				t.Fatalf("bootstrap holder error = %v", err)
 			}
 
@@ -664,7 +712,7 @@ func TestCreateWorkflowRunSingletonBootstrap_ConcurrentQueueCap(t *testing.T) {
 				wg.Go(func() {
 					cq := store.New(testDB.Pool)
 					run, srs := wfSingletonInputs(t, wf, step, key)
-					outcome, _, _, err := cq.CreateWorkflowRunSingletonBootstrap(ctx, run, srs, time.Now(), key, domain.SingletonOnConflictQueue, &capN)
+					outcome, _, _, err := cq.CreateWorkflowRunSingletonBootstrap(ctx, run, srs, time.Now(), key, domain.SingletonOnConflictQueue, &capN, false)
 					if err != nil {
 						return
 					}

@@ -260,6 +260,7 @@ func (q *Queries) ApplyJobSingletonConflictPolicy(
 	projectID, jobID, key string,
 	onConflict domain.SingletonOnConflict,
 	maxQueueDepth *int,
+	preemptHigher bool,
 ) (bool, domain.SingletonOutcome, string, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ApplyJobSingletonConflictPolicy")
 	defer span.End()
@@ -314,6 +315,28 @@ func (q *Queries) ApplyJobSingletonConflictPolicy(
 			return false, domain.SingletonOutcomeDropped, holderID, nil
 
 		case domain.SingletonOnConflictQueue:
+			// Optional preemption: a strictly higher-priority newcomer cancels the
+			// running lower-priority holder and parks to take the key. It does not
+			// discard existing waiters (unlike replace) -- the newcomer competes with
+			// them by priority when the canceled holder releases. The bounded 0-10
+			// priority range caps preemption chains. The queue-depth cap is bypassed
+			// because preemption is a deliberate "this is more important" override.
+			if preemptHigher && holderID != "" {
+				holderPriority, found, perr := q.jobRunPriority(ctx, holderID)
+				if perr != nil {
+					return false, "", "", fmt.Errorf("read holder priority: %w", perr)
+				}
+				if found && run.Priority > holderPriority {
+					if cerr := q.cancelSingletonHolderJob(ctx, holderID); cerr != nil {
+						return false, "", "", fmt.Errorf("cancel preempted holder: %w", cerr)
+					}
+					run.Status = domain.StatusWaiting
+					if cerr := q.CreateRun(ctx, run); cerr != nil {
+						return false, "", "", fmt.Errorf("park preempting run: %w", cerr)
+					}
+					return false, domain.SingletonOutcomeReplaced, holderID, nil
+				}
+			}
 			waiters, cerr := q.CountSingletonWaiters(ctx, domain.SingletonKindJob, jobID, key)
 			if cerr != nil {
 				return false, "", "", fmt.Errorf("count singleton waiters: %w", cerr)
@@ -350,6 +373,20 @@ func (q *Queries) ApplyJobSingletonConflictPolicy(
 			return false, "", "", fmt.Errorf("unknown singleton on-conflict policy %q", onConflict)
 		}
 	}
+}
+
+// jobRunPriority reads a job run's priority. found is false (no error) when the
+// run no longer exists, so preemption simply falls through to normal queueing.
+func (q *Queries) jobRunPriority(ctx context.Context, runID string) (int, bool, error) {
+	var priority int
+	err := q.db.QueryRow(ctx, `SELECT priority FROM job_runs WHERE id = $1`, runID).Scan(&priority)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("read job run priority: %w", err)
+	}
+	return priority, true, nil
 }
 
 // cancelSingletonHolderJob transitions the current holder job-run to canceled so

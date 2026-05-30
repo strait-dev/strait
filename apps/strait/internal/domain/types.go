@@ -359,6 +359,7 @@ type Job struct {
 	SingletonKeyExpr          json.RawMessage     `json:"singleton_key_expr,omitempty"`
 	SingletonOnConflict       SingletonOnConflict `json:"singleton_on_conflict,omitempty"`
 	SingletonMaxQueueDepth    *int                `json:"singleton_max_queue_depth,omitempty"`
+	SingletonPreemptHigher    bool                `json:"singleton_preempt_higher_priority,omitempty"`
 	ResultSchema              json.RawMessage     `json:"result_schema,omitempty"`
 	DebounceWindowSecs        int                 `json:"debounce_window_secs,omitempty"`
 	BatchWindowSecs           int                 `json:"batch_window_secs,omitempty"`
@@ -1211,6 +1212,7 @@ type Workflow struct {
 	SingletonKeyExpr       json.RawMessage     `json:"singleton_key_expr,omitempty"`
 	SingletonOnConflict    SingletonOnConflict `json:"singleton_on_conflict,omitempty"`
 	SingletonMaxQueueDepth *int                `json:"singleton_max_queue_depth,omitempty"`
+	SingletonPreemptHigher bool                `json:"singleton_preempt_higher_priority,omitempty"`
 	VersionID              string              `json:"version_id,omitempty"`
 	VersionPolicy          VersionPolicy       `json:"version_policy,omitempty"`
 	BackwardsCompatible    bool                `json:"backwards_compatible,omitempty"`
