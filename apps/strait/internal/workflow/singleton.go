@@ -36,12 +36,12 @@ type singletonTriggerResult struct {
 	holderID string
 }
 
-// resolveWorkflowSingletonKey resolves the workflow's singleton key template
-// against the trigger payload. The expression is validated at definition time;
-// an unresolvable key at trigger time wraps domain.ErrSingletonKeyUnresolvable so
+// resolveWorkflowSingletonKey resolves a singleton key expression against the
+// trigger payload. The expression is validated at definition time; an
+// unresolvable key at trigger time wraps domain.ErrSingletonKeyUnresolvable so
 // the API layer can surface a 400.
-func resolveWorkflowSingletonKey(wf *domain.Workflow, payload json.RawMessage) (string, error) {
-	expr, err := domain.ParseSingletonKeyExpr(wf.SingletonKeyExpr)
+func resolveWorkflowSingletonKey(keyExpr json.RawMessage, payload json.RawMessage) (string, error) {
+	expr, err := domain.ParseSingletonKeyExpr(keyExpr)
 	if err != nil {
 		return "", fmt.Errorf("invalid workflow singleton key expression: %w", err)
 	}
@@ -62,12 +62,12 @@ func resolveWorkflowSingletonKey(wf *domain.Workflow, payload json.RawMessage) (
 // caller continues to start the run's root steps.
 func (e *WorkflowEngine) bootstrapSingletonWorkflowRun(
 	ctx context.Context,
-	wf *domain.Workflow,
 	wfRun *domain.WorkflowRun,
 	stepRuns []domain.WorkflowStepRun,
 	now time.Time,
+	eff domain.EffectiveCronSingleton,
 ) (*domain.WorkflowRun, domain.SingletonOutcome, string, bool, error) {
-	key, kerr := resolveWorkflowSingletonKey(wf, wfRun.Payload)
+	key, kerr := resolveWorkflowSingletonKey(eff.KeyExpr, wfRun.Payload)
 	if kerr != nil {
 		return nil, "", "", true, kerr
 	}
@@ -79,7 +79,7 @@ func (e *WorkflowEngine) bootstrapSingletonWorkflowRun(
 	}
 
 	outcome, holderID, _, serr := ss.CreateWorkflowRunSingletonBootstrap(
-		ctx, wfRun, stepRuns, now, key, wf.SingletonOnConflict, wf.SingletonMaxQueueDepth,
+		ctx, wfRun, stepRuns, now, key, eff.OnConflict, eff.MaxQueueDepth,
 	)
 	if serr != nil {
 		return nil, "", "", true, fmt.Errorf("workflow singleton bootstrap: %w", serr)
@@ -91,16 +91,16 @@ func (e *WorkflowEngine) bootstrapSingletonWorkflowRun(
 		return wfRun, outcome, holderID, false, nil
 
 	case domain.SingletonOutcomeDropped:
-		e.recordSingletonConflict(ctx, wf.SingletonOnConflict)
+		e.recordSingletonConflict(ctx, eff.OnConflict)
 		return nil, outcome, holderID, true, nil
 
 	case domain.SingletonOutcomeQueuedBehind:
-		e.recordSingletonConflict(ctx, wf.SingletonOnConflict)
+		e.recordSingletonConflict(ctx, eff.OnConflict)
 		wfRun.Status = domain.WfStatusQueued
 		return wfRun, outcome, holderID, true, nil
 
 	case domain.SingletonOutcomeReplaced:
-		e.recordSingletonConflict(ctx, wf.SingletonOnConflict)
+		e.recordSingletonConflict(ctx, eff.OnConflict)
 		wfRun.Status = domain.WfStatusQueued
 		// The holder was canceled synchronously in the bootstrap tx, so promote
 		// the newcomer now instead of waiting for the reaper.

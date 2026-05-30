@@ -340,14 +340,17 @@ func (e *WorkflowEngine) createRunnableWorkflowRun(
 	now := time.Now()
 	stepRuns := initialWorkflowStepRuns(wfRun.ID, prepared.steps)
 
-	// First-class singleton enforcement. When the workflow declares an on-conflict
-	// policy, claim the resolved key atomically with run creation. done=true means
-	// the trigger is fully handled by the policy (dropped: nil run; queued/replaced:
-	// parked run); return that run with no roots so the caller starts nothing.
-	// done=false only for a dispatched outcome, where the run was bootstrapped to
-	// running in the same tx and we fall through to start its root steps.
-	if enforceSingleton && wf.SingletonOnConflict != "" {
-		run, outcome, holderID, done, serr := e.bootstrapSingletonWorkflowRun(ctx, wf, wfRun, stepRuns, now)
+	// First-class singleton enforcement, unified with the legacy SkipIfRunning
+	// overlap guard. When the workflow declares an on-conflict policy (or, for a
+	// cron fire, SkipIfRunning maps to a constant-key drop), claim the resolved key
+	// atomically with run creation. done=true means the trigger is fully handled by
+	// the policy (dropped: nil run; queued/replaced: parked run); return that run
+	// with no roots so the caller starts nothing. done=false only for a dispatched
+	// outcome, where the run was bootstrapped to running in the same tx and we fall
+	// through to start its root steps.
+	eff := domain.EffectiveWorkflowCronSingleton(wf, triggeredBy)
+	if enforceSingleton && eff.Configured {
+		run, outcome, holderID, done, serr := e.bootstrapSingletonWorkflowRun(ctx, wfRun, stepRuns, now, eff)
 		if res != nil {
 			res.outcome = outcome
 			res.holderID = holderID

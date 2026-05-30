@@ -350,30 +350,6 @@ func TestCronScheduler_TriggerJob_NoTTL(t *testing.T) {
 	}
 }
 
-func TestCronScheduler_TriggerWorkflow_SkipIfRunning(t *testing.T) {
-	t.Parallel()
-	triggered := false
-	cs := NewCronScheduler(context.Background(), &mockCronStore{
-		countRunningWfRunsFn: func(_ context.Context, workflowID string) (int, error) {
-			if workflowID != "wf-1" {
-				t.Fatalf("workflowID = %q, want wf-1", workflowID)
-			}
-			return 1, nil
-		},
-	}, &mockQueue{}, &mockWorkflowTrigger{
-		triggerWorkflowFn: func(_ context.Context, _, _ string, _ json.RawMessage, _ string, _ []domain.StepOverride) (*domain.WorkflowRun, error) {
-			triggered = true
-			return &domain.WorkflowRun{ID: "wr-1"}, nil
-		},
-	})
-
-	cs.triggerWorkflow(context.Background(), domain.Workflow{ID: "wf-1", ProjectID: "proj-1", SkipIfRunning: true})
-
-	if triggered {
-		t.Fatal("expected workflow cron trigger to be skipped")
-	}
-}
-
 func TestCronScheduler_TriggerWorkflow_Success(t *testing.T) {
 	t.Parallel()
 	triggered := false

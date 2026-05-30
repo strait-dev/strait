@@ -519,24 +519,10 @@ func (cs *CronScheduler) triggerWorkflowLocked(ctx context.Context, workflow dom
 
 	cs.recordCronDrift(ctx, workflow.Cron)
 
-	if workflow.SkipIfRunning {
-		running, err := cs.store.CountRunningWorkflowRuns(ctx, workflow.ID)
-		if err != nil {
-			slog.Error("failed to count running workflow runs", "workflow_id", workflow.ID, "error", err)
-			if cs.metrics != nil {
-				cs.metrics.CronTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "error")))
-			}
-			return
-		}
-		if running > 0 {
-			slog.Info("skipping cron workflow trigger because run is active", "workflow_id", workflow.ID, "running", running)
-			if cs.metrics != nil {
-				cs.metrics.CronTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "skipped")))
-			}
-			return
-		}
-	}
-
+	// SkipIfRunning is no longer enforced here: the workflow engine maps it (and
+	// explicit workflow singleton config) onto the singleton lock table inside
+	// TriggerWorkflow, so an overlapping cron fire is dropped there atomically with
+	// run creation rather than via a racy pre-check.
 	if _, err := cs.workflowTrigger.TriggerWorkflow(ctx, workflow.ID, workflow.ProjectID, nil, domain.TriggerCron, nil, map[string]string{"cron_fire_key": fireKey}); err != nil {
 		slog.Error("failed to trigger cron workflow", "workflow_id", workflow.ID, "project_id", workflow.ProjectID, "error", err)
 		if cs.metrics != nil {

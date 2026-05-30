@@ -858,36 +858,6 @@ func TestCronScheduler_TriggerWorkflow_WithTimezone(t *testing.T) {
 	}
 }
 
-func TestCronScheduler_TriggerWorkflow_SkipIfRunning_ActiveRuns(t *testing.T) {
-	t.Parallel()
-
-	var triggered atomic.Int32
-	wt := &mockWorkflowTrigger{
-		triggerWorkflowFn: func(_ context.Context, _, _ string, _ json.RawMessage, _ string, _ []domain.StepOverride) (*domain.WorkflowRun, error) {
-			triggered.Add(1)
-			return &domain.WorkflowRun{}, nil
-		},
-	}
-	ms := &mockCronStore{
-		countRunningWfRunsFn: func(_ context.Context, _ string) (int, error) {
-			return 2, nil // 2 running
-		},
-	}
-	cs := NewCronScheduler(context.Background(), ms, &mockQueue{}, wt)
-
-	wf := domain.Workflow{
-		ID:            "wf-skip-active",
-		ProjectID:     "p1",
-		Cron:          "* * * * *",
-		SkipIfRunning: true,
-	}
-	cs.triggerWorkflow(context.Background(), wf)
-
-	if triggered.Load() != 0 {
-		t.Fatal("expected SkipIfRunning to prevent trigger when runs are active")
-	}
-}
-
 func TestCronScheduler_LoadJobs_ListJobsError(t *testing.T) {
 	t.Parallel()
 

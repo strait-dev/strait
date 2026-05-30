@@ -164,6 +164,27 @@ func EffectiveJobCronSingleton(job *Job) EffectiveCronSingleton {
 	}
 }
 
+// EffectiveWorkflowCronSingleton resolves the unified singleton policy for a
+// workflow trigger. Explicit singleton config wins; otherwise a workflow with
+// SkipIfRunning is mapped to a constant-key drop singleton, but only for cron
+// fires — SkipIfRunning has always been a scheduler-only overlap guard, so direct
+// API triggers continue to ignore it.
+func EffectiveWorkflowCronSingleton(wf *Workflow, triggeredBy string) EffectiveCronSingleton {
+	if wf.SingletonOnConflict != "" {
+		return EffectiveCronSingleton{
+			Configured:       true,
+			OnConflict:       wf.SingletonOnConflict,
+			KeyExpr:          wf.SingletonKeyExpr,
+			MaxQueueDepth:    wf.SingletonMaxQueueDepth,
+			LegacyOverridden: wf.SkipIfRunning && triggeredBy == TriggerCron,
+		}
+	}
+	if wf.SkipIfRunning && triggeredBy == TriggerCron {
+		return EffectiveCronSingleton{Configured: true, OnConflict: SingletonOnConflictDrop, KeyExpr: cronSingletonKeyExpr}
+	}
+	return EffectiveCronSingleton{Configured: false}
+}
+
 // SingletonKeyExpr is the JSONB envelope describing how a run's singleton key is
 // resolved at trigger time. The template supports ${dot.path} interpolation
 // against the trigger payload (resolved by ResolveSingletonKey). A template with

@@ -331,6 +331,58 @@ func TestEffectiveJobCronSingleton(t *testing.T) {
 	})
 }
 
+func TestEffectiveWorkflowCronSingleton(t *testing.T) {
+	keyExpr := json.RawMessage(`{"template":"${tenant}"}`)
+
+	t.Run("explicit config wins for any trigger source", func(t *testing.T) {
+		eff := EffectiveWorkflowCronSingleton(&Workflow{
+			SingletonOnConflict: SingletonOnConflictQueue,
+			SingletonKeyExpr:    keyExpr,
+		}, TriggerManual)
+		if !eff.Configured || eff.OnConflict != SingletonOnConflictQueue {
+			t.Fatalf("expected explicit queue config, got %+v", eff)
+		}
+	})
+
+	t.Run("SkipIfRunning maps to drop only for cron fires", func(t *testing.T) {
+		eff := EffectiveWorkflowCronSingleton(&Workflow{SkipIfRunning: true}, TriggerCron)
+		if !eff.Configured || eff.OnConflict != SingletonOnConflictDrop {
+			t.Fatalf("cron SkipIfRunning should map to drop, got %+v", eff)
+		}
+		assertConstantCronKey(t, eff.KeyExpr)
+	})
+
+	t.Run("SkipIfRunning is ignored for non-cron triggers", func(t *testing.T) {
+		for _, src := range []string{TriggerManual, TriggerWorkflow, TriggerRetry} {
+			eff := EffectiveWorkflowCronSingleton(&Workflow{SkipIfRunning: true}, src)
+			if eff.Configured {
+				t.Fatalf("SkipIfRunning must not apply to %q triggers", src)
+			}
+		}
+	})
+
+	t.Run("no skip and no explicit config is not a singleton", func(t *testing.T) {
+		eff := EffectiveWorkflowCronSingleton(&Workflow{}, TriggerCron)
+		if eff.Configured {
+			t.Fatal("expected not configured")
+		}
+	})
+
+	t.Run("explicit config flags LegacyOverridden when SkipIfRunning also set on cron", func(t *testing.T) {
+		eff := EffectiveWorkflowCronSingleton(&Workflow{
+			SingletonOnConflict: SingletonOnConflictReplace,
+			SingletonKeyExpr:    keyExpr,
+			SkipIfRunning:       true,
+		}, TriggerCron)
+		if !eff.LegacyOverridden {
+			t.Fatal("expected LegacyOverridden when SkipIfRunning is shadowed by explicit config on cron")
+		}
+		if eff.OnConflict != SingletonOnConflictReplace {
+			t.Fatal("explicit config must win over SkipIfRunning")
+		}
+	})
+}
+
 // assertConstantCronKey verifies the synthesized cron overlap key expression
 // resolves to CronSingletonKey without any payload, which is what makes it a
 // per-job global mutex for scheduled fires.
