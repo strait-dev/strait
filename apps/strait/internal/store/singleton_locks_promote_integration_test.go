@@ -103,6 +103,71 @@ func TestReleaseSingletonJobLockAndPromote_PromotesOldestWaiter(t *testing.T) {
 	}
 }
 
+// mkSingletonWaiterPriority parks a 'waiting' run with an explicit priority so
+// the priority-ordered promotion contract can be asserted.
+func mkSingletonWaiterPriority(t *testing.T, ctx context.Context, q *store.Queries, job *domain.Job, key string, priority int) *domain.JobRun {
+	t.Helper()
+	st := domain.StatusWaiting
+	run := testutil.BuildRun(job, &testutil.RunOpts{Status: &st})
+	run.SingletonKey = key
+	run.Priority = priority
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun(waiter priority %d) error = %v", priority, err)
+	}
+	return run
+}
+
+// TestReleaseSingletonJobLockAndPromote_PromotesByPriority verifies waiters are
+// promoted highest-priority first, with created_at breaking ties, rather than
+// strict FIFO. The oldest waiter (lowest priority here) is promoted last.
+func TestReleaseSingletonJobLockAndPromote_PromotesByPriority(t *testing.T) {
+	ctx := context.Background()
+	q := stStore(t)
+	stClean(t, ctx)
+
+	projectID := "proj-" + uuid.Must(uuid.NewV7()).String()
+	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: &projectID})
+	const key = "acct-prio"
+
+	holder := mkSingletonRun(t, ctx, q, job, domain.StatusExecuting, key)
+	lease := time.Now().Add(time.Minute)
+	acquireFor(t, ctx, q, job, key, holder.ID, &lease)
+
+	// Parked oldest-to-newest, priorities out of order: low(1), high(5), mid(3).
+	low := mkSingletonWaiterPriority(t, ctx, q, job, key, 1)
+	time.Sleep(5 * time.Millisecond)
+	high := mkSingletonWaiterPriority(t, ctx, q, job, key, 5)
+	time.Sleep(5 * time.Millisecond)
+	mid := mkSingletonWaiterPriority(t, ctx, q, job, key, 3)
+
+	// First release promotes the highest priority (5), not the oldest.
+	_, promoted, err := q.ReleaseSingletonJobLockAndPromote(ctx, holder.ID)
+	if err != nil {
+		t.Fatalf("release/promote error = %v", err)
+	}
+	if promoted != high.ID {
+		t.Fatalf("first promotion = %q, want highest priority %q", promoted, high.ID)
+	}
+
+	// Then the mid priority (3) over the low priority (1).
+	_, promoted, err = q.ReleaseSingletonJobLockAndPromote(ctx, high.ID)
+	if err != nil {
+		t.Fatalf("release/promote error = %v", err)
+	}
+	if promoted != mid.ID {
+		t.Fatalf("second promotion = %q, want mid priority %q", promoted, mid.ID)
+	}
+
+	// Finally the lowest priority (1), even though it was the oldest waiter.
+	_, promoted, err = q.ReleaseSingletonJobLockAndPromote(ctx, mid.ID)
+	if err != nil {
+		t.Fatalf("release/promote error = %v", err)
+	}
+	if promoted != low.ID {
+		t.Fatalf("third promotion = %q, want lowest priority %q", promoted, low.ID)
+	}
+}
+
 // TestReleaseSingletonJobLockAndPromote_NoWaiterFreesKey: releasing a holder
 // with no parked waiters frees the key entirely.
 func TestReleaseSingletonJobLockAndPromote_NoWaiterFreesKey(t *testing.T) {

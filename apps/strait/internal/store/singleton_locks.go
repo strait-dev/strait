@@ -423,14 +423,14 @@ func (q *Queries) ReleaseSingletonJobLockAndPromote(ctx context.Context, holderR
 		}
 		released = true
 
-		// Pick the oldest parked waiter (FIFO). The replace policy leaves at most
-		// one waiter behind a key, so the same oldest-first pick serves both
-		// queue and replace.
+		// Pick the highest-priority parked waiter, breaking ties oldest-first. The
+		// replace policy leaves at most one waiter behind a key, so the same pick
+		// serves both queue and replace. Ordering matches idx_job_runs_singleton_waiters.
 		var waiterID string
 		err = txQ.db.QueryRow(ctx, `
 			SELECT id FROM job_runs
 			WHERE job_id = $1 AND singleton_key = $2 AND status = 'waiting'
-			ORDER BY created_at ASC, id ASC
+			ORDER BY priority DESC, created_at ASC, id ASC
 			LIMIT 1
 			FOR UPDATE SKIP LOCKED`,
 			ownerID, lockKey,
