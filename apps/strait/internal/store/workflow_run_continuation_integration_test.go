@@ -352,6 +352,120 @@ func TestContinueWorkflowRunBootstrap_ConcurrentSingleWinner(t *testing.T) {
 	}
 }
 
+// TestContinueWorkflowRunBootstrap_CancelsPredecessorEventTriggers verifies the
+// handoff tears down the predecessor's in-flight (waiting) event triggers, not
+// just its step and job runs, so a continued run leaves no live durable waits.
+func TestContinueWorkflowRunBootstrap_CancelsPredecessorEventTriggers(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-continue-triggers"
+	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{ProjectID: new(projectID)})
+
+	running := domain.WfStatusRunning
+	pred := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
+		ProjectID: new(projectID),
+		Status:    &running,
+	})
+
+	now := time.Now().UTC()
+	eventKey := "evt-" + uuid.Must(uuid.NewV7()).String()
+	trigger := &domain.EventTrigger{
+		ID:            uuid.Must(uuid.NewV7()).String(),
+		EventKey:      eventKey,
+		ProjectID:     projectID,
+		SourceType:    "workflow_step",
+		WorkflowRunID: pred.ID,
+		Status:        domain.EventTriggerStatusWaiting,
+		TimeoutSecs:   300,
+		RequestedAt:   now,
+		ExpiresAt:     now.Add(5 * time.Minute),
+	}
+	if err := q.CreateEventTrigger(ctx, trigger); err != nil {
+		t.Fatalf("create event trigger: %v", err)
+	}
+
+	successor := buildSuccessor(wf.ID, projectID, pred.ID, pred.LineageDepth+1, nil)
+	if err := q.ContinueWorkflowRunBootstrap(ctx, pred.ID, running, successor, nil, now); err != nil {
+		t.Fatalf("ContinueWorkflowRunBootstrap() error = %v", err)
+	}
+
+	got, err := q.GetEventTriggerByEventKeyForProject(ctx, eventKey, projectID)
+	if err != nil {
+		t.Fatalf("get event trigger: %v", err)
+	}
+	if got.Status != domain.EventTriggerStatusCanceled {
+		t.Fatalf("event trigger status = %s, want canceled", got.Status)
+	}
+}
+
+// TestContinueWorkflowRunBootstrap_RaceWithConcurrentCancel races a continue
+// against a direct cancel of the same predecessor. Whichever wins, the final
+// state must be internally consistent: the predecessor settles into exactly one
+// terminal status, and a successor row exists if and only if continue won (cancel
+// winning must leave no orphan successor).
+func TestContinueWorkflowRunBootstrap_RaceWithConcurrentCancel(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-continue-cancel-race"
+	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{ProjectID: new(projectID)})
+
+	running := domain.WfStatusRunning
+	pred := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
+		ProjectID: new(projectID),
+		Status:    &running,
+	})
+
+	successor := buildSuccessor(wf.ID, projectID, pred.ID, pred.LineageDepth+1, nil)
+	now := time.Now().UTC()
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		<-start
+		_ = q.ContinueWorkflowRunBootstrap(ctx, pred.ID, running, successor, nil, now)
+	}()
+	go func() {
+		defer wg.Done()
+		<-start
+		_ = q.UpdateWorkflowRunStatus(ctx, pred.ID, running, domain.WfStatusCanceled, map[string]any{"finished_at": now})
+	}()
+	close(start)
+	wg.Wait()
+
+	gotPred, err := q.GetWorkflowRun(ctx, pred.ID)
+	if err != nil {
+		t.Fatalf("get predecessor: %v", err)
+	}
+	_, successorErr := q.GetWorkflowRun(ctx, successor.ID)
+
+	switch gotPred.Status {
+	case domain.WfStatusContinued:
+		// Continue won: the successor must exist and be linked.
+		if successorErr != nil {
+			t.Fatalf("continue won but successor missing: %v", successorErr)
+		}
+		if gotPred.ContinuedToWorkflowRunID != successor.ID {
+			t.Fatalf("predecessor continued_to = %q, want %q", gotPred.ContinuedToWorkflowRunID, successor.ID)
+		}
+	case domain.WfStatusCanceled:
+		// Cancel won: continue must have rolled back, leaving no successor.
+		if !errors.Is(successorErr, store.ErrWorkflowRunNotFound) {
+			t.Fatalf("cancel won but a successor was created (err=%v)", successorErr)
+		}
+		if gotPred.ContinuedToWorkflowRunID != "" {
+			t.Fatalf("canceled predecessor has continued_to = %q, want empty", gotPred.ContinuedToWorkflowRunID)
+		}
+	default:
+		t.Fatalf("predecessor settled in unexpected status %s, want continued or canceled", gotPred.Status)
+	}
+}
+
 func TestGetWorkflowRunChain_OrderedSeries(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

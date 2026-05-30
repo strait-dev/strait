@@ -870,3 +870,55 @@ func FuzzContinueWorkflowRunAsNew(f *testing.F) {
 		_, _ = engine.ContinueWorkflowRunAsNew(context.Background(), "pred-run-1", json.RawMessage(input), domain.ContinueVersionRepin)
 	})
 }
+
+// FuzzContinueWorkflowRunAsNewStrategy fuzzes the version-strategy argument:
+// arbitrary strategy strings must never panic. A known strategy (repin/latest,
+// case-insensitively) resolves and the bootstrap runs; any other value must be
+// rejected before the bootstrap, so the handoff never fires for an unknown
+// strategy.
+func FuzzContinueWorkflowRunAsNewStrategy(f *testing.F) {
+	f.Add("repin")
+	f.Add("latest")
+	f.Add("REPIN")
+	f.Add("Latest")
+	f.Add("")
+	f.Add("bogus")
+	f.Add("\x00\x01")
+
+	f.Fuzz(func(t *testing.T, strategy string) {
+		bootstrapped := false
+		ms := &mockEngineStore{
+			getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusRunning, WorkflowVersion: 1}, nil
+			},
+			getWorkflowFn: func(_ context.Context, id string) (*domain.Workflow, error) {
+				return &domain.Workflow{ID: id, ProjectID: "proj-1", Enabled: true, Version: 1, VersionID: "wf-v1"}, nil
+			},
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{{ID: "s1", JobID: "job-1", StepRef: "a"}}, nil
+			},
+			continueWorkflowRunBootstrapFn: func(_ context.Context, _ string, _ domain.WorkflowRunStatus, _ *domain.WorkflowRun, _ []domain.WorkflowStepRun, _ time.Time) error {
+				bootstrapped = true
+				return nil
+			},
+			updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
+				return nil
+			},
+		}
+		mq := &mockEngineQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error { run.ID = "jr"; return nil }}
+		engine := NewWorkflowEngine(ms, mq, slog.Default())
+
+		s := domain.ContinueVersionStrategy(strategy)
+		_, err := engine.ContinueWorkflowRunAsNew(context.Background(), "pred-run-1", json.RawMessage(`{}`), s)
+
+		// A recognized strategy resolves and runs the handoff without error; an
+		// unknown one must be rejected before any handoff occurs.
+		if s.IsValid() {
+			if !bootstrapped || err != nil {
+				t.Fatalf("valid strategy %q: bootstrapped=%v err=%v (want handoff to run cleanly)", strategy, bootstrapped, err)
+			}
+		} else if bootstrapped {
+			t.Fatalf("unknown strategy %q reached the bootstrap", strategy)
+		}
+	})
+}

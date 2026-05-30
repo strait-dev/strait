@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -550,6 +551,37 @@ func FuzzContinueWorkflowRunAsNewHandlerBody(f *testing.F) {
 		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wfr-1/continue-as-new", body))
 		if w.Code < 200 || w.Code >= 500 {
 			t.Fatalf("unexpected status %d for body %q", w.Code, body)
+		}
+	})
+}
+
+// FuzzWorkflowRunChainParams fuzzes the chain endpoint's limit and cursor query
+// parameters: arbitrary values must never panic or 5xx. They should yield a 2xx
+// (the limit is clamped and the cursor is treated as an opaque token) or a 4xx.
+func FuzzWorkflowRunChainParams(f *testing.F) {
+	f.Add("", "")
+	f.Add("50", "wfr-1")
+	f.Add("-1", "")
+	f.Add("999999999", "abc")
+	f.Add("notanumber", "../../etc")
+	f.Add("0", "\x00\x01")
+
+	ms := &APIStoreMock{
+		GetWorkflowRunFunc: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusContinued}, nil
+		},
+		GetWorkflowRunChainFunc: func(_ context.Context, _, _ string, _ int, _ string) ([]domain.WorkflowRunChainEntry, error) {
+			return []domain.WorkflowRunChainEntry{{ID: "root", LineageDepth: 0}}, nil
+		},
+	}
+	srv := newWorkflowTestServer(f, ms, &mockQueue{}, nil, nil)
+
+	f.Fuzz(func(t *testing.T, limit, cursor string) {
+		path := "/v1/workflow-runs/wfr-1/chain?limit=" + url.QueryEscape(limit) + "&cursor=" + url.QueryEscape(cursor)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodGet, path, ""))
+		if w.Code < 200 || w.Code >= 500 {
+			t.Fatalf("unexpected status %d for limit=%q cursor=%q", w.Code, limit, cursor)
 		}
 	})
 }
