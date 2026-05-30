@@ -513,29 +513,37 @@ func scanWorkflowRunFields(scanner scanTarget, includeCacheVersion bool) (*domai
 	return &run, nil
 }
 
-func (q *Queries) CreateWorkflowRunBootstrap(ctx context.Context, run *domain.WorkflowRun, stepRuns []domain.WorkflowStepRun, startedAt time.Time) error {
+// CreateWorkflowRunBootstrapParams carries the inputs for atomically creating a
+// workflow run and bringing it to running with its initial step runs.
+type CreateWorkflowRunBootstrapParams struct {
+	Run       *domain.WorkflowRun
+	StepRuns  []domain.WorkflowStepRun
+	StartedAt time.Time
+}
+
+func (q *Queries) CreateWorkflowRunBootstrap(ctx context.Context, p CreateWorkflowRunBootstrapParams) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateWorkflowRunBootstrap")
 	defer span.End()
 
 	_, ok := q.db.(TxBeginner)
 	if !ok {
-		if err := q.CreateWorkflowRun(ctx, run); err != nil {
+		if err := q.CreateWorkflowRun(ctx, p.Run); err != nil {
 			return err
 		}
-		if err := q.UpdateWorkflowRunStatus(ctx, run.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{"started_at": startedAt}); err != nil {
+		if err := q.UpdateWorkflowRunStatus(ctx, p.Run.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{"started_at": p.StartedAt}); err != nil {
 			return err
 		}
-		return q.CreateWorkflowStepRuns(ctx, stepRuns)
+		return q.CreateWorkflowStepRuns(ctx, p.StepRuns)
 	}
 
 	return q.withTx(ctx, func(txQ *Queries) error {
-		if err := txQ.CreateWorkflowRun(ctx, run); err != nil {
+		if err := txQ.CreateWorkflowRun(ctx, p.Run); err != nil {
 			return fmt.Errorf("create workflow run bootstrap: %w", err)
 		}
-		if err := txQ.UpdateWorkflowRunStatus(ctx, run.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{"started_at": startedAt}); err != nil {
+		if err := txQ.UpdateWorkflowRunStatus(ctx, p.Run.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{"started_at": p.StartedAt}); err != nil {
 			return fmt.Errorf("mark workflow running bootstrap: %w", err)
 		}
-		if err := txQ.CreateWorkflowStepRuns(ctx, stepRuns); err != nil {
+		if err := txQ.CreateWorkflowStepRuns(ctx, p.StepRuns); err != nil {
 			return fmt.Errorf("create workflow step runs bootstrap: %w", err)
 		}
 		return nil
@@ -562,11 +570,23 @@ func (q *Queries) CreateWorkflowRunBootstrap(ctx context.Context, run *domain.Wo
 // ErrWorkflowRunContinueConflict is returned before any successor is created;
 // any later failure rolls the whole transaction back, so no orphan successor
 // or step runs are ever left behind.
-func (q *Queries) ContinueWorkflowRunBootstrap(ctx context.Context, predecessorID string, fromStatus domain.WorkflowRunStatus, successor *domain.WorkflowRun, stepRuns []domain.WorkflowStepRun, now time.Time) error {
+// ContinueWorkflowRunBootstrapParams carries the inputs for the atomic
+// complete-predecessor + start-successor continue-as-new handoff. FromStatus is
+// the predecessor's expected current status, used as the optimistic guard so
+// only one of two concurrent continuations wins.
+type ContinueWorkflowRunBootstrapParams struct {
+	PredecessorID string
+	FromStatus    domain.WorkflowRunStatus
+	Successor     *domain.WorkflowRun
+	StepRuns      []domain.WorkflowStepRun
+	Now           time.Time
+}
+
+func (q *Queries) ContinueWorkflowRunBootstrap(ctx context.Context, p ContinueWorkflowRunBootstrapParams) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ContinueWorkflowRunBootstrap")
 	defer span.End()
 
-	if err := domain.ValidateWorkflowTransition(fromStatus, domain.WfStatusContinued); err != nil {
+	if err := domain.ValidateWorkflowTransition(p.FromStatus, domain.WfStatusContinued); err != nil {
 		return fmt.Errorf("continue workflow run bootstrap: %w", err)
 	}
 
@@ -579,7 +599,7 @@ func (q *Queries) ContinueWorkflowRunBootstrap(ctx context.Context, predecessorI
 			UPDATE workflow_runs
 			SET status = $1, finished_at = $2
 			WHERE id = $3 AND status = $4`,
-			domain.WfStatusContinued, now, predecessorID, fromStatus,
+			domain.WfStatusContinued, p.Now, p.PredecessorID, p.FromStatus,
 		)
 		if err != nil {
 			return fmt.Errorf("mark predecessor continued: %w", err)
@@ -589,13 +609,13 @@ func (q *Queries) ContinueWorkflowRunBootstrap(ctx context.Context, predecessorI
 		}
 
 		// 2. Insert the successor and bring it to running with its step runs.
-		if err := txQ.CreateWorkflowRun(ctx, successor); err != nil {
+		if err := txQ.CreateWorkflowRun(ctx, p.Successor); err != nil {
 			return fmt.Errorf("create successor workflow run: %w", err)
 		}
-		if err := txQ.UpdateWorkflowRunStatus(ctx, successor.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{"started_at": now}); err != nil {
+		if err := txQ.UpdateWorkflowRunStatus(ctx, p.Successor.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{"started_at": p.Now}); err != nil {
 			return fmt.Errorf("mark successor running: %w", err)
 		}
-		if err := txQ.CreateWorkflowStepRuns(ctx, stepRuns); err != nil {
+		if err := txQ.CreateWorkflowStepRuns(ctx, p.StepRuns); err != nil {
 			return fmt.Errorf("create successor step runs: %w", err)
 		}
 
@@ -604,20 +624,20 @@ func (q *Queries) ContinueWorkflowRunBootstrap(ctx context.Context, predecessorI
 			UPDATE workflow_runs
 			SET continued_to_workflow_run_id = $1
 			WHERE id = $2`,
-			successor.ID, predecessorID,
+			p.Successor.ID, p.PredecessorID,
 		); err != nil {
 			return fmt.Errorf("link predecessor to successor: %w", err)
 		}
 
 		// 4. Tear down the predecessor's in-flight work, mirroring a cancel.
 		reason := "workflow continued as new"
-		if _, err := txQ.CancelNonTerminalStepRuns(ctx, predecessorID, now, reason); err != nil {
+		if _, err := txQ.CancelNonTerminalStepRuns(ctx, p.PredecessorID, p.Now, reason); err != nil {
 			return fmt.Errorf("cancel predecessor step runs: %w", err)
 		}
-		if _, err := txQ.CancelJobRunsByWorkflowRun(ctx, predecessorID, now, reason); err != nil {
+		if _, err := txQ.CancelJobRunsByWorkflowRun(ctx, p.PredecessorID, p.Now, reason); err != nil {
 			return fmt.Errorf("cancel predecessor job runs: %w", err)
 		}
-		if _, err := txQ.CancelEventTriggersByWorkflowRun(ctx, predecessorID); err != nil {
+		if _, err := txQ.CancelEventTriggersByWorkflowRun(ctx, p.PredecessorID); err != nil {
 			return fmt.Errorf("cancel predecessor event triggers: %w", err)
 		}
 		return nil

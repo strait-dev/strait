@@ -95,7 +95,8 @@ func (m *mockEngineStore) CreateWorkflowRun(ctx context.Context, run *domain.Wor
 	return nil
 }
 
-func (m *mockEngineStore) CreateWorkflowRunBootstrap(ctx context.Context, run *domain.WorkflowRun, stepRuns []domain.WorkflowStepRun, startedAt time.Time) error {
+func (m *mockEngineStore) CreateWorkflowRunBootstrap(ctx context.Context, p store.CreateWorkflowRunBootstrapParams) error {
+	run, stepRuns, startedAt := p.Run, p.StepRuns, p.StartedAt
 	if m.createWorkflowRunBootstrapFn != nil {
 		return m.createWorkflowRunBootstrapFn(ctx, run, stepRuns, startedAt)
 	}
@@ -113,7 +114,8 @@ func (m *mockEngineStore) CreateWorkflowRunBootstrap(ctx context.Context, run *d
 	return nil
 }
 
-func (m *mockEngineStore) ContinueWorkflowRunBootstrap(ctx context.Context, predecessorID string, fromStatus domain.WorkflowRunStatus, successor *domain.WorkflowRun, stepRuns []domain.WorkflowStepRun, now time.Time) error {
+func (m *mockEngineStore) ContinueWorkflowRunBootstrap(ctx context.Context, p store.ContinueWorkflowRunBootstrapParams) error {
+	predecessorID, fromStatus, successor, stepRuns, now := p.PredecessorID, p.FromStatus, p.Successor, p.StepRuns, p.Now
 	if m.continueWorkflowRunBootstrapFn != nil {
 		return m.continueWorkflowRunBootstrapFn(ctx, predecessorID, fromStatus, successor, stepRuns, now)
 	}

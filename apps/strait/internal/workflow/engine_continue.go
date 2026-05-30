@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/store"
 	"strait/internal/telemetry"
 
 	"github.com/google/uuid"
@@ -32,7 +33,7 @@ var (
 // continueBootstrapStore is the subset of the store that performs the atomic
 // complete-predecessor + start-successor handoff for continue-as-new.
 type continueBootstrapStore interface {
-	ContinueWorkflowRunBootstrap(ctx context.Context, predecessorID string, fromStatus domain.WorkflowRunStatus, successor *domain.WorkflowRun, stepRuns []domain.WorkflowStepRun, now time.Time) error
+	ContinueWorkflowRunBootstrap(ctx context.Context, p store.ContinueWorkflowRunBootstrapParams) error
 }
 
 // ContinueWorkflowRunAsNew atomically completes a non-terminal workflow run and
@@ -104,51 +105,10 @@ func (e *WorkflowEngine) ContinueWorkflowRunAsNew(
 			return nil, fmt.Errorf("project %s is not active for workflow execution", pred.ProjectID)
 		}
 	}
-	// Resolve which version and snapshot the successor pins, per the chosen
-	// strategy. The switch settles only that choice; listing and validating the
-	// step DAG is shared below because it is identical once the version is known.
-	strategy = strategy.Normalize()
-	var (
-		version     int
-		versionID   string
-		snapshotID  string
-		maxParallel int
-	)
-	switch strategy {
-	case domain.ContinueVersionLatest:
-		// Adopt the latest published version (+ canary routing), exactly as a
-		// fresh trigger would, so the successor reflects mid-chain deploys. The
-		// resolved definition is snapshotted below so it is immune to live edits.
-		if err := e.applyCanaryRouting(ctx, wf); err != nil {
-			return nil, err
-		}
-		version, versionID, maxParallel = wf.Version, wf.VersionID, wf.MaxParallelSteps
-	case domain.ContinueVersionRepin:
-		// Reuse the predecessor's exact pinned version and snapshot: no canary
-		// routing, immune to mid-chain deploys and in-place edits.
-		version, versionID = pred.WorkflowVersion, pred.WorkflowVersionID
-		snapshotID, maxParallel = pred.WorkflowSnapshotID, pred.MaxParallelSteps
-	default:
-		return nil, fmt.Errorf("unknown continue-as-new version strategy: %q", strategy)
-	}
-	timeoutSecs := wf.TimeoutSecs
-
-	steps, err := e.store.ListStepsByWorkflowVersion(ctx, wf.ID, version)
+	// 3a. Resolve the version, snapshot, and step DAG the successor pins.
+	def, err := e.resolveContinuationDefinition(ctx, wf, pred, strategy)
 	if err != nil {
-		return nil, fmt.Errorf("list workflow steps by version: %w", err)
-	}
-	if err := ValidateDAG(steps); err != nil {
-		return nil, fmt.Errorf("validate workflow dag: %w", err)
-	}
-	if strategy == domain.ContinueVersionLatest {
-		// Snapshot the resolved definition so the successor is immune to live edits.
-		snapshot, snapshotErr := e.store.GetOrCreateWorkflowSnapshot(ctx, wf, steps)
-		if snapshotErr != nil {
-			return nil, fmt.Errorf("create workflow snapshot: %w", snapshotErr)
-		}
-		if snapshot != nil {
-			snapshotID = snapshot.ID
-		}
+		return nil, err
 	}
 
 	// 4. Build the successor run and its fresh step runs. Tags carry across the
@@ -165,28 +125,34 @@ func (e *WorkflowEngine) ContinueWorkflowRunAsNew(
 		Tags:                       runTags,
 		Status:                     domain.WfStatusPending,
 		TriggeredBy:                domain.TriggerContinuation,
-		WorkflowVersion:            version,
-		WorkflowVersionID:          versionID,
-		WorkflowSnapshotID:         snapshotID,
-		MaxParallelSteps:           maxParallel,
+		WorkflowVersion:            def.version,
+		WorkflowVersionID:          def.versionID,
+		WorkflowSnapshotID:         def.snapshotID,
+		MaxParallelSteps:           def.maxParallel,
 		Payload:                    input,
 		ContinuedFromWorkflowRunID: pred.ID,
 		LineageDepth:               nextDepth,
 		TraceContext:               workflowTraceContext(ctx),
 	}
-	if timeoutSecs > 0 {
-		expiresAt := now.Add(time.Duration(timeoutSecs) * time.Second)
+	if def.timeoutSecs > 0 {
+		expiresAt := now.Add(time.Duration(def.timeoutSecs) * time.Second)
 		successor.ExpiresAt = &expiresAt
 	}
 
-	stepRuns := initialWorkflowStepRuns(successor.ID, steps)
+	stepRuns := initialWorkflowStepRuns(successor.ID, def.steps)
 
 	// 5. Atomic handoff: complete the predecessor and start the successor.
 	bootstrapper, ok := e.store.(continueBootstrapStore)
 	if !ok {
 		return nil, fmt.Errorf("store does not support workflow continue-as-new")
 	}
-	if err := bootstrapper.ContinueWorkflowRunBootstrap(ctx, pred.ID, pred.Status, successor, stepRuns, now); err != nil {
+	if err := bootstrapper.ContinueWorkflowRunBootstrap(ctx, store.ContinueWorkflowRunBootstrapParams{
+		PredecessorID: pred.ID,
+		FromStatus:    pred.Status,
+		Successor:     successor,
+		StepRuns:      stepRuns,
+		Now:           now,
+	}); err != nil {
 		return nil, fmt.Errorf("continue workflow run bootstrap: %w", err)
 	}
 	successor.Status = domain.WfStatusRunning
@@ -214,7 +180,7 @@ func (e *WorkflowEngine) ContinueWorkflowRunAsNew(
 	//    the successor is running. A failure here only means the root steps were
 	//    not enqueued, so log it loudly with the committed lineage rather than
 	//    letting a bare error imply nothing happened.
-	roots := rootWorkflowSteps(steps, stepRuns)
+	roots := rootWorkflowSteps(def.steps, stepRuns)
 	if err := e.startRootWorkflowSteps(ctx, successor, roots); err != nil {
 		e.logger.ErrorContext(ctx, "continue-as-new committed but root step start failed",
 			"predecessor_run_id", pred.ID,
@@ -233,4 +199,67 @@ func (e *WorkflowEngine) ContinueWorkflowRunAsNew(
 	}
 
 	return successor, nil
+}
+
+// continuationDefinition is the workflow definition a continue-as-new successor
+// pins: the resolved version and snapshot plus the validated step DAG.
+type continuationDefinition struct {
+	version     int
+	versionID   string
+	snapshotID  string
+	maxParallel int
+	timeoutSecs int
+	steps       []domain.WorkflowStep
+}
+
+// resolveContinuationDefinition settles which version, snapshot, and step DAG a
+// continuation successor pins, per the chosen strategy. repin reuses the
+// predecessor's exact pinned version and snapshot, so it is immune to mid-chain
+// deploys and in-place edits. latest re-resolves the newest published version
+// with canary routing, exactly as a fresh trigger would, then snapshots the
+// resolved definition so the successor is immune to later live edits. The step
+// DAG is listed and validated once the version is known, identically for both.
+func (e *WorkflowEngine) resolveContinuationDefinition(
+	ctx context.Context,
+	wf *domain.Workflow,
+	pred *domain.WorkflowRun,
+	strategy domain.ContinueVersionStrategy,
+) (continuationDefinition, error) {
+	strategy = strategy.Normalize()
+	def := continuationDefinition{timeoutSecs: wf.TimeoutSecs}
+
+	switch strategy {
+	case domain.ContinueVersionLatest:
+		if err := e.applyCanaryRouting(ctx, wf); err != nil {
+			return continuationDefinition{}, err
+		}
+		def.version, def.versionID, def.maxParallel = wf.Version, wf.VersionID, wf.MaxParallelSteps
+	case domain.ContinueVersionRepin:
+		def.version, def.versionID = pred.WorkflowVersion, pred.WorkflowVersionID
+		def.snapshotID, def.maxParallel = pred.WorkflowSnapshotID, pred.MaxParallelSteps
+	default:
+		return continuationDefinition{}, fmt.Errorf("unknown continue-as-new version strategy: %q", strategy)
+	}
+
+	steps, err := e.store.ListStepsByWorkflowVersion(ctx, wf.ID, def.version)
+	if err != nil {
+		return continuationDefinition{}, fmt.Errorf("list workflow steps by version: %w", err)
+	}
+	if err := ValidateDAG(steps); err != nil {
+		return continuationDefinition{}, fmt.Errorf("validate workflow dag: %w", err)
+	}
+	def.steps = steps
+
+	if strategy == domain.ContinueVersionLatest {
+		// Snapshot the resolved definition so the successor is immune to live edits.
+		snapshot, err := e.store.GetOrCreateWorkflowSnapshot(ctx, wf, steps)
+		if err != nil {
+			return continuationDefinition{}, fmt.Errorf("create workflow snapshot: %w", err)
+		}
+		if snapshot != nil {
+			def.snapshotID = snapshot.ID
+		}
+	}
+
+	return def, nil
 }

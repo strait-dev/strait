@@ -34,6 +34,18 @@ func buildSuccessor(workflowID, projectID, predecessorID string, depth int, payl
 	}
 }
 
+// continueBootstrap is a positional wrapper over ContinueWorkflowRunBootstrap,
+// keeping the many call sites concise while the store API takes a params struct.
+func continueBootstrap(ctx context.Context, q *store.Queries, predID string, from domain.WorkflowRunStatus, succ *domain.WorkflowRun, stepRuns []domain.WorkflowStepRun, now time.Time) error {
+	return q.ContinueWorkflowRunBootstrap(ctx, store.ContinueWorkflowRunBootstrapParams{
+		PredecessorID: predID,
+		FromStatus:    from,
+		Successor:     succ,
+		StepRuns:      stepRuns,
+		Now:           now,
+	})
+}
+
 func TestContinueWorkflowRunBootstrap_HappyPath(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -69,7 +81,7 @@ func TestContinueWorkflowRunBootstrap_HappyPath(t *testing.T) {
 	successorStep := testutil.BuildWorkflowStepRun(successor.ID, step.ID, &testutil.WorkflowStepRunOpts{StepRef: new("root")})
 
 	now := time.Now().UTC()
-	if err := q.ContinueWorkflowRunBootstrap(ctx, pred.ID, running, successor, []domain.WorkflowStepRun{*successorStep}, now); err != nil {
+	if err := continueBootstrap(ctx, q, pred.ID, running, successor, []domain.WorkflowStepRun{*successorStep}, now); err != nil {
 		t.Fatalf("ContinueWorkflowRunBootstrap() error = %v", err)
 	}
 
@@ -149,7 +161,7 @@ func TestContinueWorkflowRunBootstrap_TerminalPredecessorRejected(t *testing.T) 
 	successor := buildSuccessor(wf.ID, projectID, pred.ID, 1, nil)
 
 	// fromStatus completed is not a legal source for continued.
-	err := q.ContinueWorkflowRunBootstrap(ctx, pred.ID, completed, successor, nil, time.Now().UTC())
+	err := continueBootstrap(ctx, q, pred.ID, completed, successor, nil, time.Now().UTC())
 	if err == nil {
 		t.Fatal("expected error continuing from terminal predecessor")
 	}
@@ -177,7 +189,7 @@ func TestContinueWorkflowRunBootstrap_StatusConflictRejected(t *testing.T) {
 
 	successor := buildSuccessor(wf.ID, projectID, pred.ID, 1, nil)
 
-	err := q.ContinueWorkflowRunBootstrap(ctx, pred.ID, domain.WfStatusRunning, successor, nil, time.Now().UTC())
+	err := continueBootstrap(ctx, q, pred.ID, domain.WfStatusRunning, successor, nil, time.Now().UTC())
 	if !errors.Is(err, store.ErrWorkflowRunContinueConflict) {
 		t.Fatalf("expected ErrWorkflowRunContinueConflict, got %v", err)
 	}
@@ -223,7 +235,7 @@ func TestContinueWorkflowRunBootstrap_ConflictLeavesNoOrphanStepRuns(t *testing.
 	successor := buildSuccessor(wf.ID, projectID, pred.ID, 1, nil)
 	successorStep := testutil.BuildWorkflowStepRun(successor.ID, uuid.Must(uuid.NewV7()).String(), &testutil.WorkflowStepRunOpts{StepRef: new("root")})
 
-	err := q.ContinueWorkflowRunBootstrap(ctx, pred.ID, domain.WfStatusRunning, successor, []domain.WorkflowStepRun{*successorStep}, time.Now().UTC())
+	err := continueBootstrap(ctx, q, pred.ID, domain.WfStatusRunning, successor, []domain.WorkflowStepRun{*successorStep}, time.Now().UTC())
 	if !errors.Is(err, store.ErrWorkflowRunContinueConflict) {
 		t.Fatalf("expected ErrWorkflowRunContinueConflict, got %v", err)
 	}
@@ -260,7 +272,7 @@ func TestContinueWorkflowRunBootstrap_CrashMidContinueRollsBack(t *testing.T) {
 	// fails mid-transaction, simulating a crash during continuation.
 	badStep := testutil.BuildWorkflowStepRun(successor.ID, uuid.Must(uuid.NewV7()).String(), &testutil.WorkflowStepRunOpts{StepRef: new("bad")})
 
-	err := q.ContinueWorkflowRunBootstrap(ctx, pred.ID, running, successor, []domain.WorkflowStepRun{*badStep}, time.Now().UTC())
+	err := continueBootstrap(ctx, q, pred.ID, running, successor, []domain.WorkflowStepRun{*badStep}, time.Now().UTC())
 	if err == nil {
 		t.Fatal("expected error from failing successor step-run insert")
 	}
@@ -308,7 +320,7 @@ func TestContinueWorkflowRunBootstrap_ConcurrentSingleWinner(t *testing.T) {
 			successor := buildSuccessor(wf.ID, projectID, pred.ID, 1, nil)
 			successorIDs[idx] = successor.ID
 			<-start
-			results[idx] = q.ContinueWorkflowRunBootstrap(ctx, pred.ID, running, successor, nil, time.Now().UTC())
+			results[idx] = continueBootstrap(ctx, q, pred.ID, running, successor, nil, time.Now().UTC())
 		}(i)
 	}
 	close(start)
@@ -387,7 +399,7 @@ func TestContinueWorkflowRunBootstrap_CancelsPredecessorEventTriggers(t *testing
 	}
 
 	successor := buildSuccessor(wf.ID, projectID, pred.ID, pred.LineageDepth+1, nil)
-	if err := q.ContinueWorkflowRunBootstrap(ctx, pred.ID, running, successor, nil, now); err != nil {
+	if err := continueBootstrap(ctx, q, pred.ID, running, successor, nil, now); err != nil {
 		t.Fatalf("ContinueWorkflowRunBootstrap() error = %v", err)
 	}
 
@@ -428,7 +440,7 @@ func TestContinueWorkflowRunBootstrap_RaceWithConcurrentCancel(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		<-start
-		_ = q.ContinueWorkflowRunBootstrap(ctx, pred.ID, running, successor, nil, now)
+		_ = continueBootstrap(ctx, q, pred.ID, running, successor, nil, now)
 	}()
 	go func() {
 		defer wg.Done()
@@ -482,11 +494,11 @@ func TestGetWorkflowRunChain_OrderedSeries(t *testing.T) {
 
 	// Build a three-run chain: root -> mid -> latest.
 	mid := buildSuccessor(wf.ID, projectID, root.ID, 1, nil)
-	if err := q.ContinueWorkflowRunBootstrap(ctx, root.ID, running, mid, nil, time.Now().UTC()); err != nil {
+	if err := continueBootstrap(ctx, q, root.ID, running, mid, nil, time.Now().UTC()); err != nil {
 		t.Fatalf("continue root->mid: %v", err)
 	}
 	latest := buildSuccessor(wf.ID, projectID, mid.ID, 2, nil)
-	if err := q.ContinueWorkflowRunBootstrap(ctx, mid.ID, running, latest, nil, time.Now().UTC()); err != nil {
+	if err := continueBootstrap(ctx, q, mid.ID, running, latest, nil, time.Now().UTC()); err != nil {
 		t.Fatalf("continue mid->latest: %v", err)
 	}
 
@@ -554,7 +566,7 @@ func buildChain(t *testing.T, ctx context.Context, q *store.Queries, projectID s
 	predID := root.ID
 	for i := 1; i <= length; i++ {
 		succ := buildSuccessor(wf.ID, projectID, predID, i, nil)
-		if err := q.ContinueWorkflowRunBootstrap(ctx, predID, running, succ, nil, time.Now().UTC()); err != nil {
+		if err := continueBootstrap(ctx, q, predID, running, succ, nil, time.Now().UTC()); err != nil {
 			t.Fatalf("continue depth %d: %v", i, err)
 		}
 		ids = append(ids, succ.ID)
@@ -684,7 +696,7 @@ func TestDeleteWorkflowRun_NullsSuccessorPointerOnDelete(t *testing.T) {
 	running := domain.WfStatusRunning
 	pred := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID), Status: &running})
 	succ := buildSuccessor(wf.ID, projectID, pred.ID, 1, nil)
-	if err := q.ContinueWorkflowRunBootstrap(ctx, pred.ID, running, succ, nil, time.Now().UTC()); err != nil {
+	if err := continueBootstrap(ctx, q, pred.ID, running, succ, nil, time.Now().UTC()); err != nil {
 		t.Fatalf("continue pred->succ: %v", err)
 	}
 
@@ -727,7 +739,7 @@ func TestDeleteWorkflowRun_NullsPredecessorPointerOnDelete(t *testing.T) {
 	running := domain.WfStatusRunning
 	root := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID), Status: &running})
 	succ := buildSuccessor(wf.ID, projectID, root.ID, 1, nil)
-	if err := q.ContinueWorkflowRunBootstrap(ctx, root.ID, running, succ, nil, time.Now().UTC()); err != nil {
+	if err := continueBootstrap(ctx, q, root.ID, running, succ, nil, time.Now().UTC()); err != nil {
 		t.Fatalf("continue root->succ: %v", err)
 	}
 
@@ -775,11 +787,11 @@ func TestDeleteWorkflowRun_MiddleOfChainTruncates(t *testing.T) {
 	running := domain.WfStatusRunning
 	root := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID), Status: &running})
 	mid := buildSuccessor(wf.ID, projectID, root.ID, 1, nil)
-	if err := q.ContinueWorkflowRunBootstrap(ctx, root.ID, running, mid, nil, time.Now().UTC()); err != nil {
+	if err := continueBootstrap(ctx, q, root.ID, running, mid, nil, time.Now().UTC()); err != nil {
 		t.Fatalf("continue root->mid: %v", err)
 	}
 	latest := buildSuccessor(wf.ID, projectID, mid.ID, 2, nil)
-	if err := q.ContinueWorkflowRunBootstrap(ctx, mid.ID, running, latest, nil, time.Now().UTC()); err != nil {
+	if err := continueBootstrap(ctx, q, mid.ID, running, latest, nil, time.Now().UTC()); err != nil {
 		t.Fatalf("continue mid->latest: %v", err)
 	}
 
@@ -843,7 +855,7 @@ func TestBulkCancelWorkflowRuns_SkipsContinued(t *testing.T) {
 	running := domain.WfStatusRunning
 	pred := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID), Status: &running})
 	succ := buildSuccessor(wf.ID, projectID, pred.ID, 1, nil)
-	if err := q.ContinueWorkflowRunBootstrap(ctx, pred.ID, running, succ, nil, time.Now().UTC()); err != nil {
+	if err := continueBootstrap(ctx, q, pred.ID, running, succ, nil, time.Now().UTC()); err != nil {
 		t.Fatalf("continue pred->succ: %v", err)
 	}
 
@@ -975,7 +987,7 @@ func BenchmarkGetWorkflowRunChain(b *testing.B) {
 		predID := root.ID
 		for i := 1; i <= depth; i++ {
 			succ := buildSuccessor(wf.ID, projectID, predID, i, nil)
-			if err := q.ContinueWorkflowRunBootstrap(ctx, predID, running, succ, nil, time.Now().UTC()); err != nil {
+			if err := continueBootstrap(ctx, q, predID, running, succ, nil, time.Now().UTC()); err != nil {
 				b.Fatalf("continue depth %d: %v", i, err)
 			}
 			predID = succ.ID

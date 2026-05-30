@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/store"
 	"strait/internal/telemetry"
 
 	"github.com/google/uuid"
@@ -73,7 +74,7 @@ type projectExecutionStateStore interface {
 }
 
 type bootstrapStore interface {
-	CreateWorkflowRunBootstrap(ctx context.Context, run *domain.WorkflowRun, stepRuns []domain.WorkflowStepRun, startedAt time.Time) error
+	CreateWorkflowRunBootstrap(ctx context.Context, p store.CreateWorkflowRunBootstrapParams) error
 }
 
 type rootStepStart struct {
@@ -475,7 +476,11 @@ func (e *WorkflowEngine) bootstrapWorkflowRun(
 	now time.Time,
 ) error {
 	if bs, ok := e.store.(bootstrapStore); ok {
-		if err := bs.CreateWorkflowRunBootstrap(ctx, wfRun, stepRuns, now); err != nil {
+		if err := bs.CreateWorkflowRunBootstrap(ctx, store.CreateWorkflowRunBootstrapParams{
+			Run:       wfRun,
+			StepRuns:  stepRuns,
+			StartedAt: now,
+		}); err != nil {
 			return fmt.Errorf("create workflow bootstrap: %w", err)
 		}
 		return nil
