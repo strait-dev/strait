@@ -16,6 +16,8 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
+
+	"strait/internal/domain"
 )
 
 type Metrics struct {
@@ -1000,6 +1002,51 @@ type PoolStatsProvider interface {
 	SuccessfulTasks() uint64
 	FailedTasks() uint64
 	DroppedTasks() uint64
+}
+
+// RecordSingletonAcquisition counts a singleton lock claimed, either at trigger
+// time or when a waiter is promoted, labeled by owner kind. The job trigger,
+// cron scheduler, workflow engine, and reaper all share this recorder. Nil-safe
+// so callers need no metric guard.
+func (m *Metrics) RecordSingletonAcquisition(ctx context.Context, kind domain.SingletonKind) {
+	if m == nil || m.SingletonAcquisitions == nil {
+		return
+	}
+	m.SingletonAcquisitions.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("kind", string(kind)),
+	))
+}
+
+// RecordSingletonConflict counts a trigger that found the key already held,
+// labeled by owner kind and the on-conflict policy applied. Nil-safe.
+func (m *Metrics) RecordSingletonConflict(ctx context.Context, kind domain.SingletonKind, policy domain.SingletonOnConflict) {
+	if m == nil || m.SingletonConflicts == nil {
+		return
+	}
+	m.SingletonConflicts.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("kind", string(kind)),
+		attribute.String("policy", string(policy)),
+	))
+}
+
+// RecordSingletonPreemption counts a higher-priority newcomer that canceled a
+// lower-priority holder under the queue policy, labeled by owner kind. Nil-safe.
+func (m *Metrics) RecordSingletonPreemption(ctx context.Context, kind domain.SingletonKind) {
+	if m == nil || m.SingletonPreemptions == nil {
+		return
+	}
+	m.SingletonPreemptions.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("kind", string(kind)),
+	))
+}
+
+// RecordSingletonReclaimed counts a lock the reaper released from a terminal,
+// missing, or lease-expired holder. Nil-safe.
+func (m *Metrics) RecordSingletonReclaimed(ctx context.Context) {
+	if m == nil || m.SingletonStaleReclaimed == nil {
+		return
+	}
+	m.SingletonStaleReclaimed.Add(ctx, 1)
 }
 
 // ObservePool registers an asynchronous callback that reports pool stats on

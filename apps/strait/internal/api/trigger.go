@@ -1073,49 +1073,14 @@ func (s *Server) applyJobSingletonPolicy(ctx context.Context, tx store.DBTX, job
 	}
 	switch {
 	case outcome == domain.SingletonOutcomeDispatched:
-		s.recordSingletonAcquisition(ctx, domain.SingletonKindJob)
+		s.metrics.RecordSingletonAcquisition(ctx, domain.SingletonKindJob)
 	case outcome == domain.SingletonOutcomeReplaced && job.SingletonOnConflict == domain.SingletonOnConflictQueue:
 		// A replace under the queue policy is a higher-priority preemption.
-		s.recordSingletonPreemption(ctx, domain.SingletonKindJob)
+		s.metrics.RecordSingletonPreemption(ctx, domain.SingletonKindJob)
 	default:
-		s.recordSingletonConflict(ctx, domain.SingletonKindJob, job.SingletonOnConflict)
+		s.metrics.RecordSingletonConflict(ctx, domain.SingletonKindJob, job.SingletonOnConflict)
 	}
 	return proceed, outcome, holderID, nil
-}
-
-// recordSingletonAcquisition increments the acquisitions counter for a key
-// claimed at trigger time, labeled by kind. Nil-safe for tests/metric-less runs.
-func (s *Server) recordSingletonAcquisition(ctx context.Context, kind domain.SingletonKind) {
-	if s.metrics == nil || s.metrics.SingletonAcquisitions == nil {
-		return
-	}
-	s.metrics.SingletonAcquisitions.Add(ctx, 1, otelmetric.WithAttributes(
-		otelattr.String("kind", string(kind)),
-	))
-}
-
-// recordSingletonPreemption increments the preemptions counter when a
-// higher-priority newcomer cancels a lower-priority holder under the queue
-// policy. Nil-safe for tests/metric-less runs.
-func (s *Server) recordSingletonPreemption(ctx context.Context, kind domain.SingletonKind) {
-	if s.metrics == nil || s.metrics.SingletonPreemptions == nil {
-		return
-	}
-	s.metrics.SingletonPreemptions.Add(ctx, 1, otelmetric.WithAttributes(
-		otelattr.String("kind", string(kind)),
-	))
-}
-
-// recordSingletonConflict increments the conflicts counter when a trigger loses
-// the race for a key, labeled by kind and the on-conflict policy applied.
-func (s *Server) recordSingletonConflict(ctx context.Context, kind domain.SingletonKind, policy domain.SingletonOnConflict) {
-	if s.metrics == nil || s.metrics.SingletonConflicts == nil {
-		return
-	}
-	s.metrics.SingletonConflicts.Add(ctx, 1, otelmetric.WithAttributes(
-		otelattr.String("kind", string(kind)),
-		otelattr.String("policy", string(policy)),
-	))
 }
 
 // triggerLimitFallbackRetryAfterSeconds is the Retry-After hint surfaced

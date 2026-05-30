@@ -237,9 +237,6 @@ func (q *Queries) cancelSingletonWorkflowWaitersTx(ctx context.Context, workflow
 	return tag.RowsAffected(), nil
 }
 
-// cancelSingletonWorkflowHolderTx cancels the current holder workflow run and
-// cascades to its step runs, child job runs, and pending event triggers, mirroring
-// handleCancelWorkflowRun. A missing or already-terminal holder is a no-op.
 // workflowRunPriority reads a workflow run's priority. found is false (no error)
 // when the run no longer exists, so preemption falls through to normal queueing.
 func (q *Queries) workflowRunPriority(ctx context.Context, runID string) (int, bool, error) {
@@ -254,6 +251,9 @@ func (q *Queries) workflowRunPriority(ctx context.Context, runID string) (int, b
 	return priority, true, nil
 }
 
+// cancelSingletonWorkflowHolderTx cancels the current holder workflow run and
+// cascades to its step runs, child job runs, and pending event triggers, mirroring
+// handleCancelWorkflowRun. A missing or already-terminal holder is a no-op.
 func (q *Queries) cancelSingletonWorkflowHolderTx(ctx context.Context, holderRunID, reason string) error {
 	holder, err := q.GetWorkflowRun(ctx, holderRunID)
 	if err != nil {

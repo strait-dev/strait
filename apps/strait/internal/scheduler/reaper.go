@@ -1091,9 +1091,9 @@ func (r *Reaper) reapSingletonLocks(ctx context.Context) {
 		if !released {
 			continue // another releaser won the race
 		}
-		r.recordSingletonReclaimed(ctx)
+		r.metrics.RecordSingletonReclaimed(ctx)
 		if promotedRunID != "" {
-			r.recordSingletonAcquisition(ctx, domain.SingletonKindJob)
+			r.metrics.RecordSingletonAcquisition(ctx, domain.SingletonKindJob)
 			slog.Info("reaper promoted singleton waiter", "released_run_id", holderRunID, "promoted_run_id", promotedRunID)
 		}
 	}
@@ -1126,23 +1126,9 @@ func (r *Reaper) reapSingletonWorkflowLocks(ctx context.Context) {
 		}
 		// The engine records the acquisition when it promotes a waiter; the
 		// reaper only owns the stale-reclaim counter here.
-		r.recordSingletonReclaimed(ctx)
+		r.metrics.RecordSingletonReclaimed(ctx)
 		slog.Info("reaper reclaimed singleton workflow lock", "released_run_id", holderRunID)
 	}
-}
-
-func (r *Reaper) recordSingletonReclaimed(ctx context.Context) {
-	if r.metrics == nil || r.metrics.SingletonStaleReclaimed == nil {
-		return
-	}
-	r.metrics.SingletonStaleReclaimed.Add(ctx, 1)
-}
-
-func (r *Reaper) recordSingletonAcquisition(ctx context.Context, kind domain.SingletonKind) {
-	if r.metrics == nil || r.metrics.SingletonAcquisitions == nil {
-		return
-	}
-	r.metrics.SingletonAcquisitions.Add(ctx, 1, metric.WithAttributes(attribute.String("kind", string(kind))))
 }
 
 func (r *Reaper) retryStaleRun(ctx context.Context, run *domain.JobRun) bool {

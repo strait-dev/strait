@@ -145,7 +145,7 @@ type EffectiveCronSingleton struct {
 // legacy overlap policies through the same lock table as direct triggers.
 func EffectiveJobCronSingleton(job *Job) EffectiveCronSingleton {
 	if job.SingletonOnConflict != "" {
-		eff := EffectiveCronSingleton{
+		return EffectiveCronSingleton{
 			Configured:    true,
 			OnConflict:    job.SingletonOnConflict,
 			KeyExpr:       job.SingletonKeyExpr,
@@ -154,7 +154,6 @@ func EffectiveJobCronSingleton(job *Job) EffectiveCronSingleton {
 			LegacyOverridden: job.CronOverlapPolicy == OverlapPolicySkip ||
 				job.CronOverlapPolicy == OverlapPolicyCancelRunning,
 		}
-		return eff
 	}
 	switch job.CronOverlapPolicy {
 	case OverlapPolicySkip:

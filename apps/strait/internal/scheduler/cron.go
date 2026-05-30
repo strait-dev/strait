@@ -235,35 +235,25 @@ func (cs *CronScheduler) triggerJobLocked(ctx context.Context, job domain.Job, f
 	var outcome domain.SingletonOutcome
 	var holderID string
 	err := cs.withCronAdmissionGuard(ctx, &job, func(enqueueCtx context.Context, tx store.DBTX) error {
-		if eff.Configured {
-			if tx == nil {
-				// The singleton acquire and the run insert must commit together; a
-				// non-transactional store (test doubles) cannot guarantee that.
-				slog.Warn("cron singleton requires a transactional store; enqueuing without enforcement",
-					"job_id", job.ID, "project_id", job.ProjectID)
-			} else {
-				proceed, oc, hid, serr := store.New(tx).ApplyJobSingletonConflictPolicy(
-					enqueueCtx, &run, job.ProjectID, job.ID, run.SingletonKey, eff.OnConflict, eff.MaxQueueDepth, eff.Preempt,
-				)
-				if serr != nil {
-					return serr
-				}
-				outcome, holderID = oc, hid
-				switch {
-				case oc == domain.SingletonOutcomeDispatched:
-					cs.recordSingletonAcquisition(enqueueCtx)
-				case oc == domain.SingletonOutcomeReplaced && eff.OnConflict == domain.SingletonOnConflictQueue:
-					cs.recordSingletonPreemption(enqueueCtx)
-				default:
-					cs.recordSingletonConflict(enqueueCtx, eff.OnConflict)
-				}
-				if !proceed {
-					// dropped / queued_behind / replaced: the policy parked or discarded
-					// the run inside this tx. Nothing left to enqueue.
-					return nil
-				}
-				// dispatched: the run acquired the key; enqueue it holding the lock.
+		switch {
+		case eff.Configured && tx == nil:
+			// The singleton acquire and the run insert must commit together; a
+			// non-transactional store (test doubles) cannot guarantee that, so fall
+			// through to a plain enqueue without enforcement.
+			slog.Warn("cron singleton requires a transactional store; enqueuing without enforcement",
+				"job_id", job.ID, "project_id", job.ProjectID)
+		case eff.Configured:
+			proceed, oc, hid, serr := cs.applyCronJobSingleton(enqueueCtx, tx, &job, &run, eff)
+			if serr != nil {
+				return serr
 			}
+			outcome, holderID = oc, hid
+			if !proceed {
+				// dropped / queued_behind / replaced: the policy parked or discarded
+				// the run inside this tx. Nothing left to enqueue.
+				return nil
+			}
+			// dispatched: the run acquired the key; enqueue it holding the lock.
 		}
 		if tx != nil && cs.queue != nil {
 			return cs.queue.EnqueueInTx(enqueueCtx, tx, &run)
@@ -364,34 +354,35 @@ func (cs *CronScheduler) logOverlapDeprecation(jobID string) {
 		"job_id", jobID)
 }
 
-// recordSingletonAcquisition / recordSingletonConflict mirror the API trigger
-// metrics so cron-driven singleton activity shows up under the same counters.
-func (cs *CronScheduler) recordSingletonAcquisition(ctx context.Context) {
-	if cs.metrics == nil || cs.metrics.SingletonAcquisitions == nil {
-		return
+// applyCronJobSingleton applies the job's singleton on-conflict policy to a cron
+// fire inside the admission transaction and records the matching metric. It
+// returns proceed=true only when the key was acquired (dispatched), so the caller
+// continues to the enqueue path with the lock held; on conflict it reports the
+// outcome and holder run id so the caller can run the replace side effects. This
+// mirrors the API trigger handler's applyJobSingletonPolicy so cron and direct
+// triggers share one policy path.
+func (cs *CronScheduler) applyCronJobSingleton(
+	ctx context.Context,
+	tx store.DBTX,
+	job *domain.Job,
+	run *domain.JobRun,
+	eff domain.EffectiveCronSingleton,
+) (proceed bool, outcome domain.SingletonOutcome, holderID string, err error) {
+	proceed, outcome, holderID, err = store.New(tx).ApplyJobSingletonConflictPolicy(
+		ctx, run, job.ProjectID, job.ID, run.SingletonKey, eff.OnConflict, eff.MaxQueueDepth, eff.Preempt,
+	)
+	if err != nil {
+		return false, "", "", err
 	}
-	cs.metrics.SingletonAcquisitions.Add(ctx, 1, metric.WithAttributes(
-		attribute.String("kind", string(domain.SingletonKindJob)),
-	))
-}
-
-func (cs *CronScheduler) recordSingletonConflict(ctx context.Context, policy domain.SingletonOnConflict) {
-	if cs.metrics == nil || cs.metrics.SingletonConflicts == nil {
-		return
+	switch {
+	case outcome == domain.SingletonOutcomeDispatched:
+		cs.metrics.RecordSingletonAcquisition(ctx, domain.SingletonKindJob)
+	case outcome == domain.SingletonOutcomeReplaced && eff.OnConflict == domain.SingletonOnConflictQueue:
+		cs.metrics.RecordSingletonPreemption(ctx, domain.SingletonKindJob)
+	default:
+		cs.metrics.RecordSingletonConflict(ctx, domain.SingletonKindJob, eff.OnConflict)
 	}
-	cs.metrics.SingletonConflicts.Add(ctx, 1, metric.WithAttributes(
-		attribute.String("kind", string(domain.SingletonKindJob)),
-		attribute.String("policy", string(policy)),
-	))
-}
-
-func (cs *CronScheduler) recordSingletonPreemption(ctx context.Context) {
-	if cs.metrics == nil || cs.metrics.SingletonPreemptions == nil {
-		return
-	}
-	cs.metrics.SingletonPreemptions.Add(ctx, 1, metric.WithAttributes(
-		attribute.String("kind", string(domain.SingletonKindJob)),
-	))
+	return proceed, outcome, holderID, nil
 }
 
 func (cs *CronScheduler) withCronAdmissionGuard(ctx context.Context, job *domain.Job, fn func(context.Context, store.DBTX) error) error {

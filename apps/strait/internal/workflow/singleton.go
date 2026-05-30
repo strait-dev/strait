@@ -7,9 +7,6 @@ import (
 	"time"
 
 	"strait/internal/domain"
-
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/metric"
 )
 
 // singletonWorkflowStore is the optional store surface for first-class singleton
@@ -25,7 +22,7 @@ type singletonWorkflowStore interface {
 		onConflict domain.SingletonOnConflict,
 		maxQueueDepth *int,
 		preemptHigher bool,
-	) (domain.SingletonOutcome, string, bool, error)
+	) (outcome domain.SingletonOutcome, holderRunID string, runCreated bool, err error)
 	ReleaseSingletonWorkflowLockAndPromote(ctx context.Context, holderRunID string) (bool, string, error)
 }
 
@@ -88,24 +85,24 @@ func (e *WorkflowEngine) bootstrapSingletonWorkflowRun(
 
 	switch outcome {
 	case domain.SingletonOutcomeDispatched:
-		e.recordSingletonAcquisition(ctx)
+		e.metrics.RecordSingletonAcquisition(ctx, domain.SingletonKindWorkflow)
 		return wfRun, outcome, holderID, false, nil
 
 	case domain.SingletonOutcomeDropped:
-		e.recordSingletonConflict(ctx, eff.OnConflict)
+		e.metrics.RecordSingletonConflict(ctx, domain.SingletonKindWorkflow, eff.OnConflict)
 		return nil, outcome, holderID, true, nil
 
 	case domain.SingletonOutcomeQueuedBehind:
-		e.recordSingletonConflict(ctx, eff.OnConflict)
+		e.metrics.RecordSingletonConflict(ctx, domain.SingletonKindWorkflow, eff.OnConflict)
 		wfRun.Status = domain.WfStatusQueued
 		return wfRun, outcome, holderID, true, nil
 
 	case domain.SingletonOutcomeReplaced:
 		// A replace under the queue policy is a higher-priority preemption.
 		if eff.OnConflict == domain.SingletonOnConflictQueue {
-			e.recordSingletonPreemption(ctx)
+			e.metrics.RecordSingletonPreemption(ctx, domain.SingletonKindWorkflow)
 		} else {
-			e.recordSingletonConflict(ctx, eff.OnConflict)
+			e.metrics.RecordSingletonConflict(ctx, domain.SingletonKindWorkflow, eff.OnConflict)
 		}
 		wfRun.Status = domain.WfStatusQueued
 		// The holder was canceled synchronously in the bootstrap tx, so promote
@@ -150,7 +147,7 @@ func (e *WorkflowEngine) PromoteSingletonWorkflowSuccessor(ctx context.Context, 
 	if promotedRunID == "" {
 		return true, nil
 	}
-	e.recordSingletonAcquisition(ctx)
+	e.metrics.RecordSingletonAcquisition(ctx, domain.SingletonKindWorkflow)
 	if err := e.startPromotedWorkflowRun(ctx, promotedRunID); err != nil {
 		return true, fmt.Errorf("start promoted workflow run %s: %w", promotedRunID, err)
 	}
@@ -219,32 +216,4 @@ func (e *WorkflowEngine) startPromotedWorkflowRun(ctx context.Context, runID str
 		}
 	}
 	return nil
-}
-
-func (e *WorkflowEngine) recordSingletonAcquisition(ctx context.Context) {
-	if e.metrics == nil || e.metrics.SingletonAcquisitions == nil {
-		return
-	}
-	e.metrics.SingletonAcquisitions.Add(ctx, 1, metric.WithAttributes(
-		attribute.String("kind", string(domain.SingletonKindWorkflow)),
-	))
-}
-
-func (e *WorkflowEngine) recordSingletonConflict(ctx context.Context, policy domain.SingletonOnConflict) {
-	if e.metrics == nil || e.metrics.SingletonConflicts == nil {
-		return
-	}
-	e.metrics.SingletonConflicts.Add(ctx, 1, metric.WithAttributes(
-		attribute.String("kind", string(domain.SingletonKindWorkflow)),
-		attribute.String("policy", string(policy)),
-	))
-}
-
-func (e *WorkflowEngine) recordSingletonPreemption(ctx context.Context) {
-	if e.metrics == nil || e.metrics.SingletonPreemptions == nil {
-		return
-	}
-	e.metrics.SingletonPreemptions.Add(ctx, 1, metric.WithAttributes(
-		attribute.String("kind", string(domain.SingletonKindWorkflow)),
-	))
 }
