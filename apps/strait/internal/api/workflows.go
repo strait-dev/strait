@@ -112,6 +112,7 @@ type triggerWorkflowRequest struct {
 	Labels        map[string]string     `json:"labels,omitempty"`
 	Tags          map[string]string     `json:"tags,omitempty"`
 	StepOverrides []domain.StepOverride `json:"step_overrides,omitempty"`
+	Priority      int                   `json:"priority,omitempty" validate:"min=0,max=10"`
 }
 
 type workflowResponse struct {
@@ -686,7 +687,7 @@ func (s *Server) handleTriggerWorkflow(ctx context.Context, input *TriggerWorkfl
 		triggeredBy = domain.TriggerManual
 	}
 
-	run, singletonOutcome, singletonHolderRunID, err := s.workflowEngine.TriggerWorkflowWithOutcome(ctx, workflowID, req.ProjectID, req.Payload, triggeredBy, req.StepOverrides, req.Tags)
+	run, singletonOutcome, singletonHolderRunID, err := s.workflowEngine.TriggerWorkflowWithOutcome(ctx, workflowID, req.ProjectID, req.Payload, triggeredBy, req.StepOverrides, req.Tags, req.Priority)
 	if err != nil {
 		if errors.Is(err, store.ErrWorkflowNotFound) {
 			return nil, huma.Error404NotFound("workflow not found")

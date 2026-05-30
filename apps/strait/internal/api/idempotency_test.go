@@ -2480,7 +2480,7 @@ func (m *mockWorkflowEngineForIdem) TriggerWorkflow(ctx context.Context, workflo
 	return nil, nil
 }
 
-func (m *mockWorkflowEngineForIdem) TriggerWorkflowWithOutcome(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride, extraTags map[string]string) (*domain.WorkflowRun, domain.SingletonOutcome, string, error) {
+func (m *mockWorkflowEngineForIdem) TriggerWorkflowWithOutcome(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride, extraTags map[string]string, priority int) (*domain.WorkflowRun, domain.SingletonOutcome, string, error) {
 	run, err := m.TriggerWorkflow(ctx, workflowID, projectID, payload, triggeredBy, stepOverrides, extraTags)
 	return run, "", "", err
 }

@@ -296,7 +296,7 @@ func (q *Queries) ReleaseSingletonWorkflowLockAndPromote(ctx context.Context, ho
 		err = txQ.db.QueryRow(ctx, `
 			SELECT id FROM workflow_runs
 			WHERE workflow_id = $1 AND singleton_key = $2 AND status = 'queued'
-			ORDER BY created_at ASC, id ASC
+			ORDER BY priority DESC, created_at ASC, id ASC
 			LIMIT 1
 			FOR UPDATE SKIP LOCKED`,
 			ownerID, lockKey,

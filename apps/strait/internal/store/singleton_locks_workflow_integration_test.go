@@ -355,6 +355,57 @@ func TestReleaseSingletonWorkflowLockAndPromote_PromotesOldestQueued(t *testing.
 	}
 }
 
+// TestReleaseSingletonWorkflowLockAndPromote_PromotesByPriority verifies workflow
+// waiters are promoted highest-priority first, with created_at breaking ties.
+func TestReleaseSingletonWorkflowLockAndPromote_PromotesByPriority(t *testing.T) {
+	ctx := context.Background()
+	q := stStore(t)
+	stClean(t, ctx)
+
+	projectID := "proj-" + uuid.Must(uuid.NewV7()).String()
+	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{ProjectID: &projectID})
+	stepJob := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: &projectID})
+	step := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, &testutil.WorkflowStepOpts{JobID: &stepJob.ID})
+	const key = "k-prio"
+
+	parkWaiter := func(priority int) *domain.WorkflowRun {
+		t.Helper()
+		run, srs := wfSingletonInputs(t, wf, step, key)
+		run.Priority = priority
+		if _, _, _, err := q.CreateWorkflowRunSingletonBootstrap(ctx, run, srs, time.Now(), key, domain.SingletonOnConflictQueue, nil); err != nil {
+			t.Fatalf("bootstrap (priority %d) error = %v", priority, err)
+		}
+		return run
+	}
+
+	holder := parkWaiter(0) // first acquires the key
+	low := parkWaiter(1)
+	time.Sleep(5 * time.Millisecond)
+	high := parkWaiter(5)
+	time.Sleep(5 * time.Millisecond)
+	mid := parkWaiter(3)
+
+	// Highest priority (5) promoted first, then mid (3), then low (1).
+	for _, want := range []*domain.WorkflowRun{high, mid, low} {
+		var releasedHolder string
+		switch want {
+		case high:
+			releasedHolder = holder.ID
+		case mid:
+			releasedHolder = high.ID
+		case low:
+			releasedHolder = mid.ID
+		}
+		_, promoted, err := q.ReleaseSingletonWorkflowLockAndPromote(ctx, releasedHolder)
+		if err != nil {
+			t.Fatalf("release/promote error = %v", err)
+		}
+		if promoted != want.ID {
+			t.Fatalf("promoted %q, want %q (priority %d)", promoted, want.ID, want.Priority)
+		}
+	}
+}
+
 // TestReleaseSingletonWorkflowLockAndPromote_NoWaiterFreesKey: releasing a holder
 // with no parked waiters frees the key entirely.
 func TestReleaseSingletonWorkflowLockAndPromote_NoWaiterFreesKey(t *testing.T) {

@@ -37,7 +37,7 @@ func (m *mockWorkflowTrigger) TriggerWorkflow(ctx context.Context, workflowID, p
 	return nil, nil
 }
 
-func (m *mockWorkflowTrigger) TriggerWorkflowWithOutcome(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride, extraTags map[string]string) (*domain.WorkflowRun, domain.SingletonOutcome, string, error) {
+func (m *mockWorkflowTrigger) TriggerWorkflowWithOutcome(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride, extraTags map[string]string, priority int) (*domain.WorkflowRun, domain.SingletonOutcome, string, error) {
 	if m.triggerWorkflowWithOutcomeFn != nil {
 		return m.triggerWorkflowWithOutcomeFn(ctx, workflowID, projectID, payload, triggeredBy, stepOverrides, extraTags)
 	}

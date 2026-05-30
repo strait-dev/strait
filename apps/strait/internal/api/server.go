@@ -531,7 +531,7 @@ type WorkflowTrigger interface {
 		stepOverrides []domain.StepOverride,
 		extraTags map[string]string,
 	) (*domain.WorkflowRun, error)
-	TriggerWorkflowWithOutcome(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride, extraTags map[string]string) (*domain.WorkflowRun, domain.SingletonOutcome, string, error)
+	TriggerWorkflowWithOutcome(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride, extraTags map[string]string, priority int) (*domain.WorkflowRun, domain.SingletonOutcome, string, error)
 	RetryWorkflowRun(ctx context.Context, originalRunID string) (*domain.WorkflowRun, error)
 }
 

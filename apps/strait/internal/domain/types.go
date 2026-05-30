@@ -1370,6 +1370,7 @@ type WorkflowRun struct {
 	ExpectedCompletionAt *time.Time        `json:"expected_completion_at,omitempty"`
 	TraceContext         map[string]string `json:"trace_context,omitempty"`
 	SingletonKey         string            `json:"singleton_key,omitempty"`
+	Priority             int               `json:"priority,omitempty"`
 	CreatedAt            time.Time         `json:"created_at"`
 	CacheVersion         int64             `json:"-"`
 }

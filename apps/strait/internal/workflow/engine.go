@@ -144,7 +144,7 @@ func (e *WorkflowEngine) TriggerWorkflow(
 	stepOverrides []domain.StepOverride,
 	extraTags map[string]string,
 ) (*domain.WorkflowRun, error) {
-	return e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, "", "", stepOverrides, extraTags, true, nil)
+	return e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, "", "", stepOverrides, extraTags, true, 0, nil)
 }
 
 // TriggerWorkflowWithOutcome triggers a workflow and reports the singleton
@@ -158,9 +158,10 @@ func (e *WorkflowEngine) TriggerWorkflowWithOutcome(
 	triggeredBy string,
 	stepOverrides []domain.StepOverride,
 	extraTags map[string]string,
+	priority int,
 ) (*domain.WorkflowRun, domain.SingletonOutcome, string, error) {
 	var res singletonTriggerResult
-	run, err := e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, "", "", stepOverrides, extraTags, true, &res)
+	run, err := e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, "", "", stepOverrides, extraTags, true, priority, &res)
 	return run, res.outcome, res.holderID, err
 }
 
@@ -176,7 +177,7 @@ func (e *WorkflowEngine) TriggerSubWorkflow(
 	parentWorkflowRunID string,
 	parentStepRunID string,
 ) (*domain.WorkflowRun, error) {
-	return e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, parentWorkflowRunID, parentStepRunID, nil, nil, false, nil)
+	return e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, parentWorkflowRunID, parentStepRunID, nil, nil, false, 0, nil)
 }
 
 func (e *WorkflowEngine) listStepsByWorkflowVersion(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error) {
@@ -204,6 +205,7 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 	stepOverrides []domain.StepOverride,
 	extraTags map[string]string,
 	enforceSingleton bool,
+	priority int,
 	res *singletonTriggerResult,
 ) (*domain.WorkflowRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "workflow.TriggerWorkflow")
@@ -244,6 +246,7 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 		parentStepRunID,
 		extraTags,
 		enforceSingleton,
+		priority,
 		res,
 	)
 	if err != nil {
@@ -320,6 +323,7 @@ func (e *WorkflowEngine) createRunnableWorkflowRun(
 	parentStepRunID string,
 	extraTags map[string]string,
 	enforceSingleton bool,
+	priority int,
 	res *singletonTriggerResult,
 ) (*domain.WorkflowRun, []rootStepStart, error) {
 	if triggeredBy == "" {
@@ -337,6 +341,7 @@ func (e *WorkflowEngine) createRunnableWorkflowRun(
 		prepared.snapshot,
 		extraTags,
 	)
+	wfRun.Priority = priority
 	now := time.Now()
 	stepRuns := initialWorkflowStepRuns(wfRun.ID, prepared.steps)
 
