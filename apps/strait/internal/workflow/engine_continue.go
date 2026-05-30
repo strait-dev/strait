@@ -23,6 +23,12 @@ var (
 	// ErrContinueDepthExceeded is returned when continuing would push the chain
 	// past the configured lineage-depth cap.
 	ErrContinueDepthExceeded = errors.New("workflow continuation lineage depth exceeds maximum")
+	// ErrSubWorkflowNotContinuable is returned when continue-as-new is requested
+	// for a sub-workflow run (one with a parent workflow run). The atomic handoff
+	// marks the predecessor terminal-continued without invoking the parent
+	// fan-in callback, which would orphan the parent step (or let a reaper
+	// complete it with empty output). The top-level run must be continued instead.
+	ErrSubWorkflowNotContinuable = errors.New("sub-workflow runs cannot be continued as new")
 )
 
 // continueBootstrapStore is the subset of the store that performs the atomic
@@ -62,6 +68,15 @@ func (e *WorkflowEngine) ContinueWorkflowRunAsNew(
 	}
 	if pred.Status != domain.WfStatusRunning && pred.Status != domain.WfStatusPaused {
 		return nil, fmt.Errorf("cannot continue workflow run %s: status is %s (must be running or paused): %w", runID, pred.Status, ErrWorkflowRunNotContinuable)
+	}
+
+	// 1a. Sub-workflow runs cannot be continued. The handoff flips the
+	//     predecessor to terminal-continued in a single store transaction that
+	//     bypasses the parent fan-in callback, so the parent step would never be
+	//     notified: it stays running forever, or a reaper later completes it with
+	//     the continued child's empty output. Continue the top-level run instead.
+	if pred.ParentWorkflowRunID != "" || pred.ParentStepRunID != "" {
+		return nil, fmt.Errorf("cannot continue workflow run %s: it is a sub-workflow run of %s: %w", runID, pred.ParentWorkflowRunID, ErrSubWorkflowNotContinuable)
 	}
 
 	// 2. Depth guard: enforce the configurable runaway-chain cap.

@@ -234,6 +234,26 @@ func TestHandleContinueWorkflowRunAsNew(t *testing.T) {
 		}
 	})
 
+	t.Run("sub-workflow run from engine maps to 400", func(t *testing.T) {
+		t.Parallel()
+		ms := &APIStoreMock{
+			GetWorkflowRunFunc: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: id, WorkflowID: "wf-1", ProjectID: "proj-1", Status: domain.WfStatusRunning}, nil
+			},
+		}
+		trigger := &mockWorkflowTrigger{
+			continueAsNewFn: func(_ context.Context, _ string, _ json.RawMessage, _ domain.ContinueVersionStrategy) (*domain.WorkflowRun, error) {
+				return nil, workflow.ErrSubWorkflowNotContinuable
+			},
+		}
+		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, trigger)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wfr-1/continue-as-new", `{"input":{}}`))
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
 	t.Run("store conflict maps to 409", func(t *testing.T) {
 		t.Parallel()
 		ms := &APIStoreMock{

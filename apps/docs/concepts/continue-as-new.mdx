@@ -93,6 +93,12 @@ Because a chain can continue forever, Strait enforces a maximum lineage depth as
 
 Monitor `strait_workflow_continuations_total` and `strait_workflow_continuation_depth` to track continuation rate and how deep your chains run.
 
+### Restrictions
+
+A run can only be continued while it is `running` or `paused`. Continuing a run in any terminal status is rejected with a `400`.
+
+Sub-workflow runs cannot be continued. A run started as the child of a parent workflow step is bound to that step's completion, so continuing it would mark the child terminal without ever resolving the parent step, leaving the parent stuck. Continue the top-level run instead. The request returns a `400` and the child run is left untouched.
+
 ## Related
 
 - [Durable Workflows](/concepts/durable-workflows)

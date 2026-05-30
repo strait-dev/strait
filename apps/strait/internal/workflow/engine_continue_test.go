@@ -286,6 +286,48 @@ func TestContinueWorkflowRunAsNew(t *testing.T) {
 		}
 	})
 
+	t.Run("rejects continuation of a sub-workflow run", func(t *testing.T) {
+		t.Parallel()
+		// A run is a sub-workflow if it carries a parent link via either column.
+		for _, tc := range []struct {
+			name      string
+			parentRun string
+			parentStp string
+		}{
+			{name: "parent workflow run set", parentRun: "parent-run-1"},
+			{name: "parent step run set", parentStp: "parent-step-1"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
+				bootstrapped := false
+				ms := &mockEngineStore{
+					getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+						return &domain.WorkflowRun{
+							ID:                  id,
+							WorkflowID:          "wf-1",
+							ProjectID:           "proj-1",
+							Status:              domain.WfStatusRunning,
+							ParentWorkflowRunID: tc.parentRun,
+							ParentStepRunID:     tc.parentStp,
+						}, nil
+					},
+					continueWorkflowRunBootstrapFn: func(_ context.Context, _ string, _ domain.WorkflowRunStatus, _ *domain.WorkflowRun, _ []domain.WorkflowStepRun, _ time.Time) error {
+						bootstrapped = true
+						return nil
+					},
+				}
+				engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+				_, err := engine.ContinueWorkflowRunAsNew(context.Background(), "child-run-1", nil, domain.ContinueVersionRepin)
+				if !errors.Is(err, ErrSubWorkflowNotContinuable) {
+					t.Fatalf("error = %v, want ErrSubWorkflowNotContinuable", err)
+				}
+				if bootstrapped {
+					t.Fatal("bootstrap must not run for a sub-workflow run")
+				}
+			})
+		}
+	})
+
 	t.Run("continues a paused run", func(t *testing.T) {
 		t.Parallel()
 		ms := &mockEngineStore{

@@ -637,6 +637,8 @@ func (s *Server) handleContinueWorkflowRunAsNew(ctx context.Context, input *Cont
 			return nil, huma.Error400BadRequest("can only continue a running or paused workflow run")
 		case errors.Is(err, workflow.ErrContinueDepthExceeded):
 			return nil, huma.Error400BadRequest("workflow continuation depth limit exceeded")
+		case errors.Is(err, workflow.ErrSubWorkflowNotContinuable):
+			return nil, huma.Error400BadRequest("sub-workflow runs cannot be continued as new; continue the parent workflow run instead")
 		case errors.Is(err, store.ErrWorkflowRunContinueConflict):
 			return nil, huma.Error409Conflict("workflow run already continued or no longer continuable")
 		default:
