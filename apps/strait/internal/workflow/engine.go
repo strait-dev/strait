@@ -144,10 +144,31 @@ func (e *WorkflowEngine) TriggerWorkflow(
 	stepOverrides []domain.StepOverride,
 	extraTags map[string]string,
 ) (*domain.WorkflowRun, error) {
-	return e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, "", "", stepOverrides, extraTags)
+	return e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, "", "", stepOverrides, extraTags, true, 0, nil)
+}
+
+// TriggerWorkflowWithOutcome triggers a workflow and reports the singleton
+// outcome alongside the run. It is the entry point the API uses so the trigger
+// response can surface dispatched/queued_behind/dropped/replaced. A nil run with
+// no error means the trigger was dropped by the singleton policy.
+func (e *WorkflowEngine) TriggerWorkflowWithOutcome(
+	ctx context.Context,
+	workflowID, projectID string,
+	payload json.RawMessage,
+	triggeredBy string,
+	stepOverrides []domain.StepOverride,
+	extraTags map[string]string,
+	priority int,
+) (*domain.WorkflowRun, domain.SingletonOutcome, string, error) {
+	var res singletonTriggerResult
+	run, err := e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, "", "", stepOverrides, extraTags, true, priority, &res)
+	return run, res.outcome, res.holderID, err
 }
 
 // TriggerSubWorkflow triggers a workflow as a child of another workflow run.
+// Singleton enforcement is intentionally bypassed for sub-workflows: the parent
+// step consumes the child run ID directly, so a dropped/parked child would break
+// fan-out. Sub-workflow singleton support is a tracked follow-up.
 func (e *WorkflowEngine) TriggerSubWorkflow(
 	ctx context.Context,
 	workflowID, projectID string,
@@ -156,7 +177,7 @@ func (e *WorkflowEngine) TriggerSubWorkflow(
 	parentWorkflowRunID string,
 	parentStepRunID string,
 ) (*domain.WorkflowRun, error) {
-	return e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, parentWorkflowRunID, parentStepRunID, nil, nil)
+	return e.triggerWorkflowInternal(ctx, workflowID, projectID, payload, triggeredBy, parentWorkflowRunID, parentStepRunID, nil, nil, false, 0, nil)
 }
 
 func (e *WorkflowEngine) listStepsByWorkflowVersion(ctx context.Context, workflowID string, version int) ([]domain.WorkflowStep, error) {
@@ -183,6 +204,9 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 	parentStepRunID string,
 	stepOverrides []domain.StepOverride,
 	extraTags map[string]string,
+	enforceSingleton bool,
+	priority int,
+	res *singletonTriggerResult,
 ) (*domain.WorkflowRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "workflow.TriggerWorkflow")
 	defer span.End()
@@ -221,6 +245,9 @@ func (e *WorkflowEngine) triggerWorkflowInternal(
 		parentWorkflowRunID,
 		parentStepRunID,
 		extraTags,
+		enforceSingleton,
+		priority,
+		res,
 	)
 	if err != nil {
 		triggerStatus = "error"
@@ -295,6 +322,9 @@ func (e *WorkflowEngine) createRunnableWorkflowRun(
 	parentWorkflowRunID string,
 	parentStepRunID string,
 	extraTags map[string]string,
+	enforceSingleton bool,
+	priority int,
+	res *singletonTriggerResult,
 ) (*domain.WorkflowRun, []rootStepStart, error) {
 	if triggeredBy == "" {
 		triggeredBy = domain.TriggerManual
@@ -311,9 +341,32 @@ func (e *WorkflowEngine) createRunnableWorkflowRun(
 		prepared.snapshot,
 		extraTags,
 	)
+	wfRun.Priority = priority
 	now := time.Now()
 	stepRuns := initialWorkflowStepRuns(wfRun.ID, prepared.steps)
-	if err := e.bootstrapWorkflowRun(ctx, wfRun, stepRuns, now); err != nil {
+
+	// First-class singleton enforcement, unified with the legacy SkipIfRunning
+	// overlap guard. When the workflow declares an on-conflict policy (or, for a
+	// cron fire, SkipIfRunning maps to a constant-key drop), claim the resolved key
+	// atomically with run creation. done=true means the trigger is fully handled by
+	// the policy (dropped: nil run; queued/replaced: parked run); return that run
+	// with no roots so the caller starts nothing. done=false only for a dispatched
+	// outcome, where the run was bootstrapped to running in the same tx and we fall
+	// through to start its root steps.
+	eff := domain.EffectiveWorkflowCronSingleton(wf, triggeredBy)
+	if enforceSingleton && eff.Configured {
+		run, outcome, holderID, done, serr := e.bootstrapSingletonWorkflowRun(ctx, wfRun, stepRuns, now, eff)
+		if res != nil {
+			res.outcome = outcome
+			res.holderID = holderID
+		}
+		if serr != nil {
+			return nil, nil, serr
+		}
+		if done {
+			return run, nil, nil
+		}
+	} else if err := e.bootstrapWorkflowRun(ctx, wfRun, stepRuns, now); err != nil {
 		return nil, nil, err
 	}
 

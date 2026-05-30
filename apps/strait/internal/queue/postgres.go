@@ -169,7 +169,7 @@ func (q *PostgresQueue) prepareEnqueue(run *domain.JobRun) (string, []any, error
 			debug_mode, continuation_of, lineage_depth,
 			tags, job_version_id, created_by, concurrency_key, batch_id,
 			execution_mode, queue_name, metadata,
-			is_rollback
+			is_rollback, singleton_key
 		)
 		SELECT
 			$1, $2, $3, $4, $5, $6, $7, $8,
@@ -177,7 +177,7 @@ func (q *PostgresQueue) prepareEnqueue(run *domain.JobRun) (string, []any, error
 			$21, $22, $23,
 			$24::jsonb, $25, $26, $27, $28,
 			$29, $30, $31::jsonb,
-			$32
+			$32, $33
 		WHERE NOT EXISTS (SELECT 1 FROM idempotency_check)
 		RETURNING created_at`
 
@@ -220,6 +220,7 @@ func (q *PostgresQueue) prepareEnqueue(run *domain.JobRun) (string, []any, error
 		queueName,
 		metadataJSON,
 		run.IsRollback,
+		dbscan.NilIfEmptyString(run.SingletonKey),
 	}
 
 	return query, args, nil
@@ -980,13 +981,13 @@ func (q *PostgresQueue) InsertClaimRowFromEnqueue(ctx context.Context, db store.
 	return nil
 }
 
-// workerClaimDeleteSQL returns a parameterised DELETE FROM job_run_queue that
+// workerClaimDeleteSQL is a parameterised DELETE FROM job_run_queue that
 // additionally restricts candidate rows to execution_mode='worker' and the
-// queue/environment scopes represented by parallel pgx text-array args.
+// queue/environment scopes represented by parallel pgx text-array args. The
+// statement is fully static, so it is built once at init rather than per call.
 //
 // $1 = LIMIT n  |  $2 = project ids  |  $3 = queue names  |  $4 = environment ids.
-func workerClaimDeleteSQL() string {
-	return "/* action=dequeue */ " + `
+var workerClaimDeleteSQL = "/* action=dequeue */ " + `
 	DELETE FROM job_run_queue
 	WHERE run_id IN (
 		SELECT q.run_id
@@ -1021,7 +1022,6 @@ func workerClaimDeleteSQL() string {
 		LIMIT $1
 	)
 	RETURNING run_id`
-}
 
 // DequeueNForWorker is retained for compatibility with older callers. It
 // cannot express project scope, so it fails closed; production worker dispatch
@@ -1061,7 +1061,7 @@ func (q *PostgresQueue) DequeueNForWorkerQueues(ctx context.Context, n int, queu
 		}
 	}
 
-	rows, err := tx.Query(ctx, workerClaimDeleteSQL(), n, projectIDs, queueNames, environmentIDs)
+	rows, err := tx.Query(ctx, workerClaimDeleteSQL, n, projectIDs, queueNames, environmentIDs)
 	if err != nil {
 		// Undefined table = pre-migration; fall back to simple filter variant.
 		var pgErr *pgconn.PgError

@@ -112,6 +112,112 @@ func TestExportBundle_EnvironmentSlugResolution(t *testing.T) {
 	}
 }
 
+func TestExportBundle_SingletonFields(t *testing.T) {
+	t.Parallel()
+
+	depth := 7
+	jobs := []domain.Job{
+		{
+			ID: "j1", Slug: "rebuild", Name: "Rebuild", EndpointURL: "https://example.com",
+			MaxAttempts: 3, TimeoutSecs: 60, Enabled: true,
+			SingletonKeyExpr:       json.RawMessage(`{"template":"${account.id}"}`),
+			SingletonOnConflict:    domain.SingletonOnConflictQueue,
+			SingletonMaxQueueDepth: &depth,
+		},
+		// Non-singleton job: all singleton spec fields must stay zero-valued.
+		{
+			ID: "j2", Slug: "plain", Name: "Plain", EndpointURL: "https://example.com",
+			MaxAttempts: 1, TimeoutSecs: 30, Enabled: true,
+		},
+	}
+	workflows := []domain.Workflow{
+		{
+			ID: "wf1", Slug: "migrate", Name: "Migrate",
+			SingletonKeyExpr:    json.RawMessage(`{"template":"global"}`),
+			SingletonOnConflict: domain.SingletonOnConflictReplace,
+		},
+	}
+
+	b := ExportBundle("proj-1", jobs, workflows, nil, nil, nil, nil)
+
+	js := b.Resources.Jobs[0]
+	if js.SingletonKey != "${account.id}" {
+		t.Errorf("job singleton_key = %q, want ${account.id}", js.SingletonKey)
+	}
+	if js.SingletonOnConflict != "queue" {
+		t.Errorf("job singleton_on_conflict = %q, want queue", js.SingletonOnConflict)
+	}
+	if js.SingletonMaxQueueDepth == nil || *js.SingletonMaxQueueDepth != 7 {
+		t.Errorf("job singleton_max_queue_depth = %v, want 7", js.SingletonMaxQueueDepth)
+	}
+
+	plain := b.Resources.Jobs[1]
+	if plain.SingletonKey != "" || plain.SingletonOnConflict != "" || plain.SingletonMaxQueueDepth != nil {
+		t.Errorf("non-singleton job leaked singleton fields: %+v", plain)
+	}
+
+	ws := b.Resources.Workflows[0]
+	if ws.SingletonKey != "global" {
+		t.Errorf("workflow singleton_key = %q, want global", ws.SingletonKey)
+	}
+	if ws.SingletonOnConflict != "replace" {
+		t.Errorf("workflow singleton_on_conflict = %q, want replace", ws.SingletonOnConflict)
+	}
+	if ws.SingletonMaxQueueDepth != nil {
+		t.Errorf("workflow singleton_max_queue_depth = %v, want nil", ws.SingletonMaxQueueDepth)
+	}
+}
+
+func TestMarshalUnmarshalYAML_SingletonRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	depth := 4
+	b := &Bundle{
+		Version:         Version,
+		ExportedAt:      time.Date(2026, 3, 18, 0, 0, 0, 0, time.UTC),
+		SourceProjectID: "proj-1",
+		Resources: Resources{
+			Jobs: []JobSpec{
+				{
+					Slug: "job-1", Name: "Job One", EndpointURL: "https://example.com",
+					MaxAttempts: 3, TimeoutSecs: 60, Enabled: true,
+					SingletonKey: "${id}", SingletonOnConflict: "queue", SingletonMaxQueueDepth: &depth,
+				},
+			},
+			Workflows: []WorkflowSpec{
+				{
+					Slug: "wf-1", Name: "Workflow One",
+					SingletonKey: "global", SingletonOnConflict: "drop",
+				},
+			},
+		},
+	}
+
+	data, err := MarshalYAML(b)
+	if err != nil {
+		t.Fatalf("MarshalYAML: %v", err)
+	}
+	parsed, err := UnmarshalYAML(data)
+	if err != nil {
+		t.Fatalf("UnmarshalYAML: %v", err)
+	}
+
+	pj := parsed.Resources.Jobs[0]
+	if pj.SingletonKey != "${id}" || pj.SingletonOnConflict != "queue" {
+		t.Errorf("job singleton not preserved: %+v", pj)
+	}
+	if pj.SingletonMaxQueueDepth == nil || *pj.SingletonMaxQueueDepth != 4 {
+		t.Errorf("job singleton depth = %v, want 4", pj.SingletonMaxQueueDepth)
+	}
+	pw := parsed.Resources.Workflows[0]
+	if pw.SingletonKey != "global" || pw.SingletonOnConflict != "drop" {
+		t.Errorf("workflow singleton not preserved: %+v", pw)
+	}
+	if pw.SingletonMaxQueueDepth != nil {
+		t.Errorf("workflow singleton depth = %v, want nil", pw.SingletonMaxQueueDepth)
+	}
+}
+
 func TestMarshalUnmarshalYAML_RoundTrip(t *testing.T) {
 	t.Parallel()
 	b := &Bundle{

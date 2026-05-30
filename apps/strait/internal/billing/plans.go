@@ -61,6 +61,7 @@ type OrgPlanLimits struct {
 	MaxScheduledJobs       int               // max cron schedules; -1 = unlimited
 	CronMinIntervalSec     int               // minimum interval between cron-triggered runs; 0 = no minimum
 	AllCronOverlapPolicies bool              // false = "allow" only; true = all policies
+	HasSingletonReplace    bool              // false = queue/drop only; true = singleton replace policy allowed
 	MaxEnvironments        int               // max environments per project; -1 = unlimited
 	MaxWebhookEndpoints    int               // max webhook endpoints; -1 = unlimited, 0 = none
 	WebhookEventLevel      string            // "none", "basic", "all", "all_custom"
@@ -244,6 +245,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxScheduledJobs:        MaxScheduledFree,
 		CronMinIntervalSec:      CronMinIntervalFreeSec,
 		AllCronOverlapPolicies:  false,
+		HasSingletonReplace:     false,
 		MaxEnvironments:         1,
 		MaxWebhookEndpoints:     0,
 		WebhookEventLevel:       "none",
@@ -291,6 +293,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxScheduledJobs:        MaxScheduledStarter,
 		CronMinIntervalSec:      CronMinIntervalStarterSec,
 		AllCronOverlapPolicies:  true,
+		HasSingletonReplace:     true,
 		MaxEnvironments:         1,
 		MaxWebhookEndpoints:     3,
 		WebhookEventLevel:       "basic",
@@ -345,6 +348,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxScheduledJobs:        MaxScheduledPro,
 		CronMinIntervalSec:      CronMinIntervalProSec,
 		AllCronOverlapPolicies:  true,
+		HasSingletonReplace:     true,
 		MaxEnvironments:         3,
 		MaxWebhookEndpoints:     10,
 		WebhookEventLevel:       "all",
@@ -399,6 +403,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxScheduledJobs:        MaxScheduledScale,
 		CronMinIntervalSec:      CronMinIntervalScaleSec,
 		AllCronOverlapPolicies:  true,
+		HasSingletonReplace:     true,
 		MaxEnvironments:         10,
 		MaxWebhookEndpoints:     25,
 		WebhookEventLevel:       "all",
@@ -459,6 +464,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxScheduledJobs:        -1,
 		CronMinIntervalSec:      CronMinIntervalBusinessSec,
 		AllCronOverlapPolicies:  true,
+		HasSingletonReplace:     true,
 		MaxEnvironments:         -1,
 		MaxWebhookEndpoints:     -1,
 		WebhookEventLevel:       "all",
@@ -524,6 +530,7 @@ var Plans = map[domain.PlanTier]OrgPlanLimits{
 		MaxScheduledJobs:        -1,
 		CronMinIntervalSec:      CronMinIntervalEnterpriseSec,
 		AllCronOverlapPolicies:  true,
+		HasSingletonReplace:     true,
 		MaxEnvironments:         -1,
 		MaxWebhookEndpoints:     -1,
 		WebhookEventLevel:       "all_custom",

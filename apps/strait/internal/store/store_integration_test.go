@@ -2827,6 +2827,47 @@ func TestWebhookDelivery_CRUD(t *testing.T) {
 	}
 }
 
+// TestWebhookDelivery_ListScopesByJobDerivedProject guards the ListWebhookDeliveries
+// rewrite that dropped the LEFT JOIN jobs / OR predicate in favor of filtering
+// wd.project_id directly. A delivery carrying only a job_id (no run_id) must still
+// be scoped to the job's project, since CreateWebhookDelivery derives project_id
+// from the job_id when no run is present.
+func TestWebhookDelivery_ListScopesByJobDerivedProject(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-webhook-job-scoped")
+
+	delivery := &domain.WebhookDelivery{
+		JobID:       job.ID, // no RunID: project_id must come from the job
+		WebhookURL:  "https://example.com/webhook/job-only",
+		Status:      "failed",
+		Attempts:    1,
+		MaxAttempts: 3,
+	}
+	if err := q.CreateWebhookDelivery(ctx, delivery); err != nil {
+		t.Fatalf("CreateWebhookDelivery() error = %v", err)
+	}
+
+	got, err := q.ListWebhookDeliveries(ctx, job.ProjectID, "", 10, nil)
+	if err != nil {
+		t.Fatalf("ListWebhookDeliveries() error = %v", err)
+	}
+	if len(got) != 1 || got[0].ID != delivery.ID {
+		t.Fatalf("ListWebhookDeliveries() = %+v, want only %q", got, delivery.ID)
+	}
+
+	// A different project must not see this delivery.
+	other, err := q.ListWebhookDeliveries(ctx, "project-some-other", "", 10, nil)
+	if err != nil {
+		t.Fatalf("ListWebhookDeliveries(other) error = %v", err)
+	}
+	if len(other) != 0 {
+		t.Fatalf("ListWebhookDeliveries(other) len = %d, want 0", len(other))
+	}
+}
+
 func TestWebhookDelivery_PendingRetries(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -11317,6 +11358,98 @@ func TestBatchReceiveEventTriggers(t *testing.T) {
 	}
 }
 
+// TestBatchReceiveEventTriggers_SkipsNonWaitingAndIdempotent covers the
+// single-UPDATE batch path: only triggers still in the waiting state
+// transition and appear in the returned ids; already-terminal triggers and
+// unknown ids are left untouched and absent, and a repeat call is a no-op that
+// does not overwrite the recorded sender.
+func TestBatchReceiveEventTriggers_SkipsNonWaitingAndIdempotent(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-event-trigger-batch-skip-" + newID()
+	_, run := mustCreateJobRunWithBuildFactory(t, ctx, q, projectID, domain.StatusWaiting)
+	now := time.Now().UTC()
+
+	waiting := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-skip-waiting-"+newID(), now.Add(-2*time.Minute), nil, nil)
+	canceled := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusCanceled, "evt-skip-canceled-"+newID(), now.Add(-time.Minute), nil, nil)
+
+	receivedAt := time.Now().UTC().Truncate(time.Microsecond)
+	updatedIDs, err := q.BatchReceiveEventTriggers(ctx, []string{waiting.ID, canceled.ID, "missing-" + newID()}, json.RawMessage(`{"ok":true}`), receivedAt, "sender-1")
+	if err != nil {
+		t.Fatalf("BatchReceiveEventTriggers() error = %v", err)
+	}
+	if len(updatedIDs) != 1 || updatedIDs[0] != waiting.ID {
+		t.Fatalf("BatchReceiveEventTriggers() = %v, want [%s]", updatedIDs, waiting.ID)
+	}
+
+	gotCanceled, err := q.GetEventTriggerByEventKey(ctx, canceled.EventKey)
+	if err != nil {
+		t.Fatalf("GetEventTriggerByEventKey(canceled) error = %v", err)
+	}
+	if gotCanceled.Status != domain.EventTriggerStatusCanceled {
+		t.Fatalf("canceled trigger status = %q, want %q", gotCanceled.Status, domain.EventTriggerStatusCanceled)
+	}
+	if gotCanceled.SentBy == "sender-1" {
+		t.Fatalf("canceled trigger sent_by overwritten to %q", gotCanceled.SentBy)
+	}
+
+	// Idempotent: nothing is still waiting, and the recorded sender stands.
+	secondIDs, err := q.BatchReceiveEventTriggers(ctx, []string{waiting.ID, canceled.ID}, json.RawMessage(`{"ok":true}`), receivedAt, "sender-2")
+	if err != nil {
+		t.Fatalf("BatchReceiveEventTriggers() second call error = %v", err)
+	}
+	if len(secondIDs) != 0 {
+		t.Fatalf("BatchReceiveEventTriggers() second call = %v, want empty", secondIDs)
+	}
+
+	gotWaiting, err := q.GetEventTriggerByEventKey(ctx, waiting.EventKey)
+	if err != nil {
+		t.Fatalf("GetEventTriggerByEventKey(waiting) error = %v", err)
+	}
+	if gotWaiting.SentBy != "sender-1" {
+		t.Fatalf("waiting trigger sent_by = %q, want %q", gotWaiting.SentBy, "sender-1")
+	}
+}
+
+// TestBatchReceiveEventTriggers_PreservesSentByWhenEmpty verifies that an empty
+// sender does not clobber an existing sent_by value (COALESCE/NULLIF guard).
+func TestBatchReceiveEventTriggers_PreservesSentByWhenEmpty(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "proj-event-trigger-batch-sentby-" + newID()
+	_, run := mustCreateJobRunWithBuildFactory(t, ctx, q, projectID, domain.StatusWaiting)
+	now := time.Now().UTC()
+	trigger := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-sentby-"+newID(), now.Add(-time.Minute), nil, nil)
+
+	if err := q.SetEventTriggerSentBy(ctx, trigger.ID, "preset-sender"); err != nil {
+		t.Fatalf("SetEventTriggerSentBy() error = %v", err)
+	}
+
+	receivedAt := time.Now().UTC().Truncate(time.Microsecond)
+	updatedIDs, err := q.BatchReceiveEventTriggers(ctx, []string{trigger.ID}, json.RawMessage(`{"ok":true}`), receivedAt, "")
+	if err != nil {
+		t.Fatalf("BatchReceiveEventTriggers() error = %v", err)
+	}
+	if len(updatedIDs) != 1 {
+		t.Fatalf("BatchReceiveEventTriggers() len = %d, want 1", len(updatedIDs))
+	}
+
+	got, err := q.GetEventTriggerByEventKey(ctx, trigger.EventKey)
+	if err != nil {
+		t.Fatalf("GetEventTriggerByEventKey() error = %v", err)
+	}
+	if got.Status != domain.EventTriggerStatusReceived {
+		t.Fatalf("status = %q, want %q", got.Status, domain.EventTriggerStatusReceived)
+	}
+	if got.SentBy != "preset-sender" {
+		t.Fatalf("sent_by = %q, want %q (empty sender must not clobber)", got.SentBy, "preset-sender")
+	}
+}
+
 func TestReceiveEventAndRequeueRun(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -11625,6 +11758,33 @@ func TestAdvisoryLockXactLockWithinTransaction(t *testing.T) {
 
 	if err := q.ReleaseAdvisoryLock(ctx, lockID); err != nil {
 		t.Fatalf("ReleaseAdvisoryLock() error = %v", err)
+	}
+}
+
+// TestPerfIndexes_ExistAfterMigration guards the partial indexes added in
+// migrations 000305-000307 against accidental removal. Each backs a hot
+// scheduler/reaper/version query (ListCronJobs, ListOrphanedStepRuns,
+// CountActiveWorkflowRunsByVersion/ListActiveWorkflowVersions) and must be
+// present once the migration set has applied.
+func TestPerfIndexes_ExistAfterMigration(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	want := []string{
+		"idx_jobs_cron_enabled",
+		"idx_workflow_step_runs_running",
+		"idx_workflow_runs_workflow_version",
+	}
+	for _, name := range want {
+		var exists bool
+		if err := testDB.Pool.QueryRow(ctx,
+			`SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = $1)`, name,
+		).Scan(&exists); err != nil {
+			t.Fatalf("query pg_indexes for %s: %v", name, err)
+		}
+		if !exists {
+			t.Errorf("expected index %s to exist after migrations", name)
+		}
 	}
 }
 

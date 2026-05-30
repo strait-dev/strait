@@ -72,6 +72,7 @@ var downgradeStrategyMap = map[string]string{
 	"WebhookEventLevel":      "n/a_runtime",
 	"CronMinIntervalSec":     "n/a_runtime",
 	"AllCronOverlapPolicies": "n/a_runtime",
+	"HasSingletonReplace":    "n/a_runtime",
 	"APIRateLimit":           "n/a_runtime",
 	"MaxAddonPacks":          "n/a_runtime",
 

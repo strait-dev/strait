@@ -51,6 +51,14 @@ type WorkflowStepRun = {
   error?: string;
 };
 
+type SingletonHolderRow = {
+  lock_key: string;
+  holder_run_id: string;
+  acquired_at: string;
+  lease_until?: string;
+  waiters: number;
+};
+
 type RawApiResponse<T = unknown> = {
   ok: boolean;
   status: number;
@@ -226,6 +234,9 @@ export class ApiHelper {
     retry_delays_secs?: number[];
     cron?: string;
     enabled?: boolean;
+    singleton_key_expr?: { template: string };
+    singleton_on_conflict?: "queue" | "drop" | "replace";
+    singleton_max_queue_depth?: number;
   }) {
     return this.request<{ id: string; name: string }>("POST", "/v1/jobs", {
       project_id: this.getProjectId(),
@@ -260,6 +271,53 @@ export class ApiHelper {
 
   deleteJob(id: string) {
     return this.request("DELETE", `/v1/jobs/${id}`);
+  }
+
+  /** Held singleton keys for a job, mirroring the dashboard Singletons tab. */
+  listJobSingletons(id: string) {
+    return this.request<{ data: SingletonHolderRow[] }>(
+      "GET",
+      `/v1/jobs/${id}/singletons`
+    );
+  }
+
+  /** Poll until a job holds a singleton key with at least `minWaiters` queued. */
+  async waitForJobSingletonHolder(
+    jobId: string,
+    minWaiters: number,
+    timeoutMs = 30_000
+  ): Promise<SingletonHolderRow> {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const { data } = await this.listJobSingletons(jobId);
+      const holder = data.find((row) => row.waiters >= minWaiters);
+      if (holder) {
+        return holder;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+    throw new Error(
+      `Job ${jobId} had no singleton holder with >= ${minWaiters} waiters within ${timeoutMs}ms`
+    );
+  }
+
+  /** Poll until a job holds at least `minHolders` distinct singleton keys. */
+  async waitForJobSingletonHolders(
+    jobId: string,
+    minHolders: number,
+    timeoutMs = 30_000
+  ): Promise<SingletonHolderRow[]> {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const { data } = await this.listJobSingletons(jobId);
+      if (data.length >= minHolders) {
+        return data;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+    throw new Error(
+      `Job ${jobId} held fewer than ${minHolders} singleton keys within ${timeoutMs}ms`
+    );
   }
 
   pauseJob(id: string) {
@@ -337,6 +395,40 @@ export class ApiHelper {
 
   cancelRun(id: string) {
     return this.request("DELETE", `/v1/runs/${id}`);
+  }
+
+  /**
+   * Cancel every non-terminal run for a job and wait until none remain active.
+   * Singleton scenarios leave a holder run in-flight and waiters parked behind
+   * it; a job cannot be deleted while those exist, so teardown calls this first.
+   */
+  async cancelJobRuns(jobId: string, timeoutMs = 30_000) {
+    const terminal = new Set([
+      "completed",
+      "succeeded",
+      "failed",
+      "timed_out",
+      "crashed",
+      "system_failed",
+      "canceled",
+      "cancelled",
+      "expired",
+      "dead_letter",
+    ]);
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const { data } = await this.listRuns({ job_id: jobId, limit: 100 });
+      const active = data.filter((run) => !terminal.has(run.status));
+      if (active.length === 0) {
+        return;
+      }
+      await Promise.all(
+        // A run can finish between listing and canceling; ignore those races.
+        active.map((run) => this.cancelRun(run.id).catch(() => undefined))
+      );
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    throw new Error(`Job ${jobId} still had active runs after ${timeoutMs}ms`);
   }
 
   replayRun(runId: string) {
@@ -667,6 +759,9 @@ export class ApiHelper {
     description?: string;
     steps?: unknown[];
     enabled?: boolean;
+    singleton_key_expr?: { template: string };
+    singleton_on_conflict?: "queue" | "drop" | "replace";
+    singleton_max_queue_depth?: number;
   }) {
     return this.request<{ id: string; name: string }>("POST", "/v1/workflows", {
       project_id: this.getProjectId(),
@@ -723,8 +818,69 @@ export class ApiHelper {
     return this.request<WorkflowRun>("GET", `/v1/workflow-runs/${id}`);
   }
 
+  /** Held singleton keys for a workflow, mirroring the dashboard Singletons tab. */
+  listWorkflowSingletons(id: string) {
+    return this.request<{ data: SingletonHolderRow[] }>(
+      "GET",
+      `/v1/workflows/${id}/singletons`
+    );
+  }
+
+  /** Poll until a workflow holds at least `minHolders` distinct singleton keys. */
+  async waitForWorkflowSingletonHolders(
+    workflowId: string,
+    minHolders: number,
+    timeoutMs = 30_000
+  ): Promise<SingletonHolderRow[]> {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const { data } = await this.listWorkflowSingletons(workflowId);
+      if (data.length >= minHolders) {
+        return data;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+    throw new Error(
+      `Workflow ${workflowId} held fewer than ${minHolders} singleton keys within ${timeoutMs}ms`
+    );
+  }
+
   cancelWorkflowRun(id: string) {
     return this.request("DELETE", `/v1/workflow-runs/${id}`);
+  }
+
+  /**
+   * Cancel every non-terminal run for a workflow and wait until none remain.
+   * A workflow holding a singleton lock keeps a run in-flight with another
+   * parked behind it; teardown must drain those before the workflow delete.
+   */
+  async cancelWorkflowRuns(workflowId: string, timeoutMs = 30_000) {
+    const terminal = new Set([
+      "completed",
+      "failed",
+      "timed_out",
+      "canceled",
+      "cancelled",
+      "compensated",
+      "compensation_failed",
+    ]);
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const { data } = await this.listWorkflowRuns(workflowId, { limit: 100 });
+      const active = data.filter((run) => !terminal.has(run.status));
+      if (active.length === 0) {
+        return;
+      }
+      await Promise.all(
+        active.map((run) =>
+          this.cancelWorkflowRun(run.id).catch(() => undefined)
+        )
+      );
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    throw new Error(
+      `Workflow ${workflowId} still had active runs after ${timeoutMs}ms`
+    );
   }
 
   listWorkflowStepRuns(workflowRunId: string, params?: { limit?: number }) {

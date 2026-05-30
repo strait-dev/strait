@@ -49,6 +49,7 @@ const (
 	AuditActionProjectCreated         = "project.created"
 	AuditActionProjectDeleted         = "project.deleted"
 	AuditActionProjectSettingsUpdated = "project_settings.updated"
+	AuditActionBundleImported         = "bundle.imported"
 
 	// Environments.
 	AuditActionEnvironmentCreated = "environment.created"
@@ -243,6 +244,7 @@ var allAuditActions = map[string]struct{}{
 	AuditActionProjectCreated:                  {},
 	AuditActionProjectDeleted:                  {},
 	AuditActionProjectSettingsUpdated:          {},
+	AuditActionBundleImported:                  {},
 	AuditActionEnvironmentCreated:              {},
 	AuditActionEnvironmentUpdated:              {},
 	AuditActionEnvironmentDeleted:              {},

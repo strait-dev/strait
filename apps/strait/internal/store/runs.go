@@ -67,14 +67,14 @@ func (q *Queries) CreateRun(ctx context.Context, run *domain.JobRun) error {
 			debug_mode, continuation_of, lineage_depth,
 			tags, job_version_id, created_by, concurrency_key, batch_id,
 				execution_mode, queue_name, metadata,
-				is_rollback
+				is_rollback, singleton_key
 			)
 			SELECT
 				$1, $2, $3, $4, $5, $6, $7, $8,
 				$9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
 				$21, $22, $23,
 				$24::jsonb, $25, $26, $27, $28,
-				$29, $30, $31::jsonb, $32
+				$29, $30, $31::jsonb, $32, $33
 			WHERE NOT EXISTS (SELECT 1 FROM idempotency_check)
 			RETURNING created_at`
 
@@ -122,6 +122,7 @@ func (q *Queries) CreateRun(ctx context.Context, run *domain.JobRun) error {
 		queueName,
 		metadataJSON,
 		run.IsRollback,
+		dbscan.NilIfEmptyString(run.SingletonKey),
 	).Scan(&run.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) && run.IdempotencyKey != "" {
@@ -226,7 +227,22 @@ func (q *Queries) GetRun(ctx context.Context, id string) (*domain.JobRun, error)
 		return nil, fmt.Errorf("get run: %w", err)
 	}
 
+	run.SingletonKey = q.runSingletonKey(ctx, "SELECT singleton_key FROM job_runs WHERE id = $1", id)
+
 	return run, nil
+}
+
+// runSingletonKey loads the persisted singleton key for a single run. The shared
+// ScanRun used by every run query deliberately does not read this column: only
+// the run-detail endpoint surfaces it, so fetching it here keeps the hot read
+// paths (dequeue, listing) untouched. Returns "" when the run is not a singleton
+// or the row has already moved between the live and history tables.
+func (q *Queries) runSingletonKey(ctx context.Context, query, id string) string {
+	var key *string
+	if err := q.db.QueryRow(ctx, query, id).Scan(&key); err != nil || key == nil {
+		return ""
+	}
+	return *key
 }
 
 func (q *Queries) GetRunWithCacheVersion(ctx context.Context, id string) (*domain.JobRun, int64, error) {
@@ -2362,21 +2378,30 @@ func (q *Queries) ListRunLineage(ctx context.Context, runID string, limit int, _
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListRunLineage")
 	defer span.End()
 
-	// Walk backward to find the root of the lineage chain.
+	// Walk backward to the root of the lineage chain in a single recursive CTE
+	// instead of issuing one SELECT per hop. The depth < 20 guard preserves the
+	// previous 20-hop safety bound against pathological or cyclic chains; the
+	// deepest reached row (highest depth) is the root.
 	rootID := runID
-	for range 20 { // safety bound
-		var continuationOf *string
-		err := q.db.QueryRow(ctx, "SELECT continuation_of FROM job_runs WHERE id = $1", rootID).Scan(&continuationOf)
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				break
-			}
+	const rootWalkQuery = `
+		WITH RECURSIVE ancestry AS (
+			SELECT id, continuation_of, 0 AS depth
+			FROM job_runs
+			WHERE id = $1
+			UNION ALL
+			SELECT jr.id, jr.continuation_of, a.depth + 1
+			FROM job_runs jr
+			JOIN ancestry a ON jr.id = a.continuation_of
+			WHERE a.continuation_of IS NOT NULL AND a.continuation_of <> '' AND a.depth < 20
+		)
+		SELECT id FROM ancestry ORDER BY depth DESC LIMIT 1`
+	var resolvedRoot *string
+	if err := q.db.QueryRow(ctx, rootWalkQuery, runID).Scan(&resolvedRoot); err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("list run lineage walk: %w", err)
 		}
-		if continuationOf == nil || *continuationOf == "" {
-			break
-		}
-		rootID = *continuationOf
+	} else if resolvedRoot != nil && *resolvedRoot != "" {
+		rootID = *resolvedRoot
 	}
 
 	// Walk forward from root via recursive CTE.
@@ -2882,6 +2907,23 @@ func (q *Queries) BatchUpdateHeartbeat(ctx context.Context, ids []string) error 
 
 	if _, err := q.db.Exec(ctx, query, ids); err != nil {
 		return fmt.Errorf("batch update heartbeat: %w", err)
+	}
+
+	// Set or extend the lease of any job singleton locks held by these runs so
+	// the reaper does not reclaim a key from a live, heartbeating holder. Job
+	// locks are acquired with a NULL lease at trigger time (the holder may sit
+	// queued well past StaleThreshold before it runs); the first heartbeat after
+	// the holder starts executing stamps the lease, and later heartbeats extend
+	// it. The kind = 'job' guard leaves workflow holders' lease NULL untouched,
+	// since workflow locks are reclaimed only on terminal/missing transitions.
+	if q.singletonLeaseTTL > 0 {
+		leaseUntil := time.Now().Add(q.singletonLeaseTTL)
+		if _, err := q.db.Exec(ctx,
+			`UPDATE singleton_locks SET lease_until = $2 WHERE holder_run_id = ANY($1) AND kind = 'job'`,
+			ids, leaseUntil,
+		); err != nil {
+			return fmt.Errorf("extend singleton leases: %w", err)
+		}
 	}
 
 	return q.BatchUpsertHeartbeatSideTable(ctx, ids)

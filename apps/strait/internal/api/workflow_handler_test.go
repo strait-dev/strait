@@ -18,15 +18,16 @@ import (
 )
 
 type mockWorkflowTrigger struct {
-	triggerWorkflowFn   func(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride) (*domain.WorkflowRun, error)
-	retryWorkflowRunFn  func(ctx context.Context, originalRunID string) (*domain.WorkflowRun, error)
-	approveStepFn       func(ctx context.Context, workflowRunID, stepRef, approver string) error
-	skipStepFn          func(ctx context.Context, workflowRunID, stepRef, reason string) error
-	forceCompleteStepFn func(ctx context.Context, workflowRunID, stepRef string, result json.RawMessage) error
-	resumeWorkflowFn    func(ctx context.Context, workflowRunID string) error
-	onJobRunTerminal    func(ctx context.Context, run *domain.JobRun) error
-	onEventReceivedFn   func(ctx context.Context, trigger *domain.EventTrigger) error
-	onStepFailedFn      func(ctx context.Context, workflowRunID string, stepRunID string)
+	triggerWorkflowFn            func(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride) (*domain.WorkflowRun, error)
+	triggerWorkflowWithOutcomeFn func(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride, extraTags map[string]string) (*domain.WorkflowRun, domain.SingletonOutcome, string, error)
+	retryWorkflowRunFn           func(ctx context.Context, originalRunID string) (*domain.WorkflowRun, error)
+	approveStepFn                func(ctx context.Context, workflowRunID, stepRef, approver string) error
+	skipStepFn                   func(ctx context.Context, workflowRunID, stepRef, reason string) error
+	forceCompleteStepFn          func(ctx context.Context, workflowRunID, stepRef string, result json.RawMessage) error
+	resumeWorkflowFn             func(ctx context.Context, workflowRunID string) error
+	onJobRunTerminal             func(ctx context.Context, run *domain.JobRun) error
+	onEventReceivedFn            func(ctx context.Context, trigger *domain.EventTrigger) error
+	onStepFailedFn               func(ctx context.Context, workflowRunID string, stepRunID string)
 }
 
 func (m *mockWorkflowTrigger) TriggerWorkflow(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride, extraTags map[string]string) (*domain.WorkflowRun, error) {
@@ -34,6 +35,14 @@ func (m *mockWorkflowTrigger) TriggerWorkflow(ctx context.Context, workflowID, p
 		return m.triggerWorkflowFn(ctx, workflowID, projectID, payload, triggeredBy, stepOverrides)
 	}
 	return nil, nil
+}
+
+func (m *mockWorkflowTrigger) TriggerWorkflowWithOutcome(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride, extraTags map[string]string, priority int) (*domain.WorkflowRun, domain.SingletonOutcome, string, error) {
+	if m.triggerWorkflowWithOutcomeFn != nil {
+		return m.triggerWorkflowWithOutcomeFn(ctx, workflowID, projectID, payload, triggeredBy, stepOverrides, extraTags)
+	}
+	run, err := m.TriggerWorkflow(ctx, workflowID, projectID, payload, triggeredBy, stepOverrides, extraTags)
+	return run, "", "", err
 }
 
 func (m *mockWorkflowTrigger) ApproveStep(ctx context.Context, workflowRunID, stepRef, approver string) error {

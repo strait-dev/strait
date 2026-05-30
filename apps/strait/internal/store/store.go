@@ -58,6 +58,7 @@ type DBTX interface {
 type JobStore interface {
 	CreateJob(ctx context.Context, job *domain.Job) error
 	GetJob(ctx context.Context, id string) (*domain.Job, error)
+	GetJobsByIDs(ctx context.Context, ids []string) (map[string]*domain.Job, error)
 	GetJobBySlug(ctx context.Context, projectID, slug string) (*domain.Job, error)
 	ListJobs(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Job, error)
 	UpdateJob(ctx context.Context, job *domain.Job) error
@@ -249,6 +250,7 @@ type JobVersionStore interface {
 type WorkflowStore interface {
 	CreateWorkflow(ctx context.Context, w *domain.Workflow) error
 	GetWorkflow(ctx context.Context, id string) (*domain.Workflow, error)
+	GetWorkflowsByIDs(ctx context.Context, ids []string) (map[string]*domain.Workflow, error)
 	GetWorkflowBySlug(ctx context.Context, projectID, slug string) (*domain.Workflow, error)
 	ListWorkflows(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Workflow, error)
 	ListCronWorkflows(ctx context.Context) ([]domain.Workflow, error)
@@ -301,6 +303,7 @@ type WorkflowStepRunStore interface {
 	ListRunnableStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int) ([]domain.WorkflowStepRun, error)
 	ListRunningStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int) ([]domain.WorkflowStepRun, error)
 	ListStepRunStatusesByWorkflowRun(ctx context.Context, workflowRunID string) (map[string]domain.StepRunStatus, error)
+	ListStepRunsForScheduling(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error)
 	UpdateStepRunStatus(ctx context.Context, id string, status domain.StepRunStatus, fields map[string]any) error
 	IncrementStepDeps(ctx context.Context, workflowRunID string, completedStepRef string) ([]StepDepResult, error)
 	GetStepOutputs(ctx context.Context, workflowRunID string, stepRefs []string) (map[string]json.RawMessage, error)
@@ -431,6 +434,12 @@ type Queries struct {
 	auditSigningKey         []byte
 	maxSLOWindowHours       int
 
+	// singletonLeaseTTL is the window a job singleton lock's lease is extended
+	// to on every heartbeat batch. Zero disables lease extension (the reaper
+	// then relies solely on terminal/missing-holder detection). Set from
+	// STALE_THRESHOLD at construction.
+	singletonLeaseTTL time.Duration
+
 	// chDB is an optional *sql.DB connected to ClickHouse. When non-nil,
 	// GetJobCostEstimate queries run_analytics for a rolling average instead
 	// of falling back to the flat-rate constant. May be nil when ClickHouse
@@ -467,6 +476,7 @@ func (q *Queries) withDB(db DBTX) *Queries {
 		auditSigningKey:          q.auditSigningKey,
 		maxSLOWindowHours:        q.maxSLOWindowHours,
 		chDB:                     q.chDB,
+		singletonLeaseTTL:        q.singletonLeaseTTL,
 		tombstoneInsertHook:      q.tombstoneInsertHook,
 		auditEventPostInsertHook: q.auditEventPostInsertHook,
 	}
@@ -486,6 +496,13 @@ func (q *Queries) SetAuditSigningKey(key []byte) {
 
 func (q *Queries) SetMaxSLOWindowHours(hours int) {
 	q.maxSLOWindowHours = hours
+}
+
+// SetSingletonLeaseTTL configures how far ahead a job singleton lock's lease is
+// pushed on every heartbeat batch. Pass STALE_THRESHOLD; zero disables lease
+// extension.
+func (q *Queries) SetSingletonLeaseTTL(ttl time.Duration) {
+	q.singletonLeaseTTL = ttl
 }
 
 // SetClickHouseDB wires an optional ClickHouse *sql.DB into the store so that

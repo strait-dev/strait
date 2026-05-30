@@ -68,6 +68,7 @@ type ExecutorStore interface {
 		lastLatencyMs float64,
 	) (*domain.EndpointHealthScore, error)
 	CountExecutingRunsByOrg(ctx context.Context, orgID string) (int, error)
+	ReleaseSingletonJobLockAndPromote(ctx context.Context, holderRunID string) (bool, string, error)
 }
 
 type executionPolicy struct {
@@ -563,6 +564,8 @@ type Executor struct {
 	stepsVersionCache        *tierWorkflowStepsVersionCache
 	jobHealthCache           *tierJobHealthCache
 	memoryPressureThreshold  float64
+	memStatsLastSample       atomic.Int64
+	memStatsPressure         atomic.Bool
 	maxSnoozeCount           int
 	jwtSigningKey            string
 	externalAPIURL           string
@@ -984,6 +987,40 @@ func (e *Executor) notifyWorkflowCallback(ctx context.Context, run *domain.JobRu
 	})
 }
 
+// releaseSingletonLock is the terminal-transition fast-path for singleton job
+// locks: when the just-finished run held a key, it releases the lock and
+// promotes the next parked waiter (waiting -> queued) so a serialized successor
+// starts within milliseconds instead of waiting for the next reaper cycle. It is
+// best-effort and idempotent; the reaper is the authoritative net.
+//
+// The gate is run.SingletonKey: a run only ever holds a lock if it resolved a
+// key at trigger time, and that key is recorded on the run row. Gating on the
+// run (not the live job config) means the common non-singleton terminal path
+// pays nothing, the system-failure path needs no job in scope, and a run whose
+// job had its singleton config removed mid-flight is still released correctly.
+func (e *Executor) releaseSingletonLock(ctx context.Context, run *domain.JobRun) {
+	if run == nil || run.ID == "" || run.SingletonKey == "" {
+		return
+	}
+
+	released, promotedRunID, err := e.store.ReleaseSingletonJobLockAndPromote(ctx, run.ID)
+	if err != nil {
+		e.logger.Error("failed to release singleton lock", "run_id", run.ID, "error", err)
+		return
+	}
+	if !released {
+		return
+	}
+	if e.metrics != nil && e.metrics.SingletonAcquisitions != nil && promotedRunID != "" {
+		e.metrics.SingletonAcquisitions.Add(ctx, 1, metric.WithAttributes(
+			attribute.String("kind", string(domain.SingletonKindJob)),
+		))
+	}
+	if promotedRunID != "" {
+		e.logger.Info("promoted singleton waiter", "released_run_id", run.ID, "promoted_run_id", promotedRunID)
+	}
+}
+
 func (e *Executor) publishEvent(ctx context.Context, run *domain.JobRun, data map[string]any) {
 	if e.publisher == nil {
 		return
@@ -1004,7 +1041,7 @@ func (e *Executor) publishEvent(ctx context.Context, run *domain.JobRun, data ma
 		return
 	}
 
-	channel := fmt.Sprintf("run:%s", run.ID)
+	channel := "run:" + run.ID
 	if err := e.publisher.Publish(ctx, channel, payload); err != nil {
 		e.logger.Error("failed to publish event", "run_id", run.ID, "error", err)
 	}

@@ -102,6 +102,10 @@ func TestStaticRegistry_AllowsFeature(t *testing.T) {
 		// Cron overlap policies: Starter+.
 		{domain.PlanFree, FeatureAllCronOverlap, false},
 		{domain.PlanStarter, FeatureAllCronOverlap, true},
+		// Singleton replace policy: Starter+ (queue/drop are not gated).
+		{domain.PlanFree, FeatureSingletonReplace, false},
+		{domain.PlanStarter, FeatureSingletonReplace, true},
+		{domain.PlanPro, FeatureSingletonReplace, true},
 	}
 
 	for _, tt := range tests {

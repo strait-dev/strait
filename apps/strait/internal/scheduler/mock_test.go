@@ -50,6 +50,9 @@ type mockReaperStore struct {
 	deleteEventTriggersFinishedBeforeFn       func(ctx context.Context, before time.Time, limit int) (int64, error)
 	cancelNonTerminalStepRunsFn               func(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
 	cancelJobRunsByWorkflowRunFn              func(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
+	listReapableSingletonHoldersFn            func(ctx context.Context, limit int) ([]string, error)
+	releaseSingletonAndPromoteFn              func(ctx context.Context, holderRunID string) (bool, string, error)
+	listReapableSingletonWorkflowHoldersFn    func(ctx context.Context, limit int) ([]string, error)
 }
 
 type mockCronStore struct {
@@ -450,14 +453,36 @@ func (m *mockReaperStore) GetRunFromHistory(_ context.Context, _ string) (*domai
 	return nil, nil
 }
 
+func (m *mockReaperStore) ListReapableSingletonJobHolders(ctx context.Context, limit int) ([]string, error) {
+	if m.listReapableSingletonHoldersFn != nil {
+		return m.listReapableSingletonHoldersFn(ctx, limit)
+	}
+	return nil, nil
+}
+
+func (m *mockReaperStore) ReleaseSingletonJobLockAndPromote(ctx context.Context, holderRunID string) (bool, string, error) {
+	if m.releaseSingletonAndPromoteFn != nil {
+		return m.releaseSingletonAndPromoteFn(ctx, holderRunID)
+	}
+	return false, "", nil
+}
+
+func (m *mockReaperStore) ListReapableSingletonWorkflowHolders(ctx context.Context, limit int) ([]string, error) {
+	if m.listReapableSingletonWorkflowHoldersFn != nil {
+		return m.listReapableSingletonWorkflowHoldersFn(ctx, limit)
+	}
+	return nil, nil
+}
+
 // mockWorkflowCallback implements WorkflowCallback for testing.
 type mockWorkflowCallback struct {
-	onJobRunTerminalFn func(ctx context.Context, run *domain.JobRun) error
-	onEventReceivedFn  func(ctx context.Context, trigger *domain.EventTrigger) error
-	onStepCompletedFn  func(ctx context.Context, workflowRunID string, stepRunID string)
-	onStepFailedFn     func(ctx context.Context, workflowRunID string, stepRunID string)
-	resumeWorkflowFn   func(ctx context.Context, workflowRunID string) error
-	approveStepFn      func(ctx context.Context, workflowRunID, stepRef, approver string) error
+	onJobRunTerminalFn         func(ctx context.Context, run *domain.JobRun) error
+	onEventReceivedFn          func(ctx context.Context, trigger *domain.EventTrigger) error
+	onStepCompletedFn          func(ctx context.Context, workflowRunID string, stepRunID string)
+	onStepFailedFn             func(ctx context.Context, workflowRunID string, stepRunID string)
+	resumeWorkflowFn           func(ctx context.Context, workflowRunID string) error
+	approveStepFn              func(ctx context.Context, workflowRunID, stepRef, approver string) error
+	promoteSingletonWorkflowFn func(ctx context.Context, holderRunID string) (bool, error)
 }
 
 func (m *mockWorkflowCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun) error {
@@ -498,4 +523,11 @@ func (m *mockWorkflowCallback) ApproveStep(ctx context.Context, workflowRunID, s
 		return m.approveStepFn(ctx, workflowRunID, stepRef, approver)
 	}
 	return nil
+}
+
+func (m *mockWorkflowCallback) PromoteSingletonWorkflow(ctx context.Context, holderRunID string) (bool, error) {
+	if m.promoteSingletonWorkflowFn != nil {
+		return m.promoteSingletonWorkflowFn(ctx, holderRunID)
+	}
+	return false, nil
 }

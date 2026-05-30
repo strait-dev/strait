@@ -24,12 +24,30 @@ export type RunStatus =
 /** Matches Go domain.WorkflowRunStatus constants. */
 export type WorkflowRunStatus =
   | "pending"
+  | "queued"
   | "running"
   | "paused"
   | "completed"
   | "failed"
   | "timed_out"
   | "canceled";
+
+/** Matches Go domain.SingletonOnConflict constants. */
+export type SingletonOnConflict = "queue" | "drop" | "replace";
+
+/**
+ * One held singleton key for a job or workflow, from
+ * GET /v1/{jobs,workflows}/{id}/singletons. Hand-authored because the API
+ * returns it inside a generic paginated `data: any`, so it is not emitted as a
+ * named type by the OpenAPI generator.
+ */
+export type SingletonHolder = {
+  lock_key: string;
+  holder_run_id: string;
+  acquired_at: string;
+  lease_until?: string;
+  waiters: number;
+};
 
 /** Matches Go domain.WorkflowStepType constants. */
 export type WorkflowStepType =
@@ -111,6 +129,9 @@ export type Workflow = {
   updated_by: string;
   created_at: string;
   updated_at: string;
+  singleton_key_expr?: { template?: string } | string;
+  singleton_on_conflict?: SingletonOnConflict;
+  singleton_max_queue_depth?: number | null;
 };
 
 /** Union of RunStatus and WorkflowRunStatus, used by StatusBadge. */

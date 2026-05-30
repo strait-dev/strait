@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -41,10 +42,11 @@ func (q *Queries) CreateWorkflow(ctx context.Context, w *domain.Workflow) error 
 		INSERT INTO workflows (
 			id, project_id, name, slug, description, enabled, version, timeout_secs, max_concurrent_runs,
 			max_parallel_steps, cron, cron_timezone, skip_if_running,
-			tags, version_id, version_policy, backwards_compatible, created_by, updated_by
+			tags, version_id, version_policy, backwards_compatible, created_by, updated_by,
+			singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth, singleton_preempt_higher_priority
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, 1, $7, $8, $9, $10, $11, $12,
-			$13::jsonb, $14, $15, $16, $17, $18)
+			$13::jsonb, $14, $15, $16, $17, $18, $19, $20, $21, $22)
 		RETURNING created_at, updated_at, version`
 
 	err = q.db.QueryRow(
@@ -68,6 +70,10 @@ func (q *Queries) CreateWorkflow(ctx context.Context, w *domain.Workflow) error 
 		w.BackwardsCompatible,
 		dbscan.NilIfEmptyString(w.CreatedBy),
 		dbscan.NilIfEmptyString(w.UpdatedBy),
+		dbscan.NilIfEmptyRawMessage(w.SingletonKeyExpr),
+		dbscan.NilIfEmptyString(string(w.SingletonOnConflict)),
+		w.SingletonMaxQueueDepth,
+		w.SingletonPreemptHigher,
 	).Scan(&w.CreatedAt, &w.UpdatedAt, &w.Version)
 	if err != nil {
 		return fmt.Errorf("create workflow: %w", err)
@@ -93,7 +99,8 @@ func (q *Queries) GetWorkflow(ctx context.Context, id string) (*domain.Workflow,
 
 	query := `
 		SELECT id, project_id, name, slug, description, enabled, version, timeout_secs, max_concurrent_runs,
-		       max_parallel_steps, cron, cron_timezone, skip_if_running, tags, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at
+		       max_parallel_steps, cron, cron_timezone, skip_if_running, tags, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
+		       singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth, singleton_preempt_higher_priority
 		FROM workflows
 		WHERE id = $1`
 
@@ -114,7 +121,8 @@ func (q *Queries) GetWorkflowBySlug(ctx context.Context, projectID, slug string)
 
 	query := `
 		SELECT id, project_id, name, slug, description, enabled, version, timeout_secs, max_concurrent_runs,
-		       max_parallel_steps, cron, cron_timezone, skip_if_running, tags, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at
+		       max_parallel_steps, cron, cron_timezone, skip_if_running, tags, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
+		       singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth, singleton_preempt_higher_priority
 		FROM workflows
 		WHERE project_id = $1 AND slug = $2`
 
@@ -129,13 +137,54 @@ func (q *Queries) GetWorkflowBySlug(ctx context.Context, projectID, slug string)
 	return w, nil
 }
 
+// GetWorkflowsByIDs fetches multiple workflows in a single query, keyed by
+// workflow id. Ids with no matching row are absent from the result map (no
+// error), so callers can treat a missing key the same as a not-found
+// GetWorkflow. The empty input is a no-op.
+func (q *Queries) GetWorkflowsByIDs(ctx context.Context, ids []string) (map[string]*domain.Workflow, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetWorkflowsByIDs")
+	defer span.End()
+
+	result := make(map[string]*domain.Workflow, len(ids))
+	if len(ids) == 0 {
+		return result, nil
+	}
+
+	query := `
+		SELECT id, project_id, name, slug, description, enabled, version, timeout_secs, max_concurrent_runs,
+		       max_parallel_steps, cron, cron_timezone, skip_if_running, tags, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
+		       singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth, singleton_preempt_higher_priority
+		FROM workflows
+		WHERE id = ANY($1)`
+
+	rows, err := q.db.Query(ctx, query, ids)
+	if err != nil {
+		return nil, fmt.Errorf("get workflows by ids: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		w, scanErr := scanWorkflow(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("get workflows by ids scan: %w", scanErr)
+		}
+		result[w.ID] = w
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get workflows by ids rows: %w", err)
+	}
+
+	return result, nil
+}
+
 func (q *Queries) ListWorkflows(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Workflow, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListWorkflows")
 	defer span.End()
 
 	query := `
 		SELECT id, project_id, name, slug, description, enabled, version, timeout_secs, max_concurrent_runs,
-		       max_parallel_steps, cron, cron_timezone, skip_if_running, tags, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at
+		       max_parallel_steps, cron, cron_timezone, skip_if_running, tags, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
+		       singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth, singleton_preempt_higher_priority
 		FROM workflows
 		WHERE project_id = $1`
 
@@ -191,11 +240,13 @@ func (q *Queries) UpdateWorkflow(ctx context.Context, w *domain.Workflow) error 
 			INSERT INTO workflow_versions (
 				id, workflow_id, version, project_id, name, slug, description, enabled,
 				timeout_secs, max_concurrent_runs, max_parallel_steps, cron, cron_timezone, skip_if_running,
-				backwards_compatible, created_by, updated_by
+				backwards_compatible, created_by, updated_by,
+				singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth, singleton_preempt_higher_priority
 			)
 			SELECT $17, id, version, project_id, name, slug, description, enabled,
 			       timeout_secs, max_concurrent_runs, max_parallel_steps, cron, cron_timezone, skip_if_running,
-			       backwards_compatible, created_by, updated_by
+			       backwards_compatible, created_by, updated_by,
+			       singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth, singleton_preempt_higher_priority
 			FROM workflows WHERE id = $11
 			ON CONFLICT (workflow_id, version) DO NOTHING
 		)
@@ -215,6 +266,10 @@ func (q *Queries) UpdateWorkflow(ctx context.Context, w *domain.Workflow) error 
 		    updated_by = $14,
 		    version_policy = $15,
 		    backwards_compatible = $16,
+		    singleton_key_expr = $18,
+		    singleton_on_conflict = $19,
+		    singleton_max_queue_depth = $20,
+		    singleton_preempt_higher_priority = $21,
 		    version = version + 1,
 		    updated_at = NOW()
 		WHERE id = $11
@@ -240,6 +295,10 @@ func (q *Queries) UpdateWorkflow(ctx context.Context, w *domain.Workflow) error 
 		string(w.VersionPolicy),
 		w.BackwardsCompatible,
 		snapshotID,
+		dbscan.NilIfEmptyRawMessage(w.SingletonKeyExpr),
+		dbscan.NilIfEmptyString(string(w.SingletonOnConflict)),
+		w.SingletonMaxQueueDepth,
+		w.SingletonPreemptHigher,
 	).Scan(&w.UpdatedAt, &w.Version, &w.VersionID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -324,6 +383,10 @@ func scanWorkflow(scanner scanTarget) (*domain.Workflow, error) {
 	var versionPolicy *string
 	var createdBy *string
 	var updatedBy *string
+	var singletonKeyExpr []byte
+	var singletonOnConflict *string
+	var singletonMaxQueueDepth *int
+	var singletonPreemptHigher bool
 
 	err := scanner.Scan(
 		&workflow.ID,
@@ -347,6 +410,10 @@ func scanWorkflow(scanner scanTarget) (*domain.Workflow, error) {
 		&updatedBy,
 		&workflow.CreatedAt,
 		&workflow.UpdatedAt,
+		&singletonKeyExpr,
+		&singletonOnConflict,
+		&singletonMaxQueueDepth,
+		&singletonPreemptHigher,
 	)
 	if err != nil {
 		return nil, err
@@ -355,6 +422,16 @@ func scanWorkflow(scanner scanTarget) (*domain.Workflow, error) {
 	if description != nil {
 		workflow.Description = *description
 	}
+	if singletonKeyExpr != nil {
+		workflow.SingletonKeyExpr = json.RawMessage(singletonKeyExpr)
+	}
+	if singletonOnConflict != nil {
+		workflow.SingletonOnConflict = domain.SingletonOnConflict(*singletonOnConflict)
+	}
+	if singletonMaxQueueDepth != nil {
+		workflow.SingletonMaxQueueDepth = singletonMaxQueueDepth
+	}
+	workflow.SingletonPreemptHigher = singletonPreemptHigher
 	if cron != nil {
 		workflow.Cron = *cron
 	}
@@ -390,7 +467,8 @@ func (q *Queries) ListCronWorkflows(ctx context.Context) ([]domain.Workflow, err
 
 	query := `
 		SELECT w.id, w.project_id, w.name, w.slug, w.description, w.enabled, w.version, w.timeout_secs, w.max_concurrent_runs,
-		       w.max_parallel_steps, w.cron, w.cron_timezone, w.skip_if_running, w.tags, w.version_id, w.version_policy, w.backwards_compatible, w.created_by, w.updated_by, w.created_at, w.updated_at
+		       w.max_parallel_steps, w.cron, w.cron_timezone, w.skip_if_running, w.tags, w.version_id, w.version_policy, w.backwards_compatible, w.created_by, w.updated_by, w.created_at, w.updated_at,
+		       w.singleton_key_expr, w.singleton_on_conflict, w.singleton_max_queue_depth, w.singleton_preempt_higher_priority
 		FROM workflows w
 		JOIN projects p ON p.id = w.project_id
 		WHERE w.enabled = TRUE
@@ -428,7 +506,8 @@ func (q *Queries) ListWorkflowsByTag(ctx context.Context, projectID, tagKey, tag
 
 	base := `
 		SELECT id, project_id, name, slug, description, enabled, version, timeout_secs, max_concurrent_runs,
-		       max_parallel_steps, cron, cron_timezone, skip_if_running, tags, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at
+		       max_parallel_steps, cron, cron_timezone, skip_if_running, tags, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
+		       singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth, singleton_preempt_higher_priority
 		FROM workflows
 		WHERE project_id = $1`
 

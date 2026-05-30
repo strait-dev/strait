@@ -22,7 +22,7 @@ const historyArchiveColumns = `id, job_id, project_id, status, attempt, payload,
 	is_rollback, replayed_run_id, max_attempts_override, timeout_secs_override,
 	retry_backoff, retry_initial_delay_secs, retry_max_delay_secs,
 	visible_until, job_enabled, job_paused, job_max_concurrency, job_max_concurrency_per_key,
-	queue_name, cache_version, created_at`
+	queue_name, singleton_key, cache_version, created_at`
 
 func (q *Queries) ArchiveTerminalRun(ctx context.Context, tx DBTX, id string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ArchiveTerminalRun")
@@ -63,6 +63,9 @@ func (q *Queries) GetRunFromHistory(ctx context.Context, id string) (*domain.Job
 		}
 		return nil, fmt.Errorf("get run from history: %w", err)
 	}
+
+	run.SingletonKey = q.runSingletonKey(ctx, "SELECT singleton_key FROM job_runs_history WHERE id = $1", id)
+
 	return run, nil
 }
 

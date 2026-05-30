@@ -281,6 +281,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 	}
 	queries.SetSecretEncryptionKey(cfg.SecretEncryptionKey)
 	queries.SetOldSecretEncryptionKeys(cfg.EncryptionKeyOld)
+	queries.SetSingletonLeaseTTL(cfg.StaleThreshold)
 	if cfg.RunRetentionShort > 0 {
 		queries.SetMaxSLOWindowHours(int(cfg.RunRetentionShort.Hours()))
 	}

@@ -95,6 +95,7 @@ export const queryKeys = createQueryKeyStore({
   jobs: {
     list: (search?: ListJobsSearch) => [{ search }],
     detail: (id: string) => [id],
+    singletons: (id: string) => [id],
   },
 
   runs: {
@@ -112,6 +113,7 @@ export const queryKeys = createQueryKeyStore({
     detail: (id: string) => [id],
     steps: (workflowId: string) => [workflowId],
     runs: (workflowId: string) => [workflowId],
+    singletons: (workflowId: string) => [workflowId],
   },
 
   webhooks: {

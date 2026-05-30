@@ -1,0 +1,122 @@
+---
+title: "Config as Code"
+description: "Import jobs, workflows, and environments from a single declarative bundle."
+sidebarTitle: "Config as Code"
+---
+
+A bundle is a single JSON document that describes the jobs, workflows, and environments in a project. Exporting a project produces a bundle; importing one applies it to a project. This lets you keep configuration in version control, review changes in pull requests, and promote the same definitions across projects.
+
+## The import endpoint
+
+```http
+POST /v1/projects/{projectID}/bundle/import
+```
+
+The request body is the bundle JSON. The `projectID` in the path must match the project the API key is scoped to.
+
+A minimal bundle:
+
+```json
+{
+  "version": "1",
+  "resources": {
+    "environments": [
+      {
+        "name": "Staging",
+        "slug": "staging",
+        "variables": { "API_BASE": "https://staging.internal" }
+      }
+    ],
+    "jobs": [
+      {
+        "slug": "rebuild-cache",
+        "name": "Rebuild cache",
+        "endpoint_url": "https://app.internal/jobs/rebuild-cache",
+        "max_attempts": 3,
+        "timeout_secs": 60,
+        "enabled": true,
+        "environment_slug": "staging",
+        "singleton_key": "${tenant_id}",
+        "singleton_on_conflict": "queue",
+        "singleton_max_queue_depth": 5
+      }
+    ],
+    "workflows": [
+      {
+        "slug": "nightly-rollup",
+        "name": "Nightly rollup",
+        "steps": [{ "step_ref": "step-1", "job_slug": "rebuild-cache" }]
+      }
+    ]
+  }
+}
+```
+
+## Dry run
+
+Pass `?dry_run=true` to preview the import without writing anything. The response reports the per-resource plan so you can see exactly what an apply would do.
+
+```bash
+curl -X POST "https://api.strait.dev/v1/projects/$PROJECT_ID/bundle/import?dry_run=true" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "Content-Type: application/json" \
+  --data-binary @bundle.json
+```
+
+The response contains a `diff` array, one entry per resource:
+
+```json
+{
+  "created": 2,
+  "updated": 1,
+  "skipped": 0,
+  "failed": 0,
+  "diff": [
+    { "resource_type": "environment", "slug": "staging", "action": "CREATE" },
+    { "resource_type": "job", "slug": "rebuild-cache", "action": "CREATE" },
+    { "resource_type": "workflow", "slug": "nightly-rollup", "action": "UPDATE" }
+  ]
+}
+```
+
+Each `action` is `CREATE`, `UPDATE`, or `SKIP`. A resource whose slug already exists in the project is updated; a new slug is created.
+
+## Apply
+
+Omit `dry_run` (or set it to `false`) to apply the bundle. The response uses the same shape as the dry run, with `created`, `updated`, and `skipped` reflecting what was actually written.
+
+```bash
+curl -X POST "https://api.strait.dev/v1/projects/$PROJECT_ID/bundle/import" \
+  -H "Authorization: Bearer $STRAIT_API_KEY" \
+  -H "Content-Type: application/json" \
+  --data-binary @bundle.json
+```
+
+## All or nothing
+
+An import runs inside a single database transaction. If any resource fails to apply, the entire import is rolled back and the project is left untouched. A partial bundle is never persisted, so a failed import is always safe to retry after fixing the cause.
+
+Updating an existing job or workflow creates a new version through the same path used by the regular update endpoints, so version history is preserved.
+
+## Updating existing resources
+
+Import only overlays the fields a bundle owns. Settings that are not part of the bundle format, such as a job's webhook signing secret, are left in place when a resource is updated. This means you can re-import a bundle without clearing values that were configured elsewhere.
+
+## Secrets
+
+Exported bundles never contain secret values. Environment variable values are replaced with the placeholder `<REDACTED>`.
+
+On import, `<REDACTED>` means "keep the existing value":
+
+- On an **update**, a variable whose value is `<REDACTED>` keeps the value already stored for that environment.
+- On a **create**, a variable whose value is `<REDACTED>` is rejected with a `400`, because there is no existing value to keep. Provide a real value for new environments.
+
+This lets you round-trip a bundle through export and import without leaking or erasing secrets. To rotate a secret, replace the placeholder with the new value before importing.
+
+## Singletons
+
+Job and workflow singleton settings travel in the bundle. `singleton_key`, `singleton_on_conflict`, and `singleton_max_queue_depth` are validated on import exactly as they are on the create and update endpoints. The `replace` conflict policy is gated by plan on Strait Cloud; an import that sets it without the required plan is rejected. See [Singletons](/concepts/singletons) for the full semantics and [Adaptive Concurrency](/concepts/adaptive-concurrency) for how concurrency settings behave at run time.
+
+## Scope
+
+Import currently applies jobs, workflows, environments, and their environment variables. Webhook subscriptions are exported for reference but are not applied on import.

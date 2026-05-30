@@ -31,6 +31,11 @@ const (
 	defaultWorkflowRetention     = 30 * 24 * time.Hour
 	defaultEventTriggerRetention = 30 * 24 * time.Hour
 	defaultDeleteBatchLimit      = 100
+	// singletonReapBatchLimit bounds how many reapable singleton holders one
+	// reaper cycle pulls per kind. A backlog (e.g. a retention sweep that deleted
+	// many holder runs) is drained over successive cycles instead of loading every
+	// reapable holder into memory at once.
+	singletonReapBatchLimit = 500
 )
 
 // ReaperStore is the subset of store operations needed by Reaper.
@@ -75,6 +80,9 @@ type ReaperStore interface {
 	DeleteOutboxHistoryPastRetention(ctx context.Context, cutoff time.Time, limit int) (int64, error)
 	PurgeQuarantinedOutboxOlderThan(ctx context.Context, cutoff time.Time, limit int) (int64, error)
 	GetRunFromHistory(ctx context.Context, id string) (*domain.JobRun, error)
+	ListReapableSingletonJobHolders(ctx context.Context, limit int) ([]string, error)
+	ReleaseSingletonJobLockAndPromote(ctx context.Context, holderRunID string) (bool, string, error)
+	ListReapableSingletonWorkflowHolders(ctx context.Context, limit int) ([]string, error)
 }
 
 type staleRunRetryStore interface {
@@ -125,6 +133,10 @@ type WorkflowCallback interface {
 	OnStepFailed(ctx context.Context, workflowRunID string, stepRunID string)
 	ResumeWorkflowRun(ctx context.Context, workflowRunID string) error
 	ApproveStep(ctx context.Context, workflowRunID, stepRef, approver string) error
+	// PromoteSingletonWorkflow releases a terminal/missing workflow holder's
+	// singleton lock and promotes the next parked waiter (starting its root
+	// steps). It returns released=true when this call removed the lock.
+	PromoteSingletonWorkflow(ctx context.Context, holderRunID string) (bool, error)
 }
 
 // CostGateDefaultActionStore is an optional interface for looking up cost gate default actions.
@@ -419,6 +431,7 @@ func (r *Reaper) runMaintenanceCycle(ctx context.Context) {
 	r.reapStaleDequeued(ctx)
 	r.reapStale(ctx)
 	r.reapExpired(ctx)
+	r.reapSingletonLocks(ctx)
 	r.reapTimedOutWorkflows(ctx)
 	r.reapExpiredApprovals(ctx)
 	r.reapApprovalReminders(ctx)
@@ -623,6 +636,8 @@ func (r *Reaper) reapApprovalReminders(ctx context.Context) {
 		return
 	}
 
+	// Reminders frequently cluster by workflow run and project, so memoize both
+	// lookups within this pass instead of re-querying them per approval.
 	workflowRuns := make(map[string]*domain.WorkflowRun)
 	channelsByProject := make(map[string][]domain.NotificationChannel)
 	projectIDs := make([]string, 0, len(approvals))
@@ -1045,6 +1060,74 @@ func (r *Reaper) reapStale(ctx context.Context) {
 			continue
 		}
 		r.crashStaleRun(ctx, &run)
+	}
+}
+
+// reapSingletonLocks is the authoritative net for singleton lock release. The
+// executor's terminal fast-path handles the common completion case; this catches
+// the rest: holders whose run row was deleted by retention, holders left in a
+// terminal state (canceled by the replace policy, or a fast-path that errored),
+// and holders that crashed mid-execution (lease expired). For each, it releases
+// the lock and promotes the next parked waiter so a key never deadlocks.
+func (r *Reaper) reapSingletonLocks(ctx context.Context) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "reaper.ReapSingletonLocks")
+	defer span.End()
+	const operation = "reap_singleton_locks"
+
+	holders, err := r.store.ListReapableSingletonJobHolders(ctx, singletonReapBatchLimit)
+	if err != nil {
+		slog.Error("failed to list reapable singleton holders", "error", err)
+		r.recordOperation(ctx, operation, "error")
+		return
+	}
+	r.recordOperation(ctx, operation, "success")
+
+	for _, holderRunID := range holders {
+		released, promotedRunID, relErr := r.store.ReleaseSingletonJobLockAndPromote(ctx, holderRunID)
+		if relErr != nil {
+			slog.Error("failed to reap singleton lock", "holder_run_id", holderRunID, "error", relErr)
+			continue
+		}
+		if !released {
+			continue // another releaser won the race
+		}
+		r.metrics.RecordSingletonReclaimed(ctx)
+		if promotedRunID != "" {
+			r.metrics.RecordSingletonAcquisition(ctx, domain.SingletonKindJob)
+			slog.Info("reaper promoted singleton waiter", "released_run_id", holderRunID, "promoted_run_id", promotedRunID)
+		}
+	}
+
+	r.reapSingletonWorkflowLocks(ctx)
+}
+
+// reapSingletonWorkflowLocks is the workflow half of the singleton net. Workflow
+// holders carry no lease (long durable-wait runs must never be falsely
+// reclaimed), so reapability is purely terminal/missing. Promotion must start
+// the successor's root steps, which only the engine can do, so this delegates to
+// the workflow callback rather than touching the lock directly.
+func (r *Reaper) reapSingletonWorkflowLocks(ctx context.Context) {
+	if r.workflowCallback == nil {
+		return
+	}
+	holders, err := r.store.ListReapableSingletonWorkflowHolders(ctx, singletonReapBatchLimit)
+	if err != nil {
+		slog.Error("failed to list reapable singleton workflow holders", "error", err)
+		return
+	}
+	for _, holderRunID := range holders {
+		released, relErr := r.workflowCallback.PromoteSingletonWorkflow(ctx, holderRunID)
+		if relErr != nil {
+			slog.Error("failed to reap singleton workflow lock", "holder_run_id", holderRunID, "error", relErr)
+			continue
+		}
+		if !released {
+			continue // another releaser won the race
+		}
+		// The engine records the acquisition when it promotes a waiter; the
+		// reaper only owns the stale-reclaim counter here.
+		r.metrics.RecordSingletonReclaimed(ctx)
+		slog.Info("reaper reclaimed singleton workflow lock", "released_run_id", holderRunID)
 	}
 }
 

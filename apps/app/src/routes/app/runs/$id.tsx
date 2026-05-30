@@ -32,7 +32,7 @@ import {
 } from "@strait/ui/components/tabs";
 import { cn } from "@strait/ui/utils/index";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
@@ -46,6 +46,7 @@ import type {
   RunEvent,
   RunStatus,
 } from "@/hooks/api/types";
+import { jobSingletonsQueryOptions } from "@/hooks/api/use-jobs";
 import {
   runEventsQueryOptions,
   runQueryOptions,
@@ -59,6 +60,7 @@ import {
   RefreshIcon,
   XCircleIcon,
 } from "@/lib/icons";
+import { findSingletonHolderForKey } from "@/lib/singleton";
 
 export const Route = createFileRoute("/app/runs/$id")({
   head: () => ({ meta: [{ title: "Run details · Strait" }] }),
@@ -361,6 +363,18 @@ function Timeline({ run }: { run: JobRun }) {
     run.finished_at ?? null
   );
 
+  const isWaiting = run.status === "waiting";
+  const { data: singletonsData } = useQuery({
+    ...jobSingletonsQueryOptions(run.job_id),
+    enabled: isWaiting && Boolean(run.singleton_key),
+  });
+  const holder = findSingletonHolderForKey(
+    singletonsData?.data,
+    run.singleton_key
+  );
+  const waitingOnRunId =
+    holder && holder.holder_run_id !== run.id ? holder.holder_run_id : null;
+
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -420,6 +434,26 @@ function Timeline({ run }: { run: JobRun }) {
             <span className="ml-1 font-mono text-foreground">
               {run.queue_name}
             </span>
+          </span>
+        )}
+        {run.singleton_key && (
+          <span className="text-muted-foreground">
+            Key{" "}
+            <span className="ml-1 font-mono text-foreground">
+              {run.singleton_key}
+            </span>
+          </span>
+        )}
+        {waitingOnRunId && (
+          <span className="text-muted-foreground">
+            Waiting on{" "}
+            <Link
+              className="ml-1 font-mono text-foreground hover:underline"
+              params={{ id: waitingOnRunId }}
+              to="/app/runs/$id"
+            >
+              {waitingOnRunId.slice(0, 8)}
+            </Link>
           </span>
         )}
       </div>

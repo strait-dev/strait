@@ -381,11 +381,15 @@ func TestHandleDispatchEvent_Success(t *testing.T) {
 				},
 			}, nil
 		},
-		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
-			return &domain.Job{
-				ID: id, Enabled: true, Version: 1, VersionID: "jv-1",
-				ProjectID: "proj-1",
-			}, nil
+		GetJobsByIDsFunc: func(_ context.Context, ids []string) (map[string]*domain.Job, error) {
+			out := make(map[string]*domain.Job, len(ids))
+			for _, id := range ids {
+				out[id] = &domain.Job{
+					ID: id, Enabled: true, Version: 1, VersionID: "jv-1",
+					ProjectID: "proj-1",
+				}
+			}
+			return out, nil
 		},
 	}
 	mq := &mockQueue{
@@ -410,6 +414,62 @@ func TestHandleDispatchEvent_Success(t *testing.T) {
 	}
 	if int(resp["dispatched"].(float64)) != 1 {
 		t.Fatalf("expected dispatched=1, got %v", resp["dispatched"])
+	}
+}
+
+// TestHandleDispatchEvent_BatchesTargetLookups verifies that multiple matched
+// job subscriptions resolve their target jobs through a single batched
+// GetJobsByIDs call rather than one query per subscription (N+1 avoidance).
+func TestHandleDispatchEvent_BatchesTargetLookups(t *testing.T) {
+	t.Parallel()
+	ms := &APIStoreMock{
+		GetEventSourceByNameFunc: func(_ context.Context, projectID, name string) (*domain.EventSource, error) {
+			return &domain.EventSource{ID: "src-1", ProjectID: projectID, Name: name, Enabled: true}, nil
+		},
+		ListEventSubscriptionsBySourceFunc: func(_ context.Context, sourceID string) ([]domain.EventSubscription, error) {
+			return []domain.EventSubscription{
+				{ID: "sub-1", SourceID: sourceID, TargetType: "job", TargetID: "job-1", FilterExpr: json.RawMessage(`{"eq":[["type","deploy"]]}`), Enabled: true},
+				{ID: "sub-2", SourceID: sourceID, TargetType: "job", TargetID: "job-2", FilterExpr: json.RawMessage(`{"eq":[["type","deploy"]]}`), Enabled: true},
+				{ID: "sub-3", SourceID: sourceID, TargetType: "job", TargetID: "job-3", FilterExpr: json.RawMessage(`{"eq":[["type","deploy"]]}`), Enabled: true},
+			}, nil
+		},
+		GetJobsByIDsFunc: func(_ context.Context, ids []string) (map[string]*domain.Job, error) {
+			out := make(map[string]*domain.Job, len(ids))
+			for _, id := range ids {
+				out[id] = &domain.Job{ID: id, Enabled: true, Version: 1, VersionID: "jv-1", ProjectID: "proj-1"}
+			}
+			return out, nil
+		},
+	}
+	mq := &mockQueue{
+		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
+			run.ID = "run-" + run.JobID
+			return nil
+		},
+	}
+	srv := newTestServer(t, ms, mq, nil)
+
+	body := `{"source":"my-source","project_id":"proj-1","payload":{"type":"deploy"}}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/events/dispatch", body))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if int(resp["dispatched"].(float64)) != 3 {
+		t.Fatalf("expected dispatched=3, got %v", resp["dispatched"])
+	}
+
+	calls := ms.GetJobsByIDsCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected exactly 1 GetJobsByIDs call, got %d", len(calls))
+	}
+	if len(calls[0].IDs) != 3 {
+		t.Fatalf("expected 3 ids in the batched lookup, got %v", calls[0].IDs)
 	}
 }
 

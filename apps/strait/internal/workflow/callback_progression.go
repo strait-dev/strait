@@ -53,17 +53,9 @@ func (s *StepCallback) fanInAndStartReadyChildren(ctx context.Context, stepRun *
 		return nil
 	}
 
-	stepStatuses, err := s.store.ListStepRunStatusesByWorkflowRun(ctx, stepRun.WorkflowRunID)
+	stepStatuses, runningStepRuns, runnableStepRuns, err := s.loadSchedulingState(ctx, stepRun.WorkflowRunID)
 	if err != nil {
-		return fmt.Errorf("list step run statuses by workflow run: %w", err)
-	}
-	runningStepRuns, err := s.store.ListRunningStepRunsByWorkflowRun(ctx, stepRun.WorkflowRunID, 10000)
-	if err != nil {
-		return fmt.Errorf("list running step runs by workflow run: %w", err)
-	}
-	runnableStepRuns, err := s.store.ListRunnableStepRunsByWorkflowRun(ctx, stepRun.WorkflowRunID, 10000)
-	if err != nil {
-		return fmt.Errorf("list runnable step runs by workflow run: %w", err)
+		return err
 	}
 
 	return s.scheduleRunnableSteps(ctx, wc.run, wc.steps, stepStatuses, runningStepRuns, runnableStepRuns)
@@ -274,6 +266,7 @@ func (s *StepCallback) checkWorkflowCompletion(ctx context.Context, workflowRunI
 		wfRun.Status = domain.WfStatusFailed
 		wfRun.FinishedAt = &now
 		s.publishWorkflowRunStatus(ctx, wfRun, fromStatus, domain.WfStatusFailed, "workflow_completion")
+		s.promoteSingletonWorkflowSuccessor(ctx, wfRun)
 		if wfRun.ParentWorkflowRunID != "" {
 			stepRuns, listErr := s.store.ListStepRunsByWorkflowRun(ctx, workflowRunID, 10000, nil)
 			if listErr != nil {
@@ -292,6 +285,7 @@ func (s *StepCallback) checkWorkflowCompletion(ctx context.Context, workflowRunI
 	wfRun.Status = domain.WfStatusCompleted
 	wfRun.FinishedAt = &now
 	s.publishWorkflowRunStatus(ctx, wfRun, fromStatus, domain.WfStatusCompleted, "workflow_completion")
+	s.promoteSingletonWorkflowSuccessor(ctx, wfRun)
 	if wfRun.ParentWorkflowRunID != "" {
 		stepRuns, listErr := s.store.ListStepRunsByWorkflowRun(ctx, workflowRunID, 10000, nil)
 		if listErr != nil {
@@ -300,6 +294,31 @@ func (s *StepCallback) checkWorkflowCompletion(ctx context.Context, workflowRunI
 		return s.propagateToParent(ctx, wfRun, stepRuns)
 	}
 	return nil
+}
+
+// PromoteSingletonWorkflow is the reaper-facing entry point: it releases the
+// singleton lock for a terminal/missing workflow holder and promotes the next
+// parked waiter, returning whether this call removed the lock so the reaper can
+// count the reclaim exactly once. It satisfies the scheduler's WorkflowCallback.
+func (s *StepCallback) PromoteSingletonWorkflow(ctx context.Context, holderRunID string) (bool, error) {
+	if s.engine == nil {
+		return false, nil
+	}
+	return s.engine.PromoteSingletonWorkflowSuccessor(ctx, holderRunID)
+}
+
+// promoteSingletonWorkflowSuccessor releases this run's singleton lock (if it
+// held one) and promotes the next parked run for the same key. It is a
+// best-effort fast-path on the terminal transition; the reaper is the
+// authoritative net that retries release+promote for any holder this misses.
+func (s *StepCallback) promoteSingletonWorkflowSuccessor(ctx context.Context, wfRun *domain.WorkflowRun) {
+	if wfRun.SingletonKey == "" || s.engine == nil {
+		return
+	}
+	if _, err := s.engine.PromoteSingletonWorkflowSuccessor(ctx, wfRun.ID); err != nil {
+		s.logger.Warn("failed to promote workflow singleton successor (reaper will retry)",
+			"workflow_run_id", wfRun.ID, "error", err)
+	}
 }
 
 func (s *StepCallback) workflowCompletionCounts(ctx context.Context, workflowRunID string) (int, []string, error) {
@@ -722,17 +741,9 @@ func (s *StepCallback) ResumeWorkflowRun(ctx context.Context, workflowRunID stri
 		return fmt.Errorf("load step definitions: %w", err)
 	}
 
-	stepStatuses, err := s.store.ListStepRunStatusesByWorkflowRun(ctx, workflowRunID)
+	stepStatuses, runningStepRuns, runnableStepRuns, err := s.loadSchedulingState(ctx, workflowRunID)
 	if err != nil {
-		return fmt.Errorf("list step run statuses by workflow run: %w", err)
-	}
-	runningStepRuns, err := s.store.ListRunningStepRunsByWorkflowRun(ctx, workflowRunID, 10000)
-	if err != nil {
-		return fmt.Errorf("list running step runs by workflow run: %w", err)
-	}
-	runnableStepRuns, err := s.store.ListRunnableStepRunsByWorkflowRun(ctx, workflowRunID, 10000)
-	if err != nil {
-		return fmt.Errorf("list runnable step runs by workflow run: %w", err)
+		return err
 	}
 
 	if err := s.scheduleRunnableSteps(ctx, wfRun, steps, stepStatuses, runningStepRuns, runnableStepRuns); err != nil {
@@ -740,6 +751,38 @@ func (s *StepCallback) ResumeWorkflowRun(ctx context.Context, workflowRunID stri
 	}
 
 	return nil
+}
+
+// loadSchedulingState fetches every step run for a workflow run in one query and
+// derives the status map, the running set, and the runnable set in memory. It
+// replaces three separate round trips (statuses, running, runnable) over the
+// same workflow_step_runs partition with a single read on the fan-in hot path.
+// The runnable predicate mirrors the store query it subsumes: pending or waiting
+// steps whose dependencies are all complete.
+func (s *StepCallback) loadSchedulingState(ctx context.Context, workflowRunID string) (
+	map[string]domain.StepRunStatus,
+	[]domain.WorkflowStepRun,
+	[]domain.WorkflowStepRun,
+	error,
+) {
+	stepRuns, err := s.store.ListStepRunsForScheduling(ctx, workflowRunID)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("list step runs for scheduling: %w", err)
+	}
+
+	stepStatuses := make(map[string]domain.StepRunStatus, len(stepRuns))
+	running := make([]domain.WorkflowStepRun, 0, len(stepRuns))
+	runnable := make([]domain.WorkflowStepRun, 0, len(stepRuns))
+	for _, sr := range stepRuns {
+		stepStatuses[sr.StepRef] = sr.Status
+		switch {
+		case sr.Status == domain.StepRunning:
+			running = append(running, sr)
+		case (sr.Status == domain.StepPending || sr.Status == domain.StepWaiting) && sr.DepsCompleted == sr.DepsRequired:
+			runnable = append(runnable, sr)
+		}
+	}
+	return stepStatuses, running, runnable, nil
 }
 
 func effectiveResourceClass(v string) string {

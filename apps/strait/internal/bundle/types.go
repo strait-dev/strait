@@ -46,15 +46,25 @@ type JobSpec struct {
 	WebhookURL                string            `yaml:"webhook_url,omitempty" json:"webhook_url,omitempty"`
 	EnvironmentSlug           string            `yaml:"environment_slug,omitempty" json:"environment_slug,omitempty"`
 	OnCompleteTriggerWorkflow string            `yaml:"on_complete_trigger_workflow,omitempty" json:"on_complete_trigger_workflow,omitempty"`
+	// SingletonKey is the flattened key template (the envelope's only field).
+	// Empty means the job is not a singleton.
+	SingletonKey           string `yaml:"singleton_key,omitempty" json:"singleton_key,omitempty"`
+	SingletonOnConflict    string `yaml:"singleton_on_conflict,omitempty" json:"singleton_on_conflict,omitempty"`
+	SingletonMaxQueueDepth *int   `yaml:"singleton_max_queue_depth,omitempty" json:"singleton_max_queue_depth,omitempty"`
 }
 
 // WorkflowSpec represents a workflow in the bundle format.
 type WorkflowSpec struct {
-	Slug              string             `yaml:"slug" json:"slug"`
-	Name              string             `yaml:"name" json:"name"`
-	Description       string             `yaml:"description,omitempty" json:"description,omitempty"`
-	MaxConcurrentRuns int                `yaml:"max_concurrent_runs,omitempty" json:"max_concurrent_runs,omitempty"`
-	Steps             []WorkflowStepSpec `yaml:"steps,omitempty" json:"steps,omitempty"`
+	Slug              string `yaml:"slug" json:"slug"`
+	Name              string `yaml:"name" json:"name"`
+	Description       string `yaml:"description,omitempty" json:"description,omitempty"`
+	MaxConcurrentRuns int    `yaml:"max_concurrent_runs,omitempty" json:"max_concurrent_runs,omitempty"`
+	// SingletonKey is the flattened key template (the envelope's only field).
+	// Empty means the workflow is not a singleton.
+	SingletonKey           string             `yaml:"singleton_key,omitempty" json:"singleton_key,omitempty"`
+	SingletonOnConflict    string             `yaml:"singleton_on_conflict,omitempty" json:"singleton_on_conflict,omitempty"`
+	SingletonMaxQueueDepth *int               `yaml:"singleton_max_queue_depth,omitempty" json:"singleton_max_queue_depth,omitempty"`
+	Steps                  []WorkflowStepSpec `yaml:"steps,omitempty" json:"steps,omitempty"`
 }
 
 // WorkflowStepSpec represents a workflow step in the bundle format.

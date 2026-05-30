@@ -96,6 +96,7 @@
                   "concepts/durable-workflows",
                   "concepts/compensating-transactions",
                   "concepts/adaptive-concurrency",
+                  "concepts/singletons",
                   "concepts/canary-deployments",
                   "concepts/cost-budgets",
                   "concepts/slos"
@@ -148,7 +149,10 @@
               },
               {
                 "group": "Configuration",
-                "pages": ["configuration/environment-variables"]
+                "pages": [
+                  "configuration/environment-variables",
+                  "configuration/config-as-code"
+                ]
               },
               {
                 "group": "Integrations",

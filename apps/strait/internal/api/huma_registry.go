@@ -208,6 +208,15 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Tags: []string{"Projects"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500},
 	}, s.handleUpdateProjectSettings)
 
+	RegisterTypedOp(api, OpMeta{
+		ID: "import-bundle", Method: http.MethodPost, Path: "/v1/projects/{projectID}/bundle/import",
+		Summary: "Import a configuration bundle",
+		Description: "Applies a config-as-code bundle (jobs, workflows, environments) to a project. " +
+			"Pass dry_run=true to return the per-resource diff without writing. An apply is atomic: " +
+			"if any resource fails, the entire import is rolled back.",
+		Tags: []string{"Projects"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500},
+	}, s.handleImportBundle)
+
 	// -- Jobs --
 	RegisterTypedOp(api, OpMeta{
 		ID: "create-job", Method: http.MethodPost, Path: "/v1/jobs",
@@ -292,6 +301,12 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Summary: "List job versions", Description: "Returns all versions of a job definition showing configuration history.",
 		Tags: []string{"Jobs"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
 	}, s.handleListJobVersions)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "list-job-singletons", Method: http.MethodGet, Path: "/v1/jobs/{jobID}/singletons",
+		Summary: "List job singleton holders", Description: "Returns the currently held singleton keys for a job, each with the holding run and the number of runs queued behind it.",
+		Tags: []string{"Jobs"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleListJobSingletons)
 
 	RegisterTypedOp(api, OpMeta{
 		ID: "get-job-version", Method: http.MethodGet, Path: "/v1/jobs/{jobID}/versions/{versionID}",
@@ -1354,6 +1369,12 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Summary: "List workflow versions", Description: "Returns all versions of a workflow definition.",
 		Tags: []string{"Workflows"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
 	}, s.handleListWorkflowVersions)
+
+	RegisterTypedOp(api, OpMeta{
+		ID: "list-workflow-singletons", Method: http.MethodGet, Path: "/v1/workflows/{workflowID}/singletons",
+		Summary: "List workflow singleton holders", Description: "Returns the currently held singleton keys for a workflow, each with the holding run and the number of runs queued behind it.",
+		Tags: []string{"Workflows"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+	}, s.handleListWorkflowSingletons)
 
 	RegisterTypedOp(api, OpMeta{
 		ID: "get-workflow-version", Method: http.MethodGet, Path: "/v1/workflows/{workflowID}/versions/{versionID}",

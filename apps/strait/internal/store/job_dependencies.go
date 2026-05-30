@@ -228,81 +228,85 @@ func (q *Queries) AreJobDependenciesSatisfied(ctx context.Context, run *domain.J
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.AreJobDependenciesSatisfied")
 	defer span.End()
 
-	deps, err := q.ListJobDependencies(ctx, run.JobID, 1000, nil)
-	if err != nil {
-		return false, fmt.Errorf("list job dependencies: %w", err)
-	}
-	if len(deps) == 0 {
-		return true, nil
-	}
-
 	dependencyKey := ""
 	if run.Metadata != nil {
 		dependencyKey = run.Metadata["dependency_key"]
 	}
 
-	for _, dep := range deps {
-		matchedRun, matchErr := q.findLatestTerminalDependencyRun(ctx, dep.DependsOnJobID, run.IdempotencyKey, dependencyKey)
-		if matchErr != nil {
-			return false, fmt.Errorf("find latest terminal dependency run for %s: %w", dep.DependsOnJobID, matchErr)
-		}
-		if matchedRun == nil {
-			return false, nil
-		}
-
-		switch dep.Condition {
-		case "completed":
-			if matchedRun.Status != domain.StatusCompleted {
-				return false, nil
-			}
-		case "failed":
-			if !isFailureTerminalStatus(matchedRun.Status) {
-				return false, nil
-			}
-		case "any":
-			if !matchedRun.Status.IsTerminal() {
-				return false, nil
-			}
-		default:
-			return false, fmt.Errorf("unknown dependency condition %q", dep.Condition)
-		}
-	}
-
-	return true, nil
-}
-
-func (q *Queries) findLatestTerminalDependencyRun(ctx context.Context, jobID, idempotencyKey, dependencyKey string) (*domain.JobRun, error) {
-	baseQuery := `
-		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
-		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at, next_retry_at,
-		       expires_at, parent_run_id, priority, idempotency_key, job_version, created_at,
-		       workflow_step_run_id, execution_trace,
-		       debug_mode, continuation_of, lineage_depth, tags,
-		       job_version_id, created_by, batch_id, concurrency_key, execution_mode, is_rollback, replayed_run_id
-		FROM job_runs
-		WHERE job_id = $1
-		  AND status IN ('completed', 'failed', 'timed_out', 'crashed', 'system_failed', 'canceled', 'expired', 'dead_letter')`
-
-	args := []any{jobID}
-	param := 2
-	if idempotencyKey != "" {
-		baseQuery += fmt.Sprintf(" AND idempotency_key = $%d", param)
-		args = append(args, idempotencyKey)
+	// Resolve every dependency together with the status of its latest matching
+	// terminal run in a single round trip. The LATERAL join picks the most recent
+	// terminal run per dependency target (scoped to the run's idempotency or
+	// dependency key when present), so the per-dependency condition check below
+	// needs no further query. This replaces a 1+N pattern (one ListJobDependencies
+	// plus one run lookup per dependency) that ran on every trigger and, in the
+	// dependency-release loop, once per waiting run. The common idempotency-keyed
+	// lookup is served by idx_runs_idempotency (job_id, idempotency_key); the
+	// terminal-status predicate is intentionally not backed by a dedicated partial
+	// index to avoid per-transition write amplification on the partitioned
+	// job_runs table (see migration 000255).
+	latestFilter := ""
+	args := []any{run.JobID}
+	if run.IdempotencyKey != "" {
+		latestFilter = " AND r.idempotency_key = $2"
+		args = append(args, run.IdempotencyKey)
 	} else if dependencyKey != "" {
-		baseQuery += fmt.Sprintf(" AND metadata->>'dependency_key' = $%d", param)
+		latestFilter = " AND r.metadata->>'dependency_key' = $2"
 		args = append(args, dependencyKey)
 	}
 
-	baseQuery += " ORDER BY finished_at DESC NULLS LAST, created_at DESC LIMIT 1"
+	query := `
+		SELECT d.condition, latest.status
+		FROM job_dependencies d
+		LEFT JOIN LATERAL (
+			SELECT r.status
+			FROM job_runs r
+			WHERE r.job_id = d.depends_on_job_id
+			  AND r.status IN ('completed', 'failed', 'timed_out', 'crashed', 'system_failed', 'canceled', 'expired', 'dead_letter')` + latestFilter + `
+			ORDER BY r.finished_at DESC NULLS LAST, r.created_at DESC
+			LIMIT 1
+		) latest ON true
+		WHERE d.job_id = $1`
 
-	run, err := dbscan.ScanRun(q.db.QueryRow(ctx, baseQuery, args...))
+	rows, err := q.db.Query(ctx, query, args...)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, err
+		return false, fmt.Errorf("evaluate job dependencies: %w", err)
 	}
-	return run, nil
+	defer rows.Close()
+
+	for rows.Next() {
+		var condition string
+		var status *string
+		if scanErr := rows.Scan(&condition, &status); scanErr != nil {
+			return false, fmt.Errorf("evaluate job dependencies scan: %w", scanErr)
+		}
+		if status == nil {
+			// No matching terminal run for this dependency yet.
+			return false, nil
+		}
+
+		matched := domain.RunStatus(*status)
+		switch condition {
+		case "completed":
+			if matched != domain.StatusCompleted {
+				return false, nil
+			}
+		case "failed":
+			if !isFailureTerminalStatus(matched) {
+				return false, nil
+			}
+		case "any":
+			if !matched.IsTerminal() {
+				return false, nil
+			}
+		default:
+			return false, fmt.Errorf("unknown dependency condition %q", condition)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, fmt.Errorf("evaluate job dependencies rows: %w", err)
+	}
+
+	return true, nil
 }
 
 func isFailureTerminalStatus(status domain.RunStatus) bool {

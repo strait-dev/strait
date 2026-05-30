@@ -112,7 +112,7 @@ func (e *Executor) poll(ctx context.Context) {
 			"priority": run.Priority,
 		})
 		e.pool.Submit(execCtx, func() {
-			if qm, qmErr := queue.Metrics(); qmErr == nil && qm != nil {
+			if qm := e.queueMetrics; qm != nil && qm.ClaimToStart != nil {
 				qm.ClaimToStart.Record(execCtx, time.Since(claimedAt).Seconds())
 			}
 			addWorkerRunBreadcrumb(execCtx, "worker.dispatch", "run dispatch starting", &run, nil, nil)
@@ -146,19 +146,32 @@ func (e *Executor) poll(ctx context.Context) {
 	}
 }
 
-// checkMemoryPressure returns true (and logs) when heap pressure exceeds the configured threshold.
+// memStatsSampleInterval bounds how often checkMemoryPressure performs a
+// stop-the-world runtime.ReadMemStats. Between samples the last verdict is
+// reused, so a fast (degraded) poll loop does not pause the world every cycle.
+const memStatsSampleInterval = time.Second
+
+// checkMemoryPressure returns true (and logs) when heap pressure exceeds the
+// configured threshold. ReadMemStats is throttled to memStatsSampleInterval
+// because it stops the world; between samples the cached verdict is returned.
 func (e *Executor) checkMemoryPressure() bool {
 	if e.memoryPressureThreshold <= 0 {
 		return false
 	}
+	now := time.Now().UnixNano()
+	if last := e.memStatsLastSample.Load(); last != 0 && now-last < int64(memStatsSampleInterval) {
+		return e.memStatsPressure.Load()
+	}
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
 	heapPct := float64(memStats.HeapAlloc) / float64(memStats.Sys) * 100
-	if heapPct > e.memoryPressureThreshold {
+	pressured := heapPct > e.memoryPressureThreshold
+	e.memStatsPressure.Store(pressured)
+	e.memStatsLastSample.Store(now)
+	if pressured {
 		e.logger.Warn("memory pressure: skipping dequeue", "heap_pct", heapPct, "threshold", e.memoryPressureThreshold)
-		return true
 	}
-	return false
+	return pressured
 }
 
 // computeAvailable returns the number of runs that can be dequeued this cycle,

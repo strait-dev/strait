@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+	"strait/internal/store"
 )
 
 func TestCreateJobDependency(t *testing.T) {
@@ -195,5 +196,175 @@ func TestAreJobDependenciesSatisfied_NoDeps(t *testing.T) {
 	}
 	if !satisfied {
 		t.Fatal("AreJobDependenciesSatisfied() = false, want true (no deps)")
+	}
+}
+
+// mustCreateTerminalDepRun inserts a run for depJob in the given terminal status,
+// optionally tagged with an idempotency key, to back dependency-satisfaction tests.
+func mustCreateTerminalDepRun(t *testing.T, ctx context.Context, q *store.Queries, depJob *domain.Job, status domain.RunStatus, idempotencyKey string) {
+	t.Helper()
+	run := baseRun(depJob, newID())
+	run.Status = status
+	run.IdempotencyKey = idempotencyKey
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun(dep %s) error = %v", status, err)
+	}
+}
+
+func mustAddDependency(t *testing.T, ctx context.Context, q *store.Queries, job, depJob *domain.Job, condition string) {
+	t.Helper()
+	dep := &domain.JobDependency{JobID: job.ID, DependsOnJobID: depJob.ID, Condition: condition}
+	if err := q.CreateJobDependency(ctx, dep); err != nil {
+		t.Fatalf("CreateJobDependency() error = %v", err)
+	}
+}
+
+func TestAreJobDependenciesSatisfied_Conditions(t *testing.T) {
+	tests := []struct {
+		name       string
+		condition  string
+		depStatus  domain.RunStatus
+		wantOK     bool
+		noTerminal bool // create no terminal run for the dependency
+	}{
+		{name: "completed satisfied", condition: "completed", depStatus: domain.StatusCompleted, wantOK: true},
+		{name: "completed but failed", condition: "completed", depStatus: domain.StatusFailed, wantOK: false},
+		{name: "failed satisfied", condition: "failed", depStatus: domain.StatusFailed, wantOK: true},
+		{name: "failed but completed", condition: "failed", depStatus: domain.StatusCompleted, wantOK: false},
+		{name: "any with canceled", condition: "any", depStatus: domain.StatusCanceled, wantOK: true},
+		{name: "no terminal run", condition: "completed", noTerminal: true, wantOK: false},
+	}
+
+	ctx := context.Background()
+	q := mustStore(t)
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mustClean(t, ctx)
+			projectID := "project-deps-cond"
+			job := mustCreateJob(t, ctx, q, projectID)
+			depJob := mustCreateJob(t, ctx, q, projectID)
+			mustAddDependency(t, ctx, q, job, depJob, tc.condition)
+
+			if !tc.noTerminal {
+				mustCreateTerminalDepRun(t, ctx, q, depJob, tc.depStatus, "")
+			}
+
+			run := baseRun(job, newID())
+			if err := q.CreateRun(ctx, run); err != nil {
+				t.Fatalf("CreateRun() error = %v", err)
+			}
+
+			got, err := q.AreJobDependenciesSatisfied(ctx, run)
+			if err != nil {
+				t.Fatalf("AreJobDependenciesSatisfied() error = %v", err)
+			}
+			if got != tc.wantOK {
+				t.Fatalf("AreJobDependenciesSatisfied() = %v, want %v", got, tc.wantOK)
+			}
+		})
+	}
+}
+
+func TestAreJobDependenciesSatisfied_MultipleDeps(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-deps-multi"
+	job := mustCreateJob(t, ctx, q, projectID)
+	depA := mustCreateJob(t, ctx, q, projectID)
+	depB := mustCreateJob(t, ctx, q, projectID)
+	mustAddDependency(t, ctx, q, job, depA, "completed")
+	mustAddDependency(t, ctx, q, job, depB, "completed")
+
+	// Only depA has completed; depB has no terminal run yet.
+	mustCreateTerminalDepRun(t, ctx, q, depA, domain.StatusCompleted, "")
+
+	run := baseRun(job, newID())
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+
+	got, err := q.AreJobDependenciesSatisfied(ctx, run)
+	if err != nil {
+		t.Fatalf("AreJobDependenciesSatisfied() error = %v", err)
+	}
+	if got {
+		t.Fatal("AreJobDependenciesSatisfied() = true, want false (depB unsatisfied)")
+	}
+
+	// Now satisfy depB.
+	mustCreateTerminalDepRun(t, ctx, q, depB, domain.StatusCompleted, "")
+	got, err = q.AreJobDependenciesSatisfied(ctx, run)
+	if err != nil {
+		t.Fatalf("AreJobDependenciesSatisfied() error = %v", err)
+	}
+	if !got {
+		t.Fatal("AreJobDependenciesSatisfied() = false, want true (both satisfied)")
+	}
+}
+
+func TestAreJobDependenciesSatisfied_IdempotencyScoped(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-deps-idem"
+	job := mustCreateJob(t, ctx, q, projectID)
+	depJob := mustCreateJob(t, ctx, q, projectID)
+	mustAddDependency(t, ctx, q, job, depJob, "completed")
+
+	// Two terminal dependency runs under different keys: K1 completed, K2 failed.
+	mustCreateTerminalDepRun(t, ctx, q, depJob, domain.StatusCompleted, "K1")
+	mustCreateTerminalDepRun(t, ctx, q, depJob, domain.StatusFailed, "K2")
+
+	// A run scoped to K1 sees only the completed run -> satisfied.
+	runK1 := baseRun(job, newID())
+	runK1.IdempotencyKey = "K1"
+	if err := q.CreateRun(ctx, runK1); err != nil {
+		t.Fatalf("CreateRun(K1) error = %v", err)
+	}
+	got, err := q.AreJobDependenciesSatisfied(ctx, runK1)
+	if err != nil {
+		t.Fatalf("AreJobDependenciesSatisfied(K1) error = %v", err)
+	}
+	if !got {
+		t.Fatal("AreJobDependenciesSatisfied(K1) = false, want true")
+	}
+
+	// A run scoped to K2 sees only the failed run -> not satisfied for "completed".
+	runK2 := baseRun(job, newID())
+	runK2.IdempotencyKey = "K2"
+	if err := q.CreateRun(ctx, runK2); err != nil {
+		t.Fatalf("CreateRun(K2) error = %v", err)
+	}
+	got, err = q.AreJobDependenciesSatisfied(ctx, runK2)
+	if err != nil {
+		t.Fatalf("AreJobDependenciesSatisfied(K2) error = %v", err)
+	}
+	if got {
+		t.Fatal("AreJobDependenciesSatisfied(K2) = true, want false")
+	}
+}
+
+func TestAreJobDependenciesSatisfied_UnknownCondition(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-deps-unknown"
+	job := mustCreateJob(t, ctx, q, projectID)
+	depJob := mustCreateJob(t, ctx, q, projectID)
+	mustAddDependency(t, ctx, q, job, depJob, "bogus")
+	mustCreateTerminalDepRun(t, ctx, q, depJob, domain.StatusCompleted, "")
+
+	run := baseRun(job, newID())
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+
+	if _, err := q.AreJobDependenciesSatisfied(ctx, run); err == nil {
+		t.Fatal("AreJobDependenciesSatisfied() expected error for unknown condition, got nil")
 	}
 }

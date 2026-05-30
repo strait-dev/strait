@@ -66,6 +66,10 @@ type CreateJobRequest struct {
 	OnFailureTriggerJob       string            `json:"on_failure_trigger_job,omitempty"`
 	OnFailureTriggerWorkflow  string            `json:"on_failure_trigger_workflow,omitempty"`
 	OnFailurePayloadMapping   json.RawMessage   `json:"on_failure_payload_mapping,omitempty"`
+	SingletonKeyExpr          json.RawMessage   `json:"singleton_key_expr,omitempty" doc:"Singleton key expression envelope ({\"template\":\"...\"}). When set, the job runs as a singleton keyed by the resolved template."`
+	SingletonOnConflict       string            `json:"singleton_on_conflict,omitempty" validate:"omitempty,oneof=queue drop replace" doc:"Collision policy when the singleton key is already held: queue, drop, or replace."`
+	SingletonMaxQueueDepth    *int              `json:"singleton_max_queue_depth,omitempty" validate:"omitempty,min=0" doc:"Optional per-key cap on queued-behind runs for the queue policy. NULL means unbounded."`
+	SingletonPreemptHigher    bool              `json:"singleton_preempt_higher_priority,omitempty" doc:"Under the queue policy, allow a strictly higher-priority newcomer to cancel the running lower-priority holder and take its place."`
 }
 
 const defaultJobQueueName = "default"
@@ -115,6 +119,10 @@ type UpdateJobRequest struct {
 	OnFailureTriggerJob       *string            `json:"on_failure_trigger_job,omitempty"`
 	OnFailureTriggerWorkflow  *string            `json:"on_failure_trigger_workflow,omitempty"`
 	OnFailurePayloadMapping   *json.RawMessage   `json:"on_failure_payload_mapping,omitempty"`
+	SingletonKeyExpr          *json.RawMessage   `json:"singleton_key_expr,omitempty" doc:"Singleton key expression envelope ({\"template\":\"...\"}). When set, the job runs as a singleton keyed by the resolved template."`
+	SingletonOnConflict       *string            `json:"singleton_on_conflict,omitempty" validate:"omitempty,oneof=queue drop replace" doc:"Collision policy when the singleton key is already held: queue, drop, or replace."`
+	SingletonMaxQueueDepth    *int               `json:"singleton_max_queue_depth,omitempty" validate:"omitempty,min=0" doc:"Optional per-key cap on queued-behind runs for the queue policy. NULL means unbounded."`
+	SingletonPreemptHigher    *bool              `json:"singleton_preempt_higher_priority,omitempty" doc:"Under the queue policy, allow a strictly higher-priority newcomer to cancel the running lower-priority holder and take its place."`
 }
 
 // CreateJobInput is the typed input for creating a job.
@@ -146,6 +154,9 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 		return nil, err
 	}
 	if err := s.checkCronOverlapPolicy(ctx, req.ProjectID, req.CronOverlapPolicy); err != nil {
+		return nil, err
+	}
+	if err := s.checkSingletonOnConflict(ctx, req.ProjectID, req.SingletonOnConflict); err != nil {
 		return nil, err
 	}
 	if err := s.checkScheduleLimit(ctx, req.ProjectID, req.Cron); err != nil {
@@ -208,6 +219,10 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 		OnFailureTriggerJob:       req.OnFailureTriggerJob,
 		OnFailureTriggerWorkflow:  req.OnFailureTriggerWorkflow,
 		OnFailurePayloadMapping:   req.OnFailurePayloadMapping,
+		SingletonKeyExpr:          req.SingletonKeyExpr,
+		SingletonOnConflict:       domain.SingletonOnConflict(req.SingletonOnConflict),
+		SingletonMaxQueueDepth:    req.SingletonMaxQueueDepth,
+		SingletonPreemptHigher:    req.SingletonPreemptHigher,
 		Enabled:                   true,
 		VersionPolicy:             domain.VersionPolicyPin,
 		CreatedBy:                 actorFromContext(ctx),
@@ -341,6 +356,34 @@ func (s *Server) validateCreateJobFields(ctx context.Context, req *CreateJobRequ
 	}
 	if err := validateQueueName(req.QueueName); err != nil {
 		return huma.Error400BadRequest(err.Error())
+	}
+	return validateSingletonConfig(req.SingletonKeyExpr, req.SingletonOnConflict, req.SingletonMaxQueueDepth)
+}
+
+// validateSingletonConfig validates the singleton configuration triple. A
+// singleton is configured when a key expression and an on-conflict policy are
+// both present; the two must travel together. The optional per-key queue depth
+// cap only applies to the queue policy.
+func validateSingletonConfig(keyExpr json.RawMessage, policy string, maxQueueDepth *int) error {
+	hasExpr := len(keyExpr) > 0 && string(keyExpr) != "null"
+	hasPolicy := policy != ""
+
+	if hasPolicy && !hasExpr {
+		return huma.Error400BadRequest("singleton_key_expr is required when singleton_on_conflict is set")
+	}
+	if hasExpr && !hasPolicy {
+		return huma.Error400BadRequest("singleton_on_conflict is required when singleton_key_expr is set")
+	}
+	if hasPolicy && !domain.SingletonOnConflict(policy).Valid() {
+		return huma.Error400BadRequest("singleton_on_conflict must be one of queue, drop, replace")
+	}
+	if hasExpr {
+		if _, err := domain.ParseSingletonKeyExpr(keyExpr); err != nil {
+			return huma.Error400BadRequest("invalid singleton_key_expr: " + err.Error())
+		}
+	}
+	if maxQueueDepth != nil && policy != string(domain.SingletonOnConflictQueue) {
+		return huma.Error400BadRequest("singleton_max_queue_depth is only valid with the queue on-conflict policy")
 	}
 	return nil
 }
@@ -708,6 +751,26 @@ func (s *Server) applyJobMetadataUpdate(ctx context.Context, job *domain.Job, re
 			return err
 		}
 		job.CronOverlapPolicy = domain.CronOverlapPolicy(*req.CronOverlapPolicy)
+	}
+	if req.SingletonKeyExpr != nil {
+		job.SingletonKeyExpr = *req.SingletonKeyExpr
+	}
+	if req.SingletonOnConflict != nil {
+		job.SingletonOnConflict = domain.SingletonOnConflict(*req.SingletonOnConflict)
+	}
+	if req.SingletonMaxQueueDepth != nil {
+		job.SingletonMaxQueueDepth = req.SingletonMaxQueueDepth
+	}
+	if req.SingletonPreemptHigher != nil {
+		job.SingletonPreemptHigher = *req.SingletonPreemptHigher
+	}
+	if req.SingletonKeyExpr != nil || req.SingletonOnConflict != nil || req.SingletonMaxQueueDepth != nil {
+		if err := validateSingletonConfig(job.SingletonKeyExpr, string(job.SingletonOnConflict), job.SingletonMaxQueueDepth); err != nil {
+			return err
+		}
+		if err := s.checkSingletonOnConflict(ctx, job.ProjectID, string(job.SingletonOnConflict)); err != nil {
+			return err
+		}
 	}
 	if req.ExecutionMode != nil {
 		mode := domain.ExecutionMode(*req.ExecutionMode)

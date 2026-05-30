@@ -23,6 +23,7 @@ type StepCallback struct {
 	metrics           *telemetry.Metrics
 	chExporter        *clickhouse.Exporter
 	statusHook        WorkflowRunStatusHook
+	stepDefs          *stepDefCache
 	progressionEngine string
 	stepsCache        *workflowStepsVersionCache
 }
@@ -41,9 +42,10 @@ type CallbackStore interface {
 	GetWorkflowRun(ctx context.Context, id string) (*domain.WorkflowRun, error)
 	UpdateWorkflowRunStatus(ctx context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error
 	ListStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error)
-	ListRunnableStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int) ([]domain.WorkflowStepRun, error)
-	ListRunningStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int) ([]domain.WorkflowStepRun, error)
+	ListStepRunsForScheduling(ctx context.Context, workflowRunID string) ([]domain.WorkflowStepRun, error)
 	ListStepRunStatusesByWorkflowRun(ctx context.Context, workflowRunID string) (map[string]domain.StepRunStatus, error)
+	ListRunningStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int) ([]domain.WorkflowStepRun, error)
+	ListRunnableStepRunsByWorkflowRun(ctx context.Context, workflowRunID string, limit int) ([]domain.WorkflowStepRun, error)
 	CountNonTerminalStepRuns(ctx context.Context, workflowRunID string) (int, error)
 	ListFailedStepRunRefs(ctx context.Context, workflowRunID string) ([]string, error)
 	CancelNonTerminalStepRuns(ctx context.Context, workflowRunID string, finishedAt time.Time, reason string) (int64, error)
@@ -90,6 +92,7 @@ func NewStepCallback(store CallbackStore, engine *WorkflowEngine, logger *slog.L
 		store:             store,
 		engine:            engine,
 		logger:            logger,
+		stepDefs:          newStepDefCache(stepDefCacheTTL),
 		progressionEngine: "legacy",
 	}
 }
@@ -129,7 +132,26 @@ func (s *StepCallback) loadWfCtx(ctx context.Context, workflowRunID string) (*wf
 
 // loadStepDefinitions reads step definitions from the snapshot when available,
 // falling back to the live workflow_version_steps table for pre-snapshot runs.
+// Resolved definitions are memoized: they are immutable for a given snapshot ID
+// / (workflow, version) pair, so subsequent callbacks for the same run skip the
+// snapshot read and JSON parse entirely.
 func (s *StepCallback) loadStepDefinitions(ctx context.Context, wfRun *domain.WorkflowRun) ([]domain.WorkflowStep, error) {
+	key := stepDefCacheKey(wfRun)
+	if steps, ok := s.stepDefs.get(key); ok {
+		return steps, nil
+	}
+
+	steps, err := s.resolveStepDefinitions(ctx, wfRun)
+	if err != nil {
+		return nil, err
+	}
+
+	s.stepDefs.set(key, steps)
+	return steps, nil
+}
+
+// resolveStepDefinitions performs the uncached read of a run's step definitions.
+func (s *StepCallback) resolveStepDefinitions(ctx context.Context, wfRun *domain.WorkflowRun) ([]domain.WorkflowStep, error) {
 	if wfRun.WorkflowSnapshotID != "" {
 		snapshot, err := s.store.GetWorkflowSnapshot(ctx, wfRun.WorkflowSnapshotID)
 		if err != nil {

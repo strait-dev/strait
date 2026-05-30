@@ -19,6 +19,15 @@ const databaseUrl =
 const redisUrl = process.env.REDIS_URL || "redis://localhost:16379";
 const straitApiUrl =
   process.env.STRAIT_API_URL || `http://localhost:${apiPort}`;
+// CDC startup is fatal if Sequin config is missing, and the infisical dev env
+// ships these keys empty (an empty value in .dev.vars would override
+// process.env). Point the backend at the docker-compose Sequin so the consumer
+// provisions cleanly. Override via SEQUIN_* in the environment when needed.
+const sequinBaseUrl = process.env.SEQUIN_BASE_URL || "http://localhost:7376";
+const sequinConsumerName = process.env.SEQUIN_CONSUMER_NAME || "strait-cdc";
+const sequinDatabaseName = process.env.SEQUIN_DATABASE_NAME || "strait-db";
+const sequinApiToken =
+  process.env.SEQUIN_API_TOKEN || "local-dev-sequin-api-token-change-me";
 const defaultPlaywrightArgs = ["tests/harness", "tests/core-dashboard"];
 const playwrightArgs =
   process.argv.length > 2 ? process.argv.slice(2) : defaultPlaywrightArgs;
@@ -63,6 +72,10 @@ async function main() {
       PORT: apiPort,
       GRPC_PORT: grpcPort,
       STRAIT_API_URL: straitApiUrl,
+      SEQUIN_BASE_URL: sequinBaseUrl,
+      SEQUIN_CONSUMER_NAME: sequinConsumerName,
+      SEQUIN_DATABASE_NAME: sequinDatabaseName,
+      SEQUIN_API_TOKEN: sequinApiToken,
       CLICKHOUSE_EXPORT_ENABLED: "false",
       ALLOW_PRIVATE_ENDPOINTS: "true",
       WEBHOOK_REQUIRE_TLS: "false",

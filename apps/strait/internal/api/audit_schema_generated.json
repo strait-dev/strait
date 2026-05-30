@@ -546,6 +546,24 @@
         "bearer"
       ]
     },
+    "bundle.imported": {
+      "type": "object",
+      "description": "Configuration bundle imported; records per-action counts (created, updated, skipped).",
+      "x-forbidden-keys": [
+        "secret",
+        "value",
+        "password",
+        "private_key",
+        "auth_header",
+        "webhook_secret",
+        "endpoint_signing_secret",
+        "signing_secret",
+        "api_key_plaintext",
+        "raw_key",
+        "token",
+        "bearer"
+      ]
+    },
     "canary_deployment.created": {
       "type": "object",
       "description": "Workflow canary deployment created.",

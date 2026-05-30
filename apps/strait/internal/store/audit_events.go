@@ -1128,13 +1128,52 @@ func (q *Queries) preloadEpochKeys(ctx context.Context, projectID string, extraF
 	}
 	epochRows.Close()
 
+	// Default every distinct epoch to a nil entry so keyForEpoch sees the key
+	// as present-but-absent (matching the old per-epoch ErrNoRows -> nil), then
+	// overwrite with decrypted material for the epochs that have a stored key.
 	cache := make(map[int][]byte, len(epochs))
 	for _, epoch := range epochs {
-		stored, keyErr := q.GetAuditSigningKey(ctx, projectID, epoch)
+		cache[epoch] = nil
+	}
+	if len(epochs) == 0 {
+		return cache, nil
+	}
+
+	// Fetch all signing-key rows for these epochs in one query instead of one
+	// SELECT per epoch.
+	keyRows, err := q.db.Query(ctx, `
+		SELECT rotation_epoch, key_material
+		FROM audit_signing_keys
+		WHERE project_id = $1 AND rotation_epoch = ANY($2)
+	`, projectID, epochs)
+	if err != nil {
+		return nil, fmt.Errorf("preload epoch keys materials: %w", err)
+	}
+	defer keyRows.Close()
+
+	type epochKey struct {
+		epoch      int
+		ciphertext []byte
+	}
+	var stored []epochKey
+	for keyRows.Next() {
+		var ek epochKey
+		if scanErr := keyRows.Scan(&ek.epoch, &ek.ciphertext); scanErr != nil {
+			return nil, fmt.Errorf("preload epoch keys materials scan: %w", scanErr)
+		}
+		stored = append(stored, ek)
+	}
+	if err := keyRows.Err(); err != nil {
+		return nil, fmt.Errorf("preload epoch keys materials rows: %w", err)
+	}
+	keyRows.Close()
+
+	for _, ek := range stored {
+		plaintext, keyErr := q.decryptAuditKeyMaterial(ek.ciphertext, projectID, ek.epoch)
 		if keyErr != nil {
 			return nil, keyErr
 		}
-		cache[epoch] = stored
+		cache[ek.epoch] = plaintext
 	}
 	return cache, nil
 }

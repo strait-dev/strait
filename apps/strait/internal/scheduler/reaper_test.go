@@ -2247,6 +2247,64 @@ func TestReaper_ReapApprovalReminders_SendsReminder(t *testing.T) {
 	}
 }
 
+// TestReaper_ReapApprovalReminders_MemoizesChannelsPerProject verifies that
+// reminders clustered in the same project resolve their notification channels
+// through a single per-project lookup within one pass, while distinct projects
+// are each queried once.
+func TestReaper_ReapApprovalReminders_MemoizesChannelsPerProject(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	requested := now.Add(-35 * time.Minute)
+	expires := now.Add(25 * time.Minute)
+
+	wfRuns := map[string]*domain.WorkflowRun{
+		"wr-a1": {ID: "wr-a1", ProjectID: "proj-a", WorkflowID: "wf-1"},
+		"wr-a2": {ID: "wr-a2", ProjectID: "proj-a", WorkflowID: "wf-1"},
+		"wr-b1": {ID: "wr-b1", ProjectID: "proj-b", WorkflowID: "wf-2"},
+	}
+
+	var channelCalls []string
+	var deliveries int
+	ms := &mockNotifierReaperStore{
+		listApprovalsPastReminderPointFn: func(_ context.Context) ([]domain.WorkflowStepApproval, error) {
+			return []domain.WorkflowStepApproval{
+				{ID: "appr-a1", WorkflowRunID: "wr-a1", WorkflowStepRunID: "sr-a1", Status: "pending", RequestedAt: requested, ExpiresAt: &expires},
+				{ID: "appr-a2", WorkflowRunID: "wr-a2", WorkflowStepRunID: "sr-a2", Status: "pending", RequestedAt: requested, ExpiresAt: &expires},
+				{ID: "appr-b1", WorkflowRunID: "wr-b1", WorkflowStepRunID: "sr-b1", Status: "pending", RequestedAt: requested, ExpiresAt: &expires},
+			}, nil
+		},
+		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
+			return wfRuns[id], nil
+		},
+		listEnabledNotificationChannelsFn: func(_ context.Context, projectID string) ([]domain.NotificationChannel, error) {
+			channelCalls = append(channelCalls, projectID)
+			return []domain.NotificationChannel{{ID: "ch-" + projectID, ProjectID: projectID}}, nil
+		},
+		createNotificationDeliveryFn: func(_ context.Context, _ *domain.NotificationDelivery) error {
+			deliveries++
+			return nil
+		},
+	}
+
+	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
+	r.reapApprovalReminders(context.Background())
+
+	// Three approvals each get a delivery, but only two distinct projects.
+	if deliveries != 3 {
+		t.Fatalf("expected 3 deliveries, got %d", deliveries)
+	}
+	if len(channelCalls) != 2 {
+		t.Fatalf("expected 2 channel lookups (one per distinct project), got %d: %v", len(channelCalls), channelCalls)
+	}
+	seen := map[string]int{}
+	for _, p := range channelCalls {
+		seen[p]++
+	}
+	if seen["proj-a"] != 1 || seen["proj-b"] != 1 {
+		t.Fatalf("expected exactly one lookup per project, got %v", seen)
+	}
+}
+
 func TestReaper_ReapApprovalReminders_BeforeHalfway_NoReminder(t *testing.T) {
 	t.Parallel()
 	deliveryCalled := false

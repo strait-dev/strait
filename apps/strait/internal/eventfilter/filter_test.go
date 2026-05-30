@@ -2,6 +2,8 @@ package eventfilter
 
 import (
 	"encoding/json"
+	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -185,6 +187,65 @@ func TestEval(t *testing.T) {
 				t.Fatalf("Eval() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// getFieldSplit is the previous strings.Split-based traversal, kept here purely
+// as the reference semantics the allocation-free getField must reproduce.
+func getFieldSplit(data map[string]any, path string) any {
+	parts := strings.Split(path, ".")
+	var current any = data
+	for _, part := range parts {
+		m, ok := current.(map[string]any)
+		if !ok {
+			return nil
+		}
+		current, ok = m[part]
+		if !ok {
+			return nil
+		}
+	}
+	return current
+}
+
+// TestGetField_MatchesSplitSemantics proves the allocation-free traversal
+// returns the same value as the strings.Split reference for nested lookups and
+// for malformed paths (leading, trailing, and consecutive dots).
+func TestGetField_MatchesSplitSemantics(t *testing.T) {
+	data := map[string]any{
+		"type": "deploy",
+		"user": map[string]any{
+			"name": "alice",
+			"role": "admin",
+			"":     "empty-key",
+		},
+		"": map[string]any{
+			"nested": "leading-dot",
+		},
+		"nilval": nil,
+	}
+
+	paths := []string{
+		"type",
+		"user.name",
+		"user.role",
+		"user.email",   // missing leaf
+		"user.name.x",  // traverse into a non-map
+		"missing.path", // missing intermediate
+		".nested",      // leading dot
+		"user.",        // trailing dot -> empty leaf segment
+		"user..name",   // consecutive dots
+		"",             // empty path
+		"nilval",       // explicit nil value
+		"nilval.x",     // descend into nil
+	}
+
+	for _, p := range paths {
+		want := getFieldSplit(data, p)
+		got := getField(data, p)
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("getField(%q) = %#v, want %#v (split reference)", p, got, want)
+		}
 	}
 }
 

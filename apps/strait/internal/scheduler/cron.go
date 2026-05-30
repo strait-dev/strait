@@ -33,10 +33,6 @@ type CronStore interface {
 	TryAcquireCronFire(ctx context.Context, projectID, key string, ttl time.Duration) (bool, error)
 }
 
-type cronCancelExceptStore interface {
-	CancelActiveRunsForJobExcept(ctx context.Context, jobID string, excludeRunID string, reason string) ([]store.CanceledRun, error)
-}
-
 type CronAdmissionStore interface {
 	GetProjectQuota(ctx context.Context, projectID string) (*store.ProjectQuota, error)
 	CountProjectQueuedRuns(ctx context.Context, projectID string) (int, error)
@@ -75,6 +71,9 @@ type CronScheduler struct {
 	driftSchedules    map[string]cron.Schedule
 	scheduleMu        sync.Mutex
 	entryIDs          []cron.EntryID
+	// overlapDeprecationLogged dedupes the per-job deprecation warning emitted
+	// when an explicit singleton config supersedes a legacy cron_overlap_policy.
+	overlapDeprecationLogged sync.Map
 }
 
 // NewCronScheduler creates a new cron-based job and workflow scheduler.
@@ -208,33 +207,54 @@ func (cs *CronScheduler) triggerJobLocked(ctx context.Context, job domain.Job, f
 		run.ExpiresAt = &exp
 	}
 
-	switch job.CronOverlapPolicy {
-	case domain.OverlapPolicySkip:
-		active, err := cs.store.CountActiveRunsForJob(ctx, job.ID)
-		if err != nil {
-			slog.Error("failed to count active runs for job", "job_id", job.ID, "error", err)
-			if cs.metrics != nil {
-				cs.metrics.CronTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "error")))
-			}
-			return
+	// Unify the legacy cron_overlap_policy with first-class singleton execution:
+	// the singleton lock table is the single mechanism that decides what happens
+	// when a cron fire overlaps a still-active run. Explicit singleton config wins;
+	// skip -> drop and cancel_running -> replace map onto a per-job constant key.
+	eff := domain.EffectiveJobCronSingleton(&job)
+	if eff.Configured {
+		if eff.LegacyOverridden {
+			cs.logOverlapDeprecation(job.ID)
 		}
-		if active > 0 {
-			slog.Info("skipping cron trigger: job has active runs",
-				"job_id", job.ID, "active", active, "policy", "skip")
+		key, keyErr := resolveCronSingletonKey(eff.KeyExpr)
+		if keyErr != nil {
+			// A key template that needs payload interpolation cannot resolve for a
+			// cron fire (no payload). Rather than silently drop the run, fall back to
+			// a plain enqueue and surface the misconfiguration.
+			slog.Warn("cron singleton key unresolvable; enqueuing without singleton enforcement",
+				"job_id", job.ID, "project_id", job.ProjectID, "error", keyErr)
 			if cs.metrics != nil {
-				cs.metrics.CronTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "skipped")))
+				cs.metrics.CronTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "warning")))
 			}
-			return
+			eff.Configured = false
+		} else {
+			run.SingletonKey = key
 		}
-
-	case domain.OverlapPolicyAllow:
-		// Default: always enqueue.
-
-	default:
-		// Treat unknown/empty as allow for forward compatibility.
 	}
 
+	var outcome domain.SingletonOutcome
+	var holderID string
 	err := cs.withCronAdmissionGuard(ctx, &job, func(enqueueCtx context.Context, tx store.DBTX) error {
+		switch {
+		case eff.Configured && tx == nil:
+			// The singleton acquire and the run insert must commit together; a
+			// non-transactional store (test doubles) cannot guarantee that, so fall
+			// through to a plain enqueue without enforcement.
+			slog.Warn("cron singleton requires a transactional store; enqueuing without enforcement",
+				"job_id", job.ID, "project_id", job.ProjectID)
+		case eff.Configured:
+			proceed, oc, hid, serr := cs.applyCronJobSingleton(enqueueCtx, tx, &job, &run, eff)
+			if serr != nil {
+				return serr
+			}
+			outcome, holderID = oc, hid
+			if !proceed {
+				// dropped / queued_behind / replaced: the policy parked or discarded
+				// the run inside this tx. Nothing left to enqueue.
+				return nil
+			}
+			// dispatched: the run acquired the key; enqueue it holding the lock.
+		}
 		if tx != nil && cs.queue != nil {
 			return cs.queue.EnqueueInTx(enqueueCtx, tx, &run)
 		}
@@ -262,21 +282,39 @@ func (cs *CronScheduler) triggerJobLocked(ctx context.Context, job domain.Job, f
 		return
 	}
 
-	if job.CronOverlapPolicy == domain.OverlapPolicyCancelRunning {
-		canceledRuns, cancelErr := cs.cancelActiveRunsForReplacement(ctx, job.ID, run.ID,
-			"canceled by cron overlap policy: cancel_running")
-		if cancelErr != nil {
-			slog.Error("failed to cancel active runs after cron enqueue", "job_id", job.ID, "error", cancelErr)
-			if cs.metrics != nil {
-				cs.metrics.CronTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "error")))
-			}
-			return
+	// A replace canceled the prior holder inside the policy tx; cancel its child
+	// runs and notify the workflow engine, matching the legacy cancel_running side
+	// effects. The singleton lock release and successor promotion are handled by
+	// the canceled holder's terminal transition (reaper / fast-path).
+	if outcome == domain.SingletonOutcomeReplaced && holderID != "" {
+		cs.processCanceledRuns(ctx, job.ID, []store.CanceledRun{{
+			ID:            holderID,
+			JobID:         job.ID,
+			ProjectID:     job.ProjectID,
+			ExecutionMode: job.ExecutionMode,
+		}})
+	}
+
+	switch outcome {
+	case domain.SingletonOutcomeDropped:
+		if cs.metrics != nil {
+			cs.metrics.CronTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "skipped")))
 		}
-		if len(canceledRuns) > 0 {
-			slog.Info("canceled active runs after cron enqueue",
-				"job_id", job.ID, "canceled", len(canceledRuns), "policy", "cancel_running")
-			cs.processCanceledRuns(ctx, job.ID, canceledRuns)
+		slog.Info("cron run dropped by singleton policy",
+			"job_id", job.ID, "project_id", job.ProjectID, "singleton_key", run.SingletonKey)
+		return
+	case domain.SingletonOutcomeQueuedBehind, domain.SingletonOutcomeReplaced:
+		// Both park the newcomer rather than enqueue it: queued_behind waits for the
+		// holder to finish, replaced waits for the just-canceled holder to release.
+		if cs.metrics != nil {
+			cs.metrics.CronTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "success")))
 		}
+		slog.Info("cron run parked behind singleton holder",
+			"job_id", job.ID, "project_id", job.ProjectID, "run_id", run.ID,
+			"singleton_key", run.SingletonKey, "outcome", string(outcome))
+		return
+	case domain.SingletonOutcomeDispatched:
+		// Acquired the key (or no singleton): fall through to the enqueue success log.
 	}
 
 	if cs.metrics != nil {
@@ -286,11 +324,65 @@ func (cs *CronScheduler) triggerJobLocked(ctx context.Context, job domain.Job, f
 	slog.Info("cron run enqueued", "job_id", job.ID, "project_id", job.ProjectID, "run_id", run.ID)
 }
 
-func (cs *CronScheduler) cancelActiveRunsForReplacement(ctx context.Context, jobID string, replacementRunID string, reason string) ([]store.CanceledRun, error) {
-	if s, ok := cs.store.(cronCancelExceptStore); ok {
-		return s.CancelActiveRunsForJobExcept(ctx, jobID, replacementRunID, reason)
+// resolveCronSingletonKey resolves a singleton key expression for a cron fire,
+// which carries no payload. A constant template resolves to itself; a template
+// with ${path} interpolation cannot resolve and returns an error so the caller
+// can fall back to a plain enqueue.
+func resolveCronSingletonKey(keyExpr json.RawMessage) (string, error) {
+	expr, err := domain.ParseSingletonKeyExpr(keyExpr)
+	if err != nil {
+		return "", err
 	}
-	return cs.store.CancelActiveRunsForJob(ctx, jobID, reason)
+	key, err := domain.ResolveSingletonKey(expr, nil)
+	if err != nil {
+		return "", err
+	}
+	if key == "" {
+		return "", fmt.Errorf("singleton key resolved to an empty value")
+	}
+	return key, nil
+}
+
+// logOverlapDeprecation warns once per job that an explicit singleton config has
+// superseded a legacy cron_overlap_policy set on the same job.
+func (cs *CronScheduler) logOverlapDeprecation(jobID string) {
+	if _, loaded := cs.overlapDeprecationLogged.LoadOrStore(jobID, struct{}{}); loaded {
+		return
+	}
+	slog.Warn("cron_overlap_policy is ignored because the job has explicit singleton config; "+
+		"remove cron_overlap_policy and rely on singleton settings",
+		"job_id", jobID)
+}
+
+// applyCronJobSingleton applies the job's singleton on-conflict policy to a cron
+// fire inside the admission transaction and records the matching metric. It
+// returns proceed=true only when the key was acquired (dispatched), so the caller
+// continues to the enqueue path with the lock held; on conflict it reports the
+// outcome and holder run id so the caller can run the replace side effects. This
+// mirrors the API trigger handler's applyJobSingletonPolicy so cron and direct
+// triggers share one policy path.
+func (cs *CronScheduler) applyCronJobSingleton(
+	ctx context.Context,
+	tx store.DBTX,
+	job *domain.Job,
+	run *domain.JobRun,
+	eff domain.EffectiveCronSingleton,
+) (proceed bool, outcome domain.SingletonOutcome, holderID string, err error) {
+	proceed, outcome, holderID, err = store.New(tx).ApplyJobSingletonConflictPolicy(
+		ctx, run, job.ProjectID, job.ID, run.SingletonKey, eff.OnConflict, eff.MaxQueueDepth, eff.Preempt,
+	)
+	if err != nil {
+		return false, "", "", err
+	}
+	switch {
+	case outcome == domain.SingletonOutcomeDispatched:
+		cs.metrics.RecordSingletonAcquisition(ctx, domain.SingletonKindJob)
+	case outcome == domain.SingletonOutcomeReplaced && eff.OnConflict == domain.SingletonOnConflictQueue:
+		cs.metrics.RecordSingletonPreemption(ctx, domain.SingletonKindJob)
+	default:
+		cs.metrics.RecordSingletonConflict(ctx, domain.SingletonKindJob, eff.OnConflict)
+	}
+	return proceed, outcome, holderID, nil
 }
 
 func (cs *CronScheduler) withCronAdmissionGuard(ctx context.Context, job *domain.Job, fn func(context.Context, store.DBTX) error) error {
@@ -430,24 +522,10 @@ func (cs *CronScheduler) triggerWorkflowLocked(ctx context.Context, workflow dom
 
 	cs.recordCronDrift(ctx, workflow.Cron)
 
-	if workflow.SkipIfRunning {
-		running, err := cs.store.CountRunningWorkflowRuns(ctx, workflow.ID)
-		if err != nil {
-			slog.Error("failed to count running workflow runs", "workflow_id", workflow.ID, "error", err)
-			if cs.metrics != nil {
-				cs.metrics.CronTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "error")))
-			}
-			return
-		}
-		if running > 0 {
-			slog.Info("skipping cron workflow trigger because run is active", "workflow_id", workflow.ID, "running", running)
-			if cs.metrics != nil {
-				cs.metrics.CronTriggers.Add(ctx, 1, metric.WithAttributes(attribute.String("status", "skipped")))
-			}
-			return
-		}
-	}
-
+	// SkipIfRunning is no longer enforced here: the workflow engine maps it (and
+	// explicit workflow singleton config) onto the singleton lock table inside
+	// TriggerWorkflow, so an overlapping cron fire is dropped there atomically with
+	// run creation rather than via a racy pre-check.
 	if _, err := cs.workflowTrigger.TriggerWorkflow(ctx, workflow.ID, workflow.ProjectID, nil, domain.TriggerCron, nil, map[string]string{"cron_fire_key": fireKey}); err != nil {
 		slog.Error("failed to trigger cron workflow", "workflow_id", workflow.ID, "project_id", workflow.ProjectID, "error", err)
 		if cs.metrics != nil {

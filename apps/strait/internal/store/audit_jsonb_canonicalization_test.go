@@ -119,6 +119,11 @@ func (f *fakeJSONBDBTX) Exec(_ context.Context, sql string, args ...any) (pgconn
 }
 
 func (f *fakeJSONBDBTX) Query(_ context.Context, sql string, args ...any) (pgx.Rows, error) {
+	if strings.Contains(sql, "FROM audit_signing_keys") {
+		// Batched per-epoch key lookup. No stored per-epoch key — the test
+		// uses the global fallback, so return an empty rows iterator.
+		return &fakeEmptyRows{}, nil
+	}
 	if !strings.Contains(sql, "FROM audit_events") {
 		return nil, errors.New("fake: unexpected Query")
 	}
@@ -297,6 +302,20 @@ func (r *fakeEpochRows) Scan(dest ...any) error {
 	*dest[0].(*int) = row["epoch"].(int)
 	return nil
 }
+
+// fakeEmptyRows is a zero-row pgx.Rows iterator. Used by the batched
+// audit_signing_keys lookup when no per-epoch key is stored.
+type fakeEmptyRows struct{}
+
+func (r *fakeEmptyRows) Close()                                       {}
+func (r *fakeEmptyRows) Err() error                                   { return nil }
+func (r *fakeEmptyRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
+func (r *fakeEmptyRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (r *fakeEmptyRows) Values() ([]any, error)                       { return nil, nil }
+func (r *fakeEmptyRows) RawValues() [][]byte                          { return nil }
+func (r *fakeEmptyRows) Conn() *pgx.Conn                              { return nil }
+func (r *fakeEmptyRows) Next() bool                                   { return false }
+func (r *fakeEmptyRows) Scan(_ ...any) error                          { return errors.New("fake: Scan on empty rows") }
 
 // fakeJSONBRows replays stored rows through pgx.Rows.
 type fakeJSONBRows struct {

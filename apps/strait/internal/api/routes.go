@@ -107,11 +107,9 @@ func (s *Server) routes() chi.Router {
 	// once per process via sync.Once. The spec is identical for every server
 	// since it depends only on handler types, not runtime state.
 	cachedOpenAPIOnce.Do(func() {
-		// Replace Huma's default RFC 9457 ErrorModel with the Strait
-		// ErrorResponse envelope. Must run before huma.Register calls so
+		// The Strait ErrorResponse envelope override (installHumaErrorOverride)
+		// is installed in package init, before any huma.Register call here, so
 		// the generated spec references the correct error schema.
-		installHumaErrorOverride()
-
 		humaConfig := huma.DefaultConfig("Strait API", "1.0.0")
 		humaConfig.Info.Description = "Production-grade job orchestration platform for background jobs and workflows."
 		humaConfig.Servers = []*huma.Server{
@@ -291,6 +289,7 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeJobsWrite)).Delete("/dependencies/{depID}", TypedHandler(s, http.StatusNoContent, s.handleDeleteJobDependency))
 				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/versions", TypedHandler(s, http.StatusOK, s.handleListJobVersions))
 				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/versions/{versionID}", TypedHandler(s, http.StatusOK, s.handleGetJobVersion))
+				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/singletons", TypedHandler(s, http.StatusOK, s.handleListJobSingletons))
 				r.With(s.requirePermission(domain.ScopeJobsWrite), s.idempotencyMiddleware).Post("/clone", TypedHandler(s, http.StatusCreated, s.handleCloneJob))
 				r.With(s.requirePermission(domain.ScopeJobsRead)).Get("/health", TypedHandler(s, http.StatusOK, s.handleGetJobHealth))
 				r.With(s.requirePermission(domain.ScopeJobsWrite)).Post("/pause", TypedHandler(s, http.StatusOK, s.handlePauseJob))
@@ -562,6 +561,7 @@ func (s *Server) routes() chi.Router {
 				r.With(s.requirePermission(domain.ScopeWorkflowsWrite), s.idempotencyMiddleware).Post("/clone", TypedHandler(s, http.StatusCreated, s.handleCloneWorkflow))
 				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/runs", TypedHandler(s, http.StatusOK, s.handleListWorkflowRuns))
 				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/versions", TypedHandler(s, http.StatusOK, s.handleListWorkflowVersions))
+				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/singletons", TypedHandler(s, http.StatusOK, s.handleListWorkflowSingletons))
 				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/versions/{versionID}", TypedHandler(s, http.StatusOK, s.handleGetWorkflowVersion))
 				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/versions/{versionID}/steps", TypedHandler(s, http.StatusOK, s.handleListWorkflowVersionSteps))
 				r.With(s.requirePermission(domain.ScopeWorkflowsRead)).Get("/versions/{fromVersionID}/diff/{toVersionID}", TypedHandler(s, http.StatusOK, s.handleWorkflowVersionDiff))

@@ -92,6 +92,7 @@ type ProjectStore interface {
 type JobStore interface {
 	CreateJob(ctx context.Context, job *domain.Job) error
 	GetJob(ctx context.Context, id string) (*domain.Job, error)
+	GetJobsByIDs(ctx context.Context, ids []string) (map[string]*domain.Job, error)
 	GetJobBySlug(ctx context.Context, projectID, slug string) (*domain.Job, error)
 	ListJobs(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Job, error)
 	UpdateJob(ctx context.Context, job *domain.Job) error
@@ -100,6 +101,8 @@ type JobStore interface {
 	ListJobsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.Job, error)
 	ListJobVersionsByJob(ctx context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobVersion, error)
 	GetJobVersionByVersionID(ctx context.Context, versionID string) (*domain.JobVersion, error)
+	ListSingletonLocksPage(ctx context.Context, projectID string, kind domain.SingletonKind, ownerID string, limit int, cursor *time.Time) ([]domain.SingletonLock, error)
+	CountSingletonWaiters(ctx context.Context, kind domain.SingletonKind, ownerID, lockKey string) (int, error)
 	GetJobHealthStats(ctx context.Context, jobID string, since time.Time) (*store.JobHealthStats, error)
 	CreateJobGroup(ctx context.Context, group *domain.JobGroup) error
 	GetJobGroup(ctx context.Context, id string) (*domain.JobGroup, error)
@@ -316,6 +319,7 @@ type EventSourceStore interface {
 type WorkflowStore interface {
 	CreateWorkflow(ctx context.Context, w *domain.Workflow) error
 	GetWorkflow(ctx context.Context, id string) (*domain.Workflow, error)
+	GetWorkflowsByIDs(ctx context.Context, ids []string) (map[string]*domain.Workflow, error)
 	GetWorkflowBySlug(ctx context.Context, projectID, slug string) (*domain.Workflow, error)
 	ListWorkflows(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Workflow, error)
 	ListWorkflowsByTag(ctx context.Context, projectID, tagKey, tagValue string, limit int, cursor *time.Time) ([]domain.Workflow, error)
@@ -527,6 +531,7 @@ type WorkflowTrigger interface {
 		stepOverrides []domain.StepOverride,
 		extraTags map[string]string,
 	) (*domain.WorkflowRun, error)
+	TriggerWorkflowWithOutcome(ctx context.Context, workflowID, projectID string, payload json.RawMessage, triggeredBy string, stepOverrides []domain.StepOverride, extraTags map[string]string, priority int) (*domain.WorkflowRun, domain.SingletonOutcome, string, error)
 	RetryWorkflowRun(ctx context.Context, originalRunID string) (*domain.WorkflowRun, error)
 }
 

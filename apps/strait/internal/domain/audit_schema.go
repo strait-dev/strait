@@ -135,6 +135,9 @@ var AuditActionSchemas = map[string]AuditActionSchema{
 		Required:    []string{"changes"},
 		Description: "Project-level settings updated (default region, key lifetime, etc.).",
 	},
+	AuditActionBundleImported: {
+		Description: "Configuration bundle imported; records per-action counts (created, updated, skipped).",
+	},
 
 	// Environments.
 	AuditActionEnvironmentCreated: {

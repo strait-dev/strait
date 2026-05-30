@@ -95,7 +95,11 @@ export class TestDataFactory {
     return { job, run };
   }
 
-  async workflow(prefix: string, jobIds: string[]) {
+  async workflow(
+    prefix: string,
+    jobIds: string[],
+    overrides: Partial<Parameters<ApiHelper["createWorkflow"]>[0]> = {}
+  ) {
     const workflow = await this.api.createWorkflow({
       name: this.name(prefix),
       steps: jobIds.map((jobId, index) => ({
@@ -103,6 +107,7 @@ export class TestDataFactory {
         step_ref: `step-${index + 1}`,
         depends_on: index === 0 ? [] : [`step-${index}`],
       })),
+      ...overrides,
     });
     this.cleanup.add(() => this.api.deleteWorkflow(workflow.id));
     return workflow;

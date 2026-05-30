@@ -71,10 +71,10 @@ func (q *Queries) CreateWorkflowRun(ctx context.Context, run *domain.WorkflowRun
 			workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
 			retry_of_run_id, parent_workflow_run_id, parent_step_run_id,
 			tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id,
-			expected_completion_at
+			expected_completion_at, singleton_key, priority
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-			$16::jsonb, $17, $18, $19::jsonb, $20, $21)
+			$16::jsonb, $17, $18, $19::jsonb, $20, $21, $22, $23)
 		RETURNING created_at`
 
 	err := q.db.QueryRow(
@@ -101,6 +101,8 @@ func (q *Queries) CreateWorkflowRun(ctx context.Context, run *domain.WorkflowRun
 		traceContextJSON,
 		dbscan.NilIfEmptyString(run.WorkflowSnapshotID),
 		run.ExpectedCompletionAt,
+		dbscan.NilIfEmptyString(run.SingletonKey),
+		run.Priority,
 	).Scan(&run.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("create workflow run snapshot_id=%q: %w", run.WorkflowSnapshotID, err)
@@ -116,7 +118,7 @@ func (q *Queries) GetWorkflowRun(ctx context.Context, id string) (*domain.Workfl
 	query := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at
+		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at, singleton_key, priority
 		FROM workflow_runs
 		WHERE id = $1`
 
@@ -138,7 +140,7 @@ func (q *Queries) GetWorkflowRunWithCacheVersion(ctx context.Context, id string)
 	query := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at, cache_version
+		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at, singleton_key, priority, cache_version
 		FROM workflow_runs
 		WHERE id = $1`
 
@@ -164,7 +166,7 @@ func (q *Queries) ListWorkflowRuns(ctx context.Context, workflowID string, limit
 		query := `
 			SELECT id, workflow_id, project_id, status, triggered_by, payload,
 			       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-			       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at
+			       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at, singleton_key, priority
 			FROM workflow_runs
 			WHERE workflow_id = $1 AND created_at < $3
 			ORDER BY created_at DESC
@@ -174,7 +176,7 @@ func (q *Queries) ListWorkflowRuns(ctx context.Context, workflowID string, limit
 		query := `
 			SELECT id, workflow_id, project_id, status, triggered_by, payload,
 			       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-			       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at
+			       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at, singleton_key, priority
 			FROM workflow_runs
 			WHERE workflow_id = $1
 			ORDER BY created_at DESC
@@ -210,7 +212,7 @@ func (q *Queries) ListWorkflowRunsByProject(ctx context.Context, projectID strin
 	baseQuery := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at
+		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at, singleton_key, priority
 		FROM workflow_runs
 		WHERE project_id = $1`
 
@@ -365,7 +367,7 @@ func (q *Queries) GetWorkflowRunsByParent(ctx context.Context, parentWorkflowRun
 	query := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at
+		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at, singleton_key, priority
 		FROM workflow_runs
 		WHERE parent_workflow_run_id = $1
 		ORDER BY created_at ASC
@@ -417,6 +419,8 @@ func scanWorkflowRunFields(scanner scanTarget, includeCacheVersion bool) (*domai
 	var traceContextJSON []byte
 	var workflowSnapshotID *string
 	var expectedCompletionAt *time.Time
+	var singletonKey *string
+
 	dest := []any{
 		&run.ID,
 		&run.WorkflowID,
@@ -440,6 +444,8 @@ func scanWorkflowRunFields(scanner scanTarget, includeCacheVersion bool) (*domai
 		&traceContextJSON,
 		&workflowSnapshotID,
 		&expectedCompletionAt,
+		&singletonKey,
+		&run.Priority,
 	}
 	if includeCacheVersion {
 		dest = append(dest, &run.CacheVersion)
@@ -488,6 +494,9 @@ func scanWorkflowRunFields(scanner scanTarget, includeCacheVersion bool) (*domai
 		run.WorkflowSnapshotID = *workflowSnapshotID
 	}
 	run.ExpectedCompletionAt = expectedCompletionAt
+	if singletonKey != nil {
+		run.SingletonKey = *singletonKey
+	}
 
 	return &run, nil
 }
@@ -514,19 +523,7 @@ func (q *Queries) CreateWorkflowRunBootstrap(ctx context.Context, run *domain.Wo
 	}
 
 	return q.withTx(ctx, func(txQ *Queries) error {
-		if err := txQ.CreateWorkflowRun(ctx, run); err != nil {
-			return fmt.Errorf("create workflow run bootstrap: %w", err)
-		}
-		if err := txQ.UpdateWorkflowRunStatus(ctx, run.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{"started_at": startedAt}); err != nil {
-			return fmt.Errorf("mark workflow running bootstrap: %w", err)
-		}
-		for i := range stepRuns {
-			sr := stepRuns[i]
-			if err := txQ.CreateWorkflowStepRun(ctx, &sr); err != nil {
-				return fmt.Errorf("create workflow step run bootstrap %s: %w", sr.StepRef, err)
-			}
-		}
-		return nil
+		return txQ.bootstrapWorkflowRunTx(ctx, run, stepRuns, startedAt)
 	})
 }
 
@@ -537,7 +534,7 @@ func (q *Queries) ListStalledWorkflowRuns(ctx context.Context, threshold time.Du
 	query := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at
+		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at, singleton_key, priority
 		FROM workflow_runs wr
 		WHERE wr.status = 'running'
 		  AND wr.started_at IS NOT NULL
@@ -578,7 +575,7 @@ func (q *Queries) ListWorkflowRunsByTag(ctx context.Context, projectID, tagKey, 
 	base := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at
+		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at, singleton_key, priority
 		FROM workflow_runs
 		WHERE project_id = $1`
 

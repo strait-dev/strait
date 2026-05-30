@@ -25,11 +25,13 @@ func (q *Queries) CreateWorkflowVersionSnapshot(ctx context.Context, workflowID 
 		INSERT INTO workflow_versions (
 			id, workflow_id, version, project_id, name, slug, description, enabled,
 			timeout_secs, max_concurrent_runs, max_parallel_steps, cron, cron_timezone, skip_if_running,
-			version_id, created_by, updated_by
+			version_id, created_by, updated_by,
+			singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth, singleton_preempt_higher_priority
 		)
 		SELECT $1, id, version, project_id, name, slug, description, enabled,
 		       timeout_secs, max_concurrent_runs, max_parallel_steps, cron, cron_timezone, skip_if_running,
-		       COALESCE(version_id, ''), COALESCE(created_by, ''), COALESCE(updated_by, '')
+		       COALESCE(version_id, ''), COALESCE(created_by, ''), COALESCE(updated_by, ''),
+		       singleton_key_expr, singleton_on_conflict, singleton_max_queue_depth, singleton_preempt_higher_priority
 		FROM workflows
 		WHERE id = $2 AND version = $3
 		ON CONFLICT (workflow_id, version)
@@ -47,7 +49,11 @@ func (q *Queries) CreateWorkflowVersionSnapshot(ctx context.Context, workflowID 
 			skip_if_running = EXCLUDED.skip_if_running,
 			version_id = EXCLUDED.version_id,
 			created_by = EXCLUDED.created_by,
-			updated_by = EXCLUDED.updated_by`
+			updated_by = EXCLUDED.updated_by,
+			singleton_key_expr = EXCLUDED.singleton_key_expr,
+			singleton_on_conflict = EXCLUDED.singleton_on_conflict,
+			singleton_max_queue_depth = EXCLUDED.singleton_max_queue_depth,
+			singleton_preempt_higher_priority = EXCLUDED.singleton_preempt_higher_priority`
 
 	tag, err := q.db.Exec(ctx, insertVersion, versionID, workflowID, version)
 	if err != nil {
@@ -314,7 +320,7 @@ func (q *Queries) ListTimedOutWorkflowRuns(ctx context.Context) ([]domain.Workfl
 	query := `
 		SELECT id, workflow_id, project_id, status, triggered_by, payload,
 		       workflow_version, max_parallel_steps, error, started_at, finished_at, expires_at,
-		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at
+		       retry_of_run_id, parent_workflow_run_id, parent_step_run_id, created_at, tags, workflow_version_id, created_by, trace_context, workflow_snapshot_id, expected_completion_at, singleton_key, priority
 		FROM workflow_runs
 		WHERE status IN ('running', 'paused')
 		  AND expires_at IS NOT NULL

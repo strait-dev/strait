@@ -106,25 +106,32 @@ func validatePath(path string) error {
 	if len(path) > maxFilterPathLength {
 		return fmt.Errorf("filter path exceeds %d bytes", maxFilterPathLength)
 	}
-	if len(strings.Split(path, ".")) > maxFilterPathDepth {
+	if strings.Count(path, ".")+1 > maxFilterPathDepth {
 		return fmt.Errorf("filter path exceeds %d segments", maxFilterPathDepth)
 	}
 	return nil
 }
 
-// getField traverses a nested map by dot-separated path.
+// getField traverses a nested map by dot-separated path. It walks the path in
+// place via strings.IndexByte so the common lookup does not allocate a slice of
+// segments; segmentation matches strings.Split(path, ".") for every input,
+// including leading, trailing, and consecutive dots.
 func getField(data map[string]any, path string) any {
-	parts := strings.Split(path, ".")
 	var current any = data
-	for _, part := range parts {
+	for {
 		m, ok := current.(map[string]any)
 		if !ok {
 			return nil
 		}
-		current, ok = m[part]
+		i := strings.IndexByte(path, '.')
+		if i < 0 {
+			return m[path]
+		}
+		next, ok := m[path[:i]]
 		if !ok {
 			return nil
 		}
+		current = next
+		path = path[i+1:]
 	}
-	return current
 }

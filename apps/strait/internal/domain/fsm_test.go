@@ -47,6 +47,17 @@ func TestValidateTransition_InvalidTransitions(t *testing.T) {
 	}
 }
 
+func TestValidateTransition_WaitingToQueued(t *testing.T) {
+	t.Parallel()
+	// A parked run (dependency wait, event-trigger wait, or singleton waiter)
+	// is re-admitted to the queue via waiting -> queued. This edge must stay
+	// valid: the reaper, workflow callbacks, and the singleton promoter all
+	// rely on it.
+	if err := ValidateTransition(StatusWaiting, StatusQueued); err != nil {
+		t.Fatalf("expected waiting -> queued to be valid, got %v", err)
+	}
+}
+
 func TestTerminalStatesHaveNoValidTransitions(t *testing.T) {
 	t.Parallel()
 	// dead_letter is terminal from the perspective of automatic state

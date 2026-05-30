@@ -775,10 +775,10 @@ func (q *Queries) ReceiveEventAndRequeueRun(ctx context.Context, triggerID strin
 	})
 }
 
-// BatchReceiveEventTriggers atomically marks multiple triggers as received
-// within a single transaction. Returns the list of trigger IDs that were
-// successfully updated. If the underlying DBTX doesn't support transactions,
-// falls back to sequential updates.
+// BatchReceiveEventTriggers atomically marks multiple triggers as received in a
+// single UPDATE. Returns the trigger IDs that actually transitioned; ids that
+// are missing or no longer in the waiting state are skipped, matching the
+// per-row conflict-skip of the prior loop-based implementation.
 func (q *Queries) BatchReceiveEventTriggers(ctx context.Context, triggerIDs []string, payload json.RawMessage, receivedAt time.Time, sentBy string) ([]string, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.BatchReceiveEventTriggers")
 	defer span.End()
@@ -787,35 +787,51 @@ func (q *Queries) BatchReceiveEventTriggers(ctx context.Context, triggerIDs []st
 		return nil, nil
 	}
 
-	do := func(txQ *Queries) ([]string, error) {
-		var resolved []string
-		for _, id := range triggerIDs {
-			if err := txQ.UpdateEventTriggerStatusFrom(ctx, id, domain.EventTriggerStatusWaiting, domain.EventTriggerStatusReceived, payload, &receivedAt, ""); err != nil {
-				if errors.Is(err, ErrEventTriggerConflict) {
-					continue
-				}
-				return resolved, fmt.Errorf("update trigger %s: %w", id, err)
-			}
-			if sentBy != "" {
-				_ = txQ.SetEventTriggerSentBy(ctx, id, sentBy) // non-fatal
-			}
-			resolved = append(resolved, id)
+	// A single UPDATE is atomic on its own, so the previous per-id loop (one
+	// UPDATE plus an optional sent_by UPDATE per trigger, all wrapped in a tx)
+	// collapses to one round trip. RETURNING reports the ids that actually
+	// transitioned; ids that are missing or no longer 'waiting' (concurrently
+	// received or expired) are simply absent from the result, matching the old
+	// per-row conflict-skip. sent_by is folded in via COALESCE so it is only
+	// overwritten when a non-empty sender is supplied.
+	query := `
+		UPDATE event_triggers
+		SET status = $1,
+		    response_payload = $2,
+		    received_at = $3,
+		    error = NULL,
+		    sent_by = COALESCE(NULLIF($4, ''), sent_by)
+		WHERE id = ANY($5)
+		  AND status = $6
+		RETURNING id`
+
+	rows, err := q.db.Query(
+		ctx,
+		query,
+		domain.EventTriggerStatusReceived,
+		dbscan.NilIfEmptyRawMessage(payload),
+		receivedAt,
+		sentBy,
+		triggerIDs,
+		domain.EventTriggerStatusWaiting,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("batch receive event triggers: %w", err)
+	}
+	defer rows.Close()
+
+	resolved := make([]string, 0, len(triggerIDs))
+	for rows.Next() {
+		var id string
+		if scanErr := rows.Scan(&id); scanErr != nil {
+			return nil, fmt.Errorf("batch receive event triggers scan: %w", scanErr)
 		}
-		return resolved, nil
+		resolved = append(resolved, id)
 	}
-
-	_, ok := q.db.(TxBeginner)
-	if !ok {
-		return do(q)
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("batch receive event triggers rows: %w", err)
 	}
-
-	var resolved []string
-	err := q.withTx(ctx, func(txQ *Queries) error {
-		var txErr error
-		resolved, txErr = do(txQ)
-		return txErr
-	})
-	return resolved, err
+	return resolved, nil
 }
 
 func defaultIfEmpty(s, def string) string {

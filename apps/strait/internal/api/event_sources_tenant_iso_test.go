@@ -63,9 +63,11 @@ func TestEventDispatch_JobsWriteDoesNotTriggerJobSubscription(t *testing.T) {
 				Enabled:    true,
 			}}, nil
 		},
-		GetJobFunc: func(context.Context, string) (*domain.Job, error) {
-			t.Fatal("GetJob must not be called when caller lacks jobs:trigger")
-			return nil, nil
+		GetJobsByIDsFunc: func(_ context.Context, ids []string) (map[string]*domain.Job, error) {
+			if len(ids) > 0 {
+				t.Fatalf("GetJobsByIDs must not fetch jobs when caller lacks jobs:trigger, got %v", ids)
+			}
+			return map[string]*domain.Job{}, nil
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{
@@ -109,14 +111,18 @@ func TestEventDispatch_EnforcesJobRateLimitGuardrail(t *testing.T) {
 				Enabled:    true,
 			}}, nil
 		},
-		GetJobFunc: func(context.Context, string) (*domain.Job, error) {
-			return &domain.Job{
-				ID:                  "job-1",
-				ProjectID:           "proj-1",
-				Enabled:             true,
-				RateLimitMax:        1,
-				RateLimitWindowSecs: 60,
-			}, nil
+		GetJobsByIDsFunc: func(_ context.Context, ids []string) (map[string]*domain.Job, error) {
+			out := make(map[string]*domain.Job, len(ids))
+			for _, id := range ids {
+				out[id] = &domain.Job{
+					ID:                  id,
+					ProjectID:           "proj-1",
+					Enabled:             true,
+					RateLimitMax:        1,
+					RateLimitWindowSecs: 60,
+				}
+			}
+			return out, nil
 		},
 		CountRunsForJobSinceFunc: func(context.Context, string, time.Time) (int, error) {
 			return 1, nil

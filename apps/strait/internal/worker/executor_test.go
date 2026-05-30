@@ -57,12 +57,15 @@ type mockExecutorStore struct {
 	getProjectQuotaFn        func(ctx context.Context, projectID string) (*orcstore.ProjectQuota, error)
 	insertEventFn            func(ctx context.Context, event *domain.RunEvent) error
 
-	mu                 sync.Mutex
-	statusCalls        []statusUpdateCall
-	heartbeatRunIDs    []string
-	scheduleRetryCalls []scheduleRetryCall
-	clearRetryCalls    []string
-	healthResultKeys   []string
+	releaseSingletonAndPromoteFn func(ctx context.Context, holderRunID string) (bool, string, error)
+
+	mu                     sync.Mutex
+	statusCalls            []statusUpdateCall
+	heartbeatRunIDs        []string
+	scheduleRetryCalls     []scheduleRetryCall
+	clearRetryCalls        []string
+	healthResultKeys       []string
+	releaseSingletonRunIDs []string
 }
 
 type scheduleRetryCall struct {
@@ -309,6 +312,22 @@ func (m *mockExecutorStore) healthResults() []string {
 
 func (m *mockExecutorStore) CountExecutingRunsByOrg(_ context.Context, _ string) (int, error) {
 	return 0, nil
+}
+
+func (m *mockExecutorStore) ReleaseSingletonJobLockAndPromote(ctx context.Context, holderRunID string) (bool, string, error) {
+	m.mu.Lock()
+	m.releaseSingletonRunIDs = append(m.releaseSingletonRunIDs, holderRunID)
+	m.mu.Unlock()
+	if m.releaseSingletonAndPromoteFn != nil {
+		return m.releaseSingletonAndPromoteFn(ctx, holderRunID)
+	}
+	return false, "", nil
+}
+
+func (m *mockExecutorStore) releaseSingletonCalls() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]string(nil), m.releaseSingletonRunIDs...)
 }
 
 func (m *mockExecutorStore) statusUpdates() []statusUpdateCall {

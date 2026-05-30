@@ -4,6 +4,7 @@ import "slices"
 
 var validWorkflowTransitions = map[WorkflowRunStatus][]WorkflowRunStatus{
 	WfStatusPending:            {WfStatusRunning, WfStatusCanceled},
+	WfStatusQueued:             {WfStatusRunning, WfStatusCanceled},
 	WfStatusRunning:            {WfStatusPaused, WfStatusCompleted, WfStatusFailed, WfStatusTimedOut, WfStatusCanceled},
 	WfStatusPaused:             {WfStatusRunning, WfStatusCompleted, WfStatusFailed, WfStatusTimedOut, WfStatusCanceled},
 	WfStatusCompleted:          {},
