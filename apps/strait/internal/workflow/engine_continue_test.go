@@ -839,6 +839,148 @@ func TestBuildInitialStepRuns_RootsAndDeps(t *testing.T) {
 	}
 }
 
+// TestResolveContinuationDefinition exercises the extracted version/snapshot/DAG
+// resolver directly: repin pins the predecessor's version and snapshot, latest
+// adopts the workflow's current version and snapshots it, the empty strategy
+// normalizes to repin, and unknown strategies and resolution failures are
+// surfaced before a successor is ever built.
+func TestResolveContinuationDefinition(t *testing.T) {
+	t.Parallel()
+
+	validSteps := func() []domain.WorkflowStep {
+		return []domain.WorkflowStep{
+			{ID: "s1", JobID: "job-1", StepRef: "a"},
+			{ID: "s2", JobID: "job-2", StepRef: "b", DependsOn: []string{"a"}},
+		}
+	}
+	newWf := func() *domain.Workflow {
+		return &domain.Workflow{ID: "wf-1", ProjectID: "proj-1", Enabled: true, Version: 5, VersionID: "wf-v5", MaxParallelSteps: 9, TimeoutSecs: 120}
+	}
+	newPred := func() *domain.WorkflowRun {
+		return &domain.WorkflowRun{ID: "pred-1", WorkflowID: "wf-1", ProjectID: "proj-1", WorkflowVersion: 3, WorkflowVersionID: "wf-v3", WorkflowSnapshotID: "snap-pred", MaxParallelSteps: 7}
+	}
+
+	t.Run("repin reuses the predecessor's pinned version and snapshot", func(t *testing.T) {
+		t.Parallel()
+		var listedVersion int
+		ms := &mockEngineStore{
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, version int) ([]domain.WorkflowStep, error) {
+				listedVersion = version
+				return validSteps(), nil
+			},
+			getActiveCanaryDeploymentFn: func(_ context.Context, _ string) (*domain.CanaryDeployment, error) {
+				t.Fatal("repin must not consult canary routing")
+				return nil, nil
+			},
+		}
+		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+		def, err := engine.resolveContinuationDefinition(context.Background(), newWf(), newPred(), domain.ContinueVersionRepin)
+		if err != nil {
+			t.Fatalf("resolveContinuationDefinition() error = %v", err)
+		}
+		if def.version != 3 || def.versionID != "wf-v3" || def.snapshotID != "snap-pred" || def.maxParallel != 7 {
+			t.Fatalf("def = %+v, want predecessor's pinned 3/wf-v3/snap-pred/7", def)
+		}
+		if def.timeoutSecs != 120 {
+			t.Fatalf("timeoutSecs = %d, want 120 (from the workflow)", def.timeoutSecs)
+		}
+		if listedVersion != 3 {
+			t.Fatalf("listed version = %d, want 3 (predecessor's pinned version)", listedVersion)
+		}
+		if len(def.steps) != 2 {
+			t.Fatalf("steps = %d, want 2", len(def.steps))
+		}
+	})
+
+	t.Run("latest adopts the workflow version and snapshots it", func(t *testing.T) {
+		t.Parallel()
+		var listedVersion int
+		ms := &mockEngineStore{
+			// No canary fn: GetActiveCanaryDeployment yields ErrCanaryNotFound,
+			// so applyCanaryRouting is a no-op and the workflow version stands.
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, version int) ([]domain.WorkflowStep, error) {
+				listedVersion = version
+				return validSteps(), nil
+			},
+		}
+		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+		def, err := engine.resolveContinuationDefinition(context.Background(), newWf(), newPred(), domain.ContinueVersionLatest)
+		if err != nil {
+			t.Fatalf("resolveContinuationDefinition() error = %v", err)
+		}
+		if def.version != 5 || def.versionID != "wf-v5" || def.maxParallel != 9 {
+			t.Fatalf("def = %+v, want workflow's current 5/wf-v5/9", def)
+		}
+		if def.snapshotID != "snap-test" {
+			t.Fatalf("snapshotID = %q, want snap-test (from GetOrCreateWorkflowSnapshot)", def.snapshotID)
+		}
+		if listedVersion != 5 {
+			t.Fatalf("listed version = %d, want 5 (latest workflow version)", listedVersion)
+		}
+	})
+
+	t.Run("empty strategy normalizes to repin", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockEngineStore{
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return validSteps(), nil
+			},
+		}
+		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+		def, err := engine.resolveContinuationDefinition(context.Background(), newWf(), newPred(), "")
+		if err != nil {
+			t.Fatalf("resolveContinuationDefinition() error = %v", err)
+		}
+		if def.version != 3 || def.snapshotID != "snap-pred" {
+			t.Fatalf("def = %+v, want repin defaults (version 3, snap-pred)", def)
+		}
+	})
+
+	t.Run("unknown strategy errors before listing steps", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockEngineStore{
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				t.Fatal("must not list steps for an unknown strategy")
+				return nil, nil
+			},
+		}
+		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+		_, err := engine.resolveContinuationDefinition(context.Background(), newWf(), newPred(), domain.ContinueVersionStrategy("bogus"))
+		if err == nil || !strings.Contains(err.Error(), "unknown continue-as-new version strategy") {
+			t.Fatalf("error = %v, want unknown-strategy error", err)
+		}
+	})
+
+	t.Run("propagates a list-steps error", func(t *testing.T) {
+		t.Parallel()
+		sentinel := errors.New("list steps boom")
+		ms := &mockEngineStore{
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return nil, sentinel
+			},
+		}
+		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+		_, err := engine.resolveContinuationDefinition(context.Background(), newWf(), newPred(), domain.ContinueVersionRepin)
+		if !errors.Is(err, sentinel) {
+			t.Fatalf("error = %v, want wrapped sentinel", err)
+		}
+	})
+
+	t.Run("rejects an invalid step DAG", func(t *testing.T) {
+		t.Parallel()
+		ms := &mockEngineStore{
+			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
+				return []domain.WorkflowStep{{ID: "s1", JobID: "job-1", StepRef: "a", DependsOn: []string{"ghost"}}}, nil
+			},
+		}
+		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
+		_, err := engine.resolveContinuationDefinition(context.Background(), newWf(), newPred(), domain.ContinueVersionRepin)
+		if err == nil || !strings.Contains(err.Error(), "validate workflow dag") {
+			t.Fatalf("error = %v, want DAG validation error", err)
+		}
+	})
+}
+
 // FuzzContinueWorkflowRunAsNew feeds arbitrary input payload bytes through the
 // engine method: invalid JSON is tolerated as an opaque carry-over blob and the
 // method must never panic.
