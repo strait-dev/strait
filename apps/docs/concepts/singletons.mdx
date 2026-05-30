@@ -55,6 +55,8 @@ The on-conflict policy decides what happens to a trigger that arrives while the 
 
 With `queue`, waiters are promoted in best-effort FIFO order as each holder reaches a terminal state. Strait does not guarantee strict ordering or fairness beyond this.
 
+Cron overlap settings are a shorthand for singletons. A job's `cron_overlap_policy` of `skip` maps to `drop` and `cancel_running` maps to `replace`, both over a fixed per-job key; a workflow's `skip_if_running` maps to `drop` for scheduled fires. An explicit singleton configuration always takes precedence over these legacy settings. See [Scheduling](/concepts/scheduling) for details.
+
 ## Trigger Outcomes
 
 When a singleton is configured, the trigger response reports what happened so the caller knows the result immediately.

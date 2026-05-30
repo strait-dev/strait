@@ -73,7 +73,7 @@ Use `cron_overlap_policy` to choose what happens when a scheduled job fires whil
 | :--- | :--- |
 | `allow` | Create a new run every time the schedule fires. |
 | `skip` | Skip this tick if another run is still active. |
-| `cancel_running` | Cancel active runs, then create the new one. |
+| `cancel_running` | Cancel the active run, then create the new one. |
 
 ```json
 {
@@ -85,6 +85,15 @@ Use `cron_overlap_policy` to choose what happens when a scheduled job fires whil
 Use `skip` for maintenance jobs, syncs, and reports where only the latest scheduled run matters.
 
 Use `allow` when each tick represents separate work that must run.
+
+### Overlap Policies and Singletons
+
+Overlap policies are enforced through [singletons](/concepts/singletons): a non-`allow` policy is treated as a per-job singleton with a fixed key. `skip` maps to the `drop` on-conflict policy and `cancel_running` maps to `replace`, so an overlapping cron fire is resolved against the singleton lock table atomically with run creation rather than by a separate check.
+
+This has two consequences:
+
+- If a job sets both an explicit singleton configuration and a `cron_overlap_policy`, the singleton configuration wins and the overlap policy is ignored. Prefer configuring [singletons](/concepts/singletons) directly; `cron_overlap_policy` remains supported as a shorthand.
+- `cancel_running` cancels the single active key holder rather than every active run, which matches the singleton `replace` semantics.
 
 ## Workflow Schedules
 
@@ -98,7 +107,7 @@ Workflows can also run on cron schedules. Use `skip_if_running` to avoid overlap
 }
 ```
 
-This is useful for long-running workflows where a second copy would produce duplicate work.
+This is useful for long-running workflows where a second copy would produce duplicate work. Like job overlap policies, `skip_if_running` is enforced as a cron-only singleton: it maps to the `drop` policy for scheduled fires and does not affect workflows triggered directly through the API. An explicit workflow singleton configuration takes precedence.
 
 ## Related
 
