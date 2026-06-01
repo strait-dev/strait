@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"strait/internal/dbscan"
@@ -44,11 +45,19 @@ func (c PgQueConfig) normalized() PgQueConfig {
 }
 
 type PgQueQueue struct {
-	db            store.DBTX
-	legacy        *PostgresQueue
-	cfg           PgQueConfig
+	db          store.DBTX
+	legacy      *PostgresQueue
+	cfg         PgQueConfig
+	routeMu     sync.Mutex
+	routeStates map[string]*pgQueRouteState
+}
+
+type pgQueRouteState struct {
 	mu            sync.Mutex
-	activeBatches map[string]*pgQueActiveBatch
+	configMu      sync.Mutex
+	configured    atomic.Bool
+	lastForceTick time.Time
+	activeBatch   *pgQueActiveBatch
 }
 
 type pgQueActiveBatch struct {
@@ -96,7 +105,7 @@ func NewPgQueQueue(db store.DBTX, legacy *PostgresQueue, cfg PgQueConfig) *PgQue
 	if legacy == nil {
 		legacy = NewPostgresQueue(db)
 	}
-	return &PgQueQueue{db: db, legacy: legacy, cfg: cfg.normalized(), activeBatches: make(map[string]*pgQueActiveBatch)}
+	return &PgQueQueue{db: db, legacy: legacy, cfg: cfg.normalized(), routeStates: make(map[string]*pgQueRouteState)}
 }
 
 func (q *PgQueQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
@@ -112,6 +121,12 @@ func (q *PgQueQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 			_ = q.tickReadyRoute(ctx, run)
 		}
 		return nil
+	}
+
+	if run.Status == domain.StatusQueued {
+		if err := q.ensureRunRouteCached(ctx, run); err != nil {
+			return err
+		}
 	}
 
 	tx, err := beginner.Begin(ctx)
@@ -148,6 +163,9 @@ func (q *PgQueQueue) EnqueueInTx(ctx context.Context, tx store.DBTX, run *domain
 func (q *PgQueQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun) (int64, error) {
 	if len(runs) == 0 {
 		return 0, nil
+	}
+	if err := q.ensureRunRoutesCached(ctx, runs); err != nil {
+		return 0, err
 	}
 	beginner, ok := q.db.(store.TxBeginner)
 	if !ok {
@@ -241,6 +259,10 @@ func (q *PgQueQueue) DequeueNForWorkerQueues(ctx context.Context, n int, queues 
 
 func (q *PgQueQueue) ForceTick(ctx context.Context, routeKey string) error {
 	queueName := pgQueQueueName(routeKey)
+	return q.forceTickQueue(ctx, queueName)
+}
+
+func (q *PgQueQueue) forceTickQueue(ctx context.Context, queueName string) error {
 	if _, err := q.db.Exec(ctx, `SELECT pgque.force_tick($1)`, queueName); err != nil {
 		return fmt.Errorf("pgque force tick: %w", err)
 	}
@@ -248,6 +270,80 @@ func (q *PgQueQueue) ForceTick(ctx context.Context, routeKey string) error {
 		return fmt.Errorf("pgque force tick: %w", err)
 	}
 	return nil
+}
+
+func (q *PgQueQueue) routeState(routeKey string) *pgQueRouteState {
+	q.routeMu.Lock()
+	defer q.routeMu.Unlock()
+	state := q.routeStates[routeKey]
+	if state == nil {
+		state = &pgQueRouteState{}
+		q.routeStates[routeKey] = state
+	}
+	return state
+}
+
+func (q *PgQueQueue) routeConfigured(routeKey string) bool {
+	state := q.routeState(routeKey)
+	return state.configured.Load()
+}
+
+func (q *PgQueQueue) ensureRunRouteCached(ctx context.Context, run *domain.JobRun) error {
+	routeKey, err := q.routeKeyForRun(ctx, q.db, run)
+	if err != nil {
+		return err
+	}
+	queueName := pgQueQueueName(routeKey)
+	state := q.routeState(routeKey)
+	return q.ensureRouteCached(ctx, state, routeKey, queueName)
+}
+
+func (q *PgQueQueue) ensureRunRoutesCached(ctx context.Context, runs []*domain.JobRun) error {
+	seen := make(map[string]struct{})
+	for _, run := range runs {
+		if run == nil || run.Status != domain.StatusQueued {
+			continue
+		}
+		routeKey, err := q.routeKeyForRun(ctx, q.db, run)
+		if err != nil {
+			return err
+		}
+		if _, ok := seen[routeKey]; ok {
+			continue
+		}
+		seen[routeKey] = struct{}{}
+		queueName := pgQueQueueName(routeKey)
+		state := q.routeState(routeKey)
+		if err := q.ensureRouteCached(ctx, state, routeKey, queueName); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (q *PgQueQueue) ensureRouteCached(ctx context.Context, state *pgQueRouteState, routeKey, queueName string) error {
+	if state.configured.Load() {
+		return nil
+	}
+	state.configMu.Lock()
+	defer state.configMu.Unlock()
+	if state.configured.Load() {
+		return nil
+	}
+	if err := q.ensureRoute(ctx, q.db, routeKey, queueName); err != nil {
+		return err
+	}
+	state.configured.Store(true)
+	return nil
+}
+
+func (q *PgQueQueue) maybeForceTick(ctx context.Context, state *pgQueRouteState, queueName string) {
+	if !state.lastForceTick.IsZero() && time.Since(state.lastForceTick) < q.cfg.TickInterval {
+		return
+	}
+	if err := q.forceTickQueue(ctx, queueName); err == nil {
+		state.lastForceTick = time.Now()
+	}
 }
 
 func (q *PgQueQueue) RunTicker(ctx context.Context) {
@@ -269,8 +365,10 @@ func (q *PgQueQueue) sendReadyEvent(ctx context.Context, db store.DBTX, run *dom
 		return err
 	}
 	queueName := pgQueQueueName(routeKey)
-	if err := q.ensureRoute(ctx, db, routeKey, queueName); err != nil {
-		return err
+	if !q.routeConfigured(routeKey) {
+		if err := q.ensureRoute(ctx, db, routeKey, queueName); err != nil {
+			return err
+		}
 	}
 	generation, err := q.readyGeneration(ctx, db, run.ID)
 	if err != nil {
@@ -318,8 +416,10 @@ func (q *PgQueQueue) sendReadyEvents(ctx context.Context, db store.DBTX, runs []
 	}
 	for routeKey, payloads := range byRoute {
 		queueName := pgQueQueueName(routeKey)
-		if err := q.ensureRoute(ctx, db, routeKey, queueName); err != nil {
-			return err
+		if !q.routeConfigured(routeKey) {
+			if err := q.ensureRoute(ctx, db, routeKey, queueName); err != nil {
+				return err
+			}
 		}
 		if _, err := db.Exec(ctx, `SELECT pgque.send_batch($1, 'run.ready', $2::text[])`, queueName, payloads); err != nil {
 			return fmt.Errorf("pgque send ready event batch: %w", err)
@@ -478,16 +578,20 @@ func (q *PgQueQueue) dequeueFromRoute(ctx context.Context, n int, routeKey strin
 		return nil, nil
 	}
 	queueName := pgQueQueueName(routeKey)
-	if err := q.ensureRoute(ctx, q.db, routeKey, queueName); err != nil {
+	state := q.routeState(routeKey)
+
+	if err := q.ensureRouteCached(ctx, state, routeKey, queueName); err != nil {
 		return nil, err
 	}
-	_ = q.ForceTick(ctx, routeKey)
 
-	q.mu.Lock()
-	defer q.mu.Unlock()
+	state.mu.Lock()
+	defer state.mu.Unlock()
 
 	for attempt := 0; attempt < 3; attempt++ {
-		batch, err := q.activeBatch(ctx, routeKey, queueName)
+		if state.activeBatch == nil || len(state.activeBatch.Messages) == 0 {
+			q.maybeForceTick(ctx, state, queueName)
+		}
+		batch, err := q.activeBatch(ctx, state, queueName)
 		if err != nil {
 			return nil, err
 		}
@@ -503,7 +607,7 @@ func (q *PgQueQueue) dequeueFromRoute(ctx context.Context, n int, routeKey strin
 			}
 		}
 		if shouldAck {
-			delete(q.activeBatches, routeKey)
+			state.activeBatch = nil
 			if err := q.ack(ctx, batch.BatchID); err != nil {
 				return runs, err
 			}
@@ -518,8 +622,8 @@ func (q *PgQueQueue) dequeueFromRoute(ctx context.Context, n int, routeKey strin
 	return nil, nil
 }
 
-func (q *PgQueQueue) activeBatch(ctx context.Context, routeKey, queueName string) (*pgQueActiveBatch, error) {
-	if batch := q.activeBatches[routeKey]; batch != nil && len(batch.Messages) > 0 {
+func (q *PgQueQueue) activeBatch(ctx context.Context, state *pgQueRouteState, queueName string) (*pgQueActiveBatch, error) {
+	if batch := state.activeBatch; batch != nil && len(batch.Messages) > 0 {
 		return batch, nil
 	}
 	messages, err := q.receive(ctx, queueName, pgQueReceiveAll)
@@ -530,7 +634,7 @@ func (q *PgQueQueue) activeBatch(ctx context.Context, routeKey, queueName string
 		return nil, nil
 	}
 	batch := &pgQueActiveBatch{BatchID: messages[0].BatchID, Messages: messages}
-	q.activeBatches[routeKey] = batch
+	state.activeBatch = batch
 	return batch, nil
 }
 

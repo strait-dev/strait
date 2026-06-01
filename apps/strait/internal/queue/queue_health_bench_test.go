@@ -198,10 +198,7 @@ func mustHealthBenchQueue(t *testing.T, cfg benchConfig) healthBenchQueue {
 			NackDelay:     10 * time.Millisecond,
 			ReceiveWindow: 100,
 		})
-		tick := func(ctx context.Context) error {
-			return q.ForceTick(ctx, "http")
-		}
-		return healthBenchQueue{engine: queue.EnginePgQue, enqueue: q.Enqueue, dequeue: q.DequeueN, afterEnqueue: tick, beforeDequeue: tick}
+		return healthBenchQueue{engine: queue.EnginePgQue, enqueue: q.Enqueue, dequeue: q.DequeueN}
 	default:
 		t.Fatalf("unknown BENCH_QUEUE_ENGINE %q", cfg.QueueEngine)
 		return healthBenchQueue{}

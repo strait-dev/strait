@@ -203,16 +203,6 @@ func runPgQueQueueBaseline(tb baselineTB, ctx context.Context, cfg baselineConfi
 		ReceiveWindow: 100,
 	})
 	return runQueueBaseline(tb, ctx, cfg, "pgque", q, queueBaselineHooks{
-		afterEnqueue: func(ctx context.Context) {
-			if err := q.ForceTick(ctx, "http"); err != nil {
-				tb.Fatalf("pgque force tick: %v", err)
-			}
-		},
-		beforeDequeue: func(ctx context.Context) {
-			if err := q.ForceTick(ctx, "http"); err != nil {
-				tb.Fatalf("pgque force tick: %v", err)
-			}
-		},
 		plans: samplePgQueDequeuePlans,
 	})
 }
