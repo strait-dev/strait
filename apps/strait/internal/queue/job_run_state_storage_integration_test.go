@@ -6,6 +6,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"strait/internal/domain"
 )
@@ -105,8 +106,29 @@ func TestJobActiveCounts_TracksJobRunStateTransitions(t *testing.T) {
 	assertCount(0)
 	setStateStatus(domain.StatusDequeued)
 	assertCount(1)
+
+	var activeUpdatedAt time.Time
+	if err := testDB.Pool.QueryRow(ctx,
+		`SELECT updated_at FROM job_active_counts WHERE job_id = $1 AND concurrency_key = ''`,
+		job.ID,
+	).Scan(&activeUpdatedAt); err != nil {
+		t.Fatalf("query active count updated_at after dequeue: %v", err)
+	}
+
 	setStateStatus(domain.StatusExecuting)
 	assertCount(1)
+
+	var afterExecutingUpdatedAt time.Time
+	if err := testDB.Pool.QueryRow(ctx,
+		`SELECT updated_at FROM job_active_counts WHERE job_id = $1 AND concurrency_key = ''`,
+		job.ID,
+	).Scan(&afterExecutingUpdatedAt); err != nil {
+		t.Fatalf("query active count updated_at after executing: %v", err)
+	}
+	if !afterExecutingUpdatedAt.Equal(activeUpdatedAt) {
+		t.Fatalf("active count updated_at changed on active-to-active transition: before=%s after=%s", activeUpdatedAt, afterExecutingUpdatedAt)
+	}
+
 	setStateStatus(domain.StatusCompleted)
 	assertCount(0)
 }

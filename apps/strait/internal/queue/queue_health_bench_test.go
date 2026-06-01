@@ -300,6 +300,7 @@ func (c *snapshotCollector) collect() healthSnapshot {
 		       pg_indexes_size(relid)
 		FROM pg_stat_user_tables
 		WHERE relname = 'job_run_state'
+		   OR relname = 'job_active_counts'
 		   OR relname = 'job_run_lifecycle_events'
 		   OR relname = 'queue_entries'
 		   OR relname = 'strait_pgque_routes'
