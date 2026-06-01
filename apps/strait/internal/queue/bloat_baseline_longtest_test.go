@@ -238,7 +238,6 @@ func runQueueBaseline(
 	defer stopNotify()
 
 	beforeWAL := sampleWALBytes(ctx)
-	singleIDs := make([]string, 0, cfg.SingleRuns)
 	for i := 0; i < cfg.SingleRuns; i++ {
 		run := &domain.JobRun{
 			ID:        newID(),
@@ -250,7 +249,6 @@ func runQueueBaseline(
 		if err := q.Enqueue(ctx, run); err != nil {
 			tb.Fatalf("Enqueue() error = %v", err)
 		}
-		singleIDs = append(singleIDs, run.ID)
 	}
 
 	batchRuns := make([]*domain.JobRun, cfg.BatchRuns)
@@ -368,6 +366,7 @@ func exerciseRetryAndStalePaths(tb baselineTB, ctx context.Context, q interface 
 	}
 	if claimed == nil {
 		tb.Fatalf("retry/stale dequeue returned nil")
+		return 0
 	}
 	if _, err := testDB.Pool.Exec(ctx, `UPDATE job_runs SET started_at = NOW() - INTERVAL '10 minutes' WHERE id = $1`, claimed.ID); err != nil {
 		tb.Fatalf("make stale dequeued: %v", err)

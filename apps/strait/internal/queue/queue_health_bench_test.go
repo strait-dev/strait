@@ -19,6 +19,7 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/queue"
+	"strait/internal/store"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/sourcegraph/conc"
@@ -68,10 +69,24 @@ type healthSnapshot struct {
 	DequeueMaxUs    int64
 	IndexDeadItems  int64 // -1 if pgstatindex not available
 	SlotWalLagBytes int64
+	Relations       []healthRelationSnapshot
+}
+
+type healthRelationSnapshot struct {
+	Name            string
+	DeadTuples      int64
+	LiveTuples      int64
+	TotalUpdates    int64
+	HotUpdates      int64
+	DeadTupleRatio  float64
+	HotUpdateRatio  float64
+	TotalTableBytes int64
+	TotalIndexBytes int64
 }
 
 // benchConfig controls the benchmark parameters.
 type benchConfig struct {
+	QueueEngine     string
 	Duration        time.Duration
 	Workers         int
 	BatchSize       int
@@ -85,6 +100,7 @@ type benchConfig struct {
 
 func defaultBenchConfig() benchConfig {
 	return benchConfig{
+		QueueEngine:   queue.EngineLegacy,
 		Duration:      2 * time.Minute,
 		Workers:       20,
 		BatchSize:     5,
@@ -95,6 +111,9 @@ func defaultBenchConfig() benchConfig {
 
 func benchConfigFromEnv() benchConfig {
 	cfg := defaultBenchConfig()
+	if s := os.Getenv("BENCH_QUEUE_ENGINE"); s != "" {
+		cfg.QueueEngine = s
+	}
 	if s := os.Getenv("BENCH_DURATION"); s != "" {
 		if d, err := time.ParseDuration(s); err == nil {
 			cfg.Duration = d
@@ -128,6 +147,75 @@ func benchConfigFromEnv() benchConfig {
 		cfg.UseClaimTable = true
 	}
 	return cfg
+}
+
+type healthBenchQueue struct {
+	engine        string
+	enqueue       func(context.Context, *domain.JobRun) error
+	dequeue       func(context.Context, int) ([]domain.JobRun, error)
+	afterEnqueue  func(context.Context) error
+	beforeDequeue func(context.Context) error
+}
+
+func mustHealthBenchQueue(t *testing.T, cfg benchConfig) healthBenchQueue {
+	t.Helper()
+	if testDB == nil || testDB.Pool == nil {
+		t.Fatal("testDB is not initialized")
+	}
+	legacy := queue.NewPostgresQueue(testDB.Pool)
+	switch cfg.QueueEngine {
+	case "", queue.EngineLegacy:
+		dequeue := func(ctx context.Context, n int) ([]domain.JobRun, error) {
+			switch {
+			case cfg.UseClaimTable:
+				return legacy.DequeueNClaim(ctx, n)
+			case cfg.UseTwoPhase:
+				return legacy.DequeueNTwoPhase(ctx, n)
+			case cfg.UseDenormalized:
+				return legacy.DequeueNDenormalized(ctx, n)
+			case cfg.UseCursor:
+				return nil, fmt.Errorf("cursor dequeue requires per-worker cursor")
+			default:
+				return legacy.DequeueNClaim(ctx, n)
+			}
+		}
+		return healthBenchQueue{engine: queue.EngineLegacy, enqueue: legacy.Enqueue, dequeue: dequeue}
+	case queue.EngineBatchlog:
+		q := queue.NewBatchlogQueue(testDB.Pool, legacy, queue.BatchlogConfig{
+			TickInterval:  10 * time.Millisecond,
+			LeaseDuration: 30 * time.Second,
+			LeaseOwner:    "health-bench-" + newID(),
+		})
+		seal := func(ctx context.Context) error {
+			_, err := q.SealDueBatches(ctx)
+			return err
+		}
+		return healthBenchQueue{engine: queue.EngineBatchlog, enqueue: q.Enqueue, dequeue: q.DequeueN, afterEnqueue: seal, beforeDequeue: seal}
+	case queue.EnginePgQue:
+		q := queue.NewPgQueQueue(testDB.Pool, legacy, queue.PgQueConfig{
+			TickInterval:  50 * time.Millisecond,
+			ConsumerName:  "health-bench-" + newID(),
+			NackDelay:     10 * time.Millisecond,
+			ReceiveWindow: 100,
+		})
+		tick := func(ctx context.Context) error {
+			return q.ForceTick(ctx, "http")
+		}
+		return healthBenchQueue{engine: queue.EnginePgQue, enqueue: q.Enqueue, dequeue: q.DequeueN, afterEnqueue: tick, beforeDequeue: tick}
+	default:
+		t.Fatalf("unknown BENCH_QUEUE_ENGINE %q", cfg.QueueEngine)
+		return healthBenchQueue{}
+	}
+}
+
+func completeHealthBenchRun(ctx context.Context, st *store.Queries, run domain.JobRun) error {
+	from := run.Status
+	if from == "" {
+		from = domain.StatusDequeued
+	}
+	return st.UpdateRunStatus(ctx, run.ID, from, domain.StatusCompleted, map[string]any{
+		"finished_at": time.Now(),
+	})
 }
 
 // latencyRecorder is a sharded, lock-striped latency sample collector.
@@ -206,17 +294,47 @@ func (c *snapshotCollector) collect() healthSnapshot {
 	}
 
 	rows, err := testDB.Pool.Query(c.ctx, `
-		SELECT
-			COALESCE(SUM(n_dead_tup), 0),
-			COALESCE(SUM(n_live_tup), 0),
-			COALESCE(SUM(n_tup_upd), 0),
-			COALESCE(SUM(n_tup_hot_upd), 0)
+		SELECT relname,
+		       n_dead_tup,
+		       n_live_tup,
+		       n_tup_upd,
+		       n_tup_hot_upd,
+		       pg_total_relation_size(relid),
+		       pg_indexes_size(relid)
 		FROM pg_stat_user_tables
-		WHERE relname = 'job_runs' OR relname LIKE 'job_runs_%'
+		WHERE relname = 'job_run_state'
+		   OR relname = 'job_run_lifecycle_events'
+		   OR relname = 'queue_entries'
+		   OR relname = 'strait_pgque_routes'
+		   OR relname = 'job_runs'
+		   OR relname LIKE 'job_runs_%'
+		   OR relname = 'event_template'
+		   OR relname ~ '^event_[0-9]+(_[0-9]+)?$'
+		ORDER BY relname
 	`)
 	if err == nil {
-		if rows.Next() {
-			_ = rows.Scan(&snap.DeadTuples, &snap.LiveTuples, &snap.TotalUpdates, &snap.HotUpdates)
+		for rows.Next() {
+			var rel healthRelationSnapshot
+			_ = rows.Scan(
+				&rel.Name,
+				&rel.DeadTuples,
+				&rel.LiveTuples,
+				&rel.TotalUpdates,
+				&rel.HotUpdates,
+				&rel.TotalTableBytes,
+				&rel.TotalIndexBytes,
+			)
+			if total := rel.LiveTuples + rel.DeadTuples; total > 0 {
+				rel.DeadTupleRatio = float64(rel.DeadTuples) / float64(total)
+			}
+			if rel.TotalUpdates > 0 {
+				rel.HotUpdateRatio = float64(rel.HotUpdates) / float64(rel.TotalUpdates)
+			}
+			snap.Relations = append(snap.Relations, rel)
+			snap.DeadTuples += rel.DeadTuples
+			snap.LiveTuples += rel.LiveTuples
+			snap.TotalUpdates += rel.TotalUpdates
+			snap.HotUpdates += rel.HotUpdates
 		}
 		rows.Close()
 	}
@@ -229,7 +347,9 @@ func (c *snapshotCollector) collect() healthSnapshot {
 
 	_ = testDB.Pool.QueryRow(c.ctx, `
 		SELECT COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(created_at))), 0)
-		FROM job_runs WHERE status = 'queued'
+		FROM job_runs jr
+		LEFT JOIN job_run_state s ON s.run_id = jr.id
+		WHERE COALESCE(s.status, jr.status) = 'queued'
 	`).Scan(&snap.OldestQueuedAge)
 
 	snap.IndexDeadItems = -1
@@ -263,9 +383,9 @@ func TestQueueHealthBench(t *testing.T) {
 	mustClean(t, ctx)
 	st := mustStore(t)
 	job := mustCreateJob(t, ctx, st, "project-health-bench")
-	q := mustQueue(t)
+	benchQ := mustHealthBenchQueue(t, cfg)
 
-	if _, err := testDB.Pool.Exec(ctx, "ANALYZE job_runs"); err != nil {
+	if _, err := testDB.Pool.Exec(ctx, "ANALYZE job_runs, job_run_state"); err != nil {
 		t.Fatalf("analyze: %v", err)
 	}
 	if _, err := testDB.Pool.Exec(ctx, "SELECT pg_stat_reset()"); err != nil {
@@ -273,8 +393,8 @@ func TestQueueHealthBench(t *testing.T) {
 	}
 
 	t.Logf("=== Queue Health Benchmark ===")
-	t.Logf("Duration: %v | Workers: %d | Batch: %d | Enqueue: %d runs/sec | Denorm: %v | Cursor: %v",
-		cfg.Duration, cfg.Workers, cfg.BatchSize, cfg.EnqueueRateHz*cfg.BatchSize, cfg.UseDenormalized, cfg.UseCursor)
+	t.Logf("Duration: %v | Engine: %s | Workers: %d | Batch: %d | Enqueue: %d runs/sec | Denorm: %v | Cursor: %v",
+		cfg.Duration, benchQ.engine, cfg.Workers, cfg.BatchSize, cfg.EnqueueRateHz*cfg.BatchSize, cfg.UseDenormalized, cfg.UseCursor)
 
 	var enqueued, dequeuedCount atomic.Int64
 	var rec latencyRecorder
@@ -301,9 +421,12 @@ func TestQueueHealthBench(t *testing.T) {
 					run := &domain.JobRun{
 						ID: newID(), JobID: job.ID, ProjectID: job.ProjectID, Priority: 1,
 					}
-					if err := q.Enqueue(ctx, run); err == nil {
+					if err := benchQ.enqueue(ctx, run); err == nil {
 						enqueued.Add(1)
 					}
+				}
+				if benchQ.afterEnqueue != nil {
+					_ = benchQ.afterEnqueue(ctx)
 				}
 			}
 		}
@@ -311,8 +434,12 @@ func TestQueueHealthBench(t *testing.T) {
 
 	// Consumer workers.
 	var cursor *queue.ClaimCursor
+	var cursorQueue *queue.PostgresQueue
 	if cfg.UseCursor {
 		cursor = queue.NewClaimCursor(30 * time.Second)
+		if benchQ.engine == queue.EngineLegacy {
+			cursorQueue = queue.NewPostgresQueue(testDB.Pool)
+		}
 	}
 
 	var workerWg sync.WaitGroup
@@ -325,18 +452,13 @@ func TestQueueHealthBench(t *testing.T) {
 				start := time.Now()
 				var batch []domain.JobRun
 				var err error
-				switch {
-				case cfg.UseClaimTable:
-					batch, err = q.DequeueNClaim(ctx, cfg.BatchSize)
-				case cfg.UseTwoPhase:
-					batch, err = q.DequeueNTwoPhase(ctx, cfg.BatchSize)
-				case cfg.UseDenormalized:
-					batch, err = q.DequeueNDenormalized(ctx, cfg.BatchSize)
-				case cfg.UseCursor:
-					batch, err = q.DequeueNWithCursor(ctx, cfg.BatchSize, cursor)
-				default:
-					// Auto-select: mirrors production executor behavior.
-					batch, err = q.DequeueNClaim(ctx, cfg.BatchSize)
+				if benchQ.beforeDequeue != nil {
+					_ = benchQ.beforeDequeue(ctx)
+				}
+				if cursorQueue != nil {
+					batch, err = cursorQueue.DequeueNWithCursor(ctx, cfg.BatchSize, cursor)
+				} else {
+					batch, err = benchQ.dequeue(ctx, cfg.BatchSize)
 				}
 				elapsed := time.Since(start).Microseconds()
 				if err != nil {
@@ -348,8 +470,7 @@ func TestQueueHealthBench(t *testing.T) {
 				}
 				for _, r := range batch {
 					dequeuedCount.Add(1)
-					_, _ = testDB.Pool.Exec(ctx,
-						`UPDATE job_runs SET status='completed', finished_at=NOW() WHERE id=$1`, r.ID)
+					_ = completeHealthBenchRun(ctx, st, r)
 				}
 				if len(batch) == 0 {
 					time.Sleep(5 * time.Millisecond)
@@ -423,15 +544,15 @@ func TestQueueHealthBench_WithLongTxn(t *testing.T) {
 	mustClean(t, ctx)
 	st := mustStore(t)
 	job := mustCreateJob(t, ctx, st, "project-health-longtxn")
-	q := mustQueue(t)
+	benchQ := mustHealthBenchQueue(t, cfg)
 
-	if _, err := testDB.Pool.Exec(ctx, "ANALYZE job_runs"); err != nil {
+	if _, err := testDB.Pool.Exec(ctx, "ANALYZE job_runs, job_run_state"); err != nil {
 		t.Fatalf("analyze: %v", err)
 	}
 
 	t.Logf("=== Queue Health Benchmark WITH LONG TRANSACTION (PlanetScale scenario) ===")
-	t.Logf("Duration: %v | Workers: %d | Enqueue: %d runs/sec",
-		cfg.Duration, cfg.Workers, cfg.EnqueueRateHz*cfg.BatchSize)
+	t.Logf("Duration: %v | Engine: %s | Workers: %d | Enqueue: %d runs/sec",
+		cfg.Duration, benchQ.engine, cfg.Workers, cfg.EnqueueRateHz*cfg.BatchSize)
 
 	// Pin the xmin horizon with a long-running read transaction.
 	longTx, err := testDB.Pool.BeginTx(ctx, pgx.TxOptions{
@@ -441,7 +562,7 @@ func TestQueueHealthBench_WithLongTxn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin long txn: %v", err)
 	}
-	if _, err := longTx.Exec(ctx, "SELECT count(*) FROM job_runs"); err != nil {
+	if _, err := longTx.Exec(ctx, "SELECT count(*) FROM job_runs LEFT JOIN job_run_state ON job_run_state.run_id = job_runs.id"); err != nil {
 		t.Fatalf("long txn read: %v", err)
 	}
 	t.Logf("Long transaction started (xmin pinned)")
@@ -471,9 +592,12 @@ func TestQueueHealthBench_WithLongTxn(t *testing.T) {
 					run := &domain.JobRun{
 						ID: newID(), JobID: job.ID, ProjectID: job.ProjectID, Priority: 1,
 					}
-					if err := q.Enqueue(ctx, run); err == nil {
+					if err := benchQ.enqueue(ctx, run); err == nil {
 						enqueued.Add(1)
 					}
+				}
+				if benchQ.afterEnqueue != nil {
+					_ = benchQ.afterEnqueue(ctx)
 				}
 			}
 		}
@@ -488,7 +612,10 @@ func TestQueueHealthBench_WithLongTxn(t *testing.T) {
 			defer workerWg.Done()
 			for time.Now().Before(end) {
 				start := time.Now()
-				batch, bErr := q.DequeueN(ctx, cfg.BatchSize)
+				if benchQ.beforeDequeue != nil {
+					_ = benchQ.beforeDequeue(ctx)
+				}
+				batch, bErr := benchQ.dequeue(ctx, cfg.BatchSize)
 				elapsed := time.Since(start).Microseconds()
 				if bErr != nil {
 					time.Sleep(10 * time.Millisecond)
@@ -499,8 +626,7 @@ func TestQueueHealthBench_WithLongTxn(t *testing.T) {
 				}
 				for _, r := range batch {
 					dequeuedCount.Add(1)
-					_, _ = testDB.Pool.Exec(ctx,
-						`UPDATE job_runs SET status='completed', finished_at=NOW() WHERE id=$1`, r.ID)
+					_ = completeHealthBenchRun(ctx, st, r)
 				}
 				if len(batch) == 0 {
 					time.Sleep(5 * time.Millisecond)
@@ -579,7 +705,7 @@ func TestQueueHealthBench_WithLogicalSlot(t *testing.T) {
 	mustClean(t, ctx)
 	st := mustStore(t)
 	job := mustCreateJob(t, ctx, st, "project-health-logical-slot")
-	q := mustQueue(t)
+	benchQ := mustHealthBenchQueue(t, cfg)
 
 	var walLevel string
 	if err := testDB.Pool.QueryRow(ctx, "SHOW wal_level").Scan(&walLevel); err != nil {
@@ -604,7 +730,7 @@ func TestQueueHealthBench_WithLogicalSlot(t *testing.T) {
 		`, slotName)
 	}()
 
-	if _, err := testDB.Pool.Exec(ctx, "ANALYZE job_runs"); err != nil {
+	if _, err := testDB.Pool.Exec(ctx, "ANALYZE job_runs, job_run_state"); err != nil {
 		t.Fatalf("analyze: %v", err)
 	}
 	if _, err := testDB.Pool.Exec(ctx, "SELECT pg_stat_reset()"); err != nil {
@@ -612,8 +738,8 @@ func TestQueueHealthBench_WithLogicalSlot(t *testing.T) {
 	}
 
 	t.Logf("=== Queue Health Benchmark WITH STALLED LOGICAL SLOT ===")
-	t.Logf("Duration: %v | Workers: %d | Enqueue: %d runs/sec | Slot: %s",
-		cfg.Duration, cfg.Workers, cfg.EnqueueRateHz*cfg.BatchSize, slotName)
+	t.Logf("Duration: %v | Engine: %s | Workers: %d | Enqueue: %d runs/sec | Slot: %s",
+		cfg.Duration, benchQ.engine, cfg.Workers, cfg.EnqueueRateHz*cfg.BatchSize, slotName)
 
 	var enqueued, dequeuedCount atomic.Int64
 	var rec latencyRecorder
@@ -638,9 +764,12 @@ func TestQueueHealthBench_WithLogicalSlot(t *testing.T) {
 					run := &domain.JobRun{
 						ID: newID(), JobID: job.ID, ProjectID: job.ProjectID, Priority: 1,
 					}
-					if err := q.Enqueue(ctx, run); err == nil {
+					if err := benchQ.enqueue(ctx, run); err == nil {
 						enqueued.Add(1)
 					}
+				}
+				if benchQ.afterEnqueue != nil {
+					_ = benchQ.afterEnqueue(ctx)
 				}
 			}
 		}
@@ -654,7 +783,10 @@ func TestQueueHealthBench_WithLogicalSlot(t *testing.T) {
 			defer workerWg.Done()
 			for time.Now().Before(end) {
 				start := time.Now()
-				batch, err := q.DequeueNClaim(ctx, cfg.BatchSize)
+				if benchQ.beforeDequeue != nil {
+					_ = benchQ.beforeDequeue(ctx)
+				}
+				batch, err := benchQ.dequeue(ctx, cfg.BatchSize)
 				elapsed := time.Since(start).Microseconds()
 				if err != nil {
 					time.Sleep(10 * time.Millisecond)
@@ -665,8 +797,7 @@ func TestQueueHealthBench_WithLogicalSlot(t *testing.T) {
 				}
 				for _, r := range batch {
 					dequeuedCount.Add(1)
-					_, _ = testDB.Pool.Exec(ctx,
-						`UPDATE job_runs SET status='completed', finished_at=NOW() WHERE id=$1`, r.ID)
+					_ = completeHealthBenchRun(ctx, st, r)
 				}
 				if len(batch) == 0 {
 					time.Sleep(5 * time.Millisecond)
@@ -775,6 +906,7 @@ func printReport(t *testing.T, cfg benchConfig, snapshots []healthSnapshot) {
 	sb.WriteString("              QUEUE HEALTH BENCHMARK RESULTS\n")
 	sb.WriteString("====================================================================\n")
 	fmt.Fprintf(&sb, "  Duration:          %v\n", cfg.Duration)
+	fmt.Fprintf(&sb, "  Queue engine:      %s\n", cfg.QueueEngine)
 	fmt.Fprintf(&sb, "  Workers:           %d\n", cfg.Workers)
 	fmt.Fprintf(&sb, "  Batch size:        %d\n", cfg.BatchSize)
 	fmt.Fprintf(&sb, "  Target enqueue:    %d ops/sec (%d runs/sec)\n", cfg.EnqueueRateHz, cfg.EnqueueRateHz*cfg.BatchSize)
@@ -806,6 +938,24 @@ func printReport(t *testing.T, cfg benchConfig, snapshots []healthSnapshot) {
 	fmt.Fprintf(&sb, "  Total updates:     %d\n", final.TotalUpdates)
 	fmt.Fprintf(&sb, "  HOT updates:       %d\n", final.HotUpdates)
 	fmt.Fprintf(&sb, "  HOT ratio:         %.4f (%.1f%%)\n", final.HotUpdateRatio, final.HotUpdateRatio*100)
+	if len(final.Relations) > 0 {
+		sb.WriteString("\n")
+		sb.WriteString("---- Relation Bloat Breakdown ----\n")
+		fmt.Fprintf(&sb, "  %-34s %-8s %-8s %-8s %-8s %-8s %-10s %-10s\n",
+			"Relation", "Dead", "Live", "Ratio", "Updates", "HOT%", "Table", "Index")
+		for _, rel := range final.Relations {
+			fmt.Fprintf(&sb, "  %-34s %-8d %-8d %-8.4f %-8d %-8.1f %-10d %-10d\n",
+				rel.Name,
+				rel.DeadTuples,
+				rel.LiveTuples,
+				rel.DeadTupleRatio,
+				rel.TotalUpdates,
+				rel.HotUpdateRatio*100,
+				rel.TotalTableBytes,
+				rel.TotalIndexBytes,
+			)
+		}
+	}
 	sb.WriteString("\n")
 	sb.WriteString("---- Queue Backlog ----\n")
 	fmt.Fprintf(&sb, "  Max oldest queued: %.1f sec\n", maxOldestAge)
