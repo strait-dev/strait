@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -14,7 +15,10 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-const pgQueConsumerName = "strait"
+const (
+	pgQueConsumerName = "strait"
+	pgQueReceiveAll   = 2147483647
+)
 
 type PgQueConfig struct {
 	TickInterval  time.Duration
@@ -34,17 +38,22 @@ func (c PgQueConfig) normalized() PgQueConfig {
 		c.NackDelay = time.Second
 	}
 	if c.ReceiveWindow <= 0 {
-		c.ReceiveWindow = 1000
+		c.ReceiveWindow = 100
 	}
 	return c
 }
 
 type PgQueQueue struct {
-	db      store.DBTX
-	legacy  *PostgresQueue
-	cfg     PgQueConfig
-	mu      sync.Mutex
-	pending map[string][]domain.JobRun
+	db            store.DBTX
+	legacy        *PostgresQueue
+	cfg           PgQueConfig
+	mu            sync.Mutex
+	activeBatches map[string]*pgQueActiveBatch
+}
+
+type pgQueActiveBatch struct {
+	BatchID  int64
+	Messages []pgQueMessage
 }
 
 type pgQueReadyEvent struct {
@@ -52,6 +61,12 @@ type pgQueReadyEvent struct {
 	RouteKey   string `json:"route_key"`
 	Generation int64  `json:"generation"`
 	Priority   int    `json:"priority"`
+}
+
+type pgQueCandidate struct {
+	Message pgQueMessage
+	Event   pgQueReadyEvent
+	Order   int
 }
 
 type pgQueMessage struct {
@@ -81,7 +96,7 @@ func NewPgQueQueue(db store.DBTX, legacy *PostgresQueue, cfg PgQueConfig) *PgQue
 	if legacy == nil {
 		legacy = NewPostgresQueue(db)
 	}
-	return &PgQueQueue{db: db, legacy: legacy, cfg: cfg.normalized(), pending: make(map[string][]domain.JobRun)}
+	return &PgQueQueue{db: db, legacy: legacy, cfg: cfg.normalized(), activeBatches: make(map[string]*pgQueActiveBatch)}
 }
 
 func (q *PgQueQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
@@ -91,7 +106,10 @@ func (q *PgQueQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 			return err
 		}
 		if run.Status == domain.StatusQueued {
-			return q.sendReadyEvent(ctx, q.db, run)
+			if err := q.sendReadyEvent(ctx, q.db, run); err != nil {
+				return err
+			}
+			_ = q.tickReadyRoute(ctx, run)
 		}
 		return nil
 	}
@@ -107,6 +125,9 @@ func (q *PgQueQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("pgque enqueue: commit: %w", err)
+	}
+	if run.Status == domain.StatusQueued {
+		_ = q.tickReadyRoute(ctx, run)
 	}
 	return nil
 }
@@ -134,6 +155,7 @@ func (q *PgQueQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun) (i
 		if err := q.sendReadyEvents(ctx, q.db, runs); err != nil {
 			return 0, err
 		}
+		_ = q.tickReadyRoutes(ctx, runs)
 		return inserted, nil
 	}
 
@@ -154,6 +176,7 @@ func (q *PgQueQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun) (i
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("pgque enqueue batch: commit: %w", err)
 	}
+	_ = q.tickReadyRoutes(ctx, runs)
 	return inserted, nil
 }
 
@@ -302,8 +325,45 @@ func (q *PgQueQueue) ensureRoute(ctx context.Context, db store.DBTX, routeKey, q
 	if _, err := db.Exec(ctx, `SELECT pgque.create_queue($1)`, queueName); err != nil {
 		return fmt.Errorf("pgque create queue %s: %w", queueName, err)
 	}
+	if _, err := db.Exec(ctx, `SELECT pgque.set_queue_config($1, 'ticker_max_count', $2)`, queueName, fmt.Sprintf("%d", q.cfg.ReceiveWindow)); err != nil {
+		return fmt.Errorf("pgque configure queue %s ticker max count: %w", queueName, err)
+	}
 	if _, err := db.Exec(ctx, `SELECT pgque.register_consumer($1, $2)`, queueName, q.cfg.ConsumerName); err != nil {
 		return fmt.Errorf("pgque register consumer %s: %w", queueName, err)
+	}
+	return nil
+}
+
+func (q *PgQueQueue) tickReadyRoute(ctx context.Context, run *domain.JobRun) error {
+	routeKey, err := q.routeKeyForRun(ctx, q.db, run)
+	if err != nil {
+		return err
+	}
+	queueName := pgQueQueueName(routeKey)
+	if _, err := q.db.Exec(ctx, `SELECT pgque.ticker($1)`, queueName); err != nil {
+		return fmt.Errorf("pgque tick ready route %s: %w", routeKey, err)
+	}
+	return nil
+}
+
+func (q *PgQueQueue) tickReadyRoutes(ctx context.Context, runs []*domain.JobRun) error {
+	seen := make(map[string]struct{})
+	for _, run := range runs {
+		if run == nil || run.Status != domain.StatusQueued {
+			continue
+		}
+		routeKey, err := q.routeKeyForRun(ctx, q.db, run)
+		if err != nil {
+			return err
+		}
+		if _, ok := seen[routeKey]; ok {
+			continue
+		}
+		seen[routeKey] = struct{}{}
+		queueName := pgQueQueueName(routeKey)
+		if _, err := q.db.Exec(ctx, `SELECT pgque.ticker($1)`, queueName); err != nil {
+			return fmt.Errorf("pgque tick ready route %s: %w", routeKey, err)
+		}
 	}
 	return nil
 }
@@ -413,80 +473,115 @@ func (q *PgQueQueue) dequeueFromRoute(ctx context.Context, n int, routeKey strin
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	if runs := q.popPending(routeKey, n); len(runs) > 0 {
-		return runs, nil
-	}
-
 	for attempt := 0; attempt < 3; attempt++ {
-		messages, err := q.receive(ctx, queueName, max(n, q.cfg.ReceiveWindow))
+		batch, err := q.activeBatch(ctx, routeKey, queueName)
 		if err != nil {
 			return nil, err
 		}
-		if len(messages) == 0 {
+		if batch == nil {
 			return nil, nil
 		}
 
-		ids := make([]string, 0, len(messages))
-		generations := make([]int64, 0, len(messages))
-		for _, msg := range messages {
-			var event pgQueReadyEvent
-			if err := json.Unmarshal([]byte(msg.Payload), &event); err != nil || event.RunID == "" {
-				continue
+		runs, err := q.claimFromActiveBatch(ctx, batch, n, filter)
+		shouldAck := len(batch.Messages) == 0
+		if len(runs) > 0 {
+			for i := range runs {
+				q.legacy.recordClaimMetrics(ctx, &runs[i])
 			}
-			ids = append(ids, event.RunID)
-			generations = append(generations, event.Generation)
 		}
-
-		runs, err := q.claimRuns(ctx, ids, generations, len(ids), filter)
+		if shouldAck {
+			delete(q.activeBatches, routeKey)
+			if err := q.ack(ctx, batch.BatchID); err != nil {
+				return runs, err
+			}
+		}
 		if err != nil {
 			return nil, err
 		}
-		claimed := make(map[string]struct{}, len(runs))
-		for i := range runs {
-			claimed[runs[i].ID] = struct{}{}
-			q.legacy.recordClaimMetrics(ctx, &runs[i])
-		}
-
-		for _, msg := range messages {
-			var event pgQueReadyEvent
-			if err := json.Unmarshal([]byte(msg.Payload), &event); err != nil || event.RunID == "" {
-				_ = q.nack(ctx, msg, q.cfg.NackDelay, "invalid ready event")
-				continue
-			}
-			if _, ok := claimed[event.RunID]; !ok {
-				delay := q.cfg.NackDelay
-				if len(runs) > 0 {
-					delay = 0
-				}
-				_ = q.nack(ctx, msg, delay, "not claimable")
-			}
-		}
-		if err := q.ack(ctx, messages[0].BatchID); err != nil {
-			return runs, err
-		}
 		if len(runs) > 0 {
-			if len(runs) > n {
-				q.pending[routeKey] = append(q.pending[routeKey], runs[n:]...)
-				return runs[:n], nil
-			}
 			return runs, nil
 		}
 	}
 	return nil, nil
 }
 
-func (q *PgQueQueue) popPending(routeKey string, n int) []domain.JobRun {
-	pending := q.pending[routeKey]
-	if len(pending) == 0 {
-		return nil
+func (q *PgQueQueue) activeBatch(ctx context.Context, routeKey, queueName string) (*pgQueActiveBatch, error) {
+	if batch := q.activeBatches[routeKey]; batch != nil && len(batch.Messages) > 0 {
+		return batch, nil
 	}
-	if len(pending) <= n {
-		delete(q.pending, routeKey)
-		return pending
+	messages, err := q.receive(ctx, queueName, pgQueReceiveAll)
+	if err != nil {
+		return nil, err
 	}
-	out := append([]domain.JobRun(nil), pending[:n]...)
-	q.pending[routeKey] = append([]domain.JobRun(nil), pending[n:]...)
-	return out
+	if len(messages) == 0 {
+		return nil, nil
+	}
+	batch := &pgQueActiveBatch{BatchID: messages[0].BatchID, Messages: messages}
+	q.activeBatches[routeKey] = batch
+	return batch, nil
+}
+
+func (q *PgQueQueue) claimFromActiveBatch(ctx context.Context, batch *pgQueActiveBatch, limit int, filter pgQueClaimFilter) ([]domain.JobRun, error) {
+	candidates := make([]pgQueCandidate, 0, len(batch.Messages))
+	for i, msg := range batch.Messages {
+		var event pgQueReadyEvent
+		if err := json.Unmarshal([]byte(msg.Payload), &event); err != nil || event.RunID == "" {
+			_ = q.nack(ctx, msg, q.cfg.NackDelay, "invalid ready event")
+			continue
+		}
+		candidates = append(candidates, pgQueCandidate{Message: msg, Event: event, Order: i})
+	}
+	if len(candidates) == 0 {
+		batch.Messages = nil
+		return nil, nil
+	}
+
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].Event.Priority != candidates[j].Event.Priority {
+			return candidates[i].Event.Priority > candidates[j].Event.Priority
+		}
+		return candidates[i].Order < candidates[j].Order
+	})
+	selected := candidates[:min(len(candidates), max(limit, q.cfg.ReceiveWindow))]
+	ids := make([]string, 0, len(selected))
+	generations := make([]int64, 0, len(selected))
+	selectedIDs := make(map[int64]struct{}, len(selected))
+	for _, candidate := range selected {
+		ids = append(ids, candidate.Event.RunID)
+		generations = append(generations, candidate.Event.Generation)
+		selectedIDs[candidate.Message.ID] = struct{}{}
+	}
+
+	runs, err := q.claimRuns(ctx, ids, generations, limit, filter)
+	if err != nil {
+		return nil, err
+	}
+	if len(runs) == 0 {
+		remaining := make([]pgQueMessage, 0, len(candidates)-len(selected))
+		for _, candidate := range candidates {
+			if _, ok := selectedIDs[candidate.Message.ID]; ok {
+				_ = q.nack(ctx, candidate.Message, q.cfg.NackDelay, "not claimable")
+				continue
+			}
+			remaining = append(remaining, candidate.Message)
+		}
+		batch.Messages = remaining
+		return nil, nil
+	}
+
+	claimed := make(map[string]struct{}, len(runs))
+	for _, run := range runs {
+		claimed[run.ID] = struct{}{}
+	}
+
+	remaining := make([]pgQueMessage, 0, len(candidates)-len(runs))
+	for _, candidate := range candidates {
+		if _, ok := claimed[candidate.Event.RunID]; !ok {
+			remaining = append(remaining, candidate.Message)
+		}
+	}
+	batch.Messages = remaining
+	return runs, nil
 }
 
 func (q *PgQueQueue) receive(ctx context.Context, queueName string, maxReturn int) ([]pgQueMessage, error) {

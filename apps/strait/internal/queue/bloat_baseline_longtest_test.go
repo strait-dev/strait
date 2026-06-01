@@ -200,7 +200,7 @@ func runPgQueQueueBaseline(tb baselineTB, ctx context.Context, cfg baselineConfi
 		TickInterval:  10 * time.Millisecond,
 		ConsumerName:  "bloat-comparison-" + newID(),
 		NackDelay:     10 * time.Millisecond,
-		ReceiveWindow: 1000,
+		ReceiveWindow: 100,
 	})
 	return runQueueBaseline(tb, ctx, cfg, "pgque", q, queueBaselineHooks{
 		afterEnqueue: func(ctx context.Context) {

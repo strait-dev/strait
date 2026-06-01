@@ -95,6 +95,53 @@ func TestPgQue_CreatesRouteIdempotently(t *testing.T) {
 	}
 }
 
+func TestPgQue_DequeueWindowDoesNotLoseUnseenBatchMessages(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-pgque-window")
+	q := queue.NewPgQueQueue(testDB.Pool, queue.NewPostgresQueue(testDB.Pool), queue.PgQueConfig{
+		TickInterval:  10 * time.Millisecond,
+		ConsumerName:  "test-" + newID(),
+		NackDelay:     10 * time.Millisecond,
+		ReceiveWindow: 10,
+	})
+
+	want := 25
+	for i := 0; i < want; i++ {
+		run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+		if err := q.Enqueue(ctx, run); err != nil {
+			t.Fatalf("Enqueue(%d): %v", i, err)
+		}
+	}
+	if err := q.ForceTick(ctx, "http"); err != nil {
+		t.Fatalf("ForceTick: %v", err)
+	}
+
+	seen := make(map[string]struct{}, want)
+	deadline := time.Now().Add(5 * time.Second)
+	for len(seen) < want && time.Now().Before(deadline) {
+		runs, err := q.DequeueN(ctx, 5)
+		if err != nil {
+			t.Fatalf("DequeueN: %v", err)
+		}
+		if len(runs) == 0 {
+			time.Sleep(10 * time.Millisecond)
+			continue
+		}
+		for _, run := range runs {
+			if _, ok := seen[run.ID]; ok {
+				t.Fatalf("duplicate claim for run %s", run.ID)
+			}
+			seen[run.ID] = struct{}{}
+		}
+	}
+	if len(seen) != want {
+		t.Fatalf("claimed %d runs, want %d; small PgQue receive windows must not ack away unseen batch messages", len(seen), want)
+	}
+}
+
 func TestPgQue_ClaimUsesRunStateNotFatLedger(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
