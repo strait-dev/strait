@@ -138,7 +138,13 @@ func (q *Queries) GetRunStatus(ctx context.Context, id string) (domain.RunStatus
 	defer span.End()
 
 	var status domain.RunStatus
-	err := q.db.QueryRow(ctx, `SELECT status FROM job_runs WHERE id = $1`, id).Scan(&status)
+	err := q.db.QueryRow(ctx, `
+		SELECT COALESCE(s.status, jr.status)
+		FROM job_runs jr
+		LEFT JOIN job_run_state s ON s.run_id = jr.id
+		WHERE jr.id = $1`,
+		id,
+	).Scan(&status)
 	if err == nil {
 		return status, nil
 	}
@@ -161,7 +167,13 @@ func (q *Queries) GetRunTokenState(ctx context.Context, id string) (domain.RunSt
 	var status domain.RunStatus
 	var attempt int
 	var projectID string
-	err := q.db.QueryRow(ctx, `SELECT status, attempt, project_id FROM job_runs WHERE id = $1`, id).Scan(&status, &attempt, &projectID)
+	err := q.db.QueryRow(ctx, `
+		SELECT COALESCE(s.status, jr.status), COALESCE(s.attempt, jr.attempt), jr.project_id
+		FROM job_runs jr
+		LEFT JOIN job_run_state s ON s.run_id = jr.id
+		WHERE jr.id = $1`,
+		id,
+	).Scan(&status, &attempt, &projectID)
 	if err == nil {
 		return status, attempt, projectID, nil
 	}
@@ -186,10 +198,11 @@ func (q *Queries) EnsureRunActiveForAttempt(ctx context.Context, id string, atte
 	err := q.db.QueryRow(ctx, `
 		SELECT EXISTS (
 			SELECT 1
-			FROM job_runs
-			WHERE id = $1
-			  AND attempt = $2
-			  AND status IN ('executing', 'waiting')
+			FROM job_runs jr
+			LEFT JOIN job_run_state s ON s.run_id = jr.id
+			WHERE jr.id = $1
+			  AND COALESCE(s.attempt, jr.attempt) = $2
+			  AND COALESCE(s.status, jr.status) IN ('executing', 'waiting')
 		 )`, id, attempt).Scan(&exists)
 	if err != nil {
 		return fmt.Errorf("ensure active run: %w", err)
@@ -205,12 +218,26 @@ func (q *Queries) GetRun(ctx context.Context, id string) (*domain.JobRun, error)
 	defer span.End()
 
 	query := `
-		SELECT jr.id, jr.job_id, jr.project_id, COALESCE(s.status, jr.status), COALESCE(s.attempt, jr.attempt), jr.payload, jr.result, jr.metadata, jr.error, jr.error_class,
+		SELECT jr.id, jr.job_id, jr.project_id, COALESCE(s.status, jr.status), COALESCE(s.attempt, jr.attempt), jr.payload,
+		       CASE WHEN terminal.fields ? 'result' THEN terminal.fields->'result' ELSE jr.result END,
+		       jr.metadata,
+		       CASE WHEN terminal.fields ? 'error' THEN terminal.fields->>'error' ELSE jr.error END,
+		       CASE WHEN terminal.fields ? 'error_class' THEN terminal.fields->>'error_class' ELSE jr.error_class END,
 		       jr.triggered_by, COALESCE(s.scheduled_at, jr.scheduled_at), COALESCE(s.started_at, jr.started_at), COALESCE(s.finished_at, jr.finished_at), COALESCE(h.heartbeat_at, s.heartbeat_at, jr.heartbeat_at),
-		       COALESCE(s.next_retry_at, jr.next_retry_at), COALESCE(s.expires_at, jr.expires_at), jr.parent_run_id, COALESCE(s.priority, jr.priority), jr.idempotency_key, jr.job_version, jr.created_at, jr.workflow_step_run_id, jr.execution_trace, jr.debug_mode, jr.continuation_of, jr.lineage_depth, jr.tags, jr.job_version_id, jr.created_by, jr.batch_id, COALESCE(NULLIF(s.concurrency_key, ''), jr.concurrency_key), COALESCE(NULLIF(s.execution_mode, ''), jr.execution_mode), jr.is_rollback, jr.replayed_run_id
+		       COALESCE(s.next_retry_at, jr.next_retry_at), COALESCE(s.expires_at, jr.expires_at), jr.parent_run_id, COALESCE(s.priority, jr.priority), jr.idempotency_key, jr.job_version, jr.created_at, jr.workflow_step_run_id,
+		       CASE WHEN terminal.fields ? 'execution_trace' THEN terminal.fields->'execution_trace' ELSE jr.execution_trace END,
+		       jr.debug_mode, jr.continuation_of, jr.lineage_depth, jr.tags, jr.job_version_id, jr.created_by, jr.batch_id, COALESCE(NULLIF(s.concurrency_key, ''), jr.concurrency_key), COALESCE(NULLIF(s.execution_mode, ''), jr.execution_mode), jr.is_rollback, jr.replayed_run_id
 		FROM job_runs jr
 		LEFT JOIN job_run_state s ON s.run_id = jr.id
 		LEFT JOIN job_run_heartbeats h ON h.run_id = jr.id
+		LEFT JOIN LATERAL (
+			SELECT fields
+			FROM job_run_lifecycle_events e
+			WHERE e.run_id = jr.id
+			  AND e.fields ?| ARRAY['result', 'error', 'error_class', 'execution_trace']
+			ORDER BY e.created_at DESC, e.id DESC
+			LIMIT 1
+		) terminal ON true
 		WHERE jr.id = $1`
 
 	run, err := dbscan.ScanRun(q.db.QueryRow(ctx, query, id))
@@ -236,12 +263,26 @@ func (q *Queries) GetRunWithCacheVersion(ctx context.Context, id string) (*domai
 	defer span.End()
 
 	query := `
-		SELECT jr.id, jr.job_id, jr.project_id, COALESCE(s.status, jr.status), COALESCE(s.attempt, jr.attempt), jr.payload, jr.result, jr.metadata, jr.error, jr.error_class,
+		SELECT jr.id, jr.job_id, jr.project_id, COALESCE(s.status, jr.status), COALESCE(s.attempt, jr.attempt), jr.payload,
+		       CASE WHEN terminal.fields ? 'result' THEN terminal.fields->'result' ELSE jr.result END,
+		       jr.metadata,
+		       CASE WHEN terminal.fields ? 'error' THEN terminal.fields->>'error' ELSE jr.error END,
+		       CASE WHEN terminal.fields ? 'error_class' THEN terminal.fields->>'error_class' ELSE jr.error_class END,
 		       jr.triggered_by, COALESCE(s.scheduled_at, jr.scheduled_at), COALESCE(s.started_at, jr.started_at), COALESCE(s.finished_at, jr.finished_at), COALESCE(h.heartbeat_at, s.heartbeat_at, jr.heartbeat_at),
-		       COALESCE(s.next_retry_at, jr.next_retry_at), COALESCE(s.expires_at, jr.expires_at), jr.parent_run_id, COALESCE(s.priority, jr.priority), jr.idempotency_key, jr.job_version, jr.created_at, jr.workflow_step_run_id, jr.execution_trace, jr.debug_mode, jr.continuation_of, jr.lineage_depth, jr.tags, jr.job_version_id, jr.created_by, jr.batch_id, COALESCE(NULLIF(s.concurrency_key, ''), jr.concurrency_key), COALESCE(NULLIF(s.execution_mode, ''), jr.execution_mode), jr.is_rollback, jr.replayed_run_id, jr.cache_version
+		       COALESCE(s.next_retry_at, jr.next_retry_at), COALESCE(s.expires_at, jr.expires_at), jr.parent_run_id, COALESCE(s.priority, jr.priority), jr.idempotency_key, jr.job_version, jr.created_at, jr.workflow_step_run_id,
+		       CASE WHEN terminal.fields ? 'execution_trace' THEN terminal.fields->'execution_trace' ELSE jr.execution_trace END,
+		       jr.debug_mode, jr.continuation_of, jr.lineage_depth, jr.tags, jr.job_version_id, jr.created_by, jr.batch_id, COALESCE(NULLIF(s.concurrency_key, ''), jr.concurrency_key), COALESCE(NULLIF(s.execution_mode, ''), jr.execution_mode), jr.is_rollback, jr.replayed_run_id, jr.cache_version
 		FROM job_runs jr
 		LEFT JOIN job_run_state s ON s.run_id = jr.id
 		LEFT JOIN job_run_heartbeats h ON h.run_id = jr.id
+		LEFT JOIN LATERAL (
+			SELECT fields
+			FROM job_run_lifecycle_events e
+			WHERE e.run_id = jr.id
+			  AND e.fields ?| ARRAY['result', 'error', 'error_class', 'execution_trace']
+			ORDER BY e.created_at DESC, e.id DESC
+			LIMIT 1
+		) terminal ON true
 		WHERE jr.id = $1`
 
 	run, err := dbscan.ScanRunWithCacheVersion(q.db.QueryRow(ctx, query, id))
@@ -506,12 +547,13 @@ func (q *Queries) CreateRunCheckpointForActiveRun(ctx context.Context, checkpoin
 
 	query := `
 		WITH active_run AS (
-			SELECT id
-			FROM job_runs
-			WHERE id = $1
-			  AND attempt = $5
-			  AND status IN ('executing', 'waiting')
-			FOR UPDATE
+			SELECT jr.id
+			FROM job_runs jr
+			LEFT JOIN job_run_state s ON s.run_id = jr.id
+			WHERE jr.id = $1
+			  AND COALESCE(s.attempt, jr.attempt) = $5
+			  AND COALESCE(s.status, jr.status) IN ('executing', 'waiting')
+			FOR UPDATE OF jr
 		),
 		next_seq AS (
 			SELECT COALESCE(MAX(sequence), 0) + 1 AS seq
@@ -678,11 +720,12 @@ func (q *Queries) CreateRunUsageForActiveRun(ctx context.Context, usage *domain.
 
 	query := `
 		WITH active_run AS (
-			SELECT id
-			FROM job_runs
-			WHERE id = $2
-			  AND attempt = $9
-			  AND status IN ('executing', 'waiting')
+			SELECT jr.id
+			FROM job_runs jr
+			LEFT JOIN job_run_state s ON s.run_id = jr.id
+			WHERE jr.id = $2
+			  AND COALESCE(s.attempt, jr.attempt) = $9
+			  AND COALESCE(s.status, jr.status) IN ('executing', 'waiting')
 		)
 		INSERT INTO run_usage (id, run_id, provider, model, prompt_tokens, completion_tokens, total_tokens, cost_microusd)
 		SELECT $1, id, $3, $4, $5, $6, $7, $8
@@ -793,11 +836,12 @@ func (q *Queries) CreateRunToolCallForActiveRun(ctx context.Context, call *domai
 
 	query := `
 		WITH active_run AS (
-			SELECT id
-			FROM job_runs
-			WHERE id = $2
-			  AND attempt = $8
-			  AND status IN ('executing', 'waiting')
+			SELECT jr.id
+			FROM job_runs jr
+			LEFT JOIN job_run_state s ON s.run_id = jr.id
+			WHERE jr.id = $2
+			  AND COALESCE(s.attempt, jr.attempt) = $8
+			  AND COALESCE(s.status, jr.status) IN ('executing', 'waiting')
 		)
 		INSERT INTO run_tool_calls (id, run_id, tool_name, input, output, duration_ms, status)
 		SELECT $1, id, $3, $4, $5, $6, $7
@@ -902,11 +946,12 @@ func (q *Queries) UpsertRunOutputForActiveRun(ctx context.Context, output *domai
 
 	query := `
 		WITH active_run AS (
-			SELECT id
-			FROM job_runs
-			WHERE id = $2
-			  AND attempt = $6
-			  AND status IN ('executing', 'waiting')
+			SELECT jr.id
+			FROM job_runs jr
+			LEFT JOIN job_run_state s ON s.run_id = jr.id
+			WHERE jr.id = $2
+			  AND COALESCE(s.attempt, jr.attempt) = $6
+			  AND COALESCE(s.status, jr.status) IN ('executing', 'waiting')
 		)
 		INSERT INTO run_outputs (id, run_id, output_key, schema, value)
 		SELECT $1, id, $3, $4, $5
@@ -1128,12 +1173,28 @@ func (q *Queries) ListRunsByJob(ctx context.Context, jobID string, limit, offset
 	defer span.End()
 
 	query := `
-		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
-		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, is_rollback, replayed_run_id
-		FROM job_runs
-		WHERE job_id = $1
-		ORDER BY created_at DESC
+		SELECT jr.id, jr.job_id, jr.project_id, COALESCE(s.status, jr.status), COALESCE(s.attempt, jr.attempt), jr.payload,
+		       CASE WHEN terminal.fields ? 'result' THEN terminal.fields->'result' ELSE jr.result END,
+		       jr.metadata,
+		       CASE WHEN terminal.fields ? 'error' THEN terminal.fields->>'error' ELSE jr.error END,
+		       CASE WHEN terminal.fields ? 'error_class' THEN terminal.fields->>'error_class' ELSE jr.error_class END,
+		       jr.triggered_by, COALESCE(s.scheduled_at, jr.scheduled_at), COALESCE(s.started_at, jr.started_at), COALESCE(s.finished_at, jr.finished_at), COALESCE(h.heartbeat_at, s.heartbeat_at, jr.heartbeat_at),
+		       COALESCE(s.next_retry_at, jr.next_retry_at), COALESCE(s.expires_at, jr.expires_at), jr.parent_run_id, COALESCE(s.priority, jr.priority), jr.idempotency_key, jr.job_version, jr.created_at, jr.workflow_step_run_id,
+		       CASE WHEN terminal.fields ? 'execution_trace' THEN terminal.fields->'execution_trace' ELSE jr.execution_trace END,
+		       jr.debug_mode, jr.continuation_of, jr.lineage_depth, jr.tags, jr.job_version_id, jr.created_by, jr.batch_id, COALESCE(NULLIF(s.concurrency_key, ''), jr.concurrency_key), COALESCE(NULLIF(s.execution_mode, ''), jr.execution_mode), jr.is_rollback, jr.replayed_run_id
+		FROM job_runs jr
+		LEFT JOIN job_run_state s ON s.run_id = jr.id
+		LEFT JOIN job_run_heartbeats h ON h.run_id = jr.id
+		LEFT JOIN LATERAL (
+			SELECT fields
+			FROM job_run_lifecycle_events e
+			WHERE e.run_id = jr.id
+			  AND e.fields ?| ARRAY['result', 'error', 'error_class', 'execution_trace']
+			ORDER BY e.created_at DESC, e.id DESC
+			LIMIT 1
+		) terminal ON true
+		WHERE jr.job_id = $1
+		ORDER BY jr.created_at DESC
 		LIMIT $2 OFFSET $3`
 
 	rows, err := q.db.Query(ctx, query, jobID, limit, offset)
@@ -1163,17 +1224,33 @@ func (q *Queries) ListRunsByProject(ctx context.Context, projectID string, statu
 	defer span.End()
 
 	baseQuery := `
-		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
-		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, is_rollback, replayed_run_id
-		FROM job_runs
-		WHERE project_id = $1`
+		SELECT jr.id, jr.job_id, jr.project_id, COALESCE(s.status, jr.status), COALESCE(s.attempt, jr.attempt), jr.payload,
+		       CASE WHEN terminal.fields ? 'result' THEN terminal.fields->'result' ELSE jr.result END,
+		       jr.metadata,
+		       CASE WHEN terminal.fields ? 'error' THEN terminal.fields->>'error' ELSE jr.error END,
+		       CASE WHEN terminal.fields ? 'error_class' THEN terminal.fields->>'error_class' ELSE jr.error_class END,
+		       jr.triggered_by, COALESCE(s.scheduled_at, jr.scheduled_at), COALESCE(s.started_at, jr.started_at), COALESCE(s.finished_at, jr.finished_at), COALESCE(h.heartbeat_at, s.heartbeat_at, jr.heartbeat_at),
+		       COALESCE(s.next_retry_at, jr.next_retry_at), COALESCE(s.expires_at, jr.expires_at), jr.parent_run_id, COALESCE(s.priority, jr.priority), jr.idempotency_key, jr.job_version, jr.created_at, jr.workflow_step_run_id,
+		       CASE WHEN terminal.fields ? 'execution_trace' THEN terminal.fields->'execution_trace' ELSE jr.execution_trace END,
+		       jr.debug_mode, jr.continuation_of, jr.lineage_depth, jr.tags, jr.job_version_id, jr.created_by, jr.batch_id, COALESCE(NULLIF(s.concurrency_key, ''), jr.concurrency_key), COALESCE(NULLIF(s.execution_mode, ''), jr.execution_mode), jr.is_rollback, jr.replayed_run_id
+		FROM job_runs jr
+		LEFT JOIN job_run_state s ON s.run_id = jr.id
+		LEFT JOIN job_run_heartbeats h ON h.run_id = jr.id
+		LEFT JOIN LATERAL (
+			SELECT fields
+			FROM job_run_lifecycle_events e
+			WHERE e.run_id = jr.id
+			  AND e.fields ?| ARRAY['result', 'error', 'error_class', 'execution_trace']
+			ORDER BY e.created_at DESC, e.id DESC
+			LIMIT 1
+		) terminal ON true
+		WHERE jr.project_id = $1`
 
 	args := []any{projectID}
 	param := 2
 
 	if status != nil {
-		baseQuery += fmt.Sprintf(" AND status = $%d", param)
+		baseQuery += fmt.Sprintf(" AND COALESCE(s.status, jr.status) = $%d", param)
 		args = append(args, *status)
 		param++
 	}
@@ -1191,42 +1268,42 @@ func (q *Queries) ListRunsByProject(ctx context.Context, projectID string, statu
 	}
 
 	if triggeredBy != nil {
-		baseQuery += fmt.Sprintf(" AND triggered_by = $%d", param)
+		baseQuery += fmt.Sprintf(" AND jr.triggered_by = $%d", param)
 		args = append(args, *triggeredBy)
 		param++
 	}
 
 	if batchID != nil {
-		baseQuery += fmt.Sprintf(" AND batch_id = $%d", param)
+		baseQuery += fmt.Sprintf(" AND jr.batch_id = $%d", param)
 		args = append(args, *batchID)
 		param++
 	}
 
 	if len(payloadContains) > 0 {
-		baseQuery += fmt.Sprintf(" AND payload @> $%d::jsonb", param)
+		baseQuery += fmt.Sprintf(" AND jr.payload @> $%d::jsonb", param)
 		args = append(args, payloadContains)
 		param++
 	}
 
 	if executionMode != nil {
-		baseQuery += fmt.Sprintf(" AND execution_mode = $%d", param)
+		baseQuery += fmt.Sprintf(" AND COALESCE(NULLIF(s.execution_mode, ''), jr.execution_mode) = $%d", param)
 		args = append(args, string(*executionMode))
 		param++
 	}
 
 	if errorClass != nil {
-		baseQuery += fmt.Sprintf(" AND error_class = $%d", param)
+		baseQuery += fmt.Sprintf(" AND CASE WHEN terminal.fields ? 'error_class' THEN terminal.fields->>'error_class' ELSE jr.error_class END = $%d", param)
 		args = append(args, *errorClass)
 		param++
 	}
 
 	if cursor != nil {
-		baseQuery += fmt.Sprintf(" AND created_at < $%d", param)
+		baseQuery += fmt.Sprintf(" AND jr.created_at < $%d", param)
 		args = append(args, *cursor)
 		param++
 	}
 
-	baseQuery += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d", param)
+	baseQuery += fmt.Sprintf(" ORDER BY jr.created_at DESC LIMIT $%d", param)
 	args = append(args, limit)
 
 	rows, err := q.db.Query(ctx, baseQuery, args...)
@@ -1259,9 +1336,15 @@ func (q *Queries) ListRunsByProjectFiltered(ctx context.Context, projectID strin
 	defer span.End()
 
 	baseQuery := `
-		SELECT jr.id, jr.job_id, jr.project_id, jr.status, jr.attempt, jr.payload, jr.result, jr.metadata, jr.error, jr.error_class,
-		       jr.triggered_by, jr.scheduled_at, jr.started_at, jr.finished_at, jr.heartbeat_at,
-		       jr.next_retry_at, jr.expires_at, jr.parent_run_id, jr.priority, jr.idempotency_key, jr.job_version, jr.created_at, jr.workflow_step_run_id, jr.execution_trace, jr.debug_mode, jr.continuation_of, jr.lineage_depth, jr.tags, jr.job_version_id, jr.created_by, jr.batch_id, jr.concurrency_key, jr.execution_mode, jr.is_rollback, jr.replayed_run_id
+		SELECT jr.id, jr.job_id, jr.project_id, COALESCE(s.status, jr.status), COALESCE(s.attempt, jr.attempt), jr.payload,
+		       CASE WHEN terminal.fields ? 'result' THEN terminal.fields->'result' ELSE jr.result END,
+		       jr.metadata,
+		       CASE WHEN terminal.fields ? 'error' THEN terminal.fields->>'error' ELSE jr.error END,
+		       CASE WHEN terminal.fields ? 'error_class' THEN terminal.fields->>'error_class' ELSE jr.error_class END,
+		       jr.triggered_by, COALESCE(s.scheduled_at, jr.scheduled_at), COALESCE(s.started_at, jr.started_at), COALESCE(s.finished_at, jr.finished_at), COALESCE(h.heartbeat_at, s.heartbeat_at, jr.heartbeat_at),
+		       COALESCE(s.next_retry_at, jr.next_retry_at), COALESCE(s.expires_at, jr.expires_at), jr.parent_run_id, COALESCE(s.priority, jr.priority), jr.idempotency_key, jr.job_version, jr.created_at, jr.workflow_step_run_id,
+		       CASE WHEN terminal.fields ? 'execution_trace' THEN terminal.fields->'execution_trace' ELSE jr.execution_trace END,
+		       jr.debug_mode, jr.continuation_of, jr.lineage_depth, jr.tags, jr.job_version_id, jr.created_by, jr.batch_id, COALESCE(NULLIF(s.concurrency_key, ''), jr.concurrency_key), COALESCE(NULLIF(s.execution_mode, ''), jr.execution_mode), jr.is_rollback, jr.replayed_run_id
 		FROM job_runs jr`
 
 	args := []any{projectID}
@@ -1271,10 +1354,22 @@ func (q *Queries) ListRunsByProjectFiltered(ctx context.Context, projectID strin
 		baseQuery += " JOIN jobs j ON j.id = jr.job_id"
 	}
 
+	baseQuery += `
+		LEFT JOIN job_run_state s ON s.run_id = jr.id
+		LEFT JOIN job_run_heartbeats h ON h.run_id = jr.id
+		LEFT JOIN LATERAL (
+			SELECT fields
+			FROM job_run_lifecycle_events e
+			WHERE e.run_id = jr.id
+			  AND e.fields ?| ARRAY['result', 'error', 'error_class', 'execution_trace']
+			ORDER BY e.created_at DESC, e.id DESC
+			LIMIT 1
+		) terminal ON true`
+
 	baseQuery += " WHERE jr.project_id = $1"
 
 	if status != nil {
-		baseQuery += fmt.Sprintf(" AND jr.status = $%d", param)
+		baseQuery += fmt.Sprintf(" AND COALESCE(s.status, jr.status) = $%d", param)
 		args = append(args, string(*status))
 		param++
 	} else if len(statuses) > 0 {
@@ -1282,7 +1377,7 @@ func (q *Queries) ListRunsByProjectFiltered(ctx context.Context, projectID strin
 		for _, s := range statuses {
 			statusVals = append(statusVals, string(s))
 		}
-		baseQuery += fmt.Sprintf(" AND jr.status = ANY($%d)", param)
+		baseQuery += fmt.Sprintf(" AND COALESCE(s.status, jr.status) = ANY($%d)", param)
 		args = append(args, statusVals)
 		param++
 	}
@@ -1336,13 +1431,13 @@ func (q *Queries) ListRunsByProjectFiltered(ctx context.Context, projectID strin
 	}
 
 	if executionMode != nil {
-		baseQuery += fmt.Sprintf(" AND jr.execution_mode = $%d", param)
+		baseQuery += fmt.Sprintf(" AND COALESCE(NULLIF(s.execution_mode, ''), jr.execution_mode) = $%d", param)
 		args = append(args, string(*executionMode))
 		param++
 	}
 
 	if errorClass != nil {
-		baseQuery += fmt.Sprintf(" AND jr.error_class = $%d", param)
+		baseQuery += fmt.Sprintf(" AND CASE WHEN terminal.fields ? 'error_class' THEN terminal.fields->>'error_class' ELSE jr.error_class END = $%d", param)
 		args = append(args, *errorClass)
 		param++
 	}
@@ -1668,11 +1763,7 @@ func (q *Queries) tryUpdateRunStateStatus(ctx context.Context, id string, from, 
 	}
 	ledgerColumns := map[string]struct{}{
 		"payload":              {},
-		"result":               {},
-		"error":                {},
-		"error_class":          {},
 		"triggered_by":         {},
-		"execution_trace":      {},
 		"workflow_step_run_id": {},
 		"debug_mode":           {},
 		"continuation_of":      {},
@@ -1834,7 +1925,7 @@ func legacyQueueStatusShouldAck(status domain.RunStatus) bool {
 }
 
 func (q *Queries) appendRunLifecycleEvent(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any, attempt *int) error {
-	eventFields, err := json.Marshal(fields)
+	eventFields, err := json.Marshal(normalizeRunLifecycleFields(fields))
 	if err != nil {
 		return fmt.Errorf("marshal run lifecycle fields: %w", err)
 	}
@@ -1855,6 +1946,22 @@ func (q *Queries) appendRunLifecycleEvent(ctx context.Context, id string, from, 
 		return fmt.Errorf("append run lifecycle event: %w", err)
 	}
 	return nil
+}
+
+func normalizeRunLifecycleFields(fields map[string]any) map[string]any {
+	if len(fields) == 0 {
+		return fields
+	}
+	normalized := make(map[string]any, len(fields))
+	for key, value := range fields {
+		if key == "result" {
+			if raw, ok := value.([]byte); ok {
+				value = json.RawMessage(raw)
+			}
+		}
+		normalized[key] = value
+	}
+	return normalized
 }
 
 func (q *Queries) updateRunLedgerFields(ctx context.Context, id string, fields map[string]any) error {
@@ -1992,11 +2099,17 @@ func (q *Queries) UpdateRunMetadataForActiveRun(ctx context.Context, id string, 
 	}
 
 	query := `
-		UPDATE job_runs
-		SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb
-		WHERE id = $2
-		  AND attempt = $3
-		  AND status IN ('executing', 'waiting')`
+		UPDATE job_runs jr
+		SET metadata = COALESCE(jr.metadata, '{}'::jsonb) || $1::jsonb
+		WHERE jr.id = $2
+		  AND EXISTS (
+			SELECT 1
+			FROM job_runs gate
+			LEFT JOIN job_run_state s ON s.run_id = gate.id
+			WHERE gate.id = jr.id
+			  AND COALESCE(s.attempt, gate.attempt) = $3
+			  AND COALESCE(s.status, gate.status) IN ('executing', 'waiting')
+		  )`
 
 	tag, err := q.db.Exec(ctx, query, encoded, id, attempt)
 	if err != nil {
@@ -3231,12 +3344,13 @@ func (q *Queries) CreateRunIterationForActiveRun(ctx context.Context, iter *doma
 
 	query := `
 		WITH active_run AS (
-			SELECT id
-			FROM job_runs
-			WHERE id = $2
-			  AND attempt = $5
-			  AND status IN ('executing', 'waiting')
-			FOR UPDATE
+			SELECT jr.id
+			FROM job_runs jr
+			LEFT JOIN job_run_state s ON s.run_id = jr.id
+			WHERE jr.id = $2
+			  AND COALESCE(s.attempt, jr.attempt) = $5
+			  AND COALESCE(s.status, jr.status) IN ('executing', 'waiting')
+			FOR UPDATE OF jr
 		)
 		INSERT INTO run_iterations (id, run_id, iteration, description)
 		SELECT $1, id, $3, $4

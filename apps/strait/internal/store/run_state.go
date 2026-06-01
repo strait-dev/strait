@@ -35,11 +35,12 @@ func (q *Queries) UpsertRunStateForActiveRun(ctx context.Context, s *domain.RunS
 
 	query := `
 		WITH active_run AS (
-			SELECT id
-			FROM job_runs
-			WHERE id = $1
-			  AND attempt = $4
-			  AND status IN ('executing', 'waiting')
+			SELECT jr.id
+			FROM job_runs jr
+			LEFT JOIN job_run_state s ON s.run_id = jr.id
+			WHERE jr.id = $1
+			  AND COALESCE(s.attempt, jr.attempt) = $4
+			  AND COALESCE(s.status, jr.status) IN ('executing', 'waiting')
 		)
 		INSERT INTO run_state (run_id, state_key, value)
 		SELECT id, $2, $3
@@ -87,17 +88,27 @@ func (q *Queries) GetRunStateForActiveRun(ctx context.Context, runID, key string
 		WHERE rs.run_id = $1
 		  AND rs.state_key = $2
 		  AND EXISTS (
-			SELECT 1 FROM job_runs jr
+			SELECT 1
+			FROM job_runs jr
+			LEFT JOIN job_run_state s ON s.run_id = jr.id
 			WHERE jr.id = $1
-			  AND jr.attempt = $3
-			  AND jr.status IN ('executing', 'waiting')
+			  AND COALESCE(s.attempt, jr.attempt) = $3
+			  AND COALESCE(s.status, jr.status) IN ('executing', 'waiting')
 		  )`
 	var s domain.RunState
 	err := q.db.QueryRow(ctx, query, runID, key, attempt).Scan(&s.RunID, &s.StateKey, &s.Value, &s.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			var active bool
-			activeErr := q.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM job_runs WHERE id = $1 AND attempt = $2 AND status IN ('executing', 'waiting'))`, runID, attempt).Scan(&active)
+			activeErr := q.db.QueryRow(ctx, `
+				SELECT EXISTS (
+					SELECT 1
+					FROM job_runs jr
+					LEFT JOIN job_run_state s ON s.run_id = jr.id
+					WHERE jr.id = $1
+					  AND COALESCE(s.attempt, jr.attempt) = $2
+					  AND COALESCE(s.status, jr.status) IN ('executing', 'waiting')
+				)`, runID, attempt).Scan(&active)
 			if activeErr != nil {
 				return nil, fmt.Errorf("check run active for attempt: %w", activeErr)
 			}
@@ -142,7 +153,15 @@ func (q *Queries) ListRunStateForActiveRun(ctx context.Context, runID string, at
 	defer span.End()
 
 	var active bool
-	if err := q.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM job_runs WHERE id = $1 AND attempt = $2 AND status IN ('executing', 'waiting'))`, runID, attempt).Scan(&active); err != nil {
+	if err := q.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM job_runs jr
+			LEFT JOIN job_run_state s ON s.run_id = jr.id
+			WHERE jr.id = $1
+			  AND COALESCE(s.attempt, jr.attempt) = $2
+			  AND COALESCE(s.status, jr.status) IN ('executing', 'waiting')
+		)`, runID, attempt).Scan(&active); err != nil {
 		return nil, fmt.Errorf("check run active for attempt: %w", err)
 	}
 	if !active {
@@ -204,12 +223,13 @@ func (q *Queries) DeleteRunStateForActiveRun(ctx context.Context, runID, key str
 	var active bool
 	query := `
 		WITH active_run AS (
-			SELECT id
-			FROM job_runs
-			WHERE id = $1
-			  AND attempt = $3
-			  AND status IN ('executing', 'waiting')
-			FOR UPDATE
+			SELECT jr.id
+			FROM job_runs jr
+			LEFT JOIN job_run_state s ON s.run_id = jr.id
+			WHERE jr.id = $1
+			  AND COALESCE(s.attempt, jr.attempt) = $3
+			  AND COALESCE(s.status, jr.status) IN ('executing', 'waiting')
+			FOR UPDATE OF jr
 		),
 		deleted AS (
 			DELETE FROM run_state

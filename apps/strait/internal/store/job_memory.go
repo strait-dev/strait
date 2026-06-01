@@ -123,12 +123,13 @@ func (q *Queries) UpsertJobMemoryWithQuotaForActiveRun(ctx context.Context, runI
 		var active bool
 		if err := txQ.db.QueryRow(ctx, `
 			SELECT TRUE
-			FROM job_runs
-			WHERE id = $1
-			  AND job_id = $2
-			  AND attempt = $3
-			  AND status IN ('executing', 'waiting')
-			FOR UPDATE`, runID, mem.JobID, attempt).Scan(&active); err != nil {
+			FROM job_runs jr
+			LEFT JOIN job_run_state s ON s.run_id = jr.id
+			WHERE jr.id = $1
+			  AND jr.job_id = $2
+			  AND COALESCE(s.attempt, jr.attempt) = $3
+			  AND COALESCE(s.status, jr.status) IN ('executing', 'waiting')
+			FOR UPDATE OF jr`, runID, mem.JobID, attempt).Scan(&active); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, runID, attempt)
 			}
@@ -196,7 +197,16 @@ func (q *Queries) GetJobMemoryForActiveRun(ctx context.Context, runID, jobID, ke
 	defer span.End()
 
 	var active bool
-	if err := q.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM job_runs WHERE id = $1 AND attempt = $2 AND job_id = $3 AND status IN ('executing', 'waiting'))`, runID, attempt, jobID).Scan(&active); err != nil {
+	if err := q.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM job_runs jr
+			LEFT JOIN job_run_state s ON s.run_id = jr.id
+			WHERE jr.id = $1
+			  AND COALESCE(s.attempt, jr.attempt) = $2
+			  AND jr.job_id = $3
+			  AND COALESCE(s.status, jr.status) IN ('executing', 'waiting')
+		)`, runID, attempt, jobID).Scan(&active); err != nil {
 		return nil, fmt.Errorf("check run active for attempt: %w", err)
 	}
 	if !active {
@@ -212,7 +222,16 @@ func (q *Queries) ListJobMemoryForActiveRun(ctx context.Context, runID, jobID st
 	defer span.End()
 
 	var active bool
-	if err := q.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM job_runs WHERE id = $1 AND attempt = $2 AND job_id = $3 AND status IN ('executing', 'waiting'))`, runID, attempt, jobID).Scan(&active); err != nil {
+	if err := q.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM job_runs jr
+			LEFT JOIN job_run_state s ON s.run_id = jr.id
+			WHERE jr.id = $1
+			  AND COALESCE(s.attempt, jr.attempt) = $2
+			  AND jr.job_id = $3
+			  AND COALESCE(s.status, jr.status) IN ('executing', 'waiting')
+		)`, runID, attempt, jobID).Scan(&active); err != nil {
 		return nil, fmt.Errorf("check run active for attempt: %w", err)
 	}
 	if !active {
@@ -271,13 +290,14 @@ func (q *Queries) DeleteJobMemoryForActiveRun(ctx context.Context, runID, jobID,
 	var active bool
 	query := `
 		WITH active_run AS (
-			SELECT id
-			FROM job_runs
-			WHERE id = $1
-			  AND job_id = $2
-			  AND attempt = $4
-			  AND status IN ('executing', 'waiting')
-			FOR UPDATE
+			SELECT jr.id
+			FROM job_runs jr
+			LEFT JOIN job_run_state s ON s.run_id = jr.id
+			WHERE jr.id = $1
+			  AND jr.job_id = $2
+			  AND COALESCE(s.attempt, jr.attempt) = $4
+			  AND COALESCE(s.status, jr.status) IN ('executing', 'waiting')
+			FOR UPDATE OF jr
 		),
 		deleted AS (
 			DELETE FROM job_memory
