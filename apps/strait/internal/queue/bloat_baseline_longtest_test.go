@@ -352,7 +352,6 @@ func exerciseRetryAndStalePaths(tb baselineTB, ctx context.Context, q interface 
 	Enqueue(context.Context, *domain.JobRun) error
 	Dequeue(context.Context) (*domain.JobRun, error)
 }, st interface {
-	UpdateRunStatus(context.Context, string, domain.RunStatus, domain.RunStatus, map[string]any) error
 	ListStaleDequeued(context.Context, time.Duration) ([]domain.JobRun, error)
 }, job *domain.Job) int64 {
 	tb.Helper()
@@ -378,9 +377,10 @@ func exerciseRetryAndStalePaths(tb baselineTB, ctx context.Context, q interface 
 	if len(stale) == 0 {
 		tb.Fatalf("expected stale dequeued run")
 	}
-	if err := st.UpdateRunStatus(ctx, claimed.ID, domain.StatusDequeued, domain.StatusQueued, map[string]any{
-		"started_at": nil,
-	}); err != nil {
+	// This is the legacy SKIP LOCKED baseline, so requeue through the old
+	// ledger-backed path to keep the baseline behavior measurable after the
+	// production transition path moved to job_run_state.
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE job_runs SET status = 'queued', started_at = NULL WHERE id = $1`, claimed.ID); err != nil {
 		tb.Fatalf("requeue stale dequeued: %v", err)
 	}
 	redelivered, err := q.Dequeue(ctx)
