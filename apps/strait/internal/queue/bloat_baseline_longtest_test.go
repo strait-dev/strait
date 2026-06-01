@@ -451,6 +451,7 @@ func startNotifyCounter(tb baselineTB, ctx context.Context) (*atomic.Int64, func
 
 func sampleRelationBloat(tb baselineTB, ctx context.Context) []loadtest.RelationBloatSample {
 	tb.Helper()
+	forceQueueBloatStatsFlush(tb, ctx)
 	rows, err := testDB.Pool.Query(ctx, `
 		SELECT
 			s.relname,
@@ -715,6 +716,18 @@ func mustCleanTB(tb baselineTB, ctx context.Context) {
 	tb.Helper()
 	if err := testDB.CleanTables(ctx); err != nil {
 		tb.Fatalf("CleanTables() error = %v", err)
+	}
+	forceQueueBloatStatsFlush(tb, ctx)
+	if _, err := testDB.Pool.Exec(ctx, "SELECT pg_stat_reset()"); err != nil {
+		tb.Logf("pg_stat_reset: %v (non-fatal)", err)
+	}
+	forceQueueBloatStatsFlush(tb, ctx)
+}
+
+func forceQueueBloatStatsFlush(tb baselineTB, ctx context.Context) {
+	tb.Helper()
+	if _, err := testDB.Pool.Exec(ctx, "SELECT pg_stat_force_next_flush()"); err != nil {
+		tb.Logf("pg_stat_force_next_flush: %v (non-fatal)", err)
 	}
 }
 

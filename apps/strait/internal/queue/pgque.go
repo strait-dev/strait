@@ -133,6 +133,9 @@ func (q *PgQueQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 }
 
 func (q *PgQueQueue) EnqueueInTx(ctx context.Context, tx store.DBTX, run *domain.JobRun) error {
+	if err := q.markPgQueStorage(ctx, tx); err != nil {
+		return err
+	}
 	if err := q.legacy.EnqueueInTx(ctx, tx, run); err != nil {
 		return err
 	}
@@ -166,6 +169,9 @@ func (q *PgQueQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun) (i
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	legacy := NewPostgresQueue(tx)
+	if err := q.markPgQueStorage(ctx, tx); err != nil {
+		return 0, err
+	}
 	inserted, err := legacy.EnqueueBatch(ctx, runs)
 	if err != nil {
 		return 0, err
@@ -178,6 +184,13 @@ func (q *PgQueQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun) (i
 	}
 	_ = q.tickReadyRoutes(ctx, runs)
 	return inserted, nil
+}
+
+func (q *PgQueQueue) markPgQueStorage(ctx context.Context, db store.DBTX) error {
+	if _, err := db.Exec(ctx, `SET LOCAL strait.queue_backend = 'pgque'`); err != nil {
+		return fmt.Errorf("pgque mark queue storage: %w", err)
+	}
+	return nil
 }
 
 func (q *PgQueQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {

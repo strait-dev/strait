@@ -95,6 +95,70 @@ func TestPgQue_CreatesRouteIdempotently(t *testing.T) {
 	}
 }
 
+func TestPgQue_DoesNotCreateLegacyQueueEntries(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-pgque-no-legacy-queue-entry")
+	q := mustPgQueQueue(t)
+
+	run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+
+	var queueEntries int
+	if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM queue_entries WHERE run_id = $1`, run.ID).Scan(&queueEntries); err != nil {
+		t.Fatalf("queue_entries count after enqueue: %v", err)
+	}
+	if queueEntries != 0 {
+		t.Fatalf("queue_entries after PgQue enqueue = %d, want 0", queueEntries)
+	}
+
+	if err := q.ForceTick(ctx, "http"); err != nil {
+		t.Fatalf("ForceTick: %v", err)
+	}
+	claimed, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("DequeueN: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].ID != run.ID {
+		t.Fatalf("claimed = %+v, want run %s", claimed, run.ID)
+	}
+	if err := st.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{"started_at": time.Now()}); err != nil {
+		t.Fatalf("UpdateRunStatus executing: %v", err)
+	}
+	if err := st.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{"finished_at": time.Now()}); err != nil {
+		t.Fatalf("UpdateRunStatus completed: %v", err)
+	}
+
+	if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM queue_entries WHERE run_id = $1`, run.ID).Scan(&queueEntries); err != nil {
+		t.Fatalf("queue_entries count after complete: %v", err)
+	}
+	if queueEntries != 0 {
+		t.Fatalf("queue_entries after PgQue completion = %d, want 0", queueEntries)
+	}
+
+	batchRuns := []*domain.JobRun{
+		{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID},
+		{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID},
+	}
+	inserted, err := q.EnqueueBatch(ctx, batchRuns)
+	if err != nil {
+		t.Fatalf("EnqueueBatch: %v", err)
+	}
+	if inserted != int64(len(batchRuns)) {
+		t.Fatalf("EnqueueBatch inserted = %d, want %d", inserted, len(batchRuns))
+	}
+	if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM queue_entries WHERE run_id = ANY($1)`, []string{batchRuns[0].ID, batchRuns[1].ID}).Scan(&queueEntries); err != nil {
+		t.Fatalf("queue_entries count after batch enqueue: %v", err)
+	}
+	if queueEntries != 0 {
+		t.Fatalf("queue_entries after PgQue batch enqueue = %d, want 0", queueEntries)
+	}
+}
+
 func TestPgQue_DequeueWindowDoesNotLoseUnseenBatchMessages(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
