@@ -1631,117 +1631,26 @@ func (q *Queries) UpdateRunStatus(ctx context.Context, id string, from, to domai
 		return fmt.Errorf("invalid status transition: %w", err)
 	}
 
-	allowedColumns := map[string]struct{}{
-		"attempt":              {},
-		"payload":              {},
-		"result":               {},
-		"error":                {},
-		"error_class":          {},
-		"triggered_by":         {},
-		"scheduled_at":         {},
-		"started_at":           {},
-		"finished_at":          {},
-		"heartbeat_at":         {},
-		"next_retry_at":        {},
-		"expires_at":           {},
-		"execution_trace":      {},
-		"workflow_step_run_id": {},
-		"debug_mode":           {},
-		"continuation_of":      {},
-		"lineage_depth":        {},
-		"priority":             {},
-		"metadata":             {},
+	if err := validateRunStatusFields(fields); err != nil {
+		return err
 	}
 
-	setClauses := []string{"status = $1"}
-	args := []any{to, id, from}
-	param := 4
-
-	keys := lo.Keys(fields)
-	sort.Strings(keys)
-
-	for _, key := range keys {
-		if _, ok := allowedColumns[key]; !ok {
-			return &domain.FieldError{Field: key}
-		}
-
-		value := fields[key]
-		if raw, ok := value.(json.RawMessage); ok {
-			value = dbscan.NilIfEmptyRawMessage(raw)
-		}
-		if key == "metadata" {
-			if m, ok := value.(map[string]string); ok {
-				encoded, err := json.Marshal(m)
-				if err != nil {
-					return fmt.Errorf("marshal metadata: %w", err)
-				}
-				setClauses = append(setClauses, fmt.Sprintf("metadata = COALESCE(metadata, '{}'::jsonb) || $%d::jsonb", param))
-				args = append(args, encoded)
-				param++
-				continue
-			}
-		}
-		if key == "execution_trace" {
-			switch trace := value.(type) {
-			case *domain.ExecutionTrace:
-				if trace == nil {
-					value = nil
-				} else {
-					encoded, err := json.Marshal(trace)
-					if err != nil {
-						return fmt.Errorf("marshal execution trace: %w", err)
-					}
-					value = dbscan.NilIfEmptyRawMessage(encoded)
-				}
-			case domain.ExecutionTrace:
-				encoded, err := json.Marshal(trace)
-				if err != nil {
-					return fmt.Errorf("marshal execution trace: %w", err)
-				}
-				value = dbscan.NilIfEmptyRawMessage(encoded)
-			}
-		}
-		if key == "error" || key == "workflow_step_run_id" {
-			if text, ok := value.(string); ok {
-				value = dbscan.NilIfEmptyString(text)
-			}
-		}
-
-		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", key, param))
-		args = append(args, value)
-		param++
-	}
-
-	query := fmt.Sprintf(
-		"UPDATE job_runs SET %s WHERE id = $2 AND status = $3",
-		strings.Join(setClauses, ", "),
-	)
-
-	tag, err := q.db.Exec(ctx, query, args...)
+	updatedState, err := q.tryUpdateRunStateStatus(ctx, id, from, to, fields, nil)
 	if err != nil {
-		return fmt.Errorf("update run status: %w", err)
+		return err
+	}
+	if updatedState {
+		return nil
 	}
 
-	if tag.RowsAffected() == 0 {
-		updatedState, stateErr := q.tryUpdateRunStateStatus(ctx, id, from, to, fields, nil)
-		if stateErr != nil {
-			return stateErr
-		}
-		if updatedState {
-			return nil
-		}
-		var currentStatus domain.RunStatus
-		err := q.db.QueryRow(ctx, "SELECT status FROM job_runs WHERE id = $1", id).Scan(&currentStatus)
-		if err != nil {
-			return fmt.Errorf("checking current status: %w", err)
-		}
-		if currentStatus == to {
-			return nil // idempotent: already in target state
-		}
-		return fmt.Errorf("%w: id %s from %s", ErrRunConflict, id, from)
+	currentStatus, _, err := q.currentRunMutableState(ctx, id)
+	if err != nil {
+		return fmt.Errorf("checking current status: %w", err)
 	}
-
-	return nil
+	if currentStatus == to {
+		return nil // idempotent: already in target state
+	}
+	return fmt.Errorf("%w: id %s from %s", ErrRunConflict, id, from)
 }
 
 func (q *Queries) tryUpdateRunStateStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any, attempt *int) (bool, error) {
@@ -1758,11 +1667,17 @@ func (q *Queries) tryUpdateRunStateStatus(ctx context.Context, id string, from, 
 		"execution_mode":  {},
 	}
 	ledgerColumns := map[string]struct{}{
-		"result":          {},
-		"error":           {},
-		"error_class":     {},
-		"execution_trace": {},
-		"metadata":        {},
+		"payload":              {},
+		"result":               {},
+		"error":                {},
+		"error_class":          {},
+		"triggered_by":         {},
+		"execution_trace":      {},
+		"workflow_step_run_id": {},
+		"debug_mode":           {},
+		"continuation_of":      {},
+		"lineage_depth":        {},
+		"metadata":             {},
 	}
 
 	stateSet := []string{"status = $1", "updated_at = NOW()"}
@@ -1805,6 +1720,9 @@ func (q *Queries) tryUpdateRunStateStatus(ctx context.Context, id string, from, 
 		return false, nil
 	}
 
+	if err := q.syncLegacyQueueEntryStatus(ctx, id, to); err != nil {
+		return false, err
+	}
 	if err := q.appendRunLifecycleEvent(ctx, id, from, to, fields, attempt); err != nil {
 		return false, err
 	}
@@ -1814,6 +1732,105 @@ func (q *Queries) tryUpdateRunStateStatus(ctx context.Context, id string, from, 
 		}
 	}
 	return true, nil
+}
+
+func validateRunStatusFields(fields map[string]any) error {
+	allowedColumns := map[string]struct{}{
+		"attempt":              {},
+		"payload":              {},
+		"result":               {},
+		"error":                {},
+		"error_class":          {},
+		"triggered_by":         {},
+		"scheduled_at":         {},
+		"started_at":           {},
+		"finished_at":          {},
+		"heartbeat_at":         {},
+		"next_retry_at":        {},
+		"expires_at":           {},
+		"execution_trace":      {},
+		"workflow_step_run_id": {},
+		"debug_mode":           {},
+		"continuation_of":      {},
+		"lineage_depth":        {},
+		"priority":             {},
+		"metadata":             {},
+	}
+
+	keys := lo.Keys(fields)
+	sort.Strings(keys)
+	for _, key := range keys {
+		if _, ok := allowedColumns[key]; !ok {
+			return &domain.FieldError{Field: key}
+		}
+	}
+	return nil
+}
+
+func (q *Queries) currentRunMutableState(ctx context.Context, id string) (domain.RunStatus, int, error) {
+	var status domain.RunStatus
+	var attempt int
+	err := q.db.QueryRow(ctx, `
+		SELECT COALESCE(s.status, jr.status), COALESCE(s.attempt, jr.attempt)
+		FROM job_runs jr
+		LEFT JOIN job_run_state s ON s.run_id = jr.id
+		WHERE jr.id = $1`,
+		id,
+	).Scan(&status, &attempt)
+	if err != nil {
+		return "", 0, err
+	}
+	return status, attempt, nil
+}
+
+func (q *Queries) syncLegacyQueueEntryStatus(ctx context.Context, id string, status domain.RunStatus) error {
+	if legacyQueueStatusShouldAck(status) {
+		_, err := q.db.Exec(ctx, `
+			UPDATE queue_entries
+			SET status = 'acked',
+			    run_status = $2,
+			    acked_at = COALESCE(acked_at, NOW()),
+			    lease_owner = NULL,
+			    lease_expires_at = NULL,
+			    updated_at = NOW()
+			WHERE run_id = $1
+			  AND status IN ('ready', 'leased')`,
+			id, status,
+		)
+		if err != nil {
+			return fmt.Errorf("sync legacy queue entry ack status: %w", err)
+		}
+		return nil
+	}
+
+	_, err := q.db.Exec(ctx, `
+		UPDATE queue_entries
+		SET run_status = $2,
+		    updated_at = NOW()
+		WHERE run_id = $1`,
+		id, status,
+	)
+	if err != nil {
+		return fmt.Errorf("sync legacy queue entry run status: %w", err)
+	}
+	return nil
+}
+
+func legacyQueueStatusShouldAck(status domain.RunStatus) bool {
+	switch status {
+	case domain.StatusExecuting,
+		domain.StatusCompleted,
+		domain.StatusFailed,
+		domain.StatusTimedOut,
+		domain.StatusCrashed,
+		domain.StatusCanceled,
+		domain.StatusExpired,
+		domain.StatusDeadLetter,
+		domain.StatusSystemFailed:
+		return true
+	default:
+		return false
+	}
 }
 
 func (q *Queries) appendRunLifecycleEvent(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any, attempt *int) error {
@@ -1914,121 +1931,29 @@ func (q *Queries) UpdateRunStatusForActiveRun(ctx context.Context, id string, fr
 		return fmt.Errorf("invalid status transition: %w", err)
 	}
 
-	allowedColumns := map[string]struct{}{
-		"attempt":              {},
-		"payload":              {},
-		"result":               {},
-		"error":                {},
-		"error_class":          {},
-		"triggered_by":         {},
-		"scheduled_at":         {},
-		"started_at":           {},
-		"finished_at":          {},
-		"heartbeat_at":         {},
-		"next_retry_at":        {},
-		"expires_at":           {},
-		"execution_trace":      {},
-		"workflow_step_run_id": {},
-		"debug_mode":           {},
-		"continuation_of":      {},
-		"lineage_depth":        {},
-		"priority":             {},
-		"metadata":             {},
+	if err := validateRunStatusFields(fields); err != nil {
+		return err
 	}
 
-	setClauses := []string{"status = $1"}
-	args := []any{to, id, from, attempt}
-	param := 5
-
-	keys := lo.Keys(fields)
-	sort.Strings(keys)
-
-	for _, key := range keys {
-		if _, ok := allowedColumns[key]; !ok {
-			return &domain.FieldError{Field: key}
-		}
-
-		value := fields[key]
-		if raw, ok := value.(json.RawMessage); ok {
-			value = dbscan.NilIfEmptyRawMessage(raw)
-		}
-		if key == "metadata" {
-			if m, ok := value.(map[string]string); ok {
-				encoded, err := json.Marshal(m)
-				if err != nil {
-					return fmt.Errorf("marshal metadata: %w", err)
-				}
-				setClauses = append(setClauses, fmt.Sprintf("metadata = COALESCE(metadata, '{}'::jsonb) || $%d::jsonb", param))
-				args = append(args, encoded)
-				param++
-				continue
-			}
-		}
-		if key == "execution_trace" {
-			switch trace := value.(type) {
-			case *domain.ExecutionTrace:
-				if trace == nil {
-					value = nil
-				} else {
-					encoded, err := json.Marshal(trace)
-					if err != nil {
-						return fmt.Errorf("marshal execution trace: %w", err)
-					}
-					value = dbscan.NilIfEmptyRawMessage(encoded)
-				}
-			case domain.ExecutionTrace:
-				encoded, err := json.Marshal(trace)
-				if err != nil {
-					return fmt.Errorf("marshal execution trace: %w", err)
-				}
-				value = dbscan.NilIfEmptyRawMessage(encoded)
-			}
-		}
-		if key == "error" || key == "workflow_step_run_id" {
-			if text, ok := value.(string); ok {
-				value = dbscan.NilIfEmptyString(text)
-			}
-		}
-
-		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", key, param))
-		args = append(args, value)
-		param++
-	}
-
-	query := fmt.Sprintf(
-		"UPDATE job_runs SET %s WHERE id = $2 AND status = $3 AND attempt = $4",
-		strings.Join(setClauses, ", "),
-	)
-
-	tag, err := q.db.Exec(ctx, query, args...)
+	updatedState, err := q.tryUpdateRunStateStatus(ctx, id, from, to, fields, &attempt)
 	if err != nil {
-		return fmt.Errorf("update active run status: %w", err)
+		return err
+	}
+	if updatedState {
+		return nil
 	}
 
-	if tag.RowsAffected() == 0 {
-		updatedState, stateErr := q.tryUpdateRunStateStatus(ctx, id, from, to, fields, &attempt)
-		if stateErr != nil {
-			return stateErr
-		}
-		if updatedState {
-			return nil
-		}
-		var currentStatus domain.RunStatus
-		var currentAttempt int
-		err := q.db.QueryRow(ctx, "SELECT status, attempt FROM job_runs WHERE id = $1", id).Scan(&currentStatus, &currentAttempt)
-		if err != nil {
-			return fmt.Errorf("checking current status: %w", err)
-		}
-		if currentAttempt != attempt {
-			return fmt.Errorf("%w: run %s active attempt %d, requested %d", ErrRunConflict, id, currentAttempt, attempt)
-		}
-		if currentStatus == to {
-			return nil
-		}
-		return fmt.Errorf("%w: id %s from %s", ErrRunConflict, id, from)
+	currentStatus, currentAttempt, err := q.currentRunMutableState(ctx, id)
+	if err != nil {
+		return fmt.Errorf("checking current status: %w", err)
 	}
-
-	return nil
+	if currentAttempt != attempt {
+		return fmt.Errorf("%w: run %s active attempt %d, requested %d", ErrRunConflict, id, currentAttempt, attempt)
+	}
+	if currentStatus == to {
+		return nil
+	}
+	return fmt.Errorf("%w: id %s from %s", ErrRunConflict, id, from)
 }
 
 func (q *Queries) UpdateRunMetadata(ctx context.Context, id string, annotations map[string]string) error {
@@ -2946,113 +2871,26 @@ func (q *Queries) UpdateRunStatusReturningOld(ctx context.Context, id string, fr
 		return "", fmt.Errorf("invalid status transition: %w", err)
 	}
 
-	allowedColumns := map[string]struct{}{
-		"attempt":              {},
-		"payload":              {},
-		"result":               {},
-		"error":                {},
-		"error_class":          {},
-		"triggered_by":         {},
-		"scheduled_at":         {},
-		"started_at":           {},
-		"finished_at":          {},
-		"heartbeat_at":         {},
-		"next_retry_at":        {},
-		"expires_at":           {},
-		"execution_trace":      {},
-		"workflow_step_run_id": {},
-		"debug_mode":           {},
-		"continuation_of":      {},
-		"lineage_depth":        {},
-		"priority":             {},
-		"metadata":             {},
+	if err := validateRunStatusFields(fields); err != nil {
+		return "", err
 	}
 
-	setClauses := []string{"status = $1"}
-	args := []any{to, id, from}
-	param := 4
-
-	keys := make([]string, 0, len(fields))
-	for k := range fields {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	for _, key := range keys {
-		if _, ok := allowedColumns[key]; !ok {
-			return "", &domain.FieldError{Field: key}
-		}
-
-		value := fields[key]
-		if raw, ok := value.(json.RawMessage); ok {
-			value = dbscan.NilIfEmptyRawMessage(raw)
-		}
-		if key == "metadata" {
-			if m, ok := value.(map[string]string); ok {
-				encoded, err := json.Marshal(m)
-				if err != nil {
-					return "", fmt.Errorf("marshal metadata: %w", err)
-				}
-				setClauses = append(setClauses, fmt.Sprintf("metadata = COALESCE(metadata, '{}'::jsonb) || $%d::jsonb", param))
-				args = append(args, encoded)
-				param++
-				continue
-			}
-		}
-		if key == "execution_trace" {
-			switch trace := value.(type) {
-			case *domain.ExecutionTrace:
-				if trace == nil {
-					value = nil
-				} else {
-					encoded, err := json.Marshal(trace)
-					if err != nil {
-						return "", fmt.Errorf("marshal execution trace: %w", err)
-					}
-					value = dbscan.NilIfEmptyRawMessage(encoded)
-				}
-			case domain.ExecutionTrace:
-				encoded, err := json.Marshal(trace)
-				if err != nil {
-					return "", fmt.Errorf("marshal execution trace: %w", err)
-				}
-				value = dbscan.NilIfEmptyRawMessage(encoded)
-			}
-		}
-		if key == "error" || key == "workflow_step_run_id" {
-			if text, ok := value.(string); ok {
-				value = dbscan.NilIfEmptyString(text)
-			}
-		}
-
-		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", key, param))
-		args = append(args, value)
-		param++
-	}
-
-	query := fmt.Sprintf(
-		"WITH old AS (SELECT status FROM job_runs WHERE id = $2 AND status = $3) UPDATE job_runs SET %s WHERE id = $2 AND status = $3 RETURNING (SELECT status FROM old) AS old_status",
-		strings.Join(setClauses, ", "),
-	)
-
-	var oldStatus domain.RunStatus
-	err := q.db.QueryRow(ctx, query, args...).Scan(&oldStatus)
+	updatedState, err := q.tryUpdateRunStateStatus(ctx, id, from, to, fields, nil)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			var currentStatus domain.RunStatus
-			rerr := q.db.QueryRow(ctx, "SELECT status FROM job_runs WHERE id = $1", id).Scan(&currentStatus)
-			if rerr != nil {
-				return "", fmt.Errorf("checking current status: %w", rerr)
-			}
-			if currentStatus == to {
-				return from, nil // idempotent: already in target state
-			}
-			return "", fmt.Errorf("%w: id %s from %s", ErrRunConflict, id, from)
-		}
-		return "", fmt.Errorf("update run status: %w", err)
+		return "", err
+	}
+	if updatedState {
+		return from, nil
 	}
 
-	return oldStatus, nil
+	currentStatus, _, err := q.currentRunMutableState(ctx, id)
+	if err != nil {
+		return "", fmt.Errorf("checking current status: %w", err)
+	}
+	if currentStatus == to {
+		return from, nil // idempotent: already in target state
+	}
+	return "", fmt.Errorf("%w: id %s from %s", ErrRunConflict, id, from)
 }
 
 func (q *Queries) BatchUpdateHeartbeat(ctx context.Context, ids []string) error {
