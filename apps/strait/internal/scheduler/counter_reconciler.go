@@ -177,13 +177,13 @@ func (r *CounterReconciler) reconcileLockedNoTx(ctx context.Context) int64 {
 }
 
 // reconcileActiveCounts replaces the job_active_counts table with the
-// ground-truth aggregate from job_runs. Returns absolute drift (sum of |
+// ground-truth aggregate from job_run_state. Returns absolute drift (sum of |
 // old - new | across rows).
 func (r *CounterReconciler) reconcileActiveCounts(ctx context.Context) (int64, error) {
 	const q = `
 WITH truth AS (
     SELECT job_id, COALESCE(concurrency_key, '') AS concurrency_key, COUNT(*)::int AS count
-    FROM job_runs
+    FROM job_run_state
     WHERE status IN ('dequeued', 'executing')
     GROUP BY job_id, COALESCE(concurrency_key, '')
 ),

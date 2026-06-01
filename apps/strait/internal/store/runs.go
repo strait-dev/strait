@@ -391,28 +391,29 @@ func (q *Queries) GetJobHealthStats(ctx context.Context, jobID string, since tim
 	query := `
 		SELECT
 			COUNT(*) AS total_runs,
-			COUNT(*) FILTER (WHERE status = 'completed') AS completed_runs,
-			COUNT(*) FILTER (WHERE status = 'failed') AS failed_runs,
-			COUNT(*) FILTER (WHERE status = 'timed_out') AS timed_out_runs,
-			COUNT(*) FILTER (WHERE status IN ('crashed', 'system_failed')) AS crashed_runs,
-			COUNT(*) FILTER (WHERE status = 'canceled') AS canceled_runs,
-			COUNT(*) FILTER (WHERE status = 'expired') AS expired_runs,
+			COUNT(*) FILTER (WHERE COALESCE(s.status, jr.status) = 'completed') AS completed_runs,
+			COUNT(*) FILTER (WHERE COALESCE(s.status, jr.status) = 'failed') AS failed_runs,
+			COUNT(*) FILTER (WHERE COALESCE(s.status, jr.status) = 'timed_out') AS timed_out_runs,
+			COUNT(*) FILTER (WHERE COALESCE(s.status, jr.status) IN ('crashed', 'system_failed')) AS crashed_runs,
+			COUNT(*) FILTER (WHERE COALESCE(s.status, jr.status) = 'canceled') AS canceled_runs,
+			COUNT(*) FILTER (WHERE COALESCE(s.status, jr.status) = 'expired') AS expired_runs,
 			COALESCE(
-				AVG(EXTRACT(EPOCH FROM (finished_at - started_at))) FILTER (WHERE finished_at IS NOT NULL AND started_at IS NOT NULL),
+				AVG(EXTRACT(EPOCH FROM (COALESCE(s.finished_at, jr.finished_at) - COALESCE(s.started_at, jr.started_at)))) FILTER (WHERE COALESCE(s.finished_at, jr.finished_at) IS NOT NULL AND COALESCE(s.started_at, jr.started_at) IS NOT NULL),
 				0
 			) AS avg_duration_secs,
 			COALESCE(
-				PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (finished_at - started_at))) FILTER (WHERE finished_at IS NOT NULL AND started_at IS NOT NULL),
+				PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (COALESCE(s.finished_at, jr.finished_at) - COALESCE(s.started_at, jr.started_at)))) FILTER (WHERE COALESCE(s.finished_at, jr.finished_at) IS NOT NULL AND COALESCE(s.started_at, jr.started_at) IS NOT NULL),
 				0
 			) AS p95_duration_secs,
 			COALESCE(
-				PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (finished_at - started_at))) FILTER (WHERE finished_at IS NOT NULL AND started_at IS NOT NULL),
+				PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (COALESCE(s.finished_at, jr.finished_at) - COALESCE(s.started_at, jr.started_at)))) FILTER (WHERE COALESCE(s.finished_at, jr.finished_at) IS NOT NULL AND COALESCE(s.started_at, jr.started_at) IS NOT NULL),
 				0
 			) AS p99_duration_secs
-		FROM job_runs
-		WHERE job_id = $1
-			AND created_at >= $2
-			AND status IN ('completed', 'failed', 'timed_out', 'crashed', 'system_failed', 'canceled', 'expired')`
+		FROM job_runs jr
+		LEFT JOIN job_run_state s ON s.run_id = jr.id
+		WHERE jr.job_id = $1
+			AND jr.created_at >= $2
+			AND COALESCE(s.status, jr.status) IN ('completed', 'failed', 'timed_out', 'crashed', 'system_failed', 'canceled', 'expired')`
 
 	stats := &JobHealthStats{}
 	err := q.db.QueryRow(ctx, query, jobID, since).Scan(
@@ -446,16 +447,17 @@ func (q *Queries) GetJobHealthCounts(ctx context.Context, jobID string, since ti
 	query := `
 		SELECT
 			COUNT(*) AS total_runs,
-			COUNT(*) FILTER (WHERE status = 'completed') AS completed_runs,
-			COUNT(*) FILTER (WHERE status = 'failed') AS failed_runs,
-			COUNT(*) FILTER (WHERE status = 'timed_out') AS timed_out_runs,
-			COUNT(*) FILTER (WHERE status IN ('crashed', 'system_failed')) AS crashed_runs,
-			COUNT(*) FILTER (WHERE status = 'canceled') AS canceled_runs,
-			COUNT(*) FILTER (WHERE status = 'expired') AS expired_runs
-		FROM job_runs
-		WHERE job_id = $1
-			AND created_at >= $2
-			AND status IN ('completed', 'failed', 'timed_out', 'crashed', 'system_failed', 'canceled', 'expired')`
+			COUNT(*) FILTER (WHERE COALESCE(s.status, jr.status) = 'completed') AS completed_runs,
+			COUNT(*) FILTER (WHERE COALESCE(s.status, jr.status) = 'failed') AS failed_runs,
+			COUNT(*) FILTER (WHERE COALESCE(s.status, jr.status) = 'timed_out') AS timed_out_runs,
+			COUNT(*) FILTER (WHERE COALESCE(s.status, jr.status) IN ('crashed', 'system_failed')) AS crashed_runs,
+			COUNT(*) FILTER (WHERE COALESCE(s.status, jr.status) = 'canceled') AS canceled_runs,
+			COUNT(*) FILTER (WHERE COALESCE(s.status, jr.status) = 'expired') AS expired_runs
+		FROM job_runs jr
+		LEFT JOIN job_run_state s ON s.run_id = jr.id
+		WHERE jr.job_id = $1
+			AND jr.created_at >= $2
+			AND COALESCE(s.status, jr.status) IN ('completed', 'failed', 'timed_out', 'crashed', 'system_failed', 'canceled', 'expired')`
 
 	stats := &JobHealthStats{}
 	err := q.db.QueryRow(ctx, query, jobID, since).Scan(
@@ -2187,21 +2189,22 @@ func (q *Queries) ListStaleRuns(ctx context.Context, threshold time.Duration) ([
 	// exists yet — the window between claim and the first worker tick —
 	// we fall back to started_at to avoid flagging a fresh run as stale.
 	query := "/* action=reaper */ " + fmt.Sprintf(`
-		SELECT r.id, r.job_id, r.project_id, r.status, r.attempt, r.payload, r.result, r.metadata, r.error, r.error_class,
-		       r.triggered_by, r.scheduled_at, r.started_at, r.finished_at, r.heartbeat_at,
-		       r.next_retry_at, r.expires_at, r.parent_run_id, r.priority, r.idempotency_key, r.job_version, r.created_at, r.workflow_step_run_id, r.execution_trace, r.debug_mode, r.continuation_of, r.lineage_depth, r.tags, r.job_version_id, r.created_by, r.batch_id, r.concurrency_key, r.execution_mode, r.is_rollback, r.replayed_run_id
+		SELECT r.id, r.job_id, r.project_id, s.status, s.attempt, r.payload, r.result, r.metadata, r.error, r.error_class,
+		       r.triggered_by, s.scheduled_at, s.started_at, s.finished_at, COALESCE(hb.last_hb, s.heartbeat_at),
+		       s.next_retry_at, s.expires_at, r.parent_run_id, s.priority, r.idempotency_key, r.job_version, r.created_at, r.workflow_step_run_id, r.execution_trace, r.debug_mode, r.continuation_of, r.lineage_depth, r.tags, r.job_version_id, r.created_by, r.batch_id, s.concurrency_key, s.execution_mode, r.is_rollback, r.replayed_run_id
 		FROM job_runs r
+		JOIN job_run_state s ON s.run_id = r.id
 		LEFT JOIN LATERAL (
 			SELECT heartbeat_at AS last_hb
 			FROM job_run_heartbeats h
 			WHERE h.run_id = r.id
 		) hb ON true
-		WHERE r.status = '%s'
-		  AND r.execution_mode != 'worker'
-		  AND COALESCE(hb.last_hb, r.started_at) < NOW() - $1::interval
-		  AND r.finished_at IS NULL
-		  AND r.started_at IS NOT NULL
-		ORDER BY COALESCE(hb.last_hb, r.started_at) ASC
+		WHERE s.status = '%s'
+		  AND s.execution_mode != 'worker'
+		  AND COALESCE(hb.last_hb, s.heartbeat_at, s.started_at) < NOW() - $1::interval
+		  AND s.finished_at IS NULL
+		  AND s.started_at IS NOT NULL
+		ORDER BY COALESCE(hb.last_hb, s.heartbeat_at, s.started_at) ASC
 		LIMIT 1000`, domain.StatusExecuting)
 
 	rows, err := q.db.Query(ctx, query, threshold.String())
@@ -2348,12 +2351,13 @@ func (q *Queries) ListStaleDequeued(ctx context.Context, threshold time.Duration
 	defer span.End()
 
 	query := "/* action=reaper */ " + fmt.Sprintf(`
-		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
-		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, is_rollback, replayed_run_id
-		FROM job_runs
-		WHERE status = '%s' AND started_at < NOW() - $1::interval AND finished_at IS NULL AND started_at IS NOT NULL
-		ORDER BY started_at ASC
+		SELECT r.id, r.job_id, r.project_id, s.status, s.attempt, r.payload, r.result, r.metadata, r.error, r.error_class,
+		       r.triggered_by, s.scheduled_at, s.started_at, s.finished_at, s.heartbeat_at,
+		       s.next_retry_at, s.expires_at, r.parent_run_id, s.priority, r.idempotency_key, r.job_version, r.created_at, r.workflow_step_run_id, r.execution_trace, r.debug_mode, r.continuation_of, r.lineage_depth, r.tags, r.job_version_id, r.created_by, r.batch_id, s.concurrency_key, s.execution_mode, r.is_rollback, r.replayed_run_id
+		FROM job_runs r
+		JOIN job_run_state s ON s.run_id = r.id
+		WHERE s.status = '%s' AND s.started_at < NOW() - $1::interval AND s.finished_at IS NULL AND s.started_at IS NOT NULL
+		ORDER BY s.started_at ASC
 		LIMIT 1000`, domain.StatusDequeued)
 
 	rows, err := q.db.Query(ctx, query, threshold.String())

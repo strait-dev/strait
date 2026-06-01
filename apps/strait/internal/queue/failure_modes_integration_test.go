@@ -62,12 +62,12 @@ func TestFailure_TriggerDisabledThenReconciled(t *testing.T) {
 	q := mustQueue(t)
 
 	// Disable the active_counts trigger.
-	_, err := testDB.Pool.Exec(ctx, `ALTER TABLE job_runs DISABLE TRIGGER job_runs_active_counts_trg`)
+	_, err := testDB.Pool.Exec(ctx, `ALTER TABLE job_run_state DISABLE TRIGGER job_run_state_active_counts_trg`)
 	if err != nil {
 		t.Fatalf("disable: %v", err)
 	}
 	defer func() {
-		_, _ = testDB.Pool.Exec(ctx, `ALTER TABLE job_runs ENABLE TRIGGER job_runs_active_counts_trg`)
+		_, _ = testDB.Pool.Exec(ctx, `ALTER TABLE job_run_state ENABLE TRIGGER job_run_state_active_counts_trg`)
 	}()
 
 	for range 5 {
@@ -86,7 +86,7 @@ func TestFailure_TriggerDisabledThenReconciled(t *testing.T) {
 	}
 
 	// Re-enable trigger.
-	_, _ = testDB.Pool.Exec(ctx, `ALTER TABLE job_runs ENABLE TRIGGER job_runs_active_counts_trg`)
+	_, _ = testDB.Pool.Exec(ctx, `ALTER TABLE job_run_state ENABLE TRIGGER job_run_state_active_counts_trg`)
 
 	// The counter is now drifted. A reconciler would fix it. We verify
 	// the ground truth is non-zero to confirm the drift exists.

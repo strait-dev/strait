@@ -19,7 +19,7 @@ import (
 // The job_active_counts and dlq_counts triggers must
 // preserve the invariant:
 //
-//   counter row value == COUNT(*) over matching job_runs predicate
+//   counter row value == COUNT(*) over matching job_run_state predicate
 //
 // at every quiescent point, under arbitrary sequences of operations. These
 // tests exercise insert/update/delete/savepoint-rollback paths and assert
@@ -37,7 +37,7 @@ func assertActiveCountsInvariant(t *testing.T, ctx context.Context, jobID string
 		t.Fatalf("counter query: %v", err)
 	}
 	err = testDB.Pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM job_runs WHERE job_id = $1 AND status IN ('dequeued','executing')`, jobID,
+		`SELECT COUNT(*) FROM job_run_state WHERE job_id = $1 AND status IN ('dequeued','executing')`, jobID,
 	).Scan(&truthSum)
 	if err != nil {
 		t.Fatalf("truth query: %v", err)

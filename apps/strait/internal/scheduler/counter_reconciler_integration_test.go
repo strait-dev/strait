@@ -250,7 +250,7 @@ func TestCounterReconciler_BypassTriggerRepaired(t *testing.T) {
 	ctx := context.Background()
 
 	// Disable the trigger, insert rows (counter unchanged), re-enable.
-	_, err := tdb.Pool.Exec(ctx, `ALTER TABLE job_runs DISABLE TRIGGER job_runs_active_counts_trg`)
+	_, err := tdb.Pool.Exec(ctx, `ALTER TABLE job_run_state DISABLE TRIGGER job_run_state_active_counts_trg`)
 	if err != nil {
 		t.Fatalf("disable trigger: %v", err)
 	}
@@ -263,7 +263,7 @@ func TestCounterReconciler_BypassTriggerRepaired(t *testing.T) {
 			t.Fatalf("insert: %v", err)
 		}
 	}
-	_, err = tdb.Pool.Exec(ctx, `ALTER TABLE job_runs ENABLE TRIGGER job_runs_active_counts_trg`)
+	_, err = tdb.Pool.Exec(ctx, `ALTER TABLE job_run_state ENABLE TRIGGER job_run_state_active_counts_trg`)
 	if err != nil {
 		t.Fatalf("enable trigger: %v", err)
 	}

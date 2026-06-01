@@ -653,42 +653,41 @@ func (q *PgQueQueue) claimRuns(ctx context.Context, ids []string, generations []
 			       s.job_max_concurrency_per_key,
 			       s.priority AS claim_priority,
 			       jr.created_at AS claim_created_at,
-			       (
-			           SELECT COUNT(*)
-			           FROM job_run_state active
-			           WHERE active.job_id = s.job_id
-			             AND active.status IN ('dequeued', 'executing')
-			       ) AS active_count,
-			       (
-			           SELECT COUNT(*)
-			           FROM job_run_state active
-			           WHERE active.job_id = s.job_id
-			             AND active.concurrency_key = s.concurrency_key
-			             AND active.status IN ('dequeued', 'executing')
-			       ) AS key_active_count
+			       COALESCE(jac_job.count, 0) AS active_count,
+			       COALESCE(jac_key.count, 0) AS key_active_count
 			FROM input
-			JOIN job_run_state s ON s.run_id = input.id
+			JOIN LATERAL (
+				SELECT *
+				FROM job_run_state s
+				WHERE s.run_id = input.id
+				  AND s.status = $4
+				  AND s.ready_generation = input.generation
+				  AND s.execution_mode = $6
+				  AND ($7::text = '' OR s.project_id = $7)
+				  AND (
+				      $6 <> 'worker'
+				      OR EXISTS (
+				          SELECT 1
+				          FROM unnest($8::text[], $9::text[], $10::text[]) AS wq(project_id, queue_name, environment_id)
+				          WHERE wq.project_id = s.project_id
+				            AND wq.queue_name = s.queue_name
+				            AND (wq.environment_id = '' OR s.environment_id = wq.environment_id)
+				      )
+				  )
+				  AND COALESCE(s.job_enabled, true) = true
+				  AND COALESCE(s.job_paused, false) = false
+				  AND (s.scheduled_at IS NULL OR s.scheduled_at <= NOW())
+				  AND (s.next_retry_at IS NULL OR s.next_retry_at <= NOW())
+				FOR UPDATE SKIP LOCKED
+			) s ON true
 			JOIN job_runs jr ON jr.id = s.run_id
-			WHERE s.status = $4
-			  AND s.ready_generation = input.generation
-			  AND s.execution_mode = $6
-			  AND ($7::text = '' OR s.project_id = $7)
-			  AND (
-			      $6 <> 'worker'
-			      OR EXISTS (
-			          SELECT 1
-			          FROM unnest($8::text[], $9::text[], $10::text[]) AS wq(project_id, queue_name, environment_id)
-			          WHERE wq.project_id = s.project_id
-			            AND wq.queue_name = s.queue_name
-			            AND (wq.environment_id = '' OR s.environment_id = wq.environment_id)
-			      )
-			  )
-			  AND COALESCE(s.job_enabled, true) = true
-			  AND COALESCE(s.job_paused, false) = false
-			  AND (s.scheduled_at IS NULL OR s.scheduled_at <= NOW())
-			  AND (s.next_retry_at IS NULL OR s.next_retry_at <= NOW())
+			LEFT JOIN job_active_counts jac_job
+			  ON jac_job.job_id = s.job_id
+			 AND jac_job.concurrency_key = ''
+			LEFT JOIN job_active_counts jac_key
+			  ON jac_key.job_id = s.job_id
+			 AND jac_key.concurrency_key = COALESCE(s.concurrency_key, '')
 			ORDER BY s.priority DESC, jr.created_at ASC, input.ord
-			FOR UPDATE OF s SKIP LOCKED
 		),
 		ranked_candidates AS (
 			SELECT raw_candidates.*,

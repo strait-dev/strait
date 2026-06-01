@@ -608,29 +608,80 @@ func sampleBatchlogDequeuePlans(tb baselineTB, ctx context.Context) []loadtest.S
 
 func samplePgQueDequeuePlans(tb baselineTB, ctx context.Context) []loadtest.SQLPlanSample {
 	tb.Helper()
+	rows, err := testDB.Pool.Query(ctx, `
+		SELECT run_id, ready_generation
+		FROM job_run_state
+		WHERE status = 'queued'
+		  AND execution_mode = 'http'
+		ORDER BY priority DESC, run_id ASC
+		LIMIT 50`)
+	if err != nil {
+		tb.Fatalf("pgque plan input rows: %v", err)
+	}
+	var ids []string
+	var generations []int64
+	for rows.Next() {
+		var id string
+		var generation int64
+		if err := rows.Scan(&id, &generation); err != nil {
+			rows.Close()
+			tb.Fatalf("pgque plan input scan: %v", err)
+		}
+		ids = append(ids, id)
+		generations = append(generations, generation)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		tb.Fatalf("pgque plan input rows: %v", err)
+	}
+	rows.Close()
+
 	return []loadtest.SQLPlanSample{{
-		Name: "pgque state candidate selection",
-		Lines: explainText(tb, ctx, `
+		Name: "pgque id-driven state claim",
+		Lines: explainTextArgs(tb, ctx, `
 			EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
+			WITH input AS (
+				SELECT *
+				FROM unnest($1::text[], $2::bigint[]) WITH ORDINALITY AS u(id, generation, ord)
+			)
 			SELECT s.run_id
-			FROM job_run_state s
+			FROM input
+			JOIN LATERAL (
+				SELECT *
+				FROM job_run_state s
+				WHERE s.run_id = input.id
+				  AND s.status = 'queued'
+				  AND s.ready_generation = input.generation
+				  AND s.execution_mode = 'http'
+				  AND COALESCE(s.job_enabled, true) = true
+				  AND COALESCE(s.job_paused, false) = false
+				  AND (s.scheduled_at IS NULL OR s.scheduled_at <= NOW())
+				  AND (s.next_retry_at IS NULL OR s.next_retry_at <= NOW())
+				FOR UPDATE SKIP LOCKED
+			) s ON true
 			JOIN job_runs jr ON jr.id = s.run_id
-			WHERE s.status = 'queued'
-			  AND s.ready_generation = 0
-			  AND s.execution_mode = 'http'
-			  AND COALESCE(s.job_enabled, true) = true
-			  AND COALESCE(s.job_paused, false) = false
-			  AND (s.scheduled_at IS NULL OR s.scheduled_at <= NOW())
-			  AND (s.next_retry_at IS NULL OR s.next_retry_at <= NOW())
-			ORDER BY s.priority DESC, jr.created_at ASC
+			LEFT JOIN job_active_counts jac_job
+			  ON jac_job.job_id = s.job_id AND jac_job.concurrency_key = ''
+			LEFT JOIN job_active_counts jac_key
+			  ON jac_key.job_id = s.job_id AND jac_key.concurrency_key = COALESCE(s.concurrency_key, '')
+			WHERE (s.job_max_concurrency IS NULL OR COALESCE(jac_job.count, 0) < s.job_max_concurrency)
+			  AND (s.job_max_concurrency_per_key IS NULL
+			       OR s.concurrency_key = ''
+			       OR COALESCE(jac_key.count, 0) < s.job_max_concurrency_per_key)
+			ORDER BY s.priority DESC, jr.created_at ASC, input.ord
 			LIMIT 50
-		`),
+		`, ids, generations),
 	}}
 }
 
 func explainText(tb baselineTB, ctx context.Context, query string) []string {
 	tb.Helper()
-	rows, err := testDB.Pool.Query(ctx, query)
+	return explainTextArgs(tb, ctx, query)
+}
+
+func explainTextArgs(tb baselineTB, ctx context.Context, query string, args ...any) []string {
+	tb.Helper()
+	rows, err := testDB.Pool.Query(ctx, query, args...)
 	if err != nil {
 		tb.Fatalf("explain query: %v", err)
 	}

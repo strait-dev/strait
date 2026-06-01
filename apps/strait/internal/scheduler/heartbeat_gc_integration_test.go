@@ -167,12 +167,12 @@ func TestEnsureQueueTriggersPresent_MissingFailsLoud(t *testing.T) {
 func TestEnsureQueueTriggersPresent_DisabledFailsLoud(t *testing.T) {
 	tdb, _ := setupHeartbeatGCIsolated(t)
 	ctx := context.Background()
-	_, err := tdb.Pool.Exec(ctx, `ALTER TABLE job_runs DISABLE TRIGGER job_runs_active_counts_trg`)
+	_, err := tdb.Pool.Exec(ctx, `ALTER TABLE job_run_state DISABLE TRIGGER job_run_state_active_counts_trg`)
 	if err != nil {
 		t.Fatalf("disable: %v", err)
 	}
 	err = scheduler.EnsureQueueTriggersPresent(ctx, tdb.Pool)
-	if err == nil || !strings.Contains(err.Error(), "job_runs_active_counts_trg") {
+	if err == nil || !strings.Contains(err.Error(), "job_run_state_active_counts_trg") {
 		t.Errorf("expected disabled-trigger error, got %v", err)
 	}
 }
