@@ -33,6 +33,7 @@ import {
 } from "@strait/ui/components/empty";
 import { Input } from "@strait/ui/components/input";
 import { Shell } from "@strait/ui/components/shell";
+import { StatusBadge } from "@strait/ui/components/status-badge";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
@@ -207,7 +208,7 @@ function WebhooksPage() {
   const emptyState = hasProject ? (
     <Empty className="h-[300px]">
       <EmptyHeader>
-        <EmptyMedia size="lg" variant="icon">
+        <EmptyMedia media="icon" size="lg">
           <HugeiconsIcon
             className="text-muted-foreground"
             icon={WebhookIcon}
@@ -234,12 +235,12 @@ function WebhooksPage() {
             {filteredData.length === 1 ? "" : "s"}
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="inline-block size-1.5 rounded-full bg-success" />
+            <StatusBadge dotOnly size="xs" status="active" />
             <span className="tabular-nums">{summary.active}</span>
             <span className="text-muted-foreground">active</span>
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="inline-block size-1.5 rounded-full bg-muted-foreground/40" />
+            <StatusBadge dotOnly size="xs" status="inactive" />
             <span className="tabular-nums">{summary.inactive}</span>
             <span className="text-muted-foreground">inactive</span>
           </span>

@@ -1,6 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
-import { cn } from "@strait/ui/utils";
+import { NoticeBanner } from "@strait/ui/components/notice-banner";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
@@ -107,39 +107,26 @@ const TrialUpgradeCard = () => {
     return getSubscriptionContent;
   }, [subscription, isTrialing, getTrialContent, getSubscriptionContent]);
 
-  // Color classes matching the banner styles
-  const colorClasses = useMemo(
+  const bannerConfig = useMemo(
     () => ({
       blue: {
-        container: "bg-sidebar-accent border-sidebar-border",
-        title: "text-sidebar-foreground",
-        message: "text-sidebar-foreground/70",
+        variant: "info" as const,
         buttonVariant: "default" as const,
-        buttonClass: "",
         icon: SparklesIcon,
       },
       green: {
-        container: "bg-sidebar-accent border-sidebar-border",
-        title: "text-sidebar-foreground",
-        message: "text-sidebar-foreground/70",
+        variant: "success" as const,
         buttonVariant: "default" as const,
-        buttonClass: "",
         icon: SparklesIcon,
       },
       orange: {
-        container: "bg-warning/5 border-warning/30",
-        title: "text-warning",
-        message: "text-warning/80",
-        buttonVariant: "default" as const,
-        buttonClass: "",
+        variant: "warning" as const,
+        buttonVariant: "warning-solid" as const,
         icon: AlarmClockIcon,
       },
       red: {
-        container: "bg-destructive/10 border-destructive/30",
-        title: "text-destructive font-normal",
-        message: "text-destructive/80",
-        buttonVariant: "destructive" as const,
-        buttonClass: "",
+        variant: "destructive" as const,
+        buttonVariant: "destructive-solid" as const,
         icon: AlarmClockIcon,
       },
     }),
@@ -147,7 +134,7 @@ const TrialUpgradeCard = () => {
   );
 
   const { title, message, color } = cardContent;
-  const colors = colorClasses[color];
+  const config = bannerConfig[color];
 
   // Don't render anything if we shouldn't show the card (use hook value)
   if (!shouldShowUpgrade) {
@@ -155,23 +142,21 @@ const TrialUpgradeCard = () => {
   }
 
   return (
-    <div className={cn("border-t p-3", colors.container)}>
-      <div className="mb-2 flex flex-col gap-1">
-        <h3 className={cn("text-sm", colors.title)}>{title}</h3>
-        <p className={cn("text-xs", colors.message)}>{message}</p>
-      </div>
-
-      <div className="flex gap-2">
+    <NoticeBanner
+      action={
         <Button
-          className={cn("w-full", colors.buttonClass)}
           render={<Link preload="intent" to="/app/upgrade" />}
-          variant={colors.buttonVariant}
+          variant={config.buttonVariant}
         >
-          <HugeiconsIcon className="size-3" icon={colors.icon} />
           Upgrade
         </Button>
-      </div>
-    </div>
+      }
+      icon={<HugeiconsIcon className="size-4" icon={config.icon} />}
+      title={title}
+      variant={config.variant}
+    >
+      {message}
+    </NoticeBanner>
   );
 };
 

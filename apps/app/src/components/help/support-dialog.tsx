@@ -24,6 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@strait/ui/components/select";
+import { Spinner } from "@strait/ui/components/spinner";
 import { Textarea } from "@strait/ui/components/textarea";
 import { toast } from "@strait/ui/components/toast";
 import { createServerFn } from "@tanstack/react-start";
@@ -32,7 +33,7 @@ import { useEffect, useId, useState, useTransition } from "react";
 import { Controller, useForm } from "react-hook-form";
 import type z from "zod/v4";
 import { getPostHog } from "@/lib/analytics";
-import { HelpCircleIcon, LoadingIcon } from "@/lib/icons";
+import { HelpCircleIcon } from "@/lib/icons";
 import { enforceRateLimit } from "@/lib/rate-limit.server";
 import { getResend } from "@/lib/resend.server";
 import { SupportFormSchema } from "@/lib/schema";
@@ -178,7 +179,7 @@ const SupportDialog = ({ user }: Props) => {
         render={
           <Button
             aria-label="Get help"
-            className="text-muted-foreground/65 group-data-[active=true]/menu-button:text-primary"
+            className="text-muted-foreground group-data-[active=true]/menu-button:text-primary"
             disabled={cooldownTime > 0}
             size="icon"
             type="button"
@@ -396,18 +397,13 @@ const SupportDialog = ({ user }: Props) => {
           </div>
 
           <Button
-            className="mt-2 inline-flex w-full flex-none justify-center rounded px-3 py-2 font-normal"
+            className="mt-2 w-full"
             disabled={
               form.formState.isSubmitting || isPending || cooldownTime > 0
             }
             type="submit"
           >
-            {form.formState.isSubmitting || isPending ? (
-              <HugeiconsIcon
-                className="size-4 animate-spin"
-                icon={LoadingIcon}
-              />
-            ) : null}
+            {form.formState.isSubmitting || isPending ? <Spinner /> : null}
             Send Request {cooldownTime > 0 ? `(${cooldownTime}s)` : ""}
           </Button>
         </form>

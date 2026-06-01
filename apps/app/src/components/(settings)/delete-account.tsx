@@ -24,13 +24,14 @@ import { Checkbox } from "@strait/ui/components/checkbox";
 import { Field, FieldError, FieldLabel } from "@strait/ui/components/field";
 import { Input } from "@strait/ui/components/input";
 import { InputWithShowHidePassword } from "@strait/ui/components/input-with-show-hide-password";
+import { Spinner } from "@strait/ui/components/spinner";
 import { toast } from "@strait/ui/components/toast";
 import { useForm } from "@tanstack/react-form";
 import { useState, useTransition } from "react";
 import * as z from "zod";
 import { authClient } from "@/lib/auth-client";
 import { formatFieldErrors } from "@/lib/form-errors";
-import { AlertIcon, LoadingIcon, TrashIcon } from "@/lib/icons";
+import { AlertIcon, TrashIcon } from "@/lib/icons";
 import type { AuthUser } from "@/routes/__root";
 
 type Props = {
@@ -211,10 +212,7 @@ const DeleteAccount = ({ user }: Props) => {
               }
             >
               {isPending ? (
-                <HugeiconsIcon
-                  className="size-4 animate-spin"
-                  icon={LoadingIcon}
-                />
+                <Spinner />
               ) : (
                 <HugeiconsIcon className="size-4" icon={TrashIcon} />
               )}
@@ -236,15 +234,13 @@ const DeleteAccount = ({ user }: Props) => {
                     Cancel
                   </AlertDialogCancel>
                   <AlertDialogAction
-                    className="w-fit bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    className="w-fit"
                     disabled={isPending}
                     onClick={onDelete}
+                    variant="destructive-solid"
                   >
                     {isPending ? (
-                      <HugeiconsIcon
-                        className="size-4 animate-spin"
-                        icon={LoadingIcon}
-                      />
+                      <Spinner />
                     ) : (
                       <HugeiconsIcon className="size-4" icon={TrashIcon} />
                     )}

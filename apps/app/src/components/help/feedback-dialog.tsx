@@ -24,6 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@strait/ui/components/select";
+import { Spinner } from "@strait/ui/components/spinner";
 import { Textarea } from "@strait/ui/components/textarea";
 import { toast } from "@strait/ui/components/toast";
 import { createServerFn } from "@tanstack/react-start";
@@ -32,7 +33,7 @@ import { useEffect, useId, useState, useTransition } from "react";
 import { Controller, useForm } from "react-hook-form";
 import type z from "zod/v4";
 import { getPostHog } from "@/lib/analytics";
-import { ChatIcon, LoadingIcon } from "@/lib/icons";
+import { ChatIcon } from "@/lib/icons";
 import { enforceRateLimit } from "@/lib/rate-limit.server";
 import { getResend } from "@/lib/resend.server";
 import { FeedbackFormSchema } from "@/lib/schema";
@@ -166,7 +167,7 @@ const FeedbackDialog = ({ user }: Props) => {
         render={
           <Button
             aria-label="Send feedback"
-            className="text-muted-foreground/65 group-data-[active=true]/menu-button:text-primary"
+            className="text-muted-foreground group-data-[active=true]/menu-button:text-primary"
             disabled={cooldownTime > 0}
             size="icon"
             type="button"
@@ -260,18 +261,13 @@ const FeedbackDialog = ({ user }: Props) => {
             </div>
 
             <Button
-              className="inline-flex w-full justify-center rounded px-3 py-2 font-normal"
+              className="w-full"
               disabled={
                 form.formState.isSubmitting || isPending || cooldownTime > 0
               }
               type="submit"
             >
-              {form.formState.isSubmitting || isPending ? (
-                <HugeiconsIcon
-                  className="size-4 animate-spin"
-                  icon={LoadingIcon}
-                />
-              ) : null}
+              {form.formState.isSubmitting || isPending ? <Spinner /> : null}
               Send feedback {cooldownTime > 0 ? `(${cooldownTime}s)` : ""}
             </Button>
           </div>

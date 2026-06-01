@@ -1,6 +1,17 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@strait/ui/components/alert-dialog";
 import { Badge } from "@strait/ui/components/badge";
-import { Button, buttonVariants } from "@strait/ui/components/button";
+import { Button } from "@strait/ui/components/button";
 import {
   Card,
   CardContent,
@@ -91,18 +102,18 @@ const deliveryColumns = [
     accessorKey: "last_status_code",
     header: "HTTP Status",
     cell: ({ row }: { row: { original: WebhookDelivery } }) => (
-      <span className="font-mono text-xs">
+      <Badge mono size="xs" variant="secondary-light">
         {row.original.last_status_code ?? "-"}
-      </span>
+      </Badge>
     ),
   },
   {
     accessorKey: "attempts",
     header: "Attempts",
     cell: ({ row }: { row: { original: WebhookDelivery } }) => (
-      <span className="font-mono text-xs">
+      <Badge mono size="xs" variant="secondary-light">
         {row.original.attempts}/{row.original.max_attempts}
-      </span>
+      </Badge>
     ),
   },
   {
@@ -143,7 +154,6 @@ function WebhookDetailPage() {
 
   const deleteWebhook = useDeleteWebhook();
   const testWebhook = useTestWebhook();
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   const deliveries = (deliveriesData?.data ?? []).filter(
     (delivery) => delivery.subscription_id === id
@@ -189,66 +199,37 @@ function WebhookDetailPage() {
             <HugeiconsIcon className="mr-1.5" icon={PlayActionIcon} size={14} />
             Send test
           </Button>
-          <button
-            aria-label="Delete webhook"
-            className={buttonVariants({ variant: "destructive" })}
-            onClick={() => setDeleteDialogOpen(true)}
-            onPointerDown={() => setDeleteDialogOpen(true)}
-            type="button"
-          >
-            <HugeiconsIcon className="mr-1.5" icon={TrashIcon} size={14} />
-            Delete
-          </button>
-          {deleteDialogOpen && (
-            <div
-              className="fixed inset-0 z-50 grid place-items-center bg-black/10 p-4"
-              role="presentation"
-            >
-              <div
-                aria-labelledby="delete-webhook-title"
-                aria-modal="true"
-                className="grid w-full max-w-sm gap-4 rounded-lg bg-background p-4 shadow-lg ring-1 ring-foreground/10"
-                role="alertdialog"
-              >
-                <div className="grid gap-1.5">
-                  <h2
-                    className="font-medium text-base"
-                    id="delete-webhook-title"
-                  >
-                    Delete webhook?
-                  </h2>
-                  <p className="text-muted-foreground text-sm">
-                    This will permanently delete this webhook subscription.
-                    Deliveries in progress will not be affected.
-                  </p>
-                </div>
-                <div className="-mx-4 -mb-4 flex justify-end gap-2 border-t bg-muted/50 p-4">
-                  <Button
-                    onClick={() => setDeleteDialogOpen(false)}
-                    type="button"
-                    variant="outline"
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    disabled={deleteWebhook.isPending}
-                    onClick={() => {
-                      deleteWebhook.mutate(webhook.id, {
-                        onSuccess: () => {
-                          setDeleteDialogOpen(false);
-                          navigate({ to: "/app/webhooks" });
-                        },
-                      });
-                    }}
-                    type="button"
-                    variant="destructive"
-                  >
-                    Delete
-                  </Button>
-                </div>
-              </div>
-            </div>
-          )}
+          <AlertDialog>
+            <AlertDialogTrigger render={<Button variant="destructive" />}>
+              <HugeiconsIcon className="mr-1.5" icon={TrashIcon} size={14} />
+              Delete
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete webhook?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will permanently delete this webhook subscription.
+                  Deliveries in progress will not be affected.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  disabled={deleteWebhook.isPending}
+                  onClick={() => {
+                    deleteWebhook.mutate(webhook.id, {
+                      onSuccess: () => {
+                        navigate({ to: "/app/webhooks" });
+                      },
+                    });
+                  }}
+                  variant="destructive"
+                >
+                  Delete
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </div>
 
@@ -260,15 +241,27 @@ function WebhookDetailPage() {
 
         <TabsContent value="deliveries">
           {deliveriesError ? (
-            <output className="block rounded-lg border border-dashed p-8 text-center text-muted-foreground text-sm">
-              Webhook deliveries are unavailable right now.
-            </output>
+            <Empty className="h-[300px]">
+              <EmptyHeader>
+                <EmptyMedia media="icon" size="lg">
+                  <HugeiconsIcon
+                    className="text-muted-foreground"
+                    icon={WebhookIcon}
+                    size={24}
+                  />
+                </EmptyMedia>
+                <EmptyTitle>Deliveries unavailable</EmptyTitle>
+                <EmptyDescription>
+                  Webhook deliveries are unavailable right now.
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
           ) : (
             <DataGrid
               emptyMessage={
                 <Empty className="h-[300px]">
                   <EmptyHeader>
-                    <EmptyMedia size="lg" variant="icon">
+                    <EmptyMedia media="icon" size="lg">
                       <HugeiconsIcon
                         className="text-muted-foreground"
                         icon={WebhookIcon}

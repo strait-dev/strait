@@ -23,6 +23,7 @@ import {
 } from "@strait/ui/components/empty";
 import { Input } from "@strait/ui/components/input";
 import { Shell } from "@strait/ui/components/shell";
+import { StatusBadge } from "@strait/ui/components/status-badge";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
@@ -211,7 +212,7 @@ function SchedulesPage() {
   const emptyState = hasProject ? (
     <Empty className="h-[300px]">
       <EmptyHeader>
-        <EmptyMedia size="lg" variant="icon">
+        <EmptyMedia media="icon" size="lg">
           <HugeiconsIcon
             className="size-6 text-foreground"
             icon={CalendarIcon}
@@ -237,12 +238,12 @@ function SchedulesPage() {
             {filteredData.length === 1 ? "" : "s"}
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="inline-block size-1.5 rounded-full bg-success" />
+            <StatusBadge dotOnly size="xs" status="enabled" />
             <span className="tabular-nums">{summary.enabled}</span>
             <span className="text-muted-foreground">enabled</span>
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="inline-block size-1.5 rounded-full bg-muted-foreground/40" />
+            <StatusBadge dotOnly size="xs" status="paused" />
             <span className="tabular-nums">{summary.paused}</span>
             <span className="text-muted-foreground">paused</span>
           </span>

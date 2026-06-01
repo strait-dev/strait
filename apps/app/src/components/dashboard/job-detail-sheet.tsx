@@ -2,6 +2,19 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
 import {
+  DescriptionDetails,
+  DescriptionList,
+  DescriptionTerm,
+} from "@strait/ui/components/description-list";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemGroup,
+  ItemTitle,
+} from "@strait/ui/components/item";
+import { MetricCard } from "@strait/ui/components/metric-card";
+import {
   Sheet,
   SheetContent,
   SheetFooter,
@@ -25,37 +38,6 @@ type JobDetailSheetProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 };
-
-const StatCell = ({
-  label,
-  value,
-}: {
-  label: string;
-  value: string | number;
-}) => (
-  <div className="rounded-md border p-3 text-center">
-    <p className="font-normal text-lg">{value}</p>
-    <p className="text-muted-foreground text-xs">{label}</p>
-  </div>
-);
-
-const DetailRow = ({
-  icon,
-  label,
-  value,
-}: {
-  icon: any;
-  label: string;
-  value: string;
-}) => (
-  <div className="flex items-start justify-between gap-2 text-sm">
-    <span className="flex shrink-0 items-center gap-2 text-muted-foreground">
-      <HugeiconsIcon className="size-3.5 shrink-0" icon={icon} />
-      {label}
-    </span>
-    <span className="truncate text-right font-mono text-sm">{value}</span>
-  </div>
-);
 
 const JobDetailSheet = ({ job, open, onOpenChange }: JobDetailSheetProps) => {
   const triggerJob = useTriggerJob();
@@ -85,9 +67,9 @@ const JobDetailSheet = ({ job, open, onOpenChange }: JobDetailSheetProps) => {
 
           {/* Stats Grid */}
           <div className="grid grid-cols-3 gap-2">
-            <StatCell label="Success %" value="98.2%" />
-            <StatCell label="Runs" value="1,247" />
-            <StatCell label="Last Run" value="2m ago" />
+            <MetricCard size="sm" title="Success %" value="98.2%" />
+            <MetricCard size="sm" title="Runs" value="1,247" />
+            <MetricCard size="sm" title="Last Run" value="2m ago" />
           </div>
 
           {/* Configuration */}
@@ -95,28 +77,39 @@ const JobDetailSheet = ({ job, open, onOpenChange }: JobDetailSheetProps) => {
             <h4 className="mb-3 font-medium text-muted-foreground text-xs uppercase">
               Configuration
             </h4>
-            <div className="space-y-2.5">
-              <DetailRow
-                icon={GlobeIcon}
-                label="Endpoint"
-                value={job.endpoint_url || "-"}
-              />
-              <DetailRow
-                icon={ClockIcon}
-                label="Schedule"
-                value={job.cron || "Manual"}
-              />
-              <DetailRow
-                icon={RefreshIcon}
-                label="Retry"
-                value={`${job.max_attempts} attempts`}
-              />
-              <DetailRow
-                icon={ClockIcon}
-                label="Timeout"
-                value={`${job.timeout_secs}s`}
-              />
-            </div>
+            <DescriptionList orientation="horizontal" size="sm">
+              <DescriptionTerm>
+                <HugeiconsIcon className="size-3.5 shrink-0" icon={GlobeIcon} />
+                Endpoint
+              </DescriptionTerm>
+              <DescriptionDetails className="truncate font-mono">
+                {job.endpoint_url || "-"}
+              </DescriptionDetails>
+              <DescriptionTerm>
+                <HugeiconsIcon className="size-3.5 shrink-0" icon={ClockIcon} />
+                Schedule
+              </DescriptionTerm>
+              <DescriptionDetails className="font-mono">
+                {job.cron || "Manual"}
+              </DescriptionDetails>
+              <DescriptionTerm>
+                <HugeiconsIcon
+                  className="size-3.5 shrink-0"
+                  icon={RefreshIcon}
+                />
+                Retry
+              </DescriptionTerm>
+              <DescriptionDetails className="font-mono">
+                {job.max_attempts} attempts
+              </DescriptionDetails>
+              <DescriptionTerm>
+                <HugeiconsIcon className="size-3.5 shrink-0" icon={ClockIcon} />
+                Timeout
+              </DescriptionTerm>
+              <DescriptionDetails className="font-mono">
+                {job.timeout_secs}s
+              </DescriptionDetails>
+            </DescriptionList>
           </div>
 
           {/* Tags */}
@@ -141,26 +134,25 @@ const JobDetailSheet = ({ job, open, onOpenChange }: JobDetailSheetProps) => {
             <h4 className="mb-2 font-medium text-muted-foreground text-xs uppercase">
               Recent Runs
             </h4>
-            <div className="space-y-1.5">
+            <ItemGroup className="gap-2">
               {[
                 { id: "run_1", status: "completed" as const, time: "2m ago" },
                 { id: "run_2", status: "completed" as const, time: "1h ago" },
                 { id: "run_3", status: "failed" as const, time: "3h ago" },
               ].map((run) => (
-                <div
-                  className="flex items-center justify-between rounded-md border px-3 py-2"
-                  key={run.id}
-                >
-                  <span className="font-mono text-sm">{run.id}</span>
-                  <div className="flex items-center gap-2">
+                <Item key={run.id} size="xs" variant="outline">
+                  <ItemContent>
+                    <ItemTitle className="font-mono">{run.id}</ItemTitle>
+                  </ItemContent>
+                  <ItemActions>
                     <StatusBadge status={run.status} />
                     <span className="text-muted-foreground text-sm">
                       {run.time}
                     </span>
-                  </div>
-                </div>
+                  </ItemActions>
+                </Item>
               ))}
-            </div>
+            </ItemGroup>
           </div>
         </div>
 

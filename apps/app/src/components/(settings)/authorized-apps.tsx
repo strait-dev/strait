@@ -17,6 +17,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@strait/ui/components/empty";
+import { Frame, FramePanel } from "@strait/ui/components/frame";
+import { IdCell } from "@strait/ui/components/id-cell";
 import { Skeleton } from "@strait/ui/components/skeleton";
 import { toast } from "@strait/ui/components/toast";
 import { useQuery } from "@tanstack/react-query";
@@ -78,9 +86,14 @@ export function AuthorizedApps() {
       </CardHeader>
       <CardContent>
         {consents.length === 0 ? (
-          <p className="py-4 text-center text-muted-foreground text-sm">
-            No applications have been authorized yet.
-          </p>
+          <Empty border={false} className="py-4">
+            <EmptyHeader>
+              <EmptyTitle>No authorized applications</EmptyTitle>
+              <EmptyDescription>
+                OAuth applications you approve will appear here.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         ) : (
           <div className="flex flex-col gap-3">
             {consents.map((consent) => (
@@ -119,57 +132,57 @@ function ConsentRow({
   });
 
   return (
-    <div className="flex items-start justify-between gap-4 rounded-lg border border-border p-4">
-      <div className="flex flex-col gap-2">
-        <div className="flex flex-col gap-0.5">
-          <div className="flex items-center gap-2">
-            <span className="font-medium text-foreground text-sm">
-              {consent.clientName}
-            </span>
-            <span className="text-muted-foreground text-xs">
-              Authorized {grantedAt}
-            </span>
+    <Frame>
+      <FramePanel className="flex items-start justify-between gap-4">
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-0.5">
+            <div className="flex items-center gap-2">
+              <span className="font-medium text-foreground text-sm">
+                {consent.clientName}
+              </span>
+              <span className="text-muted-foreground text-xs">
+                Authorized {grantedAt}
+              </span>
+            </div>
+            <IdCell id={consent.clientId} length={8} />
           </div>
-          <span className="font-mono text-muted-foreground text-xs">
-            {consent.clientId}
-          </span>
-        </div>
-        <div className="flex flex-wrap gap-1">
-          {scopes.map((scope) => (
-            <Badge key={scope} size="xs" variant="secondary">
-              {scope}
-            </Badge>
-          ))}
-        </div>
-      </div>
-      <AlertDialog>
-        <AlertDialogTrigger
-          render={
-            <Button disabled={revoking} variant="destructive">
-              {revoking ? "Revoking..." : "Revoke"}
-            </Button>
-          }
-        />
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Revoke access</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will immediately revoke all access tokens for this
-              application. The application will need to request authorization
-              again.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="flex justify-end gap-3">
-            <AlertDialogCancel
-              render={<Button variant="outline">Cancel</Button>}
-            />
-            <AlertDialogAction
-              onClick={onRevoke}
-              render={<Button variant="destructive">Revoke Access</Button>}
-            />
+          <div className="flex flex-wrap gap-1">
+            {scopes.map((scope) => (
+              <Badge key={scope} size="xs" variant="secondary">
+                {scope}
+              </Badge>
+            ))}
           </div>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
+        </div>
+        <AlertDialog>
+          <AlertDialogTrigger
+            render={
+              <Button disabled={revoking} variant="destructive">
+                {revoking ? "Revoking..." : "Revoke"}
+              </Button>
+            }
+          />
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Revoke access</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will immediately revoke all access tokens for this
+                application. The application will need to request authorization
+                again.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="flex justify-end gap-3">
+              <AlertDialogCancel
+                render={<Button variant="outline">Cancel</Button>}
+              />
+              <AlertDialogAction
+                onClick={onRevoke}
+                render={<Button variant="destructive">Revoke Access</Button>}
+              />
+            </div>
+          </AlertDialogContent>
+        </AlertDialog>
+      </FramePanel>
+    </Frame>
   );
 }

@@ -11,6 +11,7 @@ import {
 } from "@strait/ui/components/dialog";
 import { Field, FieldError, FieldLabel } from "@strait/ui/components/field";
 import { Input } from "@strait/ui/components/input";
+import { Spinner } from "@strait/ui/components/spinner";
 import { Textarea } from "@strait/ui/components/textarea";
 import { toast } from "@strait/ui/components/toast";
 import { useForm } from "@tanstack/react-form";
@@ -19,7 +20,7 @@ import { z } from "zod/v4";
 import type { Project } from "@/hooks/api/types";
 import { useCreateAndActivateProject } from "@/hooks/api/use-projects";
 import { formatFieldErrors } from "@/lib/form-errors";
-import { LoadingIcon, PlusIcon } from "@/lib/icons";
+import { PlusIcon } from "@/lib/icons";
 
 const createProjectSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
@@ -175,10 +176,7 @@ const CreateProjectDialog = ({
                   type="submit"
                 >
                   {isSubmitting || isPending ? (
-                    <HugeiconsIcon
-                      className="size-4 animate-spin"
-                      icon={LoadingIcon}
-                    />
+                    <Spinner />
                   ) : (
                     <HugeiconsIcon className="size-4" icon={PlusIcon} />
                   )}

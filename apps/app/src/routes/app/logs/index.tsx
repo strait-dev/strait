@@ -22,7 +22,7 @@ import {
 } from "@strait/ui/components/empty";
 import { Input } from "@strait/ui/components/input";
 import { Shell } from "@strait/ui/components/shell";
-import { cn } from "@strait/ui/utils";
+import { StatusBadge } from "@strait/ui/components/status-badge";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
@@ -45,7 +45,7 @@ import type { EventTrigger, PaginatedResponse } from "@/hooks/api/types";
 import { eventsQueryOptions } from "@/hooks/api/use-events";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
 import { FileTextIcon, FilterIcon, SearchIcon } from "@/lib/icons";
-import { EVENT_STATUS_STYLES, EVENT_STATUSES } from "@/lib/status";
+import { EVENT_STATUSES } from "@/lib/status";
 import { stopInteractiveRowClick } from "@/lib/table-interactions";
 import type { AppRouteContext } from "@/routes/app/layout";
 
@@ -160,7 +160,7 @@ function LogsPage() {
   const emptyState = hasProject ? (
     <Empty className="h-[300px]">
       <EmptyHeader>
-        <EmptyMedia size="lg" variant="icon">
+        <EmptyMedia media="icon" size="lg">
           <HugeiconsIcon
             className="size-6 text-muted-foreground"
             icon={FileTextIcon}
@@ -212,24 +212,15 @@ function LogsPage() {
             )}
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-36">
-            {EVENT_STATUSES.map((status) => {
-              const style =
-                EVENT_STATUS_STYLES[status] ?? EVENT_STATUS_STYLES.waiting;
-              return (
-                <DropdownMenuCheckboxItem
-                  checked={selectedStatuses.includes(status)}
-                  key={status}
-                  onCheckedChange={() => toggleStatus(status)}
-                >
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={cn("size-2 shrink-0 rounded-full", style.dot)}
-                    />
-                    <span className="capitalize">{status}</span>
-                  </div>
-                </DropdownMenuCheckboxItem>
-              );
-            })}
+            {EVENT_STATUSES.map((status) => (
+              <DropdownMenuCheckboxItem
+                checked={selectedStatuses.includes(status)}
+                key={status}
+                onCheckedChange={() => toggleStatus(status)}
+              >
+                <StatusBadge status={status} />
+              </DropdownMenuCheckboxItem>
+            ))}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

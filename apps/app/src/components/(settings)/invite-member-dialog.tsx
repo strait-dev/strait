@@ -18,13 +18,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@strait/ui/components/select";
+import { Spinner } from "@strait/ui/components/spinner";
 import { toast } from "@strait/ui/components/toast";
 import { useForm } from "@tanstack/react-form";
 import { useState } from "react";
 import { z } from "zod/v4";
 import { useCreateInvitation } from "@/hooks/auth/use-invitation";
 import { formatFieldErrors } from "@/lib/form-errors";
-import { LoadingIcon, PlusIcon } from "@/lib/icons";
+import { PlusIcon } from "@/lib/icons";
 
 const inviteSchema = z.object({
   email: z.email("Enter a valid email"),
@@ -180,10 +181,7 @@ const InviteMemberDialog = ({ organizationId }: InviteMemberDialogProps) => {
                   type="submit"
                 >
                   {isSubmitting || createInvitation.isPending ? (
-                    <HugeiconsIcon
-                      className="size-4 animate-spin"
-                      icon={LoadingIcon}
-                    />
+                    <Spinner />
                   ) : (
                     <HugeiconsIcon className="size-4" icon={PlusIcon} />
                   )}

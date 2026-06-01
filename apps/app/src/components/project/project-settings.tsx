@@ -6,6 +6,15 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemHeader,
+  ItemTitle,
+} from "@strait/ui/components/item";
 import { toast } from "@strait/ui/components/toast";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import {
@@ -46,54 +55,62 @@ const ProjectSettings = ({ projectId }: Props) => {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <ItemGroup className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {regions.map((region) => {
               const isAvailable =
                 region.availability?.[settings.plan_tier] === true;
               const isSelected = settings.default_region === region.code;
-
-              let borderClass = "cursor-not-allowed border-border opacity-50";
-              if (isSelected) {
-                borderClass = "border-primary bg-primary/5";
-              } else if (isAvailable) {
-                borderClass =
-                  "border-border hover:border-primary/50 hover:bg-muted/50";
-              }
+              const isDisabled = !isAvailable || updateSettings.isPending;
+              const updateRegion = () => {
+                if (isDisabled) {
+                  return;
+                }
+                const promise = updateSettings.mutateAsync({
+                  projectId,
+                  default_region: region.code,
+                });
+                toast.promise(promise, {
+                  loading: "Updating region...",
+                  success: "Default region updated!",
+                  error: "Failed to update region",
+                });
+              };
 
               return (
-                <button
-                  className={`relative flex flex-col rounded-lg border p-4 text-left transition-colors ${borderClass}`}
-                  disabled={!isAvailable || updateSettings.isPending}
+                <Item
+                  aria-disabled={isDisabled}
+                  aria-pressed={isSelected}
+                  className={`items-start ${isAvailable ? "" : "cursor-not-allowed opacity-50"}`}
                   key={region.code}
-                  onClick={() => {
-                    const promise = updateSettings.mutateAsync({
-                      projectId,
-                      default_region: region.code,
-                    });
-                    toast.promise(promise, {
-                      loading: "Updating region...",
-                      success: "Default region updated!",
-                      error: "Failed to update region",
-                    });
+                  onClick={updateRegion}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      updateRegion();
+                    }
                   }}
-                  type="button"
+                  role="button"
+                  tabIndex={isDisabled ? -1 : 0}
+                  variant="outline"
                 >
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium text-sm">{region.label}</span>
-                    {isSelected && <Badge variant="default">Active</Badge>}
-                  </div>
-                  <span className="mt-1 text-muted-foreground text-xs">
-                    {region.city}, {region.country}
-                  </span>
-                  {!isAvailable && (
-                    <span className="mt-2 text-muted-foreground text-xs">
-                      Upgrade to unlock
-                    </span>
-                  )}
-                </button>
+                  <ItemHeader>
+                    <ItemTitle>{region.label}</ItemTitle>
+                    <ItemActions>
+                      {isSelected && <Badge variant="default">Active</Badge>}
+                    </ItemActions>
+                  </ItemHeader>
+                  <ItemContent>
+                    <ItemDescription>
+                      {region.city}, {region.country}
+                    </ItemDescription>
+                    {!isAvailable && (
+                      <ItemDescription>Upgrade to unlock</ItemDescription>
+                    )}
+                  </ItemContent>
+                </Item>
               );
             })}
-          </div>
+          </ItemGroup>
         </CardContent>
       </Card>
     </div>

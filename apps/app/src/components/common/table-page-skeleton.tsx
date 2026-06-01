@@ -1,5 +1,13 @@
 import { Shell } from "@strait/ui/components/shell";
 import { Skeleton } from "@strait/ui/components/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@strait/ui/components/table";
 
 const HEADER_KEYS = ["hdr-0", "hdr-1", "hdr-2", "hdr-3", "hdr-4"];
 const ROW_KEYS = [
@@ -24,25 +32,28 @@ const TablePageSkeleton = () => (
       <Skeleton className="h-9 w-64" />
       <Skeleton className="h-9 w-24" />
     </div>
-    <div className="rounded-md border">
-      <div className="border-b px-4 py-3">
-        <div className="flex gap-8">
+    <Table size="lg" variant="bordered">
+      <TableHeader>
+        <TableRow>
           {HEADER_KEYS.map((key) => (
-            <Skeleton className="h-4 w-24" key={key} />
+            <TableHead key={key}>
+              <Skeleton className="h-4 w-24" />
+            </TableHead>
           ))}
-        </div>
-      </div>
-      {ROW_KEYS.map((rowKey) => (
-        <div
-          className="flex gap-8 border-b px-4 py-3 last:border-b-0"
-          key={rowKey}
-        >
-          {CELL_KEYS.map((cellKey) => (
-            <Skeleton className="h-4 w-24" key={cellKey} />
-          ))}
-        </div>
-      ))}
-    </div>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {ROW_KEYS.map((rowKey) => (
+          <TableRow key={rowKey}>
+            {CELL_KEYS.map((cellKey) => (
+              <TableCell key={cellKey}>
+                <Skeleton className="h-4 w-24" />
+              </TableCell>
+            ))}
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   </Shell>
 );
 

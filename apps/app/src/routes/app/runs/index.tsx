@@ -207,7 +207,7 @@ function RunsPage() {
   const emptyState = hasProject ? (
     <Empty className="h-[300px]">
       <EmptyHeader>
-        <EmptyMedia size="lg" variant="icon">
+        <EmptyMedia media="icon" size="lg">
           <HugeiconsIcon
             className="size-6 text-foreground"
             icon={ActivityIcon}
@@ -232,17 +232,17 @@ function RunsPage() {
             {tableData.length} run{tableData.length === 1 ? "" : "s"}
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="inline-block size-1.5 rounded-full bg-success" />
+            <StatusBadge dotOnly size="xs" status="completed" />
             <span className="tabular-nums">{summary.succeeded}</span>
             <span className="text-muted-foreground">succeeded</span>
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="inline-block size-1.5 rounded-full bg-destructive" />
+            <StatusBadge dotOnly size="xs" status="failed" />
             <span className="tabular-nums">{summary.failed}</span>
             <span className="text-muted-foreground">failed</span>
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="inline-block size-1.5 rounded-full bg-info" />
+            <StatusBadge dotOnly size="xs" status="running" />
             <span className="tabular-nums">{summary.running}</span>
             <span className="text-muted-foreground">running</span>
           </span>

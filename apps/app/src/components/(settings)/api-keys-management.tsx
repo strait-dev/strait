@@ -29,8 +29,15 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@strait/ui/components/dialog";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@strait/ui/components/empty";
 import { Field, FieldError, FieldLabel } from "@strait/ui/components/field";
 import { Input } from "@strait/ui/components/input";
+import { SecretInput } from "@strait/ui/components/secret-input";
 import {
   Select,
   SelectContent,
@@ -38,6 +45,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@strait/ui/components/select";
+import { Spinner } from "@strait/ui/components/spinner";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@strait/ui/components/table";
 import { toast } from "@strait/ui/components/toast";
 import { useForm } from "@tanstack/react-form";
 import { useQuery } from "@tanstack/react-query";
@@ -49,7 +65,7 @@ import {
   useRevokeApiKey,
 } from "@/hooks/api/use-api-keys";
 import { formatFieldErrors } from "@/lib/form-errors";
-import { CheckIcon, LoadingIcon, PlusIcon, TrashIcon } from "@/lib/icons";
+import { PlusIcon, TrashIcon } from "@/lib/icons";
 
 const AVAILABLE_SCOPES = [
   "jobs:read",
@@ -136,13 +152,6 @@ const ApiKeysManagement = () => {
     }
   };
 
-  const handleCopyKey = () => {
-    if (createdKey) {
-      navigator.clipboard.writeText(createdKey);
-      toast.success("API key copied to clipboard.");
-    }
-  };
-
   return (
     <div className="space-y-6">
       <Card>
@@ -178,15 +187,14 @@ const ApiKeysManagement = () => {
                       </DialogDescription>
                     </DialogHeader>
                     <div className="py-4">
-                      <div className="rounded-md border bg-muted p-3">
-                        <code className="break-all text-sm">{createdKey}</code>
-                      </div>
+                      <SecretInput
+                        aria-label="Created API key"
+                        className="font-mono"
+                        readOnly
+                        value={createdKey}
+                      />
                     </div>
                     <DialogFooter>
-                      <Button onClick={handleCopyKey} variant="outline">
-                        <HugeiconsIcon className="size-4" icon={CheckIcon} />
-                        Copy to Clipboard
-                      </Button>
                       <Button onClick={() => setCreateOpen(false)}>Done</Button>
                     </DialogFooter>
                   </>
@@ -335,10 +343,7 @@ const ApiKeysManagement = () => {
                             type="submit"
                           >
                             {isSubmitting || createKey.isPending ? (
-                              <HugeiconsIcon
-                                className="size-4 animate-spin"
-                                icon={LoadingIcon}
-                              />
+                              <Spinner />
                             ) : (
                               <HugeiconsIcon
                                 className="size-4"
@@ -359,145 +364,117 @@ const ApiKeysManagement = () => {
         <CardContent>
           {isLoading && (
             <div className="flex items-center gap-2 text-muted-foreground text-sm">
-              <HugeiconsIcon
-                className="size-4 animate-spin"
-                icon={LoadingIcon}
-              />
+              <Spinner />
               Loading API keys...
             </div>
           )}
           {!isLoading && keys.length === 0 && (
-            <p className="text-muted-foreground text-sm">
-              No API keys created yet.
-            </p>
+            <Empty border={false} className="py-4">
+              <EmptyHeader>
+                <EmptyTitle>No API keys created yet</EmptyTitle>
+                <EmptyDescription>
+                  Create an API key to authenticate requests from your own
+                  services.
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
           )}
           {!isLoading && keys.length > 0 && (
-            <div className="overflow-x-auto">
-              <div className="rounded-md border">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b bg-muted/50">
-                      <th
-                        className="px-4 py-2 text-left font-medium text-muted-foreground"
-                        scope="col"
-                      >
-                        Name
-                      </th>
-                      <th
-                        className="px-4 py-2 text-left font-medium text-muted-foreground"
-                        scope="col"
-                      >
-                        Key
-                      </th>
-                      <th
-                        className="hidden px-4 py-2 text-left font-medium text-muted-foreground md:table-cell"
-                        scope="col"
-                      >
-                        Scopes
-                      </th>
-                      <th
-                        className="hidden px-4 py-2 text-left font-medium text-muted-foreground sm:table-cell"
-                        scope="col"
-                      >
-                        Created
-                      </th>
-                      <th
-                        className="hidden px-4 py-2 text-left font-medium text-muted-foreground sm:table-cell"
-                        scope="col"
-                      >
-                        Last Used
-                      </th>
-                      <th
-                        className="px-4 py-2 text-right font-medium text-muted-foreground"
-                        scope="col"
-                      />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {keys.map((key) => {
-                      const isRevoking =
-                        revokeKey.isPending && revokeKey.variables === key.id;
-                      return (
-                        <tr className="border-b last:border-b-0" key={key.id}>
-                          <td className="px-4 py-3 font-medium">{key.name}</td>
-                          <td className="px-4 py-3">
-                            <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
-                              {key.key_prefix}...
-                            </code>
-                          </td>
-                          <td className="hidden px-4 py-3 md:table-cell">
-                            <div className="flex flex-wrap gap-1">
-                              {(key.scopes ?? []).map((scope) => (
-                                <Badge key={scope} variant="outline">
-                                  {scope}
-                                </Badge>
-                              ))}
-                            </div>
-                          </td>
-                          <td className="hidden px-4 py-3 text-muted-foreground sm:table-cell">
-                            {formatDate(key.created_at)}
-                          </td>
-                          <td className="hidden px-4 py-3 text-muted-foreground sm:table-cell">
-                            {formatDate(
-                              (key as Record<string, unknown>).last_used_at as
-                                | string
-                                | null
+            <Table size="lg" variant="bordered">
+              <TableHeader>
+                <TableRow>
+                  <TableHead scope="col">Name</TableHead>
+                  <TableHead scope="col">Key</TableHead>
+                  <TableHead className="hidden md:table-cell" scope="col">
+                    Scopes
+                  </TableHead>
+                  <TableHead className="hidden sm:table-cell" scope="col">
+                    Created
+                  </TableHead>
+                  <TableHead className="hidden sm:table-cell" scope="col">
+                    Last Used
+                  </TableHead>
+                  <TableHead className="text-right" scope="col" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {keys.map((key) => {
+                  const isRevoking =
+                    revokeKey.isPending && revokeKey.variables === key.id;
+                  return (
+                    <TableRow key={key.id}>
+                      <TableCell className="font-medium">{key.name}</TableCell>
+                      <TableCell>
+                        <Badge className="font-mono" variant="secondary">
+                          {key.key_prefix}...
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="hidden md:table-cell">
+                        <div className="flex flex-wrap gap-1">
+                          {(key.scopes ?? []).map((scope) => (
+                            <Badge key={scope} variant="outline">
+                              {scope}
+                            </Badge>
+                          ))}
+                        </div>
+                      </TableCell>
+                      <TableCell className="hidden text-muted-foreground sm:table-cell">
+                        {formatDate(key.created_at)}
+                      </TableCell>
+                      <TableCell className="hidden text-muted-foreground sm:table-cell">
+                        {formatDate(
+                          (key as Record<string, unknown>).last_used_at as
+                            | string
+                            | null
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <AlertDialog>
+                          <AlertDialogTrigger
+                            render={
+                              <Button
+                                disabled={isRevoking}
+                                variant="destructive"
+                              />
+                            }
+                          >
+                            {isRevoking ? (
+                              <Spinner size="xs" />
+                            ) : (
+                              <HugeiconsIcon
+                                className="size-3"
+                                icon={TrashIcon}
+                              />
                             )}
-                          </td>
-                          <td className="px-4 py-3 text-right">
-                            <AlertDialog>
-                              <AlertDialogTrigger
-                                render={
-                                  <Button
-                                    disabled={isRevoking}
-                                    variant="destructive"
-                                  />
-                                }
+                            Revoke
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>
+                                Revoke "{key.name}"?
+                              </AlertDialogTitle>
+                              <AlertDialogDescription>
+                                This will permanently revoke this API key. Any
+                                applications using it will lose access
+                                immediately.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={() => handleRevoke(key.id, key.name)}
                               >
-                                {isRevoking ? (
-                                  <HugeiconsIcon
-                                    className="size-3 animate-spin"
-                                    icon={LoadingIcon}
-                                  />
-                                ) : (
-                                  <HugeiconsIcon
-                                    className="size-3"
-                                    icon={TrashIcon}
-                                  />
-                                )}
-                                Revoke
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>
-                                    Revoke "{key.name}"?
-                                  </AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    This will permanently revoke this API key.
-                                    Any applications using it will lose access
-                                    immediately.
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                  <AlertDialogAction
-                                    onClick={() =>
-                                      handleRevoke(key.id, key.name)
-                                    }
-                                  >
-                                    Revoke Key
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+                                Revoke Key
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
           )}
         </CardContent>
       </Card>

@@ -8,6 +8,8 @@ import {
   DropdownMenuTrigger,
 } from "@strait/ui/components/dropdown-menu";
 import type { ColumnDef, Row } from "@tanstack/react-table";
+import type { ReactNode } from "react";
+import { Fragment } from "react";
 import { MoreVerticalIcon } from "@/lib/icons";
 
 export function createSelectColumn<T>(): ColumnDef<T> {
@@ -41,7 +43,8 @@ export function createSelectColumn<T>(): ColumnDef<T> {
 type ActionItem<T> = {
   label: string;
   icon?: any;
-  onClick: (row: Row<T>) => void;
+  onClick?: (row: Row<T>) => void;
+  render?: (row: Row<T>) => ReactNode;
   variant?: "default" | "destructive";
 };
 
@@ -59,15 +62,21 @@ export function createActionsColumn<T>(actions: ActionItem<T>[]): ColumnDef<T> {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           {actions.map((action) => (
-            <DropdownMenuItem
-              key={action.label}
-              onClick={() => action.onClick(row)}
-            >
-              {action.icon && (
-                <HugeiconsIcon className="mr-2 size-3.5" icon={action.icon} />
+            <Fragment key={action.label}>
+              {action.render ? (
+                action.render(row)
+              ) : (
+                <DropdownMenuItem onClick={() => action.onClick?.(row)}>
+                  {action.icon && (
+                    <HugeiconsIcon
+                      className="mr-2 size-3.5"
+                      icon={action.icon}
+                    />
+                  )}
+                  {action.label}
+                </DropdownMenuItem>
               )}
-              {action.label}
-            </DropdownMenuItem>
+            </Fragment>
           ))}
         </DropdownMenuContent>
       </DropdownMenu>

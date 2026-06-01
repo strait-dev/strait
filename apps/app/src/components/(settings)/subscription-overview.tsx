@@ -1,4 +1,9 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@strait/ui/components/alert";
 import type { BadgeProps } from "@strait/ui/components/badge";
 import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
@@ -9,6 +14,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import { Frame, FramePanel } from "@strait/ui/components/frame";
 import { toast } from "@strait/ui/components/toast";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -86,32 +92,28 @@ const SubscriptionOverview = () => {
       case "active":
         return {
           message: "Active",
-          icon: <HugeiconsIcon className="size-4" icon={CheckCircleIcon} />,
+          icon: CheckCircleIcon,
           variant: "success" as const,
-          bgGradient: "from-primary/30 to-primary/10",
         };
       case "canceled":
         return {
           message: "Canceled",
-          icon: <HugeiconsIcon className="size-4" icon={AlertCircleIcon} />,
+          icon: AlertCircleIcon,
           variant: "destructive" as const,
-          bgGradient: "from-destructive/30 to-destructive/10",
         };
       case "incomplete":
       case "past_due":
       case "unpaid":
         return {
           message: "Needs Attention",
-          icon: <HugeiconsIcon className="size-4" icon={AlarmClockIcon} />,
+          icon: AlarmClockIcon,
           variant: "destructive" as const,
-          bgGradient: "from-destructive/30 to-destructive/10",
         };
       default:
         return {
           message: "Inactive",
           icon: null,
           variant: "secondary" as const,
-          bgGradient: "from-muted-foreground/30 to-muted-foreground/10",
         };
     }
   }, [subscription?.status]);
@@ -171,7 +173,7 @@ const SubscriptionOverview = () => {
   if (!subscription) {
     return (
       <div className="space-y-6">
-        <Card className="overflow-hidden border shadow-sm">
+        <Card variant="outline">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <HugeiconsIcon className="size-5" icon={CreditCardIcon} />
@@ -195,7 +197,7 @@ const SubscriptionOverview = () => {
   return (
     <div className="space-y-6">
       {/* Plan Status Overview */}
-      <Card className="overflow-hidden border shadow-sm">
+      <Card variant="outline">
         <CardHeader>
           <div className="flex items-start justify-between">
             <div>
@@ -208,45 +210,45 @@ const SubscriptionOverview = () => {
               </CardDescription>
             </div>
             <Badge
-              className="flex items-center gap-1"
+              iconLeft={planInfo.statusInfo.icon ?? undefined}
               variant={
                 `${planInfo.statusInfo.variant}-light` as BadgeProps["variant"]
               }
             >
-              {planInfo.statusInfo.icon}
               {planInfo.statusInfo.message}
             </Badge>
           </div>
         </CardHeader>
         <CardContent>
-          <div className="rounded-lg bg-muted/50 p-4">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="space-y-1">
-                <div className="font-medium text-muted-foreground text-sm">
-                  Billing Cycle
-                </div>
-                <p className="font-normal">{planInfo.intervalName}</p>
-              </div>
-
-              {subscription?.currentPeriodEnd ? (
+          <Frame>
+            <FramePanel>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div className="space-y-1">
                   <div className="font-medium text-muted-foreground text-sm">
-                    {planInfo.isCanceled ? "Cancels On" : "Next Billing"}
+                    Billing Cycle
                   </div>
-                  <p className="font-normal">
-                    {new Date(subscription.currentPeriodEnd).toLocaleDateString(
-                      "en-US",
-                      {
+                  <p className="font-normal">{planInfo.intervalName}</p>
+                </div>
+
+                {subscription?.currentPeriodEnd ? (
+                  <div className="space-y-1">
+                    <div className="font-medium text-muted-foreground text-sm">
+                      {planInfo.isCanceled ? "Cancels On" : "Next Billing"}
+                    </div>
+                    <p className="font-normal">
+                      {new Date(
+                        subscription.currentPeriodEnd
+                      ).toLocaleDateString("en-US", {
                         day: "numeric",
                         month: "short",
                         year: "numeric",
-                      }
-                    )}
-                  </p>
-                </div>
-              ) : null}
-            </div>
-          </div>
+                      })}
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            </FramePanel>
+          </Frame>
         </CardContent>
       </Card>
 
@@ -291,31 +293,23 @@ const SubscriptionOverview = () => {
             ) : null}
             {planInfo.isActive && !planInfo.isCanceled ? (
               <Button
-                className="text-destructive hover:text-destructive"
                 disabled={isLoading === "cancel"}
                 onClick={handleCancelSubscription}
-                variant="ghost"
+                variant="destructive"
               >
                 {isLoading === "cancel" ? "Canceling..." : "Cancel"}
               </Button>
             ) : null}
           </div>
 
-          <div className="rounded-lg border bg-muted/30 p-4">
-            <div className="flex gap-3">
-              <HugeiconsIcon
-                className="mt-0.5 size-5 shrink-0 text-muted-foreground"
-                icon={AlertCircleIcon}
-              />
-              <div className="space-y-1">
-                <p className="font-medium text-sm">Customer Portal</p>
-                <p className="text-muted-foreground text-sm">
-                  Update payment methods, download invoices, view payment
-                  history, and manage your subscription details.
-                </p>
-              </div>
-            </div>
-          </div>
+          <Alert>
+            <HugeiconsIcon className="size-4" icon={AlertCircleIcon} />
+            <AlertTitle>Customer Portal</AlertTitle>
+            <AlertDescription>
+              Update payment methods, download invoices, view payment history,
+              and manage your subscription details.
+            </AlertDescription>
+          </Alert>
         </CardContent>
       </Card>
     </div>

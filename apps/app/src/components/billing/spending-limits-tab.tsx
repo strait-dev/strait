@@ -6,7 +6,15 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@strait/ui/components/empty";
 import { Input } from "@strait/ui/components/input";
+import { NoticeBanner } from "@strait/ui/components/notice-banner";
+import { Progress } from "@strait/ui/components/progress";
 import {
   Select,
   SelectContent,
@@ -39,9 +47,14 @@ const SpendingLimitsTab = () => {
     return (
       <Card>
         <CardContent className="flex h-48 items-center justify-center">
-          <p className="text-muted-foreground text-sm">
-            Spending limit data unavailable.
-          </p>
+          <Empty border={false}>
+            <EmptyHeader>
+              <EmptyTitle>Spending limit data unavailable</EmptyTitle>
+              <EmptyDescription>
+                Billing limits will appear here once usage data is available.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         </CardContent>
       </Card>
     );
@@ -98,14 +111,9 @@ const SpendingLimitsTab = () => {
   return (
     <div className="space-y-6">
       {spending.is_hard_capped && (
-        <Card className="border-warning/30">
-          <CardContent className="p-4">
-            <p className="text-sm text-warning">
-              Hard spending cap is enabled. Services will be paused when the
-              limit is reached.
-            </p>
-          </CardContent>
-        </Card>
+        <NoticeBanner title="Hard spending cap enabled" variant="warning">
+          Services will be paused when the limit is reached.
+        </NoticeBanner>
       )}
 
       <Card>
@@ -127,12 +135,12 @@ const SpendingLimitsTab = () => {
                 </span>
               </p>
             </div>
-            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full rounded-full bg-foreground transition-all"
-                style={{ width: `${Math.min(percent, 100)}%` }}
-              />
-            </div>
+            <Progress
+              className="mt-2"
+              size="lg"
+              value={Math.min(percent, 100)}
+              variant={percent >= 90 ? "warning" : "default"}
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-4">

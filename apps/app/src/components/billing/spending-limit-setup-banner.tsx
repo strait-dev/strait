@@ -1,4 +1,8 @@
 import { Button } from "@strait/ui/components/button";
+import {
+  NoticeBanner,
+  NoticeBannerAction,
+} from "@strait/ui/components/notice-banner";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { orgUsageQueryOptions } from "@/hooks/billing/use-org-usage";
@@ -52,18 +56,9 @@ const SpendingLimitSetupBanner = () => {
   };
 
   return (
-    <div className="rounded border border-border bg-card px-4 py-4">
-      <div className="flex flex-col gap-3">
-        <div>
-          <p className="font-medium text-foreground text-sm">
-            Set a spending limit
-          </p>
-          <p className="text-muted-foreground text-sm">
-            Control your monthly costs and avoid unexpected charges. You can
-            change this anytime in Spending settings.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
+    <NoticeBanner
+      action={
+        <NoticeBannerAction>
           {PRESET_AMOUNTS.map((amount) => (
             <Button
               disabled={updateLimit.isPending}
@@ -74,16 +69,16 @@ const SpendingLimitSetupBanner = () => {
               ${amount}
             </Button>
           ))}
-          <Button
-            disabled={updateLimit.isPending}
-            onClick={handleDismiss}
-            variant="ghost"
-          >
-            No limit
-          </Button>
-        </div>
-      </div>
-    </div>
+        </NoticeBannerAction>
+      }
+      dismissible
+      onDismiss={handleDismiss}
+      title="Set a spending limit"
+      variant="info"
+    >
+      Control your monthly costs and avoid unexpected charges. You can change
+      this anytime in Spending settings.
+    </NoticeBanner>
   );
 };
 

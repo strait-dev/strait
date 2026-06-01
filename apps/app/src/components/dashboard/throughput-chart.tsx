@@ -4,22 +4,21 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import type { ChartConfig } from "@strait/ui/components/chart";
 import { ChartEmptyState } from "@strait/ui/components/chart-empty-state";
+import { BarChart } from "@strait/ui/components/charts";
 import { useQuery } from "@tanstack/react-query";
-import { Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from "recharts";
 import { analyticsQueryOptions } from "@/hooks/api/use-dashboard";
 import { ActivityIcon } from "@/lib/icons";
-import { CHART_COLORS } from "@/lib/status-colors";
-import ChartTooltip from "./chart-tooltip";
-import ResponsiveChartContainer from "./responsive-chart-container";
 
-const LABEL_MAP = {
+const CHART_CONFIG = {
   count: {
     label: "Runs",
-    color: CHART_COLORS.success,
-    format: (v: number) => `${v.toLocaleString()} runs`,
+    color: "chart-1",
   },
-};
+} satisfies ChartConfig;
+
+const formatRuns = (value: number) => `${value.toLocaleString()} runs`;
 
 const ThroughputChart = ({ hasProject = true }: { hasProject?: boolean }) => {
   const { data: analytics } = useQuery({
@@ -57,37 +56,14 @@ const ThroughputChart = ({ hasProject = true }: { hasProject?: boolean }) => {
               }
             />
           ) : (
-            <ResponsiveChartContainer
-              height="100%"
-              minHeight={1}
-              minWidth={1}
-              width="100%"
-            >
-              <BarChart data={chartData}>
-                <CartesianGrid
-                  className="stroke-border"
-                  strokeDasharray="3 3"
-                />
-                <XAxis
-                  className="text-muted-foreground"
-                  dataKey="status"
-                  tick={{ fontSize: 14 }}
-                />
-                <YAxis
-                  className="text-muted-foreground"
-                  tick={{ fontSize: 14 }}
-                />
-                <Tooltip
-                  content={<ChartTooltip labelMap={LABEL_MAP} />}
-                  cursor={{ fill: "var(--muted)" }}
-                />
-                <Bar
-                  dataKey="count"
-                  fill={CHART_COLORS.success}
-                  radius={[4, 4, 0, 0]}
-                />
-              </BarChart>
-            </ResponsiveChartContainer>
+            <BarChart
+              config={CHART_CONFIG}
+              containerHeight={240}
+              data={chartData}
+              dataKey="status"
+              legend={false}
+              valueFormatter={formatRuns}
+            />
           )}
         </div>
       </CardContent>

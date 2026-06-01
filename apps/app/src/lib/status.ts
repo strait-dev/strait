@@ -1,37 +1,9 @@
-/**
- * Centralized status styling and configuration for all entities.
- * Import from here instead of defining inline in routes/components.
- */
-
-// Event trigger status styles (used by events page and logs page)
-export const EVENT_STATUS_STYLES: Record<
-  string,
-  { dot: string; label: string; badge: string }
-> = {
-  waiting: {
-    dot: "bg-info",
-    label: "Waiting",
-    badge: "bg-info/10 text-info border-info/20",
-  },
-  received: {
-    dot: "bg-info",
-    label: "Received",
-    badge: "bg-info/10 text-info border-info/20",
-  },
-  timed_out: {
-    dot: "bg-warning",
-    label: "Timed Out",
-    badge: "bg-warning/10 text-warning border-warning/20",
-  },
-  canceled: {
-    dot: "bg-muted-foreground",
-    label: "Canceled",
-    badge:
-      "bg-muted-foreground/10 text-muted-foreground border-muted-foreground/20",
-  },
-};
-
-export const EVENT_STATUSES = Object.keys(EVENT_STATUS_STYLES);
+export const EVENT_STATUSES = [
+  "waiting",
+  "received",
+  "timed_out",
+  "canceled",
+] as const;
 
 // Run status filter options (used by runs, DLQ pages)
 export const RUN_STATUS_OPTIONS = [

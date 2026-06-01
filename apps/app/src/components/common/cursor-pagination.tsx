@@ -1,6 +1,11 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+} from "@strait/ui/components/pagination";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -66,36 +71,40 @@ export const CursorPagination = <TData,>({
         </Select>
       </div>
 
-      <div className="flex items-center space-x-2">
-        <Button
-          aria-label="Go to previous page"
-          className="size-8"
-          disabled={!cursor.canGoBack}
-          onClick={cursor.onPrev}
-          size="icon"
-          variant="outline"
-        >
-          <HugeiconsIcon
-            aria-hidden="true"
-            className="size-4"
-            icon={ChevronLeftIcon}
-          />
-        </Button>
-        <Button
-          aria-label="Go to next page"
-          className="size-8"
-          disabled={!cursor.hasMore}
-          onClick={cursor.onNext}
-          size="icon"
-          variant="outline"
-        >
-          <HugeiconsIcon
-            aria-hidden="true"
-            className="size-4"
-            icon={ChevronRightIcon}
-          />
-        </Button>
-      </div>
+      <Pagination className="w-auto" size="default">
+        <PaginationContent>
+          <PaginationItem>
+            <Button
+              aria-label="Go to previous page"
+              disabled={!cursor.canGoBack}
+              onClick={cursor.onPrev}
+              size="icon"
+              variant="outline"
+            >
+              <HugeiconsIcon
+                aria-hidden="true"
+                className="size-4"
+                icon={ChevronLeftIcon}
+              />
+            </Button>
+          </PaginationItem>
+          <PaginationItem>
+            <Button
+              aria-label="Go to next page"
+              disabled={!cursor.hasMore}
+              onClick={cursor.onNext}
+              size="icon"
+              variant="outline"
+            >
+              <HugeiconsIcon
+                aria-hidden="true"
+                className="size-4"
+                icon={ChevronRightIcon}
+              />
+            </Button>
+          </PaginationItem>
+        </PaginationContent>
+      </Pagination>
     </div>
   );
 };

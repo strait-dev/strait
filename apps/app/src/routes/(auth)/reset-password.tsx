@@ -1,7 +1,10 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { Alert, AlertDescription } from "@strait/ui/components/alert";
 import { Button } from "@strait/ui/components/button";
+import { EmptyMedia } from "@strait/ui/components/empty";
 import { Field, FieldError, FieldLabel } from "@strait/ui/components/field";
 import { PasswordInput } from "@strait/ui/components/password-input";
+import { Spinner } from "@strait/ui/components/spinner";
 import { toast } from "@strait/ui/components/toast";
 import { useForm } from "@tanstack/react-form";
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
@@ -12,7 +15,7 @@ import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";
 import { authClient } from "@/lib/auth-client";
 import { formatFieldErrors } from "@/lib/form-errors";
-import { LoadingIcon } from "@/lib/icons";
+import { CheckCircleIcon } from "@/lib/icons";
 import { captureSentryAuthError } from "@/lib/sentry";
 
 const resetPasswordSearchSchema = z.object({
@@ -75,18 +78,20 @@ function ResetPasswordPage() {
   return (
     <AuthLayout title="Set new password">
       {searchError ? (
-        <div
-          className="rounded-md bg-destructive/10 p-3 text-destructive text-sm"
-          role="alert"
-        >
-          {searchError === "INVALID_TOKEN"
-            ? "This reset link is invalid or has expired. Please request a new one."
-            : searchError}
-        </div>
+        <Alert variant="destructive">
+          <AlertDescription>
+            {searchError === "INVALID_TOKEN"
+              ? "This reset link is invalid or has expired. Please request a new one."
+              : searchError}
+          </AlertDescription>
+        </Alert>
       ) : null}
 
       {success ? (
         <div className="flex flex-col items-center gap-4 py-4 text-center">
+          <EmptyMedia media="icon" size="lg" variant="success">
+            <HugeiconsIcon className="size-6" icon={CheckCircleIcon} />
+          </EmptyMedia>
           <p className="font-medium text-foreground text-sm">
             Password reset successfully
           </p>
@@ -178,12 +183,7 @@ function ResetPasswordPage() {
                 type="submit"
                 variant="brand-solid"
               >
-                {form.state.isSubmitting ? (
-                  <HugeiconsIcon
-                    className="size-4 animate-spin"
-                    icon={LoadingIcon}
-                  />
-                ) : null}
+                {form.state.isSubmitting ? <Spinner /> : null}
                 Reset password
               </Button>
             </div>

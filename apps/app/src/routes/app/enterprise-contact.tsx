@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from "@strait/ui/components/select";
 import { Shell } from "@strait/ui/components/shell";
+import { Spinner } from "@strait/ui/components/spinner";
 import { Textarea } from "@strait/ui/components/textarea";
 import { toast } from "@strait/ui/components/toast";
 import { useForm } from "@tanstack/react-form";
@@ -31,7 +32,7 @@ import {
   USE_CASES,
 } from "@/lib/enterprise-contact-schema";
 import { formatFieldErrors } from "@/lib/form-errors";
-import { ChevronLeftIcon, LoadingIcon } from "@/lib/icons";
+import { ChevronLeftIcon } from "@/lib/icons";
 import { enforceRateLimit } from "@/lib/rate-limit.server";
 import { getResend } from "@/lib/resend.server";
 import { authMiddleware } from "@/middlewares/auth";
@@ -383,12 +384,7 @@ function EnterpriseContactPage() {
           >
             {({ canSubmit, isSubmitting }) => (
               <Button disabled={!canSubmit || isSubmitting} type="submit">
-                {isSubmitting ? (
-                  <HugeiconsIcon
-                    className="size-4 animate-spin"
-                    icon={LoadingIcon}
-                  />
-                ) : null}
+                {isSubmitting ? <Spinner /> : null}
                 Send inquiry
               </Button>
             )}

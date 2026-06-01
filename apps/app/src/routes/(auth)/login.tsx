@@ -1,4 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { Alert, AlertDescription } from "@strait/ui/components/alert";
 import { Button } from "@strait/ui/components/button";
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
@@ -74,12 +75,9 @@ function LoginPage() {
   return (
     <AuthLayout title="Sign in to Strait">
       {searchError ? (
-        <div
-          className="rounded-md bg-destructive/10 p-3 text-destructive text-sm"
-          role="alert"
-        >
-          {formatOAuthError(searchError)}
-        </div>
+        <Alert variant="destructive">
+          <AlertDescription>{formatOAuthError(searchError)}</AlertDescription>
+        </Alert>
       ) : null}
 
       <SignInForm

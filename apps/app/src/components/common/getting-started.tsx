@@ -1,4 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
 import {
   Card,
@@ -6,6 +7,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import { CodeBlock } from "@strait/ui/components/code-block";
 import {
   Tabs,
   TabsContent,
@@ -85,6 +87,22 @@ async fn main() {
 }`,
 };
 
+const StepIndicator = ({
+  completed,
+  step,
+}: {
+  completed?: boolean;
+  step: number;
+}) => (
+  <Badge
+    radius="pill"
+    size="lg"
+    variant={completed ? "success-light" : "secondary-outline"}
+  >
+    {completed ? <HugeiconsIcon icon={CheckCircleIcon} size={14} /> : step}
+  </Badge>
+);
+
 export const GettingStarted = ({ user }: Props) => {
   const [createOpen, setCreateOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("typescript");
@@ -106,19 +124,7 @@ export const GettingStarted = ({ user }: Props) => {
         {/* Step 1: Create a project */}
         <Card>
           <CardHeader className="flex-row items-center gap-3 space-y-0 pb-2">
-            <div
-              className={`flex size-8 shrink-0 items-center justify-center rounded-full border ${
-                hasProject
-                  ? "border-chart-1 bg-chart-1/10 text-chart-1"
-                  : "border-border text-muted-foreground"
-              }`}
-            >
-              {hasProject ? (
-                <HugeiconsIcon className="size-4" icon={CheckCircleIcon} />
-              ) : (
-                <span className="font-medium text-sm">1</span>
-              )}
-            </div>
+            <StepIndicator completed={hasProject} step={1} />
             <CardTitle className="text-base">Create a project</CardTitle>
           </CardHeader>
           <CardContent className="pl-6 sm:pl-14">
@@ -139,9 +145,7 @@ export const GettingStarted = ({ user }: Props) => {
         {/* Step 2: Install the SDK */}
         <Card>
           <CardHeader className="flex-row items-center gap-3 space-y-0 pb-2">
-            <div className="flex size-8 shrink-0 items-center justify-center rounded-full border border-border text-muted-foreground">
-              <span className="font-medium text-sm">2</span>
-            </div>
+            <StepIndicator step={2} />
             <CardTitle className="text-base">Install the SDK</CardTitle>
           </CardHeader>
           <CardContent className="pl-6 sm:pl-14">
@@ -162,9 +166,7 @@ export const GettingStarted = ({ user }: Props) => {
               </TabsList>
               {SDK_TABS.map((tab) => (
                 <TabsContent key={tab.value} value={tab.value}>
-                  <pre className="overflow-x-auto rounded-lg bg-muted p-3 font-mono text-sm">
-                    <code>{tab.install}</code>
-                  </pre>
+                  <CodeBlock code={tab.install} language="bash" />
                 </TabsContent>
               ))}
             </Tabs>
@@ -174,9 +176,7 @@ export const GettingStarted = ({ user }: Props) => {
         {/* Step 3: Deploy your first job */}
         <Card>
           <CardHeader className="flex-row items-center gap-3 space-y-0 pb-2">
-            <div className="flex size-8 shrink-0 items-center justify-center rounded-full border border-border text-muted-foreground">
-              <span className="font-medium text-sm">3</span>
-            </div>
+            <StepIndicator step={3} />
             <CardTitle className="text-base">Deploy your first job</CardTitle>
           </CardHeader>
           <CardContent className="pl-6 sm:pl-14">
@@ -197,9 +197,7 @@ export const GettingStarted = ({ user }: Props) => {
               </TabsList>
               {SDK_TABS_WITHOUT_CLI.map((tab) => (
                 <TabsContent key={tab.value} value={tab.value}>
-                  <pre className="overflow-x-auto rounded-lg bg-muted p-3 font-mono text-sm">
-                    <code>{CODE_EXAMPLES[tab.value]}</code>
-                  </pre>
+                  <CodeBlock code={CODE_EXAMPLES[tab.value]} language="ts" />
                 </TabsContent>
               ))}
             </Tabs>

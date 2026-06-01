@@ -1,3 +1,4 @@
+import { Badge } from "@strait/ui/components/badge";
 import { StatusBadge } from "@strait/ui/components/status-badge";
 import type { ColumnDef } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
@@ -43,7 +44,9 @@ export const createJobColumns = (
     accessorKey: "cron",
     header: "Schedule",
     cell: ({ row }) => (
-      <code className="text-xs">{row.original.cron || "\u2014"}</code>
+      <Badge mono size="xs" variant="secondary-light">
+        {row.original.cron || "\u2014"}
+      </Badge>
     ),
   },
   {
@@ -53,7 +56,11 @@ export const createJobColumns = (
   {
     accessorKey: "version",
     header: "Version",
-    cell: ({ row }) => <code className="text-xs">v{row.original.version}</code>,
+    cell: ({ row }) => (
+      <Badge mono size="xs" variant="secondary-light">
+        v{row.original.version}
+      </Badge>
+    ),
   },
   {
     accessorKey: "updated_at",

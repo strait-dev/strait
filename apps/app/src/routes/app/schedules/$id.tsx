@@ -2,6 +2,12 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Badge } from "@strait/ui/components/badge";
 
 import { Button } from "@strait/ui/components/button";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@strait/ui/components/card";
 import { ConfigRow } from "@strait/ui/components/config-row";
 import {
   DataGrid,
@@ -146,23 +152,25 @@ function ScheduleDetailPage() {
       </div>
 
       {/* Cron Display Card */}
-      <div className="rounded-md border p-4">
-        <div className="flex items-center gap-3">
-          <HugeiconsIcon
-            className="text-muted-foreground"
-            icon={CalendarIcon}
-            size={20}
-          />
-          <div>
-            <p className="font-medium text-muted-foreground text-xs uppercase">
-              Cron Schedule
-            </p>
-            <code className="font-normal text-sm">
-              {job.cron || "No schedule"}
-            </code>
+      <Card>
+        <CardContent>
+          <div className="flex items-center gap-3">
+            <HugeiconsIcon
+              className="text-muted-foreground"
+              icon={CalendarIcon}
+              size={20}
+            />
+            <div>
+              <p className="font-medium text-muted-foreground text-xs uppercase">
+                Cron Schedule
+              </p>
+              <Badge mono size="sm" variant="secondary-light">
+                {job.cron || "No schedule"}
+              </Badge>
+            </div>
           </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
       {/* Tabs */}
       <Tabs className="w-full" onValueChange={setActiveTab} value={activeTab}>
@@ -176,7 +184,7 @@ function ScheduleDetailPage() {
             emptyMessage={
               <Empty className="h-[300px]">
                 <EmptyHeader>
-                  <EmptyMedia size="lg" variant="icon">
+                  <EmptyMedia media="icon" size="lg">
                     <HugeiconsIcon
                       className="size-6 text-foreground"
                       icon={ActivityIcon}
@@ -205,11 +213,13 @@ function ScheduleDetailPage() {
 
         <TabsContent className="mt-6 space-y-6" value="settings">
           {/* Configuration */}
-          <div className="space-y-3 rounded-md border p-4">
-            <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wider">
-              Configuration
-            </h4>
-            <div className="space-y-2.5">
+          <Card>
+            <CardHeader>
+              <CardTitle className="font-medium text-muted-foreground text-xs uppercase tracking-wider">
+                Configuration
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2.5">
               <ConfigRow
                 icon={GlobeIcon}
                 label="Endpoint"
@@ -230,24 +240,26 @@ function ScheduleDetailPage() {
                 label="Timeout"
                 value={`${job.timeout_secs}s`}
               />
-            </div>
-          </div>
+            </CardContent>
+          </Card>
 
           {/* Tags */}
           {job.tags && Object.keys(job.tags).length > 0 && (
-            <div className="rounded-md border p-4">
-              <h4 className="mb-3 flex items-center gap-1.5 font-medium text-muted-foreground text-xs uppercase tracking-wider">
-                <HugeiconsIcon icon={TagIcon} size={12} />
-                Tags
-              </h4>
-              <div className="flex flex-wrap gap-1.5">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-1.5 font-medium text-muted-foreground text-xs uppercase tracking-wider">
+                  <HugeiconsIcon icon={TagIcon} size={12} />
+                  Tags
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-wrap gap-1.5">
                 {Object.entries(job.tags).map(([key, val]) => (
                   <Badge key={key} variant="secondary">
                     {key}: {String(val)}
                   </Badge>
                 ))}
-              </div>
-            </div>
+              </CardContent>
+            </Card>
           )}
         </TabsContent>
       </Tabs>

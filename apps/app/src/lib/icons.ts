@@ -43,7 +43,6 @@ import {
   Key01Icon,
   Layers01Icon,
   Link01Icon,
-  Loading03Icon,
   Logout05Icon,
   Mail01Icon,
   Moon02Icon,
@@ -133,6 +132,5 @@ export const AlarmClockIcon = _AlarmClockIcon;
 export const AlertCircleIcon = _AlertCircleIcon;
 export const LinkSquareIcon = _LinkSquare01Icon;
 export const SparklesIcon = _SparklesIcon;
-export const LoadingIcon = Loading03Icon;
 export const UnfoldMoreIcon = _UnfoldMoreIcon;
 export const UsersAltIcon = UserMultipleIcon;

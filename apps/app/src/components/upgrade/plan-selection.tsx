@@ -7,8 +7,18 @@ import {
 } from "@strait/ui/components/accordion";
 import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
+import { Card, CardContent } from "@strait/ui/components/card";
+import { NoticeBanner } from "@strait/ui/components/notice-banner";
+import { Separator } from "@strait/ui/components/separator";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@strait/ui/components/table";
 import { Tabs, TabsList, TabsTrigger } from "@strait/ui/components/tabs";
-import { cn } from "@strait/ui/utils";
 import { useCallback } from "react";
 import PricingCalculator from "@/components/upgrade/pricing-calculator";
 import { useAnalytics } from "@/hooks/analytics/use-analytics";
@@ -99,32 +109,32 @@ const PricingCardBadges = ({
     if (isCurrentPlan) {
       return (
         <Badge
-          className="absolute -top-2 left-2 flex items-center gap-1 shadow-sm"
+          className="absolute -top-2 left-2"
+          iconLeft={CheckIcon}
           variant="success-light"
         >
-          <HugeiconsIcon className="size-3" icon={CheckIcon} />
-          <span className="font-normal text-xs">Current plan</span>
+          Current plan
         </Badge>
       );
     }
     if (plan.badge) {
       return (
         <Badge
-          className="absolute -top-2 left-2 flex items-center gap-1 shadow-sm"
+          className="absolute -top-2 left-2"
           variant={plan.badgeVariant ?? "info-light"}
         >
-          <span className="font-normal text-xs">{plan.badge}</span>
+          {plan.badge}
         </Badge>
       );
     }
     if (plan.highlight) {
       return (
         <Badge
-          className="absolute -top-2 left-2 flex items-center gap-1 shadow-sm"
+          className="absolute -top-2 left-2"
+          iconLeft={StarIcon}
           variant="info-light"
         >
-          <HugeiconsIcon className="size-3" icon={StarIcon} />
-          <span className="font-normal text-xs">Most Popular</span>
+          Most Popular
         </Badge>
       );
     }
@@ -137,19 +147,17 @@ const PricingCardBadges = ({
       plan.prices.monthly > 0 &&
       plan.prices.yearly > 0 ? (
         <Badge
-          className="absolute -top-2 right-2 flex items-center gap-1 shadow-sm"
+          className="absolute -top-2 right-2"
+          iconLeft={CheckIcon}
           variant="success-light"
         >
-          <HugeiconsIcon className="size-3" icon={CheckIcon} />
-          <span className="font-normal text-xs">
-            Save{" "}
-            {Math.round(
-              ((plan.prices.monthly * MONTHS_IN_A_YEAR - plan.prices.yearly) /
-                (plan.prices.monthly * MONTHS_IN_A_YEAR)) *
-                PERCENTAGE_MULTIPLIER
-            )}
-            %
-          </span>
+          Save{" "}
+          {Math.round(
+            ((plan.prices.monthly * MONTHS_IN_A_YEAR - plan.prices.yearly) /
+              (plan.prices.monthly * MONTHS_IN_A_YEAR)) *
+              PERCENTAGE_MULTIPLIER
+          )}
+          %
         </Badge>
       ) : null}
       {renderLeftBadge()}
@@ -161,16 +169,16 @@ const PricingCardFeatures = ({ plan }: { plan: PricingPlan }) => (
   <div className="mt-4 grow space-y-2">
     {plan.features.slice(0, 8).map((feature: PricingFeature) => (
       <div className="flex items-start gap-2" key={feature.name}>
-        <div className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded text-foreground">
+        <div className="mt-0.5 flex size-4 shrink-0 items-center justify-center text-foreground">
           <HugeiconsIcon className="size-3" icon={CheckIcon} />
         </div>
-        <span className="text-muted-foreground/80 text-xs">
+        <span className="text-muted-foreground text-xs">
           {feature.description ? feature.description : feature.name}
         </span>
       </div>
     ))}
     {plan.features.length > 8 && (
-      <div className="pt-1 text-center text-muted-foreground/60 text-xs">
+      <div className="pt-1 text-center text-muted-foreground text-xs">
         +{plan.features.length - 8} more features
       </div>
     )}
@@ -241,21 +249,29 @@ const PricingCard = ({
     [isLoading, isCurrentPlan, onSelect, plan.slug]
   );
 
+  const handleCardKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key !== "Enter" && e.key !== " ") {
+        return;
+      }
+      e.preventDefault();
+      if (!(isLoading || isCurrentPlan)) {
+        onSelect(plan.slug);
+      }
+    },
+    [isLoading, isCurrentPlan, onSelect, plan.slug]
+  );
+
   return (
-    <button
-      className={cn(
-        "group relative w-full text-left",
-        "rounded",
-        "bg-card",
-        "border-2",
-        isSelected
-          ? "border-foreground shadow-lg ring-2 ring-foreground/20"
-          : "border-border hover:border-foreground/30",
-        !!plan.highlight && !isSelected && "border-foreground/20"
-      )}
-      disabled={isLoading || isCurrentPlan}
+    <Card
+      aria-disabled={isLoading || isCurrentPlan}
+      aria-pressed={isSelected}
+      className="relative h-full cursor-pointer"
       onClick={handleCardClick}
-      type="button"
+      onKeyDown={handleCardKeyDown}
+      role="button"
+      tabIndex={isLoading || isCurrentPlan ? -1 : 0}
+      variant={isSelected ? "outline" : "default"}
     >
       <PricingCardBadges
         billingInterval={billingInterval}
@@ -263,26 +279,17 @@ const PricingCard = ({
         plan={plan}
       />
 
-      <div className="flex h-full flex-col p-4">
+      <CardContent className="flex h-full flex-col">
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wider">
               {plan.name}
             </h4>
-            {isFreePlan || isEnterprise ? null : (
-              <div
-                className={cn(
-                  "flex size-4 items-center justify-center rounded-full border-2 transition-colors",
-                  isSelected
-                    ? "border-foreground bg-foreground text-background"
-                    : "border-muted-foreground/30"
-                )}
-              >
-                {isSelected ? (
-                  <HugeiconsIcon className="size-2.5" icon={CheckIcon} />
-                ) : null}
-              </div>
-            )}
+            {isSelected && !isFreePlan && !isEnterprise ? (
+              <Badge size="xs" variant="success-light">
+                Selected
+              </Badge>
+            ) : null}
           </div>
           <div className="flex items-baseline gap-1">
             {plan.isCustomPricing ? (
@@ -303,16 +310,15 @@ const PricingCard = ({
           {billingInterval === "yearly" &&
             plan.prices.yearly > 0 &&
             !plan.isCustomPricing && (
-              <div className="-mt-1 text-muted-foreground/80 text-xs">
+              <div className="-mt-1 text-muted-foreground text-xs">
                 <span className="tabular-nums">
                   {formatCurrency(plan.prices.yearly / CENTS_TO_DOLLARS)} billed
                   annually
                 </span>
               </div>
             )}
-          <p className="border-border border-b pb-3 text-muted-foreground text-xs">
-            {plan.description}
-          </p>
+          <p className="text-muted-foreground text-xs">{plan.description}</p>
+          <Separator />
         </div>
 
         <PricingCardFeatures plan={plan} />
@@ -343,13 +349,13 @@ const PricingCard = ({
           {getCardButtonText()}
         </Button>
         {isEnterprise && currentPlanSlug === "scale" ? (
-          <p className="mt-2 text-center text-[11px] text-muted-foreground/70">
+          <p className="mt-2 text-center text-muted-foreground text-xs">
             Your Scale subscription will be credited toward your Enterprise
             contract.
           </p>
         ) : null}
-      </div>
-    </button>
+      </CardContent>
+    </Card>
   );
 };
 
@@ -439,14 +445,15 @@ export const PlanSelection = ({
       <PricingCalculator />
 
       {/* No surprise bills callout */}
-      <div className="mx-auto max-w-xl rounded border border-border bg-muted/30 p-4 text-center">
-        <p className="font-medium text-foreground text-sm">No surprise bills</p>
-        <p className="mt-1 text-muted-foreground text-xs">
-          Set a spending limit on any paid plan. When you reach it, runs stop —
-          you are never charged more than you expect. Free plan users are always
-          hard-capped.
-        </p>
-      </div>
+      <NoticeBanner
+        className="mx-auto max-w-xl"
+        title="No surprise bills"
+        variant="info"
+      >
+        Set a spending limit on any paid plan. When you reach it, runs stop, you
+        are never charged more than you expect. Free plan users are always
+        hard-capped.
+      </NoticeBanner>
 
       {/* Compare link */}
       <div className="text-center">
@@ -470,11 +477,13 @@ export const PlanSelection = ({
 const FeatureCellValue = ({ value }: { value: string }) => {
   if (value === "Yes") {
     return (
-      <HugeiconsIcon className="mx-auto size-4 text-success" icon={CheckIcon} />
+      <Badge iconLeft={CheckIcon} size="xs" variant="success-light">
+        Yes
+      </Badge>
     );
   }
   if (value === "-") {
-    return <span className="text-muted-foreground/50">-</span>;
+    return <span className="text-muted-foreground">-</span>;
   }
   return <>{value}</>;
 };
@@ -506,36 +515,32 @@ const FeatureComparisonMatrix = ({
       <h3 className="mb-6 text-balance text-center font-medium text-sm">
         Full feature comparison
       </h3>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b">
-              <th className="py-3 pr-4 text-left font-medium text-muted-foreground">
-                Feature
-              </th>
-              {tiers.map((tier) => (
-                <th className="px-4 py-3 text-center font-medium" key={tier}>
-                  {tierLabels[tier]}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {features.map((feature) => (
-              <tr className="border-border/50 border-b" key={feature.name}>
-                <td className="py-3 pr-4 text-muted-foreground">
-                  {feature.name}
-                </td>
-                {tiers.map((tier) => (
-                  <td className="px-4 py-3 text-center" key={tier}>
-                    <FeatureCellValue value={feature[tier]} />
-                  </td>
-                ))}
-              </tr>
+      <Table size="lg">
+        <TableHeader>
+          <TableRow>
+            <TableHead scope="col">Feature</TableHead>
+            {tiers.map((tier) => (
+              <TableHead className="text-center" key={tier} scope="col">
+                {tierLabels[tier]}
+              </TableHead>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {features.map((feature) => (
+            <TableRow key={feature.name}>
+              <TableCell className="text-muted-foreground">
+                {feature.name}
+              </TableCell>
+              {tiers.map((tier) => (
+                <TableCell className="text-center" key={tier}>
+                  <FeatureCellValue value={feature[tier]} />
+                </TableCell>
+              ))}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     </div>
   );
 };

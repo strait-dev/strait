@@ -21,6 +21,7 @@ import {
 } from "@strait/ui/components/card";
 import { Field, FieldLabel } from "@strait/ui/components/field";
 import { Input } from "@strait/ui/components/input";
+import { Spinner } from "@strait/ui/components/spinner";
 import { toast } from "@strait/ui/components/toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useRouter } from "@tanstack/react-router";
@@ -34,7 +35,7 @@ import {
   useResendOrganizationDeletionCode,
   useVerifyOrganizationDeletion,
 } from "@/hooks/auth/use-organization";
-import { AlertIcon, LoadingIcon, RefreshIcon, TrashIcon } from "@/lib/icons";
+import { AlertIcon, RefreshIcon, TrashIcon } from "@/lib/icons";
 
 type Props = {
   organizationId: string;
@@ -241,7 +242,7 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
                       Cancel
                     </AlertDialogCancel>
                     <AlertDialogAction
-                      className="w-fit bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      className="w-fit"
                       disabled={
                         confirmName !== organizationName ||
                         requestDeletion.isPending
@@ -250,12 +251,10 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
                         e.preventDefault();
                         handleRequestDeletion();
                       }}
+                      variant="destructive-solid"
                     >
                       {requestDeletion.isPending ? (
-                        <HugeiconsIcon
-                          className="size-4 animate-spin"
-                          icon={LoadingIcon}
-                        />
+                        <Spinner />
                       ) : (
                         <HugeiconsIcon className="size-4" icon={TrashIcon} />
                       )}
@@ -285,9 +284,10 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
                     />
                   </Field>
                   <Button
-                    className="mt-2 h-auto gap-1 p-0 text-muted-foreground text-xs hover:text-foreground"
+                    className="mt-2"
                     disabled={resendCooldown > 0 || resendCode.isPending}
                     onClick={handleResendCode}
+                    size="xs"
                     variant="link"
                   >
                     <HugeiconsIcon icon={RefreshIcon} size={12} />
@@ -302,7 +302,7 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
                       Cancel
                     </AlertDialogCancel>
                     <AlertDialogAction
-                      className="w-fit bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      className="w-fit"
                       disabled={
                         verificationCode.length < 6 ||
                         verifyDeletion.isPending ||
@@ -313,12 +313,10 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
                         e.preventDefault();
                         handleVerifyAndDelete();
                       }}
+                      variant="destructive-solid"
                     >
                       {isPending ? (
-                        <HugeiconsIcon
-                          className="size-4 animate-spin"
-                          icon={LoadingIcon}
-                        />
+                        <Spinner />
                       ) : (
                         <HugeiconsIcon className="size-4" icon={TrashIcon} />
                       )}
@@ -337,10 +335,7 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <div className="flex items-center justify-center py-6">
-                  <HugeiconsIcon
-                    className="size-6 animate-spin"
-                    icon={LoadingIcon}
-                  />
+                  <Spinner size="lg" />
                 </div>
               </>
             )}

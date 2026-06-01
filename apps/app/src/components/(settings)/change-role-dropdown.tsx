@@ -10,16 +10,18 @@ import {
   AlertDialogTitle,
 } from "@strait/ui/components/alert-dialog";
 import { Badge } from "@strait/ui/components/badge";
+import { Button } from "@strait/ui/components/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@strait/ui/components/dropdown-menu";
+import { Spinner } from "@strait/ui/components/spinner";
 import { toast } from "@strait/ui/components/toast";
 import { useState } from "react";
 import { useUpdateMemberRole } from "@/hooks/auth/use-member";
-import { CheckIcon, LoadingIcon } from "@/lib/icons";
+import { CheckIcon } from "@/lib/icons";
 
 type MemberRole = "owner" | "admin" | "member";
 
@@ -103,22 +105,10 @@ const ChangeRoleDropdown = ({
       <DropdownMenu>
         <DropdownMenuTrigger
           disabled={isUpdating}
-          render={
-            <button
-              className="inline-flex cursor-pointer items-center gap-1"
-              type="button"
-            />
-          }
+          render={<Button size="xs" variant="ghost" />}
         >
           <Badge variant={roleBadgeVariant(currentRole)}>
-            {isUpdating ? (
-              <HugeiconsIcon
-                className="size-3 animate-spin"
-                icon={LoadingIcon}
-              />
-            ) : (
-              currentRole
-            )}
+            {isUpdating ? <Spinner size="xs" /> : currentRole}
           </Badge>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start">
@@ -153,12 +143,7 @@ const ChangeRoleDropdown = ({
               disabled={isUpdating}
               onClick={handleConfirmOwnerTransfer}
             >
-              {isUpdating ? (
-                <HugeiconsIcon
-                  className="size-3 animate-spin"
-                  icon={LoadingIcon}
-                />
-              ) : null}
+              {isUpdating ? <Spinner size="xs" /> : null}
               Transfer Ownership
             </AlertDialogAction>
           </AlertDialogFooter>

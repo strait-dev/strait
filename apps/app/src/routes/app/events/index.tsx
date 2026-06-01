@@ -1,6 +1,18 @@
+import { HugeiconsIcon } from "@hugeicons/react";
+import { ActivityFeed } from "@strait/ui/components/activity-feed";
 import { Button } from "@strait/ui/components/button";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@strait/ui/components/empty";
 import { Shell } from "@strait/ui/components/shell";
-import { cn } from "@strait/ui/utils";
+import {
+  formatStatusLabel,
+  StatusBadge,
+} from "@strait/ui/components/status-badge";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { zodValidator } from "@tanstack/zod-adapter";
@@ -8,12 +20,12 @@ import { z } from "zod/v4";
 import ErrorComponent from "@/components/common/error-component";
 import NoProjectState from "@/components/common/no-project-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
-import EventRow from "@/components/events/event-row";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { EventTrigger, PaginatedResponse } from "@/hooks/api/types";
 import { eventsQueryOptions } from "@/hooks/api/use-events";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
-import { EVENT_STATUS_STYLES, EVENT_STATUSES } from "@/lib/status";
+import { ActivityIcon } from "@/lib/icons";
+import { EVENT_STATUSES } from "@/lib/status";
 import type { AppRouteContext } from "@/routes/app/layout";
 
 export const searchSchema = z.object({
@@ -99,7 +111,6 @@ function EventsPage() {
           All
         </Button>
         {EVENT_STATUSES.map((status) => {
-          const style = EVENT_STATUS_STYLES[status];
           const active = search.status === status;
           return (
             <Button
@@ -115,13 +126,8 @@ function EventsPage() {
               }
               variant={active ? "secondary" : "ghost"}
             >
-              <span
-                className={cn(
-                  "mr-1.5 inline-block size-2 rounded-full",
-                  style.dot
-                )}
-              />
-              {style.label}
+              <StatusBadge dotOnly size="xs" status={status} />
+              {formatStatusLabel(status)}
             </Button>
           );
         })}
@@ -129,18 +135,32 @@ function EventsPage() {
 
       {/* Timeline */}
       {events.length === 0 ? (
-        <div className="py-12 text-center text-muted-foreground">
-          No events found.
-        </div>
+        <Empty className="h-[300px]">
+          <EmptyHeader>
+            <EmptyMedia media="icon" size="lg">
+              <HugeiconsIcon
+                className="size-6 text-foreground"
+                icon={ActivityIcon}
+              />
+            </EmptyMedia>
+            <EmptyTitle>No events found</EmptyTitle>
+            <EmptyDescription>
+              Events will appear here after triggers are received for this
+              project.
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       ) : (
-        <div className="relative space-y-0">
-          {/* Vertical line */}
-          <div className="absolute top-0 bottom-0 left-[11px] w-px bg-border" />
-
-          {events.map((event) => (
-            <EventRow event={event} key={event.id} />
-          ))}
-        </div>
+        <ActivityFeed
+          height="auto"
+          items={events.map((event) => ({
+            id: event.id,
+            status: event.status,
+            title: event.event_key,
+            timestamp: event.requested_at,
+            description: `${event.trigger_type} | ${event.source_type}`,
+          }))}
+        />
       )}
 
       {/* Pagination controls */}

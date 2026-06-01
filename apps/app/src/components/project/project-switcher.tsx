@@ -93,7 +93,7 @@ const ProjectSwitcher = ({ user }: Props) => {
           onClick={() => setCreateOpen(true)}
         >
           <HugeiconsIcon
-            className="text-muted-foreground/65"
+            className="text-muted-foreground"
             icon={PlusIcon}
             size={18}
           />
@@ -116,7 +116,7 @@ const ProjectSwitcher = ({ user }: Props) => {
       <DropdownMenu onOpenChange={setDropdownOpen} open={dropdownOpen}>
         <DropdownMenuTrigger render={<SidebarMenuButton className="w-full" />}>
           <HugeiconsIcon
-            className="text-muted-foreground/65"
+            className="text-muted-foreground"
             icon={BriefcaseIcon}
             size={18}
           />

@@ -1,3 +1,4 @@
+import { Card, CardContent, CardHeader } from "@strait/ui/components/card";
 import { Shell } from "@strait/ui/components/shell";
 import { Skeleton } from "@strait/ui/components/skeleton";
 
@@ -14,26 +15,28 @@ const DetailPageSkeleton = () => (
     </div>
     <div className="grid gap-4 md:grid-cols-4">
       {METRIC_KEYS.map((key) => (
-        <div className="rounded-lg border p-4" key={key}>
-          <Skeleton className="mb-2 h-4 w-20" />
-          <Skeleton className="h-6 w-16" />
-        </div>
+        <Card key={key}>
+          <CardContent>
+            <Skeleton className="mb-2 h-4 w-20" />
+            <Skeleton className="h-6 w-16" />
+          </CardContent>
+        </Card>
       ))}
     </div>
-    <div className="rounded-lg border">
-      <div className="border-b p-4">
+    <Card>
+      <CardHeader>
         <div className="flex gap-4">
           {TAB_KEYS.map((key) => (
             <Skeleton className="h-8 w-24" key={key} />
           ))}
         </div>
-      </div>
-      <div className="space-y-3 p-4">
+      </CardHeader>
+      <CardContent className="space-y-3">
         {ROW_KEYS.map((key) => (
           <Skeleton className="h-4 w-full" key={key} />
         ))}
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   </Shell>
 );
 

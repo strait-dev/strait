@@ -1,5 +1,28 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@strait/ui/components/accordion";
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@strait/ui/components/alert";
 import { Button } from "@strait/ui/components/button";
+import { CodeBlock } from "@strait/ui/components/code-block";
+import {
+  DescriptionDetails,
+  DescriptionList,
+  DescriptionTerm,
+} from "@strait/ui/components/description-list";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@strait/ui/components/empty";
 import {
   Sheet,
   SheetContent,
@@ -8,10 +31,9 @@ import {
   SheetTitle,
 } from "@strait/ui/components/sheet";
 import { StatusBadge } from "@strait/ui/components/status-badge";
-import { cn } from "@strait/ui/utils";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { Fragment } from "react";
 import type {
   DisplayStatus,
   JobRun,
@@ -26,7 +48,6 @@ import {
 import {
   AlertIcon,
   BriefcaseIcon,
-  ChevronDownIcon,
   ClockIcon,
   RefreshIcon,
   XCircleIcon,
@@ -36,34 +57,6 @@ type RunDetailSheetProps = {
   run: JobRun | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-};
-
-const CollapsibleSection = ({
-  title,
-  children,
-  defaultOpen = false,
-}: {
-  title: string;
-  children: React.ReactNode;
-  defaultOpen?: boolean;
-}) => {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <div className="rounded-md border">
-      <button
-        className="flex w-full items-center justify-between px-3 py-2 font-medium text-sm hover:bg-muted/50"
-        onClick={() => setOpen((o) => !o)}
-        type="button"
-      >
-        {title}
-        <HugeiconsIcon
-          className={cn("size-3.5 transition-transform", open && "rotate-180")}
-          icon={ChevronDownIcon}
-        />
-      </button>
-      {open && <div className="border-t px-3 py-2">{children}</div>}
-    </div>
-  );
 };
 
 function formatDuration(start: string | null, end: string | null): string {
@@ -123,29 +116,23 @@ const RunDetailSheet = ({ run, open, onOpenChange }: RunDetailSheetProps) => {
           </div>
 
           {/* Job Link */}
-          <div className="flex items-center gap-2 text-sm">
-            <HugeiconsIcon
-              className="size-3.5 text-muted-foreground"
-              icon={BriefcaseIcon}
-            />
-            <span className="text-muted-foreground">Job</span>
-            <span className="ml-auto font-mono text-sm">{run.job_id}</span>
-          </div>
+          <DescriptionList orientation="horizontal" size="sm">
+            <DescriptionTerm>
+              <HugeiconsIcon className="size-3.5" icon={BriefcaseIcon} />
+              Job
+            </DescriptionTerm>
+            <DescriptionDetails className="font-mono">
+              {run.job_id}
+            </DescriptionDetails>
+          </DescriptionList>
 
           {/* Error Alert */}
           {isFailed && run.error && (
-            <div className="flex gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3">
-              <HugeiconsIcon
-                className="mt-0.5 size-4 shrink-0 text-destructive"
-                icon={AlertIcon}
-              />
-              <div>
-                <p className="font-medium text-destructive text-sm">Error</p>
-                <p className="mt-0.5 text-muted-foreground text-sm">
-                  {String(run.error)}
-                </p>
-              </div>
-            </div>
+            <Alert variant="destructive">
+              <HugeiconsIcon className="size-4" icon={AlertIcon} />
+              <AlertTitle>Error</AlertTitle>
+              <AlertDescription>{String(run.error)}</AlertDescription>
+            </Alert>
           )}
 
           {/* Execution Details */}
@@ -153,40 +140,34 @@ const RunDetailSheet = ({ run, open, onOpenChange }: RunDetailSheetProps) => {
             <h4 className="mb-3 font-medium text-muted-foreground text-xs uppercase">
               Execution Details
             </h4>
-            <div className="space-y-2.5">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Attempt</span>
-                <span className="font-mono text-sm">{run.attempt}</span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Triggered by</span>
-                <span className="font-mono text-sm">{run.triggered_by}</span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="flex items-center gap-1.5 text-muted-foreground">
-                  <HugeiconsIcon className="size-3" icon={ClockIcon} />
-                  Duration
-                </span>
-                <span className="font-mono text-sm">
-                  {formatDuration(
-                    run.started_at ?? null,
-                    run.finished_at ?? null
-                  )}
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Started</span>
-                <span className="font-mono text-sm">
-                  {run.started_at ?? "-"}
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Finished</span>
-                <span className="font-mono text-sm">
-                  {run.finished_at ?? "-"}
-                </span>
-              </div>
-            </div>
+            <DescriptionList orientation="horizontal" size="sm">
+              <DescriptionTerm>Attempt</DescriptionTerm>
+              <DescriptionDetails className="font-mono">
+                {run.attempt}
+              </DescriptionDetails>
+              <DescriptionTerm>Triggered by</DescriptionTerm>
+              <DescriptionDetails className="font-mono">
+                {run.triggered_by}
+              </DescriptionDetails>
+              <DescriptionTerm>
+                <HugeiconsIcon className="size-3" icon={ClockIcon} />
+                Duration
+              </DescriptionTerm>
+              <DescriptionDetails className="font-mono">
+                {formatDuration(
+                  run.started_at ?? null,
+                  run.finished_at ?? null
+                )}
+              </DescriptionDetails>
+              <DescriptionTerm>Started</DescriptionTerm>
+              <DescriptionDetails className="font-mono">
+                {run.started_at ?? "-"}
+              </DescriptionDetails>
+              <DescriptionTerm>Finished</DescriptionTerm>
+              <DescriptionDetails className="font-mono">
+                {run.finished_at ?? "-"}
+              </DescriptionDetails>
+            </DescriptionList>
           </div>
 
           {/* Execution Trace */}
@@ -195,7 +176,7 @@ const RunDetailSheet = ({ run, open, onOpenChange }: RunDetailSheetProps) => {
               <h4 className="mb-3 font-medium text-muted-foreground text-xs uppercase">
                 Execution Trace
               </h4>
-              <div className="space-y-1.5">
+              <DescriptionList orientation="horizontal" size="sm">
                 {(
                   [
                     ["Queue Wait", run.execution_trace.queue_wait_ms],
@@ -206,53 +187,77 @@ const RunDetailSheet = ({ run, open, onOpenChange }: RunDetailSheetProps) => {
                     ["Total", run.execution_trace.total_ms],
                   ] as const
                 ).map(([label, ms]) => (
-                  <div
-                    className="flex items-center justify-between text-xs"
-                    key={label}
-                  >
-                    <span className="text-muted-foreground">{label}</span>
-                    <span className="font-mono">{ms}ms</span>
-                  </div>
+                  <Fragment key={label}>
+                    <DescriptionTerm>{label}</DescriptionTerm>
+                    <DescriptionDetails className="font-mono">
+                      {ms}ms
+                    </DescriptionDetails>
+                  </Fragment>
                 ))}
-              </div>
+              </DescriptionList>
             </div>
           )}
 
-          {/* Logs */}
-          <CollapsibleSection defaultOpen title={`Logs (${events.length})`}>
-            {events.length === 0 ? (
-              <p className="text-muted-foreground text-xs">
-                No log events for this run yet.
-              </p>
-            ) : (
-              <pre className="max-h-[200px] overflow-auto whitespace-pre-wrap font-mono text-muted-foreground text-xs">
-                {events
-                  .map(
-                    (e) =>
-                      `[${new Date(e.created_at).toISOString()}] [${e.level?.toUpperCase() ?? "INFO"}] ${e.message}`
-                  )
-                  .join("\n")}
-              </pre>
+          <Accordion
+            defaultValue={["logs", "payload"]}
+            multiple
+            variant="outline"
+          >
+            <AccordionItem value="logs">
+              <AccordionTrigger>Logs ({events.length})</AccordionTrigger>
+              <AccordionContent>
+                {events.length === 0 ? (
+                  <Empty border={false} className="py-2">
+                    <EmptyHeader>
+                      <EmptyTitle>No log events</EmptyTitle>
+                      <EmptyDescription>
+                        Log events for this run will appear here.
+                      </EmptyDescription>
+                    </EmptyHeader>
+                  </Empty>
+                ) : (
+                  <CodeBlock
+                    code={events
+                      .map(
+                        (e) =>
+                          `[${new Date(e.created_at).toISOString()}] [${e.level?.toUpperCase() ?? "INFO"}] ${e.message}`
+                      )
+                      .join("\n")}
+                    maxHeight={200}
+                    wrap
+                  />
+                )}
+              </AccordionContent>
+            </AccordionItem>
+            <AccordionItem value="payload">
+              <AccordionTrigger>Payload</AccordionTrigger>
+              <AccordionContent>
+                <CodeBlock
+                  code={
+                    run.payload
+                      ? JSON.stringify(run.payload, null, 2)
+                      : "No payload"
+                  }
+                  language="json"
+                  maxHeight={200}
+                  wrap
+                />
+              </AccordionContent>
+            </AccordionItem>
+            {run.result != null && (
+              <AccordionItem value="result">
+                <AccordionTrigger>Result</AccordionTrigger>
+                <AccordionContent>
+                  <CodeBlock
+                    code={JSON.stringify(run.result, null, 2)}
+                    language="json"
+                    maxHeight={200}
+                    wrap
+                  />
+                </AccordionContent>
+              </AccordionItem>
             )}
-          </CollapsibleSection>
-
-          {/* Payload */}
-          <CollapsibleSection defaultOpen title="Payload">
-            <pre className="max-h-[200px] overflow-auto whitespace-pre-wrap text-muted-foreground text-xs">
-              {run.payload
-                ? JSON.stringify(run.payload, null, 2)
-                : "No payload"}
-            </pre>
-          </CollapsibleSection>
-
-          {/* Result */}
-          {run.result != null && (
-            <CollapsibleSection title="Result">
-              <pre className="max-h-[200px] overflow-auto whitespace-pre-wrap text-muted-foreground text-xs">
-                {JSON.stringify(run.result, null, 2)}
-              </pre>
-            </CollapsibleSection>
-          )}
+          </Accordion>
         </div>
         <SheetFooter>
           <Button

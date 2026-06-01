@@ -8,6 +8,15 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemTitle,
+} from "@strait/ui/components/item";
+import { Spinner } from "@strait/ui/components/spinner";
 import { toast } from "@strait/ui/components/toast";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -15,7 +24,7 @@ import {
   useRejectInvitation,
   userInvitationsQueryOptions,
 } from "@/hooks/auth/use-invitation";
-import { CheckIcon, LoadingIcon, MailIcon, TrashIcon } from "@/lib/icons";
+import { CheckIcon, MailIcon, TrashIcon } from "@/lib/icons";
 
 const PendingInvitations = () => {
   const { data: invitations, isLoading } = useQuery(
@@ -68,7 +77,7 @@ const PendingInvitations = () => {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="flex flex-col gap-3">
+        <ItemGroup>
           {invitations.map((invitation) => {
             const isAccepting =
               acceptInvitation.isPending &&
@@ -78,32 +87,24 @@ const PendingInvitations = () => {
               rejectInvitation.variables === invitation.id;
 
             return (
-              <div
-                className="flex flex-col gap-3 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between"
-                key={invitation.id}
-              >
-                <div className="flex flex-col gap-1">
-                  <p className="font-medium text-sm">
+              <Item key={invitation.id} variant="outline">
+                <ItemContent>
+                  <ItemTitle>
                     {invitation.organizationName ?? "Unknown organization"}
-                  </p>
-                  <div className="flex items-center gap-2">
+                  </ItemTitle>
+                  <ItemDescription className="flex items-center gap-2">
                     <Badge variant="outline">{invitation.role}</Badge>
-                    <span className="text-muted-foreground text-xs">
-                      Invited to {invitation.email}
-                    </span>
-                  </div>
-                </div>
-                <div className="flex w-full gap-2 sm:w-auto">
+                    Invited to {invitation.email}
+                  </ItemDescription>
+                </ItemContent>
+                <ItemActions className="w-full sm:w-auto">
                   <Button
                     disabled={isRejecting || isAccepting}
                     onClick={() => handleReject(invitation.id)}
                     variant="outline"
                   >
                     {isRejecting ? (
-                      <HugeiconsIcon
-                        className="size-3 animate-spin"
-                        icon={LoadingIcon}
-                      />
+                      <Spinner size="xs" />
                     ) : (
                       <HugeiconsIcon className="size-3" icon={TrashIcon} />
                     )}
@@ -114,20 +115,17 @@ const PendingInvitations = () => {
                     onClick={() => handleAccept(invitation.id)}
                   >
                     {isAccepting ? (
-                      <HugeiconsIcon
-                        className="size-3 animate-spin"
-                        icon={LoadingIcon}
-                      />
+                      <Spinner size="xs" />
                     ) : (
                       <HugeiconsIcon className="size-3" icon={CheckIcon} />
                     )}
                     Accept
                   </Button>
-                </div>
-              </div>
+                </ItemActions>
+              </Item>
             );
           })}
-        </div>
+        </ItemGroup>
       </CardContent>
     </Card>
   );

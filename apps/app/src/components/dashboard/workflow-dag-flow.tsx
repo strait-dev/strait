@@ -1,6 +1,8 @@
 import { Badge } from "@strait/ui/components/badge";
+import { Card, CardContent } from "@strait/ui/components/card";
+import { ChartEmptyState } from "@strait/ui/components/chart-empty-state";
 import { FeatureBadge } from "@strait/ui/components/feature-lock";
-import { cn } from "@strait/ui/utils";
+import { StatusBadge } from "@strait/ui/components/status-badge";
 import {
   Background,
   Controls,
@@ -16,6 +18,7 @@ import "@xyflow/react/dist/style.css";
 import { useEffect, useMemo } from "react";
 import type { StepRunStatus, WorkflowStepType } from "@/hooks/api/types";
 import { useCurrentPlan } from "@/hooks/billing/use-current-plan";
+import { WorkflowIcon } from "@/lib/icons";
 import {
   canUseFeature,
   getFeatureMinimumPlanLabel,
@@ -46,24 +49,6 @@ const TYPE_LABELS: Record<WorkflowStepType, string> = {
   sleep: "Sleep",
 };
 
-const TYPE_BORDER_COLORS: Record<WorkflowStepType, string> = {
-  job: "border-l-chart-1",
-  approval: "border-l-chart-3",
-  sub_workflow: "border-l-chart-2",
-  wait_for_event: "border-l-chart-5",
-  sleep: "border-l-chart-4",
-};
-
-const STATUS_DOT_COLORS: Record<StepRunStatus, string> = {
-  completed: "bg-success",
-  running: "bg-info animate-pulse",
-  pending: "bg-muted-foreground",
-  waiting: "bg-warning",
-  failed: "bg-destructive",
-  skipped: "bg-muted-foreground",
-  canceled: "bg-muted-foreground",
-};
-
 const TYPE_BADGE_VARIANTS: Record<
   WorkflowStepType,
   "default" | "secondary" | "outline"
@@ -82,56 +67,40 @@ function renderFeatureBadge(currentPlan: string, feature: PlanFeature) {
 
   return (
     <FeatureBadge
-      className="ml-1.5 text-[10px]"
+      className="ml-1.5"
       plan={getFeatureMinimumPlanLabel(feature)}
       size="xs"
     />
   );
 }
 
-/** Custom node renderer for workflow steps */
 const WorkflowStepNode = ({ data }: { data: StepNodeData }) => {
   const currentPlan = useCurrentPlan();
-  const borderClass =
-    TYPE_BORDER_COLORS[data.stepType] ?? "border-l-muted-foreground";
-  const dotColor = STATUS_DOT_COLORS[data.status] ?? "bg-muted-foreground";
   const badgeVariant = TYPE_BADGE_VARIANTS[data.stepType] ?? "secondary";
 
   return (
     <>
-      <Handle
-        className="!bg-muted-foreground/50 !w-2 !h-2 !border-0"
-        position={Position.Top}
-        type="target"
-      />
-      <div
-        className={cn(
-          "min-w-[180px] rounded-lg border border-border border-l-[3px] bg-card px-4 py-3 shadow-sm",
-          "dark:border-border dark:bg-card",
-          borderClass
-        )}
-      >
-        <div className="mb-1.5 flex items-center gap-2">
-          <span className={cn("size-2 shrink-0 rounded-full", dotColor)} />
-          <span className="max-w-[150px] truncate font-medium text-card-foreground text-sm">
-            {data.label}
+      <Handle position={Position.Top} type="target" />
+      <Card className="min-w-[180px]" size="sm" variant="outline">
+        <CardContent>
+          <div className="mb-1.5 flex items-center gap-2">
+            <StatusBadge dotOnly size="xs" status={data.status} />
+            <span className="max-w-[150px] truncate font-medium text-card-foreground text-sm">
+              {data.label}
+            </span>
+          </div>
+          <span className="flex items-center">
+            <Badge size="xs" variant={badgeVariant}>
+              {TYPE_LABELS[data.stepType] ?? data.stepType}
+            </Badge>
+            {data.stepType === "approval" &&
+              renderFeatureBadge(currentPlan, "approval_gates")}
+            {data.stepType === "sub_workflow" &&
+              renderFeatureBadge(currentPlan, "sub_workflows")}
           </span>
-        </div>
-        <span className="flex items-center">
-          <Badge className="text-[10px]" size="xs" variant={badgeVariant}>
-            {TYPE_LABELS[data.stepType] ?? data.stepType}
-          </Badge>
-          {data.stepType === "approval" &&
-            renderFeatureBadge(currentPlan, "approval_gates")}
-          {data.stepType === "sub_workflow" &&
-            renderFeatureBadge(currentPlan, "sub_workflows")}
-        </span>
-      </div>
-      <Handle
-        className="!bg-muted-foreground/50 !w-2 !h-2 !border-0"
-        position={Position.Bottom}
-        type="source"
-      />
+        </CardContent>
+      </Card>
+      <Handle position={Position.Bottom} type="source" />
     </>
   );
 };
@@ -273,37 +242,37 @@ const WorkflowDAGFlow = ({ steps }: WorkflowDAGFlowProps) => {
 
   if (steps.length === 0) {
     return (
-      <div className="flex items-center justify-center p-8 text-muted-foreground text-sm">
-        No steps to display
-      </div>
+      <Card className="h-[400px] w-full" variant="outline">
+        <CardContent className="flex h-full items-center justify-center">
+          <ChartEmptyState
+            icon={WorkflowIcon}
+            message="Add workflow steps to display the execution graph."
+            title="No steps to display"
+          />
+        </CardContent>
+      </Card>
     );
   }
 
   return (
-    <div className="h-[400px] w-full rounded-lg">
-      <ReactFlow
-        edges={edges}
-        fitView
-        nodes={nodes}
-        nodesConnectable={false}
-        nodesDraggable={false}
-        nodeTypes={nodeTypes}
-        onEdgesChange={onEdgesChange}
-        onNodesChange={onNodesChange}
-        proOptions={{ hideAttribution: true }}
-      >
-        <Background
-          color="var(--color-muted-foreground)"
-          gap={20}
-          size={1}
-          style={{ opacity: 0.3 }}
-        />
-        <Controls
-          className="!bg-card !border-border !rounded-lg !shadow-sm [&>button]:!bg-card [&>button]:!border-border [&>button]:!text-foreground [&>button:hover]:!bg-muted"
-          showInteractive={false}
-        />
-      </ReactFlow>
-    </div>
+    <Card className="h-[400px] w-full overflow-hidden" variant="outline">
+      <CardContent className="h-full p-0">
+        <ReactFlow
+          edges={edges}
+          fitView
+          nodes={nodes}
+          nodesConnectable={false}
+          nodesDraggable={false}
+          nodeTypes={nodeTypes}
+          onEdgesChange={onEdgesChange}
+          onNodesChange={onNodesChange}
+          proOptions={{ hideAttribution: true }}
+        >
+          <Background color="var(--color-muted-foreground)" gap={20} size={1} />
+          <Controls showInteractive={false} />
+        </ReactFlow>
+      </CardContent>
+    </Card>
   );
 };
 

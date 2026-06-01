@@ -4,34 +4,25 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import type { ChartConfig } from "@strait/ui/components/chart";
 import { ChartEmptyState } from "@strait/ui/components/chart-empty-state";
+import { BarChart } from "@strait/ui/components/charts";
 import { useQuery } from "@tanstack/react-query";
-import { Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from "recharts";
 import { analyticsQueryOptions } from "@/hooks/api/use-dashboard";
 import { ClockIcon } from "@/lib/icons";
-import { CHART_COLORS } from "@/lib/status-colors";
-import ChartTooltip from "./chart-tooltip";
-import ResponsiveChartContainer from "./responsive-chart-container";
 
 const formatSeconds = (v: number) => `${v.toFixed(1)}s`;
 
-const LABEL_MAP = {
+const CHART_CONFIG = {
   avg: {
     label: "Average",
-    color: CHART_COLORS.active,
-    format: formatSeconds,
+    color: "chart-3",
   },
   p95: {
     label: "P95",
-    color: CHART_COLORS.warning,
-    format: formatSeconds,
+    color: "chart-4",
   },
-};
-
-const LEGEND_ITEMS = [
-  { label: "Average", color: CHART_COLORS.active },
-  { label: "P95", color: CHART_COLORS.warning },
-];
+} satisfies ChartConfig;
 
 const RunDurationTrendsChart = ({
   hasProject = true,
@@ -55,26 +46,10 @@ const RunDurationTrendsChart = ({
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
+      <CardHeader className="pb-2">
         <CardTitle className="font-medium text-sm">
           Run Duration by Job
         </CardTitle>
-        {!isEmpty && (
-          <div className="flex items-center gap-1">
-            {LEGEND_ITEMS.map((item) => (
-              <div
-                className="flex items-center gap-1.5 rounded-md px-2 py-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                key={item.label}
-              >
-                <span
-                  className="size-2 shrink-0 rounded-full"
-                  style={{ backgroundColor: item.color }}
-                />
-                <span>{item.label}</span>
-              </div>
-            ))}
-          </div>
-        )}
       </CardHeader>
       <CardContent>
         <div className="h-[240px]">
@@ -88,43 +63,13 @@ const RunDurationTrendsChart = ({
               }
             />
           ) : (
-            <ResponsiveChartContainer
-              height="100%"
-              minHeight={1}
-              minWidth={1}
-              width="100%"
-            >
-              <BarChart data={chartData}>
-                <CartesianGrid
-                  className="stroke-border"
-                  strokeDasharray="3 3"
-                />
-                <XAxis
-                  className="text-muted-foreground"
-                  dataKey="job"
-                  tick={{ fontSize: 14 }}
-                />
-                <YAxis
-                  className="text-muted-foreground"
-                  tick={{ fontSize: 14 }}
-                  unit="s"
-                />
-                <Tooltip
-                  content={<ChartTooltip labelMap={LABEL_MAP} />}
-                  cursor={{ fill: "var(--muted)" }}
-                />
-                <Bar
-                  dataKey="avg"
-                  fill={CHART_COLORS.active}
-                  radius={[2, 2, 0, 0]}
-                />
-                <Bar
-                  dataKey="p95"
-                  fill={CHART_COLORS.warning}
-                  radius={[2, 2, 0, 0]}
-                />
-              </BarChart>
-            </ResponsiveChartContainer>
+            <BarChart
+              config={CHART_CONFIG}
+              containerHeight={240}
+              data={chartData}
+              dataKey="job"
+              valueFormatter={formatSeconds}
+            />
           )}
         </div>
       </CardContent>

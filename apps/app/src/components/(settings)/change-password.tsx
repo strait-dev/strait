@@ -1,4 +1,3 @@
-import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import {
   Card,
@@ -10,12 +9,12 @@ import {
 } from "@strait/ui/components/card";
 import { Field, FieldError, FieldLabel } from "@strait/ui/components/field";
 import { PasswordInput } from "@strait/ui/components/password-input";
+import { Spinner } from "@strait/ui/components/spinner";
 import { toast } from "@strait/ui/components/toast";
 import { useForm } from "@tanstack/react-form";
 import { z } from "zod";
 import { authClient } from "@/lib/auth-client";
 import { formatFieldErrors } from "@/lib/form-errors";
-import { LoadingIcon } from "@/lib/icons";
 import { captureException } from "@/lib/sentry";
 
 const changePasswordSchema = z
@@ -183,12 +182,7 @@ const ChangePassword = () => {
             }
             type="submit"
           >
-            {form.state.isSubmitting ? (
-              <HugeiconsIcon
-                className="size-4 animate-spin"
-                icon={LoadingIcon}
-              />
-            ) : null}
+            {form.state.isSubmitting ? <Spinner /> : null}
             Change password
           </Button>
         </CardFooter>

@@ -24,6 +24,21 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@strait/ui/components/empty";
+import { Spinner } from "@strait/ui/components/spinner";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@strait/ui/components/table";
 import { toast } from "@strait/ui/components/toast";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -42,13 +57,7 @@ import {
   useRemoveMember,
 } from "@/hooks/auth/use-member";
 import { useOrganizationRole } from "@/hooks/auth/use-permissions";
-import {
-  LoadingIcon,
-  LogOutIcon,
-  MailIcon,
-  RefreshIcon,
-  TrashIcon,
-} from "@/lib/icons";
+import { LogOutIcon, MailIcon, RefreshIcon, TrashIcon } from "@/lib/icons";
 
 interface TeamMembersProps {
   currentUserId: string;
@@ -174,214 +183,183 @@ const TeamMembers = ({ organizationId, currentUserId }: TeamMembersProps) => {
         <CardContent>
           {membersLoading && (
             <div className="flex items-center gap-2 text-muted-foreground text-sm">
-              <HugeiconsIcon
-                className="size-4 animate-spin"
-                icon={LoadingIcon}
-              />
+              <Spinner />
               Loading members...
             </div>
           )}
           {!membersLoading && (!members || members.length === 0) && (
-            <p className="text-muted-foreground text-sm">No members found.</p>
+            <Empty border={false} className="py-4">
+              <EmptyHeader>
+                <EmptyTitle>No members found</EmptyTitle>
+                <EmptyDescription>
+                  Invite teammates to give them access to this organization.
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
           )}
           {!membersLoading && members && members.length > 0 && (
-            <div className="overflow-x-auto">
-              <div className="rounded-md border">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b bg-muted/50">
-                      <th
-                        className="px-4 py-2 text-left font-medium text-muted-foreground"
-                        scope="col"
-                      >
-                        Member
-                      </th>
-                      <th
-                        className="px-4 py-2 text-left font-medium text-muted-foreground"
-                        scope="col"
-                      >
-                        Role
-                      </th>
-                      <th
-                        className="hidden px-4 py-2 text-left font-medium text-muted-foreground sm:table-cell"
-                        scope="col"
-                      >
-                        Joined
-                      </th>
-                      <th
-                        className="px-4 py-2 text-right font-medium text-muted-foreground"
-                        scope="col"
-                      />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {members.map((member: MemberData) => {
-                      const isCurrentUser = member.userId === currentUserId;
-                      return (
-                        <tr
-                          className="border-b last:border-b-0"
-                          key={member.id}
-                        >
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-3">
-                              <Avatar className="size-8">
-                                {member.image && (
-                                  <AvatarImage
-                                    alt={member.name}
-                                    src={member.image}
-                                  />
-                                )}
-                                <AvatarFallback className="text-xs">
-                                  {getInitials(member.name)}
-                                </AvatarFallback>
-                              </Avatar>
-                              <div className="flex flex-col">
-                                <span className="font-medium">
-                                  {member.name}
-                                  {isCurrentUser && (
-                                    <span className="ml-1 text-muted-foreground text-xs">
-                                      (you)
-                                    </span>
-                                  )}
+            <Table size="lg" variant="bordered">
+              <TableHeader>
+                <TableRow>
+                  <TableHead scope="col">Member</TableHead>
+                  <TableHead scope="col">Role</TableHead>
+                  <TableHead className="hidden sm:table-cell" scope="col">
+                    Joined
+                  </TableHead>
+                  <TableHead className="text-right" scope="col" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {members.map((member: MemberData) => {
+                  const isCurrentUser = member.userId === currentUserId;
+                  return (
+                    <TableRow key={member.id}>
+                      <TableCell>
+                        <div className="flex items-center gap-3">
+                          <Avatar className="size-8">
+                            {member.image && (
+                              <AvatarImage
+                                alt={member.name}
+                                src={member.image}
+                              />
+                            )}
+                            <AvatarFallback className="text-xs">
+                              {getInitials(member.name)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="flex flex-col">
+                            <span className="font-medium">
+                              {member.name}
+                              {isCurrentUser && (
+                                <span className="ml-1 text-muted-foreground text-xs">
+                                  (you)
                                 </span>
-                                <span className="text-muted-foreground text-xs">
-                                  {member.email}
-                                </span>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-4 py-3">
-                            <ChangeRoleDropdown
-                              currentRole={member.role}
-                              disabled={
-                                !isOwner ||
-                                isCurrentUser ||
-                                member.role === "owner"
+                              )}
+                            </span>
+                            <span className="text-muted-foreground text-xs">
+                              {member.email}
+                            </span>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <ChangeRoleDropdown
+                          currentRole={member.role}
+                          disabled={
+                            !isOwner || isCurrentUser || member.role === "owner"
+                          }
+                          memberId={member.id}
+                          memberName={member.name}
+                          organizationId={organizationId}
+                        />
+                      </TableCell>
+                      <TableCell className="hidden text-muted-foreground sm:table-cell">
+                        {formatDate(member.createdAt)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {isCurrentUser && member.role !== "owner" && (
+                          <AlertDialog>
+                            <AlertDialogTrigger
+                              render={
+                                <Button
+                                  disabled={leaveOrganization.isPending}
+                                  variant="outline"
+                                />
                               }
-                              memberId={member.id}
-                              memberName={member.name}
-                              organizationId={organizationId}
-                            />
-                          </td>
-                          <td className="hidden px-4 py-3 text-muted-foreground sm:table-cell">
-                            {formatDate(member.createdAt)}
-                          </td>
-                          <td className="px-4 py-3 text-right">
-                            {isCurrentUser && member.role !== "owner" && (
-                              <AlertDialog>
-                                <AlertDialogTrigger
-                                  render={
-                                    <Button
-                                      disabled={leaveOrganization.isPending}
-                                      variant="outline"
-                                    />
+                            >
+                              {leaveOrganization.isPending ? (
+                                <Spinner size="xs" />
+                              ) : (
+                                <HugeiconsIcon
+                                  className="size-3"
+                                  icon={LogOutIcon}
+                                />
+                              )}
+                              Leave
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>
+                                  Leave Organization?
+                                </AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  You will lose access to this organization
+                                  immediately. You will need a new invitation to
+                                  rejoin.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() =>
+                                    handleLeaveOrganization(member.id)
                                   }
                                 >
-                                  {leaveOrganization.isPending ? (
-                                    <HugeiconsIcon
-                                      className="size-3 animate-spin"
-                                      icon={LoadingIcon}
-                                    />
-                                  ) : (
-                                    <HugeiconsIcon
-                                      className="size-3"
-                                      icon={LogOutIcon}
-                                    />
-                                  )}
-                                  Leave
-                                </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                  <AlertDialogHeader>
-                                    <AlertDialogTitle>
-                                      Leave Organization?
-                                    </AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                      You will lose access to this organization
-                                      immediately. You will need a new
-                                      invitation to rejoin.
-                                    </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                    <AlertDialogCancel>
-                                      Cancel
-                                    </AlertDialogCancel>
-                                    <AlertDialogAction
-                                      onClick={() =>
-                                        handleLeaveOrganization(member.id)
-                                      }
-                                    >
-                                      Leave Organization
-                                    </AlertDialogAction>
-                                  </AlertDialogFooter>
-                                </AlertDialogContent>
-                              </AlertDialog>
-                            )}
-                            {isAdmin &&
-                              !isCurrentUser &&
-                              member.role !== "owner" && (
-                                <AlertDialog>
-                                  <AlertDialogTrigger
-                                    render={
-                                      <Button
-                                        disabled={
-                                          removeMember.isPending &&
-                                          removeMember.variables
-                                            ?.memberIdOrEmail === member.id
-                                        }
-                                        variant="outline"
-                                      />
+                                  Leave Organization
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        )}
+                        {isAdmin &&
+                          !isCurrentUser &&
+                          member.role !== "owner" && (
+                            <AlertDialog>
+                              <AlertDialogTrigger
+                                render={
+                                  <Button
+                                    disabled={
+                                      removeMember.isPending &&
+                                      removeMember.variables
+                                        ?.memberIdOrEmail === member.id
                                     }
+                                    variant="outline"
+                                  />
+                                }
+                              >
+                                {removeMember.isPending &&
+                                removeMember.variables?.memberIdOrEmail ===
+                                  member.id ? (
+                                  <Spinner size="xs" />
+                                ) : (
+                                  <HugeiconsIcon
+                                    className="size-3"
+                                    icon={TrashIcon}
+                                  />
+                                )}
+                                Remove
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>
+                                    Remove {member.name}?
+                                  </AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    This will remove {member.name} from the
+                                    organization. They will lose access
+                                    immediately.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    onClick={() =>
+                                      handleRemoveMember(member.id)
+                                    }
+                                    variant="destructive"
                                   >
-                                    {removeMember.isPending &&
-                                    removeMember.variables?.memberIdOrEmail ===
-                                      member.id ? (
-                                      <HugeiconsIcon
-                                        className="size-3 animate-spin"
-                                        icon={LoadingIcon}
-                                      />
-                                    ) : (
-                                      <HugeiconsIcon
-                                        className="size-3"
-                                        icon={TrashIcon}
-                                      />
-                                    )}
                                     Remove
-                                  </AlertDialogTrigger>
-                                  <AlertDialogContent>
-                                    <AlertDialogHeader>
-                                      <AlertDialogTitle>
-                                        Remove {member.name}?
-                                      </AlertDialogTitle>
-                                      <AlertDialogDescription>
-                                        This will remove {member.name} from the
-                                        organization. They will lose access
-                                        immediately.
-                                      </AlertDialogDescription>
-                                    </AlertDialogHeader>
-                                    <AlertDialogFooter>
-                                      <AlertDialogCancel>
-                                        Cancel
-                                      </AlertDialogCancel>
-                                      <AlertDialogAction
-                                        onClick={() =>
-                                          handleRemoveMember(member.id)
-                                        }
-                                        variant="destructive"
-                                      >
-                                        Remove
-                                      </AlertDialogAction>
-                                    </AlertDialogFooter>
-                                  </AlertDialogContent>
-                                </AlertDialog>
-                              )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
           )}
         </CardContent>
       </Card>
@@ -397,153 +375,120 @@ const TeamMembers = ({ organizationId, currentUserId }: TeamMembersProps) => {
         <CardContent>
           {invitationsLoading && (
             <div className="flex items-center gap-2 text-muted-foreground text-sm">
-              <HugeiconsIcon
-                className="size-4 animate-spin"
-                icon={LoadingIcon}
-              />
+              <Spinner />
               Loading invitations...
             </div>
           )}
           {!invitationsLoading && pendingInvitations.length === 0 && (
-            <p className="text-muted-foreground text-sm">
-              No pending invitations.
-            </p>
+            <Empty border={false} className="py-4">
+              <EmptyHeader>
+                <EmptyTitle>No pending invitations</EmptyTitle>
+                <EmptyDescription>
+                  Sent invitations will appear here until they are accepted or
+                  canceled.
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
           )}
           {!invitationsLoading && pendingInvitations.length > 0 && (
-            <div className="overflow-x-auto">
-              <div className="rounded-md border">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b bg-muted/50">
-                      <th
-                        className="px-4 py-2 text-left font-medium text-muted-foreground"
-                        scope="col"
-                      >
-                        Email
-                      </th>
-                      <th
-                        className="px-4 py-2 text-left font-medium text-muted-foreground"
-                        scope="col"
-                      >
-                        Role
-                      </th>
-                      <th
-                        className="hidden px-4 py-2 text-left font-medium text-muted-foreground sm:table-cell"
-                        scope="col"
-                      >
-                        Status
-                      </th>
-                      <th
-                        className="hidden px-4 py-2 text-left font-medium text-muted-foreground sm:table-cell"
-                        scope="col"
-                      >
-                        Expires
-                      </th>
-                      <th
-                        className="px-4 py-2 text-right font-medium text-muted-foreground"
-                        scope="col"
-                      />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pendingInvitations.map((invitation: InvitationData) => {
-                      const isCancelling =
-                        cancelInvitation.isPending &&
-                        !!cancelInvitation.variables &&
-                        typeof cancelInvitation.variables === "object" &&
-                        "invitationId" in cancelInvitation.variables &&
-                        cancelInvitation.variables.invitationId ===
-                          invitation.id;
-                      const isExpired =
-                        new Date(invitation.expiresAt) < new Date();
+            <Table size="lg" variant="bordered">
+              <TableHeader>
+                <TableRow>
+                  <TableHead scope="col">Email</TableHead>
+                  <TableHead scope="col">Role</TableHead>
+                  <TableHead className="hidden sm:table-cell" scope="col">
+                    Status
+                  </TableHead>
+                  <TableHead className="hidden sm:table-cell" scope="col">
+                    Expires
+                  </TableHead>
+                  <TableHead className="text-right" scope="col" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {pendingInvitations.map((invitation: InvitationData) => {
+                  const isCancelling =
+                    cancelInvitation.isPending &&
+                    !!cancelInvitation.variables &&
+                    typeof cancelInvitation.variables === "object" &&
+                    "invitationId" in cancelInvitation.variables &&
+                    cancelInvitation.variables.invitationId === invitation.id;
+                  const isExpired = new Date(invitation.expiresAt) < new Date();
 
-                      return (
-                        <tr
-                          className="border-b last:border-b-0"
-                          key={invitation.id}
-                        >
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-2">
-                              <HugeiconsIcon
-                                className="size-4 text-muted-foreground"
-                                icon={MailIcon}
-                              />
-                              {invitation.email}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3">
-                            <Badge variant={roleBadgeVariant(invitation.role)}>
-                              {invitation.role}
-                            </Badge>
-                          </td>
-                          <td className="hidden px-4 py-3 sm:table-cell">
-                            <Badge
-                              variant={isExpired ? "destructive" : "outline"}
-                            >
-                              {isExpired ? "expired" : "pending"}
-                            </Badge>
-                          </td>
-                          <td className="hidden px-4 py-3 text-muted-foreground sm:table-cell">
-                            {formatDate(invitation.expiresAt)}
-                          </td>
-                          <td className="px-4 py-3 text-right">
-                            {isAdmin && (
-                              <div className="flex items-center justify-end gap-2">
-                                {isExpired && (
-                                  <Button
-                                    disabled={createInvitation.isPending}
-                                    onClick={() =>
-                                      handleResendInvitation(
-                                        invitation.email,
-                                        invitation.role
-                                      )
-                                    }
-                                    variant="outline"
-                                  >
-                                    {createInvitation.isPending ? (
-                                      <HugeiconsIcon
-                                        className="size-3 animate-spin"
-                                        icon={LoadingIcon}
-                                      />
-                                    ) : (
-                                      <HugeiconsIcon
-                                        className="size-3"
-                                        icon={RefreshIcon}
-                                      />
-                                    )}
-                                    Resend
-                                  </Button>
+                  return (
+                    <TableRow key={invitation.id}>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <HugeiconsIcon
+                            className="size-4 text-muted-foreground"
+                            icon={MailIcon}
+                          />
+                          {invitation.email}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={roleBadgeVariant(invitation.role)}>
+                          {invitation.role}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="hidden sm:table-cell">
+                        <Badge variant={isExpired ? "destructive" : "outline"}>
+                          {isExpired ? "expired" : "pending"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="hidden text-muted-foreground sm:table-cell">
+                        {formatDate(invitation.expiresAt)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {isAdmin && (
+                          <div className="flex items-center justify-end gap-2">
+                            {isExpired && (
+                              <Button
+                                disabled={createInvitation.isPending}
+                                onClick={() =>
+                                  handleResendInvitation(
+                                    invitation.email,
+                                    invitation.role
+                                  )
+                                }
+                                variant="outline"
+                              >
+                                {createInvitation.isPending ? (
+                                  <Spinner size="xs" />
+                                ) : (
+                                  <HugeiconsIcon
+                                    className="size-3"
+                                    icon={RefreshIcon}
+                                  />
                                 )}
-                                <Button
-                                  disabled={isCancelling}
-                                  onClick={() =>
-                                    handleCancelInvitation(invitation.id)
-                                  }
-                                  variant="outline"
-                                >
-                                  {isCancelling ? (
-                                    <HugeiconsIcon
-                                      className="size-3 animate-spin"
-                                      icon={LoadingIcon}
-                                    />
-                                  ) : (
-                                    <HugeiconsIcon
-                                      className="size-3"
-                                      icon={TrashIcon}
-                                    />
-                                  )}
-                                  Cancel
-                                </Button>
-                              </div>
+                                Resend
+                              </Button>
                             )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+                            <Button
+                              disabled={isCancelling}
+                              onClick={() =>
+                                handleCancelInvitation(invitation.id)
+                              }
+                              variant="outline"
+                            >
+                              {isCancelling ? (
+                                <Spinner size="xs" />
+                              ) : (
+                                <HugeiconsIcon
+                                  className="size-3"
+                                  icon={TrashIcon}
+                                />
+                              )}
+                              Cancel
+                            </Button>
+                          </div>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
           )}
         </CardContent>
       </Card>

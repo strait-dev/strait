@@ -23,6 +23,15 @@ import {
   EmptyTitle,
 } from "@strait/ui/components/empty";
 import { FeatureLock } from "@strait/ui/components/feature-lock";
+import { IdCell } from "@strait/ui/components/id-cell";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemGroup,
+  ItemTitle,
+} from "@strait/ui/components/item";
+import { MetricCard } from "@strait/ui/components/metric-card";
 import { Shell } from "@strait/ui/components/shell";
 import { StatusBadge } from "@strait/ui/components/status-badge";
 import {
@@ -92,9 +101,7 @@ const workflowRunColumns: ColumnDef<WorkflowRun>[] = [
   {
     accessorKey: "id",
     header: "Run ID",
-    cell: ({ row }) => (
-      <span className="font-mono text-xs">{row.original.id.slice(0, 8)}</span>
-    ),
+    cell: ({ row }) => <IdCell id={row.original.id} length={8} />,
   },
   {
     accessorKey: "status",
@@ -116,7 +123,9 @@ const workflowRunColumns: ColumnDef<WorkflowRun>[] = [
     accessorKey: "workflow_version",
     header: "Version",
     cell: ({ row }) => (
-      <code className="text-xs">v{row.original.workflow_version}</code>
+      <Badge mono size="xs" variant="secondary-light">
+        v{row.original.workflow_version}
+      </Badge>
     ),
   },
   {
@@ -275,45 +284,24 @@ function WorkflowDetailPage() {
         <TabsContent className="mt-6 space-y-6" value="overview">
           {/* Stats row */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <Card size="sm">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 font-normal text-muted-foreground text-sm">
-                  <HugeiconsIcon icon={CheckCircleIcon} size={14} />
-                  Success Rate
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="font-normal text-2xl tabular-nums">
-                  {successRate}%
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card size="sm">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 font-normal text-muted-foreground text-sm">
-                  <HugeiconsIcon icon={ActivityIcon} size={14} />
-                  Total Runs
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="font-normal text-2xl tabular-nums">{totalRuns}</p>
-              </CardContent>
-            </Card>
-
-            <Card size="sm">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 font-normal text-muted-foreground text-sm">
-                  <HugeiconsIcon icon={ClockIcon} size={14} />
-                  Avg Duration
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="font-normal text-2xl text-muted-foreground tabular-nums">
-                  --
-                </p>
-              </CardContent>
-            </Card>
+            <MetricCard
+              icon={CheckCircleIcon}
+              size="sm"
+              title="Success Rate"
+              value={`${successRate}%`}
+            />
+            <MetricCard
+              icon={ActivityIcon}
+              size="sm"
+              title="Total Runs"
+              value={totalRuns}
+            />
+            <MetricCard
+              icon={ClockIcon}
+              size="sm"
+              title="Avg Duration"
+              value="--"
+            />
           </div>
 
           {/* Recent activity timeline */}
@@ -327,31 +315,30 @@ function WorkflowDetailPage() {
                   No recent activity.
                 </p>
               ) : (
-                <div className="space-y-3">
+                <ItemGroup>
                   {recentRuns.map((run) => (
-                    <div
-                      className="-mx-2 flex items-center gap-3 rounded-md px-2 py-1 text-sm hover:bg-accent"
-                      key={run.id}
-                    >
+                    <Item key={run.id} size="xs" variant="ghost">
                       <StatusBadge
                         showDot
                         size="xs"
                         status={run.status as WorkflowRunStatus}
                       />
-                      <span className="font-mono text-muted-foreground text-xs">
-                        {run.id.slice(0, 8)}
-                      </span>
-                      <Badge className="capitalize" size="xs" variant="outline">
+                      <ItemContent>
+                        <ItemTitle className="font-mono">
+                          {run.id.slice(0, 8)}
+                        </ItemTitle>
+                      </ItemContent>
+                      <Badge size="xs" variant="outline">
                         {run.triggered_by}
                       </Badge>
-                      <span className="ml-auto text-muted-foreground text-xs">
+                      <ItemActions>
                         {formatDistanceToNow(new Date(run.created_at), {
                           addSuffix: true,
                         })}
-                      </span>
-                    </div>
+                      </ItemActions>
+                    </Item>
                   ))}
-                </div>
+                </ItemGroup>
               )}
             </CardContent>
           </Card>
@@ -389,7 +376,7 @@ function WorkflowDetailPage() {
             emptyMessage={
               <Empty className="h-[300px]">
                 <EmptyHeader>
-                  <EmptyMedia size="lg" variant="icon">
+                  <EmptyMedia media="icon" size="lg">
                     <HugeiconsIcon
                       className="size-6 text-foreground"
                       icon={ActivityIcon}
@@ -418,11 +405,13 @@ function WorkflowDetailPage() {
         {/* Settings Tab */}
         <TabsContent className="mt-6 space-y-6" value="settings">
           {/* Configuration */}
-          <div className="space-y-3 rounded-md border p-4">
-            <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wider">
-              Configuration
-            </h4>
-            <div className="space-y-2.5">
+          <Card>
+            <CardHeader>
+              <CardTitle className="font-medium text-muted-foreground text-xs uppercase tracking-wider">
+                Configuration
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2.5">
               <ConfigRow
                 icon={ClockIcon}
                 label="Timeout"
@@ -460,24 +449,26 @@ function WorkflowDetailPage() {
                 label="Version Policy"
                 value={workflow.version_policy}
               />
-            </div>
-          </div>
+            </CardContent>
+          </Card>
 
           {/* Tags */}
           {workflow.tags && Object.keys(workflow.tags).length > 0 && (
-            <div className="rounded-md border p-4">
-              <h4 className="mb-3 flex items-center gap-1.5 font-medium text-muted-foreground text-xs uppercase tracking-wider">
-                <HugeiconsIcon icon={TagIcon} size={12} />
-                Tags
-              </h4>
-              <div className="flex flex-wrap gap-1.5">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-1.5 font-medium text-muted-foreground text-xs uppercase tracking-wider">
+                  <HugeiconsIcon icon={TagIcon} size={12} />
+                  Tags
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-wrap gap-1.5">
                 {Object.entries(workflow.tags).map(([key, val]) => (
                   <Badge key={key} variant="secondary">
                     {key}: {val}
                   </Badge>
                 ))}
-              </div>
-            </div>
+              </CardContent>
+            </Card>
           )}
         </TabsContent>
       </Tabs>

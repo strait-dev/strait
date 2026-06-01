@@ -23,6 +23,19 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import { CodeBlock } from "@strait/ui/components/code-block";
+import { CopyButton } from "@strait/ui/components/copy-button";
+import {
+  DescriptionDetails,
+  DescriptionList,
+  DescriptionTerm,
+} from "@strait/ui/components/description-list";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@strait/ui/components/empty";
 import { ExecutionTraceBar } from "@strait/ui/components/execution-trace-bar";
 import { Shell } from "@strait/ui/components/shell";
 import { StatusBadge } from "@strait/ui/components/status-badge";
@@ -32,7 +45,19 @@ import {
   TabsList,
   TabsTrigger,
 } from "@strait/ui/components/tabs";
-import { cn } from "@strait/ui/utils";
+import {
+  Timeline,
+  TimelineDate,
+  TimelineHeader,
+  TimelineIndicator,
+  TimelineItem,
+  TimelineSeparator,
+  TimelineTitle,
+} from "@strait/ui/components/timeline";
+import {
+  ToggleGroup,
+  ToggleGroupItem,
+} from "@strait/ui/components/toggle-group";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
@@ -54,12 +79,7 @@ import {
   useRetryRun,
 } from "@/hooks/api/use-runs";
 import { formatDuration } from "@/lib/format";
-import {
-  AlertCircleIcon,
-  CopyIcon,
-  RefreshIcon,
-  XCircleIcon,
-} from "@/lib/icons";
+import { AlertCircleIcon, RefreshIcon, XCircleIcon } from "@/lib/icons";
 
 export const Route = createFileRoute("/app/runs/$id")({
   head: () => ({ meta: [{ title: "Run details · Strait" }] }),
@@ -107,14 +127,6 @@ const EXECUTION_TRACE_SEGMENTS: {
   { key: "transfer_ms", label: "Transfer", color: "var(--success)" },
 ];
 
-const LEVEL_COLOR: Record<string, string> = {
-  error: "text-destructive",
-  warn: "text-warning",
-  warning: "text-warning",
-  info: "text-info",
-  debug: "text-muted-foreground/70",
-};
-
 function RunDetailPage() {
   const { id } = Route.useParams();
   usePageEvent("run_detail_viewed", { run_id: id });
@@ -136,7 +148,6 @@ function RunDetailPage() {
   const events = eventsData?.data ?? [];
   const [activeTab, setActiveTab] = useState("logs");
   const [levelFilter, setLevelFilter] = useState<LevelFilter>("all");
-  const [copied, setCopied] = useState(false);
   const retryRun = useRetryRun();
   const cancelRun = useCancelRun();
 
@@ -159,16 +170,6 @@ function RunDetailPage() {
         .join("\n"),
     [filteredEvents]
   );
-
-  const handleCopyLogs = async () => {
-    try {
-      await navigator.clipboard.writeText(logText);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // Clipboard API unavailable; silently no-op.
-    }
-  };
 
   if (!run) {
     return (
@@ -197,11 +198,11 @@ function RunDetailPage() {
             <span className="font-mono underline underline-offset-2">
               {run.job_id}
             </span>
-            <span className="mx-2 text-muted-foreground/40">·</span>v
+            <span className="mx-2 text-muted-foreground">·</span>v
             {run.job_version}
-            <span className="mx-2 text-muted-foreground/40">·</span>
+            <span className="mx-2 text-muted-foreground">·</span>
             attempt {run.attempt}
-            <span className="mx-2 text-muted-foreground/40">·</span>
+            <span className="mx-2 text-muted-foreground">·</span>
             triggered by {run.triggered_by}
           </p>
         </div>
@@ -255,10 +256,7 @@ function RunDetailPage() {
 
       {/* Dominant error banner */}
       {isFailed && run.error && (
-        <Alert
-          className="mb-6 border-l-4 border-l-destructive"
-          variant="destructive"
-        >
+        <Alert className="mb-6" variant="destructive">
           <HugeiconsIcon icon={AlertCircleIcon} size={20} />
           <AlertTitle className="text-base">
             {run.error_class ?? "Run failed"}
@@ -295,7 +293,7 @@ function RunDetailPage() {
           <CardTitle>What happened</CardTitle>
         </CardHeader>
         <CardContent>
-          <Timeline run={run} />
+          <RunTimeline run={run} />
         </CardContent>
       </Card>
 
@@ -310,32 +308,31 @@ function RunDetailPage() {
 
           {activeTab === "logs" && events.length > 0 && (
             <div className="flex items-center gap-1">
-              <div className="flex items-center rounded-md border bg-card p-0.5">
+              <ToggleGroup
+                aria-label="Filter logs by level"
+                emphasis="outline"
+                onValueChange={(value) => {
+                  const next = value[0];
+                  if (next) {
+                    setLevelFilter(next as LevelFilter);
+                  }
+                }}
+                size="xs"
+                value={[levelFilter]}
+              >
                 {LEVEL_FILTERS.map((lvl) => (
-                  <button
-                    className={cn(
-                      "rounded-sm px-2 py-1 font-medium text-xs uppercase transition-colors",
-                      levelFilter === lvl
-                        ? "bg-accent text-foreground"
-                        : "text-muted-foreground hover:text-foreground"
-                    )}
+                  <ToggleGroupItem
+                    aria-label={`Show ${lvl} logs`}
                     key={lvl}
-                    onClick={() => setLevelFilter(lvl)}
-                    type="button"
+                    value={lvl}
                   >
                     {lvl === "all" ? "All" : lvl}
-                  </button>
+                  </ToggleGroupItem>
                 ))}
-              </div>
-              <Button
-                className="ml-2"
-                onClick={handleCopyLogs}
-                size="sm"
-                variant="outline"
-              >
-                <HugeiconsIcon className="mr-1.5" icon={CopyIcon} size={14} />
-                {copied ? "Copied" : "Copy"}
-              </Button>
+              </ToggleGroup>
+              <CopyButton className="ml-2" text={logText} variant="outline">
+                Copy
+              </CopyButton>
             </div>
           )}
         </div>
@@ -345,21 +342,32 @@ function RunDetailPage() {
             events={filteredEvents}
             isError={eventsError}
             isLoading={eventsLoading}
+            logText={logText}
           />
         </TabsContent>
 
         <TabsContent className="mt-6" value="payload">
-          <pre className="max-h-[500px] overflow-auto whitespace-pre-wrap break-all rounded-lg bg-muted p-3 font-mono text-xs leading-relaxed sm:p-4">
-            {run.payload ? JSON.stringify(run.payload, null, 2) : "No payload"}
-          </pre>
+          <CodeBlock
+            code={
+              run.payload ? JSON.stringify(run.payload, null, 2) : "No payload"
+            }
+            language="json"
+            maxHeight={500}
+            wrap
+          />
         </TabsContent>
 
         <TabsContent className="mt-6" value="response">
-          <pre className="max-h-[500px] overflow-auto whitespace-pre-wrap break-all rounded-lg bg-muted p-3 font-mono text-xs leading-relaxed sm:p-4">
-            {run.result
-              ? JSON.stringify(run.result, null, 2)
-              : "No response data"}
-          </pre>
+          <CodeBlock
+            code={
+              run.result
+                ? JSON.stringify(run.result, null, 2)
+                : "No response data"
+            }
+            language="json"
+            maxHeight={500}
+            wrap
+          />
         </TabsContent>
       </Tabs>
     </Shell>
@@ -375,13 +383,14 @@ function formatTimelineTimestamp(value: string) {
   return `${new Date(value).toISOString().replace("T", " ").slice(0, 19)} UTC`;
 }
 
-function Timeline({ run }: { run: JobRun }) {
+function RunTimeline({ run }: { run: JobRun }) {
   const steps: TimelineStep[] = [
     { label: "Created", at: run.created_at },
     { label: "Scheduled", at: run.scheduled_at },
     { label: "Started", at: run.started_at },
     { label: "Finished", at: run.finished_at },
   ];
+  const activeStep = steps.filter((step) => !!step.at).length;
   const duration = formatDuration(
     run.started_at ?? null,
     run.finished_at ?? null
@@ -389,66 +398,52 @@ function Timeline({ run }: { run: JobRun }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        {steps.map((s, i) => {
-          const done = !!s.at;
-          const isCurrent =
-            done && (i === steps.length - 1 || !steps[i + 1]?.at);
-          return (
-            <div className="relative flex flex-col gap-1" key={s.label}>
-              <div className="flex items-center gap-2">
-                <span
-                  aria-hidden
-                  className={cn(
-                    "size-2 rounded-full",
-                    done ? "bg-primary" : "bg-muted-foreground/30",
-                    isCurrent && "ring-4 ring-primary/20"
-                  )}
-                />
-                <span className="font-medium text-foreground text-xs">
-                  {s.label}
-                </span>
-              </div>
-              <span className="pl-4 font-mono text-muted-foreground text-xs">
-                {s.at ? formatTimelineTimestamp(s.at) : "—"}
-              </span>
-              {i < steps.length - 1 && (
-                <span
-                  aria-hidden
-                  className="absolute top-[7px] left-[14px] -z-10 hidden h-px w-full bg-border sm:block"
-                />
-              )}
-            </div>
-          );
-        })}
-      </div>
+      <Timeline
+        orientation="horizontal"
+        size="sm"
+        value={activeStep}
+        variant="primary"
+      >
+        {steps.map((step, index) => (
+          <TimelineItem key={step.label} step={index + 1}>
+            <TimelineHeader>
+              <TimelineSeparator />
+              <TimelineIndicator />
+              <TimelineDate dateTime={step.at ?? undefined}>
+                {step.at ? formatTimelineTimestamp(step.at) : "—"}
+              </TimelineDate>
+            </TimelineHeader>
+            <TimelineTitle>{step.label}</TimelineTitle>
+          </TimelineItem>
+        ))}
+      </Timeline>
 
-      <div className="flex flex-wrap gap-x-6 gap-y-1 border-t pt-3 text-xs">
-        <span className="text-muted-foreground">
-          Duration{" "}
-          <span className="ml-1 font-mono text-foreground">{duration}</span>
-        </span>
-        <span className="text-muted-foreground">
-          Priority{" "}
-          <span className="ml-1 font-mono text-foreground">{run.priority}</span>
-        </span>
+      <DescriptionList orientation="horizontal" size="sm">
+        <DescriptionTerm>Duration</DescriptionTerm>
+        <DescriptionDetails className="font-mono">
+          {duration}
+        </DescriptionDetails>
+        <DescriptionTerm>Priority</DescriptionTerm>
+        <DescriptionDetails className="font-mono">
+          {run.priority}
+        </DescriptionDetails>
         {run.execution_mode && (
-          <span className="text-muted-foreground">
-            Mode{" "}
-            <span className="ml-1 font-mono text-foreground">
+          <>
+            <DescriptionTerm>Mode</DescriptionTerm>
+            <DescriptionDetails className="font-mono">
               {run.execution_mode}
-            </span>
-          </span>
+            </DescriptionDetails>
+          </>
         )}
         {run.queue_name && (
-          <span className="text-muted-foreground">
-            Queue{" "}
-            <span className="ml-1 font-mono text-foreground">
+          <>
+            <DescriptionTerm>Queue</DescriptionTerm>
+            <DescriptionDetails className="font-mono">
               {run.queue_name}
-            </span>
-          </span>
+            </DescriptionDetails>
+          </>
         )}
-      </div>
+      </DescriptionList>
     </div>
   );
 }
@@ -457,51 +452,42 @@ function LogViewer({
   events,
   isError,
   isLoading,
+  logText,
 }: {
   events: RunEvent[];
   isError: boolean;
   isLoading: boolean;
+  logText: string;
 }) {
   if (isError) {
     return (
-      <output className="block rounded-lg bg-muted p-6 text-center text-muted-foreground text-sm">
-        Log events are unavailable right now.
-      </output>
+      <Empty border={false}>
+        <EmptyHeader>
+          <EmptyTitle>Log events unavailable</EmptyTitle>
+          <EmptyDescription>
+            Log events are unavailable right now.
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
     );
   }
 
   if (events.length === 0) {
     return (
-      <div className="rounded-lg bg-muted p-6 text-center text-muted-foreground text-sm">
-        {isLoading ? "Loading log events..." : "No log events for this run."}
-      </div>
+      <Empty border={false}>
+        <EmptyHeader>
+          <EmptyTitle>
+            {isLoading ? "Loading log events" : "No log events"}
+          </EmptyTitle>
+          <EmptyDescription>
+            {isLoading
+              ? "Loading log events for this run."
+              : "No log events for this run."}
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
     );
   }
 
-  return (
-    <div className="max-h-[500px] overflow-auto rounded-lg bg-muted font-mono text-xs leading-relaxed">
-      <ol className="divide-y divide-border/50">
-        {events.map((evt) => {
-          const level = (evt.level ?? "info").toLowerCase();
-          const levelClass = LEVEL_COLOR[level] ?? "text-muted-foreground";
-          return (
-            <li
-              className="grid grid-cols-[auto_4rem_1fr] gap-3 px-3 py-1.5 sm:px-4"
-              key={evt.id}
-            >
-              <span className="text-muted-foreground/70">
-                {new Date(evt.created_at).toISOString().slice(11, 23)}
-              </span>
-              <span className={cn("font-medium uppercase", levelClass)}>
-                {level}
-              </span>
-              <span className="whitespace-pre-wrap break-words text-foreground">
-                {evt.message}
-              </span>
-            </li>
-          );
-        })}
-      </ol>
-    </div>
-  );
+  return <CodeBlock code={logText} maxHeight={500} wrap />;
 }

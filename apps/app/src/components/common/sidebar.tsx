@@ -20,6 +20,8 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
+  SidebarSearchButton,
+  SidebarSeparator,
 } from "@strait/ui/components/sidebar";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
@@ -37,7 +39,6 @@ import {
   HelpCircleIcon,
   LayersIcon,
   PlayActionIcon,
-  SearchIcon,
   SettingsOutlineIcon,
   SparklesIcon,
   TrendingUpIcon,
@@ -59,7 +60,17 @@ type NavItem = {
   exact?: boolean;
 };
 
+type CommandRoute = NavItem & {
+  keywords: string[];
+};
+
 const mainNav: NavItem[] = [
+  {
+    title: "Getting Started",
+    url: "/app",
+    icon: SparklesIcon,
+    exact: true,
+  },
   { title: "Dashboard", url: "/app/dashboard", icon: DashboardIcon },
   { title: "Analytics", url: "/app/analytics", icon: TrendingUpIcon },
   { title: "Jobs", url: "/app/jobs", icon: BriefcaseIcon },
@@ -75,8 +86,7 @@ const observabilityNav: NavItem[] = [
   { title: "Webhooks", url: "/app/webhooks", icon: WebhookIcon },
 ];
 
-const commandRoutes = [
-  { title: "Overview", url: "/app", icon: DashboardIcon, keywords: ["home"] },
+const commandRoutes: CommandRoute[] = [
   ...mainNav.map((item) => ({
     title: item.title,
     url: item.url,
@@ -170,7 +180,7 @@ const AppSidebar = ({ session }: Props) => {
 
   return (
     <Sidebar collapsible="offcanvas">
-      <SidebarHeader className="h-16 border-sidebar-border border-b">
+      <SidebarHeader className="h-16">
         <div className="flex h-full w-full items-center px-2">
           <Link to="/app">
             <span className="sr-only">Strait</span>
@@ -184,9 +194,9 @@ const AppSidebar = ({ session }: Props) => {
           </Link>
         </div>
       </SidebarHeader>
+      <SidebarSeparator />
 
-      <SidebarContent>
-        {/* Project switcher */}
+      <SidebarContent className="pt-2">
         <SidebarGroup>
           <SidebarGroupLabel>Project</SidebarGroupLabel>
           <SidebarMenu>
@@ -196,38 +206,25 @@ const AppSidebar = ({ session }: Props) => {
           </SidebarMenu>
         </SidebarGroup>
 
-        {/* Search */}
         <SidebarGroup>
           <CommandMenu
             groups={commandGroups}
-            placeholder="Search for pages, jobs, runs..."
-            trigger={
-              <button
-                className="flex h-8 w-full items-center gap-2 rounded-lg border border-sidebar-border bg-sidebar-accent/50 px-2 text-muted-foreground text-sm transition-colors hover:bg-sidebar-accent"
-                type="button"
-              >
-                <HugeiconsIcon className="size-4" icon={SearchIcon} />
-                <span className="flex-1 text-left">Search...</span>
-                <kbd className="pointer-events-none hidden rounded border bg-muted px-1.5 font-mono text-[10px] text-muted-foreground sm:inline-block">
-                  ⌘K
-                </kbd>
-              </button>
-            }
+            placeholder="Search..."
+            trigger={<SidebarSearchButton placeholder="Search..." />}
           />
         </SidebarGroup>
 
-        {/* Main navigation */}
         <SidebarGroup>
           <SidebarMenu>
             {mainNav.map((item) => (
               <SidebarMenuItem key={item.url}>
                 <SidebarMenuButton
-                  isActive={isActive(item)}
+                  active={isActive(item)}
                   render={<Link to={item.url} />}
                   tooltip={item.title}
                 >
                   <HugeiconsIcon
-                    className="text-muted-foreground/65 group-data-[active=true]/menu-button:text-primary"
+                    className="text-muted-foreground group-data-[active=true]/menu-button:text-primary"
                     icon={item.icon}
                     size={22}
                   />
@@ -238,7 +235,6 @@ const AppSidebar = ({ session }: Props) => {
           </SidebarMenu>
         </SidebarGroup>
 
-        {/* Observability group */}
         <SidebarGroup>
           <Collapsible className="group/collapsible" defaultOpen>
             <SidebarGroupLabel
@@ -256,12 +252,12 @@ const AppSidebar = ({ session }: Props) => {
                   {observabilityNav.map((item) => (
                     <SidebarMenuItem key={item.url}>
                       <SidebarMenuButton
-                        isActive={isActive(item)}
+                        active={isActive(item)}
                         render={<Link to={item.url} />}
                         tooltip={item.title}
                       >
                         <HugeiconsIcon
-                          className="text-muted-foreground/65 group-data-[active=true]/menu-button:text-primary"
+                          className="text-muted-foreground group-data-[active=true]/menu-button:text-primary"
                           icon={item.icon}
                           size={22}
                         />
@@ -275,15 +271,12 @@ const AppSidebar = ({ session }: Props) => {
           </Collapsible>
         </SidebarGroup>
 
-        {/* Billing — cloud edition only. Self-host builds hide this
-            entire section so users cannot reach Stripe checkout or
-            the customer portal. See `src/lib/edition.ts`. */}
         {isCommunityEdition ? null : (
           <SidebarGroup>
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton
-                  isActive={
+                  active={
                     pathname === "/app/billing" ||
                     pathname.startsWith("/app/billing/")
                   }
@@ -291,7 +284,7 @@ const AppSidebar = ({ session }: Props) => {
                   tooltip="Billing"
                 >
                   <HugeiconsIcon
-                    className="text-muted-foreground/65 group-data-[active=true]/menu-button:text-primary"
+                    className="text-muted-foreground group-data-[active=true]/menu-button:text-primary"
                     icon={CreditCardIcon}
                     size={22}
                   />
@@ -306,22 +299,9 @@ const AppSidebar = ({ session }: Props) => {
       {!isCommunityEdition && hasPendingPayment ? <PaymentPendingCard /> : null}
       {!isCommunityEdition && shouldShowUpgrade ? <TrialUpgradeCard /> : null}
 
-      <SidebarFooter className="flex flex-col border-sidebar-border border-t">
+      <SidebarSeparator />
+      <SidebarFooter className="flex flex-col">
         <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              isActive={pathname === "/app"}
-              render={<Link search={{ quickstart: true }} to="/app" />}
-              tooltip="Quick start"
-            >
-              <HugeiconsIcon
-                className="text-muted-foreground/65 group-data-[active=true]/menu-button:text-primary"
-                icon={SparklesIcon}
-                size={20}
-              />
-              <span>Quick start</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton
               render={(props) => (
@@ -337,7 +317,7 @@ const AppSidebar = ({ session }: Props) => {
               tooltip="Documentation"
             >
               <HugeiconsIcon
-                className="text-muted-foreground/65"
+                className="text-muted-foreground"
                 icon={HelpCircleIcon}
                 size={20}
               />

@@ -1,21 +1,23 @@
+import { BarList } from "@strait/ui/components/bar-list";
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import type { ChartConfig } from "@strait/ui/components/chart";
 import { ChartEmptyState } from "@strait/ui/components/chart-empty-state";
+import { DonutChart } from "@strait/ui/components/charts";
 import { useQuery } from "@tanstack/react-query";
-import { Bar, BarChart, Tooltip, XAxis, YAxis } from "recharts";
 import { analyticsQueryOptions } from "@/hooks/api/use-dashboard";
 import { CheckCircleIcon } from "@/lib/icons";
-import { CHART_COLORS } from "@/lib/status-colors";
-import ChartTooltip from "./chart-tooltip";
-import ResponsiveChartContainer from "./responsive-chart-container";
 
-const LABEL_MAP = {
-  value: { label: "Runs", color: CHART_COLORS.success },
-};
+const CHART_CONFIG = {
+  Completed: { label: "Completed", color: "chart-1" },
+  Failed: { label: "Failed", color: "chart-2" },
+  "Timed Out": { label: "Timed Out", color: "chart-5" },
+  Canceled: { label: "Canceled", color: "chart-5" },
+} satisfies ChartConfig;
 
 const StatusDistributionChart = ({
   hasProject = true,
@@ -33,18 +35,18 @@ const StatusDistributionChart = ({
         {
           name: "Completed",
           value: throughput.completed,
-          fill: CHART_COLORS.success,
         },
-        { name: "Failed", value: throughput.failed, fill: CHART_COLORS.error },
+        {
+          name: "Failed",
+          value: throughput.failed,
+        },
         {
           name: "Timed Out",
           value: throughput.timed_out,
-          fill: CHART_COLORS.neutral,
         },
         {
           name: "Canceled",
           value: throughput.canceled,
-          fill: CHART_COLORS.neutral,
         },
       ]
     : [];
@@ -74,55 +76,25 @@ const StatusDistributionChart = ({
         ) : (
           <div className="flex items-center gap-6">
             <div className="h-[180px] flex-1">
-              <ResponsiveChartContainer
-                height="100%"
-                minHeight={1}
-                minWidth={1}
-                width="100%"
-              >
-                <BarChart data={chartData} layout="vertical">
-                  <XAxis
-                    className="text-muted-foreground"
-                    tick={{ fontSize: 14 }}
-                    type="number"
-                  />
-                  <YAxis
-                    className="text-muted-foreground"
-                    dataKey="name"
-                    tick={{ fontSize: 14 }}
-                    type="category"
-                    width={80}
-                  />
-                  <Tooltip
-                    content={<ChartTooltip labelMap={LABEL_MAP} />}
-                    cursor={{ fill: "var(--muted)" }}
-                  />
-                  <Bar dataKey="value" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveChartContainer>
+              <DonutChart
+                config={CHART_CONFIG}
+                containerHeight={180}
+                data={chartData}
+                dataKey="value"
+                nameKey="name"
+                valueFormatter={(value) => value.toLocaleString()}
+              />
             </div>
-            <div className="flex flex-col gap-2">
-              {chartData.map((entry) => {
+            <BarList
+              className="w-56"
+              data={chartData}
+              sortOrder="none"
+              valueFormatter={(value) => {
                 const pct =
-                  total > 0 ? ((entry.value / total) * 100).toFixed(1) : "0.0";
-                return (
-                  <div
-                    className="flex items-center gap-2 rounded-md px-2 py-1 transition-colors hover:bg-muted"
-                    key={entry.name}
-                  >
-                    <span
-                      className="size-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: entry.fill }}
-                    />
-                    <span className="text-muted-foreground">{entry.name}</span>
-                    <span className="ml-auto font-medium tabular-nums">
-                      {entry.value.toLocaleString()}
-                    </span>
-                    <span className="text-muted-foreground">({pct}%)</span>
-                  </div>
-                );
-              })}
-            </div>
+                  total > 0 ? ((value / total) * 100).toFixed(1) : "0.0";
+                return `${value.toLocaleString()} (${pct}%)`;
+              }}
+            />
           </div>
         )}
       </CardContent>

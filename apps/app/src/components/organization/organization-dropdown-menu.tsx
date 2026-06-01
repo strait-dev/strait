@@ -186,7 +186,7 @@ const OrganizationDropdownMenu = ({ user, session }: Props) => {
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="end"
-          className="w-[--radix-dropdown-menu-trigger-width] min-w-56 rounded"
+          className="w-[--radix-dropdown-menu-trigger-width] min-w-56"
           side="bottom"
           sideOffset={4}
         >

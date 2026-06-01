@@ -5,7 +5,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import type { ChartConfig } from "@strait/ui/components/chart";
 import { ChartEmptyState } from "@strait/ui/components/chart-empty-state";
+import { BarChart, LineChart } from "@strait/ui/components/charts";
 import {
   Table,
   TableBody,
@@ -17,15 +19,6 @@ import {
 import { toast } from "@strait/ui/components/toast";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
-  Bar,
-  CartesianGrid,
-  ComposedChart,
-  Line,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
-import {
   fetchUsageExportCsv,
   fetchUsageExportPdf,
 } from "@/hooks/billing/use-usage-export";
@@ -33,9 +26,6 @@ import { usageHistoryQueryOptions } from "@/hooks/billing/use-usage-history";
 import { getPostHog } from "@/lib/analytics";
 import { formatMicroUsd } from "@/lib/format";
 import { ActivityIcon } from "@/lib/icons";
-import { CHART_COLORS } from "@/lib/status-colors";
-import ChartTooltip from "../dashboard/chart-tooltip";
-import ResponsiveChartContainer from "../dashboard/responsive-chart-container";
 
 function triggerDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -46,20 +36,21 @@ function triggerDownload(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-const LABEL_MAP = {
+const COST_CHART_CONFIG: ChartConfig = {
   compute_cost_microusd: {
     label: "Compute",
-    color: CHART_COLORS.active,
-    format: formatMicroUsd,
+    color: "chart-3",
   },
   ai_cost_microusd: {
     label: "AI Cost",
-    color: CHART_COLORS.warning,
-    format: formatMicroUsd,
+    color: "chart-4",
   },
+};
+
+const RUNS_CHART_CONFIG: ChartConfig = {
   runs_count: {
     label: "Runs",
-    color: CHART_COLORS.neutral,
+    color: "chart-5",
   },
 };
 
@@ -115,31 +106,6 @@ const UsageHistoryTab = () => {
         <CardHeader className="flex flex-row items-center justify-between pb-2">
           <CardTitle className="font-medium text-sm">Daily Usage</CardTitle>
           <div className="flex items-center gap-2">
-            {!isEmpty && (
-              <div className="flex items-center gap-1">
-                <div className="flex items-center gap-1.5 rounded-md px-2 py-1 text-muted-foreground">
-                  <span
-                    className="size-2 shrink-0 rounded-full"
-                    style={{ backgroundColor: CHART_COLORS.active }}
-                  />
-                  <span>Compute</span>
-                </div>
-                <div className="flex items-center gap-1.5 rounded-md px-2 py-1 text-muted-foreground">
-                  <span
-                    className="size-2 shrink-0 rounded-full"
-                    style={{ backgroundColor: CHART_COLORS.warning }}
-                  />
-                  <span>AI Cost</span>
-                </div>
-                <div className="flex items-center gap-1.5 rounded-md px-2 py-1 text-muted-foreground">
-                  <span
-                    className="size-2 shrink-0 rounded-full"
-                    style={{ backgroundColor: CHART_COLORS.neutral }}
-                  />
-                  <span>Runs</span>
-                </div>
-              </div>
-            )}
             <Button
               disabled={isEmpty || csvExport.isPending}
               onClick={() => csvExport.mutate()}
@@ -157,73 +123,38 @@ const UsageHistoryTab = () => {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="h-[280px]">
-            {isEmpty ? (
+          {isEmpty ? (
+            <div className="h-[280px]">
               <ChartEmptyState
                 icon={ActivityIcon}
                 message="No usage data yet for this billing period."
               />
-            ) : (
-              <ResponsiveChartContainer
-                height="100%"
-                minHeight={1}
-                minWidth={1}
-                width="100%"
-              >
-                <ComposedChart data={history}>
-                  <CartesianGrid
-                    className="stroke-border"
-                    strokeDasharray="3 3"
-                  />
-                  <XAxis
-                    className="text-muted-foreground"
-                    dataKey="date"
-                    tick={{ fontSize: 12 }}
-                    tickFormatter={(v: string) => v.slice(5)}
-                  />
-                  <YAxis
-                    className="text-muted-foreground"
-                    tick={{ fontSize: 12 }}
-                    tickFormatter={(v: number) => formatMicroUsd(v)}
-                    yAxisId="cost"
-                  />
-                  <YAxis
-                    className="text-muted-foreground"
-                    orientation="right"
-                    tick={{ fontSize: 12 }}
-                    yAxisId="runs"
-                  />
-                  <Tooltip
-                    content={<ChartTooltip labelMap={LABEL_MAP} />}
-                    cursor={{ fill: "var(--muted)" }}
-                  />
-                  <Bar
-                    dataKey="compute_cost_microusd"
-                    fill={CHART_COLORS.active}
-                    radius={[2, 2, 0, 0]}
-                    stackId="cost"
-                    yAxisId="cost"
-                  />
-                  <Bar
-                    dataKey="ai_cost_microusd"
-                    fill={CHART_COLORS.warning}
-                    radius={[2, 2, 0, 0]}
-                    stackId="cost"
-                    yAxisId="cost"
-                  />
-                  <Line
-                    dataKey="runs_count"
-                    dot={false}
-                    isAnimationActive={false}
-                    stroke={CHART_COLORS.neutral}
-                    strokeWidth={2}
-                    type="monotone"
-                    yAxisId="runs"
-                  />
-                </ComposedChart>
-              </ResponsiveChartContainer>
-            )}
-          </div>
+            </div>
+          ) : (
+            <div className="grid gap-6 lg:grid-cols-2">
+              <BarChart
+                config={COST_CHART_CONFIG}
+                containerHeight={260}
+                data={history}
+                dataKey="date"
+                type="stacked"
+                valueFormatter={formatMicroUsd}
+                xAxisProps={{
+                  tickFormatter: (value: string) => value.slice(5),
+                }}
+              />
+              <LineChart
+                config={RUNS_CHART_CONFIG}
+                containerHeight={260}
+                data={history}
+                dataKey="date"
+                valueFormatter={(value) => value.toLocaleString()}
+                xAxisProps={{
+                  tickFormatter: (value: string) => value.slice(5),
+                }}
+              />
+            </div>
+          )}
         </CardContent>
       </Card>
 

@@ -212,7 +212,7 @@ function WorkflowsPage() {
   const emptyState = hasProject ? (
     <Empty className="h-[300px]">
       <EmptyHeader>
-        <EmptyMedia size="lg" variant="icon">
+        <EmptyMedia media="icon" size="lg">
           <HugeiconsIcon
             className="size-6 text-foreground"
             icon={WorkflowIcon}

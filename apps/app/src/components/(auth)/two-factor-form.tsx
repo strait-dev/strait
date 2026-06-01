@@ -1,4 +1,3 @@
-import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import { Checkbox } from "@strait/ui/components/checkbox";
 import { Field, FieldLabel } from "@strait/ui/components/field";
@@ -8,10 +7,10 @@ import {
   InputOTPGroup,
   InputOTPSlot,
 } from "@strait/ui/components/input-otp";
+import { Spinner } from "@strait/ui/components/spinner";
 import { toast } from "@strait/ui/components/toast";
 import { useState } from "react";
 import { authClient } from "@/lib/auth-client";
-import { LoadingIcon } from "@/lib/icons";
 import { captureSentryAuthError } from "@/lib/sentry";
 
 type TwoFactorFormProps = {
@@ -143,12 +142,7 @@ const TwoFactorForm = ({ redirectTo, disabled }: TwoFactorFormProps) => {
             onClick={handleVerifyTotp}
             variant="brand-solid"
           >
-            {isSubmitting ? (
-              <HugeiconsIcon
-                className="size-4 animate-spin"
-                icon={LoadingIcon}
-              />
-            ) : null}
+            {isSubmitting ? <Spinner /> : null}
             Verify
           </Button>
 
@@ -185,12 +179,7 @@ const TwoFactorForm = ({ redirectTo, disabled }: TwoFactorFormProps) => {
             onClick={handleVerifyBackup}
             variant="brand-solid"
           >
-            {isSubmitting ? (
-              <HugeiconsIcon
-                className="size-4 animate-spin"
-                icon={LoadingIcon}
-              />
-            ) : null}
+            {isSubmitting ? <Spinner /> : null}
             Verify backup code
           </Button>
 

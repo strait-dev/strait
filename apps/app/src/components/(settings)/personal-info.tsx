@@ -10,6 +10,7 @@ import {
 } from "@strait/ui/components/card";
 import { Field, FieldError, FieldLabel } from "@strait/ui/components/field";
 import { Input } from "@strait/ui/components/input";
+import { Spinner } from "@strait/ui/components/spinner";
 import { toast } from "@strait/ui/components/toast";
 import { useForm } from "@tanstack/react-form";
 import { useRef, useTransition } from "react";
@@ -17,7 +18,7 @@ import { z } from "zod";
 import { useUpdateUser } from "@/hooks/auth/use-user";
 import { authClient } from "@/lib/auth-client";
 import { formatFieldErrors } from "@/lib/form-errors";
-import { LoadingIcon, PencilEditIcon } from "@/lib/icons";
+import { PencilEditIcon } from "@/lib/icons";
 import { captureException } from "@/lib/sentry";
 import type { AuthUser } from "@/routes/__root";
 
@@ -188,10 +189,7 @@ const PersonalInfo = ({ user }: Props) => {
             type="submit"
           >
             {isProcessing ? (
-              <HugeiconsIcon
-                className="size-4 animate-spin"
-                icon={LoadingIcon}
-              />
+              <Spinner />
             ) : (
               <HugeiconsIcon className="size-4" icon={PencilEditIcon} />
             )}

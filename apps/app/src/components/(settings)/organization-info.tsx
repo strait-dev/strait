@@ -14,12 +14,17 @@ import {
   CardTitle,
 } from "@strait/ui/components/card";
 import { Field, FieldError, FieldLabel } from "@strait/ui/components/field";
+import {
+  FileUpload,
+  type FileWithPreview,
+} from "@strait/ui/components/file-upload";
 import { Input } from "@strait/ui/components/input";
+import { Spinner } from "@strait/ui/components/spinner";
 import { Textarea } from "@strait/ui/components/textarea";
 import { toast } from "@strait/ui/components/toast";
 import { useForm } from "@tanstack/react-form";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useTransition } from "react";
+import { useEffect, useTransition } from "react";
 import { z } from "zod/v4";
 import {
   organizationQueryOptions,
@@ -27,7 +32,7 @@ import {
 } from "@/hooks/auth/use-organization";
 import { queryKeys } from "@/hooks/query-keys";
 import { formatFieldErrors } from "@/lib/form-errors";
-import { LoadingIcon, PencilEditIcon, StoreIcon } from "@/lib/icons";
+import { PencilEditIcon, StoreIcon } from "@/lib/icons";
 import { captureException } from "@/lib/sentry";
 
 const orgFormSchema = z.object({
@@ -74,7 +79,6 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
     organizationQueryOptions(organizationId)
   );
   const updateOrganization = useUpdateOrganization();
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const meta = parseMetadata(organization?.metadata);
 
@@ -144,19 +148,9 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
     }
   }, [organization, form]);
 
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) {
-      return;
-    }
-
-    if (file.size > 2 * 1024 * 1024) {
-      toast.error("Logo must be under 2MB.");
-      return;
-    }
-
-    if (!file.type.startsWith("image/")) {
-      toast.error("File must be an image.");
+  const handleLogoUpload = (files: FileWithPreview[]) => {
+    const file = files[0]?.file;
+    if (!(file instanceof File)) {
       return;
     }
 
@@ -175,7 +169,7 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
       <Card>
         <CardContent className="py-8">
           <div className="flex items-center justify-center gap-2 text-muted-foreground text-sm">
-            <HugeiconsIcon className="size-4 animate-spin" icon={LoadingIcon} />
+            <Spinner />
             Loading organization...
           </div>
         </CardContent>
@@ -220,25 +214,20 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
                   <HugeiconsIcon className="size-6" icon={StoreIcon} />
                 </AvatarFallback>
               </Avatar>
-              <div className="flex flex-col gap-1">
-                <Button
-                  onClick={() => fileInputRef.current?.click()}
-                  type="button"
-                  variant="outline"
-                >
-                  Upload Logo
-                </Button>
-                <p className="text-muted-foreground text-xs">
-                  PNG, JPG or SVG. Max 2MB.
-                </p>
-                <input
-                  accept="image/*"
-                  className="hidden"
-                  onChange={handleLogoUpload}
-                  ref={fileInputRef}
-                  type="file"
-                />
-              </div>
+              <FileUpload
+                accept="image/*"
+                className="w-full sm:max-w-sm"
+                label="Upload logo"
+                maxFiles={1}
+                maxSize={2 * 1024 * 1024}
+                onError={(errors) => {
+                  for (const error of errors) {
+                    toast.error(error);
+                  }
+                }}
+                onValueChange={handleLogoUpload}
+                size="sm"
+              />
             </div>
 
             {/* Name & Slug */}
@@ -435,10 +424,7 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
             type="submit"
           >
             {isProcessing ? (
-              <HugeiconsIcon
-                className="size-4 animate-spin"
-                icon={LoadingIcon}
-              />
+              <Spinner />
             ) : (
               <HugeiconsIcon className="size-4" icon={PencilEditIcon} />
             )}

@@ -1,10 +1,11 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
+import { Spinner } from "@strait/ui/components/spinner";
 import { toast } from "@strait/ui/components/toast";
 import { useState } from "react";
 import { getPostHog } from "@/lib/analytics";
 import { authClient } from "@/lib/auth-client";
-import { KeyIcon, LoadingIcon } from "@/lib/icons";
+import { KeyIcon } from "@/lib/icons";
 import { captureSentryAuthError } from "@/lib/sentry";
 
 type PasskeyButtonProps = {
@@ -54,7 +55,7 @@ const PasskeyButton = ({ disabled }: PasskeyButtonProps) => {
       variant="secondary-outline"
     >
       {isLoading ? (
-        <HugeiconsIcon className="size-4 animate-spin" icon={LoadingIcon} />
+        <Spinner />
       ) : (
         <HugeiconsIcon className="size-4" icon={KeyIcon} />
       )}

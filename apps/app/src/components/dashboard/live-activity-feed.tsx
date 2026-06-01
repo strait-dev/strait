@@ -1,31 +1,19 @@
 import {
+  ActivityFeed,
+  type ActivityItem,
+} from "@strait/ui/components/activity-feed";
+import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
 import { ChartEmptyState } from "@strait/ui/components/chart-empty-state";
-import { ScrollArea } from "@strait/ui/components/scroll-area";
-import { cn } from "@strait/ui/utils";
 import { useQuery } from "@tanstack/react-query";
-import { formatDistanceToNow } from "date-fns";
 import type { JobRun, PaginatedResponse } from "@/hooks/api/types";
 import { runsQueryOptions } from "@/hooks/api/use-runs";
 import { LIVE_REFETCH_INTERVAL } from "@/hooks/utils";
 import { ActivityIcon } from "@/lib/icons";
-
-const STATUS_DOT: Record<string, string> = {
-  executing: "bg-info",
-  completed: "bg-success",
-  failed: "bg-destructive",
-  timed_out: "bg-destructive",
-  crashed: "bg-destructive",
-  canceled: "bg-muted-foreground",
-  queued: "bg-info",
-  delayed: "bg-warning",
-  waiting: "bg-warning",
-  dead_letter: "bg-destructive",
-};
 
 function runToMessage(run: JobRun): string {
   const jobId = run.job_id;
@@ -58,6 +46,12 @@ const LiveActivityFeed = ({ hasProject = true }: { hasProject?: boolean }) => {
   });
   const typed = data as PaginatedResponse<JobRun> | undefined;
   const runs = typed?.data ?? [];
+  const items: ActivityItem[] = runs.map((run) => ({
+    id: run.id,
+    status: run.status,
+    title: runToMessage(run),
+    timestamp: run.created_at,
+  }));
 
   return (
     <Card>
@@ -65,42 +59,22 @@ const LiveActivityFeed = ({ hasProject = true }: { hasProject?: boolean }) => {
         <CardTitle className="font-medium text-sm">Live Activity</CardTitle>
       </CardHeader>
       <CardContent className="p-0">
-        <ScrollArea className="h-[320px] px-6 pb-6">
-          <div className="space-y-3">
-            {runs.map((run) => (
-              <div className="flex items-start gap-2.5" key={run.id}>
-                <span
-                  className={cn(
-                    "mt-1.5 size-2 shrink-0 rounded-full",
-                    STATUS_DOT[run.status] ?? "bg-muted-foreground"
-                  )}
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm leading-tight">
-                    {runToMessage(run)}
-                  </p>
-                  <p className="text-muted-foreground text-xs">
-                    {formatDistanceToNow(new Date(run.created_at), {
-                      addSuffix: true,
-                    })}
-                  </p>
-                </div>
-              </div>
-            ))}
-            {runs.length === 0 && (
-              <div className="py-8">
-                <ChartEmptyState
-                  icon={ActivityIcon}
-                  message={
-                    hasProject
-                      ? "No recent activity yet."
-                      : "Create a project to see live activity."
-                  }
-                />
-              </div>
-            )}
-          </div>
-        </ScrollArea>
+        <ActivityFeed
+          className="px-6 pb-6"
+          emptyState={
+            <div className="py-8">
+              <ChartEmptyState
+                icon={ActivityIcon}
+                message={
+                  hasProject
+                    ? "No recent activity yet."
+                    : "Create a project to see live activity."
+                }
+              />
+            </div>
+          }
+          items={items}
+        />
       </CardContent>
     </Card>
   );

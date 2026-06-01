@@ -290,12 +290,9 @@ function RouteComponent() {
     <Shell>
       <h1 className="sr-only">Upgrade plan</h1>
       {search.canceled ? (
-        <Alert className="mb-6 border-warning/30 bg-warning/5">
-          <HugeiconsIcon
-            className="size-4 text-warning"
-            icon={AlertCircleIcon}
-          />
-          <AlertDescription className="text-warning">
+        <Alert className="mb-6" variant="warning">
+          <HugeiconsIcon className="size-4" icon={AlertCircleIcon} />
+          <AlertDescription>
             Checkout was canceled. You can try again by selecting a plan below.
           </AlertDescription>
         </Alert>
@@ -303,17 +300,14 @@ function RouteComponent() {
 
       {search.error ? (
         <Alert variant="destructive">
-          <HugeiconsIcon
-            className="size-4 text-destructive"
-            icon={AlertCircleIcon}
-          />
+          <HugeiconsIcon className="size-4" icon={AlertCircleIcon} />
           <AlertDescription>{search.error}</AlertDescription>
         </Alert>
       ) : null}
 
       <div className="space-y-8">
         {hasActiveSubscription ? (
-          <Card className="border-border bg-muted/50">
+          <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <HugeiconsIcon className="size-5" icon={LinkSquareIcon} />

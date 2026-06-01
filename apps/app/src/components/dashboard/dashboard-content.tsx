@@ -1,3 +1,4 @@
+import { CHART_COLORS } from "@strait/ui/components/chart";
 import { MetricCard } from "@strait/ui/components/metric-card";
 import { Shell } from "@strait/ui/components/shell";
 import { useQuery } from "@tanstack/react-query";
@@ -23,7 +24,6 @@ import {
   CheckCircleIcon,
   ClockIcon,
 } from "@/lib/icons";
-import { CHART_COLORS } from "@/lib/status-colors";
 
 const statsQueryOptions = statsQueryOptionsFn();
 const analyticsQueryOptions = analyticsQueryOptionsFn(24);
@@ -68,25 +68,25 @@ const DashboardContent = ({
       </h2>
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <MetricCard
-          color={CHART_COLORS.active}
+          color={CHART_COLORS["chart-3"]}
           icon={ActivityIcon}
           title="Total Runs (24h)"
           value={totalRuns.toLocaleString()}
         />
         <MetricCard
-          color={CHART_COLORS.success}
+          color={CHART_COLORS["chart-1"]}
           icon={CheckCircleIcon}
           title="Success Rate"
           value={`${successRate.toFixed(1)}%`}
         />
         <MetricCard
-          color={CHART_COLORS.error}
+          color={CHART_COLORS["chart-2"]}
           icon={AlertIcon}
           title="Failed Runs"
           value={failedRuns.toLocaleString()}
         />
         <MetricCard
-          color={CHART_COLORS.neutral}
+          color={CHART_COLORS["chart-5"]}
           icon={ClockIcon}
           title="Queued"
           value={totalActive.toLocaleString()}
