@@ -23,6 +23,7 @@ type RelationBloatGate struct {
 	MaxDeadTupleRatio     float64
 	MaxTotalTableByteGain int64
 	MaxTotalIndexByteGain int64
+	MinHOTUpdateRatio     float64
 }
 
 type QueueBloatGateResult struct {
@@ -112,6 +113,21 @@ func EvaluateQueueBloatGate(comparison QueueBenchmarkComparison, gate QueueBloat
 					relGate.Name,
 					ratio,
 					relGate.MaxDeadTupleRatio,
+				))
+			}
+		}
+		if relGate.MinHOTUpdateRatio > 0 {
+			rel, ok := candidateRelations[relGate.Name]
+			if !ok {
+				failures = append(failures, fmt.Sprintf("missing candidate relation sample for %s", relGate.Name))
+				continue
+			}
+			if ratio := rel.HOTUpdateRatio(); ratio < relGate.MinHOTUpdateRatio {
+				failures = append(failures, fmt.Sprintf(
+					"%s HOT update ratio = %.4f, min %.4f",
+					relGate.Name,
+					ratio,
+					relGate.MinHOTUpdateRatio,
 				))
 			}
 		}

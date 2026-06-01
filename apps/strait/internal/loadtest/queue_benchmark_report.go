@@ -110,6 +110,7 @@ type RelationBloatDelta struct {
 	DeadTupleRatioDelta     float64 `json:"dead_tuple_ratio_delta"`
 	TotalUpdatesDelta       int64   `json:"total_updates_delta"`
 	HOTUpdatesDelta         int64   `json:"hot_updates_delta"`
+	HOTUpdateRatioDelta     float64 `json:"hot_update_ratio_delta"`
 	RelationSizeDelta       int64   `json:"relation_size_bytes_delta"`
 	TotalIndexSizeDelta     int64   `json:"total_index_size_bytes_delta"`
 	TotalTableSizeDelta     int64   `json:"total_table_size_bytes_delta"`
@@ -195,6 +196,7 @@ func CompareRelationBloatSamples(baseline, candidate []RelationBloatSample, comp
 			DeadTupleRatioDelta:     cand.DeadTupleRatio() - base.DeadTupleRatio(),
 			TotalUpdatesDelta:       cand.TotalUpdates - base.TotalUpdates,
 			HOTUpdatesDelta:         cand.HOTUpdates - base.HOTUpdates,
+			HOTUpdateRatioDelta:     cand.HOTUpdateRatio() - base.HOTUpdateRatio(),
 			RelationSizeDelta:       cand.RelationSize - base.RelationSize,
 			TotalIndexSizeDelta:     cand.TotalIndexSize - base.TotalIndexSize,
 			TotalTableSizeDelta:     cand.TotalTableSize - base.TotalTableSize,
@@ -326,13 +328,16 @@ func (c QueueBenchmarkComparison) Markdown() string {
 	}
 
 	fmt.Fprintf(&b, "\n## Relation Deltas\n\n")
-	fmt.Fprintf(&b, "| Relation | Dead tuples | Dead / 1k completed | Table bytes | Index bytes |\n")
-	fmt.Fprintf(&b, "|---|---:|---:|---:|---:|\n")
+	fmt.Fprintf(&b, "| Relation | Dead tuples | Dead / 1k completed | Updates | HOT updates | HOT delta | Table bytes | Index bytes |\n")
+	fmt.Fprintf(&b, "|---|---:|---:|---:|---:|---:|---:|---:|\n")
 	for _, delta := range c.RelationDeltas {
-		fmt.Fprintf(&b, "| `%s` | %+d | %.2f | %+d | %+d |\n",
+		fmt.Fprintf(&b, "| `%s` | %+d | %.2f | %+d | %+d | %+.2f%% | %+d | %+d |\n",
 			delta.Name,
 			delta.DeadTuplesDelta,
 			delta.DeadTuplesPerKCompleted,
+			delta.TotalUpdatesDelta,
+			delta.HOTUpdatesDelta,
+			delta.HOTUpdateRatioDelta*100,
 			delta.TotalTableSizeDelta,
 			delta.TotalIndexSizeDelta,
 		)
