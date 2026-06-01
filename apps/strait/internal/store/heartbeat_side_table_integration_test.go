@@ -170,6 +170,83 @@ func TestHeartbeatSideTable_ListStaleRunsPrefersSideTable(t *testing.T) {
 	}
 }
 
+func TestHeartbeatSideTable_UpdateHeartbeatDoesNotTouchJobRuns(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-hb-update-side-table")
+	run := baseRun(job, newID())
+	run.Status = domain.StatusExecuting
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+
+	if err := q.UpdateHeartbeat(ctx, run.ID); err != nil {
+		t.Fatalf("UpdateHeartbeat() error = %v", err)
+	}
+
+	var ledgerHeartbeat *time.Time
+	if err := testDB.Pool.QueryRow(ctx, `SELECT heartbeat_at FROM job_runs WHERE id = $1`, run.ID).Scan(&ledgerHeartbeat); err != nil {
+		t.Fatalf("query job_runs heartbeat_at: %v", err)
+	}
+	if ledgerHeartbeat != nil {
+		t.Fatalf("job_runs heartbeat_at = %v, want NULL to avoid fat-row churn", *ledgerHeartbeat)
+	}
+
+	got, err := q.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if got.HeartbeatAt == nil {
+		t.Fatal("GetRun heartbeat_at = nil, want side-table heartbeat")
+	}
+}
+
+func TestHeartbeatSideTable_UpdateHeartbeatForActiveRunUsesRunState(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-hb-active-state")
+	run := baseRun(job, newID())
+	run.Status = domain.StatusQueued
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE job_run_state
+		SET status = $1, started_at = NOW()
+		WHERE run_id = $2`,
+		domain.StatusExecuting,
+		run.ID,
+	); err != nil {
+		t.Fatalf("move state to executing: %v", err)
+	}
+
+	if err := q.UpdateHeartbeatForActiveRun(ctx, run.ID, run.Attempt); err != nil {
+		t.Fatalf("UpdateHeartbeatForActiveRun() error = %v", err)
+	}
+
+	var ledgerHeartbeat *time.Time
+	if err := testDB.Pool.QueryRow(ctx, `SELECT heartbeat_at FROM job_runs WHERE id = $1`, run.ID).Scan(&ledgerHeartbeat); err != nil {
+		t.Fatalf("query job_runs heartbeat_at: %v", err)
+	}
+	if ledgerHeartbeat != nil {
+		t.Fatalf("job_runs heartbeat_at = %v, want NULL to avoid fat-row churn", *ledgerHeartbeat)
+	}
+	got, err := q.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if got.Status != domain.StatusExecuting {
+		t.Fatalf("GetRun status = %q, want state status %q", got.Status, domain.StatusExecuting)
+	}
+	if got.HeartbeatAt == nil {
+		t.Fatal("GetRun heartbeat_at = nil, want side-table heartbeat")
+	}
+}
+
 func TestHeartbeatSideTable_UnloggedSurvivesTruncate(t *testing.T) {
 	// Crash recovery simulation: truncate the unlogged table and verify
 	// the system continues to accept writes. This mirrors what happens

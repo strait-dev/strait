@@ -206,10 +206,11 @@ func (q *Queries) GetRun(ctx context.Context, id string) (*domain.JobRun, error)
 
 	query := `
 		SELECT jr.id, jr.job_id, jr.project_id, COALESCE(s.status, jr.status), COALESCE(s.attempt, jr.attempt), jr.payload, jr.result, jr.metadata, jr.error, jr.error_class,
-		       jr.triggered_by, COALESCE(s.scheduled_at, jr.scheduled_at), COALESCE(s.started_at, jr.started_at), COALESCE(s.finished_at, jr.finished_at), COALESCE(s.heartbeat_at, jr.heartbeat_at),
+		       jr.triggered_by, COALESCE(s.scheduled_at, jr.scheduled_at), COALESCE(s.started_at, jr.started_at), COALESCE(s.finished_at, jr.finished_at), COALESCE(h.heartbeat_at, s.heartbeat_at, jr.heartbeat_at),
 		       COALESCE(s.next_retry_at, jr.next_retry_at), COALESCE(s.expires_at, jr.expires_at), jr.parent_run_id, COALESCE(s.priority, jr.priority), jr.idempotency_key, jr.job_version, jr.created_at, jr.workflow_step_run_id, jr.execution_trace, jr.debug_mode, jr.continuation_of, jr.lineage_depth, jr.tags, jr.job_version_id, jr.created_by, jr.batch_id, COALESCE(NULLIF(s.concurrency_key, ''), jr.concurrency_key), COALESCE(NULLIF(s.execution_mode, ''), jr.execution_mode), jr.is_rollback, jr.replayed_run_id
 		FROM job_runs jr
 		LEFT JOIN job_run_state s ON s.run_id = jr.id
+		LEFT JOIN job_run_heartbeats h ON h.run_id = jr.id
 		WHERE jr.id = $1`
 
 	run, err := dbscan.ScanRun(q.db.QueryRow(ctx, query, id))
@@ -236,10 +237,11 @@ func (q *Queries) GetRunWithCacheVersion(ctx context.Context, id string) (*domai
 
 	query := `
 		SELECT jr.id, jr.job_id, jr.project_id, COALESCE(s.status, jr.status), COALESCE(s.attempt, jr.attempt), jr.payload, jr.result, jr.metadata, jr.error, jr.error_class,
-		       jr.triggered_by, COALESCE(s.scheduled_at, jr.scheduled_at), COALESCE(s.started_at, jr.started_at), COALESCE(s.finished_at, jr.finished_at), COALESCE(s.heartbeat_at, jr.heartbeat_at),
+		       jr.triggered_by, COALESCE(s.scheduled_at, jr.scheduled_at), COALESCE(s.started_at, jr.started_at), COALESCE(s.finished_at, jr.finished_at), COALESCE(h.heartbeat_at, s.heartbeat_at, jr.heartbeat_at),
 		       COALESCE(s.next_retry_at, jr.next_retry_at), COALESCE(s.expires_at, jr.expires_at), jr.parent_run_id, COALESCE(s.priority, jr.priority), jr.idempotency_key, jr.job_version, jr.created_at, jr.workflow_step_run_id, jr.execution_trace, jr.debug_mode, jr.continuation_of, jr.lineage_depth, jr.tags, jr.job_version_id, jr.created_by, jr.batch_id, COALESCE(NULLIF(s.concurrency_key, ''), jr.concurrency_key), COALESCE(NULLIF(s.execution_mode, ''), jr.execution_mode), jr.is_rollback, jr.replayed_run_id, jr.cache_version
 		FROM job_runs jr
 		LEFT JOIN job_run_state s ON s.run_id = jr.id
+		LEFT JOIN job_run_heartbeats h ON h.run_id = jr.id
 		WHERE jr.id = $1`
 
 	run, err := dbscan.ScanRunWithCacheVersion(q.db.QueryRow(ctx, query, id))
@@ -2087,20 +2089,25 @@ func (q *Queries) UpdateHeartbeat(ctx context.Context, id string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateHeartbeat")
 	defer span.End()
 
-	query := `UPDATE job_runs SET heartbeat_at = NOW() WHERE id = $1`
+	query := `
+		INSERT INTO job_run_heartbeats (run_id, heartbeat_at)
+		SELECT id, NOW()
+		FROM job_runs
+		WHERE id = $1
+		ON CONFLICT (run_id) DO UPDATE
+		SET heartbeat_at = EXCLUDED.heartbeat_at
+		RETURNING run_id`
 
-	tag, err := q.db.Exec(ctx, query, id)
+	var runID string
+	err := q.db.QueryRow(ctx, query, id).Scan(&runID)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("%w: %s", ErrRunNotFound, id)
+		}
 		return fmt.Errorf("update heartbeat: %w", err)
 	}
 
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("%w: %s", ErrRunNotFound, id)
-	}
-
-	// Mirror the heartbeat into the side table so the reaper observes
-	// liveness without scanning the indexed job_runs.heartbeat_at column.
-	return q.UpsertHeartbeatSideTable(ctx, id)
+	return nil
 }
 
 func (q *Queries) UpdateHeartbeatForActiveRun(ctx context.Context, id string, attempt int) error {
@@ -2108,22 +2115,27 @@ func (q *Queries) UpdateHeartbeatForActiveRun(ctx context.Context, id string, at
 	defer span.End()
 
 	query := `
-		UPDATE job_runs
-		SET heartbeat_at = NOW()
-		WHERE id = $1
-		  AND attempt = $2
-		  AND status IN ('executing', 'waiting')`
+		INSERT INTO job_run_heartbeats (run_id, heartbeat_at)
+		SELECT jr.id, NOW()
+		FROM job_runs jr
+		LEFT JOIN job_run_state s ON s.run_id = jr.id
+		WHERE jr.id = $1
+		  AND COALESCE(s.attempt, jr.attempt) = $2
+		  AND COALESCE(s.status, jr.status) IN ('executing', 'waiting')
+		ON CONFLICT (run_id) DO UPDATE
+		SET heartbeat_at = EXCLUDED.heartbeat_at
+		RETURNING run_id`
 
-	tag, err := q.db.Exec(ctx, query, id, attempt)
+	var runID string
+	err := q.db.QueryRow(ctx, query, id, attempt).Scan(&runID)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, id, attempt)
+		}
 		return fmt.Errorf("update active run heartbeat: %w", err)
 	}
 
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, id, attempt)
-	}
-
-	return q.UpsertHeartbeatSideTable(ctx, id)
+	return nil
 }
 
 func (q *Queries) ListStaleRuns(ctx context.Context, threshold time.Duration) ([]domain.JobRun, error) {
@@ -3051,13 +3063,18 @@ func (q *Queries) BatchUpdateHeartbeat(ctx context.Context, ids []string) error 
 		return nil
 	}
 
-	query := `UPDATE job_runs SET heartbeat_at = NOW() WHERE id = ANY($1)`
+	query := `
+		INSERT INTO job_run_heartbeats (run_id, heartbeat_at)
+		SELECT id, NOW()
+		FROM job_runs
+		WHERE id = ANY($1)
+		ON CONFLICT (run_id) DO UPDATE
+		SET heartbeat_at = EXCLUDED.heartbeat_at`
 
 	if _, err := q.db.Exec(ctx, query, ids); err != nil {
 		return fmt.Errorf("batch update heartbeat: %w", err)
 	}
-
-	return q.BatchUpsertHeartbeatSideTable(ctx, ids)
+	return nil
 }
 
 func (q *Queries) ResetRunIdempotencyKey(ctx context.Context, runID string) error {
