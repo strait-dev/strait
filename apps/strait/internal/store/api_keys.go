@@ -433,9 +433,19 @@ func (q *Queries) ListRunsByOrg(ctx context.Context, orgID string, limit int, cu
 		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
 		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
 		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, is_rollback, replayed_run_id
-		FROM job_runs
-		WHERE project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
-		  AND ` + VisibleRunsClause
+		FROM job_runs jr
+		LEFT JOIN LATERAL (
+			SELECT e.visible_until, TRUE AS has_event
+			FROM job_run_visibility_events e
+			WHERE e.run_id = jr.id
+			ORDER BY e.id DESC
+			LIMIT 1
+		) visibility ON TRUE
+		WHERE jr.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
+		  AND CASE WHEN COALESCE(visibility.has_event, FALSE)
+		           THEN (visibility.visible_until IS NULL OR visibility.visible_until > NOW())
+		           ELSE (jr.visible_until IS NULL OR jr.visible_until > NOW())
+		      END`
 
 	args := []any{orgID}
 	param := 2
