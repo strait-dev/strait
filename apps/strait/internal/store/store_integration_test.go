@@ -1652,6 +1652,72 @@ func TestDeleteTerminalRunsPastRetention(t *testing.T) {
 	}
 }
 
+func TestDeleteTerminalRunsPastRetention_BatchCleansSideRows(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-delete-retention-batch")
+	const prefix = "retention-batch-run-"
+	const runCount = 5101
+	finishedAt := time.Now().UTC().Add(-45 * 24 * time.Hour)
+
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_runs (id, job_id, project_id, status, attempt, triggered_by, created_at, finished_at)
+		SELECT $1 || gs::TEXT, $2, $3, 'completed', 1, 'manual', $4, $4
+		FROM generate_series(1, $5) AS gs`, prefix, job.ID, job.ProjectID, finishedAt, runCount); err != nil {
+		t.Fatalf("seed batch job_runs: %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_active_claims (run_id, ready_generation, attempt, lease_owner)
+		SELECT run_id, ready_generation, attempt, 'retention-batch-worker'
+		FROM job_run_state
+		WHERE run_id LIKE $1 || '%'`, prefix); err != nil {
+		t.Fatalf("seed batch active claims: %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_lifecycle_events (run_id, from_status, to_status, attempt, fields)
+		SELECT run_id, 'queued', 'completed', attempt, '{"source":"retention-batch"}'::jsonb
+		FROM job_run_state
+		WHERE run_id LIKE $1 || '%'`, prefix); err != nil {
+		t.Fatalf("seed batch lifecycle events: %v", err)
+	}
+
+	for _, table := range []string{"job_runs", "job_run_state", "job_run_active_claims", "job_run_lifecycle_events"} {
+		if count := countRunRowsByPrefix(t, ctx, table, prefix); count != runCount {
+			t.Fatalf("%s seeded rows = %d, want %d", table, count, runCount)
+		}
+	}
+
+	deleted, err := q.DeleteTerminalRunsPastRetention(ctx, 30*24*time.Hour, 90*24*time.Hour)
+	if err != nil {
+		t.Fatalf("DeleteTerminalRunsPastRetention(first) error = %v", err)
+	}
+	if deleted != 5000 {
+		t.Fatalf("first deleted = %d, want 5000", deleted)
+	}
+
+	for _, table := range []string{"job_runs", "job_run_state", "job_run_active_claims", "job_run_lifecycle_events"} {
+		if count := countRunRowsByPrefix(t, ctx, table, prefix); count != runCount-deleted {
+			t.Fatalf("%s rows after first batch = %d, want %d", table, count, runCount-deleted)
+		}
+	}
+
+	deleted, err = q.DeleteTerminalRunsPastRetention(ctx, 30*24*time.Hour, 90*24*time.Hour)
+	if err != nil {
+		t.Fatalf("DeleteTerminalRunsPastRetention(second) error = %v", err)
+	}
+	if deleted != runCount-5000 {
+		t.Fatalf("second deleted = %d, want %d", deleted, runCount-5000)
+	}
+
+	for _, table := range []string{"job_runs", "job_run_state", "job_run_active_claims", "job_run_lifecycle_events"} {
+		if count := countRunRowsByPrefix(t, ctx, table, prefix); count != 0 {
+			t.Fatalf("%s rows after second batch = %d, want 0", table, count)
+		}
+	}
+}
+
 func seedRetentionSideRows(t *testing.T, ctx context.Context, runIDs ...string) {
 	t.Helper()
 
@@ -1719,6 +1785,30 @@ func countRunSideTableRows(t *testing.T, ctx context.Context, table, runID strin
 	var count int64
 	if err := testDB.Pool.QueryRow(ctx, query, runID).Scan(&count); err != nil {
 		t.Fatalf("count %s rows for %s: %v", table, runID, err)
+	}
+	return count
+}
+
+func countRunRowsByPrefix(t *testing.T, ctx context.Context, table, prefix string) int64 {
+	t.Helper()
+
+	var query string
+	switch table {
+	case "job_runs":
+		query = `SELECT COUNT(*) FROM job_runs WHERE id LIKE $1 || '%'`
+	case "job_run_state":
+		query = `SELECT COUNT(*) FROM job_run_state WHERE run_id LIKE $1 || '%'`
+	case "job_run_active_claims":
+		query = `SELECT COUNT(*) FROM job_run_active_claims WHERE run_id LIKE $1 || '%'`
+	case "job_run_lifecycle_events":
+		query = `SELECT COUNT(*) FROM job_run_lifecycle_events WHERE run_id LIKE $1 || '%'`
+	default:
+		t.Fatalf("unknown run table %q", table)
+	}
+
+	var count int64
+	if err := testDB.Pool.QueryRow(ctx, query, prefix).Scan(&count); err != nil {
+		t.Fatalf("count %s rows with prefix %s: %v", table, prefix, err)
 	}
 	return count
 }
