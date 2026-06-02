@@ -326,7 +326,9 @@ func TestIntegration_ReaperStaleRunDetection_RetriesWhenAttemptsRemain(t *testin
 	if err := getTestDB(t).Pool.QueryRow(ctx, `
 		SELECT attempt, next_retry_at
 		FROM job_retries
-		WHERE run_id = $1`, run.ID).Scan(&retryAttempt, &nextRetryAt); err != nil {
+		WHERE run_id = $1 AND cleared = FALSE
+		ORDER BY id DESC
+		LIMIT 1`, run.ID).Scan(&retryAttempt, &nextRetryAt); err != nil {
 		t.Fatalf("query scheduled retry: %v", err)
 	}
 	if retryAttempt != 2 {

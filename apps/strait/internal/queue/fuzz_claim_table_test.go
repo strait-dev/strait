@@ -36,10 +36,7 @@ func FuzzTwoPhaseClaimSQL_ContainsRequiredClauses(f *testing.F) {
 			  AND COALESCE(jr.job_paused, false) = false
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
 			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
-			  AND NOT EXISTS (
-			      SELECT 1 FROM job_retries rt
-			      WHERE rt.run_id = jr.id AND rt.next_retry_at > NOW()
-			  )
+			  AND NOT strait_run_retry_blocked(jr.id)
 			  AND (jr.job_max_concurrency IS NULL OR COALESCE(jac_job.count, 0) < jr.job_max_concurrency)
 			  AND (jr.job_max_concurrency_per_key IS NULL
 			       OR jr.concurrency_key IS NULL

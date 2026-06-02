@@ -10,10 +10,10 @@ import (
 
 // Retry side table helpers.
 //
-// The job_retries table holds pending retries for runs that are currently
-// in status 'queued'. Writing here instead of UPDATE job_runs SET
-// next_retry_at keeps job_runs rows HOT-update eligible because the
-// retry timestamp is not indexed on job_runs.
+// The job_retries table is append-only. The latest row for a run wins;
+// clearing a retry appends a tombstone row. Writing here instead of UPDATE
+// job_runs SET next_retry_at keeps job_runs rows HOT-update eligible, and
+// appending instead of upserting avoids dead-tuple churn in the retry table.
 //
 // Ownership:
 //   - ScheduleRetry writes on failure handling.
@@ -21,38 +21,36 @@ import (
 //     before its retry fires.
 //   - DelayedPoller (future integration) walks this table to promote.
 
-// ScheduleRetry upserts a retry record for the given run.
+// ScheduleRetry appends a retry record for the given run.
 func (q *Queries) ScheduleRetry(ctx context.Context, runID string, at time.Time, attempt int) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ScheduleRetry")
 	defer span.End()
 
 	const sql = `
-		INSERT INTO job_retries (run_id, next_retry_at, attempt, scheduled_at)
-		VALUES ($1, $2, $3, NOW())
-		ON CONFLICT (run_id) DO UPDATE
-		  SET next_retry_at = EXCLUDED.next_retry_at,
-		      attempt = EXCLUDED.attempt,
-		      scheduled_at = NOW()`
+		INSERT INTO job_retries (run_id, next_retry_at, attempt, scheduled_at, cleared)
+		VALUES ($1, $2, $3, NOW(), FALSE)`
 	if _, err := q.db.Exec(ctx, sql, runID, at, attempt); err != nil {
 		return fmt.Errorf("schedule retry: %w", err)
 	}
 	return nil
 }
 
-// ClearRetry removes a retry record, typically on successful claim or
+// ClearRetry appends a tombstone record, typically on successful claim or
 // explicit cancellation.
 func (q *Queries) ClearRetry(ctx context.Context, runID string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ClearRetry")
 	defer span.End()
 
-	if _, err := q.db.Exec(ctx, `DELETE FROM job_retries WHERE run_id = $1`, runID); err != nil {
+	if _, err := q.db.Exec(ctx, `
+		INSERT INTO job_retries (run_id, next_retry_at, attempt, scheduled_at, cleared)
+		VALUES ($1, NULL, 0, NOW(), TRUE)`, runID); err != nil {
 		return fmt.Errorf("clear retry: %w", err)
 	}
 	return nil
 }
 
-// ClearRetries removes retry records for a batch of run IDs. Used by the
-// dequeue path to drop the side-table entry once a run is claimed.
+// ClearRetries appends tombstone records for a batch of run IDs. Used by the
+// dequeue path to clear the side-table retry state once a run is claimed.
 func (q *Queries) ClearRetries(ctx context.Context, ids []string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ClearRetries")
 	defer span.End()
@@ -60,7 +58,9 @@ func (q *Queries) ClearRetries(ctx context.Context, ids []string) error {
 	if len(ids) == 0 {
 		return nil
 	}
-	if _, err := q.db.Exec(ctx, `DELETE FROM job_retries WHERE run_id = ANY($1)`, ids); err != nil {
+	if _, err := q.db.Exec(ctx, `
+		INSERT INTO job_retries (run_id, next_retry_at, attempt, scheduled_at, cleared)
+		SELECT DISTINCT unnest($1::text[]), NULL::timestamptz, 0, NOW(), TRUE`, ids); err != nil {
 		return fmt.Errorf("clear retries: %w", err)
 	}
 	return nil
@@ -75,9 +75,17 @@ func (q *Queries) ReadyRetries(ctx context.Context, limit int) ([]string, error)
 		limit = 500
 	}
 	rows, err := q.db.Query(ctx, `
-		SELECT run_id FROM job_retries
-		WHERE next_retry_at <= NOW()
-		ORDER BY next_retry_at ASC
+		SELECT r.run_id
+		FROM job_retries r
+		WHERE r.next_retry_at <= NOW()
+		  AND r.cleared = FALSE
+		  AND NOT EXISTS (
+		      SELECT 1
+		      FROM job_retries newer
+		      WHERE newer.run_id = r.run_id
+		        AND newer.id > r.id
+		  )
+		ORDER BY r.next_retry_at ASC, r.run_id ASC
 		LIMIT $1
 	`, limit)
 	if err != nil {
@@ -96,14 +104,24 @@ func (q *Queries) ReadyRetries(ctx context.Context, limit int) ([]string, error)
 	return out, rows.Err()
 }
 
-// CountPendingRetries returns the total size of the retry side table.
-// For observability.
+// CountPendingRetries returns the number of latest retry records that still gate
+// a run. Historical rows and clear tombstones are excluded.
 func (q *Queries) CountPendingRetries(ctx context.Context) (int, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountPendingRetries")
 	defer span.End()
 
 	var count int
-	err := q.db.QueryRow(ctx, `SELECT COUNT(*) FROM job_retries`).Scan(&count)
+	err := q.db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM job_retries r
+		WHERE r.cleared = FALSE
+		  AND r.next_retry_at IS NOT NULL
+		  AND NOT EXISTS (
+		      SELECT 1
+		      FROM job_retries newer
+		      WHERE newer.run_id = r.run_id
+		        AND newer.id > r.id
+		  )`).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("count retries: %w", err)
 	}

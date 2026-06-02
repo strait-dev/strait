@@ -448,6 +448,7 @@ func (q *PgQueQueue) promoteReadyRetriesInTx(ctx context.Context, tx store.DBTX,
 	rows, err := tx.Query(ctx, `
 		WITH candidates AS MATERIALIZED (
 			SELECT
+				rt.id,
 				rt.run_id,
 				rt.attempt,
 				s.ready_generation,
@@ -461,29 +462,35 @@ func (q *PgQueQueue) promoteReadyRetriesInTx(ctx context.Context, tx store.DBTX,
 			FROM job_retries rt
 			JOIN job_run_state s ON s.run_id = rt.run_id
 			WHERE rt.next_retry_at <= NOW()
+			  AND rt.cleared = FALSE
 			  AND s.status = 'queued'
 			  AND NOT EXISTS (
 			      SELECT 1
 			      FROM job_run_terminal_state t
 			      WHERE t.run_id = s.run_id
 			  )
+			  AND NOT EXISTS (
+			      SELECT 1
+			      FROM job_retries newer
+			      WHERE newer.run_id = rt.run_id
+			        AND newer.id > rt.id
+			  )
 			ORDER BY rt.next_retry_at ASC, rt.run_id ASC
 			LIMIT $1
 			FOR UPDATE OF rt, s SKIP LOCKED
 		),
-		deleted_retries AS (
-			DELETE FROM job_retries rt
-			USING candidates c
-			WHERE rt.run_id = c.run_id
+		cleared_retries AS (
+			INSERT INTO job_retries (run_id, next_retry_at, attempt, scheduled_at, cleared)
+			SELECT run_id, NULL::timestamptz, 0, NOW(), TRUE
+			FROM candidates
 			RETURNING
-				rt.run_id,
-				c.attempt,
-				c.ready_generation
+				run_id
 		),
 		inserted_ready AS (
 			INSERT INTO job_run_ready_events (run_id, ready_generation, attempt, reason)
-			SELECT run_id, ready_generation, attempt, 'retry_ready'
-			FROM deleted_retries
+			SELECT c.run_id, c.ready_generation, c.attempt, 'retry_ready'
+			FROM candidates c
+			JOIN cleared_retries cleared ON cleared.run_id = c.run_id
 			ON CONFLICT (run_id, ready_generation, reason) DO NOTHING
 			RETURNING
 				run_id,
@@ -1519,12 +1526,7 @@ func (q *PgQueQueue) claimRuns(ctx context.Context, ids []string, generations []
 				      OR s.next_retry_at <= NOW()
 				      OR ready.reason = 'retry_ready'
 				  )
-				  AND NOT EXISTS (
-				      SELECT 1
-				      FROM job_retries rt
-				      WHERE rt.run_id = s.run_id
-				        AND rt.next_retry_at > NOW()
-				  )
+				  AND NOT strait_run_retry_blocked(s.run_id)
 				  AND NOT EXISTS (
 				      SELECT 1
 				      FROM job_run_active_claims c

@@ -26,10 +26,7 @@ func BenchmarkBuildDequeueQuery(b *testing.B) {
 			  AND j.enabled = true
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
 			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
-			  AND NOT EXISTS (
-			      SELECT 1 FROM job_retries rt
-			      WHERE rt.run_id = jr.id AND rt.next_retry_at > NOW()
-			  )
+			  AND NOT strait_run_retry_blocked(jr.id)
 			  %s
 			ORDER BY jr.priority DESC, jr.created_at ASC
 			FOR UPDATE OF jr SKIP LOCKED

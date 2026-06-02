@@ -314,7 +314,11 @@ func TestWorkerModeDispatchHonorsJobTimeoutAndRequeues(t *testing.T) {
 			// job_runs.next_retry_at is no longer written by the worker.
 			var nextRetryAt *time.Time
 			if err := env.DB.Pool.QueryRow(ctx,
-				`SELECT next_retry_at FROM job_retries WHERE run_id = $1`, run.ID,
+				`SELECT next_retry_at
+				 FROM job_retries
+				 WHERE run_id = $1 AND cleared = FALSE
+				 ORDER BY id DESC
+				 LIMIT 1`, run.ID,
 			).Scan(&nextRetryAt); err != nil {
 				t.Fatalf("timed-out worker run missing job_retries row: %v", err)
 			}

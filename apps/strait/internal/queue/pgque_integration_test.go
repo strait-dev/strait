@@ -612,16 +612,25 @@ func TestPgQue_ActivateDueRunsPromotesReadyRetries(t *testing.T) {
 	var stateStatus, readStatus domain.RunStatus
 	var stateAttempt, readAttempt int
 	var afterGeneration int64
-	var pendingRetries, readyEvents int
+	var rawRetryRows, pendingRetries, readyEvents int
+	var latestRetryCleared bool
 	if err := testDB.Pool.QueryRow(ctx, `
 		SELECT s.status, s.attempt, rs.status, rs.attempt, s.ready_generation,
 		       (SELECT COUNT(*) FROM job_retries WHERE run_id = s.run_id),
+		       COALESCE((SELECT cleared FROM job_retries WHERE run_id = s.run_id ORDER BY id DESC LIMIT 1), FALSE),
+		       (SELECT COUNT(*) FROM job_retries r
+		        WHERE r.run_id = s.run_id
+		          AND r.cleared = FALSE
+		          AND r.next_retry_at IS NOT NULL
+		          AND NOT EXISTS (
+		              SELECT 1 FROM job_retries newer WHERE newer.run_id = r.run_id AND newer.id > r.id
+		          )),
 		       (SELECT COUNT(*) FROM job_run_ready_events WHERE run_id = s.run_id AND reason = 'retry_ready')
 		FROM job_run_state s
 		JOIN job_run_read_state rs ON rs.run_id = s.run_id
 		WHERE s.run_id = $1`,
 		run.ID,
-	).Scan(&stateStatus, &stateAttempt, &readStatus, &readAttempt, &afterGeneration, &pendingRetries, &readyEvents); err != nil {
+	).Scan(&stateStatus, &stateAttempt, &readStatus, &readAttempt, &afterGeneration, &rawRetryRows, &latestRetryCleared, &pendingRetries, &readyEvents); err != nil {
 		t.Fatalf("query retry promotion state: %v", err)
 	}
 	if stateStatus != domain.StatusQueued {
@@ -638,6 +647,12 @@ func TestPgQue_ActivateDueRunsPromotesReadyRetries(t *testing.T) {
 	}
 	if afterGeneration != beforeGeneration {
 		t.Fatalf("ready_generation = %d, want unchanged %d", afterGeneration, beforeGeneration)
+	}
+	if rawRetryRows != 3 {
+		t.Fatalf("raw retry rows = %d, want future schedule, due schedule, and clear tombstone", rawRetryRows)
+	}
+	if !latestRetryCleared {
+		t.Fatal("latest retry row must be clear tombstone after promotion")
 	}
 	if pendingRetries != 0 {
 		t.Fatalf("pending retries = %d, want 0", pendingRetries)

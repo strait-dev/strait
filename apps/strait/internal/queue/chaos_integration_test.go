@@ -115,9 +115,7 @@ func TestChaos_DBTimestampUsedForRetryNotGoTime(t *testing.T) {
 	}
 	_, err := testDB.Pool.Exec(ctx, `
 		INSERT INTO job_retries (run_id, next_retry_at, attempt, scheduled_at)
-		VALUES ($1, NOW() + INTERVAL '2 seconds', 1, NOW())
-		ON CONFLICT (run_id) DO UPDATE
-		  SET next_retry_at = EXCLUDED.next_retry_at`,
+		VALUES ($1, NOW() + INTERVAL '2 seconds', 1, NOW())`,
 		run.ID,
 	)
 	if err != nil {

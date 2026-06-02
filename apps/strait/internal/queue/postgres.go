@@ -596,7 +596,7 @@ func (q *PostgresQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 			  AND NOT j.paused
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
 			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
-			  AND NOT EXISTS (SELECT 1 FROM job_retries rt WHERE rt.run_id = jr.id AND rt.next_retry_at > NOW())
+			  AND NOT strait_run_retry_blocked(jr.id)
 			  %s
 			ORDER BY %s
 			FOR UPDATE OF jr SKIP LOCKED
@@ -665,7 +665,7 @@ func (q *PostgresQueue) DequeueNFullyDenormalized(ctx context.Context, n int) ([
 			  AND COALESCE(jr.job_paused, false) = false
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
 			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
-			  AND NOT EXISTS (SELECT 1 FROM job_retries rt WHERE rt.run_id = jr.id AND rt.next_retry_at > NOW())
+			  AND NOT strait_run_retry_blocked(jr.id)
 			  AND (jr.job_max_concurrency IS NULL OR COALESCE(jac_job.count, 0) < jr.job_max_concurrency)
 			  AND (jr.job_max_concurrency_per_key IS NULL
 			       OR jr.concurrency_key IS NULL
@@ -699,7 +699,7 @@ func (q *PostgresQueue) DequeueNTwoPhase(ctx context.Context, n int) ([]domain.J
 			  AND COALESCE(jr.job_paused, false) = false
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
 			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
-			  AND NOT EXISTS (SELECT 1 FROM job_retries rt WHERE rt.run_id = jr.id AND rt.next_retry_at > NOW())
+			  AND NOT strait_run_retry_blocked(jr.id)
 			  AND (jr.job_max_concurrency IS NULL OR COALESCE(jac_job.count, 0) < jr.job_max_concurrency)
 			  AND (jr.job_max_concurrency_per_key IS NULL
 			       OR jr.concurrency_key IS NULL
@@ -737,7 +737,7 @@ func (q *PostgresQueue) DequeueNDenormalized(ctx context.Context, n int) ([]doma
 			  AND NOT j.paused
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
 			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
-			  AND NOT EXISTS (SELECT 1 FROM job_retries rt WHERE rt.run_id = jr.id AND rt.next_retry_at > NOW())
+			  AND NOT strait_run_retry_blocked(jr.id)
 			  AND (j.max_concurrency IS NULL OR COALESCE(jac_job.count, 0) < j.max_concurrency)
 			  AND (j.max_concurrency_per_key IS NULL
 			       OR jr.concurrency_key IS NULL
@@ -782,7 +782,7 @@ func (q *PostgresQueue) DequeueNWithCursor(ctx context.Context, n int, cursor *C
 			  AND NOT j.paused
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
 			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
-			  AND NOT EXISTS (SELECT 1 FROM job_retries rt WHERE rt.run_id = jr.id AND rt.next_retry_at > NOW())
+			  AND NOT strait_run_retry_blocked(jr.id)
 			  %s
 			  %s
 			ORDER BY %s
@@ -823,7 +823,7 @@ func (q *PostgresQueue) DequeueNFair(ctx context.Context, n int) ([]domain.JobRu
 			  AND NOT j.paused
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
 			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
-			  AND NOT EXISTS (SELECT 1 FROM job_retries rt WHERE rt.run_id = jr.id AND rt.next_retry_at > NOW())
+			  AND NOT strait_run_retry_blocked(jr.id)
 			  %s
 			ORDER BY jr.job_id, %s`, concurrencyJoins, domain.StatusQueued, concurrencyWhere, orderBy),
 	})
@@ -854,7 +854,7 @@ func (q *PostgresQueue) DequeueNPartitioned(ctx context.Context, n int, projectI
 			  AND COALESCE(jr.execution_mode, j.execution_mode, 'http') = 'http'
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
 			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
-			  AND NOT EXISTS (SELECT 1 FROM job_retries rt WHERE rt.run_id = jr.id AND rt.next_retry_at > NOW())
+			  AND NOT strait_run_retry_blocked(jr.id)
 			  %s
 			ORDER BY %s
 			FOR UPDATE OF jr SKIP LOCKED
@@ -880,7 +880,7 @@ func (q *PostgresQueue) DequeueNByProject(ctx context.Context, n int, projectID 
 			  AND COALESCE(jr.execution_mode, j.execution_mode, 'http') = 'http'
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
 			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
-			  AND NOT EXISTS (SELECT 1 FROM job_retries rt WHERE rt.run_id = jr.id AND rt.next_retry_at > NOW())
+			  AND NOT strait_run_retry_blocked(jr.id)
 			  %s
 			ORDER BY %s
 			FOR UPDATE OF jr SKIP LOCKED
@@ -906,7 +906,7 @@ var claimDeleteSQL = "/* action=dequeue */ " + `
 		  AND COALESCE(q.job_paused, false) = false
 		  AND (q.scheduled_at IS NULL OR q.scheduled_at <= NOW())
 		  AND (q.next_retry_at IS NULL OR q.next_retry_at <= NOW())
-		  AND NOT EXISTS (SELECT 1 FROM job_retries rt WHERE rt.run_id = q.run_id AND rt.next_retry_at > NOW())
+		  AND NOT strait_run_retry_blocked(q.run_id)
 		  AND (q.job_max_concurrency IS NULL OR q.job_max_concurrency = 0
 		       OR COALESCE(jac_job.count, 0) < q.job_max_concurrency)
 		  AND (q.job_max_concurrency_per_key IS NULL OR q.job_max_concurrency_per_key = 0
@@ -1003,7 +1003,7 @@ func workerClaimDeleteSQL() string {
 		  AND COALESCE(q.job_paused, false) = false
 		  AND (q.scheduled_at IS NULL OR q.scheduled_at <= NOW())
 		  AND (q.next_retry_at IS NULL OR q.next_retry_at <= NOW())
-		  AND NOT EXISTS (SELECT 1 FROM job_retries rt WHERE rt.run_id = q.run_id AND rt.next_retry_at > NOW())
+		  AND NOT strait_run_retry_blocked(q.run_id)
 		  AND (q.job_max_concurrency IS NULL OR q.job_max_concurrency = 0
 		       OR COALESCE(jac_job.count, 0) < q.job_max_concurrency)
 		  AND (q.job_max_concurrency_per_key IS NULL OR q.job_max_concurrency_per_key = 0
@@ -1175,7 +1175,7 @@ func (q *PostgresQueue) dequeueNForWorkerFallback(ctx context.Context, n int, pr
 			  AND COALESCE(jr.job_paused, false) = false
 			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
 			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
-			  AND NOT EXISTS (SELECT 1 FROM job_retries rt WHERE rt.run_id = jr.id AND rt.next_retry_at > NOW())
+			  AND NOT strait_run_retry_blocked(jr.id)
 			  AND (jr.job_max_concurrency IS NULL OR COALESCE(jac_job.count, 0) < jr.job_max_concurrency)
 			  AND (jr.job_max_concurrency_per_key IS NULL
 			       OR jr.concurrency_key IS NULL

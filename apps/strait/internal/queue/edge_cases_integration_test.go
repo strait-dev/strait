@@ -204,8 +204,7 @@ func TestEdge_NextRetryAtInPast(t *testing.T) {
 	// means the run is claimable.
 	_, _ = testDB.Pool.Exec(ctx, `
 		INSERT INTO job_retries (run_id, next_retry_at, attempt, scheduled_at)
-		VALUES ($1, $2, 1, NOW())
-		ON CONFLICT (run_id) DO UPDATE SET next_retry_at = EXCLUDED.next_retry_at`,
+		VALUES ($1, $2, 1, NOW())`,
 		run.ID, past)
 	batch, _ := q.DequeueN(ctx, 1)
 	if len(batch) != 1 || batch[0].ID != run.ID {

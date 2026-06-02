@@ -36,6 +36,21 @@ func TestRetries_Schedule_Clear_Ready(t *testing.T) {
 	if len(ready) != 0 {
 		t.Errorf("ready after clear = %v", ready)
 	}
+
+	var rawRows int
+	var latestCleared bool
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*), COALESCE((ARRAY_AGG(cleared ORDER BY id DESC))[1], FALSE)
+		FROM job_retries
+		WHERE run_id = $1`, runID).Scan(&rawRows, &latestCleared); err != nil {
+		t.Fatalf("query retry rows after clear: %v", err)
+	}
+	if rawRows != 2 {
+		t.Fatalf("raw retry rows = %d, want scheduled row plus clear tombstone", rawRows)
+	}
+	if !latestCleared {
+		t.Fatal("latest retry row must be a clear tombstone")
+	}
 }
 
 func TestRetries_FutureRetry_NotReady(t *testing.T) {
@@ -56,12 +71,12 @@ func TestRetries_FutureRetry_NotReady(t *testing.T) {
 	}
 }
 
-func TestRetries_UpsertIdempotent(t *testing.T) {
+func TestRetries_LatestScheduleWins(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
 
-	runID := "retry-upsert-" + newID()
+	runID := "retry-latest-" + newID()
 	if err := q.ScheduleRetry(ctx, runID, time.Now().UTC().Add(-1*time.Second), 1); err != nil {
 		t.Fatalf("first: %v", err)
 	}
@@ -71,7 +86,7 @@ func TestRetries_UpsertIdempotent(t *testing.T) {
 	ready, _ := q.ReadyRetries(ctx, 100)
 	for _, id := range ready {
 		if id == runID {
-			t.Errorf("upsert to future should remove from ready")
+			t.Errorf("newer future retry should remove run from ready")
 		}
 	}
 	n, err := q.CountPendingRetries(ctx)
@@ -80,6 +95,85 @@ func TestRetries_UpsertIdempotent(t *testing.T) {
 	}
 	if n != 1 {
 		t.Errorf("pending = %d, want 1", n)
+	}
+
+	var rawRows, latestAttempt int
+	var latestRetryAt time.Time
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*), (ARRAY_AGG(attempt ORDER BY id DESC))[1], (ARRAY_AGG(next_retry_at ORDER BY id DESC))[1]
+		FROM job_retries
+		WHERE run_id = $1`, runID).Scan(&rawRows, &latestAttempt, &latestRetryAt); err != nil {
+		t.Fatalf("query raw retry rows: %v", err)
+	}
+	if rawRows != 2 {
+		t.Fatalf("raw retry rows = %d, want append-only history", rawRows)
+	}
+	if latestAttempt != 5 {
+		t.Fatalf("latest attempt = %d, want 5", latestAttempt)
+	}
+	if !latestRetryAt.After(time.Now().UTC().Add(30 * time.Minute)) {
+		t.Fatalf("latest retry timestamp = %s, want future timestamp", latestRetryAt)
+	}
+}
+
+func TestRetries_ClearRetriesAppendsTombstones(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	firstID := "retry-clear-batch-a-" + newID()
+	secondID := "retry-clear-batch-b-" + newID()
+	past := time.Now().UTC().Add(-time.Second)
+	for _, runID := range []string{firstID, secondID} {
+		if err := q.ScheduleRetry(ctx, runID, past, 1); err != nil {
+			t.Fatalf("schedule %s: %v", runID, err)
+		}
+	}
+	if err := q.ClearRetries(ctx, []string{firstID, secondID}); err != nil {
+		t.Fatalf("clear batch: %v", err)
+	}
+	ready, err := q.ReadyRetries(ctx, 100)
+	if err != nil {
+		t.Fatalf("ready after batch clear: %v", err)
+	}
+	for _, runID := range []string{firstID, secondID} {
+		for _, readyID := range ready {
+			if readyID == runID {
+				t.Fatalf("cleared run %s returned as ready: %v", runID, ready)
+			}
+		}
+	}
+
+	rows, err := testDB.Pool.Query(ctx, `
+		SELECT run_id, COUNT(*), COALESCE((ARRAY_AGG(cleared ORDER BY id DESC))[1], FALSE)
+		FROM job_retries
+		WHERE run_id = ANY($1)
+		GROUP BY run_id`, []string{firstID, secondID})
+	if err != nil {
+		t.Fatalf("query clear tombstones: %v", err)
+	}
+	defer rows.Close()
+	seen := 0
+	for rows.Next() {
+		var runID string
+		var rawRows int
+		var latestCleared bool
+		if err := rows.Scan(&runID, &rawRows, &latestCleared); err != nil {
+			t.Fatalf("scan clear tombstone row: %v", err)
+		}
+		seen++
+		if rawRows != 2 {
+			t.Fatalf("%s raw rows = %d, want scheduled row plus tombstone", runID, rawRows)
+		}
+		if !latestCleared {
+			t.Fatalf("%s latest row must be a clear tombstone", runID)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate clear tombstones: %v", err)
+	}
+	if seen != 2 {
+		t.Fatalf("clear tombstone rows seen = %d, want 2", seen)
 	}
 }
 
@@ -107,8 +201,74 @@ func TestRetries_OrderedByNextRetryAt(t *testing.T) {
 func TestRetries_ClearNonexistentIsNoOp(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
-	if err := q.ClearRetry(ctx, "no-such-run"); err != nil {
+	mustClean(t, ctx)
+
+	runID := "no-such-run-" + newID()
+	if err := q.ClearRetry(ctx, runID); err != nil {
 		t.Errorf("clear missing should be noop: %v", err)
+	}
+	n, err := q.CountPendingRetries(ctx)
+	if err != nil {
+		t.Fatalf("count pending retries: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("pending retries = %d, want 0", n)
+	}
+
+	var rawRows int
+	var latestCleared bool
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*), COALESCE((ARRAY_AGG(cleared ORDER BY id DESC))[1], FALSE)
+		FROM job_retries
+		WHERE run_id = $1`, runID).Scan(&rawRows, &latestCleared); err != nil {
+		t.Fatalf("query clear missing tombstone: %v", err)
+	}
+	if rawRows != 1 {
+		t.Fatalf("raw retry rows = %d, want one tombstone", rawRows)
+	}
+	if !latestCleared {
+		t.Fatal("latest retry row must be a clear tombstone")
+	}
+}
+
+func TestRetries_RunRetryBlockedUsesLatestRow(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	runID := "retry-blocked-" + newID()
+	if err := q.ScheduleRetry(ctx, runID, time.Now().UTC().Add(time.Hour), 1); err != nil {
+		t.Fatalf("schedule future retry: %v", err)
+	}
+	var blocked bool
+	if err := testDB.Pool.QueryRow(ctx, `SELECT strait_run_retry_blocked($1)`, runID).Scan(&blocked); err != nil {
+		t.Fatalf("query blocked future retry: %v", err)
+	}
+	if !blocked {
+		t.Fatal("future latest retry should block dequeue")
+	}
+
+	if err := q.ScheduleRetry(ctx, runID, time.Now().UTC().Add(-time.Second), 2); err != nil {
+		t.Fatalf("schedule due retry: %v", err)
+	}
+	if err := testDB.Pool.QueryRow(ctx, `SELECT strait_run_retry_blocked($1)`, runID).Scan(&blocked); err != nil {
+		t.Fatalf("query blocked due retry: %v", err)
+	}
+	if blocked {
+		t.Fatal("newer due retry should unblock dequeue")
+	}
+
+	if err := q.ScheduleRetry(ctx, runID, time.Now().UTC().Add(time.Hour), 3); err != nil {
+		t.Fatalf("schedule second future retry: %v", err)
+	}
+	if err := q.ClearRetry(ctx, runID); err != nil {
+		t.Fatalf("clear retry: %v", err)
+	}
+	if err := testDB.Pool.QueryRow(ctx, `SELECT strait_run_retry_blocked($1)`, runID).Scan(&blocked); err != nil {
+		t.Fatalf("query blocked cleared retry: %v", err)
+	}
+	if blocked {
+		t.Fatal("clear tombstone should unblock dequeue")
 	}
 }
 

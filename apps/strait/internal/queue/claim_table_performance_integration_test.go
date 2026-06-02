@@ -70,7 +70,7 @@ func TestClaimTable_DequeueNClaim_RespectsRetrySchedule(t *testing.T) {
 	if _, err := testDB.Pool.Exec(ctx, `
 		INSERT INTO job_retries (run_id, next_retry_at, attempt, scheduled_at)
 		VALUES ($1, $2, 1, NOW())
-		ON CONFLICT (run_id) DO UPDATE SET next_retry_at = EXCLUDED.next_retry_at`,
+		`,
 		run.ID, nextRetryAt,
 	); err != nil {
 		t.Fatalf("schedule future retry: %v", err)
@@ -84,7 +84,9 @@ func TestClaimTable_DequeueNClaim_RespectsRetrySchedule(t *testing.T) {
 		t.Fatalf("future retry run was claimed: %+v", batch)
 	}
 
-	if _, err := testDB.Pool.Exec(ctx, `UPDATE job_retries SET next_retry_at = NOW() - INTERVAL '1 second' WHERE run_id = $1`, run.ID); err != nil {
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_retries (run_id, next_retry_at, attempt, scheduled_at)
+		VALUES ($1, NOW() - INTERVAL '1 second', 2, NOW())`, run.ID); err != nil {
 		t.Fatalf("make retry due: %v", err)
 	}
 

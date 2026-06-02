@@ -67,7 +67,7 @@ func PrepareDequeueStatements(ctx context.Context, pool *pgxpool.Pool, logger *s
 				  AND j.enabled = true AND NOT j.paused
 				  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
 				  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
-				  AND NOT EXISTS (SELECT 1 FROM job_retries rt WHERE rt.run_id = jr.id AND rt.next_retry_at > NOW())
+				  AND NOT strait_run_retry_blocked(jr.id)
 				  %s
 				ORDER BY %s
 				FOR UPDATE OF jr SKIP LOCKED

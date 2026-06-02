@@ -297,8 +297,7 @@ func TestDequeueN_RespectsNextRetryAt(t *testing.T) {
 	nextRetryAt := time.Now().Add(20 * time.Minute)
 	if _, err := testDB.Pool.Exec(ctx, `
 		INSERT INTO job_retries (run_id, next_retry_at, attempt, scheduled_at)
-		VALUES ($1, $2, 1, NOW())
-		ON CONFLICT (run_id) DO UPDATE SET next_retry_at = EXCLUDED.next_retry_at`,
+		VALUES ($1, $2, 1, NOW())`,
 		run.ID, nextRetryAt,
 	); err != nil {
 		t.Fatalf("schedule retry: %v", err)

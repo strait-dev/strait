@@ -59,7 +59,7 @@ func TestRetry_WritesSideTableNotJobRuns(t *testing.T) {
 
 		var hasSideTableRow bool
 		if err := env.DB.Pool.QueryRow(ctx,
-			`SELECT EXISTS (SELECT 1 FROM job_retries WHERE run_id = $1 AND next_retry_at > NOW())`,
+			`SELECT strait_run_retry_blocked($1)`,
 			run.ID,
 		).Scan(&hasSideTableRow); err != nil {
 			t.Fatalf("query job_retries: %v", err)
