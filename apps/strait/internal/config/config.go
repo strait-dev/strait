@@ -89,9 +89,10 @@ type Config struct {
 	// columns plus job_active_counts instead of joining jobs and scanning
 	// active rows).
 	QueueUseDenormalizedDequeue bool `env:"QUEUE_USE_DENORMALIZED_DEQUEUE" default:"true"`
-	// QueueEngine selects the queue storage engine. batchlog remains the
-	// default until pgque clears the bloat and latency benchmark gate.
-	QueueEngine               string        `env:"QUEUE_ENGINE" default:"batchlog"`
+	// QueueEngine selects the queue storage engine. PgQue is the default
+	// ready-event log because it keeps queue dead tuple buildup bounded under
+	// the bloat benchmark gate while Strait owns orchestration state.
+	QueueEngine               string        `env:"QUEUE_ENGINE" default:"pgque"`
 	QueueBatchTickInterval    time.Duration `env:"QUEUE_BATCH_TICK_INTERVAL" default:"100ms"`
 	OutboxEngine              string        `env:"OUTBOX_ENGINE" default:"batchlog"`
 	WorkflowProgressionEngine string        `env:"WORKFLOW_PROGRESSION_ENGINE" default:"batchlog"`

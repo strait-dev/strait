@@ -76,7 +76,7 @@ Redis is still required at startup. Cache operations fail open to in-process cac
 
 | Variable | Default | Description |
 |---|---|---|
-| `QUEUE_ENGINE` | `batchlog` | Queue storage engine. `batchlog` is the default; `pgque` is available for bloat-first benchmark and soak validation. |
+| `QUEUE_ENGINE` | `pgque` | Queue storage engine. `pgque` is the default ready-event log for bloat-resistant queue storage; set `batchlog` or `legacy` only for rollback. |
 | `QUEUE_BATCH_TICK_INTERVAL` | `100ms` | Queue maintenance tick interval. Higher values reduce queue table churn at the cost of dispatch latency. |
 | `QUEUE_USE_DENORMALIZED_DEQUEUE` | `true` | Use the fully denormalized dequeue path when the selected queue engine supports it. |
 | `OUTBOX_ENGINE` | `batchlog` | Outbox promotion engine. `batchlog` promotes through narrow claim rows and archives successful rows asynchronously. |

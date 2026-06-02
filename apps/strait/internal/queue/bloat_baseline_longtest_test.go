@@ -86,6 +86,10 @@ func TestQueueBloatComparison(t *testing.T) {
 			if pgqueComparison.Candidate.Counters.LostClaims != 0 {
 				t.Fatalf("pgque lost claims = %d, want 0", pgqueComparison.Candidate.Counters.LostClaims)
 			}
+			gate := loadtest.EvaluateQueueBloatGate(pgqueComparison, pgqueBloatGate(pgqueComparison.Candidate.Counters.Completed))
+			if !gate.Passed {
+				t.Fatalf("pgque bloat gate failed: %v", gate.Failures)
+			}
 			writeQueueBaselineReport(t, legacy)
 			writeQueueBaselineReport(t, batchlog)
 			writeQueueBaselineReport(t, pgque)
@@ -94,6 +98,41 @@ func TestQueueBloatComparison(t *testing.T) {
 			t.Logf("queue bloat comparison:\n%s", comparison.Markdown())
 			t.Logf("pgque bloat comparison:\n%s", pgqueComparison.Markdown())
 		})
+	}
+}
+
+func pgqueBloatGate(completed int64) loadtest.QueueBloatGate {
+	return loadtest.QueueBloatGate{
+		MaxDuplicateClaims:    0,
+		MaxLostClaims:         0,
+		MaxP99Latency:         60 * time.Millisecond,
+		RequireWALImprovement: true,
+		RelationGates: []loadtest.RelationBloatGate{
+			{
+				Name:              "queue_entries",
+				MaxDeadTupleDelta: 0,
+				MaxDeadTupleRatio: 0.05,
+			},
+			{
+				Name:              "job_run_state",
+				MaxDeadTupleDelta: 0,
+				MaxDeadTupleRatio: 0.05,
+			},
+			{
+				Name:                  "job_run_active_claims",
+				MaxDeadTupleDelta:     0,
+				MaxDeadTupleRatio:     0.0,
+				MaxTotalTableByteGain: maxInt64(256*1024, completed*512),
+				MaxTotalIndexByteGain: maxInt64(128*1024, completed*256),
+			},
+			{
+				Name:                  "strait_pgque_routes",
+				MaxDeadTupleDelta:     0,
+				MaxDeadTupleRatio:     0.0,
+				MaxTotalTableByteGain: 64 * 1024,
+				MaxTotalIndexByteGain: 64 * 1024,
+			},
+		},
 	}
 }
 

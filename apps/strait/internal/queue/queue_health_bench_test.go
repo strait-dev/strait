@@ -100,7 +100,7 @@ type benchConfig struct {
 
 func defaultBenchConfig() benchConfig {
 	return benchConfig{
-		QueueEngine:   queue.EngineLegacy,
+		QueueEngine:   queue.EnginePgQue,
 		Duration:      2 * time.Minute,
 		Workers:       20,
 		BatchSize:     5,

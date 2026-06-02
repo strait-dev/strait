@@ -3,13 +3,15 @@ title: "Queue Batchlog Rollout Benchmark"
 description: "PgQue-inspired queue rewrite benchmark summary and rollout guidance."
 ---
 
-This report summarizes the local benchmark pass for the PgQue-inspired queue work. The latest run was captured on May 24, 2026 on an Apple M1 Pro with testcontainer Postgres.
+This report summarizes the local benchmark pass for the PgQue-inspired queue work. The latest PgQue gate was captured on June 2, 2026 on an Apple M1 Pro with testcontainer Postgres.
 
 ## Result
 
-Switch the queue, outbox, and workflow progression engines to `batchlog` by default. The optimized batchlog queue beats the legacy queue in the comparative bloat gate while reducing `job_runs` table and index growth. The outbox path now avoids mutating `enqueue_outbox.consumed_at` for successful batchlog promotion; successful rows are acked through `outbox_claims` and archived asynchronously.
+Switch the queue engine to `pgque` by default. Keep the outbox and workflow progression engines on `batchlog`. PgQue is used only as Strait's ready-event log; Strait still owns orchestration state, run state, retries, concurrency, workers, observability, and APIs.
 
-Keep `QUEUE_USE_DENORMALIZED_DEQUEUE=true` for the legacy rollback path. Continue optimizing batchlog outbox, but use it as the default because successful promotions no longer update the hot outbox ledger row.
+The latest 1k-run gate keeps duplicate and lost claims at zero, reduces WAL by about 4.98 MB versus the legacy queue path, and removes `queue_entries` dead tuple growth from the PgQue queue path. `job_run_active_claims` remains append-only with zero dead tuples; its live table and index growth are bounded by the bloat gate.
+
+Keep `QUEUE_USE_DENORMALIZED_DEQUEUE=true` for the legacy rollback path. Continue using batchlog for outbox and workflow progression because those systems still use separate claim/event storage from the queue engine.
 
 ## Measurements
 
@@ -77,6 +79,19 @@ Final queue read-model gate after the batchlog claim, seal, and lease optimizati
 
 This final gate removes the earlier queue blocker: the batchlog candidate-selection plan went from about 104 ms with the `job_runs` join to about 0.3 ms after claiming from the `queue_entries` read model. The queue path is acceptable as the default, and the outbox path is defaulted after removing successful-promotion ledger updates.
 
+PgQue bloat gate after splitting run state and moving PgQue claims to append-only active-claim rows:
+
+| Area | Result |
+|---|---:|
+| 1k-run PgQue WAL delta | PgQue 4,977,795 bytes lower than legacy |
+| duplicate claims / lost claims | 0 / 0 |
+| `queue_entries` dead tuple delta | -2,003 |
+| `job_run_active_claims` dead tuple delta | 0 |
+| `job_run_active_claims` live table/index delta | 237,568 bytes / 106,496 bytes |
+| PgQue candidate selection plan | about 1 ms execution time |
+
+The current default changes only the queue engine. Batchlog remains the default for outbox and workflow progression while those paths continue to use their own bloat-resistant claim/event storage.
+
 ## Reliability Checks
 
 Passed targeted checks covered:
@@ -94,7 +109,7 @@ Recommended flags:
 
 ```bash
 QUEUE_USE_DENORMALIZED_DEQUEUE=true
-QUEUE_ENGINE=batchlog
+QUEUE_ENGINE=pgque
 OUTBOX_ENGINE=batchlog
 WORKFLOW_PROGRESSION_ENGINE=batchlog
 ```
@@ -111,6 +126,6 @@ Rollback is immediate: set the engine variables above to `legacy` and restart wo
 
 ## Follow-ups
 
-- Continue watching `queue_entries` dead tuples and index growth under production-like concurrency.
+- Continue watching PgQue event partitions and `job_run_active_claims` live row growth under production-like concurrency.
 - Reduce the remaining outbox batchlog claim lookup overhead under production-like concurrency.
-- Add dashboard panels from the exported `queue_entries`, `outbox_claims`, and `workflow_progression_events` ready/leased/acked counts, plus lease age.
+- Add dashboard panels from the exported PgQue route backlog, active-claim live rows, `outbox_claims`, and `workflow_progression_events` ready/leased/acked counts, plus lease age.
