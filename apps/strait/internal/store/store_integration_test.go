@@ -1621,6 +1621,8 @@ func TestDeleteTerminalRunsPastRetention(t *testing.T) {
 		t.Fatalf("CreateRun() queued error = %v", err)
 	}
 
+	seedRetentionSideRows(t, ctx, oldCompleted.ID, oldTimedOut.ID, recentCompleted.ID, queued.ID)
+
 	deleted, err := q.DeleteTerminalRunsPastRetention(ctx, 30*24*time.Hour, 90*24*time.Hour)
 	if err != nil {
 		t.Fatalf("DeleteTerminalRunsPastRetention() error = %v", err)
@@ -1641,6 +1643,84 @@ func TestDeleteTerminalRunsPastRetention(t *testing.T) {
 	if _, err := q.GetRun(ctx, queued.ID); err != nil {
 		t.Fatalf("GetRun(queued) error = %v", err)
 	}
+
+	for _, runID := range []string{oldCompleted.ID, oldTimedOut.ID} {
+		assertNoRunRetentionSideRows(t, ctx, runID)
+	}
+	for _, runID := range []string{recentCompleted.ID, queued.ID} {
+		assertRunRetentionSideRowsRemain(t, ctx, runID)
+	}
+}
+
+func seedRetentionSideRows(t *testing.T, ctx context.Context, runIDs ...string) {
+	t.Helper()
+
+	for _, runID := range runIDs {
+		if _, err := testDB.Pool.Exec(ctx, `
+			INSERT INTO job_run_active_claims (run_id, ready_generation, attempt, lease_owner)
+			VALUES ($1, 0, 1, 'retention-test-worker')
+			ON CONFLICT DO NOTHING`, runID); err != nil {
+			t.Fatalf("seed active claim for %s: %v", runID, err)
+		}
+		if _, err := testDB.Pool.Exec(ctx, `
+			INSERT INTO job_run_lifecycle_events (run_id, from_status, to_status, attempt, fields)
+			VALUES ($1, 'queued', 'executing', 1, '{"source":"retention-test"}'::jsonb)`, runID); err != nil {
+			t.Fatalf("seed lifecycle event for %s: %v", runID, err)
+		}
+	}
+}
+
+func assertNoRunRetentionSideRows(t *testing.T, ctx context.Context, runID string) {
+	t.Helper()
+
+	for _, table := range []string{
+		"job_run_state",
+		"job_run_terminal_state",
+		"job_run_active_claims",
+		"job_run_lifecycle_events",
+	} {
+		if count := countRunSideTableRows(t, ctx, table, runID); count != 0 {
+			t.Fatalf("%s rows for deleted run %s = %d, want 0", table, runID, count)
+		}
+	}
+}
+
+func assertRunRetentionSideRowsRemain(t *testing.T, ctx context.Context, runID string) {
+	t.Helper()
+
+	for _, table := range []string{
+		"job_run_state",
+		"job_run_active_claims",
+		"job_run_lifecycle_events",
+	} {
+		if count := countRunSideTableRows(t, ctx, table, runID); count == 0 {
+			t.Fatalf("%s rows for retained run %s = 0, want at least 1", table, runID)
+		}
+	}
+}
+
+func countRunSideTableRows(t *testing.T, ctx context.Context, table, runID string) int64 {
+	t.Helper()
+
+	var query string
+	switch table {
+	case "job_run_state":
+		query = `SELECT COUNT(*) FROM job_run_state WHERE run_id = $1`
+	case "job_run_terminal_state":
+		query = `SELECT COUNT(*) FROM job_run_terminal_state WHERE run_id = $1`
+	case "job_run_active_claims":
+		query = `SELECT COUNT(*) FROM job_run_active_claims WHERE run_id = $1`
+	case "job_run_lifecycle_events":
+		query = `SELECT COUNT(*) FROM job_run_lifecycle_events WHERE run_id = $1`
+	default:
+		t.Fatalf("unknown side table %q", table)
+	}
+
+	var count int64
+	if err := testDB.Pool.QueryRow(ctx, query, runID).Scan(&count); err != nil {
+		t.Fatalf("count %s rows for %s: %v", table, runID, err)
+	}
+	return count
 }
 
 func TestInsertEvent(t *testing.T) {

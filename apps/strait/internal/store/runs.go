@@ -2768,6 +2768,14 @@ func (q *Queries) DeleteTerminalRunsPastRetention(ctx context.Context, shortRete
 			LIMIT 5000
 			FOR UPDATE OF jr SKIP LOCKED
 		),
+		deleted_active_claims AS (
+			DELETE FROM job_run_active_claims
+			WHERE run_id IN (SELECT id FROM to_delete)
+		),
+		deleted_lifecycle_events AS (
+			DELETE FROM job_run_lifecycle_events
+			WHERE run_id IN (SELECT id FROM to_delete)
+		),
 		deleted_terminal_state AS (
 			DELETE FROM job_run_terminal_state
 			WHERE run_id IN (SELECT id FROM to_delete)
