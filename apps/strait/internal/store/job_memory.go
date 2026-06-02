@@ -124,7 +124,7 @@ func (q *Queries) UpsertJobMemoryWithQuotaForActiveRun(ctx context.Context, runI
 		if err := txQ.db.QueryRow(ctx, `
 			SELECT TRUE
 			FROM job_runs jr
-			LEFT JOIN job_run_state s ON s.run_id = jr.id
+			LEFT JOIN job_run_read_state s ON s.run_id = jr.id
 			WHERE jr.id = $1
 			  AND jr.job_id = $2
 			  AND COALESCE(s.attempt, jr.attempt) = $3
@@ -201,7 +201,7 @@ func (q *Queries) GetJobMemoryForActiveRun(ctx context.Context, runID, jobID, ke
 		SELECT EXISTS (
 			SELECT 1
 			FROM job_runs jr
-			LEFT JOIN job_run_state s ON s.run_id = jr.id
+			LEFT JOIN job_run_read_state s ON s.run_id = jr.id
 			WHERE jr.id = $1
 			  AND COALESCE(s.attempt, jr.attempt) = $2
 			  AND jr.job_id = $3
@@ -226,7 +226,7 @@ func (q *Queries) ListJobMemoryForActiveRun(ctx context.Context, runID, jobID st
 		SELECT EXISTS (
 			SELECT 1
 			FROM job_runs jr
-			LEFT JOIN job_run_state s ON s.run_id = jr.id
+			LEFT JOIN job_run_read_state s ON s.run_id = jr.id
 			WHERE jr.id = $1
 			  AND COALESCE(s.attempt, jr.attempt) = $2
 			  AND jr.job_id = $3
@@ -292,7 +292,7 @@ func (q *Queries) DeleteJobMemoryForActiveRun(ctx context.Context, runID, jobID,
 		WITH active_run AS (
 			SELECT jr.id
 			FROM job_runs jr
-			LEFT JOIN job_run_state s ON s.run_id = jr.id
+			LEFT JOIN job_run_read_state s ON s.run_id = jr.id
 			WHERE jr.id = $1
 			  AND jr.job_id = $2
 			  AND COALESCE(s.attempt, jr.attempt) = $4

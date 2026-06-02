@@ -1580,11 +1580,15 @@ func TestDeleteTerminalRunsPastRetention(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Microsecond)
 
 	oldCompleted := baseRun(job, newID())
-	oldCompleted.Status = domain.StatusCompleted
+	oldCompleted.Status = domain.StatusExecuting
 	finishedOldCompleted := now.Add(-31 * 24 * time.Hour)
-	oldCompleted.FinishedAt = &finishedOldCompleted
 	if err := q.CreateRun(ctx, oldCompleted); err != nil {
 		t.Fatalf("CreateRun() oldCompleted error = %v", err)
+	}
+	if err := q.UpdateRunStatus(ctx, oldCompleted.ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{
+		"finished_at": finishedOldCompleted,
+	}); err != nil {
+		t.Fatalf("UpdateRunStatus() oldCompleted error = %v", err)
 	}
 	// Backdate created_at so the run is in a cold partition (the reaper's
 	// hot-partition filter skips the current month).

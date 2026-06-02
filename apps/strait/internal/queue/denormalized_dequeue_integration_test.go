@@ -44,6 +44,9 @@ func TestJobActiveCounts_TriggerMaintainsCounter(t *testing.T) {
 	mustClean(t, ctx)
 	st := mustStore(t)
 	job := mustCreateJob(t, ctx, st, "project-denorm-trig")
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE jobs SET max_concurrency = 1000 WHERE id = $1`, job.ID); err != nil {
+		t.Fatalf("set max concurrency: %v", err)
+	}
 	q := mustQueue(t)
 
 	getCount := func() int {
@@ -174,6 +177,9 @@ func TestJobActiveCounts_SeedFromExistingState(t *testing.T) {
 	mustClean(t, ctx)
 	st := mustStore(t)
 	job := mustCreateJob(t, ctx, st, "project-denorm-seed")
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE jobs SET max_concurrency = 1000 WHERE id = $1`, job.ID); err != nil {
+		t.Fatalf("set max concurrency: %v", err)
+	}
 	q := mustQueue(t)
 
 	mustEnqueueRun(t, ctx, q, job)
@@ -204,6 +210,9 @@ func TestJobActiveCounts_DeleteDecrementsCounter(t *testing.T) {
 	mustClean(t, ctx)
 	st := mustStore(t)
 	job := mustCreateJob(t, ctx, st, "project-denorm-delete")
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE jobs SET max_concurrency = 1000 WHERE id = $1`, job.ID); err != nil {
+		t.Fatalf("set max concurrency: %v", err)
+	}
 	q := mustQueue(t)
 	mustEnqueueRun(t, ctx, q, job)
 

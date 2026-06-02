@@ -289,10 +289,12 @@ func runQueueBaseline(
 			if fromStatus == "" {
 				fromStatus = domain.StatusDequeued
 			}
-			if err := st.UpdateRunStatus(ctx, run.ID, fromStatus, domain.StatusExecuting, map[string]any{
-				"started_at": time.Now(),
-			}); err != nil {
-				tb.Fatalf("UpdateRunStatus %s->executing: %v", fromStatus, err)
+			if fromStatus != domain.StatusExecuting {
+				if err := st.UpdateRunStatus(ctx, run.ID, fromStatus, domain.StatusExecuting, map[string]any{
+					"started_at": time.Now(),
+				}); err != nil {
+					tb.Fatalf("UpdateRunStatus %s->executing: %v", fromStatus, err)
+				}
 			}
 			if err := st.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{
 				"finished_at": time.Now(),

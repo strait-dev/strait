@@ -471,7 +471,11 @@ func (q *Queries) deleteJobTx(ctx context.Context, id string) error {
 	// Now check for active runs under the job-row lock.
 	var activeCount int
 	err = q.db.QueryRow(ctx,
-		`SELECT COUNT(*) FROM job_runs WHERE job_id = $1 AND status IN ('queued','delayed','dequeued','executing','waiting')`,
+		`SELECT COUNT(*)
+		 FROM job_runs jr
+		 LEFT JOIN job_run_read_state s ON s.run_id = jr.id
+		 WHERE jr.job_id = $1
+		   AND COALESCE(s.status, jr.status) IN ('queued','delayed','dequeued','executing','waiting')`,
 		id,
 	).Scan(&activeCount)
 	if err != nil {

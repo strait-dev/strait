@@ -185,6 +185,7 @@ WITH truth AS (
     SELECT job_id, COALESCE(concurrency_key, '') AS concurrency_key, COUNT(*)::int AS count
     FROM job_run_state
     WHERE status IN ('dequeued', 'executing')
+      AND (job_max_concurrency IS NOT NULL OR job_max_concurrency_per_key IS NOT NULL)
     GROUP BY job_id, COALESCE(concurrency_key, '')
 ),
 current AS (

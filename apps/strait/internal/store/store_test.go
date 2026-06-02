@@ -414,19 +414,11 @@ func TestReplayDeadLetterRun_CASConflict(t *testing.T) {
 
 	calls := 0
 	db := &mockDBTX{
+		execFn: func(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
+			return pgconn.NewCommandTag("UPDATE 0"), nil
+		},
 		queryRowFn: func(_ context.Context, _ string, _ ...any) pgx.Row {
 			calls++
-			if calls == 1 {
-				// First call is the CAS UPDATE RETURNING * — simulate no row
-				// matched (status wasn't dead_letter) by returning ErrNoRows.
-				return &mockRow{
-					scanFn: func(_ ...any) error {
-						return pgx.ErrNoRows
-					},
-				}
-			}
-			// Follow-up SELECT status disambiguation — row exists in a
-			// non-dead_letter state, so we expect ErrRunConflict.
 			return &mockRow{
 				scanFn: func(dest ...any) error {
 					if p, ok := dest[0].(*domain.RunStatus); ok {
@@ -446,8 +438,8 @@ func TestReplayDeadLetterRun_CASConflict(t *testing.T) {
 	if !errors.Is(err, ErrRunConflict) {
 		t.Fatalf("expected ErrRunConflict, got %v", err)
 	}
-	if calls != 2 {
-		t.Fatalf("expected 2 query calls (CAS + disambiguation), got %d", calls)
+	if calls != 1 {
+		t.Fatalf("expected 1 query call (status precheck), got %d", calls)
 	}
 }
 

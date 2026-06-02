@@ -839,7 +839,7 @@ func (q *PgQueQueue) claimRuns(ctx context.Context, ids []string, generations []
 		JOIN job_runs jr ON jr.id = u.run_id
 		ORDER BY u.claim_priority DESC, u.claim_created_at ASC, u.ord`,
 		pgQueClaimDequeueColumns,
-	), ids, generations, limit, domain.StatusQueued, domain.StatusDequeued, filter.ExecutionMode, filter.ProjectID, projectIDs, queueNames, environmentIDs)
+	), ids, generations, limit, domain.StatusQueued, domain.StatusExecuting, filter.ExecutionMode, filter.ProjectID, projectIDs, queueNames, environmentIDs)
 	if err != nil {
 		return nil, fmt.Errorf("pgque claim runs: %w", err)
 	}

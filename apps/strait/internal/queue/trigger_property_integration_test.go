@@ -19,7 +19,7 @@ import (
 // The job_active_counts and dlq_counts triggers must
 // preserve the invariant:
 //
-//   counter row value == COUNT(*) over matching job_run_state predicate
+//   counter row value == COUNT(*) over matching limited job_run_state predicate
 //
 // at every quiescent point, under arbitrary sequences of operations. These
 // tests exercise insert/update/delete/savepoint-rollback paths and assert
@@ -37,13 +37,27 @@ func assertActiveCountsInvariant(t *testing.T, ctx context.Context, jobID string
 		t.Fatalf("counter query: %v", err)
 	}
 	err = testDB.Pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM job_run_state WHERE job_id = $1 AND status IN ('dequeued','executing')`, jobID,
+		`SELECT COUNT(*)
+		 FROM job_run_state
+		 WHERE job_id = $1
+		   AND status IN ('dequeued','executing')
+		   AND (job_max_concurrency IS NOT NULL OR job_max_concurrency_per_key IS NOT NULL)`, jobID,
 	).Scan(&truthSum)
 	if err != nil {
 		t.Fatalf("truth query: %v", err)
 	}
 	if counterSum != truthSum {
 		t.Fatalf("active counts invariant broken: counter=%d truth=%d", counterSum, truthSum)
+	}
+}
+
+func enableActiveCountTracking(t *testing.T, ctx context.Context, runID string) {
+	t.Helper()
+	if _, err := testDB.Pool.Exec(ctx,
+		`UPDATE job_run_state SET job_max_concurrency = 1000 WHERE run_id = $1`,
+		runID,
+	); err != nil {
+		t.Fatalf("enable active count tracking: %v", err)
 	}
 }
 
@@ -91,6 +105,7 @@ func TestTriggerAlgebra_RandomOps(t *testing.T) {
 				ProjectID: job.ProjectID,
 			}
 			_ = q.Enqueue(ctx, r)
+			enableActiveCountTracking(t, ctx, r.ID)
 		case 2: // dequeue
 			_, _ = q.DequeueN(ctx, 1+rng.IntN(3))
 		case 3: // complete an executing run
@@ -138,6 +153,7 @@ func TestTriggerAlgebra_SavepointRollback(t *testing.T) {
 	q := mustQueue(t)
 
 	run := mustEnqueueRun(t, ctx, q, job)
+	enableActiveCountTracking(t, ctx, run.ID)
 	// Baseline: counter is 0 (run is queued, not active).
 	assertActiveCountsInvariant(t, ctx, job.ID)
 
@@ -248,7 +264,8 @@ func TestTriggerAlgebra_ConcurrentSameJobTransitions(t *testing.T) {
 	q := mustQueue(t)
 
 	for range 20 {
-		mustEnqueueRun(t, ctx, q, job)
+		run := mustEnqueueRun(t, ctx, q, job)
+		enableActiveCountTracking(t, ctx, run.ID)
 	}
 
 	// 4 concurrent workers claim and complete runs.

@@ -37,7 +37,7 @@ func (q *Queries) UpsertRunStateForActiveRun(ctx context.Context, s *domain.RunS
 		WITH active_run AS (
 			SELECT jr.id
 			FROM job_runs jr
-			LEFT JOIN job_run_state s ON s.run_id = jr.id
+			LEFT JOIN job_run_read_state s ON s.run_id = jr.id
 			WHERE jr.id = $1
 			  AND COALESCE(s.attempt, jr.attempt) = $4
 			  AND COALESCE(s.status, jr.status) IN ('executing', 'waiting')
@@ -90,7 +90,7 @@ func (q *Queries) GetRunStateForActiveRun(ctx context.Context, runID, key string
 		  AND EXISTS (
 			SELECT 1
 			FROM job_runs jr
-			LEFT JOIN job_run_state s ON s.run_id = jr.id
+			LEFT JOIN job_run_read_state s ON s.run_id = jr.id
 			WHERE jr.id = $1
 			  AND COALESCE(s.attempt, jr.attempt) = $3
 			  AND COALESCE(s.status, jr.status) IN ('executing', 'waiting')
@@ -104,7 +104,7 @@ func (q *Queries) GetRunStateForActiveRun(ctx context.Context, runID, key string
 				SELECT EXISTS (
 					SELECT 1
 					FROM job_runs jr
-					LEFT JOIN job_run_state s ON s.run_id = jr.id
+					LEFT JOIN job_run_read_state s ON s.run_id = jr.id
 					WHERE jr.id = $1
 					  AND COALESCE(s.attempt, jr.attempt) = $2
 					  AND COALESCE(s.status, jr.status) IN ('executing', 'waiting')
@@ -157,7 +157,7 @@ func (q *Queries) ListRunStateForActiveRun(ctx context.Context, runID string, at
 		SELECT EXISTS (
 			SELECT 1
 			FROM job_runs jr
-			LEFT JOIN job_run_state s ON s.run_id = jr.id
+			LEFT JOIN job_run_read_state s ON s.run_id = jr.id
 			WHERE jr.id = $1
 			  AND COALESCE(s.attempt, jr.attempt) = $2
 			  AND COALESCE(s.status, jr.status) IN ('executing', 'waiting')
@@ -225,7 +225,7 @@ func (q *Queries) DeleteRunStateForActiveRun(ctx context.Context, runID, key str
 		WITH active_run AS (
 			SELECT jr.id
 			FROM job_runs jr
-			LEFT JOIN job_run_state s ON s.run_id = jr.id
+			LEFT JOIN job_run_read_state s ON s.run_id = jr.id
 			WHERE jr.id = $1
 			  AND COALESCE(s.attempt, jr.attempt) = $3
 			  AND COALESCE(s.status, jr.status) IN ('executing', 'waiting')

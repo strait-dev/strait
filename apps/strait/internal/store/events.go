@@ -57,7 +57,7 @@ func (q *Queries) InsertEventForActiveRun(ctx context.Context, event *domain.Run
 		WITH active_run AS (
 			SELECT jr.id
 			FROM job_runs jr
-			LEFT JOIN job_run_state s ON s.run_id = jr.id
+			LEFT JOIN job_run_read_state s ON s.run_id = jr.id
 			WHERE jr.id = $2
 			  AND COALESCE(s.attempt, jr.attempt) = $7
 			  AND COALESCE(s.status, jr.status) IN ('executing', 'waiting')

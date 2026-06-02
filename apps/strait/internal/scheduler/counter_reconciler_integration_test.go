@@ -27,14 +27,15 @@ func setupReconciler(t *testing.T) (*testutil.TestDB, *store.Queries, *queue.Pos
 	q := queue.NewPostgresQueue(tdb.Pool)
 
 	job := &domain.Job{
-		ID:          uuid.Must(uuid.NewV7()).String(),
-		ProjectID:   "recon-" + uuid.Must(uuid.NewV7()).String(),
-		Name:        "recon-job",
-		Slug:        "recon-" + uuid.Must(uuid.NewV7()).String()[:8],
-		EndpointURL: "https://example.com/x",
-		MaxAttempts: 3,
-		TimeoutSecs: 60,
-		Enabled:     true,
+		ID:             uuid.Must(uuid.NewV7()).String(),
+		ProjectID:      "recon-" + uuid.Must(uuid.NewV7()).String(),
+		Name:           "recon-job",
+		Slug:           "recon-" + uuid.Must(uuid.NewV7()).String()[:8],
+		EndpointURL:    "https://example.com/x",
+		MaxAttempts:    3,
+		TimeoutSecs:    60,
+		MaxConcurrency: 1000,
+		Enabled:        true,
 	}
 	if err := st.CreateJob(ctx, job); err != nil {
 		t.Fatalf("create job: %v", err)
@@ -256,9 +257,9 @@ func TestCounterReconciler_BypassTriggerRepaired(t *testing.T) {
 	}
 	for range 4 {
 		_, err := tdb.Pool.Exec(ctx, `
-			INSERT INTO job_runs (id, job_id, project_id, status, attempt, triggered_by, created_at, started_at)
-			VALUES ($1, $2, $3, 'executing', 1, 'manual', NOW(), NOW())
-		`, uuid.Must(uuid.NewV7()).String(), job.ID, job.ProjectID)
+				INSERT INTO job_runs (id, job_id, project_id, status, attempt, triggered_by, created_at, started_at, job_max_concurrency)
+				VALUES ($1, $2, $3, 'executing', 1, 'manual', NOW(), NOW(), 1000)
+			`, uuid.Must(uuid.NewV7()).String(), job.ID, job.ProjectID)
 		if err != nil {
 			t.Fatalf("insert: %v", err)
 		}

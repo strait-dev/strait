@@ -126,9 +126,6 @@ func TestPgQue_DoesNotCreateLegacyQueueEntries(t *testing.T) {
 	if len(claimed) != 1 || claimed[0].ID != run.ID {
 		t.Fatalf("claimed = %+v, want run %s", claimed, run.ID)
 	}
-	if err := st.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{"started_at": time.Now()}); err != nil {
-		t.Fatalf("UpdateRunStatus executing: %v", err)
-	}
 	if err := st.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{"finished_at": time.Now()}); err != nil {
 		t.Fatalf("UpdateRunStatus completed: %v", err)
 	}
@@ -225,8 +222,8 @@ func TestPgQue_ClaimUsesRunStateNotFatLedger(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DequeueN: %v", err)
 	}
-	if len(claimed) != 1 || claimed[0].Status != domain.StatusDequeued {
-		t.Fatalf("claimed = %+v, want one dequeued run", claimed)
+	if len(claimed) != 1 || claimed[0].Status != domain.StatusExecuting {
+		t.Fatalf("claimed = %+v, want one executing run", claimed)
 	}
 
 	var ledgerStatus, stateStatus string
@@ -239,14 +236,8 @@ func TestPgQue_ClaimUsesRunStateNotFatLedger(t *testing.T) {
 	if ledgerStatus != string(domain.StatusQueued) {
 		t.Fatalf("ledger status = %q, want queued to avoid fat-row claim churn", ledgerStatus)
 	}
-	if stateStatus != string(domain.StatusDequeued) {
-		t.Fatalf("state status = %q, want dequeued", stateStatus)
-	}
-
-	if err := st.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
-		"started_at": time.Now(),
-	}); err != nil {
-		t.Fatalf("UpdateRunStatus via state: %v", err)
+	if stateStatus != string(domain.StatusExecuting) {
+		t.Fatalf("state status = %q, want executing", stateStatus)
 	}
 	got, err := st.GetRun(ctx, run.ID)
 	if err != nil {

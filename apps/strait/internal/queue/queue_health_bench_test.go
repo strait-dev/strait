@@ -210,6 +210,22 @@ func completeHealthBenchRun(ctx context.Context, st *store.Queries, run domain.J
 	if from == "" {
 		from = domain.StatusDequeued
 	}
+	switch from {
+	case domain.StatusQueued:
+		if err := st.UpdateRunStatus(ctx, run.ID, domain.StatusQueued, domain.StatusExecuting, map[string]any{
+			"started_at": time.Now(),
+		}); err != nil {
+			return err
+		}
+		from = domain.StatusExecuting
+	case domain.StatusDequeued:
+		if err := st.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
+			"started_at": time.Now(),
+		}); err != nil {
+			return err
+		}
+		from = domain.StatusExecuting
+	}
 	return st.UpdateRunStatus(ctx, run.ID, from, domain.StatusCompleted, map[string]any{
 		"finished_at": time.Now(),
 	})
@@ -300,6 +316,7 @@ func (c *snapshotCollector) collect() healthSnapshot {
 		       pg_indexes_size(relid)
 		FROM pg_stat_user_tables
 		WHERE relname = 'job_run_state'
+		   OR relname = 'job_run_terminal_state'
 		   OR relname = 'job_active_counts'
 		   OR relname = 'job_run_lifecycle_events'
 		   OR relname = 'queue_entries'

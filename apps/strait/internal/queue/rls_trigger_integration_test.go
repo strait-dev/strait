@@ -52,6 +52,9 @@ func TestRLS_ActiveCountsTriggerFiresUnderStraitAppRole(t *testing.T) {
 	mustClean(t, ctx)
 	st := mustStore(t)
 	job := mustCreateJob(t, ctx, st, "project-rls-ac")
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE jobs SET max_concurrency = 1000 WHERE id = $1`, job.ID); err != nil {
+		t.Fatalf("set max concurrency: %v", err)
+	}
 	q := mustQueue(t)
 	run := mustEnqueueRun(t, ctx, q, job)
 
