@@ -66,6 +66,7 @@ func TestRunStateSplit_UpdateRunStatusForActiveRunKeepsLedgerStateImmutable(t *t
 	job := mustCreateJob(t, ctx, q, "project-run-state-active-update")
 	run := baseRun(job, newID())
 	run.Status = domain.StatusExecuting
+	run.IdempotencyKey = newID()
 	if err := q.CreateRun(ctx, run); err != nil {
 		t.Fatalf("CreateRun() error = %v", err)
 	}
@@ -128,6 +129,28 @@ func TestRunStateSplit_UpdateRunStatusForActiveRunKeepsLedgerStateImmutable(t *t
 	if len(byJob) != 1 || !jsonEqual(byJob[0].Result, []byte(`{"ok":true}`)) {
 		t.Fatalf("ListRunsByJob result = %+v, want terminal result", byJob)
 	}
+
+	byIdempotency, err := q.GetRunByIdempotencyKey(ctx, job.ID, run.IdempotencyKey)
+	if err != nil {
+		t.Fatalf("GetRunByIdempotencyKey() error = %v", err)
+	}
+	if byIdempotency == nil {
+		t.Fatal("GetRunByIdempotencyKey() returned nil run")
+	}
+	if !jsonEqual(byIdempotency.Result, []byte(`{"ok":true}`)) {
+		t.Fatalf("GetRunByIdempotencyKey result = %s, want terminal result", string(byIdempotency.Result))
+	}
+
+	finished, err := q.ListFinishedRunsSince(ctx, job.ProjectID, finishedAt.Add(-time.Minute), "", 10)
+	if err != nil {
+		t.Fatalf("ListFinishedRunsSince() error = %v", err)
+	}
+	if len(finished) != 1 || finished[0].ID != run.ID {
+		t.Fatalf("ListFinishedRunsSince = %+v, want run %s", finished, run.ID)
+	}
+	if !jsonEqual(finished[0].Result, []byte(`{"ok":true}`)) {
+		t.Fatalf("ListFinishedRunsSince result = %s, want terminal result", string(finished[0].Result))
+	}
 }
 
 func TestRunStateSplit_TerminalErrorFieldsReadFromLifecycleEvent(t *testing.T) {
@@ -142,7 +165,9 @@ func TestRunStateSplit_TerminalErrorFieldsReadFromLifecycleEvent(t *testing.T) {
 		t.Fatalf("CreateRun() error = %v", err)
 	}
 
+	finishedAt := time.Now().UTC().Truncate(time.Microsecond)
 	if err := q.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusFailed, map[string]any{
+		"finished_at": finishedAt,
 		"error":       "worker failed",
 		"error_class": "server",
 	}); err != nil {
@@ -199,6 +224,17 @@ func TestRunStateSplit_TerminalErrorFieldsReadFromLifecycleEvent(t *testing.T) {
 	}
 	if filtered[0].Error != "worker failed" || filtered[0].ErrorClass != "server" {
 		t.Fatalf("ListRunsByProjectFiltered error fields = %q/%q, want worker failed/server", filtered[0].Error, filtered[0].ErrorClass)
+	}
+
+	finished, err := q.ListFinishedRunsSince(ctx, job.ProjectID, finishedAt.Add(-time.Minute), "", 10)
+	if err != nil {
+		t.Fatalf("ListFinishedRunsSince() error = %v", err)
+	}
+	if len(finished) != 1 || finished[0].ID != run.ID {
+		t.Fatalf("ListFinishedRunsSince = %+v, want failed run %s", finished, run.ID)
+	}
+	if finished[0].Error != "worker failed" || finished[0].ErrorClass != "server" {
+		t.Fatalf("ListFinishedRunsSince error fields = %q/%q, want worker failed/server", finished[0].Error, finished[0].ErrorClass)
 	}
 }
 
@@ -314,6 +350,29 @@ func TestRunStateSplit_DeadLetterTransitionUsesColdTerminalState(t *testing.T) {
 	}
 	if got.Error != "worker gave up" || got.ErrorClass != "terminal" {
 		t.Fatalf("GetRun error fields = %q/%q, want worker gave up/terminal", got.Error, got.ErrorClass)
+	}
+
+	deadLetters, err := q.ListDeadLetterRuns(ctx, job.ProjectID, 10, nil)
+	if err != nil {
+		t.Fatalf("ListDeadLetterRuns() error = %v", err)
+	}
+	if len(deadLetters) != 1 || deadLetters[0].ID != run.ID {
+		t.Fatalf("ListDeadLetterRuns = %+v, want run %s", deadLetters, run.ID)
+	}
+	if deadLetters[0].Error != "worker gave up" || deadLetters[0].ErrorClass != "terminal" {
+		t.Fatalf("ListDeadLetterRuns error fields = %q/%q, want worker gave up/terminal", deadLetters[0].Error, deadLetters[0].ErrorClass)
+	}
+
+	visible := false
+	filtered, err := q.ListDeadLetterRunsFiltered(ctx, job.ProjectID, &job.ID, &visible, 10, nil)
+	if err != nil {
+		t.Fatalf("ListDeadLetterRunsFiltered() error = %v", err)
+	}
+	if len(filtered) != 1 || filtered[0].ID != run.ID {
+		t.Fatalf("ListDeadLetterRunsFiltered = %+v, want run %s", filtered, run.ID)
+	}
+	if filtered[0].Error != "worker gave up" || filtered[0].ErrorClass != "terminal" {
+		t.Fatalf("ListDeadLetterRunsFiltered error fields = %q/%q, want worker gave up/terminal", filtered[0].Error, filtered[0].ErrorClass)
 	}
 }
 

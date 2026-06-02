@@ -6397,6 +6397,18 @@ func TestListRunLineage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("set continuation_of run3 error = %v", err)
 	}
+	if err := q.UpdateRunStatus(ctx, run3.ID, domain.StatusQueued, domain.StatusDequeued, nil); err != nil {
+		t.Fatalf("UpdateRunStatus(run3 dequeued) error = %v", err)
+	}
+	if err := q.UpdateRunStatus(ctx, run3.ID, domain.StatusDequeued, domain.StatusExecuting, nil); err != nil {
+		t.Fatalf("UpdateRunStatus(run3 executing) error = %v", err)
+	}
+	if err := q.UpdateRunStatus(ctx, run3.ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{
+		"finished_at": time.Now().UTC().Truncate(time.Microsecond),
+		"result":      json.RawMessage(`{"lineage":true}`),
+	}); err != nil {
+		t.Fatalf("UpdateRunStatus(run3 completed) error = %v", err)
+	}
 
 	// Query lineage from run3 (should walk back to run1 and return all 3)
 	lineage, err := q.ListRunLineage(ctx, run3.ID, 100, nil)
@@ -6412,6 +6424,12 @@ func TestListRunLineage(t *testing.T) {
 	}
 	if lineage[2].ID != run3.ID {
 		t.Fatalf("lineage[2].ID = %q, want %q (leaf)", lineage[2].ID, run3.ID)
+	}
+	if lineage[2].Status != domain.StatusCompleted {
+		t.Fatalf("lineage[2].Status = %q, want completed", lineage[2].Status)
+	}
+	if !jsonEqual(lineage[2].Result, []byte(`{"lineage":true}`)) {
+		t.Fatalf("lineage[2].Result = %s, want terminal result", string(lineage[2].Result))
 	}
 }
 
