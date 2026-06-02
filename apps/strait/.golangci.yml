@@ -25,6 +25,7 @@ linters:
     - bidichk          # checks for dangerous unicode character sequences
     - copyloopvar      # detects places where loop variables are copied (Go 1.22+)
     - durationcheck    # checks for two durations multiplied together
+    - errcheck         # checks that returned errors are handled
     - errname          # checks that sentinel errors are prefixed with Err
     - errorlint        # finds code that will cause problems with error wrapping
     - exhaustive       # checks exhaustiveness of enum switch statements
@@ -45,10 +46,12 @@ linters:
     - spancheck        # checks for mistakes with OpenTelemetry spans
     - sqlclosecheck    # checks that sql.Rows and sql.Stmt are closed
     - staticcheck      # go vet on steroids
+    - testifylint      # checks testify assertions and helpers
+    - thelper          # checks that test helpers call t.Helper
     - unused           # checks for unused constants, variables, functions and types
     - whitespace       # detects leading and trailing whitespace
   disable:
-    - errcheck         # covered by errorlint and targeted security checks; default-on in v2
+    - bodyclose        # noisy with failsafe generic http.Response policy builders; enable after wrapping those calls
     - gosec            # covered by the dedicated Security workflow; too expensive for regular lint
     - unparam          # slow whole-program analyzer with low signal for evolving internal APIs
     - wastedassign     # mostly overlaps with ineffassign/staticcheck, but is slower

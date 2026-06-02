@@ -22,18 +22,18 @@ import (
 )
 
 // decodePaginatedList decodes a PaginatedResponse body into the given slice pointer.
-func decodePaginatedList(t testing.TB, body []byte, out any) {
-	t.Helper()
+func decodePaginatedList(tb testing.TB, body []byte, out any) {
+	tb.Helper()
 	var envelope struct {
 		Data       json.RawMessage `json:"data"`
 		HasMore    bool            `json:"has_more"`
 		NextCursor *string         `json:"next_cursor,omitempty"`
 	}
 	if err := json.Unmarshal(body, &envelope); err != nil {
-		t.Fatalf("invalid paginated JSON: %v\nbody: %s", err, string(body))
+		tb.Fatalf("invalid paginated JSON: %v\nbody: %s", err, string(body))
 	}
 	if err := json.Unmarshal(envelope.Data, out); err != nil {
-		t.Fatalf("invalid data array JSON: %v", err)
+		tb.Fatalf("invalid data array JSON: %v", err)
 	}
 }
 

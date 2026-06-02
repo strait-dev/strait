@@ -445,6 +445,8 @@ func TestEventTriggerHandlers_ProjectScopedResolution(t *testing.T) {
 	// `WHERE event_key = $1 AND project_id = $2` would; proj-bbb's colliding
 	// row is never visible to proj-aaa.
 	newStore := func(t *testing.T) *APIStoreMock {
+		t.Helper()
+
 		return &APIStoreMock{
 			GetEventTriggerByEventKeyFunc: failIfUnscopedLookupUsed(t),
 			GetEventTriggerByEventKeyForProjectFunc: func(_ context.Context, key, projectID string) (*domain.EventTrigger, error) {
@@ -461,7 +463,7 @@ func TestEventTriggerHandlers_ProjectScopedResolution(t *testing.T) {
 
 	apiKeyCtx := func() context.Context {
 		ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-aaa")
-		ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeJobsTrigger, domain.ScopeJobsRead})
+		ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeJobsTrigger, domain.ScopeJobsRead, domain.ScopeJobsWrite})
 		ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
 		ctx = context.WithValue(ctx, ctxActorIDKey, "apikey:test")
 		return ctx

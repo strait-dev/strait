@@ -24,6 +24,8 @@ type webhookEventCase struct {
 
 func subscriptionPayload(orgID, subID, productID, customerID string) func(*testing.T) json.RawMessage {
 	return func(t *testing.T) json.RawMessage {
+		t.Helper()
+
 		return mustJSON(t, testSubscriptionData{
 			ID:         subID,
 			ProductID:  productID,
@@ -35,6 +37,8 @@ func subscriptionPayload(orgID, subID, productID, customerID string) func(*testi
 
 func invoicePayload(orgID, invID, customerID, subID string) func(*testing.T) json.RawMessage {
 	return func(t *testing.T) json.RawMessage {
+		t.Helper()
+
 		return mustJSON(t, testInvoiceData{
 			ID:         invID,
 			CustomerID: customerID,
@@ -46,6 +50,8 @@ func invoicePayload(orgID, invID, customerID, subID string) func(*testing.T) jso
 
 func upcomingInvoicePayload(orgID, invID, customerID, subID string, amount int64) func(*testing.T) json.RawMessage {
 	return func(t *testing.T) json.RawMessage {
+		t.Helper()
+
 		return mustJSON(t, testInvoiceDataFull{
 			ID:                 invID,
 			CustomerID:         customerID,
@@ -59,6 +65,8 @@ func upcomingInvoicePayload(orgID, invID, customerID, subID string, amount int64
 
 func disputePayload(orgID, disputeID, chargeID, customerID string, amount int64) func(*testing.T) json.RawMessage {
 	return func(t *testing.T) json.RawMessage {
+		t.Helper()
+
 		return mustJSON(t, testDisputeData{
 			ID:         disputeID,
 			Amount:     amount,

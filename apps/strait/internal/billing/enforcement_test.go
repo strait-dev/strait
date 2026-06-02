@@ -1371,7 +1371,9 @@ func TestEnforcer_GetDailyRunCount_WithRuns(t *testing.T) {
 	enforcer, _, mr := setupEnforcer(t)
 
 	key := "strait:org_runs:org-counted:" + time.Now().UTC().Format("2006-01-02")
-	mr.Set(key, "5")
+	if err := mr.Set(key, "5"); err != nil {
+		t.Fatalf("seed daily run count: %v", err)
+	}
 
 	count, err := enforcer.GetDailyRunCount(context.Background(), "org-counted")
 	if err != nil {
