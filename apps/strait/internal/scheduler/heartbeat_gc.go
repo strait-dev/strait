@@ -13,20 +13,22 @@ import (
 // Orphan heartbeat GC.
 //
 // The unlogged heartbeat side table `job_run_heartbeats` is
-// maintained by the worker -- inserts on claim, updates on heartbeat
-// tick, deletes on terminal transition. If a terminal transition skips
-// the delete (historic bug, operator intervention, replica that misses
-// a trigger) the row leaks and the table grows without bound.
+// maintained by the worker -- inserts on claim and heartbeat tick, clear
+// tombstones on terminal transition, and bounded physical compaction in
+// this GC. If a terminal transition skips the clear (historic bug, operator
+// intervention, replica that misses a trigger) the row leaks and the table
+// grows without bound.
 //
-// This GC runs hourly under an advisory lock and deletes heartbeat rows
-// whose owning run is no longer executing. It is bounded per tick so a
-// large mass deletion is spread across multiple cycles.
+// This GC runs hourly under an advisory lock, clears heartbeat rows whose
+// owning run is no longer active, and deletes superseded heartbeat history.
+// Both operations are bounded per tick so large cleanups spread across cycles.
 
 const heartbeatGCAdvisoryLockID int64 = 0x53744842474300 // "StHbGC"
 
 // HeartbeatGCStore is the minimal store interface the GC needs.
 type HeartbeatGCStore interface {
 	DeleteOrphanedHeartbeats(ctx context.Context, limit int) (int64, error)
+	CompactSupersededHeartbeats(ctx context.Context, limit int) (int64, error)
 }
 
 // HeartbeatGC periodically deletes leaked rows from job_run_heartbeats.
@@ -122,9 +124,15 @@ func (h *HeartbeatGC) runLocked(ctx context.Context) error {
 		h.logger.Warn("heartbeat GC delete failed", "error", err)
 		return err
 	}
-	h.totalDeleted.Add(deleted)
-	if deleted > 0 {
-		h.logger.Info("heartbeat GC deleted orphaned rows", "deleted", deleted)
+	compacted, err := h.store.CompactSupersededHeartbeats(ctx, h.batchLimit)
+	if err != nil {
+		h.logger.Warn("heartbeat GC compact failed", "error", err)
+		return err
+	}
+	total := deleted + compacted
+	h.totalDeleted.Add(total)
+	if total > 0 {
+		h.logger.Info("heartbeat GC cleaned rows", "cleared", deleted, "compacted", compacted)
 	}
 	return nil
 }

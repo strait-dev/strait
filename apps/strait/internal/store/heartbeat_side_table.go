@@ -101,6 +101,39 @@ func (q *Queries) DeleteOrphanedHeartbeats(ctx context.Context, limit int) (int6
 	return tag.RowsAffected(), nil
 }
 
+// CompactSupersededHeartbeats physically removes heartbeat history rows that
+// are no longer the latest row for their run. This is intentionally a bounded
+// cold-path cleanup; heartbeat writes themselves remain append-only.
+func (q *Queries) CompactSupersededHeartbeats(ctx context.Context, limit int) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CompactSupersededHeartbeats")
+	defer span.End()
+
+	if limit <= 0 {
+		limit = 10000
+	}
+	const sql = `
+		WITH victims AS (
+			SELECT h.id
+			FROM job_run_heartbeats h
+			WHERE EXISTS (
+				SELECT 1
+				FROM job_run_heartbeats newer
+				WHERE newer.run_id = h.run_id
+				  AND newer.id > h.id
+			)
+			ORDER BY h.id ASC
+			LIMIT $1
+		)
+		DELETE FROM job_run_heartbeats h
+		USING victims
+		WHERE h.id = victims.id`
+	tag, err := q.db.Exec(ctx, sql, limit)
+	if err != nil {
+		return 0, fmt.Errorf("compact superseded heartbeats: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // StaleHeartbeatSideTable returns run_ids with a heartbeat older than the
 // threshold. Paired with ListStaleRuns as a supplement when the side table
 // path is enabled.

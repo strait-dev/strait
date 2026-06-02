@@ -92,8 +92,8 @@ func TestHeartbeatGC_DeletesOrphansPreservesLive(t *testing.T) {
 	if err := gc.RunOnceForTest(ctx); err != nil {
 		t.Fatalf("runOnce: %v", err)
 	}
-	if gc.TotalDeleted() != 1 {
-		t.Errorf("deleted = %d, want 1", gc.TotalDeleted())
+	if gc.TotalDeleted() != 2 {
+		t.Errorf("deleted = %d, want 2", gc.TotalDeleted())
 	}
 
 	// live row still present.
@@ -152,12 +152,12 @@ func TestHeartbeatGC_BatchLimitRespected(t *testing.T) {
 
 	gc := scheduler.NewHeartbeatGC(st, scheduler.HeartbeatGCConfig{BatchLimit: 5})
 	_ = gc.RunOnceForTest(ctx)
-	if gc.TotalDeleted() != 5 {
-		t.Errorf("first tick deleted = %d, want 5", gc.TotalDeleted())
+	if gc.TotalDeleted() != 10 {
+		t.Errorf("first tick deleted = %d, want 10", gc.TotalDeleted())
 	}
 	_ = gc.RunOnceForTest(ctx)
-	if gc.TotalDeleted() != 10 {
-		t.Errorf("second tick total = %d, want 10", gc.TotalDeleted())
+	if gc.TotalDeleted() != 20 {
+		t.Errorf("second tick total = %d, want 20", gc.TotalDeleted())
 	}
 }
 

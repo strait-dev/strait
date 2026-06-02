@@ -10,10 +10,13 @@ import (
 )
 
 type fakeGCStore struct {
-	deleted  int64
-	err      error
-	panicRun bool
-	calls    int
+	deleted      int64
+	compacted    int64
+	err          error
+	compactErr   error
+	panicRun     bool
+	calls        int
+	compactCalls int
 }
 
 func (f *fakeGCStore) DeleteOrphanedHeartbeats(_ context.Context, _ int) (int64, error) {
@@ -22,6 +25,11 @@ func (f *fakeGCStore) DeleteOrphanedHeartbeats(_ context.Context, _ int) (int64,
 		panic("heartbeat store panic")
 	}
 	return f.deleted, f.err
+}
+
+func (f *fakeGCStore) CompactSupersededHeartbeats(_ context.Context, _ int) (int64, error) {
+	f.compactCalls++
+	return f.compacted, f.compactErr
 }
 
 func TestHeartbeatGC_Defaults(t *testing.T) {
@@ -35,14 +43,14 @@ func TestHeartbeatGC_Defaults(t *testing.T) {
 }
 
 func TestHeartbeatGC_RunOnceAccumulates(t *testing.T) {
-	s := &fakeGCStore{deleted: 17}
+	s := &fakeGCStore{deleted: 17, compacted: 23}
 	g := NewHeartbeatGC(s, HeartbeatGCConfig{})
 	_ = g.runOnce(context.Background())
-	if g.TotalDeleted() != 17 {
-		t.Errorf("total = %d, want 17", g.TotalDeleted())
+	if g.TotalDeleted() != 40 {
+		t.Errorf("total = %d, want 40", g.TotalDeleted())
 	}
-	if s.calls != 1 {
-		t.Errorf("calls = %d", s.calls)
+	if s.calls != 1 || s.compactCalls != 1 {
+		t.Errorf("calls = %d compactCalls = %d", s.calls, s.compactCalls)
 	}
 }
 
@@ -72,6 +80,14 @@ func TestHeartbeatGC_DeleteError(t *testing.T) {
 	g := NewHeartbeatGC(s, HeartbeatGCConfig{})
 	if err := g.runOnce(context.Background()); err == nil {
 		t.Error("expected error propagation")
+	}
+}
+
+func TestHeartbeatGC_CompactError(t *testing.T) {
+	s := &fakeGCStore{compactErr: errors.New("oops")}
+	g := NewHeartbeatGC(s, HeartbeatGCConfig{})
+	if err := g.runOnce(context.Background()); err == nil {
+		t.Error("expected compact error propagation")
 	}
 }
 

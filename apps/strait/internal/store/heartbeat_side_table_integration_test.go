@@ -132,6 +132,66 @@ func TestHeartbeatSideTable_DeleteRemoves(t *testing.T) {
 	}
 }
 
+func TestHeartbeatSideTable_CompactSupersededKeepsLatestRows(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	firstID := "hb-compact-a-" + newID()
+	secondID := "hb-compact-b-" + newID()
+	for range 3 {
+		if err := q.BatchUpsertHeartbeatSideTable(ctx, []string{firstID, secondID}); err != nil {
+			t.Fatalf("append heartbeat batch: %v", err)
+		}
+	}
+	if err := q.DeleteHeartbeatSideTable(ctx, []string{secondID}); err != nil {
+		t.Fatalf("clear second heartbeat: %v", err)
+	}
+
+	compacted, err := q.CompactSupersededHeartbeats(ctx, 100)
+	if err != nil {
+		t.Fatalf("CompactSupersededHeartbeats() error = %v", err)
+	}
+	if compacted != 5 {
+		t.Fatalf("compacted = %d, want 5 superseded rows", compacted)
+	}
+
+	rows, err := testDB.Pool.Query(ctx, `
+		SELECT run_id, COUNT(*), COALESCE((ARRAY_AGG(cleared ORDER BY id DESC))[1], FALSE)
+		FROM job_run_heartbeats
+		WHERE run_id = ANY($1)
+		GROUP BY run_id`, []string{firstID, secondID})
+	if err != nil {
+		t.Fatalf("query compacted heartbeats: %v", err)
+	}
+	defer rows.Close()
+	seen := 0
+	for rows.Next() {
+		var runID string
+		var rawRows int
+		var latestCleared bool
+		if err := rows.Scan(&runID, &rawRows, &latestCleared); err != nil {
+			t.Fatalf("scan compacted heartbeat: %v", err)
+		}
+		seen++
+		if rawRows != 1 {
+			t.Fatalf("%s raw rows = %d, want only latest row after compaction", runID, rawRows)
+		}
+		if runID == firstID && latestCleared {
+			t.Fatal("latest heartbeat for active run should remain live")
+		}
+		if runID == secondID && !latestCleared {
+			t.Fatal("latest heartbeat for cleared run should remain tombstoned")
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate compacted heartbeats: %v", err)
+	}
+	if seen != 2 {
+		t.Fatalf("compacted heartbeat groups = %d, want 2", seen)
+	}
+}
+
 func TestHeartbeatSideTable_DeleteOrphanedUsesSplitRunState(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
