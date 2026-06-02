@@ -48,7 +48,12 @@ func DefaultWatchedQueries() []WatchedQuery {
 			Name: "HeartbeatGC",
 			SQL: `SELECT h.run_id FROM job_run_heartbeats h
 				LEFT JOIN job_run_read_state s ON s.run_id = h.run_id
-				WHERE s.run_id IS NULL OR s.status <> 'executing'
+				WHERE h.cleared = FALSE
+				  AND NOT EXISTS (
+				    SELECT 1 FROM job_run_heartbeats newer
+				    WHERE newer.run_id = h.run_id AND newer.id > h.id
+				  )
+				  AND (s.run_id IS NULL OR s.status <> 'executing')
 				LIMIT 500`,
 		},
 		{

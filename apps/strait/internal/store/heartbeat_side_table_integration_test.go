@@ -24,7 +24,12 @@ func TestHeartbeatSideTable_UpsertCreatesAndUpdates(t *testing.T) {
 	}
 
 	var ts1 time.Time
-	if err := testDB.Pool.QueryRow(ctx, "SELECT heartbeat_at FROM job_run_heartbeats WHERE run_id=$1", runID).Scan(&ts1); err != nil {
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT heartbeat_at
+		FROM job_run_heartbeats
+		WHERE run_id = $1 AND cleared = FALSE
+		ORDER BY id DESC
+		LIMIT 1`, runID).Scan(&ts1); err != nil {
 		t.Fatalf("query: %v", err)
 	}
 	// Ensure observable time passes before the second upsert.
@@ -34,11 +39,23 @@ func TestHeartbeatSideTable_UpsertCreatesAndUpdates(t *testing.T) {
 		t.Fatalf("second upsert: %v", err)
 	}
 	var ts2 time.Time
-	if err := testDB.Pool.QueryRow(ctx, "SELECT heartbeat_at FROM job_run_heartbeats WHERE run_id=$1", runID).Scan(&ts2); err != nil {
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT heartbeat_at
+		FROM job_run_heartbeats
+		WHERE run_id = $1 AND cleared = FALSE
+		ORDER BY id DESC
+		LIMIT 1`, runID).Scan(&ts2); err != nil {
 		t.Fatalf("query: %v", err)
 	}
 	if !ts2.After(ts1) {
 		t.Errorf("second upsert ts %v not after first %v", ts2, ts1)
+	}
+	var rawRows int
+	if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM job_run_heartbeats WHERE run_id = $1`, runID).Scan(&rawRows); err != nil {
+		t.Fatalf("raw heartbeat count: %v", err)
+	}
+	if rawRows != 2 {
+		t.Fatalf("raw heartbeat rows = %d, want append-only history", rawRows)
 	}
 }
 
@@ -57,7 +74,15 @@ func TestHeartbeatSideTable_BatchUpsertAll(t *testing.T) {
 	}
 
 	var count int
-	if err := testDB.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM job_run_heartbeats WHERE run_id = ANY($1)", ids).Scan(&count); err != nil {
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM (
+			SELECT DISTINCT ON (run_id) run_id, cleared
+			FROM job_run_heartbeats
+			WHERE run_id = ANY($1)
+			ORDER BY run_id, id DESC
+		) latest
+		WHERE cleared = FALSE`, ids).Scan(&count); err != nil {
 		t.Fatalf("count: %v", err)
 	}
 	if count != 100 {
@@ -91,7 +116,15 @@ func TestHeartbeatSideTable_DeleteRemoves(t *testing.T) {
 		t.Fatalf("delete: %v", err)
 	}
 	var count int
-	if err := testDB.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM job_run_heartbeats WHERE run_id = ANY($1)", ids).Scan(&count); err != nil {
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM (
+			SELECT DISTINCT ON (run_id) run_id, cleared
+			FROM job_run_heartbeats
+			WHERE run_id = ANY($1)
+			ORDER BY run_id, id DESC
+		) latest
+		WHERE cleared = FALSE`, ids).Scan(&count); err != nil {
 		t.Fatalf("count: %v", err)
 	}
 	if count != 1 {
@@ -145,7 +178,16 @@ func TestHeartbeatSideTable_DeleteOrphanedUsesSplitRunState(t *testing.T) {
 	}
 
 	var count int
-	if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM job_run_heartbeats WHERE run_id = $1`, run.ID).Scan(&count); err != nil {
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM (
+			SELECT cleared
+			FROM job_run_heartbeats
+			WHERE run_id = $1
+			ORDER BY id DESC
+			LIMIT 1
+		) latest
+		WHERE cleared = FALSE`, run.ID).Scan(&count); err != nil {
 		t.Fatalf("count heartbeat rows: %v", err)
 	}
 	if count != 0 {
@@ -180,7 +222,16 @@ func TestHeartbeatSideTable_DeleteOrphanedKeepsWaitingRuns(t *testing.T) {
 	}
 
 	var count int
-	if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM job_run_heartbeats WHERE run_id = $1`, run.ID).Scan(&count); err != nil {
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM (
+			SELECT cleared
+			FROM job_run_heartbeats
+			WHERE run_id = $1
+			ORDER BY id DESC
+			LIMIT 1
+		) latest
+		WHERE cleared = FALSE`, run.ID).Scan(&count); err != nil {
 		t.Fatalf("count heartbeat rows: %v", err)
 	}
 	if count != 1 {
@@ -200,10 +251,9 @@ func TestHeartbeatSideTable_StaleDetection(t *testing.T) {
 		t.Fatalf("upsert: %v", err)
 	}
 	// Backdate the stale one.
-	if _, err := testDB.Pool.Exec(ctx,
-		"UPDATE job_run_heartbeats SET heartbeat_at = NOW() - INTERVAL '5 minutes' WHERE run_id = $1",
-		staleID,
-	); err != nil {
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_heartbeats (run_id, heartbeat_at, cleared)
+		VALUES ($1, NOW() - INTERVAL '5 minutes', FALSE)`, staleID); err != nil {
 		t.Fatalf("backdate: %v", err)
 	}
 
@@ -243,10 +293,9 @@ func TestHeartbeatSideTable_ListStaleRunsPrefersSideTable(t *testing.T) {
 		t.Fatalf("ListStaleRuns() with fresh side-table heartbeat = %d, want 0", len(runs))
 	}
 
-	if _, err := testDB.Pool.Exec(ctx,
-		"UPDATE job_run_heartbeats SET heartbeat_at = NOW() - INTERVAL '10 minutes' WHERE run_id = $1",
-		run.ID,
-	); err != nil {
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_heartbeats (run_id, heartbeat_at, cleared)
+		VALUES ($1, NOW() - INTERVAL '10 minutes', FALSE)`, run.ID); err != nil {
 		t.Fatalf("backdate side-table heartbeat: %v", err)
 	}
 

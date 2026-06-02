@@ -231,7 +231,14 @@ func (q *Queries) GetRun(ctx context.Context, id string) (*domain.JobRun, error)
 		       jr.debug_mode, jr.continuation_of, jr.lineage_depth, jr.tags, jr.job_version_id, jr.created_by, jr.batch_id, COALESCE(NULLIF(s.concurrency_key, ''), jr.concurrency_key), COALESCE(NULLIF(s.execution_mode, ''), jr.execution_mode), jr.is_rollback, jr.replayed_run_id
 		FROM job_runs jr
 		LEFT JOIN job_run_read_state s ON s.run_id = jr.id
-		LEFT JOIN job_run_heartbeats h ON h.run_id = jr.id
+		LEFT JOIN LATERAL (
+			SELECT heartbeat_at
+			FROM job_run_heartbeats h
+			WHERE h.run_id = jr.id
+			  AND h.cleared = FALSE
+			ORDER BY h.id DESC
+			LIMIT 1
+		) h ON true
 		LEFT JOIN LATERAL (
 			SELECT fields
 			FROM job_run_lifecycle_events e
@@ -276,7 +283,14 @@ func (q *Queries) GetRunWithCacheVersion(ctx context.Context, id string) (*domai
 		       jr.debug_mode, jr.continuation_of, jr.lineage_depth, jr.tags, jr.job_version_id, jr.created_by, jr.batch_id, COALESCE(NULLIF(s.concurrency_key, ''), jr.concurrency_key), COALESCE(NULLIF(s.execution_mode, ''), jr.execution_mode), jr.is_rollback, jr.replayed_run_id, COALESCE(v.cache_version, jr.cache_version)
 		FROM job_runs jr
 		LEFT JOIN job_run_read_state s ON s.run_id = jr.id
-		LEFT JOIN job_run_heartbeats h ON h.run_id = jr.id
+		LEFT JOIN LATERAL (
+			SELECT heartbeat_at
+			FROM job_run_heartbeats h
+			WHERE h.run_id = jr.id
+			  AND h.cleared = FALSE
+			ORDER BY h.id DESC
+			LIMIT 1
+		) h ON true
 		LEFT JOIN job_run_cache_versions v ON v.run_id = jr.id
 		LEFT JOIN LATERAL (
 			SELECT fields
@@ -320,7 +334,14 @@ func (q *Queries) GetRunByIdempotencyKey(ctx context.Context, jobID, idempotency
 		       COALESCE(s.next_retry_at, jr.next_retry_at), COALESCE(s.expires_at, jr.expires_at), jr.parent_run_id, COALESCE(s.priority, jr.priority), jr.idempotency_key, jr.job_version, jr.created_at, jr.workflow_step_run_id, jr.execution_trace, jr.debug_mode, jr.continuation_of, jr.lineage_depth, jr.tags, jr.job_version_id, jr.created_by, jr.batch_id, COALESCE(NULLIF(s.concurrency_key, ''), jr.concurrency_key), COALESCE(NULLIF(s.execution_mode, ''), jr.execution_mode), jr.is_rollback, jr.replayed_run_id
 		FROM job_runs jr
 		LEFT JOIN job_run_read_state s ON s.run_id = jr.id
-		LEFT JOIN job_run_heartbeats h ON h.run_id = jr.id
+		LEFT JOIN LATERAL (
+			SELECT heartbeat_at
+			FROM job_run_heartbeats h
+			WHERE h.run_id = jr.id
+			  AND h.cleared = FALSE
+			ORDER BY h.id DESC
+			LIMIT 1
+		) h ON true
 		WHERE jr.job_id = $1
 		  AND jr.idempotency_key = $2
 		  AND (
@@ -1193,7 +1214,14 @@ func (q *Queries) ListRunsByJob(ctx context.Context, jobID string, limit, offset
 		       jr.debug_mode, jr.continuation_of, jr.lineage_depth, jr.tags, jr.job_version_id, jr.created_by, jr.batch_id, COALESCE(NULLIF(s.concurrency_key, ''), jr.concurrency_key), COALESCE(NULLIF(s.execution_mode, ''), jr.execution_mode), jr.is_rollback, jr.replayed_run_id
 		FROM job_runs jr
 		LEFT JOIN job_run_read_state s ON s.run_id = jr.id
-		LEFT JOIN job_run_heartbeats h ON h.run_id = jr.id
+		LEFT JOIN LATERAL (
+			SELECT heartbeat_at
+			FROM job_run_heartbeats h
+			WHERE h.run_id = jr.id
+			  AND h.cleared = FALSE
+			ORDER BY h.id DESC
+			LIMIT 1
+		) h ON true
 		LEFT JOIN LATERAL (
 			SELECT fields
 			FROM job_run_lifecycle_events e
@@ -1244,7 +1272,14 @@ func (q *Queries) ListRunsByProject(ctx context.Context, projectID string, statu
 		       jr.debug_mode, jr.continuation_of, jr.lineage_depth, jr.tags, jr.job_version_id, jr.created_by, jr.batch_id, COALESCE(NULLIF(s.concurrency_key, ''), jr.concurrency_key), COALESCE(NULLIF(s.execution_mode, ''), jr.execution_mode), jr.is_rollback, jr.replayed_run_id
 		FROM job_runs jr
 		LEFT JOIN job_run_read_state s ON s.run_id = jr.id
-		LEFT JOIN job_run_heartbeats h ON h.run_id = jr.id
+		LEFT JOIN LATERAL (
+			SELECT heartbeat_at
+			FROM job_run_heartbeats h
+			WHERE h.run_id = jr.id
+			  AND h.cleared = FALSE
+			ORDER BY h.id DESC
+			LIMIT 1
+		) h ON true
 		LEFT JOIN LATERAL (
 			SELECT fields
 			FROM job_run_lifecycle_events e
@@ -1365,7 +1400,14 @@ func (q *Queries) ListRunsByProjectFiltered(ctx context.Context, projectID strin
 
 	baseQuery += `
 		LEFT JOIN job_run_read_state s ON s.run_id = jr.id
-		LEFT JOIN job_run_heartbeats h ON h.run_id = jr.id
+		LEFT JOIN LATERAL (
+			SELECT heartbeat_at
+			FROM job_run_heartbeats h
+			WHERE h.run_id = jr.id
+			  AND h.cleared = FALSE
+			ORDER BY h.id DESC
+			LIMIT 1
+		) h ON true
 		LEFT JOIN LATERAL (
 			SELECT fields
 			FROM job_run_lifecycle_events e
@@ -1496,7 +1538,14 @@ func (q *Queries) ListFinishedRunsSince(ctx context.Context, projectID string, s
 		       COALESCE(s.next_retry_at, jr.next_retry_at), COALESCE(s.expires_at, jr.expires_at), jr.parent_run_id, COALESCE(s.priority, jr.priority), jr.idempotency_key, jr.job_version, jr.created_at, jr.workflow_step_run_id, jr.execution_trace, jr.debug_mode, jr.continuation_of, jr.lineage_depth, jr.tags, jr.job_version_id, jr.created_by, jr.batch_id, COALESCE(NULLIF(s.concurrency_key, ''), jr.concurrency_key), COALESCE(NULLIF(s.execution_mode, ''), jr.execution_mode), jr.is_rollback, jr.replayed_run_id
 		FROM job_runs jr
 		LEFT JOIN job_run_read_state s ON s.run_id = jr.id
-		LEFT JOIN job_run_heartbeats h ON h.run_id = jr.id
+		LEFT JOIN LATERAL (
+			SELECT heartbeat_at
+			FROM job_run_heartbeats h
+			WHERE h.run_id = jr.id
+			  AND h.cleared = FALSE
+			ORDER BY h.id DESC
+			LIMIT 1
+		) h ON true
 		WHERE jr.project_id = $1
 		  AND COALESCE(s.status, jr.status) IN ('completed', 'failed', 'timed_out', 'crashed', 'system_failed', 'canceled', 'expired')
 		  AND (COALESCE(s.finished_at, jr.finished_at) > $2 OR (COALESCE(s.finished_at, jr.finished_at) = $2 AND jr.id > $3))
@@ -1539,7 +1588,14 @@ func (q *Queries) ListDeadLetterRuns(ctx context.Context, projectID string, limi
 		       COALESCE(s.next_retry_at, jr.next_retry_at), COALESCE(s.expires_at, jr.expires_at), jr.parent_run_id, COALESCE(s.priority, jr.priority), jr.idempotency_key, jr.job_version, jr.created_at, jr.workflow_step_run_id, jr.execution_trace, jr.debug_mode, jr.continuation_of, jr.lineage_depth, jr.tags, jr.job_version_id, jr.created_by, jr.batch_id, COALESCE(NULLIF(s.concurrency_key, ''), jr.concurrency_key), COALESCE(NULLIF(s.execution_mode, ''), jr.execution_mode), jr.is_rollback, jr.replayed_run_id
 		FROM job_runs jr
 		LEFT JOIN job_run_read_state s ON s.run_id = jr.id
-		LEFT JOIN job_run_heartbeats h ON h.run_id = jr.id
+		LEFT JOIN LATERAL (
+			SELECT heartbeat_at
+			FROM job_run_heartbeats h
+			WHERE h.run_id = jr.id
+			  AND h.cleared = FALSE
+			ORDER BY h.id DESC
+			LIMIT 1
+		) h ON true
 		WHERE jr.project_id = $1
 		  AND COALESCE(s.status, jr.status) = 'dead_letter'
 		  AND ($2::timestamptz IS NULL OR jr.created_at < $2::timestamptz)
@@ -1593,7 +1649,14 @@ func (q *Queries) ListDeadLetterRunsFiltered(ctx context.Context, projectID stri
 		       COALESCE(s.next_retry_at, jr.next_retry_at), COALESCE(s.expires_at, jr.expires_at), jr.parent_run_id, COALESCE(s.priority, jr.priority), jr.idempotency_key, jr.job_version, jr.created_at, jr.workflow_step_run_id, jr.execution_trace, jr.debug_mode, jr.continuation_of, jr.lineage_depth, jr.tags, jr.job_version_id, jr.created_by, jr.batch_id, COALESCE(NULLIF(s.concurrency_key, ''), jr.concurrency_key), COALESCE(NULLIF(s.execution_mode, ''), jr.execution_mode), jr.is_rollback, jr.replayed_run_id
 		FROM job_runs jr
 		LEFT JOIN job_run_read_state s ON s.run_id = jr.id
-		LEFT JOIN job_run_heartbeats h ON h.run_id = jr.id
+		LEFT JOIN LATERAL (
+			SELECT heartbeat_at
+			FROM job_run_heartbeats h
+			WHERE h.run_id = jr.id
+			  AND h.cleared = FALSE
+			ORDER BY h.id DESC
+			LIMIT 1
+		) h ON true
 		LEFT JOIN LATERAL (
 			SELECT e.visible_until, TRUE AS has_event
 			FROM job_run_visibility_events e
@@ -2756,12 +2819,10 @@ func (q *Queries) UpdateHeartbeat(ctx context.Context, id string) error {
 	defer span.End()
 
 	query := `
-		INSERT INTO job_run_heartbeats (run_id, heartbeat_at)
-		SELECT id, NOW()
+		INSERT INTO job_run_heartbeats (run_id, heartbeat_at, cleared)
+		SELECT id, NOW(), FALSE
 		FROM job_runs
 		WHERE id = $1
-		ON CONFLICT (run_id) DO UPDATE
-		SET heartbeat_at = EXCLUDED.heartbeat_at
 		RETURNING run_id`
 
 	var runID string
@@ -2781,15 +2842,13 @@ func (q *Queries) UpdateHeartbeatForActiveRun(ctx context.Context, id string, at
 	defer span.End()
 
 	query := `
-		INSERT INTO job_run_heartbeats (run_id, heartbeat_at)
-		SELECT jr.id, NOW()
+		INSERT INTO job_run_heartbeats (run_id, heartbeat_at, cleared)
+		SELECT jr.id, NOW(), FALSE
 		FROM job_runs jr
 		LEFT JOIN job_run_read_state s ON s.run_id = jr.id
 		WHERE jr.id = $1
 		  AND COALESCE(s.attempt, jr.attempt) = $2
 		  AND COALESCE(s.status, jr.status) IN ('executing', 'waiting')
-		ON CONFLICT (run_id) DO UPDATE
-		SET heartbeat_at = EXCLUDED.heartbeat_at
 		RETURNING run_id`
 
 	var runID string
@@ -2824,6 +2883,9 @@ func (q *Queries) ListStaleRuns(ctx context.Context, threshold time.Duration) ([
 			SELECT heartbeat_at AS last_hb
 			FROM job_run_heartbeats h
 			WHERE h.run_id = r.id
+			  AND h.cleared = FALSE
+			ORDER BY h.id DESC
+			LIMIT 1
 		) hb ON true
 		WHERE s.status = '%s'
 		  AND s.execution_mode != 'worker'
@@ -3730,7 +3792,14 @@ func (q *Queries) GetRunsByIDs(ctx context.Context, ids []string) (map[string]*d
 		       jr.debug_mode, jr.continuation_of, jr.lineage_depth, jr.tags, jr.job_version_id, jr.created_by, jr.batch_id, COALESCE(NULLIF(s.concurrency_key, ''), jr.concurrency_key), COALESCE(NULLIF(s.execution_mode, ''), jr.execution_mode), jr.is_rollback, jr.replayed_run_id
 		 FROM job_runs jr
 		 LEFT JOIN job_run_read_state s ON s.run_id = jr.id
-		 LEFT JOIN job_run_heartbeats h ON h.run_id = jr.id
+		 LEFT JOIN LATERAL (
+			SELECT heartbeat_at
+			FROM job_run_heartbeats h
+			WHERE h.run_id = jr.id
+			  AND h.cleared = FALSE
+			ORDER BY h.id DESC
+			LIMIT 1
+		) h ON true
 		 LEFT JOIN LATERAL (
 			SELECT fields
 			FROM job_run_lifecycle_events e
@@ -3956,12 +4025,10 @@ func (q *Queries) BatchUpdateHeartbeat(ctx context.Context, ids []string) error 
 	}
 
 	query := `
-		INSERT INTO job_run_heartbeats (run_id, heartbeat_at)
-		SELECT id, NOW()
+		INSERT INTO job_run_heartbeats (run_id, heartbeat_at, cleared)
+		SELECT DISTINCT id, NOW(), FALSE
 		FROM job_runs
-		WHERE id = ANY($1)
-		ON CONFLICT (run_id) DO UPDATE
-		SET heartbeat_at = EXCLUDED.heartbeat_at`
+		WHERE id = ANY($1)`
 
 	if _, err := q.db.Exec(ctx, query, ids); err != nil {
 		return fmt.Errorf("batch update heartbeat: %w", err)

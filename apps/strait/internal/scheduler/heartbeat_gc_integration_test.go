@@ -98,12 +98,30 @@ func TestHeartbeatGC_DeletesOrphansPreservesLive(t *testing.T) {
 
 	// live row still present.
 	var count int
-	_ = tdb.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM job_run_heartbeats WHERE run_id = $1`, liveID).Scan(&count)
+	_ = tdb.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM (
+			SELECT cleared
+			FROM job_run_heartbeats
+			WHERE run_id = $1
+			ORDER BY id DESC
+			LIMIT 1
+		) latest
+		WHERE cleared = FALSE`, liveID).Scan(&count)
 	if count != 1 {
 		t.Errorf("live heartbeat count = %d, want 1", count)
 	}
-	// orphan gone.
-	_ = tdb.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM job_run_heartbeats WHERE run_id = $1`, orphanID).Scan(&count)
+	// orphan is logically cleared.
+	_ = tdb.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM (
+			SELECT cleared
+			FROM job_run_heartbeats
+			WHERE run_id = $1
+			ORDER BY id DESC
+			LIMIT 1
+		) latest
+		WHERE cleared = FALSE`, orphanID).Scan(&count)
 	if count != 0 {
 		t.Errorf("orphan heartbeat count = %d, want 0", count)
 	}

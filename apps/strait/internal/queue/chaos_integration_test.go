@@ -42,9 +42,8 @@ func TestChaos_StaleRunReclaimedAfterHeartbeatLapse(t *testing.T) {
 		t.Fatalf("set executing: %v", err)
 	}
 	_, err = testDB.Pool.Exec(ctx, `
-		INSERT INTO job_run_heartbeats (run_id, heartbeat_at)
-		VALUES ($1, NOW() - INTERVAL '5 minutes')
-		ON CONFLICT (run_id) DO UPDATE SET heartbeat_at = EXCLUDED.heartbeat_at`,
+		INSERT INTO job_run_heartbeats (run_id, heartbeat_at, cleared)
+		VALUES ($1, NOW() - INTERVAL '5 minutes', FALSE)`,
 		run.ID,
 	)
 	if err != nil {
@@ -57,7 +56,14 @@ func TestChaos_StaleRunReclaimedAfterHeartbeatLapse(t *testing.T) {
 	var staleID string
 	err = testDB.Pool.QueryRow(ctx, `
 		SELECT r.id FROM job_runs r
-		JOIN job_run_heartbeats h ON h.run_id = r.id
+		JOIN LATERAL (
+			SELECT heartbeat_at
+			FROM job_run_heartbeats h
+			WHERE h.run_id = r.id
+			  AND h.cleared = FALSE
+			ORDER BY h.id DESC
+			LIMIT 1
+		) h ON true
 		WHERE r.status = 'executing'
 		  AND h.heartbeat_at < NOW() - INTERVAL '30 seconds'
 		ORDER BY h.heartbeat_at ASC
@@ -71,7 +77,9 @@ func TestChaos_StaleRunReclaimedAfterHeartbeatLapse(t *testing.T) {
 	}
 
 	// Transition back to queued (what the reclaimer does).
-	if _, err = testDB.Pool.Exec(ctx, `DELETE FROM job_run_heartbeats WHERE run_id=$1`, run.ID); err != nil {
+	if _, err = testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_heartbeats (run_id, heartbeat_at, cleared)
+		VALUES ($1, NOW(), TRUE)`, run.ID); err != nil {
 		t.Fatalf("clear side-table: %v", err)
 	}
 	_, err = testDB.Pool.Exec(ctx,

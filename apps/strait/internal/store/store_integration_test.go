@@ -5201,15 +5201,15 @@ func TestRunMgmt_ListStaleRuns(t *testing.T) {
 	// Heartbeat liveness is read from the job_run_heartbeats side table.
 	oldHeartbeat := time.Now().UTC().Add(-10 * time.Minute)
 	if _, err := testDB.Pool.Exec(ctx, `
-		INSERT INTO job_run_heartbeats (run_id, heartbeat_at) VALUES ($1, $2)
-		ON CONFLICT (run_id) DO UPDATE SET heartbeat_at = EXCLUDED.heartbeat_at`,
+		INSERT INTO job_run_heartbeats (run_id, heartbeat_at, cleared)
+		VALUES ($1, $2, FALSE)`,
 		stale.ID, oldHeartbeat); err != nil {
 		t.Fatalf("insert stale heartbeat error = %v", err)
 	}
 	recentHeartbeat := time.Now().UTC().Add(-1 * time.Minute)
 	if _, err := testDB.Pool.Exec(ctx, `
-		INSERT INTO job_run_heartbeats (run_id, heartbeat_at) VALUES ($1, $2)
-		ON CONFLICT (run_id) DO UPDATE SET heartbeat_at = EXCLUDED.heartbeat_at`,
+		INSERT INTO job_run_heartbeats (run_id, heartbeat_at, cleared)
+		VALUES ($1, $2, FALSE)`,
 		fresh.ID, recentHeartbeat); err != nil {
 		t.Fatalf("insert fresh heartbeat error = %v", err)
 	}
@@ -5253,8 +5253,8 @@ func TestRunMgmt_ListStaleRuns_ExcludesWorkerMode(t *testing.T) {
 	oldHeartbeat := time.Now().UTC().Add(-10 * time.Minute)
 	for _, id := range []string{httpRun.ID, workerRun.ID} {
 		if _, err := testDB.Pool.Exec(ctx, `
-			INSERT INTO job_run_heartbeats (run_id, heartbeat_at) VALUES ($1, $2)
-			ON CONFLICT (run_id) DO UPDATE SET heartbeat_at = EXCLUDED.heartbeat_at`,
+			INSERT INTO job_run_heartbeats (run_id, heartbeat_at, cleared)
+			VALUES ($1, $2, FALSE)`,
 			id, oldHeartbeat); err != nil {
 			t.Fatalf("insert heartbeat error = %v", err)
 		}
