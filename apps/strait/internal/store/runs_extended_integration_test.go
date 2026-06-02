@@ -542,6 +542,31 @@ func TestRuns_CancelJobRunsByWorkflowRun_HappyPath(t *testing.T) {
 	assertBulkCanceledViaTerminalState(t, ctx, jobRun.ID, domain.StatusExecuting, "workflow canceled")
 }
 
+func TestRuns_CancelJobRunsByWorkflowRun_PgQueActiveClaimDoesNotTouchActiveCounter(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	fixture := seedPgQueClaimedWorkflowStepRun(t, ctx, q, "cancel")
+	count, err := q.CancelJobRunsByWorkflowRun(ctx, fixture.workflowRunID, time.Now().UTC(), "workflow canceled")
+	if err != nil {
+		t.Fatalf("CancelJobRunsByWorkflowRun() error = %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("count = %d, want 1", count)
+	}
+	got, err := q.GetRun(ctx, fixture.runID)
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if got.Status != domain.StatusCanceled {
+		t.Fatalf("status = %s, want canceled", got.Status)
+	}
+	assertActiveCountTimestampUnchanged(t, ctx, fixture.jobID, fixture.counterUpdatedAt, "workflow cancel")
+	assertBulkCanceledViaTerminalState(t, ctx, fixture.runID, domain.StatusQueued, "workflow canceled")
+	assertRunLifecycleTransition(t, ctx, fixture.runID, domain.StatusExecuting, domain.StatusCanceled)
+}
+
 func TestRuns_CancelJobRunsByWorkflowRun_SkipsAlreadyTerminal(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -678,6 +703,37 @@ func TestRuns_MarkJobRunsPausedByWorkflowRun_HappyPath(t *testing.T) {
 	}
 }
 
+func TestRuns_MarkJobRunsPausedByWorkflowRun_PgQueActiveClaimDoesNotTouchActiveCounter(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	fixture := seedPgQueClaimedWorkflowStepRun(t, ctx, q, "pause")
+	count, err := q.MarkJobRunsPausedByWorkflowRun(ctx, fixture.workflowRunID)
+	if err != nil {
+		t.Fatalf("MarkJobRunsPausedByWorkflowRun() error = %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("count = %d, want 1", count)
+	}
+	got, err := q.GetRun(ctx, fixture.runID)
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if got.Status != domain.StatusPaused {
+		t.Fatalf("status = %s, want paused", got.Status)
+	}
+	assertActiveCountTimestampUnchanged(t, ctx, fixture.jobID, fixture.counterUpdatedAt, "workflow pause")
+
+	var activeClaims int
+	if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM job_run_active_claims WHERE run_id = $1`, fixture.runID).Scan(&activeClaims); err != nil {
+		t.Fatalf("query active claims: %v", err)
+	}
+	if activeClaims != 0 {
+		t.Fatalf("active claims = %d, want 0 after pause", activeClaims)
+	}
+}
+
 func TestRuns_MarkJobRunsPausedByWorkflowRun_SkipsNonExecuting(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -725,6 +781,112 @@ func TestRuns_MarkJobRunsPausedByWorkflowRun_Empty(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("count = %d, want 0", count)
+	}
+}
+
+type pgQueClaimedWorkflowFixture struct {
+	workflowRunID    string
+	jobID            string
+	runID            string
+	counterUpdatedAt time.Time
+}
+
+func seedPgQueClaimedWorkflowStepRun(
+	t *testing.T,
+	ctx context.Context,
+	q *store.Queries,
+	suffix string,
+) pgQueClaimedWorkflowFixture {
+	t.Helper()
+
+	projectID := "project-pgque-workflow-" + suffix
+	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{ProjectID: new(projectID)})
+	stepJob := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(projectID)})
+	step := testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, &testutil.WorkflowStepOpts{JobID: new(stepJob.ID)})
+	wfRun := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID)})
+
+	jobRun := baseRun(stepJob, newID())
+	jobRun.Status = domain.StatusQueued
+	if err := q.CreateRun(ctx, jobRun); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+	testutil.MustCreateWorkflowStepRun(t, ctx, q, wfRun.ID, step.ID, &testutil.WorkflowStepRunOpts{JobRunID: new(jobRun.ID)})
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE job_run_state SET job_max_concurrency = 1 WHERE run_id = $1`, jobRun.ID); err != nil {
+		t.Fatalf("mark limited workflow run: %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_active_claims (run_id, ready_generation, attempt, started_at)
+		SELECT run_id, ready_generation, attempt, NOW()
+		FROM job_run_state
+		WHERE run_id = $1`,
+		jobRun.ID,
+	); err != nil {
+		t.Fatalf("insert active claim: %v", err)
+	}
+	counterUpdatedAt := time.Now().UTC().Add(-time.Hour).Truncate(time.Microsecond)
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_active_counts (job_id, concurrency_key, count, updated_at)
+		VALUES ($1, '', 0, $2)
+		ON CONFLICT (job_id, concurrency_key)
+		DO UPDATE SET count = 0, updated_at = EXCLUDED.updated_at`,
+		stepJob.ID, counterUpdatedAt,
+	); err != nil {
+		t.Fatalf("seed active count row: %v", err)
+	}
+
+	return pgQueClaimedWorkflowFixture{
+		workflowRunID:    wfRun.ID,
+		jobID:            stepJob.ID,
+		runID:            jobRun.ID,
+		counterUpdatedAt: counterUpdatedAt,
+	}
+}
+
+func assertActiveCountTimestampUnchanged(
+	t *testing.T,
+	ctx context.Context,
+	jobID string,
+	want time.Time,
+	action string,
+) {
+	t.Helper()
+
+	var got time.Time
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT updated_at
+		FROM job_active_counts
+		WHERE job_id = $1 AND concurrency_key = ''`,
+		jobID,
+	).Scan(&got); err != nil {
+		t.Fatalf("query active count timestamp after %s: %v", action, err)
+	}
+	if !got.Equal(want) {
+		t.Fatalf("active count updated_at changed after %s: got %s want %s", action, got, want)
+	}
+}
+
+func assertRunLifecycleTransition(
+	t *testing.T,
+	ctx context.Context,
+	runID string,
+	from domain.RunStatus,
+	to domain.RunStatus,
+) {
+	t.Helper()
+
+	var count int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM job_run_lifecycle_events
+		WHERE run_id = $1
+		  AND from_status = $2
+		  AND to_status = $3`,
+		runID, from, to,
+	).Scan(&count); err != nil {
+		t.Fatalf("query lifecycle transition: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("lifecycle transition %s -> %s rows = %d, want 1", from, to, count)
 	}
 }
 

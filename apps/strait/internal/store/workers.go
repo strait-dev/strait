@@ -268,7 +268,7 @@ func (q *Queries) RecoverStaleWorkerTasksExceptRefs(ctx context.Context, cutoff 
 				  ON c.run_id = s.run_id
 				 AND c.ready_generation = s.ready_generation
 				WHERE NOT EXISTS (SELECT 1 FROM job_run_terminal_state t WHERE t.run_id = s.run_id)
-				  AND (s.status = 'executing' OR (s.status = 'queued' AND c.run_id IS NOT NULL))
+				  AND (s.status = 'executing' OR (s.status IN ('queued', 'delayed') AND c.run_id IS NOT NULL))
 				FOR UPDATE OF s SKIP LOCKED
 			),
 			requeued_runs AS (
@@ -857,7 +857,7 @@ func (q *Queries) RequeueOpenWorkerTasks(ctx context.Context, workerID, projectI
 				  ON c.run_id = s.run_id
 				 AND c.ready_generation = s.ready_generation
 				WHERE NOT EXISTS (SELECT 1 FROM job_run_terminal_state t WHERE t.run_id = s.run_id)
-				  AND (s.status = 'executing' OR (s.status = 'queued' AND c.run_id IS NOT NULL))
+				  AND (s.status = 'executing' OR (s.status IN ('queued', 'delayed') AND c.run_id IS NOT NULL))
 				FOR UPDATE OF s SKIP LOCKED
 			),
 			requeued_runs AS (

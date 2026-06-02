@@ -3409,12 +3409,13 @@ func (q *Queries) MarkJobRunsPausedByWorkflowRun(ctx context.Context, workflowRu
 				COALESCE(s.concurrency_key, '') AS concurrency_key,
 				s.attempt,
 				CASE
-					WHEN c.run_id IS NOT NULL AND s.status = 'queued' THEN 'executing'
+					WHEN c.run_id IS NOT NULL AND s.status IN ('queued', 'delayed') THEN 'executing'
 					ELSE s.status
 				END AS previous_status,
 				c.started_at AS claim_started_at,
 				s.job_max_concurrency,
-				s.job_max_concurrency_per_key
+				s.job_max_concurrency_per_key,
+				c.run_id IS NOT NULL AS uses_active_claim
 			FROM job_run_state s
 			JOIN workflow_step_runs wsr ON wsr.job_run_id = s.run_id
 			LEFT JOIN job_run_active_claims c
@@ -3422,7 +3423,7 @@ func (q *Queries) MarkJobRunsPausedByWorkflowRun(ctx context.Context, workflowRu
 			 AND c.ready_generation = s.ready_generation
 			WHERE wsr.workflow_run_id = $1
 			  AND NOT EXISTS (SELECT 1 FROM job_run_terminal_state t WHERE t.run_id = s.run_id)
-			  AND (s.status = 'executing' OR (s.status = 'queued' AND c.run_id IS NOT NULL))
+			  AND (s.status = 'executing' OR (s.status IN ('queued', 'delayed') AND c.run_id IS NOT NULL))
 			FOR UPDATE OF s SKIP LOCKED
 		),
 		updated AS (
@@ -3434,7 +3435,8 @@ func (q *Queries) MarkJobRunsPausedByWorkflowRun(ctx context.Context, workflowRu
 			FROM candidates c
 			WHERE s.run_id = c.run_id
 			RETURNING s.run_id, c.job_id, c.concurrency_key, c.attempt, c.previous_status,
-			          c.job_max_concurrency, c.job_max_concurrency_per_key
+			          c.job_max_concurrency, c.job_max_concurrency_per_key,
+			          c.uses_active_claim
 		),
 		deleted_active_claims AS (
 			DELETE FROM job_run_active_claims c
@@ -3448,6 +3450,7 @@ func (q *Queries) MarkJobRunsPausedByWorkflowRun(ctx context.Context, workflowRu
 			    updated_at = NOW()
 			FROM updated u
 			WHERE u.previous_status IN ('dequeued', 'executing')
+			  AND NOT u.uses_active_claim
 			  AND (u.job_max_concurrency IS NOT NULL OR u.job_max_concurrency_per_key IS NOT NULL)
 			  AND c.job_id = u.job_id
 			  AND c.concurrency_key = u.concurrency_key
@@ -3560,7 +3563,7 @@ func bulkCancelTerminalQuery(extraJoins, whereClause, orderLimit, selectClause s
 				s.project_id,
 				s.job_id,
 				CASE
-					WHEN c.run_id IS NOT NULL AND s.status = 'queued' THEN 'executing'
+					WHEN c.run_id IS NOT NULL AND s.status IN ('queued', 'delayed') THEN 'executing'
 					ELSE s.status
 				END AS previous_status,
 				COALESCE(c.attempt, s.attempt) AS attempt,
@@ -3580,6 +3583,7 @@ func bulkCancelTerminalQuery(extraJoins, whereClause, orderLimit, selectClause s
 				s.job_max_concurrency,
 				s.job_max_concurrency_per_key,
 				s.ready_generation,
+				c.run_id IS NOT NULL AS uses_active_claim,
 				COALESCE(jr.workflow_step_run_id, '') AS workflow_step_run_id
 			FROM job_run_state s
 			JOIN job_runs jr ON jr.id = s.run_id
@@ -3662,6 +3666,7 @@ func bulkCancelTerminalQuery(extraJoins, whereClause, orderLimit, selectClause s
 			FROM candidates s
 			JOIN inserted i ON i.run_id = s.run_id
 			WHERE s.previous_status IN ('dequeued', 'executing')
+			  AND NOT s.uses_active_claim
 			  AND (s.job_max_concurrency IS NOT NULL OR s.job_max_concurrency_per_key IS NOT NULL)
 			  AND c.job_id = s.job_id
 			  AND c.concurrency_key = COALESCE(s.concurrency_key, '')
