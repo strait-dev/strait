@@ -142,6 +142,7 @@ func TestIntegration_RequeueOpenWorkerTasks_PgQueDelayedActiveClaimBumpsGenerati
 	}
 	assertPgQueWorkerRecoveryReleasedClaimOnly(t, ctx, env, fixture)
 	assertPgQueWorkerRecoveryBumpedGeneration(t, ctx, env, fixture.runID, beforeGeneration)
+	assertLatestWorkerRecoveryLifecycleEvent(t, ctx, env, fixture.runID, domain.StatusDelayed, domain.StatusQueued)
 }
 
 func TestIntegration_RecoverStaleWorkerTasks_PgQueActiveClaimDoesNotTouchActiveCounter(t *testing.T) {
@@ -188,6 +189,7 @@ func TestIntegration_RecoverStaleWorkerTasks_PgQueDelayedActiveClaimIsListedForR
 	}
 	assertPgQueWorkerRecoveryReleasedClaimOnly(t, ctx, env, fixture)
 	assertPgQueWorkerRecoveryBumpedGeneration(t, ctx, env, fixture.runID, beforeGeneration)
+	assertLatestWorkerRecoveryLifecycleEvent(t, ctx, env, fixture.runID, domain.StatusDelayed, domain.StatusQueued)
 }
 
 func TestIntegration_RequeueOpenWorkerTasks_SkipsResultReceivedRuns(t *testing.T) {
@@ -565,6 +567,32 @@ func assertPgQueWorkerRecoveryBumpedGeneration(
 	}
 	if afterGeneration != beforeGeneration+1 {
 		t.Fatalf("ready_generation = %d, want %d", afterGeneration, beforeGeneration+1)
+	}
+}
+
+func assertLatestWorkerRecoveryLifecycleEvent(
+	t *testing.T,
+	ctx context.Context,
+	env *testutil.TestEnv,
+	runID string,
+	wantFrom domain.RunStatus,
+	wantTo domain.RunStatus,
+) {
+	t.Helper()
+
+	var fromStatus, toStatus domain.RunStatus
+	if err := env.DB.Pool.QueryRow(ctx, `
+		SELECT from_status, to_status
+		FROM job_run_lifecycle_events
+		WHERE run_id = $1
+		ORDER BY created_at DESC, id DESC
+		LIMIT 1`,
+		runID,
+	).Scan(&fromStatus, &toStatus); err != nil {
+		t.Fatalf("query latest worker recovery lifecycle event: %v", err)
+	}
+	if fromStatus != wantFrom || toStatus != wantTo {
+		t.Fatalf("latest lifecycle event = %q -> %q, want %q -> %q", fromStatus, toStatus, wantFrom, wantTo)
 	}
 }
 

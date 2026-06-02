@@ -258,6 +258,7 @@ func (q *Queries) RecoverStaleWorkerTasksExceptRefs(ctx context.Context, cutoff 
 					s.job_id,
 					COALESCE(s.concurrency_key, '') AS concurrency_key,
 					COALESCE(c.attempt, s.attempt) AS attempt,
+					s.status AS from_status,
 					s.ready_generation,
 					s.job_max_concurrency,
 					s.job_max_concurrency_per_key,
@@ -282,7 +283,7 @@ func (q *Queries) RecoverStaleWorkerTasksExceptRefs(ctx context.Context, cutoff 
 				    updated_at = NOW()
 				FROM candidates c
 				WHERE s.run_id = c.run_id
-				RETURNING s.run_id, c.job_id, c.concurrency_key, c.attempt,
+				RETURNING s.run_id, c.job_id, c.concurrency_key, c.attempt, c.from_status,
 				          c.job_max_concurrency, c.job_max_concurrency_per_key,
 				          c.uses_active_claim
 			),
@@ -299,7 +300,7 @@ func (q *Queries) RecoverStaleWorkerTasksExceptRefs(ctx context.Context, cutoff 
 			),
 			lifecycle_events AS (
 				INSERT INTO job_run_lifecycle_events (run_id, from_status, to_status, attempt, fields)
-				SELECT run_id, 'executing', 'queued', attempt,
+				SELECT run_id, from_status, 'queued', attempt,
 				       jsonb_build_object('error', $2::text, 'error_class', 'transient')
 				FROM requeued_runs
 				RETURNING 1
@@ -839,6 +840,7 @@ func (q *Queries) RequeueOpenWorkerTasks(ctx context.Context, workerID, projectI
 					s.job_id,
 					COALESCE(s.concurrency_key, '') AS concurrency_key,
 					COALESCE(c.attempt, s.attempt) AS attempt,
+					s.status AS from_status,
 					s.ready_generation,
 					s.job_max_concurrency,
 					s.job_max_concurrency_per_key,
@@ -863,7 +865,7 @@ func (q *Queries) RequeueOpenWorkerTasks(ctx context.Context, workerID, projectI
 				    updated_at = NOW()
 				FROM candidates c
 				WHERE s.run_id = c.run_id
-				RETURNING s.run_id, c.job_id, c.concurrency_key, c.attempt,
+				RETURNING s.run_id, c.job_id, c.concurrency_key, c.attempt, c.from_status,
 				          c.job_max_concurrency, c.job_max_concurrency_per_key,
 				          c.uses_active_claim
 			),
@@ -880,7 +882,7 @@ func (q *Queries) RequeueOpenWorkerTasks(ctx context.Context, workerID, projectI
 			),
 			lifecycle_events AS (
 				INSERT INTO job_run_lifecycle_events (run_id, from_status, to_status, attempt, fields)
-				SELECT run_id, 'executing', 'queued', attempt,
+				SELECT run_id, from_status, 'queued', attempt,
 				       jsonb_build_object('error', $3::text, 'error_class', 'transient')
 				FROM requeued_runs
 				RETURNING 1
