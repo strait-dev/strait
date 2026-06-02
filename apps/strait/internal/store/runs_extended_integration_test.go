@@ -501,6 +501,7 @@ func TestRuns_CancelJobRunsByWorkflowRun_HappyPath(t *testing.T) {
 	if got.Status != domain.StatusCanceled {
 		t.Fatalf("status = %s, want %s", got.Status, domain.StatusCanceled)
 	}
+	assertBulkCanceledViaTerminalState(t, ctx, jobRun.ID, domain.StatusExecuting, "workflow canceled")
 }
 
 func TestRuns_CancelJobRunsByWorkflowRun_SkipsAlreadyTerminal(t *testing.T) {
@@ -837,6 +838,58 @@ func TestRuns_BulkCancelRuns_HappyPath(t *testing.T) {
 	if len(results) != 2 {
 		t.Fatalf("len = %d, want 2", len(results))
 	}
+	assertBulkCanceledViaTerminalState(t, ctx, r1.ID, domain.StatusExecuting, "bulk cancel")
+	assertBulkCanceledViaTerminalState(t, ctx, r2.ID, domain.StatusQueued, "bulk cancel")
+}
+
+func TestRuns_BulkCancelRuns_ReleasesActiveCounterWithoutMutatingHotState(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-bulk-cancel-counter")
+	run := baseRun(job, newID())
+	run.Status = domain.StatusExecuting
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE job_run_state
+		SET job_max_concurrency = 1
+		WHERE run_id = $1`, run.ID); err != nil {
+		t.Fatalf("mark constrained state: %v", err)
+	}
+
+	var before int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(count), 0)
+		FROM job_active_counts
+		WHERE job_id = $1`, job.ID).Scan(&before); err != nil {
+		t.Fatalf("active count before cancel: %v", err)
+	}
+	if before != 1 {
+		t.Fatalf("active count before cancel = %d, want 1", before)
+	}
+
+	results, err := q.BulkCancelRuns(ctx, []string{run.ID}, time.Now().UTC(), "bulk cancel")
+	if err != nil {
+		t.Fatalf("BulkCancelRuns() error = %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("len = %d, want 1", len(results))
+	}
+
+	var after int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(count), 0)
+		FROM job_active_counts
+		WHERE job_id = $1`, job.ID).Scan(&after); err != nil {
+		t.Fatalf("active count after cancel: %v", err)
+	}
+	if after != 0 {
+		t.Fatalf("active count after cancel = %d, want 0", after)
+	}
+	assertBulkCanceledViaTerminalState(t, ctx, run.ID, domain.StatusExecuting, "bulk cancel")
 }
 
 func TestRuns_BulkCancelRuns_SkipsTerminal(t *testing.T) {
@@ -879,6 +932,53 @@ func TestRuns_BulkCancelRuns_EmptyIDs(t *testing.T) {
 	}
 }
 
+func assertBulkCanceledViaTerminalState(
+	t *testing.T,
+	ctx context.Context,
+	runID string,
+	wantHotStatus domain.RunStatus,
+	wantReason string,
+) {
+	t.Helper()
+
+	var hotStatus domain.RunStatus
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT status
+		FROM job_run_state
+		WHERE run_id = $1`, runID).Scan(&hotStatus); err != nil {
+		t.Fatalf("query hot run state: %v", err)
+	}
+	if hotStatus != wantHotStatus {
+		t.Fatalf("hot status = %q, want retained pre-terminal status %q", hotStatus, wantHotStatus)
+	}
+
+	var terminalStatus domain.RunStatus
+	var terminalFinishedAt time.Time
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT status, finished_at
+		FROM job_run_terminal_state
+		WHERE run_id = $1`, runID).Scan(&terminalStatus, &terminalFinishedAt); err != nil {
+		t.Fatalf("query terminal run state: %v", err)
+	}
+	if terminalStatus != domain.StatusCanceled {
+		t.Fatalf("terminal status = %q, want canceled", terminalStatus)
+	}
+	if terminalFinishedAt.IsZero() {
+		t.Fatal("terminal finished_at is zero")
+	}
+
+	got, err := mustStore(t).GetRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if got.Status != domain.StatusCanceled {
+		t.Fatalf("GetRun status = %q, want canceled", got.Status)
+	}
+	if wantReason != "" && got.Error != wantReason {
+		t.Fatalf("GetRun error = %q, want %q", got.Error, wantReason)
+	}
+}
+
 // CancelChildRunsByParentIDs.
 
 func TestRuns_CancelChildRunsByParentIDs_HappyPath(t *testing.T) {
@@ -911,6 +1011,7 @@ func TestRuns_CancelChildRunsByParentIDs_HappyPath(t *testing.T) {
 	if got.Status != domain.StatusCanceled {
 		t.Fatalf("status = %s, want canceled", got.Status)
 	}
+	assertBulkCanceledViaTerminalState(t, ctx, child.ID, domain.StatusExecuting, "parent canceled")
 }
 
 func TestRuns_CancelChildRunsByParentIDs_NoChildren(t *testing.T) {
@@ -1247,6 +1348,8 @@ func TestRuns_BulkCancelByFilter_ByJobID(t *testing.T) {
 	if len(ids) != 2 {
 		t.Fatalf("len = %d, want 2", len(ids))
 	}
+	assertBulkCanceledViaTerminalState(t, ctx, r1.ID, domain.StatusQueued, "filter cancel")
+	assertBulkCanceledViaTerminalState(t, ctx, r2.ID, domain.StatusQueued, "filter cancel")
 }
 
 func TestRuns_BulkCancelByFilter_Empty(t *testing.T) {
@@ -1404,6 +1507,8 @@ func TestRuns_CancelActiveRunsForJob_HappyPath(t *testing.T) {
 	if got := byID[r1.ID]; got.WorkflowStepRunID != "step-run-cancel-active" || got.JobID != job.ID || got.ProjectID != job.ProjectID || got.ExecutionMode != domain.ExecutionModeWorker {
 		t.Fatalf("canceled run metadata = %+v", got)
 	}
+	assertBulkCanceledViaTerminalState(t, ctx, r1.ID, domain.StatusQueued, "cron overlap")
+	assertBulkCanceledViaTerminalState(t, ctx, r2.ID, domain.StatusExecuting, "cron overlap")
 }
 
 func TestRuns_CancelActiveRunsForJobExcept_PreservesReplacementRun(t *testing.T) {

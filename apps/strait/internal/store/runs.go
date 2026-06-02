@@ -3182,22 +3182,18 @@ func (q *Queries) CancelJobRunsByWorkflowRun(ctx context.Context, workflowRunID 
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CancelJobRunsByWorkflowRun")
 	defer span.End()
 
-	query := `
-		UPDATE job_run_state s
-		SET status = 'canceled',
-		    finished_at = $2,
-		    updated_at = NOW()
-		FROM workflow_step_runs wsr
-		WHERE wsr.job_run_id = s.run_id
-		  AND wsr.workflow_run_id = $1
-		  AND NOT EXISTS (SELECT 1 FROM job_run_terminal_state t WHERE t.run_id = s.run_id)
-		  AND s.status NOT IN ('completed', 'failed', 'canceled')`
+	query := bulkCancelTerminalQuery(
+		`JOIN workflow_step_runs wsr ON wsr.job_run_id = s.run_id`,
+		`wsr.workflow_run_id = $3`,
+		"",
+		`SELECT COUNT(*) FROM inserted`,
+	)
 
-	tag, err := q.db.Exec(ctx, query, workflowRunID, finishedAt)
-	if err != nil {
+	var count int64
+	if err := q.db.QueryRow(ctx, query, finishedAt, reason, workflowRunID).Scan(&count); err != nil {
 		return 0, fmt.Errorf("cancel job runs by workflow run: %w", err)
 	}
-	return tag.RowsAffected(), nil
+	return count, nil
 }
 
 // MarkJobRunsPausedByWorkflowRun transitions executing job runs linked to this
@@ -3270,6 +3266,162 @@ type BulkCancelResult struct {
 	Error          string
 }
 
+func bulkCancelTerminalQuery(extraJoins, whereClause, orderLimit, selectClause string) string {
+	var query strings.Builder
+	query.WriteString(`
+		WITH candidates AS MATERIALIZED (
+			SELECT
+				s.run_id,
+				s.project_id,
+				s.job_id,
+				CASE
+					WHEN c.run_id IS NOT NULL AND s.status = 'queued' THEN 'executing'
+					ELSE s.status
+				END AS previous_status,
+				COALESCE(c.attempt, s.attempt) AS attempt,
+				s.priority,
+				s.scheduled_at,
+				COALESCE(c.started_at, s.started_at) AS started_at,
+				s.finished_at,
+				s.heartbeat_at,
+				s.next_retry_at,
+				s.expires_at,
+				s.concurrency_key,
+				s.execution_mode,
+				s.queue_name,
+				s.environment_id,
+				s.job_enabled,
+				s.job_paused,
+				s.job_max_concurrency,
+				s.job_max_concurrency_per_key,
+				s.ready_generation,
+				COALESCE(jr.workflow_step_run_id, '') AS workflow_step_run_id
+			FROM job_run_state s
+			JOIN job_runs jr ON jr.id = s.run_id
+			LEFT JOIN job_run_active_claims c
+			  ON c.run_id = s.run_id
+			 AND c.ready_generation = s.ready_generation`)
+	if extraJoins != "" {
+		query.WriteString("\n\t\t")
+		query.WriteString(extraJoins)
+	}
+	query.WriteString(`
+			WHERE NOT EXISTS (SELECT 1 FROM job_run_terminal_state t WHERE t.run_id = s.run_id)
+			  AND s.status IN ('delayed', 'queued', 'dequeued', 'executing', 'waiting')
+			  AND (`)
+	query.WriteString(whereClause)
+	query.WriteString(`)`)
+	if orderLimit != "" {
+		query.WriteString("\n\t\t")
+		query.WriteString(orderLimit)
+	}
+	query.WriteString(`
+			FOR UPDATE OF s
+		),
+		inserted AS (
+			INSERT INTO job_run_terminal_state (
+				run_id,
+				project_id,
+				job_id,
+				status,
+				attempt,
+				priority,
+				scheduled_at,
+				started_at,
+				finished_at,
+				heartbeat_at,
+				next_retry_at,
+				expires_at,
+				concurrency_key,
+				execution_mode,
+				queue_name,
+				environment_id,
+				job_enabled,
+				job_paused,
+				job_max_concurrency,
+				job_max_concurrency_per_key,
+				ready_generation,
+				updated_at
+			)
+			SELECT
+				run_id,
+				project_id,
+				job_id,
+				'canceled',
+				attempt,
+				priority,
+				scheduled_at,
+				started_at,
+				$1::TIMESTAMPTZ,
+				heartbeat_at,
+				next_retry_at,
+				expires_at,
+				concurrency_key,
+				execution_mode,
+				queue_name,
+				environment_id,
+				job_enabled,
+				job_paused,
+				job_max_concurrency,
+				job_max_concurrency_per_key,
+				ready_generation,
+				NOW()
+			FROM candidates
+			ON CONFLICT (run_id) DO NOTHING
+			RETURNING run_id
+		),
+		released AS (
+			UPDATE job_active_counts c
+			SET count = GREATEST(c.count - 1, 0),
+			    updated_at = NOW()
+			FROM candidates s
+			JOIN inserted i ON i.run_id = s.run_id
+			WHERE s.previous_status IN ('dequeued', 'executing')
+			  AND (s.job_max_concurrency IS NOT NULL OR s.job_max_concurrency_per_key IS NOT NULL)
+			  AND c.job_id = s.job_id
+			  AND c.concurrency_key = COALESCE(s.concurrency_key, '')
+			RETURNING 1
+		),
+		legacy_queue_entries AS (
+			UPDATE queue_entries
+			SET status = 'acked',
+			    run_status = 'canceled',
+			    acked_at = COALESCE(acked_at, NOW()),
+			    lease_owner = NULL,
+			    lease_expires_at = NULL,
+			    updated_at = NOW()
+			WHERE run_id IN (SELECT run_id FROM inserted)
+			  AND status IN ('ready', 'leased')
+			RETURNING 1
+		),
+		lifecycle_events AS (
+			INSERT INTO job_run_lifecycle_events (run_id, from_status, to_status, attempt, fields)
+			SELECT
+				c.run_id,
+				c.previous_status,
+				'canceled',
+				c.attempt,
+				jsonb_strip_nulls(jsonb_build_object(
+					'error', NULLIF($2::TEXT, ''),
+					'finished_at', $1::TIMESTAMPTZ
+				))
+			FROM candidates c
+			JOIN inserted i ON i.run_id = c.run_id
+			RETURNING 1
+		),
+		cache_versions AS (
+			INSERT INTO job_run_cache_versions (run_id, cache_version)
+			SELECT run_id, 2 FROM inserted
+			ON CONFLICT (run_id)
+			DO UPDATE SET cache_version = job_run_cache_versions.cache_version + 1
+			RETURNING 1
+		)
+		`)
+	query.WriteString(selectClause)
+
+	return query.String()
+}
+
 func (q *Queries) GetRunsByIDs(ctx context.Context, ids []string) (map[string]*domain.JobRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetRunsByIDs")
 	defer span.End()
@@ -3302,32 +3454,40 @@ func (q *Queries) BulkCancelRuns(ctx context.Context, ids []string, finishedAt t
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	rows, err := q.db.Query(ctx,
-		`UPDATE job_run_state
-		 SET status = 'canceled', finished_at = $2, updated_at = NOW()
-		 WHERE run_id = ANY($1)
-		   AND NOT EXISTS (SELECT 1 FROM job_run_terminal_state t WHERE t.run_id = job_run_state.run_id)
-		   AND status IN ('delayed', 'queued', 'dequeued', 'executing', 'waiting')
-		 RETURNING run_id`, ids, finishedAt)
+	query := bulkCancelTerminalQuery(
+		"",
+		`s.run_id = ANY($3::text[])`,
+		`ORDER BY array_position($3::text[], s.run_id)`,
+		`SELECT c.run_id, c.previous_status
+		 FROM candidates c
+		 JOIN inserted i ON i.run_id = c.run_id
+		 ORDER BY array_position($3::text[], c.run_id)`,
+	)
+	rows, err := q.db.Query(ctx, query, finishedAt, reason, ids)
 	if err != nil {
 		return nil, fmt.Errorf("bulk cancel runs: %w", err)
 	}
 	defer rows.Close()
-	canceledSet := make(map[string]struct{})
+	canceled := make(map[string]domain.RunStatus, len(ids))
 	for rows.Next() {
 		var id string
-		if err := rows.Scan(&id); err != nil {
+		var previousStatus domain.RunStatus
+		if err := rows.Scan(&id, &previousStatus); err != nil {
 			return nil, fmt.Errorf("scan canceled id: %w", err)
 		}
-		canceledSet[id] = struct{}{}
+		canceled[id] = previousStatus
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("bulk cancel rows: %w", err)
 	}
 	results := make([]BulkCancelResult, 0, len(ids))
 	for _, id := range ids {
-		if _, ok := canceledSet[id]; ok {
-			results = append(results, BulkCancelResult{ID: id, Canceled: true})
+		if previousStatus, ok := canceled[id]; ok {
+			results = append(results, BulkCancelResult{
+				ID:             id,
+				PreviousStatus: previousStatus,
+				Canceled:       true,
+			})
 		}
 	}
 	return results, nil
@@ -3339,19 +3499,17 @@ func (q *Queries) CancelChildRunsByParentIDs(ctx context.Context, parentIDs []st
 	if len(parentIDs) == 0 {
 		return 0, nil
 	}
-	tag, err := q.db.Exec(ctx,
-		`UPDATE job_run_state s
-		 SET status = 'canceled', finished_at = $2, updated_at = NOW()
-		 FROM job_runs jr
-		 WHERE jr.id = s.run_id
-		   AND jr.parent_run_id = ANY($1)
-		   AND NOT EXISTS (SELECT 1 FROM job_run_terminal_state t WHERE t.run_id = s.run_id)
-		   AND s.status IN ('delayed', 'queued', 'dequeued', 'executing', 'waiting')`,
-		parentIDs, finishedAt)
-	if err != nil {
+	query := bulkCancelTerminalQuery(
+		"",
+		`jr.parent_run_id = ANY($3::text[])`,
+		"",
+		`SELECT COUNT(*) FROM inserted`,
+	)
+	var count int64
+	if err := q.db.QueryRow(ctx, query, finishedAt, reason, parentIDs).Scan(&count); err != nil {
 		return 0, fmt.Errorf("cancel child runs: %w", err)
 	}
-	return tag.RowsAffected(), nil
+	return count, nil
 }
 
 func (q *Queries) BulkReplayDeadLetterRuns(ctx context.Context, runIDs []string, projectID string, limit int) ([]domain.JobRun, error) {
@@ -3625,45 +3783,47 @@ func (q *Queries) BulkCancelByFilter(ctx context.Context, projectID string, f Bu
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.BulkCancelByFilter")
 	defer span.End()
 
-	// Build the filter conditions for the subquery that selects candidate rows.
-	// A LIMIT 10000 cap prevents locking millions of rows in a single UPDATE.
-	filterQuery := `SELECT id FROM job_runs
-		WHERE project_id = $3
-		  AND status IN ('delayed', 'queued')
-		  AND started_at IS NULL`
+	// A LIMIT 10000 cap prevents locking millions of rows in one statement.
+	filterConditions := []string{
+		"s.project_id = $3",
+		"s.status IN ('delayed', 'queued')",
+		"s.started_at IS NULL",
+	}
 
 	args := []any{now, reason, projectID}
 	param := 4
 
 	if f.JobID != "" {
-		filterQuery += fmt.Sprintf(" AND job_id = $%d", param)
+		filterConditions = append(filterConditions, fmt.Sprintf("s.job_id = $%d", param))
 		args = append(args, f.JobID)
 		param++
 	}
 	if f.BatchID != "" {
-		filterQuery += fmt.Sprintf(" AND batch_id = $%d", param)
+		filterConditions = append(filterConditions, fmt.Sprintf("jr.batch_id = $%d", param))
 		args = append(args, f.BatchID)
 		param++
 	}
 	if f.TriggeredBy != "" {
-		filterQuery += fmt.Sprintf(" AND triggered_by = $%d", param)
+		filterConditions = append(filterConditions, fmt.Sprintf("jr.triggered_by = $%d", param))
 		args = append(args, f.TriggeredBy)
 		param++
 	}
 	if f.Status != "" {
-		filterQuery += fmt.Sprintf(" AND status = $%d", param)
+		filterConditions = append(filterConditions, fmt.Sprintf("s.status = $%d", param))
 		args = append(args, f.Status)
 	}
 
-	filterQuery += " LIMIT 10000"
-
-	baseQuery := `
-		UPDATE job_runs
-		SET status = 'canceled', finished_at = $1, error = $2
-		WHERE id IN (` + filterQuery + `)
-		RETURNING id`
-
-	rows, err := q.db.Query(ctx, baseQuery, args...)
+	query := bulkCancelTerminalQuery(
+		"",
+		strings.Join(filterConditions, " AND "),
+		`ORDER BY s.run_id
+		LIMIT 10000`,
+		`SELECT c.run_id
+		 FROM candidates c
+		 JOIN inserted i ON i.run_id = c.run_id
+		 ORDER BY c.run_id`,
+	)
+	rows, err := q.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("bulk cancel by filter: %w", err)
 	}
@@ -3740,16 +3900,16 @@ func (q *Queries) cancelActiveRunsForJob(ctx context.Context, jobID string, excl
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CancelActiveRunsForJob")
 	defer span.End()
 
-	query := `UPDATE job_run_state s
-		SET status = 'canceled', finished_at = NOW(), updated_at = NOW()
-		FROM job_runs jr
-		WHERE jr.id = s.run_id
-		  AND s.job_id = $1
-		  AND ($2 = '' OR s.run_id <> $2)
-		  AND NOT EXISTS (SELECT 1 FROM job_run_terminal_state t WHERE t.run_id = s.run_id)
-		  AND s.status IN ('queued', 'dequeued', 'executing', 'waiting', 'delayed')
-		RETURNING s.run_id, s.job_id, s.project_id, COALESCE(jr.workflow_step_run_id, ''), COALESCE(s.execution_mode, 'http')`
-	rows, err := q.db.Query(ctx, query, jobID, excludeRunID)
+	query := bulkCancelTerminalQuery(
+		"",
+		`s.job_id = $3 AND ($4 = '' OR s.run_id <> $4)`,
+		`ORDER BY s.run_id`,
+		`SELECT c.run_id, c.job_id, c.project_id, c.workflow_step_run_id, COALESCE(c.execution_mode, 'http')
+		 FROM candidates c
+		 JOIN inserted i ON i.run_id = c.run_id
+		 ORDER BY c.run_id`,
+	)
+	rows, err := q.db.Query(ctx, query, time.Now().UTC(), reason, jobID, excludeRunID)
 	if err != nil {
 		return nil, fmt.Errorf("cancel active runs for job: %w", err)
 	}
