@@ -260,7 +260,8 @@ func (q *Queries) RecoverStaleWorkerTasksExceptRefs(ctx context.Context, cutoff 
 					COALESCE(c.attempt, s.attempt) AS attempt,
 					s.ready_generation,
 					s.job_max_concurrency,
-					s.job_max_concurrency_per_key
+					s.job_max_concurrency_per_key,
+					c.run_id IS NOT NULL AS uses_active_claim
 				FROM open_tasks ot
 				JOIN job_run_state s ON s.run_id = ot.run_id
 				LEFT JOIN job_run_active_claims c
@@ -282,7 +283,8 @@ func (q *Queries) RecoverStaleWorkerTasksExceptRefs(ctx context.Context, cutoff 
 				FROM candidates c
 				WHERE s.run_id = c.run_id
 				RETURNING s.run_id, c.job_id, c.concurrency_key, c.attempt,
-				          c.job_max_concurrency, c.job_max_concurrency_per_key
+				          c.job_max_concurrency, c.job_max_concurrency_per_key,
+				          c.uses_active_claim
 			),
 			deleted_active_claims AS (
 				DELETE FROM job_run_active_claims c
@@ -297,6 +299,7 @@ func (q *Queries) RecoverStaleWorkerTasksExceptRefs(ctx context.Context, cutoff 
 				    updated_at = NOW()
 				FROM requeued_runs r
 				WHERE (r.job_max_concurrency IS NOT NULL OR r.job_max_concurrency_per_key IS NOT NULL)
+				  AND NOT r.uses_active_claim
 				  AND c.job_id = r.job_id
 				  AND c.concurrency_key = r.concurrency_key
 				RETURNING 1
@@ -846,7 +849,8 @@ func (q *Queries) RequeueOpenWorkerTasks(ctx context.Context, workerID, projectI
 					COALESCE(c.attempt, s.attempt) AS attempt,
 					s.ready_generation,
 					s.job_max_concurrency,
-					s.job_max_concurrency_per_key
+					s.job_max_concurrency_per_key,
+					c.run_id IS NOT NULL AS uses_active_claim
 				FROM open_tasks ot
 				JOIN job_run_state s ON s.run_id = ot.run_id
 				LEFT JOIN job_run_active_claims c
@@ -868,7 +872,8 @@ func (q *Queries) RequeueOpenWorkerTasks(ctx context.Context, workerID, projectI
 				FROM candidates c
 				WHERE s.run_id = c.run_id
 				RETURNING s.run_id, c.job_id, c.concurrency_key, c.attempt,
-				          c.job_max_concurrency, c.job_max_concurrency_per_key
+				          c.job_max_concurrency, c.job_max_concurrency_per_key,
+				          c.uses_active_claim
 			),
 			deleted_active_claims AS (
 				DELETE FROM job_run_active_claims c
@@ -883,6 +888,7 @@ func (q *Queries) RequeueOpenWorkerTasks(ctx context.Context, workerID, projectI
 				    updated_at = NOW()
 				FROM requeued_runs r
 				WHERE (r.job_max_concurrency IS NOT NULL OR r.job_max_concurrency_per_key IS NOT NULL)
+				  AND NOT r.uses_active_claim
 				  AND c.job_id = r.job_id
 				  AND c.concurrency_key = r.concurrency_key
 				RETURNING 1
