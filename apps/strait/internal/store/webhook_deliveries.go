@@ -224,6 +224,7 @@ func (q *Queries) ClaimPendingWebhookRetries(ctx context.Context, limit int, lea
 
 	claimToken := uuid.Must(uuid.NewV7()).String()
 	leaseExpiry := time.Now().UTC().Add(leaseDuration)
+	//nolint:dupword // Claimed delivery scan currently includes project_id in both base and claim columns.
 	query := `
 		WITH claimable AS (
 			SELECT wd.id

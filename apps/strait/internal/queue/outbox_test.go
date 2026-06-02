@@ -169,7 +169,14 @@ func (r *outboxRows) Next() bool {
 	return true
 }
 func (r *outboxRows) Scan(dest ...any) error {
-	*(dest[0].(*string)) = r.ids[r.index-1]
+	if len(dest) != 1 {
+		return errors.New("outboxRows: expected one destination")
+	}
+	id, ok := dest[0].(*string)
+	if !ok {
+		return errors.New("outboxRows: destination is not *string")
+	}
+	*id = r.ids[r.index-1]
 	return nil
 }
 func (r *outboxRows) Values() ([]any, error) { return []any{r.ids[r.index-1]}, nil }

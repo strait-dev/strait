@@ -297,7 +297,7 @@ Once the plan is approved, execute each phase in order. For every phase:
 2. **Structured concurrency.** Use `sourcegraph/conc` and `alitto/pond/v2`. No casual goroutine fan-out.
 3. **Errors.** Wrap with `%w` and contextual messages. Use `samber/oops` for stack traces in critical paths.
 4. **Helpers.** Prefer `samber/lo` where it improves readability.
-5. **Go style baseline.** Follow the Uber Go Style Guide for new and touched Go code unless it conflicts with this guide or established local patterns. In practice: copy slices/maps at ownership boundaries, avoid pointers to interfaces, verify interface compliance for important adapters, keep contexts first, handle errors once, avoid hidden goroutines, prefer explicit returns, use field names in struct literals, keep zero-value mutexes as values, and justify every `nolint`.
+5. **Go style baseline.** Follow the Uber Go Style Guide for new and touched Go code unless it conflicts with this guide or established local patterns. In practice: copy slices/maps at ownership boundaries, avoid pointers to interfaces, verify interface compliance for important adapters, keep contexts first, handle errors once, handle type assertion failures, avoid hidden goroutines, prefer explicit returns, use field names in struct literals, keep zero-value mutexes as values, and justify every `nolint`.
 6. **Tests.** Use `apps/strait/internal/testutil` helpers. Write meaningful assertions, not just "no error".
 7. **Worker and pool consistency.** Reuse existing patterns in `internal/worker`. Don't fork dispatch logic.
 8. **No emojis.** Not in code, comments, logs, docs, commits, or PR text. Anywhere.

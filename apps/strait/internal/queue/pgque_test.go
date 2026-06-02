@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -234,7 +235,11 @@ func TestPgQueEnsureRouteConfiguresRotationPeriod(t *testing.T) {
 	db := &mockDBTX{
 		execFn: func(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
 			if strings.Contains(sql, "pgque.set_queue_config") && strings.Contains(sql, "rotation_period") && len(args) == 2 {
-				rotationPeriod, _ = args[1].(string)
+				arg, ok := args[1].(string)
+				if !ok {
+					t.Fatalf("rotation_period arg type = %T, want string", args[1])
+				}
+				rotationPeriod = arg
 			}
 			return pgconn.CommandTag{}, nil
 		},
@@ -246,6 +251,130 @@ func TestPgQueEnsureRouteConfiguresRotationPeriod(t *testing.T) {
 	}
 	if rotationPeriod != "90000000 microseconds" {
 		t.Fatalf("rotation_period = %q, want explicit microsecond interval", rotationPeriod)
+	}
+}
+
+func TestPgQueSendReadyEventsFetchesGenerationsSetBased(t *testing.T) {
+	ctx := context.Background()
+	var queryCalls int
+	var queryRowCalls int
+	var sendBatchCalls int
+	var gotRunIDs []string
+	var sentPayloads []string
+
+	db := &mockDBTX{
+		queryFn: func(_ context.Context, sql string, args ...any) (pgx.Rows, error) {
+			queryCalls++
+			if !strings.Contains(sql, "ready_generation") || !strings.Contains(sql, "ANY($1::text[])") {
+				t.Fatalf("unexpected ready generation query = %q", sql)
+			}
+			if len(args) != 1 {
+				t.Fatalf("ready generation args = %+v, want run ids", args)
+			}
+			runIDs, ok := args[0].([]string)
+			if !ok {
+				t.Fatalf("ready generation arg type = %T, want []string", args[0])
+			}
+			gotRunIDs = append([]string(nil), runIDs...)
+			return &pgQueGenerationRows{
+				values: []pgQueGenerationRow{
+					{runID: "run-a", generation: 11},
+					{runID: "run-b", generation: 12},
+				},
+			}, nil
+		},
+		queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
+			queryRowCalls++
+			t.Fatalf("unexpected per-run QueryRow SQL = %q", sql)
+			return &mockRow{}
+		},
+		execFn: func(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+			if !strings.Contains(sql, "pgque.send_batch") {
+				t.Fatalf("unexpected Exec SQL = %q", sql)
+			}
+			sendBatchCalls++
+			if len(args) != 2 {
+				t.Fatalf("pgque.send_batch args = %+v, want queue and payloads", args)
+			}
+			payloads, ok := args[1].([]string)
+			if !ok {
+				t.Fatalf("pgque.send_batch payload arg type = %T, want []string", args[1])
+			}
+			sentPayloads = append([]string(nil), payloads...)
+			return pgconn.CommandTag{}, nil
+		},
+	}
+	q := NewPgQueQueue(db, NewPostgresQueue(db), PgQueConfig{})
+	q.routeState(pgQueHTTPRouteKey).configured.Store(true)
+
+	runs := []*domain.JobRun{
+		{ID: "run-a", Status: domain.StatusQueued, Priority: 9},
+		{ID: "run-delayed", Status: domain.StatusDelayed, Priority: 8},
+		{ID: "run-b", Status: domain.StatusQueued, Priority: 7},
+	}
+	if err := q.sendReadyEvents(ctx, db, runs); err != nil {
+		t.Fatalf("sendReadyEvents() error = %v", err)
+	}
+
+	if queryCalls != 1 {
+		t.Fatalf("ready generation query calls = %d, want 1", queryCalls)
+	}
+	if queryRowCalls != 0 {
+		t.Fatalf("ready generation QueryRow calls = %d, want 0", queryRowCalls)
+	}
+	if sendBatchCalls != 1 {
+		t.Fatalf("send_batch calls = %d, want 1", sendBatchCalls)
+	}
+	if !slices.Equal(gotRunIDs, []string{"run-a", "run-b"}) {
+		t.Fatalf("ready generation run ids = %v, want queued runs only", gotRunIDs)
+	}
+	if len(sentPayloads) != 2 {
+		t.Fatalf("sent payload count = %d, want 2", len(sentPayloads))
+	}
+	assertPgQueReadyEvent(t, sentPayloads[0], pgQueReadyEvent{
+		RunID:      "run-a",
+		RouteKey:   pgQueHTTPRouteKey,
+		Generation: 11,
+		Priority:   9,
+	})
+	assertPgQueReadyEvent(t, sentPayloads[1], pgQueReadyEvent{
+		RunID:      "run-b",
+		RouteKey:   pgQueHTTPRouteKey,
+		Generation: 12,
+		Priority:   7,
+	})
+}
+
+func TestPgQueSendReadyEventsFailsWhenGenerationMissing(t *testing.T) {
+	ctx := context.Background()
+	db := &mockDBTX{
+		queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+			if !strings.Contains(sql, "ready_generation") {
+				t.Fatalf("unexpected ready generation query = %q", sql)
+			}
+			return &pgQueGenerationRows{
+				values: []pgQueGenerationRow{
+					{runID: "run-a", generation: 11},
+				},
+			}, nil
+		},
+		execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+			t.Fatalf("unexpected Exec SQL = %q", sql)
+			return pgconn.CommandTag{}, nil
+		},
+	}
+	q := NewPgQueQueue(db, NewPostgresQueue(db), PgQueConfig{})
+	q.routeState(pgQueHTTPRouteKey).configured.Store(true)
+
+	err := q.sendReadyEvents(ctx, db, []*domain.JobRun{
+		{ID: "run-a", Status: domain.StatusQueued},
+		{ID: "run-b", Status: domain.StatusQueued},
+	})
+	if err == nil {
+		t.Fatal("sendReadyEvents() error = nil, want missing generation")
+	}
+	if !strings.Contains(err.Error(), "missing run run-b") {
+		t.Fatalf("sendReadyEvents() error = %v, want missing run-b", err)
 	}
 }
 
@@ -262,7 +391,11 @@ func TestPgQueEnqueueExistingSendsReadyEventForQueuedRun(t *testing.T) {
 				t.Fatalf("ready generation args = %+v, want run id", args)
 			}
 			return &mockRow{scanFn: func(dest ...any) error {
-				*dest[0].(*int64) = 7
+				generation, ok := dest[0].(*int64)
+				if !ok {
+					return errors.New("generation destination is not *int64")
+				}
+				*generation = 7
 				return nil
 			}}
 		},
@@ -272,12 +405,20 @@ func TestPgQueEnqueueExistingSendsReadyEventForQueuedRun(t *testing.T) {
 				if len(args) != 2 {
 					t.Fatalf("pgque.send args = %+v, want queue and payload", args)
 				}
-				sentPayload = args[1].(string)
+				payload, ok := args[1].(string)
+				if !ok {
+					t.Fatalf("pgque.send payload arg type = %T, want string", args[1])
+				}
+				sentPayload = payload
 			case strings.Contains(sql, "pgque.ticker"):
 				if len(args) != 1 {
 					t.Fatalf("pgque.ticker args = %+v, want queue", args)
 				}
-				tickedQueue = args[0].(string)
+				queueName, ok := args[0].(string)
+				if !ok {
+					t.Fatalf("pgque.ticker queue arg type = %T, want string", args[0])
+				}
+				tickedQueue = queueName
 			default:
 				t.Fatalf("unexpected Exec SQL = %q", sql)
 			}
@@ -324,5 +465,59 @@ func TestPgQueEnqueueExistingIgnoresNonQueuedRun(t *testing.T) {
 
 	if err := q.EnqueueExisting(ctx, &domain.JobRun{ID: "run-done", Status: domain.StatusCompleted}); err != nil {
 		t.Fatalf("EnqueueExisting(non-queued) error = %v", err)
+	}
+}
+
+type pgQueGenerationRow struct {
+	runID      string
+	generation int64
+}
+
+type pgQueGenerationRows struct {
+	values []pgQueGenerationRow
+	idx    int
+}
+
+func (r *pgQueGenerationRows) Close()                                       {}
+func (r *pgQueGenerationRows) Err() error                                   { return nil }
+func (r *pgQueGenerationRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
+func (r *pgQueGenerationRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (r *pgQueGenerationRows) Next() bool {
+	if r.idx >= len(r.values) {
+		return false
+	}
+	r.idx++
+	return true
+}
+func (r *pgQueGenerationRows) Scan(dest ...any) error {
+	if len(dest) != 2 {
+		return errors.New("pgQueGenerationRows: expected two destinations")
+	}
+	runID, ok := dest[0].(*string)
+	if !ok {
+		return errors.New("pgQueGenerationRows: run id destination is not *string")
+	}
+	generation, ok := dest[1].(*int64)
+	if !ok {
+		return errors.New("pgQueGenerationRows: generation destination is not *int64")
+	}
+	row := r.values[r.idx-1]
+	*runID = row.runID
+	*generation = row.generation
+	return nil
+}
+func (r *pgQueGenerationRows) Values() ([]any, error) { return nil, nil }
+func (r *pgQueGenerationRows) RawValues() [][]byte    { return nil }
+func (r *pgQueGenerationRows) Conn() *pgx.Conn        { return nil }
+
+func assertPgQueReadyEvent(t *testing.T, payload string, want pgQueReadyEvent) {
+	t.Helper()
+
+	var got pgQueReadyEvent
+	if err := json.Unmarshal([]byte(payload), &got); err != nil {
+		t.Fatalf("ready payload is not JSON: %v", err)
+	}
+	if got != want {
+		t.Fatalf("ready event = %+v, want %+v", got, want)
 	}
 }

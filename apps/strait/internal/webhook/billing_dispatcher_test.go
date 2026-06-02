@@ -92,7 +92,7 @@ func TestBillingDispatcher_FansOutToMatchingProjectsAndSubs(t *testing.T) {
 
 	got := ms.getDeliveries()
 	if len(got) != 2 {
-		var ids []string
+		ids := make([]string, 0, len(got))
 		for _, dl := range got {
 			ids = append(ids, dl.SubscriptionID)
 		}

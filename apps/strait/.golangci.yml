@@ -25,6 +25,7 @@ linters:
     - bidichk          # checks for dangerous unicode character sequences
     - copyloopvar      # detects places where loop variables are copied (Go 1.22+)
     - durationcheck    # checks for two durations multiplied together
+    - dupword          # catches duplicated words in comments and raw strings
     - errcheck         # checks that returned errors are handled
     - errname          # checks that sentinel errors are prefixed with Err
     - errorlint        # finds code that will cause problems with error wrapping
@@ -41,6 +42,7 @@ linters:
     - nolintlint       # reports ill-formed or insufficient nolint directives
     - nosprintfhostport # checks for misuse of Sprintf to construct host:port
     - predeclared      # finds code that shadows Go's predeclared identifiers
+    - prealloc         # suggests obvious slice capacity preallocation
     - promlinter       # checks Prometheus metrics naming
     - reassign         # checks that package variables are not reassigned
     - recvcheck        # checks for receiver type consistency

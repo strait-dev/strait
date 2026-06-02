@@ -476,32 +476,43 @@ func (q *PgQueQueue) sendReadyEvent(ctx context.Context, db store.DBTX, run *dom
 }
 
 func (q *PgQueQueue) sendReadyEvents(ctx context.Context, db store.DBTX, runs []*domain.JobRun) error {
-	byRoute := make(map[string][]string, len(runs))
+	readyRuns := make([]pgQueReadyRun, 0, len(runs))
+	runIDs := make([]string, 0, len(runs))
 	for _, run := range runs {
-		if run == nil {
-			continue
-		}
-		if run.Status != domain.StatusQueued {
+		if run == nil || run.Status != domain.StatusQueued {
 			continue
 		}
 		routeKey, err := q.routeKeyForRun(ctx, db, run)
 		if err != nil {
 			return err
 		}
-		generation, err := q.readyGeneration(ctx, db, run.ID)
-		if err != nil {
-			return err
+		readyRuns = append(readyRuns, pgQueReadyRun{
+			run:      run,
+			routeKey: routeKey,
+		})
+		runIDs = append(runIDs, run.ID)
+	}
+	generations, err := q.readyGenerations(ctx, db, runIDs)
+	if err != nil {
+		return err
+	}
+
+	byRoute := make(map[string][]string, len(runs))
+	for _, readyRun := range readyRuns {
+		generation, ok := generations[readyRun.run.ID]
+		if !ok {
+			return fmt.Errorf("pgque ready generation: missing run %s", readyRun.run.ID)
 		}
 		payload, err := json.Marshal(pgQueReadyEvent{
-			RunID:      run.ID,
-			RouteKey:   routeKey,
+			RunID:      readyRun.run.ID,
+			RouteKey:   readyRun.routeKey,
 			Generation: generation,
-			Priority:   run.Priority,
+			Priority:   readyRun.run.Priority,
 		})
 		if err != nil {
 			return fmt.Errorf("pgque ready event: marshal: %w", err)
 		}
-		byRoute[routeKey] = append(byRoute[routeKey], string(payload))
+		byRoute[readyRun.routeKey] = append(byRoute[readyRun.routeKey], string(payload))
 	}
 	for routeKey, payloads := range byRoute {
 		queueName := pgQueQueueName(routeKey)
@@ -515,6 +526,11 @@ func (q *PgQueQueue) sendReadyEvents(ctx context.Context, db store.DBTX, runs []
 		}
 	}
 	return nil
+}
+
+type pgQueReadyRun struct {
+	run      *domain.JobRun
+	routeKey string
 }
 
 func (q *PgQueQueue) ensureRoute(ctx context.Context, db store.DBTX, routeKey, queueName string) error {
@@ -622,6 +638,34 @@ func (q *PgQueQueue) readyGeneration(ctx context.Context, db store.DBTX, runID s
 		return 0, fmt.Errorf("pgque ready generation: %w", err)
 	}
 	return generation, nil
+}
+
+func (q *PgQueQueue) readyGenerations(ctx context.Context, db store.DBTX, runIDs []string) (map[string]int64, error) {
+	generations := make(map[string]int64, len(runIDs))
+	if len(runIDs) == 0 {
+		return generations, nil
+	}
+	rows, err := db.Query(ctx, `
+		SELECT run_id, ready_generation
+		FROM job_run_state
+		WHERE run_id = ANY($1::text[])`, runIDs)
+	if err != nil {
+		return nil, fmt.Errorf("pgque ready generations: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var runID string
+		var generation int64
+		if err := rows.Scan(&runID, &generation); err != nil {
+			return nil, fmt.Errorf("pgque ready generations scan: %w", err)
+		}
+		generations[runID] = generation
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("pgque ready generations rows: %w", err)
+	}
+	return generations, nil
 }
 
 func (q *PgQueQueue) workerRouteKeys(ctx context.Context, refs []domain.WorkerQueueRef) ([]string, error) {

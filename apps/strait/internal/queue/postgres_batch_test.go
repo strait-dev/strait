@@ -377,7 +377,10 @@ func TestEnqueueBatch_NilTags_DefaultsToEmptyJSON(t *testing.T) {
 	}
 
 	for i, row := range capturedRows {
-		tagsVal := row[23].([]byte)
+		tagsVal, ok := row[23].([]byte)
+		if !ok {
+			t.Fatalf("row %d: tags value type = %T, want []byte", i, row[23])
+		}
 		if string(tagsVal) != "{}" {
 			t.Fatalf("row %d: expected '{}', got %q", i, string(tagsVal))
 		}

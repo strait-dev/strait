@@ -874,7 +874,8 @@ func (q *BatchlogQueue) dequeueRows(ctx context.Context, query string, n int, ex
 		return nil, nil
 	}
 
-	args := []any{n, q.cfg.LeaseOwner, q.cfg.LeaseDuration, domain.StatusQueued}
+	args := make([]any, 0, 4+len(extraArgs))
+	args = append(args, n, q.cfg.LeaseOwner, q.cfg.LeaseDuration, domain.StatusQueued)
 	args = append(args, extraArgs...)
 	return q.scanDequeueRows(ctx, query, n, args)
 }
@@ -886,7 +887,8 @@ func (q *BatchlogQueue) dequeueWindowRows(ctx context.Context, query string, n i
 
 	windowLimit := n * 8
 	windowLimit = max(windowLimit, 64)
-	args := []any{n, q.cfg.LeaseOwner, q.cfg.LeaseDuration, domain.StatusQueued, windowLimit}
+	args := make([]any, 0, 5+len(extraArgs))
+	args = append(args, n, q.cfg.LeaseOwner, q.cfg.LeaseDuration, domain.StatusQueued, windowLimit)
 	args = append(args, extraArgs...)
 	return q.scanDequeueRows(ctx, query, n, args)
 }
