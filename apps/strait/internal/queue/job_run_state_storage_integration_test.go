@@ -73,21 +73,36 @@ func TestMigration_JobRunStateStorage_DropsStatusClaimIndexes(t *testing.T) {
 	}
 }
 
-func TestMigration_JobRunActiveClaims_DropsRedundantClaimedAt(t *testing.T) {
+func TestMigration_JobRunActiveClaims_UsesMinimalPayload(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
 
-	var count int
-	if err := testDB.Pool.QueryRow(ctx, `
-		SELECT COUNT(*)
+	rows, err := testDB.Pool.Query(ctx, `
+		SELECT column_name
 		FROM information_schema.columns
 		WHERE table_schema = 'public'
 		  AND table_name = 'job_run_active_claims'
-		  AND column_name = 'claimed_at'`).Scan(&count); err != nil {
+		ORDER BY ordinal_position`)
+	if err != nil {
 		t.Fatalf("query active claim columns: %v", err)
 	}
-	if count != 0 {
-		t.Fatalf("job_run_active_claims.claimed_at exists, want removed redundant timestamp")
+	defer rows.Close()
+
+	var got []string
+	for rows.Next() {
+		var column string
+		if err := rows.Scan(&column); err != nil {
+			t.Fatalf("scan active claim column: %v", err)
+		}
+		got = append(got, column)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("active claim column rows: %v", err)
+	}
+
+	want := []string{"run_id", "ready_generation", "attempt", "started_at"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("job_run_active_claims columns = %v, want minimal payload %v", got, want)
 	}
 }
 

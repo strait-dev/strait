@@ -1669,8 +1669,8 @@ func TestDeleteTerminalRunsPastRetention_BatchCleansSideRows(t *testing.T) {
 		t.Fatalf("seed batch job_runs: %v", err)
 	}
 	if _, err := testDB.Pool.Exec(ctx, `
-		INSERT INTO job_run_active_claims (run_id, ready_generation, attempt, lease_owner)
-		SELECT run_id, ready_generation, attempt, 'retention-batch-worker'
+		INSERT INTO job_run_active_claims (run_id, ready_generation, attempt)
+		SELECT run_id, ready_generation, attempt
 		FROM job_run_state
 		WHERE run_id LIKE $1 || '%'`, prefix); err != nil {
 		t.Fatalf("seed batch active claims: %v", err)
@@ -1723,8 +1723,8 @@ func seedRetentionSideRows(t *testing.T, ctx context.Context, runIDs ...string) 
 
 	for _, runID := range runIDs {
 		if _, err := testDB.Pool.Exec(ctx, `
-			INSERT INTO job_run_active_claims (run_id, ready_generation, attempt, lease_owner)
-			VALUES ($1, 0, 1, 'retention-test-worker')
+			INSERT INTO job_run_active_claims (run_id, ready_generation, attempt)
+			VALUES ($1, 0, 1)
 			ON CONFLICT DO NOTHING`, runID); err != nil {
 			t.Fatalf("seed active claim for %s: %v", runID, err)
 		}
