@@ -129,3 +129,43 @@ func TestEvaluateQueueBloatGate_FailsLowHOTRatio(t *testing.T) {
 		t.Fatalf("failures = %v, want HOT ratio failure", result.Failures)
 	}
 }
+
+func TestEvaluateQueueBloatGate_FailsLogicalSlotWALRegression(t *testing.T) {
+	baseline := QueueBenchmarkReport{
+		Engine: "legacy",
+		Counters: QueueBenchmarkCounters{
+			Completed:           1000,
+			WALBytes:            10_000,
+			LogicalSlotWALBytes: 12_000,
+		},
+		DequeueLatency: LatencySummary{P99: 10 * time.Millisecond},
+	}
+	candidate := QueueBenchmarkReport{
+		Engine: "pgque",
+		Counters: QueueBenchmarkCounters{
+			Completed:           1000,
+			WALBytes:            8_000,
+			LogicalSlotWALBytes: 13_000,
+		},
+		DequeueLatency: LatencySummary{P99: 50 * time.Millisecond},
+	}
+
+	result := EvaluateQueueBloatGate(CompareQueueBenchmarkReports("pgque", baseline, candidate), QueueBloatGate{
+		MaxP99Latency:                    100 * time.Millisecond,
+		RequireWALImprovement:            true,
+		RequireLogicalSlotWALImprovement: true,
+	})
+
+	if result.Passed {
+		t.Fatal("gate passed, want logical slot WAL failure")
+	}
+	found := false
+	for _, failure := range result.Failures {
+		if failure == "logical slot retained WAL delta = +1000, want improvement below baseline" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("failures = %v, want logical slot WAL failure", result.Failures)
+	}
+}

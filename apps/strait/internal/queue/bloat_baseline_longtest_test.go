@@ -101,6 +101,50 @@ func TestQueueBloatComparison(t *testing.T) {
 	}
 }
 
+func TestQueueBloatComparison_WithAdverseStorage(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	for _, cfg := range []baselineConfig{
+		{
+			Name:        "queue_bloat_held_xmin_500",
+			ProjectID:   "project-queue-held-xmin-500",
+			SingleRuns:  250,
+			BatchRuns:   250,
+			DequeueSize: 50,
+			HoldXmin:    true,
+		},
+		{
+			Name:        "queue_bloat_logical_slot_500",
+			ProjectID:   "project-queue-logical-slot-500",
+			SingleRuns:  250,
+			BatchRuns:   250,
+			DequeueSize: 50,
+			LogicalSlot: true,
+		},
+	} {
+		t.Run(cfg.Name, func(t *testing.T) {
+			legacy := runLegacyQueueBaseline(t, ctx, cfg.withName("legacy_"+cfg.Name))
+			pgque := runPgQueQueueBaseline(t, ctx, cfg.withName("pgque_"+cfg.Name))
+			comparison := loadtest.CompareQueueBenchmarkReports("pgque_"+cfg.Name, legacy, pgque)
+
+			gate := pgqueBloatGate(pgque.Counters.Completed)
+			if cfg.LogicalSlot {
+				gate.RequireLogicalSlotWALImprovement = true
+			}
+			result := loadtest.EvaluateQueueBloatGate(comparison, gate)
+			if !result.Passed {
+				t.Fatalf("pgque adverse-storage bloat gate failed: %v", result.Failures)
+			}
+
+			writeQueueBaselineReport(t, legacy)
+			writeQueueBaselineReport(t, pgque)
+			writeQueueComparisonReport(t, comparison)
+			t.Logf("pgque adverse-storage comparison:\n%s", comparison.Markdown())
+		})
+	}
+}
+
 func pgqueBloatGate(completed int64) loadtest.QueueBloatGate {
 	return loadtest.QueueBloatGate{
 		MaxDuplicateClaims:    0,
@@ -168,6 +212,8 @@ type baselineConfig struct {
 	SingleRuns  int
 	BatchRuns   int
 	DequeueSize int
+	HoldXmin    bool
+	LogicalSlot bool
 }
 
 func (c baselineConfig) withName(name string) baselineConfig {
@@ -260,6 +306,8 @@ func runQueueBaseline(
 	mustCleanTB(tb, ctx)
 	st := mustStoreTB(tb)
 	job := mustCreateJobTB(tb, ctx, st, cfg.ProjectID)
+	cleanupAdverseStorage, logicalSlotName := setupAdverseStorage(tb, ctx, cfg)
+	defer cleanupAdverseStorage()
 
 	notifyCtx, stopNotify := context.WithCancel(ctx)
 	notifyCount, waitNotify := startNotifyCounter(tb, notifyCtx)
@@ -358,25 +406,83 @@ func runQueueBaseline(
 	if lost < 0 {
 		lost = 0
 	}
+	counters := loadtest.QueueBenchmarkCounters{
+		Enqueued:        int64(totalRuns),
+		Dequeued:        dequeued,
+		Completed:       dequeued,
+		RetryRedelivery: retryRedelivery,
+		DuplicateClaims: duplicates.Load(),
+		LostClaims:      lost,
+		NotifyCount:     notifyCount.Load(),
+		WALBytes:        maxInt64(0, afterWAL-beforeWAL),
+	}
+	if logicalSlotName != "" {
+		counters.LogicalSlotWALBytes = sampleLogicalSlotWALBytes(ctx, logicalSlotName)
+	}
+
 	return loadtest.QueueBenchmarkReport{
-		Name:      cfg.Name,
-		Engine:    engine,
-		StartedAt: started,
-		Duration:  time.Since(started),
-		Counters: loadtest.QueueBenchmarkCounters{
-			Enqueued:        int64(totalRuns),
-			Dequeued:        dequeued,
-			Completed:       dequeued,
-			RetryRedelivery: retryRedelivery,
-			DuplicateClaims: duplicates.Load(),
-			LostClaims:      lost,
-			NotifyCount:     notifyCount.Load(),
-			WALBytes:        maxInt64(0, afterWAL-beforeWAL),
-		},
+		Name:           cfg.Name,
+		Engine:         engine,
+		StartedAt:      started,
+		Duration:       time.Since(started),
+		Counters:       counters,
 		DequeueLatency: loadtest.SummarizeLatencies(latencies),
 		Relations:      relations,
 		Plans:          plans,
 	}
+}
+
+func setupAdverseStorage(tb baselineTB, ctx context.Context, cfg baselineConfig) (func(), string) {
+	tb.Helper()
+
+	cleanups := make([]func(), 0, 2)
+	var slotName string
+	if cfg.HoldXmin {
+		longTx, err := testDB.Pool.BeginTx(ctx, pgx.TxOptions{
+			IsoLevel:   pgx.RepeatableRead,
+			AccessMode: pgx.ReadOnly,
+		})
+		if err != nil {
+			tb.Fatalf("begin held xmin transaction: %v", err)
+		}
+		if _, err := longTx.Exec(ctx, `
+			SELECT count(*)
+			FROM job_runs
+			LEFT JOIN job_run_state ON job_run_state.run_id = job_runs.id
+		`); err != nil {
+			_ = longTx.Rollback(ctx)
+			tb.Fatalf("prime held xmin transaction: %v", err)
+		}
+		cleanups = append(cleanups, func() {
+			_ = longTx.Commit(context.Background())
+		})
+	}
+	if cfg.LogicalSlot {
+		var walLevel string
+		if err := testDB.Pool.QueryRow(ctx, "SHOW wal_level").Scan(&walLevel); err != nil {
+			tb.Fatalf("show wal_level: %v", err)
+		}
+		if walLevel != "logical" {
+			tb.Fatalf("wal_level = %q, want logical for stalled slot benchmark", walLevel)
+		}
+		slotName = fmt.Sprintf("strait_bloat_%d", time.Now().UnixNano())
+		if _, err := testDB.Pool.Exec(ctx, `SELECT pg_create_logical_replication_slot($1, 'pgoutput')`, slotName); err != nil {
+			tb.Fatalf("create logical replication slot: %v", err)
+		}
+		cleanups = append(cleanups, func() {
+			_, _ = testDB.Pool.Exec(context.Background(), `
+				SELECT pg_drop_replication_slot(slot_name)
+				FROM pg_replication_slots
+				WHERE slot_name = $1
+			`, slotName)
+		})
+	}
+
+	return func() {
+		for i := len(cleanups) - 1; i >= 0; i-- {
+			cleanups[i]()
+		}
+	}, slotName
 }
 
 func exerciseRetryAndStalePaths(tb baselineTB, ctx context.Context, q interface {
@@ -791,6 +897,17 @@ func explainTextArgs(tb baselineTB, ctx context.Context, query string, args ...a
 func sampleWALBytes(ctx context.Context) int64 {
 	var walBytes int64
 	_ = testDB.Pool.QueryRow(ctx, `SELECT COALESCE(wal_bytes, 0)::bigint FROM pg_stat_wal`).Scan(&walBytes)
+	return walBytes
+}
+
+func sampleLogicalSlotWALBytes(ctx context.Context, slotName string) int64 {
+	var walBytes int64
+	_ = testDB.Pool.QueryRow(ctx, `
+		SELECT COALESCE(pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn), 0)::bigint
+		FROM pg_replication_slots
+		WHERE slot_name = $1
+		  AND restart_lsn IS NOT NULL
+	`, slotName).Scan(&walBytes)
 	return walBytes
 }
 

@@ -76,14 +76,15 @@ func percentile(sorted []time.Duration, p float64) time.Duration {
 }
 
 type QueueBenchmarkCounters struct {
-	Enqueued        int64 `json:"enqueued"`
-	Dequeued        int64 `json:"dequeued"`
-	Completed       int64 `json:"completed"`
-	RetryRedelivery int64 `json:"retry_redelivery"`
-	DuplicateClaims int64 `json:"duplicate_claims"`
-	LostClaims      int64 `json:"lost_claims"`
-	NotifyCount     int64 `json:"notify_count"`
-	WALBytes        int64 `json:"wal_bytes"`
+	Enqueued            int64 `json:"enqueued"`
+	Dequeued            int64 `json:"dequeued"`
+	Completed           int64 `json:"completed"`
+	RetryRedelivery     int64 `json:"retry_redelivery"`
+	DuplicateClaims     int64 `json:"duplicate_claims"`
+	LostClaims          int64 `json:"lost_claims"`
+	NotifyCount         int64 `json:"notify_count"`
+	WALBytes            int64 `json:"wal_bytes"`
+	LogicalSlotWALBytes int64 `json:"logical_slot_wal_bytes,omitempty"`
 }
 
 type QueueBenchmarkReport struct {
@@ -149,14 +150,15 @@ func CompareQueueBenchmarkReports(name string, baseline, candidate QueueBenchmar
 		Baseline:        baseline,
 		Candidate:       candidate,
 		CounterDelta: QueueBenchmarkCounters{
-			Enqueued:        candidate.Counters.Enqueued - baseline.Counters.Enqueued,
-			Dequeued:        candidate.Counters.Dequeued - baseline.Counters.Dequeued,
-			Completed:       candidate.Counters.Completed - baseline.Counters.Completed,
-			RetryRedelivery: candidate.Counters.RetryRedelivery - baseline.Counters.RetryRedelivery,
-			DuplicateClaims: candidate.Counters.DuplicateClaims - baseline.Counters.DuplicateClaims,
-			LostClaims:      candidate.Counters.LostClaims - baseline.Counters.LostClaims,
-			NotifyCount:     candidate.Counters.NotifyCount - baseline.Counters.NotifyCount,
-			WALBytes:        candidate.Counters.WALBytes - baseline.Counters.WALBytes,
+			Enqueued:            candidate.Counters.Enqueued - baseline.Counters.Enqueued,
+			Dequeued:            candidate.Counters.Dequeued - baseline.Counters.Dequeued,
+			Completed:           candidate.Counters.Completed - baseline.Counters.Completed,
+			RetryRedelivery:     candidate.Counters.RetryRedelivery - baseline.Counters.RetryRedelivery,
+			DuplicateClaims:     candidate.Counters.DuplicateClaims - baseline.Counters.DuplicateClaims,
+			LostClaims:          candidate.Counters.LostClaims - baseline.Counters.LostClaims,
+			NotifyCount:         candidate.Counters.NotifyCount - baseline.Counters.NotifyCount,
+			WALBytes:            candidate.Counters.WALBytes - baseline.Counters.WALBytes,
+			LogicalSlotWALBytes: candidate.Counters.LogicalSlotWALBytes - baseline.Counters.LogicalSlotWALBytes,
 		},
 		P99LatencyDelta: candidate.DequeueLatency.P99 - baseline.DequeueLatency.P99,
 		ThroughputDelta: throughput(candidate) - throughput(baseline),
@@ -232,6 +234,13 @@ func BuildImprovementHints(comparison QueueBenchmarkComparison) []ImprovementHin
 			Detail: fmt.Sprintf("candidate wrote %d more WAL bytes than baseline", comparison.WALBytesDelta),
 		})
 	}
+	if comparison.CounterDelta.LogicalSlotWALBytes > 0 {
+		hints = append(hints, ImprovementHint{
+			Area:   "logical_slot",
+			Metric: "retained_wal_delta",
+			Detail: fmt.Sprintf("candidate retained %d more WAL bytes behind the stalled slot", comparison.CounterDelta.LogicalSlotWALBytes),
+		})
+	}
 	for _, delta := range comparison.RelationDeltas {
 		if delta.DeadTuplesDelta > 0 || delta.TotalIndexSizeDelta > 0 {
 			hints = append(hints, ImprovementHint{
@@ -255,7 +264,11 @@ func (r QueueBenchmarkReport) Markdown() string {
 	fmt.Fprintf(&b, "- Duplicate claims: `%d`\n", r.Counters.DuplicateClaims)
 	fmt.Fprintf(&b, "- Lost claims: `%d`\n", r.Counters.LostClaims)
 	fmt.Fprintf(&b, "- Notifications observed: `%d`\n", r.Counters.NotifyCount)
-	fmt.Fprintf(&b, "- WAL bytes: `%d`\n\n", r.Counters.WALBytes)
+	fmt.Fprintf(&b, "- WAL bytes: `%d`\n", r.Counters.WALBytes)
+	if r.Counters.LogicalSlotWALBytes > 0 {
+		fmt.Fprintf(&b, "- Logical slot retained WAL bytes: `%d`\n", r.Counters.LogicalSlotWALBytes)
+	}
+	fmt.Fprintf(&b, "\n")
 	fmt.Fprintf(&b, "## Dequeue Latency\n\n")
 	fmt.Fprintf(&b, "| Count | Min | P50 | P95 | P99 | Max |\n")
 	fmt.Fprintf(&b, "|---:|---:|---:|---:|---:|---:|\n")
@@ -322,6 +335,7 @@ func (c QueueBenchmarkComparison) Markdown() string {
 		{"lost_claims", c.Baseline.Counters.LostClaims, c.Candidate.Counters.LostClaims, c.CounterDelta.LostClaims},
 		{"notify_count", c.Baseline.Counters.NotifyCount, c.Candidate.Counters.NotifyCount, c.CounterDelta.NotifyCount},
 		{"wal_bytes", c.Baseline.Counters.WALBytes, c.Candidate.Counters.WALBytes, c.CounterDelta.WALBytes},
+		{"logical_slot_wal_bytes", c.Baseline.Counters.LogicalSlotWALBytes, c.Candidate.Counters.LogicalSlotWALBytes, c.CounterDelta.LogicalSlotWALBytes},
 	}
 	for _, row := range counterRows {
 		fmt.Fprintf(&b, "| `%s` | %d | %d | %+d |\n", row.name, row.baseline, row.candidate, row.delta)

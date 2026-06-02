@@ -80,20 +80,32 @@ func TestQueueBenchmarkReportMarkdown(t *testing.T) {
 
 func TestCompareQueueBenchmarkReports(t *testing.T) {
 	baseline := QueueBenchmarkReport{
-		Name:      "legacy",
-		Engine:    "legacy",
-		Duration:  2 * time.Second,
-		Counters:  QueueBenchmarkCounters{Dequeued: 100, Completed: 100, NotifyCount: 10, WALBytes: 1000},
+		Name:     "legacy",
+		Engine:   "legacy",
+		Duration: 2 * time.Second,
+		Counters: QueueBenchmarkCounters{
+			Dequeued:            100,
+			Completed:           100,
+			NotifyCount:         10,
+			WALBytes:            1000,
+			LogicalSlotWALBytes: 900,
+		},
 		Relations: []RelationBloatSample{{Name: "job_runs", LiveTuples: 100, DeadTuples: 20, TotalIndexSize: 1000, TotalTableSize: 2000}},
 		DequeueLatency: LatencySummary{
 			P99: 10 * time.Millisecond,
 		},
 	}
 	candidate := QueueBenchmarkReport{
-		Name:      "batchlog",
-		Engine:    "batchlog",
-		Duration:  4 * time.Second,
-		Counters:  QueueBenchmarkCounters{Dequeued: 100, Completed: 100, NotifyCount: 5, WALBytes: 1200},
+		Name:     "batchlog",
+		Engine:   "batchlog",
+		Duration: 4 * time.Second,
+		Counters: QueueBenchmarkCounters{
+			Dequeued:            100,
+			Completed:           100,
+			NotifyCount:         5,
+			WALBytes:            1200,
+			LogicalSlotWALBytes: 700,
+		},
 		Relations: []RelationBloatSample{{Name: "job_runs", LiveTuples: 100, DeadTuples: 5, TotalIndexSize: 700, TotalTableSize: 1500}},
 		DequeueLatency: LatencySummary{
 			P99: 25 * time.Millisecond,
@@ -106,6 +118,9 @@ func TestCompareQueueBenchmarkReports(t *testing.T) {
 	}
 	if comparison.CounterDelta.NotifyCount != -5 {
 		t.Fatalf("NotifyCount delta = %d, want -5", comparison.CounterDelta.NotifyCount)
+	}
+	if comparison.CounterDelta.LogicalSlotWALBytes != -200 {
+		t.Fatalf("LogicalSlotWALBytes delta = %d, want -200", comparison.CounterDelta.LogicalSlotWALBytes)
 	}
 	if comparison.P99LatencyDelta != 15*time.Millisecond {
 		t.Fatalf("P99LatencyDelta = %s, want 15ms", comparison.P99LatencyDelta)

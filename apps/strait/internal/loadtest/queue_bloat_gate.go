@@ -13,8 +13,9 @@ type QueueBloatGate struct {
 	MaxLostClaims      int64
 	MaxP99Latency      time.Duration
 
-	RequireWALImprovement bool
-	RelationGates         []RelationBloatGate
+	RequireWALImprovement            bool
+	RequireLogicalSlotWALImprovement bool
+	RelationGates                    []RelationBloatGate
 }
 
 type RelationBloatGate struct {
@@ -59,6 +60,12 @@ func EvaluateQueueBloatGate(comparison QueueBenchmarkComparison, gate QueueBloat
 		failures = append(failures, fmt.Sprintf(
 			"wal bytes delta = %+d, want improvement below baseline",
 			comparison.WALBytesDelta,
+		))
+	}
+	if gate.RequireLogicalSlotWALImprovement && comparison.CounterDelta.LogicalSlotWALBytes >= 0 {
+		failures = append(failures, fmt.Sprintf(
+			"logical slot retained WAL delta = %+d, want improvement below baseline",
+			comparison.CounterDelta.LogicalSlotWALBytes,
 		))
 	}
 
