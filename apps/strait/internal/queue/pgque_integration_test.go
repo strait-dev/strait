@@ -279,6 +279,82 @@ func TestPgQue_DoesNotCreateLegacyQueueEntries(t *testing.T) {
 	}
 }
 
+func TestPgQue_ReplayedDeadLetterRunBecomesClaimable(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-pgque-dlq-replay")
+	q := mustPgQueQueue(t)
+
+	run := &domain.JobRun{
+		ID:        newID(),
+		JobID:     job.ID,
+		ProjectID: job.ProjectID,
+	}
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	if err := q.ForceTick(ctx, "http"); err != nil {
+		t.Fatalf("ForceTick: %v", err)
+	}
+	claimed, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("DequeueN initial: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].ID != run.ID {
+		t.Fatalf("initial claimed = %+v, want run %s", claimed, run.ID)
+	}
+
+	from := claimed[0].Status
+	if from != domain.StatusExecuting {
+		if err := st.UpdateRunStatus(ctx, run.ID, from, domain.StatusExecuting, nil); err != nil {
+			t.Fatalf("UpdateRunStatus(executing): %v", err)
+		}
+	}
+	if err := st.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusDeadLetter, map[string]any{
+		"error":       "manual replay regression",
+		"error_class": "test",
+	}); err != nil {
+		t.Fatalf("UpdateRunStatus(dead_letter): %v", err)
+	}
+
+	replayed, err := st.ReplayDeadLetterRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("ReplayDeadLetterRun: %v", err)
+	}
+	if err := q.EnqueueExisting(ctx, replayed); err != nil {
+		t.Fatalf("EnqueueExisting: %v", err)
+	}
+	if err := q.ForceTick(ctx, "http"); err != nil {
+		t.Fatalf("ForceTick replayed: %v", err)
+	}
+
+	var reclaimed []domain.JobRun
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		reclaimed, err = q.DequeueN(ctx, 1)
+		if err != nil {
+			t.Fatalf("DequeueN replayed: %v", err)
+		}
+		if len(reclaimed) != 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(reclaimed) != 1 || reclaimed[0].ID != run.ID {
+		t.Fatalf("replayed claimed = %+v, want run %s", reclaimed, run.ID)
+	}
+
+	duplicate, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("DequeueN duplicate check: %v", err)
+	}
+	if len(duplicate) != 0 {
+		t.Fatalf("duplicate claimed = %+v, want no duplicate replay claim", duplicate)
+	}
+}
+
 func TestPgQue_DequeueWindowDoesNotLoseUnseenBatchMessages(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

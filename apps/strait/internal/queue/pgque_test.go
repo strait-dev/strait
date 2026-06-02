@@ -2,10 +2,13 @@ package queue
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 	"time"
+
+	"strait/internal/domain"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -243,5 +246,83 @@ func TestPgQueEnsureRouteConfiguresRotationPeriod(t *testing.T) {
 	}
 	if rotationPeriod != "90000000 microseconds" {
 		t.Fatalf("rotation_period = %q, want explicit microsecond interval", rotationPeriod)
+	}
+}
+
+func TestPgQueEnqueueExistingSendsReadyEventForQueuedRun(t *testing.T) {
+	ctx := context.Background()
+	var sentPayload string
+	var tickedQueue string
+	db := &mockDBTX{
+		queryRowFn: func(_ context.Context, sql string, args ...any) pgx.Row {
+			if !strings.Contains(sql, "ready_generation") {
+				t.Fatalf("unexpected QueryRow SQL = %q", sql)
+			}
+			if len(args) != 1 || args[0] != "run-queued" {
+				t.Fatalf("ready generation args = %+v, want run id", args)
+			}
+			return &mockRow{scanFn: func(dest ...any) error {
+				*dest[0].(*int64) = 7
+				return nil
+			}}
+		},
+		execFn: func(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+			switch {
+			case strings.Contains(sql, "pgque.send"):
+				if len(args) != 2 {
+					t.Fatalf("pgque.send args = %+v, want queue and payload", args)
+				}
+				sentPayload = args[1].(string)
+			case strings.Contains(sql, "pgque.ticker"):
+				if len(args) != 1 {
+					t.Fatalf("pgque.ticker args = %+v, want queue", args)
+				}
+				tickedQueue = args[0].(string)
+			default:
+				t.Fatalf("unexpected Exec SQL = %q", sql)
+			}
+			return pgconn.CommandTag{}, nil
+		},
+	}
+	q := NewPgQueQueue(db, NewPostgresQueue(db), PgQueConfig{})
+	q.routeState(pgQueHTTPRouteKey).configured.Store(true)
+
+	run := &domain.JobRun{
+		ID:       "run-queued",
+		Status:   domain.StatusQueued,
+		Priority: 9,
+	}
+	if err := q.EnqueueExisting(ctx, run); err != nil {
+		t.Fatalf("EnqueueExisting() error = %v", err)
+	}
+
+	var event pgQueReadyEvent
+	if err := json.Unmarshal([]byte(sentPayload), &event); err != nil {
+		t.Fatalf("ready payload is not JSON: %v", err)
+	}
+	if event.RunID != run.ID || event.RouteKey != pgQueHTTPRouteKey || event.Generation != 7 || event.Priority != 9 {
+		t.Fatalf("ready event = %+v, want queued run generation and priority", event)
+	}
+	if tickedQueue != pgQueQueueName(pgQueHTTPRouteKey) {
+		t.Fatalf("ticked queue = %q, want http queue", tickedQueue)
+	}
+}
+
+func TestPgQueEnqueueExistingIgnoresNonQueuedRun(t *testing.T) {
+	ctx := context.Background()
+	db := &mockDBTX{
+		queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
+			t.Fatalf("unexpected QueryRow SQL = %q", sql)
+			return &mockRow{}
+		},
+		execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+			t.Fatalf("unexpected Exec SQL = %q", sql)
+			return pgconn.CommandTag{}, nil
+		},
+	}
+	q := NewPgQueQueue(db, NewPostgresQueue(db), PgQueConfig{})
+
+	if err := q.EnqueueExisting(ctx, &domain.JobRun{ID: "run-done", Status: domain.StatusCompleted}); err != nil {
+		t.Fatalf("EnqueueExisting(non-queued) error = %v", err)
 	}
 }

@@ -237,3 +237,158 @@ func TestRunStateSplit_UpdateRunStatusReturningOldDoesNotTouchLedgerStateColumns
 		t.Fatalf("GetRun status = %q, want state status %q", got.Status, domain.StatusDequeued)
 	}
 }
+
+func TestRunStateSplit_DeadLetterTransitionUsesColdTerminalState(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-run-state-dead-letter")
+	run := baseRun(job, newID())
+	run.Status = domain.StatusExecuting
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+
+	finishedAt := time.Now().UTC().Truncate(time.Microsecond)
+	if err := q.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusDeadLetter, map[string]any{
+		"error":       "worker gave up",
+		"error_class": "terminal",
+		"finished_at": finishedAt,
+	}); err != nil {
+		t.Fatalf("UpdateRunStatus(dead_letter) error = %v", err)
+	}
+
+	var ledgerStatus domain.RunStatus
+	var ledgerFinishedAt *time.Time
+	var ledgerError *string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT status, finished_at, error
+		FROM job_runs
+		WHERE id = $1`,
+		run.ID,
+	).Scan(&ledgerStatus, &ledgerFinishedAt, &ledgerError); err != nil {
+		t.Fatalf("query job_runs ledger fields: %v", err)
+	}
+	if ledgerStatus != domain.StatusExecuting {
+		t.Fatalf("job_runs status = %q, want immutable ledger status %q", ledgerStatus, domain.StatusExecuting)
+	}
+	if ledgerFinishedAt != nil {
+		t.Fatalf("job_runs finished_at = %v, want NULL to avoid fat-row churn", *ledgerFinishedAt)
+	}
+	if ledgerError != nil {
+		t.Fatalf("job_runs error = %q, want NULL to avoid fat-row churn", *ledgerError)
+	}
+
+	var hotStatus domain.RunStatus
+	if err := testDB.Pool.QueryRow(ctx, `SELECT status FROM job_run_state WHERE run_id = $1`, run.ID).Scan(&hotStatus); err != nil {
+		t.Fatalf("query job_run_state status: %v", err)
+	}
+	if hotStatus != domain.StatusExecuting {
+		t.Fatalf("job_run_state status = %q, want pre-terminal hot state %q", hotStatus, domain.StatusExecuting)
+	}
+
+	var terminalStatus domain.RunStatus
+	var terminalFinishedAt time.Time
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT status, finished_at
+		FROM job_run_terminal_state
+		WHERE run_id = $1`,
+		run.ID,
+	).Scan(&terminalStatus, &terminalFinishedAt); err != nil {
+		t.Fatalf("query job_run_terminal_state: %v", err)
+	}
+	if terminalStatus != domain.StatusDeadLetter {
+		t.Fatalf("terminal status = %q, want dead_letter", terminalStatus)
+	}
+	if !terminalFinishedAt.Equal(finishedAt) {
+		t.Fatalf("terminal finished_at = %v, want %v", terminalFinishedAt, finishedAt)
+	}
+
+	got, err := q.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if got.Status != domain.StatusDeadLetter {
+		t.Fatalf("GetRun status = %q, want dead_letter", got.Status)
+	}
+	if got.Error != "worker gave up" || got.ErrorClass != "terminal" {
+		t.Fatalf("GetRun error fields = %q/%q, want worker gave up/terminal", got.Error, got.ErrorClass)
+	}
+}
+
+func TestRunStateSplit_ReplayDeadLetterReactivatesHotState(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-run-state-dead-letter-replay")
+	run := baseRun(job, newID())
+	run.Status = domain.StatusExecuting
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+
+	if err := q.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusDeadLetter, map[string]any{
+		"error":       "exhausted retries",
+		"error_class": "retry",
+	}); err != nil {
+		t.Fatalf("UpdateRunStatus(dead_letter) error = %v", err)
+	}
+
+	var beforeGeneration int64
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT ready_generation
+		FROM job_run_state
+		WHERE run_id = $1`,
+		run.ID,
+	).Scan(&beforeGeneration); err != nil {
+		t.Fatalf("query ready_generation before replay: %v", err)
+	}
+
+	replayed, err := q.ReplayDeadLetterRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("ReplayDeadLetterRun() error = %v", err)
+	}
+	if replayed.Status != domain.StatusQueued {
+		t.Fatalf("replayed status = %q, want queued", replayed.Status)
+	}
+	if replayed.Error != "" || replayed.ErrorClass != "" {
+		t.Fatalf("replayed error fields = %q/%q, want empty", replayed.Error, replayed.ErrorClass)
+	}
+
+	var terminalRows int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM job_run_terminal_state
+		WHERE run_id = $1`,
+		run.ID,
+	).Scan(&terminalRows); err != nil {
+		t.Fatalf("count job_run_terminal_state: %v", err)
+	}
+	if terminalRows != 0 {
+		t.Fatalf("terminal rows = %d, want 0 after replay", terminalRows)
+	}
+
+	var ledgerStatus domain.RunStatus
+	var stateStatus domain.RunStatus
+	var afterGeneration int64
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT jr.status, s.status, s.ready_generation
+		FROM job_runs jr
+		JOIN job_run_state s ON s.run_id = jr.id
+		WHERE jr.id = $1`,
+		run.ID,
+	).Scan(&ledgerStatus, &stateStatus, &afterGeneration); err != nil {
+		t.Fatalf("query replayed state: %v", err)
+	}
+	if ledgerStatus != domain.StatusExecuting {
+		t.Fatalf("job_runs status = %q, want immutable ledger status %q", ledgerStatus, domain.StatusExecuting)
+	}
+	if stateStatus != domain.StatusQueued {
+		t.Fatalf("job_run_state status = %q, want queued", stateStatus)
+	}
+	if afterGeneration != beforeGeneration+1 {
+		t.Fatalf("ready_generation = %d, want %d", afterGeneration, beforeGeneration+1)
+	}
+}

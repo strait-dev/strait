@@ -226,6 +226,19 @@ func (q *PgQueQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun) (i
 	return inserted, nil
 }
 
+func (q *PgQueQueue) EnqueueExisting(ctx context.Context, run *domain.JobRun) error {
+	if run == nil || run.Status != domain.StatusQueued {
+		return nil
+	}
+	if err := q.ensureRunRouteCached(ctx, run); err != nil {
+		return err
+	}
+	if err := q.sendReadyEvent(ctx, q.db, run); err != nil {
+		return err
+	}
+	return q.tickReadyRoute(ctx, run)
+}
+
 func (q *PgQueQueue) markPgQueStorage(ctx context.Context, db store.DBTX) error {
 	if _, err := db.Exec(ctx, `SET LOCAL strait.queue_backend = 'pgque'`); err != nil {
 		return fmt.Errorf("pgque mark queue storage: %w", err)
@@ -1202,6 +1215,9 @@ func (q *PgQueQueue) nack(ctx context.Context, msg pgQueMessage, delay time.Dura
 }
 
 var _ Queue = (*PgQueQueue)(nil)
+var _ interface {
+	EnqueueExisting(context.Context, *domain.JobRun) error
+} = (*PgQueQueue)(nil)
 var _ interface {
 	RunTicker(context.Context)
 	Maintain(context.Context) error

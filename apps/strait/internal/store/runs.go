@@ -1773,6 +1773,36 @@ func (q *Queries) UpdateRunStatus(ctx context.Context, id string, from, to domai
 }
 
 func (q *Queries) tryUpdateRunStateStatus(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any, attempt *int) (bool, error) {
+	if terminalRunStateShouldReactivate(from, to) {
+		if _, ok := q.db.(TxBeginner); ok {
+			moved := false
+			err := q.withTx(ctx, func(txQ *Queries) error {
+				var eventAttempt int
+				var reactivateErr error
+				moved, eventAttempt, reactivateErr = txQ.reactivateRunTerminalState(ctx, id, from, to, fields, attempt)
+				if reactivateErr != nil || !moved {
+					return reactivateErr
+				}
+				if err := txQ.syncLegacyQueueEntryStatus(ctx, id, to); err != nil {
+					return err
+				}
+				if err := txQ.bumpRunCacheVersion(ctx, id); err != nil {
+					return err
+				}
+				if err := txQ.appendRunLifecycleEvent(ctx, id, from, to, fields, &eventAttempt); err != nil {
+					return err
+				}
+				return nil
+			})
+			if err != nil {
+				return false, err
+			}
+			if moved {
+				return true, nil
+			}
+		}
+	}
+
 	if terminalRunStateShouldMove(to) {
 		if _, ok := q.db.(TxBeginner); ok {
 			moved := false
@@ -1903,7 +1933,11 @@ func (q *Queries) bumpRunCacheVersion(ctx context.Context, id string) error {
 }
 
 func terminalRunStateShouldMove(status domain.RunStatus) bool {
-	return status.IsTerminal() && status != domain.StatusDeadLetter
+	return status.IsTerminal()
+}
+
+func terminalRunStateShouldReactivate(from, to domain.RunStatus) bool {
+	return from == domain.StatusDeadLetter && !to.IsTerminal()
 }
 
 func runLedgerFields(fields map[string]any) map[string]any {
@@ -1953,6 +1987,64 @@ func (q *Queries) appendRunTerminalState(ctx context.Context, id string, from, t
 			return false, 0, nil
 		}
 		return false, 0, fmt.Errorf("append run terminal state: %w", err)
+	}
+	return true, eventAttempt, nil
+}
+
+func (q *Queries) reactivateRunTerminalState(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any, attempt *int) (bool, int, error) {
+	var eventAttempt int
+	deleteQuery := `DELETE FROM job_run_terminal_state WHERE run_id = $1 AND status = $2 RETURNING attempt`
+	args := []any{id, from}
+	if attempt != nil {
+		deleteQuery = `DELETE FROM job_run_terminal_state WHERE run_id = $1 AND status = $2 AND attempt = $3 RETURNING attempt`
+		args = append(args, *attempt)
+	}
+	if err := q.db.QueryRow(ctx, deleteQuery, args...).Scan(&eventAttempt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, 0, nil
+		}
+		return false, 0, fmt.Errorf("reactivate terminal run state: %w", err)
+	}
+
+	stateSet := []string{"status = $1", "updated_at = NOW()", "ready_generation = ready_generation + 1"}
+	stateArgs := []any{to, id}
+	stateParam := 3
+	stateColumns := map[string]struct{}{
+		"attempt":         {},
+		"scheduled_at":    {},
+		"started_at":      {},
+		"finished_at":     {},
+		"heartbeat_at":    {},
+		"next_retry_at":   {},
+		"expires_at":      {},
+		"priority":        {},
+		"concurrency_key": {},
+		"execution_mode":  {},
+	}
+	keys := lo.Keys(fields)
+	sort.Strings(keys)
+	for _, key := range keys {
+		value := fields[key]
+		if _, ok := stateColumns[key]; !ok {
+			continue
+		}
+		if key == "concurrency_key" || key == "execution_mode" {
+			if text, ok := value.(string); ok {
+				value = dbscan.NilIfEmptyString(text)
+			}
+		}
+		stateSet = append(stateSet, fmt.Sprintf("%s = $%d", key, stateParam))
+		stateArgs = append(stateArgs, value)
+		stateParam++
+	}
+
+	query := fmt.Sprintf("UPDATE job_run_state SET %s WHERE run_id = $2", strings.Join(stateSet, ", "))
+	tag, err := q.db.Exec(ctx, query, stateArgs...)
+	if err != nil {
+		return false, 0, fmt.Errorf("reactivate run state: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return false, 0, fmt.Errorf("%w: %s", ErrRunNotFound, id)
 	}
 	return true, eventAttempt, nil
 }

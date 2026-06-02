@@ -23,6 +23,7 @@ var testJWTSigningKey = func() string {
 
 type mockQueue struct {
 	enqueueFn           func(ctx context.Context, run *domain.JobRun) error
+	enqueueExistingFn   func(ctx context.Context, run *domain.JobRun) error
 	enqueueBatchFn      func(ctx context.Context, runs []*domain.JobRun) (int64, error)
 	dequeueFn           func(ctx context.Context) (*domain.JobRun, error)
 	dequeueNFn          func(ctx context.Context, n int) ([]domain.JobRun, error)
@@ -32,6 +33,13 @@ type mockQueue struct {
 func (m *mockQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 	if m.enqueueFn != nil {
 		return m.enqueueFn(ctx, run)
+	}
+	return nil
+}
+
+func (m *mockQueue) EnqueueExisting(ctx context.Context, run *domain.JobRun) error {
+	if m.enqueueExistingFn != nil {
+		return m.enqueueExistingFn(ctx, run)
 	}
 	return nil
 }
