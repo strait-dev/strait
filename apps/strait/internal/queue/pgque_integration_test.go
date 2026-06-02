@@ -817,6 +817,71 @@ func TestPgQue_ConcurrentDequeueDrainsSingleBatchWithoutDuplicates(t *testing.T)
 	}
 }
 
+func TestPgQue_DequeueUsesAppendOnlyPriorityEvents(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-pgque-priority-events")
+	q := mustPgQueQueue(t)
+
+	low := &domain.JobRun{
+		ID:        newID(),
+		JobID:     job.ID,
+		ProjectID: job.ProjectID,
+		Priority:  1,
+	}
+	high := &domain.JobRun{
+		ID:        newID(),
+		JobID:     job.ID,
+		ProjectID: job.ProjectID,
+		Priority:  50,
+	}
+	if err := q.Enqueue(ctx, low); err != nil {
+		t.Fatalf("enqueue low priority run: %v", err)
+	}
+	if err := q.Enqueue(ctx, high); err != nil {
+		t.Fatalf("enqueue high priority run: %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_priority_events (run_id, priority)
+		VALUES ($1, 100)`,
+		low.ID,
+	); err != nil {
+		t.Fatalf("append priority event: %v", err)
+	}
+
+	if err := q.ForceTick(ctx, "http"); err != nil {
+		t.Fatalf("ForceTick: %v", err)
+	}
+	claimed, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("DequeueN: %v", err)
+	}
+	if len(claimed) != 1 {
+		t.Fatalf("claimed = %d, want 1", len(claimed))
+	}
+	if claimed[0].ID != low.ID {
+		t.Fatalf("claimed run = %s, want promoted low-priority run %s", claimed[0].ID, low.ID)
+	}
+	if claimed[0].Priority != 100 {
+		t.Fatalf("claimed priority = %d, want promoted priority 100", claimed[0].Priority)
+	}
+
+	var statePriority int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT priority
+		FROM job_run_state
+		WHERE run_id = $1`,
+		low.ID,
+	).Scan(&statePriority); err != nil {
+		t.Fatalf("query state priority: %v", err)
+	}
+	if statePriority != 1 {
+		t.Fatalf("state priority = %d, want unchanged 1", statePriority)
+	}
+}
+
 func TestPgQue_ClaimUsesRunStateNotFatLedger(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

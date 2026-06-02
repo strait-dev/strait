@@ -156,7 +156,7 @@ func TestReconcileOnce_MissingClaimRestoresRoutingMetadata(t *testing.T) {
 		"job_enabled, job_paused, execution_mode, queue_name",
 		"LEFT JOIN job_run_read_state s ON s.run_id = jr.id",
 		"COALESCE(NULLIF(s.execution_mode, ''), NULLIF(jr.execution_mode, ''), NULLIF(j.execution_mode, ''), 'http')",
-		"COALESCE(NULLIF(s.queue_name, ''), NULLIF(jr.queue_name, ''), NULLIF(j.queue_name, ''), 'default')",
+		"COALESCE(NULLIF(jr.queue_name, ''), NULLIF(j.queue_name, ''), NULLIF(s.queue_name, ''), 'default')",
 		"COALESCE(s.status, jr.status) IN ('queued', 'delayed')",
 	} {
 		if !strings.Contains(insertSQL, fragment) {

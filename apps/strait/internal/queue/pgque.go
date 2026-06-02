@@ -1462,7 +1462,7 @@ func (q *PgQueQueue) claimRuns(ctx context.Context, ids []string, generations []
 			       s.job_max_concurrency_per_key,
 			       s.ready_attempt,
 			       s.ready_reason,
-			       s.priority AS claim_priority,
+			       COALESCE(s.promoted_priority, s.priority) AS claim_priority,
 			       jr.created_at AS claim_created_at,
 			       jr.payload,
 			       jr.result,
@@ -1487,8 +1487,18 @@ func (q *PgQueQueue) claimRuns(ctx context.Context, ids []string, generations []
 			       jr.replayed_run_id
 			FROM input
 			JOIN LATERAL (
-				SELECT s.*, ready.attempt AS ready_attempt, ready.reason AS ready_reason
+				SELECT s.*,
+				       priority.priority AS promoted_priority,
+				       ready.attempt AS ready_attempt,
+				       ready.reason AS ready_reason
 				FROM job_run_state s
+				LEFT JOIN LATERAL (
+				    SELECT e.priority
+				    FROM job_run_priority_events e
+				    WHERE e.run_id = s.run_id
+				    ORDER BY e.id DESC
+				    LIMIT 1
+				) priority ON true
 				LEFT JOIN LATERAL (
 				    SELECT e.attempt, e.reason
 				    FROM job_run_ready_events e
@@ -1634,7 +1644,7 @@ func (q *PgQueQueue) claimRuns(ctx context.Context, ids []string, generations []
 			       CASE WHEN candidates.ready_reason = 'retry_ready' THEN NULL::timestamptz ELSE s.next_retry_at END AS next_retry_at,
 			       s.expires_at,
 			       candidates.parent_run_id,
-			       s.priority,
+			       candidates.claim_priority AS priority,
 			       candidates.idempotency_key,
 			       candidates.job_version,
 			       candidates.created_at,
