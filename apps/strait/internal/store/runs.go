@@ -222,7 +222,7 @@ func (q *Queries) GetRun(ctx context.Context, id string) (*domain.JobRun, error)
 	query := `
 		SELECT jr.id, jr.job_id, jr.project_id, COALESCE(s.status, jr.status), COALESCE(s.attempt, jr.attempt), jr.payload,
 		       CASE WHEN terminal.fields ? 'result' THEN terminal.fields->'result' ELSE jr.result END,
-		       jr.metadata,
+		       COALESCE(jr.metadata, '{}'::jsonb) || COALESCE(metadata_delta.metadata, '{}'::jsonb),
 		       CASE WHEN terminal.fields ? 'error' THEN terminal.fields->>'error' ELSE jr.error END,
 		       CASE WHEN terminal.fields ? 'error_class' THEN terminal.fields->>'error_class' ELSE jr.error_class END,
 		       jr.triggered_by, COALESCE(s.scheduled_at, jr.scheduled_at), COALESCE(s.started_at, jr.started_at), COALESCE(s.finished_at, jr.finished_at), COALESCE(h.heartbeat_at, s.heartbeat_at, jr.heartbeat_at),
@@ -247,6 +247,13 @@ func (q *Queries) GetRun(ctx context.Context, id string) (*domain.JobRun, error)
 			ORDER BY e.created_at DESC, e.id DESC
 			LIMIT 1
 		) terminal ON true
+		LEFT JOIN LATERAL (
+			SELECT jsonb_object_agg(entry.key, entry.value ORDER BY e.created_at, e.id) AS metadata
+			FROM job_run_lifecycle_events e
+			CROSS JOIN LATERAL jsonb_each(COALESCE(e.fields->'metadata', '{}'::jsonb)) AS entry(key, value)
+			WHERE e.run_id = jr.id
+			  AND e.fields ? 'metadata'
+		) metadata_delta ON true
 		WHERE jr.id = $1`
 
 	run, err := dbscan.ScanRun(q.db.QueryRow(ctx, query, id))
@@ -274,7 +281,7 @@ func (q *Queries) GetRunWithCacheVersion(ctx context.Context, id string) (*domai
 	query := `
 		SELECT jr.id, jr.job_id, jr.project_id, COALESCE(s.status, jr.status), COALESCE(s.attempt, jr.attempt), jr.payload,
 		       CASE WHEN terminal.fields ? 'result' THEN terminal.fields->'result' ELSE jr.result END,
-		       jr.metadata,
+		       COALESCE(jr.metadata, '{}'::jsonb) || COALESCE(metadata_delta.metadata, '{}'::jsonb),
 		       CASE WHEN terminal.fields ? 'error' THEN terminal.fields->>'error' ELSE jr.error END,
 		       CASE WHEN terminal.fields ? 'error_class' THEN terminal.fields->>'error_class' ELSE jr.error_class END,
 		       jr.triggered_by, COALESCE(s.scheduled_at, jr.scheduled_at), COALESCE(s.started_at, jr.started_at), COALESCE(s.finished_at, jr.finished_at), COALESCE(h.heartbeat_at, s.heartbeat_at, jr.heartbeat_at),
@@ -306,6 +313,13 @@ func (q *Queries) GetRunWithCacheVersion(ctx context.Context, id string) (*domai
 			ORDER BY e.created_at DESC, e.id DESC
 			LIMIT 1
 		) terminal ON true
+		LEFT JOIN LATERAL (
+			SELECT jsonb_object_agg(entry.key, entry.value ORDER BY e.created_at, e.id) AS metadata
+			FROM job_run_lifecycle_events e
+			CROSS JOIN LATERAL jsonb_each(COALESCE(e.fields->'metadata', '{}'::jsonb)) AS entry(key, value)
+			WHERE e.run_id = jr.id
+			  AND e.fields ? 'metadata'
+		) metadata_delta ON true
 		WHERE jr.id = $1`
 
 	run, err := dbscan.ScanRunWithCacheVersion(q.db.QueryRow(ctx, query, id))
@@ -337,7 +351,7 @@ func (q *Queries) GetRunByIdempotencyKey(ctx context.Context, jobID, idempotency
 	query := `
 		SELECT jr.id, jr.job_id, jr.project_id, COALESCE(s.status, jr.status), COALESCE(s.attempt, jr.attempt), jr.payload,
 		       CASE WHEN terminal.fields ? 'result' THEN terminal.fields->'result' ELSE jr.result END,
-		       jr.metadata,
+		       COALESCE(jr.metadata, '{}'::jsonb) || COALESCE(metadata_delta.metadata, '{}'::jsonb),
 		       CASE WHEN terminal.fields ? 'error' THEN terminal.fields->>'error' ELSE jr.error END,
 		       CASE WHEN terminal.fields ? 'error_class' THEN terminal.fields->>'error_class' ELSE jr.error_class END,
 		       jr.triggered_by, COALESCE(s.scheduled_at, jr.scheduled_at), COALESCE(s.started_at, jr.started_at), COALESCE(s.finished_at, jr.finished_at), COALESCE(h.heartbeat_at, s.heartbeat_at, jr.heartbeat_at),
@@ -362,6 +376,13 @@ func (q *Queries) GetRunByIdempotencyKey(ctx context.Context, jobID, idempotency
 			ORDER BY e.created_at DESC, e.id DESC
 			LIMIT 1
 		) terminal ON true
+		LEFT JOIN LATERAL (
+			SELECT jsonb_object_agg(entry.key, entry.value ORDER BY e.created_at, e.id) AS metadata
+			FROM job_run_lifecycle_events e
+			CROSS JOIN LATERAL jsonb_each(COALESCE(e.fields->'metadata', '{}'::jsonb)) AS entry(key, value)
+			WHERE e.run_id = jr.id
+			  AND e.fields ? 'metadata'
+		) metadata_delta ON true
 		WHERE jr.job_id = $1
 		  AND jr.idempotency_key = $2
 		  AND (
@@ -1225,7 +1246,7 @@ func (q *Queries) ListRunsByJob(ctx context.Context, jobID string, limit, offset
 	query := `
 		SELECT jr.id, jr.job_id, jr.project_id, COALESCE(s.status, jr.status), COALESCE(s.attempt, jr.attempt), jr.payload,
 		       CASE WHEN terminal.fields ? 'result' THEN terminal.fields->'result' ELSE jr.result END,
-		       jr.metadata,
+		       COALESCE(jr.metadata, '{}'::jsonb) || COALESCE(metadata_delta.metadata, '{}'::jsonb),
 		       CASE WHEN terminal.fields ? 'error' THEN terminal.fields->>'error' ELSE jr.error END,
 		       CASE WHEN terminal.fields ? 'error_class' THEN terminal.fields->>'error_class' ELSE jr.error_class END,
 		       jr.triggered_by, COALESCE(s.scheduled_at, jr.scheduled_at), COALESCE(s.started_at, jr.started_at), COALESCE(s.finished_at, jr.finished_at), COALESCE(h.heartbeat_at, s.heartbeat_at, jr.heartbeat_at),
@@ -1250,6 +1271,13 @@ func (q *Queries) ListRunsByJob(ctx context.Context, jobID string, limit, offset
 			ORDER BY e.created_at DESC, e.id DESC
 			LIMIT 1
 		) terminal ON true
+		LEFT JOIN LATERAL (
+			SELECT jsonb_object_agg(entry.key, entry.value ORDER BY e.created_at, e.id) AS metadata
+			FROM job_run_lifecycle_events e
+			CROSS JOIN LATERAL jsonb_each(COALESCE(e.fields->'metadata', '{}'::jsonb)) AS entry(key, value)
+			WHERE e.run_id = jr.id
+			  AND e.fields ? 'metadata'
+		) metadata_delta ON true
 		WHERE jr.job_id = $1
 		ORDER BY jr.created_at DESC
 		LIMIT $2 OFFSET $3`
@@ -1283,7 +1311,7 @@ func (q *Queries) ListRunsByProject(ctx context.Context, projectID string, statu
 	baseQuery := `
 		SELECT jr.id, jr.job_id, jr.project_id, COALESCE(s.status, jr.status), COALESCE(s.attempt, jr.attempt), jr.payload,
 		       CASE WHEN terminal.fields ? 'result' THEN terminal.fields->'result' ELSE jr.result END,
-		       jr.metadata,
+		       COALESCE(jr.metadata, '{}'::jsonb) || COALESCE(metadata_delta.metadata, '{}'::jsonb),
 		       CASE WHEN terminal.fields ? 'error' THEN terminal.fields->>'error' ELSE jr.error END,
 		       CASE WHEN terminal.fields ? 'error_class' THEN terminal.fields->>'error_class' ELSE jr.error_class END,
 		       jr.triggered_by, COALESCE(s.scheduled_at, jr.scheduled_at), COALESCE(s.started_at, jr.started_at), COALESCE(s.finished_at, jr.finished_at), COALESCE(h.heartbeat_at, s.heartbeat_at, jr.heartbeat_at),
@@ -1308,6 +1336,13 @@ func (q *Queries) ListRunsByProject(ctx context.Context, projectID string, statu
 			ORDER BY e.created_at DESC, e.id DESC
 			LIMIT 1
 		) terminal ON true
+		LEFT JOIN LATERAL (
+			SELECT jsonb_object_agg(entry.key, entry.value ORDER BY e.created_at, e.id) AS metadata
+			FROM job_run_lifecycle_events e
+			CROSS JOIN LATERAL jsonb_each(COALESCE(e.fields->'metadata', '{}'::jsonb)) AS entry(key, value)
+			WHERE e.run_id = jr.id
+			  AND e.fields ? 'metadata'
+		) metadata_delta ON true
 		WHERE jr.project_id = $1`
 
 	args := []any{projectID}
@@ -1321,11 +1356,11 @@ func (q *Queries) ListRunsByProject(ctx context.Context, projectID string, statu
 
 	if metadataKey != nil {
 		if metadataValue == nil {
-			baseQuery += fmt.Sprintf(" AND metadata ? $%d", param)
+			baseQuery += fmt.Sprintf(" AND (COALESCE(jr.metadata, '{}'::jsonb) || COALESCE(metadata_delta.metadata, '{}'::jsonb)) ? $%d", param)
 			args = append(args, *metadataKey)
 			param++
 		} else {
-			baseQuery += fmt.Sprintf(" AND metadata ->> $%d = $%d", param, param+1)
+			baseQuery += fmt.Sprintf(" AND (COALESCE(jr.metadata, '{}'::jsonb) || COALESCE(metadata_delta.metadata, '{}'::jsonb)) ->> $%d = $%d", param, param+1)
 			args = append(args, *metadataKey, *metadataValue)
 			param += 2
 		}
@@ -1402,7 +1437,7 @@ func (q *Queries) ListRunsByProjectFiltered(ctx context.Context, projectID strin
 	baseQuery := `
 		SELECT jr.id, jr.job_id, jr.project_id, COALESCE(s.status, jr.status), COALESCE(s.attempt, jr.attempt), jr.payload,
 		       CASE WHEN terminal.fields ? 'result' THEN terminal.fields->'result' ELSE jr.result END,
-		       jr.metadata,
+		       COALESCE(jr.metadata, '{}'::jsonb) || COALESCE(metadata_delta.metadata, '{}'::jsonb),
 		       CASE WHEN terminal.fields ? 'error' THEN terminal.fields->>'error' ELSE jr.error END,
 		       CASE WHEN terminal.fields ? 'error_class' THEN terminal.fields->>'error_class' ELSE jr.error_class END,
 		       jr.triggered_by, COALESCE(s.scheduled_at, jr.scheduled_at), COALESCE(s.started_at, jr.started_at), COALESCE(s.finished_at, jr.finished_at), COALESCE(h.heartbeat_at, s.heartbeat_at, jr.heartbeat_at),
@@ -1435,7 +1470,14 @@ func (q *Queries) ListRunsByProjectFiltered(ctx context.Context, projectID strin
 			  AND e.fields ?| ARRAY['result', 'error', 'error_class', 'execution_trace']
 			ORDER BY e.created_at DESC, e.id DESC
 			LIMIT 1
-		) terminal ON true`
+		) terminal ON true
+		LEFT JOIN LATERAL (
+			SELECT jsonb_object_agg(entry.key, entry.value ORDER BY e.created_at, e.id) AS metadata
+			FROM job_run_lifecycle_events e
+			CROSS JOIN LATERAL jsonb_each(COALESCE(e.fields->'metadata', '{}'::jsonb)) AS entry(key, value)
+			WHERE e.run_id = jr.id
+			  AND e.fields ? 'metadata'
+		) metadata_delta ON true`
 
 	baseQuery += " WHERE jr.project_id = $1"
 
@@ -1473,11 +1515,11 @@ func (q *Queries) ListRunsByProjectFiltered(ctx context.Context, projectID strin
 
 	if metadataKey != nil {
 		if metadataValue == nil {
-			baseQuery += fmt.Sprintf(" AND jr.metadata ? $%d", param)
+			baseQuery += fmt.Sprintf(" AND (COALESCE(jr.metadata, '{}'::jsonb) || COALESCE(metadata_delta.metadata, '{}'::jsonb)) ? $%d", param)
 			args = append(args, *metadataKey)
 			param++
 		} else {
-			baseQuery += fmt.Sprintf(" AND jr.metadata ->> $%d = $%d", param, param+1)
+			baseQuery += fmt.Sprintf(" AND (COALESCE(jr.metadata, '{}'::jsonb) || COALESCE(metadata_delta.metadata, '{}'::jsonb)) ->> $%d = $%d", param, param+1)
 			args = append(args, *metadataKey, *metadataValue)
 			param += 2
 		}
@@ -1555,7 +1597,7 @@ func (q *Queries) ListFinishedRunsSince(ctx context.Context, projectID string, s
 	query := `
 		SELECT jr.id, jr.job_id, jr.project_id, COALESCE(s.status, jr.status), COALESCE(s.attempt, jr.attempt), jr.payload,
 		       CASE WHEN terminal.fields ? 'result' THEN terminal.fields->'result' ELSE jr.result END,
-		       jr.metadata,
+		       COALESCE(jr.metadata, '{}'::jsonb) || COALESCE(metadata_delta.metadata, '{}'::jsonb),
 		       CASE WHEN terminal.fields ? 'error' THEN terminal.fields->>'error' ELSE jr.error END,
 		       CASE WHEN terminal.fields ? 'error_class' THEN terminal.fields->>'error_class' ELSE jr.error_class END,
 		       jr.triggered_by, COALESCE(s.scheduled_at, jr.scheduled_at), COALESCE(s.started_at, jr.started_at), COALESCE(s.finished_at, jr.finished_at), COALESCE(h.heartbeat_at, s.heartbeat_at, jr.heartbeat_at),
@@ -1580,6 +1622,13 @@ func (q *Queries) ListFinishedRunsSince(ctx context.Context, projectID string, s
 			ORDER BY e.created_at DESC, e.id DESC
 			LIMIT 1
 		) terminal ON true
+		LEFT JOIN LATERAL (
+			SELECT jsonb_object_agg(entry.key, entry.value ORDER BY e.created_at, e.id) AS metadata
+			FROM job_run_lifecycle_events e
+			CROSS JOIN LATERAL jsonb_each(COALESCE(e.fields->'metadata', '{}'::jsonb)) AS entry(key, value)
+			WHERE e.run_id = jr.id
+			  AND e.fields ? 'metadata'
+		) metadata_delta ON true
 		WHERE jr.project_id = $1
 		  AND COALESCE(s.status, jr.status) IN ('completed', 'failed', 'timed_out', 'crashed', 'system_failed', 'canceled', 'expired')
 		  AND (COALESCE(s.finished_at, jr.finished_at) > $2 OR (COALESCE(s.finished_at, jr.finished_at) = $2 AND jr.id > $3))
@@ -1619,7 +1668,7 @@ func (q *Queries) ListDeadLetterRuns(ctx context.Context, projectID string, limi
 	const query = `
 		SELECT jr.id, jr.job_id, jr.project_id, COALESCE(s.status, jr.status), COALESCE(s.attempt, jr.attempt), jr.payload,
 		       CASE WHEN terminal.fields ? 'result' THEN terminal.fields->'result' ELSE jr.result END,
-		       jr.metadata,
+		       COALESCE(jr.metadata, '{}'::jsonb) || COALESCE(metadata_delta.metadata, '{}'::jsonb),
 		       CASE WHEN terminal.fields ? 'error' THEN terminal.fields->>'error' ELSE jr.error END,
 		       CASE WHEN terminal.fields ? 'error_class' THEN terminal.fields->>'error_class' ELSE jr.error_class END,
 		       jr.triggered_by, COALESCE(s.scheduled_at, jr.scheduled_at), COALESCE(s.started_at, jr.started_at), COALESCE(s.finished_at, jr.finished_at), COALESCE(h.heartbeat_at, s.heartbeat_at, jr.heartbeat_at),
@@ -1644,6 +1693,13 @@ func (q *Queries) ListDeadLetterRuns(ctx context.Context, projectID string, limi
 			ORDER BY e.created_at DESC, e.id DESC
 			LIMIT 1
 		) terminal ON true
+		LEFT JOIN LATERAL (
+			SELECT jsonb_object_agg(entry.key, entry.value ORDER BY e.created_at, e.id) AS metadata
+			FROM job_run_lifecycle_events e
+			CROSS JOIN LATERAL jsonb_each(COALESCE(e.fields->'metadata', '{}'::jsonb)) AS entry(key, value)
+			WHERE e.run_id = jr.id
+			  AND e.fields ? 'metadata'
+		) metadata_delta ON true
 		WHERE jr.project_id = $1
 		  AND COALESCE(s.status, jr.status) = 'dead_letter'
 		  AND ($2::timestamptz IS NULL OR jr.created_at < $2::timestamptz)
@@ -1694,7 +1750,7 @@ func (q *Queries) ListDeadLetterRunsFiltered(ctx context.Context, projectID stri
 	const query = `
 		SELECT jr.id, jr.job_id, jr.project_id, COALESCE(s.status, jr.status), COALESCE(s.attempt, jr.attempt), jr.payload,
 		       CASE WHEN terminal.fields ? 'result' THEN terminal.fields->'result' ELSE jr.result END,
-		       jr.metadata,
+		       COALESCE(jr.metadata, '{}'::jsonb) || COALESCE(metadata_delta.metadata, '{}'::jsonb),
 		       CASE WHEN terminal.fields ? 'error' THEN terminal.fields->>'error' ELSE jr.error END,
 		       CASE WHEN terminal.fields ? 'error_class' THEN terminal.fields->>'error_class' ELSE jr.error_class END,
 		       jr.triggered_by, COALESCE(s.scheduled_at, jr.scheduled_at), COALESCE(s.started_at, jr.started_at), COALESCE(s.finished_at, jr.finished_at), COALESCE(h.heartbeat_at, s.heartbeat_at, jr.heartbeat_at),
@@ -1719,6 +1775,13 @@ func (q *Queries) ListDeadLetterRunsFiltered(ctx context.Context, projectID stri
 			ORDER BY e.created_at DESC, e.id DESC
 			LIMIT 1
 		) terminal ON true
+		LEFT JOIN LATERAL (
+			SELECT jsonb_object_agg(entry.key, entry.value ORDER BY e.created_at, e.id) AS metadata
+			FROM job_run_lifecycle_events e
+			CROSS JOIN LATERAL jsonb_each(COALESCE(e.fields->'metadata', '{}'::jsonb)) AS entry(key, value)
+			WHERE e.run_id = jr.id
+			  AND e.fields ? 'metadata'
+		) metadata_delta ON true
 		LEFT JOIN LATERAL (
 			SELECT e.visible_until, TRUE AS has_event
 			FROM job_run_visibility_events e
@@ -2843,25 +2906,38 @@ func (q *Queries) UpdateRunMetadataForActiveRun(ctx context.Context, id string, 
 	}
 
 	query := `
-		UPDATE job_runs jr
-		SET metadata = COALESCE(jr.metadata, '{}'::jsonb) || $1::jsonb
-		WHERE jr.id = $2
-		  AND EXISTS (
-			SELECT 1
-			FROM job_runs gate
-			LEFT JOIN job_run_read_state s ON s.run_id = gate.id
-			WHERE gate.id = jr.id
-			  AND COALESCE(s.attempt, gate.attempt) = $3
-			  AND COALESCE(s.status, gate.status) IN ('executing', 'waiting')
-		  )`
+		WITH gate AS MATERIALIZED (
+			SELECT
+				COALESCE(s.status, jr.status) AS from_status,
+				COALESCE(s.status, jr.status) AS to_status,
+				COALESCE(s.attempt, jr.attempt) AS current_attempt
+			FROM job_runs jr
+			LEFT JOIN job_run_read_state s ON s.run_id = jr.id
+			WHERE jr.id = $2
+			  AND COALESCE(s.attempt, jr.attempt) = $3
+			  AND COALESCE(s.status, jr.status) IN ('executing', 'waiting')
+		),
+		lifecycle_event AS (
+			INSERT INTO job_run_lifecycle_events (run_id, from_status, to_status, attempt, fields)
+			SELECT $2, from_status, to_status, current_attempt, jsonb_build_object('metadata', $1::jsonb)
+			FROM gate
+			RETURNING run_id
+		),
+		cache_versions AS (
+			INSERT INTO job_run_cache_versions (run_id, cache_version)
+			SELECT run_id, strait_next_run_cache_version(run_id)
+			FROM lifecycle_event
+			RETURNING 1
+		)
+		SELECT run_id FROM lifecycle_event`
 
-	tag, err := q.db.Exec(ctx, query, encoded, id, attempt)
+	var updatedID string
+	err = q.db.QueryRow(ctx, query, encoded, id, attempt).Scan(&updatedID)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, id, attempt)
+		}
 		return fmt.Errorf("update active run metadata: %w", err)
-	}
-
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, id, attempt)
 	}
 
 	return nil
@@ -3399,7 +3475,7 @@ func (q *Queries) ListRunLineage(ctx context.Context, runID string, limit int, _
 		)
 		SELECT jr.id, jr.job_id, jr.project_id, COALESCE(s.status, jr.status), COALESCE(s.attempt, jr.attempt), jr.payload,
 		       CASE WHEN terminal.fields ? 'result' THEN terminal.fields->'result' ELSE jr.result END,
-		       jr.metadata,
+		       COALESCE(jr.metadata, '{}'::jsonb) || COALESCE(metadata_delta.metadata, '{}'::jsonb),
 		       CASE WHEN terminal.fields ? 'error' THEN terminal.fields->>'error' ELSE jr.error END,
 		       CASE WHEN terminal.fields ? 'error_class' THEN terminal.fields->>'error_class' ELSE jr.error_class END,
 		       jr.triggered_by, COALESCE(s.scheduled_at, jr.scheduled_at), COALESCE(s.started_at, jr.started_at), COALESCE(s.finished_at, jr.finished_at), COALESCE(h.heartbeat_at, s.heartbeat_at, jr.heartbeat_at),
@@ -3425,6 +3501,13 @@ func (q *Queries) ListRunLineage(ctx context.Context, runID string, limit int, _
 			ORDER BY e.created_at DESC, e.id DESC
 			LIMIT 1
 		) terminal ON true
+		LEFT JOIN LATERAL (
+			SELECT jsonb_object_agg(entry.key, entry.value ORDER BY e.created_at, e.id) AS metadata
+			FROM job_run_lifecycle_events e
+			CROSS JOIN LATERAL jsonb_each(COALESCE(e.fields->'metadata', '{}'::jsonb)) AS entry(key, value)
+			WHERE e.run_id = jr.id
+			  AND e.fields ? 'metadata'
+		) metadata_delta ON true
 		ORDER BY jr.lineage_depth ASC
 		LIMIT $2`
 
@@ -3847,7 +3930,7 @@ func (q *Queries) GetRunsByIDs(ctx context.Context, ids []string) (map[string]*d
 	rows, err := q.db.Query(ctx,
 		`SELECT jr.id, jr.job_id, jr.project_id, COALESCE(s.status, jr.status), COALESCE(s.attempt, jr.attempt), jr.payload,
 		       CASE WHEN terminal.fields ? 'result' THEN terminal.fields->'result' ELSE jr.result END,
-		       jr.metadata,
+		       COALESCE(jr.metadata, '{}'::jsonb) || COALESCE(metadata_delta.metadata, '{}'::jsonb),
 		       CASE WHEN terminal.fields ? 'error' THEN terminal.fields->>'error' ELSE jr.error END,
 		       CASE WHEN terminal.fields ? 'error_class' THEN terminal.fields->>'error_class' ELSE jr.error_class END,
 		       jr.triggered_by, COALESCE(s.scheduled_at, jr.scheduled_at), COALESCE(s.started_at, jr.started_at), COALESCE(s.finished_at, jr.finished_at), COALESCE(h.heartbeat_at, s.heartbeat_at, jr.heartbeat_at),
@@ -3872,6 +3955,13 @@ func (q *Queries) GetRunsByIDs(ctx context.Context, ids []string) (map[string]*d
 			ORDER BY e.created_at DESC, e.id DESC
 			LIMIT 1
 		 ) terminal ON true
+		 LEFT JOIN LATERAL (
+			SELECT jsonb_object_agg(entry.key, entry.value ORDER BY e.created_at, e.id) AS metadata
+			FROM job_run_lifecycle_events e
+			CROSS JOIN LATERAL jsonb_each(COALESCE(e.fields->'metadata', '{}'::jsonb)) AS entry(key, value)
+			WHERE e.run_id = jr.id
+			  AND e.fields ? 'metadata'
+		 ) metadata_delta ON true
 		 WHERE jr.id = ANY($1)`, ids)
 	if err != nil {
 		return nil, fmt.Errorf("get runs by ids: %w", err)

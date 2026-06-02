@@ -1899,6 +1899,9 @@ func TestSDKActiveRunMutationsRequireActiveAttempt(t *testing.T) {
 	if err := q.UpdateRunMetadataForActiveRun(ctx, activeRun.ID, map[string]string{"sdk": "active"}, activeRun.Attempt); err != nil {
 		t.Fatalf("UpdateRunMetadataForActiveRun(active) error = %v", err)
 	}
+	if err := q.UpdateRunMetadataForActiveRun(ctx, activeRun.ID, map[string]string{"sdk": "active-v2", "phase": "two"}, activeRun.Attempt); err != nil {
+		t.Fatalf("UpdateRunMetadataForActiveRun(active overwrite) error = %v", err)
+	}
 	if err := q.UpdateHeartbeatForActiveRun(ctx, activeRun.ID, activeRun.Attempt); err != nil {
 		t.Fatalf("UpdateHeartbeatForActiveRun(active) error = %v", err)
 	}
@@ -1944,12 +1947,50 @@ func TestSDKActiveRunMutationsRequireActiveAttempt(t *testing.T) {
 		t.Fatalf("DeleteJobMemoryForActiveRun(active) error = %v", err)
 	}
 
+	var ledgerHasSDK bool
+	if err := testDB.Pool.QueryRow(ctx, `SELECT metadata ? 'sdk' FROM job_runs WHERE id = $1`, activeRun.ID).Scan(&ledgerHasSDK); err != nil {
+		t.Fatalf("query ledger metadata: %v", err)
+	}
+	if ledgerHasSDK {
+		t.Fatal("job_runs metadata contains sdk key, want active metadata stored append-only")
+	}
+
 	stored, err := q.GetRun(ctx, activeRun.ID)
 	if err != nil {
 		t.Fatalf("GetRun(active) error = %v", err)
 	}
-	if stored.Metadata["sdk"] != "active" {
-		t.Fatalf("metadata = %+v, want sdk=active", stored.Metadata)
+	if stored.Metadata["sdk"] != "active-v2" || stored.Metadata["phase"] != "two" {
+		t.Fatalf("metadata = %+v, want append-only active metadata overlay", stored.Metadata)
+	}
+	cachedRun, _, err := q.GetRunWithCacheVersion(ctx, activeRun.ID)
+	if err != nil {
+		t.Fatalf("GetRunWithCacheVersion(active) error = %v", err)
+	}
+	if cachedRun.Metadata["sdk"] != "active-v2" || cachedRun.Metadata["phase"] != "two" {
+		t.Fatalf("cached metadata = %+v, want append-only active metadata overlay", cachedRun.Metadata)
+	}
+	byIDs, err := q.GetRunsByIDs(ctx, []string{activeRun.ID})
+	if err != nil {
+		t.Fatalf("GetRunsByIDs(active) error = %v", err)
+	}
+	if byIDs[activeRun.ID].Metadata["sdk"] != "active-v2" || byIDs[activeRun.ID].Metadata["phase"] != "two" {
+		t.Fatalf("GetRunsByIDs metadata = %+v, want append-only active metadata overlay", byIDs[activeRun.ID].Metadata)
+	}
+	metadataKey := "sdk"
+	metadataValue := "active-v2"
+	listed, err := q.ListRunsByProject(ctx, activeRun.ProjectID, nil, &metadataKey, &metadataValue, nil, nil, nil, nil, nil, 10, nil)
+	if err != nil {
+		t.Fatalf("ListRunsByProject(active metadata filter) error = %v", err)
+	}
+	if len(listed) != 1 || listed[0].ID != activeRun.ID {
+		t.Fatalf("ListRunsByProject(active metadata filter) = %+v, want active run %s", listed, activeRun.ID)
+	}
+	filtered, err := q.ListRunsByProjectFiltered(ctx, activeRun.ProjectID, nil, nil, "", "", nil, &metadataKey, &metadataValue, nil, nil, nil, nil, nil, 10, nil)
+	if err != nil {
+		t.Fatalf("ListRunsByProjectFiltered(active metadata filter) error = %v", err)
+	}
+	if len(filtered) != 1 || filtered[0].ID != activeRun.ID {
+		t.Fatalf("ListRunsByProjectFiltered(active metadata filter) = %+v, want active run %s", filtered, activeRun.ID)
 	}
 	if stored.HeartbeatAt == nil {
 		t.Fatal("heartbeat_at was not updated")
