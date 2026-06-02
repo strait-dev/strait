@@ -1739,6 +1739,13 @@ func TestDeleteTerminalRunsPastRetention_BatchCleansSideRows(t *testing.T) {
 		t.Fatalf("seed batch ready events: %v", err)
 	}
 	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_retries (run_id, next_retry_at, attempt, scheduled_at, cleared)
+		SELECT run_id, NOW() + INTERVAL '1 minute', attempt + 1, NOW(), FALSE
+		FROM job_run_state
+		WHERE run_id LIKE $1 || '%'`, prefix); err != nil {
+		t.Fatalf("seed batch retries: %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
 		INSERT INTO job_run_priority_events (run_id, priority)
 		SELECT run_id, priority + 1
 		FROM job_run_state
@@ -1768,7 +1775,7 @@ func TestDeleteTerminalRunsPastRetention_BatchCleansSideRows(t *testing.T) {
 		t.Fatalf("seed batch heartbeats: %v", err)
 	}
 
-	for _, table := range []string{"job_runs", "job_run_state", "job_run_active_claims", "job_run_lifecycle_events", "job_run_ready_events", "job_run_priority_events", "job_run_visibility_events", "job_run_cache_versions", "job_run_heartbeats"} {
+	for _, table := range []string{"job_runs", "job_run_state", "job_run_active_claims", "job_run_lifecycle_events", "job_run_ready_events", "job_retries", "job_run_priority_events", "job_run_visibility_events", "job_run_cache_versions", "job_run_heartbeats"} {
 		if count := countRunRowsByPrefix(t, ctx, table, prefix); count != runCount {
 			t.Fatalf("%s seeded rows = %d, want %d", table, count, runCount)
 		}
@@ -1782,7 +1789,7 @@ func TestDeleteTerminalRunsPastRetention_BatchCleansSideRows(t *testing.T) {
 		t.Fatalf("first deleted = %d, want 5000", deleted)
 	}
 
-	for _, table := range []string{"job_runs", "job_run_state", "job_run_active_claims", "job_run_lifecycle_events", "job_run_ready_events", "job_run_priority_events", "job_run_visibility_events", "job_run_cache_versions", "job_run_heartbeats"} {
+	for _, table := range []string{"job_runs", "job_run_state", "job_run_active_claims", "job_run_lifecycle_events", "job_run_ready_events", "job_retries", "job_run_priority_events", "job_run_visibility_events", "job_run_cache_versions", "job_run_heartbeats"} {
 		if count := countRunRowsByPrefix(t, ctx, table, prefix); count != runCount-deleted {
 			t.Fatalf("%s rows after first batch = %d, want %d", table, count, runCount-deleted)
 		}
@@ -1796,7 +1803,7 @@ func TestDeleteTerminalRunsPastRetention_BatchCleansSideRows(t *testing.T) {
 		t.Fatalf("second deleted = %d, want %d", deleted, runCount-5000)
 	}
 
-	for _, table := range []string{"job_runs", "job_run_state", "job_run_active_claims", "job_run_lifecycle_events", "job_run_ready_events", "job_run_priority_events", "job_run_visibility_events", "job_run_cache_versions", "job_run_heartbeats"} {
+	for _, table := range []string{"job_runs", "job_run_state", "job_run_active_claims", "job_run_lifecycle_events", "job_run_ready_events", "job_retries", "job_run_priority_events", "job_run_visibility_events", "job_run_cache_versions", "job_run_heartbeats"} {
 		if count := countRunRowsByPrefix(t, ctx, table, prefix); count != 0 {
 			t.Fatalf("%s rows after second batch = %d, want 0", table, count)
 		}
@@ -1823,6 +1830,11 @@ func seedRetentionSideRows(t *testing.T, ctx context.Context, runIDs ...string) 
 			VALUES ($1, 0, 1, 'retention_test')
 			ON CONFLICT DO NOTHING`, runID); err != nil {
 			t.Fatalf("seed ready event for %s: %v", runID, err)
+		}
+		if _, err := testDB.Pool.Exec(ctx, `
+			INSERT INTO job_retries (run_id, next_retry_at, attempt, scheduled_at, cleared)
+			VALUES ($1, NOW() + INTERVAL '1 minute', 2, NOW(), FALSE)`, runID); err != nil {
+			t.Fatalf("seed retry for %s: %v", runID, err)
 		}
 		if _, err := testDB.Pool.Exec(ctx, `
 			INSERT INTO job_run_priority_events (run_id, priority)
@@ -1857,6 +1869,7 @@ func assertNoRunRetentionSideRows(t *testing.T, ctx context.Context, runID strin
 		"job_run_active_claims",
 		"job_run_lifecycle_events",
 		"job_run_ready_events",
+		"job_retries",
 		"job_run_priority_events",
 		"job_run_visibility_events",
 		"job_run_cache_versions",
@@ -1876,6 +1889,7 @@ func assertRunRetentionSideRowsRemain(t *testing.T, ctx context.Context, runID s
 		"job_run_active_claims",
 		"job_run_lifecycle_events",
 		"job_run_ready_events",
+		"job_retries",
 		"job_run_priority_events",
 		"job_run_visibility_events",
 		"job_run_cache_versions",
@@ -1902,6 +1916,8 @@ func countRunSideTableRows(t *testing.T, ctx context.Context, table, runID strin
 		query = `SELECT COUNT(*) FROM job_run_lifecycle_events WHERE run_id = $1`
 	case "job_run_ready_events":
 		query = `SELECT COUNT(*) FROM job_run_ready_events WHERE run_id = $1`
+	case "job_retries":
+		query = `SELECT COUNT(*) FROM job_retries WHERE run_id = $1`
 	case "job_run_priority_events":
 		query = `SELECT COUNT(*) FROM job_run_priority_events WHERE run_id = $1`
 	case "job_run_visibility_events":
@@ -1936,6 +1952,8 @@ func countRunRowsByPrefix(t *testing.T, ctx context.Context, table, prefix strin
 		query = `SELECT COUNT(*) FROM job_run_lifecycle_events WHERE run_id LIKE $1 || '%'`
 	case "job_run_ready_events":
 		query = `SELECT COUNT(*) FROM job_run_ready_events WHERE run_id LIKE $1 || '%'`
+	case "job_retries":
+		query = `SELECT COUNT(*) FROM job_retries WHERE run_id LIKE $1 || '%'`
 	case "job_run_priority_events":
 		query = `SELECT COUNT(*) FROM job_run_priority_events WHERE run_id LIKE $1 || '%'`
 	case "job_run_visibility_events":

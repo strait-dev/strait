@@ -73,6 +73,10 @@ func (q *Queries) RepairOrphanedHistoryRuns(ctx context.Context, limit int) (int
 			DELETE FROM job_run_ready_events
 			WHERE run_id IN (SELECT id FROM victims)
 		),
+		deleted_retries AS (
+			DELETE FROM job_retries
+			WHERE run_id IN (SELECT id FROM victims)
+		),
 		deleted_priority_events AS (
 			DELETE FROM job_run_priority_events
 			WHERE run_id IN (SELECT id FROM victims)
@@ -135,6 +139,10 @@ func (q *Queries) BackfillTerminalRunsToHistory(ctx context.Context, finishedBef
 		),
 		deleted_ready_events AS (
 			DELETE FROM job_run_ready_events
+			WHERE run_id IN (SELECT id FROM archived)
+		),
+		deleted_retries AS (
+			DELETE FROM job_retries
 			WHERE run_id IN (SELECT id FROM archived)
 		),
 		deleted_priority_events AS (

@@ -50,6 +50,10 @@ func (q *Queries) ArchiveTerminalRun(ctx context.Context, tx DBTX, id string) er
 			DELETE FROM job_run_ready_events
 			WHERE run_id IN (SELECT id FROM removed)
 		),
+		deleted_retries AS (
+			DELETE FROM job_retries
+			WHERE run_id IN (SELECT id FROM removed)
+		),
 		deleted_priority_events AS (
 			DELETE FROM job_run_priority_events
 			WHERE run_id IN (SELECT id FROM removed)
@@ -195,6 +199,10 @@ func (q *Queries) ArchiveTerminalRunsPastRetention(
 		),
 		deleted_ready_events AS (
 			DELETE FROM job_run_ready_events
+			WHERE run_id IN (SELECT id FROM archived)
+		),
+		deleted_retries AS (
+			DELETE FROM job_retries
 			WHERE run_id IN (SELECT id FROM archived)
 		),
 		deleted_priority_events AS (

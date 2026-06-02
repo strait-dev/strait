@@ -504,6 +504,10 @@ func (q *Queries) deleteJobTx(ctx context.Context, id string) error {
 			DELETE FROM job_run_ready_events
 			WHERE run_id IN (SELECT id FROM target_runs)
 		),
+		deleted_retries AS (
+			DELETE FROM job_retries
+			WHERE run_id IN (SELECT id FROM target_runs)
+		),
 		deleted_priority_events AS (
 			DELETE FROM job_run_priority_events
 			WHERE run_id IN (SELECT id FROM target_runs)

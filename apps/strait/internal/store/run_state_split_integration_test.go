@@ -572,6 +572,13 @@ func TestRunStateSplit_PurgeDLQRunDeletesSplitStateRows(t *testing.T) {
 		t.Fatalf("insert ready event: %v", err)
 	}
 	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_retries (run_id, next_retry_at, attempt, scheduled_at, cleared)
+		VALUES ($1, NOW() + INTERVAL '1 minute', 2, NOW(), FALSE)`,
+		run.ID,
+	); err != nil {
+		t.Fatalf("insert retry event: %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
 		INSERT INTO job_run_priority_events (run_id, priority)
 		VALUES ($1, 10)`,
 		run.ID,
@@ -612,6 +619,7 @@ func TestRunStateSplit_PurgeDLQRunDeletesSplitStateRows(t *testing.T) {
 		"job_run_active_claims",
 		"job_run_lifecycle_events",
 		"job_run_ready_events",
+		"job_retries",
 		"job_run_priority_events",
 		"job_run_visibility_events",
 		"job_run_cache_versions",
@@ -632,6 +640,8 @@ func TestRunStateSplit_PurgeDLQRunDeletesSplitStateRows(t *testing.T) {
 			query = `SELECT COUNT(*) FROM job_run_lifecycle_events WHERE run_id = $1`
 		case "job_run_ready_events":
 			query = `SELECT COUNT(*) FROM job_run_ready_events WHERE run_id = $1`
+		case "job_retries":
+			query = `SELECT COUNT(*) FROM job_retries WHERE run_id = $1`
 		case "job_run_priority_events":
 			query = `SELECT COUNT(*) FROM job_run_priority_events WHERE run_id = $1`
 		case "job_run_visibility_events":
