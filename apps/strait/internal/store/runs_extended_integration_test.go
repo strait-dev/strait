@@ -1372,6 +1372,22 @@ func TestRuns_RescheduleRun_HappyPath(t *testing.T) {
 	if got.ScheduledAt == nil || got.ScheduledAt.Before(time.Now().UTC()) {
 		t.Fatal("scheduled_at should be in the future")
 	}
+
+	var ledgerStatus domain.RunStatus
+	var ledgerScheduledAt *time.Time
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT status, scheduled_at
+		FROM job_runs
+		WHERE id = $1
+	`, r.ID).Scan(&ledgerStatus, &ledgerScheduledAt); err != nil {
+		t.Fatalf("query ledger reschedule fields: %v", err)
+	}
+	if ledgerStatus != domain.StatusQueued {
+		t.Fatalf("ledger status = %s, want original queued", ledgerStatus)
+	}
+	if ledgerScheduledAt != nil {
+		t.Fatalf("ledger scheduled_at = %v, want nil", *ledgerScheduledAt)
+	}
 }
 
 func TestRuns_RescheduleRun_NotFound(t *testing.T) {

@@ -4019,20 +4019,51 @@ func (q *Queries) RescheduleRun(ctx context.Context, runID string, scheduledAt t
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.RescheduleRun")
 	defer span.End()
 
-	result, err := q.db.Exec(ctx, `
-		UPDATE job_runs
-		SET scheduled_at = $2,
-		    status = CASE WHEN $2 <= NOW() THEN 'queued' ELSE 'delayed' END,
-		    payload = COALESCE($3, payload)
-		WHERE id = $1
-		  AND status IN ('delayed', 'queued')
-		  AND started_at IS NULL
-	`, runID, scheduledAt, dbscan.NilIfEmptyRawMessage(payload))
+	err := q.db.QueryRow(ctx, `
+		WITH candidates AS MATERIALIZED (
+			SELECT s.run_id, s.status AS previous_status
+			FROM job_run_state s
+			WHERE s.run_id = $1
+			  AND s.status IN ('delayed', 'queued')
+			  AND s.started_at IS NULL
+			  AND NOT EXISTS (SELECT 1 FROM job_run_terminal_state t WHERE t.run_id = s.run_id)
+			FOR UPDATE OF s
+		),
+		updated_state AS (
+			UPDATE job_run_state s
+			SET scheduled_at = $2,
+			    status = CASE WHEN $2 <= NOW() THEN 'queued' ELSE 'delayed' END,
+			    ready_generation = CASE
+			        WHEN $2 <= NOW() AND s.status <> 'queued' THEN s.ready_generation + 1
+			        ELSE s.ready_generation
+			    END,
+			    updated_at = NOW()
+			FROM candidates c
+			WHERE s.run_id = c.run_id
+			RETURNING s.run_id
+		),
+		updated_ledger AS (
+			UPDATE job_runs jr
+			SET payload = $3::jsonb
+			FROM updated_state u
+			WHERE jr.id = u.run_id
+			  AND $3::jsonb IS NOT NULL
+			RETURNING jr.id
+		),
+		cache_versions AS (
+			INSERT INTO job_run_cache_versions (run_id, cache_version)
+			SELECT run_id, 2 FROM updated_state
+			ON CONFLICT (run_id)
+			DO UPDATE SET cache_version = job_run_cache_versions.cache_version + 1
+			RETURNING 1
+		)
+		SELECT run_id FROM updated_state
+	`, runID, scheduledAt, dbscan.NilIfEmptyRawMessage(payload)).Scan(&runID)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrRunNotFound
+		}
 		return fmt.Errorf("reschedule run: %w", err)
-	}
-	if result.RowsAffected() == 0 {
-		return ErrRunNotFound
 	}
 	return nil
 }
