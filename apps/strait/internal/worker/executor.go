@@ -70,6 +70,10 @@ type ExecutorStore interface {
 	CountExecutingRunsByOrg(ctx context.Context, orgID string) (int, error)
 }
 
+type existingRunEnqueuer interface {
+	EnqueueExisting(ctx context.Context, run *domain.JobRun) error
+}
+
 type executionPolicy struct {
 	maxAttempts      int
 	timeoutSecs      int

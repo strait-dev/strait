@@ -737,7 +737,7 @@ func profilingManagementAddr(cfg *config.Config) string {
 // It is symmetric to startAPIServer: the server shuts down before the HTTP
 // server on SIGTERM so that connected workers can reconnect to other replicas
 // before the HTTP surface disappears.
-func startGRPCServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, pub pubsub.Publisher, rdb *redis.Client, billingEnforcer *billing.Enforcer, version string, decryptor grpcserver.SecretDecryptor) (*grpcserver.Server, error) {
+func startGRPCServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, pub pubsub.Publisher, rdb *redis.Client, q queue.Queue, billingEnforcer *billing.Enforcer, version string, decryptor grpcserver.SecretDecryptor) (*grpcserver.Server, error) {
 	if cfg.Mode != "api" && cfg.Mode != "all" {
 		return nil, nil
 	}
@@ -765,6 +765,9 @@ func startGRPCServer(g *pool.ContextPool, cfg *config.Config, queries *store.Que
 	}
 	if billingEnforcer != nil {
 		opts = append(opts, grpcserver.WithBillingEnforcer(billingEnforcer))
+	}
+	if readyRunQueue, ok := q.(grpcserver.ReadyRunEnqueuer); ok {
+		opts = append(opts, grpcserver.WithReadyRunEnqueuer(readyRunQueue))
 	}
 	srv, err := grpcserver.NewServer(cfg, queries, pub, opts...)
 	if err != nil {

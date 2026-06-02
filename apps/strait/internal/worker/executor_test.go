@@ -328,6 +328,7 @@ func (m *mockDegradedNotifier) Degraded() <-chan struct{} { return m.ch }
 
 type mockExecQueue struct {
 	enqueueFn           func(ctx context.Context, run *domain.JobRun) error
+	enqueueExistingFn   func(ctx context.Context, run *domain.JobRun) error
 	dequeueFn           func(ctx context.Context) (*domain.JobRun, error)
 	dequeueNFn          func(ctx context.Context, n int) ([]domain.JobRun, error)
 	dequeueNByProjectFn func(ctx context.Context, n int, projectID string) ([]domain.JobRun, error)
@@ -342,6 +343,13 @@ func (m *mockExecQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 
 func (m *mockExecQueue) EnqueueInTx(ctx context.Context, _ orcstore.DBTX, run *domain.JobRun) error {
 	return m.Enqueue(ctx, run)
+}
+
+func (m *mockExecQueue) EnqueueExisting(ctx context.Context, run *domain.JobRun) error {
+	if m.enqueueExistingFn == nil {
+		return nil
+	}
+	return m.enqueueExistingFn(ctx, run)
 }
 
 func (m *mockExecQueue) EnqueueBatch(_ context.Context, runs []*domain.JobRun) (int64, error) {

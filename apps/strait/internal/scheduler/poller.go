@@ -18,6 +18,7 @@ type PollerStore interface {
 
 type DelayedPoller struct {
 	store             PollerStore
+	promoter          PollerStore
 	logger            *slog.Logger
 	interval          time.Duration
 	batchLimit        int
@@ -39,6 +40,16 @@ func NewDelayedPoller(s PollerStore, logger *slog.Logger, interval time.Duration
 		batchLimit:        defaultDelayedPollerBatchLimit,
 		maxBatchesPerTick: defaultDelayedPollerMaxBatchesPerTick,
 	}
+}
+
+// WithPromoter overrides the store used for delayed-run activation. Queue
+// backends that own ready-event storage can provide an atomic promote+emit path
+// while the legacy store path remains available for old engines.
+func (p *DelayedPoller) WithPromoter(promoter PollerStore) *DelayedPoller {
+	if promoter != nil {
+		p.promoter = promoter
+	}
+	return p
 }
 
 // WithBatchLimit sets the maximum delayed runs promoted by one store call.
@@ -80,11 +91,15 @@ func (p *DelayedPoller) Run(ctx context.Context) {
 
 func (p *DelayedPoller) poll(ctx context.Context) {
 	var total int64
+	promoter := p.store
+	if p.promoter != nil {
+		promoter = p.promoter
+	}
 	for range p.maxBatchesPerTick {
 		if err := ctx.Err(); err != nil {
 			return
 		}
-		activated, err := p.store.ActivateDueRuns(ctx, p.batchLimit)
+		activated, err := promoter.ActivateDueRuns(ctx, p.batchLimit)
 		if err != nil {
 			p.logger.Error("failed to activate due runs", "error", err, "activated_before_error", total)
 			return

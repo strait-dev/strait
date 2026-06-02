@@ -251,29 +251,82 @@ func (q *Queries) RecoverStaleWorkerTasksExceptRefs(ctx context.Context, cutoff 
 				 AND sw.project_id = wt.project_id
 				WHERE wt.status IN ('assigned', 'accepted')
 			),
+			candidates AS MATERIALIZED (
+				SELECT
+					ot.id AS task_id,
+					s.run_id,
+					s.job_id,
+					COALESCE(s.concurrency_key, '') AS concurrency_key,
+					COALESCE(c.attempt, s.attempt) AS attempt,
+					s.ready_generation,
+					s.job_max_concurrency,
+					s.job_max_concurrency_per_key
+				FROM open_tasks ot
+				JOIN job_run_state s ON s.run_id = ot.run_id
+				LEFT JOIN job_run_active_claims c
+				  ON c.run_id = s.run_id
+				 AND c.ready_generation = s.ready_generation
+				WHERE NOT EXISTS (SELECT 1 FROM job_run_terminal_state t WHERE t.run_id = s.run_id)
+				  AND (s.status = 'executing' OR (s.status = 'queued' AND c.run_id IS NOT NULL))
+				FOR UPDATE OF s SKIP LOCKED
+			),
 			requeued_runs AS (
-				UPDATE job_runs
+				UPDATE job_run_state s
 				SET status = 'queued',
 				    started_at = NULL,
 				    finished_at = NULL,
 				    heartbeat_at = NULL,
 				    next_retry_at = NULL,
-				    error = $2,
-				    error_class = 'transient'
-				WHERE id IN (SELECT run_id FROM open_tasks)
-				  AND status = 'executing'
+				    ready_generation = s.ready_generation + 1,
+				    updated_at = NOW()
+				FROM candidates c
+				WHERE s.run_id = c.run_id
+				RETURNING s.run_id, c.job_id, c.concurrency_key, c.attempt,
+				          c.job_max_concurrency, c.job_max_concurrency_per_key
+			),
+			deleted_active_claims AS (
+				DELETE FROM job_run_active_claims c
+				USING candidates candidate
+				WHERE c.run_id = candidate.run_id
+				  AND c.ready_generation = candidate.ready_generation
+				RETURNING c.run_id
+			),
+			released AS (
+				UPDATE job_active_counts c
+				SET count = GREATEST(c.count - 1, 0),
+				    updated_at = NOW()
+				FROM requeued_runs r
+				WHERE (r.job_max_concurrency IS NOT NULL OR r.job_max_concurrency_per_key IS NOT NULL)
+				  AND c.job_id = r.job_id
+				  AND c.concurrency_key = r.concurrency_key
+				RETURNING 1
+			),
+			lifecycle_events AS (
+				INSERT INTO job_run_lifecycle_events (run_id, from_status, to_status, attempt, fields)
+				SELECT run_id, 'executing', 'queued', attempt,
+				       jsonb_build_object('error', $2::text, 'error_class', 'transient')
+				FROM requeued_runs
+				RETURNING 1
+			),
+			cache_versions AS (
+				INSERT INTO job_run_cache_versions (run_id, cache_version)
+				SELECT run_id, 2 FROM requeued_runs
+				ON CONFLICT (run_id)
+				DO UPDATE SET cache_version = job_run_cache_versions.cache_version + 1
+				RETURNING 1
+			),
+			failed_tasks AS (
+				UPDATE worker_tasks
+				SET status = 'failed',
+				    finished_at = NOW()
+				WHERE id IN (SELECT id FROM open_tasks)
 				RETURNING id
 			)
-			UPDATE worker_tasks
-			SET status = 'failed',
-			    finished_at = NOW()
-			WHERE id IN (SELECT id FROM open_tasks)`
+			SELECT COUNT(*) FROM failed_tasks`
 
-		tag, err := txQ.db.Exec(ctx, query, cutoff, reason, activeWorkerIDs, activeProjectIDs)
-		if err != nil {
+		if err := txQ.db.QueryRow(ctx, query, cutoff, reason, activeWorkerIDs, activeProjectIDs).Scan(&affected); err != nil {
 			return fmt.Errorf("recover stale worker tasks: %w", err)
 		}
-		affected = tag.RowsAffected()
 		return nil
 	})
 	if err != nil {
@@ -281,6 +334,65 @@ func (q *Queries) RecoverStaleWorkerTasksExceptRefs(ctx context.Context, cutoff 
 	}
 
 	return affected, nil
+}
+
+// ListRecoverableStaleWorkerTaskRunIDs returns the run IDs that the stale
+// worker recovery query is eligible to move back to queued.
+func (q *Queries) ListRecoverableStaleWorkerTaskRunIDs(ctx context.Context, cutoff time.Time, activeWorkers []ActiveWorkerRef) ([]string, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListRecoverableStaleWorkerTaskRunIDs")
+	defer span.End()
+	activeWorkerIDs, activeProjectIDs := activeWorkerRefArrays(activeWorkers)
+
+	rows, err := q.db.Query(ctx, `
+		WITH stale_workers AS (
+			SELECT id, project_id
+			FROM workers
+			WHERE last_seen_at < $1
+			  AND (stream_lease_expires_at IS NULL OR stream_lease_expires_at < NOW())
+			  AND NOT EXISTS (
+			    SELECT 1
+			    FROM unnest($2::text[], $3::text[]) AS active(id, project_id)
+			    WHERE active.id = workers.id
+			      AND active.project_id = workers.project_id
+			  )
+		),
+		open_tasks AS (
+			SELECT DISTINCT wt.run_id
+			FROM worker_tasks wt
+			JOIN stale_workers sw
+			  ON sw.id = wt.worker_id
+			 AND sw.project_id = wt.project_id
+			WHERE wt.status IN ('assigned', 'accepted')
+		)
+		SELECT ot.run_id
+		FROM open_tasks ot
+		JOIN job_run_state s ON s.run_id = ot.run_id
+		LEFT JOIN job_run_active_claims c
+		  ON c.run_id = s.run_id
+		 AND c.ready_generation = s.ready_generation
+		WHERE NOT EXISTS (SELECT 1 FROM job_run_terminal_state t WHERE t.run_id = s.run_id)
+		  AND (s.status = 'executing' OR (s.status = 'queued' AND c.run_id IS NOT NULL))`,
+		cutoff,
+		activeWorkerIDs,
+		activeProjectIDs,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list recoverable stale worker task runs: %w", err)
+	}
+	defer rows.Close()
+
+	runIDs := make([]string, 0)
+	for rows.Next() {
+		var runID string
+		if err := rows.Scan(&runID); err != nil {
+			return nil, fmt.Errorf("scan recoverable stale worker task run: %w", err)
+		}
+		runIDs = append(runIDs, runID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate recoverable stale worker task runs: %w", err)
+	}
+	return runIDs, nil
 }
 
 // RenewWorkerStreamLease records an authoritative cross-replica lease for an
@@ -724,29 +836,82 @@ func (q *Queries) RequeueOpenWorkerTasks(ctx context.Context, workerID, projectI
 				  AND project_id = $2
 				  AND status IN ('assigned', 'accepted')
 			),
+			candidates AS MATERIALIZED (
+				SELECT
+					ot.id AS task_id,
+					s.run_id,
+					s.job_id,
+					COALESCE(s.concurrency_key, '') AS concurrency_key,
+					COALESCE(c.attempt, s.attempt) AS attempt,
+					s.ready_generation,
+					s.job_max_concurrency,
+					s.job_max_concurrency_per_key
+				FROM open_tasks ot
+				JOIN job_run_state s ON s.run_id = ot.run_id
+				LEFT JOIN job_run_active_claims c
+				  ON c.run_id = s.run_id
+				 AND c.ready_generation = s.ready_generation
+				WHERE NOT EXISTS (SELECT 1 FROM job_run_terminal_state t WHERE t.run_id = s.run_id)
+				  AND (s.status = 'executing' OR (s.status = 'queued' AND c.run_id IS NOT NULL))
+				FOR UPDATE OF s SKIP LOCKED
+			),
 			requeued_runs AS (
-				UPDATE job_runs
+				UPDATE job_run_state s
 				SET status = 'queued',
 				    started_at = NULL,
 				    finished_at = NULL,
 				    heartbeat_at = NULL,
 				    next_retry_at = NULL,
-				    error = $3,
-				    error_class = 'transient'
-				WHERE id IN (SELECT run_id FROM open_tasks)
-				  AND status = 'executing'
+				    ready_generation = s.ready_generation + 1,
+				    updated_at = NOW()
+				FROM candidates c
+				WHERE s.run_id = c.run_id
+				RETURNING s.run_id, c.job_id, c.concurrency_key, c.attempt,
+				          c.job_max_concurrency, c.job_max_concurrency_per_key
+			),
+			deleted_active_claims AS (
+				DELETE FROM job_run_active_claims c
+				USING candidates candidate
+				WHERE c.run_id = candidate.run_id
+				  AND c.ready_generation = candidate.ready_generation
+				RETURNING c.run_id
+			),
+			released AS (
+				UPDATE job_active_counts c
+				SET count = GREATEST(c.count - 1, 0),
+				    updated_at = NOW()
+				FROM requeued_runs r
+				WHERE (r.job_max_concurrency IS NOT NULL OR r.job_max_concurrency_per_key IS NOT NULL)
+				  AND c.job_id = r.job_id
+				  AND c.concurrency_key = r.concurrency_key
+				RETURNING 1
+			),
+			lifecycle_events AS (
+				INSERT INTO job_run_lifecycle_events (run_id, from_status, to_status, attempt, fields)
+				SELECT run_id, 'executing', 'queued', attempt,
+				       jsonb_build_object('error', $3::text, 'error_class', 'transient')
+				FROM requeued_runs
+				RETURNING 1
+			),
+			cache_versions AS (
+				INSERT INTO job_run_cache_versions (run_id, cache_version)
+				SELECT run_id, 2 FROM requeued_runs
+				ON CONFLICT (run_id)
+				DO UPDATE SET cache_version = job_run_cache_versions.cache_version + 1
+				RETURNING 1
+			),
+			failed_tasks AS (
+				UPDATE worker_tasks
+				SET status = 'failed',
+				    finished_at = NOW()
+				WHERE id IN (SELECT id FROM open_tasks)
 				RETURNING id
 			)
-			UPDATE worker_tasks
-			SET status = 'failed',
-			    finished_at = NOW()
-			WHERE id IN (SELECT id FROM open_tasks)`
+			SELECT COUNT(*) FROM failed_tasks`
 
-		tag, err := txQ.db.Exec(ctx, query, workerID, projectID, reason)
-		if err != nil {
+		if err := txQ.db.QueryRow(ctx, query, workerID, projectID, reason).Scan(&affected); err != nil {
 			return fmt.Errorf("requeue open worker tasks: %w", err)
 		}
-		affected = tag.RowsAffected()
 		return nil
 	})
 	if err != nil {

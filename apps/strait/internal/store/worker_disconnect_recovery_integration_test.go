@@ -83,6 +83,22 @@ func TestIntegration_RequeueOpenWorkerTasks_RequeuesExecutingRuns(t *testing.T) 
 	if gotRun.StartedAt != nil || gotRun.FinishedAt != nil || gotRun.HeartbeatAt != nil {
 		t.Fatalf("run timestamps not cleared after requeue: started=%v finished=%v heartbeat=%v", gotRun.StartedAt, gotRun.FinishedAt, gotRun.HeartbeatAt)
 	}
+	var ledgerStatus, stateStatus domain.RunStatus
+	if err := env.DB.Pool.QueryRow(ctx, `
+		SELECT jr.status, s.status
+		FROM job_runs jr
+		JOIN job_run_state s ON s.run_id = jr.id
+		WHERE jr.id = $1`,
+		run.ID,
+	).Scan(&ledgerStatus, &stateStatus); err != nil {
+		t.Fatalf("query split worker requeue state: %v", err)
+	}
+	if ledgerStatus != domain.StatusExecuting {
+		t.Fatalf("job_runs status = %q, want immutable executing ledger status", ledgerStatus)
+	}
+	if stateStatus != domain.StatusQueued {
+		t.Fatalf("job_run_state status = %q, want queued", stateStatus)
+	}
 
 	gotTask, err := q.GetWorkerTask(ctx, "task-disconnect-recovery")
 	if err != nil {
@@ -226,6 +242,14 @@ func TestIntegration_DeepSecRecoverStaleWorkerTasks_RequeuesExecutingRuns(t *tes
 		t.Fatalf("CreateWorkerTask: %v", err)
 	}
 
+	recoverableRunIDs, err := q.ListRecoverableStaleWorkerTaskRunIDs(ctx, time.Now().Add(-5*time.Minute), nil)
+	if err != nil {
+		t.Fatalf("ListRecoverableStaleWorkerTaskRunIDs: %v", err)
+	}
+	if len(recoverableRunIDs) != 1 || recoverableRunIDs[0] != run.ID {
+		t.Fatalf("recoverable run IDs = %v, want [%s]", recoverableRunIDs, run.ID)
+	}
+
 	count, err := q.RecoverStaleWorkerTasks(ctx, time.Now().Add(-5*time.Minute), "stale worker heartbeat")
 	if err != nil {
 		t.Fatalf("RecoverStaleWorkerTasks: %v", err)
@@ -239,6 +263,22 @@ func TestIntegration_DeepSecRecoverStaleWorkerTasks_RequeuesExecutingRuns(t *tes
 	}
 	if gotRun.Status != domain.StatusQueued {
 		t.Fatalf("run status = %q, want queued", gotRun.Status)
+	}
+	var ledgerStatus, stateStatus domain.RunStatus
+	if err := env.DB.Pool.QueryRow(ctx, `
+		SELECT jr.status, s.status
+		FROM job_runs jr
+		JOIN job_run_state s ON s.run_id = jr.id
+		WHERE jr.id = $1`,
+		run.ID,
+	).Scan(&ledgerStatus, &stateStatus); err != nil {
+		t.Fatalf("query split stale worker requeue state: %v", err)
+	}
+	if ledgerStatus != domain.StatusExecuting {
+		t.Fatalf("job_runs status = %q, want immutable executing ledger status", ledgerStatus)
+	}
+	if stateStatus != domain.StatusQueued {
+		t.Fatalf("job_run_state status = %q, want queued", stateStatus)
 	}
 	gotTask, err := q.GetWorkerTask(ctx, "task-stale-recovery")
 	if err != nil {
@@ -291,6 +331,14 @@ func TestIntegration_DeepSecRecoverStaleWorkerTasksExcept_SkipsConnectedWorker(t
 	}
 
 	activeWorkers := []store.ActiveWorkerRef{{WorkerID: workerID, ProjectID: projectID}}
+	recoverableRunIDs, err := q.ListRecoverableStaleWorkerTaskRunIDs(ctx, time.Now().Add(-5*time.Minute), activeWorkers)
+	if err != nil {
+		t.Fatalf("ListRecoverableStaleWorkerTaskRunIDs: %v", err)
+	}
+	if len(recoverableRunIDs) != 0 {
+		t.Fatalf("recoverable run IDs = %v, want none for connected worker", recoverableRunIDs)
+	}
+
 	count, err := q.RecoverStaleWorkerTasksExceptRefs(ctx, time.Now().Add(-5*time.Minute), "stale worker heartbeat", activeWorkers)
 	if err != nil {
 		t.Fatalf("RecoverStaleWorkerTasksExcept: %v", err)

@@ -708,7 +708,7 @@ func (s *StepCallback) ResumeWorkflowRun(ctx context.Context, workflowRunID stri
 	wfRun.Status = domain.WfStatusRunning
 
 	// Re-enqueue job runs that were paused (containers stopped).
-	requeueCount, requeueErr := s.store.RequeuePausedJobRuns(ctx, workflowRunID)
+	requeueCount, requeueErr := s.requeuePausedJobRuns(ctx, workflowRunID)
 	if requeueErr != nil {
 		return fmt.Errorf("requeue paused job runs: %w", requeueErr)
 	}
@@ -740,6 +740,15 @@ func (s *StepCallback) ResumeWorkflowRun(ctx context.Context, workflowRunID stri
 	}
 
 	return nil
+}
+
+func (s *StepCallback) requeuePausedJobRuns(ctx context.Context, workflowRunID string) (int64, error) {
+	if s.engine != nil {
+		if requeuer, ok := s.engine.queue.(pausedRunQueueRequeuer); ok {
+			return requeuer.RequeuePausedJobRuns(ctx, workflowRunID)
+		}
+	}
+	return s.store.RequeuePausedJobRuns(ctx, workflowRunID)
 }
 
 func effectiveResourceClass(v string) string {

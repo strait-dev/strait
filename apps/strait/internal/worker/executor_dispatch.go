@@ -1094,6 +1094,10 @@ func (e *Executor) snoozeRun(ctx context.Context, run *domain.JobRun, reason str
 		e.logger.Error("failed to snooze run", "run_id", run.ID, "job_id", run.JobID, "error", err)
 		return
 	}
+	if retryAt == nil {
+		run.Status = domain.StatusQueued
+		e.enqueueExistingRunIfReady(ctx, run, "snooze")
+	}
 
 	e.emit(ctx, RunLifecycleEvent{
 		Type: EventSnoozed, Run: run,
@@ -1163,6 +1167,10 @@ func (e *Executor) snoozeRunFromExecuting(ctx context.Context, run *domain.JobRu
 		}
 		e.logger.Error("failed to snooze run from executing", "run_id", run.ID, "error", err)
 		return
+	}
+	if retryAt == nil {
+		run.Status = domain.StatusQueued
+		e.enqueueExistingRunIfReady(ctx, run, "snooze_from_executing")
 	}
 
 	e.emit(ctx, RunLifecycleEvent{
@@ -1488,6 +1496,7 @@ func (e *Executor) requeueWorkerModeRun(ctx context.Context, run *domain.JobRun,
 		return
 	}
 	run.Status = domain.StatusQueued
+	e.enqueueExistingRunIfReady(requeueCtx, run, reason)
 }
 
 func queuedRunResetFields() map[string]any {
@@ -1498,6 +1507,25 @@ func queuedRunResetFields() map[string]any {
 		"heartbeat_at":  nil,
 		"next_retry_at": nil,
 		"started_at":    nil,
+	}
+}
+
+func (e *Executor) enqueueExistingRunIfReady(ctx context.Context, run *domain.JobRun, reason string) {
+	if e == nil || e.queue == nil || run == nil {
+		return
+	}
+	enqueuer, ok := e.queue.(existingRunEnqueuer)
+	if !ok {
+		return
+	}
+	readyRun := *run
+	readyRun.Status = domain.StatusQueued
+	if err := enqueuer.EnqueueExisting(ctx, &readyRun); err != nil {
+		e.logger.Warn("failed to emit ready event for requeued run",
+			"run_id", run.ID,
+			"reason", reason,
+			"error", err,
+		)
 	}
 }
 

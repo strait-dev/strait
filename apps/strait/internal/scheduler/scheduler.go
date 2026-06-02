@@ -77,7 +77,7 @@ func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queu
 		cron: NewCronScheduler(ctx, s, q, wfTrigger).
 			WithDefaultRunTTLSecs(cfg.DefaultRunTTLSecs).
 			WithWorkflowCallback(wfCallback),
-		poller: NewDelayedPoller(s, slog.Default(), cfg.PollerInterval),
+		poller: delayedPollerForQueue(s, q, cfg.PollerInterval),
 		reaper: NewReaper(s, cfg.ReaperInterval, cfg.StaleThreshold, cfg.RunRetentionShort, cfg.RunRetentionLong, true, wfCallback).
 			WithWorkflowRetention(cfg.WorkflowRetention).
 			WithEventTriggerRetention(cfg.EventTriggerRetention).
@@ -109,6 +109,14 @@ func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queu
 		opt(sched)
 	}
 	return sched
+}
+
+func delayedPollerForQueue(s SchedulerStore, q queue.Queue, interval time.Duration) *DelayedPoller {
+	poller := NewDelayedPoller(s, slog.Default(), interval)
+	if promoter, ok := q.(PollerStore); ok {
+		poller.WithPromoter(promoter)
+	}
+	return poller
 }
 
 // SchedulerOption configures a Scheduler.

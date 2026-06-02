@@ -1839,6 +1839,16 @@ func (q *Queries) tryUpdateRunStateStatus(ctx context.Context, id string, from, 
 		}
 	}
 
+	if activeClaimRunStateShouldRequeue(from, to) {
+		moved, err := q.tryRequeueActiveClaimRunState(ctx, id, from, to, fields, attempt)
+		if err != nil {
+			return false, err
+		}
+		if moved {
+			return true, nil
+		}
+	}
+
 	stateColumns := map[string]struct{}{
 		"attempt":         {},
 		"scheduled_at":    {},
@@ -1916,6 +1926,145 @@ func (q *Queries) tryUpdateRunStateStatus(ctx context.Context, id string, from, 
 		}
 	}
 	return true, nil
+}
+
+func activeClaimRunStateShouldRequeue(from, to domain.RunStatus) bool {
+	return to == domain.StatusQueued && (from == domain.StatusExecuting || from == domain.StatusDequeued)
+}
+
+func (q *Queries) tryRequeueActiveClaimRunState(
+	ctx context.Context,
+	id string,
+	from, to domain.RunStatus,
+	fields map[string]any,
+	attempt *int,
+) (bool, error) {
+	if _, ok := q.db.(TxBeginner); !ok {
+		return false, nil
+	}
+
+	moved := false
+	err := q.withTx(ctx, func(txQ *Queries) error {
+		stateColumns := map[string]struct{}{
+			"attempt":         {},
+			"scheduled_at":    {},
+			"started_at":      {},
+			"finished_at":     {},
+			"heartbeat_at":    {},
+			"next_retry_at":   {},
+			"expires_at":      {},
+			"priority":        {},
+			"concurrency_key": {},
+			"execution_mode":  {},
+		}
+		stateSet := []string{"status = $1", "updated_at = NOW()", "ready_generation = s.ready_generation + 1"}
+		args := []any{to, id, nil}
+		param := 4
+		if attempt != nil {
+			args[2] = *attempt
+		}
+
+		ledgerFields := make(map[string]any)
+		keys := lo.Keys(fields)
+		sort.Strings(keys)
+		for _, key := range keys {
+			value := fields[key]
+			if _, ok := stateColumns[key]; ok {
+				if key == "concurrency_key" || key == "execution_mode" {
+					if text, ok := value.(string); ok {
+						value = dbscan.NilIfEmptyString(text)
+					}
+				}
+				stateSet = append(stateSet, fmt.Sprintf("%s = $%d", key, param))
+				args = append(args, value)
+				param++
+				continue
+			}
+			if _, ok := runLedgerFields(fields)[key]; ok {
+				ledgerFields[key] = value
+			}
+		}
+
+		query := fmt.Sprintf(`
+			WITH selected AS MATERIALIZED (
+				SELECT
+					s.run_id,
+					s.job_id,
+					COALESCE(s.concurrency_key, '') AS concurrency_key,
+					COALESCE(c.attempt, s.attempt) AS event_attempt,
+					s.job_max_concurrency,
+					s.job_max_concurrency_per_key,
+					s.ready_generation
+				FROM job_run_state s
+				JOIN job_run_active_claims c
+				  ON c.run_id = s.run_id
+				 AND c.ready_generation = s.ready_generation
+				WHERE s.run_id = $2
+					  AND s.status = 'queued'
+					  AND NOT EXISTS (SELECT 1 FROM job_run_terminal_state t WHERE t.run_id = s.run_id)
+					  AND ($3::int IS NULL OR c.attempt = $3)
+					FOR UPDATE OF s
+				),
+			deleted_active_claims AS (
+				DELETE FROM job_run_active_claims c
+				USING selected s
+				WHERE c.run_id = s.run_id
+				  AND c.ready_generation = s.ready_generation
+				RETURNING c.run_id
+			),
+			updated AS (
+				UPDATE job_run_state s
+				SET %s
+				FROM selected selected
+				WHERE s.run_id = selected.run_id
+				RETURNING selected.job_id,
+				          selected.concurrency_key,
+				          selected.event_attempt,
+				          selected.job_max_concurrency,
+				          selected.job_max_concurrency_per_key
+			),
+			released AS (
+				UPDATE job_active_counts c
+				SET count = GREATEST(c.count - 1, 0),
+				    updated_at = NOW()
+				FROM updated u
+				WHERE (u.job_max_concurrency IS NOT NULL OR u.job_max_concurrency_per_key IS NOT NULL)
+				  AND c.job_id = u.job_id
+				  AND c.concurrency_key = u.concurrency_key
+				RETURNING 1
+				)
+				SELECT event_attempt FROM updated`,
+			strings.Join(stateSet, ", "),
+		)
+
+		var eventAttempt int
+		if scanErr := txQ.db.QueryRow(ctx, query, args...).Scan(&eventAttempt); scanErr != nil {
+			if errors.Is(scanErr, pgx.ErrNoRows) {
+				return nil
+			}
+			return fmt.Errorf("requeue active claim run state: %w", scanErr)
+		}
+		if err := txQ.syncLegacyQueueEntryStatus(ctx, id, to); err != nil {
+			return err
+		}
+		if err := txQ.bumpRunCacheVersion(ctx, id); err != nil {
+			return err
+		}
+		if err := txQ.appendRunLifecycleEvent(ctx, id, from, to, fields, &eventAttempt); err != nil {
+			return err
+		}
+		if len(ledgerFields) > 0 {
+			if err := txQ.updateRunLedgerFields(ctx, id, ledgerFields); err != nil {
+				return err
+			}
+		}
+		moved = true
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return moved, nil
 }
 
 func (q *Queries) bumpRunCacheVersion(ctx context.Context, id string) error {
@@ -3203,18 +3352,77 @@ func (q *Queries) MarkJobRunsPausedByWorkflowRun(ctx context.Context, workflowRu
 	defer span.End()
 
 	query := `
-		UPDATE job_runs r
-		SET status = 'paused'
-		FROM workflow_step_runs wsr
-		WHERE wsr.job_run_id = r.id
-		  AND wsr.workflow_run_id = $1
-		  AND r.status = 'executing'`
+		WITH candidates AS MATERIALIZED (
+			SELECT
+				s.run_id,
+				s.job_id,
+				COALESCE(s.concurrency_key, '') AS concurrency_key,
+				s.attempt,
+				CASE
+					WHEN c.run_id IS NOT NULL AND s.status = 'queued' THEN 'executing'
+					ELSE s.status
+				END AS previous_status,
+				c.started_at AS claim_started_at,
+				s.job_max_concurrency,
+				s.job_max_concurrency_per_key
+			FROM job_run_state s
+			JOIN workflow_step_runs wsr ON wsr.job_run_id = s.run_id
+			LEFT JOIN job_run_active_claims c
+			  ON c.run_id = s.run_id
+			 AND c.ready_generation = s.ready_generation
+			WHERE wsr.workflow_run_id = $1
+			  AND NOT EXISTS (SELECT 1 FROM job_run_terminal_state t WHERE t.run_id = s.run_id)
+			  AND (s.status = 'executing' OR (s.status = 'queued' AND c.run_id IS NOT NULL))
+			FOR UPDATE OF s SKIP LOCKED
+		),
+		updated AS (
+			UPDATE job_run_state s
+			SET status = 'paused',
+			    started_at = COALESCE(c.claim_started_at, s.started_at),
+			    heartbeat_at = NULL,
+			    updated_at = NOW()
+			FROM candidates c
+			WHERE s.run_id = c.run_id
+			RETURNING s.run_id, c.job_id, c.concurrency_key, c.attempt, c.previous_status,
+			          c.job_max_concurrency, c.job_max_concurrency_per_key
+		),
+		deleted_active_claims AS (
+			DELETE FROM job_run_active_claims c
+			USING updated u
+			WHERE c.run_id = u.run_id
+			RETURNING c.run_id
+		),
+		released AS (
+			UPDATE job_active_counts c
+			SET count = GREATEST(c.count - 1, 0),
+			    updated_at = NOW()
+			FROM updated u
+			WHERE u.previous_status IN ('dequeued', 'executing')
+			  AND (u.job_max_concurrency IS NOT NULL OR u.job_max_concurrency_per_key IS NOT NULL)
+			  AND c.job_id = u.job_id
+			  AND c.concurrency_key = u.concurrency_key
+			RETURNING 1
+		),
+		lifecycle_events AS (
+			INSERT INTO job_run_lifecycle_events (run_id, from_status, to_status, attempt, fields)
+			SELECT run_id, previous_status, 'paused', attempt, '{}'::jsonb
+			FROM updated
+			RETURNING 1
+		),
+		cache_versions AS (
+			INSERT INTO job_run_cache_versions (run_id, cache_version)
+			SELECT run_id, 2 FROM updated
+			ON CONFLICT (run_id)
+			DO UPDATE SET cache_version = job_run_cache_versions.cache_version + 1
+			RETURNING 1
+		)
+		SELECT COUNT(*) FROM updated`
 
-	tag, err := q.db.Exec(ctx, query, workflowRunID)
-	if err != nil {
+	var count int64
+	if err := q.db.QueryRow(ctx, query, workflowRunID).Scan(&count); err != nil {
 		return 0, fmt.Errorf("mark job runs paused by workflow run: %w", err)
 	}
-	return tag.RowsAffected(), nil
+	return count, nil
 }
 
 // RequeuePausedJobRuns transitions paused job runs linked to a workflow run
@@ -3224,20 +3432,47 @@ func (q *Queries) RequeuePausedJobRuns(ctx context.Context, workflowRunID string
 	defer span.End()
 
 	query := `
-		UPDATE job_runs r
-		SET status = 'queued',
-		    started_at = NULL,
-		    finished_at = NULL
-		FROM workflow_step_runs wsr
-		WHERE wsr.job_run_id = r.id
-		  AND wsr.workflow_run_id = $1
-		  AND r.status = 'paused'`
+		WITH candidates AS MATERIALIZED (
+			SELECT s.run_id, s.attempt
+			FROM job_run_state s
+			JOIN workflow_step_runs wsr ON wsr.job_run_id = s.run_id
+			WHERE wsr.workflow_run_id = $1
+			  AND s.status = 'paused'
+			  AND NOT EXISTS (SELECT 1 FROM job_run_terminal_state t WHERE t.run_id = s.run_id)
+			FOR UPDATE OF s SKIP LOCKED
+		),
+		updated AS (
+			UPDATE job_run_state s
+			SET status = 'queued',
+			    started_at = NULL,
+			    finished_at = NULL,
+			    heartbeat_at = NULL,
+			    ready_generation = ready_generation + 1,
+			    updated_at = NOW()
+			FROM candidates c
+			WHERE s.run_id = c.run_id
+			RETURNING s.run_id, c.attempt
+		),
+		lifecycle_events AS (
+			INSERT INTO job_run_lifecycle_events (run_id, from_status, to_status, attempt, fields)
+			SELECT run_id, 'paused', 'queued', attempt, '{}'::jsonb
+			FROM updated
+			RETURNING 1
+		),
+		cache_versions AS (
+			INSERT INTO job_run_cache_versions (run_id, cache_version)
+			SELECT run_id, 2 FROM updated
+			ON CONFLICT (run_id)
+			DO UPDATE SET cache_version = job_run_cache_versions.cache_version + 1
+			RETURNING 1
+		)
+		SELECT COUNT(*) FROM updated`
 
-	tag, err := q.db.Exec(ctx, query, workflowRunID)
-	if err != nil {
+	var count int64
+	if err := q.db.QueryRow(ctx, query, workflowRunID).Scan(&count); err != nil {
 		return 0, fmt.Errorf("requeue paused job runs: %w", err)
 	}
-	return tag.RowsAffected(), nil
+	return count, nil
 }
 
 func (q *Queries) ActivateDueRuns(ctx context.Context, limit int) (int64, error) {
@@ -3429,10 +3664,27 @@ func (q *Queries) GetRunsByIDs(ctx context.Context, ids []string) (map[string]*d
 		return nil, nil
 	}
 	rows, err := q.db.Query(ctx,
-		`SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
-		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, is_rollback, replayed_run_id
-		 FROM job_runs WHERE id = ANY($1)`, ids)
+		`SELECT jr.id, jr.job_id, jr.project_id, COALESCE(s.status, jr.status), COALESCE(s.attempt, jr.attempt), jr.payload,
+		       CASE WHEN terminal.fields ? 'result' THEN terminal.fields->'result' ELSE jr.result END,
+		       jr.metadata,
+		       CASE WHEN terminal.fields ? 'error' THEN terminal.fields->>'error' ELSE jr.error END,
+		       CASE WHEN terminal.fields ? 'error_class' THEN terminal.fields->>'error_class' ELSE jr.error_class END,
+		       jr.triggered_by, COALESCE(s.scheduled_at, jr.scheduled_at), COALESCE(s.started_at, jr.started_at), COALESCE(s.finished_at, jr.finished_at), COALESCE(h.heartbeat_at, s.heartbeat_at, jr.heartbeat_at),
+		       COALESCE(s.next_retry_at, jr.next_retry_at), COALESCE(s.expires_at, jr.expires_at), jr.parent_run_id, COALESCE(s.priority, jr.priority), jr.idempotency_key, jr.job_version, jr.created_at, jr.workflow_step_run_id,
+		       CASE WHEN terminal.fields ? 'execution_trace' THEN terminal.fields->'execution_trace' ELSE jr.execution_trace END,
+		       jr.debug_mode, jr.continuation_of, jr.lineage_depth, jr.tags, jr.job_version_id, jr.created_by, jr.batch_id, COALESCE(NULLIF(s.concurrency_key, ''), jr.concurrency_key), COALESCE(NULLIF(s.execution_mode, ''), jr.execution_mode), jr.is_rollback, jr.replayed_run_id
+		 FROM job_runs jr
+		 LEFT JOIN job_run_read_state s ON s.run_id = jr.id
+		 LEFT JOIN job_run_heartbeats h ON h.run_id = jr.id
+		 LEFT JOIN LATERAL (
+			SELECT fields
+			FROM job_run_lifecycle_events e
+			WHERE e.run_id = jr.id
+			  AND e.fields ?| ARRAY['result', 'error', 'error_class', 'execution_trace']
+			ORDER BY e.created_at DESC, e.id DESC
+			LIMIT 1
+		 ) terminal ON true
+		 WHERE jr.id = ANY($1)`, ids)
 	if err != nil {
 		return nil, fmt.Errorf("get runs by ids: %w", err)
 	}

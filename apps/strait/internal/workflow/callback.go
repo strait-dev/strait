@@ -76,6 +76,10 @@ type compensationCallbackStore interface {
 	CountIncompleteCompensationRuns(ctx context.Context, workflowRunID string) (int, error)
 }
 
+type pausedRunQueueRequeuer interface {
+	RequeuePausedJobRuns(ctx context.Context, workflowRunID string) (int64, error)
+}
+
 type progressionEventCreator interface {
 	CreateWorkflowProgressionEvent(ctx context.Context, workflowRunID, stepRunID, stepRef, status string) error
 }

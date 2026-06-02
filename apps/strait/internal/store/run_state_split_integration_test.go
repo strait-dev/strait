@@ -392,3 +392,92 @@ func TestRunStateSplit_ReplayDeadLetterReactivatesHotState(t *testing.T) {
 		t.Fatalf("ready_generation = %d, want %d", afterGeneration, beforeGeneration+1)
 	}
 }
+
+func TestRunStateSplit_ActiveClaimRequeueDeletesClaimAndBumpsGeneration(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-active-claim-requeue")
+	run := baseRun(job, newID())
+	run.Status = domain.StatusQueued
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+
+	var beforeGeneration int64
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT ready_generation
+		FROM job_run_state
+		WHERE run_id = $1`,
+		run.ID,
+	).Scan(&beforeGeneration); err != nil {
+		t.Fatalf("query ready_generation before active claim: %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_active_claims (run_id, ready_generation, attempt, started_at)
+		VALUES ($1, $2, 1, NOW())`,
+		run.ID, beforeGeneration,
+	); err != nil {
+		t.Fatalf("insert active claim: %v", err)
+	}
+
+	claimed, err := q.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun claimed: %v", err)
+	}
+	if claimed.Status != domain.StatusExecuting {
+		t.Fatalf("claimed status = %q, want executing", claimed.Status)
+	}
+
+	if err := q.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, map[string]any{
+		"error":        nil,
+		"error_class":  nil,
+		"started_at":   nil,
+		"finished_at":  nil,
+		"heartbeat_at": nil,
+	}); err != nil {
+		t.Fatalf("UpdateRunStatus(active claim requeue) error = %v", err)
+	}
+
+	var ledgerStatus, stateStatus domain.RunStatus
+	var afterGeneration int64
+	var activeClaims int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT jr.status, s.status, s.ready_generation,
+		       (SELECT COUNT(*) FROM job_run_active_claims WHERE run_id = s.run_id)
+		FROM job_runs jr
+		JOIN job_run_state s ON s.run_id = jr.id
+		WHERE jr.id = $1`,
+		run.ID,
+	).Scan(&ledgerStatus, &stateStatus, &afterGeneration, &activeClaims); err != nil {
+		t.Fatalf("query active claim requeue state: %v", err)
+	}
+	if ledgerStatus != domain.StatusQueued {
+		t.Fatalf("job_runs status = %q, want immutable queued ledger status", ledgerStatus)
+	}
+	if stateStatus != domain.StatusQueued {
+		t.Fatalf("job_run_state status = %q, want queued", stateStatus)
+	}
+	if afterGeneration != beforeGeneration+1 {
+		t.Fatalf("ready_generation = %d, want %d", afterGeneration, beforeGeneration+1)
+	}
+	if activeClaims != 0 {
+		t.Fatalf("active claims = %d, want 0", activeClaims)
+	}
+
+	var lifecycleRows int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM job_run_lifecycle_events
+		WHERE run_id = $1
+		  AND from_status = 'executing'
+		  AND to_status = 'queued'`,
+		run.ID,
+	).Scan(&lifecycleRows); err != nil {
+		t.Fatalf("query lifecycle rows: %v", err)
+	}
+	if lifecycleRows != 1 {
+		t.Fatalf("lifecycle rows = %d, want 1", lifecycleRows)
+	}
+}

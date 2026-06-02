@@ -358,6 +358,44 @@ func TestRuns_GetRunsByIDs_HappyPath(t *testing.T) {
 	}
 }
 
+func TestRuns_GetRunsByIDs_ReadsSplitRunState(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-runs-by-ids-state")
+	run := mustCreateRun(t, ctx, q, job)
+	if _, err := testDB.Pool.Exec(ctx,
+		`UPDATE job_runs SET status = 'executing', priority = 1 WHERE id = $1`,
+		run.ID,
+	); err != nil {
+		t.Fatalf("force ledger state: %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx,
+		`UPDATE job_run_state
+		 SET status = 'queued', priority = 77, scheduled_at = NULL, updated_at = NOW()
+		 WHERE run_id = $1`,
+		run.ID,
+	); err != nil {
+		t.Fatalf("force mutable state: %v", err)
+	}
+
+	result, err := q.GetRunsByIDs(ctx, []string{run.ID})
+	if err != nil {
+		t.Fatalf("GetRunsByIDs() error = %v", err)
+	}
+	got := result[run.ID]
+	if got == nil {
+		t.Fatal("expected run in result")
+	}
+	if got.Status != domain.StatusQueued {
+		t.Fatalf("status = %q, want queued from job_run_state", got.Status)
+	}
+	if got.Priority != 77 {
+		t.Fatalf("priority = %d, want 77 from job_run_state", got.Priority)
+	}
+}
+
 func TestRuns_GetRunsByIDs_SomeMissing(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -621,6 +659,23 @@ func TestRuns_MarkJobRunsPausedByWorkflowRun_HappyPath(t *testing.T) {
 	if got.Status != domain.StatusPaused {
 		t.Fatalf("status = %s, want paused", got.Status)
 	}
+
+	var ledgerStatus, stateStatus domain.RunStatus
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT jr.status, s.status
+		FROM job_runs jr
+		JOIN job_run_state s ON s.run_id = jr.id
+		WHERE jr.id = $1`,
+		jobRun.ID,
+	).Scan(&ledgerStatus, &stateStatus); err != nil {
+		t.Fatalf("query split pause state: %v", err)
+	}
+	if ledgerStatus != domain.StatusExecuting {
+		t.Fatalf("job_runs status = %s, want immutable executing ledger status", ledgerStatus)
+	}
+	if stateStatus != domain.StatusPaused {
+		t.Fatalf("job_run_state status = %s, want paused", stateStatus)
+	}
 }
 
 func TestRuns_MarkJobRunsPausedByWorkflowRun_SkipsNonExecuting(t *testing.T) {
@@ -706,6 +761,13 @@ func TestRuns_RequeuePausedJobRuns_HappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MarkJobRunsPausedByWorkflowRun() error = %v", err)
 	}
+	var beforeGeneration int64
+	if err := testDB.Pool.QueryRow(ctx,
+		`SELECT ready_generation FROM job_run_state WHERE run_id = $1`,
+		jobRun.ID,
+	).Scan(&beforeGeneration); err != nil {
+		t.Fatalf("query ready_generation before requeue: %v", err)
+	}
 
 	count, err := q.RequeuePausedJobRuns(ctx, wfRun.ID)
 	if err != nil {
@@ -721,6 +783,27 @@ func TestRuns_RequeuePausedJobRuns_HappyPath(t *testing.T) {
 	}
 	if got.Status != domain.StatusQueued {
 		t.Fatalf("status = %s, want queued", got.Status)
+	}
+
+	var ledgerStatus, stateStatus domain.RunStatus
+	var afterGeneration int64
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT jr.status, s.status, s.ready_generation
+		FROM job_runs jr
+		JOIN job_run_state s ON s.run_id = jr.id
+		WHERE jr.id = $1`,
+		jobRun.ID,
+	).Scan(&ledgerStatus, &stateStatus, &afterGeneration); err != nil {
+		t.Fatalf("query split requeue state: %v", err)
+	}
+	if ledgerStatus != domain.StatusExecuting {
+		t.Fatalf("job_runs status = %s, want immutable executing ledger status", ledgerStatus)
+	}
+	if stateStatus != domain.StatusQueued {
+		t.Fatalf("job_run_state status = %s, want queued", stateStatus)
+	}
+	if afterGeneration != beforeGeneration+1 {
+		t.Fatalf("ready_generation = %d, want %d", afterGeneration, beforeGeneration+1)
 	}
 }
 

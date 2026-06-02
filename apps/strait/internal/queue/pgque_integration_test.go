@@ -11,6 +11,7 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/queue"
+	"strait/internal/testutil"
 )
 
 func mustPgQueQueue(t *testing.T) *queue.PgQueQueue {
@@ -352,6 +353,272 @@ func TestPgQue_ReplayedDeadLetterRunBecomesClaimable(t *testing.T) {
 	}
 	if len(duplicate) != 0 {
 		t.Fatalf("duplicate claimed = %+v, want no duplicate replay claim", duplicate)
+	}
+}
+
+func TestPgQue_ActivateDueRunsPromotesStateAndEmitsReadyEvent(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	q := mustPgQueQueue(t)
+	job := mustCreateJob(t, ctx, st, "project-pgque-delayed-promotion")
+	past := time.Now().UTC().Add(-time.Minute)
+	run := &domain.JobRun{
+		ID:          newID(),
+		JobID:       job.ID,
+		ProjectID:   job.ProjectID,
+		Status:      domain.StatusDelayed,
+		Attempt:     1,
+		Priority:    7,
+		TriggeredBy: domain.TriggerManual,
+		ScheduledAt: &past,
+	}
+	if err := st.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun delayed: %v", err)
+	}
+
+	var beforeGeneration int64
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT ready_generation
+		FROM job_run_state
+		WHERE run_id = $1`,
+		run.ID,
+	).Scan(&beforeGeneration); err != nil {
+		t.Fatalf("query ready_generation before promotion: %v", err)
+	}
+
+	promoted, err := q.ActivateDueRuns(ctx, 10)
+	if err != nil {
+		t.Fatalf("ActivateDueRuns: %v", err)
+	}
+	if promoted != 1 {
+		t.Fatalf("ActivateDueRuns promoted = %d, want 1", promoted)
+	}
+
+	var ledgerStatus, stateStatus domain.RunStatus
+	var afterGeneration int64
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT jr.status, s.status, s.ready_generation
+		FROM job_runs jr
+		JOIN job_run_state s ON s.run_id = jr.id
+		WHERE jr.id = $1`,
+		run.ID,
+	).Scan(&ledgerStatus, &stateStatus, &afterGeneration); err != nil {
+		t.Fatalf("query promoted state: %v", err)
+	}
+	if ledgerStatus != domain.StatusDelayed {
+		t.Fatalf("job_runs status = %q, want immutable delayed ledger status", ledgerStatus)
+	}
+	if stateStatus != domain.StatusQueued {
+		t.Fatalf("job_run_state status = %q, want queued", stateStatus)
+	}
+	if afterGeneration != beforeGeneration+1 {
+		t.Fatalf("ready_generation = %d, want %d", afterGeneration, beforeGeneration+1)
+	}
+
+	var queueEntries int
+	if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM queue_entries WHERE run_id = $1`, run.ID).Scan(&queueEntries); err != nil {
+		t.Fatalf("queue_entries count: %v", err)
+	}
+	if queueEntries != 0 {
+		t.Fatalf("queue_entries rows = %d, want 0 for PgQue promotion", queueEntries)
+	}
+
+	if err := q.ForceTick(ctx, "http"); err != nil {
+		t.Fatalf("ForceTick: %v", err)
+	}
+	claimed, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("DequeueN promoted run: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].ID != run.ID {
+		t.Fatalf("DequeueN promoted = %+v, want run %s", claimed, run.ID)
+	}
+	if claimed[0].Status != domain.StatusExecuting {
+		t.Fatalf("claimed status = %q, want executing", claimed[0].Status)
+	}
+}
+
+func TestPgQue_RequeuePausedJobRunsPromotesStateAndEmitsReadyEvent(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	q := mustPgQueQueue(t)
+
+	projectID := "project-pgque-paused-requeue"
+	wf := testutil.MustCreateWorkflow(t, ctx, st, &testutil.WorkflowOpts{ProjectID: &projectID})
+	stepJob := testutil.MustCreateJob(t, ctx, st, &testutil.JobOpts{ProjectID: &projectID})
+	step := testutil.MustCreateWorkflowStep(t, ctx, st, wf.ID, &testutil.WorkflowStepOpts{JobID: &stepJob.ID})
+	wfRun := testutil.MustCreateWorkflowRun(t, ctx, st, wf.ID, &testutil.WorkflowRunOpts{ProjectID: &projectID})
+
+	run := &domain.JobRun{
+		ID:          newID(),
+		JobID:       stepJob.ID,
+		ProjectID:   projectID,
+		Status:      domain.StatusPaused,
+		Attempt:     1,
+		Priority:    5,
+		TriggeredBy: domain.TriggerWorkflow,
+	}
+	if err := st.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun paused: %v", err)
+	}
+	testutil.MustCreateWorkflowStepRun(t, ctx, st, wfRun.ID, step.ID, &testutil.WorkflowStepRunOpts{JobRunID: &run.ID})
+
+	var beforeGeneration int64
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT ready_generation
+		FROM job_run_state
+		WHERE run_id = $1`,
+		run.ID,
+	).Scan(&beforeGeneration); err != nil {
+		t.Fatalf("query ready_generation before requeue: %v", err)
+	}
+
+	requeued, err := q.RequeuePausedJobRuns(ctx, wfRun.ID)
+	if err != nil {
+		t.Fatalf("RequeuePausedJobRuns: %v", err)
+	}
+	if requeued != 1 {
+		t.Fatalf("RequeuePausedJobRuns requeued = %d, want 1", requeued)
+	}
+
+	var ledgerStatus, stateStatus domain.RunStatus
+	var afterGeneration int64
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT jr.status, s.status, s.ready_generation
+		FROM job_runs jr
+		JOIN job_run_state s ON s.run_id = jr.id
+		WHERE jr.id = $1`,
+		run.ID,
+	).Scan(&ledgerStatus, &stateStatus, &afterGeneration); err != nil {
+		t.Fatalf("query requeued state: %v", err)
+	}
+	if ledgerStatus != domain.StatusPaused {
+		t.Fatalf("job_runs status = %q, want immutable paused ledger status", ledgerStatus)
+	}
+	if stateStatus != domain.StatusQueued {
+		t.Fatalf("job_run_state status = %q, want queued", stateStatus)
+	}
+	if afterGeneration != beforeGeneration+1 {
+		t.Fatalf("ready_generation = %d, want %d", afterGeneration, beforeGeneration+1)
+	}
+
+	var queueEntries int
+	if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM queue_entries WHERE run_id = $1`, run.ID).Scan(&queueEntries); err != nil {
+		t.Fatalf("queue_entries count: %v", err)
+	}
+	if queueEntries != 0 {
+		t.Fatalf("queue_entries rows = %d, want 0 for PgQue requeue", queueEntries)
+	}
+
+	if err := q.ForceTick(ctx, "http"); err != nil {
+		t.Fatalf("ForceTick: %v", err)
+	}
+	claimed, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("DequeueN requeued run: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].ID != run.ID {
+		t.Fatalf("DequeueN requeued = %+v, want run %s", claimed, run.ID)
+	}
+	if claimed[0].Status != domain.StatusExecuting {
+		t.Fatalf("claimed status = %q, want executing", claimed[0].Status)
+	}
+}
+
+func TestPgQue_ActivateDueRunsPromotesReadyRetries(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	q := mustPgQueQueue(t)
+	job := mustCreateJob(t, ctx, st, "project-pgque-ready-retry")
+	run := &domain.JobRun{
+		ID:          newID(),
+		JobID:       job.ID,
+		ProjectID:   job.ProjectID,
+		Status:      domain.StatusQueued,
+		Attempt:     1,
+		Priority:    3,
+		TriggeredBy: domain.TriggerManual,
+	}
+	if err := st.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun queued: %v", err)
+	}
+
+	future := time.Now().UTC().Add(time.Hour)
+	if err := st.ScheduleRetry(ctx, run.ID, future, 2); err != nil {
+		t.Fatalf("ScheduleRetry future: %v", err)
+	}
+	promoted, err := q.ActivateDueRuns(ctx, 10)
+	if err != nil {
+		t.Fatalf("ActivateDueRuns future retry: %v", err)
+	}
+	if promoted != 0 {
+		t.Fatalf("future retry promoted = %d, want 0", promoted)
+	}
+
+	var beforeGeneration int64
+	if err := testDB.Pool.QueryRow(ctx,
+		`SELECT ready_generation FROM job_run_state WHERE run_id = $1`,
+		run.ID,
+	).Scan(&beforeGeneration); err != nil {
+		t.Fatalf("query ready_generation before ready retry: %v", err)
+	}
+
+	past := time.Now().UTC().Add(-time.Second)
+	if err := st.ScheduleRetry(ctx, run.ID, past, 2); err != nil {
+		t.Fatalf("ScheduleRetry past: %v", err)
+	}
+	promoted, err = q.ActivateDueRuns(ctx, 10)
+	if err != nil {
+		t.Fatalf("ActivateDueRuns ready retry: %v", err)
+	}
+	if promoted != 1 {
+		t.Fatalf("ready retry promoted = %d, want 1", promoted)
+	}
+
+	var stateStatus domain.RunStatus
+	var attempt int
+	var afterGeneration int64
+	var pendingRetries int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT s.status, s.attempt, s.ready_generation,
+		       (SELECT COUNT(*) FROM job_retries WHERE run_id = s.run_id)
+		FROM job_run_state s
+		WHERE s.run_id = $1`,
+		run.ID,
+	).Scan(&stateStatus, &attempt, &afterGeneration, &pendingRetries); err != nil {
+		t.Fatalf("query retry promotion state: %v", err)
+	}
+	if stateStatus != domain.StatusQueued {
+		t.Fatalf("job_run_state status = %q, want queued", stateStatus)
+	}
+	if attempt != 2 {
+		t.Fatalf("attempt = %d, want 2", attempt)
+	}
+	if afterGeneration != beforeGeneration+1 {
+		t.Fatalf("ready_generation = %d, want %d", afterGeneration, beforeGeneration+1)
+	}
+	if pendingRetries != 0 {
+		t.Fatalf("pending retries = %d, want 0", pendingRetries)
+	}
+
+	if err := q.ForceTick(ctx, "http"); err != nil {
+		t.Fatalf("ForceTick: %v", err)
+	}
+	claimed, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("DequeueN ready retry: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].ID != run.ID {
+		t.Fatalf("DequeueN ready retry = %+v, want run %s", claimed, run.ID)
+	}
+	if claimed[0].Attempt != 2 {
+		t.Fatalf("claimed attempt = %d, want 2", claimed[0].Attempt)
 	}
 }
 

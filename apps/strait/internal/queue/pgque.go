@@ -239,6 +239,440 @@ func (q *PgQueQueue) EnqueueExisting(ctx context.Context, run *domain.JobRun) er
 	return q.tickReadyRoute(ctx, run)
 }
 
+// ActivateDueRuns promotes delayed runs through the PgQue storage path. The
+// state transition and ready-event insert happen in one transaction so a crash
+// cannot leave a queued run without a PgQue event.
+func (q *PgQueQueue) ActivateDueRuns(ctx context.Context, limit int) (int64, error) {
+	if limit <= 0 {
+		return 0, nil
+	}
+	beginner, ok := q.db.(store.TxBeginner)
+	if !ok {
+		return 0, fmt.Errorf("pgque activate due runs requires transaction support")
+	}
+
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("pgque activate due runs: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	runs, err := q.promoteDueRunsInTx(ctx, tx, limit)
+	if err != nil {
+		return 0, err
+	}
+	if remaining := limit - len(runs); remaining > 0 {
+		retryRuns, retryErr := q.promoteReadyRetriesInTx(ctx, tx, remaining)
+		if retryErr != nil {
+			return 0, retryErr
+		}
+		runs = append(runs, retryRuns...)
+	}
+	if len(runs) == 0 {
+		if err := tx.Commit(ctx); err != nil {
+			return 0, fmt.Errorf("pgque activate due runs: commit empty promotion: %w", err)
+		}
+		return 0, nil
+	}
+
+	if err := q.sendReadyEvents(ctx, tx, runs); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("pgque activate due runs: commit: %w", err)
+	}
+	_ = q.tickReadyRoutes(ctx, runs)
+	return int64(len(runs)), nil
+}
+
+// RequeuePausedJobRuns resumes paused workflow-owned runs through PgQue. The
+// state generation bump and ready-event insert share a transaction so resume
+// cannot strand a queued run without a matching PgQue event.
+func (q *PgQueQueue) RequeuePausedJobRuns(ctx context.Context, workflowRunID string) (int64, error) {
+	if workflowRunID == "" {
+		return 0, nil
+	}
+	beginner, ok := q.db.(store.TxBeginner)
+	if !ok {
+		return 0, fmt.Errorf("pgque requeue paused job runs requires transaction support")
+	}
+
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("pgque requeue paused job runs: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	runs, err := q.requeuePausedJobRunsInTx(ctx, tx, workflowRunID)
+	if err != nil {
+		return 0, err
+	}
+	if len(runs) > 0 {
+		if err := q.sendReadyEvents(ctx, tx, runs); err != nil {
+			return 0, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("pgque requeue paused job runs: commit: %w", err)
+	}
+	_ = q.tickReadyRoutes(ctx, runs)
+	return int64(len(runs)), nil
+}
+
+func (q *PgQueQueue) promoteDueRunsInTx(ctx context.Context, tx store.DBTX, limit int) ([]*domain.JobRun, error) {
+	rows, err := tx.Query(ctx, `
+		WITH candidates AS MATERIALIZED (
+			SELECT s.run_id
+			FROM job_run_state s
+			WHERE s.status = 'delayed'
+			  AND s.scheduled_at <= NOW()
+			  AND NOT EXISTS (
+			      SELECT 1
+			      FROM job_run_terminal_state t
+			      WHERE t.run_id = s.run_id
+			  )
+			ORDER BY s.scheduled_at ASC, s.run_id ASC
+			LIMIT $1
+			FOR UPDATE SKIP LOCKED
+		),
+		updated AS (
+			UPDATE job_run_state s
+			SET status = 'queued',
+			    ready_generation = ready_generation + 1,
+			    updated_at = NOW()
+			FROM candidates c
+			WHERE s.run_id = c.run_id
+			  AND s.status = 'delayed'
+			RETURNING
+				s.run_id,
+				s.job_id,
+				s.project_id,
+				s.status,
+				s.attempt,
+				s.scheduled_at,
+				s.started_at,
+				s.finished_at,
+				s.heartbeat_at,
+				s.next_retry_at,
+				s.expires_at,
+				s.priority,
+				s.concurrency_key,
+				s.execution_mode
+		),
+		lifecycle_events AS (
+			INSERT INTO job_run_lifecycle_events (run_id, from_status, to_status, attempt, fields)
+			SELECT run_id, 'delayed', 'queued', attempt, '{}'::jsonb
+			FROM updated
+			RETURNING 1
+		),
+		cache_versions AS (
+			INSERT INTO job_run_cache_versions (run_id, cache_version)
+			SELECT run_id, 2 FROM updated
+			ON CONFLICT (run_id)
+			DO UPDATE SET cache_version = job_run_cache_versions.cache_version + 1
+			RETURNING 1
+		)
+		SELECT
+			jr.id,
+			u.job_id,
+			u.project_id,
+			u.status,
+			u.attempt,
+			jr.payload,
+			jr.result,
+			jr.metadata,
+			jr.error,
+			jr.error_class,
+			jr.triggered_by,
+			u.scheduled_at,
+			u.started_at,
+			u.finished_at,
+			u.heartbeat_at,
+			u.next_retry_at,
+			u.expires_at,
+			jr.parent_run_id,
+			u.priority,
+			jr.idempotency_key,
+			jr.job_version,
+			jr.created_at,
+			jr.workflow_step_run_id,
+			jr.execution_trace,
+			jr.debug_mode,
+			jr.continuation_of,
+			jr.lineage_depth,
+			jr.tags,
+			jr.job_version_id,
+			jr.created_by,
+			jr.batch_id,
+			u.concurrency_key,
+			u.execution_mode,
+			jr.is_rollback,
+			jr.replayed_run_id
+		FROM updated u
+		JOIN job_runs jr ON jr.id = u.run_id
+		ORDER BY u.scheduled_at ASC, u.run_id ASC`,
+		limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("pgque promote due runs: %w", err)
+	}
+	defer rows.Close()
+
+	runs := make([]*domain.JobRun, 0, min(limit, 1024))
+	for rows.Next() {
+		run, scanErr := dbscan.ScanRun(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("pgque promote due runs scan: %w", scanErr)
+		}
+		runs = append(runs, run)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("pgque promote due runs rows: %w", err)
+	}
+	return runs, nil
+}
+
+func (q *PgQueQueue) promoteReadyRetriesInTx(ctx context.Context, tx store.DBTX, limit int) ([]*domain.JobRun, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	rows, err := tx.Query(ctx, `
+		WITH candidates AS MATERIALIZED (
+			SELECT rt.run_id, rt.attempt
+			FROM job_retries rt
+			JOIN job_run_state s ON s.run_id = rt.run_id
+			WHERE rt.next_retry_at <= NOW()
+			  AND s.status = 'queued'
+			  AND NOT EXISTS (
+			      SELECT 1
+			      FROM job_run_terminal_state t
+			      WHERE t.run_id = s.run_id
+			  )
+			ORDER BY rt.next_retry_at ASC, rt.run_id ASC
+			LIMIT $1
+			FOR UPDATE OF rt SKIP LOCKED
+		),
+		deleted_retries AS (
+			DELETE FROM job_retries rt
+			USING candidates c
+			WHERE rt.run_id = c.run_id
+			RETURNING rt.run_id, c.attempt
+		),
+		updated AS (
+			UPDATE job_run_state s
+			SET status = 'queued',
+			    attempt = d.attempt,
+			    next_retry_at = NULL,
+			    started_at = NULL,
+			    finished_at = NULL,
+			    heartbeat_at = NULL,
+			    ready_generation = ready_generation + 1,
+			    updated_at = NOW()
+			FROM deleted_retries d
+			WHERE s.run_id = d.run_id
+			RETURNING
+				s.run_id,
+				s.job_id,
+				s.project_id,
+				s.status,
+				s.attempt,
+				s.scheduled_at,
+				s.started_at,
+				s.finished_at,
+				s.heartbeat_at,
+				s.next_retry_at,
+				s.expires_at,
+				s.priority,
+				s.concurrency_key,
+				s.execution_mode
+		),
+		lifecycle_events AS (
+			INSERT INTO job_run_lifecycle_events (run_id, from_status, to_status, attempt, fields)
+			SELECT run_id, 'queued', 'queued', attempt, '{"retry_ready": true}'::jsonb
+			FROM updated
+			RETURNING 1
+		),
+		cache_versions AS (
+			INSERT INTO job_run_cache_versions (run_id, cache_version)
+			SELECT run_id, 2 FROM updated
+			ON CONFLICT (run_id)
+			DO UPDATE SET cache_version = job_run_cache_versions.cache_version + 1
+			RETURNING 1
+		)
+		SELECT
+			jr.id,
+			u.job_id,
+			u.project_id,
+			u.status,
+			u.attempt,
+			jr.payload,
+			jr.result,
+			jr.metadata,
+			jr.error,
+			jr.error_class,
+			jr.triggered_by,
+			u.scheduled_at,
+			u.started_at,
+			u.finished_at,
+			u.heartbeat_at,
+			u.next_retry_at,
+			u.expires_at,
+			jr.parent_run_id,
+			u.priority,
+			jr.idempotency_key,
+			jr.job_version,
+			jr.created_at,
+			jr.workflow_step_run_id,
+			jr.execution_trace,
+			jr.debug_mode,
+			jr.continuation_of,
+			jr.lineage_depth,
+			jr.tags,
+			jr.job_version_id,
+			jr.created_by,
+			jr.batch_id,
+			u.concurrency_key,
+			u.execution_mode,
+			jr.is_rollback,
+			jr.replayed_run_id
+		FROM updated u
+		JOIN job_runs jr ON jr.id = u.run_id
+		ORDER BY jr.created_at ASC, u.run_id ASC`,
+		limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("pgque promote ready retries: %w", err)
+	}
+	defer rows.Close()
+
+	runs := make([]*domain.JobRun, 0, min(limit, 1024))
+	for rows.Next() {
+		run, scanErr := dbscan.ScanRun(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("pgque promote ready retries scan: %w", scanErr)
+		}
+		runs = append(runs, run)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("pgque promote ready retries rows: %w", err)
+	}
+	return runs, nil
+}
+
+func (q *PgQueQueue) requeuePausedJobRunsInTx(ctx context.Context, tx store.DBTX, workflowRunID string) ([]*domain.JobRun, error) {
+	rows, err := tx.Query(ctx, `
+		WITH candidates AS MATERIALIZED (
+			SELECT s.run_id, s.attempt
+			FROM job_run_state s
+			JOIN workflow_step_runs wsr ON wsr.job_run_id = s.run_id
+			WHERE wsr.workflow_run_id = $1
+			  AND s.status = 'paused'
+			  AND NOT EXISTS (
+			      SELECT 1
+			      FROM job_run_terminal_state t
+			      WHERE t.run_id = s.run_id
+			  )
+			FOR UPDATE OF s SKIP LOCKED
+		),
+		updated AS (
+			UPDATE job_run_state s
+			SET status = 'queued',
+			    started_at = NULL,
+			    finished_at = NULL,
+			    heartbeat_at = NULL,
+			    ready_generation = ready_generation + 1,
+			    updated_at = NOW()
+			FROM candidates c
+			WHERE s.run_id = c.run_id
+			RETURNING
+				s.run_id,
+				s.job_id,
+				s.project_id,
+				s.status,
+				s.attempt,
+				s.scheduled_at,
+				s.started_at,
+				s.finished_at,
+				s.heartbeat_at,
+				s.next_retry_at,
+				s.expires_at,
+				s.priority,
+				s.concurrency_key,
+				s.execution_mode
+		),
+		lifecycle_events AS (
+			INSERT INTO job_run_lifecycle_events (run_id, from_status, to_status, attempt, fields)
+			SELECT run_id, 'paused', 'queued', attempt, '{}'::jsonb
+			FROM updated
+			RETURNING 1
+		),
+		cache_versions AS (
+			INSERT INTO job_run_cache_versions (run_id, cache_version)
+			SELECT run_id, 2 FROM updated
+			ON CONFLICT (run_id)
+			DO UPDATE SET cache_version = job_run_cache_versions.cache_version + 1
+			RETURNING 1
+		)
+		SELECT
+			jr.id,
+			u.job_id,
+			u.project_id,
+			u.status,
+			u.attempt,
+			jr.payload,
+			jr.result,
+			jr.metadata,
+			jr.error,
+			jr.error_class,
+			jr.triggered_by,
+			u.scheduled_at,
+			u.started_at,
+			u.finished_at,
+			u.heartbeat_at,
+			u.next_retry_at,
+			u.expires_at,
+			jr.parent_run_id,
+			u.priority,
+			jr.idempotency_key,
+			jr.job_version,
+			jr.created_at,
+			jr.workflow_step_run_id,
+			jr.execution_trace,
+			jr.debug_mode,
+			jr.continuation_of,
+			jr.lineage_depth,
+			jr.tags,
+			jr.job_version_id,
+			jr.created_by,
+			jr.batch_id,
+			u.concurrency_key,
+			u.execution_mode,
+			jr.is_rollback,
+			jr.replayed_run_id
+		FROM updated u
+		JOIN job_runs jr ON jr.id = u.run_id
+		ORDER BY jr.created_at ASC, u.run_id ASC`,
+		workflowRunID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("pgque requeue paused job runs: %w", err)
+	}
+	defer rows.Close()
+
+	runs := make([]*domain.JobRun, 0, 16)
+	for rows.Next() {
+		run, scanErr := dbscan.ScanRun(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("pgque requeue paused job runs scan: %w", scanErr)
+		}
+		runs = append(runs, run)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("pgque requeue paused job runs rows: %w", err)
+	}
+	return runs, nil
+}
+
 func (q *PgQueQueue) markPgQueStorage(ctx context.Context, db store.DBTX) error {
 	if _, err := db.Exec(ctx, `SET LOCAL strait.queue_backend = 'pgque'`); err != nil {
 		return fmt.Errorf("pgque mark queue storage: %w", err)
@@ -1063,6 +1497,12 @@ func (q *PgQueQueue) claimRuns(ctx context.Context, ids []string, generations []
 				  AND COALESCE(s.job_paused, false) = false
 				  AND (s.scheduled_at IS NULL OR s.scheduled_at <= NOW())
 				  AND (s.next_retry_at IS NULL OR s.next_retry_at <= NOW())
+				  AND NOT EXISTS (
+				      SELECT 1
+				      FROM job_retries rt
+				      WHERE rt.run_id = s.run_id
+				        AND rt.next_retry_at > NOW()
+				  )
 				  AND NOT EXISTS (
 				      SELECT 1
 				      FROM job_run_active_claims c

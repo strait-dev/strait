@@ -202,7 +202,8 @@ func (m *mockEngineStore) CreateNotificationDelivery(_ context.Context, d *domai
 }
 
 type mockEngineQueue struct {
-	enqueueFn func(ctx context.Context, run *domain.JobRun) error
+	enqueueFn           func(ctx context.Context, run *domain.JobRun) error
+	requeuePausedRunsFn func(ctx context.Context, workflowRunID string) (int64, error)
 }
 
 func (m *mockEngineQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
@@ -210,6 +211,13 @@ func (m *mockEngineQueue) Enqueue(ctx context.Context, run *domain.JobRun) error
 		return m.enqueueFn(ctx, run)
 	}
 	return nil
+}
+
+func (m *mockEngineQueue) RequeuePausedJobRuns(ctx context.Context, workflowRunID string) (int64, error) {
+	if m.requeuePausedRunsFn != nil {
+		return m.requeuePausedRunsFn(ctx, workflowRunID)
+	}
+	return 0, nil
 }
 
 func (m *mockEngineQueue) Dequeue(context.Context) (*domain.JobRun, error) {
@@ -963,6 +971,7 @@ type mockCallbackStore struct {
 	createWorkflowStepDecisionFn        func(ctx context.Context, d *domain.WorkflowStepDecision) error
 	markCompensationRunTerminalFn       func(ctx context.Context, jobRunID string, status string, output json.RawMessage, errMsg string, finishedAt time.Time) (*domain.CompensationRun, error)
 	countIncompleteCompensationRunsFn   func(ctx context.Context, workflowRunID string) (int, error)
+	requeuePausedJobRunsFn              func(ctx context.Context, workflowRunID string) (int64, error)
 }
 
 func (m *mockCallbackStore) GetEventTriggerByStepRunID(ctx context.Context, stepRunID string) (*domain.EventTrigger, error) {
@@ -1396,7 +1405,10 @@ func (m *mockCallbackStore) GetWorkflowSnapshot(_ context.Context, _ string) (*d
 	return nil, nil // Fallback to live table by default in tests.
 }
 
-func (m *mockCallbackStore) RequeuePausedJobRuns(_ context.Context, _ string) (int64, error) {
+func (m *mockCallbackStore) RequeuePausedJobRuns(ctx context.Context, workflowRunID string) (int64, error) {
+	if m.requeuePausedJobRunsFn != nil {
+		return m.requeuePausedJobRunsFn(ctx, workflowRunID)
+	}
 	return 0, nil
 }
 
@@ -3885,6 +3897,42 @@ func TestStepCallback_ResumeWorkflowRun(t *testing.T) {
 		err := cb.ResumeWorkflowRun(context.Background(), "wr-1")
 		if err == nil || !strings.Contains(err.Error(), "resume workflow run") {
 			t.Fatalf("expected 'resume workflow run' error, got %v", err)
+		}
+	})
+
+	t.Run("queue_requeue_preferred_when_available", func(t *testing.T) {
+		t.Parallel()
+		var queueRequeueCalled, storeRequeueCalled bool
+		ms := &mockCallbackStore{
+			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
+				return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", WorkflowVersion: 1, Status: domain.WfStatusPaused}, nil
+			},
+			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
+				return nil
+			},
+			requeuePausedJobRunsFn: func(_ context.Context, _ string) (int64, error) {
+				storeRequeueCalled = true
+				return 0, nil
+			},
+		}
+		mq := &mockEngineQueue{
+			requeuePausedRunsFn: func(_ context.Context, workflowRunID string) (int64, error) {
+				if workflowRunID != "wr-1" {
+					t.Fatalf("workflowRunID = %q, want wr-1", workflowRunID)
+				}
+				queueRequeueCalled = true
+				return 2, nil
+			},
+		}
+		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, mq, slog.Default()), slog.Default())
+		if err := cb.ResumeWorkflowRun(context.Background(), "wr-1"); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !queueRequeueCalled {
+			t.Fatal("expected queue-owned requeue path")
+		}
+		if storeRequeueCalled {
+			t.Fatal("store requeue should not run when queue owns the path")
 		}
 	})
 
