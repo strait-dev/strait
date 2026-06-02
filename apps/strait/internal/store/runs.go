@@ -2014,11 +2014,7 @@ func (q *Queries) tryRequeueActiveClaimRunState(
 			WITH selected AS MATERIALIZED (
 				SELECT
 					s.run_id,
-					s.job_id,
-					COALESCE(s.concurrency_key, '') AS concurrency_key,
 					COALESCE(c.attempt, s.attempt) AS event_attempt,
-					s.job_max_concurrency,
-					s.job_max_concurrency_per_key,
 					s.ready_generation
 				FROM job_run_state s
 				JOIN job_run_active_claims c
@@ -2040,23 +2036,9 @@ func (q *Queries) tryRequeueActiveClaimRunState(
 			updated AS (
 				UPDATE job_run_state s
 				SET %s
-				FROM selected selected
-				WHERE s.run_id = selected.run_id
-				RETURNING selected.job_id,
-				          selected.concurrency_key,
-				          selected.event_attempt,
-				          selected.job_max_concurrency,
-				          selected.job_max_concurrency_per_key
-			),
-			released AS (
-				UPDATE job_active_counts c
-				SET count = GREATEST(c.count - 1, 0),
-				    updated_at = NOW()
-				FROM updated u
-				WHERE (u.job_max_concurrency IS NOT NULL OR u.job_max_concurrency_per_key IS NOT NULL)
-				  AND c.job_id = u.job_id
-				  AND c.concurrency_key = u.concurrency_key
-				RETURNING 1
+				FROM selected picked
+				WHERE s.run_id = picked.run_id
+				RETURNING picked.event_attempt
 				)
 				SELECT event_attempt FROM updated`,
 			strings.Join(stateSet, ", "),
@@ -2249,7 +2231,8 @@ const appendRunTerminalStateQuery = `
 			s.job_paused,
 			s.job_max_concurrency,
 			s.job_max_concurrency_per_key,
-			s.ready_generation
+			s.ready_generation,
+			c.run_id IS NOT NULL AS uses_active_claim
 		FROM job_run_state s
 		LEFT JOIN job_run_active_claims c
 		  ON c.run_id = s.run_id
@@ -2328,6 +2311,7 @@ const appendRunTerminalStateQuery = `
 		FROM selected s
 		JOIN inserted i ON i.run_id = s.run_id
 		WHERE s.previous_status IN ('dequeued', 'executing')
+		  AND NOT s.uses_active_claim
 		  AND (s.job_max_concurrency IS NOT NULL OR s.job_max_concurrency_per_key IS NOT NULL)
 		  AND c.job_id = s.job_id
 		  AND c.concurrency_key = COALESCE(s.concurrency_key, '')
@@ -2361,7 +2345,8 @@ const appendRunTerminalStateForAttemptQuery = `
 			s.job_paused,
 			s.job_max_concurrency,
 			s.job_max_concurrency_per_key,
-			s.ready_generation
+			s.ready_generation,
+			c.run_id IS NOT NULL AS uses_active_claim
 		FROM job_run_state s
 		LEFT JOIN job_run_active_claims c
 		  ON c.run_id = s.run_id
@@ -2441,6 +2426,7 @@ const appendRunTerminalStateForAttemptQuery = `
 		FROM selected s
 		JOIN inserted i ON i.run_id = s.run_id
 		WHERE s.previous_status IN ('dequeued', 'executing')
+		  AND NOT s.uses_active_claim
 		  AND (s.job_max_concurrency IS NOT NULL OR s.job_max_concurrency_per_key IS NOT NULL)
 		  AND c.job_id = s.job_id
 		  AND c.concurrency_key = COALESCE(s.concurrency_key, '')

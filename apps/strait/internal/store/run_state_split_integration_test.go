@@ -582,6 +582,9 @@ func TestRunStateSplit_ActiveClaimRequeueDeletesClaimAndBumpsGeneration(t *testi
 	if err := q.CreateRun(ctx, run); err != nil {
 		t.Fatalf("CreateRun() error = %v", err)
 	}
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE job_run_state SET job_max_concurrency = 1 WHERE run_id = $1`, run.ID); err != nil {
+		t.Fatalf("mark limited job state: %v", err)
+	}
 
 	var beforeGeneration int64
 	if err := testDB.Pool.QueryRow(ctx, `
@@ -606,6 +609,16 @@ func TestRunStateSplit_ActiveClaimRequeueDeletesClaimAndBumpsGeneration(t *testi
 	}
 	if claimed.Status != domain.StatusExecuting {
 		t.Fatalf("claimed status = %q, want executing", claimed.Status)
+	}
+	counterUpdatedAt := time.Now().UTC().Add(-time.Hour).Truncate(time.Microsecond)
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_active_counts (job_id, concurrency_key, count, updated_at)
+		VALUES ($1, '', 0, $2)
+		ON CONFLICT (job_id, concurrency_key)
+		DO UPDATE SET count = 0, updated_at = EXCLUDED.updated_at`,
+		job.ID, counterUpdatedAt,
+	); err != nil {
+		t.Fatalf("seed active count row: %v", err)
 	}
 
 	if err := q.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, map[string]any{
@@ -642,6 +655,18 @@ func TestRunStateSplit_ActiveClaimRequeueDeletesClaimAndBumpsGeneration(t *testi
 	}
 	if activeClaims != 0 {
 		t.Fatalf("active claims = %d, want 0", activeClaims)
+	}
+	var afterCounterUpdatedAt time.Time
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT updated_at
+		FROM job_active_counts
+		WHERE job_id = $1 AND concurrency_key = ''`,
+		job.ID,
+	).Scan(&afterCounterUpdatedAt); err != nil {
+		t.Fatalf("query active count timestamp: %v", err)
+	}
+	if !afterCounterUpdatedAt.Equal(counterUpdatedAt) {
+		t.Fatalf("active count updated_at changed on active-claim requeue: got %s want %s", afterCounterUpdatedAt, counterUpdatedAt)
 	}
 
 	var lifecycleRows int

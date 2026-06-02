@@ -982,17 +982,31 @@ func TestPgQue_ActiveClaimEnforcesLimitedConcurrencyWithoutCounterWrites(t *test
 	if count != 0 {
 		t.Fatalf("job_active_counts after PgQue claim = %d, want 0 append-only claims to avoid counter churn", count)
 	}
+	counterUpdatedAt := time.Now().UTC().Add(-time.Hour).Truncate(time.Microsecond)
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_active_counts (job_id, concurrency_key, count, updated_at)
+		VALUES ($1, '', 0, $2)
+		ON CONFLICT (job_id, concurrency_key)
+		DO UPDATE SET count = 0, updated_at = EXCLUDED.updated_at`,
+		job.ID, counterUpdatedAt,
+	); err != nil {
+		t.Fatalf("seed active count row: %v", err)
+	}
 	if err := st.UpdateRunStatus(ctx, claimed[0].ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{"finished_at": time.Now()}); err != nil {
 		t.Fatalf("UpdateRunStatus completed: %v", err)
 	}
+	var afterCounterUpdatedAt time.Time
 	if err := testDB.Pool.QueryRow(ctx, `
-		SELECT COALESCE(SUM(count), 0)
+		SELECT COALESCE(SUM(count), 0), MAX(updated_at)
 		FROM job_active_counts
-		WHERE job_id = $1`, job.ID).Scan(&count); err != nil {
+		WHERE job_id = $1`, job.ID).Scan(&count, &afterCounterUpdatedAt); err != nil {
 		t.Fatalf("active count after completion: %v", err)
 	}
 	if count != 0 {
 		t.Fatalf("active count after completion = %d, want 0", count)
+	}
+	if !afterCounterUpdatedAt.Equal(counterUpdatedAt) {
+		t.Fatalf("active count updated_at changed on PgQue terminal release: got %s want %s", afterCounterUpdatedAt, counterUpdatedAt)
 	}
 
 	next, err := q.DequeueN(ctx, 2)
