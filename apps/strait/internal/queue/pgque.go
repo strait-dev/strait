@@ -375,9 +375,8 @@ func (q *PgQueQueue) promoteDueRunsInTx(ctx context.Context, tx store.DBTX, limi
 		),
 		cache_versions AS (
 			INSERT INTO job_run_cache_versions (run_id, cache_version)
-			SELECT run_id, 2 FROM inserted_ready
-			ON CONFLICT (run_id)
-			DO UPDATE SET cache_version = job_run_cache_versions.cache_version + 1
+			SELECT run_id, strait_next_run_cache_version(run_id)
+			FROM inserted_ready
 			RETURNING 1
 		)
 		SELECT
@@ -505,9 +504,8 @@ func (q *PgQueQueue) promoteReadyRetriesInTx(ctx context.Context, tx store.DBTX,
 		),
 		cache_versions AS (
 			INSERT INTO job_run_cache_versions (run_id, cache_version)
-			SELECT run_id, 2 FROM inserted_ready
-			ON CONFLICT (run_id)
-			DO UPDATE SET cache_version = job_run_cache_versions.cache_version + 1
+			SELECT run_id, strait_next_run_cache_version(run_id)
+			FROM inserted_ready
 			RETURNING 1
 		)
 		SELECT
@@ -620,9 +618,8 @@ func (q *PgQueQueue) requeuePausedJobRunsInTx(ctx context.Context, tx store.DBTX
 		),
 		cache_versions AS (
 			INSERT INTO job_run_cache_versions (run_id, cache_version)
-			SELECT run_id, 2 FROM updated
-			ON CONFLICT (run_id)
-			DO UPDATE SET cache_version = job_run_cache_versions.cache_version + 1
+			SELECT run_id, strait_next_run_cache_version(run_id)
+			FROM updated
 			RETURNING 1
 		)
 		SELECT

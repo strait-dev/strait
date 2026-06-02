@@ -313,9 +313,8 @@ func (q *Queries) RecoverStaleWorkerTasksExceptRefs(ctx context.Context, cutoff 
 			),
 			cache_versions AS (
 				INSERT INTO job_run_cache_versions (run_id, cache_version)
-				SELECT run_id, 2 FROM requeued_runs
-				ON CONFLICT (run_id)
-				DO UPDATE SET cache_version = job_run_cache_versions.cache_version + 1
+				SELECT run_id, strait_next_run_cache_version(run_id)
+				FROM requeued_runs
 				RETURNING 1
 			),
 			failed_tasks AS (
@@ -902,9 +901,8 @@ func (q *Queries) RequeueOpenWorkerTasks(ctx context.Context, workerID, projectI
 			),
 			cache_versions AS (
 				INSERT INTO job_run_cache_versions (run_id, cache_version)
-				SELECT run_id, 2 FROM requeued_runs
-				ON CONFLICT (run_id)
-				DO UPDATE SET cache_version = job_run_cache_versions.cache_version + 1
+				SELECT run_id, strait_next_run_cache_version(run_id)
+				FROM requeued_runs
 				RETURNING 1
 			),
 			failed_tasks AS (

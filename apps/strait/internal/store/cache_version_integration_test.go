@@ -387,7 +387,13 @@ func assertRunCacheVersion(t *testing.T, ctx context.Context, runID string, want
 	if err := testDB.Pool.QueryRow(ctx, `
 		SELECT COALESCE(v.cache_version, jr.cache_version)
 		FROM job_runs jr
-		LEFT JOIN job_run_cache_versions v ON v.run_id = jr.id
+		LEFT JOIN LATERAL (
+			SELECT cache_version
+			FROM job_run_cache_versions v
+			WHERE v.run_id = jr.id
+			ORDER BY v.id DESC
+			LIMIT 1
+		) v ON true
 		WHERE jr.id = $1`,
 		runID,
 	).Scan(&got); err != nil {
@@ -396,4 +402,46 @@ func assertRunCacheVersion(t *testing.T, ctx context.Context, runID string, want
 	if got != want {
 		t.Fatalf("run cache_version = %d, want %d", got, want)
 	}
+}
+
+func TestCacheVersion_RunSideTableAppendsVersions(t *testing.T) {
+	ctx := t.Context()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-cache-version-append")
+	run := baseRun(job, newID())
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+
+	for i := range 3 {
+		from := domain.StatusQueued
+		to := domain.StatusExecuting
+		if i%2 == 1 {
+			from, to = domain.StatusExecuting, domain.StatusQueued
+		}
+		err := q.UpdateRunStatus(ctx, run.ID, from, to, map[string]any{
+			"started_at": nil,
+		})
+		if err != nil {
+			t.Fatalf("UpdateRunStatus(%d) error = %v", i, err)
+		}
+	}
+
+	var rawRows int
+	var latestVersion int64
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*), COALESCE((ARRAY_AGG(cache_version ORDER BY id DESC))[1], 0)
+		FROM job_run_cache_versions
+		WHERE run_id = $1`, run.ID).Scan(&rawRows, &latestVersion); err != nil {
+		t.Fatalf("query cache version history: %v", err)
+	}
+	if rawRows != 3 {
+		t.Fatalf("cache version rows = %d, want append-only history", rawRows)
+	}
+	if latestVersion != 4 {
+		t.Fatalf("latest cache version = %d, want 4", latestVersion)
+	}
+	assertRunCacheVersion(t, ctx, run.ID, latestVersion)
 }

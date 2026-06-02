@@ -291,7 +291,13 @@ func (q *Queries) GetRunWithCacheVersion(ctx context.Context, id string) (*domai
 			ORDER BY h.id DESC
 			LIMIT 1
 		) h ON true
-		LEFT JOIN job_run_cache_versions v ON v.run_id = jr.id
+		LEFT JOIN LATERAL (
+			SELECT cache_version
+			FROM job_run_cache_versions v
+			WHERE v.run_id = jr.id
+			ORDER BY v.id DESC
+			LIMIT 1
+		) v ON true
 		LEFT JOIN LATERAL (
 			SELECT fields
 			FROM job_run_lifecycle_events e
@@ -2140,9 +2146,7 @@ func (q *Queries) tryRequeueActiveClaimRunState(
 func (q *Queries) bumpRunCacheVersion(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, `
 		INSERT INTO job_run_cache_versions (run_id, cache_version)
-		VALUES ($1, 2)
-		ON CONFLICT (run_id)
-		DO UPDATE SET cache_version = job_run_cache_versions.cache_version + 1`,
+		VALUES ($1, strait_next_run_cache_version($1))`,
 		id,
 	)
 	if err != nil {
@@ -3526,9 +3530,8 @@ func (q *Queries) MarkJobRunsPausedByWorkflowRun(ctx context.Context, workflowRu
 		),
 		cache_versions AS (
 			INSERT INTO job_run_cache_versions (run_id, cache_version)
-			SELECT run_id, 2 FROM updated
-			ON CONFLICT (run_id)
-			DO UPDATE SET cache_version = job_run_cache_versions.cache_version + 1
+			SELECT run_id, strait_next_run_cache_version(run_id)
+			FROM updated
 			RETURNING 1
 		)
 		SELECT COUNT(*) FROM updated`
@@ -3576,9 +3579,8 @@ func (q *Queries) RequeuePausedJobRuns(ctx context.Context, workflowRunID string
 		),
 		cache_versions AS (
 			INSERT INTO job_run_cache_versions (run_id, cache_version)
-			SELECT run_id, 2 FROM updated
-			ON CONFLICT (run_id)
-			DO UPDATE SET cache_version = job_run_cache_versions.cache_version + 1
+			SELECT run_id, strait_next_run_cache_version(run_id)
+			FROM updated
 			RETURNING 1
 		)
 		SELECT COUNT(*) FROM updated`
@@ -3763,9 +3765,8 @@ func bulkCancelTerminalQuery(extraJoins, whereClause, orderLimit, selectClause s
 		),
 		cache_versions AS (
 			INSERT INTO job_run_cache_versions (run_id, cache_version)
-			SELECT run_id, 2 FROM inserted
-			ON CONFLICT (run_id)
-			DO UPDATE SET cache_version = job_run_cache_versions.cache_version + 1
+			SELECT run_id, strait_next_run_cache_version(run_id)
+			FROM inserted
 			RETURNING 1
 		)
 		`)
@@ -4160,9 +4161,8 @@ func (q *Queries) RescheduleRun(ctx context.Context, runID string, scheduledAt t
 		),
 		cache_versions AS (
 			INSERT INTO job_run_cache_versions (run_id, cache_version)
-			SELECT run_id, 2 FROM updated_state
-			ON CONFLICT (run_id)
-			DO UPDATE SET cache_version = job_run_cache_versions.cache_version + 1
+			SELECT run_id, strait_next_run_cache_version(run_id)
+			FROM updated_state
 			RETURNING 1
 		)
 		SELECT run_id FROM updated_state
