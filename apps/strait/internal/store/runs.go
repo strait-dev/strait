@@ -2494,6 +2494,7 @@ const appendRunTerminalStateQuery = `
 		  AND (s.job_max_concurrency IS NOT NULL OR s.job_max_concurrency_per_key IS NOT NULL)
 		  AND c.job_id = s.job_id
 		  AND c.concurrency_key = COALESCE(s.concurrency_key, '')
+		  AND c.count <> 0
 		RETURNING 1
 	)
 	SELECT attempt FROM inserted`
@@ -2611,6 +2612,7 @@ const appendRunTerminalStateForAttemptQuery = `
 		  AND (s.job_max_concurrency IS NOT NULL OR s.job_max_concurrency_per_key IS NOT NULL)
 		  AND c.job_id = s.job_id
 		  AND c.concurrency_key = COALESCE(s.concurrency_key, '')
+		  AND c.count <> 0
 		RETURNING 1
 	)
 	SELECT attempt FROM inserted`
@@ -3688,6 +3690,7 @@ func (q *Queries) MarkJobRunsPausedByWorkflowRun(ctx context.Context, workflowRu
 			  AND (u.job_max_concurrency IS NOT NULL OR u.job_max_concurrency_per_key IS NOT NULL)
 			  AND c.job_id = u.job_id
 			  AND c.concurrency_key = u.concurrency_key
+			  AND c.count <> 0
 			RETURNING 1
 		),
 		lifecycle_events AS (
@@ -3902,6 +3905,7 @@ func bulkCancelTerminalQuery(extraJoins, whereClause, orderLimit, selectClause s
 			  AND (s.job_max_concurrency IS NOT NULL OR s.job_max_concurrency_per_key IS NOT NULL)
 			  AND c.job_id = s.job_id
 			  AND c.concurrency_key = COALESCE(s.concurrency_key, '')
+			  AND c.count <> 0
 			RETURNING 1
 		),
 		legacy_queue_entries AS (

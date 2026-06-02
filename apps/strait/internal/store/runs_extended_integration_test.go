@@ -1150,6 +1150,61 @@ func TestRuns_BulkCancelRuns_ReleasesActiveCounterWithoutMutatingHotState(t *tes
 	assertBulkCanceledViaTerminalState(t, ctx, run.ID, domain.StatusExecuting, "bulk cancel")
 }
 
+func TestRuns_BulkCancelRuns_DoesNotRewriteZeroActiveCounter(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-bulk-cancel-zero-counter")
+	run := baseRun(job, newID())
+	run.Status = domain.StatusExecuting
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE job_run_state
+		SET job_max_concurrency = 1
+		WHERE run_id = $1`, run.ID); err != nil {
+		t.Fatalf("mark constrained state: %v", err)
+	}
+
+	counterUpdatedAt := time.Now().UTC().Add(-time.Hour).Truncate(time.Microsecond)
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_active_counts (job_id, concurrency_key, count, updated_at)
+		VALUES ($1, '', 0, $2)
+		ON CONFLICT (job_id, concurrency_key)
+		DO UPDATE SET count = 0, updated_at = EXCLUDED.updated_at`,
+		job.ID, counterUpdatedAt,
+	); err != nil {
+		t.Fatalf("seed zero active count: %v", err)
+	}
+
+	results, err := q.BulkCancelRuns(ctx, []string{run.ID}, time.Now().UTC(), "bulk cancel")
+	if err != nil {
+		t.Fatalf("BulkCancelRuns() error = %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("len = %d, want 1", len(results))
+	}
+
+	var count int
+	var updatedAt time.Time
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT count, updated_at
+		FROM job_active_counts
+		WHERE job_id = $1
+		  AND concurrency_key = ''`, job.ID).Scan(&count, &updatedAt); err != nil {
+		t.Fatalf("active count after cancel: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("active count after cancel = %d, want 0", count)
+	}
+	if !updatedAt.Equal(counterUpdatedAt) {
+		t.Fatalf("active count updated_at changed for zero decrement: got %s want %s", updatedAt, counterUpdatedAt)
+	}
+	assertBulkCanceledViaTerminalState(t, ctx, run.ID, domain.StatusExecuting, "bulk cancel")
+}
+
 func TestRuns_BulkCancelRuns_SkipsTerminal(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

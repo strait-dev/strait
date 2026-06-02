@@ -296,6 +296,7 @@ func (q *Queries) RecoverStaleWorkerTasksExceptRefs(ctx context.Context, cutoff 
 				  AND NOT r.uses_active_claim
 				  AND c.job_id = r.job_id
 				  AND c.concurrency_key = r.concurrency_key
+				  AND c.count <> 0
 				RETURNING 1
 			),
 			lifecycle_events AS (
@@ -878,6 +879,7 @@ func (q *Queries) RequeueOpenWorkerTasks(ctx context.Context, workerID, projectI
 				  AND NOT r.uses_active_claim
 				  AND c.job_id = r.job_id
 				  AND c.concurrency_key = r.concurrency_key
+				  AND c.count <> 0
 				RETURNING 1
 			),
 			lifecycle_events AS (
