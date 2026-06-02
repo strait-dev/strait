@@ -393,6 +393,163 @@ func TestRunStateSplit_ReplayDeadLetterReactivatesHotState(t *testing.T) {
 	}
 }
 
+func TestRunStateSplit_UnmaskDLQRunUsesReadState(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-run-state-dlq-unmask")
+	run := baseRun(job, newID())
+	run.Status = domain.StatusExecuting
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+
+	finishedAt := time.Now().UTC().Add(-48 * time.Hour).Truncate(time.Microsecond)
+	if err := q.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusDeadLetter, map[string]any{
+		"finished_at": finishedAt,
+		"error":       "permanent failure",
+	}); err != nil {
+		t.Fatalf("UpdateRunStatus(dead_letter) error = %v", err)
+	}
+
+	maskedID, err := q.MaskOldestDLQRow(ctx, job.ProjectID, job.ID)
+	if err != nil {
+		t.Fatalf("MaskOldestDLQRow() error = %v", err)
+	}
+	if maskedID != run.ID {
+		t.Fatalf("masked run = %q, want %q", maskedID, run.ID)
+	}
+
+	depth, err := q.DLQDepth(ctx, job.ProjectID, job.ID)
+	if err != nil {
+		t.Fatalf("DLQDepth() after mask error = %v", err)
+	}
+	if depth != 0 {
+		t.Fatalf("DLQDepth after mask = %d, want 0", depth)
+	}
+
+	if err := q.UnmaskDLQRun(ctx, run.ID); err != nil {
+		t.Fatalf("UnmaskDLQRun() error = %v", err)
+	}
+
+	var ledgerStatus, readStatus domain.RunStatus
+	var visibleUntil *time.Time
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT jr.status, s.status, jr.visible_until
+		FROM job_runs jr
+		JOIN job_run_read_state s ON s.run_id = jr.id
+		WHERE jr.id = $1`,
+		run.ID,
+	).Scan(&ledgerStatus, &readStatus, &visibleUntil); err != nil {
+		t.Fatalf("query unmasked run state: %v", err)
+	}
+	if ledgerStatus != domain.StatusExecuting {
+		t.Fatalf("job_runs status = %q, want immutable executing ledger status", ledgerStatus)
+	}
+	if readStatus != domain.StatusDeadLetter {
+		t.Fatalf("read status = %q, want dead_letter", readStatus)
+	}
+	if visibleUntil != nil {
+		t.Fatalf("visible_until = %v, want NULL", *visibleUntil)
+	}
+
+	depth, err = q.DLQDepth(ctx, job.ProjectID, job.ID)
+	if err != nil {
+		t.Fatalf("DLQDepth() after unmask error = %v", err)
+	}
+	if depth != 1 {
+		t.Fatalf("DLQDepth after unmask = %d, want 1", depth)
+	}
+}
+
+func TestRunStateSplit_PurgeDLQRunDeletesSplitStateRows(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-run-state-dlq-purge")
+	run := baseRun(job, newID())
+	run.Status = domain.StatusExecuting
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+
+	if err := q.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusDeadLetter, map[string]any{
+		"finished_at": time.Now().UTC().Truncate(time.Microsecond),
+		"error":       "terminal failure",
+	}); err != nil {
+		t.Fatalf("UpdateRunStatus(dead_letter) error = %v", err)
+	}
+	if err := q.UpdateHeartbeat(ctx, run.ID); err != nil {
+		t.Fatalf("UpdateHeartbeat() error = %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_active_claims (run_id, ready_generation, attempt, started_at)
+		SELECT run_id, ready_generation, attempt, NOW()
+		FROM job_run_state
+		WHERE run_id = $1
+		ON CONFLICT DO NOTHING`,
+		run.ID,
+	); err != nil {
+		t.Fatalf("insert active claim: %v", err)
+	}
+
+	depth, err := q.DLQDepth(ctx, job.ProjectID, job.ID)
+	if err != nil {
+		t.Fatalf("DLQDepth() before purge error = %v", err)
+	}
+	if depth != 1 {
+		t.Fatalf("DLQDepth before purge = %d, want 1", depth)
+	}
+
+	if err := q.PurgeDLQRun(ctx, run.ID); err != nil {
+		t.Fatalf("PurgeDLQRun() error = %v", err)
+	}
+
+	for _, table := range []string{
+		"job_runs",
+		"job_run_state",
+		"job_run_terminal_state",
+		"job_run_active_claims",
+		"job_run_lifecycle_events",
+		"job_run_heartbeats",
+	} {
+		var count int
+		var query string
+		switch table {
+		case "job_runs":
+			query = `SELECT COUNT(*) FROM job_runs WHERE id = $1`
+		case "job_run_state":
+			query = `SELECT COUNT(*) FROM job_run_state WHERE run_id = $1`
+		case "job_run_terminal_state":
+			query = `SELECT COUNT(*) FROM job_run_terminal_state WHERE run_id = $1`
+		case "job_run_active_claims":
+			query = `SELECT COUNT(*) FROM job_run_active_claims WHERE run_id = $1`
+		case "job_run_lifecycle_events":
+			query = `SELECT COUNT(*) FROM job_run_lifecycle_events WHERE run_id = $1`
+		case "job_run_heartbeats":
+			query = `SELECT COUNT(*) FROM job_run_heartbeats WHERE run_id = $1`
+		default:
+			t.Fatalf("unknown table %q", table)
+		}
+		if err := testDB.Pool.QueryRow(ctx, query, run.ID).Scan(&count); err != nil {
+			t.Fatalf("count %s rows: %v", table, err)
+		}
+		if count != 0 {
+			t.Fatalf("%s rows = %d, want 0", table, count)
+		}
+	}
+
+	depth, err = q.DLQDepth(ctx, job.ProjectID, job.ID)
+	if err != nil {
+		t.Fatalf("DLQDepth() after purge error = %v", err)
+	}
+	if depth != 0 {
+		t.Fatalf("DLQDepth after purge = %d, want 0", depth)
+	}
+}
+
 func TestRunStateSplit_ActiveClaimRequeueDeletesClaimAndBumpsGeneration(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

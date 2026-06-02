@@ -99,6 +99,95 @@ func TestHeartbeatSideTable_DeleteRemoves(t *testing.T) {
 	}
 }
 
+func TestHeartbeatSideTable_DeleteOrphanedUsesSplitRunState(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-hb-gc-split-state")
+	run := baseRun(job, newID())
+	run.Status = domain.StatusExecuting
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+	if err := q.UpdateHeartbeat(ctx, run.ID); err != nil {
+		t.Fatalf("UpdateHeartbeat() error = %v", err)
+	}
+	if err := q.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{
+		"finished_at": time.Now(),
+	}); err != nil {
+		t.Fatalf("UpdateRunStatus(completed) error = %v", err)
+	}
+	if err := q.UpdateHeartbeat(ctx, run.ID); err != nil {
+		t.Fatalf("reinsert leaked heartbeat: %v", err)
+	}
+
+	var ledgerStatus, readStatus domain.RunStatus
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT jr.status, s.status
+		FROM job_runs jr
+		JOIN job_run_read_state s ON s.run_id = jr.id
+		WHERE jr.id = $1`,
+		run.ID,
+	).Scan(&ledgerStatus, &readStatus); err != nil {
+		t.Fatalf("query split state: %v", err)
+	}
+	if ledgerStatus != domain.StatusExecuting || readStatus != domain.StatusCompleted {
+		t.Fatalf("ledger/read status = %q/%q, want executing/completed", ledgerStatus, readStatus)
+	}
+
+	deleted, err := q.DeleteOrphanedHeartbeats(ctx, 100)
+	if err != nil {
+		t.Fatalf("DeleteOrphanedHeartbeats() error = %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("deleted = %d, want 1", deleted)
+	}
+
+	var count int
+	if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM job_run_heartbeats WHERE run_id = $1`, run.ID).Scan(&count); err != nil {
+		t.Fatalf("count heartbeat rows: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("heartbeat rows = %d, want 0", count)
+	}
+}
+
+func TestHeartbeatSideTable_DeleteOrphanedKeepsWaitingRuns(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-hb-gc-waiting")
+	run := baseRun(job, newID())
+	run.Status = domain.StatusExecuting
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+	if err := q.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusWaiting, nil); err != nil {
+		t.Fatalf("UpdateRunStatus(waiting) error = %v", err)
+	}
+	if err := q.UpdateHeartbeatForActiveRun(ctx, run.ID, run.Attempt); err != nil {
+		t.Fatalf("UpdateHeartbeatForActiveRun() error = %v", err)
+	}
+
+	deleted, err := q.DeleteOrphanedHeartbeats(ctx, 100)
+	if err != nil {
+		t.Fatalf("DeleteOrphanedHeartbeats() error = %v", err)
+	}
+	if deleted != 0 {
+		t.Fatalf("deleted = %d, want 0 for waiting run", deleted)
+	}
+
+	var count int
+	if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM job_run_heartbeats WHERE run_id = $1`, run.ID).Scan(&count); err != nil {
+		t.Fatalf("count heartbeat rows: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("heartbeat rows = %d, want 1", count)
+	}
+}
+
 func TestHeartbeatSideTable_StaleDetection(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

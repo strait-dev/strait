@@ -687,8 +687,10 @@ func (q *Queries) CountProjectQueuedRuns(ctx context.Context, projectID string) 
 
 	query := `
 		SELECT COUNT(*)
-		FROM job_runs
-		WHERE project_id = $1 AND status IN ('queued', 'delayed')`
+		FROM job_runs jr
+		LEFT JOIN job_run_read_state s ON s.run_id = jr.id
+		WHERE jr.project_id = $1
+		  AND COALESCE(s.status, jr.status) IN ('queued', 'delayed')`
 
 	var count int
 	if err := q.db.QueryRow(ctx, query, projectID).Scan(&count); err != nil {
@@ -704,8 +706,10 @@ func (q *Queries) CountProjectActiveRuns(ctx context.Context, projectID string) 
 
 	query := `
 		SELECT COUNT(*)
-		FROM job_runs
-		WHERE project_id = $1 AND status IN ('dequeued', 'executing')`
+		FROM job_runs jr
+		LEFT JOIN job_run_read_state s ON s.run_id = jr.id
+		WHERE jr.project_id = $1
+		  AND COALESCE(s.status, jr.status) IN ('dequeued', 'executing')`
 
 	var count int
 	if err := q.db.QueryRow(ctx, query, projectID).Scan(&count); err != nil {
@@ -723,8 +727,9 @@ func (q *Queries) CountExecutingRunsByOrg(ctx context.Context, orgID string) (in
 	query := `
 		SELECT COUNT(*)
 		FROM job_runs jr
+		LEFT JOIN job_run_read_state s ON s.run_id = jr.id
 		WHERE jr.project_id IN (SELECT id FROM projects WHERE org_id = $1)
-		  AND jr.status = 'executing'`
+		  AND COALESCE(s.status, jr.status) = 'executing'`
 
 	var count int
 	if err := q.db.QueryRow(ctx, query, orgID).Scan(&count); err != nil {
@@ -748,8 +753,9 @@ func (q *Queries) BulkCountExecutingRunsByOrg(ctx context.Context, orgIDs []stri
 		SELECT p.org_id, COUNT(jr.id)::int
 		FROM job_runs jr
 		JOIN projects p ON p.id = jr.project_id
+		LEFT JOIN job_run_read_state s ON s.run_id = jr.id
 		WHERE p.org_id = ANY($1)
-		  AND jr.status = 'executing'
+		  AND COALESCE(s.status, jr.status) = 'executing'
 		GROUP BY p.org_id
 	`, orgIDs)
 	if err != nil {
@@ -778,7 +784,8 @@ func (q *Queries) ListOrgsWithExecutingRuns(ctx context.Context) ([]string, erro
 		SELECT DISTINCT p.org_id
 		FROM job_runs jr
 		JOIN projects p ON p.id = jr.project_id
-		WHERE jr.status = 'executing'
+		LEFT JOIN job_run_read_state s ON s.run_id = jr.id
+		WHERE COALESCE(s.status, jr.status) = 'executing'
 		  AND p.org_id IS NOT NULL`
 
 	rows, err := q.db.Query(ctx, query)

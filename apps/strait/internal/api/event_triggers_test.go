@@ -42,6 +42,74 @@ func newEventTriggersTestServerWithPubSub(t *testing.T, s APIStore, wfCallback W
 	return srv
 }
 
+func TestReceiveJobRunEventTrigger_EnqueuesExistingReadyRun(t *testing.T) {
+	t.Parallel()
+
+	trigger := &domain.EventTrigger{
+		ID:         "evt-ready-run",
+		ProjectID:  "proj-ready-run",
+		SourceType: domain.EventSourceJobRun,
+		JobRunID:   "run-ready",
+	}
+	run := &domain.JobRun{
+		ID:        "run-ready",
+		ProjectID: "proj-ready-run",
+		Status:    domain.StatusQueued,
+	}
+	payload := json.RawMessage(`{"checkpoint":"resume"}`)
+
+	var received bool
+	var enqueuedRunID string
+	ms := &APIStoreMock{
+		ReceiveEventAndRequeueRunFunc: func(_ context.Context, triggerID string, gotPayload json.RawMessage, _ time.Time, jobRunID string) error {
+			if triggerID != trigger.ID {
+				t.Fatalf("triggerID = %q, want %q", triggerID, trigger.ID)
+			}
+			if jobRunID != trigger.JobRunID {
+				t.Fatalf("jobRunID = %q, want %q", jobRunID, trigger.JobRunID)
+			}
+			if string(gotPayload) != string(payload) {
+				t.Fatalf("payload = %s, want %s", string(gotPayload), string(payload))
+			}
+			received = true
+			return nil
+		},
+		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+			if id != run.ID {
+				t.Fatalf("GetRun id = %q, want %q", id, run.ID)
+			}
+			return run, nil
+		},
+	}
+	queue := &mockQueue{
+		enqueueExistingFn: func(_ context.Context, got *domain.JobRun) error {
+			enqueuedRunID = got.ID
+			return nil
+		},
+	}
+	srv := NewServer(ServerDeps{
+		Config: &config.Config{
+			InternalSecret:      "test-secret-value",
+			MaxBulkTriggerItems: 500,
+			JWTSigningKey:       testJWTSigningKey,
+		},
+		Store:  ms,
+		Queue:  queue,
+		PubSub: &mockPublisher{},
+	})
+	t.Cleanup(srv.Close)
+
+	if err := srv.receiveJobRunEventTrigger(context.Background(), trigger, payload, time.Now().UTC()); err != nil {
+		t.Fatalf("receiveJobRunEventTrigger() error = %v", err)
+	}
+	if !received {
+		t.Fatal("ReceiveEventAndRequeueRun was not called")
+	}
+	if enqueuedRunID != run.ID {
+		t.Fatalf("EnqueueExisting run = %q, want %q", enqueuedRunID, run.ID)
+	}
+}
+
 func TestHandleSendEvent_Success(t *testing.T) {
 	t.Parallel()
 

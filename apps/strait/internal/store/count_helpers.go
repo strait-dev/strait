@@ -82,10 +82,11 @@ func (q *Queries) DeleteRunsByOrgOlderThan(ctx context.Context, orgID string, re
 		WITH to_mask AS (
 			SELECT jr.id FROM job_runs jr
 			JOIN jobs j ON jr.job_id = j.id
+			LEFT JOIN job_run_read_state s ON s.run_id = jr.id
 			WHERE j.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
-			  AND jr.status IN ('completed', 'failed', 'canceled', 'timed_out')
-			  AND jr.finished_at IS NOT NULL
-			  AND jr.finished_at < $2
+			  AND COALESCE(s.status, jr.status) IN ('completed', 'failed', 'canceled', 'timed_out')
+			  AND COALESCE(s.finished_at, jr.finished_at) IS NOT NULL
+			  AND COALESCE(s.finished_at, jr.finished_at) < $2
 			  AND jr.visible_until IS NULL
 			LIMIT 1000
 		)

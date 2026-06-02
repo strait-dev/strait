@@ -1783,6 +1783,11 @@ func (q *Queries) tryUpdateRunStateStatus(ctx context.Context, id string, from, 
 				if reactivateErr != nil || !moved {
 					return reactivateErr
 				}
+				if from == domain.StatusDeadLetter {
+					if err := txQ.decrementVisibleDLQCountForRun(ctx, id); err != nil {
+						return err
+					}
+				}
 				if err := txQ.syncLegacyQueueEntryStatus(ctx, id, to); err != nil {
 					return err
 				}
@@ -1812,6 +1817,11 @@ func (q *Queries) tryUpdateRunStateStatus(ctx context.Context, id string, from, 
 				moved, eventAttempt, appendErr = txQ.appendRunTerminalState(ctx, id, from, to, fields, attempt)
 				if appendErr != nil || !moved {
 					return appendErr
+				}
+				if to == domain.StatusDeadLetter {
+					if err := txQ.incrementVisibleDLQCountForRun(ctx, id); err != nil {
+						return err
+					}
 				}
 				if err := txQ.syncLegacyQueueEntryStatus(ctx, id, to); err != nil {
 					return err
@@ -1872,6 +1882,9 @@ func (q *Queries) tryUpdateRunStateStatus(ctx context.Context, id string, from, 
 	}
 
 	stateSet := []string{"status = $1", "updated_at = NOW()"}
+	if from == domain.StatusWaiting && to == domain.StatusQueued {
+		stateSet = append(stateSet, "ready_generation = ready_generation + 1")
+	}
 	stateArgs := []any{to, id, from}
 	stateParam := 4
 	ledgerFields := make(map[string]any)

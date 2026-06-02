@@ -102,7 +102,41 @@ func (q *Queries) UnmaskDLQRun(ctx context.Context, runID string) error {
 	// then do a follow-up SELECT to disambiguate ErrRunNotFound (row is
 	// gone) from ErrRunConflict (row exists but is no longer dead_letter).
 	var id string
-	err := q.db.QueryRow(ctx, `UPDATE job_runs SET visible_until = NULL WHERE id = $1 AND status = 'dead_letter' RETURNING id`, runID).Scan(&id)
+	err := q.db.QueryRow(ctx, `
+		WITH selected AS (
+			SELECT
+				jr.id,
+				jr.project_id,
+				jr.job_id,
+				jr.status AS ledger_status,
+				(jr.visible_until IS NULL OR jr.visible_until > NOW()) AS was_visible
+			FROM job_runs jr
+			WHERE jr.id = $1
+			  AND COALESCE((
+				SELECT s.status
+				FROM job_run_read_state s
+				WHERE s.run_id = jr.id
+			  ), jr.status) = 'dead_letter'
+			FOR UPDATE OF jr
+			),
+			updated AS (
+				UPDATE job_runs jr
+				SET visible_until = NULL
+				FROM selected s
+				WHERE jr.id = s.id
+				RETURNING jr.id, s.project_id, s.job_id, s.ledger_status, s.was_visible
+			),
+		incremented AS (
+			INSERT INTO dlq_counts (project_id, job_id, count)
+			SELECT project_id, job_id, 1
+			FROM updated
+			WHERE ledger_status <> 'dead_letter'
+			  AND NOT was_visible
+			ON CONFLICT (project_id, job_id)
+			DO UPDATE SET count = dlq_counts.count + 1, updated_at = NOW()
+			RETURNING 1
+		)
+		SELECT id FROM updated`, runID).Scan(&id)
 	if err == nil {
 		return nil
 	}
@@ -110,8 +144,7 @@ func (q *Queries) UnmaskDLQRun(ctx context.Context, runID string) error {
 		return fmt.Errorf("unmask dlq run: %w", err)
 	}
 
-	var status domain.RunStatus
-	loadErr := q.db.QueryRow(ctx, `SELECT status FROM job_runs WHERE id = $1`, runID).Scan(&status)
+	status, _, loadErr := q.currentRunMutableState(ctx, runID)
 	if loadErr != nil {
 		if errors.Is(loadErr, pgx.ErrNoRows) {
 			return ErrRunNotFound
@@ -129,10 +162,57 @@ func (q *Queries) PurgeDLQRun(ctx context.Context, runID string) error {
 	defer span.End()
 
 	// Single-statement DELETE with status guard; see UnmaskDLQRun for the
-	// rationale. On empty RETURNING we disambiguate not-found from
-	// conflict via a follow-up SELECT.
+	// rationale. Side tables owned by the split run-state model are removed
+	// in the same statement so hard purge does not leave cold-state or
+	// lifecycle rows behind.
 	var id string
-	err := q.db.QueryRow(ctx, `DELETE FROM job_runs WHERE id = $1 AND status = 'dead_letter' RETURNING id`, runID).Scan(&id)
+	err := q.db.QueryRow(ctx, `
+		WITH victim AS (
+			SELECT
+				jr.id,
+				jr.project_id,
+				jr.job_id,
+				jr.status AS ledger_status,
+				(jr.visible_until IS NULL OR jr.visible_until > NOW()) AS was_visible
+			FROM job_runs jr
+			WHERE jr.id = $1
+			  AND COALESCE((
+				SELECT s.status
+				FROM job_run_read_state s
+				WHERE s.run_id = jr.id
+			  ), jr.status) = 'dead_letter'
+			FOR UPDATE OF jr
+		),
+		deleted_active_claims AS (
+			DELETE FROM job_run_active_claims
+			WHERE run_id IN (SELECT id FROM victim)
+		),
+		deleted_lifecycle_events AS (
+			DELETE FROM job_run_lifecycle_events
+			WHERE run_id IN (SELECT id FROM victim)
+		),
+		deleted_terminal_state AS (
+			DELETE FROM job_run_terminal_state
+			WHERE run_id IN (SELECT id FROM victim)
+		),
+		deleted_heartbeats AS (
+			DELETE FROM job_run_heartbeats
+			WHERE run_id IN (SELECT id FROM victim)
+		),
+		decremented AS (
+			UPDATE dlq_counts c
+			SET count = GREATEST(c.count - 1, 0),
+			    updated_at = NOW()
+			FROM victim v
+			WHERE v.ledger_status <> 'dead_letter'
+			  AND v.was_visible
+			  AND c.project_id = v.project_id
+			  AND c.job_id = v.job_id
+			RETURNING 1
+		)
+		DELETE FROM job_runs
+		WHERE id IN (SELECT id FROM victim)
+		RETURNING id`, runID).Scan(&id)
 	if err == nil {
 		return nil
 	}
@@ -140,8 +220,7 @@ func (q *Queries) PurgeDLQRun(ctx context.Context, runID string) error {
 		return fmt.Errorf("purge dlq run: %w", err)
 	}
 
-	var status domain.RunStatus
-	loadErr := q.db.QueryRow(ctx, `SELECT status FROM job_runs WHERE id = $1`, runID).Scan(&status)
+	status, _, loadErr := q.currentRunMutableState(ctx, runID)
 	if loadErr != nil {
 		if errors.Is(loadErr, pgx.ErrNoRows) {
 			return ErrRunNotFound

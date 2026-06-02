@@ -67,6 +67,58 @@ func TestMaskOldDLQRows_MasksOnlyStale(t *testing.T) {
 	}
 }
 
+func TestMaskOldDLQRows_UsesSplitTerminalState(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "proj-dlq-age-split")
+	run := baseRun(job, newID())
+	run.Status = domain.StatusExecuting
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+
+	finishedAt := time.Now().UTC().Add(-48 * time.Hour).Truncate(time.Microsecond)
+	if err := q.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusDeadLetter, map[string]any{
+		"finished_at": finishedAt,
+	}); err != nil {
+		t.Fatalf("UpdateRunStatus(dead_letter) error = %v", err)
+	}
+
+	var ledgerStatus domain.RunStatus
+	if err := testDB.Pool.QueryRow(ctx, `SELECT status FROM job_runs WHERE id = $1`, run.ID).Scan(&ledgerStatus); err != nil {
+		t.Fatalf("query ledger status: %v", err)
+	}
+	if ledgerStatus != domain.StatusExecuting {
+		t.Fatalf("job_runs status = %q, want immutable executing ledger status", ledgerStatus)
+	}
+
+	masked, err := q.MaskOldDLQRows(ctx, 24*time.Hour, 100)
+	if err != nil {
+		t.Fatalf("MaskOldDLQRows() error = %v", err)
+	}
+	if masked != 1 {
+		t.Fatalf("masked = %d, want 1", masked)
+	}
+
+	var visibleUntil *time.Time
+	if err := testDB.Pool.QueryRow(ctx, `SELECT visible_until FROM job_runs WHERE id = $1`, run.ID).Scan(&visibleUntil); err != nil {
+		t.Fatalf("query visible_until: %v", err)
+	}
+	if visibleUntil == nil {
+		t.Fatalf("visible_until = NULL, want masked timestamp")
+	}
+
+	depth, err := q.DLQDepth(ctx, job.ProjectID, job.ID)
+	if err != nil {
+		t.Fatalf("DLQDepth() error = %v", err)
+	}
+	if depth != 0 {
+		t.Fatalf("DLQDepth after mask = %d, want 0", depth)
+	}
+}
+
 func TestMaskOldDLQRows_Idempotent(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

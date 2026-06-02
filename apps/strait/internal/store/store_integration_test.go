@@ -11502,6 +11502,16 @@ func TestReceiveEventAndRequeueRun(t *testing.T) {
 	run := testutil.MustCreateRun(t, ctx, q, job, &testutil.RunOpts{Status: new(runStatus)})
 	trigger := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-requeue-"+newID(), time.Now().UTC().Add(-time.Minute), nil, nil)
 
+	var beforeGeneration int64
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT ready_generation
+		FROM job_run_state
+		WHERE run_id = $1`,
+		run.ID,
+	).Scan(&beforeGeneration); err != nil {
+		t.Fatalf("query ready_generation before receive: %v", err)
+	}
+
 	payload := json.RawMessage(`{"checkpoint":"resume"}`)
 	receivedAt := time.Now().UTC()
 	if err := q.ReceiveEventAndRequeueRun(ctx, trigger.ID, payload, receivedAt, run.ID); err != nil {
@@ -11514,6 +11524,26 @@ func TestReceiveEventAndRequeueRun(t *testing.T) {
 	}
 	if updatedRun.Status != domain.StatusQueued {
 		t.Fatalf("run status = %q, want %q", updatedRun.Status, domain.StatusQueued)
+	}
+	var ledgerStatus, stateStatus domain.RunStatus
+	var afterGeneration int64
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT jr.status, s.status, s.ready_generation
+		FROM job_runs jr
+		JOIN job_run_state s ON s.run_id = jr.id
+		WHERE jr.id = $1`,
+		run.ID,
+	).Scan(&ledgerStatus, &stateStatus, &afterGeneration); err != nil {
+		t.Fatalf("query split run state after receive: %v", err)
+	}
+	if ledgerStatus != domain.StatusWaiting {
+		t.Fatalf("job_runs status = %q, want immutable waiting ledger status", ledgerStatus)
+	}
+	if stateStatus != domain.StatusQueued {
+		t.Fatalf("job_run_state status = %q, want queued", stateStatus)
+	}
+	if afterGeneration != beforeGeneration+1 {
+		t.Fatalf("ready_generation = %d, want %d", afterGeneration, beforeGeneration+1)
 	}
 	checkpoint, err := q.GetLatestCheckpoint(ctx, run.ID)
 	if err != nil {

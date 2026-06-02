@@ -65,6 +65,66 @@ func TestDLQCounts_TriggerMaintainsCounter(t *testing.T) {
 	}
 }
 
+func TestDLQCounts_SplitStateTransitionsMaintainCounter(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "proj-dlq-split-counter")
+	run := baseRun(job, newID())
+	run.Status = domain.StatusExecuting
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+
+	if err := q.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusDeadLetter, map[string]any{
+		"finished_at": time.Now().UTC().Truncate(time.Microsecond),
+	}); err != nil {
+		t.Fatalf("UpdateRunStatus(dead_letter) error = %v", err)
+	}
+
+	var ledgerStatus, readStatus domain.RunStatus
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT jr.status, s.status
+		FROM job_runs jr
+		JOIN job_run_read_state s ON s.run_id = jr.id
+		WHERE jr.id = $1`,
+		run.ID,
+	).Scan(&ledgerStatus, &readStatus); err != nil {
+		t.Fatalf("query split state: %v", err)
+	}
+	if ledgerStatus != domain.StatusExecuting {
+		t.Fatalf("job_runs status = %q, want immutable executing ledger status", ledgerStatus)
+	}
+	if readStatus != domain.StatusDeadLetter {
+		t.Fatalf("read status = %q, want dead_letter", readStatus)
+	}
+
+	depth, err := q.DLQDepth(ctx, job.ProjectID, job.ID)
+	if err != nil {
+		t.Fatalf("DLQDepth() error = %v", err)
+	}
+	if depth != 1 {
+		t.Fatalf("DLQDepth after terminal transition = %d, want 1", depth)
+	}
+
+	replayed, err := q.ReplayDeadLetterRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("ReplayDeadLetterRun() error = %v", err)
+	}
+	if replayed.Status != domain.StatusQueued {
+		t.Fatalf("replayed status = %q, want queued", replayed.Status)
+	}
+
+	depth, err = q.DLQDepth(ctx, job.ProjectID, job.ID)
+	if err != nil {
+		t.Fatalf("DLQDepth() after replay error = %v", err)
+	}
+	if depth != 0 {
+		t.Fatalf("DLQDepth after replay = %d, want 0", depth)
+	}
+}
+
 func TestMaskOldestDLQRow_PicksOldest(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

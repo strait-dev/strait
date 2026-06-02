@@ -64,21 +64,45 @@ func (q *Queries) MaskOldDLQRows(ctx context.Context, retention time.Duration, l
 	cutoff := time.Now().UTC().Add(-retention)
 	const sql = `
 		WITH victims AS (
-			SELECT id FROM job_runs
-			WHERE status = 'dead_letter'
-			  AND visible_until IS NULL
-			  AND finished_at IS NOT NULL
-			  AND finished_at < $1
-			ORDER BY finished_at ASC
+			SELECT jr.id, jr.project_id, jr.job_id, jr.status AS ledger_status
+			FROM job_runs jr
+			LEFT JOIN job_run_read_state s ON s.run_id = jr.id
+			WHERE COALESCE(s.status, jr.status) = 'dead_letter'
+			  AND jr.visible_until IS NULL
+			  AND COALESCE(s.finished_at, jr.finished_at) IS NOT NULL
+			  AND COALESCE(s.finished_at, jr.finished_at) < $1
+			ORDER BY COALESCE(s.finished_at, jr.finished_at) ASC
 			LIMIT $2
+		),
+		masked AS (
+			UPDATE job_runs jr
+			SET visible_until = NOW()
+			FROM victims v
+			WHERE jr.id = v.id
+			RETURNING v.id, v.project_id, v.job_id, v.ledger_status
+		),
+		split_counts AS (
+			SELECT project_id, job_id, COUNT(*)::int AS count
+			FROM masked
+			WHERE ledger_status <> 'dead_letter'
+			GROUP BY project_id, job_id
+		),
+		decremented AS (
+			UPDATE dlq_counts c
+			SET count = GREATEST(c.count - sc.count, 0),
+			    updated_at = NOW()
+			FROM split_counts sc
+			WHERE c.project_id = sc.project_id
+			  AND c.job_id = sc.job_id
+			RETURNING 1
 		)
-		UPDATE job_runs SET visible_until = NOW()
-		WHERE id IN (SELECT id FROM victims)`
-	tag, err := q.db.Exec(ctx, sql, cutoff, limit)
+		SELECT COUNT(*) FROM masked`
+	var masked int64
+	err := q.db.QueryRow(ctx, sql, cutoff, limit).Scan(&masked)
 	if err != nil {
 		return 0, fmt.Errorf("mask old dlq rows: %w", err)
 	}
-	return tag.RowsAffected(), nil
+	return masked, nil
 }
 
 // OldestUnmaskedDLQAge returns the age in seconds of the oldest visible
@@ -90,9 +114,12 @@ func (q *Queries) OldestUnmaskedDLQAge(ctx context.Context) (float64, error) {
 	defer span.End()
 	var age float64
 	err := q.db.QueryRow(ctx, `
-		SELECT COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(finished_at))), 0)
-		FROM job_runs
-		WHERE status = 'dead_letter' AND visible_until IS NULL AND finished_at IS NOT NULL
+		SELECT COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(COALESCE(s.finished_at, jr.finished_at)))), 0)
+		FROM job_runs jr
+		LEFT JOIN job_run_read_state s ON s.run_id = jr.id
+		WHERE COALESCE(s.status, jr.status) = 'dead_letter'
+		  AND jr.visible_until IS NULL
+		  AND COALESCE(s.finished_at, jr.finished_at) IS NOT NULL
 	`).Scan(&age)
 	if err != nil {
 		return 0, fmt.Errorf("oldest unmasked dlq age: %w", err)
@@ -109,17 +136,34 @@ func (q *Queries) MaskOldestDLQRow(ctx context.Context, projectID, jobID string)
 
 	const sql = `
 		WITH victim AS (
-			SELECT id FROM job_runs
-			WHERE project_id = $1
-			  AND job_id = $2
-			  AND status = 'dead_letter'
-			  AND visible_until IS NULL
-			ORDER BY finished_at ASC
+			SELECT jr.id, jr.project_id, jr.job_id, jr.status AS ledger_status
+			FROM job_runs jr
+			LEFT JOIN job_run_read_state s ON s.run_id = jr.id
+			WHERE jr.project_id = $1
+			  AND jr.job_id = $2
+			  AND COALESCE(s.status, jr.status) = 'dead_letter'
+			  AND jr.visible_until IS NULL
+			ORDER BY COALESCE(s.finished_at, jr.finished_at) ASC
 			LIMIT 1
+		),
+		masked AS (
+			UPDATE job_runs jr
+			SET visible_until = NOW()
+			FROM victim v
+			WHERE jr.id = v.id
+			RETURNING v.id, v.project_id, v.job_id, v.ledger_status
+		),
+		decremented AS (
+			UPDATE dlq_counts c
+			SET count = GREATEST(c.count - 1, 0),
+			    updated_at = NOW()
+			FROM masked m
+			WHERE m.ledger_status <> 'dead_letter'
+			  AND c.project_id = m.project_id
+			  AND c.job_id = m.job_id
+			RETURNING 1
 		)
-		UPDATE job_runs SET visible_until = NOW()
-		WHERE id IN (SELECT id FROM victim)
-		RETURNING id`
+		SELECT id FROM masked`
 	var id string
 	err := q.db.QueryRow(ctx, sql, projectID, jobID).Scan(&id)
 	if err != nil {
@@ -129,4 +173,39 @@ func (q *Queries) MaskOldestDLQRow(ctx context.Context, projectID, jobID string)
 		return "", fmt.Errorf("mask oldest dlq row: %w", err)
 	}
 	return id, nil
+}
+
+func (q *Queries) incrementVisibleDLQCountForRun(ctx context.Context, runID string) error {
+	_, err := q.db.Exec(ctx, `
+		INSERT INTO dlq_counts (project_id, job_id, count)
+		SELECT project_id, job_id, 1
+		FROM job_runs
+		WHERE id = $1
+		  AND (visible_until IS NULL OR visible_until > NOW())
+		ON CONFLICT (project_id, job_id)
+		DO UPDATE SET count = dlq_counts.count + 1, updated_at = NOW()`,
+		runID,
+	)
+	if err != nil {
+		return fmt.Errorf("increment dlq count: %w", err)
+	}
+	return nil
+}
+
+func (q *Queries) decrementVisibleDLQCountForRun(ctx context.Context, runID string) error {
+	_, err := q.db.Exec(ctx, `
+		UPDATE dlq_counts c
+		SET count = GREATEST(c.count - 1, 0),
+		    updated_at = NOW()
+		FROM job_runs jr
+		WHERE jr.id = $1
+		  AND (jr.visible_until IS NULL OR jr.visible_until > NOW())
+		  AND c.project_id = jr.project_id
+		  AND c.job_id = jr.job_id`,
+		runID,
+	)
+	if err != nil {
+		return fmt.Errorf("decrement dlq count: %w", err)
+	}
+	return nil
 }

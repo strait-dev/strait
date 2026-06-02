@@ -63,7 +63,7 @@ func (q *Queries) DeleteHeartbeatSideTable(ctx context.Context, ids []string) er
 }
 
 // DeleteOrphanedHeartbeats removes side-table rows whose owning run is
-// no longer in status 'executing'. Used by the heartbeat GC
+// no longer in a heartbeat-capable active status. Used by the heartbeat GC
 // to bound the unlogged table size when a terminal transition skipped
 // the explicit delete.
 func (q *Queries) DeleteOrphanedHeartbeats(ctx context.Context, limit int) (int64, error) {
@@ -77,7 +77,9 @@ func (q *Queries) DeleteOrphanedHeartbeats(ctx context.Context, limit int) (int6
 		WITH victims AS (
 			SELECT h.run_id FROM job_run_heartbeats h
 			LEFT JOIN job_runs r ON r.id = h.run_id
-			WHERE r.id IS NULL OR r.status <> 'executing'
+			LEFT JOIN job_run_read_state s ON s.run_id = h.run_id
+			WHERE r.id IS NULL
+			   OR COALESCE(s.status, r.status) NOT IN ('executing', 'waiting')
 			LIMIT $1
 		)
 		DELETE FROM job_run_heartbeats

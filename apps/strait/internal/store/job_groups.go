@@ -247,11 +247,12 @@ func (q *Queries) GetJobGroupStats(ctx context.Context, groupID string) (*JobGro
 	}
 
 	query := `
-		SELECT jr.status, COUNT(*)
+		SELECT COALESCE(s.status, jr.status), COUNT(*)
 		FROM job_runs jr
 		JOIN jobs j ON j.id = jr.job_id
+		LEFT JOIN job_run_read_state s ON s.run_id = jr.id
 		WHERE j.group_id = $1
-		GROUP BY jr.status`
+		GROUP BY COALESCE(s.status, jr.status)`
 
 	rows, err := q.db.Query(ctx, query, groupID)
 	if err != nil {

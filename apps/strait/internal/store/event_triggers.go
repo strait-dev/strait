@@ -734,16 +734,15 @@ func (q *Queries) ReceiveEventAndRequeueRun(ctx context.Context, triggerID strin
 	defer span.End()
 
 	requeueRun := func(txQ *Queries) error {
-		tag, err := txQ.db.Exec(ctx,
-			`UPDATE job_runs SET status = $1 WHERE id = $2 AND status = $3`,
-			domain.StatusQueued,
-			jobRunID,
-			domain.StatusWaiting,
-		)
+		// Event receipt is the one valid resume edge from waiting back to
+		// queued. It intentionally bypasses the public FSM validator while
+		// still using the split-state transition helper for cache, lifecycle,
+		// ready-generation, and legacy queue synchronization.
+		moved, err := txQ.tryUpdateRunStateStatus(ctx, jobRunID, domain.StatusWaiting, domain.StatusQueued, nil, nil)
 		if err != nil {
 			return fmt.Errorf("requeue run: %w", err)
 		}
-		if tag.RowsAffected() == 0 {
+		if !moved {
 			return fmt.Errorf("%w: id %s from %s", ErrRunConflict, jobRunID, domain.StatusWaiting)
 		}
 		if len(payload) > 0 {

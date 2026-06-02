@@ -60,10 +60,17 @@ func (q *Queries) AggregateHourlyStats(ctx context.Context, hour time.Time) erro
 	// it up with the outer aggregation in a single pass.
 	query := `
 		WITH target_runs AS (
-			SELECT jr.id, jr.job_id, jr.project_id, jr.status, jr.started_at, jr.finished_at
+			SELECT
+				jr.id,
+				jr.job_id,
+				jr.project_id,
+				COALESCE(s.status, jr.status) AS status,
+				COALESCE(s.started_at, jr.started_at) AS started_at,
+				COALESCE(s.finished_at, jr.finished_at) AS finished_at
 			FROM job_runs jr
+			LEFT JOIN job_run_read_state s ON s.run_id = jr.id
 			WHERE jr.created_at >= $1 AND jr.created_at < $2
-			  AND jr.status IN ('completed', 'failed', 'timed_out', 'canceled')
+			  AND COALESCE(s.status, jr.status) IN ('completed', 'failed', 'timed_out', 'canceled')
 		),
 		run_costs AS (
 			SELECT ru.run_id, SUM(ru.cost_microusd) AS run_cost
