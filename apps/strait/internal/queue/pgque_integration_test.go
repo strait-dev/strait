@@ -4,6 +4,8 @@ package queue_test
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -200,6 +202,100 @@ func TestPgQue_DequeueWindowDoesNotLoseUnseenBatchMessages(t *testing.T) {
 	}
 	if len(seen) != want {
 		t.Fatalf("claimed %d runs, want %d; small PgQue receive windows must not ack away unseen batch messages", len(seen), want)
+	}
+}
+
+func TestPgQue_ConcurrentDequeueDrainsSingleBatchWithoutDuplicates(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-pgque-concurrent-batch")
+	q := queue.NewPgQueQueue(testDB.Pool, queue.NewPostgresQueue(testDB.Pool), queue.PgQueConfig{
+		TickInterval:  10 * time.Millisecond,
+		ConsumerName:  "test-" + newID(),
+		NackDelay:     10 * time.Millisecond,
+		ReceiveWindow: 100,
+	})
+
+	const want = 120
+	runs := make([]*domain.JobRun, 0, want)
+	for range want {
+		runs = append(runs, &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID})
+	}
+	inserted, err := q.EnqueueBatch(ctx, runs)
+	if err != nil {
+		t.Fatalf("EnqueueBatch: %v", err)
+	}
+	if inserted != want {
+		t.Fatalf("EnqueueBatch inserted = %d, want %d", inserted, want)
+	}
+	if err := q.ForceTick(ctx, "http"); err != nil {
+		t.Fatalf("ForceTick: %v", err)
+	}
+
+	var mu sync.Mutex
+	seen := make(map[string]struct{}, want)
+	errCh := make(chan error, 1)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for range 16 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			for {
+				mu.Lock()
+				done := len(seen) >= want
+				mu.Unlock()
+				if done {
+					return
+				}
+				claimed, err := q.DequeueN(ctx, 4)
+				if err != nil {
+					select {
+					case errCh <- err:
+					default:
+					}
+					return
+				}
+				if len(claimed) == 0 {
+					time.Sleep(5 * time.Millisecond)
+					continue
+				}
+				mu.Lock()
+				for _, run := range claimed {
+					if _, ok := seen[run.ID]; ok {
+						mu.Unlock()
+						select {
+						case errCh <- fmt.Errorf("duplicate claim for run %s", run.ID):
+						default:
+						}
+						return
+					}
+					seen[run.ID] = struct{}{}
+				}
+				mu.Unlock()
+			}
+		}()
+	}
+	close(start)
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case err := <-errCh:
+		t.Fatalf("concurrent dequeue: %v", err)
+	case <-done:
+	case <-ctx.Done():
+		t.Fatalf("timed out waiting for concurrent dequeue: claimed %d of %d", len(seen), want)
+	}
+	if len(seen) != want {
+		t.Fatalf("claimed %d runs, want %d", len(seen), want)
 	}
 }
 

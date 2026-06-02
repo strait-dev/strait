@@ -63,6 +63,8 @@ type pgQueRouteState struct {
 type pgQueActiveBatch struct {
 	BatchID  int64
 	Messages []pgQueMessage
+	InFlight int
+	Closing  bool
 }
 
 type pgQueReadyEvent struct {
@@ -97,9 +99,9 @@ type pgQueClaimFilter struct {
 	WorkerRefs    []domain.WorkerQueueRef
 }
 
-const pgQueClaimDequeueColumns = `jr.id, jr.job_id, jr.project_id, u.status, u.attempt, jr.payload, jr.result, jr.metadata, jr.error, jr.error_class,
-		          jr.triggered_by, u.scheduled_at, u.started_at, u.finished_at, u.heartbeat_at,
-		          u.next_retry_at, u.expires_at, jr.parent_run_id, u.priority, jr.idempotency_key, jr.job_version, jr.created_at, jr.workflow_step_run_id, jr.execution_trace, jr.debug_mode, jr.continuation_of, jr.lineage_depth, jr.tags, jr.job_version_id, jr.created_by, jr.batch_id, u.concurrency_key, u.execution_mode, jr.is_rollback, jr.replayed_run_id`
+const pgQueClaimDequeueColumns = `u.run_id, u.job_id, u.project_id, u.status, u.attempt, u.payload, u.result, u.metadata, u.error, u.error_class,
+		          u.triggered_by, u.scheduled_at, u.started_at, u.finished_at, u.heartbeat_at,
+		          u.next_retry_at, u.expires_at, u.parent_run_id, u.priority, u.idempotency_key, u.job_version, u.created_at, u.workflow_step_run_id, u.execution_trace, u.debug_mode, u.continuation_of, u.lineage_depth, u.tags, u.job_version_id, u.created_by, u.batch_id, u.concurrency_key, u.execution_mode, u.is_rollback, u.replayed_run_id`
 
 func NewPgQueQueue(db store.DBTX, legacy *PostgresQueue, cfg PgQueConfig) *PgQueQueue {
 	if legacy == nil {
@@ -584,36 +586,46 @@ func (q *PgQueQueue) dequeueFromRoute(ctx context.Context, n int, routeKey strin
 		return nil, err
 	}
 
-	state.mu.Lock()
-	defer state.mu.Unlock()
-
 	for attempt := 0; attempt < 3; attempt++ {
-		if state.activeBatch == nil || len(state.activeBatch.Messages) == 0 {
-			q.maybeForceTick(ctx, state, queueName)
-		}
-		batch, err := q.activeBatch(ctx, state, queueName)
+		reservation, err := q.reserveFromActiveBatch(ctx, state, queueName, n)
 		if err != nil {
 			return nil, err
 		}
-		if batch == nil {
+		if reservation.Batch == nil {
 			return nil, nil
 		}
 
-		runs, err := q.claimFromActiveBatch(ctx, batch, n, filter)
-		shouldAck := len(batch.Messages) == 0
+		for _, msg := range reservation.Invalid {
+			_ = q.nack(ctx, msg, q.cfg.NackDelay, "invalid ready event")
+		}
+		if len(reservation.Candidates) == 0 {
+			if err := q.finishBatchReservation(ctx, state, reservation.Batch, nil); err != nil {
+				return nil, err
+			}
+			continue
+		}
+
+		runs, unclaimed, nackUnclaimed, err := q.claimReservedCandidates(ctx, reservation.Candidates, n, filter)
+		returnCandidates := unclaimed
+		if nackUnclaimed {
+			for _, candidate := range unclaimed {
+				_ = q.nack(ctx, candidate.Message, q.cfg.NackDelay, "not claimable")
+			}
+			returnCandidates = nil
+		}
+		if err != nil {
+			returnCandidates = reservation.Candidates
+		}
+		if finishErr := q.finishBatchReservation(ctx, state, reservation.Batch, returnCandidates); finishErr != nil {
+			return runs, finishErr
+		}
+		if err != nil {
+			return nil, err
+		}
 		if len(runs) > 0 {
 			for i := range runs {
 				q.legacy.recordClaimMetrics(ctx, &runs[i])
 			}
-		}
-		if shouldAck {
-			state.activeBatch = nil
-			if err := q.ack(ctx, batch.BatchID); err != nil {
-				return runs, err
-			}
-		}
-		if err != nil {
-			return nil, err
 		}
 		if len(runs) > 0 {
 			return runs, nil
@@ -622,8 +634,109 @@ func (q *PgQueQueue) dequeueFromRoute(ctx context.Context, n int, routeKey strin
 	return nil, nil
 }
 
+type pgQueBatchReservation struct {
+	Batch      *pgQueActiveBatch
+	Candidates []pgQueCandidate
+	Invalid    []pgQueMessage
+}
+
+func (q *PgQueQueue) reserveFromActiveBatch(ctx context.Context, state *pgQueRouteState, queueName string, limit int) (pgQueBatchReservation, error) {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+
+	if state.activeBatch != nil && state.activeBatch.Closing {
+		return pgQueBatchReservation{}, nil
+	}
+	if state.activeBatch != nil && len(state.activeBatch.Messages) == 0 && state.activeBatch.InFlight == 0 {
+		return pgQueBatchReservation{Batch: state.activeBatch}, nil
+	}
+	if state.activeBatch == nil {
+		q.maybeForceTick(ctx, state, queueName)
+		batch, err := q.activeBatch(ctx, state, queueName)
+		if err != nil {
+			return pgQueBatchReservation{}, err
+		}
+		if batch == nil {
+			return pgQueBatchReservation{}, nil
+		}
+	}
+	batch := state.activeBatch
+	if len(batch.Messages) == 0 {
+		return pgQueBatchReservation{}, nil
+	}
+
+	candidates := make([]pgQueCandidate, 0, len(batch.Messages))
+	invalid := make([]pgQueMessage, 0)
+	removeIDs := make(map[int64]struct{})
+	for i, msg := range batch.Messages {
+		var event pgQueReadyEvent
+		if err := json.Unmarshal([]byte(msg.Payload), &event); err != nil || event.RunID == "" {
+			invalid = append(invalid, msg)
+			removeIDs[msg.ID] = struct{}{}
+			continue
+		}
+		candidates = append(candidates, pgQueCandidate{Message: msg, Event: event, Order: i})
+	}
+	if len(candidates) > 0 {
+		sort.SliceStable(candidates, func(i, j int) bool {
+			if candidates[i].Event.Priority != candidates[j].Event.Priority {
+				return candidates[i].Event.Priority > candidates[j].Event.Priority
+			}
+			return candidates[i].Order < candidates[j].Order
+		})
+		candidates = candidates[:min(len(candidates), max(limit, q.cfg.ReceiveWindow))]
+		for _, candidate := range candidates {
+			removeIDs[candidate.Message.ID] = struct{}{}
+		}
+		batch.InFlight++
+	}
+	if len(removeIDs) > 0 {
+		remaining := make([]pgQueMessage, 0, len(batch.Messages)-len(removeIDs))
+		for _, msg := range batch.Messages {
+			if _, ok := removeIDs[msg.ID]; ok {
+				continue
+			}
+			remaining = append(remaining, msg)
+		}
+		batch.Messages = remaining
+	}
+	return pgQueBatchReservation{Batch: batch, Candidates: candidates, Invalid: invalid}, nil
+}
+
+func (q *PgQueQueue) finishBatchReservation(ctx context.Context, state *pgQueRouteState, batch *pgQueActiveBatch, returnCandidates []pgQueCandidate) error {
+	if batch == nil {
+		return nil
+	}
+	state.mu.Lock()
+	if state.activeBatch == batch && !batch.Closing {
+		for _, candidate := range returnCandidates {
+			batch.Messages = append(batch.Messages, candidate.Message)
+		}
+		if batch.InFlight > 0 {
+			batch.InFlight--
+		}
+		if len(batch.Messages) == 0 && batch.InFlight == 0 {
+			batch.Closing = true
+		}
+	}
+	if state.activeBatch != batch || !batch.Closing {
+		state.mu.Unlock()
+		return nil
+	}
+	if err := q.ack(ctx, batch.BatchID); err != nil {
+		batch.Closing = false
+		state.mu.Unlock()
+		return err
+	}
+	if state.activeBatch == batch {
+		state.activeBatch = nil
+	}
+	state.mu.Unlock()
+	return nil
+}
+
 func (q *PgQueQueue) activeBatch(ctx context.Context, state *pgQueRouteState, queueName string) (*pgQueActiveBatch, error) {
-	if batch := state.activeBatch; batch != nil && len(batch.Messages) > 0 {
+	if batch := state.activeBatch; batch != nil && (len(batch.Messages) > 0 || batch.InFlight > 0 || batch.Closing) {
 		return batch, nil
 	}
 	messages, err := q.receive(ctx, queueName, pgQueReceiveAll)
@@ -638,52 +751,24 @@ func (q *PgQueQueue) activeBatch(ctx context.Context, state *pgQueRouteState, qu
 	return batch, nil
 }
 
-func (q *PgQueQueue) claimFromActiveBatch(ctx context.Context, batch *pgQueActiveBatch, limit int, filter pgQueClaimFilter) ([]domain.JobRun, error) {
-	candidates := make([]pgQueCandidate, 0, len(batch.Messages))
-	for i, msg := range batch.Messages {
-		var event pgQueReadyEvent
-		if err := json.Unmarshal([]byte(msg.Payload), &event); err != nil || event.RunID == "" {
-			_ = q.nack(ctx, msg, q.cfg.NackDelay, "invalid ready event")
-			continue
-		}
-		candidates = append(candidates, pgQueCandidate{Message: msg, Event: event, Order: i})
-	}
+func (q *PgQueQueue) claimReservedCandidates(ctx context.Context, candidates []pgQueCandidate, limit int, filter pgQueClaimFilter) ([]domain.JobRun, []pgQueCandidate, bool, error) {
 	if len(candidates) == 0 {
-		batch.Messages = nil
-		return nil, nil
+		return nil, nil, false, nil
 	}
-
-	sort.SliceStable(candidates, func(i, j int) bool {
-		if candidates[i].Event.Priority != candidates[j].Event.Priority {
-			return candidates[i].Event.Priority > candidates[j].Event.Priority
-		}
-		return candidates[i].Order < candidates[j].Order
-	})
 	selected := candidates[:min(len(candidates), max(limit, q.cfg.ReceiveWindow))]
 	ids := make([]string, 0, len(selected))
 	generations := make([]int64, 0, len(selected))
-	selectedIDs := make(map[int64]struct{}, len(selected))
 	for _, candidate := range selected {
 		ids = append(ids, candidate.Event.RunID)
 		generations = append(generations, candidate.Event.Generation)
-		selectedIDs[candidate.Message.ID] = struct{}{}
 	}
 
 	runs, err := q.claimRuns(ctx, ids, generations, limit, filter)
 	if err != nil {
-		return nil, err
+		return nil, nil, false, err
 	}
 	if len(runs) == 0 {
-		remaining := make([]pgQueMessage, 0, len(candidates)-len(selected))
-		for _, candidate := range candidates {
-			if _, ok := selectedIDs[candidate.Message.ID]; ok {
-				_ = q.nack(ctx, candidate.Message, q.cfg.NackDelay, "not claimable")
-				continue
-			}
-			remaining = append(remaining, candidate.Message)
-		}
-		batch.Messages = remaining
-		return nil, nil
+		return nil, selected, true, nil
 	}
 
 	claimed := make(map[string]struct{}, len(runs))
@@ -691,14 +776,13 @@ func (q *PgQueQueue) claimFromActiveBatch(ctx context.Context, batch *pgQueActiv
 		claimed[run.ID] = struct{}{}
 	}
 
-	remaining := make([]pgQueMessage, 0, len(candidates)-len(runs))
+	unclaimed := make([]pgQueCandidate, 0, len(candidates)-len(runs))
 	for _, candidate := range candidates {
 		if _, ok := claimed[candidate.Event.RunID]; !ok {
-			remaining = append(remaining, candidate.Message)
+			unclaimed = append(unclaimed, candidate)
 		}
 	}
-	batch.Messages = remaining
-	return runs, nil
+	return runs, unclaimed, false, nil
 }
 
 func (q *PgQueQueue) receive(ctx context.Context, queueName string, maxReturn int) ([]pgQueMessage, error) {
@@ -753,11 +837,33 @@ func (q *PgQueQueue) claimRuns(ctx context.Context, ids []string, generations []
 			       input.ord,
 			       input.generation,
 			       s.job_id,
+			       s.project_id,
 			       s.concurrency_key,
 			       s.job_max_concurrency,
 			       s.job_max_concurrency_per_key,
 			       s.priority AS claim_priority,
 			       jr.created_at AS claim_created_at,
+			       jr.payload,
+			       jr.result,
+			       jr.metadata,
+			       jr.error,
+			       jr.error_class,
+			       jr.triggered_by,
+			       jr.parent_run_id,
+			       jr.idempotency_key,
+			       jr.job_version,
+			       jr.created_at,
+			       jr.workflow_step_run_id,
+			       jr.execution_trace,
+			       jr.debug_mode,
+			       jr.continuation_of,
+			       jr.lineage_depth,
+			       jr.tags,
+			       jr.job_version_id,
+			       jr.created_by,
+			       jr.batch_id,
+			       jr.is_rollback,
+			       jr.replayed_run_id,
 			       COALESCE(jac_job.count, 0) AS active_count,
 			       COALESCE(jac_key.count, 0) AS key_active_count
 			FROM input
@@ -858,17 +964,40 @@ func (q *PgQueQueue) claimRuns(ctx context.Context, ids []string, generations []
 		),
 		claimed_state AS (
 			SELECT s.run_id,
+			       candidates.job_id,
+			       candidates.project_id,
 			       $5::text AS status,
 			       s.attempt,
+			       candidates.payload,
+			       candidates.result,
+			       candidates.metadata,
+			       candidates.error,
+			       candidates.error_class,
+			       candidates.triggered_by,
 			       s.scheduled_at,
 			       i.started_at,
 			       s.finished_at,
 			       s.heartbeat_at,
 			       s.next_retry_at,
 			       s.expires_at,
+			       candidates.parent_run_id,
 			       s.priority,
+			       candidates.idempotency_key,
+			       candidates.job_version,
+			       candidates.created_at,
+			       candidates.workflow_step_run_id,
+			       candidates.execution_trace,
+			       candidates.debug_mode,
+			       candidates.continuation_of,
+			       candidates.lineage_depth,
+			       candidates.tags,
+			       candidates.job_version_id,
+			       candidates.created_by,
+			       candidates.batch_id,
 			       s.concurrency_key,
 			       s.execution_mode,
+			       candidates.is_rollback,
+			       candidates.replayed_run_id,
 			       candidates.claim_priority,
 			       candidates.claim_created_at,
 			       candidates.ord
@@ -878,7 +1007,6 @@ func (q *PgQueQueue) claimRuns(ctx context.Context, ids []string, generations []
 		)
 		SELECT %s
 		FROM claimed_state u
-		JOIN job_runs jr ON jr.id = u.run_id
 		ORDER BY u.claim_priority DESC, u.claim_created_at ASC, u.ord`,
 		pgQueClaimDequeueColumns,
 	), ids, generations, limit, domain.StatusQueued, domain.StatusExecuting, filter.ExecutionMode, filter.ProjectID, projectIDs, queueNames, environmentIDs)
