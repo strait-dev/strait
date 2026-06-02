@@ -819,12 +819,13 @@ func (q *Queries) ListOrphanedStepRuns(ctx context.Context) ([]OrphanedStepRun, 
 	defer span.End()
 
 	query := `
-		SELECT wsr.id, wsr.step_ref, wsr.workflow_run_id, jr.id AS job_run_id, jr.status AS job_status
+		SELECT wsr.id, wsr.step_ref, wsr.workflow_run_id, jr.id AS job_run_id, rs.status AS job_status
 		FROM workflow_step_runs wsr
 		JOIN job_runs jr ON jr.workflow_step_run_id = wsr.id
+		JOIN job_run_read_state rs ON rs.run_id = jr.id
 		WHERE wsr.status = 'running'
-		  AND jr.status IN ('completed','failed','timed_out','crashed','system_failed','canceled','dead_letter')
-		  AND jr.finished_at < NOW() - interval '30 seconds'
+		  AND rs.status IN ('completed','failed','timed_out','crashed','system_failed','canceled','dead_letter')
+		  AND rs.finished_at < NOW() - interval '30 seconds'
 		LIMIT 100`
 
 	rows, err := q.db.Query(ctx, query)

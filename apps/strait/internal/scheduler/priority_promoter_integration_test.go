@@ -95,13 +95,20 @@ func TestPriorityPromoter_PromotesAgedRuns(t *testing.T) {
 	cancel()
 	<-done
 
-	// Query priorities back.
-	var maxPri int
-	if err := tdb.Pool.QueryRow(ctx, `SELECT MAX(priority) FROM job_runs WHERE job_id = $1`, runs[0].JobID).Scan(&maxPri); err != nil {
-		t.Fatalf("query priority: %v", err)
+	var maxStatePriority int
+	if err := tdb.Pool.QueryRow(ctx, `SELECT MAX(priority) FROM job_run_state WHERE job_id = $1`, runs[0].JobID).Scan(&maxStatePriority); err != nil {
+		t.Fatalf("query state priority: %v", err)
 	}
-	if maxPri != 11 {
-		t.Errorf("max priority after promotion = %d, want 11", maxPri)
+	if maxStatePriority != 11 {
+		t.Errorf("max state priority after promotion = %d, want 11", maxStatePriority)
+	}
+
+	var maxLedgerPriority int
+	if err := tdb.Pool.QueryRow(ctx, `SELECT MAX(priority) FROM job_runs WHERE job_id = $1`, runs[0].JobID).Scan(&maxLedgerPriority); err != nil {
+		t.Fatalf("query ledger priority: %v", err)
+	}
+	if maxLedgerPriority != 10 {
+		t.Errorf("max ledger priority after promotion = %d, want immutable ledger value 10", maxLedgerPriority)
 	}
 }
 
@@ -135,9 +142,8 @@ func TestPriorityPromoter_RespectsCeiling(t *testing.T) {
 	cancel()
 	<-done
 
-	// Runs at ceiling should be untouched.
 	var maxPri int
-	if err := tdb.Pool.QueryRow(ctx, `SELECT MAX(priority) FROM job_runs WHERE job_id = $1`, runs[0].JobID).Scan(&maxPri); err != nil {
+	if err := tdb.Pool.QueryRow(ctx, `SELECT MAX(priority) FROM job_run_state WHERE job_id = $1`, runs[0].JobID).Scan(&maxPri); err != nil {
 		t.Fatalf("query priority: %v", err)
 	}
 	if maxPri != 1000 {
@@ -169,7 +175,7 @@ func TestPriorityPromoter_DoesNotTouchFresh(t *testing.T) {
 	<-done
 
 	var maxPri int
-	if err := tdb.Pool.QueryRow(ctx, `SELECT MAX(priority) FROM job_runs WHERE job_id = $1`, runs[0].JobID).Scan(&maxPri); err != nil {
+	if err := tdb.Pool.QueryRow(ctx, `SELECT MAX(priority) FROM job_run_state WHERE job_id = $1`, runs[0].JobID).Scan(&maxPri); err != nil {
 		t.Fatalf("query: %v", err)
 	}
 	if maxPri != 10 {
@@ -215,7 +221,7 @@ func TestPriorityPromoter_StarvedLowPriorityEventuallyDequeued(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		var pri int
-		if err := tdb.Pool.QueryRow(ctx, `SELECT priority FROM job_runs WHERE id = $1`, oldRuns[0].ID).Scan(&pri); err != nil {
+		if err := tdb.Pool.QueryRow(ctx, `SELECT priority FROM job_run_state WHERE run_id = $1`, oldRuns[0].ID).Scan(&pri); err != nil {
 			t.Fatalf("query: %v", err)
 		}
 		if pri > 100 {

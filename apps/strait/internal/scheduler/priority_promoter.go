@@ -129,17 +129,25 @@ func (p *PriorityPromoter) runOnce(ctx context.Context) error {
 func (p *PriorityPromoter) runLocked(ctx context.Context) error {
 	const q = `
 WITH candidates AS (
-    SELECT id FROM job_runs
-    WHERE status = 'queued'
-      AND priority < $1
-      AND created_at < NOW() - make_interval(secs => $2)
-    ORDER BY created_at ASC
+    SELECT s.run_id
+    FROM job_run_state s
+    JOIN job_runs jr ON jr.id = s.run_id
+    WHERE s.status = 'queued'
+      AND s.priority < $1
+      AND jr.created_at < NOW() - make_interval(secs => $2)
+      AND NOT EXISTS (
+          SELECT 1 FROM job_run_terminal_state t WHERE t.run_id = s.run_id
+      )
+    ORDER BY jr.created_at ASC
     LIMIT $3
+    FOR UPDATE OF s SKIP LOCKED
 )
-UPDATE job_runs
-SET priority = LEAST(priority + 1, $1)
-WHERE id IN (SELECT id FROM candidates)
-  AND status = 'queued'
+UPDATE job_run_state s
+SET priority = LEAST(s.priority + 1, $1),
+    updated_at = NOW()
+FROM candidates c
+WHERE s.run_id = c.run_id
+  AND s.status = 'queued'
 `
 	tag, err := p.db.Exec(ctx, q, p.maxPriority, p.ageThreshold.Seconds(), p.batchLimit)
 	if err != nil {
