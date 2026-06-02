@@ -626,8 +626,6 @@ func (q *PgQueQueue) dequeueFromRoute(ctx context.Context, n int, routeKey strin
 			for i := range runs {
 				q.legacy.recordClaimMetrics(ctx, &runs[i])
 			}
-		}
-		if len(runs) > 0 {
 			return runs, nil
 		}
 	}
@@ -707,7 +705,21 @@ func (q *PgQueQueue) finishBatchReservation(ctx context.Context, state *pgQueRou
 	if batch == nil {
 		return nil
 	}
+	if !q.closeBatchIfDrained(state, batch, returnCandidates) {
+		return nil
+	}
+	if err := q.ack(ctx, batch.BatchID); err != nil {
+		q.reopenBatchAfterAckFailure(state, batch)
+		return err
+	}
+	q.clearAckedBatch(state, batch)
+	return nil
+}
+
+func (q *PgQueQueue) closeBatchIfDrained(state *pgQueRouteState, batch *pgQueActiveBatch, returnCandidates []pgQueCandidate) bool {
 	state.mu.Lock()
+	defer state.mu.Unlock()
+
 	if state.activeBatch == batch && !batch.Closing {
 		for _, candidate := range returnCandidates {
 			batch.Messages = append(batch.Messages, candidate.Message)
@@ -719,20 +731,25 @@ func (q *PgQueQueue) finishBatchReservation(ctx context.Context, state *pgQueRou
 			batch.Closing = true
 		}
 	}
-	if state.activeBatch != batch || !batch.Closing {
-		state.mu.Unlock()
-		return nil
-	}
-	if err := q.ack(ctx, batch.BatchID); err != nil {
+	return state.activeBatch == batch && batch.Closing
+}
+
+func (q *PgQueQueue) reopenBatchAfterAckFailure(state *pgQueRouteState, batch *pgQueActiveBatch) {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+
+	if state.activeBatch == batch {
 		batch.Closing = false
-		state.mu.Unlock()
-		return err
 	}
+}
+
+func (q *PgQueQueue) clearAckedBatch(state *pgQueRouteState, batch *pgQueActiveBatch) {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+
 	if state.activeBatch == batch {
 		state.activeBatch = nil
 	}
-	state.mu.Unlock()
-	return nil
 }
 
 func (q *PgQueQueue) activeBatch(ctx context.Context, state *pgQueRouteState, queueName string) (*pgQueActiveBatch, error) {
