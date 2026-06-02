@@ -2078,7 +2078,6 @@ func (q *Queries) tryUpdateRunStateStatus(ctx context.Context, id string, from, 
 		"debug_mode":           {},
 		"continuation_of":      {},
 		"lineage_depth":        {},
-		"metadata":             {},
 	}
 
 	stateSet := []string{"status = $1", "updated_at = NOW()"}
@@ -2283,7 +2282,6 @@ func runLedgerFields(fields map[string]any) map[string]any {
 		"debug_mode":           {},
 		"continuation_of":      {},
 		"lineage_depth":        {},
-		"metadata":             {},
 	}
 	ledgerFields := make(map[string]any)
 	for _, key := range lo.Keys(fields) {

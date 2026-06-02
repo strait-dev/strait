@@ -1390,6 +1390,54 @@ func TestUpdateRunStatus(t *testing.T) {
 	}
 }
 
+func TestUpdateRunStatusMetadataIsAppendOnly(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-update-run-status-metadata")
+	run := baseRun(job, newID())
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+
+	fields := map[string]any{
+		"metadata": map[string]string{
+			"snooze_count": "1",
+			"phase":        "retry",
+		},
+	}
+	if err := q.UpdateRunStatus(ctx, run.ID, domain.StatusQueued, domain.StatusDequeued, fields); err != nil {
+		t.Fatalf("UpdateRunStatus() error = %v", err)
+	}
+
+	var ledgerHasSnooze bool
+	if err := testDB.Pool.QueryRow(ctx, `SELECT metadata ? 'snooze_count' FROM job_runs WHERE id = $1`, run.ID).Scan(&ledgerHasSnooze); err != nil {
+		t.Fatalf("query ledger metadata: %v", err)
+	}
+	if ledgerHasSnooze {
+		t.Fatal("job_runs metadata contains transition metadata, want append-only lifecycle event")
+	}
+
+	got, err := q.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if got.Metadata["snooze_count"] != "1" || got.Metadata["phase"] != "retry" {
+		t.Fatalf("metadata = %+v, want lifecycle metadata overlay", got.Metadata)
+	}
+
+	key := "snooze_count"
+	value := "1"
+	listed, err := q.ListRunsByProject(ctx, run.ProjectID, nil, &key, &value, nil, nil, nil, nil, nil, 10, nil)
+	if err != nil {
+		t.Fatalf("ListRunsByProject() error = %v", err)
+	}
+	if len(listed) != 1 || listed[0].ID != run.ID {
+		t.Fatalf("ListRunsByProject() = %+v, want run %s", listed, run.ID)
+	}
+}
+
 func TestUpdateRunStatusReturningOld(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
