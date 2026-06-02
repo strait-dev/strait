@@ -127,6 +127,23 @@ func TestIntegration_RequeueOpenWorkerTasks_PgQueActiveClaimDoesNotTouchActiveCo
 	assertPgQueWorkerRecoveryReleasedClaimOnly(t, ctx, env, fixture)
 }
 
+func TestIntegration_RequeueOpenWorkerTasks_PgQueDelayedActiveClaimBumpsGeneration(t *testing.T) {
+	ctx := context.Background()
+	env := mustEnv(t, ctx)
+	fixture := seedPgQueClaimedWorkerTask(t, ctx, env, "disconnect-delayed")
+	beforeGeneration := markPgQueClaimedWorkerRunDelayed(t, ctx, env, fixture.runID)
+
+	count, err := fixture.q.RequeueOpenWorkerTasks(ctx, fixture.workerID, fixture.projectID, "worker disconnected before reporting result")
+	if err != nil {
+		t.Fatalf("RequeueOpenWorkerTasks: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("RequeueOpenWorkerTasks count = %d, want 1", count)
+	}
+	assertPgQueWorkerRecoveryReleasedClaimOnly(t, ctx, env, fixture)
+	assertPgQueWorkerRecoveryBumpedGeneration(t, ctx, env, fixture.runID, beforeGeneration)
+}
+
 func TestIntegration_RecoverStaleWorkerTasks_PgQueActiveClaimDoesNotTouchActiveCounter(t *testing.T) {
 	ctx := context.Background()
 	env := mustEnv(t, ctx)
@@ -143,6 +160,34 @@ func TestIntegration_RecoverStaleWorkerTasks_PgQueActiveClaimDoesNotTouchActiveC
 		t.Fatalf("RecoverStaleWorkerTasks count = %d, want 1", count)
 	}
 	assertPgQueWorkerRecoveryReleasedClaimOnly(t, ctx, env, fixture)
+}
+
+func TestIntegration_RecoverStaleWorkerTasks_PgQueDelayedActiveClaimIsListedForReadyEvent(t *testing.T) {
+	ctx := context.Background()
+	env := mustEnv(t, ctx)
+	fixture := seedPgQueClaimedWorkerTask(t, ctx, env, "stale-delayed")
+	beforeGeneration := markPgQueClaimedWorkerRunDelayed(t, ctx, env, fixture.runID)
+	if _, err := env.DB.Pool.Exec(ctx, `UPDATE workers SET last_seen_at = NOW() - INTERVAL '1 hour' WHERE id = $1`, fixture.workerID); err != nil {
+		t.Fatalf("age worker: %v", err)
+	}
+
+	recoverableRunIDs, err := fixture.q.ListRecoverableStaleWorkerTaskRunIDs(ctx, time.Now().Add(-5*time.Minute), nil)
+	if err != nil {
+		t.Fatalf("ListRecoverableStaleWorkerTaskRunIDs: %v", err)
+	}
+	if len(recoverableRunIDs) != 1 || recoverableRunIDs[0] != fixture.runID {
+		t.Fatalf("recoverable run IDs = %v, want [%s]", recoverableRunIDs, fixture.runID)
+	}
+
+	count, err := fixture.q.RecoverStaleWorkerTasks(ctx, time.Now().Add(-5*time.Minute), "stale worker heartbeat")
+	if err != nil {
+		t.Fatalf("RecoverStaleWorkerTasks: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("RecoverStaleWorkerTasks count = %d, want 1", count)
+	}
+	assertPgQueWorkerRecoveryReleasedClaimOnly(t, ctx, env, fixture)
+	assertPgQueWorkerRecoveryBumpedGeneration(t, ctx, env, fixture.runID, beforeGeneration)
 }
 
 func TestIntegration_RequeueOpenWorkerTasks_SkipsResultReceivedRuns(t *testing.T) {
@@ -418,6 +463,29 @@ func seedPgQueClaimedWorkerTask(
 	}
 }
 
+func markPgQueClaimedWorkerRunDelayed(
+	t *testing.T,
+	ctx context.Context,
+	env *testutil.TestEnv,
+	runID string,
+) int64 {
+	t.Helper()
+
+	var readyGeneration int64
+	if err := env.DB.Pool.QueryRow(ctx, `
+		UPDATE job_run_state
+		SET status = 'delayed',
+		    scheduled_at = NOW() + INTERVAL '5 minutes',
+		    next_retry_at = NOW() + INTERVAL '5 minutes'
+		WHERE run_id = $1
+		RETURNING ready_generation`,
+		runID,
+	).Scan(&readyGeneration); err != nil {
+		t.Fatalf("mark claimed worker run delayed: %v", err)
+	}
+	return readyGeneration
+}
+
 func assertPgQueWorkerRecoveryReleasedClaimOnly(
 	t *testing.T,
 	ctx context.Context,
@@ -474,6 +542,29 @@ func assertPgQueWorkerRecoveryReleasedClaimOnly(
 	}
 	if task.Status != domain.WorkerTaskStatusFailed {
 		t.Fatalf("worker task status = %q, want failed", task.Status)
+	}
+}
+
+func assertPgQueWorkerRecoveryBumpedGeneration(
+	t *testing.T,
+	ctx context.Context,
+	env *testutil.TestEnv,
+	runID string,
+	beforeGeneration int64,
+) {
+	t.Helper()
+
+	var afterGeneration int64
+	if err := env.DB.Pool.QueryRow(ctx, `
+		SELECT ready_generation
+		FROM job_run_state
+		WHERE run_id = $1`,
+		runID,
+	).Scan(&afterGeneration); err != nil {
+		t.Fatalf("query ready_generation after worker recovery: %v", err)
+	}
+	if afterGeneration != beforeGeneration+1 {
+		t.Fatalf("ready_generation = %d, want %d", afterGeneration, beforeGeneration+1)
 	}
 }
 

@@ -366,7 +366,7 @@ func (q *Queries) ListRecoverableStaleWorkerTaskRunIDs(ctx context.Context, cuto
 		  ON c.run_id = s.run_id
 		 AND c.ready_generation = s.ready_generation
 		WHERE NOT EXISTS (SELECT 1 FROM job_run_terminal_state t WHERE t.run_id = s.run_id)
-		  AND (s.status = 'executing' OR (s.status = 'queued' AND c.run_id IS NOT NULL))`,
+		  AND (s.status = 'executing' OR (s.status IN ('queued', 'delayed') AND c.run_id IS NOT NULL))`,
 		cutoff,
 		activeWorkerIDs,
 		activeProjectIDs,
