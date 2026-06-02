@@ -236,15 +236,135 @@ func TestPgQue_ClaimUsesRunStateNotFatLedger(t *testing.T) {
 	if ledgerStatus != string(domain.StatusQueued) {
 		t.Fatalf("ledger status = %q, want queued to avoid fat-row claim churn", ledgerStatus)
 	}
-	if stateStatus != string(domain.StatusExecuting) {
-		t.Fatalf("state status = %q, want executing", stateStatus)
+	if stateStatus != string(domain.StatusQueued) {
+		t.Fatalf("state status = %q, want queued to avoid hot-row claim churn", stateStatus)
+	}
+	var claimRows int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM job_run_active_claims
+		WHERE run_id = $1`, run.ID).Scan(&claimRows); err != nil {
+		t.Fatalf("active claims: %v", err)
+	}
+	if claimRows != 1 {
+		t.Fatalf("active claims = %d, want 1 append-only ownership row", claimRows)
+	}
+	var readStatus string
+	if err := testDB.Pool.QueryRow(ctx, `SELECT status FROM job_run_read_state WHERE run_id = $1`, run.ID).Scan(&readStatus); err != nil {
+		t.Fatalf("read state status: %v", err)
+	}
+	if readStatus != string(domain.StatusExecuting) {
+		t.Fatalf("read state status = %q, want executing from active claim overlay", readStatus)
 	}
 	got, err := st.GetRun(ctx, run.ID)
 	if err != nil {
 		t.Fatalf("GetRun: %v", err)
 	}
 	if got.Status != domain.StatusExecuting {
-		t.Fatalf("GetRun status = %q, want executing from job_run_state", got.Status)
+		t.Fatalf("GetRun status = %q, want executing from active claim overlay", got.Status)
+	}
+}
+
+func TestPgQue_TerminalTransitionCompletesActiveClaimWithoutUpdatingHotState(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-pgque-active-claim-terminal")
+	q := mustPgQueQueue(t)
+
+	run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	if err := q.ForceTick(ctx, "http"); err != nil {
+		t.Fatalf("ForceTick: %v", err)
+	}
+	claimed, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("DequeueN: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].Status != domain.StatusExecuting {
+		t.Fatalf("claimed = %+v, want executing run", claimed)
+	}
+
+	finishedAt := time.Now().UTC()
+	if err := st.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{
+		"finished_at": finishedAt,
+	}); err != nil {
+		t.Fatalf("UpdateRunStatus executing->completed: %v", err)
+	}
+
+	var hotStatus, readStatus, terminalStatus domain.RunStatus
+	if err := testDB.Pool.QueryRow(ctx, `SELECT status FROM job_run_state WHERE run_id = $1`, run.ID).Scan(&hotStatus); err != nil {
+		t.Fatalf("hot status: %v", err)
+	}
+	if hotStatus != domain.StatusQueued {
+		t.Fatalf("hot status = %s, want queued retained after terminal append", hotStatus)
+	}
+	if err := testDB.Pool.QueryRow(ctx, `SELECT status FROM job_run_terminal_state WHERE run_id = $1`, run.ID).Scan(&terminalStatus); err != nil {
+		t.Fatalf("terminal status: %v", err)
+	}
+	if terminalStatus != domain.StatusCompleted {
+		t.Fatalf("terminal status = %s, want completed", terminalStatus)
+	}
+	if err := testDB.Pool.QueryRow(ctx, `SELECT status FROM job_run_read_state WHERE run_id = $1`, run.ID).Scan(&readStatus); err != nil {
+		t.Fatalf("read status: %v", err)
+	}
+	if readStatus != domain.StatusCompleted {
+		t.Fatalf("read status = %s, want completed terminal overlay", readStatus)
+	}
+}
+
+func TestPgQue_ActiveClaimMaintainsLimitedConcurrencyCounts(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-pgque-active-claim-counts")
+	q := mustPgQueQueue(t)
+
+	runs := []*domain.JobRun{
+		{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID},
+		{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID},
+	}
+	for _, run := range runs {
+		if err := q.Enqueue(ctx, run); err != nil {
+			t.Fatalf("Enqueue: %v", err)
+		}
+	}
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE job_run_state SET job_max_concurrency = 1 WHERE job_id = $1`, job.ID); err != nil {
+		t.Fatalf("set max concurrency: %v", err)
+	}
+
+	claimed, err := q.DequeueN(ctx, 2)
+	if err != nil {
+		t.Fatalf("DequeueN: %v", err)
+	}
+	if len(claimed) != 1 {
+		t.Fatalf("claimed %d runs, want 1 due to max concurrency", len(claimed))
+	}
+	var count int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(count), 0)
+		FROM job_active_counts
+		WHERE job_id = $1`, job.ID).Scan(&count); err != nil {
+		t.Fatalf("active count after claim: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("active count after claim = %d, want 1", count)
+	}
+	if err := st.UpdateRunStatus(ctx, claimed[0].ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{"finished_at": time.Now()}); err != nil {
+		t.Fatalf("UpdateRunStatus completed: %v", err)
+	}
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(count), 0)
+		FROM job_active_counts
+		WHERE job_id = $1`, job.ID).Scan(&count); err != nil {
+		t.Fatalf("active count after completion: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("active count after completion = %d, want 0", count)
 	}
 }
 

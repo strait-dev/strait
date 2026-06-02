@@ -316,6 +316,7 @@ func (c *snapshotCollector) collect() healthSnapshot {
 		       pg_indexes_size(relid)
 		FROM pg_stat_user_tables
 		WHERE relname = 'job_run_state'
+		   OR relname = 'job_run_active_claims'
 		   OR relname = 'job_run_terminal_state'
 		   OR relname = 'job_active_counts'
 		   OR relname = 'job_run_lifecycle_events'
@@ -363,7 +364,7 @@ func (c *snapshotCollector) collect() healthSnapshot {
 	_ = testDB.Pool.QueryRow(c.ctx, `
 		SELECT COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(created_at))), 0)
 		FROM job_runs jr
-		LEFT JOIN job_run_state s ON s.run_id = jr.id
+		LEFT JOIN job_run_read_state s ON s.run_id = jr.id
 		WHERE COALESCE(s.status, jr.status) = 'queued'
 	`).Scan(&snap.OldestQueuedAge)
 
@@ -418,6 +419,7 @@ func TestQueueHealthBench(t *testing.T) {
 		ctx: ctx, enqueued: &enqueued, dequeued: &dequeuedCount,
 		latencies: &rec, startTime: time.Now(), lastSnapTime: time.Now(),
 	}
+	end := time.Now().Add(cfg.Duration)
 
 	// Producer.
 	stopEnq := make(chan struct{})
@@ -432,6 +434,9 @@ func TestQueueHealthBench(t *testing.T) {
 			case <-stopEnq:
 				return
 			case <-ticker.C:
+				if time.Now().After(end) {
+					return
+				}
 				for range cfg.BatchSize {
 					run := &domain.JobRun{
 						ID: newID(), JobID: job.ID, ProjectID: job.ProjectID, Priority: 1,
@@ -458,7 +463,6 @@ func TestQueueHealthBench(t *testing.T) {
 	}
 
 	var workerWg sync.WaitGroup
-	end := time.Now().Add(cfg.Duration)
 	for w := range cfg.Workers {
 		workerWg.Add(1)
 		concWG.Go(func() {
@@ -589,6 +593,7 @@ func TestQueueHealthBench_WithLongTxn(t *testing.T) {
 		ctx: ctx, enqueued: &enqueued, dequeued: &dequeuedCount,
 		latencies: &rec, startTime: time.Now(), lastSnapTime: time.Now(),
 	}
+	end := time.Now().Add(cfg.Duration)
 
 	// Producer.
 	stopEnq := make(chan struct{})
@@ -603,6 +608,9 @@ func TestQueueHealthBench_WithLongTxn(t *testing.T) {
 			case <-stopEnq:
 				return
 			case <-ticker.C:
+				if time.Now().After(end) {
+					return
+				}
 				for range cfg.BatchSize {
 					run := &domain.JobRun{
 						ID: newID(), JobID: job.ID, ProjectID: job.ProjectID, Priority: 1,
@@ -620,7 +628,6 @@ func TestQueueHealthBench_WithLongTxn(t *testing.T) {
 
 	// Workers.
 	var workerWg sync.WaitGroup
-	end := time.Now().Add(cfg.Duration)
 	for w := range cfg.Workers {
 		workerWg.Add(1)
 		concWG.Go(func() {
@@ -762,6 +769,7 @@ func TestQueueHealthBench_WithLogicalSlot(t *testing.T) {
 		ctx: ctx, enqueued: &enqueued, dequeued: &dequeuedCount,
 		latencies: &rec, startTime: time.Now(), lastSnapTime: time.Now(),
 	}
+	end := time.Now().Add(cfg.Duration)
 
 	stopEnq := make(chan struct{})
 	var producerWg sync.WaitGroup
@@ -775,6 +783,9 @@ func TestQueueHealthBench_WithLogicalSlot(t *testing.T) {
 			case <-stopEnq:
 				return
 			case <-ticker.C:
+				if time.Now().After(end) {
+					return
+				}
 				for range cfg.BatchSize {
 					run := &domain.JobRun{
 						ID: newID(), JobID: job.ID, ProjectID: job.ProjectID, Priority: 1,
@@ -791,7 +802,6 @@ func TestQueueHealthBench_WithLogicalSlot(t *testing.T) {
 	})
 
 	var workerWg sync.WaitGroup
-	end := time.Now().Add(cfg.Duration)
 	for w := range cfg.Workers {
 		workerWg.Add(1)
 		concWG.Go(func() {

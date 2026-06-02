@@ -474,6 +474,7 @@ func sampleRelationBloat(tb baselineTB, ctx context.Context) []loadtest.Relation
 		)
 		   OR s.relname LIKE 'job_runs_%'
 		   OR s.relname = 'job_run_state'
+		   OR s.relname = 'job_run_active_claims'
 		   OR s.relname = 'job_run_lifecycle_events'
 		   OR s.relname = 'strait_pgque_routes'
 		   OR s.relname LIKE 'event_%'
@@ -602,7 +603,7 @@ func samplePgQueDequeuePlans(tb baselineTB, ctx context.Context) []loadtest.SQLP
 	tb.Helper()
 	rows, err := testDB.Pool.Query(ctx, `
 		SELECT run_id, ready_generation
-		FROM job_run_state
+		FROM job_run_read_state
 		WHERE status = 'queued'
 		  AND execution_mode = 'http'
 		ORDER BY priority DESC, run_id ASC

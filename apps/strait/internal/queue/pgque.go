@@ -751,6 +751,7 @@ func (q *PgQueQueue) claimRuns(ctx context.Context, ids []string, generations []
 		raw_candidates AS (
 			SELECT s.run_id,
 			       input.ord,
+			       input.generation,
 			       s.job_id,
 			       s.concurrency_key,
 			       s.job_max_concurrency,
@@ -782,6 +783,12 @@ func (q *PgQueQueue) claimRuns(ctx context.Context, ids []string, generations []
 				  AND COALESCE(s.job_paused, false) = false
 				  AND (s.scheduled_at IS NULL OR s.scheduled_at <= NOW())
 				  AND (s.next_retry_at IS NULL OR s.next_retry_at <= NOW())
+				  AND NOT EXISTS (
+				      SELECT 1
+				      FROM job_run_active_claims c
+				      WHERE c.run_id = s.run_id
+				        AND c.ready_generation = s.ready_generation
+				  )
 				FOR UPDATE SKIP LOCKED
 			) s ON true
 			JOIN job_runs jr ON jr.id = s.run_id
@@ -811,31 +818,66 @@ func (q *PgQueQueue) claimRuns(ctx context.Context, ids []string, generations []
 			ORDER BY claim_priority DESC, claim_created_at ASC, ord
 			LIMIT $3
 		),
-		updated_state AS (
-			UPDATE job_run_state s
-			SET status = $5,
-			    started_at = NOW(),
-			    updated_at = NOW()
+		inserted_claims AS (
+			INSERT INTO job_run_active_claims (
+				run_id,
+				ready_generation,
+				attempt,
+				claimed_at,
+				started_at
+			)
+			SELECT
+				s.run_id,
+				s.ready_generation,
+				s.attempt,
+				NOW(),
+				NOW()
+			FROM job_run_state s
+			JOIN candidates ON candidates.run_id = s.run_id
+			WHERE s.status = $4
+			  AND s.ready_generation = candidates.generation
+			  AND NOT EXISTS (SELECT 1 FROM job_run_terminal_state t WHERE t.run_id = s.run_id)
+			ON CONFLICT (run_id, ready_generation) DO NOTHING
+			RETURNING run_id, ready_generation, started_at
+		),
+		incremented_counts AS (
+			INSERT INTO job_active_counts (job_id, concurrency_key, count)
+			SELECT
+				candidates.job_id,
+				COALESCE(candidates.concurrency_key, ''),
+				COUNT(*)
 			FROM candidates
-			WHERE s.run_id = candidates.run_id
-			RETURNING s.run_id,
-			          s.status,
-			          s.attempt,
-			          s.scheduled_at,
-			          s.started_at,
-			          s.finished_at,
-			          s.heartbeat_at,
-			          s.next_retry_at,
-			          s.expires_at,
-			          s.priority,
-			          s.concurrency_key,
-			          s.execution_mode,
-			          candidates.claim_priority,
-			          candidates.claim_created_at,
-			          candidates.ord
+			JOIN inserted_claims i ON i.run_id = candidates.run_id
+			WHERE candidates.job_max_concurrency IS NOT NULL
+			   OR candidates.job_max_concurrency_per_key IS NOT NULL
+			GROUP BY candidates.job_id, COALESCE(candidates.concurrency_key, '')
+			ON CONFLICT (job_id, concurrency_key)
+			DO UPDATE SET count = job_active_counts.count + EXCLUDED.count,
+			              updated_at = NOW()
+			RETURNING 1
+		),
+		claimed_state AS (
+			SELECT s.run_id,
+			       $5::text AS status,
+			       s.attempt,
+			       s.scheduled_at,
+			       i.started_at,
+			       s.finished_at,
+			       s.heartbeat_at,
+			       s.next_retry_at,
+			       s.expires_at,
+			       s.priority,
+			       s.concurrency_key,
+			       s.execution_mode,
+			       candidates.claim_priority,
+			       candidates.claim_created_at,
+			       candidates.ord
+			FROM inserted_claims i
+			JOIN job_run_state s ON s.run_id = i.run_id AND s.ready_generation = i.ready_generation
+			JOIN candidates ON candidates.run_id = i.run_id
 		)
 		SELECT %s
-		FROM updated_state u
+		FROM claimed_state u
 		JOIN job_runs jr ON jr.id = u.run_id
 		ORDER BY u.claim_priority DESC, u.claim_created_at ASC, u.ord`,
 		pgQueClaimDequeueColumns,

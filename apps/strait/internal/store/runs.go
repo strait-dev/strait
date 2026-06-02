@@ -1960,29 +1960,40 @@ func (q *Queries) appendRunTerminalState(ctx context.Context, id string, from, t
 const appendRunTerminalStateQuery = `
 	WITH selected AS (
 		SELECT
-			run_id,
-			project_id,
-			job_id,
-			status AS previous_status,
-			attempt,
-			priority,
-			scheduled_at,
-			started_at,
-			finished_at,
-			heartbeat_at,
-			next_retry_at,
-			expires_at,
-			concurrency_key,
-			execution_mode,
-			queue_name,
-			job_enabled,
-			job_paused,
-			job_max_concurrency,
-			job_max_concurrency_per_key,
-			ready_generation
-		FROM job_run_state
-		WHERE run_id = $1 AND status = $2
-		FOR UPDATE
+			s.run_id,
+			s.project_id,
+			s.job_id,
+			CASE
+				WHEN c.run_id IS NOT NULL AND s.status = 'queued' THEN 'executing'
+				ELSE s.status
+			END AS previous_status,
+			COALESCE(c.attempt, s.attempt) AS attempt,
+			s.priority,
+			s.scheduled_at,
+			COALESCE(c.started_at, s.started_at) AS started_at,
+			s.finished_at,
+			s.heartbeat_at,
+			s.next_retry_at,
+			s.expires_at,
+			s.concurrency_key,
+			s.execution_mode,
+			s.queue_name,
+			s.job_enabled,
+			s.job_paused,
+			s.job_max_concurrency,
+			s.job_max_concurrency_per_key,
+			s.ready_generation
+		FROM job_run_state s
+		LEFT JOIN job_run_active_claims c
+		  ON c.run_id = s.run_id
+		 AND c.ready_generation = s.ready_generation
+		WHERE s.run_id = $1
+		  AND (
+		      s.status = $2
+		      OR ($2 = 'executing' AND s.status = 'queued' AND c.run_id IS NOT NULL)
+		  )
+		  AND NOT EXISTS (SELECT 1 FROM job_run_terminal_state t WHERE t.run_id = s.run_id)
+		FOR UPDATE OF s
 	),
 	inserted AS (
 		INSERT INTO job_run_terminal_state (
@@ -2051,29 +2062,41 @@ const appendRunTerminalStateQuery = `
 const appendRunTerminalStateForAttemptQuery = `
 	WITH selected AS (
 		SELECT
-			run_id,
-			project_id,
-			job_id,
-			status AS previous_status,
-			attempt,
-			priority,
-			scheduled_at,
-			started_at,
-			finished_at,
-			heartbeat_at,
-			next_retry_at,
-			expires_at,
-			concurrency_key,
-			execution_mode,
-			queue_name,
-			job_enabled,
-			job_paused,
-			job_max_concurrency,
-			job_max_concurrency_per_key,
-			ready_generation
-		FROM job_run_state
-		WHERE run_id = $1 AND status = $2 AND attempt = $13
-		FOR UPDATE
+			s.run_id,
+			s.project_id,
+			s.job_id,
+			CASE
+				WHEN c.run_id IS NOT NULL AND s.status = 'queued' THEN 'executing'
+				ELSE s.status
+			END AS previous_status,
+			COALESCE(c.attempt, s.attempt) AS attempt,
+			s.priority,
+			s.scheduled_at,
+			COALESCE(c.started_at, s.started_at) AS started_at,
+			s.finished_at,
+			s.heartbeat_at,
+			s.next_retry_at,
+			s.expires_at,
+			s.concurrency_key,
+			s.execution_mode,
+			s.queue_name,
+			s.job_enabled,
+			s.job_paused,
+			s.job_max_concurrency,
+			s.job_max_concurrency_per_key,
+			s.ready_generation
+		FROM job_run_state s
+		LEFT JOIN job_run_active_claims c
+		  ON c.run_id = s.run_id
+		 AND c.ready_generation = s.ready_generation
+		WHERE s.run_id = $1
+		  AND COALESCE(c.attempt, s.attempt) = $13
+		  AND (
+		      s.status = $2
+		      OR ($2 = 'executing' AND s.status = 'queued' AND c.run_id IS NOT NULL)
+		  )
+		  AND NOT EXISTS (SELECT 1 FROM job_run_terminal_state t WHERE t.run_id = s.run_id)
+		FOR UPDATE OF s
 	),
 	inserted AS (
 		INSERT INTO job_run_terminal_state (
@@ -2524,7 +2547,7 @@ func (q *Queries) ListStaleRuns(ctx context.Context, threshold time.Duration) ([
 		       r.triggered_by, s.scheduled_at, s.started_at, s.finished_at, COALESCE(hb.last_hb, s.heartbeat_at),
 		       s.next_retry_at, s.expires_at, r.parent_run_id, s.priority, r.idempotency_key, r.job_version, r.created_at, r.workflow_step_run_id, r.execution_trace, r.debug_mode, r.continuation_of, r.lineage_depth, r.tags, r.job_version_id, r.created_by, r.batch_id, s.concurrency_key, s.execution_mode, r.is_rollback, r.replayed_run_id
 		FROM job_runs r
-		JOIN job_run_state s ON s.run_id = r.id
+		JOIN job_run_read_state s ON s.run_id = r.id
 		LEFT JOIN LATERAL (
 			SELECT heartbeat_at AS last_hb
 			FROM job_run_heartbeats h

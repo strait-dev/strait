@@ -174,13 +174,11 @@ WHERE finished_at IS NOT NULL
 }
 
 func (h *HealthSampler) sampleOldestQueued(ctx context.Context) {
-	// Observe the oldest queued row across partitions. Uses the existing
-	// idx_runs_queue partial index so the scan is cheap regardless of total
-	// backlog. Limits to 1 to guarantee index-only behaviour.
 	const q = `
 SELECT COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(created_at))), 0)
-FROM job_runs
-WHERE status = 'queued'
+FROM job_runs jr
+LEFT JOIN job_run_read_state s ON s.run_id = jr.id
+WHERE COALESCE(s.status, jr.status) = 'queued'
 `
 	var age float64
 	if err := h.db.QueryRow(ctx, q).Scan(&age); err != nil {
