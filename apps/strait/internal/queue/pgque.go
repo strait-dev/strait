@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -18,23 +19,33 @@ import (
 )
 
 const (
-	pgQueConsumerName = "strait"
-	pgQueReceiveAll   = 2147483647
-	pgQueMaxAttempts  = 3
+	pgQueConsumerName               = "strait"
+	pgQueReceiveAll                 = 2147483647
+	pgQueMaxAttempts                = 3
+	pgQueDefaultMaintenanceInterval = 30 * time.Second
+	pgQueDefaultRotationPeriod      = 5 * time.Minute
 )
 
-var _ Queue = (*PgQueQueue)(nil)
+var errPgQueNoMessages = errors.New("pgque: no messages available")
 
 type PgQueConfig struct {
-	TickInterval  time.Duration
-	ConsumerName  string
-	NackDelay     time.Duration
-	ReceiveWindow int
+	TickInterval        time.Duration
+	MaintenanceInterval time.Duration
+	RotationPeriod      time.Duration
+	ConsumerName        string
+	NackDelay           time.Duration
+	ReceiveWindow       int
 }
 
 func (c PgQueConfig) normalized() PgQueConfig {
 	if c.TickInterval <= 0 {
 		c.TickInterval = 50 * time.Millisecond
+	}
+	if c.MaintenanceInterval <= 0 {
+		c.MaintenanceInterval = pgQueDefaultMaintenanceInterval
+	}
+	if c.RotationPeriod <= 0 {
+		c.RotationPeriod = pgQueDefaultRotationPeriod
 	}
 	if c.ConsumerName == "" {
 		c.ConsumerName = pgQueConsumerName
@@ -365,14 +376,60 @@ func (q *PgQueQueue) maybeForceTick(ctx context.Context, state *pgQueRouteState,
 func (q *PgQueQueue) RunTicker(ctx context.Context) {
 	ticker := time.NewTicker(q.cfg.TickInterval)
 	defer ticker.Stop()
+	maintenance := time.NewTicker(q.cfg.MaintenanceInterval)
+	defer maintenance.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			_, _ = q.db.Exec(ctx, `SELECT pgque.ticker()`)
+		case <-maintenance.C:
+			_ = q.Maintain(ctx)
 		}
 	}
+}
+
+func (q *PgQueQueue) Maintain(ctx context.Context) error {
+	rotationQueues, err := q.rotationQueuesDueForMaintenance(ctx)
+	if err != nil {
+		return err
+	}
+	for _, queueName := range rotationQueues {
+		if _, err := q.db.Exec(ctx, `SELECT pgque.maint_rotate_tables_step1($1)`, queueName); err != nil {
+			return fmt.Errorf("pgque maintain rotate step1 %s: %w", queueName, err)
+		}
+	}
+	if _, err := q.db.Exec(ctx, `SELECT pgque.maint_rotate_tables_step2()`); err != nil {
+		return fmt.Errorf("pgque maintain rotate step2: %w", err)
+	}
+	return nil
+}
+
+func (q *PgQueQueue) rotationQueuesDueForMaintenance(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, `
+		SELECT func_arg
+		FROM pgque.maint_operations()
+		WHERE func_name = 'pgque.maint_rotate_tables_step1'
+		  AND func_arg IS NOT NULL
+		ORDER BY func_arg`)
+	if err != nil {
+		return nil, fmt.Errorf("pgque maintain operations: %w", err)
+	}
+	defer rows.Close()
+
+	queueNames := []string{}
+	for rows.Next() {
+		var queueName string
+		if err := rows.Scan(&queueName); err != nil {
+			return nil, fmt.Errorf("pgque maintain operation scan: %w", err)
+		}
+		queueNames = append(queueNames, queueName)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("pgque maintain operations rows: %w", err)
+	}
+	return queueNames, nil
 }
 
 func (q *PgQueQueue) sendReadyEvent(ctx context.Context, db store.DBTX, run *domain.JobRun) error {
@@ -460,6 +517,10 @@ func (q *PgQueQueue) ensureRoute(ctx context.Context, db store.DBTX, routeKey, q
 	if _, err := db.Exec(ctx, `SELECT pgque.set_queue_config($1, 'ticker_max_count', $2)`, queueName, strconv.Itoa(q.cfg.ReceiveWindow)); err != nil {
 		return fmt.Errorf("pgque configure queue %s ticker max count: %w", queueName, err)
 	}
+	rotationPeriod := pgQueIntervalSetting(q.cfg.RotationPeriod)
+	if _, err := db.Exec(ctx, `SELECT pgque.set_queue_config($1, 'rotation_period', $2)`, queueName, rotationPeriod); err != nil {
+		return fmt.Errorf("pgque configure queue %s rotation period: %w", queueName, err)
+	}
 	if _, err := db.Exec(ctx, `SELECT pgque.register_consumer($1, $2)`, queueName, q.cfg.ConsumerName); err != nil {
 		return fmt.Errorf("pgque register consumer %s: %w", queueName, err)
 	}
@@ -518,6 +579,13 @@ func normalizePgQueWorkerQueueRefs(refs []domain.WorkerQueueRef) []domain.Worker
 		normalized = append(normalized, ref)
 	}
 	return normalized
+}
+
+func pgQueIntervalSetting(d time.Duration) string {
+	if d <= 0 {
+		d = pgQueDefaultRotationPeriod
+	}
+	return strconv.FormatInt(d.Microseconds(), 10) + " microseconds"
 }
 
 func (q *PgQueQueue) routeKeyForRun(ctx context.Context, db store.DBTX, run *domain.JobRun) (string, error) {
@@ -681,12 +749,12 @@ func (q *PgQueQueue) reserveFromActiveBatch(ctx context.Context, state *pgQueRou
 	}
 	if state.activeBatch == nil {
 		q.maybeForceTick(ctx, state, queueName)
-		batch, err := q.activeBatchLocked(ctx, state, queueName)
+		_, err := q.activeBatchLocked(ctx, state, queueName)
+		if errors.Is(err, errPgQueNoMessages) {
+			return pgQueBatchReservation{}, nil
+		}
 		if err != nil {
 			return pgQueBatchReservation{}, err
-		}
-		if batch == nil {
-			return pgQueBatchReservation{}, nil
 		}
 	}
 	batch := state.activeBatch
@@ -795,7 +863,7 @@ func (q *PgQueQueue) activeBatchLocked(ctx context.Context, state *pgQueRouteSta
 		return nil, err
 	}
 	if len(messages) == 0 {
-		return nil, nil
+		return nil, errPgQueNoMessages
 	}
 	batch := &pgQueActiveBatch{BatchID: messages[0].BatchID, Messages: messages}
 	state.activeBatch = batch
@@ -1136,4 +1204,5 @@ func (q *PgQueQueue) nack(ctx context.Context, msg pgQueMessage, delay time.Dura
 var _ Queue = (*PgQueQueue)(nil)
 var _ interface {
 	RunTicker(context.Context)
+	Maintain(context.Context) error
 } = (*PgQueQueue)(nil)

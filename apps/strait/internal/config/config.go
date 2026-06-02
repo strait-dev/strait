@@ -92,10 +92,12 @@ type Config struct {
 	// QueueEngine selects the queue storage engine. PgQue is the default
 	// ready-event log because it keeps queue dead tuple buildup bounded under
 	// the bloat benchmark gate while Strait owns orchestration state.
-	QueueEngine               string        `env:"QUEUE_ENGINE" default:"pgque"`
-	QueueBatchTickInterval    time.Duration `env:"QUEUE_BATCH_TICK_INTERVAL" default:"100ms"`
-	OutboxEngine              string        `env:"OUTBOX_ENGINE" default:"batchlog"`
-	WorkflowProgressionEngine string        `env:"WORKFLOW_PROGRESSION_ENGINE" default:"batchlog"`
+	QueueEngine                   string        `env:"QUEUE_ENGINE" default:"pgque"`
+	QueueBatchTickInterval        time.Duration `env:"QUEUE_BATCH_TICK_INTERVAL" default:"100ms"`
+	QueuePgQueMaintenanceInterval time.Duration `env:"QUEUE_PGQUE_MAINTENANCE_INTERVAL" default:"30s"`
+	QueuePgQueRotationPeriod      time.Duration `env:"QUEUE_PGQUE_ROTATION_PERIOD" default:"5m"`
+	OutboxEngine                  string        `env:"OUTBOX_ENGINE" default:"batchlog"`
+	WorkflowProgressionEngine     string        `env:"WORKFLOW_PROGRESSION_ENGINE" default:"batchlog"`
 
 	// DLQ caps and overflow policy.
 	DLQMaxPerProject  int    `env:"DLQ_MAX_PER_PROJECT" default:"10000"`

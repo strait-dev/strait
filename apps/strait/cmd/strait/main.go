@@ -295,7 +295,11 @@ func runServe(ctx context.Context, modeOverride string) error {
 	q, err := queue.NewQueueEngine(
 		dbPool,
 		cfg.QueueEngine,
-		queue.BatchlogConfig{TickInterval: cfg.QueueBatchTickInterval},
+		queue.BatchlogConfig{
+			TickInterval:             cfg.QueueBatchTickInterval,
+			PgQueMaintenanceInterval: cfg.QueuePgQueMaintenanceInterval,
+			PgQueRotationPeriod:      cfg.QueuePgQueRotationPeriod,
+		},
 		queue.WithPriorityAging(true),
 		queue.WithBackpressureController(bp),
 	)

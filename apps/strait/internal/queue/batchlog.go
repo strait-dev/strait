@@ -19,11 +19,13 @@ const (
 )
 
 type BatchlogConfig struct {
-	TickInterval  time.Duration
-	LeaseDuration time.Duration
-	LeaseOwner    string
-	AckRetention  time.Duration
-	CleanupLimit  int
+	TickInterval             time.Duration
+	LeaseDuration            time.Duration
+	LeaseOwner               string
+	AckRetention             time.Duration
+	CleanupLimit             int
+	PgQueMaintenanceInterval time.Duration
+	PgQueRotationPeriod      time.Duration
 }
 
 func (c BatchlogConfig) normalized() BatchlogConfig {
@@ -41,6 +43,12 @@ func (c BatchlogConfig) normalized() BatchlogConfig {
 	}
 	if c.CleanupLimit <= 0 {
 		c.CleanupLimit = 1000
+	}
+	if c.PgQueMaintenanceInterval <= 0 {
+		c.PgQueMaintenanceInterval = pgQueDefaultMaintenanceInterval
+	}
+	if c.PgQueRotationPeriod <= 0 {
+		c.PgQueRotationPeriod = pgQueDefaultRotationPeriod
 	}
 	return c
 }
@@ -63,6 +71,7 @@ func NewBatchlogQueue(db store.DBTX, legacy *PostgresQueue, cfg BatchlogConfig) 
 }
 
 func NewQueueEngine(db store.DBTX, engine string, cfg BatchlogConfig, opts ...PostgresQueueOption) (Queue, error) {
+	cfg = cfg.normalized()
 	legacy := NewPostgresQueue(db, opts...)
 	switch engine {
 	case "", EngineLegacy:
@@ -70,7 +79,11 @@ func NewQueueEngine(db store.DBTX, engine string, cfg BatchlogConfig, opts ...Po
 	case EngineBatchlog:
 		return NewBatchlogQueue(db, legacy, cfg), nil
 	case EnginePgQue:
-		return NewPgQueQueue(db, legacy, PgQueConfig{TickInterval: cfg.TickInterval}), nil
+		return NewPgQueQueue(db, legacy, PgQueConfig{
+			TickInterval:        cfg.TickInterval,
+			MaintenanceInterval: cfg.PgQueMaintenanceInterval,
+			RotationPeriod:      cfg.PgQueRotationPeriod,
+		}), nil
 	default:
 		return nil, fmt.Errorf("unknown queue engine %q", engine)
 	}

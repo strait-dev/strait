@@ -97,6 +97,127 @@ func TestPgQue_CreatesRouteIdempotently(t *testing.T) {
 	}
 }
 
+func TestPgQue_MaintainRotatesEventTables(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-pgque-maintenance")
+	consumerName := "test-" + newID()
+	q := queue.NewPgQueQueue(testDB.Pool, queue.NewPostgresQueue(testDB.Pool), queue.PgQueConfig{
+		TickInterval:        10 * time.Millisecond,
+		MaintenanceInterval: 10 * time.Millisecond,
+		RotationPeriod:      time.Millisecond,
+		ConsumerName:        consumerName,
+		NackDelay:           10 * time.Millisecond,
+		ReceiveWindow:       100,
+	})
+
+	run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	if err := q.ForceTick(ctx, "http"); err != nil {
+		t.Fatalf("ForceTick: %v", err)
+	}
+	claimed, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("DequeueN: %v", err)
+	}
+	if len(claimed) != 1 {
+		t.Fatalf("claimed %d runs, want 1", len(claimed))
+	}
+
+	var queueName string
+	var beforeTable int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT r.queue_name, q.queue_cur_table
+		FROM strait_pgque_routes r
+		JOIN pgque.queue q ON q.queue_name = r.queue_name
+		WHERE r.route_key = 'http'`).Scan(&queueName, &beforeTable); err != nil {
+		t.Fatalf("query route queue before maintenance: %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		DELETE FROM pgque.subscription s
+		USING pgque.consumer c, pgque.queue q
+		WHERE s.sub_consumer = c.co_id
+		  AND s.sub_queue = q.queue_id
+		  AND q.queue_name = $1
+		  AND c.co_name <> $2`, queueName, consumerName); err != nil {
+		t.Fatalf("clean stale test subscriptions: %v", err)
+	}
+	if err := q.ForceTick(ctx, "http"); err != nil {
+		t.Fatalf("ForceTick after ack: %v", err)
+	}
+	var latestTick int64
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT max(t.tick_id)
+		FROM pgque.tick t
+		JOIN pgque.queue q ON q.queue_id = t.tick_queue
+		WHERE q.queue_name = $1`, queueName).Scan(&latestTick); err != nil {
+		t.Fatalf("query latest tick: %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `SELECT pgque.register_consumer_at($1, $2, $3)`, queueName, consumerName, latestTick); err != nil {
+		t.Fatalf("advance consumer tick: %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE pgque.queue
+		SET queue_switch_time = NOW() - INTERVAL '1 hour',
+		    queue_switch_step2 = (
+		        SELECT pg_snapshot_xmin(t.tick_snapshot)::text::bigint - 1
+		        FROM pgque.tick t
+		        WHERE t.tick_queue = pgque.queue.queue_id
+		          AND t.tick_id = $2
+		    )
+		WHERE queue_name = $1`, queueName, latestTick); err != nil {
+		t.Fatalf("age pgque route queue: %v", err)
+	}
+
+	if err := q.Maintain(ctx); err != nil {
+		t.Fatalf("Maintain: %v", err)
+	}
+
+	var operations string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT coalesce(string_agg(func_name || ':' || coalesce(func_arg, ''), ','), '')
+		FROM pgque.maint_operations()`).Scan(&operations); err != nil {
+		t.Fatalf("query maint operations: %v", err)
+	}
+	var rotationPeriod, switchAge string
+	var switchStep2, tickXmin int64
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT q.queue_rotation_period::text,
+		       age(now(), q.queue_switch_time)::text,
+		       q.queue_switch_step2,
+		       pg_snapshot_xmin(t.tick_snapshot)::text::bigint
+		FROM pgque.queue q
+		JOIN pgque.tick t ON t.tick_queue = q.queue_id
+		WHERE q.queue_name = $1
+		  AND t.tick_id = $2`, queueName, latestTick).Scan(&rotationPeriod, &switchAge, &switchStep2, &tickXmin); err != nil {
+		t.Fatalf("query rotation diagnostics: %v", err)
+	}
+
+	var afterTable int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT queue_cur_table
+		FROM pgque.queue
+		WHERE queue_name = $1`, queueName).Scan(&afterTable); err != nil {
+		t.Fatalf("query route queue after maintenance: %v", err)
+	}
+	if afterTable == beforeTable {
+		t.Fatalf("queue_cur_table = %d after maintenance, want rotation from %d; queue=%s operations=%q rotation_period=%s switch_age=%s switch_step2=%d tick_xmin=%d",
+			afterTable,
+			beforeTable,
+			queueName,
+			operations,
+			rotationPeriod,
+			switchAge,
+			switchStep2,
+			tickXmin,
+		)
+	}
+}
+
 func TestPgQue_DoesNotCreateLegacyQueueEntries(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
