@@ -502,6 +502,16 @@ func TestRunStateSplit_PurgeDLQRunDeletesSplitStateRows(t *testing.T) {
 	); err != nil {
 		t.Fatalf("insert active claim: %v", err)
 	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_ready_events (run_id, ready_generation, attempt, reason)
+		SELECT run_id, ready_generation, attempt, 'purge_test'
+		FROM job_run_state
+		WHERE run_id = $1
+		ON CONFLICT DO NOTHING`,
+		run.ID,
+	); err != nil {
+		t.Fatalf("insert ready event: %v", err)
+	}
 
 	depth, err := q.DLQDepth(ctx, job.ProjectID, job.ID)
 	if err != nil {
@@ -521,6 +531,7 @@ func TestRunStateSplit_PurgeDLQRunDeletesSplitStateRows(t *testing.T) {
 		"job_run_terminal_state",
 		"job_run_active_claims",
 		"job_run_lifecycle_events",
+		"job_run_ready_events",
 		"job_run_heartbeats",
 	} {
 		var count int
@@ -536,6 +547,8 @@ func TestRunStateSplit_PurgeDLQRunDeletesSplitStateRows(t *testing.T) {
 			query = `SELECT COUNT(*) FROM job_run_active_claims WHERE run_id = $1`
 		case "job_run_lifecycle_events":
 			query = `SELECT COUNT(*) FROM job_run_lifecycle_events WHERE run_id = $1`
+		case "job_run_ready_events":
+			query = `SELECT COUNT(*) FROM job_run_ready_events WHERE run_id = $1`
 		case "job_run_heartbeats":
 			query = `SELECT COUNT(*) FROM job_run_heartbeats WHERE run_id = $1`
 		default:

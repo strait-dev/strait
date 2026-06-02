@@ -356,7 +356,7 @@ func TestPgQue_ReplayedDeadLetterRunBecomesClaimable(t *testing.T) {
 	}
 }
 
-func TestPgQue_ActivateDueRunsPromotesStateAndEmitsReadyEvent(t *testing.T) {
+func TestPgQue_ActivateDueRunsAppendsReadyEventWithoutMutatingState(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
@@ -396,25 +396,42 @@ func TestPgQue_ActivateDueRunsPromotesStateAndEmitsReadyEvent(t *testing.T) {
 		t.Fatalf("ActivateDueRuns promoted = %d, want 1", promoted)
 	}
 
-	var ledgerStatus, stateStatus domain.RunStatus
+	var ledgerStatus, stateStatus, readStatus domain.RunStatus
 	var afterGeneration int64
+	var readyEvents int
 	if err := testDB.Pool.QueryRow(ctx, `
-		SELECT jr.status, s.status, s.ready_generation
+		SELECT jr.status, s.status, rs.status, s.ready_generation,
+		       (SELECT COUNT(*) FROM job_run_ready_events WHERE run_id = jr.id AND reason = 'delayed_due')
 		FROM job_runs jr
 		JOIN job_run_state s ON s.run_id = jr.id
+		JOIN job_run_read_state rs ON rs.run_id = jr.id
 		WHERE jr.id = $1`,
 		run.ID,
-	).Scan(&ledgerStatus, &stateStatus, &afterGeneration); err != nil {
+	).Scan(&ledgerStatus, &stateStatus, &readStatus, &afterGeneration, &readyEvents); err != nil {
 		t.Fatalf("query promoted state: %v", err)
 	}
 	if ledgerStatus != domain.StatusDelayed {
 		t.Fatalf("job_runs status = %q, want immutable delayed ledger status", ledgerStatus)
 	}
-	if stateStatus != domain.StatusQueued {
-		t.Fatalf("job_run_state status = %q, want queued", stateStatus)
+	if stateStatus != domain.StatusDelayed {
+		t.Fatalf("job_run_state status = %q, want delayed hot state", stateStatus)
 	}
-	if afterGeneration != beforeGeneration+1 {
-		t.Fatalf("ready_generation = %d, want %d", afterGeneration, beforeGeneration+1)
+	if readStatus != domain.StatusQueued {
+		t.Fatalf("job_run_read_state status = %q, want queued readiness overlay", readStatus)
+	}
+	if afterGeneration != beforeGeneration {
+		t.Fatalf("ready_generation = %d, want unchanged %d", afterGeneration, beforeGeneration)
+	}
+	if readyEvents != 1 {
+		t.Fatalf("ready events = %d, want 1", readyEvents)
+	}
+
+	promotedAgain, err := q.ActivateDueRuns(ctx, 10)
+	if err != nil {
+		t.Fatalf("ActivateDueRuns duplicate: %v", err)
+	}
+	if promotedAgain != 0 {
+		t.Fatalf("duplicate promotion = %d, want 0", promotedAgain)
 	}
 
 	var queueEntries int
@@ -437,6 +454,17 @@ func TestPgQue_ActivateDueRunsPromotesStateAndEmitsReadyEvent(t *testing.T) {
 	}
 	if claimed[0].Status != domain.StatusExecuting {
 		t.Fatalf("claimed status = %q, want executing", claimed[0].Status)
+	}
+
+	if err := st.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{"finished_at": time.Now().UTC()}); err != nil {
+		t.Fatalf("UpdateRunStatus delayed-ready claim to terminal: %v", err)
+	}
+	var terminalStatus domain.RunStatus
+	if err := testDB.Pool.QueryRow(ctx, `SELECT status FROM job_run_read_state WHERE run_id = $1`, run.ID).Scan(&terminalStatus); err != nil {
+		t.Fatalf("query terminal read state: %v", err)
+	}
+	if terminalStatus != domain.StatusCompleted {
+		t.Fatalf("terminal read status = %q, want completed", terminalStatus)
 	}
 }
 
@@ -581,30 +609,41 @@ func TestPgQue_ActivateDueRunsPromotesReadyRetries(t *testing.T) {
 		t.Fatalf("ready retry promoted = %d, want 1", promoted)
 	}
 
-	var stateStatus domain.RunStatus
-	var attempt int
+	var stateStatus, readStatus domain.RunStatus
+	var stateAttempt, readAttempt int
 	var afterGeneration int64
-	var pendingRetries int
+	var pendingRetries, readyEvents int
 	if err := testDB.Pool.QueryRow(ctx, `
-		SELECT s.status, s.attempt, s.ready_generation,
-		       (SELECT COUNT(*) FROM job_retries WHERE run_id = s.run_id)
+		SELECT s.status, s.attempt, rs.status, rs.attempt, s.ready_generation,
+		       (SELECT COUNT(*) FROM job_retries WHERE run_id = s.run_id),
+		       (SELECT COUNT(*) FROM job_run_ready_events WHERE run_id = s.run_id AND reason = 'retry_ready')
 		FROM job_run_state s
+		JOIN job_run_read_state rs ON rs.run_id = s.run_id
 		WHERE s.run_id = $1`,
 		run.ID,
-	).Scan(&stateStatus, &attempt, &afterGeneration, &pendingRetries); err != nil {
+	).Scan(&stateStatus, &stateAttempt, &readStatus, &readAttempt, &afterGeneration, &pendingRetries, &readyEvents); err != nil {
 		t.Fatalf("query retry promotion state: %v", err)
 	}
 	if stateStatus != domain.StatusQueued {
 		t.Fatalf("job_run_state status = %q, want queued", stateStatus)
 	}
-	if attempt != 2 {
-		t.Fatalf("attempt = %d, want 2", attempt)
+	if stateAttempt != 1 {
+		t.Fatalf("job_run_state attempt = %d, want unchanged 1", stateAttempt)
 	}
-	if afterGeneration != beforeGeneration+1 {
-		t.Fatalf("ready_generation = %d, want %d", afterGeneration, beforeGeneration+1)
+	if readStatus != domain.StatusQueued {
+		t.Fatalf("job_run_read_state status = %q, want queued", readStatus)
+	}
+	if readAttempt != 2 {
+		t.Fatalf("job_run_read_state attempt = %d, want retry attempt 2", readAttempt)
+	}
+	if afterGeneration != beforeGeneration {
+		t.Fatalf("ready_generation = %d, want unchanged %d", afterGeneration, beforeGeneration)
 	}
 	if pendingRetries != 0 {
 		t.Fatalf("pending retries = %d, want 0", pendingRetries)
+	}
+	if readyEvents != 1 {
+		t.Fatalf("ready events = %d, want 1", readyEvents)
 	}
 
 	if err := q.ForceTick(ctx, "http"); err != nil {

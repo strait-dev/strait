@@ -322,28 +322,7 @@ func (q *PgQueQueue) RequeuePausedJobRuns(ctx context.Context, workflowRunID str
 func (q *PgQueQueue) promoteDueRunsInTx(ctx context.Context, tx store.DBTX, limit int) ([]*domain.JobRun, error) {
 	rows, err := tx.Query(ctx, `
 		WITH candidates AS MATERIALIZED (
-			SELECT s.run_id
-			FROM job_run_state s
-			WHERE s.status = 'delayed'
-			  AND s.scheduled_at <= NOW()
-			  AND NOT EXISTS (
-			      SELECT 1
-			      FROM job_run_terminal_state t
-			      WHERE t.run_id = s.run_id
-			  )
-			ORDER BY s.scheduled_at ASC, s.run_id ASC
-			LIMIT $1
-			FOR UPDATE SKIP LOCKED
-		),
-		updated AS (
-			UPDATE job_run_state s
-			SET status = 'queued',
-			    ready_generation = ready_generation + 1,
-			    updated_at = NOW()
-			FROM candidates c
-			WHERE s.run_id = c.run_id
-			  AND s.status = 'delayed'
-			RETURNING
+			SELECT
 				s.run_id,
 				s.job_id,
 				s.project_id,
@@ -357,41 +336,70 @@ func (q *PgQueQueue) promoteDueRunsInTx(ctx context.Context, tx store.DBTX, limi
 				s.expires_at,
 				s.priority,
 				s.concurrency_key,
-				s.execution_mode
+				s.execution_mode,
+				s.ready_generation
+			FROM job_run_state s
+			WHERE s.status = 'delayed'
+			  AND s.scheduled_at <= NOW()
+			  AND NOT EXISTS (
+			      SELECT 1
+			      FROM job_run_terminal_state t
+			      WHERE t.run_id = s.run_id
+			  )
+			  AND NOT EXISTS (
+			      SELECT 1
+			      FROM job_run_ready_events ready
+			      WHERE ready.run_id = s.run_id
+			        AND ready.ready_generation = s.ready_generation
+			        AND ready.reason = 'delayed_due'
+			  )
+			ORDER BY s.scheduled_at ASC, s.run_id ASC
+			LIMIT $1
+			FOR UPDATE OF s SKIP LOCKED
+		),
+		inserted_ready AS (
+			INSERT INTO job_run_ready_events (run_id, ready_generation, attempt, reason)
+			SELECT run_id, ready_generation, attempt, 'delayed_due'
+			FROM candidates c
+			ON CONFLICT (run_id, ready_generation, reason) DO NOTHING
+			RETURNING
+				run_id,
+				ready_generation,
+				attempt
 		),
 		lifecycle_events AS (
 			INSERT INTO job_run_lifecycle_events (run_id, from_status, to_status, attempt, fields)
-			SELECT run_id, 'delayed', 'queued', attempt, '{}'::jsonb
-			FROM updated
+			SELECT run_id, 'delayed', 'queued', attempt, '{"ready_event": true}'::jsonb
+			FROM inserted_ready
 			RETURNING 1
 		),
 		cache_versions AS (
 			INSERT INTO job_run_cache_versions (run_id, cache_version)
-			SELECT run_id, 2 FROM updated
+			SELECT run_id, 2 FROM inserted_ready
 			ON CONFLICT (run_id)
 			DO UPDATE SET cache_version = job_run_cache_versions.cache_version + 1
 			RETURNING 1
 		)
 		SELECT
 			jr.id,
-			u.job_id,
-			u.project_id,
-			u.status,
-			u.attempt,
+			c.job_id,
+			c.project_id,
+			'queued'::text AS status,
+			r.attempt,
 			jr.payload,
 			jr.result,
 			jr.metadata,
 			jr.error,
 			jr.error_class,
 			jr.triggered_by,
-			u.scheduled_at,
-			u.started_at,
-			u.finished_at,
-			u.heartbeat_at,
-			u.next_retry_at,
-			u.expires_at,
+			c.scheduled_at,
+			c.started_at,
+			c.finished_at,
+			c.heartbeat_at,
+			c.next_retry_at,
+			c.expires_at,
 			jr.parent_run_id,
-			u.priority,
+			c.priority,
 			jr.idempotency_key,
 			jr.job_version,
 			jr.created_at,
@@ -404,13 +412,14 @@ func (q *PgQueQueue) promoteDueRunsInTx(ctx context.Context, tx store.DBTX, limi
 			jr.job_version_id,
 			jr.created_by,
 			jr.batch_id,
-			u.concurrency_key,
-			u.execution_mode,
+			c.concurrency_key,
+			c.execution_mode,
 			jr.is_rollback,
 			jr.replayed_run_id
-		FROM updated u
-		JOIN job_runs jr ON jr.id = u.run_id
-		ORDER BY u.scheduled_at ASC, u.run_id ASC`,
+		FROM inserted_ready r
+		JOIN candidates c ON c.run_id = r.run_id
+		JOIN job_runs jr ON jr.id = r.run_id
+		ORDER BY c.scheduled_at ASC, c.run_id ASC`,
 		limit,
 	)
 	if err != nil {
@@ -438,7 +447,17 @@ func (q *PgQueQueue) promoteReadyRetriesInTx(ctx context.Context, tx store.DBTX,
 	}
 	rows, err := tx.Query(ctx, `
 		WITH candidates AS MATERIALIZED (
-			SELECT rt.run_id, rt.attempt
+			SELECT
+				rt.run_id,
+				rt.attempt,
+				s.ready_generation,
+				s.job_id,
+				s.project_id,
+				s.scheduled_at,
+				s.expires_at,
+				s.priority,
+				s.concurrency_key,
+				s.execution_mode
 			FROM job_retries rt
 			JOIN job_run_state s ON s.run_id = rt.run_id
 			WHERE rt.next_retry_at <= NOW()
@@ -450,75 +469,60 @@ func (q *PgQueQueue) promoteReadyRetriesInTx(ctx context.Context, tx store.DBTX,
 			  )
 			ORDER BY rt.next_retry_at ASC, rt.run_id ASC
 			LIMIT $1
-			FOR UPDATE OF rt SKIP LOCKED
+			FOR UPDATE OF rt, s SKIP LOCKED
 		),
 		deleted_retries AS (
 			DELETE FROM job_retries rt
 			USING candidates c
 			WHERE rt.run_id = c.run_id
-			RETURNING rt.run_id, c.attempt
-		),
-		updated AS (
-			UPDATE job_run_state s
-			SET status = 'queued',
-			    attempt = d.attempt,
-			    next_retry_at = NULL,
-			    started_at = NULL,
-			    finished_at = NULL,
-			    heartbeat_at = NULL,
-			    ready_generation = ready_generation + 1,
-			    updated_at = NOW()
-			FROM deleted_retries d
-			WHERE s.run_id = d.run_id
 			RETURNING
-				s.run_id,
-				s.job_id,
-				s.project_id,
-				s.status,
-				s.attempt,
-				s.scheduled_at,
-				s.started_at,
-				s.finished_at,
-				s.heartbeat_at,
-				s.next_retry_at,
-				s.expires_at,
-				s.priority,
-				s.concurrency_key,
-				s.execution_mode
+				rt.run_id,
+				c.attempt,
+				c.ready_generation
+		),
+		inserted_ready AS (
+			INSERT INTO job_run_ready_events (run_id, ready_generation, attempt, reason)
+			SELECT run_id, ready_generation, attempt, 'retry_ready'
+			FROM deleted_retries
+			ON CONFLICT (run_id, ready_generation, reason) DO NOTHING
+			RETURNING
+				run_id,
+				ready_generation,
+				attempt
 		),
 		lifecycle_events AS (
 			INSERT INTO job_run_lifecycle_events (run_id, from_status, to_status, attempt, fields)
-			SELECT run_id, 'queued', 'queued', attempt, '{"retry_ready": true}'::jsonb
-			FROM updated
+			SELECT run_id, 'queued', 'queued', attempt, '{"retry_ready": true, "ready_event": true}'::jsonb
+			FROM inserted_ready
 			RETURNING 1
 		),
 		cache_versions AS (
 			INSERT INTO job_run_cache_versions (run_id, cache_version)
-			SELECT run_id, 2 FROM updated
+			SELECT run_id, 2 FROM inserted_ready
 			ON CONFLICT (run_id)
 			DO UPDATE SET cache_version = job_run_cache_versions.cache_version + 1
 			RETURNING 1
 		)
 		SELECT
 			jr.id,
-			u.job_id,
-			u.project_id,
-			u.status,
-			u.attempt,
+			c.job_id,
+			c.project_id,
+			'queued'::text AS status,
+			r.attempt,
 			jr.payload,
 			jr.result,
 			jr.metadata,
 			jr.error,
 			jr.error_class,
 			jr.triggered_by,
-			u.scheduled_at,
-			u.started_at,
-			u.finished_at,
-			u.heartbeat_at,
-			u.next_retry_at,
-			u.expires_at,
+			c.scheduled_at,
+			NULL::timestamptz AS started_at,
+			NULL::timestamptz AS finished_at,
+			NULL::timestamptz AS heartbeat_at,
+			NULL::timestamptz AS next_retry_at,
+			c.expires_at,
 			jr.parent_run_id,
-			u.priority,
+			c.priority,
 			jr.idempotency_key,
 			jr.job_version,
 			jr.created_at,
@@ -531,13 +535,14 @@ func (q *PgQueQueue) promoteReadyRetriesInTx(ctx context.Context, tx store.DBTX,
 			jr.job_version_id,
 			jr.created_by,
 			jr.batch_id,
-			u.concurrency_key,
-			u.execution_mode,
+			c.concurrency_key,
+			c.execution_mode,
 			jr.is_rollback,
 			jr.replayed_run_id
-		FROM updated u
-		JOIN job_runs jr ON jr.id = u.run_id
-		ORDER BY jr.created_at ASC, u.run_id ASC`,
+		FROM inserted_ready r
+		JOIN candidates c ON c.run_id = r.run_id
+		JOIN job_runs jr ON jr.id = r.run_id
+		ORDER BY jr.created_at ASC, c.run_id ASC`,
 		limit,
 	)
 	if err != nil {
@@ -1451,6 +1456,8 @@ func (q *PgQueQueue) claimRuns(ctx context.Context, ids []string, generations []
 			       s.concurrency_key,
 			       s.job_max_concurrency,
 			       s.job_max_concurrency_per_key,
+			       s.ready_attempt,
+			       s.ready_reason,
 			       s.priority AS claim_priority,
 			       jr.created_at AS claim_created_at,
 			       jr.payload,
@@ -1476,10 +1483,21 @@ func (q *PgQueQueue) claimRuns(ctx context.Context, ids []string, generations []
 			       jr.replayed_run_id
 			FROM input
 			JOIN LATERAL (
-				SELECT *
+				SELECT s.*, ready.attempt AS ready_attempt, ready.reason AS ready_reason
 				FROM job_run_state s
+				LEFT JOIN LATERAL (
+				    SELECT e.attempt, e.reason
+				    FROM job_run_ready_events e
+				    WHERE e.run_id = s.run_id
+				      AND e.ready_generation = s.ready_generation
+				    ORDER BY e.id DESC
+				    LIMIT 1
+				) ready ON true
 				WHERE s.run_id = input.id
-				  AND s.status = $4
+				  AND (
+				      s.status = $4
+				      OR (s.status = 'delayed' AND ready.reason = 'delayed_due')
+				  )
 				  AND s.ready_generation = input.generation
 				  AND s.execution_mode = $6
 				  AND ($7::text = '' OR s.project_id = $7)
@@ -1496,7 +1514,11 @@ func (q *PgQueQueue) claimRuns(ctx context.Context, ids []string, generations []
 				  AND COALESCE(s.job_enabled, true) = true
 				  AND COALESCE(s.job_paused, false) = false
 				  AND (s.scheduled_at IS NULL OR s.scheduled_at <= NOW())
-				  AND (s.next_retry_at IS NULL OR s.next_retry_at <= NOW())
+				  AND (
+				      s.next_retry_at IS NULL
+				      OR s.next_retry_at <= NOW()
+				      OR ready.reason = 'retry_ready'
+				  )
 				  AND NOT EXISTS (
 				      SELECT 1
 				      FROM job_retries rt
@@ -1509,7 +1531,7 @@ func (q *PgQueQueue) claimRuns(ctx context.Context, ids []string, generations []
 				      WHERE c.run_id = s.run_id
 				        AND c.ready_generation = s.ready_generation
 				  )
-				FOR UPDATE SKIP LOCKED
+				FOR UPDATE OF s SKIP LOCKED
 			) s ON true
 			JOIN job_runs jr ON jr.id = s.run_id
 			ORDER BY s.priority DESC, jr.created_at ASC, input.ord
@@ -1540,7 +1562,7 @@ func (q *PgQueQueue) claimRuns(ctx context.Context, ids []string, generations []
 			 AND claim.ready_generation = active.ready_generation
 			LEFT JOIN job_run_terminal_state terminal ON terminal.run_id = active.run_id
 			CROSS JOIN lock_barrier
-			WHERE active.status = $4
+			WHERE active.status IN ($4, 'delayed')
 			  AND terminal.run_id IS NULL
 			GROUP BY active.job_id, COALESCE(active.concurrency_key, '')
 		),
@@ -1584,22 +1606,22 @@ func (q *PgQueQueue) claimRuns(ctx context.Context, ids []string, generations []
 			SELECT
 				s.run_id,
 				s.ready_generation,
-				s.attempt,
+				COALESCE(candidates.ready_attempt, s.attempt),
 				NOW()
 			FROM job_run_state s
 			JOIN candidates ON candidates.run_id = s.run_id
-			WHERE s.status = $4
+			WHERE s.status IN ($4, 'delayed')
 			  AND s.ready_generation = candidates.generation
 			  AND NOT EXISTS (SELECT 1 FROM job_run_terminal_state t WHERE t.run_id = s.run_id)
 			ON CONFLICT (run_id, ready_generation) DO NOTHING
-			RETURNING run_id, ready_generation, started_at
+			RETURNING run_id, ready_generation, attempt, started_at
 		),
 		claimed_state AS (
 			SELECT s.run_id,
 			       candidates.job_id,
 			       candidates.project_id,
 			       $5::text AS status,
-			       s.attempt,
+			       i.attempt,
 			       candidates.payload,
 			       candidates.result,
 			       candidates.metadata,
@@ -1608,9 +1630,9 @@ func (q *PgQueQueue) claimRuns(ctx context.Context, ids []string, generations []
 			       candidates.triggered_by,
 			       s.scheduled_at,
 			       i.started_at,
-			       s.finished_at,
-			       s.heartbeat_at,
-			       s.next_retry_at,
+			       CASE WHEN candidates.ready_reason = 'retry_ready' THEN NULL::timestamptz ELSE s.finished_at END AS finished_at,
+			       CASE WHEN candidates.ready_reason = 'retry_ready' THEN NULL::timestamptz ELSE s.heartbeat_at END AS heartbeat_at,
+			       CASE WHEN candidates.ready_reason = 'retry_ready' THEN NULL::timestamptz ELSE s.next_retry_at END AS next_retry_at,
 			       s.expires_at,
 			       candidates.parent_run_id,
 			       s.priority,

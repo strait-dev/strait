@@ -210,6 +210,10 @@ func (q *Queries) PurgeDLQRun(ctx context.Context, runID string) error {
 			DELETE FROM job_run_lifecycle_events
 			WHERE run_id IN (SELECT id FROM victim)
 		),
+		deleted_ready_events AS (
+			DELETE FROM job_run_ready_events
+			WHERE run_id IN (SELECT id FROM victim)
+		),
 		deleted_terminal_state AS (
 			DELETE FROM job_run_terminal_state
 			WHERE run_id IN (SELECT id FROM victim)

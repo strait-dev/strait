@@ -486,6 +486,11 @@ func (q *Queries) deleteJobTx(ctx context.Context, id string) error {
 	}
 
 	// Delete related data before removing the job (FK constraints).
+	if _, err := q.db.Exec(ctx, `
+		DELETE FROM job_run_ready_events
+		WHERE run_id IN (SELECT id FROM job_runs WHERE job_id = $1)`, id); err != nil {
+		return fmt.Errorf("delete job run ready events: %w", err)
+	}
 	if _, err := q.db.Exec(ctx, `DELETE FROM job_runs WHERE job_id = $1`, id); err != nil {
 		return fmt.Errorf("delete job runs: %w", err)
 	}

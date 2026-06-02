@@ -2230,16 +2230,17 @@ const appendRunTerminalStateQuery = `
 			s.project_id,
 			s.job_id,
 			CASE
-				WHEN c.run_id IS NOT NULL AND s.status = 'queued' THEN 'executing'
+				WHEN c.run_id IS NOT NULL AND s.status IN ('queued', 'delayed') THEN 'executing'
+				WHEN ready.reason = 'delayed_due' AND s.status = 'delayed' THEN 'queued'
 				ELSE s.status
 			END AS previous_status,
-			COALESCE(c.attempt, s.attempt) AS attempt,
+			COALESCE(c.attempt, ready.attempt, s.attempt) AS attempt,
 			s.priority,
 			s.scheduled_at,
 			COALESCE(c.started_at, s.started_at) AS started_at,
-			s.finished_at,
-			s.heartbeat_at,
-			s.next_retry_at,
+			CASE WHEN ready.reason = 'retry_ready' THEN NULL::TIMESTAMPTZ ELSE s.finished_at END AS finished_at,
+			CASE WHEN ready.reason = 'retry_ready' THEN NULL::TIMESTAMPTZ ELSE s.heartbeat_at END AS heartbeat_at,
+			CASE WHEN ready.reason = 'retry_ready' THEN NULL::TIMESTAMPTZ ELSE s.next_retry_at END AS next_retry_at,
 			s.expires_at,
 			s.concurrency_key,
 			s.execution_mode,
@@ -2253,10 +2254,19 @@ const appendRunTerminalStateQuery = `
 		LEFT JOIN job_run_active_claims c
 		  ON c.run_id = s.run_id
 		 AND c.ready_generation = s.ready_generation
+		LEFT JOIN LATERAL (
+			SELECT e.attempt, e.reason
+			FROM job_run_ready_events e
+			WHERE e.run_id = s.run_id
+			  AND e.ready_generation = s.ready_generation
+			ORDER BY e.id DESC
+			LIMIT 1
+		) ready ON true
 		WHERE s.run_id = $1
 		  AND (
 		      s.status = $2
-		      OR ($2 = 'executing' AND s.status = 'queued' AND c.run_id IS NOT NULL)
+		      OR ($2 = 'executing' AND s.status IN ('queued', 'delayed') AND c.run_id IS NOT NULL)
+		      OR ($2 = 'queued' AND s.status = 'delayed' AND ready.reason = 'delayed_due')
 		  )
 		  AND NOT EXISTS (SELECT 1 FROM job_run_terminal_state t WHERE t.run_id = s.run_id)
 		FOR UPDATE OF s
@@ -2332,16 +2342,17 @@ const appendRunTerminalStateForAttemptQuery = `
 			s.project_id,
 			s.job_id,
 			CASE
-				WHEN c.run_id IS NOT NULL AND s.status = 'queued' THEN 'executing'
+				WHEN c.run_id IS NOT NULL AND s.status IN ('queued', 'delayed') THEN 'executing'
+				WHEN ready.reason = 'delayed_due' AND s.status = 'delayed' THEN 'queued'
 				ELSE s.status
 			END AS previous_status,
-			COALESCE(c.attempt, s.attempt) AS attempt,
+			COALESCE(c.attempt, ready.attempt, s.attempt) AS attempt,
 			s.priority,
 			s.scheduled_at,
 			COALESCE(c.started_at, s.started_at) AS started_at,
-			s.finished_at,
-			s.heartbeat_at,
-			s.next_retry_at,
+			CASE WHEN ready.reason = 'retry_ready' THEN NULL::TIMESTAMPTZ ELSE s.finished_at END AS finished_at,
+			CASE WHEN ready.reason = 'retry_ready' THEN NULL::TIMESTAMPTZ ELSE s.heartbeat_at END AS heartbeat_at,
+			CASE WHEN ready.reason = 'retry_ready' THEN NULL::TIMESTAMPTZ ELSE s.next_retry_at END AS next_retry_at,
 			s.expires_at,
 			s.concurrency_key,
 			s.execution_mode,
@@ -2355,11 +2366,20 @@ const appendRunTerminalStateForAttemptQuery = `
 		LEFT JOIN job_run_active_claims c
 		  ON c.run_id = s.run_id
 		 AND c.ready_generation = s.ready_generation
+		LEFT JOIN LATERAL (
+			SELECT e.attempt, e.reason
+			FROM job_run_ready_events e
+			WHERE e.run_id = s.run_id
+			  AND e.ready_generation = s.ready_generation
+			ORDER BY e.id DESC
+			LIMIT 1
+		) ready ON true
 		WHERE s.run_id = $1
-		  AND COALESCE(c.attempt, s.attempt) = $13
+		  AND COALESCE(c.attempt, ready.attempt, s.attempt) = $13
 		  AND (
 		      s.status = $2
-		      OR ($2 = 'executing' AND s.status = 'queued' AND c.run_id IS NOT NULL)
+		      OR ($2 = 'executing' AND s.status IN ('queued', 'delayed') AND c.run_id IS NOT NULL)
+		      OR ($2 = 'queued' AND s.status = 'delayed' AND ready.reason = 'delayed_due')
 		  )
 		  AND NOT EXISTS (SELECT 1 FROM job_run_terminal_state t WHERE t.run_id = s.run_id)
 		FOR UPDATE OF s
@@ -3040,6 +3060,10 @@ func (q *Queries) DeleteTerminalRunsPastRetention(ctx context.Context, shortRete
 		),
 		deleted_lifecycle_events AS (
 			DELETE FROM job_run_lifecycle_events
+			WHERE run_id IN (SELECT id FROM to_delete)
+		),
+		deleted_ready_events AS (
+			DELETE FROM job_run_ready_events
 			WHERE run_id IN (SELECT id FROM to_delete)
 		),
 		deleted_terminal_state AS (

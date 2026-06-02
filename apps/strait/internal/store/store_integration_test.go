@@ -1682,8 +1682,16 @@ func TestDeleteTerminalRunsPastRetention_BatchCleansSideRows(t *testing.T) {
 		WHERE run_id LIKE $1 || '%'`, prefix); err != nil {
 		t.Fatalf("seed batch lifecycle events: %v", err)
 	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_ready_events (run_id, ready_generation, attempt, reason)
+		SELECT run_id, ready_generation, attempt, 'retention_batch'
+		FROM job_run_state
+		WHERE run_id LIKE $1 || '%'
+		ON CONFLICT DO NOTHING`, prefix); err != nil {
+		t.Fatalf("seed batch ready events: %v", err)
+	}
 
-	for _, table := range []string{"job_runs", "job_run_state", "job_run_active_claims", "job_run_lifecycle_events"} {
+	for _, table := range []string{"job_runs", "job_run_state", "job_run_active_claims", "job_run_lifecycle_events", "job_run_ready_events"} {
 		if count := countRunRowsByPrefix(t, ctx, table, prefix); count != runCount {
 			t.Fatalf("%s seeded rows = %d, want %d", table, count, runCount)
 		}
@@ -1697,7 +1705,7 @@ func TestDeleteTerminalRunsPastRetention_BatchCleansSideRows(t *testing.T) {
 		t.Fatalf("first deleted = %d, want 5000", deleted)
 	}
 
-	for _, table := range []string{"job_runs", "job_run_state", "job_run_active_claims", "job_run_lifecycle_events"} {
+	for _, table := range []string{"job_runs", "job_run_state", "job_run_active_claims", "job_run_lifecycle_events", "job_run_ready_events"} {
 		if count := countRunRowsByPrefix(t, ctx, table, prefix); count != runCount-deleted {
 			t.Fatalf("%s rows after first batch = %d, want %d", table, count, runCount-deleted)
 		}
@@ -1711,7 +1719,7 @@ func TestDeleteTerminalRunsPastRetention_BatchCleansSideRows(t *testing.T) {
 		t.Fatalf("second deleted = %d, want %d", deleted, runCount-5000)
 	}
 
-	for _, table := range []string{"job_runs", "job_run_state", "job_run_active_claims", "job_run_lifecycle_events"} {
+	for _, table := range []string{"job_runs", "job_run_state", "job_run_active_claims", "job_run_lifecycle_events", "job_run_ready_events"} {
 		if count := countRunRowsByPrefix(t, ctx, table, prefix); count != 0 {
 			t.Fatalf("%s rows after second batch = %d, want 0", table, count)
 		}
@@ -1733,6 +1741,12 @@ func seedRetentionSideRows(t *testing.T, ctx context.Context, runIDs ...string) 
 			VALUES ($1, 'queued', 'executing', 1, '{"source":"retention-test"}'::jsonb)`, runID); err != nil {
 			t.Fatalf("seed lifecycle event for %s: %v", runID, err)
 		}
+		if _, err := testDB.Pool.Exec(ctx, `
+			INSERT INTO job_run_ready_events (run_id, ready_generation, attempt, reason)
+			VALUES ($1, 0, 1, 'retention_test')
+			ON CONFLICT DO NOTHING`, runID); err != nil {
+			t.Fatalf("seed ready event for %s: %v", runID, err)
+		}
 	}
 }
 
@@ -1744,6 +1758,7 @@ func assertNoRunRetentionSideRows(t *testing.T, ctx context.Context, runID strin
 		"job_run_terminal_state",
 		"job_run_active_claims",
 		"job_run_lifecycle_events",
+		"job_run_ready_events",
 	} {
 		if count := countRunSideTableRows(t, ctx, table, runID); count != 0 {
 			t.Fatalf("%s rows for deleted run %s = %d, want 0", table, runID, count)
@@ -1758,6 +1773,7 @@ func assertRunRetentionSideRowsRemain(t *testing.T, ctx context.Context, runID s
 		"job_run_state",
 		"job_run_active_claims",
 		"job_run_lifecycle_events",
+		"job_run_ready_events",
 	} {
 		if count := countRunSideTableRows(t, ctx, table, runID); count == 0 {
 			t.Fatalf("%s rows for retained run %s = 0, want at least 1", table, runID)
@@ -1778,6 +1794,8 @@ func countRunSideTableRows(t *testing.T, ctx context.Context, table, runID strin
 		query = `SELECT COUNT(*) FROM job_run_active_claims WHERE run_id = $1`
 	case "job_run_lifecycle_events":
 		query = `SELECT COUNT(*) FROM job_run_lifecycle_events WHERE run_id = $1`
+	case "job_run_ready_events":
+		query = `SELECT COUNT(*) FROM job_run_ready_events WHERE run_id = $1`
 	default:
 		t.Fatalf("unknown side table %q", table)
 	}
@@ -1802,6 +1820,8 @@ func countRunRowsByPrefix(t *testing.T, ctx context.Context, table, prefix strin
 		query = `SELECT COUNT(*) FROM job_run_active_claims WHERE run_id LIKE $1 || '%'`
 	case "job_run_lifecycle_events":
 		query = `SELECT COUNT(*) FROM job_run_lifecycle_events WHERE run_id LIKE $1 || '%'`
+	case "job_run_ready_events":
+		query = `SELECT COUNT(*) FROM job_run_ready_events WHERE run_id LIKE $1 || '%'`
 	default:
 		t.Fatalf("unknown run table %q", table)
 	}
