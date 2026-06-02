@@ -48,20 +48,28 @@ func TestMaskOldDLQRows_MasksOnlyStale(t *testing.T) {
 		t.Errorf("masked = %d, want 2", n)
 	}
 
-	// Verify visible_until set on the two old rows, null on the fresh one.
+	// Verify masking is append-only: the two old rows get visibility events,
+	// while the fat ledger rows stay untouched.
 	for i, id := range ids {
-		var visible *time.Time
-		err := testDB.Pool.QueryRow(ctx, `SELECT visible_until FROM job_runs WHERE id = $1`, id).Scan(&visible)
-		if err != nil {
-			t.Fatalf("query %d: %v", i, err)
+		var ledgerVisible *time.Time
+		if err := testDB.Pool.QueryRow(ctx, `SELECT visible_until FROM job_runs WHERE id = $1`, id).Scan(&ledgerVisible); err != nil {
+			t.Fatalf("query ledger visibility %d: %v", i, err)
+		}
+		if ledgerVisible != nil {
+			t.Fatalf("ledger visible_until for row %d = %v, want nil", i, *ledgerVisible)
+		}
+
+		var events int
+		if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM job_run_visibility_events WHERE run_id = $1`, id).Scan(&events); err != nil {
+			t.Fatalf("query visibility events %d: %v", i, err)
 		}
 		if i < 2 {
-			if visible == nil {
-				t.Errorf("row %d should be masked", i)
+			if events != 1 {
+				t.Errorf("row %d visibility events = %d, want 1", i, events)
 			}
 		} else {
-			if visible != nil {
-				t.Errorf("row %d should still be visible", i)
+			if events != 0 {
+				t.Errorf("row %d visibility events = %d, want 0", i, events)
 			}
 		}
 	}
@@ -102,12 +110,26 @@ func TestMaskOldDLQRows_UsesSplitTerminalState(t *testing.T) {
 		t.Fatalf("masked = %d, want 1", masked)
 	}
 
-	var visibleUntil *time.Time
-	if err := testDB.Pool.QueryRow(ctx, `SELECT visible_until FROM job_runs WHERE id = $1`, run.ID).Scan(&visibleUntil); err != nil {
-		t.Fatalf("query visible_until: %v", err)
+	var ledgerVisibleUntil *time.Time
+	if err := testDB.Pool.QueryRow(ctx, `SELECT visible_until FROM job_runs WHERE id = $1`, run.ID).Scan(&ledgerVisibleUntil); err != nil {
+		t.Fatalf("query ledger visible_until: %v", err)
 	}
-	if visibleUntil == nil {
-		t.Fatalf("visible_until = NULL, want masked timestamp")
+	if ledgerVisibleUntil != nil {
+		t.Fatalf("ledger visible_until = %v, want NULL", *ledgerVisibleUntil)
+	}
+
+	var eventVisibleUntil *time.Time
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT visible_until
+		FROM job_run_visibility_events
+		WHERE run_id = $1
+		ORDER BY id DESC
+		LIMIT 1
+	`, run.ID).Scan(&eventVisibleUntil); err != nil {
+		t.Fatalf("query visibility event: %v", err)
+	}
+	if eventVisibleUntil == nil {
+		t.Fatalf("event visible_until = NULL, want masked timestamp")
 	}
 
 	depth, err := q.DLQDepth(ctx, job.ProjectID, job.ID)

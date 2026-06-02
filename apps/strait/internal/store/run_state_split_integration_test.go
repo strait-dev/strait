@@ -454,6 +454,14 @@ func TestRunStateSplit_UnmaskDLQRunUsesReadState(t *testing.T) {
 		t.Fatalf("visible_until = %v, want NULL", *visibleUntil)
 	}
 
+	var visibilityEvents int
+	if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM job_run_visibility_events WHERE run_id = $1`, run.ID).Scan(&visibilityEvents); err != nil {
+		t.Fatalf("query visibility events: %v", err)
+	}
+	if visibilityEvents != 2 {
+		t.Fatalf("visibility events = %d, want mask and unmask events", visibilityEvents)
+	}
+
 	depth, err = q.DLQDepth(ctx, job.ProjectID, job.ID)
 	if err != nil {
 		t.Fatalf("DLQDepth() after unmask error = %v", err)

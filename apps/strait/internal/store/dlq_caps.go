@@ -52,8 +52,8 @@ func (q *Queries) DLQDepthByProject(ctx context.Context, projectID string) (int,
 
 // MaskOldDLQRows soft-deletes up to `limit` dead_letter rows whose
 // finished_at is older than `retention`. Used by the DLQ age-out
-// archiver. The dlq_counts trigger decrements
-// the counter on mask so DLQ caps free up automatically.
+// archiver. Visibility changes are append-only so the fat run ledger is
+// not dirtied by retention sweeps.
 func (q *Queries) MaskOldDLQRows(ctx context.Context, retention time.Duration, limit int) (int64, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.MaskOldDLQRows")
 	defer span.End()
@@ -64,36 +64,44 @@ func (q *Queries) MaskOldDLQRows(ctx context.Context, retention time.Duration, l
 	cutoff := time.Now().UTC().Add(-retention)
 	const sql = `
 		WITH victims AS (
-			SELECT jr.id, jr.project_id, jr.job_id, jr.status AS ledger_status
+			SELECT jr.id, jr.project_id, jr.job_id
 			FROM job_runs jr
 			LEFT JOIN job_run_read_state s ON s.run_id = jr.id
+			LEFT JOIN LATERAL (
+				SELECT e.visible_until, TRUE AS has_event
+				FROM job_run_visibility_events e
+				WHERE e.run_id = jr.id
+				ORDER BY e.id DESC
+				LIMIT 1
+			) visibility ON TRUE
 			WHERE COALESCE(s.status, jr.status) = 'dead_letter'
-			  AND jr.visible_until IS NULL
+			  AND CASE WHEN COALESCE(visibility.has_event, FALSE)
+			           THEN visibility.visible_until IS NULL
+			           ELSE jr.visible_until IS NULL
+			      END
 			  AND COALESCE(s.finished_at, jr.finished_at) IS NOT NULL
 			  AND COALESCE(s.finished_at, jr.finished_at) < $1
 			ORDER BY COALESCE(s.finished_at, jr.finished_at) ASC
 			LIMIT $2
 		),
 		masked AS (
-			UPDATE job_runs jr
-			SET visible_until = NOW()
-			FROM victims v
-			WHERE jr.id = v.id
-			RETURNING v.id, v.project_id, v.job_id, v.ledger_status
+			INSERT INTO job_run_visibility_events (run_id, visible_until)
+			SELECT id, NOW()
+			FROM victims
+			RETURNING run_id
 		),
-		split_counts AS (
+		masked_counts AS (
 			SELECT project_id, job_id, COUNT(*)::int AS count
-			FROM masked
-			WHERE ledger_status <> 'dead_letter'
+			FROM victims
 			GROUP BY project_id, job_id
 		),
 		decremented AS (
 			UPDATE dlq_counts c
-			SET count = GREATEST(c.count - sc.count, 0),
+			SET count = GREATEST(c.count - mc.count, 0),
 			    updated_at = NOW()
-			FROM split_counts sc
-			WHERE c.project_id = sc.project_id
-			  AND c.job_id = sc.job_id
+			FROM masked_counts mc
+			WHERE c.project_id = mc.project_id
+			  AND c.job_id = mc.job_id
 			RETURNING 1
 		)
 		SELECT COUNT(*) FROM masked`
@@ -117,8 +125,18 @@ func (q *Queries) OldestUnmaskedDLQAge(ctx context.Context) (float64, error) {
 		SELECT COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(COALESCE(s.finished_at, jr.finished_at)))), 0)
 		FROM job_runs jr
 		LEFT JOIN job_run_read_state s ON s.run_id = jr.id
+		LEFT JOIN LATERAL (
+			SELECT e.visible_until, TRUE AS has_event
+			FROM job_run_visibility_events e
+			WHERE e.run_id = jr.id
+			ORDER BY e.id DESC
+			LIMIT 1
+		) visibility ON TRUE
 		WHERE COALESCE(s.status, jr.status) = 'dead_letter'
-		  AND jr.visible_until IS NULL
+		  AND CASE WHEN COALESCE(visibility.has_event, FALSE)
+		           THEN visibility.visible_until IS NULL
+		           ELSE jr.visible_until IS NULL
+		      END
 		  AND COALESCE(s.finished_at, jr.finished_at) IS NOT NULL
 	`).Scan(&age)
 	if err != nil {
@@ -136,34 +154,42 @@ func (q *Queries) MaskOldestDLQRow(ctx context.Context, projectID, jobID string)
 
 	const sql = `
 		WITH victim AS (
-			SELECT jr.id, jr.project_id, jr.job_id, jr.status AS ledger_status
+			SELECT jr.id, jr.project_id, jr.job_id
 			FROM job_runs jr
 			LEFT JOIN job_run_read_state s ON s.run_id = jr.id
+			LEFT JOIN LATERAL (
+				SELECT e.visible_until, TRUE AS has_event
+				FROM job_run_visibility_events e
+				WHERE e.run_id = jr.id
+				ORDER BY e.id DESC
+				LIMIT 1
+			) visibility ON TRUE
 			WHERE jr.project_id = $1
 			  AND jr.job_id = $2
 			  AND COALESCE(s.status, jr.status) = 'dead_letter'
-			  AND jr.visible_until IS NULL
+			  AND CASE WHEN COALESCE(visibility.has_event, FALSE)
+			           THEN visibility.visible_until IS NULL
+			           ELSE jr.visible_until IS NULL
+			      END
 			ORDER BY COALESCE(s.finished_at, jr.finished_at) ASC
 			LIMIT 1
 		),
 		masked AS (
-			UPDATE job_runs jr
-			SET visible_until = NOW()
-			FROM victim v
-			WHERE jr.id = v.id
-			RETURNING v.id, v.project_id, v.job_id, v.ledger_status
+			INSERT INTO job_run_visibility_events (run_id, visible_until)
+			SELECT id, NOW()
+			FROM victim
+			RETURNING run_id
 		),
 		decremented AS (
 			UPDATE dlq_counts c
 			SET count = GREATEST(c.count - 1, 0),
 			    updated_at = NOW()
-			FROM masked m
-			WHERE m.ledger_status <> 'dead_letter'
-			  AND c.project_id = m.project_id
-			  AND c.job_id = m.job_id
+			FROM victim v
+			WHERE c.project_id = v.project_id
+			  AND c.job_id = v.job_id
 			RETURNING 1
 		)
-		SELECT id FROM masked`
+		SELECT run_id FROM masked`
 	var id string
 	err := q.db.QueryRow(ctx, sql, projectID, jobID).Scan(&id)
 	if err != nil {
@@ -178,10 +204,20 @@ func (q *Queries) MaskOldestDLQRow(ctx context.Context, projectID, jobID string)
 func (q *Queries) incrementVisibleDLQCountForRun(ctx context.Context, runID string) error {
 	_, err := q.db.Exec(ctx, `
 		INSERT INTO dlq_counts (project_id, job_id, count)
-		SELECT project_id, job_id, 1
-		FROM job_runs
-		WHERE id = $1
-		  AND (visible_until IS NULL OR visible_until > NOW())
+		SELECT jr.project_id, jr.job_id, 1
+		FROM job_runs jr
+		LEFT JOIN LATERAL (
+			SELECT e.visible_until, TRUE AS has_event
+			FROM job_run_visibility_events e
+			WHERE e.run_id = jr.id
+			ORDER BY e.id DESC
+			LIMIT 1
+		) visibility ON TRUE
+		WHERE jr.id = $1
+		  AND CASE WHEN COALESCE(visibility.has_event, FALSE)
+		           THEN (visibility.visible_until IS NULL OR visibility.visible_until > NOW())
+		           ELSE (jr.visible_until IS NULL OR jr.visible_until > NOW())
+		      END
 		ON CONFLICT (project_id, job_id)
 		DO UPDATE SET count = dlq_counts.count + 1, updated_at = NOW()`,
 		runID,
@@ -198,8 +234,18 @@ func (q *Queries) decrementVisibleDLQCountForRun(ctx context.Context, runID stri
 		SET count = GREATEST(c.count - 1, 0),
 		    updated_at = NOW()
 		FROM job_runs jr
+		LEFT JOIN LATERAL (
+			SELECT e.visible_until, TRUE AS has_event
+			FROM job_run_visibility_events e
+			WHERE e.run_id = jr.id
+			ORDER BY e.id DESC
+			LIMIT 1
+		) visibility ON TRUE
 		WHERE jr.id = $1
-		  AND (jr.visible_until IS NULL OR jr.visible_until > NOW())
+		  AND CASE WHEN COALESCE(visibility.has_event, FALSE)
+		           THEN (visibility.visible_until IS NULL OR visibility.visible_until > NOW())
+		           ELSE (jr.visible_until IS NULL OR jr.visible_until > NOW())
+		      END
 		  AND c.project_id = jr.project_id
 		  AND c.job_id = jr.job_id`,
 		runID,

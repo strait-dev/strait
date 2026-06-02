@@ -1571,7 +1571,7 @@ func (q *Queries) ListDeadLetterRuns(ctx context.Context, projectID string, limi
 // ListDeadLetterRunsFiltered is the filtered counterpart to
 // ListDeadLetterRuns. Both jobID and masked are optional; when masked is
 // non-nil it selects masked (true) vs visible (false) rows via the
-// visible_until column (masked == visible_until IS NOT NULL). Pushing the
+// latest visibility state (masked == visible_until IS NOT NULL). Pushing the
 // filter into SQL keeps pagination honest — client-side filtering of a
 // single page would under-report results that live on earlier pages.
 func (q *Queries) ListDeadLetterRunsFiltered(ctx context.Context, projectID string, jobID *string, masked *bool, limit int, cursor *time.Time) ([]domain.JobRun, error) {
@@ -1585,8 +1585,8 @@ func (q *Queries) ListDeadLetterRunsFiltered(ctx context.Context, projectID stri
 	// Static SQL with nullable-aware predicates so all 2^3 filter
 	// combinations (job/masked/cursor) share a single cached plan per
 	// connection. The masked filter is expressed as
-	// (visible_until IS NOT NULL) = $masked, which lets a NULL parameter
-	// disable the predicate entirely while still using the same plan.
+	// (latest visible_until IS NOT NULL) = $masked, which lets a NULL
+	// parameter disable the predicate entirely while still using the same plan.
 	const query = `
 		SELECT jr.id, jr.job_id, jr.project_id, COALESCE(s.status, jr.status), COALESCE(s.attempt, jr.attempt), jr.payload, jr.result, jr.metadata, jr.error, jr.error_class,
 		       jr.triggered_by, COALESCE(s.scheduled_at, jr.scheduled_at), COALESCE(s.started_at, jr.started_at), COALESCE(s.finished_at, jr.finished_at), COALESCE(h.heartbeat_at, s.heartbeat_at, jr.heartbeat_at),
@@ -1594,10 +1594,22 @@ func (q *Queries) ListDeadLetterRunsFiltered(ctx context.Context, projectID stri
 		FROM job_runs jr
 		LEFT JOIN job_run_read_state s ON s.run_id = jr.id
 		LEFT JOIN job_run_heartbeats h ON h.run_id = jr.id
+		LEFT JOIN LATERAL (
+			SELECT e.visible_until, TRUE AS has_event
+			FROM job_run_visibility_events e
+			WHERE e.run_id = jr.id
+			ORDER BY e.id DESC
+			LIMIT 1
+		) visibility ON TRUE
 		WHERE jr.project_id = $1
 		  AND COALESCE(s.status, jr.status) = 'dead_letter'
 		  AND ($2::text IS NULL OR jr.job_id = $2::text)
-		  AND ($3::bool IS NULL OR (jr.visible_until IS NOT NULL) = $3::bool)
+		  AND ($3::bool IS NULL OR (
+		       CASE WHEN COALESCE(visibility.has_event, FALSE)
+		            THEN visibility.visible_until IS NOT NULL
+		            ELSE jr.visible_until IS NOT NULL
+		       END
+		  ) = $3::bool)
 		  AND ($4::timestamptz IS NULL OR jr.created_at < $4::timestamptz)
 		ORDER BY jr.created_at DESC
 		LIMIT $5`
@@ -3140,7 +3152,21 @@ func (q *Queries) GetDebugBundle(ctx context.Context, runID string) (*domain.Deb
 	// the debug endpoint would defeat that decision. UnmaskDLQRun is
 	// the supported path back to visibility.
 	var visibleUntil *time.Time
-	if err := q.db.QueryRow(ctx, `SELECT visible_until FROM job_runs WHERE id = $1`, runID).Scan(&visibleUntil); err != nil {
+	if err := q.db.QueryRow(ctx, `
+		SELECT CASE WHEN COALESCE(visibility.has_event, FALSE)
+		            THEN visibility.visible_until
+		            ELSE jr.visible_until
+		       END
+		FROM job_runs jr
+		LEFT JOIN LATERAL (
+			SELECT e.visible_until, TRUE AS has_event
+			FROM job_run_visibility_events e
+			WHERE e.run_id = jr.id
+			ORDER BY e.id DESC
+			LIMIT 1
+		) visibility ON TRUE
+		WHERE jr.id = $1
+	`, runID).Scan(&visibleUntil); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrRunNotFound
 		}

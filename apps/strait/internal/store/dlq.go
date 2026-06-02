@@ -109,8 +109,18 @@ func (q *Queries) UnmaskDLQRun(ctx context.Context, runID string) error {
 				jr.project_id,
 				jr.job_id,
 				jr.status AS ledger_status,
-				(jr.visible_until IS NULL OR jr.visible_until > NOW()) AS was_visible
+				CASE WHEN COALESCE(visibility.has_event, FALSE)
+				     THEN (visibility.visible_until IS NULL OR visibility.visible_until > NOW())
+				     ELSE (jr.visible_until IS NULL OR jr.visible_until > NOW())
+				END AS was_visible
 			FROM job_runs jr
+			LEFT JOIN LATERAL (
+				SELECT e.visible_until, TRUE AS has_event
+				FROM job_run_visibility_events e
+				WHERE e.run_id = jr.id
+				ORDER BY e.id DESC
+				LIMIT 1
+			) visibility ON TRUE
 			WHERE jr.id = $1
 			  AND COALESCE((
 				SELECT s.status
@@ -120,23 +130,21 @@ func (q *Queries) UnmaskDLQRun(ctx context.Context, runID string) error {
 			FOR UPDATE OF jr
 			),
 			updated AS (
-				UPDATE job_runs jr
-				SET visible_until = NULL
-				FROM selected s
-				WHERE jr.id = s.id
-				RETURNING jr.id, s.project_id, s.job_id, s.ledger_status, s.was_visible
+				INSERT INTO job_run_visibility_events (run_id, visible_until)
+				SELECT id, NULL
+				FROM selected
+				RETURNING run_id
 			),
 		incremented AS (
 			INSERT INTO dlq_counts (project_id, job_id, count)
 			SELECT project_id, job_id, 1
-			FROM updated
-			WHERE ledger_status <> 'dead_letter'
-			  AND NOT was_visible
+			FROM selected
+			WHERE NOT was_visible
 			ON CONFLICT (project_id, job_id)
 			DO UPDATE SET count = dlq_counts.count + 1, updated_at = NOW()
 			RETURNING 1
 		)
-		SELECT id FROM updated`, runID).Scan(&id)
+		SELECT run_id FROM updated`, runID).Scan(&id)
 	if err == nil {
 		return nil
 	}
@@ -173,8 +181,19 @@ func (q *Queries) PurgeDLQRun(ctx context.Context, runID string) error {
 				jr.project_id,
 				jr.job_id,
 				jr.status AS ledger_status,
-				(jr.visible_until IS NULL OR jr.visible_until > NOW()) AS was_visible
+				(jr.visible_until IS NULL OR jr.visible_until > NOW()) AS ledger_visible,
+				CASE WHEN COALESCE(visibility.has_event, FALSE)
+				     THEN (visibility.visible_until IS NULL OR visibility.visible_until > NOW())
+				     ELSE (jr.visible_until IS NULL OR jr.visible_until > NOW())
+				END AS was_visible
 			FROM job_runs jr
+			LEFT JOIN LATERAL (
+				SELECT e.visible_until, TRUE AS has_event
+				FROM job_run_visibility_events e
+				WHERE e.run_id = jr.id
+				ORDER BY e.id DESC
+				LIMIT 1
+			) visibility ON TRUE
 			WHERE jr.id = $1
 			  AND COALESCE((
 				SELECT s.status
@@ -199,6 +218,10 @@ func (q *Queries) PurgeDLQRun(ctx context.Context, runID string) error {
 			DELETE FROM job_run_heartbeats
 			WHERE run_id IN (SELECT id FROM victim)
 		),
+		deleted_visibility_events AS (
+			DELETE FROM job_run_visibility_events
+			WHERE run_id IN (SELECT id FROM victim)
+		),
 		decremented AS (
 			UPDATE dlq_counts c
 			SET count = GREATEST(c.count - 1, 0),
@@ -209,10 +232,25 @@ func (q *Queries) PurgeDLQRun(ctx context.Context, runID string) error {
 			  AND c.project_id = v.project_id
 			  AND c.job_id = v.job_id
 			RETURNING 1
+		),
+		deleted_run AS (
+			DELETE FROM job_runs
+			WHERE id IN (SELECT id FROM victim)
+			RETURNING id
+		),
+		restored_trigger_decrement AS (
+			INSERT INTO dlq_counts (project_id, job_id, count)
+			SELECT v.project_id, v.job_id, 1
+			FROM victim v
+			JOIN deleted_run d ON d.id = v.id
+			WHERE v.ledger_status = 'dead_letter'
+			  AND v.ledger_visible
+			  AND NOT v.was_visible
+			ON CONFLICT (project_id, job_id)
+			DO UPDATE SET count = dlq_counts.count + 1, updated_at = NOW()
+			RETURNING 1
 		)
-		DELETE FROM job_runs
-		WHERE id IN (SELECT id FROM victim)
-		RETURNING id`, runID).Scan(&id)
+		SELECT id FROM deleted_run`, runID).Scan(&id)
 	if err == nil {
 		return nil
 	}
