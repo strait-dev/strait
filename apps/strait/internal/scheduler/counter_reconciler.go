@@ -235,11 +235,12 @@ SELECT delta FROM drift_total
 func (r *CounterReconciler) reconcileDLQCounts(ctx context.Context) (int64, error) {
 	const q = `
 WITH truth AS (
-    SELECT project_id, job_id, COUNT(*)::int AS count
-    FROM job_runs
-    WHERE status = 'dead_letter'
-      AND (visible_until IS NULL OR visible_until > NOW())
-    GROUP BY project_id, job_id
+    SELECT jr.project_id, jr.job_id, COUNT(*)::int AS count
+    FROM job_runs jr
+    LEFT JOIN job_run_read_state s ON s.run_id = jr.id
+    WHERE COALESCE(s.status, jr.status) = 'dead_letter'
+      AND (jr.visible_until IS NULL OR jr.visible_until > NOW())
+    GROUP BY jr.project_id, jr.job_id
 ),
 current AS (
     SELECT project_id, job_id, count FROM dlq_counts

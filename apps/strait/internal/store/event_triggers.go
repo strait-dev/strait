@@ -487,9 +487,10 @@ func (q *Queries) ListReceivedEventTriggersWithStaleSteps(ctx context.Context) (
 		       et.notify_url, et.notify_status, et.trigger_type, et.sent_by
 		FROM event_triggers et
 		JOIN job_runs r ON r.id = et.job_run_id
+		LEFT JOIN job_run_read_state s ON s.run_id = r.id
 		WHERE et.status = 'received'
 		  AND et.source_type = 'job_run'
-		  AND r.status = 'waiting'
+		  AND COALESCE(s.status, r.status) = 'waiting'
 		  AND et.received_at < NOW() - INTERVAL '30 seconds'
 		LIMIT 1000)
 	`

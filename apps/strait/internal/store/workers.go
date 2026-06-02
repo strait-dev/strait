@@ -579,11 +579,12 @@ func (q *Queries) ClaimRecoverableWorkerTaskResults(ctx context.Context, cutoff 
 			SELECT wt.id
 			FROM worker_tasks wt
 			JOIN job_runs jr ON jr.id = wt.run_id
+			LEFT JOIN job_run_read_state s ON s.run_id = jr.id
 			WHERE wt.status = $1
 			  AND wt.result_status IS NOT NULL
 			  AND wt.result_received_at IS NOT NULL
 			  AND wt.result_received_at < $2
-			  AND jr.status = 'executing'
+			  AND COALESCE(s.status, jr.status) = 'executing'
 			ORDER BY wt.result_received_at ASC
 			LIMIT $3
 			FOR UPDATE SKIP LOCKED

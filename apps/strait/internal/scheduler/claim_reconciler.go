@@ -47,16 +47,17 @@ func (r *ClaimReconciler) reconcileOnce(ctx context.Context) error {
 			job_enabled, job_paused, execution_mode, queue_name
 		)
 		SELECT
-			jr.id, jr.job_id, jr.project_id, jr.priority, jr.created_at,
-			jr.scheduled_at, jr.next_retry_at, jr.concurrency_key,
+			jr.id, jr.job_id, jr.project_id, COALESCE(s.priority, jr.priority), jr.created_at,
+			COALESCE(s.scheduled_at, jr.scheduled_at), COALESCE(s.next_retry_at, jr.next_retry_at), COALESCE(s.concurrency_key, jr.concurrency_key),
 			j.max_concurrency, j.max_concurrency_per_key,
 			j.enabled, j.paused,
-			COALESCE(NULLIF(jr.execution_mode, ''), NULLIF(j.execution_mode, ''), 'http'),
-			COALESCE(NULLIF(jr.queue_name, ''), NULLIF(j.queue_name, ''), 'default')
+			COALESCE(NULLIF(s.execution_mode, ''), NULLIF(jr.execution_mode, ''), NULLIF(j.execution_mode, ''), 'http'),
+			COALESCE(NULLIF(s.queue_name, ''), NULLIF(jr.queue_name, ''), NULLIF(j.queue_name, ''), 'default')
 		FROM job_runs jr
 		JOIN jobs j ON j.id = jr.job_id
+		LEFT JOIN job_run_read_state s ON s.run_id = jr.id
 		LEFT JOIN job_run_queue q ON q.run_id = jr.id
-		WHERE jr.status IN ('queued', 'delayed')
+		WHERE COALESCE(s.status, jr.status) IN ('queued', 'delayed')
 		  AND q.run_id IS NULL
 		LIMIT 1000
 		ON CONFLICT (run_id) DO NOTHING`
@@ -75,8 +76,9 @@ func (r *ClaimReconciler) reconcileOnce(ctx context.Context) error {
 			SELECT q.run_id
 			FROM job_run_queue q
 			LEFT JOIN job_runs jr ON jr.id = q.run_id
+			LEFT JOIN job_run_read_state s ON s.run_id = jr.id
 			WHERE jr.id IS NULL
-			   OR jr.status NOT IN ('queued', 'delayed')
+			   OR COALESCE(s.status, jr.status) NOT IN ('queued', 'delayed')
 			LIMIT 1000
 		)`
 

@@ -3106,7 +3106,8 @@ func (q *Queries) ListQueueDepthByJob(ctx context.Context) ([]QueueJobDepth, err
 		SELECT jr.job_id, COUNT(*) AS queued_count, j.queue_depth_alert_threshold
 		FROM job_runs jr
 		JOIN jobs j ON j.id = jr.job_id
-		WHERE jr.status = 'queued'
+		LEFT JOIN job_run_read_state s ON s.run_id = jr.id
+		WHERE COALESCE(s.status, jr.status) = 'queued'
 		  AND j.queue_depth_alert_threshold IS NOT NULL
 		GROUP BY jr.job_id, j.queue_depth_alert_threshold
 		HAVING COUNT(*) >= j.queue_depth_alert_threshold`

@@ -154,8 +154,10 @@ func TestReconcileOnce_MissingClaimRestoresRoutingMetadata(t *testing.T) {
 
 	for _, fragment := range []string{
 		"job_enabled, job_paused, execution_mode, queue_name",
-		"COALESCE(NULLIF(jr.execution_mode, ''), NULLIF(j.execution_mode, ''), 'http')",
-		"COALESCE(NULLIF(jr.queue_name, ''), NULLIF(j.queue_name, ''), 'default')",
+		"LEFT JOIN job_run_read_state s ON s.run_id = jr.id",
+		"COALESCE(NULLIF(s.execution_mode, ''), NULLIF(jr.execution_mode, ''), NULLIF(j.execution_mode, ''), 'http')",
+		"COALESCE(NULLIF(s.queue_name, ''), NULLIF(jr.queue_name, ''), NULLIF(j.queue_name, ''), 'default')",
+		"COALESCE(s.status, jr.status) IN ('queued', 'delayed')",
 	} {
 		if !strings.Contains(insertSQL, fragment) {
 			t.Fatalf("missing routing fragment %q in SQL:\n%s", fragment, insertSQL)
