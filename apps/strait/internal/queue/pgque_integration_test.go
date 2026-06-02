@@ -346,11 +346,21 @@ func TestPgQue_ClaimUsesRunStateNotFatLedger(t *testing.T) {
 		t.Fatalf("active claims = %d, want 1 append-only ownership row", claimRows)
 	}
 	var readStatus string
-	if err := testDB.Pool.QueryRow(ctx, `SELECT status FROM job_run_read_state WHERE run_id = $1`, run.ID).Scan(&readStatus); err != nil {
+	var readStartedAt, readUpdatedAt time.Time
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT status, started_at, updated_at
+		FROM job_run_read_state
+		WHERE run_id = $1`, run.ID).Scan(&readStatus, &readStartedAt, &readUpdatedAt); err != nil {
 		t.Fatalf("read state status: %v", err)
 	}
 	if readStatus != string(domain.StatusExecuting) {
 		t.Fatalf("read state status = %q, want executing from active claim overlay", readStatus)
+	}
+	if readStartedAt.IsZero() {
+		t.Fatal("read state started_at is zero, want active claim start time")
+	}
+	if readUpdatedAt.Before(readStartedAt) {
+		t.Fatalf("read state updated_at = %v before started_at = %v", readUpdatedAt, readStartedAt)
 	}
 	got, err := st.GetRun(ctx, run.ID)
 	if err != nil {
@@ -358,6 +368,9 @@ func TestPgQue_ClaimUsesRunStateNotFatLedger(t *testing.T) {
 	}
 	if got.Status != domain.StatusExecuting {
 		t.Fatalf("GetRun status = %q, want executing from active claim overlay", got.Status)
+	}
+	if got.StartedAt == nil || got.StartedAt.IsZero() {
+		t.Fatalf("GetRun started_at = %v, want active claim start time", got.StartedAt)
 	}
 }
 

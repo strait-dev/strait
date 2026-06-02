@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -19,7 +20,10 @@ import (
 const (
 	pgQueConsumerName = "strait"
 	pgQueReceiveAll   = 2147483647
+	pgQueMaxAttempts  = 3
 )
+
+var _ Queue = (*PgQueQueue)(nil)
 
 type PgQueConfig struct {
 	TickInterval  time.Duration
@@ -107,7 +111,12 @@ func NewPgQueQueue(db store.DBTX, legacy *PostgresQueue, cfg PgQueConfig) *PgQue
 	if legacy == nil {
 		legacy = NewPostgresQueue(db)
 	}
-	return &PgQueQueue{db: db, legacy: legacy, cfg: cfg.normalized(), routeStates: make(map[string]*pgQueRouteState)}
+	return &PgQueQueue{
+		db:          db,
+		legacy:      legacy,
+		cfg:         cfg.normalized(),
+		routeStates: make(map[string]*pgQueRouteState),
+	}
 }
 
 func (q *PgQueQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
@@ -222,7 +231,9 @@ func (q *PgQueQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 }
 
 func (q *PgQueQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, error) {
-	return q.dequeueFromRoute(ctx, n, pgQueHTTPRouteKey, pgQueClaimFilter{ExecutionMode: domain.ExecutionModeHTTP})
+	return q.dequeueFromRoute(ctx, n, pgQueHTTPRouteKey, pgQueClaimFilter{
+		ExecutionMode: domain.ExecutionModeHTTP,
+	})
 }
 
 func (q *PgQueQueue) DequeueNFair(ctx context.Context, n int) ([]domain.JobRun, error) {
@@ -230,7 +241,10 @@ func (q *PgQueQueue) DequeueNFair(ctx context.Context, n int) ([]domain.JobRun, 
 }
 
 func (q *PgQueQueue) DequeueNByProject(ctx context.Context, n int, projectID string) ([]domain.JobRun, error) {
-	return q.dequeueFromRoute(ctx, n, pgQueHTTPRouteKey, pgQueClaimFilter{ProjectID: projectID, ExecutionMode: domain.ExecutionModeHTTP})
+	return q.dequeueFromRoute(ctx, n, pgQueHTTPRouteKey, pgQueClaimFilter{
+		ProjectID:     projectID,
+		ExecutionMode: domain.ExecutionModeHTTP,
+	})
 }
 
 func (q *PgQueQueue) DequeueNForWorkerQueues(ctx context.Context, n int, queues []domain.WorkerQueueRef) ([]domain.JobRun, error) {
@@ -301,7 +315,7 @@ func (q *PgQueQueue) ensureRunRouteCached(ctx context.Context, run *domain.JobRu
 }
 
 func (q *PgQueQueue) ensureRunRoutesCached(ctx context.Context, runs []*domain.JobRun) error {
-	seen := make(map[string]struct{})
+	seen := make(map[string]struct{}, len(runs))
 	for _, run := range runs {
 		if run == nil || run.Status != domain.StatusQueued {
 			continue
@@ -392,8 +406,11 @@ func (q *PgQueQueue) sendReadyEvent(ctx context.Context, db store.DBTX, run *dom
 }
 
 func (q *PgQueQueue) sendReadyEvents(ctx context.Context, db store.DBTX, runs []*domain.JobRun) error {
-	byRoute := make(map[string][]string)
+	byRoute := make(map[string][]string, len(runs))
 	for _, run := range runs {
+		if run == nil {
+			continue
+		}
 		if run.Status != domain.StatusQueued {
 			continue
 		}
@@ -440,7 +457,7 @@ func (q *PgQueQueue) ensureRoute(ctx context.Context, db store.DBTX, routeKey, q
 	if _, err := db.Exec(ctx, `SELECT pgque.create_queue($1)`, queueName); err != nil {
 		return fmt.Errorf("pgque create queue %s: %w", queueName, err)
 	}
-	if _, err := db.Exec(ctx, `SELECT pgque.set_queue_config($1, 'ticker_max_count', $2)`, queueName, fmt.Sprintf("%d", q.cfg.ReceiveWindow)); err != nil {
+	if _, err := db.Exec(ctx, `SELECT pgque.set_queue_config($1, 'ticker_max_count', $2)`, queueName, strconv.Itoa(q.cfg.ReceiveWindow)); err != nil {
 		return fmt.Errorf("pgque configure queue %s ticker max count: %w", queueName, err)
 	}
 	if _, err := db.Exec(ctx, `SELECT pgque.register_consumer($1, $2)`, queueName, q.cfg.ConsumerName); err != nil {
@@ -462,7 +479,7 @@ func (q *PgQueQueue) tickReadyRoute(ctx context.Context, run *domain.JobRun) err
 }
 
 func (q *PgQueQueue) tickReadyRoutes(ctx context.Context, runs []*domain.JobRun) error {
-	seen := make(map[string]struct{})
+	seen := make(map[string]struct{}, len(runs))
 	for _, run := range runs {
 		if run == nil || run.Status != domain.StatusQueued {
 			continue
@@ -540,34 +557,48 @@ func (q *PgQueQueue) workerRouteKeys(ctx context.Context, refs []domain.WorkerQu
 			continue
 		}
 		prefix := pgQueWorkerRouteKey(ref.ProjectID, queueName, "")
-		rows, err := q.db.Query(ctx, `
-			SELECT route_key
-			FROM strait_pgque_routes
-			WHERE route_key = $1 OR route_key LIKE $2
-			ORDER BY route_key`, prefix, prefix+"%")
+		var err error
+		routes, err = q.appendKnownWorkerRoutes(ctx, prefix, seen, routes)
 		if err != nil {
-			return nil, fmt.Errorf("pgque worker route lookup: %w", err)
+			return nil, err
 		}
-		for rows.Next() {
-			var key string
-			if err := rows.Scan(&key); err != nil {
-				rows.Close()
-				return nil, fmt.Errorf("pgque worker route scan: %w", err)
-			}
-			if _, ok := seen[key]; !ok {
-				seen[key] = struct{}{}
-				routes = append(routes, key)
-			}
-		}
-		if err := rows.Err(); err != nil {
-			rows.Close()
-			return nil, fmt.Errorf("pgque worker route rows: %w", err)
-		}
-		rows.Close()
 		if _, ok := seen[prefix]; !ok {
 			seen[prefix] = struct{}{}
 			routes = append(routes, prefix)
 		}
+	}
+	return routes, nil
+}
+
+func (q *PgQueQueue) appendKnownWorkerRoutes(
+	ctx context.Context,
+	prefix string,
+	seen map[string]struct{},
+	routes []string,
+) ([]string, error) {
+	rows, err := q.db.Query(ctx, `
+		SELECT route_key
+		FROM strait_pgque_routes
+		WHERE route_key = $1 OR route_key LIKE $2
+		ORDER BY route_key`, prefix, prefix+"%")
+	if err != nil {
+		return nil, fmt.Errorf("pgque worker route lookup: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return nil, fmt.Errorf("pgque worker route scan: %w", err)
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		routes = append(routes, key)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("pgque worker route rows: %w", err)
 	}
 	return routes, nil
 }
@@ -586,7 +617,7 @@ func (q *PgQueQueue) dequeueFromRoute(ctx context.Context, n int, routeKey strin
 		return nil, err
 	}
 
-	for attempt := 0; attempt < 3; attempt++ {
+	for attempt := 0; attempt < pgQueMaxAttempts; attempt++ {
 		reservation, err := q.reserveFromActiveBatch(ctx, state, queueName, n)
 		if err != nil {
 			return nil, err
@@ -650,7 +681,7 @@ func (q *PgQueQueue) reserveFromActiveBatch(ctx context.Context, state *pgQueRou
 	}
 	if state.activeBatch == nil {
 		q.maybeForceTick(ctx, state, queueName)
-		batch, err := q.activeBatch(ctx, state, queueName)
+		batch, err := q.activeBatchLocked(ctx, state, queueName)
 		if err != nil {
 			return pgQueBatchReservation{}, err
 		}
@@ -752,7 +783,10 @@ func (q *PgQueQueue) clearAckedBatch(state *pgQueRouteState, batch *pgQueActiveB
 	}
 }
 
-func (q *PgQueQueue) activeBatch(ctx context.Context, state *pgQueRouteState, queueName string) (*pgQueActiveBatch, error) {
+// activeBatchLocked requires state.mu to be held by the caller. PgQue batches
+// are acked as a unit, so local reservations must mutate state.activeBatch
+// synchronously with receive/ack bookkeeping.
+func (q *PgQueQueue) activeBatchLocked(ctx context.Context, state *pgQueRouteState, queueName string) (*pgQueActiveBatch, error) {
 	if batch := state.activeBatch; batch != nil && (len(batch.Messages) > 0 || batch.InFlight > 0 || batch.Closing) {
 		return batch, nil
 	}
@@ -980,14 +1014,12 @@ func (q *PgQueQueue) claimRuns(ctx context.Context, ids []string, generations []
 				run_id,
 				ready_generation,
 				attempt,
-				claimed_at,
 				started_at
 			)
 			SELECT
 				s.run_id,
 				s.ready_generation,
 				s.attempt,
-				NOW(),
 				NOW()
 			FROM job_run_state s
 			JOIN candidates ON candidates.run_id = s.run_id

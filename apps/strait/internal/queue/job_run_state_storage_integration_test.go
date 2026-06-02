@@ -54,7 +54,8 @@ func TestMigration_JobRunStateStorage_DropsStatusClaimIndexes(t *testing.T) {
 		FROM pg_indexes
 		WHERE schemaname = 'public'
 		  AND tablename = 'job_run_state'
-		  AND indexname LIKE 'idx_job_run_state%claim%'`)
+		  AND indexname LIKE 'idx_job_run_state%claim%'
+		  AND indexname <> 'idx_job_run_state_pgque_active_claim_counts'`)
 	if err != nil {
 		t.Fatalf("query job_run_state indexes: %v", err)
 	}
@@ -69,6 +70,24 @@ func TestMigration_JobRunStateStorage_DropsStatusClaimIndexes(t *testing.T) {
 	}
 	if err := rows.Err(); err != nil {
 		t.Fatalf("job_run_state index rows: %v", err)
+	}
+}
+
+func TestMigration_JobRunActiveClaims_DropsRedundantClaimedAt(t *testing.T) {
+	ctx := context.Background()
+	mustClean(t, ctx)
+
+	var count int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM information_schema.columns
+		WHERE table_schema = 'public'
+		  AND table_name = 'job_run_active_claims'
+		  AND column_name = 'claimed_at'`).Scan(&count); err != nil {
+		t.Fatalf("query active claim columns: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("job_run_active_claims.claimed_at exists, want removed redundant timestamp")
 	}
 }
 
