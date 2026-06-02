@@ -399,10 +399,16 @@ func TestQueueReliability_DLQCapEnforcement(t *testing.T) {
 		t.Fatal("MaskOldestDLQRow returned empty ID")
 	}
 
-	// Verify the masked row has visible_until set.
+	// Verify the masked row has append-only visibility state. The ledger column
+	// intentionally stays NULL to avoid mutating the fat job_runs row.
 	var visibleUntil *time.Time
 	if err := testDB.Pool.QueryRow(ctx,
-		`SELECT visible_until FROM job_runs WHERE id=$1`, maskedID,
+		`SELECT visible_until
+		FROM job_run_visibility_events
+		WHERE run_id = $1
+		ORDER BY created_at DESC
+		LIMIT 1`,
+		maskedID,
 	).Scan(&visibleUntil); err != nil {
 		t.Fatalf("check masked row: %v", err)
 	}

@@ -729,8 +729,21 @@ func TestRuns_MarkJobRunsPausedByWorkflowRun_PgQueActiveClaimDoesNotTouchActiveC
 	if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM job_run_active_claims WHERE run_id = $1`, fixture.runID).Scan(&activeClaims); err != nil {
 		t.Fatalf("query active claims: %v", err)
 	}
+	if activeClaims != 1 {
+		t.Fatalf("active claims = %d, want retained inactive claim after pause", activeClaims)
+	}
+	deleted, err := q.DeleteInactiveActiveClaims(ctx, 100)
+	if err != nil {
+		t.Fatalf("DeleteInactiveActiveClaims() error = %v", err)
+	}
+	if deleted < 1 {
+		t.Fatalf("deleted inactive active claims = %d, want at least target claim", deleted)
+	}
+	if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM job_run_active_claims WHERE run_id = $1`, fixture.runID).Scan(&activeClaims); err != nil {
+		t.Fatalf("query active claims after cleanup: %v", err)
+	}
 	if activeClaims != 0 {
-		t.Fatalf("active claims = %d, want 0 after pause", activeClaims)
+		t.Fatalf("active claims after cleanup = %d, want 0", activeClaims)
 	}
 }
 

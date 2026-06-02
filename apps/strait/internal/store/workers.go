@@ -286,13 +286,6 @@ func (q *Queries) RecoverStaleWorkerTasksExceptRefs(ctx context.Context, cutoff 
 				          c.job_max_concurrency, c.job_max_concurrency_per_key,
 				          c.uses_active_claim
 			),
-			deleted_active_claims AS (
-				DELETE FROM job_run_active_claims c
-				USING candidates candidate
-				WHERE c.run_id = candidate.run_id
-				  AND c.ready_generation = candidate.ready_generation
-				RETURNING c.run_id
-			),
 			released AS (
 				UPDATE job_active_counts c
 				SET count = GREATEST(c.count - 1, 0),
@@ -589,7 +582,7 @@ func (q *Queries) ClaimRecoverableWorkerTaskResults(ctx context.Context, cutoff 
 			  AND COALESCE(s.status, jr.status) = 'executing'
 			ORDER BY wt.result_received_at ASC
 			LIMIT $3
-			FOR UPDATE SKIP LOCKED
+			FOR UPDATE OF wt SKIP LOCKED
 		)
 		UPDATE worker_tasks wt
 		SET status = $4
@@ -873,13 +866,6 @@ func (q *Queries) RequeueOpenWorkerTasks(ctx context.Context, workerID, projectI
 				RETURNING s.run_id, c.job_id, c.concurrency_key, c.attempt,
 				          c.job_max_concurrency, c.job_max_concurrency_per_key,
 				          c.uses_active_claim
-			),
-			deleted_active_claims AS (
-				DELETE FROM job_run_active_claims c
-				USING candidates candidate
-				WHERE c.run_id = candidate.run_id
-				  AND c.ready_generation = candidate.ready_generation
-				RETURNING c.run_id
 			),
 			released AS (
 				UPDATE job_active_counts c

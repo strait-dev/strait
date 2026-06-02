@@ -29,6 +29,7 @@ const heartbeatGCAdvisoryLockID int64 = 0x53744842474300 // "StHbGC"
 type HeartbeatGCStore interface {
 	DeleteOrphanedHeartbeats(ctx context.Context, limit int) (int64, error)
 	CompactSupersededHeartbeats(ctx context.Context, limit int) (int64, error)
+	DeleteInactiveActiveClaims(ctx context.Context, limit int) (int64, error)
 }
 
 // HeartbeatGC periodically deletes leaked rows from job_run_heartbeats.
@@ -129,10 +130,15 @@ func (h *HeartbeatGC) runLocked(ctx context.Context) error {
 		h.logger.Warn("heartbeat GC compact failed", "error", err)
 		return err
 	}
-	total := deleted + compacted
+	deletedClaims, err := h.store.DeleteInactiveActiveClaims(ctx, h.batchLimit)
+	if err != nil {
+		h.logger.Warn("active claim GC failed", "error", err)
+		return err
+	}
+	total := deleted + compacted + deletedClaims
 	h.totalDeleted.Add(total)
 	if total > 0 {
-		h.logger.Info("heartbeat GC cleaned rows", "cleared", deleted, "compacted", compacted)
+		h.logger.Info("heartbeat GC cleaned rows", "cleared_heartbeats", deleted, "compacted_heartbeats", compacted, "deleted_active_claims", deletedClaims)
 	}
 	return nil
 }

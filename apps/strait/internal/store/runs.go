@@ -2094,13 +2094,6 @@ func (q *Queries) tryRequeueActiveClaimRunState(
 					  AND NOT EXISTS (SELECT 1 FROM job_run_terminal_state t WHERE t.run_id = s.run_id)
 					  AND ($3::int IS NULL OR c.attempt = $3)
 					FOR UPDATE OF s
-				),
-			deleted_active_claims AS (
-				DELETE FROM job_run_active_claims c
-				USING selected s
-				WHERE c.run_id = s.run_id
-				  AND c.ready_generation = s.ready_generation
-				RETURNING c.run_id
 			),
 			updated AS (
 				UPDATE job_run_state s
@@ -3503,12 +3496,6 @@ func (q *Queries) MarkJobRunsPausedByWorkflowRun(ctx context.Context, workflowRu
 			RETURNING s.run_id, c.job_id, c.concurrency_key, c.attempt, c.previous_status,
 			          c.job_max_concurrency, c.job_max_concurrency_per_key,
 			          c.uses_active_claim
-		),
-		deleted_active_claims AS (
-			DELETE FROM job_run_active_claims c
-			USING updated u
-			WHERE c.run_id = u.run_id
-			RETURNING c.run_id
 		),
 		released AS (
 			UPDATE job_active_counts c

@@ -443,11 +443,29 @@ func assertPgQueWorkerRecoveryReleasedClaimOnly(
 	).Scan(&activeClaims, &counterUpdatedAt); err != nil {
 		t.Fatalf("query active claim/counter state: %v", err)
 	}
-	if activeClaims != 0 {
-		t.Fatalf("active claims = %d, want 0", activeClaims)
+	if activeClaims != 1 {
+		t.Fatalf("active claims = %d, want retained inactive claim", activeClaims)
 	}
 	if !counterUpdatedAt.Equal(fixture.counterUpdatedAt) {
 		t.Fatalf("active count updated_at changed on PgQue worker recovery: got %s want %s", counterUpdatedAt, fixture.counterUpdatedAt)
+	}
+	deleted, err := fixture.q.DeleteInactiveActiveClaims(ctx, 100)
+	if err != nil {
+		t.Fatalf("DeleteInactiveActiveClaims: %v", err)
+	}
+	if deleted < 1 {
+		t.Fatalf("deleted inactive active claims = %d, want at least target claim", deleted)
+	}
+	if err := env.DB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM job_run_active_claims
+		WHERE run_id = $1`,
+		fixture.runID,
+	).Scan(&activeClaims); err != nil {
+		t.Fatalf("query active claims after cleanup: %v", err)
+	}
+	if activeClaims != 0 {
+		t.Fatalf("active claims after cleanup = %d, want 0", activeClaims)
 	}
 
 	task, err := fixture.q.GetWorkerTask(ctx, fixture.taskID)

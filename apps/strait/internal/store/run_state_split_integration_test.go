@@ -571,7 +571,7 @@ func TestRunStateSplit_PurgeDLQRunDeletesSplitStateRows(t *testing.T) {
 	}
 }
 
-func TestRunStateSplit_ActiveClaimRequeueDeletesClaimAndBumpsGeneration(t *testing.T) {
+func TestRunStateSplit_ActiveClaimRequeueRetainsInactiveClaimAndBumpsGeneration(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
@@ -653,8 +653,33 @@ func TestRunStateSplit_ActiveClaimRequeueDeletesClaimAndBumpsGeneration(t *testi
 	if afterGeneration != beforeGeneration+1 {
 		t.Fatalf("ready_generation = %d, want %d", afterGeneration, beforeGeneration+1)
 	}
+	if activeClaims != 1 {
+		t.Fatalf("active claims = %d, want retained inactive claim", activeClaims)
+	}
+	got, err := q.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun after requeue: %v", err)
+	}
+	if got.Status != domain.StatusQueued {
+		t.Fatalf("GetRun status = %q, want queued despite retained inactive claim", got.Status)
+	}
+	deleted, err := q.DeleteInactiveActiveClaims(ctx, 100)
+	if err != nil {
+		t.Fatalf("DeleteInactiveActiveClaims() error = %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("deleted inactive active claims = %d, want 1", deleted)
+	}
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM job_run_active_claims
+		WHERE run_id = $1`,
+		run.ID,
+	).Scan(&activeClaims); err != nil {
+		t.Fatalf("query active claims after cleanup: %v", err)
+	}
 	if activeClaims != 0 {
-		t.Fatalf("active claims = %d, want 0", activeClaims)
+		t.Fatalf("active claims after cleanup = %d, want 0", activeClaims)
 	}
 	var afterCounterUpdatedAt time.Time
 	if err := testDB.Pool.QueryRow(ctx, `
@@ -682,5 +707,88 @@ func TestRunStateSplit_ActiveClaimRequeueDeletesClaimAndBumpsGeneration(t *testi
 	}
 	if lifecycleRows != 1 {
 		t.Fatalf("lifecycle rows = %d, want 1", lifecycleRows)
+	}
+}
+
+func TestRunStateSplit_DeleteInactiveActiveClaimsKeepsCurrentClaimAndDeletesColdRows(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-active-claim-cleanup")
+	current := baseRun(job, newID())
+	current.Status = domain.StatusQueued
+	if err := q.CreateRun(ctx, current); err != nil {
+		t.Fatalf("CreateRun current error = %v", err)
+	}
+	staleGeneration := baseRun(job, newID())
+	staleGeneration.Status = domain.StatusQueued
+	if err := q.CreateRun(ctx, staleGeneration); err != nil {
+		t.Fatalf("CreateRun stale generation error = %v", err)
+	}
+	paused := baseRun(job, newID())
+	paused.Status = domain.StatusQueued
+	if err := q.CreateRun(ctx, paused); err != nil {
+		t.Fatalf("CreateRun paused error = %v", err)
+	}
+	terminal := baseRun(job, newID())
+	terminal.Status = domain.StatusQueued
+	if err := q.CreateRun(ctx, terminal); err != nil {
+		t.Fatalf("CreateRun terminal error = %v", err)
+	}
+
+	for _, runID := range []string{current.ID, staleGeneration.ID, paused.ID, terminal.ID} {
+		if _, err := testDB.Pool.Exec(ctx, `
+			INSERT INTO job_run_active_claims (run_id, ready_generation, attempt, started_at)
+			SELECT run_id, ready_generation, attempt, NOW()
+			FROM job_run_state
+			WHERE run_id = $1`,
+			runID,
+		); err != nil {
+			t.Fatalf("insert active claim for %s: %v", runID, err)
+		}
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE job_run_state
+		SET ready_generation = ready_generation + 1
+		WHERE run_id = $1`,
+		staleGeneration.ID,
+	); err != nil {
+		t.Fatalf("mark stale generation: %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE job_run_state
+		SET status = 'paused'
+		WHERE run_id = $1`,
+		paused.ID,
+	); err != nil {
+		t.Fatalf("mark paused state: %v", err)
+	}
+	if err := q.UpdateRunStatus(ctx, terminal.ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{
+		"finished_at": time.Now().UTC().Truncate(time.Microsecond),
+	}); err != nil {
+		t.Fatalf("UpdateRunStatus terminal error = %v", err)
+	}
+
+	deleted, err := q.DeleteInactiveActiveClaims(ctx, 100)
+	if err != nil {
+		t.Fatalf("DeleteInactiveActiveClaims() error = %v", err)
+	}
+	if deleted != 3 {
+		t.Fatalf("deleted inactive active claims = %d, want 3", deleted)
+	}
+	var remaining int
+	if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM job_run_active_claims`).Scan(&remaining); err != nil {
+		t.Fatalf("query remaining active claims: %v", err)
+	}
+	if remaining != 1 {
+		t.Fatalf("remaining active claims = %d, want 1 current claim", remaining)
+	}
+	var remainingRunID string
+	if err := testDB.Pool.QueryRow(ctx, `SELECT run_id FROM job_run_active_claims`).Scan(&remainingRunID); err != nil {
+		t.Fatalf("query remaining active claim run: %v", err)
+	}
+	if remainingRunID != current.ID {
+		t.Fatalf("remaining active claim run = %s, want %s", remainingRunID, current.ID)
 	}
 }
