@@ -468,7 +468,7 @@ func TestPgQue_ActivateDueRunsAppendsReadyEventWithoutMutatingState(t *testing.T
 	}
 }
 
-func TestPgQue_RequeuePausedJobRunsPromotesStateAndEmitsReadyEvent(t *testing.T) {
+func TestPgQue_RequeuePausedJobRunsAppendsReadyEventWithoutStatusFlip(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
@@ -504,6 +504,15 @@ func TestPgQue_RequeuePausedJobRunsPromotesStateAndEmitsReadyEvent(t *testing.T)
 	).Scan(&beforeGeneration); err != nil {
 		t.Fatalf("query ready_generation before requeue: %v", err)
 	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_active_claims (run_id, ready_generation, attempt, started_at)
+		VALUES ($1, $2, $3, NOW())`,
+		run.ID,
+		beforeGeneration,
+		run.Attempt,
+	); err != nil {
+		t.Fatalf("insert stale paused active claim: %v", err)
+	}
 
 	requeued, err := q.RequeuePausedJobRuns(ctx, wfRun.ID)
 	if err != nil {
@@ -513,25 +522,34 @@ func TestPgQue_RequeuePausedJobRunsPromotesStateAndEmitsReadyEvent(t *testing.T)
 		t.Fatalf("RequeuePausedJobRuns requeued = %d, want 1", requeued)
 	}
 
-	var ledgerStatus, stateStatus domain.RunStatus
+	var ledgerStatus, stateStatus, readStatus domain.RunStatus
 	var afterGeneration int64
+	var readyEvents int
 	if err := testDB.Pool.QueryRow(ctx, `
-		SELECT jr.status, s.status, s.ready_generation
+		SELECT jr.status, s.status, rs.status, s.ready_generation,
+		       (SELECT COUNT(*) FROM job_run_ready_events WHERE run_id = jr.id AND reason = 'paused_resume')
 		FROM job_runs jr
 		JOIN job_run_state s ON s.run_id = jr.id
+		JOIN job_run_read_state rs ON rs.run_id = jr.id
 		WHERE jr.id = $1`,
 		run.ID,
-	).Scan(&ledgerStatus, &stateStatus, &afterGeneration); err != nil {
+	).Scan(&ledgerStatus, &stateStatus, &readStatus, &afterGeneration, &readyEvents); err != nil {
 		t.Fatalf("query requeued state: %v", err)
 	}
 	if ledgerStatus != domain.StatusPaused {
 		t.Fatalf("job_runs status = %q, want immutable paused ledger status", ledgerStatus)
 	}
-	if stateStatus != domain.StatusQueued {
-		t.Fatalf("job_run_state status = %q, want queued", stateStatus)
+	if stateStatus != domain.StatusPaused {
+		t.Fatalf("job_run_state status = %q, want paused hot state", stateStatus)
 	}
 	if afterGeneration != beforeGeneration+1 {
 		t.Fatalf("ready_generation = %d, want %d", afterGeneration, beforeGeneration+1)
+	}
+	if readStatus != domain.StatusQueued {
+		t.Fatalf("job_run_read_state status = %q, want queued readiness overlay", readStatus)
+	}
+	if readyEvents != 1 {
+		t.Fatalf("paused_resume ready events = %d, want 1", readyEvents)
 	}
 
 	var queueEntries int
@@ -554,6 +572,16 @@ func TestPgQue_RequeuePausedJobRunsPromotesStateAndEmitsReadyEvent(t *testing.T)
 	}
 	if claimed[0].Status != domain.StatusExecuting {
 		t.Fatalf("claimed status = %q, want executing", claimed[0].Status)
+	}
+	if err := st.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{"finished_at": time.Now().UTC()}); err != nil {
+		t.Fatalf("UpdateRunStatus paused-ready claim to terminal: %v", err)
+	}
+	var terminalStatus domain.RunStatus
+	if err := testDB.Pool.QueryRow(ctx, `SELECT status FROM job_run_read_state WHERE run_id = $1`, run.ID).Scan(&terminalStatus); err != nil {
+		t.Fatalf("query terminal read state: %v", err)
+	}
+	if terminalStatus != domain.StatusCompleted {
+		t.Fatalf("terminal read status = %q, want completed", terminalStatus)
 	}
 }
 

@@ -586,8 +586,7 @@ func (q *PgQueQueue) requeuePausedJobRunsInTx(ctx context.Context, tx store.DBTX
 		),
 		updated AS (
 			UPDATE job_run_state s
-			SET status = 'queued',
-			    started_at = NULL,
+			SET started_at = NULL,
 			    finished_at = NULL,
 			    heartbeat_at = NULL,
 			    ready_generation = ready_generation + 1,
@@ -608,25 +607,33 @@ func (q *PgQueQueue) requeuePausedJobRunsInTx(ctx context.Context, tx store.DBTX
 				s.expires_at,
 				s.priority,
 				s.concurrency_key,
-				s.execution_mode
+				s.execution_mode,
+				s.ready_generation
+		),
+		inserted_ready AS (
+			INSERT INTO job_run_ready_events (run_id, ready_generation, attempt, reason)
+			SELECT run_id, ready_generation, attempt, 'paused_resume'
+			FROM updated
+			ON CONFLICT (run_id, ready_generation, reason) DO NOTHING
+			RETURNING run_id, ready_generation, attempt
 		),
 		lifecycle_events AS (
 			INSERT INTO job_run_lifecycle_events (run_id, from_status, to_status, attempt, fields)
 			SELECT run_id, 'paused', 'queued', attempt, '{}'::jsonb
-			FROM updated
+			FROM inserted_ready
 			RETURNING 1
 		),
 		cache_versions AS (
 			INSERT INTO job_run_cache_versions (run_id, cache_version)
 			SELECT run_id, strait_next_run_cache_version(run_id)
-			FROM updated
+			FROM inserted_ready
 			RETURNING 1
 		)
 		SELECT
 			jr.id,
 			u.job_id,
 			u.project_id,
-			u.status,
+			'queued'::text AS status,
 			u.attempt,
 			jr.payload,
 			jr.result,
@@ -1511,6 +1518,7 @@ func (q *PgQueQueue) claimRuns(ctx context.Context, ids []string, generations []
 				  AND (
 				      s.status = $4
 				      OR (s.status = 'delayed' AND ready.reason = 'delayed_due')
+				      OR (s.status = 'paused' AND ready.reason = 'paused_resume')
 				  )
 				  AND s.ready_generation = input.generation
 				  AND s.execution_mode = $6
@@ -1571,7 +1579,19 @@ func (q *PgQueQueue) claimRuns(ctx context.Context, ids []string, generations []
 			 AND claim.ready_generation = active.ready_generation
 			LEFT JOIN job_run_terminal_state terminal ON terminal.run_id = active.run_id
 			CROSS JOIN lock_barrier
-			WHERE active.status IN ($4, 'delayed')
+			WHERE (
+			      active.status IN ($4, 'delayed')
+			      OR (
+			          active.status = 'paused'
+			          AND EXISTS (
+			              SELECT 1
+			              FROM job_run_ready_events ready
+			              WHERE ready.run_id = active.run_id
+			                AND ready.ready_generation = active.ready_generation
+			                AND ready.reason = 'paused_resume'
+			          )
+			      )
+			  )
 			  AND terminal.run_id IS NULL
 			GROUP BY active.job_id, COALESCE(active.concurrency_key, '')
 		),
@@ -1619,7 +1639,13 @@ func (q *PgQueQueue) claimRuns(ctx context.Context, ids []string, generations []
 				NOW()
 			FROM job_run_state s
 			JOIN candidates ON candidates.run_id = s.run_id
-			WHERE s.status IN ($4, 'delayed')
+			WHERE (
+			      s.status IN ($4, 'delayed')
+			      OR (
+			          s.status = 'paused'
+			          AND candidates.ready_reason = 'paused_resume'
+			      )
+			  )
 			  AND s.ready_generation = candidates.generation
 			  AND NOT EXISTS (SELECT 1 FROM job_run_terminal_state t WHERE t.run_id = s.run_id)
 			ON CONFLICT (run_id, ready_generation) DO NOTHING

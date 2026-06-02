@@ -2390,6 +2390,7 @@ const appendRunTerminalStateQuery = `
 			s.job_id,
 			CASE
 				WHEN c.run_id IS NOT NULL AND s.status IN ('queued', 'delayed') THEN 'executing'
+				WHEN c.run_id IS NOT NULL AND s.status = 'paused' AND ready.reason = 'paused_resume' THEN 'executing'
 				WHEN ready.reason = 'delayed_due' AND s.status = 'delayed' THEN 'queued'
 				ELSE s.status
 			END AS previous_status,
@@ -2426,6 +2427,7 @@ const appendRunTerminalStateQuery = `
 		  AND (
 		      s.status = $2
 		      OR ($2 = 'executing' AND s.status IN ('queued', 'delayed') AND c.run_id IS NOT NULL)
+		      OR ($2 = 'executing' AND s.status = 'paused' AND c.run_id IS NOT NULL AND ready.reason = 'paused_resume')
 		      OR ($2 = 'queued' AND s.status = 'delayed' AND ready.reason = 'delayed_due')
 		  )
 		  AND NOT EXISTS (SELECT 1 FROM job_run_terminal_state t WHERE t.run_id = s.run_id)
@@ -2504,6 +2506,7 @@ const appendRunTerminalStateForAttemptQuery = `
 			s.job_id,
 			CASE
 				WHEN c.run_id IS NOT NULL AND s.status IN ('queued', 'delayed') THEN 'executing'
+				WHEN c.run_id IS NOT NULL AND s.status = 'paused' AND ready.reason = 'paused_resume' THEN 'executing'
 				WHEN ready.reason = 'delayed_due' AND s.status = 'delayed' THEN 'queued'
 				ELSE s.status
 			END AS previous_status,
@@ -2541,6 +2544,7 @@ const appendRunTerminalStateForAttemptQuery = `
 		  AND (
 		      s.status = $2
 		      OR ($2 = 'executing' AND s.status IN ('queued', 'delayed') AND c.run_id IS NOT NULL)
+		      OR ($2 = 'executing' AND s.status = 'paused' AND c.run_id IS NOT NULL AND ready.reason = 'paused_resume')
 		      OR ($2 = 'queued' AND s.status = 'delayed' AND ready.reason = 'delayed_due')
 		  )
 		  AND NOT EXISTS (SELECT 1 FROM job_run_terminal_state t WHERE t.run_id = s.run_id)
