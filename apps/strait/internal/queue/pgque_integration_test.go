@@ -412,7 +412,7 @@ func TestPgQue_TerminalTransitionCompletesActiveClaimWithoutUpdatingHotState(t *
 	}
 }
 
-func TestPgQue_ActiveClaimMaintainsLimitedConcurrencyCounts(t *testing.T) {
+func TestPgQue_ActiveClaimEnforcesLimitedConcurrencyWithoutCounterWrites(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	mustClean(t, ctx)
@@ -440,6 +440,22 @@ func TestPgQue_ActiveClaimMaintainsLimitedConcurrencyCounts(t *testing.T) {
 	if len(claimed) != 1 {
 		t.Fatalf("claimed %d runs, want 1 due to max concurrency", len(claimed))
 	}
+	var activeClaims int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM job_run_active_claims claim
+		JOIN job_run_state s
+		  ON s.run_id = claim.run_id
+		 AND s.ready_generation = claim.ready_generation
+		LEFT JOIN job_run_terminal_state terminal ON terminal.run_id = s.run_id
+		WHERE s.job_id = $1
+		  AND s.status = 'queued'
+		  AND terminal.run_id IS NULL`, job.ID).Scan(&activeClaims); err != nil {
+		t.Fatalf("active claims after claim: %v", err)
+	}
+	if activeClaims != 1 {
+		t.Fatalf("active claims after claim = %d, want 1", activeClaims)
+	}
 	var count int
 	if err := testDB.Pool.QueryRow(ctx, `
 		SELECT COALESCE(SUM(count), 0)
@@ -447,8 +463,8 @@ func TestPgQue_ActiveClaimMaintainsLimitedConcurrencyCounts(t *testing.T) {
 		WHERE job_id = $1`, job.ID).Scan(&count); err != nil {
 		t.Fatalf("active count after claim: %v", err)
 	}
-	if count != 1 {
-		t.Fatalf("active count after claim = %d, want 1", count)
+	if count != 0 {
+		t.Fatalf("job_active_counts after PgQue claim = %d, want 0 append-only claims to avoid counter churn", count)
 	}
 	if err := st.UpdateRunStatus(ctx, claimed[0].ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{"finished_at": time.Now()}); err != nil {
 		t.Fatalf("UpdateRunStatus completed: %v", err)
@@ -461,6 +477,88 @@ func TestPgQue_ActiveClaimMaintainsLimitedConcurrencyCounts(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("active count after completion = %d, want 0", count)
+	}
+
+	next, err := q.DequeueN(ctx, 2)
+	if err != nil {
+		t.Fatalf("DequeueN after completion: %v", err)
+	}
+	if len(next) != 1 {
+		t.Fatalf("claimed %d runs after completion, want 1 released by terminal overlay", len(next))
+	}
+	if next[0].ID == claimed[0].ID {
+		t.Fatalf("claimed completed run %s again", next[0].ID)
+	}
+}
+
+func TestPgQue_ConcurrentLimitedClaimsSerializeOnActiveClaims(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-pgque-active-claim-serialized")
+	q := mustPgQueQueue(t)
+
+	for range 2 {
+		run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+		if err := q.Enqueue(ctx, run); err != nil {
+			t.Fatalf("Enqueue: %v", err)
+		}
+	}
+	if _, err := testDB.Pool.Exec(ctx, `UPDATE job_run_state SET job_max_concurrency = 1 WHERE job_id = $1`, job.ID); err != nil {
+		t.Fatalf("set max concurrency: %v", err)
+	}
+	if err := q.ForceTick(ctx, "http"); err != nil {
+		t.Fatalf("ForceTick: %v", err)
+	}
+
+	start := make(chan struct{})
+	errCh := make(chan error, 8)
+	claimedCh := make(chan []domain.JobRun, 8)
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			claimed, err := q.DequeueN(ctx, 1)
+			if err != nil {
+				errCh <- err
+				return
+			}
+			claimedCh <- claimed
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errCh)
+	close(claimedCh)
+
+	for err := range errCh {
+		t.Fatalf("DequeueN: %v", err)
+	}
+	claimedIDs := make(map[string]struct{})
+	for claimed := range claimedCh {
+		for _, run := range claimed {
+			if _, ok := claimedIDs[run.ID]; ok {
+				t.Fatalf("duplicate claim for run %s", run.ID)
+			}
+			claimedIDs[run.ID] = struct{}{}
+		}
+	}
+	if len(claimedIDs) != 1 {
+		t.Fatalf("concurrent claims = %d, want 1 due to max concurrency", len(claimedIDs))
+	}
+
+	var count int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(count), 0)
+		FROM job_active_counts
+		WHERE job_id = $1`, job.ID).Scan(&count); err != nil {
+		t.Fatalf("active counter: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("job_active_counts after concurrent PgQue claims = %d, want 0", count)
 	}
 }
 

@@ -636,32 +636,87 @@ func samplePgQueDequeuePlans(tb baselineTB, ctx context.Context) []loadtest.SQLP
 			WITH input AS (
 				SELECT *
 				FROM unnest($1::text[], $2::bigint[]) WITH ORDINALITY AS u(id, generation, ord)
+			),
+			raw_candidates AS (
+				SELECT s.run_id,
+				       input.ord,
+				       s.job_id,
+				       s.concurrency_key,
+				       s.job_max_concurrency,
+				       s.job_max_concurrency_per_key,
+				       s.priority,
+				       jr.created_at
+				FROM input
+				JOIN LATERAL (
+					SELECT *
+					FROM job_run_state s
+					WHERE s.run_id = input.id
+					  AND s.status = 'queued'
+					  AND s.ready_generation = input.generation
+					  AND s.execution_mode = 'http'
+					  AND COALESCE(s.job_enabled, true) = true
+					  AND COALESCE(s.job_paused, false) = false
+					  AND (s.scheduled_at IS NULL OR s.scheduled_at <= NOW())
+					  AND (s.next_retry_at IS NULL OR s.next_retry_at <= NOW())
+					FOR UPDATE SKIP LOCKED
+				) s ON true
+				JOIN job_runs jr ON jr.id = s.run_id
+			),
+			limited_jobs AS MATERIALIZED (
+				SELECT DISTINCT raw_candidates.job_id
+				FROM raw_candidates
+				WHERE job_max_concurrency IS NOT NULL
+				   OR job_max_concurrency_per_key IS NOT NULL
+				ORDER BY raw_candidates.job_id
+			),
+			job_locks AS MATERIALIZED (
+				SELECT pg_advisory_xact_lock(hashtextextended(limited_jobs.job_id, 0)) AS locked
+				FROM limited_jobs
+			),
+			lock_barrier AS MATERIALIZED (
+				SELECT COUNT(*) AS locked_jobs FROM job_locks
+			),
+			active_key_counts AS MATERIALIZED (
+				SELECT
+					active.job_id,
+					COALESCE(active.concurrency_key, '') AS concurrency_key,
+					COUNT(*)::int AS count
+				FROM job_run_state active
+				JOIN limited_jobs limited ON limited.job_id = active.job_id
+				JOIN job_run_active_claims claim
+				  ON claim.run_id = active.run_id
+				 AND claim.ready_generation = active.ready_generation
+				LEFT JOIN job_run_terminal_state terminal ON terminal.run_id = active.run_id
+				CROSS JOIN lock_barrier
+				WHERE active.status = 'queued'
+				  AND terminal.run_id IS NULL
+				GROUP BY active.job_id, COALESCE(active.concurrency_key, '')
+			),
+			active_job_counts AS MATERIALIZED (
+				SELECT active_key_counts.job_id, SUM(active_key_counts.count)::int AS count
+				FROM active_key_counts
+				GROUP BY active_key_counts.job_id
+			),
+			ranked_candidates AS (
+				SELECT raw_candidates.*,
+				       COALESCE(active_job_counts.count, 0) AS active_count,
+				       COALESCE(active_key_counts.count, 0) AS key_active_count,
+				       ROW_NUMBER() OVER (PARTITION BY raw_candidates.job_id ORDER BY priority DESC, created_at ASC, ord) AS job_rank,
+				       ROW_NUMBER() OVER (PARTITION BY raw_candidates.job_id, raw_candidates.concurrency_key ORDER BY priority DESC, created_at ASC, ord) AS key_rank
+				FROM raw_candidates
+				CROSS JOIN lock_barrier
+				LEFT JOIN active_job_counts ON active_job_counts.job_id = raw_candidates.job_id
+				LEFT JOIN active_key_counts
+				  ON active_key_counts.job_id = raw_candidates.job_id
+				 AND active_key_counts.concurrency_key = COALESCE(raw_candidates.concurrency_key, '')
 			)
-			SELECT s.run_id
-			FROM input
-			JOIN LATERAL (
-				SELECT *
-				FROM job_run_state s
-				WHERE s.run_id = input.id
-				  AND s.status = 'queued'
-				  AND s.ready_generation = input.generation
-				  AND s.execution_mode = 'http'
-				  AND COALESCE(s.job_enabled, true) = true
-				  AND COALESCE(s.job_paused, false) = false
-				  AND (s.scheduled_at IS NULL OR s.scheduled_at <= NOW())
-				  AND (s.next_retry_at IS NULL OR s.next_retry_at <= NOW())
-				FOR UPDATE SKIP LOCKED
-			) s ON true
-			JOIN job_runs jr ON jr.id = s.run_id
-			LEFT JOIN job_active_counts jac_job
-			  ON jac_job.job_id = s.job_id AND jac_job.concurrency_key = ''
-			LEFT JOIN job_active_counts jac_key
-			  ON jac_key.job_id = s.job_id AND jac_key.concurrency_key = COALESCE(s.concurrency_key, '')
-			WHERE (s.job_max_concurrency IS NULL OR COALESCE(jac_job.count, 0) < s.job_max_concurrency)
-			  AND (s.job_max_concurrency_per_key IS NULL
-			       OR s.concurrency_key = ''
-			       OR COALESCE(jac_key.count, 0) < s.job_max_concurrency_per_key)
-			ORDER BY s.priority DESC, jr.created_at ASC, input.ord
+			SELECT run_id
+			FROM ranked_candidates
+			WHERE (job_max_concurrency IS NULL OR job_rank <= GREATEST(job_max_concurrency - active_count, 0))
+			  AND (job_max_concurrency_per_key IS NULL
+			       OR concurrency_key = ''
+			       OR key_rank <= GREATEST(job_max_concurrency_per_key - key_active_count, 0))
+			ORDER BY priority DESC, created_at ASC, ord
 			LIMIT 50
 		`, ids, generations),
 	}}

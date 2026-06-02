@@ -880,9 +880,7 @@ func (q *PgQueQueue) claimRuns(ctx context.Context, ids []string, generations []
 			       jr.created_by,
 			       jr.batch_id,
 			       jr.is_rollback,
-			       jr.replayed_run_id,
-			       COALESCE(jac_job.count, 0) AS active_count,
-			       COALESCE(jac_key.count, 0) AS key_active_count
+			       jr.replayed_run_id
 			FROM input
 			JOIN LATERAL (
 				SELECT *
@@ -915,19 +913,55 @@ func (q *PgQueQueue) claimRuns(ctx context.Context, ids []string, generations []
 				FOR UPDATE SKIP LOCKED
 			) s ON true
 			JOIN job_runs jr ON jr.id = s.run_id
-			LEFT JOIN job_active_counts jac_job
-			  ON jac_job.job_id = s.job_id
-			 AND jac_job.concurrency_key = ''
-			LEFT JOIN job_active_counts jac_key
-			  ON jac_key.job_id = s.job_id
-			 AND jac_key.concurrency_key = COALESCE(s.concurrency_key, '')
 			ORDER BY s.priority DESC, jr.created_at ASC, input.ord
+		),
+		limited_jobs AS MATERIALIZED (
+			SELECT DISTINCT raw_candidates.job_id
+			FROM raw_candidates
+			WHERE job_max_concurrency IS NOT NULL
+			   OR job_max_concurrency_per_key IS NOT NULL
+			ORDER BY raw_candidates.job_id
+		),
+		job_locks AS MATERIALIZED (
+			SELECT pg_advisory_xact_lock(hashtextextended(limited_jobs.job_id, 0)) AS locked
+			FROM limited_jobs
+		),
+		lock_barrier AS MATERIALIZED (
+			SELECT COUNT(*) AS locked_jobs FROM job_locks
+		),
+		active_key_counts AS MATERIALIZED (
+			SELECT
+				active.job_id,
+				COALESCE(active.concurrency_key, '') AS concurrency_key,
+				COUNT(*)::int AS count
+			FROM job_run_state active
+			JOIN limited_jobs limited ON limited.job_id = active.job_id
+			JOIN job_run_active_claims claim
+			  ON claim.run_id = active.run_id
+			 AND claim.ready_generation = active.ready_generation
+			LEFT JOIN job_run_terminal_state terminal ON terminal.run_id = active.run_id
+			CROSS JOIN lock_barrier
+			WHERE active.status = $4
+			  AND terminal.run_id IS NULL
+			GROUP BY active.job_id, COALESCE(active.concurrency_key, '')
+		),
+		active_job_counts AS MATERIALIZED (
+			SELECT active_key_counts.job_id, SUM(active_key_counts.count)::int AS count
+			FROM active_key_counts
+			GROUP BY active_key_counts.job_id
 		),
 		ranked_candidates AS (
 			SELECT raw_candidates.*,
-			       ROW_NUMBER() OVER (PARTITION BY job_id ORDER BY claim_priority DESC, claim_created_at ASC, ord) AS job_rank,
-			       ROW_NUMBER() OVER (PARTITION BY job_id, concurrency_key ORDER BY claim_priority DESC, claim_created_at ASC, ord) AS key_rank
+			       COALESCE(active_job_counts.count, 0) AS active_count,
+			       COALESCE(active_key_counts.count, 0) AS key_active_count,
+			       ROW_NUMBER() OVER (PARTITION BY raw_candidates.job_id ORDER BY claim_priority DESC, claim_created_at ASC, ord) AS job_rank,
+			       ROW_NUMBER() OVER (PARTITION BY raw_candidates.job_id, raw_candidates.concurrency_key ORDER BY claim_priority DESC, claim_created_at ASC, ord) AS key_rank
 			FROM raw_candidates
+			CROSS JOIN lock_barrier
+			LEFT JOIN active_job_counts ON active_job_counts.job_id = raw_candidates.job_id
+			LEFT JOIN active_key_counts
+			  ON active_key_counts.job_id = raw_candidates.job_id
+			 AND active_key_counts.concurrency_key = COALESCE(raw_candidates.concurrency_key, '')
 		),
 		candidates AS (
 			SELECT *
@@ -962,22 +996,6 @@ func (q *PgQueQueue) claimRuns(ctx context.Context, ids []string, generations []
 			  AND NOT EXISTS (SELECT 1 FROM job_run_terminal_state t WHERE t.run_id = s.run_id)
 			ON CONFLICT (run_id, ready_generation) DO NOTHING
 			RETURNING run_id, ready_generation, started_at
-		),
-		incremented_counts AS (
-			INSERT INTO job_active_counts (job_id, concurrency_key, count)
-			SELECT
-				candidates.job_id,
-				COALESCE(candidates.concurrency_key, ''),
-				COUNT(*)
-			FROM candidates
-			JOIN inserted_claims i ON i.run_id = candidates.run_id
-			WHERE candidates.job_max_concurrency IS NOT NULL
-			   OR candidates.job_max_concurrency_per_key IS NOT NULL
-			GROUP BY candidates.job_id, COALESCE(candidates.concurrency_key, '')
-			ON CONFLICT (job_id, concurrency_key)
-			DO UPDATE SET count = job_active_counts.count + EXCLUDED.count,
-			              updated_at = NOW()
-			RETURNING 1
 		),
 		claimed_state AS (
 			SELECT s.run_id,
