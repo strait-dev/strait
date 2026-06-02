@@ -48,6 +48,34 @@ func TestSentinelErrors(t *testing.T) {
 	}
 }
 
+func TestDeleteInactiveActiveClaims_UsesPrimaryKeyOrder(t *testing.T) {
+	t.Parallel()
+
+	var capturedSQL string
+	var capturedArgs []any
+	db := &mockDBTX{
+		execFn: func(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+			capturedSQL = sql
+			capturedArgs = append(capturedArgs, args...)
+			return pgconn.NewCommandTag("DELETE 0"), nil
+		},
+	}
+
+	_, err := New(db).DeleteInactiveActiveClaims(context.Background(), 250)
+	if err != nil {
+		t.Fatalf("DeleteInactiveActiveClaims() error = %v", err)
+	}
+	if !strings.Contains(capturedSQL, "ORDER BY c.run_id ASC, c.ready_generation ASC") {
+		t.Fatalf("cleanup SQL must use primary-key order, got:\n%s", capturedSQL)
+	}
+	if strings.Contains(capturedSQL, "ORDER BY c.started_at") {
+		t.Fatalf("cleanup SQL must not sort on unindexed started_at, got:\n%s", capturedSQL)
+	}
+	if len(capturedArgs) != 1 || capturedArgs[0] != 250 {
+		t.Fatalf("cleanup args = %#v, want [250]", capturedArgs)
+	}
+}
+
 func TestSentinelErrors_Wrapping(t *testing.T) {
 	t.Parallel()
 	sentinels := []error{ErrJobNotFound, ErrRunNotFound, ErrRunConflict, ErrOutboxRowConflict}

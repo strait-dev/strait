@@ -29,6 +29,7 @@ func TestIntegration_ArchiveTerminalRunRoundTrip(t *testing.T) {
 	if err := q.CreateRun(ctx, run); err != nil {
 		t.Fatalf("CreateRun: %v", err)
 	}
+	seedRetentionSideRows(t, ctx, run.ID)
 
 	tx, err := testDB.Pool.Begin(ctx)
 	if err != nil {
@@ -75,6 +76,7 @@ func TestIntegration_ArchiveTerminalRunRoundTrip(t *testing.T) {
 	if gotHistory.Status != domain.StatusCompleted {
 		t.Errorf("history run status = %q, want %q", gotHistory.Status, domain.StatusCompleted)
 	}
+	assertNoRunRetentionSideRows(t, ctx, run.ID)
 }
 
 func TestIntegration_ArchiveIdempotent(t *testing.T) {
@@ -138,6 +140,7 @@ func TestIntegration_ArchiveTerminalRunsBatchAndRetention(t *testing.T) {
 		if err := q.CreateRun(ctx, run); err != nil {
 			t.Fatalf("CreateRun %d: %v", i, err)
 		}
+		seedRetentionSideRows(t, ctx, run.ID)
 	}
 	// Backdate created_at so runs are in cold partitions (reaper's
 	// hot-partition filter skips the current month).
@@ -155,6 +158,10 @@ func TestIntegration_ArchiveTerminalRunsBatchAndRetention(t *testing.T) {
 	}
 	if archived != 5 {
 		t.Errorf("archived = %d, want 5", archived)
+	}
+	for i := range 5 {
+		id := "run-archive-batch-" + string(rune('a'+i))
+		assertNoRunRetentionSideRows(t, ctx, id)
 	}
 
 	deleted, err := q.DeleteHistoryRunsPastRetention(ctx, time.Now().Add(time.Hour), 100)
@@ -295,6 +302,7 @@ func TestIntegration_BackfillTerminalRunsToHistory(t *testing.T) {
 		if err := q.CreateRun(ctx, run); err != nil {
 			t.Fatalf("CreateRun %d: %v", i, err)
 		}
+		seedRetentionSideRows(t, ctx, run.ID)
 	}
 
 	activeRun := baseRun(job, "run-backfill-active")
@@ -318,6 +326,10 @@ func TestIntegration_BackfillTerminalRunsToHistory(t *testing.T) {
 	if active.Status != domain.StatusQueued {
 		t.Errorf("active run status = %q, want queued", active.Status)
 	}
+	for i := range 3 {
+		id := "run-backfill-" + string(rune('a'+i))
+		assertNoRunRetentionSideRows(t, ctx, id)
+	}
 }
 
 func TestIntegration_RepairOrphanedHistoryRuns(t *testing.T) {
@@ -337,6 +349,7 @@ func TestIntegration_RepairOrphanedHistoryRuns(t *testing.T) {
 	if err := q.CreateRun(ctx, run); err != nil {
 		t.Fatalf("CreateRun: %v", err)
 	}
+	seedRetentionSideRows(t, ctx, run.ID)
 
 	// Manually copy the run into history to create a duplicate.
 	_, err := testDB.Pool.Exec(ctx, `
@@ -383,4 +396,5 @@ func TestIntegration_RepairOrphanedHistoryRuns(t *testing.T) {
 	if dupes != 0 {
 		t.Errorf("dupes after repair = %d, want 0", dupes)
 	}
+	assertNoRunRetentionSideRows(t, ctx, run.ID)
 }

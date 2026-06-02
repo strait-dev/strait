@@ -31,10 +31,46 @@ func (q *Queries) ArchiveTerminalRun(ctx context.Context, tx DBTX, id string) er
 	query := `
 		WITH removed AS (
 			DELETE FROM job_runs WHERE id = $1 RETURNING *
+		),
+		archived AS (
+			INSERT INTO job_runs_history (` + historyArchiveColumns + `)
+			SELECT ` + historyArchiveColumns + ` FROM removed
+			ON CONFLICT (id) DO NOTHING
+			RETURNING id
+		),
+		deleted_active_claims AS (
+			DELETE FROM job_run_active_claims
+			WHERE run_id IN (SELECT id FROM removed)
+		),
+		deleted_lifecycle_events AS (
+			DELETE FROM job_run_lifecycle_events
+			WHERE run_id IN (SELECT id FROM removed)
+		),
+		deleted_ready_events AS (
+			DELETE FROM job_run_ready_events
+			WHERE run_id IN (SELECT id FROM removed)
+		),
+		deleted_priority_events AS (
+			DELETE FROM job_run_priority_events
+			WHERE run_id IN (SELECT id FROM removed)
+		),
+		deleted_visibility_events AS (
+			DELETE FROM job_run_visibility_events
+			WHERE run_id IN (SELECT id FROM removed)
+		),
+		deleted_cache_versions AS (
+			DELETE FROM job_run_cache_versions
+			WHERE run_id IN (SELECT id FROM removed)
+		),
+		deleted_heartbeats AS (
+			DELETE FROM job_run_heartbeats
+			WHERE run_id IN (SELECT id FROM removed)
+		),
+		deleted_terminal_state AS (
+			DELETE FROM job_run_terminal_state
+			WHERE run_id IN (SELECT id FROM removed)
 		)
-		INSERT INTO job_runs_history (` + historyArchiveColumns + `)
-		SELECT ` + historyArchiveColumns + ` FROM removed
-		ON CONFLICT (id) DO NOTHING`
+		SELECT 1`
 
 	_, err := tx.Exec(ctx, query, id)
 	if err != nil {
@@ -148,6 +184,38 @@ func (q *Queries) ArchiveTerminalRunsPastRetention(
 			WHERE jr.id IN (SELECT id FROM to_archive)
 			ON CONFLICT (id) DO NOTHING
 			RETURNING id
+		),
+		deleted_active_claims AS (
+			DELETE FROM job_run_active_claims
+			WHERE run_id IN (SELECT id FROM archived)
+		),
+		deleted_lifecycle_events AS (
+			DELETE FROM job_run_lifecycle_events
+			WHERE run_id IN (SELECT id FROM archived)
+		),
+		deleted_ready_events AS (
+			DELETE FROM job_run_ready_events
+			WHERE run_id IN (SELECT id FROM archived)
+		),
+		deleted_priority_events AS (
+			DELETE FROM job_run_priority_events
+			WHERE run_id IN (SELECT id FROM archived)
+		),
+		deleted_visibility_events AS (
+			DELETE FROM job_run_visibility_events
+			WHERE run_id IN (SELECT id FROM archived)
+		),
+		deleted_cache_versions AS (
+			DELETE FROM job_run_cache_versions
+			WHERE run_id IN (SELECT id FROM archived)
+		),
+		deleted_heartbeats AS (
+			DELETE FROM job_run_heartbeats
+			WHERE run_id IN (SELECT id FROM archived)
+		),
+		deleted_terminal_state AS (
+			DELETE FROM job_run_terminal_state
+			WHERE run_id IN (SELECT id FROM archived)
 		)
 		DELETE FROM job_runs WHERE id IN (SELECT id FROM archived)`
 

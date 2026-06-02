@@ -214,6 +214,10 @@ func (q *Queries) PurgeDLQRun(ctx context.Context, runID string) error {
 			DELETE FROM job_run_ready_events
 			WHERE run_id IN (SELECT id FROM victim)
 		),
+		deleted_priority_events AS (
+			DELETE FROM job_run_priority_events
+			WHERE run_id IN (SELECT id FROM victim)
+		),
 		deleted_terminal_state AS (
 			DELETE FROM job_run_terminal_state
 			WHERE run_id IN (SELECT id FROM victim)
@@ -224,6 +228,10 @@ func (q *Queries) PurgeDLQRun(ctx context.Context, runID string) error {
 		),
 		deleted_visibility_events AS (
 			DELETE FROM job_run_visibility_events
+			WHERE run_id IN (SELECT id FROM victim)
+		),
+		deleted_cache_versions AS (
+			DELETE FROM job_run_cache_versions
 			WHERE run_id IN (SELECT id FROM victim)
 		),
 		decremented AS (

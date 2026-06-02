@@ -3241,6 +3241,22 @@ func (q *Queries) DeleteTerminalRunsPastRetention(ctx context.Context, shortRete
 			DELETE FROM job_run_ready_events
 			WHERE run_id IN (SELECT id FROM to_delete)
 		),
+		deleted_priority_events AS (
+			DELETE FROM job_run_priority_events
+			WHERE run_id IN (SELECT id FROM to_delete)
+		),
+		deleted_visibility_events AS (
+			DELETE FROM job_run_visibility_events
+			WHERE run_id IN (SELECT id FROM to_delete)
+		),
+		deleted_cache_versions AS (
+			DELETE FROM job_run_cache_versions
+			WHERE run_id IN (SELECT id FROM to_delete)
+		),
+		deleted_heartbeats AS (
+			DELETE FROM job_run_heartbeats
+			WHERE run_id IN (SELECT id FROM to_delete)
+		),
 		deleted_terminal_state AS (
 			DELETE FROM job_run_terminal_state
 			WHERE run_id IN (SELECT id FROM to_delete)

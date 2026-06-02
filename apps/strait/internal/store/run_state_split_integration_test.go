@@ -571,6 +571,27 @@ func TestRunStateSplit_PurgeDLQRunDeletesSplitStateRows(t *testing.T) {
 	); err != nil {
 		t.Fatalf("insert ready event: %v", err)
 	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_priority_events (run_id, priority)
+		VALUES ($1, 10)`,
+		run.ID,
+	); err != nil {
+		t.Fatalf("insert priority event: %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_visibility_events (run_id, visible_until)
+		VALUES ($1, NOW() + INTERVAL '1 hour')`,
+		run.ID,
+	); err != nil {
+		t.Fatalf("insert visibility event: %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_cache_versions (run_id, cache_version)
+		VALUES ($1, 2)`,
+		run.ID,
+	); err != nil {
+		t.Fatalf("insert cache version: %v", err)
+	}
 
 	depth, err := q.DLQDepth(ctx, job.ProjectID, job.ID)
 	if err != nil {
@@ -591,6 +612,9 @@ func TestRunStateSplit_PurgeDLQRunDeletesSplitStateRows(t *testing.T) {
 		"job_run_active_claims",
 		"job_run_lifecycle_events",
 		"job_run_ready_events",
+		"job_run_priority_events",
+		"job_run_visibility_events",
+		"job_run_cache_versions",
 		"job_run_heartbeats",
 	} {
 		var count int
@@ -608,6 +632,12 @@ func TestRunStateSplit_PurgeDLQRunDeletesSplitStateRows(t *testing.T) {
 			query = `SELECT COUNT(*) FROM job_run_lifecycle_events WHERE run_id = $1`
 		case "job_run_ready_events":
 			query = `SELECT COUNT(*) FROM job_run_ready_events WHERE run_id = $1`
+		case "job_run_priority_events":
+			query = `SELECT COUNT(*) FROM job_run_priority_events WHERE run_id = $1`
+		case "job_run_visibility_events":
+			query = `SELECT COUNT(*) FROM job_run_visibility_events WHERE run_id = $1`
+		case "job_run_cache_versions":
+			query = `SELECT COUNT(*) FROM job_run_cache_versions WHERE run_id = $1`
 		case "job_run_heartbeats":
 			query = `SELECT COUNT(*) FROM job_run_heartbeats WHERE run_id = $1`
 		default:

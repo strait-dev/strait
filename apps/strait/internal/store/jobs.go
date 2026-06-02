@@ -487,9 +487,45 @@ func (q *Queries) deleteJobTx(ctx context.Context, id string) error {
 
 	// Delete related data before removing the job (FK constraints).
 	if _, err := q.db.Exec(ctx, `
-		DELETE FROM job_run_ready_events
-		WHERE run_id IN (SELECT id FROM job_runs WHERE job_id = $1)`, id); err != nil {
-		return fmt.Errorf("delete job run ready events: %w", err)
+		WITH target_runs AS MATERIALIZED (
+			SELECT id
+			FROM job_runs
+			WHERE job_id = $1
+		),
+		deleted_active_claims AS (
+			DELETE FROM job_run_active_claims
+			WHERE run_id IN (SELECT id FROM target_runs)
+		),
+		deleted_lifecycle_events AS (
+			DELETE FROM job_run_lifecycle_events
+			WHERE run_id IN (SELECT id FROM target_runs)
+		),
+		deleted_ready_events AS (
+			DELETE FROM job_run_ready_events
+			WHERE run_id IN (SELECT id FROM target_runs)
+		),
+		deleted_priority_events AS (
+			DELETE FROM job_run_priority_events
+			WHERE run_id IN (SELECT id FROM target_runs)
+		),
+		deleted_visibility_events AS (
+			DELETE FROM job_run_visibility_events
+			WHERE run_id IN (SELECT id FROM target_runs)
+		),
+		deleted_cache_versions AS (
+			DELETE FROM job_run_cache_versions
+			WHERE run_id IN (SELECT id FROM target_runs)
+		),
+		deleted_heartbeats AS (
+			DELETE FROM job_run_heartbeats
+			WHERE run_id IN (SELECT id FROM target_runs)
+		),
+		deleted_terminal_state AS (
+			DELETE FROM job_run_terminal_state
+			WHERE run_id IN (SELECT id FROM target_runs)
+		)
+		SELECT 1`, id); err != nil {
+		return fmt.Errorf("delete job run side rows: %w", err)
 	}
 	if _, err := q.db.Exec(ctx, `DELETE FROM job_runs WHERE job_id = $1`, id); err != nil {
 		return fmt.Errorf("delete job runs: %w", err)
