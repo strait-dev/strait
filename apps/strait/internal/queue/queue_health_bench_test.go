@@ -68,6 +68,8 @@ type healthSnapshot struct {
 	DequeueP99us    int64
 	DequeueMaxUs    int64
 	IndexDeadItems  int64 // -1 if pgstatindex not available
+	WALBytes        int64
+	WALBytesPerRun  float64
 	SlotWalLagBytes int64
 	Relations       []healthRelationSnapshot
 }
@@ -279,6 +281,32 @@ type snapshotCollector struct {
 	lastSnapTime time.Time
 	lastEnqueued int64
 	lastDequeued int64
+	startWALLSN  string
+}
+
+func newSnapshotCollector(
+	t *testing.T,
+	ctx context.Context,
+	enqueued *atomic.Int64,
+	dequeued *atomic.Int64,
+	latencies *latencyRecorder,
+) *snapshotCollector {
+	t.Helper()
+
+	var startWALLSN string
+	if err := testDB.Pool.QueryRow(ctx, `SELECT pg_current_wal_lsn()::text`).Scan(&startWALLSN); err != nil {
+		t.Fatalf("capture start WAL LSN: %v", err)
+	}
+	now := time.Now()
+	return &snapshotCollector{
+		ctx:          ctx,
+		enqueued:     enqueued,
+		dequeued:     dequeued,
+		latencies:    latencies,
+		startTime:    now,
+		lastSnapTime: now,
+		startWALLSN:  startWALLSN,
+	}
 }
 
 func (c *snapshotCollector) collect() healthSnapshot {
@@ -375,6 +403,13 @@ func (c *snapshotCollector) collect() healthSnapshot {
 	`).Scan(&snap.IndexDeadItems)
 
 	_ = testDB.Pool.QueryRow(c.ctx, `
+		SELECT COALESCE(pg_wal_lsn_diff(pg_current_wal_lsn(), $1::pg_lsn), 0)::bigint
+	`, c.startWALLSN).Scan(&snap.WALBytes)
+	if snap.DequeuedTotal > 0 {
+		snap.WALBytesPerRun = float64(snap.WALBytes) / float64(snap.DequeuedTotal)
+	}
+
+	_ = testDB.Pool.QueryRow(c.ctx, `
 		SELECT COALESCE(MAX(pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)), 0)::bigint
 		FROM pg_replication_slots
 		WHERE slot_type = 'logical'
@@ -415,10 +450,7 @@ func TestQueueHealthBench(t *testing.T) {
 	var enqueued, dequeuedCount atomic.Int64
 	var rec latencyRecorder
 
-	collector := &snapshotCollector{
-		ctx: ctx, enqueued: &enqueued, dequeued: &dequeuedCount,
-		latencies: &rec, startTime: time.Now(), lastSnapTime: time.Now(),
-	}
+	collector := newSnapshotCollector(t, ctx, &enqueued, &dequeuedCount, &rec)
 	end := time.Now().Add(cfg.Duration)
 
 	// Producer.
@@ -514,12 +546,12 @@ func TestQueueHealthBench(t *testing.T) {
 		case <-snapTicker.C:
 			snap := collector.collect()
 			snapshots = append(snapshots, snap)
-			t.Logf("[%5.0fs] dead=%6d live=%6d ratio=%.4f hot=%.2f enq/s=%.0f deq/s=%.0f p50=%dus p95=%dus p99=%dus oldest=%.1fs",
+			t.Logf("[%5.0fs] dead=%6d live=%6d ratio=%.4f hot=%.2f enq/s=%.0f deq/s=%.0f p50=%dus p95=%dus p99=%dus wal/run=%.0f oldest=%.1fs",
 				snap.ElapsedSec, snap.DeadTuples, snap.LiveTuples,
 				snap.DeadTupleRatio, snap.HotUpdateRatio,
 				snap.EnqueueRate, snap.DequeueRate,
 				snap.DequeueP50us, snap.DequeueP95us, snap.DequeueP99us,
-				snap.OldestQueuedAge)
+				snap.WALBytesPerRun, snap.OldestQueuedAge)
 		}
 	}
 
@@ -589,10 +621,7 @@ func TestQueueHealthBench_WithLongTxn(t *testing.T) {
 	var enqueued, dequeuedCount atomic.Int64
 	var rec latencyRecorder
 
-	collector := &snapshotCollector{
-		ctx: ctx, enqueued: &enqueued, dequeued: &dequeuedCount,
-		latencies: &rec, startTime: time.Now(), lastSnapTime: time.Now(),
-	}
+	collector := newSnapshotCollector(t, ctx, &enqueued, &dequeuedCount, &rec)
 	end := time.Now().Add(cfg.Duration)
 
 	// Producer.
@@ -684,11 +713,11 @@ func TestQueueHealthBench_WithLongTxn(t *testing.T) {
 			}
 			snap := collector.collect()
 			snapshots = append(snapshots, snap)
-			t.Logf("[%5.0fs] dead=%6d live=%6d ratio=%.4f hot=%.2f enq/s=%.0f deq/s=%.0f p99=%dus",
+			t.Logf("[%5.0fs] dead=%6d live=%6d ratio=%.4f hot=%.2f enq/s=%.0f deq/s=%.0f p99=%dus wal/run=%.0f",
 				snap.ElapsedSec, snap.DeadTuples, snap.LiveTuples,
 				snap.DeadTupleRatio, snap.HotUpdateRatio,
 				snap.EnqueueRate, snap.DequeueRate,
-				snap.DequeueP99us)
+				snap.DequeueP99us, snap.WALBytesPerRun)
 		}
 	}
 
@@ -765,10 +794,7 @@ func TestQueueHealthBench_WithLogicalSlot(t *testing.T) {
 
 	var enqueued, dequeuedCount atomic.Int64
 	var rec latencyRecorder
-	collector := &snapshotCollector{
-		ctx: ctx, enqueued: &enqueued, dequeued: &dequeuedCount,
-		latencies: &rec, startTime: time.Now(), lastSnapTime: time.Now(),
-	}
+	collector := newSnapshotCollector(t, ctx, &enqueued, &dequeuedCount, &rec)
 	end := time.Now().Add(cfg.Duration)
 
 	stopEnq := make(chan struct{})
@@ -846,11 +872,11 @@ func TestQueueHealthBench_WithLogicalSlot(t *testing.T) {
 		case <-snapTicker.C:
 			snap := collector.collect()
 			snapshots = append(snapshots, snap)
-			t.Logf("[%5.0fs] dead=%6d live=%6d ratio=%.4f hot=%.2f enq/s=%.0f deq/s=%.0f p99=%dus slot_wal_lag=%d",
+			t.Logf("[%5.0fs] dead=%6d live=%6d ratio=%.4f hot=%.2f enq/s=%.0f deq/s=%.0f p99=%dus wal/run=%.0f slot_wal_lag=%d",
 				snap.ElapsedSec, snap.DeadTuples, snap.LiveTuples,
 				snap.DeadTupleRatio, snap.HotUpdateRatio,
 				snap.EnqueueRate, snap.DequeueRate,
-				snap.DequeueP99us, snap.SlotWalLagBytes)
+				snap.DequeueP99us, snap.WALBytesPerRun, snap.SlotWalLagBytes)
 		}
 	}
 
@@ -883,7 +909,7 @@ func printReport(t *testing.T, cfg benchConfig, snapshots []healthSnapshot) {
 
 	final := snapshots[len(snapshots)-1]
 
-	var maxDead, maxLive, maxP99, maxSlotWalLag int64
+	var maxDead, maxLive, maxP99, maxSlotWalLag, maxWALBytes int64
 	var maxDeadRatio, maxOldestAge, sumEnqRate, sumDeqRate float64
 	dataPoints := 0
 
@@ -898,6 +924,7 @@ func printReport(t *testing.T, cfg benchConfig, snapshots []healthSnapshot) {
 		}
 		maxP99 = max(maxP99, s.DequeueP99us)
 		maxSlotWalLag = max(maxSlotWalLag, s.SlotWalLagBytes)
+		maxWALBytes = max(maxWALBytes, s.WALBytes)
 		if s.EnqueueRate > 0 || s.DequeueRate > 0 {
 			sumEnqRate += s.EnqueueRate
 			sumDeqRate += s.DequeueRate
@@ -963,6 +990,11 @@ func printReport(t *testing.T, cfg benchConfig, snapshots []healthSnapshot) {
 	fmt.Fprintf(&sb, "  Total updates:     %d\n", final.TotalUpdates)
 	fmt.Fprintf(&sb, "  HOT updates:       %d\n", final.HotUpdates)
 	fmt.Fprintf(&sb, "  HOT ratio:         %.4f (%.1f%%)\n", final.HotUpdateRatio, final.HotUpdateRatio*100)
+	sb.WriteString("\n")
+	sb.WriteString("---- WAL Generation ----\n")
+	fmt.Fprintf(&sb, "  Final WAL bytes:   %d\n", final.WALBytes)
+	fmt.Fprintf(&sb, "  Peak WAL bytes:    %d\n", maxWALBytes)
+	fmt.Fprintf(&sb, "  WAL bytes/run:     %.0f\n", final.WALBytesPerRun)
 	if len(final.Relations) > 0 {
 		sb.WriteString("\n")
 		sb.WriteString("---- Relation Bloat Breakdown ----\n")
@@ -1000,14 +1032,14 @@ func printReport(t *testing.T, cfg benchConfig, snapshots []healthSnapshot) {
 	}
 	sb.WriteString("\n")
 	sb.WriteString("---- Snapshot Timeline ----\n")
-	fmt.Fprintf(&sb, "  %-8s %-8s %-8s %-8s %-7s %-8s %-8s %-8s %-8s\n",
-		"Time(s)", "Dead", "Live", "Ratio", "HOT%", "Enq/s", "Deq/s", "P99(us)", "Age(s)")
+	fmt.Fprintf(&sb, "  %-8s %-8s %-8s %-8s %-7s %-8s %-8s %-8s %-10s %-8s\n",
+		"Time(s)", "Dead", "Live", "Ratio", "HOT%", "Enq/s", "Deq/s", "P99(us)", "WAL/run", "Age(s)")
 	for _, s := range snapshots {
-		fmt.Fprintf(&sb, "  %-8.0f %-8d %-8d %-8.4f %-7.1f %-8.0f %-8.0f %-8d %-8.1f\n",
+		fmt.Fprintf(&sb, "  %-8.0f %-8d %-8d %-8.4f %-7.1f %-8.0f %-8.0f %-8d %-10.0f %-8.1f\n",
 			s.ElapsedSec, s.DeadTuples, s.LiveTuples,
 			s.DeadTupleRatio, s.HotUpdateRatio*100,
 			s.EnqueueRate, s.DequeueRate,
-			s.DequeueP99us, s.OldestQueuedAge)
+			s.DequeueP99us, s.WALBytesPerRun, s.OldestQueuedAge)
 	}
 	sb.WriteString("====================================================================\n")
 
