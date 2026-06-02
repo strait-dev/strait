@@ -25,6 +25,8 @@ type PostgresQueue struct {
 	backpressure     *Backpressure
 }
 
+var _ Queue = (*PostgresQueue)(nil)
+
 type PostgresQueueOption func(*PostgresQueue)
 
 // WithPriorityAging is deprecated and now a no-op. Priority aging is handled

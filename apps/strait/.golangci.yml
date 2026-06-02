@@ -34,7 +34,10 @@ linters:
     - goprintffuncname # checks that printf-like functions are named with f
     - govet            # reports suspicious constructs
     - ineffassign      # detects when assignments to existing variables are not used
+    - makezero         # rejects confusing make([]T, n) followed by append
+    - mirror           # catches wrong strings/bytes helper pairings
     - nilerr           # finds code that returns nil even if error is not nil
+    - nakedret         # keeps returned values explicit outside tiny helpers
     - nolintlint       # reports ill-formed or insufficient nolint directives
     - nosprintfhostport # checks for misuse of Sprintf to construct host:port
     - predeclared      # finds code that shadows Go's predeclared identifiers
@@ -48,6 +51,7 @@ linters:
     - staticcheck      # go vet on steroids
     - testifylint      # checks testify assertions and helpers
     - thelper          # checks that test helpers call t.Helper
+    - unconvert        # removes unnecessary conversions that hide real type intent
     - unused           # checks for unused constants, variables, functions and types
     - whitespace       # detects leading and trailing whitespace
   disable:
@@ -62,13 +66,9 @@ linters:
     - gocyclo          # duplicate complexity budget with cyclop
     - godot            # comment punctuation is low-signal for regular lint
     - intrange         # modernization preference, not correctness
-    - makezero         # style/perf preference with low bug yield
-    - mirror           # style/perf preference with low bug yield
     - modernize        # modernization preference, not correctness
-    - nakedret         # style preference
     - nestif           # complexity budget is a review concern
     - revive           # broad style analyzer; too noisy for regular lint
-    - unconvert        # style cleanup, not correctness
 
   settings:
     govet:

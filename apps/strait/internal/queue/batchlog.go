@@ -63,6 +63,8 @@ type BatchlogQueue struct {
 	cfg    BatchlogConfig
 }
 
+var _ Queue = (*BatchlogQueue)(nil)
+
 func NewBatchlogQueue(db store.DBTX, legacy *PostgresQueue, cfg BatchlogConfig) *BatchlogQueue {
 	if legacy == nil {
 		legacy = NewPostgresQueue(db)
