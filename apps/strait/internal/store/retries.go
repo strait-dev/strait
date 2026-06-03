@@ -43,7 +43,19 @@ func (q *Queries) ClearRetry(ctx context.Context, runID string) error {
 
 	if _, err := q.db.Exec(ctx, `
 		INSERT INTO job_retries (run_id, next_retry_at, attempt, scheduled_at, cleared)
-		VALUES ($1, NULL, 0, NOW(), TRUE)`, runID); err != nil {
+		SELECT $1, NULL::timestamptz, 0, NOW(), TRUE
+		WHERE EXISTS (
+		    SELECT 1
+		    FROM job_retries r
+		    WHERE r.run_id = $1
+		      AND r.cleared = FALSE
+		      AND NOT EXISTS (
+		          SELECT 1
+		          FROM job_retries newer
+		          WHERE newer.run_id = r.run_id
+		            AND newer.id > r.id
+		      )
+		)`, runID); err != nil {
 		return fmt.Errorf("clear retry: %w", err)
 	}
 	return nil
@@ -60,7 +72,20 @@ func (q *Queries) ClearRetries(ctx context.Context, ids []string) error {
 	}
 	if _, err := q.db.Exec(ctx, `
 		INSERT INTO job_retries (run_id, next_retry_at, attempt, scheduled_at, cleared)
-		SELECT DISTINCT unnest($1::text[]), NULL::timestamptz, 0, NOW(), TRUE`, ids); err != nil {
+		SELECT DISTINCT input.run_id, NULL::timestamptz, 0, NOW(), TRUE
+		FROM unnest($1::text[]) AS input(run_id)
+		WHERE EXISTS (
+		    SELECT 1
+		    FROM job_retries r
+		    WHERE r.run_id = input.run_id
+		      AND r.cleared = FALSE
+		      AND NOT EXISTS (
+		          SELECT 1
+		          FROM job_retries newer
+		          WHERE newer.run_id = r.run_id
+		            AND newer.id > r.id
+		      )
+		)`, ids); err != nil {
 		return fmt.Errorf("clear retries: %w", err)
 	}
 	return nil

@@ -177,6 +177,41 @@ func TestRetries_ClearRetriesAppendsTombstones(t *testing.T) {
 	}
 }
 
+func TestRetries_ClearAlreadyClearedRetryDoesNotAppendTombstone(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	runID := "retry-clear-idempotent-" + newID()
+	if err := q.ScheduleRetry(ctx, runID, time.Now().UTC().Add(-time.Second), 1); err != nil {
+		t.Fatalf("schedule retry: %v", err)
+	}
+	if err := q.ClearRetry(ctx, runID); err != nil {
+		t.Fatalf("first clear retry: %v", err)
+	}
+	if err := q.ClearRetry(ctx, runID); err != nil {
+		t.Fatalf("second clear retry: %v", err)
+	}
+	if err := q.ClearRetries(ctx, []string{runID}); err != nil {
+		t.Fatalf("batch clear retry: %v", err)
+	}
+
+	var rawRows int
+	var latestCleared bool
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*), COALESCE((ARRAY_AGG(cleared ORDER BY id DESC))[1], FALSE)
+		FROM job_retries
+		WHERE run_id = $1`, runID).Scan(&rawRows, &latestCleared); err != nil {
+		t.Fatalf("query retry rows after repeated clears: %v", err)
+	}
+	if rawRows != 2 {
+		t.Fatalf("raw retry rows = %d, want scheduled row plus one clear tombstone", rawRows)
+	}
+	if !latestCleared {
+		t.Fatal("latest retry row must remain a clear tombstone")
+	}
+}
+
 func TestRetries_OrderedByNextRetryAt(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -223,11 +258,11 @@ func TestRetries_ClearNonexistentIsNoOp(t *testing.T) {
 		WHERE run_id = $1`, runID).Scan(&rawRows, &latestCleared); err != nil {
 		t.Fatalf("query clear missing tombstone: %v", err)
 	}
-	if rawRows != 1 {
-		t.Fatalf("raw retry rows = %d, want one tombstone", rawRows)
+	if rawRows != 0 {
+		t.Fatalf("raw retry rows = %d, want no tombstone for absent retry", rawRows)
 	}
-	if !latestCleared {
-		t.Fatal("latest retry row must be a clear tombstone")
+	if latestCleared {
+		t.Fatal("latest cleared = true, want false when no retry row exists")
 	}
 }
 
