@@ -67,6 +67,10 @@ type healthSnapshot struct {
 	DequeueP95us    int64
 	DequeueP99us    int64
 	DequeueMaxUs    int64
+	CompletionP50us int64
+	CompletionP95us int64
+	CompletionP99us int64
+	CompletionMaxUs int64
 	IndexDeadItems  int64 // -1 if pgstatindex not available
 	WALBytes        int64
 	WALBytesPerRun  float64
@@ -223,6 +227,7 @@ type snapshotCollector struct {
 	enqueued     *atomic.Int64
 	dequeued     *atomic.Int64
 	latencies    *latencyRecorder
+	completions  *latencyRecorder
 	startTime    time.Time
 	lastSnapTime time.Time
 	lastEnqueued int64
@@ -236,6 +241,7 @@ func newSnapshotCollector(
 	enqueued *atomic.Int64,
 	dequeued *atomic.Int64,
 	latencies *latencyRecorder,
+	completions *latencyRecorder,
 ) *snapshotCollector {
 	t.Helper()
 
@@ -249,6 +255,7 @@ func newSnapshotCollector(
 		enqueued:     enqueued,
 		dequeued:     dequeued,
 		latencies:    latencies,
+		completions:  completions,
 		startTime:    now,
 		lastSnapTime: now,
 		startWALLSN:  startWALLSN,
@@ -278,6 +285,15 @@ func (c *snapshotCollector) collect() healthSnapshot {
 	snap.DequeueP99us = pct(lat, 99)
 	if len(lat) > 0 {
 		snap.DequeueMaxUs = lat[len(lat)-1]
+	}
+	if c.completions != nil {
+		completionLat := c.completions.drain()
+		snap.CompletionP50us = pct(completionLat, 50)
+		snap.CompletionP95us = pct(completionLat, 95)
+		snap.CompletionP99us = pct(completionLat, 99)
+		if len(completionLat) > 0 {
+			snap.CompletionMaxUs = completionLat[len(completionLat)-1]
+		}
 	}
 
 	rows, err := testDB.Pool.Query(c.ctx, `
@@ -395,8 +411,9 @@ func TestQueueHealthBench(t *testing.T) {
 
 	var enqueued, dequeuedCount atomic.Int64
 	var rec latencyRecorder
+	var completionRec latencyRecorder
 
-	collector := newSnapshotCollector(t, ctx, &enqueued, &dequeuedCount, &rec)
+	collector := newSnapshotCollector(t, ctx, &enqueued, &dequeuedCount, &rec, &completionRec)
 	end := time.Now().Add(cfg.Duration)
 
 	// Producer.
@@ -454,7 +471,9 @@ func TestQueueHealthBench(t *testing.T) {
 				}
 				for _, r := range batch {
 					dequeuedCount.Add(1)
+					completeStart := time.Now()
 					_ = completeHealthBenchRun(ctx, st, r)
+					completionRec.record(w, time.Since(completeStart).Microseconds())
 				}
 				if len(batch) == 0 {
 					time.Sleep(5 * time.Millisecond)
@@ -479,11 +498,12 @@ func TestQueueHealthBench(t *testing.T) {
 		case <-snapTicker.C:
 			snap := collector.collect()
 			snapshots = append(snapshots, snap)
-			t.Logf("[%5.0fs] dead=%6d live=%6d ratio=%.4f hot=%.2f enq/s=%.0f deq/s=%.0f p50=%dus p95=%dus p99=%dus wal/run=%.0f oldest=%.1fs",
+			t.Logf("[%5.0fs] dead=%6d live=%6d ratio=%.4f hot=%.2f enq/s=%.0f deq/s=%.0f p50=%dus p95=%dus p99=%dus complete_p99=%dus wal/run=%.0f oldest=%.1fs",
 				snap.ElapsedSec, snap.DeadTuples, snap.LiveTuples,
 				snap.DeadTupleRatio, snap.HotUpdateRatio,
 				snap.EnqueueRate, snap.DequeueRate,
 				snap.DequeueP50us, snap.DequeueP95us, snap.DequeueP99us,
+				snap.CompletionP99us,
 				snap.WALBytesPerRun, snap.OldestQueuedAge)
 		}
 	}
@@ -554,7 +574,7 @@ func TestQueueHealthBench_WithLongTxn(t *testing.T) {
 	var enqueued, dequeuedCount atomic.Int64
 	var rec latencyRecorder
 
-	collector := newSnapshotCollector(t, ctx, &enqueued, &dequeuedCount, &rec)
+	collector := newSnapshotCollector(t, ctx, &enqueued, &dequeuedCount, &rec, nil)
 	end := time.Now().Add(cfg.Duration)
 
 	// Producer.
@@ -727,7 +747,7 @@ func TestQueueHealthBench_WithLogicalSlot(t *testing.T) {
 
 	var enqueued, dequeuedCount atomic.Int64
 	var rec latencyRecorder
-	collector := newSnapshotCollector(t, ctx, &enqueued, &dequeuedCount, &rec)
+	collector := newSnapshotCollector(t, ctx, &enqueued, &dequeuedCount, &rec, nil)
 	end := time.Now().Add(cfg.Duration)
 
 	stopEnq := make(chan struct{})
@@ -849,7 +869,7 @@ func printReport(t *testing.T, cfg benchConfig, engine string, snapshots []healt
 		}
 	}
 
-	var maxDead, maxLive, maxP99, maxSlotWalLag, maxWALBytes int64
+	var maxDead, maxLive, maxP99, maxCompletionP99, maxSlotWalLag, maxWALBytes int64
 	var maxDeadRatio, maxOldestAge, sumEnqRate, sumDeqRate float64
 	dataPoints := 0
 
@@ -863,6 +883,7 @@ func printReport(t *testing.T, cfg benchConfig, engine string, snapshots []healt
 			maxOldestAge = s.OldestQueuedAge
 		}
 		maxP99 = max(maxP99, s.DequeueP99us)
+		maxCompletionP99 = max(maxCompletionP99, s.CompletionP99us)
 		maxSlotWalLag = max(maxSlotWalLag, s.SlotWalLagBytes)
 		maxWALBytes = max(maxWALBytes, s.WALBytes)
 		if s.EnqueueRate > 0 || s.DequeueRate > 0 {
@@ -916,6 +937,15 @@ func printReport(t *testing.T, cfg benchConfig, engine string, snapshots []healt
 	fmt.Fprintf(&sb, "  Max P99:           %d us\n", maxP99)
 	fmt.Fprintf(&sb, "  Latest steady max: %d us\n", latencySnap.DequeueMaxUs)
 	sb.WriteString("\n")
+	if latencySnap.CompletionP50us > 0 || latencySnap.CompletionP95us > 0 || latencySnap.CompletionP99us > 0 {
+		sb.WriteString("---- Completion Latency (per run) ----\n")
+		fmt.Fprintf(&sb, "  Latest steady P50: %d us\n", latencySnap.CompletionP50us)
+		fmt.Fprintf(&sb, "  Latest steady P95: %d us\n", latencySnap.CompletionP95us)
+		fmt.Fprintf(&sb, "  Latest steady P99: %d us\n", latencySnap.CompletionP99us)
+		fmt.Fprintf(&sb, "  Max P99:           %d us\n", maxCompletionP99)
+		fmt.Fprintf(&sb, "  Latest steady max: %d us\n", latencySnap.CompletionMaxUs)
+		sb.WriteString("\n")
+	}
 	sb.WriteString("---- Dead Tuples (MVCC Bloat) ----\n")
 	fmt.Fprintf(&sb, "  Final dead:        %d\n", final.DeadTuples)
 	fmt.Fprintf(&sb, "  Final live:        %d\n", final.LiveTuples)
@@ -1075,6 +1105,9 @@ func TestQueueHealthBench_Compare(t *testing.T) {
 	sb.WriteString(delta("P50 dequeue (us)", float64(b.DequeueP50us), float64(a.DequeueP50us), "us", true) + "\n")
 	sb.WriteString(delta("P95 dequeue (us)", float64(b.DequeueP95us), float64(a.DequeueP95us), "us", true) + "\n")
 	sb.WriteString(delta("P99 dequeue (us)", float64(b.DequeueP99us), float64(a.DequeueP99us), "us", true) + "\n")
+	sb.WriteString(delta("P50 completion (us)", float64(b.CompletionP50us), float64(a.CompletionP50us), "us", true) + "\n")
+	sb.WriteString(delta("P95 completion (us)", float64(b.CompletionP95us), float64(a.CompletionP95us), "us", true) + "\n")
+	sb.WriteString(delta("P99 completion (us)", float64(b.CompletionP99us), float64(a.CompletionP99us), "us", true) + "\n")
 	sb.WriteString(delta("Enqueue rate", b.EnqueueRate, a.EnqueueRate, "runs/s", false) + "\n")
 	sb.WriteString(delta("Dequeue rate", b.DequeueRate, a.DequeueRate, "runs/s", false) + "\n")
 	sb.WriteString(delta("Oldest queued", b.OldestQueuedAge, a.OldestQueuedAge, "s", true) + "\n")
