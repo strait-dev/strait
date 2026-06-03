@@ -3,7 +3,7 @@ title: "Audit Logging"
 description: "Track every change to your jobs, workflows, runs, and settings."
 ---
 
-Audit logging records every change to your jobs, workflows, runs, and settings. Use it to investigate incidents, meet compliance requirements, or understand who changed what. Audit logging is enabled by default.
+Audit logging records every change to your jobs, workflows, runs, and settings. Strait writes audit events for platform integrity. In Strait Cloud, customer-facing audit log access, export, and chain verification require Scale or above. Self-hosted deployments have no billing gate.
 
 ## What Gets Logged
 
@@ -30,7 +30,7 @@ Each event captures the actor:
 List audit events for a project via the API:
 
 ```bash
-curl "https://your-strait-instance/v1/audit-events?project_id=proj_abc123" \
+curl "https://your-strait-instance/v1/audit-events?limit=25" \
   -H "Authorization: Bearer strait_..."
 ```
 
@@ -43,11 +43,11 @@ Every audit event is signed and linked to the previous event in the same project
 Verify the chain at any time:
 
 ```bash
-curl "https://your-strait-instance/v1/audit-events/verify?project_id=proj_abc123" \
+curl "https://your-strait-instance/v1/audit-events/verify" \
   -H "Authorization: Bearer strait_..."
 
 # Incremental verification (from last verified point)
-curl "https://your-strait-instance/v1/audit-events/verify?project_id=proj_abc123&incremental=true" \
+curl "https://your-strait-instance/v1/audit-events/verify?incremental=true" \
   -H "Authorization: Bearer strait_..."
 ```
 
@@ -55,7 +55,9 @@ Key rotation is supported via `POST /v1/projects/{id}/audit/rotate-key`. Existin
 
 ## Forwarding to SIEM
 
-Forward audit events to an external security platform in real time by setting `AUDIT_SIEM_ENDPOINT` to the target URL. Events are batched as newline-delimited JSON.
+Operators can forward persisted audit events to an external security platform in real time by setting `AUDIT_SIEM_ENDPOINT` on the Strait server. Events are batched as newline-delimited JSON.
+
+This is infrastructure configuration for self-hosted or managed operations. It is not a launch self-serve plan entitlement in Strait Cloud, and should not be sold as active SIEM export.
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
@@ -65,7 +67,7 @@ Forward audit events to an external security platform in real time by setting `A
 
 ## Export
 
-Export audit events via `GET /v1/audit-events/export` in JSON, NDJSON, or CSV format. Exports are rate-limited to 10 per project per hour. The response includes an `X-Audit-Signature` header for integrity verification.
+Export audit events via `GET /v1/audit-events/export` in JSON, NDJSON, or CSV format. In Strait Cloud, export requires Scale or above. Exports are rate-limited to 10 per project per hour. The response includes an `X-Audit-Signature` header for integrity verification.
 
 ## Retention
 
