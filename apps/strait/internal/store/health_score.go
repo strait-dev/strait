@@ -61,6 +61,12 @@ func (q *Queries) UpsertEndpointHealthScore(ctx context.Context, score *domain.E
 			total_requests = EXCLUDED.total_requests,
 			last_latency_ms = EXCLUDED.last_latency_ms,
 			updated_at = NOW()
+		WHERE endpoint_health_scores.health_score IS DISTINCT FROM EXCLUDED.health_score
+		   OR endpoint_health_scores.success_rate IS DISTINCT FROM EXCLUDED.success_rate
+		   OR endpoint_health_scores.timeout_rate IS DISTINCT FROM EXCLUDED.timeout_rate
+		   OR endpoint_health_scores.latency_score IS DISTINCT FROM EXCLUDED.latency_score
+		   OR endpoint_health_scores.total_requests IS DISTINCT FROM EXCLUDED.total_requests
+		   OR endpoint_health_scores.last_latency_ms IS DISTINCT FROM EXCLUDED.last_latency_ms
 	`
 
 	if _, err := q.db.Exec(ctx, sql,
