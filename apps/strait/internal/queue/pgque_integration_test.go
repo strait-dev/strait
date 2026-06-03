@@ -819,6 +819,113 @@ func TestPgQue_ActivateDueRunsPromotesReadyRetries(t *testing.T) {
 	}
 }
 
+func TestPgQue_ActivateDueRunsPromotesRetriesWithDelayedBacklog(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	q := mustPgQueQueue(t)
+	job := mustCreateJob(t, ctx, st, "project-pgque-retry-fairness")
+
+	past := time.Now().UTC().Add(-time.Minute)
+	delayedIDs := make([]string, 0, 2)
+	for range 2 {
+		run := &domain.JobRun{
+			ID:          newID(),
+			JobID:       job.ID,
+			ProjectID:   job.ProjectID,
+			Status:      domain.StatusDelayed,
+			Attempt:     1,
+			Priority:    3,
+			ScheduledAt: &past,
+			TriggeredBy: domain.TriggerManual,
+		}
+		if err := st.CreateRun(ctx, run); err != nil {
+			t.Fatalf("CreateRun delayed: %v", err)
+		}
+		delayedIDs = append(delayedIDs, run.ID)
+	}
+	retryRun := &domain.JobRun{
+		ID:          newID(),
+		JobID:       job.ID,
+		ProjectID:   job.ProjectID,
+		Status:      domain.StatusQueued,
+		Attempt:     1,
+		Priority:    3,
+		TriggeredBy: domain.TriggerManual,
+	}
+	if err := st.CreateRun(ctx, retryRun); err != nil {
+		t.Fatalf("CreateRun retry: %v", err)
+	}
+	if err := st.ScheduleRetry(ctx, retryRun.ID, past, 2); err != nil {
+		t.Fatalf("ScheduleRetry due: %v", err)
+	}
+
+	promoted, err := q.ActivateDueRuns(ctx, 2)
+	if err != nil {
+		t.Fatalf("ActivateDueRuns: %v", err)
+	}
+	if promoted != 2 {
+		t.Fatalf("ActivateDueRuns promoted = %d, want 2", promoted)
+	}
+
+	var delayedReady, retryReady, rawRetryRows, pendingRetries int
+	var latestRetryCleared bool
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT
+			(SELECT COUNT(*) FROM job_run_ready_events WHERE run_id = ANY($1) AND reason = 'delayed_due'),
+			(SELECT COUNT(*) FROM job_run_ready_events WHERE run_id = $2 AND reason = 'retry_ready'),
+			(SELECT COUNT(*) FROM job_retries WHERE run_id = $2),
+			COALESCE((SELECT cleared FROM job_retries WHERE run_id = $2 ORDER BY id DESC LIMIT 1), FALSE),
+			(SELECT COUNT(*) FROM job_retries r
+			 WHERE r.run_id = $2
+			   AND r.cleared = FALSE
+			   AND r.next_retry_at IS NOT NULL
+			   AND NOT EXISTS (
+			       SELECT 1 FROM job_retries newer WHERE newer.run_id = r.run_id AND newer.id > r.id
+			   ))`,
+		delayedIDs,
+		retryRun.ID,
+	).Scan(&delayedReady, &retryReady, &rawRetryRows, &latestRetryCleared, &pendingRetries); err != nil {
+		t.Fatalf("query promotion state: %v", err)
+	}
+	if delayedReady != 1 {
+		t.Fatalf("delayed ready events = %d, want 1 with half-batch delayed reservation", delayedReady)
+	}
+	if retryReady != 1 {
+		t.Fatalf("retry ready events = %d, want 1 despite delayed backlog", retryReady)
+	}
+	if rawRetryRows != 2 {
+		t.Fatalf("raw retry rows = %d, want schedule plus clear tombstone", rawRetryRows)
+	}
+	if !latestRetryCleared {
+		t.Fatal("latest retry row must be clear tombstone after promotion")
+	}
+	if pendingRetries != 0 {
+		t.Fatalf("pending retries = %d, want 0", pendingRetries)
+	}
+
+	promoted, err = q.ActivateDueRuns(ctx, 2)
+	if err != nil {
+		t.Fatalf("ActivateDueRuns remaining delayed: %v", err)
+	}
+	if promoted != 1 {
+		t.Fatalf("remaining delayed promoted = %d, want 1", promoted)
+	}
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM job_run_ready_events
+		WHERE run_id = ANY($1)
+		  AND reason = 'delayed_due'`,
+		delayedIDs,
+	).Scan(&delayedReady); err != nil {
+		t.Fatalf("query delayed ready events after refill: %v", err)
+	}
+	if delayedReady != 2 {
+		t.Fatalf("delayed ready events after refill = %d, want 2", delayedReady)
+	}
+}
+
 func TestPgQue_DequeueWindowDoesNotLoseUnseenBatchMessages(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

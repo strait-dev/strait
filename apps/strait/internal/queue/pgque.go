@@ -239,9 +239,9 @@ func (q *PgQueQueue) EnqueueExisting(ctx context.Context, run *domain.JobRun) er
 	return q.tickReadyRoute(ctx, run)
 }
 
-// ActivateDueRuns promotes delayed runs through the PgQue storage path. The
-// state transition and ready-event insert happen in one transaction so a crash
-// cannot leave a queued run without a PgQue event.
+// ActivateDueRuns promotes due delayed runs and ready retries through the PgQue
+// storage path. Ready-event inserts and PgQue emits happen in one transaction
+// so a crash cannot leave a promoted run without a PgQue event.
 func (q *PgQueQueue) ActivateDueRuns(ctx context.Context, limit int) (int64, error) {
 	if limit <= 0 {
 		return 0, nil
@@ -257,7 +257,11 @@ func (q *PgQueQueue) ActivateDueRuns(ctx context.Context, limit int) (int64, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	runs, err := q.promoteDueRunsInTx(ctx, tx, limit)
+	delayedLimit := limit
+	if limit > 1 {
+		delayedLimit = limit / 2
+	}
+	runs, err := q.promoteDueRunsInTx(ctx, tx, delayedLimit)
 	if err != nil {
 		return 0, err
 	}
@@ -267,6 +271,13 @@ func (q *PgQueQueue) ActivateDueRuns(ctx context.Context, limit int) (int64, err
 			return 0, retryErr
 		}
 		runs = append(runs, retryRuns...)
+	}
+	if remaining := limit - len(runs); remaining > 0 && delayedLimit < limit {
+		moreDelayedRuns, delayedErr := q.promoteDueRunsInTx(ctx, tx, remaining)
+		if delayedErr != nil {
+			return 0, delayedErr
+		}
+		runs = append(runs, moreDelayedRuns...)
 	}
 	if len(runs) == 0 {
 		if err := tx.Commit(ctx); err != nil {
