@@ -19,6 +19,7 @@ type pgQueClaimFilter struct {
 	ProjectID     string
 	ExecutionMode domain.ExecutionMode
 	WorkerRefs    []domain.WorkerQueueRef
+	workerRefArgs pgQueWorkerRefArgs
 }
 
 const pgQueClaimDequeueColumns = `u.run_id, u.job_id, u.project_id, u.status, u.attempt, u.payload, u.result, u.metadata, u.error, u.error_class,
@@ -101,7 +102,7 @@ func (q *PgQueQueue) claimRuns(
 }
 
 func (q *PgQueQueue) claimRunsUnconstrained(ctx context.Context, ids []string, generations []int64, limit int, filter pgQueClaimFilter) ([]domain.JobRun, error) {
-	projectIDs, queueNames, environmentIDs := workerQueueRefArgs(filter.WorkerRefs)
+	workerArgs := filter.workerArgs()
 	rows, err := q.db.Query(ctx, fmt.Sprintf(`
 		WITH input AS (
 			SELECT *
@@ -287,7 +288,7 @@ func (q *PgQueQueue) claimRunsUnconstrained(ctx context.Context, ids []string, g
 		FROM claimed_state u
 		ORDER BY u.claim_priority DESC, u.claim_created_at ASC, u.ord`,
 		pgQueClaimDequeueColumns,
-	), ids, generations, limit, domain.StatusQueued, domain.StatusExecuting, filter.ExecutionMode, filter.ProjectID, projectIDs, queueNames, environmentIDs)
+	), ids, generations, limit, domain.StatusQueued, domain.StatusExecuting, filter.ExecutionMode, filter.ProjectID, workerArgs.ProjectIDs, workerArgs.QueueNames, workerArgs.EnvironmentIDs)
 	if err != nil {
 		return nil, fmt.Errorf("pgque claim unconstrained runs: %w", err)
 	}
@@ -308,7 +309,7 @@ func (q *PgQueQueue) claimRunsUnconstrained(ctx context.Context, ids []string, g
 }
 
 func (q *PgQueQueue) claimRunsWithConcurrency(ctx context.Context, ids []string, generations []int64, limit int, filter pgQueClaimFilter) ([]domain.JobRun, error) {
-	projectIDs, queueNames, environmentIDs := workerQueueRefArgs(filter.WorkerRefs)
+	workerArgs := filter.workerArgs()
 	rows, err := q.db.Query(ctx, fmt.Sprintf(`
 		WITH input AS (
 			SELECT *
@@ -560,7 +561,7 @@ func (q *PgQueQueue) claimRunsWithConcurrency(ctx context.Context, ids []string,
 		FROM claimed_state u
 		ORDER BY u.claim_priority DESC, u.claim_created_at ASC, u.ord`,
 		pgQueClaimDequeueColumns,
-	), ids, generations, limit, domain.StatusQueued, domain.StatusExecuting, filter.ExecutionMode, filter.ProjectID, projectIDs, queueNames, environmentIDs)
+	), ids, generations, limit, domain.StatusQueued, domain.StatusExecuting, filter.ExecutionMode, filter.ProjectID, workerArgs.ProjectIDs, workerArgs.QueueNames, workerArgs.EnvironmentIDs)
 	if err != nil {
 		return nil, fmt.Errorf("pgque claim runs: %w", err)
 	}

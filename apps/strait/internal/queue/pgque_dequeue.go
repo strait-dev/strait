@@ -59,6 +59,11 @@ func (q *PgQueQueue) DequeueNForWorkerQueues(ctx context.Context, n int, queues 
 	if err != nil {
 		return nil, err
 	}
+	filter := pgQueClaimFilter{
+		ExecutionMode: domain.ExecutionModeWorker,
+		WorkerRefs:    refs,
+		workerRefArgs: workerQueueRefArgs(refs),
+	}
 	claimed := make([]domain.JobRun, 0, n)
 	start := q.nextWorkerRouteStart(len(routes))
 	for i := range routes {
@@ -66,10 +71,7 @@ func (q *PgQueQueue) DequeueNForWorkerQueues(ctx context.Context, n int, queues 
 			break
 		}
 		routeKey := routes[(start+i)%len(routes)]
-		batch, err := q.dequeueFromRoute(ctx, n-len(claimed), routeKey, pgQueClaimFilter{
-			ExecutionMode: domain.ExecutionModeWorker,
-			WorkerRefs:    refs,
-		})
+		batch, err := q.dequeueFromRoute(ctx, n-len(claimed), routeKey, filter)
 		if err != nil {
 			return claimed, err
 		}

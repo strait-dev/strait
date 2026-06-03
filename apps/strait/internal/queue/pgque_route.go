@@ -82,9 +82,22 @@ func normalizePgQueWorkerQueueRefs(refs []domain.WorkerQueueRef) []domain.Worker
 	return normalized
 }
 
-func workerQueueRefArgs(refs []domain.WorkerQueueRef) ([]string, []string, []string) {
+type pgQueWorkerRefArgs struct {
+	ProjectIDs     []string
+	QueueNames     []string
+	EnvironmentIDs []string
+}
+
+func (filter pgQueClaimFilter) workerArgs() pgQueWorkerRefArgs {
+	if len(filter.WorkerRefs) == 0 || len(filter.workerRefArgs.ProjectIDs) > 0 {
+		return filter.workerRefArgs
+	}
+	return workerQueueRefArgs(filter.WorkerRefs)
+}
+
+func workerQueueRefArgs(refs []domain.WorkerQueueRef) pgQueWorkerRefArgs {
 	if len(refs) == 0 {
-		return nil, nil, nil
+		return pgQueWorkerRefArgs{}
 	}
 	projectIDs := make([]string, 0, len(refs))
 	queueNames := make([]string, 0, len(refs))
@@ -102,7 +115,11 @@ func workerQueueRefArgs(refs []domain.WorkerQueueRef) ([]string, []string, []str
 		queueNames = append(queueNames, ref.QueueName)
 		environmentIDs = append(environmentIDs, ref.EnvironmentID)
 	}
-	return projectIDs, queueNames, environmentIDs
+	return pgQueWorkerRefArgs{
+		ProjectIDs:     projectIDs,
+		QueueNames:     queueNames,
+		EnvironmentIDs: environmentIDs,
+	}
 }
 
 func (q *PgQueQueue) routeKeyForRun(ctx context.Context, db store.DBTX, run *domain.JobRun) (string, error) {

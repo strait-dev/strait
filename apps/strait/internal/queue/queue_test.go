@@ -136,15 +136,15 @@ func TestWorkerQueueRefArgs(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			projectIDs, queueNames, environmentIDs := workerQueueRefArgs(tt.refs)
-			if !slices.Equal(projectIDs, tt.wantProjectIDs) {
-				t.Fatalf("projectIDs = %v, want %v", projectIDs, tt.wantProjectIDs)
+			args := workerQueueRefArgs(tt.refs)
+			if !slices.Equal(args.ProjectIDs, tt.wantProjectIDs) {
+				t.Fatalf("projectIDs = %v, want %v", args.ProjectIDs, tt.wantProjectIDs)
 			}
-			if !slices.Equal(queueNames, tt.wantQueueNames) {
-				t.Fatalf("queueNames = %v, want %v", queueNames, tt.wantQueueNames)
+			if !slices.Equal(args.QueueNames, tt.wantQueueNames) {
+				t.Fatalf("queueNames = %v, want %v", args.QueueNames, tt.wantQueueNames)
 			}
-			if !slices.Equal(environmentIDs, tt.wantEnvironment) {
-				t.Fatalf("environmentIDs = %v, want %v", environmentIDs, tt.wantEnvironment)
+			if !slices.Equal(args.EnvironmentIDs, tt.wantEnvironment) {
+				t.Fatalf("environmentIDs = %v, want %v", args.EnvironmentIDs, tt.wantEnvironment)
 			}
 		})
 	}

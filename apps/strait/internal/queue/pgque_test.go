@@ -18,6 +18,11 @@ import (
 )
 
 var pgQueCandidateBenchmarkSink []pgQueCandidate
+var pgQueWorkerRefArgsBenchmarkSink struct {
+	projectIDs     []string
+	queueNames     []string
+	environmentIDs []string
+}
 
 func TestPgQueFinishBatchReservationReopensAfterAckFailure(t *testing.T) {
 	ctx := context.Background()
@@ -366,6 +371,55 @@ func BenchmarkUnclaimedReservedCandidatesAllClaimed(b *testing.B) {
 
 	for b.Loop() {
 		pgQueCandidateBenchmarkSink = unclaimedReservedCandidates(candidates, runs)
+	}
+}
+
+func BenchmarkPgQueClaimFilterWorkerRefArgs(b *testing.B) {
+	refs := []domain.WorkerQueueRef{
+		{ProjectID: "project-a", QueueName: "default"},
+		{ProjectID: "project-a", QueueName: "default"},
+		{ProjectID: "project-a", QueueName: "critical", EnvironmentID: "production"},
+		{ProjectID: "project-a", QueueName: "critical", EnvironmentID: "staging"},
+		{ProjectID: "project-b", QueueName: "default"},
+		{ProjectID: "project-c", QueueName: "bulk", EnvironmentID: "production"},
+	}
+	filter := pgQueClaimFilter{
+		WorkerRefs:    refs,
+		workerRefArgs: workerQueueRefArgs(refs),
+	}
+
+	for b.Loop() {
+		args := filter.workerArgs()
+		pgQueWorkerRefArgsBenchmarkSink.projectIDs = args.ProjectIDs
+		pgQueWorkerRefArgsBenchmarkSink.queueNames = args.QueueNames
+		pgQueWorkerRefArgsBenchmarkSink.environmentIDs = args.EnvironmentIDs
+	}
+}
+
+func TestPgQueClaimFilterWorkerArgsUsesPrecomputedArgs(t *testing.T) {
+	refs := []domain.WorkerQueueRef{
+		{ProjectID: "project-a", QueueName: "default"},
+	}
+	args := pgQueWorkerRefArgs{
+		ProjectIDs:     []string{"precomputed-project"},
+		QueueNames:     []string{"precomputed-queue"},
+		EnvironmentIDs: []string{"precomputed-env"},
+	}
+	filter := pgQueClaimFilter{
+		WorkerRefs:    refs,
+		workerRefArgs: args,
+	}
+
+	got := filter.workerArgs()
+
+	if !slices.Equal(got.ProjectIDs, args.ProjectIDs) {
+		t.Fatalf("projectIDs = %v, want %v", got.ProjectIDs, args.ProjectIDs)
+	}
+	if !slices.Equal(got.QueueNames, args.QueueNames) {
+		t.Fatalf("queueNames = %v, want %v", got.QueueNames, args.QueueNames)
+	}
+	if !slices.Equal(got.EnvironmentIDs, args.EnvironmentIDs) {
+		t.Fatalf("environmentIDs = %v, want %v", got.EnvironmentIDs, args.EnvironmentIDs)
 	}
 }
 
