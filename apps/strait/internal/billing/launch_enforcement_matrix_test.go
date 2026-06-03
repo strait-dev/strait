@@ -34,6 +34,8 @@ var launchEnforcementMatrix = []launchPromiseEvidence{
 	{promise: "paid overage can be disabled", status: launchPromiseRuntime, gate: "Enforcer.CheckMonthlyRunLimit", test: "TestCheckMonthlyRunLimit_PaidOverageDisabledHardCaps"},
 	{promise: "spending cap blocks and pauses schedules", status: launchPromiseRuntime, gate: "Enforcer.CheckSpendingLimit", test: "TestCheckSpendingLimit_DispatchesCapReachedAndOverageDisabled"},
 	{promise: "spending cap raise resumes quota-paused jobs", status: launchPromiseRuntime, gate: "UsageService.SetSpendingLimit", test: "TestUsageService_SetSpendingLimit_RaisedAboveCurrentSpendResumesQuotaPausedJobs"},
+	{promise: "overage re-enable resumes quota-paused jobs", status: launchPromiseRuntime, gate: "UsageService.SetOverageEnabled", test: "TestUsageService_SetOverageEnabled_EnableResumesQuotaPausedJobs"},
+	{promise: "billing period rollover resumes quota-paused jobs", status: launchPromiseRuntime, gate: "scheduler.QuotaResumeEnforcer", test: "TestQuotaResumeEnforcer_UsesBillingBoundaryForUnpause"},
 	{promise: "concurrent run cap", status: launchPromiseRuntime, gate: "Enforcer.CheckConcurrentRunLimit", test: "TestEnforcer_CheckConcurrentRunLimit"},
 	{promise: "worker connection cap", status: launchPromiseRuntime, gate: "gRPC worker registration reservation gate", test: "TestCheckPlanConnectionLimit_UsesDistributedReservation"},
 	{promise: "workflow step cap", status: launchPromiseRuntime, gate: "registry workflow registration gate", test: "TestCheckWorkflowStepLimit_TierBoundaries"},

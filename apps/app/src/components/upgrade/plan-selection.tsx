@@ -553,7 +553,7 @@ const FAQ_ITEMS = [
   {
     question: "What happens if I exceed my plan limits?",
     answer:
-      "If you set a spending cap, runs will stop when the cap is reached (or you'll be notified, depending on your setting). Monthly run allowances reset at the start of each billing period. You can upgrade at any time to increase your limits.",
+      "If your spending cap uses the reject action, new dispatch stops and schedules pause when the cap is reached. Notify-only caps keep dispatching and alert you instead. Monthly run allowances reset at the start of each billing period.",
   },
   {
     question: "Can I change plans at any time?",
