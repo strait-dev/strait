@@ -1340,12 +1340,30 @@ func (q *Queries) PauseJob(ctx context.Context, id, reason string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.PauseJob")
 	defer span.End()
 
-	query := `UPDATE jobs SET paused = TRUE, paused_at = NOW(), pause_reason = $2, updated_at = NOW() WHERE id = $1`
-	tag, err := q.db.Exec(ctx, query, id, reason)
+	query := `
+		WITH updated AS (
+			UPDATE jobs
+			SET paused = TRUE,
+			    paused_at = NOW(),
+			    pause_reason = $2,
+			    updated_at = NOW()
+			WHERE id = $1
+			  AND (paused IS DISTINCT FROM TRUE OR pause_reason IS DISTINCT FROM $2)
+			RETURNING 1
+		),
+		existing AS (
+			SELECT 1
+			FROM jobs
+			WHERE id = $1
+			  AND NOT EXISTS (SELECT 1 FROM updated)
+		)
+		SELECT EXISTS (SELECT 1 FROM updated UNION ALL SELECT 1 FROM existing)`
+	var found bool
+	err := q.db.QueryRow(ctx, query, id, reason).Scan(&found)
 	if err != nil {
 		return fmt.Errorf("pause job: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
+	if !found {
 		return ErrJobNotFound
 	}
 	return nil
@@ -1355,12 +1373,30 @@ func (q *Queries) ResumeJob(ctx context.Context, id string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ResumeJob")
 	defer span.End()
 
-	query := `UPDATE jobs SET paused = FALSE, paused_at = NULL, pause_reason = NULL, updated_at = NOW() WHERE id = $1`
-	tag, err := q.db.Exec(ctx, query, id)
+	query := `
+		WITH updated AS (
+			UPDATE jobs
+			SET paused = FALSE,
+			    paused_at = NULL,
+			    pause_reason = NULL,
+			    updated_at = NOW()
+			WHERE id = $1
+			  AND (paused IS DISTINCT FROM FALSE OR paused_at IS NOT NULL OR pause_reason IS NOT NULL)
+			RETURNING 1
+		),
+		existing AS (
+			SELECT 1
+			FROM jobs
+			WHERE id = $1
+			  AND NOT EXISTS (SELECT 1 FROM updated)
+		)
+		SELECT EXISTS (SELECT 1 FROM updated UNION ALL SELECT 1 FROM existing)`
+	var found bool
+	err := q.db.QueryRow(ctx, query, id).Scan(&found)
 	if err != nil {
 		return fmt.Errorf("resume job: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
+	if !found {
 		return ErrJobNotFound
 	}
 	return nil

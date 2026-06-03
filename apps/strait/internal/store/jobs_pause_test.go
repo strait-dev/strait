@@ -80,6 +80,113 @@ func TestResumeJob_Success(t *testing.T) {
 	}
 }
 
+func TestPauseJob_SkipsDuplicateSameReasonWrite(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-pause-noop")
+	if err := q.PauseJob(ctx, job.ID, "incident"); err != nil {
+		t.Fatalf("PauseJob() error = %v", err)
+	}
+
+	var pausedXmin string
+	var pausedAt time.Time
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text, paused_at
+		FROM jobs
+		WHERE id = $1`,
+		job.ID,
+	).Scan(&pausedXmin, &pausedAt); err != nil {
+		t.Fatalf("query paused job version: %v", err)
+	}
+
+	if err := q.PauseJob(ctx, job.ID, "incident"); err != nil {
+		t.Fatalf("duplicate PauseJob() error = %v", err)
+	}
+
+	var duplicateXmin string
+	var duplicatePausedAt time.Time
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text, paused_at
+		FROM jobs
+		WHERE id = $1`,
+		job.ID,
+	).Scan(&duplicateXmin, &duplicatePausedAt); err != nil {
+		t.Fatalf("query duplicate paused job version: %v", err)
+	}
+	if duplicateXmin != pausedXmin {
+		t.Fatalf("duplicate pause changed xmin from %s to %s", pausedXmin, duplicateXmin)
+	}
+	if !duplicatePausedAt.Equal(pausedAt) {
+		t.Fatalf("duplicate pause changed paused_at from %s to %s", pausedAt, duplicatePausedAt)
+	}
+
+	if err := q.PauseJob(ctx, job.ID, "new incident"); err != nil {
+		t.Fatalf("PauseJob() with new reason error = %v", err)
+	}
+	got, err := q.GetJob(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("GetJob() error = %v", err)
+	}
+	if got.PauseReason != "new incident" {
+		t.Fatalf("pause reason = %q, want new incident", got.PauseReason)
+	}
+	var changedXmin string
+	if err := testDB.Pool.QueryRow(ctx, `SELECT xmin::text FROM jobs WHERE id = $1`, job.ID).Scan(&changedXmin); err != nil {
+		t.Fatalf("query changed paused job version: %v", err)
+	}
+	if changedXmin == duplicateXmin {
+		t.Fatalf("pause reason change kept xmin %s, want a real update", changedXmin)
+	}
+}
+
+func TestResumeJob_SkipsDuplicateWrite(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-resume-noop")
+	if err := q.PauseJob(ctx, job.ID, "temporary"); err != nil {
+		t.Fatalf("PauseJob() error = %v", err)
+	}
+	if err := q.ResumeJob(ctx, job.ID); err != nil {
+		t.Fatalf("ResumeJob() error = %v", err)
+	}
+
+	var resumedXmin string
+	var resumedUpdatedAt time.Time
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text, updated_at
+		FROM jobs
+		WHERE id = $1`,
+		job.ID,
+	).Scan(&resumedXmin, &resumedUpdatedAt); err != nil {
+		t.Fatalf("query resumed job version: %v", err)
+	}
+
+	if err := q.ResumeJob(ctx, job.ID); err != nil {
+		t.Fatalf("duplicate ResumeJob() error = %v", err)
+	}
+
+	var duplicateXmin string
+	var duplicateUpdatedAt time.Time
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text, updated_at
+		FROM jobs
+		WHERE id = $1`,
+		job.ID,
+	).Scan(&duplicateXmin, &duplicateUpdatedAt); err != nil {
+		t.Fatalf("query duplicate resumed job version: %v", err)
+	}
+	if duplicateXmin != resumedXmin {
+		t.Fatalf("duplicate resume changed xmin from %s to %s", resumedXmin, duplicateXmin)
+	}
+	if !duplicateUpdatedAt.Equal(resumedUpdatedAt) {
+		t.Fatalf("duplicate resume changed updated_at from %s to %s", resumedUpdatedAt, duplicateUpdatedAt)
+	}
+}
+
 func TestResumeJob_NotFound(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -361,5 +468,82 @@ func TestGroupPause_ExcludesCronJobs(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("expected job to reappear after group resume")
+	}
+}
+
+func TestPauseJobsByGroup_SkipsDuplicateGroupPauseWrites(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	group := &domain.JobGroup{
+		ID:        newID(),
+		ProjectID: "project-group-pause-noop",
+		Name:      "test-group",
+	}
+	if err := q.CreateJobGroup(ctx, group); err != nil {
+		t.Fatalf("CreateJobGroup() error = %v", err)
+	}
+
+	job := baseJob(newID(), group.ProjectID)
+	job.GroupID = group.ID
+	if err := q.CreateJob(ctx, job); err != nil {
+		t.Fatalf("CreateJob() error = %v", err)
+	}
+
+	if err := q.PauseJobsByGroup(ctx, group.ID); err != nil {
+		t.Fatalf("PauseJobsByGroup() error = %v", err)
+	}
+	var pausedXmin string
+	var pausedAt time.Time
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text, paused_at
+		FROM jobs
+		WHERE id = $1`,
+		job.ID,
+	).Scan(&pausedXmin, &pausedAt); err != nil {
+		t.Fatalf("query group-paused job version: %v", err)
+	}
+
+	if err := q.PauseJobsByGroup(ctx, group.ID); err != nil {
+		t.Fatalf("duplicate PauseJobsByGroup() error = %v", err)
+	}
+	var duplicateXmin string
+	var duplicatePausedAt time.Time
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text, paused_at
+		FROM jobs
+		WHERE id = $1`,
+		job.ID,
+	).Scan(&duplicateXmin, &duplicatePausedAt); err != nil {
+		t.Fatalf("query duplicate group-paused job version: %v", err)
+	}
+	if duplicateXmin != pausedXmin {
+		t.Fatalf("duplicate group pause changed xmin from %s to %s", pausedXmin, duplicateXmin)
+	}
+	if !duplicatePausedAt.Equal(pausedAt) {
+		t.Fatalf("duplicate group pause changed paused_at from %s to %s", pausedAt, duplicatePausedAt)
+	}
+
+	if err := q.ResumeJobsByGroup(ctx, group.ID); err != nil {
+		t.Fatalf("ResumeJobsByGroup() error = %v", err)
+	}
+	var resumedXmin string
+	if err := testDB.Pool.QueryRow(ctx, `SELECT xmin::text FROM jobs WHERE id = $1`, job.ID).Scan(&resumedXmin); err != nil {
+		t.Fatalf("query group-resumed job version: %v", err)
+	}
+	if resumedXmin == duplicateXmin {
+		t.Fatalf("group resume kept xmin %s, want a real update", resumedXmin)
+	}
+
+	if err := q.ResumeJobsByGroup(ctx, group.ID); err != nil {
+		t.Fatalf("duplicate ResumeJobsByGroup() error = %v", err)
+	}
+	var duplicateResumeXmin string
+	if err := testDB.Pool.QueryRow(ctx, `SELECT xmin::text FROM jobs WHERE id = $1`, job.ID).Scan(&duplicateResumeXmin); err != nil {
+		t.Fatalf("query duplicate group-resumed job version: %v", err)
+	}
+	if duplicateResumeXmin != resumedXmin {
+		t.Fatalf("duplicate group resume changed xmin from %s to %s", resumedXmin, duplicateResumeXmin)
 	}
 }
