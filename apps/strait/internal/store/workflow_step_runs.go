@@ -418,6 +418,7 @@ func (q *Queries) UpdateStepRunStatusFrom(ctx context.Context, id string, from, 
 			SET ` + strings.Join(setClauses, ", ") + `
 			FROM target
 			WHERE wsr.id = target.id
+			  AND wsr.status = $3
 			  AND (` + strings.Join(distinctClauses, " OR ") + `)
 			RETURNING 1
 		)
@@ -429,8 +430,10 @@ func (q *Queries) UpdateStepRunStatusFrom(ctx context.Context, id string, from, 
 	if err != nil {
 		return fmt.Errorf("update step run status from: %w", err)
 	}
-	_ = updated
 	if !found {
+		return fmt.Errorf("update step run status conflict: id %s from %s", id, from)
+	}
+	if !updated && from != to {
 		return fmt.Errorf("update step run status conflict: id %s from %s", id, from)
 	}
 	return nil
