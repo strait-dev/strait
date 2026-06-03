@@ -1,4 +1,3 @@
-import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import {
   Card,
@@ -7,20 +6,22 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import { CodeBlock } from "@strait/ui/components/code-block";
 import { Field, FieldError, FieldLabel } from "@strait/ui/components/field";
+import { Frame, FramePanel } from "@strait/ui/components/frame";
 import {
   InputOTP,
   InputOTPGroup,
   InputOTPSlot,
 } from "@strait/ui/components/input-otp";
 import { PasswordInput } from "@strait/ui/components/password-input";
-import { toast } from "@strait/ui/components/toast/index";
+import { Spinner } from "@strait/ui/components/spinner";
+import { toast } from "@strait/ui/components/toast";
 import { useQueryClient } from "@tanstack/react-query";
 import QRCode from "qrcode";
 import { useCallback, useState } from "react";
 import { queryKeys } from "@/hooks/query-keys";
 import { authClient } from "@/lib/auth-client";
-import { LoadingIcon } from "@/lib/icons";
 import { captureException } from "@/lib/sentry";
 
 type SetupStep = "idle" | "qr" | "verify" | "backup-codes" | "disable";
@@ -151,14 +152,16 @@ const TwoFactorSetup = ({ enabled }: Props) => {
         <CardContent>
           <div className="flex flex-col items-center gap-6">
             {totpQrDataUrl && (
-              <div className="rounded-lg border bg-white p-4">
-                <img
-                  alt="2FA QR Code"
-                  height={200}
-                  src={totpQrDataUrl}
-                  width={200}
-                />
-              </div>
+              <Frame>
+                <FramePanel>
+                  <img
+                    alt="2FA QR Code"
+                    height={200}
+                    src={totpQrDataUrl}
+                    width={200}
+                  />
+                </FramePanel>
+              </Frame>
             )}
 
             <div className="w-full text-center">
@@ -189,12 +192,7 @@ const TwoFactorSetup = ({ enabled }: Props) => {
               disabled={isLoading || verifyCode.length !== 6}
               onClick={handleVerify}
             >
-              {isLoading ? (
-                <HugeiconsIcon
-                  className="size-4 animate-spin"
-                  icon={LoadingIcon}
-                />
-              ) : null}
+              {isLoading ? <Spinner /> : null}
               Verify and enable
             </Button>
           </div>
@@ -215,22 +213,7 @@ const TwoFactorSetup = ({ enabled }: Props) => {
         </CardHeader>
         <CardContent>
           <div className="flex flex-col gap-4">
-            <div className="grid grid-cols-2 gap-2 rounded-lg border bg-muted/50 p-4">
-              {backupCodes.map((code) => (
-                <code className="text-center font-mono text-sm" key={code}>
-                  {code}
-                </code>
-              ))}
-            </div>
-            <Button
-              onClick={() => {
-                navigator.clipboard.writeText(backupCodes.join("\n"));
-                toast.success("Backup codes copied to clipboard.");
-              }}
-              variant="outline"
-            >
-              Copy codes
-            </Button>
+            <CodeBlock code={backupCodes.join("\n")} />
             <Button
               onClick={() => {
                 setStep("idle");
@@ -286,12 +269,7 @@ const TwoFactorSetup = ({ enabled }: Props) => {
                 onClick={handleDisable}
                 variant="destructive"
               >
-                {isLoading ? (
-                  <HugeiconsIcon
-                    className="size-4 animate-spin"
-                    icon={LoadingIcon}
-                  />
-                ) : null}
+                {isLoading ? <Spinner /> : null}
                 Disable 2FA
               </Button>
             </div>
@@ -342,12 +320,7 @@ const TwoFactorSetup = ({ enabled }: Props) => {
               disabled={isLoading || !password}
               onClick={handleEnable}
             >
-              {isLoading ? (
-                <HugeiconsIcon
-                  className="size-4 animate-spin"
-                  icon={LoadingIcon}
-                />
-              ) : null}
+              {isLoading ? <Spinner /> : null}
               Enable 2FA
             </Button>
           </div>

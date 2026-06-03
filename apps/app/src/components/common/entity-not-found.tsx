@@ -1,5 +1,13 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@strait/ui/components/empty";
 import { Link } from "@tanstack/react-router";
 import { SearchIcon } from "@/lib/icons";
 
@@ -14,23 +22,18 @@ const EntityNotFound = ({ entity, backTo, backLabel }: EntityNotFoundProps) => {
   const label = backLabel ?? `Back to ${entity}s`;
 
   return (
-    <div className="flex min-h-[350px] flex-col items-center justify-center gap-4 p-8 text-center">
-      <div className="flex size-14 items-center justify-center rounded-lg bg-muted/70">
-        <HugeiconsIcon
-          className="size-6 text-muted-foreground"
-          icon={SearchIcon}
-        />
-      </div>
-      <div className="space-y-1.5">
-        <h2 className="font-normal text-lg text-secondary-foreground">
-          {entity} not found
-        </h2>
-        <p className="max-w-sm text-pretty text-muted-foreground text-sm">
+    <Empty border={false} className="min-h-[350px]">
+      <EmptyHeader>
+        <EmptyMedia media="icon" size="lg">
+          <HugeiconsIcon className="size-6 text-foreground" icon={SearchIcon} />
+        </EmptyMedia>
+        <EmptyTitle>{entity} not found</EmptyTitle>
+        <EmptyDescription>
           This {entity.toLowerCase()} doesn't exist or was removed. Check the
           URL or try searching.
-        </p>
-      </div>
-      <div className="flex items-center gap-2 pt-1">
+        </EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent>
         <Button
           onClick={() => window.history.back()}
           type="button"
@@ -39,8 +42,8 @@ const EntityNotFound = ({ entity, backTo, backLabel }: EntityNotFoundProps) => {
           Go back
         </Button>
         <Button render={<Link to={back} />}>{label}</Button>
-      </div>
-    </div>
+      </EmptyContent>
+    </Empty>
   );
 };
 

@@ -1,4 +1,5 @@
 import { Shell } from "@strait/ui/components/shell";
+import { Skeleton } from "@strait/ui/components/skeleton";
 import { createFileRoute } from "@tanstack/react-router";
 import { Suspense } from "react";
 import DefaultCatchBoundary from "@/components/common/default-catch-boundary";
@@ -30,9 +31,7 @@ function RouteComponent() {
 
   return (
     <Shell>
-      <Suspense
-        fallback={<div className="h-64 animate-pulse rounded-lg bg-muted" />}
-      >
+      <Suspense fallback={<Skeleton className="h-64" />}>
         <ProjectSettings projectId={projectId} />
       </Suspense>
     </Shell>

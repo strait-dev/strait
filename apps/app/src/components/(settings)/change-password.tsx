@@ -1,4 +1,3 @@
-import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import {
   Card,
@@ -10,12 +9,12 @@ import {
 } from "@strait/ui/components/card";
 import { Field, FieldError, FieldLabel } from "@strait/ui/components/field";
 import { PasswordInput } from "@strait/ui/components/password-input";
-import { toast } from "@strait/ui/components/toast/index";
+import { Spinner } from "@strait/ui/components/spinner";
+import { toast } from "@strait/ui/components/toast";
 import { useForm } from "@tanstack/react-form";
 import { z } from "zod";
 import { authClient } from "@/lib/auth-client";
 import { formatFieldErrors } from "@/lib/form-errors";
-import { LoadingIcon } from "@/lib/icons";
 import { captureException } from "@/lib/sentry";
 
 const changePasswordSchema = z
@@ -73,7 +72,7 @@ const ChangePassword = () => {
           form.handleSubmit();
         }}
       >
-        <CardContent>
+        <CardContent className="pb-6">
           <div className="flex flex-col gap-4">
             <form.Field name="currentPassword">
               {(field) => (
@@ -173,24 +172,25 @@ const ChangePassword = () => {
           </div>
         </CardContent>
 
-        <CardFooter className="flex justify-end">
-          <Button
-            className="w-fit"
-            disabled={
-              !form.state.isDirty ||
-              form.state.isSubmitting ||
-              !form.state.canSubmit
-            }
-            type="submit"
+        <CardFooter className="flex justify-end border-t px-6 py-4">
+          <form.Subscribe
+            selector={(state) => ({
+              canSubmit: state.canSubmit,
+              isDirty: state.isDirty,
+              isSubmitting: state.isSubmitting,
+            })}
           >
-            {form.state.isSubmitting ? (
-              <HugeiconsIcon
-                className="size-4 animate-spin"
-                icon={LoadingIcon}
-              />
-            ) : null}
-            Change password
-          </Button>
+            {({ canSubmit, isDirty, isSubmitting }) => (
+              <Button
+                className="w-fit"
+                disabled={!isDirty || isSubmitting || !canSubmit}
+                type="submit"
+              >
+                {isSubmitting ? <Spinner /> : null}
+                Change password
+              </Button>
+            )}
+          </form.Subscribe>
         </CardFooter>
       </form>
     </Card>

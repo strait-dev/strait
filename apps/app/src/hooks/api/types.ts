@@ -85,9 +85,6 @@ export type Region = Schema["RegionResponse"];
 /** API key (create response includes the key field). */
 export type APIKey = Schema["CreateAPIKeyResponse"];
 
-/** Response from POST /v1/api-keys/{keyID}/rotate. */
-export type RotateAPIKeyResponse = Schema["RotateAPIKeyRequest"];
-
 /** Workflow DAG definition. Extracted from WorkflowResponse. */
 export type Workflow = {
   id: string;

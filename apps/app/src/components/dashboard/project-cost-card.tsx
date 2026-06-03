@@ -5,6 +5,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import {
+  DescriptionDetails,
+  DescriptionList,
+  DescriptionTerm,
+} from "@strait/ui/components/description-list";
 import { Progress } from "@strait/ui/components/progress";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -39,26 +44,20 @@ const ProjectCostCard = ({ activeProjectId }: { activeProjectId: string }) => {
         </Button>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-3 gap-4">
-          <div>
-            <p className="text-muted-foreground text-xs">Compute</p>
-            <p className="font-medium text-foreground tabular-nums">
-              {formatMicroUsd(project.compute_microusd)}
-            </p>
-          </div>
-          <div>
-            <p className="text-muted-foreground text-xs">AI Cost</p>
-            <p className="font-medium text-foreground tabular-nums">
-              {formatMicroUsd(project.ai_microusd)}
-            </p>
-          </div>
-          <div>
-            <p className="text-muted-foreground text-xs">Total</p>
-            <p className="font-medium text-foreground tabular-nums">
-              {formatMicroUsd(project.total_microusd)}
-            </p>
-          </div>
-        </div>
+        <DescriptionList divided orientation="horizontal" size="sm">
+          <DescriptionTerm>Compute</DescriptionTerm>
+          <DescriptionDetails className="text-right tabular-nums">
+            {formatMicroUsd(project.compute_microusd)}
+          </DescriptionDetails>
+          <DescriptionTerm>AI Cost</DescriptionTerm>
+          <DescriptionDetails className="text-right tabular-nums">
+            {formatMicroUsd(project.ai_microusd)}
+          </DescriptionDetails>
+          <DescriptionTerm>Total</DescriptionTerm>
+          <DescriptionDetails className="text-right tabular-nums">
+            {formatMicroUsd(project.total_microusd)}
+          </DescriptionDetails>
+        </DescriptionList>
         {hasBudget && (
           <div className="mt-3">
             <div className="mb-1 flex items-center justify-between">

@@ -1,3 +1,10 @@
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Alert, AlertDescription } from "@strait/ui/components/alert";
+import type { BadgeProps } from "@strait/ui/components/badge";
+import { Badge } from "@strait/ui/components/badge";
+import { Button } from "@strait/ui/components/button";
+import { Frame, FramePanel } from "@strait/ui/components/frame";
+import { Spinner } from "@strait/ui/components/spinner";
 import { queryOptions, useQuery } from "@tanstack/react-query";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
@@ -8,6 +15,7 @@ import AuthLayout from "@/components/(auth)/auth-layout";
 import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";
 import { getAuth } from "@/lib/auth.server";
+import { LinkSquareIcon } from "@/lib/icons";
 import {
   OAUTH_LOGIN_PAGE,
   OIDC_STANDARD_SCOPES,
@@ -18,10 +26,10 @@ import { authMiddleware } from "@/middlewares/auth";
 
 type ScopeLevel = "read" | "write" | "admin";
 
-const LEVEL_STYLES: Record<ScopeLevel, { bg: string; text: string }> = {
-  read: { bg: "bg-info/10", text: "text-info" },
-  write: { bg: "bg-warning/10", text: "text-warning" },
-  admin: { bg: "bg-destructive/10", text: "text-destructive" },
+const LEVEL_VARIANTS: Record<ScopeLevel, NonNullable<BadgeProps["variant"]>> = {
+  read: "info-light",
+  write: "warning-light",
+  admin: "destructive-light",
 };
 
 const HIDDEN_SCOPES = new Set<string>(OIDC_STANDARD_SCOPES);
@@ -285,12 +293,11 @@ function OAuthConsentPage() {
       <div className="flex flex-col gap-4">
         {/* Client warning for unrecognized clients */}
         {clientError || !clientInfo ? (
-          <div
-            className="rounded-md bg-warning/10 p-3 text-sm text-warning"
-            role="alert"
-          >
-            Unable to verify this application. Proceed with caution.
-          </div>
+          <Alert variant="warning">
+            <AlertDescription>
+              Unable to verify this application. Proceed with caution.
+            </AlertDescription>
+          </Alert>
         ) : null}
 
         {displayScopes.length > 0 ? (
@@ -303,66 +310,51 @@ function OAuthConsentPage() {
         ) : null}
 
         {/* Redirect URI display */}
-        <div className="flex items-center gap-2 rounded-md bg-muted/50 px-3 py-2">
-          <svg
-            className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-            viewBox="0 0 24 24"
-          >
-            <path
-              d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-            <path
-              d="M10.172 13.828a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.102 1.101"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-          <span className="truncate text-muted-foreground text-xs">
+        <Alert>
+          <HugeiconsIcon
+            className="size-3.5 shrink-0 text-muted-foreground"
+            icon={LinkSquareIcon}
+          />
+          <AlertDescription className="truncate">
             Redirects to{" "}
             <span className="font-medium text-foreground">{redirectHost}</span>
-          </span>
-        </div>
+          </AlertDescription>
+        </Alert>
 
         {/* Error display */}
         {error ? (
-          <div
-            className="rounded-md bg-destructive/10 p-3 text-destructive text-sm"
-            role="alert"
-          >
-            {error}
-          </div>
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         ) : null}
 
         {/* Action buttons */}
         <div className="flex w-full gap-3">
-          <button
-            className="flex-1 rounded border border-border bg-background px-4 py-2.5 font-medium text-foreground text-sm transition-colors hover:bg-muted disabled:opacity-50"
+          <Button
+            className="flex-1"
             disabled={status === "authorizing" || status === "denying"}
             onClick={() => handleConsent(false)}
             type="button"
+            variant="secondary-outline"
           >
             {status === "denying" ? "Denying..." : "Deny"}
-          </button>
-          <button
-            className="flex-1 rounded bg-primary px-4 py-2.5 font-medium text-primary-foreground text-sm transition-colors hover:bg-primary/90 disabled:opacity-50"
+          </Button>
+          <Button
+            className="flex-1"
             disabled={status === "authorizing" || status === "denying"}
             onClick={() => handleConsent(true)}
             type="button"
+            variant="brand-solid"
           >
             {status === "authorizing" ? (
-              <span className="flex items-center justify-center gap-2">
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground/30 border-t-primary-foreground" />
+              <>
+                <Spinner />
                 Authorizing...
-              </span>
+              </>
             ) : (
               "Authorize"
             )}
-          </button>
+          </Button>
         </div>
 
         {/* Footer notice */}
@@ -387,46 +379,47 @@ function PermissionsList({
   unknownScopes: string[];
 }) {
   return (
-    <div className="rounded-lg border border-border bg-muted/30 p-4">
-      <p className="mb-3 font-medium text-foreground text-sm">
-        Permissions requested
-      </p>
-      <div className="flex flex-col gap-2.5">
-        {readScopes.length > 0 ? (
-          <ScopeGroup level="read" scopes={readScopes} />
-        ) : null}
-        {writeScopes.length > 0 ? (
-          <ScopeGroup level="write" scopes={writeScopes} />
-        ) : null}
-        {adminScopes.length > 0 ? (
-          <ScopeGroup level="admin" scopes={adminScopes} />
-        ) : null}
-        {unknownScopes.length > 0 ? (
-          <div className="mt-1">
-            <div className="flex items-center gap-1.5">
-              <span className="inline-flex rounded-full bg-muted px-2 py-0.5 font-medium text-[10px] text-muted-foreground uppercase tracking-wider">
-                other
-              </span>
+    <Frame stacked>
+      <FramePanel>
+        <p className="mb-3 font-medium text-foreground text-sm">
+          Permissions requested
+        </p>
+        <div className="flex flex-col gap-2.5">
+          {readScopes.length > 0 ? (
+            <ScopeGroup level="read" scopes={readScopes} />
+          ) : null}
+          {writeScopes.length > 0 ? (
+            <ScopeGroup level="write" scopes={writeScopes} />
+          ) : null}
+          {adminScopes.length > 0 ? (
+            <ScopeGroup level="admin" scopes={adminScopes} />
+          ) : null}
+          {unknownScopes.length > 0 ? (
+            <div className="mt-1">
+              <div className="flex items-center gap-1.5">
+                <Badge radius="md" size="xs" variant="secondary-light">
+                  other
+                </Badge>
+              </div>
+              <div className="mt-1.5 flex flex-col gap-1 pl-1">
+                {unknownScopes.map((scope) => (
+                  <span className="text-muted-foreground text-sm" key={scope}>
+                    {scope}
+                  </span>
+                ))}
+              </div>
             </div>
-            <div className="mt-1.5 flex flex-col gap-1 pl-1">
-              {unknownScopes.map((scope) => (
-                <div className="flex items-start gap-2" key={scope}>
-                  <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-muted-foreground/50" />
-                  <span className="text-muted-foreground text-sm">{scope}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
-      </div>
-      <div className="mt-3 border-border border-t pt-3">
+          ) : null}
+        </div>
+      </FramePanel>
+      <FramePanel>
         <p className="text-muted-foreground text-xs">
           This app will <span className="font-medium text-foreground">not</span>{" "}
           be able to manage API keys, change account settings, or access billing
           information.
         </p>
-      </div>
-    </div>
+      </FramePanel>
+    </Frame>
   );
 }
 
@@ -451,7 +444,7 @@ function ConsentLoading() {
       title="Authorize Application"
     >
       <div className="flex items-center justify-center py-8">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-primary" />
+        <Spinner className="text-primary" size="lg" />
       </div>
     </AuthLayout>
   );
@@ -464,7 +457,6 @@ function ScopeGroup({
   level: ScopeLevel;
   scopes: string[];
 }) {
-  const styles = LEVEL_STYLES[level];
   const labels: Record<ScopeLevel, string> = {
     read: "Read",
     write: "Write",
@@ -474,11 +466,9 @@ function ScopeGroup({
   return (
     <div>
       <div className="flex items-center gap-1.5">
-        <span
-          className={`inline-flex rounded-full px-2 py-0.5 font-medium text-[10px] uppercase tracking-wider ${styles.bg} ${styles.text}`}
-        >
+        <Badge radius="md" size="xs" variant={LEVEL_VARIANTS[level]}>
           {labels[level]}
-        </span>
+        </Badge>
       </div>
       <div className="mt-1.5 flex flex-col gap-1 pl-1">
         {scopes.map((scope) => {
@@ -487,12 +477,17 @@ function ScopeGroup({
             return null;
           }
           return (
-            <div className="flex items-start gap-2" key={scope}>
-              <span
-                className={`mt-1.5 h-1 w-1 shrink-0 rounded-full ${styles.text.replace("text-", "bg-")}`}
-              />
+            <div className="flex flex-col" key={scope}>
+              <Badge
+                className="w-fit"
+                dot
+                radius="md"
+                size="xs"
+                variant={LEVEL_VARIANTS[level]}
+              >
+                {info.label}
+              </Badge>
               <div className="flex flex-col">
-                <span className="text-foreground text-sm">{info.label}</span>
                 <span className="text-muted-foreground text-xs">
                   {info.description}
                 </span>

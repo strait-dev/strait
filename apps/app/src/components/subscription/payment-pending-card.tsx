@@ -1,6 +1,7 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
-import { toast } from "@strait/ui/components/toast/index";
+import { NoticeBanner } from "@strait/ui/components/notice-banner";
+import { toast } from "@strait/ui/components/toast";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
@@ -40,35 +41,35 @@ const PaymentPendingCard = () => {
   }
 
   return (
-    <div className="rounded-b-custom border-sidebar-border border-t bg-sidebar-accent p-3 text-sidebar-foreground">
-      <div className="mb-2 flex flex-col gap-1">
-        <h3 className="font-medium text-sm">Payment pending</h3>
-        <p className="text-sidebar-foreground/70 text-xs">
-          You have a pending payment. Complete the payment to continue using
-          Strait.
-        </p>
-      </div>
+    <NoticeBanner
+      action={
+        <div className="flex gap-2">
+          <Button
+            disabled={isLoading}
+            onClick={handleOpenPortal}
+            size="sm"
+            variant="warning-solid"
+          >
+            <HugeiconsIcon className="size-3" icon={LinkSquareIcon} />
+            {isLoading ? "Opening..." : "Manage"}
+          </Button>
 
-      <div className="flex gap-2">
-        <Button
-          className="flex-1"
-          disabled={isLoading}
-          onClick={handleOpenPortal}
-        >
-          <HugeiconsIcon className="size-3" icon={LinkSquareIcon} />
-          {isLoading ? "Opening..." : "Manage"}
-        </Button>
-
-        <Button
-          className="flex-1"
-          render={<Link preload="intent" to="/app/settings" />}
-          variant="outline"
-        >
-          <HugeiconsIcon className="size-3" icon={CreditCardIcon} />
-          View Details
-        </Button>
-      </div>
-    </div>
+          <Button
+            className="flex-1"
+            render={<Link preload="intent" to="/app/settings" />}
+            size="sm"
+            variant="outline"
+          >
+            <HugeiconsIcon className="size-3" icon={CreditCardIcon} />
+            View Details
+          </Button>
+        </div>
+      }
+      title="Payment pending"
+      variant="warning"
+    >
+      You have a pending payment. Complete the payment to continue using Strait.
+    </NoticeBanner>
   );
 };
 

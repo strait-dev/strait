@@ -16,7 +16,6 @@
     "forceConsistentCasingInFileNames": true,
     "paths": {
       "@/*": ["./src/*"],
-      "@strait/ui/*": ["../../packages/ui/src/*"],
       "@strait/db/*": ["../../packages/db/src/*"],
       "@strait/utils": ["../../packages/utils/src/index"],
       "@strait/transactional": ["../../packages/transactional/src/index.ts"]

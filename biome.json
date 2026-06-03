@@ -67,37 +67,6 @@
       }
     },
     {
-      "includes": ["**/packages/ui/src/components/**/*.tsx"],
-      "linter": {
-        "rules": {
-          "a11y": {
-            "useSemanticElements": "off",
-            "useFocusableInteractive": "off",
-            "noLabelWithoutControl": "off",
-            "useKeyWithClickEvents": "off",
-            "noNoninteractiveElementInteractions": "off",
-            "noRedundantRoles": "off",
-            "useAriaPropsForRole": "off"
-          },
-          "correctness": {
-            "noNestedComponentDefinitions": "off",
-            "useExhaustiveDependencies": "off"
-          },
-          "security": {
-            "noDangerouslySetInnerHtml": "off"
-          },
-          "suspicious": {
-            "noDoubleEquals": "off",
-            "noArrayIndexKey": "off",
-            "noDocumentCookie": "off"
-          },
-          "style": {
-            "noNestedTernary": "off"
-          }
-        }
-      }
-    },
-    {
       "includes": ["**/hooks/**/*.ts", "**/hooks/**/*.tsx"]
     },
     {

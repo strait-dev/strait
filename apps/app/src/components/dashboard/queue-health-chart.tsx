@@ -4,25 +4,24 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import type { ChartConfig } from "@strait/ui/components/chart";
+import { ChartEmptyState } from "@strait/ui/components/chart-empty-state";
+import { BarChart } from "@strait/ui/components/charts";
 import { useQuery } from "@tanstack/react-query";
-import { Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from "recharts";
 import {
   analyticsQueryOptions,
   statsQueryOptions,
 } from "@/hooks/api/use-dashboard";
 import { ClockIcon } from "@/lib/icons";
-import { CHART_COLORS } from "@/lib/status-colors";
-import ChartEmptyState from "./chart-empty-state";
-import ChartTooltip from "./chart-tooltip";
-import ResponsiveChartContainer from "./responsive-chart-container";
 
-const LABEL_MAP = {
+const CHART_CONFIG = {
   count: {
     label: "Count",
-    color: CHART_COLORS.warning,
-    format: (v: number) => `${v.toLocaleString()} items`,
+    color: "chart-4",
   },
-};
+} satisfies ChartConfig;
+
+const formatItems = (value: number) => `${value.toLocaleString()} items`;
 
 const QueueHealthChart = ({ hasProject = true }: { hasProject?: boolean }) => {
   const { data: stats } = useQuery({
@@ -63,37 +62,14 @@ const QueueHealthChart = ({ hasProject = true }: { hasProject?: boolean }) => {
               }
             />
           ) : (
-            <ResponsiveChartContainer
-              height="100%"
-              minHeight={1}
-              minWidth={1}
-              width="100%"
-            >
-              <BarChart data={chartData}>
-                <CartesianGrid
-                  className="stroke-border"
-                  strokeDasharray="3 3"
-                />
-                <XAxis
-                  className="text-muted-foreground"
-                  dataKey="metric"
-                  tick={{ fontSize: 14 }}
-                />
-                <YAxis
-                  className="text-muted-foreground"
-                  tick={{ fontSize: 14 }}
-                />
-                <Tooltip
-                  content={<ChartTooltip labelMap={LABEL_MAP} />}
-                  cursor={{ fill: "var(--muted)" }}
-                />
-                <Bar
-                  dataKey="count"
-                  fill={CHART_COLORS.warning}
-                  radius={[4, 4, 0, 0]}
-                />
-              </BarChart>
-            </ResponsiveChartContainer>
+            <BarChart
+              config={CHART_CONFIG}
+              containerHeight={240}
+              data={chartData}
+              dataKey="metric"
+              legend={false}
+              valueFormatter={formatItems}
+            />
           )}
         </div>
       </CardContent>

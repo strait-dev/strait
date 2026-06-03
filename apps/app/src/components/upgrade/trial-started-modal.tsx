@@ -8,6 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@strait/ui/components/dialog";
+import { EmptyMedia } from "@strait/ui/components/empty";
 import { CheckIcon } from "@/lib/icons";
 
 type TrialStartedModalProps = {
@@ -19,9 +20,14 @@ const TrialStartedModal = ({ open, onOpenChange }: TrialStartedModalProps) => (
   <Dialog onOpenChange={onOpenChange} open={open}>
     <DialogContent className="sm:max-w-md">
       <DialogHeader className="text-center">
-        <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-lg bg-muted">
+        <EmptyMedia
+          className="mx-auto mb-4"
+          media="icon"
+          size="lg"
+          variant="success"
+        >
           <HugeiconsIcon className="size-6 text-foreground" icon={CheckIcon} />
-        </div>
+        </EmptyMedia>
         <DialogTitle className="text-center">Welcome to Strait!</DialogTitle>
         <DialogDescription className="text-center">
           Your 14-day free trial has started. Explore all features and see how
@@ -31,34 +37,49 @@ const TrialStartedModal = ({ open, onOpenChange }: TrialStartedModalProps) => (
 
       <div className="space-y-3 py-4">
         <div className="flex items-start gap-3">
-          <div className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-lg bg-muted">
+          <EmptyMedia
+            className="mt-0.5"
+            media="icon"
+            size="sm"
+            variant="success"
+          >
             <HugeiconsIcon
               className="size-3 text-foreground"
               icon={CheckIcon}
             />
-          </div>
+          </EmptyMedia>
           <p className="text-muted-foreground text-sm">
             Full access to all features during your trial
           </p>
         </div>
         <div className="flex items-start gap-3">
-          <div className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-lg bg-muted">
+          <EmptyMedia
+            className="mt-0.5"
+            media="icon"
+            size="sm"
+            variant="success"
+          >
             <HugeiconsIcon
               className="size-3 text-foreground"
               icon={CheckIcon}
             />
-          </div>
+          </EmptyMedia>
           <p className="text-muted-foreground text-sm">
             No credit card required until trial ends
           </p>
         </div>
         <div className="flex items-start gap-3">
-          <div className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-lg bg-muted">
+          <EmptyMedia
+            className="mt-0.5"
+            media="icon"
+            size="sm"
+            variant="success"
+          >
             <HugeiconsIcon
               className="size-3 text-foreground"
               icon={CheckIcon}
             />
-          </div>
+          </EmptyMedia>
           <p className="text-muted-foreground text-sm">
             Cancel anytime before your trial ends
           </p>

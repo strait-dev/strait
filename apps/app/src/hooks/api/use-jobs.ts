@@ -102,16 +102,6 @@ export const fetchJobHealth = createServerFn({ method: "GET" })
     );
   });
 
-export const deleteJobFn = createServerFn({ method: "POST" })
-  .inputValidator((data: { id: string }) => data)
-  .middleware([authMiddleware])
-  .handler(async ({ context, data }): Promise<void> => {
-    await requireActiveProjectAdmin(context);
-    return await runWithSentryReport(
-      apiEffect<void>(apiPath`/v1/jobs/${data.id}`, { method: "DELETE" })
-    );
-  });
-
 export const pauseJobFn = createServerFn({ method: "POST" })
   .inputValidator((data: { id: string; reason?: string }) => data)
   .middleware([authMiddleware])
@@ -295,28 +285,6 @@ export const useResumeJob = () => {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.jobs._def });
-    },
-  });
-};
-
-export const useDeleteJob = () => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationKey: ["jobs", "delete"],
-    mutationFn: (data: { id: string }) => deleteJobFn({ data }),
-    onSuccess: (_data, variables) => {
-      getPostHog()?.capture("job_deleted", { job_id: variables.id });
-    },
-    onError: (err, variables) => {
-      getPostHog()?.capture("mutation_error", {
-        action: "job_deleted",
-        error_message: err instanceof Error ? err.message : "Unknown error",
-        job_id: variables.id,
-      });
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.jobs._def });
-      queryClient.invalidateQueries({ queryKey: queryKeys.schedules._def });
     },
   });
 };

@@ -17,8 +17,8 @@
 #      (see its runtime-stage comment at line 49).
 #
 # Build context is the repo root (not apps/app) because the TanStack
-# Start app depends on workspace packages @strait/transactional and
-# @strait/ui. Copy only the app and package source needed for the build
+# Start app depends on workspace package @strait/transactional.
+# Copy only the app and package source needed for the build
 # so untracked local secret files in the repo root are not copied into
 # builder layers.
 
@@ -36,7 +36,6 @@ COPY apps/strait/package.json apps/strait/
 COPY packages/billing/package.json packages/billing/
 COPY packages/config/package.json packages/config/
 COPY packages/transactional/package.json packages/transactional/
-COPY packages/ui/package.json packages/ui/
 
 RUN bun install --frozen-lockfile
 

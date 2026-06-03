@@ -1,8 +1,9 @@
 import { Badge } from "@strait/ui/components/badge";
+import { IdCell } from "@strait/ui/components/id-cell";
+import { StatusBadge } from "@strait/ui/components/status-badge";
 import { Link } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
-import StatusBadge from "@/components/dashboard/status-badge";
 import type { DisplayStatus, JobRun } from "@/hooks/api/types";
 import { EyeIcon, RefreshIcon, XCircleIcon } from "@/lib/icons";
 import { createActionsColumn, createSelectColumn } from "./shared-columns";
@@ -53,11 +54,7 @@ export const createRunColumns = (
   {
     accessorKey: "job_id",
     header: "Job",
-    cell: ({ row }) => (
-      <span className="font-mono text-xs">
-        {row.original.job_id.slice(0, 8)}
-      </span>
-    ),
+    cell: ({ row }) => <IdCell id={row.original.job_id} length={8} />,
   },
   {
     accessorKey: "status",

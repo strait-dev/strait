@@ -11,8 +11,9 @@ import {
 } from "@strait/ui/components/dialog";
 import { Field, FieldError, FieldLabel } from "@strait/ui/components/field";
 import { Input } from "@strait/ui/components/input";
+import { Spinner } from "@strait/ui/components/spinner";
 import { Textarea } from "@strait/ui/components/textarea";
-import { toast } from "@strait/ui/components/toast/index";
+import { toast } from "@strait/ui/components/toast";
 import { useForm } from "@tanstack/react-form";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
@@ -24,7 +25,7 @@ import {
   useSetDefaultOrganization,
 } from "@/hooks/auth/use-organization";
 import { formatFieldErrors } from "@/lib/form-errors";
-import { LoadingIcon, PlusIcon } from "@/lib/icons";
+import { PlusIcon } from "@/lib/icons";
 import type { AuthUser } from "@/routes/__root";
 import { ORGANIZATION_SLUG_LENGTH } from "@/utils/constants";
 
@@ -213,10 +214,7 @@ const CreateOrganizationDialog = ({
                   type="submit"
                 >
                   {isSubmitting || createOrganization.isPending ? (
-                    <HugeiconsIcon
-                      className="size-4 animate-spin"
-                      icon={LoadingIcon}
-                    />
+                    <Spinner />
                   ) : (
                     <HugeiconsIcon className="size-4" icon={PlusIcon} />
                   )}

@@ -11,19 +11,16 @@ import {
 } from "@strait/ui/components/dialog";
 import { Field, FieldError, FieldLabel } from "@strait/ui/components/field";
 import { Input } from "@strait/ui/components/input";
+import { Spinner } from "@strait/ui/components/spinner";
 import { Textarea } from "@strait/ui/components/textarea";
-import { toast } from "@strait/ui/components/toast/index";
+import { toast } from "@strait/ui/components/toast";
 import { useForm } from "@tanstack/react-form";
-import { useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { z } from "zod/v4";
-import {
-  useCreateProject,
-  useSetActiveProject,
-} from "@/hooks/api/use-projects";
+import type { Project } from "@/hooks/api/types";
+import { useCreateAndActivateProject } from "@/hooks/api/use-projects";
 import { formatFieldErrors } from "@/lib/form-errors";
-import { LoadingIcon, PlusIcon } from "@/lib/icons";
+import { PlusIcon } from "@/lib/icons";
 
 const createProjectSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
@@ -33,14 +30,17 @@ const createProjectSchema = z.object({
 type Props = {
   organizationId: string;
   open: boolean;
+  onCreated?: (project: Project) => void;
   onOpenChange: (open: boolean) => void;
 };
 
-const CreateProjectDialog = ({ organizationId, open, onOpenChange }: Props) => {
-  const createProject = useCreateProject();
-  const setActiveProject = useSetActiveProject();
-  const queryClient = useQueryClient();
-  const router = useRouter();
+const CreateProjectDialog = ({
+  organizationId,
+  open,
+  onCreated,
+  onOpenChange,
+}: Props) => {
+  const createProject = useCreateAndActivateProject();
 
   const defaultValues = useMemo(
     () => ({
@@ -53,34 +53,33 @@ const CreateProjectDialog = ({ organizationId, open, onOpenChange }: Props) => {
   const form = useForm({
     defaultValues,
     validators: { onChange: createProjectSchema },
-    onSubmit: ({ value }) => {
+    onSubmit: async ({ value }) => {
       const parsed = createProjectSchema.parse(value);
 
-      toast.promise(
-        (async () => {
-          const project = await createProject.mutateAsync({
+      try {
+        const project = await toast.promise(
+          createProject.mutateAsync({
             organizationId,
             name: parsed.name,
             description: parsed.description,
-          });
-
-          if (project) {
-            await setActiveProject.mutateAsync({ projectId: project.id });
-            await queryClient.invalidateQueries();
-            router.invalidate();
+          }),
+          {
+            loading: "Creating project...",
+            success: "Project created successfully!",
+            error: "Failed to create project. Please try again.",
           }
+        );
 
-          form.reset();
-          onOpenChange(false);
-        })(),
-        {
-          loading: "Creating project...",
-          success: "Project created successfully!",
-          error: "Failed to create project. Please try again.",
-        }
-      );
+        onCreated?.(project);
+        form.reset();
+        onOpenChange(false);
+      } catch {
+        // handled by toast
+      }
     },
   });
+
+  const isPending = createProject.isPending;
 
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
@@ -173,20 +172,17 @@ const CreateProjectDialog = ({ organizationId, open, onOpenChange }: Props) => {
             >
               {({ canSubmit, isSubmitting }) => (
                 <Button
-                  disabled={
-                    !canSubmit || isSubmitting || createProject.isPending
-                  }
+                  disabled={!canSubmit || isSubmitting || isPending}
                   type="submit"
                 >
-                  {isSubmitting || createProject.isPending ? (
-                    <HugeiconsIcon
-                      className="size-4 animate-spin"
-                      icon={LoadingIcon}
-                    />
+                  {isSubmitting || isPending ? (
+                    <Spinner />
                   ) : (
                     <HugeiconsIcon className="size-4" icon={PlusIcon} />
                   )}
-                  Create project
+                  {isSubmitting || isPending
+                    ? "Creating project..."
+                    : "Create project"}
                 </Button>
               )}
             </form.Subscribe>

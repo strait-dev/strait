@@ -1,6 +1,9 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { Alert, AlertDescription } from "@strait/ui/components/alert";
 import { Button } from "@strait/ui/components/button";
-import { toast } from "@strait/ui/components/toast/index";
+import { EmptyMedia } from "@strait/ui/components/empty";
+import { Spinner } from "@strait/ui/components/spinner";
+import { toast } from "@strait/ui/components/toast";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useCallback, useEffect, useState } from "react";
@@ -12,7 +15,7 @@ import {
 } from "@/hooks/auth/use-invitation";
 import { authClient } from "@/lib/auth-client";
 import { getSession } from "@/lib/auth-handler";
-import { LoadingIcon, UsersAltIcon } from "@/lib/icons";
+import { UsersAltIcon } from "@/lib/icons";
 import { captureException, captureSentryAuthError } from "@/lib/sentry";
 
 const searchParamsSchema = z.object({
@@ -215,12 +218,12 @@ function RouteComponent() {
       <AuthLayout title="Accept Invitation">
         <div className="flex flex-col gap-6">
           <div className="flex flex-col items-center gap-4 text-center">
-            <div className="rounded-full bg-muted p-3">
+            <EmptyMedia media="icon" size="lg">
               <HugeiconsIcon
-                className="size-8 text-foreground"
+                className="size-6 text-foreground"
                 icon={UsersAltIcon}
               />
-            </div>
+            </EmptyMedia>
             <div>
               <h2 className="text-balance font-normal text-lg">
                 You have been invited to join{" "}
@@ -244,10 +247,7 @@ function RouteComponent() {
           >
             {isGooglePending ? (
               <>
-                <HugeiconsIcon
-                  className="size-4 shrink-0 animate-spin"
-                  icon={LoadingIcon}
-                />
+                <Spinner className="shrink-0" />
                 <span>Signing in...</span>
               </>
             ) : (
@@ -274,12 +274,12 @@ function RouteComponent() {
     <AuthLayout title="Accept Invitation">
       <div className="flex flex-col gap-6">
         <div className="flex flex-col items-center gap-4 text-center">
-          <div className="rounded-full bg-muted p-3">
+          <EmptyMedia media="icon" size="lg">
             <HugeiconsIcon
-              className="size-8 text-foreground"
+              className="size-6 text-foreground"
               icon={UsersAltIcon}
             />
-          </div>
+          </EmptyMedia>
           <div>
             <h2 className="text-balance font-normal text-lg">
               You have been invited to join{" "}
@@ -298,9 +298,9 @@ function RouteComponent() {
         </div>
 
         {acceptingError ? (
-          <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3">
-            <p className="text-destructive text-sm">{acceptingError}</p>
-          </div>
+          <Alert variant="destructive">
+            <AlertDescription>{acceptingError}</AlertDescription>
+          </Alert>
         ) : null}
 
         <div className="flex flex-col gap-3">
@@ -311,10 +311,7 @@ function RouteComponent() {
           >
             {isAccepting ? (
               <>
-                <HugeiconsIcon
-                  className="size-4 animate-spin"
-                  icon={LoadingIcon}
-                />
+                <Spinner />
                 Accepting invitation...
               </>
             ) : (
@@ -335,8 +332,7 @@ function RouteComponent() {
         <div className="text-center">
           <p className="text-muted-foreground text-sm">
             Not you?{" "}
-            <button
-              className="inline-flex items-center gap-1 text-foreground hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+            <Button
               disabled={isSigningOut}
               onClick={async () => {
                 setIsSigningOut(true);
@@ -361,18 +357,14 @@ function RouteComponent() {
                   setIsSigningOut(false);
                 }
               }}
-              type="button"
+              size="xs"
+              variant="link"
             >
-              {isSigningOut ? (
-                <HugeiconsIcon
-                  className="size-3 animate-spin"
-                  icon={LoadingIcon}
-                />
-              ) : null}
+              {isSigningOut ? <Spinner size="xs" /> : null}
               {isSigningOut
                 ? "Signing out..."
                 : "Sign out and use another account"}
-            </button>
+            </Button>
           </p>
         </div>
       </div>

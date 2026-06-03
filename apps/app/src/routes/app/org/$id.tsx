@@ -66,7 +66,7 @@ function RouteComponent() {
             </TabsTrigger>
             <TabsTrigger className="flex items-center gap-2" value="api-keys">
               <HugeiconsIcon className="size-4" icon={KeyIcon} />
-              API Keys
+              API keys
             </TabsTrigger>
             <TabsTrigger className="flex items-center gap-2" value="team">
               <HugeiconsIcon className="size-4" icon={UsersIcon} />

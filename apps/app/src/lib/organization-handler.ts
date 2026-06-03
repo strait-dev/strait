@@ -64,50 +64,6 @@ function remainingCooldownSeconds(stored: string | null): number {
 }
 
 /**
- * Server function to create a new organization.
- * Used by onboarding flow — creates organization via Better Auth.
- * Returns serializable organization data.
- */
-export const createOrganizationServerFn = createServerFn({ method: "POST" })
-  .inputValidator((data: Record<string, unknown>) => data)
-  .middleware([authMiddleware])
-  .handler(async ({ data }) => {
-    try {
-      const headers = getRequestHeaders();
-
-      const name = data.name as string;
-      const slug =
-        (data.slug as string | undefined) ||
-        name
-          .toLowerCase()
-          .replace(/\s+/g, "-")
-          .replace(/[^a-z0-9-]/g, "");
-      const org = await (await getAuth()).api.createOrganization({
-        body: {
-          name,
-          slug,
-        },
-        headers,
-      });
-
-      if (!org) {
-        return null;
-      }
-
-      return {
-        id: org.id,
-        name: org.name,
-        slug: org.slug ?? null,
-        logo: org.logo ?? null,
-        metadata: org.metadata ?? null,
-        createdAt: org.createdAt,
-      };
-    } catch {
-      return null;
-    }
-  });
-
-/**
  * Get full organization from Better Auth.
  * @param {string} organizationId - The ID of the organization to get.
  * @returns {Promise<Organization>} A promise resolving to the organization data.

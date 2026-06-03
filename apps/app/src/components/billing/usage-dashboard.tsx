@@ -7,54 +7,102 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
-import { toast } from "@strait/ui/components/toast/index";
+import { CHART_COLORS, type ChartConfig } from "@strait/ui/components/chart";
+import { BarChart, DonutChart, LineChart } from "@strait/ui/components/charts";
+import {
+  DescriptionDetails,
+  DescriptionList,
+  DescriptionTerm,
+} from "@strait/ui/components/description-list";
+import {
+  NoticeBanner,
+  NoticeBannerAction,
+} from "@strait/ui/components/notice-banner";
+import { RadialGauge } from "@strait/ui/components/radial-gauge";
+import { Skeleton } from "@strait/ui/components/skeleton";
+import { toast } from "@strait/ui/components/toast";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Line,
-  LineChart,
-  Pie,
-  PieChart,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { orgUsageQueryOptions } from "@/hooks/billing/use-org-usage";
 import { projectCostsQueryOptions } from "@/hooks/billing/use-project-costs";
 import { usageHistoryQueryOptions } from "@/hooks/billing/use-usage-history";
 import { capitalize, formatMicroUsd } from "@/lib/format";
-import { CHART_COLORS } from "@/lib/status-colors";
+import { CheckCircleIcon } from "@/lib/icons";
 import { getCustomerPortalUrlServerFn } from "@/lib/subscription";
-import ChartTooltip from "../dashboard/chart-tooltip";
-import ResponsiveChartContainer from "../dashboard/responsive-chart-container";
 import OverageWarningBanner from "./overage-warning-banner";
-import RadialUsageGauge from "./radial-usage-gauge";
 
-const RUNS_LABEL_MAP = {
+const RUNS_CHART_CONFIG = {
   runs_count: {
     label: "Runs",
-    color: CHART_COLORS.active,
+    color: "chart-3",
   },
-};
+} satisfies ChartConfig;
 
-const COST_DONUT_LABEL_MAP = {
-  value: {
-    label: "Cost",
-    color: CHART_COLORS.active,
-    format: formatMicroUsd,
-  },
-};
+const COST_DONUT_CONFIG = {
+  Compute: { label: "Compute", color: "chart-3" },
+  "AI Cost": { label: "AI Cost", color: "chart-4" },
+} satisfies ChartConfig;
 
-const PROJECT_RUNS_LABEL_MAP = {
+const PROJECT_RUNS_CHART_CONFIG = {
   runs: {
     label: "Runs",
-    color: CHART_COLORS.active,
+    color: "chart-3",
   },
+} satisfies ChartConfig;
+
+type UsageGaugeData = {
+  label: string;
+  used: number;
+  limit: number;
+  percent: number;
+  display?: string;
 };
+
+function getGaugeColor(percent: number): string {
+  if (percent >= 90) {
+    return CHART_COLORS["chart-2"];
+  }
+  if (percent >= 70) {
+    return CHART_COLORS["chart-4"];
+  }
+  return CHART_COLORS["chart-3"];
+}
+
+function renderUsageGauge({
+  label,
+  used,
+  limit,
+  percent,
+  display,
+}: UsageGaugeData) {
+  const isUnlimited = limit === -1;
+  const displayValue = display || `${used.toLocaleString()}`;
+  const limitDisplay = isUnlimited ? "Unlimited" : limit.toLocaleString();
+
+  return (
+    <Card key={label}>
+      <CardContent className="p-4">
+        <p className="text-muted-foreground text-xs">{label}</p>
+        {isUnlimited ? (
+          <div className="flex h-[120px] items-center justify-center">
+            <Badge iconLeft={CheckCircleIcon} size="lg" variant="success-light">
+              Unlimited
+            </Badge>
+          </div>
+        ) : (
+          <RadialGauge
+            centerLabel={displayValue}
+            className="h-[120px]"
+            color={getGaugeColor(percent)}
+            label={`/ ${limitDisplay}`}
+            value={percent}
+          />
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 const UsageDashboard = () => {
   const {
@@ -97,20 +145,14 @@ const UsageDashboard = () => {
 
   if (isUsageError) {
     return (
-      <div className="flex h-48 items-center justify-center">
-        <p className="text-destructive text-sm">
-          Failed to load usage data. Please try again later.
-        </p>
-      </div>
+      <NoticeBanner title="Failed to load usage data" variant="destructive">
+        Please try again later.
+      </NoticeBanner>
     );
   }
 
   if (isLoading || !usage) {
-    return (
-      <div className="flex h-48 items-center justify-center">
-        <p className="text-muted-foreground text-sm">Loading usage data...</p>
-      </div>
-    );
+    return <Skeleton className="h-48 w-full" />;
   }
 
   const planName = capitalize(usage.plan);
@@ -126,8 +168,8 @@ const UsageDashboard = () => {
   );
   const totalCost = totalCompute + totalAi;
   const donutData = [
-    { name: "Compute", value: totalCompute, fill: CHART_COLORS.active },
-    { name: "AI Cost", value: totalAi, fill: CHART_COLORS.warning },
+    { name: "Compute", value: totalCompute },
+    { name: "AI Cost", value: totalAi },
   ];
 
   // Top 5 projects by runs
@@ -174,46 +216,44 @@ const UsageDashboard = () => {
 
       {/* Radial Gauges */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <RadialUsageGauge
-          display={usage.usage.runs_today.display}
-          label="Runs Today"
-          limit={usage.usage.runs_today.limit}
-          percent={usage.usage.runs_today.percent}
-          used={usage.usage.runs_today.used}
-        />
-        <RadialUsageGauge
-          label="Concurrent Runs"
-          limit={usage.usage.concurrent_runs.limit}
-          percent={usage.usage.concurrent_runs.percent}
-          used={usage.usage.concurrent_runs.used}
-        />
-        <RadialUsageGauge
-          display={usage.usage.compute_credit.display}
-          label="Compute Credit"
-          limit={usage.usage.compute_credit.limit}
-          percent={usage.usage.compute_credit.percent}
-          used={usage.usage.compute_credit.used}
-        />
-        <RadialUsageGauge
-          label="AI Model Calls"
-          limit={usage.usage.ai_model_calls_today.limit}
-          percent={usage.usage.ai_model_calls_today.percent}
-          used={usage.usage.ai_model_calls_today.used}
-        />
+        {renderUsageGauge({
+          display: usage.usage.runs_today.display,
+          label: "Runs Today",
+          limit: usage.usage.runs_today.limit,
+          percent: usage.usage.runs_today.percent,
+          used: usage.usage.runs_today.used,
+        })}
+        {renderUsageGauge({
+          label: "Concurrent Runs",
+          limit: usage.usage.concurrent_runs.limit,
+          percent: usage.usage.concurrent_runs.percent,
+          used: usage.usage.concurrent_runs.used,
+        })}
+        {renderUsageGauge({
+          display: usage.usage.compute_credit.display,
+          label: "Compute Credit",
+          limit: usage.usage.compute_credit.limit,
+          percent: usage.usage.compute_credit.percent,
+          used: usage.usage.compute_credit.used,
+        })}
+        {renderUsageGauge({
+          label: "AI Model Calls",
+          limit: usage.usage.ai_model_calls_today.limit,
+          percent: usage.usage.ai_model_calls_today.percent,
+          used: usage.usage.ai_model_calls_today.used,
+        })}
       </div>
 
       {/* Transitional message when in-flight runs exceed new plan limit */}
       {usage.usage.concurrent_runs.limit > 0 &&
         usage.usage.concurrent_runs.used >
           usage.usage.concurrent_runs.limit && (
-          <div className="rounded-lg border border-border bg-muted/50 px-4 py-2">
-            <p className="text-muted-foreground text-sm">
-              {usage.usage.concurrent_runs.used -
-                usage.usage.concurrent_runs.limit}{" "}
-              runs finishing from previous plan. New runs will start once slots
-              free up.
-            </p>
-          </div>
+          <NoticeBanner title="Concurrent run limit exceeded" variant="warning">
+            {usage.usage.concurrent_runs.used -
+              usage.usage.concurrent_runs.limit}{" "}
+            runs are finishing from the previous plan. New runs will start once
+            slots free up.
+          </NoticeBanner>
         )}
 
       {/* Estimated bill card */}
@@ -249,41 +289,16 @@ const UsageDashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="h-[200px]">
-              <ResponsiveChartContainer
-                height="100%"
-                minHeight={1}
-                minWidth={1}
-                width="100%"
-              >
-                <LineChart data={history}>
-                  <CartesianGrid
-                    className="stroke-border"
-                    strokeDasharray="3 3"
-                  />
-                  <XAxis
-                    className="text-muted-foreground"
-                    dataKey="date"
-                    tick={{ fontSize: 12 }}
-                    tickFormatter={(v: string) => v.slice(5)}
-                  />
-                  <YAxis
-                    className="text-muted-foreground"
-                    tick={{ fontSize: 12 }}
-                  />
-                  <Tooltip
-                    content={<ChartTooltip labelMap={RUNS_LABEL_MAP} />}
-                    cursor={{ stroke: "var(--muted-foreground)" }}
-                  />
-                  <Line
-                    dataKey="runs_count"
-                    dot={false}
-                    isAnimationActive={false}
-                    stroke={CHART_COLORS.active}
-                    strokeWidth={2}
-                    type="monotone"
-                  />
-                </LineChart>
-              </ResponsiveChartContainer>
+              <LineChart
+                config={RUNS_CHART_CONFIG}
+                containerHeight={200}
+                data={history}
+                dataKey="date"
+                legend={false}
+                xAxisProps={{
+                  tickFormatter: (value: string) => value.slice(5),
+                }}
+              />
             </div>
           </CardContent>
         </Card>
@@ -300,58 +315,15 @@ const UsageDashboard = () => {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="relative h-[200px]">
-                <ResponsiveChartContainer
-                  height="100%"
-                  minHeight={1}
-                  minWidth={1}
-                  width="100%"
-                >
-                  <PieChart>
-                    <Pie
-                      cx="50%"
-                      cy="50%"
-                      data={donutData}
-                      dataKey="value"
-                      innerRadius="55%"
-                      isAnimationActive={false}
-                      outerRadius="80%"
-                      paddingAngle={2}
-                    />
-                    <Tooltip
-                      content={<ChartTooltip labelMap={COST_DONUT_LABEL_MAP} />}
-                    />
-                  </PieChart>
-                </ResponsiveChartContainer>
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="font-medium text-foreground text-lg tabular-nums">
-                    {formatMicroUsd(totalCost)}
-                  </span>
-                  <span className="text-muted-foreground text-xs">Total</span>
-                </div>
-              </div>
-              <div className="mt-2 flex justify-center gap-4">
-                <div className="flex items-center gap-1.5 text-muted-foreground text-xs">
-                  <span
-                    className="size-2 shrink-0 rounded-full"
-                    style={{ backgroundColor: CHART_COLORS.active }}
-                  />
-                  Compute (
-                  {totalCost > 0
-                    ? Math.round((totalCompute / totalCost) * 100)
-                    : 0}
-                  %)
-                </div>
-                <div className="flex items-center gap-1.5 text-muted-foreground text-xs">
-                  <span
-                    className="size-2 shrink-0 rounded-full"
-                    style={{ backgroundColor: CHART_COLORS.warning }}
-                  />
-                  AI Cost (
-                  {totalCost > 0 ? Math.round((totalAi / totalCost) * 100) : 0}
-                  %)
-                </div>
-              </div>
+              <DonutChart
+                config={COST_DONUT_CONFIG}
+                containerHeight={200}
+                data={donutData}
+                dataKey="value"
+                label={formatMicroUsd(totalCost)}
+                nameKey="name"
+                valueFormatter={formatMicroUsd}
+              />
             </CardContent>
           </Card>
         )}
@@ -365,50 +337,15 @@ const UsageDashboard = () => {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div
-                className="h-[200px]"
-                style={{
-                  height: `${Math.max(200, topProjects.length * 36)}px`,
-                }}
-              >
-                <ResponsiveChartContainer
-                  height="100%"
-                  minHeight={1}
-                  minWidth={1}
-                  width="100%"
-                >
-                  <BarChart data={topProjects} layout="vertical">
-                    <CartesianGrid
-                      className="stroke-border"
-                      strokeDasharray="3 3"
-                    />
-                    <XAxis
-                      className="text-muted-foreground"
-                      tick={{ fontSize: 12 }}
-                      type="number"
-                    />
-                    <YAxis
-                      className="text-muted-foreground"
-                      dataKey="name"
-                      tick={{ fontSize: 12 }}
-                      type="category"
-                      width={100}
-                    />
-                    <Tooltip
-                      content={
-                        <ChartTooltip labelMap={PROJECT_RUNS_LABEL_MAP} />
-                      }
-                      cursor={{ fill: "var(--muted)" }}
-                    />
-                    <Bar
-                      dataKey="runs"
-                      fill={CHART_COLORS.active}
-                      isAnimationActive={false}
-                      radius={[0, 4, 4, 0]}
-                    />
-                  </BarChart>
-                </ResponsiveChartContainer>
-              </div>
+              <BarChart
+                config={PROJECT_RUNS_CHART_CONFIG}
+                containerHeight={Math.max(200, topProjects.length * 36)}
+                data={topProjects}
+                dataKey="name"
+                layout="vertical"
+                legend={false}
+                yAxisProps={{ width: 100 }}
+              />
             </CardContent>
           </Card>
         )}
@@ -421,81 +358,71 @@ const UsageDashboard = () => {
           <CardDescription>Organization resource allocation</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <p className="text-muted-foreground text-xs">Projects</p>
-              <p className="font-medium text-foreground tabular-nums">
-                {usage.usage.projects.used} /{" "}
-                {usage.usage.projects.limit === -1
-                  ? "Unlimited"
-                  : usage.usage.projects.limit}
-              </p>
-            </div>
-            <div>
-              <p className="text-muted-foreground text-xs">Members</p>
-              <p className="font-medium text-foreground tabular-nums">
-                {usage.usage.members.used} /{" "}
-                {usage.usage.members.limit === -1
-                  ? "Unlimited"
-                  : usage.usage.members.limit}
-              </p>
-            </div>
-            <div>
-              <p className="text-muted-foreground text-xs">Regions</p>
-              <p className="font-medium text-foreground tabular-nums">
-                {usage.usage.regions_available}
-              </p>
-            </div>
-          </div>
+          <DescriptionList divided orientation="horizontal" size="sm">
+            <DescriptionTerm>Projects</DescriptionTerm>
+            <DescriptionDetails className="text-right tabular-nums">
+              {usage.usage.projects.used} /{" "}
+              {usage.usage.projects.limit === -1
+                ? "Unlimited"
+                : usage.usage.projects.limit}
+            </DescriptionDetails>
+            <DescriptionTerm>Members</DescriptionTerm>
+            <DescriptionDetails className="text-right tabular-nums">
+              {usage.usage.members.used} /{" "}
+              {usage.usage.members.limit === -1
+                ? "Unlimited"
+                : usage.usage.members.limit}
+            </DescriptionDetails>
+            <DescriptionTerm>Regions</DescriptionTerm>
+            <DescriptionDetails className="text-right tabular-nums">
+              {usage.usage.regions_available}
+            </DescriptionDetails>
+          </DescriptionList>
         </CardContent>
       </Card>
 
       {/* Overage Warning */}
       {usage.overage_microusd > 0 && usage.plan !== "free" && (
-        <Card className="border-warning/30">
-          <CardContent className="flex items-center justify-between py-3">
-            <div className="flex flex-col gap-0.5">
-              <span className="font-medium text-sm text-warning">
-                You are in overage
-              </span>
-              <span className="text-muted-foreground text-xs">
-                ${(usage.overage_microusd / 1_000_000).toFixed(2)} over your
-                included $
-                {(usage.included_credit_microusd / 1_000_000).toFixed(2)}{" "}
-                credit. Set a spending limit to control costs.
-              </span>
-            </div>
-            <Button
-              onClick={() => navigate({ to: "/app/billing" })}
-              variant="outline"
-            >
-              Set Limit
-            </Button>
-          </CardContent>
-        </Card>
+        <NoticeBanner
+          action={
+            <NoticeBannerAction>
+              <Button onClick={() => navigate({ to: "/app/billing" })}>
+                Set limit
+              </Button>
+            </NoticeBannerAction>
+          }
+          title="You are in overage"
+          variant="warning"
+        >
+          ${(usage.overage_microusd / 1_000_000).toFixed(2)} over your included
+          ${(usage.included_credit_microusd / 1_000_000).toFixed(2)} credit. Set
+          a spending limit to control costs.
+        </NoticeBanner>
       )}
 
       {/* Alerts */}
       {usage.alerts.length > 0 && (
-        <Card className="border-warning/30">
+        <Card>
           <CardHeader>
             <CardTitle className="text-sm">Alerts</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
               {usage.alerts.map((alert) => (
-                <div
-                  className="flex items-center justify-between rounded bg-warning/5 p-2"
+                <NoticeBanner
+                  action={
+                    <NoticeBannerAction>
+                      <Button onClick={() => navigate({ to: "/app/upgrade" })}>
+                        Upgrade
+                      </Button>
+                    </NoticeBannerAction>
+                  }
                   key={alert.dimension}
+                  size="sm"
+                  variant="warning"
                 >
-                  <span className="text-sm text-warning">{alert.message}</span>
-                  <Button
-                    onClick={() => navigate({ to: "/app/upgrade" })}
-                    variant="outline"
-                  >
-                    Upgrade
-                  </Button>
-                </div>
+                  {alert.message}
+                </NoticeBanner>
               ))}
             </div>
           </CardContent>

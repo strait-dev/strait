@@ -6,8 +6,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
-import { Input } from "@strait/ui/components/input";
 import { Label } from "@strait/ui/components/label";
+import { MetricCard } from "@strait/ui/components/metric-card";
+import {
+  NoticeBanner,
+  NoticeBannerAction,
+} from "@strait/ui/components/notice-banner";
+import { NumberInputWithChevrons } from "@strait/ui/components/number-input-with-chevrons";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
@@ -18,7 +23,6 @@ import {
 } from "@/hooks/billing/use-anomaly-config";
 import { usageForecastQueryOptions } from "@/hooks/billing/use-usage-forecast";
 import { capitalize, formatMicroUsd } from "@/lib/format";
-import UsageStatCard from "./usage-stat-card";
 
 const SEVERITY_VARIANT: Record<
   string,
@@ -105,22 +109,26 @@ const AlertsForecastTab = () => {
           {forecast ? (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                <UsageStatCard
-                  label="Projected Runs"
+                <MetricCard
+                  size="sm"
+                  title="Projected Runs"
                   value={(
                     forecast.projected_monthly_runs ?? 0
                   ).toLocaleString()}
                 />
-                <UsageStatCard
-                  label="Projected Compute"
+                <MetricCard
+                  size="sm"
+                  title="Projected Compute"
                   value={`$${(forecast.projected_monthly_compute_usd ?? 0).toFixed(2)}`}
                 />
-                <UsageStatCard
-                  label="Projected AI Cost"
+                <MetricCard
+                  size="sm"
+                  title="Projected AI Cost"
                   value={`$${(forecast.projected_monthly_ai_cost_usd ?? 0).toFixed(2)}`}
                 />
-                <UsageStatCard
-                  label="Days Until Limit"
+                <MetricCard
+                  size="sm"
+                  title="Days Until Limit"
                   value={
                     forecast.days_until_limit === -1
                       ? "N/A"
@@ -130,23 +138,23 @@ const AlertsForecastTab = () => {
               </div>
 
               {forecast.recommended_plan && (
-                <Card className="border-info/30">
-                  <CardContent className="flex items-center justify-between p-4">
-                    <p className="text-sm">
-                      Based on your projected usage, we recommend the{" "}
-                      <span className="font-medium">
-                        {capitalize(forecast.recommended_plan)}
-                      </span>{" "}
-                      plan.
-                    </p>
-                    <Button
-                      onClick={() => navigate({ to: "/app/upgrade" })}
-                      variant="outline"
-                    >
-                      View Plans
-                    </Button>
-                  </CardContent>
-                </Card>
+                <NoticeBanner
+                  action={
+                    <NoticeBannerAction>
+                      <Button
+                        onClick={() => navigate({ to: "/app/upgrade" })}
+                        variant="info-outline"
+                      >
+                        View Plans
+                      </Button>
+                    </NoticeBannerAction>
+                  }
+                  title="Plan recommendation"
+                  variant="info"
+                >
+                  Based on your projected usage, we recommend the{" "}
+                  {capitalize(forecast.recommended_plan)} plan.
+                </NoticeBanner>
               )}
             </div>
           ) : (
@@ -194,34 +202,31 @@ const ThresholdForm = ({
   warningThreshold: number;
   criticalThreshold: number;
 }) => {
-  const [warning, setWarning] = useState(String(warningThreshold));
-  const [critical, setCritical] = useState(String(criticalThreshold));
+  const [warning, setWarning] = useState(warningThreshold);
+  const [critical, setCritical] = useState(criticalThreshold);
   const mutation = useSetAnomalyConfig();
 
   const handleSave = () => {
-    const w = Number.parseFloat(warning);
-    const c = Number.parseFloat(critical);
-    if (Number.isNaN(w) || Number.isNaN(c) || w <= 1 || c <= w) {
+    if (warning <= 1 || critical <= warning) {
       return;
     }
-    mutation.mutate({ warningThreshold: w, criticalThreshold: c });
+    mutation.mutate({ warningThreshold: warning, criticalThreshold: critical });
   };
 
   const isDirty =
-    warning !== String(warningThreshold) ||
-    critical !== String(criticalThreshold);
+    warning !== warningThreshold || critical !== criticalThreshold;
 
   return (
     <>
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label htmlFor="warning-threshold">Warning Threshold (x)</Label>
-          <Input
+          <NumberInputWithChevrons
             id="warning-threshold"
-            min="1.1"
-            onChange={(e) => setWarning(e.target.value)}
-            step="0.5"
-            type="number"
+            min={1.1}
+            name="warning-threshold"
+            onChange={setWarning}
+            step={0.5}
             value={warning}
           />
           <p className="text-muted-foreground text-xs">
@@ -230,12 +235,12 @@ const ThresholdForm = ({
         </div>
         <div className="space-y-2">
           <Label htmlFor="critical-threshold">Critical Threshold (x)</Label>
-          <Input
+          <NumberInputWithChevrons
             id="critical-threshold"
-            min="2"
-            onChange={(e) => setCritical(e.target.value)}
-            step="1"
-            type="number"
+            min={2}
+            name="critical-threshold"
+            onChange={setCritical}
+            step={1}
             value={critical}
           />
           <p className="text-muted-foreground text-xs">
@@ -246,14 +251,18 @@ const ThresholdForm = ({
       {isDirty && (
         <div className="mt-4 flex justify-end">
           <Button disabled={mutation.isPending} onClick={handleSave}>
-            {mutation.isPending ? "Saving..." : "Save Thresholds"}
+            {mutation.isPending ? "Saving..." : "Save thresholds"}
           </Button>
         </div>
       )}
       {mutation.isSuccess && (
-        <p className="mt-2 text-right text-success text-xs">
-          Thresholds updated successfully.
-        </p>
+        <NoticeBanner
+          className="mt-4"
+          title="Thresholds updated"
+          variant="success"
+        >
+          Anomaly detection thresholds are saved.
+        </NoticeBanner>
       )}
     </>
   );

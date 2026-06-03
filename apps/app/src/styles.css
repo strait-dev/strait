@@ -1,0 +1,4 @@
+@import "@strait/ui/globals.css";
+
+@source "./**/*.{ts,tsx}";
+@source "../node_modules/@strait/ui/dist/**/*.{js,ts,tsx}";

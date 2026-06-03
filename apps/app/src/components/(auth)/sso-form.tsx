@@ -27,7 +27,12 @@ const SsoForm = (_props: SsoFormProps) => (
         />
       </Field>
 
-      <Button className="w-full" disabled={true} type="submit">
+      <Button
+        className="w-full"
+        disabled={true}
+        type="submit"
+        variant="brand-solid"
+      >
         SSO coming soon
       </Button>
 

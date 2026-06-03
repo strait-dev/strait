@@ -1,7 +1,6 @@
 /// <reference types="vite/client" />
 
-import { Toaster } from "@strait/ui/components/toast/index";
-import css from "@strait/ui/globals.css?url";
+import { Toaster } from "@strait/ui/components/toast";
 import { TanStackDevtools } from "@tanstack/react-devtools";
 import type { QueryClient } from "@tanstack/react-query";
 import { ReactQueryDevtoolsPanel } from "@tanstack/react-query-devtools";
@@ -15,6 +14,7 @@ import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { ThemeProvider } from "next-themes";
 import { getSession } from "@/lib/auth-handler";
 import { captureException } from "@/lib/sentry";
+import css from "@/styles.css?url";
 
 export type AuthUser = {
   id: string;
@@ -132,7 +132,7 @@ function RootComponent() {
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
     <html
-      className="dark min-h-dvh bg-background antialiased"
+      className="light min-h-dvh bg-background antialiased"
       lang="en"
       suppressHydrationWarning
     >
@@ -149,11 +149,12 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       >
         <ThemeProvider
           attribute="class"
-          defaultTheme="dark"
+          defaultTheme="light"
           disableTransitionOnChange
           enableColorScheme={false}
           enableSystem={false}
           scriptProps={{ async: true }}
+          storageKey="strait-theme"
           themes={["light", "dark"]}
         >
           {children}

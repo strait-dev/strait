@@ -1,5 +1,5 @@
 import { Shell } from "@strait/ui/components/shell";
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useCallback } from "react";
 import * as z from "zod";
@@ -14,24 +14,14 @@ const subscriptionSearchSchema = z.object({
   t: z.string().optional(),
   checkout_id: z.string().optional(),
   checkout_success: z.coerce.string().optional(),
-  quickstart: z.coerce.boolean().optional(),
 });
 
 export const Route = createFileRoute("/app/")({
   validateSearch: zodValidator(subscriptionSearchSchema),
-  loaderDeps: ({ search }) => ({ quickstart: search.quickstart ?? false }),
-  loader: async ({ context, location, deps }) => {
+  loader: async ({ context }) => {
     const { session } = context as AppRouteContext;
-    const hasProject = !!session.user.activeProjectId;
 
     await context.queryClient.ensureQueryData(subscriptionQueryOptions());
-
-    if (hasProject && !deps.quickstart) {
-      throw redirect({
-        to: "/app/dashboard",
-        search: location.search as Record<string, unknown>,
-      });
-    }
 
     return { session };
   },

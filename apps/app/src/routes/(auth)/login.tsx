@@ -1,5 +1,8 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { Alert, AlertDescription } from "@strait/ui/components/alert";
+import { Button } from "@strait/ui/components/button";
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
+import { createServerFn } from "@tanstack/react-start";
 import { useEffect } from "react";
 import AuthDivider from "@/components/(auth)/auth-divider";
 import AuthLayout from "@/components/(auth)/auth-layout";
@@ -7,7 +10,6 @@ import OneTapInitializer from "@/components/(auth)/one-tap-initializer";
 import PasskeyButton from "@/components/(auth)/passkey-button";
 import SignInForm from "@/components/(auth)/sign-in-form";
 import SocialProviders from "@/components/(auth)/social-providers";
-import { ButtonLink } from "@/components/common/button-link";
 import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";
 import { authSearchSchema } from "@/lib/auth-search-schema";
@@ -29,6 +31,17 @@ function formatOAuthError(error: string): string {
   return OAUTH_ERROR_MESSAGES[error] ?? error;
 }
 
+const getSocialProviderAvailability = createServerFn({ method: "GET" }).handler(
+  () => ({
+    google: !!(
+      process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
+    ),
+    github: !!(
+      process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET
+    ),
+  })
+);
+
 export const Route = createFileRoute("/(auth)/login")({
   head: () => ({ meta: [{ title: "Sign in · Strait" }] }),
   validateSearch: authSearchSchema,
@@ -37,6 +50,7 @@ export const Route = createFileRoute("/(auth)/login")({
       throw redirect({ to: search.redirect ?? "/app" });
     }
   },
+  loader: () => getSocialProviderAvailability(),
   errorComponent: ErrorComponent,
   notFoundComponent: NotFound,
   component: LoginPage,
@@ -44,6 +58,7 @@ export const Route = createFileRoute("/(auth)/login")({
 
 function LoginPage() {
   const search = Route.useSearch();
+  const providers = Route.useLoaderData();
   const { redirect: redirectTo, error: searchError } = search;
 
   useEffect(() => {
@@ -60,12 +75,9 @@ function LoginPage() {
   return (
     <AuthLayout title="Sign in to Strait">
       {searchError ? (
-        <div
-          className="rounded-md bg-destructive/10 p-3 text-destructive text-sm"
-          role="alert"
-        >
-          {formatOAuthError(searchError)}
-        </div>
+        <Alert variant="destructive">
+          <AlertDescription>{formatOAuthError(searchError)}</AlertDescription>
+        </Alert>
       ) : null}
 
       <SignInForm
@@ -74,18 +86,30 @@ function LoginPage() {
         }}
         redirectTo={redirectTo}
       />
-      <AuthDivider />
-      <SocialProviders redirectTo={redirectTo} />
+      {providers.google || providers.github ? (
+        <>
+          <AuthDivider />
+          <SocialProviders providers={providers} redirectTo={redirectTo} />
+        </>
+      ) : null}
       <AuthDivider label="or continue with" />
       <PasskeyButton />
-      <ButtonLink to="/magic-link">
+      <Button
+        className="w-full"
+        render={<Link to="/magic-link" />}
+        variant="secondary-outline"
+      >
         <HugeiconsIcon className="size-4" icon={MailIcon} />
         Sign in with magic link
-      </ButtonLink>
-      <ButtonLink to="/sso">
+      </Button>
+      <Button
+        className="w-full"
+        render={<Link to="/sso" />}
+        variant="secondary-outline"
+      >
         <HugeiconsIcon className="size-4" icon={BuildingIcon} />
         Sign in with SSO
-      </ButtonLink>
+      </Button>
       <p className="text-center text-muted-foreground text-sm">
         Don't have an account?{" "}
         <Link

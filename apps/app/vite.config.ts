@@ -9,7 +9,8 @@ import { defineConfig } from "vite";
 import { ngrok } from "vite-plugin-ngrok";
 import { resolveSentryRelease } from "./scripts/sentry-release";
 
-const enableNgrok = !!process.env.NGROK_AUTHTOKEN && !process.env.DISABLE_NGROK;
+const enableNgrok =
+  process.env.ENABLE_NGROK === "1" && !process.env.DISABLE_NGROK;
 
 /**
  * Build target selector. Defaults to portable Node output. Vercel is an
@@ -122,9 +123,18 @@ export default defineConfig(({ command }) => ({
     ...(enableNgrok ? [ngrok()] : []),
   ],
   optimizeDeps: {
-    include: ["@hugeicons/react"],
-    // Exclude PGlite from optimization - it's a test-only dependency
-    exclude: ["@electric-sql/pglite", "drizzle-orm/pglite"],
+    include: [
+      "@hugeicons/react",
+      "use-sync-external-store/shim",
+      "use-sync-external-store/shim/with-selector",
+    ],
+    exclude: [
+      // Keep the design-system package out of Vite's prebundle cache. Its
+      // many subpath exports can otherwise be invalidated mid-reload in dev.
+      "@strait/ui",
+      "@electric-sql/pglite",
+      "drizzle-orm/pglite",
+    ],
   },
   build: {
     sourcemap: emitSourcemapsForSentry,
@@ -149,6 +159,7 @@ export default defineConfig(({ command }) => ({
   },
   server: {
     port: 5173,
-    host: true,
+    host: "localhost",
+    strictPort: true,
   },
 }));

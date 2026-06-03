@@ -1,3 +1,4 @@
+import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
 import {
   Card,
@@ -5,6 +6,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import {
+  DescriptionDetails,
+  DescriptionList,
+  DescriptionTerm,
+} from "@strait/ui/components/description-list";
+import { Field, FieldLabel } from "@strait/ui/components/field";
+import { NumberInputWithChevrons } from "@strait/ui/components/number-input-with-chevrons";
 import { useCallback, useState } from "react";
 import { formatCurrency } from "@/lib/format";
 
@@ -122,54 +130,47 @@ const MigrationCalculator = () => {
           <CardTitle className="text-sm">Your Current Usage</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div>
-            <label className="text-muted-foreground text-xs" htmlFor="runs">
-              Runs per month
-            </label>
-            <input
-              className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm"
+          <Field>
+            <FieldLabel htmlFor="runs">Runs per month</FieldLabel>
+            <NumberInputWithChevrons
               id="runs"
-              onChange={(e) => setRunsPerMonth(Number(e.target.value))}
-              type="number"
+              min={0}
+              name="runs"
+              onChange={setRunsPerMonth}
               value={runsPerMonth}
             />
-          </div>
-          <div>
-            <label className="text-muted-foreground text-xs" htmlFor="compute">
-              Compute hours/month
-            </label>
-            <input
-              className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm"
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="compute">Compute hours/month</FieldLabel>
+            <NumberInputWithChevrons
               id="compute"
-              onChange={(e) => setComputeHours(Number(e.target.value))}
-              type="number"
+              min={0}
+              name="compute"
+              onChange={setComputeHours}
               value={computeHours}
             />
-          </div>
-          <div>
-            <label className="text-muted-foreground text-xs" htmlFor="members">
-              Team members
-            </label>
-            <input
-              className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm"
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="members">Team members</FieldLabel>
+            <NumberInputWithChevrons
               id="members"
-              onChange={(e) => setTeamMembers(Number(e.target.value))}
-              type="number"
+              min={0}
+              name="members"
+              onChange={setTeamMembers}
               value={teamMembers}
             />
-          </div>
-          <div>
-            <label className="text-muted-foreground text-xs" htmlFor="cost">
-              Current monthly cost ($)
-            </label>
-            <input
-              className="mt-1 w-full rounded border border-border bg-background px-3 py-2 text-sm"
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="cost">Current monthly cost ($)</FieldLabel>
+            <NumberInputWithChevrons
+              formatOptions={{ currency: "USD", style: "currency" }}
               id="cost"
-              onChange={(e) => setCurrentCost(Number(e.target.value))}
-              type="number"
+              min={0}
+              name="cost"
+              onChange={setCurrentCost}
               value={currentCost}
             />
-          </div>
+          </Field>
 
           <Button className="w-full" onClick={handleCalculate}>
             Calculate Savings
@@ -179,7 +180,7 @@ const MigrationCalculator = () => {
 
       {/* Results */}
       {result && (
-        <Card className="border-success/30">
+        <Card variant="outline">
           <CardContent className="space-y-4 p-4">
             <div className="text-center">
               {selectedProvider && (
@@ -189,31 +190,29 @@ const MigrationCalculator = () => {
                   Strait
                 </p>
               )}
-              <div className="mt-2 grid grid-cols-3 gap-4">
-                <div>
-                  <p className="text-muted-foreground text-xs">Current</p>
-                  <p className="font-medium text-foreground text-lg">
-                    {formatCurrency(result.currentCost)}
-                    <span className="text-muted-foreground text-xs">/mo</span>
-                  </p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground text-xs">
-                    Strait ({result.recommendedPlan})
-                  </p>
-                  <p className="font-medium text-foreground text-lg">
-                    {formatCurrency(result.straitCost)}
-                    <span className="text-muted-foreground text-xs">/mo</span>
-                  </p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground text-xs">You save</p>
-                  <p className="font-medium text-lg text-success">
-                    {formatCurrency(Math.max(result.savings, 0))}
-                    <span className="text-muted-foreground text-xs">/mo</span>
-                  </p>
-                </div>
-              </div>
+              <DescriptionList
+                className="mt-3"
+                divided
+                orientation="horizontal"
+                size="sm"
+              >
+                <DescriptionTerm>Current</DescriptionTerm>
+                <DescriptionDetails className="text-right tabular-nums">
+                  {formatCurrency(result.currentCost)}/mo
+                </DescriptionDetails>
+                <DescriptionTerm>
+                  Strait ({result.recommendedPlan})
+                </DescriptionTerm>
+                <DescriptionDetails className="text-right tabular-nums">
+                  {formatCurrency(result.straitCost)}/mo
+                </DescriptionDetails>
+                <DescriptionTerm>You save</DescriptionTerm>
+                <DescriptionDetails className="text-right">
+                  <Badge size="sm" variant="success-light">
+                    {formatCurrency(Math.max(result.savings, 0))}/mo
+                  </Badge>
+                </DescriptionDetails>
+              </DescriptionList>
             </div>
 
             <div className="space-y-1">

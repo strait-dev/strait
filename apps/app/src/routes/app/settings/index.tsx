@@ -51,7 +51,7 @@ function EmailPreferencesCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-sm">Email Notifications</CardTitle>
+        <CardTitle className="text-sm">Email notifications</CardTitle>
         <CardDescription>
           Configure which billing emails you receive for your organization.
         </CardDescription>
@@ -120,7 +120,7 @@ function RouteComponent() {
               </CardHeader>
               <CardContent>
                 <Button render={<Link to="/app/billing" />} variant="outline">
-                  View Billing Details
+                  View billing details
                 </Button>
               </CardContent>
             </Card>

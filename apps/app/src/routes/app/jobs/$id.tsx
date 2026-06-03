@@ -1,5 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Badge } from "@strait/ui/components/badge";
+import { BarList } from "@strait/ui/components/bar-list";
 import { Button } from "@strait/ui/components/button";
 import {
   Card,
@@ -7,7 +8,28 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import type { ChartConfig } from "@strait/ui/components/chart";
+import { ChartEmptyState } from "@strait/ui/components/chart-empty-state";
+import { DonutChart } from "@strait/ui/components/charts";
+import { ConfigRow } from "@strait/ui/components/config-row";
+import {
+  DataGrid,
+  DataGridContainer,
+  DataGridPagination,
+  DataGridScrollArea,
+  DataGridSelectionBar,
+  DataGridTable,
+} from "@strait/ui/components/data-grid";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@strait/ui/components/empty";
+import { MetricCard } from "@strait/ui/components/metric-card";
 import { Shell } from "@strait/ui/components/shell";
+import { StatusBadge } from "@strait/ui/components/status-badge";
 import {
   Tabs,
   TabsContent,
@@ -24,27 +46,12 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { useMemo, useState } from "react";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import CostEstimateCard from "@/components/billing/cost-estimate-card";
-import ConfigRow from "@/components/common/config-row";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
-import TableEmptyState from "@/components/common/table-empty-state";
-import ResponsiveChartContainer from "@/components/dashboard/responsive-chart-container";
 import RunDetailSheet from "@/components/dashboard/run-detail-sheet";
-import StatusBadge from "@/components/dashboard/status-badge";
 import { createRunColumns } from "@/components/tables/runs-columns";
-import { DataTable } from "@/components/ui/data-table/data-table";
-import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { Job, JobRun, PaginatedResponse } from "@/hooks/api/types";
 import {
@@ -70,7 +77,7 @@ import {
   TagIcon,
   XCircleIcon,
 } from "@/lib/icons";
-import { CHART_COLORS } from "@/lib/status-colors";
+import { stopInteractiveRowClick } from "@/lib/table-interactions";
 
 export const Route = createFileRoute("/app/jobs/$id")({
   head: () => ({ meta: [{ title: "Job · Strait" }] }),
@@ -99,32 +106,12 @@ const HEALTH_WINDOWS: { value: HealthWindow; label: string }[] = [
   { value: "30d", label: "30 days" },
 ];
 
-function StatusTooltip({
-  active,
-  payload,
-}: {
-  active?: boolean;
-  payload?: Array<{ payload: { label: string; value: number; fill: string } }>;
-}) {
-  if (!(active && payload?.length)) {
-    return null;
-  }
-  const data = payload[0].payload;
-  return (
-    <div className="rounded-lg border border-border bg-popover px-3 py-2 shadow-md">
-      <div className="flex items-center gap-2">
-        <span
-          className="size-2.5 shrink-0 rounded-full"
-          style={{ backgroundColor: data.fill }}
-        />
-        <span className="text-muted-foreground">{data.label}</span>
-        <span className="ml-auto font-medium text-popover-foreground tabular-nums">
-          {data.value.toLocaleString()}
-        </span>
-      </div>
-    </div>
-  );
-}
+const STATUS_DISTRIBUTION_CONFIG = {
+  Completed: { label: "Completed", color: "chart-1" },
+  Failed: { label: "Failed", color: "chart-2" },
+  "Timed Out": { label: "Timed Out", color: "chart-5" },
+  Canceled: { label: "Canceled", color: "chart-5" },
+} satisfies ChartConfig;
 
 function JobDetailPage() {
   const { id } = Route.useParams();
@@ -196,20 +183,20 @@ function JobDetailPage() {
     }
     return [
       {
-        label: "Completed",
+        name: "Completed",
         value: health.completed_runs,
-        fill: CHART_COLORS.success,
       },
-      { label: "Failed", value: health.failed_runs, fill: CHART_COLORS.error },
       {
-        label: "Timed Out",
+        name: "Failed",
+        value: health.failed_runs,
+      },
+      {
+        name: "Timed Out",
         value: health.timed_out_runs,
-        fill: CHART_COLORS.neutral,
       },
       {
-        label: "Canceled",
+        name: "Canceled",
         value: health.canceled_runs,
-        fill: CHART_COLORS.neutral,
       },
     ].filter((d) => d.value > 0);
   }, [health]);
@@ -297,10 +284,22 @@ function JobDetailPage() {
 
           {/* Stats row */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <StatCard label="Success Rate" value={stats.successRate} />
-            <StatCard label="Total Runs" value={stats.totalRuns} />
-            <StatCard label="Avg Duration" value={stats.avgDuration} />
-            <StatCard label="Failed Runs" value={stats.failedRuns} />
+            <MetricCard
+              size="sm"
+              title="Success Rate"
+              value={stats.successRate}
+            />
+            <MetricCard size="sm" title="Total Runs" value={stats.totalRuns} />
+            <MetricCard
+              size="sm"
+              title="Avg Duration"
+              value={stats.avgDuration}
+            />
+            <MetricCard
+              size="sm"
+              title="Failed Runs"
+              value={stats.failedRuns}
+            />
           </div>
 
           {/* Run Status Distribution */}
@@ -312,43 +311,26 @@ function JobDetailPage() {
             </CardHeader>
             <CardContent>
               {chartData.length > 0 ? (
-                <div className="h-[240px]">
-                  <ResponsiveChartContainer
-                    height="100%"
-                    minHeight={1}
-                    minWidth={1}
-                    width="100%"
-                  >
-                    <BarChart data={chartData}>
-                      <CartesianGrid
-                        className="stroke-border"
-                        strokeDasharray="3 3"
-                      />
-                      <XAxis
-                        className="text-muted-foreground"
-                        dataKey="label"
-                        tick={{ fontSize: 12 }}
-                      />
-                      <YAxis
-                        className="text-muted-foreground"
-                        tick={{ fontSize: 12 }}
-                      />
-                      <Tooltip
-                        content={<StatusTooltip />}
-                        cursor={{ fill: "var(--muted)" }}
-                      />
-                      <Bar dataKey="value" radius={[2, 2, 0, 0]}>
-                        {chartData.map((entry) => (
-                          <Cell fill={entry.fill} key={entry.label} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveChartContainer>
+                <div className="flex items-center gap-6">
+                  <div className="h-[220px] flex-1">
+                    <DonutChart
+                      config={STATUS_DISTRIBUTION_CONFIG}
+                      containerHeight={220}
+                      data={chartData}
+                      dataKey="value"
+                      nameKey="name"
+                      valueFormatter={(value) => value.toLocaleString()}
+                    />
+                  </div>
+                  <BarList
+                    className="w-56"
+                    data={chartData}
+                    sortOrder="none"
+                    valueFormatter={(value) => value.toLocaleString()}
+                  />
                 </div>
               ) : (
-                <p className="py-8 text-center text-muted-foreground text-sm">
-                  No run data available for this time window.
-                </p>
+                <ChartEmptyState message="No run data available for this time window." />
               )}
             </CardContent>
           </Card>
@@ -410,88 +392,77 @@ function JobDetailPage() {
         </TabsContent>
 
         <TabsContent className="mt-6" value="runs">
-          {/* biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noNoninteractiveElementInteractions lint/a11y/noStaticElementInteractions: event delegation on table container */}
-          <div
-            className="[&_tbody_tr]:cursor-pointer"
-            onClick={(e) => {
-              const target = e.target as HTMLElement;
-              if (target.closest("a, button")) {
-                return;
+          <div onClickCapture={stopInteractiveRowClick}>
+            <DataGrid
+              emptyMessage={
+                <Empty className="h-[300px]">
+                  <EmptyHeader>
+                    <EmptyMedia media="icon" size="lg">
+                      <HugeiconsIcon
+                        className="size-6 text-foreground"
+                        icon={ActivityIcon}
+                      />
+                    </EmptyMedia>
+                    <EmptyTitle>No runs found</EmptyTitle>
+                    <EmptyDescription>
+                      No runs yet. Trigger this job to start an execution.
+                    </EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
               }
-              const row = target.closest("tr[data-row-index]");
-              if (!row) {
-                return;
-              }
-              const idx = Number(row.getAttribute("data-row-index"));
-              const run = table.getRowModel().rows[idx]?.original;
-              if (run) {
-                handleRowClick(run);
-              }
-            }}
-          >
-            <DataTable
-              emptyState={
-                <TableEmptyState
-                  description="No runs yet. Trigger this job to start an execution."
-                  hideButton
-                  icon={
-                    <HugeiconsIcon
-                      className="size-6 text-foreground"
-                      icon={ActivityIcon}
-                    />
-                  }
-                  title="No runs found"
-                />
-              }
-              floatingBar={
-                selectedIds.length > 0 ? (
-                  <DataTableFloatingBar
-                    actions={[
-                      ...(selectedIds.length === 1
-                        ? [
-                            {
-                              label: "View",
-                              icon: EyeIcon,
-                              onClick: () => {
-                                const run = table
-                                  .getRowModel()
-                                  .rows.find(
-                                    (r) => r.id === selectedIds[0]
-                                  )?.original;
-                                if (run) {
-                                  handleRowClick(run);
-                                }
-                              },
-                            },
-                          ]
-                        : []),
-                      {
-                        label: "Retry",
-                        icon: RefreshIcon,
-                        onClick: () => {
-                          for (const id of selectedIds) {
-                            retryRun.mutate({ run_id: id });
-                          }
-                        },
-                      },
-                      {
-                        label: "Cancel",
-                        icon: XCircleIcon,
-                        onClick: () => {
-                          for (const id of selectedIds) {
-                            cancelRun.mutate({ run_id: id });
-                          }
-                        },
-                        variant: "destructive" as const,
-                      },
-                    ]}
-                    onClearSelection={() => setRowSelection({})}
-                    selectedCount={selectedIds.length}
-                  />
-                ) : null
-              }
+              onRowClick={handleRowClick}
+              recordCount={jobRuns.length}
               table={table}
-            />
+              tableClassNames={{ base: "min-w-[1200px]" }}
+            >
+              <DataGridContainer>
+                <DataGridScrollArea>
+                  <DataGridTable />
+                </DataGridScrollArea>
+                <DataGridPagination />
+              </DataGridContainer>
+              <DataGridSelectionBar
+                actions={[
+                  ...(selectedIds.length === 1
+                    ? [
+                        {
+                          label: "View",
+                          icon: EyeIcon,
+                          onClick: () => {
+                            const run = table
+                              .getRowModel()
+                              .rows.find(
+                                (r) => r.id === selectedIds[0]
+                              )?.original;
+                            if (run) {
+                              handleRowClick(run);
+                            }
+                          },
+                        },
+                      ]
+                    : []),
+                  {
+                    label: "Retry",
+                    icon: RefreshIcon,
+                    onClick: () => {
+                      for (const id of selectedIds) {
+                        retryRun.mutate({ run_id: id });
+                      }
+                    },
+                  },
+                  {
+                    label: "Cancel",
+                    icon: XCircleIcon,
+                    onClick: () => {
+                      for (const id of selectedIds) {
+                        cancelRun.mutate({ run_id: id });
+                      }
+                    },
+                    variant: "destructive",
+                  },
+                ]}
+              />
+            </DataGrid>
           </div>
 
           <RunDetailSheet
@@ -502,16 +473,5 @@ function JobDetailPage() {
         </TabsContent>
       </Tabs>
     </Shell>
-  );
-}
-
-function StatCard({ label, value }: { label: string; value: string }) {
-  return (
-    <Card>
-      <CardContent className="p-4 text-center">
-        <p className="font-normal text-2xl tabular-nums">{value}</p>
-        <p className="mt-1 text-muted-foreground text-xs">{label}</p>
-      </CardContent>
-    </Card>
   );
 }

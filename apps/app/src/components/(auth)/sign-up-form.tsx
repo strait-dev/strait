@@ -1,16 +1,18 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
+import { EmptyMedia } from "@strait/ui/components/empty";
 import { Field, FieldError, FieldLabel } from "@strait/ui/components/field";
 import { Input } from "@strait/ui/components/input";
 import { PasswordInput } from "@strait/ui/components/password-input";
-import { toast } from "@strait/ui/components/toast/index";
+import { Spinner } from "@strait/ui/components/spinner";
+import { toast } from "@strait/ui/components/toast";
 import { useForm } from "@tanstack/react-form";
 import { useState } from "react";
 import { z } from "zod";
 import { getPostHog } from "@/lib/analytics";
 import { authClient } from "@/lib/auth-client";
 import { formatFieldErrors } from "@/lib/form-errors";
-import { LoadingIcon } from "@/lib/icons";
+import { MailIcon } from "@/lib/icons";
 import { captureSentryAuthError } from "@/lib/sentry";
 import { consumeUtmParams, utmToSetOnce } from "@/lib/utm";
 
@@ -68,22 +70,9 @@ const SignUpForm = ({ redirectTo, disabled }: SignUpFormProps) => {
   if (emailSent) {
     return (
       <div className="flex flex-col items-center gap-3 py-4 text-center">
-        <div className="rounded-lg bg-muted p-3">
-          <svg
-            aria-hidden="true"
-            className="size-6 text-foreground"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            viewBox="0 0 24 24"
-          >
-            <path
-              d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </div>
+        <EmptyMedia media="icon" size="lg" variant="info">
+          <HugeiconsIcon className="size-6" icon={MailIcon} />
+        </EmptyMedia>
         <p className="font-medium text-foreground text-sm">Verify your email</p>
         <p className="text-muted-foreground text-sm">
           We sent a verification link to your email. Click the link to activate
@@ -206,10 +195,9 @@ const SignUpForm = ({ redirectTo, disabled }: SignUpFormProps) => {
           className="w-full"
           disabled={disabled || form.state.isSubmitting}
           type="submit"
+          variant="brand-solid"
         >
-          {form.state.isSubmitting ? (
-            <HugeiconsIcon className="size-4 animate-spin" icon={LoadingIcon} />
-          ) : null}
+          {form.state.isSubmitting ? <Spinner /> : null}
           Create account
         </Button>
       </div>

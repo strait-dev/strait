@@ -9,7 +9,7 @@ Shared TypeScript configuration presets for the Strait monorepo. Provides base `
 
 ## Used by
 
-- `packages/ui` -- extends `react-library.json`
+- `@strait/ui` -- npm-hosted design system package
 - `packages/transactional` -- extends `base.json`
 
 These are `tsconfig` presets only. No runtime code is exported.
