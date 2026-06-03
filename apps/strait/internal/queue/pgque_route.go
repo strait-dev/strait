@@ -37,6 +37,17 @@ func pgQueWorkerRouteKey(projectID, queueName, environmentID string) string {
 	}, ":")
 }
 
+func pgQueWorkerRoutePrefix(routeKey string) string {
+	if !strings.HasPrefix(routeKey, "worker:") {
+		return ""
+	}
+	lastColon := strings.LastIndex(routeKey, ":")
+	if lastColon < len("worker:") {
+		return ""
+	}
+	return routeKey[:lastColon+1]
+}
+
 func normalizePgQueWorkerQueueRefs(refs []domain.WorkerQueueRef) []domain.WorkerQueueRef {
 	if len(refs) == 0 {
 		return nil
@@ -145,25 +156,64 @@ func (q *PgQueQueue) workerRouteKeys(ctx context.Context, refs []domain.WorkerQu
 			continue
 		}
 		prefix := pgQueWorkerRouteKey(ref.ProjectID, queueName, "")
-		var err error
-		routes, err = q.appendKnownWorkerRoutes(ctx, prefix, seen, routes)
+		knownRoutes, err := q.workerRoutesForPrefix(ctx, prefix)
 		if err != nil {
 			return nil, err
 		}
-		if _, ok := seen[prefix]; !ok {
-			seen[prefix] = struct{}{}
-			routes = append(routes, prefix)
+		for _, key := range knownRoutes {
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			routes = append(routes, key)
 		}
 	}
 	return routes, nil
 }
 
-func (q *PgQueQueue) appendKnownWorkerRoutes(
-	ctx context.Context,
-	prefix string,
-	seen map[string]struct{},
-	routes []string,
-) ([]string, error) {
+func (q *PgQueQueue) workerRoutesForPrefix(ctx context.Context, prefix string) ([]string, error) {
+	if cached := q.cachedWorkerRoutes(prefix); cached != nil {
+		return cached, nil
+	}
+
+	routes, err := q.loadWorkerRoutesForPrefix(ctx, prefix)
+	if err != nil {
+		return nil, err
+	}
+	if !containsRoute(routes, prefix) {
+		routes = append(routes, prefix)
+	}
+	q.cacheWorkerRoutes(prefix, routes)
+	return routes, nil
+}
+
+func (q *PgQueQueue) cachedWorkerRoutes(prefix string) []string {
+	q.routeMu.Lock()
+	defer q.routeMu.Unlock()
+	routes := q.routeCache[prefix]
+	if routes == nil {
+		return nil
+	}
+	return append([]string{}, routes...)
+}
+
+func (q *PgQueQueue) cacheWorkerRoutes(prefix string, routes []string) {
+	q.routeMu.Lock()
+	defer q.routeMu.Unlock()
+	q.routeCache[prefix] = append([]string{}, routes...)
+}
+
+func (q *PgQueQueue) invalidateWorkerRouteCache(routeKey string) {
+	prefix := pgQueWorkerRoutePrefix(routeKey)
+	if prefix == "" {
+		return
+	}
+	q.routeMu.Lock()
+	defer q.routeMu.Unlock()
+	delete(q.routeCache, prefix)
+}
+
+func (q *PgQueQueue) loadWorkerRoutesForPrefix(ctx context.Context, prefix string) ([]string, error) {
 	rows, err := q.db.Query(ctx, `
 		SELECT route_key
 		FROM strait_pgque_routes
@@ -174,19 +224,25 @@ func (q *PgQueQueue) appendKnownWorkerRoutes(
 	}
 	defer rows.Close()
 
+	routes := []string{}
 	for rows.Next() {
 		var key string
 		if err := rows.Scan(&key); err != nil {
 			return nil, fmt.Errorf("pgque worker route scan: %w", err)
 		}
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
 		routes = append(routes, key)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("pgque worker route rows: %w", err)
 	}
 	return routes, nil
+}
+
+func containsRoute(routes []string, route string) bool {
+	for _, candidate := range routes {
+		if candidate == route {
+			return true
+		}
+	}
+	return false
 }

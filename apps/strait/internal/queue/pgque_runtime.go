@@ -103,6 +103,7 @@ func (q *PgQueQueue) ensureRoute(ctx context.Context, db store.DBTX, routeKey, q
 		ON CONFLICT (route_key) DO NOTHING`, routeKey, queueName); err != nil {
 		return fmt.Errorf("pgque route upsert: %w", err)
 	}
+	q.invalidateWorkerRouteCache(routeKey)
 	client := q.pgque(db)
 	if err := client.createQueue(ctx, queueName); err != nil {
 		return err

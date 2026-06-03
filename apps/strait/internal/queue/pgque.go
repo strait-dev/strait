@@ -70,6 +70,7 @@ type PgQueQueue struct {
 	logger      *slog.Logger
 	routeMu     sync.Mutex
 	routeStates map[string]*pgQueRouteState
+	routeCache  map[string][]string
 
 	workerRouteCursor atomic.Uint64
 }
@@ -117,6 +118,7 @@ func NewPgQueQueue(db store.DBTX, runWriter *PostgresRunWriter, cfg PgQueConfig)
 		cfg:         cfg,
 		logger:      logger,
 		routeStates: make(map[string]*pgQueRouteState),
+		routeCache:  make(map[string][]string),
 	}
 }
 
