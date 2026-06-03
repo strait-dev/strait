@@ -42,9 +42,8 @@ func NewDelayedPoller(s PollerStore, logger *slog.Logger, interval time.Duration
 	}
 }
 
-// WithPromoter overrides the store used for delayed-run activation. Queue
-// backends that own ready-event storage can provide an atomic promote+emit path
-// while the legacy store path remains available for old engines.
+// WithPromoter overrides the store used for delayed-run activation. PgQue
+// provides the atomic promote+emit path used by production wiring.
 func (p *DelayedPoller) WithPromoter(promoter PollerStore) *DelayedPoller {
 	if promoter != nil {
 		p.promoter = promoter

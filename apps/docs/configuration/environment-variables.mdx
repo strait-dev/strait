@@ -52,6 +52,7 @@ export SECRET_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 | `WORKER_QUEUE_SIZE` | `0` | Local queue size per worker. `0` means unbounded. |
 | `EXECUTOR_HTTP_TIMEOUT` | `5m` | Max time for HTTP job execution. |
 | `EXECUTION_TRACE_MODE` | `off` | Persist per-run execution trace JSON. Use `off`, `errors`, or `full`. |
+| `MAX_DEQUEUE_BATCH_SIZE` | `50` | Max runs one worker polls from PgQue at once. |
 | `DEFAULT_JOB_TIMEOUT_SECS` | `300` | Default timeout for jobs without an explicit timeout. |
 | `DEFAULT_JOB_MAX_ATTEMPTS` | `3` | Default retry attempts for jobs without an explicit value. |
 
