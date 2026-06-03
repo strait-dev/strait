@@ -62,6 +62,7 @@ var launchEnforcementMatrix = []launchPromiseEvidence{
 	{promise: "Postgres CDC replica identity coverage", status: launchPromiseRuntime, gate: "postgres-init CDC replica identity", test: "TestPostgresCDCInitSetsReplicaIdentityForRequiredConsumerTables"},
 	{promise: "SLA target flag", status: launchPromiseDisplay, gate: "FeatureSLA", test: "TestNonEnterpriseTiers_NoSLA"},
 	{promise: "overage metering to Stripe", status: launchPromiseMetered, gate: "worker recordTerminalRunBilling", test: "TestBillingEnforcement_TerminalFailureRecordsBillableRunCost"},
+	{promise: "roadmap add-ons are not sellable", status: launchPromiseRuntime, gate: "CatalogResolver launch-active add-on filter", test: "TestCatalogResolver_RoadmapAddonLookupKeysUnmapped"},
 	{promise: "SSO roadmap", status: launchPromiseRoadmap, roadmapGate: FeatureSSO},
 	{promise: "SCIM roadmap", status: launchPromiseRoadmap, roadmapGate: FeatureSCIM},
 	{promise: "IP allowlisting roadmap", status: launchPromiseRoadmap, roadmapGate: FeatureIPAllowlisting},

@@ -63,8 +63,6 @@ func TestCatalogResolver_AddonForLookupKey(t *testing.T) {
 	}{
 		{"strait_addon_concurrency_100", AddonConcurrency100},
 		{"strait_addon_history_30d", AddonHistory30d},
-		{"strait_addon_compliance_archive", AddonComplianceArchive},
-		{"strait_addon_dedicated_pool", AddonDedicatedWorkers},
 		{"strait_addon_environments_5", AddonEnvironments5},
 	}
 
@@ -72,6 +70,23 @@ func TestCatalogResolver_AddonForLookupKey(t *testing.T) {
 		got, ok := r.AddonForLookupKey(c.key)
 		if !ok || got != c.want {
 			t.Errorf("AddonForLookupKey(%q) = (%q, %v), want (%q, true)", c.key, got, ok, c.want)
+		}
+	}
+}
+
+func TestCatalogResolver_RoadmapAddonLookupKeysUnmapped(t *testing.T) {
+	t.Parallel()
+	r := NewCatalogResolver()
+
+	for _, key := range []string{
+		"strait_addon_compliance_archive",
+		"strait_addon_dedicated_pool",
+	} {
+		if _, ok := r.AddonForLookupKey(key); ok {
+			t.Errorf("roadmap addon lookup key %q must not resolve as sellable addon", key)
+		}
+		if r.IsAddonLookupKey(key) {
+			t.Errorf("roadmap addon lookup key %q must not register as addon", key)
 		}
 	}
 }
@@ -122,10 +137,9 @@ func TestCatalogResolver_Counts(t *testing.T) {
 		t.Errorf("TierCount() = %d, want 9", got)
 	}
 
-	// 5 launch/roadmap addons each have a lookup key. Removed entries have no
-	// lookup key set. Total = 5.
-	if got := r.AddonCount(); got != 5 {
-		t.Errorf("AddonCount() = %d, want 5", got)
+	// Only launch-active addons resolve as sellable Stripe addon lookup keys.
+	if got := r.AddonCount(); got != 3 {
+		t.Errorf("AddonCount() = %d, want 3", got)
 	}
 }
 
