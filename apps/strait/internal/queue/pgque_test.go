@@ -234,12 +234,19 @@ func TestPgQueEnsureRouteConfiguresRotationPeriod(t *testing.T) {
 	var rotationPeriod string
 	db := &mockDBTX{
 		execFn: func(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
-			if strings.Contains(sql, "pgque.set_queue_config") && strings.Contains(sql, "rotation_period") && len(args) == 2 {
+			if strings.Contains(sql, "pgque.set_queue_config") && len(args) == 3 && args[1] == "rotation_period" {
 				arg, ok := args[1].(string)
 				if !ok {
-					t.Fatalf("rotation_period arg type = %T, want string", args[1])
+					t.Fatalf("rotation_period key arg type = %T, want string", args[1])
 				}
-				rotationPeriod = arg
+				if arg != "rotation_period" {
+					t.Fatalf("rotation_period key = %q, want rotation_period", arg)
+				}
+				value, ok := args[2].(string)
+				if !ok {
+					t.Fatalf("rotation_period value arg type = %T, want string", args[2])
+				}
+				rotationPeriod = value
 			}
 			return pgconn.CommandTag{}, nil
 		},
@@ -315,12 +322,16 @@ func TestPgQueSendReadyEventsFetchesGenerationsSetBased(t *testing.T) {
 				t.Fatalf("unexpected Exec SQL = %q", sql)
 			}
 			sendBatchCalls++
-			if len(args) != 2 {
-				t.Fatalf("pgque.send_batch args = %+v, want queue and payloads", args)
+			if len(args) != 3 {
+				t.Fatalf("pgque.send_batch args = %+v, want queue, event type, and payloads", args)
 			}
-			payloads, ok := args[1].([]string)
+			eventType, ok := args[1].(string)
+			if !ok || eventType != pgQueReadyEventType {
+				t.Fatalf("pgque.send_batch event type = %v, want %s", args[1], pgQueReadyEventType)
+			}
+			payloads, ok := args[2].([]string)
 			if !ok {
-				t.Fatalf("pgque.send_batch payload arg type = %T, want []string", args[1])
+				t.Fatalf("pgque.send_batch payload arg type = %T, want []string", args[2])
 			}
 			sentPayloads = append([]string(nil), payloads...)
 			return pgconn.CommandTag{}, nil
@@ -427,12 +438,16 @@ func TestPgQueEnqueueExistingSendsReadyEventForQueuedRun(t *testing.T) {
 		execFn: func(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
 			switch {
 			case strings.Contains(sql, "pgque.send"):
-				if len(args) != 2 {
-					t.Fatalf("pgque.send args = %+v, want queue and payload", args)
+				if len(args) != 3 {
+					t.Fatalf("pgque.send args = %+v, want queue, event type, and payload", args)
 				}
-				payload, ok := args[1].(string)
+				eventType, ok := args[1].(string)
+				if !ok || eventType != pgQueReadyEventType {
+					t.Fatalf("pgque.send event type = %v, want %s", args[1], pgQueReadyEventType)
+				}
+				payload, ok := args[2].(string)
 				if !ok {
-					t.Fatalf("pgque.send payload arg type = %T, want string", args[1])
+					t.Fatalf("pgque.send payload arg type = %T, want string", args[2])
 				}
 				sentPayload = payload
 			case strings.Contains(sql, "pgque.ticker"):

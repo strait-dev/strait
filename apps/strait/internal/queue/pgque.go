@@ -849,13 +849,11 @@ func (q *PgQueQueue) ForceTick(ctx context.Context, routeKey string) error {
 }
 
 func (q *PgQueQueue) forceTickQueue(ctx context.Context, queueName string) error {
-	if _, err := q.db.Exec(ctx, `SELECT pgque.force_tick($1)`, queueName); err != nil {
-		return fmt.Errorf("pgque force tick: %w", err)
+	client := q.pgque(q.db)
+	if err := client.forceNextTick(ctx, queueName); err != nil {
+		return err
 	}
-	if _, err := q.db.Exec(ctx, `SELECT pgque.ticker($1)`, queueName); err != nil {
-		return fmt.Errorf("pgque force tick: %w", err)
-	}
-	return nil
+	return client.ticker(ctx, queueName)
 }
 
 func (q *PgQueQueue) routeState(routeKey string) *pgQueRouteState {
@@ -942,7 +940,7 @@ func (q *PgQueQueue) RunTicker(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			_, _ = q.db.Exec(ctx, `SELECT pgque.ticker()`)
+			_ = q.pgque(q.db).tickerAll(ctx)
 		case <-maintenance.C:
 			_ = q.Maintain(ctx)
 		}
@@ -954,15 +952,13 @@ func (q *PgQueQueue) Maintain(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	client := q.pgque(q.db)
 	for _, queueName := range rotationQueues {
-		if _, err := q.db.Exec(ctx, `SELECT pgque.maint_rotate_tables_step1($1)`, queueName); err != nil {
-			return fmt.Errorf("pgque maintain rotate step1 %s: %w", queueName, err)
+		if err := client.rotateTablesStep1(ctx, queueName); err != nil {
+			return err
 		}
 	}
-	if _, err := q.db.Exec(ctx, `SELECT pgque.maint_rotate_tables_step2()`); err != nil {
-		return fmt.Errorf("pgque maintain rotate step2: %w", err)
-	}
-	return nil
+	return client.rotateTablesStep2(ctx)
 }
 
 func (q *PgQueQueue) rotationQueuesDueForMaintenance(ctx context.Context) ([]string, error) {
@@ -1015,7 +1011,7 @@ func (q *PgQueQueue) sendReadyEvent(ctx context.Context, db store.DBTX, run *dom
 	if err != nil {
 		return fmt.Errorf("pgque ready event: marshal: %w", err)
 	}
-	if _, err := db.Exec(ctx, `SELECT pgque.send($1, 'run.ready', $2::text)`, queueName, string(payload)); err != nil {
+	if err := q.pgque(db).sendText(ctx, queueName, pgQueReadyEventType, string(payload)); err != nil {
 		return fmt.Errorf("pgque send ready event: %w", err)
 	}
 	if err := q.recordReadyEmits(ctx, db, map[string]int64{run.ID: generation}); err != nil {
@@ -1070,7 +1066,7 @@ func (q *PgQueQueue) sendReadyEvents(ctx context.Context, db store.DBTX, runs []
 				return err
 			}
 		}
-		if _, err := db.Exec(ctx, `SELECT pgque.send_batch($1, 'run.ready', $2::text[])`, queueName, payloads); err != nil {
+		if err := q.pgque(db).sendTextBatch(ctx, queueName, pgQueReadyEventType, payloads); err != nil {
 			return fmt.Errorf("pgque send ready event batch: %w", err)
 		}
 	}
@@ -1115,20 +1111,18 @@ func (q *PgQueQueue) ensureRoute(ctx context.Context, db store.DBTX, routeKey, q
 		ON CONFLICT (route_key) DO NOTHING`, routeKey, queueName); err != nil {
 		return fmt.Errorf("pgque route upsert: %w", err)
 	}
-	if _, err := db.Exec(ctx, `SELECT pgque.create_queue($1)`, queueName); err != nil {
-		return fmt.Errorf("pgque create queue %s: %w", queueName, err)
+	client := q.pgque(db)
+	if err := client.createQueue(ctx, queueName); err != nil {
+		return err
 	}
-	if _, err := db.Exec(ctx, `SELECT pgque.set_queue_config($1, 'ticker_max_count', $2)`, queueName, strconv.Itoa(q.cfg.ReceiveWindow)); err != nil {
-		return fmt.Errorf("pgque configure queue %s ticker max count: %w", queueName, err)
+	if err := client.setQueueConfig(ctx, queueName, "ticker_max_count", strconv.Itoa(q.cfg.ReceiveWindow)); err != nil {
+		return err
 	}
 	rotationPeriod := pgQueIntervalSetting(q.cfg.RotationPeriod)
-	if _, err := db.Exec(ctx, `SELECT pgque.set_queue_config($1, 'rotation_period', $2)`, queueName, rotationPeriod); err != nil {
-		return fmt.Errorf("pgque configure queue %s rotation period: %w", queueName, err)
+	if err := client.setQueueConfig(ctx, queueName, "rotation_period", rotationPeriod); err != nil {
+		return err
 	}
-	if _, err := db.Exec(ctx, `SELECT pgque.register_consumer($1, $2)`, queueName, q.cfg.ConsumerName); err != nil {
-		return fmt.Errorf("pgque register consumer %s: %w", queueName, err)
-	}
-	return nil
+	return client.registerConsumer(ctx, queueName)
 }
 
 func (q *PgQueQueue) tickReadyRoute(ctx context.Context, run *domain.JobRun) error {
@@ -1137,7 +1131,7 @@ func (q *PgQueQueue) tickReadyRoute(ctx context.Context, run *domain.JobRun) err
 		return err
 	}
 	queueName := pgQueQueueName(routeKey)
-	if _, err := q.db.Exec(ctx, `SELECT pgque.ticker($1)`, queueName); err != nil {
+	if err := q.pgque(q.db).ticker(ctx, queueName); err != nil {
 		return fmt.Errorf("pgque tick ready route %s: %w", routeKey, err)
 	}
 	return nil
@@ -1158,7 +1152,7 @@ func (q *PgQueQueue) tickReadyRoutes(ctx context.Context, runs []*domain.JobRun)
 		}
 		seen[routeKey] = struct{}{}
 		queueName := pgQueQueueName(routeKey)
-		if _, err := q.db.Exec(ctx, `SELECT pgque.ticker($1)`, queueName); err != nil {
+		if err := q.pgque(q.db).ticker(ctx, queueName); err != nil {
 			return fmt.Errorf("pgque tick ready route %s: %w", routeKey, err)
 		}
 	}
@@ -1327,7 +1321,7 @@ func (q *PgQueQueue) dequeueFromRoute(ctx context.Context, n int, routeKey strin
 		}
 
 		for _, msg := range reservation.Invalid {
-			_ = q.nack(ctx, msg, q.cfg.NackDelay, "invalid ready event")
+			_ = q.pgque(q.db).nack(ctx, msg, q.cfg.NackDelay, "invalid ready event")
 		}
 		if len(reservation.Candidates) == 0 {
 			if err := q.finishBatchReservation(ctx, state, reservation.Batch, nil); err != nil {
@@ -1340,7 +1334,7 @@ func (q *PgQueQueue) dequeueFromRoute(ctx context.Context, n int, routeKey strin
 		returnCandidates := unclaimed
 		if nackUnclaimed {
 			for _, candidate := range unclaimed {
-				_ = q.nack(ctx, candidate.Message, q.cfg.NackDelay, "not claimable")
+				_ = q.pgque(q.db).nack(ctx, candidate.Message, q.cfg.NackDelay, "not claimable")
 			}
 			returnCandidates = nil
 		}
@@ -1439,7 +1433,7 @@ func (q *PgQueQueue) finishBatchReservation(ctx context.Context, state *pgQueRou
 	if !q.closeBatchIfDrained(state, batch, returnCandidates) {
 		return nil
 	}
-	if err := q.ack(ctx, batch.BatchID); err != nil {
+	if err := q.pgque(q.db).ack(ctx, batch.BatchID); err != nil {
 		q.reopenBatchAfterAckFailure(state, batch)
 		return err
 	}
@@ -1490,7 +1484,7 @@ func (q *PgQueQueue) activeBatchLocked(ctx context.Context, state *pgQueRouteSta
 	if batch := state.activeBatch; batch != nil && (len(batch.Messages) > 0 || batch.InFlight > 0 || batch.Closing) {
 		return batch, nil
 	}
-	messages, err := q.receive(ctx, queueName, pgQueReceiveAll)
+	messages, err := q.pgque(q.db).receive(ctx, queueName, pgQueReceiveAll)
 	if err != nil {
 		return nil, err
 	}
@@ -1534,40 +1528,6 @@ func (q *PgQueQueue) claimReservedCandidates(ctx context.Context, candidates []p
 		}
 	}
 	return runs, unclaimed, false, nil
-}
-
-func (q *PgQueQueue) receive(ctx context.Context, queueName string, maxReturn int) ([]pgQueMessage, error) {
-	rows, err := q.db.Query(ctx, `
-		SELECT msg_id, batch_id, type, payload, retry_count, created_at, extra1, extra2, extra3, extra4
-		FROM pgque.receive($1, $2, $3)`, queueName, q.cfg.ConsumerName, maxReturn)
-	if err != nil {
-		return nil, fmt.Errorf("pgque receive: %w", err)
-	}
-	defer rows.Close()
-
-	var messages []pgQueMessage
-	for rows.Next() {
-		var msg pgQueMessage
-		if err := rows.Scan(
-			&msg.ID,
-			&msg.BatchID,
-			&msg.Type,
-			&msg.Payload,
-			&msg.RetryCount,
-			&msg.CreatedAt,
-			&msg.Extra1,
-			&msg.Extra2,
-			&msg.Extra3,
-			&msg.Extra4,
-		); err != nil {
-			return nil, fmt.Errorf("pgque receive scan: %w", err)
-		}
-		messages = append(messages, msg)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("pgque receive rows: %w", err)
-	}
-	return messages, nil
 }
 
 func (q *PgQueQueue) claimRuns(ctx context.Context, ids []string, generations []int64, limit int, filter pgQueClaimFilter) ([]domain.JobRun, error) {
@@ -1847,43 +1807,6 @@ func (q *PgQueQueue) claimRuns(ctx context.Context, ids []string, generations []
 		return nil, fmt.Errorf("pgque claim rows: %w", err)
 	}
 	return runs, nil
-}
-
-func (q *PgQueQueue) ack(ctx context.Context, batchID int64) error {
-	if _, err := q.db.Exec(ctx, `SELECT pgque.ack($1)`, batchID); err != nil {
-		return fmt.Errorf("pgque ack: %w", err)
-	}
-	return nil
-}
-
-func (q *PgQueQueue) nack(ctx context.Context, msg pgQueMessage, delay time.Duration, reason string) error {
-	retryCount := int32(0)
-	if msg.RetryCount != nil {
-		retryCount = *msg.RetryCount
-	}
-	if _, err := q.db.Exec(ctx, `
-		SELECT pgque.nack(
-			$1,
-			ROW($2, $1, $3, $4, $5, $6, $7, $8, $9, $10)::pgque.message,
-			$11::interval,
-			$12
-		)`,
-		msg.BatchID,
-		msg.ID,
-		msg.Type,
-		msg.Payload,
-		retryCount,
-		msg.CreatedAt,
-		msg.Extra1,
-		msg.Extra2,
-		msg.Extra3,
-		msg.Extra4,
-		delay.String(),
-		reason,
-	); err != nil {
-		return fmt.Errorf("pgque nack: %w", err)
-	}
-	return nil
 }
 
 var _ Queue = (*PgQueQueue)(nil)
