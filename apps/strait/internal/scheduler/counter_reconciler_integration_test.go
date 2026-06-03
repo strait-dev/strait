@@ -129,6 +129,37 @@ func TestCounterReconciler_InducedDrift_ActiveCounts(t *testing.T) {
 	}
 }
 
+func TestCounterReconciler_RemovesStaleActiveCountRows(t *testing.T) {
+	tdb, _, _, job := setupReconciler(t)
+	ctx := context.Background()
+
+	if _, err := tdb.Pool.Exec(ctx, `
+		INSERT INTO job_active_counts (job_id, concurrency_key, count, updated_at)
+		VALUES ($1, '', 0, NOW()),
+		       ($2, '', 7, NOW())`,
+		job.ID,
+		uuid.Must(uuid.NewV7()).String(),
+	); err != nil {
+		t.Fatalf("seed stale active counts: %v", err)
+	}
+
+	r := scheduler.NewCounterReconciler(tdb.Pool, scheduler.CounterReconcilerConfig{})
+	if err := r.RunOnceForTest(ctx); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	var rows int
+	if err := tdb.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM job_active_counts`).Scan(&rows); err != nil {
+		t.Fatalf("query active count rows: %v", err)
+	}
+	if rows != 0 {
+		t.Fatalf("active count rows after reconcile = %d, want 0 stale rows removed", rows)
+	}
+	if r.TotalDrift() != 7 {
+		t.Fatalf("active count drift = %d, want 7 from the non-zero stale row", r.TotalDrift())
+	}
+}
+
 func TestCounterReconciler_TransactionalReconcileRepairsActiveAndDLQDrift(t *testing.T) {
 	tdb, _, q, job := setupReconciler(t)
 	ctx := context.Background()
@@ -286,6 +317,39 @@ func TestCounterReconciler_BypassTriggerRepaired(t *testing.T) {
 	_ = tdb.Pool.QueryRow(ctx, `SELECT COALESCE(SUM(count),0) FROM job_active_counts WHERE job_id=$1`, job.ID).Scan(&after)
 	if after != 4 {
 		t.Errorf("counter after reconcile = %d, want 4", after)
+	}
+}
+
+func TestCounterReconciler_RemovesStaleDLQCountRows(t *testing.T) {
+	tdb, _, _, job := setupReconciler(t)
+	ctx := context.Background()
+
+	if _, err := tdb.Pool.Exec(ctx, `
+		INSERT INTO dlq_counts (project_id, job_id, count, updated_at)
+		VALUES ($1, $2, 0, NOW()),
+		       ($3, $4, 11, NOW())`,
+		job.ProjectID,
+		job.ID,
+		"stale-"+uuid.Must(uuid.NewV7()).String(),
+		uuid.Must(uuid.NewV7()).String(),
+	); err != nil {
+		t.Fatalf("seed stale dlq counts: %v", err)
+	}
+
+	r := scheduler.NewCounterReconciler(tdb.Pool, scheduler.CounterReconcilerConfig{})
+	if err := r.RunOnceForTest(ctx); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	var rows int
+	if err := tdb.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM dlq_counts`).Scan(&rows); err != nil {
+		t.Fatalf("query dlq count rows: %v", err)
+	}
+	if rows != 0 {
+		t.Fatalf("dlq count rows after reconcile = %d, want 0 stale rows removed", rows)
+	}
+	if r.TotalDrift() != 11 {
+		t.Fatalf("dlq count drift = %d, want 11 from the non-zero stale row", r.TotalDrift())
 	}
 }
 
